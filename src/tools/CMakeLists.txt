@@ -1,4 +1,5 @@
 add_subdirectory(runSim)
 add_subdirectory(remeshSurface)
 add_subdirectory(tetMesher)
+add_subdirectory(cubicMesher)
 add_subdirectory(animation)

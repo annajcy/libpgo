@@ -5,7 +5,8 @@
 *.slo
 *.lo
 *.o
-*.obj
+
+fv.obj
 
 # Precompiled Headers
 *.gch
@@ -34,10 +35,12 @@
 *.egg-info
 build
 _skbuild
+dist
 
 .DS_Store
 .vscode/*
 .clang-format
+CMakeUserPresets.json
 
 *.pyd
 *.pyc
@@ -46,5 +49,10 @@ __pycache__/
 projects
 build-test
 
-*.obj
-*.png
+examples/box/ret-box
+
+.cache/
+.venv/
+.mypy_cache/
+
+build-pypgo

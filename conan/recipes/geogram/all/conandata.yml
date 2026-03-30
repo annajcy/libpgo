@@ -1,0 +1,9 @@
+sources:
+  "1.9.0":
+    url: "https://github.com/BrunoLevy/geogram/releases/download/v1.9.0/geogram_1.9.0.tar.gz"
+    sha256: "09c0e28ffc08fdab1f2214ee32e49610d64972d052e890d3cc6dcb6bd25b5fc0"
+patches:
+  "1.9.0":
+    - patch_file: "patches/replace_cmakelists.patch"
+      patch_description: "Replace top-level CMakeLists.txt with libpgo-compatible version"
+      patch_type: "conan"

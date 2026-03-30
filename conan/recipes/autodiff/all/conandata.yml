@@ -1,0 +1,4 @@
+sources:
+  "1.1.2":
+    url: "https://github.com/autodiff/autodiff/archive/refs/tags/v1.1.2.tar.gz"
+    sha256: "86f68aabdae1eed214bfbf0ddaa182c78ea1bb99e4df404efb7b94d30e06b744"

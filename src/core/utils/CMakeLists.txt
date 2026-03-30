@@ -1,0 +1,10 @@
+set(PGO_UTILS_TARGETS
+  macros
+  basicAlgorithms
+  fileService
+  pgoLogging
+  basicIO
+  configFileJSON
+  animationIO
+  perlinNoise
+)

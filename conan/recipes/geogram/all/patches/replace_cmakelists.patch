@@ -1,0 +1,48 @@
+--- a/CMakeLists.txt	2024-06-14 13:19:30
++++ b/CMakeLists.txt
+@@ -46,10 +46,11 @@
+    option(GEOGRAM_LIB_ONLY "Libraries only (no example programs/no viewer)" OFF)
+    option(GEOGRAM_WITH_FPG "Predicate generator (Sylvain Pion's FPG)" OFF)
+    option(GEOGRAM_USE_SYSTEM_GLFW3 "Use the version of GLFW3 installed in the system if found" OFF)
+-   option(GEOGRAM_WITH_GARGANTUA "64-bit indices" OFF)
+-   include(cmake/geo_detect_platform.cmake)
++   option(GEOGRAM_WITH_GARGANTUA "64-bit indices" OFF)   
+ endif()
+ 
++include(cmake/geo_detect_platform.cmake)
++
+ include(cmake/geogram.cmake)
+ 
+ # Override default CMAKE_INSTALL_DOCDIR: Use doc instead of CMake default DATAROOTDIR/doc/PROJECT_NAME
+@@ -80,7 +81,11 @@
+   add_definitions(-DGARGANTUA)
+ endif()
+ 
++if (NOT MSVC)
++  add_compile_options("-Wno-template-body")
++endif()
+ 
++
+ ##############################################################################
+ # Get SVN revision info
+ 
+@@ -106,13 +111,13 @@
+ # also an uninstall target that will be inhibited if there is
+ # already one (Geogram's one needs to be first)
+ 
+-configure_file(
+-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
+-    "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
+-    IMMEDIATE @ONLY)
++# configure_file(
++#     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
++#     "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
++#     IMMEDIATE @ONLY)
+ 
+-add_custom_target(uninstall
+-    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
++# add_custom_target(uninstall
++#     COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
+ 
+ ##############################################################################
+ # Geogram/Vorpaline sources

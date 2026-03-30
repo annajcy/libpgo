@@ -1,0 +1,31 @@
+cmake_minimum_required(VERSION 3.15)
+project(CCD_ExactCCD LANGUAGES CXX)
+
+add_library(CCD_ExactCCD STATIC
+  expansion.cpp
+  interval.cpp
+  rootparitycollisiontest.cpp
+  exactCCDWrapper.cpp
+)
+
+target_include_directories(CCD_ExactCCD PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<INSTALL_INTERFACE:include/ExactCCD>
+)
+
+set_target_properties(CCD_ExactCCD PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+)
+
+include(GNUInstallDirs)
+
+install(TARGETS CCD_ExactCCD
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(FILES
+  expansion.h interval.h interval_base.h vec.h
+  rootparitycollisiontest.h exactCCDWrapper.h
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ExactCCD
+)

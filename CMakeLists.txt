@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.28.0 FATAL_ERROR)
 
 project(libpgo LANGUAGES CXX C)
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -9,22 +11,61 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(PGO_USE_MKL "Use MKL" OFF)
-option(PGO_ENABLE_PYTHON "Build python module" OFF)
-option(PGO_ENABLE_FULL "Enable all functionalities" OFF)
+option(PGO_PROFILE_FULL "Enable the full libpgo feature profile" OFF)
+option(PGO_FEATURE_PYTHON "Build Python bindings" OFF)
+option(PGO_FEATURE_ANIMATION_IO "Enable Alembic/Imath animation I/O" OFF)
+option(PGO_FEATURE_GEOMETRY_STACK "Enable Boost/CGAL/Ceres/NLopt/SuiteSparse stack" OFF)
+option(PGO_FEATURE_LIBIGL "Enable libigl integration" OFF)
+option(PGO_FEATURE_GEOGRAM "Enable geogram integration" OFF)
+option(PGO_FEATURE_GMSH "Enable Gmsh support" OFF)
+option(PGO_FEATURE_MKL "Enable MKL support" OFF)
+option(PGO_FEATURE_ARPACK "Enable ARPACK support" OFF)
 option(PGO_BUILD_SUBPROJECTS "Include subprojects" OFF)
-option(PGO_CHECK_CONDA "Check conda" OFF)
+option(PGO_ENABLE_TESTS "Build libpgo tests" ON)
 
-option(PGO_UI "Build pgo ui" OFF)
-option(PGO_RENDER_USE_ASSIMP "Use Assimp" OFF)
 option(PGO_RELEASE_MODE_DEBUG "Enable debug in release mode" OFF)
 option(PGO_IGNORE_DEBUG_FLAG "Ignore debug flag" OFF)
 option(PGO_CREATE_MISSING_FILE "Create file when it is missing" OFF)
 option(PGO_OPT_USE_IPOPT "Use IPOPT" OFF)
 option(PGO_OPT_USE_KNITRO "Use KNITRO" OFF)
 option(PGO_MKL_LINK_DYNAMIC "MKL Link" ON)
-option(PGO_ENABLE_ALEMBIC "Enable Alembic support" OFF)
-option(PGO_ENABLE_GMSH "Enable GMSH support" OFF)
+
+set(_LIBPGO_EFFECTIVE_PROFILE_FULL ${PGO_PROFILE_FULL})
+set(_LIBPGO_EFFECTIVE_PYTHON ${PGO_FEATURE_PYTHON})
+set(_LIBPGO_EFFECTIVE_ANIMATION_IO ${PGO_FEATURE_ANIMATION_IO})
+set(_LIBPGO_EFFECTIVE_GEOMETRY_STACK ${PGO_FEATURE_GEOMETRY_STACK})
+set(_LIBPGO_EFFECTIVE_LIBIGL ${PGO_FEATURE_LIBIGL})
+set(_LIBPGO_EFFECTIVE_GEOGRAM ${PGO_FEATURE_GEOGRAM})
+set(_LIBPGO_EFFECTIVE_GMSH ${PGO_FEATURE_GMSH})
+set(_LIBPGO_EFFECTIVE_MKL ${PGO_FEATURE_MKL})
+set(_LIBPGO_EFFECTIVE_ARPACK ${PGO_FEATURE_ARPACK})
+
+if(_LIBPGO_EFFECTIVE_PROFILE_FULL)
+  set(_LIBPGO_EFFECTIVE_PYTHON ON)
+  set(_LIBPGO_EFFECTIVE_ANIMATION_IO ON)
+  set(_LIBPGO_EFFECTIVE_GEOMETRY_STACK ON)
+  set(_LIBPGO_EFFECTIVE_LIBIGL ON)
+  set(_LIBPGO_EFFECTIVE_GEOGRAM ON)
+  set(_LIBPGO_EFFECTIVE_GMSH ON)
+endif()
+
+if(_LIBPGO_EFFECTIVE_PYTHON OR _LIBPGO_EFFECTIVE_LIBIGL OR _LIBPGO_EFFECTIVE_GEOGRAM)
+  set(_LIBPGO_EFFECTIVE_GEOMETRY_STACK ON)
+endif()
+
+set(PGO_PROFILE_FULL ${_LIBPGO_EFFECTIVE_PROFILE_FULL} CACHE BOOL "Enable the full libpgo feature profile" FORCE)
+set(PGO_FEATURE_PYTHON ${_LIBPGO_EFFECTIVE_PYTHON} CACHE BOOL "Build Python bindings" FORCE)
+set(PGO_FEATURE_ANIMATION_IO ${_LIBPGO_EFFECTIVE_ANIMATION_IO} CACHE BOOL "Enable Alembic/Imath animation I/O" FORCE)
+set(PGO_FEATURE_GEOMETRY_STACK ${_LIBPGO_EFFECTIVE_GEOMETRY_STACK} CACHE BOOL "Enable Boost/CGAL/Ceres/NLopt/SuiteSparse stack" FORCE)
+set(PGO_FEATURE_LIBIGL ${_LIBPGO_EFFECTIVE_LIBIGL} CACHE BOOL "Enable libigl integration" FORCE)
+set(PGO_FEATURE_GEOGRAM ${_LIBPGO_EFFECTIVE_GEOGRAM} CACHE BOOL "Enable geogram integration" FORCE)
+set(PGO_FEATURE_GMSH ${_LIBPGO_EFFECTIVE_GMSH} CACHE BOOL "Enable Gmsh support" FORCE)
+set(PGO_FEATURE_MKL ${_LIBPGO_EFFECTIVE_MKL} CACHE BOOL "Enable MKL support" FORCE)
+set(PGO_FEATURE_ARPACK ${_LIBPGO_EFFECTIVE_ARPACK} CACHE BOOL "Enable ARPACK support" FORCE)
+
+if(PGO_ENABLE_TESTS)
+  enable_testing()
+endif()
 
 # message(STATUS "CMake module path: ${CMAKE_MODULE_PATH}")
 set(PGO_CMAKE_MODULES ${CMAKE_SOURCE_DIR}/CMakeModules)
@@ -169,78 +210,24 @@ endif()
 # ================== third party ==========================
 find_package(Threads REQUIRED)
 
-if(PGO_UI)
-  find_package(Vulkan REQUIRED)
-
-  if(PGO_RENDER_USE_ASSIMP)
-    find_package(assimp REQUIRED)
-  endif()
-
-  include(${PROJECT_SOURCE_DIR}/CMakeModules/third-party/glfw.cmake)
-  include(${PROJECT_SOURCE_DIR}/CMakeModules/third-party/glm.cmake)
+if(DEFINED PGO_CONAN_GENERATORS_DIR AND EXISTS "${PGO_CONAN_GENERATORS_DIR}")
+  list(PREPEND CMAKE_PREFIX_PATH "${PGO_CONAN_GENERATORS_DIR}")
+  list(PREPEND CMAKE_MODULE_PATH "${PGO_CONAN_GENERATORS_DIR}")
 endif()
 
-add_subdirectory(third-party)
+include(${CMAKE_SOURCE_DIR}/cmake/LibpgoConanDeps.cmake)
 
-include(CMakeModules/third-party/tbb.cmake)
-include(CMakeModules/third-party/mkl.cmake)
-
-if(PGO_ENABLE_PYTHON OR PGO_ENABLE_FULL)
-  include(CMakeModules/third-party/suitesparse.cmake)
-endif()
-
-include(CMakeModules/third-party/eigen.cmake)
-include(CMakeModules/third-party/fmt.cmake)
-include(CMakeModules/third-party/nlohmann_json.cmake)
-include(CMakeModules/third-party/spdlog.cmake)
-include(CMakeModules/third-party/autodiff.cmake)
-include(CMakeModules/third-party/argparse.cmake)
-
-if(PGO_ENABLE_PYTHON OR PGO_ENABLE_FULL)
-  include(CMakeModules/third-party/ceres.cmake)
-  include(CMakeModules/third-party/boost.cmake)
-  include(CMakeModules/third-party/cgal.cmake)
-endif()
-
-if(PGO_ENABLE_FULL)
-  include(CMakeModules/third-party/geogram.cmake)
-  include(CMakeModules/third-party/libigl.cmake)
-
+# Older libigl integration used igl_include() to add copyleft modules. The
+# Conan package we consume now exposes the umbrella targets directly and may not
+# define igl_include(), so only call it when that helper exists.
+if(PGO_FEATURE_LIBIGL AND COMMAND igl_include)
   igl_include(copyleft core)
   igl_include(copyleft cgal)
 endif()
 
-if(PGO_ENABLE_FULL OR PGO_ENABLE_PYTHON)
-  if(PGO_ENABLE_ALEMBIC)
-    include(CMakeModules/third-party/alembic.cmake)
-  endif()
-  
-  if(PGO_ENABLE_GMSH)
-    include(CMakeModules/third-party/gmsh.cmake)
-  endif()
-  
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU") 
-    find_program(GFORTRAN_EXECUTABLE gfortran)
-    if(GFORTRAN_EXECUTABLE)
-      message(STATUS "gfortran found: ${GFORTRAN_EXECUTABLE}")
-      include(CMakeModules/third-party/arpackng.cmake)
 
-      execute_process(COMMAND gfortran -print-file-name=libgfortran.so OUTPUT_VARIABLE GFORTRAN_PATH)
-      string(REGEX REPLACE "\n$" "" GFORTRAN_PATH "${GFORTRAN_PATH}")
-      set(GFORTRAN_LIBRARY ${GFORTRAN_PATH} CACHE PATH "gfortran library path")
-      message(STATUS "FOUND gfortran library: ${GFORTRAN_LIBRARY}")
-
-      execute_process(COMMAND gfortran -print-file-name=libquadmath.so OUTPUT_VARIABLE QUADMATH_PATH)
-      string(REGEX REPLACE "\n$" "" QUADMATH_PATH "${QUADMATH_PATH}")
-      set(QUADMATH_LIBRARY ${QUADMATH_PATH} CACHE PATH "quadmath library path")
-      message(STATUS "FOUND quadmath library: ${QUADMATH_LIBRARY}")
-    endif()
-  endif()
-endif()
-
-if(PGO_ENABLE_PYTHON)
-  include(CMakeModules/third-party/pybind11.cmake)
-endif()
+# MKL uses system detection (not managed by Conan).
+include(CMakeModules/third-party/mkl.cmake)
 
 if(TARGET MKL::MKL)
   add_compile_definitions(PGO_HAS_MKL)
@@ -383,22 +370,29 @@ endfunction()
 
 add_subdirectory(src)
 
+if(PGO_ENABLE_TESTS)
+  add_subdirectory(tests)
+endif()
+
 if(PGO_BUILD_SUBPROJECTS)
   add_subdirectory(projects)
 endif()
 
-if(PGO_ENABLE_PYTHON)
+if(PGO_FEATURE_PYTHON)
   include(CMakeModules/python_list.cmake)
 endif()
 
-# generate config file to be used in common build tree
-configure_package_config_file(
-  CMakeModules/pgoConfig.cmake.in
-  ${CMAKE_CURRENT_BINARY_DIR}/pgoConfig.cmake
-  INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/pgo/"
-)
+if(NOT SKBUILD)
+  # generate config file to be used in common build tree
+  include(CMakePackageConfigHelpers)
+  configure_package_config_file(
+    CMakeModules/pgoConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/pgoConfig.cmake
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/pgo/"
+  )
 
-install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/pgoConfig.cmake
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/pgo/"
-)
+  install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/pgoConfig.cmake
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/pgo/"
+  )
+endif()

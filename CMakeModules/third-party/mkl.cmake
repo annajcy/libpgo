@@ -2,7 +2,7 @@ if(TARGET MKL::MKL)
   return()
 endif()
 
-if(PGO_USE_MKL)
+if(PGO_FEATURE_MKL)
   message(STATUS "Searching for MKL")
   
   set(MKL_THREADING tbb_thread)

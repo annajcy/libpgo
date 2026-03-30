@@ -1,103 +1,213 @@
-## libpgo: Library for Physically based Simulation (P), Geometric Shape Modeling (G), and Optimization (O)
+# libpgo: Library for Physically based Simulation (P), Geometric Shape Modeling (G), and Optimization (O)
 
 The library is designed to primarily focus on physically based simulations, geometric shape modeling, and optimization.
 The source code extends [VegaFEM](https://viterbi-web.usc.edu/~jbarbic/vega/) and is designed for academic research purposes.
 
 ---
 
-## Prebuilt (Experimental)
-The wheel package of following platform have been provided for ease of use. They are in `./dist` folder:
-- Ubuntu 24.04: `ubuntu24.04/pypgo-0.0.3-cp312-cp312-linux_x86_64.whl`. Note that you still need to install `gmp` and `mpfr` as suggested in the prerequisites. You may `apt install` them if needed.
-- Ubuntu 22.04: `ubuntu22.04/pypgo-0.0.2-cp311-cp311-linux_x86_64.whl`. Note that you still need to install `gmp` and `mpfr` as suggested in the prerequisites. You may `apt install` them if needed. This version depends on a lower version of the libc, so it should be more compatible.
-- Windows: `win11/pypgo-0.0.3-cp312-cp312-win_amd64.whl`. The package is built under Windows 11, Visual Studio 2022. In theory, it supports other windows platforms.
-- MacOS Arm: `pypgo-0.0.3-cp312-cp312-macosx_26_0_arm64.whl`. The package is built under Tahoe 26.0.1 on Apple M3.
+## Prerequisites
 
-Do `pip install ./dist/your-chosen.whl` to install the package. Note that the packages are experimental.
+1. **Conan 2.x**  
+   libpgo now uses Conan as the only C++ dependency manager for both C++ and Python builds.
+
+   ```bash
+   pip install conan
+   conan profile detect
+   ```
+
+2. **uv**  
+   Python builds and local development use `uv` end-to-end.
+
+   ```bash
+   pip install uv
+   ```
+
+3. **Compilers**
+   - **GCC 11-13** (Ubuntu)
+   - **Apple Clang >= 15** (macOS)
+   - **Visual Studio 2022** (Windows)
+
+The repository ships private Conan recipes under `conan/recipes/`. They are exported
+automatically during configure, so you do not need to run a separate recipe bootstrap step.
 
 ---
 
-## Prerequisites
+## Feature Model
 
-1. CMake >= **3.28**\
-    We use several functionalities that are only supported by 3.28+. 
-    > In most cases, both system's CMake and Conda Environment's CMake have a lower version of CMake unfortunately. In this sitation, please install a new CMake into your system. The latest CMake, either pre-built binaries or source files, can be obtained directly from the [official](https://cmake.org/download/) website. Once installed, hook `cmake` to the newly installed one, either by adding the `your-new-cmake/bin` to the front of the `PATH` or by replacing the existing `cmake` executable with the new one.
+The build now uses feature-oriented options instead of the old mixed entry-point flags.
 
-2. Compilers
-    1. GCC **11, 12, 13** for Ubuntu\
-        We use C++20, so only GCC 11, 12, and 13 are supported. You can get new gcc using `apt` or compile a new one from its source code.
+### CMake Options
 
-    2. Apple Clang (We tested on 15.0.0, Mac OS 14.5)\
-        Earlier versions might work if it supports C++20.
+| Option | Default | Description |
+|---|---|---|
+| `PGO_FEATURE_PYTHON` | `OFF` | Build Python bindings |
+| `PGO_FEATURE_ANIMATION_IO` | `OFF` | Enable Alembic/Imath animation I/O |
+| `PGO_FEATURE_GEOMETRY_STACK` | `OFF` | Enable Boost/CGAL/Ceres/NLopt/SuiteSparse |
+| `PGO_FEATURE_LIBIGL` | `OFF` | Enable libigl integration |
+| `PGO_FEATURE_GEOGRAM` | `OFF` | Enable geogram integration |
+| `PGO_FEATURE_GMSH` | `OFF` | Enable gmsh integration |
+| `PGO_FEATURE_MKL` | `OFF` | Enable MKL support |
+| `PGO_FEATURE_ARPACK` | `OFF` | Enable ARPACK support |
+| `PGO_PROFILE_FULL` | `OFF` | Convenience profile that enables Python, animation I/O, geometry stack, libigl, geogram, and gmsh |
 
-    3. Visual Studio 2022 (We tested on 17.9.5, Windows)\
-        Earlier Visual Studio 2022 versions might work.
+Behavior:
+- `PGO_FEATURE_PYTHON=ON` implies `PGO_FEATURE_GEOMETRY_STACK=ON`
+- `PGO_FEATURE_ANIMATION_IO=ON` is independent from Python
+- `PGO_PROFILE_FULL=ON` expands to the full feature set
 
-3. GMP and MPFR for **Ubuntu** and **Mac OS**\
-    This can be installed on Ubuntu by
+### Conan Options
 
-    ```bash
-        sudo apt install libgmp-dev libmpfr-dev
-    ```
+The Conan options mirror the same feature model:
 
-    Or it can be installed on Mac OS by
+- `with_python`
+- `with_animation_io`
+- `with_geometry_stack`
+- `with_libigl`
+- `with_geogram`
+- `with_gmsh`
+- `with_mkl`
+- `with_arpack`
+- `profile_full`
 
-    ```bash
-        brew install gmp mpfr
-    ```
+---
 
-4. (Optional) Ninja\
-    It can be installed by
+## Compilation (C++ Library)
 
-    ```bash
-        pip install ninja
-    ```
+Use the checked-in CMake presets. They run through the required
+`cmake/BootstrapConan.cmake` workflow, which exports local recipes, runs
+`conan install`, and configures the project in one step.
 
-    for better compilation performance
+### When Conan Runs Again
 
-5. (Optional) numpy\
-    This is used for running tests.
+Conan is checked during the `cmake --preset ...` configure step, not during
+`cmake --build`.
 
-## Compilation
+- The first configure of a preset runs `conan install`.
+- Switching to a preset with a different feature/profile combination runs
+  `conan install` again.
+- Re-running configure for the same preset usually does not rerun Conan.
 
-Going forward, it is assumed that all specified prerequisites are installed and that a Conda environment is used for python.
+`BootstrapConan.cmake` stores a feature signature under the preset's build
+directory and compares it against the current configuration. If the signature
+changes, Conan is rerun automatically.
 
-### Windows & Ubuntu
-
-Install prerequisites:
-
-```bash
-    conda install tbb tbb-devel mkl mkl-devel
-    conda install conda-forge::imath
-```
-
-Install libpgo:
-
-```bash
-    cd libpgo
-    pip install .
-```
-
-If `ninja` has been installed, it will compile source files in parallel. If it is not installed,
-set `CMAKE_BUILD_PARALLEL_LEVEL` to `n`, where `n` is the number of threads for compilation, to control the parallel compilation.
-
-### Mac OS
-
-Install libpgo
+### Core Build
 
 ```bash
-    cd libpgo
-    pip install .
+cd libpgo
+cmake --preset core-release
+cmake --build --preset core-release
+ctest --preset core-release
 ```
 
-## Usage & Test
+### Geometry Stack Build
+
+```bash
+cd libpgo
+cmake --preset geometry-release
+cmake --build --preset geometry-release
+ctest --preset geometry-release
+```
+
+### Animation I/O Without Python
+
+```bash
+cd libpgo
+cmake --preset animation-release
+cmake --build --preset animation-release
+```
+
+### Full Build
+
+```bash
+cd libpgo
+cmake --preset full-release
+cmake --build --preset full-release
+ctest --preset full-release
+```
+
+### MKL Support
+
+MKL is still system-managed rather than Conan-managed. Install it separately via Intel oneAPI or Conda,
+then enable `PGO_FEATURE_MKL=ON` or `-o with_mkl=True`.
+
+On Linux, run `source /opt/intel/oneapi/setvars.sh` before configure.  
+On Windows, run `setvars.bat` from the oneAPI install directory.
+
+---
+
+## Compilation (Python Extension)
+
+Python packaging now uses **`uv` + `pyproject.toml` + `scikit-build-core` + `CMake`**.
+`setup.py` and `pip install .` are no longer part of the supported workflow.
+
+### One-Step Editable Build
+
+```bash
+cd libpgo
+uv sync
+```
+
+This will:
+- create or update `.venv`
+- install Python dependencies
+- configure CMake through `scikit-build-core`
+- run the required Conan dependency bootstrap during configure
+- build the `pypgo` extension in editable mode
+
+If you want a CMake-only Python binding build without animation export, use:
+
+```bash
+cd libpgo
+cmake --preset python-minimal-release
+cmake --build --preset python-minimal-release
+```
+
+### Run Python Code
+
+```bash
+uv run python -c "import pypgo; print(pypgo.__version__)"
+uv run python src/api/python/pypgo/pgo_test_01.py
+```
+
+### Run Python Tests
+
+```bash
+uv run pytest
+```
+
+### Build Distributable Wheels
+
+```bash
+uv build
+```
+
+Artifacts are written to `dist/`.
+
+### Fast C++ to Python Dev Loop
+
+For day-to-day iteration:
+
+```bash
+cd libpgo
+uv sync
+uv run pytest
+```
+
+`scikit-build-core` reuses the build tree under `build/scikit-build`, so repeated `uv sync`
+benefits from Ninja and CMake incremental rebuilds.
+
+---
+
+## Usage
 
 We provide three python scripts to test the installation.
 
 1. `pgo_test_01.py`. It runs a few basic pgo APIs.
 
     ```bash
-        cd examples
-        python ../src/python/pypgo/pgo_test_01.py
+    cd libpgo
+    uv run python src/api/python/pypgo/pgo_test_01.py
     ```
 
     The expected result will look like
@@ -137,12 +247,28 @@ We provide three python scripts to test the installation.
         0.          0.         -1.4866991   0.          0.        -15.853046 ]]
     ```
 
-2. `pgo_run_sim.py`. It reads input config file and run simulation. You can try `box`, `box-with-sphere`, `dragon`, and `dragon-dyn` to test different simulation results. Take the box example for illustration. You can run the box example using the following commands.
-   
+2. `pgo_run_sim.py`. It reads input config file and run simulation. You can try `box`, `box-with-sphere`, `dragon`, and `dragon-dyn` to test different simulation results. Take the box example for illustration.
+
     ```bash
-        cd examples/box
-        python ../../src/python/pypgo/pgo_run_sim.py box.json
+    cd libpgo
+    uv run python src/api/python/pypgo/pgo_run_sim.py examples/box/box.json
     ```
+
+    If you want stricter run-to-run reproducibility, add `"deterministic": true` to the simulation JSON config.
+    The Python API now supports explicit override as well:
+
+    ```python
+    import pypgo
+    pypgo.run_sim_from_config("examples/box/box.json", deterministic=True)
+    ```
+
+    The Python wrapper script also supports this override:
+
+    ```bash
+    uv run python src/api/python/pypgo/pgo_run_sim.py examples/box/box.json --deterministic
+    ```
+
+    The native `runSim` tool also supports `--deterministic`, which forces single-threaded execution.
 
     The expected result will look like the first image. The time integrator is hard-coded as implicit backward Euler (BE). You are free to change it to implicit Newmark (NW) or TR-BDF2 integrator (not support friction).
     <table style="width: 100%; table-layout: fixed; border-collapse: collapse;">
@@ -164,7 +290,7 @@ We provide three python scripts to test the installation.
         </tr>
         <tr>
             <th style="width: 50%;text-align:center;">Rest Dragon</th>
-            <th style="width: 50%;text-align:center;">Deformed Dragon</th>           
+            <th style="width: 50%;text-align:center;">Deformed Dragon</th>
         </tr>
         <tr>
             <td style="text-align: center; border-bottom: 1px solid #ddd;"><img src="./examples/dragon/dragon-rest.png" alt="dragon rest shape"></td>
@@ -175,52 +301,41 @@ We provide three python scripts to test the installation.
 3. `pgo_dump_abc.py`. It creates the abc file that can be used for blender/maya from config file `anim.json`. Essentially, it takes the simulation output `.obj` sequences and output a `.abc` file.
 
     ```bash
-        cd examples/box
-        python ../../src/python/pypgo/pgo_dump_abc.py anim.json ./
+    cd libpgo
+    uv run python src/api/python/pypgo/pgo_dump_abc.py examples/box/anim.json examples/box
     ```
----
 
-## Setup without Python (Optional)
+4. `cubicMesher`. It creates a cubic/hexahedral volumetric mesh (`.veg`) from a uniform grid and can optionally export a triangulated surface mesh (`.obj`).
 
-If you want to use the library with your C++ code or modify the source code, you may build it without python.
+    Build the tool:
 
-### Windows & Ubuntu
-
-To compile the lib with a basic functionality,
-
-```bash
+    ```bash
     cd libpgo
-    mkdir build
-    cd build
-    cmake ..
-```
+    cmake --build build --target cubicMesher
+    ```
 
-To enable all functionalities, Install [MKL](https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html). Then,
+    Check CLI help:
 
-```bash
+    ```bash
     cd libpgo
-    mkdir build
-    cd build
-    cmake .. -DPGO_USE_MKL=1 -DPGO_ENABLE_FULL=1
-```
+    build/bin/cubicMesher uniform --help
+    ```
 
-> On Windows, a few extra steps are need before running the above commands. First, the library should be configured in "x64 Native Tools Command Prompt for VS 2022". In addition, before running the commands above, run `c:\Program Files (x86)\Intel\oneAPI\setvars.bat` to setup the environments for MKL, where `c:\Program Files (x86)\Intel\oneAPI` is the path to the oneAPI installation. Once setup, run above commands.
+    Generate a minimal cubic-box test asset (4×4×4):
 
-> On Ubuntu, a similar procedure is needed. Before configuring the library, run `bash /opt/intel/oneapi/setvars.sh` to setup the MKL environments for the subsequent cmake configuration.
-
-### Mac OS
-
-To have a basic functionality, use CMake to compile it like on Windows & Ubuntu.
-
-To enable all functionalities,
-
-```bash
+    ```bash
     cd libpgo
-    mkdir build
-    cd build
-    cmake .. -DPGO_ENABLE_FULL=1 -DDPGO_ENABLE_ALEMBIC=1 -DPGO_ENABLE_GMSH=1
-```
-The last two flags work only if you have imath and gmesh libs.
+    mkdir -p examples/cubic-box
+    build/bin/cubicMesher uniform \
+      --resolution 4 \
+      --output-mesh examples/cubic-box/cubic-box.veg \
+      --output-surface examples/cubic-box/cubic-box.obj \
+      --E 1e6 --nu 0.45 --density 1000
+    ```
+
+    Quick sanity check:
+    - For resolution `N`, generated volumetric mesh size should be `(N+1)^3` vertices and `N^3` cubic elements.
+    - For `N=2`, it should produce `27` vertices and `8` elements.
 
 ---
 

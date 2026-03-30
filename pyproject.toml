@@ -1,6 +1,49 @@
+[project]
+name = "pypgo"
+version = "0.0.3"
+description = "Python bindings for libpgo"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Bohan Wang", email = "wangbh11@gmail.com" },
+]
+dependencies = [
+    "numpy",
+]
+
 [build-system]
 requires = [
-    "setuptools>=42",
-    "wheel",
+    "cmake>=3.28",
+    "ninja>=1.11",
+    "pybind11>=2.12.0",
+    "scikit-build-core>=0.10.0",
 ]
-build-backend = "setuptools.build_meta"
+build-backend = "scikit_build_core.build"
+
+[dependency-groups]
+dev = [
+    "build>=1.2",
+    "ninja",
+    "pytest>=8.0",
+]
+
+[tool.scikit-build]
+build-dir = "build/scikit-build"
+cmake.args = [
+    "-DCMAKE_TOOLCHAIN_FILE=../../cmake/BootstrapConan.cmake",
+    "-DPGO_ENABLE_TESTS=OFF",
+    "-DPGO_FEATURE_PYTHON=ON",
+    "-DPGO_FEATURE_ANIMATION_IO=ON",
+    "-DPGO_FEATURE_GEOMETRY_STACK=ON",
+    "-DPYPGO_VERSION_INFO=0.0.3",
+]
+cmake.build-type = "Release"
+editable.mode = "redirect"
+ninja.make-fallback = false
+wheel.packages = []
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests/api/python",
+]

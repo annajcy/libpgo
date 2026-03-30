@@ -1,0 +1,3 @@
+# Tetgen sources are vendored in the repository at third-party/tetgen/.
+# This recipe uses export_sources to bundle them.
+# No external download URL is reliably available for tetgen 1.6.0.

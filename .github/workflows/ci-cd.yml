@@ -1,0 +1,263 @@
+name: CI-CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+  UV_PYTHON_VERSION: "3.11"
+
+jobs:
+  cpp:
+    name: C++ (${{ matrix.os }}, ${{ matrix.preset }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            preset: core-release
+          - os: ubuntu-latest
+            preset: geometry-release
+          - os: ubuntu-latest
+            preset: full-release
+          - os: macos-latest
+            preset: core-release
+          - os: windows-latest
+            preset: core-release
+
+    steps:
+      - name: Configure Git long paths (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gitConfig = Join-Path $env:RUNNER_TEMP "gitconfig-longpaths"
+          git config --file $gitConfig core.longpaths true
+          Add-Content -Path $env:GITHUB_ENV -Value "GIT_CONFIG_GLOBAL=$gitConfig"
+
+      - name: Checkout (non-Windows)
+        if: runner.os != 'Windows'
+        uses: actions/checkout@v4
+
+      - name: Checkout (Windows, skip long-path papers assets)
+        if: runner.os == 'Windows'
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*
+            !/papers/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Setup Python (Conan)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Conan
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "conan==2.21.0"
+
+      - name: Detect Conan profile
+        shell: bash
+        run: conan profile detect --force
+
+      - name: Select repository Conan profile
+        shell: bash
+        run: |
+          case "${RUNNER_OS}" in
+            Linux) profile_rel="conan/profiles/linux-gcc-release" ;;
+            macOS) profile_rel="conan/profiles/macos-appleclang-release" ;;
+            Windows) profile_rel="conan/profiles/windows-msvc-release" ;;
+            *) echo "Unsupported runner OS: ${RUNNER_OS}"; exit 1 ;;
+          esac
+
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            profile_path="$(cygpath -m "${PWD}/${profile_rel}")"
+          else
+            profile_path="${PWD}/${profile_rel}"
+          fi
+
+          echo "PGO_CONAN_PROFILE_HOST=${profile_path}" >> "$GITHUB_ENV"
+          echo "PGO_CONAN_PROFILE_BUILD=${profile_path}" >> "$GITHUB_ENV"
+
+      - name: Setup MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev ninja-build libopenblas-dev liblapack-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install gmp mpfr ninja
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ninja -y
+
+      - name: Configure (${{ matrix.preset }})
+        shell: bash
+        run: |
+          cmake --preset "${{ matrix.preset }}" \
+            -DPGO_CONAN_PROFILE_HOST="${PGO_CONAN_PROFILE_HOST}" \
+            -DPGO_CONAN_PROFILE_BUILD="${PGO_CONAN_PROFILE_BUILD}"
+
+      - name: Build (${{ matrix.preset }})
+        shell: bash
+        run: cmake --build --preset "${{ matrix.preset }}"
+
+      - name: Test (${{ matrix.preset }})
+        shell: bash
+        run: ctest --preset "${{ matrix.preset }}"
+
+      - name: Upload CTest logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs-${{ matrix.os }}-${{ matrix.preset }}
+          path: |
+            build/${{ matrix.preset }}/Testing/**
+
+  python:
+    name: Python (uv sync + pytest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Conan
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "conan==2.21.0"
+
+      - name: Detect Conan profile
+        shell: bash
+        run: conan profile detect --force
+
+      - name: Select repository Conan profile
+        shell: bash
+        run: |
+          profile_path="${PWD}/conan/profiles/linux-gcc-release"
+          echo "PGO_CONAN_PROFILE_HOST=${profile_path}" >> "$GITHUB_ENV"
+          echo "PGO_CONAN_PROFILE_BUILD=${profile_path}" >> "$GITHUB_ENV"
+          echo "CMAKE_ARGS=-DPGO_CONAN_PROFILE_HOST=${profile_path} -DPGO_CONAN_PROFILE_BUILD=${profile_path}" >> "$GITHUB_ENV"
+
+      - name: Install dependencies (Linux)
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev ninja-build libopenblas-dev liblapack-dev
+
+      - name: uv sync
+        shell: bash
+        run: uv sync --python "${UV_PYTHON_VERSION}"
+
+      - name: Run pytest
+        shell: bash
+        run: |
+          conan_run_script="$(find build/scikit-build/.conan-build -type f -path '*/generators/conanrun.sh' | head -n1)"
+          if [ -z "${conan_run_script}" ]; then
+            echo "Failed to locate Conan runtime activation script (conanrun.sh)."
+            exit 1
+          fi
+
+          source "${conan_run_script}"
+          uv run pytest
+
+  cd-release:
+    name: CD (uv build dist)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [cpp, python]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Conan
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "conan==2.21.0"
+
+      - name: Detect Conan profile
+        shell: bash
+        run: conan profile detect --force
+
+      - name: Select repository Conan profile
+        shell: bash
+        run: |
+          profile_path="${PWD}/conan/profiles/linux-gcc-release"
+          echo "PGO_CONAN_PROFILE_HOST=${profile_path}" >> "$GITHUB_ENV"
+          echo "PGO_CONAN_PROFILE_BUILD=${profile_path}" >> "$GITHUB_ENV"
+          echo "CMAKE_ARGS=-DPGO_CONAN_PROFILE_HOST=${profile_path} -DPGO_CONAN_PROFILE_BUILD=${profile_path}" >> "$GITHUB_ENV"
+
+      - name: Install dependencies (Linux)
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev libmpfr-dev ninja-build libopenblas-dev liblapack-dev
+
+      - name: Build wheel and sdist
+        shell: bash
+        run: uv build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.ref_name }}
+          path: dist/*
+
+      - name: Publish dist to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: dist/*

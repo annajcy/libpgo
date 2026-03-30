@@ -217,3 +217,14 @@ function(add_mkl_dep tgt)
     target_link_libraries(${tgt} INTERFACE ${mkl_tgt})
   endforeach()
 endfunction()
+
+function(copy_compile_command)
+  if(CMAKE_EXPORT_COMPILE_COMMANDS)
+    add_custom_target(copy_compile_cmds ALL
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/build"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_BINARY_DIR}/compile_commands.json" "${CMAKE_SOURCE_DIR}/build/compile_commands.json"
+      COMMENT "Copying compile_commands.json to build folder"
+      VERBATIM
+    )
+  endif()
+endfunction()

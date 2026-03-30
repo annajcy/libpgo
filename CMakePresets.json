@@ -1,0 +1,222 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base-release",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/BootstrapConan.cmake"
+      }
+    },
+    {
+      "name": "base-debug",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/BootstrapConan.cmake"
+      }
+    },
+    {
+      "name": "core-release",
+      "inherits": "base-release",
+      "binaryDir": "${sourceDir}/build/core-release"
+    },
+    {
+      "name": "geometry-release",
+      "inherits": "base-release",
+      "binaryDir": "${sourceDir}/build/geometry-release",
+      "cacheVariables": {
+        "PGO_FEATURE_GEOMETRY_STACK": "ON"
+      }
+    },
+    {
+      "name": "animation-release",
+      "inherits": "base-release",
+      "binaryDir": "${sourceDir}/build/animation-release",
+      "cacheVariables": {
+        "PGO_FEATURE_ANIMATION_IO": "ON"
+      }
+    },
+    {
+      "name": "python-minimal-release",
+      "inherits": "base-release",
+      "binaryDir": "${sourceDir}/build/python-minimal-release",
+      "cacheVariables": {
+        "PGO_ENABLE_TESTS": "OFF",
+        "PGO_FEATURE_PYTHON": "ON"
+      }
+    },
+    {
+      "name": "python-release",
+      "inherits": "base-release",
+      "binaryDir": "${sourceDir}/build/python-release",
+      "cacheVariables": {
+        "PGO_ENABLE_TESTS": "OFF",
+        "PGO_FEATURE_PYTHON": "ON",
+        "PGO_FEATURE_ANIMATION_IO": "ON",
+        "PGO_FEATURE_GEOMETRY_STACK": "ON"
+      }
+    },
+    {
+      "name": "full-release",
+      "inherits": "base-release",
+      "binaryDir": "${sourceDir}/build/full-release",
+      "cacheVariables": {
+        "PGO_PROFILE_FULL": "ON"
+      }
+    },
+    {
+      "name": "core-debug",
+      "inherits": "base-debug",
+      "binaryDir": "${sourceDir}/build/core-debug"
+    },
+    {
+      "name": "geometry-debug",
+      "inherits": "base-debug",
+      "binaryDir": "${sourceDir}/build/geometry-debug",
+      "cacheVariables": {
+        "PGO_FEATURE_GEOMETRY_STACK": "ON"
+      }
+    },
+    {
+      "name": "animation-debug",
+      "inherits": "base-debug",
+      "binaryDir": "${sourceDir}/build/animation-debug",
+      "cacheVariables": {
+        "PGO_FEATURE_ANIMATION_IO": "ON"
+      }
+    },
+    {
+      "name": "python-minimal-debug",
+      "inherits": "base-debug",
+      "binaryDir": "${sourceDir}/build/python-minimal-debug",
+      "cacheVariables": {
+        "PGO_ENABLE_TESTS": "OFF",
+        "PGO_FEATURE_PYTHON": "ON"
+      }
+    },
+    {
+      "name": "python-debug",
+      "inherits": "base-debug",
+      "binaryDir": "${sourceDir}/build/python-debug",
+      "cacheVariables": {
+        "PGO_ENABLE_TESTS": "OFF",
+        "PGO_FEATURE_PYTHON": "ON",
+        "PGO_FEATURE_ANIMATION_IO": "ON",
+        "PGO_FEATURE_GEOMETRY_STACK": "ON"
+      }
+    },
+    {
+      "name": "full-debug",
+      "inherits": "base-debug",
+      "binaryDir": "${sourceDir}/build/full-debug",
+      "cacheVariables": {
+        "PGO_PROFILE_FULL": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "core-release",
+      "configurePreset": "core-release"
+    },
+    {
+      "name": "geometry-release",
+      "configurePreset": "geometry-release"
+    },
+    {
+      "name": "animation-release",
+      "configurePreset": "animation-release"
+    },
+    {
+      "name": "python-minimal-release",
+      "configurePreset": "python-minimal-release"
+    },
+    {
+      "name": "python-release",
+      "configurePreset": "python-release"
+    },
+    {
+      "name": "full-release",
+      "configurePreset": "full-release"
+    },
+    {
+      "name": "core-debug",
+      "configurePreset": "core-debug"
+    },
+    {
+      "name": "geometry-debug",
+      "configurePreset": "geometry-debug"
+    },
+    {
+      "name": "animation-debug",
+      "configurePreset": "animation-debug"
+    },
+    {
+      "name": "python-minimal-debug",
+      "configurePreset": "python-minimal-debug"
+    },
+    {
+      "name": "python-debug",
+      "configurePreset": "python-debug"
+    },
+    {
+      "name": "full-debug",
+      "configurePreset": "full-debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "core-release",
+      "configurePreset": "core-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "geometry-release",
+      "configurePreset": "geometry-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "full-release",
+      "configurePreset": "full-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "core-debug",
+      "configurePreset": "core-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "geometry-debug",
+      "configurePreset": "geometry-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "full-debug",
+      "configurePreset": "full-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
