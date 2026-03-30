@@ -127,9 +127,26 @@ jobs:
         shell: bash
         run: cmake --build --preset "${{ matrix.preset }}"
 
-      - name: Test (${{ matrix.preset }})
+      - name: Test (${{ matrix.preset }}) (non-Windows)
+        if: runner.os != 'Windows'
         shell: bash
         run: ctest --preset "${{ matrix.preset }}"
+
+      - name: Test (${{ matrix.preset }}) (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $conanRun = Get-ChildItem -Path "build/${{ matrix.preset }}/.conan-build" -Filter "conanrun.bat" -Recurse |
+            Select-Object -First 1
+
+          if (-not $conanRun) {
+            throw "Failed to locate conanrun.bat under build/${{ matrix.preset }}/.conan-build"
+          }
+
+          cmd.exe /d /c "call `"$($conanRun.FullName)`" && ctest --preset `"${{ matrix.preset }}`""
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
       - name: Upload CTest logs on failure
         if: failure()
