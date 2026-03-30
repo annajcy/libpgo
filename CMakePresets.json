@@ -181,6 +181,9 @@
     {
       "name": "core-release",
       "configurePreset": "core-release",
+      "execution": {
+        "timeout": 300
+      },
       "output": {
         "outputOnFailure": true
       }
@@ -188,6 +191,9 @@
     {
       "name": "geometry-release",
       "configurePreset": "geometry-release",
+      "execution": {
+        "timeout": 300
+      },
       "output": {
         "outputOnFailure": true
       }
@@ -195,6 +201,9 @@
     {
       "name": "full-release",
       "configurePreset": "full-release",
+      "execution": {
+        "timeout": 300
+      },
       "output": {
         "outputOnFailure": true
       }
@@ -202,6 +211,9 @@
     {
       "name": "core-debug",
       "configurePreset": "core-debug",
+      "execution": {
+        "timeout": 300
+      },
       "output": {
         "outputOnFailure": true
       }
@@ -209,6 +221,9 @@
     {
       "name": "geometry-debug",
       "configurePreset": "geometry-debug",
+      "execution": {
+        "timeout": 300
+      },
       "output": {
         "outputOnFailure": true
       }
@@ -216,6 +231,9 @@
     {
       "name": "full-debug",
       "configurePreset": "full-debug",
+      "execution": {
+        "timeout": 300
+      },
       "output": {
         "outputOnFailure": true
       }
