@@ -73,6 +73,7 @@ list(APPEND CMAKE_MODULE_PATH "${PGO_CMAKE_MODULES}")
 message(STATUS "CMake Module Path: ${CMAKE_MODULE_PATH}")
 
 include(CompilationUtils)
+copy_compile_command()
 
 find_package(OpenMP)
 
