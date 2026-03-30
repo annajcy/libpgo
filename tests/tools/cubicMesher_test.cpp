@@ -19,6 +19,14 @@ std::string quotePath(const std::filesystem::path& p) {
     return "\"" + p.string() + "\"";
 }
 
+std::string shellExecutable(const std::filesystem::path& p) {
+#ifdef _WIN32
+    return "call " + quotePath(p);
+#else
+    return quotePath(p);
+#endif
+}
+
 std::filesystem::path getCubicMesherBinaryPath() {
     const char* bin = std::getenv("CUBIC_MESHER_BIN");
     if (bin != nullptr && !std::string(bin).empty()) {
@@ -65,7 +73,7 @@ TEST(CubicMesherTool, UniformResolution2ProducesExpectedCubicMesh) {
     const std::filesystem::path outputVeg = tempDir.path() / "r2.veg";
 
     std::ostringstream cmd;
-    cmd << quotePath(cubicMesherBin) << " uniform --resolution 2 --output-mesh " << quotePath(outputVeg)
+    cmd << shellExecutable(cubicMesherBin) << " uniform --resolution 2 --output-mesh " << quotePath(outputVeg)
         << " --E 1e6 --nu 0.45 --density 1000";
 
     ASSERT_EQ(runCommand(cmd.str()), 0);
@@ -86,7 +94,7 @@ TEST(CubicMesherTool, UniformResolution4CanExportSurfaceMesh) {
     const std::filesystem::path outputObj = tempDir.path() / "r4.obj";
 
     std::ostringstream cmd;
-    cmd << quotePath(cubicMesherBin) << " uniform --resolution 4 --output-mesh " << quotePath(outputVeg)
+    cmd << shellExecutable(cubicMesherBin) << " uniform --resolution 4 --output-mesh " << quotePath(outputVeg)
         << " --output-surface " << quotePath(outputObj) << " --E 1e6 --nu 0.45 --density 1000";
 
     ASSERT_EQ(runCommand(cmd.str()), 0);
@@ -112,7 +120,7 @@ TEST(CubicMesherTool, InvalidResolutionFails) {
     const std::filesystem::path outputVeg = tempDir.path() / "invalid.veg";
 
     std::ostringstream cmd;
-    cmd << quotePath(cubicMesherBin) << " uniform --resolution 0 --output-mesh " << quotePath(outputVeg);
+    cmd << shellExecutable(cubicMesherBin) << " uniform --resolution 0 --output-mesh " << quotePath(outputVeg);
 
     EXPECT_NE(runCommand(cmd.str()), 0);
     EXPECT_FALSE(std::filesystem::exists(outputVeg));

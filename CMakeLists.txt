@@ -363,6 +363,22 @@ function(add_libpgo_tools tgt sources deps)
 
   set_property(TARGET ${tgt} PROPERTY FOLDER "tools")
 
+  if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(_LIBPGO_RUNTIME_DLL_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/${tgt}-runtime-dlls-$<CONFIG>.cmake")
+    file(GENERATE
+      OUTPUT "${_LIBPGO_RUNTIME_DLL_MANIFEST}"
+      CONTENT "set(libpgo_target_runtime_dlls \"$<TARGET_RUNTIME_DLLS:${tgt}>\")\n"
+    )
+
+    add_custom_command(TARGET ${tgt} POST_BUILD
+      COMMAND ${CMAKE_COMMAND}
+      -Dlibpgo_runtime_manifest="${_LIBPGO_RUNTIME_DLL_MANIFEST}"
+      -Dlibpgo_runtime_output_dir="$<TARGET_FILE_DIR:${tgt}>"
+      -P "${CMAKE_SOURCE_DIR}/cmake/CopyRuntimeDllsFromManifest.cmake"
+      VERBATIM
+    )
+  endif()
+
   if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND PGO_HAS_APPLOCAL)
     add_custom_command(TARGET ${tgt} POST_BUILD
       COMMAND ${POWERSHELL_PATH} -noprofile -executionpolicy Bypass -file ${APPLOCAL_FILE_PATH}
