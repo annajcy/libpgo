@@ -20,6 +20,22 @@ std::string quotePath(const std::filesystem::path& p) {
     return "\"" + p.string() + "\"";
 }
 
+std::string shellExecutable(const std::filesystem::path& p) {
+#ifdef _WIN32
+    return "call " + quotePath(p);
+#else
+    return quotePath(p);
+#endif
+}
+
+std::string shellChangeDirectory(const std::filesystem::path& p) {
+#ifdef _WIN32
+    return "cd /d " + quotePath(p);
+#else
+    return "cd " + quotePath(p);
+#endif
+}
+
 std::filesystem::path getRunSimBinaryPath() {
     const char* bin = std::getenv("RUN_SIM_BIN");
     if (bin != nullptr && !std::string(bin).empty()) {
@@ -176,7 +192,7 @@ f 3 1 4
     std::filesystem::create_directories(runnerDir);
 
     std::ostringstream cmd;
-    cmd << "cd " << quotePath(runnerDir) << " && " << quotePath(runSimBin) << " "
+    cmd << shellChangeDirectory(runnerDir) << " && " << shellExecutable(runSimBin) << " "
         << quotePath(std::filesystem::path("../project/config/sim.json"));
 
     ASSERT_EQ(runCommand(cmd.str()), 0);
@@ -263,7 +279,7 @@ f 3 1 4
     std::filesystem::create_directories(runnerDir);
 
     std::ostringstream cmd;
-    cmd << "cd " << quotePath(runnerDir) << " && " << quotePath(runSimBin) << " --deterministic "
+    cmd << shellChangeDirectory(runnerDir) << " && " << shellExecutable(runSimBin) << " --deterministic "
         << quotePath(std::filesystem::path("../project/config/sim.json")) << " > " << quotePath(logFile) << " 2>&1";
 
     ASSERT_EQ(runCommand(cmd.str()), 0);
@@ -362,13 +378,13 @@ f 3 1 4
     std::filesystem::create_directories(runnerDir);
 
     std::ostringstream cmdA;
-    cmdA << "cd " << quotePath(runnerDir) << " && " << quotePath(runSimBin) << " "
+    cmdA << shellChangeDirectory(runnerDir) << " && " << shellExecutable(runSimBin) << " "
          << quotePath(std::filesystem::path("../project/config/sim-a.json"));
     ASSERT_EQ(runCommand(cmdA.str()), 0);
     ASSERT_TRUE(std::filesystem::exists(outputDirA));
 
     std::ostringstream cmdB;
-    cmdB << "cd " << quotePath(runnerDir) << " && " << quotePath(runSimBin) << " "
+    cmdB << shellChangeDirectory(runnerDir) << " && " << shellExecutable(runSimBin) << " "
          << quotePath(std::filesystem::path("../project/config/sim-b.json"));
     ASSERT_EQ(runCommand(cmdB.str()), 0);
     ASSERT_TRUE(std::filesystem::exists(outputDirB));

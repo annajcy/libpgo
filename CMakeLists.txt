@@ -22,6 +22,8 @@ option(PGO_FEATURE_MKL "Enable MKL support" OFF)
 option(PGO_FEATURE_ARPACK "Enable ARPACK support" OFF)
 option(PGO_BUILD_SUBPROJECTS "Include subprojects" OFF)
 option(PGO_ENABLE_TESTS "Build libpgo tests" ON)
+set(PGO_MSVC_ARCH "default" CACHE STRING "MSVC target ISA for Windows builds: default, AVX, AVX2, AVX512")
+set_property(CACHE PGO_MSVC_ARCH PROPERTY STRINGS default AVX AVX2 AVX512)
 
 option(PGO_RELEASE_MODE_DEBUG "Enable debug in release mode" OFF)
 option(PGO_IGNORE_DEBUG_FLAG "Ignore debug flag" OFF)
@@ -73,6 +75,7 @@ list(APPEND CMAKE_MODULE_PATH "${PGO_CMAKE_MODULES}")
 message(STATUS "CMake Module Path: ${CMAKE_MODULE_PATH}")
 
 include(CompilationUtils)
+copy_compile_command()
 
 find_package(OpenMP)
 
@@ -83,7 +86,11 @@ endif()
 
 # openmp may cause mkl pardiso error
 include(Find_AVX)
-CHECK_FOR_AVX()
+if(MSVC)
+  message(STATUS "Skipping automatic /arch selection on MSVC; configure PGO_MSVC_ARCH to opt into AVX targets")
+else()
+  CHECK_FOR_AVX()
+endif()
 
 # basic debug flags
 add_library(compilation_flag_for_debug INTERFACE)
@@ -174,15 +181,26 @@ add_flag(compilation_flag MSVC All INTERFACE /bigobj)
 add_flag(compilation_flag MSVC All INTERFACE /Zc:__cplusplus)
 add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/bigobj")
 
-if(HAVE_AVX512_EXTENSIONS)
-  add_flag(compilation_flag MSVC All INTERFACE /arch:AVX512)
-  add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX512")
-elseif(HAVE_AVX2_EXTENSIONS)
-  add_flag(compilation_flag MSVC All INTERFACE /arch:AVX2)
-  add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX2")
-elseif(HAVE_AVX_EXTENSIONS)
-  add_flag(compilation_flag MSVC All INTERFACE /arch:AVX)
-  add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX")
+if(MSVC)
+  string(TOUPPER "${PGO_MSVC_ARCH}" PGO_MSVC_ARCH_UPPER)
+
+  if(PGO_MSVC_ARCH_UPPER STREQUAL "DEFAULT")
+    message(STATUS "MSVC target ISA: default")
+  elseif(PGO_MSVC_ARCH_UPPER STREQUAL "AVX")
+    add_flag(compilation_flag MSVC All INTERFACE /arch:AVX)
+    add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX")
+    message(STATUS "MSVC target ISA: AVX")
+  elseif(PGO_MSVC_ARCH_UPPER STREQUAL "AVX2")
+    add_flag(compilation_flag MSVC All INTERFACE /arch:AVX2)
+    add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX2")
+    message(STATUS "MSVC target ISA: AVX2")
+  elseif(PGO_MSVC_ARCH_UPPER STREQUAL "AVX512")
+    add_flag(compilation_flag MSVC All INTERFACE /arch:AVX512)
+    add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX512")
+    message(STATUS "MSVC target ISA: AVX512")
+  else()
+    message(FATAL_ERROR "Unsupported PGO_MSVC_ARCH='${PGO_MSVC_ARCH}'. Expected one of: default, AVX, AVX2, AVX512")
+  endif()
 endif()
 
 add_flag(compilation_flag MSVC All INTERFACE /MP)
@@ -344,6 +362,22 @@ function(add_libpgo_tools tgt sources deps)
   endif()
 
   set_property(TARGET ${tgt} PROPERTY FOLDER "tools")
+
+  if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(_LIBPGO_RUNTIME_DLL_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/${tgt}-runtime-dlls-$<CONFIG>.cmake")
+    file(GENERATE
+      OUTPUT "${_LIBPGO_RUNTIME_DLL_MANIFEST}"
+      CONTENT "set(libpgo_target_runtime_dlls \"$<TARGET_RUNTIME_DLLS:${tgt}>\")\n"
+    )
+
+    add_custom_command(TARGET ${tgt} POST_BUILD
+      COMMAND ${CMAKE_COMMAND}
+      -Dlibpgo_runtime_manifest="${_LIBPGO_RUNTIME_DLL_MANIFEST}"
+      -Dlibpgo_runtime_output_dir="$<TARGET_FILE_DIR:${tgt}>"
+      -P "${CMAKE_SOURCE_DIR}/cmake/CopyRuntimeDllsFromManifest.cmake"
+      VERBATIM
+    )
+  endif()
 
   if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND PGO_HAS_APPLOCAL)
     add_custom_command(TARGET ${tgt} POST_BUILD
