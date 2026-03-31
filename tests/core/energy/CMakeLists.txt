@@ -11,3 +11,9 @@ target_link_libraries(core_energy_material_binding_test PRIVATE GTest::gtest_mai
 set_property(TARGET core_energy_material_binding_test PROPERTY FOLDER "tests")
 
 add_test(NAME core.energy.material_binding COMMAND core_energy_material_binding_test)
+
+add_libpgo_tools(core_energy_scene_to_simulation_mesh_test scene_to_simulation_mesh_test.cpp "${AVAILABLE_LIBS}")
+target_link_libraries(core_energy_scene_to_simulation_mesh_test PRIVATE GTest::gtest_main)
+set_property(TARGET core_energy_scene_to_simulation_mesh_test PROPERTY FOLDER "tests")
+
+add_test(NAME core.energy.scene_to_simulation_mesh COMMAND core_energy_scene_to_simulation_mesh_test)

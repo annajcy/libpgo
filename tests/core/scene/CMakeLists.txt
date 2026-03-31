@@ -6,8 +6,26 @@ foreach(lib ${PGO_GLOBAL_LIBRARY_TARGETS})
   endif()
 endforeach()
 
-add_libpgo_tools(core_scene_test core_scene_test.cpp "${AVAILABLE_LIBS}")
-target_link_libraries(core_scene_test PRIVATE GTest::gtest_main)
-set_property(TARGET core_scene_test PROPERTY FOLDER "tests")
+set(CORE_SCENE_GEOMETRY_SOURCES
+  geometry_test.cpp
+)
 
-add_test(NAME core.scene.geometry COMMAND core_scene_test)
+set(CORE_SCENE_VOLUMETRIC_MESH_SOURCES
+  volumetricMesh/tet_mesh_test.cpp
+  volumetricMesh/cubic_mesh_test.cpp
+  volumetricMesh/volumetric_mesh_edit_test.cpp
+  volumetricMesh/generate_surface_mesh_test.cpp
+  volumetricMesh/volumetric_mesh_clone_test.cpp
+)
+
+add_libpgo_tools(core_scene_geometry_test "${CORE_SCENE_GEOMETRY_SOURCES}" "${AVAILABLE_LIBS}")
+target_link_libraries(core_scene_geometry_test PRIVATE GTest::gtest_main)
+set_property(TARGET core_scene_geometry_test PROPERTY FOLDER "tests")
+
+add_test(NAME core.scene.geometry COMMAND core_scene_geometry_test)
+
+add_libpgo_tools(core_scene_volumetric_mesh_test "${CORE_SCENE_VOLUMETRIC_MESH_SOURCES}" "${AVAILABLE_LIBS}")
+target_link_libraries(core_scene_volumetric_mesh_test PRIVATE GTest::gtest_main)
+set_property(TARGET core_scene_volumetric_mesh_test PROPERTY FOLDER "tests")
+
+add_test(NAME core.scene.volumetric_mesh COMMAND core_scene_volumetric_mesh_test)
