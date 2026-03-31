@@ -1,5 +1,6 @@
 set(VOLUMETRIC_MESH_H
   cubicMesh.h
+  io/mesh_io_types.h
   internal/material_catalog.h
   internal/mesh_mass_properties.h
   internal/mesh_mutation.h

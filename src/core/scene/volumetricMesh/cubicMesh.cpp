@@ -31,6 +31,7 @@
  *************************************************************************/
 
 #include "cubicMesh.h"
+#include "io/mesh_io_types.h"
 #include "internal/material_catalog.h"
 #include "internal/mesh_mutation.h"
 #include "volumetricMeshIO.h"
@@ -182,19 +183,19 @@ CubicMesh::CubicMesh(const CubicMesh& cubeMesh, std::span<const int> elements, s
 
 CubicMesh::~CubicMesh() {}
 
-void CubicMesh::assignFromData(io::detail::LoadedMeshData data, int verbose) {
-    if (data.elementType != elementType()) {
+void CubicMesh::assignFromData(io::detail::LoadedMeshData data, int) {
+    if (data.element_type != elementType()) {
         printf("Error: mesh is not a cubic mesh.\n");
         throw 11;
     }
-    if (data.numElementVertices != 8) {
-        printf("Error: cubic mesh data has %d vertices per element.\n", data.numElementVertices);
+    if (data.geometry.num_element_vertices() != 8) {
+        printf("Error: cubic mesh data has %d vertices per element.\n", data.geometry.num_element_vertices());
         throw 12;
     }
 
-    geometry_data() =
-        internal::VolumetricMeshData(data.numElementVertices, std::move(data.vertices), std::move(data.elements));
-    reset_material_catalog(std::move(data.materials), std::move(data.sets), std::move(data.regions), verbose);
+    geometry_data() = std::move(data.geometry);
+    material_catalog() = std::move(data.material_catalog);
+    material_catalog().validate_against_num_elements(getNumElements());
 
     if (getNumElements() > 0)
         cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();

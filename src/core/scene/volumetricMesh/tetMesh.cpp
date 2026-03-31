@@ -31,6 +31,7 @@
  *************************************************************************/
 
 #include "tetMesh.h"
+#include "io/mesh_io_types.h"
 #include "volumetricMeshIO.h"
 #include "volumetricMeshParser.h"
 #include "geometryQuery.h"
@@ -153,18 +154,19 @@ TetMesh::TetMesh(const TetMesh& tetMesh, std::span<const int> elements_, std::ma
 
 TetMesh::~TetMesh() {}
 
-void TetMesh::assignFromData(io::detail::LoadedMeshData data, int verbose) {
-    if (data.elementType != elementType()) {
+void TetMesh::assignFromData(io::detail::LoadedMeshData data, int) {
+    if (data.element_type != elementType()) {
         printf("Error: mesh is not a tet mesh.\n");
         throw 11;
     }
-    if (data.numElementVertices != 4) {
-        printf("Error: tet mesh data has %d vertices per element.\n", data.numElementVertices);
+    if (data.geometry.num_element_vertices() != 4) {
+        printf("Error: tet mesh data has %d vertices per element.\n", data.geometry.num_element_vertices());
         throw 12;
     }
 
-    geometry_data() = internal::VolumetricMeshData(data.numElementVertices, std::move(data.vertices), std::move(data.elements));
-    reset_material_catalog(std::move(data.materials), std::move(data.sets), std::move(data.regions), verbose);
+    geometry_data() = std::move(data.geometry);
+    material_catalog() = std::move(data.material_catalog);
+    material_catalog().validate_against_num_elements(getNumElements());
 }
 
 void TetMesh::computeElementMassMatrix(int el, double* massMatrix) const {

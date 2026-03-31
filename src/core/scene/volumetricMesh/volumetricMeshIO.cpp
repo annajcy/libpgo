@@ -1,5 +1,7 @@
 #include "volumetricMeshIO.h"
 
+#include "io/mesh_io_types.h"
+
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "volumetricMeshENuMaterial.h"
@@ -28,6 +30,16 @@ using MaterialType = VolumetricMesh::Material::MaterialType;
 using ENuMaterial = VolumetricMesh::ENuMaterial;
 using OrthotropicMaterial = VolumetricMesh::OrthotropicMaterial;
 using MooneyRivlinMaterial = VolumetricMesh::MooneyRivlinMaterial;
+
+struct RawLoadedMeshData {
+    ElementType element_type = VolumetricMesh::ElementType::Invalid;
+    int num_element_vertices = 0;
+    std::vector<Vec3d> vertices;
+    std::vector<int> elements;
+    std::vector<std::unique_ptr<VolumetricMesh::Material>> materials;
+    std::vector<VolumetricMesh::Set> sets;
+    std::vector<VolumetricMesh::Region> regions;
+};
 
 constexpr ElementType INVALID = ElementType::Invalid;
 constexpr ElementType TET = ElementType::Tet;
@@ -99,16 +111,24 @@ int vertices_per_element(ElementType elementType) {
 }
 
 void validate_loaded_data(const LoadedMeshData& data, ElementType expectedType) {
-    if (data.elementType != expectedType) {
+    if (data.element_type != expectedType) {
         printf("Error: mesh is not a %s mesh.\n", expectedType == TET ? "tet" : "cubic");
         throw 11;
     }
     const int expectedVerticesPerElement = vertices_per_element(expectedType);
-    if (data.numElementVertices != expectedVerticesPerElement) {
-        printf("Error: mesh data has %d vertices per element; expected %d.\n", data.numElementVertices,
+    if (data.geometry.num_element_vertices() != expectedVerticesPerElement) {
+        printf("Error: mesh data has %d vertices per element; expected %d.\n", data.geometry.num_element_vertices(),
                expectedVerticesPerElement);
         throw 12;
     }
+    data.material_catalog.validate_against_num_elements(data.geometry.num_elements());
+}
+
+LoadedMeshData make_loaded_mesh_data(RawLoadedMeshData raw, int verbose) {
+    internal::VolumetricMeshData geometry(raw.num_element_vertices, std::move(raw.vertices), std::move(raw.elements));
+    internal::MaterialCatalog material_catalog(std::move(raw.materials), std::move(raw.sets), std::move(raw.regions),
+                                               geometry.num_elements(), verbose);
+    return LoadedMeshData{raw.element_type, std::move(geometry), std::move(material_catalog)};
 }
 
 LoadedMeshData load_ascii_data(const std::filesystem::path& filename, int verbose) {
@@ -121,7 +141,7 @@ LoadedMeshData load_ascii_data(const std::filesystem::path& filename, int verbos
         throw 1;
     }
 
-    LoadedMeshData data;
+    RawLoadedMeshData data;
 
     int countNumVertices = 0;
     int countNumElements = 0;
@@ -156,15 +176,15 @@ LoadedMeshData load_ascii_data(const std::filesystem::path& filename, int verbos
                 parser.removeWhitespace(lineBuffer);
 
                 if (strncmp(lineBuffer, "TET", 3) == 0)
-                    data.elementType = TET;
+                data.element_type = TET;
                 else if (strncmp(lineBuffer, "CUBIC", 5) == 0)
-                    data.elementType = CUBIC;
+                    data.element_type = CUBIC;
                 else {
                     printf("Error: unknown mesh type %s in file %s\n", lineBuffer, filenameCStr);
                     throw 3;
                 }
 
-                data.numElementVertices = vertices_per_element(data.elementType);
+                data.num_element_vertices = vertices_per_element(data.element_type);
             } else {
                 printf("Error: file %s is not in the .veg format. Offending line:\n%s\n", filenameCStr, lineBuffer);
                 throw 4;
@@ -172,7 +192,7 @@ LoadedMeshData load_ascii_data(const std::filesystem::path& filename, int verbos
 
             if (parser.getNextLine(lineBuffer, 0, 0) != nullptr) {
                 sscanf(lineBuffer, "%d", &numElements);
-                data.elements.resize(static_cast<size_t>(numElements * data.numElementVertices));
+                data.elements.resize(static_cast<size_t>(numElements * data.num_element_vertices));
             } else {
                 printf("Error: file %s is not in the .veg format. Offending line:\n%s\n", filenameCStr, lineBuffer);
                 throw 5;
@@ -238,7 +258,7 @@ LoadedMeshData load_ascii_data(const std::filesystem::path& filename, int verbos
             while ((*ch != ' ') && (*ch != ',') && (*ch != '\t') && (*ch != 0))
                 ch++;
 
-            for (int i = 0; i < data.numElementVertices; i++) {
+            for (int i = 0; i < data.num_element_vertices; i++) {
                 while ((*ch == ' ') || (*ch == ',') || (*ch == '\t'))
                     ch++;
 
@@ -249,7 +269,7 @@ LoadedMeshData load_ascii_data(const std::filesystem::path& filename, int verbos
 
                 int vertexIndex = -1;
                 sscanf(ch, "%d", &vertexIndex);
-                data.elements[static_cast<size_t>(countNumElements * data.numElementVertices + i)] =
+                data.elements[static_cast<size_t>(countNumElements * data.num_element_vertices + i)] =
                     vertexIndex - oneIndexedVertices;
 
                 while ((*ch != ' ') && (*ch != ',') && (*ch != '\t') && (*ch != 0))
@@ -529,19 +549,19 @@ LoadedMeshData load_ascii_data(const std::filesystem::path& filename, int verbos
     }
 
     parser.close();
-    return data;
+    return make_loaded_mesh_data(std::move(data), verbose);
 }
 
 LoadedMeshData load_binary_data(std::istream& binaryInputStream) {
-    LoadedMeshData data;
+    RawLoadedMeshData data;
 
     double version = 0.0;
     read_exact(binaryInputStream, &version, 1);
 
     int eleType = 0;
     read_exact(binaryInputStream, &eleType, 1);
-    data.elementType = element_type_from_int(eleType);
-    if (data.elementType == INVALID) {
+    data.element_type = element_type_from_int(eleType);
+    if (data.element_type == INVALID) {
         printf("Error in io::load_binary_data: unknown mesh type %d in file stream\n", eleType);
         throw 2;
     }
@@ -563,13 +583,13 @@ LoadedMeshData load_binary_data(std::istream& binaryInputStream) {
         throw 4;
     }
 
-    read_exact(binaryInputStream, &data.numElementVertices, 1);
-    if (data.numElementVertices <= 0) {
+    read_exact(binaryInputStream, &data.num_element_vertices, 1);
+    if (data.num_element_vertices <= 0) {
         printf("Error in io::load_binary_data: incorrect number of vertices per element.\n");
         throw 5;
     }
 
-    data.elements.resize(static_cast<size_t>(numElements * data.numElementVertices));
+    data.elements.resize(static_cast<size_t>(numElements * data.num_element_vertices));
     read_exact(binaryInputStream, data.elements.data(), data.elements.size());
 
     int numMaterials = 0;
@@ -690,7 +710,7 @@ LoadedMeshData load_binary_data(std::istream& binaryInputStream) {
         data.regions[static_cast<size_t>(regionIndex)] = VolumetricMesh::Region(materialIndex, setIndex);
     }
 
-    return data;
+    return make_loaded_mesh_data(std::move(data), 0);
 }
 
 LoadedMeshData load_binary_data(std::span<const std::byte> binaryInputStream) {

@@ -33,15 +33,7 @@ VolumetricMesh::FileFormatType detect_file_format(const std::filesystem::path& f
 
 namespace detail {
 
-struct LoadedMeshData {
-    VolumetricMesh::ElementType elementType = VolumetricMesh::ElementType::Invalid;
-    int numElementVertices = 0;
-    std::vector<Vec3d> vertices;
-    std::vector<int> elements;
-    std::vector<std::unique_ptr<VolumetricMesh::Material>> materials;
-    std::vector<VolumetricMesh::Set> sets;
-    std::vector<VolumetricMesh::Region> regions;
-};
+struct LoadedMeshData;
 
 VolumetricMesh::FileFormatType detect_file_format_by_ext(const std::filesystem::path& filename);
 LoadedMeshData load_tet_data(const std::filesystem::path& filename, VolumetricMesh::FileFormatType fileFormat,
