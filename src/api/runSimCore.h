@@ -22,8 +22,15 @@ struct ExternalObject {
     std::array<double, 3> movement{};
 };
 
+enum class VolumetricMeshInputType {
+    TET,
+    CUBIC,
+};
+
 struct RunSimConfig {
     std::string                                            tetMeshFilename;
+    std::string                                            cubicMeshFilename;
+    VolumetricMeshInputType                                volumetricMeshType = VolumetricMeshInputType::TET;
     std::string                                            surfaceMeshFilename;
     std::vector<FixedVertexAttachment>                     fixedVertices;
     std::vector<ExternalObject>                            externalObjects;

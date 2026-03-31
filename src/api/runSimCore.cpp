@@ -50,7 +50,49 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
 
     RunSimConfig config;
 
-    config.tetMeshFilename     = configPathResolver.resolve(jconfig.getString("tet-mesh", 1));
+    const bool hasTetMesh   = jconfig.exist("tet-mesh");
+    const bool hasCubicMesh = jconfig.exist("cubic-mesh");
+
+    if (hasTetMesh && hasCubicMesh) {
+        throw std::runtime_error("Config cannot contain both 'tet-mesh' and 'cubic-mesh'.");
+    }
+
+    if (!hasTetMesh && !hasCubicMesh) {
+        throw std::runtime_error("Config must contain either 'tet-mesh' or 'cubic-mesh'.");
+    }
+
+    if (hasTetMesh) {
+        config.tetMeshFilename = configPathResolver.resolve(jconfig.getString("tet-mesh", 1));
+        if (config.tetMeshFilename.empty()) {
+            throw std::runtime_error("'tet-mesh' resolves to an empty path.");
+        }
+        config.volumetricMeshType = VolumetricMeshInputType::TET;
+    } else {
+        config.cubicMeshFilename = configPathResolver.resolve(jconfig.getString("cubic-mesh", 1));
+        if (config.cubicMeshFilename.empty()) {
+            throw std::runtime_error("'cubic-mesh' resolves to an empty path.");
+        }
+        config.volumetricMeshType = VolumetricMeshInputType::CUBIC;
+    }
+
+    if (jconfig.exist("volumetric-mesh-type")) {
+        const std::string hintedType = jconfig.getString("volumetric-mesh-type", 1);
+
+        VolumetricMeshInputType hintedMeshType;
+        if (hintedType == "tet") {
+            hintedMeshType = VolumetricMeshInputType::TET;
+        } else if (hintedType == "cubic") {
+            hintedMeshType = VolumetricMeshInputType::CUBIC;
+        } else {
+            throw std::runtime_error(fmt::format("Unsupported volumetric-mesh-type: {}", hintedType));
+        }
+
+        if (hintedMeshType != config.volumetricMeshType) {
+            throw std::runtime_error(
+                "volumetric-mesh-type does not match the volumetric mesh filename key.");
+        }
+    }
+
     config.surfaceMeshFilename = configPathResolver.resolve(jconfig.getString("surface-mesh", 1));
     auto readVec3              = [&](const char* key) {
         auto values = jconfig.getValue<std::array<double, 3>>(key, 1);
@@ -110,6 +152,12 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
 int runSimFromConfig(const RunSimConfig& config) {
     using namespace EigenSupport;
     namespace ES = EigenSupport;
+
+    if (config.volumetricMeshType == VolumetricMeshInputType::CUBIC) {
+        throw std::runtime_error(
+            "Cubic mesh input parsing is enabled, but runSim cubic execution is not wired yet. "
+            "Please complete Lecture 03 Step 6.");
+    }
 
     const int defaultParallelism =
         std::min(64, static_cast<int>(std::max(1u, std::thread::hardware_concurrency())));
