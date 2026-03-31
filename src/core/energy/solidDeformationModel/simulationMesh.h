@@ -5,6 +5,10 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
+#include "EigenSupport.h"
+
+#include <vector>
+
 namespace pgo {
 
 namespace Mesh {
@@ -189,13 +193,19 @@ enum class SimulationMeshType {
     SHELL,
 };
 
-class SimulationMeshImpl;
+struct ElementMaterialBinding {
+    int primary = -1;
+    int secondary = -1;
+};
 
 class SimulationMesh {
 public:
     SimulationMesh(int numVertices, const double* vertexPositions, int numElements, int numElementVertices,
-                   const int* elementVertexIndices, const int* elementMaterialIndices, int numMaterials,
+                   const int* elementVertexIndices, const ElementMaterialBinding* elementMaterialBindings,
+                   int numMaterials,
                    const SimulationMeshMaterial* const* materials, SimulationMeshType meshType);
+    SimulationMesh(const SimulationMesh&) = delete;
+    SimulationMesh& operator=(const SimulationMesh&) = delete;
     ~SimulationMesh();
 
     int        getNumElements() const;
@@ -213,14 +223,21 @@ public:
 
     SimulationMeshType getElementType() const;
 
-    const SimulationMeshMaterial* getElementMaterial(int ele, int j) const;
-    SimulationMeshMaterial*       getElementMaterial(int ele, int j);
-    int                           getElementNumMaterials(int ele) const;
+    const SimulationMeshMaterial* getPrimaryMaterial(int ele) const;
+    SimulationMeshMaterial*       getPrimaryMaterial(int ele);
+    const SimulationMeshMaterial* getSecondaryMaterial(int ele) const;
+    SimulationMeshMaterial*       getSecondaryMaterial(int ele);
+    bool                          hasSecondaryMaterial(int ele) const;
 
     void setMaterial(int matID, const SimulationMeshMaterial* mat);
 
 protected:
-    SimulationMeshImpl* impl;
+    std::vector<EigenSupport::V3d>                 vertices_;
+    std::vector<std::vector<int>>                  elements_;
+    std::vector<std::vector<EigenSupport::V2d>>    elementUVs_;
+    std::vector<ElementMaterialBinding>            elementMaterialBindings_;
+    std::vector<SimulationMeshMaterial*>           materials_;
+    SimulationMeshType                             meshType_;
 };
 
 SimulationMesh* loadTetMesh(const VolumetricMeshes::TetMesh* tetmesh);
