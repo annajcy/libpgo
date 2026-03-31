@@ -52,6 +52,14 @@
 #include "meshLinearAlgebra.h"
 #include "boundingBox.h"
 
+#include <array>
+#include <cstddef>
+#include <cstdio>
+#include <filesystem>
+#include <istream>
+#include <memory>
+#include <ostream>
+#include <span>
 #include <vector>
 #include <set>
 #include <string>
@@ -61,12 +69,27 @@ namespace pgo {
 namespace VolumetricMeshes {
 class VolumetricMesh {
 public:
+    using CubicElement = std::array<int, 8>;
+
+    struct Geometry {
+        std::vector<Vec3d> vertices;
+        std::vector<int>   elements;
+        int                numElementVertices = 0;
+    };
+
+    struct InterpolationWeights {
+        int                numElementVertices = 0;
+        std::vector<int>   indices;
+        std::vector<double> weights;
+        std::vector<int>   elements;
+    };
+
     // Note: This class is abstract and cannot be instantiated; use the constructors in the derived classes (TetMesh,
     // CubicMesh) to initialize a mesh, or use the load routine in volumetricMeshLoader.h
 
     // copy constructor, destructor
     VolumetricMesh(const VolumetricMesh& volumetricMesh);
-    virtual VolumetricMesh* clone() = 0;
+    virtual std::unique_ptr<VolumetricMesh> clone() const = 0;
     virtual ~VolumetricMesh();
 
     // nested classes to store sets, materials and regions (declared later)
@@ -76,45 +99,37 @@ public:
 
     // === save/export ===
 
-    virtual int save(const char* filename) const;
+    virtual int save(const std::filesystem::path& filename) const;
     // saves the mesh to a text file (.veg file format, see examples and documentation)
-    virtual int saveToAscii(const char* filename) const = 0;
+    virtual int saveToAscii(const std::filesystem::path& filename) const = 0;
 
     // saves the mesh to binary format
     // returns: 0 = success, non-zero = error
     // output: if bytesWritten is non-nullptr, it will contain the number of bytes written
-    virtual int saveToBinary(const char* filename, unsigned int* bytesWritten = nullptr) const = 0;
-    // if countBytesOnly = true, user can pass nullptr to binaryOutputStream
-    virtual int saveToBinary(FILE* binaryOutputStream, unsigned int* bytesWritten = nullptr,
-                             bool countBytesOnly = false) const = 0;
+    virtual int saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten = nullptr) const = 0;
 
     // exports the mesh geometry to an .ele and .node file (TetGen and Stellar format)
     // if includeRegions=1, an extra column is added to output, identifying the region of each element
-    int exportToEle(const char* baseFilename, int includeRegions = 0) const;
-    // exports the mesh geometry to memory arrays (say, for external usage)
-    // all parameters are output parameters
-    // vertices and elements will be allocated inside the routine
-    void exportMeshGeometry(int* numVertices, double** vertices, int* numElements = nullptr,
-                            int* numElementVertices = nullptr, int** elements = nullptr) const;
+    int exportToEle(const std::filesystem::path& baseFilename, bool includeRegions = false) const;
+    Geometry exportMeshGeometry() const;
     void exportMeshGeometry(std::vector<Vec3d>& vertices, std::vector<int>& elements) const;
     void exportMeshGeometry(std::vector<Vec3d>& vertices) const;
 
     // === vertex and element access ===
 
-    typedef enum { INVALID, TET, CUBIC } elementType;
+    enum class ElementType { Invalid, Tet, Cubic };
     // ASCII is the text .veg format, BINARY is the binary .vegb format,
     // BY_EXT: determine the file format based on filename
-    typedef enum { ASCII, BINARY, NUM_FILE_FORMATS, BY_EXT } fileFormatType;
+    enum class FileFormatType { Ascii, Binary, ByExtension, Unknown };
     // opens the file and returns the element type of the volumetric mesh in the file;
-    // returns INVALID if no type information found or failed to parse the file
-    static elementType  getElementType(const char* filename, fileFormatType fileFormat = BY_EXT);
-    virtual elementType getElementType() const = 0;  // calls the derived class to identify itself
-    // advanced usage: returns the element type of the volumetric mesh from a BINARY stream (does not modify fin)
-    // static elementType getElementType(FILE * fin);
-    static elementType getElementType(void* fin, int memoryLoad = 0);
+    // returns ElementType::Invalid if no type information found or failed to parse the file
+    static ElementType getElementType(const std::filesystem::path& filename,
+                                      FileFormatType               fileFormat = FileFormatType::ByExtension);
+    static ElementType getElementType(std::span<const std::byte> binaryData);
+    virtual ElementType getElementType() const = 0;  // calls the derived class to identify itself
     // get the fileFormatType from filename extension
-    // return NUM_FILE_FORMATS if no extension matched
-    static fileFormatType getFileFormatTypeByExt(const char* filename);
+    // return FileFormatType::Unknown if no extension matched
+    static FileFormatType getFileFormatTypeByExt(const std::filesystem::path& filename);
 
     inline int          getNumVertices() const { return numVertices; }
     inline Vec3d&       getVertex(int i) { return vertices[i]; }
@@ -128,12 +143,14 @@ public:
     inline void getElementVertices(int element, Vec3d* elementVertices)
         const;  // elementVertices should have size of getNumElementVertices() pre-allocated
     inline int getVertexIndex(int element, int vertex) const { return elements[element * numElementVertices + vertex]; }
-    inline const int*   getVertexIndices(int element) const { return &elements[element * numElementVertices]; }
-    inline Vec3d*       getVertices() { return vertices.data(); }  // advanced, internal datastructure
-    inline const Vec3d* getVertices() const { return vertices.data(); }
+    inline std::span<const int> getVertexIndices(int element) const {
+        return std::span<const int>(elements.data() + element * numElementVertices, numElementVertices);
+    }
+    inline std::span<Vec3d> getVertices() { return vertices; }
+    inline std::span<const Vec3d> getVertices() const { return vertices; }
     inline int          getNumElements() const { return numElements; }
     inline int          getNumElementVertices() const { return numElementVertices; }
-    inline const int*   getElements() const { return elements.data(); }  // advanced, internal datastructure
+    inline std::span<const int> getElements() const { return elements; }
     void                renumberVertices(
                        const std::vector<int>& permutation);  // renumbers the vertices using the provided permutation
     inline void setVertex(int i, const Vec3d& pos) { vertices[i] = pos; }  // set the position of a vertex
@@ -141,8 +158,8 @@ public:
     // === materials access ===
 
     inline int             getNumMaterials() const { return numMaterials; }
-    inline const Material* getMaterial(int i) const { return materials[i]; }
-    inline const Material* getElementMaterial(int el) const { return materials[elementMaterial[el]]; }
+    inline const Material* getMaterial(int i) const { return materials[i].get(); }
+    inline const Material* getElementMaterial(int el) const { return materials[elementMaterial[el]].get(); }
 
     inline int        getNumSets() const { return numSets; }
     inline const Set& getSet(int i) const { return sets[i]; }
@@ -151,8 +168,8 @@ public:
     inline const Region& getRegion(int i) const { return regions[i]; }
 
     // === materials editing ===
-    inline Material* getMaterial(int i) { return materials[i]; }
-    inline Material* getElementMaterial(int el) { return materials[elementMaterial[el]]; }
+    inline Material* getMaterial(int i) { return materials[i].get(); }
+    inline Material* getElementMaterial(int el) { return materials[elementMaterial[el]].get(); }
     void             setMaterial(int i, const Material* material);  // sets i-th material to "material"
     void             setSingleMaterial(double E, double nu,
                                        double density);  // erases all materials and creates a single material for the entire mesh
@@ -248,10 +265,10 @@ public:
     // will be returned in the integer list "*elements" (allocated inside the function) If elements is not nullptr, the
     // function will allocate an integer array *elements, and return the closest element to each target location in it.
     // Returns the number of target points that do not lie inside any element.
-    int generateInterpolationWeights(
-        int numTargetLocations, const double* targetLocations, int** vertices, double** weights,
-        double zeroThreshold = -1.0, int** elements = nullptr,
-        int verbose = 0) const;  // this is the "master" function, meant to be typically used to create the interpolant
+    InterpolationWeights generateInterpolationWeights(std::span<const Vec3d> targetLocations,
+                                                      double                  zeroThreshold = -1.0,
+                                                      bool                    useClosestElementIfOutside = true,
+                                                      int                     verbose = 0) const;
 
     // interpolates 3D vector data from vertices of the
     //   volumetric mesh (data given in u) to the target locations (output goes into uTarget)
@@ -262,31 +279,27 @@ public:
     // the following are less often used, more specialized functions
     // same as "generateInterpolationWeights" above, except here the elements that contain the target locations are
     // assumed to be known, and are provided in array "elements"; returns 0 on success, 1 otherwise
-    int generateInterpolationWeights(int numTargetLocations, const double* targetLocations, int* elements,
-                                     int** vertices, double** weights, double zeroThreshold = -1.0,
-                                     int verbose = 0) const;
+    InterpolationWeights generateInterpolationWeights(std::span<const Vec3d> targetLocations,
+                                                      std::span<const int>   elements,
+                                                      double                 zeroThreshold = -1.0,
+                                                      int                    verbose = 0) const;
     // generates the integer list "elements" of the elements that contain given vertices; if closestElementIfOutside==1,
     // then vertices outside of the mesh are assigned the closest element, otherwise -1 is assigned; returns the number
     // of target locations outside of the mesh
-    int        generateContainingElements(int numTargetLocations, const double* targetLocations, int** elements,
-                                          int useClosestElementIfOutside = 1, int verbose = 0) const;
+    std::vector<int> generateContainingElements(std::span<const Vec3d> targetLocations,
+                                                bool                    useClosestElementIfOutside = true,
+                                                int                     verbose = 0) const;
     static int getNumInterpolationElementVertices(
-        const char* filename);  // looks at the first line of "filename" to determine "numElementVertices" for this
+        const std::filesystem::path& filename);  // looks at the first line of "filename" to determine
                                 // particular interpolant
-    static int loadInterpolationWeights(const char* filename, int numTargetLocations, int numElementVertices,
-                                        int** vertices, double** weights);  // ASCII version; returns 0 on success
-    static int saveInterpolationWeights(const char* filename, int numTargetLocations, int numElementVertices,
-                                        const int* vertices, const double* weights);  // ASCII version
-    static int loadInterpolationWeightsBinary(const char* filename, int* numTargetLocations, int* numElementVertices,
-                                              int**    vertices,
-                                              double** weights);  // binary version; returns 0 on success
-    static int saveInterpolationWeightsBinary(const char* filename, int numTargetLocations, int numElementVertices,
-                                              const int* vertices, const double* weights);  // binary version
-    static int loadInterpolationWeightsBinary(FILE* fin, int* numTargetLocations, int* numElementVertices,
-                                              int**    vertices,
-                                              double** weights);  // binary version; returns 0 on success
-    static int saveInterpolationWeightsBinary(FILE* fout, int numTargetLocations, int numElementVertices,
-                                              const int* vertices, const double* weights);  // binary version
+    static InterpolationWeights loadInterpolationWeights(const std::filesystem::path& filename,
+                                                         int                          numTargetLocations,
+                                                         int                          numElementVertices);
+    static int saveInterpolationWeights(const std::filesystem::path& filename,
+                                        const InterpolationWeights&  interpolation);
+    static InterpolationWeights loadInterpolationWeightsBinary(const std::filesystem::path& filename);
+    static int                  saveInterpolationWeightsBinary(const std::filesystem::path& filename,
+                                                               const InterpolationWeights&  interpolation);
 
     // computes barycentric weights of the given position with respect to the given element
     virtual void computeBarycentricWeights(int element, const Vec3d& pos, double* weights) const = 0;
@@ -333,7 +346,7 @@ public:
         Material(const std::string name, double density);
         Material(const Material& material);
         virtual ~Material() {}
-        virtual Material* clone() const = 0;
+        virtual std::unique_ptr<Material> clone() const = 0;
 
         inline const std::string& getName() const { return name; }        // material name
         inline double             getDensity() const { return density; }  // density
@@ -343,30 +356,12 @@ public:
         // ENU = any isotropic material parameterized by E (Young's modulus), nu (Poisson's ratio)
         // ORTHOTROPIC = orthotropic anisotropic material
         // MOONEYRIVLIN = Mooney-Rivlin material
-        typedef enum { INVALID, ENU, ORTHOTROPIC, MOONEYRIVLIN } materialType;
-        virtual materialType getType() const = 0;
+        enum class MaterialType { Invalid, ENu, Orthotropic, MooneyRivlin };
+        virtual MaterialType getType() const = 0;
 
-        typedef enum { ENU_DENSITY, ENU_E, ENU_NU, ENU_NUM_PROPERTIES } enuMaterialProperties;
-        typedef enum {
-            ORTHOTROPIC_DENSITY,
-            ORTHOTROPIC_E1,
-            ORTHOTROPIC_E2,
-            ORTHOTROPIC_E3,
-            ORTHOTROPIC_NU12,
-            ORTHOTROPIC_NU23,
-            ORTHOTROPIC_NU31,
-            ORTHOTROPIC_G12,
-            ORTHOTROPIC_G23,
-            ORTHOTROPIC_G31,
-            ORTHOTROPIC_NUM_PROPERTIES
-        } orthotropicMaterialProperties;
-        typedef enum {
-            MOONEYRIVLIN_DENSITY,
-            MOONEYRIVLIN_MU01,
-            MOONEYRIVLIN_MU10,
-            MOONEYRIVLIN_V1,
-            MOONEYRIVLIN_NUM_PROPERTIES
-        } mooneyrivlinMaterialProperties;
+        enum class ENuMaterialProperty { Density, E, Nu, Count };
+        enum class OrthotropicMaterialProperty { Density, E1, E2, E3, Nu12, Nu23, Nu31, G12, G23, G31, Count };
+        enum class MooneyRivlinMaterialProperty { Density, Mu01, Mu10, V1, Count };
 
     protected:
         std::string name;
@@ -414,27 +409,24 @@ protected:
     int                    numMaterials = 0;
     int                    numSets      = 0;
     int                    numRegions   = 0;
-    std::vector<Material*> materials;
+    std::vector<std::unique_ptr<Material>> materials;
     std::vector<Set>       sets;
     std::vector<Region>    regions;
     std::vector<int>       elementMaterial;  // material index of each element
 
     // parses the mesh, and returns the mesh element type
-    VolumetricMesh(const char* filename, fileFormatType fileFormat, int numElementVertices, elementType* elementType_,
-                   int verbose);
-    // if memoryLoad is 0, binaryInputStream is FILE* (load from a file, via a stream), otherwise, it is char* (load
-    // from a memory buffer)
-    VolumetricMesh(void* binaryInputStream, int numElementVertices, elementType* elementType_, int memoryLoad = 0);
+    VolumetricMesh(const std::filesystem::path& filename, FileFormatType fileFormat, int numElementVertices,
+                   ElementType* elementType_, int verbose);
+    VolumetricMesh(std::span<const std::byte> binaryInputStream, int numElementVertices, ElementType* elementType_);
     VolumetricMesh(int numElementVertices_) { numElementVertices = numElementVertices_; }
     void propagateRegionsToElements();
-    void loadFromBinaryGeneric(void* binaryInputStream, elementType* elementType_, int memoryLoad);
-
+    void loadFromBinaryGeneric(void* binaryInputStream, ElementType* elementType_, int memoryLoad);
     // constructs a mesh from the given vertices and elements,
     // with a single region and material ("E, nu" material)
     // "vertices" is double-precision array of length 3 x numVertices
     // "elements" is an integer array of length numElements x numElementVertices
-    VolumetricMesh(int numVertices, const double* vertices, int numElements, int numElementVertices,
-                   const int* elements, double E = E_default, double nu = nu_default, double density = density_default);
+    VolumetricMesh(std::span<const Vec3d> vertices, int numElementVertices, std::span<const int> elements,
+                   double E = E_default, double nu = nu_default, double density = density_default);
 
     // constructs a mesh from the given vertices and elements,
     // with an arbitrary number of sets, regions and materials
@@ -442,34 +434,40 @@ protected:
     // "elements" is an integer array of length numElements x numElementVertices
     // "materials", "sets" and "regions" will be copied internally (deep copy), so they
     // can be released after calling this constructor
-    VolumetricMesh(int numVertices, const double* vertices, int numElements, int numElementVertices,
-                   const int* elements, int numMaterials, const Material* const* materials, int numSets,
-                   const Set* sets, int numRegions, const Region* regions);
+    VolumetricMesh(std::span<const Vec3d> vertices, int numElementVertices, std::span<const int> elements,
+                   std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets,
+                   std::vector<Region> regions);
 
     // creates a submesh consisting of the specified elements of the given mesh
     // if vertexMap is non-null, it also returns a renaming datastructure: vertexMap[big mesh vertex] is the vertex
     // index in the subset mesh
-    VolumetricMesh(const VolumetricMesh& mesh, int numElements, int* elements, std::map<int, int>* vertexMap = nullptr);
+    VolumetricMesh(const VolumetricMesh& mesh, std::span<const int> elements, std::map<int, int>* vertexMap = nullptr);
 
-    int saveToAscii(const char* filename, elementType elementType_) const;
-    int saveToBinary(const char* filename, unsigned int* bytesWritten, elementType elementType_) const;
-    int saveToBinary(FILE* binaryOutputStream, unsigned int* bytesWritten, elementType elementType_,
+    int saveToAscii(const std::filesystem::path& filename, ElementType elementType_) const;
+    int saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten, ElementType elementType_) const;
+    int saveToBinary(FILE* binaryOutputStream, unsigned int* bytesWritten, ElementType elementType_,
                      bool countBytesOnly = false) const;
 
-    void loadFromAscii(const char* filename, elementType* elementType_ = nullptr, int verbose = 0);
-    void loadFromBinary(const char* filename, elementType* elementType_ = nullptr);
-    void loadFromBinary(FILE* binaryInputStream, elementType* elementType_);
-    void loadFromMemory(unsigned char* binaryInputStream, elementType* elementType_ = nullptr);
+    void loadFromAscii(const std::filesystem::path& filename, ElementType* elementType_ = nullptr, int verbose = 0);
+    void loadFromBinary(const std::filesystem::path& filename, ElementType* elementType_ = nullptr);
+    void loadFromBinary(FILE* binaryInputStream, ElementType* elementType_);
+    void loadFromBinary(std::istream& binaryInputStream, ElementType* elementType_);
+    void loadFromMemory(std::span<const std::byte> binaryInputStream, ElementType* elementType_ = nullptr);
     void assignMaterialsToElements(int verbose);
 
-    static elementType getElementTypeASCII(const char* filename);
-    static elementType getElementTypeBinary(const char* filename);
+    static ElementType getElementTypeASCII(const std::filesystem::path& filename);
+    static ElementType getElementTypeBinary(const std::filesystem::path& filename);
+    static ElementType getElementType(void* fin, int memoryLoad);
 
-    elementType temp = INVALID;  // auxiliary
+    ElementType temp = ElementType::Invalid;  // auxiliary
 
     friend class VolumetricMeshExtensions;
     friend class VolumetricMeshLoader;
 
+    template <class T>
+    static void readExact(std::istream& stream, T* data, size_t count);
+    template <class T>
+    static void writeExact(std::ostream& stream, const T* data, size_t count);
     static unsigned int readFromFile(void* buf, unsigned int elementSize, unsigned int numElements, void* fin);
     static unsigned int readFromMemory(void* buf, unsigned int elementSize, unsigned int numElements,
                                        void* memoryLocation);

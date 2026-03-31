@@ -53,8 +53,8 @@ public:
     MooneyRivlinMaterial(std::string name, double density, double mu01, double mu10, double v1);
     MooneyRivlinMaterial(const MooneyRivlinMaterial& mooneyRivlinMaterial);
     virtual ~MooneyRivlinMaterial() {}
-    virtual Material*              clone() const override;
-    virtual Material::materialType getType() const override { return Material::MOONEYRIVLIN; }
+    virtual std::unique_ptr<Material> clone() const override;
+    virtual Material::MaterialType    getType() const override { return Material::MaterialType::MooneyRivlin; }
 
     inline double getmu01() const;
     inline double getmu10() const;

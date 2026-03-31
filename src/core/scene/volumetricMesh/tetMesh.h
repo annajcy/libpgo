@@ -40,6 +40,10 @@
 
 #include "volumetricMesh.h"
 
+#include <filesystem>
+#include <memory>
+#include <span>
+
 namespace pgo {
 namespace Mesh {
 class TetMeshGeo;
@@ -54,11 +58,11 @@ public:
     // loads the mesh from a file
     // ASCII: .veg text input format, see documentation and the provided examples
     // BINARY: .vegb binary input format
-    TetMesh(const char* filename, fileFormatType fileFormat = BY_EXT, int verbose = 1);
+    TetMesh(const std::filesystem::path& filename,
+            FileFormatType               fileFormat = FileFormatType::ByExtension,
+            int                          verbose    = 1);
 
-    // load from a stream
-    // if memoryLoad is 0, binaryStream is FILE* (load from a file), otherwise, it is char* (load from a memory buffer)
-    TetMesh(void* binaryStream, int memoryLoad = 0);
+    TetMesh(std::span<const std::byte> binaryStream);
 
     // constructs a tet mesh with only four vertices and one tet
     TetMesh(const Vec3d& p0, const Vec3d& p1, const Vec3d& p2, const Vec3d& p3);
@@ -67,9 +71,7 @@ public:
     // with a single region and material ("E, nu" material)
     // "vertices" is double-precision array of length 3 x numVertices .
     // "elements" is an integer array of length 4 x numElements
-    TetMesh(int numVertices, const double* vertices, int numElements, const int* elements, double E = E_default,
-            double nu = nu_default, double density = density_default);
-    TetMesh(const std::vector<Vec3d>& vertices, const std::vector<Vec4i>& elements, double E = E_default,
+    TetMesh(std::span<const Vec3d> vertices, std::span<const Vec4i> elements, double E = E_default,
             double nu = nu_default, double density = density_default);
 
     // constructs a tet mesh from the given vertices and elements,
@@ -78,8 +80,8 @@ public:
     // "elements" is an integer array of length 4 x numElements
     // "materials", "sets" and "regions" will be copied internally (deep copy), so you
     // can release them after calling this constructor
-    TetMesh(int numVertices, const double* vertices, int numElements, const int* elements, int numMaterials,
-            const Material* const* materials, int numSets, const Set* sets, int numRegions, const Region* regions);
+    TetMesh(std::span<const Vec3d> vertices, std::span<const Vec4i> elements,
+            std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets, std::vector<Region> regions);
 
     // loads a file of a "special" (not .veg) type
     // currently one such special format is supported:
@@ -87,22 +89,20 @@ public:
     //   the ".ele" and ".node" format, used by TetGen,
     //   "filename" is the basename, e.g., passing "mesh" will load the mesh from "mesh.ele" and "mesh.node"
     // default material parameters will be used
-    TetMesh(const char* filename, int specialFileType, int verbose);
+    TetMesh(const std::filesystem::path& filename, int specialFileType, int verbose);
 
     // creates a mesh consisting of the specified element subset of the given TetMesh
-    TetMesh(const TetMesh& mesh, int numElements, int* elements, std::map<int, int>* vertexMap = nullptr);
+    TetMesh(const TetMesh& mesh, std::span<const int> elements, std::map<int, int>* vertexMap = nullptr);
 
     TetMesh(const TetMesh& tetMesh);
-    virtual VolumetricMesh* clone() override;
+    virtual std::unique_ptr<VolumetricMesh> clone() const override;
     virtual ~TetMesh();
 
-    virtual int saveToAscii(const char* filename) const override;
+    virtual int saveToAscii(const std::filesystem::path& filename) const override;
     // saves the mesh to binary format
     // returns: 0 = success, non-zero = error
     // output: if bytesWritten is non-nullptr, it will contain the number of bytes written
-    virtual int saveToBinary(const char* filename, unsigned int* bytesWritten = nullptr) const override;
-    virtual int saveToBinary(FILE* binaryOutputStream, unsigned int* bytesWritten = nullptr,
-                             bool countBytesOnly = false) const override;
+    virtual int saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten = nullptr) const override;
 
     using VolumetricMesh::exportMeshGeometry;
     void exportMeshGeometry(std::vector<Vec3d>& vertices, std::vector<Vec4i>& tets) const;
@@ -110,8 +110,8 @@ public:
 
     // === misc queries ===
 
-    static VolumetricMesh::elementType  elementType() { return TET; }
-    virtual VolumetricMesh::elementType getElementType() const override { return elementType(); }
+    static VolumetricMesh::ElementType  elementType() { return ElementType::Tet; }
+    virtual VolumetricMesh::ElementType getElementType() const override { return elementType(); }
 
     static double getSignedTetVolume(const Vec3d& a, const Vec3d& b, const Vec3d& c, const Vec3d& d);
     static double getTetVolume(const Vec3d& a, const Vec3d& b, const Vec3d& c, const Vec3d& d);

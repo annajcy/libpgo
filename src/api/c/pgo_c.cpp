@@ -33,6 +33,27 @@
 
 #include <fmt/format.h>
 
+#include <vector>
+
+namespace {
+std::vector<pgo::Vec3d> makeTetVertices(int nv, const double* vertices) {
+    std::vector<pgo::Vec3d> out(static_cast<size_t>(nv));
+    for (int vi = 0; vi < nv; ++vi) {
+        out[static_cast<size_t>(vi)] = pgo::Vec3d(vertices + vi * 3);
+    }
+    return out;
+}
+
+std::vector<pgo::Vec4i> makeTetElements(int ntet, const int* tets) {
+    std::vector<pgo::Vec4i> out(static_cast<size_t>(ntet));
+    for (int ti = 0; ti < ntet; ++ti) {
+        out[static_cast<size_t>(ti)] =
+            pgo::Vec4i(tets[ti * 4], tets[ti * 4 + 1], tets[ti * 4 + 2], tets[ti * 4 + 3]);
+    }
+    return out;
+}
+}  // namespace
+
 pgoTetMeshGeoStructHandle pgo_create_tetmeshgeo(int nv, double* vertices, int ntet, int* tets) {
     pgo::Mesh::TetMeshGeo* tetmesh = new pgo::Mesh::TetMeshGeo(nv, vertices, ntet, tets);
     return reinterpret_cast<pgoTetMeshGeoStructHandle>(tetmesh);
@@ -96,8 +117,10 @@ void pgo_destroy_tetmeshgeo(pgoTetMeshGeoStructHandle m) {
 pgoTetMeshStructHandle pgo_create_tetmesh(int nv, double* vertices, int ntet, int* tets, double E, double nu,
                                           double density) {
     try {
+        std::vector<pgo::Vec3d> tetVertices = makeTetVertices(nv, vertices);
+        std::vector<pgo::Vec4i> tetElements = makeTetElements(ntet, tets);
         pgo::VolumetricMeshes::TetMesh* mesh =
-            new pgo::VolumetricMeshes::TetMesh(nv, vertices, ntet, tets, E, nu, density);
+            new pgo::VolumetricMeshes::TetMesh(tetVertices, tetElements, E, nu, density);
         return reinterpret_cast<pgoTetMeshStructHandle>(mesh);
     } catch (...) {
         return nullptr;

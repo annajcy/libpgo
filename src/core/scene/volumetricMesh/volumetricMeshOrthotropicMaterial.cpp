@@ -65,13 +65,13 @@ VolumetricMesh::OrthotropicMaterial::OrthotropicMaterial(const OrthotropicMateri
     orthotropicMaterial.getR(R_);
 }
 
-VolumetricMesh::Material* VolumetricMesh::OrthotropicMaterial::clone() const {
-    return new VolumetricMesh::OrthotropicMaterial(*this);
+std::unique_ptr<VolumetricMesh::Material> VolumetricMesh::OrthotropicMaterial::clone() const {
+    return std::make_unique<VolumetricMesh::OrthotropicMaterial>(*this);
 }
 
-// performs a check via getType and returns NULL if material is not ORTHOTROPIC
+// performs a check via getType and returns nullptr if material is not ORTHOTROPIC
 VolumetricMesh::OrthotropicMaterial* downcastOrthotropicMaterial(VolumetricMesh::Material* material) {
-    if (material->getType() != VolumetricMesh::Material::ORTHOTROPIC)
+    if (material->getType() != VolumetricMesh::Material::MaterialType::Orthotropic)
         return nullptr;
 
     return dynamic_cast<VolumetricMesh::OrthotropicMaterial*>(material);

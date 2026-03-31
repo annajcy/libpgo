@@ -71,7 +71,7 @@ void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMes
 
     // build unique list of all surface faces
 
-    if (volumetricMesh->getElementType() == VolumetricMesh::TET)  // tet volumetricMesh
+    if (volumetricMesh->getElementType() == VolumetricMesh::ElementType::Tet)  // tet volumetricMesh
     {
         const TetMesh* tetMesh = dynamic_cast<const TetMesh*>(volumetricMesh);
         PGO_ALOG(tetMesh != nullptr);
@@ -130,7 +130,7 @@ void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMes
                 }
             }
         }
-    } else if (volumetricMesh->getElementType() == VolumetricMesh::CUBIC)  // cubic volumetricMesh
+    } else if (volumetricMesh->getElementType() == VolumetricMesh::ElementType::Cubic)  // cubic volumetricMesh
     {
         std::unordered_map<Mesh::ORectKey, int> surfaceFaces;
         for (int i = 0; i < volumetricMesh->getNumElements(); i++) {

@@ -44,8 +44,8 @@ public:
                         double nu31, double G12, double G23, double G31, double* R);
     OrthotropicMaterial(const OrthotropicMaterial& orthotropicMaterial);
     virtual ~OrthotropicMaterial() {}
-    virtual Material*              clone() const override;
-    virtual Material::materialType getType() const override { return Material::ORTHOTROPIC; }
+    virtual std::unique_ptr<Material> clone() const override;
+    virtual Material::MaterialType    getType() const override { return Material::MaterialType::Orthotropic; }
 
     // Es, Nus and Gs are all given in the local coordinate system specified by R
     inline double getE1() const;          // Young's modulus in the x-direction

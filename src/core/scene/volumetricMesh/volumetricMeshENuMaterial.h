@@ -43,8 +43,8 @@ public:
     ENuMaterial(std::string name, double density = density_default, double E = E_default, double nu = nu_default);
     ENuMaterial(const ENuMaterial& eNuMaterial);
     virtual ~ENuMaterial() {}
-    virtual Material*              clone() const override;
-    virtual Material::materialType getType() const override { return Material::ENU; }
+    virtual std::unique_ptr<Material> clone() const override;
+    virtual Material::MaterialType    getType() const override { return Material::MaterialType::ENu; }
 
     inline double getE() const;       // Young's modulus
     inline double getNu() const;      // Poisson's ratio

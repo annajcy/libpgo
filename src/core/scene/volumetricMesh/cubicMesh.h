@@ -58,6 +58,10 @@
 #pragma once
 
 #include "volumetricMesh.h"
+
+#include <filesystem>
+#include <memory>
+#include <span>
 // see also volumetricMesh.h for a description of the routines
 
 namespace pgo {
@@ -68,16 +72,16 @@ public:
     // loads the mesh from a file
     // ASCII: .veg text input formut, see documentation and the provided examples
     // BINARY: .vegb binary input format
-    CubicMesh(const char* filename, fileFormatType fileFormat = BY_EXT, int verbose = 1);
+    CubicMesh(const std::filesystem::path& filename,
+              FileFormatType               fileFormat = FileFormatType::ByExtension,
+              int                          verbose    = 1);
 
-    // load from a stream
-    // if memoryLoad is 0, binaryStream is FILE* (load from a file), otherwise, it is char* (load from a memory buffer)
-    CubicMesh(void* binaryStream, int memoryLoad = 0);
+    CubicMesh(std::span<const std::byte> binaryStream);
 
     // constructs a mesh from the given vertices and elements, with a single region and material
     // "vertices" is double-precision array of length 3 x numVertices
     // "elements" is an integer array of length 8 x numElements
-    CubicMesh(int numVertices, const double* vertices, int numElements, const int* elements, double E = E_default,
+    CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicElement> elements, double E = E_default,
               double nu = nu_default, double density = density_default);
 
     // constructs a mesh from the given vertices and elements,
@@ -86,36 +90,36 @@ public:
     // "elements" is an integer array of length 8 x numElements
     // "materials", "sets" and "regions" will be copied internally (deep copy), so they
     // can be released after calling this constructor
-    CubicMesh(int numVertices, const double* vertices, int numElements, const int* elements, int numMaterials,
-              const Material* const* materials, int numSets, const Set* sets, int numRegions, const Region* regions);
+    CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicElement> elements,
+              std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets,
+              std::vector<Region> regions);
 
     // constructs a voxel mesh with the given voxels, as a subset of a regular 3D grid
     // 'voxels' gives the grid indices (3 per voxel) of the voxels that are to be included in the mesh
     // 'voxels' has length 3 x numVoxels
-    static CubicMesh* createFromUniformGrid(int resolution, int numVoxels, int* voxels, double E = E_default,
-                                            double nu = nu_default, double density = density_default);
+    static std::unique_ptr<CubicMesh> createFromUniformGrid(int resolution, std::span<const int> voxels,
+                                                            double E = E_default, double nu = nu_default,
+                                                            double density = density_default);
 
     // creates a mesh consisting of the specified element subset of the given CubicMesh
-    CubicMesh(const CubicMesh& mesh, int numElements, int* elements, std::map<int, int>* vertexMap = NULL);
+    CubicMesh(const CubicMesh& mesh, std::span<const int> elements, std::map<int, int>* vertexMap = nullptr);
 
     CubicMesh(const CubicMesh& CubicMesh);
-    virtual VolumetricMesh* clone() override;
+    virtual std::unique_ptr<VolumetricMesh> clone() const override;
     virtual ~CubicMesh();
 
     // saves the mesh to a text file (.veg format, see examples and documentation)
-    virtual int saveToAscii(const char* filename) const override;
+    virtual int saveToAscii(const std::filesystem::path& filename) const override;
 
     // saves the mesh to binary format
     // returns: 0 = success, non-zero = error
-    // output: if bytesWritten is non-NULL, it will contain the number of bytes written
-    virtual int saveToBinary(const char* filename, unsigned int* bytesWritten = NULL) const override;
-    virtual int saveToBinary(FILE* binaryOutputStream, unsigned int* bytesWritten = NULL,
-                             bool countBytesOnly = false) const override;
+    // output: if bytesWritten is non-nullptr, it will contain the number of bytes written
+    virtual int saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten = nullptr) const override;
 
     // === misc queries ===
 
-    static VolumetricMesh::elementType  elementType() { return CUBIC; }
-    virtual VolumetricMesh::elementType getElementType() const override { return elementType(); }
+    static VolumetricMesh::ElementType  elementType() { return ElementType::Cubic; }
+    virtual VolumetricMesh::ElementType getElementType() const override { return elementType(); }
 
     inline double getCubeSize() const { return cubeSize; }
 

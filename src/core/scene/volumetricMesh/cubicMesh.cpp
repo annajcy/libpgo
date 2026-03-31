@@ -48,7 +48,19 @@ namespace VolumetricMeshes {
 
 namespace ES = EigenSupport;
 
-CubicMesh::CubicMesh(const char* filename, fileFormatType fileFormat, int verbose)
+namespace {
+std::vector<int> flattenCubicElements(std::span<const VolumetricMesh::CubicElement> elements) {
+    std::vector<int> flat(elements.size() * 8);
+    for (size_t ei = 0; ei < elements.size(); ++ei) {
+        for (int vi = 0; vi < 8; ++vi) {
+            flat[ei * 8 + vi] = elements[ei][vi];
+        }
+    }
+    return flat;
+}
+}  // namespace
+
+CubicMesh::CubicMesh(const std::filesystem::path& filename, FileFormatType fileFormat, int verbose)
     : VolumetricMesh(filename, fileFormat, 8, &temp, verbose), parallelepipedMode(0) {
     if (temp != elementType()) {
         printf("Error: mesh is not a cubic mesh.\n");
@@ -60,8 +72,8 @@ CubicMesh::CubicMesh(const char* filename, fileFormatType fileFormat, int verbos
     SetInverseCubeSize();
 }
 
-CubicMesh::CubicMesh(void* binaryStream, int memoryLoad)
-    : VolumetricMesh(binaryStream, 8, &temp, memoryLoad), parallelepipedMode(0) {
+CubicMesh::CubicMesh(std::span<const std::byte> binaryStream)
+    : VolumetricMesh(binaryStream, 8, &temp), parallelepipedMode(0) {
     if (temp != elementType()) {
         printf("Error: mesh is not a cubic mesh.\n");
         throw 11;
@@ -72,10 +84,10 @@ CubicMesh::CubicMesh(void* binaryStream, int memoryLoad)
     SetInverseCubeSize();
 }
 
-CubicMesh::CubicMesh(int numVertices, const double* vertices, int numElements, const int* elements, double E, double nu,
+CubicMesh::CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicElement> elements, double E, double nu,
                      double density)
-    : VolumetricMesh(numVertices, vertices, numElements, 8, elements, E, nu, density), parallelepipedMode(0) {
-    if (numElements > 0)
+    : VolumetricMesh(vertices, 8, flattenCubicElements(elements), E, nu, density), parallelepipedMode(0) {
+    if (!elements.empty())
         cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();
     else
         cubeSize = 0.0;
@@ -83,13 +95,13 @@ CubicMesh::CubicMesh(int numVertices, const double* vertices, int numElements, c
     SetInverseCubeSize();
 }
 
-CubicMesh::CubicMesh(int numVertices, const double* vertices, int numElements, const int* elements, int numMaterials,
-                     const Material* const* materials, int numSets, const Set* sets, int numRegions,
-                     const Region* regions)
-    : VolumetricMesh(numVertices, vertices, numElements, 8, elements, numMaterials, materials, numSets, sets,
-                     numRegions, regions),
+CubicMesh::CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicElement> elements,
+                     std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets,
+                     std::vector<Region> regions)
+    : VolumetricMesh(vertices, 8, flattenCubicElements(elements), std::move(materials), std::move(sets),
+                     std::move(regions)),
       parallelepipedMode(0) {
-    if (numElements > 0)
+    if (!elements.empty())
         cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();
     else
         cubeSize = 0.0;
@@ -103,9 +115,8 @@ CubicMesh::CubicMesh(const CubicMesh& source)
       invCubeSize(source.invCubeSize),
       parallelepipedMode(source.parallelepipedMode) {}
 
-VolumetricMesh* CubicMesh::clone() {
-    CubicMesh* mesh = new CubicMesh(*this);
-    return mesh;
+std::unique_ptr<VolumetricMesh> CubicMesh::clone() const {
+    return std::make_unique<CubicMesh>(*this);
 }
 
 void CubicMesh::SetInverseCubeSize() {
@@ -115,9 +126,10 @@ void CubicMesh::SetInverseCubeSize() {
         invCubeSize = 0;
 }
 
-CubicMesh* CubicMesh::createFromUniformGrid(int resolution, int numVoxels, int* voxels, double E, double nu,
-                                            double density) {
+std::unique_ptr<CubicMesh> CubicMesh::createFromUniformGrid(int resolution, std::span<const int> voxels, double E,
+                                                            double nu, double density) {
     int numElementVertices = 8;
+    const int numVoxels = static_cast<int>(voxels.size() / 3);
 
     // create the indices of all vertices
     typedef triple<int, int, int> tripleIndex;
@@ -137,24 +149,22 @@ CubicMesh* CubicMesh::createFromUniformGrid(int resolution, int numVoxels, int* 
     }
 
     int                        numVertices = (int)vertexSet.size();
-    double*                    vertices    = (double*)malloc(sizeof(double) * 3 * numVertices);
-    int                        count       = 0;
+    std::vector<Vec3d>         vertices(numVertices);
+    int                        count = 0;
     std::map<tripleIndex, int> vertexMap;
     for (std::set<tripleIndex>::iterator iter = vertexSet.begin(); iter != vertexSet.end(); iter++) {
         int i                   = iter->first;
         int j                   = iter->second;
         int k                   = iter->third;
-        vertices[3 * count + 0] = -0.5 + 1.0 * i / resolution;
-        vertices[3 * count + 1] = -0.5 + 1.0 * j / resolution;
-        vertices[3 * count + 2] = -0.5 + 1.0 * k / resolution;
+        vertices[count]         = Vec3d(-0.5 + 1.0 * i / resolution, -0.5 + 1.0 * j / resolution,
+                                -0.5 + 1.0 * k / resolution);
         vertexMap.insert(std::make_pair(tripleIndex(i, j, k), count));
         // printf("%d %d %d: %d\n", i,j,k, count);
         count++;
     }
 
     int numElements = numVoxels;
-
-    int* elements = (int*)malloc(sizeof(int) * numElements * numElementVertices);
+    std::vector<CubicElement> elements(numElements);
     for (int vox = 0; vox < numElements; vox++) {
         int i = voxels[3 * vox + 0];
         int j = voxels[3 * vox + 1];
@@ -168,36 +178,27 @@ CubicMesh* CubicMesh::createFromUniformGrid(int resolution, int numVoxels, int* 
             // find I, J, K
             int vtxIndex = vertexMap[tripleIndex(I, J, K)];
             // printf("vtxIndex = %d\n", vtxIndex);
-            elements[numElementVertices * vox + corner] = vtxIndex;
+            elements[vox][corner] = vtxIndex;
         }
     }
 
-    CubicMesh* cubeMesh = new CubicMesh(numVertices, vertices, numElements, elements, E, nu, density);
-
-    free(vertices);
-    free(elements);
-
-    return cubeMesh;
+    return std::make_unique<CubicMesh>(vertices, elements, E, nu, density);
 }
 
-CubicMesh::CubicMesh(const CubicMesh& cubeMesh, int numElements, int* elements, std::map<int, int>* vertexMap_)
-    : VolumetricMesh(cubeMesh, numElements, elements, vertexMap_) {
+CubicMesh::CubicMesh(const CubicMesh& cubeMesh, std::span<const int> elements, std::map<int, int>* vertexMap_)
+    : VolumetricMesh(cubeMesh, elements, vertexMap_) {
     cubeSize = cubeMesh.getCubeSize();
     SetInverseCubeSize();
 }
 
 CubicMesh::~CubicMesh() {}
 
-int CubicMesh::saveToAscii(const char* filename) const {
+int CubicMesh::saveToAscii(const std::filesystem::path& filename) const {
     return VolumetricMesh::saveToAscii(filename, elementType());
 }
 
-int CubicMesh::saveToBinary(const char* filename, unsigned int* bytesWritten) const {
+int CubicMesh::saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten) const {
     return VolumetricMesh::saveToBinary(filename, bytesWritten, elementType());
-}
-
-int CubicMesh::saveToBinary(FILE* binaryOutputStream, unsigned int* bytesWritten, bool countBytesOnly) const {
-    return VolumetricMesh::saveToBinary(binaryOutputStream, bytesWritten, elementType(), countBytesOnly);
 }
 
 bool CubicMesh::containsVertex(int element, Vec3d pos) const {

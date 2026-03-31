@@ -34,13 +34,13 @@
 
 namespace pgo {
 namespace VolumetricMeshes {
-VolumetricMesh::Material* VolumetricMesh::MooneyRivlinMaterial::clone() const {
-    return new VolumetricMesh::MooneyRivlinMaterial(*this);
+std::unique_ptr<VolumetricMesh::Material> VolumetricMesh::MooneyRivlinMaterial::clone() const {
+    return std::make_unique<VolumetricMesh::MooneyRivlinMaterial>(*this);
 }
 
 // performs a check via getType and returns nullptr if material is not Mooney-Rivlin
 VolumetricMesh::MooneyRivlinMaterial* downcastMooneyRivlinMaterial(VolumetricMesh::Material* material) {
-    if (material->getType() != VolumetricMesh::Material::MOONEYRIVLIN)
+    if (material->getType() != VolumetricMesh::Material::MaterialType::MooneyRivlin)
         return nullptr;
 
     return dynamic_cast<VolumetricMesh::MooneyRivlinMaterial*>(material);

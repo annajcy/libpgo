@@ -34,20 +34,20 @@
 
 namespace pgo {
 namespace VolumetricMeshes {
-VolumetricMesh::Material* VolumetricMesh::ENuMaterial::clone() const {
-    return new VolumetricMesh::ENuMaterial(*this);
+std::unique_ptr<VolumetricMesh::Material> VolumetricMesh::ENuMaterial::clone() const {
+    return std::make_unique<VolumetricMesh::ENuMaterial>(*this);
 }
 
-// performs a check via getType and returns NULL if material is not ENU
+// performs a check via getType and returns nullptr if material is not ENU
 VolumetricMesh::ENuMaterial* downcastENuMaterial(VolumetricMesh::Material* material) {
-    if (material->getType() != VolumetricMesh::Material::ENU)
+    if (material->getType() != VolumetricMesh::Material::MaterialType::ENu)
         return nullptr;
 
     return dynamic_cast<VolumetricMesh::ENuMaterial*>(material);
 }
 
 const VolumetricMesh::ENuMaterial* downcastENuMaterial(const VolumetricMesh::Material* material) {
-    if (material->getType() != VolumetricMesh::Material::ENU)
+    if (material->getType() != VolumetricMesh::Material::MaterialType::ENu)
         return nullptr;
 
     return dynamic_cast<const VolumetricMesh::ENuMaterial*>(material);

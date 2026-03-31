@@ -118,10 +118,9 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::vector<int>                                  voxels = buildUniformVoxelIndices(resolution, numVoxels);
-        std::unique_ptr<pgo::VolumetricMeshes::CubicMesh> cubicMesh(
-            pgo::VolumetricMeshes::CubicMesh::createFromUniformGrid(resolution, numVoxels, voxels.data(), E, nu,
-                                                                    density));
+        std::vector<int> voxels = buildUniformVoxelIndices(resolution, numVoxels);
+        std::unique_ptr<pgo::VolumetricMeshes::CubicMesh> cubicMesh =
+            pgo::VolumetricMeshes::CubicMesh::createFromUniformGrid(resolution, voxels, E, nu, density);
 
         if (cubicMesh == nullptr) {
             SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Failed to create cubic mesh from uniform grid");

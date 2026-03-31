@@ -39,7 +39,19 @@
 namespace pgo {
 namespace VolumetricMeshes {
 
-TetMesh::TetMesh(const char* filename, fileFormatType fileFormat, int verbose)
+namespace {
+std::vector<int> flattenTetElements(std::span<const Vec4i> elements) {
+    std::vector<int> flat(elements.size() * 4);
+    for (size_t ei = 0; ei < elements.size(); ++ei) {
+        for (int vi = 0; vi < 4; ++vi) {
+            flat[ei * 4 + vi] = elements[ei][vi];
+        }
+    }
+    return flat;
+}
+}  // namespace
+
+TetMesh::TetMesh(const std::filesystem::path& filename, FileFormatType fileFormat, int verbose)
     : VolumetricMesh(filename, fileFormat, 4, &temp, verbose) {
     if (temp != elementType()) {
         printf("Error: mesh is not a tet mesh.\n");
@@ -47,14 +59,14 @@ TetMesh::TetMesh(const char* filename, fileFormatType fileFormat, int verbose)
     }
 }
 
-TetMesh::TetMesh(void* binaryStream, int memoryLoad) : VolumetricMesh(binaryStream, 4, &temp, memoryLoad) {
+TetMesh::TetMesh(std::span<const std::byte> binaryStream) : VolumetricMesh(binaryStream, 4, &temp) {
     if (temp != elementType()) {
         printf("Error: mesh is not a tet mesh.\n");
         throw 11;
     }
 }
 
-TetMesh::TetMesh(const char* filename, int specialFileType, int verbose) : VolumetricMesh(4) {
+TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int verbose) : VolumetricMesh(4) {
     if (specialFileType != 0) {
         printf("Unknown special file type %d requested.\n", specialFileType);
         throw 1;
@@ -64,7 +76,7 @@ TetMesh::TetMesh(const char* filename, int specialFileType, int verbose) : Volum
     VolumetricMeshParser parser;
 
     // first, read the vertices
-    sprintf(lineBuffer, "%s.node", filename);
+    sprintf(lineBuffer, "%s.node", filename.string().c_str());
     if (parser.open(lineBuffer) != 0)
         throw 2;
 
@@ -88,7 +100,7 @@ TetMesh::TetMesh(const char* filename, int specialFileType, int verbose) : Volum
     parser.close();
 
     // next, read the elements
-    sprintf(lineBuffer, "%s.ele", filename);
+    sprintf(lineBuffer, "%s.ele", filename.string().c_str());
     if (parser.open(lineBuffer) != 0)
         throw 4;
 
@@ -135,49 +147,40 @@ TetMesh::TetMesh(const Vec3d& p0, const Vec3d& p1, const Vec3d& p2, const Vec3d&
     setSingleMaterial(E_default, nu_default, density_default);
 }
 
-TetMesh::TetMesh(int numVertices_, const double* vertices_, int numElements_, const int* elements_, double E, double nu,
+TetMesh::TetMesh(std::span<const Vec3d> vertices_, std::span<const Vec4i> elements_, double E, double nu,
                  double density)
-    : VolumetricMesh(numVertices_, vertices_, numElements_, 4, elements_, E, nu, density) {}
+    : VolumetricMesh(vertices_, 4, flattenTetElements(elements_), E, nu, density) {}
 
-TetMesh::TetMesh(int numVertices_, const double* vertices_, int numElements_, const int* elements_, int numMaterials_,
-                 const Material* const* materials_, int numSets_, const Set* sets_, int numRegions_,
-                 const Region* regions_)
-    : VolumetricMesh(numVertices_, vertices_, numElements_, 4, elements_, numMaterials_, materials_, numSets_, sets_,
-                     numRegions_, regions_) {}
-
-TetMesh::TetMesh(const std::vector<Vec3d>& vertices, const std::vector<Vec4i>& elements, double E, double nu,
-                 double density)
-    : TetMesh(vertices.size(), (double*)vertices.data(), elements.size(), (int*)elements.data(), E, nu, density) {}
+TetMesh::TetMesh(std::span<const Vec3d> vertices_, std::span<const Vec4i> elements_,
+                 std::vector<std::unique_ptr<Material>> materials_, std::vector<Set> sets_,
+                 std::vector<Region> regions_)
+    : VolumetricMesh(vertices_, 4, flattenTetElements(elements_), std::move(materials_), std::move(sets_),
+                     std::move(regions_)) {}
 
 TetMesh::TetMesh(const TetMesh& source) : VolumetricMesh(source) {}
 
-VolumetricMesh* TetMesh::clone() {
-    TetMesh* mesh = new TetMesh(*this);
-    return mesh;
+std::unique_ptr<VolumetricMesh> TetMesh::clone() const {
+    return std::make_unique<TetMesh>(*this);
 }
 
-TetMesh::TetMesh(const TetMesh& tetMesh, int numElements_, int* elements_, std::map<int, int>* vertexMap_)
-    : VolumetricMesh(tetMesh, numElements_, elements_, vertexMap_) {}
+TetMesh::TetMesh(const TetMesh& tetMesh, std::span<const int> elements_, std::map<int, int>* vertexMap_)
+    : VolumetricMesh(tetMesh, elements_, vertexMap_) {}
 
 TetMesh::~TetMesh() {}
 
-int TetMesh::saveToAscii(const char* filename) const {
+int TetMesh::saveToAscii(const std::filesystem::path& filename) const {
     return VolumetricMesh::saveToAscii(filename, elementType());
 }
 
-int TetMesh::saveToBinary(const char* filename, unsigned int* bytesWritten) const {
+int TetMesh::saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten) const {
     return VolumetricMesh::saveToBinary(filename, bytesWritten, elementType());
-}
-
-int TetMesh::saveToBinary(FILE* binaryOutputStream, unsigned int* bytesWritten, bool countBytesOnly) const {
-    return VolumetricMesh::saveToBinary(binaryOutputStream, bytesWritten, elementType(), countBytesOnly);
 }
 
 void TetMesh::exportMeshGeometry(std::vector<Vec3d>& vertices, std::vector<Vec4i>& tets) const {
     exportMeshGeometry(vertices);
     tets.resize(getNumElements());
     for (int i = 0; i < getNumElements(); i++) {
-        const int* ii = getVertexIndices(i);
+        auto ii = getVertexIndices(i);
         tets[i]       = Vec4i(ii[0], ii[1], ii[2], ii[3]);
     }
 }

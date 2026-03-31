@@ -77,9 +77,9 @@ void BarycentricCoordinates::initializeInterpolationWeights(int numLocations_, c
     Mesh::BoundingBoxBVTree        bvTree;
     std::vector<Mesh::BoundingBox> elementBBs(volumetricMesh->getNumElements());
     for (int ei = 0; ei < volumetricMesh->getNumElements(); ei++) {
-        BasicAlgorithms::ArrayRef<int> indexRef(volumetricMesh->getNumElementVertices(),
-                                                volumetricMesh->getVertexIndices(ei));
-        elementBBs[ei] = Mesh::BoundingBox(volumetricMesh->getVertices(), indexRef);
+        const auto vertexIndices = volumetricMesh->getVertexIndices(ei);
+        BasicAlgorithms::ArrayRef<int> indexRef(volumetricMesh->getNumElementVertices(), vertexIndices.data());
+        elementBBs[ei] = Mesh::BoundingBox(volumetricMesh->getVertices().data(), indexRef);
     }
     bvTree.buildByInertiaPartition(elementBBs);
 
@@ -120,7 +120,7 @@ void BarycentricCoordinates::initializeInterpolationWeights(int numLocations_, c
         elements[i] = targetElementID;
 
         // element vertex indices
-        memcpy(indices.data() + i * numElementVertices, volumetricMesh->getVertexIndices(targetElementID),
+        memcpy(indices.data() + i * numElementVertices, volumetricMesh->getVertexIndices(targetElementID).data(),
                sizeof(int) * numElementVertices);
 
         // barycentric weights
@@ -153,10 +153,12 @@ void BarycentricCoordinates::deform(const double* verticesDisp, double* location
 }
 
 int BarycentricCoordinates::saveInterpolationWeights(const std::string& filename) const {
-    // saveInterpolationWeights(const char * filename, int numTargetLocations, int numElementVertices, int * vertices,
-    // double * weights);
-    int ret = VolumetricMesh::saveInterpolationWeights(filename.c_str(), numLocations, numElementVertices, &indices[0],
-                                                       &weights[0]);
+    VolumetricMesh::InterpolationWeights interpolation;
+    interpolation.numElementVertices = numElementVertices;
+    interpolation.indices            = indices;
+    interpolation.weights            = weights;
+    interpolation.elements           = elements;
+    int ret = VolumetricMesh::saveInterpolationWeights(filename, interpolation);
     std::cout << (ret == 0 ? "Saved" : "Failed to save");
     std::cout << " interpolation weights (numLocations: " << numLocations
               << ", numElementVertices: " << numElementVertices << ") to " << filename << "." << std::endl;
