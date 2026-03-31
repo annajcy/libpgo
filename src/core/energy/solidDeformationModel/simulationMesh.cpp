@@ -167,11 +167,7 @@ EdgeQuadData buildEdgeQuadData(const pgo::Mesh::TriMeshGeo& triMeshGeo) {
 }
 }  // namespace
 
-SimulationMesh::~SimulationMesh() {
-    for (SimulationMeshMaterial* material : materials_) {
-        delete material;
-    }
-}
+SimulationMesh::~SimulationMesh() = default;
 
 template <size_t N>
 std::unique_ptr<SimulationMesh> SimulationMesh::createTyped(
@@ -193,9 +189,10 @@ std::unique_ptr<SimulationMesh> SimulationMesh::createTyped(
         memcpy(mesh->elements_[ei].data(), elements[ei].data(), sizeof(int) * N);
     }
 
-    mesh->materials_.assign(materials.size(), nullptr);
+    mesh->materials_.clear();
+    mesh->materials_.reserve(materials.size());
     for (size_t mi = 0; mi < materials.size(); mi++) {
-        mesh->materials_[mi] = materials[mi]->clone();
+        mesh->materials_.push_back(materials[mi]->clone());
     }
 
     mesh->elementMaterialBindings_.assign(elementMaterialBindings.begin(), elementMaterialBindings.end());
@@ -280,13 +277,13 @@ SimulationMeshType SimulationMesh::getElementType() const {
 const SimulationMeshMaterial* SimulationMesh::getPrimaryMaterial(int ele) const {
     int materialIndex = validateMaterialIndex(elementMaterialBindings_[ele].primary, static_cast<int>(materials_.size()),
                                               "primary");
-    return materials_[materialIndex];
+    return materials_[materialIndex].get();
 }
 
 SimulationMeshMaterial* SimulationMesh::getPrimaryMaterial(int ele) {
     int materialIndex = validateMaterialIndex(elementMaterialBindings_[ele].primary, static_cast<int>(materials_.size()),
                                               "primary");
-    return materials_[materialIndex];
+    return materials_[materialIndex].get();
 }
 
 const SimulationMeshMaterial* SimulationMesh::getSecondaryMaterial(int ele) const {
@@ -295,7 +292,7 @@ const SimulationMeshMaterial* SimulationMesh::getSecondaryMaterial(int ele) cons
     }
     int materialIndex = validateMaterialIndex(elementMaterialBindings_[ele].secondary,
                                               static_cast<int>(materials_.size()), "secondary");
-    return materials_[materialIndex];
+    return materials_[materialIndex].get();
 }
 
 SimulationMeshMaterial* SimulationMesh::getSecondaryMaterial(int ele) {
@@ -304,7 +301,7 @@ SimulationMeshMaterial* SimulationMesh::getSecondaryMaterial(int ele) {
     }
     int materialIndex = validateMaterialIndex(elementMaterialBindings_[ele].secondary,
                                               static_cast<int>(materials_.size()), "secondary");
-    return materials_[materialIndex];
+    return materials_[materialIndex].get();
 }
 
 bool SimulationMesh::hasSecondaryMaterial(int ele) const {
@@ -341,11 +338,9 @@ void SimulationMesh::getElementUV(int ele, int j, double uv[2]) const {
 
 void SimulationMesh::setMaterial(int matID, const SimulationMeshMaterial* mat) {
     if (matID >= 0 && matID < (int)materials_.size()) {
-        delete materials_[matID];
         materials_[matID] = mat->clone();
     } else {
         for (int mi = 0; mi < (int)materials_.size(); mi++) {
-            delete materials_[mi];
             materials_[mi] = mat->clone();
         }
     }
