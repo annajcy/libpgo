@@ -46,5 +46,12 @@ VolumetricMesh::MooneyRivlinMaterial* downcastMooneyRivlinMaterial(VolumetricMes
     return dynamic_cast<VolumetricMesh::MooneyRivlinMaterial*>(material);
 }
 
+const VolumetricMesh::MooneyRivlinMaterial* downcastMooneyRivlinMaterial(const VolumetricMesh::Material* material) {
+    if (material->getType() != VolumetricMesh::Material::MaterialType::MooneyRivlin)
+        return nullptr;
+
+    return dynamic_cast<const VolumetricMesh::MooneyRivlinMaterial*>(material);
+}
+
 }  // namespace VolumetricMeshes
 }  // namespace pgo

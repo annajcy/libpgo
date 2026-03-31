@@ -31,6 +31,7 @@
  *************************************************************************/
 
 #include "cubicMesh.h"
+#include "volumetricMeshIO.h"
 
 #include "triple.h"
 #include "pgoLogging.h"
@@ -49,7 +50,7 @@ namespace VolumetricMeshes {
 namespace ES = EigenSupport;
 
 namespace {
-std::vector<int> flattenCubicElements(std::span<const VolumetricMesh::CubicElement> elements) {
+std::vector<int> flattenCubicElements(std::span<const CubicElement> elements) {
     std::vector<int> flat(elements.size() * 8);
     for (size_t ei = 0; ei < elements.size(); ++ei) {
         for (int vi = 0; vi < 8; ++vi) {
@@ -61,27 +62,13 @@ std::vector<int> flattenCubicElements(std::span<const VolumetricMesh::CubicEleme
 }  // namespace
 
 CubicMesh::CubicMesh(const std::filesystem::path& filename, FileFormatType fileFormat, int verbose)
-    : VolumetricMesh(filename, fileFormat, 8, &temp, verbose), parallelepipedMode(0) {
-    if (temp != elementType()) {
-        printf("Error: mesh is not a cubic mesh.\n");
-        throw 11;
-    }
-
-    // set cube size
-    cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();
-    SetInverseCubeSize();
+    : VolumetricMesh(8), parallelepipedMode(0) {
+    assignFromData(io::detail::load_cubic_data(filename, fileFormat, verbose), verbose);
 }
 
 CubicMesh::CubicMesh(std::span<const std::byte> binaryStream)
-    : VolumetricMesh(binaryStream, 8, &temp), parallelepipedMode(0) {
-    if (temp != elementType()) {
-        printf("Error: mesh is not a cubic mesh.\n");
-        throw 11;
-    }
-
-    // set cube size
-    cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();
-    SetInverseCubeSize();
+    : VolumetricMesh(8), parallelepipedMode(0) {
+    assignFromData(io::detail::load_cubic_data(binaryStream), 0);
 }
 
 CubicMesh::CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicElement> elements, double E, double nu,
@@ -193,12 +180,36 @@ CubicMesh::CubicMesh(const CubicMesh& cubeMesh, std::span<const int> elements, s
 
 CubicMesh::~CubicMesh() {}
 
-int CubicMesh::saveToAscii(const std::filesystem::path& filename) const {
-    return VolumetricMesh::saveToAscii(filename, elementType());
-}
+void CubicMesh::assignFromData(io::detail::LoadedMeshData data, int verbose) {
+    if (data.elementType != elementType()) {
+        printf("Error: mesh is not a cubic mesh.\n");
+        throw 11;
+    }
+    if (data.numElementVertices != 8) {
+        printf("Error: cubic mesh data has %d vertices per element.\n", data.numElementVertices);
+        throw 12;
+    }
 
-int CubicMesh::saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten) const {
-    return VolumetricMesh::saveToBinary(filename, bytesWritten, elementType());
+    numElementVertices = data.numElementVertices;
+    numVertices = static_cast<int>(data.vertices.size());
+    numElements = static_cast<int>(data.elements.size()) / numElementVertices;
+    numMaterials = static_cast<int>(data.materials.size());
+    numSets = static_cast<int>(data.sets.size());
+    numRegions = static_cast<int>(data.regions.size());
+
+    vertices = std::move(data.vertices);
+    elements = std::move(data.elements);
+    materials = std::move(data.materials);
+    sets = std::move(data.sets);
+    regions = std::move(data.regions);
+
+    assignMaterialsToElements(verbose);
+
+    if (numElements > 0)
+        cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();
+    else
+        cubeSize = 0.0;
+    SetInverseCubeSize();
 }
 
 bool CubicMesh::containsVertex(int element, Vec3d pos) const {

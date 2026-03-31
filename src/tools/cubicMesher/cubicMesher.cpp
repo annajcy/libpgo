@@ -2,6 +2,7 @@
 #include "generateSurfaceMesh.h"
 #include "pgoLogging.h"
 #include "triMeshGeo.h"
+#include "volumetricMeshIO.h"
 
 #include <argparse/argparse.hpp>
 
@@ -127,7 +128,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        if (cubicMesh->save(outputMesh.c_str()) != 0) {
+        if (pgo::VolumetricMeshes::io::save(*cubicMesh, outputMesh) != 0) {
             SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Failed to save cubic mesh to {}", outputMesh);
             return 1;
         }

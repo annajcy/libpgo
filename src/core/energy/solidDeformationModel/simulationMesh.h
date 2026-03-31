@@ -14,16 +14,6 @@ copyright to USC,MIT,NUS
 #include <vector>
 
 namespace pgo {
-
-namespace Mesh {
-class TriMeshGeo;
-class TetMeshGeo;
-}  // namespace Mesh
-
-namespace VolumetricMeshes {
-class TetMesh;
-}
-
 namespace SolidDeformationModel {
 enum class SimulationMeshType {
     TET,
@@ -72,23 +62,6 @@ public:
                                                        std::span<const ShellElement> elements,
                                                        std::span<const ElementMaterialBinding> elementMaterialBindings,
                                                        std::span<const SimulationMeshMaterial* const> materials);
-
-    static std::unique_ptr<SimulationMesh> createFromTetMesh(const VolumetricMeshes::TetMesh& tetmesh);
-    static std::unique_ptr<SimulationMesh> createTriangleFromTriMesh(const Mesh::TriMeshGeo& triMeshGeo,
-                                                                     const SimulationMeshMaterial& mat);
-    static std::unique_ptr<SimulationMesh> createTriangleFromTriMesh(
-        const Mesh::TriMeshGeo& triMeshGeo, std::span<const SimulationMeshMaterial* const> materials,
-        std::span<const int> materialIndices);
-    static std::unique_ptr<SimulationMesh> createEdgeQuadFromTriMesh(const Mesh::TriMeshGeo& triMeshGeo,
-                                                                     const SimulationMeshMaterial& mat);
-    static std::unique_ptr<SimulationMesh> createEdgeQuadFromTriMesh(
-        const Mesh::TriMeshGeo& triMeshGeo, std::span<const SimulationMeshMaterial* const> materials,
-        std::span<const int> materialIndices);
-    static std::unique_ptr<SimulationMesh> createShellFromTriMesh(const Mesh::TriMeshGeo& triMeshGeo,
-                                                                  const SimulationMeshMaterial& mat);
-    static std::unique_ptr<SimulationMesh> createShellFromTriMesh(
-        const Mesh::TriMeshGeo& triMeshGeo, std::span<const int> elementMaterialIndices,
-        std::span<const SimulationMeshMaterial* const> materials);
 
     int        getNumElements() const;
     int        getNumVertices() const;

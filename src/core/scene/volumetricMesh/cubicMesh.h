@@ -57,6 +57,7 @@
 
 #pragma once
 
+#include "volumetricMeshTypes.h"
 #include "volumetricMesh.h"
 
 #include <filesystem>
@@ -66,6 +67,9 @@
 
 namespace pgo {
 namespace VolumetricMeshes {
+namespace io::detail {
+struct LoadedMeshData;
+}
 
 class CubicMesh : public VolumetricMesh {
 public:
@@ -107,14 +111,6 @@ public:
     CubicMesh(const CubicMesh& CubicMesh);
     virtual std::unique_ptr<VolumetricMesh> clone() const override;
     virtual ~CubicMesh();
-
-    // saves the mesh to a text file (.veg format, see examples and documentation)
-    virtual int saveToAscii(const std::filesystem::path& filename) const override;
-
-    // saves the mesh to binary format
-    // returns: 0 = success, non-zero = error
-    // output: if bytesWritten is non-nullptr, it will contain the number of bytes written
-    virtual int saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten = nullptr) const override;
 
     // === misc queries ===
 
@@ -167,6 +163,7 @@ protected:
     double cubeSize;
     double invCubeSize;
     CubicMesh(int numElementVertices) : VolumetricMesh(numElementVertices) {}
+    void assignFromData(io::detail::LoadedMeshData data, int verbose = 0);
     void SetInverseCubeSize();
     int  parallelepipedMode;  // normally this is 0; in advanced usage, it can be 1 (see above)
 

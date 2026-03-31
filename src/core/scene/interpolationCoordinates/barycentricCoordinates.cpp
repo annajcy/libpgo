@@ -32,6 +32,7 @@
 
 #include "barycentricCoordinates.h"
 #include "pgoLogging.h"
+#include "volumetricMeshInterpolation.h"
 #include "volumetricMesh.h"
 #include "boundingVolumeTree.h"
 #include "EigenSupport.h"
@@ -149,16 +150,16 @@ BarycentricCoordinates::BarycentricCoordinates(const std::vector<Vec4i>& tetVtxI
 }
 
 void BarycentricCoordinates::deform(const double* verticesDisp, double* locationDisp) const {
-    VolumetricMesh::interpolate(verticesDisp, locationDisp, numLocations, numElementVertices, &indices[0], &weights[0]);
+    interpolation::apply(verticesDisp, locationDisp, numLocations, numElementVertices, &indices[0], &weights[0]);
 }
 
 int BarycentricCoordinates::saveInterpolationWeights(const std::string& filename) const {
-    VolumetricMesh::InterpolationWeights interpolation;
+    InterpolationWeights interpolation;
     interpolation.numElementVertices = numElementVertices;
     interpolation.indices            = indices;
     interpolation.weights            = weights;
     interpolation.elements           = elements;
-    int ret = VolumetricMesh::saveInterpolationWeights(filename, interpolation);
+    int ret = interpolation::save_weights(filename, interpolation);
     std::cout << (ret == 0 ? "Saved" : "Failed to save");
     std::cout << " interpolation weights (numLocations: " << numLocations
               << ", numElementVertices: " << numElementVertices << ") to " << filename << "." << std::endl;

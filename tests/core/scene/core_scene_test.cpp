@@ -4,6 +4,9 @@
 #include "tetMesh.h"
 #include "triMeshGeo.h"
 #include "triMeshNeighbor.h"
+#include "volumetricMeshExport.h"
+#include "volumetricMeshIO.h"
+#include "volumetricMeshTypes.h"
 #include "volumetricMeshENuMaterial.h"
 
 #include <gtest/gtest.h>
@@ -11,6 +14,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -29,6 +33,28 @@ void expectVertexVectorsEqual(const std::vector<pgo::Vec3d>& lhs, const std::vec
         EXPECT_DOUBLE_EQ(lhs[i][1], rhs[i][1]);
         EXPECT_DOUBLE_EQ(lhs[i][2], rhs[i][2]);
     }
+}
+
+std::vector<std::byte> readBinaryFile(const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    EXPECT_TRUE(stream.is_open());
+    if (!stream.is_open()) {
+        return {};
+    }
+
+    stream.seekg(0, std::ios::end);
+    const auto size = stream.tellg();
+    stream.seekg(0, std::ios::beg);
+
+    std::vector<char> buffer(static_cast<size_t>(size));
+    stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    EXPECT_TRUE(stream.good() || stream.eof());
+
+    std::vector<std::byte> bytes(buffer.size());
+    for (size_t i = 0; i < buffer.size(); ++i) {
+        bytes[i] = static_cast<std::byte>(buffer[i]);
+    }
+    return bytes;
 }
 }  // namespace
 
@@ -102,15 +128,15 @@ TEST(CoreSceneGeometryTest, TetMeshAsciiAndBinaryRoundTripPreserveGeometry) {
 
     const std::filesystem::path asciiPath  = uniqueTempPath(".veg");
     const std::filesystem::path binaryPath = uniqueTempPath(".vegb");
-    ASSERT_EQ(source.saveToAscii(asciiPath), 0);
-    ASSERT_EQ(source.saveToBinary(binaryPath), 0);
+    ASSERT_EQ(io::save_to_ascii(source, asciiPath), 0);
+    ASSERT_EQ(io::save_to_binary(source, binaryPath), 0);
 
     const TetMesh asciiMesh(asciiPath);
     const TetMesh binaryMesh(binaryPath);
 
-    const auto sourceGeometry = source.VolumetricMesh::exportMeshGeometry();
-    const auto asciiGeometry  = asciiMesh.VolumetricMesh::exportMeshGeometry();
-    const auto binaryGeometry = binaryMesh.VolumetricMesh::exportMeshGeometry();
+    const auto sourceGeometry = exporting::geometry(source);
+    const auto asciiGeometry  = exporting::geometry(asciiMesh);
+    const auto binaryGeometry = exporting::geometry(binaryMesh);
 
     EXPECT_EQ(asciiMesh.getElementType(), VolumetricMesh::ElementType::Tet);
     EXPECT_EQ(binaryMesh.getElementType(), VolumetricMesh::ElementType::Tet);
@@ -125,6 +151,32 @@ TEST(CoreSceneGeometryTest, TetMeshAsciiAndBinaryRoundTripPreserveGeometry) {
     std::filesystem::remove(binaryPath);
 }
 
+TEST(CoreSceneGeometryTest, TetMeshBinaryMemoryConstructorPreservesGeometry) {
+    using namespace pgo::VolumetricMeshes;
+
+    const std::vector<pgo::Vec3d> vertices{
+        pgo::Vec3d(0.0, 0.0, 0.0), pgo::Vec3d(1.0, 0.0, 0.0), pgo::Vec3d(0.0, 1.0, 0.0), pgo::Vec3d(0.0, 0.0, 1.0)};
+    const std::vector<pgo::Vec4i> tets{pgo::Vec4i(0, 1, 2, 3)};
+    const TetMesh                  source(vertices, tets, 1234.0, 0.31, 7.5);
+
+    const std::filesystem::path binaryPath = uniqueTempPath(".vegb");
+    ASSERT_EQ(io::save_to_binary(source, binaryPath), 0);
+
+    const auto bytes = readBinaryFile(binaryPath);
+    ASSERT_FALSE(bytes.empty());
+
+    const TetMesh memoryMesh(std::span<const std::byte>(bytes.data(), bytes.size()));
+    const auto    sourceGeometry = exporting::geometry(source);
+    const auto    memoryGeometry = exporting::geometry(memoryMesh);
+
+    EXPECT_EQ(memoryMesh.getElementType(), VolumetricMesh::ElementType::Tet);
+    EXPECT_EQ(memoryGeometry.numElementVertices, 4);
+    expectVertexVectorsEqual(memoryGeometry.vertices, sourceGeometry.vertices);
+    EXPECT_EQ(memoryGeometry.elements, sourceGeometry.elements);
+
+    std::filesystem::remove(binaryPath);
+}
+
 TEST(CoreSceneGeometryTest, CubicMeshBinaryRoundTripAndGeometryExportPreserveData) {
     using namespace pgo::VolumetricMeshes;
 
@@ -132,10 +184,10 @@ TEST(CoreSceneGeometryTest, CubicMeshBinaryRoundTripAndGeometryExportPreserveDat
                                            pgo::Vec3d(1.0, 1.0, 0.0), pgo::Vec3d(0.0, 1.0, 0.0),
                                            pgo::Vec3d(0.0, 0.0, 1.0), pgo::Vec3d(1.0, 0.0, 1.0),
                                            pgo::Vec3d(1.0, 1.0, 1.0), pgo::Vec3d(0.0, 1.0, 1.0)};
-    const std::vector<VolumetricMesh::CubicElement> elements{{0, 1, 2, 3, 4, 5, 6, 7}};
-    const CubicMesh                                 source(vertices, elements, 500.0, 0.25, 3.0);
+    const std::vector<CubicElement> elements{{0, 1, 2, 3, 4, 5, 6, 7}};
+    const CubicMesh                 source(vertices, elements, 500.0, 0.25, 3.0);
 
-    const auto sourceGeometry = source.VolumetricMesh::exportMeshGeometry();
+    const auto sourceGeometry = exporting::geometry(source);
     EXPECT_EQ(sourceGeometry.numElementVertices, 8);
     expectVertexVectorsEqual(sourceGeometry.vertices, vertices);
     ASSERT_EQ(sourceGeometry.elements.size(), 8u);
@@ -143,16 +195,45 @@ TEST(CoreSceneGeometryTest, CubicMeshBinaryRoundTripAndGeometryExportPreserveDat
     EXPECT_EQ(sourceGeometry.elements[7], 7);
 
     const std::filesystem::path binaryPath = uniqueTempPath(".vegb");
-    ASSERT_EQ(source.saveToBinary(binaryPath), 0);
+    ASSERT_EQ(io::save_to_binary(source, binaryPath), 0);
 
     const CubicMesh binaryMesh(binaryPath);
-    const auto      binaryGeometry = binaryMesh.VolumetricMesh::exportMeshGeometry();
+    const auto      binaryGeometry = exporting::geometry(binaryMesh);
 
     EXPECT_EQ(binaryMesh.getElementType(), VolumetricMesh::ElementType::Cubic);
     EXPECT_DOUBLE_EQ(binaryMesh.getCubeSize(), 1.0);
     EXPECT_EQ(binaryGeometry.numElementVertices, 8);
     expectVertexVectorsEqual(binaryGeometry.vertices, sourceGeometry.vertices);
     EXPECT_EQ(binaryGeometry.elements, sourceGeometry.elements);
+
+    std::filesystem::remove(binaryPath);
+}
+
+TEST(CoreSceneGeometryTest, CubicMeshBinaryMemoryConstructorPreservesGeometry) {
+    using namespace pgo::VolumetricMeshes;
+
+    const std::vector<pgo::Vec3d> vertices{pgo::Vec3d(0.0, 0.0, 0.0), pgo::Vec3d(1.0, 0.0, 0.0),
+                                           pgo::Vec3d(1.0, 1.0, 0.0), pgo::Vec3d(0.0, 1.0, 0.0),
+                                           pgo::Vec3d(0.0, 0.0, 1.0), pgo::Vec3d(1.0, 0.0, 1.0),
+                                           pgo::Vec3d(1.0, 1.0, 1.0), pgo::Vec3d(0.0, 1.0, 1.0)};
+    const std::vector<CubicElement> elements{{0, 1, 2, 3, 4, 5, 6, 7}};
+    const CubicMesh                 source(vertices, elements, 500.0, 0.25, 3.0);
+
+    const std::filesystem::path binaryPath = uniqueTempPath(".vegb");
+    ASSERT_EQ(io::save_to_binary(source, binaryPath), 0);
+
+    const auto bytes = readBinaryFile(binaryPath);
+    ASSERT_FALSE(bytes.empty());
+
+    const CubicMesh memoryMesh(std::span<const std::byte>(bytes.data(), bytes.size()));
+    const auto      sourceGeometry = exporting::geometry(source);
+    const auto      memoryGeometry = exporting::geometry(memoryMesh);
+
+    EXPECT_EQ(memoryMesh.getElementType(), VolumetricMesh::ElementType::Cubic);
+    EXPECT_DOUBLE_EQ(memoryMesh.getCubeSize(), 1.0);
+    EXPECT_EQ(memoryGeometry.numElementVertices, 8);
+    expectVertexVectorsEqual(memoryGeometry.vertices, sourceGeometry.vertices);
+    EXPECT_EQ(memoryGeometry.elements, sourceGeometry.elements);
 
     std::filesystem::remove(binaryPath);
 }

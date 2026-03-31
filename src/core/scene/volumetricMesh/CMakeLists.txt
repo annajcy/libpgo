@@ -3,9 +3,14 @@ set(VOLUMETRIC_MESH_H
   tetMesh.h
   volumetricMeshENuMaterial.h
   volumetricMesh.h
+  volumetricMeshEdit.h
+  volumetricMeshExport.h
+  volumetricMeshIO.h
+  volumetricMeshInterpolation.h
   volumetricMeshMooneyRivlinMaterial.h
   volumetricMeshOrthotropicMaterial.h
   volumetricMeshParser.h
+  volumetricMeshTypes.h
   generateMassMatrix.h
   generateSurfaceMesh.h
 )
@@ -13,7 +18,11 @@ set(VOLUMETRIC_MESH_SRC
   cubicMesh.cpp
   tetMesh.cpp
   volumetricMesh.cpp
+  volumetricMeshEdit.cpp
   volumetricMeshENuMaterial.cpp
+  volumetricMeshExport.cpp
+  volumetricMeshIO.cpp
+  volumetricMeshInterpolation.cpp
   volumetricMeshMooneyRivlinMaterial.cpp
   volumetricMeshOrthotropicMaterial.cpp
   volumetricMeshParser.cpp

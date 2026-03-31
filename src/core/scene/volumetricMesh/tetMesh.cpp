@@ -31,6 +31,7 @@
  *************************************************************************/
 
 #include "tetMesh.h"
+#include "volumetricMeshIO.h"
 #include "volumetricMeshParser.h"
 #include "geometryQuery.h"
 #include "tetMeshGeo.h"
@@ -52,18 +53,12 @@ std::vector<int> flattenTetElements(std::span<const Vec4i> elements) {
 }  // namespace
 
 TetMesh::TetMesh(const std::filesystem::path& filename, FileFormatType fileFormat, int verbose)
-    : VolumetricMesh(filename, fileFormat, 4, &temp, verbose) {
-    if (temp != elementType()) {
-        printf("Error: mesh is not a tet mesh.\n");
-        throw 11;
-    }
+    : VolumetricMesh(4) {
+    assignFromData(io::detail::load_tet_data(filename, fileFormat, verbose), verbose);
 }
 
-TetMesh::TetMesh(std::span<const std::byte> binaryStream) : VolumetricMesh(binaryStream, 4, &temp) {
-    if (temp != elementType()) {
-        printf("Error: mesh is not a tet mesh.\n");
-        throw 11;
-    }
+TetMesh::TetMesh(std::span<const std::byte> binaryStream) : VolumetricMesh(4) {
+    assignFromData(io::detail::load_tet_data(binaryStream), 0);
 }
 
 TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int verbose) : VolumetricMesh(4) {
@@ -168,25 +163,30 @@ TetMesh::TetMesh(const TetMesh& tetMesh, std::span<const int> elements_, std::ma
 
 TetMesh::~TetMesh() {}
 
-int TetMesh::saveToAscii(const std::filesystem::path& filename) const {
-    return VolumetricMesh::saveToAscii(filename, elementType());
-}
-
-int TetMesh::saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten) const {
-    return VolumetricMesh::saveToBinary(filename, bytesWritten, elementType());
-}
-
-void TetMesh::exportMeshGeometry(std::vector<Vec3d>& vertices, std::vector<Vec4i>& tets) const {
-    exportMeshGeometry(vertices);
-    tets.resize(getNumElements());
-    for (int i = 0; i < getNumElements(); i++) {
-        auto ii = getVertexIndices(i);
-        tets[i]       = Vec4i(ii[0], ii[1], ii[2], ii[3]);
+void TetMesh::assignFromData(io::detail::LoadedMeshData data, int verbose) {
+    if (data.elementType != elementType()) {
+        printf("Error: mesh is not a tet mesh.\n");
+        throw 11;
     }
-}
+    if (data.numElementVertices != 4) {
+        printf("Error: tet mesh data has %d vertices per element.\n", data.numElementVertices);
+        throw 12;
+    }
 
-void TetMesh::exportMeshGeometry(Mesh::TetMeshGeo& geo) const {
-    exportMeshGeometry(geo.positions(), geo.tets());
+    numElementVertices = data.numElementVertices;
+    numVertices = static_cast<int>(data.vertices.size());
+    numElements = static_cast<int>(data.elements.size()) / numElementVertices;
+    numMaterials = static_cast<int>(data.materials.size());
+    numSets = static_cast<int>(data.sets.size());
+    numRegions = static_cast<int>(data.regions.size());
+
+    vertices = std::move(data.vertices);
+    elements = std::move(data.elements);
+    materials = std::move(data.materials);
+    sets = std::move(data.sets);
+    regions = std::move(data.regions);
+
+    assignMaterialsToElements(verbose);
 }
 
 void TetMesh::computeElementMassMatrix(int el, double* massMatrix) const {

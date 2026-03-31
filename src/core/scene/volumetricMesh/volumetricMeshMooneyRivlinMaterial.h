@@ -98,6 +98,7 @@ inline void VolumetricMesh::MooneyRivlinMaterial::setv1(double v1) {
 VolumetricMesh::MooneyRivlinMaterial* downcastMooneyRivlinMaterial(
     VolumetricMesh::Material*
         material);  // performs a check via getType and returns NULL if material is not Mooney Rivlin
+const VolumetricMesh::MooneyRivlinMaterial* downcastMooneyRivlinMaterial(const VolumetricMesh::Material* material);
 
 }  // namespace VolumetricMeshes
 }  // namespace pgo

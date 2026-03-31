@@ -7,6 +7,7 @@
 #include "triMeshGeo.h"
 #include "geometryQuery.h"
 #include "simulationMesh.h"
+#include "sceneToSimulationMesh.h"
 #include "deformationModelManager.h"
 #include "tetMeshDeformationModel.h"
 #include "plasticModel3DDeformationGradient.h"
@@ -195,7 +196,7 @@ int runSimFromConfig(const RunSimConfig& config) {
     ES::SpMatD                                       W = bc.generateInterpolationMatrix();
 
     std::shared_ptr<SolidDeformationModel::SimulationMesh> simMesh(
-        SolidDeformationModel::SimulationMesh::createFromTetMesh(tetMesh));
+        SolidDeformationModel::SceneToSimulationMesh::fromTetMesh(tetMesh));
     std::shared_ptr<SolidDeformationModel::DeformationModelManager> dmm =
         std::make_shared<SolidDeformationModel::DeformationModelManager>();
 

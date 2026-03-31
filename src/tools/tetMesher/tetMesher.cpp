@@ -2,6 +2,7 @@
 #include "pgoLogging.h"
 #include "triMeshGeo.h"
 #include "tetMesh.h"
+#include "volumetricMeshIO.h"
 
 #include <argparse/argparse.hpp>
 
@@ -55,7 +56,7 @@ int main(int argc, char* argv[]) {
 
         pgo::VolumetricMeshes::TetMesh tetMesh(positions, tets);
         std::string                    outputMeshFilename = tetgen_cmd.get<std::string>("--output-mesh");
-        if (tetMesh.save(outputMeshFilename.c_str()) != 0) {
+        if (pgo::VolumetricMeshes::io::save(tetMesh, outputMeshFilename) != 0) {
             SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Failed to save tet mesh to file {}\n", outputMeshFilename);
             return 1;
         }

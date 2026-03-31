@@ -77,6 +77,13 @@ VolumetricMesh::OrthotropicMaterial* downcastOrthotropicMaterial(VolumetricMesh:
     return dynamic_cast<VolumetricMesh::OrthotropicMaterial*>(material);
 }
 
+const VolumetricMesh::OrthotropicMaterial* downcastOrthotropicMaterial(const VolumetricMesh::Material* material) {
+    if (material->getType() != VolumetricMesh::Material::MaterialType::Orthotropic)
+        return nullptr;
+
+    return dynamic_cast<const VolumetricMesh::OrthotropicMaterial*>(material);
+}
+
 void VolumetricMesh::OrthotropicMaterial::setR(double* R) {
     memcpy(R_, R, sizeof(double) * 9);
 }

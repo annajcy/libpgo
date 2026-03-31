@@ -1,4 +1,5 @@
 #include "simulationMesh.h"
+#include "sceneToSimulationMesh.h"
 #include "deformationModelManager.h"
 #include "tetMesh.h"
 #include "triMeshGeo.h"
@@ -88,7 +89,7 @@ TEST(SimulationMeshMaterialBindingTest, InvalidPrimaryBindingThrows) {
 TEST(SimulationMeshMaterialBindingTest, CreateFromTetMeshBuildsPrimaryOnlyBinding) {
     VolumetricMeshes::TetMesh tetMesh = makeSingleTetMesh();
 
-    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createFromTetMesh(tetMesh);
+    std::unique_ptr<SimulationMesh> mesh = SceneToSimulationMesh::fromTetMesh(tetMesh);
 
     ASSERT_NE(mesh, nullptr);
     EXPECT_EQ(mesh->getElementType(), SimulationMeshType::TET);
@@ -101,7 +102,7 @@ TEST(SimulationMeshMaterialBindingTest, CreateTriangleFromTriMeshBuildsPrimaryOn
     Mesh::TriMeshGeo            triMesh = makeSingleTriangleMesh();
     SimulationMeshENuhMaterial  material(900.0, 0.35, 0.01);
 
-    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createTriangleFromTriMesh(triMesh, material);
+    std::unique_ptr<SimulationMesh> mesh = SceneToSimulationMesh::triangleFromTriMesh(triMesh, material);
 
     ASSERT_NE(mesh, nullptr);
     EXPECT_EQ(mesh->getElementType(), SimulationMeshType::TRIANGLE);
@@ -114,7 +115,7 @@ TEST(SimulationMeshMaterialBindingTest, CreateShellFromTriMeshBuildsPrimaryOnlyB
     Mesh::TriMeshGeo            triMesh = makeSingleTriangleMesh();
     SimulationMeshENuhMaterial  material(900.0, 0.35, 0.01);
 
-    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createShellFromTriMesh(triMesh, material);
+    std::unique_ptr<SimulationMesh> mesh = SceneToSimulationMesh::shellFromTriMesh(triMesh, material);
 
     ASSERT_NE(mesh, nullptr);
     EXPECT_EQ(mesh->getElementType(), SimulationMeshType::SHELL);
@@ -124,7 +125,7 @@ TEST(SimulationMeshMaterialBindingTest, CreateShellFromTriMeshBuildsPrimaryOnlyB
 
 TEST(SimulationMeshMaterialBindingTest, DeformationModelManagerStableNeoSmokeTest) {
     VolumetricMeshes::TetMesh tetMesh = makeSingleTetMesh();
-    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createFromTetMesh(tetMesh);
+    std::unique_ptr<SimulationMesh> mesh = SceneToSimulationMesh::fromTetMesh(tetMesh);
     Logging::init();
 
     DeformationModelManager dmm;

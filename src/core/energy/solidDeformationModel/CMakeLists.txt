@@ -42,6 +42,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   hessianMatrixHandle.h
 
   simulationMesh.h
+  sceneToSimulationMesh.h
   deformationModelFDTest.h
 
   tetVolumeConstraintFunctions.h
@@ -90,6 +91,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformationModelAssembler.cpp
 
   simulationMesh.cpp
+  sceneToSimulationMesh.cpp
   deformationModelFDTest.cpp
 
   tetVolumeConstraintFunctions.cpp

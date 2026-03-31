@@ -50,6 +50,9 @@ class TetMeshGeo;
 }
 
 namespace VolumetricMeshes {
+namespace io::detail {
+struct LoadedMeshData;
+}
 
 // see also volumetricMesh.h for a description of the routines
 
@@ -98,16 +101,6 @@ public:
     virtual std::unique_ptr<VolumetricMesh> clone() const override;
     virtual ~TetMesh();
 
-    virtual int saveToAscii(const std::filesystem::path& filename) const override;
-    // saves the mesh to binary format
-    // returns: 0 = success, non-zero = error
-    // output: if bytesWritten is non-nullptr, it will contain the number of bytes written
-    virtual int saveToBinary(const std::filesystem::path& filename, unsigned int* bytesWritten = nullptr) const override;
-
-    using VolumetricMesh::exportMeshGeometry;
-    void exportMeshGeometry(std::vector<Vec3d>& vertices, std::vector<Vec4i>& tets) const;
-    void exportMeshGeometry(Mesh::TetMeshGeo& geo) const;
-
     // === misc queries ===
 
     static VolumetricMesh::ElementType  elementType() { return ElementType::Tet; }
@@ -152,6 +145,7 @@ public:
 
 protected:
     TetMesh(int numElementVertices) : VolumetricMesh(numElementVertices) {}
+    void assignFromData(io::detail::LoadedMeshData data, int verbose = 0);
 
     friend class VolumetricMeshExtensions;
 };

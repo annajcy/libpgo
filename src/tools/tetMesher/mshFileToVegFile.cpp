@@ -1,4 +1,5 @@
 #include "loadMshFile.h"
+#include "volumetricMeshIO.h"
 
 int main(int argc, char** argv) {
     if (argc != 3) {
@@ -11,7 +12,7 @@ int main(int argc, char** argv) {
 
     pgo::VolumetricMeshes::TetMesh tetMesh = pgo::VolumetricMeshes::loadMshFile(inputMshFile);
 
-    if (tetMesh.save(outputVegFile) != 0) {
+    if (pgo::VolumetricMeshes::io::save(tetMesh, outputVegFile) != 0) {
         std::cerr << "Failed to write VEG file: " << outputVegFile << "\n";
         return 1;
     }

@@ -135,6 +135,8 @@ inline void VolumetricMesh::OrthotropicMaterial::setG31(double G31) {
 VolumetricMesh::OrthotropicMaterial* downcastOrthotropicMaterial(
     VolumetricMesh::Material*
         material);  // performs a check via getType and returns NULL if material is not Orthotropic
+const VolumetricMesh::OrthotropicMaterial* downcastOrthotropicMaterial(
+    const VolumetricMesh::Material* material);
 
 }  // namespace VolumetricMeshes
 }  // namespace pgo
