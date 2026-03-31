@@ -58,6 +58,31 @@ inline std::vector<std::byte> readBinaryFile(const std::filesystem::path& path) 
     return bytes;
 }
 
+inline void writeTextFile(const std::filesystem::path& path, const std::string& contents) {
+    std::ofstream stream(path);
+    ASSERT_TRUE(stream.is_open());
+    if (!stream.is_open()) {
+        return;
+    }
+
+    stream << contents;
+    stream.flush();
+    EXPECT_TRUE(stream.good());
+}
+
+inline void expectMeshGeometryEqual(const pgo::VolumetricMeshes::VolumetricMesh& actual,
+                                    const pgo::VolumetricMeshes::VolumetricMesh& expected) {
+    ASSERT_EQ(actual.getElementType(), expected.getElementType());
+    ASSERT_EQ(actual.getNumVertices(), expected.getNumVertices());
+    ASSERT_EQ(actual.getNumElements(), expected.getNumElements());
+    ASSERT_EQ(actual.getNumElementVertices(), expected.getNumElementVertices());
+
+    expectVertexVectorsEqual(std::vector<pgo::Vec3d>(actual.getVertices().begin(), actual.getVertices().end()),
+                             std::vector<pgo::Vec3d>(expected.getVertices().begin(), expected.getVertices().end()));
+    EXPECT_EQ(std::vector<int>(actual.getElements().begin(), actual.getElements().end()),
+              std::vector<int>(expected.getElements().begin(), expected.getElements().end()));
+}
+
 inline void expectWeightsNormalized(const double* weights, int count) {
     double sum = 0.0;
     for (int i = 0; i < count; ++i) {

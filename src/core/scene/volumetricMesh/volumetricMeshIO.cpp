@@ -781,7 +781,7 @@ void save_ascii_impl(const VolumetricMesh& mesh, const std::filesystem::path& fi
                     R[2], R[3], R[4], R[5], R[6], R[7], R[8]);
         } else if (material->getType() == MaterialType::MooneyRivlin) {
             const auto* mooney = downcastMooneyRivlinMaterial(material);
-            fprintf(fout, "MOONEYRIVLIN, %.15G, %.15G, %.20G %.15G\n", mooney->getDensity(), mooney->getmu01(),
+            fprintf(fout, "MOONEYRIVLIN, %.15G, %.15G, %.20G, %.15G\n", mooney->getDensity(), mooney->getmu01(),
                     mooney->getmu10(), mooney->getv1());
         }
         fprintf(fout, "\n");
