@@ -56,5 +56,5 @@ examples/box/ret-box
 .mypy_cache/
 
 build-pypgo
-papers
+papers/
 site/
