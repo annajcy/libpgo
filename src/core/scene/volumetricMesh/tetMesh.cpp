@@ -77,19 +77,20 @@ TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int
 
     parser.getNextLine(lineBuffer, 1);
     int dim;
-    sscanf(lineBuffer, "%d %d", &numVertices, &dim);
+    int num_vertices = 0;
+    sscanf(lineBuffer, "%d %d", &num_vertices, &dim);
     if (dim != 3)
         throw 3;
 
-    vertices.resize(numVertices);
-    for (int i = 0; i < numVertices; i++) {
+    std::vector<Vec3d> vertices(num_vertices);
+    for (int i = 0; i < num_vertices; i++) {
         parser.getNextLine(lineBuffer, 1);
         int    index;
         double x, y, z;
         sscanf(lineBuffer, "%d %lf %lf %lf", &index, &x, &y, &z);
         if (index != (i + 1))
             throw 3;
-        vertices[i] = Vec3d(x, y, z);
+        vertices[static_cast<size_t>(i)] = Vec3d(x, y, z);
     }
 
     parser.close();
@@ -100,16 +101,16 @@ TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int
         throw 4;
 
     parser.getNextLine(lineBuffer, 1);
-    sscanf(lineBuffer, "%d %d", &numElements, &dim);
+    int num_elements = 0;
+    sscanf(lineBuffer, "%d %d", &num_elements, &dim);
     if (dim != 4) {
         printf("Error: not a tet mesh file (%d vertices per tet encountered).\n", dim);
         throw 5;
     }
 
-    elements.resize(4 * numElements);
-    elementMaterial.resize(numElements);
+    std::vector<int> elements(static_cast<size_t>(4 * num_elements));
 
-    for (int i = 0; i < numElements; i++) {
+    for (int i = 0; i < num_elements; i++) {
         parser.getNextLine(lineBuffer, 1);
         int index;
         int v[4];
@@ -117,28 +118,17 @@ TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int
         if (index != (i + 1))
             throw 6;
         for (int j = 0; j < 4; j++)  // vertices are 1-indexed in .ele files
-            elements[i * 4 + j] = v[j] - 1;
+            elements[static_cast<size_t>(i * 4 + j)] = v[j] - 1;
     }
 
     parser.close();
 
+    geometry_data() = internal::VolumetricMeshData(4, std::move(vertices), std::move(elements));
     setSingleMaterial(E_default, nu_default, density_default);
 }
 
 TetMesh::TetMesh(const Vec3d& p0, const Vec3d& p1, const Vec3d& p2, const Vec3d& p3) : VolumetricMesh(4) {
-    numVertices = 4;
-    vertices    = {p0, p1, p2, p3};
-    //  vertices[0] = p0;
-    //  vertices[1] = p1;
-    //  vertices[2] = p2;
-    //  vertices[3] = p3;
-
-    numElements = 1;
-    elements.resize(4 * numElements);
-    elementMaterial.resize(numElements);
-    for (int i = 0; i < 4; i++)
-        elements[i] = i;
-
+    geometry_data() = internal::VolumetricMeshData(4, {p0, p1, p2, p3}, {0, 1, 2, 3});
     setSingleMaterial(E_default, nu_default, density_default);
 }
 
@@ -173,20 +163,8 @@ void TetMesh::assignFromData(io::detail::LoadedMeshData data, int verbose) {
         throw 12;
     }
 
-    numElementVertices = data.numElementVertices;
-    numVertices = static_cast<int>(data.vertices.size());
-    numElements = static_cast<int>(data.elements.size()) / numElementVertices;
-    numMaterials = static_cast<int>(data.materials.size());
-    numSets = static_cast<int>(data.sets.size());
-    numRegions = static_cast<int>(data.regions.size());
-
-    vertices = std::move(data.vertices);
-    elements = std::move(data.elements);
-    materials = std::move(data.materials);
-    sets = std::move(data.sets);
-    regions = std::move(data.regions);
-
-    assignMaterialsToElements(verbose);
+    geometry_data() = internal::VolumetricMeshData(data.numElementVertices, std::move(data.vertices), std::move(data.elements));
+    reset_material_catalog(std::move(data.materials), std::move(data.sets), std::move(data.regions), verbose);
 }
 
 void TetMesh::computeElementMassMatrix(int el, double* massMatrix) const {
@@ -347,7 +325,7 @@ void TetMesh::computeGradient(int element, const double* U, int numFields, doubl
         // [U3 - U0]
         const double* u[4];
         for (int i = 0; i < 4; i++)
-            u[i] = &U[3 * numVertices * field + 3 * getVertexIndex(element, i)];
+            u[i] = &U[3 * getNumVertices() * field + 3 * getVertexIndex(element, i)];
 
         Vec3d rows[3];
         for (int i = 0; i < 3; i++)
@@ -398,16 +376,15 @@ void TetMesh::getElementEdges(int el, int* edgeBuffer) const {
 }
 
 void TetMesh::orient() {
-    for (int el = 0; el < numElements; el++) {
+    for (int el = 0; el < getNumElements(); el++) {
         // a, b, c, d
         // dot(d - a, cross(b - a, c - a))
         double det = getTetDeterminant(getVertex(el, 0), getVertex(el, 1), getVertex(el, 2), getVertex(el, 3));
 
         if (det < 0) {
             // reverse tet
-            int* elementVertices = &elements[el * 4];
-            // swap 2 and 3
-            std::swap(elementVertices[2], elementVertices[3]);
+            std::span<int> element_vertices = geometry_data().vertex_indices(el);
+            std::swap(element_vertices[2], element_vertices[3]);
         }
     }
 }
@@ -416,7 +393,7 @@ int TetMesh::getClosestElement(const Vec3d& pos) const {
     // linear scan
     double closestDist    = DBL_MAX;
     int    closestElement = 0;
-    for (int element = 0; element < numElements; element++) {
+    for (int element = 0; element < getNumElements(); element++) {
         double dist = Mesh::getSquaredDistanceToTet(pos, getVertex(element, 0), getVertex(element, 1),
                                                     getVertex(element, 2), getVertex(element, 3));
 

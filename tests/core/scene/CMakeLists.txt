@@ -16,6 +16,8 @@ set(CORE_SCENE_VOLUMETRIC_MESH_SOURCES
   volumetricMesh/volumetric_mesh_edit_test.cpp
   volumetricMesh/generate_surface_mesh_test.cpp
   volumetricMesh/volumetric_mesh_clone_test.cpp
+  volumetricMesh/internal/material_catalog_test.cpp
+  volumetricMesh/internal/volumetric_mesh_data_test.cpp
 )
 
 add_libpgo_tools(core_scene_geometry_test "${CORE_SCENE_GEOMETRY_SOURCES}" "${AVAILABLE_LIBS}")

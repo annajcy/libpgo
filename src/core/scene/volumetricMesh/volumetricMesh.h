@@ -51,6 +51,7 @@
 
 #include "meshLinearAlgebra.h"
 #include "boundingBox.h"
+#include "internal/volumetric_mesh_data.h"
 #include "volumetricMeshTypes.h"
 
 #include <cstddef>
@@ -68,6 +69,9 @@
 namespace pgo {
 namespace VolumetricMeshes {
 class VolumetricMesh;
+namespace internal {
+class MaterialCatalog;
+}
 namespace editing {
 void subset_in_place(VolumetricMesh& mesh, const std::set<int>& subsetElements, int removeIsolatedVertices,
                      std::map<int, int>* old2NewVertexIDMap);
@@ -97,52 +101,50 @@ public:
     enum class FileFormatType { Ascii, Binary, ByExtension, Unknown };
     virtual ElementType getElementType() const = 0;  // calls the derived class to identify itself
 
-    inline int          getNumVertices() const { return numVertices; }
-    inline Vec3d&       getVertex(int i) { return vertices[i]; }
-    inline const Vec3d& getVertex(int i) const { return vertices[i]; }
+    inline int          getNumVertices() const { return m_geometry.num_vertices(); }
+    inline Vec3d&       getVertex(int i) { return m_geometry.vertex(i); }
+    inline const Vec3d& getVertex(int i) const { return m_geometry.vertex(i); }
     inline Vec3d&       getVertex(int element, int vertex) {
-        return vertices[elements[element * numElementVertices + vertex]];
+        return m_geometry.vertex(m_geometry.vertex_index(element, vertex));
     }
     inline const Vec3d& getVertex(int element, int vertex) const {
-        return vertices[elements[element * numElementVertices + vertex]];
+        return m_geometry.vertex(m_geometry.vertex_index(element, vertex));
     }
     inline void getElementVertices(int element, Vec3d* elementVertices)
         const;  // elementVertices should have size of getNumElementVertices() pre-allocated
-    inline int getVertexIndex(int element, int vertex) const { return elements[element * numElementVertices + vertex]; }
-    inline std::span<const int> getVertexIndices(int element) const {
-        return std::span<const int>(elements.data() + element * numElementVertices, numElementVertices);
-    }
-    inline std::span<Vec3d> getVertices() { return vertices; }
-    inline std::span<const Vec3d> getVertices() const { return vertices; }
-    inline int          getNumElements() const { return numElements; }
-    inline int          getNumElementVertices() const { return numElementVertices; }
-    inline std::span<const int> getElements() const { return elements; }
+    inline int getVertexIndex(int element, int vertex) const { return m_geometry.vertex_index(element, vertex); }
+    inline std::span<const int> getVertexIndices(int element) const { return m_geometry.vertex_indices(element); }
+    inline std::span<Vec3d> getVertices() { return m_geometry.vertices(); }
+    inline std::span<const Vec3d> getVertices() const { return m_geometry.vertices(); }
+    inline int          getNumElements() const { return m_geometry.num_elements(); }
+    inline int          getNumElementVertices() const { return m_geometry.num_element_vertices(); }
+    inline std::span<const int> getElements() const { return m_geometry.elements(); }
     void                renumberVertices(
                        const std::vector<int>& permutation);  // renumbers the vertices using the provided permutation
-    inline void setVertex(int i, const Vec3d& pos) { vertices[i] = pos; }  // set the position of a vertex
+    inline void setVertex(int i, const Vec3d& pos) { m_geometry.set_vertex(i, pos); }  // set the position of a vertex
 
     // === materials access ===
 
-    inline int             getNumMaterials() const { return numMaterials; }
-    inline const Material* getMaterial(int i) const { return materials[i].get(); }
-    inline const Material* getElementMaterial(int el) const { return materials[elementMaterial[el]].get(); }
+    int             getNumMaterials() const;
+    const Material* getMaterial(int i) const;
+    const Material* getElementMaterial(int el) const;
 
-    inline int        getNumSets() const { return numSets; }
-    inline const Set& getSet(int i) const { return sets[i]; }
+    int        getNumSets() const;
+    const Set& getSet(int i) const;
 
-    inline int           getNumRegions() const { return numRegions; }
-    inline const Region& getRegion(int i) const { return regions[i]; }
+    int           getNumRegions() const;
+    const Region& getRegion(int i) const;
 
     // === materials editing ===
-    inline Material* getMaterial(int i) { return materials[i].get(); }
-    inline Material* getElementMaterial(int el) { return materials[elementMaterial[el]].get(); }
-    void             setMaterial(int i, const Material* material);  // sets i-th material to "material"
-    void             setSingleMaterial(double E, double nu,
-                                       double density);  // erases all materials and creates a single material for the entire mesh
+    Material* getMaterial(int i);
+    Material* getElementMaterial(int el);
+    void      setMaterial(int i, const Material* material);  // sets i-th material to "material"
+    void      setSingleMaterial(double E, double nu,
+                                double density);  // erases all materials and creates a single material for the entire mesh
     void addMaterial(const Material* material, const Set& newSet, bool removeEmptySets, bool removeEmptyMaterials);
 
     // mass density of an element
-    double getElementDensity(int el) const { return materials[elementMaterial[el]]->getDensity(); }
+    double getElementDensity(int el) const;
     // computes the mass matrix of a single element
     // note: to compute the mass matrix for the entire mesh, use generateMassMatrix.h
     virtual void computeElementMassMatrix(
@@ -299,22 +301,15 @@ public:
     constexpr static const char* allElementsSetName = "allElements";
 
 protected:
-    int                numVertices = 0;
-    std::vector<Vec3d> vertices;
+    internal::VolumetricMeshData& geometry_data() { return m_geometry; }
+    const internal::VolumetricMeshData& geometry_data() const { return m_geometry; }
+    internal::MaterialCatalog& material_catalog();
+    const internal::MaterialCatalog& material_catalog() const;
 
-    int              numElementVertices = 0;
-    int              numElements        = 0;
-    std::vector<int> elements;
+    internal::VolumetricMeshData               m_geometry;
+    std::unique_ptr<internal::MaterialCatalog> m_material_catalog;
 
-    int                    numMaterials = 0;
-    int                    numSets      = 0;
-    int                    numRegions   = 0;
-    std::vector<std::unique_ptr<Material>> materials;
-    std::vector<Set>       sets;
-    std::vector<Region>    regions;
-    std::vector<int>       elementMaterial;  // material index of each element
-
-    VolumetricMesh(int numElementVertices_) { numElementVertices = numElementVertices_; }
+    explicit VolumetricMesh(int numElementVertices_);
     void propagateRegionsToElements();
     // constructs a mesh from the given vertices and elements,
     // with a single region and material ("E, nu" material)
@@ -338,6 +333,8 @@ protected:
     // index in the subset mesh
     VolumetricMesh(const VolumetricMesh& mesh, std::span<const int> elements, std::map<int, int>* vertexMap = nullptr);
     void assignMaterialsToElements(int verbose);
+    void reset_material_catalog(std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets,
+                                std::vector<Region> regions, int verbose);
 
 private:
     friend class VolumetricMeshExtensions;
@@ -348,7 +345,7 @@ private:
 };
 
 inline void VolumetricMesh::getElementVertices(int element, Vec3d* elementVertices) const {
-    for (int i = 0; i < numElementVertices; i++)
+    for (int i = 0; i < getNumElementVertices(); i++)
         elementVertices[i] = getVertex(element, i);
 }
 
