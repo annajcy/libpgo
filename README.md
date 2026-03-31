@@ -1,7 +1,13 @@
 # libpgo: Library for Physically based Simulation (P), Geometric Shape Modeling (G), and Optimization (O)
 
+[![CI/CD](https://github.com/annajcy/libpgo/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/annajcy/libpgo/actions/workflows/ci-cd.yml)
+[![Docs](https://github.com/annajcy/libpgo/actions/workflows/docs.yml/badge.svg)](https://github.com/annajcy/libpgo/actions/workflows/docs.yml)
+[![Pages](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://annajcy.github.io/libpgo/)
+
 The library is designed to primarily focus on physically based simulations, geometric shape modeling, and optimization.
 The source code extends [VegaFEM](https://viterbi-web.usc.edu/~jbarbic/vega/) and is designed for academic research purposes.
+
+**Documentation:** [https://annajcy.github.io/libpgo/](https://annajcy.github.io/libpgo/)
 
 ---
 
