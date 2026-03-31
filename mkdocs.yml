@@ -1,0 +1,107 @@
+site_name: libpgo
+site_description: Documentation for libpgo — physically based simulation, geometric shape modeling, and optimization
+site_url: https://annajcy.github.io/libpgo/
+repo_url: https://github.com/annajcy/libpgo
+edit_uri: edit/main/docs/
+strict: true
+
+theme:
+  name: material
+  icon:
+    logo: material/book-open-page-variant
+    repo: fontawesome/brands/github
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.arithmatex:
+      generic: true
+  - toc:
+      permalink: true
+  - tables
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Core Modules: architecture/core-modules.md
+      - Tools: architecture/tools.md
+  - User Guide:
+      - C++ Library: guide/cpp-library.md
+      - Python Bindings: guide/python-bindings.md
+      - Examples: guide/examples.md
+  - Source Documentation:
+      - Overview: document/src/core/overview.md
+      - API:
+          - Overview: document/src/api/overview.md
+          - C API: document/src/api/c/overview.md
+          - Python Bindings: document/src/api/python/pypgo/overview.md
+          - runSimCore: document/src/api/runSimCore.md
+      - Core:
+          - Energy:
+              - Overview: document/src/core/energy/overview.md
+              - Constraint Potential Energies: document/src/core/energy/constraintPotentialEnergies/overview.md
+              - Generic Potential Energies: document/src/core/energy/genericPotentialEnergies/overview.md
+              - Geometry Potential Energies: document/src/core/energy/geometryPotentialEnergies/overview.md
+              - Solid Deformation Model: document/src/core/energy/solidDeformationModel/overview.md
+          - External:
+              - Overview: document/src/core/external/overview.md
+              - CGAL Interface: document/src/core/external/cgalInterface/overview.md
+              - Eigen Support: document/src/core/external/eigenSupport/overview.md
+              - Geogram Interface: document/src/core/external/geogramInterface/overview.md
+              - libigl Interface: document/src/core/external/libiglInterface/overview.md
+              - TetGen Interface: document/src/core/external/tetgenInterface/overview.md
+          - Scene:
+              - Overview: document/src/core/scene/overview.md
+              - Interpolation Coordinates: document/src/core/scene/interpolationCoordinates/overview.md
+              - Mesh: document/src/core/scene/mesh/overview.md
+              - Volumetric Mesh: document/src/core/scene/volumetricMesh/overview.md
+          - Solve:
+              - Overview: document/src/core/solve/overview.md
+              - Contact: document/src/core/solve/contact/overview.md
+              - Nonlinear Optimization: document/src/core/solve/nonlinearOptimization/overview.md
+              - Simulation: document/src/core/solve/simulation/overview.md
+          - Utils:
+              - Overview: document/src/core/utils/overview.md
+              - Animation IO: document/src/core/utils/animationIO/overview.md
+              - Basic Algorithms: document/src/core/utils/basicAlgorithms/overview.md
+              - Basic IO: document/src/core/utils/basicIO/overview.md
+              - Config File JSON: document/src/core/utils/configFileJSON/overview.md
+              - File Service: document/src/core/utils/fileService/overview.md
+              - Macros: document/src/core/utils/macros/overview.md
+              - Perlin Noise: document/src/core/utils/perlinNoise/overview.md
+              - PGO Logging: document/src/core/utils/pgoLogging/overview.md
+      - Tools:
+          - Overview: document/src/tools/overview.md
+          - Animation: document/src/tools/animation/overview.md
+          - Cubic Mesher: document/src/tools/cubicMesher/overview.md
+          - Remesh Surface: document/src/tools/remeshSurface/overview.md
+          - Run Sim: document/src/tools/runSim/overview.md
+          - Tet Mesher: document/src/tools/tetMesher/overview.md
+  - API Reference: api/index.md

@@ -1,0 +1,76 @@
+# Mesh
+
+Source directory: `src/core/scene/mesh`
+
+## Purpose
+
+TODO: summarize what this directory is responsible for.
+
+## Contents
+
+- [Boundingbox](boundingBox.md)
+- [Boundingbox](boundingBox.md)
+- [Boundingvolumetree](boundingVolumeTree.md)
+- [Boundingvolumetree](boundingVolumeTree.md)
+- [Boundingvolumetreebase](boundingVolumeTreeBase.md)
+- [Boundingvolumetreebase](boundingVolumeTreeBase.md)
+- [Createtrimesh](createTriMesh.md)
+- [Createtrimesh](createTriMesh.md)
+- [Edgekey](edgeKey.md)
+- [Geometryquery](geometryQuery.md)
+- [Geometryquery](geometryQuery.md)
+- [Halfspace](halfSpace.md)
+- [Initpredicates](initPredicates.md)
+- [Intersection Tunicate](intersection_tunicate.md)
+- [Labeloutertets](labelOuterTets.md)
+- [Labeloutertets](labelOuterTets.md)
+- [Linesegmentdistance](lineSegmentDistance.md)
+- [Meshintersection](meshIntersection.md)
+- [Meshintersection](meshIntersection.md)
+- [Meshlinearalgebra](meshLinearAlgebra.md)
+- [Plane](plane.md)
+- [Pointinsideoutsidequery](pointInsideOutsideQuery.md)
+- [Pointinsideoutsidequery](pointInsideOutsideQuery.md)
+- [Predicates](predicates.md)
+- [Predicates](predicates.md)
+- [Rectkey](rectKey.md)
+- [Rectkey](rectKey.md)
+- [Simplesphere](simpleSphere.md)
+- [Simplesphere](simpleSphere.md)
+- [Tetkey](tetKey.md)
+- [Tetkey](tetKey.md)
+- [Tetmeshgeo](tetMeshGeo.md)
+- [Tetmeshgeo](tetMeshGeo.md)
+- [Tetmeshmanifold](tetMeshManifold.md)
+- [Tetmeshmanifold](tetMeshManifold.md)
+- [Tetrahedron](tetrahedron.md)
+- [Tetrahedron](tetrahedron.md)
+- [Trikey](triKey.md)
+- [Trikey](triKey.md)
+- [Trimeshgeo](triMeshGeo.md)
+- [Trimeshgeo](triMeshGeo.md)
+- [Trimeshgeoloader](triMeshGeoLoader.md)
+- [Trimeshmanifold](triMeshManifold.md)
+- [Trimeshmanifold](triMeshManifold.md)
+- [Trimeshneighbor](triMeshNeighbor.md)
+- [Trimeshneighbor](triMeshNeighbor.md)
+- [Trimeshpseudonormal](triMeshPseudoNormal.md)
+- [Trimeshpseudonormal](triMeshPseudoNormal.md)
+- [Trimeshsampler](triMeshSampler.md)
+- [Trimeshsampler](triMeshSampler.md)
+- [Triangle](triangle.md)
+- [Triangle](triangle.md)
+- [Trianglesampler](triangleSampler.md)
+- [Tribox3](tribox3.md)
+- [Tribox3](tribox3.md)
+- [Verticescorrespondence](verticesCorrespondence.md)
+- [Verticescorrespondence](verticesCorrespondence.md)
+- [Verticesinfo](verticesInfo.md)
+- [Verticesinfo](verticesInfo.md)
+- [Voxelfunction](voxelFunction.md)
+- [Windingnumbertree](windingNumberTree.md)
+- [Windingnumbertree](windingNumberTree.md)
+
+## Notes
+
+TODO: add architecture notes, ownership boundaries, and cross-links.
