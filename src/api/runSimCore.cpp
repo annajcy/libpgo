@@ -194,7 +194,8 @@ int runSimFromConfig(const RunSimConfig& config) {
                                                         &tetMesh);
     ES::SpMatD                                       W = bc.generateInterpolationMatrix();
 
-    std::shared_ptr<SolidDeformationModel::SimulationMesh> simMesh(SolidDeformationModel::loadTetMesh(&tetMesh));
+    std::shared_ptr<SolidDeformationModel::SimulationMesh> simMesh(
+        SolidDeformationModel::SimulationMesh::createFromTetMesh(tetMesh));
     std::shared_ptr<SolidDeformationModel::DeformationModelManager> dmm =
         std::make_shared<SolidDeformationModel::DeformationModelManager>();
 

@@ -7,6 +7,9 @@ copyright to USC,MIT,NUS
 
 #include "EigenSupport.h"
 
+#include <array>
+#include <memory>
+#include <span>
 #include <vector>
 
 namespace pgo {
@@ -200,13 +203,55 @@ struct ElementMaterialBinding {
 
 class SimulationMesh {
 public:
-    SimulationMesh(int numVertices, const double* vertexPositions, int numElements, int numElementVertices,
-                   const int* elementVertexIndices, const ElementMaterialBinding* elementMaterialBindings,
-                   int numMaterials,
-                   const SimulationMeshMaterial* const* materials, SimulationMeshType meshType);
+    using Vertex = EigenSupport::V3d;
+    using UV = EigenSupport::V2d;
+    using TetElement = std::array<int, 4>;
+    using CubicElement = std::array<int, 8>;
+    using TriangleElement = std::array<int, 3>;
+    using EdgeQuadElement = std::array<int, 4>;
+    using ShellElement = std::array<int, 6>;
+
     SimulationMesh(const SimulationMesh&) = delete;
     SimulationMesh& operator=(const SimulationMesh&) = delete;
     ~SimulationMesh();
+
+    static std::unique_ptr<SimulationMesh> createTet(std::span<const Vertex> vertices,
+                                                     std::span<const TetElement> elements,
+                                                     std::span<const ElementMaterialBinding> elementMaterialBindings,
+                                                     std::span<const SimulationMeshMaterial* const> materials);
+    static std::unique_ptr<SimulationMesh> createCubic(std::span<const Vertex> vertices,
+                                                       std::span<const CubicElement> elements,
+                                                       std::span<const ElementMaterialBinding> elementMaterialBindings,
+                                                       std::span<const SimulationMeshMaterial* const> materials);
+    static std::unique_ptr<SimulationMesh> createTriangle(std::span<const Vertex> vertices,
+                                                          std::span<const TriangleElement> elements,
+                                                          std::span<const ElementMaterialBinding> elementMaterialBindings,
+                                                          std::span<const SimulationMeshMaterial* const> materials);
+    static std::unique_ptr<SimulationMesh> createEdgeQuad(std::span<const Vertex> vertices,
+                                                          std::span<const EdgeQuadElement> elements,
+                                                          std::span<const ElementMaterialBinding> elementMaterialBindings,
+                                                          std::span<const SimulationMeshMaterial* const> materials);
+    static std::unique_ptr<SimulationMesh> createShell(std::span<const Vertex> vertices,
+                                                       std::span<const ShellElement> elements,
+                                                       std::span<const ElementMaterialBinding> elementMaterialBindings,
+                                                       std::span<const SimulationMeshMaterial* const> materials);
+
+    static std::unique_ptr<SimulationMesh> createFromTetMesh(const VolumetricMeshes::TetMesh& tetmesh);
+    static std::unique_ptr<SimulationMesh> createTriangleFromTriMesh(const Mesh::TriMeshGeo& triMeshGeo,
+                                                                     const SimulationMeshMaterial& mat);
+    static std::unique_ptr<SimulationMesh> createTriangleFromTriMesh(
+        const Mesh::TriMeshGeo& triMeshGeo, std::span<const SimulationMeshMaterial* const> materials,
+        std::span<const int> materialIndices);
+    static std::unique_ptr<SimulationMesh> createEdgeQuadFromTriMesh(const Mesh::TriMeshGeo& triMeshGeo,
+                                                                     const SimulationMeshMaterial& mat);
+    static std::unique_ptr<SimulationMesh> createEdgeQuadFromTriMesh(
+        const Mesh::TriMeshGeo& triMeshGeo, std::span<const SimulationMeshMaterial* const> materials,
+        std::span<const int> materialIndices);
+    static std::unique_ptr<SimulationMesh> createShellFromTriMesh(const Mesh::TriMeshGeo& triMeshGeo,
+                                                                  const SimulationMeshMaterial& mat);
+    static std::unique_ptr<SimulationMesh> createShellFromTriMesh(
+        const Mesh::TriMeshGeo& triMeshGeo, std::span<const int> elementMaterialIndices,
+        std::span<const SimulationMeshMaterial* const> materials);
 
     int        getNumElements() const;
     int        getNumVertices() const;
@@ -217,7 +262,7 @@ public:
     void getVertex(int vi, double pos[3]) const;
     void getVertex(int ele, int j, double pos[3]) const;
 
-    void assignElementUVs(const double* uvs);
+    void assignElementUVs(std::span<const UV> uvs);
     bool hasElementUV() const;
     void getElementUV(int ele, int j, double uv[2]) const;
 
@@ -232,6 +277,14 @@ public:
     void setMaterial(int matID, const SimulationMeshMaterial* mat);
 
 protected:
+    SimulationMesh() = default;
+
+    template <size_t N>
+    static std::unique_ptr<SimulationMesh> createTyped(
+        SimulationMeshType meshType, std::span<const Vertex> vertices, std::span<const std::array<int, N>> elements,
+        std::span<const ElementMaterialBinding> elementMaterialBindings,
+        std::span<const SimulationMeshMaterial* const> materials);
+
     std::vector<EigenSupport::V3d>                 vertices_;
     std::vector<std::vector<int>>                  elements_;
     std::vector<std::vector<EigenSupport::V2d>>    elementUVs_;
@@ -239,16 +292,6 @@ protected:
     std::vector<SimulationMeshMaterial*>           materials_;
     SimulationMeshType                             meshType_;
 };
-
-SimulationMesh* loadTetMesh(const VolumetricMeshes::TetMesh* tetmesh);
-
-SimulationMesh* loadTriMesh(const Mesh::TriMeshGeo& triMeshGeo, const SimulationMeshMaterial* mat, int toTriangle);
-SimulationMesh* loadTriMesh(const Mesh::TriMeshGeo& triMeshGeo, int numMaterials,
-                            const SimulationMeshMaterial* const* const mat, const int* materialIndices, int toTriangle);
-
-SimulationMesh* loadShellMesh(const Mesh::TriMeshGeo& triMeshGeo, const SimulationMeshMaterial* mat);
-SimulationMesh* loadShellMesh(const Mesh::TriMeshGeo& triMeshGeo, const int* elementMaterialIndices,
-                              const SimulationMeshMaterial* const* mat);
 
 void computeTriangleUV(SimulationMesh* mesh, double scaleFactor);
 }  // namespace SolidDeformationModel

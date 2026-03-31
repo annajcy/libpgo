@@ -6,8 +6,8 @@
       "sequence": "ret-box/ret{:04d}.obj",
       "sequence-type": "objmesh",
       "sequence-range": [
-        1,
-        49
+        0,
+        200
       ]
     }
   ]

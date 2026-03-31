@@ -6,7 +6,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -16,17 +18,17 @@ namespace {
 std::unique_ptr<SimulationMesh> makeDirectTetSimulationMesh(const ElementMaterialBinding& binding,
                                                             const SimulationMeshMaterial* const* materials,
                                                             int numMaterials) {
-    const double vertices[] = {
-        0.0, 0.0, 0.0,
-        1.0, 0.0, 0.0,
-        0.0, 1.0, 0.0,
-        0.0, 0.0, 1.0,
+    const std::array<SimulationMesh::Vertex, 4> vertices = {
+        SimulationMesh::Vertex(0.0, 0.0, 0.0),
+        SimulationMesh::Vertex(1.0, 0.0, 0.0),
+        SimulationMesh::Vertex(0.0, 1.0, 0.0),
+        SimulationMesh::Vertex(0.0, 0.0, 1.0),
     };
-    const int element[] = {0, 1, 2, 3};
-    const ElementMaterialBinding bindings[] = {binding};
+    const std::array<SimulationMesh::TetElement, 1> elements = {SimulationMesh::TetElement{0, 1, 2, 3}};
+    const std::array<ElementMaterialBinding, 1> bindings = {binding};
 
-    return std::make_unique<SimulationMesh>(4, vertices, 1, 4, element, bindings, numMaterials, materials,
-                                            SimulationMeshType::TET);
+    return SimulationMesh::createTet(vertices, elements, bindings,
+                                     std::span<const SimulationMeshMaterial* const>(materials, numMaterials));
 }
 
 VolumetricMeshes::TetMesh makeSingleTetMesh() {
@@ -83,10 +85,10 @@ TEST(SimulationMeshMaterialBindingTest, InvalidPrimaryBindingThrows) {
     EXPECT_THROW((void)makeDirectTetSimulationMesh({1, -1}, materials, 1), std::out_of_range);
 }
 
-TEST(SimulationMeshMaterialBindingTest, LoadTetMeshBuildsPrimaryOnlyBinding) {
+TEST(SimulationMeshMaterialBindingTest, CreateFromTetMeshBuildsPrimaryOnlyBinding) {
     VolumetricMeshes::TetMesh tetMesh = makeSingleTetMesh();
 
-    std::unique_ptr<SimulationMesh> mesh(loadTetMesh(&tetMesh));
+    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createFromTetMesh(tetMesh);
 
     ASSERT_NE(mesh, nullptr);
     EXPECT_EQ(mesh->getElementType(), SimulationMeshType::TET);
@@ -95,11 +97,11 @@ TEST(SimulationMeshMaterialBindingTest, LoadTetMeshBuildsPrimaryOnlyBinding) {
     EXPECT_NE(dynamic_cast<const SimulationMeshENuMaterial*>(mesh->getPrimaryMaterial(0)), nullptr);
 }
 
-TEST(SimulationMeshMaterialBindingTest, LoadTriMeshBuildsPrimaryOnlyBinding) {
+TEST(SimulationMeshMaterialBindingTest, CreateTriangleFromTriMeshBuildsPrimaryOnlyBinding) {
     Mesh::TriMeshGeo            triMesh = makeSingleTriangleMesh();
     SimulationMeshENuhMaterial  material(900.0, 0.35, 0.01);
 
-    std::unique_ptr<SimulationMesh> mesh(loadTriMesh(triMesh, &material, 1));
+    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createTriangleFromTriMesh(triMesh, material);
 
     ASSERT_NE(mesh, nullptr);
     EXPECT_EQ(mesh->getElementType(), SimulationMeshType::TRIANGLE);
@@ -108,9 +110,21 @@ TEST(SimulationMeshMaterialBindingTest, LoadTriMeshBuildsPrimaryOnlyBinding) {
     EXPECT_NE(dynamic_cast<const SimulationMeshENuhMaterial*>(mesh->getPrimaryMaterial(0)), nullptr);
 }
 
+TEST(SimulationMeshMaterialBindingTest, CreateShellFromTriMeshBuildsPrimaryOnlyBinding) {
+    Mesh::TriMeshGeo            triMesh = makeSingleTriangleMesh();
+    SimulationMeshENuhMaterial  material(900.0, 0.35, 0.01);
+
+    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createShellFromTriMesh(triMesh, material);
+
+    ASSERT_NE(mesh, nullptr);
+    EXPECT_EQ(mesh->getElementType(), SimulationMeshType::SHELL);
+    EXPECT_EQ(mesh->getNumElements(), 1);
+    EXPECT_FALSE(mesh->hasSecondaryMaterial(0));
+}
+
 TEST(SimulationMeshMaterialBindingTest, DeformationModelManagerStableNeoSmokeTest) {
     VolumetricMeshes::TetMesh tetMesh = makeSingleTetMesh();
-    std::unique_ptr<SimulationMesh> mesh(loadTetMesh(&tetMesh));
+    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createFromTetMesh(tetMesh);
     Logging::init();
 
     DeformationModelManager dmm;
@@ -132,6 +146,19 @@ TEST(SimulationMeshMaterialBindingTest, DeformationModelManagerHillSmokeTest) {
     dmm.init(DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::HILL_STABLE_NEO, 0);
 
     EXPECT_NE(dmm.getDeformationModel(0), nullptr);
+}
+
+TEST(SimulationMeshMaterialBindingTest, AssignElementUVsRejectsInvalidSpanSize) {
+    const SimulationMeshENuMaterial primaryMaterial(1200.0, 0.42);
+    const SimulationMeshMaterial* materials[] = {&primaryMaterial};
+    std::unique_ptr<SimulationMesh> mesh = makeDirectTetSimulationMesh({0, -1}, materials, 1);
+    const std::array<SimulationMesh::UV, 3> badUvs = {
+        SimulationMesh::UV(0.0, 0.0),
+        SimulationMesh::UV(1.0, 0.0),
+        SimulationMesh::UV(0.0, 1.0),
+    };
+
+    EXPECT_THROW(mesh->assignElementUVs(badUvs), std::invalid_argument);
 }
 
 }  // namespace pgo::SolidDeformationModel::test
