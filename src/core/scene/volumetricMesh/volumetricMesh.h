@@ -71,6 +71,7 @@ namespace VolumetricMeshes {
 class VolumetricMesh;
 namespace internal {
 class MaterialCatalog;
+class MeshMutation;
 }
 namespace editing {
 void subset_in_place(VolumetricMesh& mesh, const std::set<int>& subsetElements, int removeIsolatedVertices,
@@ -339,9 +340,7 @@ protected:
 private:
     friend class VolumetricMeshExtensions;
     friend class VolumetricMeshLoader;
-    friend void editing::subset_in_place(VolumetricMesh& mesh, const std::set<int>& subsetElements,
-                                         int removeIsolatedVertices, std::map<int, int>* old2NewVertexIDMap);
-    friend void editing::remove_isolated_vertices(VolumetricMesh& mesh, std::map<int, int>* old2NewVertexIDMap);
+    friend class internal::MeshMutation;
 };
 
 inline void VolumetricMesh::getElementVertices(int element, Vec3d* elementVertices) const {

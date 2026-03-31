@@ -32,6 +32,7 @@
 
 #include "cubicMesh.h"
 #include "internal/material_catalog.h"
+#include "internal/mesh_mutation.h"
 #include "volumetricMeshIO.h"
 
 #include "triple.h"
@@ -748,27 +749,9 @@ void CubicMesh::subdivide() {
 
     cubeSize *= 0.5;
 
-    geometry_data() = internal::VolumetricMeshData(8, std::move(newVertices), std::move(newElements));
-
-    // update sets (expand each entry in each set into 8 new entries)
-    auto& sets = material_catalog().mutable_sets();
-    for (int setIndex = 0; setIndex < getNumSets(); setIndex++) {
-        std::set<int> oldElements;
-        sets[setIndex].getElements(oldElements);
-        Set newSet(sets[setIndex].getName());
-        for (std::set<int>::iterator iter = oldElements.begin(); iter != oldElements.end(); iter++) {
-            for (int i = 0; i < 8; i++)
-                newSet.insert(8 * *iter + i);
-        }
-
-        sets[setIndex] = std::move(newSet);
-    }
-
-    if (getNumElements() > 0) {
-        material_catalog().mutable_element_materials().assign(static_cast<size_t>(getNumElements()), 0);
-    }
-
-    propagateRegionsToElements();
+    internal::MeshMutation::replace_geometry(*this,
+                                             internal::VolumetricMeshData(8, std::move(newVertices), std::move(newElements)));
+    internal::MeshMutation::material_catalog(*this).expand_elements(8);
 }
 
 void CubicMesh::setParallelepipedMode(int parallelepipedMode_) {

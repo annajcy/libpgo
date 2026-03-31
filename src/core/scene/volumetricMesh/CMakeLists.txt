@@ -1,6 +1,11 @@
 set(VOLUMETRIC_MESH_H
   cubicMesh.h
   internal/material_catalog.h
+  internal/mesh_mass_properties.h
+  internal/mesh_mutation.h
+  internal/mesh_queries.h
+  internal/mesh_subset_editor.h
+  internal/mesh_transforms.h
   internal/region_assignment.h
   internal/volumetric_mesh_data.h
   tetMesh.h
@@ -20,6 +25,11 @@ set(VOLUMETRIC_MESH_H
 set(VOLUMETRIC_MESH_SRC
   cubicMesh.cpp
   internal/material_catalog.cpp
+  internal/mesh_mass_properties.cpp
+  internal/mesh_mutation.cpp
+  internal/mesh_queries.cpp
+  internal/mesh_subset_editor.cpp
+  internal/mesh_transforms.cpp
   internal/region_assignment.cpp
   internal/volumetric_mesh_data.cpp
   tetMesh.cpp

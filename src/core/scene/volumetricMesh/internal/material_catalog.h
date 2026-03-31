@@ -38,6 +38,8 @@ public:
     void set_single_material(int num_elements, double E, double nu, double density);
     void assign_materials_to_elements(int num_elements, int verbose);
     void propagate_regions_to_elements();
+    void remap_elements(std::span<const int> old_to_new_element, int new_num_elements);
+    void expand_elements(int factor);
     void add_material(int num_elements, const VolumetricMesh::Material* material, const VolumetricMesh::Set& new_set,
                       bool remove_empty_sets, bool remove_empty_materials);
     void validate_against_num_elements(int num_elements) const;

@@ -120,6 +120,57 @@ void MaterialCatalog::propagate_regions_to_elements() {
     ::pgo::VolumetricMeshes::internal::propagate_regions_to_elements(m_sets, m_regions, m_element_materials);
 }
 
+void MaterialCatalog::remap_elements(std::span<const int> old_to_new_element, int new_num_elements) {
+    std::vector<int> new_element_materials(static_cast<size_t>(new_num_elements), -1);
+    for (int old_element = 0; old_element < static_cast<int>(old_to_new_element.size()); ++old_element) {
+        const int new_element = old_to_new_element[static_cast<size_t>(old_element)];
+        if (new_element >= 0) {
+            new_element_materials[static_cast<size_t>(new_element)] =
+                m_element_materials[static_cast<size_t>(old_element)];
+        }
+    }
+    m_element_materials = std::move(new_element_materials);
+
+    for (VolumetricMesh::Set& set : m_sets) {
+        std::set<int> old_elements = std::move(set.getElements());
+        set.clear();
+        for (const int old_element : old_elements) {
+            const int new_element = old_to_new_element[static_cast<size_t>(old_element)];
+            if (new_element >= 0) {
+                set.insert(new_element);
+            }
+        }
+    }
+
+    validate_against_num_elements(new_num_elements);
+}
+
+void MaterialCatalog::expand_elements(int factor) {
+    PGO_ALOG(factor > 0);
+
+    const int old_num_elements = static_cast<int>(m_element_materials.size());
+    std::vector<int> expanded_element_materials(static_cast<size_t>(old_num_elements * factor), -1);
+    for (int old_element = 0; old_element < old_num_elements; ++old_element) {
+        const int material_index = m_element_materials[static_cast<size_t>(old_element)];
+        for (int offset = 0; offset < factor; ++offset) {
+            expanded_element_materials[static_cast<size_t>(factor * old_element + offset)] = material_index;
+        }
+    }
+    m_element_materials = std::move(expanded_element_materials);
+
+    for (VolumetricMesh::Set& set : m_sets) {
+        std::set<int> old_elements = std::move(set.getElements());
+        set.clear();
+        for (const int old_element : old_elements) {
+            for (int offset = 0; offset < factor; ++offset) {
+                set.insert(factor * old_element + offset);
+            }
+        }
+    }
+
+    validate_against_num_elements(old_num_elements * factor);
+}
+
 void MaterialCatalog::add_material(int num_elements, const VolumetricMesh::Material* material_value,
                                    const VolumetricMesh::Set& new_set, bool remove_empty_sets,
                                    bool remove_empty_materials) {

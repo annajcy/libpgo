@@ -33,6 +33,9 @@
 #include "volumetricMeshParser.h"
 #include "volumetricMesh.h"
 #include "internal/material_catalog.h"
+#include "internal/mesh_mass_properties.h"
+#include "internal/mesh_queries.h"
+#include "internal/mesh_transforms.h"
 #include "volumetricMeshIO.h"
 #include "volumetricMeshENuMaterial.h"
 #include "volumetricMeshOrthotropicMaterial.h"
@@ -183,20 +186,11 @@ VolumetricMesh::VolumetricMesh(const VolumetricMesh& volumetricMesh)
       m_material_catalog(std::make_unique<internal::MaterialCatalog>(*volumetricMesh.m_material_catalog)) {}
 
 double VolumetricMesh::getVolume() const {
-    double vol = 0.0;
-    for (int el = 0; el < getNumElements(); el++)
-        vol += getElementVolume(el);
-    return vol;
+    return internal::mesh_mass_properties::get_volume(*this);
 }
 
 void VolumetricMesh::getVertexVolumes(double* vertexVolumes) const {
-    memset(vertexVolumes, 0, sizeof(double) * getNumVertices());
-    double factor = 1.0 / getNumElementVertices();
-    for (int el = 0; el < getNumElements(); el++) {
-        double volume = getElementVolume(el);
-        for (int j = 0; j < getNumElementVertices(); j++)
-            vertexVolumes[getVertexIndex(el, j)] += factor * volume;
-    }
+    internal::mesh_mass_properties::get_vertex_volumes(*this, vertexVolumes);
 }
 
 Vec3d VolumetricMesh::getElementCenter(int el) const {
@@ -210,180 +204,47 @@ Vec3d VolumetricMesh::getElementCenter(int el) const {
 }
 
 void VolumetricMesh::getVerticesInElements(const std::vector<int>& elements_, std::vector<int>& vertices_) const {
-    vertices_.clear();
-    for (unsigned int i = 0; i < elements_.size(); i++)
-        for (int j = 0; j < getNumElementVertices(); j++)
-            vertices_.push_back(getVertexIndex(elements_[i], j));
-
-    // sort and deduplicate vertices_
-    std::sort(vertices_.begin(), vertices_.end());
-    auto newEnd = std::unique(vertices_.begin(), vertices_.end());
-    vertices_.resize(std::distance(vertices_.begin(), newEnd));
+    internal::mesh_queries::get_vertices_in_elements(*this, elements_, vertices_);
 }
 
 void VolumetricMesh::getElementsTouchingVertices(const std::vector<int>& vertices_, std::vector<int>& elements_) const {
-    elements_.clear();
-    for (int i = 0; i < getNumElements(); i++) {
-        for (int j = 0; j < getNumElementVertices(); j++) {
-            // assumes input vector vertices_ is sorted
-            if (std::binary_search(vertices_.begin(), vertices_.end(), getVertexIndex(i, j))) {
-                elements_.push_back(i);
-                break;
-            }
-        }
-    }
+    internal::mesh_queries::get_elements_touching_vertices(*this, vertices_, elements_);
 }
 
 void VolumetricMesh::getElementsWithOnlyVertices(const std::vector<int>& vertices_, std::vector<int>& elements_) const {
-    elements_.clear();
-    for (int i = 0; i < getNumElements(); i++) {
-        bool withOnlyVertices = true;
-        for (int j = 0; j < getNumElementVertices(); j++) {
-            // assumes input vector vertices_ is sorted
-            if (std::binary_search(vertices_.begin(), vertices_.end(), getVertexIndex(i, j)) == false) {
-                withOnlyVertices = false;
-                break;
-            }
-        }
-        if (withOnlyVertices)
-            elements_.push_back(i);
-    }
+    internal::mesh_queries::get_elements_with_only_vertices(*this, vertices_, elements_);
 }
 
 void VolumetricMesh::getVertexNeighborhood(const std::vector<int>& vertices_, std::vector<int>& neighborhood) const {
-    std::vector<int> elements_;
-    getElementsTouchingVertices(vertices_, elements_);
-    getVerticesInElements(elements_, neighborhood);
+    internal::mesh_queries::get_vertex_neighborhood(*this, vertices_, neighborhood);
 }
 
 double VolumetricMesh::getMass() const {
-    double mass = 0.0;
-    for (int i = 0; i < getNumRegions(); i++) {
-        const Region& region  = getRegion(i);
-        double        density = getMaterial(region.getMaterialIndex())->getDensity();
-        std::set<int> setElements;  // elements in the region
-        getSet(region.getSetIndex()).getElements(setElements);
-
-        // over all elements in the region
-        for (std::set<int>::iterator iter = setElements.begin(); iter != setElements.end(); iter++) {
-            int    element       = *iter;
-            double elementVolume = getElementVolume(element);
-            double elementMass   = elementVolume * density;
-            mass += elementMass;
-        }
-    }
-
-    return mass;
+    return internal::mesh_mass_properties::get_mass(*this);
 }
 
 void VolumetricMesh::getInertiaParameters(double& mass, Vec3d& centerOfMass, Mat3d& inertiaTensor) const {
-    mass = 0.0;
-    centerOfMass.setZero();
-    inertiaTensor.setZero();
-
-    // compute mass, center of mass, inertia tensor
-    for (int i = 0; i < getNumElements(); i++) {
-        double density       = getElementDensity(i);
-        double elementVolume = getElementVolume(i);
-        double elementMass   = elementVolume * density;
-
-        mass += elementMass;
-        Vec3d elementCenter = getElementCenter(i);
-        centerOfMass += elementMass * elementCenter;
-
-        Mat3d elementITUnitDensity;
-        getElementInertiaTensor(i, elementITUnitDensity);
-
-        double a = elementCenter[0];
-        double b = elementCenter[1];
-        double c = elementCenter[2];
-
-        Mat3d elementITCorrection =
-            asMat3d(b * b + c * c, -a * b, -a * c, -a * b, a * a + c * c, -b * c, -a * c, -b * c, a * a + b * b);
-
-        Mat3d elementIT = density * elementITUnitDensity + elementMass * elementITCorrection;
-
-        inertiaTensor += elementIT;
-    }
-
-    // printf("final mass: %G\n",mass);
-    centerOfMass /= mass;
-
-    // correct inertia tensor so it's around the center of mass
-    double a = centerOfMass[0];
-    double b = centerOfMass[1];
-    double c = centerOfMass[2];
-
-    Mat3d correction =
-        asMat3d(b * b + c * c, -a * b, -a * c, -a * b, a * a + c * c, -b * c, -a * c, -b * c, a * a + b * b);
-
-    inertiaTensor -= mass * correction;
+    internal::mesh_mass_properties::get_inertia_parameters(*this, mass, centerOfMass, inertiaTensor);
 }
 
 void VolumetricMesh::getMeshGeometricParameters(Vec3d& centroid, double* radius) const {
-    // compute centroid
-    centroid = Vec3d(0, 0, 0);
-    for (int i = 0; i < getNumVertices(); i++)
-        centroid += getVertex(i);
-
-    centroid /= getNumVertices();
-
-    // compute radius
-    *radius = 0;
-    for (int i = 0; i < getNumVertices(); i++) {
-        Vec3d  vertex = getVertex(i);
-        double dist   = (vertex - centroid).norm();
-        if (dist > *radius)
-            *radius = dist;
-    }
+    internal::mesh_mass_properties::get_mesh_geometric_parameters(*this, centroid, radius);
 }
 
 Mesh::BoundingBox VolumetricMesh::getBoundingBox() const {
-    const auto vertices = getVertices();
-    return Mesh::BoundingBox(std::vector<Vec3d>(vertices.begin(), vertices.end()));
+    return internal::mesh_mass_properties::get_bounding_box(*this);
 }
 
 int VolumetricMesh::getClosestVertex(Vec3d pos) const {
-    // linear scan
-    double closestDist   = DBL_MAX;
-    int    closestVertex = -1;
-
-    for (int i = 0; i < getNumVertices(); i++) {
-        const Vec3d& vertexPosition = getVertex(i);
-        double       dist           = (pos - vertexPosition).norm();
-        if (dist < closestDist) {
-            closestDist   = dist;
-            closestVertex = i;
-        }
-    }
-
-    return closestVertex;
+    return internal::mesh_queries::get_closest_vertex(*this, pos);
 }
 
 int VolumetricMesh::getClosestElement(const Vec3d& pos) const {
-    // linear scan
-    double closestDist    = DBL_MAX;
-    int    closestElement = 0;
-    for (int element = 0; element < getNumElements(); element++) {
-        Vec3d  center = getElementCenter(element);
-        double dist   = (pos - center).norm();
-        if (dist < closestDist) {
-            closestDist    = dist;
-            closestElement = element;
-        }
-    }
-
-    return closestElement;
+    return internal::mesh_queries::get_closest_element(*this, pos);
 }
 
 int VolumetricMesh::getContainingElement(Vec3d pos) const {
-    // linear scan
-    for (int element = 0; element < getNumElements(); element++) {
-        if (containsVertex(element, pos))
-            return element;
-    }
-
-    return -1;
+    return internal::mesh_queries::get_containing_element(*this, pos);
 }
 
 void VolumetricMesh::setSingleMaterial(double E, double nu, double density) {
@@ -409,46 +270,16 @@ int VolumetricMesh::interpolateGradient(const double* U, int numFields, Vec3d po
 }
 
 void VolumetricMesh::computeGravity(double* gravityForce, double g, bool addForce) const {
-    if (!addForce)
-        memset(gravityForce, 0, sizeof(double) * 3 * getNumVertices());
-
-    double invNumElementVertices = 1.0 / getNumElementVertices();
-
-    for (int el = 0; el < getNumElements(); el++) {
-        double volume  = getElementVolume(el);
-        double density = getElementDensity(el);
-        double mass    = density * volume;
-        for (int j = 0; j < getNumElementVertices(); j++)
-            gravityForce[3 * getVertexIndex(el, j) + 1] -=
-                invNumElementVertices * mass * g;  // gravity assumed to act in negative y-direction
-    }
+    internal::mesh_transforms::compute_gravity(*this, gravityForce, g, addForce);
 }
 
 void VolumetricMesh::applyDeformation(const double* u) {
-    for (int i = 0; i < getNumVertices(); i++) {
-        Vec3d& v = getVertex(i);
-        v[0] += u[3 * i + 0];
-        v[1] += u[3 * i + 1];
-        v[2] += u[3 * i + 2];
-    }
+    internal::mesh_transforms::apply_deformation(*this, u);
 }
 
 // transforms every vertex as X |--> pos + R * X
 void VolumetricMesh::applyLinearTransformation(double* pos, double* R) {
-    for (int i = 0; i < getNumVertices(); i++) {
-        Vec3d& v = getVertex(i);
-
-        double newPos[3];
-        for (int j = 0; j < 3; j++) {
-            newPos[j] = pos[j];
-            for (int k = 0; k < 3; k++)
-                newPos[j] += R[3 * j + k] * v[k];
-        }
-
-        v[0] = newPos[0];
-        v[1] = newPos[1];
-        v[2] = newPos[2];
-    }
+    internal::mesh_transforms::apply_linear_transformation(*this, pos, R);
 }
 
 void VolumetricMesh::setMaterial(int i, const Material* material) {
@@ -585,7 +416,7 @@ VolumetricMesh::VolumetricMesh(const VolumetricMesh& volumetricMesh, std::span<c
 }
 
 void VolumetricMesh::renumberVertices(const std::vector<int>& permutation) {
-    m_geometry.renumber_vertices(permutation);
+    internal::mesh_transforms::renumber_vertices(*this, permutation);
 }
 
 void VolumetricMesh::addMaterial(const Material* material, const Set& newSet, bool removeEmptySets,

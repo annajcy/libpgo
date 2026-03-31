@@ -13,10 +13,12 @@ set(CORE_SCENE_GEOMETRY_SOURCES
 set(CORE_SCENE_VOLUMETRIC_MESH_SOURCES
   volumetricMesh/tet_mesh_test.cpp
   volumetricMesh/cubic_mesh_test.cpp
+  volumetricMesh/mesh_queries_test.cpp
   volumetricMesh/volumetric_mesh_edit_test.cpp
   volumetricMesh/generate_surface_mesh_test.cpp
   volumetricMesh/volumetric_mesh_clone_test.cpp
   volumetricMesh/internal/material_catalog_test.cpp
+  volumetricMesh/internal/mesh_subset_editor_test.cpp
   volumetricMesh/internal/volumetric_mesh_data_test.cpp
 )
 
