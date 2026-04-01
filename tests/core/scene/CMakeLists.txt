@@ -11,3 +11,9 @@ target_link_libraries(core_scene_test PRIVATE GTest::gtest_main)
 set_property(TARGET core_scene_test PROPERTY FOLDER "tests")
 
 add_test(NAME core.scene.geometry COMMAND core_scene_test)
+
+add_libpgo_tools(core_scene_contact_embedding_test contact_embedding_test.cpp "${AVAILABLE_LIBS}")
+target_link_libraries(core_scene_contact_embedding_test PRIVATE GTest::gtest_main)
+set_property(TARGET core_scene_contact_embedding_test PROPERTY FOLDER "tests")
+
+add_test(NAME core.scene.contact_embedding COMMAND core_scene_contact_embedding_test)

@@ -7,6 +7,7 @@ copyright to USC
 #include "triangleMeshSelfContactDetection.h"
 #include "pointTrianglePairCouplingEnergyWithCollision.h"
 
+#include "contactEnergyUtilities.h"
 #include "pgoLogging.h"
 #include "geometryQuery.h"
 #include "triangleSampler.h"
@@ -240,31 +241,35 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
 
     // if embedding weights and indices are given
     if (vertexEmbeddingIndices && vertexEmbeddingWeights) {
+        const int embeddingArity =
+            validateAndGetVertexEmbeddingArity(*vertexEmbeddingIndices, *vertexEmbeddingWeights,
+                                               static_cast<int>(vertices.size()), "self-contact");
+
         // we need to first compute an interpolation matrix
         tbb::concurrent_vector<ES::TripletD> entries;
 
         // for (auto it = sampleIDQueryTable.begin(); it != sampleIDQueryTable.end(); ++it) {
         tbb::parallel_for(0, (int)sampleInfoAndIDs.size(), [&](int si) {
-            const Vec3d& p     = sampleInfoAndIDs[si].pos;
-            int          triID = sampleInfoAndIDs[si].triangleID;
+            int triID = sampleInfoAndIDs[si].triangleID;
 
             for (int vj = 0; vj < 3; vj++) {
                 int vid = triangles[triID][vj];
 
-                if (vid * 4 + 3 >= (int)vertexEmbeddingIndices->size()) {
+                const int embedOffset = vid * embeddingArity;
+                if (embedOffset + embeddingArity > (int)vertexEmbeddingIndices->size()) {
                     continue;
                 }
 
-                for (int j = 0; j < 4; j++) {
-                    int    tetVid = (*vertexEmbeddingIndices)[vid * 4 + j];
-                    double tetw   = (*vertexEmbeddingWeights)[vid * 4 + j];
+                for (int j = 0; j < embeddingArity; j++) {
+                    int    embedVid = (*vertexEmbeddingIndices)[embedOffset + j];
+                    double embedW   = (*vertexEmbeddingWeights)[embedOffset + j];
 
-                    double wfinal = sampleInfoAndIDs[si].w[vj] * tetw;
+                    double wfinal = sampleInfoAndIDs[si].w[vj] * embedW;
                     if (std::abs(wfinal) < 1e-16)
                         continue;
 
                     for (int dofi = 0; dofi < 3; dofi++) {
-                        entries.emplace_back(si * 3 + dofi, tetVid * 3 + dofi, wfinal);
+                        entries.emplace_back(si * 3 + dofi, embedVid * 3 + dofi, wfinal);
                     }
                 }
             }
