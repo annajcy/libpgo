@@ -52,7 +52,10 @@
 #include "meshLinearAlgebra.h"
 #include "boundingBox.h"
 #include "internal/volumetric_mesh_data.h"
-#include "volumetricMeshTypes.h"
+#include "materials/material_access.h"
+#include "types/element_set.h"
+#include "types/element_types.h"
+#include "types/material_region.h"
 
 #include <cstddef>
 #include <cstdio>
@@ -89,11 +92,6 @@ public:
     virtual std::unique_ptr<VolumetricMesh> clone() const = 0;
     virtual ~VolumetricMesh();
 
-    // nested classes to store sets, materials and regions (declared later)
-    class Set;
-    class Material;
-    class Region;
-
     // === vertex and element access ===
 
     enum class ElementType { Invalid, Tet, Cubic };
@@ -127,27 +125,28 @@ public:
     // === materials access ===
 
     int             getNumMaterials() const;
-    const Material* getMaterial(int i) const;
-    const Material* getElementMaterial(int el) const;
+    const MaterialRecord& getMaterial(int i) const;
+    const MaterialRecord& getElementMaterial(int el) const;
 
     int        getNumSets() const;
-    const Set& getSet(int i) const;
+    const ElementSet& getSet(int i) const;
 
     int           getNumRegions() const;
-    const Region& getRegion(int i) const;
+    const MaterialRegion& getRegion(int i) const;
 
     // === materials editing ===
-    Material* getMaterial(int i);
-    Material* getElementMaterial(int el);
-    void      setMaterial(int i, const Material* material);  // sets i-th material to "material"
+    MaterialRecord& getMaterial(int i);
+    MaterialRecord& getElementMaterial(int el);
+    void      setMaterial(int i, const MaterialRecord& material);  // sets i-th material to "material"
     void      setSingleMaterial(double E, double nu,
                                 double density);  // erases all materials and creates a single material for the entire mesh
-    void addMaterial(const Material* material, const Set& newSet, bool removeEmptySets, bool removeEmptyMaterials);
+    void addMaterial(const MaterialRecord& material, const ElementSet& newSet, bool removeEmptySets,
+                     bool removeEmptyMaterials);
 
     // mass density of an element
     double getElementDensity(int el) const;
     // computes the mass matrix of a single element
-    // note: to compute the mass matrix for the entire mesh, use generateMassMatrix.h
+    // note: to compute the mass matrix for the entire mesh, use algorithms/generate_mass_matrix.h
     virtual void computeElementMassMatrix(
         int element, double* massMatrix) const = 0;  // massMatrix is numElementVertices_ x numElementVertices_
 
@@ -216,89 +215,13 @@ public:
     // in this version, the element containing the "pos" must be known, and prescribed directly
     virtual void interpolateGradient(int element, const double* U, int numFields, Vec3d pos, double* grad) const = 0;
 
-    // === material-related nested classes ===
-
-    // a set of integers, with a name (used for example, to store elements that share the same material properties)
-    class Set {
-    public:
-        Set() {}
-        Set(const std::string& name);
-        Set(const Set& set);
-        Set(const std::string& name, const std::set<int>& elements);
-
-        Set& operator=(const Set& set);
-
-        inline std::string          getName() const { return name; }
-        inline int                  getNumElements() const { return (int)elements.size(); }
-        inline void                 getElements(std::set<int>& elements) const { elements = this->elements; }
-        inline const std::set<int>& getElements() const { return elements; }
-        inline bool                 isMember(int element) const;
-
-        inline std::set<int>& getElements() { return elements; }
-        inline void           insert(int element);
-        inline void           clear();
-
-    protected:
-        std::string   name;
-        std::set<int> elements;
-    };
-
-    // stores a material (abstract class)
-    class Material {
-    public:
-        Material(const std::string name, double density);
-        Material(const Material& material);
-        virtual ~Material() {}
-        virtual std::unique_ptr<Material> clone() const = 0;
-
-        inline const std::string& getName() const { return name; }        // material name
-        inline double             getDensity() const { return density; }  // density
-        inline void               setName(const std::string& name) { this->name = name; }
-        inline void               setDensity(double density) { this->density = density; }
-
-        // ENU = any isotropic material parameterized by E (Young's modulus), nu (Poisson's ratio)
-        // ORTHOTROPIC = orthotropic anisotropic material
-        // MOONEYRIVLIN = Mooney-Rivlin material
-        enum class MaterialType { Invalid, ENu, Orthotropic, MooneyRivlin };
-        virtual MaterialType getType() const = 0;
-
-        enum class ENuMaterialProperty { Density, E, Nu, Count };
-        enum class OrthotropicMaterialProperty { Density, E1, E2, E3, Nu12, Nu23, Nu31, G12, G23, G31, Count };
-        enum class MooneyRivlinMaterialProperty { Density, Mu01, Mu10, V1, Count };
-
-    protected:
-        std::string name;
-        double      density;
-    };
-
-    // material with E (Young's modulus), nu (Poisson's ratio) (defined in volumetricMeshENuMaterial.h)
-    class ENuMaterial;
-    // Mooney-Rivlin material (defined in volumetricMeshMooneyRivlinMaterial.h)
-    class MooneyRivlinMaterial;
-    // Orthotropic material (defined in volumetricMeshOrthotropicMaterial.h)
-    class OrthotropicMaterial;
-
-    // a volumetric mesh region, i.e., a set of elements sharing the same material
-    class Region {
-    public:
-        Region() {}
-        Region(int materialIndex, int setIndex);
-        inline int  getMaterialIndex() const { return materialIndex; }
-        inline int  getSetIndex() const { return setIndex; }
-        inline void setMaterialIndex(int index) { materialIndex = index; }
-        inline void setSetIndex(int index) { setIndex = index; }
-
-    protected:
-        int setIndex = -1, materialIndex = -1;
-    };
-
     // default values for materials
     constexpr static double E_default       = 1e9;
     constexpr static double nu_default      = 0.45;
     constexpr static double density_default = 1000.0;
 
     // generate the "allElements" set, which is the default set in VolumetricMesh that includes all the elements
-    static Set                   generateAllElementsSet(int numElements);
+    static ElementSet            generateAllElementsSet(int numElements);
     constexpr static const char* allElementsSetName = "allElements";
 
 protected:
@@ -326,16 +249,16 @@ protected:
     // "materials", "sets" and "regions" will be copied internally (deep copy), so they
     // can be released after calling this constructor
     VolumetricMesh(std::span<const Vec3d> vertices, int numElementVertices, std::span<const int> elements,
-                   std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets,
-                   std::vector<Region> regions);
+                   std::vector<MaterialRecord> materials, std::vector<ElementSet> sets,
+                   std::vector<MaterialRegion> regions);
 
     // creates a submesh consisting of the specified elements of the given mesh
     // if vertexMap is non-null, it also returns a renaming datastructure: vertexMap[big mesh vertex] is the vertex
     // index in the subset mesh
     VolumetricMesh(const VolumetricMesh& mesh, std::span<const int> elements, std::map<int, int>* vertexMap = nullptr);
     void assignMaterialsToElements(int verbose);
-    void reset_material_catalog(std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets,
-                                std::vector<Region> regions, int verbose);
+    void reset_material_catalog(std::vector<MaterialRecord> materials, std::vector<ElementSet> sets,
+                                std::vector<MaterialRegion> regions, int verbose);
 
 private:
     friend class VolumetricMeshExtensions;
@@ -347,40 +270,6 @@ inline void VolumetricMesh::getElementVertices(int element, Vec3d* elementVertic
     for (int i = 0; i < getNumElementVertices(); i++)
         elementVertices[i] = getVertex(element, i);
 }
-
-inline VolumetricMesh::Set::Set(const std::string& name_) {
-    name = name_;
-}
-inline VolumetricMesh::Set::Set(const Set& set) {
-    elements = set.elements;
-    name     = set.getName();
-}
-inline VolumetricMesh::Set::Set(const std::string& name_, const std::set<int>& elements_)
-    : name(name_), elements(elements_) {}
-inline VolumetricMesh::Set& VolumetricMesh::Set::operator=(const Set& set) {
-    elements = set.elements;
-    name     = set.getName();
-    return *this;
-}
-inline bool VolumetricMesh::Set::isMember(int element) const {
-    return (elements.find(element) != elements.end());
-}
-inline void VolumetricMesh::Set::insert(int element) {
-    elements.insert(element);
-}
-inline void VolumetricMesh::Set::clear() {
-    elements.clear();
-}
-
-inline VolumetricMesh::Material::Material(const std::string name_, double density_) : density(density_) {
-    name = name_;
-}
-inline VolumetricMesh::Material::Material(const Material& material) : density(material.getDensity()) {
-    name = material.getName();
-}
-
-inline VolumetricMesh::Region::Region(int materialIndex_, int setIndex_)
-    : setIndex(setIndex_), materialIndex(materialIndex_) {}
 
 }  // namespace VolumetricMeshes
 }  // namespace pgo

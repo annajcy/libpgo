@@ -7,7 +7,6 @@ author: GPT-5
 #include "tetMesh.h"
 #include "triMeshGeo.h"
 #include "triMeshNeighbor.h"
-#include "volumetricMeshENuMaterial.h"
 #include "pgoLogging.h"
 
 #include <array>
@@ -120,12 +119,13 @@ struct ENuMaterialParams {
     double nu;
 };
 
-ENuMaterialParams toENuParams(const pgo::VolumetricMeshes::VolumetricMesh::Material& material) {
-    const auto* enu = pgo::VolumetricMeshes::downcastENuMaterial(&material);
-    if (enu == nullptr) {
+ENuMaterialParams toENuParams(const pgo::VolumetricMeshes::MaterialRecord& material) {
+    try {
+        const auto& enu = pgo::VolumetricMeshes::require_material<pgo::VolumetricMeshes::EnuMaterialData>(material);
+        return {enu.E, enu.nu};
+    } catch (const std::invalid_argument&) {
         throw std::invalid_argument("TetMesh to SimulationMesh currently requires ENu material");
     }
-    return {enu->getE(), enu->getNu()};
 }
 
 }  // namespace
@@ -154,7 +154,7 @@ std::unique_ptr<SimulationMesh> SceneToSimulationMesh::fromTetMesh(const Volumet
             {tetMesh.getVertexIndex(ei, 0), tetMesh.getVertexIndex(ei, 1), tetMesh.getVertexIndex(ei, 2),
              tetMesh.getVertexIndex(ei, 3)});
 
-        const ENuMaterialParams params = toENuParams(*tetMesh.getElementMaterial(ei));
+        const ENuMaterialParams params = toENuParams(tetMesh.getElementMaterial(ei));
         materialOwners.push_back(std::make_unique<SimulationMeshENuMaterial>(params.E, params.nu));
         materials.push_back(materialOwners.back().get());
         elementMaterialBindings.push_back({ei, -1});

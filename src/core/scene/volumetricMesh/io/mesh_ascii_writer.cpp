@@ -41,7 +41,7 @@ void write_ascii_mesh(const VolumetricMesh& mesh, const std::filesystem::path& f
     fprintf(output, "\n");
 
     for (int material_index = 0; material_index < mesh.getNumMaterials(); material_index++) {
-        write_ascii_material(output, *mesh.getMaterial(material_index));
+        write_ascii_material(output, mesh.getMaterial(material_index));
     }
 
     for (int set_index = 1; set_index < mesh.getNumSets(); set_index++) {
@@ -66,7 +66,7 @@ void write_ascii_mesh(const VolumetricMesh& mesh, const std::filesystem::path& f
         const auto& region = mesh.getRegion(region_index);
         fprintf(output, "*REGION\n");
         fprintf(output, "%s, %s\n", mesh.getSet(region.getSetIndex()).getName().c_str(),
-                mesh.getMaterial(region.getMaterialIndex())->getName().c_str());
+                mesh.getMaterial(region.getMaterialIndex()).name.c_str());
         fprintf(output, "\n");
     }
 

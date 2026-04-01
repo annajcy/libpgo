@@ -3,7 +3,6 @@
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "volumetricMesh.h"
-#include "volumetricMeshENuMaterial.h"
 
 #include <gtest/gtest.h>
 
@@ -21,6 +20,27 @@
 #include <vector>
 
 namespace pgo::Mesh::test {
+
+inline pgo::VolumetricMeshes::MaterialRecord makeEnuMaterial(const std::string& name, double density, double E,
+                                                             double nu) {
+    return pgo::VolumetricMeshes::MaterialRecord{name, pgo::VolumetricMeshes::EnuMaterialData{density, E, nu}};
+}
+
+inline pgo::VolumetricMeshes::MaterialRecord makeOrthotropicMaterial(const std::string& name, double density,
+                                                                     double E1, double E2, double E3, double nu12,
+                                                                     double nu23, double nu31, double G12, double G23,
+                                                                     double G31,
+                                                                     const std::array<double, 9>& rotation) {
+    return pgo::VolumetricMeshes::MaterialRecord{
+        name, pgo::VolumetricMeshes::OrthotropicMaterialData{density, E1, E2, E3, nu12, nu23, nu31, G12, G23, G31,
+                                                             rotation}};
+}
+
+inline pgo::VolumetricMeshes::MaterialRecord makeMooneyRivlinMaterial(const std::string& name, double density,
+                                                                      double mu01, double mu10, double v1) {
+    return pgo::VolumetricMeshes::MaterialRecord{
+        name, pgo::VolumetricMeshes::MooneyRivlinMaterialData{density, mu01, mu10, v1}};
+}
 
 inline std::filesystem::path uniqueTempPath(const std::string& suffix) {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -118,9 +138,9 @@ inline pgo::VolumetricMeshes::TetMesh makeTwoTetMeshWithDistinctMaterials() {
 
     pgo::VolumetricMeshes::TetMesh mesh(vertices, tets, 1234.0, 0.31, 7.5);
 
-    pgo::VolumetricMeshes::VolumetricMesh::ENuMaterial second_material("secondMaterial", 9.25, 4321.0, 0.21);
-    pgo::VolumetricMeshes::VolumetricMesh::Set         second_set("secondElement", std::set<int>{1});
-    mesh.addMaterial(&second_material, second_set, true, true);
+    const auto second_material = makeEnuMaterial("secondMaterial", 9.25, 4321.0, 0.21);
+    pgo::VolumetricMeshes::ElementSet second_set("secondElement", std::set<int>{1});
+    mesh.addMaterial(second_material, second_set, true, true);
 
     return mesh;
 }
@@ -145,9 +165,9 @@ inline pgo::VolumetricMeshes::CubicMesh makeTwoCubeMeshWithDistinctMaterials() {
 
     pgo::VolumetricMeshes::CubicMesh mesh(vertices, elements, 500.0, 0.25, 3.0);
 
-    pgo::VolumetricMeshes::VolumetricMesh::ENuMaterial second_material("secondMaterial", 6.5, 1800.0, 0.33);
-    pgo::VolumetricMeshes::VolumetricMesh::Set         second_set("secondElement", std::set<int>{1});
-    mesh.addMaterial(&second_material, second_set, true, true);
+    const auto second_material = makeEnuMaterial("secondMaterial", 6.5, 1800.0, 0.33);
+    pgo::VolumetricMeshes::ElementSet second_set("secondElement", std::set<int>{1});
+    mesh.addMaterial(second_material, second_set, true, true);
 
     return mesh;
 }

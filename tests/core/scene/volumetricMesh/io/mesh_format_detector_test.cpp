@@ -1,6 +1,7 @@
 #include "cubicMesh.h"
+#include "io/mesh_format_detector.h"
+#include "io/mesh_save.h"
 #include "tetMesh.h"
-#include "volumetricMeshIO.h"
 
 #include "../volumetric_mesh_test_fixtures.h"
 

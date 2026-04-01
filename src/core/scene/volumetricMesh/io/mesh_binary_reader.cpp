@@ -16,9 +16,9 @@ struct RawLoadedMeshData {
     int num_element_vertices = 0;
     std::vector<Vec3d> vertices;
     std::vector<int> elements;
-    std::vector<std::unique_ptr<VolumetricMesh::Material>> materials;
-    std::vector<VolumetricMesh::Set> sets;
-    std::vector<VolumetricMesh::Region> regions;
+    std::vector<MaterialRecord> materials;
+    std::vector<ElementSet> sets;
+    std::vector<MaterialRegion> regions;
 };
 
 template <typename T>
@@ -118,7 +118,7 @@ LoadedMeshData read_binary_mesh(std::istream& input) {
         read_exact(input, &length, 1);
         read_exact(input, set_name, static_cast<size_t>(length));
         set_name[length] = '\0';
-        data.sets[static_cast<size_t>(set_index)] = VolumetricMesh::Set(set_name);
+        data.sets[static_cast<size_t>(set_index)] = ElementSet(set_name);
 
         int cardinality = 0;
         read_exact(input, &cardinality, 1);
@@ -143,7 +143,7 @@ LoadedMeshData read_binary_mesh(std::istream& input) {
         int set_index = 0;
         read_exact(input, &material_index, 1);
         read_exact(input, &set_index, 1);
-        data.regions[static_cast<size_t>(region_index)] = VolumetricMesh::Region(material_index, set_index);
+        data.regions[static_cast<size_t>(region_index)] = MaterialRegion(material_index, set_index);
     }
 
     return make_loaded_mesh_data(std::move(data), 0);

@@ -84,13 +84,16 @@ public:
     // "materials", "sets" and "regions" will be copied internally (deep copy), so you
     // can release them after calling this constructor
     TetMesh(std::span<const Vec3d> vertices, std::span<const Vec4i> elements,
-            std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets, std::vector<Region> regions);
+            std::vector<MaterialRecord> materials, std::vector<ElementSet> sets,
+            std::vector<MaterialRegion> regions);
 
     // loads a file of a "special" (not .veg) type
     // currently one such special format is supported:
     // specialFileType=0:
     //   the ".ele" and ".node" format, used by TetGen,
     //   "filename" is the basename, e.g., passing "mesh" will load the mesh from "mesh.ele" and "mesh.node"
+    // specialFileType=1:
+    //   the ".msh" format, used by Gmsh
     // default material parameters will be used
     TetMesh(const std::filesystem::path& filename, int specialFileType, int verbose);
 

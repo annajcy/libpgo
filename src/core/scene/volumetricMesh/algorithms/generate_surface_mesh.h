@@ -5,7 +5,7 @@
  * "volumetricMesh" library , Copyright (C) 2007 CMU, 2009 MIT, 2018 USC *
  * All rights reserved.                                                  *
  *                                                                       *
- * Code author: Jernej Barbic                                            *
+ * Code authors: Jernej Barbic, Yijing Li                                *
  * http://www.jernejbarbic.com/vega                                      *
  *                                                                       *
  * Research: Jernej Barbic, Hongyi Xu, Yijing Li,                        *
@@ -29,62 +29,35 @@
  * LICENSE.TXT for more details.                                         *
  *                                                                       *
  *************************************************************************/
+
+/*
+  Creates the surface mesh of the given volumetric mesh.
+  Note: interior volumetric mesh vertices are kept in the surface mesh (as isolated vertices).
+        So, the vertex set of the volumetric mesh is identical to the surface mesh vertex set,
+        with the same order.
+*/
+
 #pragma once
 
+#include "EigenDef.h"
 #include "volumetricMesh.h"
+
+#include <vector>
 
 namespace pgo {
 namespace VolumetricMeshes {
+namespace GenerateSurfaceMesh {
 
-// stores an isotropic material specified by E (Young's modulus), nu (Poisson's ratio), and density
-// such a material specification is very common: (corotational) linear FEM, StVK, etc.
-class VolumetricMesh::ENuMaterial : public VolumetricMesh::Material {
-public:
-    ENuMaterial(std::string name, double density = density_default, double E = E_default, double nu = nu_default);
-    ENuMaterial(const ENuMaterial& eNuMaterial);
-    virtual ~ENuMaterial() {}
-    virtual std::unique_ptr<Material> clone() const override;
-    virtual Material::MaterialType    getType() const override { return Material::MaterialType::ENu; }
+// The output surface mesh is a triangle mesh for tet meshes and can also be a quad mesh for cubic meshes.
+// All vertices of the volumetric mesh are included in the output surface mesh, even if they don't touch any surface
+// triangle
+//   (e.g., vertices in the interior of the volumetric mesh).
+// triangulate: specifies whether output mesh should be quads or triangles (in the case of cubic volumetric meshes).
+// allElementFaces = true: build ALL faces for ALL elements in the mesh
+//                 = false: build only surface faces of the mesh (default)
+void computeMesh(const VolumetricMesh* volumetricMesh, std::vector<EigenSupport::V3d>& vertices,
+                 std::vector<std::vector<int>>& faces, bool triangulate = false, bool allElementFaces = false);
 
-    inline double getE() const;       // Young's modulus
-    inline double getNu() const;      // Poisson's ratio
-    inline double getLambda() const;  // Lame's lambda coefficient
-    inline double getMu() const;      // Lame's mu coefficient
-    inline void   setE(double E);
-    inline void   setNu(double nu);
-
-protected:
-    double E_, nu_;
-};
-
-inline VolumetricMesh::ENuMaterial::ENuMaterial(std::string name, double density, double E, double nu)
-    : VolumetricMesh::Material(name, density), E_(E), nu_(nu) {}
-inline VolumetricMesh::ENuMaterial::ENuMaterial(const ENuMaterial& eNuMaterial)
-    : VolumetricMesh::Material(eNuMaterial.getName(), eNuMaterial.getDensity()),
-      E_(eNuMaterial.getE()),
-      nu_(eNuMaterial.getNu()) {}
-inline double VolumetricMesh::ENuMaterial::getE() const {
-    return E_;
-}
-inline double VolumetricMesh::ENuMaterial::getNu() const {
-    return nu_;
-}
-inline double VolumetricMesh::ENuMaterial::getLambda() const {
-    return (nu_ * E_) / ((1 + nu_) * (1 - 2 * nu_));
-}
-inline double VolumetricMesh::ENuMaterial::getMu() const {
-    return E_ / (2 * (1 + nu_));
-}
-inline void VolumetricMesh::ENuMaterial::setE(double E) {
-    E_ = E;
-}
-inline void VolumetricMesh::ENuMaterial::setNu(double nu) {
-    nu_ = nu;
-}
-
-// obtain pointer to ENuMaterial (necessary inside classes that assume ENu material)
-// performs a check via getType and returns nullptr if material is not ENU
-VolumetricMesh::ENuMaterial*       downcastENuMaterial(VolumetricMesh::Material* material);
-const VolumetricMesh::ENuMaterial* downcastENuMaterial(const VolumetricMesh::Material* material);
+}  // namespace GenerateSurfaceMesh
 }  // namespace VolumetricMeshes
 }  // namespace pgo

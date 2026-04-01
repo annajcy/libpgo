@@ -1,5 +1,5 @@
 #include "tetMesh.h"
-#include "generateSurfaceMesh.h"
+#include "algorithms/generate_surface_mesh.h"
 
 #include <fstream>
 #include <iomanip>

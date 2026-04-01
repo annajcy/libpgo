@@ -26,8 +26,8 @@ void get_vertex_volumes(const VolumetricMesh& mesh, double* vertex_volumes) {
 double get_mass(const VolumetricMesh& mesh) {
     double mass = 0.0;
     for (int region_index = 0; region_index < mesh.getNumRegions(); region_index++) {
-        const VolumetricMesh::Region& region = mesh.getRegion(region_index);
-        const double density = mesh.getMaterial(region.getMaterialIndex())->getDensity();
+        const MaterialRegion& region = mesh.getRegion(region_index);
+        const double density = material_density(mesh.getMaterial(region.getMaterialIndex()));
         std::set<int> set_elements;
         mesh.getSet(region.getSetIndex()).getElements(set_elements);
 

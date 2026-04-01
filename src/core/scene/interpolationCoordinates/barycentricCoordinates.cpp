@@ -31,8 +31,9 @@
  *************************************************************************/
 
 #include "barycentricCoordinates.h"
+#include "algorithms/mesh_interpolation.h"
+#include "io/interpolation_weight_io.h"
 #include "pgoLogging.h"
-#include "volumetricMeshInterpolation.h"
 #include "volumetricMesh.h"
 #include "boundingVolumeTree.h"
 #include "EigenSupport.h"

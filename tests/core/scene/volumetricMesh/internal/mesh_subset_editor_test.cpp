@@ -1,7 +1,6 @@
 #include "internal/mesh_subset_editor.h"
 
 #include "tetMesh.h"
-#include "volumetricMeshENuMaterial.h"
 
 #include "../volumetric_mesh_test_fixtures.h"
 
@@ -21,11 +20,12 @@ TEST(MeshSubsetEditorTest, SubsetInPlaceKeepsAllElementsSetAndMaterialAlignment)
     EXPECT_EQ(mesh.getNumElements(), 1);
     expectAllElementsSetCoversMesh(mesh);
 
-    const auto* material = pgo::VolumetricMeshes::downcastENuMaterial(mesh.getElementMaterial(0));
+    const auto* material =
+        pgo::VolumetricMeshes::try_get_material<pgo::VolumetricMeshes::EnuMaterialData>(mesh.getElementMaterial(0));
     ASSERT_NE(material, nullptr);
-    EXPECT_DOUBLE_EQ(material->getE(), 4321.0);
-    EXPECT_DOUBLE_EQ(material->getNu(), 0.21);
-    EXPECT_DOUBLE_EQ(material->getDensity(), 9.25);
+    EXPECT_DOUBLE_EQ(material->E, 4321.0);
+    EXPECT_DOUBLE_EQ(material->nu, 0.21);
+    EXPECT_DOUBLE_EQ(material->density, 9.25);
 }
 
 TEST(MeshSubsetEditorTest, RemoveIsolatedVerticesProducesDenseVertexIds) {

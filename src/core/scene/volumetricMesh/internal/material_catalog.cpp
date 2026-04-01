@@ -1,7 +1,6 @@
 #include "internal/material_catalog.h"
 
 #include "internal/region_assignment.h"
-#include "volumetricMeshENuMaterial.h"
 
 #include "pgoLogging.h"
 
@@ -9,47 +8,17 @@
 #include <utility>
 
 namespace pgo::VolumetricMeshes::internal {
-namespace {
-
-std::vector<std::unique_ptr<VolumetricMesh::Material>> clone_materials(
-    const std::vector<std::unique_ptr<VolumetricMesh::Material>>& materials) {
-    std::vector<std::unique_ptr<VolumetricMesh::Material>> clones(materials.size());
-    for (size_t index = 0; index < materials.size(); ++index) {
-        clones[index] = materials[index]->clone();
-    }
-    return clones;
-}
-
-}  // namespace
 
 MaterialCatalog::MaterialCatalog(int num_elements, double E, double nu, double density) {
     set_single_material(num_elements, E, nu, density);
 }
 
-MaterialCatalog::MaterialCatalog(std::vector<std::unique_ptr<VolumetricMesh::Material>> materials,
-                                 std::vector<VolumetricMesh::Set> sets,
-                                 std::vector<VolumetricMesh::Region> regions, int num_elements, int verbose)
+MaterialCatalog::MaterialCatalog(std::vector<MaterialRecord> materials, std::vector<ElementSet> sets,
+                                 std::vector<MaterialRegion> regions, int num_elements, int verbose)
     : m_materials(std::move(materials)),
       m_sets(std::move(sets)),
       m_regions(std::move(regions)) {
     assign_materials_to_elements(num_elements, verbose);
-}
-
-MaterialCatalog::MaterialCatalog(const MaterialCatalog& other)
-    : m_materials(clone_materials(other.m_materials)),
-      m_sets(other.m_sets),
-      m_regions(other.m_regions),
-      m_element_materials(other.m_element_materials) {}
-
-MaterialCatalog& MaterialCatalog::operator=(const MaterialCatalog& other) {
-    if (this == &other) {
-        return *this;
-    }
-    m_materials = clone_materials(other.m_materials);
-    m_sets = other.m_sets;
-    m_regions = other.m_regions;
-    m_element_materials = other.m_element_materials;
-    return *this;
 }
 
 int MaterialCatalog::num_materials() const {
@@ -64,40 +33,40 @@ int MaterialCatalog::num_regions() const {
     return static_cast<int>(m_regions.size());
 }
 
-const VolumetricMesh::Material* MaterialCatalog::material(int index) const {
-    return m_materials[static_cast<size_t>(index)].get();
+const MaterialRecord& MaterialCatalog::material(int index) const {
+    return m_materials[static_cast<size_t>(index)];
 }
 
-VolumetricMesh::Material* MaterialCatalog::material(int index) {
-    return m_materials[static_cast<size_t>(index)].get();
+MaterialRecord& MaterialCatalog::material(int index) {
+    return m_materials[static_cast<size_t>(index)];
 }
 
-const VolumetricMesh::Material* MaterialCatalog::element_material(int element) const {
-    return m_materials[static_cast<size_t>(m_element_materials[static_cast<size_t>(element)])].get();
+const MaterialRecord& MaterialCatalog::element_material(int element) const {
+    return m_materials[static_cast<size_t>(m_element_materials[static_cast<size_t>(element)])];
 }
 
-VolumetricMesh::Material* MaterialCatalog::element_material(int element) {
-    return m_materials[static_cast<size_t>(m_element_materials[static_cast<size_t>(element)])].get();
+MaterialRecord& MaterialCatalog::element_material(int element) {
+    return m_materials[static_cast<size_t>(m_element_materials[static_cast<size_t>(element)])];
 }
 
-const VolumetricMesh::Set& MaterialCatalog::set(int index) const {
+const ElementSet& MaterialCatalog::set(int index) const {
     return m_sets[static_cast<size_t>(index)];
 }
 
-VolumetricMesh::Set& MaterialCatalog::set(int index) {
+ElementSet& MaterialCatalog::set(int index) {
     return m_sets[static_cast<size_t>(index)];
 }
 
-const VolumetricMesh::Region& MaterialCatalog::region(int index) const {
+const MaterialRegion& MaterialCatalog::region(int index) const {
     return m_regions[static_cast<size_t>(index)];
 }
 
-VolumetricMesh::Region& MaterialCatalog::region(int index) {
+MaterialRegion& MaterialCatalog::region(int index) {
     return m_regions[static_cast<size_t>(index)];
 }
 
-void MaterialCatalog::set_material(int index, const VolumetricMesh::Material* material_value) {
-    m_materials[static_cast<size_t>(index)] = material_value->clone();
+void MaterialCatalog::set_material(int index, const MaterialRecord& material_value) {
+    m_materials[static_cast<size_t>(index)] = material_value;
 }
 
 void MaterialCatalog::set_single_material(int num_elements, double E, double nu, double density) {
@@ -106,7 +75,7 @@ void MaterialCatalog::set_single_material(int num_elements, double E, double nu,
     m_regions.clear();
     m_element_materials.assign(static_cast<size_t>(num_elements), 0);
 
-    m_materials.push_back(std::make_unique<VolumetricMesh::ENuMaterial>("defaultMaterial", density, E, nu));
+    m_materials.push_back(MaterialRecord{"defaultMaterial", EnuMaterialData{density, E, nu}});
     m_sets.push_back(VolumetricMesh::generateAllElementsSet(num_elements));
     m_regions.emplace_back(0, 0);
 }
@@ -131,7 +100,7 @@ void MaterialCatalog::remap_elements(std::span<const int> old_to_new_element, in
     }
     m_element_materials = std::move(new_element_materials);
 
-    for (VolumetricMesh::Set& set : m_sets) {
+    for (ElementSet& set : m_sets) {
         std::set<int> old_elements = std::move(set.getElements());
         set.clear();
         for (const int old_element : old_elements) {
@@ -158,7 +127,7 @@ void MaterialCatalog::expand_elements(int factor) {
     }
     m_element_materials = std::move(expanded_element_materials);
 
-    for (VolumetricMesh::Set& set : m_sets) {
+    for (ElementSet& set : m_sets) {
         std::set<int> old_elements = std::move(set.getElements());
         set.clear();
         for (const int old_element : old_elements) {
@@ -171,10 +140,9 @@ void MaterialCatalog::expand_elements(int factor) {
     validate_against_num_elements(old_num_elements * factor);
 }
 
-void MaterialCatalog::add_material(int num_elements, const VolumetricMesh::Material* material_value,
-                                   const VolumetricMesh::Set& new_set, bool remove_empty_sets,
+void MaterialCatalog::add_material(int num_elements, const MaterialRecord& material_value, const ElementSet& new_set, bool remove_empty_sets,
                                    bool remove_empty_materials) {
-    m_materials.push_back(material_value->clone());
+    m_materials.push_back(material_value);
 
     const std::set<int>& new_elements = new_set.getElements();
     std::vector<bool>    element_covered(static_cast<size_t>(num_elements), false);
@@ -274,7 +242,7 @@ void MaterialCatalog::add_material(int num_elements, const VolumetricMesh::Mater
         for (int material_index = 0; material_index < num_materials(); ++material_index) {
             if (elements_with_material[static_cast<size_t>(material_index)] == 0) {
                 material_index_change[static_cast<size_t>(material_index)] = -1;
-                m_materials[static_cast<size_t>(material_index)] = nullptr;
+                m_materials[static_cast<size_t>(material_index)] = MaterialRecord{};
                 has_empty_material = true;
             } else {
                 material_index_change[static_cast<size_t>(material_index)] = new_material_index;
@@ -332,19 +300,19 @@ std::vector<int>& MaterialCatalog::mutable_element_materials() {
     return m_element_materials;
 }
 
-const std::vector<VolumetricMesh::Set>& MaterialCatalog::sets() const {
+const std::vector<ElementSet>& MaterialCatalog::sets() const {
     return m_sets;
 }
 
-std::vector<VolumetricMesh::Set>& MaterialCatalog::mutable_sets() {
+std::vector<ElementSet>& MaterialCatalog::mutable_sets() {
     return m_sets;
 }
 
-const std::vector<VolumetricMesh::Region>& MaterialCatalog::regions() const {
+const std::vector<MaterialRegion>& MaterialCatalog::regions() const {
     return m_regions;
 }
 
-std::vector<VolumetricMesh::Region>& MaterialCatalog::mutable_regions() {
+std::vector<MaterialRegion>& MaterialCatalog::mutable_regions() {
     return m_regions;
 }
 

@@ -87,8 +87,8 @@ CubicMesh::CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicEleme
 }
 
 CubicMesh::CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicElement> elements,
-                     std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets,
-                     std::vector<Region> regions)
+                     std::vector<MaterialRecord> materials, std::vector<ElementSet> sets,
+                     std::vector<MaterialRegion> regions)
     : VolumetricMesh(vertices, 8, flattenCubicElements(elements), std::move(materials), std::move(sets),
                      std::move(regions)),
       parallelepipedMode(0) {

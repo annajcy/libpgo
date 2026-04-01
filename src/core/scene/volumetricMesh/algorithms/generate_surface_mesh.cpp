@@ -30,7 +30,8 @@
  *                                                                       *
  *************************************************************************/
 
-#include "generateSurfaceMesh.h"
+#include "algorithms/generate_surface_mesh.h"
+
 #include "cubicMesh.h"
 #include "ops/element_face_ops.h"
 #include "tetMesh.h"
@@ -98,8 +99,7 @@ void emit_surface_faces(std::unordered_map<FaceKey, int>& surface_faces, std::ve
 
 }  // namespace
 
-// the main routine
-void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMesh*           volumetricMesh,
+void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMesh* volumetricMesh,
                                                              std::vector<EigenSupport::V3d>& vertices,
                                                              std::vector<std::vector<int>>& faces, bool triangulate,
                                                              bool allElementFaces) {
@@ -113,15 +113,11 @@ void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMes
         return;
     }
 
-    // create an empty surface volumetricMesh
     vertices.clear();
     faces.clear();
 
-    // add all vertices
     for (int i = 0; i < volumetricMesh->getNumVertices(); i++)
         vertices.emplace_back(volumetricMesh->getVertex(i));
-
-    // build unique list of all surface faces
 
     if (volumetricMesh->getElementType() == VolumetricMesh::ElementType::Tet) {
         const TetMesh* tetMesh = dynamic_cast<const TetMesh*>(volumetricMesh);

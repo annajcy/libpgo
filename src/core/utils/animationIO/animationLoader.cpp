@@ -4,7 +4,7 @@
 #include "fileService.h"
 #include "configFileJSON.h"
 #include "pgoLogging.h"
-#include "generateSurfaceMesh.h"
+#include "algorithms/generate_surface_mesh.h"
 #include "boundingVolumeTree.h"
 
 #include <filesystem>

@@ -1,8 +1,6 @@
+#include "io/mesh_load.h"
+#include "io/mesh_save.h"
 #include "tetMesh.h"
-#include "volumetricMeshENuMaterial.h"
-#include "volumetricMeshIO.h"
-#include "volumetricMeshMooneyRivlinMaterial.h"
-#include "volumetricMeshOrthotropicMaterial.h"
 
 #include "../volumetric_mesh_test_fixtures.h"
 
@@ -15,67 +13,58 @@
 namespace pgo::Mesh::test {
 namespace {
 
-pgo::VolumetricMeshes::TetMesh makeSingleTetMeshWithMaterial(const pgo::VolumetricMeshes::VolumetricMesh::Material& material) {
+pgo::VolumetricMeshes::TetMesh makeSingleTetMeshWithMaterial(const pgo::VolumetricMeshes::MaterialRecord& material) {
     pgo::VolumetricMeshes::TetMesh mesh = makeSingleTetMesh();
-    mesh.setMaterial(0, &material);
+    mesh.setMaterial(0, material);
     return mesh;
 }
 
-void expectENuMaterialMatches(const pgo::VolumetricMeshes::VolumetricMesh::Material* material, double density, double E,
+void expectENuMaterialMatches(const pgo::VolumetricMeshes::MaterialRecord& material, double density, double E,
                               double nu) {
     using namespace pgo::VolumetricMeshes;
 
-    ASSERT_NE(material, nullptr);
-    ASSERT_EQ(material->getType(), VolumetricMesh::Material::MaterialType::ENu);
-
-    const auto* enu = downcastENuMaterial(material);
+    ASSERT_EQ(material_kind(material), MaterialKind::Enu);
+    const auto* enu = try_get_material<EnuMaterialData>(material);
     ASSERT_NE(enu, nullptr);
-    EXPECT_DOUBLE_EQ(enu->getDensity(), density);
-    EXPECT_DOUBLE_EQ(enu->getE(), E);
-    EXPECT_DOUBLE_EQ(enu->getNu(), nu);
+    EXPECT_DOUBLE_EQ(enu->density, density);
+    EXPECT_DOUBLE_EQ(enu->E, E);
+    EXPECT_DOUBLE_EQ(enu->nu, nu);
 }
 
-void expectOrthotropicMaterialMatches(const pgo::VolumetricMeshes::VolumetricMesh::Material* material, double density,
+void expectOrthotropicMaterialMatches(const pgo::VolumetricMeshes::MaterialRecord& material, double density,
                                       double E1, double E2, double E3, double nu12, double nu23, double nu31,
                                       double G12, double G23, double G31, const std::array<double, 9>& rotation) {
     using namespace pgo::VolumetricMeshes;
 
-    ASSERT_NE(material, nullptr);
-    ASSERT_EQ(material->getType(), VolumetricMesh::Material::MaterialType::Orthotropic);
-
-    const auto* orthotropic = downcastOrthotropicMaterial(material);
+    ASSERT_EQ(material_kind(material), MaterialKind::Orthotropic);
+    const auto* orthotropic = try_get_material<OrthotropicMaterialData>(material);
     ASSERT_NE(orthotropic, nullptr);
-    EXPECT_DOUBLE_EQ(orthotropic->getDensity(), density);
-    EXPECT_DOUBLE_EQ(orthotropic->getE1(), E1);
-    EXPECT_DOUBLE_EQ(orthotropic->getE2(), E2);
-    EXPECT_DOUBLE_EQ(orthotropic->getE3(), E3);
-    EXPECT_DOUBLE_EQ(orthotropic->getNu12(), nu12);
-    EXPECT_DOUBLE_EQ(orthotropic->getNu23(), nu23);
-    EXPECT_DOUBLE_EQ(orthotropic->getNu31(), nu31);
-    EXPECT_DOUBLE_EQ(orthotropic->getG12(), G12);
-    EXPECT_DOUBLE_EQ(orthotropic->getG23(), G23);
-    EXPECT_DOUBLE_EQ(orthotropic->getG31(), G31);
-
-    double actual_rotation[9] = {};
-    orthotropic->getR(actual_rotation);
+    EXPECT_DOUBLE_EQ(orthotropic->density, density);
+    EXPECT_DOUBLE_EQ(orthotropic->E1, E1);
+    EXPECT_DOUBLE_EQ(orthotropic->E2, E2);
+    EXPECT_DOUBLE_EQ(orthotropic->E3, E3);
+    EXPECT_DOUBLE_EQ(orthotropic->nu12, nu12);
+    EXPECT_DOUBLE_EQ(orthotropic->nu23, nu23);
+    EXPECT_DOUBLE_EQ(orthotropic->nu31, nu31);
+    EXPECT_DOUBLE_EQ(orthotropic->G12, G12);
+    EXPECT_DOUBLE_EQ(orthotropic->G23, G23);
+    EXPECT_DOUBLE_EQ(orthotropic->G31, G31);
     for (int i = 0; i < 9; ++i) {
-        EXPECT_DOUBLE_EQ(actual_rotation[i], rotation[static_cast<size_t>(i)]);
+        EXPECT_DOUBLE_EQ(orthotropic->rotation[static_cast<size_t>(i)], rotation[static_cast<size_t>(i)]);
     }
 }
 
-void expectMooneyRivlinMaterialMatches(const pgo::VolumetricMeshes::VolumetricMesh::Material* material, double density,
+void expectMooneyRivlinMaterialMatches(const pgo::VolumetricMeshes::MaterialRecord& material, double density,
                                        double mu01, double mu10, double v1) {
     using namespace pgo::VolumetricMeshes;
 
-    ASSERT_NE(material, nullptr);
-    ASSERT_EQ(material->getType(), VolumetricMesh::Material::MaterialType::MooneyRivlin);
-
-    const auto* mooney = downcastMooneyRivlinMaterial(material);
+    ASSERT_EQ(material_kind(material), MaterialKind::MooneyRivlin);
+    const auto* mooney = try_get_material<MooneyRivlinMaterialData>(material);
     ASSERT_NE(mooney, nullptr);
-    EXPECT_DOUBLE_EQ(mooney->getDensity(), density);
-    EXPECT_DOUBLE_EQ(mooney->getmu01(), mu01);
-    EXPECT_DOUBLE_EQ(mooney->getmu10(), mu10);
-    EXPECT_DOUBLE_EQ(mooney->getv1(), v1);
+    EXPECT_DOUBLE_EQ(mooney->density, density);
+    EXPECT_DOUBLE_EQ(mooney->mu01, mu01);
+    EXPECT_DOUBLE_EQ(mooney->mu10, mu10);
+    EXPECT_DOUBLE_EQ(mooney->v1, v1);
 }
 
 }  // namespace
@@ -83,7 +72,7 @@ void expectMooneyRivlinMaterialMatches(const pgo::VolumetricMeshes::VolumetricMe
 TEST(CoreSceneVolumetricMeshIoTest, ENuMaterialAsciiAndBinaryRoundTrip) {
     using namespace pgo::VolumetricMeshes;
 
-    const VolumetricMesh::ENuMaterial material("enuMaterial", 9.25, 4321.0, 0.21);
+    const auto material = makeEnuMaterial("enuMaterial", 9.25, 4321.0, 0.21);
     const TetMesh source = makeSingleTetMeshWithMaterial(material);
 
     const std::filesystem::path ascii_path = uniqueTempPath(".veg");
@@ -109,8 +98,9 @@ TEST(CoreSceneVolumetricMeshIoTest, OrthotropicMaterialAsciiAndBinaryRoundTrip) 
     const std::array<double, 9> rotation = {0.0, 1.0, 0.0,
                                             1.0, 0.0, 0.0,
                                             0.0, 0.0, 1.0};
-    VolumetricMesh::OrthotropicMaterial material("orthotropicMaterial", 4.5, 100.0, 200.0, 300.0, 0.12, 0.23, 0.31,
-                                                 10.0, 20.0, 30.0, const_cast<double*>(rotation.data()));
+    const auto material =
+        makeOrthotropicMaterial("orthotropicMaterial", 4.5, 100.0, 200.0, 300.0, 0.12, 0.23, 0.31, 10.0, 20.0, 30.0,
+                                rotation);
     const TetMesh source = makeSingleTetMeshWithMaterial(material);
 
     const std::filesystem::path ascii_path = uniqueTempPath(".veg");
@@ -135,7 +125,7 @@ TEST(CoreSceneVolumetricMeshIoTest, OrthotropicMaterialAsciiAndBinaryRoundTrip) 
 TEST(CoreSceneVolumetricMeshIoTest, MooneyRivlinMaterialAsciiAndBinaryRoundTrip) {
     using namespace pgo::VolumetricMeshes;
 
-    const VolumetricMesh::MooneyRivlinMaterial material("mooneyMaterial", 8.0, 0.12, 0.34, 0.56);
+    const auto material = makeMooneyRivlinMaterial("mooneyMaterial", 8.0, 0.12, 0.34, 0.56);
     const TetMesh source = makeSingleTetMeshWithMaterial(material);
 
     const std::filesystem::path ascii_path = uniqueTempPath(".veg");

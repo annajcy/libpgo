@@ -1,5 +1,4 @@
-#include "volumetricMeshEdit.h"
-#include "volumetricMeshENuMaterial.h"
+#include "volumetricMesh.h"
 
 #include "volumetric_mesh_test_fixtures.h"
 
@@ -22,11 +21,11 @@ TEST(CoreSceneVolumetricMeshTest, SubsetInPlacePreservesSetAndMaterialObservable
     EXPECT_EQ(mesh.getNumVertices(), 8);
     expectAllElementsSetCoversMesh(mesh);
 
-    const auto* material = downcastENuMaterial(mesh.getElementMaterial(0));
+    const auto* material = try_get_material<EnuMaterialData>(mesh.getElementMaterial(0));
     ASSERT_NE(material, nullptr);
-    EXPECT_DOUBLE_EQ(material->getE(), 4321.0);
-    EXPECT_DOUBLE_EQ(material->getNu(), 0.21);
-    EXPECT_DOUBLE_EQ(material->getDensity(), 9.25);
+    EXPECT_DOUBLE_EQ(material->E, 4321.0);
+    EXPECT_DOUBLE_EQ(material->nu, 0.21);
+    EXPECT_DOUBLE_EQ(material->density, 9.25);
 
     for (int local_vertex = 0; local_vertex < mesh.getNumElementVertices(); ++local_vertex) {
         const int vertex_index = mesh.getVertexIndex(0, local_vertex);

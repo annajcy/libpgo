@@ -21,9 +21,9 @@ struct RawLoadedMeshData {
     int num_element_vertices = 0;
     std::vector<Vec3d> vertices;
     std::vector<int> elements;
-    std::vector<std::unique_ptr<VolumetricMesh::Material>> materials;
-    std::vector<VolumetricMesh::Set> sets;
-    std::vector<VolumetricMesh::Region> regions;
+    std::vector<MaterialRecord> materials;
+    std::vector<ElementSet> sets;
+    std::vector<MaterialRegion> regions;
 };
 
 constexpr ElementType kTet = ElementType::Tet;
@@ -340,7 +340,7 @@ LoadedMeshData read_ascii_mesh(const std::filesystem::path& filename, int verbos
                 throw 20;
             }
 
-            data.regions[static_cast<size_t>(count_num_regions)] = VolumetricMesh::Region(material_num, set_num);
+            data.regions[static_cast<size_t>(count_num_regions)] = MaterialRegion(material_num, set_num);
             count_num_regions++;
         }
 
@@ -364,7 +364,7 @@ LoadedMeshData read_ascii_mesh(const std::filesystem::path& filename, int verbos
             parser.removeWhitespace(line_buffer);
 
             std::string name(BasicAlgorithms::stripLight(&line_buffer[4]));
-            data.sets[static_cast<size_t>(count_num_sets)] = VolumetricMesh::Set(name);
+            data.sets[static_cast<size_t>(count_num_sets)] = ElementSet(name);
             set_map.insert(std::pair<std::string, int>(name, count_num_sets));
             count_num_sets++;
             parse_state = 11;

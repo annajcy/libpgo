@@ -33,69 +33,19 @@
 #include "volumetricMesh.h"
 #include "internal/material_catalog.h"
 #include "internal/mesh_mass_properties.h"
+#include "internal/mesh_subset_editor.h"
 #include "internal/mesh_queries.h"
 #include "internal/mesh_transforms.h"
-#include "volumetricMeshIO.h"
-#include "volumetricMeshENuMaterial.h"
-#include "volumetricMeshOrthotropicMaterial.h"
-#include "volumetricMeshMooneyRivlinMaterial.h"
 
-#include "range.h"
-#include "stringHelper.h"
 #include "pgoLogging.h"
 
-#include <tbb/parallel_for.h>
-
 #include <cfloat>
-#include <cstring>
 #include <cassert>
-#include <algorithm>
-#include <fstream>
-#include <iostream>
 #include <map>
-#include <numeric>
 #include <stdexcept>
 
 namespace pgo {
 namespace VolumetricMeshes {
-namespace {
-using ElementType    = VolumetricMesh::ElementType;
-using FileFormatType = VolumetricMesh::FileFormatType;
-using MaterialType   = VolumetricMesh::Material::MaterialType;
-
-constexpr ElementType    INVALID = ElementType::Invalid;
-constexpr ElementType    TET     = ElementType::Tet;
-constexpr ElementType    CUBIC   = ElementType::Cubic;
-constexpr FileFormatType ASCII   = FileFormatType::Ascii;
-constexpr FileFormatType BINARY  = FileFormatType::Binary;
-constexpr FileFormatType BY_EXT  = FileFormatType::ByExtension;
-constexpr FileFormatType NUM_FILE_FORMATS = FileFormatType::Unknown;
-
-constexpr int ENU_DENSITY = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::Density);
-constexpr int ENU_E = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::E);
-constexpr int ENU_NU = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::Nu);
-constexpr int ENU_NUM_PROPERTIES = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::Count);
-
-constexpr int ORTHOTROPIC_DENSITY = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Density);
-constexpr int ORTHOTROPIC_E1 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::E1);
-constexpr int ORTHOTROPIC_E2 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::E2);
-constexpr int ORTHOTROPIC_E3 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::E3);
-constexpr int ORTHOTROPIC_NU12 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Nu12);
-constexpr int ORTHOTROPIC_NU23 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Nu23);
-constexpr int ORTHOTROPIC_NU31 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Nu31);
-constexpr int ORTHOTROPIC_G12 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::G12);
-constexpr int ORTHOTROPIC_G23 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::G23);
-constexpr int ORTHOTROPIC_G31 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::G31);
-constexpr int ORTHOTROPIC_NUM_PROPERTIES =
-    static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Count);
-
-constexpr int MOONEYRIVLIN_DENSITY = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Density);
-constexpr int MOONEYRIVLIN_MU01 = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Mu01);
-constexpr int MOONEYRIVLIN_MU10 = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Mu10);
-constexpr int MOONEYRIVLIN_V1 = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::V1);
-constexpr int MOONEYRIVLIN_NUM_PROPERTIES =
-    static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Count);
-}  // namespace
 
 VolumetricMesh::~VolumetricMesh() = default;
 
@@ -107,19 +57,19 @@ int VolumetricMesh::getNumMaterials() const {
     return m_material_catalog->num_materials();
 }
 
-const VolumetricMesh::Material* VolumetricMesh::getMaterial(int i) const {
+const MaterialRecord& VolumetricMesh::getMaterial(int i) const {
     return m_material_catalog->material(i);
 }
 
-VolumetricMesh::Material* VolumetricMesh::getMaterial(int i) {
+MaterialRecord& VolumetricMesh::getMaterial(int i) {
     return m_material_catalog->material(i);
 }
 
-const VolumetricMesh::Material* VolumetricMesh::getElementMaterial(int el) const {
+const MaterialRecord& VolumetricMesh::getElementMaterial(int el) const {
     return m_material_catalog->element_material(el);
 }
 
-VolumetricMesh::Material* VolumetricMesh::getElementMaterial(int el) {
+MaterialRecord& VolumetricMesh::getElementMaterial(int el) {
     return m_material_catalog->element_material(el);
 }
 
@@ -127,7 +77,7 @@ int VolumetricMesh::getNumSets() const {
     return m_material_catalog->num_sets();
 }
 
-const VolumetricMesh::Set& VolumetricMesh::getSet(int i) const {
+const ElementSet& VolumetricMesh::getSet(int i) const {
     return m_material_catalog->set(i);
 }
 
@@ -135,12 +85,12 @@ int VolumetricMesh::getNumRegions() const {
     return m_material_catalog->num_regions();
 }
 
-const VolumetricMesh::Region& VolumetricMesh::getRegion(int i) const {
+const MaterialRegion& VolumetricMesh::getRegion(int i) const {
     return m_material_catalog->region(i);
 }
 
 double VolumetricMesh::getElementDensity(int el) const {
-    return getElementMaterial(el)->getDensity();
+    return material_density(getElementMaterial(el));
 }
 
 internal::MaterialCatalog& VolumetricMesh::material_catalog() {
@@ -155,8 +105,8 @@ void VolumetricMesh::assignMaterialsToElements(int verbose) {
     m_material_catalog->assign_materials_to_elements(getNumElements(), verbose);
 }
 
-void VolumetricMesh::reset_material_catalog(std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets,
-                                            std::vector<Region> regions, int verbose) {
+void VolumetricMesh::reset_material_catalog(std::vector<MaterialRecord> materials, std::vector<ElementSet> sets,
+                                            std::vector<MaterialRegion> regions, int verbose) {
     m_material_catalog =
         std::make_unique<internal::MaterialCatalog>(std::move(materials), std::move(sets), std::move(regions),
                                                     getNumElements(), verbose);
@@ -170,16 +120,14 @@ VolumetricMesh::VolumetricMesh(std::span<const Vec3d> vertices_, int numElementV
       m_material_catalog(std::make_unique<internal::MaterialCatalog>(getNumElements(), E, nu, density)) {
 }
 
-VolumetricMesh::VolumetricMesh(std::span<const Vec3d> vertices_, int numElementVertices_, std::span<const int> elements_,
-                               std::vector<std::unique_ptr<Material>> materials_, std::vector<Set> sets_,
-                               std::vector<Region> regions_)
+VolumetricMesh::VolumetricMesh(std::span<const Vec3d> vertices_, int numElementVertices_,
+                               std::span<const int> elements_, std::vector<MaterialRecord> materials_,
+                               std::vector<ElementSet> sets_, std::vector<MaterialRegion> regions_)
     : m_geometry(numElementVertices_, std::vector<Vec3d>(vertices_.begin(), vertices_.end()),
                  std::vector<int>(elements_.begin(), elements_.end())),
       m_material_catalog(std::make_unique<internal::MaterialCatalog>(std::move(materials_), std::move(sets_),
                                                                      std::move(regions_), getNumElements(), 0)) {
 }
-
-
 VolumetricMesh::VolumetricMesh(const VolumetricMesh& volumetricMesh)
     : m_geometry(volumetricMesh.m_geometry),
       m_material_catalog(std::make_unique<internal::MaterialCatalog>(*volumetricMesh.m_material_catalog)) {}
@@ -217,6 +165,19 @@ void VolumetricMesh::getElementsWithOnlyVertices(const std::vector<int>& vertice
 void VolumetricMesh::getVertexNeighborhood(const std::vector<int>& vertices_, std::vector<int>& neighborhood) const {
     internal::mesh_queries::get_vertex_neighborhood(*this, vertices_, neighborhood);
 }
+
+namespace editing {
+
+void subset_in_place(VolumetricMesh& mesh, const std::set<int>& subsetElements, int removeIsolatedVertices,
+                     std::map<int, int>* old2NewVertexIDMap) {
+    internal::MeshSubsetEditor::subset_in_place(mesh, subsetElements, removeIsolatedVertices, old2NewVertexIDMap);
+}
+
+void remove_isolated_vertices(VolumetricMesh& mesh, std::map<int, int>* old2NewVertexIDMap) {
+    internal::MeshSubsetEditor::remove_isolated_vertices(mesh, old2NewVertexIDMap);
+}
+
+}  // namespace editing
 
 double VolumetricMesh::getMass() const {
     return internal::mesh_mass_properties::get_mass(*this);
@@ -281,7 +242,7 @@ void VolumetricMesh::applyLinearTransformation(double* pos, double* R) {
     internal::mesh_transforms::apply_linear_transformation(*this, pos, R);
 }
 
-void VolumetricMesh::setMaterial(int i, const Material* material) {
+void VolumetricMesh::setMaterial(int i, const MaterialRecord& material) {
     m_material_catalog->set_material(i, material);
 }
 
@@ -327,15 +288,15 @@ VolumetricMesh::VolumetricMesh(const VolumetricMesh& volumetricMesh, std::span<c
     m_geometry = internal::VolumetricMeshData(num_element_vertices, std::move(subset_vertices), std::move(subset_elements));
 
     // copy materials
-    std::vector<std::unique_ptr<Material>> subset_materials(static_cast<size_t>(volumetricMesh.getNumMaterials()));
+    std::vector<MaterialRecord> subset_materials(static_cast<size_t>(volumetricMesh.getNumMaterials()));
     for (int i = 0; i < volumetricMesh.getNumMaterials(); i++)
-        subset_materials[static_cast<size_t>(i)] = volumetricMesh.getMaterial(i)->clone();
+        subset_materials[static_cast<size_t>(i)] = volumetricMesh.getMaterial(i);
 
     // copy element sets; restrict element sets to the new mesh, also rename vertices to reflect new vertex indices
-    std::vector<Set>   newSets;
+    std::vector<ElementSet> newSets;
     std::map<int, int> oldToNewSetIndex;
     for (int oldSetIndex = 0; oldSetIndex < volumetricMesh.getNumSets(); oldSetIndex++) {
-        const Set&    oldSet = volumetricMesh.getSet(oldSetIndex);
+        const ElementSet& oldSet = volumetricMesh.getSet(oldSetIndex);
         std::set<int> oldElements;
         oldSet.getElements(oldElements);
 
@@ -356,7 +317,7 @@ VolumetricMesh::VolumetricMesh(const VolumetricMesh& volumetricMesh, std::span<c
 
         // if there is at least one element in the new set, create a set for it
         if (newElements.size() > 0) {
-            Set newSet(oldSet.getName());
+            ElementSet newSet(oldSet.getName());
             for (unsigned int j = 0; j < newElements.size(); j++) {
                 if (newElements[j] < 0) {
                     printf("Internal error 3.\n");
@@ -370,9 +331,9 @@ VolumetricMesh::VolumetricMesh(const VolumetricMesh& volumetricMesh, std::span<c
     }
 
     // copy regions; remove empty ones
-    std::vector<Region> vregions;
+    std::vector<MaterialRegion> vregions;
     for (int i = 0; i < volumetricMesh.getNumRegions(); i++) {
-        const Region&                sregion = volumetricMesh.getRegion(i);
+        const MaterialRegion& sregion = volumetricMesh.getRegion(i);
         std::map<int, int>::iterator iter    = oldToNewSetIndex.find(sregion.getSetIndex());
         if (iter != oldToNewSetIndex.end()) {
             vregions.emplace_back(sregion.getMaterialIndex(), iter->second);
@@ -418,13 +379,13 @@ void VolumetricMesh::renumberVertices(const std::vector<int>& permutation) {
     internal::mesh_transforms::renumber_vertices(*this, permutation);
 }
 
-void VolumetricMesh::addMaterial(const Material* material, const Set& newSet, bool removeEmptySets,
+void VolumetricMesh::addMaterial(const MaterialRecord& material, const ElementSet& newSet, bool removeEmptySets,
                                  bool removeEmptyMaterials) {
     m_material_catalog->add_material(getNumElements(), material, newSet, removeEmptySets, removeEmptyMaterials);
 }
 
-VolumetricMesh::Set VolumetricMesh::generateAllElementsSet(int numElements) {
-    Set set(allElementsSetName);
+ElementSet VolumetricMesh::generateAllElementsSet(int numElements) {
+    ElementSet set(allElementsSetName);
     for (int i = 0; i < numElements; i++)
         set.insert(i);
     return set;

@@ -1,9 +1,5 @@
 #include "io/material_serde.h"
 
-#include "volumetricMeshENuMaterial.h"
-#include "volumetricMeshMooneyRivlinMaterial.h"
-#include "volumetricMeshOrthotropicMaterial.h"
-
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
@@ -11,35 +7,13 @@
 namespace pgo::VolumetricMeshes::io::detail {
 namespace {
 
-using MaterialType = VolumetricMesh::Material::MaterialType;
-using ENuMaterial = VolumetricMesh::ENuMaterial;
-using OrthotropicMaterial = VolumetricMesh::OrthotropicMaterial;
-using MooneyRivlinMaterial = VolumetricMesh::MooneyRivlinMaterial;
+constexpr int ENU_TAG = 1;
+constexpr int ORTHOTROPIC_TAG = 2;
+constexpr int MOONEYRIVLIN_TAG = 3;
 
-constexpr int ENU_DENSITY = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::Density);
-constexpr int ENU_E = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::E);
-constexpr int ENU_NU = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::Nu);
-constexpr int ENU_NUM_PROPERTIES = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::Count);
-
-constexpr int ORTHOTROPIC_DENSITY = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Density);
-constexpr int ORTHOTROPIC_E1 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::E1);
-constexpr int ORTHOTROPIC_E2 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::E2);
-constexpr int ORTHOTROPIC_E3 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::E3);
-constexpr int ORTHOTROPIC_NU12 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Nu12);
-constexpr int ORTHOTROPIC_NU23 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Nu23);
-constexpr int ORTHOTROPIC_NU31 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Nu31);
-constexpr int ORTHOTROPIC_G12 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::G12);
-constexpr int ORTHOTROPIC_G23 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::G23);
-constexpr int ORTHOTROPIC_G31 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::G31);
-constexpr int ORTHOTROPIC_NUM_PROPERTIES =
-    static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Count);
-
-constexpr int MOONEYRIVLIN_DENSITY = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Density);
-constexpr int MOONEYRIVLIN_MU01 = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Mu01);
-constexpr int MOONEYRIVLIN_MU10 = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Mu10);
-constexpr int MOONEYRIVLIN_V1 = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::V1);
-constexpr int MOONEYRIVLIN_NUM_PROPERTIES =
-    static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Count);
+constexpr int ENU_NUM_PROPERTIES = 3;
+constexpr int ORTHOTROPIC_NUM_PROPERTIES = 10;
+constexpr int MOONEYRIVLIN_NUM_PROPERTIES = 4;
 
 template <typename T>
 void read_exact(std::istream& input, T* data, size_t count) {
@@ -57,33 +31,18 @@ void write_exact(std::ostream& output, const T* data, size_t count) {
     }
 }
 
-std::unique_ptr<VolumetricMesh::Material> parse_orthotropic_material(const std::string& material_name,
-                                                                     const char* material_type,
-                                                                     char* parameters,
-                                                                     const std::filesystem::path& filename,
-                                                                     const std::string& offending_line) {
-    double density = 0.0;
-    double E1 = 0.0;
-    double E2 = 0.0;
-    double E3 = 0.0;
-    double nu12 = 0.0;
-    double nu23 = 0.0;
-    double nu31 = 0.0;
-    double G12 = 0.0;
-    double G23 = 0.0;
-    double G31 = 0.0;
+MaterialRecord parse_orthotropic_material(const std::string& material_name, const char* material_type, char* parameters,
+                                          const std::filesystem::path& filename, const std::string& offending_line) {
+    OrthotropicMaterialData data;
     double nu = 0.0;
     double G = 1.0;
     bool use_nu_and_g = false;
-    double rotation[9];
-    memset(rotation, 0, sizeof(rotation));
-    rotation[0] = rotation[4] = rotation[8] = 1.0;
 
     char* sub_type = const_cast<char*>(material_type) + 11;
     bool enough_parameters = false;
 
-    if ((sscanf(parameters, "%lf,%lf,%lf,%lf", &density, &E1, &E2, &E3) == 4) &&
-        (E1 > 0) && (E2 > 0) && (E3 > 0) && (density > 0)) {
+    if ((sscanf(parameters, "%lf,%lf,%lf,%lf", &data.density, &data.E1, &data.E2, &data.E3) == 4) && (data.E1 > 0) &&
+        (data.E2 > 0) && (data.E3 > 0) && (data.density > 0)) {
         for (int i = 0; i < 4; ++i) {
             while ((*parameters != ',') && (*parameters != 0)) {
                 parameters++;
@@ -97,18 +56,20 @@ std::unique_ptr<VolumetricMesh::Material> parse_orthotropic_material(const std::
         if ((*sub_type == 0) || (strcmp(sub_type, "_N3G3R9") == 0)) {
             if (sscanf(parameters,
                        "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
-                       &nu12, &nu23, &nu31, &G12, &G23, &G31, &rotation[0], &rotation[1], &rotation[2], &rotation[3],
-                       &rotation[4], &rotation[5], &rotation[6], &rotation[7], &rotation[8]) == 15) {
+                       &data.nu12, &data.nu23, &data.nu31, &data.G12, &data.G23, &data.G31, &data.rotation[0],
+                       &data.rotation[1], &data.rotation[2], &data.rotation[3], &data.rotation[4], &data.rotation[5],
+                       &data.rotation[6], &data.rotation[7], &data.rotation[8]) == 15) {
                 enough_parameters = true;
             }
         } else if (strcmp(sub_type, "_N3G3") == 0) {
-            if (sscanf(parameters, "%lf,%lf,%lf,%lf,%lf,%lf", &nu12, &nu23, &nu31, &G12, &G23, &G31) == 6) {
+            if (sscanf(parameters, "%lf,%lf,%lf,%lf,%lf,%lf", &data.nu12, &data.nu23, &data.nu31, &data.G12,
+                       &data.G23, &data.G31) == 6) {
                 enough_parameters = true;
             }
         } else if (strcmp(sub_type, "_N1G1R9") == 0) {
-            if (sscanf(parameters, "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &nu, &G, &rotation[0],
-                       &rotation[1], &rotation[2], &rotation[3], &rotation[4], &rotation[5], &rotation[6],
-                       &rotation[7], &rotation[8]) == 11) {
+            if (sscanf(parameters, "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &nu, &G, &data.rotation[0],
+                       &data.rotation[1], &data.rotation[2], &data.rotation[3], &data.rotation[4], &data.rotation[5],
+                       &data.rotation[6], &data.rotation[7], &data.rotation[8]) == 11) {
                 use_nu_and_g = true;
                 enough_parameters = true;
             }
@@ -118,9 +79,9 @@ std::unique_ptr<VolumetricMesh::Material> parse_orthotropic_material(const std::
                 enough_parameters = true;
             }
         } else if (strcmp(sub_type, "_N1R9") == 0) {
-            if (sscanf(parameters, "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &nu, &rotation[0], &rotation[1],
-                       &rotation[2], &rotation[3], &rotation[4], &rotation[5], &rotation[6], &rotation[7],
-                       &rotation[8]) == 10) {
+            if (sscanf(parameters, "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &nu, &data.rotation[0],
+                       &data.rotation[1], &data.rotation[2], &data.rotation[3], &data.rotation[4], &data.rotation[5],
+                       &data.rotation[6], &data.rotation[7], &data.rotation[8]) == 10) {
                 use_nu_and_g = true;
                 enough_parameters = true;
             }
@@ -136,18 +97,17 @@ std::unique_ptr<VolumetricMesh::Material> parse_orthotropic_material(const std::
         }
 
         if (use_nu_and_g && (nu > -1.0) && (nu < 0.5)) {
-            nu12 = nu * sqrt(E1 / E2);
-            nu23 = nu * sqrt(E2 / E3);
-            nu31 = nu * sqrt(E3 / E1);
-            G12 = G * sqrt(E1 * E2) / (2.0 * (1.0 + nu));
-            G23 = G * sqrt(E2 * E3) / (2.0 * (1.0 + nu));
-            G31 = G * sqrt(E3 * E1) / (2.0 * (1.0 + nu));
+            data.nu12 = nu * sqrt(data.E1 / data.E2);
+            data.nu23 = nu * sqrt(data.E2 / data.E3);
+            data.nu31 = nu * sqrt(data.E3 / data.E1);
+            data.G12 = G * sqrt(data.E1 * data.E2) / (2.0 * (1.0 + nu));
+            data.G23 = G * sqrt(data.E2 * data.E3) / (2.0 * (1.0 + nu));
+            data.G31 = G * sqrt(data.E3 * data.E1) / (2.0 * (1.0 + nu));
         }
     }
 
-    if (enough_parameters && (G12 > 0) && (G23 > 0) && (G31 > 0)) {
-        return std::make_unique<OrthotropicMaterial>(material_name, density, E1, E2, E3, nu12, nu23, nu31, G12, G23,
-                                                     G31, rotation);
+    if (enough_parameters && (data.G12 > 0) && (data.G23 > 0) && (data.G31 > 0)) {
+        return MaterialRecord{material_name, data};
     }
 
     printf("Error: incorrect material specification in file %s. Offending line: %s\n", filename.string().c_str(),
@@ -157,10 +117,8 @@ std::unique_ptr<VolumetricMesh::Material> parse_orthotropic_material(const std::
 
 }  // namespace
 
-std::unique_ptr<VolumetricMesh::Material> parse_ascii_material(const std::string& material_name,
-                                                               const std::string& material_specification,
-                                                               const std::filesystem::path& filename,
-                                                               const std::string& offending_line) {
+MaterialRecord parse_ascii_material(const std::string& material_name, const std::string& material_specification,
+                                    const std::filesystem::path& filename, const std::string& offending_line) {
     char material_specification_buffer[4096];
     strncpy(material_specification_buffer, material_specification.c_str(), sizeof(material_specification_buffer) - 1);
     material_specification_buffer[sizeof(material_specification_buffer) - 1] = '\0';
@@ -183,13 +141,11 @@ std::unique_ptr<VolumetricMesh::Material> parse_ascii_material(const std::string
     parameters++;
 
     if (strcmp(material_type, "ENU") == 0) {
-        double density = 0.0;
-        double E = 0.0;
-        double nu = 0.0;
-        sscanf(parameters, "%lf,%lf,%lf", &density, &E, &nu);
+        EnuMaterialData data;
+        sscanf(parameters, "%lf,%lf,%lf", &data.density, &data.E, &data.nu);
 
-        if ((E > 0) && (nu > -1.0) && (nu < 0.5) && (density > 0)) {
-            return std::make_unique<ENuMaterial>(material_name, density, E, nu);
+        if ((data.E > 0) && (data.nu > -1.0) && (data.nu < 0.5) && (data.density > 0)) {
+            return MaterialRecord{material_name, data};
         }
 
         printf("Error: incorrect material specification in file %s. Offending line: %s\n",
@@ -202,14 +158,11 @@ std::unique_ptr<VolumetricMesh::Material> parse_ascii_material(const std::string
     }
 
     if (strncmp(material_type, "MOONEYRIVLIN", 12) == 0) {
-        double density = 0.0;
-        double mu01 = 0.0;
-        double mu10 = 0.0;
-        double v1 = 0.0;
-        sscanf(parameters, "%lf,%lf,%lf,%lf", &density, &mu01, &mu10, &v1);
+        MooneyRivlinMaterialData data;
+        sscanf(parameters, "%lf,%lf,%lf,%lf", &data.density, &data.mu01, &data.mu10, &data.v1);
 
-        if (density > 0) {
-            return std::make_unique<MooneyRivlinMaterial>(material_name, density, mu01, mu10, v1);
+        if (data.density > 0) {
+            return MaterialRecord{material_name, data};
         }
 
         printf("Error: incorrect material specification in file %s. Offending line:\n%s\n",
@@ -222,7 +175,7 @@ std::unique_ptr<VolumetricMesh::Material> parse_ascii_material(const std::string
     throw 16;
 }
 
-std::unique_ptr<VolumetricMesh::Material> read_binary_material(std::istream& input) {
+MaterialRecord read_binary_material(std::istream& input) {
     char material_name[4096];
     int length = 0;
     read_exact(input, &length, 1);
@@ -233,129 +186,104 @@ std::unique_ptr<VolumetricMesh::Material> read_binary_material(std::istream& inp
     read_exact(input, &material_type, 1);
 
     switch (material_type) {
-        case static_cast<int>(MaterialType::ENu): {
-            double material_property[ENU_NUM_PROPERTIES];
-            read_exact(input, material_property, ENU_NUM_PROPERTIES);
-
-            if ((material_property[ENU_E] > 0) && (material_property[ENU_NU] > -1.0) &&
-                (material_property[ENU_NU] < 0.5) && (material_property[ENU_DENSITY] > 0)) {
-                return std::make_unique<ENuMaterial>(material_name, material_property[ENU_DENSITY],
-                                                     material_property[ENU_E], material_property[ENU_NU]);
+        case ENU_TAG: {
+            double properties[ENU_NUM_PROPERTIES];
+            read_exact(input, properties, ENU_NUM_PROPERTIES);
+            if ((properties[1] > 0) && (properties[2] > -1.0) && (properties[2] < 0.5) && (properties[0] > 0)) {
+                return MaterialRecord{material_name, EnuMaterialData{properties[0], properties[1], properties[2]}};
             }
-
             printf("Error in io::load_binary_data: incorrect material specification in file stream.\n");
             throw 7;
         }
-
-        case static_cast<int>(MaterialType::Orthotropic): {
-            double material_property[ORTHOTROPIC_NUM_PROPERTIES];
-            double rotation[9];
-            read_exact(input, material_property, ORTHOTROPIC_NUM_PROPERTIES);
-            read_exact(input, rotation, 9);
-
-            if ((material_property[ORTHOTROPIC_E1] > 0) && (material_property[ORTHOTROPIC_E2] > 0) &&
-                (material_property[ORTHOTROPIC_E3] > 0) && (material_property[ORTHOTROPIC_G12] > 0) &&
-                (material_property[ORTHOTROPIC_G23] > 0) && (material_property[ORTHOTROPIC_G31] > 0) &&
-                (material_property[ORTHOTROPIC_DENSITY] > 0)) {
-                return std::make_unique<OrthotropicMaterial>(
-                    material_name, material_property[ORTHOTROPIC_DENSITY], material_property[ORTHOTROPIC_E1],
-                    material_property[ORTHOTROPIC_E2], material_property[ORTHOTROPIC_E3],
-                    material_property[ORTHOTROPIC_NU12], material_property[ORTHOTROPIC_NU23],
-                    material_property[ORTHOTROPIC_NU31], material_property[ORTHOTROPIC_G12],
-                    material_property[ORTHOTROPIC_G23], material_property[ORTHOTROPIC_G31], rotation);
+        case ORTHOTROPIC_TAG: {
+            double properties[ORTHOTROPIC_NUM_PROPERTIES];
+            std::array<double, 9> rotation;
+            read_exact(input, properties, ORTHOTROPIC_NUM_PROPERTIES);
+            read_exact(input, rotation.data(), rotation.size());
+            if ((properties[1] > 0) && (properties[2] > 0) && (properties[3] > 0) && (properties[7] > 0) &&
+                (properties[8] > 0) && (properties[9] > 0) && (properties[0] > 0)) {
+                return MaterialRecord{
+                    material_name,
+                    OrthotropicMaterialData{properties[0], properties[1], properties[2], properties[3], properties[4],
+                                            properties[5], properties[6], properties[7], properties[8], properties[9],
+                                            rotation}};
             }
-
             printf("Error in io::load_binary_data: incorrect orthotropic material specification.\n");
             throw 14;
         }
-
-        case static_cast<int>(MaterialType::MooneyRivlin): {
-            double material_property[MOONEYRIVLIN_NUM_PROPERTIES];
-            read_exact(input, material_property, MOONEYRIVLIN_NUM_PROPERTIES);
-            if (material_property[MOONEYRIVLIN_DENSITY] > 0) {
-                return std::make_unique<MooneyRivlinMaterial>(material_name, material_property[MOONEYRIVLIN_DENSITY],
-                                                              material_property[MOONEYRIVLIN_MU01],
-                                                              material_property[MOONEYRIVLIN_MU10],
-                                                              material_property[MOONEYRIVLIN_V1]);
+        case MOONEYRIVLIN_TAG: {
+            double properties[MOONEYRIVLIN_NUM_PROPERTIES];
+            read_exact(input, properties, MOONEYRIVLIN_NUM_PROPERTIES);
+            if (properties[0] > 0) {
+                return MaterialRecord{material_name, MooneyRivlinMaterialData{properties[0], properties[1], properties[2], properties[3]}};
             }
-
             printf("Error in io::load_binary_data: incorrect Mooney-Rivlin material specification.\n");
             throw 8;
         }
-
         default:
             printf("Error in io::load_binary_data: material type %d is unknown.\n", material_type);
             throw 9;
     }
 }
 
-void write_ascii_material(FILE* output, const VolumetricMesh::Material& material) {
-    fprintf(output, "*MATERIAL %s\n", material.getName().c_str());
-
-    if (material.getType() == MaterialType::ENu) {
-        const auto* enu = downcastENuMaterial(&material);
-        fprintf(output, "ENU, %.15G, %.15G, %.15G\n", enu->getDensity(), enu->getE(), enu->getNu());
-    } else if (material.getType() == MaterialType::Orthotropic) {
-        const auto* orthotropic = downcastOrthotropicMaterial(&material);
-        double rotation[9];
-        orthotropic->getR(rotation);
-        fprintf(output,
-                "ORTHOTROPIC, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, "
-                "%.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G\n",
-                orthotropic->getDensity(), orthotropic->getE1(), orthotropic->getE2(), orthotropic->getE3(),
-                orthotropic->getNu12(), orthotropic->getNu23(), orthotropic->getNu31(), orthotropic->getG12(),
-                orthotropic->getG23(), orthotropic->getG31(), rotation[0], rotation[1], rotation[2], rotation[3],
-                rotation[4], rotation[5], rotation[6], rotation[7], rotation[8]);
-    } else if (material.getType() == MaterialType::MooneyRivlin) {
-        const auto* mooney = downcastMooneyRivlinMaterial(&material);
-        fprintf(output, "MOONEYRIVLIN, %.15G, %.15G, %.20G, %.15G\n", mooney->getDensity(), mooney->getmu01(),
-                mooney->getmu10(), mooney->getv1());
-    }
-
+void write_ascii_material(FILE* output, const MaterialRecord& material) {
+    fprintf(output, "*MATERIAL %s\n", material.name.c_str());
+    visit_material(material, [&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, EnuMaterialData>) {
+            fprintf(output, "ENU, %.15G, %.15G, %.15G\n", value.density, value.E, value.nu);
+        } else if constexpr (std::is_same_v<T, OrthotropicMaterialData>) {
+            fprintf(output,
+                    "ORTHOTROPIC, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, "
+                    "%.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G\n",
+                    value.density, value.E1, value.E2, value.E3, value.nu12, value.nu23, value.nu31, value.G12,
+                    value.G23, value.G31, value.rotation[0], value.rotation[1], value.rotation[2], value.rotation[3],
+                    value.rotation[4], value.rotation[5], value.rotation[6], value.rotation[7], value.rotation[8]);
+        } else {
+            fprintf(output, "MOONEYRIVLIN, %.15G, %.15G, %.20G, %.15G\n", value.density, value.mu01, value.mu10,
+                    value.v1);
+        }
+    });
     fprintf(output, "\n");
 }
 
-unsigned int write_binary_material(std::ostream& output, const VolumetricMesh::Material& material) {
+unsigned int write_binary_material(std::ostream& output, const MaterialRecord& material) {
     unsigned int bytes_written = 0;
-
     auto count_write = [&](const auto* data, size_t count) {
         using T = std::remove_pointer_t<decltype(data)>;
         write_exact(output, data, count);
         bytes_written += static_cast<unsigned int>(sizeof(T) * count);
     };
 
-    const unsigned int length = static_cast<unsigned int>(material.getName().size());
+    const unsigned int length = static_cast<unsigned int>(material.name.size());
     count_write(&length, 1);
-    output.write(material.getName().c_str(), static_cast<std::streamsize>(length));
+    output.write(material.name.c_str(), static_cast<std::streamsize>(length));
     if (!output) {
         throw std::runtime_error("Failed to write material name.");
     }
     bytes_written += length;
 
-    const int material_type = static_cast<int>(material.getType());
-    count_write(&material_type, 1);
-
-    if (material.getType() == MaterialType::ENu) {
-        const auto* enu = downcastENuMaterial(&material);
-        const double properties[] = {enu->getDensity(), enu->getE(), enu->getNu()};
-        count_write(properties, 3);
-    } else if (material.getType() == MaterialType::MooneyRivlin) {
-        const auto* mooney = downcastMooneyRivlinMaterial(&material);
-        const double properties[] = {mooney->getDensity(), mooney->getmu01(), mooney->getmu10(), mooney->getv1()};
-        count_write(properties, 4);
-    } else if (material.getType() == MaterialType::Orthotropic) {
-        const auto* orthotropic = downcastOrthotropicMaterial(&material);
-        const double properties[] = {orthotropic->getDensity(), orthotropic->getE1(), orthotropic->getE2(),
-                                     orthotropic->getE3(), orthotropic->getNu12(), orthotropic->getNu23(),
-                                     orthotropic->getNu31(), orthotropic->getG12(), orthotropic->getG23(),
-                                     orthotropic->getG31()};
-        count_write(properties, 10);
-        double rotation[9];
-        orthotropic->getR(rotation);
-        count_write(rotation, 9);
-    } else {
-        throw std::runtime_error("Unknown material type.");
-    }
+    visit_material(material, [&](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, EnuMaterialData>) {
+            const int tag = ENU_TAG;
+            const double properties[] = {value.density, value.E, value.nu};
+            count_write(&tag, 1);
+            count_write(properties, 3);
+        } else if constexpr (std::is_same_v<T, OrthotropicMaterialData>) {
+            const int tag = ORTHOTROPIC_TAG;
+            const double properties[] = {value.density, value.E1, value.E2, value.E3, value.nu12,
+                                         value.nu23,   value.nu31, value.G12, value.G23, value.G31};
+            count_write(&tag, 1);
+            count_write(properties, 10);
+            count_write(value.rotation.data(), value.rotation.size());
+        } else {
+            const int tag = MOONEYRIVLIN_TAG;
+            const double properties[] = {value.density, value.mu01, value.mu10, value.v1};
+            count_write(&tag, 1);
+            count_write(properties, 4);
+        }
+    });
 
     return bytes_written;
 }

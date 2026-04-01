@@ -1,16 +1,14 @@
 #include "internal/region_assignment.h"
 
-#include "volumetricMeshENuMaterial.h"
-
 #include <cstdio>
 #include <set>
 
 namespace pgo::VolumetricMeshes::internal {
 
-void propagate_regions_to_elements(const std::vector<VolumetricMesh::Set>& sets,
-                                   const std::vector<VolumetricMesh::Region>& regions,
+void propagate_regions_to_elements(const std::vector<ElementSet>& sets,
+                                   const std::vector<MaterialRegion>& regions,
                                    std::vector<int>& element_materials) {
-    for (const VolumetricMesh::Region& region : regions) {
+    for (const MaterialRegion& region : regions) {
         const int material_index = region.getMaterialIndex();
         const std::set<int>& set_elements = sets[static_cast<size_t>(region.getSetIndex())].getElements();
         for (const int element : set_elements) {
@@ -20,8 +18,8 @@ void propagate_regions_to_elements(const std::vector<VolumetricMesh::Set>& sets,
 }
 
 void assign_materials_to_elements_with_default(
-    std::vector<std::unique_ptr<VolumetricMesh::Material>>& materials, std::vector<VolumetricMesh::Set>& sets,
-    std::vector<VolumetricMesh::Region>& regions, std::vector<int>& element_materials, int num_elements, int verbose) {
+    std::vector<MaterialRecord>& materials, std::vector<ElementSet>& sets,
+    std::vector<MaterialRegion>& regions, std::vector<int>& element_materials, int num_elements, int verbose) {
     element_materials.assign(static_cast<size_t>(num_elements), static_cast<int>(materials.size()));
 
     propagate_regions_to_elements(sets, regions, element_materials);
@@ -38,12 +36,13 @@ void assign_materials_to_elements_with_default(
     }
 
     if (materials.empty()) {
-        materials.push_back(std::make_unique<VolumetricMesh::ENuMaterial>(
-            "defaultMaterial", VolumetricMesh::density_default, VolumetricMesh::E_default, VolumetricMesh::nu_default));
+        materials.push_back(MaterialRecord{
+            "defaultMaterial",
+            EnuMaterialData{VolumetricMesh::density_default, VolumetricMesh::E_default, VolumetricMesh::nu_default}});
     }
 
     sets.emplace_back("unassignedSet");
-    VolumetricMesh::Set& unassigned_set = sets.back();
+    ElementSet& unassigned_set = sets.back();
     for (const int element : unassigned_elements) {
         unassigned_set.insert(element);
     }

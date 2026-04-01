@@ -28,11 +28,12 @@ TEST(MeshConstructionOpsTest, AssignCommonLoadedDataReplacesTetGeometryAndMateri
     EXPECT_EQ(mesh.getNumElements(), 1);
     EXPECT_DOUBLE_EQ(mesh.getVertex(1)[0], 2.0);
 
-    const auto* material = pgo::VolumetricMeshes::downcastENuMaterial(mesh.getElementMaterial(0));
+    const auto* material =
+        pgo::VolumetricMeshes::try_get_material<pgo::VolumetricMeshes::EnuMaterialData>(mesh.getElementMaterial(0));
     ASSERT_NE(material, nullptr);
-    EXPECT_DOUBLE_EQ(material->getE(), 2500.0);
-    EXPECT_DOUBLE_EQ(material->getNu(), 0.28);
-    EXPECT_DOUBLE_EQ(material->getDensity(), 9.0);
+    EXPECT_DOUBLE_EQ(material->E, 2500.0);
+    EXPECT_DOUBLE_EQ(material->nu, 0.28);
+    EXPECT_DOUBLE_EQ(material->density, 9.0);
 }
 
 }  // namespace

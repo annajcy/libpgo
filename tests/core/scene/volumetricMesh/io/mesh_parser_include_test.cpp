@@ -1,6 +1,5 @@
+#include "io/mesh_load.h"
 #include "tetMesh.h"
-#include "volumetricMeshENuMaterial.h"
-#include "volumetricMeshIO.h"
 
 #include "../volumetric_mesh_test_fixtures.h"
 
@@ -49,11 +48,11 @@ TEST(CoreSceneVolumetricMeshIoTest, ParserIncludeLoadsRelativeChildFile) {
 
     ASSERT_NE(loaded, nullptr);
     expectMeshGeometryEqual(*loaded, expected);
-    const auto* material = downcastENuMaterial(loaded->getMaterial(0));
+    const auto* material = try_get_material<EnuMaterialData>(loaded->getMaterial(0));
     ASSERT_NE(material, nullptr);
-    EXPECT_DOUBLE_EQ(material->getDensity(), 7.5);
-    EXPECT_DOUBLE_EQ(material->getE(), 1234.0);
-    EXPECT_DOUBLE_EQ(material->getNu(), 0.31);
+    EXPECT_DOUBLE_EQ(material->density, 7.5);
+    EXPECT_DOUBLE_EQ(material->E, 1234.0);
+    EXPECT_DOUBLE_EQ(material->nu, 0.31);
 
     std::filesystem::remove(main_path);
     std::filesystem::remove(child_path);

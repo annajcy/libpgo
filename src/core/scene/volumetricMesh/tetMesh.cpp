@@ -31,6 +31,7 @@
  *************************************************************************/
 
 #include "tetMesh.h"
+#include "io/detail/gmsh_reader.h"
 #include "io/detail/tetgen_reader.h"
 #include "io/mesh_loaders.h"
 #include "io/mesh_io_types.h"
@@ -62,11 +63,20 @@ TetMesh::TetMesh(std::span<const std::byte> binaryStream) : VolumetricMesh(4) {
 }
 
 TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int verbose) : VolumetricMesh(4) {
-    if (specialFileType != 0) {
-        printf("Unknown special file type %d requested.\n", specialFileType);
-        throw 1;
+    if (specialFileType == 0) {
+        assignFromData(io::detail::read_tetgen_mesh(filename, verbose), verbose);
+        return;
     }
-    assignFromData(io::detail::read_tetgen_mesh(filename, verbose), verbose);
+
+#if defined(PGO_HAS_GMSH)
+    if (specialFileType == 1) {
+        assignFromData(io::detail::read_gmsh_mesh(filename, verbose), verbose);
+        return;
+    }
+#endif
+
+    printf("Unknown special file type %d requested.\n", specialFileType);
+    throw 1;
 }
 
 TetMesh::TetMesh(const Vec3d& p0, const Vec3d& p1, const Vec3d& p2, const Vec3d& p3) : VolumetricMesh(4) {
@@ -79,8 +89,8 @@ TetMesh::TetMesh(std::span<const Vec3d> vertices_, std::span<const Vec4i> elemen
     : VolumetricMesh(vertices_, 4, flattenTetElements(elements_), E, nu, density) {}
 
 TetMesh::TetMesh(std::span<const Vec3d> vertices_, std::span<const Vec4i> elements_,
-                 std::vector<std::unique_ptr<Material>> materials_, std::vector<Set> sets_,
-                 std::vector<Region> regions_)
+                 std::vector<MaterialRecord> materials_, std::vector<ElementSet> sets_,
+                 std::vector<MaterialRegion> regions_)
     : VolumetricMesh(vertices_, 4, flattenTetElements(elements_), std::move(materials_), std::move(sets_),
                      std::move(regions_)) {}
 

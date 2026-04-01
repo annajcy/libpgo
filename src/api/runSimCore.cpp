@@ -16,7 +16,7 @@
 #include "multiVertexPullingSoftConstraints.h"
 #include "implicitBackwardEulerTimeIntegrator.h"
 #include "TRBDF2TimeIntegrator.h"
-#include "generateMassMatrix.h"
+#include "algorithms/generate_mass_matrix.h"
 #include "barycentricCoordinates.h"
 #include "triangleMeshExternalContactHandler.h"
 #include "pointPenetrationEnergy.h"

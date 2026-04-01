@@ -6,9 +6,9 @@
 #include "tetMeshGeo.h"
 #include "triMeshGeo.h"
 #include "generateTetMeshMatrix.h"
+#include "io/mesh_save.h"
+#include "ops/tet_geometry_export.h"
 #include "tetMesh.h"
-#include "volumetricMeshExport.h"
-#include "volumetricMeshIO.h"
 #include "pgoLogging.h"
 #include "geometryQuery.h"
 #include "boundingVolumeTree.h"
@@ -65,7 +65,7 @@ pgoTetMeshGeoStructHandle pgo_create_tetmeshgeo_from_file(char* filename) {
     try {
         pgo::VolumetricMeshes::TetMesh mesh(filename);
         pgo::Mesh::TetMeshGeo*         tetmesh = new pgo::Mesh::TetMeshGeo;
-        pgo::VolumetricMeshes::exporting::tet_geometry(mesh, *tetmesh);
+        pgo::VolumetricMeshes::ops::tet_geometry(mesh, *tetmesh);
 
         std::cout << "#vtx:" << tetmesh->numVertices() << std::endl;
         std::cout << "#tets:" << tetmesh->numTets() << std::endl;
@@ -146,14 +146,14 @@ void pgo_save_tetmesh_to_file(pgoTetMeshStructHandle tetMeshHandle, const char* 
 int pgo_tetmesh_get_num_vertices(pgoTetMeshStructHandle m) {
     pgo::VolumetricMeshes::TetMesh* mesh = reinterpret_cast<pgo::VolumetricMeshes::TetMesh*>(m);
     pgo::Mesh::TetMeshGeo           tetmeshGeo;
-    pgo::VolumetricMeshes::exporting::tet_geometry(*mesh, tetmeshGeo);
+    pgo::VolumetricMeshes::ops::tet_geometry(*mesh, tetmeshGeo);
     return tetmeshGeo.numVertices();
 }
 
 int pgo_tetmesh_get_num_tets(pgoTetMeshStructHandle m) {
     pgo::VolumetricMeshes::TetMesh* mesh = reinterpret_cast<pgo::VolumetricMeshes::TetMesh*>(m);
     pgo::Mesh::TetMeshGeo           tetmeshGeo;
-    pgo::VolumetricMeshes::exporting::tet_geometry(*mesh, tetmeshGeo);
+    pgo::VolumetricMeshes::ops::tet_geometry(*mesh, tetmeshGeo);
 
     return tetmeshGeo.numTets();
 }
@@ -161,7 +161,7 @@ int pgo_tetmesh_get_num_tets(pgoTetMeshStructHandle m) {
 void pgo_tetmesh_get_vertices(pgoTetMeshStructHandle m, double* vertices) {
     pgo::VolumetricMeshes::TetMesh* mesh = reinterpret_cast<pgo::VolumetricMeshes::TetMesh*>(m);
     pgo::Mesh::TetMeshGeo           tetmeshGeo;
-    pgo::VolumetricMeshes::exporting::tet_geometry(*mesh, tetmeshGeo);
+    pgo::VolumetricMeshes::ops::tet_geometry(*mesh, tetmeshGeo);
 
     for (int vi = 0; vi < tetmeshGeo.numVertices(); vi++) {
         vertices[vi * 3]     = tetmeshGeo.pos(vi)[0];
@@ -185,7 +185,7 @@ pgoTetMeshStructHandle pgo_tetmesh_update_vertices(pgoTetMeshStructHandle m, dou
 void pgo_tetmesh_get_elements(pgoTetMeshStructHandle m, int* elements) {
     pgo::VolumetricMeshes::TetMesh* mesh = reinterpret_cast<pgo::VolumetricMeshes::TetMesh*>(m);
     pgo::Mesh::TetMeshGeo           tetmeshGeo;
-    pgo::VolumetricMeshes::exporting::tet_geometry(*mesh, tetmeshGeo);
+    pgo::VolumetricMeshes::ops::tet_geometry(*mesh, tetmeshGeo);
 
     for (int ti = 0; ti < tetmeshGeo.numTets(); ti++) {
         for (int i = 0; i < 4; i++) {

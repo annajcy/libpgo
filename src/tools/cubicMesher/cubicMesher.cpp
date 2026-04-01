@@ -1,8 +1,8 @@
 #include "cubicMesh.h"
-#include "generateSurfaceMesh.h"
+#include "algorithms/generate_surface_mesh.h"
+#include "io/mesh_save.h"
 #include "pgoLogging.h"
 #include "triMeshGeo.h"
-#include "volumetricMeshIO.h"
 
 #include <argparse/argparse.hpp>
 

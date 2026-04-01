@@ -30,7 +30,7 @@
  *                                                                       *
  *************************************************************************/
 
-#include "generateMassMatrix.h"
+#include "algorithms/generate_mass_matrix.h"
 
 #include <tbb/parallel_for.h>
 #include <tbb/spin_mutex.h>
@@ -74,7 +74,7 @@ void GenerateMassMatrix::computeMassMatrix(const VolumetricMesh* volumetricMesh,
                 if (elementWeight)
                     w = elementWeight[el];
 
-                double entry = elementMass(i, j) * w;  // since element mass matrix is symmetric
+                double entry = elementMass(i, j) * w;
                 if (inflate3Dim == false) {
                     entries[el * numElementVertices * numElementVertices + i * numElementVertices + j] =
                         ES::TripletD(vtxi, vtxj, entry);
@@ -109,7 +109,7 @@ void GenerateMassMatrix::computeVertexMasses(const VolumetricMesh* volumetricMes
             int    vtxi    = volumetricMesh->getVertexIndex(el, i);
             double vtxMass = 0.0;
             for (int j = 0; j < numElementVertices; j++) {
-                vtxMass += elementMass(i, j);  // since element mass matrix is symmetric
+                vtxMass += elementMass(i, j);
             }
 
             double* massBufferPtr = (inflate3Dim ? &masses[3 * vtxi] : &masses[vtxi]);

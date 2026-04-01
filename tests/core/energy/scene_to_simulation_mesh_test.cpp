@@ -2,7 +2,6 @@
 #include "simulationMesh.h"
 #include "simulationMeshMaterial.h"
 #include "tetMesh.h"
-#include "volumetricMeshMooneyRivlinMaterial.h"
 
 #include <gtest/gtest.h>
 
@@ -28,14 +27,14 @@ VolumetricMeshes::TetMesh makeSingleTetMeshWithMooneyRivlinMaterial() {
         Vec3d(0.0, 0.0, 0.0), Vec3d(1.0, 0.0, 0.0), Vec3d(0.0, 1.0, 0.0), Vec3d(0.0, 0.0, 1.0)};
     const std::vector<Vec4i> tets{Vec4i(0, 1, 2, 3)};
 
-    std::vector<std::unique_ptr<VolumetricMeshes::VolumetricMesh::Material>> materials;
-    materials.push_back(std::make_unique<VolumetricMeshes::VolumetricMesh::MooneyRivlinMaterial>(
-        "mooneyRivlin", 7.5, 0.2, 0.3, 0.4));
+    std::vector<VolumetricMeshes::MaterialRecord> materials;
+    materials.push_back(VolumetricMeshes::MaterialRecord{
+        "mooneyRivlin", VolumetricMeshes::MooneyRivlinMaterialData{7.5, 0.2, 0.3, 0.4}});
 
-    std::vector<VolumetricMeshes::VolumetricMesh::Set> sets{
-        VolumetricMeshes::VolumetricMesh::Set("allElements", std::set<int>{0})};
-    std::vector<VolumetricMeshes::VolumetricMesh::Region> regions{
-        VolumetricMeshes::VolumetricMesh::Region(0, 0)};
+    std::vector<VolumetricMeshes::ElementSet> sets{
+        VolumetricMeshes::ElementSet("allElements", std::set<int>{0})};
+    std::vector<VolumetricMeshes::MaterialRegion> regions{
+        VolumetricMeshes::MaterialRegion(0, 0)};
 
     return VolumetricMeshes::TetMesh(vertices, tets, std::move(materials), std::move(sets), std::move(regions));
 }

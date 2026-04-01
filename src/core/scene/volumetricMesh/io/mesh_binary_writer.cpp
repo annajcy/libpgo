@@ -54,7 +54,7 @@ void write_binary_mesh(const VolumetricMesh& mesh, std::ostream& out, unsigned i
     const int num_materials = mesh.getNumMaterials();
     count_write(&num_materials, 1);
     for (int material_index = 0; material_index < num_materials; material_index++) {
-        total_bytes_written += write_binary_material(out, *mesh.getMaterial(material_index));
+        total_bytes_written += write_binary_material(out, mesh.getMaterial(material_index));
     }
 
     const int num_sets = mesh.getNumSets();

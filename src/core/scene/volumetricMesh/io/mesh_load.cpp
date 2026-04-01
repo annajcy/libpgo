@@ -1,17 +1,14 @@
-#include "volumetricMeshIO.h"
+#include "io/mesh_load.h"
 
 #include "io/mesh_ascii_reader.h"
-#include "io/mesh_ascii_writer.h"
 #include "io/mesh_binary_reader.h"
-#include "io/mesh_binary_writer.h"
 #include "io/mesh_format_detector.h"
 #include "io/mesh_loaders.h"
 
 #include "cubicMesh.h"
 #include "tetMesh.h"
 
-namespace pgo::VolumetricMeshes {
-namespace io {
+namespace pgo::VolumetricMeshes::io {
 namespace {
 
 using LoadedMeshData = detail::LoadedMeshData;
@@ -73,6 +70,12 @@ LoadedMeshData load_data(const std::filesystem::path& filename, FileFormatType f
     }
 }
 
+template <typename Mesh>
+std::unique_ptr<Mesh> load_impl(const std::filesystem::path& filename, VolumetricMesh::FileFormatType fileFormat,
+                                int verbose) {
+    return std::make_unique<Mesh>(filename, fileFormat, verbose);
+}
+
 }  // namespace
 
 namespace detail {
@@ -105,37 +108,6 @@ LoadedMeshData load_cubic_data(std::span<const std::byte> binary_data) {
 
 }  // namespace detail
 
-int save(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
-    const FileFormatType fileType = detect_file_format(filename);
-    if (fileType == FileFormatType::Binary)
-        return save_to_binary(mesh, filename);
-    return save_to_ascii(mesh, filename);
-}
-
-int save_to_ascii(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
-    try {
-        detail::write_ascii_mesh(mesh, filename);
-        return 0;
-    } catch (...) {
-        return 1;
-    }
-}
-
-int save_to_binary(const VolumetricMesh& mesh, const std::filesystem::path& filename, unsigned int* bytesWritten) {
-    try {
-        detail::write_binary_mesh(mesh, filename, bytesWritten);
-        return 0;
-    } catch (...) {
-        return 1;
-    }
-}
-
-template <typename Mesh>
-std::unique_ptr<Mesh> load_impl(const std::filesystem::path& filename, VolumetricMesh::FileFormatType fileFormat,
-                                int verbose) {
-    return std::make_unique<Mesh>(filename, fileFormat, verbose);
-}
-
 std::unique_ptr<TetMesh> load_tet(const std::filesystem::path& filename, VolumetricMesh::FileFormatType fileFormat,
                                   int verbose) {
     return load_impl<TetMesh>(filename, fileFormat, verbose);
@@ -146,5 +118,4 @@ std::unique_ptr<CubicMesh> load_cubic(const std::filesystem::path& filename,
     return load_impl<CubicMesh>(filename, fileFormat, verbose);
 }
 
-}  // namespace io
-}  // namespace pgo::VolumetricMeshes
+}  // namespace pgo::VolumetricMeshes::io

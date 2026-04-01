@@ -57,7 +57,7 @@
 
 #pragma once
 
-#include "volumetricMeshTypes.h"
+#include "types/element_types.h"
 #include "volumetricMesh.h"
 
 #include <filesystem>
@@ -103,8 +103,8 @@ public:
     // "materials", "sets" and "regions" will be copied internally (deep copy), so they
     // can be released after calling this constructor
     CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicElement> elements,
-              std::vector<std::unique_ptr<Material>> materials, std::vector<Set> sets,
-              std::vector<Region> regions);
+              std::vector<MaterialRecord> materials, std::vector<ElementSet> sets,
+              std::vector<MaterialRegion> regions);
 
     // constructs a voxel mesh with the given voxels, as a subset of a regular 3D grid
     // 'voxels' gives the grid indices (3 per voxel) of the voxels that are to be included in the mesh

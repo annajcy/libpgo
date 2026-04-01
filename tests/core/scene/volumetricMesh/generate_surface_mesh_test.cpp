@@ -1,4 +1,4 @@
-#include "generateSurfaceMesh.h"
+#include "algorithms/generate_surface_mesh.h"
 #include "ops/element_face_ops.h"
 
 #include "volumetric_mesh_test_fixtures.h"

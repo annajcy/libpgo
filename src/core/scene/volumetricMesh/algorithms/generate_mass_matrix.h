@@ -30,67 +30,27 @@
  *                                                                       *
  *************************************************************************/
 
-#include "volumetricMeshOrthotropicMaterial.h"
+/*
+  Computes the mass matrix for the given volumetric mesh.
+  See also volumetricMesh.h .
+*/
+
+#pragma once
+
+#include "EigenDef.h"
+#include "volumetricMesh.h"
 
 namespace pgo {
 namespace VolumetricMeshes {
+namespace GenerateMassMatrix {
 
-VolumetricMesh::OrthotropicMaterial::OrthotropicMaterial(std::string name, double density, double E1, double E2,
-                                                         double E3, double nu12, double nu23, double nu31, double G12,
-                                                         double G23, double G31, double* R)
-    : VolumetricMesh::Material(name, density),
-      E1_(E1),
-      E2_(E2),
-      E3_(E3),
-      nu12_(nu12),
-      nu23_(nu23),
-      nu31_(nu31),
-      G12_(G12),
-      G23_(G23),
-      G31_(G31) {
-    memcpy(R_, R, sizeof(double) * 9);
-}
+void computeMassMatrix(const VolumetricMesh* volumetricMesh, EigenSupport::SpMatD& massMatrix, bool inflate3Dim = false,
+                       const double* elementWeight = nullptr);
+void computeVertexMasses(const VolumetricMesh* volumetricMesh, double* masses, bool inflate3Dim = false);
+void computeVertexMassesByAveragingNeighboringElements(const VolumetricMesh* volumetricMesh, double* masses,
+                                                       bool inflate3Dim = false);
 
-VolumetricMesh::OrthotropicMaterial::OrthotropicMaterial(const OrthotropicMaterial& orthotropicMaterial)
-    : VolumetricMesh::Material(orthotropicMaterial.getName(), orthotropicMaterial.getDensity()),
-      E1_(orthotropicMaterial.getE1()),
-      E2_(orthotropicMaterial.getE2()),
-      E3_(orthotropicMaterial.getE3()),
-      nu12_(orthotropicMaterial.getNu12()),
-      nu23_(orthotropicMaterial.getNu23()),
-      nu31_(orthotropicMaterial.getNu31()),
-      G12_(orthotropicMaterial.getG12()),
-      G23_(orthotropicMaterial.getG23()),
-      G31_(orthotropicMaterial.getG31()) {
-    orthotropicMaterial.getR(R_);
-}
-
-std::unique_ptr<VolumetricMesh::Material> VolumetricMesh::OrthotropicMaterial::clone() const {
-    return std::make_unique<VolumetricMesh::OrthotropicMaterial>(*this);
-}
-
-// performs a check via getType and returns nullptr if material is not ORTHOTROPIC
-VolumetricMesh::OrthotropicMaterial* downcastOrthotropicMaterial(VolumetricMesh::Material* material) {
-    if (material->getType() != VolumetricMesh::Material::MaterialType::Orthotropic)
-        return nullptr;
-
-    return dynamic_cast<VolumetricMesh::OrthotropicMaterial*>(material);
-}
-
-const VolumetricMesh::OrthotropicMaterial* downcastOrthotropicMaterial(const VolumetricMesh::Material* material) {
-    if (material->getType() != VolumetricMesh::Material::MaterialType::Orthotropic)
-        return nullptr;
-
-    return dynamic_cast<const VolumetricMesh::OrthotropicMaterial*>(material);
-}
-
-void VolumetricMesh::OrthotropicMaterial::setR(double* R) {
-    memcpy(R_, R, sizeof(double) * 9);
-}
-
-void VolumetricMesh::OrthotropicMaterial::getR(double* R) const {
-    memcpy(R, R_, sizeof(double) * 9);
-}
+}  // namespace GenerateMassMatrix
 
 }  // namespace VolumetricMeshes
 }  // namespace pgo
