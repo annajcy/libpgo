@@ -11,3 +11,9 @@ target_link_libraries(core_energy_material_binding_test PRIVATE GTest::gtest_mai
 set_property(TARGET core_energy_material_binding_test PROPERTY FOLDER "tests")
 
 add_test(NAME core.energy.material_binding COMMAND core_energy_material_binding_test)
+
+add_libpgo_tools(core_energy_cubic_deformation_model_test cubicMeshDeformationModel_test.cpp "${AVAILABLE_LIBS}")
+target_link_libraries(core_energy_cubic_deformation_model_test PRIVATE GTest::gtest_main)
+set_property(TARGET core_energy_cubic_deformation_model_test PROPERTY FOLDER "tests")
+
+add_test(NAME core.energy.cubic_deformation_model COMMAND core_energy_cubic_deformation_model_test)
