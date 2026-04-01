@@ -31,22 +31,6 @@
  *************************************************************************/
 
 #include "algorithms/generate_mass_matrix.h"
-#include "volumetricMesh.h"
 
 namespace pgo::VolumetricMeshes::GenerateMassMatrix {
-
-void computeMassMatrix(const VolumetricMesh* volumetricMesh, EigenSupport::SpMatD& massMatrix, bool inflate3Dim,
-                       const double* elementWeight) {
-    detail::compute_mass_matrix_impl(*volumetricMesh, massMatrix, inflate3Dim, elementWeight);
-}
-
-void computeVertexMasses(const VolumetricMesh* volumetricMesh, double* masses, bool inflate3Dim) {
-    detail::compute_vertex_masses_impl(*volumetricMesh, masses, inflate3Dim);
-}
-
-void computeVertexMassesByAveragingNeighboringElements(const VolumetricMesh* volumetricMesh, double* masses,
-                                                       bool inflate3Dim) {
-    detail::compute_vertex_masses_by_averaging_neighboring_elements_impl(*volumetricMesh, masses, inflate3Dim);
-}
-
 }  // namespace pgo::VolumetricMeshes::GenerateMassMatrix

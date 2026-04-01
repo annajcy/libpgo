@@ -1,7 +1,10 @@
 #pragma once
 
+#include "boundingBox.h"
 #include "concepts/mesh_concepts.h"
-#include "volumetricMesh.h"
+#include "materials/material_access.h"
+#include "meshLinearAlgebra.h"
+#include "types/material_region.h"
 
 #include <cstring>
 #include <set>
@@ -145,14 +148,5 @@ template <concepts::VolumetricMeshLike MeshT>
 Mesh::BoundingBox get_bounding_box(const MeshT& mesh) {
     return detail::get_bounding_box_impl(mesh);
 }
-
-double            get_volume(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh);
-void              get_vertex_volumes(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, double* vertex_volumes);
-double            get_mass(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh);
-void              get_inertia_parameters(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, double& mass, Vec3d& center_of_mass,
-                                         Mat3d& inertia_tensor);
-void              get_mesh_geometric_parameters(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, Vec3d& centroid,
-                                                double* radius);
-Mesh::BoundingBox get_bounding_box(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh);
 
 }  // namespace pgo::VolumetricMeshes::internal::mesh_mass_properties

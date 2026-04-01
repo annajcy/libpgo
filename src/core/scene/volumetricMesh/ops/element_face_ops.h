@@ -1,6 +1,6 @@
 #pragma once
 
-#include "volumetricMesh.h"
+#include "concepts/mesh_concepts.h"
 
 #include "rectKey.h"
 #include "triKey.h"
@@ -15,7 +15,15 @@ class TetMesh;
 
 namespace pgo::VolumetricMeshes::ops {
 
-int face_degree(const VolumetricMesh& mesh);
+template <concepts::TetMeshLike MeshT>
+int face_degree(const MeshT&) {
+    return 3;
+}
+
+template <concepts::CubicMeshLike MeshT>
+int face_degree(const MeshT&) {
+    return 4;
+}
 
 std::array<Mesh::OTriKey, 4> tet_element_faces(const TetMesh& mesh, int element);
 std::array<Mesh::ORectKey, 6> cubic_element_faces(const CubicMesh& mesh, int element);

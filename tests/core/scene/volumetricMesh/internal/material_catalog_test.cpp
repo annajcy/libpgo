@@ -15,7 +15,7 @@ TEST(MaterialCatalogTest, SingleMaterialBuildsAllElementsCoverage) {
     ASSERT_EQ(catalog.num_sets(), 1);
     ASSERT_EQ(catalog.num_regions(), 1);
     ASSERT_EQ(catalog.element_materials().size(), 3u);
-    EXPECT_EQ(catalog.set(0).getName(), pgo::VolumetricMeshes::VolumetricMesh::allElementsSetName);
+    EXPECT_EQ(catalog.set(0).getName(), pgo::VolumetricMeshes::allElementsSetName);
 
     const auto* material =
         pgo::VolumetricMeshes::try_get_material<pgo::VolumetricMeshes::EnuMaterialData>(catalog.element_material(2));

@@ -49,8 +49,6 @@
 namespace pgo {
 namespace VolumetricMeshes {
 
-class VolumetricMesh;
-
 namespace GenerateMassMatrix {
 
 namespace detail {
@@ -191,12 +189,6 @@ template <concepts::VolumetricMeshLike MeshT>
 void computeVertexMassesByAveragingNeighboringElements(const MeshT& mesh, double* masses, bool inflate3Dim = false) {
     detail::compute_vertex_masses_by_averaging_neighboring_elements_impl(mesh, masses, inflate3Dim);
 }
-
-void computeMassMatrix(const VolumetricMesh* volumetricMesh, EigenSupport::SpMatD& massMatrix, bool inflate3Dim = false,
-                       const double* elementWeight = nullptr);
-void computeVertexMasses(const VolumetricMesh* volumetricMesh, double* masses, bool inflate3Dim = false);
-void computeVertexMassesByAveragingNeighboringElements(const VolumetricMesh* volumetricMesh, double* masses,
-                                                       bool inflate3Dim = false);
 
 }  // namespace GenerateMassMatrix
 

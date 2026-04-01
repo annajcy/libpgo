@@ -69,18 +69,18 @@ std::vector<int> flattenCubicElements(std::span<const CubicElement> elements) {
 }  // namespace
 
 CubicMesh::CubicMesh(const std::filesystem::path& filename, FileFormatType fileFormat, int verbose)
-    : VolumetricMesh(8), parallelepipedMode(0) {
+    : cubeSize(0.0), invCubeSize(0.0), parallelepipedMode(0) {
     assignFromData(io::detail::load_cubic_data(filename, fileFormat, verbose), verbose);
 }
 
 CubicMesh::CubicMesh(std::span<const std::byte> binaryStream)
-    : VolumetricMesh(8), parallelepipedMode(0) {
+    : cubeSize(0.0), invCubeSize(0.0), parallelepipedMode(0) {
     assignFromData(io::detail::load_cubic_data(binaryStream), 0);
 }
 
 CubicMesh::CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicElement> elements, double E, double nu,
                      double density)
-    : VolumetricMesh(8), parallelepipedMode(0) {
+    : cubeSize(0.0), invCubeSize(0.0), parallelepipedMode(0) {
     const std::vector<int> flat_elements = flattenCubicElements(elements);
     set_storage(ops::make_mesh_storage(vertices, 8, flat_elements, E, nu, density));
 }
@@ -88,21 +88,19 @@ CubicMesh::CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicEleme
 CubicMesh::CubicMesh(std::span<const Vec3d> vertices, std::span<const CubicElement> elements,
                      std::vector<MaterialRecord> materials, std::vector<ElementSet> sets,
                      std::vector<MaterialRegion> regions)
-    : VolumetricMesh(8),
-      parallelepipedMode(0) {
+    : cubeSize(0.0), invCubeSize(0.0), parallelepipedMode(0) {
     const std::vector<int> flat_elements = flattenCubicElements(elements);
     set_storage(ops::make_mesh_storage(vertices, 8, flat_elements, std::move(materials), std::move(sets),
                                        std::move(regions)));
 }
 
 CubicMesh::CubicMesh(const CubicMesh& source)
-    : VolumetricMesh(source),
-      cubeSize(source.cubeSize),
+    : cubeSize(source.cubeSize),
       invCubeSize(source.invCubeSize),
       parallelepipedMode(source.parallelepipedMode),
       m_storage(source.m_storage) {}
 
-std::unique_ptr<VolumetricMesh> CubicMesh::clone() const {
+std::unique_ptr<CubicMesh> CubicMesh::clone() const {
     return std::make_unique<CubicMesh>(*this);
 }
 
@@ -173,13 +171,17 @@ std::unique_ptr<CubicMesh> CubicMesh::createFromUniformGrid(int resolution, std:
 }
 
 CubicMesh::CubicMesh(const CubicMesh& cubeMesh, std::span<const int> elements, std::map<int, int>* vertexMap_)
-    : VolumetricMesh(cubeMesh, elements, vertexMap_) {
-    sync_storage_from_legacy_state_for_transition();
-    cubeSize = cubeMesh.getCubeSize();
-    SetInverseCubeSize();
+    : cubeSize(cubeMesh.getCubeSize()), invCubeSize(0.0), parallelepipedMode(cubeMesh.parallelepipedMode) {
+    set_storage(ops::common::make_subset_storage(cubeMesh, elements, vertexMap_));
 }
 
 CubicMesh::~CubicMesh() {}
+
+CubicMesh::CubicMesh(int numElementVertices)
+    : cubeSize(0.0),
+      invCubeSize(0.0),
+      parallelepipedMode(0),
+      m_storage(internal::VolumetricMeshData(numElementVertices, {}, {}), internal::MaterialCatalog()) {}
 
 void CubicMesh::assignFromData(io::detail::LoadedMeshData data, int) {
     if (data.element_type != elementType()) {
@@ -201,14 +203,12 @@ void CubicMesh::assignFromData(io::detail::LoadedMeshData data, int) {
 }
 
 void CubicMesh::sync_storage_from_legacy_state_for_transition() {
-    m_storage = storage::MeshStorage(geometry_data(), material_catalog());
     m_storage.validate_invariants();
 }
 
 void CubicMesh::set_storage(storage::MeshStorage storage) {
     storage.validate_invariants();
     m_storage = std::move(storage);
-    ops::assign_common_storage(*this, m_storage);
 
     if (getNumElements() > 0) {
         cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();

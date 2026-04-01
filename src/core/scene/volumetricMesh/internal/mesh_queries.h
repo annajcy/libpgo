@@ -1,7 +1,7 @@
 #pragma once
 
 #include "concepts/mesh_concepts.h"
-#include "volumetricMesh.h"
+#include "meshLinearAlgebra.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -144,17 +144,5 @@ template <concepts::VolumetricMeshLike MeshT>
 int get_containing_element(const MeshT& mesh, Vec3d pos) {
     return detail::get_containing_element_impl(mesh, pos);
 }
-
-void get_vertices_in_elements(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, const std::vector<int>& elements,
-                              std::vector<int>& vertices);
-void get_elements_touching_vertices(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, const std::vector<int>& vertices,
-                                    std::vector<int>& elements);
-void get_elements_with_only_vertices(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, const std::vector<int>& vertices,
-                                     std::vector<int>& elements);
-void get_vertex_neighborhood(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, const std::vector<int>& vertices,
-                             std::vector<int>& neighborhood);
-int  get_closest_vertex(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, Vec3d pos);
-int  get_closest_element(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, const Vec3d& pos);
-int  get_containing_element(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh, Vec3d pos);
 
 }  // namespace pgo::VolumetricMeshes::internal::mesh_queries

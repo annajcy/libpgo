@@ -1,8 +1,8 @@
 #pragma once
 
 #include "concepts/mesh_concepts.h"
+#include "meshLinearAlgebra.h"
 #include "types/interpolation_weights.h"
-#include "volumetricMesh.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -97,17 +97,6 @@ std::vector<int> containing_elements(const MeshT& mesh, std::span<const Vec3d> t
     (void)verbose;
     return detail::containing_elements_impl(mesh, target_locations, use_closest_element_if_outside);
 }
-
-InterpolationWeights generate_weights(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh,
-                                      std::span<const Vec3d> targetLocations,
-                                      double zeroThreshold = -1.0, bool useClosestElementIfOutside = true,
-                                      int verbose = 0);
-InterpolationWeights generate_weights(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh,
-                                      std::span<const Vec3d> targetLocations,
-                                      std::span<const int> elements, double zeroThreshold = -1.0, int verbose = 0);
-std::vector<int> containing_elements(const ::pgo::VolumetricMeshes::VolumetricMesh& mesh,
-                                     std::span<const Vec3d> targetLocations,
-                                     bool useClosestElementIfOutside = true, int verbose = 0);
 
 void apply(const double* u, double* uTarget, int numTargetLocations, int numElementVertices, const int* vertices,
            const double* weights);

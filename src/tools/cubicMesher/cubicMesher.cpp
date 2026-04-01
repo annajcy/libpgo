@@ -50,7 +50,7 @@ std::vector<int> buildUniformVoxelIndices(int resolution, int numVoxels) {
 bool writeSurfaceMesh(const pgo::VolumetricMeshes::CubicMesh* cubicMesh, const std::string& outputSurface) {
     std::vector<pgo::EigenSupport::V3d> surfVerts;
     std::vector<std::vector<int>>       surfFaces;
-    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(cubicMesh, surfVerts, surfFaces, true, false);
+    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(*cubicMesh, surfVerts, surfFaces, true, false);
 
     std::vector<pgo::Vec3i> triangles;
     triangles.reserve(surfFaces.size());

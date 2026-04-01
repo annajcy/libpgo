@@ -1,6 +1,7 @@
 #pragma once
 
-#include "volumetricMesh.h"
+#include "materials/material_access.h"
+#include "materials/material_record.h"
 
 #include <cstdio>
 #include <filesystem>

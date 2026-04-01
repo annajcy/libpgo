@@ -76,7 +76,7 @@ void MaterialCatalog::set_single_material(int num_elements, double E, double nu,
     m_element_materials.assign(static_cast<size_t>(num_elements), 0);
 
     m_materials.push_back(MaterialRecord{"defaultMaterial", EnuMaterialData{density, E, nu}});
-    m_sets.push_back(VolumetricMesh::generateAllElementsSet(num_elements));
+    m_sets.push_back(generateAllElementsSet(num_elements));
     m_regions.emplace_back(0, 0);
 }
 
@@ -288,7 +288,7 @@ void MaterialCatalog::validate_against_num_elements(int num_elements) const {
     PGO_ALOG(static_cast<int>(m_sets.size()) == num_sets());
     PGO_ALOG(static_cast<int>(m_regions.size()) == num_regions());
     if (!m_sets.empty()) {
-        PGO_ALOG(m_sets[0].getName() == VolumetricMesh::allElementsSetName);
+        PGO_ALOG(m_sets[0].getName() == allElementsSetName);
     }
 }
 

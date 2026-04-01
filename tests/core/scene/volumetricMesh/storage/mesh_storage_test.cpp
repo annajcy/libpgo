@@ -1,4 +1,5 @@
 #include "storage/mesh_storage.h"
+#include "materials/material_access.h"
 
 #include <gtest/gtest.h>
 

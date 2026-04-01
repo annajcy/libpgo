@@ -1,6 +1,6 @@
 #pragma once
 
-#include "volumetricMesh.h"
+#include "meshLinearAlgebra.h"
 
 namespace pgo {
 namespace VolumetricMeshes {

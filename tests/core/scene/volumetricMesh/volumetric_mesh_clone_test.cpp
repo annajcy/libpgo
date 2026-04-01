@@ -11,7 +11,7 @@ TEST(CoreSceneVolumetricMeshTest, VolumetricMeshCloneOwnsDeepCopiedMaterial) {
 
     TetMesh source = makeSingleTetMesh();
 
-    std::unique_ptr<VolumetricMesh> clone = source.clone();
+    std::unique_ptr<TetMesh> clone = source.clone();
     auto* const source_material = try_get_material<EnuMaterialData>(source.getMaterial(0));
     auto* const clone_material  = try_get_material<EnuMaterialData>(clone->getMaterial(0));
     ASSERT_NE(source_material, nullptr);

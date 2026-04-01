@@ -192,7 +192,7 @@ int runSimFromConfig(const RunSimConfig& config) {
     }
 
     InterpolationCoordinates::BarycentricCoordinates bc(surfaceMesh.numVertices(), surfaceRestPositions.data(),
-                                                        &tetMesh);
+                                                        tetMesh);
     ES::SpMatD                                       W = bc.generateInterpolationMatrix();
 
     std::shared_ptr<SolidDeformationModel::SimulationMesh> simMesh(
@@ -280,7 +280,7 @@ int runSimFromConfig(const RunSimConfig& config) {
     }
 
     ES::SpMatD M;
-    VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(&tetMesh, M, true);
+    VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(tetMesh, M, true);
 
     ES::VXd g(n3);
     for (int vi = 0; vi < n; vi++) {

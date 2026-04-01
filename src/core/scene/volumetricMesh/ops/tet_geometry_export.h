@@ -1,6 +1,8 @@
 #pragma once
 
-#include "volumetricMesh.h"
+#include "meshLinearAlgebra.h"
+
+#include <vector>
 
 namespace pgo::Mesh {
 class TetMeshGeo;

@@ -6,10 +6,6 @@
 #include <span>
 #include <vector>
 
-namespace pgo::VolumetricMeshes {
-class VolumetricMesh;
-}
-
 namespace pgo::VolumetricMeshes::ops {
 
 storage::MeshStorage make_mesh_storage(std::span<const Vec3d> vertices, int num_element_vertices,
@@ -19,7 +15,18 @@ storage::MeshStorage make_mesh_storage(std::span<const Vec3d> vertices, int num_
                                        std::vector<ElementSet> sets, std::vector<MaterialRegion> regions,
                                        int verbose = 0);
 storage::MeshStorage make_mesh_storage(io::detail::LoadedMeshData data);
-void assign_common_storage(VolumetricMesh& mesh, storage::MeshStorage storage);
-void assign_common_loaded_data(VolumetricMesh& mesh, io::detail::LoadedMeshData data);
+
+template <class MeshT>
+void assign_common_storage(MeshT& mesh, storage::MeshStorage storage) {
+    storage.validate_invariants();
+    mesh.geometry_data() = std::move(storage.geometry());
+    mesh.material_catalog() = std::move(storage.material_catalog());
+    mesh.material_catalog().validate_against_num_elements(mesh.getNumElements());
+}
+
+template <class MeshT>
+void assign_common_loaded_data(MeshT& mesh, io::detail::LoadedMeshData data) {
+    assign_common_storage(mesh, make_mesh_storage(std::move(data)));
+}
 
 }  // namespace pgo::VolumetricMeshes::ops

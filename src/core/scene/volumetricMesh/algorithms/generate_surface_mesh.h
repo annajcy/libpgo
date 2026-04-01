@@ -46,7 +46,6 @@
 
 namespace pgo {
 namespace VolumetricMeshes {
-class VolumetricMesh;
 namespace GenerateSurfaceMesh {
 
 // The output surface mesh is a triangle mesh for tet meshes and can also be a quad mesh for cubic meshes.
@@ -59,8 +58,11 @@ namespace GenerateSurfaceMesh {
 void computeMesh(AnyMeshRef mesh, std::vector<EigenSupport::V3d>& vertices, std::vector<std::vector<int>>& faces,
                  bool triangulate = false, bool allElementFaces = false);
 
-void computeMesh(const VolumetricMesh* volumetricMesh, std::vector<EigenSupport::V3d>& vertices,
-                 std::vector<std::vector<int>>& faces, bool triangulate = false, bool allElementFaces = false);
+template <class MeshT>
+void computeMesh(const MeshT& mesh, std::vector<EigenSupport::V3d>& vertices, std::vector<std::vector<int>>& faces,
+                 bool triangulate = false, bool allElementFaces = false) {
+    computeMesh(make_any_mesh_ref(mesh), vertices, faces, triangulate, allElementFaces);
+}
 
 }  // namespace GenerateSurfaceMesh
 }  // namespace VolumetricMeshes

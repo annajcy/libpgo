@@ -34,9 +34,10 @@
 #include "algorithms/mesh_interpolation.h"
 #include "io/interpolation_weight_io.h"
 #include "pgoLogging.h"
-#include "volumetricMesh.h"
 #include "boundingVolumeTree.h"
 #include "EigenSupport.h"
+#include "tetMesh.h"
+#include "cubicMesh.h"
 
 #include <cassert>
 #include <iostream>
@@ -55,79 +56,74 @@ using namespace pgo::VolumetricMeshes;
 namespace ES = pgo::EigenSupport;
 
 BarycentricCoordinates::BarycentricCoordinates(int numLocations_, const double* locations,
-                                               const VolumetricMesh* volumetricMesh) {
+                                               VolumetricMeshes::AnyMeshRef mesh) {
     PGO_ALOG(locations != nullptr);
-    PGO_ALOG(volumetricMesh != nullptr);
-
-    initializeInterpolationWeights(numLocations_, locations, volumetricMesh);
+    initializeInterpolationWeights(numLocations_, locations, mesh);
 }
 
 void BarycentricCoordinates::initializeInterpolationWeights(int numLocations_, const double* locations,
-                                                            const VolumetricMesh* volumetricMesh) {
-    numCageVertices = volumetricMesh->getNumVertices();
-    numLocations    = numLocations_;
-    // numVertices = volumetricMesh->getNumVertices();
-    // numElements = volumetricMesh->getNumElements();
-    numElementVertices = volumetricMesh->getNumElementVertices();
+                                                            VolumetricMeshes::AnyMeshRef mesh_ref) {
+    std::visit(
+        [&](const auto& typed_mesh_ref) {
+            const auto& mesh = typed_mesh_ref.get();
 
-    indices.resize(numElementVertices * numLocations);
-    weights.resize(numElementVertices * numLocations);
-    elements.resize(numLocations);
+            numCageVertices = mesh.getNumVertices();
+            numLocations = numLocations_;
+            numElementVertices = mesh.getNumElementVertices();
 
-    std::atomic<int> numExternalVertices(0);
+            indices.resize(numElementVertices * numLocations);
+            weights.resize(numElementVertices * numLocations);
+            elements.resize(numLocations);
 
-    Mesh::BoundingBoxBVTree        bvTree;
-    std::vector<Mesh::BoundingBox> elementBBs(volumetricMesh->getNumElements());
-    for (int ei = 0; ei < volumetricMesh->getNumElements(); ei++) {
-        const auto vertexIndices = volumetricMesh->getVertexIndices(ei);
-        BasicAlgorithms::ArrayRef<int> indexRef(volumetricMesh->getNumElementVertices(), vertexIndices.data());
-        elementBBs[ei] = Mesh::BoundingBox(volumetricMesh->getVertices().data(), indexRef);
-    }
-    bvTree.buildByInertiaPartition(elementBBs);
+            std::atomic<int> numExternalVertices(0);
 
-    tbb::parallel_for(0, numLocations, [&](int i) {
-        ES::V3d                       pos = ES::Mp<const ES::V3d>(locations + 3 * i);
-        thread_local std::vector<int> closestBBIDs;
-
-        closestBBIDs.clear();
-        bvTree.getClosestBoundingBoxes(elementBBs, pos, closestBBIDs);
-        PGO_ALOG(closestBBIDs.size() > 0);
-        //    cout << "closestBBIDs size " << closestBBIDs.size() << endl;
-
-        bool posInsideElement = true;
-        int  targetElementID  = -1;
-        for (int eleID : closestBBIDs) {
-            if (volumetricMesh->containsVertex(eleID, pos)) {
-                targetElementID = eleID;
-                break;
+            Mesh::BoundingBoxBVTree bvTree;
+            std::vector<Mesh::BoundingBox> elementBBs(mesh.getNumElements());
+            for (int ei = 0; ei < mesh.getNumElements(); ei++) {
+                const auto vertex_indices = mesh.getVertexIndices(ei);
+                BasicAlgorithms::ArrayRef<int> index_ref(mesh.getNumElementVertices(), vertex_indices.data());
+                elementBBs[static_cast<size_t>(ei)] = Mesh::BoundingBox(mesh.getVertices().data(), index_ref);
             }
-        }
+            bvTree.buildByInertiaPartition(elementBBs);
 
-        if (targetElementID < 0) {
-            posInsideElement = false;
-            // find closest element among those reported
-            double closestDistance2 = DBL_MAX;
-            for (int eleID : closestBBIDs) {
-                Vec3d  center = volumetricMesh->getElementCenter(eleID);
-                double dist2  = (pos - center).squaredNorm();
-                if (dist2 < closestDistance2) {
-                    closestDistance2 = dist2;
-                    targetElementID  = eleID;
+            tbb::parallel_for(0, numLocations, [&](int i) {
+                ES::V3d pos = ES::Mp<const ES::V3d>(locations + 3 * i);
+                thread_local std::vector<int> closest_bb_ids;
+
+                closest_bb_ids.clear();
+                bvTree.getClosestBoundingBoxes(elementBBs, pos, closest_bb_ids);
+                PGO_ALOG(closest_bb_ids.size() > 0);
+
+                int target_element_id = -1;
+                for (int ele_id : closest_bb_ids) {
+                    if (mesh.containsVertex(ele_id, pos)) {
+                        target_element_id = ele_id;
+                        break;
+                    }
                 }
-            }
-            numExternalVertices++;
-        }
 
-        // containing element ID
-        elements[i] = targetElementID;
+                if (target_element_id < 0) {
+                    double closest_distance2 = DBL_MAX;
+                    for (int ele_id : closest_bb_ids) {
+                        Vec3d center = mesh.getElementCenter(ele_id);
+                        const double dist2 = (pos - center).squaredNorm();
+                        if (dist2 < closest_distance2) {
+                            closest_distance2 = dist2;
+                            target_element_id = ele_id;
+                        }
+                    }
+                    numExternalVertices++;
+                }
 
-        // element vertex indices
-        memcpy(indices.data() + i * numElementVertices, volumetricMesh->getVertexIndices(targetElementID).data(),
-               sizeof(int) * numElementVertices);
+                elements[static_cast<size_t>(i)] = target_element_id;
 
-        // barycentric weights
-        volumetricMesh->computeBarycentricWeights(targetElementID, pos, weights.data() + i * numElementVertices);
-    });
+                std::memcpy(indices.data() + i * numElementVertices, mesh.getVertexIndices(target_element_id).data(),
+                            sizeof(int) * numElementVertices);
+
+                mesh.computeBarycentricWeights(target_element_id, pos, weights.data() + i * numElementVertices);
+            });
+        },
+        mesh_ref);
 }
 
 BarycentricCoordinates::BarycentricCoordinates(int numLocations_, int numElementVertices_, const int* indices_,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "internal/material_catalog.h"
+#include "internal/volumetric_mesh_data.h"
 #include "types/mesh_enums.h"
 
 namespace pgo::VolumetricMeshes::io::detail {

@@ -45,7 +45,7 @@ TEST(CoreSceneVolumetricMeshTest, GenerateSurfaceMeshForCubeTriangulatedProduces
 
     std::vector<pgo::EigenSupport::V3d> vertices;
     std::vector<std::vector<int>>       faces;
-    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(&mesh, vertices, faces, true, false);
+    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(mesh, vertices, faces, true, false);
 
     EXPECT_EQ(static_cast<int>(vertices.size()), mesh.getNumVertices());
     EXPECT_EQ(faces.size(), 12u);
@@ -68,11 +68,11 @@ TEST(CoreSceneVolumetricMeshTest, GenerateSurfaceMeshAllElementFacesForAdjacentC
 
     std::vector<pgo::EigenSupport::V3d> surface_vertices;
     std::vector<std::vector<int>> surface_faces;
-    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(&mesh, surface_vertices, surface_faces, false, false);
+    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(mesh, surface_vertices, surface_faces, false, false);
 
     std::vector<pgo::EigenSupport::V3d> all_vertices;
     std::vector<std::vector<int>> all_faces;
-    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(&mesh, all_vertices, all_faces, false, true);
+    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(mesh, all_vertices, all_faces, false, true);
 
     EXPECT_EQ(surface_faces.size(), 10u);
     EXPECT_EQ(all_faces.size(), 12u);
@@ -89,7 +89,7 @@ TEST(CoreSceneVolumetricMeshTest, GenerateSurfaceMeshForNegativelyOrientedTetMat
 
     std::vector<pgo::EigenSupport::V3d> surface_vertices;
     std::vector<std::vector<int>> surface_faces;
-    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(&mesh, surface_vertices, surface_faces, false, false);
+    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(mesh, surface_vertices, surface_faces, false, false);
 
     std::set<std::vector<int>> actual_faces(surface_faces.begin(), surface_faces.end());
     std::set<std::vector<int>> expected_faces;

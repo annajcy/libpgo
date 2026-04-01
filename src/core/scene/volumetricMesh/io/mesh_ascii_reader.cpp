@@ -3,6 +3,7 @@
 #include "io/detail/veg_parser.h"
 #include "io/material_serde.h"
 #include "stringHelper.h"
+#include "types/mesh_constants.h"
 
 #include <cstdlib>
 #include <cctype>
@@ -236,7 +237,7 @@ LoadedMeshData read_ascii_mesh(const std::filesystem::path& filename, int verbos
     data.materials.resize(static_cast<size_t>(num_materials));
     data.sets.resize(static_cast<size_t>(num_sets));
     data.regions.resize(static_cast<size_t>(num_regions));
-    data.sets[0] = VolumetricMesh::generateAllElementsSet(num_elements);
+    data.sets[0] = generateAllElementsSet(num_elements);
 
     int count_num_materials = 0;
     int count_num_sets = 1;

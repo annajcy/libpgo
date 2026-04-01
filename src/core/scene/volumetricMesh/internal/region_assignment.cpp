@@ -38,7 +38,7 @@ void assign_materials_to_elements_with_default(
     if (materials.empty()) {
         materials.push_back(MaterialRecord{
             "defaultMaterial",
-            EnuMaterialData{VolumetricMesh::density_default, VolumetricMesh::E_default, VolumetricMesh::nu_default}});
+            EnuMaterialData{density_default, E_default, nu_default}});
     }
 
     sets.emplace_back("unassignedSet");

@@ -5,16 +5,6 @@
 
 namespace pgo::VolumetricMeshes::ops {
 
-int face_degree(const VolumetricMesh& mesh) {
-    if (mesh.getElementType() == ElementType::Tet) {
-        return 3;
-    }
-    if (mesh.getElementType() == ElementType::Cubic) {
-        return 4;
-    }
-    return 0;
-}
-
 std::array<Mesh::OTriKey, 4> tet_element_faces(const TetMesh& mesh, int element) {
     if (mesh.getTetDeterminant(element) >= 0.0) {
         return {

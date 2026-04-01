@@ -1,6 +1,9 @@
 #pragma once
 
-#include "volumetricMesh.h"
+#include "materials/material_record.h"
+#include "types/element_set.h"
+#include "types/material_region.h"
+#include "types/mesh_constants.h"
 
 #include <vector>
 

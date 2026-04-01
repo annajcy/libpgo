@@ -159,16 +159,3 @@ void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(AnyMeshRef mesh,
         },
         mesh);
 }
-
-void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMesh* volumetricMesh,
-                                                             std::vector<EigenSupport::V3d>& vertices,
-                                                             std::vector<std::vector<int>>& faces, bool triangulate,
-                                                             bool allElementFaces) {
-    PGO_ALOG(volumetricMesh != nullptr);
-
-    try {
-        computeMesh(to_any_mesh_ref(*volumetricMesh), vertices, faces, triangulate, allElementFaces);
-    } catch (const std::invalid_argument&) {
-        std::cerr << "Error: unknown VolumetricMesh element type in GenerateSurfaceMesh" << std::endl;
-    }
-}

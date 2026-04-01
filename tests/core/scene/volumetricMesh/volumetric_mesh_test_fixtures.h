@@ -2,7 +2,6 @@
 
 #include "cubicMesh.h"
 #include "tetMesh.h"
-#include "volumetricMesh.h"
 
 #include <gtest/gtest.h>
 
@@ -90,8 +89,8 @@ inline void writeTextFile(const std::filesystem::path& path, const std::string& 
     EXPECT_TRUE(stream.good());
 }
 
-inline void expectMeshGeometryEqual(const pgo::VolumetricMeshes::VolumetricMesh& actual,
-                                    const pgo::VolumetricMeshes::VolumetricMesh& expected) {
+template <class MeshA, class MeshB>
+inline void expectMeshGeometryEqual(const MeshA& actual, const MeshB& expected) {
     ASSERT_EQ(actual.getElementType(), expected.getElementType());
     ASSERT_EQ(actual.getNumVertices(), expected.getNumVertices());
     ASSERT_EQ(actual.getNumElements(), expected.getNumElements());
@@ -113,7 +112,8 @@ inline void expectWeightsNormalized(const double* weights, int count) {
     EXPECT_NEAR(sum, 1.0, 1e-12);
 }
 
-inline void expectAllElementsSetCoversMesh(const pgo::VolumetricMeshes::VolumetricMesh& mesh) {
+template <class MeshT>
+inline void expectAllElementsSetCoversMesh(const MeshT& mesh) {
     ASSERT_GT(mesh.getNumSets(), 0);
     const auto& all_elements = mesh.getSet(0).getElements();
     EXPECT_EQ(mesh.getSet(0).getName(), "allElements");

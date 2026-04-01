@@ -1,8 +1,5 @@
 #include "ops/mesh_construction.h"
 
-#include "internal/mesh_mutation.h"
-#include "volumetricMesh.h"
-
 namespace pgo::VolumetricMeshes::ops {
 
 storage::MeshStorage make_mesh_storage(std::span<const Vec3d> vertices, int num_element_vertices,
@@ -33,17 +30,6 @@ storage::MeshStorage make_mesh_storage(io::detail::LoadedMeshData data) {
     storage::MeshStorage storage(std::move(data.geometry), std::move(data.material_catalog));
     storage.validate_invariants();
     return storage;
-}
-
-void assign_common_storage(VolumetricMesh& mesh, storage::MeshStorage storage) {
-    storage.validate_invariants();
-    internal::MeshMutation::replace_geometry(mesh, std::move(storage.geometry()));
-    internal::MeshMutation::material_catalog(mesh) = std::move(storage.material_catalog());
-    internal::MeshMutation::material_catalog(mesh).validate_against_num_elements(mesh.getNumElements());
-}
-
-void assign_common_loaded_data(VolumetricMesh& mesh, io::detail::LoadedMeshData data) {
-    assign_common_storage(mesh, make_mesh_storage(std::move(data)));
 }
 
 }  // namespace pgo::VolumetricMeshes::ops

@@ -9,8 +9,7 @@ namespace pgo::Mesh::test {
 TEST(CoreSceneVolumetricMeshTest, AnyMeshRefConvertsLegacyTetBaseToTypedAlternative) {
     pgo::VolumetricMeshes::TetMesh mesh = makeSingleTetMesh();
 
-    const pgo::VolumetricMeshes::VolumetricMesh& base_ref = mesh;
-    const auto any_mesh = pgo::VolumetricMeshes::to_any_mesh_ref(base_ref);
+    const auto any_mesh = pgo::VolumetricMeshes::make_any_mesh_ref(mesh);
 
     EXPECT_TRUE((std::holds_alternative<std::reference_wrapper<const pgo::VolumetricMeshes::TetMesh>>(any_mesh)));
     EXPECT_EQ(&std::get<std::reference_wrapper<const pgo::VolumetricMeshes::TetMesh>>(any_mesh).get(), &mesh);
@@ -19,8 +18,7 @@ TEST(CoreSceneVolumetricMeshTest, AnyMeshRefConvertsLegacyTetBaseToTypedAlternat
 TEST(CoreSceneVolumetricMeshTest, AnyMutableMeshRefConvertsLegacyCubeBaseToTypedAlternative) {
     pgo::VolumetricMeshes::CubicMesh mesh = makeSingleCubeMesh();
 
-    pgo::VolumetricMeshes::VolumetricMesh& base_ref = mesh;
-    const auto any_mesh = pgo::VolumetricMeshes::to_any_mesh_ref(base_ref);
+    const auto any_mesh = pgo::VolumetricMeshes::make_any_mutable_mesh_ref(mesh);
 
     EXPECT_TRUE((std::holds_alternative<std::reference_wrapper<pgo::VolumetricMeshes::CubicMesh>>(any_mesh)));
     EXPECT_EQ(&std::get<std::reference_wrapper<pgo::VolumetricMeshes::CubicMesh>>(any_mesh).get(), &mesh);

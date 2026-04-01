@@ -2,7 +2,7 @@
 
 #include "concepts/mesh_concepts.h"
 #include "internal/mesh_mutation.h"
-#include "volumetricMesh.h"
+#include "meshLinearAlgebra.h"
 
 #include <cstring>
 
@@ -57,7 +57,7 @@ void apply_linear_transformation_impl(MeshT& mesh, double* pos, double* R) {
 
 template <class MeshT>
 void renumber_vertices_impl(MeshT& mesh, const std::vector<int>& permutation) {
-    MeshMutation::geometry(static_cast<VolumetricMesh&>(mesh)).renumber_vertices(permutation);
+    MeshMutation::geometry(mesh).renumber_vertices(permutation);
 }
 
 }  // namespace detail
@@ -81,10 +81,5 @@ template <concepts::VolumetricMeshLike MeshT>
 void renumber_vertices(MeshT& mesh, const std::vector<int>& permutation) {
     detail::renumber_vertices_impl(mesh, permutation);
 }
-
-void compute_gravity(const VolumetricMesh& mesh, double* gravity_force, double g, bool add_force);
-void apply_deformation(VolumetricMesh& mesh, const double* u);
-void apply_linear_transformation(VolumetricMesh& mesh, double* pos, double* R);
-void renumber_vertices(VolumetricMesh& mesh, const std::vector<int>& permutation);
 
 }  // namespace pgo::VolumetricMeshes::internal::mesh_transforms

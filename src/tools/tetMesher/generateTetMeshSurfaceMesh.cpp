@@ -14,7 +14,7 @@ int main(int argc, char* argv[]) {
         allEles = true;
     }
 
-    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(&tetMesh, vertices, faces, true, allEles);
+    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(tetMesh, vertices, faces, true, allEles);
 
     std::ofstream outFile(argv[2]);
     outFile << std::setprecision(15);

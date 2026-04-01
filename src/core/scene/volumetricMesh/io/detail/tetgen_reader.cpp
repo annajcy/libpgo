@@ -1,6 +1,7 @@
 #include "io/detail/tetgen_reader.h"
 
 #include "io/detail/veg_parser.h"
+#include "types/mesh_constants.h"
 
 #include <cstdio>
 
@@ -70,8 +71,7 @@ LoadedMeshData read_tetgen_mesh(const std::filesystem::path& filename, int verbo
     parser.close();
 
     internal::VolumetricMeshData geometry(4, std::move(vertices), std::move(elements));
-    internal::MaterialCatalog material_catalog(geometry.num_elements(), VolumetricMesh::E_default,
-                                               VolumetricMesh::nu_default, VolumetricMesh::density_default);
+    internal::MaterialCatalog material_catalog(geometry.num_elements(), E_default, nu_default, density_default);
     material_catalog.validate_against_num_elements(geometry.num_elements());
     return LoadedMeshData{ElementType::Tet, std::move(geometry), std::move(material_catalog)};
 }

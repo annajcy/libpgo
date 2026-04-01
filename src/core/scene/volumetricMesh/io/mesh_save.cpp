@@ -79,7 +79,7 @@ void save_to_node_ele_impl(const MeshT& mesh, const std::filesystem::path& baseF
 template <typename MeshT>
 int save_to_ascii_impl(const MeshT& mesh, const std::filesystem::path& filename) {
     try {
-        detail::write_ascii_mesh(static_cast<const VolumetricMesh&>(mesh), filename);
+        detail::write_ascii_mesh(mesh, filename);
         return 0;
     } catch (...) {
         return 1;
@@ -89,7 +89,7 @@ int save_to_ascii_impl(const MeshT& mesh, const std::filesystem::path& filename)
 template <typename MeshT>
 int save_to_binary_impl(const MeshT& mesh, const std::filesystem::path& filename, unsigned int* bytes_written) {
     try {
-        detail::write_binary_mesh(static_cast<const VolumetricMesh&>(mesh), filename, bytes_written);
+        detail::write_binary_mesh(mesh, filename, bytes_written);
         return 0;
     } catch (...) {
         return 1;
@@ -134,38 +134,6 @@ int save_to_node_ele(AnyMeshRef mesh, const std::filesystem::path& baseFilename,
     return std::visit(
         [&](const auto& mesh_ref) { return save_to_node_ele_result(mesh_ref.get(), baseFilename, includeRegions); },
         mesh);
-}
-
-int save(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
-    try {
-        return save(to_any_mesh_ref(mesh), filename);
-    } catch (...) {
-        return 1;
-    }
-}
-
-int save_to_ascii(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
-    try {
-        return save_to_ascii(to_any_mesh_ref(mesh), filename);
-    } catch (...) {
-        return 1;
-    }
-}
-
-int save_to_binary(const VolumetricMesh& mesh, const std::filesystem::path& filename, unsigned int* bytesWritten) {
-    try {
-        return save_to_binary(to_any_mesh_ref(mesh), filename, bytesWritten);
-    } catch (...) {
-        return 1;
-    }
-}
-
-int save_to_node_ele(const VolumetricMesh& mesh, const std::filesystem::path& baseFilename, bool includeRegions) {
-    try {
-        return save_to_node_ele(to_any_mesh_ref(mesh), baseFilename, includeRegions);
-    } catch (...) {
-        return 1;
-    }
 }
 
 }  // namespace pgo::VolumetricMeshes::io

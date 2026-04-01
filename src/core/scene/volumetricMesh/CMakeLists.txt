@@ -47,9 +47,9 @@ set(VOLUMETRIC_MESH_H
   types/element_set.h
   types/element_types.h
   types/interpolation_weights.h
+  types/mesh_constants.h
   types/mesh_enums.h
   types/material_region.h
-  volumetricMesh.h
 )
 set(VOLUMETRIC_MESH_SRC
   algorithms/cubic_mesh_interpolation.cpp
@@ -88,7 +88,6 @@ set(VOLUMETRIC_MESH_SRC
   ops/tet_mesh_ops.cpp
   storage/mesh_storage.cpp
   tetMesh.cpp
-  volumetricMesh.cpp
 )
 
 if(NOT TARGET mesh)

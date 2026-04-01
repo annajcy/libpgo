@@ -33,8 +33,8 @@
 #pragma once
 
 #include "interpolationCoordinatesBase.h"
+#include "dispatch/any_mesh_ref.h"
 #include "EigenDef.h"
-#include "volumetricMesh.h"
 
 #include <vector>
 #include <string>
@@ -53,8 +53,12 @@ public:
     BarycentricCoordinates(const std::string& filename);
 
     // Compute barycentric coordinates and element indices.
-    BarycentricCoordinates(int numLocations, const double* locations,
-                           const VolumetricMeshes::VolumetricMesh* volumetricMesh);
+    BarycentricCoordinates(int numLocations, const double* locations, VolumetricMeshes::AnyMeshRef mesh);
+
+    template <class MeshT>
+    BarycentricCoordinates(int numLocations, const double* locations, const MeshT& mesh)
+        : BarycentricCoordinates(numLocations, locations, VolumetricMeshes::make_any_mesh_ref(mesh)) {
+    }
 
     // Initialize with only element vertex indices and weights. No element indices are available.
     BarycentricCoordinates(int numLocations, int numElementVertices, const int* elementVertexIndices,
@@ -91,8 +95,7 @@ public:
     EigenSupport::SpMatD generateInterpolationMatrix() const;
 
 protected:
-    void initializeInterpolationWeights(int numLocations_, const double* locations,
-                                        const VolumetricMeshes::VolumetricMesh* volumetricMesh);
+    void initializeInterpolationWeights(int numLocations_, const double* locations, VolumetricMeshes::AnyMeshRef mesh);
     int  numLocations       = 0;
     int  numElementVertices = 0;
     int  numCageVertices    = 0;

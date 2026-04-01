@@ -3,6 +3,7 @@
 #include "ops/cubic_mesh_ops.h"
 #include "ops/tet_mesh_ops.h"
 #include "traits/mesh_tags.h"
+#include "types/mesh_enums.h"
 
 #include <type_traits>
 

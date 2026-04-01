@@ -1,5 +1,4 @@
 #include "internal/mesh_queries.h"
-#include "volumetricMesh.h"
 
 #include "volumetric_mesh_test_fixtures.h"
 

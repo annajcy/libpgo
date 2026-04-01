@@ -1,6 +1,7 @@
 #include "io/mesh_binary_reader.h"
 
 #include "io/material_serde.h"
+#include "types/mesh_constants.h"
 
 #include <fstream>
 #include <sstream>
@@ -107,7 +108,7 @@ LoadedMeshData read_binary_mesh(std::istream& input) {
     }
 
     data.sets.resize(static_cast<size_t>(num_sets));
-    data.sets[0] = VolumetricMesh::generateAllElementsSet(num_elements);
+    data.sets[0] = generateAllElementsSet(num_elements);
 
     std::vector<int> int_temp_vec;
     for (int set_index = 1; set_index < num_sets; set_index++) {

@@ -57,15 +57,15 @@ std::vector<int> flattenTetElements(std::span<const Vec4i> elements) {
 }  // namespace
 
 TetMesh::TetMesh(const std::filesystem::path& filename, FileFormatType fileFormat, int verbose)
-    : VolumetricMesh(4) {
+{
     assignFromData(io::detail::load_tet_data(filename, fileFormat, verbose), verbose);
 }
 
-TetMesh::TetMesh(std::span<const std::byte> binaryStream) : VolumetricMesh(4) {
+TetMesh::TetMesh(std::span<const std::byte> binaryStream) {
     assignFromData(io::detail::load_tet_data(binaryStream), 0);
 }
 
-TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int verbose) : VolumetricMesh(4) {
+TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int verbose) {
     if (specialFileType == 0) {
         assignFromData(io::detail::read_tetgen_mesh(filename, verbose), verbose);
         return;
@@ -83,14 +83,14 @@ TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int
 }
 
 TetMesh::TetMesh(const Vec3d& p0, const Vec3d& p1, const Vec3d& p2, const Vec3d& p3)
-    : VolumetricMesh(4) {
+{
     set_storage(ops::make_mesh_storage(std::array<Vec3d, 4>{p0, p1, p2, p3}, 4, std::array<int, 4>{0, 1, 2, 3},
                                        E_default, nu_default, density_default));
 }
 
 TetMesh::TetMesh(std::span<const Vec3d> vertices_, std::span<const Vec4i> elements_, double E, double nu,
                  double density)
-    : VolumetricMesh(4) {
+{
     const std::vector<int> flat_elements = flattenTetElements(elements_);
     set_storage(ops::make_mesh_storage(vertices_, 4, flat_elements, E, nu, density));
 }
@@ -98,26 +98,27 @@ TetMesh::TetMesh(std::span<const Vec3d> vertices_, std::span<const Vec4i> elemen
 TetMesh::TetMesh(std::span<const Vec3d> vertices_, std::span<const Vec4i> elements_,
                  std::vector<MaterialRecord> materials_, std::vector<ElementSet> sets_,
                  std::vector<MaterialRegion> regions_)
-    : VolumetricMesh(4) {
+{
     const std::vector<int> flat_elements = flattenTetElements(elements_);
     set_storage(ops::make_mesh_storage(vertices_, 4, flat_elements, std::move(materials_), std::move(sets_),
                                        std::move(regions_)));
 }
 
-TetMesh::TetMesh(const TetMesh& source)
-    : VolumetricMesh(source),
-      m_storage(source.m_storage) {}
+TetMesh::TetMesh(const TetMesh& source) : m_storage(source.m_storage) {}
 
-std::unique_ptr<VolumetricMesh> TetMesh::clone() const {
+std::unique_ptr<TetMesh> TetMesh::clone() const {
     return std::make_unique<TetMesh>(*this);
 }
 
 TetMesh::TetMesh(const TetMesh& tetMesh, std::span<const int> elements_, std::map<int, int>* vertexMap_)
-    : VolumetricMesh(tetMesh, elements_, vertexMap_) {
-    sync_storage_from_legacy_state_for_transition();
+{
+    set_storage(ops::common::make_subset_storage(tetMesh, elements_, vertexMap_));
 }
 
 TetMesh::~TetMesh() {}
+
+TetMesh::TetMesh(int numElementVertices)
+    : m_storage(internal::VolumetricMeshData(numElementVertices, {}, {}), internal::MaterialCatalog()) {}
 
 void TetMesh::assignFromData(io::detail::LoadedMeshData data, int) {
     if (data.element_type != elementType()) {
@@ -133,14 +134,12 @@ void TetMesh::assignFromData(io::detail::LoadedMeshData data, int) {
 }
 
 void TetMesh::sync_storage_from_legacy_state_for_transition() {
-    m_storage = storage::MeshStorage(geometry_data(), material_catalog());
     m_storage.validate_invariants();
 }
 
 void TetMesh::set_storage(storage::MeshStorage storage) {
     storage.validate_invariants();
     m_storage = std::move(storage);
-    ops::assign_common_storage(*this, m_storage);
 }
 
 void TetMesh::computeElementMassMatrix(int el, double* massMatrix) const {
