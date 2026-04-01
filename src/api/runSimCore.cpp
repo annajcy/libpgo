@@ -107,6 +107,7 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
     config.timestep             = jconfig.getDouble("timestep", 1);
     config.contactStiffness     = jconfig.getDouble("contact-stiffness", 1);
     config.contactSamples       = jconfig.getInt("contact-sample", 1);
+    config.enableSelfContact    = jconfig.handle().value("enable-self-contact", true);
     config.contactFrictionCoeff = jconfig.getDouble("contact-friction-coeff", 1);
     config.contactVelEps        = jconfig.getDouble("contact-vel-eps", 1);
     config.solverEps            = jconfig.getDouble("solver-eps", 1);
@@ -323,7 +324,7 @@ int runSimFromConfig(const RunSimConfig& config) {
                 &bc.getEmbeddingVertexIndices(), &bc.getEmbeddingWeights());
         }
 
-        if (config.contactStiffness > 0) {
+        if (config.contactStiffness > 0 && config.enableSelfContact) {
             selfCD = std::make_shared<Contact::TriangleMeshSelfContactHandler>(
                 surfaceMesh.positions(), surfaceMesh.triangles(), n3, config.contactSamples,
                 &bc.getEmbeddingVertexIndices(), &bc.getEmbeddingWeights());
@@ -407,7 +408,7 @@ int runSimFromConfig(const RunSimConfig& config) {
                 externalContactHandler->execute(usurf.data());
 
                 if (externalContactHandler->getNumCollidingSamples()) {
-                    extContactEnergy = externalContactHandler->buildContactEnergy();
+                    extContactEnergy = externalContactHandler->buildContactEnergy(1);
                     extContactBuffer = extContactEnergy->allocateBuffer();
 
                     auto posFunc = [&restPosition](const EigenSupport::V3d& u, EigenSupport::V3d& p, int dofStart) {

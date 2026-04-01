@@ -41,6 +41,7 @@ struct RunSimConfig {
     double                                                 timestep             = 1.0;
     double                                                 contactStiffness     = 0.0;
     int                                                    contactSamples       = 1;
+    bool                                                   enableSelfContact    = true;
     double                                                 contactFrictionCoeff = 0.0;
     double                                                 contactVelEps        = 0.0;
     double                                                 solverEps            = 0.0;

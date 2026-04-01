@@ -12,6 +12,7 @@
 #include <tbb/spin_mutex.h>
 
 #include <queue>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -27,6 +28,61 @@ using hclock = std::chrono::high_resolution_clock;
 inline double dura(const hclock::time_point& t1, const hclock::time_point& t2) {
     return std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1e6;
 }
+
+namespace {
+
+[[noreturn]] void throwPseudoNormalLookupFailure(const char* source, int objectID, const TriMeshGeo& mesh, int triID,
+                                                 int feature, int edgeVtx0, int edgeVtx1) {
+    if (triID < 0 || triID >= mesh.numTriangles()) {
+        SPDLOG_LOGGER_CRITICAL(Logging::lgr(),
+                               "Pseudo-normal lookup failed in {}: object={}, triID={}, feature={}, invalid triangle "
+                               "index for mesh with {} triangles",
+                               source, objectID, triID, feature, mesh.numTriangles());
+    } else {
+        const ES::V3i tri = mesh.tri(triID);
+        SPDLOG_LOGGER_CRITICAL(Logging::lgr(),
+                               "Pseudo-normal lookup failed in {}: object={}, triID={}, feature={}, vtxIDs=({}, {}, "
+                               "{}), edge=({}, {})",
+                               source, objectID, triID, feature, tri[0], tri[1], tri[2], edgeVtx0, edgeVtx1);
+    }
+
+    throw std::runtime_error("Pseudo-normal lookup failed. Simulation aborted.");
+}
+
+const ES::V3d& getPseudoNormalOrThrow(const TriMeshPseudoNormal& meshNormals, const TriMeshGeo& mesh, int objectID,
+                                      int triID, int feature, const char* source) {
+    if (triID < 0 || triID >= mesh.numTriangles()) {
+        throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, -1, -1);
+    }
+
+    const ES::V3i tri = mesh.tri(triID);
+    switch (feature) {
+        case 0:
+        case 1:
+        case 2:
+        case 6:
+            return meshNormals.getPseudoNormal(mesh.triangles().data(), triID, feature);
+        case 3:
+            if (!meshNormals.hasEdgeNormal(tri[0], tri[1])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[0], tri[1]);
+            }
+            return meshNormals.edgeNormal(tri[0], tri[1]);
+        case 4:
+            if (!meshNormals.hasEdgeNormal(tri[1], tri[2])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[1], tri[2]);
+            }
+            return meshNormals.edgeNormal(tri[1], tri[2]);
+        case 5:
+            if (!meshNormals.hasEdgeNormal(tri[2], tri[0])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[2], tri[0]);
+            }
+            return meshNormals.edgeNormal(tri[2], tri[0]);
+        default:
+            throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, -1, -1);
+    }
+}
+
+}  // namespace
 
 TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(
     const std::vector<ES::V3d>& V, const std::vector<ES::V3i>& T, int nDOFs, const std::vector<TriMeshRef>& esurf,
@@ -407,7 +463,8 @@ void TriangleMeshExternalContactHandler::execute() {
 
             nodeStack.clear();
             auto    ret       = meshBVTree.closestTriangleQuery(mesh, srcPos, nodeStack);
-            ES::V3d tgtNormal = meshNormals.getPseudoNormal(mesh.triangles().data(), ret.triID, ret.feature);
+            ES::V3d tgtNormal = getPseudoNormalOrThrow(meshNormals, mesh, oi, ret.triID, ret.feature,
+                                                       "external-contact");
 
             if (tgtNormal.dot(srcNormal) > 0)
                 continue;

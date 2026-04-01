@@ -12,6 +12,7 @@
 #include <numeric>
 #include <atomic>
 #include <iomanip>
+#include <stdexcept>
 
 using namespace pgo;
 using namespace pgo::Contact;
@@ -26,6 +27,61 @@ public:
 };
 
 }  // namespace pgo::Contact
+
+namespace {
+
+[[noreturn]] void throwPseudoNormalLookupFailure(const char* source, int objectID, const Mesh::TriMeshGeo& mesh,
+                                                 int triID, int feature, int edgeVtx0, int edgeVtx1) {
+    if (triID < 0 || triID >= mesh.numTriangles()) {
+        SPDLOG_LOGGER_CRITICAL(Logging::lgr(),
+                               "Pseudo-normal lookup failed in {}: object={}, triID={}, feature={}, invalid triangle "
+                               "index for mesh with {} triangles",
+                               source, objectID, triID, feature, mesh.numTriangles());
+    } else {
+        const ES::V3i tri = mesh.tri(triID);
+        SPDLOG_LOGGER_CRITICAL(Logging::lgr(),
+                               "Pseudo-normal lookup failed in {}: object={}, triID={}, feature={}, vtxIDs=({}, {}, "
+                               "{}), edge=({}, {})",
+                               source, objectID, triID, feature, tri[0], tri[1], tri[2], edgeVtx0, edgeVtx1);
+    }
+
+    throw std::runtime_error("Pseudo-normal lookup failed. Simulation aborted.");
+}
+
+const ES::V3d& getPseudoNormalOrThrow(const Mesh::TriMeshPseudoNormal& meshNormals, const Mesh::TriMeshGeo& mesh,
+                                      int objectID, int triID, int feature, const char* source) {
+    if (triID < 0 || triID >= mesh.numTriangles()) {
+        throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, -1, -1);
+    }
+
+    const ES::V3i tri = mesh.tri(triID);
+    switch (feature) {
+        case 0:
+        case 1:
+        case 2:
+        case 6:
+            return meshNormals.getPseudoNormal(mesh.triangles().data(), triID, feature);
+        case 3:
+            if (!meshNormals.hasEdgeNormal(tri[0], tri[1])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[0], tri[1]);
+            }
+            return meshNormals.edgeNormal(tri[0], tri[1]);
+        case 4:
+            if (!meshNormals.hasEdgeNormal(tri[1], tri[2])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[1], tri[2]);
+            }
+            return meshNormals.edgeNormal(tri[1], tri[2]);
+        case 5:
+            if (!meshNormals.hasEdgeNormal(tri[2], tri[0])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[2], tri[0]);
+            }
+            return meshNormals.edgeNormal(tri[2], tri[0]);
+        default:
+            throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, -1, -1);
+    }
+}
+
+}  // namespace
 
 PointPenetrationEnergy::PointPenetrationEnergy(int np, int na, const double* coeffs, const double* tgtPos,
                                                const double* nrms, const std::vector<std::vector<int>>& bIdx,
@@ -195,9 +251,6 @@ double PointPenetrationEnergy::func(ES::ConstRefVecXd u) const {
             if (std::abs(constraintCoeffs[ci]) < 1e-9)
                 return;
 
-            ES::V3d n  = ES::Mp<const ES::V3d>(constraintNormals + ci * 3);
-            ES::V3d p0 = ES::Mp<const ES::V3d>(constraintTargetPositions + ci * 3);
-
             ES::V3d p;
             p.setZero();
             for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
@@ -211,33 +264,36 @@ double PointPenetrationEnergy::func(ES::ConstRefVecXd u) const {
             double& energyLocal = buf->energyTLS.local();
 
             if (useNormal) {
-                if ((checkPenetration && isInside(p, p0, n)) || checkPenetration == 0) {
-                    double proj = (p - p0).dot(n);
-                    energyLocal += proj * proj * 0.5 * constraintCoeffs[ci];
+                ES::V3d n, p0;
+                if (!resolveContactPlane(p, ci, p0, n))
+                    return;
 
-                    if (std::abs(proj) > 2e-3)
-                        deepPenetration = 1;
+                double proj = (p - p0).dot(n);
+                energyLocal += proj * proj * 0.5 * constraintCoeffs[ci];
 
-                    if (frictionCoeff > 0 && frictionContactForceMag > 0) {
-                        ES::V3d fnow     = n * proj * constraintCoeffs[ci];
-                        double  f_normal = fnow.norm();
+                if (std::abs(proj) > 2e-3)
+                    deepPenetration = 1;
 
-                        ES::V3d plast;
-                        plast.setZero();
-                        for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
-                            int     vid = barycentricIdx[ci][vi];
-                            ES::V3d pp;
-                            lastPosFunc(u.segment<3>(vid * 3), pp, vid * 3);
+                if (frictionCoeff > 0 && frictionContactForceMag > 0) {
+                    ES::V3d fnow     = n * proj * constraintCoeffs[ci];
+                    double  f_normal = fnow.norm();
 
-                            plast += pp * barycentricWeights[ci][vi];
-                        }
+                    ES::V3d plast;
+                    plast.setZero();
+                    for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
+                        int     vid = barycentricIdx[ci][vi];
+                        ES::V3d pp;
+                        lastPosFunc(u.segment<3>(vid * 3), pp, vid * 3);
 
-                        double frictionEnergy = frictionPotential(p, plast, n, eps, timestep);
-                        frictionEnergy *= frictionContactForceMag * frictionCoeff * f_normal;
-                        energyLocal += frictionEnergy;
+                        plast += pp * barycentricWeights[ci][vi];
                     }
+
+                    double frictionEnergy = frictionPotential(p, plast, n, eps, timestep);
+                    frictionEnergy *= frictionContactForceMag * frictionCoeff * f_normal;
+                    energyLocal += frictionEnergy;
                 }
             } else {
+                ES::V3d p0 = ES::Mp<const ES::V3d>(constraintTargetPositions + ci * 3);
                 energyLocal += (p - p0).squaredNorm() * 0.5 * constraintCoeffs[ci];
             }
         },
@@ -264,9 +320,6 @@ void PointPenetrationEnergy::gradient(ES::ConstRefVecXd u, ES::RefVecXd grad) co
             if (std::abs(constraintCoeffs[ci]) < 1e-9)
                 return;
 
-            ES::V3d n  = ES::Mp<const ES::V3d>(constraintNormals + ci * 3);
-            ES::V3d p0 = ES::Mp<const ES::V3d>(constraintTargetPositions + ci * 3);
-
             ES::V3d p;
             p.setZero();
             for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
@@ -277,57 +330,60 @@ void PointPenetrationEnergy::gradient(ES::ConstRefVecXd u, ES::RefVecXd grad) co
                 p += pp * barycentricWeights[ci][vi];
             }
 
-            ES::V3d diff = p - p0;
-
             if (useNormal) {
-                if ((checkPenetration && isInside(p, p0, n)) || checkPenetration == 0) {
-                    double  proj       = diff.dot(n);
-                    ES::V3d gradSample = n * proj * constraintCoeffs[ci];
+                ES::V3d n, p0;
+                if (!resolveContactPlane(p, ci, p0, n))
+                    return;
 
-                    if (frictionCoeff > 0 && frictionContactForceMag > 0) {
-                        double f_normal = gradSample.norm();
+                ES::V3d diff       = p - p0;
+                double  proj       = diff.dot(n);
+                ES::V3d gradSample = n * proj * constraintCoeffs[ci];
 
-                        ES::V3d plast;
-                        plast.setZero();
-                        for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
-                            int     vid = barycentricIdx[ci][vi];
-                            ES::V3d pp;
-                            lastPosFunc(u.segment<3>(vid * 3), pp, vid * 3);
+                if (frictionCoeff > 0 && frictionContactForceMag > 0) {
+                    double f_normal = gradSample.norm();
 
-                            plast += pp * barycentricWeights[ci][vi];
-                        }
+                    ES::V3d plast;
+                    plast.setZero();
+                    for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
+                        int     vid = barycentricIdx[ci][vi];
+                        ES::V3d pp;
+                        lastPosFunc(u.segment<3>(vid * 3), pp, vid * 3);
 
-                        ES::V3d gradFric;
-                        frictionPotentialGradient(p, plast, n, eps, timestep, gradFric);
-                        gradFric *= frictionContactForceMag * frictionCoeff * f_normal;
-
-                        // ES::V3d gradFric2;
-                        // double frictionEnergy = frictionPotential(p, plast, n, eps, timestep);
-                        // gradFric2 = frictionEnergy * frictionContactForceMag * frictionCoeff * n *
-                        // constraintCoeffs[ci]; gradSample += gradFric + gradFric2;
-                        gradSample += gradFric;
-
-                        if (saveDebugInfo) {
-                            ES::V6d vis;
-                            vis.head<3>() = plast;
-                            vis.tail<3>() = gradFric;
-                            ffrics.emplace_back(vis);
-                        }
+                        plast += pp * barycentricWeights[ci][vi];
                     }
 
-                    for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
-                        int     vid       = barycentricIdx[ci][vi];
-                        double  w         = barycentricWeights[ci][vi];
-                        ES::V3d gradLocal = gradSample * w;
+                    ES::V3d gradFric;
+                    frictionPotentialGradient(p, plast, n, eps, timestep, gradFric);
+                    gradFric *= frictionContactForceMag * frictionCoeff * f_normal;
 
-                        buf->entryLocks[vid].lock();
+                    // ES::V3d gradFric2;
+                    // double frictionEnergy = frictionPotential(p, plast, n, eps, timestep);
+                    // gradFric2 = frictionEnergy * frictionContactForceMag * frictionCoeff * n *
+                    // constraintCoeffs[ci]; gradSample += gradFric + gradFric2;
+                    gradSample += gradFric;
 
-                        grad.segment<3>(vid * 3) += gradLocal;
-
-                        buf->entryLocks[vid].unlock();
+                    if (saveDebugInfo) {
+                        ES::V6d vis;
+                        vis.head<3>() = plast;
+                        vis.tail<3>() = gradFric;
+                        ffrics.emplace_back(vis);
                     }
                 }
+
+                for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
+                    int     vid       = barycentricIdx[ci][vi];
+                    double  w         = barycentricWeights[ci][vi];
+                    ES::V3d gradLocal = gradSample * w;
+
+                    buf->entryLocks[vid].lock();
+
+                    grad.segment<3>(vid * 3) += gradLocal;
+
+                    buf->entryLocks[vid].unlock();
+                }
             } else {
+                ES::V3d p0 = ES::Mp<const ES::V3d>(constraintTargetPositions + ci * 3);
+                ES::V3d diff = p - p0;
                 for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
                     int     vid       = barycentricIdx[ci][vi];
                     double  w         = barycentricWeights[ci][vi];
@@ -425,9 +481,6 @@ void PointPenetrationEnergy::hessian(ES::ConstRefVecXd u, ES::SpMatD& hess) cons
                 if (std::abs(constraintCoeffs[ci]) < 1e-9)
                     return;
 
-                ES::V3d n  = ES::Mp<const ES::V3d>(constraintNormals + ci * 3);
-                ES::V3d p0 = ES::Mp<const ES::V3d>(constraintTargetPositions + ci * 3);
-
                 ES::V3d p;
                 p.setZero();
                 for (int vi = 0; vi < (int)barycentricIdx[ci].size(); vi++) {
@@ -438,12 +491,8 @@ void PointPenetrationEnergy::hessian(ES::ConstRefVecXd u, ES::SpMatD& hess) cons
                     p += pp * barycentricWeights[ci][vi];
                 }
 
-                bool keep = false;
-                if ((checkPenetration && isInside(p, p0, n)) || checkPenetration == 0) {
-                    keep = true;
-                }
-
-                if (keep == false)
+                ES::V3d n, p0;
+                if (!resolveContactPlane(p, ci, p0, n))
                     return;
 
                 ES::M3d nnT;
@@ -520,4 +569,57 @@ void PointPenetrationEnergy::hessian(ES::ConstRefVecXd u, ES::SpMatD& hess) cons
 
 bool PointPenetrationEnergy::isInside(const ES::V3d& p, const ES::V3d p0, const ES::V3d n) const {
     return (p - p0).dot(n) <= 0;
+}
+
+bool PointPenetrationEnergy::queryRuntimeContactPlane(const ES::V3d& p, ES::V3d& p0, ES::V3d& n) const {
+    if (!(externalMeshes && externalMeshBVTrees && externalMeshNormals)) {
+        return false;
+    }
+
+    double bestDist2 = DBL_MAX;
+    bool   found     = false;
+
+    thread_local std::vector<std::tuple<double, double, int>> nodeStack;
+
+    for (int oi = 0; oi < static_cast<int>(externalMeshes->size()); oi++) {
+        const auto& mesh       = (*externalMeshes)[oi];
+        const auto& meshBVTree = (*externalMeshBVTrees)[oi];
+        const auto& meshNormal = (*externalMeshNormals)[oi];
+
+        nodeStack.clear();
+        auto ret = meshBVTree.closestTriangleQuery(mesh, p, nodeStack);
+        if (ret.triID < 0) {
+            continue;
+        }
+
+        const ES::V3d& tgtNormal =
+            getPseudoNormalOrThrow(meshNormal, mesh, oi, ret.triID, ret.feature, "external-contact-runtime");
+        if ((p - ret.closestPosition).dot(tgtNormal) > 0) {
+            continue;
+        }
+
+        if (!found || ret.dist2 < bestDist2) {
+            found     = true;
+            bestDist2 = ret.dist2;
+            p0        = ret.closestPosition;
+            n         = tgtNormal;
+        }
+    }
+
+    return found;
+}
+
+bool PointPenetrationEnergy::resolveContactPlane(const ES::V3d& p, int ci, ES::V3d& p0, ES::V3d& n) const {
+    if (externalMeshes && externalMeshBVTrees && externalMeshNormals) {
+        return queryRuntimeContactPlane(p, p0, n);
+    }
+
+    n  = ES::Mp<const ES::V3d>(constraintNormals + ci * 3);
+    p0 = ES::Mp<const ES::V3d>(constraintTargetPositions + ci * 3);
+
+    if (checkPenetration == 0) {
+        return true;
+    }
+
+    return isInside(p, p0, n);
 }

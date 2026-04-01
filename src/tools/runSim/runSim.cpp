@@ -99,5 +99,10 @@ int main(int argc, char* argv[]) {
     // config.restartEnabled = true;
     // config.restartPause = true;
 
-    return pgo::api::runSimFromConfig(config);
+    try {
+        return pgo::api::runSimFromConfig(config);
+    } catch (const std::exception& err) {
+        SPDLOG_LOGGER_CRITICAL(pgo::Logging::lgr(), "Simulation aborted: {}", err.what());
+        return 1;
+    }
 }
