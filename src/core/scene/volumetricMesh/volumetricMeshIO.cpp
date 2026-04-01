@@ -1,12 +1,11 @@
 #include "volumetricMeshIO.h"
 
+#include "io/material_serde.h"
+#include "io/mesh_format_detector.h"
 #include "io/mesh_io_types.h"
 
 #include "cubicMesh.h"
 #include "tetMesh.h"
-#include "volumetricMeshENuMaterial.h"
-#include "volumetricMeshMooneyRivlinMaterial.h"
-#include "volumetricMeshOrthotropicMaterial.h"
 #include "volumetricMeshParser.h"
 
 #include "stringHelper.h"
@@ -26,10 +25,6 @@ namespace {
 using LoadedMeshData = detail::LoadedMeshData;
 using ElementType = VolumetricMesh::ElementType;
 using FileFormatType = VolumetricMesh::FileFormatType;
-using MaterialType = VolumetricMesh::Material::MaterialType;
-using ENuMaterial = VolumetricMesh::ENuMaterial;
-using OrthotropicMaterial = VolumetricMesh::OrthotropicMaterial;
-using MooneyRivlinMaterial = VolumetricMesh::MooneyRivlinMaterial;
 
 struct RawLoadedMeshData {
     ElementType element_type = VolumetricMesh::ElementType::Invalid;
@@ -48,31 +43,6 @@ constexpr FileFormatType ASCII = FileFormatType::Ascii;
 constexpr FileFormatType BINARY = FileFormatType::Binary;
 constexpr FileFormatType BY_EXT = FileFormatType::ByExtension;
 constexpr FileFormatType UNKNOWN = FileFormatType::Unknown;
-
-constexpr int ENU_DENSITY = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::Density);
-constexpr int ENU_E = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::E);
-constexpr int ENU_NU = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::Nu);
-constexpr int ENU_NUM_PROPERTIES = static_cast<int>(VolumetricMesh::Material::ENuMaterialProperty::Count);
-
-constexpr int ORTHOTROPIC_DENSITY = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Density);
-constexpr int ORTHOTROPIC_E1 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::E1);
-constexpr int ORTHOTROPIC_E2 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::E2);
-constexpr int ORTHOTROPIC_E3 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::E3);
-constexpr int ORTHOTROPIC_NU12 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Nu12);
-constexpr int ORTHOTROPIC_NU23 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Nu23);
-constexpr int ORTHOTROPIC_NU31 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Nu31);
-constexpr int ORTHOTROPIC_G12 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::G12);
-constexpr int ORTHOTROPIC_G23 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::G23);
-constexpr int ORTHOTROPIC_G31 = static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::G31);
-constexpr int ORTHOTROPIC_NUM_PROPERTIES =
-    static_cast<int>(VolumetricMesh::Material::OrthotropicMaterialProperty::Count);
-
-constexpr int MOONEYRIVLIN_DENSITY = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Density);
-constexpr int MOONEYRIVLIN_MU01 = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Mu01);
-constexpr int MOONEYRIVLIN_MU10 = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Mu10);
-constexpr int MOONEYRIVLIN_V1 = static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::V1);
-constexpr int MOONEYRIVLIN_NUM_PROPERTIES =
-    static_cast<int>(VolumetricMesh::Material::MooneyRivlinMaterialProperty::Count);
 
 template <typename T>
 void write_exact(std::ostream& stream, const T* data, size_t count) {
@@ -344,125 +314,10 @@ LoadedMeshData load_ascii_data(const std::filesystem::path& filename, int verbos
                 throw 12;
             }
 
-            char materialType[4096];
-            unsigned int materialTypeLength = static_cast<unsigned int>(ch - materialSpecification);
-            memcpy(materialType, materialSpecification, sizeof(unsigned char) * materialTypeLength);
-            *(materialType + materialTypeLength) = 0;
-
-            ch++;
-
-            if (strcmp(materialType, "ENU") == 0) {
-                double density, E, nu;
-                sscanf(ch, "%lf,%lf,%lf", &density, &E, &nu);
-
-                if ((E > 0) && (nu > -1.0) && (nu < 0.5) && (density > 0)) {
-                    std::string name(materialNameC);
-                    data.materials[static_cast<size_t>(countNumMaterials)] =
-                        std::make_unique<ENuMaterial>(name, density, E, nu);
-                    materialMap.insert(std::pair<std::string, int>(name, countNumMaterials));
-                } else {
-                    printf("Error: incorrect material specification in file %s. Offending line: %s\n", filenameCStr,
-                           lineBuffer);
-                    throw 13;
-                }
-            } else if (strncmp(materialType, "ORTHOTROPIC", 11) == 0) {
-                double density = 0.0, E1 = 0.0, E2 = 0.0, E3 = 0.0, nu12 = 0.0, nu23 = 0.0, nu31 = 0.0, G12 = 0.0,
-                       G23 = 0.0, G31 = 0.0;
-                double nu = 0.0, G = 1.0;
-                bool useNuAndG = false;
-                double R[9];
-                memset(R, 0, sizeof(R));
-                R[0] = R[4] = R[8] = 1.0;
-
-                char* subType = materialType + 11;
-                bool enoughParameters = false;
-
-                if ((sscanf(ch, "%lf,%lf,%lf,%lf", &density, &E1, &E2, &E3) == 4) &&
-                    ((E1 > 0) && (E2 > 0) && (E3 > 0) && (density > 0))) {
-                    for (int i = 0; i < 4; i++) {
-                        while ((*ch != ',') && (*ch != 0))
-                            ch++;
-                        if (*ch == 0)
-                            break;
-                        ch++;
-                    }
-
-                    if ((*subType == 0) || (strcmp(subType, "_N3G3R9") == 0)) {
-                        if (sscanf(ch, "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &nu12, &nu23,
-                                   &nu31, &G12, &G23, &G31, &R[0], &R[1], &R[2], &R[3], &R[4], &R[5], &R[6], &R[7],
-                                   &R[8]) == 15)
-                            enoughParameters = true;
-                    } else if (strcmp(subType, "_N3G3") == 0) {
-                        if (sscanf(ch, "%lf,%lf,%lf,%lf,%lf,%lf", &nu12, &nu23, &nu31, &G12, &G23, &G31) == 6)
-                            enoughParameters = true;
-                    } else if (strcmp(subType, "_N1G1R9") == 0) {
-                        if (sscanf(ch, "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &nu, &G, &R[0], &R[1], &R[2],
-                                   &R[3], &R[4], &R[5], &R[6], &R[7], &R[8]) == 11) {
-                            useNuAndG = true;
-                            enoughParameters = true;
-                        }
-                    } else if (strcmp(subType, "_N1G1") == 0) {
-                        if (sscanf(ch, "%lf,%lf", &nu, &G) == 2) {
-                            useNuAndG = true;
-                            enoughParameters = true;
-                        }
-                    } else if (strcmp(subType, "_N1R9") == 0) {
-                        if (sscanf(ch, "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &nu, &R[0], &R[1], &R[2], &R[3],
-                                   &R[4], &R[5], &R[6], &R[7], &R[8]) == 10) {
-                            useNuAndG = true;
-                            enoughParameters = true;
-                        }
-                    } else if (strcmp(subType, "_N1") == 0) {
-                        if (sscanf(ch, "%lf", &nu) == 1) {
-                            useNuAndG = true;
-                            enoughParameters = true;
-                        }
-                    } else {
-                        printf("Error: incorrect orthortropic material type \"%s\" in file %s. Offending line: %s\n",
-                               subType, filenameCStr, lineBuffer);
-                        throw 14;
-                    }
-
-                    if (useNuAndG && (nu > -1.0) && (nu < 0.5)) {
-                        nu12 = nu * sqrt(E1 / E2);
-                        nu23 = nu * sqrt(E2 / E3);
-                        nu31 = nu * sqrt(E3 / E1);
-                        G12 = G * sqrt(E1 * E2) / (2.0 * (1.0 + nu));
-                        G23 = G * sqrt(E2 * E3) / (2.0 * (1.0 + nu));
-                        G31 = G * sqrt(E3 * E1) / (2.0 * (1.0 + nu));
-                    }
-                }
-
-                if (enoughParameters && (G12 > 0) && (G23 > 0) && (G31 > 0)) {
-                    std::string name(materialNameC);
-                    data.materials[static_cast<size_t>(countNumMaterials)] =
-                        std::make_unique<OrthotropicMaterial>(name, density, E1, E2, E3, nu12, nu23, nu31, G12, G23,
-                                                              G31, R);
-                    materialMap.insert(std::pair<std::string, int>(name, countNumMaterials));
-                } else {
-                    printf("Error: incorrect material specification in file %s. Offending line: %s\n", filenameCStr,
-                           lineBuffer);
-                    throw 14;
-                }
-            } else if (strncmp(materialType, "MOONEYRIVLIN", 12) == 0) {
-                double density, mu01, mu10, v1;
-                sscanf(ch, "%lf,%lf,%lf,%lf", &density, &mu01, &mu10, &v1);
-
-                if (density > 0) {
-                    std::string name(materialNameC);
-                    data.materials[static_cast<size_t>(countNumMaterials)] =
-                        std::make_unique<MooneyRivlinMaterial>(name, density, mu01, mu10, v1);
-                    materialMap.insert(std::pair<std::string, int>(name, countNumMaterials));
-                } else {
-                    printf("Error: incorrect material specification in file %s. Offending line:\n%s\n", filenameCStr,
-                           lineBuffer);
-                    throw 15;
-                }
-            } else {
-                printf("Error: incorrect material specification in file %s. Offending line:\n%s\n", filenameCStr,
-                       lineBuffer);
-                throw 16;
-            }
+            std::string name(materialNameC);
+            data.materials[static_cast<size_t>(countNumMaterials)] =
+                detail::parse_ascii_material(name, materialSpecification, filename, lineBuffer);
+            materialMap.insert(std::pair<std::string, int>(name, countNumMaterials));
 
             countNumMaterials++;
         }
@@ -601,70 +456,7 @@ LoadedMeshData load_binary_data(std::istream& binaryInputStream) {
 
     data.materials.resize(static_cast<size_t>(numMaterials));
     for (int materialIndex = 0; materialIndex < numMaterials; materialIndex++) {
-        char materialName[4096];
-        int length = 0;
-        read_exact(binaryInputStream, &length, 1);
-        read_exact(binaryInputStream, materialName, static_cast<size_t>(length));
-        materialName[length] = '\0';
-
-        int matType = 0;
-        read_exact(binaryInputStream, &matType, 1);
-
-        switch (matType) {
-            case static_cast<int>(MaterialType::ENu): {
-                double materialProperty[ENU_NUM_PROPERTIES];
-                read_exact(binaryInputStream, materialProperty, ENU_NUM_PROPERTIES);
-
-                if ((materialProperty[ENU_E] > 0) && (materialProperty[ENU_NU] > -1.0) &&
-                    (materialProperty[ENU_NU] < 0.5) && (materialProperty[ENU_DENSITY] > 0)) {
-                    data.materials[static_cast<size_t>(materialIndex)] =
-                        std::make_unique<ENuMaterial>(materialName, materialProperty[ENU_DENSITY],
-                                                      materialProperty[ENU_E], materialProperty[ENU_NU]);
-                } else {
-                    printf("Error in io::load_binary_data: incorrect material specification in file stream.\n");
-                    throw 7;
-                }
-            } break;
-
-            case static_cast<int>(MaterialType::Orthotropic): {
-                double materialProperty[ORTHOTROPIC_NUM_PROPERTIES];
-                double R[9];
-                read_exact(binaryInputStream, materialProperty, ORTHOTROPIC_NUM_PROPERTIES);
-                read_exact(binaryInputStream, R, 9);
-
-                if ((materialProperty[ORTHOTROPIC_E1] > 0) && (materialProperty[ORTHOTROPIC_E2] > 0) &&
-                    (materialProperty[ORTHOTROPIC_E3] > 0) && (materialProperty[ORTHOTROPIC_G12] > 0) &&
-                    (materialProperty[ORTHOTROPIC_G23] > 0) && (materialProperty[ORTHOTROPIC_G31] > 0) &&
-                    (materialProperty[ORTHOTROPIC_DENSITY] > 0)) {
-                    data.materials[static_cast<size_t>(materialIndex)] = std::make_unique<OrthotropicMaterial>(
-                        materialName, materialProperty[ORTHOTROPIC_DENSITY], materialProperty[ORTHOTROPIC_E1],
-                        materialProperty[ORTHOTROPIC_E2], materialProperty[ORTHOTROPIC_E3],
-                        materialProperty[ORTHOTROPIC_NU12], materialProperty[ORTHOTROPIC_NU23],
-                        materialProperty[ORTHOTROPIC_NU31], materialProperty[ORTHOTROPIC_G12],
-                        materialProperty[ORTHOTROPIC_G23], materialProperty[ORTHOTROPIC_G31], R);
-                } else {
-                    printf("Error in io::load_binary_data: incorrect orthotropic material specification.\n");
-                    throw 14;
-                }
-            } break;
-
-            case static_cast<int>(MaterialType::MooneyRivlin): {
-                double materialProperty[MOONEYRIVLIN_NUM_PROPERTIES];
-                read_exact(binaryInputStream, materialProperty, MOONEYRIVLIN_NUM_PROPERTIES);
-                if (materialProperty[MOONEYRIVLIN_DENSITY] > 0) {
-                    data.materials[static_cast<size_t>(materialIndex)] = std::make_unique<MooneyRivlinMaterial>(
-                        materialName, materialProperty[MOONEYRIVLIN_DENSITY], materialProperty[MOONEYRIVLIN_MU01],
-                        materialProperty[MOONEYRIVLIN_MU10], materialProperty[MOONEYRIVLIN_V1]);
-                } else {
-                    printf("Error in io::load_binary_data: incorrect Mooney-Rivlin material specification.\n");
-                    throw 8;
-                }
-            } break;
-
-            default:
-                printf("Error in io::load_binary_data: material type %d is unknown.\n", matType);
-                throw 9;
-        }
+        data.materials[static_cast<size_t>(materialIndex)] = detail::read_binary_material(binaryInputStream);
     }
 
     int numSets = 0;
@@ -783,28 +575,7 @@ void save_ascii_impl(const VolumetricMesh& mesh, const std::filesystem::path& fi
     fprintf(fout, "\n");
 
     for (int materialIndex = 0; materialIndex < mesh.getNumMaterials(); materialIndex++) {
-        const auto* material = mesh.getMaterial(materialIndex);
-        fprintf(fout, "*MATERIAL %s\n", material->getName().c_str());
-
-        if (material->getType() == MaterialType::ENu) {
-            const auto* enu = downcastENuMaterial(material);
-            fprintf(fout, "ENU, %.15G, %.15G, %.15G\n", enu->getDensity(), enu->getE(), enu->getNu());
-        } else if (material->getType() == MaterialType::Orthotropic) {
-            const auto* ortho = downcastOrthotropicMaterial(material);
-            double R[9];
-            ortho->getR(R);
-            fprintf(fout,
-                    "ORTHOTROPIC, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G, "
-                    "%.15G, %.15G, %.15G, %.15G, %.15G, %.15G, %.15G\n",
-                    ortho->getDensity(), ortho->getE1(), ortho->getE2(), ortho->getE3(), ortho->getNu12(),
-                    ortho->getNu23(), ortho->getNu31(), ortho->getG12(), ortho->getG23(), ortho->getG31(), R[0], R[1],
-                    R[2], R[3], R[4], R[5], R[6], R[7], R[8]);
-        } else if (material->getType() == MaterialType::MooneyRivlin) {
-            const auto* mooney = downcastMooneyRivlinMaterial(material);
-            fprintf(fout, "MOONEYRIVLIN, %.15G, %.15G, %.20G, %.15G\n", mooney->getDensity(), mooney->getmu01(),
-                    mooney->getmu10(), mooney->getv1());
-        }
-        fprintf(fout, "\n");
+        detail::write_ascii_material(fout, *mesh.getMaterial(materialIndex));
     }
 
     for (int setIndex = 1; setIndex < mesh.getNumSets(); setIndex++) {
@@ -870,37 +641,7 @@ void save_binary_impl(const VolumetricMesh& mesh, std::ostream& out, unsigned in
     const int numMaterials = mesh.getNumMaterials();
     count_write(&numMaterials, 1);
     for (int materialIndex = 0; materialIndex < numMaterials; materialIndex++) {
-        const auto* material = mesh.getMaterial(materialIndex);
-        const unsigned int length = static_cast<unsigned int>(material->getName().size());
-        count_write(&length, 1);
-        out.write(material->getName().c_str(), static_cast<std::streamsize>(length));
-        if (!out)
-            throw std::runtime_error("Failed to write material name.");
-        totalBytesWritten += length;
-
-        const int matType = static_cast<int>(material->getType());
-        count_write(&matType, 1);
-
-        if (material->getType() == MaterialType::ENu) {
-            const auto* enu = downcastENuMaterial(material);
-            const double properties[] = {enu->getDensity(), enu->getE(), enu->getNu()};
-            count_write(properties, 3);
-        } else if (material->getType() == MaterialType::MooneyRivlin) {
-            const auto* mooney = downcastMooneyRivlinMaterial(material);
-            const double properties[] = {mooney->getDensity(), mooney->getmu01(), mooney->getmu10(), mooney->getv1()};
-            count_write(properties, 4);
-        } else if (material->getType() == MaterialType::Orthotropic) {
-            const auto* ortho = downcastOrthotropicMaterial(material);
-            const double properties[] = {ortho->getDensity(), ortho->getE1(), ortho->getE2(), ortho->getE3(),
-                                         ortho->getNu12(), ortho->getNu23(), ortho->getNu31(), ortho->getG12(),
-                                         ortho->getG23(), ortho->getG31()};
-            count_write(properties, 10);
-            double R[9];
-            ortho->getR(R);
-            count_write(R, 9);
-        } else {
-            throw std::runtime_error("Unknown material type.");
-        }
+        totalBytesWritten += detail::write_binary_material(out, *mesh.getMaterial(materialIndex));
     }
 
     const int numSets = mesh.getNumSets();
@@ -934,51 +675,9 @@ void save_binary_impl(const VolumetricMesh& mesh, std::ostream& out, unsigned in
         *bytesWritten = totalBytesWritten;
 }
 
-ElementType detect_ascii_element_type(const std::filesystem::path& filename) {
-    VolumetricMeshParser parser;
-    if (parser.open(filename.string().c_str()) != 0) {
-        printf("Error: could not open file %s.\n", filename.string().c_str());
-        return INVALID;
-    }
-
-    char lineBuffer[1024];
-    ElementType result = INVALID;
-    while (parser.getNextLine(lineBuffer, 0, 0) != nullptr) {
-        if (strncmp(lineBuffer, "*ELEMENTS", 9) == 0) {
-            if (parser.getNextLine(lineBuffer) != nullptr) {
-                parser.removeWhitespace(lineBuffer);
-                if (strncmp(lineBuffer, "TET", 3) == 0)
-                    result = TET;
-                else if (strncmp(lineBuffer, "CUBIC", 5) == 0)
-                    result = CUBIC;
-            }
-            break;
-        }
-    }
-    parser.close();
-    return result;
-}
-
-ElementType detect_binary_element_type(std::istream& in) {
-    double version = 0.0;
-    int eleType = 0;
-    read_exact(in, &version, 1);
-    read_exact(in, &eleType, 1);
-    return element_type_from_int(eleType);
-}
-
 }  // namespace
 
 namespace detail {
-
-FileFormatType detect_file_format_by_ext(const std::filesystem::path& filename) {
-    const std::string filenameString = filename.string();
-    if (BasicAlgorithms::iendWith(filenameString.c_str(), ".vegb"))
-        return FileFormatType::Binary;
-    if (BasicAlgorithms::iendWith(filenameString.c_str(), ".veg"))
-        return FileFormatType::Ascii;
-    return FileFormatType::Unknown;
-}
 
 LoadedMeshData load_tet_data(const std::filesystem::path& filename, VolumetricMesh::FileFormatType fileFormat,
                              int verbose) {
@@ -1052,44 +751,6 @@ std::unique_ptr<TetMesh> load_tet(const std::filesystem::path& filename, Volumet
 std::unique_ptr<CubicMesh> load_cubic(const std::filesystem::path& filename,
                                       VolumetricMesh::FileFormatType fileFormat, int verbose) {
     return load_impl<CubicMesh>(filename, fileFormat, verbose);
-}
-
-VolumetricMesh::ElementType detect_element_type(const std::filesystem::path& filename,
-                                                VolumetricMesh::FileFormatType fileFormat) {
-    if (fileFormat == BY_EXT) {
-        fileFormat = detect_file_format(filename);
-        if (fileFormat == UNKNOWN) {
-            printf("Unknown file extension when loading %s, try ASCII format...\n", filename.string().c_str());
-            fileFormat = ASCII;
-        }
-    }
-
-    if (fileFormat == ASCII)
-        return detect_ascii_element_type(filename);
-
-    if (fileFormat == BINARY) {
-        std::ifstream in(filename, std::ios::binary);
-        if (!in) {
-            printf("Error in io::detect_element_type: could not open file %s.\n", filename.string().c_str());
-            return INVALID;
-        }
-        return detect_binary_element_type(in);
-    }
-
-    printf("Error: the file format %d is unknown.\n", static_cast<int>(fileFormat));
-    return INVALID;
-}
-
-VolumetricMesh::ElementType detect_element_type(std::span<const std::byte> binaryData) {
-    if (binaryData.empty())
-        throw std::runtime_error("binary data buffer is empty");
-    std::string buffer(reinterpret_cast<const char*>(binaryData.data()), binaryData.size());
-    std::istringstream in(buffer, std::ios::binary);
-    return detect_binary_element_type(in);
-}
-
-VolumetricMesh::FileFormatType detect_file_format(const std::filesystem::path& filename) {
-    return detail::detect_file_format_by_ext(filename);
 }
 
 }  // namespace io

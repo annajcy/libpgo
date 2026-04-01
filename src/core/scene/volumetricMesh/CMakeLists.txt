@@ -1,5 +1,7 @@
 set(VOLUMETRIC_MESH_H
   cubicMesh.h
+  io/material_serde.h
+  io/mesh_format_detector.h
   io/mesh_io_types.h
   internal/material_catalog.h
   internal/mesh_mass_properties.h
@@ -25,6 +27,8 @@ set(VOLUMETRIC_MESH_H
 )
 set(VOLUMETRIC_MESH_SRC
   cubicMesh.cpp
+  io/material_serde.cpp
+  io/mesh_format_detector.cpp
   internal/material_catalog.cpp
   internal/mesh_mass_properties.cpp
   internal/mesh_mutation.cpp
