@@ -643,7 +643,8 @@ volumetricMesh/
 
 19. **把材料访问与下游适配收敛到统一入口** `[M]` `[med-risk]`
    - 新增：
-     - `material_cast<T>()`
+     - `try_get_material<T>()`
+     - `require_material<T>()`
      - `serialize_material(...)`
      - `deserialize_material(...)`
      - material adapter / visitor
@@ -652,9 +653,101 @@ volumetricMesh/
    - 依赖：步骤 16、17、18
    - 为什么：为后续 API 现代化与下游切换建立稳定入口
 
-### 阶段 F：现代化 API，并直接切换
+### 阶段 F：移除 `VolumetricMesh` 基类，改成组合 + traits + mesh-agnostic / mesh-specific
 
-20. **为原始缓冲区接口补 `std::span` 重载** `[M]` `[med-risk]`
+20. **把 `ElementType`、`FileFormatType` 与 mesh 共有类型从 `VolumetricMesh` 中抽离** `[M]` `[low-risk]`
+   - 新增独立公共类型头，例如：
+     - `types/mesh_kind.h`
+     - `types/file_format.h`
+   - 不再让 `io`、tests、loader 为了拿枚举而 include `volumetricMesh.h`
+   - 依赖：步骤 8、12、18
+   - 为什么：这是删除 `volumetricMesh.h` 前最先要解除的“头文件反向中心化”
+
+21. **引入组合式共享存储层，替代 `VolumetricMesh` 的数据拥有职责** `[L]` `[high-risk]`
+   - 目标：
+     - `MeshStorage`
+     - `VolumetricMeshData`
+     - `MaterialCatalog`
+   - `TetMesh` / `CubicMesh` 改为直接持有共享存储，而不是继承基类获得：
+     - geometry
+     - materials
+     - set / region
+     - common transform/edit hooks
+   - 依赖：步骤 4、5、17
+   - 为什么：只要共享状态还藏在基类里，基类就删不掉
+
+22. **建立 `mesh_traits` / `mesh_concepts`，把 element-specific 能力改成编译期分派** `[L]` `[high-risk]`
+   - 新增：
+     - `traits/mesh_traits.h`
+     - `concepts/mesh_concepts.h`
+   - 约束的能力至少包括：
+     - `num_element_vertices`
+     - `vertex_index`
+     - `contains_vertex`
+     - `compute_barycentric_weights`
+     - `element_volume`
+     - `element_mass_matrix`
+   - Tet/Cubic 的差异继续落在：
+     - `ops/tet_mesh_ops`
+     - `ops/cubic_mesh_ops`
+   - 依赖：步骤 12、13、21
+   - 为什么：目标不是换一个新基类，而是把运行时多态真正收缩成编译期 traits + ops
+
+23. **把 mesh-agnostic 内部模块从 `VolumetricMesh&` 改成模板 / concept 约束** `[L]` `[high-risk]`
+   - 优先改造：
+     - `internal/mesh_queries`
+     - `internal/mesh_mass_properties`
+     - `internal/mesh_transforms`
+     - `algorithms/mesh_interpolation`
+     - `algorithms/generate_mass_matrix`
+   - 原则：
+     - 通用流程模板化
+     - element-specific 细节只走 traits / ops
+   - 依赖：步骤 21、22
+   - 为什么：这一步完成后，旧基类的大部分“只是转发”的价值就消失了
+
+24. **把运行时分发收口到边界层，避免算法层继续依赖统一基类** `[L]` `[med-risk]`
+   - 仅在真正需要运行时未知 mesh 类型的边界引入小型 sum type，例如：
+     - `AnyMeshRef = std::variant<std::reference_wrapper<const TetMesh>, std::reference_wrapper<const CubicMesh>>`
+   - 适用范围：
+     - `generate_surface_mesh`
+     - `mesh_save`
+     - 少量工具层入口
+   - 不允许把 `std::variant` 再包装成新的“大基类替代品”
+   - 依赖：步骤 22、23
+   - 为什么：运行时分发是边界需求，不应继续污染整个算法层
+
+25. **重写 `TetMesh` / `CubicMesh` 对外结构，删除继承与虚函数转发** `[L]` `[high-risk]`
+   - 删除：
+     - `public VolumetricMesh`
+     - `virtual getElementVolume / containsVertex / computeBarycentricWeights / computeElementMassMatrix / interpolateGradient`
+   - 保留：
+     - `TetMesh`
+     - `CubicMesh`
+     - 现有概念名字
+   - 改为：
+     - 组合共享 storage
+     - 通过 traits / ops 提供 element-specific 行为
+   - 依赖：步骤 21、22、23、24
+   - 为什么：这是删除 `volumetricMesh.h/.cpp` 的前提条件，不应在前几步未完成时硬删
+
+26. **迁移外部依赖面并最终删除 `volumetricMesh.h/.cpp`** `[L]` `[high-risk]`
+   - 优先迁移：
+     - `interpolationCoordinates/barycentricCoordinates`
+     - `sceneToSimulationMesh`
+     - `io/*`
+     - `algorithms/*`
+     - tools / C API / `runSimCore`
+   - 完成条件：
+     - 仓库内生产代码不再 include `volumetricMesh.h`
+     - `volumetricMesh.cpp` 不再有唯一行为，只剩空壳
+     - 删除旧基类文件，不保留兼容转发头
+   - 依赖：步骤 20~25
+   - 为什么：你要的不是“保留一个更薄的上帝类”，而是彻底移除这个错误的中心抽象
+
+### 阶段 G：现代化 API，并直接切换
+
+27. **为原始缓冲区接口补 `std::span` 重载** `[M]` `[med-risk]`
    - 优先补：
      - `getElementVertices`
      - `getElementEdges`
@@ -663,43 +756,34 @@ volumetricMesh/
      - `getVertexVolumes`
      - `computeGravity`
    - 仓库内调用点直接切换到 `std::span` 版本
-   - 依赖：步骤 7、12
-   - 为什么：这一步收益高，且不值得为了旧指针签名继续维持双轨
+   - 依赖：步骤 23、25
+   - 为什么：当基类删掉以后，这批接口更适合直接以轻量 view 形式重建
 
-21. **为查询接口增加 typed result** `[M]` `[med-risk]`
+28. **为查询接口增加 typed result** `[M]` `[med-risk]`
    - 新增：
      - `std::optional<int> find_containing_element(...)`
      - `Expected<void, IoError>` 或内部错误对象
    - 删除：
      - `getContainingElement()` 返回 `-1` 的旧语义
      - `io::save()` 返回 `int` 的旧语义
-   - 依赖：步骤 8、16
+   - 依赖：步骤 20、23、27
    - 为什么：既然允许破坏式升级，就应直接把错误表达方式改掉
 
-22. **清理旧材料 API 事实入口** `[M]` `[med-risk]`
-   - 删除或弃用：
-     - `downcastENuMaterial`
-     - `downcastOrthotropicMaterial`
-     - `downcastMooneyRivlinMaterial`
-     - 旧 `Material*` 风格访问路径
-   - 依赖：步骤 19、20、21
-   - 为什么：避免仓库进入“值类型材料 + 旧多态材料”双轨
+### 阶段 H：下游迁移与收口
 
-### 阶段 G：下游迁移与收口
-
-23. **优先迁移 `sceneToSimulationMesh` 到新接口层** `[M]` `[med-risk]`
+29. **优先迁移 `sceneToSimulationMesh` 到新接口层** `[M]` `[med-risk]`
    - 让它依赖“只读 tet mesh view + 值类型材料适配层”，而不是旧的宽头文件集合
-   - 依赖：步骤 12、19, 20, 21, 22
+   - 依赖：步骤 19、25、27、28
    - 为什么：这是 `volumetricMesh -> solidDeformationModel` 的关键桥
 
-24. **同步迁移 API/工具层 include 与调用点到新路径/新接口** `[L]` `[med-risk]`
+30. **同步迁移 API/工具层 include 与调用点到新路径/新接口** `[L]` `[med-risk]`
    - 顺序：
      - 工具层
      - 动画层
      - C API
      - `runSimCore`
-   - 依赖：步骤 8~23
-   - 为什么：外层收口必须和接口切换同时完成，避免双轨
+   - 依赖：步骤 20~29
+   - 为什么：外层收口必须和接口切换同时完成，避免仓库进入“新旧 mesh 抽象双轨”
 
 ---
 
@@ -711,12 +795,13 @@ volumetricMesh/
 
 可以继续保留的主要是**概念名字**，不是旧函数签名：
 
-- `VolumetricMesh`
 - `TetMesh`
 - `CubicMesh`
 - `io`
 - `GenerateMassMatrix`
 - `GenerateSurfaceMesh`
+
+其中 `VolumetricMesh` 不再被视为必须保留的公共中心类型；如果 Phase F 完成，应允许它彻底消失。
 
 ### 9.2 建议直接替换的 API
 
@@ -726,7 +811,7 @@ volumetricMesh/
 | `void getElementVertices(..., Vec3d*)` | `std::span<Vec3d>` 版本 | 直接替换 |
 | `void getElementEdges(..., int*)` | `std::span<int>` 版本 | 直接替换 |
 | `int io::save(...)` | `expected<void, IoError>` 或异常版内部实现 | 直接替换错误处理语义 |
-| `Material*` / `downcast*Material()` | `MaterialRecord` + `material_cast<T>()` / visitor | 在独立材料阶段完成切换 |
+| `Material*` / `downcast*Material()` | `MaterialRecord` + `try_get_material<T>()` / `require_material<T>()` / visitor | 在独立材料阶段完成切换 |
 
 ### 9.3 构造路径迁移
 
@@ -835,9 +920,13 @@ volumetricMesh/
 6. 抽 `Tet/Cubic` 的 element ops
 7. 把 `CubicMesh` 高层算法迁出
 8. 独立重构材料系统，并切到值类型模型
-9. 加 `std::span` / `optional` 新接口
-10. 先迁 `sceneToSimulationMesh`
-11. 最后再迁工具层与 API 层
+9. 抽离 mesh 公共类型与共享 storage
+10. 引入 `mesh_traits` / `mesh_concepts`
+11. 把通用算法改成 mesh-agnostic 模板
+12. 收口边界层运行时分发
+13. 重写 `TetMesh` / `CubicMesh` 的继承结构
+14. 删除 `volumetricMesh.h/.cpp`
+15. 最后再做 `std::span` / `optional` 现代化和工具/API 全仓切换
 
 ---
 
@@ -849,10 +938,11 @@ volumetricMesh/
 2. `volumetricMeshIO.cpp` 过于集中，已经成为第二个上帝单元
 3. `CubicMesh` 里混入了太多本应属于算法层的逻辑
 
-因此，本模块的正确重构方向不是直接“重写 Tet/Cubic”，而是：
+因此，本模块的正确重构方向不是继续把 `VolumetricMesh` 磨得更薄，而是：
 
 - 先抽数据与材料模型
 - 再拆 I/O 与算法
-- 最后保守迁移下游调用面
+- 再把 mesh-specific 行为下沉到 `traits + ops`
+- 最后删除 `VolumetricMesh` 这个错误的中心抽象，并一次性迁完下游
 
-这样做的结果是：你不会再被旧接口拖住，可以直接把模块边界改正确，再用一次仓库级切换把下游全部拉到新接口上。
+这样做的结果是：`TetMesh` / `CubicMesh` 会变成组合式类型，算法层将形成真正的 `mesh-agnostic + mesh-specific implementation` 结构，而不是继续围着一个历史基类转发。

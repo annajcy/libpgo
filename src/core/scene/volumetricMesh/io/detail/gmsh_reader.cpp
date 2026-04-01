@@ -48,7 +48,7 @@ LoadedMeshData read_gmsh_mesh(const std::filesystem::path& filename, int verbose
         internal::MaterialCatalog material_catalog(geometry.num_elements(), VolumetricMesh::E_default,
                                                    VolumetricMesh::nu_default, VolumetricMesh::density_default);
         material_catalog.validate_against_num_elements(geometry.num_elements());
-        return LoadedMeshData{VolumetricMesh::ElementType::Tet, std::move(geometry), std::move(material_catalog)};
+        return LoadedMeshData{ElementType::Tet, std::move(geometry), std::move(material_catalog)};
     } catch (...) {
         gmsh::finalize();
         throw;

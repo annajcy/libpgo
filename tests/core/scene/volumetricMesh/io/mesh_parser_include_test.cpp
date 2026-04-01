@@ -44,7 +44,7 @@ TEST(CoreSceneVolumetricMeshIoTest, ParserIncludeLoadsRelativeChildFile) {
     writeTextFile(child_path, kIncludedTetSection);
 
     const TetMesh expected = makeSingleTetMesh();
-    const std::unique_ptr<TetMesh> loaded = io::load_tet(main_path, VolumetricMesh::FileFormatType::Ascii, 0);
+    const std::unique_ptr<TetMesh> loaded = io::load_tet(main_path, FileFormatType::Ascii, 0);
 
     ASSERT_NE(loaded, nullptr);
     expectMeshGeometryEqual(*loaded, expected);
@@ -65,7 +65,7 @@ TEST(CoreSceneVolumetricMeshIoTest, ParserIncludeMissingChildPreservesCurrentFai
     writeTextFile(main_path, kMainMeshWithInclude);
 
     try {
-        (void)io::load_tet(main_path, VolumetricMesh::FileFormatType::Ascii, 0);
+        (void)io::load_tet(main_path, FileFormatType::Ascii, 0);
         FAIL() << "Expected missing include to throw.";
     } catch (int error_code) {
         EXPECT_EQ(error_code, -1);

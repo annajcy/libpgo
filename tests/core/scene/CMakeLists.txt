@@ -23,6 +23,7 @@ set(CORE_SCENE_VOLUMETRIC_MESH_SOURCES
   volumetricMesh/ops/mesh_construction_test.cpp
   volumetricMesh/types/element_set_test.cpp
   volumetricMesh/types/material_region_test.cpp
+  volumetricMesh/storage/mesh_storage_test.cpp
   volumetricMesh/mesh_queries_test.cpp
   volumetricMesh/volumetric_mesh_edit_test.cpp
   volumetricMesh/generate_surface_mesh_test.cpp

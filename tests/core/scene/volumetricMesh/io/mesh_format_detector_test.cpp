@@ -30,7 +30,7 @@ void writeBinaryHeader(const std::filesystem::path& path, double version, int el
 }  // namespace
 
 TEST(CoreSceneVolumetricMeshIoTest, DetectFileFormatByExtension) {
-    using FileFormatType = pgo::VolumetricMeshes::VolumetricMesh::FileFormatType;
+    using FileFormatType = pgo::VolumetricMeshes::FileFormatType;
     using namespace pgo::VolumetricMeshes;
 
     EXPECT_EQ(io::detect_file_format("mesh.veg"), FileFormatType::Ascii);
@@ -39,7 +39,7 @@ TEST(CoreSceneVolumetricMeshIoTest, DetectFileFormatByExtension) {
 }
 
 TEST(CoreSceneVolumetricMeshIoTest, DetectElementTypeFromSavedFilesAndBinarySpans) {
-    using ElementType = pgo::VolumetricMeshes::VolumetricMesh::ElementType;
+    using ElementType = pgo::VolumetricMeshes::ElementType;
     using namespace pgo::VolumetricMeshes;
 
     const TetMesh   tet_mesh = makeSingleTetMesh();
@@ -76,8 +76,8 @@ TEST(CoreSceneVolumetricMeshIoTest, DetectElementTypeFromSavedFilesAndBinarySpan
 }
 
 TEST(CoreSceneVolumetricMeshIoTest, DetectElementTypeReturnsInvalidForUnknownBinaryHeader) {
-    using ElementType = pgo::VolumetricMeshes::VolumetricMesh::ElementType;
-    using FileFormatType = pgo::VolumetricMeshes::VolumetricMesh::FileFormatType;
+    using ElementType = pgo::VolumetricMeshes::ElementType;
+    using FileFormatType = pgo::VolumetricMeshes::FileFormatType;
     using namespace pgo::VolumetricMeshes;
 
     const std::filesystem::path invalid_binary_path = uniqueTempPath(".vegb");

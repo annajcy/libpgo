@@ -53,6 +53,7 @@
 #include "boundingBox.h"
 #include "internal/volumetric_mesh_data.h"
 #include "materials/material_access.h"
+#include "types/mesh_enums.h"
 #include "types/element_set.h"
 #include "types/element_types.h"
 #include "types/material_region.h"
@@ -76,11 +77,6 @@ namespace internal {
 class MaterialCatalog;
 class MeshMutation;
 }
-namespace editing {
-void subset_in_place(VolumetricMesh& mesh, const std::set<int>& subsetElements, int removeIsolatedVertices,
-                     std::map<int, int>* old2NewVertexIDMap);
-void remove_isolated_vertices(VolumetricMesh& mesh, std::map<int, int>* old2NewVertexIDMap);
-}
 
 class VolumetricMesh {
 public:
@@ -94,10 +90,6 @@ public:
 
     // === vertex and element access ===
 
-    enum class ElementType { Invalid, Tet, Cubic };
-    // ASCII is the text .veg format, BINARY is the binary .vegb format,
-    // BY_EXT: determine the file format based on filename
-    enum class FileFormatType { Ascii, Binary, ByExtension, Unknown };
     virtual ElementType getElementType() const = 0;  // calls the derived class to identify itself
 
     inline int          getNumVertices() const { return m_geometry.num_vertices(); }

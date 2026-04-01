@@ -33,7 +33,6 @@
 #include "volumetricMesh.h"
 #include "internal/material_catalog.h"
 #include "internal/mesh_mass_properties.h"
-#include "internal/mesh_subset_editor.h"
 #include "internal/mesh_queries.h"
 #include "internal/mesh_transforms.h"
 
@@ -165,19 +164,6 @@ void VolumetricMesh::getElementsWithOnlyVertices(const std::vector<int>& vertice
 void VolumetricMesh::getVertexNeighborhood(const std::vector<int>& vertices_, std::vector<int>& neighborhood) const {
     internal::mesh_queries::get_vertex_neighborhood(*this, vertices_, neighborhood);
 }
-
-namespace editing {
-
-void subset_in_place(VolumetricMesh& mesh, const std::set<int>& subsetElements, int removeIsolatedVertices,
-                     std::map<int, int>* old2NewVertexIDMap) {
-    internal::MeshSubsetEditor::subset_in_place(mesh, subsetElements, removeIsolatedVertices, old2NewVertexIDMap);
-}
-
-void remove_isolated_vertices(VolumetricMesh& mesh, std::map<int, int>* old2NewVertexIDMap) {
-    internal::MeshSubsetEditor::remove_isolated_vertices(mesh, old2NewVertexIDMap);
-}
-
-}  // namespace editing
 
 double VolumetricMesh::getMass() const {
     return internal::mesh_mass_properties::get_mass(*this);

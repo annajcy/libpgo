@@ -106,8 +106,8 @@ public:
 
     // === misc queries ===
 
-    static VolumetricMesh::ElementType  elementType() { return ElementType::Tet; }
-    virtual VolumetricMesh::ElementType getElementType() const override { return elementType(); }
+    static ElementType  elementType() { return ElementType::Tet; }
+    virtual ElementType getElementType() const override { return elementType(); }
 
     static double getSignedTetVolume(const Vec3d& a, const Vec3d& b, const Vec3d& c, const Vec3d& d);
     static double getTetVolume(const Vec3d& a, const Vec3d& b, const Vec3d& c, const Vec3d& d);

@@ -1,4 +1,4 @@
-#include "volumetricMesh.h"
+#include "ops/mesh_edit_ops.h"
 
 #include "volumetric_mesh_test_fixtures.h"
 
@@ -15,7 +15,7 @@ TEST(CoreSceneVolumetricMeshTest, SubsetInPlacePreservesSetAndMaterialObservable
     TetMesh             mesh = makeTwoTetMeshWithDistinctMaterials();
     const std::set<int> subset{1};
 
-    editing::subset_in_place(mesh, subset, 0, nullptr);
+    ops::subset_in_place(mesh, subset, 0, nullptr);
 
     EXPECT_EQ(mesh.getNumElements(), 1);
     EXPECT_EQ(mesh.getNumVertices(), 8);
@@ -41,7 +41,7 @@ TEST(CoreSceneVolumetricMeshTest, SubsetInPlaceRemovesIsolatedVerticesAndRemapsI
     const std::set<int> subset{1};
     std::map<int, int>  old_to_new_vertex_ids;
 
-    editing::subset_in_place(mesh, subset, 1, &old_to_new_vertex_ids);
+    ops::subset_in_place(mesh, subset, 1, &old_to_new_vertex_ids);
 
     EXPECT_EQ(mesh.getNumElements(), 1);
     EXPECT_EQ(mesh.getNumVertices(), 4);

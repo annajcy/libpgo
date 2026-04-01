@@ -20,7 +20,7 @@ TEST(CoreSceneVolumetricMeshIoTest, TetAsciiRoundTripPreservesGeometryAndTopolog
     const std::filesystem::path ascii_path = uniqueTempPath(".veg");
 
     ASSERT_EQ(io::save_to_ascii(source, ascii_path), 0);
-    const std::unique_ptr<TetMesh> reloaded = io::load_tet(ascii_path, VolumetricMesh::FileFormatType::Ascii, 0);
+    const std::unique_ptr<TetMesh> reloaded = io::load_tet(ascii_path, FileFormatType::Ascii, 0);
 
     ASSERT_NE(reloaded, nullptr);
     expectMeshGeometryEqual(*reloaded, source);
@@ -35,7 +35,7 @@ TEST(CoreSceneVolumetricMeshIoTest, CubicAsciiRoundTripPreservesGeometryAndTopol
     const std::filesystem::path ascii_path = uniqueTempPath(".veg");
 
     ASSERT_EQ(io::save_to_ascii(source, ascii_path), 0);
-    const std::unique_ptr<CubicMesh> reloaded = io::load_cubic(ascii_path, VolumetricMesh::FileFormatType::Ascii, 0);
+    const std::unique_ptr<CubicMesh> reloaded = io::load_cubic(ascii_path, FileFormatType::Ascii, 0);
 
     ASSERT_NE(reloaded, nullptr);
     expectMeshGeometryEqual(*reloaded, source);
@@ -50,7 +50,7 @@ TEST(CoreSceneVolumetricMeshIoTest, AsciiLoadRejectsMalformedInput) {
     const std::filesystem::path malformed_ascii_path = uniqueTempPath(".veg");
     writeTextFile(malformed_ascii_path, "not a valid veg mesh\n");
 
-    EXPECT_THROW(io::load_tet(malformed_ascii_path, VolumetricMesh::FileFormatType::Ascii, 0), int);
+    EXPECT_THROW(io::load_tet(malformed_ascii_path, FileFormatType::Ascii, 0), int);
 
     std::filesystem::remove(malformed_ascii_path);
 }

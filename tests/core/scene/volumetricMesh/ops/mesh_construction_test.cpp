@@ -18,7 +18,7 @@ TEST(MeshConstructionOpsTest, AssignCommonLoadedDataReplacesTetGeometryAndMateri
     std::vector<int> elements{0, 1, 2, 3};
 
     pgo::VolumetricMeshes::io::detail::LoadedMeshData data;
-    data.element_type = pgo::VolumetricMeshes::VolumetricMesh::ElementType::Tet;
+    data.element_type = pgo::VolumetricMeshes::ElementType::Tet;
     data.geometry = pgo::VolumetricMeshes::internal::VolumetricMeshData(4, std::move(vertices), std::move(elements));
     data.material_catalog = pgo::VolumetricMeshes::internal::MaterialCatalog(1, 2500.0, 0.28, 9.0);
 

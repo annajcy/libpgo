@@ -122,8 +122,8 @@ public:
 
     // === misc queries ===
 
-    static VolumetricMesh::ElementType  elementType() { return ElementType::Cubic; }
-    virtual VolumetricMesh::ElementType getElementType() const override { return elementType(); }
+    static ElementType  elementType() { return ElementType::Cubic; }
+    virtual ElementType getElementType() const override { return elementType(); }
 
     inline double getCubeSize() const { return cubeSize; }
 

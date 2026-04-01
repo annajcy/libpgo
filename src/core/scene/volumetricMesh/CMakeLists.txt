@@ -31,16 +31,19 @@ set(VOLUMETRIC_MESH_H
   materials/material_access.h
   materials/material_record.h
   ops/cubic_mesh_ops.h
+  ops/mesh_edit_ops.h
   ops/element_face_ops.h
   ops/mesh_export_ops.h
   ops/mesh_export_types.h
   ops/mesh_construction.h
   ops/tet_geometry_export.h
   ops/tet_mesh_ops.h
+  storage/mesh_storage.h
   tetMesh.h
   types/element_set.h
   types/element_types.h
   types/interpolation_weights.h
+  types/mesh_enums.h
   types/material_region.h
   volumetricMesh.h
 )
@@ -72,11 +75,13 @@ set(VOLUMETRIC_MESH_SRC
   internal/region_assignment.cpp
   internal/volumetric_mesh_data.cpp
   ops/cubic_mesh_ops.cpp
+  ops/mesh_edit_ops.cpp
   ops/element_face_ops.cpp
   ops/mesh_export_ops.cpp
   ops/mesh_construction.cpp
   ops/tet_geometry_export.cpp
   ops/tet_mesh_ops.cpp
+  storage/mesh_storage.cpp
   tetMesh.cpp
   volumetricMesh.cpp
 )

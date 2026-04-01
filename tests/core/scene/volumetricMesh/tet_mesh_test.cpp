@@ -28,8 +28,8 @@ TEST(CoreSceneVolumetricMeshTest, TetMeshAsciiAndBinaryRoundTripPreserveGeometry
     const auto ascii_geometry  = ops::geometry(ascii_mesh);
     const auto binary_geometry = ops::geometry(binary_mesh);
 
-    EXPECT_EQ(ascii_mesh.getElementType(), VolumetricMesh::ElementType::Tet);
-    EXPECT_EQ(binary_mesh.getElementType(), VolumetricMesh::ElementType::Tet);
+    EXPECT_EQ(ascii_mesh.getElementType(), ElementType::Tet);
+    EXPECT_EQ(binary_mesh.getElementType(), ElementType::Tet);
     EXPECT_EQ(ascii_geometry.numElementVertices, 4);
     EXPECT_EQ(binary_geometry.numElementVertices, 4);
     expectVertexVectorsEqual(ascii_geometry.vertices, source_geometry.vertices);
@@ -56,7 +56,7 @@ TEST(CoreSceneVolumetricMeshTest, TetMeshBinaryMemoryConstructorPreservesGeometr
     const auto    source_geometry = ops::geometry(source);
     const auto    memory_geometry = ops::geometry(memory_mesh);
 
-    EXPECT_EQ(memory_mesh.getElementType(), VolumetricMesh::ElementType::Tet);
+    EXPECT_EQ(memory_mesh.getElementType(), ElementType::Tet);
     EXPECT_EQ(memory_geometry.numElementVertices, 4);
     expectVertexVectorsEqual(memory_geometry.vertices, source_geometry.vertices);
     EXPECT_EQ(memory_geometry.elements, source_geometry.elements);

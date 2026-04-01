@@ -30,7 +30,7 @@ TEST(CoreSceneVolumetricMeshTest, CubicMeshBinaryRoundTripAndGeometryExportPrese
     const CubicMesh binary_mesh(binary_path);
     const auto      binary_geometry = ops::geometry(binary_mesh);
 
-    EXPECT_EQ(binary_mesh.getElementType(), VolumetricMesh::ElementType::Cubic);
+    EXPECT_EQ(binary_mesh.getElementType(), ElementType::Cubic);
     EXPECT_DOUBLE_EQ(binary_mesh.getCubeSize(), 1.0);
     EXPECT_EQ(binary_geometry.numElementVertices, 8);
     expectVertexVectorsEqual(binary_geometry.vertices, source_geometry.vertices);
@@ -54,7 +54,7 @@ TEST(CoreSceneVolumetricMeshTest, CubicMeshBinaryMemoryConstructorPreservesGeome
     const auto      source_geometry = ops::geometry(source);
     const auto      memory_geometry = ops::geometry(memory_mesh);
 
-    EXPECT_EQ(memory_mesh.getElementType(), VolumetricMesh::ElementType::Cubic);
+    EXPECT_EQ(memory_mesh.getElementType(), ElementType::Cubic);
     EXPECT_DOUBLE_EQ(memory_mesh.getCubeSize(), 1.0);
     EXPECT_EQ(memory_geometry.numElementVertices, 8);
     expectVertexVectorsEqual(memory_geometry.vertices, source_geometry.vertices);

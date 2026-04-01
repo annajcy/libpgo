@@ -119,7 +119,7 @@ void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMes
     for (int i = 0; i < volumetricMesh->getNumVertices(); i++)
         vertices.emplace_back(volumetricMesh->getVertex(i));
 
-    if (volumetricMesh->getElementType() == VolumetricMesh::ElementType::Tet) {
+    if (volumetricMesh->getElementType() == ElementType::Tet) {
         const TetMesh* tetMesh = dynamic_cast<const TetMesh*>(volumetricMesh);
         PGO_ALOG(tetMesh != nullptr);
 
@@ -132,7 +132,7 @@ void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMes
         if (allElementFaces == false) {
             emit_surface_faces(surfaceFaces, faces, false);
         }
-    } else if (volumetricMesh->getElementType() == VolumetricMesh::ElementType::Cubic) {
+    } else if (volumetricMesh->getElementType() == ElementType::Cubic) {
         const CubicMesh* cubicMesh = dynamic_cast<const CubicMesh*>(volumetricMesh);
         PGO_ALOG(cubicMesh != nullptr);
 

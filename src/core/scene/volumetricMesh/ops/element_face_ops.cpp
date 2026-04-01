@@ -6,10 +6,10 @@
 namespace pgo::VolumetricMeshes::ops {
 
 int face_degree(const VolumetricMesh& mesh) {
-    if (mesh.getElementType() == VolumetricMesh::ElementType::Tet) {
+    if (mesh.getElementType() == ElementType::Tet) {
         return 3;
     }
-    if (mesh.getElementType() == VolumetricMesh::ElementType::Cubic) {
+    if (mesh.getElementType() == ElementType::Cubic) {
         return 4;
     }
     return 0;

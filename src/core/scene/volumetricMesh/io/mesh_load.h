@@ -1,7 +1,8 @@
 #pragma once
 
-#include "volumetricMesh.h"
+#include "types/mesh_enums.h"
 
+#include <filesystem>
 #include <memory>
 
 namespace pgo::VolumetricMeshes {
@@ -12,12 +13,10 @@ class CubicMesh;
 namespace io {
 
 std::unique_ptr<TetMesh> load_tet(const std::filesystem::path& filename,
-                                  VolumetricMesh::FileFormatType fileFormat =
-                                      VolumetricMesh::FileFormatType::ByExtension,
+                                  FileFormatType fileFormat = FileFormatType::ByExtension,
                                   int verbose = 1);
 std::unique_ptr<CubicMesh> load_cubic(const std::filesystem::path& filename,
-                                      VolumetricMesh::FileFormatType fileFormat =
-                                          VolumetricMesh::FileFormatType::ByExtension,
+                                      FileFormatType fileFormat = FileFormatType::ByExtension,
                                       int verbose = 1);
 
 }  // namespace io

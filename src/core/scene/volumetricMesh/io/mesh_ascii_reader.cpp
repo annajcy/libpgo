@@ -14,10 +14,8 @@
 namespace pgo::VolumetricMeshes::io::detail {
 namespace {
 
-using ElementType = VolumetricMesh::ElementType;
-
 struct RawLoadedMeshData {
-    ElementType element_type = VolumetricMesh::ElementType::Invalid;
+    ElementType element_type = ElementType::Invalid;
     int num_element_vertices = 0;
     std::vector<Vec3d> vertices;
     std::vector<int> elements;

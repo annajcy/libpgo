@@ -26,7 +26,7 @@ void write_ascii_mesh(const VolumetricMesh& mesh, const std::filesystem::path& f
     fprintf(output, "\n");
 
     fprintf(output, "*ELEMENTS\n");
-    fprintf(output, "%s\n", mesh.getElementType() == VolumetricMesh::ElementType::Tet ? "TET" : "CUBIC");
+    fprintf(output, "%s\n", mesh.getElementType() == ElementType::Tet ? "TET" : "CUBIC");
     fprintf(output, "%d %d 0\n", mesh.getNumElements(), mesh.getNumElementVertices());
     for (int element_index = 0; element_index < mesh.getNumElements(); element_index++) {
         fprintf(output, "%d ", element_index + 1);

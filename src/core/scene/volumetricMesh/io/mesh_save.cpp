@@ -77,8 +77,8 @@ void save_to_node_ele_impl(const VolumetricMesh& mesh, const std::filesystem::pa
 }  // namespace
 
 int save(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
-    const VolumetricMesh::FileFormatType file_type = detect_file_format(filename);
-    if (file_type == VolumetricMesh::FileFormatType::Binary)
+    const FileFormatType file_type = detect_file_format(filename);
+    if (file_type == FileFormatType::Binary)
         return save_to_binary(mesh, filename);
     return save_to_ascii(mesh, filename);
 }

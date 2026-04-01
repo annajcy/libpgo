@@ -80,8 +80,8 @@ TEST(CoreSceneVolumetricMeshIoTest, ENuMaterialAsciiAndBinaryRoundTrip) {
     ASSERT_EQ(io::save_to_ascii(source, ascii_path), 0);
     ASSERT_EQ(io::save_to_binary(source, binary_path), 0);
 
-    const std::unique_ptr<TetMesh> ascii_mesh = io::load_tet(ascii_path, VolumetricMesh::FileFormatType::Ascii, 0);
-    const std::unique_ptr<TetMesh> binary_mesh = io::load_tet(binary_path, VolumetricMesh::FileFormatType::Binary, 0);
+    const std::unique_ptr<TetMesh> ascii_mesh = io::load_tet(ascii_path, FileFormatType::Ascii, 0);
+    const std::unique_ptr<TetMesh> binary_mesh = io::load_tet(binary_path, FileFormatType::Binary, 0);
 
     ASSERT_NE(ascii_mesh, nullptr);
     ASSERT_NE(binary_mesh, nullptr);
@@ -108,8 +108,8 @@ TEST(CoreSceneVolumetricMeshIoTest, OrthotropicMaterialAsciiAndBinaryRoundTrip) 
     ASSERT_EQ(io::save_to_ascii(source, ascii_path), 0);
     ASSERT_EQ(io::save_to_binary(source, binary_path), 0);
 
-    const std::unique_ptr<TetMesh> ascii_mesh = io::load_tet(ascii_path, VolumetricMesh::FileFormatType::Ascii, 0);
-    const std::unique_ptr<TetMesh> binary_mesh = io::load_tet(binary_path, VolumetricMesh::FileFormatType::Binary, 0);
+    const std::unique_ptr<TetMesh> ascii_mesh = io::load_tet(ascii_path, FileFormatType::Ascii, 0);
+    const std::unique_ptr<TetMesh> binary_mesh = io::load_tet(binary_path, FileFormatType::Binary, 0);
 
     ASSERT_NE(ascii_mesh, nullptr);
     ASSERT_NE(binary_mesh, nullptr);
@@ -133,8 +133,8 @@ TEST(CoreSceneVolumetricMeshIoTest, MooneyRivlinMaterialAsciiAndBinaryRoundTrip)
     ASSERT_EQ(io::save_to_ascii(source, ascii_path), 0);
     ASSERT_EQ(io::save_to_binary(source, binary_path), 0);
 
-    const std::unique_ptr<TetMesh> ascii_mesh = io::load_tet(ascii_path, VolumetricMesh::FileFormatType::Ascii, 0);
-    const std::unique_ptr<TetMesh> binary_mesh = io::load_tet(binary_path, VolumetricMesh::FileFormatType::Binary, 0);
+    const std::unique_ptr<TetMesh> ascii_mesh = io::load_tet(ascii_path, FileFormatType::Ascii, 0);
+    const std::unique_ptr<TetMesh> binary_mesh = io::load_tet(binary_path, FileFormatType::Binary, 0);
 
     ASSERT_NE(ascii_mesh, nullptr);
     ASSERT_NE(binary_mesh, nullptr);

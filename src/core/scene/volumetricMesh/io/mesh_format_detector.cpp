@@ -11,9 +11,6 @@
 namespace pgo::VolumetricMeshes::io {
 namespace {
 
-using ElementType = VolumetricMesh::ElementType;
-using FileFormatType = VolumetricMesh::FileFormatType;
-
 constexpr ElementType INVALID = ElementType::Invalid;
 constexpr ElementType TET = ElementType::Tet;
 constexpr ElementType CUBIC = ElementType::Cubic;
@@ -92,8 +89,7 @@ FileFormatType detect_file_format_by_ext(const std::filesystem::path& filename) 
 
 }  // namespace detail
 
-VolumetricMesh::ElementType detect_element_type(const std::filesystem::path& filename,
-                                                VolumetricMesh::FileFormatType file_format) {
+ElementType detect_element_type(const std::filesystem::path& filename, FileFormatType file_format) {
     if (file_format == BY_EXT) {
         file_format = detail::detect_file_format_by_ext(filename);
         if (file_format == UNKNOWN) {
@@ -119,7 +115,7 @@ VolumetricMesh::ElementType detect_element_type(const std::filesystem::path& fil
     return INVALID;
 }
 
-VolumetricMesh::ElementType detect_element_type(std::span<const std::byte> binary_data) {
+ElementType detect_element_type(std::span<const std::byte> binary_data) {
     if (binary_data.empty()) {
         throw std::runtime_error("binary data buffer is empty");
     }
@@ -128,7 +124,7 @@ VolumetricMesh::ElementType detect_element_type(std::span<const std::byte> binar
     return detail::detect_binary_element_type(input);
 }
 
-VolumetricMesh::FileFormatType detect_file_format(const std::filesystem::path& filename) {
+FileFormatType detect_file_format(const std::filesystem::path& filename) {
     return detail::detect_file_format_by_ext(filename);
 }
 
