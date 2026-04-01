@@ -1,4 +1,5 @@
 #include "simulationMesh.h"
+#include "cubicMeshDeformationModel.h"
 #include "deformationModelManager.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
@@ -184,6 +185,23 @@ TEST(SimulationMeshMaterialBindingTest, DeformationModelManagerStableNeoSmokeTes
     dmm.init(DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, 0);
 
     EXPECT_NE(dmm.getDeformationModel(0), nullptr);
+}
+
+TEST(SimulationMeshMaterialBindingTest, DeformationModelManagerCubicStableNeoSmokeTest) {
+    std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh = makeSingleCubicMesh();
+    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createFromCubicMesh(*cubicMesh);
+    Logging::init();
+
+    DeformationModelManager dmm;
+    dmm.setMesh(mesh.get());
+    dmm.init(DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, 0);
+
+    const DeformationModel* fem = dmm.getDeformationModel(0);
+    ASSERT_NE(fem, nullptr);
+    EXPECT_NE(dynamic_cast<const CubicMeshDeformationModel*>(fem), nullptr);
+    EXPECT_EQ(fem->getNumVertices(), 8);
+    EXPECT_EQ(fem->getNumDOFs(), 24);
+    EXPECT_EQ(fem->getNumMaterialLocations(), 8);
 }
 
 TEST(SimulationMeshMaterialBindingTest, DeformationModelManagerHillSmokeTest) {
