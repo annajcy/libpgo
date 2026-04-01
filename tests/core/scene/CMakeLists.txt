@@ -13,6 +13,9 @@ set(CORE_SCENE_GEOMETRY_SOURCES
 set(CORE_SCENE_VOLUMETRIC_MESH_SOURCES
   volumetricMesh/tet_mesh_test.cpp
   volumetricMesh/cubic_mesh_test.cpp
+  volumetricMesh/algorithms/cubic_mesh_interpolation_test.cpp
+  volumetricMesh/algorithms/cubic_mesh_normal_correction_test.cpp
+  volumetricMesh/algorithms/cubic_mesh_refinement_test.cpp
   volumetricMesh/ops/tet_mesh_ops_test.cpp
   volumetricMesh/ops/cubic_mesh_ops_test.cpp
   volumetricMesh/mesh_queries_test.cpp

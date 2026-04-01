@@ -1,4 +1,7 @@
 set(VOLUMETRIC_MESH_H
+  algorithms/cubic_mesh_interpolation.h
+  algorithms/cubic_mesh_normal_correction.h
+  algorithms/cubic_mesh_refinement.h
   cubicMesh.h
   io/detail/tetgen_reader.h
   io/detail/veg_parser.h
@@ -34,6 +37,9 @@ set(VOLUMETRIC_MESH_H
   generateSurfaceMesh.h
 )
 set(VOLUMETRIC_MESH_SRC
+  algorithms/cubic_mesh_interpolation.cpp
+  algorithms/cubic_mesh_normal_correction.cpp
+  algorithms/cubic_mesh_refinement.cpp
   cubicMesh.cpp
   io/detail/tetgen_reader.cpp
   io/detail/veg_parser.cpp

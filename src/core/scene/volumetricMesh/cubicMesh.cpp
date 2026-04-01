@@ -31,6 +31,9 @@
  *************************************************************************/
 
 #include "cubicMesh.h"
+#include "algorithms/cubic_mesh_interpolation.h"
+#include "algorithms/cubic_mesh_normal_correction.h"
+#include "algorithms/cubic_mesh_refinement.h"
 #include "io/mesh_loaders.h"
 #include "io/mesh_io_types.h"
 #include "internal/material_catalog.h"
@@ -41,8 +44,6 @@
 #include "pgoLogging.h"
 #include "EigenSupport.h"
 
-#include <cfloat>
-#include <cstring>
 #include <set>
 #include <map>
 #include <vector>
@@ -50,8 +51,6 @@
 
 namespace pgo {
 namespace VolumetricMeshes {
-
-namespace ES = EigenSupport;
 
 namespace {
 std::vector<int> flattenCubicElements(std::span<const CubicElement> elements) {
@@ -216,114 +215,8 @@ bool CubicMesh::containsVertex(int element, Vec3d pos) const {
 // vertices more than distanceThreshold away from any element vertex are assigned zero data
 int CubicMesh::interpolateData(double* vertexData, int numInterpolationLocations, int r, double* interpolationLocations,
                                double* destMatrix, double distanceThreshold) const {
-    assert(getNumElementVertices() == 8);
-    const int num_vertices = getNumVertices();
-
-    int numExternalVertices = 0;
-
-    for (int i = 0; i < numInterpolationLocations; i++)  // over all interpolation locations
-    {
-        if (i % 100 == 0) {
-            printf("%d ", i);
-            fflush(nullptr);
-        }
-
-        Vec3d pos = Vec3d(interpolationLocations[3 * i + 0], interpolationLocations[3 * i + 1],
-                          interpolationLocations[3 * i + 2]);
-
-        // find element containing pos
-        int element = getClosestElement(pos);
-
-        if (!containsVertex(element, pos))
-            numExternalVertices++;
-
-        if (distanceThreshold > 0) {
-            // check whether vertex is close enough to the cube mesh
-            double minDistance  = DBL_MAX;
-            int    assignedZero = 0;
-            for (int ii = 0; ii < getNumElementVertices(); ii++) {
-                const Vec3d& vpos = getVertex(element, ii);
-                if ((vpos - pos).norm() < minDistance) {
-                    minDistance = (vpos - pos).norm();
-                }
-            }
-
-            if (minDistance > distanceThreshold) {
-                // assign zero data
-                for (int j = 0; j < r; j++) {
-                    destMatrix[ES::ELT(3 * numInterpolationLocations, 3 * i + 0, j)] = 0;
-                    destMatrix[ES::ELT(3 * numInterpolationLocations, 3 * i + 1, j)] = 0;
-                    destMatrix[ES::ELT(3 * numInterpolationLocations, 3 * i + 2, j)] = 0;
-                }
-                assignedZero++;
-                continue;
-            }
-        }
-
-        // compute barycentric coordinates
-        Vec3d  w     = pos - getVertex(element, 0);
-        double alpha = w[0] * invCubeSize;
-        double beta  = w[1] * invCubeSize;
-        double gamma = w[2] * invCubeSize;
-
-        double f000 = (1 - alpha) * (1 - beta) * (1 - gamma);
-        double f100 = (alpha) * (1 - beta) * (1 - gamma);
-        double f110 = (alpha) * (beta) * (1 - gamma);
-        double f010 = (1 - alpha) * (beta) * (1 - gamma);
-
-        double f001 = (1 - alpha) * (1 - beta) * (gamma);
-        double f101 = (alpha) * (1 - beta) * (gamma);
-        double f111 = (alpha) * (beta) * (gamma);
-        double f011 = (1 - alpha) * (beta) * (gamma);
-
-        int v000 = getVertexIndex(element, 0);
-        int v100 = getVertexIndex(element, 1);
-        int v110 = getVertexIndex(element, 2);
-        int v010 = getVertexIndex(element, 3);
-        int v001 = getVertexIndex(element, 4);
-        int v101 = getVertexIndex(element, 5);
-        int v111 = getVertexIndex(element, 6);
-        int v011 = getVertexIndex(element, 7);
-
-        for (int j = 0; j < r; j++) {
-            Vec3d data000 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v000 + 0, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v000 + 1, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v000 + 2, j)]);
-            Vec3d data100 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v100 + 0, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v100 + 1, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v100 + 2, j)]);
-            Vec3d data110 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v110 + 0, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v110 + 1, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v110 + 2, j)]);
-            Vec3d data010 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v010 + 0, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v010 + 1, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v010 + 2, j)]);
-
-            Vec3d data001 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v001 + 0, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v001 + 1, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v001 + 2, j)]);
-            Vec3d data101 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v101 + 0, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v101 + 1, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v101 + 2, j)]);
-            Vec3d data111 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v111 + 0, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v111 + 1, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v111 + 2, j)]);
-            Vec3d data011 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v011 + 0, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v011 + 1, j)],
-                                  vertexData[ES::ELT(3 * num_vertices, 3 * v011 + 2, j)]);
-
-            Vec3d interpolatedData = f000 * data000 + f100 * data100 + f110 * data110 + f010 * data010 +
-                                     f001 * data001 + f101 * data101 + f111 * data111 + f011 * data011;
-
-            destMatrix[ES::ELT(3 * numInterpolationLocations, 3 * i + 0, j)] = interpolatedData[0];
-            destMatrix[ES::ELT(3 * numInterpolationLocations, 3 * i + 1, j)] = interpolatedData[1];
-            destMatrix[ES::ELT(3 * numInterpolationLocations, 3 * i + 2, j)] = interpolatedData[2];
-        }
-    }
-
-    printf("\n");
-
-    return numExternalVertices;
+    return algorithms::interpolate_cubic_mesh_data(*this, vertexData, numInterpolationLocations, r,
+                                                   interpolationLocations, destMatrix, distanceThreshold);
 }
 
 // computes approximation to the normal correction for the given deformation
@@ -334,141 +227,9 @@ int CubicMesh::interpolateData(double* vertexData, int numInterpolationLocations
 int CubicMesh::normalCorrection(double* vertexData, int numInterpolationLocations, int r,
                                 double* interpolationLocations, double* staticNormals, double* normalCorrection,
                                 double distanceThreshold) const {
-    assert(getNumElementVertices() == 8);
-    const int num_vertices = getNumVertices();
-
-    int numExternalVertices = 0;
-
-    for (int i = 0; i < numInterpolationLocations; i++)  // over all interpolation locations
-    {
-        if (i % 100 == 0) {
-            printf("%d ", i);
-            fflush(nullptr);
-        }
-
-        Vec3d pos = Vec3d(interpolationLocations[3 * i + 0], interpolationLocations[3 * i + 1],
-                          interpolationLocations[3 * i + 2]);
-
-        // find element containing pos
-        int element = getClosestElement(pos);
-
-        if (!containsVertex(element, pos))
-            numExternalVertices++;
-
-        if (distanceThreshold > 0) {
-            // check whether vertex is close enough to the cube mesh
-            double minDistance  = DBL_MAX;
-            int    assignedZero = 0;
-            for (int ii = 0; ii < getNumElementVertices(); ii++) {
-                const Vec3d& vpos = getVertex(element, ii);
-                if ((vpos - pos).norm() < minDistance) {
-                    minDistance = (vpos - pos).norm();
-                }
-            }
-
-            if (minDistance > distanceThreshold) {
-                // assign zero data
-                for (int j = 0; j < r; j++) {
-                    normalCorrection[ES::ELT(3 * numInterpolationLocations, 3 * i + 0, j)] = 0;
-                    normalCorrection[ES::ELT(3 * numInterpolationLocations, 3 * i + 1, j)] = 0;
-                    normalCorrection[ES::ELT(3 * numInterpolationLocations, 3 * i + 2, j)] = 0;
-                }
-                assignedZero++;
-
-                continue;
-            }
-        }
-
-        // compute barycentric coordinates
-        Vec3d  w     = pos - getVertex(element, 0);
-        double alpha = w[0] * invCubeSize;
-        double beta  = w[1] * invCubeSize;
-        double gamma = w[2] * invCubeSize;
-
-        // double f000 = (1-alpha)*(1-beta)*(1-gamma);
-        // double f100 = (alpha)*(1-beta)*(1-gamma);
-        // double f110 = (alpha)*(beta)*(1-gamma);
-        // double f010 = (1-alpha)*(beta)*(1-gamma);
-
-        // double f001 = (1-alpha)*(1-beta)*(gamma);
-        // double f101 = (alpha)*(1-beta)*(gamma);
-        // double f111 = (alpha)*(beta)*(gamma);
-        // double f011 = (1-alpha)*(beta)*(gamma);
-
-        int v000 = getVertexIndex(element, 0);
-        int v100 = getVertexIndex(element, 1);
-        int v110 = getVertexIndex(element, 2);
-        int v010 = getVertexIndex(element, 3);
-        int v001 = getVertexIndex(element, 4);
-        int v101 = getVertexIndex(element, 5);
-        int v111 = getVertexIndex(element, 6);
-        int v011 = getVertexIndex(element, 7);
-
-        Vec3d gradf000(invCubeSize * -(1 - beta) * (1 - gamma), invCubeSize * -(1 - alpha) * (1 - gamma),
-                       invCubeSize * -(1 - alpha) * (1 - beta));
-        Vec3d gradf100(invCubeSize * (1 - beta) * (1 - gamma), invCubeSize * -alpha * (1 - gamma),
-                       invCubeSize * -alpha * (1 - beta));
-        Vec3d gradf110(invCubeSize * beta * (1 - gamma), invCubeSize * alpha * (1 - gamma),
-                       invCubeSize * -alpha * beta);
-        Vec3d gradf010(invCubeSize * -beta * (1 - gamma), invCubeSize * (1 - alpha) * (1 - gamma),
-                       invCubeSize * (1 - alpha) * -beta);
-
-        Vec3d gradf001(invCubeSize * -(1 - beta) * gamma, invCubeSize * -(1 - alpha) * gamma,
-                       invCubeSize * (1 - alpha) * (1 - beta));
-        Vec3d gradf101(invCubeSize * (1 - beta) * gamma, invCubeSize * -alpha * gamma,
-                       invCubeSize * alpha * (1 - beta));
-        Vec3d gradf111(invCubeSize * beta * gamma, invCubeSize * alpha * gamma, invCubeSize * alpha * beta);
-        Vec3d gradf011(invCubeSize * -beta * gamma, invCubeSize * (1 - alpha) * gamma,
-                       invCubeSize * (1 - alpha) * beta);
-
-        Vec3d normal = Vec3d(staticNormals[3 * i + 0], staticNormals[3 * i + 1], staticNormals[3 * i + 2]);
-
-        for (int j = 0; j < r; j++) {
-            Vec3d u000 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v000 + 0, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v000 + 1, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v000 + 2, j)]);
-            Vec3d u100 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v100 + 0, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v100 + 1, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v100 + 2, j)]);
-            Vec3d u110 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v110 + 0, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v110 + 1, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v110 + 2, j)]);
-            Vec3d u010 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v010 + 0, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v010 + 1, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v010 + 2, j)]);
-
-            Vec3d u001 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v001 + 0, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v001 + 1, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v001 + 2, j)]);
-            Vec3d u101 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v101 + 0, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v101 + 1, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v101 + 2, j)]);
-            Vec3d u111 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v111 + 0, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v111 + 1, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v111 + 2, j)]);
-            Vec3d u011 = Vec3d(vertexData[ES::ELT(3 * num_vertices, 3 * v011 + 0, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v011 + 1, j)],
-                               vertexData[ES::ELT(3 * num_vertices, 3 * v011 + 2, j)]);
-
-            Vec3d coef(0, 0, 0);
-            coef += gradf000.dot(normal) * u000;
-            coef += gradf100.dot(normal) * u100;
-            coef += gradf110.dot(normal) * u110;
-            coef += gradf010.dot(normal) * u010;
-            coef += gradf001.dot(normal) * u001;
-            coef += gradf101.dot(normal) * u101;
-            coef += gradf111.dot(normal) * u111;
-            coef += gradf011.dot(normal) * u011;
-
-            normalCorrection[ES::ELT(3 * numInterpolationLocations, 3 * i + 0, j)] = coef[0];
-            normalCorrection[ES::ELT(3 * numInterpolationLocations, 3 * i + 1, j)] = coef[1];
-            normalCorrection[ES::ELT(3 * numInterpolationLocations, 3 * i + 2, j)] = coef[2];
-        }
-    }
-
-    printf("\n");
-
-    return numExternalVertices;
+    return algorithms::cubic_mesh_normal_correction(*this, vertexData, numInterpolationLocations, r,
+                                                    interpolationLocations, staticNormals, normalCorrection,
+                                                    distanceThreshold);
 }
 
 void CubicMesh::interpolateGradient(int element, const double* U, int numFields, Vec3d pos, double* grad) const {
@@ -504,56 +265,7 @@ void CubicMesh::computeElementMassMatrix(int el, double* massMatrix) const {
 }
 
 void CubicMesh::subdivide() {
-    const int        num_elements = getNumElements();
-    int              numNewElements = 8 * num_elements;
-    std::vector<int> newElements(numNewElements * 8);
-
-    int parentMask[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
-
-    int mask[8][8][3];
-    for (int el = 0; el < 8; el++)
-        for (int vtx = 0; vtx < 8; vtx++)
-            for (int dim = 0; dim < 3; dim++) {
-                mask[el][vtx][dim] = parentMask[el][dim] + parentMask[vtx][dim];
-                // printf("%d\n", mask[el][vtx][dim]);
-            }
-
-    std::vector<Vec3d> newVertices;
-    for (int el = 0; el < num_elements; el++) {
-        const Vec3d& v0 = getVertex(el, 0);
-
-        // create the 8 children cubes
-        for (int child = 0; child < 8; child++) {
-            int childVtx[8];
-            for (int vtx = 0; vtx < 8; vtx++) {
-                Vec3d pos = v0 + 0.5 * cubeSize * Vec3d(mask[child][vtx][0], mask[child][vtx][1], mask[child][vtx][2]);
-                // printf("%G %G %G\n", pos[0], pos[1], pos[2]);
-                //  search for vertex
-                int found = -1;
-                for (int i = 0; i < (int)newVertices.size(); i++) {
-                    if ((pos - newVertices[i]).norm() < 0.25 * cubeSize) {
-                        found = i;
-                        break;
-                    }
-                }
-
-                if (found == -1) {
-                    // new vertex
-                    newVertices.push_back(pos);
-                    found = (int)newVertices.size() - 1;
-                }
-
-                childVtx[vtx]                           = found;
-                newElements[(8 * el + child) * 8 + vtx] = childVtx[vtx];
-            }
-        }
-    }
-
-    cubeSize *= 0.5;
-
-    internal::MeshMutation::replace_geometry(*this,
-                                             internal::VolumetricMeshData(8, std::move(newVertices), std::move(newElements)));
-    internal::MeshMutation::material_catalog(*this).expand_elements(8);
+    algorithms::subdivide_cubic_mesh(*this);
 }
 
 void CubicMesh::setParallelepipedMode(int parallelepipedMode_) {

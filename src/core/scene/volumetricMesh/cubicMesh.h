@@ -75,6 +75,9 @@ namespace ops {
 void compute_alpha_beta_gamma(const CubicMesh& mesh, int element, Vec3d pos, double* alpha, double* beta,
                               double* gamma);
 }
+namespace algorithms {
+void subdivide_cubic_mesh(CubicMesh& mesh);
+}
 
 class CubicMesh : public VolumetricMesh {
 public:
@@ -179,6 +182,7 @@ protected:
     friend class VolumetricMeshExtensions;
     friend void ops::compute_alpha_beta_gamma(const CubicMesh& mesh, int element, Vec3d pos, double* alpha,
                                               double* beta, double* gamma);
+    friend void algorithms::subdivide_cubic_mesh(CubicMesh& mesh);
 };
 
 }  // namespace VolumetricMeshes
