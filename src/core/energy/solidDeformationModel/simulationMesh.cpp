@@ -377,6 +377,39 @@ std::unique_ptr<SimulationMesh> SimulationMesh::createFromTetMesh(const Volumetr
     return createTet(vertices, elements, elementMaterialBindings, materials);
 }
 
+std::unique_ptr<SimulationMesh> SimulationMesh::createFromCubicMesh(const VolumetricMeshes::CubicMesh& cubicMesh) {
+    std::vector<Vertex> vertices;
+    vertices.reserve(cubicMesh.getNumVertices());
+    for (int vi = 0; vi < cubicMesh.getNumVertices(); vi++) {
+        vertices.push_back(cubicMesh.getVertex(vi));
+    }
+
+    std::vector<CubicElement> elements;
+    std::vector<const SimulationMeshMaterial*> materials;
+    std::vector<std::unique_ptr<SimulationMeshMaterial>> materialOwners;
+    std::vector<ElementMaterialBinding> elementMaterialBindings;
+
+    elements.reserve(cubicMesh.getNumElements());
+    materials.reserve(cubicMesh.getNumElements());
+    materialOwners.reserve(cubicMesh.getNumElements());
+    elementMaterialBindings.reserve(cubicMesh.getNumElements());
+
+    for (int ei = 0; ei < cubicMesh.getNumElements(); ei++) {
+        elements.push_back(
+            {cubicMesh.getVertexIndex(ei, 0), cubicMesh.getVertexIndex(ei, 1), cubicMesh.getVertexIndex(ei, 2),
+             cubicMesh.getVertexIndex(ei, 3), cubicMesh.getVertexIndex(ei, 4), cubicMesh.getVertexIndex(ei, 5),
+             cubicMesh.getVertexIndex(ei, 6), cubicMesh.getVertexIndex(ei, 7)});
+
+        const VolumetricMeshes::VolumetricMesh::ENuMaterial* mat =
+            downcastENuMaterial(cubicMesh.getElementMaterial(ei));
+        materialOwners.push_back(std::make_unique<SimulationMeshENuMaterial>(mat->getE(), mat->getNu()));
+        materials.push_back(materialOwners.back().get());
+        elementMaterialBindings.push_back({ei, -1});
+    }
+
+    return createCubic(vertices, elements, elementMaterialBindings, materials);
+}
+
 std::unique_ptr<SimulationMesh> SimulationMesh::createShellFromTriMesh(const Mesh::TriMeshGeo& triMeshGeo,
                                                                        const SimulationMeshMaterial& mat) {
     std::vector<Vertex> vertices = collectTriMeshVertices(triMeshGeo);

@@ -22,6 +22,7 @@ class TetMeshGeo;
 
 namespace VolumetricMeshes {
 class TetMesh;
+class CubicMesh;
 }
 
 namespace SolidDeformationModel {
@@ -74,6 +75,7 @@ public:
                                                        std::span<const SimulationMeshMaterial* const> materials);
 
     static std::unique_ptr<SimulationMesh> createFromTetMesh(const VolumetricMeshes::TetMesh& tetmesh);
+    static std::unique_ptr<SimulationMesh> createFromCubicMesh(const VolumetricMeshes::CubicMesh& cubicMesh);
     static std::unique_ptr<SimulationMesh> createTriangleFromTriMesh(const Mesh::TriMeshGeo& triMeshGeo,
                                                                      const SimulationMeshMaterial& mat);
     static std::unique_ptr<SimulationMesh> createTriangleFromTriMesh(

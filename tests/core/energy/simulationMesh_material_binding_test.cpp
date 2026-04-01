@@ -1,8 +1,10 @@
 #include "simulationMesh.h"
 #include "deformationModelManager.h"
+#include "cubicMesh.h"
 #include "tetMesh.h"
 #include "triMeshGeo.h"
 #include "pgoLogging.h"
+#include "volumetricMeshENuMaterial.h"
 
 #include <gtest/gtest.h>
 
@@ -34,6 +36,13 @@ std::unique_ptr<SimulationMesh> makeDirectTetSimulationMesh(const ElementMateria
 VolumetricMeshes::TetMesh makeSingleTetMesh() {
     return VolumetricMeshes::TetMesh(Vec3d(0.0, 0.0, 0.0), Vec3d(1.0, 0.0, 0.0), Vec3d(0.0, 1.0, 0.0),
                                      Vec3d(0.0, 0.0, 1.0));
+}
+
+std::unique_ptr<VolumetricMeshes::CubicMesh> makeSingleCubicMesh(double E = 2345.0, double nu = 0.31,
+                                                                 double density = 77.0) {
+    std::array<int, 3> voxels = {0, 0, 0};
+    return std::unique_ptr<VolumetricMeshes::CubicMesh>(
+        VolumetricMeshes::CubicMesh::createFromUniformGrid(1, 1, voxels.data(), E, nu, density));
 }
 
 Mesh::TriMeshGeo makeSingleTriangleMesh() {
@@ -95,6 +104,49 @@ TEST(SimulationMeshMaterialBindingTest, CreateFromTetMeshBuildsPrimaryOnlyBindin
     EXPECT_EQ(mesh->getNumElements(), 1);
     EXPECT_FALSE(mesh->hasSecondaryMaterial(0));
     EXPECT_NE(dynamic_cast<const SimulationMeshENuMaterial*>(mesh->getPrimaryMaterial(0)), nullptr);
+}
+
+TEST(SimulationMeshMaterialBindingTest, CreateFromCubicMeshBuildsPrimaryOnlyBinding) {
+    std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh = makeSingleCubicMesh();
+
+    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createFromCubicMesh(*cubicMesh);
+
+    ASSERT_NE(mesh, nullptr);
+    EXPECT_EQ(mesh->getElementType(), SimulationMeshType::CUBIC);
+    EXPECT_EQ(mesh->getNumElements(), cubicMesh->getNumElements());
+    EXPECT_EQ(mesh->getNumVertices(), cubicMesh->getNumVertices());
+    EXPECT_EQ(mesh->getNumElementVertices(), 8);
+    EXPECT_FALSE(mesh->hasSecondaryMaterial(0));
+    EXPECT_NE(dynamic_cast<const SimulationMeshENuMaterial*>(mesh->getPrimaryMaterial(0)), nullptr);
+}
+
+TEST(SimulationMeshMaterialBindingTest, CreateFromCubicMeshCopiesConnectivityAndMaterialParameters) {
+    constexpr double kE = 4321.0;
+    constexpr double kNu = 0.28;
+    std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh = makeSingleCubicMesh(kE, kNu, 91.0);
+
+    std::unique_ptr<SimulationMesh> mesh = SimulationMesh::createFromCubicMesh(*cubicMesh);
+
+    ASSERT_NE(mesh, nullptr);
+    for (int vi = 0; vi < cubicMesh->getNumVertices(); vi++) {
+        double simPos[3] = {0.0, 0.0, 0.0};
+        mesh->getVertex(vi, simPos);
+        const Vec3d cubicPos = cubicMesh->getVertex(vi);
+        EXPECT_DOUBLE_EQ(simPos[0], cubicPos[0]);
+        EXPECT_DOUBLE_EQ(simPos[1], cubicPos[1]);
+        EXPECT_DOUBLE_EQ(simPos[2], cubicPos[2]);
+    }
+
+    for (int j = 0; j < 8; j++) {
+        EXPECT_EQ(mesh->getVertexIndex(0, j), cubicMesh->getVertexIndex(0, j));
+    }
+
+    const auto* cubicMaterial = downcastENuMaterial(cubicMesh->getElementMaterial(0));
+    const auto* meshMaterial = dynamic_cast<const SimulationMeshENuMaterial*>(mesh->getPrimaryMaterial(0));
+    ASSERT_NE(cubicMaterial, nullptr);
+    ASSERT_NE(meshMaterial, nullptr);
+    EXPECT_DOUBLE_EQ(meshMaterial->getE(), cubicMaterial->getE());
+    EXPECT_DOUBLE_EQ(meshMaterial->getNu(), cubicMaterial->getNu());
 }
 
 TEST(SimulationMeshMaterialBindingTest, CreateTriangleFromTriMeshBuildsPrimaryOnlyBinding) {
