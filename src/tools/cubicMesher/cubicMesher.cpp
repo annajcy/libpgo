@@ -5,6 +5,7 @@
 
 #include <argparse/argparse.hpp>
 
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -44,6 +45,26 @@ std::vector<int> buildUniformVoxelIndices(int resolution, int numVoxels) {
     }
 
     return voxels;
+}
+
+bool applyUniformTransform(pgo::VolumetricMeshes::CubicMesh& cubicMesh, double size,
+                           const std::vector<double>& offset) {
+    if (size <= 0.0) {
+        return false;
+    }
+
+    if (offset.size() != 3) {
+        return false;
+    }
+
+    if (size == 1.0 && offset[0] == 0.0 && offset[1] == 0.0 && offset[2] == 0.0) {
+        return true;
+    }
+
+    std::array<double, 3> translation = {offset[0], offset[1], offset[2]};
+    double                transform[9] = {size, 0.0, 0.0, 0.0, size, 0.0, 0.0, 0.0, size};
+    cubicMesh.applyLinearTransformation(translation.data(), transform);
+    return true;
 }
 
 bool writeSurfaceMesh(const pgo::VolumetricMeshes::CubicMesh* cubicMesh, const std::string& outputSurface) {
@@ -87,6 +108,13 @@ int main(int argc, char* argv[]) {
     uniformCmd.add_argument("-s", "--output-surface")
         .help("Output surface mesh filename (.obj), optional")
         .metavar("PATH");
+    uniformCmd.add_argument("--size").help("Cube edge length").default_value(1.0).scan<'g', double>();
+    uniformCmd.add_argument("--offset")
+        .help("Translation applied to the generated cube center (x y z)")
+        .nargs(3)
+        .default_value(std::vector<double>{0.0, 0.0, 0.0})
+        .scan<'g', double>()
+        .metavar("X Y Z");
     uniformCmd.add_argument("--E").help("Young's modulus").default_value(1e6).scan<'g', double>();
     uniformCmd.add_argument("--nu").help("Poisson's ratio").default_value(0.45).scan<'g', double>();
     uniformCmd.add_argument("--density").help("Material density").default_value(1000.0).scan<'g', double>();
@@ -105,6 +133,8 @@ int main(int argc, char* argv[]) {
 
     if (program.is_subcommand_used(uniformCmd)) {
         const int         resolution = uniformCmd.get<int>("--resolution");
+        const double      size       = uniformCmd.get<double>("--size");
+        const auto        offset     = uniformCmd.get<std::vector<double>>("--offset");
         const double      E          = uniformCmd.get<double>("--E");
         const double      nu         = uniformCmd.get<double>("--nu");
         const double      density    = uniformCmd.get<double>("--density");
@@ -128,6 +158,14 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+        if (applyUniformTransform(*cubicMesh, size, offset) == false) {
+            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(),
+                                "Uniform transform requires positive size and exactly three offset values. "
+                                "Got size={}, offset_count={}",
+                                size, offset.size());
+            return 1;
+        }
+
         if (cubicMesh->save(outputMesh.c_str()) != 0) {
             SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Failed to save cubic mesh to {}", outputMesh);
             return 1;
@@ -147,8 +185,10 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Generated cubic mesh: N={}, vertices={}, elements={} -> {}",
-                           resolution, cubicMesh->getNumVertices(), cubicMesh->getNumElements(), outputMesh);
+        SPDLOG_LOGGER_INFO(pgo::Logging::lgr(),
+                           "Generated cubic mesh: N={}, size={}, offset=({}, {}, {}), vertices={}, elements={} -> {}",
+                           resolution, size, offset[0], offset[1], offset[2], cubicMesh->getNumVertices(),
+                           cubicMesh->getNumElements(), outputMesh);
     }
 
     return 0;

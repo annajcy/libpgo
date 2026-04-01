@@ -111,6 +111,61 @@ TEST(CubicMesherTool, UniformResolution4CanExportSurfaceMesh) {
     EXPECT_GT(surface.numVertices(), 0);
 }
 
+TEST(CubicMesherTool, UniformSizeScalesOutputBoundingBox) {
+    const std::filesystem::path cubicMesherBin = getCubicMesherBinaryPath();
+    ASSERT_FALSE(cubicMesherBin.empty());
+    ASSERT_TRUE(std::filesystem::exists(cubicMesherBin));
+
+    ScopedTempDir               tempDir;
+    const std::filesystem::path outputVeg = tempDir.path() / "size2.veg";
+
+    std::ostringstream cmd;
+    cmd << shellExecutable(cubicMesherBin) << " uniform --resolution 2 --size 2.0 --output-mesh "
+        << quotePath(outputVeg) << " --E 1e6 --nu 0.45 --density 1000";
+
+    ASSERT_EQ(runCommand(cmd.str()), 0);
+    ASSERT_TRUE(std::filesystem::exists(outputVeg));
+
+    pgo::VolumetricMeshes::CubicMesh mesh(outputVeg.string().c_str());
+    EXPECT_EQ(mesh.getNumVertices(), 27);
+    EXPECT_EQ(mesh.getNumElements(), 8);
+
+    const pgo::Mesh::BoundingBox bb    = mesh.getBoundingBox();
+    const pgo::Vec3d             sides = bb.sides();
+    EXPECT_DOUBLE_EQ(sides[0], 2.0);
+    EXPECT_DOUBLE_EQ(sides[1], 2.0);
+    EXPECT_DOUBLE_EQ(sides[2], 2.0);
+    EXPECT_DOUBLE_EQ(bb.center()[0], 0.0);
+    EXPECT_DOUBLE_EQ(bb.center()[1], 0.0);
+    EXPECT_DOUBLE_EQ(bb.center()[2], 0.0);
+}
+
+TEST(CubicMesherTool, UniformOffsetMovesOutputBoundingBoxCenter) {
+    const std::filesystem::path cubicMesherBin = getCubicMesherBinaryPath();
+    ASSERT_FALSE(cubicMesherBin.empty());
+    ASSERT_TRUE(std::filesystem::exists(cubicMesherBin));
+
+    ScopedTempDir               tempDir;
+    const std::filesystem::path outputVeg = tempDir.path() / "offset.veg";
+
+    std::ostringstream cmd;
+    cmd << shellExecutable(cubicMesherBin) << " uniform --resolution 2 --size 2.0 --offset 1.5 -2.0 0.25"
+        << " --output-mesh " << quotePath(outputVeg) << " --E 1e6 --nu 0.45 --density 1000";
+
+    ASSERT_EQ(runCommand(cmd.str()), 0);
+    ASSERT_TRUE(std::filesystem::exists(outputVeg));
+
+    pgo::VolumetricMeshes::CubicMesh mesh(outputVeg.string().c_str());
+    const pgo::Mesh::BoundingBox     bb    = mesh.getBoundingBox();
+    const pgo::Vec3d                 sides = bb.sides();
+    EXPECT_DOUBLE_EQ(sides[0], 2.0);
+    EXPECT_DOUBLE_EQ(sides[1], 2.0);
+    EXPECT_DOUBLE_EQ(sides[2], 2.0);
+    EXPECT_DOUBLE_EQ(bb.center()[0], 1.5);
+    EXPECT_DOUBLE_EQ(bb.center()[1], -2.0);
+    EXPECT_DOUBLE_EQ(bb.center()[2], 0.25);
+}
+
 TEST(CubicMesherTool, InvalidResolutionFails) {
     const std::filesystem::path cubicMesherBin = getCubicMesherBinaryPath();
     ASSERT_FALSE(cubicMesherBin.empty());
@@ -121,6 +176,21 @@ TEST(CubicMesherTool, InvalidResolutionFails) {
 
     std::ostringstream cmd;
     cmd << shellExecutable(cubicMesherBin) << " uniform --resolution 0 --output-mesh " << quotePath(outputVeg);
+
+    EXPECT_NE(runCommand(cmd.str()), 0);
+    EXPECT_FALSE(std::filesystem::exists(outputVeg));
+}
+
+TEST(CubicMesherTool, InvalidSizeFails) {
+    const std::filesystem::path cubicMesherBin = getCubicMesherBinaryPath();
+    ASSERT_FALSE(cubicMesherBin.empty());
+    ASSERT_TRUE(std::filesystem::exists(cubicMesherBin));
+
+    ScopedTempDir               tempDir;
+    const std::filesystem::path outputVeg = tempDir.path() / "invalid_size.veg";
+
+    std::ostringstream cmd;
+    cmd << shellExecutable(cubicMesherBin) << " uniform --resolution 2 --size 0 --output-mesh " << quotePath(outputVeg);
 
     EXPECT_NE(runCommand(cmd.str()), 0);
     EXPECT_FALSE(std::filesystem::exists(outputVeg));

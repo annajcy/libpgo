@@ -341,6 +341,13 @@ We provide three python scripts to test the installation.
     build/bin/cubicMesher uniform --help
     ```
 
+    Common `uniform` parameters:
+    - `--resolution N`: number of cubic elements per axis, producing an `N x N x N` grid
+    - `--size S`: cube edge length; default is `1.0`
+    - `--offset X Y Z`: translation applied to the generated cube center; default is `(0, 0, 0)`
+    - `--output-mesh PATH`: output `.veg` file
+    - `--output-surface PATH`: optional output surface `.obj`
+
     Generate a minimal cubic-box test asset (4×4×4):
 
     ```bash
@@ -353,9 +360,25 @@ We provide three python scripts to test the installation.
       --E 1e6 --nu 0.45 --density 1000
     ```
 
+    Generate a translated and scaled cubic-box asset:
+
+    ```bash
+    cd libpgo
+    mkdir -p examples/cubic-box
+    build/bin/cubicMesher uniform \
+      --resolution 4 \
+      --size 2.0 \
+      --offset 1.5 -2.0 0.25 \
+      --output-mesh examples/cubic-box/cubic-box-offset.veg \
+      --output-surface examples/cubic-box/cubic-box-offset.obj \
+      --E 1e6 --nu 0.45 --density 1000
+    ```
+
     Quick sanity check:
     - For resolution `N`, generated volumetric mesh size should be `(N+1)^3` vertices and `N^3` cubic elements.
     - For `N=2`, it should produce `27` vertices and `8` elements.
+    - `--size` controls the full cube edge length, not per-voxel size.
+    - `--offset X Y Z` moves the cube center to `(X, Y, Z)`.
 
 ## Update: Run with cubic mesh
 
