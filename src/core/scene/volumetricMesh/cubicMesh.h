@@ -57,6 +57,7 @@
 
 #pragma once
 
+#include "storage/mesh_storage.h"
 #include "types/element_types.h"
 #include "volumetricMesh.h"
 
@@ -172,6 +173,7 @@ protected:
     double invCubeSize;
     CubicMesh(int numElementVertices) : VolumetricMesh(numElementVertices) {}
     void assignFromData(io::detail::LoadedMeshData data, int verbose = 0);
+    void sync_storage_from_legacy_state_for_transition() override;
     void SetInverseCubeSize();
     int  parallelepipedMode;  // normally this is 0; in advanced usage, it can be 1 (see above)
 
@@ -183,6 +185,11 @@ protected:
     friend void ops::compute_alpha_beta_gamma(const CubicMesh& mesh, int element, Vec3d pos, double* alpha,
                                               double* beta, double* gamma);
     friend void algorithms::subdivide_cubic_mesh(CubicMesh& mesh);
+
+private:
+    void set_storage(storage::MeshStorage storage);
+
+    storage::MeshStorage m_storage;
 };
 
 }  // namespace VolumetricMeshes

@@ -102,6 +102,7 @@ const internal::MaterialCatalog& VolumetricMesh::material_catalog() const {
 
 void VolumetricMesh::assignMaterialsToElements(int verbose) {
     m_material_catalog->assign_materials_to_elements(getNumElements(), verbose);
+    sync_storage_from_legacy_state_for_transition();
 }
 
 void VolumetricMesh::reset_material_catalog(std::vector<MaterialRecord> materials, std::vector<ElementSet> sets,
@@ -109,6 +110,7 @@ void VolumetricMesh::reset_material_catalog(std::vector<MaterialRecord> material
     m_material_catalog =
         std::make_unique<internal::MaterialCatalog>(std::move(materials), std::move(sets), std::move(regions),
                                                     getNumElements(), verbose);
+    sync_storage_from_legacy_state_for_transition();
 }
 
 
@@ -195,10 +197,12 @@ int VolumetricMesh::getContainingElement(Vec3d pos) const {
 
 void VolumetricMesh::setSingleMaterial(double E, double nu, double density) {
     m_material_catalog->set_single_material(getNumElements(), E, nu, density);
+    sync_storage_from_legacy_state_for_transition();
 }
 
 void VolumetricMesh::propagateRegionsToElements() {
     m_material_catalog->propagate_regions_to_elements();
+    sync_storage_from_legacy_state_for_transition();
 }
 
 int VolumetricMesh::interpolateGradient(const double* U, int numFields, Vec3d pos, double* grad) const {
@@ -221,15 +225,18 @@ void VolumetricMesh::computeGravity(double* gravityForce, double g, bool addForc
 
 void VolumetricMesh::applyDeformation(const double* u) {
     internal::mesh_transforms::apply_deformation(*this, u);
+    sync_storage_from_legacy_state_for_transition();
 }
 
 // transforms every vertex as X |--> pos + R * X
 void VolumetricMesh::applyLinearTransformation(double* pos, double* R) {
     internal::mesh_transforms::apply_linear_transformation(*this, pos, R);
+    sync_storage_from_legacy_state_for_transition();
 }
 
 void VolumetricMesh::setMaterial(int i, const MaterialRecord& material) {
     m_material_catalog->set_material(i, material);
+    sync_storage_from_legacy_state_for_transition();
 }
 
 VolumetricMesh::VolumetricMesh(const VolumetricMesh& volumetricMesh, std::span<const int> elements_,
@@ -363,11 +370,13 @@ VolumetricMesh::VolumetricMesh(const VolumetricMesh& volumetricMesh, std::span<c
 
 void VolumetricMesh::renumberVertices(const std::vector<int>& permutation) {
     internal::mesh_transforms::renumber_vertices(*this, permutation);
+    sync_storage_from_legacy_state_for_transition();
 }
 
 void VolumetricMesh::addMaterial(const MaterialRecord& material, const ElementSet& newSet, bool removeEmptySets,
                                  bool removeEmptyMaterials) {
     m_material_catalog->add_material(getNumElements(), material, newSet, removeEmptySets, removeEmptyMaterials);
+    sync_storage_from_legacy_state_for_transition();
 }
 
 ElementSet VolumetricMesh::generateAllElementsSet(int numElements) {

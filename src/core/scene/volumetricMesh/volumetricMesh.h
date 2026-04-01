@@ -77,6 +77,11 @@ namespace internal {
 class MaterialCatalog;
 class MeshMutation;
 }
+namespace ops {
+void subset_in_place(VolumetricMesh& mesh, const std::set<int>& subset_elements, int remove_isolated_vertices,
+                     std::map<int, int>* old_to_new_vertex_id_map);
+void remove_isolated_vertices(VolumetricMesh& mesh, std::map<int, int>* old_to_new_vertex_id_map);
+}
 
 class VolumetricMesh {
 public:
@@ -112,7 +117,10 @@ public:
     inline std::span<const int> getElements() const { return m_geometry.elements(); }
     void                renumberVertices(
                        const std::vector<int>& permutation);  // renumbers the vertices using the provided permutation
-    inline void setVertex(int i, const Vec3d& pos) { m_geometry.set_vertex(i, pos); }  // set the position of a vertex
+    inline void setVertex(int i, const Vec3d& pos) {
+        m_geometry.set_vertex(i, pos);
+        sync_storage_from_legacy_state_for_transition();
+    }  // set the position of a vertex
 
     // === materials access ===
 
@@ -221,6 +229,7 @@ protected:
     const internal::VolumetricMeshData& geometry_data() const { return m_geometry; }
     internal::MaterialCatalog& material_catalog();
     const internal::MaterialCatalog& material_catalog() const;
+    virtual void sync_storage_from_legacy_state_for_transition() {}
 
     internal::VolumetricMeshData               m_geometry;
     std::unique_ptr<internal::MaterialCatalog> m_material_catalog;
@@ -256,6 +265,9 @@ private:
     friend class VolumetricMeshExtensions;
     friend class VolumetricMeshLoader;
     friend class internal::MeshMutation;
+    friend void ops::subset_in_place(VolumetricMesh& mesh, const std::set<int>& subset_elements,
+                                     int remove_isolated_vertices, std::map<int, int>* old_to_new_vertex_id_map);
+    friend void ops::remove_isolated_vertices(VolumetricMesh& mesh, std::map<int, int>* old_to_new_vertex_id_map);
 };
 
 inline void VolumetricMesh::getElementVertices(int element, Vec3d* elementVertices) const {

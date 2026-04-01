@@ -38,6 +38,7 @@
 
 #pragma once
 
+#include "storage/mesh_storage.h"
 #include "volumetricMesh.h"
 
 #include <filesystem>
@@ -149,8 +150,14 @@ public:
 protected:
     TetMesh(int numElementVertices) : VolumetricMesh(numElementVertices) {}
     void assignFromData(io::detail::LoadedMeshData data, int verbose = 0);
+    void sync_storage_from_legacy_state_for_transition() override;
 
     friend class VolumetricMeshExtensions;
+
+private:
+    void set_storage(storage::MeshStorage storage);
+
+    storage::MeshStorage m_storage;
 };
 }  // namespace VolumetricMeshes
 }  // namespace pgo
