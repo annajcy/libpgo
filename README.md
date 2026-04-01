@@ -274,7 +274,21 @@ We provide three python scripts to test the installation.
     uv run python src/api/python/pypgo/pgo_run_sim.py examples/box/box.json --deterministic
     ```
 
-    The native `runSim` tool also supports `--deterministic`, which forces single-threaded execution.
+    To save run stdout and stderr to a log file next to the config (`.json` -> `.log`):
+
+    ```bash
+    uv run python src/api/python/pypgo/pgo_run_sim.py examples/box/box.json --save-log
+    ```
+
+    For example, this writes `examples/box/box.log` and captures both streams.
+
+    The native `runSim` tool also supports `--deterministic` and `--save-log`:
+
+    ```bash
+    <build-dir>/bin/runSim examples/box/box.json --save-log
+    ```
+
+    This uses the same log naming rule and writes `examples/box/box.log`.
 
     The expected result will look like the first image. The time integrator is hard-coded as implicit backward Euler (BE). You are free to change it to implicit Newmark (NW) or TR-BDF2 integrator (not support friction).
     <table style="width: 100%; table-layout: fixed; border-collapse: collapse;">
@@ -342,6 +356,31 @@ We provide three python scripts to test the installation.
     Quick sanity check:
     - For resolution `N`, generated volumetric mesh size should be `(N+1)^3` vertices and `N^3` cubic elements.
     - For `N=2`, it should produce `27` vertices and `8` elements.
+
+## Update: Run with cubic mesh
+
+libpgo now supports simulation configs driven by cubic/hexahedral volumetric meshes.
+You can use the built-in example at `examples/cubic-box/cubic-box.json`, which uses
+the `"cubic-mesh"` field as the simulation mesh input.
+
+Command-line workflow for the cubic example:
+
+```bash
+cd libpgo
+
+# 1) Ensure Python extension is built and importable
+uv sync
+
+# 2) Run cubic-mesh simulation (writes OBJ sequence to ret-cubic-box/)
+uv run python src/api/python/pypgo/pgo_run_sim.py examples/cubic-box/cubic-box.json
+
+# 3) Convert OBJ sequence to Alembic animation
+uv run python src/api/python/pypgo/pgo_dump_abc.py examples/cubic-box/anim.json examples/cubic-box
+```
+
+Expected outputs:
+- `examples/cubic-box/ret-cubic-box/ret0001.obj` ... `ret0199.obj`
+- `examples/cubic-box/cubic-box.abc`
 
 ---
 

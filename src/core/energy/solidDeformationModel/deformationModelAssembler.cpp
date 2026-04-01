@@ -299,7 +299,8 @@ void DeformationModelAssembler::computeGradient(const double* x, const double* p
         const DeformationModel* fem = femModels[ele];
         fem->prepareData(localp.data(), plasticParam, elasticParam, data->elementCacheData[ele]);
 
-        ES::V18d localGradx;
+        ES::V24d localGradx;
+        localGradx.setZero();
         fem->compute_dE_dx(data->elementCacheData[ele], localGradx.data());
         localGradx *= elementFlags[ele];
 

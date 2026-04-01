@@ -60,4 +60,6 @@ build-pypgo
 papers/
 site/
 
+examples/cubic-box/ret-cubic-box/*
+
 

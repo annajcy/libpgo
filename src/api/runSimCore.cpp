@@ -3,6 +3,7 @@
 #include "fileService.h"
 #include "basicIO.h"
 #include "generateTetMeshMatrix.h"
+#include "cubicMesh.h"
 #include "tetMesh.h"
 #include "triMeshGeo.h"
 #include "geometryQuery.h"
@@ -153,12 +154,6 @@ int runSimFromConfig(const RunSimConfig& config) {
     using namespace EigenSupport;
     namespace ES = EigenSupport;
 
-    if (config.volumetricMeshType == VolumetricMeshInputType::CUBIC) {
-        throw std::runtime_error(
-            "Cubic mesh input parsing is enabled, but runSim cubic execution is not wired yet. "
-            "Please complete Lecture 03 Step 6.");
-    }
-
     const int defaultParallelism =
         std::min(64, static_cast<int>(std::max(1u, std::thread::hardware_concurrency())));
     const int effectiveParallelism = config.deterministicMode ? 1 : defaultParallelism;
@@ -170,9 +165,24 @@ int runSimFromConfig(const RunSimConfig& config) {
         SPDLOG_LOGGER_INFO(Logging::lgr(), "Deterministic mode enabled; forcing single-threaded execution.");
     }
 
-    VolumetricMeshes::TetMesh tetMesh(config.tetMeshFilename.c_str());
-    for (int vi = 0; vi < tetMesh.getNumVertices(); vi++) {
-        tetMesh.setVertex(vi, tetMesh.getVertex(vi) * config.scale);
+    std::unique_ptr<VolumetricMeshes::VolumetricMesh>        volumetricMesh;
+    std::shared_ptr<SolidDeformationModel::SimulationMesh>   simMesh;
+    if (config.volumetricMeshType == VolumetricMeshInputType::TET) {
+        auto tetMesh = std::make_unique<VolumetricMeshes::TetMesh>(config.tetMeshFilename.c_str());
+        for (int vi = 0; vi < tetMesh->getNumVertices(); vi++) {
+            tetMesh->setVertex(vi, tetMesh->getVertex(vi) * config.scale);
+        }
+
+        simMesh        = SolidDeformationModel::SimulationMesh::createFromTetMesh(*tetMesh);
+        volumetricMesh = std::move(tetMesh);
+    } else {
+        auto cubicMesh = std::make_unique<VolumetricMeshes::CubicMesh>(config.cubicMeshFilename.c_str());
+        for (int vi = 0; vi < cubicMesh->getNumVertices(); vi++) {
+            cubicMesh->setVertex(vi, cubicMesh->getVertex(vi) * config.scale);
+        }
+
+        simMesh        = SolidDeformationModel::SimulationMesh::createFromCubicMesh(*cubicMesh);
+        volumetricMesh = std::move(cubicMesh);
     }
 
     Mesh::TriMeshGeo surfaceMesh;
@@ -191,11 +201,9 @@ int runSimFromConfig(const RunSimConfig& config) {
     }
 
     InterpolationCoordinates::BarycentricCoordinates bc(surfaceMesh.numVertices(), surfaceRestPositions.data(),
-                                                        &tetMesh);
+                                                        volumetricMesh.get());
     ES::SpMatD                                       W = bc.generateInterpolationMatrix();
 
-    std::shared_ptr<SolidDeformationModel::SimulationMesh> simMesh(
-        SolidDeformationModel::SimulationMesh::createFromTetMesh(tetMesh));
     std::shared_ptr<SolidDeformationModel::DeformationModelManager> dmm =
         std::make_shared<SolidDeformationModel::DeformationModelManager>();
 
@@ -279,7 +287,7 @@ int runSimFromConfig(const RunSimConfig& config) {
     }
 
     ES::SpMatD M;
-    VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(&tetMesh, M, true);
+    VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(volumetricMesh.get(), M, true);
 
     ES::VXd g(n3);
     for (int vi = 0; vi < n; vi++) {

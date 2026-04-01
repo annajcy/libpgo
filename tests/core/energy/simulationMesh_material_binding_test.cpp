@@ -1,6 +1,9 @@
 #include "simulationMesh.h"
 #include "cubicMeshDeformationModel.h"
+#include "deformationModelAssembler.h"
+#include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
+#include "plasticModel3DDeformationGradient.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "triMeshGeo.h"
@@ -10,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cmath>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -202,6 +206,60 @@ TEST(SimulationMeshMaterialBindingTest, DeformationModelManagerCubicStableNeoSmo
     EXPECT_EQ(fem->getNumVertices(), 8);
     EXPECT_EQ(fem->getNumDOFs(), 24);
     EXPECT_EQ(fem->getNumMaterialLocations(), 8);
+}
+
+TEST(SimulationMeshMaterialBindingTest, CubicAssemblerEnergySmokeTest) {
+    std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh = makeSingleCubicMesh();
+    std::shared_ptr<SimulationMesh> mesh = SimulationMesh::createFromCubicMesh(*cubicMesh);
+    Logging::init();
+
+    auto dmm = std::make_shared<DeformationModelManager>();
+    dmm->setMesh(mesh.get());
+    dmm->init(DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, 0);
+
+    auto assembler = std::make_shared<DeformationModelAssembler>(dmm, nullptr);
+
+    const int n3 = mesh->getNumVertices() * 3;
+    EigenSupport::VXd restPosition(n3);
+    for (int vi = 0; vi < mesh->getNumVertices(); vi++) {
+        double p[3] = {0.0, 0.0, 0.0};
+        mesh->getVertex(vi, p);
+        restPosition.segment<3>(vi * 3) = EigenSupport::V3d(p[0], p[1], p[2]);
+    }
+
+    EigenSupport::VXd plasticity(mesh->getNumElements() * dmm->getNumPlasticParameters());
+    const EigenSupport::M3d identity = EigenSupport::M3d::Identity();
+    for (int ei = 0; ei < mesh->getNumElements(); ei++) {
+        const auto* plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient*>(
+            dmm->getDeformationModel(ei)->getPlasticModel());
+        ASSERT_NE(plasticModel, nullptr);
+        plasticModel->toParam(identity.data(), plasticity.data() + ei * dmm->getNumPlasticParameters());
+    }
+
+    DeformationModelEnergy energy(assembler, &restPosition, 0);
+    energy.setPlasticParams(plasticity);
+
+    const EigenSupport::VXd zero = EigenSupport::VXd::Zero(n3);
+    const double            value = energy.func(zero);
+    EXPECT_TRUE(std::isfinite(value));
+    EXPECT_NEAR(value, 0.0, 1e-10);
+
+    EigenSupport::VXd grad(n3);
+    energy.gradient(zero, grad);
+    EXPECT_LT(grad.norm(), 1e-10);
+    for (int i = 0; i < grad.size(); i++) {
+        EXPECT_TRUE(std::isfinite(grad[i]));
+    }
+
+    EigenSupport::SpMatD hess;
+    energy.createHessian(hess);
+    energy.hessian(zero, hess);
+    EXPECT_EQ(hess.rows(), n3);
+    EXPECT_EQ(hess.cols(), n3);
+    EXPECT_GT(hess.nonZeros(), 0);
+    for (Eigen::Index i = 0; i < hess.nonZeros(); i++) {
+        EXPECT_TRUE(std::isfinite(hess.valuePtr()[i]));
+    }
 }
 
 TEST(SimulationMeshMaterialBindingTest, DeformationModelManagerHillSmokeTest) {

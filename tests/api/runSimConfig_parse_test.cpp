@@ -1,5 +1,6 @@
 #include "configFileJSON.h"
 #include "runSimCore.h"
+#include "pgoLogging.h"
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -80,6 +81,10 @@ pgo::api::RunSimConfig parseConfigFile(const std::filesystem::path& configFile) 
 
 std::string normalizedAbsolutePath(const std::filesystem::path& input) {
     return std::filesystem::absolute(input).lexically_normal().string();
+}
+
+std::filesystem::path repoRootPath() {
+    return std::filesystem::absolute(std::filesystem::path(__FILE__)).parent_path().parent_path().parent_path();
 }
 
 }  // namespace
@@ -175,6 +180,49 @@ TEST(RunSimConfigParseTest, AcceptsVolumetricMeshTypeHintWhenConsistent) {
 
     const pgo::api::RunSimConfig config = parseConfigFile(configFile);
     EXPECT_EQ(config.volumetricMeshType, pgo::api::VolumetricMeshInputType::CUBIC);
+}
+
+TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicSmokeTest) {
+    ScopedTempDir tempDir;
+    const std::filesystem::path repoRoot = repoRootPath();
+    const std::filesystem::path cubicMeshFile = repoRoot / "examples" / "cubic-box" / "cubic-box.veg";
+    const std::filesystem::path surfaceMeshFile = repoRoot / "examples" / "cubic-box" / "cubic-box.obj";
+    const std::filesystem::path outputDir = tempDir.path() / "output";
+
+    ASSERT_TRUE(std::filesystem::exists(cubicMeshFile));
+    ASSERT_TRUE(std::filesystem::exists(surfaceMeshFile));
+
+    pgo::Logging::init();
+
+    pgo::api::RunSimConfig config;
+    config.cubicMeshFilename = cubicMeshFile.string();
+    config.surfaceMeshFilename = surfaceMeshFile.string();
+    config.volumetricMeshType = pgo::api::VolumetricMeshInputType::CUBIC;
+    config.extAcc = pgo::EigenSupport::V3d::Zero();
+    config.initialVel = pgo::EigenSupport::V3d::Zero();
+    config.initialDisp = pgo::EigenSupport::V3d::Zero();
+    config.scale = 1.0;
+    config.timestep = 0.01;
+    config.contactStiffness = 0.0;
+    config.contactSamples = 1;
+    config.contactFrictionCoeff = 0.0;
+    config.contactVelEps = 1e-8;
+    config.solverEps = 1e-8;
+    config.solverMaxIter = 4;
+    config.dampingParams = {0.0, 0.0};
+    config.elasticMaterial = pgo::SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
+    config.numSimSteps = 2;
+    config.dumpInterval = 1;
+    config.simType = "dynamic";
+    config.outputFolder = outputDir.string();
+    config.deterministicMode = true;
+
+    EXPECT_EQ(pgo::api::runSimFromConfig(config), 0);
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "deform0001.u"));
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "ret0001.obj"));
+
+    std::error_code ec;
+    std::filesystem::remove("fv.obj", ec);
 }
 
 }  // namespace test
