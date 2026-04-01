@@ -35,6 +35,7 @@
 #include "io/mesh_io_types.h"
 #include "internal/material_catalog.h"
 #include "internal/mesh_mutation.h"
+#include "ops/cubic_mesh_ops.h"
 
 #include "triple.h"
 #include "pgoLogging.h"
@@ -205,21 +206,7 @@ void CubicMesh::assignFromData(io::detail::LoadedMeshData data, int) {
 }
 
 bool CubicMesh::containsVertex(int element, Vec3d pos) const {
-    /*
-      AABB version
-      Vec3d bmin = (getVertex(element, 0));
-      Vec3d bmax = (getVertex(element, 6));
-
-      return (pos[0] >= bmin[0]) && (pos[1] >= bmin[1]) && (pos[2] >= bmin[2]) &&
-             (pos[0] <= bmax[0]) && (pos[1] <= bmax[1]) && (pos[2] <= bmax[2]);
-    */
-
-    // general, parallelepied version (supports cubes transformed by a linear transformation; although the class does
-    // not "officially" support this)
-    double alpha, beta, gamma;
-    computeAlphaBetaGamma(element, pos, &alpha, &beta, &gamma);
-
-    return ((0 <= alpha) && (alpha <= 1) && (0 <= beta) && (beta <= 1) && (0 <= gamma) && (gamma <= 1));
+    return ops::contains_vertex(*this, element, pos);
 }
 
 // interpolates given cubic mesh vertex 3D data to the destination locations
@@ -485,221 +472,35 @@ int CubicMesh::normalCorrection(double* vertexData, int numInterpolationLocation
 }
 
 void CubicMesh::interpolateGradient(int element, const double* U, int numFields, Vec3d pos, double* grad) const {
-    // compute barycentric coordinates
-    const int num_vertices = getNumVertices();
-    Vec3d  w     = pos - getVertex(element, 0);
-    double alpha = w[0] * invCubeSize;
-    double beta  = w[1] * invCubeSize;
-    double gamma = w[2] * invCubeSize;
-
-    // double f000 = (1-alpha)*(1-beta)*(1-gamma);
-    // double f100 = (alpha)*(1-beta)*(1-gamma);
-    // double f110 = (alpha)*(beta)*(1-gamma);
-    // double f010 = (1-alpha)*(beta)*(1-gamma);
-
-    // double f001 = (1-alpha)*(1-beta)*(gamma);
-    // double f101 = (alpha)*(1-beta)*(gamma);
-    // double f111 = (alpha)*(beta)*(gamma);
-    // double f011 = (1-alpha)*(beta)*(gamma);
-
-    int v000 = getVertexIndex(element, 0);
-    int v100 = getVertexIndex(element, 1);
-    int v110 = getVertexIndex(element, 2);
-    int v010 = getVertexIndex(element, 3);
-    int v001 = getVertexIndex(element, 4);
-    int v101 = getVertexIndex(element, 5);
-    int v111 = getVertexIndex(element, 6);
-    int v011 = getVertexIndex(element, 7);
-
-    Vec3d gradf000(invCubeSize * -(1 - beta) * (1 - gamma), invCubeSize * -(1 - alpha) * (1 - gamma),
-                   invCubeSize * -(1 - alpha) * (1 - beta));
-    Vec3d gradf100(invCubeSize * (1 - beta) * (1 - gamma), invCubeSize * -alpha * (1 - gamma),
-                   invCubeSize * -alpha * (1 - beta));
-    Vec3d gradf110(invCubeSize * beta * (1 - gamma), invCubeSize * alpha * (1 - gamma), invCubeSize * -alpha * beta);
-    Vec3d gradf010(invCubeSize * -beta * (1 - gamma), invCubeSize * (1 - alpha) * (1 - gamma),
-                   invCubeSize * (1 - alpha) * -beta);
-
-    Vec3d gradf001(invCubeSize * -(1 - beta) * gamma, invCubeSize * -(1 - alpha) * gamma,
-                   invCubeSize * (1 - alpha) * (1 - beta));
-    Vec3d gradf101(invCubeSize * (1 - beta) * gamma, invCubeSize * -alpha * gamma, invCubeSize * alpha * (1 - beta));
-    Vec3d gradf111(invCubeSize * beta * gamma, invCubeSize * alpha * gamma, invCubeSize * alpha * beta);
-    Vec3d gradf011(invCubeSize * -beta * gamma, invCubeSize * (1 - alpha) * gamma, invCubeSize * (1 - alpha) * beta);
-
-    for (int j = 0; j < numFields; j++) {
-        Vec3d u000 = Vec3d(U[ES::ELT(3 * num_vertices, 3 * v000 + 0, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v000 + 1, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v000 + 2, j)]);
-        Vec3d u100 = Vec3d(U[ES::ELT(3 * num_vertices, 3 * v100 + 0, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v100 + 1, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v100 + 2, j)]);
-        Vec3d u110 = Vec3d(U[ES::ELT(3 * num_vertices, 3 * v110 + 0, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v110 + 1, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v110 + 2, j)]);
-        Vec3d u010 = Vec3d(U[ES::ELT(3 * num_vertices, 3 * v010 + 0, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v010 + 1, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v010 + 2, j)]);
-
-        Vec3d u001 = Vec3d(U[ES::ELT(3 * num_vertices, 3 * v001 + 0, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v001 + 1, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v001 + 2, j)]);
-        Vec3d u101 = Vec3d(U[ES::ELT(3 * num_vertices, 3 * v101 + 0, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v101 + 1, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v101 + 2, j)]);
-        Vec3d u111 = Vec3d(U[ES::ELT(3 * num_vertices, 3 * v111 + 0, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v111 + 1, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v111 + 2, j)]);
-        Vec3d u011 = Vec3d(U[ES::ELT(3 * num_vertices, 3 * v011 + 0, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v011 + 1, j)],
-                           U[ES::ELT(3 * num_vertices, 3 * v011 + 2, j)]);
-
-        Mat3d FMode = asMat3d(0.0);
-        FMode += EigenSupport::tensorProduct(u000, gradf000);
-        FMode += EigenSupport::tensorProduct(u100, gradf100);
-        FMode += EigenSupport::tensorProduct(u110, gradf110);
-        FMode += EigenSupport::tensorProduct(u010, gradf010);
-        FMode += EigenSupport::tensorProduct(u001, gradf001);
-        FMode += EigenSupport::tensorProduct(u101, gradf101);
-        FMode += EigenSupport::tensorProduct(u111, gradf111);
-        FMode += EigenSupport::tensorProduct(u011, gradf011);
-
-        for (int ii = 0; ii < 3; ii++)
-            for (int jj = 0; jj < 3; jj++) {
-                // 9 x r matrix
-                grad[ES::ELT(9, 3 * ii + jj, j)] = FMode(ii, jj);
-            }
-    }
+    ops::interpolate_gradient(*this, element, U, numFields, pos, grad);
 }
 
 void CubicMesh::computeAlphaBetaGamma(int el, Vec3d pos, double* alpha, double* beta, double* gamma) const {
-    if (parallelepipedMode) {
-        // general, parallelepied version (supports rotated cubes, and even cubes deformed via linear transformations;
-        // although the class "officially" only supports axis-aligned cubes)
-        const Vec3d& v0 = getVertex(el, 0);
-        const Vec3d& v1 = getVertex(el, 1);
-        const Vec3d& v3 = getVertex(el, 3);
-        const Vec3d& v4 = getVertex(el, 4);
-
-        Vec3d axis0 = v1 - v0;
-        Vec3d axis1 = v3 - v0;
-        Vec3d axis2 = v4 - v0;
-        Vec3d p     = pos - v0;
-        Vec3d v;
-
-        // OBB code
-        // double invCubeSize2 = invCubeSize * invCubeSize;
-        //*alpha = invCubeSize2 * dot(p, axis0);
-        //*beta  = invCubeSize2 * dot(p, axis1);
-        //*gamma = invCubeSize2 * dot(p, axis2);
-
-        // parallelepiped code
-        // double A[9], invA[9];
-        Mat3d A, invA;
-        A.col(0) = axis0;
-        A.col(1) = axis1;
-        A.col(2) = axis2;
-
-        invA = A.fullPivHouseholderQr().inverse();
-        v    = invA * p;
-
-        // old code
-        /*
-        A[0] = axis0[0];
-        A[1] = axis1[0];
-        A[2] = axis2[0];
-
-        A[3] = axis0[1];
-        A[4] = axis1[1];
-        A[5] = axis2[1];
-
-        A[6] = axis0[2];
-        A[7] = axis1[2];
-        A[8] = axis2[2];
-
-        inverse3x3(A, invA);
-        MATRIX_VECTOR_MULTIPLY3X3(invA, p, v);*/
-
-        *alpha = v[0];
-        *beta  = v[1];
-        *gamma = v[2];
-    } else {
-        // AABB mode
-        const Vec3d& v0 = getVertex(el, 0);
-        Vec3d        p  = pos - v0;
-        *alpha          = p[0] * invCubeSize;
-        *beta           = p[1] * invCubeSize;
-        *gamma          = p[2] * invCubeSize;
-    }
+    ops::compute_alpha_beta_gamma(*this, el, pos, alpha, beta, gamma);
 }
 
 void CubicMesh::computeBarycentricWeights(int el, const Vec3d& pos, double* weights) const {
-    // compute barycentric coordinates
-    double alpha, beta, gamma;
-    computeAlphaBetaGamma(el, pos, &alpha, &beta, &gamma);
-
-    weights[0] = (1 - alpha) * (1 - beta) * (1 - gamma);  // f000
-    weights[1] = (alpha) * (1 - beta) * (1 - gamma);      // f100
-    weights[2] = (alpha) * (beta) * (1 - gamma);          // f110
-    weights[3] = (1 - alpha) * (beta) * (1 - gamma);      // f010
-
-    weights[4] = (1 - alpha) * (1 - beta) * (gamma);  // f001
-    weights[5] = (alpha) * (1 - beta) * (gamma);      // f101
-    weights[6] = (alpha) * (beta) * (gamma);          // f111
-    weights[7] = (1 - alpha) * (beta) * (gamma);      // f011
+    ops::compute_barycentric_weights(*this, el, pos, weights);
 }
 
 double CubicMesh::getElementVolume(int el) const {
-    return cubeSize * cubeSize * cubeSize;
+    return ops::element_volume(*this, el);
 }
 
 void CubicMesh::getElementInertiaTensor(int el, Mat3d& inertiaTensor) const {
-    // inertia tensor of a cube with side a, and mass m is spherical, with
-    // diagonal elements 1.0 / 6 * m * a * a
-    double cubeSize5 = cubeSize * cubeSize * cubeSize * cubeSize * cubeSize;
-
-    inertiaTensor = cubeSize5 * asMat3d(1.0 / 6, 0, 0, 0, 1.0 / 6, 0, 0, 0, 1.0 / 6);
+    ops::element_inertia_tensor(*this, el, inertiaTensor);
 }
 
 int CubicMesh::getNumElementEdges() const {
-    return 12;
+    return ops::num_element_edges(*this);
 }
 
 void CubicMesh::getElementEdges(int el, int* edgeBuffer) const {
-    int v[8];
-    for (int i = 0; i < 8; i++)
-        v[i] = getVertexIndex(el, i);
-
-    int edgeMask[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
-                           {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
-
-    for (int edge = 0; edge < 12; edge++) {
-        edgeBuffer[2 * edge + 0] = v[edgeMask[edge][0]];
-        edgeBuffer[2 * edge + 1] = v[edgeMask[edge][1]];
-    }
+    ops::fill_element_edges(*this, el, edgeBuffer);
 }
 
 void CubicMesh::computeElementMassMatrix(int el, double* massMatrix) const {
-    double singleMassMatrix[64] = {
-        0.0370370335876942,  0.0185185167938471,  0.00925925839692354, 0.0185185167938471,  0.0185185167938471,
-        0.00925925839692354, 0.00462962919846177, 0.00925925839692354, 0.0185185167938471,  0.0370370335876942,
-        0.0185185167938471,  0.00925925839692354, 0.00925925839692354, 0.0185185167938471,  0.00925925839692354,
-        0.00462962919846177, 0.00925925839692354, 0.0185185167938471,  0.0370370335876942,  0.0185185167938471,
-        0.00462962919846177, 0.00925925839692354, 0.0185185167938471,  0.00925925839692354, 0.0185185167938471,
-        0.00925925839692354, 0.0185185167938471,  0.0370370335876942,  0.00925925839692354, 0.00462962919846177,
-        0.00925925839692354, 0.0185185167938471,  0.0185185167938471,  0.00925925839692354, 0.00462962919846177,
-        0.00925925839692354, 0.0370370335876942,  0.0185185167938471,  0.00925925839692354, 0.0185185167938471,
-        0.00925925839692354, 0.0185185167938471,  0.00925925839692354, 0.00462962919846177, 0.0185185167938471,
-        0.0370370335876942,  0.0185185167938471,  0.00925925839692354, 0.00462962919846177, 0.00925925839692354,
-        0.0185185167938471,  0.00925925839692354, 0.00925925839692354, 0.0185185167938471,  0.0370370335876942,
-        0.0185185167938471,  0.00925925839692354, 0.00462962919846177, 0.00925925839692354, 0.0185185167938471,
-        0.0185185167938471,  0.00925925839692354, 0.0185185167938471,  0.0370370335876942};
-
-    double density       = getElementDensity(el);
-    double voxelSpacing  = getCubeSize();
-    double voxelSpacing3 = voxelSpacing * voxelSpacing * voxelSpacing;
-    double factor        = density * voxelSpacing3;
-
-    for (int i = 0; i < 64; i++)
-        massMatrix[i] = factor * singleMassMatrix[i];
+    ops::compute_element_mass_matrix(*this, el, massMatrix);
 }
 
 void CubicMesh::subdivide() {

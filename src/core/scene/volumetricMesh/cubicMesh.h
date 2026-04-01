@@ -70,6 +70,11 @@ namespace VolumetricMeshes {
 namespace io::detail {
 struct LoadedMeshData;
 }
+class CubicMesh;
+namespace ops {
+void compute_alpha_beta_gamma(const CubicMesh& mesh, int element, Vec3d pos, double* alpha, double* beta,
+                              double* gamma);
+}
 
 class CubicMesh : public VolumetricMesh {
 public:
@@ -172,6 +177,8 @@ protected:
     void computeAlphaBetaGamma(int el, Vec3d pos, double* alpha, double* beta, double* gamma) const;
 
     friend class VolumetricMeshExtensions;
+    friend void ops::compute_alpha_beta_gamma(const CubicMesh& mesh, int element, Vec3d pos, double* alpha,
+                                              double* beta, double* gamma);
 };
 
 }  // namespace VolumetricMeshes

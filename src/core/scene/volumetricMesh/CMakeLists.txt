@@ -18,6 +18,8 @@ set(VOLUMETRIC_MESH_H
   internal/mesh_transforms.h
   internal/region_assignment.h
   internal/volumetric_mesh_data.h
+  ops/cubic_mesh_ops.h
+  ops/tet_mesh_ops.h
   tetMesh.h
   volumetricMeshENuMaterial.h
   volumetricMesh.h
@@ -49,6 +51,8 @@ set(VOLUMETRIC_MESH_SRC
   internal/mesh_transforms.cpp
   internal/region_assignment.cpp
   internal/volumetric_mesh_data.cpp
+  ops/cubic_mesh_ops.cpp
+  ops/tet_mesh_ops.cpp
   tetMesh.cpp
   volumetricMesh.cpp
   volumetricMeshEdit.cpp
