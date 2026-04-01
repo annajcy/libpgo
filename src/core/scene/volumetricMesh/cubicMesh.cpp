@@ -38,6 +38,7 @@
 #include "io/mesh_io_types.h"
 #include "internal/material_catalog.h"
 #include "internal/mesh_mutation.h"
+#include "ops/mesh_construction.h"
 #include "ops/cubic_mesh_ops.h"
 
 #include "triple.h"
@@ -193,9 +194,7 @@ void CubicMesh::assignFromData(io::detail::LoadedMeshData data, int) {
         throw 12;
     }
 
-    geometry_data() = std::move(data.geometry);
-    material_catalog() = std::move(data.material_catalog);
-    material_catalog().validate_against_num_elements(getNumElements());
+    ops::assign_common_loaded_data(*this, std::move(data));
 
     if (getNumElements() > 0)
         cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();

@@ -34,6 +34,7 @@
 #include "io/detail/tetgen_reader.h"
 #include "io/mesh_loaders.h"
 #include "io/mesh_io_types.h"
+#include "ops/mesh_construction.h"
 #include "ops/tet_mesh_ops.h"
 
 namespace pgo {
@@ -104,9 +105,7 @@ void TetMesh::assignFromData(io::detail::LoadedMeshData data, int) {
         throw 12;
     }
 
-    geometry_data() = std::move(data.geometry);
-    material_catalog() = std::move(data.material_catalog);
-    material_catalog().validate_against_num_elements(getNumElements());
+    ops::assign_common_loaded_data(*this, std::move(data));
 }
 
 void TetMesh::computeElementMassMatrix(int el, double* massMatrix) const {

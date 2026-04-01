@@ -335,16 +335,21 @@ classDiagram
 
 当前收益不大，因为真正的问题不是虚函数开销，而是类边界错误。
 
-#### 5.3.2 不建议立即把材料层次改成 `std::variant`
+#### 5.3.2 不建议在早期阶段立即把材料层次改成 `std::variant`
 
-长期有价值，但当前会波及：
+长期有价值，但在阶段 B/C 过早引入会波及：
 
 - I/O
 - `sceneToSimulationMesh`
 - 下游材料 downcast 逻辑
 - 所有复制/克隆路径
 
-这是后续阶段可以考虑的结构性升级，不是当前第一阶段应该做的事。
+因此更合理的做法是：
+
+- 先完成内部结构拆分与 I/O 收口
+- 再把材料系统提升为独立阶段统一重构
+
+也就是说，它不是“永远往后推”的项，而是不应该和早期结构拆分混在一起。
 
 ---
 
@@ -610,9 +615,46 @@ volumetricMesh/
    - 依赖：步骤 12
    - 为什么：当前 `generateSurfaceMesh.cpp` 里 tet/cubic 分支逻辑可维护性差
 
-### 阶段 E：现代化 API，并直接切换
+### 阶段 E：独立重构材料系统
 
-16. **为原始缓冲区接口补 `std::span` 重载** `[M]` `[med-risk]`
+16. **把材料模型从继承层次升级为值类型记录** `[L]` `[high-risk]`
+   - 目标：
+     - `MaterialKind`
+     - `MaterialRecord`
+     - `std::variant<EnuMaterialData, OrthotropicMaterialData, MooneyRivlinMaterialData>`
+   - 不再让 `VolumetricMesh::Material` 成为长期公共主模型
+   - 依赖：步骤 5、8、12
+   - 为什么：材料模型现在仍然是 mesh 层之外最主要的耦合来源
+
+17. **把 `MaterialCatalog` 全量切到值类型材料存储** `[L]` `[high-risk]`
+   - 覆盖：
+     - `materials`
+     - `sets`
+     - `regions`
+     - `elementMaterial`
+     - subset/subdivide 后的材料映射
+   - 依赖：步骤 16
+   - 为什么：只有 catalog 也切到新模型，材料系统重构才算完成
+
+18. **让 `material_serde`、I/O 与材料值类型模型对齐** `[M]` `[med-risk]`
+   - I/O 不再依赖旧材料继承层次和 downcast
+   - 依赖：步骤 8、16、17
+   - 为什么：否则 Phase C 的 I/O 拆分收益会被旧材料协议重新绑死
+
+19. **把材料访问与下游适配收敛到统一入口** `[M]` `[med-risk]`
+   - 新增：
+     - `material_cast<T>()`
+     - `serialize_material(...)`
+     - `deserialize_material(...)`
+     - material adapter / visitor
+   - 优先迁移：
+     - `sceneToSimulationMesh`
+   - 依赖：步骤 16、17、18
+   - 为什么：为后续 API 现代化与下游切换建立稳定入口
+
+### 阶段 F：现代化 API，并直接切换
+
+20. **为原始缓冲区接口补 `std::span` 重载** `[M]` `[med-risk]`
    - 优先补：
      - `getElementVertices`
      - `getElementEdges`
@@ -624,7 +666,7 @@ volumetricMesh/
    - 依赖：步骤 7、12
    - 为什么：这一步收益高，且不值得为了旧指针签名继续维持双轨
 
-17. **为查询接口增加 typed result** `[M]` `[med-risk]`
+21. **为查询接口增加 typed result** `[M]` `[med-risk]`
    - 新增：
      - `std::optional<int> find_containing_element(...)`
      - `Expected<void, IoError>` 或内部错误对象
@@ -634,35 +676,30 @@ volumetricMesh/
    - 依赖：步骤 8、16
    - 为什么：既然允许破坏式升级，就应直接把错误表达方式改掉
 
-18. **把材料构造与 downcast 调用收敛到单一入口** `[M]` `[med-risk]`
-   - 短期可保留现有 `Material` 层次，但对外只暴露新的统一入口
-   - 新增：
-     - `material_cast<T>()`
-     - `serialize_material(...)`
-     - `deserialize_material(...)`
-   - 依赖：步骤 5、8
-   - 为什么：为后续材料值类型化铺路
+22. **清理旧材料 API 事实入口** `[M]` `[med-risk]`
+   - 删除或弃用：
+     - `downcastENuMaterial`
+     - `downcastOrthotropicMaterial`
+     - `downcastMooneyRivlinMaterial`
+     - 旧 `Material*` 风格访问路径
+   - 依赖：步骤 19、20、21
+   - 为什么：避免仓库进入“值类型材料 + 旧多态材料”双轨
 
-### 阶段 F：下游迁移与收口
+### 阶段 G：下游迁移与收口
 
-19. **优先迁移 `sceneToSimulationMesh` 到新接口层** `[M]` `[med-risk]`
-   - 让它依赖“只读 tet mesh view + material adapter”，而不是旧的宽头文件集合
-   - 依赖：步骤 12、18
+23. **优先迁移 `sceneToSimulationMesh` 到新接口层** `[M]` `[med-risk]`
+   - 让它依赖“只读 tet mesh view + 值类型材料适配层”，而不是旧的宽头文件集合
+   - 依赖：步骤 12、19, 20, 21, 22
    - 为什么：这是 `volumetricMesh -> solidDeformationModel` 的关键桥
 
-20. **同步迁移 API/工具层 include 与调用点到新路径/新接口** `[L]` `[med-risk]`
+24. **同步迁移 API/工具层 include 与调用点到新路径/新接口** `[L]` `[med-risk]`
    - 顺序：
      - 工具层
      - 动画层
      - C API
      - `runSimCore`
-   - 依赖：步骤 8~19
+   - 依赖：步骤 8~23
    - 为什么：外层收口必须和接口切换同时完成，避免双轨
-
-21. **最后再考虑材料层次值类型化或 `std::variant` 化** `[L]` `[high-risk]`
-   - 这是未来阶段，不属于当前必须完成项
-   - 依赖：步骤 18、19、20
-   - 为什么：当前不是最大风险源，但值得为未来保留设计空间
 
 ---
 
@@ -689,6 +726,7 @@ volumetricMesh/
 | `void getElementVertices(..., Vec3d*)` | `std::span<Vec3d>` 版本 | 直接替换 |
 | `void getElementEdges(..., int*)` | `std::span<int>` 版本 | 直接替换 |
 | `int io::save(...)` | `expected<void, IoError>` 或异常版内部实现 | 直接替换错误处理语义 |
+| `Material*` / `downcast*Material()` | `MaterialRecord` + `material_cast<T>()` / visitor | 在独立材料阶段完成切换 |
 
 ### 9.3 构造路径迁移
 
@@ -717,7 +755,10 @@ volumetricMesh/
 3. **I/O round-trip**
    - 旧 `.veg/.vegb` 是对外协议，不能在重构中意外改格式
 
-4. **`sceneToSimulationMesh`**
+4. **材料系统值类型化**
+   - 会同时波及 catalog、I/O、subset/subdivide、复制/克隆和下游材料访问
+
+5. **`sceneToSimulationMesh`**
    - 它对 Tet 材料和网格布局有隐式假设
 
 ### 10.2 中风险点
@@ -793,9 +834,10 @@ volumetricMesh/
 5. 拆 `volumetricMeshIO.cpp`
 6. 抽 `Tet/Cubic` 的 element ops
 7. 把 `CubicMesh` 高层算法迁出
-8. 加 `std::span` / `optional` 新接口
-9. 迁 `sceneToSimulationMesh`
-10. 最后再迁工具层与 API 层
+8. 独立重构材料系统，并切到值类型模型
+9. 加 `std::span` / `optional` 新接口
+10. 先迁 `sceneToSimulationMesh`
+11. 最后再迁工具层与 API 层
 
 ---
 

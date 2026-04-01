@@ -18,6 +18,8 @@ set(CORE_SCENE_VOLUMETRIC_MESH_SOURCES
   volumetricMesh/algorithms/cubic_mesh_refinement_test.cpp
   volumetricMesh/ops/tet_mesh_ops_test.cpp
   volumetricMesh/ops/cubic_mesh_ops_test.cpp
+  volumetricMesh/ops/element_face_ops_test.cpp
+  volumetricMesh/ops/mesh_construction_test.cpp
   volumetricMesh/mesh_queries_test.cpp
   volumetricMesh/volumetric_mesh_edit_test.cpp
   volumetricMesh/generate_surface_mesh_test.cpp

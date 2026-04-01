@@ -32,29 +32,81 @@
 
 #include "generateSurfaceMesh.h"
 #include "cubicMesh.h"
-#include "triKey.h"
+#include "ops/element_face_ops.h"
 #include "tetMesh.h"
-#include "rectKey.h"
 #include "pgoLogging.h"
 
+#include <cstdlib>
+#include <iostream>
 #include <unordered_map>
-#include <cfloat>
+
+namespace {
+
+pgo::Mesh::OTriKey reversed_face(const pgo::Mesh::OTriKey& face) {
+    return face.getReversedTriKey();
+}
+
+pgo::Mesh::ORectKey reversed_face(const pgo::Mesh::ORectKey& face) {
+    return face.getReversedRectKey();
+}
+
+template <typename FaceContainer, typename FaceKey = typename FaceContainer::value_type>
+void accumulate_surface_faces(const FaceContainer& element_faces, bool all_element_faces,
+                              std::unordered_map<FaceKey, int>& surface_faces,
+                              std::vector<std::vector<int>>& faces, bool triangulate) {
+    for (const FaceKey& face : element_faces) {
+        if (all_element_faces) {
+            pgo::VolumetricMeshes::ops::append_face(face, triangulate, faces);
+            continue;
+        }
+
+        auto it = surface_faces.find(face);
+        if (it != surface_faces.end()) {
+            it->second++;
+            continue;
+        }
+
+        const FaceKey reversed = reversed_face(face);
+        it = surface_faces.find(reversed);
+        if (it != surface_faces.end()) {
+            it->second--;
+            continue;
+        }
+
+        surface_faces.emplace(face, 1);
+    }
+}
+
+template <typename FaceKey>
+void emit_surface_faces(std::unordered_map<FaceKey, int>& surface_faces, std::vector<std::vector<int>>& faces,
+                        bool triangulate) {
+    for (const auto& [face, count] : surface_faces) {
+        if (count == 0) {
+            continue;
+        }
+
+        FaceKey oriented_face = face;
+        if (count < 0) {
+            oriented_face = reversed_face(face);
+        }
+
+        for (int i = 0; i < std::abs(count); ++i) {
+            pgo::VolumetricMeshes::ops::append_face(oriented_face, triangulate, faces);
+        }
+    }
+}
+
+}  // namespace
 
 // the main routine
 void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMesh*           volumetricMesh,
                                                              std::vector<EigenSupport::V3d>& vertices,
                                                              std::vector<std::vector<int>>& faces, bool triangulate,
                                                              bool allElementFaces) {
-    int numElementVertices = volumetricMesh->getNumElementVertices();
-    int faceDegree         = 0;
-
-    if (numElementVertices == 4) {
-        faceDegree  = 3;
+    const int faceDegree = ops::face_degree(*volumetricMesh);
+    if (faceDegree == 3) {
         triangulate = false;
     }
-
-    if (numElementVertices == 8)
-        faceDegree = 4;
 
     if (faceDegree == 0) {
         printf("Error: unsupported volumetricMesh type encountered.\n");
@@ -71,113 +123,30 @@ void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMes
 
     // build unique list of all surface faces
 
-    if (volumetricMesh->getElementType() == VolumetricMesh::ElementType::Tet)  // tet volumetricMesh
-    {
+    if (volumetricMesh->getElementType() == VolumetricMesh::ElementType::Tet) {
         const TetMesh* tetMesh = dynamic_cast<const TetMesh*>(volumetricMesh);
         PGO_ALOG(tetMesh != nullptr);
 
         std::unordered_map<Mesh::OTriKey, int> surfaceFaces;
         for (int i = 0; i < volumetricMesh->getNumElements(); i++) {
-            // compute determinant to establish orientation
-            double det = tetMesh->getTetDeterminant(i);
-
-            auto processFace = [&](int q0, int q1, int q2) {
-                Mesh::OTriKey key(volumetricMesh->getVertexIndex(i, q0), volumetricMesh->getVertexIndex(i, q1),
-                                  volumetricMesh->getVertexIndex(i, q2));
-                if (allElementFaces)  // get all faces
-                {
-                    faces.emplace_back(std::vector<int>{key[0], key[1], key[2]});
-                    return;
-                }
-
-                auto it = surfaceFaces.find(key);
-                if (it != surfaceFaces.end())
-                    it->second++;
-                else {
-                    auto revKey = key.getReversedTriKey();
-                    it          = surfaceFaces.find(revKey);
-                    if (it != surfaceFaces.end())
-                        it->second--;
-                    else
-                        surfaceFaces.emplace(key, 1);
-                }
-            };
-
-            if (det >= 0) {
-                processFace(1, 2, 3);
-                processFace(2, 0, 3);
-                processFace(3, 0, 1);
-                processFace(1, 0, 2);
-            } else {
-                processFace(3, 2, 1);
-                processFace(3, 0, 2);
-                processFace(1, 0, 3);
-                processFace(2, 0, 1);
-            }
+            const auto element_faces = ops::tet_element_faces(*tetMesh, i);
+            accumulate_surface_faces(element_faces, allElementFaces, surfaceFaces, faces, false);
         }
 
-        if (allElementFaces == false)  // we build surface volumetricMesh
-        {
-            for (const auto& p : surfaceFaces) {
-                if (p.second == 0)
-                    continue;  // inner face
-                auto key      = p.first;
-                int  numFaces = abs(p.second);
-                if (p.second < 0)
-                    key.reverse();
-                for (int i = 0; i < numFaces; i++) {
-                    faces.emplace_back(std::vector<int>{key[0], key[1], key[2]});
-                }
-            }
+        if (allElementFaces == false) {
+            emit_surface_faces(surfaceFaces, faces, false);
         }
-    } else if (volumetricMesh->getElementType() == VolumetricMesh::ElementType::Cubic)  // cubic volumetricMesh
-    {
+    } else if (volumetricMesh->getElementType() == VolumetricMesh::ElementType::Cubic) {
+        const CubicMesh* cubicMesh = dynamic_cast<const CubicMesh*>(volumetricMesh);
+        PGO_ALOG(cubicMesh != nullptr);
+
         std::unordered_map<Mesh::ORectKey, int> surfaceFaces;
         for (int i = 0; i < volumetricMesh->getNumElements(); i++) {
-            auto processFace = [&](int q0, int q1, int q2, int q3) {
-                Mesh::ORectKey key(volumetricMesh->getVertexIndex(i, q0), volumetricMesh->getVertexIndex(i, q1),
-                                   volumetricMesh->getVertexIndex(i, q2), volumetricMesh->getVertexIndex(i, q3));
-                if (allElementFaces) {
-                    faces.emplace_back(std::vector<int>{key[0], key[1], key[2], key[3]});
-                    return;
-                }
-                auto it = surfaceFaces.find(key);
-                if (it != surfaceFaces.end())
-                    it->second++;
-                else {
-                    auto revKey = key.getReversedRectKey();
-                    it          = surfaceFaces.find(revKey);
-                    if (it != surfaceFaces.end())
-                        it->second--;
-                    else
-                        surfaceFaces.emplace(key, 1);
-                }
-            };
-
-            processFace(0, 3, 2, 1);
-            processFace(4, 5, 6, 7);
-            processFace(0, 1, 5, 4);
-            processFace(3, 7, 6, 2);
-            processFace(1, 2, 6, 5);
-            processFace(0, 4, 7, 3);
+            const auto element_faces = ops::cubic_element_faces(*cubicMesh, i);
+            accumulate_surface_faces(element_faces, allElementFaces, surfaceFaces, faces, triangulate);
         }
-        if (allElementFaces == false)  // we build surface volumetricMesh
-        {
-            for (const auto& p : surfaceFaces) {
-                if (p.second == 0)
-                    continue;  // inner face
-                auto key      = p.first;
-                int  numFaces = abs(p.second);
-                if (p.second < 0)
-                    key.reverse();
-                for (int i = 0; i < numFaces; i++) {
-                    if (triangulate) {
-                        faces.emplace_back(std::vector<int>{key[0], key[1], key[2]});
-                        faces.emplace_back(std::vector<int>{key[2], key[3], key[0]});
-                    } else
-                        faces.emplace_back(std::vector<int>{key[0], key[1], key[2], key[3]});
-                }
-            }
+        if (allElementFaces == false) {
+            emit_surface_faces(surfaceFaces, faces, triangulate);
         }
     } else {
         std::cerr << "Error: unknown VolumetricMesh element type in GenerateSurfaceMesh" << std::endl;
