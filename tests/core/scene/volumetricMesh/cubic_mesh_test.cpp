@@ -25,7 +25,7 @@ TEST(CoreSceneVolumetricMeshTest, CubicMeshBinaryRoundTripAndGeometryExportPrese
     EXPECT_EQ(source_geometry.elements[7], 7);
 
     const std::filesystem::path binary_path = uniqueTempPath(".vegb");
-    ASSERT_EQ(io::save_to_binary(source, binary_path), 0);
+    ASSERT_EQ(io::save_to_binary(make_any_mesh_ref(source), binary_path), 0);
 
     const CubicMesh binary_mesh(binary_path);
     const auto      binary_geometry = ops::geometry(binary_mesh);
@@ -113,7 +113,7 @@ TEST(CoreSceneVolumetricMeshTest, CubicMeshNodeEleExportWritesEightNodeElements)
     const std::filesystem::path ele_path  = base_path.string() + ".ele";
     const std::filesystem::path node_path = base_path.string() + ".node";
 
-    ASSERT_EQ(io::save_to_node_ele(source, base_path), 0);
+    ASSERT_EQ(io::save_to_node_ele(make_any_mesh_ref(source), base_path), 0);
     EXPECT_TRUE(std::filesystem::exists(ele_path));
     EXPECT_TRUE(std::filesystem::exists(node_path));
 

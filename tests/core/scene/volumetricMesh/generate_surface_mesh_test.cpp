@@ -15,7 +15,8 @@ TEST(CoreSceneVolumetricMeshTest, GenerateSurfaceMeshForTetProducesFourFaces) {
 
     std::vector<pgo::EigenSupport::V3d> vertices;
     std::vector<std::vector<int>>       faces;
-    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(&mesh, vertices, faces, false, false);
+    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(pgo::VolumetricMeshes::make_any_mesh_ref(mesh), vertices,
+                                                            faces, false, false);
 
     EXPECT_EQ(static_cast<int>(vertices.size()), mesh.getNumVertices());
     EXPECT_EQ(faces.size(), 4u);
@@ -29,7 +30,8 @@ TEST(CoreSceneVolumetricMeshTest, GenerateSurfaceMeshForCubeProducesSixQuads) {
 
     std::vector<pgo::EigenSupport::V3d> vertices;
     std::vector<std::vector<int>>       faces;
-    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(&mesh, vertices, faces, false, false);
+    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(pgo::VolumetricMeshes::make_any_mesh_ref(mesh), vertices,
+                                                            faces, false, false);
 
     EXPECT_EQ(static_cast<int>(vertices.size()), mesh.getNumVertices());
     EXPECT_EQ(faces.size(), 6u);

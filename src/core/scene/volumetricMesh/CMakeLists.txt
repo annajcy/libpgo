@@ -6,6 +6,7 @@ set(VOLUMETRIC_MESH_H
   algorithms/generate_surface_mesh.h
   algorithms/mesh_interpolation.h
   cubicMesh.h
+  dispatch/any_mesh_ref.h
   io/detail/gmsh_reader.h
   io/detail/tetgen_reader.h
   io/detail/veg_parser.h
@@ -58,6 +59,7 @@ set(VOLUMETRIC_MESH_SRC
   algorithms/generate_surface_mesh.cpp
   algorithms/mesh_interpolation.cpp
   cubicMesh.cpp
+  dispatch/any_mesh_ref.cpp
   io/detail/tetgen_reader.cpp
   io/detail/veg_parser.cpp
   io/mesh_ascii_reader.cpp

@@ -32,10 +32,11 @@
 
 #include "algorithms/generate_surface_mesh.h"
 
+#include "concepts/mesh_concepts.h"
 #include "cubicMesh.h"
 #include "ops/element_face_ops.h"
-#include "tetMesh.h"
 #include "pgoLogging.h"
+#include "tetMesh.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -97,55 +98,77 @@ void emit_surface_faces(std::unordered_map<FaceKey, int>& surface_faces, std::ve
     }
 }
 
+template <pgo::VolumetricMeshes::concepts::TetMeshLike MeshT>
+void compute_surface_mesh_impl(const MeshT& mesh, std::vector<std::vector<int>>& faces, bool all_element_faces) {
+    std::unordered_map<pgo::Mesh::OTriKey, int> surface_faces;
+    for (int element = 0; element < mesh.getNumElements(); ++element) {
+        const auto element_faces = pgo::VolumetricMeshes::ops::tet_element_faces(mesh, element);
+        accumulate_surface_faces(element_faces, all_element_faces, surface_faces, faces, false);
+    }
+
+    if (!all_element_faces) {
+        emit_surface_faces(surface_faces, faces, false);
+    }
+}
+
+template <pgo::VolumetricMeshes::concepts::CubicMeshLike MeshT>
+void compute_surface_mesh_impl(const MeshT& mesh, std::vector<std::vector<int>>& faces, bool triangulate,
+                               bool all_element_faces) {
+    std::unordered_map<pgo::Mesh::ORectKey, int> surface_faces;
+    for (int element = 0; element < mesh.getNumElements(); ++element) {
+        const auto element_faces = pgo::VolumetricMeshes::ops::cubic_element_faces(mesh, element);
+        accumulate_surface_faces(element_faces, all_element_faces, surface_faces, faces, triangulate);
+    }
+
+    if (!all_element_faces) {
+        emit_surface_faces(surface_faces, faces, triangulate);
+    }
+}
+
+template <pgo::VolumetricMeshes::concepts::VolumetricMeshLike MeshT>
+void compute_surface_mesh_impl(const MeshT& mesh, std::vector<pgo::EigenSupport::V3d>& vertices,
+                               std::vector<std::vector<int>>& faces, bool triangulate, bool all_element_faces) {
+    vertices.clear();
+    faces.clear();
+
+    for (int vertex = 0; vertex < mesh.getNumVertices(); ++vertex) {
+        vertices.emplace_back(mesh.getVertex(vertex));
+    }
+
+    if constexpr (pgo::VolumetricMeshes::concepts::TetMeshLike<MeshT>) {
+        compute_surface_mesh_impl(mesh, faces, all_element_faces);
+    } else {
+        compute_surface_mesh_impl(mesh, faces, triangulate, all_element_faces);
+    }
+}
+
 }  // namespace
+
+void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(AnyMeshRef mesh,
+                                                             std::vector<EigenSupport::V3d>& vertices,
+                                                             std::vector<std::vector<int>>& faces, bool triangulate,
+                                                             bool allElementFaces) {
+    std::visit(
+        [&](const auto& mesh_ref) {
+            using MeshT = std::remove_cvref_t<decltype(mesh_ref.get())>;
+            bool effective_triangulate = triangulate;
+            if constexpr (concepts::TetMeshLike<MeshT>) {
+                effective_triangulate = false;
+            }
+            compute_surface_mesh_impl(mesh_ref.get(), vertices, faces, effective_triangulate, allElementFaces);
+        },
+        mesh);
+}
 
 void pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(const VolumetricMesh* volumetricMesh,
                                                              std::vector<EigenSupport::V3d>& vertices,
                                                              std::vector<std::vector<int>>& faces, bool triangulate,
                                                              bool allElementFaces) {
-    const int faceDegree = ops::face_degree(*volumetricMesh);
-    if (faceDegree == 3) {
-        triangulate = false;
-    }
+    PGO_ALOG(volumetricMesh != nullptr);
 
-    if (faceDegree == 0) {
-        printf("Error: unsupported volumetricMesh type encountered.\n");
-        return;
-    }
-
-    vertices.clear();
-    faces.clear();
-
-    for (int i = 0; i < volumetricMesh->getNumVertices(); i++)
-        vertices.emplace_back(volumetricMesh->getVertex(i));
-
-    if (volumetricMesh->getElementType() == ElementType::Tet) {
-        const TetMesh* tetMesh = dynamic_cast<const TetMesh*>(volumetricMesh);
-        PGO_ALOG(tetMesh != nullptr);
-
-        std::unordered_map<Mesh::OTriKey, int> surfaceFaces;
-        for (int i = 0; i < volumetricMesh->getNumElements(); i++) {
-            const auto element_faces = ops::tet_element_faces(*tetMesh, i);
-            accumulate_surface_faces(element_faces, allElementFaces, surfaceFaces, faces, false);
-        }
-
-        if (allElementFaces == false) {
-            emit_surface_faces(surfaceFaces, faces, false);
-        }
-    } else if (volumetricMesh->getElementType() == ElementType::Cubic) {
-        const CubicMesh* cubicMesh = dynamic_cast<const CubicMesh*>(volumetricMesh);
-        PGO_ALOG(cubicMesh != nullptr);
-
-        std::unordered_map<Mesh::ORectKey, int> surfaceFaces;
-        for (int i = 0; i < volumetricMesh->getNumElements(); i++) {
-            const auto element_faces = ops::cubic_element_faces(*cubicMesh, i);
-            accumulate_surface_faces(element_faces, allElementFaces, surfaceFaces, faces, triangulate);
-        }
-        if (allElementFaces == false) {
-            emit_surface_faces(surfaceFaces, faces, triangulate);
-        }
-    } else {
+    try {
+        computeMesh(to_any_mesh_ref(*volumetricMesh), vertices, faces, triangulate, allElementFaces);
+    } catch (const std::invalid_argument&) {
         std::cerr << "Error: unknown VolumetricMesh element type in GenerateSurfaceMesh" << std::endl;
-        return;
     }
 }

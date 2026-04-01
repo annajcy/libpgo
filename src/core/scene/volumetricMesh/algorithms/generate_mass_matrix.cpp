@@ -31,120 +31,22 @@
  *************************************************************************/
 
 #include "algorithms/generate_mass_matrix.h"
+#include "volumetricMesh.h"
 
-#include <tbb/parallel_for.h>
-#include <tbb/spin_mutex.h>
+namespace pgo::VolumetricMeshes::GenerateMassMatrix {
 
-using namespace pgo;
-using namespace pgo::VolumetricMeshes;
-
-namespace ES = pgo::EigenSupport;
-
-void GenerateMassMatrix::computeMassMatrix(const VolumetricMesh* volumetricMesh, EigenSupport::SpMatD& massMatrix,
-                                           bool inflate3Dim, const double* elementWeight) {
-    int n                  = volumetricMesh->getNumVertices();
-    int numElementVertices = volumetricMesh->getNumElementVertices();
-
-    if (inflate3Dim)
-        massMatrix.resize(3 * n, 3 * n);
-    else
-        massMatrix.resize(n, n);
-
-    std::vector<ES::TripletD> entries;
-
-    if (inflate3Dim) {
-        entries.resize(numElementVertices * numElementVertices * 3 * volumetricMesh->getNumElements());
-    } else {
-        entries.resize(numElementVertices * numElementVertices * volumetricMesh->getNumElements());
-    }
-
-    tbb::parallel_for(0, volumetricMesh->getNumElements(), [&](int el) {
-        thread_local ES::MXd elementMass;
-
-        if (elementMass.rows() == 0) {
-            elementMass.resize(numElementVertices, numElementVertices);
-        }
-
-        volumetricMesh->computeElementMassMatrix(el, elementMass.data());
-        for (int i = 0; i < numElementVertices; i++) {
-            int vtxi = volumetricMesh->getVertexIndex(el, i);
-            for (int j = 0; j < numElementVertices; j++) {
-                int    vtxj = volumetricMesh->getVertexIndex(el, j);
-                double w    = 1.0;
-                if (elementWeight)
-                    w = elementWeight[el];
-
-                double entry = elementMass(i, j) * w;
-                if (inflate3Dim == false) {
-                    entries[el * numElementVertices * numElementVertices + i * numElementVertices + j] =
-                        ES::TripletD(vtxi, vtxj, entry);
-                } else {
-                    for (int d = 0; d < 3; d++) {
-                        entries[(el * numElementVertices * numElementVertices + i * numElementVertices + j) * 3 + d] =
-                            ES::TripletD(vtxi * 3 + d, vtxj * 3 + d, entry);
-                    }
-                }
-            }
-        }
-    });
-
-    massMatrix.setFromTriplets(entries.begin(), entries.end());
+void computeMassMatrix(const VolumetricMesh* volumetricMesh, EigenSupport::SpMatD& massMatrix, bool inflate3Dim,
+                       const double* elementWeight) {
+    detail::compute_mass_matrix_impl(*volumetricMesh, massMatrix, inflate3Dim, elementWeight);
 }
 
-void GenerateMassMatrix::computeVertexMasses(const VolumetricMesh* volumetricMesh, double* masses, bool inflate3Dim) {
-    int n                  = volumetricMesh->getNumVertices();
-    int numElementVertices = volumetricMesh->getNumElementVertices();
-    memset(masses, 0, sizeof(double) * n * (inflate3Dim ? 3 : 1));
-
-    std::vector<tbb::spin_mutex> vtxLocks(n);
-    tbb::parallel_for(0, volumetricMesh->getNumElements(), [&](int el) {
-        thread_local ES::MXd elementMass;
-
-        if (elementMass.rows() == 0) {
-            elementMass.resize(numElementVertices, numElementVertices);
-        }
-
-        volumetricMesh->computeElementMassMatrix(el, elementMass.data());
-        for (int i = 0; i < numElementVertices; i++) {
-            int    vtxi    = volumetricMesh->getVertexIndex(el, i);
-            double vtxMass = 0.0;
-            for (int j = 0; j < numElementVertices; j++) {
-                vtxMass += elementMass(i, j);
-            }
-
-            double* massBufferPtr = (inflate3Dim ? &masses[3 * vtxi] : &masses[vtxi]);
-
-            vtxLocks[vtxi].lock();
-            *massBufferPtr += vtxMass;
-            vtxLocks[vtxi].unlock();
-        }
-    });
-
-    if (inflate3Dim)
-        for (int i = 0; i < n; i++)
-            masses[3 * i + 1] = masses[3 * i + 2] = masses[3 * i];
+void computeVertexMasses(const VolumetricMesh* volumetricMesh, double* masses, bool inflate3Dim) {
+    detail::compute_vertex_masses_impl(*volumetricMesh, masses, inflate3Dim);
 }
 
-void GenerateMassMatrix::computeVertexMassesByAveragingNeighboringElements(const VolumetricMesh* volumetricMesh,
-                                                                           double* masses, bool inflate3Dim) {
-    int    n                  = volumetricMesh->getNumVertices();
-    int    numElementVertices = volumetricMesh->getNumElementVertices();
-    double invNumEleVtx       = 1.0 / numElementVertices;
-    memset(masses, 0, sizeof(double) * n * (inflate3Dim ? 3 : 1));
-    std::vector<tbb::spin_mutex> vtxLocks(n);
-    tbb::parallel_for(0, volumetricMesh->getNumElements(), [&](int el) {
-        double vtxMass = volumetricMesh->getElementVolume(el) * volumetricMesh->getElementDensity(el) * invNumEleVtx;
-        for (int i = 0; i < numElementVertices; i++) {
-            int vtxi = volumetricMesh->getVertexIndex(el, i);
-
-            double* massBufferPtr = (inflate3Dim ? &masses[3 * vtxi] : &masses[vtxi]);
-            vtxLocks[vtxi].lock();
-            *massBufferPtr += vtxMass;
-            vtxLocks[vtxi].unlock();
-        }
-    });
-
-    if (inflate3Dim)
-        for (int i = 0; i < n; i++)
-            masses[3 * i + 1] = masses[3 * i + 2] = masses[3 * i];
+void computeVertexMassesByAveragingNeighboringElements(const VolumetricMesh* volumetricMesh, double* masses,
+                                                       bool inflate3Dim) {
+    detail::compute_vertex_masses_by_averaging_neighboring_elements_impl(*volumetricMesh, masses, inflate3Dim);
 }
+
+}  // namespace pgo::VolumetricMeshes::GenerateMassMatrix

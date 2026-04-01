@@ -1,5 +1,7 @@
 #include "io/mesh_save.h"
 
+#include "cubicMesh.h"
+#include "tetMesh.h"
 #include "io/mesh_ascii_writer.h"
 #include "io/mesh_binary_writer.h"
 #include "io/mesh_format_detector.h"
@@ -10,8 +12,8 @@ namespace pgo::VolumetricMeshes::io {
 
 namespace {
 
-void save_to_node_ele_impl(const VolumetricMesh& mesh, const std::filesystem::path& baseFilename,
-                           bool includeRegions) {
+template <typename MeshT>
+void save_to_node_ele_impl(const MeshT& mesh, const std::filesystem::path& baseFilename, bool includeRegions) {
     const std::filesystem::path elePath  = baseFilename.string() + ".ele";
     const std::filesystem::path nodePath = baseFilename.string() + ".node";
 
@@ -74,19 +76,77 @@ void save_to_node_ele_impl(const VolumetricMesh& mesh, const std::filesystem::pa
     fclose(nodeOut);
 }
 
+template <typename MeshT>
+int save_to_ascii_impl(const MeshT& mesh, const std::filesystem::path& filename) {
+    try {
+        detail::write_ascii_mesh(static_cast<const VolumetricMesh&>(mesh), filename);
+        return 0;
+    } catch (...) {
+        return 1;
+    }
+}
+
+template <typename MeshT>
+int save_to_binary_impl(const MeshT& mesh, const std::filesystem::path& filename, unsigned int* bytes_written) {
+    try {
+        detail::write_binary_mesh(static_cast<const VolumetricMesh&>(mesh), filename, bytes_written);
+        return 0;
+    } catch (...) {
+        return 1;
+    }
+}
+
+template <typename MeshT>
+int save_impl(const MeshT& mesh, const std::filesystem::path& filename) {
+    const FileFormatType file_type = detect_file_format(filename);
+    if (file_type == FileFormatType::Binary) {
+        return save_to_binary_impl(mesh, filename, nullptr);
+    }
+    return save_to_ascii_impl(mesh, filename);
+}
+
+template <typename MeshT>
+int save_to_node_ele_result(const MeshT& mesh, const std::filesystem::path& baseFilename, bool includeRegions) {
+    try {
+        save_to_node_ele_impl(mesh, baseFilename, includeRegions);
+        return 0;
+    } catch (...) {
+        return 1;
+    }
+}
+
 }  // namespace
 
+int save(AnyMeshRef mesh, const std::filesystem::path& filename) {
+    return std::visit([&](const auto& mesh_ref) { return save_impl(mesh_ref.get(), filename); }, mesh);
+}
+
+int save_to_ascii(AnyMeshRef mesh, const std::filesystem::path& filename) {
+    return std::visit([&](const auto& mesh_ref) { return save_to_ascii_impl(mesh_ref.get(), filename); }, mesh);
+}
+
+int save_to_binary(AnyMeshRef mesh, const std::filesystem::path& filename, unsigned int* bytesWritten) {
+    return std::visit(
+        [&](const auto& mesh_ref) { return save_to_binary_impl(mesh_ref.get(), filename, bytesWritten); }, mesh);
+}
+
+int save_to_node_ele(AnyMeshRef mesh, const std::filesystem::path& baseFilename, bool includeRegions) {
+    return std::visit(
+        [&](const auto& mesh_ref) { return save_to_node_ele_result(mesh_ref.get(), baseFilename, includeRegions); },
+        mesh);
+}
+
 int save(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
-    const FileFormatType file_type = detect_file_format(filename);
-    if (file_type == FileFormatType::Binary)
-        return save_to_binary(mesh, filename);
-    return save_to_ascii(mesh, filename);
+    try {
+        return save(to_any_mesh_ref(mesh), filename);
+    } catch (...) {
+        return 1;
+    }
 }
 
 int save_to_ascii(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
     try {
-        detail::write_ascii_mesh(mesh, filename);
-        return 0;
+        return save_to_ascii(to_any_mesh_ref(mesh), filename);
     } catch (...) {
         return 1;
     }
@@ -94,8 +154,7 @@ int save_to_ascii(const VolumetricMesh& mesh, const std::filesystem::path& filen
 
 int save_to_binary(const VolumetricMesh& mesh, const std::filesystem::path& filename, unsigned int* bytesWritten) {
     try {
-        detail::write_binary_mesh(mesh, filename, bytesWritten);
-        return 0;
+        return save_to_binary(to_any_mesh_ref(mesh), filename, bytesWritten);
     } catch (...) {
         return 1;
     }
@@ -103,8 +162,7 @@ int save_to_binary(const VolumetricMesh& mesh, const std::filesystem::path& file
 
 int save_to_node_ele(const VolumetricMesh& mesh, const std::filesystem::path& baseFilename, bool includeRegions) {
     try {
-        save_to_node_ele_impl(mesh, baseFilename, includeRegions);
-        return 0;
+        return save_to_node_ele(to_any_mesh_ref(mesh), baseFilename, includeRegions);
     } catch (...) {
         return 1;
     }

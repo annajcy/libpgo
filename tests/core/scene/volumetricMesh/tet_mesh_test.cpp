@@ -18,8 +18,8 @@ TEST(CoreSceneVolumetricMeshTest, TetMeshAsciiAndBinaryRoundTripPreserveGeometry
 
     const std::filesystem::path ascii_path  = uniqueTempPath(".veg");
     const std::filesystem::path binary_path = uniqueTempPath(".vegb");
-    ASSERT_EQ(io::save_to_ascii(source, ascii_path), 0);
-    ASSERT_EQ(io::save_to_binary(source, binary_path), 0);
+    ASSERT_EQ(io::save_to_ascii(make_any_mesh_ref(source), ascii_path), 0);
+    ASSERT_EQ(io::save_to_binary(make_any_mesh_ref(source), binary_path), 0);
 
     const TetMesh ascii_mesh(ascii_path);
     const TetMesh binary_mesh(binary_path);
@@ -93,7 +93,7 @@ TEST(CoreSceneVolumetricMeshTest, TetMeshToEleExportWritesTetgenFiles) {
     const std::filesystem::path ele_path  = base_path.string() + ".ele";
     const std::filesystem::path node_path = base_path.string() + ".node";
 
-    ASSERT_EQ(io::save_to_node_ele(source, base_path), 0);
+    ASSERT_EQ(io::save_to_node_ele(make_any_mesh_ref(source), base_path), 0);
     EXPECT_TRUE(std::filesystem::exists(ele_path));
     EXPECT_TRUE(std::filesystem::exists(node_path));
 

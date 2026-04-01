@@ -39,13 +39,14 @@
 
 #pragma once
 
+#include "dispatch/any_mesh_ref.h"
 #include "EigenDef.h"
-#include "volumetricMesh.h"
 
 #include <vector>
 
 namespace pgo {
 namespace VolumetricMeshes {
+class VolumetricMesh;
 namespace GenerateSurfaceMesh {
 
 // The output surface mesh is a triangle mesh for tet meshes and can also be a quad mesh for cubic meshes.
@@ -55,6 +56,9 @@ namespace GenerateSurfaceMesh {
 // triangulate: specifies whether output mesh should be quads or triangles (in the case of cubic volumetric meshes).
 // allElementFaces = true: build ALL faces for ALL elements in the mesh
 //                 = false: build only surface faces of the mesh (default)
+void computeMesh(AnyMeshRef mesh, std::vector<EigenSupport::V3d>& vertices, std::vector<std::vector<int>>& faces,
+                 bool triangulate = false, bool allElementFaces = false);
+
 void computeMesh(const VolumetricMesh* volumetricMesh, std::vector<EigenSupport::V3d>& vertices,
                  std::vector<std::vector<int>>& faces, bool triangulate = false, bool allElementFaces = false);
 

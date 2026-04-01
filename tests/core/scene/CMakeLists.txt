@@ -16,7 +16,10 @@ set(CORE_SCENE_VOLUMETRIC_MESH_SOURCES
   volumetricMesh/algorithms/cubic_mesh_interpolation_test.cpp
   volumetricMesh/algorithms/cubic_mesh_normal_correction_test.cpp
   volumetricMesh/algorithms/cubic_mesh_refinement_test.cpp
+  volumetricMesh/algorithms/generate_mass_matrix_test.cpp
+  volumetricMesh/algorithms/mesh_interpolation_test.cpp
   volumetricMesh/materials/material_access_test.cpp
+  volumetricMesh/dispatch/any_mesh_ref_test.cpp
   volumetricMesh/traits/mesh_traits_test.cpp
   volumetricMesh/traits/mesh_concepts_test.cpp
   volumetricMesh/ops/tet_mesh_ops_test.cpp
@@ -36,6 +39,8 @@ set(CORE_SCENE_VOLUMETRIC_MESH_SOURCES
   volumetricMesh/io/material_serde_test.cpp
   volumetricMesh/io/mesh_parser_include_test.cpp
   volumetricMesh/internal/material_catalog_test.cpp
+  volumetricMesh/internal/mesh_mass_properties_test.cpp
+  volumetricMesh/internal/mesh_transforms_test.cpp
   volumetricMesh/internal/mesh_subset_editor_test.cpp
   volumetricMesh/internal/volumetric_mesh_data_test.cpp
 )
