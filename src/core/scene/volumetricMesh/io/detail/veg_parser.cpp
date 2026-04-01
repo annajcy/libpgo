@@ -30,45 +30,39 @@
  *                                                                       *
  *************************************************************************/
 
-#include "volumetricMeshParser.h"
+#include "io/detail/veg_parser.h"
+
 #include "fileIO.h"
 
+#include <cstdio>
+#include <cctype>
 #include <cstring>
 
-namespace pgo {
-namespace VolumetricMeshes {
+namespace pgo::VolumetricMeshes::io::detail {
 
-VolumetricMeshParser::VolumetricMeshParser(const char* includeToken_) {
-    fin = nullptr;
-    // fileStackDepth = -1;
-
-    while (!fileStack.empty())
+VolumetricMeshParser::VolumetricMeshParser(const char* include_token) {
+    while (!fileStack.empty()) {
         fileStack.pop_back();
+    }
 
-    if (includeToken_ == nullptr) {
+    if (include_token == nullptr) {
         includeTokenLength = 9;
         strcpy(includeToken, "*INCLUDE ");
     } else {
-        includeTokenLength = strlen(includeToken_);
-        strcpy(includeToken, includeToken_);
+        includeTokenLength = strlen(include_token);
+        strcpy(includeToken, include_token);
     }
 }
 
 int VolumetricMeshParser::open(const char* filename) {
-    // extract directory name and filename
-    // seek for last '/' in filename
-    // if no '/', then directory name is "."
-    // else, everything before '/' is directory name, and everything after is filename
     directoryName = BasicAlgorithms::getPathDirectoryName(filename);
 
-    // now, directoryName has been extracted
     fin = fopen(filename, "r");
-    if (!fin)
+    if (!fin) {
         return 1;
+    }
 
-    // fileStackDepth=0;
     fileStack.push_back(fin);
-
     return 0;
 }
 
@@ -77,131 +71,115 @@ VolumetricMeshParser::~VolumetricMeshParser() {
 }
 
 void VolumetricMeshParser::rewindToStart() {
-    if (fileStack.empty())  // no files currently opened
+    if (fileStack.empty()) {
         return;
+    }
 
     while (fileStack.size() > 1) {
-        fclose(fileStack[fileStack.size() - 1]);
+        fclose(fileStack.back());
         fileStack.pop_back();
     }
 
-    // now, we have fileStackDepth == 0
     fin = fileStack[0];
     rewind(fin);
 }
 
 void VolumetricMeshParser::close() {
-    while (fileStack.size() > 0) {
-        fclose(fileStack[fileStack.size() - 1]);
+    while (!fileStack.empty()) {
+        fclose(fileStack.back());
         fileStack.pop_back();
     }
 }
 
-void VolumetricMeshParser::beautifyLine(char* s, int numRetainedSpaces, int removeWhitespace_) {
-    if (removeWhitespace_)
-        removeWhitespace(s, numRetainedSpaces);
+void VolumetricMeshParser::beautifyLine(char* s, int num_retained_spaces, int remove_whitespace) {
+    if (remove_whitespace) {
+        removeWhitespace(s, num_retained_spaces);
+    }
 
-    // upperCase(s);
-
-    // remove trailing '\n'
     char* pos = s;
-    while (*pos != '\0')
+    while (*pos != '\0') {
         pos++;
+    }
 
-    if (pos != s)  // string is not zero length
-    {
-        for (pos--; pos != s && std::isspace(*pos); *pos = '\0')
-            ;
+    if (pos != s) {
+        for (pos--; pos != s && std::isspace(*pos); *pos = '\0') {
+        }
     }
 }
 
-char* VolumetricMeshParser::getNextLine(char* s, int numRetainedSpaces, int removeWhitespace_) {
+char* VolumetricMeshParser::getNextLine(char* s, int num_retained_spaces, int remove_whitespace) {
     char* code;
     do {
-        while (((code = fgets(s, 1023, fin)) == nullptr) &&
-               (fileStack.size() > 1))  // if EOF, pop previous file from stack
-        {
+        while (((code = fgets(s, 1023, fin)) == nullptr) && (fileStack.size() > 1)) {
             fclose(fin);
             fileStack.pop_back();
-            fin = fileStack[fileStack.size() - 1];
+            fin = fileStack.back();
         }
 
-        if (code == nullptr)  // reached end of main file
-        {
+        if (code == nullptr) {
             return nullptr;
         }
-    } while ((s[0] == '#') || (s[0] == 13) || (s[0] == 10));  // ignore comments and blank lines
+    } while ((s[0] == '#') || (s[0] == 13) || (s[0] == 10));
 
-    beautifyLine(s, numRetainedSpaces, removeWhitespace_);
+    beautifyLine(s, num_retained_spaces, remove_whitespace);
 
-    // handle the case where input is specified via *INCLUDE
     while (strncmp(s, includeToken, includeTokenLength) == 0) {
-        // open up the new file
-        std::string newFile             = &(s[includeTokenLength]);
-        std::string newFileCompleteName = directoryName + "/" + newFile;
-        FILE*       finNew              = fopen(newFileCompleteName.data(), "r");
+        std::string new_file = &(s[includeTokenLength]);
+        std::string new_file_complete_name = directoryName + "/" + new_file;
+        FILE* new_fin = fopen(new_file_complete_name.data(), "r");
 
-        if (!finNew) {
-            printf("Error: couldn't open include file %s.\n", newFileCompleteName.c_str());
-            // exit(1);
+        if (!new_fin) {
+            printf("Error: couldn't open include file %s.\n", new_file_complete_name.c_str());
             close();
             throw -1;
         }
 
-        if ((code = fgets(s, 1023, finNew)) != nullptr)  // new file is not empty
-        {
-            beautifyLine(s, numRetainedSpaces, removeWhitespace_);
-
-            // register the new file
-            fileStack.push_back(finNew);
-            fin = finNew;
+        if ((code = fgets(s, 1023, new_fin)) != nullptr) {
+            beautifyLine(s, num_retained_spaces, remove_whitespace);
+            fileStack.push_back(new_fin);
+            fin = new_fin;
         } else {
-            fclose(finNew);
+            fclose(new_fin);
             printf("Warning: include file is empty.\n");
-            code = getNextLine(s, numRetainedSpaces);
-            beautifyLine(s, numRetainedSpaces, removeWhitespace_);
+            code = getNextLine(s, num_retained_spaces);
+            beautifyLine(s, num_retained_spaces, remove_whitespace);
             return code;
         }
     }
 
-    // printf("%s\n", s);
-
     return code;
 }
 
-// convert string to uppercase
 void VolumetricMeshParser::upperCase(char* s) {
-    char caseDifference = 'A' - 'a';
+    char case_difference = 'A' - 'a';
     for (unsigned int i = 0; i < strlen(s); i++) {
-        if ((s[i] >= 'a') && (s[i] <= 'z'))
-            s[i] += caseDifference;
+        if ((s[i] >= 'a') && (s[i] <= 'z')) {
+            s[i] += case_difference;
+        }
     }
 }
 
-// erases whitespace from string s
-// retains the first "numRetainedSpaces" spaces
-void VolumetricMeshParser::removeWhitespace(char* s, int numRetainedSpaces) {
+void VolumetricMeshParser::removeWhitespace(char* s, int num_retained_spaces) {
     char* p = s;
     while (*p != 0) {
         while (1) {
-            bool eraseCharacter = (*p == ' ');
-            for (int i = 1; i <= numRetainedSpaces; i++) {
+            bool erase_character = (*p == ' ');
+            for (int i = 1; i <= num_retained_spaces; i++) {
                 if (*(p + i) == 0) {
-                    eraseCharacter = false;
+                    erase_character = false;
                     break;
                 }
-                eraseCharacter = (eraseCharacter &&
-                                  ((p == s) || (*(p + i) == ' ')));  // always erase spaces at the beginning of line
+                erase_character =
+                    erase_character && ((p == s) || (*(p + i) == ' '));
             }
 
-            if (!eraseCharacter)
+            if (!erase_character) {
                 break;
+            }
 
-            // erase the empty space
             char* q = p;
-            while (*q != 0)  // move all subsequent characters to the left
-            {
-                *q = *(q + 1);  // copy the next character into the current place
+            while (*q != 0) {
+                *q = *(q + 1);
                 q++;
             }
         }
@@ -209,5 +187,4 @@ void VolumetricMeshParser::removeWhitespace(char* s, int numRetainedSpaces) {
     }
 }
 
-}  // namespace VolumetricMeshes
-}  // namespace pgo
+}  // namespace pgo::VolumetricMeshes::io::detail

@@ -1,5 +1,9 @@
 set(VOLUMETRIC_MESH_H
   cubicMesh.h
+  io/detail/tetgen_reader.h
+  io/detail/veg_parser.h
+  io/mesh_ascii_reader.h
+  io/mesh_ascii_writer.h
   io/material_serde.h
   io/mesh_format_detector.h
   io/mesh_io_types.h
@@ -20,13 +24,16 @@ set(VOLUMETRIC_MESH_H
   volumetricMeshInterpolation.h
   volumetricMeshMooneyRivlinMaterial.h
   volumetricMeshOrthotropicMaterial.h
-  volumetricMeshParser.h
   volumetricMeshTypes.h
   generateMassMatrix.h
   generateSurfaceMesh.h
 )
 set(VOLUMETRIC_MESH_SRC
   cubicMesh.cpp
+  io/detail/tetgen_reader.cpp
+  io/detail/veg_parser.cpp
+  io/mesh_ascii_reader.cpp
+  io/mesh_ascii_writer.cpp
   io/material_serde.cpp
   io/mesh_format_detector.cpp
   internal/material_catalog.cpp
@@ -46,7 +53,6 @@ set(VOLUMETRIC_MESH_SRC
   volumetricMeshInterpolation.cpp
   volumetricMeshMooneyRivlinMaterial.cpp
   volumetricMeshOrthotropicMaterial.cpp
-  volumetricMeshParser.cpp
   generateMassMatrix.cpp
   generateSurfaceMesh.cpp
 )

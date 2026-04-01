@@ -32,49 +32,36 @@
 
 #pragma once
 
-#include <vector>
+#include <cstdio>
 #include <string>
+#include <vector>
 
-/*
-  A parser for the volumetric mesh text file format.
-  Note: the end user never needs to use this class directly.
-  See volumetricMesh.h .
-*/
-
-namespace pgo {
-namespace VolumetricMeshes {
+namespace pgo::VolumetricMeshes::io::detail {
 
 class VolumetricMeshParser {
 public:
-    VolumetricMeshParser(const char* includeToken = nullptr);  // pass nullptr for normal usage
+    VolumetricMeshParser(const char* include_token = nullptr);
     ~VolumetricMeshParser();
 
     int open(const char* filename);
 
-    // return the next line, s must be externally allocated string
-    // if last line, return will be nullptr
-    char* getNextLine(char* s, int numRetainedSpaces = 0, int removeWhitespace = 1);
+    char* getNextLine(char* s, int num_retained_spaces = 0, int remove_whitespace = 1);
 
     void rewindToStart();
     void close();
 
     static void upperCase(char* s);
-    static void removeWhitespace(
-        char* s, int numRetainedSpaces = 0);  // any whitespace equal in length or longer to "numRetainedSpaces" is
-                                              // shrunk to "numRetainedSpaces" and retained
-    static void beautifyLine(char* s, int numRetainedSpaces,
-                             int removeWhitespace = 1);  // strip whitespace + removes trailing "\n"
+    static void removeWhitespace(char* s, int num_retained_spaces = 0);
+    static void beautifyLine(char* s, int num_retained_spaces, int remove_whitespace = 1);
 
 protected:
     FILE*              fin = nullptr;
     std::vector<FILE*> fileStack;
-    // int fileStackDepth;
 
     std::string directoryName;
 
-    char includeToken[96];    // normally "*INCLUDE "
-    int  includeTokenLength;  // normally 9
+    char includeToken[96];
+    int  includeTokenLength;
 };
 
-}  // namespace VolumetricMeshes
-}  // namespace pgo
+}  // namespace pgo::VolumetricMeshes::io::detail

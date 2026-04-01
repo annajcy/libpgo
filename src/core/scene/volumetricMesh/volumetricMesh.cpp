@@ -30,7 +30,6 @@
  *                                                                       *
  *************************************************************************/
 
-#include "volumetricMeshParser.h"
 #include "volumetricMesh.h"
 #include "internal/material_catalog.h"
 #include "internal/mesh_mass_properties.h"

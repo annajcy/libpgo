@@ -31,9 +31,9 @@
  *************************************************************************/
 
 #include "tetMesh.h"
+#include "io/detail/tetgen_reader.h"
 #include "io/mesh_io_types.h"
 #include "volumetricMeshIO.h"
-#include "volumetricMeshParser.h"
 #include "geometryQuery.h"
 #include "tetMeshGeo.h"
 #include "predicates.h"
@@ -67,65 +67,7 @@ TetMesh::TetMesh(const std::filesystem::path& filename, int specialFileType, int
         printf("Unknown special file type %d requested.\n", specialFileType);
         throw 1;
     }
-
-    char                 lineBuffer[1024];
-    VolumetricMeshParser parser;
-
-    // first, read the vertices
-    sprintf(lineBuffer, "%s.node", filename.string().c_str());
-    if (parser.open(lineBuffer) != 0)
-        throw 2;
-
-    parser.getNextLine(lineBuffer, 1);
-    int dim;
-    int num_vertices = 0;
-    sscanf(lineBuffer, "%d %d", &num_vertices, &dim);
-    if (dim != 3)
-        throw 3;
-
-    std::vector<Vec3d> vertices(num_vertices);
-    for (int i = 0; i < num_vertices; i++) {
-        parser.getNextLine(lineBuffer, 1);
-        int    index;
-        double x, y, z;
-        sscanf(lineBuffer, "%d %lf %lf %lf", &index, &x, &y, &z);
-        if (index != (i + 1))
-            throw 3;
-        vertices[static_cast<size_t>(i)] = Vec3d(x, y, z);
-    }
-
-    parser.close();
-
-    // next, read the elements
-    sprintf(lineBuffer, "%s.ele", filename.string().c_str());
-    if (parser.open(lineBuffer) != 0)
-        throw 4;
-
-    parser.getNextLine(lineBuffer, 1);
-    int num_elements = 0;
-    sscanf(lineBuffer, "%d %d", &num_elements, &dim);
-    if (dim != 4) {
-        printf("Error: not a tet mesh file (%d vertices per tet encountered).\n", dim);
-        throw 5;
-    }
-
-    std::vector<int> elements(static_cast<size_t>(4 * num_elements));
-
-    for (int i = 0; i < num_elements; i++) {
-        parser.getNextLine(lineBuffer, 1);
-        int index;
-        int v[4];
-        sscanf(lineBuffer, "%d %d %d %d %d", &index, &v[0], &v[1], &v[2], &v[3]);
-        if (index != (i + 1))
-            throw 6;
-        for (int j = 0; j < 4; j++)  // vertices are 1-indexed in .ele files
-            elements[static_cast<size_t>(i * 4 + j)] = v[j] - 1;
-    }
-
-    parser.close();
-
-    geometry_data() = internal::VolumetricMeshData(4, std::move(vertices), std::move(elements));
-    setSingleMaterial(E_default, nu_default, density_default);
+    assignFromData(io::detail::read_tetgen_mesh(filename, verbose), verbose);
 }
 
 TetMesh::TetMesh(const Vec3d& p0, const Vec3d& p1, const Vec3d& p2, const Vec3d& p3) : VolumetricMesh(4) {

@@ -1,19 +1,15 @@
 #include "volumetricMeshIO.h"
 
+#include "io/mesh_ascii_reader.h"
+#include "io/mesh_ascii_writer.h"
 #include "io/material_serde.h"
 #include "io/mesh_format_detector.h"
 #include "io/mesh_io_types.h"
 
 #include "cubicMesh.h"
 #include "tetMesh.h"
-#include "volumetricMeshParser.h"
-
-#include "stringHelper.h"
 
 #include <cmath>
-#include <cctype>
-#include <cstdio>
-#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -99,312 +95,6 @@ LoadedMeshData make_loaded_mesh_data(RawLoadedMeshData raw, int verbose) {
     internal::MaterialCatalog material_catalog(std::move(raw.materials), std::move(raw.sets), std::move(raw.regions),
                                                geometry.num_elements(), verbose);
     return LoadedMeshData{raw.element_type, std::move(geometry), std::move(material_catalog)};
-}
-
-LoadedMeshData load_ascii_data(const std::filesystem::path& filename, int verbose) {
-    const std::string filenameString = filename.string();
-    const char*       filenameCStr   = filenameString.c_str();
-
-    VolumetricMeshParser parser;
-    if (parser.open(filenameCStr) != 0) {
-        printf("Error: could not open file %s.\n", filenameCStr);
-        throw 1;
-    }
-
-    RawLoadedMeshData data;
-
-    int countNumVertices = 0;
-    int countNumElements = 0;
-    int numVertices = -1;
-    int numElements = -1;
-    int numMaterials = 0;
-    int numSets = 1;
-    int numRegions = 0;
-    int parseState = 0;
-    int oneIndexedVertices = 1;
-    int oneIndexedElements = 1;
-    char lineBuffer[1024];
-
-    while (parser.getNextLine(lineBuffer, 0, 0) != nullptr) {
-        if ((parseState == 0) && (strncmp(lineBuffer, "*VERTICES", 9) == 0)) {
-            parseState = 1;
-
-            if (parser.getNextLine(lineBuffer, 0, 0) != nullptr) {
-                sscanf(lineBuffer, "%d", &numVertices);
-                data.vertices.resize(static_cast<size_t>(numVertices));
-            } else {
-                printf("Error: file %s is not in the .veg format. Offending line:\n%s\n", filenameCStr, lineBuffer);
-                throw 2;
-            }
-            continue;
-        }
-
-        if ((parseState == 1) && (strncmp(lineBuffer, "*ELEMENTS", 9) == 0)) {
-            parseState = 2;
-
-            if (parser.getNextLine(lineBuffer) != nullptr) {
-                parser.removeWhitespace(lineBuffer);
-
-                if (strncmp(lineBuffer, "TET", 3) == 0)
-                data.element_type = TET;
-                else if (strncmp(lineBuffer, "CUBIC", 5) == 0)
-                    data.element_type = CUBIC;
-                else {
-                    printf("Error: unknown mesh type %s in file %s\n", lineBuffer, filenameCStr);
-                    throw 3;
-                }
-
-                data.num_element_vertices = vertices_per_element(data.element_type);
-            } else {
-                printf("Error: file %s is not in the .veg format. Offending line:\n%s\n", filenameCStr, lineBuffer);
-                throw 4;
-            }
-
-            if (parser.getNextLine(lineBuffer, 0, 0) != nullptr) {
-                sscanf(lineBuffer, "%d", &numElements);
-                data.elements.resize(static_cast<size_t>(numElements * data.num_element_vertices));
-            } else {
-                printf("Error: file %s is not in the .veg format. Offending line:\n%s\n", filenameCStr, lineBuffer);
-                throw 5;
-            }
-            continue;
-        }
-
-        if ((parseState == 2) && (lineBuffer[0] == '*'))
-            parseState = 3;
-
-        if (parseState == 1) {
-            if (countNumVertices >= numVertices) {
-                printf("Error: mismatch in the number of vertices in %s.\n", filenameCStr);
-                throw 6;
-            }
-
-            char* ch = lineBuffer;
-            while ((*ch == ' ') || (*ch == ',') || (*ch == '\t'))
-                ch++;
-
-            int index = -1;
-            sscanf(ch, "%d", &index);
-            while ((*ch != ' ') && (*ch != ',') && (*ch != '\t') && (*ch != 0))
-                ch++;
-
-            if (index == 0)
-                oneIndexedVertices = 0;
-
-            double pos[3];
-            for (int i = 0; i < 3; i++) {
-                while ((*ch == ' ') || (*ch == ',') || (*ch == '\t'))
-                    ch++;
-
-                if (*ch == 0) {
-                    printf("Error parsing line %s in file %s.\n", lineBuffer, filenameCStr);
-                    throw 7;
-                }
-
-                sscanf(ch, "%lf", &pos[i]);
-                while ((*ch != ' ') && (*ch != ',') && (*ch != '\t') && (*ch != 0))
-                    ch++;
-            }
-
-            data.vertices[static_cast<size_t>(countNumVertices)] = Vec3d(pos);
-            countNumVertices++;
-        }
-
-        if (parseState == 2) {
-            if (countNumElements >= numElements) {
-                printf("Error: mismatch in the number of elements in %s.\n", filenameCStr);
-                throw 8;
-            }
-
-            char* ch = lineBuffer;
-            while ((*ch == ' ') || (*ch == ',') || (*ch == '\t'))
-                ch++;
-
-            int index = -1;
-            sscanf(ch, "%d", &index);
-            if (index == 0)
-                oneIndexedElements = 0;
-
-            while ((*ch != ' ') && (*ch != ',') && (*ch != '\t') && (*ch != 0))
-                ch++;
-
-            for (int i = 0; i < data.num_element_vertices; i++) {
-                while ((*ch == ' ') || (*ch == ',') || (*ch == '\t'))
-                    ch++;
-
-                if (*ch == 0) {
-                    printf("Error parsing line %s in file %s.\n", lineBuffer, filenameCStr);
-                    throw 9;
-                }
-
-                int vertexIndex = -1;
-                sscanf(ch, "%d", &vertexIndex);
-                data.elements[static_cast<size_t>(countNumElements * data.num_element_vertices + i)] =
-                    vertexIndex - oneIndexedVertices;
-
-                while ((*ch != ' ') && (*ch != ',') && (*ch != '\t') && (*ch != 0))
-                    ch++;
-            }
-
-            countNumElements++;
-        }
-
-        if (strncmp(lineBuffer, "*MATERIAL", 9) == 0)
-            numMaterials++;
-        if (strncmp(lineBuffer, "*SET", 4) == 0)
-            numSets++;
-        if (strncmp(lineBuffer, "*REGION", 7) == 0)
-            numRegions++;
-    }
-
-    if (numElements < 0) {
-        printf("Error: incorrect number of elements. File %s may not be in the .veg format.\n", filenameCStr);
-        throw 10;
-    }
-
-    parser.rewindToStart();
-
-    if (verbose) {
-        if (numMaterials == 0)
-            printf("Warning: no materials encountered in %s.\n", filenameCStr);
-        if (numRegions == 0)
-            printf("Warning: no regions encountered in %s.\n", filenameCStr);
-    }
-
-    data.materials.resize(static_cast<size_t>(numMaterials));
-    data.sets.resize(static_cast<size_t>(numSets));
-    data.regions.resize(static_cast<size_t>(numRegions));
-    data.sets[0] = VolumetricMesh::generateAllElementsSet(numElements);
-
-    int countNumMaterials = 0;
-    int countNumSets = 1;
-    int countNumRegions = 0;
-
-    std::map<std::string, int> materialMap;
-    std::map<std::string, int> setMap;
-    setMap.insert(std::pair<std::string, int>(data.sets[0].getName(), 0));
-
-    parseState = 0;
-
-    while (parser.getNextLine(lineBuffer, 0, 0) != nullptr) {
-        if ((parseState == 11) && (lineBuffer[0] == '*'))
-            parseState = 0;
-
-        if ((parseState == 0) && (strncmp(lineBuffer, "*MATERIAL", 9) == 0)) {
-            parser.removeWhitespace(lineBuffer);
-
-            char materialNameC[4096];
-            strcpy(materialNameC, &lineBuffer[9]);
-
-            char materialSpecification[4096];
-            if (parser.getNextLine(lineBuffer) != nullptr) {
-                parser.removeWhitespace(lineBuffer);
-                sscanf(lineBuffer, "%s", materialSpecification);
-            } else {
-                printf("Error: incorrect material in file %s. Offending line:\n%s\n", filenameCStr, lineBuffer);
-                throw 11;
-            }
-
-            char* ch = materialSpecification;
-            while ((*ch != ',') && (*ch != 0))
-                ch++;
-
-            if (*ch == 0) {
-                printf("Error parsing file %s. Offending line: %s.\n", filenameCStr, lineBuffer);
-                throw 12;
-            }
-
-            std::string name(materialNameC);
-            data.materials[static_cast<size_t>(countNumMaterials)] =
-                detail::parse_ascii_material(name, materialSpecification, filename, lineBuffer);
-            materialMap.insert(std::pair<std::string, int>(name, countNumMaterials));
-
-            countNumMaterials++;
-        }
-
-        if ((parseState == 0) && (strncmp(lineBuffer, "*REGION", 7) == 0)) {
-            parser.removeWhitespace(lineBuffer);
-
-            char setNameC[4096];
-            char materialNameC[4096];
-
-            if (parser.getNextLine(lineBuffer) != nullptr) {
-                parser.removeWhitespace(lineBuffer);
-
-                char* ch = lineBuffer;
-                while ((*ch != ',') && (*ch != 0))
-                    ch++;
-
-                if (*ch == 0) {
-                    printf("Error parsing file %s. Offending line: %s.\n", filenameCStr, lineBuffer);
-                    throw 17;
-                }
-
-                *ch = 0;
-                strcpy(setNameC, lineBuffer);
-                *ch = ',';
-                ch++;
-                strcpy(materialNameC, ch);
-            } else {
-                printf("Error: file %s is not in the .veg format. Offending line:\n%s\n", filenameCStr, lineBuffer);
-                throw 18;
-            }
-
-            int setNum = -1;
-            auto it = setMap.find(std::string(setNameC));
-            if (it != setMap.end()) {
-                setNum = it->second;
-            } else {
-                printf("Error: set \"%s\" not found among the sets.\n", setNameC);
-                printf("All existing sets:\n");
-                for (const auto& p : setMap)
-                    printf("%i: \"%s\"\n", p.second, p.first.c_str());
-                printf("\n");
-                throw 19;
-            }
-
-            int materialNum = -1;
-            it = materialMap.find(std::string(materialNameC));
-            if (it != materialMap.end()) {
-                materialNum = it->second;
-            } else {
-                printf("Error: material %s not found among the materials.\n", materialNameC);
-                throw 20;
-            }
-
-            data.regions[static_cast<size_t>(countNumRegions)] = VolumetricMesh::Region(materialNum, setNum);
-            countNumRegions++;
-        }
-
-        if (parseState == 11) {
-            parser.removeWhitespace(lineBuffer);
-
-            char* pch = strtok(lineBuffer, ",");
-            while ((pch != nullptr) && (isdigit(*pch))) {
-                int newElement = atoi(pch);
-                int ind = newElement - oneIndexedElements;
-                if (ind >= numElements || ind < 0) {
-                    printf("Error: set element index: %d out of bounds.\n", newElement);
-                    throw 21;
-                }
-                data.sets[static_cast<size_t>(countNumSets - 1)].insert(ind);
-                pch = strtok(nullptr, ",");
-            }
-        }
-
-        if ((parseState == 0) && (strncmp(lineBuffer, "*SET", 4) == 0)) {
-            parser.removeWhitespace(lineBuffer);
-
-            std::string name(BasicAlgorithms::stripLight(&lineBuffer[4]));
-            data.sets[static_cast<size_t>(countNumSets)] = VolumetricMesh::Set(name);
-            setMap.insert(std::pair<std::string, int>(name, countNumSets));
-            countNumSets++;
-            parseState = 11;
-        }
-    }
-
-    parser.close();
-    return make_loaded_mesh_data(std::move(data), verbose);
 }
 
 LoadedMeshData load_binary_data(std::istream& binaryInputStream) {
@@ -527,7 +217,7 @@ LoadedMeshData load_data(const std::filesystem::path& filename, FileFormatType f
 
     switch (fileFormat) {
         case ASCII:
-            return load_ascii_data(filename, verbose);
+            return detail::read_ascii_mesh(filename, verbose);
         case BINARY: {
             std::ifstream stream(filename, std::ios::binary);
             if (!stream) {
@@ -540,70 +230,6 @@ LoadedMeshData load_data(const std::filesystem::path& filename, FileFormatType f
             printf("Error in io::load_data: file format is unknown.\n");
             throw 1;
     }
-}
-
-void save_ascii_impl(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
-    FILE* fout = fopen(filename.string().c_str(), "w");
-    if (!fout) {
-        printf("Error: could not write to %s.\n", filename.string().c_str());
-        throw std::runtime_error("Failed to open ascii mesh file.");
-    }
-
-    fprintf(fout, "# Vega mesh file.\n");
-    fprintf(fout, "# %d vertices, %d elements\n\n", mesh.getNumVertices(), mesh.getNumElements());
-
-    fprintf(fout, "*VERTICES\n");
-    fprintf(fout, "%d 3 0 0\n", mesh.getNumVertices());
-    for (int i = 0; i < mesh.getNumVertices(); i++) {
-        const Vec3d& v = mesh.getVertex(i);
-        fprintf(fout, "%d %.15G %.15G %.15G\n", i + 1, v[0], v[1], v[2]);
-    }
-    fprintf(fout, "\n");
-
-    fprintf(fout, "*ELEMENTS\n");
-    fprintf(fout, "%s\n", mesh.getElementType() == TET ? "TET" : "CUBIC");
-    fprintf(fout, "%d %d 0\n", mesh.getNumElements(), mesh.getNumElementVertices());
-    for (int el = 0; el < mesh.getNumElements(); el++) {
-        fprintf(fout, "%d ", el + 1);
-        for (int j = 0; j < mesh.getNumElementVertices(); j++) {
-            fprintf(fout, "%d", mesh.getVertexIndex(el, j) + 1);
-            if (j != mesh.getNumElementVertices() - 1)
-                fprintf(fout, " ");
-        }
-        fprintf(fout, "\n");
-    }
-    fprintf(fout, "\n");
-
-    for (int materialIndex = 0; materialIndex < mesh.getNumMaterials(); materialIndex++) {
-        detail::write_ascii_material(fout, *mesh.getMaterial(materialIndex));
-    }
-
-    for (int setIndex = 1; setIndex < mesh.getNumSets(); setIndex++) {
-        const auto& set = mesh.getSet(setIndex);
-        fprintf(fout, "*SET %s\n", set.getName().c_str());
-        int count = 0;
-        for (int el : set.getElements()) {
-            fprintf(fout, "%d, ", el + 1);
-            count++;
-            if (count == 8) {
-                fprintf(fout, "\n");
-                count = 0;
-            }
-        }
-        if (count != 0)
-            fprintf(fout, "\n");
-        fprintf(fout, "\n");
-    }
-
-    for (int regionIndex = 0; regionIndex < mesh.getNumRegions(); regionIndex++) {
-        const auto& region = mesh.getRegion(regionIndex);
-        fprintf(fout, "*REGION\n");
-        fprintf(fout, "%s, %s\n", mesh.getSet(region.getSetIndex()).getName().c_str(),
-                mesh.getMaterial(region.getMaterialIndex())->getName().c_str());
-        fprintf(fout, "\n");
-    }
-
-    fclose(fout);
 }
 
 void save_binary_impl(const VolumetricMesh& mesh, std::ostream& out, unsigned int* bytesWritten) {
@@ -716,7 +342,7 @@ int save(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
 
 int save_to_ascii(const VolumetricMesh& mesh, const std::filesystem::path& filename) {
     try {
-        save_ascii_impl(mesh, filename);
+        detail::write_ascii_mesh(mesh, filename);
         return 0;
     } catch (...) {
         return 1;

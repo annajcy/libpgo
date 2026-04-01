@@ -1,6 +1,6 @@
 #include "io/mesh_format_detector.h"
 
-#include "volumetricMeshParser.h"
+#include "io/detail/veg_parser.h"
 
 #include "stringHelper.h"
 
