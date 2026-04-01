@@ -17,6 +17,8 @@ set(CORE_SCENE_VOLUMETRIC_MESH_SOURCES
   volumetricMesh/algorithms/cubic_mesh_normal_correction_test.cpp
   volumetricMesh/algorithms/cubic_mesh_refinement_test.cpp
   volumetricMesh/materials/material_access_test.cpp
+  volumetricMesh/traits/mesh_traits_test.cpp
+  volumetricMesh/traits/mesh_concepts_test.cpp
   volumetricMesh/ops/tet_mesh_ops_test.cpp
   volumetricMesh/ops/cubic_mesh_ops_test.cpp
   volumetricMesh/ops/element_face_ops_test.cpp

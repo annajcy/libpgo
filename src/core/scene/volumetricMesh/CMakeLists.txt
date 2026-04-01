@@ -40,6 +40,9 @@ set(VOLUMETRIC_MESH_H
   ops/tet_mesh_ops.h
   storage/mesh_storage.h
   tetMesh.h
+  traits/mesh_tags.h
+  traits/mesh_traits.h
+  concepts/mesh_concepts.h
   types/element_set.h
   types/element_types.h
   types/interpolation_weights.h

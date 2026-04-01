@@ -40,6 +40,7 @@
 #include "internal/mesh_mutation.h"
 #include "ops/mesh_construction.h"
 #include "ops/cubic_mesh_ops.h"
+#include "traits/mesh_traits.h"
 
 #include "triple.h"
 #include "pgoLogging.h"
@@ -52,6 +53,8 @@
 
 namespace pgo {
 namespace VolumetricMeshes {
+
+using CubicMeshTraits = traits::mesh_traits<CubicMesh>;
 
 namespace {
 std::vector<int> flattenCubicElements(std::span<const CubicElement> elements) {
@@ -216,7 +219,7 @@ void CubicMesh::set_storage(storage::MeshStorage storage) {
 }
 
 bool CubicMesh::containsVertex(int element, Vec3d pos) const {
-    return ops::contains_vertex(*this, element, pos);
+    return CubicMeshTraits::contains_vertex(*this, element, pos);
 }
 
 // interpolates given cubic mesh vertex 3D data to the destination locations
@@ -244,7 +247,7 @@ int CubicMesh::normalCorrection(double* vertexData, int numInterpolationLocation
 }
 
 void CubicMesh::interpolateGradient(int element, const double* U, int numFields, Vec3d pos, double* grad) const {
-    ops::interpolate_gradient(*this, element, U, numFields, pos, grad);
+    CubicMeshTraits::interpolate_gradient(*this, element, U, numFields, pos, grad);
 }
 
 void CubicMesh::computeAlphaBetaGamma(int el, Vec3d pos, double* alpha, double* beta, double* gamma) const {
@@ -252,27 +255,27 @@ void CubicMesh::computeAlphaBetaGamma(int el, Vec3d pos, double* alpha, double* 
 }
 
 void CubicMesh::computeBarycentricWeights(int el, const Vec3d& pos, double* weights) const {
-    ops::compute_barycentric_weights(*this, el, pos, weights);
+    CubicMeshTraits::compute_barycentric_weights(*this, el, pos, weights);
 }
 
 double CubicMesh::getElementVolume(int el) const {
-    return ops::element_volume(*this, el);
+    return CubicMeshTraits::element_volume(*this, el);
 }
 
 void CubicMesh::getElementInertiaTensor(int el, Mat3d& inertiaTensor) const {
-    ops::element_inertia_tensor(*this, el, inertiaTensor);
+    CubicMeshTraits::element_inertia_tensor(*this, el, inertiaTensor);
 }
 
 int CubicMesh::getNumElementEdges() const {
-    return ops::num_element_edges(*this);
+    return CubicMeshTraits::num_element_edges(*this);
 }
 
 void CubicMesh::getElementEdges(int el, int* edgeBuffer) const {
-    ops::fill_element_edges(*this, el, edgeBuffer);
+    CubicMeshTraits::fill_element_edges(*this, el, edgeBuffer);
 }
 
 void CubicMesh::computeElementMassMatrix(int el, double* massMatrix) const {
-    ops::compute_element_mass_matrix(*this, el, massMatrix);
+    CubicMeshTraits::compute_element_mass_matrix(*this, el, massMatrix);
 }
 
 void CubicMesh::subdivide() {

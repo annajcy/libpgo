@@ -37,9 +37,12 @@
 #include "io/mesh_io_types.h"
 #include "ops/mesh_construction.h"
 #include "ops/tet_mesh_ops.h"
+#include "traits/mesh_traits.h"
 
 namespace pgo {
 namespace VolumetricMeshes {
+
+using TetMeshTraits = traits::mesh_traits<TetMesh>;
 
 namespace {
 std::vector<int> flattenTetElements(std::span<const Vec4i> elements) {
@@ -141,7 +144,7 @@ void TetMesh::set_storage(storage::MeshStorage storage) {
 }
 
 void TetMesh::computeElementMassMatrix(int el, double* massMatrix) const {
-    ops::compute_element_mass_matrix(*this, el, massMatrix);
+    TetMeshTraits::compute_element_mass_matrix(*this, el, massMatrix);
 }
 
 double TetMesh::getSignedTetVolume(const Vec3d& a, const Vec3d& b, const Vec3d& c, const Vec3d& d) {
@@ -153,16 +156,16 @@ double TetMesh::getTetVolume(const Vec3d& a, const Vec3d& b, const Vec3d& c, con
 }
 
 double TetMesh::getElementVolume(int el) const {
-    return ops::element_volume(*this, el);
+    return TetMeshTraits::element_volume(*this, el);
 }
 
 void TetMesh::getElementInertiaTensor(int el, Mat3d& inertiaTensor) const {
-    ops::element_inertia_tensor(*this, el, inertiaTensor);
+    TetMeshTraits::element_inertia_tensor(*this, el, inertiaTensor);
 }
 
 bool TetMesh::containsVertex(int el, Vec3d pos) const  // true if given element contain given position, false otherwise
 {
-    return ops::contains_vertex(*this, el, pos);
+    return TetMeshTraits::contains_vertex(*this, el, pos);
 }
 
 void TetMesh::computeBarycentricWeights(const Vec3d tetVtxPos[4], const Vec3d& pos, double weights[4]) {
@@ -175,7 +178,7 @@ void TetMesh::computeBarycentricWeights(const Vec3d& tetVtxPos0, const Vec3d& te
 }
 
 void TetMesh::computeBarycentricWeights(int el, const Vec3d& pos, double* weights) const {
-    ops::compute_barycentric_weights(*this, el, pos, weights);
+    TetMeshTraits::compute_barycentric_weights(*this, el, pos, weights);
 }
 
 double TetMesh::getTetDeterminant(const Vec3d& a, const Vec3d& b, const Vec3d& c, const Vec3d& d) {
@@ -183,7 +186,7 @@ double TetMesh::getTetDeterminant(const Vec3d& a, const Vec3d& b, const Vec3d& c
 }
 
 void TetMesh::interpolateGradient(int element, const double* U, int numFields, Vec3d pos, double* grad) const {
-    computeGradient(element, U, numFields, grad);
+    TetMeshTraits::interpolate_gradient(*this, element, U, numFields, pos, grad);
 }
 
 void TetMesh::computeGradient(int element, const double* U, int numFields, double* grad) const {
@@ -191,11 +194,11 @@ void TetMesh::computeGradient(int element, const double* U, int numFields, doubl
 }
 
 int TetMesh::getNumElementEdges() const {
-    return ops::num_element_edges(*this);
+    return TetMeshTraits::num_element_edges(*this);
 }
 
 void TetMesh::getElementEdges(int el, int* edgeBuffer) const {
-    ops::fill_element_edges(*this, el, edgeBuffer);
+    TetMeshTraits::fill_element_edges(*this, el, edgeBuffer);
 }
 
 void TetMesh::orient() {
