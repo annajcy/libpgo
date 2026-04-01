@@ -4,6 +4,8 @@ set(VOLUMETRIC_MESH_H
   io/detail/veg_parser.h
   io/mesh_ascii_reader.h
   io/mesh_ascii_writer.h
+  io/mesh_binary_reader.h
+  io/mesh_binary_writer.h
   io/material_serde.h
   io/mesh_format_detector.h
   io/mesh_io_types.h
@@ -34,6 +36,8 @@ set(VOLUMETRIC_MESH_SRC
   io/detail/veg_parser.cpp
   io/mesh_ascii_reader.cpp
   io/mesh_ascii_writer.cpp
+  io/mesh_binary_reader.cpp
+  io/mesh_binary_writer.cpp
   io/material_serde.cpp
   io/mesh_format_detector.cpp
   internal/material_catalog.cpp
