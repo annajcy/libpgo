@@ -31,20 +31,6 @@ VolumetricMesh::ElementType detect_element_type(
 VolumetricMesh::ElementType detect_element_type(std::span<const std::byte> binaryData);
 VolumetricMesh::FileFormatType detect_file_format(const std::filesystem::path& filename);
 
-namespace detail {
-
-struct LoadedMeshData;
-
-VolumetricMesh::FileFormatType detect_file_format_by_ext(const std::filesystem::path& filename);
-LoadedMeshData load_tet_data(const std::filesystem::path& filename, VolumetricMesh::FileFormatType fileFormat,
-                             int verbose);
-LoadedMeshData load_tet_data(std::span<const std::byte> binaryData);
-LoadedMeshData load_cubic_data(const std::filesystem::path& filename, VolumetricMesh::FileFormatType fileFormat,
-                               int verbose);
-LoadedMeshData load_cubic_data(std::span<const std::byte> binaryData);
-
-}  // namespace detail
-
 }  // namespace io
 
 }  // namespace pgo::VolumetricMeshes

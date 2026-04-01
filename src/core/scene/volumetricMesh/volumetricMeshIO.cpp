@@ -5,6 +5,7 @@
 #include "io/mesh_binary_reader.h"
 #include "io/mesh_binary_writer.h"
 #include "io/mesh_format_detector.h"
+#include "io/mesh_loaders.h"
 
 #include "cubicMesh.h"
 #include "tetMesh.h"
@@ -76,28 +77,28 @@ LoadedMeshData load_data(const std::filesystem::path& filename, FileFormatType f
 
 namespace detail {
 
-LoadedMeshData load_tet_data(const std::filesystem::path& filename, VolumetricMesh::FileFormatType fileFormat,
+LoadedMeshData load_tet_data(const std::filesystem::path& filename, VolumetricMesh::FileFormatType file_format,
                              int verbose) {
-    LoadedMeshData data = load_data(filename, fileFormat, verbose);
+    LoadedMeshData data = load_data(filename, file_format, verbose);
     validate_loaded_data(data, TET);
     return data;
 }
 
-LoadedMeshData load_tet_data(std::span<const std::byte> binaryData) {
-    LoadedMeshData data = detail::read_binary_mesh(binaryData);
+LoadedMeshData load_tet_data(std::span<const std::byte> binary_data) {
+    LoadedMeshData data = detail::read_binary_mesh(binary_data);
     validate_loaded_data(data, TET);
     return data;
 }
 
-LoadedMeshData load_cubic_data(const std::filesystem::path& filename, VolumetricMesh::FileFormatType fileFormat,
+LoadedMeshData load_cubic_data(const std::filesystem::path& filename, VolumetricMesh::FileFormatType file_format,
                                int verbose) {
-    LoadedMeshData data = load_data(filename, fileFormat, verbose);
+    LoadedMeshData data = load_data(filename, file_format, verbose);
     validate_loaded_data(data, CUBIC);
     return data;
 }
 
-LoadedMeshData load_cubic_data(std::span<const std::byte> binaryData) {
-    LoadedMeshData data = detail::read_binary_mesh(binaryData);
+LoadedMeshData load_cubic_data(std::span<const std::byte> binary_data) {
+    LoadedMeshData data = detail::read_binary_mesh(binary_data);
     validate_loaded_data(data, CUBIC);
     return data;
 }

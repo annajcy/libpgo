@@ -32,8 +32,8 @@
 
 #include "tetMesh.h"
 #include "io/detail/tetgen_reader.h"
+#include "io/mesh_loaders.h"
 #include "io/mesh_io_types.h"
-#include "volumetricMeshIO.h"
 #include "geometryQuery.h"
 #include "tetMeshGeo.h"
 #include "predicates.h"

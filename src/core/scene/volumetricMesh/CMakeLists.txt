@@ -6,6 +6,7 @@ set(VOLUMETRIC_MESH_H
   io/mesh_ascii_writer.h
   io/mesh_binary_reader.h
   io/mesh_binary_writer.h
+  io/mesh_loaders.h
   io/material_serde.h
   io/mesh_format_detector.h
   io/mesh_io_types.h

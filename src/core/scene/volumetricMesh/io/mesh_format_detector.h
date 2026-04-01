@@ -1,6 +1,6 @@
 #pragma once
 
-#include "volumetricMeshIO.h"
+#include "volumetricMesh.h"
 
 #include <istream>
 

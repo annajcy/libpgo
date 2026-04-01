@@ -95,7 +95,7 @@ FileFormatType detect_file_format_by_ext(const std::filesystem::path& filename) 
 VolumetricMesh::ElementType detect_element_type(const std::filesystem::path& filename,
                                                 VolumetricMesh::FileFormatType file_format) {
     if (file_format == BY_EXT) {
-        file_format = detect_file_format(filename);
+        file_format = detail::detect_file_format_by_ext(filename);
         if (file_format == UNKNOWN) {
             printf("Unknown file extension when loading %s, try ASCII format...\n", filename.string().c_str());
             file_format = ASCII;
