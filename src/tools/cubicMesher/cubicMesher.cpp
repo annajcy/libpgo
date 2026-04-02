@@ -1,96 +1,30 @@
 #include "cubicMesh.h"
-#include "generateSurfaceMesh.h"
+#include "cubicMesherIO.h"
+#include "cubicMesherUtils.h"
 #include "pgoLogging.h"
-#include "triMeshGeo.h"
+#include "triangleMeshVoxelizer.h"
+#include "uniformCubicMeshGenerator.h"
 
 #include <argparse/argparse.hpp>
 
 #include <array>
-#include <cstdint>
 #include <iostream>
-#include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace {
-bool computeNumVoxels(int resolution, int& numVoxels) {
-    if (resolution <= 0) {
-        return false;
+std::optional<cubic_mesher::TriangleMeshClassifyMode> parseTriangleMeshClassifyMode(const std::string& value) {
+    if (value == "center") {
+        return cubic_mesher::TriangleMeshClassifyMode::Center;
     }
 
-    const int64_t n   = static_cast<int64_t>(resolution);
-    const int64_t num = n * n * n;
-    if (num > static_cast<int64_t>(std::numeric_limits<int>::max())) {
-        return false;
+    if (value == "conservative") {
+        return cubic_mesher::TriangleMeshClassifyMode::Conservative;
     }
 
-    numVoxels = static_cast<int>(num);
-    return true;
-}
-
-std::vector<int> buildUniformVoxelIndices(int resolution, int numVoxels) {
-    std::vector<int> voxels(static_cast<size_t>(numVoxels) * 3u);
-    int              idx = 0;
-
-    for (int i = 0; i < resolution; i++) {
-        for (int j = 0; j < resolution; j++) {
-            for (int k = 0; k < resolution; k++) {
-                voxels[idx * 3 + 0] = i;
-                voxels[idx * 3 + 1] = j;
-                voxels[idx * 3 + 2] = k;
-                idx++;
-            }
-        }
-    }
-
-    return voxels;
-}
-
-bool applyUniformTransform(pgo::VolumetricMeshes::CubicMesh& cubicMesh, double size,
-                           const std::vector<double>& offset) {
-    if (size <= 0.0) {
-        return false;
-    }
-
-    if (offset.size() != 3) {
-        return false;
-    }
-
-    if (size == 1.0 && offset[0] == 0.0 && offset[1] == 0.0 && offset[2] == 0.0) {
-        return true;
-    }
-
-    std::array<double, 3> translation = {offset[0], offset[1], offset[2]};
-    double                transform[9] = {size, 0.0, 0.0, 0.0, size, 0.0, 0.0, 0.0, size};
-    cubicMesh.applyLinearTransformation(translation.data(), transform);
-    return true;
-}
-
-bool writeSurfaceMesh(const pgo::VolumetricMeshes::CubicMesh* cubicMesh, const std::string& outputSurface) {
-    std::vector<pgo::EigenSupport::V3d> surfVerts;
-    std::vector<std::vector<int>>       surfFaces;
-    pgo::VolumetricMeshes::GenerateSurfaceMesh::computeMesh(cubicMesh, surfVerts, surfFaces, true, false);
-
-    std::vector<pgo::Vec3i> triangles;
-    triangles.reserve(surfFaces.size());
-    for (const auto& face : surfFaces) {
-        if (face.size() != 3) {
-            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Surface extraction returned a non-triangle face with {} vertices",
-                                face.size());
-            return false;
-        }
-        triangles.emplace_back(face[0], face[1], face[2]);
-    }
-
-    pgo::Mesh::TriMeshGeo rawSurface(std::move(surfVerts), std::move(triangles));
-    pgo::Mesh::TriMeshGeo surface = pgo::Mesh::removeIsolatedVertices(rawSurface.ref());
-    if (surface.save(outputSurface) != true) {
-        SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Failed to save surface mesh to {}", outputSurface);
-        return false;
-    }
-
-    return true;
+    return std::nullopt;
 }
 }  // namespace
 
@@ -119,7 +53,49 @@ int main(int argc, char* argv[]) {
     uniformCmd.add_argument("--nu").help("Poisson's ratio").default_value(0.45).scan<'g', double>();
     uniformCmd.add_argument("--density").help("Material density").default_value(1000.0).scan<'g', double>();
 
+    argparse::ArgumentParser triangleMeshCmd("triangle-mesh");
+    triangleMeshCmd.add_description("Voxelize a triangle mesh into a cubic mesh");
+    triangleMeshCmd.add_argument("-i", "--input-mesh")
+        .help("Input triangle mesh filename (.obj)")
+        .required()
+        .metavar("PATH");
+    triangleMeshCmd.add_argument("-r", "--resolution")
+        .help("Grid resolution of the regularized cubic domain (NxNxN)")
+        .required()
+        .scan<'i', int>()
+        .metavar("N");
+    triangleMeshCmd.add_argument("-o", "--output-mesh")
+        .help("Output cubic mesh filename (.veg)")
+        .required()
+        .metavar("PATH");
+    triangleMeshCmd.add_argument("-s", "--output-surface")
+        .help("Output surface mesh filename (.obj), optional")
+        .metavar("PATH");
+    triangleMeshCmd.add_argument("--padding-voxels")
+        .help("Number of empty voxel layers reserved around the regularized mesh domain")
+        .default_value(1)
+        .scan<'i', int>()
+        .metavar("K");
+    triangleMeshCmd.add_argument("--scale")
+        .help("Uniform scale applied to the voxelized mesh after world-space reconstruction")
+        .default_value(1.0)
+        .scan<'g', double>();
+    triangleMeshCmd.add_argument("--offset")
+        .help("Translation applied to the voxelized mesh after world-space reconstruction (x y z)")
+        .nargs(3)
+        .default_value(std::vector<double>{0.0, 0.0, 0.0})
+        .scan<'g', double>()
+        .metavar("X Y Z");
+    triangleMeshCmd.add_argument("--classify-mode")
+        .help("Voxel occupancy mode: center or conservative")
+        .default_value(std::string("conservative"))
+        .metavar("MODE");
+    triangleMeshCmd.add_argument("--E").help("Young's modulus").default_value(1e6).scan<'g', double>();
+    triangleMeshCmd.add_argument("--nu").help("Poisson's ratio").default_value(0.45).scan<'g', double>();
+    triangleMeshCmd.add_argument("--density").help("Material density").default_value(1000.0).scan<'g', double>();
+
     program.add_subparser(uniformCmd);
+    program.add_subparser(triangleMeshCmd);
 
     try {
         program.parse_args(argc, argv);
@@ -140,47 +116,26 @@ int main(int argc, char* argv[]) {
         const double      density    = uniformCmd.get<double>("--density");
         const std::string outputMesh = uniformCmd.get<std::string>("--output-mesh");
 
-        int numVoxels = 0;
-        if (computeNumVoxels(resolution, numVoxels) == false) {
-            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(),
-                                "Resolution must be positive and small enough that N^3 fits in a signed int. Got N={}",
-                                resolution);
-            return 1;
-        }
+        cubic_mesher::UniformCubicMeshOptions options;
+        options.resolution = resolution;
+        options.size       = size;
+        options.offset     = {offset[0], offset[1], offset[2]};
+        options.E          = E;
+        options.nu         = nu;
+        options.density    = density;
 
-        std::vector<int>                                  voxels = buildUniformVoxelIndices(resolution, numVoxels);
-        std::unique_ptr<pgo::VolumetricMeshes::CubicMesh> cubicMesh(
-            pgo::VolumetricMeshes::CubicMesh::createFromUniformGrid(resolution, numVoxels, voxels.data(), E, nu,
-                                                                    density));
-
+        std::unique_ptr<pgo::VolumetricMeshes::CubicMesh> cubicMesh = cubic_mesher::createUniformCubicMesh(options);
         if (cubicMesh == nullptr) {
-            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Failed to create cubic mesh from uniform grid");
             return 1;
         }
 
-        if (applyUniformTransform(*cubicMesh, size, offset) == false) {
-            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(),
-                                "Uniform transform requires positive size and exactly three offset values. "
-                                "Got size={}, offset_count={}",
-                                size, offset.size());
-            return 1;
-        }
-
-        if (cubicMesh->save(outputMesh.c_str()) != 0) {
-            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Failed to save cubic mesh to {}", outputMesh);
-            return 1;
-        }
-
-        pgo::VolumetricMeshes::CubicMesh loadedMesh(outputMesh.c_str());
-        if (loadedMesh.getNumVertices() != cubicMesh->getNumVertices() ||
-            loadedMesh.getNumElements() != cubicMesh->getNumElements()) {
-            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Saved mesh reload check failed for {}", outputMesh);
+        if (cubic_mesher::saveAndValidateCubicMesh(*cubicMesh, outputMesh) == false) {
             return 1;
         }
 
         if (uniformCmd.is_used("--output-surface")) {
             const std::string outputSurface = uniformCmd.get<std::string>("--output-surface");
-            if (writeSurfaceMesh(cubicMesh.get(), outputSurface) == false) {
+            if (cubic_mesher::writeSurfaceMesh(*cubicMesh, outputSurface) == false) {
                 return 1;
             }
         }
@@ -189,6 +144,78 @@ int main(int argc, char* argv[]) {
                            "Generated cubic mesh: N={}, size={}, offset=({}, {}, {}), vertices={}, elements={} -> {}",
                            resolution, size, offset[0], offset[1], offset[2], cubicMesh->getNumVertices(),
                            cubicMesh->getNumElements(), outputMesh);
+
+        return 0;
+    }
+
+    if (program.is_subcommand_used(triangleMeshCmd)) {
+        const int         resolution   = triangleMeshCmd.get<int>("--resolution");
+        const int         padding      = triangleMeshCmd.get<int>("--padding-voxels");
+        const double      scale        = triangleMeshCmd.get<double>("--scale");
+        const auto        offset       = triangleMeshCmd.get<std::vector<double>>("--offset");
+        const std::string classifyName = triangleMeshCmd.get<std::string>("--classify-mode");
+        const auto        classifyMode = parseTriangleMeshClassifyMode(classifyName);
+        const double      E            = triangleMeshCmd.get<double>("--E");
+        const double      nu           = triangleMeshCmd.get<double>("--nu");
+        const double      density      = triangleMeshCmd.get<double>("--density");
+        const std::string inputMesh    = triangleMeshCmd.get<std::string>("--input-mesh");
+        const std::string outputMesh   = triangleMeshCmd.get<std::string>("--output-mesh");
+
+        int maxNumVoxels = 0;
+        if (cubic_mesher::computeNumVoxels(resolution, maxNumVoxels) == false) {
+            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(),
+                                "Resolution must be positive and small enough that N^3 fits in a signed int. Got N={}",
+                                resolution);
+            return 1;
+        }
+
+        if (!classifyMode.has_value()) {
+            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(),
+                                "Unsupported classify mode '{}'. Expected one of: center, conservative",
+                                classifyName);
+            return 1;
+        }
+
+        if (scale <= 0.0) {
+            SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Triangle-mesh transform requires positive scale. Got scale={}",
+                                scale);
+            return 1;
+        }
+
+        cubic_mesher::TriangleMeshVoxelizerOptions options;
+        options.inputMesh     = inputMesh;
+        options.resolution    = resolution;
+        options.paddingVoxels = padding;
+        options.classifyMode  = *classifyMode;
+        options.scale         = scale;
+        options.offset        = {offset[0], offset[1], offset[2]};
+        options.E             = E;
+        options.nu            = nu;
+        options.density       = density;
+
+        std::unique_ptr<pgo::VolumetricMeshes::CubicMesh> cubicMesh = cubic_mesher::createTriangleMeshCubicMesh(options);
+        if (cubicMesh == nullptr) {
+            return 1;
+        }
+
+        if (cubic_mesher::saveAndValidateCubicMesh(*cubicMesh, outputMesh) == false) {
+            return 1;
+        }
+
+        if (triangleMeshCmd.is_used("--output-surface")) {
+            const std::string outputSurface = triangleMeshCmd.get<std::string>("--output-surface");
+            if (cubic_mesher::writeSurfaceMesh(*cubicMesh, outputSurface) == false) {
+                return 1;
+            }
+        }
+
+        SPDLOG_LOGGER_INFO(
+            pgo::Logging::lgr(),
+            "Generated triangle-mesh cubic mesh: input={}, N={}, padding={}, classify={}, scale={}, offset=({}, {}, {}), vertices={}, elements={} -> {}",
+            inputMesh, resolution, padding, cubic_mesher::toString(*classifyMode), scale, offset[0], offset[1],
+            offset[2], cubicMesh->getNumVertices(), cubicMesh->getNumElements(), outputMesh);
+
+        return 0;
     }
 
     return 0;

@@ -203,6 +203,26 @@ uv run pytest
 `scikit-build-core` reuses the build tree under `build/scikit-build`, so repeated `uv sync`
 benefits from Ninja and CMake incremental rebuilds.
 
+Important notes for native-module iteration:
+
+- `uv run ...` imports the `pypgo` extension installed into `.venv`, and that editable install is backed by `build/scikit-build`, not by `build/full-release` or other manual CMake presets.
+- Rebuilding `build/full-release` does not update the module used by `uv run`.
+- `uv sync` keeps the environment aligned with `pyproject.toml` / the lockfile, but it is not a generic watcher for arbitrary C++ rebuilds in other build trees.
+- If you want `.venv` to pick up the latest local C++ extension changes, refresh the editable install explicitly:
+
+```bash
+cd libpgo
+uv pip install -e .
+```
+
+- If you want to run against a manually built CMake tree instead of the `.venv` install, point `PYTHONPATH` at that build output directly:
+
+```bash
+cd libpgo
+PYTHONPATH=build/full-release/src/api/python/pypgo \
+python src/api/python/pypgo/pgo_run_sim.py examples/box/box.json
+```
+
 ---
 
 ## Usage
@@ -341,6 +361,17 @@ We provide three python scripts to test the installation.
     build/bin/cubicMesher uniform --help
     ```
 
+    `triangle-mesh` mode requires a geometry-enabled build with CGAL support.
+    If the tool is built without geometry stack support, `triangle-mesh` exits with:
+    `geometry stack is not supported.`
+
+    Check `triangle-mesh` CLI help from a geometry-enabled build:
+
+    ```bash
+    cd libpgo
+    build/full-release/bin/cubicMesher triangle-mesh --help
+    ```
+
     Common `uniform` parameters:
     - `--resolution N`: number of cubic elements per axis, producing an `N x N x N` grid
     - `--size S`: cube edge length; default is `1.0`
@@ -374,11 +405,51 @@ We provide three python scripts to test the installation.
       --E 1e6 --nu 0.45 --density 1000
     ```
 
+    Common `triangle-mesh` parameters:
+    - `--input-mesh PATH`: input triangle mesh; current implementation expects `.obj`
+    - `--resolution N`: number of voxels per axis in the regularized cubic domain
+    - `--padding-voxels K`: number of empty voxel layers around the mesh; default is `1`
+    - `--classify-mode MODE`: voxel occupancy classifier, `center` or `conservative`; default is `conservative`
+    - `--scale S`: uniform scale applied to the voxelized mesh after reconstruction; default is `1.0`
+    - `--offset X Y Z`: translation applied to the voxelized mesh after reconstruction; default is `(0, 0, 0)`
+    - `--output-mesh PATH`: output cubic mesh `.veg`
+    - `--output-surface PATH`: optional output voxelized surface `.obj`
+
+    Generate the cubic dragon asset from the triangle-mesh example:
+
+    ```bash
+    cd libpgo
+    mkdir -p examples/dragon-cubic
+    build/full-release/bin/cubicMesher triangle-mesh \
+      --input-mesh examples/dragon/dragon.obj \
+      --resolution 64 \
+      --output-mesh examples/dragon-cubic/dragon-cubic.veg \
+      --output-surface examples/dragon-cubic/dragon-cubic.obj \
+      --E 1e6 --nu 0.45 --density 1000
+    ```
+
+    Apply an additional post-voxelization transform:
+
+    ```bash
+    cd libpgo
+    build/full-release/bin/cubicMesher triangle-mesh \
+      --input-mesh examples/dragon/dragon.obj \
+      --resolution 64 \
+      --scale 1.25 \
+      --offset 0.0 0.2 -0.1 \
+      --output-mesh examples/dragon-cubic/dragon-cubic-scaled.veg \
+      --output-surface examples/dragon-cubic/dragon-cubic-scaled.obj \
+      --E 1e6 --nu 0.45 --density 1000
+    ```
+
     Quick sanity check:
     - For resolution `N`, generated volumetric mesh size should be `(N+1)^3` vertices and `N^3` cubic elements.
     - For `N=2`, it should produce `27` vertices and `8` elements.
     - `--size` controls the full cube edge length, not per-voxel size.
     - `--offset X Y Z` moves the cube center to `(X, Y, Z)`.
+    - `triangle-mesh` keeps the mesh in world coordinates by voxelizing in a regularized cube and mapping the cubic mesh back after generation.
+    - `--classify-mode conservative` keeps voxels whose centers are inside the mesh or whose boxes intersect the input surface.
+    - `triangle-mesh --scale/--offset` is applied after the world-space cubic mesh has been reconstructed.
 
 ## Update: Run with cubic mesh
 
@@ -399,6 +470,15 @@ uv run python src/api/python/pypgo/pgo_run_sim.py examples/cubic-box/cubic-box.j
 
 # 3) Convert OBJ sequence to Alembic animation
 uv run python src/api/python/pypgo/pgo_dump_abc.py examples/cubic-box/anim.json examples/cubic-box
+```
+
+If you just rebuilt `pypgo` through a manual CMake preset such as `build/full-release`, `uv run`
+still uses the `.venv` copy of `pypgo`. Refresh it with `uv pip install -e .`, or run the
+manually built module explicitly via:
+
+```bash
+PYTHONPATH=build/full-release/src/api/python/pypgo \
+python src/api/python/pypgo/pgo_run_sim.py examples/cubic-box/cubic-box.json
 ```
 
 Expected outputs:

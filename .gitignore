@@ -62,5 +62,7 @@ site/
 
 examples/cubic-box/ret-cubic-box/*
 examples/cubic-box/ret-cubic-box0/*
+examples/dragon-cubic/ret-dragon-cubic/*
+examples/dragon-cubic/ret-dragon-cubic0/*
 
 

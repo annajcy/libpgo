@@ -6,5 +6,5 @@ foreach(lib ${PGO_GLOBAL_LIBRARY_TARGETS})
   endif()
 endforeach()
 
-add_libpgo_tools(cubicMesher cubicMesher.cpp "${AVAILABLE_LIBS}")
+add_libpgo_tools(cubicMesher "cubicMesher.cpp;cubicMesherIO.cpp;cubicMesherUtils.cpp;triangleMeshVoxelizer.cpp;uniformCubicMeshGenerator.cpp" "${AVAILABLE_LIBS}")
 target_link_libraries(cubicMesher PRIVATE argparse::argparse)
