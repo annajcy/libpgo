@@ -66,3 +66,4 @@ examples/dragon-cubic/ret-dragon-cubic/*
 examples/dragon-cubic/ret-dragon-cubic0/*
 
 *.log
+examples/dragon-cubic/dragon-cubic.log

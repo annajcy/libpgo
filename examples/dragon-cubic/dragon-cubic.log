@@ -3921,3 +3921,187 @@ D:0
 D:0
     Iter=0
         E= 4.71548e-14; ||grad||_max=12.3681; ||x||=0; ||grad||=12.3681
+        ||deltax||_max=0.00293319
+        f=-324.995;alpha=1
+    Iter=1; ||grad||=3.30362e-11 < eps. Done.
+[04/02/26][12:04:42:689][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.554228
+    T298: ||g||=9.54468e-10; Solver Ret: 0
+    Energy components:
+  main: -324.995
+  sub 0: 3.78032e-14
+[04/02/26][12:04:43:042][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:04:43:042][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.245874
+D:0
+    Iter=0
+        E= 3.78032e-14; ||grad||_max=12.4094; ||x||=0; ||grad||=12.4094
+        ||deltax||_max=0.002943
+        f=-327.173;alpha=1
+    Iter=1; ||grad||=3.07243e-11 < eps. Done.
+[04/02/26][12:04:57:813][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.320022
+    T299: ||g||=9.52152e-10; Solver Ret: 0
+    Energy components:
+  main: -327.173
+  sub 0: 4.2432e-14
+Saved mesh (#v: 10501, #t: 21064) to /Users/jinceyang/Desktop/codebase/libpgo_refactor/libpgo/examples/dragon-cubic/ret-dragon-cubic/ret0030.obj.
+[04/02/26][12:04:58:264][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:04:58:264][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.236336
+D:0
+    Iter=0
+        E= 4.2432e-14; ||grad||_max=12.4508; ||x||=0; ||grad||=12.4508
+        ||deltax||_max=0.00295281
+        f=-329.358;alpha=1
+    Iter=1; ||grad||=3.3805e-11 < eps. Done.
+[04/02/26][12:05:13:474][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.772125
+    T300: ||g||=9.60535e-10; Solver Ret: 0
+    Energy components:
+  main: -329.358
+  sub 0: 3.39414e-14
+[04/02/26][12:05:13:893][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:05:13:893][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.261996
+D:0
+    Iter=0
+        E= 3.39414e-14; ||grad||_max=12.4922; ||x||=0; ||grad||=12.4922
+        ||deltax||_max=0.00296262
+        f=-331.55;alpha=1
+    Iter=1; ||grad||=3.52857e-11 < eps. Done.
+[04/02/26][12:05:28:900][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.527947
+    T301: ||g||=9.60569e-10; Solver Ret: 0
+    Energy components:
+  main: -331.55
+  sub 0: 5.41498e-14
+[04/02/26][12:05:29:230][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:05:29:230][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.233607
+D:0
+    Iter=0
+        E= 5.41498e-14; ||grad||_max=12.5335; ||x||=0; ||grad||=12.5335
+        ||deltax||_max=0.00297243
+        f=-333.749;alpha=1
+    Iter=1; ||grad||=3.50695e-11 < eps. Done.
+[04/02/26][12:05:44:135][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.464076
+    T302: ||g||=9.61897e-10; Solver Ret: 0
+    Energy components:
+  main: -333.749
+  sub 0: 3.30574e-14
+[04/02/26][12:05:44:484][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:05:44:484][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.237218
+D:0
+    Iter=0
+        E= 3.30574e-14; ||grad||_max=12.5749; ||x||=0; ||grad||=12.5749
+        ||deltax||_max=0.00298224
+        f=-335.956;alpha=1
+    Iter=1; ||grad||=3.95792e-11 < eps. Done.
+[04/02/26][12:05:59:256][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.327353
+    T303: ||g||=9.68234e-10; Solver Ret: 0
+    Energy components:
+  main: -335.956
+  sub 0: 5.22419e-14
+[04/02/26][12:05:59:597][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:05:59:597][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.234528
+D:0
+    Iter=0
+        E= 5.22419e-14; ||grad||_max=12.6163; ||x||=0; ||grad||=12.6163
+        ||deltax||_max=0.00299205
+        f=-338.17;alpha=1
+    Iter=1; ||grad||=3.25071e-11 < eps. Done.
+[04/02/26][12:06:14:961][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.914253
+    T304: ||g||=9.75978e-10; Solver Ret: 0
+    Energy components:
+  main: -338.17
+  sub 0: 5.00694e-14
+[04/02/26][12:06:15:316][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:06:15:316][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.24841
+D:0
+    Iter=0
+        E= 5.00694e-14; ||grad||_max=12.6576; ||x||=0; ||grad||=12.6576
+        ||deltax||_max=0.00300186
+        f=-340.391;alpha=1
+    Iter=1; ||grad||=3.54008e-11 < eps. Done.
+[04/02/26][12:06:30:291][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.459072
+    T305: ||g||=9.77442e-10; Solver Ret: 0
+    Energy components:
+  main: -340.391
+  sub 0: 6.73516e-14
+[04/02/26][12:06:30:643][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:06:30:643][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.23613
+D:0
+    Iter=0
+        E= 6.73516e-14; ||grad||_max=12.699; ||x||=0; ||grad||=12.699
+        ||deltax||_max=0.00301167
+        f=-342.619;alpha=1
+    Iter=1; ||grad||=3.58183e-11 < eps. Done.
+[04/02/26][12:06:45:675][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.562778
+    T306: ||g||=9.74098e-10; Solver Ret: 0
+    Energy components:
+  main: -342.619
+  sub 0: 5.57643e-14
+[04/02/26][12:06:46:041][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:06:46:041][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.261153
+D:0
+    Iter=0
+        E= 5.57643e-14; ||grad||_max=12.7403; ||x||=0; ||grad||=12.7403
+        ||deltax||_max=0.00302148
+        f=-344.855;alpha=1
+    Iter=1; ||grad||=3.77313e-11 < eps. Done.
+[04/02/26][12:07:01:067][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.566226
+    T307: ||g||=9.81789e-10; Solver Ret: 0
+    Energy components:
+  main: -344.855
+  sub 0: 4.9914e-14
+[04/02/26][12:07:01:465][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:07:01:465][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.296414
+D:0
+    Iter=0
+        E= 4.9914e-14; ||grad||_max=12.7817; ||x||=0; ||grad||=12.7817
+        ||deltax||_max=0.00303129
+        f=-347.098;alpha=1
+    Iter=1; ||grad||=3.14385e-11 < eps. Done.
+[04/02/26][12:07:16:517][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.589384
+    T308: ||g||=9.8109e-10; Solver Ret: 0
+    Energy components:
+  main: -347.098
+  sub 0: 5.56991e-14
+[04/02/26][12:07:16:863][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:07:16:863][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.242555
+D:0
+    Iter=0
+        E= 5.56991e-14; ||grad||_max=12.8231; ||x||=0; ||grad||=12.8231
+        ||deltax||_max=0.0030411
+        f=-349.348;alpha=1
+    Iter=1; ||grad||=3.40062e-11 < eps. Done.
+[04/02/26][12:07:32:273][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.951481
+    T309: ||g||=9.70659e-10; Solver Ret: 0
+    Energy components:
+  main: -349.348
+  sub 0: 5.77182e-14
+Saved mesh (#v: 10501, #t: 21064) to /Users/jinceyang/Desktop/codebase/libpgo_refactor/libpgo/examples/dragon-cubic/ret-dragon-cubic/ret0031.obj.
+[04/02/26][12:07:32:769][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:07:32:769][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.240879
+D:0
+    Iter=0
+        E= 5.77182e-14; ||grad||_max=12.8644; ||x||=0; ||grad||=12.8644
+        ||deltax||_max=0.00305091
+        f=-351.606;alpha=1
+    Iter=1; ||grad||=3.25071e-11 < eps. Done.
+[04/02/26][12:07:47:551][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.305046
+    T310: ||g||=9.8296e-10; Solver Ret: 0
+    Energy components:
+  main: -351.606
+  sub 0: 4.93618e-14
+[04/02/26][12:07:47:927][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:07:47:927][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.229659
+D:0
+    Iter=0
+        E= 4.93618e-14; ||grad||_max=12.9058; ||x||=0; ||grad||=12.9058
+        ||deltax||_max=0.00306072
+        f=-353.87;alpha=1
+    Iter=1; ||grad||=3.09093e-11 < eps. Done.
+[04/02/26][12:08:02:804][I][pgo][NewtonRaphsonSolver.cpp:368] Newton solve time: 14.439853
+    T311: ||g||=9.70323e-10; Solver Ret: 0
+    Energy components:
+  main: -353.87
+  sub 0: 6.18465e-14
+[04/02/26][12:08:03:170][I][pgo][triangleMeshExternalContactHandler.cpp:506] # external contacts: 0
+[04/02/26][12:08:03:170][I][pgo][triangleMeshExternalContactHandler.cpp:547] CD time: 0.232728
+D:0
+    Iter=0
+        E= 6.18465e-14; ||grad||_max=12.9472; ||x||=0; ||grad||=12.9472
