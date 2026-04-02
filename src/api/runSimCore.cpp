@@ -63,17 +63,17 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
     }
 
     if (hasTetMesh) {
-        config.tetMeshFilename = configPathResolver.resolve(jconfig.getString("tet-mesh", 1));
-        if (config.tetMeshFilename.empty()) {
+        config.mesh.tetMeshFilename = configPathResolver.resolve(jconfig.getString("tet-mesh", 1));
+        if (config.mesh.tetMeshFilename.empty()) {
             throw std::runtime_error("'tet-mesh' resolves to an empty path.");
         }
-        config.volumetricMeshType = VolumetricMeshInputType::TET;
+        config.mesh.volumetricMeshType = VolumetricMeshInputType::TET;
     } else {
-        config.cubicMeshFilename = configPathResolver.resolve(jconfig.getString("cubic-mesh", 1));
-        if (config.cubicMeshFilename.empty()) {
+        config.mesh.cubicMeshFilename = configPathResolver.resolve(jconfig.getString("cubic-mesh", 1));
+        if (config.mesh.cubicMeshFilename.empty()) {
             throw std::runtime_error("'cubic-mesh' resolves to an empty path.");
         }
-        config.volumetricMeshType = VolumetricMeshInputType::CUBIC;
+        config.mesh.volumetricMeshType = VolumetricMeshInputType::CUBIC;
     }
 
     if (jconfig.exist("volumetric-mesh-type")) {
@@ -88,46 +88,71 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
             throw std::runtime_error(fmt::format("Unsupported volumetric-mesh-type: {}", hintedType));
         }
 
-        if (hintedMeshType != config.volumetricMeshType) {
+        if (hintedMeshType != config.mesh.volumetricMeshType) {
             throw std::runtime_error(
                 "volumetric-mesh-type does not match the volumetric mesh filename key.");
         }
     }
 
-    config.surfaceMeshFilename = configPathResolver.resolve(jconfig.getString("surface-mesh", 1));
+    config.mesh.surfaceMeshFilename = configPathResolver.resolve(jconfig.getString("surface-mesh", 1));
     auto readVec3              = [&](const char* key) {
         auto values = jconfig.getValue<std::array<double, 3>>(key, 1);
         return ES::V3d(values[0], values[1], values[2]);
     };
 
-    config.extAcc               = readVec3("g");
-    config.initialVel           = readVec3("init-vel");
-    config.initialDisp          = readVec3("init-disp");
-    config.scale                = jconfig.getDouble("scale", 1);
-    config.timestep             = jconfig.getDouble("timestep", 1);
-    config.contactStiffness     = jconfig.getDouble("contact-stiffness", 1);
-    config.contactSamples       = jconfig.getInt("contact-sample", 1);
-    config.enableSelfContact    = jconfig.handle().value("enable-self-contact", true);
-    config.contactFrictionCoeff = jconfig.getDouble("contact-friction-coeff", 1);
-    config.contactVelEps        = jconfig.getDouble("contact-vel-eps", 1);
-    config.solverEps            = jconfig.getDouble("solver-eps", 1);
-    config.solverMaxIter        = jconfig.getInt("solver-max-iter", 1);
-    config.dampingParams        = jconfig.getValue<std::array<double, 2>>("damping-params", 1);
+    config.scene.extAcc               = readVec3("g");
+    config.scene.initialVel           = readVec3("init-vel");
+    config.scene.initialDisp          = readVec3("init-disp");
+    config.mesh.scale                 = jconfig.getDouble("scale", 1);
+    config.simulation.timestep        = jconfig.getDouble("timestep", 1);
+    config.contact.contactStiffness   = jconfig.getDouble("contact-stiffness", 1);
+    config.contact.contactSamples     = jconfig.getInt("contact-sample", 1);
+    config.contact.enableSelfContact  = jconfig.handle().value("enable-self-contact", true);
+    config.contact.contactFrictionCoeff = jconfig.getDouble("contact-friction-coeff", 1);
+    config.contact.contactVelEps      = jconfig.getDouble("contact-vel-eps", 1);
+    config.contact.contactModel       = jconfig.handle().value("contact-model", std::string("penalty"));
+    if (config.contact.contactModel != "penalty" && config.contact.contactModel != "ipc-barrier") {
+        throw std::runtime_error(fmt::format(
+            "Unsupported contact-model: '{}'. Expected 'penalty' or 'ipc-barrier'.", config.contact.contactModel));
+    }
+    if (config.contact.contactModel == "ipc-barrier") {
+        config.contact.ipcDhat        = jconfig.handle().value("ipc-dhat", 1e-3);
+        config.contact.ipcKappa       = jconfig.handle().value("ipc-kappa", 1e4);
+        config.contact.ipcAlphaSafety = jconfig.handle().value("ipc-alpha-safety", 0.9);
+
+        if (config.contact.ipcDhat <= 0.0) {
+            throw std::runtime_error("ipc-dhat must be positive.");
+        }
+        if (config.contact.ipcKappa <= 0.0) {
+            throw std::runtime_error("ipc-kappa must be positive.");
+        }
+        if (config.contact.ipcAlphaSafety <= 0.0 || config.contact.ipcAlphaSafety > 1.0) {
+            throw std::runtime_error("ipc-alpha-safety must be in (0, 1].");
+        }
+        if (config.contact.contactFrictionCoeff > 0.0) {
+            throw std::runtime_error(
+                "contact-model 'ipc-barrier' does not support friction yet. "
+                "Set contact-friction-coeff to 0.");
+        }
+    }
+    config.solver.solverEps            = jconfig.getDouble("solver-eps", 1);
+    config.solver.solverMaxIter        = jconfig.getInt("solver-max-iter", 1);
+    config.solver.dampingParams        = jconfig.getValue<std::array<double, 2>>("damping-params", 1);
 
     std::string material = jconfig.getString("elastic-material");
     if (material == "stable-neo") {
-        config.elasticMaterial = SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
+        config.solver.elasticMaterial = SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
     } else if (material == "stvk-vol") {
-        config.elasticMaterial = SolidDeformationModel::DeformationModelElasticMaterial::STVK_VOL;
+        config.solver.elasticMaterial = SolidDeformationModel::DeformationModelElasticMaterial::STVK_VOL;
     } else {
         throw std::runtime_error(fmt::format("Unsupported elastic material: {}", material));
     }
 
-    config.numSimSteps  = jconfig.getInt("num-timestep", 1);
-    config.dumpInterval = jconfig.getInt("dump-interval", 1);
-    config.simType      = jconfig.getString("sim-type");
-    config.outputFolder = configPathResolver.resolve(jconfig.getString("output", 1));
-    config.deterministicMode = jconfig.handle().value("deterministic", false);
+    config.simulation.numSimSteps  = jconfig.getInt("num-timestep", 1);
+    config.simulation.dumpInterval = jconfig.getInt("dump-interval", 1);
+    config.simulation.simType      = jconfig.getString("sim-type");
+    config.runtime.outputFolder    = configPathResolver.resolve(jconfig.getString("output", 1));
+    config.runtime.deterministicMode = jconfig.handle().value("deterministic", false);
 
     if (jconfig.exist("fixed-vertices")) {
         for (const auto& fv : jconfig.handle()["fixed-vertices"]) {
@@ -135,7 +160,7 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
             attachment.filename = configPathResolver.resolve(fv["filename"].get<std::string>());
             attachment.movement = fv["movement"].get<std::array<double, 3>>();
             attachment.coeff    = fv["coeff"].get<double>();
-            config.fixedVertices.push_back(attachment);
+            config.scene.fixedVertices.push_back(attachment);
         }
     }
 
@@ -144,7 +169,7 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
             ExternalObject ext;
             ext.filename = configPathResolver.resolve(obj["filename"].get<std::string>());
             ext.movement = obj["movement"].get<std::array<double, 3>>();
-            config.externalObjects.push_back(ext);
+            config.scene.externalObjects.push_back(ext);
         }
     }
 
@@ -157,29 +182,36 @@ int runSimFromConfig(const RunSimConfig& config) {
 
     const int defaultParallelism =
         std::min(64, static_cast<int>(std::max(1u, std::thread::hardware_concurrency())));
-    const int effectiveParallelism = config.deterministicMode ? 1 : defaultParallelism;
+    const auto& mesh       = config.mesh;
+    const auto& scene      = config.scene;
+    const auto& simulation = config.simulation;
+    const auto& contact    = config.contact;
+    const auto& solver     = config.solver;
+    const auto& runtime    = config.runtime;
+
+    const int effectiveParallelism = runtime.deterministicMode ? 1 : defaultParallelism;
 
     tbb::global_control threadLimit(tbb::global_control::max_allowed_parallelism, effectiveParallelism);
     tbb::global_control stackSizeLimit(tbb::global_control::thread_stack_size, 16 * 1024 * 1024);
 
-    if (config.deterministicMode) {
+    if (runtime.deterministicMode) {
         SPDLOG_LOGGER_INFO(Logging::lgr(), "Deterministic mode enabled; forcing single-threaded execution.");
     }
 
     std::unique_ptr<VolumetricMeshes::VolumetricMesh>        volumetricMesh;
     std::shared_ptr<SolidDeformationModel::SimulationMesh>   simMesh;
-    if (config.volumetricMeshType == VolumetricMeshInputType::TET) {
-        auto tetMesh = std::make_unique<VolumetricMeshes::TetMesh>(config.tetMeshFilename.c_str());
+    if (mesh.volumetricMeshType == VolumetricMeshInputType::TET) {
+        auto tetMesh = std::make_unique<VolumetricMeshes::TetMesh>(mesh.tetMeshFilename.c_str());
         for (int vi = 0; vi < tetMesh->getNumVertices(); vi++) {
-            tetMesh->setVertex(vi, tetMesh->getVertex(vi) * config.scale);
+            tetMesh->setVertex(vi, tetMesh->getVertex(vi) * mesh.scale);
         }
 
         simMesh        = SolidDeformationModel::SimulationMesh::createFromTetMesh(*tetMesh);
         volumetricMesh = std::move(tetMesh);
     } else {
-        auto cubicMesh = std::make_unique<VolumetricMeshes::CubicMesh>(config.cubicMeshFilename.c_str());
+        auto cubicMesh = std::make_unique<VolumetricMeshes::CubicMesh>(mesh.cubicMeshFilename.c_str());
         for (int vi = 0; vi < cubicMesh->getNumVertices(); vi++) {
-            cubicMesh->setVertex(vi, cubicMesh->getVertex(vi) * config.scale);
+            cubicMesh->setVertex(vi, cubicMesh->getVertex(vi) * mesh.scale);
         }
 
         simMesh        = SolidDeformationModel::SimulationMesh::createFromCubicMesh(*cubicMesh);
@@ -187,11 +219,11 @@ int runSimFromConfig(const RunSimConfig& config) {
     }
 
     Mesh::TriMeshGeo surfaceMesh;
-    if (surfaceMesh.load(config.surfaceMeshFilename) != true)
+    if (surfaceMesh.load(mesh.surfaceMeshFilename) != true)
         return 1;
 
     for (int vi = 0; vi < surfaceMesh.numVertices(); vi++) {
-        surfaceMesh.pos(vi) *= config.scale;
+        surfaceMesh.pos(vi) *= mesh.scale;
     }
 
     int     surfn  = surfaceMesh.numVertices();
@@ -209,7 +241,7 @@ int runSimFromConfig(const RunSimConfig& config) {
         std::make_shared<SolidDeformationModel::DeformationModelManager>();
 
     dmm->setMesh(simMesh.get(), nullptr, nullptr);
-    dmm->init(pgo::SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, config.elasticMaterial, 1);
+    dmm->init(pgo::SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, solver.elasticMaterial, 1);
 
     std::vector<double>                                               elementWeights(simMesh->getNumElements(), 1.0);
     std::shared_ptr<SolidDeformationModel::DeformationModelAssembler> assembler =
@@ -253,7 +285,7 @@ int runSimFromConfig(const RunSimConfig& config) {
     std::vector<std::shared_ptr<ConstraintPotentialEnergies::MultipleVertexPulling>> pullingEnergies;
     std::vector<ES::VXd>                                                             pullingTargets, pullingTargetRests;
     Mesh::TriMeshGeo                                                                 tempMesh;
-    for (const auto& fv : config.fixedVertices) {
+    for (const auto& fv : scene.fixedVertices) {
         std::vector<int> fixedVertices;
         if (BasicIO::read1DText(fv.filename.c_str(), std::back_inserter(fixedVertices)) != 0) {
             return 1;
@@ -282,7 +314,7 @@ int runSimFromConfig(const RunSimConfig& config) {
 
     std::vector<std::string> kinematicObjectFilenames;
     std::vector<ES::V3d>     kinematicObjectMovements;
-    for (const auto& obj : config.externalObjects) {
+    for (const auto& obj : scene.externalObjects) {
         kinematicObjectFilenames.push_back(obj.filename);
         kinematicObjectMovements.emplace_back(obj.movement[0], obj.movement[1], obj.movement[2]);
     }
@@ -292,13 +324,13 @@ int runSimFromConfig(const RunSimConfig& config) {
 
     ES::VXd g(n3);
     for (int vi = 0; vi < n; vi++) {
-        g.segment<3>(vi * 3) = config.extAcc;
+        g.segment<3>(vi * 3) = scene.extAcc;
     }
 
     ES::VXd fext(n3);
     ES::mv(M, g, fext);
 
-    if (config.simType == "dynamic") {
+    if (simulation.simType == "dynamic") {
         std::vector<Mesh::TriMeshGeo> kinematicObjects;
         for (const auto& filename : kinematicObjectFilenames) {
             kinematicObjects.emplace_back();
@@ -307,7 +339,7 @@ int runSimFromConfig(const RunSimConfig& config) {
             }
 
             for (int vi = 0; vi < kinematicObjects.back().numVertices(); vi++) {
-                kinematicObjects.back().pos(vi) *= config.scale;
+                kinematicObjects.back().pos(vi) *= mesh.scale;
             }
         }
 
@@ -316,24 +348,28 @@ int runSimFromConfig(const RunSimConfig& config) {
             kinematicObjectsRef.emplace_back(kinematicObjects[i]);
         }
 
+        const bool contactEnabled =
+            (contact.contactModel == "penalty" && contact.contactStiffness > 0.0) ||
+            (contact.contactModel == "ipc-barrier" && contact.ipcKappa > 0.0);
+
         std::shared_ptr<Contact::TriangleMeshExternalContactHandler> externalContactHandler;
         std::shared_ptr<Contact::TriangleMeshSelfContactHandler>     selfCD;
-        if (kinematicObjectsRef.size() && config.contactStiffness > 0) {
+        if (kinematicObjectsRef.size() && contactEnabled) {
             externalContactHandler = std::make_shared<Contact::TriangleMeshExternalContactHandler>(
-                surfaceMesh.positions(), surfaceMesh.triangles(), n3, kinematicObjectsRef, config.contactSamples,
+                surfaceMesh.positions(), surfaceMesh.triangles(), n3, kinematicObjectsRef, contact.contactSamples,
                 &bc.getEmbeddingVertexIndices(), &bc.getEmbeddingWeights());
         }
 
-        if (config.contactStiffness > 0 && config.enableSelfContact) {
+        if (contactEnabled && contact.enableSelfContact) {
             selfCD = std::make_shared<Contact::TriangleMeshSelfContactHandler>(
-                surfaceMesh.positions(), surfaceMesh.triangles(), n3, config.contactSamples,
+                surfaceMesh.positions(), surfaceMesh.triangles(), n3, contact.contactSamples,
                 &bc.getEmbeddingVertexIndices(), &bc.getEmbeddingWeights());
         }
 
         std::shared_ptr<Simulation::ImplicitBackwardEulerTimeIntegrator> intg =
-            std::make_shared<Simulation::ImplicitBackwardEulerTimeIntegrator>(M, elasticEnergy, config.dampingParams[0],
-                                                                              config.dampingParams[1], config.timestep,
-                                                                              config.solverMaxIter, config.solverEps);
+            std::make_shared<Simulation::ImplicitBackwardEulerTimeIntegrator>(M, elasticEnergy, solver.dampingParams[0],
+                                                                              solver.dampingParams[1], simulation.timestep,
+                                                                              solver.solverMaxIter, solver.solverEps);
 
 #if defined(PGO_HAS_KNITRO)
         intg->setSolverOption(Simulation::TimeIntegratorSolverOption::SO_KNITRO);
@@ -354,18 +390,18 @@ int runSimFromConfig(const RunSimConfig& config) {
         usurf.setZero();
 
         for (int i = 0; i < n; i++) {
-            uvel.segment<3>(i * 3) = config.initialVel;
-            u.segment<3>(i * 3)    = config.initialDisp;
+            uvel.segment<3>(i * 3) = scene.initialVel;
+            u.segment<3>(i * 3)    = scene.initialDisp;
         }
 
-        if (!std::filesystem::exists(config.outputFolder)) {
-            std::filesystem::create_directories(config.outputFolder);
+        if (!std::filesystem::exists(runtime.outputFolder)) {
+            std::filesystem::create_directories(runtime.outputFolder);
         }
 
         int frameStart = 0;
-        if (config.restartEnabled) {
-            for (int framei = config.numSimSteps - 1; framei >= 0; framei--) {
-                std::string filename = fmt::format("{}/deform{:04d}.u", config.outputFolder, framei);
+        if (runtime.restartEnabled) {
+            for (int framei = simulation.numSimSteps - 1; framei >= 0; framei--) {
+                std::string filename = fmt::format("{}/deform{:04d}.u", runtime.outputFolder, framei);
                 if (!std::filesystem::exists(filename)) {
                     continue;
                 }
@@ -381,7 +417,7 @@ int runSimFromConfig(const RunSimConfig& config) {
                 }
             }
 
-            if (config.restartPause) {
+            if (runtime.restartPause) {
                 std::cout << frameStart << std::endl;
                 std::cin.get();
             }
@@ -389,10 +425,10 @@ int runSimFromConfig(const RunSimConfig& config) {
 
         ES::mv(W, u, usurf);
 
-        for (int framei = frameStart + 1; framei < config.numSimSteps; framei++) {
+        for (int framei = frameStart + 1; framei < simulation.numSimSteps; framei++) {
             intg->clearGeneralImplicitForceModel();
 
-            double ratio = (double)framei / (config.numSimSteps - 1);
+            double ratio = (double)framei / (simulation.numSimSteps - 1);
             for (size_t pi = 0; pi < pullingEnergies.size(); pi++) {
                 ES::VXd restTgt = pullingTargetRests[pi];
                 ES::VXd curTgt  = restTgt * (1 - ratio) + pullingTargets[pi] * ratio;
@@ -408,28 +444,34 @@ int runSimFromConfig(const RunSimConfig& config) {
                 externalContactHandler->execute(usurf.data());
 
                 if (externalContactHandler->getNumCollidingSamples()) {
-                    extContactEnergy = externalContactHandler->buildContactEnergy(1);
-                    extContactBuffer = extContactEnergy->allocateBuffer();
+                    if (contact.contactModel == "penalty") {
+                        extContactEnergy = externalContactHandler->buildContactEnergy(1);
+                        extContactBuffer = extContactEnergy->allocateBuffer();
 
-                    auto posFunc = [&restPosition](const EigenSupport::V3d& u, EigenSupport::V3d& p, int dofStart) {
-                        p = u + restPosition.segment<3>(dofStart);
-                    };
+                        auto posFunc = [&restPosition](const EigenSupport::V3d& u, EigenSupport::V3d& p,
+                                                       int dofStart) { p = u + restPosition.segment<3>(dofStart); };
 
-                    auto lastPosFunc = [&restPosition, &u](const EigenSupport::V3d& x, EigenSupport::V3d& p,
-                                                           int dofStart) {
-                        p = u.segment<3>(dofStart) + restPosition.segment<3>(dofStart);
-                    };
+                        auto lastPosFunc = [&restPosition, &u](const EigenSupport::V3d& x, EigenSupport::V3d& p,
+                                                               int dofStart) {
+                            p = u.segment<3>(dofStart) + restPosition.segment<3>(dofStart);
+                        };
 
-                    extContactEnergy->setComputePosFunction(posFunc);
-                    extContactEnergy->setBuffer(extContactBuffer);
-                    extContactEnergy->setCoeff(config.contactStiffness);
+                        extContactEnergy->setComputePosFunction(posFunc);
+                        extContactEnergy->setBuffer(extContactBuffer);
+                        extContactEnergy->setCoeff(contact.contactStiffness);
 
-                    extContactEnergy->setFrictionCoeff(config.contactFrictionCoeff);
-                    extContactEnergy->setComputeLastPosFunction(lastPosFunc);
-                    extContactEnergy->setVelEps(config.contactVelEps);
-                    extContactEnergy->setTimestep(config.timestep);
+                        extContactEnergy->setFrictionCoeff(contact.contactFrictionCoeff);
+                        extContactEnergy->setComputeLastPosFunction(lastPosFunc);
+                        extContactEnergy->setVelEps(contact.contactVelEps);
+                        extContactEnergy->setTimestep(simulation.timestep);
 
-                    intg->addGeneralImplicitForceModel(extContactEnergy, 0, 0);
+                        intg->addGeneralImplicitForceModel(extContactEnergy, 0, 0);
+                    } else if (contact.contactModel == "ipc-barrier") {
+                        SPDLOG_LOGGER_WARN(
+                            Logging::lgr(),
+                            "IPC barrier energy not yet implemented for external contact. "
+                            "Falling back to no contact energy this frame.");
+                    }
                 }
             }
 
@@ -442,26 +484,33 @@ int runSimFromConfig(const RunSimConfig& config) {
                 if (selfCD->getCollidingTrianglePair().size() > 0) {
                     selfCD->handleContactDCD(0, 100);
 
-                    selfContactEnergy = selfCD->buildContactEnergy();
-                    selfContactEnergy->setToPosFunction([&restPosition](const ES::V3d& x, ES::V3d& p, int offset) {
-                        p = x + restPosition.segment<3>(offset);
-                    });
-
-                    selfContactEnergy->setToLastPosFunction(
-                        [&restPosition, &u](const ES::V3d& x, ES::V3d& p, int offset) {
-                            p = restPosition.segment<3>(offset) + u.segment<3>(offset);
+                    if (contact.contactModel == "penalty") {
+                        selfContactEnergy = selfCD->buildContactEnergy();
+                        selfContactEnergy->setToPosFunction([&restPosition](const ES::V3d& x, ES::V3d& p, int offset) {
+                            p = x + restPosition.segment<3>(offset);
                         });
 
-                    selfContactEnergyBuf = selfContactEnergy->allocateBuffer();
-                    selfContactEnergy->setBuffer(selfContactEnergyBuf);
-                    selfContactEnergy->setCoeff(config.contactStiffness);
-                    selfContactEnergy->computeClosestPosition(u.data());
+                        selfContactEnergy->setToLastPosFunction(
+                            [&restPosition, &u](const ES::V3d& x, ES::V3d& p, int offset) {
+                                p = restPosition.segment<3>(offset) + u.segment<3>(offset);
+                            });
 
-                    selfContactEnergy->setFrictionCoeff(config.contactFrictionCoeff);
-                    selfContactEnergy->setTimestep(config.timestep);
-                    selfContactEnergy->setVelEps(config.contactVelEps);
+                        selfContactEnergyBuf = selfContactEnergy->allocateBuffer();
+                        selfContactEnergy->setBuffer(selfContactEnergyBuf);
+                        selfContactEnergy->setCoeff(contact.contactStiffness);
+                        selfContactEnergy->computeClosestPosition(u.data());
 
-                    intg->addGeneralImplicitForceModel(selfContactEnergy, 0, 0);
+                        selfContactEnergy->setFrictionCoeff(contact.contactFrictionCoeff);
+                        selfContactEnergy->setTimestep(simulation.timestep);
+                        selfContactEnergy->setVelEps(contact.contactVelEps);
+
+                        intg->addGeneralImplicitForceModel(selfContactEnergy, 0, 0);
+                    } else if (contact.contactModel == "ipc-barrier") {
+                        SPDLOG_LOGGER_WARN(
+                            Logging::lgr(),
+                            "IPC barrier energy not yet implemented for self contact. "
+                            "Falling back to no contact energy this frame.");
+                    }
                 }
             }
 
@@ -483,18 +532,18 @@ int runSimFromConfig(const RunSimConfig& config) {
 
             ES::mv(W, u, usurf);
 
-            if (framei % config.dumpInterval == 0) {
+            if (framei % simulation.dumpInterval == 0) {
                 ES::VXd psurf = surfaceRestPositions + usurf;
 
                 Mesh::TriMeshGeo mesh = surfaceMesh;
                 for (int vi = 0; vi < mesh.numVertices(); vi++) {
-                    mesh.pos(vi) = psurf.segment<3>(vi * 3) / config.scale;
+                    mesh.pos(vi) = psurf.segment<3>(vi * 3) / config.mesh.scale;
                 }
-                mesh.save(fmt::format("{}/ret{:04d}.obj", config.outputFolder, framei / config.dumpInterval));
+                mesh.save(fmt::format("{}/ret{:04d}.obj", runtime.outputFolder, framei / simulation.dumpInterval));
             }
 
             for (size_t eobji = 0; eobji < kinematicObjects.size(); eobji++) {
-                ES::V3d movement = kinematicObjectMovements[eobji] / (config.numSimSteps - 1);
+                ES::V3d movement = kinematicObjectMovements[eobji] / (simulation.numSimSteps - 1);
                 for (int vi = 0; vi < kinematicObjects[eobji].numVertices(); vi++) {
                     kinematicObjects[eobji].pos(vi) += movement;
                 }
@@ -506,9 +555,9 @@ int runSimFromConfig(const RunSimConfig& config) {
             uMat.col(1) = uvel;
             uMat.col(2) = uacc;
 
-            ES::writeMatrix(fmt::format("{}/deform{:04d}.u", config.outputFolder, framei).c_str(), uMat);
+            ES::writeMatrix(fmt::format("{}/deform{:04d}.u", runtime.outputFolder, framei).c_str(), uMat);
         }
-    } else if (config.simType == "static") {
+    } else if (simulation.simType == "static") {
         std::shared_ptr<PredefinedPotentialEnergies::LinearPotentialEnergy> externalForcesEnergy =
             std::make_shared<PredefinedPotentialEnergies::LinearPotentialEnergy>(fext);
 
@@ -529,7 +578,7 @@ int runSimFromConfig(const RunSimConfig& config) {
 
         NonlinearOptimization::NewtonRaphsonSolver solver(u.data(), solverParam, energyAll, std::vector<int>(),
                                                           nullptr);
-        solver.solve(u.data(), config.solverMaxIter, config.solverEps, 2);
+        solver.solve(u.data(), config.solver.solverMaxIter, config.solver.solverEps, 2);
 
         ES::VXd x = restPosition + u;
 
@@ -540,7 +589,7 @@ int runSimFromConfig(const RunSimConfig& config) {
         for (int vi = 0; vi < meshOut.numVertices(); vi++) {
             meshOut.pos(vi) = xsurf.segment<3>(vi * 3);
         }
-        meshOut.save(config.outputFolder);
+        meshOut.save(runtime.outputFolder);
     }
 
     return 0;

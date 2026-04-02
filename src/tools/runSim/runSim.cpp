@@ -93,11 +93,11 @@ int main(int argc, char* argv[]) {
     }
 
     if (program.get<bool>("--deterministic")) {
-        config.deterministicMode = true;
+        config.runtime.deterministicMode = true;
     }
 
-    // config.restartEnabled = true;
-    // config.restartPause = true;
+    // config.runtime.restartEnabled = true;
+    // config.runtime.restartPause = true;
 
     try {
         return pgo::api::runSimFromConfig(config);

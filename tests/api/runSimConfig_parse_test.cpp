@@ -102,10 +102,10 @@ TEST(RunSimConfigParseTest, TetMeshConfigSelectsTetInputType) {
 
     const pgo::api::RunSimConfig config = parseConfigFile(configFile);
 
-    EXPECT_EQ(config.volumetricMeshType, pgo::api::VolumetricMeshInputType::TET);
-    EXPECT_EQ(config.tetMeshFilename, normalizedAbsolutePath(configDir / "../assets/tet/simple.veg"));
-    EXPECT_TRUE(config.cubicMeshFilename.empty());
-    EXPECT_EQ(config.surfaceMeshFilename, normalizedAbsolutePath(configDir / "surface.obj"));
+    EXPECT_EQ(config.mesh.volumetricMeshType, pgo::api::VolumetricMeshInputType::TET);
+    EXPECT_EQ(config.mesh.tetMeshFilename, normalizedAbsolutePath(configDir / "../assets/tet/simple.veg"));
+    EXPECT_TRUE(config.mesh.cubicMeshFilename.empty());
+    EXPECT_EQ(config.mesh.surfaceMeshFilename, normalizedAbsolutePath(configDir / "surface.obj"));
 }
 
 TEST(RunSimConfigParseTest, CubicMeshConfigSelectsCubicInputType) {
@@ -121,10 +121,10 @@ TEST(RunSimConfigParseTest, CubicMeshConfigSelectsCubicInputType) {
 
     const pgo::api::RunSimConfig config = parseConfigFile(configFile);
 
-    EXPECT_EQ(config.volumetricMeshType, pgo::api::VolumetricMeshInputType::CUBIC);
-    EXPECT_TRUE(config.tetMeshFilename.empty());
-    EXPECT_EQ(config.cubicMeshFilename, normalizedAbsolutePath(configDir / "../assets/cubic/simple.veg"));
-    EXPECT_EQ(config.surfaceMeshFilename, normalizedAbsolutePath(configDir / "surface.obj"));
+    EXPECT_EQ(config.mesh.volumetricMeshType, pgo::api::VolumetricMeshInputType::CUBIC);
+    EXPECT_TRUE(config.mesh.tetMeshFilename.empty());
+    EXPECT_EQ(config.mesh.cubicMeshFilename, normalizedAbsolutePath(configDir / "../assets/cubic/simple.veg"));
+    EXPECT_EQ(config.mesh.surfaceMeshFilename, normalizedAbsolutePath(configDir / "surface.obj"));
 }
 
 TEST(RunSimConfigParseTest, RejectsConfigWithBothTetAndCubicMeshKeys) {
@@ -179,7 +179,127 @@ TEST(RunSimConfigParseTest, AcceptsVolumetricMeshTypeHintWhenConsistent) {
     ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
 
     const pgo::api::RunSimConfig config = parseConfigFile(configFile);
-    EXPECT_EQ(config.volumetricMeshType, pgo::api::VolumetricMeshInputType::CUBIC);
+    EXPECT_EQ(config.mesh.volumetricMeshType, pgo::api::VolumetricMeshInputType::CUBIC);
+}
+
+TEST(RunSimConfigParseTest, DefaultsToPenaltyContactModelAndDefaultIpcParameters) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim.json";
+
+    nlohmann::json j = makeBaseConfig();
+    j["cubic-mesh"] = "cubic.veg";
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    const pgo::api::RunSimConfig config = parseConfigFile(configFile);
+
+    EXPECT_EQ(config.contact.contactModel, "penalty");
+    EXPECT_DOUBLE_EQ(config.contact.ipcDhat, 1e-3);
+    EXPECT_DOUBLE_EQ(config.contact.ipcKappa, 1e4);
+    EXPECT_DOUBLE_EQ(config.contact.ipcAlphaSafety, 0.9);
+}
+
+TEST(RunSimConfigParseTest, ParsesIpcBarrierContactParameters) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim.json";
+
+    nlohmann::json j        = makeBaseConfig();
+    j["cubic-mesh"]         = "cubic.veg";
+    j["contact-model"]      = "ipc-barrier";
+    j["ipc-dhat"]           = 0.02;
+    j["ipc-kappa"]          = 2.5e5;
+    j["ipc-alpha-safety"]   = 0.8;
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    const pgo::api::RunSimConfig config = parseConfigFile(configFile);
+
+    EXPECT_EQ(config.contact.contactModel, "ipc-barrier");
+    EXPECT_DOUBLE_EQ(config.contact.ipcDhat, 0.02);
+    EXPECT_DOUBLE_EQ(config.contact.ipcKappa, 2.5e5);
+    EXPECT_DOUBLE_EQ(config.contact.ipcAlphaSafety, 0.8);
+}
+
+TEST(RunSimConfigParseTest, RejectsUnsupportedContactModel) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim.json";
+
+    nlohmann::json j        = makeBaseConfig();
+    j["cubic-mesh"]         = "cubic.veg";
+    j["contact-model"]      = "unsupported";
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    EXPECT_THROW((void)parseConfigFile(configFile), std::runtime_error);
+}
+
+TEST(RunSimConfigParseTest, RejectsNonPositiveIpcDhat) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim.json";
+
+    nlohmann::json j        = makeBaseConfig();
+    j["cubic-mesh"]         = "cubic.veg";
+    j["contact-model"]      = "ipc-barrier";
+    j["ipc-dhat"]           = 0.0;
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    EXPECT_THROW((void)parseConfigFile(configFile), std::runtime_error);
+}
+
+TEST(RunSimConfigParseTest, RejectsNonPositiveIpcKappa) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim.json";
+
+    nlohmann::json j        = makeBaseConfig();
+    j["cubic-mesh"]         = "cubic.veg";
+    j["contact-model"]      = "ipc-barrier";
+    j["ipc-kappa"]          = 0.0;
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    EXPECT_THROW((void)parseConfigFile(configFile), std::runtime_error);
+}
+
+TEST(RunSimConfigParseTest, RejectsOutOfRangeIpcAlphaSafety) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim-a.json";
+    const std::filesystem::path configFile2 = tempDir.path() / "sim-b.json";
+
+    nlohmann::json j        = makeBaseConfig();
+    j["cubic-mesh"]         = "cubic.veg";
+    j["contact-model"]      = "ipc-barrier";
+    j["ipc-alpha-safety"]   = 0.0;
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    nlohmann::json j2      = j;
+    j2["ipc-alpha-safety"] = 1.1;
+    ASSERT_TRUE(writeTextFile(configFile2, j2.dump(2)));
+
+    EXPECT_THROW((void)parseConfigFile(configFile), std::runtime_error);
+    EXPECT_THROW((void)parseConfigFile(configFile2), std::runtime_error);
+}
+
+TEST(RunSimConfigParseTest, RejectsFrictionWithIpcBarrierContactModel) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim.json";
+
+    nlohmann::json j                 = makeBaseConfig();
+    j["cubic-mesh"]                  = "cubic.veg";
+    j["contact-model"]               = "ipc-barrier";
+    j["contact-friction-coeff"]      = 0.3;
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    EXPECT_THROW((void)parseConfigFile(configFile), std::runtime_error);
 }
 
 TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicSmokeTest) {
@@ -195,27 +315,78 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicSmokeTest) {
     pgo::Logging::init();
 
     pgo::api::RunSimConfig config;
-    config.cubicMeshFilename = cubicMeshFile.string();
-    config.surfaceMeshFilename = surfaceMeshFile.string();
-    config.volumetricMeshType = pgo::api::VolumetricMeshInputType::CUBIC;
-    config.extAcc = pgo::EigenSupport::V3d::Zero();
-    config.initialVel = pgo::EigenSupport::V3d::Zero();
-    config.initialDisp = pgo::EigenSupport::V3d::Zero();
-    config.scale = 1.0;
-    config.timestep = 0.01;
-    config.contactStiffness = 0.0;
-    config.contactSamples = 1;
-    config.contactFrictionCoeff = 0.0;
-    config.contactVelEps = 1e-8;
-    config.solverEps = 1e-8;
-    config.solverMaxIter = 4;
-    config.dampingParams = {0.0, 0.0};
-    config.elasticMaterial = pgo::SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
-    config.numSimSteps = 2;
-    config.dumpInterval = 1;
-    config.simType = "dynamic";
-    config.outputFolder = outputDir.string();
-    config.deterministicMode = true;
+    config.mesh.cubicMeshFilename = cubicMeshFile.string();
+    config.mesh.surfaceMeshFilename = surfaceMeshFile.string();
+    config.mesh.volumetricMeshType = pgo::api::VolumetricMeshInputType::CUBIC;
+    config.scene.extAcc = pgo::EigenSupport::V3d::Zero();
+    config.scene.initialVel = pgo::EigenSupport::V3d::Zero();
+    config.scene.initialDisp = pgo::EigenSupport::V3d::Zero();
+    config.mesh.scale = 1.0;
+    config.simulation.timestep = 0.01;
+    config.contact.contactStiffness = 0.0;
+    config.contact.contactSamples = 1;
+    config.contact.contactFrictionCoeff = 0.0;
+    config.contact.contactVelEps = 1e-8;
+    config.solver.solverEps = 1e-8;
+    config.solver.solverMaxIter = 4;
+    config.solver.dampingParams = {0.0, 0.0};
+    config.solver.elasticMaterial = pgo::SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
+    config.simulation.numSimSteps = 2;
+    config.simulation.dumpInterval = 1;
+    config.simulation.simType = "dynamic";
+    config.runtime.outputFolder = outputDir.string();
+    config.runtime.deterministicMode = true;
+
+    EXPECT_EQ(pgo::api::runSimFromConfig(config), 0);
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "deform0001.u"));
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "ret0001.obj"));
+
+    std::error_code ec;
+    std::filesystem::remove("fv.obj", ec);
+}
+
+TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcSmokeTest) {
+    ScopedTempDir tempDir;
+    const std::filesystem::path repoRoot = repoRootPath();
+    const std::filesystem::path cubicMeshFile = repoRoot / "examples" / "cubic-box" / "cubic-box.veg";
+    const std::filesystem::path surfaceMeshFile = repoRoot / "examples" / "cubic-box" / "cubic-box.obj";
+    const std::filesystem::path externalObjectFile = repoRoot / "examples" / "bottom.obj";
+    const std::filesystem::path outputDir = tempDir.path() / "output";
+
+    ASSERT_TRUE(std::filesystem::exists(cubicMeshFile));
+    ASSERT_TRUE(std::filesystem::exists(surfaceMeshFile));
+    ASSERT_TRUE(std::filesystem::exists(externalObjectFile));
+
+    pgo::Logging::init();
+
+    pgo::api::RunSimConfig config;
+    config.mesh.cubicMeshFilename = cubicMeshFile.string();
+    config.mesh.surfaceMeshFilename = surfaceMeshFile.string();
+    config.mesh.volumetricMeshType = pgo::api::VolumetricMeshInputType::CUBIC;
+    config.scene.externalObjects.push_back({externalObjectFile.string(), {0.0, 0.0, 0.0}});
+    config.scene.extAcc = pgo::EigenSupport::V3d::Zero();
+    config.scene.initialVel = pgo::EigenSupport::V3d::Zero();
+    config.scene.initialDisp = pgo::EigenSupport::V3d::Zero();
+    config.mesh.scale = 1.0;
+    config.simulation.timestep = 0.01;
+    config.contact.contactStiffness = 0.0;
+    config.contact.contactSamples = 1;
+    config.contact.enableSelfContact = false;
+    config.contact.contactFrictionCoeff = 0.0;
+    config.contact.contactVelEps = 1e-8;
+    config.contact.contactModel = "ipc-barrier";
+    config.contact.ipcDhat = 0.01;
+    config.contact.ipcKappa = 1e5;
+    config.contact.ipcAlphaSafety = 0.9;
+    config.solver.solverEps = 1e-8;
+    config.solver.solverMaxIter = 4;
+    config.solver.dampingParams = {0.0, 0.0};
+    config.solver.elasticMaterial = pgo::SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
+    config.simulation.numSimSteps = 2;
+    config.simulation.dumpInterval = 1;
+    config.simulation.simType = "dynamic";
+    config.runtime.outputFolder = outputDir.string();
+    config.runtime.deterministicMode = true;
 
     EXPECT_EQ(pgo::api::runSimFromConfig(config), 0);
     EXPECT_TRUE(std::filesystem::exists(outputDir / "deform0001.u"));
