@@ -19,6 +19,7 @@
 
 #include <numeric>
 #include <iomanip>
+#include <stdexcept>
 
 using namespace pgo;
 using namespace pgo::Contact;
@@ -46,6 +47,61 @@ public:
 using dual2nd = NonlinearOptimization::AutomaticDifferentiation_autodiff::dual2nd;
 using dualV3d = Eigen::Matrix<dual2nd, 3, 1>;
 using hclock  = std::chrono::high_resolution_clock;
+
+namespace {
+
+[[noreturn]] void throwPseudoNormalLookupFailure(const char* source, int objectID, const TriMeshGeo& mesh, int triID,
+                                                 int feature, int edgeVtx0, int edgeVtx1) {
+    if (triID < 0 || triID >= mesh.numTriangles()) {
+        SPDLOG_LOGGER_CRITICAL(Logging::lgr(),
+                               "Pseudo-normal lookup failed in {}: object={}, triID={}, feature={}, invalid triangle "
+                               "index for mesh with {} triangles",
+                               source, objectID, triID, feature, mesh.numTriangles());
+    } else {
+        const ES::V3i tri = mesh.tri(triID);
+        SPDLOG_LOGGER_CRITICAL(Logging::lgr(),
+                               "Pseudo-normal lookup failed in {}: object={}, triID={}, feature={}, vtxIDs=({}, {}, "
+                               "{}), edge=({}, {})",
+                               source, objectID, triID, feature, tri[0], tri[1], tri[2], edgeVtx0, edgeVtx1);
+    }
+
+    throw std::runtime_error("Pseudo-normal lookup failed. Simulation aborted.");
+}
+
+const ES::V3d& getPseudoNormalOrThrow(const TriMeshPseudoNormal& meshNormals, const TriMeshGeo& mesh, int objectID,
+                                      int triID, int feature, const char* source) {
+    if (triID < 0 || triID >= mesh.numTriangles()) {
+        throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, -1, -1);
+    }
+
+    const ES::V3i tri = mesh.tri(triID);
+    switch (feature) {
+        case 0:
+        case 1:
+        case 2:
+        case 6:
+            return meshNormals.getPseudoNormal(mesh.triangles().data(), triID, feature);
+        case 3:
+            if (!meshNormals.hasEdgeNormal(tri[0], tri[1])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[0], tri[1]);
+            }
+            return meshNormals.edgeNormal(tri[0], tri[1]);
+        case 4:
+            if (!meshNormals.hasEdgeNormal(tri[1], tri[2])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[1], tri[2]);
+            }
+            return meshNormals.edgeNormal(tri[1], tri[2]);
+        case 5:
+            if (!meshNormals.hasEdgeNormal(tri[2], tri[0])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[2], tri[0]);
+            }
+            return meshNormals.edgeNormal(tri[2], tri[0]);
+        default:
+            throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, -1, -1);
+    }
+}
+
+}  // namespace
 
 static dual2nd relativeDistanceOnFixedDirections(const dual2nd x[12], const ES::V3d& n, const ES::V3d& w) {
     dualV3d v0(x[0], x[1], x[2]);
@@ -265,8 +321,8 @@ std::tuple<bool, int> PointTrianglePairCouplingEnergyWithCollision::checkContact
             }
         }
 
-        ES::V3d n = buf->surfaceNormals[triObjID].getPseudoNormal(
-            buf->surfaceMeshesRuntime[triObjID].triangles().data(), closestTriID, closestFeature);
+        ES::V3d n = getPseudoNormalOrThrow(buf->surfaceNormals[triObjID], buf->surfaceMeshesRuntime[triObjID],
+                                           triObjID, closestTriID, closestFeature, "self-contact");
         ES::V3d dir = xlocal.segment<3>(0) - closestPos;
 
         return std::make_tuple(dir.dot(n) < 0, neighboringTriangles[pi][0]);

@@ -71,6 +71,7 @@ public:
 
     // assert (vtxID0, vtxID1) is a valid edge, the order of vtxID0 and vtxID1 does not matter
     const Vec3d& edgeNormal(int vtxID0, int vtxID1) const;
+    bool         hasEdgeNormal(int vtxID0, int vtxID1) const;
 
     const Vec3d& triNormal(int triID) const { return triNormals[triID]; }
 
@@ -120,6 +121,19 @@ inline const Vec3d& TriMeshPseudoNormal::getPseudoNormal(const Vec3i* triangles,
         default:
             return triNormals[triID];
     }
+}
+
+inline bool TriMeshPseudoNormal::hasEdgeNormal(int vtxID0, int vtxID1) const {
+    if (vtxID0 > vtxID1) {
+        std::swap(vtxID0, vtxID1);
+    }
+
+    if (vtxID0 < 0 || vtxID0 >= static_cast<int>(edgeNormals.size())) {
+        return false;
+    }
+
+    const auto& edgeMap = edgeNormals[vtxID0];
+    return edgeMap.find(vtxID1) != edgeMap.end();
 }
 
 inline Vec3d TriMeshPseudoNormal::getPseudoClosestPosition(TriMeshRef triMesh, int triID, int closestFeature) const {

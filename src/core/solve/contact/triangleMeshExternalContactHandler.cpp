@@ -1,6 +1,7 @@
 #include "triangleMeshExternalContactHandler.h"
 #include "pointPenetrationEnergy.h"
 
+#include "contactEnergyUtilities.h"
 #include "pgoLogging.h"
 #include "geometryQuery.h"
 #include "triangleSampler.h"
@@ -12,6 +13,7 @@
 #include <tbb/spin_mutex.h>
 
 #include <queue>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -27,6 +29,61 @@ using hclock = std::chrono::high_resolution_clock;
 inline double dura(const hclock::time_point& t1, const hclock::time_point& t2) {
     return std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1e6;
 }
+
+namespace {
+
+[[noreturn]] void throwPseudoNormalLookupFailure(const char* source, int objectID, const TriMeshGeo& mesh, int triID,
+                                                 int feature, int edgeVtx0, int edgeVtx1) {
+    if (triID < 0 || triID >= mesh.numTriangles()) {
+        SPDLOG_LOGGER_CRITICAL(Logging::lgr(),
+                               "Pseudo-normal lookup failed in {}: object={}, triID={}, feature={}, invalid triangle "
+                               "index for mesh with {} triangles",
+                               source, objectID, triID, feature, mesh.numTriangles());
+    } else {
+        const ES::V3i tri = mesh.tri(triID);
+        SPDLOG_LOGGER_CRITICAL(Logging::lgr(),
+                               "Pseudo-normal lookup failed in {}: object={}, triID={}, feature={}, vtxIDs=({}, {}, "
+                               "{}), edge=({}, {})",
+                               source, objectID, triID, feature, tri[0], tri[1], tri[2], edgeVtx0, edgeVtx1);
+    }
+
+    throw std::runtime_error("Pseudo-normal lookup failed. Simulation aborted.");
+}
+
+const ES::V3d& getPseudoNormalOrThrow(const TriMeshPseudoNormal& meshNormals, const TriMeshGeo& mesh, int objectID,
+                                      int triID, int feature, const char* source) {
+    if (triID < 0 || triID >= mesh.numTriangles()) {
+        throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, -1, -1);
+    }
+
+    const ES::V3i tri = mesh.tri(triID);
+    switch (feature) {
+        case 0:
+        case 1:
+        case 2:
+        case 6:
+            return meshNormals.getPseudoNormal(mesh.triangles().data(), triID, feature);
+        case 3:
+            if (!meshNormals.hasEdgeNormal(tri[0], tri[1])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[0], tri[1]);
+            }
+            return meshNormals.edgeNormal(tri[0], tri[1]);
+        case 4:
+            if (!meshNormals.hasEdgeNormal(tri[1], tri[2])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[1], tri[2]);
+            }
+            return meshNormals.edgeNormal(tri[1], tri[2]);
+        case 5:
+            if (!meshNormals.hasEdgeNormal(tri[2], tri[0])) {
+                throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, tri[2], tri[0]);
+            }
+            return meshNormals.edgeNormal(tri[2], tri[0]);
+        default:
+            throwPseudoNormalLookupFailure(source, objectID, mesh, triID, feature, -1, -1);
+    }
+}
+
+}  // namespace
 
 TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(
     const std::vector<ES::V3d>& V, const std::vector<ES::V3i>& T, int nDOFs, const std::vector<TriMeshRef>& esurf,
@@ -206,31 +263,35 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(
 
     // if embedding weights and indices are given
     if (vertexEmbeddingIndices && vertexEmbeddingWeights) {
+        const int embeddingArity =
+            validateAndGetVertexEmbeddingArity(*vertexEmbeddingIndices, *vertexEmbeddingWeights,
+                                               static_cast<int>(vertices.size()), "external-contact");
+
         // we need to first compute an interpolation matrix
         tbb::concurrent_vector<ES::TripletD> entries;
 
         // for (auto it = sampleIDQueryTable.begin(); it != sampleIDQueryTable.end(); ++it) {
         tbb::parallel_for(0, (int)sampleInfoAndIDs.size(), [&](int si) {
-            const ES::V3d& p     = sampleInfoAndIDs[si].pos;
-            int            triID = sampleInfoAndIDs[si].triangleID;
+            int triID = sampleInfoAndIDs[si].triangleID;
 
             for (int vj = 0; vj < 3; vj++) {
                 int vid = triangles[triID][vj];
 
-                if (vid * 4 + 3 >= (int)vertexEmbeddingIndices->size()) {
+                const int embedOffset = vid * embeddingArity;
+                if (embedOffset + embeddingArity > (int)vertexEmbeddingIndices->size()) {
                     continue;
                 }
 
-                for (int j = 0; j < 4; j++) {
-                    int    tetVid = (*vertexEmbeddingIndices)[vid * 4 + j];
-                    double tetw   = (*vertexEmbeddingWeights)[vid * 4 + j];
+                for (int j = 0; j < embeddingArity; j++) {
+                    int    embedVid = (*vertexEmbeddingIndices)[embedOffset + j];
+                    double embedW   = (*vertexEmbeddingWeights)[embedOffset + j];
 
-                    double wfinal = sampleInfoAndIDs[si].w[vj] * tetw;
+                    double wfinal = sampleInfoAndIDs[si].w[vj] * embedW;
                     if (std::abs(wfinal) < 1e-16)
                         continue;
 
                     for (int dofi = 0; dofi < 3; dofi++) {
-                        entries.emplace_back(si * 3 + dofi, tetVid * 3 + dofi, wfinal);
+                        entries.emplace_back(si * 3 + dofi, embedVid * 3 + dofi, wfinal);
                     }
                 }
             }
@@ -407,7 +468,8 @@ void TriangleMeshExternalContactHandler::execute() {
 
             nodeStack.clear();
             auto    ret       = meshBVTree.closestTriangleQuery(mesh, srcPos, nodeStack);
-            ES::V3d tgtNormal = meshNormals.getPseudoNormal(mesh.triangles().data(), ret.triID, ret.feature);
+            ES::V3d tgtNormal = getPseudoNormalOrThrow(meshNormals, mesh, oi, ret.triID, ret.feature,
+                                                       "external-contact");
 
             if (tgtNormal.dot(srcNormal) > 0)
                 continue;
@@ -462,11 +524,9 @@ void TriangleMeshExternalContactHandler::execute() {
     count = 0;
     for (auto it = contactInfoTLS.begin(); it != contactInfoTLS.end(); ++it) {
         for (const auto& info : *it) {
-            int vi = 0;
             for (ES::SpMatD::InnerIterator it(interpolationMatrix, info.sId * 3); it; ++it) {
                 barycentricIdx[count].emplace_back((int)it.col() / 3);
                 barycentricWeights[count].emplace_back(it.value());
-                vi++;
             }
 
             constraintCoeffs[count]                         = sampleWeights[info.sId];

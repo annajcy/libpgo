@@ -44,5 +44,6 @@
   "elastic-material": "stable-neo",
   "dump-interval": 10,
   "output": "ret-cubic-box",
-  "note": "Requires cubic runSim support from later Lecture 03 implementation steps."
+  "note": "Requires cubic runSim support from later Lecture 03 implementation steps.",
+  "enable-self-contact": false
 }

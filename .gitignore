@@ -50,6 +50,7 @@ projects
 build-test
 
 examples/box/ret-box
+examples/box_l/ret-box
 
 .cache/
 .venv/
@@ -58,3 +59,11 @@ examples/box/ret-box
 build-pypgo
 papers/
 site/
+
+examples/cubic-box/ret-cubic-box/*
+examples/cubic-box/ret-cubic-box0/*
+examples/dragon-cubic/ret-dragon-cubic/*
+examples/dragon-cubic/ret-dragon-cubic0/*
+
+*.log
+examples/dragon-cubic/dragon-cubic.log

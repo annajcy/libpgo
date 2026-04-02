@@ -3,6 +3,7 @@
 #include "fileService.h"
 #include "basicIO.h"
 #include "generateTetMeshMatrix.h"
+#include "cubicMesh.h"
 #include "tetMesh.h"
 #include "triMeshGeo.h"
 #include "geometryQuery.h"
@@ -50,7 +51,49 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
 
     RunSimConfig config;
 
-    config.tetMeshFilename     = configPathResolver.resolve(jconfig.getString("tet-mesh", 1));
+    const bool hasTetMesh   = jconfig.exist("tet-mesh");
+    const bool hasCubicMesh = jconfig.exist("cubic-mesh");
+
+    if (hasTetMesh && hasCubicMesh) {
+        throw std::runtime_error("Config cannot contain both 'tet-mesh' and 'cubic-mesh'.");
+    }
+
+    if (!hasTetMesh && !hasCubicMesh) {
+        throw std::runtime_error("Config must contain either 'tet-mesh' or 'cubic-mesh'.");
+    }
+
+    if (hasTetMesh) {
+        config.tetMeshFilename = configPathResolver.resolve(jconfig.getString("tet-mesh", 1));
+        if (config.tetMeshFilename.empty()) {
+            throw std::runtime_error("'tet-mesh' resolves to an empty path.");
+        }
+        config.volumetricMeshType = VolumetricMeshInputType::TET;
+    } else {
+        config.cubicMeshFilename = configPathResolver.resolve(jconfig.getString("cubic-mesh", 1));
+        if (config.cubicMeshFilename.empty()) {
+            throw std::runtime_error("'cubic-mesh' resolves to an empty path.");
+        }
+        config.volumetricMeshType = VolumetricMeshInputType::CUBIC;
+    }
+
+    if (jconfig.exist("volumetric-mesh-type")) {
+        const std::string hintedType = jconfig.getString("volumetric-mesh-type", 1);
+
+        VolumetricMeshInputType hintedMeshType;
+        if (hintedType == "tet") {
+            hintedMeshType = VolumetricMeshInputType::TET;
+        } else if (hintedType == "cubic") {
+            hintedMeshType = VolumetricMeshInputType::CUBIC;
+        } else {
+            throw std::runtime_error(fmt::format("Unsupported volumetric-mesh-type: {}", hintedType));
+        }
+
+        if (hintedMeshType != config.volumetricMeshType) {
+            throw std::runtime_error(
+                "volumetric-mesh-type does not match the volumetric mesh filename key.");
+        }
+    }
+
     config.surfaceMeshFilename = configPathResolver.resolve(jconfig.getString("surface-mesh", 1));
     auto readVec3              = [&](const char* key) {
         auto values = jconfig.getValue<std::array<double, 3>>(key, 1);
@@ -64,6 +107,7 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
     config.timestep             = jconfig.getDouble("timestep", 1);
     config.contactStiffness     = jconfig.getDouble("contact-stiffness", 1);
     config.contactSamples       = jconfig.getInt("contact-sample", 1);
+    config.enableSelfContact    = jconfig.handle().value("enable-self-contact", true);
     config.contactFrictionCoeff = jconfig.getDouble("contact-friction-coeff", 1);
     config.contactVelEps        = jconfig.getDouble("contact-vel-eps", 1);
     config.solverEps            = jconfig.getDouble("solver-eps", 1);
@@ -122,9 +166,24 @@ int runSimFromConfig(const RunSimConfig& config) {
         SPDLOG_LOGGER_INFO(Logging::lgr(), "Deterministic mode enabled; forcing single-threaded execution.");
     }
 
-    VolumetricMeshes::TetMesh tetMesh(config.tetMeshFilename.c_str());
-    for (int vi = 0; vi < tetMesh.getNumVertices(); vi++) {
-        tetMesh.setVertex(vi, tetMesh.getVertex(vi) * config.scale);
+    std::unique_ptr<VolumetricMeshes::VolumetricMesh>        volumetricMesh;
+    std::shared_ptr<SolidDeformationModel::SimulationMesh>   simMesh;
+    if (config.volumetricMeshType == VolumetricMeshInputType::TET) {
+        auto tetMesh = std::make_unique<VolumetricMeshes::TetMesh>(config.tetMeshFilename.c_str());
+        for (int vi = 0; vi < tetMesh->getNumVertices(); vi++) {
+            tetMesh->setVertex(vi, tetMesh->getVertex(vi) * config.scale);
+        }
+
+        simMesh        = SolidDeformationModel::SimulationMesh::createFromTetMesh(*tetMesh);
+        volumetricMesh = std::move(tetMesh);
+    } else {
+        auto cubicMesh = std::make_unique<VolumetricMeshes::CubicMesh>(config.cubicMeshFilename.c_str());
+        for (int vi = 0; vi < cubicMesh->getNumVertices(); vi++) {
+            cubicMesh->setVertex(vi, cubicMesh->getVertex(vi) * config.scale);
+        }
+
+        simMesh        = SolidDeformationModel::SimulationMesh::createFromCubicMesh(*cubicMesh);
+        volumetricMesh = std::move(cubicMesh);
     }
 
     Mesh::TriMeshGeo surfaceMesh;
@@ -143,10 +202,9 @@ int runSimFromConfig(const RunSimConfig& config) {
     }
 
     InterpolationCoordinates::BarycentricCoordinates bc(surfaceMesh.numVertices(), surfaceRestPositions.data(),
-                                                        &tetMesh);
+                                                        volumetricMesh.get());
     ES::SpMatD                                       W = bc.generateInterpolationMatrix();
 
-    std::shared_ptr<SolidDeformationModel::SimulationMesh> simMesh(SolidDeformationModel::loadTetMesh(&tetMesh));
     std::shared_ptr<SolidDeformationModel::DeformationModelManager> dmm =
         std::make_shared<SolidDeformationModel::DeformationModelManager>();
 
@@ -230,7 +288,7 @@ int runSimFromConfig(const RunSimConfig& config) {
     }
 
     ES::SpMatD M;
-    VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(&tetMesh, M, true);
+    VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(volumetricMesh.get(), M, true);
 
     ES::VXd g(n3);
     for (int vi = 0; vi < n; vi++) {
@@ -266,7 +324,7 @@ int runSimFromConfig(const RunSimConfig& config) {
                 &bc.getEmbeddingVertexIndices(), &bc.getEmbeddingWeights());
         }
 
-        if (config.contactStiffness > 0) {
+        if (config.contactStiffness > 0 && config.enableSelfContact) {
             selfCD = std::make_shared<Contact::TriangleMeshSelfContactHandler>(
                 surfaceMesh.positions(), surfaceMesh.triangles(), n3, config.contactSamples,
                 &bc.getEmbeddingVertexIndices(), &bc.getEmbeddingWeights());
@@ -350,7 +408,7 @@ int runSimFromConfig(const RunSimConfig& config) {
                 externalContactHandler->execute(usurf.data());
 
                 if (externalContactHandler->getNumCollidingSamples()) {
-                    extContactEnergy = externalContactHandler->buildContactEnergy();
+                    extContactEnergy = externalContactHandler->buildContactEnergy(1);
                     extContactBuffer = extContactEnergy->allocateBuffer();
 
                     auto posFunc = [&restPosition](const EigenSupport::V3d& u, EigenSupport::V3d& p, int dofStart) {

@@ -33,6 +33,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   deformationModel.h
   tetMeshDeformationModel.h  
+  cubicMeshDeformationModel.h
   koiterDeformationModel.h
 
   deformationModelManager.h
@@ -82,6 +83,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   plasticModel2DFundamentalFormsFirstOnly.cpp
 
   tetMeshDeformationModel.cpp
+  cubicMeshDeformationModel.cpp
   koiterDeformationModel.cpp
 
   deformationModelManager.cpp

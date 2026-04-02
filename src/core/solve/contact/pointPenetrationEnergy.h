@@ -45,6 +45,8 @@ public:
 
 protected:
     bool isInside(const EigenSupport::V3d& p, const EigenSupport::V3d p0, const EigenSupport::V3d n) const;
+    bool queryRuntimeContactPlane(const EigenSupport::V3d& p, EigenSupport::V3d& p0, EigenSupport::V3d& n) const;
+    bool resolveContactPlane(const EigenSupport::V3d& p, int ci, EigenSupport::V3d& p0, EigenSupport::V3d& n) const;
 
     double frictionPotential(const EigenSupport::V3d& x, const EigenSupport::V3d& xlast, const EigenSupport::V3d& n,
                              double eps, double timestep) const;
