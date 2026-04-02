@@ -485,9 +485,11 @@ Expected outputs:
 - `examples/cubic-box/ret-cubic-box/ret0001.obj` ... `ret0199.obj`
 - `examples/cubic-box/cubic-box.abc`
 
-Preview (first 6 seconds):
+Preview:
 
 ![Cubic-box simulation preview](examples/cubic-box/cubic-box-6s.gif)
+
+![cubic-dragon](examples/dragon-cubic/image.png)
 
 ---
 
