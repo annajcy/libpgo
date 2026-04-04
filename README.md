@@ -212,7 +212,7 @@ Important notes for native-module iteration:
 
 ```bash
 cd libpgo
-uv pip install -e .
+uv pip install -e . --force-reinstall
 ```
 
 - If you want to run against a manually built CMake tree instead of the `.venv` install, point `PYTHONPATH` at that build output directly:

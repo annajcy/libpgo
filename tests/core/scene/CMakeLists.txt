@@ -17,3 +17,9 @@ target_link_libraries(core_scene_contact_embedding_test PRIVATE GTest::gtest_mai
 set_property(TARGET core_scene_contact_embedding_test PROPERTY FOLDER "tests")
 
 add_test(NAME core.scene.contact_embedding COMMAND core_scene_contact_embedding_test)
+
+add_libpgo_tools(core_scene_self_contact_detection_test self_contact_detection_test.cpp "${AVAILABLE_LIBS}")
+target_link_libraries(core_scene_self_contact_detection_test PRIVATE GTest::gtest_main)
+set_property(TARGET core_scene_self_contact_detection_test PROPERTY FOLDER "tests")
+
+add_test(NAME core.scene.self_contact_detection COMMAND core_scene_self_contact_detection_test)
