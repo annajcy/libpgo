@@ -41,6 +41,7 @@ public:
 
     using AlphaTestFunc = std::function<double(const EigenSupport::VXd&, const EigenSupport::VXd&)>;
     void setAlphaTestFunc(AlphaTestFunc func) { alphaTestFunc = func; }
+    void clearAlphaTestFunc() { alphaTestFunc = nullptr; }
 
     using StepFunc = std::function<void(const EigenSupport::VXd&, int)>;
     void setStepFunc(StepFunc func) { stepFunc = func; }

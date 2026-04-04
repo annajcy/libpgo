@@ -41,6 +41,28 @@
 namespace pgo {
 namespace api {
 
+namespace {
+
+namespace ES = EigenSupport;
+
+bool isDynamicContactEnabled(const RunSimContactConfig& contact) {
+    return (contact.contactModel == "penalty" && contact.contactStiffness > 0.0) ||
+           (contact.contactModel == "ipc-barrier" && contact.ipcKappa > 0.0);
+}
+
+Contact::PosFunction makeCurrentPositionFunction(const ES::VXd& restPosition) {
+    return [&restPosition](const ES::V3d& u, ES::V3d& p, int dofStart) { p = u + restPosition.segment<3>(dofStart); };
+}
+
+Contact::PosFunction makeLastPositionFunction(const ES::VXd& restPosition, const ES::VXd& u) {
+    return [&restPosition, &u](const ES::V3d& x, ES::V3d& p, int dofStart) {
+        (void)x;
+        p = u.segment<3>(dofStart) + restPosition.segment<3>(dofStart);
+    };
+}
+
+}  // namespace
+
 RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string& configFilePath) {
     using namespace EigenSupport;
     namespace ES = EigenSupport;
@@ -349,9 +371,7 @@ int runSimFromConfig(const RunSimConfig& config) {
             kinematicObjectsRef.emplace_back(kinematicObjects[i]);
         }
 
-        const bool contactEnabled =
-            (contact.contactModel == "penalty" && contact.contactStiffness > 0.0) ||
-            (contact.contactModel == "ipc-barrier" && contact.ipcKappa > 0.0);
+        const bool contactEnabled = isDynamicContactEnabled(contact);
 
         std::shared_ptr<Contact::TriangleMeshExternalContactHandler> externalContactHandler;
         std::shared_ptr<Contact::TriangleMeshSelfContactHandler>     selfCD;
@@ -428,6 +448,7 @@ int runSimFromConfig(const RunSimConfig& config) {
 
         for (int framei = frameStart + 1; framei < simulation.numSimSteps; framei++) {
             intg->clearGeneralImplicitForceModel();
+            intg->clearAlphaTestFunc();
 
             double ratio = (double)framei / (simulation.numSimSteps - 1);
             for (size_t pi = 0; pi < pullingEnergies.size(); pi++) {
@@ -443,6 +464,7 @@ int runSimFromConfig(const RunSimConfig& config) {
             Contact::PointPenetrationEnergyBuffer*           extContactBuffer = nullptr;
             std::shared_ptr<Contact::PointPenetrationBarrierEnergy> extBarrierEnergy;
             Contact::PointPenetrationBarrierEnergyBuffer*           extBarrierBuffer = nullptr;
+            const auto currentPositionFunc = makeCurrentPositionFunction(restPosition);
             if (externalContactHandler) {
                 if (contact.contactModel == "penalty") {
                     externalContactHandler->execute(usurf.data());
@@ -454,21 +476,12 @@ int runSimFromConfig(const RunSimConfig& config) {
                     if (contact.contactModel == "penalty") {
                         extContactEnergy = externalContactHandler->buildContactEnergy(1);
                         extContactBuffer = extContactEnergy->allocateBuffer();
-
-                        auto posFunc = [&restPosition](const EigenSupport::V3d& u, EigenSupport::V3d& p,
-                                                       int dofStart) { p = u + restPosition.segment<3>(dofStart); };
-
-                        auto lastPosFunc = [&restPosition, &u](const EigenSupport::V3d& x, EigenSupport::V3d& p,
-                                                               int dofStart) {
-                            p = u.segment<3>(dofStart) + restPosition.segment<3>(dofStart);
-                        };
-
-                        extContactEnergy->setComputePosFunction(posFunc);
+                        extContactEnergy->setComputePosFunction(currentPositionFunc);
                         extContactEnergy->setBuffer(extContactBuffer);
                         extContactEnergy->setCoeff(contact.contactStiffness);
 
                         extContactEnergy->setFrictionCoeff(contact.contactFrictionCoeff);
-                        extContactEnergy->setComputeLastPosFunction(lastPosFunc);
+                        extContactEnergy->setComputeLastPosFunction(makeLastPositionFunction(restPosition, u));
                         extContactEnergy->setVelEps(contact.contactVelEps);
                         extContactEnergy->setTimestep(simulation.timestep);
 
@@ -476,15 +489,26 @@ int runSimFromConfig(const RunSimConfig& config) {
                     } else if (contact.contactModel == "ipc-barrier") {
                         extBarrierEnergy = externalContactHandler->buildBarrierEnergy(contact.ipcDhat);
                         extBarrierBuffer = extBarrierEnergy->allocateBuffer();
-
-                        auto posFunc = [&restPosition](const EigenSupport::V3d& u, EigenSupport::V3d& p,
-                                                       int dofStart) { p = u + restPosition.segment<3>(dofStart); };
-
-                        extBarrierEnergy->setComputePosFunction(posFunc);
+                        extBarrierEnergy->setComputePosFunction(currentPositionFunc);
                         extBarrierEnergy->setBuffer(extBarrierBuffer);
                         extBarrierEnergy->setCoeff(contact.ipcKappa);
 
                         intg->addGeneralImplicitForceModel(extBarrierEnergy, 0, 0);
+
+                        const double dSafe =
+                            Contact::PointPenetrationBarrierEnergy::normalizePositiveZero(contact.ipcDhat, -1.0);
+                        intg->setAlphaTestFunc(
+                            [&W, &usurf, &contact, externalContactHandler, dSafe](const ES::VXd& z,
+                                                                                   const ES::VXd& dz) {
+                                ES::VXd currentUsurf(usurf.size());
+                                ES::VXd deltaUsurf(usurf.size());
+                                ES::mv(W, z, currentUsurf);
+                                ES::mv(W, dz, deltaUsurf);
+                                currentUsurf += usurf;
+
+                                return externalContactHandler->computeFeasibleStepUpperBound(
+                                    currentUsurf, deltaUsurf, contact.ipcAlphaSafety, dSafe);
+                            });
                     }
                 }
             }

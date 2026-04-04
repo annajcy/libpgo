@@ -194,7 +194,8 @@ void TRBDF2TimeIntegrator::solve(ES::VXd& x, std::shared_ptr<TRBDF2TimeIntegrato
     solverRet =
         solver[stage]->solve(needRenew, x, g, lambda, deltauRangeLow, deltauRangeHi, constraintsRangeLow,
                              constraintsRangeHi, eng, constraints, nIter, eps, verbose,
-                             solverConfigFilename.length() ? solverConfigFilename.c_str() : nullptr, solverOption);
+                             solverConfigFilename.length() ? solverConfigFilename.c_str() : nullptr, solverOption,
+                             alphaTestFunc);
 
     if (printResidual) {
         ES::VXd residual(n3), rhs = ES::VXd::Zero(n3 - fixedDOFs.size());

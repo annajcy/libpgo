@@ -13,7 +13,10 @@
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/spin_mutex.h>
 
+#include <algorithm>
+#include <cmath>
 #include <queue>
+#include <limits>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -600,6 +603,59 @@ std::shared_ptr<PointPenetrationBarrierEnergy> TriangleMeshExternalContactHandle
         static_cast<int>(barycentricIdx.size()), static_cast<int>(interpolationMatrix.cols()), constraintCoeffs.data(),
         constraintTargetPositions.data(), constraintNormals.data(), barycentricIdx, barycentricWeights, dhat,
         positiveZero);
+}
+
+double TriangleMeshExternalContactHandler::computeFeasibleStepUpperBound(EigenSupport::ConstRefVecXd currentU,
+                                                                         EigenSupport::ConstRefVecXd du,
+                                                                         double alphaSafety, double dSafe) const {
+    PGO_ALOG(currentU.size() == n3);
+    PGO_ALOG(du.size() == n3);
+
+    if (constraintCoeffs.size() == 0) {
+        return 1.0;
+    }
+
+    double alphaUpper = 1.0;
+    bool   hasClosingDirection = false;
+
+    for (int ci = 0; ci < constraintCoeffs.size(); ci++) {
+        if (std::abs(constraintCoeffs[ci]) < 1e-9) {
+            continue;
+        }
+
+        ES::V3d p      = ES::V3d::Zero();
+        ES::V3d deltaP = ES::V3d::Zero();
+        for (int vi = 0; vi < static_cast<int>(barycentricIdx[ci].size()); vi++) {
+            const int    vid    = barycentricIdx[ci][vi];
+            const double weight = barycentricWeights[ci][vi];
+
+            p += (restP.segment<3>(vid * 3) + currentU.segment<3>(vid * 3)) * weight;
+            deltaP += du.segment<3>(vid * 3) * weight;
+        }
+
+        const ES::V3d n    = constraintNormals.segment<3>(ci * 3);
+        const ES::V3d p0   = constraintTargetPositions.segment<3>(ci * 3);
+        const double  d0   = (p - p0).dot(n);
+        const double  dDot = deltaP.dot(n);
+
+        if (d0 <= dSafe) {
+            return 0.0;
+        }
+
+        if (dDot < 0.0) {
+            hasClosingDirection = true;
+            alphaUpper = std::min(alphaUpper, (d0 - dSafe) / (-dDot));
+            if (alphaUpper <= 0.0) {
+                return 0.0;
+            }
+        }
+    }
+
+    if (!hasClosingDirection) {
+        return 1.0;
+    }
+
+    return std::clamp(alphaUpper * std::clamp(alphaSafety, 0.0, 1.0), 0.0, 1.0);
 }
 
 std::vector<ES::V3d> TriangleMeshExternalContactHandler::getSamplePoints(const double* u) const {

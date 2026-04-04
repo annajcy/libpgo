@@ -257,7 +257,15 @@ int NewtonRaphsonSolver::solve(double* x_, int numIter, double epsilon, int verb
 
             alpha = alphaTestFunc ? alphaTestFunc(x, deltax) : 1.0;
 
-            lineSearchx.noalias() = x + deltax;
+            if (alpha <= 0.0) {
+                if (verbose >= 1) {
+                    std::cout << "    Iter=" << iter << "; feasible step upper bound is zero." << std::endl;
+                }
+
+                break;
+            }
+
+            lineSearchx.noalias() = x + deltax * alpha;
             double eng1           = energy->func(lineSearchx);
             int    maxIter        = 50;
             if (eng1 < eng) {

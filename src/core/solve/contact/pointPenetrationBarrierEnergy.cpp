@@ -30,7 +30,7 @@ public:
 
 namespace {
 
-double normalizePositiveZero(double dhat, double positiveZero) {
+double normalizePositiveZeroImpl(double dhat, double positiveZero) {
     const double recommended = std::max(1e-10, 1e-6 * dhat);
     const double safeUpper   = dhat * 0.5;
 
@@ -42,6 +42,10 @@ double normalizePositiveZero(double dhat, double positiveZero) {
 }
 
 }  // namespace
+
+double PointPenetrationBarrierEnergy::normalizePositiveZero(double dhat, double positiveZero) {
+    return normalizePositiveZeroImpl(dhat, positiveZero);
+}
 
 PointPenetrationBarrierEnergy::PointPenetrationBarrierEnergy(
     int np, int na, const double* coeffs, const double* tgtPos, const double* nrms,
@@ -55,7 +59,7 @@ PointPenetrationBarrierEnergy::PointPenetrationBarrierEnergy(
       barycentricIdx(bIdx),
       barycentricWeights(bWeights),
       dhat(dhat_),
-      positiveZero(normalizePositiveZero(dhat_, positiveZero_)) {
+      positiveZero(normalizePositiveZeroImpl(dhat_, positiveZero_)) {
     std::vector<ES::TripletD> entries;
     for (int pi = 0; pi < numPoints; pi++) {
         for (int vi = 0; vi < static_cast<int>(barycentricIdx[pi].size()); vi++) {

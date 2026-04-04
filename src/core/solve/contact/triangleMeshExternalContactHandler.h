@@ -33,6 +33,8 @@ public:
 
     std::shared_ptr<PointPenetrationEnergy> buildContactEnergy(int checkingContactRuntime = 0);
     std::shared_ptr<PointPenetrationBarrierEnergy> buildBarrierEnergy(double dhat, double positiveZero = -1.0);
+    double computeFeasibleStepUpperBound(EigenSupport::ConstRefVecXd currentU, EigenSupport::ConstRefVecXd du,
+                                         double alphaSafety, double dSafe) const;
 
     void setExcludedVertices(const std::vector<int>& excludedVertices);
     void setExcludedTriangles(const std::vector<int>& excludedTriangles_) { excludedTriangles = excludedTriangles_; }

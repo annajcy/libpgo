@@ -10,6 +10,8 @@ struct PointPenetrationBarrierEnergyBuffer;
 
 class PointPenetrationBarrierEnergy : public NonlinearOptimization::PotentialEnergy {
 public:
+    static double normalizePositiveZero(double dhat, double positiveZero);
+
     PointPenetrationBarrierEnergy(int numPoints, int nAll, const double* constraintCoeffs,
                                   const double* constraintTargetPositions, const double* constraintNormals,
                                   const std::vector<std::vector<int>>&    barycentricIdx,

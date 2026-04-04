@@ -5,9 +5,10 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <random>
+#include <regex>
 #include <stdexcept>
 #include <string>
 
@@ -18,8 +19,10 @@ namespace {
 class ScopedTempDir {
 public:
     ScopedTempDir() {
-        path_ = std::filesystem::temp_directory_path() / std::filesystem::path("libpgo-runsim-config-test");
-        path_ += std::to_string(std::rand());
+        std::random_device rd;
+        path_ = std::filesystem::temp_directory_path() /
+                std::filesystem::path("libpgo-runsim-config-test-" + std::to_string(rd()) + "-" +
+                                      std::to_string(rd()));
         std::filesystem::create_directories(path_);
     }
 
@@ -43,6 +46,15 @@ bool writeTextFile(const std::filesystem::path& filePath, const std::string& con
 
     os << content;
     return static_cast<bool>(os);
+}
+
+std::string readTextFile(const std::filesystem::path& filePath) {
+    std::ifstream is(filePath);
+    if (!is) {
+        throw std::runtime_error("Failed to open text file for reading.");
+    }
+
+    return std::string((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
 }
 
 nlohmann::json makeBaseConfig() {
@@ -391,6 +403,66 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcSmokeTest) {
     EXPECT_EQ(pgo::api::runSimFromConfig(config), 0);
     EXPECT_TRUE(std::filesystem::exists(outputDir / "deform0001.u"));
     EXPECT_TRUE(std::filesystem::exists(outputDir / "ret0001.obj"));
+
+    std::error_code ec;
+    std::filesystem::remove("fv.obj", ec);
+}
+
+TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcNearContactActivatesExternalBarrier) {
+    ScopedTempDir tempDir;
+    const std::filesystem::path repoRoot = repoRootPath();
+    const std::filesystem::path cubicMeshFile = repoRoot / "examples" / "cubic-box" / "cubic-box.veg";
+    const std::filesystem::path surfaceMeshFile = repoRoot / "examples" / "cubic-box" / "cubic-box.obj";
+    const std::filesystem::path externalObjectFile = repoRoot / "examples" / "bottom.obj";
+    const std::filesystem::path outputDir = tempDir.path() / "output";
+    const std::filesystem::path logFile = tempDir.path() / "runsim-ipc.log";
+    const std::string logFilename = logFile.string();
+
+    ASSERT_TRUE(std::filesystem::exists(cubicMeshFile));
+    ASSERT_TRUE(std::filesystem::exists(surfaceMeshFile));
+    ASSERT_TRUE(std::filesystem::exists(externalObjectFile));
+
+    pgo::Logging::init(logFilename.c_str());
+
+    pgo::api::RunSimConfig config;
+    config.mesh.cubicMeshFilename = cubicMeshFile.string();
+    config.mesh.surfaceMeshFilename = surfaceMeshFile.string();
+    config.mesh.volumetricMeshType = pgo::api::VolumetricMeshInputType::CUBIC;
+    config.scene.externalObjects.push_back({externalObjectFile.string(), {0.0, 0.0, 0.0}});
+    config.scene.extAcc = pgo::EigenSupport::V3d::Zero();
+    config.scene.initialVel = pgo::EigenSupport::V3d::Zero();
+    config.scene.initialDisp = pgo::EigenSupport::V3d(0.0, -0.2, 0.0);
+    config.mesh.scale = 1.0;
+    config.simulation.timestep = 0.01;
+    config.contact.contactStiffness = 0.0;
+    config.contact.contactSamples = 1;
+    config.contact.enableSelfContact = false;
+    config.contact.contactFrictionCoeff = 0.0;
+    config.contact.contactVelEps = 1e-8;
+    config.contact.contactModel = "ipc-barrier";
+    config.contact.ipcDhat = 0.01;
+    config.contact.ipcKappa = 1e5;
+    config.contact.ipcAlphaSafety = 0.9;
+    config.solver.solverEps = 1e-8;
+    config.solver.solverMaxIter = 4;
+    config.solver.dampingParams = {0.0, 0.0};
+    config.solver.elasticMaterial = pgo::SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
+    config.simulation.numSimSteps = 2;
+    config.simulation.dumpInterval = 1;
+    config.simulation.simType = "dynamic";
+    config.runtime.outputFolder = outputDir.string();
+    config.runtime.deterministicMode = true;
+
+    EXPECT_EQ(pgo::api::runSimFromConfig(config), 0);
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "deform0001.u"));
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "ret0001.obj"));
+    ASSERT_TRUE(std::filesystem::exists(logFile));
+
+    const std::string logContents = readTextFile(logFile);
+    const std::regex activeSamplesPattern(R"(# external active samples: ([1-9][0-9]*))");
+
+    EXPECT_TRUE(std::regex_search(logContents, activeSamplesPattern));
+    EXPECT_EQ(logContents.find("IPC barrier energy not yet implemented for external contact."), std::string::npos);
 
     std::error_code ec;
     std::filesystem::remove("fv.obj", ec);
