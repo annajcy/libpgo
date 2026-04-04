@@ -13,6 +13,7 @@
 namespace pgo {
 namespace Contact {
 class PointPenetrationEnergy;
+class PointPenetrationBarrierEnergy;
 
 class TriangleMeshExternalContactHandler {
 public:
@@ -26,9 +27,12 @@ public:
     void updateExternalSurface(int idx, Mesh::TriMeshRef esurf);
 
     virtual void execute(const std::vector<EigenSupport::V3d>& p0);
+    virtual void execute(const std::vector<EigenSupport::V3d>& p0, double activationDistance);
     virtual void execute(const double* u0);
+    virtual void execute(const double* u0, double activationDistance);
 
     std::shared_ptr<PointPenetrationEnergy> buildContactEnergy(int checkingContactRuntime = 0);
+    std::shared_ptr<PointPenetrationBarrierEnergy> buildBarrierEnergy(double dhat, double positiveZero = -1.0);
 
     void setExcludedVertices(const std::vector<int>& excludedVertices);
     void setExcludedTriangles(const std::vector<int>& excludedTriangles_) { excludedTriangles = excludedTriangles_; }
@@ -37,7 +41,8 @@ public:
     const EigenSupport::SpMatD& getSampleEmbeddingMatrix() const { return interpolationMatrix; }
     const std::vector<double>&  getSampleWeights() const { return sampleWeights; }
 
-    int getNumCollidingSamples() const { return (int)constraintCoeffs.size(); }
+    int getNumActiveSamples() const { return (int)constraintCoeffs.size(); }
+    int getNumCollidingSamples() const { return getNumActiveSamples(); }
 
     std::vector<EigenSupport::V3d> getSamplePoints(const double* u) const;
     std::vector<EigenSupport::V3d> getCollidedSamplePoints(const double* u) const;
@@ -45,11 +50,12 @@ public:
 
     const EigenSupport::VXd& getLastCollisionPoints() const { return constraintTargetPositions; }
     const EigenSupport::VXd& getLastCollisionNormals() const { return constraintNormals; }
+    const EigenSupport::VXd& getLastSignedDistances() const { return constraintSignedDistances; }
 
     double getLastCDTime() const { return lastCDTime; }
 
 protected:
-    void execute();
+    void execute(double activationDistance);
 
     void computeSamplePosition(const EigenSupport::VXd& P, EigenSupport::VXd& SP) const;
 
@@ -128,6 +134,7 @@ protected:
     EigenSupport::VXd                constraintCoeffs;
     EigenSupport::VXd                constraintTargetPositions;
     EigenSupport::VXd                constraintNormals;
+    EigenSupport::VXd                constraintSignedDistances;
     std::vector<int>                 contactedTriangles, contactedSamples;
     std::vector<std::vector<int>>    barycentricIdx;
     std::vector<std::vector<double>> barycentricWeights;

@@ -134,4 +134,50 @@ TEST(ContactEmbeddingTest, RejectsMalformedEmbeddingLayout) {
                  std::runtime_error);
 }
 
+TEST(ContactEmbeddingTest, ExternalBarrierActivationIncludesNearContactSamples) {
+    Logging::init();
+
+    const std::vector<EigenSupport::V3d> surfaceVertices = {
+        EigenSupport::V3d(0.2, 0.2, 0.05),
+        EigenSupport::V3d(0.2, 0.8, 0.05),
+        EigenSupport::V3d(0.8, 0.2, 0.05),
+    };
+    const std::vector<EigenSupport::V3i> surfaceTriangles = {
+        EigenSupport::V3i(0, 1, 2),
+    };
+
+    Mesh::TriMeshGeo externalMesh(
+        std::vector<EigenSupport::V3d>{
+            EigenSupport::V3d(0.0, 0.0, 0.0),
+            EigenSupport::V3d(2.0, 0.0, 0.0),
+            EigenSupport::V3d(0.0, 2.0, 0.0),
+            EigenSupport::V3d(2.0, 2.0, 0.0),
+        },
+        std::vector<EigenSupport::V3i>{
+            EigenSupport::V3i(0, 1, 2),
+            EigenSupport::V3i(1, 3, 2),
+        });
+    const std::vector<Mesh::TriMeshRef> externalSurfaces = {externalMesh.ref()};
+
+    Contact::TriangleMeshExternalContactHandler handler(surfaceVertices, surfaceTriangles,
+                                                        static_cast<int>(surfaceVertices.size()) * 3, externalSurfaces,
+                                                        1);
+
+    handler.execute(surfaceVertices);
+    EXPECT_EQ(handler.getNumActiveSamples(), 0);
+    EXPECT_EQ(handler.getNumCollidingSamples(), 0);
+
+    handler.execute(surfaceVertices, 0.1);
+    EXPECT_EQ(handler.getNumActiveSamples(), 3);
+    EXPECT_EQ(handler.getNumCollidingSamples(), 3);
+
+    const EigenSupport::VXd& signedDistances = handler.getLastSignedDistances();
+    ASSERT_EQ(signedDistances.size(), 3);
+    for (int i = 0; i < signedDistances.size(); ++i) {
+        EXPECT_GT(signedDistances[i], 0.0);
+        EXPECT_LT(signedDistances[i], 0.1);
+        EXPECT_NEAR(signedDistances[i], 0.05, 1e-8);
+    }
+}
+
 }  // namespace pgo::Contact::test

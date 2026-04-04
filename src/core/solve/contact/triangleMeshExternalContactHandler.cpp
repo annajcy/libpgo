@@ -1,4 +1,5 @@
 #include "triangleMeshExternalContactHandler.h"
+#include "pointPenetrationBarrierEnergy.h"
 #include "pointPenetrationEnergy.h"
 
 #include "contactEnergyUtilities.h"
@@ -327,7 +328,20 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(
             }
         });
 
-        interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, vertices.size());
+        interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, nDOFs);
+        interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
+    }
+    else {
+        std::vector<ES::TripletD> entries;
+        entries.reserve(sampleInfoAndIDs.size() * 3);
+
+        for (int si = 0; si < static_cast<int>(sampleInfoAndIDs.size()); ++si) {
+            entries.emplace_back(si * 3, si * 3, 1.0);
+            entries.emplace_back(si * 3 + 1, si * 3 + 1, 1.0);
+            entries.emplace_back(si * 3 + 2, si * 3 + 2, 1.0);
+        }
+
+        interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, nDOFs);
         interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
     }
 
@@ -390,6 +404,10 @@ void TriangleMeshExternalContactHandler::updateExternalSurface(int idx, TriMeshR
 }
 
 void TriangleMeshExternalContactHandler::execute(const std::vector<ES::V3d>& p0) {
+    execute(p0, 0.0);
+}
+
+void TriangleMeshExternalContactHandler::execute(const std::vector<ES::V3d>& p0, double activationDistance) {
     for (int i = 0; i < static_cast<int>(p0.size()); i++) {
         curP.segment<3>(i * 3)    = ES::V3d(p0[i][0], p0[i][1], p0[i][2]);
         surfaceMeshRuntime.pos(i) = p0[i];
@@ -397,10 +415,14 @@ void TriangleMeshExternalContactHandler::execute(const std::vector<ES::V3d>& p0)
 
     computeSamplePosition(curP, sampleCurP);
 
-    execute();
+    execute(activationDistance);
 }
 
 void TriangleMeshExternalContactHandler::execute(const double* u0) {
+    execute(u0, 0.0);
+}
+
+void TriangleMeshExternalContactHandler::execute(const double* u0, double activationDistance) {
     curP.noalias() = restP + Eigen::Map<const ES::VXd>(u0, n3);
 
     for (int i = 0; i < surfaceMeshRuntime.numVertices(); i++) {
@@ -416,10 +438,10 @@ void TriangleMeshExternalContactHandler::execute(const double* u0) {
     // }
     // z.save("k.obj");
 
-    execute();
+    execute(activationDistance);
 }
 
-void TriangleMeshExternalContactHandler::execute() {
+void TriangleMeshExternalContactHandler::execute(double activationDistance) {
     hclock::time_point t1 = hclock::now();
 
     surfaceMeshNormals.updateVertexPositions(surfaceMeshRuntime);
@@ -429,6 +451,7 @@ void TriangleMeshExternalContactHandler::execute() {
         int     objId;
         ES::V3d closestPt;
         ES::V3d tgtNormal;
+        double  signedDistance;
     };
 
     tbb::enumerable_thread_specific<std::vector<ContactInfo, tbb::cache_aligned_allocator<ContactInfo>>> contactInfoTLS;
@@ -453,11 +476,11 @@ void TriangleMeshExternalContactHandler::execute() {
                             surfaceMeshNormals.vtxNormal(triangles[triID][1]) * baryW[1] +
                             surfaceMeshNormals.vtxNormal(triangles[triID][2]) * baryW[2];
 
-        // find the furthest bone that it penetrates
-        TriMeshBVTree::ClosestTriangleQueryResult maxRet;
-        maxRet.dist2            = 0;
-        int     closestObjectID = -1;
-        ES::V3d closestTgtNormal;
+        TriMeshBVTree::ClosestTriangleQueryResult bestRet{};
+        bool   foundCandidate    = false;
+        int    closestObjectID   = -1;
+        double bestSignedDistance = activationDistance;
+        ES::V3d closestTgtNormal = ES::V3d::Zero();
 
         thread_local std::vector<std::tuple<double, double, int>> nodeStack;
 
@@ -468,6 +491,9 @@ void TriangleMeshExternalContactHandler::execute() {
 
             nodeStack.clear();
             auto    ret       = meshBVTree.closestTriangleQuery(mesh, srcPos, nodeStack);
+            if (ret.triID < 0) {
+                continue;
+            }
             ES::V3d tgtNormal = getPseudoNormalOrThrow(meshNormals, mesh, oi, ret.triID, ret.feature,
                                                        "external-contact");
 
@@ -476,13 +502,16 @@ void TriangleMeshExternalContactHandler::execute() {
 
             ES::V3d tgtPos = ret.closestPosition;
             ES::V3d diff   = srcPos - tgtPos;
+            double  signedDistance = diff.dot(tgtNormal);
 
-            if (diff.dot(tgtNormal) > 0)
+            if (signedDistance >= activationDistance)
                 continue;
 
-            if (ret.dist2 > maxRet.dist2) {
-                maxRet           = ret;
+            if (!foundCandidate || signedDistance < bestSignedDistance) {
+                foundCandidate   = true;
+                bestRet          = ret;
                 closestObjectID  = oi;
+                bestSignedDistance = signedDistance;
                 closestTgtNormal = tgtNormal;
             }
         }
@@ -490,9 +519,10 @@ void TriangleMeshExternalContactHandler::execute() {
         if (closestObjectID >= 0) {
             ContactInfo info;
             info.objId     = closestObjectID;
-            info.closestPt = maxRet.closestPosition;
+            info.closestPt = bestRet.closestPosition;
             info.tgtNormal = closestTgtNormal;
             info.sId       = si;
+            info.signedDistance = bestSignedDistance;
 
             contactInfoTLS.local().push_back(info);
         }
@@ -503,11 +533,12 @@ void TriangleMeshExternalContactHandler::execute() {
         count += (int)it->size();
     }
 
-    SPDLOG_LOGGER_INFO(Logging::lgr(), "# external contacts: {}", count);
+    SPDLOG_LOGGER_INFO(Logging::lgr(), "# external active samples: {}", count);
 
     constraintCoeffs.resize(count);
     constraintNormals.resize(count * 3);
     constraintTargetPositions.resize(count * 3);
+    constraintSignedDistances.resize(count);
 
     barycentricIdx.clear();
     barycentricIdx.resize(count);
@@ -532,6 +563,7 @@ void TriangleMeshExternalContactHandler::execute() {
             constraintCoeffs[count]                         = sampleWeights[info.sId];
             constraintNormals.segment<3>(count * 3)         = info.tgtNormal;
             constraintTargetPositions.segment<3>(count * 3) = info.closestPt;
+            constraintSignedDistances[count]                = info.signedDistance;
 
             contactedTriangles[count] = sampleTriangleIDs[info.sId][0];
             contactedSamples[count]   = info.sId;
@@ -560,6 +592,14 @@ std::shared_ptr<PointPenetrationEnergy> TriangleMeshExternalContactHandler::buil
                                                         constraintNormals.data(), barycentricIdx, barycentricWeights,
                                                         1.0, 1, 1, nullptr, nullptr, nullptr);
     }
+}
+
+std::shared_ptr<PointPenetrationBarrierEnergy> TriangleMeshExternalContactHandler::buildBarrierEnergy(
+    double dhat, double positiveZero) {
+    return std::make_shared<PointPenetrationBarrierEnergy>(
+        static_cast<int>(barycentricIdx.size()), static_cast<int>(interpolationMatrix.cols()), constraintCoeffs.data(),
+        constraintTargetPositions.data(), constraintNormals.data(), barycentricIdx, barycentricWeights, dhat,
+        positiveZero);
 }
 
 std::vector<ES::V3d> TriangleMeshExternalContactHandler::getSamplePoints(const double* u) const {

@@ -17,3 +17,9 @@ target_link_libraries(core_energy_cubic_deformation_model_test PRIVATE GTest::gt
 set_property(TARGET core_energy_cubic_deformation_model_test PROPERTY FOLDER "tests")
 
 add_test(NAME core.energy.cubic_deformation_model COMMAND core_energy_cubic_deformation_model_test)
+
+add_libpgo_tools(core_energy_point_penetration_barrier_test pointPenetrationBarrierEnergy_test.cpp "${AVAILABLE_LIBS}")
+target_link_libraries(core_energy_point_penetration_barrier_test PRIVATE GTest::gtest_main)
+set_property(TARGET core_energy_point_penetration_barrier_test PROPERTY FOLDER "tests")
+
+add_test(NAME core.energy.point_penetration_barrier COMMAND core_energy_point_penetration_barrier_test)

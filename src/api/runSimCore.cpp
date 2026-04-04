@@ -19,6 +19,7 @@
 #include "generateMassMatrix.h"
 #include "barycentricCoordinates.h"
 #include "triangleMeshExternalContactHandler.h"
+#include "pointPenetrationBarrierEnergy.h"
 #include "pointPenetrationEnergy.h"
 #include "triangleMeshSelfContactHandler.h"
 #include "pointTrianglePairCouplingEnergyWithCollision.h"
@@ -440,10 +441,16 @@ int runSimFromConfig(const RunSimConfig& config) {
 
             std::shared_ptr<Contact::PointPenetrationEnergy> extContactEnergy;
             Contact::PointPenetrationEnergyBuffer*           extContactBuffer = nullptr;
+            std::shared_ptr<Contact::PointPenetrationBarrierEnergy> extBarrierEnergy;
+            Contact::PointPenetrationBarrierEnergyBuffer*           extBarrierBuffer = nullptr;
             if (externalContactHandler) {
-                externalContactHandler->execute(usurf.data());
+                if (contact.contactModel == "penalty") {
+                    externalContactHandler->execute(usurf.data());
+                } else if (contact.contactModel == "ipc-barrier") {
+                    externalContactHandler->execute(usurf.data(), contact.ipcDhat);
+                }
 
-                if (externalContactHandler->getNumCollidingSamples()) {
+                if (externalContactHandler->getNumActiveSamples()) {
                     if (contact.contactModel == "penalty") {
                         extContactEnergy = externalContactHandler->buildContactEnergy(1);
                         extContactBuffer = extContactEnergy->allocateBuffer();
@@ -467,10 +474,17 @@ int runSimFromConfig(const RunSimConfig& config) {
 
                         intg->addGeneralImplicitForceModel(extContactEnergy, 0, 0);
                     } else if (contact.contactModel == "ipc-barrier") {
-                        SPDLOG_LOGGER_WARN(
-                            Logging::lgr(),
-                            "IPC barrier energy not yet implemented for external contact. "
-                            "Falling back to no contact energy this frame.");
+                        extBarrierEnergy = externalContactHandler->buildBarrierEnergy(contact.ipcDhat);
+                        extBarrierBuffer = extBarrierEnergy->allocateBuffer();
+
+                        auto posFunc = [&restPosition](const EigenSupport::V3d& u, EigenSupport::V3d& p,
+                                                       int dofStart) { p = u + restPosition.segment<3>(dofStart); };
+
+                        extBarrierEnergy->setComputePosFunction(posFunc);
+                        extBarrierEnergy->setBuffer(extBarrierBuffer);
+                        extBarrierEnergy->setCoeff(contact.ipcKappa);
+
+                        intg->addGeneralImplicitForceModel(extBarrierEnergy, 0, 0);
                     }
                 }
             }
@@ -524,6 +538,10 @@ int runSimFromConfig(const RunSimConfig& config) {
 
             if (extContactBuffer && extContactEnergy) {
                 extContactEnergy->freeBuffer(extContactBuffer);
+            }
+
+            if (extBarrierBuffer && extBarrierEnergy) {
+                extBarrierEnergy->freeBuffer(extBarrierBuffer);
             }
 
             if (selfContactEnergyBuf && selfContactEnergy) {
