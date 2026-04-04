@@ -210,6 +210,7 @@ TEST(RunSimConfigParseTest, DefaultsToPenaltyContactModelAndDefaultIpcParameters
     EXPECT_DOUBLE_EQ(config.contact.ipcDhat, 1e-3);
     EXPECT_DOUBLE_EQ(config.contact.ipcKappa, 1e4);
     EXPECT_DOUBLE_EQ(config.contact.ipcAlphaSafety, 0.9);
+    EXPECT_TRUE(config.contact.ipcEnableFeasibleLineSearch);
 }
 
 TEST(RunSimConfigParseTest, ParsesIpcBarrierContactParameters) {
@@ -223,6 +224,7 @@ TEST(RunSimConfigParseTest, ParsesIpcBarrierContactParameters) {
     j["ipc-dhat"]           = 0.02;
     j["ipc-kappa"]          = 2.5e5;
     j["ipc-alpha-safety"]   = 0.8;
+    j["ipc-enable-feasible-line-search"] = false;
 
     ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
 
@@ -232,6 +234,26 @@ TEST(RunSimConfigParseTest, ParsesIpcBarrierContactParameters) {
     EXPECT_DOUBLE_EQ(config.contact.ipcDhat, 0.02);
     EXPECT_DOUBLE_EQ(config.contact.ipcKappa, 2.5e5);
     EXPECT_DOUBLE_EQ(config.contact.ipcAlphaSafety, 0.8);
+    EXPECT_FALSE(config.contact.ipcEnableFeasibleLineSearch);
+}
+
+TEST(RunSimConfigParseTest, IpcBarrierFeasibleLineSearchDefaultsToEnabled) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim.json";
+
+    nlohmann::json j      = makeBaseConfig();
+    j["cubic-mesh"]       = "cubic.veg";
+    j["contact-model"]    = "ipc-barrier";
+    j["ipc-dhat"]         = 0.02;
+    j["ipc-kappa"]        = 2.5e5;
+    j["ipc-alpha-safety"] = 0.8;
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    const pgo::api::RunSimConfig config = parseConfigFile(configFile);
+
+    EXPECT_TRUE(config.contact.ipcEnableFeasibleLineSearch);
 }
 
 TEST(RunSimConfigParseTest, RejectsUnsupportedContactModel) {

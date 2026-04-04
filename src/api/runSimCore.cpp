@@ -142,6 +142,8 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
         config.contact.ipcDhat        = jconfig.handle().value("ipc-dhat", 1e-3);
         config.contact.ipcKappa       = jconfig.handle().value("ipc-kappa", 1e4);
         config.contact.ipcAlphaSafety = jconfig.handle().value("ipc-alpha-safety", 0.9);
+        config.contact.ipcEnableFeasibleLineSearch =
+            jconfig.handle().value("ipc-enable-feasible-line-search", true);
 
         if (config.contact.ipcDhat <= 0.0) {
             throw std::runtime_error("ipc-dhat must be positive.");
@@ -495,20 +497,22 @@ int runSimFromConfig(const RunSimConfig& config) {
 
                         intg->addGeneralImplicitForceModel(extBarrierEnergy, 0, 0);
 
-                        const double dSafe =
-                            Contact::PointPenetrationBarrierEnergy::normalizePositiveZero(contact.ipcDhat, -1.0);
-                        intg->setAlphaTestFunc(
-                            [&W, &usurf, &contact, externalContactHandler, dSafe](const ES::VXd& z,
-                                                                                   const ES::VXd& dz) {
-                                ES::VXd currentUsurf(usurf.size());
-                                ES::VXd deltaUsurf(usurf.size());
-                                ES::mv(W, z, currentUsurf);
-                                ES::mv(W, dz, deltaUsurf);
-                                currentUsurf += usurf;
+                        if (contact.ipcEnableFeasibleLineSearch) {
+                            const double dSafe =
+                                Contact::PointPenetrationBarrierEnergy::normalizePositiveZero(contact.ipcDhat, -1.0);
+                            intg->setAlphaTestFunc(
+                                [&W, &usurf, &contact, externalContactHandler, dSafe](const ES::VXd& z,
+                                                                                       const ES::VXd& dz) {
+                                    ES::VXd currentUsurf(usurf.size());
+                                    ES::VXd deltaUsurf(usurf.size());
+                                    ES::mv(W, z, currentUsurf);
+                                    ES::mv(W, dz, deltaUsurf);
+                                    currentUsurf += usurf;
 
-                                return externalContactHandler->computeFeasibleStepUpperBound(
-                                    currentUsurf, deltaUsurf, contact.ipcAlphaSafety, dSafe);
-                            });
+                                    return externalContactHandler->computeFeasibleStepUpperBound(
+                                        currentUsurf, deltaUsurf, contact.ipcAlphaSafety, dSafe);
+                                });
+                        }
                     }
                 }
             }

@@ -639,6 +639,13 @@ double TriangleMeshExternalContactHandler::computeFeasibleStepUpperBound(EigenSu
         const double  dDot = deltaP.dot(n);
 
         if (d0 <= dSafe) {
+            // If the current iterate is already inside the safe margin, only block
+            // steps that keep moving inward (or do nothing). Allow outward motion
+            // so the solver can recover instead of freezing at alpha = 0.
+            if (dDot > 0.0) {
+                continue;
+            }
+
             return 0.0;
         }
 

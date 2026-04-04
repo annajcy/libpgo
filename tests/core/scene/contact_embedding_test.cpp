@@ -247,4 +247,22 @@ TEST(ContactEmbeddingTest, FeasibleStepUpperBoundReturnsZeroWhenAlreadyInsideSaf
     EXPECT_DOUBLE_EQ(handler.computeFeasibleStepUpperBound(currentU, du, 0.9, 0.01), 0.0);
 }
 
+TEST(ContactEmbeddingTest, FeasibleStepUpperBoundAllowsRecoveryWhenInsideSafeMarginButMovingAway) {
+    Logging::init();
+
+    Contact::TriangleMeshExternalContactHandler handler = makePlanarExternalHandler();
+    EigenSupport::VXd       currentU = EigenSupport::VXd::Zero(9);
+    EigenSupport::VXd       du       = EigenSupport::VXd::Zero(9);
+
+    for (int vi = 0; vi < 3; ++vi) {
+        currentU[vi * 3 + 2] = -0.045;
+        du[vi * 3 + 2]       = 0.02;
+    }
+
+    handler.execute(currentU.data(), 0.1);
+    ASSERT_EQ(handler.getNumActiveSamples(), 3);
+
+    EXPECT_DOUBLE_EQ(handler.computeFeasibleStepUpperBound(currentU, du, 0.9, 0.01), 1.0);
+}
+
 }  // namespace pgo::Contact::test

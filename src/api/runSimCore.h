@@ -60,6 +60,7 @@ struct RunSimContactConfig {
     double      ipcDhat              = 1e-3;
     double      ipcKappa             = 1e4;
     double      ipcAlphaSafety       = 0.9;
+    bool        ipcEnableFeasibleLineSearch = true;
 };
 
 struct RunSimSolverConfig {
