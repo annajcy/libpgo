@@ -608,8 +608,12 @@ std::shared_ptr<PointPenetrationBarrierEnergy> TriangleMeshExternalContactHandle
 double TriangleMeshExternalContactHandler::computeFeasibleStepUpperBound(EigenSupport::ConstRefVecXd currentU,
                                                                          EigenSupport::ConstRefVecXd du,
                                                                          double alphaSafety, double dSafe) const {
-    PGO_ALOG(currentU.size() == n3);
-    PGO_ALOG(du.size() == n3);
+    const bool usesSurfaceDOFs  = currentU.size() == n3 && du.size() == n3;
+    const bool usesEmbeddedDOFs = currentU.size() == totaln3 && du.size() == totaln3;
+
+    if (!usesSurfaceDOFs && !usesEmbeddedDOFs) {
+        throw std::invalid_argument("computeFeasibleStepUpperBound received displacement vectors with incompatible sizes.");
+    }
 
     if (constraintCoeffs.size() == 0) {
         return 1.0;
@@ -617,6 +621,12 @@ double TriangleMeshExternalContactHandler::computeFeasibleStepUpperBound(EigenSu
 
     double alphaUpper = 1.0;
     bool   hasClosingDirection = false;
+    ES::VXd sampleCurrentU;
+    ES::VXd sampleDeltaU;
+    if (usesEmbeddedDOFs) {
+        sampleCurrentU.noalias() = interpolationMatrix * currentU;
+        sampleDeltaU.noalias()   = interpolationMatrix * du;
+    }
 
     for (int ci = 0; ci < constraintCoeffs.size(); ci++) {
         if (std::abs(constraintCoeffs[ci]) < 1e-9) {
@@ -625,12 +635,18 @@ double TriangleMeshExternalContactHandler::computeFeasibleStepUpperBound(EigenSu
 
         ES::V3d p      = ES::V3d::Zero();
         ES::V3d deltaP = ES::V3d::Zero();
-        for (int vi = 0; vi < static_cast<int>(barycentricIdx[ci].size()); vi++) {
-            const int    vid    = barycentricIdx[ci][vi];
-            const double weight = barycentricWeights[ci][vi];
+        if (usesEmbeddedDOFs) {
+            const int sampleID = contactedSamples[ci];
+            p      = sampleRestP.segment<3>(sampleID * 3) + sampleCurrentU.segment<3>(sampleID * 3);
+            deltaP = sampleDeltaU.segment<3>(sampleID * 3);
+        } else {
+            for (int vi = 0; vi < static_cast<int>(barycentricIdx[ci].size()); vi++) {
+                const int    vid    = barycentricIdx[ci][vi];
+                const double weight = barycentricWeights[ci][vi];
 
-            p += (restP.segment<3>(vid * 3) + currentU.segment<3>(vid * 3)) * weight;
-            deltaP += du.segment<3>(vid * 3) * weight;
+                p += (restP.segment<3>(vid * 3) + currentU.segment<3>(vid * 3)) * weight;
+                deltaP += du.segment<3>(vid * 3) * weight;
+            }
         }
 
         const ES::V3d n    = constraintNormals.segment<3>(ci * 3);

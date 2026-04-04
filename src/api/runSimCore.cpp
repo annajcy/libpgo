@@ -61,6 +61,14 @@ Contact::PosFunction makeLastPositionFunction(const ES::VXd& restPosition, const
     };
 }
 
+std::string describeSolverStatus(Simulation::TimeIntegratorSolverOption option, int status) {
+    if (option == Simulation::TimeIntegratorSolverOption::SO_NEWTON) {
+        return fmt::format("{} ({})", status, NonlinearOptimization::NewtonRaphsonSolver::statusToString(status));
+    }
+
+    return fmt::format("{}", status);
+}
+
 }  // namespace
 
 RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string& configFilePath) {
@@ -500,18 +508,12 @@ int runSimFromConfig(const RunSimConfig& config) {
                         if (contact.ipcEnableFeasibleLineSearch) {
                             const double dSafe =
                                 Contact::PointPenetrationBarrierEnergy::normalizePositiveZero(contact.ipcDhat, -1.0);
-                            intg->setAlphaTestFunc(
-                                [&W, &usurf, &contact, externalContactHandler, dSafe](const ES::VXd& z,
-                                                                                       const ES::VXd& dz) {
-                                    ES::VXd currentUsurf(usurf.size());
-                                    ES::VXd deltaUsurf(usurf.size());
-                                    ES::mv(W, z, currentUsurf);
-                                    ES::mv(W, dz, deltaUsurf);
-                                    currentUsurf += usurf;
-
-                                    return externalContactHandler->computeFeasibleStepUpperBound(
-                                        currentUsurf, deltaUsurf, contact.ipcAlphaSafety, dSafe);
-                                });
+                            intg->setAlphaTestFunc([&u, &contact, externalContactHandler, dSafe](const ES::VXd& z,
+                                                                                                  const ES::VXd& dz) {
+                                ES::VXd currentU = u + z;
+                                return externalContactHandler->computeFeasibleStepUpperBound(
+                                    currentU, dz, contact.ipcAlphaSafety, dSafe);
+                            });
                         }
                     }
                 }
@@ -559,10 +561,7 @@ int runSimFromConfig(const RunSimConfig& config) {
             intg->setqState(u, uvel, uacc);
 
             intg->doTimestep(1, 2, 1);
-
-            intg->getq(u);
-            intg->getqvel(uvel);
-            intg->getqacc(uacc);
+            const int solverRet = intg->getSolverReturn();
 
             if (extContactBuffer && extContactEnergy) {
                 extContactEnergy->freeBuffer(extContactBuffer);
@@ -575,6 +574,24 @@ int runSimFromConfig(const RunSimConfig& config) {
             if (selfContactEnergyBuf && selfContactEnergy) {
                 selfContactEnergy->freeBuffer(selfContactEnergyBuf);
             }
+
+            if (NonlinearOptimization::NewtonRaphsonSolver::isHardFailure(solverRet)) {
+                SPDLOG_LOGGER_ERROR(Logging::lgr(), "Frame {} terminated with solver status {}.", framei,
+                                    describeSolverStatus(intg->getSolverOption(), solverRet));
+                return solverRet;
+            }
+
+            const bool isNewtonSmallStepStall =
+                intg->getSolverOption() == Simulation::TimeIntegratorSolverOption::SO_NEWTON &&
+                solverRet == NonlinearOptimization::NewtonRaphsonSolver::SR_STALLED_SMALL_STEP;
+            if (solverRet > 0 && !isNewtonSmallStepStall) {
+                SPDLOG_LOGGER_WARN(Logging::lgr(), "Frame {} terminated with non-converged solver status {}.", framei,
+                                   describeSolverStatus(intg->getSolverOption(), solverRet));
+            }
+
+            intg->getq(u);
+            intg->getqvel(uvel);
+            intg->getqacc(uacc);
 
             ES::mv(W, u, usurf);
 
@@ -624,7 +641,16 @@ int runSimFromConfig(const RunSimConfig& config) {
 
         NonlinearOptimization::NewtonRaphsonSolver solver(u.data(), solverParam, energyAll, std::vector<int>(),
                                                           nullptr);
-        solver.solve(u.data(), config.solver.solverMaxIter, config.solver.solverEps, 2);
+        const int solverRet = solver.solve(u.data(), config.solver.solverMaxIter, config.solver.solverEps, 2);
+        if (NonlinearOptimization::NewtonRaphsonSolver::isHardFailure(solverRet)) {
+            SPDLOG_LOGGER_ERROR(Logging::lgr(), "Static solve failed with solver status {}.",
+                                describeSolverStatus(Simulation::TimeIntegratorSolverOption::SO_NEWTON, solverRet));
+            return solverRet;
+        }
+        if (solverRet > 0) {
+            SPDLOG_LOGGER_WARN(Logging::lgr(), "Static solve terminated with non-converged solver status {}.",
+                               describeSolverStatus(Simulation::TimeIntegratorSolverOption::SO_NEWTON, solverRet));
+        }
 
         ES::VXd x = restPosition + u;
 

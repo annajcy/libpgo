@@ -1,6 +1,6 @@
 {
-  "log_path": "/Users/jinceyang/Desktop/codebase/libpgo_refactor/libpgo/examples/cubic-box-ipc/cubic-box-ipc-ls.log",
-  "curve_csv": "/Users/jinceyang/Desktop/codebase/libpgo_refactor/libpgo/examples/cubic-box-ipc/cubic-box-ipc-ls-core-release-contact-curve.csv",
+  "log_path": "examples/cubic-box-ipc/cubic-box-ipc-ls.log",
+  "curve_csv": "examples/cubic-box-ipc/cubic-box-ipc-ls-core-release-contact-curve.csv",
   "num_steps_recorded": 1999,
   "first_step": 0,
   "last_step": 1998,
@@ -43,7 +43,7 @@
       "peak_step": 1531
     }
   ],
-  "num_solver_failures": 0,
-  "max_solver_time_sec": 0.578858,
-  "mean_solver_time_sec": 0.06474984292146073
+  "num_solver_failures": 1231,
+  "max_solver_time_sec": 0.445573,
+  "mean_solver_time_sec": 0.06980930715357679
 }

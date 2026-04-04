@@ -202,7 +202,11 @@ void TRBDF2TimeIntegrator::solve(ES::VXd& x, std::shared_ptr<TRBDF2TimeIntegrato
         residual.setZero();
         eng->gradient(x, residual);
         ES::transferBigToSmall(residual, rhs, rhsb2s);
-        std::cout << "    T" << timestepID << ": ||g||=" << rhs.norm() << "; Solver Ret: " << solverRet << std::endl;
+        std::cout << "    T" << timestepID << ": ||g||=" << rhs.norm() << "; Solver Ret: " << solverRet;
+        if (solverOption == TimeIntegratorSolverOption::SO_NEWTON) {
+            std::cout << " (" << NewtonRaphsonSolver::statusToString(solverRet) << ")";
+        }
+        std::cout << std::endl;
 
         std::cout << "    Energy components:\n";
         eng->printImplicitEnergy(x);
