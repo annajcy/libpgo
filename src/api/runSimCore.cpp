@@ -511,7 +511,7 @@ int runSimFromConfig(const RunSimConfig& config) {
                             intg->setAlphaTestFunc([&u, &contact, externalContactHandler, dSafe](const ES::VXd& z,
                                                                                                   const ES::VXd& dz) {
                                 ES::VXd currentU = u + z;
-                                return externalContactHandler->computeFeasibleStepUpperBound(
+                                return externalContactHandler->computeEmbeddedAlphaUpperBound(
                                     currentU, dz, contact.ipcAlphaSafety, dSafe);
                             });
                         }

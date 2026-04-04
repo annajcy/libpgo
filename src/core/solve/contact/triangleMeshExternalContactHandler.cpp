@@ -605,14 +605,39 @@ std::shared_ptr<PointPenetrationBarrierEnergy> TriangleMeshExternalContactHandle
         positiveZero);
 }
 
-double TriangleMeshExternalContactHandler::computeFeasibleStepUpperBound(EigenSupport::ConstRefVecXd currentU,
-                                                                         EigenSupport::ConstRefVecXd du,
+double TriangleMeshExternalContactHandler::computeSurfaceAlphaUpperBound(EigenSupport::ConstRefVecXd currentSurfaceU,
+                                                                         EigenSupport::ConstRefVecXd surfaceDu,
                                                                          double alphaSafety, double dSafe) const {
-    const bool usesSurfaceDOFs  = currentU.size() == n3 && du.size() == n3;
-    const bool usesEmbeddedDOFs = currentU.size() == totaln3 && du.size() == totaln3;
+    if (currentSurfaceU.size() != n3 || surfaceDu.size() != n3) {
+        throw std::invalid_argument("computeSurfaceAlphaUpperBound expects surface-sized displacement vectors.");
+    }
 
-    if (!usesSurfaceDOFs && !usesEmbeddedDOFs) {
-        throw std::invalid_argument("computeFeasibleStepUpperBound received displacement vectors with incompatible sizes.");
+    ES::VXd sampleCurrentU = ES::VXd::Zero(samplen3);
+    ES::VXd sampleDu       = ES::VXd::Zero(samplen3);
+    computeSamplePosition(currentSurfaceU, sampleCurrentU);
+    computeSamplePosition(surfaceDu, sampleDu);
+
+    return computeSampleAlphaUpperBound(sampleCurrentU, sampleDu, alphaSafety, dSafe);
+}
+
+double TriangleMeshExternalContactHandler::computeEmbeddedAlphaUpperBound(EigenSupport::ConstRefVecXd currentU,
+                                                                          EigenSupport::ConstRefVecXd du,
+                                                                          double alphaSafety, double dSafe) const {
+    if (currentU.size() != totaln3 || du.size() != totaln3) {
+        throw std::invalid_argument("computeEmbeddedAlphaUpperBound expects full embedded displacement vectors.");
+    }
+
+    ES::VXd sampleCurrentU = interpolationMatrix * currentU;
+    ES::VXd sampleDu       = interpolationMatrix * du;
+
+    return computeSampleAlphaUpperBound(sampleCurrentU, sampleDu, alphaSafety, dSafe);
+}
+
+double TriangleMeshExternalContactHandler::computeSampleAlphaUpperBound(EigenSupport::ConstRefVecXd sampleCurrentU,
+                                                                        EigenSupport::ConstRefVecXd sampleDu,
+                                                                        double alphaSafety, double dSafe) const {
+    if (sampleCurrentU.size() != samplen3 || sampleDu.size() != samplen3) {
+        throw std::invalid_argument("computeSampleAlphaUpperBound expects sample-sized displacement vectors.");
     }
 
     if (constraintCoeffs.size() == 0) {
@@ -621,33 +646,15 @@ double TriangleMeshExternalContactHandler::computeFeasibleStepUpperBound(EigenSu
 
     double alphaUpper = 1.0;
     bool   hasClosingDirection = false;
-    ES::VXd sampleCurrentU;
-    ES::VXd sampleDeltaU;
-    if (usesEmbeddedDOFs) {
-        sampleCurrentU.noalias() = interpolationMatrix * currentU;
-        sampleDeltaU.noalias()   = interpolationMatrix * du;
-    }
 
     for (int ci = 0; ci < constraintCoeffs.size(); ci++) {
         if (std::abs(constraintCoeffs[ci]) < 1e-9) {
             continue;
         }
 
-        ES::V3d p      = ES::V3d::Zero();
-        ES::V3d deltaP = ES::V3d::Zero();
-        if (usesEmbeddedDOFs) {
-            const int sampleID = contactedSamples[ci];
-            p      = sampleRestP.segment<3>(sampleID * 3) + sampleCurrentU.segment<3>(sampleID * 3);
-            deltaP = sampleDeltaU.segment<3>(sampleID * 3);
-        } else {
-            for (int vi = 0; vi < static_cast<int>(barycentricIdx[ci].size()); vi++) {
-                const int    vid    = barycentricIdx[ci][vi];
-                const double weight = barycentricWeights[ci][vi];
-
-                p += (restP.segment<3>(vid * 3) + currentU.segment<3>(vid * 3)) * weight;
-                deltaP += du.segment<3>(vid * 3) * weight;
-            }
-        }
+        const int sampleID = contactedSamples[ci];
+        ES::V3d   p        = sampleRestP.segment<3>(sampleID * 3) + sampleCurrentU.segment<3>(sampleID * 3);
+        ES::V3d   deltaP   = sampleDu.segment<3>(sampleID * 3);
 
         const ES::V3d n    = constraintNormals.segment<3>(ci * 3);
         const ES::V3d p0   = constraintTargetPositions.segment<3>(ci * 3);

@@ -33,8 +33,11 @@ public:
 
     std::shared_ptr<PointPenetrationEnergy> buildContactEnergy(int checkingContactRuntime = 0);
     std::shared_ptr<PointPenetrationBarrierEnergy> buildBarrierEnergy(double dhat, double positiveZero = -1.0);
-    double computeFeasibleStepUpperBound(EigenSupport::ConstRefVecXd currentU, EigenSupport::ConstRefVecXd du,
-                                         double alphaSafety, double dSafe) const;
+    double computeSurfaceAlphaUpperBound(EigenSupport::ConstRefVecXd currentSurfaceU,
+                                         EigenSupport::ConstRefVecXd surfaceDu, double alphaSafety,
+                                         double dSafe) const;
+    double computeEmbeddedAlphaUpperBound(EigenSupport::ConstRefVecXd currentU, EigenSupport::ConstRefVecXd du,
+                                          double alphaSafety, double dSafe) const;
 
     void setExcludedVertices(const std::vector<int>& excludedVertices);
     void setExcludedTriangles(const std::vector<int>& excludedTriangles_) { excludedTriangles = excludedTriangles_; }
@@ -60,6 +63,9 @@ protected:
     void execute(double activationDistance);
 
     void computeSamplePosition(const EigenSupport::VXd& P, EigenSupport::VXd& SP) const;
+    double computeSampleAlphaUpperBound(EigenSupport::ConstRefVecXd sampleCurrentU,
+                                        EigenSupport::ConstRefVecXd sampleDu, double alphaSafety,
+                                        double dSafe) const;
 
 protected:
     typedef std::array<int, 3> SampleID;

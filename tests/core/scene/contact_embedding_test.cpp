@@ -207,7 +207,7 @@ TEST(ContactEmbeddingTest, FeasibleStepUpperBoundMatchesAnalyticPlaneBound) {
         du[vi * 3 + 2] = -0.04;
     }
 
-    const double alphaUpper = handler.computeFeasibleStepUpperBound(currentU, du, alphaSafety, dSafe);
+    const double alphaUpper = handler.computeSurfaceAlphaUpperBound(currentU, du, alphaSafety, dSafe);
     const double expected   = ((0.05 - dSafe) / 0.04) * alphaSafety;
 
     EXPECT_NEAR(alphaUpper, expected, 1e-12);
@@ -227,7 +227,7 @@ TEST(ContactEmbeddingTest, FeasibleStepUpperBoundIsOneForMotionAwayFromContact) 
         du[vi * 3 + 2] = 0.02;
     }
 
-    EXPECT_DOUBLE_EQ(handler.computeFeasibleStepUpperBound(currentU, du, 0.9, 0.01), 1.0);
+    EXPECT_DOUBLE_EQ(handler.computeSurfaceAlphaUpperBound(currentU, du, 0.9, 0.01), 1.0);
 }
 
 TEST(ContactEmbeddingTest, FeasibleStepUpperBoundReturnsZeroWhenAlreadyInsideSafeMargin) {
@@ -244,7 +244,7 @@ TEST(ContactEmbeddingTest, FeasibleStepUpperBoundReturnsZeroWhenAlreadyInsideSaf
     handler.execute(currentU.data(), 0.1);
     ASSERT_EQ(handler.getNumActiveSamples(), 3);
 
-    EXPECT_DOUBLE_EQ(handler.computeFeasibleStepUpperBound(currentU, du, 0.9, 0.01), 0.0);
+    EXPECT_DOUBLE_EQ(handler.computeSurfaceAlphaUpperBound(currentU, du, 0.9, 0.01), 0.0);
 }
 
 TEST(ContactEmbeddingTest, FeasibleStepUpperBoundAllowsRecoveryWhenInsideSafeMarginButMovingAway) {
@@ -262,7 +262,7 @@ TEST(ContactEmbeddingTest, FeasibleStepUpperBoundAllowsRecoveryWhenInsideSafeMar
     handler.execute(currentU.data(), 0.1);
     ASSERT_EQ(handler.getNumActiveSamples(), 3);
 
-    EXPECT_DOUBLE_EQ(handler.computeFeasibleStepUpperBound(currentU, du, 0.9, 0.01), 1.0);
+    EXPECT_DOUBLE_EQ(handler.computeSurfaceAlphaUpperBound(currentU, du, 0.9, 0.01), 1.0);
 }
 
 }  // namespace pgo::Contact::test
