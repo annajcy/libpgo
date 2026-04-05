@@ -23,3 +23,9 @@ target_link_libraries(core_scene_self_contact_detection_test PRIVATE GTest::gtes
 set_property(TARGET core_scene_self_contact_detection_test PROPERTY FOLDER "tests")
 
 add_test(NAME core.scene.self_contact_detection COMMAND core_scene_self_contact_detection_test)
+
+add_libpgo_tools(core_scene_self_contact_handler_test self_contact_handler_test.cpp "${AVAILABLE_LIBS}")
+target_link_libraries(core_scene_self_contact_handler_test PRIVATE GTest::gtest_main)
+set_property(TARGET core_scene_self_contact_handler_test PROPERTY FOLDER "tests")
+
+add_test(NAME core.scene.self_contact_handler COMMAND core_scene_self_contact_handler_test)

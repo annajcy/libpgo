@@ -30,6 +30,8 @@ public:
     // dcd
     virtual void execute(const std::vector<EigenSupport::V3d>& p0);
     virtual void execute(const double* u0);
+    virtual void execute(const std::vector<EigenSupport::V3d>& p0, double activationDistance);
+    virtual void execute(const double* u0, double activationDistance);
 
     // ccd
     virtual void execute(const std::vector<EigenSupport::V3d>& p0, const std::vector<EigenSupport::V3d>& p1);
@@ -48,6 +50,11 @@ public:
     std::vector<std::array<EigenSupport::V3d, 3>> getCollidingTriangles(const double* u) const;
     // dump colliding point-triangle pair sample ID
     const std::vector<std::array<int, 4>>& getCollidingVtxTriPairs() const { return contactedTrianglePairs; }
+    int getNumActivePairs() const { return static_cast<int>(contactedTrianglePairs.size()); }
+    const std::vector<std::array<int, 4>>& getActiveVtxTriPairs() const { return contactedTrianglePairs; }
+    const EigenSupport::VXd& getLastActiveClosestPoints() const { return activeClosestPoints; }
+    const EigenSupport::VXd& getLastActiveNormals() const { return activeNormals; }
+    const EigenSupport::VXd& getLastActiveDistances() const { return activeDistances; }
     // dump colliding triangle pair info
     const std::vector<CCDKernel::TriangleCCD::CCDData>& getCollidingTrianglePair() const {
         return collidingTrianglePairs;
@@ -65,6 +72,9 @@ public:
 protected:
     void executeCCD();
     void executeDCD();
+    void executeNearContactDCD(double activationDistance, int maxSearchingNumTriangles = 100);
+    void clearActivePairData();
+    void finalizeActivePairsFromSeeds(int maxSearchingNumTriangles);
 
     void computeSamplePosition(const EigenSupport::VXd& P, EigenSupport::VXd& SP) const;
 
@@ -144,6 +154,9 @@ protected:
     std::vector<CCDD>               collidingTrianglePairs;
     std::vector<std::array<int, 4>> contactedTrianglePairs;
     std::vector<int>                contactedTriangleIDs;
+    EigenSupport::VXd               activeClosestPoints;
+    EigenSupport::VXd               activeNormals;
+    EigenSupport::VXd               activeDistances;
     std::vector<std::array<int, 4>> contactEnergyObjIDs;
     std::array<int, 2>              contactEnergyObjectDOFOffsets;
     double                          lastCDTime   = 0.0;
