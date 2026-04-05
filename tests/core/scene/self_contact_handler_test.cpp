@@ -247,6 +247,31 @@ TEST(SelfContactHandlerTest, AlphaUpperBoundShrinksForInwardDirections) {
     EXPECT_LT(alphaUpper, 1.0);
 }
 
+TEST(SelfContactHandlerTest, AlphaUpperBoundScalesWithAlphaSafety) {
+    Logging::init();
+
+    const Mesh::TriMeshGeo mesh = makeSeparatedParallelTriangleMesh(0.05);
+    auto                   handler = makeHandler(mesh);
+    const EigenSupport::VXd currentU = makeZeroDisplacement(mesh);
+
+    handler.execute(currentU.data(), 0.1);
+    ASSERT_GT(handler.getNumActivePairs(), 0);
+
+    const auto&             pair = handler.getActiveVtxTriPairs().front();
+    const EigenSupport::V3d n = handler.getLastActiveNormals().segment<3>(0);
+    EigenSupport::VXd       du = EigenSupport::VXd::Zero(currentU.size());
+    du.segment<3>(pair[0] * 3) = -0.1 * n;
+
+    const double dSafe =
+        PointTrianglePairBarrierEnergy::normalizePositiveZero(0.1, -1.0);
+    const double alphaSafeOne  = handler.computeEmbeddedAlphaUpperBound(currentU, du, 1.0, dSafe);
+    const double alphaSafeHalf = handler.computeEmbeddedAlphaUpperBound(currentU, du, 0.5, dSafe);
+
+    EXPECT_GT(alphaSafeOne, 0.0);
+    EXPECT_LT(alphaSafeOne, 1.0);
+    EXPECT_NEAR(alphaSafeHalf, alphaSafeOne * 0.5, 1e-12);
+}
+
 TEST(SelfContactHandlerTest, AlphaUpperBoundAllowsOutwardRecovery) {
     Logging::init();
 
@@ -300,6 +325,24 @@ TEST(SelfContactHandlerTest, AlphaUpperBoundBlocksFurtherInwardMotionInsideSafeB
 
     EXPECT_DOUBLE_EQ(inwardAlpha, 0.0);
     EXPECT_DOUBLE_EQ(outwardAlpha, 1.0);
+}
+
+TEST(SelfContactHandlerTest, AlphaUpperBoundReturnsOneWithNoActivePairs) {
+    Logging::init();
+
+    const Mesh::TriMeshGeo mesh = makeSeparatedParallelTriangleMesh(0.05);
+    auto                   handler = makeHandler(mesh);
+    const EigenSupport::VXd currentU = makeZeroDisplacement(mesh);
+    EigenSupport::VXd       du = EigenSupport::VXd::Zero(currentU.size());
+
+    du.segment<3>(0) = EigenSupport::V3d(0.0, 0.0, -0.1);
+
+    handler.execute(currentU.data(), 0.01);
+    ASSERT_EQ(handler.getNumActivePairs(), 0);
+
+    const double dSafe =
+        PointTrianglePairBarrierEnergy::normalizePositiveZero(0.1, -1.0);
+    EXPECT_DOUBLE_EQ(handler.computeEmbeddedAlphaUpperBound(currentU, du, 0.9, dSafe), 1.0);
 }
 
 }  // namespace pgo::Contact::test

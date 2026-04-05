@@ -204,13 +204,36 @@ TEST(ContactEmbeddingTest, FeasibleStepUpperBoundMatchesAnalyticPlaneBound) {
     ASSERT_EQ(handler.getNumActiveSamples(), 3);
 
     for (int vi = 0; vi < 3; ++vi) {
-        du[vi * 3 + 2] = -0.04;
+        du[vi * 3 + 2] = -0.08;
     }
 
     const double alphaUpper = handler.computeSurfaceAlphaUpperBound(currentU, du, alphaSafety, dSafe);
-    const double expected   = ((0.05 - dSafe) / 0.04) * alphaSafety;
+    const double expected   = ((0.05 - dSafe) / 0.08) * alphaSafety;
 
     EXPECT_NEAR(alphaUpper, expected, 1e-12);
+}
+
+TEST(ContactEmbeddingTest, FeasibleStepUpperBoundScalesWithAlphaSafety) {
+    Logging::init();
+
+    Contact::TriangleMeshExternalContactHandler handler = makePlanarExternalHandler();
+    const EigenSupport::VXd currentU = EigenSupport::VXd::Zero(9);
+    EigenSupport::VXd       du       = EigenSupport::VXd::Zero(9);
+    const double            dSafe    = 0.01;
+
+    handler.execute(currentU.data(), 0.1);
+    ASSERT_EQ(handler.getNumActiveSamples(), 3);
+
+    for (int vi = 0; vi < 3; ++vi) {
+        du[vi * 3 + 2] = -0.08;
+    }
+
+    const double alphaSafeOne  = handler.computeSurfaceAlphaUpperBound(currentU, du, 1.0, dSafe);
+    const double alphaSafeHalf = handler.computeSurfaceAlphaUpperBound(currentU, du, 0.5, dSafe);
+
+    EXPECT_GT(alphaSafeOne, 0.0);
+    EXPECT_LT(alphaSafeOne, 1.0);
+    EXPECT_NEAR(alphaSafeHalf, alphaSafeOne * 0.5, 1e-12);
 }
 
 TEST(ContactEmbeddingTest, FeasibleStepUpperBoundIsOneForMotionAwayFromContact) {
@@ -226,6 +249,23 @@ TEST(ContactEmbeddingTest, FeasibleStepUpperBoundIsOneForMotionAwayFromContact) 
     for (int vi = 0; vi < 3; ++vi) {
         du[vi * 3 + 2] = 0.02;
     }
+
+    EXPECT_DOUBLE_EQ(handler.computeSurfaceAlphaUpperBound(currentU, du, 0.9, 0.01), 1.0);
+}
+
+TEST(ContactEmbeddingTest, FeasibleStepUpperBoundReturnsOneWithNoActiveSamples) {
+    Logging::init();
+
+    Contact::TriangleMeshExternalContactHandler handler = makePlanarExternalHandler();
+    const EigenSupport::VXd currentU = EigenSupport::VXd::Zero(9);
+    EigenSupport::VXd       du       = EigenSupport::VXd::Zero(9);
+
+    for (int vi = 0; vi < 3; ++vi) {
+        du[vi * 3 + 2] = -0.04;
+    }
+
+    handler.execute(currentU.data(), 0.01);
+    ASSERT_EQ(handler.getNumActiveSamples(), 0);
 
     EXPECT_DOUBLE_EQ(handler.computeSurfaceAlphaUpperBound(currentU, du, 0.9, 0.01), 1.0);
 }

@@ -25,7 +25,14 @@ What this example is for:
 What it is not:
 
 - Not a polished physics showcase.
-- Not a full self-IPC example with feasible self alpha filtering.
+- Not a full primitive self-IPC benchmark or paper-equivalent implementation.
+- Not a frictional IPC benchmark.
+
+Current modeling scope:
+
+- The self path is still sample-based (point-triangle samples), not full primitive PT/EE constraints.
+- Runtime feasibility uses a linearized feasible-alpha upper bound callback.
+- This scene should be read as an integration/validation example for the current repo-aligned IPC path.
 
 The intentionally softened material only exists to make the smoke scene short and repeatable while keeping the surface and volume meshes aligned.
 

@@ -579,19 +579,39 @@ int runSimFromConfig(const RunSimConfig& config) {
             if (shouldUseIpcAlphaFilter && (hasExternalAlphaUpperBound || hasSelfAlphaUpperBound)) {
                 intg->setAlphaTestFunc(
                     [&u, &contact, externalContactHandler, selfCD, hasExternalAlphaUpperBound, hasSelfAlphaUpperBound,
-                     externalDSafe, selfDSafe](const ES::VXd& z, const ES::VXd& dz) {
+                     externalDSafe, selfDSafe, mergedAlphaCallbackLogged = false,
+                     alphaCallbackLogged = false](const ES::VXd& z, const ES::VXd& dz) mutable {
                         ES::VXd currentU = u + z;
                         double  alphaUpper = 1.0;
+                        double  externalAlphaUpper = 1.0;
+                        double  selfAlphaUpper     = 1.0;
+
+                        if (!alphaCallbackLogged) {
+                            SPDLOG_LOGGER_INFO(Logging::lgr(), "IPC feasible alpha callback active.");
+                            alphaCallbackLogged = true;
+                        }
 
                         if (hasExternalAlphaUpperBound) {
-                            alphaUpper =
-                                std::min(alphaUpper, externalContactHandler->computeEmbeddedAlphaUpperBound(
-                                                         currentU, dz, contact.ipcAlphaSafety, externalDSafe));
+                            externalAlphaUpper = externalContactHandler->computeEmbeddedAlphaUpperBound(
+                                currentU, dz, contact.ipcAlphaSafety, externalDSafe);
+                            alphaUpper = std::min(alphaUpper, externalAlphaUpper);
                         }
 
                         if (hasSelfAlphaUpperBound) {
-                            alphaUpper = std::min(alphaUpper, selfCD->computeEmbeddedAlphaUpperBound(
-                                                                  currentU, dz, contact.ipcAlphaSafety, selfDSafe));
+                            selfAlphaUpper = selfCD->computeEmbeddedAlphaUpperBound(
+                                currentU, dz, contact.ipcAlphaSafety, selfDSafe);
+                            alphaUpper = std::min(alphaUpper, selfAlphaUpper);
+                        }
+
+                        if (hasExternalAlphaUpperBound && hasSelfAlphaUpperBound && !mergedAlphaCallbackLogged) {
+                            SPDLOG_LOGGER_INFO(Logging::lgr(), "IPC feasible alpha merged callback active.");
+                            mergedAlphaCallbackLogged = true;
+                        }
+
+                        if (alphaUpper < 1.0 - 1e-12) {
+                            SPDLOG_LOGGER_INFO(Logging::lgr(),
+                                               "IPC feasible alpha upper bound: {} (external: {}, self: {})",
+                                               alphaUpper, externalAlphaUpper, selfAlphaUpper);
                         }
 
                         return alphaUpper;
@@ -602,6 +622,8 @@ int runSimFromConfig(const RunSimConfig& config) {
 
             intg->doTimestep(1, 2, 1);
             const int solverRet = intg->getSolverReturn();
+            SPDLOG_LOGGER_INFO(Logging::lgr(), "Frame {} solver status: {}.", framei,
+                               describeSolverStatus(intg->getSolverOption(), solverRet));
 
             if (extContactBuffer && extContactEnergy) {
                 extContactEnergy->freeBuffer(extContactBuffer);

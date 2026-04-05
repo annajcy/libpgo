@@ -11,6 +11,7 @@
 #include <regex>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace test {
 
@@ -97,6 +98,41 @@ std::string normalizedAbsolutePath(const std::filesystem::path& input) {
 
 std::filesystem::path repoRootPath() {
     return std::filesystem::absolute(std::filesystem::path(__FILE__)).parent_path().parent_path().parent_path();
+}
+
+bool hasFeasibleAlphaUpperBoundBelowOne(const std::string& logContents) {
+    const std::regex alphaPattern(
+        R"(IPC feasible alpha upper bound: ([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?))");
+
+    for (std::sregex_iterator it(logContents.begin(), logContents.end(), alphaPattern), end; it != end; ++it) {
+        const double alphaUpper = std::stod((*it)[1].str());
+        if (alphaUpper < 1.0 - 1e-12) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+std::vector<int> extractIntSequence(const std::string& logContents, const std::regex& pattern) {
+    std::vector<int> sequence;
+
+    for (std::sregex_iterator it(logContents.begin(), logContents.end(), pattern), end; it != end; ++it) {
+        sequence.push_back(std::stoi((*it)[1].str()));
+    }
+
+    return sequence;
+}
+
+std::vector<std::string> extractSolverStatusSequence(const std::string& logContents) {
+    const std::regex statusPattern(R"(Frame [0-9]+ solver status: ([^\n\r]+)\.)");
+    std::vector<std::string> statuses;
+
+    for (std::sregex_iterator it(logContents.begin(), logContents.end(), statusPattern), end; it != end; ++it) {
+        statuses.push_back((*it)[1].str());
+    }
+
+    return statuses;
 }
 
 }  // namespace
@@ -484,6 +520,7 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcNearContactActivatesE
     const std::regex activeSamplesPattern(R"(# external active samples: ([1-9][0-9]*))");
 
     EXPECT_TRUE(std::regex_search(logContents, activeSamplesPattern));
+    EXPECT_NE(logContents.find("IPC feasible alpha callback active."), std::string::npos);
     EXPECT_EQ(logContents.find("IPC barrier energy not yet implemented for external contact."), std::string::npos);
 
     std::error_code ec;
@@ -524,7 +561,122 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcSelfBarrierSmokeTest)
     const std::regex activePairsPattern(R"(# self active pairs: ([1-9][0-9]*))");
 
     EXPECT_TRUE(std::regex_search(logContents, activePairsPattern));
+    EXPECT_TRUE(hasFeasibleAlphaUpperBoundBelowOne(logContents));
     EXPECT_EQ(logContents.find("IPC barrier energy not yet implemented for self contact."), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove("fv.obj", ec);
+}
+
+TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcMergedBarrierSmokeTest) {
+    ScopedTempDir tempDir;
+    const std::filesystem::path repoRoot = repoRootPath();
+    const std::filesystem::path exampleConfigFile =
+        repoRoot / "examples" / "pulled-cubic-box-self-ipc" / "pulled-cubic-box-self-ipc.json";
+    const std::filesystem::path externalObjectFile = repoRoot / "examples" / "bottom.obj";
+    const std::filesystem::path outputDir = tempDir.path() / "output";
+    const std::filesystem::path logFile = tempDir.path() / "runsim-merged-ipc.log";
+    const std::string logFilename = logFile.string();
+
+    ASSERT_TRUE(std::filesystem::exists(exampleConfigFile));
+    ASSERT_TRUE(std::filesystem::exists(externalObjectFile));
+
+    pgo::Logging::init(logFilename.c_str());
+
+    pgo::api::RunSimConfig config = parseConfigFile(exampleConfigFile);
+    config.scene.externalObjects.push_back({externalObjectFile.string(), {0.0, 0.0, 0.0}});
+    config.scene.initialDisp = pgo::EigenSupport::V3d(0.0, -0.2, 0.0);
+    config.runtime.outputFolder = outputDir.string();
+    config.runtime.deterministicMode = true;
+    config.simulation.numSimSteps = 8;
+    config.simulation.dumpInterval = 1;
+    config.contact.ipcDhat = 0.1;
+    config.contact.ipcKappa = 10.0;
+    config.contact.ipcAlphaSafety = 0.9;
+    config.contact.ipcEnableFeasibleLineSearch = true;
+    ASSERT_GE(config.scene.fixedVertices.size(), 2u);
+    config.scene.fixedVertices[1].movement = {0.0, -1.2, 0.0};
+
+    EXPECT_EQ(pgo::api::runSimFromConfig(config), 0);
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "deform0001.u"));
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "ret0001.obj"));
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "deform0007.u"));
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "ret0007.obj"));
+    ASSERT_TRUE(std::filesystem::exists(logFile));
+
+    const std::string logContents = readTextFile(logFile);
+    const std::regex activeSamplesPattern(R"(# external active samples: ([1-9][0-9]*))");
+    const std::regex activePairsPattern(R"(# self active pairs: ([1-9][0-9]*))");
+
+    EXPECT_TRUE(std::regex_search(logContents, activeSamplesPattern));
+    EXPECT_TRUE(std::regex_search(logContents, activePairsPattern));
+    EXPECT_NE(logContents.find("IPC feasible alpha merged callback active."), std::string::npos);
+    EXPECT_TRUE(hasFeasibleAlphaUpperBoundBelowOne(logContents));
+    EXPECT_EQ(logContents.find("terminated with solver status"), std::string::npos);
+    EXPECT_EQ(logContents.find("nan"), std::string::npos);
+    EXPECT_EQ(logContents.find("NaN"), std::string::npos);
+    EXPECT_EQ(logContents.find("IPC barrier energy not yet implemented for external contact."), std::string::npos);
+    EXPECT_EQ(logContents.find("IPC barrier energy not yet implemented for self contact."), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove("fv.obj", ec);
+}
+
+TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcMergedDeterministicSmokeTest) {
+    ScopedTempDir tempDir;
+    const std::filesystem::path repoRoot = repoRootPath();
+    const std::filesystem::path exampleConfigFile =
+        repoRoot / "examples" / "pulled-cubic-box-self-ipc" / "pulled-cubic-box-self-ipc.json";
+    const std::filesystem::path externalObjectFile = repoRoot / "examples" / "bottom.obj";
+    const std::filesystem::path outputDirA = tempDir.path() / "output-a";
+    const std::filesystem::path outputDirB = tempDir.path() / "output-b";
+    const std::filesystem::path logFileA = tempDir.path() / "runsim-merged-ipc-a.log";
+    const std::filesystem::path logFileB = tempDir.path() / "runsim-merged-ipc-b.log";
+
+    ASSERT_TRUE(std::filesystem::exists(exampleConfigFile));
+    ASSERT_TRUE(std::filesystem::exists(externalObjectFile));
+
+    pgo::api::RunSimConfig config = parseConfigFile(exampleConfigFile);
+    config.scene.externalObjects.push_back({externalObjectFile.string(), {0.0, 0.0, 0.0}});
+    config.scene.initialDisp = pgo::EigenSupport::V3d(0.0, -0.2, 0.0);
+    config.runtime.deterministicMode = true;
+    config.simulation.numSimSteps = 8;
+    config.simulation.dumpInterval = 1;
+    config.contact.ipcDhat = 0.1;
+    config.contact.ipcKappa = 10.0;
+    config.contact.ipcAlphaSafety = 0.9;
+    config.contact.ipcEnableFeasibleLineSearch = true;
+    ASSERT_GE(config.scene.fixedVertices.size(), 2u);
+    config.scene.fixedVertices[1].movement = {0.0, -1.2, 0.0};
+
+    pgo::Logging::init(logFileA.string().c_str());
+    config.runtime.outputFolder = outputDirA.string();
+    EXPECT_EQ(pgo::api::runSimFromConfig(config), 0);
+    ASSERT_TRUE(std::filesystem::exists(logFileA));
+
+    pgo::Logging::init(logFileB.string().c_str());
+    config.runtime.outputFolder = outputDirB.string();
+    EXPECT_EQ(pgo::api::runSimFromConfig(config), 0);
+    ASSERT_TRUE(std::filesystem::exists(logFileB));
+
+    const std::string logA = readTextFile(logFileA);
+    const std::string logB = readTextFile(logFileB);
+    const std::regex externalSeqPattern(R"(# external active samples: ([0-9]+))");
+    const std::regex selfSeqPattern(R"(# self active pairs: ([0-9]+))");
+
+    const std::vector<int> externalSeqA = extractIntSequence(logA, externalSeqPattern);
+    const std::vector<int> externalSeqB = extractIntSequence(logB, externalSeqPattern);
+    const std::vector<int> selfSeqA = extractIntSequence(logA, selfSeqPattern);
+    const std::vector<int> selfSeqB = extractIntSequence(logB, selfSeqPattern);
+    const std::vector<std::string> statusSeqA = extractSolverStatusSequence(logA);
+    const std::vector<std::string> statusSeqB = extractSolverStatusSequence(logB);
+
+    ASSERT_FALSE(externalSeqA.empty());
+    ASSERT_FALSE(selfSeqA.empty());
+    ASSERT_FALSE(statusSeqA.empty());
+    EXPECT_EQ(externalSeqA, externalSeqB);
+    EXPECT_EQ(selfSeqA, selfSeqB);
+    EXPECT_EQ(statusSeqA, statusSeqB);
 
     std::error_code ec;
     std::filesystem::remove("fv.obj", ec);
