@@ -1,0 +1,45 @@
+{
+  "cubic-mesh": "../cubic-box/cubic-box.veg",
+  "surface-mesh": "folded-cubic-box.obj",
+  "fixed-vertices": [],
+  "external-objects": [],
+  "g": [
+    0,
+    0,
+    0
+  ],
+  "init-vel": [
+    0,
+    0,
+    0
+  ],
+  "init-disp": [
+    0,
+    0,
+    0
+  ],
+  "scale": 1.0,
+  "timestep": 0.01,
+  "num-timestep": 2,
+  "damping-params": [
+    0,
+    0
+  ],
+  "sim-type": "dynamic",
+  "contact-model": "ipc-barrier",
+  "contact-stiffness": 0,
+  "ipc-dhat": 0.1,
+  "ipc-kappa": 10.0,
+  "ipc-alpha-safety": 0.9,
+  "ipc-enable-feasible-line-search": true,
+  "contact-sample": 1,
+  "enable-self-contact": true,
+  "contact-friction-coeff": 0.0,
+  "contact-vel-eps": 1e-8,
+  "solver-eps": 1e-8,
+  "solver-max-iter": 6,
+  "elastic-material": "stable-neo",
+  "dump-interval": 1,
+  "output": "ret-folded-cubic-box-self-ipc",
+  "note": "Self IPC runtime smoke/debug example. Uses a folded surface derived from cubic-box.obj to stably activate self near-contact pairs."
+}

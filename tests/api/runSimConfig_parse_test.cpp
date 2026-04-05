@@ -9,7 +9,6 @@
 #include <fstream>
 #include <random>
 #include <regex>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -56,46 +55,6 @@ std::string readTextFile(const std::filesystem::path& filePath) {
     }
 
     return std::string((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
-}
-
-bool writeFoldedCubicBoxSurface(const std::filesystem::path& srcFile, const std::filesystem::path& dstFile) {
-    std::ifstream is(srcFile);
-    if (!is) {
-        return false;
-    }
-
-    std::filesystem::create_directories(dstFile.parent_path());
-    std::ofstream os(dstFile);
-    if (!os) {
-        return false;
-    }
-
-    std::string line;
-    while (std::getline(is, line)) {
-        if (!line.starts_with("v ")) {
-            os << line << '\n';
-            continue;
-        }
-
-        std::istringstream iss(line);
-        std::string        tag;
-        double             x = 0.0;
-        double             y = 0.0;
-        double             z = 0.0;
-        iss >> tag >> x >> y >> z;
-        if (!iss) {
-            return false;
-        }
-
-        // Fold the top layer down near the bottom face to create a stable self near-contact scene.
-        if (y > 0.25) {
-            y = -0.45;
-        }
-
-        os << "v " << x << ' ' << y << ' ' << z << '\n';
-    }
-
-    return static_cast<bool>(os);
 }
 
 nlohmann::json makeBaseConfig() {
@@ -534,45 +493,17 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcNearContactActivatesE
 TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcSelfBarrierSmokeTest) {
     ScopedTempDir tempDir;
     const std::filesystem::path repoRoot = repoRootPath();
-    const std::filesystem::path cubicMeshFile = repoRoot / "examples" / "cubic-box" / "cubic-box.veg";
-    const std::filesystem::path sourceSurfaceMeshFile = repoRoot / "examples" / "cubic-box" / "cubic-box.obj";
-    const std::filesystem::path surfaceMeshFile = tempDir.path() / "folded-cubic-box.obj";
+    const std::filesystem::path exampleConfigFile =
+        repoRoot / "examples" / "folded-cubic-box-self-ipc" / "folded-cubic-box-self-ipc.json";
     const std::filesystem::path outputDir = tempDir.path() / "output";
     const std::filesystem::path logFile = tempDir.path() / "runsim-self-ipc.log";
     const std::string logFilename = logFile.string();
 
-    ASSERT_TRUE(std::filesystem::exists(cubicMeshFile));
-    ASSERT_TRUE(std::filesystem::exists(sourceSurfaceMeshFile));
-    ASSERT_TRUE(writeFoldedCubicBoxSurface(sourceSurfaceMeshFile, surfaceMeshFile));
+    ASSERT_TRUE(std::filesystem::exists(exampleConfigFile));
 
     pgo::Logging::init(logFilename.c_str());
 
-    pgo::api::RunSimConfig config;
-    config.mesh.cubicMeshFilename = cubicMeshFile.string();
-    config.mesh.surfaceMeshFilename = surfaceMeshFile.string();
-    config.mesh.volumetricMeshType = pgo::api::VolumetricMeshInputType::CUBIC;
-    config.scene.extAcc = pgo::EigenSupport::V3d::Zero();
-    config.scene.initialVel = pgo::EigenSupport::V3d::Zero();
-    config.scene.initialDisp = pgo::EigenSupport::V3d::Zero();
-    config.mesh.scale = 1.0;
-    config.simulation.timestep = 0.01;
-    config.contact.contactStiffness = 0.0;
-    config.contact.contactSamples = 1;
-    config.contact.enableSelfContact = true;
-    config.contact.contactFrictionCoeff = 0.0;
-    config.contact.contactVelEps = 1e-8;
-    config.contact.contactModel = "ipc-barrier";
-    config.contact.ipcDhat = 0.1;
-    config.contact.ipcKappa = 10.0;
-    config.contact.ipcAlphaSafety = 0.9;
-    config.contact.ipcEnableFeasibleLineSearch = true;
-    config.solver.solverEps = 1e-8;
-    config.solver.solverMaxIter = 6;
-    config.solver.dampingParams = {0.0, 0.0};
-    config.solver.elasticMaterial = pgo::SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
-    config.simulation.numSimSteps = 2;
-    config.simulation.dumpInterval = 1;
-    config.simulation.simType = "dynamic";
+    pgo::api::RunSimConfig config = parseConfigFile(exampleConfigFile);
     config.runtime.outputFolder = outputDir.string();
     config.runtime.deterministicMode = true;
 
