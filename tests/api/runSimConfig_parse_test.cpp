@@ -494,7 +494,7 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcSelfBarrierSmokeTest)
     ScopedTempDir tempDir;
     const std::filesystem::path repoRoot = repoRootPath();
     const std::filesystem::path exampleConfigFile =
-        repoRoot / "examples" / "folded-cubic-box-self-ipc" / "folded-cubic-box-self-ipc.json";
+        repoRoot / "examples" / "pulled-cubic-box-self-ipc" / "pulled-cubic-box-self-ipc.json";
     const std::filesystem::path outputDir = tempDir.path() / "output";
     const std::filesystem::path logFile = tempDir.path() / "runsim-self-ipc.log";
     const std::string logFilename = logFile.string();
@@ -506,10 +506,18 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcSelfBarrierSmokeTest)
     pgo::api::RunSimConfig config = parseConfigFile(exampleConfigFile);
     config.runtime.outputFolder = outputDir.string();
     config.runtime.deterministicMode = true;
+    config.simulation.numSimSteps = 5;
+    config.simulation.dumpInterval = 1;
+    config.contact.ipcDhat = 0.1;
+    config.contact.ipcKappa = 10.0;
+    ASSERT_GE(config.scene.fixedVertices.size(), 2u);
+    config.scene.fixedVertices[1].movement = {0.0, -1.2, 0.0};
 
     EXPECT_EQ(pgo::api::runSimFromConfig(config), 0);
     EXPECT_TRUE(std::filesystem::exists(outputDir / "deform0001.u"));
     EXPECT_TRUE(std::filesystem::exists(outputDir / "ret0001.obj"));
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "deform0004.u"));
+    EXPECT_TRUE(std::filesystem::exists(outputDir / "ret0004.obj"));
     ASSERT_TRUE(std::filesystem::exists(logFile));
 
     const std::string logContents = readTextFile(logFile);

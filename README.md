@@ -343,6 +343,7 @@ We provide three python scripts to test the installation.
     ```bash
     cd libpgo
     uv run python src/api/python/pypgo/pgo_dump_abc.py examples/box/anim.json examples/box
+    uv run python src/api/python/pypgo/pgo_dump_abc.py examples/box/anim.json
     ```
 
 4. `cubicMesher`. It creates a cubic/hexahedral volumetric mesh (`.veg`) from a uniform grid and can optionally export a triangulated surface mesh (`.obj`).
@@ -470,6 +471,7 @@ uv run python src/api/python/pypgo/pgo_run_sim.py examples/cubic-box/cubic-box.j
 
 # 3) Convert OBJ sequence to Alembic animation
 uv run python src/api/python/pypgo/pgo_dump_abc.py examples/cubic-box/anim.json examples/cubic-box
+uv run python src/api/python/pypgo/pgo_dump_abc.py examples/pulled-cubic-box-self-ipc/anim.json
 ```
 
 If you just rebuilt `pypgo` through a manual CMake preset such as `build/full-release`, `uv run`
