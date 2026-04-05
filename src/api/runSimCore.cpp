@@ -22,6 +22,7 @@
 #include "pointPenetrationBarrierEnergy.h"
 #include "pointPenetrationEnergy.h"
 #include "triangleMeshSelfContactHandler.h"
+#include "pointTrianglePairBarrierEnergy.h"
 #include "pointTrianglePairCouplingEnergyWithCollision.h"
 #include "linearPotentialEnergy.h"
 #include "NewtonRaphsonSolver.h"
@@ -521,14 +522,16 @@ int runSimFromConfig(const RunSimConfig& config) {
 
             std::shared_ptr<Contact::PointTrianglePairCouplingEnergyWithCollision> selfContactEnergy;
             Contact::PointTrianglePairCouplingEnergyWithCollisionBuffer*           selfContactEnergyBuf = nullptr;
+            std::shared_ptr<Contact::PointTrianglePairBarrierEnergy> selfBarrierEnergy;
+            Contact::PointTrianglePairBarrierEnergyBuffer*           selfBarrierBuffer = nullptr;
 
             if (selfCD) {
-                selfCD->execute(usurf.data());
+                if (contact.contactModel == "penalty") {
+                    selfCD->execute(usurf.data());
 
-                if (selfCD->getCollidingTrianglePair().size() > 0) {
-                    selfCD->handleContactDCD(0, 100);
+                    if (selfCD->getCollidingTrianglePair().size() > 0) {
+                        selfCD->handleContactDCD(0, 100);
 
-                    if (contact.contactModel == "penalty") {
                         selfContactEnergy = selfCD->buildContactEnergy();
                         selfContactEnergy->setToPosFunction([&restPosition](const ES::V3d& x, ES::V3d& p, int offset) {
                             p = x + restPosition.segment<3>(offset);
@@ -549,11 +552,19 @@ int runSimFromConfig(const RunSimConfig& config) {
                         selfContactEnergy->setVelEps(contact.contactVelEps);
 
                         intg->addGeneralImplicitForceModel(selfContactEnergy, 0, 0);
-                    } else if (contact.contactModel == "ipc-barrier") {
-                        SPDLOG_LOGGER_WARN(
-                            Logging::lgr(),
-                            "IPC barrier energy not yet implemented for self contact. "
-                            "Falling back to no contact energy this frame.");
+                    }
+                } else if (contact.contactModel == "ipc-barrier") {
+                    selfCD->execute(usurf.data(), contact.ipcDhat);
+                    SPDLOG_LOGGER_INFO(Logging::lgr(), "# self active pairs: {}", selfCD->getNumActivePairs());
+
+                    if (selfCD->getNumActivePairs() > 0) {
+                        selfBarrierEnergy = selfCD->buildBarrierEnergy(contact.ipcDhat);
+                        selfBarrierBuffer = selfBarrierEnergy->allocateBuffer();
+                        selfBarrierEnergy->setToPosFunction(currentPositionFunc);
+                        selfBarrierEnergy->setBuffer(selfBarrierBuffer);
+                        selfBarrierEnergy->setCoeff(contact.ipcKappa);
+
+                        intg->addGeneralImplicitForceModel(selfBarrierEnergy, 0, 0);
                     }
                 }
             }
@@ -573,6 +584,10 @@ int runSimFromConfig(const RunSimConfig& config) {
 
             if (selfContactEnergyBuf && selfContactEnergy) {
                 selfContactEnergy->freeBuffer(selfContactEnergyBuf);
+            }
+
+            if (selfBarrierBuffer && selfBarrierEnergy) {
+                selfBarrierEnergy->freeBuffer(selfBarrierBuffer);
             }
 
             if (NonlinearOptimization::NewtonRaphsonSolver::isHardFailure(solverRet)) {
