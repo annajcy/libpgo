@@ -224,4 +224,82 @@ TEST(SelfContactHandlerTest, BarrierBuilderProducesFiniteEnergyForNearContactPai
     barrier->freeBuffer(buffer);
 }
 
+TEST(SelfContactHandlerTest, AlphaUpperBoundShrinksForInwardDirections) {
+    Logging::init();
+
+    const Mesh::TriMeshGeo mesh = makeSeparatedParallelTriangleMesh(0.05);
+    auto                   handler = makeHandler(mesh);
+    const EigenSupport::VXd currentU = makeZeroDisplacement(mesh);
+
+    handler.execute(currentU.data(), 0.1);
+    ASSERT_GT(handler.getNumActivePairs(), 0);
+
+    const auto&             pair = handler.getActiveVtxTriPairs().front();
+    const EigenSupport::V3d n = handler.getLastActiveNormals().segment<3>(0);
+    EigenSupport::VXd       du = EigenSupport::VXd::Zero(currentU.size());
+    du.segment<3>(pair[0] * 3) = -0.1 * n;
+
+    const double dSafe =
+        PointTrianglePairBarrierEnergy::normalizePositiveZero(0.1, -1.0);
+    const double alphaUpper = handler.computeEmbeddedAlphaUpperBound(currentU, du, 1.0, dSafe);
+
+    EXPECT_GT(alphaUpper, 0.0);
+    EXPECT_LT(alphaUpper, 1.0);
+}
+
+TEST(SelfContactHandlerTest, AlphaUpperBoundAllowsOutwardRecovery) {
+    Logging::init();
+
+    const Mesh::TriMeshGeo mesh = makeSeparatedParallelTriangleMesh(0.05);
+    auto                   handler = makeHandler(mesh);
+    const EigenSupport::VXd currentU = makeZeroDisplacement(mesh);
+
+    handler.execute(currentU.data(), 0.1);
+    ASSERT_GT(handler.getNumActivePairs(), 0);
+
+    const auto&             pair = handler.getActiveVtxTriPairs().front();
+    const EigenSupport::V3d n = handler.getLastActiveNormals().segment<3>(0);
+    EigenSupport::VXd       du = EigenSupport::VXd::Zero(currentU.size());
+    du.segment<3>(pair[0] * 3) = 0.1 * n;
+
+    const double dSafe =
+        PointTrianglePairBarrierEnergy::normalizePositiveZero(0.1, -1.0);
+    const double alphaUpper = handler.computeEmbeddedAlphaUpperBound(currentU, du, 0.9, dSafe);
+
+    EXPECT_DOUBLE_EQ(alphaUpper, 1.0);
+}
+
+TEST(SelfContactHandlerTest, AlphaUpperBoundBlocksFurtherInwardMotionInsideSafeBand) {
+    Logging::init();
+
+    const double nearZeroGap = 5e-8;
+    const Mesh::TriMeshGeo mesh = makeSeparatedParallelTriangleMesh(nearZeroGap);
+    auto                   handler = makeHandler(mesh);
+    const EigenSupport::VXd currentU = makeZeroDisplacement(mesh);
+
+    handler.execute(currentU.data(), 0.1);
+    ASSERT_GT(handler.getNumActivePairs(), 0);
+
+    EigenSupport::VXd       inwardDu = EigenSupport::VXd::Zero(currentU.size());
+    EigenSupport::VXd       outwardDu = EigenSupport::VXd::Zero(currentU.size());
+
+    const auto& pairs = handler.getActiveVtxTriPairs();
+    const auto& normals = handler.getLastActiveNormals();
+    for (int pi = 0; pi < handler.getNumActivePairs(); ++pi) {
+        const int sampleID = pairs[pi][0];
+        const EigenSupport::V3d n = normals.segment<3>(pi * 3);
+        inwardDu.segment<3>(sampleID * 3) = -0.01 * n;
+        outwardDu.segment<3>(sampleID * 3) = 0.01 * n;
+    }
+
+    const double dSafe =
+        PointTrianglePairBarrierEnergy::normalizePositiveZero(0.1, -1.0);
+
+    const double inwardAlpha = handler.computeEmbeddedAlphaUpperBound(currentU, inwardDu, 1.0, dSafe);
+    const double outwardAlpha = handler.computeEmbeddedAlphaUpperBound(currentU, outwardDu, 1.0, dSafe);
+
+    EXPECT_DOUBLE_EQ(inwardAlpha, 0.0);
+    EXPECT_DOUBLE_EQ(outwardAlpha, 1.0);
+}
+
 }  // namespace pgo::Contact::test

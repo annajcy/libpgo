@@ -68,6 +68,8 @@ public:
     std::vector<EigenSupport::V3d> getSamplePoints(const double* u) const;
     std::vector<EigenSupport::V3d> getCollidedSamplePoints(const double* u) const;
     std::vector<int>               getCollidedSampleAffectedVertices() const;
+    double computeEmbeddedAlphaUpperBound(EigenSupport::ConstRefVecXd currentU, EigenSupport::ConstRefVecXd du,
+                                          double alphaSafety, double dSafe) const;
 
     double getLastCDTime() const { return lastCDTime; }
 
@@ -79,6 +81,8 @@ protected:
     void finalizeActivePairsFromSeeds(int maxSearchingNumTriangles);
 
     void computeSamplePosition(const EigenSupport::VXd& P, EigenSupport::VXd& SP) const;
+    double computeSampleAlphaUpperBound(EigenSupport::ConstRefVecXd sampleCurrentU,
+                                        EigenSupport::ConstRefVecXd sampleDu, double alphaSafety, double dSafe) const;
 
 protected:
     typedef std::array<int, 3> SampleID;

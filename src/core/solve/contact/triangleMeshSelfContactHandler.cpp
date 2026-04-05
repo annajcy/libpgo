@@ -23,6 +23,7 @@ copyright to USC
 #include <atomic>
 #include <queue>
 #include <limits>
+#include <stdexcept>
 #include <unordered_set>
 #include <chrono>
 
@@ -736,6 +737,79 @@ std::vector<int> TriangleMeshSelfContactHandler::getCollidedSampleAffectedVertic
     sortAndDeduplicateWithErase(vertexIndices);
 
     return vertexIndices;
+}
+
+double TriangleMeshSelfContactHandler::computeEmbeddedAlphaUpperBound(ES::ConstRefVecXd currentU,
+                                                                      ES::ConstRefVecXd du, double alphaSafety,
+                                                                      double dSafe) const {
+    if (currentU.size() != totaln3 || du.size() != totaln3) {
+        throw std::invalid_argument("computeEmbeddedAlphaUpperBound expects full embedded displacement vectors.");
+    }
+
+    ES::VXd sampleCurrentU = interpolationMatrix * currentU;
+    ES::VXd sampleDu       = interpolationMatrix * du;
+
+    return computeSampleAlphaUpperBound(sampleCurrentU, sampleDu, alphaSafety, dSafe);
+}
+
+double TriangleMeshSelfContactHandler::computeSampleAlphaUpperBound(ES::ConstRefVecXd sampleCurrentU,
+                                                                    ES::ConstRefVecXd sampleDu, double alphaSafety,
+                                                                    double dSafe) const {
+    if (sampleCurrentU.size() != samplen3 || sampleDu.size() != samplen3) {
+        throw std::invalid_argument("computeSampleAlphaUpperBound expects sample-sized displacement vectors.");
+    }
+
+    if (contactedTrianglePairs.empty()) {
+        return 1.0;
+    }
+
+    double alphaUpper         = 1.0;
+    bool   hasClosingDirection = false;
+
+    for (int pi = 0; pi < static_cast<int>(contactedTrianglePairs.size()); ++pi) {
+        const auto& pair = contactedTrianglePairs[pi];
+
+        const ES::V3d n = activeNormals.segment<3>(pi * 3);
+        const ES::V3d w = activeBarycentricWeights.segment<3>(pi * 3);
+
+        const ES::V3d p  = sampleRestP.segment<3>(pair[0] * 3) + sampleCurrentU.segment<3>(pair[0] * 3);
+        const ES::V3d dp = sampleDu.segment<3>(pair[0] * 3);
+
+        const ES::V3d t0  = sampleRestP.segment<3>(pair[1] * 3) + sampleCurrentU.segment<3>(pair[1] * 3);
+        const ES::V3d t1  = sampleRestP.segment<3>(pair[2] * 3) + sampleCurrentU.segment<3>(pair[2] * 3);
+        const ES::V3d t2  = sampleRestP.segment<3>(pair[3] * 3) + sampleCurrentU.segment<3>(pair[3] * 3);
+        const ES::V3d dt0 = sampleDu.segment<3>(pair[1] * 3);
+        const ES::V3d dt1 = sampleDu.segment<3>(pair[2] * 3);
+        const ES::V3d dt2 = sampleDu.segment<3>(pair[3] * 3);
+
+        const ES::V3d closestPoint = t0 * w[0] + t1 * w[1] + t2 * w[2];
+        const ES::V3d closestDelta = dt0 * w[0] + dt1 * w[1] + dt2 * w[2];
+
+        const double d0   = (p - closestPoint).dot(n);
+        const double dDot = (dp - closestDelta).dot(n);
+
+        if (d0 <= dSafe) {
+            if (dDot > 0.0) {
+                continue;
+            }
+
+            return 0.0;
+        }
+
+        if (dDot < 0.0) {
+            hasClosingDirection = true;
+            alphaUpper          = std::min(alphaUpper, (d0 - dSafe) / (-dDot));
+            if (alphaUpper <= 0.0) {
+                return 0.0;
+            }
+        }
+    }
+
+    if (!hasClosingDirection) {
+        return 1.0;
+    }
+
+    return std::clamp(alphaUpper * std::clamp(alphaSafety, 0.0, 1.0), 0.0, 1.0);
 }
 
 void TriangleMeshSelfContactHandler::execute(const std::vector<ES::V3d>& p0, const std::vector<ES::V3d>& p1) {

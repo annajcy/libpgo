@@ -475,6 +475,12 @@ int runSimFromConfig(const RunSimConfig& config) {
             Contact::PointPenetrationEnergyBuffer*           extContactBuffer = nullptr;
             std::shared_ptr<Contact::PointPenetrationBarrierEnergy> extBarrierEnergy;
             Contact::PointPenetrationBarrierEnergyBuffer*           extBarrierBuffer = nullptr;
+            const bool shouldUseIpcAlphaFilter =
+                contact.contactModel == "ipc-barrier" && contact.ipcEnableFeasibleLineSearch;
+            bool   hasExternalAlphaUpperBound = false;
+            bool   hasSelfAlphaUpperBound     = false;
+            double externalDSafe              = 0.0;
+            double selfDSafe                  = 0.0;
             const auto currentPositionFunc = makeCurrentPositionFunction(restPosition);
             if (externalContactHandler) {
                 if (contact.contactModel == "penalty") {
@@ -506,15 +512,10 @@ int runSimFromConfig(const RunSimConfig& config) {
 
                         intg->addGeneralImplicitForceModel(extBarrierEnergy, 0, 0);
 
-                        if (contact.ipcEnableFeasibleLineSearch) {
-                            const double dSafe =
+                        if (shouldUseIpcAlphaFilter) {
+                            hasExternalAlphaUpperBound = true;
+                            externalDSafe =
                                 Contact::PointPenetrationBarrierEnergy::normalizePositiveZero(contact.ipcDhat, -1.0);
-                            intg->setAlphaTestFunc([&u, &contact, externalContactHandler, dSafe](const ES::VXd& z,
-                                                                                                  const ES::VXd& dz) {
-                                ES::VXd currentU = u + z;
-                                return externalContactHandler->computeEmbeddedAlphaUpperBound(
-                                    currentU, dz, contact.ipcAlphaSafety, dSafe);
-                            });
                         }
                     }
                 }
@@ -565,8 +566,36 @@ int runSimFromConfig(const RunSimConfig& config) {
                         selfBarrierEnergy->setCoeff(contact.ipcKappa);
 
                         intg->addGeneralImplicitForceModel(selfBarrierEnergy, 0, 0);
+
+                        if (shouldUseIpcAlphaFilter) {
+                            hasSelfAlphaUpperBound = true;
+                            selfDSafe =
+                                Contact::PointTrianglePairBarrierEnergy::normalizePositiveZero(contact.ipcDhat, -1.0);
+                        }
                     }
                 }
+            }
+
+            if (shouldUseIpcAlphaFilter && (hasExternalAlphaUpperBound || hasSelfAlphaUpperBound)) {
+                intg->setAlphaTestFunc(
+                    [&u, &contact, externalContactHandler, selfCD, hasExternalAlphaUpperBound, hasSelfAlphaUpperBound,
+                     externalDSafe, selfDSafe](const ES::VXd& z, const ES::VXd& dz) {
+                        ES::VXd currentU = u + z;
+                        double  alphaUpper = 1.0;
+
+                        if (hasExternalAlphaUpperBound) {
+                            alphaUpper =
+                                std::min(alphaUpper, externalContactHandler->computeEmbeddedAlphaUpperBound(
+                                                         currentU, dz, contact.ipcAlphaSafety, externalDSafe));
+                        }
+
+                        if (hasSelfAlphaUpperBound) {
+                            alphaUpper = std::min(alphaUpper, selfCD->computeEmbeddedAlphaUpperBound(
+                                                                  currentU, dz, contact.ipcAlphaSafety, selfDSafe));
+                        }
+
+                        return alphaUpper;
+                    });
             }
 
             intg->setqState(u, uvel, uacc);
