@@ -48,7 +48,8 @@ namespace ES = EigenSupport;
 
 bool isDynamicContactEnabled(const RunSimContactConfig& contact) {
     return (contact.contactModel == "penalty" && contact.contactStiffness > 0.0) ||
-           (contact.contactModel == "ipc-barrier" && contact.ipcKappa > 0.0);
+           (contact.contactModel == "ipc-barrier" &&
+            (contact.externalIpcKappa > 0.0 || contact.selfIpcKappa > 0.0));
 }
 
 Contact::PosFunction makeCurrentPositionFunction(const ES::VXd& restPosition) {
@@ -148,17 +149,31 @@ RunSimConfig parseRunSimConfig(const ConfigFileJSON& jconfig, const std::string&
             "Unsupported contact-model: '{}'. Expected 'penalty' or 'ipc-barrier'.", config.contact.contactModel));
     }
     if (config.contact.contactModel == "ipc-barrier") {
-        config.contact.ipcDhat        = jconfig.handle().value("ipc-dhat", 1e-3);
-        config.contact.ipcKappa       = jconfig.handle().value("ipc-kappa", 1e4);
+        if (jconfig.exist("ipc-dhat") || jconfig.exist("ipc-kappa")) {
+            throw std::runtime_error(
+                "ipc-dhat/ipc-kappa are no longer supported. "
+                "Use external-ipc-dhat, self-ipc-dhat, external-ipc-kappa, and self-ipc-kappa.");
+        }
+
+        config.contact.externalIpcDhat  = jconfig.handle().value("external-ipc-dhat", 1e-3);
+        config.contact.selfIpcDhat      = jconfig.handle().value("self-ipc-dhat", 1e-3);
+        config.contact.externalIpcKappa = jconfig.handle().value("external-ipc-kappa", 1e4);
+        config.contact.selfIpcKappa     = jconfig.handle().value("self-ipc-kappa", 1e4);
         config.contact.ipcAlphaSafety = jconfig.handle().value("ipc-alpha-safety", 0.9);
         config.contact.ipcEnableFeasibleLineSearch =
             jconfig.handle().value("ipc-enable-feasible-line-search", true);
 
-        if (config.contact.ipcDhat <= 0.0) {
-            throw std::runtime_error("ipc-dhat must be positive.");
+        if (config.contact.externalIpcDhat <= 0.0) {
+            throw std::runtime_error("external-ipc-dhat must be positive.");
         }
-        if (config.contact.ipcKappa <= 0.0) {
-            throw std::runtime_error("ipc-kappa must be positive.");
+        if (config.contact.selfIpcDhat <= 0.0) {
+            throw std::runtime_error("self-ipc-dhat must be positive.");
+        }
+        if (config.contact.externalIpcKappa <= 0.0) {
+            throw std::runtime_error("external-ipc-kappa must be positive.");
+        }
+        if (config.contact.selfIpcKappa <= 0.0) {
+            throw std::runtime_error("self-ipc-kappa must be positive.");
         }
         if (config.contact.ipcAlphaSafety <= 0.0 || config.contact.ipcAlphaSafety > 1.0) {
             throw std::runtime_error("ipc-alpha-safety must be in (0, 1].");
@@ -222,6 +237,10 @@ int runSimFromConfig(const RunSimConfig& config) {
     const auto& contact    = config.contact;
     const auto& solver     = config.solver;
     const auto& runtime    = config.runtime;
+    const double externalIpcDhat  = contact.externalIpcDhat;
+    const double selfIpcDhat      = contact.selfIpcDhat;
+    const double externalIpcKappa = contact.externalIpcKappa;
+    const double selfIpcKappa     = contact.selfIpcKappa;
 
     const int effectiveParallelism = runtime.deterministicMode ? 1 : defaultParallelism;
 
@@ -486,7 +505,7 @@ int runSimFromConfig(const RunSimConfig& config) {
                 if (contact.contactModel == "penalty") {
                     externalContactHandler->execute(usurf.data());
                 } else if (contact.contactModel == "ipc-barrier") {
-                    externalContactHandler->execute(usurf.data(), contact.ipcDhat);
+                    externalContactHandler->execute(usurf.data(), externalIpcDhat);
                 }
 
                 if (externalContactHandler->getNumActiveSamples()) {
@@ -504,18 +523,18 @@ int runSimFromConfig(const RunSimConfig& config) {
 
                         intg->addGeneralImplicitForceModel(extContactEnergy, 0, 0);
                     } else if (contact.contactModel == "ipc-barrier") {
-                        extBarrierEnergy = externalContactHandler->buildBarrierEnergy(contact.ipcDhat);
+                        extBarrierEnergy = externalContactHandler->buildBarrierEnergy(externalIpcDhat);
                         extBarrierBuffer = extBarrierEnergy->allocateBuffer();
                         extBarrierEnergy->setComputePosFunction(currentPositionFunc);
                         extBarrierEnergy->setBuffer(extBarrierBuffer);
-                        extBarrierEnergy->setCoeff(contact.ipcKappa);
+                        extBarrierEnergy->setCoeff(externalIpcKappa);
 
                         intg->addGeneralImplicitForceModel(extBarrierEnergy, 0, 0);
 
                         if (shouldUseIpcAlphaFilter) {
                             hasExternalAlphaUpperBound = true;
                             externalDSafe =
-                                Contact::PointPenetrationBarrierEnergy::normalizePositiveZero(contact.ipcDhat, -1.0);
+                                Contact::PointPenetrationBarrierEnergy::normalizePositiveZero(externalIpcDhat, -1.0);
                         }
                     }
                 }
@@ -555,22 +574,22 @@ int runSimFromConfig(const RunSimConfig& config) {
                         intg->addGeneralImplicitForceModel(selfContactEnergy, 0, 0);
                     }
                 } else if (contact.contactModel == "ipc-barrier") {
-                    selfCD->execute(usurf.data(), contact.ipcDhat);
+                    selfCD->execute(usurf.data(), selfIpcDhat);
                     SPDLOG_LOGGER_INFO(Logging::lgr(), "# self active pairs: {}", selfCD->getNumActivePairs());
 
                     if (selfCD->getNumActivePairs() > 0) {
-                        selfBarrierEnergy = selfCD->buildBarrierEnergy(contact.ipcDhat);
+                        selfBarrierEnergy = selfCD->buildBarrierEnergy(selfIpcDhat);
                         selfBarrierBuffer = selfBarrierEnergy->allocateBuffer();
                         selfBarrierEnergy->setToPosFunction(currentPositionFunc);
                         selfBarrierEnergy->setBuffer(selfBarrierBuffer);
-                        selfBarrierEnergy->setCoeff(contact.ipcKappa);
+                        selfBarrierEnergy->setCoeff(selfIpcKappa);
 
                         intg->addGeneralImplicitForceModel(selfBarrierEnergy, 0, 0);
 
                         if (shouldUseIpcAlphaFilter) {
                             hasSelfAlphaUpperBound = true;
                             selfDSafe =
-                                Contact::PointTrianglePairBarrierEnergy::normalizePositiveZero(contact.ipcDhat, -1.0);
+                                Contact::PointTrianglePairBarrierEnergy::normalizePositiveZero(selfIpcDhat, -1.0);
                         }
                     }
                 }

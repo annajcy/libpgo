@@ -243,8 +243,10 @@ TEST(RunSimConfigParseTest, DefaultsToPenaltyContactModelAndDefaultIpcParameters
     const pgo::api::RunSimConfig config = parseConfigFile(configFile);
 
     EXPECT_EQ(config.contact.contactModel, "penalty");
-    EXPECT_DOUBLE_EQ(config.contact.ipcDhat, 1e-3);
-    EXPECT_DOUBLE_EQ(config.contact.ipcKappa, 1e4);
+    EXPECT_DOUBLE_EQ(config.contact.externalIpcDhat, 1e-3);
+    EXPECT_DOUBLE_EQ(config.contact.selfIpcDhat, 1e-3);
+    EXPECT_DOUBLE_EQ(config.contact.externalIpcKappa, 1e4);
+    EXPECT_DOUBLE_EQ(config.contact.selfIpcKappa, 1e4);
     EXPECT_DOUBLE_EQ(config.contact.ipcAlphaSafety, 0.9);
     EXPECT_TRUE(config.contact.ipcEnableFeasibleLineSearch);
 }
@@ -257,8 +259,10 @@ TEST(RunSimConfigParseTest, ParsesIpcBarrierContactParameters) {
     nlohmann::json j        = makeBaseConfig();
     j["cubic-mesh"]         = "cubic.veg";
     j["contact-model"]      = "ipc-barrier";
-    j["ipc-dhat"]           = 0.02;
-    j["ipc-kappa"]          = 2.5e5;
+    j["external-ipc-dhat"]  = 0.02;
+    j["self-ipc-dhat"]      = 0.02;
+    j["external-ipc-kappa"] = 2.5e5;
+    j["self-ipc-kappa"]     = 2.5e5;
     j["ipc-alpha-safety"]   = 0.8;
     j["ipc-enable-feasible-line-search"] = false;
 
@@ -267,10 +271,51 @@ TEST(RunSimConfigParseTest, ParsesIpcBarrierContactParameters) {
     const pgo::api::RunSimConfig config = parseConfigFile(configFile);
 
     EXPECT_EQ(config.contact.contactModel, "ipc-barrier");
-    EXPECT_DOUBLE_EQ(config.contact.ipcDhat, 0.02);
-    EXPECT_DOUBLE_EQ(config.contact.ipcKappa, 2.5e5);
+    EXPECT_DOUBLE_EQ(config.contact.externalIpcDhat, 0.02);
+    EXPECT_DOUBLE_EQ(config.contact.selfIpcDhat, 0.02);
+    EXPECT_DOUBLE_EQ(config.contact.externalIpcKappa, 2.5e5);
+    EXPECT_DOUBLE_EQ(config.contact.selfIpcKappa, 2.5e5);
     EXPECT_DOUBLE_EQ(config.contact.ipcAlphaSafety, 0.8);
     EXPECT_FALSE(config.contact.ipcEnableFeasibleLineSearch);
+}
+
+TEST(RunSimConfigParseTest, ParsesDecoupledExternalAndSelfIpcBarrierParameters) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim.json";
+
+    nlohmann::json j             = makeBaseConfig();
+    j["cubic-mesh"]              = "cubic.veg";
+    j["contact-model"]           = "ipc-barrier";
+    j["external-ipc-dhat"]       = 0.03;
+    j["self-ipc-dhat"]           = 0.04;
+    j["external-ipc-kappa"]      = 3.5e5;
+    j["self-ipc-kappa"]          = 4.5e5;
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    const pgo::api::RunSimConfig config = parseConfigFile(configFile);
+
+    EXPECT_DOUBLE_EQ(config.contact.externalIpcDhat, 0.03);
+    EXPECT_DOUBLE_EQ(config.contact.selfIpcDhat, 0.04);
+    EXPECT_DOUBLE_EQ(config.contact.externalIpcKappa, 3.5e5);
+    EXPECT_DOUBLE_EQ(config.contact.selfIpcKappa, 4.5e5);
+}
+
+TEST(RunSimConfigParseTest, RejectsLegacySharedIpcBarrierParameters) {
+    ScopedTempDir tempDir;
+
+    const std::filesystem::path configFile = tempDir.path() / "sim.json";
+
+    nlohmann::json j      = makeBaseConfig();
+    j["cubic-mesh"]       = "cubic.veg";
+    j["contact-model"]    = "ipc-barrier";
+    j["ipc-dhat"]         = 0.02;
+    j["ipc-kappa"]        = 2.5e5;
+
+    ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
+
+    EXPECT_THROW((void)parseConfigFile(configFile), std::runtime_error);
 }
 
 TEST(RunSimConfigParseTest, IpcBarrierFeasibleLineSearchDefaultsToEnabled) {
@@ -281,8 +326,10 @@ TEST(RunSimConfigParseTest, IpcBarrierFeasibleLineSearchDefaultsToEnabled) {
     nlohmann::json j      = makeBaseConfig();
     j["cubic-mesh"]       = "cubic.veg";
     j["contact-model"]    = "ipc-barrier";
-    j["ipc-dhat"]         = 0.02;
-    j["ipc-kappa"]        = 2.5e5;
+    j["external-ipc-dhat"]  = 0.02;
+    j["self-ipc-dhat"]      = 0.02;
+    j["external-ipc-kappa"] = 2.5e5;
+    j["self-ipc-kappa"]     = 2.5e5;
     j["ipc-alpha-safety"] = 0.8;
 
     ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
@@ -306,7 +353,7 @@ TEST(RunSimConfigParseTest, RejectsUnsupportedContactModel) {
     EXPECT_THROW((void)parseConfigFile(configFile), std::runtime_error);
 }
 
-TEST(RunSimConfigParseTest, RejectsNonPositiveIpcDhat) {
+TEST(RunSimConfigParseTest, RejectsNonPositiveExternalIpcDhat) {
     ScopedTempDir tempDir;
 
     const std::filesystem::path configFile = tempDir.path() / "sim.json";
@@ -314,14 +361,14 @@ TEST(RunSimConfigParseTest, RejectsNonPositiveIpcDhat) {
     nlohmann::json j        = makeBaseConfig();
     j["cubic-mesh"]         = "cubic.veg";
     j["contact-model"]      = "ipc-barrier";
-    j["ipc-dhat"]           = 0.0;
+    j["external-ipc-dhat"]  = 0.0;
 
     ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
 
     EXPECT_THROW((void)parseConfigFile(configFile), std::runtime_error);
 }
 
-TEST(RunSimConfigParseTest, RejectsNonPositiveIpcKappa) {
+TEST(RunSimConfigParseTest, RejectsNonPositiveSelfIpcKappa) {
     ScopedTempDir tempDir;
 
     const std::filesystem::path configFile = tempDir.path() / "sim.json";
@@ -329,7 +376,7 @@ TEST(RunSimConfigParseTest, RejectsNonPositiveIpcKappa) {
     nlohmann::json j        = makeBaseConfig();
     j["cubic-mesh"]         = "cubic.veg";
     j["contact-model"]      = "ipc-barrier";
-    j["ipc-kappa"]          = 0.0;
+    j["self-ipc-kappa"]     = 0.0;
 
     ASSERT_TRUE(writeTextFile(configFile, j.dump(2)));
 
@@ -445,8 +492,10 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcSmokeTest) {
     config.contact.contactFrictionCoeff = 0.0;
     config.contact.contactVelEps = 1e-8;
     config.contact.contactModel = "ipc-barrier";
-    config.contact.ipcDhat = 0.01;
-    config.contact.ipcKappa = 1e5;
+    config.contact.externalIpcDhat = 0.01;
+    config.contact.selfIpcDhat = 0.01;
+    config.contact.externalIpcKappa = 1e5;
+    config.contact.selfIpcKappa = 1e5;
     config.contact.ipcAlphaSafety = 0.9;
     config.solver.solverEps = 1e-8;
     config.solver.solverMaxIter = 4;
@@ -498,8 +547,10 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcNearContactActivatesE
     config.contact.contactFrictionCoeff = 0.0;
     config.contact.contactVelEps = 1e-8;
     config.contact.contactModel = "ipc-barrier";
-    config.contact.ipcDhat = 0.01;
-    config.contact.ipcKappa = 1e5;
+    config.contact.externalIpcDhat = 0.01;
+    config.contact.selfIpcDhat = 0.01;
+    config.contact.externalIpcKappa = 1e5;
+    config.contact.selfIpcKappa = 1e5;
     config.contact.ipcAlphaSafety = 0.9;
     config.solver.solverEps = 1e-8;
     config.solver.solverMaxIter = 4;
@@ -545,8 +596,10 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcSelfBarrierSmokeTest)
     config.runtime.deterministicMode = true;
     config.simulation.numSimSteps = 5;
     config.simulation.dumpInterval = 1;
-    config.contact.ipcDhat = 0.1;
-    config.contact.ipcKappa = 10.0;
+    config.contact.externalIpcDhat = 0.1;
+    config.contact.selfIpcDhat = 0.1;
+    config.contact.externalIpcKappa = 10.0;
+    config.contact.selfIpcKappa = 10.0;
     ASSERT_GE(config.scene.fixedVertices.size(), 2u);
     config.scene.fixedVertices[1].movement = {0.0, -1.2, 0.0};
 
@@ -590,8 +643,10 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcMergedBarrierSmokeTes
     config.runtime.deterministicMode = true;
     config.simulation.numSimSteps = 8;
     config.simulation.dumpInterval = 1;
-    config.contact.ipcDhat = 0.1;
-    config.contact.ipcKappa = 10.0;
+    config.contact.externalIpcDhat = 0.1;
+    config.contact.selfIpcDhat = 0.1;
+    config.contact.externalIpcKappa = 10.0;
+    config.contact.selfIpcKappa = 10.0;
     config.contact.ipcAlphaSafety = 0.9;
     config.contact.ipcEnableFeasibleLineSearch = true;
     ASSERT_GE(config.scene.fixedVertices.size(), 2u);
@@ -642,8 +697,10 @@ TEST(RunSimConfigParseTest, RunSimFromConfigCubicDynamicIpcMergedDeterministicSm
     config.runtime.deterministicMode = true;
     config.simulation.numSimSteps = 8;
     config.simulation.dumpInterval = 1;
-    config.contact.ipcDhat = 0.1;
-    config.contact.ipcKappa = 10.0;
+    config.contact.externalIpcDhat = 0.1;
+    config.contact.selfIpcDhat = 0.1;
+    config.contact.externalIpcKappa = 10.0;
+    config.contact.selfIpcKappa = 10.0;
     config.contact.ipcAlphaSafety = 0.9;
     config.contact.ipcEnableFeasibleLineSearch = true;
     ASSERT_GE(config.scene.fixedVertices.size(), 2u);

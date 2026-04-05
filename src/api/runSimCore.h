@@ -57,8 +57,10 @@ struct RunSimContactConfig {
     bool        enableSelfContact    = true;
     double      contactFrictionCoeff = 0.0;
     double      contactVelEps        = 0.0;
-    double      ipcDhat              = 1e-3;
-    double      ipcKappa             = 1e4;
+    double      externalIpcDhat      = 1e-3;
+    double      selfIpcDhat          = 1e-3;
+    double      externalIpcKappa     = 1e4;
+    double      selfIpcKappa         = 1e4;
     double      ipcAlphaSafety       = 0.9;
     bool        ipcEnableFeasibleLineSearch = true;
 };

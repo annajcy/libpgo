@@ -39,5 +39,5 @@ The intentionally softened material only exists to make the smoke scene short an
 Runtime note:
 
 - The checked-in example runs for 41 timesteps with `dump-interval = 2`, so it still dumps frames `ret0001.obj` through `ret0020.obj`.
-- It uses a slightly larger `ipc-dhat` and `ipc-kappa`, a softer top pull, and a higher solver iteration cap than the earlier smoke version so the barrier activates earlier while the compression arrives more gradually.
+- It uses slightly larger `external-ipc-dhat` / `self-ipc-dhat` and `external-ipc-kappa` / `self-ipc-kappa`, a softer top pull, and a higher solver iteration cap than the earlier smoke version so the barrier activates earlier while the compression arrives more gradually.
 - The API smoke test overrides this back to a short run so CI does not pay the full example cost.
