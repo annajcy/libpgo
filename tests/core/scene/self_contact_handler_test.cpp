@@ -1,3 +1,4 @@
+#include "pointTrianglePairBarrierEnergy.h"
 #include "triangleMeshSelfContactHandler.h"
 #include "triMeshGeo.h"
 #include "pgoLogging.h"
@@ -6,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <vector>
 
 namespace pgo::Contact::test {
@@ -69,6 +71,15 @@ Mesh::TriMeshGeo makeThreeLayerTriangleMesh(double gapLowerMiddle, double gapMid
 
 EigenSupport::VXd makeZeroDisplacement(const Mesh::TriMeshGeo& mesh) {
     return EigenSupport::VXd::Zero(mesh.numVertices() * 3);
+}
+
+EigenSupport::VXd makeSurfacePositions(const Mesh::TriMeshGeo& mesh) {
+    EigenSupport::VXd positions(mesh.numVertices() * 3);
+    for (int vi = 0; vi < mesh.numVertices(); ++vi) {
+        positions.segment<3>(vi * 3) = mesh.pos(vi);
+    }
+
+    return positions;
 }
 
 std::array<int, 3> sortedTargetSampleIds(const std::array<int, 4>& pair) {
@@ -187,6 +198,30 @@ TEST(SelfContactHandlerTest, LegacyPenaltyPathStillWorks) {
 
     handler.handleContactDCD(0.0, 100);
     EXPECT_FALSE(handler.getCollidingVtxTriPairs().empty());
+}
+
+TEST(SelfContactHandlerTest, BarrierBuilderProducesFiniteEnergyForNearContactPairs) {
+    Logging::init();
+
+    const Mesh::TriMeshGeo mesh = makeSeparatedParallelTriangleMesh(0.05);
+    auto                   handler = makeHandler(mesh);
+    const EigenSupport::VXd u = makeZeroDisplacement(mesh);
+    const EigenSupport::VXd x = makeSurfacePositions(mesh);
+
+    handler.execute(u.data(), 0.1);
+    ASSERT_GT(handler.getNumActivePairs(), 0);
+
+    auto barrier = handler.buildBarrierEnergy(0.1);
+    auto* buffer = barrier->allocateBuffer();
+    barrier->setBuffer(buffer);
+    barrier->setCoeff(5.0);
+    barrier->setToPosFunction([](const EigenSupport::V3d& xLocal, EigenSupport::V3d& p, int) { p = xLocal; });
+
+    const double value = barrier->func(x);
+    EXPECT_TRUE(std::isfinite(value));
+    EXPECT_GT(value, 0.0);
+
+    barrier->freeBuffer(buffer);
 }
 
 }  // namespace pgo::Contact::test

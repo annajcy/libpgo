@@ -5,6 +5,7 @@ copyright to USC
 
 #include "triangleMeshSelfContactHandler.h"
 #include "triangleMeshSelfContactDetection.h"
+#include "pointTrianglePairBarrierEnergy.h"
 #include "pointTrianglePairCouplingEnergyWithCollision.h"
 
 #include "contactEnergyUtilities.h"
@@ -336,7 +337,20 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
             }
         });
 
-        interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, vertices.size());
+        interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, nDOFs);
+        interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
+    }
+    else {
+        std::vector<ES::TripletD> entries;
+        entries.reserve(sampleInfoAndIDs.size() * 3);
+
+        for (int si = 0; si < static_cast<int>(sampleInfoAndIDs.size()); ++si) {
+            entries.emplace_back(si * 3, si * 3, 1.0);
+            entries.emplace_back(si * 3 + 1, si * 3 + 1, 1.0);
+            entries.emplace_back(si * 3 + 2, si * 3 + 2, 1.0);
+        }
+
+        interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, nDOFs);
         interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
     }
 
@@ -386,6 +400,7 @@ void TriangleMeshSelfContactHandler::clearActivePairData() {
     activeClosestPoints.resize(0);
     activeNormals.resize(0);
     activeDistances.resize(0);
+    activeBarycentricWeights.resize(0);
     contactEnergyObjIDs.clear();
 }
 
@@ -401,6 +416,7 @@ void TriangleMeshSelfContactHandler::finalizeActivePairsFromSeeds(int maxSearchi
 
     std::vector<ES::V3d> closestPoints(rd->activeSeedRecords.size(), ES::V3d::Zero());
     std::vector<ES::V3d> closestNormals(rd->activeSeedRecords.size(), ES::V3d::Zero());
+    std::vector<ES::V3d> closestBarycentricWeights(rd->activeSeedRecords.size(), ES::V3d::Zero());
     std::vector<double>  closestDistances(rd->activeSeedRecords.size(), 0.0);
 
     std::atomic<int> counter(0);
@@ -520,6 +536,7 @@ void TriangleMeshSelfContactHandler::finalizeActivePairsFromSeeds(int maxSearchi
         rd->contactedPointTrianglePairsMask[activeIdx] = 1;
 
         closestPoints[activeIdx] = closestSite.closestPosition;
+        closestBarycentricWeights[activeIdx] = closestSite.triBaryWeight;
         closestDistances[activeIdx] = std::sqrt(std::max(closestSite.dist2, 0.0));
 
         ES::V3d normal = p - closestSite.closestPosition;
@@ -549,6 +566,7 @@ void TriangleMeshSelfContactHandler::finalizeActivePairsFromSeeds(int maxSearchi
     activeClosestPoints.resize(finalPairCount * 3);
     activeNormals.resize(finalPairCount * 3);
     activeDistances.resize(finalPairCount);
+    activeBarycentricWeights.resize(finalPairCount * 3);
 
     int outIdx = 0;
     for (size_t activeIdx = 0; activeIdx < rd->contactedPointTrianglePairs.size(); activeIdx++) {
@@ -566,6 +584,7 @@ void TriangleMeshSelfContactHandler::finalizeActivePairsFromSeeds(int maxSearchi
         activeClosestPoints.segment<3>(outIdx * 3) = closestPoints[activeIdx];
         activeNormals.segment<3>(outIdx * 3)       = closestNormals[activeIdx];
         activeDistances[outIdx]                    = closestDistances[activeIdx];
+        activeBarycentricWeights.segment<3>(outIdx * 3) = closestBarycentricWeights[activeIdx];
         outIdx++;
     }
 
@@ -1046,4 +1065,17 @@ std::shared_ptr<PointTrianglePairCouplingEnergyWithCollision> TriangleMeshSelfCo
         (int)contactedTrianglePairs.size(), 1, contactEnergyObjIDs.data(), contactedTrianglePairs.data(),
         contactedTriangleIDs.data(), contactEnergyObjectDOFOffsets.data(), &surfaceMeshRef,
         &selfContactDetection->getTriMeshNeighbor(), &vertexID2SampleIDsLinear, &interpolationMatrix, &sampleWeights);
+}
+
+std::shared_ptr<PointTrianglePairBarrierEnergy> TriangleMeshSelfContactHandler::buildBarrierEnergy(
+    double dhat, double positiveZero) {
+    contactEnergyObjIDs.assign(contactedTrianglePairs.size(), std::array<int, 4>{0, 0, 0, 0});
+
+    contactEnergyObjectDOFOffsets[0] = 0;
+    contactEnergyObjectDOFOffsets[1] = totaln3;
+
+    return std::make_shared<PointTrianglePairBarrierEnergy>(
+        static_cast<int>(contactedTrianglePairs.size()), 1, contactEnergyObjIDs.data(), contactedTrianglePairs.data(),
+        contactEnergyObjectDOFOffsets.data(), &interpolationMatrix, &sampleWeights, activeNormals.data(),
+        activeBarycentricWeights.data(), dhat, positiveZero);
 }

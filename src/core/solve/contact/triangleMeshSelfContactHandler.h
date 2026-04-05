@@ -17,6 +17,7 @@ namespace pgo {
 namespace Contact {
 class TriangleMeshSelfContactDetection;
 class PointTrianglePairCouplingEnergyWithCollision;
+class PointTrianglePairBarrierEnergy;
 class TriangleMeshSelfContactHandlerRuntimeData;
 
 class TriangleMeshSelfContactHandler {
@@ -41,6 +42,7 @@ public:
     virtual void handleContactDCD(double distThreshold = 0.0, int maxSearchingNumTriangles = 100);
     std::shared_ptr<PointTrianglePairCouplingEnergyWithCollision> buildContactEnergy(int checkingNeighboringContact = 0,
                                                                                      int changingTriangle = 0);
+    std::shared_ptr<PointTrianglePairBarrierEnergy> buildBarrierEnergy(double dhat, double positiveZero = -1.0);
 
     void setExcludedVertices(const std::vector<int>& excludedVertices);
     void setExcludedTriangles(const std::vector<int>& excludedTriangles_) { excludedTriangles = excludedTriangles_; }
@@ -157,6 +159,7 @@ protected:
     EigenSupport::VXd               activeClosestPoints;
     EigenSupport::VXd               activeNormals;
     EigenSupport::VXd               activeDistances;
+    EigenSupport::VXd               activeBarycentricWeights;
     std::vector<std::array<int, 4>> contactEnergyObjIDs;
     std::array<int, 2>              contactEnergyObjectDOFOffsets;
     double                          lastCDTime   = 0.0;

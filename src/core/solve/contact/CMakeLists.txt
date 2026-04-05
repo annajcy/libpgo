@@ -3,6 +3,7 @@ set(CONTACT_HEADERS
   contactEnergyUtilities.h
   pointPenetrationBarrierEnergy.h
   pointPenetrationEnergy.h
+  pointTrianglePairBarrierEnergy.h
   pointTrianglePairCouplingEnergyWithCollision.h
   triangleMeshExternalContactHandler.h
   triangleMeshSelfContactDetection.h
@@ -14,6 +15,7 @@ set(CONTACT_SOURCES
   contactEnergyUtilities.cpp
   pointPenetrationBarrierEnergy.cpp
   pointPenetrationEnergy.cpp
+  pointTrianglePairBarrierEnergy.cpp
   pointTrianglePairCouplingEnergyWithCollision.cpp
   triangleMeshExternalContactHandler.cpp
   triangleMeshSelfContactDetection.cpp
