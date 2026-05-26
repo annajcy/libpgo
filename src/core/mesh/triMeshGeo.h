@@ -48,7 +48,7 @@ namespace Mesh
 {
 
 template<int K>
-class CellMeshGeo;
+class MeshData;
 
 // a triangle struct to hold triangle index, its vertex indices and positions
 struct IndexedTriangle
@@ -202,8 +202,8 @@ public:
   // implicit conversion
   operator TriMeshRef() const { return ref(); }
 
-  CellMeshGeo<3> toCellMesh() const;
-  explicit TriMeshGeo(const CellMeshGeo<3>& cellMesh);
+  MeshData<3> toMeshData() const;
+  explicit TriMeshGeo(const MeshData<3>& meshData);
 
   bool load(const std::string &filename);
   // save to obj mesh

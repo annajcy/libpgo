@@ -31,7 +31,7 @@
  *************************************************************************/
 
 #include "triMeshGeo.h"
-#include "cellMeshGeo.h"
+#include "meshData.h"
 #include "triKey.h"
 #include "triMeshNeighbor.h"
 #include "geometryQuery.h"
@@ -1019,18 +1019,18 @@ void filterSmallComponents(TriMeshGeo &mesh, int minComponentTriangles,
   mesh = std::move(filteredSurface);
 }
 
-CellMeshGeo<3> TriMeshGeo::toCellMesh() const
+MeshData<3> TriMeshGeo::toMeshData() const
 {
-  std::vector<int> flatCells(triangles_.size() * 3);
-  std::memcpy(flatCells.data(), triangles_.data(), triangles_.size() * sizeof(Vec3i));
-  return CellMeshGeo<3>(positions_, std::move(flatCells));
+  std::vector<int> flatElements(triangles_.size() * 3);
+  std::memcpy(flatElements.data(), triangles_.data(), triangles_.size() * sizeof(Vec3i));
+  return MeshData<3>(positions_, std::move(flatElements));
 }
 
-TriMeshGeo::TriMeshGeo(const CellMeshGeo<3>& cellMesh)
+TriMeshGeo::TriMeshGeo(const MeshData<3>& meshData)
 {
-  positions_ = cellMesh.positions();
-  triangles_.resize(cellMesh.numCells());
-  std::memcpy(triangles_.data(), cellMesh.cellsFlat().data(), cellMesh.cellsFlat().size() * sizeof(int));
+  positions_ = meshData.positions();
+  triangles_.resize(meshData.numElements());
+  std::memcpy(triangles_.data(), meshData.elementsFlat().data(), meshData.elementsFlat().size() * sizeof(int));
 }
 
 }  // namespace Mesh

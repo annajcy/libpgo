@@ -31,7 +31,7 @@
  *************************************************************************/
 
 #include "tetMeshGeo.h"
-#include "cellMeshGeo.h"
+#include "meshData.h"
 #include "tetKey.h"
 #include "geometryQuery.h"
 
@@ -310,18 +310,18 @@ double TetMeshRef::computeSquaredDistanceToTet(int tetID, const Vec3d &queryPos)
   return getSquaredDistanceToTet(queryPos, pos(tetID, 0), pos(tetID, 1), pos(tetID, 2), pos(tetID, 3));
 }
 
-CellMeshGeo<4> TetMeshGeo::toCellMesh() const
+MeshData<4> TetMeshGeo::toMeshData() const
 {
-  std::vector<int> flatCells(tets_.size() * 4);
-  std::memcpy(flatCells.data(), tets_.data(), tets_.size() * sizeof(Vec4i));
-  return CellMeshGeo<4>(positions_, std::move(flatCells));
+  std::vector<int> flatElements(tets_.size() * 4);
+  std::memcpy(flatElements.data(), tets_.data(), tets_.size() * sizeof(Vec4i));
+  return MeshData<4>(positions_, std::move(flatElements));
 }
 
-TetMeshGeo::TetMeshGeo(const CellMeshGeo<4>& cellMesh)
+TetMeshGeo::TetMeshGeo(const MeshData<4>& meshData)
 {
-  positions_ = cellMesh.positions();
-  tets_.resize(cellMesh.numCells());
-  std::memcpy(tets_.data(), cellMesh.cellsFlat().data(), cellMesh.cellsFlat().size() * sizeof(int));
+  positions_ = meshData.positions();
+  tets_.resize(meshData.numElements());
+  std::memcpy(tets_.data(), meshData.elementsFlat().data(), meshData.elementsFlat().size() * sizeof(int));
 }
 
 }  // namespace pgo::Mesh

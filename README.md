@@ -65,7 +65,7 @@ Linux:
 ```bash
 mamba create -n libpgo -c conda-forge python=3.12
 conda activate libpgo
-mamba install -y "cmake>=3.29" libboost-devel mkl-devel ninja numpy pip pytest setuptools tbb-devel wheel
+mamba install -y "cmake>=3.29" libboost-devel mkl-devel ninja numpy pip pytest setuptools tbb-devel wheel notebook
 
 python -m pip install -e . --no-build-isolation
 ```
@@ -75,7 +75,7 @@ macOS:
 ```bash
 mamba create -n libpgo -c conda-forge python=3.12
 conda activate libpgo
-mamba install -y "cmake>=3.29" libboost-devel ninja numpy pip pytest setuptools tbb-devel wheel
+mamba install -y "cmake>=3.29" libboost-devel ninja numpy pip pytest setuptools tbb-devel wheel notebook
 
 python -m pip install -e . --no-build-isolation
 ```
@@ -85,7 +85,7 @@ Windows:
 ```powershell
 mamba create -n libpgo -c conda-forge python=3.12
 conda activate libpgo
-mamba install -y "cmake>=3.29" imath libboost-devel mkl-devel ninja numpy pip pytest setuptools tbb-devel wheel
+mamba install -y "cmake>=3.29" imath libboost-devel mkl-devel ninja numpy pip pytest setuptools tbb-devel wheel notebook
 
 python -m pip install -e . --no-build-isolation
 ```

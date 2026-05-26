@@ -1,5 +1,5 @@
 #include "cubicMeshGeo.h"
-#include "cellMeshGeo.h"
+#include "meshData.h"
 #include <cstring>
 
 namespace pgo::Mesh
@@ -20,18 +20,18 @@ CubicMeshGeo::CubicMeshGeo(std::vector<Vec3d> positions, std::vector<Vec8i> cube
 {
 }
 
-CubicMeshGeo::CubicMeshGeo(const CellMeshGeo<8>& cellMesh)
+CubicMeshGeo::CubicMeshGeo(const MeshData<8>& meshData)
 {
-  positions_ = cellMesh.positions();
-  cubes_.resize(cellMesh.numCells());
-  std::memcpy(cubes_.data(), cellMesh.cellsFlat().data(), cellMesh.cellsFlat().size() * sizeof(int));
+  positions_ = meshData.positions();
+  cubes_.resize(meshData.numElements());
+  std::memcpy(cubes_.data(), meshData.elementsFlat().data(), meshData.elementsFlat().size() * sizeof(int));
 }
 
-CellMeshGeo<8> CubicMeshGeo::toCellMesh() const
+MeshData<8> CubicMeshGeo::toMeshData() const
 {
-  std::vector<int> flatCells(cubes_.size() * 8);
-  std::memcpy(flatCells.data(), cubes_.data(), cubes_.size() * sizeof(Vec8i));
-  return CellMeshGeo<8>(positions_, std::move(flatCells));
+  std::vector<int> flatElements(cubes_.size() * 8);
+  std::memcpy(flatElements.data(), cubes_.data(), cubes_.size() * sizeof(Vec8i));
+  return MeshData<8>(positions_, std::move(flatElements));
 }
 
 }  // namespace pgo::Mesh

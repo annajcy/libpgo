@@ -31,7 +31,7 @@
  *************************************************************************/
 
 #include "cubicMesh.h"
-#include "cellMeshGeo.h"
+#include "meshData.h"
 
 #include "triple.h"
 #include "pgoLogging.h"
@@ -91,11 +91,11 @@ CubicMesh::CubicMesh(int numVertices, const double *vertices,
   SetInverseCubeSize();
 }
 
-CubicMesh::CubicMesh(pgo::Mesh::CellMeshGeo<8> &&cellMesh, double E, double nu, double density):
+CubicMesh::CubicMesh(pgo::Mesh::MeshData<8> &&meshData, double E, double nu, double density):
   VolumetricMesh(8), parallelepipedMode(0)
 {
-  vertices = std::move(cellMesh.positions());
-  elements = std::move(cellMesh.cellsFlat());
+  vertices = std::move(meshData.positions());
+  elements = std::move(meshData.elementsFlat());
   numVertices = static_cast<int>(vertices.size());
   numElements = static_cast<int>(elements.size()) / 8;
   elementMaterial.resize(numElements);
@@ -109,11 +109,11 @@ CubicMesh::CubicMesh(pgo::Mesh::CellMeshGeo<8> &&cellMesh, double E, double nu, 
   SetInverseCubeSize();
 }
 
-CubicMesh::CubicMesh(const pgo::Mesh::CellMeshGeo<8> &cellMesh, double E, double nu, double density):
+CubicMesh::CubicMesh(const pgo::Mesh::MeshData<8> &meshData, double E, double nu, double density):
   VolumetricMesh(8), parallelepipedMode(0)
 {
-  vertices = cellMesh.positions();
-  elements = cellMesh.cellsFlat();
+  vertices = meshData.positions();
+  elements = meshData.elementsFlat();
   numVertices = static_cast<int>(vertices.size());
   numElements = static_cast<int>(elements.size()) / 8;
   elementMaterial.resize(numElements);

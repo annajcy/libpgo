@@ -47,7 +47,7 @@ namespace Mesh
 {
 
 template<int K>
-class CellMeshGeo;
+class MeshData;
 
 // class to reference an external triangle mesh
 class TetMeshRef
@@ -128,8 +128,8 @@ public:
   //  implicit conversion
   operator TetMeshRef() const { return ref(); }
 
-  CellMeshGeo<4> toCellMesh() const;
-  explicit TetMeshGeo(const CellMeshGeo<4>& cellMesh);
+  MeshData<4> toMeshData() const;
+  explicit TetMeshGeo(const MeshData<4>& meshData);
 
   // save to obj mesh
   bool save(const std::string &filename) const { return ref().save(filename); }

@@ -46,7 +46,7 @@ namespace Mesh
 {
 class TetMeshGeo;
 template<int K>
-class CellMeshGeo;
+class MeshData;
 }
 
 namespace VolumetricMeshes
@@ -77,9 +77,9 @@ public:
     double E = E_default, double nu = nu_default, double density = density_default);
   TetMesh(const std::vector<Vec3d> &vertices, const std::vector<Vec4i> &elements,
     double E = E_default, double nu = nu_default, double density = density_default);
-  TetMesh(pgo::Mesh::CellMeshGeo<4> &&cellMesh,
+  TetMesh(pgo::Mesh::MeshData<4> &&meshData,
     double E = E_default, double nu = nu_default, double density = density_default);
-  TetMesh(const pgo::Mesh::CellMeshGeo<4> &cellMesh,
+  TetMesh(const pgo::Mesh::MeshData<4> &meshData,
     double E = E_default, double nu = nu_default, double density = density_default);
 
   // constructs a tet mesh from the given vertices and elements,

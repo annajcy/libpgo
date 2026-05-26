@@ -1,14 +1,14 @@
 #include <gtest/gtest.h>
 
 #include "triMeshGeo.h"
-#include "cellMeshGeo.h"
+#include "meshData.h"
 
 #include <vector>
 
 namespace
 {
 using pgo::Mesh::TriMeshGeo;
-using pgo::Mesh::CellMeshGeo;
+using pgo::Mesh::MeshData;
 using pgo::Vec3d;
 using pgo::Vec3i;
 
@@ -48,17 +48,17 @@ TEST(TriMeshGeoGTest, TrianglesViewSupportsExistingReadPatterns)
   EXPECT_EQ(triGeo.triangles()[1][1], 2);
 }
 
-TEST(TriMeshGeoGTest, BridgesToAndFromCellMesh)
+TEST(TriMeshGeoGTest, BridgesToAndFromMeshData)
 {
   const auto triGeo = makeUnitSquareMesh();
-  const CellMeshGeo<3> cellMesh = triGeo.toCellMesh();
+  const MeshData<3> meshData = triGeo.toMeshData();
 
-  EXPECT_EQ(cellMesh.numVertices(), 4);
-  EXPECT_EQ(cellMesh.numCells(), 2);
-  EXPECT_EQ(cellMesh.cellVtxID(0, 1), 1);
-  EXPECT_EQ(cellMesh.cellVtxID(1, 2), 3);
+  EXPECT_EQ(meshData.numVertices(), 4);
+  EXPECT_EQ(meshData.numElements(), 2);
+  EXPECT_EQ(meshData.elementVtxID(0, 1), 1);
+  EXPECT_EQ(meshData.elementVtxID(1, 2), 3);
 
-  const TriMeshGeo reconstructed(cellMesh);
+  const TriMeshGeo reconstructed(meshData);
   EXPECT_EQ(reconstructed.numVertices(), 4);
   EXPECT_EQ(reconstructed.numTriangles(), 2);
   EXPECT_EQ(reconstructed.triVtxID(0, 1), 1);

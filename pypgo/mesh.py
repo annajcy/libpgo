@@ -38,41 +38,41 @@ class VolumeMesh:
 
     Can be constructed in two ways:
 
-    1. From geometry + material (programmatic construction)::
+    1. From mesh data + material (programmatic construction)::
 
-        vol = VolumeMesh(tet_geo, material)
+        vol = VolumeMesh(tet_data, material)
 
     2. From a .veg file (zero redundant construction)::
 
         vol = VolumeMesh.load("box.veg")
     """
 
-    def __init__(self, cell_mesh, material_spec: MaterialSpec):
-        from pypgo.mesh_geo import TetCellMeshGeo, CubicCellMeshGeo
+    def __init__(self, mesh_data, material_spec: MaterialSpec):
+        from pypgo.mesh_geo import TetMeshData, CubicMeshData
 
         if not isinstance(material_spec, MaterialSpec):
             raise TypeError(f"material_spec must be a MaterialSpec, got {type(material_spec).__name__}")
 
-        if not isinstance(cell_mesh, (TetCellMeshGeo, CubicCellMeshGeo)):
+        if not isinstance(mesh_data, (TetMeshData, CubicMeshData)):
             raise TypeError(
-                f"cell_mesh must be a TetCellMeshGeo or CubicCellMeshGeo, got {type(cell_mesh).__name__}"
+                f"mesh_data must be a TetMeshData or CubicMeshData, got {type(mesh_data).__name__}"
             )
 
-        self._geometry = cell_mesh
+        self._mesh_data = mesh_data
         self._material = material_spec
-        self._core_obj = _core.create_volume_mesh(cell_mesh._core_obj, material_spec._core_obj)
+        self._core_obj = _core.create_volume_mesh(mesh_data._core_obj, material_spec._core_obj)
 
     @classmethod
     def load(cls, path: str) -> "VolumeMesh":
         """Load a VolumeMesh directly from a .veg file.
 
         This is the preferred way to load .veg files when you need a simulation
-        mesh. Unlike ``read_veg_geo()`` followed by ``VolumeMesh(geo, mat)``,
+        mesh. Unlike ``read_veg_geo()`` followed by ``VolumeMesh(mesh_data, mat)``,
         this path constructs the underlying C++ VolumetricMesh only once.
         """
         obj = cls.__new__(cls)
         obj._core_obj = _core.load_volume_mesh(str(path))
-        obj._geometry = None  # lazy
+        obj._mesh_data = None  # lazy
         obj._material = None  # lazy
         return obj
 
@@ -94,22 +94,22 @@ class VolumeMesh:
 
     @property
     def geometry(self):
-        """The geometry of this mesh (lazy export from C++ VolumetricMesh)."""
-        if self._geometry is None:
-            from pypgo.mesh_geo import TetCellMeshGeo, CubicCellMeshGeo
-            core_geo = self._core_obj.export_geometry()
-            if isinstance(core_geo, _core.TetCellMeshGeoCore):
-                self._geometry = TetCellMeshGeo(core_geo)
-            elif isinstance(core_geo, _core.CubicCellMeshGeoCore):
-                self._geometry = CubicCellMeshGeo(core_geo)
-            else:
-                raise RuntimeError(f"Unexpected core geometry type: {type(core_geo).__name__}")
-        return self._geometry
+        """The MeshData of this mesh (lazy export from C++ VolumetricMesh)."""
+        return self.mesh_data
 
     @property
-    def cell_mesh(self):
-        """Backward-compatible alias for geometry."""
-        return self.geometry
+    def mesh_data(self):
+        """The canonical MeshData of this mesh."""
+        if self._mesh_data is None:
+            from pypgo.mesh_geo import TetMeshData, CubicMeshData
+            core_data = self._core_obj.export_geometry()
+            if isinstance(core_data, _core.TetMeshDataCore):
+                self._mesh_data = TetMeshData(core_data)
+            elif isinstance(core_data, _core.CubicMeshDataCore):
+                self._mesh_data = CubicMeshData(core_data)
+            else:
+                raise RuntimeError(f"Unexpected core mesh data type: {type(core_data).__name__}")
+        return self._mesh_data
 
     @property
     def material(self) -> MaterialSpec:

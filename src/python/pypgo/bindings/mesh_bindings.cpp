@@ -5,7 +5,7 @@
 #include <memory>
 #include <stdexcept>
 
-#include "cellMeshGeo.h"
+#include "meshData.h"
 #include "volumetricMesh.h"
 #include "tetMesh.h"
 #include "cubicMesh.h"
@@ -47,19 +47,19 @@ private:
     std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh_;
 };
 
-// --- create from CellMeshGeo + MaterialSpec ---
+// --- create from MeshData + MaterialSpec ---
 
-std::shared_ptr<VolumeMeshCore> create_volume_mesh(const nb::object& cellMeshObj, const MaterialSpecCore& mat) {
-    if (nb::isinstance<Mesh::CellMeshGeo<4>>(cellMeshObj)) {
-        const auto& cellMesh = nb::cast<const Mesh::CellMeshGeo<4>&>(cellMeshObj);
-        auto tetMesh = std::make_unique<VolumetricMeshes::TetMesh>(cellMesh, mat.E(), mat.nu(), mat.density());
+std::shared_ptr<VolumeMeshCore> create_volume_mesh(const nb::object& meshDataObj, const MaterialSpecCore& mat) {
+    if (nb::isinstance<Mesh::MeshData<4>>(meshDataObj)) {
+        const auto& meshData = nb::cast<const Mesh::MeshData<4>&>(meshDataObj);
+        auto tetMesh = std::make_unique<VolumetricMeshes::TetMesh>(meshData, mat.E(), mat.nu(), mat.density());
         return std::make_shared<VolumeMeshCore>(std::move(tetMesh));
-    } else if (nb::isinstance<Mesh::CellMeshGeo<8>>(cellMeshObj)) {
-        const auto& cellMesh = nb::cast<const Mesh::CellMeshGeo<8>&>(cellMeshObj);
-        auto cubicMesh = std::make_unique<VolumetricMeshes::CubicMesh>(cellMesh, mat.E(), mat.nu(), mat.density());
+    } else if (nb::isinstance<Mesh::MeshData<8>>(meshDataObj)) {
+        const auto& meshData = nb::cast<const Mesh::MeshData<8>&>(meshDataObj);
+        auto cubicMesh = std::make_unique<VolumetricMeshes::CubicMesh>(meshData, mat.E(), mat.nu(), mat.density());
         return std::make_shared<VolumeMeshCore>(std::move(cubicMesh));
     } else {
-        throw std::runtime_error("Unsupported cell mesh type for create_volume_mesh");
+        throw std::runtime_error("Unsupported element mesh type for create_volume_mesh");
     }
 }
 
@@ -96,11 +96,11 @@ nb::object export_geometry(const VolumeMeshCore& vm) {
     vMesh->exportMeshGeometry(vertices, elements);
 
     if (vm.meshType() == VolumeMeshCore::MeshType::Tet) {
-        auto cellMesh = Mesh::CellMeshGeo<4>::fromFlatCells(std::move(vertices), std::move(elements));
-        return nb::cast(std::move(cellMesh));
+        auto meshData = Mesh::MeshData<4>::fromFlatElements(std::move(vertices), std::move(elements));
+        return nb::cast(std::move(meshData));
     } else {
-        auto cellMesh = Mesh::CellMeshGeo<8>::fromFlatCells(std::move(vertices), std::move(elements));
-        return nb::cast(std::move(cellMesh));
+        auto meshData = Mesh::MeshData<8>::fromFlatElements(std::move(vertices), std::move(elements));
+        return nb::cast(std::move(meshData));
     }
 }
 

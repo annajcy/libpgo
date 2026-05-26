@@ -7,7 +7,7 @@ namespace pgo::Mesh
 {
 
 template<int K>
-class CellMeshGeo;
+class MeshData;
 
 class CubicMeshGeo
 {
@@ -16,7 +16,7 @@ public:
   CubicMeshGeo(int numVertices, const double *vertices, int numCubes, const int *cubes);
   CubicMeshGeo(std::vector<Vec3d> positions, std::vector<Vec8i> cubes);
 
-  explicit CubicMeshGeo(const CellMeshGeo<8>& cellMesh);
+  explicit CubicMeshGeo(const MeshData<8>& meshData);
 
   int numVertices() const { return static_cast<int>(positions_.size()); }
   int numCubes() const { return static_cast<int>(cubes_.size()); }
@@ -34,7 +34,7 @@ public:
   std::vector<Vec8i> &cubes() { return cubes_; }
 
   // 桥接转换
-  CellMeshGeo<8> toCellMesh() const;
+  MeshData<8> toMeshData() const;
 
 private:
   std::vector<Vec3d> positions_;
