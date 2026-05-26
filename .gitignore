@@ -74,5 +74,5 @@ paper/*
 
 *.avi
 
-
+.antigravitycli
 dist/

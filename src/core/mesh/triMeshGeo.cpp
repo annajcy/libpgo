@@ -31,6 +31,7 @@
  *************************************************************************/
 
 #include "triMeshGeo.h"
+#include "cellMeshGeo.h"
 #include "triKey.h"
 #include "triMeshNeighbor.h"
 #include "geometryQuery.h"
@@ -1016,6 +1017,20 @@ void filterSmallComponents(TriMeshGeo &mesh, int minComponentTriangles,
     throw std::runtime_error("Small component filter removed the entire surface");
 
   mesh = std::move(filteredSurface);
+}
+
+CellMeshGeo<3> TriMeshGeo::toCellMesh() const
+{
+  std::vector<int> flatCells(triangles_.size() * 3);
+  std::memcpy(flatCells.data(), triangles_.data(), triangles_.size() * sizeof(Vec3i));
+  return CellMeshGeo<3>(positions_, std::move(flatCells));
+}
+
+TriMeshGeo::TriMeshGeo(const CellMeshGeo<3>& cellMesh)
+{
+  positions_ = cellMesh.positions();
+  triangles_.resize(cellMesh.numCells());
+  std::memcpy(triangles_.data(), cellMesh.cellsFlat().data(), cellMesh.cellsFlat().size() * sizeof(int));
 }
 
 }  // namespace Mesh

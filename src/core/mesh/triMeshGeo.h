@@ -47,6 +47,9 @@ namespace pgo
 namespace Mesh
 {
 
+template<int K>
+class CellMeshGeo;
+
 // a triangle struct to hold triangle index, its vertex indices and positions
 struct IndexedTriangle
 {
@@ -198,6 +201,9 @@ public:
   TriMeshRef ref() const { return { positions_, triangles_ }; }
   // implicit conversion
   operator TriMeshRef() const { return ref(); }
+
+  CellMeshGeo<3> toCellMesh() const;
+  explicit TriMeshGeo(const CellMeshGeo<3>& cellMesh);
 
   bool load(const std::string &filename);
   // save to obj mesh

@@ -31,6 +31,7 @@
  *************************************************************************/
 
 #include "tetMeshGeo.h"
+#include "cellMeshGeo.h"
 #include "tetKey.h"
 #include "geometryQuery.h"
 
@@ -307,6 +308,20 @@ void TetMeshRef::computeTetBarycentricWeights(int tetID, const Vec3d &queryPos, 
 double TetMeshRef::computeSquaredDistanceToTet(int tetID, const Vec3d &queryPos) const
 {
   return getSquaredDistanceToTet(queryPos, pos(tetID, 0), pos(tetID, 1), pos(tetID, 2), pos(tetID, 3));
+}
+
+CellMeshGeo<4> TetMeshGeo::toCellMesh() const
+{
+  std::vector<int> flatCells(tets_.size() * 4);
+  std::memcpy(flatCells.data(), tets_.data(), tets_.size() * sizeof(Vec4i));
+  return CellMeshGeo<4>(positions_, std::move(flatCells));
+}
+
+TetMeshGeo::TetMeshGeo(const CellMeshGeo<4>& cellMesh)
+{
+  positions_ = cellMesh.positions();
+  tets_.resize(cellMesh.numCells());
+  std::memcpy(tets_.data(), cellMesh.cellsFlat().data(), cellMesh.cellsFlat().size() * sizeof(int));
 }
 
 }  // namespace pgo::Mesh

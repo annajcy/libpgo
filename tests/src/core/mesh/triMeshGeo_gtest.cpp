@@ -1,12 +1,14 @@
 #include <gtest/gtest.h>
 
 #include "triMeshGeo.h"
+#include "cellMeshGeo.h"
 
 #include <vector>
 
 namespace
 {
 using pgo::Mesh::TriMeshGeo;
+using pgo::Mesh::CellMeshGeo;
 using pgo::Vec3d;
 using pgo::Vec3i;
 
@@ -44,4 +46,21 @@ TEST(TriMeshGeoGTest, TrianglesViewSupportsExistingReadPatterns)
   EXPECT_EQ(triGeo.positions()[0][0], 0.0);
   EXPECT_EQ(triGeo.positions()[2][1], 1.0);
   EXPECT_EQ(triGeo.triangles()[1][1], 2);
+}
+
+TEST(TriMeshGeoGTest, BridgesToAndFromCellMesh)
+{
+  const auto triGeo = makeUnitSquareMesh();
+  const CellMeshGeo<3> cellMesh = triGeo.toCellMesh();
+
+  EXPECT_EQ(cellMesh.numVertices(), 4);
+  EXPECT_EQ(cellMesh.numCells(), 2);
+  EXPECT_EQ(cellMesh.cellVtxID(0, 1), 1);
+  EXPECT_EQ(cellMesh.cellVtxID(1, 2), 3);
+
+  const TriMeshGeo reconstructed(cellMesh);
+  EXPECT_EQ(reconstructed.numVertices(), 4);
+  EXPECT_EQ(reconstructed.numTriangles(), 2);
+  EXPECT_EQ(reconstructed.triVtxID(0, 1), 1);
+  EXPECT_EQ(reconstructed.tri(1)[2], 3);
 }

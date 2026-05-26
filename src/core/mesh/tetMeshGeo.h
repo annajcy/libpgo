@@ -45,6 +45,10 @@ namespace pgo
 {
 namespace Mesh
 {
+
+template<int K>
+class CellMeshGeo;
+
 // class to reference an external triangle mesh
 class TetMeshRef
 {
@@ -123,6 +127,9 @@ public:
   TetMeshRef ref() const { return { positions_, tets_ }; }
   //  implicit conversion
   operator TetMeshRef() const { return ref(); }
+
+  CellMeshGeo<4> toCellMesh() const;
+  explicit TetMeshGeo(const CellMeshGeo<4>& cellMesh);
 
   // save to obj mesh
   bool save(const std::string &filename) const { return ref().save(filename); }
