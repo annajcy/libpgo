@@ -1,9 +1,9 @@
-set(MESH_HEADERS triMeshGeo.h createTriMesh.h triMeshNeighbor.h triMeshPseudoNormal.h tetMeshGeo.h edgeKey.h triKey.h rectKey.h tetKey.h
+set(MESH_HEADERS triMeshGeo.h createTriMesh.h triMeshNeighbor.h triMeshPseudoNormal.h tetMeshGeo.h cellMeshGeo.h edgeKey.h triKey.h rectKey.h tetKey.h
   triMeshManifold.h tetMeshManifold.h tetrahedron.h windingNumberTree.h labelOuterTets.h geometryQuery.h boundingBox.h simpleSphere.h
   triangle.h tribox3.h halfSpace.h predicates.h initPredicates.h verticesInfo.h meshIntersection.h plane.h boundingVolumeTreeBase.h
   boundingVolumeTree.h verticesCorrespondence.h pointInsideOutsideQuery.h triangleSampler.h voxelFunction.h triMeshSampler.h meshLinearAlgebra.h)
 
-set(MESH_SOURCES triMeshGeo.cpp createTriMesh.cpp triMeshNeighbor.cpp triMeshPseudoNormal.cpp tetMeshGeo.cpp triKey.cpp rectKey.cpp tetKey.cpp
+set(MESH_SOURCES triMeshGeo.cpp createTriMesh.cpp triMeshNeighbor.cpp triMeshPseudoNormal.cpp tetMeshGeo.cpp cellMeshGeo.cpp triKey.cpp rectKey.cpp tetKey.cpp
   triMeshManifold.cpp tetMeshManifold.cpp tetrahedron.cpp windingNumberTree.cpp labelOuterTets.cpp geometryQuery.cpp boundingBox.cpp simpleSphere.cpp
   triangle.cpp tribox3.cpp predicates.cpp verticesInfo.cpp meshIntersection.cpp boundingVolumeTreeBase.cpp boundingVolumeTree.cpp
   verticesCorrespondence.cpp pointInsideOutsideQuery.cpp lineSegmentDistance.cpp triMeshSampler.cpp triMeshGeoLoader.cpp)

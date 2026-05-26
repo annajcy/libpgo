@@ -21,7 +21,7 @@ std::vector<Vec3d> makeSimpleVertices()
 }
 }  // namespace
 
-TEST(TetMeshGeoGTest, PreservesTetFacingApiOverVolumeMeshGeo)
+TEST(TetMeshGeoGTest, PreservesTetFacingApiOverCellMeshGeo)
 {
   const std::vector<Vec3d> vertices = makeSimpleVertices();
   const std::vector<Vec4i> tets{Vec4i(0, 1, 2, 3)};
