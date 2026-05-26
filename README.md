@@ -12,7 +12,9 @@ native CMake build. Use one conda environment for Python packages and native
 runtime/build packages so CMake, Python, Boost, MKL, TBB, Gmsh, OpenVDB, and
 other dependencies are resolved from a consistent prefix.
 
-- The Python package build uses the smaller `python-build` CMake preset.
+- The Python package is being redesigned as a Python-first API. The old
+  C-style Python wrapper has been removed and its functionality will return
+  through focused Python modules.
 - The native CMake build uses the `base` preset, which enables the full default
   feature set including Gmsh, OpenVDB, TBB, and MKL where supported.
 - Platform compilers still come from the host system: GCC/Clang on Linux,
@@ -54,10 +56,9 @@ Blender and ffmpeg are optional. They are only needed by
 
 ### Python Package Build
 
-The Python extension is installed in editable mode with pip. During that
-install, `setup.py` calls the `python-build` CMake preset. That preset enables
-the Python binding and keeps heavy optional native features such as Gmsh,
-TetWild, and OpenVDB off by default.
+The Python package is installed in editable mode with pip. It currently
+contains the Python-first package scaffold; native extension modules will be
+added back as focused bindings instead of the old C-style wrapper.
 
 Linux:
 
@@ -67,7 +68,6 @@ conda activate libpgo
 mamba install -y "cmake>=3.29" libboost-devel mkl-devel ninja numpy pip pytest setuptools tbb-devel wheel
 
 python -m pip install -e . --no-build-isolation
-python -m pytest -q tests/pypgo
 ```
 
 macOS:
@@ -78,7 +78,6 @@ conda activate libpgo
 mamba install -y "cmake>=3.29" libboost-devel ninja numpy pip pytest setuptools tbb-devel wheel
 
 python -m pip install -e . --no-build-isolation
-python -m pytest -q tests/pypgo
 ```
 
 Windows:
@@ -89,24 +88,6 @@ conda activate libpgo
 mamba install -y "cmake>=3.29" imath libboost-devel mkl-devel ninja numpy pip pytest setuptools tbb-devel wheel
 
 python -m pip install -e . --no-build-isolation
-python -m pytest -q tests/pypgo
-```
-
-Useful Python build knobs:
-
-- `PGO_PYTHON_CMAKE_PRESET=python-build` selects the configure preset used by
-  `setup.py`; this is the default.
-- `PGO_PYTHON_BUILD_DIR=/path/to/build` chooses the persistent build directory.
-  By default it is under
-  `build/pypgo-conda-python-build-<platform>-<python-tag>-<config>/`.
-- `CMAKE_ARGS="-DPGO_USE_MKL=ON"` or similar can override preset options.
-
-After editing C++ binding code, reinstall the editable package before running
-Python code:
-
-```bash
-python -m pip install -e . --no-build-isolation
-python src/python/pypgo/pgo_test_01.py
 ```
 
 To build a wheel:
@@ -176,7 +157,7 @@ Other shared presets are available for debug, CUDA, Knitro, and Pardiso builds:
 | Configure preset | Binary directory | Purpose |
 | --- | --- | --- |
 | `base` | `build/base` | Default release build. |
-| `python-build` | `build/python-build` | Python extension preset used by `setup.py`. |
+| `python-build` | `build/python-build` | Lightweight preset reserved for future Python-first native bindings. |
 | `base_debug` | `build/base_debug` | Debug build. |
 | `base_cuda` | `build/base_cuda` | `base` plus CUDA. |
 | `base_cuda_debug` | `build/base_cuda_debug` | Debug CUDA build. |
@@ -346,12 +327,6 @@ build/base/bin/runIPCSim --legacy path/to/legacy-volume-config.json
 `--legacy` accepts the old volume JSON shape with either `tet-mesh` or `cubic-mesh` and uses the penalty contact model instead of IPC contact. Legacy static mode preserves the old volume static semantics: it solves elastic, attachment, and external-force energies without adding the legacy penalty contact energies. Shell legacy configs are no longer supported; use the IPC shell examples above for shell simulations.
 
 Solver status is reported through the shared `SolverResult` / `SolveStatus` API used by `NewtonSolver`, `EnergyOptimizer`, and `TimeIntegratorSolver`. Static runs require `Converged` before writing output. Dynamic implicit Euler currently preserves the legacy timestep policy: `Converged`, `MaxIterations`, and `StepTooSmall` are accepted timestep statuses, while other statuses are failures. External solvers keep backend-specific return codes in `SolverResult::rawStatusCode`.
-
-Optional Python API smoke test:
-
-```bash
-python src/python/pypgo/pgo_test_01.py
-```
 
 ## Tools
 

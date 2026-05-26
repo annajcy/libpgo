@@ -144,10 +144,7 @@
         },
         {
             "name": "python-build",
-            "configurePreset": "python-build",
-            "targets": [
-                "pypgo"
-            ]
+            "configurePreset": "python-build"
         },
         {
             "name": "base_debug",

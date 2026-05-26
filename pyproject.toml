@@ -1,7 +1,5 @@
 [build-system]
 requires = [
-    "cmake>=3.25",
-    "ninja",
     "setuptools>=42",
     "wheel",
 ]
