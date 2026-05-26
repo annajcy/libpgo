@@ -34,5 +34,6 @@ endif()
 
 add_subdirectory(basicAlgorithms)
 add_subdirectory(contact)
+add_subdirectory(mesh)
 add_subdirectory(profiling)
 add_subdirectory(solidDeformationModel)

@@ -54,37 +54,36 @@
       "cases": ["shell_hang", "shell_drop"]
     },
     {
-      "name": "hanging_boxes",
-      "cases": ["tet_box_hang", "cubic_box_hang"]
+      "name": "cubic",
+      "cases": ["cubic_box_hang", "cubic_box_squash", "cubic_box_with_sphere_lite", "cubic_box_drop", "cubic_bunny_lite_drop", "cubic_dragon_dyn_lite_drop"]
     },
     {
-      "name": "squash_regression",
+      "name": "tet",
+      "cases": ["tet_box_hang", "tet_box_squash", "tet_box_with_sphere_lite", "tet_box_drop", "tet_bunny_lite_drop", "tet_dragon_dyn_lite_drop"]
+    },
+    {
+      "name": "box_squash",
       "cases": ["tet_box_squash", "cubic_box_squash"]
     },
     {
-      "name": "cubic_cases",
-      "cases": ["cubic_box_hang", "cubic_box_squash", "cubic_box_with_sphere_lite", "tet_box_with_sphere_lite"]
+      "name": "box_hang",
+      "cases": ["tet_box_hang", "cubic_box_hang"]
     },
     {
-      "name": "drop",
-      "cases": ["shell_drop", "tet_box_drop", "cubic_box_drop", "tet_bunny_lite_drop", "tet_dragon_dyn_lite_drop", "cubic_bunny_lite_drop", "cubic_dragon_dyn_lite_drop"]
+      "name": "box_drop",
+      "cases": ["tet_box_drop", "cubic_box_drop"]
     },
     {
-      "name": "volume_cases",
-      "cases": [
-        "tet_box_hang",
-        "tet_box_squash",
-        "tet_box_drop",
-        "cubic_box_hang",
-        "cubic_box_squash",
-        "cubic_box_with_sphere_lite",
-        "cubic_box_drop",
-        "tet_bunny_lite_drop",
-        "tet_dragon_dyn_lite_drop",
-        "tet_box_with_sphere_lite",
-        "cubic_bunny_lite_drop",
-        "cubic_dragon_dyn_lite_drop"
-      ]
+      "name": "box_with_sphere",
+      "cases": ["cubic_box_with_sphere_lite", "tet_box_with_sphere_lite"]
+    },
+    {
+      "name": "dragon_drop",
+      "cases": ["tet_dragon_dyn_lite_drop", "cubic_dragon_dyn_lite_drop"]
+    },
+    {
+      "name": "bunny_drop",
+      "cases": ["tet_bunny_lite_drop", "cubic_bunny_lite_drop"]
     },
     {
       "name": "all_ipc",
