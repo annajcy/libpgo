@@ -90,6 +90,18 @@ mamba install -y "cmake>=3.29" imath libboost-devel mkl-devel ninja numpy pip py
 python -m pip install -e . --no-build-isolation
 ```
 
+For Python API development, rebuild the native `_core` extension in place after
+changing C++ bindings or native mesh code:
+
+```bash
+python setup.py build_ext --inplace
+```
+
+This command uses the `python-build` CMake preset and writes the extension back
+into `pypgo/`, where the editable package imports it. By default it uses the
+detected CPU count for the native build; pass `-j N` if you want to override
+the number of parallel build jobs.
+
 To build a wheel:
 
 ```bash

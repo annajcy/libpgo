@@ -62,6 +62,12 @@
 
 namespace pgo
 {
+namespace Mesh
+{
+template<int K>
+class CellMeshGeo;
+}
+
 namespace VolumetricMeshes
 {
 
@@ -82,6 +88,10 @@ public:
   // "elements" is an integer array of length 8 x numElements
   CubicMesh(int numVertices, const double *vertices,
     int numElements, const int *elements,
+    double E = E_default, double nu = nu_default, double density = density_default);
+  CubicMesh(pgo::Mesh::CellMeshGeo<8> &&cellMesh,
+    double E = E_default, double nu = nu_default, double density = density_default);
+  CubicMesh(const pgo::Mesh::CellMeshGeo<8> &cellMesh,
     double E = E_default, double nu = nu_default, double density = density_default);
 
   // constructs a mesh from the given vertices and elements,

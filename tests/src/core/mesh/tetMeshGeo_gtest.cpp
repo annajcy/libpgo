@@ -68,3 +68,44 @@ TEST(TetMeshGeoGTest, BridgesToAndFromCellMesh)
   EXPECT_EQ(reconstructed.tetVtxID(0, 2), 2);
   EXPECT_EQ(reconstructed.tet(0)[3], 3);
 }
+
+#include "tetMesh.h"
+using pgo::VolumetricMeshes::TetMesh;
+
+TEST(TetMeshGeoGTest, ConstructsTetMeshFromCellMeshGeoZeroCopy)
+{
+  const std::vector<Vec3d> vertices = makeSimpleVertices();
+  const std::vector<Vec4i> tets{Vec4i(0, 1, 2, 3)};
+
+  const TetMeshGeo tetGeo(std::vector<Vec3d>(vertices), tets);
+  CellMeshGeo<4> cellMesh = tetGeo.toCellMesh();
+
+  // Test zero-copy move constructor
+  TetMesh tetMesh(std::move(cellMesh), 1e6, 0.33, 1200.0);
+  EXPECT_EQ(tetMesh.getNumVertices(), 4);
+  EXPECT_EQ(tetMesh.getNumElements(), 1);
+  EXPECT_EQ(tetMesh.getVertexIndex(0, 2), 2);
+  EXPECT_NEAR(tetMesh.getVertex(0, 2)[1], 1.0, 1e-7);
+
+  // cellMesh should now be empty due to move
+  EXPECT_EQ(cellMesh.numVertices(), 0);
+  EXPECT_EQ(cellMesh.numCells(), 0);
+}
+
+TEST(TetMeshGeoGTest, ConstructsTetMeshFromCellMeshGeoCopy)
+{
+  const std::vector<Vec3d> vertices = makeSimpleVertices();
+  const std::vector<Vec4i> tets{Vec4i(0, 1, 2, 3)};
+
+  const TetMeshGeo tetGeo(std::vector<Vec3d>(vertices), tets);
+  const CellMeshGeo<4> cellMesh = tetGeo.toCellMesh();
+
+  // Test copy constructor
+  TetMesh tetMesh(cellMesh, 1e6, 0.33, 1200.0);
+  EXPECT_EQ(tetMesh.getNumVertices(), 4);
+  EXPECT_EQ(tetMesh.getNumElements(), 1);
+
+  // cellMesh should NOT be empty
+  EXPECT_EQ(cellMesh.numVertices(), 4);
+  EXPECT_EQ(cellMesh.numCells(), 1);
+}
