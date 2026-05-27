@@ -57,8 +57,6 @@ build*
 .cache/
 .mypy_cache/
 
-plan/*
-*.plan.md
 
 docs/*
 
