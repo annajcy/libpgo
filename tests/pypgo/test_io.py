@@ -82,6 +82,52 @@ def test_veg_roundtrip_then_volume_mesh(tmp_path):
     assert volume.num_elements == 1
 
 
+def test_veg_roundtrip_preserves_multiple_material_payloads(tmp_path):
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    elements = np.array([[0, 1, 2, 3], [1, 2, 3, 4]], dtype=np.int64)
+    tet_data = pgo.mesh.TetMeshData(vertices, elements)
+    veg = pgo.mesh.veg.VegFile(
+        mesh_data=tet_data,
+        materials=[
+            pgo.mesh.veg.ENuMaterial("soft", density=1000.0, E=2e6, nu=0.35),
+            pgo.mesh.veg.MooneyRivlinMaterial("insert", density=1200.0, mu01=3.0, mu10=4.0, v1=0.2),
+        ],
+        sets=[
+            pgo.mesh.veg.MeshSet("allElements", [0, 1]),
+            pgo.mesh.veg.MeshSet("softSet", [0]),
+            pgo.mesh.veg.MeshSet("insertSet", [1]),
+        ],
+        regions=[
+            pgo.mesh.veg.MeshRegion(0, 1),
+            pgo.mesh.veg.MeshRegion(1, 2),
+        ],
+    )
+
+    path = str(tmp_path / "multi.veg")
+    pgo.mesh.veg.write_veg(path, veg)
+    loaded = pgo.mesh.veg.read_veg(path)
+
+    assert isinstance(loaded.mesh_data, pgo.mesh.TetMeshData)
+    assert np.allclose(loaded.mesh_data.vertices, vertices)
+    assert np.array_equal(loaded.mesh_data.elements, elements)
+    assert [s.name for s in loaded.sets] == ["allElements", "softSet", "insertSet"]
+    assert [s.elements for s in loaded.sets] == [[0, 1], [0], [1]]
+    assert [(r.material_index, r.set_index) for r in loaded.regions] == [(0, 1), (1, 2)]
+    assert isinstance(loaded.materials[0], pgo.mesh.veg.ENuMaterial)
+    assert loaded.materials[0].E == pytest.approx(2e6)
+    assert isinstance(loaded.materials[1], pgo.mesh.veg.MooneyRivlinMaterial)
+    assert loaded.materials[1].mu10 == pytest.approx(4.0)
+
+
 def test_io_rejects_mesh_geo_facades(tmp_path):
     material = pgo.mesh.veg.ENuMaterial()
     tri_geo = pgo.mesh.geo.TriMeshGeo(

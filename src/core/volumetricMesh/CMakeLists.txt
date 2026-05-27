@@ -6,6 +6,7 @@ set(VOLUMETRIC_MESH_H
   volumetricMeshMooneyRivlinMaterial.h
   volumetricMeshOrthotropicMaterial.h
   volumetricMeshParser.h
+  vegFile.h
   generateMassMatrix.h
   generateSurfaceMesh.h
 )
@@ -17,6 +18,7 @@ set(VOLUMETRIC_MESH_SRC
   volumetricMeshMooneyRivlinMaterial.cpp
   volumetricMeshOrthotropicMaterial.cpp
   volumetricMeshParser.cpp
+  vegFile.cpp
   generateMassMatrix.cpp
   generateSurfaceMesh.cpp
 )

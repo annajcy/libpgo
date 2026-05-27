@@ -1,7 +1,13 @@
 # M1 MeshData / MeshGeo 绑定状态与收尾计划
 
-> **状态更新时间：** 2026-05-27（review 修订）
+> **状态更新时间：** 2026-05-27（mesher wrapper + lightweight `.veg` adapter 收口）
 > **当前方向：** `MeshData<K>` 是唯一中间转换数据结构；Python 公开 `MeshData` 数据容器和 `MeshGeo` façade 两套对象，但 I/O 与 `VolumeMesh` 边界只接受/返回 `MeshData`。
+
+## 本轮收口状态
+
+- `pypgo.tools.mesh.cubic_mesher` / `tet_mesher` / `has_tetwild` 已落地；Python wrapper 接收 `TriMeshData`，返回 `CubicMeshData` / `TetMeshData`，并在 tetwild 未编译时提前抛出清晰 `RuntimeError`。
+- 新增 `src/core/volumetricMesh/vegFile.h/cpp` POD adapter；`_core.read_veg` / `_core.write_veg` 已改为桥接 `readVegFile` / `writeVegFile`，读 ASCII `.veg` 时不再构造完整 `TetMesh` / `CubicMesh` 后导出 payload。
+- Python 测试新增 mesher wrapper 覆盖，以及多 material `.veg` roundtrip 覆盖。
 
 ## 当前 API
 

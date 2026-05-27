@@ -4,6 +4,7 @@
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/pair.h>
 #include <nanobind/stl/shared_ptr.h>
+#include <algorithm>
 #include <memory>
 #include <set>
 #include <stdexcept>
@@ -18,6 +19,7 @@
 #include "volumetricMeshENuMaterial.h"
 #include "volumetricMeshMooneyRivlinMaterial.h"
 #include "volumetricMeshOrthotropicMaterial.h"
+#include "vegFile.h"
 #include "common.h"
 #include "barycentricCoordinates.h"
 #include "simulationMesh.h"
@@ -148,27 +150,61 @@ nb::object materialPayloadFromMaterial(const VM::Material* material) {
     throw std::runtime_error("unsupported material type in volume mesh");
 }
 
-VegPayloadCore payloadFromVolumeMesh(const VolumetricMeshes::VolumetricMesh& mesh, nb::object meshData) {
-    VegPayloadCore payload;
-    payload.meshData = std::move(meshData);
-
-    for (int i = 0; i < mesh.getNumMaterials(); ++i) {
-        payload.materials.append(materialPayloadFromMaterial(mesh.getMaterial(i)));
-    }
-
-    for (int i = 0; i < mesh.getNumSets(); ++i) {
-        const auto& set = mesh.getSet(i);
-        const auto& elements = set.getElements();
-        payload.sets.emplace_back(set.getName(), std::vector<int>(elements.begin(), elements.end()));
-    }
-
-    for (int i = 0; i < mesh.getNumRegions(); ++i) {
-        const auto& region = mesh.getRegion(i);
-        payload.regions.emplace_back(region.getMaterialIndex(), region.getSetIndex());
-    }
-
-    return payload;
+nb::object materialPayloadFromVegPayload(const VolumetricMeshes::VegMaterialPayload& payload)
+{
+    return std::visit([](const auto& material) -> nb::object {
+        using T = std::decay_t<decltype(material)>;
+        if constexpr (std::is_same_v<T, VolumetricMeshes::VegENuMaterialPayload>) {
+            return nb::cast(VegENuMaterialPayloadCore{
+                material.name, material.density, material.E, material.nu });
+        }
+        else if constexpr (std::is_same_v<T, VolumetricMeshes::VegMooneyRivlinMaterialPayload>) {
+            return nb::cast(VegMooneyRivlinMaterialPayloadCore{
+                material.name, material.density, material.mu01, material.mu10, material.v1 });
+        }
+        else {
+            return nb::cast(VegOrthotropicMaterialPayloadCore{
+                material.name, material.density,
+                material.E1, material.E2, material.E3,
+                material.nu12, material.nu23, material.nu31,
+                material.G12, material.G23, material.G31,
+                std::vector<double>(material.R.begin(), material.R.end()) });
+        }
+    }, payload);
 }
+
+VolumetricMeshes::VegMaterialPayload vegPayloadFromMaterialObject(const nb::object& obj) {
+    if (nb::isinstance<VegENuMaterialPayloadCore>(obj)) {
+        auto p = nb::cast<VegENuMaterialPayloadCore>(obj);
+        return VolumetricMeshes::VegENuMaterialPayload{ p.name, p.density, p.E, p.nu };
+    }
+    if (nb::isinstance<VegMooneyRivlinMaterialPayloadCore>(obj)) {
+        auto p = nb::cast<VegMooneyRivlinMaterialPayloadCore>(obj);
+        return VolumetricMeshes::VegMooneyRivlinMaterialPayload{ p.name, p.density, p.mu01, p.mu10, p.v1 };
+    }
+    if (nb::isinstance<VegOrthotropicMaterialPayloadCore>(obj)) {
+        auto p = nb::cast<VegOrthotropicMaterialPayloadCore>(obj);
+        if (p.R.size() != 9) {
+            throw std::runtime_error("Orthotropic material R must contain 9 row-major values");
+        }
+        VolumetricMeshes::VegOrthotropicMaterialPayload payload;
+        payload.name = p.name;
+        payload.density = p.density;
+        payload.E1 = p.E1;
+        payload.E2 = p.E2;
+        payload.E3 = p.E3;
+        payload.nu12 = p.nu12;
+        payload.nu23 = p.nu23;
+        payload.nu31 = p.nu31;
+        payload.G12 = p.G12;
+        payload.G23 = p.G23;
+        payload.G31 = p.G31;
+        std::copy(p.R.begin(), p.R.end(), payload.R.begin());
+        return payload;
+    }
+    throw std::runtime_error("unsupported material payload type");
+}
+
 }  // namespace
 
 class VolumeMeshCore {
@@ -439,34 +475,27 @@ std::shared_ptr<VolumeMeshCore> create_volume_mesh_multi(
 }
 
 VegPayloadCore read_veg(const std::string& path) {
-    auto type = VolumetricMeshes::VolumetricMesh::getElementType(path.c_str());
-    if (type == VolumetricMeshes::VolumetricMesh::TET) {
-        std::unique_ptr<VolumetricMeshes::TetMesh> tetMesh;
-        std::vector<Vec3d> vertices;
-        std::vector<int> elements;
-        {
-            nb::gil_scoped_release release;
-            tetMesh = std::make_unique<VolumetricMeshes::TetMesh>(path.c_str());
-            tetMesh->exportMeshGeometry(vertices, elements);
-        }
-        auto meshData = Mesh::MeshData<4>::fromFlatElements(std::move(vertices), std::move(elements));
-        return payloadFromVolumeMesh(*tetMesh, nb::cast(std::move(meshData)));
+    VolumetricMeshes::VegFilePayload payload;
+    {
+        nb::gil_scoped_release release;
+        payload = VolumetricMeshes::readVegFile(path);
     }
 
-    if (type == VolumetricMeshes::VolumetricMesh::CUBIC) {
-        std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh;
-        std::vector<Vec3d> vertices;
-        std::vector<int> elements;
-        {
-            nb::gil_scoped_release release;
-            cubicMesh = std::make_unique<VolumetricMeshes::CubicMesh>(path.c_str());
-            cubicMesh->exportMeshGeometry(vertices, elements);
-        }
-        auto meshData = Mesh::MeshData<8>::fromFlatElements(std::move(vertices), std::move(elements));
-        return payloadFromVolumeMesh(*cubicMesh, nb::cast(std::move(meshData)));
-    }
+    VegPayloadCore result;
+    result.meshData = std::visit([](auto&& meshData) {
+        return nb::cast(std::forward<decltype(meshData)>(meshData));
+    }, std::move(payload.meshData));
 
-    throw std::runtime_error("Unsupported or invalid volumetric mesh type in veg file: " + path);
+    for (const auto& material : payload.materials) {
+        result.materials.append(materialPayloadFromVegPayload(material));
+    }
+    for (const auto& set : payload.sets) {
+        result.sets.emplace_back(set.name, set.elements);
+    }
+    for (const auto& region : payload.regions) {
+        result.regions.emplace_back(region.materialIndex, region.setIndex);
+    }
+    return result;
 }
 
 void write_veg(
@@ -476,14 +505,33 @@ void write_veg(
     const std::vector<std::pair<std::string, std::vector<int>>>& setPayloads,
     const std::vector<std::pair<int, int>>& regionPayloads)
 {
-    auto volume = create_volume_mesh_multi(meshDataObj, materialPayloads, setPayloads, regionPayloads);
-    int result = 0;
+    VolumetricMeshes::VegFilePayload payload;
+    if (nb::isinstance<Mesh::MeshData<4>>(meshDataObj)) {
+        payload.meshData = nb::cast<Mesh::MeshData<4>>(meshDataObj);
+    }
+    else if (nb::isinstance<Mesh::MeshData<8>>(meshDataObj)) {
+        payload.meshData = nb::cast<Mesh::MeshData<8>>(meshDataObj);
+    }
+    else {
+        throw std::runtime_error("Unsupported element mesh type for write_veg");
+    }
+
+    payload.materials.reserve(materialPayloads.size());
+    for (const auto& material : materialPayloads) {
+        payload.materials.push_back(vegPayloadFromMaterialObject(material));
+    }
+    payload.sets.reserve(setPayloads.size());
+    for (const auto& [name, elements] : setPayloads) {
+        payload.sets.push_back(VolumetricMeshes::VegSetPayload{ name, elements });
+    }
+    payload.regions.reserve(regionPayloads.size());
+    for (const auto& [materialIndex, setIndex] : regionPayloads) {
+        payload.regions.push_back(VolumetricMeshes::VegRegionPayload{ materialIndex, setIndex });
+    }
+
     {
         nb::gil_scoped_release release;
-        result = volume->getVM()->saveToAscii(path.c_str());
-    }
-    if (result != 0) {
-        throw std::runtime_error("Failed to save volume mesh to " + path);
+        VolumetricMeshes::writeVegFile(path, payload);
     }
 }
 

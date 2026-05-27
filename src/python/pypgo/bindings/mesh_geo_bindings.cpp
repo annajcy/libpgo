@@ -3,7 +3,11 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
+#include <chrono>
+#include <filesystem>
+#include <memory>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -13,7 +17,9 @@
 #include "cubicMesh.h"
 #include "cubicMeshGeo.h"
 #include "meshData.h"
+#include "tetMesherBackend.h"
 #include "tetMeshGeo.h"
+#include "triangleMeshVoxelizer.h"
 #include "triMeshGeo.h"
 
 namespace nb = nanobind;
@@ -21,6 +27,38 @@ using namespace pgo;
 
 namespace
 {
+class TemporaryObjFile
+{
+public:
+  explicit TemporaryObjFile(const Mesh::MeshData<3> &surfaceData)
+  {
+    const auto base = std::filesystem::temp_directory_path();
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    path_ = base / ("libpgo-pypgo-mesher-" + std::to_string(stamp) + ".obj");
+
+    Mesh::TriMeshGeo surface(surfaceData);
+    bool ok = false;
+    {
+      nb::gil_scoped_release release;
+      ok = surface.save(path_.string());
+    }
+    if (!ok) {
+      throw std::runtime_error("Failed to write temporary mesher OBJ to " + path_.string());
+    }
+  }
+
+  ~TemporaryObjFile()
+  {
+    std::error_code ec;
+    std::filesystem::remove(path_, ec);
+  }
+
+  const std::filesystem::path &path() const { return path_; }
+
+private:
+  std::filesystem::path path_;
+};
+
 std::vector<Vec3d> unpackVertices(const std::vector<double> &vertices)
 {
   std::vector<Vec3d> pts(vertices.size() / 3);
@@ -51,6 +89,15 @@ std::vector<double> flattenVertices(const std::vector<Vec3d> &positions)
     res[i * 3 + 2] = positions[i][2];
   }
   return res;
+}
+
+template<int K, class VolumeMeshT>
+Mesh::MeshData<K> exportVolumeMeshData(const VolumeMeshT &mesh)
+{
+  std::vector<Vec3d> vertices;
+  std::vector<int> elements;
+  mesh.exportMeshGeometry(vertices, elements);
+  return Mesh::MeshData<K>::fromFlatElements(std::move(vertices), std::move(elements));
 }
 
 }  // namespace
@@ -165,6 +212,91 @@ Mesh::MeshData<3> create_torus_mesh(int radialResolution, int tubularResolution,
   return Mesh::createTorus(radialResolution, tubularResolution, radius, thickness).toMeshData();
 }
 
+Mesh::MeshData<8> cubic_mesher_bind(
+  const Mesh::MeshData<3> &surfaceData,
+  int resolution,
+  double E,
+  double nu,
+  double density)
+{
+  if (resolution <= 0) {
+    throw std::runtime_error("cubic_mesher requires resolution > 0");
+  }
+
+  TemporaryObjFile input(surfaceData);
+  cubic_mesher::TriangleMeshVoxelizerOptions options;
+  options.inputMesh = input.path().string();
+  options.resolution = resolution;
+  options.E = E;
+  options.nu = nu;
+  options.density = density;
+
+  std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh;
+  {
+    nb::gil_scoped_release release;
+    cubicMesh = cubic_mesher::createTriangleMeshCubicMesh(options);
+  }
+  return exportVolumeMeshData<8>(*cubicMesh);
+}
+
+Mesh::MeshData<4> tet_mesher_bind(
+  const Mesh::MeshData<3> &surfaceData,
+  const std::string &backend,
+  const std::string &tetgenCommand,
+  double tetwildLr,
+  double tetwildLa,
+  bool tetwildHasLa,
+  double tetwildEpsr,
+  double tetwildStopEnergy,
+  int tetwildMaxThreads)
+{
+  TemporaryObjFile input(surfaceData);
+
+  tet_mesher::CommonOptions common;
+  common.inputMesh = input.path().string();
+  common.outputMesh = (std::filesystem::temp_directory_path() / "libpgo-pypgo-tetwild-output.veg").string();
+  common.quiet = true;
+
+  std::unique_ptr<VolumetricMeshes::TetMesh> tetMesh;
+  if (backend == "tetgen") {
+    tet_mesher::TetgenOptions options;
+    options.common = common;
+    options.command = tetgenCommand.empty() ? "pq1.414" : tetgenCommand;
+    {
+      nb::gil_scoped_release release;
+      tetMesh = tet_mesher::generateTetgenMesh(options);
+    }
+  }
+  else if (backend == "tetwild") {
+    tet_mesher::TetwildOptions options;
+    options.common = common;
+    options.lr = tetwildLr;
+    options.la = tetwildLa;
+    options.hasLa = tetwildHasLa;
+    options.epsr = tetwildEpsr;
+    options.stopEnergy = tetwildStopEnergy;
+    options.maxThreads = tetwildMaxThreads;
+    {
+      nb::gil_scoped_release release;
+      tetMesh = tet_mesher::generateTetwildMesh(options);
+    }
+  }
+  else {
+    throw std::runtime_error("unsupported tet mesher backend: " + backend);
+  }
+
+  return exportVolumeMeshData<4>(*tetMesh);
+}
+
+bool has_tetwild_bind()
+{
+#ifdef PGO_TET_MESHER_HAS_TET_WILD
+  return true;
+#else
+  return false;
+#endif
+}
+
 void init_mesh_geo_bindings(nb::module_ &m)
 {
   nb::enum_<Mesh::MeshDataType>(m, "MeshDataType")
@@ -245,4 +377,13 @@ void init_mesh_geo_bindings(nb::module_ &m)
     nb::arg("radius"), nb::arg("height"), nb::arg("axis_subdiv"), nb::arg("height_subdiv"));
   m.def("create_torus_mesh", &create_torus_mesh,
     nb::arg("radial_res"), nb::arg("tubular_res"), nb::arg("radius"), nb::arg("thickness"));
+  m.def("cubic_mesher", &cubic_mesher_bind,
+    nb::arg("surface_data"), nb::arg("resolution"), nb::arg("E") = 1e6,
+    nb::arg("nu") = 0.45, nb::arg("density") = 1000.0);
+  m.def("tet_mesher", &tet_mesher_bind,
+    nb::arg("surface_data"), nb::arg("backend"), nb::arg("tetgen_command") = "pq1.414",
+    nb::arg("tetwild_lr") = 0.05, nb::arg("tetwild_la") = 0.0,
+    nb::arg("tetwild_has_la") = false, nb::arg("tetwild_epsr") = 0.001,
+    nb::arg("tetwild_stop_energy") = 10.0, nb::arg("tetwild_max_threads") = 0);
+  m.def("has_tetwild", &has_tetwild_bind);
 }

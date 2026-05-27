@@ -17,3 +17,8 @@ add_executable(cubicMeshGeo_gtest cubicMeshGeo_gtest.cpp)
 target_link_libraries(cubicMeshGeo_gtest PRIVATE GTest::gtest_main mesh volumetricMesh)
 set_property(TARGET cubicMeshGeo_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(cubicMeshGeo_gtest)
+
+add_executable(vegFile_gtest vegFile_gtest.cpp)
+target_link_libraries(vegFile_gtest PRIVATE GTest::gtest_main mesh volumetricMesh)
+set_property(TARGET vegFile_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(vegFile_gtest)
