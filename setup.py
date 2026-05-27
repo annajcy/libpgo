@@ -82,6 +82,9 @@ setup(
     cmdclass={"build_ext": CMakeBuildExt},
     zip_safe=False,
     install_requires=install_requires,
-    extras_require={"test": ["pytest>=6.0"]},
+    extras_require={
+        "test": ["pytest>=6.0"],
+        "examples": ["pyvista[jupyter]"],
+    },
     python_requires=">=3.9",
 )

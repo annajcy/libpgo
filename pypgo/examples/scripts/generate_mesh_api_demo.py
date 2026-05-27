@@ -30,6 +30,7 @@ CELLS = [
         import os
         import shutil
         import tempfile
+        from pathlib import Path
 
         import numpy as np
         import pypgo as pgo
@@ -45,6 +46,141 @@ CELLS = [
             VolumeMesh,
         )
         from pypgo.tools.mesh import check_surface_quality, cubic_mesher, has_tetwild, tet_mesher
+        """
+    ),
+    md(
+        """
+        ## Notebook visualization helpers
+
+        The demo uses real OBJ assets from `pypgo/examples/assets/obj`. PyVista is optional and only needed for interactive 3D views; install it with `pip install -e .[examples]`. The heavier `dragon.obj` asset is included for experimentation, but the default cells use smaller assets so the notebook stays quick to run.
+        """
+    ),
+    code(
+        """
+        def _find_repo_root() -> Path:
+            cwd = Path.cwd().resolve()
+            for candidate in (cwd, *cwd.parents):
+                if (candidate / "setup.py").exists() and (candidate / "pypgo").exists():
+                    return candidate
+            raise RuntimeError("Could not find repository root from the current working directory")
+
+
+        REPO_ROOT = _find_repo_root()
+        ASSET_DIR = REPO_ROOT / "pypgo" / "examples" / "assets" / "obj"
+        PYVISTA_INSTALL_HINT = "Install visualization dependencies with: pip install -e .[examples]"
+
+        try:
+            import pyvista as pv
+        except ModuleNotFoundError:
+            pv = None
+            print(f"PyVista is not installed. {PYVISTA_INSTALL_HINT}")
+
+
+        def _require_pyvista() -> bool:
+            if pv is None:
+                print(f"Skipping PyVista view. {PYVISTA_INSTALL_HINT}")
+                return False
+            return True
+
+
+        def to_pyvista_surface(surface_data: TriMeshData):
+            if not isinstance(surface_data, TriMeshData):
+                raise TypeError(f"surface_data must be a TriMeshData, got {type(surface_data).__name__}")
+            if pv is None:
+                raise RuntimeError(PYVISTA_INSTALL_HINT)
+
+            faces = np.column_stack(
+                [
+                    np.full(surface_data.num_elements, 3, dtype=np.int64),
+                    surface_data.elements,
+                ]
+            ).ravel()
+            return pv.PolyData(surface_data.vertices, faces)
+
+
+        def to_pyvista_volume(volume_data):
+            if pv is None:
+                raise RuntimeError(PYVISTA_INSTALL_HINT)
+            if not isinstance(volume_data, (TetMeshData, CubicMeshData)):
+                raise TypeError(
+                    f"volume_data must be a TetMeshData or CubicMeshData, got {type(volume_data).__name__}"
+                )
+
+            elements = volume_data.elements
+            width = elements.shape[1]
+            if width == 4:
+                cell_type = pv.CellType.TETRA
+            elif width == 8:
+                cell_type = pv.CellType.HEXAHEDRON
+            else:
+                raise ValueError(f"Unsupported volume element width: {width}")
+
+            cells = np.column_stack(
+                [
+                    np.full(volume_data.num_elements, width, dtype=np.int64),
+                    elements,
+                ]
+            ).ravel()
+            cell_types = np.full(volume_data.num_elements, cell_type, dtype=np.uint8)
+            return pv.UnstructuredGrid(cells, cell_types, volume_data.vertices)
+
+
+        def plot_surface(meshes, *, titles=None, show_edges=True, colors=None, window_size=(900, 360)):
+            if not _require_pyvista():
+                return None
+
+            if isinstance(meshes, TriMeshData):
+                meshes = [meshes]
+            meshes = list(meshes)
+            titles = titles or [None] * len(meshes)
+            colors = colors or ["lightgray"] * len(meshes)
+
+            plotter = pv.Plotter(shape=(1, len(meshes)), window_size=window_size)
+            for index, mesh in enumerate(meshes):
+                if len(meshes) > 1:
+                    plotter.subplot(0, index)
+                plotter.add_mesh(
+                    to_pyvista_surface(mesh),
+                    color=colors[index % len(colors)],
+                    show_edges=show_edges,
+                    smooth_shading=False,
+                )
+                if titles[index]:
+                    plotter.add_text(titles[index], position="upper_left", font_size=10)
+                plotter.view_isometric()
+                plotter.camera.zoom(1.2)
+            return plotter.show()
+
+
+        def plot_volume_surface(meshes, *, titles=None, show_edges=True, colors=None, window_size=(900, 360)):
+            if not _require_pyvista():
+                return None
+
+            if isinstance(meshes, (TetMeshData, CubicMeshData)):
+                meshes = [meshes]
+            meshes = list(meshes)
+            titles = titles or [None] * len(meshes)
+            colors = colors or ["lightsteelblue"] * len(meshes)
+
+            plotter = pv.Plotter(shape=(1, len(meshes)), window_size=window_size)
+            for index, mesh in enumerate(meshes):
+                if len(meshes) > 1:
+                    plotter.subplot(0, index)
+                plotter.add_mesh(
+                    to_pyvista_volume(mesh).extract_surface(),
+                    color=colors[index % len(colors)],
+                    show_edges=show_edges,
+                    smooth_shading=False,
+                )
+                if titles[index]:
+                    plotter.add_text(titles[index], position="upper_left", font_size=10)
+                plotter.view_isometric()
+                plotter.camera.zoom(1.2)
+            return plotter.show()
+
+
+        print("asset directory:", ASSET_DIR)
+        print("available OBJ assets:", sorted(path.name for path in ASSET_DIR.glob("*.obj")))
         """
     ),
     md(
@@ -100,34 +236,50 @@ CELLS = [
         """
         ## 2. NumPy properties and shape factories
 
-        Derived properties are intentionally NumPy-friendly: bounding boxes, volumes, centers of mass, subsetting, concatenation, and triangle normals all come back as arrays or scalars.
+        Derived properties are intentionally NumPy-friendly: bounding boxes, volumes, centers of mass, subsetting, concatenation, and triangle normals all come back as arrays or scalars. The surface examples below load real OBJ assets from `pypgo/examples/assets/obj`.
         """
     ),
     code(
         """
-        box = pgo.mesh.create_box(bmin=(0.0, 0.0, 0.0), bmax=(1.0, 2.0, 3.0))
+        box = pgo.mesh.read_obj(str(ASSET_DIR / "box.obj"))
+        bunny = pgo.mesh.read_obj(str(ASSET_DIR / "bunny.obj"))
         sphere = pgo.mesh.create_sphere(radius=1.0, axis_subdiv=12, height_subdiv=6)
 
         bmin, bmax = box.bbox
         box_geo = TriMeshGeo.from_mesh_data(box)
 
-        print("box vertices/elements:", box.num_vertices, box.num_elements)
+        print("box.obj vertices/elements:", box.num_vertices, box.num_elements)
         print("box bbox:", bmin, bmax)
+        print("bunny.obj vertices/elements:", bunny.num_vertices, bunny.num_elements)
         print("sphere vertices/elements:", sphere.num_vertices, sphere.num_elements)
         print("tet volume:", tet_data.volume)
         print("cubic volume:", cubic_data.volume)
         print("first 3 face normals:\\n", box_geo.face_normals[:3])
+
+        plot_surface([box, bunny], titles=["box.obj", "bunny.obj"], show_edges=False)
         """
     ),
     code(
         """
-        left = box.take_elements(np.arange(0, box.num_elements, 2))
-        right = pgo.mesh.create_box(bmin=(2.0, 0.0, 0.0), bmax=(3.0, 1.0, 1.0))
-        merged = TriMeshData.concatenate([left, right])
+        bunny_subset = bunny.take_elements(np.arange(0, bunny.num_elements, 4))
+        bunny_width = bunny.bbox[1][0] - bunny.bbox[0][0]
+        shifted_subset = TriMeshData(
+            bunny_subset.vertices + np.array([1.4 * bunny_width, 0.0, 0.0]),
+            bunny_subset.elements,
+        )
+        merged = TriMeshData.concatenate([bunny_subset, shifted_subset])
 
-        print("subset elements:", left.num_elements)
+        print("bunny subset elements:", bunny_subset.num_elements)
         print("merged vertices/elements:", merged.num_vertices, merged.num_elements)
         print("merged bbox:", merged.bbox)
+
+        plot_surface(
+            [bunny, bunny_subset],
+            titles=["original bunny.obj", "take_elements every 4th face"],
+            show_edges=True,
+            colors=["lightgray", "cornflowerblue"],
+        )
+        plot_surface(merged, titles=["concatenated shifted subsets"], show_edges=True, colors=["plum"])
         """
     ),
     md(
@@ -268,18 +420,38 @@ CELLS = [
         """
         ## 8. Mesher wrappers
 
-        The wrappers accept `TriMeshData` and return volume `MeshData`. `tetwild` is optional; `has_tetwild()` reflects the build configuration.
+        The wrappers accept `TriMeshData` and return volume `MeshData`. `tetwild` is optional; `has_tetwild()` reflects the build configuration. This section uses the real `box-with-sphere.obj` asset as input.
         """
     ),
     code(
         """
-        mesher_surface = pgo.mesh.create_box(bmin=(0.0, 0.0, 0.0), bmax=(1.0, 1.0, 1.0))
-        cubic_from_surface = cubic_mesher(mesher_surface, resolution=2)
-        tet_from_surface = tet_mesher(mesher_surface, backend="tetgen", config={"command": "pq1.414a0.05"})
+        mesher_surface = pgo.mesh.read_obj(str(ASSET_DIR / "box-with-sphere.obj"))
+        cubic_from_surface = cubic_mesher(mesher_surface, resolution=4)
+        tet_from_surface = tet_mesher(mesher_surface, backend="tetgen", config={"command": "pq1.414a0.1"})
 
+        cubic_surface = VolumeMesh(cubic_from_surface, soft).extract_surface_mesh()
+        tet_surface = VolumeMesh(tet_from_surface, soft).extract_surface_mesh()
+
+        print("mesher input surface:", mesher_surface.num_vertices, mesher_surface.num_elements)
         print("cubic mesher:", cubic_from_surface.num_vertices, cubic_from_surface.num_elements)
         print("tet mesher:", tet_from_surface.num_vertices, tet_from_surface.num_elements)
+        print("cubic extracted surface:", cubic_surface.num_vertices, cubic_surface.num_elements)
+        print("tet extracted surface:", tet_surface.num_vertices, tet_surface.num_elements)
         print("tetwild enabled:", has_tetwild())
+
+        plot_surface(mesher_surface, titles=["box-with-sphere.obj input"], show_edges=False)
+        plot_volume_surface(
+            [cubic_from_surface, tet_from_surface],
+            titles=["cubic_mesher volume surface", "tet_mesher volume surface"],
+            show_edges=True,
+            colors=["lightsteelblue", "palegreen"],
+        )
+        plot_surface(
+            [cubic_surface, tet_surface],
+            titles=["VolumeMesh(cubic).extract_surface_mesh()", "VolumeMesh(tet).extract_surface_mesh()"],
+            show_edges=True,
+            colors=["lightskyblue", "mediumseagreen"],
+        )
         """
     ),
 ]
