@@ -4,17 +4,17 @@
 #include <nanobind/stl/vector.h>
 
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
+#include "boundingVolumeTree.h"
 #include "common.h"
+#include "createTriMesh.h"
 #include "cubicMesh.h"
 #include "cubicMeshGeo.h"
 #include "meshData.h"
-#include "tetMesh.h"
 #include "tetMeshGeo.h"
 #include "triMeshGeo.h"
-#include "volumetricMesh.h"
-#include "volumetricMeshENuMaterial.h"
 
 namespace nb = nanobind;
 using namespace pgo;
@@ -53,18 +53,6 @@ std::vector<double> flattenVertices(const std::vector<Vec3d> &positions)
   return res;
 }
 
-MaterialSpecCore materialFromVolumeMesh(const VolumetricMeshes::VolumetricMesh &mesh)
-{
-  if (mesh.getNumMaterials() == 0) {
-    return MaterialSpecCore();
-  }
-
-  auto *enumMat = VolumetricMeshes::downcastENuMaterial(mesh.getMaterial(0));
-  if (enumMat) {
-    return MaterialSpecCore(enumMat->getE(), enumMat->getNu(), enumMat->getDensity());
-  }
-  return MaterialSpecCore(1e9, 0.45, mesh.getMaterial(0)->getDensity());
-}
 }  // namespace
 
 Mesh::MeshData<3> create_tri_mesh_data(const std::vector<double> &vertices, const std::vector<int> &elements)
@@ -100,68 +88,81 @@ Mesh::CubicMeshGeo create_cubic_mesh_geo(const std::vector<double> &vertices, co
     static_cast<int>(cubes.size() / 8), cubes.data());
 }
 
-std::pair<nb::object, MaterialSpecCore> read_veg_geo(const std::string &path)
-{
-  auto type = VolumetricMeshes::VolumetricMesh::getElementType(path.c_str());
-  if (type == VolumetricMeshes::VolumetricMesh::TET) {
-    VolumetricMeshes::TetMesh tetMesh(path.c_str());
-    std::vector<Vec3d> vertices;
-    std::vector<Vec4i> tets;
-    tetMesh.exportMeshGeometry(vertices, tets);
-    auto data = Mesh::MeshData<4>::fromFlatElements(std::move(vertices), flattenIndexVector(tets, 4));
-    return { nb::cast(std::move(data)), materialFromVolumeMesh(tetMesh) };
-  }
-
-  if (type == VolumetricMeshes::VolumetricMesh::CUBIC) {
-    VolumetricMeshes::CubicMesh cubicMesh(path.c_str());
-    std::vector<Vec3d> vertices;
-    std::vector<int> elements;
-    cubicMesh.exportMeshGeometry(vertices, elements);
-    auto data = Mesh::MeshData<8>::fromFlatElements(std::move(vertices), std::move(elements));
-    return { nb::cast(std::move(data)), materialFromVolumeMesh(cubicMesh) };
-  }
-
-  throw std::runtime_error("Unsupported or invalid volumetric mesh type in veg file: " + path);
-}
-
-void write_veg_geo(const std::string &path, const nb::object &meshDataObj, const MaterialSpecCore &mat)
-{
-  if (nb::isinstance<Mesh::MeshData<4>>(meshDataObj)) {
-    const auto &data = nb::cast<const Mesh::MeshData<4> &>(meshDataObj);
-    VolumetricMeshes::TetMesh tetMesh(data, mat.E(), mat.nu(), mat.density());
-    if (tetMesh.saveToAscii(path.c_str()) != 0) {
-      throw std::runtime_error("Failed to write TetMesh to " + path);
-    }
-    return;
-  }
-
-  if (nb::isinstance<Mesh::MeshData<8>>(meshDataObj)) {
-    const auto &data = nb::cast<const Mesh::MeshData<8> &>(meshDataObj);
-    VolumetricMeshes::CubicMesh cubicMesh(data, mat.E(), mat.nu(), mat.density());
-    if (cubicMesh.saveToAscii(path.c_str()) != 0) {
-      throw std::runtime_error("Failed to write CubicMesh to " + path);
-    }
-    return;
-  }
-
-  throw std::runtime_error("write_veg_geo expects TetMeshData or CubicMeshData");
-}
-
-Mesh::MeshData<3> read_obj_geo(const std::string &path)
+Mesh::MeshData<3> read_obj(const std::string &path)
 {
   Mesh::TriMeshGeo mesh;
-  if (!mesh.load(path)) {
+  bool ok = false;
+  {
+    nb::gil_scoped_release release;
+    ok = mesh.load(path);
+  }
+  if (!ok) {
     throw std::runtime_error("Failed to load TriMeshGeo from " + path);
   }
   return mesh.toMeshData();
 }
 
-void write_obj_geo(const std::string &path, const Mesh::MeshData<3> &data)
+void write_obj(const std::string &path, const Mesh::MeshData<3> &data)
 {
   Mesh::TriMeshGeo triMesh(data);
-  if (!triMesh.save(path)) {
+  bool ok = false;
+  {
+    nb::gil_scoped_release release;
+    ok = triMesh.save(path);
+  }
+  if (!ok) {
     throw std::runtime_error("Failed to save TriMeshGeo to " + path);
   }
+}
+
+bool check_self_intersections(const Mesh::MeshData<3> &data)
+{
+  Mesh::TriMeshGeo mesh(data);
+  std::vector<std::pair<int, int>> intersections;
+  {
+    nb::gil_scoped_release release;
+    Mesh::TriMeshBVTree bvTree;
+    bvTree.buildByInertiaPartition(mesh.ref());
+    bvTree.selfIntersectionExact(mesh.ref(), intersections);
+  }
+  return intersections.empty() == false;
+}
+
+Vec3d vectorToVec3d(const std::vector<double> &values, const std::string &name)
+{
+  if (values.size() != 3) {
+    throw std::runtime_error(name + " must contain exactly 3 values");
+  }
+  return Vec3d(values[0], values[1], values[2]);
+}
+
+Mesh::MeshData<3> create_box_mesh(const std::vector<double> &bmin, const std::vector<double> &bmax)
+{
+  return Mesh::createBoxMesh(vectorToVec3d(bmin, "bmin"), vectorToVec3d(bmax, "bmax")).toMeshData();
+}
+
+Mesh::MeshData<3> create_sphere_mesh(double radius, int axisSubdivisions, int heightSubdivisions)
+{
+  if (radius <= 0.0 || axisSubdivisions < 2 || heightSubdivisions < 2) {
+    throw std::runtime_error("create_sphere_mesh requires radius > 0 and subdivisions >= 2");
+  }
+  return Mesh::createSphereMesh(radius, axisSubdivisions, heightSubdivisions).toMeshData();
+}
+
+Mesh::MeshData<3> create_cylinder_mesh(double radius, double height, int axisSubdivisions, int heightSubdivisions)
+{
+  if (radius <= 0.0 || height <= 0.0 || axisSubdivisions < 3 || heightSubdivisions < 1) {
+    throw std::runtime_error("create_cylinder_mesh requires radius > 0, height > 0, axis subdivisions >= 3, and height subdivisions >= 1");
+  }
+  return Mesh::createCylinderMesh(radius, height, axisSubdivisions, heightSubdivisions).toMeshData();
+}
+
+Mesh::MeshData<3> create_torus_mesh(int radialResolution, int tubularResolution, double radius, double thickness)
+{
+  if (radialResolution < 3 || tubularResolution < 3 || radius <= 0.0 || thickness <= 0.0) {
+    throw std::runtime_error("create_torus_mesh requires resolutions >= 3, radius > 0, and thickness > 0");
+  }
+  return Mesh::createTorus(radialResolution, tubularResolution, radius, thickness).toMeshData();
 }
 
 void init_mesh_geo_bindings(nb::module_ &m)
@@ -234,8 +235,14 @@ void init_mesh_geo_bindings(nb::module_ &m)
   m.def("create_tri_mesh_geo", &create_tri_mesh_geo);
   m.def("create_tet_mesh_geo", &create_tet_mesh_geo);
   m.def("create_cubic_mesh_geo", &create_cubic_mesh_geo);
-  m.def("read_veg_geo", &read_veg_geo);
-  m.def("write_veg_geo", &write_veg_geo);
-  m.def("read_obj_geo", &read_obj_geo);
-  m.def("write_obj_geo", &write_obj_geo);
+  m.def("read_obj", &read_obj);
+  m.def("write_obj", &write_obj);
+  m.def("check_self_intersections", &check_self_intersections);
+  m.def("create_box_mesh", &create_box_mesh, nb::arg("bmin"), nb::arg("bmax"));
+  m.def("create_sphere_mesh", &create_sphere_mesh,
+    nb::arg("radius"), nb::arg("axis_subdiv"), nb::arg("height_subdiv"));
+  m.def("create_cylinder_mesh", &create_cylinder_mesh,
+    nb::arg("radius"), nb::arg("height"), nb::arg("axis_subdiv"), nb::arg("height_subdiv"));
+  m.def("create_torus_mesh", &create_torus_mesh,
+    nb::arg("radial_res"), nb::arg("tubular_res"), nb::arg("radius"), nb::arg("thickness"));
 }

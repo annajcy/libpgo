@@ -1,86 +1,13 @@
-"""Geometry-only mesh types for pypgo."""
+"""Geometry-only mesh facades and geometry algorithms."""
+
+from __future__ import annotations
 
 import numpy as np
 
 import pypgo._core as _core
 from pypgo._arrays import float_matrix, index_matrix
-
-MeshDataType = _core.MeshDataType
-
-
-def _flat_vertices(vertices):
-    return float_matrix("vertices", vertices, 3).ravel().tolist()
-
-
-def _flat_indices(name, value, columns, *, num_vertices):
-    return index_matrix(name, value, columns, num_vertices=num_vertices).ravel().tolist()
-
-
-def _array_from_core(core_obj, method_name, columns, dtype):
-    values = getattr(core_obj, method_name)()
-    return np.array(values, dtype=dtype).reshape(-1, columns)
-
-
-class _MeshDataBase:
-    _core_type = None
-    _create = None
-    _element_width = None
-
-    def __init__(self, vertices, elements=None):
-        if isinstance(vertices, self._core_type) and elements is None:
-            self._core_obj = vertices
-            return
-
-        v_arr = float_matrix("vertices", vertices, 3)
-        e_arr = index_matrix("elements", elements, self._element_width, num_vertices=v_arr.shape[0])
-        self._core_obj = self._create(v_arr.ravel().tolist(), e_arr.ravel().tolist())
-
-    @property
-    def vertices(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "vertices", 3, np.float64)
-
-    @property
-    def elements(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "elements", self._element_width, np.int64)
-
-    @property
-    def mesh_type(self):
-        return self._core_obj.mesh_type()
-
-    @property
-    def num_vertices(self) -> int:
-        return self._core_obj.num_vertices()
-
-    @property
-    def num_elements(self) -> int:
-        return self._core_obj.num_elements()
-
-    def element_vtx_id(self, element_id: int, local_vertex_id: int) -> int:
-        return self._core_obj.element_vtx_id(int(element_id), int(local_vertex_id))
-
-
-class TriMeshData(_MeshDataBase):
-    """Triangle surface mesh data (MeshData<3>)."""
-
-    _core_type = _core.TriMeshDataCore
-    _create = staticmethod(_core.create_tri_mesh_data)
-    _element_width = 3
-
-
-class TetMeshData(_MeshDataBase):
-    """Tetrahedral volume mesh data (MeshData<4>)."""
-
-    _core_type = _core.TetMeshDataCore
-    _create = staticmethod(_core.create_tet_mesh_data)
-    _element_width = 4
-
-
-class CubicMeshData(_MeshDataBase):
-    """Cubic/hexahedral volume mesh data (MeshData<8>)."""
-
-    _core_type = _core.CubicMeshDataCore
-    _create = staticmethod(_core.create_cubic_mesh_data)
-    _element_width = 8
+from pypgo.mesh import CubicMeshData, TetMeshData, TriMeshData, _array_from_core
+from pypgo.sparse import SparseMatrix
 
 
 class TriMeshGeo:
@@ -117,11 +44,66 @@ class TriMeshGeo:
     def num_triangles(self) -> int:
         return self._core_obj.num_triangles()
 
+    @property
+    def face_areas(self) -> np.ndarray:
+        vertices = self.vertices[self.triangles]
+        cross = np.cross(vertices[:, 1] - vertices[:, 0], vertices[:, 2] - vertices[:, 0])
+        return np.linalg.norm(cross, axis=1) / 2.0
+
+    @property
+    def face_normals(self) -> np.ndarray:
+        vertices = self.vertices[self.triangles]
+        normals = np.cross(vertices[:, 1] - vertices[:, 0], vertices[:, 2] - vertices[:, 0])
+        lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+        return normals / np.where(lengths == 0.0, 1.0, lengths)
+
+    @property
+    def vertex_normals(self) -> np.ndarray:
+        weighted_normals = self.face_normals * self.face_areas[:, None]
+        normals = np.zeros((self.num_vertices, 3), dtype=np.float64)
+        triangles = self.triangles
+        np.add.at(normals, triangles[:, 0], weighted_normals)
+        np.add.at(normals, triangles[:, 1], weighted_normals)
+        np.add.at(normals, triangles[:, 2], weighted_normals)
+        lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+        return normals / np.where(lengths == 0.0, 1.0, lengths)
+
     def tri_vtx_id(self, tri_id: int, local_vertex_id: int) -> int:
         return self._core_obj.tri_vtx_id(int(tri_id), int(local_vertex_id))
 
     def to_mesh_data(self) -> TriMeshData:
         return TriMeshData(self._core_obj.to_mesh_data())
+
+
+class BarycentricEmbedding:
+    """Barycentric interpolation from a volume mesh to target locations."""
+
+    def __init__(self, target_locations, volume_mesh):
+        from pypgo.mesh.veg import VolumeMesh
+
+        if not isinstance(volume_mesh, VolumeMesh):
+            raise TypeError(f"volume_mesh must be a VolumeMesh, got {type(volume_mesh).__name__}")
+        locations = float_matrix("target_locations", target_locations, 3)
+        self._num_target_locations = int(locations.shape[0])
+        self._core_obj = _core.BarycentricEmbeddingCore(
+            locations.ravel().tolist(), volume_mesh._core_obj)
+
+    @property
+    def num_target_locations(self) -> int:
+        return self._num_target_locations
+
+    @property
+    def interpolation_matrix(self) -> SparseMatrix:
+        return SparseMatrix(self._core_obj.interpolation_matrix())
+
+    def interpolation_matrix_coo(self):
+        return self.interpolation_matrix.to_coo()
+
+    def deform(self, volume_disp) -> np.ndarray:
+        disp = np.ascontiguousarray(volume_disp, dtype=np.float64)
+        if disp.ndim != 1:
+            disp = disp.reshape(-1)
+        return np.asarray(self._core_obj.deform(disp.tolist()), dtype=np.float64)
 
 
 class TetMeshGeo:

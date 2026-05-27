@@ -8,6 +8,8 @@ namespace nb = nanobind;
 // Forward declarations of bind functions
 void init_mesh_geo_bindings(nb::module_ &m);
 void init_mesh_bindings(nb::module_ &m);
+void init_sparse_bindings(nb::module_ &m);
+void init_dense_bindings(nb::module_ &m);
 
 NB_MODULE(_core, m) {
     m.def("build_info", []() {
@@ -20,4 +22,6 @@ NB_MODULE(_core, m) {
 
     init_mesh_geo_bindings(m);
     init_mesh_bindings(m);
+    init_sparse_bindings(m);
+    init_dense_bindings(m);
 }

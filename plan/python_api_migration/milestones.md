@@ -88,16 +88,18 @@ Refactor constraints:
   - `.veg` files load as volume meshes with an explicit cell type.
   - solver DOF vectors use flat `(3 * n,)` floating arrays.
   - sparse matrices expose COO arrays as `(rows, cols, values)`.
-- Decide the initial public module names:
-  - `pypgo.mesh_geo`
-  - `pypgo.mesh`
+- Decide the target public module names:
+  - `pypgo.mesh` — `MeshData`, OBJ I/O, shape factory, mesh data utilities.
+  - `pypgo.mesh.geo` — geometry façade and geometry-only algorithms.
+  - `pypgo.mesh.veg` — Vega volume mesh, `.veg` I/O, volume materials, sets/regions.
+  - `pypgo.sim` — solver-ready `SimulationMesh`, simulation materials/factories, shell spec I/O.
   - `pypgo.fem`
   - `pypgo.energy`
   - `pypgo.contact`
-  - `pypgo.sim`
-  - `pypgo.io`
   - `pypgo.sparse`
   - `pypgo.torch`
+
+`pypgo.io` is not part of the target public API. File I/O is domain-scoped instead of centralized: OBJ lives in `pypgo.mesh`, VEG lives in `pypgo.mesh.veg`, and shell specs live in `pypgo.sim`.
 
 **Key files:**
 
@@ -131,7 +133,7 @@ Refactor constraints:
    - `TriMeshGeo`, `TetMeshGeo`, `CubicMeshGeo` as geometry façades; explicit `to_mesh_data()` / `from_mesh_data()` bridge.
    - `MaterialSpec` value object.
    - `VolumeMesh` simulation mesh — accepts `TetMeshData | CubicMeshData`, rejects `MeshGeo` / `TriMeshData`.
-   - File I/O: `read_veg_geo` / `write_veg_geo` / `read_obj_geo` / `write_obj_geo` — all at `MeshData` boundary.
+   - File I/O target: `pypgo.mesh.veg.read_veg/write_veg`, `pypgo.mesh.read_obj/write_obj`, and `pypgo.sim.read_shell/write_shell`; all geometry arrays stay at the `MeshData` boundary.
 4. **MeshGeo utility scope decision:** M1 does NOT bind C++ Geo utility functions (normals, areas, distances, sub-mesh, etc.). Geo objects are "data façade + bridge" only. Utility bindings are prioritized for M2/M4 (see table below).
 5. **Tests:**
    - Import smoke tests and packaging tests in `tests/pypgo`.
@@ -171,7 +173,7 @@ The public Python layer may accept broader array-like inputs; the private `_core
 - `MeshGeo -> MeshData`: `.to_mesh_data()`.  `MeshData -> MeshGeo`: `.from_mesh_data(data)`.
 - `VolumeMesh` accepts only `TetMeshData` or `CubicMeshData`.
 - I/O returns/accepts `MeshData`; rejects `MeshGeo` façade objects.
-- `pypgo.__all__ == ["mesh_geo", "mesh", "io"]` for M1.
+- Target `pypgo.__all__` after the M1 mesh pipeline cleanup is `["mesh", "sim", "sparse", "tools"]` plus later milestones' `fem` / `energy` / `contact` modules as they land. `mesh_geo` and `io` are not retained as public modules.
 
 ### M1 Progress Status
 
@@ -186,6 +188,8 @@ The public Python layer may accept broader array-like inputs; the private `_core
 | Old public names removed | Done |
 | C++ tests (MeshData, Tri/Tet/CubicMeshGeo) | Done |
 | Python tests (mesh types, I/O, boundary checks) | Done |
+| Domain-scoped package layout (`pypgo.mesh`, `pypgo.mesh.geo`, `pypgo.mesh.veg`, `pypgo.sim`; remove public `pypgo.io`) | Not done |
+| Shell spec I/O (`pypgo.sim.read_shell` / `write_shell`) | Not done |
 | Eigen dense vector/matrix ↔ NumPy conversion helpers | Not done |
 | Eigen sparse matrix wrapper + COO export | Not done |
 | `gil_scoped_release` policy for long-running kernels | Not done |
@@ -228,19 +232,24 @@ C++ `TriMeshGeo`/`TriMeshRef`、`TetMeshGeo`/`TetMeshRef`、`CubicMeshGeo` 有�
 
 ## Milestone 2: Simulation Mesh, Sparse, and FEM Building Blocks
 
-**Goal:** 在 M1 的 `MeshData` / `MeshGeo` 基础上恢复 old wrapper 的 sparse/FEM 能力。
+**Goal:** 在 M1 的 `MeshData` / `MeshGeo` 基础上恢复 old wrapper 的 sparse/FEM 能力，并沿用 domain-scoped module layout。
 
 **Deliverables:**
 
-- `pypgo.mesh_geo` remains the geometry layer from M1:
+- `pypgo.mesh` owns mesh data containers and surface OBJ I/O:
   - `TriMeshData`, `TetMeshData`, `CubicMeshData` own `(n, 3)` vertices and `(m, K)` elements.
+  - `read_obj` / `write_obj` accept and return `TriMeshData`.
+- `pypgo.mesh.geo` owns geometry façades and geometry algorithms:
   - `TriMeshGeo`, `TetMeshGeo`, `CubicMeshGeo` are typed façades with `to_mesh_data()` / `from_mesh_data()`.
-- `pypgo.mesh.MaterialSpec` and `pypgo.mesh.VolumeMesh` carry forward from M1.
-- `pypgo.io`
-  - keep `read_veg_geo` / `write_veg_geo` / `read_obj_geo` / `write_obj_geo` as the canonical I/O names.
-  - `read_veg_geo` returns `(mesh_data, material_spec)` — `MeshData` is the I/O boundary.
-  - defer full `.veg` simulation model I/O naming until materials/sets/regions have a Python model.
-  - 文件 I/O 是 `pypgo.io` 的 canonical 职责；`pypgo.mesh_geo` / `pypgo.mesh` 保持为内存对象层
+- `pypgo.mesh.veg` owns Vega volume mesh I/O and material/region semantics:
+  - `read_veg` returns `VegFile`, not a naked tuple.
+  - `write_veg` writes `VegFile`.
+  - `VolumeMesh` carries Vega volume semantics and does not expose solver-ready conversion methods.
+- `pypgo.sim`
+  - `SimulationMesh.create_volumetric(volume_mesh)` converts Vega volume to solver-ready mesh.
+  - `SimulationMesh.create_shell(surface, material)` creates solver-ready shell mesh.
+  - `read_shell` / `write_shell` persist `.shell.json + .obj` specs and return/accept `(TriMeshData, ShellMaterialLike)`.
+- No `pypgo.io` public module is retained.
 - `pypgo.sparse.SparseMatrix`
   - `.shape`
   - `.nnz`
@@ -266,15 +275,20 @@ C++ `TriMeshGeo`/`TriMeshRef`、`TetMeshGeo`/`TetMeshRef`、`CubicMeshGeo` 有�
 ```python
 import pypgo as pgo
 
-mesh_data, material = pgo.io.read_veg_geo("box.veg")
-assert mesh_data.mesh_type in {pgo.mesh_geo.MeshDataType.Tet, pgo.mesh_geo.MeshDataType.Cubic}
+veg = pgo.mesh.veg.read_veg("box.veg")
+mesh_data = veg.mesh_data
+assert mesh_data.mesh_type in {pgo.mesh.MeshDataType.Tet, pgo.mesh.MeshDataType.Cubic}
 
-volume = pgo.mesh.VolumeMesh(mesh_data, material)
+volume = pgo.mesh.veg.VolumeMesh(mesh_data, regions=veg.to_volume_regions())
+sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
 
-if mesh_data.mesh_type == pgo.mesh_geo.MeshDataType.Tet:
-    tet_geo = pgo.mesh_geo.TetMeshGeo.from_mesh_data(mesh_data)
+if mesh_data.mesh_type == pgo.mesh.MeshDataType.Tet:
+    tet_geo = pgo.mesh.geo.TetMeshGeo.from_mesh_data(mesh_data)
     L = pgo.fem.tet_laplacian(tet_geo, repeat=3)
     rows, cols, values = L.to_coo()
+
+surface, shell_mat = pgo.sim.read_shell("cloth.shell.json")
+shell_sim_mesh = pgo.sim.SimulationMesh.create_shell(surface, shell_mat)
 ```
 
 **Exit criteria:**

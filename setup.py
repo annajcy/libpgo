@@ -5,7 +5,7 @@ import os
 import shutil
 import subprocess
 
-from setuptools import Extension, setup
+from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
 
 install_requires = ["numpy"]
@@ -77,7 +77,7 @@ setup(
     author_email="wangbh11@gmail.com",
     description="Python-first libpgo package",
     long_description="",
-    packages=["pypgo"],
+    packages=find_packages(include=["pypgo", "pypgo.*"]),
     ext_modules=[CMakeExtension("pypgo._core")],
     cmdclass={"build_ext": CMakeBuildExt},
     zip_safe=False,
