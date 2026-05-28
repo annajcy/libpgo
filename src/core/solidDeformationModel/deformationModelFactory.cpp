@@ -84,9 +84,25 @@ DeformationModelBundle makeDeformationModelBundle(
     for (int ei = 0; ei < nele; ei++) {
       const auto *pm = dynamic_cast<const PlasticModel3DDeformationGradient *>(
         manager->getDeformationModel(ei)->getPlasticModel());
-      if (!pm)
-        throw std::runtime_error("makeDeformationModelBundle: plastic model is not a PlasticModel3DDeformationGradient.");
-      pm->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+      if (pm)
+        pm->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+    }
+  }
+
+  const int numElasticParams = manager->getNumElasticParameters();
+  ES::VXd elasticParams(static_cast<Eigen::Index>(nele) * numElasticParams);
+  if (numElasticParams > 0) {
+    elasticParams.setZero();
+    for (int ei = 0; ei < nele; ei++) {
+      if (elastic == DeformationModelElasticMaterial::KOITER_STVK) {
+        const auto *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(mesh.getElementMaterial(ei, 0));
+        if (!mat)
+          throw std::runtime_error("makeDeformationModelBundle: KOITER_STVK requires SimulationMeshENuhMaterial.");
+        elasticParams.segment<5>(ei * 5) << mat->getE(), mat->getNu(), mat->getE(), mat->getNu(), mat->geth();
+      }
+      else {
+        throw std::runtime_error("makeDeformationModelBundle: unsupported elastic parameterized material.");
+      }
     }
   }
 
@@ -95,9 +111,11 @@ DeformationModelBundle makeDeformationModelBundle(
   DeformationModelBundle bundle;
   bundle.restPosition = std::move(restPosition);
   bundle.plasticParams = std::move(plasticParams);
+  bundle.elasticParams = std::move(elasticParams);
   bundle.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), &bundle.restPosition, 0);
   bundle.energy->setEnableMaterialMaxStep(opts.enableMaterialMaxStep);
   bundle.energy->setPlasticParams(bundle.plasticParams);
+  bundle.energy->setElasticParams(bundle.elasticParams);
 
   return bundle;
 }

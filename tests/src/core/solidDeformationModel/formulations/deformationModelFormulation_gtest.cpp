@@ -8,14 +8,79 @@
 #include "cubicMesh.h"
 #include "pgoLogging.h"
 
+#include <concepts>
 #include <type_traits>
 
 namespace
 {
 namespace ES = pgo::EigenSupport;
+using pgo::SolidDeformationModel::CubicFormulation;
+using pgo::SolidDeformationModel::CubicFormulationVariant;
+using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
+using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
+using pgo::SolidDeformationModel::HexTrilinear;
+using pgo::SolidDeformationModel::ShellFormulation;
+using pgo::SolidDeformationModel::ShellFormulationVariant;
+using pgo::SolidDeformationModel::ShellKoiter;
+using pgo::SolidDeformationModel::SimulationMesh;
+using pgo::SolidDeformationModel::TetFormulation;
+using pgo::SolidDeformationModel::TetFormulationVariant;
+using pgo::SolidDeformationModel::TetP1;
 
 constexpr const char *kTorusVegPath = LIBPGO_TEST_TORUS_VEG;
 constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
+
+template<class F>
+concept CanMakeTetWith = requires(const SimulationMesh &mesh, const F &formulation) {
+  pgo::SolidDeformationModel::makeTetDeformationModel(mesh, formulation, DeformationModelElasticMaterial::STABLE_NEO);
+};
+
+template<class F>
+concept CanMakeCubicWith = requires(const SimulationMesh &mesh, const F &formulation) {
+  pgo::SolidDeformationModel::makeCubicDeformationModel(mesh, formulation, DeformationModelElasticMaterial::STABLE_NEO);
+};
+
+template<class F>
+concept CanMakeShellWith = requires(const SimulationMesh &mesh, const F &formulation) {
+  pgo::SolidDeformationModel::makeShellDeformationModel(mesh, formulation, DeformationModelElasticMaterial::KOITER_STVK);
+};
+
+namespace legacyFactoryDetection
+{
+struct MissingLegacyFactory
+{};
+
+MissingLegacyFactory makeDeformationModel(...);
+
+template<class Mesh>
+concept HasLegacyAutoDispatchFactory = requires(const Mesh &mesh) {
+  { makeDeformationModel(mesh, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6) } -> std::same_as<pgo::SolidDeformationModel::DeformationModelBundle>;
+};
+}  // namespace legacyFactoryDetection
+
+static_assert(TetFormulation<TetP1>);
+static_assert(!TetFormulation<HexTrilinear>);
+static_assert(!TetFormulation<ShellKoiter>);
+static_assert(CubicFormulation<HexTrilinear>);
+static_assert(!CubicFormulation<TetP1>);
+static_assert(!CubicFormulation<ShellKoiter>);
+static_assert(ShellFormulation<ShellKoiter>);
+static_assert(!ShellFormulation<TetP1>);
+static_assert(!ShellFormulation<HexTrilinear>);
+
+static_assert(CanMakeTetWith<TetP1>);
+static_assert(!CanMakeTetWith<HexTrilinear>);
+static_assert(!CanMakeTetWith<ShellKoiter>);
+static_assert(CanMakeCubicWith<HexTrilinear>);
+static_assert(!CanMakeCubicWith<TetP1>);
+static_assert(!CanMakeCubicWith<ShellKoiter>);
+static_assert(CanMakeShellWith<ShellKoiter>);
+static_assert(!CanMakeShellWith<TetP1>);
+static_assert(!CanMakeShellWith<HexTrilinear>);
+
+static_assert(!legacyFactoryDetection::HasLegacyAutoDispatchFactory<pgo::VolumetricMeshes::TetMesh>);
+static_assert(!legacyFactoryDetection::HasLegacyAutoDispatchFactory<pgo::VolumetricMeshes::CubicMesh>);
+static_assert(!legacyFactoryDetection::HasLegacyAutoDispatchFactory<SimulationMesh>);
 }  // namespace
 
 // ============================================================

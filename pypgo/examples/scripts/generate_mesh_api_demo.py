@@ -354,7 +354,7 @@ CELLS = [
             ],
         )
 
-        volume = VolumeMesh(veg.mesh_data, regions=veg.to_volume_regions())
+        volume = VolumeMesh(veg.mesh_data, veg.to_volume_regions())
         print("volume:", volume)
         print("surface:", volume.extract_surface_mesh().num_elements, "triangles")
         """
@@ -384,7 +384,7 @@ CELLS = [
     ),
     code(
         """
-        single_volume = VolumeMesh(tet_data, soft)
+        single_volume = VolumeMesh.create_from_single_material(tet_data, soft)
         embedding = BarycentricEmbedding(np.array([[0.25, 0.25, 0.25]], dtype=np.float64), single_volume)
         matrix = embedding.interpolation_matrix
         rows, cols, values = matrix.to_coo()
@@ -429,8 +429,8 @@ CELLS = [
         cubic_from_surface = cubic_mesher(mesher_surface, resolution=4)
         tet_from_surface = tet_mesher(mesher_surface, backend="tetgen", config={"command": "pq1.414a0.1"})
 
-        cubic_surface = VolumeMesh(cubic_from_surface, soft).extract_surface_mesh()
-        tet_surface = VolumeMesh(tet_from_surface, soft).extract_surface_mesh()
+        cubic_surface = VolumeMesh.create_from_single_material(cubic_from_surface, soft).extract_surface_mesh()
+        tet_surface = VolumeMesh.create_from_single_material(tet_from_surface, soft).extract_surface_mesh()
 
         print("mesher input surface:", mesher_surface.num_vertices, mesher_surface.num_elements)
         print("cubic mesher:", cubic_from_surface.num_vertices, cubic_from_surface.num_elements)

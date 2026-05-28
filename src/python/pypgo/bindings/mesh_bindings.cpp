@@ -24,6 +24,7 @@
 #include "barycentricCoordinates.h"
 #include "simulationMesh.h"
 #include "sparse_matrix_core.h"
+#include "simulation_mesh_core.h"
 
 namespace nb = nanobind;
 using namespace pgo;
@@ -290,36 +291,6 @@ private:
     std::unique_ptr<InterpolationCoordinates::BarycentricCoordinates> coords_;
     int numTargetLocations_ = 0;
     int numVolumeVertices_ = 0;
-};
-
-class SimulationMeshCore {
-public:
-    explicit SimulationMeshCore(std::unique_ptr<SolidDeformationModel::SimulationMesh> mesh):
-        mesh_(std::move(mesh)) {}
-
-    std::string meshType() const
-    {
-        switch (mesh_->getElementType()) {
-        case SolidDeformationModel::SimulationMeshType::TET:
-            return "tet";
-        case SolidDeformationModel::SimulationMeshType::CUBIC:
-            return "cubic";
-        case SolidDeformationModel::SimulationMeshType::SHELL:
-            return "shell";
-        case SolidDeformationModel::SimulationMeshType::TRIANGLE:
-            return "triangle";
-        case SolidDeformationModel::SimulationMeshType::EDGE_QUAD:
-            return "edge_quad";
-        }
-        return "unknown";
-    }
-
-    int numVertices() const { return mesh_->getNumVertices(); }
-    int numElements() const { return mesh_->getNumElements(); }
-    int numElementVertices() const { return mesh_->getNumElementVertices(); }
-
-private:
-    std::unique_ptr<SolidDeformationModel::SimulationMesh> mesh_;
 };
 
 // --- create from MeshData + MaterialSpec ---

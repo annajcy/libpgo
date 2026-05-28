@@ -196,26 +196,32 @@ class VolumeMesh:
     Use pypgo.sim.SimulationMesh factory methods for solver-ready meshes.
     """
 
-    def __init__(self, mesh_data, material=None, *, regions=None):
+    def __init__(self, mesh_data, regions):
         if not isinstance(mesh_data, (TetMeshData, CubicMeshData)):
             raise TypeError(f"mesh_data must be a TetMeshData or CubicMeshData, got {type(mesh_data).__name__}")
 
-        if (material is None) == (regions is None):
-            raise TypeError("VolumeMesh requires exactly one of `material` or `regions`")
-
         self._mesh_data = mesh_data
-        self._material = material
-        if regions is None:
-            self._core_obj = _core.create_volume_mesh_multi(
-                mesh_data._core_obj,
-                [_material_to_core_payload(material)],
-                [("allElements", list(range(mesh_data.num_elements)))],
-                [(0, 0)],
-            )
-        else:
-            materials, sets, region_payloads = _validate_and_split_regions(regions, mesh_data.num_elements)
-            self._core_obj = _core.create_volume_mesh_multi(
-                mesh_data._core_obj, materials, sets, region_payloads)
+        self._material = None
+        materials, sets, region_payloads = _validate_and_split_regions(regions, mesh_data.num_elements)
+        self._core_obj = _core.create_volume_mesh_multi(
+            mesh_data._core_obj, materials, sets, region_payloads)
+
+    @classmethod
+    def create_from_single_material(cls, mesh_data, material) -> "VolumeMesh":
+        if not isinstance(mesh_data, (TetMeshData, CubicMeshData)):
+            raise TypeError(f"mesh_data must be a TetMeshData or CubicMeshData, got {type(mesh_data).__name__}")
+        if not isinstance(material, (ENuMaterial, MooneyRivlinMaterial, OrthotropicMaterial)):
+            raise TypeError(f"material must be a veg material type, got {type(material).__name__}")
+        obj = cls.__new__(cls)
+        obj._mesh_data = mesh_data
+        obj._material = material
+        obj._core_obj = _core.create_volume_mesh_multi(
+            mesh_data._core_obj,
+            [_material_to_core_payload(material)],
+            [("allElements", list(range(mesh_data.num_elements)))],
+            [(0, 0)],
+        )
+        return obj
 
     @classmethod
     def load(cls, path: str) -> "VolumeMesh":

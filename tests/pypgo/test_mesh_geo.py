@@ -140,14 +140,14 @@ def test_volumemesh_constructs_from_volume_mesh_data_only():
     cubic_data = pgo.mesh.CubicMeshData(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
     material = pgo.mesh.veg.ENuMaterial("rubber", E=1e6, nu=0.33, density=1200.0)
 
-    tet_volume = pgo.mesh.veg.VolumeMesh(tet_data, material)
+    tet_volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet_data, material)
     assert tet_volume.num_vertices == 4
     assert tet_volume.num_elements == 1
     assert tet_volume.mesh_data is tet_data
     assert tet_volume.geometry is tet_data
     assert tet_volume.material is material
 
-    cubic_volume = pgo.mesh.veg.VolumeMesh(cubic_data, material)
+    cubic_volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(cubic_data, material)
     assert cubic_volume.num_vertices == 8
     assert cubic_volume.num_elements == 1
 
@@ -159,11 +159,11 @@ def test_volumemesh_rejects_geo_and_tri_data():
     cubic_geo = pgo.mesh.geo.CubicMeshGeo(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
 
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.veg.VolumeMesh(tri_data, material)
+        pgo.mesh.veg.VolumeMesh.create_from_single_material(tri_data, material)
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.veg.VolumeMesh(tet_geo, material)
+        pgo.mesh.veg.VolumeMesh.create_from_single_material(tet_geo, material)
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.veg.VolumeMesh(cubic_geo, material)
+        pgo.mesh.veg.VolumeMesh.create_from_single_material(cubic_geo, material)
 
 
 def test_volumemesh_load_and_save_roundtrip(tmp_path):
@@ -171,7 +171,7 @@ def test_volumemesh_load_and_save_roundtrip(tmp_path):
     elements = np.array([[0, 1, 2, 3]], dtype=np.int64)
     tet_data = pgo.mesh.TetMeshData(vertices, elements)
     material = pgo.mesh.veg.ENuMaterial("foam", E=2e9, nu=0.4, density=900.0)
-    volume = pgo.mesh.veg.VolumeMesh(tet_data, material)
+    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet_data, material)
 
     veg_file = str(tmp_path / "roundtrip.veg")
     volume.save(veg_file)
@@ -202,7 +202,7 @@ def test_volume_mesh_regions_validate_partition():
         ("soft", pgo.mesh.veg.ENuMaterial("soft"), [0]),
         ("stiff", pgo.mesh.veg.MooneyRivlinMaterial("stiff", mu01=1.0), [1]),
     ]
-    volume = pgo.mesh.veg.VolumeMesh(tet_data, regions=regions)
+    volume = pgo.mesh.veg.VolumeMesh(tet_data, regions)
     assert volume.num_elements == 2
 
     with pytest.raises(ValueError, match="assigned to both"):

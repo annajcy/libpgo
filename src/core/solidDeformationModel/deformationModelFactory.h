@@ -47,6 +47,7 @@ struct DeformationModelBundle
   // stores its own copies, so mutating these fields does not update the energy.
   EigenSupport::VXd restPosition;
   EigenSupport::VXd plasticParams;
+  EigenSupport::VXd elasticParams;
 };
 
 // Build a SimulationMesh from a volumetric mesh. The caller owns the returned mesh

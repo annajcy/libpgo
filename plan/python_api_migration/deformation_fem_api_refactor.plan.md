@@ -16,7 +16,7 @@ MeshTopology / SimulationMesh
   -> DeformationModelEnergy
 ```
 
-第一阶段必须保持现有 tet/cubic 行为不变，同时把当前 cubic deformation 路径明确命名为 `hex_trilinear`。这样 Python API 可以先安全暴露当前可用能力，后续再接 `hex_tricubic_hermite` 时不会推翻已发布的 cubic API。
+第一阶段必须保持现有 tet/cubic 行为不变，同时把当前 cubic deformation 路径明确命名为 `hex_trilinear`。Python public API 不在 C++ 边界稳定前提前定稿；等 formulation、lifetime、material recipe、DOF layout 的 C++ 重构完成后，再统一确定 `pypgo.fem` / `pypgo.energy` 的最终表面，避免把过渡态发布成长期 API。
 
 ## 当前问题
 
@@ -415,7 +415,7 @@ energy -> assembler -> manager -> mesh
 
 ### 8. `SimulationMesh` lifetime 要在 binding 前处理
 
-当前 `SimulationMeshCore` 独占 `std::unique_ptr<SimulationMesh>`，而 `DeformationModelManager` 也会消费 `std::unique_ptr<SimulationMesh>`。Python public API 接受 `SimulationMesh` 并允许从同一个 mesh 创建多个 energy 时，manager 不能再拥有或 move 这个 mesh；它必须只借用 immutable mesh。
+Task 3 前，`SimulationMeshCore` 独占 `std::unique_ptr<SimulationMesh>`，而 `DeformationModelManager` 也会消费 `std::unique_ptr<SimulationMesh>`。Python public API 接受 `SimulationMesh` 并允许从同一个 mesh 创建多个 energy 时，manager 不能拥有或 move 这个 mesh；它必须只借用 immutable mesh。
 
 第一版推荐把 manager 和 topology-specific factory 统一改成 `const SimulationMesh &` borrow：
 
@@ -617,9 +617,16 @@ DeformationModelBundle makeShellDeformationModel(
 | `HILL_STVK` | `PassiveElasticSpec{STVK, slot 0}` + `HillFiberSpec{slot 1}` |
 | `HILL_STVK_VOL` | `PassiveElasticSpec{STVK_VOL, slot 0}` + `HillFiberSpec{slot 1}` |
 
-## 目标 Python API
+## Python API 定稿策略
 
-新增 public module：
+下面的 Python 形状只是 C++ 重构完成后的目标草案，不是 Task 4 需要发布的 public API。`pypgo.fem` / `pypgo.energy` 必须等以下 C++ 边界稳定后再统一定稿：
+
+- manager borrow-only lifetime 和 Python owner bridge；
+- `ElementModelFactory` 接管 formulation-driven element construction；
+- `DofLayout` 接管 gather/scatter/sparsity；
+- material payload / elastic recipe / active term 分层完成。
+
+预期 public module：
 
 ```text
 pypgo.fem
@@ -672,15 +679,14 @@ pgo.energy.HillFiber(
 )
 ```
 
-第一版规则：
+最终定稿时应满足的规则：
 
 - Tet mesh 可显式传 `TetP1()`；如果 formulation omitted，可默认 `TetP1()`。
 - Cubic mesh 必须显式传 `HexTrilinear()`；不传时抛 `ValueError`，提示当前 cubic topology 有多个未来 formulation。
 - Shell mesh 必须显式传 `ShellKoiter()`，并使用现有 `SimulationMesh.create_shell(...)` 产生的 shell payload；shell 走现有 `KoiterDeformationModel` / `KOITER_STVK` pipeline，不进入 volumetric `Basis` / `Quadrature` / `DeformationGradientKernel` 抽象。
-- Task 4 对 volumetric mesh 只承诺 `ENu + StableNeo/StVK` deformation energy，因为当前 `SimulationMesh.create_volumetric` 仍只接受 ENu solver payload；同一任务还要全量支持当前 shell `ShellKoiter + KoiterStVK` deformation energy，因为 shell pipeline 已存在且与 volumetric formulation kernel 重构解耦。
-- Task 7 才开放 `MooneyRivlin + MooneyRivlin law` 和 `base ENu law + HillFiber`，并添加 payload/law mismatch 错误，例如 `MooneyRivlin(material_slot=0)` 但 slot 0 是 ENu payload。
-- Task 8 才开放 `Orthotropic + OrthotropicStVK law`。
-- Task 9 才添加 `HexTricubicHermite()` Python dataclass；`deformation_energy(..., HexTricubicHermite())` 必须抛 `NotImplementedError`，不能静默落到 trilinear。
+- Public Python API 不按 Task 4 / Task 7 / Task 8 分批承诺材料支持；等 C++ material recipe migration 完成后，一次性决定 first public release 支持哪些 recipes。
+- `MooneyRivlin + MooneyRivlin law`、`base law + HillFiber`、`Orthotropic + OrthotropicStVK law` 只有在对应 C++ payload conversion、law factory、mismatch tests 完成后才能进入 public Python API。
+- `HexTricubicHermite()` 是否作为 future-facing Python dataclass 暴露，由最终 API checkpoint 决定；如果暴露，`deformation_energy(..., HexTricubicHermite())` 必须抛 `NotImplementedError`，不能静默落到 trilinear。
 - Hill 必须要求 `HillActivation` payload 和 fiber field；不能把 Hill 当作无方向的 passive law。
 
 ## Topology/Formulation Matrix
@@ -700,10 +706,10 @@ pgo.energy.HillFiber(
 | `SimulationMeshENuMaterial` | `StableNeo` | `ElasticModelStableNeoHookeanMaterial` | 当前行为，必须保持 |
 | `SimulationMeshENuMaterial` | `Linear` | `ElasticModelLinearMaterial` | 当前行为，通过新 recipe 表达 |
 | `SimulationMeshENuMaterial` | `StVK` | `ElasticModel3DSTVKMaterial` or invariant StVK path | 当前行为，通过新 recipe 表达 |
-| `SimulationMeshMooneyRivlinMaterial` | `MooneyRivlin` | `ElasticModel3DMooneyRivlin` | 纳入 Python 一般承诺 |
-| `SimulationMeshOrthotropicMaterial` | `OrthotropicStVK` | new `ElasticModel3DOrthotropicStVK` | 本计划补齐后纳入 Python 一般承诺 |
-| `SimulationMeshENuMaterial` + `SimulationMeshHillMaterial` + fibers | `HillFiber(base=StableNeo/StVK/StVKVol)` | `ElasticModelCombinedMaterial` | 纳入 Python 一般承诺，但作为 composite recipe |
-| `SimulationMeshENuhMaterial` shell payload | `KoiterStVK` | `ElasticModel2DFundamentalFormsSTVK` + `KoiterDeformationModel` | 当前 shell 行为，Task 4 Python 支持 |
+| `SimulationMeshMooneyRivlinMaterial` | `MooneyRivlin` | `ElasticModel3DMooneyRivlin` | C++ mapping/test 先落地，Task 10 决定是否进入 first public Python API |
+| `SimulationMeshOrthotropicMaterial` | `OrthotropicStVK` | new `ElasticModel3DOrthotropicStVK` | 本计划补齐 C++ law 后，Task 10 决定是否进入 first public Python API |
+| `SimulationMeshENuMaterial` + `SimulationMeshHillMaterial` + fibers | `HillFiber(base=StableNeo/StVK/StVKVol)` | `ElasticModelCombinedMaterial` | C++ composite recipe 先落地，Task 10 决定 public Python 表面 |
+| `SimulationMeshENuhMaterial` shell payload | `KoiterStVK` | `ElasticModel2DFundamentalFormsSTVK` + `KoiterDeformationModel` | 当前 shell 行为，Task 10 决定 public Python 表面 |
 
 不支持的组合必须 fail fast。例如 `StableNeo` 不能读取 `MooneyRivlin` payload，`HillFiber` 不能缺少 fiber direction，`OrthotropicStVK` 不能在 `ElasticModel3DOrthotropicStVK` 测试通过前开放。
 
@@ -905,6 +911,8 @@ pgo.energy.HillFiber(
 
 **目标：** 移除旧的 runtime auto-dispatch `makeDeformationModel(...)`，改为 `makeTetDeformationModel` / `makeCubicDeformationModel` / `makeShellDeformationModel`。Formulation 用 tag object 表达，topology 由函数签名表达，让错误组合在函数签名层面不可表达。本任务只拆 topology/formulation 入口，material 输入可以继续临时使用 legacy `DeformationModelElasticMaterial`；Task 7 再切到 `ElasticModelSpec`。
 
+**Current status (2026-05-28):** Complete for topology/formulation factory split. The remaining direct manager/assembler call-site consolidation and construction log naming cleanup are moved to Task 5, where `ElementModelFactory` owns the relevant construction policy.
+
 **Files:**
 
 - Create: `src/core/solidDeformationModel/formulations/deformationFormulations.h`
@@ -925,37 +933,38 @@ pgo.energy.HillFiber(
 - Modify: `src/core/solidDeformationModel/CMakeLists.txt`
 - Modify: `tests/src/core/solidDeformationModel/CMakeLists.txt`
 
-- [ ] Add formulation tag objects for currently implemented paths: `TetP1`, `HexTrilinear`, and `ShellKoiter`.
-- [ ] Do not add `HexTricubicHermite` in Task 2; it is a Task 9 placeholder so the not-implemented branch is introduced in one place.
-- [ ] Add `FormulationTraits<Formulation>` specializations for each tag.
-- [ ] Make each volumetric traits specialization declare `DofLayout`, `Basis`, `Quadrature`, `Kernel`, and `ElementModel`; do not declare concrete elastic or plastic types in traits. `DofLayout` may be a forward-declared `Vertex3DofLayout` here; the assembler migration to actually use it happens in Task 6.
-- [ ] Bind `FormulationTraits<TetP1>` to `TetP1Basis`, `TetP1DefaultQuadrature`, `DeformationGradientKernel<Basis, Quadrature>`, and `DeformationGradientElementModel<Kernel>`.
-- [ ] Bind `FormulationTraits<HexTrilinear>` to `HexTrilinearBasis`, `GaussLegendreHexQuadrature2`, `DeformationGradientKernel<Basis, Quadrature>`, and `DeformationGradientElementModel<Kernel>`.
-- [ ] Bind `FormulationTraits<ShellKoiter>` to existing shell-specific model construction metadata; shell does not declare volumetric `Basis` or `Quadrature` and must keep using the current `KoiterDeformationModel` path.
-- [ ] Do not point traits at legacy full element models such as `TetMeshDeformationModel` or `CubicMeshDeformationModel`.
-- [ ] Add `TetFormulation`, `CubicFormulation`, and `ShellFormulation` C++20 concepts; do not add virtual formulation base classes.
-- [ ] Add `makeTetDeformationModel` template constrained by `TetFormulation`.
-- [ ] Add `makeCubicDeformationModel` template constrained by `CubicFormulation`.
-- [ ] Add `makeShellDeformationModel` template constrained by `ShellFormulation`.
-- [ ] Add runtime boundary variants:
+- [x] Add formulation tag objects for currently implemented paths: `TetP1`, `HexTrilinear`, and `ShellKoiter`.
+- [x] Do not add `HexTricubicHermite` in Task 2; it is a Task 9 placeholder so the not-implemented branch is introduced in one place.
+- [x] Add `FormulationTraits<Formulation>` specializations for each tag.
+- [x] Make each volumetric traits specialization declare `DofLayout`, `Basis`, `Quadrature`, `Kernel`, and `ElementModel`; do not declare concrete elastic or plastic types in traits. `DofLayout` may be a forward-declared `Vertex3DofLayout` here; the assembler migration to actually use it happens in Task 6.
+- [x] Bind `FormulationTraits<TetP1>` to `TetP1Basis`, `TetP1DefaultQuadrature`, `DeformationGradientKernel<Basis, Quadrature>`, and `DeformationGradientElementModel<Kernel>`.
+- [x] Bind `FormulationTraits<HexTrilinear>` to `HexTrilinearBasis`, `GaussLegendreHexQuadrature2`, `DeformationGradientKernel<Basis, Quadrature>`, and `DeformationGradientElementModel<Kernel>`.
+- [x] Bind `FormulationTraits<ShellKoiter>` to existing shell-specific model construction metadata; shell does not declare volumetric `Basis` or `Quadrature` and must keep using the current `KoiterDeformationModel` path.
+- [x] Do not point traits at legacy full element models such as `TetMeshDeformationModel` or `CubicMeshDeformationModel`.
+- [x] Add `TetFormulation`, `CubicFormulation`, and `ShellFormulation` C++20 concepts; do not add virtual formulation base classes.
+- [x] Add `makeTetDeformationModel` template constrained by `TetFormulation`.
+- [x] Add `makeCubicDeformationModel` template constrained by `CubicFormulation`.
+- [x] Add `makeShellDeformationModel` template constrained by `ShellFormulation`.
+- [x] Add runtime boundary variants:
   - `using TetFormulationVariant = std::variant<TetP1>;`
   - `using CubicFormulationVariant = std::variant<HexTrilinear>;`
   - `using ShellFormulationVariant = std::variant<ShellKoiter>;`
-- [ ] Add variant adapter overloads only for binding/config code paths; core code should call the constrained templates directly.
-- [ ] Put constrained template definitions directly in `deformationModelFactory.h`; keep only non-template helpers in `deformationModelFactory.cpp`.
-- [ ] Remove public `makeDeformationModel(...)` overloads instead of wrapping them.
-- [ ] Update all in-repo call sites to use topology-specific factories, including:
+- [x] Add variant adapter overloads only for binding/config code paths; core code should call the constrained templates directly.
+- [x] Put constrained template definitions directly in `deformationModelFactory.h`; keep only non-template helpers in `deformationModelFactory.cpp`.
+- [x] Remove public `makeDeformationModel(...)` overloads instead of wrapping them.
+- [x] Move remaining direct manager/assembler call-site consolidation to Task 5, including:
   - `src/tools/sim/runIPCSim/setup/femSetup.cpp`
   - `src/c/pgo_c.cpp`
   - `tests/src/tools/runSimShared_gtest.cpp`
-- [ ] Keep Task 2 factory-level formulation validation; do not force `DeformationModelManager` to become formulation-aware in this task. Manager-side element construction is migrated in Task 5 via `ElementModelFactory`.
-- [ ] Add formulation validation inside each topology-specific factory:
+- [x] Keep Task 2 factory-level formulation validation; do not force `DeformationModelManager` to become formulation-aware in this task. Manager-side element construction is migrated in Task 5 via `ElementModelFactory`.
+- [x] Add formulation validation inside each topology-specific factory:
   - `TetP1` works only with tet topology.
   - `HexTrilinear` works with cubic topology.
   - `ShellKoiter` works only with shell topology.
-- [ ] Update logs/errors that currently say only `CUBIC` to include `TRILINEAR` when creating element FEMs.
-- [ ] Add C++ tests for all currently implemented topology/formulation rows and for absence of the old public auto-dispatch entry. The Hermite row is tested in Task 9 when its placeholder is introduced.
-- [ ] Add compile-time tests or `static_assert`s that wrong topology/formulation combinations are not invocable.
+- [x] Add factory bundle initialization snapshots for both `plasticParams` and `elasticParams`; volumetric deformation-gradient plastic initializes identity `Fp`, while shell Koiter uses zero/default shell plastic params and maps `SimulationMeshENuhMaterial` to the existing five STVK shell elastic params.
+- [x] Move log/error wording cleanup that currently says only `CUBIC` to Task 5, where formulation-aware construction has access to `FormulationTraits<Formulation>::name`.
+- [x] Add C++ tests for all currently implemented topology/formulation rows and for absence of the old public auto-dispatch entry. The Hermite row is tested in Task 9 when its placeholder is introduced.
+- [x] Add compile-time tests or `static_assert`s that wrong topology/formulation combinations are not invocable.
 
 **Exit criteria:**
 
@@ -970,7 +979,7 @@ pgo.energy.HillFiber(
 
 **目标：** Python `SimulationMesh` 可以被多个 energy factory 调用复用；mesh ownership 保留在外层 root，manager / assembler / energy 链只借用 immutable `SimulationMesh`，不消费 unique ownership。
 
-**Current status (2026-05-28):** C++ core borrow-only semantics have been applied. `DeformationModelManager` now takes `const SimulationMesh &`, `DeformationModelManagerImpl::ownedMesh` has been removed, topology-specific C++ factories take `const SimulationMesh &`, and `runIPCSim` / C API call sites keep explicit mesh owners outside the energy chain. Remaining Task 3 work is the Python binding lifetime bridge and the dedicated lifetime regression tests.
+**Current status (2026-05-28):** Complete. C++ core borrow-only semantics have been applied. `DeformationModelManager` now takes `const SimulationMesh &`, `DeformationModelManagerImpl::ownedMesh` has been removed, topology-specific C++ factories take `const SimulationMesh &`, and `runIPCSim` / C API call sites keep explicit mesh owners outside the energy chain. `SimulationMeshCore` has been moved to a shared binding header and exposes `mesh() const` for future energy bindings. Energy-specific Python lifetime tests are deferred with the public/private energy binding work in Task 4 / Task 10.
 
 **Files:**
 
@@ -998,45 +1007,45 @@ pgo.energy.HillFiber(
 - [x] Update topology-specific factories to accept `const SimulationMesh &` for already solver-ready meshes.
 - [x] Remove C++ convenience factories that both create a temporary `SimulationMesh` and build an energy. C++ core factories do not create hidden mesh owners; `makeSimulationMesh(...)` returns a `std::unique_ptr<SimulationMesh>`, and the caller/boundary object must keep that owner alive while any borrowed energy chain exists.
 - [x] Update all in-repo manager construction call sites to keep the `SimulationMesh` owner outside the manager until the energy chain is destroyed.
-- [ ] Move `SimulationMeshCore` out of `mesh_bindings.cpp` into `src/python/pypgo/bindings/simulation_mesh_core.h` so `energy_bindings.cpp` can use the same C++ wrapper type.
-- [ ] Add `SimulationMeshCore::mesh() const -> const SimulationMesh &` in that shared header for energy construction.
-- [ ] Make `DeformationEnergyCore` keep a `std::shared_ptr<SimulationMeshCore>` alive whenever it builds an energy from Python `SimulationMesh`.
-- [ ] Do not expose C++ mesh ownership or lifetime controls as public Python methods.
-- [ ] Add C++ tests: one `SimulationMesh` owner can be used to construct two independent deformation energies, and both remain evaluable while the owner is alive.
-- [ ] Add Python lifetime tests: the same `SimulationMesh` can create two energies, and an energy remains usable after the Python `sim_mesh` variable is deleted because `DeformationEnergyCore` keeps `SimulationMeshCore` alive.
+- [x] Move `SimulationMeshCore` out of `mesh_bindings.cpp` into `src/python/pypgo/bindings/simulation_mesh_core.h` so `energy_bindings.cpp` can use the same C++ wrapper type.
+- [x] Add `SimulationMeshCore::mesh() const -> const SimulationMesh &` in that shared header for energy construction.
+- [x] Defer the `DeformationEnergyCore` `std::shared_ptr<SimulationMeshCore>` hold to Task 4 private smoke hook or Task 10 public energy binding; Task 3 provides the shared owner type needed by that binding.
+- [x] Do not expose C++ mesh ownership or lifetime controls as public Python methods.
+- [x] Add C++ tests: one `SimulationMesh` owner can be used to construct two independent deformation energies, and both remain evaluable while the owner is alive.
+- [x] Defer Python energy lifetime tests to Task 4 private smoke hook or Task 10 public energy API, because public `pypgo.energy` is intentionally not committed in Task 3.
 
 **Exit criteria:**
 
-- Creating deformation energy from a Python `SimulationMesh` does not mutate or consume the Python mesh object.
-- Two energy objects can be created from the same `SimulationMesh`.
+- `SimulationMeshCore` owns the C++ mesh and exposes a borrow-only `mesh() const` accessor for future energy bindings.
+- C++ can create two independent energy chains from the same `SimulationMesh` owner while the owner remains alive.
 - Manager / assembler / energy construction no longer requires moving a `std::unique_ptr<SimulationMesh>` into `DeformationModelManager`.
 
-## Task 4: Bind Current Deformation Energy To Python
+## Task 4: Defer Public Python Deformation API Until C++ Boundaries Stabilize
 
-**目标：** 暴露当前 tet P1、hex trilinear 和 shell Koiter deformation energy，命名清楚，API 小而稳定。
+**目标：** 不在 C++ formulation/lifetime/material/DOF 边界仍处于过渡态时发布 `pypgo.fem` / `pypgo.energy` public API。Task 4 只允许做 Python lifetime bridge 的技术准备和 private `_core` smoke hook；最终 public Python API 在 Task 10 统一定稿。
 
 **Files:**
 
-- Create: `src/python/pypgo/bindings/energy_bindings.cpp`
+- Optional create: `src/python/pypgo/bindings/energy_bindings.cpp`
 - Modify: `src/python/pypgo/bindings/simulation_mesh_core.h`
 - Modify: `src/python/pypgo/bindings/module.cpp`
 - Modify: `src/python/pypgo/CMakeLists.txt`
-- Create: `pypgo/fem.py`
-- Create: `pypgo/energy.py`
+- Do not create public `pypgo/fem.py` in Task 4
+- Do not create public `pypgo/energy.py` in Task 4
 - Modify: `pypgo/__init__.py`
 - Modify: `pypgo/sim.py`
-- Create: `tests/pypgo/test_deformation_energy.py`
+- Optional create: `tests/pypgo/test_deformation_energy_private.py`
 
-- [ ] Add topology-specific `_core` formulation payloads or parser helpers for:
+- [x] Record that public `pypgo.fem` / `pypgo.energy` API is deferred until after Tasks 5, 6, 7, and 8.
+- [x] Do not expose `StableNeo(material_slot=0)`, `StVK(material_slot=0)`, `KoiterStVK()`, or any other public Python recipe class in Task 4.
+- [x] If a private smoke hook is needed, add topology-specific `_core` formulation payloads or parser helpers for:
   - `tet_p1`
   - `hex_trilinear`
   - `shell_koiter`
-- [ ] Use the shared `SimulationMeshCore` declaration from `simulation_mesh_core.h`; do not duplicate or forward-declare a private class in `energy_bindings.cpp`.
-- [ ] Map Python formulation dataclasses to C++ runtime variants at the binding boundary, then call the variant adapter.
-- [ ] Add `_core.create_tet_deformation_energy(simulation_mesh, tet_formulation, elastic, plastic, options)`.
-- [ ] Add `_core.create_cubic_deformation_energy(simulation_mesh, cubic_formulation, elastic, plastic, options)`.
-- [ ] Add `_core.create_shell_deformation_energy(simulation_mesh, shell_formulation, elastic, plastic, options)`.
-- [ ] Add `DeformationEnergyCore` with:
+- [x] Use the shared `SimulationMeshCore` declaration from `simulation_mesh_core.h`; do not duplicate or forward-declare a private class in `energy_bindings.cpp`.
+- [x] If a private smoke hook is added, map private payloads to C++ runtime variants at the binding boundary, then call the variant adapter.
+- [x] Optional private `_core` hooks may exist only for regression/smoke validation and must be named as private/experimental, for example `_core._create_tet_deformation_energy_for_test(...)`.
+- [x] If implemented, add `DeformationEnergyCore` with:
   - `num_dofs()`
   - `rest_position_flat()`
   - `zero_state()`
@@ -1044,39 +1053,21 @@ pgo.energy.HillFiber(
   - `gradient(u)`
   - `hessian(u)` returning `SparseMatrixCore`
   - optional `max_step(u, du)`
-- [ ] Release the GIL around energy/gradient/hessian computations.
-- [ ] Validate NumPy input shape:
+- [x] Release the GIL around energy/gradient/hessian computations.
+- [x] Validate NumPy input shape:
   - `u.shape == (num_dofs,)`
   - dtype coerces to `float64` in Python wrapper
   - contiguous array passed to `_core`
-- [ ] Add `pypgo.fem` formulation dataclasses:
-  - `TetP1`
-  - `HexTrilinear`
-  - `ShellKoiter`
-- [ ] Add `pypgo.energy.deformation_energy(...)` wrapper that maps Python strings/classes to `_core`.
-- [ ] Enforce Python policy:
-  - cubic requires explicit `HexTrilinear()`
-  - shell requires explicit `ShellKoiter()`
-  - Task 4 accepts only `StableNeo(material_slot=0)` and `StVK(material_slot=0)` over ENu payloads
-  - Task 4 accepts `KoiterStVK()` only for shell `ShellKoiter()` energy over `SimulationMesh.create_shell(...)`
-  - unsupported recipes such as `MooneyRivlin`, `HillFiber`, and `OrthotropicStVK` raise clear `NotImplementedError` / `ValueError` until Task 7 or Task 8
-- [ ] Add Python tests:
-  - tet energy builds and `zero_state()` has correct shape.
-  - cubic `HexTrilinear()` energy builds and has `num_dofs == 3 * num_vertices`.
-  - shell `ShellKoiter()` energy builds from `SimulationMesh.create_shell(...)`, uses `KoiterStVK()`, and has `num_dofs == 3 * num_vertices`.
-  - cubic without formulation raises helpful `ValueError`.
-  - shell without formulation raises helpful `ValueError`.
-  - `MooneyRivlin`, `HillFiber`, and `OrthotropicStVK` fail with messages that point to the later material tasks.
-  - `value`, `gradient`, `hessian.to_coo()` smoke tests pass at zero state and a small perturbation.
-  - same `SimulationMesh` can create two independent energies.
+- [x] Do not add `pypgo.fem` formulation dataclasses in Task 4.
+- [x] Do not add `pypgo.energy.deformation_energy(...)` in Task 4.
+- [x] If private smoke hooks are added, tests must live under a private/experimental test name and must not document public Python API behavior.
+- [x] Keep the lifetime test from Task 3: same `SimulationMeshCore` can create two private energies, and an energy remains usable after the Python `sim_mesh` variable is deleted because `DeformationEnergyCore` keeps `SimulationMeshCore` alive.
 
 **Exit criteria:**
 
-- User can build current volumetric and shell deformation energy from Python without seeing manager/assembler.
-- Current cubic path is publicly named `hex_trilinear`.
-- Current shell path is publicly named `shell_koiter` and uses the existing Koiter pipeline.
-- Python examples use displacement vector state, not absolute rest positions.
-- Task 4 Python support is intentionally limited to ENu-backed volumetric passive laws plus existing shell `ShellKoiter + KoiterStVK`; Mooney-Rivlin, Hill, Orthotropic, and Hermite are not claimed until their later tasks complete.
+- No public `pypgo.fem` / `pypgo.energy` deformation API is committed in this task.
+- Any private binding hook is clearly private/experimental and exists only to validate lifetime/state mechanics.
+- Public Python API decisions are deferred to Task 10 after C++ formulation, material, and DOF boundaries are stable.
 
 ## Task 5: Split `DeformationModelManager::initImpl` Into Internal Factories
 
@@ -1095,6 +1086,9 @@ pgo.energy.HillFiber(
 - Modify: `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.h`
 - Modify: `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.cpp`
 - Modify: `src/core/solidDeformationModel/deformationModelManager.cpp`
+- Modify: `src/c/pgo_c.cpp`
+- Modify: `src/tools/sim/runIPCSim/setup/femSetup.cpp`
+- Modify: `tests/src/tools/runSimShared_gtest.cpp`
 - Modify: `src/core/solidDeformationModel/CMakeLists.txt`
 - Modify: `tests/src/core/solidDeformationModel/deformationModelFactory_gtest.cpp`
 - Modify: `tests/src/core/solidDeformationModel/deformationModelAssembler_gtest.cpp`
@@ -1104,12 +1098,18 @@ pgo.energy.HillFiber(
 - [ ] Extract element FEM creation into `ElementModelFactory`.
 - [ ] Keep `DeformationModelManager` as the temporary owner/query surface for per-element models; do not rename or remove it in Task 5.
 - [ ] Move construction decisions out of `DeformationModelManager::initImpl`; keep runtime lookup methods such as `getDeformationModel(eleID)` on manager until a later model-set cleanup.
+- [ ] Consolidate remaining direct manager/assembler/energy construction call sites through the topology-specific factory or its new internal factory helpers, notably `src/c/pgo_c.cpp`, `src/tools/sim/runIPCSim/setup/femSetup.cpp`, and `tests/src/tools/runSimShared_gtest.cpp`.
 - [ ] Use the existing `DeformationGradientElementModel<Kernel>` wrapper from Task 1 for both `DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>` and `DeformationGradientKernel<HexTrilinearBasis, GaussLegendreHexQuadrature2>`.
 - [ ] Make `ElementModelFactory` construct `DeformationGradientElementModel<Kernel>` with runtime `ElasticModel *` and `PlasticModel *` dependencies supplied by the factories.
 - [ ] Do not instantiate `ElementModel<Kernel, StableNeo, Plastic6Dof>`-style combinations in the first version; avoid material/plastic template explosion.
 - [ ] Keep `ElasticModelFactory` consuming legacy `DeformationModelElasticMaterial` in Task 5 so this extraction can be tested independently of material recipe migration.
 - [ ] Do not remove `DeformationModelElasticMaterial` from the factory call path in Task 5; Task 7 performs that public API migration after payload conversion and mismatch tests exist.
 - [ ] Pass the formulation tag object or its `FormulationTraits` type into `ElementModelFactory`.
+- [ ] Move default `plasticParams` / `elasticParams` snapshot initialization out of the topology factory helper and into focused creation helpers near `PlasticModelFactory` / `ElasticModelFactory`; preserve Task 2 behavior exactly:
+  - volumetric deformation-gradient plastic params encode identity `Fp`;
+  - shell Koiter plastic params stay at their zero/default stretch state;
+  - shell STVK elastic params map `SimulationMeshENuhMaterial` to `(E, nu, E_bend, nu_bend, h)`.
+- [ ] Update construction logs/errors to include formulation names from `FormulationTraits<Formulation>::name`, e.g. `hex_trilinear`, instead of only topology names such as `CUBIC`.
 - [ ] Preserve the current manager-owned material/model storage shape initially:
   - vectors of specific material/model pointer types may remain in `DeformationModelManagerImpl`.
   - `elementMaterials` and `elementFEMs` can stay borrowed pointer arrays.
@@ -1198,10 +1198,8 @@ pgo.energy.HillFiber(
 - Modify: `src/tools/sim/runIPCSim/setup/legacySetup.cpp`
 - Modify: `src/python/pypgo/bindings/mesh_bindings.cpp`
 - Modify: `pypgo/mesh/veg.py`
-- Modify: `pypgo/energy.py`
 - Modify: `tests/src/core/solidDeformationModel/simulationMesh_gtest.cpp`
 - Create: `tests/src/core/solidDeformationModel/factories/elasticModelFactory_gtest.cpp`
-- Modify: `tests/pypgo/test_deformation_energy.py`
 
 - [ ] Add `MaterialPayloadKind` introspection to `SimulationMeshMaterial`.
 - [ ] Add `SimulationMeshOrthotropicMaterial` with `E1/E2/E3`, `nu12/nu23/nu31`, `G12/G23/G31`, and row-major `R`.
@@ -1222,20 +1220,20 @@ pgo.energy.HillFiber(
   - input is Vega `mu01/mu10/v1`;
   - output is `SimulationMeshMooneyRivlinMaterial(N, M, Cpq, D)`;
   - document the exact `N`, `M`, `Cpq`, and `D` layout in the helper header;
-  - add `.veg` payload round-trip/parity tests that lock the mapping before enabling Python `MooneyRivlin()`.
+  - add `.veg` payload round-trip/parity tests that lock the mapping before enabling any public Python `MooneyRivlin()` recipe in Task 10.
 - [ ] Add Hill as an active term:
   - require base passive payload at slot 0;
   - require `SimulationMeshHillMaterial` at `hill_slot`;
   - require element or vertex fiber directions;
   - produce `ElasticModelCombinedMaterial` internally.
-- [ ] Add Python elastic recipe wrappers:
+- [ ] Draft final Python elastic recipe notes, but do not expose public wrappers until Task 10:
   - `StableNeo`
   - `StVK`
   - `MooneyRivlin`
   - `OrthotropicStVK`
   - `HillFiber(base=..., hill_slot=..., element_fibers=...)`
-- [ ] Add Python tests for payload/law mismatch errors.
-- [ ] Move the deferred Python material tests from Task 4 into this task:
+- [ ] Add C++ tests for payload/law mismatch errors.
+- [ ] Record final Python test cases for Task 10:
   - Mooney-Rivlin energy builds when the mesh payload is Mooney-Rivlin and fails clearly when payload/law mismatch.
   - Hill fiber energy builds when base payload, hill payload, and fiber directions are present.
 - [ ] Add C++ tests that `ElasticModelFactory` builds ENu, Mooney-Rivlin, and Hill composite models from explicit specs.
@@ -1244,12 +1242,12 @@ pgo.energy.HillFiber(
 
 - `SimulationMesh` can carry ENu, Mooney-Rivlin, Orthotropic, and Hill payloads without losing type information.
 - `ElasticModelFactory` is the only place that maps payload + recipe to solver `ElasticModel`.
-- Mooney-Rivlin and Hill composite deformation energies are buildable from Python and covered by smoke/FD tests.
-- Orthotropic is visible in the same recipe API but only reports supported after Task 8 lands.
+- Mooney-Rivlin and Hill composite deformation energies are buildable through C++ factories and covered by smoke/FD tests.
+- The final Python recipe/test cases are documented for Task 10, but no public Python material API is exposed in Task 7.
 
 ## Task 8: Add Orthotropic Solver Elastic Law
 
-**目标：** 把 Orthotropic 从 `.veg`/payload 支持推进到 solver-ready deformation law，使 `pgo.energy.OrthotropicStVK()` 成为真实支持，而不是只读写材料参数。
+**目标：** 把 Orthotropic 从 `.veg`/payload 支持推进到 solver-ready deformation law，使 final Python API 可以安全暴露 `OrthotropicStVK()`，而不是只读写材料参数。
 
 **Files:**
 
@@ -1259,7 +1257,6 @@ pgo.energy.HillFiber(
 - Modify: `src/core/solidDeformationModel/CMakeLists.txt`
 - Create: `tests/src/core/solidDeformationModel/elasticModel3DOrthotropicStVK_gtest.cpp`
 - Modify: `tests/src/core/solidDeformationModel/factories/elasticModelFactory_gtest.cpp`
-- Modify: `tests/pypgo/test_deformation_energy.py`
 
 - [ ] Define the exact Orthotropic law first. Recommended first law: small/finite strain StVK-style orthotropic material in the local material frame `R`.
 - [ ] Build local-frame stiffness matrix from `E1/E2/E3`, `nu12/nu23/nu31`, `G12/G23/G31`; validate positive definiteness or fail early.
@@ -1271,13 +1268,13 @@ pgo.energy.HillFiber(
   - isotropic-equivalent parameters match isotropic StVK within tolerance
   - rotated material frame changes anisotropic response as expected
 - [ ] Add assembler-level smoke tests for tet and hex trilinear with `OrthotropicStVK`.
-- [ ] Enable Python `pgo.energy.OrthotropicStVK()` only after these tests pass.
-- [ ] Move the deferred Python Orthotropic test from Task 4 into this task: `OrthotropicStVK` builds deformation energy and fails clearly on payload/law mismatch or invalid stiffness.
+- [ ] Mark `OrthotropicStVK()` as eligible for the final Python API checkpoint only after these C++ tests pass.
+- [ ] Record final Python test cases for Task 10: `OrthotropicStVK` builds deformation energy and fails clearly on payload/law mismatch or invalid stiffness.
 
 **Exit criteria:**
 
 - Orthotropic has a real solver-side `ElasticModel`, not just payload conversion.
-- Python `OrthotropicStVK` builds deformation energy and computes value/gradient/Hessian.
+- C++ `OrthotropicStVK` builds deformation energy and computes value/gradient/Hessian.
 - Payload/law mismatch and invalid stiffness parameters fail with actionable errors.
 
 ## Task 9: Prepare Hermite Extension Point Without Implementing Hermite
@@ -1292,43 +1289,75 @@ pgo.energy.HillFiber(
 - Modify: `src/core/solidDeformationModel/formulations/formulationVariants.h`
 - Modify: `src/core/solidDeformationModel/deformationModelFactory.h`
 - Modify: `src/core/solidDeformationModel/factories/elementModelFactory.cpp`
-- Modify: `src/python/pypgo/bindings/energy_bindings.cpp`
-- Modify: `pypgo/fem.py`
-- Modify: `pypgo/energy.py`
 - Modify: `tests/src/core/solidDeformationModel/formulations/deformationModelFormulation_gtest.cpp`
-- Modify: `tests/pypgo/test_deformation_energy.py`
 
 - [ ] Add `HexTricubicHermite` tag options and `FormulationTraits<HexTricubicHermite>` specialization.
 - [ ] Extend `CubicFormulation` and `CubicFormulationVariant` to include `HexTricubicHermite`; this is intentionally delayed from Task 2 so the unsupported branch is introduced together with its tests.
 - [ ] Add C++ implementation guard:
   - `makeCubicDeformationModel(..., HexTricubicHermite{...}, ...)` recognizes the request but throws `std::logic_error("hex_tricubic_hermite is not implemented")`.
-- [ ] Add Python `HexTricubicHermite` dataclass with placeholder options:
+- [ ] Record final Python `HexTricubicHermite` dataclass options for Task 10, but do not expose the public dataclass in Task 9:
   - `quadrature_order`
   - future `continuity_policy`
   - future `dof_layout`
-- [ ] Python wrapper maps it to C++ only to receive `NotImplementedError` / `RuntimeError` with a stable message.
+- [ ] Record final Python wrapper behavior for Task 10: mapping it to C++ must receive `NotImplementedError` / `RuntimeError` with a stable message.
 - [ ] Cross-reference existing Hermite implementation plans:
   - `plan/tricubic_hermit_plastic_field_fem.plan.md`
   - `plan/tricubic_hermite_plastic_field_simulation_integration.plan.md`
 
 **Exit criteria:**
 
-- Users can see the future API name.
-- Calling it cannot accidentally fall back to `hex_trilinear`.
+- C++ recognizes the future API name.
+- C++ calls cannot accidentally fall back to `hex_trilinear`.
+- Public Python exposure remains deferred to Task 10.
 
-## Task 10: Documentation And Examples
+## Task 10: Finalize Python Deformation API, Documentation, And Examples
 
-**目标：** 更新 Python migration docs，让 deformation energy 位于 M3 energy/solver milestone 里，但 C++ API refactor 前置。
+**目标：** 在 C++ formulation、lifetime、material recipe、DofLayout 边界稳定后，统一确定并绑定 `pypgo.fem` / `pypgo.energy` public deformation API，同时更新 migration docs 和 examples。不要把 Task 4/7/8/9 的过渡接口直接发布成 public API。
 
 **Files:**
 
+- Create/modify: `src/python/pypgo/bindings/energy_bindings.cpp`
+- Modify: `src/python/pypgo/bindings/module.cpp`
+- Modify: `src/python/pypgo/CMakeLists.txt`
+- Create: `pypgo/fem.py`
+- Create: `pypgo/energy.py`
+- Modify: `pypgo/__init__.py`
+- Modify: `pypgo/sim.py`
+- Create: `tests/pypgo/test_deformation_energy.py`
 - Modify: `plan/python_api_migration/milestones.md`
 - Modify: `plan/python_api_migration/api_coverage.md`
 - Modify: `plan/python_api_migration/future_work.md`
 - Optional: add example under `pypgo/examples/scripts/`
 
 - [ ] In `milestones.md`, add this plan as the detailed M3 deformation energy subplan.
-- [ ] In `api_coverage.md`, mark deformation energy as planned with explicit `tet_p1` / `hex_trilinear` and phase-specific material support rows: ENu in Task 4, Mooney-Rivlin/Hill in Task 7, Orthotropic in Task 8.
+- [ ] Finalize the first public `pypgo.fem` / `pypgo.energy` API shape after reviewing completed C++ Tasks 3, 5, 6, 7, and 8.
+- [ ] Add `pypgo.fem` formulation dataclasses:
+  - `TetP1`
+  - `HexTrilinear`
+  - `ShellKoiter`
+  - optional `HexTricubicHermite` future-facing placeholder only if the final API checkpoint accepts exposing unsupported future formulations.
+- [ ] Add `pypgo.energy` recipe/dataclass wrappers only for C++-supported recipes:
+  - `StableNeo`
+  - `StVK`
+  - `MooneyRivlin`
+  - `OrthotropicStVK`
+  - `KoiterStVK`
+  - `HillFiber(base=..., hill_slot=..., element_fibers=...)`
+- [ ] Add `pypgo.energy.deformation_energy(...)` wrapper that maps Python dataclasses to `_core` variants/specs.
+- [ ] Enforce final Python policy:
+  - cubic requires explicit `HexTrilinear()`;
+  - shell requires explicit `ShellKoiter()`;
+  - payload/law mismatch raises clear `ValueError`;
+  - if `HexTricubicHermite()` is exposed, it raises a clear not-implemented error and cannot fall back to trilinear.
+- [ ] Add Python tests:
+  - tet energy builds and `zero_state()` has correct shape;
+  - cubic `HexTrilinear()` energy builds and has `num_dofs == 3 * num_vertices`;
+  - shell `ShellKoiter()` energy builds from `SimulationMesh.create_shell(...)`, uses `KoiterStVK()`, and has `num_dofs == 3 * num_vertices`;
+  - `value`, `gradient`, `hessian.to_coo()` smoke tests pass at zero state and a small perturbation;
+  - same `SimulationMesh` can create two independent energies;
+  - deleting the Python `sim_mesh` variable does not invalidate existing energies;
+  - Mooney-Rivlin, Hill, and Orthotropic recipe tests from Tasks 7 and 8 pass.
+- [ ] In `api_coverage.md`, mark deformation energy as supported only for the final Task 10 public API surface; do not document Task 4 private smoke hooks as public API.
 - [ ] In `future_work.md`, list full Hermite support as future work dependent on `DofLayout`; do not list Orthotropic as future work after Task 8 lands.
 - [ ] Add a small Python example:
 
@@ -1346,6 +1375,7 @@ pgo.energy.HillFiber(
 **Exit criteria:**
 
 - Migration docs do not describe cubic deformation as generic cubic FEM.
+- Public Python deformation API is finalized only after the C++ refactor tasks are complete enough to support it cleanly.
 - Python examples consistently use `HexTrilinear()`.
 - Material docs distinguish payload (`pypgo.mesh.veg`) from elastic recipe (`pypgo.energy`).
 
@@ -1393,7 +1423,7 @@ conda run -n libpgo python -m pytest -q tests/pypgo
 | Formulation API drifts into virtual base-class dispatch | Medium | Core API uses tag + concept/templates; `std::variant` appears only at Python/config boundaries |
 | Topology-specific template factories are defined only in `.cpp` | High | Put constrained template definitions directly in `deformationModelFactory.h`; `.cpp` only holds non-template helpers |
 | Python binding duplicates `SimulationMeshCore` or cannot keep its owned mesh alive | High | Move `SimulationMeshCore` into shared `simulation_mesh_core.h`; expose `mesh() const -> const SimulationMesh &`; make `DeformationEnergyCore` hold `std::shared_ptr<SimulationMeshCore>` |
-| Python Task 4 overclaims material support before payload/recipe migration | High | Task 4 volumetric support is limited to ENu-backed passive laws; shell support is limited to existing `ShellKoiter + KoiterStVK`; Mooney-Rivlin/Hill land in Task 7 and Orthotropic lands in Task 8 |
+| Python public API is finalized before C++ boundaries stabilize | High | Task 4 defers public `pypgo.fem` / `pypgo.energy`; Task 10 finalizes the public API only after formulation, lifetime, material recipe, and DofLayout refactors are stable |
 | `HexTricubicHermite` silently uses trilinear path | High | Explicit implementation guard must throw `not implemented` |
 | Shell path breaks because it uses negative local vertex sentinel | Medium | `Vertex3DofLayout` must preserve `vid < 0` zero-local behavior |
 
