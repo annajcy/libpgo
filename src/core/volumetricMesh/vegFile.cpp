@@ -315,46 +315,6 @@ VegFilePayload readAsciiVegFile(const std::filesystem::path &path)
   return payload;
 }
 
-std::unique_ptr<VM::Material> makeMaterial(const VegMaterialPayload &payload)
-{
-  return std::visit([](const auto &material) -> std::unique_ptr<VM::Material> {
-    using T = std::decay_t<decltype(material)>;
-    if constexpr (std::is_same_v<T, VegENuMaterialPayload>) {
-      return std::make_unique<VM::ENuMaterial>(material.name, material.density, material.E, material.nu);
-    }
-    else if constexpr (std::is_same_v<T, VegMooneyRivlinMaterialPayload>) {
-      return std::make_unique<VM::MooneyRivlinMaterial>(
-        material.name, material.density, material.mu01, material.mu10, material.v1);
-    }
-    else {
-      return std::make_unique<VM::OrthotropicMaterial>(
-        material.name, material.density,
-        material.E1, material.E2, material.E3,
-        material.nu12, material.nu23, material.nu31,
-        material.G12, material.G23, material.G31,
-        const_cast<double *>(material.R.data()));
-    }
-  }, payload);
-}
-
-std::vector<VM::Set> makeSets(const std::vector<VegSetPayload> &payloads)
-{
-  std::vector<VM::Set> sets;
-  sets.reserve(payloads.size());
-  for (const VegSetPayload &payload : payloads)
-    sets.emplace_back(payload.name, std::set<int>(payload.elements.begin(), payload.elements.end()));
-  return sets;
-}
-
-std::vector<VM::Region> makeRegions(const std::vector<VegRegionPayload> &payloads)
-{
-  std::vector<VM::Region> regions;
-  regions.reserve(payloads.size());
-  for (const VegRegionPayload &payload : payloads)
-    regions.emplace_back(payload.materialIndex, payload.setIndex);
-  return regions;
-}
-
 template<class T>
 void readBinary(FILE *file, T &value, const std::filesystem::path &path, const char *field)
 {
@@ -534,48 +494,8 @@ VegFilePayload readVegFile(const std::filesystem::path &path)
 
 void writeVegFile(const std::filesystem::path &path, const VegFilePayload &payload)
 {
-  std::vector<std::unique_ptr<VM::Material>> materials;
-  std::vector<const VM::Material *> materialPtrs;
-  materials.reserve(payload.materials.size());
-  materialPtrs.reserve(payload.materials.size());
-  for (const VegMaterialPayload &material : payload.materials) {
-    materials.push_back(makeMaterial(material));
-    materialPtrs.push_back(materials.back().get());
-  }
-  std::vector<VM::Set> sets = makeSets(payload.sets);
-  std::vector<VM::Region> regions = makeRegions(payload.regions);
-
-  const int result = std::visit([&](const auto &meshData) {
-    auto flat = meshData.elementsFlat();
-    std::vector<double> vertices;
-    vertices.reserve(meshData.positions().size() * 3);
-    for (const Vec3d &v : meshData.positions()) {
-      vertices.push_back(v[0]);
-      vertices.push_back(v[1]);
-      vertices.push_back(v[2]);
-    }
-
-    using T = std::decay_t<decltype(meshData)>;
-    if constexpr (std::is_same_v<T, Mesh::MeshData<4>>) {
-      TetMesh mesh(
-        static_cast<int>(meshData.numVertices()), vertices.data(),
-        static_cast<int>(meshData.numElements()), flat.data(),
-        static_cast<int>(materials.size()), materialPtrs.data(),
-        static_cast<int>(sets.size()), sets.data(),
-        static_cast<int>(regions.size()), regions.data());
-      return mesh.saveToAscii(path.string().c_str());
-    }
-    else {
-      CubicMesh mesh(
-        static_cast<int>(meshData.numVertices()), vertices.data(),
-        static_cast<int>(meshData.numElements()), flat.data(),
-        static_cast<int>(materials.size()), materialPtrs.data(),
-        static_cast<int>(sets.size()), sets.data(),
-        static_cast<int>(regions.size()), regions.data());
-      return mesh.saveToAscii(path.string().c_str());
-    }
-  }, payload.meshData);
-
+  auto mesh = VolumetricMesh::fromVegFilePayload(payload);
+  const int result = mesh->saveToAscii(path.string().c_str());
   if (result != 0)
     throw std::runtime_error("Failed to write veg file: " + path.string());
 }

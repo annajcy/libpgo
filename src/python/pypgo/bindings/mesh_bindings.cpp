@@ -25,6 +25,7 @@
 #include "simulationMesh.h"
 #include "sparse_matrix_core.h"
 #include "simulation_mesh_core.h"
+#include "vegFile.h"
 
 namespace nb = nanobind;
 using namespace pgo;
@@ -392,6 +393,30 @@ nb::object export_material_payload(const VolumeMeshCore& vm) {
     return materialPayloadFromMaterial(vMesh->getMaterial(0));
 }
 
+VegPayloadCore extract_veg_payload_from_volume_mesh(const VolumeMeshCore& vm) {
+    VolumetricMeshes::VegFilePayload payload;
+    {
+        nb::gil_scoped_release release;
+        payload = vm.getVM()->toVegFilePayload();
+    }
+
+    VegPayloadCore result;
+    result.meshData = std::visit([](auto&& meshData) {
+        return nb::cast(std::forward<decltype(meshData)>(meshData));
+    }, std::move(payload.meshData));
+
+    for (const auto& material : payload.materials) {
+        result.materials.append(materialPayloadFromVegPayload(material));
+    }
+    for (const auto& set : payload.sets) {
+        result.sets.emplace_back(set.name, set.elements);
+    }
+    for (const auto& region : payload.regions) {
+        result.regions.emplace_back(region.materialIndex, region.setIndex);
+    }
+    return result;
+}
+
 std::shared_ptr<VolumeMeshCore> create_volume_mesh_multi(
     const nb::object& meshDataObj,
     const std::vector<nb::object>& materialPayloads,
@@ -677,6 +702,7 @@ void init_mesh_bindings(nb::module_ &m) {
     m.def("read_veg", &read_veg);
     m.def("write_veg", &write_veg);
     m.def("extract_surface_mesh", &extract_surface_mesh, nb::arg("volume_mesh"), nb::arg("triangulate") = true);
+    m.def("extract_veg_payload_from_volume_mesh", &extract_veg_payload_from_volume_mesh, nb::arg("volume_mesh"));
     m.def("create_simulation_mesh_from_volume", &create_simulation_mesh_from_volume);
     m.def("create_simulation_mesh_from_shell", &create_simulation_mesh_from_shell,
         nb::arg("surface_data"), nb::arg("thickness"), nb::arg("E"), nb::arg("nu"));

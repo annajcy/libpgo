@@ -32,6 +32,8 @@
 
 #include "volumetricMeshParser.h"
 #include "volumetricMesh.h"
+#include "cubicMesh.h"
+#include "tetMesh.h"
 #include "volumetricMeshENuMaterial.h"
 #include "volumetricMeshOrthotropicMaterial.h"
 #include "volumetricMeshMooneyRivlinMaterial.h"
@@ -2764,6 +2766,156 @@ VolumetricMesh::Set VolumetricMesh::generateAllElementsSet(int numElements)
   for (int i = 0; i < numElements; i++)
     set.insert(i);
   return set;
+}
+
+using VM = VolumetricMesh;
+
+namespace
+{
+
+VegMaterialPayload extractMaterialPayload(const VM::Material *material)
+{
+  if (auto *enu = downcastENuMaterial(material)) {
+    return VegENuMaterialPayload{ enu->getName(), enu->getDensity(), enu->getE(), enu->getNu() };
+  }
+  if (auto *mr = downcastMooneyRivlinMaterial(const_cast<VM::Material *>(material))) {
+    return VegMooneyRivlinMaterialPayload{
+      mr->getName(), mr->getDensity(), mr->getmu01(), mr->getmu10(), mr->getv1() };
+  }
+  if (auto *ortho = downcastOrthotropicMaterial(const_cast<VM::Material *>(material))) {
+    VegOrthotropicMaterialPayload payload;
+    payload.name = ortho->getName();
+    payload.density = ortho->getDensity();
+    payload.E1 = ortho->getE1();
+    payload.E2 = ortho->getE2();
+    payload.E3 = ortho->getE3();
+    payload.nu12 = ortho->getNu12();
+    payload.nu23 = ortho->getNu23();
+    payload.nu31 = ortho->getNu31();
+    payload.G12 = ortho->getG12();
+    payload.G23 = ortho->getG23();
+    payload.G31 = ortho->getG31();
+    ortho->getR(payload.R.data());
+    return payload;
+  }
+  throw std::runtime_error("VolumetricMesh::toVegFilePayload: unsupported material type");
+}
+
+std::unique_ptr<VM::Material> makeMaterial(const VegMaterialPayload &payload)
+{
+  return std::visit([](const auto &material) -> std::unique_ptr<VM::Material> {
+    using T = std::decay_t<decltype(material)>;
+    if constexpr (std::is_same_v<T, VegENuMaterialPayload>) {
+      return std::make_unique<VM::ENuMaterial>(material.name, material.density, material.E, material.nu);
+    }
+    else if constexpr (std::is_same_v<T, VegMooneyRivlinMaterialPayload>) {
+      return std::make_unique<VM::MooneyRivlinMaterial>(
+        material.name, material.density, material.mu01, material.mu10, material.v1);
+    }
+    else {
+      return std::make_unique<VM::OrthotropicMaterial>(
+        material.name, material.density,
+        material.E1, material.E2, material.E3,
+        material.nu12, material.nu23, material.nu31,
+        material.G12, material.G23, material.G31,
+        const_cast<double *>(material.R.data()));
+    }
+  }, payload);
+}
+
+std::vector<VM::Set> makeSets(const std::vector<VegSetPayload> &payloads)
+{
+  std::vector<VM::Set> sets;
+  sets.reserve(payloads.size());
+  for (const VegSetPayload &payload : payloads)
+    sets.emplace_back(payload.name, std::set<int>(payload.elements.begin(), payload.elements.end()));
+  return sets;
+}
+
+std::vector<VM::Region> makeRegions(const std::vector<VegRegionPayload> &payloads)
+{
+  std::vector<VM::Region> regions;
+  regions.reserve(payloads.size());
+  for (const VegRegionPayload &payload : payloads)
+    regions.emplace_back(payload.materialIndex, payload.setIndex);
+  return regions;
+}
+
+}  // namespace
+
+VegFilePayload VolumetricMesh::toVegFilePayload() const
+{
+  VegFilePayload payload;
+
+  for (int i = 0; i < getNumMaterials(); ++i)
+    payload.materials.push_back(extractMaterialPayload(getMaterial(i)));
+
+  for (int i = 0; i < getNumSets(); ++i) {
+    const auto &s = getSet(i);
+    const auto &elements = s.getElements();
+    payload.sets.push_back(VegSetPayload{ s.getName(), std::vector<int>(elements.begin(), elements.end()) });
+  }
+
+  for (int i = 0; i < getNumRegions(); ++i) {
+    const auto &r = getRegion(i);
+    payload.regions.push_back(VegRegionPayload{ r.getMaterialIndex(), r.getSetIndex() });
+  }
+
+  std::vector<Vec3d> vertices;
+  std::vector<int> elements;
+  exportMeshGeometry(vertices, elements);
+
+  if (getElementType() == VM::TET)
+    payload.meshData = Mesh::MeshData<4>::fromFlatElements(std::move(vertices), std::move(elements));
+  else if (getElementType() == VM::CUBIC)
+    payload.meshData = Mesh::MeshData<8>::fromFlatElements(std::move(vertices), std::move(elements));
+  else
+    throw std::runtime_error("VolumetricMesh::toVegFilePayload: unsupported element type");
+
+  return payload;
+}
+
+std::unique_ptr<VolumetricMesh> VolumetricMesh::fromVegFilePayload(const VegFilePayload &payload)
+{
+  std::vector<std::unique_ptr<VM::Material>> materials;
+  std::vector<const VM::Material *> materialPtrs;
+  materials.reserve(payload.materials.size());
+  materialPtrs.reserve(payload.materials.size());
+  for (const VegMaterialPayload &material : payload.materials) {
+    materials.push_back(makeMaterial(material));
+    materialPtrs.push_back(materials.back().get());
+  }
+  std::vector<VM::Set> sets = makeSets(payload.sets);
+  std::vector<VM::Region> regions = makeRegions(payload.regions);
+
+  return std::visit([&](const auto &meshData) -> std::unique_ptr<VolumetricMesh> {
+    auto flat = meshData.elementsFlat();
+    std::vector<double> vertices;
+    vertices.reserve(meshData.positions().size() * 3);
+    for (const Vec3d &v : meshData.positions()) {
+      vertices.push_back(v[0]);
+      vertices.push_back(v[1]);
+      vertices.push_back(v[2]);
+    }
+
+    using T = std::decay_t<decltype(meshData)>;
+    if constexpr (std::is_same_v<T, Mesh::MeshData<4>>) {
+      return std::make_unique<TetMesh>(
+        static_cast<int>(meshData.numVertices()), vertices.data(),
+        static_cast<int>(meshData.numElements()), flat.data(),
+        static_cast<int>(materials.size()), materialPtrs.data(),
+        static_cast<int>(sets.size()), sets.data(),
+        static_cast<int>(regions.size()), regions.data());
+    }
+    else {
+      return std::make_unique<CubicMesh>(
+        static_cast<int>(meshData.numVertices()), vertices.data(),
+        static_cast<int>(meshData.numElements()), flat.data(),
+        static_cast<int>(materials.size()), materialPtrs.data(),
+        static_cast<int>(sets.size()), sets.data(),
+        static_cast<int>(regions.size()), regions.data());
+    }
+  }, payload.meshData);
 }
 
 }  // namespace VolumetricMeshes

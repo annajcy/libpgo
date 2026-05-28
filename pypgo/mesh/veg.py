@@ -117,7 +117,6 @@ class VegFile:
             for region in self.regions
         ]
 
-
 def _wrap_material_payload(m) -> MaterialLike:
     if isinstance(m, _core.VegENuMaterialPayloadCore):
         return ENuMaterial(m.name, density=m.density, E=m.E, nu=m.nu)
@@ -201,7 +200,6 @@ class VolumeMesh:
             raise TypeError(f"mesh_data must be a TetMeshData or CubicMeshData, got {type(mesh_data).__name__}")
 
         self._mesh_data = mesh_data
-        self._material = None
         materials, sets, region_payloads = _validate_and_split_regions(regions, mesh_data.num_elements)
         self._core_obj = _core.create_volume_mesh_multi(
             mesh_data._core_obj, materials, sets, region_payloads)
@@ -214,7 +212,6 @@ class VolumeMesh:
             raise TypeError(f"material must be a veg material type, got {type(material).__name__}")
         obj = cls.__new__(cls)
         obj._mesh_data = mesh_data
-        obj._material = material
         obj._core_obj = _core.create_volume_mesh_multi(
             mesh_data._core_obj,
             [_material_to_core_payload(material)],
@@ -224,15 +221,8 @@ class VolumeMesh:
         return obj
 
     @classmethod
-    def load(cls, path: str) -> "VolumeMesh":
-        obj = cls.__new__(cls)
-        obj._core_obj = _core.load_volume_mesh(str(path))
-        obj._mesh_data = None
-        obj._material = None
-        return obj
-
-    def save(self, path: str) -> None:
-        _core.save_volume_mesh(str(path), self._core_obj)
+    def from_veg_file(cls, veg: VegFile) -> "VolumeMesh":
+        return cls(veg.mesh_data, veg.to_volume_regions())
 
     def extract_surface_mesh(self, *, triangulate: bool = True) -> TriMeshData:
         return TriMeshData(_core.extract_surface_mesh(self._core_obj, bool(triangulate)))
@@ -261,13 +251,20 @@ class VolumeMesh:
 
     @property
     def material(self):
-        if self._material is None:
-            self._material = _wrap_material_payload(self._core_obj.export_material_payload())
-        return self._material
+        return _wrap_material_payload(self._core_obj.export_material_payload())
 
     @property
     def material_spec(self):
         return self.material
+
+    def to_veg_file(self) -> VegFile:
+        payload = _core.extract_veg_payload_from_volume_mesh(self._core_obj)
+        return VegFile(
+            mesh_data=_wrap_mesh_data_core(payload.mesh_data),
+            materials=[_wrap_material_payload(m) for m in payload.materials],
+            sets=[MeshSet(name, list(elements)) for name, elements in payload.sets],
+            regions=[MeshRegion(mi, si) for mi, si in payload.regions],
+        )
 
     def __repr__(self) -> str:
         return (

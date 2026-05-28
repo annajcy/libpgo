@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "cubicMesh.h"
 #include "tetMesh.h"
 #include "vegFile.h"
 #include "volumetricMeshENuMaterial.h"
@@ -144,4 +145,86 @@ TEST(VegFileGTest, ReadsBinaryPayload)
   expectPayloadMatches(loaded);
 
   std::remove(binaryPath.string().c_str());
+}
+
+TEST(VegFileGTest, ExtractsPayloadFromTetMesh)
+{
+  std::vector<double> vertices{
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,
+    1.0, 1.0, 1.0,
+  };
+  std::vector<int> elements{ 0, 1, 2, 3, 1, 2, 3, 4 };
+  VM::ENuMaterial soft("soft", 1000.0, 2.0e6, 0.35);
+  VM::MooneyRivlinMaterial insert("insert", 1200.0, 3.0, 4.0, 0.2);
+  double R[9]{ 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0 };
+  VM::OrthotropicMaterial unusedOrtho(
+    "unusedOrtho", 900.0,
+    10.0, 11.0, 12.0,
+    0.1, 0.2, 0.3,
+    2.0, 3.0, 4.0,
+    R);
+  std::vector<const VM::Material *> materials{ &soft, &insert, &unusedOrtho };
+  std::vector<VM::Set> sets{
+    VM::Set("allElements", std::set<int>{ 0, 1 }),
+    VM::Set("softSet", std::set<int>{ 0 }),
+    VM::Set("insertSet", std::set<int>{ 1 }),
+  };
+  std::vector<VM::Region> regions{ VM::Region(0, 1), VM::Region(1, 2) };
+
+  TetMesh mesh(
+    5, vertices.data(),
+    2, elements.data(),
+    static_cast<int>(materials.size()), materials.data(),
+    static_cast<int>(sets.size()), sets.data(),
+    static_cast<int>(regions.size()), regions.data());
+
+  const VegFilePayload payload = mesh.toVegFilePayload();
+  expectPayloadMatches(payload);
+}
+
+TEST(VegFileGTest, ExtractsPayloadFromCubicMesh)
+{
+  std::vector<double> vertices{
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    1.0, 1.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,
+    1.0, 0.0, 1.0,
+    1.0, 1.0, 1.0,
+    0.0, 1.0, 1.0,
+  };
+  std::vector<int> elements{ 0, 1, 2, 3, 4, 5, 6, 7 };
+  VM::ENuMaterial mat("cube", 1000.0, 1e6, 0.4);
+  std::vector<const VM::Material *> materials{ &mat };
+  VM::Set allSet("all", std::set<int>{ 0 });
+  std::vector<VM::Set> sets{ allSet };
+  std::vector<VM::Region> regions{ VM::Region(0, 0) };
+
+  pgo::VolumetricMeshes::CubicMesh mesh(
+    8, vertices.data(),
+    1, elements.data(),
+    1, materials.data(),
+    1, sets.data(),
+    1, regions.data());
+
+  const VegFilePayload payload = mesh.toVegFilePayload();
+  ASSERT_TRUE(std::holds_alternative<pgo::Mesh::CubicMeshData>(payload.meshData));
+  const auto &meshData = std::get<pgo::Mesh::CubicMeshData>(payload.meshData);
+  EXPECT_EQ(meshData.numVertices(), 8);
+  EXPECT_EQ(meshData.numElements(), 1);
+
+  ASSERT_EQ(payload.materials.size(), 1);
+  ASSERT_TRUE(std::holds_alternative<VegENuMaterialPayload>(payload.materials[0]));
+  EXPECT_DOUBLE_EQ(std::get<VegENuMaterialPayload>(payload.materials[0]).E, 1e6);
+
+  ASSERT_EQ(payload.sets.size(), 1);
+  EXPECT_EQ(payload.sets[0].name, "all");
+
+  ASSERT_EQ(payload.regions.size(), 1);
+  EXPECT_EQ(payload.regions[0].materialIndex, 0);
+  EXPECT_EQ(payload.regions[0].setIndex, 0);
 }

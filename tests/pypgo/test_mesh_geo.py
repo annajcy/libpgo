@@ -145,7 +145,7 @@ def test_volumemesh_constructs_from_volume_mesh_data_only():
     assert tet_volume.num_elements == 1
     assert tet_volume.mesh_data is tet_data
     assert tet_volume.geometry is tet_data
-    assert tet_volume.material is material
+    assert tet_volume.material == material
 
     cubic_volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(cubic_data, material)
     assert cubic_volume.num_vertices == 8
@@ -166,7 +166,7 @@ def test_volumemesh_rejects_geo_and_tri_data():
         pgo.mesh.veg.VolumeMesh.create_from_single_material(cubic_geo, material)
 
 
-def test_volumemesh_load_and_save_roundtrip(tmp_path):
+def test_volumemesh_to_veg_file_and_back_roundtrip(tmp_path):
     vertices = tet_vertices()
     elements = np.array([[0, 1, 2, 3]], dtype=np.int64)
     tet_data = pgo.mesh.TetMeshData(vertices, elements)
@@ -174,17 +174,23 @@ def test_volumemesh_load_and_save_roundtrip(tmp_path):
     volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet_data, material)
 
     veg_file = str(tmp_path / "roundtrip.veg")
-    volume.save(veg_file)
-    loaded = pgo.mesh.veg.VolumeMesh.load(veg_file)
+    veg = volume.to_veg_file()
+    pgo.mesh.veg.write_veg(veg_file, veg)
+
+    loaded_veg = pgo.mesh.veg.read_veg(veg_file)
+    loaded = pgo.mesh.veg.VolumeMesh.from_veg_file(loaded_veg)
 
     assert loaded.num_vertices == 4
     assert loaded.num_elements == 1
     assert isinstance(loaded.mesh_data, pgo.mesh.TetMeshData)
     assert np.allclose(loaded.mesh_data.vertices, vertices)
     assert np.array_equal(loaded.mesh_data.elements, elements)
-    assert loaded.material.E == material.E
-    assert loaded.material.nu == material.nu
-    assert loaded.material.density == material.density
+    assert loaded.material == material
+
+    # Direct to_veg_file → from_veg_file roundtrip (no file I/O).
+    direct = pgo.mesh.veg.VolumeMesh.from_veg_file(volume.to_veg_file())
+    assert direct.num_vertices == 4
+    assert direct.material == material
 
 
 def test_old_public_names_are_removed():

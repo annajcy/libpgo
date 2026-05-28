@@ -57,6 +57,8 @@
 #include <string>
 #include <map>
 
+#include "vegFile.h"
+
 namespace pgo
 {
 namespace VolumetricMeshes
@@ -98,6 +100,12 @@ public:
   void exportMeshGeometry(int *numVertices, double **vertices, int *numElements = nullptr, int *numElementVertices = nullptr, int **elements = nullptr) const;
   void exportMeshGeometry(std::vector<Vec3d> &vertices, std::vector<int> &elements) const;
   void exportMeshGeometry(std::vector<Vec3d> &vertices) const;
+
+  // In-memory export to the VegFilePayload representation used by readVegFile / writeVegFile.
+  VegFilePayload toVegFilePayload() const;
+
+  // Construct a new TetMesh or CubicMesh from a VegFilePayload.
+  static std::unique_ptr<VolumetricMesh> fromVegFilePayload(const VegFilePayload &payload);
 
   // === vertex and element access ===
 
