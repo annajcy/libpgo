@@ -37,6 +37,9 @@ copyright to USC, MIT, NUS
 #include "plasticModel2DFundamentalForms.h"
 #include "plasticModel2DFundamentalFormsUniformStretch.h"
 
+#include "factories/elasticModelFactory.h"
+#include "factories/plasticModelFactory.h"
+
 #include "pgoLogging.h"
 #include "EigenSupport.h"
 
@@ -343,7 +346,7 @@ DeformationModelManager::~DeformationModelManager()
 
 void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticModelType, DeformationModelElasticMaterial elasticMaterialType)
 {
-  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Computing the type of each element...");
+  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Initializing element models (manager path)...");
 
   if (data->fiberDirections.size() || data->vertexFiberDirections.size()) {
     data->computeFiberAxes();
@@ -354,8 +357,7 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
   data->numPlasticParams = it->second;
   data->globalRotation = ES::M3d::Identity();
 
-  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Initializing element material model...");
-
+  // Allocate storage vectors (ownership tracking, same layout as before).
   if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
     elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK ||
     elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL) {
@@ -407,10 +409,9 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
     data->shellFabricMaterials.assign(data->nele, nullptr);
   }
 
-    if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_STVK) {
+  if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_STVK) {
     data->shellSTVKMaterials.assign(data->nele, nullptr);
   }
-
 
   data->elementFEMs.assign(data->nele, nullptr);
   data->elementMaterials.assign(data->nele, nullptr);
@@ -431,217 +432,46 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
     data->plasticShellUniformStretch.assign(data->nele, nullptr);
   }
 
-  // for (int ele = 0; ele < data->nele; ele++) {
   tbb::parallel_for(
     0, data->nele, [&](int ele) {
-      ES::V3d dir(1, 0, 0);
+      // Fiber direction (row 0 of fiberAxesRest) for Hill-type materials.
+      const double *fiberDir = nullptr;
       if (data->fiberAxesRest.size() > 0) {
-        dir = data->fiberAxesRest.block<3, 3>(0, ele * 3).row(0);
+        fiberDir = data->fiberAxesRest.block<3, 3>(0, ele * 3).row(0).data();
       }
 
-      if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STABLE_NEO) {
-        const SimulationMeshENuMaterial *mat = dynamic_cast<const SimulationMeshENuMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
+      // Create elastic model via factory.
+      auto elasticResult = ElasticModelFactory::create(
+        *data->simulationMesh, ele, elasticMaterialType, fiberDir);
 
-        double mu = mat->getMuLame();
-        double lambda = mat->getLambdaLame();
+      data->elementMaterials[ele] = elasticResult.elementMaterial;
+      if (elasticResult.stableNeo) data->stableNeoHookeanMaterials[ele] = elasticResult.stableNeo;
+      if (elasticResult.linear) data->linearMaterials[ele] = elasticResult.linear;
+      if (elasticResult.hill) data->hillTypeMaterials[ele] = elasticResult.hill;
+      if (elasticResult.invariantBased) data->invariantBasedMaterials[ele] = elasticResult.invariantBased;
+      if (elasticResult.volume) data->volumeMaterials[ele] = elasticResult.volume;
+      if (elasticResult.stvk) data->stvkMaterials[ele] = elasticResult.stvk;
+      if (elasticResult.mooneyRivlin) data->mooneyRivlinMaterials[ele] = elasticResult.mooneyRivlin;
+      if (elasticResult.combined2) data->combined2Materials[ele] = elasticResult.combined2;
+      if (elasticResult.combined3) data->combined3Materials[ele] = elasticResult.combined3;
+      if (elasticResult.shellFabric) data->shellFabricMaterials[ele] = elasticResult.shellFabric;
+      if (elasticResult.shellSTVK) data->shellSTVKMaterials[ele] = elasticResult.shellSTVK;
+      if (elasticResult.invariantModel) data->invariantModels[ele] = elasticResult.invariantModel;
 
-        data->stableNeoHookeanMaterials[ele] = new ElasticModelStableNeoHookeanMaterial(mu, lambda);
+      // Create plastic model via factory.
+      const double *fiberAxesRest = (data->fiberAxesRest.size() > 0)
+        ? data->fiberAxesRest.data() + ele * 9 : nullptr;
 
-        const SimulationMeshHillMaterial *hillMat = dynamic_cast<const SimulationMeshHillMaterial *>(data->simulationMesh->getElementMaterial(ele, 1));
-        PGO_ALOG(hillMat != nullptr);
-        double Eact = hillMat->getEact();
-        double gamma = hillMat->getGamma();
-        double lo = hillMat->getLo();
+      auto plasticResult = PlasticModelFactory::create(
+        *data->simulationMesh, ele, plasticModelType, fiberAxesRest);
 
-        data->hillTypeMaterials[ele] = new ElasticModelHillTypeMaterial(gamma, Eact, lo, dir.data());
-        data->combined2Materials[ele] = new ElasticModelCombinedMaterial<2>(data->stableNeoHookeanMaterials[ele], data->hillTypeMaterials[ele]);
+      if (plasticResult.volConstant) data->plasticVolConstant[ele] = plasticResult.volConstant;
+      if (plasticResult.vol3DOF) data->plasticVol3DOF[ele] = plasticResult.vol3DOF;
+      if (plasticResult.vol6DOF) data->plasticVol6DOF[ele] = plasticResult.vol6DOF;
+      if (plasticResult.shellConstant) data->plasticShellConstant[ele] = plasticResult.shellConstant;
+      if (plasticResult.shellUniformStretch) data->plasticShellUniformStretch[ele] = plasticResult.shellUniformStretch;
 
-        data->elementMaterials[ele] = data->combined2Materials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::LINEAR) {
-        const SimulationMeshENuMaterial *mat = dynamic_cast<const SimulationMeshENuMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
-
-        double mu = mat->getMuLame();
-        double lambda = mat->getLambdaLame();
-
-        data->linearMaterials[ele] = new ElasticModelLinearMaterial(mu, lambda);
-        data->elementMaterials[ele] = data->linearMaterials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK) {
-        const SimulationMeshENuMaterial *mat = dynamic_cast<const SimulationMeshENuMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
-
-        double E = mat->getE();
-        double nu = mat->getNu();
-        double compressionRatio = mat->getCompressionRatio();
-
-        data->invariantModels[ele] = new InvariantBasedMaterialStVK(E, nu, compressionRatio);
-
-        data->invariantBasedMaterials[ele] = new ElasticModelInvariantBasedMaterial(data->invariantModels[ele]);
-
-        const SimulationMeshHillMaterial *hillMat = dynamic_cast<const SimulationMeshHillMaterial *>(data->simulationMesh->getElementMaterial(ele, 1));
-        PGO_ALOG(hillMat != nullptr);
-        double Eact = hillMat->getEact();
-        double gamma = hillMat->getGamma();
-        double lo = hillMat->getLo();
-
-        data->hillTypeMaterials[ele] = new ElasticModelHillTypeMaterial(gamma, Eact, lo, dir.data());
-        data->combined2Materials[ele] = new ElasticModelCombinedMaterial<2>(data->invariantBasedMaterials[ele], data->hillTypeMaterials[ele]);
-
-        data->elementMaterials[ele] = data->combined2Materials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL) {
-        const SimulationMeshENuMaterial *mat = dynamic_cast<const SimulationMeshENuMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
-
-        double E = mat->getE();
-        double nu = mat->getNu();
-        double compressionRatio = mat->getCompressionRatio();
-
-        data->invariantModels[ele] = new InvariantBasedMaterialStVK(E, nu, compressionRatio);
-
-        data->invariantBasedMaterials[ele] = new ElasticModelInvariantBasedMaterial(data->invariantModels[ele]);
-
-        const SimulationMeshHillMaterial *hillMat = dynamic_cast<const SimulationMeshHillMaterial *>(data->simulationMesh->getElementMaterial(ele, 1));
-        PGO_ALOG(hillMat != nullptr);
-        double Eact = hillMat->getEact();
-        double gamma = hillMat->getGamma();
-        double lo = hillMat->getLo();
-
-        data->hillTypeMaterials[ele] = new ElasticModelHillTypeMaterial(gamma, Eact, lo, dir.data());
-
-        data->volumeMaterials[ele] = new ElasticModelVolumeMaterial(compressionRatio);
-
-        data->combined3Materials[ele] = new ElasticModelCombinedMaterial<3>(data->invariantBasedMaterials[ele], data->hillTypeMaterials[ele], data->volumeMaterials[ele]);
-
-        data->elementMaterials[ele] = data->combined3Materials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::STABLE_NEO) {
-        const SimulationMeshENuMaterial *mat = dynamic_cast<const SimulationMeshENuMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
-
-        double mu = mat->getMuLame();
-        double lambda = mat->getLambdaLame();
-
-        data->stableNeoHookeanMaterials[ele] = new ElasticModelStableNeoHookeanMaterial(mu, lambda);
-
-        data->elementMaterials[ele] = data->stableNeoHookeanMaterials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::INV_STVK) {
-        const SimulationMeshENuMaterial *mat = dynamic_cast<const SimulationMeshENuMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
-
-        double E = mat->getE();
-        double nu = mat->getNu();
-        double compressionRatio = mat->getCompressionRatio();
-
-        data->invariantModels[ele] = new InvariantBasedMaterialStVK(E, nu, compressionRatio);
-
-        data->invariantBasedMaterials[ele] = new ElasticModelInvariantBasedMaterial(data->invariantModels[ele]);
-
-        data->elementMaterials[ele] = data->invariantBasedMaterials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::STVK_VOL) {
-        const SimulationMeshENuMaterial *mat = dynamic_cast<const SimulationMeshENuMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
-
-        double E = mat->getE();
-        double nu = mat->getNu();
-        double compressionRatio = mat->getCompressionRatio();
-
-        data->invariantModels[ele] = new InvariantBasedMaterialStVK(E, nu, compressionRatio);
-
-        data->invariantBasedMaterials[ele] = new ElasticModelInvariantBasedMaterial(data->invariantModels[ele]);
-
-        data->volumeMaterials[ele] = new ElasticModelVolumeMaterial(compressionRatio);
-
-        data->combined2Materials[ele] = new ElasticModelCombinedMaterial<2>(data->invariantBasedMaterials[ele], data->volumeMaterials[ele]);
-
-        data->elementMaterials[ele] = data->combined2Materials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::VOLUME) {
-        const SimulationMeshENuMaterial *mat = dynamic_cast<const SimulationMeshENuMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
-
-        double compressionRatio = mat->getCompressionRatio();
-
-        data->volumeMaterials[ele] = new ElasticModelVolumeMaterial(compressionRatio);
-
-        data->elementMaterials[ele] = data->volumeMaterials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::STVK) {
-        const SimulationMeshENuMaterial *mat = dynamic_cast<const SimulationMeshENuMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
-
-        double mu = mat->getMuLame();
-        double lambda = mat->getLambdaLame();
-
-        data->stvkMaterials[ele] = new ElasticModel3DSTVKMaterial(mu, lambda);
-        data->elementMaterials[ele] = data->stvkMaterials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::MOONEY_RIVLIN) {
-        const SimulationMeshMooneyRivlinMaterial *mat = dynamic_cast<const SimulationMeshMooneyRivlinMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        PGO_ALOG(mat != nullptr);
-
-        int N = mat->getN();
-        int M = mat->getM();
-
-        data->mooneyRivlinMaterials[ele] = new ElasticModel3DMooneyRivlin(N, mat->getC(), M, mat->getD());
-        data->elementMaterials[ele] = data->mooneyRivlinMaterials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_FABRIC) {
-        // const SimulationMeshKoiterFabricMaterial *mat = dynamic_cast<const SimulationMeshKoiterFabricMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        // PGO_ALOG(mat != nullptr);
-        // double E1 = mat->getE1();
-        // double E2 = mat->getE2();
-        // double G12 = mat->getG12();
-        // double nu12 = mat->getNu12();
-        // double nu21 = mat->getNu21();
-        // double bendingE1 = mat->getBendingE1();
-        // double bendingE2 = mat->getBendingE2();
-        // double bendingG12 = mat->getBendingG12();
-        ES::V2d dir0(1, 0), dir1(0, 1);
-        data->shellFabricMaterials[ele] = new ElasticModel2DFundamentalFormsFabric(dir0, dir1);
-        data->elementMaterials[ele] = data->shellFabricMaterials[ele];
-      }
-      else if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_STVK) {        
-        data->shellSTVKMaterials[ele] = new ElasticModel2DFundamentalFormsSTVK;
-        data->elementMaterials[ele] = data->shellSTVKMaterials[ele];
-      }
-      else {
-        throw std::runtime_error("unknown elastic model");
-      }
-
-      // Plastic Model Type
-      PlasticModel *pm;
-      if (plasticModelType == DeformationModelPlasticMaterial::VOLUMETRIC_DOF0) {
-        ES::M3d I = ES::M3d::Identity();
-        data->plasticVolConstant[ele] = new PlasticModel3DConstant(I.data());
-        pm = data->plasticVolConstant[ele];
-      }
-      else if (plasticModelType == DeformationModelPlasticMaterial::VOLUMETRIC_DOF3) {
-        data->plasticVol3DOF[ele] = new PlasticModel3D3DOF(data->fiberAxesRest.data() + ele * 9);
-        pm = data->plasticVol3DOF[ele];
-      }
-      else if (plasticModelType == DeformationModelPlasticMaterial::VOLUMETRIC_DOF6) {
-        data->plasticVol6DOF[ele] = new PlasticModel3D6DOF();
-        pm = data->plasticVol6DOF[ele];
-      }
-      else if (plasticModelType == DeformationModelPlasticMaterial::SHELL_FF_DOF0) {
-        data->plasticShellConstant[ele] = new PlasticModel2DFundamentalForms();
-        pm = data->plasticShellConstant[ele];
-      }
-      else if (plasticModelType == DeformationModelPlasticMaterial::SHELL_FF_DOF1) {
-        data->plasticShellUniformStretch[ele] = new PlasticModel2DFundamentalFormsUniformStretch();
-        pm = data->plasticShellUniformStretch[ele];
-      }
-      else {
-        throw std::runtime_error("unknown plastic model");
-      }
-
-      // Mesh Element Type
+      // Create element FEM (still uses legacy wrappers from the manager path).
       if (data->simulationMesh->getElementType() == SimulationMeshType::TET) {
         ES::V12d restPosition;
         for (int j = 0; j < 4; j++) {
@@ -652,7 +482,7 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
 
         data->elementFEMs[ele] = new TetMeshDeformationModel(
           restPosition.data(), restPosition.data() + 3, restPosition.data() + 6, restPosition.data() + 9,
-          data->elementMaterials[ele], pm);
+          data->elementMaterials[ele], plasticResult.model);
       } else if (data->simulationMesh->getElementType() == SimulationMeshType::CUBIC) {
         ES::V24d restPosition;
         for (int j = 0; j < 8; j++) {
@@ -662,7 +492,7 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
         }
 
         data->elementFEMs[ele] = new CubicMeshDeformationModel(
-          restPosition.data(), data->elementMaterials[ele], pm);
+          restPosition.data(), data->elementMaterials[ele], plasticResult.model);
       }
       else if (data->simulationMesh->getElementType() == SimulationMeshType::SHELL) {
         ES::V18d restPosition;
@@ -677,32 +507,19 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
           restPosition.segment<3>(3 * j) = p;
         }
 
-        double h = 0;
-        const SimulationMeshENuhMaterial *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-        if (mat == nullptr) {
-          const SimulationMeshMooneyRivlinhMaterial *mat = dynamic_cast<const SimulationMeshMooneyRivlinhMaterial *>(data->simulationMesh->getElementMaterial(ele, 0));
-          PGO_ALOG(mat != nullptr);
-
-          h = mat->geth();
-        }
-        else {
-          h = mat->geth();
-        }
-
         if (elasticMaterialType == DeformationModelElasticMaterial::STVK ||
           elasticMaterialType == DeformationModelElasticMaterial::LINEAR ||
           elasticMaterialType == DeformationModelElasticMaterial::MOONEY_RIVLIN) {
             throw std::logic_error("unsupported elastic material for shell element");
-         
         }
         else if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_FABRIC ||
           elasticMaterialType == DeformationModelElasticMaterial::KOITER_STVK) {
-          data->elementFEMs[ele] = new KoiterDeformationModel(restPosition.data(), restPosition.data() + 3, restPosition.data() + 6, restPosition.data() + 9, restPosition.data() + 12,
-            restPosition.data() + 15, data->elementMaterials[ele], pm);
+          data->elementFEMs[ele] = new KoiterDeformationModel(restPosition.data(), restPosition.data() + 3, restPosition.data() + 6,
+            restPosition.data() + 9, restPosition.data() + 12,
+            restPosition.data() + 15, data->elementMaterials[ele], plasticResult.model);
         }
         else {
           throw std::logic_error("unsupported elastic material for shell element");
-          {};
         }
       }
       else {
@@ -714,6 +531,12 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
 const DeformationModel *DeformationModelManager::getDeformationModel(int eleID) const
 {
   return data->elementFEMs[eleID];
+}
+
+void DeformationModelManager::setDeformationModel(int ele, DeformationModel *model)
+{
+  delete data->elementFEMs[ele];
+  data->elementFEMs[ele] = model;
 }
 
 void DeformationModelManager::setEnforceSPD(int enable)

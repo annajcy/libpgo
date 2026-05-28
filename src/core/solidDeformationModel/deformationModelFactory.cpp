@@ -5,10 +5,6 @@ copyright to USC
 #include "deformationModelFactory.h"
 
 #include "simulationMesh.h"
-#include "deformationModel.h"
-#include "deformationModelAssembler.h"
-#include "deformationModelEnergy.h"
-#include "plasticModel3DDeformationGradient.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "volumetricMesh.h"
@@ -76,35 +72,17 @@ DeformationModelBundle makeDeformationModelBundle(
   else if (static_cast<int>(elementWeights.size()) != nele)
     throw std::invalid_argument("makeDeformationModelBundle: elementWeights size does not match the element count.");
 
+  // Default param snapshots using factory helpers.
   const int numPlasticParams = manager->getNumPlasticParameters();
-  ES::VXd plasticParams(static_cast<Eigen::Index>(nele) * numPlasticParams);
-  if (numPlasticParams > 0) {
-    plasticParams.setZero();
-    const ES::M3d identity = ES::M3d::Identity();
-    for (int ei = 0; ei < nele; ei++) {
-      const auto *pm = dynamic_cast<const PlasticModel3DDeformationGradient *>(
-        manager->getDeformationModel(ei)->getPlasticModel());
-      if (pm)
-        pm->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
-    }
-  }
+  std::vector<PlasticModel *> plasticModels(nele);
+  for (int ei = 0; ei < nele; ei++)
+    plasticModels[ei] = const_cast<PlasticModel *>(manager->getDeformationModel(ei)->getPlasticModel());
+  ES::VXd plasticParams = PlasticModelFactory::initializeDefaultPlasticParams(
+    nele, numPlasticParams, plasticModels.data());
 
   const int numElasticParams = manager->getNumElasticParameters();
-  ES::VXd elasticParams(static_cast<Eigen::Index>(nele) * numElasticParams);
-  if (numElasticParams > 0) {
-    elasticParams.setZero();
-    for (int ei = 0; ei < nele; ei++) {
-      if (elastic == DeformationModelElasticMaterial::KOITER_STVK) {
-        const auto *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(mesh.getElementMaterial(ei, 0));
-        if (!mat)
-          throw std::runtime_error("makeDeformationModelBundle: KOITER_STVK requires SimulationMeshENuhMaterial.");
-        elasticParams.segment<5>(ei * 5) << mat->getE(), mat->getNu(), mat->getE(), mat->getNu(), mat->geth();
-      }
-      else {
-        throw std::runtime_error("makeDeformationModelBundle: unsupported elastic parameterized material.");
-      }
-    }
-  }
+  ES::VXd elasticParams = ElasticModelFactory::initializeDefaultElasticParams(
+    mesh, elastic, numElasticParams);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), elementWeights.data());
 

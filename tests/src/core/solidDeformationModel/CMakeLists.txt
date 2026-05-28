@@ -63,3 +63,19 @@ target_compile_definitions(deformationModelEnergyMaxStep_gtest PRIVATE
   LIBPGO_TEST_SHELL_OBJ="${CMAKE_SOURCE_DIR}/tests/fixtures/shell/shell.obj")
 set_property(TARGET deformationModelEnergyMaxStep_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(deformationModelEnergyMaxStep_gtest)
+
+add_executable(elasticModelFactory_gtest factories/elasticModelFactory_gtest.cpp)
+target_link_libraries(elasticModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
+target_compile_definitions(elasticModelFactory_gtest PRIVATE
+  LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/tet/torus.veg"
+  LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/cubic/box/box.veg")
+set_property(TARGET elasticModelFactory_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(elasticModelFactory_gtest)
+
+add_executable(elementModelFactory_gtest factories/elementModelFactory_gtest.cpp)
+target_link_libraries(elementModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
+target_compile_definitions(elementModelFactory_gtest PRIVATE
+  LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/tet/torus.veg"
+  LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/cubic/box/box.veg")
+set_property(TARGET elementModelFactory_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(elementModelFactory_gtest)

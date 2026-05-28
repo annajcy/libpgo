@@ -11,6 +11,7 @@
 #include "initPredicates.h"
 #include "EigenSupport.h"
 #include "simulationMesh.h"
+#include "deformationModelFactory.h"
 #include "deformationModelManager.h"
 #include "tetMeshDeformationModel.h"
 #include "basicIO.h"
@@ -677,41 +678,27 @@ int pgo_run_sim_from_config(const char *configFileName)
 
   int n = simMesh->getNumVertices();
   int n3 = n * 3;
-  int nele = simMesh->getNumElements();
 
-  ES::VXd restPosition(n3);
-  for (int vi = 0; vi < n; vi++) {
-    double p[3];
-    simMesh->getVertex(vi, p);
-    restPosition.segment<3>(vi * 3) = ES::V3d(p[0], p[1], p[2]);
+  // Build deformation energy via topology-specific factory.
+  SolidDeformationModel::DeformationModelBundle bundle;
+  switch (simMesh->getElementType()) {
+  case SolidDeformationModel::SimulationMeshType::TET:
+    bundle = SolidDeformationModel::makeTetDeformationModel(
+      *simMesh, SolidDeformationModel::TetP1{}, elasticMat,
+      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    break;
+  case SolidDeformationModel::SimulationMeshType::CUBIC:
+    bundle = SolidDeformationModel::makeCubicDeformationModel(
+      *simMesh, SolidDeformationModel::HexTrilinear{}, elasticMat,
+      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    break;
+  default:
+    SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");
+    return 1;
   }
 
-  std::unique_ptr<SolidDeformationModel::DeformationModelManager> dmm =
-    std::make_unique<SolidDeformationModel::DeformationModelManager>(
-      *simMesh,
-      pgo::SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-      elasticMat,
-      1);
-
-  ES::VXd plasticity(nele * 6);
-  ES::M3d I = ES::M3d::Identity();
-  for (int ei = 0; ei < nele; ei++) {
-    const SolidDeformationModel::PlasticModel3DDeformationGradient *pm =
-      dynamic_cast<const SolidDeformationModel::PlasticModel3DDeformationGradient *>(dmm->getDeformationModel(ei)->getPlasticModel());
-    if (!pm) {
-      SPDLOG_LOGGER_ERROR(Logging::lgr(), "Plastic model is not of type PlasticModel3DDeformationGradient.");
-      return 1;
-    }
-    pm->toParam(I.data(), plasticity.data() + ei * dmm->getNumPlasticParameters());
-  }
-
-  std::vector<double> elementWeights(nele, 1.0);
-  std::unique_ptr<SolidDeformationModel::DeformationModelAssembler> assembler =
-    std::make_unique<SolidDeformationModel::DeformationModelAssembler>(std::move(dmm), elementWeights.data());
-
-  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy =
-    std::make_shared<SolidDeformationModel::DeformationModelEnergy>(std::move(assembler), &restPosition, 0);
-  elasticEnergy->setPlasticParams(plasticity);
+  ES::VXd restPosition = bundle.restPosition;
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy = bundle.energy;
 
   ES::VXd zero(n3);
   zero.setZero();

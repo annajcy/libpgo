@@ -74,6 +74,10 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   formulations/dof/dofLayout.h
   formulations/dof/vertex3DofLayout.h
+
+  factories/elasticModelFactory.h
+  factories/plasticModelFactory.h
+  factories/elementModelFactory.h
 )
 
 set(SOLID_DEFORMATION_MODEL_SOURCES
@@ -115,6 +119,9 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformationModelEnergy.cpp
   deformationModelAssembler.cpp
   deformationModelFactory.cpp
+
+  factories/elasticModelFactory.cpp
+  factories/plasticModelFactory.cpp
 
   simulationMesh.cpp
   deformationModelFDTest.cpp
