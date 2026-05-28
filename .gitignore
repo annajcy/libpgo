@@ -39,6 +39,7 @@ _skbuild
 .vscode/*
 .clang-format
 CMakeUserPresets.json
+compile_commands.json
 
 *.pyd
 *.pyc

@@ -72,11 +72,9 @@ endif()
 include(CTest)
 set(BUILD_TESTING OFF CACHE BOOL "Disable third-party tests during dependency configuration" FORCE)
 
-set(PGO_CLANGD_BUILD_DIR "${CMAKE_SOURCE_DIR}/build")
-set(PGO_CLANGD_COMPILE_COMMANDS "${PGO_CLANGD_BUILD_DIR}/compile_commands.json")
+set(PGO_CLANGD_COMPILE_COMMANDS "${CMAKE_SOURCE_DIR}/compile_commands.json")
 
 add_custom_target(copy_compile_commands_json
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${PGO_CLANGD_BUILD_DIR}"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${CMAKE_BINARY_DIR}/compile_commands.json"
           "${PGO_CLANGD_COMPILE_COMMANDS}"

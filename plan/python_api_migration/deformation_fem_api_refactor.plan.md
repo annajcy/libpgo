@@ -104,21 +104,178 @@ struct FormulationTraits<HexTrilinear>
 };
 ```
 
-Volumetric deformation-gradient `FormulationTraits` 只允许放：
+Formulation 不强行统一 trait shape——每类 formulation 按实际需要的类型集合声明别名，通过 C++20 concept 做编译期验证。trait 即文档，没有 `NoBasis` / `NoQuadrature` 这类 sentinel：
 
-- formulation 名称、维度、局部 DOF 数等轻量元信息；
-- `DofLayout`、`Basis`、`Quadrature`、`Kernel`、`ElementModel` 等类型别名；
-- feature flags，例如是否支持 material max-step、是否 vertex DOF。
+```cpp
+// formulationConcepts.h — per-category concept，保证编译期安全
+
+// Volumetric deformation-gradient formulation: 需要 Basis + Quadrature
+template<class F>
+concept VolumetricFormulationCategory = requires {
+  typename FormulationTraits<F>::Basis;
+  typename FormulationTraits<F>::Quadrature;
+  typename FormulationTraits<F>::Kernel;
+  typename FormulationTraits<F>::ElementModel;
+};
+
+// Shell formulation: 需要 ElementStencil，不需要 Basis/Quadrature
+template<class F>
+concept ShellFormulationCategory = requires {
+  typename FormulationTraits<F>::ElementStencil;
+  typename FormulationTraits<F>::Kernel;
+  typename FormulationTraits<F>::ElementModel;
+};
+```
+
+运行时边界（Python binding、config）通过 `std::visit` + `if constexpr` 分发：
+
+```cpp
+std::visit([&](const auto &f) {
+  using F = std::decay_t<decltype(f)>;
+  if constexpr (VolumetricFormulationCategory<F>) {
+    // 编译期安全访问 Traits::Basis、Traits::Quadrature
+  } else if constexpr (ShellFormulationCategory<F>) {
+    // 编译期安全访问 Traits::ElementStencil
+  }
+}, formulationVariant);
+```
+
+**为什么有的 formulation 需要 `ElementStencil`，有的不需要？**
+
+`ElementStencil` 捕捉的是**超出 `numNodes` 能表达的那部分 per-element 拓扑信息**。关键差异是节点是否"同质"：
+
+**Volumetric P1（tet P1 / hex trilinear）— 不需要**
+
+所有节点完全同质：都是 vertex node，每个 node 贡献 3 个位移 DOF，全部使用，没有缺失。`Basis` 的 `numNodes` + 标准 `mesh.getVertex(ele, localNode)` 已经足够。没有额外的 per-element 拓扑数据需要编码。
+
+```cpp
+// TetP1: 从 Basis + mesh 就能拿到全部信息
+//   numNodes = 4, 全部都是 vertex node, 全部存在
+//   → 不需要 ElementStencil（Basis + mesh 足够）
+for (int j = 0; j < 4; j++) {
+  mesh.getVertex(ele, j, restPosition.segment<3>(j * 3).data());
+}
+```
+
+**Shell Koiter — 需要**
+
+6 个节点但不平等：nodes 0-2 是三角形顶点（始终存在），nodes 3-5 是对边邻居（边界三角形上可能缺失）。额外需要的信息：
+
+```cpp
+// ShellKoiterStencil 编码了这些 B→asis + mesh 给不出的信息：
+struct ShellKoiterStencil {
+  static constexpr int numNodes = 6;
+  static constexpr int localDofs = 18;
+
+  // 核心：oppVtx 映射 — 每个三角形边的对边邻居是谁
+  // oppVtx[0] = 4 → node 4 是 edge (1,2) 的对边邻居
+  // oppVtx[1] = 5 → node 5 是 edge (0,2) 的对边邻居
+  // oppVtx[2] = 3 → node 3 是 edge (0,1) 的对边邻居
+  static constexpr int oppVtx[3] = { 4, 5, 3 };
+};
+
+// 构造 kernel 时还需要 hasVtx[6] — 哪些节点存在
+// hasVtx = {1,1,1,  1,0,1}  → node 4 缺失（边界边）
+//                                  secondFundamentalFormEntries
+//                                  跳过 node 4 的贡献
+```
+
+```text
+          2                          Node roles:
+         /|\                         0,1,2 = triangle vertices (always present)
+        / | \                        3 = opp neighbor of edge (0,1)
+       /  |  \                       4 = opp neighbor of edge (1,2)
+      3   |   5                      5 = opp neighbor of edge (0,2)
+       \  |  /
+        \ | /                        Boundary case:
+         \|/                         hasVtx[4]=false → edge (1,2) has no
+          1                          opposite neighbor → skip its contribution
+```
+
+**Hex Tricubic Hermite（未来）— 不需要**
+
+最标准的 conforming full hex tricubic Hermite：8 个 corner，每个 corner 固定 8 个 Hermite mode × 3 空间分量 = 192 local DOF。所有 element 完全一样——没有缺 DOF、没有 edge/face enrichment、没有 hanging node、local corner 顺序固定。local DOF 结构是固定的、完整的、同质的、能直接从 `mesh.getVertex(e, corner)` + mode + component 唯一确定。这里真正需要的是 `HermiteDofLayout`，不是 `ElementStencil`：
+
+```cpp
+// 标准 conforming full tricubic Hermite:
+//   不需要 ElementStencil — local DOF 由 corner + mode + component 唯一确定
+//   HermiteDofLayout 负责 vertexDof(v, mode, component) → global DOF
+for (int c = 0; c < 8; ++c) {
+  int v = mesh.getVertex(e, c);
+  for (int m = 0; m < 8; ++m) {       // val, ∂ξ, ∂η, ∂ζ, ∂²ξη, ∂²ηζ, ∂²ξζ, ∂³ξηζ
+    for (int a = 0; a < 3; ++a) {
+      int gdof = hermiteDofLayout.vertexDof(v, m, a);
+    }
+  }
+}
+```
+
+等未来引入 edge/face enrichment、hanging node、extraordinary point、derivative reconstruction、interface discontinuity、variable modes、orientation transform 时，再引入对应的 Hermite stencil。不要因为 Hermite 看起来高级就强行加 stencil。
+
+判断标准：**如果 local DOF = `mesh.getVertex(e, corner)` + 固定 mode + component 就能唯一确定，就不需要 `ElementStencil`。只有当 local DOF 还依赖 neighbor / edge / face / orientation / missing mask / constraint / chart 时才需要。**
+
+**结论：** `ElementStencil` 存在的意义是编码"同质顶点列表之外"的 per-element 拓扑——节点角色分化、节点缺失掩码、DOF 组分映射。Basis 只管插值，不该背不该由它背的拓扑语义。P1 和标准 conforming Hermite 都不需要，因为它们的 local DOF 完全由 `corner vertices + 固定 mode + component` 唯一确定；Shell Koiter 需要，因为每个 element 的 neighbor 可能缺失、角色不对等。
+
+Concrete trait specializations——每个只声明自己实际需要的别名，trait 即文档：
+
+```cpp
+// Volumetric: 有 Basis + Quadrature，没有 ElementStencil
+template<>
+struct FormulationTraits<TetP1>
+{
+  using DofLayout = Vertex3DofLayout;
+  using Basis = TetP1Basis;
+  using Quadrature = TetP1DefaultQuadrature;
+  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
+  using ElementModel = DeformationGradientElementModel<Kernel>;
+
+  static constexpr int nodesPerElement = 4;
+  static constexpr int localDofs = 12;
+  static constexpr std::string_view name = "tet_p1";
+};
+
+template<>
+struct FormulationTraits<HexTrilinear>
+{
+  using DofLayout = Vertex3DofLayout;
+  using Basis = HexTrilinearBasis;
+  using Quadrature = GaussLegendreHexQuadrature2;
+  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
+  using ElementModel = DeformationGradientElementModel<Kernel>;
+
+  static constexpr int nodesPerElement = 8;
+  static constexpr int localDofs = 24;
+  static constexpr std::string_view name = "hex_trilinear";
+};
+
+// Shell: 有 ElementStencil，没有 Basis/Quadrature
+template<>
+struct FormulationTraits<ShellKoiter>
+{
+  using DofLayout = Vertex3DofLayout;
+  using ElementStencil = ShellKoiterStencil;
+  using Kernel = FundamentalFormsKernel<ElementStencil>;
+  using ElementModel = KoiterShellElementModel<Kernel>;
+
+  static constexpr int nodesPerElement = 6;
+  static constexpr int localDofs = 18;
+  static constexpr std::string_view name = "shell_koiter";
+};
+```
+
+为何这比 sentinel 统一 shape 更好：`FormulationTraits<ShellKoiter>` 不声明 `Basis` / `Quadrature`，泛型代码如果错误访问 `Traits::Basis` 会直接编译失败——这正是我们想要的，因为 shell 没有 reference-element 插值。`VolumetricFormulationCategory` concept 用 `requires { typename Traits::Basis; }` 在重载决议时已经筛选掉了 `ShellKoiter`，后续代码不需要再做 `if constexpr (!std::same_as<Basis, NoBasis>)` 的二次检查。新增 formulation 类别（beam、membrane 等）是加法——只加它需要的 alias + 一个 concept，不影响现有 trait shape。
 
 具体数学公式不要放在 traits 里。公式实现放在 `ElementModel` 或独立 kernel 中：
 
 ```text
-Formulation tag -> FormulationTraits -> DofLayout + Basis + Quadrature + Kernel + ElementModel
+Formulation tag
+  -> FormulationTraits
+       -> DofLayout + (per-concept aliases) + Kernel + ElementModel
 ```
 
 `TetP1` 和 `HexTrilinear` 都要先抽出明确 kernel，再写 traits。不要让 `FormulationTraits` 指向旧的 `TetMeshDeformationModel` / `CubicMeshDeformationModel` 作为过渡类型；这会把完整 element model 误命名成 kernel，后续读代码的人会分不清抽象层次。旧类可以临时作为 behavior oracle 或兼容 wrapper，但不能成为新 traits 的目标类型。
 
-`ShellKoiter` 是本 milestone 的 supported shell formulation，但它不进入 volumetric `Basis` / `Quadrature` / `DeformationGradientKernel` 抽象。Task 5e 会给 shell 建一套平行的 shell-specific stack：`ShellKoiterStencil -> FundamentalFormsKernel -> KoiterShellElementModel<Kernel>`。`FormulationTraits<ShellKoiter>` 不能伪造 volumetric `Basis` / `Quadrature`，但在 Task 5e 后必须声明 shell-specific `Geometry`、`Kernel`、`ElementModel` 类型别名。
+`ShellKoiter` 是本 milestone 的 supported shell formulation，但它的数学不进入 volumetric `Basis` / `Quadrature` / `DeformationGradientKernel`。Task 5e 会给 shell 建一套平行的 shell-specific stack：`ShellKoiterStencil -> FundamentalFormsKernel -> KoiterShellElementModel<Kernel>`。它的 traits 只声明 `DofLayout` / `ElementStencil` / `Kernel` / `ElementModel`——不声明 `Basis` / `Quadrature`，因为 shell 不走 reference-domain integral，concept `ShellFormulationCategory` 不要求它们。未来 FE-style shell（DKT、MITC、subdivision、IGA、solid-shell）如果有真正的 reference-element 插值，可以在它们的 traits 里加上 `Basis` / `Quadrature`，concept 自然扩展或 union。
 
 更准确的数学分层是：
 
@@ -202,17 +359,17 @@ struct FormulationTraits<HexTrilinear>
 
 ### 3. Core API 用 template/concept，运行时边界用 `std::variant`
 
-不要引入 `TetFormulation` / `HexFormulation` / `ShellFormulation` 虚基类，也不要让核心 factory 接收基类 `const &`。那会把 formulation dispatch 变成运行时多态，最后需要 `dynamic_cast` 或 virtual 方法，削弱 `FormulationTraits<Formulation>` 的编译期类型安全。
+不要引入 per-formulation 虚基类，也不要让核心 factory 接收基类 `const &`。那会把 formulation dispatch 变成运行时多态，最后需要 `dynamic_cast` 或 virtual 方法，削弱 `FormulationTraits<Formulation>` 的编译期类型安全。
 
-核心 C++ factory 使用 tag object + concept/template：
+核心 C++ factory 使用 tag object + per-tag concept 约束（按 mesh type 分组的 concept，支持 `||` 扩展）：
 
 ```cpp
 template<class F>
 concept TetFormulation = std::same_as<F, TetP1>;
 
 template<class F>
-concept CubicFormulation =
-  std::same_as<F, HexTrilinear>;
+concept CubicFormulation = std::same_as<F, HexTrilinear>;
+// 未来加 Hermite: std::same_as<F, HexTrilinear> || std::same_as<F, HexTricubicHermite>
 
 template<class F>
 concept ShellFormulation = std::same_as<F, ShellKoiter>;
@@ -253,7 +410,7 @@ DeformationModelBundle makeCubicDeformationModel(
 }
 ```
 
-`std::variant` overload 是边界 adapter，不是 core API 的主要形态。Task 2 首先只让 `CubicFormulation` / `CubicFormulationVariant` 包含已实现的 `HexTrilinear`，保证 topology-specific factory 可以在当前数值内核上闭环。Task 9 再把 `HexTricubicHermite` 加入 concept 和 variant，并且只接入显式 `not implemented` guard，不能在 Task 2 里提前制造一个没有内核的 formulation 分支。
+`std::variant` overload 是边界 adapter，不是 core API 的主要形态。Task 2 首先只让 `CubicFormulationVariant` 包含已实现的 `HexTrilinear`，保证 topology-specific factory 可以在当前数值内核上闭环。Task 9 再把 `HexTricubicHermite` 加入 concept 和 variant，并且只接入显式 `not implemented` guard，不能在 Task 2 里提前制造一个没有内核的 formulation 分支。
 
 这些 constrained template overload 的定义必须直接放在 `deformationModelFactory.h` 中；本计划不引入 `.inl` 文件。`.cpp` 只放非模板 helper / implementation detail。不要把模板定义只放进 `.cpp`，否则 tests、tools、Python binding 这些调用方会在独立 translation unit 中链接失败。
 
@@ -296,13 +453,14 @@ DeformationModelBundle makeCubicDeformationModel(
       hermiteHexQuadrature.h          # future
 
     elements/
-      deformationGradientElementModel.h
-      deformationGradientElementModel.cpp
+      deformationGradientElementModel.h  # header-only
       koiterShellElementModel.h
 
     geometry/
-      shellKoiterStencil.h
       tetP1Geometry.h                  # Task 5q, after legacy tet helper migration
+
+    stencil/
+      shellKoiterStencil.h
 
     dof/
       dofLayout.h
@@ -333,8 +491,10 @@ tests/src/core/solidDeformationModel/
       gaussLegendreHexQuadrature_gtest.cpp
     kernels/
       deformationGradientKernel_gtest.cpp
+      fundamentalFormsKernel_gtest.cpp
     elements/
       deformationGradientElementModel_gtest.cpp
+      koiterShellElementModel_gtest.cpp
     dof/
       vertex3DofLayout_gtest.cpp
 
@@ -734,8 +894,10 @@ pgo.energy.HillFiber(
 - `src/core/solidDeformationModel/formulations/quadrature/tetP1DefaultQuadrature.h`
 - `src/core/solidDeformationModel/formulations/quadrature/gaussLegendreHexQuadrature.h`
 - `src/core/solidDeformationModel/formulations/kernels/deformationGradientKernel.h`
+- `src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel.h`
 - `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.h`
-- `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.cpp`
+- `src/core/solidDeformationModel/formulations/elements/koiterShellElementModel.h`
+- `src/core/solidDeformationModel/formulations/stencil/shellKoiterStencil.h`
 - `src/core/solidDeformationModel/formulations/dof/dofLayout.h`
 - `src/core/solidDeformationModel/formulations/dof/vertex3DofLayout.h`
 - `src/core/solidDeformationModel/formulations/dof/vertex3DofLayout.cpp`
@@ -760,7 +922,9 @@ pgo.energy.HillFiber(
 - `tests/src/core/solidDeformationModel/formulations/quadrature/tetP1DefaultQuadrature_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/quadrature/gaussLegendreHexQuadrature_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/kernels/deformationGradientKernel_gtest.cpp`
+- `tests/src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel_gtest.cpp`
+- `tests/src/core/solidDeformationModel/formulations/elements/koiterShellElementModel_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/dof/vertex3DofLayout_gtest.cpp`
 - `tests/src/core/solidDeformationModel/factories/elasticModelFactory_gtest.cpp`
 - `tests/src/core/solidDeformationModel/factories/elementModelFactory_gtest.cpp`
@@ -946,10 +1110,7 @@ pgo.energy.HillFiber(
 - [x] Bind `FormulationTraits<HexTrilinear>` to `HexTrilinearBasis`, `GaussLegendreHexQuadrature2`, `DeformationGradientKernel<Basis, Quadrature>`, and `DeformationGradientElementModel<Kernel>`.
 - [x] Bind `FormulationTraits<ShellKoiter>` to existing shell-specific model construction metadata; shell does not declare volumetric `Basis` or `Quadrature` and must keep using the current `KoiterDeformationModel` path.
 - [x] Do not point traits at legacy full element models such as `TetMeshDeformationModel` or `CubicMeshDeformationModel`.
-- [x] Add `TetFormulation`, `CubicFormulation`, and `ShellFormulation` C++20 concepts; do not add virtual formulation base classes.
-- [x] Add `makeTetDeformationModel` template constrained by `TetFormulation`.
-- [x] Add `makeCubicDeformationModel` template constrained by `CubicFormulation`.
-- [x] Add `makeShellDeformationModel` template constrained by `ShellFormulation`.
+- [x] Add `TetFormulation`, `CubicFormulation`, `ShellFormulation` per-tag concepts（按 mesh type 分组，支持 `||` 扩展）；constrain 对应 factory 模板。Do not add virtual formulation base classes.
 - [x] Add runtime boundary variants:
   - `using TetFormulationVariant = std::variant<TetP1>;`
   - `using CubicFormulationVariant = std::variant<HexTrilinear>;`
@@ -1135,83 +1296,308 @@ pgo.energy.HillFiber(
 
 ## Task 5e: Add Shell Koiter Formulation Stack
 
-**目标：** 把 shell Koiter 也接入 formulation-driven element construction，但不把它硬塞进 volumetric `Basis` / `Quadrature` / `DeformationGradientKernel`。Shell 需要一套平行抽象：surface patch geometry + fundamental forms kernel + Koiter shell element model。Task 5e 完成后，`ShellKoiter` 不再只是 factory routing tag，而是拥有自己的 shell kernel/model stack，可在 Task 5p 中替代 `KoiterDeformationModel` runtime path。
+**目标：** 把 shell Koiter 也接入 formulation-driven element construction，但不把它硬塞进 volumetric `Basis` / `Quadrature` / `DeformationGradientKernel`。Shell 需要一套平行抽象：compile-time stencil topology + per-element fundamental-forms kernel + Koiter shell element model。Task 5e 完成后，`ShellKoiter` 不再只是 factory routing tag，而是拥有自己的 shell kernel/model stack，可在 Task 5p 中替代 `KoiterDeformationModel` runtime path。
 
-**Design decision:**
+### Design decision
 
-Volumetric deformation-gradient stack:
+Volumetric deformation-gradient stack（参考点）：
 
 ```text
-ReferenceElementBasis
-  -> Quadrature
-  -> DeformationGradientKernel<Basis, Quadrature>
+Basis                              # compile-time: N(xi), dN/dxi
+  -> Quadrature                    # compile-time: xi_q, w_q
+  -> DeformationGradientKernel     # per-element: restX, weightDetJ(q), Fref(x)
   -> DeformationGradientElementModel<Kernel>
 ```
 
-Shell Koiter stack:
+Shell Koiter stack 在 Task 5e 后的最终形态：
 
 ```text
-ShellPatchGeometry / ShellKoiterStencil
-  -> FundamentalFormsKernel
+ShellKoiterStencil                 # compile-time topology: 6 nodes, 18 local DOFs, oppVtx mapping
+  -> FundamentalFormsKernel<ElementStencil>
+                                   # per-element: restX[6], hasVtx[6], restI, restII, restArea
+                                   # + a/b 微分几何 (extracted from KoiterDeformationModelInternal)
   -> KoiterShellElementModel<Kernel>
+                                   # holds Kernel + ElasticModel2DFundamentalForms* + PlasticModel2DFundamentalForms*
 ```
 
-`ShellKoiter` 可以进入 `FormulationTraits` / `ElementModelFactory` 体系，但不能声明 fake volumetric `Basis` / `Quadrature`。它的 traits 应声明 shell-specific aliases，例如 `Geometry`, `Kernel`, `ElementModel`，并继续不声明 volumetric `Basis` / `Quadrature`。
+### Per-category concept，不统一 alias shape
 
-**Files:**
+每条 formulation 只声明自己实际需要的类型别名，通过 C++20 concept 做编译期验证（详见设计决策 2 的 `VolumetricFormulationCategory` / `ShellFormulationCategory`）。Task 5e 后三套 trait 的形状是：
 
+```cpp
+// Volumetric: 有 Basis + Quadrature
+template<> struct FormulationTraits<TetP1> {
+  using DofLayout = Vertex3DofLayout;
+  using Basis = TetP1Basis;
+  using Quadrature = TetP1DefaultQuadrature;
+  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
+  using ElementModel = DeformationGradientElementModel<Kernel>;
+  // ...
+};
+
+template<> struct FormulationTraits<HexTrilinear> {
+  using DofLayout = Vertex3DofLayout;
+  using Basis = HexTrilinearBasis;
+  using Quadrature = GaussLegendreHexQuadrature2;
+  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
+  using ElementModel = DeformationGradientElementModel<Kernel>;
+  // ...
+};
+
+// Shell Koiter: 有 ElementStencil，没有 Basis/Quadrature
+template<> struct FormulationTraits<ShellKoiter> {
+  using DofLayout = Vertex3DofLayout;
+  using ElementStencil = ShellKoiterStencil;
+  using Kernel = FundamentalFormsKernel<ElementStencil>;
+  using ElementModel = KoiterShellElementModel<Kernel>;
+  // ...
+};
+```
+
+不引入 `NoBasis` / `NoQuadrature` / `NoElementStencil`。泛型代码按 formulation category 用 `if constexpr` + concept 分发，每个分支在编译期就知道自己能用哪些 alias。
+
+### Concrete responsibility split
+
+| 数据 / 方法 | 来源 (今天) | 去向 (Task 5e 后) |
+|---|---|---|
+| `oppVtx[3] = {4, 5, 3}` | `KoiterDeformationModelInternal` (instance field) | `ShellKoiterStencil::oppVtx` (`static constexpr`) |
+| numNodes = 6, localDofs = 18 | hard-coded in `KoiterDeformationModel::getNumVertices/DOFs` | `ShellKoiterStencil::numNodes` / `::localDofs` (`static constexpr`) |
+| `restX[6]`, `hasVtx[6]`, `restI`/`restII` | `KoiterDeformationModelInternal` | `FundamentalFormsKernel<ElementStencil>` 构造时计算并保存 |
+| rest `area`（喂给 plastic via `setArea`） | `KoiterDeformationModel` ctor | `FundamentalFormsKernel::restArea()` |
+| `compute_a_and_derivatives` | `KoiterDeformationModelInternal` 方法 | `FundamentalFormsKernel::compute_a_and_derivatives` |
+| `compute_b_and_derivatives` | 同上 | `FundamentalFormsKernel::compute_b_and_derivatives` |
+| `secondFundamentalFormEntries` | 同上 | `FundamentalFormsKernel::secondFundamentalFormEntries` (private helper) |
+| `faceNormal` | 同上 | `FundamentalFormsKernel::faceNormal` (private helper) |
+| `KoiterDeformationModelCacheData` (x[6], a/abar/b/bbar/area, elasticParams, plasticParams) | `KoiterDeformationModel` | `KoiterShellElementModelCacheData<Kernel>` |
+| `prepareData` / `computeEnergy` / `compute_dE_dx` / `compute_d2E_dx2` / `compute_d2E_dxda` / `compute_d2E_dxdb` / `computeLocalMaxStepSize` / `enableSPD` | `KoiterDeformationModel` overrides | `KoiterShellElementModel<Kernel>` overrides |
+| `set_abar` / `set_bbar` / `setArea` on plastic model | `KoiterDeformationModel` ctor side effect | `KoiterShellElementModel<Kernel>` ctor side effect (移植) |
+| `-10496` sentinel detection | `KoiterDeformationModel` ctor + factory + `DeformationModelManager` populates fake positions | `ElementModelFactory::create<ShellKoiter>` builds explicit `bool hasVtx[6]` from `mesh.getVertexIndex(ele, j) < 0`；不再有 sentinel |
+
+### Target API sketch
+
+```cpp
+// formulations/stencil/shellKoiterStencil.h
+struct ShellKoiterStencil
+{
+  static constexpr int numNodes = 6;
+  static constexpr int localDofs = 18;
+  static constexpr int numTriangleNodes = 3;
+  static constexpr int oppVtx[3] = { 4, 5, 3 };
+};
+
+// formulations/kernels/fundamentalFormsKernel.h
+template<class ElementStencil>
+class FundamentalFormsKernel
+{
+public:
+  static constexpr int numNodes = ElementStencil::numNodes;
+  static constexpr int localDofs = ElementStencil::localDofs;
+
+  // restX[18] holds positions for nodes 0..5 in slots [0..3), [3..6), ...
+  // hasVtx[6] is true for nodes 0..2; nodes 3..5 may be missing.
+  // Missing slots' restX entries are not read; caller may leave them uninitialized.
+  FundamentalFormsKernel(const double restX[18], const bool hasVtx[6]);
+
+  // First fundamental form (uses nodes 0..2 only).
+  ES::M2d compute_a_and_derivatives(
+    const ES::V3d x[3],
+    Eigen::Matrix<double, 4, 9> *da_dx,
+    ES::M9d ahess[4]) const;
+
+  // Second fundamental form (uses all 6 nodes, with mask).
+  ES::M2d compute_b_and_derivatives(
+    const ES::V3d x[6],
+    Eigen::Matrix<double, 4, 18> *db_dx,
+    ES::M18d bhess[4]) const;
+
+  const bool *hasVtx() const { return hasVtx_; }
+  const ES::M2d &restI() const { return restI_; }
+  const ES::M2d &restII() const { return restII_; }
+  double restArea() const { return restArea_; }
+
+private:
+  ES::V3d secondFundamentalFormEntries(const ES::V3d x[6],
+    Eigen::Matrix<double, 3, 18> *derivative, ES::M18d hessian[3]) const;
+  ES::V3d faceNormal(const ES::V3d x0, const ES::V3d x1, const ES::V3d x2,
+    Eigen::Matrix<double, 3, 9> *derivative, ES::M9d hessian[3]) const;
+  static ES::M3d crossMatrix(const Eigen::Vector3d &v);
+
+  ES::V3d restX_[6];
+  bool hasVtx_[6];
+  ES::M2d restI_, restII_;
+  double restArea_;
+};
+
+// formulations/elements/koiterShellElementModel.h
+template<class Kernel>
+class KoiterShellElementModel : public DeformationModel
+{
+public:
+  static constexpr int numNodes = Kernel::numNodes;        // 6
+  static constexpr int localDofs = Kernel::localDofs;      // 18
+
+  KoiterShellElementModel(const double restX[18], const bool hasVtx[6],
+    ElasticModel *elasticModel, PlasticModel *plasticModel);
+
+  // DeformationModel virtuals (mirrors KoiterDeformationModel exactly).
+  DeformationModelCacheData *allocateCacheData() const override;
+  void freeCacheData(DeformationModelCacheData *data) const override;
+  void prepareData(const double *x, const double *param,
+    const double *materialParam, DeformationModelCacheData *cd) const override;
+  double computeEnergy(const DeformationModelCacheData *cd) const override;
+  void compute_dE_dx(const DeformationModelCacheData *cd, double *grad) const override;
+  void compute_d2E_dx2(const DeformationModelCacheData *cd, double *hess) const override;
+  void compute_d2E_dxda(const DeformationModelCacheData *cd, double *hess) const override;
+  void compute_d2E_dxdb(const DeformationModelCacheData *cd, double *hess) const override;
+  void enableSPD(int enable) override;
+  int getNumVertices() const override { return numNodes; }
+  int getNumDOFs() const override { return localDofs; }
+  LocalMaxStepResult computeLocalMaxStepSize(const double *, const double *) const override;
+
+private:
+  Kernel kernel_;
+  ElasticModel2DFundamentalForms *elasticModel_ = nullptr;
+  PlasticModel2DFundamentalForms *plasticModel_ = nullptr;
+  int enableSPD_ = 0;
+};
+```
+
+### Files
+
+- Create: `src/core/solidDeformationModel/formulations/stencil/shellKoiterStencil.h`（header-only，仅 `static constexpr` 拓扑常量）
+- Create: `src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel.h`（header-only template，从 `koiterDeformationModel.cpp` 搬出微分几何）
+- Create: `src/core/solidDeformationModel/formulations/elements/koiterShellElementModel.h`（header-only template，与 `DeformationGradientElementModel<Kernel>` 同形）
 - Modify: `src/core/solidDeformationModel/formulations/formulationTraits.h`
 - Modify: `src/core/solidDeformationModel/factories/elementModelFactory.h`
-- Create: `src/core/solidDeformationModel/formulations/geometry/shellKoiterStencil.h`
-- Create: `src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel.h`
-- Create: `src/core/solidDeformationModel/formulations/elements/koiterShellElementModel.h`
-- Modify: `src/core/solidDeformationModel/CMakeLists.txt`
+- Modify: `src/core/solidDeformationModel/deformationModelManager.cpp`（去掉 fill-with-`-10496` 的预处理，改成把 `getVertexIndex < 0` 信息直接交给 factory；或保留 fill 但 factory 读 mask 而非 sentinel——见 Sub-task F）
+- Modify: `src/core/solidDeformationModel/CMakeLists.txt`（加 3 个 header）
+- Create: `tests/src/core/solidDeformationModel/formulations/stencil/shellKoiterStencil_gtest.cpp`（trivial topology metadata 检查；可选）
 - Create: `tests/src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel_gtest.cpp`
 - Create: `tests/src/core/solidDeformationModel/formulations/elements/koiterShellElementModel_gtest.cpp`
 - Modify: `tests/src/core/solidDeformationModel/factories/elementModelFactory_gtest.cpp`
 - Modify: `tests/src/core/solidDeformationModel/deformationModelFactory_gtest.cpp`
+- Modify: `tests/src/core/solidDeformationModel/CMakeLists.txt`
 
-- [ ] Add `ShellKoiterStencil` or equivalent shell patch geometry helper that stores the 6-point Koiter local stencil:
-  - three triangle vertices;
-  - three opposite-neighbor vertices;
-  - the existing `-10496` missing-neighbor sentinel behavior must be preserved exactly, or replaced by an explicit missing-neighbor mask with parity tests proving identical behavior.
-- [ ] Add `FundamentalFormsKernel` that computes the same quantities currently produced inside `KoiterDeformationModel`:
-  - first fundamental form `a`;
-  - second fundamental form `b`;
-  - rest/plastic forms `abar`, `bbar`;
-  - area;
-  - all derivatives and Hessians needed by energy, gradient, Hessian, `df/da`, and `df/db`.
-- [ ] Add `KoiterShellElementModel<Kernel>` implementing the `DeformationModel` virtual interface with runtime `ElasticModel2DFundamentalForms *` and `PlasticModel2DFundamentalForms *` dependencies.
-- [ ] Keep the material/plastic model classes unchanged:
-  - `ElasticModel2DFundamentalFormsSTVK`;
-  - `ElasticModel2DFundamentalFormsFabric`;
-  - `PlasticModel2DFundamentalForms`;
-  - `PlasticModel2DFundamentalFormsUniformStretch`.
-- [ ] Update `FormulationTraits<ShellKoiter>` to declare shell-specific aliases:
+### Sub-task A: ShellKoiterStencil
+
+- [ ] Create `formulations/stencil/shellKoiterStencil.h` with `numNodes = 6`, `localDofs = 18`, `numTriangleNodes = 3`, `oppVtx[3] = {4, 5, 3}` 全部 `static constexpr`。
+- [ ] No runtime state, no member functions; this is the compile-time topology constant set，analogous to `TetP1Basis::numNodes` style metadata.
+- [ ] Add a trivial smoke test asserting these constants match `KoiterDeformationModel::getNumVertices() == 6` and `getNumDOFs() == 18`（可与 kernel/element model 测试合并）。
+
+### Sub-task B: FundamentalFormsKernel
+
+- [ ] Create `formulations/kernels/fundamentalFormsKernel.h` as a header-only template `FundamentalFormsKernel<ElementStencil>`.
+- [ ] Move these methods verbatim from `koiterDeformationModel.cpp` into the kernel:
+  - `compute_a_and_derivatives(const ES::V3d x[3], Eigen::Matrix<double, 4, 9>*, ES::M9d ahess[4])`
+  - `compute_b_and_derivatives(const ES::V3d x[6], Eigen::Matrix<double, 4, 18>*, ES::M18d bhess[4])` — drop the `int hasVtx[6]` parameter; the kernel reads `hasVtx_` from its own member.
+  - `secondFundamentalFormEntries(const ES::V3d x[6], Eigen::Matrix<double, 3, 18>*, ES::M18d hessian[3])` — same hasVtx change.
+  - `faceNormal(const ES::V3d, const ES::V3d, const ES::V3d, Eigen::Matrix<double, 3, 9>*, ES::M9d[3])`
+  - `crossMatrix(...)`
+- [ ] Constructor `FundamentalFormsKernel(const double restX[18], const bool hasVtx[6])` copies positions and mask into members, then computes and caches:
+  - `restI_ = compute_a_and_derivatives(restX_ as V3d[3], nullptr, nullptr)`
+  - `restII_ = compute_b_and_derivatives(restX_ as V3d[6], nullptr, nullptr)`
+  - `restArea_ = 0.5 * (restX_[1] - restX_[0]).cross(restX_[2] - restX_[0]).norm()`
+- [ ] Document the contract: missing-neighbor slots in `restX_` are not read; `hasVtx_[i] == false` for `i in [3,5]` makes the kernel skip that opposite-normal contribution exactly as the legacy code does.
+- [ ] Kernel does not depend on `ElasticModel` / `PlasticModel` / `DeformationModelCacheData`; this matches the volumetric `Kernel` invariant.
+- [ ] Kernel unit tests in `fundamentalFormsKernel_gtest.cpp`:
+  - **Rest state**: `restI == compute_a(restX_as_V3d[3])` and `restII == compute_b(restX_as_V3d[6])` (round-trip identity).
+  - **Translation invariance**: translating all 6 positions by a constant vector leaves `a`, `b`, derivatives unchanged.
+  - **Affine map**: applying a known 3x3 linear map to all positions produces `a` consistent with `a_legacy(A*x)` from `KoiterDeformationModelInternal::compute_a_and_derivatives`.
+  - **Missing neighbor**: with `hasVtx[3] = false`, the resulting `b` matches the legacy code's masked output exactly.
+  - **Derivative FD**: `da/dx` and `db/dx` match finite differences of `a` and `b` to `1e-6`.
+  - **Hessian FD**: `d2a/dx2` and `d2b/dx2` match finite differences of `da/dx` and `db/dx`.
+- [ ] All tests run on a small fixture: one curved 3-triangle patch with a known geometry, plus one boundary triangle (only nodes 3..4 missing).
+
+### Sub-task C: KoiterShellElementModel
+
+- [ ] Create `formulations/elements/koiterShellElementModel.h` as a header-only template `KoiterShellElementModel<Kernel>`.
+- [ ] Cache data `KoiterShellElementModelCacheData<Kernel>` mirrors `KoiterDeformationModelCacheData` 1:1:
+  - `ES::V3d x[6]`
+  - `ES::M2d a, abar, b, bbar`
+  - `ES::V18d elasticParams, plasticParams`
+  - `double area`
+  - `ElasticModel2DFundamentalForms *elasticModel`、`PlasticModel2DFundamentalForms *plasticModel`（与 legacy 一致地缓存指针）
+- [ ] Constructor copies positions + mask into the kernel; then `dynamic_cast` elastic/plastic to `ElasticModel2DFundamentalForms*` / `PlasticModel2DFundamentalForms*` and throw on null（与 `DeformationGradientElementModel` 风格一致）。
+- [ ] Constructor must preserve the legacy plastic-seed side effect:
+  - `plasticModel_->set_abar(kernel_.restI())`
+  - `plasticModel_->set_bbar(kernel_.restII())`
+  - `plasticModel_->setArea(kernel_.restArea())`
+- [ ] Implement the 5 virtual methods + `enableSPD` + `computeLocalMaxStepSize` by copying body from `KoiterDeformationModel`, swapping `ind->compute_a_and_derivatives(...)` calls for `kernel_.compute_a_and_derivatives(...)` and dropping the explicit `hasVtx` parameter (now owned by kernel).
+- [ ] `computeLocalMaxStepSize` returns the same default `LocalMaxStepResult{}` (shell has no local max-step rule today).
+- [ ] Element model does not implement `vonMisesStress` / `maxStrain` — `KoiterDeformationModel` does not either; keep the default base behavior.
+
+### Sub-task D: FormulationTraits + ElementModelFactory wiring
+
+- [ ] Update `FormulationTraits<ShellKoiter>` aliases（不声明 `Basis` / `Quadrature`——shell 不走 volumetric reference-domain integral，由 `ShellFormulationCategory` 验证）:
   - `using DofLayout = Vertex3DofLayout;`
-  - `using Geometry = ShellKoiterStencil;`
-  - `using Kernel = FundamentalFormsKernel<Geometry>;`
+  - `using ElementStencil = ShellKoiterStencil;`
+  - `using Kernel = FundamentalFormsKernel<ElementStencil>;`
   - `using ElementModel = KoiterShellElementModel<Kernel>;`
+  - `static constexpr int nodesPerElement = ElementStencil::numNodes;`
+  - `static constexpr int localDofs = ElementStencil::localDofs;`
   - keep `name = "shell_koiter"`.
-- [ ] Update `ElementModelFactory::create<ShellKoiter>` to instantiate `FormulationTraits<ShellKoiter>::ElementModel`, not `KoiterDeformationModel`.
-- [ ] Add parity tests comparing `KoiterShellElementModel` against `KoiterDeformationModel` for:
-  - energy;
-  - gradient;
-  - Hessian;
-  - `df/da`;
-  - `df/db`;
-  - missing-neighbor boundary triangle behavior.
-- [ ] Keep `KoiterDeformationModel` as a temporary oracle during Task 5e only.
-- [ ] Do not redesign shell DOF layout in Task 5e. It remains vertex 3-DOF through existing assembler behavior until Task 6.
-- [ ] Do not migrate shell materials to new material recipe specs in Task 5e. That is still Task 7/Task 10 territory.
+- [ ] `FormulationTraits<TetP1>` and `FormulationTraits<HexTrilinear>` remain unchanged（already have `Basis` / `Quadrature` / `Kernel` / `ElementModel`；no `ElementStencil` alias needed or wanted）.
+- [ ] Add `VolumetricFormulationCategory` and `ShellFormulationCategory` concepts to `formulationConcepts.h`（per 设计决策 2）.
+- [ ] Remove the comment `// ShellKoiter — routes to existing KoiterDeformationModel path` from `formulationTraits.h` and replace it with one describing the new shell stack and per-category concept design.
+- [ ] Update `ElementModelFactory::create<ShellKoiter>` to:
+  - build `ES::V18d restX` and `bool hasVtx[6]` from `mesh.getVertexIndex(ele, j) < 0`（不再读 `-10496` sentinel）；
+  - construct `new typename FormulationTraits<ShellKoiter>::ElementModel(restX.data(), hasVtx, elasticModel, plasticModel)`；
+  - keep the existing `KOITER_FABRIC` / `KOITER_STVK` guard, throwing on unsupported elastic materials.
+- [ ] Drop `#include "../koiterDeformationModel.h"` from `elementModelFactory.h`.
+- [ ] `KoiterDeformationModel` 仍在 `koiterDeformationModel.h/.cpp`，但 production factory 不再实例化它。
+
+### Sub-task E: Element-model parity tests
+
+- [ ] Create `tests/.../formulations/elements/koiterShellElementModel_gtest.cpp` with two fixtures:
+  - **Interior triangle**: hasVtx = {1,1,1,1,1,1}, three different rest configurations (flat, gently curved, sharply curved).
+  - **Boundary triangle**: at least one of hasVtx[3..5] = 0 (cover all three missing-edge cases via parameterized test).
+- [ ] For each fixture, construct both `KoiterDeformationModel` (oracle) and `KoiterShellElementModel<FundamentalFormsKernel<ShellKoiterStencil>>` (new) wired to the same `ElasticModel2DFundamentalFormsSTVK` + `PlasticModel2DFundamentalForms` instances. Plastic-seed side effect happens on whichever constructor runs first; reset the plastic model between cases or instantiate independent plastic models per case.
+- [ ] At rest displacement and at a small perturbed displacement, compare to `1e-10` absolute tolerance:
+  - `computeEnergy`
+  - `compute_dE_dx` (18-vector)
+  - `compute_d2E_dx2` (18×18, both with and without `enableSPD(1)`)
+  - `compute_d2E_dxda` (18 × num_plastic_params)
+  - `compute_d2E_dxdb` (18 × num_elastic_params)
+- [ ] Add SPD enable test: after `enableSPD(1)`, `compute_d2E_dx2` symmetric PSD eigenvalues match between old and new.
+- [ ] Add FD sanity (separate from oracle comparison): `compute_dE_dx` matches finite difference of `computeEnergy` to `1e-5`.
+
+### Sub-task F: Manager / factory wiring for the mask
+
+- [ ] Currently `deformationModelManager.cpp:502` fills `restPosition[k] = (-10496, -10496, -10496)` and `elementModelFactory.h:79` repeats the same fill. After Sub-task D the factory builds `hasVtx` from the mesh directly. Remove the manager-side fill so missing-neighbor encoding lives in exactly one place (the factory).
+- [ ] If the manager still needs to provide a per-element rest position buffer to legacy callers during the transition (e.g. before Task 5p deletes the buffer), keep the buffer but stop encoding sentinel values into it; leave missing slots as `0`. This is safe because the new element model never reads them and the legacy `KoiterDeformationModel` is no longer constructed through this path.
+- [ ] Search for remaining `-10496` references after this sub-task:
+  - `koiterDeformationModel.cpp` — keep (legacy oracle still uses sentinel).
+  - `deformationModelManager.cpp` — must be gone.
+  - `elementModelFactory.h` — must be gone.
+
+### Sub-task G: Factory + assembler smoke tests
+
+- [ ] Extend `factories/elementModelFactory_gtest.cpp`:
+  - assert `ElementModelFactory::create<ShellKoiter>(...)` returns a `KoiterShellElementModel<...>*` for both interior and boundary elements (use `dynamic_cast` to verify type，删除 legacy 时再拆);
+  - assert factory still throws for non-Koiter elastic material types.
+- [ ] Extend `deformationModelFactory_gtest.cpp` shell case:
+  - run `makeShellDeformationModel(mesh, ShellKoiter{}, spec)` end-to-end，
+  - confirm bundle's per-element model is the new type，
+  - confirm energy at zero displacement matches existing baseline within tolerance.
+- [ ] Do not delete the legacy oracle test path in Task 5e; Task 5q is responsible for removing oracle dependencies entirely.
+
+### Out of scope for Task 5e
+
+- [ ] Do not redesign shell DOF layout; `Vertex3DofLayout` migration happens in Task 6. Shell `vid < 0` slots continue to flow through the existing assembler gather/scatter until Task 6.
+- [ ] Do not migrate shell materials to `ElasticModelSpec`. `KOITER_STVK` / `KOITER_FABRIC` legacy enum remains the elastic material input to `ElementModelFactory::create<ShellKoiter>` until Task 7/Task 10 finalizes the shell recipe surface.
+- [ ] Do not delete `koiterDeformationModel.h/.cpp` here; deletion + parity-test rewriting belongs to Task 5q.
+- [ ] Do not change `ElasticModel2DFundamentalForms` / `PlasticModel2DFundamentalForms` interfaces.
 
 **Exit criteria:**
 
-- `FormulationTraits<ShellKoiter>` points to a real shell-specific `Kernel` and `ElementModel`.
-- `ElementModelFactory::create<ShellKoiter>` no longer returns `KoiterDeformationModel`.
-- Shell Koiter energy/gradient/Hessian behavior matches the legacy implementation within existing tolerances.
-- Existing shell factory and assembler smoke tests pass through the new shell element model.
-- `KoiterDeformationModel` remains only as a temporary oracle and deletion target for Task 5q.
+- `ShellKoiterStencil`, `FundamentalFormsKernel<ElementStencil>`, and `KoiterShellElementModel<Kernel>` exist as header-only templates under the `formulations/` subtree, matching the file layout in design decision 4.
+- `FormulationTraits<ShellKoiter>` declares `DofLayout` / `ElementStencil` / `Kernel` / `ElementModel` and no longer routes through `KoiterDeformationModel`. It does NOT declare `Basis` or `Quadrature`（shell doesn't use reference-domain integral；`ShellFormulationCategory` doesn't require them）. `FormulationTraits<TetP1>` and `FormulationTraits<HexTrilinear>` declare `Basis` / `Quadrature` / `Kernel` / `ElementModel` without `ElementStencil`. No sentinel/placeholder types are introduced.
+- `ElementModelFactory::create<ShellKoiter>` returns `KoiterShellElementModel<...>` for every supported shell element, both interior and boundary.
+- Kernel unit tests cover rest state, translation invariance, affine map, missing-neighbor mask, and FD checks on first/second-derivative outputs.
+- Parity tests vs `KoiterDeformationModel` pass to `1e-10` on energy, gradient, Hessian (SPD on/off), `d2E/dxda`, and `d2E/dxdb` for both interior and boundary triangles.
+- `-10496` no longer appears in `deformationModelManager.cpp` or `elementModelFactory.h`; only `koiterDeformationModel.cpp` retains it as the still-living oracle.
+- All pre-existing shell factory/assembler smoke tests pass through the new path.
+- `KoiterDeformationModel` source files remain in tree as an oracle for parity tests and a deletion target for Task 5q.
 
 ## Task 5p: Task 5 Closeout Cleanup
 
@@ -1504,7 +1890,7 @@ make*DeformationModel<Formulation>
 - Modify: `tests/src/core/solidDeformationModel/formulations/deformationModelFormulation_gtest.cpp`
 
 - [ ] Add `HexTricubicHermite` tag options and `FormulationTraits<HexTricubicHermite>` specialization.
-- [ ] Extend `CubicFormulation` and `CubicFormulationVariant` to include `HexTricubicHermite`; this is intentionally delayed from Task 2 so the unsupported branch is introduced together with its tests.
+- [ ] Extend `CubicFormulation` concept to `std::same_as<F, HexTrilinear> \|\| std::same_as<F, HexTricubicHermite>` and `CubicFormulationVariant` to include `HexTricubicHermite`；this is intentionally delayed from Task 2 so the unsupported branch is introduced together with its tests.
 - [ ] Add C++ implementation guard:
   - `makeCubicDeformationModel(..., HexTricubicHermite{...}, ...)` recognizes the request but throws `std::logic_error("hex_tricubic_hermite is not implemented")`.
 - [ ] Record final Python `HexTricubicHermite` dataclass options for Task 10, but do not expose the public dataclass in Task 9:
@@ -1649,7 +2035,7 @@ This plan is complete when:
 - Wrong topology/formulation combinations fail at compile time in core C++.
 - Topology-specific factory template definitions are available directly from `deformationModelFactory.h`, so tests, tools, C API adapters, and Python bindings can instantiate them without linker surprises.
 - Runtime formulation selection is isolated to `std::variant` boundary adapters for Python/config.
-- Volumetric `FormulationTraits` binds only `DofLayout`, `Basis`, `Quadrature`, `Kernel`, `ElementModel`, and metadata; shell `FormulationTraits<ShellKoiter>` binds `DofLayout`, shell-specific `Geometry` (`ShellKoiterStencil`), `Kernel` (`FundamentalFormsKernel<Geometry>`), and `ElementModel` (`KoiterShellElementModel<Kernel>`) from Task 5e, not the legacy `KoiterDeformationModel`. Traits do not bind concrete elastic or plastic model types.
+- `FormulationTraits` per category: volumetric formulations declare `DofLayout` / `Basis` / `Quadrature` / `Kernel` / `ElementModel`; shell formulations declare `DofLayout` / `ElementStencil` / `Kernel` / `ElementModel`. C++20 concepts（`VolumetricFormulationCategory`, `ShellFormulationCategory`）verify the required alias sets at compile time. No sentinel/placeholder aliases. Traits do not bind concrete elastic or plastic model types. Shell traits use `KoiterShellElementModel<Kernel>` from Task 5e, not the legacy `KoiterDeformationModel`.
 - New formulation/factory/material/DOF files follow the `formulations/`, `factories/`, and `materials/` directory split; legacy wrapper files may remain at the module root during migration.
 - Old public `makeDeformationModel(...)` auto-dispatch entry has been removed.
 - Python can construct tet P1, cubic hex trilinear, and shell Koiter deformation energy.
@@ -1660,3 +2046,74 @@ This plan is complete when:
 - Assembler uses `DofLayout` for gather/scatter/sparsity on the existing vertex path.
 - Unsupported `HexTricubicHermite` is recognized but fails explicitly.
 - C++ and Python tests pass with the commands above.
+
+---
+
+## Rework Needed for Completed Tasks
+
+设计决策 2 的新方向（去掉 sentinel、per-category concept、`ElementStencil` 概念）和已完成 Task 1–4 的实现之间需要对齐的地方如下。
+
+### 两层 concept 的分工（澄清）
+
+per-tag concept 和 per-category concept **不冲突、不互相替代**——两者回答不同问题：
+
+| 层级 | 概念 | 回答问题 | 用途 |
+|---|---|---|---|
+| per-tag（按 mesh type 分组）| `TetFormulation`, `CubicFormulation`, `ShellFormulation` | "哪些 formulation tag 能传进这个 topology 的 factory？" | factory 模板约束 + `\|\|` 扩展 |
+| per-category（按 alias 集合分组）| `VolumetricFormulationCategory`, `ShellFormulationCategory` | "这个 formulation 有 Basis+Quadrature 还是有 ElementStencil？" | `std::visit` 内 `if constexpr` 分发 |
+
+两者都保留。
+
+### R-1: `formulationConcepts.h` — 加 per-category concept
+
+**当前代码状态（Task 2 产出）：**
+
+```cpp
+// formulationConcepts.h
+template<class F> concept TetFormulation = std::same_as<F, TetP1>;
+template<class F> concept CubicFormulation = std::same_as<F, HexTrilinear>;
+template<class F> concept ShellFormulation = std::same_as<F, ShellKoiter>;
+```
+
+**需要最终状态（同一文件，加 per-category concept）：**
+
+```cpp
+// formulationConcepts.h
+// Per-tag（保留，不动）
+template<class F> concept TetFormulation = std::same_as<F, TetP1>;
+template<class F> concept CubicFormulation = std::same_as<F, HexTrilinear>;
+template<class F> concept ShellFormulation = std::same_as<F, ShellKoiter>;
+
+// Per-category（新增）
+template<class F>
+concept VolumetricFormulationCategory = requires {
+  typename FormulationTraits<F>::Basis;
+  typename FormulationTraits<F>::Quadrature;
+  typename FormulationTraits<F>::Kernel;
+  typename FormulationTraits<F>::ElementModel;
+};
+
+template<class F>
+concept ShellFormulationCategory = requires {
+  typename FormulationTraits<F>::ElementStencil;
+  typename FormulationTraits<F>::Kernel;
+  typename FormulationTraits<F>::ElementModel;
+};
+```
+
+**执行约束：**
+- `VolumetricFormulationCategory` **现在就加**——volumetric traits 已有 `Basis`/`Quadrature`，可编译。
+- `ShellFormulationCategory` **等 Task 5e Sub-task D 再加**——依赖 `FormulationTraits<ShellKoiter>::ElementStencil`（= `ShellKoiterStencil`），这个类型要等 Task 5e Sub-task A 创建。
+
+### R-2: 无——factory 不改
+
+`deformationModelFactory.h` 的 `template<TetFormulation F>` / `template<CubicFormulation F>` / `template<ShellFormulation F>` 保持不变。per-tag concept 的 `||` 扩展性（将来 `CubicFormulation = HexTrilinear || HexTricubicHermite`）是正确的设计。
+
+### 不需要 rework 的地方
+
+| 已完成 Task | 判断 |
+|---|---|
+| Task 1 (basis/quadrature/kernel) | 无影响 |
+| Task 2 (per-tag concepts + traits) | per-tag concept 保留；TetP1/HexTrilinear traits 无 `ElementStencil`——正好是期望形状；ShellKoiter traits 由 Task 5e 补充 |
+| Task 3 (borrow-only) | 无影响 |
+| Task 4 (defer Python API) | 无影响 |
