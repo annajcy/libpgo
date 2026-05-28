@@ -415,19 +415,41 @@ energy -> assembler -> manager -> mesh
 
 ### 8. `SimulationMesh` lifetime 要在 binding 前处理
 
-当前 `SimulationMeshCore` 独占 `std::unique_ptr<SimulationMesh>`。如果 Python public API 接受 `SimulationMesh` 并创建多个 energy，就需要 clone：
+当前 `SimulationMeshCore` 独占 `std::unique_ptr<SimulationMesh>`，而 `DeformationModelManager` 也会消费 `std::unique_ptr<SimulationMesh>`。Python public API 接受 `SimulationMesh` 并允许从同一个 mesh 创建多个 energy 时，manager 不能再拥有或 move 这个 mesh；它必须只借用 immutable mesh。
+
+第一版推荐把 manager 和 topology-specific factory 统一改成 `const SimulationMesh &` borrow：
 
 ```cpp
-std::unique_ptr<SimulationMesh> SimulationMesh::clone() const;
+DeformationModelManager(
+  const SimulationMesh &simulationMesh,
+  DeformationModelPlasticMaterial plastic,
+  DeformationModelElasticMaterial elastic,
+  int enforceSPD,
+  const double *elementFiberDirections = nullptr,
+  const double *vertexFiberDirections = nullptr);
+
+makeTetDeformationModel(const SimulationMesh &mesh, TetP1{}, spec);
+makeCubicDeformationModel(const SimulationMesh &mesh, HexTrilinear{}, spec);
+makeShellDeformationModel(const SimulationMesh &mesh, ShellKoiter{}, spec);
 ```
 
-第一版推荐：
+`DeformationModelManager` 内部只保存 `const SimulationMesh *simulationMesh` 作为 non-owning borrow，不再保存 `ownedMesh`。调用方必须保证 mesh owner 活得比 manager / assembler / energy 链更久。
 
-- C++ core 支持 topology-specific factory，例如 `makeTetDeformationModel(std::unique_ptr<SimulationMesh>, TetP1{}, spec)` 和 `makeCubicDeformationModel(std::unique_ptr<SimulationMesh>, HexTrilinear{}, spec)`。
-- Python `SimulationMeshCore` 通过 `mesh_->clone()` 传入 factory。
-- 不消费 Python `SimulationMesh` 对象本身。
+Python binding 的 owner 形态是：
 
-如果 `clone()` 改动面过大，可以临时先绑定 `VolumeMeshCore -> makeTetDeformationModel/makeCubicDeformationModel`，但 public API 仍应保留 `SimulationMesh` 作为目标形态，避免把 Vega volume mesh 和 solver-ready mesh 混成一个概念。
+```text
+SimulationMeshCore
+  owns std::unique_ptr<SimulationMesh>
+
+DeformationEnergyCore
+  keeps std::shared_ptr<SimulationMeshCore> alive
+  owns DeformationModelBundle / DeformationModelEnergy
+
+DeformationModelManager
+  borrows const SimulationMesh & from SimulationMeshCore
+```
+
+这样既不消费 Python `SimulationMesh`，也不需要 `SimulationMesh::clone()`。C++ 侧如果提供从 `TetMesh` / `CubicMesh` / `TriMeshGeo` 直接构造 deformation energy 的 convenience API，必须返回一个 owning bundle/root 同时持有临时 `SimulationMesh` 和 energy；不能让 manager 借用一个即将析构的局部 mesh。
 
 ### 9. `DeformationModelManager::initImpl` 先拆内部 factory，再公开抽象
 
@@ -544,19 +566,19 @@ DeformationModelBundle makeShellDeformationModel(
 
 template<TetFormulation F>
 DeformationModelBundle makeTetDeformationModel(
-  std::unique_ptr<SimulationMesh> mesh,
+  const SimulationMesh &mesh,
   const F &formulation,
   const DeformationModelSpec &spec);
 
 template<CubicFormulation F>
 DeformationModelBundle makeCubicDeformationModel(
-  std::unique_ptr<SimulationMesh> mesh,
+  const SimulationMesh &mesh,
   const F &formulation,
   const DeformationModelSpec &spec);
 
 template<ShellFormulation F>
 DeformationModelBundle makeShellDeformationModel(
-  std::unique_ptr<SimulationMesh> mesh,
+  const SimulationMesh &mesh,
   const F &formulation,
   const DeformationModelSpec &spec);
 ```
@@ -754,15 +776,15 @@ pgo.energy.HillFiber(
 - Modify: `tests/src/core/solidDeformationModel/deformationModelAssembler_gtest.cpp`
 - Modify: `tests/pypgo/test_simulation_mesh.py`
 
-- [ ] Add C++ baseline test: current tet `makeDeformationModel(...)` at zero displacement has finite near-zero energy and finite gradient.
-- [ ] Add C++ baseline test: current cubic `makeDeformationModel(...)` at zero displacement has finite near-zero energy and finite gradient.
-- [ ] Add C++ baseline test: current cubic `makeDeformationModel(...)` facade matches manual manager/assembler chain, mirroring the existing tet factory test.
-- [ ] Add C++ characterization test: current ENu load path produces `SimulationMeshENuMaterial` payloads.
-- [ ] Add C++ characterization test: current Mooney-Rivlin `.veg` / `VolumeMesh` payloads exist before deformation conversion.
-- [ ] Add C++ characterization test: current Hill path requires an extra `SimulationMeshHillMaterial` slot and fiber directions.
-- [ ] Add C++ characterization test: current Orthotropic payload can be read from Vega but has no deformation `ElasticModel` yet.
-- [ ] Add Python test: `pypgo.mesh.veg.VolumeMesh` can carry ENu, Mooney-Rivlin, and Orthotropic regions before simulation conversion.
-- [ ] Add Python test note or assertion that `SimulationMesh.mesh_type == "cubic"` is topology metadata, not formulation metadata.
+- [x] Add C++ baseline test: current tet `makeDeformationModel(...)` at zero displacement has finite near-zero energy and finite gradient.
+- [x] Add C++ baseline test: current cubic `makeDeformationModel(...)` at zero displacement has finite near-zero energy and finite gradient.
+- [x] Add C++ baseline test: current cubic `makeDeformationModel(...)` facade matches manual manager/assembler chain, mirroring the existing tet factory test.
+- [x] Add C++ characterization test: current ENu load path produces `SimulationMeshENuMaterial` payloads.
+- [x] Add C++ characterization test: current Mooney-Rivlin `.veg` / `VolumeMesh` payloads exist before deformation conversion.
+- [x] Add C++ characterization test: current Hill path requires an extra `SimulationMeshHillMaterial` slot and fiber directions.
+- [x] Add C++ characterization test: current Orthotropic payload can be read from Vega but has no deformation `ElasticModel` yet.
+- [x] Add Python test: `pypgo.mesh.veg.VolumeMesh` can carry ENu, Mooney-Rivlin, and Orthotropic regions before simulation conversion.
+- [x] Add Python test note or assertion that `SimulationMesh.mesh_type == "cubic"` is topology metadata, not formulation metadata.
 
 **Exit criteria:**
 
@@ -799,49 +821,49 @@ pgo.energy.HillFiber(
 - Create: `tests/src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel_gtest.cpp`
 - Modify: `tests/src/core/solidDeformationModel/CMakeLists.txt`
 
-- [ ] Add `TetP1Basis` and `HexTrilinearBasis` for reference-element interpolation:
+- [x] Add `TetP1Basis` and `HexTrilinearBasis` for reference-element interpolation:
   - node/local DOF shape metadata;
   - `N(xi)`;
   - `dN/dxi`.
-- [ ] Add `TetP1DefaultQuadrature` and `GaussLegendreHexQuadrature2`:
+- [x] Add `TetP1DefaultQuadrature` and `GaussLegendreHexQuadrature2`:
   - quadrature points in reference coordinates;
   - reference weights;
   - no material, mesh, or rest-geometry state.
-- [ ] Add `DeformationGradientKernel<Basis, Quadrature>` with rest-shape precomputation currently embedded in `TetMeshDeformationModel` / `CubicMeshDeformationModel`.
-- [ ] Do not add `TetP1Kernel` / `HexTrilinearKernel` compatibility aliases. Use the concrete template instantiations directly:
+- [x] Add `DeformationGradientKernel<Basis, Quadrature>` with rest-shape precomputation currently embedded in `TetMeshDeformationModel` / `CubicMeshDeformationModel`.
+- [x] Do not add `TetP1Kernel` / `HexTrilinearKernel` compatibility aliases. Use the concrete template instantiations directly:
   - `DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>`
   - `DeformationGradientKernel<HexTrilinearBasis, GaussLegendreHexQuadrature2>`
-- [ ] Keep kernels free of `ElasticModel`, `PlasticModel`, SVD, stress, material parameters, and energy accumulation.
-- [ ] Do not expose quadrature choice in Python or public factory options in this milestone; quadrature is selected through `FormulationTraits`.
-- [ ] Preserve legacy reference-domain and weight conventions exactly:
+- [x] Keep kernels free of `ElasticModel`, `PlasticModel`, SVD, stress, material parameters, and energy accumulation.
+- [x] Do not expose quadrature choice in Python or public factory options in this milestone; quadrature is selected through `FormulationTraits`.
+- [x] Preserve legacy reference-domain and weight conventions exactly:
   - tet P1 uses the existing legacy tetrahedron orientation/volume convention from `TetMeshDeformationModel::computeVolume`;
   - hex trilinear uses the existing `[0, 1]^3` reference cube, node ordering from `CubicMeshDeformationModel`, 2x2x2 Gauss points at `0.5 +/- 0.5 / sqrt(3)`, reference weight `1/8` per point, and `abs(detJ) * weight`;
   - any behavior change in orientation, quadrature weight, node ordering, or local DOF ordering is a regression unless an old-vs-new test proves it is numerically identical.
-- [ ] Kernel API must expose at least:
+- [x] Kernel API must expose at least:
   - `static constexpr int numNodes`
   - `static constexpr int localDofs`
   - `int numQuadraturePoints() const`
   - `double weightDetJ(int q) const`
   - `void computeFref(const double *xLocal, int q, double F[9]) const`
   - `void computedFrefdx(int q, double *dFdx) const`
-- [ ] Add kernel unit tests:
+- [x] Add kernel unit tests:
   - rest state gives `Fref == I`.
   - uniform translation leaves `Fref` unchanged.
   - affine deformation `x = A X + b` gives `Fref == A`.
   - quadrature weight sum equals element volume.
   - `computedFrefdx` matches finite difference.
-- [ ] Add basis/quadrature unit tests:
+- [x] Add basis/quadrature unit tests:
   - basis partition of unity;
   - `sum_i dN_i/dxi == 0`;
   - nodal interpolation property where applicable;
   - hex quadrature integrates constants and linear reference functions exactly;
   - tet default quadrature weight matches reference tet volume convention used by the legacy element.
-- [ ] Add `DeformationGradientElementModel<Kernel>` that implements the existing `DeformationModel` virtual interface by combining:
+- [x] Add `DeformationGradientElementModel<Kernel>` that implements the existing `DeformationModel` virtual interface by combining:
   - formulation kinematics from `Kernel`
   - `ElasticModel3DDeformationGradient`
   - `PlasticModel3DDeformationGradient`
   - existing plastic/material derivative paths
-- [ ] Add regression tests comparing old and new element models on the same tet and cubic single-element fixtures:
+- [x] Add regression tests comparing old and new element models on the same tet and cubic single-element fixtures:
   - energy
   - `compute_dE_dx`
   - `compute_d2E_dx2`
@@ -849,9 +871,9 @@ pgo.energy.HillFiber(
   - `compute_d2E_dxdb`
   - stress routines where supported
   - local material max-step where supported
-- [ ] Turn `TetMeshDeformationModel` into a compatibility wrapper around `DeformationGradientElementModel<DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>>` after regression tests pass.
-- [ ] Turn `CubicMeshDeformationModel` into a compatibility wrapper around `DeformationGradientElementModel<DeformationGradientKernel<HexTrilinearBasis, GaussLegendreHexQuadrature2>>` after regression tests pass.
-- [ ] Keep the full `examples/ipc/cubic/box/box-ipc.json` run as final smoke only; do not use it as the first regression guard.
+- [x] Turn `TetMeshDeformationModel` into a compatibility wrapper around `DeformationGradientElementModel<DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>>` after regression tests pass.
+- [x] Turn `CubicMeshDeformationModel` into a compatibility wrapper around `DeformationGradientElementModel<DeformationGradientKernel<HexTrilinearBasis, GaussLegendreHexQuadrature2>>` after regression tests pass.
+- [x] Keep the full `examples/ipc/cubic/box/box-ipc.json` run as final smoke only; do not use it as the first regression guard.
 
 **Exit criteria:**
 
@@ -925,36 +947,40 @@ pgo.energy.HillFiber(
 - Wrong topology/formulation combinations fail at compile time for core template calls.
 - Task 2 may still carry legacy elastic enum inputs, but no public call site may still depend on runtime mesh-type auto-dispatch.
 
-## Task 3: Add `SimulationMesh::clone()` For Python Energy Construction
+## Task 3: Make `DeformationModelManager` Borrow `const SimulationMesh &`
 
-**目标：** Python `SimulationMesh` 可以被多个 energy factory 调用复用，而不暴露或消费 unique ownership。
+**目标：** Python `SimulationMesh` 可以被多个 energy factory 调用复用；mesh ownership 保留在外层 root，manager / assembler / energy 链只借用 immutable `SimulationMesh`，不消费 unique ownership。
 
 **Files:**
 
-- Modify: `src/core/solidDeformationModel/simulationMesh.h`
-- Modify: `src/core/solidDeformationModel/simulationMesh.cpp`
+- Modify: `src/core/solidDeformationModel/deformationModelManager.h`
+- Modify: `src/core/solidDeformationModel/deformationModelManager.cpp`
+- Modify: `src/core/solidDeformationModel/deformationModelFactory.h`
+- Modify: `src/core/solidDeformationModel/deformationModelFactory.cpp`
 - Create: `src/python/pypgo/bindings/simulation_mesh_core.h`
 - Modify: `src/python/pypgo/bindings/mesh_bindings.cpp`
-- Modify: `tests/src/core/solidDeformationModel/simulationMesh_gtest.cpp`
+- Modify: `tests/src/core/solidDeformationModel/deformationModelFactory_gtest.cpp`
+- Modify: `tests/src/core/solidDeformationModel/deformationModelAssembler_gtest.cpp`
 - Modify: `tests/pypgo/test_simulation_mesh.py`
 
-- [ ] Add `std::unique_ptr<SimulationMesh> clone() const`.
-- [ ] Implement `SimulationMeshImpl` copy/clone that deep-copies:
-  - vertices
-  - elements
-  - element UVs
-  - element material id lists
-  - materials through `SimulationMeshMaterial::clone()`
-  - mesh topology type
-- [ ] Add C++ test: clone preserves tet/cubic/shell counts, element vertex ids, material type and values.
+- [ ] Change `DeformationModelManager` constructor to take `const SimulationMesh &simulationMesh`; do not keep a public owning `std::unique_ptr<SimulationMesh>` constructor.
+- [ ] Remove `DeformationModelManagerImpl::ownedMesh`; store only `const SimulationMesh *simulationMesh = nullptr` as a non-owning immutable borrow.
+- [ ] Add null-free construction semantics: prefer reference in public constructors/factories; only internal helper pointers may exist after construction.
+- [ ] Update topology-specific factories to accept `const SimulationMesh &` for already solver-ready meshes.
+- [ ] Any convenience factory that creates a temporary `SimulationMesh` from a `TetMesh` / `CubicMesh` / `TriMeshGeo` must return an owning wrapper/bundle that keeps the temporary mesh alive for the whole energy lifetime; do not let manager borrow a local temporary.
+- [ ] Update all in-repo manager construction call sites to keep the `SimulationMesh` owner outside the manager until the energy chain is destroyed.
 - [ ] Move `SimulationMeshCore` out of `mesh_bindings.cpp` into `src/python/pypgo/bindings/simulation_mesh_core.h` so `energy_bindings.cpp` can use the same C++ wrapper type.
-- [ ] Add `SimulationMeshCore::cloneMesh()` helper in that shared header for energy construction.
-- [ ] Do not expose `clone()` as a public Python method unless needed for user workflows.
+- [ ] Add `SimulationMeshCore::mesh() const -> const SimulationMesh &` in that shared header for energy construction.
+- [ ] Make `DeformationEnergyCore` keep a `std::shared_ptr<SimulationMeshCore>` alive whenever it builds an energy from Python `SimulationMesh`.
+- [ ] Do not expose C++ mesh ownership or lifetime controls as public Python methods.
+- [ ] Add C++ tests: one `SimulationMesh` owner can be used to construct two independent deformation energies, and both remain evaluable while the owner is alive.
+- [ ] Add Python lifetime tests: the same `SimulationMesh` can create two energies, and an energy remains usable after the Python `sim_mesh` variable is deleted because `DeformationEnergyCore` keeps `SimulationMeshCore` alive.
 
 **Exit criteria:**
 
 - Creating deformation energy from a Python `SimulationMesh` does not mutate or consume the Python mesh object.
 - Two energy objects can be created from the same `SimulationMesh`.
+- Manager / assembler / energy construction no longer requires moving a `std::unique_ptr<SimulationMesh>` into `DeformationModelManager`.
 
 ## Task 4: Bind Current Deformation Energy To Python
 
@@ -1051,7 +1077,7 @@ pgo.energy.HillFiber(
 - [ ] Keep `ElasticModelFactory` consuming legacy `DeformationModelElasticMaterial` in Task 5 so this extraction can be tested independently of material recipe migration.
 - [ ] Do not remove `DeformationModelElasticMaterial` from the factory call path in Task 5; Task 7 performs that public API migration after payload conversion and mismatch tests exist.
 - [ ] Pass the formulation tag object or its `FormulationTraits` type into `ElementModelFactory`.
-- [ ] Preserve the current manager-owned storage shape initially:
+- [ ] Preserve the current manager-owned material/model storage shape initially:
   - vectors of specific material/model pointer types may remain in `DeformationModelManagerImpl`.
   - `elementMaterials` and `elementFEMs` can stay borrowed pointer arrays.
 - [ ] After behavior tests pass, optionally replace owning pointer vectors with `std::unique_ptr` vectors in a separate substep.
@@ -1088,13 +1114,13 @@ pgo.energy.HillFiber(
 - Modify: `tests/src/core/solidDeformationModel/deformationModelAssembler_gtest.cpp`
 
 - [ ] Complete the `DofLayout` abstract interface that Task 2 introduced as a traits-visible declaration.
-- [ ] Complete `Vertex3DofLayout` so it borrows a `const SimulationMesh *` owned by the assembler-owned `DeformationModelManager`.
+- [ ] Complete `Vertex3DofLayout` so it borrows the same `const SimulationMesh *` that `DeformationModelManager` borrows from the outer owner.
 - [ ] Move `gatherLocalPositions(...)` logic from assembler helper into `Vertex3DofLayout::gather`.
 - [ ] Move gradient scatter logic into `Vertex3DofLayout::scatterAddGradient`.
 - [ ] Move Hessian sparsity construction into `Vertex3DofLayout::addHessianSparsity`.
 - [ ] Move local-to-global sparse index lookup into layout helper.
 - [ ] Change `DeformationModelAssembler` constructor to own `std::unique_ptr<const DofLayout>`. `DofLayout` is an assembly concern, not a manager concern; keep the manager responsible for element/material/plastic model ownership and keep gather/scatter/sparsity policy in the assembler.
-- [ ] Store `deformationModelManager` before `dofLayout` in `DeformationModelAssembler` so `dofLayout` is destroyed first and its borrowed `SimulationMesh` pointer cannot outlive the manager-owned mesh.
+- [ ] Store `deformationModelManager` before `dofLayout` in `DeformationModelAssembler` so `dofLayout` is destroyed first; both manager and layout borrow the same outer-owned immutable `SimulationMesh`.
 - [ ] Update all assembler construction call sites to pass an explicit `Vertex3DofLayout`; do not keep an implicit compatibility constructor.
 - [ ] Change assembler fields:
   - `n3` -> `numDOFs`
@@ -1319,8 +1345,8 @@ conda run -n libpgo python -m pytest -q tests/pypgo
 | Risk | Impact | Mitigation |
 |---|---:|---|
 | `DeformationModelEnergy` state convention is misunderstood in Python | High | Expose `zero_state()` and document `value(u)` as displacement; add zero-state tests |
-| `SimulationMesh::clone()` misses multi-material element data | Medium | Clone `elementMaterialID` lists and material clones; add shell/material tests |
-| Manager factory split changes raw pointer lifetime | High | First extraction keeps existing storage ownership; RAII conversion is separate substep |
+| Manager borrows a `SimulationMesh` that does not outlive the energy chain | High | Public factories take `const SimulationMesh &`; Python `DeformationEnergyCore` keeps `SimulationMeshCore` alive; convenience factories that create temporary meshes must return an owning root that also stores the mesh |
+| Existing manager call sites still assume moving `std::unique_ptr<SimulationMesh>` transfers lifetime into the manager | High | Task 3 updates all call sites so mesh ownership stays outside manager until energy destruction; add tests for two energies from one mesh owner |
 | DofLayout migration changes sparse pattern ordering | Medium | Compare dense Hessian values, not only nnz/order; keep `findEntryOffset` tests |
 | Payload/law names are confused in Python | High | Keep payload classes in `pypgo.mesh.veg`, recipe classes in `pypgo.energy`; add mismatch tests |
 | Hill is treated as a standalone material | High | Model Hill only as `HillFiber(base=..., hill_slot=..., fibers=...)` |
@@ -1333,7 +1359,7 @@ conda run -n libpgo python -m pytest -q tests/pypgo
 | `ElementModel<Kernel, ElasticModel, PlasticModel>` causes template explosion | Medium | Keep the mathematical model in docs, but implement first version as `DeformationGradientElementModel<Kernel>` with runtime elastic/plastic injection |
 | Formulation API drifts into virtual base-class dispatch | Medium | Core API uses tag + concept/templates; `std::variant` appears only at Python/config boundaries |
 | Topology-specific template factories are defined only in `.cpp` | High | Put constrained template definitions directly in `deformationModelFactory.h`; `.cpp` only holds non-template helpers |
-| Python binding duplicates `SimulationMeshCore` or cannot access its owned mesh | High | Move `SimulationMeshCore` into shared `simulation_mesh_core.h` and expose a C++ `cloneMesh()` helper for energy bindings |
+| Python binding duplicates `SimulationMeshCore` or cannot keep its owned mesh alive | High | Move `SimulationMeshCore` into shared `simulation_mesh_core.h`; expose `mesh() const -> const SimulationMesh &`; make `DeformationEnergyCore` hold `std::shared_ptr<SimulationMeshCore>` |
 | Python Task 4 overclaims material support before payload/recipe migration | High | Task 4 volumetric support is limited to ENu-backed passive laws; shell support is limited to existing `ShellKoiter + KoiterStVK`; Mooney-Rivlin/Hill land in Task 7 and Orthotropic lands in Task 8 |
 | `HexTricubicHermite` silently uses trilinear path | High | Explicit implementation guard must throw `not implemented` |
 | Shell path breaks because it uses negative local vertex sentinel | Medium | `Vertex3DofLayout` must preserve `vid < 0` zero-local behavior |

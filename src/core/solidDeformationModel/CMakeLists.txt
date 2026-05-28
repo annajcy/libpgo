@@ -89,6 +89,9 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   koiterDeformationModel.cpp
   materialMaxStepPolynomialUtils.cpp
 
+	  formulations/basis/tetP1Basis.cpp
+	  formulations/basis/hexTrilinearBasis.cpp
+
   deformationModelManager.cpp
 
   deformationModelEnergy.cpp

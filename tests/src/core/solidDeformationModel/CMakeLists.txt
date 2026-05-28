@@ -28,6 +28,26 @@ target_link_libraries(cubicMeshDeformationModel_gtest PRIVATE GTest::gtest_main 
 set_property(TARGET cubicMeshDeformationModel_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(cubicMeshDeformationModel_gtest)
 
+add_executable(tetP1Basis_gtest formulations/basis/tetP1Basis_gtest.cpp)
+target_link_libraries(tetP1Basis_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET tetP1Basis_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(tetP1Basis_gtest)
+
+add_executable(hexTrilinearBasis_gtest formulations/basis/hexTrilinearBasis_gtest.cpp)
+target_link_libraries(hexTrilinearBasis_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET hexTrilinearBasis_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(hexTrilinearBasis_gtest)
+
+add_executable(deformationGradientKernel_gtest formulations/kernels/deformationGradientKernel_gtest.cpp)
+target_link_libraries(deformationGradientKernel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET deformationGradientKernel_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(deformationGradientKernel_gtest)
+
+add_executable(deformationGradientElementModel_gtest formulations/elements/deformationGradientElementModel_gtest.cpp)
+target_link_libraries(deformationGradientElementModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET deformationGradientElementModel_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(deformationGradientElementModel_gtest)
+
 add_executable(deformationModelEnergyMaxStep_gtest deformationModelEnergyMaxStep_gtest.cpp)
 target_link_libraries(deformationModelEnergyMaxStep_gtest PRIVATE GTest::gtest_main solidDeformationModel simulation mesh)
 target_compile_definitions(deformationModelEnergyMaxStep_gtest PRIVATE

@@ -1,0 +1,271 @@
+#include "gtest/gtest.h"
+#include "formulations/basis/tetP1Basis.h"
+#include "formulations/basis/hexTrilinearBasis.h"
+#include "formulations/quadrature/tetP1DefaultQuadrature.h"
+#include "formulations/quadrature/gaussLegendreHexQuadrature.h"
+#include "formulations/kernels/deformationGradientKernel.h"
+
+#include "EigenSupport.h"
+
+#include <cmath>
+
+namespace ES = pgo::EigenSupport;
+using namespace pgo::SolidDeformationModel;
+
+// ============================================================
+// Kernel type aliases
+// ============================================================
+
+using TetKernel = DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>;
+using HexKernel = DeformationGradientKernel<HexTrilinearBasis, GaussLegendreHexQuadrature2>;
+
+// ============================================================
+// Tet kernel tests
+// ============================================================
+
+TEST(DeformationGradientKernelGTest, TetKernelRestStateFrefIsIdentity)
+{
+  double rest[12] = {
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,
+  };
+  TetKernel kernel(rest);
+
+  // At rest (x = rest), Fref should be identity.
+  double F[9];
+  kernel.computeFref(rest, 0, F);
+  ES::M3d FMat = Eigen::Map<ES::M3d>(F);
+  EXPECT_TRUE(FMat.isApprox(ES::M3d::Identity(), 1e-12));
+}
+
+TEST(DeformationGradientKernelGTest, TetKernelUniformTranslationLeavesFrefUnchanged)
+{
+  double rest[12] = {
+    0.0, 0.0, 0.0,
+    2.0, 0.0, 0.0,
+    0.0, 3.0, 0.0,
+    0.0, 0.0, 4.0,
+  };
+  double x[12];
+  for (int i = 0; i < 12; i++) {
+    x[i] = rest[i] + 5.0;  // uniform translation
+  }
+
+  TetKernel kernel(rest);
+
+  double Frest[9], Ftrans[9];
+  kernel.computeFref(rest, 0, Frest);
+  kernel.computeFref(x, 0, Ftrans);
+
+  for (int i = 0; i < 9; i++) {
+    EXPECT_NEAR(Frest[i], Ftrans[i], 1e-12);
+  }
+}
+
+TEST(DeformationGradientKernelGTest, TetKernelAffineDeformationGivesExactF)
+{
+  double rest[12] = {
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,
+  };
+
+  // A = [2, 1, 0; 0, 3, 0; 0, 0, 4], b = [1, 2, 3]
+  ES::M3d A;
+  A << 2.0, 1.0, 0.0,
+       0.0, 3.0, 0.0,
+       0.0, 0.0, 4.0;
+  ES::V3d b(1.0, 2.0, 3.0);
+
+  double x[12];
+  for (int vi = 0; vi < 4; vi++) {
+    ES::V3d X(rest[vi * 3], rest[vi * 3 + 1], rest[vi * 3 + 2]);
+    ES::V3d deformed = A * X + b;
+    for (int c = 0; c < 3; c++) {
+      x[vi * 3 + c] = deformed[c];
+    }
+  }
+
+  TetKernel kernel(rest);
+  double F[9];
+  kernel.computeFref(x, 0, F);
+  ES::M3d FMat = Eigen::Map<ES::M3d>(F);
+
+  EXPECT_TRUE(FMat.isApprox(A, 1e-12));
+}
+
+TEST(DeformationGradientKernelGTest, TetKernelWeightDetJEqualsVolume)
+{
+  // Unit reference tet: volume = 1/6.
+  double rest[12] = {
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,
+  };
+  TetKernel kernel(rest);
+  EXPECT_NEAR(kernel.weightDetJ(0), 1.0 / 6.0, 1e-12);
+}
+
+TEST(DeformationGradientKernelGTest, TetKernelComputedFrefdxMatchesFiniteDifference)
+{
+  double rest[12] = {
+    0.0, 0.0, 0.0,
+    2.0, 0.0, 0.0,
+    0.0, 3.0, 0.0,
+    0.0, 0.0, 4.0,
+  };
+
+  TetKernel kernel(rest);
+
+  // Get analytical dF/dx.
+  double dFdx_flat[9 * 12];
+  kernel.computedFrefdx(0, dFdx_flat);
+  Eigen::Map<ES::M9x12d> dFdx_ana(dFdx_flat);
+
+  // Finite difference on each DOF.
+  const double eps = 1e-7;
+  for (int dof = 0; dof < 12; dof++) {
+    double xPlus[12], xMinus[12];
+    for (int i = 0; i < 12; i++) {
+      xPlus[i] = rest[i];
+      xMinus[i] = rest[i];
+    }
+    xPlus[dof] += eps;
+    xMinus[dof] -= eps;
+
+    double Fplus[9], Fminus[9];
+    kernel.computeFref(xPlus, 0, Fplus);
+    kernel.computeFref(xMinus, 0, Fminus);
+
+    for (int r = 0; r < 9; r++) {
+      double fd = (Fplus[r] - Fminus[r]) / (2.0 * eps);
+      EXPECT_NEAR(dFdx_ana(r, dof), fd, 1e-4);
+    }
+  }
+}
+
+// ============================================================
+// Hex kernel tests
+// ============================================================
+
+TEST(DeformationGradientKernelGTest, HexKernelRestStateFrefIsIdentity)
+{
+  double rest[24] = {
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    1.0, 1.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,
+    1.0, 0.0, 1.0,
+    1.0, 1.0, 1.0,
+    0.0, 1.0, 1.0,
+  };
+  HexKernel kernel(rest);
+
+  for (int q = 0; q < HexKernel::numQuadPts; q++) {
+    double F[9];
+    kernel.computeFref(rest, q, F);
+    ES::M3d FMat = Eigen::Map<ES::M3d>(F);
+    EXPECT_TRUE(FMat.isApprox(ES::M3d::Identity(), 1e-12));
+  }
+}
+
+TEST(DeformationGradientKernelGTest, HexKernelAffineDeformationGivesExactF)
+{
+  double rest[24] = {
+    0.0, 0.0, 0.0,
+    2.0, 0.0, 0.0,
+    2.0, 3.0, 0.0,
+    0.0, 3.0, 0.0,
+    0.0, 0.0, 4.0,
+    2.0, 0.0, 4.0,
+    2.0, 3.0, 4.0,
+    0.0, 3.0, 4.0,
+  };
+
+  ES::M3d A;
+  A << 1.5, 0.2, 0.0,
+       0.0, 2.0, 0.0,
+       0.0, 0.0, 1.0;
+  ES::V3d b(1.0, 2.0, 3.0);
+
+  double x[24];
+  for (int vi = 0; vi < 8; vi++) {
+    ES::V3d X(rest[vi * 3], rest[vi * 3 + 1], rest[vi * 3 + 2]);
+    ES::V3d deformed = A * X + b;
+    for (int c = 0; c < 3; c++) {
+      x[vi * 3 + c] = deformed[c];
+    }
+  }
+
+  HexKernel kernel(rest);
+  for (int q = 0; q < HexKernel::numQuadPts; q++) {
+    double F[9];
+    kernel.computeFref(x, q, F);
+    ES::M3d FMat = Eigen::Map<ES::M3d>(F);
+    EXPECT_TRUE(FMat.isApprox(A, 1e-12));
+  }
+}
+
+TEST(DeformationGradientKernelGTest, HexKernelWeightDetJSumEqualsVolume)
+{
+  // Unit cube: volume = 1.0
+  double rest[24] = {
+    0.0, 0.0, 0.0,  1.0, 0.0, 0.0,  1.0, 1.0, 0.0,  0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,  1.0, 0.0, 1.0,  1.0, 1.0, 1.0,  0.0, 1.0, 1.0,
+  };
+  HexKernel kernel(rest);
+
+  double volSum = 0.0;
+  for (int q = 0; q < HexKernel::numQuadPts; q++) {
+    volSum += kernel.weightDetJ(q);
+  }
+  EXPECT_NEAR(volSum, 1.0, 1e-12);
+}
+
+TEST(DeformationGradientKernelGTest, HexKernelComputedFrefdxMatchesFiniteDifference)
+{
+  double rest[24] = {
+    0.0, 0.0, 0.0,  2.0, 0.0, 0.0,  2.0, 3.0, 0.0,  0.0, 3.0, 0.0,
+    0.0, 0.0, 4.0,  2.0, 0.0, 4.0,  2.0, 3.0, 4.0,  0.0, 3.0, 4.0,
+  };
+
+  HexKernel kernel(rest);
+
+  for (int q = 0; q < HexKernel::numQuadPts; q++) {
+    double dFdx_flat[9 * 24];
+    kernel.computedFrefdx(q, dFdx_flat);
+    Eigen::Map<Eigen::Matrix<double, 9, 24>> dFdx_ana(dFdx_flat);
+
+    const double eps = 1e-7;
+    for (int dof = 0; dof < 24; dof++) {
+      double xPlus[24], xMinus[24];
+      for (int i = 0; i < 24; i++) {
+        xPlus[i] = rest[i];
+        xMinus[i] = rest[i];
+      }
+      xPlus[dof] += eps;
+      xMinus[dof] -= eps;
+
+      double Fplus[9], Fminus[9];
+      kernel.computeFref(xPlus, q, Fplus);
+      kernel.computeFref(xMinus, q, Fminus);
+
+      for (int r = 0; r < 9; r++) {
+        double fd = (Fplus[r] - Fminus[r]) / (2.0 * eps);
+        EXPECT_NEAR(dFdx_ana(r, dof), fd, 1e-4);
+      }
+    }
+  }
+}
+
+TEST(DeformationGradientKernelGTest, HexKernelNumNodesAndDofs)
+{
+  EXPECT_EQ(HexKernel::numNodes, 8);
+  EXPECT_EQ(HexKernel::localDofs, 24);
+  EXPECT_EQ(HexKernel::numQuadPts, 8);
+}
