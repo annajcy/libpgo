@@ -672,7 +672,7 @@ int pgo_run_sim_from_config(const char *configFileName)
   InterpolationCoordinates::BarycentricCoordinates bc(surfaceMesh.numVertices(), surfaceRestPositions.data(), &tetMesh);
   ES::SpMatD W = bc.generateInterpolationMatrix();
 
-  // initialize fem (unique ownership spine: energy -> assembler -> manager -> mesh)
+  // initialize fem; simMesh must outlive the energy chain because the manager borrows it
   std::unique_ptr<SolidDeformationModel::SimulationMesh> simMesh = SolidDeformationModel::loadTetMesh(&tetMesh);
 
   int n = simMesh->getNumVertices();
@@ -688,7 +688,7 @@ int pgo_run_sim_from_config(const char *configFileName)
 
   std::unique_ptr<SolidDeformationModel::DeformationModelManager> dmm =
     std::make_unique<SolidDeformationModel::DeformationModelManager>(
-      std::move(simMesh),
+      *simMesh,
       pgo::SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
       elasticMat,
       1);

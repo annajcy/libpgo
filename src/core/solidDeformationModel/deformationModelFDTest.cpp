@@ -100,7 +100,7 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
       }
 
       std::unique_ptr<DeformationModelManager> dmm = std::make_unique<DeformationModelManager>(
-        std::move(mesh), plasticMat, elasticMat);
+        *mesh, plasticMat, elasticMat, 1, nullptr, nullptr);
 
       int nplastic = dmm->getNumPlasticParameters();
       int nelastic = 0;
@@ -436,7 +436,7 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
       }
 
       std::unique_ptr<DeformationModelManager> dmm = std::make_unique<DeformationModelManager>(
-        std::move(mesh), plasticMat, elasticMat);
+        *mesh, plasticMat, elasticMat, 1, nullptr, nullptr);
 
       int nplastic = dmm->getNumPlasticParameters();
       int nelastic = dmm->getNumElasticParameters();

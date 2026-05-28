@@ -56,6 +56,24 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   prescribedPrincipleStressConstraintFunctions.h
 
   generateTetMeshMatrix.h
+
+  formulations/deformationFormulations.h
+  formulations/formulationTraits.h
+  formulations/formulationConcepts.h
+  formulations/formulationVariants.h
+
+  formulations/basis/tetP1Basis.h
+  formulations/basis/hexTrilinearBasis.h
+
+  formulations/quadrature/tetP1DefaultQuadrature.h
+  formulations/quadrature/gaussLegendreHexQuadrature.h
+
+  formulations/kernels/deformationGradientKernel.h
+
+  formulations/elements/deformationGradientElementModel.h
+
+  formulations/dof/dofLayout.h
+  formulations/dof/vertex3DofLayout.h
 )
 
 set(SOLID_DEFORMATION_MODEL_SOURCES

@@ -58,8 +58,7 @@ class DeformationModelManagerImpl
 public:
   ~DeformationModelManagerImpl();
 
-  std::unique_ptr<SimulationMesh> ownedMesh;  // owns the mesh; simulationMesh borrows it
-  const SimulationMesh *simulationMesh;
+  const SimulationMesh *simulationMesh = nullptr;   // non-owning immutable borrow
 
   std::vector<DeformationModel *> elementFEMs;
 
@@ -307,14 +306,13 @@ std::map<DeformationModelPlasticMaterial, int> numPlasticDOFs{
 
 using namespace pgo::SolidDeformationModel;
 
-DeformationModelManager::DeformationModelManager(std::unique_ptr<SimulationMesh> simulationMesh,
+DeformationModelManager::DeformationModelManager(const SimulationMesh &simulationMesh,
   DeformationModelPlasticMaterial plasticModelType, DeformationModelElasticMaterial elasticMaterialType,
   int enforceSPD, const double *elementFiberDirections, const double *vertexFiberDirections)
 {
   data = new DeformationModelManagerImpl;
 
-  data->ownedMesh = std::move(simulationMesh);
-  data->simulationMesh = data->ownedMesh.get();
+  data->simulationMesh = &simulationMesh;
   data->nele = data->simulationMesh->getNumElements();
   data->nvtx = data->simulationMesh->getNumVertices();
 

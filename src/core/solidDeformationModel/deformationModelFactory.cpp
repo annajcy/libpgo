@@ -2,7 +2,6 @@
 author: Bohan Wang
 copyright to USC
 */
-
 #include "deformationModelFactory.h"
 
 #include "simulationMesh.h"
@@ -13,8 +12,6 @@ copyright to USC
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "volumetricMesh.h"
-
-#include <stdexcept>
 
 namespace pgo::SolidDeformationModel
 {
@@ -48,35 +45,36 @@ std::unique_ptr<SimulationMesh> makeSimulationMesh(const VolumetricMeshes::Volum
   return result;
 }
 
-DeformationModelBundle makeDeformationModel(
-  std::unique_ptr<SimulationMesh> mesh,
+namespace detail
+{
+DeformationModelBundle makeDeformationModelBundle(
+  const SimulationMesh &mesh,
   DeformationModelElasticMaterial elastic,
   DeformationModelPlasticMaterial plastic,
   const DeformationModelOptions &opts)
 {
-  if (!mesh)
-    throw std::invalid_argument("makeDeformationModel: mesh is null.");
+  const int nele = mesh.getNumElements();
+  const int n3 = mesh.getNumVertices() * 3;
 
-  const int nele = mesh->getNumElements();
-  const int n3 = mesh->getNumVertices() * 3;
-
-  // Capture the rest pose from the mesh before it is moved into the manager.
+  // Capture the rest pose from the mesh.
   ES::VXd restPosition(n3);
-  for (int vi = 0; vi < mesh->getNumVertices(); vi++) {
+  for (int vi = 0; vi < mesh.getNumVertices(); vi++) {
     double p[3];
-    mesh->getVertex(vi, p);
+    mesh.getVertex(vi, p);
     restPosition.segment<3>(vi * 3) = ES::V3d(p[0], p[1], p[2]);
   }
 
   auto manager = std::make_unique<DeformationModelManager>(
-    std::move(mesh), plastic, elastic,
-    opts.enforceSPD ? 1 : 0);
+    mesh, plastic, elastic,
+    opts.enforceSPD ? 1 : 0,
+    /*elementFiberDirections=*/nullptr,
+    /*vertexFiberDirections=*/nullptr);
 
   ES::VXd elementWeights = opts.elementWeights;
   if (elementWeights.size() == 0)
     elementWeights = ES::VXd::Ones(nele);
   else if (static_cast<int>(elementWeights.size()) != nele)
-    throw std::invalid_argument("makeDeformationModel: elementWeights size does not match the element count.");
+    throw std::invalid_argument("makeDeformationModelBundle: elementWeights size does not match the element count.");
 
   const int numPlasticParams = manager->getNumPlasticParameters();
   ES::VXd plasticParams(static_cast<Eigen::Index>(nele) * numPlasticParams);
@@ -87,7 +85,7 @@ DeformationModelBundle makeDeformationModel(
       const auto *pm = dynamic_cast<const PlasticModel3DDeformationGradient *>(
         manager->getDeformationModel(ei)->getPlasticModel());
       if (!pm)
-        throw std::runtime_error("makeDeformationModel: plastic model is not a PlasticModel3DDeformationGradient.");
+        throw std::runtime_error("makeDeformationModelBundle: plastic model is not a PlasticModel3DDeformationGradient.");
       pm->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
     }
   }
@@ -103,13 +101,42 @@ DeformationModelBundle makeDeformationModel(
 
   return bundle;
 }
+}  // namespace detail
 
-DeformationModelBundle makeDeformationModel(
-  const VolumetricMeshes::VolumetricMesh &mesh,
+DeformationModelBundle makeTetDeformationModel(
+  const SimulationMesh &mesh,
+  const TetFormulationVariant &formulation,
   DeformationModelElasticMaterial elastic,
   DeformationModelPlasticMaterial plastic,
   const DeformationModelOptions &opts)
 {
-  return makeDeformationModel(makeSimulationMesh(mesh), elastic, plastic, opts);
+  return std::visit([&](const auto &f) {
+    return makeTetDeformationModel(mesh, f, elastic, plastic, opts);
+  }, formulation);
 }
+
+DeformationModelBundle makeCubicDeformationModel(
+  const SimulationMesh &mesh,
+  const CubicFormulationVariant &formulation,
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
+  const DeformationModelOptions &opts)
+{
+  return std::visit([&](const auto &f) {
+    return makeCubicDeformationModel(mesh, f, elastic, plastic, opts);
+  }, formulation);
+}
+
+DeformationModelBundle makeShellDeformationModel(
+  const SimulationMesh &mesh,
+  const ShellFormulationVariant &formulation,
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
+  const DeformationModelOptions &opts)
+{
+  return std::visit([&](const auto &f) {
+    return makeShellDeformationModel(mesh, f, elastic, plastic, opts);
+  }, formulation);
+}
+
 }  // namespace pgo::SolidDeformationModel

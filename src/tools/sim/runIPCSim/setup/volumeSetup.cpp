@@ -143,6 +143,7 @@ IpcSimulationContext buildVolumeIpcSimulation(const pgo::ConfigFileJSON &jconfig
 
   IpcSimulationContext context;
   context.M = std::move(M);
+  context.simulationMesh = std::move(initialized.simulationMesh);
   context.simulationRestPosition = std::move(initialized.restPosition);
   context.surfaceRestPositions = std::move(surfaceRestPositions);
   context.plasticParams = std::move(initialized.plasticity);

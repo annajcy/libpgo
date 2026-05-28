@@ -48,6 +48,14 @@ target_link_libraries(deformationGradientElementModel_gtest PRIVATE GTest::gtest
 set_property(TARGET deformationGradientElementModel_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(deformationGradientElementModel_gtest)
 
+add_executable(deformationModelFormulation_gtest formulations/deformationModelFormulation_gtest.cpp)
+target_link_libraries(deformationModelFormulation_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
+target_compile_definitions(deformationModelFormulation_gtest PRIVATE
+  LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/tet/torus.veg"
+  LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/cubic/box/box.veg")
+set_property(TARGET deformationModelFormulation_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(deformationModelFormulation_gtest)
+
 add_executable(deformationModelEnergyMaxStep_gtest deformationModelEnergyMaxStep_gtest.cpp)
 target_link_libraries(deformationModelEnergyMaxStep_gtest PRIVATE GTest::gtest_main solidDeformationModel simulation mesh)
 target_compile_definitions(deformationModelEnergyMaxStep_gtest PRIVATE

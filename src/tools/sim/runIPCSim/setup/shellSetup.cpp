@@ -129,7 +129,7 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
   }
 
   auto dmm = std::make_unique<SolidDeformationModel::DeformationModelManager>(
-    std::move(simMesh),
+    *simMesh,
     pgo::SolidDeformationModel::DeformationModelPlasticMaterial::SHELL_FF_DOF0,
     pgo::SolidDeformationModel::DeformationModelElasticMaterial::KOITER_STVK,
     1);
@@ -180,6 +180,7 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
 
   IpcSimulationContext context;
   context.M = std::move(M);
+  context.simulationMesh = std::move(simMesh);
   context.simulationRestPosition = std::move(simulationRestPosition);
   context.surfaceRestPositions = std::move(surfaceRestPositions);
   context.elasticParams = std::move(elasticParams);

@@ -57,8 +57,8 @@ struct IpcSimulationContext
   EigenSupport::VXd plasticParams;
   EigenSupport::VXd elasticParams;
   EigenSupport::SpMatD surfaceFromSimulationDispMap;
-  // elasticEnergy is the single owning root of the deformation model chain
-  // (energy -> assembler -> manager -> mesh); borrow inner objects via its accessors.
+  // elasticEnergy borrows this mesh through assembler -> manager.
+  std::unique_ptr<SolidDeformationModel::SimulationMesh> simulationMesh;
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy;
   std::vector<std::shared_ptr<ConstraintPotentialEnergies::MultipleVertexPulling>> pullingEnergies;
   std::vector<EigenSupport::VXd> pullingTargets;

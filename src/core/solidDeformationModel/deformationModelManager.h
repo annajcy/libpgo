@@ -47,7 +47,7 @@ enum class DeformationModelPlasticMaterial
 class DeformationModelManager
 {
 public:
-  DeformationModelManager(std::unique_ptr<SimulationMesh> simulationMesh,
+  DeformationModelManager(const SimulationMesh &simulationMesh,
     DeformationModelPlasticMaterial plasticModelType,
     DeformationModelElasticMaterial elasticMaterialType,
     int enforceSPD = 1,
