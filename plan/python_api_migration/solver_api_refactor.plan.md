@@ -184,35 +184,34 @@ class SolveStatus(enum.IntEnum):
 
 不直接绑 C++ `SolveStatus` 裸值；在 binding helper 内做 enum 翻译并保证 parity test 覆盖所有值。
 
-### 4. SolverResult / SolveDiagnostics
+### 4. SolverResult
 
-Python 不可变 value object：
+Python 不可变 value object，flat 设计，不双层嵌套：
 
 ```python
 @dataclass(frozen=True)
-class SolveDiagnostics:
-    num_iterations: int
-    final_gradient_norm: float
-    final_gradient_max_norm: float
-    final_energy: float
-    # ... fields populated from C++ SolveDiagnostics after solve completes
-
-@dataclass(frozen=True)
 class SolverResult:
-    x: np.ndarray               # (n,) float64, solution DOF vector
+    x: np.ndarray               # (n,) float64, solution DOF vector (copy)
     status: SolveStatus
     converged: bool
     iterations: int
+    final_energy: float
     final_gradient_norm: float
-    final_gradient_max_norm: float | None
-    diagnostics: SolveDiagnostics
+    final_gradient_max_norm: float
+    # 其它 C++ SolveDiagnostics 字段按需逐项纳入；不嵌套为子 dataclass
 ```
 
-`SolverResult.x` 是 **copy**；删掉 `result` 后不影响任何 C++ 内部状态。
+字段命名规则：
+
+- 所有 scalar 用 `final_*` 前缀；
+- 一个 `SolverResult` 字段只对应 C++ `SolveDiagnostics` / `SolverResult` 的一个语义；
+- 不暴露 history 数组（gradient norm history、energy history）作为 first-class 字段；如未来确实需要，作为 optional `traces` 字段加入，而不是开第二层 dataclass。
+
+`SolverResult.x` 是 **copy**；删掉 `result` 后不影响任何 C++ 内部状态。`final_gradient_max_norm` 在 solve 完成时总有值（即使 solve 失败也有最后一次评估值），不是 nullable。
 
 ### 5. C++ facade：`solveNewton`
 
-在 C++ 侧加一个无状态 adapter function，内部构造 NewtonSolver + solve + 打包结果：
+在 C++ 侧加一个无状态 adapter function，内部构造 NewtonSolver + solve + 打包结果。`NewtonOptions` 直接使用 `NewtonSolver::LineSearchMethod` enum，避免 raw int：
 
 ```cpp
 namespace pgo::NonlinearOptimization
@@ -223,8 +222,10 @@ struct NewtonOptions
   int maxIterations = 50;
   double tolerance = 1e-6;
   bool damping = true;
-  int lineSearchMethod = 2;   // matches LSM_BACKTRACK
+  NewtonSolver::LineSearchMethod lineSearchMethod = NewtonSolver::LSM_BACKTRACK;
   int verbose = 0;
+  // 注意：第一版固定 SST_SUBITERATION_LINE_SEARCH；其余 SST 模式（STATIC_DAMPING / ONE）
+  // 在 Python 侧尚无用户场景，留待后续以 keyword 形式新增。
 };
 
 struct NewtonResult
@@ -257,7 +258,7 @@ NewtonResult solveNewton(
 
   NewtonSolver::SolverParam sp;
   sp.addDamping = opt.damping ? 1 : 0;
-  sp.lsm = static_cast<NewtonSolver::LineSearchMethod>(opt.lineSearchMethod);
+  sp.lsm = opt.lineSearchMethod;
   sp.sst = NewtonSolver::SST_SUBITERATION_LINE_SEARCH;
 
   std::vector<int> fixedDofs = fixedDofsPtr ? *fixedDofsPtr : std::vector<int>{};
@@ -271,11 +272,13 @@ NewtonResult solveNewton(
 
 ### 6. `fixed_values=None` 语义
 
-Python `fixed_values=None` → binding 传 `nullptr` 给 `solveNewton`，等价于“用 x0[fixedDOFs]”。`NewtonSolver` 内部在 fixedValues 为 `nullptr` 时已经用构造函数里的 `x` 做了 copy；facade 不额外处理。
+Python `fixed_values=None` → binding 传 `nullptr` 给 `solveNewton`，期望 `NewtonSolver` 内部 fallback 到 `x0[fixedDOFs]`。
 
-### 7. 暂不绑定 `minimize`
+**该 fallback 行为必须在 Task S1 通过读 `NewtonSolver.cpp` 验证：** 若 NewtonSolver 不内置该 fallback，facade 必须显式从 `x0` 拷贝出 `fixedValues` 再传入；如果内置，facade 透传即可。审计结论写入 Task S1 输出节。
 
-`EnergyOptimizer::minimize` 的 binding 留在 `pypgo.solver.minimize` 占位，但 M3 只是 stub（抛 `NotImplementedError`），供后续 IPOPT/Knitro/constrained minimize 接上。
+### 7. 不暴露 `minimize`
+
+M3 不为 `EnergyOptimizer::minimize` 提供任何 Python 占位（stub 反而引导用户写无法工作的代码）。当 IPOPT / Knitro / constrained minimize 真正纳入 Python 时再设计 API 表面。
 
 ## 目标 C++ API
 
@@ -292,7 +295,7 @@ struct NewtonOptions
   int maxIterations = 50;
   double tolerance = 1e-6;
   bool damping = true;
-  int lineSearchMethod = 2;   // LSM_BACKTRACK
+  NewtonSolver::LineSearchMethod lineSearchMethod = NewtonSolver::LSM_BACKTRACK;
   int verbose = 0;
 };
 
@@ -363,14 +366,12 @@ print(result.diagnostics.num_iterations)
 ```text
 pypgo.solver
   SolveStatus             # IntEnum
-  SolveDiagnostics        # frozen dataclass
-  SolverResult            # frozen dataclass
+  SolverResult            # frozen dataclass, flat
   NewtonOptions           # frozen dataclass
   solve_newton            # stateless function
-  minimize                # stub (raises NotImplementedError)
 ```
 
-不暴露：`NewtonSolver`（class）、`EnergyOptimizer`、`SolverParam`、`SolverSubiterationType`、`LineSearchMethod`、`stepFunc`、`getx`、`getSolveDiagnostics`。
+不暴露：`NewtonSolver`（class）、`EnergyOptimizer`、`SolverParam`、`SolverSubiterationType`、`LineSearchMethod`、`stepFunc`、`getx`、`getSolveDiagnostics`、`minimize`（包括 stub）。
 
 ## File Map
 
@@ -404,8 +405,9 @@ pypgo.solver
 
 - 读 `solveDiagnostics.h`、`solverResult.h`、`NewtonSolver.cpp` 中 `SolveStatus` 和 `SolverResult` / `SolveDiagnostics` 的完整字段。
 - 确认 Python `SolveStatus` 枚举值映射：列出现有所有 `SolveStatus` 值及其语义。
-- 确认 `SolveDiagnostics` 字段清单（`numIterations`、`energyHistory`、`gradNormHistory`、`spdFailureCount` 等），决定 M3 暴露哪些。
-- 产出：在本 plan 补一节 `### SolveStatus mapping table` 和 `### SolveDiagnostics field selection`。
+- 选定 `SolverResult` flat 字段集（status / converged / iterations / final_energy / final_gradient_norm / final_gradient_max_norm + 任何确实需要的标量），写入 plan。
+- **必须验证：** `NewtonSolver(const double *x, ..., fixedValues_ == nullptr)` 时，内部是否 fallback 到 `x[fixedDOFs]` 作为 fixed 值。读 `NewtonSolver.cpp` 的 `applyFixedValues` / ctor 实现，把结论写入 plan。如果不 fallback，Task S2 facade 必须显式构造 fixedValues。
+- 产出：在本 plan 补两节 "### SolveStatus mapping table"、"### SolverResult field selection"、"### fixedValues fallback 行为"。
 - 不写代码。
 
 ### Task S2: 实现 `solveNewton` facade
@@ -424,15 +426,15 @@ pypgo.solver
   - fixed DOFs 不给 → 无 fixed DOFs 收敛；
   - fixed DOFs 给 → fixed 元素不变，其余收敛。
 
-### Task S3: Python SolveStatus + SolveDiagnostics + SolverResult
+### Task S3: Python SolveStatus + SolverResult
 
-- 在 `pypgo/solver.py` 写 `SolveStatus(IntEnum)`、`SolveDiagnostics`、`SolverResult` dataclass。
+- 在 `pypgo/solver.py` 写 `SolveStatus(IntEnum)`、`SolverResult` frozen dataclass（按 S1 选定的 flat 字段集）。
 - 在 `solver_bindings.cpp` 写：
   - `_core` 级别的 enum 翻译 helper：C++ `SolveStatus` → Python `int` → `SolveStatus(value)`；
-  - `SolverResult` → 返回 dict / Python attr object。
+  - C++ `NewtonResult` → Python `SolverResult` 字段映射函数。
 - 测试：
   - 每个 `SolveStatus` 值都能通过 `int(status)` / `SolveStatus(value)` roundtrip；
-  - 拿一个实际收敛的 Newton solve，检查 `SolverResult` 字段齐全且 `converged == True`。
+  - 拿一个实际收敛的 Newton solve，检查 `SolverResult` 字段齐全且 `converged == True`、`status == CONVERGED`、`iterations > 0`。
 
 ### Task S4: Python `solve_newton`
 
@@ -445,12 +447,7 @@ pypgo.solver
 - 返回 `SolverResult` Python object。
 - 在 `pypgo/solver.py` 写 `NewtonOptions` dataclass + `solve_newton` Python wrapper（只做 docstring / type hint / normalization）。
 
-### Task S5: `minimize` stub
-
-- 在 `pypgo/solver.py` 加入 `def minimize(...) -> NotImplementedError`，signature 照 `EnergyOptimizer::minimize` 通用接口写。
-- 只挂 stub；不绑 C++ 实现。
-
-### Task S6: Solver 端到端 test + 清理
+### Task S5: Solver 端到端 test + 清理
 
 - `tests/pypgo/test_solver.py` 补充：
   - `test_newton_solves_quadratic__warm_start`：已知解在 x=0 的二次能量，`u0` 随机初始化，验证收敛到 0；
@@ -469,3 +466,42 @@ pypgo.solver
 - `result.x` 是有效 numpy array，独立于 C++ solver 内部 buffer。
 - `solveNewton.h` 不暴露 `NewtonSolver` 的 mutable 成员或 `solver->getx()` 的引用。
 - `runIPCSim` 内部 Newton 调用不受 facade 引入影响。
+
+## Dependencies & Execution Order
+
+### 外部依赖
+
+- **Energy plan** 的 Task E0（Hessian API rename）必须先完成：
+  - NewtonSolver.cpp 大量使用 `createHessian` / `hessian` / `hessianDirect`，E0 内会把它们 rename 成 `hessianAlloc` / `hessianInPlace` / `hessian`；本 plan 的 Task S2 facade 实现直接基于新名字写。
+  - Solver C++ Task S1（audit）可以在 E0 进行时**并行启动**——它只读 NewtonSolver 的 SolveStatus / 字段，不依赖 hessian API 名字。
+  - Solver C++ Task S2（facade 实现）必须在 E0 完成之后启动。
+- **Energy plan** 的 Task E1（`evaluation.h`）和 E4（`pypgo.energy.PotentialEnergy` binding）必须先完成：
+  - `solve_newton` 接受的 `energy` 参数是 `pypgo.energy.PotentialEnergy`；E4 才给出该 Python 类型；
+  - 端到端测试 `solve_newton(EnergySet([...]))` 需要 E6（EnergySet binding）；
+  - 单元测试可只用 Energy E2 / E5 提供的 `QuadraticEnergy` 作为 minimal energy。
+- Contact plan 不是 Solver plan 的依赖。Solver 完成后，Contact plan 的 C5 端到端测试才能验证 IPC + Newton solve 联合行为。
+
+### 内部任务依赖
+
+```text
+S1 (audit)            ─ 纯审计；可在 Energy 任何阶段并行
+                       │
+S2 (C++ facade + test)── 依赖 S1 的 fallback 验证结论
+                       │
+S3 (Python SolveStatus/SolverResult)── 依赖 S1（确定字段集）
+                       │
+S4 (Python solve_newton)── 依赖 S2 + S3 + Energy E4
+                       │
+S5 (端到端 test)        ── 依赖 S4 + Energy E5（QuadraticEnergy）；可选依赖 E6（EnergySet 多 term solve）
+```
+
+### 推荐顺序
+
+S1 → S2 → S3 → S4 → S5。S1 / S2 可与 Energy E1–E3 并行（纯 C++）；S3 / S4 / S5 必须排在 Energy E4 / E5 / E6 完成之后。
+
+### 输出（供下游使用）
+
+- C++: `solveNewton(energy, x0, options, ...)`、`NewtonOptions`、`NewtonResult`。
+- Python: `pypgo.solver.solve_newton`、`SolverResult`、`SolveStatus`、`NewtonOptions`。
+- Contact plan C5 端到端测试用 `pgo.solver.solve_newton(EnergySet([elastic, floor, ipc]))` 验证 IPC + Newton。
+- M5 静态 solve、M6 dynamic loop 直接使用 `solve_newton` 作为底层。

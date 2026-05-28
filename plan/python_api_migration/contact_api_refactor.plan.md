@@ -37,7 +37,7 @@ total = pgo.energy.EnergySet([
 
 不让 Python 看到：
 
-- `hessian` vs `hessianDirect`（IPC `isHessianTopologyFixed() == 0`，由 `evaluateHessian` 统一）；
+- `hessianInPlace` vs `hessian`（IPC `isHessianTopologyFixed() == 0`，由 `evaluateHessian` 统一；新命名见 Energy plan §4）；
 - `MappedSurfacePotentialEnergy` 内部 cached active set / line search 状态；
 - `EmbeddedSurfaceIPCPotentialEnergy::setObstacleTime` / `markObstacleStatic` 之外的 obstacle 内部结构；
 - 任何 raw pointer / 借用 `const SpMatD &` 引用的构造约定。
@@ -58,7 +58,9 @@ total = pgo.energy.EnergySet([
 
 ### 1. Hessian topology 非固定
 
-`MappedSurfacePotentialEnergy::isHessianTopologyFixed()` 返回 `0`。直接绑 `hessian()` 会让 Python 用户看见 `H` 拓扑不对的错误。必须由 `evaluation.h::evaluateHessian` 统一走 `hessianDirect`，这一点已经在 `energy_api_refactor.plan.md::Task E1` 覆盖，本计划只需要保证 contact energy 始终通过该 helper 被求值。
+`MappedSurfacePotentialEnergy::isHessianTopologyFixed()` 返回 `0`，意味着它 override 了 `hessian(x, H)` （新名）做 per-x 重建。Python 用户必须走 `evaluation.h::evaluateHessian`（内部调 `hessian(x, H)`），不直接调 `hessianInPlace`/`hessianAlloc`。这一点已经在 `energy_api_refactor.plan.md::Task E1` 覆盖，本计划只需要保证 contact energy 始终通过该 helper 被求值。
+
+注意 Contact 内部 `MappedSurfacePotentialEnergy` / `EmbeddedSurfaceFloor/IPCPotentialEnergy` 的 `hessian` / `hessianInPlace` / `hessianAlloc` override 必须随 Energy Task E0 一起 rename；Contact 任务不再单独负责这部分 rename。
 
 ### 2. State convention：simulation displacement
 
@@ -152,17 +154,19 @@ binding 时 field-by-field 写入 `SurfaceIPCCore::Parameters`，不暴露 raw C
 class ObstacleSpec:
     rest_vertices: np.ndarray   # (n, 3) float64
     triangles: np.ndarray       # (m, 3) int64
-    static_: bool = False        # 对应 markObstacleStatic
+    is_static: bool = False     # 对应 markObstacleStatic
     # motion / time-dependent transform 留给 M6
 ```
 
-`IPCEnergy` 构造接受 `obstacles: list[ObstacleSpec]`，binding 时翻译为 `std::vector<ObstacleSurface>` 并按 `static_` 调用 `markObstacleStatic(objectId)`。
+`IPCEnergy` 构造接受 `obstacles: list[ObstacleSpec]`，binding 时翻译为 `std::vector<ObstacleSurface>` 并按 `is_static` 调用 `markObstacleStatic(objectId)`。
 
 提供运行时 setter：
 
 ```python
 ipc.set_obstacle_time(t: float) -> None
 ```
+
+M3 静态 solve 实际不需要时间推进，`set_obstacle_time` 此处作为 forward compatibility 暴露给 M6 dynamic loop；M3 测试中只验证 `set_obstacle_time(0.0)` 不破坏其他求值。
 
 不暴露 `obstacleSurfaces` 列表的可变 view。
 
@@ -228,7 +232,7 @@ ipc = pgo.contact.IPCEnergy(
         pgo.contact.ObstacleSpec(
             rest_vertices=obs_rest,
             triangles=obs_tris,
-            static_=True,
+            is_static=True,
         ),
     ],
 )
@@ -251,7 +255,7 @@ H = total.hessian(u)
 - `IPCParameters` 字段顺序与 dataclass 严格匹配 `SurfaceIPCCore::Parameters`。
 - `FloorEnergy.height`、`FloorEnergy.kappa` 可读；不暴露 `set_floor_height` 之外的 mutator（floor motion 留给 M6）。
 - `set_obstacle_time(t)` 与 dynamic loop 解耦：静态 solve 调一次 `t=0` 即可。
-- 不暴露 `mark_obstacle_static`；该状态在构造时通过 `ObstacleSpec.static_` 决定。
+- 不暴露 `mark_obstacle_static`；该状态在构造时通过 `ObstacleSpec.is_static` 决定。
 
 `pypgo.contact` M3 表面：
 
@@ -285,20 +289,35 @@ pypgo.contact
 - `embeddedSurfaceFloorPotentialEnergy.{h,cpp}`、`embeddedSurfaceIPCPotentialEnergy.{h,cpp}`、`mappedSurfacePotentialEnergy.{h,cpp}` 实现保持不变（除非 Task C2 审计发现真实 ownership 缺陷）。
 - `contact/legacy_penalty/*`、`runIPCSim/setup/floorSetup.cpp`、`runIPCSim/setup/obstacleSetup.cpp` 不在本计划修改范围。
 
+## IPC 参数定稿表（Task C1 输出占位）
+
+> Task C1 的产出填入此处。在 C1 完成前，本节保持空白。所有后续 task 都以本节为唯一真相。
+
+| Python `IPCParameters` 字段 | 类型 | 默认 | C++ `SurfaceIPCCore::Parameters` 对应字段 | M3 公开? |
+|---|---|---|---|---|
+| _待填_ | _待填_ | _待填_ | _待填_ | _待填_ |
+
+## Obstacle ownership 审计结论（Task C2 输出占位）
+
+> Task C2 的结论填入此处：`ObstacleSurface` 是否完全 by-value、是否需要 owning 重载。
+
+- _待填_
+
 ## Task 拆分
 
 ### Task C1: `IPCParameters` field audit
 
 - 读 `src/core/contact/ipc/core/surfaceIPCCore.h`，列出 `SurfaceIPCCore::Parameters` 当前字段、类型、默认值。
-- 在本 plan 的“IPC 参数定稿表”补一节，写明 Python `IPCParameters` 字段对照。
+- 填本 plan "IPC 参数定稿表" 占位节，写明 Python `IPCParameters` 字段对照。
 - 决定哪些字段 M3 公开、哪些 M3 隐藏使用默认值（例如内部 solver tolerance）。
 - 不写代码；只产出文档增量。
 
 ### Task C2: Obstacle ownership audit
 
 - 阅读 `ObstacleSurface` 定义和构造路径，确认它持有的几何/状态数据是否完全 by-value。
-- 如果借用外部 mesh / pointer：在本 plan 补一节描述并新增 owning 构造重载（C++ 改动属于本 task，必须 by-value test 验证）。
-- 如果完全 by-value：在本 plan 标记为已验证，binding 直接走现有 ctor。
+- 把结论写入本 plan "Obstacle ownership 审计结论" 占位节。
+- 如果借用外部 mesh / pointer：在结论节描述并新增 owning 构造重载（C++ 改动属于本 task，必须 by-value test 验证）。
+- 如果完全 by-value：在结论节标记为已验证，binding 直接走现有 ctor。
 
 ### Task C3: 在 C++ 加 contact ownership test
 
@@ -322,7 +341,7 @@ pypgo.contact
 - 绑 `EmbeddedSurfaceIPCPotentialEnergy`：
   - ctor 接 NumPy 数组 + `IPCParameters` + `list[ObstacleSpec]`。
   - 暴露 `set_obstacle_time(t)`。
-  - 不暴露 `markObstacleStatic` 直接；改由 `ObstacleSpec.static_` 决定。
+  - 不暴露 `markObstacleStatic` 直接；改由 `ObstacleSpec.is_static` 决定。
 - 在 `pypgo/contact.py` 写 `IPCParameters`、`ObstacleSpec` dataclass + `state_kind = "displacement"`。
 - 测试：
   - 无 obstacle 时构造 + 求值；
@@ -348,3 +367,39 @@ pypgo.contact
 - `pypgo.contact` 没有出现 `markObstacleStatic`、`FloorPenaltyParameters`、`SurfaceIPCCore` 等 C++ 类型名。
 - `contact_bindings.cpp` 内不使用 `std::shared_ptr<void>` 或 ad-hoc keep-alive 容器；所有 ownership 由 `EmbeddedSurfaceFloor/IPCPotentialEnergy` 自身承担。
 - `runIPCSim` 既有 JSON 配置行为不受影响（本计划不动 setup 路径）。
+
+## Dependencies & Execution Order
+
+### 外部依赖
+
+- **Energy plan** 的 Task E0（Hessian API rename）、E1（`evaluation.h`）、E4（`pypgo.energy.PotentialEnergy` 绑定）、E6（`pypgo.energy.EnergySet` 绑定）必须先完成。理由：
+  - E0 在 contact subclass 内 rename `hessian` / `hessianInPlace` / `hessianAlloc`，Contact plan 中提到的 `MappedSurfacePotentialEnergy` / `EmbeddedSurfaceFloor/IPCPotentialEnergy` 的 override 都会被批量改名；Contact 任务直接基于 rename 后的名字写；
+  - C4/C5 绑定 contact energy 时，Python 类继承自同一个 `PotentialEnergy` handle 类型；
+  - `IPCEnergy.hessian(u)` 走 `evaluateHessian` 处理 `isHessianTopologyFixed() == 0` 的情况；
+  - 端到端测试 `EnergySet([elastic, floor, ipc])` 需要 EnergySet 可用。
+- Solver plan 不是 Contact plan 的硬依赖；但 C5 端到端 happy path（构造 EnergySet → solve_newton）若希望覆盖到，需要 Solver Task S4 完成。如果 Solver 未就绪，C5 测试只覆盖求值不覆盖收敛。
+- `pypgo.sparse.SparseMatrix`（M2）：若就绪，`surface_from_simulation_disp_map` 接它；否则同 Energy E5 用 `(rows, cols, vals, shape)` 兜底。
+
+### 内部任务依赖
+
+```text
+C1 (IPC 参数 audit)      ─┐
+C2 (Obstacle audit)      ─┤── 可并行，皆为只读/小补丁
+                          │
+C3 (C++ ownership test)  ─┘   依赖 C2 的结论（决定是否需要新 owning ctor）
+                          │
+C4 (FloorEnergy 绑定)    ── 依赖 Energy E1+E4+E6
+                          │
+C5 (IPCEnergy 绑定)      ── 依赖 C1（参数表）、C2/C3（obstacle ownership 确认）、Energy E1+E4+E6
+                          │
+C6 (文档)                ── 最后
+```
+
+### 推荐顺序
+
+C1 / C2 并行（纯审计）→ C3 → C4 → C5 → C6。
+
+### 输出（供下游使用）
+
+- Python: `pypgo.contact.FloorEnergy/IPCEnergy/FloorParameters/IPCParameters/ObstacleSpec`。
+- M4 `pypgo.sim.RunSimConfig` 的 floor / obstacle 字段构造时直接使用 Contact plan 暴露的 dataclass + energy class，不再回到 `runIPCSim` setup 路径。
