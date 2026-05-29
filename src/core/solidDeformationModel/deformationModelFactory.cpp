@@ -84,7 +84,8 @@ DeformationModelBundle makeDeformationModelBundle(
   ES::VXd elasticParams = ElasticModelFactory::initializeDefaultElasticParams(
     mesh, elastic, numElasticParams);
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), elementWeights.data());
+  auto dofLayout = std::make_unique<Vertex3DofLayout>(&mesh);
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), std::move(dofLayout), elementWeights.data());
 
   DeformationModelBundle bundle;
   bundle.restPosition = std::move(restPosition);

@@ -110,6 +110,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
 	  formulations/basis/tetP1Basis.cpp
 	  formulations/basis/hexTrilinearBasis.cpp
+	  formulations/dof/vertex3DofLayout.cpp
 
   deformationModelManager.cpp
 

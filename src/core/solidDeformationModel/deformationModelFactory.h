@@ -12,6 +12,7 @@ copyright to USC
 #include "formulations/formulationTraits.h"
 #include "formulations/formulationConcepts.h"
 #include "formulations/formulationVariants.h"
+#include "formulations/dof/vertex3DofLayout.h"
 
 #include "factories/elementModelFactory.h"
 #include "factories/elasticModelFactory.h"
@@ -172,7 +173,8 @@ DeformationModelBundle makeDeformationModelBundle(
     mesh, elastic, numElasticParams);
 
   // Assemble.
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), elementWeights.data());
+  auto dofLayout = std::make_unique<Vertex3DofLayout>(&mesh);
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), std::move(dofLayout), elementWeights.data());
 
   DeformationModelBundle bundle;
   bundle.restPosition = std::move(restPosition);

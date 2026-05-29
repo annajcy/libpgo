@@ -6,6 +6,7 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "deformationModelManager.h"
+#include "formulations/dof/dofLayout.h"
 #include "EigenDef.h"
 
 #include <memory>
@@ -27,7 +28,7 @@ public:
     int limitingLocationId = -1;
   };
 
-  DeformationModelAssembler(std::unique_ptr<const DeformationModelManager> dm, const double *elementFlags = nullptr);
+  DeformationModelAssembler(std::unique_ptr<const DeformationModelManager> dm, std::unique_ptr<const DofLayout> dof, const double *elementFlags = nullptr);
   virtual ~DeformationModelAssembler();
 
   double computeEnergy(const double *x, const double *plasticParams, const double *elasticParams) const;
@@ -42,9 +43,10 @@ public:
   void computeVonMisesStresses(const double *x, const double *plasticParams, const double *elasticParams, double *elementStresses) const;
   void computeMaxStrains(const double *x, const double *plasticParams, const double *elasticParams, double *elementStrain) const;
 
-  int getNumDOFs() const { return n3; }
+  int getNumDOFs() const { return numDOFs; }
 
   const DeformationModelManager &getDeformationModelManager() const { return *deformationModelManager; }
+  const DofLayout &getDofLayout() const { return *dofLayout; }
   const EigenSupport::SpMatD &getHessianTemplate() const { return KTemplate; }
   const EigenSupport::SpMatD &get_dfda_Template() const { return dfdaTemplate; }
   const EigenSupport::SpMatD &get_dfdb_Template() const { return dfdbTemplate; }
@@ -54,13 +56,12 @@ protected:
   void getElasticParameters(int ele, const double *paramsAll, double *param) const;
 
   std::unique_ptr<const DeformationModelManager> deformationModelManager;
+  std::unique_ptr<const DofLayout> dofLayout;
   DeformationModelAssemblerCacheData *data;
 
-  int n3, nele, nvtx, neleVtx, localDOFs;
+  int numDOFs, nele, nvtx, neleVtx, localDOFs;
   int numElasticParams = 0;
   int numPlasticParams = 0;
-
-  typedef Eigen::Matrix<std::ptrdiff_t, Eigen::Dynamic, Eigen::Dynamic> DynamicIndexMatrix;
 
   EigenSupport::VXd restPositions;
   EigenSupport::SpMatD KTemplate, dfdaTemplate, dfdbTemplate;

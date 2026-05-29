@@ -1929,26 +1929,26 @@ During Task 5p/5q implementation, three additional cleanups beyond the original 
 - Create: `tests/src/core/solidDeformationModel/formulations/dof/vertex3DofLayout_gtest.cpp`
 - Modify: `tests/src/core/solidDeformationModel/deformationModelAssembler_gtest.cpp`
 
-- [ ] Complete the `DofLayout` abstract interface that Task 2 introduced as a traits-visible declaration.
-- [ ] Complete `Vertex3DofLayout` so it borrows the same `const SimulationMesh *` that `DeformationModelManager` borrows from the outer owner.
-- [ ] Move `gatherLocalPositions(...)` logic from assembler helper into `Vertex3DofLayout::gather`; preserve `vid < 0` zero-local behavior as a DOF-side concern so missing-neighbor shell slots stay zero in the gathered local vector.
-- [ ] Add `Vertex3DofLayout::getGlobalDofIndices(ele, indices)`; it returns one entry per local displacement DOF, with `-1` for missing shell-neighbor slots. Assembler sparse-template code must use this index list rather than calling `mesh.getVertexIndex(...)` directly.
-- [ ] Move gradient scatter logic into `Vertex3DofLayout::scatterAddGradient`; `vid < 0` slots must skip global write-back.
-- [ ] Move Hessian sparsity construction into `Vertex3DofLayout::addHessianSparsity`; `vid < 0` slots must not generate global triplets.
-- [ ] Move local-to-global sparse index lookup into layout helper.
-- [ ] Do not move shell missing-neighbor geometry into `Vertex3DofLayout`. The `ShellKoiterStencil` / `FundamentalFormsKernel` introduced in Task 5e owns which neighbor slots are missing and how missing neighbors enter the fundamental-form computation; `Vertex3DofLayout` only sees the resulting per-DOF `vid` array.
-- [ ] Change `DeformationModelAssembler` constructor to own `std::unique_ptr<const DofLayout>`. `DofLayout` is an assembly concern, not a manager concern; keep the manager responsible for element/material/plastic model ownership and keep gather/scatter/sparsity policy in the assembler.
-- [ ] Store `deformationModelManager` before `dofLayout` in `DeformationModelAssembler` so `dofLayout` is destroyed first; both manager and layout borrow the same outer-owned immutable `SimulationMesh`.
-- [ ] Update all assembler construction call sites to pass an explicit `Vertex3DofLayout`; do not keep an implicit compatibility constructor.
-- [ ] Change assembler fields:
+- [x] Complete the `DofLayout` abstract interface that Task 2 introduced as a traits-visible declaration.
+- [x] Complete `Vertex3DofLayout` so it borrows the same `const SimulationMesh *` that `DeformationModelManager` borrows from the outer owner.
+- [x] Move `gatherLocalPositions(...)` logic from assembler helper into `Vertex3DofLayout::gather`; preserve `vid < 0` zero-local behavior as a DOF-side concern so missing-neighbor shell slots stay zero in the gathered local vector.
+- [x] Add `Vertex3DofLayout::getGlobalDofIndices(ele, indices)`; it returns one entry per local displacement DOF, with `-1` for missing shell-neighbor slots. Assembler sparse-template code must use this index list rather than calling `mesh.getVertexIndex(...)` directly.
+- [x] Move gradient scatter logic into `Vertex3DofLayout::scatterAddGradient`; `vid < 0` slots must skip global write-back.
+- [x] Move Hessian sparsity construction into `Vertex3DofLayout::addHessianSparsity`; `vid < 0` slots must not generate global triplets.
+- [x] Move local-to-global sparse index lookup into layout helper.
+- [x] Do not move shell missing-neighbor geometry into `Vertex3DofLayout`. The `ShellKoiterStencil` / `FundamentalFormsKernel` introduced in Task 5e owns which neighbor slots are missing and how missing neighbors enter the fundamental-form computation; `Vertex3DofLayout` only sees the resulting per-DOF `vid` array.
+- [x] Change `DeformationModelAssembler` constructor to own `std::unique_ptr<const DofLayout>`. `DofLayout` is an assembly concern, not a manager concern; keep the manager responsible for element/material/plastic model ownership and keep gather/scatter/sparsity policy in the assembler.
+- [x] Store `deformationModelManager` before `dofLayout` in `DeformationModelAssembler` so `dofLayout` is destroyed first; both manager and layout borrow the same outer-owned immutable `SimulationMesh`.
+- [x] Update all assembler construction call sites to pass an explicit `Vertex3DofLayout`; do not keep an implicit compatibility constructor.
+- [x] Change assembler fields:
   - `n3` -> `numDOFs`
   - `localDOFs` becomes per-element query or cached from layout
   - `nvtx` only remains if needed for legacy diagnostics
-- [ ] Add tests comparing old expected DOF counts:
+- [x] Add tests comparing old expected DOF counts:
   - tet one element: 12
   - cubic one element: 24
   - shell one triangle: `3 * num_surface_vertices` global DOFs and 18 local DOFs
-- [ ] Add energy/gradient/Hessian parity tests for tet, cubic, and shell after layout migration.
+- [x] Add energy/gradient/Hessian parity tests for tet, cubic, and shell after layout migration.
 
 **Exit criteria:**
 

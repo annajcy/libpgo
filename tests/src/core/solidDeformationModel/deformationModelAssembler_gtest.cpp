@@ -3,6 +3,7 @@
 #include "deformationModelAssembler.h"
 #include "deformationModel.h"
 #include "deformationModelManager.h"
+#include "formulations/dof/vertex3DofLayout.h"
 #include "pgoLogging.h"
 #include "simulationMesh.h"
 #include "plasticModel3DDeformationGradient.h"
@@ -117,7 +118,8 @@ TEST(DeformationModelAssemblerGTest, TetAssemblerRegression)
   const int numElasticParams = dmm->getNumElasticParameters();
   const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(dmm->getDeformationModel(0)->getPlasticModel());
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
+  auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(mesh.get());
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofLayout), nullptr);
 
   ES::VXd x = makePerturbedRestPositions(*assembler->getDeformationModelManager().getMesh());
   ES::VXd plasticParams(numPlasticParams * nele);
@@ -166,7 +168,8 @@ TEST(DeformationModelAssemblerGTest, TetVonMisesStressIsZeroAtRestAndNonzeroUnde
   const int numElasticParams = dmm->getNumElasticParameters();
   const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(dmm->getDeformationModel(0)->getPlasticModel());
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
+  auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(mesh.get());
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofLayout), nullptr);
 
   ES::VXd plasticParams(numPlasticParams * nele);
   ES::VXd elasticParams(numElasticParams * nele);
@@ -215,7 +218,8 @@ TEST(DeformationModelAssemblerGTest, ShellAssemblerRegression)
   const int numPlasticParams = dmm->getNumPlasticParameters();
   const int numElasticParams = dmm->getNumElasticParameters();
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
+  auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(mesh.get());
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofLayout), nullptr);
 
   const auto &meshPtr = *assembler->getDeformationModelManager().getMesh();
   ES::VXd x = makePerturbedRestPositions(meshPtr);
@@ -269,7 +273,8 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerSmokeRegression)
   const int numElasticParams = dmm->getNumElasticParameters();
   const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(dmm->getDeformationModel(0)->getPlasticModel());
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
+  auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(mesh.get());
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofLayout), nullptr);
 
   const auto &meshPtr = *assembler->getDeformationModelManager().getMesh();
   ES::VXd x = makePerturbedRestPositions(meshPtr);
@@ -333,7 +338,8 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerMaterialParamRegression)
   const int numElasticParams = dmm->getNumElasticParameters();
   ASSERT_EQ(numElasticParams, 1);
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
+  auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(mesh.get());
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofLayout), nullptr);
 
   const auto &meshPtr = *assembler->getDeformationModelManager().getMesh();
   ES::VXd x = makePerturbedRestPositions(meshPtr);

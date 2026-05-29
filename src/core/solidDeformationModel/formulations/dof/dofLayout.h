@@ -25,6 +25,10 @@ public:
   virtual int numGlobalDofs() const = 0;
   virtual int numLocalDofs(int ele) const = 0;
 
+  // Returns one entry per local displacement DOF: global DOF index or -1 for
+  // missing/invalid slots (e.g. shell sentinel vertices).
+  virtual void getGlobalDofIndices(int ele, std::vector<int> &indices) const = 0;
+
   virtual void gather(int ele, const double *global, double *local) const = 0;
   virtual void scatterAddGradient(int ele, const double *local, double *global) const = 0;
 

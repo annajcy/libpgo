@@ -26,6 +26,8 @@ public:
   int numGlobalDofs() const override;
   int numLocalDofs(int ele) const override;
 
+  void getGlobalDofIndices(int ele, std::vector<int> &indices) const override;
+
   void gather(int ele, const double *global, double *local) const override;
   void scatterAddGradient(int ele, const double *local, double *global) const override;
 

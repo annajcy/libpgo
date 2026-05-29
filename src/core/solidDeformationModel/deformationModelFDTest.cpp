@@ -12,6 +12,7 @@ copyright to USC,MIT,NUS
 #include "formulations/quadrature/tetP1DefaultQuadrature.h"
 #include "formulations/kernels/deformationGradientKernel.h"
 #include "formulations/elements/deformationGradientElementModel.h"
+#include "formulations/dof/vertex3DofLayout.h"
 
 // #include "elementLocalDirection.h"
 #include "tetMesh.h"
@@ -321,7 +322,8 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
         ES::VXd elasticParams;
 
         std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
-        forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
+        auto dofFD = std::make_unique<Vertex3DofLayout>(mesh.get());
+forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofFD), nullptr);
 
         std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler));
         energy->setPlasticParams(scales);
@@ -617,7 +619,8 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
         ES::VXd elasticParams;
 
         std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
-        forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
+        auto dofFD = std::make_unique<Vertex3DofLayout>(mesh.get());
+forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofFD), nullptr);
 
         std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler));
 

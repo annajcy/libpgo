@@ -65,6 +65,14 @@ target_compile_definitions(deformationModelEnergyMaxStep_gtest PRIVATE
 set_property(TARGET deformationModelEnergyMaxStep_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(deformationModelEnergyMaxStep_gtest)
 
+add_executable(vertex3DofLayout_gtest
+  formulations/dof/vertex3DofLayout_gtest.cpp)
+target_link_libraries(vertex3DofLayout_gtest PRIVATE GTest::gtest_main solidDeformationModel mesh)
+target_compile_definitions(vertex3DofLayout_gtest PRIVATE
+  LIBPGO_TEST_SHELL_OBJ="${CMAKE_SOURCE_DIR}/tests/fixtures/shell/shell.obj")
+set_property(TARGET vertex3DofLayout_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(vertex3DofLayout_gtest)
+
 add_executable(elasticModelFactory_gtest factories/elasticModelFactory_gtest.cpp)
 target_link_libraries(elasticModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
 target_compile_definitions(elasticModelFactory_gtest PRIVATE
