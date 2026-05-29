@@ -1,5 +1,6 @@
 #include "setup/setup.h"
 
+#include "simulationMesh.h"
 #include "barycentricCoordinates.h"
 #include "configFileJSON.h"
 #include "deformationModelEnergy.h"

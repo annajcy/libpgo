@@ -33,10 +33,6 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   deformationModel.h
   materialMaxStepPolynomialUtils.h
-  cubicMeshDeformationModel.h
-  tetMeshDeformationModel.h  
-  koiterDeformationModel.h
-
   deformationModelManager.h
 
   deformationModelEnergy.h
@@ -74,6 +70,8 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/elements/deformationGradientElementModel.h
   formulations/elements/koiterShellElementModel.h
 
+  formulations/geometry/tetP1Geometry.h
+
   formulations/dof/dofLayout.h
   formulations/dof/vertex3DofLayout.h
 
@@ -108,9 +106,6 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   plasticModel2DFundamentalFormsUniformStretch.cpp
   plasticModel2DFundamentalFormsFirstOnly.cpp
 
-  cubicMeshDeformationModel.cpp
-  tetMeshDeformationModel.cpp
-  koiterDeformationModel.cpp
   materialMaxStepPolynomialUtils.cpp
 
 	  formulations/basis/tetP1Basis.cpp

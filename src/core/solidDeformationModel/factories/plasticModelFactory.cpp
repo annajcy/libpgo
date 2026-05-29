@@ -11,9 +11,6 @@
 #include "../plasticModel2DFundamentalForms.h"
 #include "../plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "pgoLogging.h"
-#include "EigenSupport.h"
-
 namespace pgo::SolidDeformationModel
 {
 namespace ES = EigenSupport;

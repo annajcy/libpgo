@@ -8,7 +8,10 @@ copyright to USC,MIT,NUS
 #include "simulationMesh.h"
 #include "deformationModel.h"
 #include "deformationModelManager.h"
-#include "tetMeshDeformationModel.h"
+#include "formulations/basis/tetP1Basis.h"
+#include "formulations/quadrature/tetP1DefaultQuadrature.h"
+#include "formulations/kernels/deformationGradientKernel.h"
+#include "formulations/elements/deformationGradientElementModel.h"
 
 // #include "elementLocalDirection.h"
 #include "tetMesh.h"
@@ -29,6 +32,7 @@ copyright to USC,MIT,NUS
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 using namespace pgo::NonlinearOptimization;
+using TetFEM = DeformationGradientElementModel<DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>>;
 
 namespace ES = pgo::EigenSupport;
 
@@ -149,8 +153,8 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
         hclock::time_point t1 = hclock::now();
 
         for (int ele = 0; ele < numTestElements; ele++) {
-          const TetMeshDeformationModel *fem = dynamic_cast<const TetMeshDeformationModel *>(dmm->getDeformationModel(ele));
-          DeformationModelCacheData *cache = fem->allocateCacheData();
+          const auto *fem = dynamic_cast<const TetFEM *>(dmm->getDeformationModel(ele));
+          auto cache = fem->allocateCacheData();
 
           for (int j = 0; j < 4; j++) {
             ES::V3d p;
@@ -164,19 +168,19 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
           x.segment(12, nplastic) = scaleParam;
 
           FiniteDifference::EvalFunc evalFuncE = [&](const double *x_param, double *E, double *grad, double *hess) {
-            fem->prepareData(x_param, scaleParam.data(), nullptr, cache);
+            fem->prepareData(x_param, scaleParam.data(), nullptr, cache.get());
 
             if (E) {
-              *E = fem->computeEnergy(cache);
+              *E = fem->computeEnergy(cache.get());
             }
 
             if (grad) {
               memset(grad, 0, sizeof(double) * 12);
-              fem->compute_dE_dx(cache, grad);
+              fem->compute_dE_dx(cache.get(), grad);
             }
 
             if (hess) {
-              fem->compute_d2E_dx2(cache, hess);
+              fem->compute_d2E_dx2(cache.get(), hess);
             }
           };
 
@@ -189,16 +193,16 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
 
           if (nplastic > 0) {
             FiniteDifference::EvalFunc evalFuncEP = [&](const double *x_param, double *E, double *grad, double *hess) {
-              fem->prepareData(x_param, x_param + offset[1], nullptr, cache);
+              fem->prepareData(x_param, x_param + offset[1], nullptr, cache.get());
 
               if (E) {
-                *E = fem->computeEnergy(cache);
+                *E = fem->computeEnergy(cache.get());
               }
 
               if (grad) {
                 memset(grad, 0, sizeof(double) * offset[2]);
-                fem->compute_dE_dx(cache, grad);
-                fem->compute_dE_da(cache, grad + offset[1]);
+                fem->compute_dE_dx(cache.get(), grad);
+                fem->compute_dE_da(cache.get(), grad + offset[1]);
               }
 
               if (hess) {
@@ -206,9 +210,9 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
                 ES::MXd &d2E_dxda = d2EdxdaTLS.local();
                 ES::MXd &d2E_da2 = d2EdadaTLS.local();
 
-                fem->compute_d2E_dx2(cache, hess0.data());
-                fem->compute_d2E_dxda(cache, d2E_dxda.data());
-                fem->compute_d2E_da2(cache, d2E_da2.data());
+                fem->compute_d2E_dx2(cache.get(), hess0.data());
+                fem->compute_d2E_dxda(cache.get(), d2E_dxda.data());
+                fem->compute_d2E_da2(cache.get(), d2E_da2.data());
 
                 Eigen::Map<ES::MXd> hMap(hess, offset[2], offset[2]);
                 hMap.block<12, 12>(0, 0) = hess0;
@@ -226,17 +230,17 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
 
           if (nelastic > 0) {
             FiniteDifference::EvalFunc evalFuncEPA = [&](const double *x_param, double *E, double *grad, double *hess) {
-              fem->prepareData(x_param, x_param + offset[1], x_param + offset[2], cache);
+              fem->prepareData(x_param, x_param + offset[1], x_param + offset[2], cache.get());
 
               if (E) {
-                *E = fem->computeEnergy(cache);
+                *E = fem->computeEnergy(cache.get());
               }
 
               if (grad) {
                 memset(grad, 0, sizeof(double) * offset[3]);
-                fem->compute_dE_dx(cache, grad);
-                fem->compute_dE_da(cache, grad + offset[1]);
-                fem->compute_dE_db(cache, grad + offset[2]);
+                fem->compute_dE_dx(cache.get(), grad);
+                fem->compute_dE_da(cache.get(), grad + offset[1]);
+                fem->compute_dE_db(cache.get(), grad + offset[2]);
               }
 
               if (hess) {
@@ -244,17 +248,17 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
                 ES::MXd &d2E_dxda = d2EdxdaTLS.local();
                 ES::MXd &d2E_da2 = d2EdadaTLS.local();
 
-                fem->compute_d2E_dx2(cache, hess0.data());
-                fem->compute_d2E_dxda(cache, d2E_dxda.data());
-                fem->compute_d2E_da2(cache, d2E_da2.data());
+                fem->compute_d2E_dx2(cache.get(), hess0.data());
+                fem->compute_d2E_dxda(cache.get(), d2E_dxda.data());
+                fem->compute_d2E_da2(cache.get(), d2E_da2.data());
 
                 ES::MXd &d2E_dxdb = d2EdxdbTLS.local();
                 ES::MXd &d2E_db2 = d2EdbdbTLS.local();
                 ES::MXd &d2E_dadb = d2EdadbTLS.local();
 
-                fem->compute_d2E_dxdb(cache, d2E_dxdb.data());
-                fem->compute_d2E_dadb(cache, d2E_dadb.data());
-                fem->compute_d2E_db2(cache, d2E_db2.data());
+                fem->compute_d2E_dxdb(cache.get(), d2E_dxdb.data());
+                fem->compute_d2E_dadb(cache.get(), d2E_dadb.data());
+                fem->compute_d2E_db2(cache.get(), d2E_db2.data());
 
                 Eigen::Map<ES::MXd> hMap(hess, offset[3], offset[3]);
                 hMap.block<12, 12>(0, 0) = hess0;
@@ -280,7 +284,7 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
           if (ele % 10 == 0)
             std::cout << ele << ' ' << std::flush;
 
-          fem->freeCacheData(cache);
+          
         }
 
         hclock::time_point t2 = hclock::now();
@@ -481,8 +485,8 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
         hclock::time_point t1 = hclock::now();
 
         for (int ele = 0; ele < numTestElements; ele++) {
-          const TetMeshDeformationModel *fem = dynamic_cast<const TetMeshDeformationModel *>(dmm->getDeformationModel(ele));
-          DeformationModelCacheData *cache = fem->allocateCacheData();
+          const auto *fem = dynamic_cast<const TetFEM *>(dmm->getDeformationModel(ele));
+          auto cache = fem->allocateCacheData();
 
           for (int j = 0; j < mesh->getNumElementVertices(); j++) {
             ES::V3d p;
@@ -503,20 +507,20 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
           x.segment(mesh->getNumElementVertices() * 3, nplastic) = scaleParam;
 
           FiniteDifference::EvalFunc evalFuncE = [&](const double *x_param, double *E, double *grad, double *hess) {
-            fem->prepareData(x_param, scaleParam.data(), elasticParam.data(), cache);
+            fem->prepareData(x_param, scaleParam.data(), elasticParam.data(), cache.get());
 
             if (E) {
-              *E = fem->computeEnergy(cache);
+              *E = fem->computeEnergy(cache.get());
             }
 
             if (grad) {
               memset(grad, 0, sizeof(double) * mesh->getNumElementVertices() * 3);
               ;
-              fem->compute_dE_dx(cache, grad);
+              fem->compute_dE_dx(cache.get(), grad);
             }
 
             if (hess) {
-              fem->compute_d2E_dx2(cache, hess);
+              fem->compute_d2E_dx2(cache.get(), hess);
             }
           };
 
@@ -529,16 +533,16 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
 
           if (nplastic > 0) {
             FiniteDifference::EvalVecFunc evalFuncP = [&](const double *x_param, double *g, double *jac) {
-              fem->prepareData(x_param, x_param + offset[1], elasticParam.data(), cache);
+              fem->prepareData(x_param, x_param + offset[1], elasticParam.data(), cache.get());
 
               if (g) {
                 memset(g, 0, sizeof(double) * offset[1]);
-                fem->compute_dE_dx(cache, g);
+                fem->compute_dE_dx(cache.get(), g);
               }
 
               if (jac) {
-                fem->compute_d2E_dx2(cache, jac);
-                fem->compute_d2E_dxda(cache, jac + offset[1] * offset[1]);
+                fem->compute_d2E_dx2(cache.get(), jac);
+                fem->compute_d2E_dxda(cache.get(), jac + offset[1] * offset[1]);
               }
             };
 
@@ -549,16 +553,16 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
 
           if (nelastic > 0) {
             FiniteDifference::EvalVecFunc evalFuncA = [&](const double *x_param, double *g, double *jac) {
-              fem->prepareData(x_param, scaleParam.data(), x_param + offset[1], cache);
+              fem->prepareData(x_param, scaleParam.data(), x_param + offset[1], cache.get());
 
               if (g) {
                 memset(g, 0, sizeof(double) * offset[3]);
-                fem->compute_dE_dx(cache, g);
+                fem->compute_dE_dx(cache.get(), g);
               }
 
               if (jac) {
-                fem->compute_d2E_dx2(cache, jac);
-                fem->compute_d2E_dxdb(cache, jac + offset[1] * offset[1]);
+                fem->compute_d2E_dx2(cache.get(), jac);
+                fem->compute_d2E_dxdb(cache.get(), jac + offset[1] * offset[1]);
               }
             };
 
@@ -575,7 +579,7 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
           if (ele % 10 == 0)
             std::cout << ele << ' ' << std::flush;
 
-          fem->freeCacheData(cache);
+          
         }
 
         hclock::time_point t2 = hclock::now();

@@ -6,6 +6,7 @@
 #include "../deformationModel.h"
 #include "../simulationMesh.h"
 #include "EigenSupport.h"
+#include "deformationModelManager.h"
 
 #include <concepts>
 #include <stdexcept>
@@ -18,15 +19,12 @@ namespace SolidDeformationModel
 // ElementModelFactory
 //
 // Creates per-element DeformationModel instances using the formulation's
-// traits-selected Kernel and ElementModel types. ShellKoiter routes to the
-// existing KoiterDeformationModel path.
+// traits-selected Kernel and ElementModel types.
 
 class ElementModelFactory
 {
 public:
-  // Create the element FEM for one element.
-  // Uses FormulationTraits<Formulation>::ElementModel for volumetric formulations
-  // or the KoiterDeformationModel path for ShellKoiter.
+  // Create the element FEM for one element using FormulationTraits::ElementModel.
   template<class Formulation>
   static DeformationModel *create(
     const SimulationMesh &mesh,

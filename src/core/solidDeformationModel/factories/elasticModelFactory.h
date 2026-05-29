@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../deformationModelManager.h"  // DeformationModelElasticMaterial
-#include "EigenSupport.h"
+#include "EigenDef.h"
 
 namespace pgo
 {

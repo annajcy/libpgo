@@ -67,10 +67,6 @@ public:
 
   const DeformationModel *getDeformationModel(int eleID) const;
 
-  // Replace the element FEM at slot `ele` (deletes the old model, takes ownership of the new one).
-  // Used by the formulation-aware factory path to install formulation-specific element models.
-  void setDeformationModel(int ele, DeformationModel *model);
-
 protected:
   DeformationModelManagerImpl *data;
 

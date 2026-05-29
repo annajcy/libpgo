@@ -6,6 +6,7 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include <limits>
+#include <memory>
 
 namespace pgo
 {
@@ -39,8 +40,7 @@ public:
 
   typedef DeformationModelCacheData CacheData;
 
-  virtual CacheData *allocateCacheData() const = 0;
-  virtual void freeCacheData(CacheData *data) const = 0;
+  virtual std::unique_ptr<CacheData> allocateCacheData() const = 0;
   virtual void prepareData(const double *x, const double *param, const double *materialParam, CacheData *cacheData) const = 0;
 
   virtual void vonMisesStress(const CacheData *, int &, double *) const {};

@@ -4,9 +4,13 @@ copyright to USC,MIT,NUS
 */
 
 #include "prescribedPrincipleStressConstraintFunctions.h"
-#include "tetMeshDeformationModel.h"
 #include "deformationModelManager.h"
 #include "simulationMesh.h"
+
+#include "formulations/basis/tetP1Basis.h"
+#include "formulations/quadrature/tetP1DefaultQuadrature.h"
+#include "formulations/kernels/deformationGradientKernel.h"
+#include "formulations/elements/deformationGradientElementModel.h"
 
 #include "svdDerivatives.h"
 #include "pgoLogging.h"
@@ -14,13 +18,15 @@ copyright to USC,MIT,NUS
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 
+using TetFEM = DeformationGradientElementModel<DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>>;
+
 PrescribedPrincipleStressConstraintFunctions::PrescribedPrincipleStressConstraintFunctions(int nAll, int doff, int numElements, const int *elementIDs, const DeformationModelManager *tmdmm):
   ConstraintFunctions(nAll), dofStart(doff), tetMeshDMM(tmdmm)
 {
   elements.assign(elementIDs, elementIDs + numElements);
   targetPrincipleStress.resize(numElements * 3);
 
-  elementCacheData.assign(numElements, nullptr);
+  elementCacheData.resize(numElements);
   for (int ei = 0; ei < numElements; ei++) {
     elementCacheData[ei] = tetMeshDMM->getDeformationModel(elements[ei])->allocateCacheData();
   }
@@ -75,15 +81,15 @@ void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES:
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const TetMeshDeformationModel *fem = dynamic_cast<const TetMeshDeformationModel *>(tetMeshDMM->getDeformationModel(eleID));
+    const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
     ES::V12d plasticParam, elasticParam;
     plasticParam.setZero();
     elasticParam.setZero();
 
-    fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), elementCacheData[i]);
+    fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), elementCacheData[i].get());
 
     ES::M3d P;
-    fem->computeP(elementCacheData[i], 0, P.data());
+    fem->computeP(elementCacheData[i].get(), 0, P.data());
 
     ES::V3d S;
     NonlinearOptimization::SVDDerivatives::unorderedSquareMatrixSVD3(P, S);
@@ -107,15 +113,15 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const TetMeshDeformationModel *fem = dynamic_cast<const TetMeshDeformationModel *>(tetMeshDMM->getDeformationModel(eleID));
+    const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
     ES::V12d plasticParam, elasticParam;
     plasticParam.setZero();
     elasticParam.setZero();
 
-    fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), elementCacheData[i]);
+    fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), elementCacheData[i].get());
 
     ES::M3d P;
-    fem->computeP(elementCacheData[i], 0, P.data());
+    fem->computeP(elementCacheData[i].get(), 0, P.data());
 
     ES::V3d S;
     ES::M3d U, V;
@@ -126,7 +132,7 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
     ES::V12d f;
     f.setZero();
     
-    fem->computeForceFromP(elementCacheData[i], P1.data(), f.data());
+    fem->computeForceFromP(elementCacheData[i].get(), 0, P1.data(), f.data());
     for (int j = 0; j < tetMeshDMM->getMesh()->getNumElementVertices(); j++) {
       int vid = tetMeshDMM->getMesh()->getVertexIndex(eleID, j);
       fext.segment<3>(vid * 3) = f.segment<3>(j * 3);
@@ -136,8 +142,8 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
 
 double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractionFromElement(ES::ConstRefVecXd x, const ES::V3d &n, int eleID) const
 {
-  const TetMeshDeformationModel *fem = dynamic_cast<const TetMeshDeformationModel *>(tetMeshDMM->getDeformationModel(eleID));
-  DeformationModel::CacheData *cache = fem->allocateCacheData();
+  const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
+  auto cache = fem->allocateCacheData();
   ES::V12d plasticParam, elasticParam;
   plasticParam.setZero();
   elasticParam.setZero();
@@ -149,12 +155,10 @@ double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractio
     xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
     localp.segment<3>(j * 3) = vtxp;
   }
-  fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), cache);
+  fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), cache.get());
 
   ES::M3d P;
-  fem->computeP(cache, 0, P.data());
-
-  fem->freeCacheData(cache);
+  fem->computeP(cache.get(), 0, P.data());
 
   return (P * n).dot(n);
 }
@@ -173,15 +177,15 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const TetMeshDeformationModel *fem = dynamic_cast<const TetMeshDeformationModel *>(tetMeshDMM->getDeformationModel(eleID));
+    const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
     ES::V12d plasticParam, elasticParam;
     plasticParam.setZero();
     elasticParam.setZero();
 
-    fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), elementCacheData[i]);
+    fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), elementCacheData[i].get());
 
     ES::M3d P;
-    fem->computeP(elementCacheData[i], 0, P.data());
+    fem->computeP(elementCacheData[i].get(), 0, P.data());
 
     ES::V3d S;
     ES::M3d U, V;
@@ -197,8 +201,8 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
 
     ES::M9d dPdF;
     ES::M9x12d dFdx;
-    fem->computedPdF(elementCacheData[i], 0, dPdF.data());
-    fem->computedFdx(elementCacheData[i], 0, dFdx.data());
+    fem->computedPdF(elementCacheData[i].get(), 0, dPdF.data());
+    fem->computedFdx(elementCacheData[i].get(), 0, dFdx.data());
 
     ES::M9x12d dPdx = dPdF * dFdx;
 
@@ -239,15 +243,15 @@ void PrescribedPrincipleStressConstraintFunctions::hessian(ES::ConstRefVecXd x, 
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const TetMeshDeformationModel *fem = dynamic_cast<const TetMeshDeformationModel *>(tetMeshDMM->getDeformationModel(eleID));
+    const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
     ES::V12d plasticParam, elasticParam;
     plasticParam.setZero();
     elasticParam.setZero();
 
-    fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), elementCacheData[ei]);
+    fem->prepareData(localp.data(), plasticParam.data(), elasticParam.data(), elementCacheData[ei].get());
 
     ES::M3d P;
-    fem->computeP(elementCacheData[ei], 0, P.data());
+    fem->computeP(elementCacheData[ei].get(), 0, P.data());
 
     ES::V3d S;
     ES::M3d U, V;
@@ -271,8 +275,8 @@ void PrescribedPrincipleStressConstraintFunctions::hessian(ES::ConstRefVecXd x, 
 
     ES::M9d dPdF;
     ES::M9x12d dFdx;
-    fem->computedPdF(elementCacheData[ei], 0, dPdF.data());
-    fem->computedFdx(elementCacheData[ei], 0, dFdx.data());
+    fem->computedPdF(elementCacheData[ei].get(), 0, dPdF.data());
+    fem->computedFdx(elementCacheData[ei].get(), 0, dFdx.data());
     ES::M9x12d dPdx = dPdF * dFdx;
 
     ES::M12d hessLocal;

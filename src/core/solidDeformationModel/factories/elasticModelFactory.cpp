@@ -2,8 +2,6 @@
 
 #include "../simulationMesh.h"
 
-#include "../elasticModel.h"
-#include "../elasticModel3DDeformationGradient.h"
 #include "../elasticModelCombinedMaterial.h"
 #include "../elasticModelHillTypeMaterial.h"
 #include "../elasticModelInvariantBasedMaterial.h"
@@ -14,12 +12,10 @@
 #include "../elasticModel3DSTVKMaterial.h"
 #include "../elasticModel3DMooneyRivlin.h"
 
-#include "../elasticModel2DFundamentalForms.h"
 #include "../elasticModel2DFundamentalFormsFabric.h"
 #include "../elasticModel2DFundamentalFormsSTVK.h"
 
 #include "pgoLogging.h"
-#include "EigenSupport.h"
 
 namespace pgo::SolidDeformationModel
 {

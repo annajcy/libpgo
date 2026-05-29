@@ -1,5 +1,6 @@
 #include "app/app.h"
 
+#include "simulationMesh.h"
 #include "configFileJSON.h"
 #include "initPredicates.h"
 #include "pgoLogging.h"

@@ -15,7 +15,7 @@ struct TetP1 {};
 // Trilinear hexahedron, 8 nodes, vertex-centered 3-DOF.
 struct HexTrilinear {};
 
-// Koiter thin-shell (existing KoiterDeformationModel path).
+// Koiter thin-shell formulation.
 struct ShellKoiter {};
 
 }  // namespace SolidDeformationModel

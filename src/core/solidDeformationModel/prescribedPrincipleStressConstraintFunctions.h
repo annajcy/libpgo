@@ -47,7 +47,7 @@ protected:
   std::vector<int> elements;
   XToPosFunc xToPosFunc;
   EigenSupport::VXd targetPrincipleStress;
-  std::vector<DeformationModel::CacheData *> elementCacheData;
+  std::vector<std::unique_ptr<DeformationModel::CacheData>> elementCacheData;
 
   EigenSupport::EntryMap jacEntries, hessEntries;
 

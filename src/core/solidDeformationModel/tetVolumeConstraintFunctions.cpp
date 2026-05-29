@@ -4,7 +4,11 @@ copyright to USC,MIT,NUS
 */
 
 #include "tetVolumeConstraintFunctions.h"
-#include "tetMeshDeformationModel.h"
+#include "formulations/geometry/tetP1Geometry.h"
+
+#include "formulations/basis/tetP1Basis.h"
+#include "formulations/quadrature/tetP1DefaultQuadrature.h"
+#include "formulations/kernels/deformationGradientKernel.h"
 
 #include "determinantDerivatives.h"
 #include "tetMesh.h"
@@ -30,18 +34,16 @@ TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(const SimulationMesh 
     DmInv.resize(3, nele * 3);
     dFdx.assign(nele, ES::M9x12d::Zero());
 
-    for (int ei = 0; ei < nele; ei++) {
-      ES::M3d Dm;
+    using TetKernel = DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>;
 
+    for (int ei = 0; ei < nele; ei++) {
       ES::V12d xlocal;
       for (int i = 0; i < 4; i++) {
         tetMesh->getVertex(ei, i, xlocal.data() + i * 3);
       }
-      TetMeshDeformationModel::computeDm(xlocal.data(), Dm.data());
-
-      DmInv.block<3, 3>(0, ei * 3) = Dm.fullPivHouseholderQr().inverse();
-
-      TetMeshDeformationModel::compute_dF_dx(DmInv.data() + ei * 9, dFdx[ei].data());
+      TetKernel kernel(xlocal.data());
+      DmInv.block<3, 3>(0, ei * 3) = kernel.restDmInv(0);
+      dFdx[ei] = kernel.rest_dFdx(0);
     }
   }
 
@@ -119,7 +121,7 @@ void TetVolumeConstraintFunctions::setDmInv(const ES::M3Xd &DmInv_)
 {
   DmInv = DmInv_;
   for (int ei = 0; ei < nele; ei++) {
-    TetMeshDeformationModel::compute_dF_dx(DmInv.data() + ei * 9, dFdx[ei].data());
+    tetP1ComputeDFDx(DmInv.data() + ei * 9, dFdx[ei].data());
   }
 }
 
@@ -146,7 +148,7 @@ void TetVolumeConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) con
     }
 
     ES::M3d Ds;
-    TetMeshDeformationModel::computeDs(xlocal.data(), Ds.data());
+    tetP1ComputeDs(xlocal.data(), Ds.data());
 
     ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
     ES::M3d F = Ds * DmInvLocal;
@@ -184,7 +186,7 @@ void TetVolumeConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac
     }
 
     ES::M3d Ds;
-    TetMeshDeformationModel::computeDs(xlocal.data(), Ds.data());
+    tetP1ComputeDs(xlocal.data(), Ds.data());
 
     ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
 
@@ -229,7 +231,7 @@ void TetVolumeConstraintFunctions::hessian(ES::ConstRefVecXd x, ES::ConstRefVecX
     }
 
     ES::M3d Ds;
-    TetMeshDeformationModel::computeDs(xlocal.data(), Ds.data());
+    tetP1ComputeDs(xlocal.data(), Ds.data());
 
     ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
 

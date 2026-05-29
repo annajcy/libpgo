@@ -35,7 +35,7 @@ public:
   tbb::enumerable_thread_specific<ES::VXd> gradBlockTLS;
 
   tbb::affinity_partitioner partitioners[5];
-  std::vector<DeformationModel::CacheData *> elementCacheData;
+  std::vector<std::unique_ptr<DeformationModel::CacheData>> elementCacheData;
 };
 }  // namespace pgo::SolidDeformationModel
 
@@ -309,8 +309,8 @@ double DeformationModelAssembler::computeEnergy(const double *x, const double *p
     getElasticParameters(ele, elasticParams, elasticParam.data());
 
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele]);
-    double energy = fem->computeEnergy(data->elementCacheData[ele]);
+    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
+    double energy = fem->computeEnergy(data->elementCacheData[ele].get());
 
     data->energyLocalBuffer.local() += energy * elementFlags[ele];
   };
@@ -386,10 +386,10 @@ void DeformationModelAssembler::computeGradient(const double *x, const double *p
     // std::cout << std::endl;
 
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele]);
+    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
 
     ES::VXd localGradx(localDOFs);
-    fem->compute_dE_dx(data->elementCacheData[ele], localGradx.data());
+    fem->compute_dE_dx(data->elementCacheData[ele].get(), localGradx.data());
     localGradx *= elementFlags[ele];
 
     if (enableSanityCheck) {
@@ -454,10 +454,10 @@ void DeformationModelAssembler::computeHessian(const double *x, const double *pl
     getElasticParameters(ele, elasticParams, elasticParam.data());
 
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele]);
+    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
 
     std::vector<double> localKData(localDOFs * localDOFs);
-    fem->compute_d2E_dx2(data->elementCacheData[ele], localKData.data());
+    fem->compute_d2E_dx2(data->elementCacheData[ele].get(), localKData.data());
 
     ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, localDOFs);
     localK *= elementFlags[ele];
@@ -537,10 +537,10 @@ void DeformationModelAssembler::compute_df_da(const double *x, const double *pla
     getElasticParameters(ele, elasticParams, elasticParam.data());
 
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele]);
+    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
 
     std::vector<double> localKData(localDOFs * numPlasticParams);
-    fem->compute_d2E_dxda(data->elementCacheData[ele], localKData.data());
+    fem->compute_d2E_dxda(data->elementCacheData[ele].get(), localKData.data());
 
     ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, numPlasticParams);
     localK *= elementFlags[ele];
@@ -609,10 +609,10 @@ void DeformationModelAssembler::compute_df_db(const double *x, const double *pla
     getElasticParameters(ele, elasticParams, elasticParam.data());
 
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele]);
+    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
 
     std::vector<double> localKData(localDOFs * numElasticParams);
-    fem->compute_d2E_dxdb(data->elementCacheData[ele], localKData.data());
+    fem->compute_d2E_dxdb(data->elementCacheData[ele].get(), localKData.data());
 
     ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, numElasticParams);
     localK *= elementFlags[ele];
@@ -678,11 +678,11 @@ void DeformationModelAssembler::computeVonMisesStresses(const double *x, const d
     getElasticParameters(ele, elasticParams, elasticParam.data());
 
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele]);
+    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
 
     int nPt = 0;
     std::vector<double> localStresses(std::max(16, fem->getNumMaterialLocations()), 0.0);
-    fem->vonMisesStress(data->elementCacheData[ele], nPt, localStresses.data());
+    fem->vonMisesStress(data->elementCacheData[ele].get(), nPt, localStresses.data());
     if (nPt <= 0) {
       elementStresses[ele] = 0.0;
       return;

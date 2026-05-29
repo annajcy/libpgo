@@ -3,8 +3,8 @@
 #include "EigenSupport.h"
 #include "barycentricCoordinates.h"
 #include "configFileJSON.h"
-#include "cubicMeshDeformationModel.h"
 #include "cubicMesh.h"
+#include "deformationModel.h"
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
@@ -37,7 +37,6 @@ namespace fs = std::filesystem;
 using pgo::RunSim::VolumeMeshInputConfig;
 using pgo::RunSim::ResolvedRunSimPaths;
 using pgo::VolumetricMeshes::VolumetricMesh;
-using pgo::SolidDeformationModel::CubicMeshDeformationModel;
 using pgo::SolidDeformationModel::SimulationMeshType;
 
 constexpr const char *kTetBoxVegPath = LIBPGO_TEST_TET_BOX_VEG;
@@ -469,7 +468,7 @@ TEST(RunSimVolumeMeshIOGTest, InitializesCubicRuntimeMainPath)
   EXPECT_EQ(mesh->getElementType(), SimulationMeshType::CUBIC);
   ASSERT_GT(mesh->getNumElements(), 0);
 
-  const auto *cubicFEM = dynamic_cast<const CubicMeshDeformationModel *>(dmm.getDeformationModel(0));
+  const auto *cubicFEM = dmm.getDeformationModel(0);
   ASSERT_NE(cubicFEM, nullptr);
   EXPECT_EQ(cubicFEM->getNumDOFs(), 24);
 

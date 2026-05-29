@@ -24,10 +24,6 @@ target_compile_definitions(deformationModelFactory_gtest PRIVATE
 set_property(TARGET deformationModelFactory_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(deformationModelFactory_gtest)
 
-add_executable(cubicMeshDeformationModel_gtest cubicMeshDeformationModel_gtest.cpp)
-target_link_libraries(cubicMeshDeformationModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
-set_property(TARGET cubicMeshDeformationModel_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(cubicMeshDeformationModel_gtest)
 
 add_executable(tetP1Basis_gtest formulations/basis/tetP1Basis_gtest.cpp)
 target_link_libraries(tetP1Basis_gtest PRIVATE GTest::gtest_main solidDeformationModel)

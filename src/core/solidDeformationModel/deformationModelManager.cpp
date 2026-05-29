@@ -6,8 +6,6 @@ copyright to USC, MIT, NUS
 #include "deformationModelManager.h"
 
 #include "deformationModel.h"
-#include "cubicMeshDeformationModel.h"
-#include "tetMeshDeformationModel.h"
 #include "factories/elementModelFactory.h"
 
 #include "simulationMesh.h"
@@ -471,28 +469,15 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
       if (plasticResult.shellConstant) data->plasticShellConstant[ele] = plasticResult.shellConstant;
       if (plasticResult.shellUniformStretch) data->plasticShellUniformStretch[ele] = plasticResult.shellUniformStretch;
 
-      // Create element FEM (still uses legacy wrappers from the manager path).
+      // Create element FEM through ElementModelFactory.
       if (data->simulationMesh->getElementType() == SimulationMeshType::TET) {
-        ES::V12d restPosition;
-        for (int j = 0; j < 4; j++) {
-          ES::V3d p;
-          data->simulationMesh->getVertex(ele, j, p.data());
-          restPosition.segment<3>(j * 3) = p;
-        }
-
-        data->elementFEMs[ele] = new TetMeshDeformationModel(
-          restPosition.data(), restPosition.data() + 3, restPosition.data() + 6, restPosition.data() + 9,
-          data->elementMaterials[ele], plasticResult.model);
+        data->elementFEMs[ele] = ElementModelFactory::create<TetP1>(
+          *data->simulationMesh, ele, data->elementMaterials[ele],
+          plasticResult.model, elasticMaterialType);
       } else if (data->simulationMesh->getElementType() == SimulationMeshType::CUBIC) {
-        ES::V24d restPosition;
-        for (int j = 0; j < 8; j++) {
-          ES::V3d p;
-          data->simulationMesh->getVertex(ele, j, p.data());
-          restPosition.segment<3>(j * 3) = p;
-        }
-
-        data->elementFEMs[ele] = new CubicMeshDeformationModel(
-          restPosition.data(), data->elementMaterials[ele], plasticResult.model);
+        data->elementFEMs[ele] = ElementModelFactory::create<HexTrilinear>(
+          *data->simulationMesh, ele, data->elementMaterials[ele],
+          plasticResult.model, elasticMaterialType);
       }
       else if (data->simulationMesh->getElementType() == SimulationMeshType::SHELL) {
         data->elementFEMs[ele] = ElementModelFactory::create<ShellKoiter>(
@@ -508,12 +493,6 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
 const DeformationModel *DeformationModelManager::getDeformationModel(int eleID) const
 {
   return data->elementFEMs[eleID];
-}
-
-void DeformationModelManager::setDeformationModel(int ele, DeformationModel *model)
-{
-  delete data->elementFEMs[ele];
-  data->elementFEMs[ele] = model;
 }
 
 void DeformationModelManager::setEnforceSPD(int enable)

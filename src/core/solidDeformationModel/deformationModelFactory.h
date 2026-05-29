@@ -113,7 +113,7 @@ DeformationModelBundle makeShellDeformationModel(
 namespace detail
 {
 // Legacy non-template path — creates element FEMs via DeformationModelManager::initImpl
-// which uses legacy TetMeshDeformationModel / CubicMeshDeformationModel wrappers.
+// which uses ElementModelFactory for formulation-aware element construction.
 DeformationModelBundle makeDeformationModelBundle(
   const SimulationMesh &mesh,
   DeformationModelElasticMaterial elastic,
@@ -145,20 +145,12 @@ DeformationModelBundle makeDeformationModelBundle(
     restPosition.segment<3>(vi * 3) = ES::V3d(p[0], p[1], p[2]);
   }
 
-  // Build manager via legacy path (uses factories internally for elastic/plastic).
+  // Build manager — initImpl creates element FEMs through ElementModelFactory directly.
   auto manager = std::make_unique<DeformationModelManager>(
     mesh, plastic, elastic,
     opts.enforceSPD ? 1 : 0,
     /*elementFiberDirections=*/nullptr,
     /*vertexFiberDirections=*/nullptr);
-
-  // Replace element FEMs with formulation-specific ones from ElementModelFactory.
-  for (int ele = 0; ele < nele; ele++) {
-    auto *em = const_cast<ElasticModel *>(manager->getDeformationModel(ele)->getElasticModel());
-    auto *pm = const_cast<PlasticModel *>(manager->getDeformationModel(ele)->getPlasticModel());
-    auto *newFEM = ElementModelFactory::create<Formulation>(mesh, ele, em, pm, elastic);
-    manager->setDeformationModel(ele, newFEM);
-  }
 
   // Element weights.
   ES::VXd elementWeights = opts.elementWeights;

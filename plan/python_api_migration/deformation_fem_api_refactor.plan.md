@@ -455,11 +455,13 @@ DeformationModelBundle makeCubicDeformationModel(
 
     elements/
       deformationGradientElementModel.h  # header-only
+      deformationGradientElementModelCacheData.h
       koiterShellElementModel.h
+      koiterShellElementModelCacheData.h
       parameterizedMaterialBlock.h
 
     geometry/
-      tetP1Geometry.h                  # Task 5q, after legacy tet helper migration
+      tetP1Geometry.h                  # standalone helpers for callers without a kernel
 
 
     dof/
@@ -1062,9 +1064,12 @@ pgo.energy.HillFiber(
 - `src/core/solidDeformationModel/formulations/kernels/deformationGradientKernel.h`
 - `src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel.h`
 - `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.h`
+- `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModelCacheData.h`
 - `src/core/solidDeformationModel/formulations/elements/koiterShellElementModel.h`
+- `src/core/solidDeformationModel/formulations/elements/koiterShellElementModelCacheData.h`
 - `src/core/solidDeformationModel/formulations/elements/parameterizedMaterialBlock.h`
 - `src/core/solidDeformationModel/formulations/stencil/shellKoiterStencil.h`
+- `src/core/solidDeformationModel/formulations/geometry/tetP1Geometry.h`
 - `src/core/solidDeformationModel/formulations/dof/dofLayout.h`
 - `src/core/solidDeformationModel/formulations/dof/vertex3DofLayout.h`
 - `src/core/solidDeformationModel/formulations/dof/vertex3DofLayout.cpp`
@@ -1798,31 +1803,31 @@ make*DeformationModel<Formulation>
 - Modify: `tests/src/core/solidDeformationModel/formulations/deformationModelFormulation_gtest.cpp`
 - Optional modify: `tests/src/core/solidDeformationModel/deformationModelAssembler_gtest.cpp`
 
-- [ ] Make `DeformationModelManager::initImpl` create element FEMs through `ElementModelFactory` directly:
+- [x] Make `DeformationModelManager::initImpl` create element FEMs through `ElementModelFactory` directly:
   - `SimulationMeshType::TET` -> `ElementModelFactory::create<TetP1>(...)`;
   - `SimulationMeshType::CUBIC` -> `ElementModelFactory::create<HexTrilinear>(...)`;
   - `SimulationMeshType::SHELL` -> `ElementModelFactory::create<ShellKoiter>(...)`.
-- [ ] Remove direct `new TetMeshDeformationModel(...)`, `new CubicMeshDeformationModel(...)`, and `new KoiterDeformationModel(...)` from `DeformationModelManager::initImpl`.
-- [ ] Remove `#include "tetMeshDeformationModel.h"`, `#include "cubicMeshDeformationModel.h"`, and `#include "koiterDeformationModel.h"` from `deformationModelManager.cpp` if no longer needed there.
-- [ ] Remove the formulation-aware factory replacement loop in `detail::makeDeformationModelBundle<Formulation>`:
+- [x] Remove direct `new TetMeshDeformationModel(...)`, `new CubicMeshDeformationModel(...)`, and `new KoiterDeformationModel(...)` from `DeformationModelManager::initImpl`.
+- [x] Remove `#include "tetMeshDeformationModel.h"`, `#include "cubicMeshDeformationModel.h"`, and `#include "koiterDeformationModel.h"` from `deformationModelManager.cpp` if no longer needed there.
+- [x] Remove the formulation-aware factory replacement loop in `detail::makeDeformationModelBundle<Formulation>`:
   - do not call `manager->getDeformationModel(ele)->getElasticModel()` just to recover dependencies;
   - do not create a temporary legacy element and then replace it.
-- [ ] Remove `DeformationModelManager::setDeformationModel(...)` if it has no remaining production caller after the replacement loop is gone.
-- [ ] Keep the non-template `detail::makeDeformationModelBundle(...)` only if tests still need a legacy parity oracle; otherwise delete it or make it a test-only helper. It must not be the production path for public topology-specific factories.
-- [ ] Keep `DeformationModelManager` topology-defaulted in this closeout instead of adding an internal formulation-dispatch parameter:
+- [x] Remove `DeformationModelManager::setDeformationModel(...)` if it has no remaining production caller after the replacement loop is gone.
+- [x] Keep the non-template `detail::makeDeformationModelBundle(...)` only if tests still need a legacy parity oracle; otherwise delete it or make it a test-only helper. It must not be the production path for public topology-specific factories.
+- [x] Keep `DeformationModelManager` topology-defaulted in this closeout instead of adding an internal formulation-dispatch parameter:
   - manager maps current supported topology defaults to `TetP1`, `HexTrilinear`, `ShellKoiter`;
   - public topology-specific factories remain the formulation boundary and may bypass/guard before manager construction when future unsupported formulations such as `HexTricubicHermite` are requested;
   - do not introduce public runtime formulation enums or virtual formulation base classes.
-- [ ] Add/adjust tests proving public factories no longer depend on legacy wrappers:
+- [x] Add/adjust tests proving public factories no longer depend on legacy wrappers:
   - `makeTetDeformationModel(..., TetP1{}, ...)` returns a model chain whose element model is not `TetMeshDeformationModel`;
   - `makeCubicDeformationModel(..., HexTrilinear{}, ...)` returns a model chain whose element model is not `CubicMeshDeformationModel`;
   - `makeShellDeformationModel(..., ShellKoiter{}, ...)` returns a model chain whose element model is not `KoiterDeformationModel`.
-- [ ] Preserve existing parity tests against legacy wrappers until replacement confidence is high; those tests may continue to instantiate `TetMeshDeformationModel` / `CubicMeshDeformationModel` / `KoiterDeformationModel` as oracle objects.
-- [ ] Do not delete `tetMeshDeformationModel.h/.cpp`, `cubicMeshDeformationModel.h/.cpp`, or `koiterDeformationModel.h/.cpp` in Task 5p. They are still used by:
+- [x] Preserve existing parity tests against legacy wrappers until replacement confidence is high; those tests may continue to instantiate `TetMeshDeformationModel` / `CubicMeshDeformationModel` / `KoiterDeformationModel` as oracle objects.
+- [x] Do not delete `tetMeshDeformationModel.h/.cpp`, `cubicMeshDeformationModel.h/.cpp`, or `koiterDeformationModel.h/.cpp` in Task 5p. They are still used by:
   - oracle/parity tests;
   - `TetMeshDeformationModel::computeDs`, `computeDm`, `compute_dF_dx`, and related geometry helpers;
   - older constraint/FD/shell parity utilities that have not been migrated to formulation geometry helpers.
-- [ ] Optionally replace manager-owned raw pointer vectors with `std::unique_ptr` vectors after the runtime legacy dependency is gone. Keep this as a separate substep in the same task and do not mix it with behavior changes.
+- [x] Optionally replace manager-owned raw pointer vectors with `std::unique_ptr` vectors after the runtime legacy dependency is gone. Keep this as a separate substep in the same task and do not mix it with behavior changes.
 
 **Exit criteria:**
 
@@ -1865,26 +1870,27 @@ make*DeformationModel<Formulation>
 - Modify: `src/core/solidDeformationModel/CMakeLists.txt`
 - Modify: `tests/src/core/solidDeformationModel/CMakeLists.txt`
 
-- [ ] Move tet static geometry helpers out of `TetMeshDeformationModel` into `formulations/geometry/tetP1Geometry.h`:
+- [x] Move tet static geometry helpers out of `TetMeshDeformationModel` into `formulations/geometry/tetP1Geometry.h`:
   - `computeDs(...)`;
   - `computeDm(...)`;
   - `compute_dF_dx(...)`;
   - `computeVolume(...)`;
   - any small helper that constraints/FD tests still use directly.
-- [ ] Update all non-test callers of `TetMeshDeformationModel::compute*` to use the new geometry helper namespace/type.
-- [ ] Replace tests that dynamic-cast manager elements to `TetMeshDeformationModel` / `CubicMeshDeformationModel` with checks against formulation-aware behavior:
+  - **Post-implementation note:** `computeDm` and `computeVolume` were later deleted; `tetVolumeConstraintFunctions` now uses `DeformationGradientKernel` for rest-geometry DmInv/dFdx. Only `computeDs` and `computeDFDx` remain in `tetP1Geometry.h`.
+- [x] Update all non-test callers of `TetMeshDeformationModel::compute*` to use the new geometry helper namespace/type.
+- [x] Replace tests that dynamic-cast manager elements to `TetMeshDeformationModel` / `CubicMeshDeformationModel` with checks against formulation-aware behavior:
   - use `DeformationGradientElementModel<FormulationTraits<TetP1>::Kernel>`;
   - use `DeformationGradientElementModel<FormulationTraits<HexTrilinear>::Kernel>`;
   - prefer public energy/assembler behavior checks over concrete class casts where possible.
-- [ ] Rewrite `deformationGradientElementModel_gtest.cpp` so legacy wrappers are not the long-term oracle:
+- [x] Rewrite `deformationGradientElementModel_gtest.cpp` so legacy wrappers are not the long-term oracle:
   - keep numerical golden values or kernel-level expected values where practical;
   - compare against hand-built `DeformationGradientElementModel` instances rather than old wrappers;
   - if temporary oracle coverage is still needed, move it to a short-lived compatibility test and remove it before deleting files.
-- [ ] Delete `cubicMeshDeformationModel_gtest.cpp` or rewrite it as `hexTrilinearElementModel_gtest.cpp`.
-- [ ] Rewrite shell parity tests so `KoiterDeformationModel` is no longer needed as an oracle; use golden values or direct kernel/model checks from Task 5e.
-- [ ] Remove `tetMeshDeformationModel.*`, `cubicMeshDeformationModel.*`, and `koiterDeformationModel.*` from `src/core/solidDeformationModel/CMakeLists.txt`.
-- [ ] Remove old wrapper headers from public/header install lists.
-- [ ] Run a repository-wide search for `TetMeshDeformationModel`, `CubicMeshDeformationModel`, and `KoiterDeformationModel`; after this task, no production or test file may reference those names.
+- [x] Delete `cubicMeshDeformationModel_gtest.cpp` or rewrite it as `hexTrilinearElementModel_gtest.cpp`.
+- [x] Rewrite shell parity tests so `KoiterDeformationModel` is no longer needed as an oracle; use golden values or direct kernel/model checks from Task 5e.
+- [x] Remove `tetMeshDeformationModel.*`, `cubicMeshDeformationModel.*`, and `koiterDeformationModel.*` from `src/core/solidDeformationModel/CMakeLists.txt`.
+- [x] Remove old wrapper headers from public/header install lists.
+- [x] Run a repository-wide search for `TetMeshDeformationModel`, `CubicMeshDeformationModel`, and `KoiterDeformationModel`; after this task, no production or test file may reference those names.
 
 **Exit criteria:**
 
@@ -1892,6 +1898,19 @@ make*DeformationModel<Formulation>
 - The solid deformation model library builds without compiling `tetMeshDeformationModel.cpp`, `cubicMeshDeformationModel.cpp`, or `koiterDeformationModel.cpp`.
 - Tet/cubic/shell energy, gradient, Hessian, stress, max-step, FD, and constraint tests pass through formulation-aware implementations.
 - Public C++ headers no longer expose legacy tet/cubic/shell element wrapper classes.
+
+### Implementation notes (2026-05-29)
+
+During Task 5p/5q implementation, three additional cleanups beyond the original checklist were applied:
+
+**Cache data file extraction.** The per-element cache data structs were extracted from the element model headers into dedicated files to reduce header size and clarify ownership:
+
+- `DeformationGradientElementModelCacheData<Kernel>` moved from `deformationGradientElementModel.h` into `formulations/elements/deformationGradientElementModelCacheData.h`.
+- `KoiterShellElementModelCacheData` moved from `koiterShellElementModel.h` into `formulations/elements/koiterShellElementModelCacheData.h`.
+
+**`unique_ptr` migration for cache data.** `DeformationModel::allocateCacheData()` now returns `std::unique_ptr<DeformationModelCacheData>` instead of a raw pointer. `freeCacheData()` is removed. All call sites (assembler, constraint functions, FD test, gtest files) updated accordingly. No more manual `new`/`delete` for cache data.
+
+**Tet geometry consolidation.** `tetVolumeConstraintFunctions` now uses `DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>` for rest-geometry DmInv and dFdx computation instead of standalone helpers. `tetP1Geometry.h` is reduced to two functions that the kernel cannot cover: `tetP1ComputeDs` (runtime Ds from deformed positions) and `tetP1ComputeDFDx` (dFdx from externally-supplied DmInv in `setDmInv`). `tetP1ComputeDm` and `tetP1ComputeVolume` are deleted — their logic now lives exclusively in the kernel.
 
 ## Task 6: Introduce `DofLayout` With `Vertex3DofLayout`
 

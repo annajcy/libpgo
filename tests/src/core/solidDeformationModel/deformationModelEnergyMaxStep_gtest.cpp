@@ -11,9 +11,12 @@
 #include "pgoLogging.h"
 #include "potentialEnergy.h"
 #include "simulationMesh.h"
-#include "tetMeshDeformationModel.h"
+#include "formulations/geometry/tetP1Geometry.h"
+#include "formulations/basis/hexTrilinearBasis.h"
+#include "formulations/quadrature/gaussLegendreHexQuadrature.h"
+#include "formulations/kernels/deformationGradientKernel.h"
+#include "formulations/elements/deformationGradientElementModel.h"
 #include "triMeshGeo.h"
-#include "cubicMeshDeformationModel.h"
 
 #include <algorithm>
 #include <array>
@@ -31,7 +34,6 @@ namespace ES = pgo::EigenSupport;
 using pgo::NonlinearOptimization::PotentialEnergy;
 using pgo::Simulation::ImplicitBackwardEulerTimeIntegrator;
 using pgo::Simulation::TRBDF2TimeIntegrator;
-using pgo::SolidDeformationModel::CubicMeshDeformationModel;
 using pgo::SolidDeformationModel::DeformationModelAssembler;
 using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
 using pgo::SolidDeformationModel::DeformationModelEnergy;
@@ -42,8 +44,12 @@ using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
-using pgo::SolidDeformationModel::TetMeshDeformationModel;
 using pgo::NonlinearOptimization::MaxStepResult;
+using pgo::SolidDeformationModel::tetP1ComputeDs;
+using CubicFEM = pgo::SolidDeformationModel::DeformationGradientElementModel<
+  pgo::SolidDeformationModel::DeformationGradientKernel<
+    pgo::SolidDeformationModel::HexTrilinearBasis,
+    pgo::SolidDeformationModel::GaussLegendreHexQuadrature2>>;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 
 constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
@@ -214,14 +220,14 @@ double tetDeterminant(const SimulationMesh &mesh, int ele, const ES::VXd &absolu
   }
 
   std::array<double, 9> Ds{};
-  TetMeshDeformationModel::computeDs(localPositions.data(), Ds.data());
+  tetP1ComputeDs(localPositions.data(), Ds.data());
   return Eigen::Map<const ES::M3d>(Ds.data()).determinant();
 }
 
 double minCubicDeterminant(const SimulationMesh &mesh, const DeformationModelManager &manager,
   int ele, const ES::VXd &absolutePositions)
 {
-  const auto *model = dynamic_cast<const CubicMeshDeformationModel *>(manager.getDeformationModel(ele));
+  const auto *model = dynamic_cast<const CubicFEM *>(manager.getDeformationModel(ele));
   if (model == nullptr)
     return -std::numeric_limits<double>::infinity();
 
