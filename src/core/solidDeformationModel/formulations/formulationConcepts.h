@@ -38,10 +38,11 @@ concept VolumetricFormulationCategory = requires {
   typename FormulationTraits<F>::ElementModel;
 };
 
-// ShellFormulationCategory deferred to Task 5e:
-//   requires ElementStencil + Kernel + ElementModel.
-//   Cannot compile until FormulationTraits<ShellKoiter> declares
-//   ElementStencil = ShellKoiterStencil (created in Task 5e Sub-task A).
+template<class F>
+concept ShellFormulationCategory = !VolumetricFormulationCategory<F> && requires {
+  typename FormulationTraits<F>::Kernel;
+  typename FormulationTraits<F>::ElementModel;
+};
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo

@@ -2,9 +2,9 @@
 
 #include "../formulations/formulationTraits.h"
 #include "../formulations/formulationConcepts.h"
+#include "../formulations/elements/koiterShellElementModel.h"
 #include "../deformationModel.h"
 #include "../simulationMesh.h"
-#include "../koiterDeformationModel.h"
 #include "EigenSupport.h"
 
 #include <concepts>
@@ -72,24 +72,25 @@ DeformationModel *ElementModelFactory::create(
   }
   else if constexpr (std::same_as<Formulation, ShellKoiter>)
   {
+    using ElementModel = typename FormulationTraits<ShellKoiter>::ElementModel;
     ES::V18d restPosition;
+    bool hasVtx[6];
     for (int j = 0; j < 6; j++) {
-      ES::V3d p;
       if (mesh.getVertexIndex(ele, j) < 0) {
-        p = ES::V3d(-10496, -10496, -10496);
+        hasVtx[j] = false;
+        restPosition.segment<3>(3 * j).setZero();
       }
       else {
+        hasVtx[j] = true;
+        ES::V3d p;
         mesh.getVertex(ele, j, p.data());
+        restPosition.segment<3>(3 * j) = p;
       }
-      restPosition.segment<3>(3 * j) = p;
     }
 
     if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_FABRIC ||
         elasticMaterialType == DeformationModelElasticMaterial::KOITER_STVK) {
-      return new KoiterDeformationModel(
-        restPosition.data(), restPosition.data() + 3, restPosition.data() + 6,
-        restPosition.data() + 9, restPosition.data() + 12,
-        restPosition.data() + 15, elasticModel, plasticModel);
+      return new ElementModel(restPosition.data(), hasVtx, elasticModel, plasticModel);
     }
     else {
       throw std::logic_error("unsupported elastic material for shell element");

@@ -49,6 +49,11 @@ target_link_libraries(deformationGradientElementModel_gtest PRIVATE GTest::gtest
 set_property(TARGET deformationGradientElementModel_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(deformationGradientElementModel_gtest)
 
+add_executable(koiterShellElementModel_gtest formulations/elements/koiterShellElementModel_gtest.cpp)
+target_link_libraries(koiterShellElementModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET koiterShellElementModel_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(koiterShellElementModel_gtest)
+
 add_executable(deformationModelFormulation_gtest formulations/deformationModelFormulation_gtest.cpp)
 target_link_libraries(deformationModelFormulation_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
 target_compile_definitions(deformationModelFormulation_gtest PRIVATE
@@ -73,9 +78,10 @@ set_property(TARGET elasticModelFactory_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(elasticModelFactory_gtest)
 
 add_executable(elementModelFactory_gtest factories/elementModelFactory_gtest.cpp)
-target_link_libraries(elementModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
+target_link_libraries(elementModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh mesh)
 target_compile_definitions(elementModelFactory_gtest PRIVATE
   LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/tet/torus.veg"
-  LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/cubic/box/box.veg")
+  LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/cubic/box/box.veg"
+  LIBPGO_TEST_SHELL_OBJ="${CMAKE_SOURCE_DIR}/tests/fixtures/shell/shell.obj")
 set_property(TARGET elementModelFactory_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(elementModelFactory_gtest)

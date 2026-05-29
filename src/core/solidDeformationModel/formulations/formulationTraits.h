@@ -7,6 +7,8 @@
 #include "quadrature/gaussLegendreHexQuadrature.h"
 #include "kernels/deformationGradientKernel.h"
 #include "elements/deformationGradientElementModel.h"
+#include "kernels/fundamentalFormsKernel.h"
+#include "elements/koiterShellElementModel.h"
 
 #include <string_view>
 
@@ -20,7 +22,7 @@ namespace SolidDeformationModel
 // Compile-time metadata + type routing for each formulation tag.
 //
 // Constraints:
-//   - Only DofLayout, Basis, Quadrature, Kernel, ElementModel type aliases.
+//   - Only DofLayout, (Basis+Quadrature for volumetric), Kernel, ElementModel type aliases.
 //   - Metadata (name, node count, local DOFs).
 //   - No concrete elastic or plastic model types.
 //   - No mathematical formula implementation — that lives in kernels / element models.
@@ -65,15 +67,22 @@ struct FormulationTraits<HexTrilinear>
 };
 
 // ============================================================
-// ShellKoiter — routes to existing KoiterDeformationModel path.
-// Does not declare volumetric Basis or Quadrature.
+// ShellKoiter
+//
+// Shell-specific stack: no volumetric Basis/Quadrature.
+// Templated on Kernel to match the volumetric DeformationGradientElementModel<Kernel> pattern.
+// Distinguished from volumetric by lacking Basis/Quadrature.
 // ============================================================
 
 template<>
 struct FormulationTraits<ShellKoiter>
 {
   using DofLayout = class Vertex3DofLayout;
+  using Kernel = FundamentalFormsKernel;
+  using ElementModel = KoiterShellElementModel;
 
+  static constexpr int nodesPerElement = Kernel::numNodes;
+  static constexpr int localDofs = Kernel::localDofs;
   static constexpr std::string_view name = "shell_koiter";
 };
 

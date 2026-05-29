@@ -69,8 +69,10 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/quadrature/gaussLegendreHexQuadrature.h
 
   formulations/kernels/deformationGradientKernel.h
+  formulations/kernels/fundamentalFormsKernel.h
 
   formulations/elements/deformationGradientElementModel.h
+  formulations/elements/koiterShellElementModel.h
 
   formulations/dof/dofLayout.h
   formulations/dof/vertex3DofLayout.h

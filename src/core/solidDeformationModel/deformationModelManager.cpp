@@ -8,7 +8,7 @@ copyright to USC, MIT, NUS
 #include "deformationModel.h"
 #include "cubicMeshDeformationModel.h"
 #include "tetMeshDeformationModel.h"
-#include "koiterDeformationModel.h"
+#include "factories/elementModelFactory.h"
 
 #include "simulationMesh.h"
 
@@ -495,32 +495,9 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
           restPosition.data(), data->elementMaterials[ele], plasticResult.model);
       }
       else if (data->simulationMesh->getElementType() == SimulationMeshType::SHELL) {
-        ES::V18d restPosition;
-        for (int j = 0; j < 6; j++) {
-          ES::V3d p;
-          if (data->simulationMesh->getVertexIndex(ele, j) < 0) {
-            p = ES::V3d(-10496, -10496, -10496);
-          }
-          else {
-            data->simulationMesh->getVertex(ele, j, p.data());
-          }
-          restPosition.segment<3>(3 * j) = p;
-        }
-
-        if (elasticMaterialType == DeformationModelElasticMaterial::STVK ||
-          elasticMaterialType == DeformationModelElasticMaterial::LINEAR ||
-          elasticMaterialType == DeformationModelElasticMaterial::MOONEY_RIVLIN) {
-            throw std::logic_error("unsupported elastic material for shell element");
-        }
-        else if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_FABRIC ||
-          elasticMaterialType == DeformationModelElasticMaterial::KOITER_STVK) {
-          data->elementFEMs[ele] = new KoiterDeformationModel(restPosition.data(), restPosition.data() + 3, restPosition.data() + 6,
-            restPosition.data() + 9, restPosition.data() + 12,
-            restPosition.data() + 15, data->elementMaterials[ele], plasticResult.model);
-        }
-        else {
-          throw std::logic_error("unsupported elastic material for shell element");
-        }
+        data->elementFEMs[ele] = ElementModelFactory::create<ShellKoiter>(
+          *data->simulationMesh, ele, data->elementMaterials[ele],
+          plasticResult.model, elasticMaterialType);
       }
       else {
         throw std::logic_error("unknown mesh element type");

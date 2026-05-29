@@ -4,9 +4,11 @@
 
 #include "deformationModelEnergy.h"
 #include "deformationModelAssembler.h"
+#include "deformationModelManager.h"  // DeformationModelElasticMaterial / DeformationModelPlasticMaterial
 #include "simulationMesh.h"
 #include "tetMesh.h"
 #include "cubicMesh.h"
+#include "triMeshGeo.h"
 #include "factories/elementModelFactory.h"
 #include "factories/elasticModelFactory.h"
 #include "factories/plasticModelFactory.h"
@@ -148,4 +150,66 @@ TEST(ElementModelFactoryGTest, CubicEnergyParityWithLegacyPath)
   const double fpLegacy = legacy.energy->func(up);
   const double fpFormulated = formulated.energy->func(up);
   EXPECT_NEAR(fpLegacy, fpFormulated, 1e-10);
+}
+
+// ============================================================
+// Shell element model factory tests
+// ============================================================
+
+// Verify that ElementModelFactory::create<ShellKoiter> returns the new
+// KoiterShellElementModel type.
+TEST(ElementModelFactoryGTest, CreateShellKoiterReturnsNewElementModelType)
+{
+  pgo::Logging::init();
+
+  pgo::Mesh::TriMeshGeo surfaceMesh;
+  ASSERT_TRUE(surfaceMesh.load(LIBPGO_TEST_SHELL_OBJ));
+  SimulationMeshENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
+  auto simMesh = loadShellMesh(surfaceMesh, &shellMaterial);
+  ASSERT_NE(simMesh, nullptr);
+  ASSERT_GT(simMesh->getNumElements(), 0);
+
+  auto elasticResult = ElasticModelFactory::create(
+    *simMesh, 0, DeformationModelElasticMaterial::KOITER_STVK, nullptr);
+  std::unique_ptr<ElasticModel> elasticOwner(elasticResult.elementMaterial);
+  auto plasticResult = PlasticModelFactory::create(
+    *simMesh, 0, DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
+  std::unique_ptr<PlasticModel> plasticOwner(plasticResult.model);
+
+  auto *fem = ElementModelFactory::create<ShellKoiter>(
+    *simMesh, 0, elasticResult.elementMaterial, plasticResult.model,
+    DeformationModelElasticMaterial::KOITER_STVK);
+  std::unique_ptr<DeformationModel> femOwner(fem);
+
+  ASSERT_NE(fem, nullptr);
+  EXPECT_EQ(fem->getNumVertices(), 6);
+  EXPECT_EQ(fem->getNumDOFs(), 18);
+
+  auto *typed = dynamic_cast<KoiterShellElementModel *>(fem);
+  EXPECT_NE(typed, nullptr) << "expected KoiterShellElementModel from factory";
+}
+
+// Factory throws for non-Koiter elastic materials on shell elements.
+TEST(ElementModelFactoryGTest, CreateShellKoiterRejectsNonShellElasticMaterial)
+{
+  pgo::Logging::init();
+
+  pgo::Mesh::TriMeshGeo surfaceMesh;
+  ASSERT_TRUE(surfaceMesh.load(LIBPGO_TEST_SHELL_OBJ));
+  SimulationMeshENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
+  auto simMesh = loadShellMesh(surfaceMesh, &shellMaterial);
+  ASSERT_NE(simMesh, nullptr);
+
+  auto elasticResult = ElasticModelFactory::create(
+    *simMesh, 0, DeformationModelElasticMaterial::STABLE_NEO, nullptr);
+  std::unique_ptr<ElasticModel> elasticOwner(elasticResult.elementMaterial);
+  auto plasticResult = PlasticModelFactory::create(
+    *simMesh, 0, DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
+  std::unique_ptr<PlasticModel> plasticOwner(plasticResult.model);
+
+  EXPECT_THROW(
+    ElementModelFactory::create<ShellKoiter>(
+      *simMesh, 0, elasticResult.elementMaterial, plasticResult.model,
+      DeformationModelElasticMaterial::STABLE_NEO),
+    std::logic_error);
 }
