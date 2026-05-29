@@ -35,8 +35,6 @@ public:
 
   virtual NonlinearOptimization::MaxStepResult computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
 
-  void setElasticParams(const EigenSupport::ConstRefVecXd elasticParams) { this->elasticParams = elasticParams; }
-  void setPlasticParams(const EigenSupport::ConstRefVecXd plasticParams) { this->plasticParams = plasticParams; }
   void setEnableMaterialMaxStep(bool enable) { enableMaterialMaxStep_ = enable; }
   bool isMaterialMaxStepEnabled() const { return enableMaterialMaxStep_; }
 protected:
@@ -44,8 +42,6 @@ protected:
 
   std::vector<int> allDOFs;
   EigenSupport::VXd restPosition;
-  EigenSupport::VXd elasticParams;
-  EigenSupport::VXd plasticParams;
   bool enableMaterialMaxStep_ = true;
 };
 }  // namespace SolidDeformationModel

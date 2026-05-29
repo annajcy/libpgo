@@ -182,8 +182,6 @@ void RunIPCSimOutput::writeVonMisesStressJson(int frame, double timestep,
   const ES::VXd absolutePositions = context.simulationRestPosition + displacement;
   assembler.computeVonMisesStresses(
     absolutePositions.data(),
-    dataOrNull(context.plasticParams),
-    dataOrNull(context.elasticParams),
     elementStresses.data());
 
   nlohmann::json stressJson;

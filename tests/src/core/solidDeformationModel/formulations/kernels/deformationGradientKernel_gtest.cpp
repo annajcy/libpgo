@@ -13,13 +13,6 @@ namespace ES = pgo::EigenSupport;
 using namespace pgo::SolidDeformationModel;
 
 // ============================================================
-// Kernel type aliases
-// ============================================================
-
-using TetKernel = DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>;
-using HexKernel = DeformationGradientKernel<HexTrilinearBasis, GaussLegendreHexQuadrature2>;
-
-// ============================================================
 // Tet kernel tests
 // ============================================================
 
@@ -31,7 +24,9 @@ TEST(DeformationGradientKernelGTest, TetKernelRestStateFrefIsIdentity)
     0.0, 1.0, 0.0,
     0.0, 0.0, 1.0,
   };
-  TetKernel kernel(rest);
+  TetP1Basis basis;
+  TetP1DefaultQuadrature quad;
+  DeformationGradientKernel kernel(rest, basis, quad);
 
   // At rest (x = rest), Fref should be identity.
   double F[9];
@@ -50,10 +45,12 @@ TEST(DeformationGradientKernelGTest, TetKernelUniformTranslationLeavesFrefUnchan
   };
   double x[12];
   for (int i = 0; i < 12; i++) {
-    x[i] = rest[i] + 5.0;  // uniform translation
+    x[i] = rest[i] + 5.0;
   }
 
-  TetKernel kernel(rest);
+  TetP1Basis basis;
+  TetP1DefaultQuadrature quad;
+  DeformationGradientKernel kernel(rest, basis, quad);
 
   double Frest[9], Ftrans[9];
   kernel.computeFref(rest, 0, Frest);
@@ -73,7 +70,6 @@ TEST(DeformationGradientKernelGTest, TetKernelAffineDeformationGivesExactF)
     0.0, 0.0, 1.0,
   };
 
-  // A = [2, 1, 0; 0, 3, 0; 0, 0, 4], b = [1, 2, 3]
   ES::M3d A;
   A << 2.0, 1.0, 0.0,
        0.0, 3.0, 0.0,
@@ -89,7 +85,9 @@ TEST(DeformationGradientKernelGTest, TetKernelAffineDeformationGivesExactF)
     }
   }
 
-  TetKernel kernel(rest);
+  TetP1Basis basis;
+  TetP1DefaultQuadrature quad;
+  DeformationGradientKernel kernel(rest, basis, quad);
   double F[9];
   kernel.computeFref(x, 0, F);
   ES::M3d FMat = Eigen::Map<ES::M3d>(F);
@@ -99,14 +97,15 @@ TEST(DeformationGradientKernelGTest, TetKernelAffineDeformationGivesExactF)
 
 TEST(DeformationGradientKernelGTest, TetKernelWeightDetJEqualsVolume)
 {
-  // Unit reference tet: volume = 1/6.
   double rest[12] = {
     0.0, 0.0, 0.0,
     1.0, 0.0, 0.0,
     0.0, 1.0, 0.0,
     0.0, 0.0, 1.0,
   };
-  TetKernel kernel(rest);
+  TetP1Basis basis;
+  TetP1DefaultQuadrature quad;
+  DeformationGradientKernel kernel(rest, basis, quad);
   EXPECT_NEAR(kernel.weightDetJ(0), 1.0 / 6.0, 1e-12);
 }
 
@@ -119,14 +118,14 @@ TEST(DeformationGradientKernelGTest, TetKernelComputedFrefdxMatchesFiniteDiffere
     0.0, 0.0, 4.0,
   };
 
-  TetKernel kernel(rest);
+  TetP1Basis basis;
+  TetP1DefaultQuadrature quad;
+  DeformationGradientKernel kernel(rest, basis, quad);
 
-  // Get analytical dF/dx.
   double dFdx_flat[9 * 12];
   kernel.computedFrefdx(0, dFdx_flat);
-  Eigen::Map<ES::M9x12d> dFdx_ana(dFdx_flat);
+  Eigen::Map<Eigen::Matrix<double, 9, Eigen::Dynamic>> dFdx_ana(dFdx_flat, 9, 12);
 
-  // Finite difference on each DOF.
   const double eps = 1e-7;
   for (int dof = 0; dof < 12; dof++) {
     double xPlus[12], xMinus[12];
@@ -164,9 +163,11 @@ TEST(DeformationGradientKernelGTest, HexKernelRestStateFrefIsIdentity)
     1.0, 1.0, 1.0,
     0.0, 1.0, 1.0,
   };
-  HexKernel kernel(rest);
+  HexTrilinearBasis basis;
+  GaussLegendreHexQuadrature2 quad;
+  DeformationGradientKernel kernel(rest, basis, quad);
 
-  for (int q = 0; q < HexKernel::numQuadPts; q++) {
+  for (int q = 0; q < GaussLegendreHexQuadrature2::kNumPoints; q++) {
     double F[9];
     kernel.computeFref(rest, q, F);
     ES::M3d FMat = Eigen::Map<ES::M3d>(F);
@@ -202,8 +203,10 @@ TEST(DeformationGradientKernelGTest, HexKernelAffineDeformationGivesExactF)
     }
   }
 
-  HexKernel kernel(rest);
-  for (int q = 0; q < HexKernel::numQuadPts; q++) {
+  HexTrilinearBasis basis;
+  GaussLegendreHexQuadrature2 quad;
+  DeformationGradientKernel kernel(rest, basis, quad);
+  for (int q = 0; q < GaussLegendreHexQuadrature2::kNumPoints; q++) {
     double F[9];
     kernel.computeFref(x, q, F);
     ES::M3d FMat = Eigen::Map<ES::M3d>(F);
@@ -213,15 +216,16 @@ TEST(DeformationGradientKernelGTest, HexKernelAffineDeformationGivesExactF)
 
 TEST(DeformationGradientKernelGTest, HexKernelWeightDetJSumEqualsVolume)
 {
-  // Unit cube: volume = 1.0
   double rest[24] = {
     0.0, 0.0, 0.0,  1.0, 0.0, 0.0,  1.0, 1.0, 0.0,  0.0, 1.0, 0.0,
     0.0, 0.0, 1.0,  1.0, 0.0, 1.0,  1.0, 1.0, 1.0,  0.0, 1.0, 1.0,
   };
-  HexKernel kernel(rest);
+  HexTrilinearBasis basis;
+  GaussLegendreHexQuadrature2 quad;
+  DeformationGradientKernel kernel(rest, basis, quad);
 
   double volSum = 0.0;
-  for (int q = 0; q < HexKernel::numQuadPts; q++) {
+  for (int q = 0; q < GaussLegendreHexQuadrature2::kNumPoints; q++) {
     volSum += kernel.weightDetJ(q);
   }
   EXPECT_NEAR(volSum, 1.0, 1e-12);
@@ -234,12 +238,14 @@ TEST(DeformationGradientKernelGTest, HexKernelComputedFrefdxMatchesFiniteDiffere
     0.0, 0.0, 4.0,  2.0, 0.0, 4.0,  2.0, 3.0, 4.0,  0.0, 3.0, 4.0,
   };
 
-  HexKernel kernel(rest);
+  HexTrilinearBasis basis;
+  GaussLegendreHexQuadrature2 quad;
+  DeformationGradientKernel kernel(rest, basis, quad);
 
-  for (int q = 0; q < HexKernel::numQuadPts; q++) {
+  for (int q = 0; q < GaussLegendreHexQuadrature2::kNumPoints; q++) {
     double dFdx_flat[9 * 24];
     kernel.computedFrefdx(q, dFdx_flat);
-    Eigen::Map<Eigen::Matrix<double, 9, 24>> dFdx_ana(dFdx_flat);
+    Eigen::Map<Eigen::Matrix<double, 9, Eigen::Dynamic>> dFdx_ana(dFdx_flat, 9, 24);
 
     const double eps = 1e-7;
     for (int dof = 0; dof < 24; dof++) {
@@ -265,7 +271,7 @@ TEST(DeformationGradientKernelGTest, HexKernelComputedFrefdxMatchesFiniteDiffere
 
 TEST(DeformationGradientKernelGTest, HexKernelNumNodesAndDofs)
 {
-  EXPECT_EQ(HexKernel::numNodes, 8);
-  EXPECT_EQ(HexKernel::localDofs, 24);
-  EXPECT_EQ(HexKernel::numQuadPts, 8);
+  EXPECT_EQ(HexTrilinearBasis::kNumNodes, 8);
+  EXPECT_EQ(HexTrilinearBasis::kLocalDofs, 24);
+  EXPECT_EQ(GaussLegendreHexQuadrature2::kNumPoints, 8);
 }

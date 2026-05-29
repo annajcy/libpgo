@@ -4,6 +4,7 @@
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
+#include "formulations/dof/vertex3DofLayout.h"
 #include "embeddedSurfaceFloorPotentialEnergy.h"
 #include "ipc/embeddedSurfaceIPCPotentialEnergy.h"
 #include "libiglInterface.h"
@@ -134,10 +135,6 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
     pgo::SolidDeformationModel::DeformationModelElasticMaterial::KOITER_STVK,
     1);
 
-  std::vector<double> elementWeights(nele, 1.0);
-  auto assembler =
-    std::make_unique<SolidDeformationModel::DeformationModelAssembler>(std::move(dmm), elementWeights.data());
-
   ES::VXd elasticParams(5 * nele);
   for (int ei = 0; ei < nele; ++ei) {
     const double E_bend = kShellYoungsModulus;
@@ -149,11 +146,17 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
     elasticParams[ei * 5 + 3] = nu;
     elasticParams[ei * 5 + 4] = kShellThickness;
   }
+  dmm->setElasticParams(elasticParams);
+
+  std::vector<double> elementWeights(nele, 1.0);
+  auto dofLayout = std::make_unique<SolidDeformationModel::Vertex3DofLayout>(simMesh.get());
+  auto assembler =
+    std::make_unique<SolidDeformationModel::DeformationModelAssembler>(
+      std::move(dmm), std::move(dofLayout), elementWeights.data());
 
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy =
     std::make_shared<SolidDeformationModel::DeformationModelEnergy>(std::move(assembler), &simulationRestPosition, 0);
   elasticEnergy->setEnableMaterialMaxStep(enableMaterialMaxStep);
-  elasticEnergy->setElasticParams(elasticParams);
 
   ES::VXd zero = ES::VXd::Zero(n3);
   ES::SpMatD K;

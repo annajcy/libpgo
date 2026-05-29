@@ -37,12 +37,11 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   deformationModelEnergy.h
   deformationModelAssembler.h
+  deformationModelAssemblerCacheData.h
   deformationModelFactory.h
   hessianMatrixHandle.h
 
   simulationMesh.h
-  deformationModelFDTest.h
-
   tetVolumeConstraintFunctions.h
   tetMeshOccupation.h
 
@@ -56,11 +55,11 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/deformationFormulations.h
   formulations/formulationTraits.h
   formulations/formulationConcepts.h
-  formulations/formulationVariants.h
-
+  formulations/basis/basis.h
   formulations/basis/tetP1Basis.h
   formulations/basis/hexTrilinearBasis.h
 
+  formulations/quadrature/quadrature.h
   formulations/quadrature/tetP1DefaultQuadrature.h
   formulations/quadrature/gaussLegendreHexQuadrature.h
 
@@ -68,12 +67,18 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/kernels/fundamentalFormsKernel.h
 
   formulations/elements/deformationGradientElementModel.h
+  formulations/elements/deformationGradientElementModelCacheData.h
   formulations/elements/koiterShellElementModel.h
 
   formulations/geometry/tetP1Geometry.h
 
   formulations/dof/dofLayout.h
   formulations/dof/vertex3DofLayout.h
+
+  formulations/parameters/parameterField.h
+  formulations/parameters/constantParameterField.h
+
+  formulations/elements/parameterizedMaterialBlock.h
 
   factories/elasticModelFactory.h
   factories/plasticModelFactory.h
@@ -108,9 +113,20 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   materialMaxStepPolynomialUtils.cpp
 
-	  formulations/basis/tetP1Basis.cpp
-	  formulations/basis/hexTrilinearBasis.cpp
-	  formulations/dof/vertex3DofLayout.cpp
+		formulations/basis/tetP1Basis.cpp
+		formulations/basis/hexTrilinearBasis.cpp
+
+		formulations/quadrature/tetP1DefaultQuadrature.cpp
+		formulations/quadrature/gaussLegendreHexQuadrature.cpp
+
+		formulations/kernels/deformationGradientKernel.cpp
+		formulations/kernels/fundamentalFormsKernel.cpp
+
+		formulations/elements/deformationGradientElementModel.cpp
+		formulations/elements/deformationGradientElementModelCacheData.cpp
+
+		formulations/dof/vertex3DofLayout.cpp
+
 
   deformationModelManager.cpp
 
@@ -122,8 +138,6 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   factories/plasticModelFactory.cpp
 
   simulationMesh.cpp
-  deformationModelFDTest.cpp
-
   tetVolumeConstraintFunctions.cpp
   tetMeshOccupation.cpp
 

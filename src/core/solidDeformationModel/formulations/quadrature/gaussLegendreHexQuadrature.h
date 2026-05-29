@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cmath>
+#include "quadrature.h"
 
 namespace pgo
 {
@@ -11,29 +11,14 @@ namespace SolidDeformationModel
 // Gauss points at 0.5 +/- 0.5/sqrt(3) in each direction.
 // Reference weights = 1/8 per point.
 // Used with HexTrilinearBasis for hex trilinear deformation gradient formulation.
-class GaussLegendreHexQuadrature2
+class GaussLegendreHexQuadrature2 : public Quadrature
 {
 public:
-  static constexpr int numPoints = 8;
+  static constexpr int kNumPoints = 8;
 
-  // Quadrature point ordering: innermost loop over gamma, then beta, then alpha
-  // (matching the legacy CubicMeshDeformationModel convention).
-  static void point(int i, double xi[3])
-  {
-    constexpr double offset = 0.5 / 1.7320508075688772;  // 0.5 / sqrt(3)
-    constexpr double gp[2] = { 0.5 - offset, 0.5 + offset };
-
-    // ia is outer loop, ig is inner loop (matching legacy convention)
-    const int ia = i / 4;
-    const int ib = (i / 2) % 2;
-    const int ig = i % 2;
-
-    xi[0] = gp[ia];
-    xi[1] = gp[ib];
-    xi[2] = gp[ig];
-  }
-
-  static double weight(int) { return 0.125; }  // 1/8
+  int numPoints() const override { return kNumPoints; }
+  void point(int i, double xi[3]) const override;
+  double weight(int i) const override;
 };
 
 }  // namespace SolidDeformationModel

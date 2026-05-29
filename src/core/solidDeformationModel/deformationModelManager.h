@@ -5,6 +5,8 @@ copyright to USC, MIT, NUS
 
 #pragma once
 
+#include "EigenDef.h"
+
 #include <memory>
 
 namespace pgo
@@ -14,6 +16,7 @@ namespace SolidDeformationModel
 class SimulationMesh;
 class DeformationModel;
 class DeformationModelManagerImpl;
+class ParameterField;
 
 enum class DeformationModelElasticMaterial
 {
@@ -66,6 +69,12 @@ public:
   void getVertexAlignedMatrix(int id, double R[9]) const;
 
   const DeformationModel *getDeformationModel(int eleID) const;
+
+  const ParameterField *getElasticParameterField() const;
+  const ParameterField *getPlasticParameterField() const;
+
+  void setElasticParams(const EigenSupport::VXd &params);
+  void setPlasticParams(const EigenSupport::VXd &params);
 
 protected:
   DeformationModelManagerImpl *data;

@@ -5,18 +5,18 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-void TetP1Basis::N(double xi, double eta, double zeta, double N[4])
+void TetP1Basis::N(double xi, double eta, double zeta, double N_out[]) const
 {
   (void)xi;
   (void)eta;
   (void)zeta;
-  N[0] = 1.0 - xi - eta - zeta;
-  N[1] = xi;
-  N[2] = eta;
-  N[3] = zeta;
+  N_out[0] = 1.0 - xi - eta - zeta;
+  N_out[1] = xi;
+  N_out[2] = eta;
+  N_out[3] = zeta;
 }
 
-void TetP1Basis::dN_dxi(double xi, double eta, double zeta, double dN_dxi[12])
+void TetP1Basis::dN_dxi(double xi, double eta, double zeta, double dN_dxi[]) const
 {
   (void)xi;
   (void)eta;
@@ -41,7 +41,7 @@ void TetP1Basis::dN_dxi(double xi, double eta, double zeta, double dN_dxi[12])
   dN_dxi[11] = 1.0;
 }
 
-void TetP1Basis::nodeCoords(int node, double xi[3])
+void TetP1Basis::nodeCoords(int node, double xi[3]) const
 {
   switch (node) {
   case 0: xi[0] = 0.0; xi[1] = 0.0; xi[2] = 0.0; break;

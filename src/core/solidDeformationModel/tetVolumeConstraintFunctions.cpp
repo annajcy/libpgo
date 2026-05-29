@@ -34,14 +34,15 @@ TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(const SimulationMesh 
     DmInv.resize(3, nele * 3);
     dFdx.assign(nele, ES::M9x12d::Zero());
 
-    using TetKernel = DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>;
+    TetP1Basis tetBasis;
+    TetP1DefaultQuadrature tetQuad;
 
     for (int ei = 0; ei < nele; ei++) {
       ES::V12d xlocal;
       for (int i = 0; i < 4; i++) {
         tetMesh->getVertex(ei, i, xlocal.data() + i * 3);
       }
-      TetKernel kernel(xlocal.data());
+      DeformationGradientKernel kernel(xlocal.data(), tetBasis, tetQuad);
       DmInv.block<3, 3>(0, ei * 3) = kernel.restDmInv(0);
       dFdx[ei] = kernel.rest_dFdx(0);
     }

@@ -1,19 +1,51 @@
 # Contact API Refactor Plan
 
-> **状态日期：** 2026-05-28
-> **适用范围：** C++ `contact/` (IPC + floor + mapped surface) 边界重构 + Python `pypgo.contact` binding。
-> **执行约束：** 不重写 IPC 数值内核（barrier、CCD、active set 缓存）；本计划只重构 contact energy 的构造接口、ownership、与 `EnergySet` / Newton solver 的对接边界。
+> **状态日期：** 2026-05-29
+> **适用范围：** C++ `contact/` construction boundary + Python `pypgo.contact` binding.
+> **执行约束：** 不重写 IPC barrier、CCD、active-set 数值逻辑或 floor/contact 能量公式。本计划只重构 contact energy 的长期构造边界、ownership、obstacle lifecycle、Python API、以及与 `EnergySet` / solver service 的对接方式。
 
 ## 目标
 
-让 Python 用户能从 NumPy / `pypgo` 既有 mesh / sparse 对象出发，直接构造可与 `EnergySet` 组合的 contact energy：
+建立一个长期可复用的 C++ contact construction facade：
+
+```cpp
+namespace pgo::Contact::IPC
+{
+
+struct ContactSurfaceSpec;
+struct FloorSpec;
+struct IPCParametersSpec;
+struct StaticObstacleSpec;
+struct LinearMovingObstacleSpec;
+using ObstacleSpec = std::variant<StaticObstacleSpec, LinearMovingObstacleSpec>;
+
+std::shared_ptr<EmbeddedSurfaceFloorPotentialEnergy> createFloorEnergy(
+  const ContactSurfaceSpec &surface,
+  const FloorSpec &floor);
+
+std::shared_ptr<EmbeddedSurfaceIPCPotentialEnergy> createIPCEnergy(
+  const ContactSurfaceSpec &surface,
+  const EigenSupport::MXi &surfaceTriangles,
+  const IPCParametersSpec &params,
+  std::vector<ObstacleSpec> obstacles);
+
+}  // namespace pgo::Contact::IPC
+```
+
+Python、未来 `RunSimConfig`、以及 C++ examples 都通过 facade 构造 contact energies，不直接拼 `FloorPenaltyParameters`、`SurfaceIPCCore::Parameters`、obstacle sampler 或 IPC core lifecycle。
+
+Python 第一版：
 
 ```python
 import pypgo as pgo
 
+surface = pgo.contact.ContactSurface(
+    rest_vertices=surface_rest,
+    surface_from_simulation_disp_map=A,
+)
+
 floor = pgo.contact.FloorEnergy(
-    surface_rest_vertices=surface_rest,            # (n, 3) float64
-    surface_from_simulation_disp_map=A,            # pypgo.sparse.SparseMatrix
+    surface,
     axis="y",
     side="keep_above",
     height=0.0,
@@ -21,26 +53,36 @@ floor = pgo.contact.FloorEnergy(
 )
 
 ipc = pgo.contact.IPCEnergy(
-    surface_rest_vertices=surface_rest,
-    surface_triangles=triangles,                   # (m, 3) int64
-    surface_from_simulation_disp_map=A,
+    surface,
+    surface_triangles=triangles,
     params=pgo.contact.IPCParameters(dhat=1e-3),
-    obstacles=[],
+    obstacles=[
+        pgo.contact.ObstacleSpec.static(obs_rest, obs_tris),
+        pgo.contact.ObstacleSpec.linear_velocity(
+            moving_rest,
+            moving_tris,
+            velocity=[0.0, -1.0, 0.0],
+        ),
+    ],
 )
 
-total = pgo.energy.EnergySet([
-    (elastic, 1.0),
-    (floor,   1.0),
-    (ipc,     1.0),
-])
+ipc.set_moving_obstacle_time(t)
+
+total = pgo.energy.EnergySet([(elastic, 1.0), (floor, 1.0), (ipc, 1.0)])
+result = pgo.solver.solve_newton(total, x0=u0, fixed_dofs=fixed)
 ```
 
-不让 Python 看到：
+Python 用户不看到：
 
-- `hessianInPlace` vs `hessian`（IPC `isHessianTopologyFixed() == 0`，由 `evaluateHessian` 统一；新命名见 Energy plan §4）；
-- `MappedSurfacePotentialEnergy` 内部 cached active set / line search 状态；
-- `EmbeddedSurfaceIPCPotentialEnergy::setObstacleTime` / `markObstacleStatic` 之外的 obstacle 内部结构；
-- 任何 raw pointer / 借用 `const SpMatD &` 引用的构造约定。
+- `MappedSurfacePotentialEnergy` 内部 adapter/cache/lifecycle；
+- `SurfaceIPCCore`；
+- `ObstacleSurface` / `StaticObstacleSurface` / `MovingObstacleSurface` raw classes；
+- obstacle sampler / pose cache construction；
+- `FloorPenaltyParameters`、`SurfaceIPCCore::Parameters` raw structs；
+- `markObstacleStatic(objectId)`；
+- `setObstacleTime(...)` / `set_obstacle_time(...)` compatibility API；
+- `hessian` / `hessianDirect` / `createHessian` allocation details；
+- any raw pointer / borrowed-reference construction rule。
 
 ## 当前问题
 
@@ -49,77 +91,414 @@ total = pgo.energy.EnergySet([
 - `src/core/contact/mappedSurfacePotentialEnergy.h/.cpp`
 - `src/core/contact/embeddedSurfaceFloorPotentialEnergy.h/.cpp`
 - `src/core/contact/ipc/embeddedSurfaceIPCPotentialEnergy.h/.cpp`
-- `src/core/contact/ipc/core/surfaceIPCCore.{h,cpp}`
-- `src/core/contact/ipc/external/obstacleSurface.{h,cpp}`
-- `src/core/contact/legacy_penalty/*`（不在本计划主线绑定范围，见非目标）
+- `src/core/contact/ipc/core/surfaceIPCCore.h/.cpp`
+- `src/core/contact/ipc/external/obstacleSurface.h/.cpp`
+- `src/core/contact/ipc/broadPhase/surfaceIPCExternalBroadPhase.cpp`
+- `src/core/contact/ipc/core/surfaceIPCExternalBarrierAssembler.*`
+- `src/core/contact/ipc/core/surfaceIPCMaxStep.*`
+- `src/tools/sim/runIPCSim/setup/obstacleSetup.*`
+- `src/tools/sim/runIPCSim/setup/shellSetup.cpp`
+- `src/tools/sim/runIPCSim/setup/volumeSetup.cpp`
 - `src/python/pypgo/bindings/contact_bindings.cpp`（新增）
 
-具体别扭点：
+### 1. 没有长期 construction facade
 
-### 1. Hessian topology 非固定
+当前 Python plan 如果直接绑定 `EmbeddedSurfaceFloorPotentialEnergy` / `EmbeddedSurfaceIPCPotentialEnergy` ctor，会让 Python binding、`RunSimConfig`、examples 各自重复翻译：
 
-`MappedSurfacePotentialEnergy::isHessianTopologyFixed()` 返回 `0`，意味着它 override 了 `hessian(x, H)` （新名）做 per-x 重建。Python 用户必须走 `evaluation.h::evaluateHessian`（内部调 `hessian(x, H)`），不直接调 `hessianInPlace`/`hessianAlloc`。这一点已经在 `energy_api_refactor.plan.md::Task E1` 覆盖，本计划只需要保证 contact energy 始终通过该 helper 被求值。
+- NumPy / sparse map 到 surface adapter；
+- floor axis / side / kappa / height；
+- IPC parameters；
+- obstacle mesh、static/moving 类型、pose cache 初始化、time update。
 
-注意 Contact 内部 `MappedSurfacePotentialEnergy` / `EmbeddedSurfaceFloor/IPCPotentialEnergy` 的 `hessian` / `hessianInPlace` / `hessianAlloc` override 必须随 Energy Task E0 一起 rename；Contact 任务不再单独负责这部分 rename。
+construction-level policy 应该集中在一个小 facade，而不是散在每个 caller。
 
-### 2. State convention：simulation displacement
+### 2. State convention 必须固定为 simulation displacement
 
-`MappedSurfacePotentialEnergy::func(simulationDisplacements)` 的 state 是 simulation displacement（不是 simulation absolute position，也不是 surface displacement）。内部用 `surfaceFromSimulationDispMap_` 把 simulation 位移映射到 surface 位移、再叠加 rest position 得到 surface 绝对位置。Python 用户应该看到统一的 displacement state（与 `deformation_energy` 一致）。
+`MappedSurfacePotentialEnergy::func(simulationDisplacements)` 的 state 是 simulation displacement，不是 simulation absolute position，也不是 surface displacement。内部用 `surfaceFromSimulationDispMap_` 把 simulation 位移映射到 surface 位移，再叠加 rest position 得到 surface 绝对位置。
 
-### 3. 构造接受 `const SpMatD &` 引用
+Python `ContactSurface` 和所有 contact energies 都声明：
 
-`MappedSurfacePotentialEnergy` 的 ctor 接受 `const EigenSupport::SpMatD &surfaceFromSimulationDispMap` 并在内部存为成员（按值复制）；这没有 lifetime 问题。但 IPC obstacles 通过 `std::vector<ObstacleSurface>` 按值传，`ObstacleSurface` 内部如果借用外部数据，binding 必须自检。需要在 Task C2 内显式审计 `ObstacleSurface` 的 ownership。
+```text
+state_kind == "displacement"
+```
 
-### 4. Floor / IPC 参数表达
+这样可以直接组合进 deformation energy 的 `EnergySet`，不会产生 mixed-state ambiguity。
 
-- `FloorPenaltyParameters` 用 `FloorAxis` / `FloorSide` enum + `floorHeight` / `floorKappa` double 表达，floorAxis 缺省值是 `INVALID` 且 `floorHeight` / `floorKappa` 是 `NaN` 哨兵。Python 用户不该构造 NaN 哨兵；binding 必须强制传齐。
-- `SurfaceIPCCore::Parameters` 是 IPC 数值参数（`dhat`、`epsv`、`mu`、`maxNewtonIters` 等，具体字段视 core header），需要以 Python dataclass 形态稳定下来。
+### 3. Hessian topology 非固定
 
-### 5. Obstacle 时间 / 静态标记
+`MappedSurfacePotentialEnergy::isHessianTopologyFixed() == 0`。当前 `hessian(x, H)` / `createHessian(H)` 会抛，真正路径是 `hessianDirect(x, H)`。Energy plan E0/E1 会统一 naming 和 `evaluateHessian` helper；Contact binding 必须走 helper，不直接调用 topology-fixed path。
 
-`EmbeddedSurfaceIPCPotentialEnergy::setObstacleTime(double t)` 与 `markObstacleStatic(int32_t)` 修改 mutable 状态。Python 用户需要稳定接口控制这两点：dynamic loop 每帧推进时间；静态 obstacle 应在构造或 setup 时一次性标记。
+Contact plan 不单独 rename energy API，但需要在 tests 中覆盖 `FloorEnergy.hessian(u)` / `IPCEnergy.hessian(u)` 走动态 Hessian 路径。
 
-### 6. Ownership：依赖 surface rest + map 数据
+### 4. 当前 obstacle lifecycle 有半初始化状态
 
-IPC / floor 都依赖：
+当前 `ObstacleSurface` 构造后 `current_` 是 zero，真正 pose cache 只有 `update(t)` 后才建立。static obstacle 通过 `markObstacleStatic(objectId)` 间接 `update(0.0)`，moving obstacle 需要 caller 记得 `setObstacleTime(t)`。
 
-- surface rest vertices `(n, 3)`；
-- surface from simulation displacement sparse map；
-- IPC 额外依赖 triangles `(m, 3)`、`SurfaceIPCCore::Parameters`、`std::vector<ObstacleSurface>`。
+这个设计把几件事混在一起了：
 
-这些当前在 ctor 内按值拷贝，已经具备 self-owning 语义；本计划要做的是在 Python wrapper 上确认这一点，**禁止**在 binding 层用 `keepAlive_` 等机制保活外部 Python 对象。
+- static obstacle 不应该有 “sample at t = 0” 语义；
+- moving obstacle 的时间推进不应该污染 static obstacle；
+- `markObstacleStatic(objectId)` 暴露了 slot-index lifecycle；
+- construction 后对象不是 ready-to-evaluate；
+- `setObstacleTime` 名字太宽，实际只应该推进 moving obstacles。
 
-### 7. 没有统一的 contact factory
+本计划把 obstacle 重构成 static/moving 类型体系，construction 后 immediately ready。
 
-`runIPCSim` 通过 `setup/floorSetup.cpp` 和 `setup/obstacleSetup.cpp` 把 JSON config 翻译成 floor / obstacle 列表，再喂给 contact energy。Python 第一版只暴露程序构造接口；JSON 路径走 M4 `pypgo.sim.RunSimConfig` 的 floor / obstacle 字段，本计划只覆盖到 energy 构造层。
+### 5. Contact energy 有 mutable cache，不是线程共享纯函数
+
+`EmbeddedSurfaceIPCPotentialEnergy` 内部有 mutable energy active-set cache 和 line-search active-set state。Python 文档必须说明：
+
+- 可以把同一个 energy object 放进一个 solve/evaluation pipeline；
+- 不承诺同一个 `IPCEnergy` instance 可被多个线程并发 evaluation / solve；
+- 如需并发，应构造独立 energy instances。
+
+这和 solver plan 的 `LineSearchAwareEnergy` freeze 规则相互依赖：line search policy 只负责 alpha，contact energy 自己管理 line-search active set。
+
+### 6. Contact energy 不是 hard constraints
+
+Floor / IPC 是 `PotentialEnergy`，不是 `ConstraintFunctions`。不要把 bbox/floor/contact 混入 `pypgo.constraints`。如果未来需要 hard geometric constraints，另走 constraints plan。
 
 ## 非目标
 
-- 不重写 IPC 数值内核 / CCD / barrier / active set / friction。
-- 不在 M3 重做 obstacle 的完整 lifecycle（dynamic obstacle motion 等留给 M6）。本计划只暴露 `set_obstacle_time` 与 `mark_obstacle_static`。
-- 不绑定 `contact/legacy_penalty/*`。Volume legacy penalty backend 由 `pypgo.sim.from_config(..., backend="legacy_penalty")` (M4/M6) 走 sim context，不进入 `pypgo.contact` 的直接构造路径。
-- 不为 surface pressure / moving floor 设计 first-class Python class；moving floor 列入 M6 表面。
-- 不在本计划暴露 `MappedSurfacePotentialEnergy` 子类化能力到 Python。
-- 不重做 `ObstacleSurface` 数据格式；只确认其 by-value ownership 满足 binding 要求。
+- 不重写 IPC barrier、CCD、broad phase、active-set construction、friction-related internals。
+- 不绑定 `contact/legacy_penalty/*`。Legacy penalty backend 由 future sim context/config path 处理，不进入 `pypgo.contact` direct construction path。
+- 不暴露 `MappedSurfacePotentialEnergy` subclassing 到 Python。
+- 不暴露 `SurfaceIPCCore` raw API。
+- 不暴露 obstacle concrete classes、sampler、pose cache 到 Python。
+- 不保留 `markObstacleStatic(objectId)` public lifecycle。
+- 不保留 `setObstacleTime(...)` / `set_obstacle_time(...)` compatibility method；统一迁移到 `setMovingObstacleTime(...)` / `set_moving_obstacle_time(...)`。
+- 不为 moving floor / surface pressure 设计 first-class Python class；列入 future work。
+- 不让 contact energy 进入 `pypgo.constraints`。
+- 不承诺 `IPCEnergy` instance 的 concurrent evaluation thread-safety。
+- 不改变 `runIPCSim` JSON 行为；只迁移它的 obstacle construction 调用路径。
 
-## 设计决策
+## 关键设计决策
 
-### 1. Contact energy 自包含 ownership
+### 1. C++ 长期边界是 `contactEnergyFactory`
 
-每个 contact energy class 自身就是完整的 owner：
+新增：
 
-- `EmbeddedSurfaceFloorPotentialEnergy` 持 `surfaceRestPositions_`、`surfaceFromSimulationDispMap_`、`FloorPenaltyParameters`。
-- `EmbeddedSurfaceIPCPotentialEnergy` 持上述 + triangles、`SurfaceIPCCore`（含 params）、`std::vector<ObstacleSurface>`。
+- `src/core/contact/contactEnergyFactory.h`
+- `src/core/contact/contactEnergyFactory.cpp`
 
-Python wrapper **不**额外保活 Python 端的 rest vertices / map / triangles：binding 时一律 copy 进 C++ owned 存储。这一规则与 `energy_api_refactor.plan.md::Task E2` 的 owning generic energies 一致。
+核心 public API：
 
-### 2. Hessian 通过 `evaluateHessian` 统一
+```cpp
+namespace pgo::Contact::IPC
+{
 
-Python `IPCEnergy.hessian(u)` / `FloorEnergy.hessian(u)` 内部走 `pgo::NonlinearOptimization::evaluateHessian(*self.handle, u)`；不会触发 `isHessianTopologyFixed() == 0` 的拓扑错误路径。
+struct ContactSurfaceSpec
+{
+  EigenSupport::MXd restVertices;
+  EigenSupport::SpMatD surfaceFromSimulationDispMap;
+};
 
-### 3. Floor 参数：Python dataclass + 显式 enum
+struct FloorSpec
+{
+  FloorAxis axis = FloorAxis::INVALID;
+  FloorSide side = FloorSide::KEEP_ABOVE;
+  double height = std::numeric_limits<double>::quiet_NaN();
+  double kappa = std::numeric_limits<double>::quiet_NaN();
+};
 
-提供 Python dataclass：
+struct IPCParametersSpec
+{
+  double dhat = 1e-1;
+  std::optional<double> dhatExternal = std::nullopt;
+  double kappa = 0.1;
+  double epsEE = 0.0;
+  double slackness = 1.0;
+  double ccdThickness = 0.0;
+};
+
+struct StaticObstacleSpec
+{
+  EigenSupport::MXd restVertices;
+  EigenSupport::MXi triangles;
+};
+
+struct LinearMovingObstacleSpec
+{
+  EigenSupport::MXd restVertices;
+  EigenSupport::MXi triangles;
+  EigenSupport::V3d velocity = EigenSupport::V3d::Zero();
+  double referenceTime = 0.0;
+};
+
+using ObstacleSpec = std::variant<StaticObstacleSpec, LinearMovingObstacleSpec>;
+
+std::shared_ptr<EmbeddedSurfaceFloorPotentialEnergy> createFloorEnergy(
+  const ContactSurfaceSpec &surface,
+  const FloorSpec &floor);
+
+std::shared_ptr<EmbeddedSurfaceIPCPotentialEnergy> createIPCEnergy(
+  const ContactSurfaceSpec &surface,
+  const EigenSupport::MXi &surfaceTriangles,
+  const IPCParametersSpec &params = {},
+  std::vector<ObstacleSpec> obstacles = {});
+
+SurfaceIPCCore::Parameters toSurfaceIPCParameters(const IPCParametersSpec &spec);
+FloorPenaltyParameters toFloorPenaltyParameters(const FloorSpec &spec);
+
+}  // namespace pgo::Contact::IPC
+```
+
+Facade responsibilities:
+
+- validate shapes and finite scalar params before constructing kernel objects；
+- translate `FloorSpec` to `FloorPenaltyParameters`；
+- translate `IPCParametersSpec` to `SurfaceIPCCore::Parameters`；
+- translate obstacle specs to concrete `StaticObstacleSurface` / `LinearMovingObstacleSurface` objects；
+- construct IPC energy in a ready-to-evaluate state。
+
+`EmbeddedSurfaceFloorPotentialEnergy` / `EmbeddedSurfaceIPCPotentialEnergy` stay as numerical implementation classes. Python binding should construct through the factory, not direct ctor calls.
+
+### 2. `ContactSurfaceSpec` is the shared surface adapter input
+
+Both floor and IPC require the same pair:
+
+```text
+surface rest vertices
+surface-from-simulation displacement map
+```
+
+Python exposes this as:
+
+```python
+@dataclass(frozen=True)
+class ContactSurface:
+    rest_vertices: np.ndarray
+    surface_from_simulation_disp_map: pgo.sparse.SparseMatrix
+```
+
+`ContactSurface` is not an energy. It is a reusable construction value object. Each energy construction copies data into C++ owned storage; deleting `ContactSurface` or its input arrays after construction does not affect the energy.
+
+Factory validation:
+
+- `restVertices.cols() == 3`
+- `restVertices.rows() > 0`
+- `surfaceFromSimulationDispMap.rows() == 3 * restVertices.rows()`
+- `surfaceFromSimulationDispMap.cols() > 0`
+
+### 3. IPC parameters mirror source defaults, with Python-friendly `dhat_external`
+
+Python dataclass:
+
+```python
+@dataclass(frozen=True)
+class IPCParameters:
+    dhat: float = 1e-1
+    dhat_external: float | None = None
+    kappa: float = 0.1
+    eps_ee: float = 0.0
+    slackness: float = 1.0
+    ccd_thickness: float = 0.0
+```
+
+Translation rule:
+
+```text
+dhat_external is None  =>  C++ dhat_external = dhat
+```
+
+Validation:
+
+- all numeric fields must be finite；
+- `dhat > 0`
+- `dhat_external is None or dhat_external > 0`
+- `kappa >= 0`
+- `slackness > 0`
+- `ccd_thickness >= 0`
+
+### 4. Obstacle core uses explicit static/moving hierarchy
+
+Replace the current single `ObstacleSurface + TrajectorySampler + staticObstacles_ bool vector` model with a real type split:
+
+```cpp
+class ObstacleSurface
+{
+public:
+  virtual ~ObstacleSurface() = default;
+
+  virtual std::unique_ptr<ObstacleSurface> cloneSurface() const = 0;
+
+  virtual int32_t objectId() const = 0;
+  virtual void setObjectId(int32_t id) = 0;
+
+  virtual const EigenSupport::VXd &currentPositions() const = 0;
+  virtual const EigenSupport::MXi &triangles() const = 0;
+  virtual const EigenSupport::MXi &uniqueEdges() const = 0;
+  virtual const EigenSupport::MXi &contactEdges() const = 0;
+  virtual const ObstaclePoseCache &cache() const = 0;
+};
+
+class StaticObstacleSurface final : public ObstacleSurface
+{
+  // No time API.
+public:
+  std::unique_ptr<StaticObstacleSurface> cloneStatic() const;
+  std::unique_ptr<ObstacleSurface> cloneSurface() const override;
+};
+
+class MovingObstacleSurface : public ObstacleSurface
+{
+public:
+  virtual void setTime(double t) = 0;
+  virtual std::unique_ptr<MovingObstacleSurface> cloneMoving() const = 0;
+};
+
+class LinearMovingObstacleSurface final : public MovingObstacleSurface
+{
+public:
+  LinearMovingObstacleSurface(
+    EigenSupport::MXd restVertices,
+    EigenSupport::MXi triangles,
+    EigenSupport::V3d velocity,
+    double referenceTime = 0.0);
+
+  void setTime(double t) override;
+  std::unique_ptr<MovingObstacleSurface> cloneMoving() const override;
+  std::unique_ptr<ObstacleSurface> cloneSurface() const override;
+};
+```
+
+Key semantics:
+
+- `StaticObstacleSurface` builds `currentPositions`, `contactEdges`, and `ObstaclePoseCache` directly from its geometry in the constructor.
+- `StaticObstacleSurface` never samples at `t = 0`; it is simply time-independent.
+- `MovingObstacleSurface` owns the time API. The abstract base `ObstacleSurface` has no `setTime`.
+- `LinearMovingObstacleSurface` initializes itself to `t = 0.0` in its constructor, so construction returns a ready object.
+- There is no separate `ContactTimeSpec` or construction-time initial time parameter. Runtime changes go through `setMovingObstacleTime(t)`.
+- `referenceTime` belongs to the linear trajectory formula, not to contact construction lifecycle.
+
+### 5. `SurfaceIPCCore` stores obstacles by type but exposes read-only views
+
+`SurfaceIPCCore` should not make broad phase / assembler code depend on concrete obstacle ownership. Internally it owns static and moving obstacles separately:
+
+```cpp
+struct ObstacleSlot
+{
+  enum class Kind { Static, Moving };
+  Kind kind;
+  std::size_t index;
+  int32_t objectId;
+};
+
+class SurfaceIPCCore
+{
+  std::vector<std::unique_ptr<StaticObstacleSurface>> staticObstacles_;
+  std::vector<std::unique_ptr<MovingObstacleSurface>> movingObstacles_;
+  std::vector<ObstacleSlot> obstacleOrder_;
+};
+```
+
+Algorithms consume an ephemeral read-only merged view:
+
+```cpp
+struct ObstacleSurfaceView
+{
+  int32_t objectId;
+  const EigenSupport::VXd *currentPositions;
+  const EigenSupport::MXi *triangles;
+  const EigenSupport::MXi *uniqueEdges;
+  const EigenSupport::MXi *contactEdges;
+  const ObstaclePoseCache *cache;
+};
+
+std::vector<ObstacleSurfaceView> SurfaceIPCCore::obstacleViews() const;
+```
+
+Design rules:
+
+- `objectId` is assigned once from the user/factory input order.
+- `obstacleViews()` returns views in the same input order, even though storage is split by type.
+- External pairs and diagnostics use `objectId`, not static/moving storage index.
+- `ObstacleSurfaceView` is a local evaluation snapshot. Do not store it across `setMovingObstacleTime`, cache invalidation, or obstacle mutation.
+- Broad phase, external barrier assembler, and external max-step code should take `std::span<const ObstacleSurfaceView>` or `const std::vector<ObstacleSurfaceView>&`, not owning obstacle containers.
+
+This removes `staticObstacles_` bool flags and the need for `markObstacleStatic`.
+
+### 6. Time API is explicit: moving obstacles only
+
+Rename the lifecycle API:
+
+```cpp
+class SurfaceIPCCore
+{
+public:
+  void setMovingObstacleTime(double t);
+};
+
+class EmbeddedSurfaceIPCPotentialEnergy
+{
+public:
+  void setMovingObstacleTime(double t);
+};
+```
+
+Python exposes exactly:
+
+```python
+ipc.set_moving_obstacle_time(t)
+```
+
+Rules:
+
+- no `setObstacleTime(...)` compatibility wrapper；
+- no Python `set_obstacle_time(...)` alias；
+- calling `set_moving_obstacle_time(t)` on an IPC energy with only static obstacles is a no-op except normal cache invalidation policy；
+- `EmbeddedSurfaceIPCPotentialEnergy::setMovingObstacleTime` clears energy/line-search active-set caches, then asks `SurfaceIPCCore` to update only moving obstacles。
+
+### 7. Python exposes static and linear moving obstacle specs
+
+Python keeps the construction surface compact and value-like:
+
+```python
+@dataclass(frozen=True)
+class ObstacleSpec:
+    kind: Literal["static", "linear_velocity"]
+    rest_vertices: np.ndarray
+    triangles: np.ndarray
+    velocity: np.ndarray | None = None
+    reference_time: float = 0.0
+
+    @staticmethod
+    def static(rest_vertices, triangles) -> "ObstacleSpec": ...
+
+    @staticmethod
+    def linear_velocity(
+        rest_vertices,
+        triangles,
+        velocity,
+        reference_time: float = 0.0,
+    ) -> "ObstacleSpec": ...
+```
+
+Validation:
+
+- `rest_vertices` is `(n, 3) float64`
+- `triangles` is `(m, 3) int64`
+- triangle indices are in `[0, n)`
+- `velocity` is finite shape `(3,)` for `linear_velocity`
+- `reference_time` is finite
+
+The Python spec is only a construction value. It does not expose obstacle object identity, pose cache, sampler, or time mutation.
+
+### 8. Obstacle copy semantics use `clone()`
+
+With virtual obstacle surfaces, copying must be explicit:
+
+- `ObstacleSurface::cloneSurface()` exists for generic read-only cloning when needed.
+- `StaticObstacleSurface::cloneStatic()` deep-copies static obstacles into typed static storage.
+- `MovingObstacleSurface::cloneMoving()` deep-copies moving obstacles into typed moving storage.
+- `SurfaceIPCCore` copy constructor / assignment deep-clone all obstacles and preserve `obstacleOrder_`.
+- `EmbeddedSurfaceIPCPotentialEnergy` copy behavior remains safe if the existing class is copied by value in tests or downstream code.
+
+Do not silently make `SurfaceIPCCore` move-only unless a repo-wide audit proves no caller depends on copyability. The safer migration is deep clone.
+
+### 9. Python `FloorEnergy` is a wrapper over factory output
+
+Python API:
 
 ```python
 @dataclass(frozen=True)
@@ -128,80 +507,115 @@ class FloorParameters:
     side: Literal["keep_above", "keep_below"]
     height: float
     kappa: float
+
+floor = pgo.contact.FloorEnergy(
+    surface,
+    axis="y",
+    side="keep_above",
+    height=0.0,
+    kappa=1e6,
+)
 ```
 
-binding 时翻译为 `FloorPenaltyParameters`。string → enum 在 binding helper 内完成；不允许传 `None` / NaN。
+`FloorEnergy` may also accept `parameters=FloorParameters(...)`; passing both `parameters` and split fields is an error.
 
-`FloorEnergy` ctor 既可接 `FloorParameters` 实例，也可拆开传 `axis`/`side`/`height`/`kappa` 关键字，效果等价。
+Readable properties:
 
-### 4. IPC 参数：稳定 Python dataclass
+- `floor.axis`
+- `floor.side`
+- `floor.height`
+- `floor.kappa`
+- `floor.state_kind == "displacement"`
 
-引入：
+Implementation decision: Python wrapper stores a `FloorParameters` snapshot for readable metadata. `set_height(h)` calls C++ `setFloorHeight(h)` and updates the wrapper snapshot. We do not need extra C++ getters for `axis/side/kappa` in M3.
 
-```python
-@dataclass(frozen=True)
-class IPCParameters:
-    dhat: float
-    # 后续字段镜像 SurfaceIPCCore::Parameters；具体清单在 Task C1 完成审计后定稿。
+### 10. `IPCEnergy` wrapper owns construction metadata but not raw internals
+
+Readable properties:
+
+- `ipc.params`
+- `ipc.num_obstacles`
+- `ipc.num_moving_obstacles`
+- `ipc.state_kind == "displacement"`
+
+Not exposed:
+
+- obstacle list mutable view；
+- `mark_obstacle_static`；
+- active-set cache；
+- line-search cache；
+- raw `SurfaceIPCCore`。
+
+### 11. Hessian/evaluation goes through energy helpers
+
+Python `FloorEnergy.value/gradient/hessian` and `IPCEnergy.value/gradient/hessian` use the same `PotentialEnergy` binding surface as other energies. Hessian must call the Energy plan helper:
+
+```cpp
+pgo::NonlinearOptimization::evaluateHessian(*energy, x)
 ```
 
-binding 时 field-by-field 写入 `SurfaceIPCCore::Parameters`，不暴露 raw C++ struct。新增 / 删除字段都需要同步更新 dataclass、binding 翻译、parity test。
+This is required because contact energies are not Hessian-topology-fixed.
 
-### 5. Obstacle：第一版只支持静态列表 + 时间推进
+### 12. Contact energy construction is self-owning
 
-```python
-@dataclass(frozen=True)
-class ObstacleSpec:
-    rest_vertices: np.ndarray   # (n, 3) float64
-    triangles: np.ndarray       # (m, 3) int64
-    is_static: bool = False     # 对应 markObstacleStatic
-    # motion / time-dependent transform 留给 M6
-```
+Construction copies all inputs into C++ owned storage:
 
-`IPCEnergy` 构造接受 `obstacles: list[ObstacleSpec]`，binding 时翻译为 `std::vector<ObstacleSurface>` 并按 `is_static` 调用 `markObstacleStatic(objectId)`。
+- `ContactSurfaceSpec.restVertices`
+- `ContactSurfaceSpec.surfaceFromSimulationDispMap`
+- `surfaceTriangles`
+- obstacle rest vertices
+- obstacle triangles
+- linear velocity / reference time
 
-提供运行时 setter：
+Binding must not use ad-hoc keep-alive containers such as `std::shared_ptr<void>` just to keep Python arrays alive. Lifetime tests must delete Python inputs after construction and still evaluate successfully.
 
-```python
-ipc.set_obstacle_time(t: float) -> None
-```
+### 13. `runIPCSim` migrates to the new obstacle construction path
 
-M3 静态 solve 实际不需要时间推进，`set_obstacle_time` 此处作为 forward compatibility 暴露给 M6 dynamic loop；M3 测试中只验证 `set_obstacle_time(0.0)` 不破坏其他求值。
+Because `ObstacleSurface` becomes abstract, existing `runIPCSim` setup code that returns `std::vector<ObstacleSurface>` must be migrated in the same implementation phase.
 
-不暴露 `obstacleSurfaces` 列表的可变 view。
+Migration rule:
 
-### 6. State convention 在 Python 上声明 `"displacement"`
-
-所有 contact energy `state_kind == "displacement"`，与 `deformation_energy` 一致；可以直接组合进 `EnergySet([elastic, floor, ipc])` 而不会被 `EnergySet` 判为 mixed。
-
-### 7. Contact factory 不绑定
-
-不暴露 `runIPCSim` 的 `floorSetup` / `obstacleSetup`。这两个函数在 M4 通过 `RunSimConfig.floors` / `RunSimConfig.obstacles` 重新出现（解析 JSON 后构造 `FloorEnergy` / `ObstacleSpec` 列表）。本计划只保证程序构造路径稳定。
+- JSON behavior stays unchanged.
+- `obstacleSetup.*` should return facade obstacle specs or an obstacle set accepted by `createIPCEnergy`.
+- `shellSetup.cpp` / `volumeSetup.cpp` should not call `markObstacleStatic`.
+- Any existing dynamic obstacle setup should express linear motion through `LinearMovingObstacleSpec` / `LinearMovingObstacleSurface`.
 
 ## 目标 C++ API
 
-不动现有 contact header；只在 binding 层做适配。所有 C++ 接口现状如下，本计划要求 binding 全部走这些既有方法：
+New public construction header:
 
 ```cpp
-// src/core/contact/embeddedSurfaceFloorPotentialEnergy.h
-EmbeddedSurfaceFloorPotentialEnergy(
-  const EigenSupport::MXd &surfaceRestVertices,
-  const EigenSupport::SpMatD &surfaceFromSimulationDispMap,
-  const FloorPenaltyParameters &params);
+// src/core/contact/contactEnergyFactory.h
+namespace pgo::Contact::IPC
+{
 
-// src/core/contact/ipc/embeddedSurfaceIPCPotentialEnergy.h
-EmbeddedSurfaceIPCPotentialEnergy(
-  const EigenSupport::MXd &surfaceRestVertices,
+struct ContactSurfaceSpec;
+struct FloorSpec;
+struct IPCParametersSpec;
+struct StaticObstacleSpec;
+struct LinearMovingObstacleSpec;
+using ObstacleSpec = std::variant<StaticObstacleSpec, LinearMovingObstacleSpec>;
+
+std::shared_ptr<EmbeddedSurfaceFloorPotentialEnergy> createFloorEnergy(
+  const ContactSurfaceSpec &surface,
+  const FloorSpec &floor);
+
+std::shared_ptr<EmbeddedSurfaceIPCPotentialEnergy> createIPCEnergy(
+  const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
-  const EigenSupport::SpMatD &surfaceFromSimulationDispMap,
-  const SurfaceIPCCore::Parameters &ipcParams = {},
-  std::vector<ObstacleSurface> obstacleSurfaces = {});
+  const IPCParametersSpec &params = {},
+  std::vector<ObstacleSpec> obstacles = {});
 
-void setObstacleTime(double t);
-void markObstacleStatic(int32_t objectId);
+}  // namespace pgo::Contact::IPC
 ```
 
-如果 Task C2 审计发现 `ObstacleSurface` 内部持有 raw pointer 或借用 mesh，C++ 侧需要补一个 owning 构造重载（task 拆分内说明）。
+Existing numerical APIs remain available for internal code, but Python and new C++ construction examples use the factory. Obstacle lifecycle APIs are renamed, not duplicated:
+
+```text
+setObstacleTime       -> removed / replaced by setMovingObstacleTime
+set_obstacle_time     -> never exposed
+markObstacleStatic    -> removed from construction path
+```
 
 ## Python API 定稿草案
 
@@ -209,38 +623,38 @@ void markObstacleStatic(int32_t objectId);
 import pypgo as pgo
 import numpy as np
 
-surface_rest = np.asarray(rest_vertices, dtype=np.float64)
-triangles    = np.asarray(face_indices, dtype=np.int64)
-A            = pgo.sparse.SparseMatrix.from_scipy(A_scipy)  # 或 M2 builder
+surface = pgo.contact.ContactSurface(
+    rest_vertices=np.asarray(surface_rest, dtype=np.float64),
+    surface_from_simulation_disp_map=A,
+)
 
 floor = pgo.contact.FloorEnergy(
-    surface_rest_vertices=surface_rest,
-    surface_from_simulation_disp_map=A,
+    surface,
     axis="y",
     side="keep_above",
     height=0.0,
     kappa=1e6,
 )
 
-ipc_params = pgo.contact.IPCParameters(dhat=1e-3)
 ipc = pgo.contact.IPCEnergy(
-    surface_rest_vertices=surface_rest,
-    surface_triangles=triangles,
-    surface_from_simulation_disp_map=A,
-    params=ipc_params,
+    surface,
+    surface_triangles=np.asarray(triangles, dtype=np.int64),
+    params=pgo.contact.IPCParameters(dhat=1e-3),
     obstacles=[
-        pgo.contact.ObstacleSpec(
-            rest_vertices=obs_rest,
-            triangles=obs_tris,
-            is_static=True,
+        pgo.contact.ObstacleSpec.static(obs_rest, obs_tris),
+        pgo.contact.ObstacleSpec.linear_velocity(
+            moving_rest,
+            moving_tris,
+            velocity=np.array([0.0, -1.0, 0.0]),
         ),
     ],
 )
 
-ipc.set_obstacle_time(0.0)
+ipc.set_moving_obstacle_time(0.25)
 
 assert floor.state_kind == "displacement"
-assert ipc.state_kind   == "displacement"
+assert ipc.state_kind == "displacement"
+assert ipc.params.dhat == 1e-3
 
 total = pgo.energy.EnergySet([(floor, 1.0), (ipc, 1.0)])
 u = total.zero_state()
@@ -248,19 +662,11 @@ g = total.gradient(u)
 H = total.hessian(u)
 ```
 
-约束：
-
-- 所有数组在 ctor 内 copy 进 C++ owned 存储；Python `del surface_rest` 不影响 energy。
-- `axis` 接受 `"x" | "y" | "z"`；`side` 接受 `"keep_above" | "keep_below"`；非法值抛 `ValueError`。
-- `IPCParameters` 字段顺序与 dataclass 严格匹配 `SurfaceIPCCore::Parameters`。
-- `FloorEnergy.height`、`FloorEnergy.kappa` 可读；不暴露 `set_floor_height` 之外的 mutator（floor motion 留给 M6）。
-- `set_obstacle_time(t)` 与 dynamic loop 解耦：静态 solve 调一次 `t=0` 即可。
-- 不暴露 `mark_obstacle_static`；该状态在构造时通过 `ObstacleSpec.is_static` 决定。
-
-`pypgo.contact` M3 表面：
+`pypgo.contact` public surface:
 
 ```text
 pypgo.contact
+  ContactSurface
   FloorEnergy
   FloorParameters
   IPCEnergy
@@ -268,138 +674,288 @@ pypgo.contact
   ObstacleSpec
 ```
 
+Not public:
+
+```text
+MappedSurfacePotentialEnergy
+EmbeddedSurfaceFloorPotentialEnergy
+EmbeddedSurfaceIPCPotentialEnergy
+FloorPenaltyParameters
+SurfaceIPCCore
+ObstacleSurface
+StaticObstacleSurface
+MovingObstacleSurface
+LinearMovingObstacleSurface
+ObstacleSurfaceView
+markObstacleStatic
+setObstacleTime
+set_obstacle_time
+```
+
 ## File Map
 
 ### 新增
 
+- `src/core/contact/contactEnergyFactory.h`
+- `src/core/contact/contactEnergyFactory.cpp`
 - `src/python/pypgo/bindings/contact_bindings.cpp`
-- `pypgo/contact.py`：Python wrapper、dataclass、`state_kind`。
-- `tests/pypgo/test_contact.py`：构造、求值、weight 组合、obstacle 时间推进、`del input arrays`。
-- `tests/src/core/contact/contact_ownership_gtest.cpp`：confirm `EmbeddedSurfaceFloor/IPCPotentialEnergy` 不依赖输入数组 lifetime（characterization；本计划只新增 test，不改实现）。
+- `pypgo/contact.py`
+- `tests/src/core/contact/contact_energy_factory_gtest.cpp`
+- `tests/pypgo/test_contact.py`
 
 ### 修改
 
-- `src/python/pypgo/CMakeLists.txt`：编入新 binding TU。
-- `src/python/pypgo/bindings/module.cpp`：注册 `pypgo.contact` 子模块。
-- `plan/python_api_migration/api_coverage.md`：Contact 一节加入 dataclass 字段约束、`state_kind`。
+- `src/core/contact/CMakeLists.txt`：编入 `contactEnergyFactory.*`。
+- `src/core/contact/ipc/external/obstacleSurface.h/.cpp`：改为 abstract base + static/moving concrete hierarchy。
+- `src/core/contact/ipc/core/surfaceIPCCore.h/.cpp`：split obstacle storage、stable `objectId`、`ObstacleSurfaceView`、`setMovingObstacleTime`。
+- `src/core/contact/ipc/broadPhase/surfaceIPCExternalBroadPhase.cpp`：external obstacle path 改吃 view。
+- `src/core/contact/ipc/broadPhase/surfaceIPCBroadPhase.h`：external obstacle signatures 改吃 view。
+- `src/core/contact/ipc/core/surfaceIPCExternalBarrierAssembler.*`：external obstacle signatures 改吃 view。
+- `src/core/contact/ipc/core/surfaceIPCMaxStep.*`：external obstacle signatures 改吃 view。
+- `src/core/contact/ipc/embeddedSurfaceIPCPotentialEnergy.h/.cpp`：constructor 接新 obstacle ownership；`setObstacleTime` 改为 `setMovingObstacleTime`；移除 `markObstacleStatic` construction path。
+- `src/tools/sim/runIPCSim/setup/obstacleSetup.*`：返回新 obstacle specs / obstacle set。
+- `src/tools/sim/runIPCSim/setup/shellSetup.cpp`：移除 `markObstacleStatic` 调用，接入新 factory/spec。
+- `src/tools/sim/runIPCSim/setup/volumeSetup.cpp`：移除 `markObstacleStatic` 调用，接入新 factory/spec。
+- `tests/src/core/contact/CMakeLists.txt`：新增 `contact_energy_factory_gtest`。
+- `src/python/pypgo/CMakeLists.txt`：编入 `contact_bindings.cpp`，确保 `pypgo_core` link `contact` / `nonlinearOptimization`。
+- `src/python/pypgo/bindings/module.cpp`：注册 contact bindings。
 - `pypgo/__init__.py`：导出 `pypgo.contact`。
+- `plan/python_api_migration/api_coverage.md`：Contact 一节加入 factory/spec/wrapper coverage。
+- `plan/python_api_migration/numpy_data_contract.md`：明确 contact array/sparse input contract。
 
 ### 不动
 
-- `embeddedSurfaceFloorPotentialEnergy.{h,cpp}`、`embeddedSurfaceIPCPotentialEnergy.{h,cpp}`、`mappedSurfacePotentialEnergy.{h,cpp}` 实现保持不变（除非 Task C2 审计发现真实 ownership 缺陷）。
-- `contact/legacy_penalty/*`、`runIPCSim/setup/floorSetup.cpp`、`runIPCSim/setup/obstacleSetup.cpp` 不在本计划修改范围。
-
-## IPC 参数定稿表（Task C1 输出占位）
-
-> Task C1 的产出填入此处。在 C1 完成前，本节保持空白。所有后续 task 都以本节为唯一真相。
-
-| Python `IPCParameters` 字段 | 类型 | 默认 | C++ `SurfaceIPCCore::Parameters` 对应字段 | M3 公开? |
-|---|---|---|---|---|
-| _待填_ | _待填_ | _待填_ | _待填_ | _待填_ |
-
-## Obstacle ownership 审计结论（Task C2 输出占位）
-
-> Task C2 的结论填入此处：`ObstacleSurface` 是否完全 by-value、是否需要 owning 重载。
-
-- _待填_
+- IPC 数值公式：barrier、CCD、active-set construction、friction-related internals。
+- `contact/legacy_penalty/*`。
+- `runIPCSim` JSON schema and behavior。
 
 ## Task 拆分
 
-### Task C1: `IPCParameters` field audit
+### Task C1: Contact factory + spec audit
 
-- 读 `src/core/contact/ipc/core/surfaceIPCCore.h`，列出 `SurfaceIPCCore::Parameters` 当前字段、类型、默认值。
-- 填本 plan "IPC 参数定稿表" 占位节，写明 Python `IPCParameters` 字段对照。
-- 决定哪些字段 M3 公开、哪些 M3 隐藏使用默认值（例如内部 solver tolerance）。
-- 不写代码；只产出文档增量。
+- Add `contactEnergyFactory.h/.cpp` with:
+  - `ContactSurfaceSpec`
+  - `FloorSpec`
+  - `IPCParametersSpec`
+  - `StaticObstacleSpec`
+  - `LinearMovingObstacleSpec`
+  - `ObstacleSpec = std::variant<...>`
+  - translation helpers
+  - `createFloorEnergy`
+  - `createIPCEnergy`
+- Encode current `SurfaceIPCCore::Parameters` field mapping exactly:
+  - `dhat`
+  - `dhatExternal`
+  - `kappa`
+  - `epsEE`
+  - `slackness`
+  - `ccdThickness`
+- Implement `dhatExternal == nullopt => dhat_external = dhat`.
+- Validate shape/scalar errors in factory and throw `std::invalid_argument`.
+- Add `contact_energy_factory_gtest` coverage for parameter translation and invalid shapes.
 
-### Task C2: Obstacle ownership audit
+### Task C2: Obstacle hierarchy + ready construction
 
-- 阅读 `ObstacleSurface` 定义和构造路径，确认它持有的几何/状态数据是否完全 by-value。
-- 把结论写入本 plan "Obstacle ownership 审计结论" 占位节。
-- 如果借用外部 mesh / pointer：在结论节描述并新增 owning 构造重载（C++ 改动属于本 task，必须 by-value test 验证）。
-- 如果完全 by-value：在结论节标记为已验证，binding 直接走现有 ctor。
+- Refactor `ObstacleSurface` to an abstract read-only base.
+- Add `StaticObstacleSurface final`.
+- Add non-final `MovingObstacleSurface` with virtual `setTime(double)`.
+- Add `LinearMovingObstacleSurface final`.
+- Static constructor builds pose cache directly from geometry.
+- Moving constructor initializes itself at `t = 0.0`.
+- Add `cloneSurface()` to every concrete obstacle class.
+- Add typed `cloneStatic()` / `cloneMoving()` helpers so split storage can be copied without downcasting.
+- Remove sampler-based static construction from the new path.
+- Add C++ tests:
+  - static obstacle is ready immediately after construction;
+  - linear moving obstacle is ready immediately after construction;
+  - moving obstacle changes pose after `setTime(t)`;
+  - typed clone preserves current pose and cache validity.
 
-### Task C3: 在 C++ 加 contact ownership test
+### Task C3: SurfaceIPCCore obstacle ownership + views
 
-- 新增 `tests/src/core/contact/contact_ownership_gtest.cpp`：
-  - 构造 `EmbeddedSurfaceFloorPotentialEnergy` / `EmbeddedSurfaceIPCPotentialEnergy`；
-  - 立即释放传入的 `MXd surfaceRestVertices` / `SpMatD map` / `MXi triangles` 临时对象；
-  - 在零位移 + 小扰动位移下分别求 `func` / `gradient` / `evaluateHessian`；
-  - 期望全部成功、数值有限。
+- Replace `std::vector<ObstacleSurface> obstacles_` and `std::vector<bool> staticObstacles_` with split static/moving ownership.
+- Add `ObstacleSlot` to preserve input order and stable `objectId`.
+- Add `ObstacleSurfaceView` and `obstacleViews()`.
+- Update external broad phase, external barrier assembler, and external max-step code to consume views.
+- Rename `setObstacleTime` to `setMovingObstacleTime`.
+- Remove `markObstacleStatic` from the construction path.
+- Add tests:
+  - mixed static/moving obstacles preserve input-order `objectId`;
+  - `obstacleViews()` order matches input order;
+  - static-only `setMovingObstacleTime(t)` is a no-op for geometry;
+  - moving-only and mixed obstacle updates only change moving obstacle poses.
 
-### Task C4: Python wrapper — `FloorEnergy`
+### Task C4: C++ floor/IPC factory energy tests
 
-- 在 `contact_bindings.cpp` 绑 `EmbeddedSurfaceFloorPotentialEnergy`：
-  - ctor 接 NumPy `surface_rest_vertices`、`pypgo.sparse.SparseMatrix` `surface_from_simulation_disp_map`、`FloorParameters` 或散字段。
-  - 绑 `setFloorHeight(h)`，暴露为 `floor.set_height(h)`。
-  - 暴露 `floor.height`、`floor.kappa`、`floor.axis`、`floor.side` 只读属性。
-- 在 `pypgo/contact.py` 写 `FloorParameters` dataclass 与 `state_kind = "displacement"`。
-- 测试：构造 → 求值 → `set_height` 影响 `value` → `del input arrays` 不影响 → 与 `EnergySet` 组合一致。
+- Floor tests:
+  - construct via `createFloorEnergy`;
+  - check `getNumDOFs() == map.cols()`;
+  - zero displacement evaluates finite;
+  - `setFloorHeight` changes energy as expected;
+  - input matrix/map temporaries may be destroyed after construction.
+- IPC tests:
+  - construct via `createIPCEnergy` with no obstacles;
+  - construct with one static obstacle;
+  - construct with one linear moving obstacle;
+  - call `setMovingObstacleTime(t)`;
+  - evaluate IPC energy, gradient, Hessian via helper;
+  - all outputs finite;
+  - `evaluateHessian` works for non-fixed Hessian topology.
 
-### Task C5: Python wrapper — `IPCEnergy`
+### Task C5: runIPCSim contact setup migration
 
-- 绑 `EmbeddedSurfaceIPCPotentialEnergy`：
-  - ctor 接 NumPy 数组 + `IPCParameters` + `list[ObstacleSpec]`。
-  - 暴露 `set_obstacle_time(t)`。
-  - 不暴露 `markObstacleStatic` 直接；改由 `ObstacleSpec.is_static` 决定。
-- 在 `pypgo/contact.py` 写 `IPCParameters`、`ObstacleSpec` dataclass + `state_kind = "displacement"`。
-- 测试：
-  - 无 obstacle 时构造 + 求值；
-  - 单 static obstacle 构造 + `set_obstacle_time(0.0)` + 求值；
-  - 与 `FloorEnergy` 组合进 `EnergySet`，`hessian(u)` 返回完整 sparse；
-  - 输入 NumPy 数组释放后仍可求值。
+- Update `obstacleSetup.*` to produce new obstacle specs / obstacle set.
+- Update `shellSetup.cpp` and `volumeSetup.cpp` to stop calling `markObstacleStatic`.
+- Preserve existing JSON behavior for static external obstacle cases.
+- Preserve existing dynamic obstacle behavior if current examples/configs rely on linear motion.
+- Add or update a focused setup-level test if the repo has one; otherwise add a short manual validation command to the implementation PR notes.
 
-### Task C6: 文档与覆盖矩阵更新
+### Task C6: Python value objects and bindings
 
-- 更新 `plan/python_api_migration/api_coverage.md` 中 Contact 一节，列出 `FloorEnergy`、`IPCEnergy`、`FloorParameters`、`IPCParameters`、`ObstacleSpec` 与 parity test 路径。
-- 更新 `numpy_data_contract.md`：明确 `surface_rest_vertices (n,3) float64`、`surface_triangles (m,3) int64`、`surface_from_simulation_disp_map` 接受 `pypgo.sparse.SparseMatrix` 或 SciPy CSR。
-- 不为 moving floor / dynamic obstacle / legacy penalty 写公开 API；列入 M4/M6。
+- Add `pypgo/contact.py`:
+  - `ContactSurface`
+  - `FloorParameters`
+  - `IPCParameters`
+  - `ObstacleSpec.static(...)`
+  - `ObstacleSpec.linear_velocity(...)`
+  - `FloorEnergy`
+  - `IPCEnergy`
+- Add `contact_bindings.cpp`:
+  - convert `ContactSurface` to `ContactSurfaceSpec`;
+  - convert `FloorParameters` / split kwargs to `FloorSpec`;
+  - convert `IPCParameters` to `IPCParametersSpec`;
+  - convert static / linear moving `ObstacleSpec` to C++ `ObstacleSpec`;
+  - call C++ factory functions;
+  - wrap returned `shared_ptr<PotentialEnergy>` using Energy plan handle protocol;
+  - expose `IPCEnergy.set_moving_obstacle_time(t)`;
+  - do not expose `set_obstacle_time`.
+- Python errors:
+  - invalid array shapes / dtype -> `ValueError`;
+  - invalid axis / side -> `ValueError`;
+  - non-finite / invalid scalar params -> `ValueError`.
+
+### Task C7: Python contact tests
+
+- Add `tests/pypgo/test_contact.py`:
+  - `ContactSurface` validates shape and map dimensions;
+  - `FloorEnergy` construction from split kwargs and from `FloorParameters`;
+  - `FloorEnergy.set_height` updates value and `height`;
+  - `IPCEnergy` construction with default params;
+  - `IPCParameters(dhat=...)` maps `dhat_external is None` to same C++ value by behavioral or binding-level parity test;
+  - static obstacle construction works without explicit time initialization;
+  - linear moving obstacle construction works and `set_moving_obstacle_time(t)` changes evaluation behavior in a deterministic fixture;
+  - no `set_obstacle_time` attribute exists;
+  - `value` / `gradient` / `hessian` work for floor and IPC;
+  - contact energies combine in `EnergySet`;
+  - deleting input NumPy arrays / `ContactSurface` after construction does not break evaluation;
+  - `state_kind == "displacement"`;
+  - `pypgo.contact` public names do not include raw C++ internals.
+
+### Task C8: Docs and downstream alignment
+
+- Update `api_coverage.md` contact section.
+- Update `numpy_data_contract.md`:
+  - `ContactSurface.rest_vertices`: `(n, 3) float64`
+  - `surface_triangles`: `(m, 3) int64`
+  - obstacle `rest_vertices`: `(n, 3) float64`
+  - obstacle `triangles`: `(m, 3) int64`
+  - obstacle `velocity`: `(3,) float64`
+  - `surface_from_simulation_disp_map`: `pypgo.sparse.SparseMatrix` first; SciPy adapter if sparse plan provides one.
+- Add future notes:
+  - moving floor;
+  - surface pressure;
+  - sim config construction uses `contactEnergyFactory`.
 
 ## 验收标准
 
-- `tests/src/core/contact/contact_ownership_gtest.cpp` 全部通过。
-- `python -m pytest tests/pypgo/test_contact.py` 全部通过，覆盖：
-  - Floor 构造、`set_height`、`value`/`gradient`/`hessian`、与 `EnergySet` 组合；
-  - IPC 构造（无/有 obstacle）、`set_obstacle_time`、`value`/`gradient`/`hessian`、与 `EnergySet` 组合；
-  - 输入 NumPy 数组释放后能量仍可求值；
-  - `state_kind == "displacement"`；
-  - 错误 `axis` / `side` 字符串抛 `ValueError`。
-- `pypgo.contact` 没有出现 `markObstacleStatic`、`FloorPenaltyParameters`、`SurfaceIPCCore` 等 C++ 类型名。
-- `contact_bindings.cpp` 内不使用 `std::shared_ptr<void>` 或 ad-hoc keep-alive 容器；所有 ownership 由 `EmbeddedSurfaceFloor/IPCPotentialEnergy` 自身承担。
-- `runIPCSim` 既有 JSON 配置行为不受影响（本计划不动 setup 路径）。
+- `contact_energy_factory_gtest` 全部通过。
+- `python -m pytest tests/pypgo/test_contact.py` 全部通过。
+- Python construction never directly instantiates `EmbeddedSurfaceFloorPotentialEnergy` / `EmbeddedSurfaceIPCPotentialEnergy`; it calls `contactEnergyFactory`.
+- `IPCParameters(dhat=x, dhat_external=None)` maps to C++ `dhat_external == x`.
+- Static obstacle construction does not require sampler/update/time initialization.
+- Linear moving obstacle construction is ready at `t = 0.0`.
+- `IPCEnergy.set_moving_obstacle_time(t)` updates moving obstacles only.
+- No Python `set_obstacle_time` compatibility method exists.
+- No new C++ `setObstacleTime` compatibility wrapper remains in the migrated path.
+- No public construction path calls `markObstacleStatic`.
+- Mixed static/moving obstacles preserve input-order `objectId`.
+- Broad phase / external barrier / max-step code consumes `ObstacleSurfaceView`, not owning obstacle containers.
+- `FloorEnergy` / `IPCEnergy` Hessian calls use dynamic Hessian helper and do not call topology-fixed allocation path.
+- `pypgo.contact` public surface contains only:
+  - `ContactSurface`
+  - `FloorEnergy`
+  - `FloorParameters`
+  - `IPCEnergy`
+  - `IPCParameters`
+  - `ObstacleSpec`
+- `pypgo.contact` public surface does not expose:
+  - `MappedSurfacePotentialEnergy`
+  - `EmbeddedSurfaceFloorPotentialEnergy`
+  - `EmbeddedSurfaceIPCPotentialEnergy`
+  - `FloorPenaltyParameters`
+  - `SurfaceIPCCore`
+  - `ObstacleSurface`
+  - `StaticObstacleSurface`
+  - `MovingObstacleSurface`
+  - `LinearMovingObstacleSurface`
+  - `ObstacleSurfaceView`
+  - `markObstacleStatic`
+  - `setObstacleTime`
+  - `set_obstacle_time`
+- `contact_bindings.cpp` does not use ad-hoc keep-alive containers for input arrays.
+- `runIPCSim` JSON behavior is unchanged after migration.
 
 ## Dependencies & Execution Order
 
 ### 外部依赖
 
-- **Energy plan** 的 Task E0（Hessian API rename）、E1（`evaluation.h`）、E4（`pypgo.energy.PotentialEnergy` 绑定）、E6（`pypgo.energy.EnergySet` 绑定）必须先完成。理由：
-  - E0 在 contact subclass 内 rename `hessian` / `hessianInPlace` / `hessianAlloc`，Contact plan 中提到的 `MappedSurfacePotentialEnergy` / `EmbeddedSurfaceFloor/IPCPotentialEnergy` 的 override 都会被批量改名；Contact 任务直接基于 rename 后的名字写；
-  - C4/C5 绑定 contact energy 时，Python 类继承自同一个 `PotentialEnergy` handle 类型；
-  - `IPCEnergy.hessian(u)` 走 `evaluateHessian` 处理 `isHessianTopologyFixed() == 0` 的情况；
-  - 端到端测试 `EnergySet([elastic, floor, ipc])` 需要 EnergySet 可用。
-- Solver plan 不是 Contact plan 的硬依赖；但 C5 端到端 happy path（构造 EnergySet → solve_newton）若希望覆盖到，需要 Solver Task S4 完成。如果 Solver 未就绪，C5 测试只覆盖求值不覆盖收敛。
-- `pypgo.sparse.SparseMatrix`（M2）：若就绪，`surface_from_simulation_disp_map` 接它；否则同 Energy E5 用 `(rows, cols, vals, shape)` 兜底。
+- **Energy plan E0/E1**: contact hessian naming and dynamic Hessian helper.
+- **Energy plan E4/E6**: Python `PotentialEnergy` handle and `EnergySet`.
+- **Sparse plan / M2**: `pypgo.sparse.SparseMatrix` or accepted sparse adapter for `surface_from_simulation_disp_map`.
+- **Solver plan** is not required for contact construction tests. Solver E2E can be added after `solve_newton` exists.
 
 ### 内部任务依赖
 
 ```text
-C1 (IPC 参数 audit)      ─┐
-C2 (Obstacle audit)      ─┤── 可并行，皆为只读/小补丁
-                          │
-C3 (C++ ownership test)  ─┘   依赖 C2 的结论（决定是否需要新 owning ctor）
-                          │
-C4 (FloorEnergy 绑定)    ── 依赖 Energy E1+E4+E6
-                          │
-C5 (IPCEnergy 绑定)      ── 依赖 C1（参数表）、C2/C3（obstacle ownership 确认）、Energy E1+E4+E6
-                          │
-C6 (文档)                ── 最后
+C1 (factory/spec)
+  ├─ C2 (obstacle hierarchy)
+  │    └─ C3 (core ownership + views)
+  │         ├─ C4 (C++ factory energy tests)
+  │         └─ C5 (runIPCSim migration)
+  └─ C6 (Python value objects + bindings)
+       └─ C7 (Python tests)
+            └─ C8 (docs)
 ```
 
 ### 推荐顺序
 
-C1 / C2 并行（纯审计）→ C3 → C4 → C5 → C6。
+C1 -> C2 -> C3 -> C4 -> C5 -> C6 -> C7 -> C8.
 
-### 输出（供下游使用）
+## 输出（供下游使用）
 
-- Python: `pypgo.contact.FloorEnergy/IPCEnergy/FloorParameters/IPCParameters/ObstacleSpec`。
-- M4 `pypgo.sim.RunSimConfig` 的 floor / obstacle 字段构造时直接使用 Contact plan 暴露的 dataclass + energy class，不再回到 `runIPCSim` setup 路径。
+- C++:
+  - `ContactSurfaceSpec`
+  - `FloorSpec`
+  - `IPCParametersSpec`
+  - `StaticObstacleSpec`
+  - `LinearMovingObstacleSpec`
+  - `ObstacleSpec`
+  - `ObstacleSurface`
+  - `StaticObstacleSurface`
+  - `MovingObstacleSurface`
+  - `LinearMovingObstacleSurface`
+  - `ObstacleSurfaceView`
+  - `createFloorEnergy(...)`
+  - `createIPCEnergy(...)`
+  - `setMovingObstacleTime(...)`
+- Python:
+  - `pypgo.contact.ContactSurface`
+  - `pypgo.contact.FloorParameters`
+  - `pypgo.contact.FloorEnergy`
+  - `pypgo.contact.IPCParameters`
+  - `pypgo.contact.ObstacleSpec.static(...)`
+  - `pypgo.contact.ObstacleSpec.linear_velocity(...)`
+  - `pypgo.contact.IPCEnergy`
+  - `pypgo.contact.IPCEnergy.set_moving_obstacle_time(...)`
+- Future:
+  - M4/M6 `RunSimConfig` should construct floor / IPC / obstacles through `contactEnergyFactory`, not through duplicated `runIPCSim/setup/*` construction logic.

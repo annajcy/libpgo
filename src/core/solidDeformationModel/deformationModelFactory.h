@@ -11,7 +11,6 @@ copyright to USC
 #include "formulations/deformationFormulations.h"
 #include "formulations/formulationTraits.h"
 #include "formulations/formulationConcepts.h"
-#include "formulations/formulationVariants.h"
 #include "formulations/dof/vertex3DofLayout.h"
 
 #include "factories/elementModelFactory.h"
@@ -89,41 +88,8 @@ DeformationModelBundle makeShellDeformationModel(
   DeformationModelPlasticMaterial plastic = DeformationModelPlasticMaterial::SHELL_FF_DOF1,
   const DeformationModelOptions &opts = {});
 
-// Runtime variant adapters for Python/config/CLI boundaries.
-DeformationModelBundle makeTetDeformationModel(
-  const SimulationMesh &mesh,
-  const TetFormulationVariant &formulation,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-  const DeformationModelOptions &opts = {});
-
-DeformationModelBundle makeCubicDeformationModel(
-  const SimulationMesh &mesh,
-  const CubicFormulationVariant &formulation,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-  const DeformationModelOptions &opts = {});
-
-DeformationModelBundle makeShellDeformationModel(
-  const SimulationMesh &mesh,
-  const ShellFormulationVariant &formulation,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic = DeformationModelPlasticMaterial::SHELL_FF_DOF1,
-  const DeformationModelOptions &opts = {});
-
 namespace detail
 {
-// Legacy non-template path — creates element FEMs via DeformationModelManager::initImpl
-// which uses ElementModelFactory for formulation-aware element construction.
-DeformationModelBundle makeDeformationModelBundle(
-  const SimulationMesh &mesh,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
-  const DeformationModelOptions &opts);
-
-// Formulation-aware template path — uses ElementModelFactory to create
-// DeformationGradientElementModel<Kernel> instances directly and factory
-// helpers for default param snapshots.
 template<class Formulation>
 DeformationModelBundle makeDeformationModelBundle(
   const SimulationMesh &mesh,
@@ -172,9 +138,12 @@ DeformationModelBundle makeDeformationModelBundle(
   ES::VXd elasticParams = ElasticModelFactory::initializeDefaultElasticParams(
     mesh, elastic, numElasticParams);
 
-  // Assemble.
+  manager->setPlasticParams(plasticParams);
+  manager->setElasticParams(elasticParams);
+
   auto dofLayout = std::make_unique<Vertex3DofLayout>(&mesh);
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), std::move(dofLayout), elementWeights.data());
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), std::move(dofLayout), elementWeights.data());
 
   DeformationModelBundle bundle;
   bundle.restPosition = std::move(restPosition);
@@ -182,8 +151,6 @@ DeformationModelBundle makeDeformationModelBundle(
   bundle.elasticParams = std::move(elasticParams);
   bundle.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), &bundle.restPosition, 0);
   bundle.energy->setEnableMaterialMaxStep(opts.enableMaterialMaxStep);
-  bundle.energy->setPlasticParams(bundle.plasticParams);
-  bundle.energy->setElasticParams(bundle.elasticParams);
 
   return bundle;
 }

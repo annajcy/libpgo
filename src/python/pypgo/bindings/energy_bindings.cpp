@@ -44,22 +44,19 @@ SolidDeformationModel::DeformationModelPlasticMaterial parsePlasticMaterial(cons
   throw std::invalid_argument("Unknown plastic material: " + s);
 }
 
-SolidDeformationModel::TetFormulationVariant parseTetFormulation(const std::string &s)
+void validateTetFormulation(const std::string &s)
 {
-  if (s == "tet_p1") return SolidDeformationModel::TetP1{};
-  throw std::invalid_argument("Unknown tet formulation: " + s);
+  if (s != "tet_p1") throw std::invalid_argument("Unknown tet formulation: " + s);
 }
 
-SolidDeformationModel::CubicFormulationVariant parseCubicFormulation(const std::string &s)
+void validateCubicFormulation(const std::string &s)
 {
-  if (s == "hex_trilinear") return SolidDeformationModel::HexTrilinear{};
-  throw std::invalid_argument("Unknown cubic formulation: " + s);
+  if (s != "hex_trilinear") throw std::invalid_argument("Unknown cubic formulation: " + s);
 }
 
-SolidDeformationModel::ShellFormulationVariant parseShellFormulation(const std::string &s)
+void validateShellFormulation(const std::string &s)
 {
-  if (s == "shell_koiter") return SolidDeformationModel::ShellKoiter{};
-  throw std::invalid_argument("Unknown shell formulation: " + s);
+  if (s != "shell_koiter") throw std::invalid_argument("Unknown shell formulation: " + s);
 }
 
 // Private/experimental deformation energy wrapper.
@@ -149,7 +146,7 @@ std::shared_ptr<DeformationEnergyCore> createTetDeformationEnergyForTest(
   const std::string &plasticMaterial,
   const std::string &formulation)
 {
-  auto formulationVariant = parseTetFormulation(formulation);
+  validateTetFormulation(formulation);
   auto elastic = parseElasticMaterial(elasticMaterial);
   auto plastic = parsePlasticMaterial(plasticMaterial);
 
@@ -157,7 +154,7 @@ std::shared_ptr<DeformationEnergyCore> createTetDeformationEnergyForTest(
   {
     nb::gil_scoped_release release;
     bundle = SolidDeformationModel::makeTetDeformationModel(
-      meshCore->mesh(), formulationVariant, elastic, plastic);
+      meshCore->mesh(), SolidDeformationModel::TetP1{}, elastic, plastic);
   }
   return std::make_shared<DeformationEnergyCore>(std::move(bundle), std::move(meshCore));
 }
@@ -168,7 +165,7 @@ std::shared_ptr<DeformationEnergyCore> createCubicDeformationEnergyForTest(
   const std::string &plasticMaterial,
   const std::string &formulation)
 {
-  auto formulationVariant = parseCubicFormulation(formulation);
+  validateCubicFormulation(formulation);
   auto elastic = parseElasticMaterial(elasticMaterial);
   auto plastic = parsePlasticMaterial(plasticMaterial);
 
@@ -176,7 +173,7 @@ std::shared_ptr<DeformationEnergyCore> createCubicDeformationEnergyForTest(
   {
     nb::gil_scoped_release release;
     bundle = SolidDeformationModel::makeCubicDeformationModel(
-      meshCore->mesh(), formulationVariant, elastic, plastic);
+      meshCore->mesh(), SolidDeformationModel::HexTrilinear{}, elastic, plastic);
   }
   return std::make_shared<DeformationEnergyCore>(std::move(bundle), std::move(meshCore));
 }
@@ -187,7 +184,7 @@ std::shared_ptr<DeformationEnergyCore> createShellDeformationEnergyForTest(
   const std::string &plasticMaterial,
   const std::string &formulation)
 {
-  auto formulationVariant = parseShellFormulation(formulation);
+  validateShellFormulation(formulation);
   auto elastic = parseElasticMaterial(elasticMaterial);
   auto plastic = parsePlasticMaterial(plasticMaterial);
 
@@ -195,7 +192,7 @@ std::shared_ptr<DeformationEnergyCore> createShellDeformationEnergyForTest(
   {
     nb::gil_scoped_release release;
     bundle = SolidDeformationModel::makeShellDeformationModel(
-      meshCore->mesh(), formulationVariant, elastic, plastic);
+      meshCore->mesh(), SolidDeformationModel::ShellKoiter{}, elastic, plastic);
   }
   return std::make_shared<DeformationEnergyCore>(std::move(bundle), std::move(meshCore));
 }

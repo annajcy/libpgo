@@ -1,5 +1,7 @@
 #pragma once
 
+#include "basis.h"
+
 namespace pgo
 {
 namespace SolidDeformationModel
@@ -16,24 +18,18 @@ namespace SolidDeformationModel
 //
 // dN_dxi is returned as a 3 x 4 column-major matrix:
 //   row 0 = d/dxi, row 1 = d/deta, row 2 = d/dzeta.
-class TetP1Basis
+class TetP1Basis : public Basis
 {
 public:
-  static constexpr int numNodes = 4;
-  static constexpr int localDofs = 12;
+  static constexpr int kNumNodes = 4;
+  static constexpr int kLocalDofs = 12;
 
-  // Shape function values at reference coordinate (xi, eta, zeta).
-  // N is length-4 array, node ordering: 0..3.
-  static void N(double xi, double eta, double zeta, double N[4]);
+  int numNodes() const override { return kNumNodes; }
+  int localDofs() const override { return kLocalDofs; }
 
-  // Shape function derivatives w.r.t. reference coordinates.
-  // dN_dxi is 3x4 column-major: dN_dxi(deriv, node).
-  // For linear tet, derivatives are constant — parameters are
-  // accepted for API uniformity but unused.
-  static void dN_dxi(double xi, double eta, double zeta, double dN_dxi[12]);
-
-  // Node reference coordinates in (xi, eta, zeta) parameter space.
-  static void nodeCoords(int node, double xi[3]);
+  void N(double xi, double eta, double zeta, double N_out[]) const override;
+  void dN_dxi(double xi, double eta, double zeta, double dN_dxi[]) const override;
+  void nodeCoords(int node, double xi[3]) const override;
 };
 
 }  // namespace SolidDeformationModel

@@ -4,6 +4,7 @@ copyright to USC,MIT,NUS
 */
 
 #include "deformationModelAssembler.h"
+#include "deformationModelAssemblerCacheData.h"
 #include "materialMaxStepPolynomialUtils.h"
 #include "deformationModelManager.h"
 #include "simulationMesh.h"
@@ -11,6 +12,7 @@ copyright to USC,MIT,NUS
 #include "elasticModel.h"
 #include "plasticModel.h"
 #include "formulations/dof/vertex3DofLayout.h"
+#include "formulations/parameters/parameterField.h"
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
@@ -26,27 +28,8 @@ using namespace pgo::SolidDeformationModel;
 
 namespace ES = pgo::EigenSupport;
 
-namespace pgo::SolidDeformationModel
-{
-class DeformationModelAssemblerCacheData
-{
-public:
-  tbb::enumerable_thread_specific<double> energyLocalBuffer;
-  tbb::enumerable_thread_specific<ES::MXd> upperRightBlockTLS, lowerRightBlockTLS;
-  tbb::enumerable_thread_specific<ES::VXd> gradBlockTLS;
-
-  tbb::affinity_partitioner partitioners[5];
-  std::vector<std::unique_ptr<DeformationModel::CacheData>> elementCacheData;
-};
-}  // namespace pgo::SolidDeformationModel
-
 namespace
 {
-const double *paramPtr(const ES::VXd &param)
-{
-  return param.size() ? param.data() : nullptr;
-}
-
 const char *meshTypeName(pgo::SolidDeformationModel::SimulationMeshType meshType)
 {
   using pgo::SolidDeformationModel::SimulationMeshType;
@@ -70,20 +53,25 @@ void warnIllegalInitialState(pgo::SolidDeformationModel::SimulationMeshType mesh
 {
   if (locationId >= 0) {
     SPDLOG_LOGGER_WARN(pgo::Logging::lgr(),
-      "Phase 1.5 material max step encountered illegal initial state on meshType={} element={} location={} : phi(0)={} <= eps={}. Returning recovery clamp {}.",
+      "material max step encountered illegal initial state on meshType={} element={} location={} : phi(0)={} <= eps={}. Returning recovery clamp {}.",
       meshTypeName(meshType), elementId, locationId, phi0, eps, pgo::SolidDeformationModel::kMaterialMaxStepMinClamp);
   }
   else {
     SPDLOG_LOGGER_WARN(pgo::Logging::lgr(),
-      "Phase 1.5 material max step encountered illegal initial state on meshType={} element={} : phi(0)={} <= eps={}. Returning recovery clamp {}.",
+      "material max step encountered illegal initial state on meshType={} element={} : phi(0)={} <= eps={}. Returning recovery clamp {}.",
       meshTypeName(meshType), elementId, phi0, eps, pgo::SolidDeformationModel::kMaterialMaxStepMinClamp);
   }
 }
 }
 
-DeformationModelAssembler::DeformationModelAssembler(std::unique_ptr<const DeformationModelManager> dm, std::unique_ptr<const DofLayout> dof, const double *elementFlags_):
+DeformationModelAssembler::DeformationModelAssembler(
+  std::unique_ptr<DeformationModelManager> dm,
+  std::unique_ptr<const DofLayout> dof,
+  const double *elementFlags_):
   deformationModelManager(std::move(dm)),
-  dofLayout(std::move(dof))
+  dofLayout(std::move(dof)),
+  elasticParamField_(deformationModelManager->getElasticParameterField()),
+  plasticParamField_(deformationModelManager->getPlasticParameterField())
 {
   nele = deformationModelManager->getMesh()->getNumElements();
   nvtx = deformationModelManager->getMesh()->getNumVertices();
@@ -91,8 +79,8 @@ DeformationModelAssembler::DeformationModelAssembler(std::unique_ptr<const Defor
   localDOFs = dofLayout->numLocalDofs(0);
   numDOFs = dofLayout->numGlobalDofs();
 
-  numElasticParams = deformationModelManager->getDeformationModel(0)->getElasticModel()->getNumParameters();
-  numPlasticParams = deformationModelManager->getDeformationModel(0)->getPlasticModel()->getNumParameters();
+  numElasticParams_ = deformationModelManager->getDeformationModel(0)->getElasticModel()->getNumParameters();
+  numPlasticParams_ = deformationModelManager->getDeformationModel(0)->getPlasticModel()->getNumParameters();
 
   if (elementFlags_) {
     elementFlags.assign(elementFlags_, elementFlags_ + nele);
@@ -108,15 +96,16 @@ DeformationModelAssembler::DeformationModelAssembler(std::unique_ptr<const Defor
     restPositions.segment<3>(vi * 3) = p;
   }
 
-  data = new DeformationModelAssemblerCacheData;
+  data = std::make_unique<DeformationModelAssemblerCacheData>();
 
   for (int i = 0; i < nele; i++) {
     femModels.push_back(deformationModelManager->getDeformationModel(i));
     data->elementCacheData.push_back(femModels.back()->allocateCacheData());
   }
 
-  SPDLOG_LOGGER_INFO(Logging::lgr(), "Assembler parameter:{},{}", numElasticParams, numPlasticParams);
+  SPDLOG_LOGGER_INFO(Logging::lgr(), "Assembler parameter:{},{}", numElasticParams_, numPlasticParams_);
 
+  // Hessian template.
   std::vector<ES::TripletD> entries;
   for (int ele = 0; ele < nele; ele++) {
     dofLayout->addHessianSparsity(ele, entries);
@@ -132,145 +121,134 @@ DeformationModelAssembler::DeformationModelAssembler(std::unique_ptr<const Defor
     elementKInverseIndices[ele] = idxM;
   }
 
+  // dfdbTemplate: use the field's DOF layout for sparsity.
   entries.clear();
-  for (int ele = 0; ele < nele; ele++) {
-    for (int vi = 0; vi < neleVtx; vi++) {
-      int vidx = deformationModelManager->getMesh()->getVertexIndex(ele, vi);
-      if (vidx < 0) {
-        continue;
-      }
-
-      for (int dof = 0; dof < 3; dof++) {
-        int globalRow = vidx * 3 + dof;
-        for (int ep = 0; ep < numElasticParams; ep++)
-          entries.emplace_back(globalRow, ele * numElasticParams + ep, 1.0);
+  if (numElasticParams_ > 0 && elasticParamField_) {
+    const auto *optField = dynamic_cast<const OptimizableField *>(elasticParamField_);
+    if (optField) {
+      for (int ele = 0; ele < nele; ele++) {
+        for (int vi = 0; vi < neleVtx; vi++) {
+          int vidx = deformationModelManager->getMesh()->getVertexIndex(ele, vi);
+          if (vidx < 0) continue;
+          for (int dof = 0; dof < 3; dof++) {
+            int globalRow = vidx * 3 + dof;
+            for (int ep = 0; ep < numElasticParams_; ep++)
+              entries.emplace_back(globalRow, ele * numElasticParams_ + ep, 1.0);
+          }
+        }
       }
     }
+    dfdbTemplate.resize(numDOFs, nele * numElasticParams_);
+    dfdbTemplate.setFromTriplets(entries.begin(), entries.end());
+  } else {
+    dfdbTemplate.resize(numDOFs, 0);
   }
-  dfdbTemplate.resize(numDOFs, nele * numElasticParams);
-  dfdbTemplate.setFromTriplets(entries.begin(), entries.end());
 
   element_dfdb_InverseIndices.resize(nele);
-  for (int ele = 0; ele < nele; ele++) {
-    const int *vertexIndices = deformationModelManager->getMesh()->getVertexIndices(ele);
-    DynamicIndexMatrix idxM(localDOFs, numElasticParams);
-    idxM.setConstant(-1);
+  if (numElasticParams_ > 0) {
+    for (int ele = 0; ele < nele; ele++) {
+      const int *vertexIndices = deformationModelManager->getMesh()->getVertexIndices(ele);
+      DynamicIndexMatrix idxM(localDOFs, numElasticParams_);
+      idxM.setConstant(-1);
 
-    // upper-left block
-    for (int vi = 0; vi < neleVtx; vi++) {
-      for (int dofi = 0; dofi < 3; dofi++) {
-        for (int ep = 0; ep < numElasticParams; ep++) {
-          int localRow = vi * 3 + dofi;
-          int localCol = ep;
+      for (int vi = 0; vi < neleVtx; vi++) {
+        for (int dofi = 0; dofi < 3; dofi++) {
+          for (int ep = 0; ep < numElasticParams_; ep++) {
+            int localRow = vi * 3 + dofi;
+            int localCol = ep;
 
-          if (vertexIndices[vi] >= 0) {
-            int globalRow = vertexIndices[vi] * 3 + dofi;
-            int globalCol = ele * numElasticParams + ep;
+            if (vertexIndices[vi] >= 0) {
+              int globalRow = vertexIndices[vi] * 3 + dofi;
+              int globalCol = ele * numElasticParams_ + ep;
 
-            idxM(localRow, localCol) = ES::findEntryOffset(dfdbTemplate, globalRow, globalCol);
+              idxM(localRow, localCol) = ES::findEntryOffset(dfdbTemplate, globalRow, globalCol);
+            }
+            else {
+              idxM(localRow, localCol) = -1;
+            }
           }
-          else {
-            idxM(localRow, localCol) = -1;
+        }
+      }
+
+      element_dfdb_InverseIndices[ele] = idxM;
+    }
+  }
+
+  // dfdaTemplate: use the field's DOF layout for sparsity.
+  entries.clear();
+  if (numPlasticParams_ > 0 && plasticParamField_) {
+    const auto *optField = dynamic_cast<const OptimizableField *>(plasticParamField_);
+    if (optField) {
+      for (int ele = 0; ele < nele; ele++) {
+        for (int vi = 0; vi < neleVtx; vi++) {
+          int vidx = deformationModelManager->getMesh()->getVertexIndex(ele, vi);
+          if (vidx < 0) continue;
+          for (int dof = 0; dof < 3; dof++) {
+            int globalRow = vidx * 3 + dof;
+            for (int pp = 0; pp < numPlasticParams_; pp++)
+              entries.emplace_back(globalRow, ele * numPlasticParams_ + pp, 1.0);
           }
         }
       }
     }
-
-    element_dfdb_InverseIndices[ele] = idxM;
+    dfdaTemplate.resize(numDOFs, nele * numPlasticParams_);
+    dfdaTemplate.setFromTriplets(entries.begin(), entries.end());
+  } else {
+    dfdaTemplate.resize(numDOFs, 0);
   }
-
-  entries.clear();
-  for (int ele = 0; ele < nele; ele++) {
-    for (int vi = 0; vi < neleVtx; vi++) {
-      int vidx = deformationModelManager->getMesh()->getVertexIndex(ele, vi);
-      if (vidx < 0) {
-        continue;
-      }
-      for (int dof = 0; dof < 3; dof++) {
-        int globalRow = vidx * 3 + dof;
-        for (int pp = 0; pp < numPlasticParams; pp++)
-          entries.emplace_back(globalRow, ele * numPlasticParams + pp, 1.0);
-      }
-    }
-  }
-  dfdaTemplate.resize(numDOFs, nele * numPlasticParams);
-  dfdaTemplate.setFromTriplets(entries.begin(), entries.end());
 
   element_dfda_InverseIndices.resize(nele);
-  for (int ele = 0; ele < nele; ele++) {
-    const int *vertexIndices = deformationModelManager->getMesh()->getVertexIndices(ele);
-    DynamicIndexMatrix idxM(localDOFs, numPlasticParams);
-    idxM.setConstant(-1);
+  if (numPlasticParams_ > 0) {
+    for (int ele = 0; ele < nele; ele++) {
+      const int *vertexIndices = deformationModelManager->getMesh()->getVertexIndices(ele);
+      DynamicIndexMatrix idxM(localDOFs, numPlasticParams_);
+      idxM.setConstant(-1);
 
-    // upper-left block
-    for (int vi = 0; vi < neleVtx; vi++) {
-      for (int dofi = 0; dofi < 3; dofi++) {
-        for (int pp = 0; pp < numPlasticParams; pp++) {
-          int localRow = vi * 3 + dofi;
-          int localCol = pp;
+      for (int vi = 0; vi < neleVtx; vi++) {
+        for (int dofi = 0; dofi < 3; dofi++) {
+          for (int pp = 0; pp < numPlasticParams_; pp++) {
+            int localRow = vi * 3 + dofi;
+            int localCol = pp;
 
-          if (vertexIndices[vi] >= 0) {
-            int globalRow = vertexIndices[vi] * 3 + dofi;
-            int globalCol = ele * numPlasticParams + pp;
+            if (vertexIndices[vi] >= 0) {
+              int globalRow = vertexIndices[vi] * 3 + dofi;
+              int globalCol = ele * numPlasticParams_ + pp;
 
-            idxM(localRow, localCol) = ES::findEntryOffset(dfdaTemplate, globalRow, globalCol);
-          }
-          else {
-            idxM(localRow, localCol) = -1;
+              idxM(localRow, localCol) = ES::findEntryOffset(dfdaTemplate, globalRow, globalCol);
+            }
+            else {
+              idxM(localRow, localCol) = -1;
+            }
           }
         }
       }
+
+      element_dfda_InverseIndices[ele] = idxM;
     }
-
-    element_dfda_InverseIndices[ele] = idxM;
   }
 }
 
-DeformationModelAssembler::~DeformationModelAssembler()
-{
-  if (data)
-    delete data;
-}
+DeformationModelAssembler::~DeformationModelAssembler() = default;
 
-void DeformationModelAssembler::getPlasticParameters(int ele, const double *paramsAll, double *param) const
-{
-  for (int j = 0; j < numPlasticParams; j++) {
-    param[j] = paramsAll[ele * numPlasticParams + j];
-  }
-}
-
-void DeformationModelAssembler::getElasticParameters(int ele, const double *paramsAll, double *param) const
-{
-  for (int j = 0; j < numElasticParams; j++) {
-    param[j] = paramsAll[ele * numElasticParams + j];
-  }
-}
-
-double DeformationModelAssembler::computeEnergy(const double *x, const double *plasticParams, const double *elasticParams) const
+double DeformationModelAssembler::computeEnergy(const double *x) const
 {
   for (auto it = data->energyLocalBuffer.begin(); it != data->energyLocalBuffer.end(); ++it)
     *it = 0.0;
 
-  auto localEnergyFunc = [this, x, plasticParams, elasticParams](int ele) {
+  auto localEnergyFunc = [this, x](int ele) {
     if (elementFlags[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
     dofLayout->gather(ele, x, localp.data());
 
-    ES::VXd plasticParam(numPlasticParams), elasticParam(numElasticParams);
-    getPlasticParameters(ele, plasticParams, plasticParam.data());
-    getElasticParameters(ele, elasticParams, elasticParam.data());
-
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
+    fem->prepareData(localp.data(), data->elementCacheData[ele].get());
     double energy = fem->computeEnergy(data->elementCacheData[ele].get());
 
     data->energyLocalBuffer.local() += energy * elementFlags[ele];
   };
 
-  // for (int ele = 0; ele < nele; ele++)
-  //   localEnergyFunc(ele);
   tbb::parallel_for(0, nele, localEnergyFunc, data->partitioners[0]);
 
   double energyAll = 0;
@@ -319,22 +297,18 @@ double DeformationModelAssembler::computeMaxStepSize(const double *x, const doub
   return computeMaxStepObservation(x, dx).alpha;
 }
 
-void DeformationModelAssembler::computeGradient(const double *x, const double *plasticParams, const double *elasticParams, double *grad) const
+void DeformationModelAssembler::computeGradient(const double *x, double *grad) const
 {
   memset(grad, 0, sizeof(double) * numDOFs);
-  auto localGradFunc = [this, x, plasticParams, elasticParams, grad](int ele) {
+  auto localGradFunc = [this, x, grad](int ele) {
     if (elementFlags[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
     dofLayout->gather(ele, x, localp.data());
 
-    ES::VXd plasticParam(numPlasticParams), elasticParam(numElasticParams);
-    getPlasticParameters(ele, plasticParams, plasticParam.data());
-    getElasticParameters(ele, elasticParams, elasticParam.data());
-
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
+    fem->prepareData(localp.data(), data->elementCacheData[ele].get());
 
     ES::VXd localGradx(localDOFs);
     fem->compute_dE_dx(data->elementCacheData[ele].get(), localGradx.data());
@@ -345,7 +319,6 @@ void DeformationModelAssembler::computeGradient(const double *x, const double *p
         if (std::isfinite(localGradx[i]) == false) {
           SPDLOG_LOGGER_ERROR(Logging::lgr(), "Ele: {}", ele);
           SPDLOG_LOGGER_ERROR(Logging::lgr(), "Encounter weird numbers.\nGrad:\n{}\n;x:{}\n", localGradx, localp);
-          SPDLOG_LOGGER_ERROR(Logging::lgr(), "Plastic param: {}\n", plasticParam.transpose());
         }
       }
     }
@@ -355,7 +328,6 @@ void DeformationModelAssembler::computeGradient(const double *x, const double *p
 
   tbb::parallel_for(0, nele, localGradFunc, data->partitioners[1]);
 
-  // clean the numbers
   if (enableSanityCheck) {
     for (int i = 0; i < numDOFs; i++) {
       int fpclass = std::fpclassify(grad[i]);
@@ -370,23 +342,19 @@ void DeformationModelAssembler::computeGradient(const double *x, const double *p
   }
 }
 
-void DeformationModelAssembler::computeHessian(const double *x, const double *plasticParams, const double *elasticParams, EigenSupport::SpMatD &hess) const
+void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-  auto localHessFunc = [this, x, plasticParams, elasticParams, &hess](int ele) {
+  auto localHessFunc = [this, x, &hess](int ele) {
     if (elementFlags[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
     dofLayout->gather(ele, x, localp.data());
 
-    ES::VXd plasticParam(numPlasticParams), elasticParam(numElasticParams);
-    getPlasticParameters(ele, plasticParams, plasticParam.data());
-    getElasticParameters(ele, elasticParams, elasticParam.data());
-
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
+    fem->prepareData(localp.data(), data->elementCacheData[ele].get());
 
     std::vector<double> localKData(localDOFs * localDOFs);
     fem->compute_d2E_dx2(data->elementCacheData[ele].get(), localKData.data());
@@ -399,7 +367,6 @@ void DeformationModelAssembler::computeHessian(const double *x, const double *pl
     std::vector<int> globalDofIndices;
     dofLayout->getGlobalDofIndices(ele, globalDofIndices);
 
-    // write matrices in place — vertex-level skip preserves efficiency for shell missing-neighbor slots
     for (int vi = 0; vi < neleVtx; vi++) {
       if (globalDofIndices[vi * 3] < 0)
         continue;
@@ -421,13 +388,8 @@ void DeformationModelAssembler::computeHessian(const double *x, const double *pl
     }
   };
 
-  // for (int ele = 0; ele < nele; ele++) {
-  //   localHessFunc(ele);
-  // }
-
   tbb::parallel_for(0, nele, localHessFunc, data->partitioners[2]);
 
-  // clean the numbers
   if (enableSanityCheck) {
     for (Eigen::Index i = 0; i < hess.nonZeros(); i++) {
       int fpclass = std::fpclassify(hess.valuePtr()[i]);
@@ -442,38 +404,33 @@ void DeformationModelAssembler::computeHessian(const double *x, const double *pl
   }
 }
 
-void DeformationModelAssembler::compute_df_da(const double *x, const double *plasticParams, const double *elasticParams, EigenSupport::SpMatD &hess) const
+void DeformationModelAssembler::compute_df_da(const double *x, EigenSupport::SpMatD &hess) const
 {
-  if (numPlasticParams == 0)
+  if (numPlasticParams_ == 0)
     return;
 
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-  auto localHessFunc = [this, x, plasticParams, elasticParams, &hess](int ele) {
+  auto localHessFunc = [this, x, &hess](int ele) {
     if (elementFlags[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
     dofLayout->gather(ele, x, localp.data());
 
-    ES::VXd plasticParam(numPlasticParams), elasticParam(numElasticParams);
-    getPlasticParameters(ele, plasticParams, plasticParam.data());
-    getElasticParameters(ele, elasticParams, elasticParam.data());
-
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
+    fem->prepareData(localp.data(), data->elementCacheData[ele].get());
 
-    std::vector<double> localKData(localDOFs * numPlasticParams);
+    std::vector<double> localKData(localDOFs * numPlasticParams_);
     fem->compute_d2E_dxda(data->elementCacheData[ele].get(), localKData.data());
 
-    ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, numPlasticParams);
+    ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, numPlasticParams_);
     localK *= elementFlags[ele];
 
     const auto &idxM = element_dfda_InverseIndices[ele];
 
-    // write matrices in place
     for (int localRow = 0; localRow < localDOFs; localRow++) {
-      for (int va = 0; va < numPlasticParams; va++) {
+      for (int va = 0; va < numPlasticParams_; va++) {
         std::ptrdiff_t offset = idxM(localRow, va);
         if (offset >= 0) {
           std::atomic_ref<double> hessRef(hess.valuePtr()[offset]);
@@ -487,9 +444,6 @@ void DeformationModelAssembler::compute_df_da(const double *x, const double *pla
     localHessFunc(ele);
   }
 
-  // tbb::parallel_for(0, nele, localHessFunc, data->partitioners[2]);
-
-  // clean the numbers
   if (enableSanityCheck) {
     for (Eigen::Index i = 0; i < hess.nonZeros(); i++) {
       int fpclass = std::fpclassify(hess.valuePtr()[i]);
@@ -504,38 +458,33 @@ void DeformationModelAssembler::compute_df_da(const double *x, const double *pla
   }
 }
 
-void DeformationModelAssembler::compute_df_db(const double *x, const double *plasticParams, const double *elasticParams, EigenSupport::SpMatD &hess) const
+void DeformationModelAssembler::compute_df_db(const double *x, EigenSupport::SpMatD &hess) const
 {
-  if (numElasticParams == 0)
+  if (numElasticParams_ == 0)
     return;
 
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-  auto localHessFunc = [this, x, plasticParams, elasticParams, &hess](int ele) {
+  auto localHessFunc = [this, x, &hess](int ele) {
     if (elementFlags[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
     dofLayout->gather(ele, x, localp.data());
 
-    ES::VXd plasticParam(numPlasticParams), elasticParam(numElasticParams);
-    getPlasticParameters(ele, plasticParams, plasticParam.data());
-    getElasticParameters(ele, elasticParams, elasticParam.data());
-
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
+    fem->prepareData(localp.data(), data->elementCacheData[ele].get());
 
-    std::vector<double> localKData(localDOFs * numElasticParams);
+    std::vector<double> localKData(localDOFs * numElasticParams_);
     fem->compute_d2E_dxdb(data->elementCacheData[ele].get(), localKData.data());
 
-    ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, numElasticParams);
+    ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, numElasticParams_);
     localK *= elementFlags[ele];
 
     const auto &idxM = element_dfdb_InverseIndices[ele];
 
-    // write matrices in place
     for (int localRow = 0; localRow < localDOFs; localRow++) {
-      for (int va = 0; va < numElasticParams; va++) {
+      for (int va = 0; va < numElasticParams_; va++) {
         std::ptrdiff_t offset = idxM(localRow, va);
         if (offset >= 0) {
           std::atomic_ref<double> hessRef(hess.valuePtr()[offset]);
@@ -549,9 +498,6 @@ void DeformationModelAssembler::compute_df_db(const double *x, const double *pla
     localHessFunc(ele);
   }
 
-  // tbb::parallel_for(0, nele, localHessFunc, data->partitioners[2]);
-
-  // clean the numbers
   if (enableSanityCheck) {
     for (Eigen::Index i = 0; i < hess.nonZeros(); i++) {
       int fpclass = std::fpclassify(hess.valuePtr()[i]);
@@ -566,23 +512,19 @@ void DeformationModelAssembler::compute_df_db(const double *x, const double *pla
   }
 }
 
-void DeformationModelAssembler::computeVonMisesStresses(const double *x, const double *plasticParams, const double *elasticParams, double *elementStresses) const
+void DeformationModelAssembler::computeVonMisesStresses(const double *x, double *elementStresses) const
 {
   std::fill(elementStresses, elementStresses + nele, 0.0);
 
-  auto localStressFunc = [this, x, plasticParams, elasticParams, elementStresses](int ele) {
+  auto localStressFunc = [this, x, elementStresses](int ele) {
     if (elementFlags[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
     dofLayout->gather(ele, x, localp.data());
 
-    ES::VXd plasticParam(numPlasticParams), elasticParam(numElasticParams);
-    getPlasticParameters(ele, plasticParams, plasticParam.data());
-    getElasticParameters(ele, elasticParams, elasticParam.data());
-
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
+    fem->prepareData(localp.data(), data->elementCacheData[ele].get());
 
     int nPt = 0;
     std::vector<double> localStresses(std::max(16, fem->getNumMaterialLocations()), 0.0);
@@ -599,23 +541,19 @@ void DeformationModelAssembler::computeVonMisesStresses(const double *x, const d
   tbb::parallel_for(0, nele, localStressFunc, data->partitioners[3]);
 }
 
-void DeformationModelAssembler::computeMaxStrains(const double *x, const double *plasticParams, const double *elasticParams, double *elementStrain) const
+void DeformationModelAssembler::computeMaxStrains(const double *x, double *elementStrain) const
 {
   std::fill(elementStrain, elementStrain + nele, 0.0);
 
-  auto localStrainFunc = [this, x, plasticParams, elasticParams, elementStrain](int ele) {
+  auto localStrainFunc = [this, x, elementStrain](int ele) {
     if (elementFlags[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
     dofLayout->gather(ele, x, localp.data());
 
-    ES::VXd plasticParam(numPlasticParams), elasticParam(numElasticParams);
-    getPlasticParameters(ele, plasticParams, plasticParam.data());
-    getElasticParameters(ele, elasticParams, elasticParam.data());
-
     const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localp.data(), paramPtr(plasticParam), paramPtr(elasticParam), data->elementCacheData[ele].get());
+    fem->prepareData(localp.data(), data->elementCacheData[ele].get());
 
     int nPt = 0;
     std::vector<double> localStrains(std::max(16, fem->getNumMaterialLocations()), 0.0);

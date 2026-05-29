@@ -72,10 +72,10 @@ double DeformationModelEnergy::func(EigenSupport::ConstRefVecXd x) const
   Profiling::ScopedProfileSection scopedProfile("material.energy");
   if (restPosition.size()) {
     ES::VXd p = restPosition + x.segment(allDOFs[0], restPosition.size());
-    return forceModelAssembler->computeEnergy(p.data(), plasticParams.data(), elasticParams.data());
+    return forceModelAssembler->computeEnergy(p.data());
   }
   else
-    return forceModelAssembler->computeEnergy(x.data() + allDOFs[0], plasticParams.data(), elasticParams.data());
+    return forceModelAssembler->computeEnergy(x.data() + allDOFs[0]);
 }
 
 void DeformationModelEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const
@@ -83,10 +83,10 @@ void DeformationModelEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSuppor
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
   if (restPosition.size()) {
     ES::VXd p = restPosition + x.segment(allDOFs[0], restPosition.size());
-    forceModelAssembler->computeGradient(p.data(), plasticParams.data(), elasticParams.data(), grad.data());
+    forceModelAssembler->computeGradient(p.data(), grad.data());
   }
   else {
-    forceModelAssembler->computeGradient(x.data() + allDOFs[0], plasticParams.data(), elasticParams.data(), grad.data());
+    forceModelAssembler->computeGradient(x.data() + allDOFs[0], grad.data());
   }
 }
 
@@ -95,10 +95,10 @@ void DeformationModelEnergy::hessian(EigenSupport::ConstRefVecXd x, EigenSupport
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
   if (restPosition.size()) {
     ES::VXd p = restPosition + x.segment(allDOFs[0], restPosition.size());
-    forceModelAssembler->computeHessian(p.data(), plasticParams.data(), elasticParams.data(), hess);
+    forceModelAssembler->computeHessian(p.data(), hess);
   }
   else {
-    forceModelAssembler->computeHessian(x.data() + allDOFs[0], plasticParams.data(), elasticParams.data(), hess);
+    forceModelAssembler->computeHessian(x.data() + allDOFs[0], hess);
   }
 }
 
@@ -132,12 +132,12 @@ NonlinearOptimization::MaxStepResult DeformationModelEnergy::computeMaxStepLimit
     if (!observation.hasIllegalInitialState && maxStepSize > 0.0 && maxStepSize < 0.01) {
       if (observation.limitingLocationId >= 0) {
         SPDLOG_LOGGER_WARN(Logging::lgr(),
-          "Phase 1.5 material max step produced small materialFeasibleAlpha={} on meshType={} element={} location={}.",
+          "material max step produced small materialFeasibleAlpha={} on meshType={} element={} location={}.",
           maxStepSize, meshTypeName(meshType), observation.limitingElementId, observation.limitingLocationId);
       }
       else {
         SPDLOG_LOGGER_WARN(Logging::lgr(),
-          "Phase 1.5 material max step produced small materialFeasibleAlpha={} on meshType={} element={}.",
+          "material max step produced small materialFeasibleAlpha={} on meshType={} element={}.",
           maxStepSize, meshTypeName(meshType), observation.limitingElementId);
       }
     }
@@ -145,12 +145,12 @@ NonlinearOptimization::MaxStepResult DeformationModelEnergy::computeMaxStepLimit
     if (auto logger = Logging::lgr(); logger && logger->should_log(spdlog::level::trace)) {
       if (observation.limitingLocationId >= 0) {
         SPDLOG_LOGGER_TRACE(logger,
-          "Phase 1.5 material clamp: materialFeasibleAlpha={} meshType={} element={} location={}.",
+          "material clamp: materialFeasibleAlpha={} meshType={} element={} location={}.",
           maxStepSize, meshTypeName(meshType), observation.limitingElementId, observation.limitingLocationId);
       }
       else {
         SPDLOG_LOGGER_TRACE(logger,
-          "Phase 1.5 material clamp: materialFeasibleAlpha={} meshType={} element={}.",
+          "material clamp: materialFeasibleAlpha={} meshType={} element={}.",
           maxStepSize, meshTypeName(meshType), observation.limitingElementId);
       }
     }

@@ -31,6 +31,9 @@ struct PlasticModelResult
 class PlasticModelFactory
 {
 public:
+  // Number of plastic parameter channels for a given parametrization type.
+  static int numParameters(DeformationModelPlasticMaterial type);
+
   // Create the plastic model for one element.
   // fiberAxesRestRow0: pointer to 9 doubles (3x3 row-major) for the element's
   // fiber axes in rest configuration. Only used by VOLUMETRIC_DOF3.

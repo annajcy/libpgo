@@ -19,6 +19,7 @@ namespace
 namespace ES = pgo::EigenSupport;
 using pgo::SolidDeformationModel::DeformationModelAssembler;
 using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
+using pgo::SolidDeformationModel::ParameterField;
 using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
 using pgo::SolidDeformationModel::PlasticModel3DDeformationGradient;
@@ -131,21 +132,23 @@ TEST(DeformationModelAssemblerGTest, TetAssemblerRegression)
   ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++) {
     plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+  assembler->getDeformationModelManager().setElasticParams(elasticParams);
+  assembler->getDeformationModelManager().setPlasticParams(plasticParams);
   }
 
   ES::VXd grad = ES::VXd::Zero(assembler->getNumDOFs());
-  assembler->computeGradient(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), grad.data());
+  assembler->computeGradient(x.data(), grad.data());
   EXPECT_EQ(grad.size(), assembler->getNumDOFs());
   expectAllFinite(grad);
 
   ES::SpMatD hess = assembler->getHessianTemplate();
-  assembler->computeHessian(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), hess);
+  assembler->computeHessian(x.data(), hess);
   EXPECT_EQ(hess.rows(), assembler->getNumDOFs());
   EXPECT_EQ(hess.cols(), assembler->getNumDOFs());
   expectAllFinite(hess);
 
   ES::SpMatD dfda = assembler->get_dfda_Template();
-  assembler->compute_df_da(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), dfda);
+  assembler->compute_df_da(x.data(), dfda);
   EXPECT_EQ(dfda.rows(), assembler->getNumDOFs());
   EXPECT_EQ(dfda.cols(), nele * numPlasticParams);
   expectAllFinite(dfda);
@@ -182,10 +185,13 @@ TEST(DeformationModelAssemblerGTest, TetVonMisesStressIsZeroAtRestAndNonzeroUnde
     plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
   }
 
+  assembler->getDeformationModelManager().setElasticParams(elasticParams);
+  assembler->getDeformationModelManager().setPlasticParams(plasticParams);
+
   const auto &meshPtr = *assembler->getDeformationModelManager().getMesh();
   ES::VXd rest = makeRestPositions(meshPtr);
   ES::VXd stresses = ES::VXd::Constant(nele, -1.0);
-  assembler->computeVonMisesStresses(rest.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), stresses.data());
+  assembler->computeVonMisesStresses(rest.data(), stresses.data());
   expectAllFinite(stresses);
   EXPECT_LE(stresses.cwiseAbs().maxCoeff(), 1e-8);
 
@@ -194,7 +200,7 @@ TEST(DeformationModelAssemblerGTest, TetVonMisesStressIsZeroAtRestAndNonzeroUnde
     stretched[vi * 3] *= 1.01;
   }
   stresses.setConstant(-1.0);
-  assembler->computeVonMisesStresses(stretched.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), stresses.data());
+  assembler->computeVonMisesStresses(stretched.data(), stresses.data());
   expectAllFinite(stresses);
   EXPECT_GE(stresses.minCoeff(), 0.0);
   EXPECT_GT(stresses.maxCoeff(), 1e-8);
@@ -232,25 +238,25 @@ TEST(DeformationModelAssemblerGTest, ShellAssemblerRegression)
   }
 
   ES::VXd grad = ES::VXd::Zero(assembler->getNumDOFs());
-  assembler->computeGradient(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), grad.data());
+  assembler->computeGradient(x.data(), grad.data());
   EXPECT_EQ(grad.size(), assembler->getNumDOFs());
   expectAllFinite(grad);
 
   ES::SpMatD hess = assembler->getHessianTemplate();
-  assembler->computeHessian(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), hess);
+  assembler->computeHessian(x.data(), hess);
   EXPECT_EQ(hess.rows(), assembler->getNumDOFs());
   EXPECT_EQ(hess.cols(), assembler->getNumDOFs());
   expectAllFinite(hess);
 
   ES::SpMatD dfda = assembler->get_dfda_Template();
-  assembler->compute_df_da(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), dfda);
+  assembler->compute_df_da(x.data(), dfda);
   EXPECT_EQ(dfda.rows(), assembler->getNumDOFs());
   EXPECT_EQ(dfda.cols(), nele * numPlasticParams);
   expectAllFinite(dfda);
 
   if (numElasticParams > 0) {
     ES::SpMatD dfdb = assembler->get_dfdb_Template();
-    assembler->compute_df_db(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), dfdb);
+    assembler->compute_df_db(x.data(), dfdb);
     EXPECT_EQ(dfdb.rows(), assembler->getNumDOFs());
     EXPECT_EQ(dfdb.cols(), nele * numElasticParams);
     expectAllFinite(dfdb);
@@ -287,21 +293,23 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerSmokeRegression)
   ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++) {
     plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+  assembler->getDeformationModelManager().setElasticParams(elasticParams);
+  assembler->getDeformationModelManager().setPlasticParams(plasticParams);
   }
 
   ES::VXd grad = ES::VXd::Zero(assembler->getNumDOFs());
-  assembler->computeGradient(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), grad.data());
+  assembler->computeGradient(x.data(), grad.data());
   EXPECT_EQ(grad.size(), assembler->getNumDOFs());
   expectAllFinite(grad);
 
   ES::SpMatD hess = assembler->getHessianTemplate();
-  assembler->computeHessian(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), hess);
+  assembler->computeHessian(x.data(), hess);
   EXPECT_EQ(hess.rows(), assembler->getNumDOFs());
   EXPECT_EQ(hess.cols(), assembler->getNumDOFs());
   expectAllFinite(hess);
 
   ES::SpMatD dfda = assembler->get_dfda_Template();
-  assembler->compute_df_da(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), dfda);
+  assembler->compute_df_da(x.data(), dfda);
   EXPECT_EQ(dfda.rows(), assembler->getNumDOFs());
   EXPECT_EQ(dfda.cols(), nele * numPlasticParams);
   expectAllFinite(dfda);
@@ -353,10 +361,12 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerMaterialParamRegression)
   ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++) {
     plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+  assembler->getDeformationModelManager().setElasticParams(elasticParams);
+  assembler->getDeformationModelManager().setPlasticParams(plasticParams);
   }
 
   ES::SpMatD dfdb = assembler->get_dfdb_Template();
-  assembler->compute_df_db(x.data(), dataOrNull(plasticParams), dataOrNull(elasticParams), dfdb);
+  assembler->compute_df_db(x.data(), dfdb);
   EXPECT_EQ(dfdb.rows(), assembler->getNumDOFs());
   EXPECT_EQ(dfdb.cols(), nele * numElasticParams);
   expectAllFinite(dfdb);

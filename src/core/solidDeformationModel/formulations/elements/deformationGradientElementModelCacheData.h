@@ -1,70 +1,61 @@
 #pragma once
 
 #include "../../deformationModel.h"
-#include "../kernels/deformationGradientKernel.h"
+#include "../parameters/parameterField.h"
 
 #include "EigenSupport.h"
 
-#include <array>
 #include <vector>
 
 namespace pgo
 {
+namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-// Per-element cache data for DeformationGradientElementModel<Kernel>.
-// Holds current positions, plastic state, and per-quadrature-point kinematics.
-
-template<class Kernel>
 struct DeformationGradientElementModelCacheData : public DeformationModelCacheData
 {
-  static constexpr int numQuadPts = Kernel::numQuadPts;
-  static constexpr int localDofs = Kernel::localDofs;
+  using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
+  using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
 
-  using M3xN = typename Kernel::M3xN;
-  using M9xNDOF = typename Kernel::M9xNDOF;
-
+  int numNodes = 0;
+  int numQuadPts = 0;
+  int localDofs = 0;
   int numPlasticParams = 0;
   int numElasticParams = 0;
 
-  // Current positions.
   M3xN x;
 
-  // Plastic state.
-  ES::M3d Fp = ES::M3d::Identity();
-  ES::M3d FpInv = ES::M3d::Identity();
-  double detFp = 1.0;
+  std::vector<ES::M3d> Fp;
+  std::vector<ES::M3d> FpInv;
+  std::vector<double> detFp;
 
-  ES::VXd plasticParam;
-  ES::VXd ddetA_da;
-  ES::MXd d2detA_da2;
-  std::vector<ES::M3d> dAInv_dai;
-  std::vector<ES::M3d> d2AInv_dai_daj;
+  std::vector<ES::VXd> ddetA_da;
+  std::vector<ES::MXd> d2detA_da2;
+  std::vector<std::vector<ES::M3d>> dAInv_dai;
+  std::vector<std::vector<ES::M3d>> d2AInv_dai_daj;
 
-  // Per-quadrature-point data.
-  std::array<ES::M3d, numQuadPts> Fref;
-  std::array<ES::M3d, numQuadPts> Fe;
-  std::array<ES::M3d, numQuadPts> U, V;
-  std::array<ES::V3d, numQuadPts> S;
-  std::array<M9xNDOF, numQuadPts> dFdx;
-  std::array<M3xN, numQuadPts> Bm;
+  std::vector<ES::M3d> Fref;
+  std::vector<ES::M3d> Fe;
+  std::vector<ES::M3d> U, V;
+  std::vector<ES::V3d> S;
+  std::vector<M9xNDOF> dFdx;
+  std::vector<M3xN> Bm;
 
-  ES::VXd materialParam;
+  ParameterSample plasticSample;
+  ParameterSample elasticSample;
 
-  DeformationGradientElementModelCacheData(int np, int ne):
-    numPlasticParams(np),
-    numElasticParams(ne),
-    plasticParam(ES::VXd::Zero(np)),
-    ddetA_da(ES::VXd::Zero(np)),
-    d2detA_da2(ES::MXd::Zero(np, np)),
-    dAInv_dai(np, ES::M3d::Zero()),
-    d2AInv_dai_daj(np * np, ES::M3d::Zero()),
-    materialParam(ES::VXd::Zero(ne))
-  {}
+  DeformationGradientElementModelCacheData(int numNodes, int numQuadPts,
+    int numPlasticParams, int numElasticParams);
 
-  ES::M3d &d2AInv(int i, int j) { return d2AInv_dai_daj[i * numPlasticParams + j]; }
-  const ES::M3d &d2AInv(int i, int j) const { return d2AInv_dai_daj[i * numPlasticParams + j]; }
+  ES::M3d &d2AInv(int q, int i, int j)
+  {
+    return d2AInv_dai_daj[q][i * numPlasticParams + j];
+  }
+  const ES::M3d &d2AInv(int q, int i, int j) const
+  {
+    return d2AInv_dai_daj[q][i * numPlasticParams + j];
+  }
 };
 
 }  // namespace SolidDeformationModel

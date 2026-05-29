@@ -41,7 +41,7 @@ public:
   typedef DeformationModelCacheData CacheData;
 
   virtual std::unique_ptr<CacheData> allocateCacheData() const = 0;
-  virtual void prepareData(const double *x, const double *param, const double *materialParam, CacheData *cacheData) const = 0;
+  virtual void prepareData(const double *x, CacheData *cacheData) const = 0;
 
   virtual void vonMisesStress(const CacheData *, int &, double *) const {};
   virtual void maxStrain(const CacheData *, int &, double *) const {};
@@ -52,6 +52,12 @@ public:
 
   virtual void compute_d2E_dxda(const CacheData *cacheData, double *hess) const = 0;
   virtual void compute_d2E_dxdb(const CacheData *cacheData, double *hess) const = 0;
+
+  virtual void compute_dE_da(const CacheData *cacheData, double *grad) const {}
+  virtual void compute_d2E_da2(const CacheData *cacheData, double *hess) const {}
+  virtual void compute_dE_db(const CacheData *cacheData, double *grad) const {}
+  virtual void compute_d2E_db2(const CacheData *cacheData, double *hess) const {}
+  virtual void compute_d2E_dadb(const CacheData *cacheData, double *hess) const {}
 
   virtual void enableSPD(int enable) = 0;
 

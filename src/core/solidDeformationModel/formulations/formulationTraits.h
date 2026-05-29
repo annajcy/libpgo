@@ -1,14 +1,6 @@
 #pragma once
 
 #include "deformationFormulations.h"
-#include "basis/tetP1Basis.h"
-#include "basis/hexTrilinearBasis.h"
-#include "quadrature/tetP1DefaultQuadrature.h"
-#include "quadrature/gaussLegendreHexQuadrature.h"
-#include "kernels/deformationGradientKernel.h"
-#include "elements/deformationGradientElementModel.h"
-#include "kernels/fundamentalFormsKernel.h"
-#include "elements/koiterShellElementModel.h"
 
 #include <string_view>
 
@@ -19,11 +11,12 @@ namespace SolidDeformationModel
 
 // FormulationTraits<Formulation>
 //
-// Compile-time metadata + type routing for each formulation tag.
+// Compile-time metadata for each formulation tag.
+// After virtual-dispatch refactor, Basis/Quadrature/Kernel/ElementModel type
+// aliases are removed — construction uses runtime polymorphic Basis/Quadrature.
 //
 // Constraints:
-//   - Only DofLayout, (Basis+Quadrature for volumetric), Kernel, ElementModel type aliases.
-//   - Metadata (name, node count, local DOFs).
+//   - Metadata (name, node count, local DOFs) only.
 //   - No concrete elastic or plastic model types.
 //   - No mathematical formula implementation — that lives in kernels / element models.
 
@@ -37,12 +30,6 @@ struct FormulationTraits;
 template<>
 struct FormulationTraits<TetP1>
 {
-  using DofLayout = class Vertex3DofLayout;
-  using Basis = TetP1Basis;
-  using Quadrature = TetP1DefaultQuadrature;
-  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
-  using ElementModel = DeformationGradientElementModel<Kernel>;
-
   static constexpr int nodesPerElement = 4;
   static constexpr int localDofs = 12;
   static constexpr std::string_view name = "tet_p1";
@@ -55,12 +42,6 @@ struct FormulationTraits<TetP1>
 template<>
 struct FormulationTraits<HexTrilinear>
 {
-  using DofLayout = class Vertex3DofLayout;
-  using Basis = HexTrilinearBasis;
-  using Quadrature = GaussLegendreHexQuadrature2;
-  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
-  using ElementModel = DeformationGradientElementModel<Kernel>;
-
   static constexpr int nodesPerElement = 8;
   static constexpr int localDofs = 24;
   static constexpr std::string_view name = "hex_trilinear";
@@ -69,20 +50,14 @@ struct FormulationTraits<HexTrilinear>
 // ============================================================
 // ShellKoiter
 //
-// Shell-specific stack: no volumetric Basis/Quadrature.
-// Templated on Kernel to match the volumetric DeformationGradientElementModel<Kernel> pattern.
-// Distinguished from volumetric by lacking Basis/Quadrature.
+// Shell-specific stack: stencil-based, no Basis/Quadrature.
 // ============================================================
 
 template<>
 struct FormulationTraits<ShellKoiter>
 {
-  using DofLayout = class Vertex3DofLayout;
-  using Kernel = FundamentalFormsKernel;
-  using ElementModel = KoiterShellElementModel;
-
-  static constexpr int nodesPerElement = Kernel::numNodes;
-  static constexpr int localDofs = Kernel::localDofs;
+  static constexpr int nodesPerElement = 6;
+  static constexpr int localDofs = 18;
   static constexpr std::string_view name = "shell_koiter";
 };
 

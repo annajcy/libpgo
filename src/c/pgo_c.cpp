@@ -13,7 +13,6 @@
 #include "simulationMesh.h"
 #include "deformationModelFactory.h"
 #include "deformationModelManager.h"
-#include "tetMeshDeformationModel.h"
 #include "basicIO.h"
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"

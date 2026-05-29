@@ -1,5 +1,7 @@
 #pragma once
 
+#include "basis.h"
+
 namespace pgo
 {
 namespace SolidDeformationModel
@@ -18,22 +20,18 @@ namespace SolidDeformationModel
 //
 // dN_dxi is returned as a 3 x 8 column-major matrix:
 //   row 0 = d/dalpha, row 1 = d/dbeta, row 2 = d/dgamma.
-class HexTrilinearBasis
+class HexTrilinearBasis : public Basis
 {
 public:
-  static constexpr int numNodes = 8;
-  static constexpr int localDofs = 24;
+  static constexpr int kNumNodes = 8;
+  static constexpr int kLocalDofs = 24;
 
-  // Shape function values at reference coordinate (alpha, beta, gamma).
-  // N is length-8 array.
-  static void N(double alpha, double beta, double gamma, double N[8]);
+  int numNodes() const override { return kNumNodes; }
+  int localDofs() const override { return kLocalDofs; }
 
-  // Shape function derivatives w.r.t. reference coordinates.
-  // dN_dxi is 3x8 column-major: dN_dxi(deriv, node).
-  static void dN_dxi(double alpha, double beta, double gamma, double dN_dxi[24]);
-
-  // Node reference coordinates in (alpha, beta, gamma) parameter space.
-  static void nodeCoords(int node, double xi[3]);
+  void N(double alpha, double beta, double gamma, double N_out[]) const override;
+  void dN_dxi(double alpha, double beta, double gamma, double dN_dxi[]) const override;
+  void nodeCoords(int node, double xi[3]) const override;
 };
 
 }  // namespace SolidDeformationModel

@@ -12,6 +12,7 @@ copyright to USC,MIT,NUS
 #include "formulations/quadrature/tetP1DefaultQuadrature.h"
 #include "formulations/kernels/deformationGradientKernel.h"
 #include "formulations/elements/deformationGradientElementModel.h"
+#include "formulations/parameters/parameterField.h"
 #include "formulations/dof/vertex3DofLayout.h"
 
 // #include "elementLocalDirection.h"
@@ -169,7 +170,7 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
           x.segment(12, nplastic) = scaleParam;
 
           FiniteDifference::EvalFunc evalFuncE = [&](const double *x_param, double *E, double *grad, double *hess) {
-            fem->prepareData(x_param, scaleParam.data(), nullptr, cache.get());
+            fem->prepareData(x_param, cache.get());
 
             if (E) {
               *E = fem->computeEnergy(cache.get());
@@ -194,7 +195,7 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
 
           if (nplastic > 0) {
             FiniteDifference::EvalFunc evalFuncEP = [&](const double *x_param, double *E, double *grad, double *hess) {
-              fem->prepareData(x_param, x_param + offset[1], nullptr, cache.get());
+              fem->prepareData(x_param, cache.get());
 
               if (E) {
                 *E = fem->computeEnergy(cache.get());
@@ -231,7 +232,7 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
 
           if (nelastic > 0) {
             FiniteDifference::EvalFunc evalFuncEPA = [&](const double *x_param, double *E, double *grad, double *hess) {
-              fem->prepareData(x_param, x_param + offset[1], x_param + offset[2], cache.get());
+              fem->prepareData(x_param, cache.get());
 
               if (E) {
                 *E = fem->computeEnergy(cache.get());
@@ -326,7 +327,7 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
 forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofFD), nullptr);
 
         std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler));
-        energy->setPlasticParams(scales);
+        energy->assembler().getDeformationModelManager().setPlasticParams(scales);
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
         fd.testEnergy(energy, false, true, -1.0, x.data(), numTestDOFs, nullptr, &hessError);
@@ -337,7 +338,7 @@ forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm)
           scales.segment(hi * nplastic, nplastic) = scaleParam + ES::VXd::Constant(nplastic, 1.0 * hi / nele);
         }
 
-        energy->setPlasticParams(scales);
+        energy->assembler().getDeformationModelManager().setPlasticParams(scales);
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
         fd.testEnergy(energy, false, true, -1.0, x.data(), numTestDOFs, nullptr, &hessError);
@@ -509,7 +510,7 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
           x.segment(mesh->getNumElementVertices() * 3, nplastic) = scaleParam;
 
           FiniteDifference::EvalFunc evalFuncE = [&](const double *x_param, double *E, double *grad, double *hess) {
-            fem->prepareData(x_param, scaleParam.data(), elasticParam.data(), cache.get());
+            fem->prepareData(x_param, cache.get());
 
             if (E) {
               *E = fem->computeEnergy(cache.get());
@@ -535,7 +536,7 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
 
           if (nplastic > 0) {
             FiniteDifference::EvalVecFunc evalFuncP = [&](const double *x_param, double *g, double *jac) {
-              fem->prepareData(x_param, x_param + offset[1], elasticParam.data(), cache.get());
+              fem->prepareData(x_param, cache.get());
 
               if (g) {
                 memset(g, 0, sizeof(double) * offset[1]);
@@ -555,7 +556,7 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
 
           if (nelastic > 0) {
             FiniteDifference::EvalVecFunc evalFuncA = [&](const double *x_param, double *g, double *jac) {
-              fem->prepareData(x_param, scaleParam.data(), x_param + offset[1], cache.get());
+              fem->prepareData(x_param, cache.get());
 
               if (g) {
                 memset(g, 0, sizeof(double) * offset[3]);
@@ -633,7 +634,7 @@ forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm)
           scales.segment(hi * nplastic, nplastic) = scaleParam + ES::VXd::Constant(nplastic, 1.0 * hi / nele);
         }
 
-        energy->setPlasticParams(scales);
+        energy->assembler().getDeformationModelManager().setPlasticParams(scales);
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
         fd.testEnergy(energy, false, true, -1.0, x.data(), numTestDOFs, nullptr, &hessError);

@@ -26,23 +26,16 @@ template<class F>
 concept ShellFormulation = std::same_as<F, ShellKoiter>;
 
 // ============================================================
-// Per-category concepts: what alias set does this formulation category provide.
-// Used inside std::visit / if constexpr dispatch at runtime boundaries.
+// Per-category concepts: which top-level category a formulation belongs to.
+// Volumetric formulations use DeformationGradientElementModel (Basis + Quadrature).
+// Shell formulations use KoiterShellElementModel (stencil-based).
 // ============================================================
 
 template<class F>
-concept VolumetricFormulationCategory = requires {
-  typename FormulationTraits<F>::Basis;
-  typename FormulationTraits<F>::Quadrature;
-  typename FormulationTraits<F>::Kernel;
-  typename FormulationTraits<F>::ElementModel;
-};
+concept VolumetricFormulationCategory = TetFormulation<F> || CubicFormulation<F>;
 
 template<class F>
-concept ShellFormulationCategory = !VolumetricFormulationCategory<F> && requires {
-  typename FormulationTraits<F>::Kernel;
-  typename FormulationTraits<F>::ElementModel;
-};
+concept ShellFormulationCategory = ShellFormulation<F>;
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo

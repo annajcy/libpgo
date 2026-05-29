@@ -19,12 +19,6 @@
 namespace ES = pgo::EigenSupport;
 using namespace pgo::SolidDeformationModel;
 
-using TetKernel = DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>;
-using TetModel = DeformationGradientElementModel<TetKernel>;
-
-using HexKernel = DeformationGradientKernel<HexTrilinearBasis, GaussLegendreHexQuadrature2>;
-using HexModel = DeformationGradientElementModel<HexKernel>;
-
 namespace
 {
 const double restTet[12] = {
@@ -49,16 +43,16 @@ TEST(DeformationGradientElementModelGTest, TetEnergyFiniteAtRest)
   ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
   PlasticModel3DConstant plasticModel(identity);
-  TetModel model(restTet, &elasticModel, &plasticModel);
+  TetP1Basis tetBasis;
+  TetP1DefaultQuadrature tetQuad;
+  DeformationGradientElementModel model(restTet, tetBasis, tetQuad, &elasticModel, &plasticModel);
 
   ES::V12d xVec;
   for (int i = 0; i < 12; i++) xVec[i] = restTet[i];
 
-  const double materialParam[12] = {};
-  const double plasticParam[1] = {};
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), plasticParam, materialParam, cd.get());
+  model.prepareData(xVec.data(), cd.get());
 
   double energy = model.computeEnergy(cd.get());
   EXPECT_TRUE(std::isfinite(energy));
@@ -85,16 +79,16 @@ TEST(DeformationGradientElementModelGTest, HexEnergyFiniteAtRest)
   ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
   PlasticModel3DConstant plasticModel(identity);
-  HexModel model(restHex, &elasticModel, &plasticModel);
+  HexTrilinearBasis hexBasis;
+  GaussLegendreHexQuadrature2 hexQuad;
+  DeformationGradientElementModel model(restHex, hexBasis, hexQuad, &elasticModel, &plasticModel);
 
   ES::V24d xVec;
   for (int i = 0; i < 24; i++) xVec[i] = restHex[i];
 
-  const double materialParam[12] = {};
-  const double plasticParam[1] = {};
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), plasticParam, materialParam, cd.get());
+  model.prepareData(xVec.data(), cd.get());
 
   double energy = model.computeEnergy(cd.get());
   EXPECT_TRUE(std::isfinite(energy));
@@ -121,16 +115,16 @@ TEST(DeformationGradientElementModelGTest, TetGradientMatchesFD)
   ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
   PlasticModel3DConstant plasticModel(identity);
-  TetModel model(restTet, &elasticModel, &plasticModel);
+  TetP1Basis tetBasis;
+  TetP1DefaultQuadrature tetQuad;
+  DeformationGradientElementModel model(restTet, tetBasis, tetQuad, &elasticModel, &plasticModel);
 
   ES::V12d xVec;
   for (int i = 0; i < 12; i++) xVec[i] = restTet[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));
 
-  const double materialParam[12] = {};
-  const double plasticParam[1] = {};
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), plasticParam, materialParam, cd.get());
+  model.prepareData(xVec.data(), cd.get());
 
   ES::V12d grad;
   model.compute_dE_dx(cd.get(), grad.data());
@@ -142,12 +136,12 @@ TEST(DeformationGradientElementModelGTest, TetGradientMatchesFD)
     xm[i] -= eps;
 
     auto cdp = model.allocateCacheData();
-    model.prepareData(xp.data(), plasticParam, materialParam, cdp.get());
+    model.prepareData(xp.data(), cdp.get());
     double ep = model.computeEnergy(cdp.get());
     
 
     auto cdm = model.allocateCacheData();
-    model.prepareData(xm.data(), plasticParam, materialParam, cdm.get());
+    model.prepareData(xm.data(), cdm.get());
     double em = model.computeEnergy(cdm.get());
     
 
@@ -167,16 +161,16 @@ TEST(DeformationGradientElementModelGTest, HexGradientMatchesFD)
   ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
   PlasticModel3DConstant plasticModel(identity);
-  HexModel model(restHex, &elasticModel, &plasticModel);
+  HexTrilinearBasis hexBasis;
+  GaussLegendreHexQuadrature2 hexQuad;
+  DeformationGradientElementModel model(restHex, hexBasis, hexQuad, &elasticModel, &plasticModel);
 
   ES::V24d xVec;
   for (int i = 0; i < 24; i++) xVec[i] = restHex[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));
 
-  const double materialParam[12] = {};
-  const double plasticParam[1] = {};
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), plasticParam, materialParam, cd.get());
+  model.prepareData(xVec.data(), cd.get());
 
   ES::V24d grad;
   model.compute_dE_dx(cd.get(), grad.data());
@@ -188,12 +182,12 @@ TEST(DeformationGradientElementModelGTest, HexGradientMatchesFD)
     xm[i] -= eps;
 
     auto cdp = model.allocateCacheData();
-    model.prepareData(xp.data(), plasticParam, materialParam, cdp.get());
+    model.prepareData(xp.data(), cdp.get());
     double ep = model.computeEnergy(cdp.get());
     
 
     auto cdm = model.allocateCacheData();
-    model.prepareData(xm.data(), plasticParam, materialParam, cdm.get());
+    model.prepareData(xm.data(), cdm.get());
     double em = model.computeEnergy(cdm.get());
     
 

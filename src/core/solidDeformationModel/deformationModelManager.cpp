@@ -38,6 +38,9 @@ copyright to USC, MIT, NUS
 #include "factories/elasticModelFactory.h"
 #include "factories/plasticModelFactory.h"
 
+#include "formulations/parameters/constantParameterField.h"
+#include "formulations/elements/parameterizedMaterialBlock.h"
+
 #include "pgoLogging.h"
 #include "EigenSupport.h"
 
@@ -61,7 +64,7 @@ public:
 
   const SimulationMesh *simulationMesh = nullptr;   // non-owning immutable borrow
 
-  std::vector<DeformationModel *> elementFEMs;
+  std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
 
   // element elastic material
   // volumetric elastic material
@@ -101,14 +104,17 @@ public:
   int nele;
   int nvtx;
 
+  // Parameter field ownership.
+  std::unique_ptr<ConstantParameterField> elasticField;
+  std::unique_ptr<ConstantParameterField> plasticField;
+  ES::VXd elasticGlobalParams;
+  ES::VXd plasticGlobalParams;
+
   void computeFiberAxes();
 };
 
 DeformationModelManagerImpl::~DeformationModelManagerImpl()
 {
-  for (auto ptr : elementFEMs)
-    delete ptr;
-
   for (auto ptr : stableNeoHookeanMaterials)
     if (ptr)
       delete ptr;
@@ -338,10 +344,6 @@ DeformationModelManager::~DeformationModelManager()
   delete data;
 }
 
-
-
-
-
 void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticModelType, DeformationModelElasticMaterial elasticMaterialType)
 {
   SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Initializing element models (manager path)...");
@@ -355,83 +357,97 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
   data->numPlasticParams = it->second;
   data->globalRotation = ES::M3d::Identity();
 
+  // Determine parameter counts before creating elements.
+  const int numElasticParams = ElasticModelFactory::numParameters(*data->simulationMesh, elasticMaterialType);
+  const int numPlasticParams = data->numPlasticParams;
+
+  // Create global param vectors and ConstantParameterField instances.
+  const int nele = data->nele;
+  data->elasticGlobalParams = ES::VXd::Zero(static_cast<Eigen::Index>(nele) * numElasticParams);
+  data->plasticGlobalParams = ES::VXd::Zero(static_cast<Eigen::Index>(nele) * numPlasticParams);
+
+  data->elasticField = std::make_unique<ConstantParameterField>(
+    numElasticParams, nele, data->elasticGlobalParams.data());
+  data->plasticField = std::make_unique<ConstantParameterField>(
+    numPlasticParams, nele, data->plasticGlobalParams.data());
+
   // Allocate storage vectors (ownership tracking, same layout as before).
   if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
     elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK ||
     elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL) {
-    data->hillTypeMaterials.assign(data->nele, nullptr);
+    data->hillTypeMaterials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
     elasticMaterialType == DeformationModelElasticMaterial::STABLE_NEO) {
-    data->stableNeoHookeanMaterials.assign(data->nele, nullptr);
+    data->stableNeoHookeanMaterials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK ||
     elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL ||
     elasticMaterialType == DeformationModelElasticMaterial::INV_STVK ||
     elasticMaterialType == DeformationModelElasticMaterial::STVK_VOL) {
-    data->invariantModels.assign(data->nele, nullptr);
-    data->invariantBasedMaterials.assign(data->nele, nullptr);
+    data->invariantModels.assign(nele, nullptr);
+    data->invariantBasedMaterials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL ||
     elasticMaterialType == DeformationModelElasticMaterial::VOLUME ||
     elasticMaterialType == DeformationModelElasticMaterial::STVK_VOL) {
-    data->volumeMaterials.assign(data->nele, nullptr);
+    data->volumeMaterials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
     elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK ||
     elasticMaterialType == DeformationModelElasticMaterial::STVK_VOL) {
-    data->combined2Materials.assign(data->nele, nullptr);
+    data->combined2Materials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL) {
-    data->combined3Materials.assign(data->nele, nullptr);
+    data->combined3Materials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::LINEAR) {
-    data->linearMaterials.assign(data->nele, nullptr);
+    data->linearMaterials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::STVK) {
-    data->stvkMaterials.assign(data->nele, nullptr);
+    data->stvkMaterials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::MOONEY_RIVLIN) {
-    data->mooneyRivlinMaterials.assign(data->nele, nullptr);
+    data->mooneyRivlinMaterials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_FABRIC) {
-    data->shellFabricMaterials.assign(data->nele, nullptr);
+    data->shellFabricMaterials.assign(nele, nullptr);
   }
 
   if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_STVK) {
-    data->shellSTVKMaterials.assign(data->nele, nullptr);
+    data->shellSTVKMaterials.assign(nele, nullptr);
   }
 
-  data->elementFEMs.assign(data->nele, nullptr);
-  data->elementMaterials.assign(data->nele, nullptr);
+  data->elementFEMs.resize(nele);
+  data->elementMaterials.assign(nele, nullptr);
 
   if (plasticModelType == DeformationModelPlasticMaterial::VOLUMETRIC_DOF0) {
-    data->plasticVolConstant.assign(data->nele, nullptr);
+    data->plasticVolConstant.assign(nele, nullptr);
   }
   else if (plasticModelType == DeformationModelPlasticMaterial::VOLUMETRIC_DOF3) {
-    data->plasticVol3DOF.assign(data->nele, nullptr);
+    data->plasticVol3DOF.assign(nele, nullptr);
   }
   else if (plasticModelType == DeformationModelPlasticMaterial::VOLUMETRIC_DOF6) {
-    data->plasticVol6DOF.assign(data->nele, nullptr);
+    data->plasticVol6DOF.assign(nele, nullptr);
   }
   else if (plasticModelType == DeformationModelPlasticMaterial::SHELL_FF_DOF0) {
-    data->plasticShellConstant.assign(data->nele, nullptr);
+    data->plasticShellConstant.assign(nele, nullptr);
   }
   else if (plasticModelType == DeformationModelPlasticMaterial::SHELL_FF_DOF1) {
-    data->plasticShellUniformStretch.assign(data->nele, nullptr);
+    data->plasticShellUniformStretch.assign(nele, nullptr);
   }
 
   tbb::parallel_for(
-    0, data->nele, [&](int ele) {
+    0, nele, [&](int ele) {
       // Fiber direction (row 0 of fiberAxesRest) for Hill-type materials.
       const double *fiberDir = nullptr;
       if (data->fiberAxesRest.size() > 0) {
@@ -469,20 +485,21 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
       if (plasticResult.shellConstant) data->plasticShellConstant[ele] = plasticResult.shellConstant;
       if (plasticResult.shellUniformStretch) data->plasticShellUniformStretch[ele] = plasticResult.shellUniformStretch;
 
-      // Create element FEM through ElementModelFactory.
+      // Build per-element blocks.
+      ElasticBlock elasticBlock{elasticResult.elementMaterial, data->elasticField.get()};
+      PlasticBlock plasticBlock{plasticResult.model, data->plasticField.get()};
+
+      // Create element FEM through ElementModelFactory (block-based).
       if (data->simulationMesh->getElementType() == SimulationMeshType::TET) {
         data->elementFEMs[ele] = ElementModelFactory::create<TetP1>(
-          *data->simulationMesh, ele, data->elementMaterials[ele],
-          plasticResult.model, elasticMaterialType);
+          *data->simulationMesh, ele, elasticBlock, plasticBlock, elasticMaterialType);
       } else if (data->simulationMesh->getElementType() == SimulationMeshType::CUBIC) {
         data->elementFEMs[ele] = ElementModelFactory::create<HexTrilinear>(
-          *data->simulationMesh, ele, data->elementMaterials[ele],
-          plasticResult.model, elasticMaterialType);
+          *data->simulationMesh, ele, elasticBlock, plasticBlock, elasticMaterialType);
       }
       else if (data->simulationMesh->getElementType() == SimulationMeshType::SHELL) {
         data->elementFEMs[ele] = ElementModelFactory::create<ShellKoiter>(
-          *data->simulationMesh, ele, data->elementMaterials[ele],
-          plasticResult.model, elasticMaterialType);
+          *data->simulationMesh, ele, elasticBlock, plasticBlock, elasticMaterialType);
       }
       else {
         throw std::logic_error("unknown mesh element type");
@@ -490,14 +507,37 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
     },
     tbb::static_partitioner());
 }
+
 const DeformationModel *DeformationModelManager::getDeformationModel(int eleID) const
 {
-  return data->elementFEMs[eleID];
+  return data->elementFEMs[eleID].get();
+}
+
+const ParameterField *DeformationModelManager::getElasticParameterField() const
+{
+  return data->elasticField.get();
+}
+
+const ParameterField *DeformationModelManager::getPlasticParameterField() const
+{
+  return data->plasticField.get();
+}
+
+void DeformationModelManager::setElasticParams(const EigenSupport::VXd &params)
+{
+  data->elasticGlobalParams = params;
+  data->elasticField->setGlobalData(data->elasticGlobalParams.data());
+}
+
+void DeformationModelManager::setPlasticParams(const EigenSupport::VXd &params)
+{
+  data->plasticGlobalParams = params;
+  data->plasticField->setGlobalData(data->plasticGlobalParams.data());
 }
 
 void DeformationModelManager::setEnforceSPD(int enable)
 {
-  for (auto dm : data->elementFEMs) {
+  for (const auto &dm : data->elementFEMs) {
     if (dm)
       dm->enableSPD(enable);
   }

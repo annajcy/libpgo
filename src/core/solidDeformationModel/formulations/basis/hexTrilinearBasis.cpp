@@ -13,17 +13,17 @@ const int kVertexBeta[8] = { 0, 0, 1, 1, 0, 0, 1, 1 };
 const int kVertexGamma[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
 }  // namespace
 
-void HexTrilinearBasis::N(double alpha, double beta, double gamma, double N[8])
+void HexTrilinearBasis::N(double alpha, double beta, double gamma, double N_out[]) const
 {
   for (int i = 0; i < 8; i++) {
     const double a = kVertexAlpha[i] ? alpha : (1.0 - alpha);
     const double b = kVertexBeta[i] ? beta : (1.0 - beta);
     const double g = kVertexGamma[i] ? gamma : (1.0 - gamma);
-    N[i] = a * b * g;
+    N_out[i] = a * b * g;
   }
 }
 
-void HexTrilinearBasis::dN_dxi(double alpha, double beta, double gamma, double dN_dxi[24])
+void HexTrilinearBasis::dN_dxi(double alpha, double beta, double gamma, double dN_dxi[]) const
 {
   // Column-major 3x8: dN_dxi(deriv, node) = dN_dxi[deriv + 3 * node]
   for (int i = 0; i < 8; i++) {
@@ -37,7 +37,7 @@ void HexTrilinearBasis::dN_dxi(double alpha, double beta, double gamma, double d
   }
 }
 
-void HexTrilinearBasis::nodeCoords(int node, double xi[3])
+void HexTrilinearBasis::nodeCoords(int node, double xi[3]) const
 {
   if (node >= 0 && node < 8) {
     xi[0] = static_cast<double>(kVertexAlpha[node]);

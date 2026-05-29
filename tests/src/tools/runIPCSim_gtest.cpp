@@ -4,6 +4,7 @@
 #include "barycentricCoordinates.h"
 #include "configFileJSON.h"
 #include "deformationModelEnergy.h"
+#include "simulationMesh.h"
 #include "initPredicates.h"
 #include "pgoLogging.h"
 #include "app/app.h"

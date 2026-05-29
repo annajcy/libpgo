@@ -31,15 +31,6 @@ void perturbedDisplacement(double *x, const double *rest, int n, double scale)
   }
 }
 
-void setupElasticParams(double *params)
-{
-  params[0] = 1e5;   // E
-  params[1] = 0.3;   // nu
-  params[2] = 1e4;   // E_bend
-  params[3] = 0.3;   // nu_bend
-  params[4] = 0.01;  // h
-}
-
 }  // namespace
 
 // ============================================================
@@ -54,12 +45,8 @@ TEST(KoiterShellElementModelTest, InteriorEnergyFiniteAtRest)
 
   KoiterShellElementModel model(interiorRestX, hasVtx, &elasticModel, &plasticModel);
 
-  double matParam[5] = {};
-  setupElasticParams(matParam);
-  double plasticParam[1] = {};
-
   auto cd = model.allocateCacheData();
-  model.prepareData(interiorRestX, plasticParam, matParam, cd.get());
+  model.prepareData(interiorRestX, cd.get());
 
   double energy = model.computeEnergy(cd.get());
   EXPECT_TRUE(std::isfinite(energy));
@@ -68,8 +55,6 @@ TEST(KoiterShellElementModelTest, InteriorEnergyFiniteAtRest)
   model.compute_dE_dx(cd.get(), grad.data());
   for (int i = 0; i < 18; i++)
     EXPECT_TRUE(std::isfinite(grad[i]));
-
-  
 }
 
 // ============================================================
@@ -84,12 +69,8 @@ TEST(KoiterShellElementModelTest, BoundaryMissingNode4EnergyFinite)
 
   KoiterShellElementModel model(interiorRestX, hasVtx, &elasticModel, &plasticModel);
 
-  double matParam[5] = {};
-  setupElasticParams(matParam);
-  double plasticParam[1] = {};
-
   auto cd = model.allocateCacheData();
-  model.prepareData(interiorRestX, plasticParam, matParam, cd.get());
+  model.prepareData(interiorRestX, cd.get());
 
   double energy = model.computeEnergy(cd.get());
   EXPECT_TRUE(std::isfinite(energy));
@@ -98,8 +79,6 @@ TEST(KoiterShellElementModelTest, BoundaryMissingNode4EnergyFinite)
   model.compute_dE_dx(cd.get(), grad.data());
   for (int i = 0; i < 18; i++)
     EXPECT_TRUE(std::isfinite(grad[i]));
-
-  
 }
 
 // ============================================================
@@ -114,15 +93,11 @@ TEST(KoiterShellElementModelFDTest, GradientMatchesFiniteDifference)
 
   KoiterShellElementModel model(interiorRestX, hasVtx, &elasticModel, &plasticModel);
 
-  double matParam[5] = {};
-  setupElasticParams(matParam);
-  double plasticParam[1] = {};
-
   auto cd = model.allocateCacheData();
 
   double x[18] = {};
   perturbedDisplacement(x, interiorRestX, 18, 0.1);
-  model.prepareData(x, plasticParam, matParam, cd.get());
+  model.prepareData(x, cd.get());
   double e0 = model.computeEnergy(cd.get());
 
   ES::V18d g;
@@ -135,15 +110,12 @@ TEST(KoiterShellElementModelFDTest, GradientMatchesFiniteDifference)
     xPlus[i] += eps;
 
     auto cdP = model.allocateCacheData();
-    model.prepareData(xPlus, plasticParam, matParam, cdP.get());
+    model.prepareData(xPlus, cdP.get());
     double ePlus = model.computeEnergy(cdP.get());
-    
 
     double fdGrad = (ePlus - e0) / eps;
     EXPECT_NEAR(fdGrad, g[i], 1e-5) << "FD gradient mismatch at index " << i;
   }
-
-  
 }
 
 // ============================================================
@@ -158,15 +130,11 @@ TEST(KoiterShellElementModelTest, SPDEnableProducesSymmetricPSD)
 
   KoiterShellElementModel model(interiorRestX, hasVtx, &elasticModel, &plasticModel);
 
-  double matParam[5] = {};
-  setupElasticParams(matParam);
-  double plasticParam[1] = {};
-
   auto cd = model.allocateCacheData();
 
   double x[18] = {};
   perturbedDisplacement(x, interiorRestX, 18, 0.1);
-  model.prepareData(x, plasticParam, matParam, cd.get());
+  model.prepareData(x, cd.get());
 
   model.enableSPD(1);
   ES::M18d hess;
@@ -177,6 +145,4 @@ TEST(KoiterShellElementModelTest, SPDEnableProducesSymmetricPSD)
     for (int j = 0; j < i; j++)
       EXPECT_NEAR(hess(i, j), hess(j, i), 1e-10)
         << "SPD hessian asymmetry at (" << i << ", " << j << ")";
-
-  
 }

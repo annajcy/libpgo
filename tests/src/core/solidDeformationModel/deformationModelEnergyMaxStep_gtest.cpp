@@ -37,6 +37,7 @@ using pgo::Simulation::ImplicitBackwardEulerTimeIntegrator;
 using pgo::Simulation::TRBDF2TimeIntegrator;
 using pgo::SolidDeformationModel::DeformationModelAssembler;
 using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
+using pgo::SolidDeformationModel::ParameterField;
 using pgo::SolidDeformationModel::DeformationModelEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
@@ -47,10 +48,7 @@ using pgo::SolidDeformationModel::SimulationMeshMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::NonlinearOptimization::MaxStepResult;
 using pgo::SolidDeformationModel::tetP1ComputeDs;
-using CubicFEM = pgo::SolidDeformationModel::DeformationGradientElementModel<
-  pgo::SolidDeformationModel::DeformationGradientKernel<
-    pgo::SolidDeformationModel::HexTrilinearBasis,
-    pgo::SolidDeformationModel::GaussLegendreHexQuadrature2>>;
+using CubicFEM = pgo::SolidDeformationModel::DeformationGradientElementModel;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 
 constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
@@ -385,7 +383,7 @@ TEST(DeformationModelEnergyMaxStepGTest, TetIllegalInitialStateWarnsEachCallAndC
   EXPECT_DOUBLE_EQ(alpha1, alpha2);
   EXPECT_TRUE(result1.materialClamped);
   EXPECT_TRUE(result2.materialClamped);
-  EXPECT_EQ(countOccurrences(logOutput, "Phase 1.5 material max step encountered illegal initial state"), 2u);
+  EXPECT_EQ(countOccurrences(logOutput, "material max step encountered illegal initial state"), 2u);
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, TetSmallAlphaWarnsAndCanBeRecordedInDiagnostics)

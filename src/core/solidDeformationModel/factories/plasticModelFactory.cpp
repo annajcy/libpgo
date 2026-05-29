@@ -15,6 +15,24 @@ namespace pgo::SolidDeformationModel
 {
 namespace ES = EigenSupport;
 
+int PlasticModelFactory::numParameters(DeformationModelPlasticMaterial type)
+{
+  switch (type) {
+  case DeformationModelPlasticMaterial::VOLUMETRIC_DOF0:
+    return 0;
+  case DeformationModelPlasticMaterial::VOLUMETRIC_DOF3:
+    return 3;
+  case DeformationModelPlasticMaterial::VOLUMETRIC_DOF6:
+    return 6;
+  case DeformationModelPlasticMaterial::SHELL_FF_DOF0:
+    return 0;
+  case DeformationModelPlasticMaterial::SHELL_FF_DOF1:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
 PlasticModelResult PlasticModelFactory::create(
   const SimulationMesh &mesh,
   int ele,

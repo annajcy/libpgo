@@ -73,6 +73,11 @@ target_compile_definitions(vertex3DofLayout_gtest PRIVATE
 set_property(TARGET vertex3DofLayout_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(vertex3DofLayout_gtest)
 
+add_executable(constantParameterField_gtest formulations/parameters/constantParameterField_gtest.cpp)
+target_link_libraries(constantParameterField_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET constantParameterField_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(constantParameterField_gtest)
+
 add_executable(elasticModelFactory_gtest factories/elasticModelFactory_gtest.cpp)
 target_link_libraries(elasticModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
 target_compile_definitions(elasticModelFactory_gtest PRIVATE

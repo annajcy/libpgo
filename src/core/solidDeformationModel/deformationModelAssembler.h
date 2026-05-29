@@ -6,7 +6,9 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "deformationModelManager.h"
+#include "deformationModelAssemblerCacheData.h"
 #include "formulations/dof/dofLayout.h"
+#include "formulations/parameters/parameterField.h"
 #include "EigenDef.h"
 
 #include <memory>
@@ -15,7 +17,6 @@ namespace pgo
 {
 namespace SolidDeformationModel
 {
-class DeformationModelAssemblerCacheData;
 
 class DeformationModelAssembler
 {
@@ -28,40 +29,46 @@ public:
     int limitingLocationId = -1;
   };
 
-  DeformationModelAssembler(std::unique_ptr<const DeformationModelManager> dm, std::unique_ptr<const DofLayout> dof, const double *elementFlags = nullptr);
+  DeformationModelAssembler(std::unique_ptr<DeformationModelManager> dm,
+    std::unique_ptr<const DofLayout> dof,
+    const double *elementFlags = nullptr);
   virtual ~DeformationModelAssembler();
 
-  double computeEnergy(const double *x, const double *plasticParams, const double *elasticParams) const;
+  double computeEnergy(const double *x) const;
   MaterialMaxStepObservation computeMaxStepObservation(const double *x, const double *dx) const;
   double computeMaxStepSize(const double *x, const double *dx) const;
-  void computeGradient(const double *x, const double *plasticParams, const double *elasticParams, double *grad) const;
-  void computeHessian(const double *x, const double *plasticParams, const double *elasticParams, EigenSupport::SpMatD &hess) const;
+  void computeGradient(const double *x, double *grad) const;
+  void computeHessian(const double *x, EigenSupport::SpMatD &hess) const;
 
-  void compute_df_da(const double *x, const double *plasticParams, const double *elasticParams, EigenSupport::SpMatD &hess) const;
-  void compute_df_db(const double *x, const double *plasticParams, const double *elasticParams, EigenSupport::SpMatD &hess) const;
+  void compute_df_da(const double *x, EigenSupport::SpMatD &hess) const;
+  void compute_df_db(const double *x, EigenSupport::SpMatD &hess) const;
 
-  void computeVonMisesStresses(const double *x, const double *plasticParams, const double *elasticParams, double *elementStresses) const;
-  void computeMaxStrains(const double *x, const double *plasticParams, const double *elasticParams, double *elementStrain) const;
+  void computeVonMisesStresses(const double *x, double *elementStresses) const;
+  void computeMaxStrains(const double *x, double *elementStrain) const;
 
   int getNumDOFs() const { return numDOFs; }
 
   const DeformationModelManager &getDeformationModelManager() const { return *deformationModelManager; }
+  DeformationModelManager &getDeformationModelManager() { return *deformationModelManager; }
   const DofLayout &getDofLayout() const { return *dofLayout; }
   const EigenSupport::SpMatD &getHessianTemplate() const { return KTemplate; }
   const EigenSupport::SpMatD &get_dfda_Template() const { return dfdaTemplate; }
   const EigenSupport::SpMatD &get_dfdb_Template() const { return dfdbTemplate; }
 
-protected:
-  void getPlasticParameters(int ele, const double *paramsAll, double *param) const;
-  void getElasticParameters(int ele, const double *paramsAll, double *param) const;
+  int getNumElasticParams() const { return numElasticParams_; }
+  int getNumPlasticParams() const { return numPlasticParams_; }
 
-  std::unique_ptr<const DeformationModelManager> deformationModelManager;
+protected:
+  std::unique_ptr<DeformationModelManager> deformationModelManager;
   std::unique_ptr<const DofLayout> dofLayout;
-  DeformationModelAssemblerCacheData *data;
+  std::unique_ptr<DeformationModelAssemblerCacheData> data;
+
+  const ParameterField *elasticParamField_ = nullptr;
+  const ParameterField *plasticParamField_ = nullptr;
 
   int numDOFs, nele, nvtx, neleVtx, localDOFs;
-  int numElasticParams = 0;
-  int numPlasticParams = 0;
+  int numElasticParams_ = 0;
+  int numPlasticParams_ = 0;
 
   EigenSupport::VXd restPositions;
   EigenSupport::SpMatD KTemplate, dfdaTemplate, dfdbTemplate;

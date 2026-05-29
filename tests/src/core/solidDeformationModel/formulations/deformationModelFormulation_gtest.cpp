@@ -15,16 +15,13 @@ namespace
 {
 namespace ES = pgo::EigenSupport;
 using pgo::SolidDeformationModel::CubicFormulation;
-using pgo::SolidDeformationModel::CubicFormulationVariant;
 using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
 using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
 using pgo::SolidDeformationModel::HexTrilinear;
 using pgo::SolidDeformationModel::ShellFormulation;
-using pgo::SolidDeformationModel::ShellFormulationVariant;
 using pgo::SolidDeformationModel::ShellKoiter;
 using pgo::SolidDeformationModel::SimulationMesh;
 using pgo::SolidDeformationModel::TetFormulation;
-using pgo::SolidDeformationModel::TetFormulationVariant;
 using pgo::SolidDeformationModel::TetP1;
 
 constexpr const char *kTorusVegPath = LIBPGO_TEST_TORUS_VEG;
@@ -149,10 +146,8 @@ TEST(DeformationModelFormulationGTest, TetVariantAdapterBuildsEnergy)
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
   auto simMesh = pgo::SolidDeformationModel::loadTetMesh(&tetMesh);
   ASSERT_NE(simMesh, nullptr);
-  pgo::SolidDeformationModel::TetFormulationVariant formulation{pgo::SolidDeformationModel::TetP1{}};
-
   auto bundle = pgo::SolidDeformationModel::makeTetDeformationModel(
-    *simMesh, formulation,
+    *simMesh, pgo::SolidDeformationModel::TetP1{},
     pgo::SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO,
     pgo::SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
@@ -171,10 +166,8 @@ TEST(DeformationModelFormulationGTest, CubicVariantAdapterBuildsEnergy)
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   auto simMesh = pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh);
   ASSERT_NE(simMesh, nullptr);
-  pgo::SolidDeformationModel::CubicFormulationVariant formulation{pgo::SolidDeformationModel::HexTrilinear{}};
-
   auto bundle = pgo::SolidDeformationModel::makeCubicDeformationModel(
-    *simMesh, formulation,
+    *simMesh, pgo::SolidDeformationModel::HexTrilinear{},
     pgo::SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO,
     pgo::SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 

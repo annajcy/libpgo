@@ -485,7 +485,7 @@ TEST(RunSimVolumeMeshIOGTest, InitializesCubicRuntimeMainPath)
   expectAllFinite(hess);
 
   ES::VXd grad = ES::VXd::Zero(assembler.getNumDOFs());
-  assembler.computeGradient(initialized.restPosition.data(), initialized.plasticity.data(), nullptr, grad.data());
+  assembler.computeGradient(initialized.restPosition.data(), grad.data());
   EXPECT_EQ(grad.size(), assembler.getNumDOFs());
   expectAllFinite(grad);
 }

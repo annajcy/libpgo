@@ -2,7 +2,9 @@
 
 #include "../../deformationModel.h"
 #include "../kernels/fundamentalFormsKernel.h"
+#include "../parameters/parameterField.h"
 #include "koiterShellElementModelCacheData.h"
+#include "parameterizedMaterialBlock.h"
 #include "EigenSupport.h"
 
 #include <stdexcept>
@@ -13,14 +15,6 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-// KoiterShellElementModel
-//
-// Concrete (non-template) element model for the Koiter thin-shell formulation.
-// Not templated on Kernel because shell formulations do not share a common
-// kernel/elastic/plastic interface like volumetric deformation-gradient models do.
-// A future shell formulation (DKT, solid-shell, etc.) will be a separate class
-// routed through FormulationTraits<NewShellTag>::ElementModel.
-
 class KoiterShellElementModel : public DeformationModel
 {
 public:
@@ -29,59 +23,21 @@ public:
 
   using CacheData = KoiterShellElementModelCacheData;
 
-  KoiterShellElementModel(const double restX[18], const bool hasVtx[6],
-    ElasticModel *elasticModel, PlasticModel *plasticModel)
-    : DeformationModel(elasticModel, plasticModel)
-    , kernel_(restX, hasVtx)
-  {
-    elasticModel_ = dynamic_cast<ElasticModel2DFundamentalForms *>(em);
-    if (!elasticModel_) {
-      throw std::logic_error(
-        "KoiterShellElementModel requires ElasticModel2DFundamentalForms");
-    }
-    plasticModel_ = dynamic_cast<PlasticModel2DFundamentalForms *>(pm);
-    if (!plasticModel_) {
-      throw std::logic_error(
-        "KoiterShellElementModel requires PlasticModel2DFundamentalForms");
-    }
+  // Block-based constructor (production path).
+  KoiterShellElementModel(int ele, const double restX[18], const bool hasVtx[6],
+    const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock);
 
-    plasticModel_->set_abar(kernel_.restI());
-    plasticModel_->set_bbar(kernel_.restII());
-    plasticModel_->setArea(kernel_.restArea());
-  }
+  // Compatibility constructor (test/legacy path).
+  KoiterShellElementModel(const double restX[18], const bool hasVtx[6],
+    ElasticModel *elasticModel, PlasticModel *plasticModel);
 
   std::unique_ptr<DeformationModelCacheData> allocateCacheData() const override
   {
     return std::make_unique<CacheData>();
   }
 
-  void prepareData(const double *x, const double *param,
-    const double *materialParam,
-    DeformationModelCacheData *cacheDataBase) const override
-  {
-    CacheData *cacheData = dynamic_cast<CacheData *>(cacheDataBase);
-    cacheData->x[0] = ES::V3d(x[0], x[1], x[2]);
-    cacheData->x[1] = ES::V3d(x[3], x[4], x[5]);
-    cacheData->x[2] = ES::V3d(x[6], x[7], x[8]);
-    cacheData->x[3] = ES::V3d(x[9], x[10], x[11]);
-    cacheData->x[4] = ES::V3d(x[12], x[13], x[14]);
-    cacheData->x[5] = ES::V3d(x[15], x[16], x[17]);
-
-    plasticModel_->compute_abar(param, cacheData->abar.data());
-    plasticModel_->compute_bbar(param, cacheData->bbar.data());
-    cacheData->area = plasticModel_->computeArea(param);
-
-    cacheData->a = kernel_.compute_a_and_derivatives(cacheData->x, nullptr, nullptr);
-    cacheData->b = kernel_.compute_b_and_derivatives(cacheData->x, nullptr, nullptr);
-
-    for (int i = 0; i < elasticModel_->getNumParameters(); i++) {
-      cacheData->elasticParams[i] = materialParam[i];
-    }
-
-    for (int i = 0; i < plasticModel_->getNumParameters(); i++) {
-      cacheData->plasticParams[i] = param[i];
-    }
-  }
+  void prepareData(const double *x,
+    DeformationModelCacheData *cacheDataBase) const override;
 
   double computeEnergy(const DeformationModelCacheData *cacheDataBase) const override
   {
@@ -285,7 +241,128 @@ private:
   ElasticModel2DFundamentalForms *elasticModel_ = nullptr;
   PlasticModel2DFundamentalForms *plasticModel_ = nullptr;
   int enableSPD_ = 0;
+
+  int ele_ = -1;
+  ElasticBlock elasticBlock_;
+  PlasticBlock plasticBlock_;
+
+  ES::VXd compatZeroPlasticParams_;
+  ES::VXd compatZeroElasticParams_;
 };
+
+// ---- Constructors ----
+
+inline KoiterShellElementModel::KoiterShellElementModel(
+  int ele, const double restX[18], const bool hasVtx[6],
+  const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock)
+  : DeformationModel(elasticBlock.model, plasticBlock.model)
+  , kernel_(restX, hasVtx)
+  , ele_(ele)
+  , elasticBlock_(elasticBlock)
+  , plasticBlock_(plasticBlock)
+{
+  elasticModel_ = dynamic_cast<ElasticModel2DFundamentalForms *>(em);
+  if (!elasticModel_) {
+    throw std::logic_error(
+      "KoiterShellElementModel requires ElasticModel2DFundamentalForms");
+  }
+  plasticModel_ = dynamic_cast<PlasticModel2DFundamentalForms *>(pm);
+  if (!plasticModel_) {
+    throw std::logic_error(
+      "KoiterShellElementModel requires PlasticModel2DFundamentalForms");
+  }
+
+  plasticModel_->set_abar(kernel_.restI());
+  plasticModel_->set_bbar(kernel_.restII());
+  plasticModel_->setArea(kernel_.restArea());
+}
+
+inline KoiterShellElementModel::KoiterShellElementModel(
+  const double restX[18], const bool hasVtx[6],
+  ElasticModel *elasticModel, PlasticModel *plasticModel)
+  : DeformationModel(elasticModel, plasticModel)
+  , kernel_(restX, hasVtx)
+  , ele_(-1)
+{
+  elasticModel_ = dynamic_cast<ElasticModel2DFundamentalForms *>(em);
+  if (!elasticModel_) {
+    throw std::logic_error(
+      "KoiterShellElementModel requires ElasticModel2DFundamentalForms");
+  }
+  plasticModel_ = dynamic_cast<PlasticModel2DFundamentalForms *>(pm);
+  if (!plasticModel_) {
+    throw std::logic_error(
+      "KoiterShellElementModel requires PlasticModel2DFundamentalForms");
+  }
+
+  elasticBlock_.model = elasticModel;
+  elasticBlock_.parameters = nullptr;
+  plasticBlock_.model = plasticModel;
+  plasticBlock_.parameters = nullptr;
+
+  compatZeroPlasticParams_.setZero(pm->getNumParameters());
+  compatZeroElasticParams_.setZero(em->getNumParameters());
+
+  plasticModel_->set_abar(kernel_.restI());
+  plasticModel_->set_bbar(kernel_.restII());
+  plasticModel_->setArea(kernel_.restArea());
+}
+
+// ---- prepareData ----
+
+inline void KoiterShellElementModel::prepareData(
+  const double *x,
+  DeformationModelCacheData *cacheDataBase) const
+{
+  CacheData *cacheData = dynamic_cast<CacheData *>(cacheDataBase);
+  cacheData->x[0] = ES::V3d(x[0], x[1], x[2]);
+  cacheData->x[1] = ES::V3d(x[3], x[4], x[5]);
+  cacheData->x[2] = ES::V3d(x[6], x[7], x[8]);
+  cacheData->x[3] = ES::V3d(x[9], x[10], x[11]);
+  cacheData->x[4] = ES::V3d(x[12], x[13], x[14]);
+  cacheData->x[5] = ES::V3d(x[15], x[16], x[17]);
+
+  // Sample plastic params at the single shell material location (q=0).
+  const int numPlasticParams = pm->getNumParameters();
+  const int numElasticParams = em->getNumParameters();
+
+  if (plasticBlock_.parameters && numPlasticParams > 0) {
+    ParameterSample plasticSample;
+    plasticSample.resize(numPlasticParams, numPlasticParams);
+    plasticBlock_.parameters->sample(ele_, 0, plasticSample);
+    plasticModel_->compute_abar(plasticSample.value.data(), cacheData->abar.data());
+    plasticModel_->compute_bbar(plasticSample.value.data(), cacheData->bbar.data());
+    cacheData->area = plasticModel_->computeArea(plasticSample.value.data());
+    for (int i = 0; i < numPlasticParams; i++) {
+      cacheData->plasticParams[i] = plasticSample.value[i];
+    }
+  }
+  else if (numPlasticParams > 0) {
+    plasticModel_->compute_abar(compatZeroPlasticParams_.data(), cacheData->abar.data());
+    plasticModel_->compute_bbar(compatZeroPlasticParams_.data(), cacheData->bbar.data());
+    cacheData->area = plasticModel_->computeArea(compatZeroPlasticParams_.data());
+    for (int i = 0; i < numPlasticParams; i++) {
+      cacheData->plasticParams[i] = compatZeroPlasticParams_[i];
+    }
+  }
+
+  if (elasticBlock_.parameters && numElasticParams > 0) {
+    ParameterSample elasticSample;
+    elasticSample.resize(numElasticParams, numElasticParams);
+    elasticBlock_.parameters->sample(ele_, 0, elasticSample);
+    for (int i = 0; i < numElasticParams; i++) {
+      cacheData->elasticParams[i] = elasticSample.value[i];
+    }
+  }
+  else if (numElasticParams > 0) {
+    for (int i = 0; i < numElasticParams; i++) {
+      cacheData->elasticParams[i] = compatZeroElasticParams_[i];
+    }
+  }
+
+  cacheData->a = kernel_.compute_a_and_derivatives(cacheData->x, nullptr, nullptr);
+  cacheData->b = kernel_.compute_b_and_derivatives(cacheData->x, nullptr, nullptr);
+}
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo

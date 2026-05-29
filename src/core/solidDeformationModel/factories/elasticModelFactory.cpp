@@ -21,6 +21,41 @@ namespace pgo::SolidDeformationModel
 {
 namespace ES = EigenSupport;
 
+int ElasticModelFactory::numParameters(const SimulationMesh &mesh, DeformationModelElasticMaterial type)
+{
+  switch (type) {
+  case DeformationModelElasticMaterial::STABLE_NEO:
+    return 2;  // mu, lambda
+  case DeformationModelElasticMaterial::LINEAR:
+    return 2;  // mu, lambda
+  case DeformationModelElasticMaterial::STVK:
+    return 2;  // mu, lambda
+  case DeformationModelElasticMaterial::STVK_VOL:
+  case DeformationModelElasticMaterial::INV_STVK:
+  case DeformationModelElasticMaterial::VOLUME:
+    return 3;  // E, nu, compressionRatio (invariant params)
+  case DeformationModelElasticMaterial::HILL_STABLE_NEO:
+  case DeformationModelElasticMaterial::HILL_STVK:
+    return 3;  // base invariant params
+  case DeformationModelElasticMaterial::HILL_STVK_VOL:
+    return 3;
+  case DeformationModelElasticMaterial::MOONEY_RIVLIN:
+    // Mooney-Rivlin params depend on N and M from the payload — use element 0 to query
+    if (mesh.getNumElements() > 0) {
+      const auto *mat = dynamic_cast<const SimulationMeshMooneyRivlinMaterial *>(mesh.getElementMaterial(0, 0));
+      if (mat)
+        return mat->getN() + mat->getM();
+    }
+    return 0;
+  case DeformationModelElasticMaterial::KOITER_FABRIC:
+    return 2;  // dir0.x, dir0.y (or similar)
+  case DeformationModelElasticMaterial::KOITER_STVK:
+    return 5;  // E1, nu1, E2, nu2, h
+  default:
+    return 0;
+  }
+}
+
 ElasticModelResult ElasticModelFactory::create(
   const SimulationMesh &mesh,
   int ele,
