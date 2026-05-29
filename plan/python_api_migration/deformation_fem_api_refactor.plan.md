@@ -1,6 +1,6 @@
 # Deformation FEM API Refactor Plan
 
-> **状态日期：** 2026-05-28  
+> **状态日期：** 2026-05-29
 > **适用范围：** C++ `solidDeformationModel` API 重构 + Python `pypgo.fem` / `pypgo.energy` deformation binding。  
 > **执行约束：** 本计划只重构当前 tet P1 / hex trilinear / shell Koiter deformation 主链路并绑定到 Python；不在本计划内实现 tricubic Hermite FEM 数值内核。
 
@@ -16,7 +16,7 @@ MeshTopology / SimulationMesh
   -> DeformationModelEnergy
 ```
 
-第一阶段必须保持现有 tet/cubic 行为不变，同时把当前 cubic deformation 路径明确命名为 `hex_trilinear`。Python public API 不在 C++ 边界稳定前提前定稿；等 formulation、lifetime、material recipe、DOF layout 的 C++ 重构完成后，再统一确定 `pypgo.fem` / `pypgo.energy` 的最终表面，避免把过渡态发布成长期 API。
+第一阶段必须保持现有 tet/cubic 行为不变，同时把当前 cubic deformation 路径明确命名为 `hex_trilinear`。Python public API 不在 C++ 边界稳定前提前定稿；等 formulation、lifetime、material recipe、DOF layout、elastic/plastic parameter layout/field 的 C++ 重构完成后，再统一确定 `pypgo.fem` / `pypgo.energy` 的最终表面，避免把过渡态发布成长期 API。
 
 ## 当前问题
 
@@ -25,6 +25,7 @@ MeshTopology / SimulationMesh
 - `SimulationMeshType::CUBIC` 现在同时表示 8 顶点 hexahedral topology 和 8-node trilinear vertex-DOF formulation。
 - `DeformationModelManager::initImpl` 同时创建 elastic material、plastic model、element deformation model，且按 `SimulationMeshType` 直接分派。
 - `DeformationModelAssembler` 假设全局 DOF 为 `3 * numVertices`，局部 DOF 为 `numElementVertices * 3`，gather/scatter 全部通过 vertex id。
+- `DeformationModelAssembler` 同时假设 elastic/plastic parameters 是 per-element constant array，offset 由 `ele * numParams + j` 硬编码，无法自然扩展到 quadrature/nodal/external field 或 parameter optimization。
 - Python 目前有 `pypgo.mesh.veg.VolumeMesh` 和 `pypgo.sim.SimulationMesh`，但 deformation energy 还没有作为 Python-first API 暴露。
 - Vega `VolumetricMesh::Material`、`SimulationMeshMaterial`、`ElasticModel` 仍是三套表达；代码里还把 material payload、本构 law、Hill 这类 active add-on 混在同一个 elastic enum 里。
 
@@ -162,7 +163,7 @@ for (int j = 0; j < 4; j++) {
 6 个节点但不平等：nodes 0-2 是三角形顶点（始终存在），nodes 3-5 是对边邻居（边界三角形上可能缺失）。额外需要的信息：
 
 ```cpp
-// ShellKoiterStencil 编码了这些 B→asis + mesh 给不出的信息：
+// ShellKoiterStencil 编码了这些 Basis + mesh 给不出的信息：
 struct ShellKoiterStencil {
   static constexpr int numNodes = 6;
   static constexpr int localDofs = 18;
@@ -376,13 +377,13 @@ concept ShellFormulation = std::same_as<F, ShellKoiter>;
 
 template<TetFormulation F>
 DeformationModelBundle makeTetDeformationModel(
-  const VolumetricMeshes::TetMesh &mesh,
+  const SimulationMesh &mesh,
   const F &formulation,
   const DeformationModelSpec &spec);
 
 template<CubicFormulation F>
 DeformationModelBundle makeCubicDeformationModel(
-  const VolumetricMeshes::CubicMesh &mesh,
+  const SimulationMesh &mesh,
   const F &formulation,
   const DeformationModelSpec &spec);
 ```
@@ -390,8 +391,8 @@ DeformationModelBundle makeCubicDeformationModel(
 这让错误组合在编译期失败：
 
 ```cpp
-makeTetDeformationModel(tetMesh, HexTrilinear{}, spec);  // compile error
-makeCubicDeformationModel(cubicMesh, TetP1{}, spec);     // compile error
+makeTetDeformationModel(tetSimMesh, HexTrilinear{}, spec);  // compile error
+makeCubicDeformationModel(cubicSimMesh, TetP1{}, spec);     // compile error
 ```
 
 运行时边界才使用 `std::variant`，例如 Python binding、JSON/config、CLI：
@@ -400,7 +401,7 @@ makeCubicDeformationModel(cubicMesh, TetP1{}, spec);     // compile error
 using CubicFormulationVariant = std::variant<HexTrilinear>;
 
 DeformationModelBundle makeCubicDeformationModel(
-  const VolumetricMeshes::CubicMesh &mesh,
+  const SimulationMesh &mesh,
   const CubicFormulationVariant &formulation,
   const DeformationModelSpec &spec)
 {
@@ -414,7 +415,7 @@ DeformationModelBundle makeCubicDeformationModel(
 
 这些 constrained template overload 的定义必须直接放在 `deformationModelFactory.h` 中；本计划不引入 `.inl` 文件。`.cpp` 只放非模板 helper / implementation detail。不要把模板定义只放进 `.cpp`，否则 tests、tools、Python binding 这些调用方会在独立 translation unit 中链接失败。
 
-### 4. 新文件按 façade / formulation / factory / material 分层
+### 4. 新文件按 façade / formulation / factory / material / parameter 分层
 
 `solidDeformationModel` 根目录只保留 public façade、assembler/manager/energy 主链路，以及旧 element model wrapper。新抽象不要继续散落在根目录里，而是按职责放入子目录：
 
@@ -455,6 +456,7 @@ DeformationModelBundle makeCubicDeformationModel(
     elements/
       deformationGradientElementModel.h  # header-only
       koiterShellElementModel.h
+      parameterizedMaterialBlock.h
 
     geometry/
       tetP1Geometry.h                  # Task 5q, after legacy tet helper migration
@@ -466,6 +468,11 @@ DeformationModelBundle makeCubicDeformationModel(
       dofLayout.h
       vertex3DofLayout.h/.cpp
       hermiteDofLayout.h/.cpp          # future
+
+    parameters/
+      elementQuadratureView.h
+      parameterField.h
+      constantParameterField.h
 
   factories/
     elasticModelFactory.h/.cpp
@@ -497,6 +504,8 @@ tests/src/core/solidDeformationModel/
       koiterShellElementModel_gtest.cpp
     dof/
       vertex3DofLayout_gtest.cpp
+    parameters/
+      constantParameterField_gtest.cpp
 
   factories/
     elasticModelFactory_gtest.cpp
@@ -657,6 +666,7 @@ public:
   virtual ~DofLayout() = default;
   virtual int numGlobalDofs() const = 0;
   virtual int numLocalDofs(int ele) const = 0;
+  virtual void getGlobalDofIndices(int ele, std::vector<int> &indices) const = 0;
   virtual void gather(int ele, const double *global, double *local) const = 0;
   virtual void scatterAddGradient(int ele, const double *local, double *global) const = 0;
   virtual void addHessianSparsity(int ele, std::vector<EigenSupport::TripletD> &entries) const = 0;
@@ -666,6 +676,148 @@ public:
 ```
 
 `DeformationModelAssembler` 的 loops 仍可保留，但不再直接假设 `vertexIndices[v] * 3 + dof`。
+
+### 11. Elastic / Plastic 参数统一通过 `ParameterField` 表达
+
+Elastic material parameters 和 plastic parameters 在 solver 里需要表达同一件事：参数值从全局存储到积分点的完整路径。这个路径包含两部分——全局向量里的 DOF 索引（gather/scatter），以及积分点上的采样规则（constant / quadrature / nodal / external）。这两部分是 1:1 的固定配对，每种 field 实现只对应一种 layout，不存在有意义的交叉组合，因此不拆成两个独立抽象。目标抽象是：
+
+```text
+ParameterField
+  = quadrature-point sampling only
+  = constant / quadrature / nodal interpolation / external procedural field
+
+OptimizableField : ParameterField
+  = ParameterField + DOF layout (gather/scatter/sparsity)
+  = 参数参与优化时使用；Assembler 通过 dynamic_cast 获取 dofLayout()
+
+ElasticModel
+  = local elastic law:
+    Fe_q, b_q -> psi, P, dPdF, dpsi/db, dP/db, ...
+
+PlasticModel
+  = local plastic parametrization:
+    a_q -> Fp_q, FpInv_q, detFp_q, dFpInv/da, d(detFp)/da, ...
+
+ElasticBlock
+  = non-owning ElasticModel pointer + non-owning ParameterField pointer
+
+PlasticBlock
+  = non-owning PlasticModel pointer + non-owning ParameterField pointer
+
+ElementModel
+  = chain rule + quadrature integration
+```
+
+接口草图：
+
+```cpp
+struct ParameterSample
+{
+  EigenSupport::VXd value;      // b_q for elastic, a_q for plastic
+  EigenSupport::MXd dValueDLocal;
+  void resize(int numChannels, int numLocalDofs);
+};
+
+class ParameterField
+{
+public:
+  virtual ~ParameterField() = default;
+  virtual int numChannels() const = 0;
+
+  // Quadrature-point sampling — field 构造时持有全局参数数据指针，完全自包含
+  // 调用者只需提供 ele 和 quadrature，无需传递参数数据
+  virtual void sample(int ele, const ElementQuadratureView &quadrature,
+    ParameterSample &out) const = 0;
+};
+
+// OptimizableField — 参数参与优化的 field，额外暴露 DOF layout
+// Assembler 通过 dynamic_cast<const OptimizableField *> 获取 dofLayout
+class OptimizableField : public ParameterField
+{
+public:
+  virtual const ParameterDofLayout *dofLayout() const = 0;
+};
+
+struct ElasticBlock
+{
+  ElasticModel *model = nullptr;          // non-owning; manager owns the model
+  const ParameterField *parameters = nullptr;  // non-owning; manager owns the field
+};
+
+struct PlasticBlock
+{
+  PlasticModel *model = nullptr;          // non-owning; manager owns the model
+  const ParameterField *parameters = nullptr;  // non-owning; manager owns the field
+};
+```
+
+Ownership/data-flow rule:
+
+- 所有指针统一为 non-owning 裸指针。Manager 统一持有 `ElasticModel`、`PlasticModel`、`ParameterField` 的全部实例。`ElasticBlock` / `PlasticBlock` / `ElementModel` 只借用，不拥有任何这些对象。
+- Elastic 和 plastic 不共享 parameter field 假设。`ElasticBlock` 持有自己的 `ParameterField`，`PlasticBlock` 持有自己的 `ParameterField`；两者的 field 实现可以完全不同。
+- `ParameterField` 只负责 quadrature-point sampling。参数参与优化的 field 同时实现 `OptimizableField`，额外暴露 `dofLayout()`。每种 field 实现内部固定一种 DOF layout，不存在”同一个 field 配不同 layout”或”同一个 layout 配不同 field”的场景。`ElementParameterDofLayout` / `QuadratureParameterDofLayout` / `NodalParameterDofLayout` 作为 field 内部的 private/protected 实现细节存在，不暴露为独立 public 类型。
+- `DeformationModelAssembler` 持有 `const ParameterField *`（与 `ElasticBlock` 一致）。当前 Assembler 不调用 `dofLayout()`——参数优化链路尚未落地。未来需要时通过 `dynamic_cast<const OptimizableField *>` 获取 layout。
+- `DeformationGradientElementModel` 通过 `ElasticBlock` / `PlasticBlock` 持有对应 `ParameterField` 的 non-owning 指针，在 `prepareData(...)` 内用 `parameters->sample(ele, quadrature, out)` 直接从全局参数向量采样到 quadrature point。field 构造时即持有数据指针，gather + sample 完全内化。
+- `ElasticBlock` / `PlasticBlock` 不转移 `ElasticModel` / `PlasticModel` ownership；它们只把 manager/model-set 已拥有的 model pointer 和对应 `ParameterField` 组合起来。不要在 Task 6p 顺手把 material/plastic ownership 搬进 element model；owner-vector cleanup 属于 Task 5p 或后续 cleanup。
+- `ElasticModel` 和 `PlasticModel` 不直接持有 `ParameterField`；它们保持 sample-level local law / local parametrization。
+- Task 6p 简化 `DeformationModel::prepareData` 的 virtual signature（详见下方"prepareData API 简化"小节）。
+
+### 11a. `prepareData` API 简化
+
+当前 `DeformationModel::prepareData` 签名：
+
+```cpp
+virtual void prepareData(const double *x,
+    const double *plasticLocal,    // Assembler 预 gather 的 per-element plastic 参数
+    const double *elasticLocal,    // Assembler 预 gather 的 per-element elastic 参数
+    CacheData *cache) = 0;
+```
+
+Assembler 在调用前负责三路 gather（位移 + plastic 参数 + elastic 参数）。这种设计把参数存储策略暴露给了 Assembler——Assembler 必须知道什么是 local parameter vector、怎么 gather。
+
+新设计把参数 gather 完全内化到 `ParameterField::sample()` 中。`prepareData` 简化为：
+
+```cpp
+virtual void prepareData(const double *x, CacheData *cache) = 0;
+```
+
+Assembler 侧退化为只管位移：
+
+```cpp
+for (int ele = 0; ele < nele; ele++) {
+  dofLayout->gather(ele, xGlobal, xLocal);   // 只管位移
+  elementModel->prepareData(xLocal, cache);  // 参数由 element model 自行处理
+}
+```
+
+子类适配：
+
+- **`DeformationGradientElementModel`**——自然适配。`ele_` 在构造时注入，global params 在 `ConstantParameterField` 构造时注入。`prepareData` 内部对每个 quadrature point 调用 `elasticBlock_.parameters->sample(ele_, qv, sample)` 和 `plasticBlock_.parameters->sample(ele_, qv, sample)`，field 内部的 dofLayout 完成 gather + 采样。
+- **`KoiterShellElementModel`**——也需要引入 `ElasticBlock` / `PlasticBlock`。Shell 没有 quadrature loop，只有一个 material location，用 `ElementQuadratureView{0, 1}` 调用 `sample()`。
+- **Legacy wrapper（`TetMeshDeformationModel` / `CubicMeshDeformationModel`）**——在 Task 5q 被删除，不需要适配。
+
+这个变更是破坏性的（所有 `DeformationModel` 子类需同步修改），但实际只涉及两个活跃子类（`DeformationGradientElementModel` + `KoiterShellElementModel`），且 legacy wrapper 届时已删除。代价可控，收益是基类不再对"参数从哪里来"做任何假设——`ExternalProceduralField` 可以在 `sample()` 内部按文件/函数生成参数值，不需要任何外部 gather。
+- `ParameterSample` 的 Eigen buffers 由 caller/cache 持有并复用。`ParameterField::sample(...)` 写入 `out`，不要在 quadrature loop 里按值返回 owning vectors。
+
+命名上使用 `PlasticParameters`，不用 `PlasticState`。这里的对象只是生成 `Fp` 的参数向量，不承诺完整的 history-dependent plasticity 状态系统。未来如果需要真正的 return mapping / time integration internal state，应另起 `PlasticInternalState` 或 `HistoryState` 概念，不复用 `PlasticParameters`。
+
+最重要的计算语义：
+
+> Volumetric deformation-gradient element 中，真正参与本构计算的 `Fp`、`Fe`、elastic parameters、plastic parameters 只在 quadrature point 上存在。Element-constant、nodal field、external field 都只是 `ParameterField::sample(ele, quadrature, out)` 的不同实现；`ElementModel` 不直接读取”element-level material/plastic value”作为真实计算位置，也不参与参数 gather——gather 完全由 field 内部通过自己的 dofLayout 完成，数据指针在构造时注入。
+
+第一版只实现 behavior-preserving 组合：
+
+```text
+elasticParameters:
+  ConstantParameterField(numElasticChannels, nele, elasticGlobalParams)
+    ← 内部使用 ElementParameterDofLayout(nele, numElasticChannels)
+
+plasticParameters:
+  ConstantParameterField(numPlasticChannels, nele, plasticGlobalParams)
+    ← 内部使用 ElementParameterDofLayout(nele, numPlasticChannels)
+```
+
+这完全复刻当前 `paramsAll[ele * numParams + j]` 的 per-element constant 行为。`QuadraturePointParameterField`、`NodalInterpolatedParameterField`、`ExternalParameterField` 和 optimized parameter DOF 只作为 extension point，不在第一版行为迁移中实现。
 
 ## 目标 C++ API
 
@@ -724,30 +876,41 @@ struct ElasticModelSpec
   std::vector<HillFiberSpec> hillFiberTerms;
 };
 
+enum class ParameterFieldKind
+{
+  CONSTANT,
+  QUADRATURE_POINT,     // future, not implemented in this milestone
+  NODAL_INTERPOLATED,   // future, not implemented in this milestone
+  EXTERNAL_PROCEDURAL,  // future, not implemented in this milestone
+};
+
+struct ElasticParameterSpec
+{
+  ParameterFieldKind field = ParameterFieldKind::CONSTANT;
+  bool exposeAsOptimizationVariable = false;
+};
+
+struct PlasticParameterSpec
+{
+  DeformationModelPlasticMaterial parametrization = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
+  ParameterFieldKind field = ParameterFieldKind::CONSTANT;
+  bool exposeAsOptimizationVariable = false;
+};
+
 struct DeformationModelSpec
 {
   ElasticModelSpec elastic;
-  DeformationModelPlasticMaterial plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
+  ElasticParameterSpec elasticParameters;
+  PlasticParameterSpec plasticParameters;
   DeformationModelOptions options;
 };
 
-template<TetFormulation F>
-DeformationModelBundle makeTetDeformationModel(
-  const VolumetricMeshes::TetMesh &mesh,
-  const F &formulation,
-  const DeformationModelSpec &spec);
+std::unique_ptr<SimulationMesh> makeSimulationMesh(
+  const VolumetricMeshes::VolumetricMesh &mesh);
 
-template<CubicFormulation F>
-DeformationModelBundle makeCubicDeformationModel(
-  const VolumetricMeshes::CubicMesh &mesh,
-  const F &formulation,
-  const DeformationModelSpec &spec);
-
-template<ShellFormulation F>
-DeformationModelBundle makeShellDeformationModel(
+std::unique_ptr<SimulationMesh> loadShellMesh(
   const Mesh::TriMeshGeo &surface,
-  const F &formulation,
-  const DeformationModelSpec &spec);
+  const SimulationMeshMaterial *material);
 
 template<TetFormulation F>
 DeformationModelBundle makeTetDeformationModel(
@@ -768,7 +931,7 @@ DeformationModelBundle makeShellDeformationModel(
   const DeformationModelSpec &spec);
 ```
 
-上面是 Task 7 之后的 milestone exit API。为了让重构可验证，Task 2 到 Task 6 的 topology-specific factory 可以临时接收 legacy `DeformationModelElasticMaterial`，但这个 legacy field 只能存在于过渡 call path；Task 7 完成后 public factory 必须切到 `ElasticModelSpec`。
+上面是 Task 7 之后的 milestone exit API。Core deformation factory 只接受已经 solver-ready 且由外层明确持有的 `SimulationMesh &`；不要新增从 `TetMesh` / `CubicMesh` / `TriMeshGeo` 直接构造 deformation energy 并隐藏 mesh owner 的 convenience overload。体网格先显式调用 `makeSimulationMesh(...)`，shell 先显式调用 `loadShellMesh(...)` 或 Python `SimulationMesh.create_shell(...)`，然后把 `SimulationMesh` owner 保存在调用边界。为了让重构可验证，Task 2 到 Task 6p 的 topology-specific factory 可以临时接收 legacy `DeformationModelElasticMaterial` / `DeformationModelPlasticMaterial`，但这些 legacy field 只能存在于过渡 call path；Task 7 完成后 public factory 必须切到 `ElasticModelSpec` + `ElasticParameterSpec` + `PlasticParameterSpec`。
 
 旧 `makeDeformationModel(...)` overload 不保留。现有调用方必须迁移到 topology-specific factory。旧 elastic enum 不进入 Task 7 之后的 public factory API；下面表格只是人工迁移对照，不实现 compatibility translator：
 
@@ -790,6 +953,7 @@ DeformationModelBundle makeShellDeformationModel(
 - manager borrow-only lifetime 和 Python owner bridge；
 - `ElementModelFactory` 接管 formulation-driven element construction；
 - `DofLayout` 接管 gather/scatter/sparsity；
+- `ParameterField` 接管 elastic/plastic parameter gather、quadrature sampling、scatter/sparsity；
 - material payload / elastic recipe / active term 分层完成。
 
 预期 public module：
@@ -804,14 +968,17 @@ pypgo.energy
 ```python
 import pypgo as pgo
 
-volume = pgo.mesh.veg.VolumeMesh(cube_data, pgo.mesh.veg.ENuMaterial(E=1e6, nu=0.45))
+volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(
+    cube_data,
+    pgo.mesh.veg.ENuMaterial(E=1e6, nu=0.45),
+)
 sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
 
 energy = pgo.energy.deformation_energy(
     sim_mesh,
     formulation=pgo.fem.HexTrilinear(),
     elastic=pgo.energy.StableNeo(),
-    plastic="volumetric_dof6",
+    plastic=pgo.energy.PlasticParameters("volumetric_dof6"),
 )
 
 u = energy.zero_state()
@@ -851,6 +1018,7 @@ pgo.energy.HillFiber(
 - Cubic mesh 必须显式传 `HexTrilinear()`；不传时抛 `ValueError`，提示当前 cubic topology 有多个未来 formulation。
 - Shell mesh 必须显式传 `ShellKoiter()`，并使用现有 `SimulationMesh.create_shell(...)` 产生的 shell payload；shell 走 Task 5e 的 `ShellKoiterStencil -> FundamentalFormsKernel -> KoiterShellElementModel` pipeline，不进入 volumetric `Basis` / `Quadrature` / `DeformationGradientKernel` 抽象。
 - Public Python API 不按 Task 4 / Task 7 / Task 8 分批承诺材料支持；等 C++ material recipe migration 完成后，一次性决定 first public release 支持哪些 recipes。
+- 第一版 Python 可以把 elastic/plastic parameter field 默认成 element-constant；nodal / quadrature / external parameter fields 和 optimized elastic/plastic parameters 必须等 C++ `ParameterField` 导数测试完成后再暴露。
 - `MooneyRivlin + MooneyRivlin law`、`base law + HillFiber`、`Orthotropic + OrthotropicStVK law` 只有在对应 C++ payload conversion、law factory、mismatch tests 完成后才能进入 public Python API。
 - `HexTricubicHermite()` 是否作为 future-facing Python dataclass 暴露，由最终 API checkpoint 决定；如果暴露，`deformation_energy(..., HexTricubicHermite())` 必须抛 `NotImplementedError`，不能静默落到 trilinear。
 - Hill 必须要求 `HillActivation` payload 和 fiber field；不能把 Hill 当作无方向的 passive law。
@@ -897,10 +1065,14 @@ pgo.energy.HillFiber(
 - `src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel.h`
 - `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.h`
 - `src/core/solidDeformationModel/formulations/elements/koiterShellElementModel.h`
+- `src/core/solidDeformationModel/formulations/elements/parameterizedMaterialBlock.h`
 - `src/core/solidDeformationModel/formulations/stencil/shellKoiterStencil.h`
 - `src/core/solidDeformationModel/formulations/dof/dofLayout.h`
 - `src/core/solidDeformationModel/formulations/dof/vertex3DofLayout.h`
 - `src/core/solidDeformationModel/formulations/dof/vertex3DofLayout.cpp`
+- `src/core/solidDeformationModel/formulations/parameters/elementQuadratureView.h`
+- `src/core/solidDeformationModel/formulations/parameters/parameterField.h`
+- `src/core/solidDeformationModel/formulations/parameters/constantParameterField.h`
 - `src/core/solidDeformationModel/materials/elasticModelSpec.h`
 - `src/core/solidDeformationModel/materials/simulationMeshMaterialPayload.h`
 - `src/core/solidDeformationModel/materials/simulationMeshOrthotropicMaterial.h`
@@ -919,13 +1091,12 @@ pgo.energy.HillFiber(
 - `tests/src/core/solidDeformationModel/formulations/deformationModelFormulation_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/basis/tetP1Basis_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/basis/hexTrilinearBasis_gtest.cpp`
-- `tests/src/core/solidDeformationModel/formulations/quadrature/tetP1DefaultQuadrature_gtest.cpp`
-- `tests/src/core/solidDeformationModel/formulations/quadrature/gaussLegendreHexQuadrature_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/kernels/deformationGradientKernel_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/elements/koiterShellElementModel_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/dof/vertex3DofLayout_gtest.cpp`
+- `tests/src/core/solidDeformationModel/formulations/parameters/constantParameterField_gtest.cpp`
 - `tests/src/core/solidDeformationModel/factories/elasticModelFactory_gtest.cpp`
 - `tests/src/core/solidDeformationModel/factories/elementModelFactory_gtest.cpp`
 - `tests/src/core/solidDeformationModel/elasticModel3DOrthotropicStVK_gtest.cpp`
@@ -970,8 +1141,8 @@ pgo.energy.HillFiber(
 - Modify: `tests/src/core/solidDeformationModel/deformationModelAssembler_gtest.cpp`
 - Modify: `tests/pypgo/test_simulation_mesh.py`
 
-- [x] Add C++ baseline test: current tet `makeTetDeformationModel(..., TetP1{}, ...)` at zero displacement has finite near-zero energy and finite gradient.
-- [x] Add C++ baseline test: current cubic `makeCubicDeformationModel(..., HexTrilinear{}, ...)` at zero displacement has finite near-zero energy and finite gradient.
+- [x] Add C++ baseline test: current tet deformation energy path at zero displacement has finite near-zero energy and finite gradient, without depending on formulation tags that are introduced later.
+- [x] Add C++ baseline test: current cubic deformation energy path at zero displacement has finite near-zero energy and finite gradient, without depending on formulation tags that are introduced later.
 - [x] Drop manual manager/assembler-chain parity tests once topology-specific factories are thin borrow-only façades; behavior should be locked by public-contract baseline and element/assembler regression tests instead.
 - [x] Add C++ characterization test: current ENu load path produces `SimulationMeshENuMaterial` payloads.
 - [x] Add C++ characterization test: current Mooney-Rivlin `.veg` / `VolumeMesh` payloads exist before deformation conversion.
@@ -1001,7 +1172,6 @@ pgo.energy.HillFiber(
 - Create: `src/core/solidDeformationModel/formulations/quadrature/gaussLegendreHexQuadrature.h`
 - Create: `src/core/solidDeformationModel/formulations/kernels/deformationGradientKernel.h`
 - Create: `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.h`
-- Create: `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.cpp`
 - Modify: `src/core/solidDeformationModel/tetMeshDeformationModel.h`
 - Modify: `src/core/solidDeformationModel/tetMeshDeformationModel.cpp`
 - Modify: `src/core/solidDeformationModel/cubicMeshDeformationModel.h`
@@ -1009,8 +1179,6 @@ pgo.energy.HillFiber(
 - Modify: `src/core/solidDeformationModel/CMakeLists.txt`
 - Create: `tests/src/core/solidDeformationModel/formulations/basis/tetP1Basis_gtest.cpp`
 - Create: `tests/src/core/solidDeformationModel/formulations/basis/hexTrilinearBasis_gtest.cpp`
-- Create: `tests/src/core/solidDeformationModel/formulations/quadrature/tetP1DefaultQuadrature_gtest.cpp`
-- Create: `tests/src/core/solidDeformationModel/formulations/quadrature/gaussLegendreHexQuadrature_gtest.cpp`
 - Create: `tests/src/core/solidDeformationModel/formulations/kernels/deformationGradientKernel_gtest.cpp`
 - Create: `tests/src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel_gtest.cpp`
 - Modify: `tests/src/core/solidDeformationModel/CMakeLists.txt`
@@ -1052,6 +1220,7 @@ pgo.energy.HillFiber(
   - nodal interpolation property where applicable;
   - hex quadrature integrates constants and linear reference functions exactly;
   - tet default quadrature weight matches reference tet volume convention used by the legacy element.
+  These checks may live in `tetP1Basis_gtest.cpp`, `hexTrilinearBasis_gtest.cpp`, or `deformationGradientKernel_gtest.cpp`; do not require standalone quadrature test files unless the coverage is otherwise missing.
 - [x] Add `DeformationGradientElementModel<Kernel>` that implements the existing `DeformationModel` virtual interface by combining:
   - formulation kinematics from `Kernel`
   - `ElasticModel3DDeformationGradient`
@@ -1233,7 +1402,7 @@ pgo.energy.HillFiber(
 
 - No public `pypgo.fem` / `pypgo.energy` deformation API is committed in this task.
 - Any private binding hook is clearly private/experimental and exists only to validate lifetime/state mechanics.
-- Public Python API decisions are deferred to Task 10 after C++ formulation, material, and DOF boundaries are stable.
+- Public Python API decisions are deferred to Task 10 after C++ formulation, material, DOF, and parameter-field boundaries are stable.
 
 ## Task 5: Split `DeformationModelManager::initImpl` Into Internal Factories
 
@@ -1249,7 +1418,6 @@ pgo.energy.HillFiber(
 - Create: `src/core/solidDeformationModel/factories/plasticModelFactory.cpp`
 - Create: `src/core/solidDeformationModel/factories/elementModelFactory.h`
 - Modify: `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.h`
-- Modify: `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.cpp`
 - Modify: `src/core/solidDeformationModel/deformationModelManager.cpp`
 - Modify: `src/c/pgo_c.cpp`
 - Modify: `src/tools/sim/runIPCSim/setup/femSetup.cpp`
@@ -1506,7 +1674,7 @@ private:
   - **Missing neighbor**: with `hasVtx[3] = false`, the resulting `b` matches the legacy code's masked output exactly.
   - **Derivative FD**: `da/dx` and `db/dx` match finite differences of `a` and `b` to `1e-6`.
   - **Hessian FD**: `d2a/dx2` and `d2b/dx2` match finite differences of `da/dx` and `db/dx`.
-- [ ] All tests run on a small fixture: one curved 3-triangle patch with a known geometry, plus one boundary triangle (only nodes 3..4 missing).
+- [ ] All tests run on a small fixture: one curved 3-triangle patch with known geometry where nodes 3..5 all exist, plus one boundary triangle with at least one missing opposite-neighbor slot among nodes 3..5.
 
 ### Sub-task C: KoiterShellElementModel
 
@@ -1629,7 +1797,7 @@ make*DeformationModel<Formulation>
 - Modify: `src/core/solidDeformationModel/CMakeLists.txt`
 - Modify: `tests/src/core/solidDeformationModel/factories/elementModelFactory_gtest.cpp`
 - Modify: `tests/src/core/solidDeformationModel/deformationModelFactory_gtest.cpp`
-- Modify: `tests/src/core/solidDeformationModel/deformationModelFormulation_gtest.cpp`
+- Modify: `tests/src/core/solidDeformationModel/formulations/deformationModelFormulation_gtest.cpp`
 - Optional modify: `tests/src/core/solidDeformationModel/deformationModelAssembler_gtest.cpp`
 
 - [ ] Make `DeformationModelManager::initImpl` create element FEMs through `ElementModelFactory` directly:
@@ -1643,8 +1811,9 @@ make*DeformationModel<Formulation>
   - do not create a temporary legacy element and then replace it.
 - [ ] Remove `DeformationModelManager::setDeformationModel(...)` if it has no remaining production caller after the replacement loop is gone.
 - [ ] Keep the non-template `detail::makeDeformationModelBundle(...)` only if tests still need a legacy parity oracle; otherwise delete it or make it a test-only helper. It must not be the production path for public topology-specific factories.
-- [ ] Decide whether `DeformationModelManager` should take an internal formulation dispatch parameter in this closeout or stay topology-defaulted:
-  - acceptable for Task 5p: manager maps current supported topology defaults to `TetP1`, `HexTrilinear`, `ShellKoiter`;
+- [ ] Keep `DeformationModelManager` topology-defaulted in this closeout instead of adding an internal formulation-dispatch parameter:
+  - manager maps current supported topology defaults to `TetP1`, `HexTrilinear`, `ShellKoiter`;
+  - public topology-specific factories remain the formulation boundary and may bypass/guard before manager construction when future unsupported formulations such as `HexTricubicHermite` are requested;
   - do not introduce public runtime formulation enums or virtual formulation base classes.
 - [ ] Add/adjust tests proving public factories no longer depend on legacy wrappers:
   - `makeTetDeformationModel(..., TetP1{}, ...)` returns a model chain whose element model is not `TetMeshDeformationModel`;
@@ -1673,8 +1842,8 @@ make*DeformationModel<Formulation>
 
 - Task 5e 已完成，shell Koiter 已有 formulation-aware shell element model。
 - Task 5p 已完成，manager/factory runtime path 不再直接或间接构造 `TetMeshDeformationModel` / `CubicMeshDeformationModel` / `KoiterDeformationModel`。
-- `DeformationGradientElementModel<TetP1>` 和 `DeformationGradientElementModel<HexTrilinear>` 已通过 parity tests 锁住行为。
-- `KoiterShellElementModel<ShellKoiter>` 已通过 parity tests 锁住行为。
+- `DeformationGradientElementModel<FormulationTraits<TetP1>::Kernel>` 和 `DeformationGradientElementModel<FormulationTraits<HexTrilinear>::Kernel>` 已通过 parity tests 锁住行为。
+- `KoiterShellElementModel<FormulationTraits<ShellKoiter>::Kernel>` 已通过 parity tests 锁住行为。
 
 **Files:**
 
@@ -1746,6 +1915,7 @@ make*DeformationModel<Formulation>
 - [ ] Complete the `DofLayout` abstract interface that Task 2 introduced as a traits-visible declaration.
 - [ ] Complete `Vertex3DofLayout` so it borrows the same `const SimulationMesh *` that `DeformationModelManager` borrows from the outer owner.
 - [ ] Move `gatherLocalPositions(...)` logic from assembler helper into `Vertex3DofLayout::gather`; preserve `vid < 0` zero-local behavior as a DOF-side concern so missing-neighbor shell slots stay zero in the gathered local vector.
+- [ ] Add `Vertex3DofLayout::getGlobalDofIndices(ele, indices)`; it returns one entry per local displacement DOF, with `-1` for missing shell-neighbor slots. Assembler sparse-template code must use this index list rather than calling `mesh.getVertexIndex(...)` directly.
 - [ ] Move gradient scatter logic into `Vertex3DofLayout::scatterAddGradient`; `vid < 0` slots must skip global write-back.
 - [ ] Move Hessian sparsity construction into `Vertex3DofLayout::addHessianSparsity`; `vid < 0` slots must not generate global triplets.
 - [ ] Move local-to-global sparse index lookup into layout helper.
@@ -1769,6 +1939,140 @@ make*DeformationModel<Formulation>
 - Existing vertex DOF path remains numerically identical.
 - Shell `vid < 0` DOF-side sentinel behavior remains identical and is owned by `Vertex3DofLayout`; shell missing-neighbor geometry stays owned by `ShellKoiterStencil` / `FundamentalFormsKernel` from Task 5e.
 - Future Hermite layout can be added without editing every assembler gather/scatter loop.
+
+## Task 6p: Introduce `ParameterField`
+
+**目标：** 把 elastic parameters 和 plastic parameters 的全局/局部 DOF 映射和 quadrature-point 采样统一到 `ParameterField` 抽象中，替换 assembler 的 `ele * numParams + j` 硬编码。每种 field 实现内部固定一种 DOF layout（1:1 配对，不拆成两个独立抽象）。第一版只实现 behavior-preserving 的 element-constant 参数场；不改变 tet/cubic/shell 数值行为，不开放 optimized parameter variables。
+
+**Design contract:**
+
+```text
+ParameterField
+  = quadrature-point sampling
+  = internally gather globalParams -> localParams, then write value(q) and d value(q) / d localParams into caller-owned sample buffers
+
+OptimizableField : ParameterField
+  = ParameterField + DOF indexing (gather/scatter/sparsity)
+  = Assembler 通过 dynamic_cast<const OptimizableField *> 获取 dofLayout()
+  = expose local/global index maps for mixed sparse assembly
+
+ElementModel
+  = only consumes quadrature-point samples
+  = never treats element-level elastic/plastic parameters as the true computation site
+```
+
+Volumetric deformation-gradient elements must compute `Fp_q`, `FpInv_q`, `detFp_q`, `Fe_q`, and elastic material parameter value `b_q` inside the quadrature loop. `ConstantParameterField` may return the same value for every `q`, but that is still a field sampling result, not a separate element-level path. Shell Koiter keeps its existing single material-location behavior in this task; if it is routed through the generic interfaces, use `q = 0` as the shell material location and preserve legacy outputs exactly.
+
+**Files:**
+
+- Create: `src/core/solidDeformationModel/formulations/parameters/elementQuadratureView.h`
+- Create: `src/core/solidDeformationModel/formulations/parameters/parameterField.h`
+- Create: `src/core/solidDeformationModel/formulations/parameters/constantParameterField.h`
+- Create: `src/core/solidDeformationModel/formulations/elements/parameterizedMaterialBlock.h`
+- Modify: `src/core/solidDeformationModel/deformationModelFactory.h`
+- Modify: `src/core/solidDeformationModel/deformationModelFactory.cpp`
+- Modify: `src/core/solidDeformationModel/deformationModelManager.h`
+- Modify: `src/core/solidDeformationModel/deformationModelManager.cpp`
+- Modify: `src/core/solidDeformationModel/deformationModelAssembler.h`
+- Modify: `src/core/solidDeformationModel/deformationModelAssembler.cpp`
+- Modify: `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.h`
+- Modify: `src/core/solidDeformationModel/factories/elementModelFactory.h`
+- Modify: `src/core/solidDeformationModel/factories/elasticModelFactory.h`
+- Modify: `src/core/solidDeformationModel/factories/elasticModelFactory.cpp`
+- Modify: `src/core/solidDeformationModel/factories/plasticModelFactory.h`
+- Modify: `src/core/solidDeformationModel/factories/plasticModelFactory.cpp`
+- Modify: `src/core/solidDeformationModel/CMakeLists.txt`
+- Create: `tests/src/core/solidDeformationModel/formulations/parameters/constantParameterField_gtest.cpp`
+- Modify: `tests/src/core/solidDeformationModel/deformationModelFactory_gtest.cpp`
+- Modify: `tests/src/core/solidDeformationModel/deformationModelAssembler_gtest.cpp`
+- Modify: `tests/src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel_gtest.cpp`
+- Modify: `tests/src/core/solidDeformationModel/CMakeLists.txt`
+
+- [ ] Add `ParameterField` and `ParameterSample`:
+  - `ParameterField` is the quadrature-point sampling abstraction; DOF indexing is in the `OptimizableField` subclass;
+  - `ParameterField::numChannels()` returns the number of parameter channels;
+  - each `OptimizableField` implementation internally owns a private `ParameterDofLayout` (element/quadrature/nodal) that matches its sampling strategy; the layout is not exposed as an independent public type;
+  - `OptimizableField::dofLayout()` returns a `const ParameterDofLayout *`; only fields that participate in optimization extend `OptimizableField`
+  - `ParameterSample::value` has size `numChannels`;
+  - `ParameterSample::dValueDLocal` has shape `numChannels x numLocalDofs`;
+  - `ParameterSample::resize(numChannels, numLocalDofs)` prepares the Eigen buffers once for reuse;
+  - `ParameterField::sample(ele, quadrature, out)` fills the quadrature-point value and its derivative with respect to element-local parameter DOFs in `out`; field internally calls its own `dofLayout_->gather()` and sampling logic, so callers never see local parameter vectors;
+  - `sample(...)` must not return owning Eigen objects by value from the quadrature loop.
+- [ ] Define `ParameterFieldKind` enum in `parameterField.h`: `CONSTANT`, `QUADRATURE_POINT`, `NODAL_INTERPOLATED`, `EXTERNAL_PROCEDURAL` (latter three are future values, not implemented in this milestone).
+- [ ] Add `ElementQuadratureView` as a lightweight view passed to `ParameterField::sample`. Task 6p first version must define exactly:
+  - `int quadratureId`;
+  - `int numQuadraturePoints`.
+  `elementId` is not in the view because it is already the separate `ele` parameter of `sample()`. Do not add reference/rest/current positions in Task 6p because only `ConstantParameterField` is implemented and must ignore geometric data. Future non-constant fields may extend this view and add kernel accessors for reference/rest positions in a separate task.
+- [ ] Add `ConstantParameterField` (extends `OptimizableField`):
+  - constructor takes `numChannels`, `numElements`, and `const double *globalParams` (non-owning, points to manager-owned data);
+  - `dofLayout()` returns pointer to its internal `ElementParameterDofLayout`;
+  - `sample(ele, quadrature, out)` internally calls `dofLayout_->gather(ele, globalParams_, localBuf_)` then writes `out.value = localBuf_[0:numChannels]`;
+  - `dValueDLocal` is the `numChannels x numChannels` identity;
+  - it does not read quadrature id, reference position, or rest position;
+  - the internal `ElementParameterDofLayout` is a private implementation detail — callers interact only through `OptimizableField::dofLayout()` and `ParameterField::sample()`.
+- [ ] Add lightweight `ElasticBlock` and `PlasticBlock` composition types in `parameterizedMaterialBlock.h`:
+  - `ElasticBlock` holds non-owning `ElasticModel *model` and `const ParameterField *parameters`;
+  - `PlasticBlock` holds non-owning `PlasticModel *model` and `const ParameterField *parameters`;
+  - model ownership stays in `DeformationModelManager` / the future model-set owner; Task 6p must not create a second material/plastic owner inside element models;
+  - the pure `ElasticModel` / `PlasticModel` classes must not directly own `ParameterField`.
+- [ ] Add factory helpers to determine parameter channel counts before element model construction:
+  - `PlasticModelFactory::numParameters(DeformationModelPlasticMaterial type)`;
+  - `ElasticModelFactory::numParameters(const SimulationMesh &mesh, DeformationModelElasticMaterial type)` for the legacy path used through Task 6p;
+  - fail fast if any element model reports a different parameter count than the factory-level count.
+- [ ] Create factory helpers for default parameter fields:
+  - elastic: `ConstantParameterField(numElasticParams, nele, elasticGlobalParams.data())`;
+  - plastic: `ConstantParameterField(numPlasticParams, nele, plasticGlobalParams.data())`;
+  - when `numChannels == 0`, use a zero-channel constant field rather than special-casing `nullptr` in assembler loops.
+- [ ] Change topology-specific factory construction order:
+  - determine `numElasticParams` and `numPlasticParams`;
+  - create `ConstantParameterField` instances (owned by manager), passing `globalParamsVector.data()` in the constructor;
+  - build `ElasticBlock` and `PlasticBlock` with non-owning pointers to the corresponding `ParameterField` objects; do not assume elastic and plastic fields are identical;
+  - pass the blocks into `DeformationModelManager` / `ElementModelFactory` before element models are constructed;
+  - pass the same `const ParameterField *` pointers to `DeformationModelAssembler`, `ElasticBlock`, and `PlasticBlock`; Assembler may later `dynamic_cast<const OptimizableField *>` when parameter optimization lands.
+- [ ] Rename new public/milestone-facing snapshots to `elasticParameters` and `plasticParameters`. Historical completed-task prose may keep `elasticParams` / `plasticParams`, but Task 6p and later tasks must use the full names in new APIs and tests.
+- [ ] Change `DeformationModelAssembler` to hold separate `const ParameterField *` instances for elastic and plastic parameters (non-owning, manager owns the fields), alongside the displacement `DofLayout` from Task 6. Assembler does not call `gather()`, `sample()`, or `dofLayout()` on the parameter fields in this milestone; the fields are stored for future parameter-optimization use when Assembler can `dynamic_cast<const OptimizableField *>` to access mixed sparse templates and gradient scatter.
+- [ ] Simplify `DeformationModel::prepareData` virtual signature: remove `plasticLocal` / `elasticLocal` parameters. Parameter data is injected into fields at construction time. `DeformationGradientElementModel::prepareData` calls `field->sample(ele, quadrature, out)` which is fully self-contained.
+- [ ] Add an explicit `DeformationGradientElementModel` constructor that takes `ElasticBlock` and `PlasticBlock`. Keep the existing constructor as a delegating compatibility constructor that creates element-constant parameter fields for `plasticModel->getNumParameters()` and `elasticModel->getNumParameters()`; this keeps direct element tests and any temporary downstream callers buildable. If Task 5q has already removed legacy wrappers by the time Task 6p runs, no wrapper-specific work is needed.
+- [ ] Update `ElementModelFactory::create<TetP1>` and `create<HexTrilinear>` to call the explicit block-based constructor. Shell `KoiterShellElementModel` may keep the legacy single material-location parameter path in Task 6p, but its assembler-side parameter layout must still be handled by its plastic/elastic `ParameterField` objects.
+- [ ] Replace `DeformationModelAssembler::getElasticParameters` and `getPlasticParameters` direct offset logic — these methods are removed since Assembler no longer does parameter gather. Mixed sparse template construction and gradient scatter through `OptimizableField::dofLayout()` are deferred to the parameter-optimization milestone; the field infrastructure (`OptimizableField` + `ParameterDofLayout`) is in place and tested, but Assembler does not consume it yet.
+- [ ] Update `DeformationGradientElementModel<Kernel>` cache so volumetric plastic data is stored per quadrature point:
+  - `Fp[q]`
+  - `FpInv[q]`
+  - `detFp[q]`
+  - derivatives of `FpInv` / `detFp` with respect to local plastic sample channels at `q`.
+- [ ] Add cache-owned `ParameterSample` buffers for elastic and plastic sampling. Buffers may be one scratch buffer per field or one buffer per quadrature point, but repeated `prepareData(...)` calls must reuse storage instead of allocating in the inner quadrature loop.
+- [ ] Update `DeformationGradientElementModel<Kernel>::prepareData` so each quadrature point samples plastic parameters through `plasticBlock.parameters->sample(ele, quadrature, sample)`, which internally does gather + sampling. Then call `plasticBlock.model` on that quadrature-point sample. `PlasticModel` remains responsible for `a_q -> Fp_q/FpInv_q/detFp_q` and local derivatives.
+- [ ] Update `DeformationGradientElementModel<Kernel>::prepareData` so each quadrature point samples elastic parameters through `elasticBlock.parameters->sample(ele, quadrature, sample)`, which internally does gather + sampling. Then call `elasticBlock.model`; energy/stress/derivative routines use `b_q`, not a single element-level material parameter pointer.
+- [ ] Implement derivative chain rule in field-space form even though `ConstantParameterField` has identity `dValueDLocal`:
+  - local elastic derivatives returned by `ElasticModel` are first derivatives with respect to sampled channels `b_q`;
+  - local plastic derivatives returned by `PlasticModel` are first derivatives with respect to sampled channels `a_q`;
+  - `DeformationGradientElementModel` multiplies by `dValueDLocal(q)` so `compute_dE_da`, `compute_d2E_da2`, `compute_d2E_dxda`, `compute_dE_db`, `compute_d2E_db2`, `compute_d2E_dxdb`, and `compute_d2E_dadb` return derivatives with respect to element-local parameter DOFs.
+- [ ] Preserve the exact element-constant behavior by making `ConstantParameterField` return identical samples for all quadrature points. Add old-vs-new tests that prove tet and cubic energy, gradient, Hessian, `compute_d2E_dxda`, and `compute_d2E_dxdb` are unchanged.
+- [ ] Keep `ElasticModel` and `PlasticModel` responsibilities unchanged:
+  - `ElasticModel` computes local law derivatives with respect to elastic sample `b_q`;
+  - `PlasticModel` computes local `Fp` parametrization derivatives with respect to plastic sample `a_q`;
+  - `ElementModel` owns the chain rule from field samples to element-local derivatives.
+- [ ] Add tests or assertions that elastic and plastic parameter fields can have different specs. In Task 6p only `CONSTANT` is implemented, so the runtime behavior is still identical, but construction must not share one implicit field object or assume equal local parameter counts.
+- [ ] Do not implement non-constant field kinds: `QUADRATURE_POINT`, `NODAL_INTERPOLATED`, `EXTERNAL_PROCEDURAL`. Defining the enum values is allowed, but requesting them must throw clear `std::invalid_argument` errors.
+- [ ] Do not expose elastic or plastic parameters as optimizer variables in Task 6p. `exposeAsOptimizationVariable` remains a spec-level future flag until a coupled energy and regularization/constraint story exists; if a caller sets it to `true`, fail fast instead of silently ignoring it.
+- [ ] Add unit tests for `ConstantParameterField`:
+  - returned sample value equals local parameters for multiple quadrature ids;
+  - `dValueDLocal` is identity;
+  - `dofLayout()` returns a valid pointer with correct `numGlobalDofs`, `numLocalDofs`, gather, scatter, and global index mapping;
+  - zero-channel field returns empty value, empty derivative matrix, and a valid zero-channel layout without throwing.
+- [ ] Add factory/spec validation tests that unsupported `ParameterFieldKind` values and `exposeAsOptimizationVariable == true` fail with stable error messages.
+
+**Exit criteria:**
+
+- Assembler no longer hard-codes elastic/plastic parameter offsets as `ele * numParams + j`; it no longer gathers parameter values at all.
+- `ParameterField::sample(ele, quadrature, out)` encapsulates the full path from global parameter vector to quadrature-point sample; data pointer is injected at construction time, callers never see local parameter vectors or global parameter pointers.
+- Volumetric `DeformationGradientElementModel` computes `Fp`, `FpInv`, `detFp`, `Fe`, elastic parameters, and plastic parameters only as quadrature-point samples.
+- The first implementation remains behavior-preserving for current element-constant elastic/plastic parameters.
+- `ConstantParameterField` has focused unit tests covering both `sample()` (which internally calls gather + copies) and its internal `ElementParameterDofLayout`.
+- Tet/cubic regression tests pass for energy, gradient, Hessian, `compute_df_da`, and `compute_df_db`.
+- Element-model parameter sampling uses cache-owned `ParameterSample` buffers; the API does not force owning Eigen allocations inside quadrature loops.
+- Elastic and plastic parameter fields are separate objects shared through `ElasticBlock` and Assembler (both as `const ParameterField *`); element model uses `sample()` for quadrature-point values, Assembler stores them for future parameter-optimization use via `dynamic_cast<const OptimizableField *>`.
+- Task 7 can migrate material payload/recipe semantics without also deciding parameter storage or field interpolation semantics.
 
 ## Task 7: Material Payload And Elastic Recipe Refactor
 
@@ -1807,6 +2111,8 @@ make*DeformationModel<Formulation>
   - Orthotropic -> `SimulationMeshOrthotropicMaterial`
 - [ ] Preserve per-element material region mapping when converting multi-material Vega volume meshes.
 - [ ] Add `ElasticModelSpec`, `PassiveElasticSpec`, `HillFiberSpec`, and `FiberFieldSpec`.
+- [ ] Keep elastic parameter storage and field interpolation on the Task 6p `ElasticParameterSpec` / `ParameterField` path. Task 7 may change which elastic law reads the sampled parameters, but it must not reintroduce direct `ele * numElasticParams + j` layout assumptions or split field ownership between assembler and element model.
+- [ ] Keep plastic parametrization on `PlasticParameterSpec`; Task 7 must not collapse plastic parameters back into the elastic material recipe.
 - [ ] Remove legacy elastic enum usage from new deformation factory code:
   - manually migrate `STABLE_NEO` call sites to `StableNeo(slot 0)`
   - manually migrate `MOONEY_RIVLIN` call sites to `MooneyRivlin(slot 0)`
@@ -1840,6 +2146,7 @@ make*DeformationModel<Formulation>
 
 - `SimulationMesh` can carry ENu, Mooney-Rivlin, Orthotropic, and Hill payloads without losing type information.
 - `ElasticModelFactory` is the only place that maps payload + recipe to solver `ElasticModel`.
+- Elastic/material recipe migration does not own parameter-field semantics; all elastic parameter gather/sample/scatter behavior still goes through the Task 6p `ElasticBlock` / `ParameterField` abstraction.
 - Mooney-Rivlin and Hill composite deformation energies are buildable through C++ factories and covered by smoke/FD tests.
 - The final Python recipe/test cases are documented for Task 10, but no public Python material API is exposed in Task 7.
 
@@ -1856,10 +2163,10 @@ make*DeformationModel<Formulation>
 - Create: `tests/src/core/solidDeformationModel/elasticModel3DOrthotropicStVK_gtest.cpp`
 - Modify: `tests/src/core/solidDeformationModel/factories/elasticModelFactory_gtest.cpp`
 
-- [ ] Define the exact Orthotropic law first. Recommended first law: small/finite strain StVK-style orthotropic material in the local material frame `R`.
+- [ ] Define the exact Orthotropic law first. First law is StVK-style orthotropic elasticity in the local material frame: compute Green strain `E = 0.5 * (F^T F - I)`, transform to local frame with `E_local = R^T * E * R`, apply the 6x6 orthotropic stiffness in local Voigt coordinates, transform the second Piola stress back with `S_world = R * S_local * R^T`, then `P = F * S_world`.
 - [ ] Build local-frame stiffness matrix from `E1/E2/E3`, `nu12/nu23/nu31`, `G12/G23/G31`; validate positive definiteness or fail early.
 - [ ] Implement `compute_psi`, `compute_P`, and `compute_dPdF`.
-- [ ] Decide and document whether `R` maps local-to-world or world-to-local; add tests that catch transposed use.
+- [ ] Document `R` as row-major local-to-world rotation: columns are the local material axes expressed in world coordinates. Add tests that catch transposed use by rotating a strongly anisotropic material 90 degrees and verifying that stiffness follows the rotated local axis.
 - [ ] Add finite-difference tests:
   - `P` vs finite difference of `psi`
   - `dPdF` vs finite difference of `P`
@@ -1910,7 +2217,7 @@ make*DeformationModel<Formulation>
 
 ## Task 10: Finalize Python Deformation API, Documentation, And Examples
 
-**目标：** 在 C++ formulation、lifetime、material recipe、DofLayout 边界稳定后，统一确定并绑定 `pypgo.fem` / `pypgo.energy` public deformation API，同时更新 migration docs 和 examples。不要把 Task 4/7/8/9 的过渡接口直接发布成 public API。
+**目标：** 在 C++ formulation、lifetime、material recipe、DofLayout、elastic/plastic parameter layout/field 边界稳定后，统一确定并绑定 `pypgo.fem` / `pypgo.energy` public deformation API，同时更新 migration docs 和 examples。不要把 Task 4/7/8/9 的过渡接口直接发布成 public API。
 
 **Files:**
 
@@ -1928,29 +2235,34 @@ make*DeformationModel<Formulation>
 - Optional: add example under `pypgo/examples/scripts/`
 
 - [ ] In `milestones.md`, add this plan as the detailed M3 deformation energy subplan.
-- [ ] Finalize the first public `pypgo.fem` / `pypgo.energy` API shape after reviewing completed C++ Tasks 3, 5, 5e, 5p, 5q, 6, 7, and 8. Tasks 5e/5p/5q decide whether shell construction goes through `KoiterShellElementModel<FundamentalFormsKernel<...>>` instead of the legacy `KoiterDeformationModel`, which directly affects how `ShellKoiter()` binding and documentation describe the shell pipeline.
+- [ ] Finalize the first public `pypgo.fem` / `pypgo.energy` API shape after reviewing completed C++ Tasks 3, 5, 5e, 5p, 5q, 6, 6p, 7, and 8. Tasks 5e/5p/5q decide whether shell construction goes through `KoiterShellElementModel<FundamentalFormsKernel<...>>` instead of the legacy `KoiterDeformationModel`, while Task 6p decides the public naming/defaults for `PlasticParameters` and element-constant elastic/plastic parameter fields.
 - [ ] Add `pypgo.fem` formulation dataclasses:
   - `TetP1`
   - `HexTrilinear`
   - `ShellKoiter`
   - optional `HexTricubicHermite` future-facing placeholder only if the final API checkpoint accepts exposing unsupported future formulations.
-- [ ] Add `pypgo.energy` recipe/dataclass wrappers only for C++-supported recipes:
+- [ ] Add `pypgo.energy` elastic recipe/dataclass wrappers only for C++-supported recipes:
   - `StableNeo`
   - `StVK`
   - `MooneyRivlin`
   - `OrthotropicStVK`
   - `KoiterStVK`
   - `HillFiber(base=..., hill_slot=..., element_fibers=...)`
+- [ ] Add the first public plastic-parameter wrapper:
+  - `PlasticParameters(parametrization="volumetric_dof6")`, defaulting to element-constant parameters.
 - [ ] Add `pypgo.energy.deformation_energy(...)` wrapper that maps Python dataclasses to `_core` variants/specs.
 - [ ] Enforce final Python policy:
   - cubic requires explicit `HexTrilinear()`;
   - shell requires explicit `ShellKoiter()`;
   - payload/law mismatch raises clear `ValueError`;
+  - first public release exposes only element-constant elastic/plastic parameter fields;
+  - optimized elastic/plastic material parameters, nodal parameter fields, quadrature-point parameter fields, and external procedural parameter fields are not public API until the C++ derivative-chain tests exist;
   - if `HexTricubicHermite()` is exposed, it raises a clear not-implemented error and cannot fall back to trilinear.
 - [ ] Add Python tests:
   - tet energy builds and `zero_state()` has correct shape;
   - cubic `HexTrilinear()` energy builds and has `num_dofs == 3 * num_vertices`;
   - shell `ShellKoiter()` energy builds from `SimulationMesh.create_shell(...)`, uses `KoiterStVK()`, and has `num_dofs == 3 * num_vertices`;
+  - `PlasticParameters("volumetric_dof6")` is accepted by tet and cubic deformation energy construction;
   - `value`, `gradient`, `hessian.to_coo()` smoke tests pass at zero state and a small perturbation;
   - same `SimulationMesh` can create two independent energies;
   - deleting the Python `sim_mesh` variable does not invalidate existing energies;
@@ -1964,7 +2276,7 @@ make*DeformationModel<Formulation>
       sim_mesh,
       formulation=pgo.fem.HexTrilinear(),
       elastic=pgo.energy.StableNeo(),
-      plastic="volumetric_dof6",
+      plastic=pgo.energy.PlasticParameters("volumetric_dof6"),
   )
   u = energy.zero_state()
   print(energy.value(u))
@@ -1984,7 +2296,7 @@ Run C++ baseline and deformation tests:
 ```bash
 conda run -n libpgo cmake --preset base
 conda run -n libpgo cmake --build --preset base -j 8
-conda run -n libpgo ctest --test-dir build/base -R "SimulationMesh|TetP1Basis|HexTrilinearBasis|Quadrature|DeformationGradientKernel|DeformationGradientElementModel|FundamentalFormsKernel|KoiterShellElementModel|ShellKoiter|DeformationModelFactory|DeformationModelAssembler|DeformationModelFormulation|ElasticModelFactory|OrthotropicStVK|Vertex3DofLayout" --output-on-failure
+conda run -n libpgo ctest --test-dir build/base -R "SimulationMesh|TetP1Basis|HexTrilinearBasis|Quadrature|DeformationGradientKernel|DeformationGradientElementModel|FundamentalFormsKernel|KoiterShellElementModel|ShellKoiter|DeformationModelFactory|DeformationModelAssembler|DeformationModelFormulation|ElasticModelFactory|OrthotropicStVK|Vertex3DofLayout|ParameterField|ConstantParameterField" --output-on-failure
 ```
 
 Run Python build and tests:
@@ -2009,11 +2321,12 @@ conda run -n libpgo python -m pytest -q tests/pypgo
 | Manager borrows a `SimulationMesh` that does not outlive the energy chain | High | Public factories take `const SimulationMesh &`; C++ core factories do not hide temporary mesh owners; `makeSimulationMesh(...)` returns an explicit `std::unique_ptr<SimulationMesh>` owner; Python `DeformationEnergyCore` keeps `SimulationMeshCore` alive |
 | Existing manager call sites still assume moving `std::unique_ptr<SimulationMesh>` transfers lifetime into the manager | High | Task 3 updates all call sites so mesh ownership stays outside manager until energy destruction; add tests for two energies from one mesh owner |
 | DofLayout migration changes sparse pattern ordering | Medium | Compare dense Hessian values, not only nnz/order; keep `findEntryOffset` tests |
+| Parameter field abstraction changes material/plastic sensitivities | High | Task 6p keeps only `ConstantParameterField`, compares `compute_df_da` / `compute_df_db` against old behavior, and rejects non-constant field kinds until derivative-chain tests exist |
 | Payload/law names are confused in Python | High | Keep payload classes in `pypgo.mesh.veg`, recipe classes in `pypgo.energy`; add mismatch tests |
 | Hill is treated as a standalone material | High | Model Hill only as `HillFiber(base=..., hill_slot=..., fibers=...)` |
 | Orthotropic law has incorrect frame convention | High | Document `R` direction and add rotated-frame tests |
 | Mooney-Rivlin Vega payload maps incorrectly to solver coefficients | Medium | Centralize conversion helper and test `.veg` payload vs `SimulationMeshMooneyRivlinMaterial` coefficients |
-| New files are scattered back into the module root | Medium | New formulation, factory, material, and DOF abstractions must use the directory layout in design decision 4; root only keeps façade/main-chain/legacy wrapper files |
+| New files are scattered back into the module root | Medium | New formulation, factory, material, DOF, and parameter abstractions must use the directory layout in design decision 4; root only keeps façade/main-chain/legacy wrapper files |
 | Formula implementation leaks into `FormulationTraits` | Medium | Traits only hold type aliases/metadata; basis, quadrature, `F`, and derivatives live in kernels/models with FD tests |
 | Basis and quadrature are coupled inside formulation-specific kernels | Medium | Split reference-element interpolation into `Basis` and integration strategy into `Quadrature`; keep `Kernel<Basis, Quadrature>` responsible for rest geometry and deformation-gradient kinematics |
 | Tet and cubic refactors diverge into two incompatible element paths | High | Extract `TetP1Basis` / `HexTrilinearBasis` and default quadrature before traits; both must use explicit `DeformationGradientKernel<Basis, Quadrature>` + `DeformationGradientElementModel<Kernel>` and old-vs-new regression tests |
@@ -2021,7 +2334,7 @@ conda run -n libpgo python -m pytest -q tests/pypgo
 | Formulation API drifts into virtual base-class dispatch | Medium | Core API uses tag + concept/templates; `std::variant` appears only at Python/config boundaries |
 | Topology-specific template factories are defined only in `.cpp` | High | Put constrained template definitions directly in `deformationModelFactory.h`; `.cpp` only holds non-template helpers |
 | Python binding duplicates `SimulationMeshCore` or cannot keep its owned mesh alive | High | Move `SimulationMeshCore` into shared `simulation_mesh_core.h`; expose `mesh() const -> const SimulationMesh &`; make `DeformationEnergyCore` hold `std::shared_ptr<SimulationMeshCore>` |
-| Python public API is finalized before C++ boundaries stabilize | High | Task 4 defers public `pypgo.fem` / `pypgo.energy`; Task 10 finalizes the public API only after formulation, lifetime, material recipe, and DofLayout refactors are stable |
+| Python public API is finalized before C++ boundaries stabilize | High | Task 4 defers public `pypgo.fem` / `pypgo.energy`; Task 10 finalizes the public API only after formulation, lifetime, material recipe, `DofLayout`, and parameter layout/field refactors are stable |
 | `HexTricubicHermite` silently uses trilinear path | High | Explicit implementation guard must throw `not implemented` |
 | Shell DOF gather/scatter regresses on `vid < 0` slots | Medium | `Vertex3DofLayout` owns DOF-side `vid < 0` zero-local behavior in gather, scatter, and sparsity; add layout-level tests covering boundary triangles |
 | Shell missing-neighbor geometry semantics drift after migration | High | `ShellKoiterStencil` / `FundamentalFormsKernel` from Task 5e own missing-neighbor handling (`-10496` sentinel or explicit mask); parity tests vs `KoiterDeformationModel` cover energy, gradient, Hessian, `df/da`, `df/db` on boundary triangles before Task 5q deletes the oracle |
@@ -2036,7 +2349,7 @@ This plan is complete when:
 - Topology-specific factory template definitions are available directly from `deformationModelFactory.h`, so tests, tools, C API adapters, and Python bindings can instantiate them without linker surprises.
 - Runtime formulation selection is isolated to `std::variant` boundary adapters for Python/config.
 - `FormulationTraits` per category: volumetric formulations declare `DofLayout` / `Basis` / `Quadrature` / `Kernel` / `ElementModel`; shell formulations declare `DofLayout` / `ElementStencil` / `Kernel` / `ElementModel`. C++20 concepts（`VolumetricFormulationCategory`, `ShellFormulationCategory`）verify the required alias sets at compile time. No sentinel/placeholder aliases. Traits do not bind concrete elastic or plastic model types. Shell traits use `KoiterShellElementModel<Kernel>` from Task 5e, not the legacy `KoiterDeformationModel`.
-- New formulation/factory/material/DOF files follow the `formulations/`, `factories/`, and `materials/` directory split; legacy wrapper files may remain at the module root during migration.
+- New formulation/factory/material/DOF/parameter files follow the `formulations/`, `factories/`, and `materials/` directory split; legacy wrapper files may remain at the module root during migration.
 - Old public `makeDeformationModel(...)` auto-dispatch entry has been removed.
 - Python can construct tet P1, cubic hex trilinear, and shell Koiter deformation energy.
 - Python cubic deformation API requires or visibly records `HexTrilinear`.
@@ -2044,6 +2357,7 @@ This plan is complete when:
 - Manager creation logic is split into elastic/plastic/element factories.
 - Material payload conversion and elastic law construction are centralized in `SimulationMesh` payload conversion plus `ElasticModelFactory`.
 - Assembler uses `DofLayout` for gather/scatter/sparsity on the existing vertex path.
+- `OptimizableField` / `ParameterDofLayout` infrastructure is in place for future parameter optimization; `ConstantParameterField` implements both `ParameterField::sample()` and `OptimizableField::dofLayout()`. Volumetric element models sample elastic/plastic parameters through `ParameterField::sample()` at quadrature points. Assembler stores `const ParameterField *` for future `dynamic_cast<const OptimizableField *>` access to mixed sparse templates and gradient scatter.
 - Unsupported `HexTricubicHermite` is recognized but fails explicitly.
 - C++ and Python tests pass with the commands above.
 
