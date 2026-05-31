@@ -48,10 +48,6 @@ struct ElasticModelResult
 class ElasticModelFactory
 {
 public:
-  // Number of elastic parameter channels for a given material type.
-  // For legacy path used through Task 6p — may need mesh for shell materials.
-  static int numParameters(const SimulationMesh &mesh, DeformationModelElasticMaterial type);
-
   // Create the elastic material model for one element.
   // fiberDirection: 3-vector in the element's fiber frame (row 0 of fiberAxesRest),
   // used by Hill-type materials. May be nullptr when no fiber direction is configured.

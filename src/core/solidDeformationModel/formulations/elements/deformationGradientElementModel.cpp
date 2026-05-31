@@ -17,14 +17,13 @@ namespace SolidDeformationModel
 // ============================================================
 
 DeformationGradientElementModel::DeformationGradientElementModel(
-  int ele, const double *restPositions,
-  const Basis &basis, const Quadrature &quadrature,
+  int ele, DeformationGradientKernel &&kernel,
   const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock):
   DeformationModel(elasticBlock.model, plasticBlock.model),
-  numNodes_(basis.numNodes()),
-  numQuadPts_(quadrature.numPoints()),
-  localDofs_(basis.localDofs()),
-  kernel_(restPositions, basis, quadrature),
+  numNodes_(kernel.numNodes()),
+  numQuadPts_(kernel.numQuadraturePoints()),
+  localDofs_(kernel.localDofs()),
+  kernel_(std::move(kernel)),
   ele_(ele),
   elasticBlock_(elasticBlock),
   plasticBlock_(plasticBlock)
@@ -45,41 +44,6 @@ DeformationGradientElementModel::DeformationGradientElementModel(
   numElasticParams_ = elasticModel_->getNumParameters();
 }
 
-DeformationGradientElementModel::DeformationGradientElementModel(
-  const double *restPositions,
-  const Basis &basis, const Quadrature &quadrature,
-  ElasticModel *elasticModel, PlasticModel *plasticModel):
-  DeformationModel(elasticModel, plasticModel),
-  numNodes_(basis.numNodes()),
-  numQuadPts_(quadrature.numPoints()),
-  localDofs_(basis.localDofs()),
-  kernel_(restPositions, basis, quadrature),
-  ele_(-1)
-{
-  elasticModel_ = dynamic_cast<const ElasticModel3DDeformationGradient *>(elasticModel);
-  plasticModel_ = dynamic_cast<const PlasticModel3DDeformationGradient *>(plasticModel);
-
-  if (elasticModel_ == nullptr) {
-    throw std::invalid_argument(
-      "DeformationGradientElementModel requires ElasticModel3DDeformationGradient.");
-  }
-  if (plasticModel_ == nullptr) {
-    throw std::invalid_argument(
-      "DeformationGradientElementModel requires PlasticModel3DDeformationGradient.");
-  }
-
-  numPlasticParams_ = plasticModel_->getNumParameters();
-  numElasticParams_ = elasticModel_->getNumParameters();
-
-  compatZeroPlasticParams_.setZero(numPlasticParams_);
-  compatZeroElasticParams_.setZero(numElasticParams_);
-
-  elasticBlock_.model = elasticModel;
-  elasticBlock_.parameters = nullptr;
-  plasticBlock_.model = plasticModel;
-  plasticBlock_.parameters = nullptr;
-}
-
 // ============================================================
 // allocateCacheData / elasticParamsPtr
 // ============================================================
@@ -96,7 +60,7 @@ const double *DeformationGradientElementModel::elasticParamsPtr(
 {
   using CD = DeformationGradientElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheData);
-  return cd->numElasticParams ? cd->elasticSample.value.data() : nullptr;
+  return cd->numElasticParams ? cd->elasticParamsValue.data() : nullptr;
 }
 
 // ============================================================
@@ -115,13 +79,12 @@ void DeformationGradientElementModel::prepareData(
 
   for (int q = 0; q < numQuadPts_; q++) {
     if (plasticBlock_.parameters && numPlasticParams_ > 0) {
-      plasticBlock_.parameters->sample(ele_, q, cd->plasticSample);
-    } else if (numPlasticParams_ > 0) {
-      cd->plasticSample.value.setZero(numPlasticParams_);
-      cd->plasticSample.dValueDLocal.setIdentity(numPlasticParams_, numPlasticParams_);
+      plasticBlock_.parameters->computeValue(ele_, q, cd->plasticParamsValue.data());
+      if (auto *opt = dynamic_cast<const OptimizableField *>(plasticBlock_.parameters))
+        opt->computeDerivative(ele_, q, cd->plasticParamsDeriv.data());
     }
 
-    const double *plasticParams = cd->plasticSample.value.data();
+    const double *plasticParams = cd->plasticParamsValue.data();
     plasticModel_->computeA(plasticParams, cd->Fp[q].data());
     plasticModel_->computeAInv(plasticParams, cd->FpInv[q].data());
     cd->detFp[q] = plasticModel_->compute_detA(plasticParams);
@@ -140,10 +103,9 @@ void DeformationGradientElementModel::prepareData(
     }
 
     if (elasticBlock_.parameters && numElasticParams_ > 0) {
-      elasticBlock_.parameters->sample(ele_, q, cd->elasticSample);
-    } else if (numElasticParams_ > 0) {
-      cd->elasticSample.value.setZero(numElasticParams_);
-      cd->elasticSample.dValueDLocal.setIdentity(numElasticParams_, numElasticParams_);
+      elasticBlock_.parameters->computeValue(ele_, q, cd->elasticParamsValue.data());
+      if (auto *opt = dynamic_cast<const OptimizableField *>(elasticBlock_.parameters))
+        opt->computeDerivative(ele_, q, cd->elasticParamsDeriv.data());
     }
 
     kernel_.computeFref(x, q, cd->Fref[q].data());
@@ -415,7 +377,7 @@ void DeformationGradientElementModel::compute_dE_da(
     }
   }
 
-  gradVec = cd->plasticSample.dValueDLocal.transpose() * gradVec;
+  gradVec = cd->plasticParamsDeriv.transpose() * gradVec;
 
   for (int i = 0; i < numPlasticParams_; i++) {
     grad[i] = gradVec[i];
@@ -462,7 +424,7 @@ void DeformationGradientElementModel::compute_d2E_da2(
     }
   }
 
-  const auto &dVal = cd->plasticSample.dValueDLocal;
+  const auto &dVal = cd->plasticParamsDeriv;
   hessMat = dVal.transpose() * hessMat * dVal;
 
   Eigen::Map<ES::MXd>(hess, numPlasticParams_, numPlasticParams_) = hessMat;
@@ -511,7 +473,7 @@ void DeformationGradientElementModel::compute_d2E_dxda(
     }
   }
 
-  mixed = mixed * cd->plasticSample.dValueDLocal;
+  mixed = mixed * cd->plasticParamsDeriv;
 
   Eigen::Map<ES::MXd>(hess, localDofs_, numPlasticParams_) = mixed;
 }
@@ -538,7 +500,7 @@ void DeformationGradientElementModel::compute_dE_db(
     }
   }
 
-  gradVec = cd->elasticSample.dValueDLocal.transpose() * gradVec;
+  gradVec = cd->elasticParamsDeriv.transpose() * gradVec;
 
   for (int i = 0; i < numElasticParams_; i++) {
     grad[i] = gradVec[i];
@@ -565,7 +527,7 @@ void DeformationGradientElementModel::compute_d2E_db2(
     }
   }
 
-  const auto &dVal = cd->elasticSample.dValueDLocal;
+  const auto &dVal = cd->elasticParamsDeriv;
   hessMat = dVal.transpose() * hessMat * dVal;
 
   Eigen::Map<ES::MXd>(hess, numElasticParams_, numElasticParams_) = hessMat;
@@ -592,7 +554,7 @@ void DeformationGradientElementModel::compute_d2E_dxdb(
     }
   }
 
-  mixed = mixed * cd->elasticSample.dValueDLocal;
+  mixed = mixed * cd->elasticParamsDeriv;
 
   for (int col = 0; col < numElasticParams_; col++) {
     for (int row = 0; row < localDofs_; row++) {
@@ -641,8 +603,8 @@ void DeformationGradientElementModel::compute_d2E_dadb(
     }
   }
 
-  const auto &dValP = cd->plasticSample.dValueDLocal;
-  const auto &dValE = cd->elasticSample.dValueDLocal;
+  const auto &dValP = cd->plasticParamsDeriv;
+  const auto &dValE = cd->elasticParamsDeriv;
   mixed = dValP.transpose() * mixed * dValE;
 }
 

@@ -6,7 +6,7 @@
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-TEST(ConstantParameterField, SampleReturnsCorrectElementConstantValue)
+TEST(ConstantParameterField, ComputeValueReturnsCorrectElementConstantValue)
 {
   ES::VXd globalParams(12);
   globalParams << 1.0, 2.0, 3.0,
@@ -16,52 +16,52 @@ TEST(ConstantParameterField, SampleReturnsCorrectElementConstantValue)
 
   ConstantParameterField field(3, 4, globalParams.data());
 
-  ParameterSample sample;
-  field.sample(0, 0, sample);
-  EXPECT_EQ(sample.value.size(), 3);
-  EXPECT_DOUBLE_EQ(sample.value[0], 1.0);
-  EXPECT_DOUBLE_EQ(sample.value[1], 2.0);
-  EXPECT_DOUBLE_EQ(sample.value[2], 3.0);
+  ES::VXd value(3);
+  field.computeValue(0, 0, value.data());
+  EXPECT_EQ(value.size(), 3);
+  EXPECT_DOUBLE_EQ(value[0], 1.0);
+  EXPECT_DOUBLE_EQ(value[1], 2.0);
+  EXPECT_DOUBLE_EQ(value[2], 3.0);
 
-  field.sample(2, 0, sample);
-  EXPECT_DOUBLE_EQ(sample.value[0], 7.0);
-  EXPECT_DOUBLE_EQ(sample.value[1], 8.0);
-  EXPECT_DOUBLE_EQ(sample.value[2], 9.0);
+  field.computeValue(2, 0, value.data());
+  EXPECT_DOUBLE_EQ(value[0], 7.0);
+  EXPECT_DOUBLE_EQ(value[1], 8.0);
+  EXPECT_DOUBLE_EQ(value[2], 9.0);
 }
 
-TEST(ConstantParameterField, SampleIgnoresQuadratureId)
+TEST(ConstantParameterField, ComputeValueIgnoresQuadratureId)
 {
   ES::VXd globalParams(6);
   globalParams << 10.0, 20.0, 30.0, 40.0, 50.0, 60.0;
 
   ConstantParameterField field(2, 3, globalParams.data());
 
-  ParameterSample s0, s1, s2;
-  field.sample(1, 0, s0);
-  field.sample(1, 3, s1);
-  field.sample(1, 7, s2);
+  ES::VXd v0(2), v1(2), v2(2);
+  field.computeValue(1, 0, v0.data());
+  field.computeValue(1, 3, v1.data());
+  field.computeValue(1, 7, v2.data());
 
-  EXPECT_DOUBLE_EQ(s0.value[0], 30.0);
-  EXPECT_DOUBLE_EQ(s0.value[1], 40.0);
-  EXPECT_DOUBLE_EQ(s1.value[0], 30.0);
-  EXPECT_DOUBLE_EQ(s1.value[1], 40.0);
-  EXPECT_DOUBLE_EQ(s2.value[0], 30.0);
-  EXPECT_DOUBLE_EQ(s2.value[1], 40.0);
+  EXPECT_DOUBLE_EQ(v0[0], 30.0);
+  EXPECT_DOUBLE_EQ(v0[1], 40.0);
+  EXPECT_DOUBLE_EQ(v1[0], 30.0);
+  EXPECT_DOUBLE_EQ(v1[1], 40.0);
+  EXPECT_DOUBLE_EQ(v2[0], 30.0);
+  EXPECT_DOUBLE_EQ(v2[1], 40.0);
 }
 
-TEST(ConstantParameterField, DValueDLocalIsIdentity)
+TEST(ConstantParameterField, ComputeDerivativeIsIdentity)
 {
   ES::VXd globalParams(6);
   globalParams << 1.0, 2.0, 3.0, 4.0, 5.0, 6.0;
 
   ConstantParameterField field(2, 3, globalParams.data());
 
-  ParameterSample sample;
-  field.sample(0, 0, sample);
+  ES::MXd deriv(2, 2);
+  field.computeDerivative(0, 0, deriv.data());
 
-  EXPECT_EQ(sample.dValueDLocal.rows(), 2);
-  EXPECT_EQ(sample.dValueDLocal.cols(), 2);
-  EXPECT_TRUE(sample.dValueDLocal.isIdentity());
+  EXPECT_EQ(deriv.rows(), 2);
+  EXPECT_EQ(deriv.cols(), 2);
+  EXPECT_TRUE(deriv.isIdentity());
 }
 
 TEST(ConstantParameterField, DofLayoutHasCorrectSizes)
@@ -103,11 +103,11 @@ TEST(ConstantParameterField, ZeroChannelField)
   EXPECT_EQ(field.numLocalDofs(), 0);
   EXPECT_EQ(field.kind(), ParameterFieldKind::CONSTANT);
 
-  ParameterSample sample;
-  field.sample(0, 0, sample);
-  EXPECT_EQ(sample.value.size(), 0);
-  EXPECT_EQ(sample.dValueDLocal.rows(), 0);
-  EXPECT_EQ(sample.dValueDLocal.cols(), 0);
+  // computeValue should be a no-op for zero channels
+  field.computeValue(0, 0, nullptr);
+
+  // computeDerivative should be a no-op for zero channels
+  field.computeDerivative(0, 0, nullptr);
 
   const auto *dofLayout = field.dofLayout();
   ASSERT_NE(dofLayout, nullptr);
@@ -124,21 +124,13 @@ TEST(ConstantParameterField, SetGlobalData)
 
   ConstantParameterField field(2, 3, data1.data());
 
-  ParameterSample sample;
-  field.sample(0, 0, sample);
-  EXPECT_DOUBLE_EQ(sample.value[0], 1.0);
+  ES::VXd value(2);
+  field.computeValue(0, 0, value.data());
+  EXPECT_DOUBLE_EQ(value[0], 1.0);
 
   field.setGlobalData(data2.data());
-  field.sample(0, 0, sample);
-  EXPECT_DOUBLE_EQ(sample.value[0], 10.0);
-}
-
-TEST(ConstantParameterField, ExposeAsOptimizationVariableThrows)
-{
-  ES::VXd data(4);
-  ConstantParameterField field(2, 2, data.data());
-
-  EXPECT_THROW(field.setExposeAsOptimizationVariable(true), std::invalid_argument);
+  field.computeValue(0, 0, value.data());
+  EXPECT_DOUBLE_EQ(value[0], 10.0);
 }
 
 TEST(ConstantParameterField, MultipleElementsCorrectSlices)
@@ -148,16 +140,31 @@ TEST(ConstantParameterField, MultipleElementsCorrectSlices)
 
   ConstantParameterField field(2, 4, globalParams.data());
 
-  ParameterSample sample;
-  field.sample(0, 0, sample);
-  EXPECT_DOUBLE_EQ(sample.value[0], 10.0);
-  EXPECT_DOUBLE_EQ(sample.value[1], 20.0);
+  ES::VXd value(2);
+  field.computeValue(0, 0, value.data());
+  EXPECT_DOUBLE_EQ(value[0], 10.0);
+  EXPECT_DOUBLE_EQ(value[1], 20.0);
 
-  field.sample(1, 0, sample);
-  EXPECT_DOUBLE_EQ(sample.value[0], 30.0);
-  EXPECT_DOUBLE_EQ(sample.value[1], 40.0);
+  field.computeValue(1, 0, value.data());
+  EXPECT_DOUBLE_EQ(value[0], 30.0);
+  EXPECT_DOUBLE_EQ(value[1], 40.0);
 
-  field.sample(3, 0, sample);
-  EXPECT_DOUBLE_EQ(sample.value[0], 70.0);
-  EXPECT_DOUBLE_EQ(sample.value[1], 80.0);
+  field.computeValue(3, 0, value.data());
+  EXPECT_DOUBLE_EQ(value[0], 70.0);
+  EXPECT_DOUBLE_EQ(value[1], 80.0);
+}
+
+TEST(ConstantParameterField, CastToOptimizableFieldSucceeds)
+{
+  ES::VXd globalParams(4);
+  globalParams << 1.0, 2.0, 3.0, 4.0;
+
+  ConstantParameterField field(2, 2, globalParams.data());
+
+  auto *opt = dynamic_cast<OptimizableField *>(&field);
+  ASSERT_NE(opt, nullptr);
+
+  ES::MXd deriv(2, 2);
+  opt->computeDerivative(0, 0, deriv.data());
+  EXPECT_TRUE(deriv.isIdentity());
 }

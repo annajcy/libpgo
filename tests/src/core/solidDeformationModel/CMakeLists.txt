@@ -45,10 +45,10 @@ target_link_libraries(deformationGradientElementModel_gtest PRIVATE GTest::gtest
 set_property(TARGET deformationGradientElementModel_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(deformationGradientElementModel_gtest)
 
-add_executable(koiterShellElementModel_gtest formulations/elements/koiterShellElementModel_gtest.cpp)
-target_link_libraries(koiterShellElementModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
-set_property(TARGET koiterShellElementModel_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(koiterShellElementModel_gtest)
+add_executable(shellElementModel_gtest formulations/elements/shellElementModel_gtest.cpp)
+target_link_libraries(shellElementModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET shellElementModel_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(shellElementModel_gtest)
 
 add_executable(deformationModelFormulation_gtest formulations/deformationModelFormulation_gtest.cpp)
 target_link_libraries(deformationModelFormulation_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)

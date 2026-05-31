@@ -1,7 +1,5 @@
 #include "plasticModelFactory.h"
 
-#include "../simulationMesh.h"
-
 #include "../plasticModel.h"
 #include "../plasticModel3DDeformationGradient.h"
 #include "../plasticModel3D3DOF.h"
@@ -34,8 +32,6 @@ int PlasticModelFactory::numParameters(DeformationModelPlasticMaterial type)
 }
 
 PlasticModelResult PlasticModelFactory::create(
-  const SimulationMesh &mesh,
-  int ele,
   DeformationModelPlasticMaterial type,
   const double *fiberAxesRestRow0)
 {

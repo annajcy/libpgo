@@ -132,7 +132,8 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
   auto dmm = std::make_unique<SolidDeformationModel::DeformationModelManager>(
     *simMesh,
     pgo::SolidDeformationModel::DeformationModelPlasticMaterial::SHELL_FF_DOF0,
-    pgo::SolidDeformationModel::DeformationModelElasticMaterial::KOITER_STVK,
+    SolidDeformationModel::DeformationModelElasticMaterial::KOITER_STVK,
+    SolidDeformationModel::KoiterShellFormulation{},
     1);
 
   ES::VXd elasticParams(5 * nele);
@@ -154,8 +155,9 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
     std::make_unique<SolidDeformationModel::DeformationModelAssembler>(
       std::move(dmm), std::move(dofLayout), elementWeights.data());
 
+  auto restPosPtr = std::make_unique<ES::VXd>(std::move(simulationRestPosition));
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy =
-    std::make_shared<SolidDeformationModel::DeformationModelEnergy>(std::move(assembler), &simulationRestPosition, 0);
+    std::make_shared<SolidDeformationModel::DeformationModelEnergy>(std::move(assembler), std::move(restPosPtr), 0);
   elasticEnergy->setEnableMaterialMaxStep(enableMaterialMaxStep);
 
   ES::VXd zero = ES::VXd::Zero(n3);
@@ -184,7 +186,7 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
   IpcSimulationContext context;
   context.M = std::move(M);
   context.simulationMesh = std::move(simMesh);
-  context.simulationRestPosition = std::move(simulationRestPosition);
+  context.simulationRestPosition = elasticEnergy->getRestPosition();
   context.surfaceRestPositions = std::move(surfaceRestPositions);
   context.elasticParams = std::move(elasticParams);
   context.surfaceFromSimulationDispMap = W;

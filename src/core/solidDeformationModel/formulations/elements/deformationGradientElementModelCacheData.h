@@ -1,8 +1,6 @@
 #pragma once
 
 #include "../../deformationModel.h"
-#include "../parameters/parameterField.h"
-
 #include "EigenSupport.h"
 
 #include <vector>
@@ -42,8 +40,10 @@ struct DeformationGradientElementModelCacheData : public DeformationModelCacheDa
   std::vector<M9xNDOF> dFdx;
   std::vector<M3xN> Bm;
 
-  ParameterSample plasticSample;
-  ParameterSample elasticSample;
+  ES::VXd plasticParamsValue;
+  ES::MXd plasticParamsDeriv;
+  ES::VXd elasticParamsValue;
+  ES::MXd elasticParamsDeriv;
 
   DeformationGradientElementModelCacheData(int numNodes, int numQuadPts,
     int numPlasticParams, int numElasticParams);

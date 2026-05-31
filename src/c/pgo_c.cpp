@@ -678,17 +678,17 @@ int pgo_run_sim_from_config(const char *configFileName)
   int n = simMesh->getNumVertices();
   int n3 = n * 3;
 
-  // Build deformation energy via topology-specific factory.
-  SolidDeformationModel::DeformationModelBundle bundle;
+  // Build deformation energy.
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy;
   switch (simMesh->getElementType()) {
   case SolidDeformationModel::SimulationMeshType::TET:
-    bundle = SolidDeformationModel::makeTetDeformationModel(
-      *simMesh, SolidDeformationModel::TetP1{}, elasticMat,
+    elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
+      *simMesh, SolidDeformationModel::P1TetFormulation{}, elasticMat,
       SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
-    bundle = SolidDeformationModel::makeCubicDeformationModel(
-      *simMesh, SolidDeformationModel::HexTrilinear{}, elasticMat,
+    elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
+      *simMesh, SolidDeformationModel::LinearCubicFormulation{}, elasticMat,
       SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
     break;
   default:
@@ -696,8 +696,7 @@ int pgo_run_sim_from_config(const char *configFileName)
     return 1;
   }
 
-  ES::VXd restPosition = bundle.restPosition;
-  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy = bundle.energy;
+  ES::VXd restPosition = elasticEnergy->getRestPosition();
 
   ES::VXd zero(n3);
   zero.setZero();

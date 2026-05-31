@@ -10,6 +10,7 @@
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
 #include "formulations/kernels/deformationGradientKernel.h"
 #include "formulations/elements/deformationGradientElementModel.h"
+#include "formulations/elements/parameterizedMaterialBlock.h"
 
 #include "EigenSupport.h"
 
@@ -43,9 +44,10 @@ TEST(DeformationGradientElementModelGTest, TetEnergyFiniteAtRest)
   ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
   PlasticModel3DConstant plasticModel(identity);
-  TetP1Basis tetBasis;
-  TetP1DefaultQuadrature tetQuad;
-  DeformationGradientElementModel model(restTet, tetBasis, tetQuad, &elasticModel, &plasticModel);
+  DeformationGradientKernel kernel(restTet, TetP1Basis{}, TetP1DefaultQuadrature{});
+  ElasticBlock elasticBlock{&elasticModel, nullptr};
+  PlasticBlock plasticBlock{&plasticModel, nullptr};
+  DeformationGradientElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
 
   ES::V12d xVec;
   for (int i = 0; i < 12; i++) xVec[i] = restTet[i];
@@ -79,9 +81,10 @@ TEST(DeformationGradientElementModelGTest, HexEnergyFiniteAtRest)
   ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
   PlasticModel3DConstant plasticModel(identity);
-  HexTrilinearBasis hexBasis;
-  GaussLegendreHexQuadrature2 hexQuad;
-  DeformationGradientElementModel model(restHex, hexBasis, hexQuad, &elasticModel, &plasticModel);
+  DeformationGradientKernel kernel(restHex, HexTrilinearBasis{}, GaussLegendreHexQuadrature2{});
+  ElasticBlock elasticBlock{&elasticModel, nullptr};
+  PlasticBlock plasticBlock{&plasticModel, nullptr};
+  DeformationGradientElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
 
   ES::V24d xVec;
   for (int i = 0; i < 24; i++) xVec[i] = restHex[i];
@@ -115,9 +118,10 @@ TEST(DeformationGradientElementModelGTest, TetGradientMatchesFD)
   ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
   PlasticModel3DConstant plasticModel(identity);
-  TetP1Basis tetBasis;
-  TetP1DefaultQuadrature tetQuad;
-  DeformationGradientElementModel model(restTet, tetBasis, tetQuad, &elasticModel, &plasticModel);
+  DeformationGradientKernel kernel(restTet, TetP1Basis{}, TetP1DefaultQuadrature{});
+  ElasticBlock elasticBlock{&elasticModel, nullptr};
+  PlasticBlock plasticBlock{&plasticModel, nullptr};
+  DeformationGradientElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
 
   ES::V12d xVec;
   for (int i = 0; i < 12; i++) xVec[i] = restTet[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));
@@ -161,9 +165,10 @@ TEST(DeformationGradientElementModelGTest, HexGradientMatchesFD)
   ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
   PlasticModel3DConstant plasticModel(identity);
-  HexTrilinearBasis hexBasis;
-  GaussLegendreHexQuadrature2 hexQuad;
-  DeformationGradientElementModel model(restHex, hexBasis, hexQuad, &elasticModel, &plasticModel);
+  DeformationGradientKernel kernel(restHex, HexTrilinearBasis{}, GaussLegendreHexQuadrature2{});
+  ElasticBlock elasticBlock{&elasticModel, nullptr};
+  PlasticBlock plasticBlock{&plasticModel, nullptr};
+  DeformationGradientElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
 
   ES::V24d xVec;
   for (int i = 0; i < 24; i++) xVec[i] = restHex[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));

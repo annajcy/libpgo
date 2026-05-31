@@ -4,6 +4,7 @@ copyright to USC,MIT,NUS
 */
 
 #include "simulationMesh.h"
+#include "deformationModelManager.h"
 
 #include "tetMesh.h"
 #include "cubicMesh.h"
@@ -645,4 +646,44 @@ void pgo::SolidDeformationModel::computeTriangleUV(SimulationMesh *mesh, double 
     }
   }
   mesh->assignElementUVs(uvs.data());
+}
+
+int SimulationMeshMaterial::numElasticParameters(DeformationModelElasticMaterial t) const
+{
+  switch (t) {
+  case DeformationModelElasticMaterial::STABLE_NEO:
+  case DeformationModelElasticMaterial::LINEAR:
+  case DeformationModelElasticMaterial::STVK:
+    return 2;
+  case DeformationModelElasticMaterial::STVK_VOL:
+  case DeformationModelElasticMaterial::INV_STVK:
+  case DeformationModelElasticMaterial::VOLUME:
+  case DeformationModelElasticMaterial::HILL_STABLE_NEO:
+  case DeformationModelElasticMaterial::HILL_STVK:
+  case DeformationModelElasticMaterial::HILL_STVK_VOL:
+    return 3;
+  case DeformationModelElasticMaterial::KOITER_FABRIC:
+    return 2;
+  case DeformationModelElasticMaterial::KOITER_STVK:
+    return 5;
+  case DeformationModelElasticMaterial::MOONEY_RIVLIN:
+    return 0;
+  }
+  return 0;
+}
+
+int SimulationMeshMaterial::numPlasticParameters(DeformationModelPlasticMaterial t) const
+{
+  switch (t) {
+  case DeformationModelPlasticMaterial::VOLUMETRIC_DOF0:
+  case DeformationModelPlasticMaterial::SHELL_FF_DOF0:
+    return 0;
+  case DeformationModelPlasticMaterial::VOLUMETRIC_DOF3:
+    return 3;
+  case DeformationModelPlasticMaterial::VOLUMETRIC_DOF6:
+    return 6;
+  case DeformationModelPlasticMaterial::SHELL_FF_DOF1:
+    return 1;
+  }
+  return 0;
 }

@@ -1,6 +1,7 @@
 #include "setup/femSetup.h"
 
 #include "deformationModelFactory.h"
+#include "deformationModelAssembler.h"
 #include "tetMesh.h"
 #include "cubicMesh.h"
 
@@ -25,15 +26,15 @@ InitializedVolumetricSimulation initializeVolumetricSimulation(
   if (!simMesh)
     throw std::runtime_error("initializeVolumetricSimulation: failed to create SimulationMesh.");
 
-  DeformationModelBundle bundle;
+  std::shared_ptr<DeformationModelEnergy> energy;
 
   switch (simMesh->getElementType()) {
   case SimulationMeshType::TET: {
-    bundle = makeTetDeformationModel(*simMesh, TetP1{}, elasticMat, plasticMat, opts);
+    energy = makeDeformationEnergy(*simMesh, P1TetFormulation{}, elasticMat, plasticMat, opts);
     break;
   }
   case SimulationMeshType::CUBIC: {
-    bundle = makeCubicDeformationModel(*simMesh, HexTrilinear{}, elasticMat, plasticMat, opts);
+    energy = makeDeformationEnergy(*simMesh, LinearCubicFormulation{}, elasticMat, plasticMat, opts);
     break;
   }
   default:
@@ -41,9 +42,9 @@ InitializedVolumetricSimulation initializeVolumetricSimulation(
   }
 
   InitializedVolumetricSimulation initialized;
-  initialized.elasticEnergy = std::move(bundle.energy);
-  initialized.plasticity = std::move(bundle.plasticParams);
-  initialized.restPosition = std::move(bundle.restPosition);
+  initialized.elasticEnergy = energy;
+  initialized.plasticity = energy->assembler().getDeformationModelManager().getPlasticGlobalParams();
+  initialized.restPosition = energy->getRestPosition();
   initialized.simulationMesh = std::move(simMesh);
   return initialized;
 }

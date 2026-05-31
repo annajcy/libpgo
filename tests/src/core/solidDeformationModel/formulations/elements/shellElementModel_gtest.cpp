@@ -3,7 +3,9 @@
 #include "elasticModel2DFundamentalFormsSTVK.h"
 #include "plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "formulations/elements/koiterShellElementModel.h"
+#include "formulations/elements/shellElementModel.h"
+#include "formulations/elements/parameterizedMaterialBlock.h"
+#include "formulations/kernels/koiterShellKernel.h"
 
 #include <cmath>
 #include <algorithm>
@@ -37,13 +39,16 @@ void perturbedDisplacement(double *x, const double *rest, int n, double scale)
 // Interior triangle: energy finite at rest and gradient FD check
 // ============================================================
 
-TEST(KoiterShellElementModelTest, InteriorEnergyFiniteAtRest)
+TEST(ShellElementModelTest, InteriorEnergyFiniteAtRest)
 {
   ElasticModel2DFundamentalFormsSTVK elasticModel;
   PlasticModel2DFundamentalFormsUniformStretch plasticModel;
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  KoiterShellElementModel model(interiorRestX, hasVtx, &elasticModel, &plasticModel);
+  auto kernel = std::make_unique<KoiterShellKernel>(interiorRestX, hasVtx);
+  ElasticBlock elasticBlock{&elasticModel, nullptr};
+  PlasticBlock plasticBlock{&plasticModel, nullptr};
+  ShellElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
 
   auto cd = model.allocateCacheData();
   model.prepareData(interiorRestX, cd.get());
@@ -61,13 +66,16 @@ TEST(KoiterShellElementModelTest, InteriorEnergyFiniteAtRest)
 // Boundary triangle (node 4 missing): energy finite at rest
 // ============================================================
 
-TEST(KoiterShellElementModelTest, BoundaryMissingNode4EnergyFinite)
+TEST(ShellElementModelTest, BoundaryMissingNode4EnergyFinite)
 {
   ElasticModel2DFundamentalFormsSTVK elasticModel;
   PlasticModel2DFundamentalFormsUniformStretch plasticModel;
   const bool hasVtx[6] = { true, true, true, true, false, true };
 
-  KoiterShellElementModel model(interiorRestX, hasVtx, &elasticModel, &plasticModel);
+  auto kernel = std::make_unique<KoiterShellKernel>(interiorRestX, hasVtx);
+  ElasticBlock elasticBlock{&elasticModel, nullptr};
+  PlasticBlock plasticBlock{&plasticModel, nullptr};
+  ShellElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
 
   auto cd = model.allocateCacheData();
   model.prepareData(interiorRestX, cd.get());
@@ -85,13 +93,16 @@ TEST(KoiterShellElementModelTest, BoundaryMissingNode4EnergyFinite)
 // FD sanity check — gradient matches finite difference
 // ============================================================
 
-TEST(KoiterShellElementModelFDTest, GradientMatchesFiniteDifference)
+TEST(ShellElementModelFDTest, GradientMatchesFiniteDifference)
 {
   ElasticModel2DFundamentalFormsSTVK elasticModel;
   PlasticModel2DFundamentalFormsUniformStretch plasticModel;
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  KoiterShellElementModel model(interiorRestX, hasVtx, &elasticModel, &plasticModel);
+  auto kernel = std::make_unique<KoiterShellKernel>(interiorRestX, hasVtx);
+  ElasticBlock elasticBlock{&elasticModel, nullptr};
+  PlasticBlock plasticBlock{&plasticModel, nullptr};
+  ShellElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
 
   auto cd = model.allocateCacheData();
 
@@ -122,13 +133,16 @@ TEST(KoiterShellElementModelFDTest, GradientMatchesFiniteDifference)
 // SPD enable produces symmetric PSD hessian
 // ============================================================
 
-TEST(KoiterShellElementModelTest, SPDEnableProducesSymmetricPSD)
+TEST(ShellElementModelTest, SPDEnableProducesSymmetricPSD)
 {
   ElasticModel2DFundamentalFormsSTVK elasticModel;
   PlasticModel2DFundamentalFormsUniformStretch plasticModel;
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  KoiterShellElementModel model(interiorRestX, hasVtx, &elasticModel, &plasticModel);
+  auto kernel = std::make_unique<KoiterShellKernel>(interiorRestX, hasVtx);
+  ElasticBlock elasticBlock{&elasticModel, nullptr};
+  PlasticBlock plasticBlock{&plasticModel, nullptr};
+  ShellElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
 
   auto cd = model.allocateCacheData();
 

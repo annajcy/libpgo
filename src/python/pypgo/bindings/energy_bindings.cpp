@@ -44,33 +44,15 @@ SolidDeformationModel::DeformationModelPlasticMaterial parsePlasticMaterial(cons
   throw std::invalid_argument("Unknown plastic material: " + s);
 }
 
-void validateTetFormulation(const std::string &s)
-{
-  if (s != "tet_p1") throw std::invalid_argument("Unknown tet formulation: " + s);
-}
-
-void validateCubicFormulation(const std::string &s)
-{
-  if (s != "hex_trilinear") throw std::invalid_argument("Unknown cubic formulation: " + s);
-}
-
-void validateShellFormulation(const std::string &s)
-{
-  if (s != "shell_koiter") throw std::invalid_argument("Unknown shell formulation: " + s);
-}
-
 // Private/experimental deformation energy wrapper.
 // Keeps the SimulationMeshCore alive so the borrowed mesh outlives the energy chain.
 class DeformationEnergyCore
 {
 public:
-  DeformationEnergyCore(SolidDeformationModel::DeformationModelBundle bundle,
+  DeformationEnergyCore(std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy,
     std::shared_ptr<SimulationMeshCore> meshOwner)
     : meshOwner_(std::move(meshOwner)),
-      energy_(std::move(bundle.energy)),
-      restPosition_(std::move(bundle.restPosition)),
-      plasticParams_(std::move(bundle.plasticParams)),
-      elasticParams_(std::move(bundle.elasticParams))
+      energy_(std::move(energy))
   {
   }
 
@@ -78,7 +60,8 @@ public:
 
   std::vector<double> restPositionFlat() const
   {
-    return std::vector<double>(restPosition_.data(), restPosition_.data() + restPosition_.size());
+    const auto &rp = energy_->getRestPosition();
+    return std::vector<double>(rp.data(), rp.data() + rp.size());
   }
 
   std::vector<double> zeroState() const
@@ -135,66 +118,57 @@ private:
 
   std::shared_ptr<SimulationMeshCore> meshOwner_;
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy_;
-  EigenSupport::VXd restPosition_;
-  EigenSupport::VXd plasticParams_;
-  EigenSupport::VXd elasticParams_;
 };
 
 std::shared_ptr<DeformationEnergyCore> createTetDeformationEnergyForTest(
   std::shared_ptr<SimulationMeshCore> meshCore,
   const std::string &elasticMaterial,
-  const std::string &plasticMaterial,
-  const std::string &formulation)
+  const std::string &plasticMaterial)
 {
-  validateTetFormulation(formulation);
   auto elastic = parseElasticMaterial(elasticMaterial);
   auto plastic = parsePlasticMaterial(plasticMaterial);
 
-  SolidDeformationModel::DeformationModelBundle bundle;
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
   {
     nb::gil_scoped_release release;
-    bundle = SolidDeformationModel::makeTetDeformationModel(
-      meshCore->mesh(), SolidDeformationModel::TetP1{}, elastic, plastic);
+    energy = SolidDeformationModel::makeDeformationEnergy(
+      meshCore->mesh(), SolidDeformationModel::P1TetFormulation{}, elastic, plastic);
   }
-  return std::make_shared<DeformationEnergyCore>(std::move(bundle), std::move(meshCore));
+  return std::make_shared<DeformationEnergyCore>(std::move(energy), std::move(meshCore));
 }
 
 std::shared_ptr<DeformationEnergyCore> createCubicDeformationEnergyForTest(
   std::shared_ptr<SimulationMeshCore> meshCore,
   const std::string &elasticMaterial,
-  const std::string &plasticMaterial,
-  const std::string &formulation)
+  const std::string &plasticMaterial)
 {
-  validateCubicFormulation(formulation);
   auto elastic = parseElasticMaterial(elasticMaterial);
   auto plastic = parsePlasticMaterial(plasticMaterial);
 
-  SolidDeformationModel::DeformationModelBundle bundle;
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
   {
     nb::gil_scoped_release release;
-    bundle = SolidDeformationModel::makeCubicDeformationModel(
-      meshCore->mesh(), SolidDeformationModel::HexTrilinear{}, elastic, plastic);
+    energy = SolidDeformationModel::makeDeformationEnergy(
+      meshCore->mesh(), SolidDeformationModel::LinearCubicFormulation{}, elastic, plastic);
   }
-  return std::make_shared<DeformationEnergyCore>(std::move(bundle), std::move(meshCore));
+  return std::make_shared<DeformationEnergyCore>(std::move(energy), std::move(meshCore));
 }
 
 std::shared_ptr<DeformationEnergyCore> createShellDeformationEnergyForTest(
   std::shared_ptr<SimulationMeshCore> meshCore,
   const std::string &elasticMaterial,
-  const std::string &plasticMaterial,
-  const std::string &formulation)
+  const std::string &plasticMaterial)
 {
-  validateShellFormulation(formulation);
   auto elastic = parseElasticMaterial(elasticMaterial);
   auto plastic = parsePlasticMaterial(plasticMaterial);
 
-  SolidDeformationModel::DeformationModelBundle bundle;
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
   {
     nb::gil_scoped_release release;
-    bundle = SolidDeformationModel::makeShellDeformationModel(
-      meshCore->mesh(), SolidDeformationModel::ShellKoiter{}, elastic, plastic);
+    energy = SolidDeformationModel::makeDeformationEnergy(
+      meshCore->mesh(), SolidDeformationModel::KoiterShellFormulation{}, elastic, plastic);
   }
-  return std::make_shared<DeformationEnergyCore>(std::move(bundle), std::move(meshCore));
+  return std::make_shared<DeformationEnergyCore>(std::move(energy), std::move(meshCore));
 }
 
 }  // namespace
@@ -214,18 +188,15 @@ void init_energy_bindings(nb::module_ &m)
   m.def("_create_tet_deformation_energy_for_test", &createTetDeformationEnergyForTest,
     nb::arg("mesh_core"),
     nb::arg("elastic_material") = "stable_neo",
-    nb::arg("plastic_material") = "volumetric_dof6",
-    nb::arg("formulation") = "tet_p1");
+    nb::arg("plastic_material") = "volumetric_dof6");
 
   m.def("_create_cubic_deformation_energy_for_test", &createCubicDeformationEnergyForTest,
     nb::arg("mesh_core"),
     nb::arg("elastic_material") = "stable_neo",
-    nb::arg("plastic_material") = "volumetric_dof6",
-    nb::arg("formulation") = "hex_trilinear");
+    nb::arg("plastic_material") = "volumetric_dof6");
 
   m.def("_create_shell_deformation_energy_for_test", &createShellDeformationEnergyForTest,
     nb::arg("mesh_core"),
     nb::arg("elastic_material") = "koiter_stvk",
-    nb::arg("plastic_material") = "shell_ff_dof1",
-    nb::arg("formulation") = "shell_koiter");
+    nb::arg("plastic_material") = "shell_ff_dof1");
 }

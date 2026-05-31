@@ -41,25 +41,25 @@ TEST(DeformationModelFactoryGTest, TetZeroDisplacementBaseline)
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
   auto simMesh = loadTetMesh(&tetMesh);
   ASSERT_NE(simMesh, nullptr);
-  DeformationModelBundle bundle = makeTetDeformationModel(
-    *simMesh, TetP1{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  auto energy = makeDeformationEnergy(
+    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
-  ASSERT_NE(bundle.energy, nullptr);
-  EXPECT_GT(bundle.energy->getNumDOFs(), 0);
+  ASSERT_NE(energy, nullptr);
+  EXPECT_GT(energy->getNumDOFs(), 0);
 
-  ES::VXd u0 = ES::VXd::Zero(bundle.energy->getNumDOFs());
-  const double f0 = bundle.energy->func(u0);
+  ES::VXd u0 = ES::VXd::Zero(energy->getNumDOFs());
+  const double f0 = energy->func(u0);
   EXPECT_TRUE(std::isfinite(f0));
   EXPECT_NEAR(f0, 0.0, 1e-10);
 
-  ES::VXd grad0 = ES::VXd::Zero(bundle.energy->getNumDOFs());
-  bundle.energy->gradient(u0, grad0);
+  ES::VXd grad0 = ES::VXd::Zero(energy->getNumDOFs());
+  energy->gradient(u0, grad0);
   for (Eigen::Index i = 0; i < grad0.size(); i++)
     EXPECT_TRUE(std::isfinite(grad0[i])) << "Non-finite gradient entry at " << i;
 
   ES::SpMatD h0;
-  bundle.energy->createHessian(h0);
-  bundle.energy->hessian(u0, h0);
+  energy->createHessian(h0);
+  energy->hessian(u0, h0);
   for (Eigen::Index i = 0; i < h0.nonZeros(); i++)
     EXPECT_TRUE(std::isfinite(h0.valuePtr()[i])) << "Non-finite Hessian entry at " << i;
 }
@@ -73,25 +73,25 @@ TEST(DeformationModelFactoryGTest, CubicZeroDisplacementBaseline)
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   auto simMesh = loadCubicMesh(&cubicMesh);
   ASSERT_NE(simMesh, nullptr);
-  DeformationModelBundle bundle = makeCubicDeformationModel(
-    *simMesh, HexTrilinear{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  auto energy = makeDeformationEnergy(
+    *simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
-  ASSERT_NE(bundle.energy, nullptr);
-  EXPECT_GT(bundle.energy->getNumDOFs(), 0);
+  ASSERT_NE(energy, nullptr);
+  EXPECT_GT(energy->getNumDOFs(), 0);
 
-  ES::VXd u0 = ES::VXd::Zero(bundle.energy->getNumDOFs());
-  const double f0 = bundle.energy->func(u0);
+  ES::VXd u0 = ES::VXd::Zero(energy->getNumDOFs());
+  const double f0 = energy->func(u0);
   EXPECT_TRUE(std::isfinite(f0));
   EXPECT_NEAR(f0, 0.0, 1e-10);
 
-  ES::VXd grad0 = ES::VXd::Zero(bundle.energy->getNumDOFs());
-  bundle.energy->gradient(u0, grad0);
+  ES::VXd grad0 = ES::VXd::Zero(energy->getNumDOFs());
+  energy->gradient(u0, grad0);
   for (Eigen::Index i = 0; i < grad0.size(); i++)
     EXPECT_TRUE(std::isfinite(grad0[i])) << "Non-finite gradient entry at " << i;
 
   ES::SpMatD h0;
-  bundle.energy->createHessian(h0);
-  bundle.energy->hessian(u0, h0);
+  energy->createHessian(h0);
+  energy->hessian(u0, h0);
   for (Eigen::Index i = 0; i < h0.nonZeros(); i++)
     EXPECT_TRUE(std::isfinite(h0.valuePtr()[i])) << "Non-finite Hessian entry at " << i;
 }
@@ -105,10 +105,10 @@ TEST(DeformationModelFactoryGTest, TetSimulationMeshFactoryValidatesTopology)
   auto simMesh = loadTetMesh(&tetMesh);
   ASSERT_NE(simMesh, nullptr);
 
-  DeformationModelBundle bundle = makeTetDeformationModel(
-    *simMesh, TetP1{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
-  ASSERT_NE(bundle.energy, nullptr);
-  EXPECT_GT(bundle.energy->getNumDOFs(), 0);
+  auto energy = makeDeformationEnergy(
+    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  ASSERT_NE(energy, nullptr);
+  EXPECT_GT(energy->getNumDOFs(), 0);
 }
 
 // MakeCubicDeformationModel with SimulationMesh reference validates CUBIC topology.
@@ -120,10 +120,10 @@ TEST(DeformationModelFactoryGTest, CubicSimulationMeshFactoryValidatesTopology)
   auto simMesh = loadCubicMesh(&cubicMesh);
   ASSERT_NE(simMesh, nullptr);
 
-  DeformationModelBundle bundle = makeCubicDeformationModel(
-    *simMesh, HexTrilinear{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
-  ASSERT_NE(bundle.energy, nullptr);
-  EXPECT_GT(bundle.energy->getNumDOFs(), 0);
+  auto energy = makeDeformationEnergy(
+    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  ASSERT_NE(energy, nullptr);
+  EXPECT_GT(energy->getNumDOFs(), 0);
 }
 
 // MakeShellDeformationModel with SimulationMesh reference validates SHELL topology
@@ -138,15 +138,15 @@ TEST(DeformationModelFactoryGTest, ShellSimulationMeshFactoryValidatesTopology)
   auto simMesh = loadShellMesh(surfaceMesh, &shellMaterial);
   ASSERT_NE(simMesh, nullptr);
 
-  DeformationModelBundle bundle = makeShellDeformationModel(
-    *simMesh, ShellKoiter{}, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1);
+  auto energy = makeDeformationEnergy(
+    *simMesh, KoiterShellFormulation{}, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1);
 
-  ASSERT_NE(bundle.energy, nullptr);
-  EXPECT_GT(bundle.energy->getNumDOFs(), 0);
-  EXPECT_EQ(bundle.energy->getNumDOFs(), simMesh->getNumVertices() * 3);
+  ASSERT_NE(energy, nullptr);
+  EXPECT_GT(energy->getNumDOFs(), 0);
+  EXPECT_EQ(energy->getNumDOFs(), simMesh->getNumVertices() * 3);
 
-  ES::VXd u0 = ES::VXd::Zero(bundle.energy->getNumDOFs());
-  EXPECT_TRUE(std::isfinite(bundle.energy->func(u0)));
+  ES::VXd u0 = ES::VXd::Zero(energy->getNumDOFs());
+  EXPECT_TRUE(std::isfinite(energy->func(u0)));
 }
 
 // Wrong topology/SimulationMesh type fails at runtime.
@@ -159,7 +159,7 @@ TEST(DeformationModelFactoryGTest, TetFactoryRejectsCubicSimulationMesh)
   ASSERT_NE(simMesh, nullptr);
 
   EXPECT_THROW(
-    makeTetDeformationModel(*simMesh, TetP1{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
+    makeDeformationEnergy(*simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
     std::invalid_argument);
 }
 
@@ -173,28 +173,28 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoTetEnergies)
   auto simMesh = loadTetMesh(&tetMesh);
   ASSERT_NE(simMesh, nullptr);
 
-  DeformationModelBundle b1 = makeTetDeformationModel(
-    *simMesh, TetP1{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
-  DeformationModelBundle b2 = makeTetDeformationModel(
-    *simMesh, TetP1{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  auto b1 = makeDeformationEnergy(
+    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  auto b2 = makeDeformationEnergy(
+    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
-  ASSERT_NE(b1.energy, nullptr);
-  ASSERT_NE(b2.energy, nullptr);
-  EXPECT_EQ(b1.energy->getNumDOFs(), b2.energy->getNumDOFs());
+  ASSERT_NE(b1, nullptr);
+  ASSERT_NE(b2, nullptr);
+  EXPECT_EQ(b1->getNumDOFs(), b2->getNumDOFs());
 
-  ES::VXd u1 = ES::VXd::Zero(b1.energy->getNumDOFs());
-  ES::VXd u2 = ES::VXd::Zero(b2.energy->getNumDOFs());
+  ES::VXd u1 = ES::VXd::Zero(b1->getNumDOFs());
+  ES::VXd u2 = ES::VXd::Zero(b2->getNumDOFs());
 
-  const double f1 = b1.energy->func(u1);
-  const double f2 = b2.energy->func(u2);
+  const double f1 = b1->func(u1);
+  const double f2 = b2->func(u2);
   EXPECT_TRUE(std::isfinite(f1));
   EXPECT_TRUE(std::isfinite(f2));
   EXPECT_NEAR(f1, f2, 1e-12);
 
-  ES::VXd g1 = ES::VXd::Zero(b1.energy->getNumDOFs());
-  ES::VXd g2 = ES::VXd::Zero(b2.energy->getNumDOFs());
-  b1.energy->gradient(u1, g1);
-  b2.energy->gradient(u2, g2);
+  ES::VXd g1 = ES::VXd::Zero(b1->getNumDOFs());
+  ES::VXd g2 = ES::VXd::Zero(b2->getNumDOFs());
+  b1->gradient(u1, g1);
+  b2->gradient(u2, g2);
   for (Eigen::Index i = 0; i < g1.size(); i++) {
     EXPECT_TRUE(std::isfinite(g1[i]));
     EXPECT_TRUE(std::isfinite(g2[i]));
@@ -202,8 +202,8 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoTetEnergies)
 
   // Perturb only the first energy's state; second energy must be unaffected.
   u1[0] += 0.01;
-  const double f1p = b1.energy->func(u1);
-  const double f2p = b2.energy->func(u2);
+  const double f1p = b1->func(u1);
+  const double f2p = b2->func(u2);
   EXPECT_TRUE(std::isfinite(f1p));
   EXPECT_NEAR(f2p, f2, 1e-12);
 }
@@ -218,29 +218,29 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoCubicEnergies)
   auto simMesh = loadCubicMesh(&cubicMesh);
   ASSERT_NE(simMesh, nullptr);
 
-  DeformationModelBundle b1 = makeCubicDeformationModel(
-    *simMesh, HexTrilinear{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
-  DeformationModelBundle b2 = makeCubicDeformationModel(
-    *simMesh, HexTrilinear{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  auto b1 = makeDeformationEnergy(
+    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  auto b2 = makeDeformationEnergy(
+    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
-  ASSERT_NE(b1.energy, nullptr);
-  ASSERT_NE(b2.energy, nullptr);
-  EXPECT_EQ(b1.energy->getNumDOFs(), b2.energy->getNumDOFs());
+  ASSERT_NE(b1, nullptr);
+  ASSERT_NE(b2, nullptr);
+  EXPECT_EQ(b1->getNumDOFs(), b2->getNumDOFs());
 
-  ES::VXd u1 = ES::VXd::Zero(b1.energy->getNumDOFs());
-  ES::VXd u2 = ES::VXd::Zero(b2.energy->getNumDOFs());
+  ES::VXd u1 = ES::VXd::Zero(b1->getNumDOFs());
+  ES::VXd u2 = ES::VXd::Zero(b2->getNumDOFs());
 
-  const double f1 = b1.energy->func(u1);
-  const double f2 = b2.energy->func(u2);
+  const double f1 = b1->func(u1);
+  const double f2 = b2->func(u2);
   EXPECT_TRUE(std::isfinite(f1));
   EXPECT_TRUE(std::isfinite(f2));
   EXPECT_NEAR(f1, f2, 1e-12);
 
   // Hessian at zero displacement: both must produce same sparsity pattern.
   ES::SpMatD h1, h2;
-  b1.energy->createHessian(h1);
-  b2.energy->createHessian(h2);
-  b1.energy->hessian(u1, h1);
-  b2.energy->hessian(u2, h2);
+  b1->createHessian(h1);
+  b2->createHessian(h2);
+  b1->hessian(u1, h1);
+  b2->hessian(u2, h2);
   EXPECT_EQ(h1.nonZeros(), h2.nonZeros());
 }

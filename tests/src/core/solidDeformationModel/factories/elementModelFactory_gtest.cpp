@@ -11,6 +11,7 @@
 #include "triMeshGeo.h"
 #include "factories/elementModelFactory.h"
 #include "factories/elasticModelFactory.h"
+#include "formulations/elements/shellElementModel.h"
 #include "factories/plasticModelFactory.h"
 #include "pgoLogging.h"
 
@@ -31,7 +32,7 @@ constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 // ============================================================
 
 // Verify that ElementModelFactory::create<ShellKoiter> returns the new
-// KoiterShellElementModel type.
+// ShellElementModel type.
 TEST(ElementModelFactoryGTest, CreateShellKoiterReturnsNewElementModelType)
 {
   pgo::Logging::init();
@@ -47,19 +48,21 @@ TEST(ElementModelFactoryGTest, CreateShellKoiterReturnsNewElementModelType)
     *simMesh, 0, DeformationModelElasticMaterial::KOITER_STVK, nullptr);
   std::unique_ptr<ElasticModel> elasticOwner(elasticResult.elementMaterial);
   auto plasticResult = PlasticModelFactory::create(
-    *simMesh, 0, DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
   std::unique_ptr<PlasticModel> plasticOwner(plasticResult.model);
 
-  auto fem = ElementModelFactory::create<ShellKoiter>(
-    *simMesh, 0, elasticResult.elementMaterial, plasticResult.model,
-    DeformationModelElasticMaterial::KOITER_STVK);
+  ElasticBlock elasticBlock{elasticResult.elementMaterial, nullptr};
+  PlasticBlock plasticBlock{plasticResult.model, nullptr};
+  KoiterShellFormulation formulation;
+  auto fem = ElementModelFactory::create(
+    *simMesh, 0, elasticBlock, plasticBlock, formulation);
 
   ASSERT_NE(fem, nullptr);
   EXPECT_EQ(fem->getNumVertices(), 6);
   EXPECT_EQ(fem->getNumDOFs(), 18);
 
-  auto *typed = dynamic_cast<KoiterShellElementModel *>(fem.get());
-  EXPECT_NE(typed, nullptr) << "expected KoiterShellElementModel from factory";
+  auto *typed = dynamic_cast<ShellElementModel *>(fem.get());
+  EXPECT_NE(typed, nullptr) << "expected ShellElementModel from factory";
 }
 
 // Factory throws for non-Koiter elastic materials on shell elements.
@@ -77,13 +80,15 @@ TEST(ElementModelFactoryGTest, CreateShellKoiterRejectsNonShellElasticMaterial)
     *simMesh, 0, DeformationModelElasticMaterial::STABLE_NEO, nullptr);
   std::unique_ptr<ElasticModel> elasticOwner(elasticResult.elementMaterial);
   auto plasticResult = PlasticModelFactory::create(
-    *simMesh, 0, DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
   std::unique_ptr<PlasticModel> plasticOwner(plasticResult.model);
 
+  ElasticBlock elasticBlock{elasticResult.elementMaterial, nullptr};
+  PlasticBlock plasticBlock{plasticResult.model, nullptr};
+  KoiterShellFormulation formulation;
   EXPECT_THROW(
-    ElementModelFactory::create<ShellKoiter>(
-      *simMesh, 0, elasticResult.elementMaterial, plasticResult.model,
-      DeformationModelElasticMaterial::STABLE_NEO),
+    ElementModelFactory::create(
+      *simMesh, 0, elasticBlock, plasticBlock, formulation),
     std::logic_error);
 }
 
@@ -102,7 +107,8 @@ TEST(ElementModelFactoryGTest, TetManagerCreatesFormulationAwareModel)
 
   DeformationModelManager manager(*simMesh,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    DeformationModelElasticMaterial::STABLE_NEO, 1);
+    DeformationModelElasticMaterial::STABLE_NEO,
+    P1TetFormulation{}, 1);
 
   for (int ele = 0; ele < simMesh->getNumElements(); ele++) {
     const auto *fem = manager.getDeformationModel(ele);
@@ -123,7 +129,8 @@ TEST(ElementModelFactoryGTest, CubicManagerCreatesFormulationAwareModel)
 
   DeformationModelManager manager(*simMesh,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    DeformationModelElasticMaterial::STABLE_NEO, 1);
+    DeformationModelElasticMaterial::STABLE_NEO,
+    LinearCubicFormulation{}, 1);
 
   for (int ele = 0; ele < simMesh->getNumElements(); ele++) {
     const auto *fem = manager.getDeformationModel(ele);
@@ -144,19 +151,20 @@ TEST(ElementModelFactoryGTest, MakeTetDeformationModelEndToEnd)
 
   DeformationModelOptions opts;
   opts.enforceSPD = true;
-  auto bundle = makeTetDeformationModel(*simMesh, TetP1{},
+  auto bundle = makeDeformationEnergy(*simMesh,
+    P1TetFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, opts);
 
-  ASSERT_NE(bundle.energy, nullptr);
-  const int ndof = bundle.energy->getNumDOFs();
+  ASSERT_NE(bundle, nullptr);
+  const int ndof = bundle->getNumDOFs();
   EXPECT_EQ(ndof, simMesh->getNumVertices() * 3);
 
   ES::VXd u0 = ES::VXd::Zero(ndof);
-  const double f = bundle.energy->func(u0);
+  const double f = bundle->func(u0);
   EXPECT_TRUE(std::isfinite(f));
   ES::VXd g(ndof);
-  bundle.energy->gradient(u0, g);
+  bundle->gradient(u0, g);
   for (int i = 0; i < ndof; i++)
     EXPECT_TRUE(std::isfinite(g[i]));
 }
@@ -172,19 +180,20 @@ TEST(ElementModelFactoryGTest, MakeCubicDeformationModelEndToEnd)
 
   DeformationModelOptions opts;
   opts.enforceSPD = true;
-  auto bundle = makeCubicDeformationModel(*simMesh, HexTrilinear{},
+  auto bundle = makeDeformationEnergy(*simMesh,
+    LinearCubicFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, opts);
 
-  ASSERT_NE(bundle.energy, nullptr);
-  const int ndof = bundle.energy->getNumDOFs();
+  ASSERT_NE(bundle, nullptr);
+  const int ndof = bundle->getNumDOFs();
   EXPECT_EQ(ndof, simMesh->getNumVertices() * 3);
 
   ES::VXd u0 = ES::VXd::Zero(ndof);
-  const double f = bundle.energy->func(u0);
+  const double f = bundle->func(u0);
   EXPECT_TRUE(std::isfinite(f));
   ES::VXd g(ndof);
-  bundle.energy->gradient(u0, g);
+  bundle->gradient(u0, g);
   for (int i = 0; i < ndof; i++)
     EXPECT_TRUE(std::isfinite(g[i]));
 }

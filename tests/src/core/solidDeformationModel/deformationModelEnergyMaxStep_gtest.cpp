@@ -102,11 +102,12 @@ EnergyFixture makeTetFixture(const std::vector<double> &vertices, const std::vec
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
-  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, 1, nullptr, nullptr);
+  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
 
   auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(fixture.meshOwner.get());
   auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), std::move(dofLayout), nullptr);
-  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), &fixture.restPositions, 0);
+  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler),
+    std::make_unique<ES::VXd>(fixture.restPositions), 0);
   return fixture;
 }
 
@@ -139,11 +140,12 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
-  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, 1, nullptr, nullptr);
+  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
 
   auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(fixture.meshOwner.get());
   auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), std::move(dofLayout), nullptr);
-  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), &fixture.restPositions, 0);
+  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler),
+    std::make_unique<ES::VXd>(fixture.restPositions), 0);
   return fixture;
 }
 
@@ -178,11 +180,12 @@ EnergyFixture makeShellFixture()
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
-  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::SHELL_FF_DOF1, DeformationModelElasticMaterial::KOITER_STVK, 1, nullptr, nullptr);
+  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::SHELL_FF_DOF1, DeformationModelElasticMaterial::KOITER_STVK, pgo::SolidDeformationModel::KoiterShellFormulation{}, 1, nullptr, nullptr);
 
   auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(fixture.meshOwner.get());
   auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), std::move(dofLayout), nullptr);
-  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), &fixture.restPositions, 0);
+  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler),
+    std::make_unique<ES::VXd>(fixture.restPositions), 0);
   return fixture;
 }
 

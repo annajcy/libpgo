@@ -24,6 +24,11 @@ class TetMesh;
 
 namespace SolidDeformationModel
 {
+
+// Forward declarations for enum types (definitions in deformationModelManager.h).
+enum class DeformationModelElasticMaterial : int;
+enum class DeformationModelPlasticMaterial : int;
+
 class SimulationMeshMaterial
 {
 public:
@@ -31,6 +36,12 @@ public:
   virtual ~SimulationMeshMaterial() {}
 
   virtual std::unique_ptr<SimulationMeshMaterial> clone() const = 0;
+
+  // Number of optimization parameters for a given material model type.
+  // Material + model type jointly determine the count. Base implementation
+  // dispatches by enum; override for runtime-defined counts (e.g. Mooney-Rivlin).
+  virtual int numElasticParameters(DeformationModelElasticMaterial t) const;
+  virtual int numPlasticParameters(DeformationModelPlasticMaterial t) const;
 };
 
 class SimulationMeshENuMaterial : public SimulationMeshMaterial
@@ -187,6 +198,8 @@ public:
 
   int getM() const { return M; }
   int getN() const { return N; }
+
+  int numElasticParameters(DeformationModelElasticMaterial) const override { return N + M; }
 
   std::unique_ptr<SimulationMeshMaterial> clone() const override
   {

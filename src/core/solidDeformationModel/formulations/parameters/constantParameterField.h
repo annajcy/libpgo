@@ -6,6 +6,7 @@
 
 namespace pgo
 {
+namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
@@ -18,10 +19,11 @@ public:
   int numChannels() const override { return numChannels_; }
   int numLocalDofs() const override { return numChannels_; }
 
-  void sample(int ele, int quadratureId, ParameterSample &out) const override;
+  void computeValue(int ele, int quadratureId, double *out) const override;
   void setGlobalData(const double *data) override { globalParams_ = data; }
 
   const ParameterDofLayout *dofLayout() const override { return &dofLayout_; }
+  void computeDerivative(int ele, int quadratureId, double *derivOut) const override;
 
 private:
   class ElementParameterDofLayout : public OptimizableField::ParameterDofLayout
@@ -52,19 +54,18 @@ inline ConstantParameterField::ConstantParameterField(
 {
 }
 
-inline void ConstantParameterField::sample(
-  int ele, int /*quadratureId*/, ParameterSample &out) const
+inline void ConstantParameterField::computeValue(
+  int ele, int /*quadratureId*/, double *out) const
 {
-  if (numChannels_ == 0) {
-    out.value.resize(0);
-    out.dValueDLocal.resize(0, 0);
-    return;
-  }
+  if (numChannels_ == 0) return;
+  dofLayout_.gather(ele, globalParams_, out);
+}
 
-  out.value.resize(numChannels_);
-  dofLayout_.gather(ele, globalParams_, out.value.data());
-
-  out.dValueDLocal.setIdentity(numChannels_, numChannels_);
+inline void ConstantParameterField::computeDerivative(
+  int /*ele*/, int /*quadratureId*/, double *derivOut) const
+{
+  if (numChannels_ == 0) return;
+  ES::Mp<ES::MXd>(derivOut, numChannels_, numChannels_).setIdentity();
 }
 
 inline ConstantParameterField::ElementParameterDofLayout::ElementParameterDofLayout(

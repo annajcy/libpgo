@@ -1,8 +1,8 @@
 # Deformation FEM API Refactor Plan
 
-> **状态日期：** 2026-05-29
+> **状态日期：** 2026-05-31
 > **适用范围：** C++ `solidDeformationModel` API 重构 + Python `pypgo.fem` / `pypgo.energy` deformation binding。  
-> **执行约束：** 本计划只重构当前 tet P1 / hex trilinear / shell Koiter deformation 主链路并绑定到 Python；不在本计划内实现 tricubic Hermite FEM 数值内核。
+> **执行约束：** 本计划只重构当前 tet P1 / hex trilinear / shell Koiter deformation 主链路并绑定到 Python；不在本计划内实现 tricubic Hermite FEM 数值内核。Hermite extension point (Task 9) 已推迟，当前 milestone 先 finalize 现有体系的 Python API。
 
 ## 目标
 
@@ -54,343 +54,109 @@ MeshTopology / SimulationMesh
 
 ## 设计决策
 
-### 1. Formulation 用 tag object 表达，按 topology 拆分 factory
+### 1. Formulation 用 class hierarchy 表达，单一 factory 入口
 
-保留现有 `SimulationMeshType::TET` / `CUBIC` / `SHELL` 作为内部 topology metadata，但 public C++ factory 不再接收一个跨拓扑的 `ElementFormulationType`，也不使用只能表达常量的 per-topology enum。改为每类 formulation 用一个 tag object 表达，topology 由 factory 函数名表达。下面是 milestone 结束时的目标 tag 集；Task 2 只引入当前可执行的 `TetP1` / `HexTrilinear` / `ShellKoiter`，Task 9 再加入 `HexTricubicHermite` placeholder。
+保留现有 `SimulationMeshType::TET` / `CUBIC` / `SHELL` 作为内部 topology metadata。Formulation 使用 class hierarchy：`Formulation`（抽象基类）→ `VolumetricFormulation` / `ShellFormulation`（中间层）→ 具体 formulation 类。`VolumetricFormulation` 持有 `Basis` + `Quadrature` 并创建 `DeformationGradientKernel`；`ShellFormulation` 创建 `ShellKernel`。
 
 ```cpp
-struct TetP1 {};
-
-struct HexTrilinear {};
-
-struct HexTricubicHermite
-{
-  int quadratureOrder = 4;
+// 抽象基类
+class Formulation {
+public:
+  virtual ~Formulation() = default;
+  virtual std::string_view getName() const = 0;
+  virtual int getNodesPerElement() const = 0;
+  virtual int getLocalDofs() const = 0;
 };
 
-struct ShellKoiter {};
-```
-
-对应构造入口也按 topology 拆开：
-
-```cpp
-makeTetDeformationModel(..., TetP1{}, ...)
-makeCubicDeformationModel(..., HexTrilinear{}, ...)
-makeCubicDeformationModel(..., HexTricubicHermite{ .quadratureOrder = 5 }, ...)  // Task 9 placeholder, throws until Hermite lands
-makeShellDeformationModel(..., ShellKoiter{}, ...)
-```
-
-不保留旧 `makeDeformationModel(...)` auto-dispatch 入口，也不提供 `AUTO` formulation。迁移后调用方必须选择 topology-specific factory。Python public API 也要求 cubic 调用方显式传入 `pgo.fem.HexTrilinear()`，避免把 topology 名称误当 formulation 名称。
-
-### 2. `FormulationTraits` 只做类型路由，不承载数学公式
-
-每个 formulation tag 可以通过 traits 做编译期 dispatch：
-
-```cpp
-template<class Formulation>
-struct FormulationTraits;
-
-template<>
-struct FormulationTraits<HexTrilinear>
-{
-  using DofLayout = Vertex3DofLayout;
-  using Basis = HexTrilinearBasis;
-  using Quadrature = GaussLegendreHexQuadrature2;
-  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
-  using ElementModel = DeformationGradientElementModel<Kernel>;
-
-  static constexpr int nodesPerElement = 8;
-  static constexpr int localDofs = 24;
-  static constexpr std::string_view name = "hex_trilinear";
-};
-```
-
-Formulation 不强行统一 trait shape——每类 formulation 按实际需要的类型集合声明别名，通过 C++20 concept 做编译期验证。trait 即文档，没有 `NoBasis` / `NoQuadrature` 这类 sentinel：
-
-```cpp
-// formulationConcepts.h — per-category concept，保证编译期安全
-
-// Volumetric deformation-gradient formulation: 需要 Basis + Quadrature
-template<class F>
-concept VolumetricFormulationCategory = requires {
-  typename FormulationTraits<F>::Basis;
-  typename FormulationTraits<F>::Quadrature;
-  typename FormulationTraits<F>::Kernel;
-  typename FormulationTraits<F>::ElementModel;
+// Volumetric — 持有 Basis + Quadrature
+class VolumetricFormulation : public Formulation {
+public:
+  VolumetricFormulation(std::unique_ptr<Basis> basis, std::unique_ptr<Quadrature> quad);
+  const Basis &basis() const;
+  const Quadrature &quadrature() const;
+  std::unique_ptr<DeformationGradientKernel> createKernel(const double *restPositions) const;
 };
 
-// Shell formulation: 需要 ElementStencil，不需要 Basis/Quadrature
-template<class F>
-concept ShellFormulationCategory = requires {
-  typename FormulationTraits<F>::ElementStencil;
-  typename FormulationTraits<F>::Kernel;
-  typename FormulationTraits<F>::ElementModel;
+// Shell — 创建 ShellKernel
+class ShellFormulation : public Formulation {
+public:
+  std::unique_ptr<ShellKernel> createKernel(const double restX[18], const bool hasVtx[6]) const;
 };
+
+// 中间 tag 层
+class TetFormulation : public VolumetricFormulation { ... };
+class CubicFormulation : public VolumetricFormulation { ... };
+
+// 具体 formulation
+class P1TetFormulation : public TetFormulation { ... };         // nodes=4, dofs=12, name="tet_p1"
+class LinearCubicFormulation : public CubicFormulation { ... }; // nodes=8, dofs=24, name="hex_trilinear"
+class KoiterShellFormulation : public ShellFormulation { ... }; // nodes=6, dofs=18, name="shell_koiter"
 ```
 
-运行时边界（Python binding、config）通过 `std::visit` + `if constexpr` 分发：
+统一 factory 入口：
 
 ```cpp
-std::visit([&](const auto &f) {
-  using F = std::decay_t<decltype(f)>;
-  if constexpr (VolumetricFormulationCategory<F>) {
-    // 编译期安全访问 Traits::Basis、Traits::Quadrature
-  } else if constexpr (ShellFormulationCategory<F>) {
-    // 编译期安全访问 Traits::ElementStencil
-  }
-}, formulationVariant);
+std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
+  const SimulationMesh &mesh,
+  const Formulation &formulation,        // P1TetFormulation{} / LinearCubicFormulation{} / KoiterShellFormulation{}
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
+  const DeformationModelOptions &opts = {});
 ```
 
-**为什么有的 formulation 需要 `ElementStencil`，有的不需要？**
+不保留旧 `makeDeformationModel(...)` auto-dispatch 入口。Python public API 要求 cubic 调用方显式传入 `pgo.fem.LinearCubic()`，避免把 topology 名称误当 formulation 名称。
 
-`ElementStencil` 捕捉的是**超出 `numNodes` 能表达的那部分 per-element 拓扑信息**。关键差异是节点是否"同质"：
+> **架构演进说明（2026-05-31）：** 原计划使用 tag struct + `FormulationTraits<T>` 模板 + C++20 concepts 的编译期 dispatch 方案。实施过程中发现该方案对 Python binding（需要运行时 formulation 选择）和 factory 内部 dispatch（需要 `dynamic_cast` 判断 formulation 类别）不友好，且 Concepts 约束在只需要三种 formulation 的场景下过度设计。最终改为 class hierarchy + 虚函数，简化了 binding 边界和 factory 实现。原 `formulationTraits.h`、`formulationConcepts.h`、`deformationFormulations.h` 已删除。
 
-**Volumetric P1（tet P1 / hex trilinear）— 不需要**
+### 2. `Formulation` class hierarchy 做运行时 dispatch，不再使用 `FormulationTraits<T>` 模板
 
-所有节点完全同质：都是 vertex node，每个 node 贡献 3 个位移 DOF，全部使用，没有缺失。`Basis` 的 `numNodes` + 标准 `mesh.getVertex(ele, localNode)` 已经足够。没有额外的 per-element 拓扑数据需要编码。
+原计划使用 `FormulationTraits<T>` 模板 + C++20 concepts 做编译期 dispatch。实施中改为 class hierarchy + 虚函数：
+
+- **`Formulation`** — 抽象基类，提供 `getName()`、`getNodesPerElement()`、`getLocalDofs()`。
+- **`VolumetricFormulation`** — 持有 `Basis` + `Quadrature` 实例，提供 `createKernel(restPositions)` 创建 `DeformationGradientKernel`。
+- **`ShellFormulation`** — 提供 `createKernel(restX, hasVtx)` 创建 `ShellKernel`（当前实现为 `KoiterShellKernel`）。
+
+Factory 和 binding 层通过 `dynamic_cast` 判断 formulation 类别（volumetric vs shell）：
 
 ```cpp
-// TetP1: 从 Basis + mesh 就能拿到全部信息
-//   numNodes = 4, 全部都是 vertex node, 全部存在
-//   → 不需要 ElementStencil（Basis + mesh 足够）
-for (int j = 0; j < 4; j++) {
-  mesh.getVertex(ele, j, restPosition.segment<3>(j * 3).data());
+if (auto *vf = dynamic_cast<const VolumetricFormulation *>(&formulation)) {
+  // 使用 vf->basis(), vf->quadrature(), vf->createKernel(...)
+} else if (auto *sf = dynamic_cast<const ShellFormulation *>(&formulation)) {
+  // 使用 sf->createKernel(...)
 }
 ```
 
-**Shell Koiter — 需要**
+这个设计的权衡：
+- **优点：** Python binding 可以直接接收 `const Formulation &`（nanobind 天然支持多态）；factory 内部不需要 `std::variant` + `std::visit`；新增 formulation 是加一个子类而非修改模板。
+- **代价：** 失去编译期 concept 验证（如"volumetric formulation 必须有 Basis"），但当前只有 3 种 formulation，运行时 `dynamic_cast` 失败即抛异常，代价可接受。
 
-6 个节点但不平等：nodes 0-2 是三角形顶点（始终存在），nodes 3-5 是对边邻居（边界三角形上可能缺失）。额外需要的信息：
-
-```cpp
-// ShellKoiterStencil 编码了这些 Basis + mesh 给不出的信息：
-struct ShellKoiterStencil {
-  static constexpr int numNodes = 6;
-  static constexpr int localDofs = 18;
-
-  // 核心：oppVtx 映射 — 每个三角形边的对边邻居是谁
-  // oppVtx[0] = 4 → node 4 是 edge (1,2) 的对边邻居
-  // oppVtx[1] = 5 → node 5 是 edge (0,2) 的对边邻居
-  // oppVtx[2] = 3 → node 3 是 edge (0,1) 的对边邻居
-  static constexpr int oppVtx[3] = { 4, 5, 3 };
-};
-
-// 构造 kernel 时还需要 hasVtx[6] — 哪些节点存在
-// hasVtx = {1,1,1,  1,0,1}  → node 4 缺失（边界边）
-//                                  secondFundamentalFormEntries
-//                                  跳过 node 4 的贡献
-```
-
-```text
-          2                          Node roles:
-         /|\                         0,1,2 = triangle vertices (always present)
-        / | \                        3 = opp neighbor of edge (0,1)
-       /  |  \                       4 = opp neighbor of edge (1,2)
-      3   |   5                      5 = opp neighbor of edge (0,2)
-       \  |  /
-        \ | /                        Boundary case:
-         \|/                         hasVtx[4]=false → edge (1,2) has no
-          1                          opposite neighbor → skip its contribution
-```
-
-**Hex Tricubic Hermite（未来）— 不需要**
-
-最标准的 conforming full hex tricubic Hermite：8 个 corner，每个 corner 固定 8 个 Hermite mode × 3 空间分量 = 192 local DOF。所有 element 完全一样——没有缺 DOF、没有 edge/face enrichment、没有 hanging node、local corner 顺序固定。local DOF 结构是固定的、完整的、同质的、能直接从 `mesh.getVertex(e, corner)` + mode + component 唯一确定。这里真正需要的是 `HermiteDofLayout`，不是 `ElementStencil`：
-
-```cpp
-// 标准 conforming full tricubic Hermite:
-//   不需要 ElementStencil — local DOF 由 corner + mode + component 唯一确定
-//   HermiteDofLayout 负责 vertexDof(v, mode, component) → global DOF
-for (int c = 0; c < 8; ++c) {
-  int v = mesh.getVertex(e, c);
-  for (int m = 0; m < 8; ++m) {       // val, ∂ξ, ∂η, ∂ζ, ∂²ξη, ∂²ηζ, ∂²ξζ, ∂³ξηζ
-    for (int a = 0; a < 3; ++a) {
-      int gdof = hermiteDofLayout.vertexDof(v, m, a);
-    }
-  }
-}
-```
-
-等未来引入 edge/face enrichment、hanging node、extraordinary point、derivative reconstruction、interface discontinuity、variable modes、orientation transform 时，再引入对应的 Hermite stencil。不要因为 Hermite 看起来高级就强行加 stencil。
-
-判断标准：**如果 local DOF = `mesh.getVertex(e, corner)` + 固定 mode + component 就能唯一确定，就不需要 `ElementStencil`。只有当 local DOF 还依赖 neighbor / edge / face / orientation / missing mask / constraint / chart 时才需要。**
-
-**结论：** `ElementStencil` 存在的意义是编码"同质顶点列表之外"的 per-element 拓扑——节点角色分化、节点缺失掩码、DOF 组分映射。Basis 只管插值，不该背不该由它背的拓扑语义。P1 和标准 conforming Hermite 都不需要，因为它们的 local DOF 完全由 `corner vertices + 固定 mode + component` 唯一确定；Shell Koiter 需要，因为每个 element 的 neighbor 可能缺失、角色不对等。
-
-Concrete trait specializations——每个只声明自己实际需要的别名，trait 即文档：
-
-```cpp
-// Volumetric: 有 Basis + Quadrature，没有 ElementStencil
-template<>
-struct FormulationTraits<TetP1>
-{
-  using DofLayout = Vertex3DofLayout;
-  using Basis = TetP1Basis;
-  using Quadrature = TetP1DefaultQuadrature;
-  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
-  using ElementModel = DeformationGradientElementModel<Kernel>;
-
-  static constexpr int nodesPerElement = 4;
-  static constexpr int localDofs = 12;
-  static constexpr std::string_view name = "tet_p1";
-};
-
-template<>
-struct FormulationTraits<HexTrilinear>
-{
-  using DofLayout = Vertex3DofLayout;
-  using Basis = HexTrilinearBasis;
-  using Quadrature = GaussLegendreHexQuadrature2;
-  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
-  using ElementModel = DeformationGradientElementModel<Kernel>;
-
-  static constexpr int nodesPerElement = 8;
-  static constexpr int localDofs = 24;
-  static constexpr std::string_view name = "hex_trilinear";
-};
-
-// Shell: 有 ElementStencil，没有 Basis/Quadrature
-template<>
-struct FormulationTraits<ShellKoiter>
-{
-  using DofLayout = Vertex3DofLayout;
-  using ElementStencil = ShellKoiterStencil;
-  using Kernel = FundamentalFormsKernel;
-  using ElementModel = KoiterShellElementModel;
-
-  static constexpr int nodesPerElement = 6;
-  static constexpr int localDofs = 18;
-  static constexpr std::string_view name = "shell_koiter";
-};
-```
-
-为何这比 sentinel 统一 shape 更好：`FormulationTraits<ShellKoiter>` 不声明 `Basis` / `Quadrature`，泛型代码如果错误访问 `Traits::Basis` 会直接编译失败——这正是我们想要的，因为 shell 没有 reference-element 插值。`VolumetricFormulationCategory` concept 用 `requires { typename Traits::Basis; }` 在重载决议时已经筛选掉了 `ShellKoiter`，后续代码不需要再做 `if constexpr (!std::same_as<Basis, NoBasis>)` 的二次检查。新增 formulation 类别（beam、membrane 等）是加法——只加它需要的 alias + 一个 concept，不影响现有 trait shape。
-
-具体数学公式不要放在 traits 里。公式实现放在 `ElementModel` 或独立 kernel 中：
-
-```text
-Formulation tag
-  -> FormulationTraits
-       -> DofLayout + (per-concept aliases) + Kernel + ElementModel
-```
-
-`TetP1` 和 `HexTrilinear` 都要先抽出明确 kernel，再写 traits。不要让 `FormulationTraits` 指向旧的 `TetMeshDeformationModel` / `CubicMeshDeformationModel` 作为过渡类型；这会把完整 element model 误命名成 kernel，后续读代码的人会分不清抽象层次。旧类可以临时作为 behavior oracle 或兼容 wrapper，但不能成为新 traits 的目标类型。
-
-`ShellKoiter` 是本 milestone 的 supported shell formulation，但它的数学不进入 volumetric `Basis` / `Quadrature` / `DeformationGradientKernel`。Task 5e 会给 shell 建一套平行的 shell-specific stack：`FundamentalFormsKernel -> KoiterShellElementModel`。它的 traits 只声明 `DofLayout` / `ElementStencil` / `Kernel` / `ElementModel`——不声明 `Basis` / `Quadrature`，因为 shell 不走 reference-domain integral，concept `ShellFormulationCategory` 不要求它们。未来 FE-style shell（DKT、MITC、subdivision、IGA、solid-shell）如果有真正的 reference-element 插值，可以在它们的 traits 里加上 `Basis` / `Quadrature`，concept 自然扩展或 union。
-
-更准确的数学分层是：
-
-```text
-Basis
-  = reference element field interpolation
-  = node/DOF shape, N(xi), dN/dxi
-
-Quadrature
-  = integration point policy on the reference element
-  = xi_q, w_q
-
-Kernel<Basis, Quadrature>
-  = rest-geometry precomputation plus deformation-gradient kinematics
-  = dN/dX, F(u), dF/du, detJ * weight
-
-ElementModel<Kernel, ElasticModel, PlasticModel>
-  = complete per-element energy process
-  = gather local state, call Kernel, call ElasticModel/PlasticModel, accumulate E/grad/H
-```
-
-这里不要把 `Basis` 命名成裸 `Field`。`Field` 容易和 plastic field、fiber field、displacement field 混淆；本计划采用 `Basis` / `ReferenceElementBasis` 表达 FEM basis function field。`Quadrature` 是独立策略，这样同一个 basis 后续可以接 full integration、reduced integration、selective reduced integration 或 Hermite higher-order quadrature，而不需要复制 basis 实现。
-
-但第一版工程实现不要把 `ElasticModel` 和 `PlasticModel` 也模板化进 `FormulationTraits`，否则 `HexTrilinear x StableNeo x StVK x MooneyRivlin x Hill x PlasticNone x Plastic6Dof` 会变成组合爆炸，并且 Python/config 的运行时 recipe 很难映射。目标落地形态是：
-
-```cpp
-template<class Basis, class Quadrature>
-class DeformationGradientKernel;
-
-template<class Kernel>
-class DeformationGradientElementModel;
-
-template<>
-struct FormulationTraits<HexTrilinear>
-{
-  using DofLayout = Vertex3DofLayout;
-  using Basis = HexTrilinearBasis;
-  using Quadrature = GaussLegendreHexQuadrature2;
-  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
-  using ElementModel = DeformationGradientElementModel<Kernel>;
-};
-```
-
-`ElementModelFactory` 负责用 `FormulationTraits<Formulation>::ElementModel` 创建元素模型，并把 runtime 构造出的 `ElasticModel *` / `PlasticModel *` 注入进去。也就是说，数学概念上可以理解为 `ElementModel<Kernel, ElasticModel, PlasticModel>`，但 C++ 第一版 API 固定为 `ElementModel<Kernel>` + runtime material/plastic dependency injection。`FormulationTraits` 不能声明具体的 `StableNeo`、`MooneyRivlin`、`HillFiber` 或 `Plastic6Dof` 类型。
-
-第一版必须同步落地两个 deformation-gradient formulation 组合：
-
-```cpp
-template<>
-struct FormulationTraits<TetP1>
-{
-  using DofLayout = Vertex3DofLayout;
-  using Basis = TetP1Basis;
-  using Quadrature = TetP1DefaultQuadrature;
-  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
-  using ElementModel = DeformationGradientElementModel<Kernel>;
-
-  static constexpr int nodesPerElement = 4;
-  static constexpr int localDofs = 12;
-  static constexpr std::string_view name = "tet_p1";
-};
-
-template<>
-struct FormulationTraits<HexTrilinear>
-{
-  using DofLayout = Vertex3DofLayout;
-  using Basis = HexTrilinearBasis;
-  using Quadrature = GaussLegendreHexQuadrature2;
-  using Kernel = DeformationGradientKernel<Basis, Quadrature>;
-  using ElementModel = DeformationGradientElementModel<Kernel>;
-
-  static constexpr int nodesPerElement = 8;
-  static constexpr int localDofs = 24;
-  static constexpr std::string_view name = "hex_trilinear";
-};
-```
-
-这样 tet P1 和 hex trilinear 在新架构中是平级 formulation；区别只在 basis/quadrature/local DOF，而不是一个走新抽象、一个留在旧模型。第一版不把 quadrature 做成 Python/API 可配置项，只在 C++ traits 中固定默认组合，避免当前 migration 变成通用 FEM framework 重写。
-
-所有模板类和模板 factory 的实现直接写在对应 header 中；本计划不新增 `.inl` 文件，也不新增 `TetP1Kernel` / `HexTrilinearKernel` 这类兼容 alias。
-
-> **已更新（2026-05-29）**：Basis/Quadrature/Kernel/ElementModel 已去模板化，改为虚函数 dispatch。所有实现移入 `.cpp` 文件，header 仅保留声明。详见 Task 1 更新。
-
-### 3. Formulation dispatch 使用虚函数，不使用 `std::variant`
+### 3. Formulation dispatch 使用 class hierarchy + 虚函数
 
 Basis、Quadrature、Kernel 层使用虚函数做 runtime dispatch：
 
 - `Basis` 虚基类（`formulations/basis/basis.h`）：`numNodes()`、`localDofs()`、`N()`、`dN_dxi()`、`nodeCoords()`。
 - `Quadrature` 虚基类（`formulations/quadrature/quadrature.h`）：`numPoints()`、`point()`、`weight()`。
+- `ShellKernel` 虚基类（`formulations/kernels/shellKernel.h`）：`compute_a_and_derivatives()`、`compute_b_and_derivatives()`、`restI()`、`restII()`、`restArea()`、`hasVtx()`。
 - `TetP1Basis` / `HexTrilinearBasis` 继承 `Basis`；`TetP1DefaultQuadrature` / `GaussLegendreHexQuadrature2` 继承 `Quadrature`。
-- `DeformationGradientKernel` 为具体类（非模板），构造函接收 `const Basis &` 和 `const Quadrature &`。
-- `DeformationGradientElementModel` 为具体类（非模板），构造函额外接收 `const Basis &` 和 `const Quadrature &`。
+- `KoiterShellKernel` 继承 `ShellKernel`，实现 Koiter 薄壳微分几何。
+- `DeformationGradientKernel` 为具体类（非模板），构造时接收 `const Basis &` 和 `const Quadrature &`。
+- `DeformationGradientElementModel` 为具体类（非模板），持有 `DeformationGradientKernel`。
+- `ShellElementModel` 为具体类（非模板），持有 `std::unique_ptr<ShellKernel>`，可适配任何 shell kernel 实现。
 
-Factory 层仍使用 tag object + per-tag concept 约束保证编译期安全，但 `ElementModelFactory::create<F>()` 内部直接构造对应 Basis/Quadrature 子类，传给具体的 `DeformationGradientElementModel`。不再需要 `std::variant<...>` + `std::visit`。
-
-`formulations/formulationVariants.h` 已删除。Python/CLI binding 直接传 formulation tag object 给模板 factory overload。
-
-核心 C++ factory 使用 tag object + per-tag concept 约束：
+统一 factory 入口：
 
 ```cpp
-template<TetFormulation F>
-DeformationModelBundle makeTetDeformationModel(
+std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   const SimulationMesh &mesh,
-  const F &formulation,
-  const DeformationModelSpec &spec);
-
-template<CubicFormulation F>
-DeformationModelBundle makeCubicDeformationModel(
-  const SimulationMesh &mesh,
-  const F &formulation,
-  const DeformationModelSpec &spec);
+  const Formulation &formulation,     // P1TetFormulation{} / LinearCubicFormulation{} / KoiterShellFormulation{}
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
+  const DeformationModelOptions &opts = {});
 ```
 
-Template overload 定义在 `deformationModelFactory.h` 中。Python/CLI 直接调用模板重载并传 tag（如 `TetP1{}`）。
+Python/CLI binding 直接传 formulation 具体类实例给 factory。
+
+> **架构演进说明（2026-05-31）：** 原 `formulationVariants.h`、`formulationTraits.h`、`formulationConcepts.h`、`deformationFormulations.h` 已删除。原 per-topology 模板 factory（`makeTetDeformationModel<TetP1>(...)` 等）已合并为单一 `makeDeformationEnergy()`。
 
 ### 4. 新文件按 façade / formulation / factory / material / parameter 分层
 
@@ -405,61 +171,51 @@ Template overload 定义在 `deformationModelFactory.h` 中。Python/CLI 直接�
   deformationModelEnergy.h/.cpp
   deformationModelManager.h/.cpp
 
-  tetMeshDeformationModel.h/.cpp       # legacy-compatible wrapper
-  cubicMeshDeformationModel.h/.cpp     # legacy-compatible wrapper
-  koiterDeformationModel.h/.cpp        # legacy shell oracle until Task 5q deletes it
-
   formulations/
-    deformationFormulations.h
-    formulationTraits.h
-    formulationConcepts.h
-    kernels/
-      deformationGradientKernel.h/.cpp
-      fundamentalFormsKernel.h/.cpp
-      hexTricubicHermiteKernel.h/.cpp  # future
+    formulation.h/.cpp               # Formulation 抽象基类 + Volumetric/Shell + 具体类
 
     basis/
-      basis.h
+      basis.h                        # Basis 虚基类
       tetP1Basis.h/.cpp
       hexTrilinearBasis.h/.cpp
-      hexTricubicHermiteBasis.h/.cpp  # future
 
     quadrature/
-      quadrature.h
+      quadrature.h                   # Quadrature 虚基类
       tetP1DefaultQuadrature.h/.cpp
       gaussLegendreHexQuadrature.h/.cpp
-      hermiteHexQuadrature.h          # future
+
+    kernels/
+      deformationGradientKernel.h/.cpp
+      shellKernel.h                  # ShellKernel 虚基类
+      koiterShellKernel.h/.cpp       # Koiter 薄壳 kernel 实现
 
     elements/
       deformationGradientElementModel.h/.cpp
       deformationGradientElementModelCacheData.h/.cpp
-      koiterShellElementModel.h
-      koiterShellElementModelCacheData.h
+      shellElementModel.h/.cpp        # 通用 shell element model（持有 ShellKernel）
+      shellElementModelCacheData.h
       parameterizedMaterialBlock.h
 
     geometry/
-      tetP1Geometry.h                  # standalone helpers for callers without a kernel
-
+      tetP1Geometry.h
 
     dof/
       dofLayout.h
       vertex3DofLayout.h/.cpp
-      hermiteDofLayout.h/.cpp          # future
 
     parameters/
-      elementQuadratureView.h
       parameterField.h
       constantParameterField.h
 
   factories/
     elasticModelFactory.h/.cpp
     plasticModelFactory.h/.cpp
-    elementModelFactory.h          # header-only template factory
+    elementModelFactory.h/.cpp
 
   materials/
-    elasticModelSpec.h
-    simulationMeshMaterialPayload.h
-    simulationMeshOrthotropicMaterial.h
+    elasticModelSpec.h               # future (Task 7)
+    simulationMeshMaterialPayload.h  # future (Task 7)
+    simulationMeshOrthotropicMaterial.h # future (Task 8)
 ```
 
 测试目录镜像新结构：
@@ -475,10 +231,10 @@ tests/src/core/solidDeformationModel/
       gaussLegendreHexQuadrature_gtest.cpp
     kernels/
       deformationGradientKernel_gtest.cpp
-      fundamentalFormsKernel_gtest.cpp
+      koiterShellKernel_gtest.cpp
     elements/
       deformationGradientElementModel_gtest.cpp
-      koiterShellElementModel_gtest.cpp
+      shellElementModel_gtest.cpp
     dof/
       vertex3DofLayout_gtest.cpp
     parameters/
@@ -489,7 +245,7 @@ tests/src/core/solidDeformationModel/
     elementModelFactory_gtest.cpp
 ```
 
-第一轮不要搬迁所有旧 `elasticModel*` / `plasticModel*` 文件；那会把核心抽象重构变成大规模 include/CMake 搬家。旧 solver law 文件先留在根目录，新 material spec、payload、factory 进入新目录。旧 tet/cubic/shell element wrapper 在 Task 5q 删除；等 Python API 和 formulation 抽象稳定后，再单独做 solver law file relocation。
+旧 tet/cubic/shell element wrapper 已在 Task 5q 删除。
 
 ### 5. Python 第一版 deformation energy 使用位移向量作为 solver state
 
@@ -580,9 +336,9 @@ DeformationModelManager(
   const double *elementFiberDirections = nullptr,
   const double *vertexFiberDirections = nullptr);
 
-makeTetDeformationModel(const SimulationMesh &mesh, TetP1{}, spec);
-makeCubicDeformationModel(const SimulationMesh &mesh, HexTrilinear{}, spec);
-makeShellDeformationModel(const SimulationMesh &mesh, ShellKoiter{}, spec);
+makeDeformationEnergy(mesh, P1TetFormulation{}, spec);
+makeDeformationEnergy(mesh, LinearCubicFormulation{}, spec);
+makeDeformationEnergy(mesh, KoiterShellFormulation{}, spec);
 ```
 
 `DeformationModelManager` 内部只保存 `const SimulationMesh *simulationMesh` 作为 non-owning borrow，不再保存 `ownedMesh`。调用方必须保证 mesh owner 活得比 manager / assembler / energy 链更久。
@@ -798,119 +554,96 @@ plasticParameters:
 
 ## 目标 C++ API
 
-新增或修改：
+### 当前状态（2026-05-31，Tasks 0–6p 完成后）
 
 ```cpp
-enum class MaterialPayloadKind
-{
-  ENU,
-  MOONEY_RIVLIN,
-  ORTHOTROPIC,
-  HILL_ACTIVATION,
+// =================== Formulation class hierarchy ===================
+
+class Formulation {
+public:
+  virtual ~Formulation() = default;
+  virtual std::string_view getName() const = 0;
+  virtual int getNodesPerElement() const = 0;
+  virtual int getLocalDofs() const = 0;
 };
 
-enum class PassiveElasticLaw
-{
-  STABLE_NEO,
-  LINEAR,
-  STVK,
-  STVK_VOL,
-  MOONEY_RIVLIN,
-  ORTHOTROPIC_STVK,
+class VolumetricFormulation : public Formulation {
+public:
+  VolumetricFormulation(std::unique_ptr<Basis> basis, std::unique_ptr<Quadrature> quad);
+  const Basis &basis() const;
+  const Quadrature &quadrature() const;
+  std::unique_ptr<DeformationGradientKernel> createKernel(const double *restPositions) const;
 };
 
-enum class ActiveElasticTerm
-{
-  HILL_FIBER,
+class TetFormulation : public VolumetricFormulation { ... };
+class CubicFormulation : public VolumetricFormulation { ... };
+
+class P1TetFormulation : public TetFormulation { ... };          // name="tet_p1", nodes=4, dofs=12
+class LinearCubicFormulation : public CubicFormulation { ... };  // name="hex_trilinear", nodes=8, dofs=24
+
+class ShellFormulation : public Formulation {
+public:
+  std::unique_ptr<ShellKernel> createKernel(const double restX[18], const bool hasVtx[6]) const;
 };
 
-struct MaterialSlotRef
-{
-  int slot = 0;
+class KoiterShellFormulation : public ShellFormulation { ... };  // name="shell_koiter", nodes=6, dofs=18
+
+// =================== Factory ===================
+
+struct DeformationModelOptions {
+  bool enforceSPD = true;
+  bool enableMaterialMaxStep = true;
+  EigenSupport::VXd elementWeights;
 };
 
-struct FiberFieldSpec
-{
+std::unique_ptr<SimulationMesh> makeSimulationMesh(const VolumetricMeshes::VolumetricMesh &mesh);
+
+// 当前：使用 legacy elastic/plastic enum
+std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
+  const SimulationMesh &mesh,
+  const Formulation &formulation,
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
+  const DeformationModelOptions &opts = {});
+```
+
+### Task 7 完成后（Public API 切到 `ElasticModelSpec`）
+
+```cpp
+// =================== Material Spec (Task 7 新增) ===================
+
+enum class MaterialPayloadKind { ENU, MOONEY_RIVLIN, ORTHOTROPIC, HILL_ACTIVATION };
+
+enum class PassiveElasticLaw { STABLE_NEO, LINEAR, STVK, STVK_VOL, MOONEY_RIVLIN, ORTHOTROPIC_STVK, KOITER_STVK };
+enum class ActiveElasticTerm { HILL_FIBER };
+
+struct PassiveElasticSpec {
+  PassiveElasticLaw law = PassiveElasticLaw::STABLE_NEO;
+  int materialSlot = 0;
+};
+
+struct HillFiberSpec {
+  int materialSlot = 1;
   const double *elementFiberDirections = nullptr;
   const double *vertexFiberDirections = nullptr;
 };
 
-struct PassiveElasticSpec
-{
-  PassiveElasticLaw law = PassiveElasticLaw::STABLE_NEO;
-  MaterialSlotRef material;
-};
-
-struct HillFiberSpec
-{
-  MaterialSlotRef material = { 1 };
-  FiberFieldSpec fibers;
-};
-
-struct ElasticModelSpec
-{
+struct ElasticModelSpec {
   PassiveElasticSpec passive;
   std::vector<HillFiberSpec> hillFiberTerms;
 };
 
-enum class ParameterFieldKind
-{
-  CONSTANT,
-  QUADRATURE_POINT,     // future, not implemented in this milestone
-  NODAL_INTERPOLATED,   // future, not implemented in this milestone
-  EXTERNAL_PROCEDURAL,  // future, not implemented in this milestone
-};
+// =================== Updated Factory (Task 7 完成后) ===================
 
-struct ElasticParameterSpec
-{
-  ParameterFieldKind field = ParameterFieldKind::CONSTANT;
-  bool exposeAsOptimizationVariable = false;
-};
-
-struct PlasticParameterSpec
-{
-  DeformationModelPlasticMaterial parametrization = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
-  ParameterFieldKind field = ParameterFieldKind::CONSTANT;
-  bool exposeAsOptimizationVariable = false;
-};
-
-struct DeformationModelSpec
-{
-  ElasticModelSpec elastic;
-  ElasticParameterSpec elasticParameters;
-  PlasticParameterSpec plasticParameters;
-  DeformationModelOptions options;
-};
-
-std::unique_ptr<SimulationMesh> makeSimulationMesh(
-  const VolumetricMeshes::VolumetricMesh &mesh);
-
-std::unique_ptr<SimulationMesh> loadShellMesh(
-  const Mesh::TriMeshGeo &surface,
-  const SimulationMeshMaterial *material);
-
-template<TetFormulation F>
-DeformationModelBundle makeTetDeformationModel(
+std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   const SimulationMesh &mesh,
-  const F &formulation,
-  const DeformationModelSpec &spec);
-
-template<CubicFormulation F>
-DeformationModelBundle makeCubicDeformationModel(
-  const SimulationMesh &mesh,
-  const F &formulation,
-  const DeformationModelSpec &spec);
-
-template<ShellFormulation F>
-DeformationModelBundle makeShellDeformationModel(
-  const SimulationMesh &mesh,
-  const F &formulation,
-  const DeformationModelSpec &spec);
+  const Formulation &formulation,
+  const ElasticModelSpec &elasticSpec,
+  DeformationModelPlasticMaterial plastic,
+  const DeformationModelOptions &opts = {});
 ```
 
-上面是 Task 7 之后的 milestone exit API。Core deformation factory 只接受已经 solver-ready 且由外层明确持有的 `SimulationMesh &`；不要新增从 `TetMesh` / `CubicMesh` / `TriMeshGeo` 直接构造 deformation energy 并隐藏 mesh owner 的 convenience overload。体网格先显式调用 `makeSimulationMesh(...)`，shell 先显式调用 `loadShellMesh(...)` 或 Python `SimulationMesh.create_shell(...)`，然后把 `SimulationMesh` owner 保存在调用边界。为了让重构可验证，Task 2 到 Task 6p 的 topology-specific factory 可以临时接收 legacy `DeformationModelElasticMaterial` / `DeformationModelPlasticMaterial`，但这些 legacy field 只能存在于过渡 call path；Task 7 完成后 public factory 必须切到 `ElasticModelSpec` + `ElasticParameterSpec` + `PlasticParameterSpec`。
-
-旧 `makeDeformationModel(...)` overload 不保留。现有调用方必须迁移到 topology-specific factory。旧 elastic enum 不进入 Task 7 之后的 public factory API；下面表格只是人工迁移对照，不实现 compatibility translator：
+旧 `DeformationModelElasticMaterial` enum 不进入 Task 7 之后的 public factory API。下面表格是人工迁移对照：
 
 | Legacy enum | New spec |
 |---|---|
@@ -922,6 +655,8 @@ DeformationModelBundle makeShellDeformationModel(
 | `HILL_STABLE_NEO` | `PassiveElasticSpec{STABLE_NEO, slot 0}` + `HillFiberSpec{slot 1}` |
 | `HILL_STVK` | `PassiveElasticSpec{STVK, slot 0}` + `HillFiberSpec{slot 1}` |
 | `HILL_STVK_VOL` | `PassiveElasticSpec{STVK_VOL, slot 0}` + `HillFiberSpec{slot 1}` |
+
+`DeformationModelPlasticMaterial` 在本 milestone 保持 enum 形式（`VOLUMETRIC_DOF6` / `VOLUMETRIC_DOF3` / `SHELL_FF_DOF1` 等），暂不引入 `PlasticParameterSpec` struct。`exposeAsOptimizationVariable` 和 `ParameterFieldKind` 非 CONSTANT 的字段保持为 future extension point。
 
 ## Python API 定稿策略
 
@@ -953,9 +688,9 @@ sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
 
 energy = pgo.energy.deformation_energy(
     sim_mesh,
-    formulation=pgo.fem.HexTrilinear(),
+    formulation=pgo.fem.LinearCubic(),
     elastic=pgo.energy.StableNeo(),
-    plastic=pgo.energy.PlasticParameters("volumetric_dof6"),
+    plastic=pgo.energy.Plastic("volumetric_dof6"),
 )
 
 u = energy.zero_state()
@@ -965,13 +700,12 @@ H = energy.hessian(u)
 rows, cols, values = H.to_coo()
 ```
 
-Python formulation objects：
+Python formulation objects（名称为 C++ 类名保持一致）：
 
 ```python
-pgo.fem.TetP1()
-pgo.fem.HexTrilinear()
-pgo.fem.HexTricubicHermite(...)  # added in Task 9, raises NotImplementedError until Hermite core lands
-pgo.fem.ShellKoiter()
+pgo.fem.P1Tet()           # P1TetFormulation
+pgo.fem.LinearCubic()     # LinearCubicFormulation
+pgo.fem.KoiterShell()     # KoiterShellFormulation
 ```
 
 Python elastic law / recipe objects：
@@ -991,24 +725,21 @@ pgo.energy.HillFiber(
 
 最终定稿时应满足的规则：
 
-- Tet mesh 可显式传 `TetP1()`；如果 formulation omitted，可默认 `TetP1()`。
-- Cubic mesh 必须显式传 `HexTrilinear()`；不传时抛 `ValueError`，提示当前 cubic topology 有多个未来 formulation。
-- Shell mesh 必须显式传 `ShellKoiter()`，并使用现有 `SimulationMesh.create_shell(...)` 产生的 shell payload；shell 走 Task 5e 的 `FundamentalFormsKernel -> KoiterShellElementModel` pipeline，不进入 volumetric `Basis` / `Quadrature` / `DeformationGradientKernel` 抽象。
-- Public Python API 不按 Task 4 / Task 7 / Task 8 分批承诺材料支持；等 C++ material recipe migration 完成后，一次性决定 first public release 支持哪些 recipes。
-- 第一版 Python 可以把 elastic/plastic parameter field 默认成 element-constant；nodal / quadrature / external parameter fields 和 optimized elastic/plastic parameters 必须等 C++ `ParameterField` 导数测试完成后再暴露。
+- Tet mesh 可显式传 `P1Tet()`；如果 formulation omitted，可默认 `P1Tet()`。
+- Cubic mesh 必须显式传 `LinearCubic()`；不传时抛 `ValueError`，提示当前 cubic topology 有多个未来 formulation。
+- Shell mesh 必须显式传 `KoiterShell()`，并使用现有 `SimulationMesh.create_shell(...)` 产生的 shell payload；shell 走 `ShellFormulation -> KoiterShellKernel -> ShellElementModel` pipeline，不进入 volumetric `Basis` / `Quadrature` / `DeformationGradientKernel` 抽象。
+- 第一版 Python 把 elastic/plastic parameter field 默认成 element-constant；nodal / quadrature / external parameter fields 和 optimized elastic/plastic parameters 必须等 C++ `ParameterField` 导数测试完成后再暴露。
 - `MooneyRivlin + MooneyRivlin law`、`base law + HillFiber`、`Orthotropic + OrthotropicStVK law` 只有在对应 C++ payload conversion、law factory、mismatch tests 完成后才能进入 public Python API。
-- `HexTricubicHermite()` 是否作为 future-facing Python dataclass 暴露，由最终 API checkpoint 决定；如果暴露，`deformation_energy(..., HexTricubicHermite())` 必须抛 `NotImplementedError`，不能静默落到 trilinear。
 - Hill 必须要求 `HillActivation` payload 和 fiber field；不能把 Hill 当作无方向的 passive law。
 
 ## Topology/Formulation Matrix
 
-| Topology | Formulation | DofLayout | 状态 |
-|---|---|---|---|
-| `TetMesh` / `SimulationMeshType::TET` | `TetP1` | `Vertex3DofLayout` | 抽成 `DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>` + `DeformationGradientElementModel<Kernel>`，行为必须严格保持 |
-| `CubicMesh` / `SimulationMeshType::CUBIC` | `HexTrilinear` | `Vertex3DofLayout` | 抽成 `DeformationGradientKernel<HexTrilinearBasis, GaussLegendreHexQuadrature2>` + `DeformationGradientElementModel<Kernel>`，当前 cubic 行为必须显式命名并严格保持 |
-| `CubicMesh` / `SimulationMeshType::CUBIC` | `HexTricubicHermite` | `HermiteDofLayout` | future，当前抛 `not implemented` |
-| shell `SimulationMeshType::SHELL` | `ShellKoiter` | `Vertex3DofLayout` with invalid local sentinel | Task 5e 抽成 `ShellKoiterStencil` + `FundamentalFormsKernel` + `KoiterShellElementModel`；不并入 volumetric basis/quadrature/kernel 抽象 |
-| `SimulationMeshType::TRIANGLE` / `EDGE_QUAD` | none | none | 不在本计划 deformation energy 范围内 |
+| Topology | Formulation | C++ Class | DofLayout | 状态 |
+|---|---|---|---|---|
+| `TetMesh` / `SimulationMeshType::TET` | `P1Tet` | `P1TetFormulation` | `Vertex3DofLayout` | `DeformationGradientKernel(TetP1Basis, TetP1DefaultQuadrature)` + `DeformationGradientElementModel`，行为严格保持 |
+| `CubicMesh` / `SimulationMeshType::CUBIC` | `LinearCubic` | `LinearCubicFormulation` | `Vertex3DofLayout` | `DeformationGradientKernel(HexTrilinearBasis, GaussLegendreHexQuadrature2)` + `DeformationGradientElementModel`，行为严格保持 |
+| shell `SimulationMeshType::SHELL` | `KoiterShell` | `KoiterShellFormulation` | `Vertex3DofLayout` with invalid local sentinel | `KoiterShellKernel` + `ShellElementModel`；不并入 volumetric basis/quadrature/kernel 抽象 |
+| `SimulationMeshType::TRIANGLE` / `EDGE_QUAD` | none | none | none | 不在本计划 deformation energy 范围内 |
 
 ## Material Recipe Matrix
 
@@ -1017,68 +748,84 @@ pgo.energy.HillFiber(
 | `SimulationMeshENuMaterial` | `StableNeo` | `ElasticModelStableNeoHookeanMaterial` | 当前行为，必须保持 |
 | `SimulationMeshENuMaterial` | `Linear` | `ElasticModelLinearMaterial` | 当前行为，通过新 recipe 表达 |
 | `SimulationMeshENuMaterial` | `StVK` | `ElasticModel3DSTVKMaterial` or invariant StVK path | 当前行为，通过新 recipe 表达 |
-| `SimulationMeshMooneyRivlinMaterial` | `MooneyRivlin` | `ElasticModel3DMooneyRivlin` | C++ mapping/test 先落地，Task 10 决定是否进入 first public Python API |
-| `SimulationMeshOrthotropicMaterial` | `OrthotropicStVK` | new `ElasticModel3DOrthotropicStVK` | 本计划补齐 C++ law 后，Task 10 决定是否进入 first public Python API |
-| `SimulationMeshENuMaterial` + `SimulationMeshHillMaterial` + fibers | `HillFiber(base=StableNeo/StVK/StVKVol)` | `ElasticModelCombinedMaterial` | C++ composite recipe 先落地，Task 10 决定 public Python 表面 |
-| `SimulationMeshENuhMaterial` shell payload | `KoiterStVK` | `ElasticModel2DFundamentalFormsSTVK` + `KoiterShellElementModel<FundamentalFormsKernel<...>>` | 当前 shell 行为通过 Task 5e 新 shell element stack 保持，Task 10 决定 public Python 表面 |
+| `SimulationMeshMooneyRivlinMaterial` | `MooneyRivlin` | `ElasticModel3DMooneyRivlin` | C++ mapping/test 先落地（Task 7）|
+| `SimulationMeshOrthotropicMaterial` | `OrthotropicStVK` | new `ElasticModel3DOrthotropicStVK` | C++ law 补齐（Task 8）|
+| `SimulationMeshENuMaterial` + `SimulationMeshHillMaterial` + fibers | `HillFiber(base=StableNeo/StVK/StVKVol)` | `ElasticModelCombinedMaterial` | C++ composite recipe 先落地（Task 7）|
+| `SimulationMeshENuhMaterial` shell payload | `KoiterStVK` | `ElasticModel2DFundamentalFormsSTVK` + `ShellElementModel(KoiterShellKernel)` | 当前 shell 行为通过新 shell element stack 保持 |
 
 不支持的组合必须 fail fast。例如 `StableNeo` 不能读取 `MooneyRivlin` payload，`HillFiber` 不能缺少 fiber direction，`OrthotropicStVK` 不能在 `ElasticModel3DOrthotropicStVK` 测试通过前开放。
 
 ## File Map
 
-### 新增
+### 已完成（Tasks 0–6p）
 
-- `src/core/solidDeformationModel/formulations/deformationFormulations.h`
-- `src/core/solidDeformationModel/formulations/formulationTraits.h`
-- `src/core/solidDeformationModel/formulations/formulationConcepts.h`
+- `src/core/solidDeformationModel/formulations/formulation.h`
+- `src/core/solidDeformationModel/formulations/formulation.cpp`
+- `src/core/solidDeformationModel/formulations/basis/basis.h`
 - `src/core/solidDeformationModel/formulations/basis/tetP1Basis.h`
 - `src/core/solidDeformationModel/formulations/basis/tetP1Basis.cpp`
 - `src/core/solidDeformationModel/formulations/basis/hexTrilinearBasis.h`
 - `src/core/solidDeformationModel/formulations/basis/hexTrilinearBasis.cpp`
+- `src/core/solidDeformationModel/formulations/quadrature/quadrature.h`
 - `src/core/solidDeformationModel/formulations/quadrature/tetP1DefaultQuadrature.h`
 - `src/core/solidDeformationModel/formulations/quadrature/gaussLegendreHexQuadrature.h`
 - `src/core/solidDeformationModel/formulations/kernels/deformationGradientKernel.h`
-- `src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel.h`
+- `src/core/solidDeformationModel/formulations/kernels/deformationGradientKernel.cpp`
+- `src/core/solidDeformationModel/formulations/kernels/shellKernel.h`
+- `src/core/solidDeformationModel/formulations/kernels/koiterShellKernel.h`
+- `src/core/solidDeformationModel/formulations/kernels/koiterShellKernel.cpp`
 - `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.h`
+- `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel.cpp`
 - `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModelCacheData.h`
-- `src/core/solidDeformationModel/formulations/elements/koiterShellElementModel.h`
-- `src/core/solidDeformationModel/formulations/elements/koiterShellElementModelCacheData.h`
+- `src/core/solidDeformationModel/formulations/elements/deformationGradientElementModelCacheData.cpp`
+- `src/core/solidDeformationModel/formulations/elements/shellElementModel.h`
+- `src/core/solidDeformationModel/formulations/elements/shellElementModel.cpp`
+- `src/core/solidDeformationModel/formulations/elements/shellElementModelCacheData.h`
 - `src/core/solidDeformationModel/formulations/elements/parameterizedMaterialBlock.h`
-- `src/core/solidDeformationModel/formulations/stencil/shellKoiterStencil.h`
 - `src/core/solidDeformationModel/formulations/geometry/tetP1Geometry.h`
 - `src/core/solidDeformationModel/formulations/dof/dofLayout.h`
 - `src/core/solidDeformationModel/formulations/dof/vertex3DofLayout.h`
 - `src/core/solidDeformationModel/formulations/dof/vertex3DofLayout.cpp`
-- `src/core/solidDeformationModel/formulations/parameters/elementQuadratureView.h`
 - `src/core/solidDeformationModel/formulations/parameters/parameterField.h`
 - `src/core/solidDeformationModel/formulations/parameters/constantParameterField.h`
-- `src/core/solidDeformationModel/materials/elasticModelSpec.h`
-- `src/core/solidDeformationModel/materials/simulationMeshMaterialPayload.h`
-- `src/core/solidDeformationModel/materials/simulationMeshOrthotropicMaterial.h`
 - `src/core/solidDeformationModel/factories/elasticModelFactory.h`
 - `src/core/solidDeformationModel/factories/elasticModelFactory.cpp`
 - `src/core/solidDeformationModel/factories/plasticModelFactory.h`
 - `src/core/solidDeformationModel/factories/plasticModelFactory.cpp`
 - `src/core/solidDeformationModel/factories/elementModelFactory.h`
-- `src/core/solidDeformationModel/elasticModel3DOrthotropicStVK.h`
-- `src/core/solidDeformationModel/elasticModel3DOrthotropicStVK.cpp`
+- `src/core/solidDeformationModel/factories/elementModelFactory.cpp`
+- `src/core/solidDeformationModel/deformationModelAssemblerCacheData.h`
 - `src/python/pypgo/bindings/simulation_mesh_core.h`
-- `src/python/pypgo/bindings/energy_bindings.cpp`
-- `pypgo/fem.py`
-- `pypgo/energy.py`
-- `tests/pypgo/test_deformation_energy.py`
+- `src/python/pypgo/bindings/energy_bindings.cpp` (private `_core` hooks)
 - `tests/src/core/solidDeformationModel/formulations/deformationModelFormulation_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/basis/tetP1Basis_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/basis/hexTrilinearBasis_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/kernels/deformationGradientKernel_gtest.cpp`
-- `tests/src/core/solidDeformationModel/formulations/kernels/fundamentalFormsKernel_gtest.cpp`
+- `tests/src/core/solidDeformationModel/formulations/kernels/koiterShellKernel_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/elements/deformationGradientElementModel_gtest.cpp`
-- `tests/src/core/solidDeformationModel/formulations/elements/koiterShellElementModel_gtest.cpp`
+- `tests/src/core/solidDeformationModel/formulations/elements/shellElementModel_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/dof/vertex3DofLayout_gtest.cpp`
 - `tests/src/core/solidDeformationModel/formulations/parameters/constantParameterField_gtest.cpp`
 - `tests/src/core/solidDeformationModel/factories/elasticModelFactory_gtest.cpp`
 - `tests/src/core/solidDeformationModel/factories/elementModelFactory_gtest.cpp`
+
+### Task 7 新增
+
+- `src/core/solidDeformationModel/materials/elasticModelSpec.h`
+- `src/core/solidDeformationModel/materials/simulationMeshMaterialPayload.h`
+
+### Task 8 新增
+
+- `src/core/solidDeformationModel/materials/simulationMeshOrthotropicMaterial.h`
+- `src/core/solidDeformationModel/elasticModel3DOrthotropicStVK.h`
+- `src/core/solidDeformationModel/elasticModel3DOrthotropicStVK.cpp`
 - `tests/src/core/solidDeformationModel/elasticModel3DOrthotropicStVK_gtest.cpp`
+
+### Finalize Python API 新增
+
+- `pypgo/fem.py`
+- `pypgo/energy.py`
+- `tests/pypgo/test_deformation_energy.py`
 
 ### 修改
 
@@ -2074,219 +1821,97 @@ Volumetric deformation-gradient elements must compute `Fp_q`, `FpInv_q`, `detFp_
 - [x] `compute_dE_da` / `compute_d2E_da2` / `compute_dE_db` / `compute_d2E_db2` / `compute_d2E_dadb` 提升为 `DeformationModel` 基类虚函数（默认空实现），`DeformationGradientElementModel` 标记 `override`。
 - [x] 删除 `ElementQuadratureView`，`ParameterField::sample` 签名简化为 `sample(int ele, int quadratureId, ParameterSample &out)`。
 
-## Task 7: Material Payload And Elastic Recipe Refactor
+## Finalize: Python Deformation API for Current System
 
-**目标：** 把材料参数、passive law、Hill active term 拆开，让 Mooney-Rivlin、Hill、Orthotropic 可以作为 Python deformation API 的一般材料承诺，而不是散落在 `.veg` I/O、`SimulationMeshMaterial`、`DeformationModelElasticMaterial` 三套表达里。
+**目标：** 在 C++ formulation class hierarchy、lifetime、DofLayout、ParameterField 边界已稳定的前提下，基于当前 C++ API（仍使用 legacy `DeformationModelElasticMaterial` enum）定稿 `pypgo.fem` / `pypgo.energy` public API。Material recipe refactor (Task 7)、Orthotropic solver law (Task 8)、Hermite extension point (Task 9) 推迟到后续 milestone。
 
-**Files:**
-
-- Modify: `src/core/solidDeformationModel/simulationMesh.cpp`
-- Modify: `src/core/solidDeformationModel/simulationMesh.h`
-- Create: `src/core/solidDeformationModel/materials/simulationMeshMaterialPayload.h`
-- Create: `src/core/solidDeformationModel/materials/simulationMeshOrthotropicMaterial.h`
-- Create: `src/core/solidDeformationModel/materials/elasticModelSpec.h`
-- Modify: `src/core/solidDeformationModel/factories/elasticModelFactory.h`
-- Modify: `src/core/solidDeformationModel/factories/elasticModelFactory.cpp`
-- Modify: `src/core/solidDeformationModel/deformationModelManager.h`
-- Modify: `src/core/solidDeformationModel/deformationModelManager.cpp`
-- Modify: `src/core/solidDeformationModel/deformationModelFactory.h`
-- Modify: `src/core/solidDeformationModel/deformationModelFactory.cpp`
-- Modify: `src/c/pgo_c.cpp`
-- Modify: `src/tools/sim/runIPCSim/setup/femSetup.h`
-- Modify: `src/tools/sim/runIPCSim/setup/femSetup.cpp`
-- Modify: `src/tools/sim/runIPCSim/setup/setupCommon.h`
-- Modify: `src/tools/sim/runIPCSim/setup/setupCommon.cpp`
-- Modify: `src/tools/sim/runIPCSim/setup/volumeSetup.cpp`
-- Modify: `src/tools/sim/runIPCSim/setup/legacySetup.cpp`
-- Modify: `src/python/pypgo/bindings/mesh_bindings.cpp`
-- Modify: `pypgo/mesh/veg.py`
-- Modify: `tests/src/core/solidDeformationModel/simulationMesh_gtest.cpp`
-- Create: `tests/src/core/solidDeformationModel/factories/elasticModelFactory_gtest.cpp`
-
-- [ ] Add `MaterialPayloadKind` introspection to `SimulationMeshMaterial`.
-- [ ] Add `SimulationMeshOrthotropicMaterial` with `E1/E2/E3`, `nu12/nu23/nu31`, `G12/G23/G31`, and row-major `R`.
-- [ ] Update `loadTetMesh` / `loadCubicMesh` to convert all supported Vega material payloads:
-  - ENu -> `SimulationMeshENuMaterial`
-  - Mooney-Rivlin -> `SimulationMeshMooneyRivlinMaterial`
-  - Orthotropic -> `SimulationMeshOrthotropicMaterial`
-- [ ] Preserve per-element material region mapping when converting multi-material Vega volume meshes.
-- [ ] Add `ElasticModelSpec`, `PassiveElasticSpec`, `HillFiberSpec`, and `FiberFieldSpec`.
-- [ ] Keep elastic parameter storage and field interpolation on the Task 6p `ElasticParameterSpec` / `ParameterField` path. Task 7 may change which elastic law reads the sampled parameters, but it must not reintroduce direct `ele * numElasticParams + j` layout assumptions or split field ownership between assembler and element model.
-- [ ] Keep plastic parametrization on `PlasticParameterSpec`; Task 7 must not collapse plastic parameters back into the elastic material recipe.
-- [ ] Remove legacy elastic enum usage from new deformation factory code:
-  - manually migrate `STABLE_NEO` call sites to `StableNeo(slot 0)`
-  - manually migrate `MOONEY_RIVLIN` call sites to `MooneyRivlin(slot 0)`
-  - manually migrate `HILL_STABLE_NEO` call sites to `StableNeo(slot 0) + HillFiber(slot 1)`
-  - apply the same manual mapping for `HILL_STVK` and `HILL_STVK_VOL`
-- [ ] Update runIPCSim setup and C API adapters to build explicit `ElasticModelSpec` values instead of passing `DeformationModelElasticMaterial` into public factories.
-- [ ] Make `ElasticModelFactory` validate payload/law compatibility before allocating models.
-- [ ] Define Mooney-Rivlin payload mapping with a dedicated conversion helper:
-  - input is Vega `mu01/mu10/v1`;
-  - output is `SimulationMeshMooneyRivlinMaterial(N, M, Cpq, D)`;
-  - document the exact `N`, `M`, `Cpq`, and `D` layout in the helper header;
-  - add `.veg` payload round-trip/parity tests that lock the mapping before enabling any public Python `MooneyRivlin()` recipe in Task 10.
-- [ ] Add Hill as an active term:
-  - require base passive payload at slot 0;
-  - require `SimulationMeshHillMaterial` at `hill_slot`;
-  - require element or vertex fiber directions;
-  - produce `ElasticModelCombinedMaterial` internally.
-- [ ] Draft final Python elastic recipe notes, but do not expose public wrappers until Task 10:
-  - `StableNeo`
-  - `StVK`
-  - `MooneyRivlin`
-  - `OrthotropicStVK`
-  - `HillFiber(base=..., hill_slot=..., element_fibers=...)`
-- [ ] Add C++ tests for payload/law mismatch errors.
-- [ ] Record final Python test cases for Task 10:
-  - Mooney-Rivlin energy builds when the mesh payload is Mooney-Rivlin and fails clearly when payload/law mismatch.
-  - Hill fiber energy builds when base payload, hill payload, and fiber directions are present.
-- [ ] Add C++ tests that `ElasticModelFactory` builds ENu, Mooney-Rivlin, and Hill composite models from explicit specs.
-
-**Exit criteria:**
-
-- `SimulationMesh` can carry ENu, Mooney-Rivlin, Orthotropic, and Hill payloads without losing type information.
-- `ElasticModelFactory` is the only place that maps payload + recipe to solver `ElasticModel`.
-- Elastic/material recipe migration does not own parameter-field semantics; all elastic parameter gather/sample/scatter behavior still goes through the Task 6p `ElasticBlock` / `ParameterField` abstraction.
-- Mooney-Rivlin and Hill composite deformation energies are buildable through C++ factories and covered by smoke/FD tests.
-- The final Python recipe/test cases are documented for Task 10, but no public Python material API is exposed in Task 7.
-
-## Task 8: Add Orthotropic Solver Elastic Law
-
-**目标：** 把 Orthotropic 从 `.veg`/payload 支持推进到 solver-ready deformation law，使 final Python API 可以安全暴露 `OrthotropicStVK()`，而不是只读写材料参数。
+**Current status (2026-05-31):** C++ Tasks 0–6p 已完成。`makeDeformationEnergy()` 使用 `const Formulation &` + legacy `DeformationModelElasticMaterial` enum。Python 已有 private `_core` smoke hooks（`_create_tet_deformation_energy_for_test` 等），需升级为 public API。
 
 **Files:**
 
-- Create: `src/core/solidDeformationModel/elasticModel3DOrthotropicStVK.h`
-- Create: `src/core/solidDeformationModel/elasticModel3DOrthotropicStVK.cpp`
-- Modify: `src/core/solidDeformationModel/factories/elasticModelFactory.cpp`
-- Modify: `src/core/solidDeformationModel/CMakeLists.txt`
-- Create: `tests/src/core/solidDeformationModel/elasticModel3DOrthotropicStVK_gtest.cpp`
-- Modify: `tests/src/core/solidDeformationModel/factories/elasticModelFactory_gtest.cpp`
-
-- [ ] Define the exact Orthotropic law first. First law is StVK-style orthotropic elasticity in the local material frame: compute Green strain `E = 0.5 * (F^T F - I)`, transform to local frame with `E_local = R^T * E * R`, apply the 6x6 orthotropic stiffness in local Voigt coordinates, transform the second Piola stress back with `S_world = R * S_local * R^T`, then `P = F * S_world`.
-- [ ] Build local-frame stiffness matrix from `E1/E2/E3`, `nu12/nu23/nu31`, `G12/G23/G31`; validate positive definiteness or fail early.
-- [ ] Implement `compute_psi`, `compute_P`, and `compute_dPdF`.
-- [ ] Document `R` as row-major local-to-world rotation: columns are the local material axes expressed in world coordinates. Add tests that catch transposed use by rotating a strongly anisotropic material 90 degrees and verifying that stiffness follows the rotated local axis.
-- [ ] Add finite-difference tests:
-  - `P` vs finite difference of `psi`
-  - `dPdF` vs finite difference of `P`
-  - isotropic-equivalent parameters match isotropic StVK within tolerance
-  - rotated material frame changes anisotropic response as expected
-- [ ] Add assembler-level smoke tests for tet and hex trilinear with `OrthotropicStVK`.
-- [ ] Mark `OrthotropicStVK()` as eligible for the final Python API checkpoint only after these C++ tests pass.
-- [ ] Record final Python test cases for Task 10: `OrthotropicStVK` builds deformation energy and fails clearly on payload/law mismatch or invalid stiffness.
-
-**Exit criteria:**
-
-- Orthotropic has a real solver-side `ElasticModel`, not just payload conversion.
-- C++ `OrthotropicStVK` builds deformation energy and computes value/gradient/Hessian.
-- Payload/law mismatch and invalid stiffness parameters fail with actionable errors.
-
-## Task 9: Prepare Hermite Extension Point Without Implementing Hermite
-
-**目标：** 让 future `HexTricubicHermite` 接入点明确，同时当前行为安全失败。
-
-**Files:**
-
-- Modify: `src/core/solidDeformationModel/formulations/deformationFormulations.h`
-- Modify: `src/core/solidDeformationModel/formulations/formulationTraits.h`
-- Modify: `src/core/solidDeformationModel/formulations/formulationConcepts.h`
-- Modify: `src/core/solidDeformationModel/deformationModelFactory.h`
-- Modify: `src/core/solidDeformationModel/factories/elementModelFactory.h`
-- Modify: `tests/src/core/solidDeformationModel/formulations/deformationModelFormulation_gtest.cpp`
-
-- [ ] Add `HexTricubicHermite` tag options and `FormulationTraits<HexTricubicHermite>` specialization.
-- [ ] Extend `CubicFormulation` concept to `std::same_as<F, HexTrilinear> \|\| std::same_as<F, HexTricubicHermite>`；this is intentionally delayed from Task 2 so the unsupported branch is introduced together with its tests.
-- [ ] Add C++ implementation guard:
-  - `makeCubicDeformationModel(..., HexTricubicHermite{...}, ...)` recognizes the request but throws `std::logic_error("hex_tricubic_hermite is not implemented")`.
-- [ ] Record final Python `HexTricubicHermite` dataclass options for Task 10, but do not expose the public dataclass in Task 9:
-  - `quadrature_order`
-  - future `continuity_policy`
-  - future `dof_layout`
-- [ ] Record final Python wrapper behavior for Task 10: mapping it to C++ must receive `NotImplementedError` / `RuntimeError` with a stable message.
-- [ ] Cross-reference existing Hermite implementation plans:
-  - `plan/tricubic_hermit_plastic_field_fem.plan.md`
-  - `plan/tricubic_hermite_plastic_field_simulation_integration.plan.md`
-
-**Exit criteria:**
-
-- C++ recognizes the future API name.
-- C++ calls cannot accidentally fall back to `hex_trilinear`.
-- Public Python exposure remains deferred to Task 10.
-
-## Task 10: Finalize Python Deformation API, Documentation, And Examples
-
-**目标：** 在 C++ formulation、lifetime、material recipe、DofLayout、elastic/plastic parameter layout/field 边界稳定后，统一确定并绑定 `pypgo.fem` / `pypgo.energy` public deformation API，同时更新 migration docs 和 examples。不要把 Task 4/7/8/9 的过渡接口直接发布成 public API。
-
-**Files:**
-
-- Create/modify: `src/python/pypgo/bindings/energy_bindings.cpp`
-- Modify: `src/python/pypgo/bindings/module.cpp`
-- Modify: `src/python/pypgo/CMakeLists.txt`
 - Create: `pypgo/fem.py`
 - Create: `pypgo/energy.py`
 - Modify: `pypgo/__init__.py`
 - Modify: `pypgo/sim.py`
+- Modify: `src/python/pypgo/bindings/energy_bindings.cpp`
+- Modify: `src/python/pypgo/bindings/module.cpp`
+- Modify: `src/python/pypgo/CMakeLists.txt`
 - Create: `tests/pypgo/test_deformation_energy.py`
-- Modify: `plan/python_api_migration/milestones.md`
-- Modify: `plan/python_api_migration/api_coverage.md`
-- Modify: `plan/python_api_migration/future_work.md`
-- Optional: add example under `pypgo/examples/scripts/`
 
-- [ ] In `milestones.md`, add this plan as the detailed M3 deformation energy subplan.
-- [ ] Finalize the first public `pypgo.fem` / `pypgo.energy` API shape after reviewing completed C++ Tasks 3, 5, 5e, 5p, 5q, 6, 6p, 7, and 8. Tasks 5e/5p/5q decide whether shell construction goes through `KoiterShellElementModel<FundamentalFormsKernel<...>>` instead of the legacy `KoiterDeformationModel`, while Task 6p decides the public naming/defaults for `PlasticParameters` and element-constant elastic/plastic parameter fields.
-- [ ] Add `pypgo.fem` formulation dataclasses:
-  - `TetP1`
-  - `HexTrilinear`
-  - `ShellKoiter`
-  - optional `HexTricubicHermite` future-facing placeholder only if the final API checkpoint accepts exposing unsupported future formulations.
-- [ ] Add `pypgo.energy` elastic recipe/dataclass wrappers only for C++-supported recipes:
-  - `StableNeo`
-  - `StVK`
-  - `MooneyRivlin`
-  - `OrthotropicStVK`
-  - `KoiterStVK`
-  - `HillFiber(base=..., hill_slot=..., element_fibers=...)`
-- [ ] Add the first public plastic-parameter wrapper:
-  - `PlasticParameters(parametrization="volumetric_dof6")`, defaulting to element-constant parameters.
-- [ ] Add `pypgo.energy.deformation_energy(...)` wrapper that maps Python dataclasses to `_core` variants/specs.
-- [ ] Enforce final Python policy:
-  - cubic requires explicit `HexTrilinear()`;
-  - shell requires explicit `ShellKoiter()`;
-  - payload/law mismatch raises clear `ValueError`;
-  - first public release exposes only element-constant elastic/plastic parameter fields;
-  - optimized elastic/plastic material parameters, nodal parameter fields, quadrature-point parameter fields, and external procedural parameter fields are not public API until the C++ derivative-chain tests exist;
-  - if `HexTricubicHermite()` is exposed, it raises a clear not-implemented error and cannot fall back to trilinear.
-- [ ] Add Python tests:
-  - tet energy builds and `zero_state()` has correct shape;
-  - cubic `HexTrilinear()` energy builds and has `num_dofs == 3 * num_vertices`;
-  - shell `ShellKoiter()` energy builds from `SimulationMesh.create_shell(...)`, uses `KoiterStVK()`, and has `num_dofs == 3 * num_vertices`;
-  - `PlasticParameters("volumetric_dof6")` is accepted by tet and cubic deformation energy construction;
-  - `value`, `gradient`, `hessian.to_coo()` smoke tests pass at zero state and a small perturbation;
-  - same `SimulationMesh` can create two independent energies;
-  - deleting the Python `sim_mesh` variable does not invalidate existing energies;
-  - Mooney-Rivlin, Hill, and Orthotropic recipe tests from Tasks 7 and 8 pass.
-- [ ] In `api_coverage.md`, mark deformation energy as supported only for the final Task 10 public API surface; do not document Task 4 private smoke hooks as public API.
-- [ ] In `future_work.md`, list full Hermite support as future work dependent on `DofLayout`; do not list Orthotropic as future work after Task 8 lands.
-- [ ] Add a small Python example:
+### Python public API 形态（基于当前 C++ state，仍使用 legacy enum string）
 
-  ```python
-  energy = pgo.energy.deformation_energy(
-      sim_mesh,
-      formulation=pgo.fem.HexTrilinear(),
-      elastic=pgo.energy.StableNeo(),
-      plastic=pgo.energy.PlasticParameters("volumetric_dof6"),
-  )
-  u = energy.zero_state()
-  print(energy.value(u))
-  ```
+```python
+import pypgo as pgo
+
+# ===== Formulation (pypgo.fem) =====
+pgo.fem.P1Tet()          # tet P1
+pgo.fem.LinearCubic()    # hex trilinear — cubic 必须显式传
+pgo.fem.KoiterShell()    # Koiter shell
+
+# ===== Elastic recipes (pypgo.energy) — 当前用 string→enum 映射 =====
+pgo.energy.StableNeo()           # "stable_neo"
+pgo.energy.StVK()                # "stvk"
+pgo.energy.Linear()              # "linear"
+pgo.energy.KoiterStVK()          # "koiter_stvk"
+pgo.energy.MooneyRivlin()        # "mooney_rivlin"
+pgo.energy.HillStableNeo()       # "hill_stable_neo"
+pgo.energy.HillStVK()            # "hill_stvk"
+
+# ===== Plastic params (pypgo.energy) =====
+pgo.energy.Plastic("volumetric_dof6")   # 默认，tet/cubic
+pgo.energy.Plastic("volumetric_dof3")
+pgo.energy.Plastic("shell_ff_dof1")     # 默认，shell
+
+# ===== Factory =====
+energy = pgo.energy.deformation_energy(
+    sim_mesh,
+    formulation=pgo.fem.LinearCubic(),
+    elastic=pgo.energy.StableNeo(),
+    plastic=pgo.energy.Plastic("volumetric_dof6"),
+)
+
+# ===== DeformationEnergy =====
+u = energy.zero_state()    # (num_dofs,) ndarray
+energy.value(u)            # float
+energy.gradient(u)         # (num_dofs,) ndarray
+H = energy.hessian(u)      # SparseMatrix
+rows, cols, values = H.to_coo()
+```
+
+- [ ] Add `pypgo/fem.py` with `P1Tet`, `LinearCubic`, `KoiterShell` dataclasses mapping to C++ formulation classes.
+- [ ] Add `pypgo/energy.py` with:
+  - `StableNeo`, `StVK`, `Linear`, `KoiterStVK`, `MooneyRivlin`, `HillStableNeo`, `HillStVK` recipe dataclasses
+  - `Plastic(parametrization)` simple wrapper
+  - `deformation_energy(sim_mesh, formulation, elastic, plastic, ...)` factory
+  - `DeformationEnergy` wrapper class delegating to `_core.DeformationEnergyCore`
+- [ ] Upgrade `energy_bindings.cpp` from private `_core` to public API:
+  - expose `P1TetFormulation`, `LinearCubicFormulation`, `KoiterShellFormulation` in nanobind
+  - add public `make_deformation_energy(mesh_core, formulation, elastic_str, plastic_str)` binding
+- [ ] Enforce Python policy:
+  - cubic requires explicit `LinearCubic()`
+  - shell requires explicit `KoiterShell()`
+  - unsupported material/formulation combos raise `ValueError` from C++
+- [ ] Add Python tests (`tests/pypgo/test_deformation_energy.py`):
+  - tet `P1Tet()` + `StableNeo()` builds, `zero_state()` correct
+  - cubic `LinearCubic()` + `StVK()` builds, `num_dofs == 3 * num_vertices`
+  - shell `KoiterShell()` + `KoiterStVK()` builds from `create_shell()`
+  - `value(u0)`, `gradient(u0)`, `hessian(u0)` smoke at zero state
+  - same mesh → two independent energies
+  - mesh deleted → energy still usable
 
 **Exit criteria:**
 
-- Migration docs do not describe cubic deformation as generic cubic FEM.
-- Public Python deformation API is finalized only after the C++ refactor tasks are complete enough to support it cleanly.
-- Python examples consistently use `HexTrilinear()`.
-- Material docs distinguish payload (`pypgo.mesh.veg`) from elastic recipe (`pypgo.energy`).
+- Public Python deformation API finalized for current system (tet P1, hex trilinear, shell Koiter)
+- Python examples consistently use `LinearCubic()`
+- All Python tests pass with `python -m pytest -q tests/pypgo`
+
+## Deferred: Material Payload, Elastic Recipe Refactor, Orthotropic, Hermite (原 Task 7/8/9)
+
+**状态：** 推迟到后续 milestone。当前先 finalize 现有体系的 Python API。
+
+- **Task 7 (Material Payload & Elastic Recipe):** 引入 `ElasticModelSpec` 替代 `DeformationModelElasticMaterial` enum；Mooney-Rivlin / Hill composite recipe migration；Orthotropic payload 转换。
+- **Task 8 (Orthotropic Solver Law):** `ElasticModel3DOrthotropicStVK` 实现。
+- **Task 9 (Hermite Extension Point):** 推迟。
 
 ## Verification Commands
 
@@ -2295,7 +1920,7 @@ Run C++ baseline and deformation tests:
 ```bash
 conda run -n libpgo cmake --preset base
 conda run -n libpgo cmake --build --preset base -j 8
-conda run -n libpgo ctest --test-dir build/base -R "SimulationMesh|TetP1Basis|HexTrilinearBasis|Quadrature|DeformationGradientKernel|DeformationGradientElementModel|FundamentalFormsKernel|KoiterShellElementModel|ShellKoiter|DeformationModelFactory|DeformationModelAssembler|DeformationModelFormulation|ElasticModelFactory|OrthotropicStVK|Vertex3DofLayout|ParameterField|ConstantParameterField" --output-on-failure
+conda run -n libpgo ctest --test-dir build/base -R "SimulationMesh|TetP1Basis|HexTrilinearBasis|Quadrature|DeformationGradientKernel|DeformationGradientElementModel|KoiterShellKernel|ShellElementModel|DeformationModelFactory|DeformationModelAssembler|DeformationModelFormulation|ElasticModelFactory|OrthotropicStVK|Vertex3DofLayout|ParameterField|ConstantParameterField" --output-on-failure
 ```
 
 Run Python build and tests:
@@ -2326,107 +1951,55 @@ conda run -n libpgo python -m pytest -q tests/pypgo
 | Orthotropic law has incorrect frame convention | High | Document `R` direction and add rotated-frame tests |
 | Mooney-Rivlin Vega payload maps incorrectly to solver coefficients | Medium | Centralize conversion helper and test `.veg` payload vs `SimulationMeshMooneyRivlinMaterial` coefficients |
 | New files are scattered back into the module root | Medium | New formulation, factory, material, DOF, and parameter abstractions must use the directory layout in design decision 4; root only keeps façade/main-chain/legacy wrapper files |
-| Formula implementation leaks into `FormulationTraits` | Medium | Traits only hold type aliases/metadata; basis, quadrature, `F`, and derivatives live in kernels/models with FD tests |
-| Basis and quadrature are coupled inside formulation-specific kernels | Medium | Split reference-element interpolation into `Basis` and integration strategy into `Quadrature`; keep `Kernel<Basis, Quadrature>` responsible for rest geometry and deformation-gradient kinematics |
-| Tet and cubic refactors diverge into two incompatible element paths | High | Extract `TetP1Basis` / `HexTrilinearBasis` and default quadrature before traits; both must use explicit `DeformationGradientKernel<Basis, Quadrature>` + `DeformationGradientElementModel<Kernel>` and old-vs-new regression tests |
-| `ElementModel<Kernel, ElasticModel, PlasticModel>` causes template explosion | Medium | Keep the mathematical model in docs, but implement first version as `DeformationGradientElementModel<Kernel>` with runtime elastic/plastic injection |
-| Formulation API drifts into virtual base-class dispatch | Medium | Core API uses tag + concept/templates; `std::variant` appears only at Python/config boundaries |
-| Topology-specific template factories are defined only in `.cpp` | High | Put constrained template definitions directly in `deformationModelFactory.h`; `.cpp` only holds non-template helpers |
-| Python binding duplicates `SimulationMeshCore` or cannot keep its owned mesh alive | High | Move `SimulationMeshCore` into shared `simulation_mesh_core.h`; expose `mesh() const -> const SimulationMesh &`; make `DeformationEnergyCore` hold `std::shared_ptr<SimulationMeshCore>` |
-| Python public API is finalized before C++ boundaries stabilize | High | Task 4 defers public `pypgo.fem` / `pypgo.energy`; Task 10 finalizes the public API only after formulation, lifetime, material recipe, `DofLayout`, and parameter layout/field refactors are stable |
-| `HexTricubicHermite` silently uses trilinear path | High | Explicit implementation guard must throw `not implemented` |
-| Shell DOF gather/scatter regresses on `vid < 0` slots | Medium | `Vertex3DofLayout` owns DOF-side `vid < 0` zero-local behavior in gather, scatter, and sparsity; add layout-level tests covering boundary triangles |
-| Shell missing-neighbor geometry semantics drift after migration | High | `ShellKoiterStencil` / `FundamentalFormsKernel` from Task 5e own missing-neighbor handling (`-10496` sentinel or explicit mask); parity tests vs `KoiterDeformationModel` cover energy, gradient, Hessian, `df/da`, `df/db` on boundary triangles before Task 5q deletes the oracle |
+| Tet and cubic refactors diverge into two incompatible element paths | High | Both use `DeformationGradientKernel` + `DeformationGradientElementModel` with different `Basis`/`Quadrature`; old-vs-new regression tests lock behavior |
+| `ElementModel<Kernel, ElasticModel, PlasticModel>` causes template explosion | Medium | Implement as non-template `DeformationGradientElementModel` with runtime elastic/plastic injection via `ElasticBlock`/`PlasticBlock` |
+| Python binding duplicates `SimulationMeshCore` or cannot keep its owned mesh alive | High | `SimulationMeshCore` in shared `simulation_mesh_core.h`; `DeformationEnergyCore` holds `std::shared_ptr<SimulationMeshCore>` |
+| Python public API is finalized before C++ boundaries stabilize | High | Python API 在 Tasks 7-8 完成后统一发布；不把 Task 4 private hooks 暴露为 public API |
+| Shell DOF gather/scatter regresses on `vid < 0` slots | Medium | `Vertex3DofLayout` owns DOF-side `vid < 0` zero-local behavior in gather, scatter, and sparsity; layout-level tests cover boundary triangles |
+| Shell missing-neighbor geometry semantics drift after migration | High | `KoiterShellKernel` owns `hasVtx[6]` mask and missing-neighbor handling; parity tests vs `KoiterDeformationModel` covered all cases before Task 5q deletion |
 
 ## Milestone Exit Criteria
 
 This plan is complete when:
 
-- C++ can build deformation energy with explicit `TetP1{}`, `HexTrilinear{}`, and `ShellKoiter{}` formulation tags.
-- `TetP1` and `HexTrilinear` both use real basis/quadrature/kernel types plus `DeformationGradientElementModel<Kernel>`, not legacy full element models hidden behind traits.
-- Wrong topology/formulation combinations fail at compile time in core C++.
-- Topology-specific factory template definitions are available directly from `deformationModelFactory.h`, so tests, tools, C API adapters, and Python bindings can instantiate them without linker surprises.
-- Runtime formulation selection is isolated to `std::variant` boundary adapters for Python/config.
-- `FormulationTraits` per category: volumetric formulations declare `DofLayout` / `Basis` / `Quadrature` / `Kernel` / `ElementModel`; shell formulations declare `DofLayout` / `ElementStencil` / `Kernel` / `ElementModel`. C++20 concepts（`VolumetricFormulationCategory`, `ShellFormulationCategory`）verify the required alias sets at compile time. No sentinel/placeholder aliases. Traits do not bind concrete elastic or plastic model types. Shell traits use `KoiterShellElementModel` from Task 5e, not the legacy `KoiterDeformationModel`.
-- New formulation/factory/material/DOF/parameter files follow the `formulations/`, `factories/`, and `materials/` directory split; legacy wrapper files may remain at the module root during migration.
+- C++ can build deformation energy with explicit `P1TetFormulation{}`, `LinearCubicFormulation{}`, and `KoiterShellFormulation{}` formulation objects.
+- `P1Tet` and `LinearCubic` both use real `Basis`/`Quadrature`/`DeformationGradientKernel` + `DeformationGradientElementModel`; shell `KoiterShell` uses `KoiterShellKernel` + `ShellElementModel`.
+- Formulation class hierarchy (`Formulation` → `VolumetricFormulation`/`ShellFormulation` → concrete classes) provides runtime dispatch via virtual functions.
+- Single factory entry `makeDeformationEnergy(const SimulationMesh &, const Formulation &, ...)` serves all topology/formulation combinations.
 - Old public `makeDeformationModel(...)` auto-dispatch entry has been removed.
-- Python can construct tet P1, cubic hex trilinear, and shell Koiter deformation energy.
-- Python cubic deformation API requires or visibly records `HexTrilinear`.
-- Python deformation energy supports ENu, shell Koiter StVK, Mooney-Rivlin, Hill fiber composite, and OrthotropicStVK through explicit elastic recipe objects.
-- Manager creation logic is split into elastic/plastic/element factories.
-- Material payload conversion and elastic law construction are centralized in `SimulationMesh` payload conversion plus `ElasticModelFactory`.
-- Assembler uses `DofLayout` for gather/scatter/sparsity on the existing vertex path.
-- `OptimizableField` / `ParameterDofLayout` infrastructure is in place for future parameter optimization; `ConstantParameterField` implements both `ParameterField::sample()` and `OptimizableField::dofLayout()`. Volumetric element models sample elastic/plastic parameters through `ParameterField::sample()` at quadrature points. Assembler stores `const ParameterField *` for future `dynamic_cast<const OptimizableField *>` access to mixed sparse templates and gradient scatter.
-- Unsupported `HexTricubicHermite` is recognized but fails explicitly.
+- Legacy `TetMeshDeformationModel`, `CubicMeshDeformationModel`, `KoiterDeformationModel` files are deleted.
+- `DeformationModelManager` borrows `const SimulationMesh &` (non-owning).
+- Manager creation logic is split into `ElasticModelFactory` / `PlasticModelFactory` / `ElementModelFactory`.
+- Assembler uses `DofLayout` (specifically `Vertex3DofLayout`) for gather/scatter/sparsity.
+- `ParameterField` / `ConstantParameterField` handles elastic and plastic parameter sampling at quadrature points.
+- Public C++ factory accepts `ElasticModelSpec` (Task 7): ENu, Mooney-Rivlin, Hill composite recipes supported.
+- Orthotropic has a real solver-side `ElasticModel` (Task 8): `ElasticModel3DOrthotropicStVK`.
+- Python can construct tet P1, cubic hex trilinear, and shell Koiter deformation energy via `pgo.energy.deformation_energy()`.
+- Python formulation: `pgo.fem.P1Tet()`, `pgo.fem.LinearCubic()`, `pgo.fem.KoiterShell()`.
+- Python elastic recipes: `StableNeo`, `StVK`, `MooneyRivlin`, `OrthotropicStVK`, `KoiterStVK`, `HillFiber`.
+- Python cubic deformation API requires explicit `LinearCubic()`.
+- Material docs distinguish payload (`pypgo.mesh.veg`) from elastic recipe (`pypgo.energy`).
 - C++ and Python tests pass with the commands above.
 
 ---
 
-## Rework Needed for Completed Tasks
+## Architecture Evolution Notes (2026-05-31)
 
-设计决策 2 的新方向（去掉 sentinel、per-category concept、`ElementStencil` 概念）和已完成 Task 1–4 的实现之间需要对齐的地方如下。
+原 plan 设计使用 `FormulationTraits<T>` 模板 + C++20 concepts + tag struct 的编译期 dispatch 方案。实施过程中改为 class hierarchy + 虚函数，原因：
 
-### 两层 concept 的分工（澄清）
+- Python binding (nanobind) 天然支持多态，class hierarchy 比模板 variant 容易绑定
+- 当前只有 3 种 formulation，模板 + concepts 过度设计
+- Factory 内部 `dynamic_cast` 判断 volumetric vs shell 比 `std::visit` + `if constexpr` 更直观
 
-per-tag concept 和 per-category concept **不冲突、不互相替代**——两者回答不同问题：
+删除的文件：
+- `formulationTraits.h` — 不再需要 per-formulation 编译期 traits
+- `formulationConcepts.h` — 不再需要 C++20 concepts
+- `deformationFormulations.h` — 原计划统一 formulation registry，现在 formulation 类直接定义在 `formulation.h`
 
-| 层级 | 概念 | 回答问题 | 用途 |
-|---|---|---|---|
-| per-tag（按 mesh type 分组）| `TetFormulation`, `CubicFormulation`, `ShellFormulation` | "哪些 formulation tag 能传进这个 topology 的 factory？" | factory 模板约束 + `\|\|` 扩展 |
-| per-category（按 alias 集合分组）| `VolumetricFormulationCategory`, `ShellFormulationCategory` | "这个 formulation 有 Basis+Quadrature 还是有 ElementStencil？" | `std::visit` 内 `if constexpr` 分发 |
+重命名的文件：
+- `fundamentalFormsKernel.h/.cpp` → `koiterShellKernel.h/.cpp`（继承自新增的 `ShellKernel` 虚基类）
+- `koiterShellElementModel.h` → `shellElementModel.h`（通用 shell element model，接受任何 `ShellKernel`）
+- `koiterShellElementModelCacheData.h` → `shellElementModelCacheData.h`
 
-两者都保留。
-
-### R-1: `formulationConcepts.h` — 加 per-category concept
-
-**当前代码状态（Task 2 产出）：**
-
-```cpp
-// formulationConcepts.h
-template<class F> concept TetFormulation = std::same_as<F, TetP1>;
-template<class F> concept CubicFormulation = std::same_as<F, HexTrilinear>;
-template<class F> concept ShellFormulation = std::same_as<F, ShellKoiter>;
-```
-
-**需要最终状态（同一文件，加 per-category concept）：**
-
-```cpp
-// formulationConcepts.h
-// Per-tag（保留，不动）
-template<class F> concept TetFormulation = std::same_as<F, TetP1>;
-template<class F> concept CubicFormulation = std::same_as<F, HexTrilinear>;
-template<class F> concept ShellFormulation = std::same_as<F, ShellKoiter>;
-
-// Per-category（新增）
-template<class F>
-concept VolumetricFormulationCategory = requires {
-  typename FormulationTraits<F>::Basis;
-  typename FormulationTraits<F>::Quadrature;
-  typename FormulationTraits<F>::Kernel;
-  typename FormulationTraits<F>::ElementModel;
-};
-
-template<class F>
-concept ShellFormulationCategory = requires {
-  typename FormulationTraits<F>::ElementStencil;
-  typename FormulationTraits<F>::Kernel;
-  typename FormulationTraits<F>::ElementModel;
-};
-```
-
-**执行约束：**
-- `VolumetricFormulationCategory` **现在就加**——volumetric traits 已有 `Basis`/`Quadrature`，可编译。
-- `ShellFormulationCategory` **等 Task 5e Sub-task D 再加**——依赖 `FormulationTraits<ShellKoiter>::ElementStencil`（= `ShellKoiterStencil`），这个类型要等 Task 5e Sub-task A 创建。
-
-### R-2: 无——factory 不改
-
-`deformationModelFactory.h` 的 `template<TetFormulation F>` / `template<CubicFormulation F>` / `template<ShellFormulation F>` 保持不变。per-tag concept 的 `||` 扩展性（将来 `CubicFormulation = HexTrilinear || HexTricubicHermite`）是正确的设计。
-
-### 不需要 rework 的地方
-
-| 已完成 Task | 判断 |
-|---|---|
-| Task 1 (basis/quadrature/kernel) | 无影响 |
-| Task 2 (per-tag concepts + traits) | per-tag concept 保留；TetP1/HexTrilinear traits 无 `ElementStencil`——正好是期望形状；ShellKoiter traits 由 Task 5e 补充 |
-| Task 3 (borrow-only) | 无影响 |
-| Task 4 (defer Python API) | 无影响 |
+合并的 factory：
+- `makeTetDeformationModel<TetP1>(...)` / `makeCubicDeformationModel<HexTrilinear>(...)` / `makeShellDeformationModel<ShellKoiter>(...)` → 单一 `makeDeformationEnergy(const SimulationMesh &, const Formulation &, ...)`

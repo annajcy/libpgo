@@ -34,7 +34,7 @@ copyright to USC,MIT,NUS
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 using namespace pgo::NonlinearOptimization;
-using TetFEM = DeformationGradientElementModel<DeformationGradientKernel<TetP1Basis, TetP1DefaultQuadrature>>;
+using TetFEM = DeformationGradientElementModel;
 
 namespace ES = pgo::EigenSupport;
 
@@ -106,7 +106,7 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
       }
 
       std::unique_ptr<DeformationModelManager> dmm = std::make_unique<DeformationModelManager>(
-        *mesh, plasticMat, elasticMat, 1, nullptr, nullptr);
+        *mesh, plasticMat, elasticMat, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
 
       int nplastic = dmm->getNumPlasticParameters();
       int nelastic = 0;
@@ -326,7 +326,7 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
         auto dofFD = std::make_unique<Vertex3DofLayout>(mesh.get());
 forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofFD), nullptr);
 
-        std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler));
+        std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler), nullptr);
         energy->assembler().getDeformationModelManager().setPlasticParams(scales);
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
@@ -443,7 +443,7 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
       }
 
       std::unique_ptr<DeformationModelManager> dmm = std::make_unique<DeformationModelManager>(
-        *mesh, plasticMat, elasticMat, 1, nullptr, nullptr);
+        *mesh, plasticMat, elasticMat, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
 
       int nplastic = dmm->getNumPlasticParameters();
       int nelastic = dmm->getNumElasticParameters();
@@ -623,7 +623,7 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
         auto dofFD = std::make_unique<Vertex3DofLayout>(mesh.get());
 forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofFD), nullptr);
 
-        std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler));
+        std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler), nullptr);
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
         fd.testEnergy(energy, false, true, -1.0, x.data(), numTestDOFs, nullptr, &hessError);

@@ -1,11 +1,11 @@
-#include "fundamentalFormsKernel.h"
+#include "koiterShellKernel.h"
 
 namespace pgo
 {
 namespace SolidDeformationModel
 {
 
-FundamentalFormsKernel::FundamentalFormsKernel(const double restX[18], const bool hasVtx[6])
+KoiterShellKernel::KoiterShellKernel(const double restX[18], const bool hasVtx[6])
 {
   for (int i = 0; i < 6; i++) {
     restX_[i] = ES::V3d(restX[3 * i], restX[3 * i + 1], restX[3 * i + 2]);
@@ -16,7 +16,7 @@ FundamentalFormsKernel::FundamentalFormsKernel(const double restX[18], const boo
   restArea_ = 0.5 * (restX_[1] - restX_[0]).cross(restX_[2] - restX_[0]).norm();
 }
 
-ES::M2d FundamentalFormsKernel::compute_a_and_derivatives(
+ES::M2d KoiterShellKernel::compute_a_and_derivatives(
   const ES::V3d x[3],
   Eigen::Matrix<double, 4, 9> *da_dx,
   ES::M9d ahess[4]) const
@@ -72,7 +72,7 @@ ES::M2d FundamentalFormsKernel::compute_a_and_derivatives(
   return a;
 }
 
-ES::M2d FundamentalFormsKernel::compute_b_and_derivatives(
+ES::M2d KoiterShellKernel::compute_b_and_derivatives(
   const ES::V3d x[6],
   Eigen::Matrix<double, 4, 18> *db_dx,
   ES::M18d bhess[4]) const
@@ -120,7 +120,7 @@ ES::M2d FundamentalFormsKernel::compute_b_and_derivatives(
   return result;
 }
 
-ES::V3d FundamentalFormsKernel::secondFundamentalFormEntries(
+ES::V3d KoiterShellKernel::secondFundamentalFormEntries(
   const ES::V3d x[6],
   Eigen::Matrix<double, 3, 18> *derivative,
   ES::M18d hessian[3]) const
@@ -285,7 +285,7 @@ ES::V3d FundamentalFormsKernel::secondFundamentalFormEntries(
   return II;
 }
 
-ES::M3d FundamentalFormsKernel::crossMatrix(const Eigen::Vector3d &v)
+ES::M3d KoiterShellKernel::crossMatrix(const Eigen::Vector3d &v)
 {
   ES::M3d ret;
   ret << 0, -v[2], v[1],
@@ -294,7 +294,7 @@ ES::M3d FundamentalFormsKernel::crossMatrix(const Eigen::Vector3d &v)
   return ret;
 }
 
-ES::V3d FundamentalFormsKernel::faceNormal(
+ES::V3d KoiterShellKernel::faceNormal(
   const ES::V3d x0, const ES::V3d x1, const ES::V3d x2,
   Eigen::Matrix<double, 3, 9> *derivative,
   ES::M9d hessian[3]) const

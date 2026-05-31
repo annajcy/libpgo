@@ -6,6 +6,7 @@ copyright to USC, MIT, NUS
 #pragma once
 
 #include "EigenDef.h"
+#include "formulations/formulation.h"
 
 #include <memory>
 
@@ -17,6 +18,7 @@ class SimulationMesh;
 class DeformationModel;
 class DeformationModelManagerImpl;
 class ParameterField;
+class ConstantParameterField;
 
 enum class DeformationModelElasticMaterial
 {
@@ -53,15 +55,19 @@ public:
   DeformationModelManager(const SimulationMesh &simulationMesh,
     DeformationModelPlasticMaterial plasticModelType,
     DeformationModelElasticMaterial elasticMaterialType,
+    const Formulation &formulation,
     int enforceSPD = 1,
     const double *elementFiberDirections = nullptr,
     const double *vertexFiberDirections = nullptr);
+
   ~DeformationModelManager();
   void setEnforceSPD(int enable);
   void updateMeshRigidTransformation(const double R[9]);
 
   int getNumPlasticParameters() const;
   int getNumElasticParameters() const;
+  const EigenSupport::VXd &getElasticGlobalParams() const;
+  const EigenSupport::VXd &getPlasticGlobalParams() const;
   const SimulationMesh *getMesh() const;
 
   void setElementAlignedMatrix(int id, double R[9]);
@@ -80,7 +86,13 @@ protected:
   DeformationModelManagerImpl *data;
 
 private:
-  void initImpl(DeformationModelPlasticMaterial plasticModelType, DeformationModelElasticMaterial elasticMaterialType);
+  void initBase(const SimulationMesh &simulationMesh,
+    const double *elementFiberDirections,
+    const double *vertexFiberDirections);
+
+  void initImpl(DeformationModelPlasticMaterial plasticModelType,
+    DeformationModelElasticMaterial elasticMaterialType,
+    const Formulation &formulation);
 };
 
 }  // namespace SolidDeformationModel

@@ -7,6 +7,7 @@ copyright to USC, MIT, NUS
 
 #include "deformationModel.h"
 #include "factories/elementModelFactory.h"
+#include "formulations/formulation.h"
 
 #include "simulationMesh.h"
 
@@ -298,24 +299,38 @@ void DeformationModelManagerImpl::computeFiberAxes()
   vertexFiberAxes = vertexFiberAxesRest;
 }
 
-std::map<DeformationModelPlasticMaterial, int> numPlasticDOFs{
-  { DeformationModelPlasticMaterial::VOLUMETRIC_DOF0, 0 },
-  { DeformationModelPlasticMaterial::VOLUMETRIC_DOF3, 3 },
-  { DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, 6 },
-
-  { DeformationModelPlasticMaterial::SHELL_FF_DOF0, 0 },
-  { DeformationModelPlasticMaterial::SHELL_FF_DOF1, 1 },
-
-};
-
 }  // namespace SolidDeformationModel
 }  // namespace pgo
 
 using namespace pgo::SolidDeformationModel;
 
-DeformationModelManager::DeformationModelManager(const SimulationMesh &simulationMesh,
-  DeformationModelPlasticMaterial plasticModelType, DeformationModelElasticMaterial elasticMaterialType,
-  int enforceSPD, const double *elementFiberDirections, const double *vertexFiberDirections)
+namespace
+{
+
+void validateFormulation(SimulationMeshType meshType, const Formulation &formulation)
+{
+  switch (meshType) {
+  case SimulationMeshType::TET:
+    if (!dynamic_cast<const TetFormulation *>(&formulation))
+      throw std::invalid_argument("formulation does not match TET mesh");
+    return;
+  case SimulationMeshType::CUBIC:
+    if (!dynamic_cast<const CubicFormulation *>(&formulation))
+      throw std::invalid_argument("formulation does not match CUBIC mesh");
+    return;
+  case SimulationMeshType::SHELL:
+    if (!dynamic_cast<const ShellFormulation *>(&formulation))
+      throw std::invalid_argument("formulation does not match SHELL mesh");
+    return;
+  default:
+    throw std::logic_error("unsupported mesh element type");
+  }
+}
+
+}  // namespace
+
+void DeformationModelManager::initBase(const SimulationMesh &simulationMesh,
+  const double *elementFiberDirections, const double *vertexFiberDirections)
 {
   data = new DeformationModelManagerImpl;
 
@@ -333,7 +348,32 @@ DeformationModelManager::DeformationModelManager(const SimulationMesh &simulatio
   else
     data->vertexFiberDirections.setZero(0);
 
-  initImpl(plasticModelType, elasticMaterialType);
+  if (data->fiberDirections.size() || data->vertexFiberDirections.size())
+    data->computeFiberAxes();
+}
+
+DeformationModelManager::DeformationModelManager(const SimulationMesh &simulationMesh,
+  DeformationModelPlasticMaterial plasticModelType, DeformationModelElasticMaterial elasticMaterialType,
+  const Formulation &formulation,
+  int enforceSPD, const double *elementFiberDirections, const double *vertexFiberDirections)
+{
+  initBase(simulationMesh, elementFiberDirections, vertexFiberDirections);
+  validateFormulation(simulationMesh.getElementType(), formulation);
+
+  const auto *mat = simulationMesh.getElementMaterial(0, 0);
+  const int ne = mat->numElasticParameters(elasticMaterialType);
+  const int np = mat->numPlasticParameters(plasticModelType);
+  data->numPlasticParams = np;
+
+  data->elasticGlobalParams = ES::VXd::Zero(static_cast<Eigen::Index>(data->nele) * ne);
+  data->plasticGlobalParams = ES::VXd::Zero(static_cast<Eigen::Index>(data->nele) * np);
+
+  data->elasticField = std::make_unique<ConstantParameterField>(
+    ne, data->nele, data->elasticGlobalParams.data());
+  data->plasticField = std::make_unique<ConstantParameterField>(
+    np, data->nele, data->plasticGlobalParams.data());
+
+  initImpl(plasticModelType, elasticMaterialType, formulation);
 
   if (enforceSPD)
     setEnforceSPD(enforceSPD);
@@ -344,34 +384,16 @@ DeformationModelManager::~DeformationModelManager()
   delete data;
 }
 
-void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticModelType, DeformationModelElasticMaterial elasticMaterialType)
+void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticModelType,
+  DeformationModelElasticMaterial elasticMaterialType,
+  const Formulation &formulation)
 {
   SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Initializing element models (manager path)...");
 
-  if (data->fiberDirections.size() || data->vertexFiberDirections.size()) {
-    data->computeFiberAxes();
-  }
-
-  auto it = numPlasticDOFs.find(plasticModelType);
-  PGO_ALOG(it != numPlasticDOFs.end());
-  data->numPlasticParams = it->second;
   data->globalRotation = ES::M3d::Identity();
-
-  // Determine parameter counts before creating elements.
-  const int numElasticParams = ElasticModelFactory::numParameters(*data->simulationMesh, elasticMaterialType);
-  const int numPlasticParams = data->numPlasticParams;
-
-  // Create global param vectors and ConstantParameterField instances.
   const int nele = data->nele;
-  data->elasticGlobalParams = ES::VXd::Zero(static_cast<Eigen::Index>(nele) * numElasticParams);
-  data->plasticGlobalParams = ES::VXd::Zero(static_cast<Eigen::Index>(nele) * numPlasticParams);
 
-  data->elasticField = std::make_unique<ConstantParameterField>(
-    numElasticParams, nele, data->elasticGlobalParams.data());
-  data->plasticField = std::make_unique<ConstantParameterField>(
-    numPlasticParams, nele, data->plasticGlobalParams.data());
-
-  // Allocate storage vectors (ownership tracking, same layout as before).
+  // Allocate storage vectors before creating element models.
   if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
     elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK ||
     elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL) {
@@ -446,66 +468,62 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
     data->plasticShellUniformStretch.assign(nele, nullptr);
   }
 
+  // Per-element FEM creation (all elements in parallel).
   tbb::parallel_for(
     0, nele, [&](int ele) {
-      // Fiber direction (row 0 of fiberAxesRest) for Hill-type materials.
       const double *fiberDir = nullptr;
       if (data->fiberAxesRest.size() > 0) {
         fiberDir = data->fiberAxesRest.block<3, 3>(0, ele * 3).row(0).data();
       }
 
-      // Create elastic model via factory.
-      auto elasticResult = ElasticModelFactory::create(
+      auto eR = ElasticModelFactory::create(
         *data->simulationMesh, ele, elasticMaterialType, fiberDir);
 
-      data->elementMaterials[ele] = elasticResult.elementMaterial;
-      if (elasticResult.stableNeo) data->stableNeoHookeanMaterials[ele] = elasticResult.stableNeo;
-      if (elasticResult.linear) data->linearMaterials[ele] = elasticResult.linear;
-      if (elasticResult.hill) data->hillTypeMaterials[ele] = elasticResult.hill;
-      if (elasticResult.invariantBased) data->invariantBasedMaterials[ele] = elasticResult.invariantBased;
-      if (elasticResult.volume) data->volumeMaterials[ele] = elasticResult.volume;
-      if (elasticResult.stvk) data->stvkMaterials[ele] = elasticResult.stvk;
-      if (elasticResult.mooneyRivlin) data->mooneyRivlinMaterials[ele] = elasticResult.mooneyRivlin;
-      if (elasticResult.combined2) data->combined2Materials[ele] = elasticResult.combined2;
-      if (elasticResult.combined3) data->combined3Materials[ele] = elasticResult.combined3;
-      if (elasticResult.shellFabric) data->shellFabricMaterials[ele] = elasticResult.shellFabric;
-      if (elasticResult.shellSTVK) data->shellSTVKMaterials[ele] = elasticResult.shellSTVK;
-      if (elasticResult.invariantModel) data->invariantModels[ele] = elasticResult.invariantModel;
+      data->elementMaterials[ele] = eR.elementMaterial;
+      if (eR.stableNeo) data->stableNeoHookeanMaterials[ele] = eR.stableNeo;
+      if (eR.linear) data->linearMaterials[ele] = eR.linear;
+      if (eR.hill) data->hillTypeMaterials[ele] = eR.hill;
+      if (eR.invariantBased) data->invariantBasedMaterials[ele] = eR.invariantBased;
+      if (eR.volume) data->volumeMaterials[ele] = eR.volume;
+      if (eR.stvk) data->stvkMaterials[ele] = eR.stvk;
+      if (eR.mooneyRivlin) data->mooneyRivlinMaterials[ele] = eR.mooneyRivlin;
+      if (eR.combined2) data->combined2Materials[ele] = eR.combined2;
+      if (eR.combined3) data->combined3Materials[ele] = eR.combined3;
+      if (eR.shellFabric) data->shellFabricMaterials[ele] = eR.shellFabric;
+      if (eR.shellSTVK) data->shellSTVKMaterials[ele] = eR.shellSTVK;
+      if (eR.invariantModel) data->invariantModels[ele] = eR.invariantModel;
 
-      // Create plastic model via factory.
       const double *fiberAxesRest = (data->fiberAxesRest.size() > 0)
         ? data->fiberAxesRest.data() + ele * 9 : nullptr;
 
-      auto plasticResult = PlasticModelFactory::create(
-        *data->simulationMesh, ele, plasticModelType, fiberAxesRest);
+      auto pR = PlasticModelFactory::create(plasticModelType, fiberAxesRest);
 
-      if (plasticResult.volConstant) data->plasticVolConstant[ele] = plasticResult.volConstant;
-      if (plasticResult.vol3DOF) data->plasticVol3DOF[ele] = plasticResult.vol3DOF;
-      if (plasticResult.vol6DOF) data->plasticVol6DOF[ele] = plasticResult.vol6DOF;
-      if (plasticResult.shellConstant) data->plasticShellConstant[ele] = plasticResult.shellConstant;
-      if (plasticResult.shellUniformStretch) data->plasticShellUniformStretch[ele] = plasticResult.shellUniformStretch;
+      if (pR.volConstant) data->plasticVolConstant[ele] = pR.volConstant;
+      if (pR.vol3DOF) data->plasticVol3DOF[ele] = pR.vol3DOF;
+      if (pR.vol6DOF) data->plasticVol6DOF[ele] = pR.vol6DOF;
+      if (pR.shellConstant) data->plasticShellConstant[ele] = pR.shellConstant;
+      if (pR.shellUniformStretch) data->plasticShellUniformStretch[ele] = pR.shellUniformStretch;
 
-      // Build per-element blocks.
-      ElasticBlock elasticBlock{elasticResult.elementMaterial, data->elasticField.get()};
-      PlasticBlock plasticBlock{plasticResult.model, data->plasticField.get()};
+      ElasticBlock elasticBlock{eR.elementMaterial, data->elasticField.get()};
+      PlasticBlock plasticBlock{pR.model, data->plasticField.get()};
 
-      // Create element FEM through ElementModelFactory (block-based).
-      if (data->simulationMesh->getElementType() == SimulationMeshType::TET) {
-        data->elementFEMs[ele] = ElementModelFactory::create<TetP1>(
-          *data->simulationMesh, ele, elasticBlock, plasticBlock, elasticMaterialType);
-      } else if (data->simulationMesh->getElementType() == SimulationMeshType::CUBIC) {
-        data->elementFEMs[ele] = ElementModelFactory::create<HexTrilinear>(
-          *data->simulationMesh, ele, elasticBlock, plasticBlock, elasticMaterialType);
-      }
-      else if (data->simulationMesh->getElementType() == SimulationMeshType::SHELL) {
-        data->elementFEMs[ele] = ElementModelFactory::create<ShellKoiter>(
-          *data->simulationMesh, ele, elasticBlock, plasticBlock, elasticMaterialType);
-      }
-      else {
-        throw std::logic_error("unknown mesh element type");
-      }
+      data->elementFEMs[ele] = ElementModelFactory::create(
+        *data->simulationMesh, ele, elasticBlock, plasticBlock, formulation);
     },
     tbb::static_partitioner());
+
+  // Initialize default plastic / elastic parameters.
+  {
+    std::vector<PlasticModel *> plasticModels(nele);
+    for (int ei = 0; ei < nele; ei++)
+      plasticModels[ei] = const_cast<PlasticModel *>(data->elementFEMs[ei]->getPlasticModel());
+    setPlasticParams(PlasticModelFactory::initializeDefaultPlasticParams(
+      nele, data->numPlasticParams, plasticModels.data()));
+
+    const int numElasticParams = data->elementMaterials[0]->getNumParameters();
+    setElasticParams(ElasticModelFactory::initializeDefaultElasticParams(
+      *data->simulationMesh, elasticMaterialType, numElasticParams));
+  }
 }
 
 const DeformationModel *DeformationModelManager::getDeformationModel(int eleID) const
@@ -610,4 +628,14 @@ int DeformationModelManager::getNumPlasticParameters() const
 int DeformationModelManager::getNumElasticParameters() const
 {
   return data->elementMaterials[0]->getNumParameters();
+}
+
+const ES::VXd &DeformationModelManager::getElasticGlobalParams() const
+{
+  return data->elasticGlobalParams;
+}
+
+const ES::VXd &DeformationModelManager::getPlasticGlobalParams() const
+{
+  return data->plasticGlobalParams;
 }

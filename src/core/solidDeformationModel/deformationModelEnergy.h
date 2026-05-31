@@ -7,7 +7,6 @@ copyright to USC,MIT,NUS
 
 #include "potentialEnergy.h"
 
-#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -20,11 +19,15 @@ class DeformationModelAssembler;
 class DeformationModelEnergy : public NonlinearOptimization::PotentialEnergy
 {
 public:
-  DeformationModelEnergy(std::unique_ptr<DeformationModelAssembler> fma, const EigenSupport::VXd *restPosition = nullptr, int offset = 0);
+  DeformationModelEnergy(std::unique_ptr<DeformationModelAssembler> fma,
+    std::unique_ptr<EigenSupport::VXd> restPosition,
+    int offset = 0, bool enableMaterialMaxStep = true);
   virtual ~DeformationModelEnergy();
 
-  // Borrow the owned assembler (e.g. for stress queries).
   const DeformationModelAssembler &assembler() const { return *forceModelAssembler; }
+  DeformationModelAssembler &assembler() { return *forceModelAssembler; }
+
+  const EigenSupport::VXd &getRestPosition() const { return *restPositionPtr; }
 
   virtual double func(EigenSupport::ConstRefVecXd x) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const override;
@@ -41,7 +44,7 @@ protected:
   std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
 
   std::vector<int> allDOFs;
-  EigenSupport::VXd restPosition;
+  std::unique_ptr<EigenSupport::VXd> restPositionPtr;
   bool enableMaterialMaxStep_ = true;
 };
 }  // namespace SolidDeformationModel

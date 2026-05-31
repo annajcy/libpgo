@@ -11,7 +11,7 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-struct KoiterShellElementModelCacheData : public DeformationModelCacheData
+struct ShellElementModelCacheData : public DeformationModelCacheData
 {
   ES::V3d x[6];
   ES::M2d a, abar, b, bbar;

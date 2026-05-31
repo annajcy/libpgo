@@ -38,8 +38,6 @@ public:
   // fiberAxesRestRow0: pointer to 9 doubles (3x3 row-major) for the element's
   // fiber axes in rest configuration. Only used by VOLUMETRIC_DOF3.
   static PlasticModelResult create(
-    const SimulationMesh &mesh,
-    int ele,
     DeformationModelPlasticMaterial type,
     const double *fiberAxesRestRow0);
 

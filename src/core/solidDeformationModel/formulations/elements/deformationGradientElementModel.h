@@ -22,15 +22,8 @@ public:
   using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
 
-  // Block-based constructor (production path).
-  DeformationGradientElementModel(int ele, const double *restPositions,
-    const Basis &basis, const Quadrature &quadrature,
+  DeformationGradientElementModel(int ele, DeformationGradientKernel &&kernel,
     const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock);
-
-  // Compatibility constructor (test/legacy path).
-  DeformationGradientElementModel(const double *restPositions,
-    const Basis &basis, const Quadrature &quadrature,
-    ElasticModel *elasticModel, PlasticModel *plasticModel);
 
   // DeformationModel overrides.
   std::unique_ptr<DeformationModelCacheData> allocateCacheData() const override;
@@ -87,9 +80,6 @@ private:
 
   int numPlasticParams_ = 0;
   int numElasticParams_ = 0;
-
-  ES::VXd compatZeroPlasticParams_;
-  ES::VXd compatZeroElasticParams_;
 
   const double *elasticParamsPtr(const DeformationModelCacheData *cacheData) const;
 

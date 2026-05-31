@@ -5,27 +5,14 @@ copyright to USC
 
 #pragma once
 
-#include "deformationModelManager.h"  // DeformationModelElasticMaterial / DeformationModelPlasticMaterial
+#include "deformationModelManager.h"
 #include "EigenSupport.h"
 
-#include "formulations/deformationFormulations.h"
-#include "formulations/formulationTraits.h"
-#include "formulations/formulationConcepts.h"
-#include "formulations/dof/vertex3DofLayout.h"
-
-#include "factories/elementModelFactory.h"
-#include "factories/elasticModelFactory.h"
-#include "factories/plasticModelFactory.h"
-
+#include "formulations/formulation.h"
 #include "simulationMesh.h"
-#include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 
-#include "pgoLogging.h"
-
 #include <memory>
-#include <stdexcept>
-#include <string_view>
 
 namespace pgo
 {
@@ -36,8 +23,6 @@ class VolumetricMesh;
 
 namespace SolidDeformationModel
 {
-class SimulationMesh;
-class DeformationModelEnergy;
 
 struct DeformationModelOptions
 {
@@ -47,153 +32,17 @@ struct DeformationModelOptions
   EigenSupport::VXd elementWeights;
 };
 
-// One ready-to-use FEM deformation model. The SimulationMesh is borrowed by the
-// energy chain (energy -> assembler -> manager), so callers must keep it alive.
-struct DeformationModelBundle
-{
-  std::shared_ptr<DeformationModelEnergy> energy;
-  // Snapshots for initializing caller-owned solver state. DeformationModelEnergy
-  // stores its own copies, so mutating these fields does not update the energy.
-  EigenSupport::VXd restPosition;
-  EigenSupport::VXd plasticParams;
-  EigenSupport::VXd elasticParams;
-};
-
-// Build a SimulationMesh from a volumetric mesh. The caller owns the returned mesh
-// and must keep it alive while any deformation energy built from it is alive.
+// Build a SimulationMesh from a volumetric mesh.
 std::unique_ptr<SimulationMesh> makeSimulationMesh(const VolumetricMeshes::VolumetricMesh &mesh);
 
-// Topology-specific factories from existing SimulationMesh objects.
-template<TetFormulation F>
-DeformationModelBundle makeTetDeformationModel(
+// Build a ready-to-use deformation energy from an existing SimulationMesh.
+// The returned energy owns its rest position and initial material parameters.
+std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   const SimulationMesh &mesh,
-  const F &formulation,
+  const Formulation &formulation,
   DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+  DeformationModelPlasticMaterial plastic,
   const DeformationModelOptions &opts = {});
-
-template<CubicFormulation F>
-DeformationModelBundle makeCubicDeformationModel(
-  const SimulationMesh &mesh,
-  const F &formulation,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-  const DeformationModelOptions &opts = {});
-
-template<ShellFormulation F>
-DeformationModelBundle makeShellDeformationModel(
-  const SimulationMesh &mesh,
-  const F &formulation,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic = DeformationModelPlasticMaterial::SHELL_FF_DOF1,
-  const DeformationModelOptions &opts = {});
-
-namespace detail
-{
-template<class Formulation>
-DeformationModelBundle makeDeformationModelBundle(
-  const SimulationMesh &mesh,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
-  const DeformationModelOptions &opts)
-{
-  using Traits = FormulationTraits<Formulation>;
-  const int nele = mesh.getNumElements();
-  const int n3 = mesh.getNumVertices() * 3;
-
-  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {}",
-    Traits::name);
-
-  // Rest position snapshot.
-  ES::VXd restPosition(n3);
-  for (int vi = 0; vi < mesh.getNumVertices(); vi++) {
-    double p[3];
-    mesh.getVertex(vi, p);
-    restPosition.segment<3>(vi * 3) = ES::V3d(p[0], p[1], p[2]);
-  }
-
-  // Build manager — initImpl creates element FEMs through ElementModelFactory directly.
-  auto manager = std::make_unique<DeformationModelManager>(
-    mesh, plastic, elastic,
-    opts.enforceSPD ? 1 : 0,
-    /*elementFiberDirections=*/nullptr,
-    /*vertexFiberDirections=*/nullptr);
-
-  // Element weights.
-  ES::VXd elementWeights = opts.elementWeights;
-  if (elementWeights.size() == 0)
-    elementWeights = ES::VXd::Ones(nele);
-  else if (static_cast<int>(elementWeights.size()) != nele)
-    throw std::invalid_argument("makeDeformationModelBundle: elementWeights size does not match the element count.");
-
-  // Default param snapshots using factory helpers.
-  const int numPlasticParams = manager->getNumPlasticParameters();
-  std::vector<PlasticModel *> plasticModels(nele);
-  for (int ei = 0; ei < nele; ei++)
-    plasticModels[ei] = const_cast<PlasticModel *>(manager->getDeformationModel(ei)->getPlasticModel());
-  ES::VXd plasticParams = PlasticModelFactory::initializeDefaultPlasticParams(
-    nele, numPlasticParams, plasticModels.data());
-
-  const int numElasticParams = manager->getNumElasticParameters();
-  ES::VXd elasticParams = ElasticModelFactory::initializeDefaultElasticParams(
-    mesh, elastic, numElasticParams);
-
-  manager->setPlasticParams(plasticParams);
-  manager->setElasticParams(elasticParams);
-
-  auto dofLayout = std::make_unique<Vertex3DofLayout>(&mesh);
-  auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), std::move(dofLayout), elementWeights.data());
-
-  DeformationModelBundle bundle;
-  bundle.restPosition = std::move(restPosition);
-  bundle.plasticParams = std::move(plasticParams);
-  bundle.elasticParams = std::move(elasticParams);
-  bundle.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), &bundle.restPosition, 0);
-  bundle.energy->setEnableMaterialMaxStep(opts.enableMaterialMaxStep);
-
-  return bundle;
-}
-}  // namespace detail
-
-template<TetFormulation F>
-DeformationModelBundle makeTetDeformationModel(
-  const SimulationMesh &mesh,
-  const F &,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
-  const DeformationModelOptions &opts)
-{
-  if (mesh.getElementType() != SimulationMeshType::TET)
-    throw std::invalid_argument("makeTetDeformationModel: SimulationMesh is not TET topology.");
-  return detail::makeDeformationModelBundle<F>(mesh, elastic, plastic, opts);
-}
-
-template<CubicFormulation F>
-DeformationModelBundle makeCubicDeformationModel(
-  const SimulationMesh &mesh,
-  const F &,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
-  const DeformationModelOptions &opts)
-{
-  if (mesh.getElementType() != SimulationMeshType::CUBIC)
-    throw std::invalid_argument("makeCubicDeformationModel: SimulationMesh is not CUBIC topology.");
-  return detail::makeDeformationModelBundle<F>(mesh, elastic, plastic, opts);
-}
-
-template<ShellFormulation F>
-DeformationModelBundle makeShellDeformationModel(
-  const SimulationMesh &mesh,
-  const F &,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
-  const DeformationModelOptions &opts)
-{
-  if (mesh.getElementType() != SimulationMeshType::SHELL)
-    throw std::invalid_argument("makeShellDeformationModel: SimulationMesh is not SHELL topology.");
-  return detail::makeDeformationModelBundle<F>(mesh, elastic, plastic, opts);
-}
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo

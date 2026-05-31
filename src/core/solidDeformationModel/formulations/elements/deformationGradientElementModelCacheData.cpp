@@ -44,8 +44,10 @@ DeformationGradientElementModelCacheData::DeformationGradientElementModelCacheDa
     Bm[q].setZero();
   }
 
-  plasticSample.resize(np, np);
-  elasticSample.resize(ne, ne);
+  plasticParamsValue.setZero(np);
+  plasticParamsDeriv.setIdentity(np, np);
+  elasticParamsValue.setZero(ne);
+  elasticParamsDeriv.setIdentity(ne, ne);
 }
 
 }  // namespace SolidDeformationModel
