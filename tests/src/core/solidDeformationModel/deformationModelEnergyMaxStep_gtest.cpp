@@ -6,7 +6,6 @@
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
-#include "formulations/dof/vertex3DofLayout.h"
 #include "implicitBackwardEulerTimeIntegratorHelper.h"
 #include "implicitBackwardEulerTimeIntegrator.h"
 #include "pgoLogging.h"
@@ -15,8 +14,8 @@
 #include "formulations/geometry/tetP1Geometry.h"
 #include "formulations/basis/hexTrilinearBasis.h"
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
-#include "formulations/kernels/deformationGradientKernel.h"
-#include "formulations/elements/deformationGradientElementModel.h"
+#include "formulations/kernels/volumetricKernel.h"
+#include "formulations/elements/volumetricElementModel.h"
 #include "triMeshGeo.h"
 
 #include <algorithm>
@@ -48,7 +47,7 @@ using pgo::SolidDeformationModel::SimulationMeshMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::NonlinearOptimization::MaxStepResult;
 using pgo::SolidDeformationModel::tetP1ComputeDs;
-using CubicFEM = pgo::SolidDeformationModel::DeformationGradientElementModel;
+using CubicFEM = pgo::SolidDeformationModel::VolumetricElementModel;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 
 constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
@@ -104,10 +103,8 @@ EnergyFixture makeTetFixture(const std::vector<double> &vertices, const std::vec
 
   auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
 
-  auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(fixture.meshOwner.get());
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), std::move(dofLayout), nullptr);
-  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler),
-    std::make_unique<ES::VXd>(fixture.restPositions), 0);
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), 0);
   return fixture;
 }
 
@@ -142,10 +139,8 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 
   auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
 
-  auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(fixture.meshOwner.get());
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), std::move(dofLayout), nullptr);
-  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler),
-    std::make_unique<ES::VXd>(fixture.restPositions), 0);
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), 0);
   return fixture;
 }
 
@@ -182,10 +177,8 @@ EnergyFixture makeShellFixture()
 
   auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::SHELL_FF_DOF1, DeformationModelElasticMaterial::KOITER_STVK, pgo::SolidDeformationModel::KoiterShellFormulation{}, 1, nullptr, nullptr);
 
-  auto dofLayout = std::make_unique<pgo::SolidDeformationModel::Vertex3DofLayout>(fixture.meshOwner.get());
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), std::move(dofLayout), nullptr);
-  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler),
-    std::make_unique<ES::VXd>(fixture.restPositions), 0);
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), 0);
   return fixture;
 }
 

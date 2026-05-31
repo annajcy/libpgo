@@ -1,4 +1,4 @@
-#include "deformationGradientKernel.h"
+#include "volumetricKernel.h"
 
 #include <cmath>
 #include <vector>
@@ -8,7 +8,7 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-DeformationGradientKernel::DeformationGradientKernel(
+VolumetricKernel::VolumetricKernel(
   const double *restPositions,
   const Basis &basis, const Quadrature &quadrature)
 {
@@ -64,7 +64,7 @@ DeformationGradientKernel::DeformationGradientKernel(
   }
 }
 
-void DeformationGradientKernel::computeFref(
+void VolumetricKernel::computeFref(
   const double *xLocal, int q, double F[9]) const
 {
   M3xN xMat(3, numNodes_);
@@ -78,7 +78,7 @@ void DeformationGradientKernel::computeFref(
   FMap = xMat * dN_dxi_[q].transpose() * restDmInv_[q];
 }
 
-void DeformationGradientKernel::computedFrefdx(
+void VolumetricKernel::computedFrefdx(
   int q, double *dFdx) const
 {
   Eigen::Map<M9xNDOF> dFdxMap(dFdx, 9, localDofs_);

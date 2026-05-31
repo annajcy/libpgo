@@ -1,4 +1,4 @@
-#include "deformationGradientElementModelCacheData.h"
+#include "volumetricElementModelCacheData.h"
 
 namespace pgo
 {
@@ -6,7 +6,7 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-DeformationGradientElementModelCacheData::DeformationGradientElementModelCacheData(
+VolumetricElementModelCacheData::VolumetricElementModelCacheData(
   int numNodes, int numQuadPts, int np, int ne):
   numNodes(numNodes),
   numQuadPts(numQuadPts),

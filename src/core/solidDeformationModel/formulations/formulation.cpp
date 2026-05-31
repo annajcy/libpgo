@@ -4,7 +4,7 @@
 #include "basis/hexTrilinearBasis.h"
 #include "quadrature/tetP1DefaultQuadrature.h"
 #include "quadrature/gaussLegendreHexQuadrature.h"
-#include "kernels/deformationGradientKernel.h"
+#include "kernels/volumetricKernel.h"
 #include "kernels/koiterShellKernel.h"
 
 namespace pgo
@@ -24,10 +24,10 @@ VolumetricFormulation::VolumetricFormulation(
 
 VolumetricFormulation::~VolumetricFormulation() = default;
 
-std::unique_ptr<DeformationGradientKernel> VolumetricFormulation::createKernel(
+std::unique_ptr<VolumetricKernel> VolumetricFormulation::createKernel(
   const double *restPositions) const
 {
-  return std::make_unique<DeformationGradientKernel>(
+  return std::make_unique<VolumetricKernel>(
     restPositions, *basis_, *quad_);
 }
 

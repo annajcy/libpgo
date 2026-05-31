@@ -10,10 +10,9 @@ copyright to USC,MIT,NUS
 #include "deformationModelManager.h"
 #include "formulations/basis/tetP1Basis.h"
 #include "formulations/quadrature/tetP1DefaultQuadrature.h"
-#include "formulations/kernels/deformationGradientKernel.h"
-#include "formulations/elements/deformationGradientElementModel.h"
+#include "formulations/kernels/volumetricKernel.h"
+#include "formulations/elements/volumetricElementModel.h"
 #include "formulations/parameters/parameterField.h"
-#include "formulations/dof/vertex3DofLayout.h"
 
 // #include "elementLocalDirection.h"
 #include "tetMesh.h"
@@ -34,7 +33,7 @@ copyright to USC,MIT,NUS
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 using namespace pgo::NonlinearOptimization;
-using TetFEM = DeformationGradientElementModel;
+using TetFEM = VolumetricElementModel;
 
 namespace ES = pgo::EigenSupport;
 
@@ -323,10 +322,9 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
         ES::VXd elasticParams;
 
         std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
-        auto dofFD = std::make_unique<Vertex3DofLayout>(mesh.get());
-forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofFD), nullptr);
+forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
 
-        std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler), nullptr);
+        std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler));
         energy->assembler().getDeformationModelManager().setPlasticParams(scales);
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
@@ -620,10 +618,9 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
         ES::VXd elasticParams;
 
         std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
-        auto dofFD = std::make_unique<Vertex3DofLayout>(mesh.get());
-forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), std::move(dofFD), nullptr);
+forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
 
-        std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler), nullptr);
+        std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler));
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
         fd.testEnergy(energy, false, true, -1.0, x.data(), numTestDOFs, nullptr, &hessError);

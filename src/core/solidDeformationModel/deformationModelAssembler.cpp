@@ -11,7 +11,6 @@ copyright to USC,MIT,NUS
 #include "deformationModel.h"
 #include "elasticModel.h"
 #include "plasticModel.h"
-#include "formulations/dof/vertex3DofLayout.h"
 #include "formulations/parameters/parameterField.h"
 
 #include "pgoLogging.h"
@@ -66,10 +65,9 @@ void warnIllegalInitialState(pgo::SolidDeformationModel::SimulationMeshType mesh
 
 DeformationModelAssembler::DeformationModelAssembler(
   std::unique_ptr<DeformationModelManager> dm,
-  std::unique_ptr<const DofLayout> dof,
-  const double *elementFlags_):
+  const double *elementWeights_):
   deformationModelManager(std::move(dm)),
-  dofLayout(std::move(dof)),
+  dofLayout(deformationModelManager->createDofLayout()),
   elasticParamField_(deformationModelManager->getElasticParameterField()),
   plasticParamField_(deformationModelManager->getPlasticParameterField())
 {
@@ -82,18 +80,11 @@ DeformationModelAssembler::DeformationModelAssembler(
   numElasticParams_ = deformationModelManager->getDeformationModel(0)->getElasticModel()->getNumParameters();
   numPlasticParams_ = deformationModelManager->getDeformationModel(0)->getPlasticModel()->getNumParameters();
 
-  if (elementFlags_) {
-    elementFlags.assign(elementFlags_, elementFlags_ + nele);
+  if (elementWeights_) {
+    elementWeights.assign(elementWeights_, elementWeights_ + nele);
   }
   else {
-    elementFlags.assign(nele, 1);
-  }
-
-  restPositions.resize(numDOFs);
-  for (int vi = 0; vi < deformationModelManager->getMesh()->getNumVertices(); vi++) {
-    ES::V3d p;
-    deformationModelManager->getMesh()->getVertex(vi, p.data());
-    restPositions.segment<3>(vi * 3) = p;
+    elementWeights.assign(nele, 1);
   }
 
   data = std::make_unique<DeformationModelAssemblerCacheData>();
@@ -236,7 +227,7 @@ double DeformationModelAssembler::computeEnergy(const double *x) const
     *it = 0.0;
 
   auto localEnergyFunc = [this, x](int ele) {
-    if (elementFlags[ele] == 0)
+    if (elementWeights[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
@@ -246,7 +237,7 @@ double DeformationModelAssembler::computeEnergy(const double *x) const
     fem->prepareData(localp.data(), data->elementCacheData[ele].get());
     double energy = fem->computeEnergy(data->elementCacheData[ele].get());
 
-    data->energyLocalBuffer.local() += energy * elementFlags[ele];
+    data->energyLocalBuffer.local() += energy * elementWeights[ele];
   };
 
   tbb::parallel_for(0, nele, localEnergyFunc, data->partitioners[0]);
@@ -264,7 +255,7 @@ DeformationModelAssembler::MaterialMaxStepObservation DeformationModelAssembler:
   const SimulationMeshType meshType = deformationModelManager->getMesh()->getElementType();
 
   for (int ele = 0; ele < nele; ele++) {
-    if (elementFlags[ele] == 0) {
+    if (elementWeights[ele] == 0) {
       continue;
     }
 
@@ -301,7 +292,7 @@ void DeformationModelAssembler::computeGradient(const double *x, double *grad) c
 {
   memset(grad, 0, sizeof(double) * numDOFs);
   auto localGradFunc = [this, x, grad](int ele) {
-    if (elementFlags[ele] == 0)
+    if (elementWeights[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
@@ -312,7 +303,7 @@ void DeformationModelAssembler::computeGradient(const double *x, double *grad) c
 
     ES::VXd localGradx(localDOFs);
     fem->compute_dE_dx(data->elementCacheData[ele].get(), localGradx.data());
-    localGradx *= elementFlags[ele];
+    localGradx *= elementWeights[ele];
 
     if (enableSanityCheck) {
       for (int i = 0; i < localDOFs; i++) {
@@ -347,7 +338,7 @@ void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::Sp
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
   auto localHessFunc = [this, x, &hess](int ele) {
-    if (elementFlags[ele] == 0)
+    if (elementWeights[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
@@ -360,7 +351,7 @@ void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::Sp
     fem->compute_d2E_dx2(data->elementCacheData[ele].get(), localKData.data());
 
     ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, localDOFs);
-    localK *= elementFlags[ele];
+    localK *= elementWeights[ele];
 
     const auto &idxM = elementKInverseIndices[ele];
 
@@ -412,7 +403,7 @@ void DeformationModelAssembler::compute_df_da(const double *x, EigenSupport::SpM
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
   auto localHessFunc = [this, x, &hess](int ele) {
-    if (elementFlags[ele] == 0)
+    if (elementWeights[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
@@ -425,7 +416,7 @@ void DeformationModelAssembler::compute_df_da(const double *x, EigenSupport::SpM
     fem->compute_d2E_dxda(data->elementCacheData[ele].get(), localKData.data());
 
     ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, numPlasticParams_);
-    localK *= elementFlags[ele];
+    localK *= elementWeights[ele];
 
     const auto &idxM = element_dfda_InverseIndices[ele];
 
@@ -466,7 +457,7 @@ void DeformationModelAssembler::compute_df_db(const double *x, EigenSupport::SpM
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
   auto localHessFunc = [this, x, &hess](int ele) {
-    if (elementFlags[ele] == 0)
+    if (elementWeights[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
@@ -479,7 +470,7 @@ void DeformationModelAssembler::compute_df_db(const double *x, EigenSupport::SpM
     fem->compute_d2E_dxdb(data->elementCacheData[ele].get(), localKData.data());
 
     ES::Mp<ES::MXd> localK(localKData.data(), localDOFs, numElasticParams_);
-    localK *= elementFlags[ele];
+    localK *= elementWeights[ele];
 
     const auto &idxM = element_dfdb_InverseIndices[ele];
 
@@ -517,7 +508,7 @@ void DeformationModelAssembler::computeVonMisesStresses(const double *x, double 
   std::fill(elementStresses, elementStresses + nele, 0.0);
 
   auto localStressFunc = [this, x, elementStresses](int ele) {
-    if (elementFlags[ele] == 0)
+    if (elementWeights[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);
@@ -546,7 +537,7 @@ void DeformationModelAssembler::computeMaxStrains(const double *x, double *eleme
   std::fill(elementStrain, elementStrain + nele, 0.0);
 
   auto localStrainFunc = [this, x, elementStrain](int ele) {
-    if (elementFlags[ele] == 0)
+    if (elementWeights[ele] == 0)
       return;
 
     ES::VXd localp(localDOFs);

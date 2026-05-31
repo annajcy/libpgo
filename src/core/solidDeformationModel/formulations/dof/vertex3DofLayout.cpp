@@ -13,27 +13,27 @@ namespace SolidDeformationModel
 
 namespace ES = EigenSupport;
 
-Vertex3DofLayout::Vertex3DofLayout(const SimulationMesh *mesh):
+Vertex3DofLayout::Vertex3DofLayout(const SimulationMesh &mesh):
   mesh_(mesh)
 {
 }
 
 int Vertex3DofLayout::numGlobalDofs() const
 {
-  return mesh_->getNumVertices() * 3;
+  return mesh_.getNumVertices() * 3;
 }
 
 int Vertex3DofLayout::numLocalDofs(int) const
 {
-  return mesh_->getNumElementVertices() * 3;
+  return mesh_.getNumElementVertices() * 3;
 }
 
 void Vertex3DofLayout::getGlobalDofIndices(int ele, std::vector<int> &indices) const
 {
-  const int neleVtx = mesh_->getNumElementVertices();
+  const int neleVtx = mesh_.getNumElementVertices();
   indices.resize(neleVtx * 3);
   for (int j = 0; j < neleVtx; j++) {
-    int vid = mesh_->getVertexIndex(ele, j);
+    int vid = mesh_.getVertexIndex(ele, j);
     if (vid >= 0) {
       indices[j * 3 + 0] = vid * 3 + 0;
       indices[j * 3 + 1] = vid * 3 + 1;
@@ -49,9 +49,9 @@ void Vertex3DofLayout::getGlobalDofIndices(int ele, std::vector<int> &indices) c
 
 void Vertex3DofLayout::gather(int ele, const double *global, double *local) const
 {
-  const int neleVtx = mesh_->getNumElementVertices();
+  const int neleVtx = mesh_.getNumElementVertices();
   for (int j = 0; j < neleVtx; j++) {
-    int vid = mesh_->getVertexIndex(ele, j);
+    int vid = mesh_.getVertexIndex(ele, j);
     if (vid >= 0) {
       local[j * 3 + 0] = global[vid * 3 + 0];
       local[j * 3 + 1] = global[vid * 3 + 1];
@@ -67,9 +67,9 @@ void Vertex3DofLayout::gather(int ele, const double *global, double *local) cons
 
 void Vertex3DofLayout::scatterAddGradient(int ele, const double *local, double *global) const
 {
-  const int neleVtx = mesh_->getNumElementVertices();
+  const int neleVtx = mesh_.getNumElementVertices();
   for (int v = 0; v < neleVtx; v++) {
-    int vid = mesh_->getVertexIndex(ele, v);
+    int vid = mesh_.getVertexIndex(ele, v);
     if (vid >= 0) {
       for (int dof = 0; dof < 3; dof++) {
         std::atomic_ref<double> atomicGrad(global[vid * 3 + dof]);
@@ -82,13 +82,13 @@ void Vertex3DofLayout::scatterAddGradient(int ele, const double *local, double *
 void Vertex3DofLayout::addHessianSparsity(int ele,
   std::vector<ES::TripletD> &entries) const
 {
-  const int neleVtx = mesh_->getNumElementVertices();
+  const int neleVtx = mesh_.getNumElementVertices();
   for (int vi = 0; vi < neleVtx; vi++) {
-    int vidI = mesh_->getVertexIndex(ele, vi);
+    int vidI = mesh_.getVertexIndex(ele, vi);
     if (vidI < 0)
       continue;
     for (int vj = 0; vj < neleVtx; vj++) {
-      int vidJ = mesh_->getVertexIndex(ele, vj);
+      int vidJ = mesh_.getVertexIndex(ele, vj);
       if (vidJ < 0)
         continue;
       for (int dofi = 0; dofi < 3; dofi++) {
@@ -104,15 +104,15 @@ void Vertex3DofLayout::buildLocalToGlobalMatrixIndices(int ele,
   const ES::SpMatD &KTemplate,
   DynamicIndexMatrix &indices) const
 {
-  const int neleVtx = mesh_->getNumElementVertices();
+  const int neleVtx = mesh_.getNumElementVertices();
   const int localDOFs = neleVtx * 3;
   indices.resize(localDOFs, localDOFs);
   indices.setConstant(-1);
 
   for (int vi = 0; vi < neleVtx; vi++) {
-    int vidI = mesh_->getVertexIndex(ele, vi);
+    int vidI = mesh_.getVertexIndex(ele, vi);
     for (int vj = 0; vj < neleVtx; vj++) {
-      int vidJ = mesh_->getVertexIndex(ele, vj);
+      int vidJ = mesh_.getVertexIndex(ele, vj);
       for (int dofi = 0; dofi < 3; dofi++) {
         for (int dofj = 0; dofj < 3; dofj++) {
           int localRow = vi * 3 + dofi;

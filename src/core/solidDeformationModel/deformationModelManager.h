@@ -19,6 +19,7 @@ class DeformationModel;
 class DeformationModelManagerImpl;
 class ParameterField;
 class ConstantParameterField;
+class DofLayout;
 
 enum class DeformationModelElasticMaterial
 {
@@ -81,6 +82,9 @@ public:
 
   void setElasticParams(const EigenSupport::VXd &params);
   void setPlasticParams(const EigenSupport::VXd &params);
+
+  std::unique_ptr<const DofLayout> createDofLayout() const;
+  EigenSupport::VXd buildRestPosition() const;
 
 protected:
   DeformationModelManagerImpl *data;

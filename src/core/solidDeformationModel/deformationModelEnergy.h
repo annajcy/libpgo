@@ -19,15 +19,13 @@ class DeformationModelAssembler;
 class DeformationModelEnergy : public NonlinearOptimization::PotentialEnergy
 {
 public:
-  DeformationModelEnergy(std::unique_ptr<DeformationModelAssembler> fma,
-    std::unique_ptr<EigenSupport::VXd> restPosition,
-    int offset = 0, bool enableMaterialMaxStep = true);
+  DeformationModelEnergy(std::unique_ptr<DeformationModelAssembler> fma, int offset = 0, bool enableMaterialMaxStep = true);
   virtual ~DeformationModelEnergy();
 
   const DeformationModelAssembler &assembler() const { return *forceModelAssembler; }
   DeformationModelAssembler &assembler() { return *forceModelAssembler; }
 
-  const EigenSupport::VXd &getRestPosition() const { return *restPositionPtr; }
+  const EigenSupport::VXd &getRestPosition() const { return *restPosition; }
 
   virtual double func(EigenSupport::ConstRefVecXd x) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const override;
@@ -40,11 +38,11 @@ public:
 
   void setEnableMaterialMaxStep(bool enable) { enableMaterialMaxStep_ = enable; }
   bool isMaterialMaxStepEnabled() const { return enableMaterialMaxStep_; }
+
 protected:
   std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
-
   std::vector<int> allDOFs;
-  std::unique_ptr<EigenSupport::VXd> restPositionPtr;
+  std::unique_ptr<EigenSupport::VXd> restPosition;
   bool enableMaterialMaxStep_ = true;
 };
 }  // namespace SolidDeformationModel

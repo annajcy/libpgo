@@ -58,7 +58,7 @@ std::unique_ptr<SimulationMesh> makeSingleCubicMesh()
 TEST(Vertex3DofLayoutGTest, TetDofCounts)
 {
   auto mesh = makeSingleTetMesh();
-  Vertex3DofLayout layout(mesh.get());
+  Vertex3DofLayout layout(*mesh);
 
   EXPECT_EQ(layout.numGlobalDofs(), 12);   // 4 vertices * 3
   EXPECT_EQ(layout.numLocalDofs(0), 12);   // 4 element vertices * 3
@@ -68,7 +68,7 @@ TEST(Vertex3DofLayoutGTest, TetDofCounts)
 TEST(Vertex3DofLayoutGTest, CubicDofCounts)
 {
   auto mesh = makeSingleCubicMesh();
-  Vertex3DofLayout layout(mesh.get());
+  Vertex3DofLayout layout(*mesh);
 
   EXPECT_EQ(layout.numGlobalDofs(), 24);   // 8 vertices * 3
   EXPECT_EQ(layout.numLocalDofs(0), 24);   // 8 element vertices * 3
@@ -83,7 +83,7 @@ TEST(Vertex3DofLayoutGTest, ShellDofCounts)
   auto mesh = pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat);
   ASSERT_NE(mesh, nullptr);
 
-  Vertex3DofLayout layout(mesh.get());
+  Vertex3DofLayout layout(*mesh);
 
   const int nv = mesh->getNumVertices();
   EXPECT_EQ(layout.numGlobalDofs(), nv * 3);
@@ -94,7 +94,7 @@ TEST(Vertex3DofLayoutGTest, ShellDofCounts)
 TEST(Vertex3DofLayoutGTest, GlobalDofIndices)
 {
   auto mesh = makeSingleCubicMesh();
-  Vertex3DofLayout layout(mesh.get());
+  Vertex3DofLayout layout(*mesh);
 
   std::vector<int> indices;
   layout.getGlobalDofIndices(0, indices);
@@ -111,7 +111,7 @@ TEST(Vertex3DofLayoutGTest, GlobalDofIndices)
 TEST(Vertex3DofLayoutGTest, GatherAndScatterRoundTrip)
 {
   auto mesh = makeSingleTetMesh();
-  Vertex3DofLayout layout(mesh.get());
+  Vertex3DofLayout layout(*mesh);
 
   const int nGlobal = layout.numGlobalDofs();
   const int nLocal = layout.numLocalDofs(0);
@@ -153,7 +153,7 @@ TEST(Vertex3DofLayoutGTest, GatherAndScatterRoundTrip)
 TEST(Vertex3DofLayoutGTest, HessianSparsityPattern)
 {
   auto mesh = makeSingleTetMesh();
-  Vertex3DofLayout layout(mesh.get());
+  Vertex3DofLayout layout(*mesh);
 
   std::vector<ES::TripletD> entries;
   layout.addHessianSparsity(0, entries);
@@ -173,7 +173,7 @@ TEST(Vertex3DofLayoutGTest, HessianSparsityPattern)
 TEST(Vertex3DofLayoutGTest, BuildLocalToGlobalMatrixIndices)
 {
   auto mesh = makeSingleTetMesh();
-  Vertex3DofLayout layout(mesh.get());
+  Vertex3DofLayout layout(*mesh);
 
   // Build a KTemplate for the mesh
   std::vector<ES::TripletD> entries;
@@ -209,7 +209,7 @@ TEST(Vertex3DofLayoutGTest, BuildLocalToGlobalMatrixIndices)
 TEST(Vertex3DofLayoutGTest, GatherPreservesValues)
 {
   auto mesh = makeSingleTetMesh();
-  Vertex3DofLayout layout(mesh.get());
+  Vertex3DofLayout layout(*mesh);
 
   const int nGlobal = layout.numGlobalDofs();
   const int nLocal = layout.numLocalDofs(0);

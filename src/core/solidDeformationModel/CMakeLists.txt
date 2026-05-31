@@ -61,12 +61,12 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/quadrature/tetP1DefaultQuadrature.h
   formulations/quadrature/gaussLegendreHexQuadrature.h
 
-  formulations/kernels/deformationGradientKernel.h
+  formulations/kernels/volumetricKernel.h
   formulations/kernels/shellKernel.h
   formulations/kernels/koiterShellKernel.h
 
-  formulations/elements/deformationGradientElementModel.h
-  formulations/elements/deformationGradientElementModelCacheData.h
+  formulations/elements/volumetricElementModel.h
+  formulations/elements/volumetricElementModelCacheData.h
   formulations/elements/shellElementModel.h
   formulations/elements/shellElementModelCacheData.h
 
@@ -121,11 +121,11 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 		formulations/quadrature/tetP1DefaultQuadrature.cpp
 		formulations/quadrature/gaussLegendreHexQuadrature.cpp
 
-		formulations/kernels/deformationGradientKernel.cpp
+		formulations/kernels/volumetricKernel.cpp
 		formulations/kernels/koiterShellKernel.cpp
 
-		formulations/elements/deformationGradientElementModel.cpp
-		formulations/elements/deformationGradientElementModelCacheData.cpp
+		formulations/elements/volumetricElementModel.cpp
+		formulations/elements/volumetricElementModelCacheData.cpp
 		formulations/elements/shellElementModel.cpp
 
 		formulations/dof/vertex3DofLayout.cpp

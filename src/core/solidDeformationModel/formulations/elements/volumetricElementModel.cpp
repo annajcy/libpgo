@@ -1,4 +1,4 @@
-#include "deformationGradientElementModel.h"
+#include "volumetricElementModel.h"
 
 #include "../../materialMaxStepPolynomialUtils.h"
 #include "../parameters/constantParameterField.h"
@@ -16,8 +16,8 @@ namespace SolidDeformationModel
 // Constructors
 // ============================================================
 
-DeformationGradientElementModel::DeformationGradientElementModel(
-  int ele, DeformationGradientKernel &&kernel,
+VolumetricElementModel::VolumetricElementModel(
+  int ele, VolumetricKernel &&kernel,
   const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock):
   DeformationModel(elasticBlock.model, plasticBlock.model),
   numNodes_(kernel.numNodes()),
@@ -33,11 +33,11 @@ DeformationGradientElementModel::DeformationGradientElementModel(
 
   if (elasticModel_ == nullptr) {
     throw std::invalid_argument(
-      "DeformationGradientElementModel requires ElasticModel3DDeformationGradient.");
+      "VolumetricElementModel requires ElasticModel3DDeformationGradient.");
   }
   if (plasticModel_ == nullptr) {
     throw std::invalid_argument(
-      "DeformationGradientElementModel requires PlasticModel3DDeformationGradient.");
+      "VolumetricElementModel requires PlasticModel3DDeformationGradient.");
   }
 
   numPlasticParams_ = plasticModel_->getNumParameters();
@@ -49,16 +49,16 @@ DeformationGradientElementModel::DeformationGradientElementModel(
 // ============================================================
 
 std::unique_ptr<DeformationModelCacheData>
-DeformationGradientElementModel::allocateCacheData() const
+VolumetricElementModel::allocateCacheData() const
 {
-  return std::make_unique<DeformationGradientElementModelCacheData>(
+  return std::make_unique<VolumetricElementModelCacheData>(
     numNodes_, numQuadPts_, numPlasticParams_, numElasticParams_);
 }
 
-const double *DeformationGradientElementModel::elasticParamsPtr(
+const double *VolumetricElementModel::elasticParamsPtr(
   const DeformationModelCacheData *cacheData) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheData);
   return cd->numElasticParams ? cd->elasticParamsValue.data() : nullptr;
 }
@@ -67,10 +67,10 @@ const double *DeformationGradientElementModel::elasticParamsPtr(
 // prepareData
 // ============================================================
 
-void DeformationGradientElementModel::prepareData(
+void VolumetricElementModel::prepareData(
   const double *x, DeformationModelCacheData *cacheDataBase) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   CD *cd = static_cast<CD *>(cacheDataBase);
 
   for (int vi = 0; vi < numNodes_; vi++) {
@@ -120,10 +120,10 @@ void DeformationGradientElementModel::prepareData(
 // Energy and derivatives w.r.t. displacement
 // ============================================================
 
-double DeformationGradientElementModel::computeEnergy(
+double VolumetricElementModel::computeEnergy(
   const DeformationModelCacheData *cacheDataBase) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
 
   const double *mp = elasticParamsPtr(cacheDataBase);
@@ -136,10 +136,10 @@ double DeformationGradientElementModel::computeEnergy(
   return energy;
 }
 
-void DeformationGradientElementModel::compute_dE_dx(
+void VolumetricElementModel::compute_dE_dx(
   const DeformationModelCacheData *cacheDataBase, double *grad) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
 
@@ -156,10 +156,10 @@ void DeformationGradientElementModel::compute_dE_dx(
   }
 }
 
-void DeformationGradientElementModel::compute_d2E_dx2(
+void VolumetricElementModel::compute_d2E_dx2(
   const DeformationModelCacheData *cacheDataBase, double *hess) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
 
@@ -177,13 +177,13 @@ void DeformationGradientElementModel::compute_d2E_dx2(
   hessMap = hessMat;
 }
 
-void DeformationGradientElementModel::enableSPD(int) {}
+void VolumetricElementModel::enableSPD(int) {}
 
 // ============================================================
 // computeSVD
 // ============================================================
 
-void DeformationGradientElementModel::computeSVD(
+void VolumetricElementModel::computeSVD(
   const ES::M3d &Fe, ES::M3d &U, ES::M3d &V, ES::V3d &S)
 {
   Eigen::JacobiSVD<ES::M3d, Eigen::NoQRPreconditioner> svd(
@@ -207,7 +207,7 @@ void DeformationGradientElementModel::computeSVD(
 // ============================================================
 
 DeformationModel::LocalMaxStepResult
-DeformationGradientElementModel::computeLocalMaxStepSize(
+VolumetricElementModel::computeLocalMaxStepSize(
   const double *x_local, const double *dx_local) const
 {
   LocalMaxStepResult result;
@@ -238,25 +238,25 @@ DeformationGradientElementModel::computeLocalMaxStepSize(
 // computeF / computeFe / computeP / computedPdF / computedFdx / computeForceFromP
 // ============================================================
 
-void DeformationGradientElementModel::computeF(
+void VolumetricElementModel::computeF(
   const double *x, int materialLocationID, double F[9]) const
 {
   kernel_.computeFref(x, materialLocationID, F);
 }
 
-void DeformationGradientElementModel::computeFe(
+void VolumetricElementModel::computeFe(
   const DeformationModelCacheData *cacheData, int materialLocationID, double F[9]) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheData);
   Eigen::Map<ES::M3d> FMap(F);
   FMap = cd->Fe[materialLocationID];
 }
 
-void DeformationGradientElementModel::computeP(
+void VolumetricElementModel::computeP(
   const DeformationModelCacheData *cacheData, int materialLocationID, double POut[9]) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheData);
   const double *mp = elasticParamsPtr(cacheData);
 
@@ -268,10 +268,10 @@ void DeformationGradientElementModel::computeP(
   PMap = P;
 }
 
-void DeformationGradientElementModel::computedPdF(
+void VolumetricElementModel::computedPdF(
   const DeformationModelCacheData *cacheData, int materialLocationID, double dPdFOut[81]) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheData);
   const double *mp = elasticParamsPtr(cacheData);
 
@@ -283,20 +283,20 @@ void DeformationGradientElementModel::computedPdF(
   dPdFMap = dPdF;
 }
 
-void DeformationGradientElementModel::computedFdx(
+void VolumetricElementModel::computedFdx(
   const DeformationModelCacheData *cacheData, int materialLocationID, double *dFdxOut) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheData);
   Eigen::Map<M9xNDOF> dFdxMap(dFdxOut, 9, localDofs_);
   dFdxMap = cd->dFdx[materialLocationID];
 }
 
-void DeformationGradientElementModel::computeForceFromP(
+void VolumetricElementModel::computeForceFromP(
   const DeformationModelCacheData *cacheDataBase, int materialLocationID,
   const double P[9], double f[]) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const Eigen::Map<const ES::M3d> PMap(P);
   const M3xN localForce = PMap * cd->Bm[materialLocationID];
@@ -309,10 +309,10 @@ void DeformationGradientElementModel::computeForceFromP(
 // vonMisesStress / maxStrain
 // ============================================================
 
-void DeformationGradientElementModel::vonMisesStress(
+void VolumetricElementModel::vonMisesStress(
   const DeformationModelCacheData *cacheDataBase, int &nPt, double *stresses) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
   nPt = numQuadPts_;
@@ -334,10 +334,10 @@ void DeformationGradientElementModel::vonMisesStress(
   }
 }
 
-void DeformationGradientElementModel::maxStrain(
+void VolumetricElementModel::maxStrain(
   const DeformationModelCacheData *cacheDataBase, int &nPt, double *stresses) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   nPt = numQuadPts_;
 
@@ -352,10 +352,10 @@ void DeformationGradientElementModel::maxStrain(
 // Plastic parameter derivatives (with chain rule)
 // ============================================================
 
-void DeformationGradientElementModel::compute_dE_da(
+void VolumetricElementModel::compute_dE_da(
   const DeformationModelCacheData *cacheDataBase, double *grad) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
 
@@ -384,10 +384,10 @@ void DeformationGradientElementModel::compute_dE_da(
   }
 }
 
-void DeformationGradientElementModel::compute_d2E_da2(
+void VolumetricElementModel::compute_d2E_da2(
   const DeformationModelCacheData *cacheDataBase, double *hess) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
 
@@ -430,10 +430,10 @@ void DeformationGradientElementModel::compute_d2E_da2(
   Eigen::Map<ES::MXd>(hess, numPlasticParams_, numPlasticParams_) = hessMat;
 }
 
-void DeformationGradientElementModel::compute_d2E_dxda(
+void VolumetricElementModel::compute_d2E_dxda(
   const DeformationModelCacheData *cacheDataBase, double *hess) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
 
@@ -482,10 +482,10 @@ void DeformationGradientElementModel::compute_d2E_dxda(
 // Elastic parameter derivatives (with chain rule)
 // ============================================================
 
-void DeformationGradientElementModel::compute_dE_db(
+void VolumetricElementModel::compute_dE_db(
   const DeformationModelCacheData *cacheDataBase, double *grad) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
 
@@ -507,10 +507,10 @@ void DeformationGradientElementModel::compute_dE_db(
   }
 }
 
-void DeformationGradientElementModel::compute_d2E_db2(
+void VolumetricElementModel::compute_d2E_db2(
   const DeformationModelCacheData *cacheDataBase, double *hess) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
 
@@ -533,10 +533,10 @@ void DeformationGradientElementModel::compute_d2E_db2(
   Eigen::Map<ES::MXd>(hess, numElasticParams_, numElasticParams_) = hessMat;
 }
 
-void DeformationGradientElementModel::compute_d2E_dxdb(
+void VolumetricElementModel::compute_d2E_dxdb(
   const DeformationModelCacheData *cacheDataBase, double *hess) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
 
@@ -563,10 +563,10 @@ void DeformationGradientElementModel::compute_d2E_dxdb(
   }
 }
 
-void DeformationGradientElementModel::compute_d2E_dadb(
+void VolumetricElementModel::compute_d2E_dadb(
   const DeformationModelCacheData *cacheDataBase, double *hess) const
 {
-  using CD = DeformationGradientElementModelCacheData;
+  using CD = VolumetricElementModelCacheData;
   const CD *cd = static_cast<const CD *>(cacheDataBase);
   const double *mp = elasticParamsPtr(cacheDataBase);
 
@@ -612,7 +612,7 @@ void DeformationGradientElementModel::compute_d2E_dadb(
 // Private helper methods
 // ============================================================
 
-void DeformationGradientElementModel::computeCurrent_dFdx(
+void VolumetricElementModel::computeCurrent_dFdx(
   const M9xNDOF &rest_dFdx, const ES::M3d &FpInv, M9xNDOF &dFdx) const
 {
   for (int col = 0; col < localDofs_; col++) {
@@ -622,38 +622,38 @@ void DeformationGradientElementModel::computeCurrent_dFdx(
   }
 }
 
-double DeformationGradientElementModel::compute_dV_dai(
+double VolumetricElementModel::compute_dV_dai(
   double weightDetJ, double ddetA_dai) const
 {
   return weightDetJ * ddetA_dai;
 }
 
-double DeformationGradientElementModel::compute_d2V_daidaj(
+double VolumetricElementModel::compute_d2V_daidaj(
   double weightDetJ, double d2detA_daidaj) const
 {
   return weightDetJ * d2detA_daidaj;
 }
 
-void DeformationGradientElementModel::compute_dFe_dai(
+void VolumetricElementModel::compute_dFe_dai(
   const ES::M3d &Fref, const ES::M3d &dAInvdai, ES::M3d &dFdai) const
 {
   dFdai = Fref * dAInvdai;
 }
 
-void DeformationGradientElementModel::compute_d2Fe_dai_daj(
+void VolumetricElementModel::compute_d2Fe_dai_daj(
   const ES::M3d &Fref, const ES::M3d &dAInvdaidaj, ES::M3d &d2Fdaidaj) const
 {
   d2Fdaidaj = Fref * dAInvdaidaj;
 }
 
-void DeformationGradientElementModel::compute_dP_dai(
+void VolumetricElementModel::compute_dP_dai(
   const ES::M9d &dPdF, const ES::M3d &dFdai, ES::M3d &dPdai) const
 {
   Eigen::Map<ES::V9d>(dPdai.data()) = dPdF *
     Eigen::Map<const ES::V9d>(dFdai.data());
 }
 
-double DeformationGradientElementModel::compute_dpsi_dai(
+double VolumetricElementModel::compute_dpsi_dai(
   const ES::M3d &Fref, const ES::M3d &dAInv_dai, const ES::M3d &P) const
 {
   ES::M3d dFe_dai;
@@ -661,7 +661,7 @@ double DeformationGradientElementModel::compute_dpsi_dai(
   return P.cwiseProduct(dFe_dai).sum();
 }
 
-double DeformationGradientElementModel::compute_d2psi_dai_daj(
+double VolumetricElementModel::compute_d2psi_dai_daj(
   const ES::M3d &Fref, const ES::M3d &dAInv_dai, const ES::M3d &dAInv_daj,
   const ES::M3d &d2AInv_dai_daj, const ES::M3d &P, const ES::M9d &dPdF) const
 {
@@ -678,7 +678,7 @@ double DeformationGradientElementModel::compute_d2psi_dai_daj(
   return dP_daj.cwiseProduct(dFe_dai).sum() + P.cwiseProduct(d2Fe_daidaj).sum();
 }
 
-void DeformationGradientElementModel::compute_d2Fe_dx_dai(
+void VolumetricElementModel::compute_d2Fe_dx_dai(
   const ES::M3d &dAInvdai, const M9xNDOF &rest_dFdx, M9xNDOF &d2Fdudai) const
 {
   for (int col = 0; col < localDofs_; col++) {

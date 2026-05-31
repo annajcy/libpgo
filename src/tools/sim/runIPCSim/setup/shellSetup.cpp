@@ -4,7 +4,6 @@
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
-#include "formulations/dof/vertex3DofLayout.h"
 #include "embeddedSurfaceFloorPotentialEnergy.h"
 #include "ipc/embeddedSurfaceIPCPotentialEnergy.h"
 #include "libiglInterface.h"
@@ -150,14 +149,12 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
   dmm->setElasticParams(elasticParams);
 
   std::vector<double> elementWeights(nele, 1.0);
-  auto dofLayout = std::make_unique<SolidDeformationModel::Vertex3DofLayout>(simMesh.get());
   auto assembler =
     std::make_unique<SolidDeformationModel::DeformationModelAssembler>(
-      std::move(dmm), std::move(dofLayout), elementWeights.data());
+      std::move(dmm), elementWeights.data());
 
-  auto restPosPtr = std::make_unique<ES::VXd>(std::move(simulationRestPosition));
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy =
-    std::make_shared<SolidDeformationModel::DeformationModelEnergy>(std::move(assembler), std::move(restPosPtr), 0);
+    std::make_shared<SolidDeformationModel::DeformationModelEnergy>(std::move(assembler), 0);
   elasticEnergy->setEnableMaterialMaxStep(enableMaterialMaxStep);
 
   ES::VXd zero = ES::VXd::Zero(n3);

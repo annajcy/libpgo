@@ -7,6 +7,7 @@ copyright to USC, MIT, NUS
 
 #include "deformationModel.h"
 #include "factories/elementModelFactory.h"
+#include "formulations/dof/vertex3DofLayout.h"
 #include "formulations/formulation.h"
 
 #include "simulationMesh.h"
@@ -551,6 +552,25 @@ void DeformationModelManager::setPlasticParams(const EigenSupport::VXd &params)
 {
   data->plasticGlobalParams = params;
   data->plasticField->setGlobalData(data->plasticGlobalParams.data());
+}
+
+std::unique_ptr<const DofLayout> DeformationModelManager::createDofLayout() const
+{
+  // Currently all formulations (tet P1, hex trilinear, shell Koiter) use Vertex3DofLayout.
+  // Future formulations (e.g. hex tricubic Hermite) will return a different DofLayout.
+  return std::make_unique<Vertex3DofLayout>(*getMesh());
+}
+
+ES::VXd DeformationModelManager::buildRestPosition() const
+{
+  auto *mesh = getMesh();
+  ES::VXd rest(mesh->getNumVertices() * 3);
+  for (int vi = 0; vi < mesh->getNumVertices(); vi++) {
+    double p[3];
+    mesh->getVertex(vi, p);
+    rest.segment<3>(vi * 3) = ES::V3d(p[0], p[1], p[2]);
+  }
+  return rest;
 }
 
 void DeformationModelManager::setEnforceSPD(int enable)

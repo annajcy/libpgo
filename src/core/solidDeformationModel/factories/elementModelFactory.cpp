@@ -1,6 +1,6 @@
 #include "elementModelFactory.h"
 
-#include "../formulations/elements/deformationGradientElementModel.h"
+#include "../formulations/elements/volumetricElementModel.h"
 #include "../formulations/elements/shellElementModel.h"
 #include "../simulationMesh.h"
 
@@ -43,7 +43,7 @@ std::unique_ptr<DeformationModel> ElementModelFactory::create_volume(
   }
 
   auto kernel = formulation.createKernel(restPosition.data());
-  return std::make_unique<DeformationGradientElementModel>(
+  return std::make_unique<VolumetricElementModel>(
     ele, std::move(*kernel), elasticBlock, plasticBlock);
 }
 

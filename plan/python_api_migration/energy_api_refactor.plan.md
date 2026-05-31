@@ -11,7 +11,7 @@
 ```python
 import pypgo as pgo
 
-elastic = pgo.energy.deformation_energy(...)
+elastic = pgo.fem.deformation_energy(...)
 
 # External force f contributes -f^T u to potential energy.
 # Python 不提供 sign-flip 便利包装；用户显式 LinearEnergy(f) + 负权。
@@ -324,7 +324,7 @@ energy.state_kind  # "displacement" or "generic"
 energy.zero_state()
 ```
 
-- `deformation_energy` / contact / `external_force`：`state_kind == "displacement"`。
+- `pgo.fem.deformation_energy(...)` / contact / `external_force`：`state_kind == "displacement"`。
 - `linear` / `quadratic`：`state_kind == "generic"`。
 
 `zero_state()` 返回 `np.zeros(num_dofs, dtype=np.float64)`。
@@ -450,7 +450,7 @@ std::vector<int> dofsOf(const PotentialEnergy &energy);
 import pypgo as pgo
 import numpy as np
 
-elastic = pgo.energy.deformation_energy(sim_mesh, ...)
+elastic = pgo.fem.deformation_energy(sim_mesh, ...)
 floor   = pgo.contact.FloorEnergy(...)
 b       = np.zeros(elastic.num_dofs); b[1::3] = -9.81
 force   = pgo.energy.LinearEnergy(b)
@@ -487,14 +487,14 @@ total.set_weight(2, 0.0)     # 暂时关掉 LinearEnergy term
 ```text
 pypgo.energy
   PotentialEnergy           # 只读 handle，无 Python 子类化
+  DeformationEnergy         # final deformation wrapper; constructed by pypgo.fem
   EnergySet
   LinearEnergy              # owning
   QuadraticEnergy           # owning
   VertexAttachment          # owning, displacement state
-  deformation_energy(...)   # factory, returns DeformationEnergy
 ```
 
-不暴露：`PotentialEnergies`、`addPotentialEnergy`、`init`、`hessianInPlace`、`hessianAlloc`、`isHessianTopologyFixed`、`getDOFs(out)`。
+不暴露：`PotentialEnergies`、`addPotentialEnergy`、`init`、`hessianInPlace`、`hessianAlloc`、`isHessianTopologyFixed`、`getDOFs(out)`、`deformation_energy(...)`。Deformation construction factory 属于 `pypgo.fem.deformation_energy(...)`；`pypgo.energy` 只承载最终 `DeformationEnergy` wrapper 和通用 energy 组合/求值 API。
 
 ## File Map
 
@@ -705,7 +705,7 @@ E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移�
   - 单 term → 沿用该 term；
   - 多 term 全部相同 → 沿用之；
   - 否则 → `"generic"`。
-- 测试：`deformation_energy(...).state_kind == "displacement"`、`LinearEnergy(...).state_kind == "generic"`、`EnergySet([elastic, floor]).state_kind == "displacement"`、`EnergySet([elastic, quadratic]).state_kind == "generic"`、`EnergySet([])` raises `ValueError`。
+- 测试：`pgo.fem.deformation_energy(...).state_kind == "displacement"`、`LinearEnergy(...).state_kind == "generic"`、`EnergySet([elastic, floor]).state_kind == "displacement"`、`EnergySet([elastic, quadratic]).state_kind == "generic"`、`EnergySet([])` raises `ValueError`。
 
 ### Task E9: `MultipleVertexPulling` 改 owning + Python `VertexAttachment`
 
@@ -747,7 +747,7 @@ E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移�
 
 - C++ 测试全部通过；旧 `PotentialEnergies` 数值结果与 `EnergySet` 在相同 children + weights 下一致（同一 fixture 跑两遍）。
 - `python -m pytest tests/pypgo/test_energy.py` 全部通过，覆盖：handle、Linear/Quadratic owning、EnergySet 单/多/0 term、weight 更新、混合 topology、child lifetime、state_kind。
-- `pypgo.energy` 公开名集合不出现 `PotentialEnergies`、`addPotentialEnergy`、`init`、`hessianInPlace`、`hessianAlloc`、`isHessianTopologyFixed`。
+- `pypgo.energy` 公开名集合不出现 `PotentialEnergies`、`addPotentialEnergy`、`init`、`hessianInPlace`、`hessianAlloc`、`isHessianTopologyFixed`、`deformation_energy`。
 - C++ 全树 `grep -rn "hessianDirect\|createHessian" src/` 不再有 hit。
 - 没有 `std::shared_ptr<void>` 出现在 `energy_bindings.cpp` 或 `nonlinearOptimization` 公共 header。
 - C++ 代码全树 `grep -rn "PotentialEnergies\b" src/` 不再有 hit（只剩 `PredefinedPotentialEnergies` / `ConstraintPotentialEnergies` 这类 namespace 名字属于同名前缀）。
@@ -797,6 +797,6 @@ E0 必须最先完成；E1 / E2 / E9 可三路并行（ownership 改造是一样
 ### 输出（供下游 plan 使用）
 
 - C++: `EnergySet`、`evaluateValue/Gradient/Hessian/MaxStep` helper、owning 化的 `Linear/QuadraticPotentialEnergy`、owning 化的 `MultipleVertexPulling`。
-- Python: `pypgo.energy.PotentialEnergy`（handle）、`EnergySet`、`LinearEnergy`、`QuadraticEnergy`、`VertexAttachment`。
+- Python: `pypgo.energy.PotentialEnergy`（handle）、`DeformationEnergy` wrapper、`EnergySet`、`LinearEnergy`、`QuadraticEnergy`、`VertexAttachment`。`pypgo.fem.deformation_energy(...)` 负责构造 deformation energy。
 - Contact plan 使用 `pypgo.energy.PotentialEnergy` 作为绑定基类、`EnergySet` 做端到端测试。
 - Solver plan 使用 `pypgo.energy.PotentialEnergy` 作为输入类型、`evaluation.h` 做 Hessian 求值。

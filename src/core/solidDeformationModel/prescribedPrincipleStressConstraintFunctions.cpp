@@ -9,8 +9,8 @@ copyright to USC,MIT,NUS
 
 #include "formulations/basis/tetP1Basis.h"
 #include "formulations/quadrature/tetP1DefaultQuadrature.h"
-#include "formulations/kernels/deformationGradientKernel.h"
-#include "formulations/elements/deformationGradientElementModel.h"
+#include "formulations/kernels/volumetricKernel.h"
+#include "formulations/elements/volumetricElementModel.h"
 
 #include "svdDerivatives.h"
 #include "pgoLogging.h"
@@ -18,7 +18,7 @@ copyright to USC,MIT,NUS
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 
-using TetFEM = DeformationGradientElementModel;
+using TetFEM = VolumetricElementModel;
 
 PrescribedPrincipleStressConstraintFunctions::PrescribedPrincipleStressConstraintFunctions(int nAll, int doff, int numElements, const int *elementIDs, const DeformationModelManager *tmdmm):
   ConstraintFunctions(nAll), dofStart(doff), tetMeshDMM(tmdmm)

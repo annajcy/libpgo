@@ -14,7 +14,7 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-// DeformationGradientKernel
+// VolumetricKernel
 //
 // Rest-geometry precomputation and deformation-gradient kinematics
 // shared by tet P1 and hex trilinear formulations.
@@ -31,13 +31,13 @@ namespace SolidDeformationModel
 //   computeFref(xLocal, q, F)   -> F = x * dN_dxi^T * DmInv
 //   F at quad point q from local positions
 
-class DeformationGradientKernel
+class VolumetricKernel
 {
 public:
   using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
 
-  DeformationGradientKernel(const double *restPositions,
+  VolumetricKernel(const double *restPositions,
     const Basis &basis, const Quadrature &quadrature);
 
   int numQuadraturePoints() const { return numQuadPts_; }

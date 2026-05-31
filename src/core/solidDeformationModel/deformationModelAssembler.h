@@ -30,8 +30,7 @@ public:
   };
 
   DeformationModelAssembler(std::unique_ptr<DeformationModelManager> dm,
-    std::unique_ptr<const DofLayout> dof,
-    const double *elementFlags = nullptr);
+    const double *elementWeights = nullptr);
   virtual ~DeformationModelAssembler();
 
   double computeEnergy(const double *x) const;
@@ -70,11 +69,10 @@ protected:
   int numElasticParams_ = 0;
   int numPlasticParams_ = 0;
 
-  EigenSupport::VXd restPositions;
   EigenSupport::SpMatD KTemplate, dfdaTemplate, dfdbTemplate;
   std::vector<DynamicIndexMatrix> elementKInverseIndices, element_dfda_InverseIndices, element_dfdb_InverseIndices;
 
-  std::vector<double> elementFlags;
+  std::vector<double> elementWeights;
   std::vector<const DeformationModel *> femModels;
 
   const int enableSanityCheck = 1;

@@ -5,8 +5,8 @@
 #include "../../plasticModel3DDeformationGradient.h"
 #include "../basis/basis.h"
 #include "../quadrature/quadrature.h"
-#include "../kernels/deformationGradientKernel.h"
-#include "deformationGradientElementModelCacheData.h"
+#include "../kernels/volumetricKernel.h"
+#include "volumetricElementModelCacheData.h"
 #include "parameterizedMaterialBlock.h"
 
 #include "EigenSupport.h"
@@ -16,13 +16,13 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-class DeformationGradientElementModel : public DeformationModel
+class VolumetricElementModel : public DeformationModel
 {
 public:
   using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
 
-  DeformationGradientElementModel(int ele, DeformationGradientKernel &&kernel,
+  VolumetricElementModel(int ele, VolumetricKernel &&kernel,
     const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock);
 
   // DeformationModel overrides.
@@ -61,7 +61,7 @@ public:
   void maxStrain(const DeformationModelCacheData *cacheData,
     int &nPt, double *stresses) const override;
 
-  const DeformationGradientKernel &kernel() const { return kernel_; }
+  const VolumetricKernel &kernel() const { return kernel_; }
 
   static void computeSVD(const ES::M3d &Fe, ES::M3d &U, ES::M3d &V, ES::V3d &S);
 
@@ -70,7 +70,7 @@ private:
   int numQuadPts_ = 0;
   int localDofs_ = 0;
 
-  DeformationGradientKernel kernel_;
+  VolumetricKernel kernel_;
   const ElasticModel3DDeformationGradient *elasticModel_ = nullptr;
   const PlasticModel3DDeformationGradient *plasticModel_ = nullptr;
 

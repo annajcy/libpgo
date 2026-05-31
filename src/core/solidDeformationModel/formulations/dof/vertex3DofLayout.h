@@ -21,7 +21,7 @@ class SimulationMesh;
 class Vertex3DofLayout : public DofLayout
 {
 public:
-  explicit Vertex3DofLayout(const SimulationMesh *mesh);
+  explicit Vertex3DofLayout(const SimulationMesh &mesh);
 
   int numGlobalDofs() const override;
   int numLocalDofs(int ele) const override;
@@ -39,7 +39,7 @@ public:
     DynamicIndexMatrix &indices) const override;
 
 private:
-  const SimulationMesh *mesh_ = nullptr;
+  const SimulationMesh &mesh_;
 };
 
 }  // namespace SolidDeformationModel

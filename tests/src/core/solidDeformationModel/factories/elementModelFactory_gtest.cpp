@@ -96,7 +96,7 @@ TEST(ElementModelFactoryGTest, CreateShellKoiterRejectsNonShellElasticMaterial)
 // Task 5p/5q: Verify production factories use formulation-aware element models
 // ============================================================
 
-// Tet: DeformationModelManager initImpl creates DeformationGradientElementModel.
+// Tet: DeformationModelManager initImpl creates VolumetricElementModel.
 TEST(ElementModelFactoryGTest, TetManagerCreatesFormulationAwareModel)
 {
   pgo::Logging::init();
@@ -118,7 +118,7 @@ TEST(ElementModelFactoryGTest, TetManagerCreatesFormulationAwareModel)
   }
 }
 
-// Cubic: DeformationModelManager initImpl creates DeformationGradientElementModel.
+// Cubic: DeformationModelManager initImpl creates VolumetricElementModel.
 TEST(ElementModelFactoryGTest, CubicManagerCreatesFormulationAwareModel)
 {
   pgo::Logging::init();

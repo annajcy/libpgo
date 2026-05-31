@@ -10,7 +10,7 @@ namespace SolidDeformationModel
 
 class Basis;
 class Quadrature;
-class DeformationGradientKernel;
+class VolumetricKernel;
 class ShellKernel;
 
 // ============================================================
@@ -28,7 +28,7 @@ public:
 
 // ============================================================
 // VolumetricFormulation — owns Basis + Quadrature, creates
-// DeformationGradientKernel per element.
+// VolumetricKernel per element.
 // ============================================================
 
 class VolumetricFormulation : public Formulation
@@ -40,7 +40,7 @@ public:
   const Basis &basis() const { return *basis_; }
   const Quadrature &quadrature() const { return *quad_; }
 
-  std::unique_ptr<DeformationGradientKernel> createKernel(const double *restPositions) const;
+  std::unique_ptr<VolumetricKernel> createKernel(const double *restPositions) const;
 
 private:
   std::unique_ptr<Basis> basis_;

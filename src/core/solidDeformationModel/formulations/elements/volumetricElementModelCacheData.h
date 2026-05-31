@@ -11,7 +11,7 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-struct DeformationGradientElementModelCacheData : public DeformationModelCacheData
+struct VolumetricElementModelCacheData : public DeformationModelCacheData
 {
   using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
@@ -45,7 +45,7 @@ struct DeformationGradientElementModelCacheData : public DeformationModelCacheDa
   ES::VXd elasticParamsValue;
   ES::MXd elasticParamsDeriv;
 
-  DeformationGradientElementModelCacheData(int numNodes, int numQuadPts,
+  VolumetricElementModelCacheData(int numNodes, int numQuadPts,
     int numPlasticParams, int numElasticParams);
 
   ES::M3d &d2AInv(int q, int i, int j)

@@ -9,7 +9,6 @@ copyright to USC
 #include "tetMesh.h"
 #include "volumetricMesh.h"
 
-#include "formulations/dof/vertex3DofLayout.h"
 #include "deformationModelAssembler.h"
 #include "pgoLogging.h"
 
@@ -53,17 +52,9 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   const DeformationModelOptions &opts)
 {
   const int nele = mesh.getNumElements();
-  const int n3 = mesh.getNumVertices() * 3;
 
   SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {}",
     formulation.getName());
-
-  auto restPosition = std::make_unique<ES::VXd>(n3);
-  for (int vi = 0; vi < mesh.getNumVertices(); vi++) {
-    double p[3];
-    mesh.getVertex(vi, p);
-    restPosition->segment<3>(vi * 3) = ES::V3d(p[0], p[1], p[2]);
-  }
 
   // Formulation flows through to the manager (→ initImpl → ElementModelFactory).
   auto manager = std::make_unique<DeformationModelManager>(
@@ -78,12 +69,10 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   else if (static_cast<int>(elementWeights.size()) != nele)
     throw std::invalid_argument("makeDeformationEnergy: elementWeights size does not match the element count.");
 
-  auto dofLayout = std::make_unique<Vertex3DofLayout>(&mesh);
-  auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), std::move(dofLayout), elementWeights.data());
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), elementWeights.data());
 
   auto energy = std::make_shared<DeformationModelEnergy>(
-    std::move(assembler), std::move(restPosition), 0, opts.enableMaterialMaxStep);
+    std::move(assembler), 0, opts.enableMaterialMaxStep);
 
   return energy;
 }

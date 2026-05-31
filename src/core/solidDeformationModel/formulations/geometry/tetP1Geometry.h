@@ -9,7 +9,7 @@ namespace SolidDeformationModel
 namespace ES = pgo::EigenSupport;
 
 // Standalone tet P1 geometry helpers for callers that don't have a
-// DeformationGradientKernel available (constraint functions, tests).
+// VolumetricKernel available (constraint functions, tests).
 // Rest-geometry Dm/DmInv/dFdx belong in the kernel; only keep helpers
 // that operate on current (deformed) positions or externally-supplied DmInv.
 
