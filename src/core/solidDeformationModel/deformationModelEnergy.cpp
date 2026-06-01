@@ -20,12 +20,9 @@ namespace ES = pgo::EigenSupport;
 namespace
 {
 
-ES::VXd assembleAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restPosition, int offset, int numDOFs)
+ES::VXd assembleAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restPosition, int offset, int)
 {
-  if (restPosition.size())
-    return restPosition + x.segment(offset, restPosition.size());
-
-  return ES::VXd(Eigen::Map<const ES::VXd>(x.data() + offset, numDOFs));
+  return restPosition + x.segment(offset, restPosition.size());
 }
 
 ES::VXd assembleDirectionSlice(ES::ConstRefVecXd dx, int offset, int numDOFs)
@@ -72,36 +69,22 @@ DeformationModelEnergy::~DeformationModelEnergy()
 double DeformationModelEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.energy");
-  if (restPosition && restPosition->size()) {
-    ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
-    return forceModelAssembler->computeEnergy(p.data());
-  }
-  else
-    return forceModelAssembler->computeEnergy(x.data() + allDOFs[0]);
+  ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
+  return forceModelAssembler->computeEnergy(p.data());
 }
 
 void DeformationModelEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
-  if (restPosition && restPosition->size()) {
-    ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
-    forceModelAssembler->computeGradient(p.data(), grad.data());
-  }
-  else {
-    forceModelAssembler->computeGradient(x.data() + allDOFs[0], grad.data());
-  }
+  ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
+  forceModelAssembler->computeGradient(p.data(), grad.data());
 }
 
 void DeformationModelEnergy::hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
-  if (restPosition && restPosition->size()) {
-    ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
-    forceModelAssembler->computeHessian(p.data(), hess);
-  }
-  else {
-    forceModelAssembler->computeHessian(x.data() + allDOFs[0], hess);
-  }
+  ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
+  forceModelAssembler->computeHessian(p.data(), hess);
 }
 
 void DeformationModelEnergy::createHessian(EigenSupport::SpMatD &hess) const
@@ -124,8 +107,7 @@ NonlinearOptimization::MaxStepResult DeformationModelEnergy::computeMaxStepLimit
     return NonlinearOptimization::MaxStepResult::unconstrained();
   }
 
-  const ES::VXd &rp = restPosition ? *restPosition : ES::VXd();
-  const ES::VXd absolutePositions = assembleAbsolutePositions(x, rp, offset, numDOFs);
+  const ES::VXd absolutePositions = assembleAbsolutePositions(x, *restPosition, offset, numDOFs);
   const auto observation = forceModelAssembler->computeMaxStepObservation(absolutePositions.data(), dxLocal.data());
   const double maxStepSize = observation.alpha;
 

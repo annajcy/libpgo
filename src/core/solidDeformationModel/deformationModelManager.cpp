@@ -333,7 +333,7 @@ void validateFormulation(SimulationMeshType meshType, const Formulation &formula
 void DeformationModelManager::initBase(const SimulationMesh &simulationMesh,
   const double *elementFiberDirections, const double *vertexFiberDirections)
 {
-  data = new DeformationModelManagerImpl;
+  data = std::make_unique<DeformationModelManagerImpl>();
 
   data->simulationMesh = &simulationMesh;
   data->nele = data->simulationMesh->getNumElements();
@@ -378,11 +378,6 @@ DeformationModelManager::DeformationModelManager(const SimulationMesh &simulatio
 
   if (enforceSPD)
     setEnforceSPD(enforceSPD);
-}
-
-DeformationModelManager::~DeformationModelManager()
-{
-  delete data;
 }
 
 void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticModelType,
@@ -560,6 +555,8 @@ std::unique_ptr<const DofLayout> DeformationModelManager::createDofLayout() cons
   // Future formulations (e.g. hex tricubic Hermite) will return a different DofLayout.
   return std::make_unique<Vertex3DofLayout>(*getMesh());
 }
+
+DeformationModelManager::~DeformationModelManager() = default;
 
 ES::VXd DeformationModelManager::buildRestPosition() const
 {

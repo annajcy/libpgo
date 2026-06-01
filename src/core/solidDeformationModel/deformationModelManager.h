@@ -87,7 +87,7 @@ public:
   EigenSupport::VXd buildRestPosition() const;
 
 protected:
-  DeformationModelManagerImpl *data;
+  std::unique_ptr<DeformationModelManagerImpl> data;
 
 private:
   void initBase(const SimulationMesh &simulationMesh,

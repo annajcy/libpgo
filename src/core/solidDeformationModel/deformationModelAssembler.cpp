@@ -72,7 +72,6 @@ DeformationModelAssembler::DeformationModelAssembler(
   plasticParamField_(deformationModelManager->getPlasticParameterField())
 {
   nele = deformationModelManager->getMesh()->getNumElements();
-  nvtx = deformationModelManager->getMesh()->getNumVertices();
   neleVtx = deformationModelManager->getMesh()->getNumElementVertices();
   localDOFs = dofLayout->numLocalDofs(0);
   numDOFs = dofLayout->numGlobalDofs();

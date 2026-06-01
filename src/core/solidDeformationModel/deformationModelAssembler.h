@@ -65,7 +65,7 @@ protected:
   const ParameterField *elasticParamField_ = nullptr;
   const ParameterField *plasticParamField_ = nullptr;
 
-  int numDOFs, nele, nvtx, neleVtx, localDOFs;
+  int numDOFs, nele, neleVtx, localDOFs;
   int numElasticParams_ = 0;
   int numPlasticParams_ = 0;
 
