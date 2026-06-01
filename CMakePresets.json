@@ -34,10 +34,10 @@
             }
         },
         {
-            "name": "python-build",
+            "name": "pypgo",
             "hidden": false,
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build/python-build",
+            "binaryDir": "${sourceDir}/build/pypgo",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "PGO_USE_MKL": "OFF",
@@ -47,9 +47,9 @@
                 "PGO_ENABLE_PYTHON": "ON",
                 "PGO_BUILD_C_API": "OFF",
                 "PGO_ENABLE_ALEMBIC": "ON",
-                "PGO_ENABLE_GMSH": "OFF",
-                "PGO_TET_MESHER_USE_TET_WILD": "OFF",
-                "PGO_ENABLE_OPENVDB": "OFF"
+                "PGO_ENABLE_GMSH": "ON",
+                "PGO_TET_MESHER_USE_TET_WILD": "ON",
+                "PGO_ENABLE_OPENVDB": "ON"
             }
         },
         {
@@ -143,8 +143,8 @@
             "configurePreset": "base"
         },
         {
-            "name": "python-build",
-            "configurePreset": "python-build",
+            "name": "pypgo",
+            "configurePreset": "pypgo",
             "targets": [
                 "pypgo_core"
             ]

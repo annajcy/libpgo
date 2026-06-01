@@ -227,6 +227,16 @@ class VolumeMesh:
     def extract_surface_mesh(self, *, triangulate: bool = True) -> TriMeshData:
         return TriMeshData(_core.extract_surface_mesh(self._core_obj, bool(triangulate)))
 
+    def mass_matrix(self, *, inflate3dim: bool = True):
+        """Consistent mass matrix of the volume mesh.
+
+        inflate3dim=True  → shape (3n, 3n), the standard 3-D mass matrix for
+                            displacement DOFs (matches IPC / solver convention).
+        inflate3dim=False → shape (n, n), scalar mass matrix per vertex.
+        """
+        from pypgo.sparse import SparseMatrix
+        return SparseMatrix(_core.compute_mass_matrix(self._core_obj, bool(inflate3dim)))
+
     @property
     def num_vertices(self) -> int:
         return self._core_obj.num_vertices()

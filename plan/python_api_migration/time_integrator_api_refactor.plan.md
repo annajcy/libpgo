@@ -34,6 +34,7 @@ struct DynamicState
   EigenSupport::VXd velocity;
   EigenSupport::VXd acceleration;
   std::uint64_t timestepId = 0;
+  double time = 0.0;  // 仿真时间（B1：供 StepAwareEnergy::beginStep 的 StepState 使用）
 };
 
 struct DynamicStepResult
@@ -320,7 +321,7 @@ IBE 的 legacy `b` 通过 `l_s = -b` 转换；TRBDF2 的 legacy `b1/b2` 直接�
 - `beginLineSearch / endLineSearch`（`LineSearchAwareEnergy`）—— IPC active-set 在 line-search 段内冻结的生命周期已内置；
 - 支持 per-energy DOF 子集（比"全 DOF"更通用），固定拓扑用预分配 buffer + mapping，非固定拓扑走 safe one-shot，保留 IPC active-set 行为。
 
-**唯一需要补的一处**：`PotentialEnergies::func_grad_hessian` 当前实现是 `gradient_hessian(...); return func(x);`（`potentialEnergies.cpp:328`），对非固定拓扑（IPC）会触发两次 active-set 构建；而手写 helper 是单次 fused `func_grad_hessian`（`implicitBackwardEulerTimeIntegratorHelper.cpp:144`，注释 "1 buildActiveSet"）。需把 `EnergySet::func_grad_hessian` 改成对每个 term 调一次 `func_grad_hessian`、一次累加 value/grad/hess。见 Task T2。
+**唯一需要补的一处**：`EnergySet::func_grad_hessian` 当前实现是 `gradient_hessian(...); return func(x);`（`energySet.cpp:327`），对非固定拓扑（IPC）会触发两次 active-set 构建；而手写 helper 是单次 fused `func_grad_hessian`（`implicitBackwardEulerTimeIntegratorHelper.cpp:144`，注释 "1 buildActiveSet"）。需把 `EnergySet::func_grad_hessian` 改成对每个 term 调一次 `func_grad_hessian`、一次累加 value/grad/hess。见 Task T2。
 
 per-term 的 damping 元数据（`stiffnessDamping`/`massDamping`）不是 energy 的属性，用一个轻量 value object 承载，只服务于 damping 装配（§3）；`Φ` 的聚合直接拿 `term.energy` 喂 `EnergySet`：
 
@@ -384,35 +385,47 @@ after_step / obstacle advancement
 
 注意：line-search 段内（单次 Newton 迭代内）的 active-set 冻结生命周期已经存在，即 `LineSearchAwareEnergy` 的 `beginLineSearch / endLineSearch`，由 `EnergySet` 自动 `dynamic_cast` 转发——复用 `EnergySet` 即免费获得。需要新设计的只是 per-frame（跨 timestep）的 contact 生命周期，它属于 step orchestration。
 
-First C++ refactor preserves current `runIPCSim` contact timing. A later contact plan migrates `RunIPCSimContactBackend` to `StepAwareEnergy` / `StatefulContactEnergy`。transient contact terms 如何进入 stepper（rebuild vs 持久 set + 原地更新 vs transient slot）是待确定决策 **D1**。
+First C++ refactor preserves current `runIPCSim` contact timing. A later contact plan migrates `RunIPCSimContactBackend` to `StepAwareEnergy` / `StatefulContactEnergy`。contact energies（IPC 和 legacy penalty）作为持久 energy 对象存入 `DynamicProblem.persistentTerms`，随 stepper 构造一次，不 per-frame add/remove（D1 已拍板，见「设计决策（已拍板）」）。
 
 ### 7. 跨 plan 依赖，不 fork
 
 本 plan 必须建立在以下姊妹 plan 的产物上，而不是平行造一套：
 
-- `solver_api_refactor.plan.md`：长期 C++ 求解入口是 `minimize(problem, x0, NewtonOptions)`，fixed DOF 用 first-class 的 `FixedVariables`。本 plan 的 `solveStageProblem` 走这条；M3 落地前可临时用 `EnergyOptimizer::minimize` 的 Newton 路径（它已用 `xlow[i]==xhi[i]` canonical 化 fixed DOF），但不把 `xlow==xhi` 编码泄漏到本 plan 的公共 API。
+- `solver_api_refactor.plan.md`：长期 C++ 求解入口是 `minimize(problem, x0, NewtonOptions)`，fixed DOF 用 first-class 的 `FixedVariables`；`SolverControl` struct 被本 plan 直接复用于 `DynamicProblem::solver`（C1），不重复定义。本 plan 的 `solveStageProblem` 走这条；M3 落地前可临时用 `EnergyOptimizer::minimize` 的 Newton 路径（它已用 `xlow[i]==xhi[i]` canonical 化 fixed DOF），但不把 `xlow==xhi` 编码泄漏到本 plan 的公共 API。
 - `energy_api_refactor.plan.md`：`PotentialEnergies` → `EnergySet`；`LinearPotentialEnergy` / `QuadraticPotentialEnergy` 改 owning-by-value 并暴露为 `pgo.energy.LinearEnergy` / `QuadraticEnergy`。本 plan 直接消费这些类，不引入并行的聚合 / 二次型类。
+- **`contact_api_refactor.plan.md` C2**（`StepAwareEnergy` + `StatefulContactEnergy`）：T7.3/T7.4 的 `dynamic_cast<StepAwareEnergy*>` / `dynamic_cast<StatefulContactEnergy*>` 调用依赖 C2 产出的 `stepAwareEnergy.h`。C2 必须在 T7 之前完成，或 T7 在两者并行时做条件编译过渡。
 - 复用 `acceptsDynamicSolveStatus`（已在 `solverResult.h:41` / `solverResult.cpp:101`，语义已与本 plan 需要的一致），不重新定义。
 
-## 待确定的设计决策
+## 设计决策（已拍板）
 
-下列项目需要在落地前拍板，本 plan 已按"复用为主"的方向写好骨架，但具体机制留待讨论：
+- **D1（EnergySet 跨帧生命周期 / contact terms）**：两个持久容器，构造一次，不 rebuild：
+  - **FixedHessianTemplateEnergySet**：`QuadraticEnergy(A_s, l_s)` + elastic + attachments + legacy penalty contact（`PointPenetrationEnergy`、`PointTrianglePairCouplingEnergyWithCollision`，均为固定拓扑：pair 集合构造时确定，per-frame 只改值）。
+  - **DynamicHessianTemplateEnergySet**：IPC（`EmbeddedSurfaceIPCPotentialEnergy`，显式 `isHessianTopologyFixed()=0`），动态拓扑，always triplet scatter。
+  - 两个容器均**构造一次，永不 per-frame rebuild**。旧有 `clearGeneralImplicitForceModel + addGeneralImplicitForceModel` 模式完全消除。per-frame contact 状态更新（legacy penalty 的 `computeClosestPosition(u)`）由 step orchestration 在 solve 前调用，不影响容器。
+  - `DynamicStepRequest` 不含 `transientTerms`；contact energies 全部归入 `DynamicProblem.persistentTerms`。
+  - **⚠ 拓扑分类的阶段依赖（B2）**：以上分类基于**当前 `legacyPenaltyContact.cpp` 实现**——`activeExternalEnergy_` / `activeSelfEnergy_` 构造时 pair 集固定，per-frame 只改 `contactStatus` 值，拓扑不变。contact plan C6 完成后，`SampledPenaltyContactEnergy::refreshActiveSet()` 会重建 active pair 集（pair 数目变化），导致 `isHessianTopologyFixed()` 应返回 `0`——届时 sampled penalty 也应移入 `DynamicHessianTemplateEnergySet`。此次 C++ refactor 使用当前实现；contact plan 落地时须同步更新本决策。
 
-- **D1（EnergySet 跨帧生命周期 / transient contact terms）**：contact（IPC active set、legacy penalty pair）每帧变化。三种候选：(a) contact term 成员变化时重建 `EnergySet`（贴近现有 `generalForceModelChanged` 触发 `hessianAll` 重建）；(b) 持久 `EnergySet` + 固定拓扑部分原地更新值；(c) 持久 set + 一个 transient-terms slot。影响 T7 / T9。
-- **D2（`QuadraticEnergy` 原地更新）**：`A_s` pattern 固定拓扑下逐帧不变、仅值变，`l_s` 每帧变。是否给 `QuadraticEnergy` 加"更新 A 值 / 重设 b"的 API（与 energy_api 的 owning-by-value 改造合并），还是每步重建 term。影响 T4 / T5 / T6。
-- **D3（stage residual 组合形态）**：用嵌套 `EnergySet`（持久 Φ-set 外面再包一层加 quadratic term）还是把 quadratic term 加进同一个扁平 set。影响 hessian 模板的复用粒度与 T4。
-- **D4（stepper 状态归属）**：stage builder 保持纯函数；持久态（`EnergySet`、预分配 buffer）放在 stepper 内，还是独立的有状态 `DynamicSimulation` core（Python `DynamicSimulationCore` 直接对应）。影响 T7 / T10。
-- **D5（fixed DOF 是否 per-step 可变）**：index 集合 immutable（放 `DynamicProblem`）+ 仅 `fixedValues` per-step，还是允许 per-step 改 index 触发 solver 重配。影响 T1 / T7 / T10。
+- **D2（`QuadraticEnergy` 原地更新）**：给 `QuadraticPotentialEnergy` 新增两个 setter；stepper 持有 `shared_ptr<QuadraticPotentialEnergy>`（non-const）每步调用，`EnergySet` 通过 `shared_ptr<const PotentialEnergy>` 只读访问同一对象。`cache` 仅含临时 buffer，无需清理。
+  ```cpp
+  void setLinearTerm(EigenSupport::VXd b);            // l_s 每步变
+  void setAValues(const EigenSupport::SpMatD &A);     // A_s 值变但 pattern 不变（变步长时）
+  ```
+
+- **D3（stage residual 组合形态）**：**扁平 `EnergySet`**，不嵌套。TRBDF2 两个 stage 各持一个独立的扁平 `EnergySet`（各含各自的 `QuadraticEnergy`）。结合 D2 setter，`QuadraticEnergy` 对象持久存在，每步 solve 前调 `setLinearTerm(l_s)` 原地更新；`hessianAll` 模板只建一次，不因 step 推进而 rebuild。
+
+- **D4（stepper 状态归属）**：持久态（`EnergySet`、`QuadraticEnergy`、buffer）**放在 stepper 内**。`ImplicitEulerStepper` / `TRBDF2Stepper` 构造时接收 `DynamicProblem`，内部建好持久 energy 对象并持有。Python binding（`PyDynamicSimulation`）直接包 stepper，不引入独立 core 层。
+
+- **D5（fixed DOF index 不变性）**：`fixedDofs` index 集合放在 `DynamicProblem`（构造时确定，**immutable**）。`DynamicStepRequest` 仅含 `fixedValues`（prescribed 位移值，per-step 变）。需要换集合时重建 `DynamicProblem` 触发一次 re-init，语义清晰，避免 per-step solver 重配。
 
 ## File Map
 
 ### 新增
 
 - `src/core/simulation/dynamicState.h`
-- `src/core/simulation/dynamicStepOptions.h`（含 `ImplicitModelTerm`、`DynamicProblem`、`DynamicStepRequest`、`DynamicSolverOptions`）
+- `src/core/simulation/dynamicStepOptions.h`（含 `ImplicitModelTerm`、`DynamicProblem`、`DynamicStepRequest`；`SolverControl` 来自 `solver_api_refactor.plan.md` 的 `optimizationService.h`，不重复定义）
 - `src/core/simulation/rayleighDampingAssembly.h`
 - `src/core/simulation/rayleighDampingAssembly.cpp`
-- `src/core/simulation/stageResidual.h`（`buildStageResidual(...)` helper：把 `QuadraticEnergy(A,l)` + Φ terms 组成 `EnergySet`；含 `ImplicitStageProblem` value object）
+- `src/core/simulation/stageResidual.h`（`StageResidualHandle`、`initStageResidual`（构造时建持久 EnergySet）、`prepareStageResidual`（per-step 原地更新）、`ImplicitStageProblem` value object）
 - `src/core/simulation/stageResidual.cpp`
 - `src/core/simulation/implicitEulerStageBuilder.h`
 - `src/core/simulation/implicitEulerStageBuilder.cpp`
@@ -429,7 +442,7 @@ First C++ refactor preserves current `runIPCSim` contact timing. A later contact
 ### 修改
 
 - `src/core/simulation/CMakeLists.txt`：编入新增 simulation service files。
-- `src/core/nonlinearOptimization/potentialEnergies.cpp`：把 `func_grad_hessian` 改成对每个 term 调一次 `func_grad_hessian` 的单遍 fused 实现（保留固定拓扑的 mapping 路径），消除非固定拓扑 IPC 的二次 active-set 构建。见 §2 / Task T2。
+- `src/core/nonlinearOptimization/energySet.cpp`：把 `func_grad_hessian` 改成对每个 term 调一次 `func_grad_hessian` 的单遍 fused 实现（保留固定拓扑的 mapping 路径），消除非固定拓扑 IPC 的二次 active-set 构建。见 §2 / Task T2。
 - `src/core/simulation/implicitBackwardEulerTimeIntegratorHelper.h/.cpp`：**删除**——`ImplicitBackwardEulerEnergy` 由 `EnergySet{ QuadraticEnergy(A,−b), Φ }` 取代，不再持有 `ImplicitBackwardEulerTimeIntegrator *`。
 - `src/core/simulation/TRBDF2TimeIntegratorHelper.h/.cpp`：**删除**——`TRBDF2TimeIntegratorEnergy` 由 `EnergySet{ QuadraticEnergy(A_s, b_s), Φ }` 取代，不再持有 `TRBDF2TimeIntegrator *`。
 - `src/core/simulation/implicitBackwardEulerTimeIntegrator.h/.cpp`：改为使用 stage builder / service，保持 legacy class API source-compatible。
@@ -578,6 +591,7 @@ struct DynamicState
   EigenSupport::VXd velocity;
   EigenSupport::VXd acceleration;
   std::uint64_t timestepId = 0;
+  double time = 0.0;  // 仿真时间，供 StepAwareEnergy::beginStep 的 StepState 使用
 };
 
 void validateDynamicState(const DynamicState &state, int numDofs);
@@ -589,13 +603,16 @@ Validation:
 
 - `numDofs > 0`;
 - all three vectors have `numDofs`;
-- all values are finite.
+- all values are finite;
+- `time` is finite.
 
-- [ ] **Step T1.2: Define `ImplicitModelTerm`、`DynamicSolverOptions`、immutable `DynamicProblem`、per-step `DynamicStepRequest`**
+- [ ] **Step T1.2: Define `ImplicitModelTerm`、immutable `DynamicProblem`、per-step `DynamicStepRequest`**
 
-把"问题不变量"和"每帧变化量"分开，避免每步重传/重拷贝 mass（per-term damping 系数随 `ImplicitModelTerm` 走，不再有全局 `massDamping`/`stiffnessDamping`）：
+把"问题不变量"和"每帧变化量"分开，避免每步重传/重拷贝 mass（per-term damping 系数随 `ImplicitModelTerm` 走，不再有全局 `massDamping`/`stiffnessDamping`）。`solver` 字段复用 solver plan 的 `NonlinearOptimization::SolverControl`，不重复定义同构 struct：
 
 ```cpp
+// #include "nonlinearOptimization/optimizationService.h"  // for SolverControl
+
 namespace pgo::Simulation
 {
 
@@ -606,21 +623,14 @@ struct ImplicitModelTerm
   double massDamping = 0.0;
 };
 
-struct DynamicSolverOptions
-{
-  int maxIterations = 50;
-  double tolerance = 1e-6;
-  int verbose = 0;
-};
-
 // immutable across steps
 struct DynamicProblem
 {
   EigenSupport::SpMatD mass;
-  std::vector<ImplicitModelTerm> persistentTerms;  // elastic / attachments
-  std::vector<int> fixedDofs;                       // index 集合（per-step 可变性见 D5）
+  std::vector<ImplicitModelTerm> persistentTerms;  // elastic / attachments / contact
+  std::vector<int> fixedDofs;                       // immutable across steps（D5）
   double timestep = 0.0;
-  DynamicSolverOptions solver;
+  NonlinearOptimization::SolverControl solver;      // 复用 solver plan SolverControl，不新建同构 struct
 };
 
 // per-step
@@ -628,7 +638,7 @@ struct DynamicStepRequest
 {
   EigenSupport::VXd externalForce;
   std::optional<EigenSupport::VXd> fixedValues;     // 默认取 state 在 fixedDofs 上的值
-  std::vector<ImplicitModelTerm> transientTerms;     // per-frame contact 等（注入与生命周期见 D1）
+  // contact energies 已在 DynamicProblem.persistentTerms 持久持有（D1），此处无 transientTerms
 };
 
 void validateDynamicProblem(const DynamicProblem &problem, int numDofs);
@@ -643,8 +653,7 @@ Validation:
 - `timestep > 0`；
 - 每个 term 的 damping 参数 finite 且非负；
 - `fixedDofs` 排序/canonical 化；duplicate/out-of-range 抛 `std::invalid_argument`；
-- `externalForce.size() == numDofs`；`fixedValues`（若给）尺寸与 `fixedDofs` 一致；
-- `transientTerms` 的注入与生命周期是待确定决策 **D1**。
+- `externalForce.size() == numDofs`；`fixedValues`（若给）尺寸与 `fixedDofs` 一致。
 
 - [ ] **Step T1.3: Wire headers into `simulation` target**
 
@@ -683,19 +692,19 @@ Expected: `simulation` target builds.
 
 **Files:**
 
-- Modify: `src/core/nonlinearOptimization/potentialEnergies.cpp`
+- Modify: `src/core/nonlinearOptimization/energySet.cpp`
 - Test: `tests/src/core/dynamicStepper_gtest.cpp`
 
 - [ ] **Step T2.1: 确认 `Φ` 聚合走 `EnergySet`，记录映射**
 
-从 `DynamicProblem.persistentTerms`（+ `DynamicStepRequest.transientTerms`，受 D1）取 `term.energy` 列表，构造一个 `EnergySet`（`addPotentialEnergy` + `init()`，或 energy_api 重命名后的等价构造）。不写新的 `func/gradient/hessian/computeMaxStepLimit/isHessianTopologyFixed`——全部由 `EnergySet` 提供；`beginLineSearch/endLineSearch` 由 `EnergySet` 自动 `dynamic_cast` 转发。
+从 `DynamicProblem.persistentTerms` 取 `term.energy` 列表，构造一个扁平 `EnergySet`（`addPotentialEnergy` + `init()`，或 energy_api 重命名后的等价构造）；D1 已拍板，无 `transientTerms`。不写新的 `func/gradient/hessian/computeMaxStepLimit/isHessianTopologyFixed`——全部由 `EnergySet` 提供；`beginLineSearch/endLineSearch` 由 `EnergySet` 自动 `dynamic_cast` 转发。
 
 - [ ] **Step T2.2: 修 `EnergySet::func_grad_hessian` 的单遍 fused 实现**
 
-现状（`potentialEnergies.cpp:328`）：
+现状（`energySet.cpp:327`）：
 
 ```cpp
-double PotentialEnergies::func_grad_hessian(x, grad, hess) const
+double EnergySet::func_grad_hessian(x, grad, hess) const
 {
   gradient_hessian(x, grad, hess);   // 非固定拓扑 term 这里 build 一次 active set
   return func(x);                    // func 又触发一次 -> IPC 双重 active-set 构建
@@ -773,7 +782,7 @@ Expected: all `RayleighDampingAssembly*` tests pass.
 
 ### Task T4: stage residual via `EnergySet` + `QuadraticEnergy` 组合
 
-不新建 residual energy 类。本 task 提供一个 `buildStageResidual(...)` helper，把 `QuadraticEnergy(A, l)` 和 Φ terms 组成一个 `EnergySet`，并定义 stage problem value object。
+不新建 residual energy 类。D3 已拍板：`EnergySet` 构造一次，`QuadraticEnergy` 原地更新。本 task 把 stage residual 的 **construction** 和 **per-step update** 明确分开为两个 helper，消除 B3（每步重建 EnergySet 违背 D3）。
 
 **Files:**
 
@@ -781,42 +790,66 @@ Expected: all `RayleighDampingAssembly*` tests pass.
 - Create: `src/core/simulation/stageResidual.cpp`
 - Test: `tests/src/core/dynamicStepper_gtest.cpp`
 
-- [ ] **Step T4.1: Define `ImplicitStageProblem` value object**
+- [ ] **Step T4.1: Define `StageResidualHandle` 和诊断字段**
 
 ```cpp
+// 构造时建立一次，stepper 持有
+struct StageResidualHandle
+{
+  std::shared_ptr<NonlinearOptimization::EnergySet> energySet;
+  std::shared_ptr<PredefinedPotentialEnergies::QuadraticPotentialEnergy> stageQuad;
+};
+
+// 每步传给 solveStageProblem 的轻量描述（不含 EnergySet ownership）
 struct ImplicitStageProblem
 {
-  std::shared_ptr<NonlinearOptimization::PotentialEnergy> energy;  // 组合好的 EnergySet
-  EigenSupport::SpMatD A;
-  EigenSupport::VXd linear;
+  const NonlinearOptimization::EnergySet *energySet;  // 非拥有，指向 handle.energySet
   EigenSupport::VXd initialGuess;
+  EigenSupport::SpMatD A;      // 诊断/公式校验用
+  EigenSupport::VXd linear;    // 诊断/公式校验用
 };
 ```
 
-- [ ] **Step T4.2: Implement `buildStageResidual`**
+- [ ] **Step T4.2: Implement `initStageResidual`（构造时调一次）**
 
 ```cpp
-ImplicitStageProblem buildStageResidual(
-  EigenSupport::SpMatD A,
-  EigenSupport::VXd linear,
-  const std::vector<ImplicitModelTerm> &terms);   // persistent + transient（见 D1）
+StageResidualHandle initStageResidual(
+  const EigenSupport::SpMatD &A_initial,
+  const EigenSupport::VXd &l_initial,
+  const std::vector<ImplicitModelTerm> &terms);  // DynamicProblem.persistentTerms
 ```
 
 行为：
 
-- 构造 `PredefinedPotentialEnergies::QuadraticPotentialEnergy(A, linear)`（即 `½xᵀAx + linearᵀx`，注意确认对称 `A` 的梯度为 `Ax + linear`）；
-- 组装 `EnergySet{ QuadraticEnergy(A, linear), terms[i].energy... }`；
-- 返回的 `ImplicitStageProblem.energy` 即该 `EnergySet`，`A`/`linear` 保留供 T0 公式校验与诊断。
+- 构造 `shared_ptr<QuadraticPotentialEnergy> stageQuad = make_shared<QuadraticPotentialEnergy>(A_initial, l_initial)`；
+- 组装扁平 `EnergySet{ stageQuad, terms[i].energy... }`（D3：扁平，不嵌套）；
+- 返回 `StageResidualHandle{ energySet, stageQuad }`，`hessianAll` 模板在此建立，后续不 rebuild。
 
-待定：组合形态（嵌套 vs 扁平 set，**D3**）与 A/l 的逐帧原地更新（**D2**）。本 task 先实现"每次重建"的正确版本，性能优化随 D1/D2/D3 落地后再切。
+- [ ] **Step T4.3: Implement `prepareStageResidual`（per-step 调用）**
 
-- [ ] **Step T4.3: Add stage residual tests**
+```cpp
+ImplicitStageProblem prepareStageResidual(
+  StageResidualHandle &handle,
+  EigenSupport::SpMatD A_s,
+  EigenSupport::VXd l_s,
+  EigenSupport::VXd initialGuess);
+```
+
+行为：
+
+- 调 `handle.stageQuad->setLinearTerm(std::move(l_s))`（每步 l_s 变）；
+- 若 A_s 与上步不同（变步长时），调 `handle.stageQuad->setAValues(A_s)`；
+- 返回 `ImplicitStageProblem{ handle.energySet.get(), initialGuess, A_s, l_s }`（无新分配，无 EnergySet rebuild）。
+
+- [ ] **Step T4.4: Add stage residual tests**
 
 Tests：
 
-- 2D 二次 fixture：`energy` 的 value/gradient/Hessian 与有限差分一致，且等于 `½xᵀAx + Φ(x) + lᵀx`；
+- `initStageResidual` 只构造一次 EnergySet；`hessianAll` 模板地址在多次 `prepareStageResidual` 后不变；
+- 2D 二次 fixture：`energySet->func_grad_hessian(x)` 等于 `½xᵀAx + Φ(x) + lᵀx`（有限差分校验）；
+- `prepareStageResidual` 用不同 `l_s` 更新后，gradient 正确反映新线性项；
 - `func_grad_hessian` 命中 T2.2 的单遍 fused 路径；
-- 任一 term 非固定拓扑时 `isHessianTopologyFixed()` 为 false；
+- 任一 term 非固定拓扑时 `energySet->isHessianTopologyFixed()` 为 false；
 - `computeMaxStepLimit()` 经 `EnergySet` 合并。
 
 Run:
@@ -840,15 +873,22 @@ Expected: all `StageResidual*` tests pass.
 
 stage problem value object 已在 T4.1 定义（`energy` 是组合好的 `EnergySet`）。本 task 不再重复定义。
 
-- [ ] **Step T5.2: Implement IBE builder**
+- [ ] **Step T5.2: Implement IBE coefficient calculator**
 
-Target API:
+Builder 是纯函数，只计算 `A_s` / `l_s` / `initialGuess`，不构造或重建 EnergySet（EnergySet 由 stepper 持有，通过 T4.3 `prepareStageResidual` 更新）：
 
 ```cpp
+struct IBEStageCoefficients
+{
+  EigenSupport::SpMatD A;
+  EigenSupport::VXd linear;
+  EigenSupport::VXd initialGuess;
+};
+
 class ImplicitEulerStageBuilder
 {
 public:
-  ImplicitStageProblem build(
+  IBEStageCoefficients compute(
     const DynamicState &state,
     const DynamicProblem &problem,
     const DynamicStepRequest &request,
@@ -860,8 +900,8 @@ Rules:
 
 - `A = M / h^2 + D / h`；
 - `linear = -(f_ext + M v / h + A u)`；
-- 用 `buildStageResidual(A, linear, persistentTerms + transientTerms)`（T4.2）组装 `EnergySet` 填入 `ImplicitStageProblem.energy`；
 - `initialGuess = state.displacement` by default；velocity extrapolation 落地后 `initialGuess = state.displacement + state.velocity * timestep`。
+- 调用方（stepper）拿到 `coeffs` 后调 `prepareStageResidual(handle, coeffs.A, coeffs.linear, coeffs.initialGuess)`（T4.3）原地更新。
 
 - [ ] **Step T5.3: Implement IBE state update**
 
@@ -881,6 +921,7 @@ next.displacement = solution;
 next.velocity = (solution - state.displacement) / timestep;
 next.acceleration = (next.velocity - state.velocity) / timestep;
 next.timestepId = state.timestepId + 1;
+next.time = state.time + timestep;  // B1：时间推进，供下步 StepAwareEnergy::beginStep 使用
 ```
 
 - [ ] **Step T5.4: Add IBE formula and parity tests**
@@ -934,16 +975,25 @@ Coefficients must match existing `TRBDF2TimeIntegrator::updateCoeffs()`.
 
 Target API:
 
+Builder 是纯函数，只计算 `A_s` / `l_s` / `initialGuess`，不构造或重建 EnergySet（同 T5.2 设计原则）：
+
 ```cpp
+struct TRBDF2StageCoefficients
+{
+  EigenSupport::SpMatD A;
+  EigenSupport::VXd linear;
+  EigenSupport::VXd initialGuess;
+};
+
 class TRBDF2StageBuilder
 {
 public:
-  ImplicitStageProblem buildStage1(
+  TRBDF2StageCoefficients computeStage1(
     const DynamicState &state,
     const DynamicProblem &problem,
     const DynamicStepRequest &request,
     const EigenSupport::SpMatD &damping,
-    const TRBDF2Coefficients &coeffs) const;   // 内部用 buildStageResidual 组装 EnergySet
+    const TRBDF2Coefficients &coeffs) const;
 
   TRBDF2IntermediateState updateAfterStage1(
     const DynamicState &state,
@@ -973,13 +1023,13 @@ ay = coeffs.alpha * coeffs.alpha * (x1 - displacement) - 2 * coeffs.alpha * velo
 Target API:
 
 ```cpp
-ImplicitStageProblem buildStage2(
+TRBDF2StageCoefficients computeStage2(
   const DynamicState &state,
   const TRBDF2IntermediateState &intermediate,
   const DynamicProblem &problem,
   const DynamicStepRequest &request,
   const EigenSupport::SpMatD &damping,
-  const TRBDF2Coefficients &coeffs) const;   // 内部用 buildStageResidual 组装 EnergySet
+  const TRBDF2Coefficients &coeffs) const;
 
 DynamicState updateAfterStage2(
   const DynamicState &state,
@@ -1010,6 +1060,7 @@ next.acceleration = coeffs.beta[0] * displacement + coeffs.beta[1] * uy
   + coeffs.beta[2] * velocity + coeffs.beta[3] * vy
   + coeffs.beta[4] * (x2 - displacement);
 next.timestepId = state.timestepId + 1;
+next.time = state.time + timestep;  // B1：时间推进，供下步 StepAwareEnergy::beginStep 使用
 ```
 
 - [ ] **Step T6.4: Handle `gamma == 1` single-stage case**
@@ -1066,7 +1117,7 @@ NonlinearOptimization::OptimizationResult solveStageProblem(
   const ImplicitStageProblem &stage,
   const std::vector<int> &fixedDofs,
   EigenSupport::ConstRefVecXd fixedValues,
-  const DynamicSolverOptions &solver);
+  const NonlinearOptimization::SolverControl &solver);  // 复用 solver plan SolverControl（C1）
 ```
 
 Behavior:
@@ -1088,19 +1139,32 @@ public:
 };
 ```
 
-Flow:
+Stepper 内部持有 `StageResidualHandle stageHandle_`（构造时 `initStageResidual` 建立）。Flow:
 
 ```text
 validate state + request
+
+// B1：对所有 StepAwareEnergy 调 beginStep（仿照 EnergySet 对 LineSearchAwareEnergy 的 dynamic_cast 模式）
+for term in problem.persistentTerms:
+    if auto *aware = dynamic_cast<StepAwareEnergy*>(term.energy.get()):
+        aware->beginStep({time=state.time, timestep=problem.timestep, previousX=&state.displacement})
+    if auto *contact = dynamic_cast<StatefulContactEnergy*>(term.energy.get()):
+        contact->refreshActiveSet(state.displacement)   // 以当前位移作为初始 active set
+
 assemble D（assembleRayleighDamping）
-ImplicitEulerStageBuilder.build -> A, linear, EnergySet（buildStageResidual）
-solveStageProblem
-if accepted -> updateImplicitEulerState
+
+// B3：纯系数计算，不重建 EnergySet
+coeffs = ImplicitEulerStageBuilder.compute(state, problem, request, D)
+stage = prepareStageResidual(stageHandle_, coeffs.A, coeffs.linear, coeffs.initialGuess)
+   // -> setLinearTerm(l_s) 原地更新 QuadraticEnergy，hessianAll 模板不变
+
+solveStageProblem(stage, problem.fixedDofs, fixedValues, problem.solver)
+if accepted -> updateImplicitEulerState  // 含 time += timestep
 else -> keep previous state, accepted=false, 不推进 timestep
 return DynamicStepResult with one stage result
 ```
 
-The "not accepted" behavior preserves current IBE `tryTimestep` behavior: failed non-accepted status does not advance state。EnergySet / buffer 跨帧复用粒度见 **D1 / D4**。
+The "not accepted" behavior preserves current IBE `tryTimestep` behavior: failed non-accepted status does not advance state。
 
 - [ ] **Step T7.4: Implement TRBDF2 backend**
 
@@ -1115,17 +1179,38 @@ public:
 };
 ```
 
-Flow:
+Stepper 内部持有两个 `StageResidualHandle`：`stage1Handle_` 和 `stage2Handle_`（构造时各调一次 `initStageResidual` 建立）。Flow:
 
 ```text
 validate state + request
+
+// B1：对所有 StepAwareEnergy 调 beginStep（同 T7.3）
+for term in problem.persistentTerms:
+    if auto *aware = dynamic_cast<StepAwareEnergy*>(term.energy.get()):
+        aware->beginStep({time=state.time, timestep=problem.timestep, previousX=&state.displacement})
+    if auto *contact = dynamic_cast<StatefulContactEnergy*>(term.energy.get()):
+        contact->refreshActiveSet(state.displacement)
+
 assemble D（assembleRayleighDamping）
-buildStage1 -> A1, linear1, EnergySet；solveStageProblem
+
+// Stage 1：纯系数计算，不重建 EnergySet
+coeffs1 = TRBDF2StageBuilder.computeStage1(state, problem, request, D, trbdf2Coeffs)
+stage1 = prepareStageResidual(stage1Handle_, coeffs1.A, coeffs1.linear, coeffs1.initialGuess)
+solveStageProblem(stage1, ...)
 if stage 1 not accepted -> return previous state, accepted=false
 if gamma == 1 -> return stage 1 intermediate state
-buildStage2 -> A2, linear2, EnergySet；solveStageProblem
+
+// Stage 2：refreshActiveSet 用 stage1 解更新 contact active set
+for term in problem.persistentTerms:
+    if auto *contact = dynamic_cast<StatefulContactEnergy*>(term.energy.get()):
+        contact->refreshActiveSet(stage1Solution)
+
+intermediate = TRBDF2StageBuilder.updateAfterStage1(state, stage1Solution, trbdf2Coeffs)
+coeffs2 = TRBDF2StageBuilder.computeStage2(state, intermediate, problem, request, D, trbdf2Coeffs)
+stage2 = prepareStageResidual(stage2Handle_, coeffs2.A, coeffs2.linear, coeffs2.initialGuess)
+solveStageProblem(stage2, ...)
 if stage 2 not accepted -> return previous state, accepted=false
-return final state and two stage results
+return final state（含 time += timestep）and two stage results
 ```
 
 This adds explicit TRBDF2 failure behavior. Legacy code did not throw in the same typed way; tests must document the new service behavior while leaving legacy API unchanged until migration.
@@ -1331,19 +1416,19 @@ Expected:
 
 - [ ] **Step T10.1: Bind private core value objects**
 
-Expose under `pypgo._core`:
+Expose under `pypgo._core`（命名规范：`PyXxx`）：
 
 ```text
-DynamicStateCore
-DynamicStepResultCore
-DynamicSimulationCore
+PyDynamicState
+PyDynamicStepResult
+PyDynamicSimulation
 ```
 
 Core binding rules:
 
 - accept/return NumPy `float64` vectors through existing Eigen conversion helpers;
 - accept mass as `pypgo.sparse.SparseMatrix` / `_core` sparse wrapper after M2 sparse wrapper is available;
-- keep C++ ownership inside `DynamicSimulationCore`;
+- `PyDynamicSimulation` 直接包 stepper（D4），C++ ownership 在其内部；
 - release GIL during `step()` and `run()`.
 
 - [ ] **Step T10.2: Register bindings**
@@ -1530,7 +1615,7 @@ Add explicit M6 bullets:
 Change dynamic loop row to mention:
 
 ```text
-C++ boundary: DynamicStepper service + DynamicSimulationCore binding
+C++ boundary: DynamicStepper service + PyDynamicSimulation binding
 Python API: pypgo.sim.DynamicSimulation
 ```
 
@@ -1576,7 +1661,7 @@ Expected:
 ## Done Criteria
 
 - 不存在持有 `ImplicitBackwardEulerTimeIntegrator *` / `TRBDF2TimeIntegrator *` 的 residual energy 类；两个 helper 文件已删除，residual 由 `EnergySet{ QuadraticEnergy, Φ }` 表达。
-- IBE and TRBDF2 通过 explicit stage builder + `buildStageResidual`（`EnergySet` + `QuadraticEnergy`）构造 stage residual，不新增聚合/二次型类。
+- IBE and TRBDF2 通过 explicit stage builder（纯系数计算）+ `initStageResidual`（构造一次持久 EnergySet）+ `prepareStageResidual`（per-step 原地更新 QuadraticEnergy）构造 stage residual，不新增聚合/二次型类，`hessianAll` 模板构造一次不 rebuild。
 - `EnergySet::func_grad_hessian` 为单遍 fused 实现，非固定拓扑（IPC）的 active-set 构建次数相对手写 helper 不退化。
 - `DynamicStepper` supports IBE and TRBDF2 through one public service interface（immutable problem 构造 + per-step request）。
 - TRBDF2 stage solver results are visible in C++ and Python.
@@ -1594,7 +1679,7 @@ Expected:
   Mitigation: T2.2 把 `EnergySet::func_grad_hessian` 改成单遍调用每个 term 的 `func_grad_hessian`（保留手写 helper 的 "1 buildActiveSet" 语义）；T2.3 用计数 stub 断言每步只触发一次，profiling parity 比较改动前后 active-set 构建计数。
 
 - **Risk: 每步重建 `EnergySet` 的 hessian 模板带来逐帧开销（现有代码仅在 `generalForceModelChanged` 时重建）。**  
-  Mitigation: 这是待确定决策 **D1/D2/D3** 的核心；T4 先实现"每次重建"的正确版本，性能切换（持久 set + 原地更新 A 值 / transient slot）在决策拍板后单独落地，并以 dynamic loop 的 per-step 分配计数做 parity。
+  Mitigation: D1/D2/D3 均已拍板（见「设计决策（已拍板）」）：持久 `EnergySet`（构造一次）+ `QuadraticEnergy::setLinearTerm` 原地更新，`hessianAll` 模板只建一次，无重建开销。性能 parity 对照点是 dynamic loop 的 per-step 新分配计数（应为零）。
 
 - **Risk: TRBDF2 failure semantics become inconsistent with legacy class.**  
   Mitigation: service behavior is explicit in T7 tests; legacy API remains source-compatible until run-sim migration validates acceptance policy.

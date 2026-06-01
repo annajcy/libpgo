@@ -741,7 +741,7 @@ def value_and_gradients(self, u, *, plastic):
 Run:
 
 ```bash
-conda run -n libpgo cmake --build --preset python-build -j 8
+conda run -n libpgo cmake --build --preset pypgo -j 8
 conda run -n libpgo python -m pytest -q tests/pypgo/test_plastic_field_energy.py
 ```
 
@@ -967,7 +967,7 @@ conda run -n libpgo python -m pytest -q tests/pypgo/test_example_notebooks.py
 Run the broad Python smoke suite after binding changes:
 
 ```bash
-conda run -n libpgo cmake --build --preset python-build -j 8
+conda run -n libpgo cmake --build --preset pypgo -j 8
 conda run -n libpgo python -m pytest -q tests/pypgo
 ```
 

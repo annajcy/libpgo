@@ -12,6 +12,47 @@ from pypgo.mesh import CubicMeshData, TetMeshData, TriMeshData
 
 
 @dataclass(frozen=True)
+class VolumetricMeshInfo:
+    num_vertices: int
+    num_elements: int
+    num_element_vertices: int
+    total_volume: float
+    center_of_mass: np.ndarray
+
+    def __str__(self) -> str:
+        cx, cy, cz = self.center_of_mass
+        return (
+            f"#vtx:              {self.num_vertices}\n"
+            f"#elements:         {self.num_elements}\n"
+            f"#element vertices: {self.num_element_vertices}\n"
+            f"total volume:      {self.total_volume:.17g}\n"
+            f"center of mass:    {cx:.17g} {cy:.17g} {cz:.17g}"
+        )
+
+
+def volume_mesh_info(mesh) -> VolumetricMeshInfo:
+    """Geometric summary of a volume mesh — equivalent to the volumetricMeshInfo CLI tool.
+
+    Accepts TetMeshData, CubicMeshData, or VolumeMesh.
+    """
+    from pypgo.mesh.veg import VegFile, VolumeMesh
+
+    if isinstance(mesh, (VegFile, VolumeMesh)):
+        mesh = mesh.mesh_data
+    if not isinstance(mesh, (TetMeshData, CubicMeshData)):
+        raise TypeError(
+            f"mesh must be a TetMeshData, CubicMeshData, or VolumeMesh, got {type(mesh).__name__}"
+        )
+    return VolumetricMeshInfo(
+        num_vertices=mesh.num_vertices,
+        num_elements=mesh.num_elements,
+        num_element_vertices=int(mesh.elements.shape[1]),
+        total_volume=mesh.volume,
+        center_of_mass=mesh.center_of_mass,
+    )
+
+
+@dataclass(frozen=True)
 class QualityReport:
     is_clean: bool
     degenerate_tris: list[int]
@@ -72,6 +113,99 @@ def tet_mesher(tri_data: TriMeshData, *, backend: str = "tetgen", config: dict |
 
 def has_tetwild() -> bool:
     return bool(_core.has_tetwild())
+
+
+def has_cgal_remesher() -> bool:
+    return bool(_core.has_cgal_remesher())
+
+
+def has_geogram_remesher() -> bool:
+    return bool(_core.has_geogram_remesher())
+
+
+def remove_isolated_vertices(tri_data: TriMeshData) -> TriMeshData:
+    """Remove vertices not referenced by any triangle."""
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    return TriMeshData(_core.surface_remove_isolated_vertices(tri_data._core_obj))
+
+
+def cgal_smooth(tri_data: TriMeshData, *, num_iter: int = 10, sharp_angle: float = 180.0) -> TriMeshData:
+    """Smooth a surface mesh with CGAL angle-and-area smoothing.
+
+    Edges whose dihedral angle exceeds sharp_angle (degrees) are treated as
+    feature edges and left unmodified.
+    """
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    if not has_cgal_remesher():
+        raise RuntimeError("CGAL remesher is not available in this build")
+    return TriMeshData(_core.cgal_smooth_surface(tri_data._core_obj, int(num_iter), float(sharp_angle)))
+
+
+def cgal_isotropic_remesh(
+    tri_data: TriMeshData,
+    *,
+    target_edge_length: float,
+    num_iter: int = 10,
+    sharp_angle: float = 180.0,
+) -> TriMeshData:
+    """Isotropically remesh a surface to a target edge length with CGAL."""
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    if not has_cgal_remesher():
+        raise RuntimeError("CGAL remesher is not available in this build")
+    return TriMeshData(
+        _core.cgal_isotropic_remesh(
+            tri_data._core_obj, float(target_edge_length), int(num_iter), float(sharp_angle)
+        )
+    )
+
+
+def cgal_repair_self_intersections(
+    tri_data: TriMeshData, *, method: str = "autorefine"
+) -> tuple[TriMeshData, bool]:
+    """Repair self-intersections with CGAL.
+
+    method: "autorefine" (default), "autorefine-only", or "remove".
+    Returns (repaired_mesh, all_fixed).
+    """
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    if method not in ("autorefine", "autorefine-only", "remove"):
+        raise ValueError(f"method must be 'autorefine', 'autorefine-only', or 'remove', got {method!r}")
+    if not has_cgal_remesher():
+        raise RuntimeError("CGAL remesher is not available in this build")
+    mesh_core, all_fixed = _core.cgal_repair_self_intersections(tri_data._core_obj, method)
+    return TriMeshData(mesh_core), bool(all_fixed)
+
+
+def cgal_simplify(tri_data: TriMeshData, *, target_ratio: float) -> TriMeshData:
+    """Simplify a surface mesh to target_ratio of its original edge count with CGAL."""
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    if not has_cgal_remesher():
+        raise RuntimeError("CGAL remesher is not available in this build")
+    return TriMeshData(_core.cgal_simplify_surface(tri_data._core_obj, float(target_ratio)))
+
+
+def geogram_remesh(
+    tri_data: TriMeshData,
+    *,
+    target_num_vertices: int,
+    size_factor: float = 1.0,
+    anisotropy: float = 1.0,
+) -> TriMeshData:
+    """Remesh a surface to a target vertex count with Geogram."""
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    if not has_geogram_remesher():
+        raise RuntimeError("Geogram remesher is not available in this build")
+    return TriMeshData(
+        _core.geogram_remesh_surface(
+            tri_data._core_obj, int(target_num_vertices), float(size_factor), float(anisotropy)
+        )
+    )
 
 
 def check_surface_quality(

@@ -35,3 +35,16 @@ class SparseMatrix:
         """Return a dense (rows, cols) float64 ndarray copy."""
         flat = np.asarray(self._core_obj.to_dense(), dtype=np.float64)
         return flat.reshape(self._core_obj.rows(), self._core_obj.cols())
+
+    def __matmul__(self, other: np.ndarray) -> np.ndarray:
+        other = np.asarray(other, dtype=np.float64)
+        if other.ndim not in (1, 2):
+            return NotImplemented
+        rows, cols, values = self.to_coo()
+        if other.ndim == 1:
+            result = np.zeros(self.shape[0], dtype=np.float64)
+            np.add.at(result, rows, values * other[cols])
+        else:
+            result = np.zeros((self.shape[0], other.shape[1]), dtype=np.float64)
+            np.add.at(result, rows, values[:, None] * other[cols])
+        return result

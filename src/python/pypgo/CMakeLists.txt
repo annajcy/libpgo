@@ -1,4 +1,4 @@
-find_package(Python REQUIRED COMPONENTS Development.Module)
+find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
 
 set(PYPGO_BINDING_SOURCES
   bindings/module.cpp
@@ -18,7 +18,25 @@ else()
   list(APPEND PYPGO_BINDING_SOURCES ../../tools/mesh/volumetric/tetMesher/tetwildBackendDisabled.cpp)
 endif()
 
-nanobind_add_module(pypgo_core ${PYPGO_BINDING_SOURCES})
+if(TARGET cgalInterface)
+  list(APPEND PYPGO_BINDING_SOURCES bindings/surface_remesh_cgal.cpp)
+else()
+  list(APPEND PYPGO_BINDING_SOURCES bindings/surface_remesh_cgal_disabled.cpp)
+endif()
+
+if(TARGET geogramInterface)
+  list(APPEND PYPGO_BINDING_SOURCES bindings/surface_remesh_geogram.cpp)
+else()
+  list(APPEND PYPGO_BINDING_SOURCES bindings/surface_remesh_geogram_disabled.cpp)
+endif()
+
+if(TARGET animationIO)
+  list(APPEND PYPGO_BINDING_SOURCES bindings/animation_io.cpp)
+else()
+  list(APPEND PYPGO_BINDING_SOURCES bindings/animation_io_disabled.cpp)
+endif()
+
+nanobind_add_module(pypgo_core STABLE_ABI NB_DOMAIN pypgo ${PYPGO_BINDING_SOURCES})
 
 target_link_libraries(pypgo_core PRIVATE
   mesh
@@ -30,6 +48,26 @@ target_link_libraries(pypgo_core PRIVATE
   constraintPotentialEnergies
   tetgenInterface
 )
+
+if(TARGET cgalInterface)
+  target_link_libraries(pypgo_core PRIVATE cgalInterface)
+  target_include_directories(pypgo_core PRIVATE ${CMAKE_SOURCE_DIR}/src/core/cgalInterface)
+  target_compile_definitions(pypgo_core PRIVATE PYPGO_HAS_CGAL=1)
+endif()
+
+if(TARGET geogramInterface)
+  target_link_libraries(pypgo_core PRIVATE geogramInterface)
+  target_include_directories(pypgo_core PRIVATE ${CMAKE_SOURCE_DIR}/src/core/geogramInterface)
+  target_compile_definitions(pypgo_core PRIVATE PYPGO_HAS_GEOGRAM=1)
+endif()
+
+if(TARGET animationIO)
+  target_link_libraries(pypgo_core PRIVATE animationIO)
+  target_include_directories(pypgo_core PRIVATE ${CMAKE_SOURCE_DIR}/src/core/animationIO)
+  if(TARGET openvdb_static OR TARGET OpenVDB::openvdb)
+    target_compile_definitions(pypgo_core PRIVATE PYPGO_HAS_STRESS_VDB=1)
+  endif()
+endif()
 
 if(PGO_TET_MESHER_USE_TET_WILD)
   target_link_libraries(pypgo_core PRIVATE FloatTetwild)

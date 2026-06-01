@@ -6,6 +6,7 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -17,10 +18,12 @@
 #include "cubicMesh.h"
 #include "cubicMeshGeo.h"
 #include "meshData.h"
+#include "surface_remesh_backend.h"
 #include "tetMesherBackend.h"
 #include "tetMeshGeo.h"
 #include "triangleMeshVoxelizer.h"
 #include "triMeshGeo.h"
+#include "triMeshNeighbor.h"
 
 namespace nb = nanobind;
 using namespace pgo;
@@ -386,4 +389,112 @@ void init_mesh_geo_bindings(nb::module_ &m)
     nb::arg("tetwild_has_la") = false, nb::arg("tetwild_epsr") = 0.001,
     nb::arg("tetwild_stop_energy") = 10.0, nb::arg("tetwild_max_threads") = 0);
   m.def("has_tetwild", &has_tetwild_bind);
+
+  // Connected component queries
+  m.def("triangle_component_ids",
+    [](const Mesh::MeshData<3> &surface) {
+      Mesh::TriMeshGeo mesh(surface);
+      std::vector<int> counts;
+      nb::gil_scoped_release release;
+      std::vector<int> ids = Mesh::computeTriangleEdgeComponentIDs(
+        BasicAlgorithms::makeArrayRef(mesh.triangles()), &counts);
+      return std::make_pair(ids, counts);
+    },
+    nb::arg("surface"));
+
+  m.def("connected_components_by_edge",
+    [](const Mesh::MeshData<3> &surface) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      return Mesh::getConnectedComponentsByEdge(BasicAlgorithms::makeArrayRef(mesh.triangles()));
+    },
+    nb::arg("surface"));
+
+  m.def("connected_components_by_vertex",
+    [](const Mesh::MeshData<3> &surface) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      return Mesh::getConnectedComponentsByVertex(BasicAlgorithms::makeArrayRef(mesh.triangles()));
+    },
+    nb::arg("surface"));
+
+  m.def("filter_small_components",
+    [](const Mesh::MeshData<3> &surface, int min_triangles, int keep_largest) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      return Mesh::filterSmallTriangleComponentsByEdge(mesh.ref(), min_triangles, keep_largest).toMeshData();
+    },
+    nb::arg("surface"), nb::arg("min_triangles"), nb::arg("keep_largest") = -1);
+
+  m.def("get_outer_component",
+    [](const Mesh::MeshData<3> &surface) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      Mesh::TriMeshRef ref = mesh.ref();
+      std::vector<int> outer_ids = Mesh::getOneOuterTriMeshConnectedComponentByVertex(ref);
+      // build complement: triangles NOT in outer_ids
+      std::set<int> outer_set(outer_ids.begin(), outer_ids.end());
+      std::vector<int> to_remove;
+      to_remove.reserve(mesh.numTriangles() - static_cast<int>(outer_ids.size()));
+      for (int i = 0; i < mesh.numTriangles(); ++i) {
+        if (outer_set.find(i) == outer_set.end())
+          to_remove.push_back(i);
+      }
+      return Mesh::removeIsolatedVertices(Mesh::removeTriangles(mesh.ref(), to_remove).ref()).toMeshData();
+    },
+    nb::arg("surface"));
+
+  // Surface remeshing
+  m.def("surface_remove_isolated_vertices",
+    [](const Mesh::MeshData<3> &surface) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      return Mesh::removeIsolatedVertices(mesh.ref()).toMeshData();
+    },
+    nb::arg("surface"));
+
+  m.def("cgal_smooth_surface",
+    [](const Mesh::MeshData<3> &surface, int num_iter, double sharp_angle) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      return surface_remesh::cgal_smooth(mesh, num_iter, sharp_angle).toMeshData();
+    },
+    nb::arg("surface"), nb::arg("num_iter") = 10, nb::arg("sharp_angle") = 180.0);
+
+  m.def("cgal_isotropic_remesh",
+    [](const Mesh::MeshData<3> &surface, double target_edge_length, int num_iter, double sharp_angle) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      return surface_remesh::cgal_isotropic_remesh(mesh, target_edge_length, num_iter, sharp_angle).toMeshData();
+    },
+    nb::arg("surface"), nb::arg("target_edge_length"), nb::arg("num_iter") = 10, nb::arg("sharp_angle") = 180.0);
+
+  m.def("cgal_repair_self_intersections",
+    [](const Mesh::MeshData<3> &surface, const std::string &method) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      auto [result, all_fixed] = surface_remesh::cgal_repair_self_intersections(mesh, method);
+      return std::make_pair(result.toMeshData(), all_fixed);
+    },
+    nb::arg("surface"), nb::arg("method") = std::string("autorefine"));
+
+  m.def("cgal_simplify_surface",
+    [](const Mesh::MeshData<3> &surface, double target_ratio) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      return surface_remesh::cgal_simplify(mesh, target_ratio).toMeshData();
+    },
+    nb::arg("surface"), nb::arg("target_ratio"));
+
+  m.def("has_cgal_remesher", &surface_remesh::has_cgal);
+
+  m.def("geogram_remesh_surface",
+    [](const Mesh::MeshData<3> &surface, int target_num_vertices, double size_factor, double anisotropy) {
+      Mesh::TriMeshGeo mesh(surface);
+      nb::gil_scoped_release release;
+      return surface_remesh::geogram_remesh(mesh, target_num_vertices, size_factor, anisotropy).toMeshData();
+    },
+    nb::arg("surface"), nb::arg("target_num_vertices"), nb::arg("size_factor") = 1.0, nb::arg("anisotropy") = 1.0);
+
+  m.def("has_geogram_remesher", &surface_remesh::has_geogram);
 }

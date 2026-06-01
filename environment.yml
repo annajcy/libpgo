@@ -1,0 +1,43 @@
+name: libpgo
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+
+  # --- build tools ---
+  - cmake>=3.29
+  - ninja
+  - pkg-config
+
+  # --- math / precision libraries (replaces apt libgmp-dev/libmpfr-dev/libimath-dev and brew gmp/mpfr/imath) ---
+  - gmp
+  - mpfr
+  - imath
+  - libblas
+  - liblapack
+  - zlib
+
+  # --- C++ dependencies ---
+  - libboost-devel
+  - tbb-devel
+
+  # --- meshing & geometry ---
+  - gmsh
+  - openvdb
+
+  # --- MKL (Linux / Windows only — CMake auto-disables on macOS / Apple Silicon) ---
+  # - mkl-devel
+
+  # --- Python: core ---
+  - numpy
+  - pip
+  - setuptools
+  - wheel
+
+  # --- Python: testing & notebooks ---
+  - pytest
+  - notebook
+
+  # --- Python: optional example visualisation ---
+  - pip:
+    - pyvista[jupyter]

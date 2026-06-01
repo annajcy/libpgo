@@ -1827,8 +1827,8 @@ conda run -n libpgo ctest --test-dir build/base -R "SimulationMesh|TetP1Basis|He
 Run Python build and tests:
 
 ```bash
-conda run -n libpgo cmake --preset python-build
-conda run -n libpgo cmake --build --preset python-build -j 8
+conda run -n libpgo cmake --preset pypgo
+conda run -n libpgo cmake --build --preset pypgo -j 8
 conda run -n libpgo python -m pytest -q tests/pypgo/test_simulation_mesh.py tests/pypgo/test_deformation_energy.py
 ```
 

@@ -36,7 +36,12 @@ CELLS = [
         import pypgo as pgo
 
         from pypgo.mesh import CubicMeshData, MeshDataType, TetMeshData, TriMeshData
-        from pypgo.mesh.geo import BarycentricEmbedding, CubicMeshGeo, TetMeshGeo, TriMeshGeo
+        from pypgo.mesh.geo import (
+            BarycentricEmbedding, CubicMeshGeo, TetMeshGeo, TriMeshGeo,
+            surface_to_volume_interpolation_matrix,
+            triangle_component_ids, connected_components_by_edge,
+            connected_components_by_vertex, filter_small_components, get_outer_component,
+        )
         from pypgo.mesh.veg import (
             ENuMaterial,
             MeshRegion,
@@ -45,7 +50,13 @@ CELLS = [
             VegFile,
             VolumeMesh,
         )
-        from pypgo.tools.mesh import check_surface_quality, cubic_mesher, has_tetwild, tet_mesher
+        from pypgo.tools.mesh import (
+            check_surface_quality, cubic_mesher, has_tetwild, tet_mesher,
+            has_cgal_remesher, has_geogram_remesher,
+            cgal_smooth, cgal_isotropic_remesh, cgal_simplify,
+            cgal_repair_self_intersections, geogram_remesh, remove_isolated_vertices,
+            volume_mesh_info,
+        )
         """
     ),
     md(
@@ -67,117 +78,8 @@ CELLS = [
 
         REPO_ROOT = _find_repo_root()
         ASSET_DIR = REPO_ROOT / "pypgo" / "examples" / "assets" / "obj"
-        PYVISTA_INSTALL_HINT = "Install visualization dependencies with: pip install -e .[examples]"
 
-        try:
-            import pyvista as pv
-        except ModuleNotFoundError:
-            pv = None
-            print(f"PyVista is not installed. {PYVISTA_INSTALL_HINT}")
-
-
-        def _require_pyvista() -> bool:
-            if pv is None:
-                print(f"Skipping PyVista view. {PYVISTA_INSTALL_HINT}")
-                return False
-            return True
-
-
-        def to_pyvista_surface(surface_data: TriMeshData):
-            if not isinstance(surface_data, TriMeshData):
-                raise TypeError(f"surface_data must be a TriMeshData, got {type(surface_data).__name__}")
-            if pv is None:
-                raise RuntimeError(PYVISTA_INSTALL_HINT)
-
-            faces = np.column_stack(
-                [
-                    np.full(surface_data.num_elements, 3, dtype=np.int64),
-                    surface_data.elements,
-                ]
-            ).ravel()
-            return pv.PolyData(surface_data.vertices, faces)
-
-
-        def to_pyvista_volume(volume_data):
-            if pv is None:
-                raise RuntimeError(PYVISTA_INSTALL_HINT)
-            if not isinstance(volume_data, (TetMeshData, CubicMeshData)):
-                raise TypeError(
-                    f"volume_data must be a TetMeshData or CubicMeshData, got {type(volume_data).__name__}"
-                )
-
-            elements = volume_data.elements
-            width = elements.shape[1]
-            if width == 4:
-                cell_type = pv.CellType.TETRA
-            elif width == 8:
-                cell_type = pv.CellType.HEXAHEDRON
-            else:
-                raise ValueError(f"Unsupported volume element width: {width}")
-
-            cells = np.column_stack(
-                [
-                    np.full(volume_data.num_elements, width, dtype=np.int64),
-                    elements,
-                ]
-            ).ravel()
-            cell_types = np.full(volume_data.num_elements, cell_type, dtype=np.uint8)
-            return pv.UnstructuredGrid(cells, cell_types, volume_data.vertices)
-
-
-        def plot_surface(meshes, *, titles=None, show_edges=True, colors=None, window_size=(900, 360)):
-            if not _require_pyvista():
-                return None
-
-            if isinstance(meshes, TriMeshData):
-                meshes = [meshes]
-            meshes = list(meshes)
-            titles = titles or [None] * len(meshes)
-            colors = colors or ["lightgray"] * len(meshes)
-
-            plotter = pv.Plotter(shape=(1, len(meshes)), window_size=window_size)
-            for index, mesh in enumerate(meshes):
-                if len(meshes) > 1:
-                    plotter.subplot(0, index)
-                plotter.add_mesh(
-                    to_pyvista_surface(mesh),
-                    color=colors[index % len(colors)],
-                    show_edges=show_edges,
-                    smooth_shading=False,
-                )
-                if titles[index]:
-                    plotter.add_text(titles[index], position="upper_left", font_size=10)
-                plotter.view_isometric()
-                plotter.camera.zoom(1.2)
-            return plotter.show()
-
-
-        def plot_volume_surface(meshes, *, titles=None, show_edges=True, colors=None, window_size=(900, 360)):
-            if not _require_pyvista():
-                return None
-
-            if isinstance(meshes, (TetMeshData, CubicMeshData)):
-                meshes = [meshes]
-            meshes = list(meshes)
-            titles = titles or [None] * len(meshes)
-            colors = colors or ["lightsteelblue"] * len(meshes)
-
-            plotter = pv.Plotter(shape=(1, len(meshes)), window_size=window_size)
-            for index, mesh in enumerate(meshes):
-                if len(meshes) > 1:
-                    plotter.subplot(0, index)
-                plotter.add_mesh(
-                    to_pyvista_volume(mesh).extract_surface(),
-                    color=colors[index % len(colors)],
-                    show_edges=show_edges,
-                    smooth_shading=False,
-                )
-                if titles[index]:
-                    plotter.add_text(titles[index], position="upper_left", font_size=10)
-                plotter.view_isometric()
-                plotter.camera.zoom(1.2)
-            return plotter.show()
-
+        from pypgo.vis import plot_surface, plot_volume_surface
 
         print("asset directory:", ASSET_DIR)
         print("available OBJ assets:", sorted(path.name for path in ASSET_DIR.glob("*.obj")))
@@ -357,6 +259,9 @@ CELLS = [
         volume = VolumeMesh(veg.mesh_data, veg.to_volume_regions())
         print("volume:", volume)
         print("surface:", volume.extract_surface_mesh().num_elements, "triangles")
+
+        info = volume_mesh_info(volume)
+        print(info)
         """
     ),
     code(
@@ -399,7 +304,59 @@ CELLS = [
     ),
     md(
         """
-        ## 7. Solver-ready meshes
+        ## 7. Surface-to-volume interpolation matrix
+
+        `surface_to_volume_interpolation_matrix` is a convenience wrapper around `BarycentricEmbedding` for the common case where the target locations are the vertices of a surface mesh embedded inside a volume mesh. The returned matrix `W` has shape `(3 × n_surf_verts, 3 × n_vol_verts)`, so `W @ vol_disp.ravel()` gives the interpolated surface displacements directly.
+        """
+    ),
+    code(
+        """
+        surf = single_volume.extract_surface_mesh()
+        W = surface_to_volume_interpolation_matrix(surf, single_volume)
+
+        vol_disp = np.zeros((single_volume.num_vertices, 3), dtype=np.float64)
+        vol_disp[:, 2] = np.linspace(0.0, 1.0, single_volume.num_vertices)
+
+        surf_disp = (W @ vol_disp.ravel()).reshape(-1, 3)
+
+        print("W shape:", W.shape, "  nnz:", W.nnz)
+        print("surface vertices:", surf.num_vertices, "  volume vertices:", single_volume.num_vertices)
+        print("interpolated z-displacements on surface vertices:\\n", surf_disp[:, 2])
+        """
+    ),
+    md(
+        """
+        ## 8. Mass matrix
+
+        `VolumeMesh.mass_matrix()` returns the consistent mass matrix as a `SparseMatrix`.
+
+        - `inflate3dim=True` (default): shape `(3n, 3n)` — the standard displacement-DOF mass matrix used by solvers and IPC.
+        - `inflate3dim=False`: shape `(n, n)` — scalar mass per vertex, useful for lumped-mass approximations.
+
+        The consistent mass matrix satisfies `M @ ones = lumped_mass_per_vertex`, so the total mass equals the sum of **all** entries of `M1` (not just the diagonal).
+        """
+    ),
+    code(
+        """
+        M3 = single_volume.mass_matrix()                   # (3n, 3n)
+        M1 = single_volume.mass_matrix(inflate3dim=False)  # (n, n)
+
+        M3_dense = M3.to_dense()
+        M1_dense = M1.to_dense()
+
+        print("M3 shape:", M3.shape, "  nnz:", M3.nnz)
+        print("M3 (3n×3n) dense:\\n", M3_dense)
+        print()
+        print("M1 shape:", M1.shape, "  nnz:", M1.nnz)
+        print("M1 (n×n) dense:\\n", M1_dense)
+        print()
+        print("total mass (M1 all-entry sum):", M1_dense.sum())
+        print("expected  (density × volume):", soft.density * tet_data.volume)
+        """
+    ),
+    md(
+        """
+        ## 9. Solver-ready meshes
 
         Use explicit factories for solver-facing meshes. Volume and shell paths are separate on purpose.
         """
@@ -418,7 +375,7 @@ CELLS = [
     ),
     md(
         """
-        ## 8. Mesher wrappers
+        ## 10. Mesher wrappers
 
         The wrappers accept `TriMeshData` and return volume `MeshData`. `tetwild` is optional; `has_tetwild()` reflects the build configuration. This section uses the real `box-with-sphere.obj` asset as input.
         """
@@ -452,6 +409,260 @@ CELLS = [
             show_edges=True,
             colors=["lightskyblue", "mediumseagreen"],
         )
+        """
+    ),
+    md(
+        """
+        ## 11. Surface remeshing tools
+
+        `pypgo.tools.mesh` exposes CGAL and Geogram surface remeshing. Availability is build-dependent — check with `has_cgal_remesher()` / `has_geogram_remesher()` before calling. All functions accept and return `TriMeshData`.
+
+        | Function | Backend | Key parameter |
+        |---|---|---|
+        | `cgal_smooth` | CGAL | `num_iter`, `sharp_angle` |
+        | `cgal_isotropic_remesh` | CGAL | `target_edge_length` (absolute) |
+        | `cgal_simplify` | CGAL | `target_ratio` (fraction of edges to keep) |
+        | `cgal_repair_self_intersections` | CGAL | `method` |
+        | `geogram_remesh` | Geogram | `target_num_vertices` |
+        | `remove_isolated_vertices` | pure mesh | — |
+        """
+    ),
+    code(
+        """
+        print("CGAL remesher available:", has_cgal_remesher())
+        print("Geogram remesher available:", has_geogram_remesher())
+
+        # Use bunny as the demo surface throughout this section
+        demo_mesh = pgo.mesh.read_obj(str(ASSET_DIR / "bunny.obj"))
+        print(f"bunny: {demo_mesh.num_vertices} vertices, {demo_mesh.num_elements} triangles")
+        """
+    ),
+    md(
+        """
+        ### 11a. CGAL smooth
+
+        `cgal_smooth` applies angle-and-area smoothing. Edges whose dihedral angle exceeds `sharp_angle` degrees are treated as feature edges and held fixed.
+        """
+    ),
+    code(
+        """
+        if has_cgal_remesher():
+            smoothed = cgal_smooth(demo_mesh, num_iter=10, sharp_angle=60.0)
+            print(f"smoothed: {smoothed.num_vertices} vertices, {smoothed.num_elements} triangles")
+            plot_surface(
+                [demo_mesh, smoothed],
+                titles=["bunny original", "cgal_smooth (10 iter, sharp=60°)"],
+                show_edges=False,
+                colors=["lightgray", "cornflowerblue"],
+            )
+        else:
+            print("Skipping: CGAL not available")
+        """
+    ),
+    md(
+        """
+        ### 11b. CGAL isotropic remeshing
+
+        `cgal_isotropic_remesh` splits/collapses edges to reach a uniform `target_edge_length`. Here we compute the average edge length of the input and remesh at 2× (coarser) and 0.5× (finer).
+        """
+    ),
+    code(
+        """
+        if has_cgal_remesher():
+            verts = demo_mesh.vertices
+            tris  = demo_mesh.elements
+            edge_vecs = np.concatenate([
+                verts[tris[:, 1]] - verts[tris[:, 0]],
+                verts[tris[:, 2]] - verts[tris[:, 1]],
+                verts[tris[:, 0]] - verts[tris[:, 2]],
+            ])
+            avg_edge_len = float(np.linalg.norm(edge_vecs, axis=1).mean())
+            print(f"average edge length: {avg_edge_len:.6f}")
+
+            coarse = cgal_isotropic_remesh(demo_mesh, target_edge_length=avg_edge_len * 2.0, num_iter=5)
+            fine   = cgal_isotropic_remesh(demo_mesh, target_edge_length=avg_edge_len * 0.5, num_iter=5)
+
+            print(f"coarse (2× avg): {coarse.num_vertices} vertices, {coarse.num_elements} triangles")
+            print(f"fine   (0.5× avg): {fine.num_vertices} vertices, {fine.num_elements} triangles")
+
+            plot_surface(
+                [demo_mesh, coarse, fine],
+                titles=["original", "isotropic 2× (coarser)", "isotropic 0.5× (finer)"],
+                show_edges=True,
+                colors=["lightgray", "lightsalmon", "mediumseagreen"],
+                window_size=(1200, 360),
+            )
+        else:
+            print("Skipping: CGAL not available")
+        """
+    ),
+    md(
+        """
+        ### 11c. CGAL simplification
+
+        `cgal_simplify` collapses edges until the mesh has approximately `target_ratio` of its original edge count.
+        """
+    ),
+    code(
+        """
+        if has_cgal_remesher():
+            simplified_50 = cgal_simplify(demo_mesh, target_ratio=0.5)
+            simplified_10 = cgal_simplify(demo_mesh, target_ratio=0.1)
+
+            print(f"original:   {demo_mesh.num_vertices} vertices, {demo_mesh.num_elements} triangles")
+            print(f"ratio=0.50: {simplified_50.num_vertices} vertices, {simplified_50.num_elements} triangles")
+            print(f"ratio=0.10: {simplified_10.num_vertices} vertices, {simplified_10.num_elements} triangles")
+
+            plot_surface(
+                [demo_mesh, simplified_50, simplified_10],
+                titles=["original", "simplify ratio=0.50", "simplify ratio=0.10"],
+                show_edges=True,
+                colors=["lightgray", "plum", "lightsalmon"],
+                window_size=(1200, 360),
+            )
+        else:
+            print("Skipping: CGAL not available")
+        """
+    ),
+    md(
+        """
+        ### 11d. Geogram remeshing
+
+        `geogram_remesh` redistributes triangles to reach a target vertex count while preserving shape features.
+        """
+    ),
+    code(
+        """
+        if has_geogram_remesher():
+            geo_500  = geogram_remesh(demo_mesh, target_num_vertices=500)
+            geo_2000 = geogram_remesh(demo_mesh, target_num_vertices=2000)
+
+            print(f"original:     {demo_mesh.num_vertices} vertices, {demo_mesh.num_elements} triangles")
+            print(f"target  500:  {geo_500.num_vertices} vertices, {geo_500.num_elements} triangles")
+            print(f"target 2000:  {geo_2000.num_vertices} vertices, {geo_2000.num_elements} triangles")
+
+            plot_surface(
+                [demo_mesh, geo_500, geo_2000],
+                titles=["original", "geogram target=500", "geogram target=2000"],
+                show_edges=True,
+                colors=["lightgray", "cornflowerblue", "mediumseagreen"],
+                window_size=(1200, 360),
+            )
+        else:
+            print("Skipping: Geogram not available")
+        """
+    ),
+    md(
+        """
+        ## 12. Connected component operations
+
+        The functions below operate on edge-connected or vertex-connected components of a `TriMeshData` surface mesh. The demo uses `box-with-sphere.obj`, which contains two disjoint closed shells.
+
+        | Function | Returns |
+        |---|---|
+        | `triangle_component_ids` | `(component_ids, component_sizes)` per triangle |
+        | `connected_components_by_edge` | list of triangle-index arrays, one per component |
+        | `connected_components_by_vertex` | same, but vertex-connectivity |
+        | `filter_small_components` | mesh with small components removed |
+        | `get_outer_component` | single outermost shell |
+        """
+    ),
+    code(
+        """
+        multi = pgo.mesh.read_obj(str(ASSET_DIR / "box-with-sphere.obj"))
+        comp_ids, comp_sizes = triangle_component_ids(multi)
+
+        print(f"mesh: {multi.num_vertices} vertices, {multi.num_elements} triangles")
+        print(f"number of edge-connected components: {len(comp_sizes)}")
+        print(f"component sizes (triangles): {sorted(comp_sizes.tolist(), reverse=True)}")
+        """
+    ),
+    md(
+        """
+        ### 12a. Split and visualize each component
+
+        `connected_components_by_edge` returns a list of triangle-index arrays. `take_elements` extracts a submesh for each component, which can then be visualized individually.
+        """
+    ),
+    code(
+        """
+        edge_comps = connected_components_by_edge(multi)
+        print(f"edge-connected components: {len(edge_comps)}")
+        for i, tri_ids in enumerate(edge_comps):
+            sub = multi.take_elements(tri_ids)
+            print(f"  component {i}: {sub.num_vertices} vertices, {sub.num_elements} triangles, bbox {sub.bbox}")
+
+        comp_colors = ["lightsteelblue", "lightsalmon", "mediumseagreen", "plum"]
+        comp_meshes = [multi.take_elements(tri_ids) for tri_ids in edge_comps]
+        plot_surface(
+            comp_meshes,
+            titles=[f"component {i} ({len(tri_ids)} tris)" for i, tri_ids in enumerate(edge_comps)],
+            colors=comp_colors[: len(edge_comps)],
+            show_edges=False,
+            window_size=(900 if len(edge_comps) <= 2 else 1200, 360),
+        )
+        """
+    ),
+    md(
+        """
+        ### 12b. Filter small components
+
+        `filter_small_components` removes components below a triangle-count threshold. Setting `min_triangles` just above the smallest component size strips it; `keep_largest=1` retains only the single biggest component regardless of threshold.
+        """
+    ),
+    code(
+        """
+        smallest_size = int(sorted(comp_sizes)[0])
+        filtered = filter_small_components(multi, min_triangles=smallest_size + 1)
+        keep_one  = filter_small_components(multi, min_triangles=1, keep_largest=1)
+
+        print(f"original:               {multi.num_vertices} vertices, {multi.num_elements} triangles")
+        print(f"filter min={smallest_size+1}: {filtered.num_vertices} vertices, {filtered.num_elements} triangles")
+        print(f"keep_largest=1:         {keep_one.num_vertices} vertices, {keep_one.num_elements} triangles")
+
+        plot_surface(
+            [multi, filtered, keep_one],
+            titles=["original", f"filter min_triangles={smallest_size+1}", "keep_largest=1"],
+            colors=["lightgray", "cornflowerblue", "mediumseagreen"],
+            show_edges=False,
+            window_size=(1200, 360),
+        )
+        """
+    ),
+    md(
+        """
+        ### 12c. Extract outermost component
+
+        `get_outer_component` locates the topmost triangle, performs a vertex-connected BFS from it, and returns that shell — useful for isolating the outer surface of a nested mesh before volumetric meshing.
+        """
+    ),
+    code(
+        """
+        outer = get_outer_component(multi)
+        print(f"outer component: {outer.num_vertices} vertices, {outer.num_elements} triangles")
+
+        plot_surface(
+            [multi, outer],
+            titles=["original (all components)", "get_outer_component"],
+            colors=["lightgray", "mediumseagreen"],
+            show_edges=False,
+        )
+        """
+    ),
+    md(
+        """
+        ### 12d. Edge vs. vertex connectivity
+
+        `connected_components_by_vertex` uses vertex sharing rather than edge sharing. On a well-formed mesh the two are equivalent; they differ when components touch at a single vertex (pinch point) — edge connectivity splits them, vertex connectivity merges them.
+        """
+    ),
+    code(
+        """
+        edge_comps   = connected_components_by_edge(multi)
+        vertex_comps = connected_components_by_vertex(multi)
+
+        print(f"edge-connected   components: {len(edge_comps)},   sizes: {sorted([len(c) for c in edge_comps], reverse=True)}")
+        print(f"vertex-connected components: {len(vertex_comps)}, sizes: {sorted([len(c) for c in vertex_comps], reverse=True)}")
         """
     ),
 ]

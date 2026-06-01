@@ -164,8 +164,8 @@ Run:
 
 ```bash
 # Python build (pypgo_core only, no C++ tests)
-conda run -n libpgo cmake --preset python-build
-conda run -n libpgo cmake --build --preset python-build -j 8
+conda run -n libpgo cmake --preset pypgo
+conda run -n libpgo cmake --build --preset pypgo -j 8
 
 # C++ tests — use the base preset (PGO_BUILD_TESTING=ON)
 conda run -n libpgo cmake --preset base
@@ -1268,7 +1268,7 @@ class QualityReport:
 ### Private `_core` 新增
 
 ```
-check_self_intersections(triMeshGeo) → bool   # CGAL exact-count，python-build 必开启
+check_self_intersections(triMeshGeo) → bool   # CGAL exact-count，pypgo 必开启
 ```
 
 ### Public Python 新增
@@ -1298,7 +1298,7 @@ check_surface_quality(tri_data, short_edge_threshold) → QualityReport
 
 | 改动 | 类型 | 影响 |
 |------|------|------|
-| `check_self_intersections` binding | 新 binding | CGAL exact-count，python-build 必开启 |
+| `check_self_intersections` binding | 新 binding | CGAL exact-count，pypgo 必开启 |
 
 ## 3.5 测试清单（Phase 3）
 

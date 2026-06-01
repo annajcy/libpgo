@@ -30,20 +30,19 @@ Install conda: See [Conda Installation](https://www.anaconda.com/docs/getting-st
 
 Install mamba: See [Mamba Installation](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html#automatic-install).
 
-Linux:
+A C++ compiler is the only system-level requirement — all library dependencies
+are managed by the `environment.yml` file in the repository root.
+
+Linux (GCC via apt):
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends \
-  build-essential g++ gcc git \
-  libblas-dev libgmp-dev libimath-dev liblapack-dev libmpfr-dev \
-  pkg-config zlib1g-dev
+sudo apt-get install -y build-essential git
 ```
 
-macOS:
+macOS (Apple Clang via Xcode):
 
 ```bash
-brew install gmp mpfr imath
+xcode-select --install
 ```
 
 Windows:
@@ -54,39 +53,37 @@ Windows:
 Blender and ffmpeg are optional. They are only needed by
 `scripts/render_abc_preview.py` for Alembic GIF previews.
 
+### Create the conda environment
+
+All packages — build tools, C++ libraries, and Python dependencies — are
+declared in `environment.yml`. Create the `libpgo` environment with a single
+command:
+
+```bash
+mamba env create -f environment.yml
+conda activate libpgo
+```
+
+To update an existing environment after pulling changes:
+
+```bash
+mamba env update -f environment.yml --prune
+```
+
+**MKL (Linux / Windows only):** MKL is commented out in `environment.yml`
+because it is unavailable on Apple Silicon. Linux and Windows users who want
+the `base` preset to pick up MKL can install it after environment creation:
+
+```bash
+mamba install -n libpgo mkl-devel
+```
+
 ### Python Package Build
 
-The Python package is installed in editable mode with pip. It currently
-contains the Python-first package scaffold; native extension modules will be
-added back as focused bindings instead of the old C-style wrapper.
-
-Linux:
+The Python package is installed in editable mode with pip:
 
 ```bash
-mamba create -n libpgo -c conda-forge python=3.12
 conda activate libpgo
-mamba install -y "cmake>=3.29" libboost-devel mkl-devel ninja numpy pip pytest setuptools tbb-devel wheel notebook
-
-python -m pip install -e . --no-build-isolation
-```
-
-macOS:
-
-```bash
-mamba create -n libpgo -c conda-forge python=3.12
-conda activate libpgo
-mamba install -y "cmake>=3.29" libboost-devel ninja numpy pip pytest setuptools tbb-devel wheel notebook
-
-python -m pip install -e . --no-build-isolation
-```
-
-Windows:
-
-```powershell
-mamba create -n libpgo -c conda-forge python=3.12
-conda activate libpgo
-mamba install -y "cmake>=3.29" imath libboost-devel mkl-devel ninja numpy pip pytest setuptools tbb-devel wheel notebook
-
 python -m pip install -e . --no-build-isolation
 ```
 
@@ -97,7 +94,7 @@ changing C++ bindings or native mesh code:
 python setup.py build_ext --inplace
 ```
 
-This command uses the `python-build` CMake preset and writes the extension back
+This command uses the `pypgo` CMake preset and writes the extension back
 into `pypgo/`, where the editable package imports it. By default it uses the
 detected CPU count for the native build; pass `-j N` if you want to override
 the number of parallel build jobs.
@@ -115,48 +112,17 @@ Native builds are CMake-preset driven. The default native build uses the `base`
 preset:
 
 ```bash
-cmake --list-presets
+conda activate libpgo
 cmake --preset base
 cmake --build --preset base
 ctest --test-dir build/base --output-on-failure
 ```
 
-Install the full conda package set first.
-
-Linux:
-
-```bash
-mamba create -n libpgo -c conda-forge python=3.12
-conda activate libpgo
-mamba install -y "cmake>=3.29" gmsh libboost-devel mkl-devel ninja openvdb tbb-devel zlib
-
-cmake --preset base
-cmake --build --preset base --parallel 3
-ctest --test-dir build/base --output-on-failure
-```
-
-macOS:
-
-```bash
-mamba create -n libpgo -c conda-forge python=3.12
-conda activate libpgo
-mamba install -y "cmake>=3.29" gmsh libboost-devel ninja openvdb tbb-devel zlib
-
-cmake --preset base
-cmake --build --preset base
-ctest --test-dir build/base --output-on-failure
-```
-
-Windows:
+On Windows, add `-G Ninja` to the configure step:
 
 ```powershell
-mamba create -n libpgo -c conda-forge python=3.12
-conda activate libpgo
-mamba install -y "cmake>=3.29" gmsh imath libboost-devel mkl-devel ninja openvdb tbb-devel zlib
-
 cmake --preset base -G Ninja
 cmake --build --preset base
-
 ctest --test-dir build/base --output-on-failure
 ```
 
@@ -169,7 +135,7 @@ Other shared presets are available for debug, CUDA, Knitro, and Pardiso builds:
 | Configure preset | Binary directory | Purpose |
 | --- | --- | --- |
 | `base` | `build/base` | Default release build. |
-| `python-build` | `build/python-build` | Lightweight preset reserved for future Python-first native bindings. |
+| `pypgo` | `build/pypgo` | Lightweight preset for Python-first native bindings. |
 | `base_debug` | `build/base_debug` | Debug build. |
 | `base_cuda` | `build/base_cuda` | `base` plus CUDA. |
 | `base_cuda_debug` | `build/base_cuda_debug` | Debug CUDA build. |
@@ -233,9 +199,25 @@ Example `CMakeUserPresets.json` (local, optional):
             "cacheVariables": {
                 "cudss_DIR": "C:/Program Files/NVIDIA cuDSS/v0.7/lib/13/cmake/cudss"
             }
+        },
+        {
+            "name": "local-pypgo",
+            "displayName": "Local pypgo",
+            "description": "Local IDE profile inheriting pypgo with conda env.",
+            "inherits": "pypgo",
+            "environment": {
+                "CONDA_PREFIX": "/Users/jinceyang/miniconda3/envs/libpgo"
+            }
         }
     ],
     "buildPresets": [
+        {
+            "name": "local-pypgo",
+            "displayName": "Local pypgo",
+            "configurePreset": "local-pypgo",
+            "targets": ["pypgo_core"],
+            "jobs": 32
+        },
         {
             "name": "local-base",
             "configurePreset": "local-base",

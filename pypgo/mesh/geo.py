@@ -106,6 +106,85 @@ class BarycentricEmbedding:
         return np.asarray(self._core_obj.deform(disp.tolist()), dtype=np.float64)
 
 
+def triangle_component_ids(tri_data: TriMeshData) -> tuple[np.ndarray, np.ndarray]:
+    """Edge-connected component labels for each triangle.
+
+    Returns (component_ids, component_sizes):
+      component_ids  — int64 array of shape (n_triangles,), triID → componentID
+      component_sizes — int64 array, componentID → triangle count (unsorted)
+    """
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    ids, sizes = _core.triangle_component_ids(tri_data._core_obj)
+    return np.asarray(ids, dtype=np.int64), np.asarray(sizes, dtype=np.int64)
+
+
+def connected_components_by_edge(tri_data: TriMeshData) -> list[np.ndarray]:
+    """Split a surface mesh into edge-connected components.
+
+    Returns a list of int64 arrays, each containing the triangle indices of one
+    component.  Components are returned in the order produced by the C++ library
+    (typically descending size).
+    """
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    groups = _core.connected_components_by_edge(tri_data._core_obj)
+    return [np.asarray(g, dtype=np.int64) for g in groups]
+
+
+def connected_components_by_vertex(tri_data: TriMeshData) -> list[np.ndarray]:
+    """Split a surface mesh into vertex-connected components.
+
+    Vertex connectivity is weaker than edge connectivity and can merge
+    components that only share a single vertex (pinch-point).
+    Returns a list of int64 triangle-index arrays, one per component.
+    """
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    groups = _core.connected_components_by_vertex(tri_data._core_obj)
+    return [np.asarray(g, dtype=np.int64) for g in groups]
+
+
+def filter_small_components(
+    tri_data: TriMeshData,
+    *,
+    min_triangles: int,
+    keep_largest: int = -1,
+) -> TriMeshData:
+    """Remove edge-connected components with fewer than min_triangles triangles.
+
+    keep_largest > 0  — after the threshold pass, keep only the N largest.
+    keep_largest = -1 — keep all components above the threshold (default).
+    Isolated vertices are removed from the returned mesh.
+    """
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    return TriMeshData(_core.filter_small_components(tri_data._core_obj, int(min_triangles), int(keep_largest)))
+
+
+def get_outer_component(tri_data: TriMeshData) -> TriMeshData:
+    """Extract the outermost vertex-connected component.
+
+    Finds the topmost triangle by y-coordinate, assumes it belongs to the outer
+    shell, and returns the entire vertex-connected component containing it.
+    Useful for isolating the outer surface of nested shell/cavity meshes.
+    """
+    if not isinstance(tri_data, TriMeshData):
+        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
+    return TriMeshData(_core.get_outer_component(tri_data._core_obj))
+
+
+def surface_to_volume_interpolation_matrix(surface_mesh: TriMeshData, volume_mesh) -> SparseMatrix:
+    """Barycentric interpolation matrix from a volume mesh to a surface mesh.
+
+    Returns W with shape (3 * n_surf_verts, 3 * n_vol_verts) such that
+    W @ vol_disp.ravel() gives the interpolated surface displacements.
+    """
+    if not isinstance(surface_mesh, TriMeshData):
+        raise TypeError(f"surface_mesh must be a TriMeshData, got {type(surface_mesh).__name__}")
+    return BarycentricEmbedding(surface_mesh.vertices, volume_mesh).interpolation_matrix
+
+
 class TetMeshGeo:
     """Tetrahedral mesh geometry facade."""
 

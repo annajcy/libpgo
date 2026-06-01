@@ -6,7 +6,6 @@ on:
       - main
       - master
       - original/*
-      - codex/**
   pull_request:
   workflow_dispatch:
 
@@ -37,27 +36,12 @@ jobs:
         with:
           miniforge-variant: Miniforge3
           miniforge-version: latest
+          environment-file: environment.yml
           activate-environment: libpgo
           auto-activate-base: false
           use-mamba: true
-          python-version: "3.12"
           channels: conda-forge
           channel-priority: strict
-
-      - name: Install Conda packages
-        run: |
-          mamba install -y `
-            "cmake>=3.29" `
-            imath `
-            libboost-devel `
-            mkl-devel `
-            ninja `
-            numpy `
-            pip `
-            pytest `
-            setuptools `
-            tbb-devel `
-            wheel
 
       - name: Remove incompatible Fortran tools from PATH
         run: |
@@ -98,25 +82,15 @@ jobs:
         with:
           miniforge-variant: Miniforge3
           miniforge-version: latest
+          environment-file: environment.yml
           activate-environment: libpgo
           auto-activate-base: false
           use-mamba: true
-          python-version: "3.12"
           channels: conda-forge
           channel-priority: strict
 
-      - name: Install Conda packages
-        run: |
-          mamba install -y `
-            "cmake>=3.29" `
-            gmsh `
-            imath `
-            libboost-devel `
-            mkl-devel `
-            ninja `
-            openvdb `
-            tbb-devel `
-            zlib
+      - name: Install MKL
+        run: mamba install -y mkl-devel
 
       - name: Remove incompatible Fortran tools from PATH
         run: |

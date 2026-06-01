@@ -22,6 +22,7 @@
 #include "vegFile.h"
 #include "common.h"
 #include "barycentricCoordinates.h"
+#include "generateMassMatrix.h"
 #include "simulationMesh.h"
 #include "sparse_matrix_core.h"
 #include "simulation_mesh_core.h"
@@ -240,6 +241,16 @@ private:
     std::unique_ptr<VolumetricMeshes::TetMesh> tetMesh_;
     std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh_;
 };
+
+PySparseMatrix compute_mass_matrix(const PyVolumeMesh& volumeMesh, bool inflate3Dim)
+{
+    pgo::EigenSupport::SpMatD M;
+    {
+        nb::gil_scoped_release release;
+        VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(volumeMesh.getVM(), M, inflate3Dim);
+    }
+    return PySparseMatrix(std::move(M));
+}
 
 class PyBarycentricEmbedding {
 public:
@@ -706,4 +717,6 @@ void init_mesh_bindings(nb::module_ &m) {
     m.def("create_simulation_mesh_from_volume", &create_simulation_mesh_from_volume);
     m.def("create_simulation_mesh_from_shell", &create_simulation_mesh_from_shell,
         nb::arg("surface_data"), nb::arg("thickness"), nb::arg("E"), nb::arg("nu"));
+    m.def("compute_mass_matrix", &compute_mass_matrix,
+        nb::arg("volume_mesh"), nb::arg("inflate3dim") = true);
 }

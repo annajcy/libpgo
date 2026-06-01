@@ -61,13 +61,13 @@ def test_cmake_build_ext_uses_python_build_preset(monkeypatch, tmp_path):
     builder.build_extension(ext)
 
     assert commands == [
-        (["cmake", "--preset", "python-build"], ROOT),
+        (["cmake", "--preset", "pypgo"], ROOT),
         (
             [
                 "cmake",
                 "--build",
                 "--preset",
-                "python-build",
+                "pypgo",
                 "--target",
                 "pypgo_core",
                 "--parallel",
@@ -114,7 +114,7 @@ def test_cmake_build_ext_infers_parallel_jobs_by_default(monkeypatch, tmp_path):
             "cmake",
             "--build",
             "--preset",
-            "python-build",
+            "pypgo",
             "--target",
             "pypgo_core",
             "--parallel",
