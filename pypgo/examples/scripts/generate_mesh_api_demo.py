@@ -53,9 +53,9 @@ CELLS = [
         )
         from pypgo.tools.mesh import (
             check_surface_quality, cubic_mesher, has_tetwild, tet_mesher,
-            has_cgal_remesher, has_geogram_remesher,
+            has_cgal_remesher,
             cgal_smooth, cgal_isotropic_remesh, cgal_simplify,
-            cgal_repair_self_intersections, geogram_remesh, remove_isolated_vertices,
+            cgal_repair_self_intersections, remove_isolated_vertices,
             volume_mesh_info,
         )
         """
@@ -209,12 +209,87 @@ CELLS = [
         ## 4. Surface quality checks
 
         `check_surface_quality` combines pure NumPy checks with the `_core` self-intersection bridge.
+        It detects five classes of defect:
+
+        | Field | Defect |
+        |---|---|
+        | `degenerate_tris` | zero-area triangles (collinear or duplicate vertices) |
+        | `short_edges` | edges shorter than `short_edge_threshold` |
+        | `non_manifold_edges` | unordered edges shared by more than 2 triangles |
+        | `flipped_tris` | triangles whose winding is inconsistent with a neighbour |
+        | `has_self_intersections` | any two non-adjacent triangles that properly intersect |
+
+        We build a synthetic "pathological" mesh that has all five defects, then verify that
+        a clean mesh reports none of them.
         """
     ),
     code(
         """
-        quality = check_surface_quality(box, short_edge_threshold=1e-6)
-        quality
+        # --- build the pathological mesh ---
+
+        verts = np.array([
+            # A: clean pair (reference) — v0-v3
+            [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
+
+            # B: FLIPPED pair — v4-v7
+            # Both triangles have edge 4→5; winding is inconsistent.
+            [3, 0, 0], [4, 0, 0], [3, 1, 0], [4, 1, 0],
+
+            # C: NON-MANIFOLD — v8-v12
+            # Three triangles share edge {8,9} (more than two → non-manifold).
+            [6, 0, 0], [7, 0, 0], [6.5, 1, 0], [6.5, -1, 0], [6.5, 0, 1],
+
+            # D: DEGENERATE — v13-v15
+            # All three vertices are collinear → zero area.
+            [9, 0, 0], [10, 0, 0], [9.5, 0, 0],
+
+            # E: SHORT EDGE — v16-v18
+            # Edge {16,17} has length 5e-9 << threshold.
+            [12, 0, 0], [12 + 5e-9, 0, 0], [12, 1, 0],
+
+            # F: SELF-INTERSECTING star — v19-v24
+            # Two coplanar triangles that overlap like a Star of David.
+            [15, 0, 0], [17, 0, 0], [16, 2, 0],   # upward
+            [15, 1, 0], [17, 1, 0], [16, -1, 0],   # downward (crosses the upward one)
+        ], dtype=np.float64)
+
+        tris = np.array([
+            # A clean
+            [0, 1, 2], [0, 2, 3],
+            # B flipped: edge {4,5} appears as 4→5 in both → inconsistent winding
+            [4, 5, 6], [4, 5, 7],
+            # C non-manifold: {8,9} shared by 3 triangles
+            [8, 9, 10], [9, 8, 11], [8, 9, 12],
+            # D degenerate: collinear vertices → zero area
+            [13, 14, 15],
+            # E short edge
+            [16, 17, 18],
+            # F self-intersecting star
+            [19, 20, 21], [22, 23, 24],
+        ], dtype=np.int64)
+
+        bad_mesh = TriMeshData(verts, tris)
+        print(f"bad_mesh: {bad_mesh.num_vertices} vertices, {bad_mesh.num_elements} triangles")
+        """
+    ),
+    code(
+        """
+        bad_quality = check_surface_quality(bad_mesh, short_edge_threshold=1e-6)
+
+        print("is_clean            :", bad_quality.is_clean)
+        print("degenerate_tris     :", bad_quality.degenerate_tris)
+        print("short_edges         :", bad_quality.short_edges)
+        print("non_manifold_edges  :", bad_quality.non_manifold_edges)
+        print("flipped_tris        :", bad_quality.flipped_tris)
+        print("has_self_intersections:", bad_quality.has_self_intersections)
+        """
+    ),
+    code(
+        """
+        # A clean mesh should report no defects
+        clean_quality = check_surface_quality(box, short_edge_threshold=1e-6)
+        print("box.obj is_clean    :", clean_quality.is_clean)
+        clean_quality
         """
     ),
     md(
@@ -416,7 +491,7 @@ CELLS = [
         """
         ## 11. Surface remeshing tools
 
-        `pypgo.tools.mesh` exposes CGAL and Geogram surface remeshing. Availability is build-dependent — check with `has_cgal_remesher()` / `has_geogram_remesher()` before calling. All functions accept and return `TriMeshData`.
+        `pypgo.tools.mesh` exposes CGAL surface remeshing. Availability is build-dependent — check with `has_cgal_remesher()` before calling. All functions accept and return `TriMeshData`.
 
         | Function | Backend | Key parameter |
         |---|---|---|
@@ -424,14 +499,14 @@ CELLS = [
         | `cgal_isotropic_remesh` | CGAL | `target_edge_length` (absolute) |
         | `cgal_simplify` | CGAL | `target_ratio` (fraction of edges to keep) |
         | `cgal_repair_self_intersections` | CGAL | `method` |
-        | `geogram_remesh` | Geogram | `target_num_vertices` |
         | `remove_isolated_vertices` | pure mesh | — |
+
+        > **Note — Geogram remeshing removed:** `pypgo_core` links both Geogram and Ceres into the same shared library. Both libraries register global C++ objects (OpenMP/TBB thread pools, static singletons) that conflict during process teardown, causing a SIGSEGV that kills the Jupyter kernel. There is no in-process workaround short of building Geogram into a separate extension that does not link Ceres. The Geogram Python API (`geogram_remesh`, `has_geogram_remesher`) has therefore been removed. The underlying C++ API (`pgo::GeogramInterface`) and the standalone `remeshSurface` binary remain available for use outside Python.
         """
     ),
     code(
         """
         print("CGAL remesher available:", has_cgal_remesher())
-        print("Geogram remesher available:", has_geogram_remesher())
 
         # Use bunny as the demo surface throughout this section
         demo_mesh = pgo.mesh.read_obj(str(ASSET_DIR / "bunny.obj"))
@@ -527,30 +602,39 @@ CELLS = [
     ),
     md(
         """
-        ### 11d. Geogram remeshing
+        ### 11d. CGAL repair self-intersections
 
-        `geogram_remesh` redistributes triangles to reach a target vertex count while preserving shape features.
+        `cgal_repair_self_intersections` removes self-intersecting triangles via CGAL's autorefinement or volumetric repair. It returns `(repaired_mesh, all_fixed)` where `all_fixed` is `True` when no self-intersections remain.
+
+        To demonstrate, we build a synthetic intersecting mesh by merging two unit spheres offset by 0.5 units — their surfaces pierce each other.
         """
     ),
     code(
         """
-        if has_geogram_remesher():
-            geo_500  = geogram_remesh(demo_mesh, target_num_vertices=500)
-            geo_2000 = geogram_remesh(demo_mesh, target_num_vertices=2000)
+        if has_cgal_remesher():
+            # Two unit spheres offset by 0.5 — surfaces intersect
+            s1 = pgo.mesh.create_sphere(radius=1.0, axis_subdiv=16, height_subdiv=16)
+            s2 = pgo.mesh.TriMeshData(
+                s1.vertices + np.array([0.5, 0.0, 0.0]),
+                s1.elements,
+            )
+            intersecting = pgo.mesh.TriMeshData.concatenate([s1, s2])
+            print(f"intersecting mesh: {intersecting.num_vertices} vertices, {intersecting.num_elements} triangles")
+            print(f"has self-intersections: {check_surface_quality(intersecting).has_self_intersections}")
 
-            print(f"original:     {demo_mesh.num_vertices} vertices, {demo_mesh.num_elements} triangles")
-            print(f"target  500:  {geo_500.num_vertices} vertices, {geo_500.num_elements} triangles")
-            print(f"target 2000:  {geo_2000.num_vertices} vertices, {geo_2000.num_elements} triangles")
+            repaired, all_fixed = cgal_repair_self_intersections(intersecting, method="autorefine")
+            print(f"repaired mesh:     {repaired.num_vertices} vertices, {repaired.num_elements} triangles")
+            print(f"all_fixed: {all_fixed}")
+            print(f"has self-intersections after repair: {check_surface_quality(repaired).has_self_intersections}")
 
             plot_surface(
-                [demo_mesh, geo_500, geo_2000],
-                titles=["original", "geogram target=500", "geogram target=2000"],
+                [intersecting, repaired],
+                titles=["two overlapping spheres (self-intersecting)", "after cgal_repair_self_intersections"],
                 show_edges=True,
-                colors=["lightgray", "cornflowerblue", "mediumseagreen"],
-                window_size=(1200, 360),
+                colors=["lightsalmon", "mediumseagreen"],
             )
         else:
-            print("Skipping: Geogram not available")
+            print("Skipping: CGAL not available")
         """
     ),
     md(

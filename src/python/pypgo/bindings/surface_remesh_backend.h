@@ -16,7 +16,7 @@ pgo::Mesh::TriMeshGeo cgal_simplify(const pgo::Mesh::TriMeshGeo &mesh, double ta
 bool has_cgal();
 
 // Geogram-backed operations
-pgo::Mesh::TriMeshGeo geogram_remesh(const pgo::Mesh::TriMeshGeo &mesh, int target_num_vertices, double size_factor, double anisotropy);
+pgo::Mesh::TriMeshGeo geogram_remesh(const pgo::Mesh::TriMeshGeo &mesh, int target_num_vertices, double size_factor, double anisotropy, int num_threads);
 bool has_geogram();
 
 }  // namespace surface_remesh

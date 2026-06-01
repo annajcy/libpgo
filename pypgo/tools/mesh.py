@@ -11,6 +11,7 @@ import pypgo._core as _core
 from pypgo.mesh import CubicMeshData, TetMeshData, TriMeshData
 
 
+
 @dataclass(frozen=True)
 class VolumetricMeshInfo:
     num_vertices: int
@@ -119,9 +120,6 @@ def has_cgal_remesher() -> bool:
     return bool(_core.has_cgal_remesher())
 
 
-def has_geogram_remesher() -> bool:
-    return bool(_core.has_geogram_remesher())
-
 
 def remove_isolated_vertices(tri_data: TriMeshData) -> TriMeshData:
     """Remove vertices not referenced by any triangle."""
@@ -188,24 +186,6 @@ def cgal_simplify(tri_data: TriMeshData, *, target_ratio: float) -> TriMeshData:
         raise RuntimeError("CGAL remesher is not available in this build")
     return TriMeshData(_core.cgal_simplify_surface(tri_data._core_obj, float(target_ratio)))
 
-
-def geogram_remesh(
-    tri_data: TriMeshData,
-    *,
-    target_num_vertices: int,
-    size_factor: float = 1.0,
-    anisotropy: float = 1.0,
-) -> TriMeshData:
-    """Remesh a surface to a target vertex count with Geogram."""
-    if not isinstance(tri_data, TriMeshData):
-        raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
-    if not has_geogram_remesher():
-        raise RuntimeError("Geogram remesher is not available in this build")
-    return TriMeshData(
-        _core.geogram_remesh_surface(
-            tri_data._core_obj, int(target_num_vertices), float(size_factor), float(anisotropy)
-        )
-    )
 
 
 def check_surface_quality(
