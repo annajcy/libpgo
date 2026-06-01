@@ -5,7 +5,7 @@ copyright to USC, MIT
 
 #include "laplacianProblem.h"
 
-#include "potentialEnergies.h"
+#include "energySet.h"
 #include "quadraticPotentialEnergy.h"
 #include "minimizeEnergy.h"
 
@@ -52,9 +52,8 @@ void LaplacianProblem::solve(EigenSupport::RefVecXd xfinal, int numIter, double 
 {
   std::shared_ptr<QuadraticPotentialEnergy> energy = std::make_shared<QuadraticPotentialEnergy>(sys);
 
-  std::shared_ptr<NonlinearOptimization::PotentialEnergies> energyAll = std::make_shared<NonlinearOptimization::PotentialEnergies>(sys.rows());
-  energyAll->addPotentialEnergy(energy);
-  energyAll->init();
+  auto energyAll = std::make_shared<NonlinearOptimization::EnergySet>(sys.rows(),
+      std::vector<NonlinearOptimization::EnergySet::Term>{{energy, 1.0}});
 
   ES::VXd lambda, g, clow, chi;
 

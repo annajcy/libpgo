@@ -1,3 +1,4 @@
+#include "energySet.h"
 #include "pgo_c.h"
 
 #include "basicIO.h"
@@ -925,12 +926,12 @@ int pgo_run_sim_from_config(const char *configFileName)
   else if (simType == "static") {
     std::shared_ptr<PredefinedPotentialEnergies::LinearPotentialEnergy> externalForcesEnergy = std::make_shared<PredefinedPotentialEnergies::LinearPotentialEnergy>(fext);
 
-    std::shared_ptr<NonlinearOptimization::PotentialEnergies> energyAll = std::make_shared<NonlinearOptimization::PotentialEnergies>(n3);
-    energyAll->addPotentialEnergy(elasticEnergy);
+    std::vector<NonlinearOptimization::EnergySet::Term> terms;
+    terms.push_back({elasticEnergy, 1.0});
     for (auto eng : pullingEnergies)
-      energyAll->addPotentialEnergy(eng, 1.0);
-    energyAll->addPotentialEnergy(externalForcesEnergy, -1.0);
-    energyAll->init();
+      terms.push_back({eng, 1.0});
+    terms.push_back({externalForcesEnergy, -1.0});
+    auto energyAll = std::make_shared<NonlinearOptimization::EnergySet>(n3, std::move(terms));
 
     NonlinearOptimization::NewtonSolver::SolverParam solverParam;
 

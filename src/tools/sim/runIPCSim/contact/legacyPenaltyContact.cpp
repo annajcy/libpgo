@@ -2,7 +2,7 @@
 
 #include "configFileJSON.h"
 #include "implicitBackwardEulerTimeIntegrator.h"
-#include "potentialEnergies.h"
+#include "energySet.h"
 #include "legacy_penalty/pointPenetrationEnergy.h"
 #include "legacy_penalty/pointTrianglePairCouplingEnergyWithCollision.h"
 #include "app/config.h"
@@ -147,7 +147,7 @@ public:
   }
 
   void addStaticEnergies(const RunIPCSimRuntimeConfig &,
-    IpcSimulationContext &, NonlinearOptimization::PotentialEnergies &) override
+    IpcSimulationContext &, std::vector<NonlinearOptimization::EnergySet::Term> &) override
   {
     // Old runSim static mode did not add legacy penalty contact energies.
   }

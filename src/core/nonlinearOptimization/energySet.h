@@ -1,38 +1,34 @@
-/*
-author: Bohan Wang
-copyright to USC
-*/
-
 #pragma once
 
 #include "potentialEnergy.h"
 #include "lineSearchAwareEnergy.h"
 
-#include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace pgo
 {
 namespace NonlinearOptimization
 {
-class PotentialEnergiesBuffer;
+class EnergySetBuffer;
 
-class PotentialEnergies : public PotentialEnergy, public LineSearchAwareEnergy
+class EnergySet : public PotentialEnergy, public LineSearchAwareEnergy
 {
 public:
-  PotentialEnergies(int n);
-  PotentialEnergies(int n, std::shared_ptr<PotentialEnergiesBuffer> buffer);
-
-  virtual ~PotentialEnergies();
-
-  void setDOFs(const std::vector<int> &dofs);
-
-  void addPotentialEnergy(PotentialEnergy_p energy, double coeff = 1.0)
+  struct Term
   {
-    potentialEnergies.push_back(energy);
-    energyCoeffs.push_back(coeff);
-  }
-  void init();
+    std::shared_ptr<const PotentialEnergy> energy;
+    double weight = 1.0;
+  };
+
+  EnergySet(int numDofs, std::vector<Term> terms);
+  EnergySet(int numDofs, std::vector<Term> terms, std::shared_ptr<EnergySetBuffer> buffer);
+
+  virtual ~EnergySet();
+
+  int numTerms() const { return static_cast<int>(terms_.size()); }
+  const Term &term(int i) const { return terms_[i]; }
+  void setWeight(int i, double w);
 
   virtual double func(EigenSupport::ConstRefVecXd x) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const override;
@@ -49,13 +45,14 @@ public:
   virtual int getNumDOFs() const override { return nAll; }
 
   const EigenSupport::SpMatD &getHessianTemplate() const { return hessianAll; }
-  int getNNZHessain() const { return (int)hessianAll.nonZeros(); }
-  void setEnergyCoeffs(int ith, double val) { energyCoeffs[ith] = val; }
+  int getNNZHessian() const { return static_cast<int>(hessianAll.nonZeros()); }
 
   virtual int isQuadratic() const override { return isQuadraticEnergy; }
   virtual int hasHessianVector() const override { return hasHessianVectorProduct; }
   virtual int isHessianTopologyFixed() const override;
   virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
+
+  virtual EnergyStateKind stateKind() const override;
 
   virtual MaxStepResult computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
   virtual void beginLineSearch(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
@@ -63,10 +60,14 @@ public:
 
   void printEnergy(EigenSupport::ConstRefVecXd x) const;
 
+private:
+  void init_();
+
 protected:
   void mapx(EigenSupport::ConstRefVecXd x, const std::vector<int> &dofs, EigenSupport::RefVecXd xlocal) const;
 
-  std::vector<PotentialEnergy_p> potentialEnergies;
+  std::vector<Term> terms_;
+  std::vector<PotentialEnergy_const_p> potentialEnergies;
   std::vector<EigenSupport::SpMatI, Eigen::aligned_allocator<EigenSupport::SpMatI>> hessianMatrixMappings;
   std::vector<std::vector<int>> energyDOFs;
   EigenSupport::SpMatD hessianAll;
@@ -77,10 +78,10 @@ protected:
   int isQuadraticEnergy = 0;
   int hasHessianVectorProduct = 0;
 
-  std::shared_ptr<PotentialEnergiesBuffer> buffer;
+  std::shared_ptr<EnergySetBuffer> buffer_;
 };
 
-typedef std::shared_ptr<PotentialEnergies> PotentialEnergies_p;
-typedef std::shared_ptr<const PotentialEnergies> PotentialEnergies_const_p;
+typedef std::shared_ptr<EnergySet> EnergySet_p;
+typedef std::shared_ptr<const EnergySet> EnergySet_const_p;
 }  // namespace NonlinearOptimization
 }  // namespace pgo

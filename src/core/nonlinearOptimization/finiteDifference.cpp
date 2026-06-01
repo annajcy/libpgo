@@ -516,7 +516,7 @@ void FiniteDifference::gradient(const double *x, double *grad, int n, std::vecto
   std::cout << std::endl;
 }
 
-void FiniteDifference::hessianInPlace(const double *x, double *hess, int n, std::vector<int> *dofs, std::function<void(const double *, double *)> gradFunc)
+void FiniteDifference::hessian(const double *x, double *hess, int n, std::vector<int> *dofs, std::function<void(const double *, double *)> gradFunc)
 {
   ES::VXd xtemp(n), xcur = Eigen::Map<const ES::VXd>(x, n);
   ES::VXd grad = ES::VXd::Zero(n), gradSum(n);

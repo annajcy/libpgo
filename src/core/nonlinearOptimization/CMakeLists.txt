@@ -1,23 +1,23 @@
-set(NONLINEAROPTIMIZATION_HEADERS 
+set(NONLINEAROPTIMIZATION_HEADERS
   automaticDifferentiation_autodiff.h
 
   evaluation.h
 
+  energySet.h
   potentialEnergy.h
-  potentialEnergies.h
   lineSearchAwareEnergy.h
   solveDiagnostics.h
   solverResult.h
 
   potentialEnergyFromConstraintFunctions.h
-  
-  constraintFunction.h constraintFunctions.h constraintFunctionsAssember.h 
+
+  constraintFunction.h constraintFunctions.h constraintFunctionsAssember.h
   linearConstraintFunctions.h
-  
-  nonlinearProblem.h lagrangian.h 
+
+  nonlinearProblem.h lagrangian.h
   NewtonSolver.h minimizeEnergy.h
   finiteDifference.h
-  determinantDerivatives.h polarDecompositionDerivatives.h naturalCubicSplineDerivatives.h svdDerivatives.h 
+  determinantDerivatives.h polarDecompositionDerivatives.h naturalCubicSplineDerivatives.h svdDerivatives.h
   barrierFunction.h
   naturalCubicSplineFitting.h
   lineSearch.h
@@ -25,16 +25,16 @@ set(NONLINEAROPTIMIZATION_HEADERS
 
 set(NONLINEAROPTIMIZATION_SOURCES
   evaluation.cpp
-  potentialEnergies.cpp
+  energySet.cpp
   solverResult.cpp
-  
-  constraintFunctions.cpp constraintFunctionsAssember.cpp 
+
+  constraintFunctions.cpp constraintFunctionsAssember.cpp
   linearConstraintFunctions.cpp
 
   potentialEnergyFromConstraintFunctions.cpp
-  nonlinearProblem.cpp lagrangian.cpp  
+  nonlinearProblem.cpp lagrangian.cpp
   NewtonSolver.cpp minimizeEnergy.cpp
-  finiteDifference.cpp    
+  finiteDifference.cpp
   determinantDerivatives.cpp polarDecompositionDerivatives.cpp naturalCubicSplineDerivatives.cpp svdDerivatives.cpp
   barrierFunction.cpp
   naturalCubicSplineFitting.cpp

@@ -1,16 +1,14 @@
 #pragma once
 
+#include "energySet.h"
+
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace pgo::Simulation
 {
 class ImplicitBackwardEulerTimeIntegrator;
-}
-
-namespace pgo::NonlinearOptimization
-{
-class PotentialEnergies;
 }
 
 namespace pgo::RunIPCSim
@@ -46,7 +44,7 @@ public:
     IpcSimulationContext &context, RunIPCSimSession &session) = 0;
 
   virtual void addStaticEnergies(const RunIPCSimRuntimeConfig &runtimeConfig,
-    IpcSimulationContext &context, NonlinearOptimization::PotentialEnergies &energyAll) = 0;
+    IpcSimulationContext &context, std::vector<NonlinearOptimization::EnergySet::Term> &terms) = 0;
 
   virtual void logSummary(const IpcSimulationContext &context,
     const RunIPCSimSession &session) const = 0;

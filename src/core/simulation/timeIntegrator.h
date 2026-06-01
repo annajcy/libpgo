@@ -4,7 +4,7 @@
 
 #include "EigenSupport.h"
 #include "potentialEnergy.h"
-#include "potentialEnergies.h"
+#include "potentialEnergy.h"
 #include "potentialEnergyAligningMeshConnectivity.h"
 #include "constraintFunctions.h"
 #include "solverResult.h"

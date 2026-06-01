@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "ipc/embeddedSurfaceIPCPotentialEnergy.h"
-#include "potentialEnergies.h"
+#include "energySet.h"
 #include "scopedProfileSection.h"
 #include "ipc/core/surfaceIPCCore.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
@@ -23,7 +23,8 @@ using pgo::Contact::CIPCTest::makeTwoTriangleMesh;
 using pgo::Contact::CIPCTest::relativeError;
 using pgo::Contact::CIPCTest::sparseToDense;
 using pgo::NonlinearOptimization::PotentialEnergy;
-using pgo::NonlinearOptimization::PotentialEnergies;
+using pgo::NonlinearOptimization::EnergySet;
+
 using pgo::Profiling::ProfileStat;
 
 const ProfileStat *findStat(const std::vector<ProfileStat> &stats, std::string_view name)
@@ -409,9 +410,7 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, AggregatedGradientHessianPreservesI
     simDispl[3 * vi + 2] = 0.01;
 
   auto ipcEnergy = std::make_shared<EmbeddedSurfaceIPCPotentialEnergy>(V, F, makeIdentityEmbedding(rest.size()), makeParams());
-  PotentialEnergies aggregate(static_cast<int>(rest.size()));
-  aggregate.addPotentialEnergy(ipcEnergy);
-  ASSERT_NO_THROW(aggregate.init());
+  EnergySet aggregate(static_cast<int>(rest.size()), {{ipcEnergy, 1.0}});
 
   const PotentialEnergy &baseEnergy = aggregate;
   ES::VXd g = ES::VXd::Zero(simDispl.size());

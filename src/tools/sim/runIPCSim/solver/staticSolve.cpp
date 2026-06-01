@@ -4,7 +4,7 @@
 #include "deformationModelEnergy.h"
 #include "linearPotentialEnergy.h"
 #include "multiVertexPullingSoftConstraints.h"
-#include "potentialEnergies.h"
+#include "energySet.h"
 #include "app/config.h"
 #include "app/output.h"
 #include "setup/setup.h"
@@ -62,13 +62,13 @@ void runIPCSimStaticSolve(
   auto externalForcesEnergy =
     std::make_shared<PredefinedPotentialEnergies::LinearPotentialEnergy>(std::move(staticForce));
 
-  auto energyAll = std::make_shared<NonlinearOptimization::PotentialEnergies>(n3);
-  energyAll->addPotentialEnergy(context.elasticEnergy, 1.0);
+  std::vector<NonlinearOptimization::EnergySet::Term> terms;
+  terms.push_back({context.elasticEnergy, 1.0});
   for (const auto &pullingEnergy : context.pullingEnergies)
-    energyAll->addPotentialEnergy(pullingEnergy, 1.0);
-  energyAll->addPotentialEnergy(externalForcesEnergy, -1.0);
-  context.contactBackend->addStaticEnergies(runtimeConfig, context, *energyAll);
-  energyAll->init();
+    terms.push_back({pullingEnergy, 1.0});
+  terms.push_back({externalForcesEnergy, -1.0});
+  context.contactBackend->addStaticEnergies(runtimeConfig, context, terms);
+  auto energyAll = std::make_shared<NonlinearOptimization::EnergySet>(n3, std::move(terms));
 
   ES::VXd u = ES::VXd::Zero(n3);
   energyAll->printEnergy(u);

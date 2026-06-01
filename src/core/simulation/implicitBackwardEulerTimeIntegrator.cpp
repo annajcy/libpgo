@@ -3,7 +3,7 @@
 #include "NewtonSolver.h"
 #include "timeIntegratorSolver.h"
 
-#include "potentialEnergies.h"
+#include "potentialEnergy.h"
 #include "finiteDifference.h"
 
 #include <tbb/parallel_for.h>

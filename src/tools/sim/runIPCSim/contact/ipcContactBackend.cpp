@@ -3,7 +3,7 @@
 #include "embeddedSurfaceFloorPotentialEnergy.h"
 #include "ipc/embeddedSurfaceIPCPotentialEnergy.h"
 #include "implicitBackwardEulerTimeIntegrator.h"
-#include "potentialEnergies.h"
+#include "energySet.h"
 #include "app/config.h"
 #include "app/logging.h"
 #include "app/session.h"
@@ -38,7 +38,7 @@ public:
   void afterStep(int, const RunIPCSimRuntimeConfig &, IpcSimulationContext &, RunIPCSimSession &) override {}
 
   void addStaticEnergies(const RunIPCSimRuntimeConfig &runtimeConfig,
-    IpcSimulationContext &context, NonlinearOptimization::PotentialEnergies &energyAll) override
+    IpcSimulationContext &context, std::vector<NonlinearOptimization::EnergySet::Term> &terms) override
   {
     const int finalFrame = runtimeConfig.numSimSteps > 0 ? runtimeConfig.numSimSteps - 1 : 0;
     for (std::size_t fi = 0; fi < context.floorPotentialEnergies.size(); ++fi)
@@ -46,10 +46,10 @@ public:
 
     const double staticObstacleTime = runtimeConfig.timestep * static_cast<double>(finalFrame);
     context.collisionHandler->setObstacleTime(staticObstacleTime);
-    energyAll.addPotentialEnergy(context.collisionHandler, 1.0);
+    terms.push_back({context.collisionHandler, 1.0});
 
     for (const auto &forceModel : context.extraGeneralImplicitForceModels)
-      energyAll.addPotentialEnergy(forceModel, 1.0);
+      terms.push_back({forceModel, 1.0});
   }
 
   void logSummary(const IpcSimulationContext &context, const RunIPCSimSession &session) const override

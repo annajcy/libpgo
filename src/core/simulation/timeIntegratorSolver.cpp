@@ -12,7 +12,7 @@
 
 #include "NewtonSolver.h"
 
-#include "potentialEnergies.h"
+#include "potentialEnergy.h"
 #include "constraintFunctions.h"
 #include "lagrangian.h"
 #include "minimizeEnergy.h"
