@@ -14,25 +14,39 @@ from notebook_builder import code, md, repo_root, write_notebook
 CELLS = [
     md(
         """
-        # pypgo Animation API Demo
+        # pypgo Animation & Stress Field API Demo
 
-        This notebook shows how to assemble an animation sequence from per-frame
-        displacements and export it to **Alembic (.abc)** using `pypgo.animation`.
+        This notebook covers two related pipelines:
 
-        The pipeline mirrors the C++ `convertAnimation` CLI tool:
+        **Animation export (Alembic)**
+        | API | Description |
+        |---|---|
+        | `_core.dump_abc` | Low-level Alembic writer |
+        | `AnimationSequence` + `process_sequence` | High-level per-sequence export |
+        | `convert_animation` | JSON-config-driven multi-sequence export |
 
-        1. Load a driving mesh (`.obj` surface or `.veg` tet mesh)
-        2. Load per-frame displacements (`"objmesh"` frame files, or `"u"` Eigen binary files)
-        3. Optionally embed a separate high-resolution display mesh via barycentric interpolation
-        4. Write one `.abc` file per named sequence
+        **Stress field**
+        | API | Module | Requires |
+        |---|---|---|
+        | `compute_stress_field_stats` | `pypgo.tools.stress` | NumPy only |
+        | `dump_stress_vdb` | `pypgo.animation` | OpenVDB build |
 
-        A synthetic box-oscillation example is used so the notebook runs without
-        any pre-existing simulation output.
+        Both pipelines consume the output layout written by `runIPCSim`:
+
+        ```
+        sim_output/
+          states/deform{frame:04d}.u       ← per-frame displacement (3n × 1 Eigen binary)
+          stress/von_mises{frame:04d}.json  ← per-element von Mises values
+        ```
+
+        Synthetic data is generated throughout so the notebook runs without any
+        real simulation output.
         """
     ),
     code(
         """
-        import os
+        import json
+        import shutil
         import tempfile
         from pathlib import Path
 
@@ -40,13 +54,18 @@ CELLS = [
         import pypgo as pgo
         import pypgo._core as _core
 
-        from pypgo.mesh import TriMeshData
         from pypgo.animation import (
             AnimationSequence,
+            convert_animation,
+            dump_stress_vdb,
+            has_stress_vdb_export,
             process_sequence,
             read_u_file,
             write_u_file,
         )
+        from pypgo.mesh import TriMeshData
+        from pypgo.mesh.veg import read_veg
+        from pypgo.tools.stress import compute_stress_field_stats
         from pypgo.vis import plot_surface
 
         def _find_repo_root() -> Path:
@@ -58,18 +77,20 @@ CELLS = [
 
         REPO_ROOT = _find_repo_root()
         ASSET_DIR = REPO_ROOT / "pypgo" / "examples" / "assets" / "obj"
+        VEG_DIR   = REPO_ROOT / "pypgo" / "examples" / "assets" / "veg" / "tet"
 
-        print("Animation IO available:", _core.has_animation_io())
-        print("box.obj:", ASSET_DIR / "box.obj")
+        tmpdir = Path(tempfile.mkdtemp())
+
+        print("Animation IO available :", _core.has_animation_io())
+        print("Stress VDB available   :", has_stress_vdb_export())
         """
     ),
     md(
         """
         ## 1. Mesh and synthetic displacements
 
-        Load `box.obj` as the display surface. Generate `N_FRAMES` of smooth
-        sinusoidal displacement in the x-direction — this produces a simple
-        oscillating-box animation without needing any simulation output.
+        Load `box.obj` as the surface mesh. Generate `N_FRAMES` of smooth
+        sinusoidal displacement — a translation along x with a y wobble.
         """
     ),
     code(
@@ -79,31 +100,25 @@ CELLS = [
         box = pgo.mesh.read_obj(str(ASSET_DIR / "box.obj"))
         print(f"box: {box.num_vertices} vertices, {box.num_elements} triangles")
 
-        # Smooth sinusoidal translation along x, one full cycle over N_FRAMES
         t = np.linspace(0, 2 * np.pi, N_FRAMES, endpoint=False)
-        amplitude = float(box.bbox[1][0] - box.bbox[0][0]) * 0.5  # half the bbox width
+        amplitude = float(box.bbox[1][0] - box.bbox[0][0]) * 0.5
 
-        # displacements: (N_FRAMES, n_verts * 3), flat per-frame vectors
         displacements = np.zeros((N_FRAMES, box.num_vertices * 3))
-        displacements[:, 0::3] = amplitude * np.sin(t)[:, None]   # x component
-        displacements[:, 1::3] = amplitude * 0.3 * np.sin(2 * t)[:, None]  # y wobble
+        displacements[:, 0::3] = amplitude * np.sin(t)[:, None]
+        displacements[:, 1::3] = amplitude * 0.3 * np.sin(2 * t)[:, None]
 
-        print(f"displacement amplitude: {amplitude:.4f}")
-        print(f"frames: {N_FRAMES}, disp array: {displacements.shape}")
+        print(f"amplitude: {amplitude:.4f},  shape: {displacements.shape}")
         """
     ),
     md(
         """
         ## 2. Visualize keyframes
-
-        Show the displaced mesh at four keyframes to confirm the motion looks correct
-        before writing any files.
         """
     ),
     code(
         """
         rest_verts = box.vertices.copy()
-        keyframes = [0, N_FRAMES // 4, N_FRAMES // 2, 3 * N_FRAMES // 4]
+        keyframes  = [0, N_FRAMES // 4, N_FRAMES // 2, 3 * N_FRAMES // 4]
         key_meshes = [
             TriMeshData(rest_verts + displacements[f].reshape(-1, 3), box.elements)
             for f in keyframes
@@ -122,19 +137,15 @@ CELLS = [
         """
         ## 3. Low-level export: `_core.dump_abc`
 
-        Call `dump_abc` directly to write a single mesh animation to an Alembic file.
-        This is the thin C++ wrapper; the high-level API built on top of it is shown
-        in the next section.
+        `dump_abc` is the thin C++ wrapper around the Alembic writer.
 
-        Arguments:
-        - `rest_positions` — flat `list[float]` of length `3 × n_verts` (rest-pose)
+        - `rest_positions` — flat `list[float]`, length `3 × n_verts`
         - `displacements`  — `list[list[float]]`, one inner list per frame (delta from rest)
         - `triangles`      — `list[list[int]]`, one inner list of three indices per face
         """
     ),
     code(
         """
-        tmpdir = Path(tempfile.mkdtemp())
         abc_low = tmpdir / "box_lowlevel.abc"
 
         _core.dump_abc(
@@ -145,22 +156,19 @@ CELLS = [
             box.elements.tolist(),
         )
 
-        print(f"Written: {abc_low}")
-        print(f"  {box.num_vertices} verts × {N_FRAMES} frames × {box.num_elements} tris")
-        print(f"  file size: {abc_low.stat().st_size / 1024:.1f} KB")
+        print(f"Written: {abc_low}  ({abc_low.stat().st_size / 1024:.1f} KB)")
         """
     ),
     md(
         """
         ## 4. High-level export: `AnimationSequence` + `process_sequence`
 
-        The high-level API reads displacements from disk, matching the C++ tool's
-        conventions. Here we write synthetic displacements as Eigen binary `.u` files
-        and pass them through `process_sequence`.
+        The high-level API reads displacements from `.u` Eigen binary files on disk,
+        matching the `runIPCSim` output convention.
 
-        **`.u` file format:** 3 `int32` header values `(nrows, ncols, entry_size=8)`,
-        followed by column-major `float64` data. Use `write_u_file` / `read_u_file`
-        to read and write from Python.
+        **`.u` format:** header `(nrows, ncols, entry_size=8)` as three `int32`,
+        followed by column-major `float64` data. `write_u_file` / `read_u_file`
+        handle both reading and writing from Python.
         """
     ),
     code(
@@ -171,7 +179,6 @@ CELLS = [
         for f in range(N_FRAMES):
             write_u_file(u_dir / f"frame_{f:04d}.u", displacements[f])
 
-        # Verify round-trip
         loaded = read_u_file(u_dir / "frame_0000.u")
         print("round-trip check:", np.allclose(loaded[:, 0], displacements[0]))
 
@@ -182,31 +189,22 @@ CELLS = [
             sequence_type="u",
             sequence_range=(0, N_FRAMES),
         )
-        print(seq)
-        """
-    ),
-    code(
-        """
         process_sequence(seq, tmpdir)
 
         abc_hl = tmpdir / "box_oscillation.abc"
-        print(f"Written: {abc_hl}")
-        print(f"  file size: {abc_hl.stat().st_size / 1024:.1f} KB")
+        print(f"Written: {abc_hl}  ({abc_hl.stat().st_size / 1024:.1f} KB)")
         """
     ),
     md(
         """
         ## 5. Multi-sequence export: `convert_animation`
 
-        `convert_animation` accepts either a JSON config dict (same format as the C++
-        `convertAnimation` tool) or a path to a config file on disk. Each entry in
-        `"meshes"` becomes one `.abc` output file.
+        `convert_animation` accepts a JSON config dict (same format as the C++
+        `convertAnimation` tool). Each `"meshes"` entry becomes one `.abc` file.
         """
     ),
     code(
         """
-        from pypgo.animation import convert_animation
-
         config = {
             "meshes": [
                 {
@@ -240,12 +238,8 @@ CELLS = [
         """
         ## 6. `"objmesh"` sequence type
 
-        When per-frame geometry is stored as individual `.obj` files (common for
-        output from cloth or rigid-body simulators), set `sequence_type="objmesh"`.
-        The driving displacement for each frame is computed as
-        `frame_vertices − rest_vertices`.
-
-        Here we write the displaced box meshes to `.obj` files and re-export.
+        When per-frame geometry is stored as individual `.obj` files, set
+        `sequence_type="objmesh"`. Displacement = `frame_vertices − rest_vertices`.
         """
     ),
     code(
@@ -255,8 +249,8 @@ CELLS = [
 
         for f in range(N_FRAMES):
             frame_verts = rest_verts + displacements[f].reshape(-1, 3)
-            frame_mesh = TriMeshData(frame_verts, box.elements)
-            pgo.mesh.write_obj(str(obj_dir / f"frame_{f:04d}.obj"), frame_mesh)
+            pgo.mesh.write_obj(str(obj_dir / f"frame_{f:04d}.obj"),
+                               TriMeshData(frame_verts, box.elements))
 
         seq_obj = AnimationSequence(
             name="box_objmesh",
@@ -265,7 +259,6 @@ CELLS = [
             sequence_type="objmesh",
             sequence_range=(0, N_FRAMES),
         )
-
         process_sequence(seq_obj, tmpdir)
 
         abc_obj = tmpdir / "box_objmesh.abc"
@@ -274,14 +267,176 @@ CELLS = [
     ),
     md(
         """
-        ## 7. Cleanup
+        ## 7. Synthetic stress simulation data
 
-        Remove the temporary directory created for this demo.
+        The stress pipeline expects the `runIPCSim` output layout. Here we generate
+        synthetic data from `bunny.veg`:
+
+        - **Displacements** — a "breathing" animation: vertices oscillate radially
+          toward and away from the mesh centroid.
+        - **Stress** — per-element von Mises values drawn from a Gaussian whose
+          mean varies sinusoidally over time, mimicking a stress wave.
         """
     ),
     code(
         """
-        import shutil
+        N_STRESS_FRAMES = 24
+        rng = np.random.default_rng(42)
+
+        veg     = read_veg(str(VEG_DIR / "bunny.veg"))
+        md_mesh = veg.mesh_data
+        n_verts = md_mesh.num_vertices
+        n_elems = md_mesh.num_elements
+        print(f"bunny.veg: {n_verts} vertices, {n_elems} tet elements")
+
+        centroid  = md_mesh.vertices.mean(axis=0)
+        radial    = md_mesh.vertices - centroid
+        radial   /= np.linalg.norm(radial, axis=1, keepdims=True).clip(1e-8)
+        bbox_diag = float(np.linalg.norm(
+            md_mesh.vertices.max(axis=0) - md_mesh.vertices.min(axis=0)))
+        breath_amp = bbox_diag * 0.04
+
+        ts         = np.linspace(0, 2 * np.pi, N_STRESS_FRAMES, endpoint=False)
+        sim_dir    = tmpdir / "stress_sim"
+        states_dir = sim_dir / "states"
+        stress_dir = sim_dir / "stress"
+        states_dir.mkdir(parents=True)
+        stress_dir.mkdir()
+
+        for f in range(N_STRESS_FRAMES):
+            disp = (radial * (breath_amp * np.sin(ts[f]))).ravel()[:, None]  # (3n, 1)
+            write_u_file(states_dir / f"deform{f:04d}.u", disp)
+
+            stress_mean = 1500.0 + 800.0 * np.sin(ts[f])
+            values = np.abs(rng.normal(stress_mean, stress_mean * 0.25, n_elems))
+            with open(stress_dir / f"von_mises{f:04d}.json", "w") as fp:
+                json.dump({
+                    "frame": f, "time": f / 24.0,
+                    "stress_type": "von_mises", "location": "element",
+                    "values": values.tolist(),
+                }, fp)
+
+        print(f"Wrote {N_STRESS_FRAMES} frames to {sim_dir}")
+        """
+    ),
+    md(
+        """
+        ## 8. `compute_stress_field_stats`
+
+        Aggregates per-frame statistics (min, mean, stddev, median, p99, max)
+        and saves a single summary JSON matching the C++ `computeStressFieldStats`
+        tool format exactly. Works for **any mesh type** — tet or cubic — because
+        it only reads the JSON files and is mesh-agnostic.
+        """
+    ),
+    code(
+        """
+        stats = compute_stress_field_stats(
+            stress_dir,
+            prefix="von_mises",
+            frame_start=0,
+            frame_end=N_STRESS_FRAMES,
+        )
+
+        print(f"stress_type : {stats.stress_type!r}")
+        print(f"frames      : {stats.num_frames}")
+        print()
+        print(f"{'frame':>5}  {'time':>6}  {'mean':>8}  {'p99':>8}  {'max':>8}")
+        print("-" * 44)
+        for s in stats.frames:
+            print(f"{s.frame:>5}  {s.time:>6.3f}  {s.mean:>8.1f}  {s.p99:>8.1f}  {s.max:>8.1f}")
+        """
+    ),
+    code(
+        """
+        summary_path = sim_dir / "stress_stats.json"
+        stats.save(summary_path)
+        print(f"Saved: {summary_path}  ({summary_path.stat().st_size} bytes)")
+
+        with open(summary_path) as fp:
+            doc = json.load(fp)
+        print("top-level keys:", list(doc.keys()))
+        print("frame[0]:", doc["frames"][0])
+        """
+    ),
+    code(
+        """
+        try:
+            import matplotlib.pyplot as plt
+
+            frames_idx = [s.frame for s in stats.frames]
+            means  = [s.mean  for s in stats.frames]
+            p99s   = [s.p99   for s in stats.frames]
+            maxs   = [s.max   for s in stats.frames]
+
+            fig, ax = plt.subplots(figsize=(8, 3))
+            ax.plot(frames_idx, means, label="mean",  linewidth=2)
+            ax.plot(frames_idx, p99s,  label="p99",   linewidth=2, linestyle="--")
+            ax.plot(frames_idx, maxs,  label="max",   linewidth=1, linestyle=":")
+            ax.fill_between(frames_idx,
+                            [s.mean - s.stddev for s in stats.frames],
+                            [s.mean + s.stddev for s in stats.frames],
+                            alpha=0.2, label="±1σ")
+            ax.set_xlabel("frame")
+            ax.set_ylabel("von Mises stress (Pa)")
+            ax.set_title("Synthetic stress field — per-frame statistics")
+            ax.legend()
+            plt.tight_layout()
+            plt.show()
+        except ImportError:
+            print("matplotlib not installed — skipping plot (mamba install matplotlib).")
+        """
+    ),
+    md(
+        """
+        ## 9. `dump_stress_vdb` — OpenVDB export
+
+        `dump_stress_vdb` reads the `states/` and `stress/` layout and writes one
+        `.vdb` file per frame. Each file contains a `FloatGrid` named `"von_mises"`
+        splatted at the deformed tet element positions.
+
+        > **Tet-only limitation.** `dump_stress_vdb` uses `StressFieldVDBExporter`
+        > internally, which only supports **tetrahedral** meshes. Cubic hex meshes
+        > are not supported for VDB export. Use `compute_stress_field_stats` (section 8)
+        > for mesh-agnostic per-frame statistics on hex outputs.
+
+        `voxel_size=0.0` auto-derives the voxel size from ~½ the rest mesh's average
+        tet edge length.
+        """
+    ),
+    code(
+        """
+        if has_stress_vdb_export():
+            vdb_dir = sim_dir / "vdb"
+            n_written = dump_stress_vdb(
+                veg_path=VEG_DIR / "bunny.veg",
+                sim_output=sim_dir,
+                output_dir=vdb_dir,
+                prefix="vonMises",
+                voxel_size=0.0,
+                frame_start=0,
+                frame_end=N_STRESS_FRAMES,
+            )
+
+            vdb_files = sorted(vdb_dir.glob("*.vdb"))
+            print(f"Wrote {n_written} VDB frames to {vdb_dir}")
+            print()
+            print(f"{'file':<26}  {'size (KB)':>10}")
+            print("-" * 40)
+            for vf in vdb_files:
+                print(f"{vf.name:<26}  {vf.stat().st_size / 1024:>10.1f}")
+        else:
+            print("Skipping: OpenVDB not available in this build.")
+            print("Reconfigure with PGO_ENABLE_OPENVDB=ON to enable VDB export.")
+        """
+    ),
+    md(
+        """
+        ## 10. Cleanup
+        """
+    ),
+    code(
+        """
         shutil.rmtree(tmpdir)
         print("Temporary files removed.")
         """

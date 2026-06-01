@@ -27,7 +27,6 @@ prefer it.
 ### System Prerequisites
 
 Install conda: See [Conda Installation](https://www.anaconda.com/docs/getting-started/miniconda/install/overview#choose-your-installation-guide).
-
 Install mamba: See [Mamba Installation](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html#automatic-install).
 
 A C++ compiler is the only system-level requirement — all library dependencies

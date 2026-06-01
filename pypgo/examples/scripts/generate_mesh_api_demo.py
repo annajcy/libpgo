@@ -41,6 +41,7 @@ CELLS = [
             surface_to_volume_interpolation_matrix,
             triangle_component_ids, connected_components_by_edge,
             connected_components_by_vertex, filter_small_components, get_outer_component,
+            split_components, minimum_bounding_sphere,
         )
         from pypgo.mesh.veg import (
             ENuMaterial,
@@ -663,6 +664,54 @@ CELLS = [
 
         print(f"edge-connected   components: {len(edge_comps)},   sizes: {sorted([len(c) for c in edge_comps], reverse=True)}")
         print(f"vertex-connected components: {len(vertex_comps)}, sizes: {sorted([len(c) for c in vertex_comps], reverse=True)}")
+        """
+    ),
+    md(
+        """
+        ## 13. `split_components` and `minimum_bounding_sphere`
+
+        These two functions were migrated from `scripts/dump_obj_components.py` and
+        `scripts/generate_bounding_sphere.py` respectively.
+
+        `split_components` is a convenience wrapper around `connected_components_by_edge`
+        that returns ready-to-use `TriMeshData` objects instead of triangle-index arrays.
+
+        `minimum_bounding_sphere` computes the smallest enclosing sphere for all vertices
+        using Welzl's randomised algorithm (seed=0 for reproducibility). It accepts any
+        mesh data type: `TriMeshData`, `TetMeshData`, or `CubicMeshData`.
+        """
+    ),
+    code(
+        """
+        # split_components: each component returned as a standalone TriMeshData
+        parts = split_components(multi)
+        print(f"split_components → {len(parts)} submeshes")
+        for i, part in enumerate(parts):
+            print(f"  component {i}: {part.num_vertices} vertices, {part.num_elements} triangles,  bbox {part.bbox}")
+
+        plot_surface(
+            parts,
+            titles=[f"component {i} ({p.num_elements} tris)" for i, p in enumerate(parts)],
+            colors=["lightsteelblue", "lightsalmon", "mediumseagreen", "plum"][: len(parts)],
+            show_edges=False,
+            window_size=(900 if len(parts) <= 2 else 1200, 360),
+        )
+        """
+    ),
+    code(
+        """
+        # minimum_bounding_sphere on the bunny surface mesh
+        center, radius = minimum_bounding_sphere(bunny)
+        print(f"bunny bounding sphere:")
+        print(f"  center : {center}")
+        print(f"  radius : {radius:.6f}")
+        print(f"  bbox diagonal : {np.linalg.norm(np.array(bunny.bbox[1]) - np.array(bunny.bbox[0])):.6f}")
+
+        # also works on volume meshes
+        center_tet, radius_tet = minimum_bounding_sphere(tet_data)
+        print(f"\\ntet_data bounding sphere:")
+        print(f"  center : {center_tet}")
+        print(f"  radius : {radius_tet:.6f}")
         """
     ),
 ]
