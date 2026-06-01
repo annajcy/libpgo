@@ -14,6 +14,13 @@ namespace pgo
 {
 namespace NonlinearOptimization
 {
+
+enum class EnergyStateKind
+{
+  Generic,
+  Displacement,
+};
+
 class PotentialEnergy
 {
 public:
@@ -31,6 +38,8 @@ public:
 
   virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const;
   virtual void hessianAlloc(EigenSupport::SpMatD &hess) const = 0;
+
+  virtual EnergyStateKind stateKind() const { return EnergyStateKind::Generic; }
 
   virtual void getDOFs(std::vector<int> &dofs) const = 0;
   virtual int getNumDOFs() const = 0;

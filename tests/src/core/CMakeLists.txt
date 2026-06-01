@@ -19,6 +19,23 @@ if(TARGET nonlinearOptimization)
   target_link_libraries(NewtonSolver_gtest PRIVATE GTest::gtest_main nonlinearOptimization)
   set_property(TARGET NewtonSolver_gtest PROPERTY FOLDER "tests/gtest")
   pgo_gtest_discover_tests(NewtonSolver_gtest)
+
+  add_executable(evaluation_gtest evaluation_gtest.cpp)
+  target_link_libraries(evaluation_gtest PRIVATE GTest::gtest_main nonlinearOptimization)
+  set_property(TARGET evaluation_gtest PROPERTY FOLDER "tests/gtest")
+  pgo_gtest_discover_tests(evaluation_gtest)
+endif()
+
+if(TARGET genericPotentialEnergies)
+  add_executable(linearPotentialEnergy_ownership_gtest linearPotentialEnergy_ownership_gtest.cpp)
+  target_link_libraries(linearPotentialEnergy_ownership_gtest PRIVATE GTest::gtest_main genericPotentialEnergies)
+  set_property(TARGET linearPotentialEnergy_ownership_gtest PROPERTY FOLDER "tests/gtest")
+  pgo_gtest_discover_tests(linearPotentialEnergy_ownership_gtest)
+
+  add_executable(quadraticPotentialEnergy_ownership_gtest quadraticPotentialEnergy_ownership_gtest.cpp)
+  target_link_libraries(quadraticPotentialEnergy_ownership_gtest PRIVATE GTest::gtest_main genericPotentialEnergies)
+  set_property(TARGET quadraticPotentialEnergy_ownership_gtest PROPERTY FOLDER "tests/gtest")
+  pgo_gtest_discover_tests(quadraticPotentialEnergy_ownership_gtest)
 endif()
 
 if(TARGET simulation)

@@ -7,7 +7,8 @@ copyright to USC, MIT
 
 #include "potentialEnergy.h"
 
-#include <numeric>
+#include <memory>
+#include <optional>
 #include <vector>
 
 namespace pgo
@@ -16,24 +17,17 @@ namespace PredefinedPotentialEnergies
 {
 class QuadraticPotentialEnergyCache;
 
+// 1/2 x^T A x + b^T x + c
+//
+// For least-squares forms (e.g. 1/2 ||Ax + b||^2), use the factory
+// functions below — they precompute A^T A / A^T W A into this same
+// internal representation.
+
 class QuadraticPotentialEnergy : public NonlinearOptimization::PotentialEnergy
 {
 public:
-  // the energy is 1/2 xT A x
-  QuadraticPotentialEnergy(const EigenSupport::SpMatD &A_);
-  // the energy is 1/2 xT AT A x
-  QuadraticPotentialEnergy(const EigenSupport::SpMatD &A_, int inParentheses);
-  // the energy is 1/2 xT AT W A x
-  QuadraticPotentialEnergy(const EigenSupport::SpMatD &A_, const double *W, int inParentheses);
-  // the energy is 1/2 xT A x + bT x
-  QuadraticPotentialEnergy(const EigenSupport::SpMatD &A_, const EigenSupport::VXd &b_);
-  // the energy is 1/2 (A x + b)^2
-  // = 1/2 x^T (A^T A) x + b^T A x + 1/2 b^T b
-  QuadraticPotentialEnergy(const EigenSupport::SpMatD &A_, const EigenSupport::VXd &b_, int inParentheses);
-  // the energy is 1/2 (A x + b)^T W (Ax + b)
-  // = 1/2 x^T A^T W A x + 1/2 x^T A^T W b + 1/2 b^T W Ax + 1/2 b^T W b
-  // = 1/2 x^T (A^T W A) x + b^T W Ax + 1/2 b^T W b
-  QuadraticPotentialEnergy(const EigenSupport::SpMatD &A_, const EigenSupport::VXd &b_, const double *W, int inParentheses);
+  explicit QuadraticPotentialEnergy(EigenSupport::SpMatD A);
+  QuadraticPotentialEnergy(EigenSupport::SpMatD A, EigenSupport::VXd b);
 
   void setDOFs(const std::vector<int> &dofs);
 
@@ -42,7 +36,7 @@ public:
   virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
   virtual void hessianVector(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd vec, EigenSupport::RefVecXd hVec) const override;
 
-  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const override { hess = A; }
+  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const override { hess = A_; }
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = allDOFs; }
   virtual int getNumDOFs() const override { return (int)allDOFs.size(); }
 
@@ -51,18 +45,37 @@ public:
   virtual int isQuadratic() const override { return 1; }
   virtual int hasHessianVector() const override { return 1; }
 
-
 protected:
-  const EigenSupport::SpMatD &A;
-  const EigenSupport::VXd *b;
-  int isInParentheses;
-
-  std::vector<int> allDOFs;
-  EigenSupport::SpMatD ATA;
-  EigenSupport::VXd bTA;
+  EigenSupport::SpMatD A_;
+  std::optional<EigenSupport::VXd> b_;
   double c = 0.0;
 
+  std::vector<int> allDOFs;
   std::shared_ptr<QuadraticPotentialEnergyCache> cache;
+
+  friend std::shared_ptr<QuadraticPotentialEnergy>
+    makeLeastSquaresEnergy(EigenSupport::SpMatD A, EigenSupport::VXd b);
+  friend std::shared_ptr<QuadraticPotentialEnergy>
+    makeLeastSquaresEnergy(EigenSupport::SpMatD A, EigenSupport::VXd b, const double *W);
 };
-}  // namespace NonlinearOptimization
+
+// ── Least-squares factory functions ─────────────────────────────
+
+// 1/2 ||A x||^2  =  1/2 x^T (A^T A) x
+std::shared_ptr<QuadraticPotentialEnergy>
+  makeLeastSquaresEnergy(EigenSupport::SpMatD A);
+
+// 1/2 ||A x + b||^2  =  1/2 x^T (A^T A) x + b^T A x + 1/2 b^T b
+std::shared_ptr<QuadraticPotentialEnergy>
+  makeLeastSquaresEnergy(EigenSupport::SpMatD A, EigenSupport::VXd b);
+
+// 1/2 (A x)^T W (A x)  =  1/2 x^T (A^T W A) x   (W = diag weights)
+std::shared_ptr<QuadraticPotentialEnergy>
+  makeLeastSquaresEnergy(EigenSupport::SpMatD A, const double *W);
+
+// 1/2 (A x + b)^T W (A x + b)   (W = diag weights)
+std::shared_ptr<QuadraticPotentialEnergy>
+  makeLeastSquaresEnergy(EigenSupport::SpMatD A, EigenSupport::VXd b, const double *W);
+
+}  // namespace PredefinedPotentialEnergies
 }  // namespace pgo

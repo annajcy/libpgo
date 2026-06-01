@@ -10,15 +10,15 @@ copyright to USC, MIT
 
 using namespace pgo::PredefinedPotentialEnergies;
 
-LinearPotentialEnergy::LinearPotentialEnergy(const EigenSupport::VXd &b_):
-  b(b_)
+LinearPotentialEnergy::LinearPotentialEnergy(EigenSupport::VXd b):
+  b_(std::move(b))
 {
-  allDOFs.assign(b.size(), 0);
+  allDOFs.assign(b_.size(), 0);
   std::iota(allDOFs.begin(), allDOFs.end(), 0);
 }
 
 void LinearPotentialEnergy::setDOFs(const std::vector<int> &dofs)
 {
-  PGO_ALOG((int)dofs.size() == (int)b.size());
+  PGO_ALOG((int)dofs.size() == (int)b_.size());
   allDOFs = dofs;
 }

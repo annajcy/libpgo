@@ -60,7 +60,7 @@ void runIPCSimStaticSolve(
 
   const ES::VXd staticForce = buildStaticExternalForce(runtimeConfig, context);
   auto externalForcesEnergy =
-    std::make_shared<PredefinedPotentialEnergies::LinearPotentialEnergy>(staticForce);
+    std::make_shared<PredefinedPotentialEnergies::LinearPotentialEnergy>(std::move(staticForce));
 
   auto energyAll = std::make_shared<NonlinearOptimization::PotentialEnergies>(n3);
   energyAll->addPotentialEnergy(context.elasticEnergy, 1.0);

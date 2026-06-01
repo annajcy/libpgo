@@ -622,7 +622,7 @@ pypgo.energy
     - Step 3：runIPCSim parity + perf regression 跑通后，单 commit 提交。
   - 单 commit 完成。中间不留过渡态，不允许 forwarder 名字残留。
 
-### Task E1: 引入 `evaluation.h` helper + `EnergyStateKind`
+### Task E1: 引入 `evaluation.h` helper + `EnergyStateKind` ✅ 已完成 (2026-06-01)
 
 （依赖 Task E0 已完成；本 task 直接使用新名字。）
 
@@ -638,28 +638,26 @@ pypgo.energy
   - 两者输出的 dense 表达与手算一致。
 - 现有 `PotentialEnergies` / 调用方暂不切换。
 
-### Task E2: 把 `Linear/QuadraticPotentialEnergy` 改 owning
+### Task E2: 把 `Linear/QuadraticPotentialEnergy` 改 owning ✅ 已完成 (2026-06-01)
 
 - 修改 `linearPotentialEnergy.h/.cpp`：
   - 成员 `const VXd &b` → `VXd b_`；ctor 改 `explicit LinearPotentialEnergy(VXd b)`，body 内 `b_(std::move(b))`。
   - 其余实现不动。
 - 修改 `quadraticPotentialEnergy.h/.cpp`：
-  - 成员 `const SpMatD &A` → `SpMatD A_`；`const VXd *b` → `std::optional<VXd> b_`；`const double *W`（仅出现在 ctor 参数）→ `std::optional<VXd> W_` 作为新成员。
-  - 6 个 ctor 全部改 by value，签名调整：
-    - `(SpMatD A)`
-    - `(SpMatD A, int inParentheses)`
-    - `(SpMatD A, VXd W, int inParentheses)`
-    - `(SpMatD A, VXd b)`
-    - `(SpMatD A, VXd b, int inParentheses)`
-    - `(SpMatD A, VXd b, VXd W, int inParentheses)`
-  - 算式语义不变；内部 `ATA_` / `bTA_` / `cache_` precompute 路径不变。
+  - 成员 `const SpMatD &A` → `SpMatD A_`；`const VXd *b` → `std::optional<VXd> b_`；移除 `ATA`/`bTA` 成员（被 `A_`/`b_` 吸收）。
+  - **与 plan 的差异**：
+    - 未新增 `W_` 成员——`W` 仅在构造时用于预计算 `A^T W A`，消费后的结果存在 `A_`/`b_` 中，存 `W_` 是死数据。
+    - 6 个 ctor 拆成 2 个直接 ctor + 4 个 `makeLeastSquaresEnergy` 工厂函数，消灭了 `int inParentheses` 标签参数和死成员 `isInParentheses`。
+  - 2 个 ctor：`(SpMatD A)` → `1/2 x^T A x`、`(SpMatD A, VXd b)` → `1/2 x^T A x + b^T x`。
+  - 4 个工厂（返回 `shared_ptr<QuadraticPotentialEnergy>`）：`(A)` → `1/2 ||Ax||^2`、`(A,b)` → `1/2 ||Ax+b||^2`、`(A,W)` → `1/2 (Ax)^T W (Ax)`、`(A,b,W)` → `1/2 (Ax+b)^T W (Ax+b)`。
+  - 工厂预计算 `A^T A` / `A^T W A` 后调 public ctor；带 `b` 的两个工厂用 `friend` 设 `c` 成员。
+  - 算式语义不变。
 - 迁移 caller（共 2 个；第 3 个在 `pgo_c.cpp` 即将随 C-style wrapper 整体删除）：
   - `src/tools/sim/runIPCSim/solver/staticSolve.cpp:63`：`LinearPotentialEnergy(staticForce)` → `LinearPotentialEnergy(std::move(staticForce))`。
-  - `src/core/genericPotentialEnergies/laplacianProblem.cpp:53`：`QuadraticPotentialEnergy(sys)` 不变（自动按 by-value 拷贝 `sys`）；如果需要避免拷贝可改 `QuadraticPotentialEnergy(SpMatD(sys))` 显式表达 copy 意图。
+  - `src/core/genericPotentialEnergies/laplacianProblem.cpp:53`：`QuadraticPotentialEnergy(sys)` 不变（自动按 by-value 拷贝 `sys`）。
 - 新增 ownership 测试：
   - `linearPotentialEnergy_ownership_gtest.cpp`：构造后立即让原 `VXd b_input` 出作用域（destructive scope test），`energy.func / gradient` 仍正确。
-  - `quadraticPotentialEnergy_ownership_gtest.cpp`：同上，针对 A、b、W 三个数据成员分别测试。
-  - 数值一致性对比：与 git 上重命名前的旧实现（保留一个临时 oracle program 在 reference commit）跑相同 `A`/`b`/`x`，比较 `func`/`gradient`/`hessian` max-diff < 1e-12。
+  - `quadraticPotentialEnergy_ownership_gtest.cpp`：A / b / W / parentheses+b ownership 测试，含 factory 路径。
 
 ### Task E3: 把 `PotentialEnergies` 改名为 `EnergySet` 并改造 ctor
 

@@ -1,6 +1,8 @@
 set(NONLINEAROPTIMIZATION_HEADERS 
   automaticDifferentiation_autodiff.h
 
+  evaluation.h
+
   potentialEnergy.h
   potentialEnergies.h
   lineSearchAwareEnergy.h
@@ -21,7 +23,8 @@ set(NONLINEAROPTIMIZATION_HEADERS
   lineSearch.h
 )
 
-set(NONLINEAROPTIMIZATION_SOURCES 
+set(NONLINEAROPTIMIZATION_SOURCES
+  evaluation.cpp
   potentialEnergies.cpp
   solverResult.cpp
   
