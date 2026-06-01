@@ -298,18 +298,17 @@ ENu payload + StableNeo law + Hill payload + fibers -> StableNeo + Hill active f
 
 ### 7. Python 不直接绑定 manager/assembler 链
 
-Python 绑定一个 ownership root，例如：
+Python 绑定一个 ownership root，但它必须兼容 Energy plan 的统一 `PotentialEnergy` handle，不直接复制一套 deformation-only evaluation API。例如：
 
 ```cpp
-class DeformationEnergyCore
+class DeformationEnergyHandleCore
 {
 public:
-  explicit DeformationEnergyCore(std::shared_ptr<DeformationModelEnergy> energy, ...);
-  int numDofs() const;
+  explicit DeformationEnergyHandleCore(
+    std::shared_ptr<DeformationModelEnergy> energy,
+    std::shared_ptr<SimulationMeshCore> meshOwner);
+  std::shared_ptr<const PotentialEnergy> handle() const;
   Eigen::VectorXd restPositionFlat() const;
-  double value(...);
-  Eigen::VectorXd gradient(...);
-  SparseMatrixCore hessian(...);
 };
 ```
 
@@ -319,7 +318,7 @@ public:
 energy -> assembler -> manager -> mesh
 ```
 
-但 Python 只看到 `pgo.energy.DeformationEnergy`。
+但 Python 只看到 `pgo.energy.DeformationEnergy`，其 `value` / `gradient` / `hessian` / `state_kind` 来自共享 `pgo.energy.PotentialEnergy` 协议。
 
 ### 8. `SimulationMesh` lifetime 要在 binding 前处理
 
@@ -349,9 +348,9 @@ Python binding 的 owner 形态是：
 SimulationMeshCore
   owns std::unique_ptr<SimulationMesh>
 
-DeformationEnergyCore
+Energy-compatible deformation core
   keeps std::shared_ptr<SimulationMeshCore> alive
-  owns std::shared_ptr<DeformationModelEnergy>
+  owns std::shared_ptr<DeformationModelEnergy> and exposes std::shared_ptr<const PotentialEnergy>
 
 DeformationModelManager
   borrows const SimulationMesh & from SimulationMeshCore
@@ -1707,6 +1706,8 @@ Volumetric deformation-gradient elements must compute `Fp_q`, `FpInv_q`, `detFp_
 
 **Current status (2026-06-01):** C++ Tasks 0–6p 已完成。`makeDeformationEnergy()` 使用 `const Formulation &` + legacy `DeformationModelElasticMaterial` enum。Python 已有 private `_core` smoke hooks（`_create_tet_deformation_energy_for_test` 等），需升级为 public API。
 
+**Cross-plan dependency:** public deformation binding 依赖 `energy_api_refactor.plan.md` 的 E4 统一 `pypgo.energy.PotentialEnergy` handle。不要在本计划里创建第二套独立的 `DeformationEnergyCore.value/gradient/hessian` ownership 模型；deformation wrapper 必须复用 shared energy handle/evaluation/state_kind 协议。
+
 **Files:**
 
 - Create: `pypgo/fem.py`
@@ -1768,11 +1769,12 @@ rows, cols, values = H.to_coo()
   - `VolumetricPlasticity(dofs)` and `ShellPlasticity(dofs)` wrappers; validate allowed DOF counts in Python before calling `_core`;
   - `DeformationOptions` dataclass mapping to `DeformationModelOptions`;
   - `deformation_energy(sim_mesh, formulation, elastic, plastic, options=None)` factory returning `pypgo.energy.DeformationEnergy`.
-- [ ] Add `pypgo/energy.py` with `DeformationEnergy` wrapper class delegating to `_core.DeformationEnergyCore`. This module must not define FEM formulations, FEM elastic recipes, plastic wrappers, or the deformation factory.
+- [ ] Extend `pypgo/energy.py` with `DeformationEnergy` as a concrete wrapper over the shared `pypgo.energy.PotentialEnergy` protocol from the Energy plan. It may expose deformation-specific read-only metadata such as `rest_position`, but common methods (`num_dofs`, `state_kind`, `zero_state`, `value`, `gradient`, `hessian`, `max_step`) must come from the shared energy handle path, not a second deformation-only implementation.
 - [ ] Upgrade `energy_bindings.cpp` from private `_core` smoke hooks to a single core construction API:
   - expose core-only formulation classes or factory helpers needed by `pypgo.fem` wrappers; names remain `_core` implementation details, not public Python API;
-  - add `_core.make_deformation_energy(mesh_core, formulation_core, elastic_kind, plastic_kind, options_core)` returning `DeformationEnergyCore`;
-  - keep `DeformationEnergyCore` responsible for holding `std::shared_ptr<SimulationMeshCore>` so the borrowed C++ mesh outlives the energy chain.
+  - add `_core.make_deformation_energy(mesh_core, formulation_core, elastic_kind, plastic_kind, options_core)` returning an object compatible with the shared Energy handle protocol and wrapping `std::shared_ptr<const PotentialEnergy>`;
+  - keep the core object responsible for holding `std::shared_ptr<SimulationMeshCore>` so the borrowed C++ mesh outlives the energy chain;
+  - remove or quarantine the private `_create_*_deformation_energy_for_test` hooks once public tests cover the same behavior.
 - [ ] Enforce Python policy:
   - `pgo.energy.deformation_energy`, `pgo.energy.StableNeo`, and `pgo.energy.Plastic` are not public names;
   - tet may omit formulation and default to `TetP1()`;
@@ -1792,6 +1794,8 @@ rows, cols, values = H.to_coo()
   - `value(u0)`, `gradient(u0)`, `hessian(u0)` smoke at zero state
   - same mesh → two independent energies
   - mesh deleted → energy still usable
+  - `isinstance(energy, pgo.energy.PotentialEnergy)` and `pgo.energy.EnergySet([energy])` both work
+  - `energy.state_kind == "displacement"` comes from C++ `PotentialEnergy::stateKind()`
   - `pgo.energy` does not expose FEM construction helpers
   - raw string plastic/elastic inputs are rejected
 
@@ -1839,7 +1843,7 @@ conda run -n libpgo python -m pytest -q tests/pypgo
 | Risk | Impact | Mitigation |
 |---|---:|---|
 | `DeformationModelEnergy` state convention is misunderstood in Python | High | Expose `zero_state()` and document `value(u)` as displacement; add zero-state tests |
-| Manager borrows a `SimulationMesh` that does not outlive the energy chain | High | Public factories take `const SimulationMesh &`; C++ core factories do not hide temporary mesh owners; `makeSimulationMesh(...)` returns an explicit `std::unique_ptr<SimulationMesh>` owner; Python `DeformationEnergyCore` keeps `SimulationMeshCore` alive |
+| Manager borrows a `SimulationMesh` that does not outlive the energy chain | High | Public factories take `const SimulationMesh &`; C++ core factories do not hide temporary mesh owners; `makeSimulationMesh(...)` returns an explicit `std::unique_ptr<SimulationMesh>` owner; the shared Energy-compatible deformation core keeps `SimulationMeshCore` alive |
 | Existing manager call sites still assume moving `std::unique_ptr<SimulationMesh>` transfers lifetime into the manager | High | Task 3 updates all call sites so mesh ownership stays outside manager until energy destruction; add tests for two energies from one mesh owner |
 | DofLayout migration changes sparse pattern ordering | Medium | Compare dense Hessian values, not only nnz/order; keep `findEntryOffset` tests |
 | Parameter field abstraction changes material/plastic sensitivities | High | Task 6p keeps only `ConstantParameterField`, compares `compute_df_da` / `compute_df_db` against old behavior, and rejects non-constant field kinds until derivative-chain tests exist |
@@ -1850,7 +1854,7 @@ conda run -n libpgo python -m pytest -q tests/pypgo
 | New files are scattered back into the module root | Medium | New formulation, factory, material, DOF, and parameter abstractions must use the directory layout in design decision 4; root only keeps façade/main-chain/legacy wrapper files |
 | Tet and cubic refactors diverge into two incompatible element paths | High | Both use `VolumetricKernel` + `VolumetricElementModel` with different `Basis`/`Quadrature`; old-vs-new regression tests lock behavior |
 | `ElementModel<Kernel, ElasticModel, PlasticModel>` causes template explosion | Medium | Implement as non-template `VolumetricElementModel` with runtime elastic/plastic injection via `ElasticBlock`/`PlasticBlock` |
-| Python binding duplicates `SimulationMeshCore` or cannot keep its owned mesh alive | High | `SimulationMeshCore` in shared `simulation_mesh_core.h`; `DeformationEnergyCore` holds `std::shared_ptr<SimulationMeshCore>` |
+| Python binding duplicates `SimulationMeshCore` or cannot keep its owned mesh alive | High | `SimulationMeshCore` in shared `simulation_mesh_core.h`; the Energy-compatible deformation core holds `std::shared_ptr<SimulationMeshCore>` while exposing a `std::shared_ptr<const PotentialEnergy>` handle |
 | Python `LinearCubic()` 名称被误解为 topology auto-dispatch | Medium | Public Python keeps `LinearCubic()` by design, but docs/tests state it maps to C++ `LinearCubicFormulation` with internal name `hex_trilinear`; raw legacy enum strings stay behind `_core` wrappers |
 | Shell DOF gather/scatter regresses on `vid < 0` slots | Medium | `Vertex3DofLayout` owns DOF-side `vid < 0` zero-local behavior in gather, scatter, and sparsity; layout-level tests cover boundary triangles |
 | Shell missing-neighbor geometry semantics drift after migration | High | `KoiterShellKernel` owns `hasVtx[6]` mask and missing-neighbor handling; parity tests vs `KoiterDeformationModel` covered all cases before Task 5q deletion |
@@ -1874,6 +1878,7 @@ This plan is complete when:
 - Python FEM wrappers: `StableNeo`, `StVK`, `StVKVolume`, `LinearElastic`, `MooneyRivlin`, `KoiterStVK`, `VolumetricPlasticity`, `ShellPlasticity`.
 - Python cubic deformation API requires explicit `LinearCubic()`.
 - `pypgo.energy` exposes the final `DeformationEnergy` object but no FEM construction helpers.
+- `DeformationEnergy` uses the shared Energy plan handle/evaluation path and does not duplicate a deformation-only value/gradient/hessian wrapper.
 - Material docs distinguish payload (`pypgo.mesh.veg`) from FEM law wrapper (`pypgo.fem`) and final energy object (`pypgo.energy`).
 - C++ and Python tests pass with the commands above.
 

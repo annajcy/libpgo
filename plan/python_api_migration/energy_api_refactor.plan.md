@@ -45,7 +45,7 @@ H = total.hessian(u)
 - `src/core/nonlinearOptimization/potentialEnergies.cpp`
 - `src/core/genericPotentialEnergies/linearPotentialEnergy.h/.cpp`
 - `src/core/genericPotentialEnergies/quadraticPotentialEnergy.h/.cpp`
-- `src/core/constraintPotentialEnergies/multiVertexPullingSoftConstraints.h/.cpp`（见 §8 / Task E9）
+- `src/core/constraintPotentialEnergies/multiVertexPullingSoftConstraints.h/.cpp`（见 §8 / Task E9a）
 - `src/core/nonlinearOptimization/potentialEnergyFromConstraintFunctions.h`
 - `src/core/contact/mappedSurfacePotentialEnergy.h`（行为依赖：`isHessianTopologyFixed() == 0`）
 - `src/python/pypgo/bindings/energy_bindings.cpp`（M3 binding 入口）
@@ -83,7 +83,7 @@ Python 用户忘记 `init()`，hessian mapping / buffer 不会建好，运行时
 
 它要的是 simulation displacement，但 base class `PotentialEnergy::func(x)` 没说明 `x` 是位移还是绝对位置。Python 用户必须靠文档区分。
 
-### 7. `MultipleVertexPulling` 持 raw pointer 和 reference 依赖
+### 7. `MultipleVertexPulling` 构造边界仍暴露 raw pointer 依赖
 
 `ConstraintPotentialEnergies::MultipleVertexPulling` 继承自 `PotentialEnergyAligningMeshConnectivity` → `PotentialEnergy`，是每个 IPC static/dynamic example 的必需品（"fixed-vertices" loading）。当前 ctor：
 
@@ -93,7 +93,7 @@ MultipleVertexPulling(const SpMatD &Koff, const double *restPositionsAll,
   const double *bcCoeff, int isDisp);
 ```
 
-持 `const SpMatD &` 引用（Koff sparsity 模板）+ 4 个 raw pointer，ownership 全部甩给 caller。Python binding 根本无法安全暴露这套 API。与 Linear/Quadratic 同样的改造原则应该适用：改成 owning by value。
+`Koff` 通过基类 `PotentialEnergyAligningMeshConnectivity` 已按值保存为 Hessian sparsity 模板，但 ctor 仍接 `const SpMatD &`，其余 4 个输入是 raw pointer，binding 侧无法表达这些数组的安全 lifetime。与 Linear/Quadratic 同样的改造原则应该适用：构造输入改成 by-value owning，类内部只保留具名 owned members。
 
 ## 非目标
 
@@ -315,21 +315,39 @@ public:
 
 `EnergySet` Python class 持 `std::shared_ptr<EnergySet>`，构造时从 `[(child_handle, w)]` 取 `child_handle->handle`。`EnergySet` 通过 `terms_` 已经 own 所有 child energy `shared_ptr`，所以不需要 Python wrapper 额外 keep-alive。
 
-### 7. State convention 在 Python wrapper 层声明
+### 7. State convention 由 C++ `PotentialEnergy` 声明，Python 只映射
 
-C++ base 类不强制区分 displacement / generic vector。Python wrapper 暴露一个 metadata 属性：
+C++ base 类长期提供 state convention metadata，Python wrapper 不再各自手写常量：
+
+```cpp
+namespace pgo::NonlinearOptimization
+{
+enum class EnergyStateKind
+{
+  Generic,
+  Displacement,
+};
+
+class PotentialEnergy
+{
+public:
+  virtual EnergyStateKind stateKind() const { return EnergyStateKind::Generic; }
+};
+}
+```
+
+Python 暴露：
 
 ```python
-energy.state_kind  # "displacement" or "generic"
+energy.state_kind  # "displacement" or "generic"，由 C++ stateKind() 映射
 energy.zero_state()
 ```
 
-- `pgo.fem.deformation_energy(...)` / contact / `external_force`：`state_kind == "displacement"`。
-- `linear` / `quadratic`：`state_kind == "generic"`。
+- `pgo.fem.deformation_energy(...)` / contact / `VertexAttachment`：override `stateKind() == EnergyStateKind::Displacement`。
+- `linear` / `quadratic`：使用 base default `EnergyStateKind::Generic`。
+- `EnergySet::stateKind()` 在 C++ 层按 terms 合成：单 term 沿用 child；多 term 全部相同则沿用；否则返回 `Generic`。
 
 `zero_state()` 返回 `np.zeros(num_dofs, dtype=np.float64)`。
-
-C++ 这层不维护 enum；只在 Python wrapper class 上写常量。
 
 ### 8. `MultipleVertexPulling` 改 owning + Koff sparsity 模板从 `SimulationMesh` 取
 
@@ -395,7 +413,7 @@ total = pgo.energy.EnergySet([
 ])
 ```
 
-`state_kind == "displacement"`。
+C++ `stateKind() == EnergyStateKind::Displacement`，Python `state_kind == "displacement"`。
 
 **不绑定姊妹类：** `MultiVertexConstrainedRigidMotion`、`BarycentricCoordinateSlidingSoftConstraints`、`MultipleVertexSlidingSoftConstraints`、`MultipleVertexPullingSoftConstraintsPOrder` 列入 `future_work.md`。
 
@@ -404,7 +422,7 @@ total = pgo.energy.EnergySet([
 ## 目标 C++ API
 
 ```cpp
-// nonlinearOptimization/potentialEnergy.h          (unchanged interface)
+// nonlinearOptimization/potentialEnergy.h          (modified: Hessian rename + stateKind)
 // nonlinearOptimization/energySet.h                (new, replaces public PotentialEnergies)
 // nonlinearOptimization/evaluation.h               (new)
 // genericPotentialEnergies/linearPotentialEnergy.h     (modified: owning by value)
@@ -412,6 +430,12 @@ total = pgo.energy.EnergySet([
 
 namespace pgo::NonlinearOptimization
 {
+
+enum class EnergyStateKind
+{
+  Generic,
+  Displacement,
+};
 
 class EnergySet : public PotentialEnergy, public LineSearchAwareEnergy
 {
@@ -427,6 +451,7 @@ public:
   const Term &term(int i) const;
   void setWeight(int i, double w);
 
+  EnergyStateKind stateKind() const override;
   // PotentialEnergy + LineSearchAwareEnergy interface, implemented directly.
 };
 
@@ -508,14 +533,14 @@ pypgo.energy
 - `tests/src/core/nonlinearOptimization/evaluation_gtest.cpp`
 - `tests/src/core/genericPotentialEnergies/linearPotentialEnergy_ownership_gtest.cpp`
 - `tests/src/core/genericPotentialEnergies/quadraticPotentialEnergy_ownership_gtest.cpp`
-- `tests/src/core/constraintPotentialEnergies/multiVertexPulling_ownership_gtest.cpp`（见 Task E9）
+- `tests/src/core/constraintPotentialEnergies/multiVertexPulling_ownership_gtest.cpp`（见 Task E9a）
 
 ### 修改
 
 - `src/core/nonlinearOptimization/CMakeLists.txt`：编译新增源，移除已删除的 `potentialEnergies.cpp`。
 - `src/core/genericPotentialEnergies/linearPotentialEnergy.h/.cpp`：reference 成员 → owning by value，ctor 改 by-value，`W` 类型从 `const double *` 改为 `EigenSupport::VXd`。
 - `src/core/genericPotentialEnergies/quadraticPotentialEnergy.h/.cpp`：同上；保留 6 个 ctor 的算式语义。
-- `src/core/constraintPotentialEnergies/multiVertexPullingSoftConstraints.h/.cpp`：raw pointer / `const SpMatD &` → owning by value；`setTargetPos` / `setCoeff` multi-overload 简化（见 Task E9）。
+- `src/core/constraintPotentialEnergies/multiVertexPullingSoftConstraints.h/.cpp`：raw pointer inputs → owning by value；ctor 接 by-value `SpMatD Koff` 并交给已 owning 的 `PotentialEnergyAligningMeshConnectivity`；`setTargetPos` / `setCoeff` multi-overload 简化（见 Task E9a）。
 - `src/tools/sim/runIPCSim/setup/attachmentSetup.cpp`：ctor caller 迁移 (by value + move)；`setTargetPos` → `setTargetPositions`。
 - `src/tools/sim/runIPCSim/solver/staticSolve.cpp`：`setTargetPos` → `setTargetPositions`；`PotentialEnergies` → `EnergySet` 同时把 `pullingEnergies` 作为 child 加入。
 - `src/tools/sim/runIPCSim/app/loop.cpp`、`session.cpp`：`setTargetPos` → `setTargetPositions`。
@@ -523,7 +548,7 @@ pypgo.energy
 - `src/core/genericPotentialEnergies/laplacianProblem.cpp`：`PotentialEnergies` → `EnergySet`；`QuadraticPotentialEnergy(sys)` 保持（自动 copy `sys`）。
 - `src/tools/sim/runIPCSim/contact/contactBackend.h`、`ipcContactBackend.cpp`、`legacyPenaltyContact.cpp`：引用参数 rename。
 - `src/python/pypgo/bindings/energy_bindings.cpp`：绑定 `EnergySet`、`LinearPotentialEnergy`、`QuadraticPotentialEnergy`、`pypgo.energy.PotentialEnergy` handle。
-- `pypgo/energy.py` (M3 module)：补 `EnergySet`、`LinearEnergy`、`QuadraticEnergy`、`VertexAttachment`（Task E9）、`state_kind` / `zero_state` 约束。
+- `pypgo/energy.py` (M3 module)：补 `EnergySet`、`LinearEnergy`、`QuadraticEnergy`、`VertexAttachment`（Task E9b）、`state_kind` / `zero_state` 约束。
 - `tests/pypgo/test_energy.py`（M3 已规划该文件位置）：补 EnergySet / Linear/Quadratic owning / VertexAttachment / state_kind 覆盖。
 
 ### 删除
@@ -538,7 +563,7 @@ pypgo.energy
 - `lineSearchAwareEnergy` 接口不变；`EnergySet` 继承它。
 - `SmoothRSEnergy`：M9 之后单独评估。
 - `ConstraintPotentialEnergies` 姊妹类（`MultiVertexConstrainedRigidMotion`、`BarycentricCoordinateSlidingSoftConstraints`、`MultipleVertexSlidingSoftConstraints`、`MultipleVertexPullingSoftConstraintsPOrder`）：M3 不绑定，列入 `future_work.md`。
-- `ConstraintFunctions::hessian/createHessian/hessianDirect` 系列同名方法：跟 `PotentialEnergy` 平行的另一套抽象；M3 不在 E0 rename 范围内，等到 constraint API 进入 Python 时再做对称 rename，详见 `future_work.md`。
+- `ConstraintFunctions` 不在 M3 绑定范围，但它的 Hessian 方法命名必须随 E0 一起改掉，避免主干长期同时存在 `hessianAlloc` 和旧 `createHessian` 两套名字。
 
 ## Task 拆分
 
@@ -553,6 +578,10 @@ pypgo.energy
   - `virtual void hessianDirect(...)` → `virtual void hessian(...)`，base 默认实现改为 `hessianAlloc(H); hessianInPlace(x, H);`。
   - `virtual void createHessian(...)` → `virtual void hessianAlloc(...)`（pure）。
   - `gradient_hessian` 默认实现里的 `hessianDirect(x, hess)` 改为 `hessian(x, hess)`。
+- `src/core/nonlinearOptimization/constraintFunction.h` / `constraintFunctions.h` / `linearConstraintFunctions.h`：
+  - `hessian(...)` → `hessianInPlace(...)`（保持现有“已分配模板后填值”的语义）。
+  - `createHessian(...)` → `hessianAlloc(...)`。
+  - 不在 E0 为 constraints 新增 one-shot `hessian(...)` 安全入口；constraints Python API 不在 M3 范围。E0 的目标只是消除旧 Hessian 命名并保持现有调用语义。
 - 所有 `PotentialEnergy` subclass override（用 grep 列表锁定）：
   - `genericPotentialEnergies/linearPotentialEnergy.h`、`quadraticPotentialEnergy.h`
   - `geometryPotentialEnergies/*.h`（centerOfMass / smoothRS / vertexAffine / triangleAffine / surfaceSmoothness / surfaceTriangleDeformation 等）
@@ -561,14 +590,19 @@ pypgo.energy
   - `solidDeformationModel/deformationModelEnergy.{h,cpp}`
   - `nonlinearOptimization/potentialEnergies.{h,cpp}`（即将在 E3 中变成 `EnergySet`；本任务内先就地 rename）
   - `nonlinearOptimization/potentialEnergyFromConstraintFunctions.{h,cpp}`、`lagrangian.{h,cpp}`
+- 所有 `ConstraintFunction` / `ConstraintFunctions` subclass override（用 grep 列表锁定）：
+  - `nonlinearOptimization/constraintFunction.h`
+  - `nonlinearOptimization/constraintFunctions.h`
+  - `nonlinearOptimization/linearConstraintFunctions.h`
+  - `nonlinearOptimization/constraintFunctionsAssember.cpp`
+  - 以及任何实现 `ConstraintFunction::hessian/createHessian` 或 `ConstraintFunctions::hessian/createHessian` 的 downstream 文件。
 - 所有 caller：
   - `nonlinearOptimization/NewtonSolver.cpp`：`createHessian` → `hessianAlloc`、`hessian(x, H)` → `hessianInPlace(x, H)`、`hessianDirect(x, H)` → `hessian(x, H)`。注意区分 Newton 热路径用的是 in-place 版本。
-  - `nonlinearOptimization/finiteDifference.cpp`、`naturalCubicSplineFitting.cpp`、`knitroOptimizer.cpp`、`nonlinearProblem.cpp`、`constraintFunctionsAssember.cpp`：按调用语义对应 rename。
+  - `nonlinearOptimization/finiteDifference.cpp`、`naturalCubicSplineFitting.cpp`、`knitroOptimizer.cpp`、`nonlinearProblem.cpp`、`constraintFunctionsAssember.cpp`、`lagrangian.cpp`：按调用语义对应 rename；constraints 的 Hessian hot path 调 `hessianInPlace`。
   - `simulation/implicitBackwardEulerTimeIntegratorHelper.{h,cpp}`、`TRBDF2TimeIntegratorHelper.{h,cpp}`、`timeIntegrator.cpp`：同上。
   - `tools/sim/runIPCSim/setup/{shell,volume,legacy}Setup.cpp`：按调用语义对应。
   - `python/pypgo/bindings/energy_bindings.cpp`：rename。
   - `c/pgo_c.cpp`：rename（虽然该文件已计划随 C-style wrapper 删除，但删除前主干必须可编译，所以本任务必须改）。
-- 不改 `ConstraintFunctions::hessian/createHessian/hessianDirect` 系列：constraint API 跟 `PotentialEnergy` 的方法是平行的两套抽象，不在本 rename 范围内。如果需要保持对称命名，作为单独 follow-up task（详见 `future_work.md`）。
 - 测试：
   - 改完后所有现有 `_gtest.cpp` 应只需文本替换即可通过（`createHessian` → `hessianAlloc`、`hessian(x,H)` 调用点视语义对应）；语义不变。
   - `runIPCSim` 端到端跑代表性 scene（small static、medium static、tet IPC 动态），与重命名前 git commit 数值结果 max-diff < 1e-12。
@@ -588,11 +622,14 @@ pypgo.energy
     - Step 3：runIPCSim parity + perf regression 跑通后，单 commit 提交。
   - 单 commit 完成。中间不留过渡态，不允许 forwarder 名字残留。
 
-### Task E1: 引入 `evaluation.h` helper
+### Task E1: 引入 `evaluation.h` helper + `EnergyStateKind`
 
 （依赖 Task E0 已完成；本 task 直接使用新名字。）
 
 - 新增 `evaluation.h/.cpp`。
+- 新增 `energyStateKind.h`（或放在 `potentialEnergy.h`，由实现时按 include 边界决定）和 `PotentialEnergy::stateKind() const`，默认返回 `EnergyStateKind::Generic`。
+- 不在 E1 强行修改所有未来 displacement energy。各 energy 在自己的 owning task 中 override：`MultipleVertexPulling` 在 E9a，deformation binding/final wrapper 在 deformation plan，stateful contact classes 在 contact plan。
+- `EnergySet::stateKind()` 在 E3 实现，按 terms 合成：单 term 沿用 child，多 term 全部相同则沿用，否则返回 `Generic`；零 term 仍由 ctor 拒绝。
 - 实现 `evaluateValue`、`evaluateGradient`、`evaluateHessian`、`evaluateMaxStep`、`dofsOf`。`validateStateSize` 为 `.cpp` 内部 helper，不在 header 公开。
 - `evaluateHessian` 实现极简：调 `energy.hessian(x, H)`（新语义 = 旧 `hessianDirect`）即可——base 把 fixed / non-fixed 分支封装在 `hessian` 内（fixed 走默认 `hessianAlloc + hessianInPlace`，non-fixed 走 subclass override）。helper 内**不写** `isHessianTopologyFixed()` if 分支。
 - 新增 `evaluation_gtest.cpp`：
@@ -629,6 +666,7 @@ pypgo.energy
 - 新增 `energySet.h/.cpp`，把 `potentialEnergies.cpp` 的实现整体搬过来，类名改为 `EnergySet`，namespace 不变 (`pgo::NonlinearOptimization`)。
 - ctor 签名改为 `EnergySet(int numDofs, std::vector<Term> terms)`，内部按 `terms` 顺序填充原 `potentialEnergies` 字段、`energyCoeffs` 字段，然后立即跑原 `init()` 的全部逻辑（不再公开 `init`）。
 - 删除 `addPotentialEnergy` / `init` / `setEnergyCoeffs` 公共方法；改为只读访问 + `setWeight(i, w)`。
+- 实现 `stateKind()`：单 term 沿用 child，多 term 全部相同则沿用，否则返回 `EnergyStateKind::Generic`。
 - `EnergySet::Term::energy` 是 `shared_ptr<const PotentialEnergy>`。内部 vector 字段 `potentialEnergies` 类型从 `PotentialEnergy_p`（non-const）改为 `PotentialEnergy_const_p`；如有非 const 接口调用需求，用 `const_cast` 限制在 ctor 实现内（数值代码本身只读）。
 - 删除 `src/core/nonlinearOptimization/potentialEnergies.h/.cpp`。CMakeLists 同步更新。
 - 不保留 `PotentialEnergies` typedef / alias。
@@ -667,6 +705,7 @@ E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移�
 - 暴露只读属性 / 方法：
   - `num_dofs` → `getNumDOFs`
   - `dofs` → `dofsOf(...)` 返回 `np.ndarray[int64]`
+  - `state_kind` → 映射 `EnergyStateKind::Generic` / `Displacement` 为 `"generic"` / `"displacement"`
   - `value(x)` / `gradient(x)` / `hessian(x)` / `max_step(x, dx)`：全部走 `evaluation.h`
   - `zero_state()` → 返回 `np.zeros(num_dofs, dtype=np.float64)`
 - 不暴露 `func` / `func_grad` / `hessianInPlace` / `hessianAlloc` / `isHessianTopologyFixed`（拓扑分支由 `evaluation.h` 内部吸收，Python 用户无需感知）。`hessian(x, H)` 这个 C++ 安全入口本身也不直接暴露给 Python，因为 Python 需要 by-value 返回而不是 out-param——用户走的是 `pypgo.energy.PotentialEnergy.hessian(x) -> SparseMatrix`，内部调 `evaluateHessian`。
@@ -682,7 +721,7 @@ E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移�
   3. 若 SciPy 可选依赖存在：通过 `to_coo` adapter 走 (2)。
   这一兜底路径只在 binding 层做，C++ ctor 始终接受 `EigenSupport::SpMatD`。
 - 不暴露 `setDOFs(const std::vector<int> &dofs)`（partial-DOF Linear/Quadratic energy）：M3 只支持全 DOF energy；`allDOFs` 在 ctor 内自动填充。setDOFs 的使用场景（Knitro/constraint 问题用 partial DOF）不在 M3 scope。
-- Python 端约定 `state_kind == "generic"`。
+- Python 端 `state_kind == "generic"` 来自 C++ `stateKind()` default，不在 wrapper 上另写常量。
 - 测试：构造 → 立即释放 Python 引用的输入数组 → 仍能求值；以及 (rows, cols, vals, shape) 兜底路径数值与 (1) 路径一致。
 
 ### Task E6: Python binding — `EnergySet`
@@ -697,20 +736,20 @@ E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移�
   - Python 端 `elastic = ...; total = EnergySet([elastic]); del elastic; total.value(u)` 仍可用；
   - C++ ctor `throw std::invalid_argument`（零 term、DOF 数不一致）正确 propagate 为 Python `ValueError`。
 
-### Task E7: `state_kind` / `zero_state` 公约
+### Task E7: Python `state_kind` / `zero_state` 映射公约
 
-- 在 `pypgo/energy.py` 给每个具体 energy class 写 `state_kind` 常量。
-- `EnergySet.state_kind` 规则：
+- `pypgo/energy.py` 不给具体 energy 手写 `state_kind` 常量；所有 wrapper 统一读取 C++ `PotentialEnergy::stateKind()`。
+- `EnergySet.state_kind` 规则由 C++ `EnergySet::stateKind()` 实现，Python 只映射 enum 到字符串：
   - 空 terms 不允许构造（ctor 内抛 `ValueError`）；
   - 单 term → 沿用该 term；
   - 多 term 全部相同 → 沿用之；
   - 否则 → `"generic"`。
 - 测试：`pgo.fem.deformation_energy(...).state_kind == "displacement"`、`LinearEnergy(...).state_kind == "generic"`、`EnergySet([elastic, floor]).state_kind == "displacement"`、`EnergySet([elastic, quadratic]).state_kind == "generic"`、`EnergySet([])` raises `ValueError`。
 
-### Task E9: `MultipleVertexPulling` 改 owning + Python `VertexAttachment`
+### Task E9a: `MultipleVertexPulling` 改 owning
 
 - 修改 `src/core/constraintPotentialEnergies/multiVertexPullingSoftConstraints.h/.cpp`：
-  - 成员 `const SpMatD &Koff`（来自基类 `PotentialEnergyAligningMeshConnectivity`）→ owning `SpMatD Koff_` + 传递给基类（需审计基类接口）。
+  - 当前基类 `PotentialEnergyAligningMeshConnectivity` 已按值持有 Hessian sparsity 模板；本 task 不再新增第二份 `Koff_` 成员，只把 ctor 改为 by-value `SpMatD Koff` 并 `std::move` 进基类，保持单一 owner。
   - `const double *restPositionsAll` → `VXd restpAll_`。
   - `const int *vertexIndices` → `std::vector<int> vertexIndices_`。
   - `const double *tgt` → `VXd tgtp_`。
@@ -718,6 +757,7 @@ E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移�
   - `int isDisp` flag → `bool isDisplacement_`。
   - ctor 改 by value + move。
   - `setTargetPos(const double *tgt)` → `setTargetPositions(VXd tgt)`。
+  - override `stateKind()`，`isDisplacement_ == true` 时返回 `EnergyStateKind::Displacement`，否则返回 `EnergyStateKind::Generic`。
   - `hessianInPlace` / `hessianAlloc` override rename 与 E0 一起完成。
 - 迁移 caller（共 5 处）：
   - `src/tools/sim/runIPCSim/setup/attachmentSetup.cpp:42`：ctor 改为 by value + move 传入 copy 后的 `Koff` / `restPositionsAll` / `vertexIndices` / `tgtPositions`。`setCoeff(scalar)` 保持不变。
@@ -728,11 +768,14 @@ E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移�
 - 新增 ownership 测试：`multiVertexPulling_ownership_gtest.cpp`：
   - 构造后立即让传入的 `VXd restPositionsAll` / `VXd tgt` / `SpMatD Koff` / `vector<int> vertexIndices` 出作用域 → `func` / `gradient` 仍正确。
   - 数值一致性：与 git 上重命名前的旧实现跑相同 fixture，`func` / `gradient` max-diff < 1e-12。
+
+### Task E9b: Python binding — `VertexAttachment`
+
 - Python binding：
   - 绑为 `pypgo.energy.VertexAttachment`。
   - ctor 接 `sim_mesh`（从 `SimulationMeshCore` 取 `Koff` 和 `numDofs`）或 `Koff` 兜底（`(rows, cols, vals, shape)` 或 `pypgo.sparse.SparseMatrix`，优先 sim_mesh）。
   - 暴露 `set_targets(np.ndarray)`。
-  - `state_kind == "displacement"`。
+  - C++ `stateKind() == EnergyStateKind::Displacement`，Python `state_kind == "displacement"` 只映射 enum。
   - 测试：构造 → 求值 → `set_targets` 更新 target → 求值变化；与 EnergySet 组合。
 - Cross-plan dependency：
   - `deformation_fem_api_refactor.plan.md`：确保 `SimulationMeshCore` 暴露 `hessianSparsityTemplate()` 方法（若未隐含）。如该 plan 进度滞后，M3 VertexAttachment binding 临时走 Koff 兜底路径。
@@ -748,7 +791,7 @@ E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移�
 - C++ 测试全部通过；旧 `PotentialEnergies` 数值结果与 `EnergySet` 在相同 children + weights 下一致（同一 fixture 跑两遍）。
 - `python -m pytest tests/pypgo/test_energy.py` 全部通过，覆盖：handle、Linear/Quadratic owning、EnergySet 单/多/0 term、weight 更新、混合 topology、child lifetime、state_kind。
 - `pypgo.energy` 公开名集合不出现 `PotentialEnergies`、`addPotentialEnergy`、`init`、`hessianInPlace`、`hessianAlloc`、`isHessianTopologyFixed`、`deformation_energy`。
-- C++ 全树 `grep -rn "hessianDirect\|createHessian" src/` 不再有 hit。
+- C++ 全树 `grep -rn "hessianDirect\|createHessian" src/` 不再有 hit，包括 `ConstraintFunction` / `ConstraintFunctions` 体系。
 - 没有 `std::shared_ptr<void>` 出现在 `energy_bindings.cpp` 或 `nonlinearOptimization` 公共 header。
 - C++ 代码全树 `grep -rn "PotentialEnergies\b" src/` 不再有 hit（只剩 `PredefinedPotentialEnergies` / `ConstraintPotentialEnergies` 这类 namespace 名字属于同名前缀）。
 - `runIPCSim` 静态/动态端到端数值结果与重构前一致（Task E3a 的 stash + diff 验证通过）。
@@ -768,35 +811,35 @@ E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移�
 E0 (Hessian API rename)        ── 必须最先；跨 ~40 个文件 mechanical refactor，
                                   完成后所有后续 task 用新名字
                           │
-E1 (evaluation.h)              ─┐
+E1 (evaluation.h + stateKind)   ─┐
 E2 (Linear/Quadratic 改 owning) ─┤          ┐
-E9 (MultipleVertexPulling)     ──┤ 依赖 E0；三者可并行（ownership 改法一致）
+E9a (MultipleVertexPulling)    ──┤ 依赖 E0；三者可并行（ownership 改法一致）
                           │     │          │
-E3 (EnergySet rename + ctor 改造) ◄┘          ┤  依赖 E0 + E1（child 求值），E2/E9 仅在测试时用作 child 样本
+E3 (EnergySet rename + ctor 改造) ◄┘          ┤  依赖 E0 + E1（child 求值），E2/E9a 仅在测试时用作 child 样本
                           │                │
 E3a (内部调用点迁移)      ── 必须与 E3 同系列 commit，保证主干编译
                           │                │
-E4 (PotentialEnergy 绑定)─┤── 依赖 E1 + E3a 已完成（C++ 主干稳定），需要 owning energy（E2/E9）做测试样本
+E4 (PotentialEnergy 绑定)─┤── 依赖 E1 + E3a 已完成（C++ 主干稳定），需要 owning energy（E2/E9a）做测试样本
                           │                │
 E5 (Linear/Quadratic 绑定)── 依赖 E2、E4
-E9b (VertexAttachment 绑定)── 依赖 E9、E4（与 E5 可并行）
+E9b (VertexAttachment 绑定)── 依赖 E9a、E4（与 E5 可并行）
                           │                │
 E6 (EnergySet 绑定)       ── 依赖 E3、E4、E5、E9b
                           │
-E7 (state_kind)          ── 依赖 E5、E6、E9b
+E7 (state_kind mapping)  ── 依赖 E5、E6、E9b
                           │
 E8 (文档)                ── 最后
 ```
 
 ### 推荐顺序
 
-E0 → E1 ‖ E2 ‖ E9（并行）→ E3 → E3a → E4 → E5 ‖ E9b（并行）→ E6 → E7 → E8。
+E0 → E1 ‖ E2 ‖ E9a（并行）→ E3 → E3a → E4 → E5 ‖ E9b（并行）→ E6 → E7 → E8。
 
-E0 必须最先完成；E1 / E2 / E9 可三路并行（ownership 改造是一样的 pattern）；E3 和 E3a 同一系列 commit；E5 与 E9b 可并行；其余串行。
+E0 必须最先完成；E1 / E2 / E9a 可三路并行（ownership 改造是一样的 pattern）；E3 和 E3a 同一系列 commit；E5 与 E9b 可并行；其余串行。
 
 ### 输出（供下游 plan 使用）
 
-- C++: `EnergySet`、`evaluateValue/Gradient/Hessian/MaxStep` helper、owning 化的 `Linear/QuadraticPotentialEnergy`、owning 化的 `MultipleVertexPulling`。
+- C++: `EnergyStateKind` / `PotentialEnergy::stateKind()`、`EnergySet`、`evaluateValue/Gradient/Hessian/MaxStep` helper、owning 化的 `Linear/QuadraticPotentialEnergy`、owning 化的 `MultipleVertexPulling`。
 - Python: `pypgo.energy.PotentialEnergy`（handle）、`DeformationEnergy` wrapper、`EnergySet`、`LinearEnergy`、`QuadraticEnergy`、`VertexAttachment`。`pypgo.fem.deformation_energy(...)` 负责构造 deformation energy。
 - Contact plan 使用 `pypgo.energy.PotentialEnergy` 作为绑定基类、`EnergySet` 做端到端测试。
 - Solver plan 使用 `pypgo.energy.PotentialEnergy` 作为输入类型、`evaluation.h` 做 Hessian 求值。

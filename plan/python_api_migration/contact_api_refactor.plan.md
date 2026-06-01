@@ -198,7 +198,7 @@ state_kind == "displacement"
 
 这样可以直接组合进 deformation energy 的 `EnergySet`，不会产生 mixed-state ambiguity。
 
-这个信息不应该只是 Python wrapper 上的字符串常量。C++ `PotentialEnergy` 也需要长期提供 `EnergyStateKind stateKind() const`，Python `state_kind` 只映射这个 C++ enum。Contact energy、deformation energy、vertex pulling/attachment 这类位移态能量返回 `EnergyStateKind::Displacement`；generic linear/quadratic energy 返回 `EnergyStateKind::Generic`。
+这个信息不应该只是 Python wrapper 上的字符串常量。`EnergyStateKind` / `PotentialEnergy::stateKind() const` 由 `energy_api_refactor.plan.md` 的 E1 引入；本计划只消费并 override 这个 C++ enum。Contact energy、deformation energy、vertex pulling/attachment 这类位移态能量返回 `EnergyStateKind::Displacement`；generic linear/quadratic energy 返回 `EnergyStateKind::Generic`。
 
 ### 4. Hessian topology 非固定
 
@@ -270,11 +270,8 @@ Floor / IPC 是 `PotentialEnergy`，不是 `ConstraintFunctions`。不要把 bbo
 ```cpp
 namespace pgo::NonlinearOptimization
 {
-enum class EnergyStateKind
-{
-  Generic,
-  Displacement,
-};
+// EnergyStateKind and PotentialEnergy::stateKind() are defined by
+// energy_api_refactor.plan.md E1. Contact consumes that shared enum.
 
 struct StepState
 {
@@ -563,7 +560,7 @@ Lifecycle contract:
 
 - `beginStep(state)` sets frame/step state such as time, timestep, previous displacement, and moving obstacle poses.
 - `refreshActiveSet(x)` is the canonical detection/rebuild entry point at the accepted Newton iterate or at the beginning of a solve.
-- `func` / `gradient` / `hessianDirect` evaluate the currently active contact model; they must not perform a different detection policy during line search.
+- `func` / `gradient` / safe one-shot `hessian` evaluate the currently active contact model; they must not perform a different detection policy during line search.
 - Outside line search, an implementation may lazily refresh an empty/mismatched active set for interactive Python ergonomics, but solver/run-loop code should call `refreshActiveSet(x)` explicitly.
 - During line search, contact pairs are frozen or conservatively supersetted through `beginLineSearch(...)` / `endLineSearch()` from `LineSearchAwareEnergy`.
 - `clearActiveSet()` releases active pairs, temporary energies, buffers, and line-search state.
@@ -591,7 +588,7 @@ Implementation:
 
 - `beginStep(state)` clears active sets and delegates moving obstacle poses to `core_.setMovingObstacleTime(state.time)`.
 - `refreshActiveSet(x)` maps simulation displacement to surface positions, then calls `core_.buildActiveSet(surfacePositions)`.
-- `func` / `gradient` / `hessianDirect` evaluate with the refreshed active set. If the active set is absent outside line search, they may rebuild it at `x` for direct evaluation.
+- `func` / `gradient` / safe one-shot `hessian` evaluate with the refreshed active set after Energy E0 rename. If the active set is absent outside line search, they may rebuild it at `x` for direct evaluation.
 - `beginLineSearch(x, dx)` maps both vectors to surface space and builds `core_.buildLineSearchActiveSetSuperset(surfaceX, surfaceDx)`.
 - `endLineSearch()` clears the line-search active set and leaves the regular active set to be refreshed at the next accepted iterate.
 - `computeMaxStepLimit(x, dx)` keeps using IPC CCD/max-step through `SurfaceIPCCore`.
@@ -650,7 +647,7 @@ Implementation:
 - active external term delegates to `PointPenetrationEnergy`;
 - active self term delegates to `PointTrianglePairCouplingEnergyWithCollision`;
 - `func` returns the sum of active external/self terms, or zero when there are no active contacts;
-- `gradient` and `hessianDirect` sum active term contributions into the simulation-space result;
+- `gradient` and safe one-shot `hessian` sum active term contributions into the simulation-space result;
 - `beginLineSearch(...)` copies or rebuilds one `SampledPenaltyActiveSet` for the base point and freezes it; trial evaluations never rerun contact detection.
 
 `SampledPenaltyActiveSet` is intentionally internal. It is the RAII owner for active penalty energies and buffers, so the public contact energy does not accumulate scattered `shared_ptr` + raw buffer fields as the sampled penalty model grows.
@@ -1000,7 +997,7 @@ Migration rule:
 
 3. `state_kind` comes from C++.
 
-Add `NonlinearOptimization::EnergyStateKind { Generic, Displacement }` and `PotentialEnergy::stateKind() const`. Python `energy.state_kind` maps this enum. `StatefulContactEnergy` returns `Displacement` by default, and contact Python wrappers must not hard-code a divergent string.
+Use the shared `NonlinearOptimization::EnergyStateKind { Generic, Displacement }` and `PotentialEnergy::stateKind() const` from the Energy plan. Python `energy.state_kind` maps this enum. `StatefulContactEnergy` returns `Displacement` by default, and contact Python wrappers must not hard-code a divergent string.
 
 4. Surface mapping uses `EmbeddedDofMap`.
 
@@ -1236,8 +1233,7 @@ set_obstacle_time
 ### 修改
 
 - `src/core/contact/CMakeLists.txt`：编入 `contactEnergyFactory.*`。
-- `src/core/nonlinearOptimization/potentialEnergy.h`：新增 `stateKind() const`，默认返回 `EnergyStateKind::Generic`。
-- `src/core/nonlinearOptimization/CMakeLists.txt`：编入 `stepAwareEnergy.h` / `energyStateKind.h`。
+- `src/core/nonlinearOptimization/CMakeLists.txt`：编入 `stepAwareEnergy.h`；`EnergyStateKind` 来自 Energy plan，不在 contact plan 里重复添加。
 - `src/core/contact/mappedSurfacePotentialEnergy.h/.cpp`：迁移为 common `EmbeddedDofMap` + `ContactSurfaceAdapter` composition，或让旧类临时委托 adapter，避免 common contact 层继续挂在 `Contact::IPC` namespace 下。
 - `src/core/contact/ipc/external/obstacleSurface.h/.cpp`：迁移到 common `src/core/contact/external/`，并改为 abstract base + static/moving concrete hierarchy。
 - `src/core/contact/ipc/external/obstaclePoseCache.h/.cpp`：迁移到 common `src/core/contact/external/`。
@@ -1288,9 +1284,10 @@ set_obstacle_time
 - Add sampled penalty-specific specs:
   - `SampledPenalty::ParametersSpec`
   - translation helpers
-- Factory functions:
-  - `createIPCEnergy`
-  - `createSampledPenaltyEnergy`
+- Factory boundary:
+  - C1 只实现 `createFloorEnergy` 和 shared validation/translation helpers；
+  - `createIPCEnergy` 在 C5 与 `IPCContactEnergy` 一起实现；
+  - `createSampledPenaltyEnergy` 在 C6 与 `SampledPenaltyContactEnergy` 一起实现。
 - Encode current `SurfaceIPCCore::Parameters` field mapping exactly:
   - `dhat`
   - `dhatExternal`
@@ -1304,7 +1301,7 @@ set_obstacle_time
 
 ### Task C2: Step-aware base + embedded DOF map + stateful contact base
 
-- Add `energyStateKind.h` and `PotentialEnergy::stateKind() const` with default `EnergyStateKind::Generic`.
+- Use Energy plan E1's `EnergyStateKind` / `PotentialEnergy::stateKind() const`; do not define a second enum in contact.
 - Add `stepAwareEnergy.h` with `StepState` and `StepAwareEnergy`.
 - Add `statefulContactEnergy.h` with:
   - `ContactModelKind`
@@ -1366,6 +1363,7 @@ set_obstacle_time
   - `beginLineSearch(...)`
   - `endLineSearch()`
   - `setMovingObstacleTime(t)`
+  - `createIPCEnergy(...)` facade construction through `contactEnergyFactory`
 - Ensure line search uses a frozen/superset active set and does not rerun detection for trial points.
 - Add tests:
   - construction with no obstacles, static obstacle, and linear moving obstacle;
@@ -1387,9 +1385,10 @@ set_obstacle_time
   - `contactModelKind() == ContactModelKind::SampledPenalty`
   - `beginStep(...)` stores `previousX`, `timestep`, time, and releases old active buffers;
   - `refreshActiveSet(x)` runs detection and builds active external/self terms;
-  - `func` / `gradient` / `hessianDirect` sum active external/self terms;
+  - `func` / `gradient` / safe one-shot `hessian` sum active external/self terms after Energy E0 rename;
   - `beginLineSearch(...)` freezes active terms and does not rerun detection;
   - `clearActiveSet()` releases active terms and buffers.
+  - `createSampledPenaltyEnergy(...)` facade construction through `contactEnergyFactory`.
 - Add internal `SampledPenaltyActiveSet` as the single owner for active external/self penalty energies and buffers.
 - Add tests:
   - no active contacts returns zero energy/gradient/Hessian;
@@ -1575,9 +1574,8 @@ set_obstacle_time
 
 ### 外部依赖
 
-- **Energy plan E0/E1**: contact hessian naming and dynamic Hessian helper.
+- **Energy plan E0/E1**: contact hessian naming, dynamic Hessian helper, and shared `EnergyStateKind`.
 - **Energy plan E4/E6**: Python `PotentialEnergy` handle and `EnergySet`.
-- **Energy plan E7 refinement**: `state_kind` should be backed by C++ `EnergyStateKind stateKind() const`, not only Python wrapper constants.
 - **Solver/Energy follow-up**: `MaxStepAwareEnergy` extraction is recommended but not a blocking prerequisite for this contact plan.
 - **Sparse plan / M2**: `pypgo.sparse.SparseMatrix` or accepted sparse adapter for `surface_from_simulation_disp_map`.
 - **Solver plan** is not required for contact construction tests. Solver E2E can be added after `solve_newton` exists.
@@ -1591,21 +1589,22 @@ C1 (factory/spec)
   │    │    └─ C4 (core ownership + views)
   │    │         ├─ C5 (IPCContactEnergy)
   │    │         └─ C6 (SampledPenaltyContactEnergy)
-  │    │              ├─ C7 (C++ factory energy tests)
-  │    │              └─ C8 (runIPCSim migration)
-  │    └─ C9 (Python value objects + bindings)
-  │         └─ C10 (Python tests)
-  └─ C11 (docs)
+  │    │              └─ C7 (C++ factory energy tests)
+  │    │                   ├─ C8 (runIPCSim migration)
+  │    │                   └─ C9 (Python value objects + bindings; also depends on Energy E4/E6)
+  │    │                        └─ C10 (Python tests)
+  └─ C11 (docs; last)
 ```
 
 ### 推荐顺序
 
 C1 -> C2 -> C3 -> C4 -> C5 -> C6 -> C7 -> C8 -> C9 -> C10 -> C11.
 
+C5 / C6 可在 C4 后并行，但 C7/C9 必须等两者都完成。C9 还必须等 Energy E4/E6，因为 Python contact energy 要包装成统一 `pypgo.energy.PotentialEnergy` 并能进入 `EnergySet`。
+
 ## 输出（供下游使用）
 
 - C++:
-  - `NonlinearOptimization::EnergyStateKind`
   - `NonlinearOptimization::StepState`
   - `NonlinearOptimization::StepAwareEnergy`
   - `ContactSurfaceSpec`

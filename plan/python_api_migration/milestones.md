@@ -307,13 +307,14 @@ shell_sim_mesh = pgo.sim.SimulationMesh.create_shell(surface, shell_mat)
 **Deliverables:**
 
 - `pypgo.energy.PotentialEnergy` / energy protocol for solver-facing energy objects; full Python programming/plugin API is deferred to `plan/python_api_migration/future_work.md`.
-- `pypgo.energy.SumEnergy` or `pypgo.energy.EnergySet` for composing weighted energies.
-- `pypgo.solver.NewtonSolver`
-- `pypgo.solver.minimize`
+- `pypgo.energy.EnergySet` for composing weighted energies.
+- `pypgo.solver.solve_newton`
+- `pypgo.solver.NewtonOptions`
 - Python-facing `SolverResult`, `SolveStatus`, and diagnostics.
 - Initial contact energies:
   - IPC surface energy
   - floor energy
+  - sampled penalty contact energy
 
 **Example target API:**
 
@@ -342,10 +343,10 @@ result = pgo.solver.solve_newton(energy, x, max_iter=50, tol=1e-6)
 - `pypgo.sim.SimulationContext`
   - wraps the C++ `IpcSimulationContext`
   - exposes rest positions, surface mesh, mass matrix, energies, contact backend summary
-- `pypgo.sim.from_config(path, backend="ipc" | "legacy_penalty")`
+- `pypgo.sim.from_config(path, contact_model="ipc" | "sampled_penalty")`
   - supports shell IPC
   - supports tet/cubic volume IPC
-  - supports tet/cubic volume legacy penalty backend
+  - supports tet/cubic volume sampled penalty backend
   - does not support legacy shell; legacy shell is reserved for a future standalone legacy sim Python script
 
 **C++ boundary:**

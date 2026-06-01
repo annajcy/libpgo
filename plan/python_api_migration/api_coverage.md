@@ -21,8 +21,8 @@
 | `pypgo.fem` | tet/cubic/shell FEM 常用矩阵、质量矩阵、嵌入矩阵、插值权重 |
 | `pypgo.geometry` | 最近点、barycentric、距离查询、BVH 包装 |
 | `pypgo.energy` | PotentialEnergy、组合能量、材料能量、约束能量 |
-| `pypgo.solver` | Newton/minimize、solver 参数、结果和 diagnostics |
-| `pypgo.contact` | IPC、floor、obstacle、volume legacy penalty contact backend |
+| `pypgo.solver` | Newton solve、future minimize、solver 参数、结果和 diagnostics |
+| `pypgo.contact` | IPC、floor、obstacle、sampled penalty contact energy |
 | `pypgo.sim` | config/context/static solve/dynamic loop/output/session |
 | `pypgo.io` | OBJ/VEG/state/stress/Alembic 等文件 I/O 的 canonical 入口 |
 | `pypgo.torch` | PyTorch tensor/sparse/autograd adapter |
@@ -87,10 +87,10 @@
 
 | 当前能力 | 当前 owner | 未来 Python API | Milestone | Parity test | C++ boundary quality | C++ refactor plan |
 | --- | --- | --- | --- | --- | --- | --- |
-| `PotentialEnergy` handle / future nanobind trampoline | `NonlinearOptimization::PotentialEnergy` | `pypgo.energy.PotentialEnergy` | M3/M9+ | `tests/pypgo/test_energy.py::test_builtin_energy_solves`；future: `test_python_defined_energy_solves` | bind-ready for C++ energy handle; future design for Python subclass | M3 先服务 solver-facing energy；完整 Python programming API 和 nanobind trampoline 见 `future_work.md` |
-| 多能量组合 | `PotentialEnergies` | `pypgo.energy.EnergySet` | M3 | `tests/pypgo/test_energy.py::test_energy_set_weights_terms` | bind-ready | 包装为 Pythonic collection |
-| Newton solver | `NewtonSolver` | `pypgo.solver.NewtonSolver`, `pypgo.solver.solve_newton` | M3 | `tests/pypgo/test_solver.py::test_newton_solves_quadratic` | needs facade | 提供 Python 参数对象，隐藏 raw pointer ctor |
-| General minimize | `EnergyOptimizer::minimize` | `pypgo.solver.minimize` | M3 | `tests/pypgo/test_solver.py::test_minimize_updates_numpy_state` | needs facade | 绑定接受 NumPy `x` 和 bound constraints 的 service |
+| `PotentialEnergy` handle / future nanobind trampoline | `NonlinearOptimization::PotentialEnergy` | `pypgo.energy.PotentialEnergy` | M3/M9+ | `tests/pypgo/test_energy.py::test_builtin_energy_solves`；future: `test_python_defined_energy_solves` | needs small facade | M3 先服务 solver-facing energy；`state_kind` 由 C++ `EnergyStateKind` 映射；完整 Python programming API 和 nanobind trampoline 见 `future_work.md` |
+| 多能量组合 | `PotentialEnergies` | `pypgo.energy.EnergySet` | M3 | `tests/pypgo/test_energy.py::test_energy_set_weights_terms` | needs refactor | C++ `PotentialEnergies` 迁移到 constructor-complete `EnergySet`，不暴露 add/init |
+| Newton solver | `NewtonSolver` | `pypgo.solver.solve_newton` | M3 | `tests/pypgo/test_solver.py::test_newton_solves_quadratic` | needs facade | 提供 `optimizationService` + Python `NewtonOptions`/`SolverResult`，不暴露 stateful `NewtonSolver` |
+| General minimize | `EnergyOptimizer::minimize` | future `pypgo.solver.minimize` | post-M3 | future constrained solver tests | needs facade | M3 不绑定；等 bounds/constraints 和 backend-specific options 稳定后再设计 |
 | Solver status/result | `SolverResult`, `SolveStatus`, `solveDiagnostics` | `pypgo.solver.SolverResult`, `pypgo.solver.SolveStatus` | M3 | `tests/pypgo/test_solver.py::test_solver_result_fields` | bind-ready | 直接暴露 value object |
 | Smooth RS energy | `SmoothRSEnergy` behind MKL | `pypgo.energy.SmoothRS` | M9 | optional MKL-gated test | needs refactor | MKL-gated，延后到核心 sim path 之后 |
 
@@ -98,12 +98,12 @@
 
 | 当前能力 | 当前 owner | 未来 Python API | Milestone | Parity test | C++ boundary quality | C++ refactor plan |
 | --- | --- | --- | --- | --- | --- | --- |
-| IPC surface energy | `EmbeddedSurfaceIPCPotentialEnergy` | `pypgo.contact.IPCEnergy` | M3 | `tests/pypgo/test_contact.py::test_ipc_energy_constructs` | bind-ready | 构造函数包装 NumPy arrays/sparse map |
-| Floor energy | `EmbeddedSurfaceFloorPotentialEnergy` | `pypgo.contact.FloorEnergy`, `pypgo.contact.Floor` | M3 | `tests/pypgo/test_contact.py::test_floor_energy_constructs` | bind-ready | Python enum/string adapter |
+| IPC surface energy | `EmbeddedSurfaceIPCPotentialEnergy` | `pypgo.contact.IPCEnergy` | M3 | `tests/pypgo/test_contact.py::test_ipc_energy_constructs` | needs facade | 通过 `contactEnergyFactory` / `IPCContactEnergy` 构造，Python 只包装统一 energy handle |
+| Floor energy | `EmbeddedSurfaceFloorPotentialEnergy` | `pypgo.contact.FloorEnergy` | M3 | `tests/pypgo/test_contact.py::test_floor_energy_constructs` | needs facade | 通过 `contactEnergyFactory::createFloorEnergy` 构造，Python enum/string adapter |
 | Floor config parsing | `setup/floorSetup.cpp` | `pypgo.sim.RunSimConfig.floors` | M4 | `tests/pypgo/test_config.py::test_floor_config_parity` | needs facade | 将 floor parser service 化，不暴露 setup internals |
 | Moving floor | `IpcFloorMotionState`, `floorHeightAtFrame` | `pypgo.contact.MovingFloor`, `floor.height_at(frame)` | M6 | `tests/pypgo/test_dynamic_sim.py::test_moving_floor_stress` | bind-ready | 绑定 value object + helper |
 | Obstacle setup | `setup/obstacleSetup.cpp` | `pypgo.contact.Obstacle`, config loader support | M4/M6 | `tests/pypgo/test_config.py::test_obstacle_config_parity` | needs facade | 抽 obstacle parser/value object |
-| Volume legacy penalty backend | `contact/legacyPenaltyContact.cpp`, `buildVolumeLegacyPenaltySimulation` | `pypgo.sim.from_config(path, backend="legacy_penalty")` | M4/M6 | `tests/pypgo/test_volume_legacy_penalty.py` | needs facade | 仅支持 tet/cubic volume legacy；不暴露 handler classes；legacy shell 不进入该路径 |
+| Sampled penalty contact energy | `contact/legacy_penalty/*`, `contact/legacyPenaltyContact.cpp` | `pypgo.contact.SampledPenaltyEnergy` / future config `contact_model="sampled_penalty"` | M3/M4-M6 | `tests/pypgo/test_contact.py::test_sampled_penalty_energy_constructs`；future config parity | needs refactor | 重命名 legacy penalty 为 sampled penalty contact model；不暴露 handler classes；config migration 保留 JSON 行为 |
 
 ### Run-sim config/context/output
 
@@ -127,7 +127,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `runIPCSim` executable | `src/tools/sim/runIPCSim` | `pypgo-run-sim`, `python -m pypgo.tools.run_sim` | M7 | `tests/pypgo/test_python_cli.py` | needs facade | Python CLI 调用 `pypgo.sim`，C++ CLI 保留参考 |
 | Batch runner | `scripts/run_sim_batch.py`, `examples/ipc/ipc_batch.json` | `pypgo.tools.run_batch` | M7 | `tests/pypgo/test_run_batch.py` | no C++ binding | Python 侧重写，复用 config runner |
-| Legacy shell standalone script | 当前主 `runIPCSim --legacy` 不支持 shell legacy | `pypgo.tools.run_legacy_shell_sim` 或独立脚本 | M9 | `tests/pypgo/test_legacy_shell_script.py` | needs refactor | 后续单独设计 legacy sim 脚本；不放进 `pypgo.sim.from_config(..., backend="legacy_penalty")` |
+| Legacy shell standalone script | 当前主 `runIPCSim --legacy` 不支持 shell legacy | `pypgo.tools.run_legacy_shell_sim` 或独立脚本 | M9 | `tests/pypgo/test_legacy_shell_script.py` | needs refactor | 后续单独设计 legacy sim 脚本；不放进 `pypgo.sim.from_config(..., contact_model="sampled_penalty")` |
 | Animation conversion to Alembic | `convertAnimation`, old wrapper `convert_animation_to_abc` | `pypgo.io.convert_animation_to_abc` | M7/M9 | `tests/pypgo/test_animation_io.py` | needs facade | Alembic optional，延后恢复 |
 | PyTorch energy value | 无稳定公开 Python-first API | `pypgo.torch.energy_value` | M8 | `tests/pypgo/test_torch_energy.py` | needs facade | 建立 CPU tensor/NumPy bridge + energy adapter |
 | PyTorch sparse conversion | 无稳定公开 Python-first API | `SparseMatrix.to_torch_sparse_coo()` | M8 | `tests/pypgo/test_sparse_torch.py` | bind-ready | adapter only，PyTorch lazy import |
