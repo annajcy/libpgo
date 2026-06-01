@@ -133,7 +133,7 @@ void SegmentChainConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &
 }
 
 // d^2 C_i = d(x1 - x0)d(x1 - x0)
-void SegmentChainConstraintFunctions::hessian(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
+void SegmentChainConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 

@@ -27,11 +27,11 @@ public:
 
   virtual void func(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd g) const override;
   virtual void jacobian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &jac) const override;
-  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd lambda, EigenSupport::SpMatD &hess) const override;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd lambda, EigenSupport::SpMatD &hess) const override;
   virtual void hessianVector(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd lambda, EigenSupport::ConstRefVecXd vec, EigenSupport::RefVecXd hessVec) const override;
 
   virtual void createJacobian(EigenSupport::SpMatD &jac) const override { jac = jacConst; }
-  virtual void createHessian(EigenSupport::SpMatD &hess) const override { hess = lambdahZero; }
+  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const override { hess = lambdahZero; }
   virtual int getNumConstraints() const { return (int)jacConst.rows(); }
 
   virtual const EigenSupport::SpMatD &getlambdaHessianTemplate() const override { return lambdahZero; }

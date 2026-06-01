@@ -175,17 +175,17 @@ void MappedSurfacePotentialEnergy::gradient_hessian(
   }
 }
 
-void MappedSurfacePotentialEnergy::hessian(EigenSupport::ConstRefVecXd, EigenSupport::SpMatD &) const
+void MappedSurfacePotentialEnergy::hessianInPlace(EigenSupport::ConstRefVecXd, EigenSupport::SpMatD &) const
 {
-  throw std::runtime_error("MappedSurfacePotentialEnergy::hessian() should not be called directly. Use hessianDirect() instead.");
+  throw std::runtime_error("MappedSurfacePotentialEnergy::hessian() should not be called directly. Use hessian() instead.");
 }
 
-void MappedSurfacePotentialEnergy::createHessian(EigenSupport::SpMatD &) const
+void MappedSurfacePotentialEnergy::hessianAlloc(EigenSupport::SpMatD &) const
 {
-  throw std::runtime_error("MappedSurfacePotentialEnergy::createHessian() should not be called directly. Use hessianDirect() instead.");
+  throw std::runtime_error("MappedSurfacePotentialEnergy::hessianAlloc() should not be called directly. Use hessian() instead.");
 }
 
-void MappedSurfacePotentialEnergy::hessianDirect(
+void MappedSurfacePotentialEnergy::hessian(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::SpMatD &simulationHessian) const
 {

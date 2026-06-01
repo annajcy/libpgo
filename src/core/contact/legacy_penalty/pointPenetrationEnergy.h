@@ -30,7 +30,7 @@ public:
 
   virtual double func(EigenSupport::ConstRefVecXd u) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd grad) const override;
-  virtual void hessian(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &hess) const override;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &hess) const override;
 
   void setCoeff(double v) { coeffAll = v; }
   void setFrictionCoeff(double c) { frictionCoeff = c; }
@@ -39,7 +39,7 @@ public:
 
   void computeHessian();
 
-  virtual void createHessian(EigenSupport::SpMatD &h) const override { h = hessianConstant; }
+  virtual void hessianAlloc(EigenSupport::SpMatD &h) const override { h = hessianConstant; }
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = allDOFs; }
   virtual int getNumDOFs() const override { return (int)hessianConstant.rows(); }
 

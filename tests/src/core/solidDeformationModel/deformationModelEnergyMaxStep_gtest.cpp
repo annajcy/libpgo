@@ -270,8 +270,8 @@ public:
 
   double func(ES::ConstRefVecXd) const override { return 0.0; }
   void gradient(ES::ConstRefVecXd, ES::RefVecXd grad) const override { grad.setZero(); }
-  void hessian(ES::ConstRefVecXd, ES::SpMatD &) const override {}
-  void createHessian(ES::SpMatD &hess) const override { hess = ES::SpMatD(numDOFs_, numDOFs_); }
+  void hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &) const override {}
+  void hessianAlloc(ES::SpMatD &hess) const override { hess = ES::SpMatD(numDOFs_, numDOFs_); }
   void getDOFs(std::vector<int> &dofs) const override { dofs = dofs_; }
   int getNumDOFs() const override { return numDOFs_; }
   MaxStepResult computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { return MaxStepResult::material(maxStep_); }

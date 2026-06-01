@@ -49,7 +49,7 @@ public:
     hess.setIdentity();
   }
 
-  void createHessian(ES::SpMatD &hess) const override
+  void hessianAlloc(ES::SpMatD &hess) const override
   {
     hess.resize(n, n);
     hess.setIdentity();
@@ -109,7 +109,7 @@ public:
     return func(x);
   }
 
-  void createHessian(ES::SpMatD &hess) const override
+  void hessianAlloc(ES::SpMatD &hess) const override
   {
     hess.resize(n, n);
     hess.setIdentity();
@@ -236,7 +236,7 @@ TEST(ImplicitBackwardEulerTimeIntegratorGTest, WrapperGradientHessianDispatchesT
   ES::VXd refGrad = ES::VXd::Zero(1);
   energy->gradient(x, refGrad);
   ES::SpMatD refH;
-  energy->hessianDirect(x, refH);
+  energy->hessian(x, refH);
 
   EXPECT_LT((combinedGrad - refGrad).norm(), 1e-12);
   EXPECT_LT((ES::MXd(combinedH) - ES::MXd(refH)).norm(), 1e-12);

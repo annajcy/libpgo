@@ -661,7 +661,7 @@ void PointTrianglePairCouplingEnergyWithCollision::gradient(ES::ConstRefVecXd x,
   });
 }
 
-void PointTrianglePairCouplingEnergyWithCollision::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) const
+void PointTrianglePairCouplingEnergyWithCollision::hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const
 {
   // LGI << "#nonzeros: " << hess.nonZeros();
 

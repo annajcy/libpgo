@@ -59,7 +59,7 @@ void TRBDF2TimeIntegratorEnergy::gradient(ES::ConstRefVecXd x, ES::RefVecXd grad
   grad += b;
 }
 
-void TRBDF2TimeIntegratorEnergy::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) const
+void TRBDF2TimeIntegratorEnergy::hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const
 {
   // x is u (the full position)
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
@@ -69,7 +69,7 @@ void TRBDF2TimeIntegratorEnergy::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) 
     const ES::SpMatI &mapping = *intg->implicitModelsAll_Kmaping[i];
 
     // beta/h K + K
-    intg->implicitModelsAll[i]->hessian(x, K);
+    intg->implicitModelsAll[i]->hessianInPlace(x, K);
     double scale = 1.0;
 
     ES::addSmallToBig(scale, K, hess, 1.0, mapping, 1);
@@ -96,7 +96,7 @@ void TRBDF2TimeIntegratorEnergy::gradient_hessian(ES::ConstRefVecXd x, ES::RefVe
       const ES::SpMatI &mapping = *intg->implicitModelsAll_Kmaping[i];
 
       intg->implicitModelsAll[i]->gradient(x, fint);
-      intg->implicitModelsAll[i]->hessian(x, K);
+      intg->implicitModelsAll[i]->hessianInPlace(x, K);
       ES::addSmallToBig(1.0, K, hess, 1.0, mapping, 1);
     }
     else {
@@ -131,7 +131,7 @@ double TRBDF2TimeIntegratorEnergy::func_grad_hessian(ES::ConstRefVecXd x, ES::Re
       ES::SpMatD &K = *intg->implicitModelsAll_K[i];
       const ES::SpMatI &mapping = *intg->implicitModelsAll_Kmaping[i];
       intg->implicitModelsAll[i]->gradient(x, fint);
-      intg->implicitModelsAll[i]->hessian(x, K);
+      intg->implicitModelsAll[i]->hessianInPlace(x, K);
       ES::addSmallToBig(1.0, K, hess, 1.0, mapping, 1);
     }
     else {
@@ -154,7 +154,7 @@ void TRBDF2TimeIntegratorEnergy::getDOFs(std::vector<int> &dofs) const
   dofs = intg->allDOFs;
 }
 
-void TRBDF2TimeIntegratorEnergy::createHessian(ES::SpMatD &hess) const
+void TRBDF2TimeIntegratorEnergy::hessianAlloc(ES::SpMatD &hess) const
 {
   hess = A;
 }
@@ -196,7 +196,7 @@ int TRBDF2TimeIntegratorEnergy::isHessianTopologyFixed() const
   return 1;
 }
 
-void TRBDF2TimeIntegratorEnergy::hessianDirect(ES::ConstRefVecXd x, ES::SpMatD &hess) const
+void TRBDF2TimeIntegratorEnergy::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) const
 {
   // Start with hessianAll pattern (covers A + all fixed-topology models)
   hess = intg->hessianAll;
@@ -213,7 +213,7 @@ void TRBDF2TimeIntegratorEnergy::hessianDirect(ES::ConstRefVecXd x, ES::SpMatD &
         continue;
 
       const ES::SpMatI &mapping = *intg->implicitModelsAll_Kmaping[i];
-      intg->implicitModelsAll[i]->hessian(x, K);
+      intg->implicitModelsAll[i]->hessianInPlace(x, K);
       ES::addSmallToBig(1.0, K, hess, 1.0, mapping, 1);
     }
   }
@@ -222,7 +222,7 @@ void TRBDF2TimeIntegratorEnergy::hessianDirect(ES::ConstRefVecXd x, ES::SpMatD &
   for (size_t i = 0; i < intg->implicitModelsAll.size(); i++) {
     if (!intg->implicitModelsAll[i]->isHessianTopologyFixed()) {
       ES::SpMatD Ki;
-      intg->implicitModelsAll[i]->hessianDirect(x, Ki);
+      intg->implicitModelsAll[i]->hessian(x, Ki);
       if (Ki.nonZeros() == 0)
         continue;
 

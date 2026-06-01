@@ -20,9 +20,9 @@ TimeIntegrator::TimeIntegrator(const ES::SpMatD &massMatrix, std::shared_ptr<con
 {
   n3 = elasticEnergy->getNumDOFs();
 
-  elasticEnergy->createHessian(K);
-  elasticEnergy->createHessian(K1);
-  elasticEnergy->createHessian(MasK);
+  elasticEnergy->hessianAlloc(K);
+  elasticEnergy->hessianAlloc(K1);
+  elasticEnergy->hessianAlloc(MasK);
 
   memset(MasK.valuePtr(), 0, sizeof(double) * MasK.nonZeros());
 
@@ -129,7 +129,7 @@ void TimeIntegrator::addGeneralImplicitForceModel(std::shared_ptr<PotentialEnerg
   generalAdditionalForceModels_K.emplace_back();
 
   if (fm->isHessianTopologyFixed()) {
-    fm->createHessian(generalAdditionalForceModels_K.back());
+    fm->hessianAlloc(generalAdditionalForceModels_K.back());
   }
   
   generalAdditionalForceModels_K1.push_back(generalAdditionalForceModels_K.back());

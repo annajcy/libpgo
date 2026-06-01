@@ -54,7 +54,7 @@ void ConstraintFunctionsAssembler::init()
     ES::SpMatD jac, hess;
     const auto &dofs = constraints1D[i]->getDOFs();
 
-    constraints1D[i]->createHessian(hess);
+    constraints1D[i]->hessianAlloc(hess);
     constraints1D[i]->createJacobian(jac);
 
     PGO_ALOG(jac.rows() == 1);
@@ -79,7 +79,7 @@ void ConstraintFunctionsAssembler::init()
 
   for (size_t i = 0; i < constraintsND.size(); i++) {
     ES::SpMatD jac, hess;
-    constraintsND[i]->createHessian(hess);
+    constraintsND[i]->hessianAlloc(hess);
     constraintsND[i]->createJacobian(jac);
 
     for (Eigen::Index outeri = 0; outeri < jac.outerSize(); outeri++) {
@@ -183,13 +183,13 @@ void ConstraintFunctionsAssembler::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac
   }
 }
 
-void ConstraintFunctionsAssembler::hessian(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
+void ConstraintFunctionsAssembler::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
   for (size_t i = 0; i < constraints1D.size(); i++) {
     if (buf->constraints1D_H[i].nonZeros() == 0)
       continue;
 
-    constraints1D[i]->hessian(x, buf->constraints1D_H[i]);
+    constraints1D[i]->hessianInPlace(x, buf->constraints1D_H[i]);
     ES::addSmallToBig(lambda[i], buf->constraints1D_H[i], hess, 1.0, hessian1DMappings[i]);
   }
 
@@ -200,7 +200,7 @@ void ConstraintFunctionsAssembler::hessian(ES::ConstRefVecXd x, ES::ConstRefVecX
     ES::IDX dim = constraintNDOffsets[i + 1] - constraintNDOffsets[i];
     ES::IDX start = constraintNDOffsets[i];
 
-    constraintsND[i]->hessian(x, lambda.segment(start, dim), buf->constraintsND_H[i]);
+    constraintsND[i]->hessianInPlace(x, lambda.segment(start, dim), buf->constraintsND_H[i]);
     ES::addSmallToBig(1.0, buf->constraintsND_H[i], hess, 1.0, hessianNDMappings[i]);
   }
 }
@@ -210,7 +210,7 @@ void ConstraintFunctionsAssembler::hessianVector(ES::ConstRefVecXd x, ES::ConstR
   if (hasHessianVectorRoutine) {
     memset(buf->hess.valuePtr(), 0, sizeof(double) * buf->hess.nonZeros());
     for (size_t i = 0; i < constraints1D.size(); i++) {
-      constraints1D[i]->hessian(x, buf->constraints1D_H[i]);
+      constraints1D[i]->hessianInPlace(x, buf->constraints1D_H[i]);
       ES::addSmallToBig(lambda[i], buf->constraints1D_H[i], buf->hess, 1.0, hessian1DMappings[i]);
     }
 

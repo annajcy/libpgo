@@ -18,7 +18,7 @@ public:
     int numPts, const int *vertexIndices, const double *tgt, const double *bcCoeff, int isDisp);
   virtual double func(EigenSupport::ConstRefVecXd u) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd grad) const override;
-  virtual void hessian(EigenSupport::ConstRefVecXd, EigenSupport::SpMatD &hess) const override;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd, EigenSupport::SpMatD &hess) const override;
 
 
   void setCoeff(double v) { coeffAll = v; }

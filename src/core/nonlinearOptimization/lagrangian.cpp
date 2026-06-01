@@ -17,7 +17,7 @@ Lagrangian::Lagrangian(PotentialEnergy_const_p eng, ConstraintFunctions_const_p 
   energy(eng), constraints(cnt)
 {
   grad.resize(eng->getNumDOFs());
-  eng->createHessian(energyHessian);
+  eng->hessianAlloc(energyHessian);
 
   if (constraints) {
     std::vector<ES::TripletD> entries;
@@ -31,7 +31,7 @@ Lagrangian::Lagrangian(PotentialEnergy_const_p eng, ConstraintFunctions_const_p 
 
     if (constraints->isLinear() == false) {
       // put constraints hessian in
-      constraints->createHessian(constraintHessian);
+      constraints->hessianAlloc(constraintHessian);
       for (Eigen::Index i = 0; i < constraintHessian.outerSize(); i++) {
         for (ES::SpMatD::InnerIterator it(constraintHessian, i); it; ++it) {
           entries.emplace_back((int)it.row(), (int)it.col(), 1.0);
@@ -112,16 +112,16 @@ void Lagrangian::gradient(ES::ConstRefVecXd x, ES::RefVecXd gradOut) const
   gradOut.head(energy->getNumDOFs()) += grad;
 }
 
-void Lagrangian::hessian(ES::ConstRefVecXd x, ES::SpMatD &hessOut) const
+void Lagrangian::hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hessOut) const
 {
   memset(hessOut.valuePtr(), 0, sizeof(double) * hessOut.nonZeros());
 
-  energy->hessian(x.head(energy->getNumDOFs()), energyHessian);
+  energy->hessianInPlace(x.head(energy->getNumDOFs()), energyHessian);
   ES::addSmallToBig(1.0, energyHessian, hessOut, 0.0, eMapping, 1);
 
   if (constraints) {
     if (constraints->isLinear() == false) {
-      constraints->hessian(x.head(energy->getNumDOFs()), x.tail(constraints->getNumConstraints()), constraintHessian);
+      constraints->hessianInPlace(x.head(energy->getNumDOFs()), x.tail(constraints->getNumConstraints()), constraintHessian);
       ES::addSmallToBig(1.0, constraintHessian, hessOut, 1.0, cHessMapping, 1);
     }
 

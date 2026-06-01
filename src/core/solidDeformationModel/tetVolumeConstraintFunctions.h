@@ -30,7 +30,7 @@ public:
 
   virtual void func(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd g) const override;
   virtual void jacobian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &jac) const override;
-  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd lambda, EigenSupport::SpMatD &hess) const override;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd lambda, EigenSupport::SpMatD &hess) const override;
 
   virtual bool isLinear() const override { return false; }
   virtual bool isQuadratic() const override { return false; }

@@ -57,7 +57,7 @@ public:
     hess.setIdentity();
   }
 
-  void createHessian(ES::SpMatD &hess) const override
+  void hessianAlloc(ES::SpMatD &hess) const override
   {
     hess.resize(n, n);
     hess.setIdentity();
@@ -121,7 +121,7 @@ public:
     return func(x);
   }
 
-  void createHessian(ES::SpMatD &hess) const override
+  void hessianAlloc(ES::SpMatD &hess) const override
   {
     hess.resize(n, n);
     hess.setIdentity();
@@ -164,7 +164,7 @@ public:
     hess *= 10.0;
   }
 
-  void createHessian(ES::SpMatD &hess) const override
+  void hessianAlloc(ES::SpMatD &hess) const override
   {
     hess.resize(1, 1);
     hess.setIdentity();
@@ -206,7 +206,7 @@ public:
     hess.setIdentity();
   }
 
-  void createHessian(ES::SpMatD &hess) const override
+  void hessianAlloc(ES::SpMatD &hess) const override
   {
     hess.resize(1, 1);
     hess.setIdentity();

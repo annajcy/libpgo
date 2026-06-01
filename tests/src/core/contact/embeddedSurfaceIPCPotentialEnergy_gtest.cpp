@@ -107,7 +107,7 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, SparseEmbeddingPullsBackGradientAnd
   ES::VXd simulationGradient(adapter.getNumDOFs());
   adapter.gradient(simulationDisplacements, simulationGradient);
   ES::SpMatD simulationHessian;
-  adapter.hessianDirect(simulationDisplacements, simulationHessian);
+  adapter.hessian(simulationDisplacements, simulationHessian);
 
   EXPECT_LT(relativeError(simulationGradient, W.transpose() * surfaceGradient), 1e-12);
   EXPECT_LT(relativeError(sparseToDense(simulationHessian), sparseToDense(W.transpose() * surfaceHessian * W)), 1e-12);
@@ -129,7 +129,7 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, ProfilingRecordsAdapterSections)
   ES::VXd gradient(rest.size());
   adapter.gradient(u, gradient);
   ES::SpMatD hessian;
-  adapter.hessianDirect(u, hessian);
+  adapter.hessian(u, hessian);
   (void)adapter.func(u);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
@@ -161,13 +161,13 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, SeparateEvaluationsBuildIndependent
   ES::VXd gradient0 = ES::VXd::Zero(adapter.getNumDOFs());
   adapter.gradient(u, gradient0);
   ES::SpMatD hessian0;
-  adapter.hessianDirect(u, hessian0);
+  adapter.hessian(u, hessian0);
 
   const double energy1 = adapter.func(u);
   ES::VXd gradient1 = ES::VXd::Zero(adapter.getNumDOFs());
   adapter.gradient(u, gradient1);
   ES::SpMatD hessian1;
-  adapter.hessianDirect(u, hessian1);
+  adapter.hessian(u, hessian1);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
   const ProfileStat *activeSetBuild = findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kBuildActiveSet);
@@ -226,7 +226,7 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, FuncGradHessianFusesOneBroadPhaseFo
   EmbeddedSurfaceIPCPotentialEnergy energy(V, F, makeIdentityEmbedding(rest.size()), makeParams());
   ES::VXd g = ES::VXd::Zero(simDispl.size());
   ES::SpMatD H;
-  energy.hessianDirect(simDispl, H);
+  energy.hessian(simDispl, H);
   H.setZero();
   g.setZero();
 
@@ -251,7 +251,7 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, FuncGradHessianFusesOneBroadPhaseFo
   ES::VXd gRef = ES::VXd::Zero(simDispl.size());
   energy.gradient(simDispl, gRef);
   ES::SpMatD HRef;
-  energy.hessianDirect(simDispl, HRef);
+  energy.hessian(simDispl, HRef);
 
   EXPECT_NEAR(e, eRef, 1e-12);
   EXPECT_LT(relativeError(g, gRef), 1e-12);
@@ -299,7 +299,7 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, EnergyOnlyEvaluationSeedsNextCombin
   ES::VXd gRef = ES::VXd::Zero(simDispl.size());
   energy.gradient(simDispl, gRef);
   ES::SpMatD HRef;
-  energy.hessianDirect(simDispl, HRef);
+  energy.hessian(simDispl, HRef);
 
   EXPECT_NEAR(e1, eRef, 1e-12);
   EXPECT_LT(relativeError(g, gRef), 1e-12);
@@ -365,7 +365,7 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, GradientHessianFusesOneBroadPhaseFo
   const PotentialEnergy &baseEnergy = energy;
   ES::VXd g = ES::VXd::Zero(simDispl.size());
   ES::SpMatD H;
-  energy.hessianDirect(simDispl, H);
+  energy.hessian(simDispl, H);
   H.setZero();
   g.setZero();
 
@@ -394,7 +394,7 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, GradientHessianFusesOneBroadPhaseFo
   ES::VXd gRef = ES::VXd::Zero(simDispl.size());
   energy.gradient(simDispl, gRef);
   ES::SpMatD HRef;
-  energy.hessianDirect(simDispl, HRef);
+  energy.hessian(simDispl, HRef);
 
   EXPECT_LT(relativeError(g, gRef), 1e-12);
   EXPECT_LT(relativeError(sparseToDense(H), sparseToDense(HRef)), 1e-12);
@@ -442,7 +442,7 @@ TEST(EmbeddedSurfaceIPCPotentialEnergyGTest, AggregatedGradientHessianPreservesI
   ES::VXd gRef = ES::VXd::Zero(simDispl.size());
   aggregate.gradient(simDispl, gRef);
   ES::SpMatD HRef;
-  aggregate.hessianDirect(simDispl, HRef);
+  aggregate.hessian(simDispl, HRef);
 
   EXPECT_LT(relativeError(g, gRef), 1e-12);
   EXPECT_LT(relativeError(sparseToDense(H), sparseToDense(HRef)), 1e-12);

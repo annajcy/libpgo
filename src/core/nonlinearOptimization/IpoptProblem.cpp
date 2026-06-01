@@ -230,12 +230,12 @@ bool IpoptProblem::eval_h(Ipopt::Index n, const Ipopt::Number *x, bool new_x, Ip
     memset(hessianAll.valuePtr(), 0, sizeof(double) * hessianAll.nonZeros());
 
     memset(energyHessian.valuePtr(), 0, sizeof(double) * energyHessian.nonZeros());
-    problem->hessian(Eigen::Map<const Eigen::VectorXd>(x, n), energyHessian);
+    problem->hessianInPlace(Eigen::Map<const Eigen::VectorXd>(x, n), energyHessian);
     ES::addSmallToBig(obj_factor, energyHessian, hessianAll, 0.0, energyHessianMapping);
 
     if (constraints) {
       memset(lambdaHessian.valuePtr(), 0, sizeof(double) * lambdaHessian.nonZeros());
-      constraints->hessian(Eigen::Map<const Eigen::VectorXd>(x, n), Eigen::Map<const Eigen::VectorXd>(lambda, m), lambdaHessian);
+      constraints->hessianInPlace(Eigen::Map<const Eigen::VectorXd>(x, n), Eigen::Map<const Eigen::VectorXd>(lambda, m), lambdaHessian);
       ES::addSmallToBig(1.0, lambdaHessian, hessianAll, 1.0, lambdaHessianMapping);
     }
 

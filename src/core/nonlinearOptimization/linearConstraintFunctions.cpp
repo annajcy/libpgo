@@ -26,7 +26,7 @@ void LinearConstraintFunctions::jacobian(ES::ConstRefVecXd, ES::SpMatD &jac) con
   memcpy(jac.valuePtr(), jacConst.valuePtr(), jacConst.nonZeros() * sizeof(double));
 }
 
-void LinearConstraintFunctions::hessian(ES::ConstRefVecXd, ES::ConstRefVecXd, ES::SpMatD &hess) const
+void LinearConstraintFunctions::hessianInPlace(ES::ConstRefVecXd, ES::ConstRefVecXd, ES::SpMatD &hess) const
 {
   if (hess.valuePtr())
     memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());

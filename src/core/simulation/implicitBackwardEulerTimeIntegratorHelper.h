@@ -19,17 +19,17 @@ public:
 
   virtual double func(EigenSupport::ConstRefVecXd x) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const override;
-  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
   virtual double func_grad_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const override;
   virtual void gradient_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const override;
-  virtual void createHessian(EigenSupport::SpMatD &hess) const override;
+  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const override;
   virtual void getDOFs(std::vector<int> &dofs) const override;
   virtual int getNumDOFs() const override;
 
   virtual NonlinearOptimization::MaxStepResult computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
 
   virtual int isHessianTopologyFixed() const override;
-  virtual void hessianDirect(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
+  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
 
   void clearCachedImplicitEnergyComponents() const;
   void printImplicitEnergy(EigenSupport::ConstRefVecXd x, bool allowCachedComponents = false) const;

@@ -472,10 +472,10 @@ void KnitroOptimizer::initQuadraticProblem()
   std::vector<double> values;
 
   ES::SpMatD h;
-  handles->problem->getObjectiveFunction()->createHessian(h);
+  handles->problem->getObjectiveFunction()->hessianAlloc(h);
 
   ES::VXd x = ES::VXd::Zero(h.rows()), grad = ES::VXd::Zero(h.rows());
-  handles->problem->getObjectiveFunction()->hessian(x, h);
+  handles->problem->getObjectiveFunction()->hessianInPlace(x, h);
   handles->problem->getObjectiveFunction()->gradient(x, grad);
 
   for (ES::IDX i = 0; i < h.outerSize(); i++) {
@@ -746,7 +746,7 @@ void KnitroOptimizer::init()
           lambda[i] = 1.0;
 
           memset(lambdaHessian.valuePtr(), 0, lambdaHessian.nonZeros() * sizeof(double));
-          handles->problem->getConstraintFunctions()->hessian(handles->problem->getXInit(), lambda, lambdaHessian);
+          handles->problem->getConstraintFunctions()->hessianInPlace(handles->problem->getXInit(), lambda, lambdaHessian);
 
           for (ES::IDX r = 0; r < lambdaHessian.outerSize(); r++) {
             for (ES::SpMatD::InnerIterator it(lambdaHessian, r); it; ++it) {

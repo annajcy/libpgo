@@ -20,9 +20,9 @@ public:
 
   virtual double func(pgo::EigenSupport::ConstRefVecXd x) const override;
   virtual void gradient(pgo::EigenSupport::ConstRefVecXd x, pgo::EigenSupport::RefVecXd grad) const override;
-  virtual void hessian(pgo::EigenSupport::ConstRefVecXd x, pgo::EigenSupport::SpMatD &hess) const override;
+  virtual void hessianInPlace(pgo::EigenSupport::ConstRefVecXd x, pgo::EigenSupport::SpMatD &hess) const override;
 
-  virtual void createHessian(pgo::EigenSupport::SpMatD &hess) const override { hess = hessTemplate; }
+  virtual void hessianAlloc(pgo::EigenSupport::SpMatD &hess) const override { hess = hessTemplate; }
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = allDOFs; }
   virtual int getNumDOFs() const override { return (int)allDOFs.size(); }
   virtual int isQuadratic() const override { return 0; }

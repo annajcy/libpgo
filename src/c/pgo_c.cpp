@@ -271,7 +271,7 @@ int64_t pgo_smooth_rs_energy_hess_num_entries(pgoSmoothRSEnergyStructHandle ener
   pgo::PredefinedPotentialEnergies::SmoothRSEnergy *eng = reinterpret_cast<pgo::PredefinedPotentialEnergies::SmoothRSEnergy *>(energy);
 
   ES::SpMatD H;
-  eng->createHessian(H);
+  eng->hessianAlloc(H);
 
   return (int64_t)H.nonZeros();
 #else
@@ -287,10 +287,10 @@ void pgo_smooth_rs_energy_hess(pgoSmoothRSEnergyStructHandle energy, double *x, 
   pgo::PredefinedPotentialEnergies::SmoothRSEnergy *eng = reinterpret_cast<pgo::PredefinedPotentialEnergies::SmoothRSEnergy *>(energy);
 
   ES::SpMatD H;
-  eng->createHessian(H);
+  eng->hessianAlloc(H);
 
   memset(H.valuePtr(), 0, H.nonZeros() * sizeof(double));
-  eng->hessian(ES::Mp<const ES::VXd>(x, eng->getNumDOFs()), H);
+  eng->hessianInPlace(ES::Mp<const ES::VXd>(x, eng->getNumDOFs()), H);
 
   int64_t inc = 0;
   for (ES::IDX rowi = 0; rowi < H.rows(); rowi++) {
@@ -702,7 +702,6 @@ int pgo_run_sim_from_config(const char *configFileName)
   zero.setZero();
 
   ES::SpMatD K;
-  elasticEnergy->createHessian(K);
   elasticEnergy->hessian(zero, K);
 
   // attachments

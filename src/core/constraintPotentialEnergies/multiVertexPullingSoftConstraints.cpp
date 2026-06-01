@@ -127,7 +127,7 @@ void MultipleVertexPulling::gradient(ES::ConstRefVecXd u, ES::RefVecXd grad) con
   grad *= coeffAll;
 }
 
-void MultipleVertexPulling::hessian(ES::ConstRefVecXd, ES::SpMatD &hess) const
+void MultipleVertexPulling::hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 

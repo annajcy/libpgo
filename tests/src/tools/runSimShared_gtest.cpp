@@ -478,7 +478,6 @@ TEST(RunSimVolumeMeshIOGTest, InitializesCubicRuntimeMainPath)
 
   ES::VXd zero = ES::VXd::Zero(initialized.restPosition.size());
   ES::SpMatD hess;
-  initialized.elasticEnergy->createHessian(hess);
   initialized.elasticEnergy->hessian(zero, hess);
   EXPECT_EQ(hess.rows(), initialized.restPosition.size());
   EXPECT_EQ(hess.cols(), initialized.restPosition.size());

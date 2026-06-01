@@ -36,13 +36,13 @@ public:
 
   virtual double func(EigenSupport::ConstRefVecXd x) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const override;
-  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
   virtual double func_grad_hessian(
     EigenSupport::ConstRefVecXd x,
     EigenSupport::RefVecXd grad,
     EigenSupport::SpMatD &hess) const override;
   virtual void hessianVector(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd vec, EigenSupport::RefVecXd hessVec) const override;
-  virtual void createHessian(EigenSupport::SpMatD &hess) const override { hess = hessianAll; }
+  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const override { hess = hessianAll; }
   virtual void gradient_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const override;
 
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = allDOFs; }
@@ -55,7 +55,7 @@ public:
   virtual int isQuadratic() const override { return isQuadraticEnergy; }
   virtual int hasHessianVector() const override { return hasHessianVectorProduct; }
   virtual int isHessianTopologyFixed() const override;
-  virtual void hessianDirect(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
+  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
 
   virtual MaxStepResult computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
   virtual void beginLineSearch(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;

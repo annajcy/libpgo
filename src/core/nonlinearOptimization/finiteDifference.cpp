@@ -133,10 +133,10 @@ void FiniteDifference::testEnergy(std::shared_ptr<const PotentialEnergy> energy,
   if (testHessian) {
     ES::VXd xtemp = xcur, grad(nAll), gradSum(nAll);
     ES::SpMatD hess;
-    energy->createHessian(hess);
+    energy->hessianAlloc(hess);
 
     memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
-    energy->hessian(xcur, hess);
+    energy->hessianInPlace(xcur, hess);
 
     double exactNorm = 0;
     for (int dofi : dofs) {
@@ -374,8 +374,8 @@ void FiniteDifference::testConstraints(std::shared_ptr<const ConstraintFunctions
   gradSum.resize(nAll);
 
   ES::SpMatD hess;
-  cfunc->createHessian(hess);
-  cfunc->hessian(xcur, lambdaCur, hess);
+  cfunc->hessianAlloc(hess);
+  cfunc->hessianInPlace(xcur, lambdaCur, hess);
 
   norm = 0;
   absErr = 0;
@@ -516,7 +516,7 @@ void FiniteDifference::gradient(const double *x, double *grad, int n, std::vecto
   std::cout << std::endl;
 }
 
-void FiniteDifference::hessian(const double *x, double *hess, int n, std::vector<int> *dofs, std::function<void(const double *, double *)> gradFunc)
+void FiniteDifference::hessianInPlace(const double *x, double *hess, int n, std::vector<int> *dofs, std::function<void(const double *, double *)> gradFunc)
 {
   ES::VXd xtemp(n), xcur = Eigen::Map<const ES::VXd>(x, n);
   ES::VXd grad = ES::VXd::Zero(n), gradSum(n);

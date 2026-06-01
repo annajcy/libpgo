@@ -30,9 +30,9 @@ public:
   virtual void gradient(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::RefVecXd simulationGradient) const override;
-  virtual void hessian(EigenSupport::ConstRefVecXd, EigenSupport::SpMatD &) const override;
-  virtual void createHessian(EigenSupport::SpMatD &) const override;
-  virtual void hessianDirect(
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd, EigenSupport::SpMatD &) const override;
+  virtual void hessianAlloc(EigenSupport::SpMatD &) const override;
+  virtual void hessian(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::SpMatD &simulationHessian) const override;
   virtual NonlinearOptimization::MaxStepResult computeMaxStepLimit(

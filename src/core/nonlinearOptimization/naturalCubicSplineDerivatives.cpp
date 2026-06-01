@@ -962,7 +962,7 @@ void NaturalCubicSpline2DAsNonlinearConstraints::jacobian(ES::ConstRefVecXd x, E
   PGO_ALOG(si == 4 * numPoints - 4);
 }
 
-void NaturalCubicSpline2DAsNonlinearConstraints::hessian(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
+void NaturalCubicSpline2DAsNonlinearConstraints::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
   int si = 0;
   int n = numPoints - 1;

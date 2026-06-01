@@ -569,7 +569,7 @@ pypgo.energy
 
 每个 task 必须以 C++ test 起步（characterization 或 unit test），通过后再加 Python binding 和 Python test。
 
-### Task E0: Hessian API 跨代码库 rename
+### Task E0: Hessian API 跨代码库 rename ✅ 已完成 (2026-06-01)
 
 **必须在 E1 之前完成。** 这是一次性 mechanical refactor，要求一个系列 commit 内主干始终可编译。
 

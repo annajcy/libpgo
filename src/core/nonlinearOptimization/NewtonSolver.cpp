@@ -272,8 +272,8 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
 
     if (energy->isHessianTopologyFixed()) {
       // sparse matrix
-      energy->createHessian(sysFull);
-      energy->hessian(x, sysFull);
+      energy->hessianAlloc(sysFull);
+      energy->hessianInPlace(x, sysFull);
 
       ES::removeRowsCols(sysFull, fixedDOFs, A11);
       ES::removeRowsCols(sysFull, A11, fixedDOFs, A11Mapping);

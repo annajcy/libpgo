@@ -80,14 +80,14 @@ void DeformationModelEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSuppor
   forceModelAssembler->computeGradient(p.data(), grad.data());
 }
 
-void DeformationModelEnergy::hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
+void DeformationModelEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
   ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
   forceModelAssembler->computeHessian(p.data(), hess);
 }
 
-void DeformationModelEnergy::createHessian(EigenSupport::SpMatD &hess) const
+void DeformationModelEnergy::hessianAlloc(EigenSupport::SpMatD &hess) const
 {
   hess = forceModelAssembler->getHessianTemplate();
 }

@@ -93,7 +93,7 @@ public:
     }
   }
 
-  virtual void hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) const override
+  virtual void hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const override
   {
     memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
@@ -121,7 +121,7 @@ public:
     PGO_ALOG(hess.isCompressed() == true);
   }
 
-  virtual void createHessian(EigenSupport::SpMatD &hess) const override { hess = hessTemplate; }
+  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const override { hess = hessTemplate; }
 
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = allDOFs; }
   virtual int getNumDOFs() const override { return (int)allDOFs.size(); }

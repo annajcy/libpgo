@@ -101,7 +101,6 @@ public:
     EigenSupport::SpMatD H;
     {
       nb::gil_scoped_release release;
-      energy_->createHessian(H);
       energy_->hessian(uMap, H);
     }
     return SparseMatrixCore(std::move(H));

@@ -219,7 +219,7 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
 
 // dg/dx = dSdP dPdx
 // d2g/dx2 = dPdx d2SdP2 dPdx + dSdP d2Pdx2
-void PrescribedPrincipleStressConstraintFunctions::hessian(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
+void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
   for (int ei = 0; ei < (int)elements.size(); ei++) {
     int eleID = elements[ei];

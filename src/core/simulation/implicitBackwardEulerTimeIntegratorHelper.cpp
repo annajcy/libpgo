@@ -54,7 +54,7 @@ void ImplicitBackwardEulerEnergy::gradient(ES::ConstRefVecXd x, ES::RefVecXd gra
   grad -= intg->b;
 }
 
-void ImplicitBackwardEulerEnergy::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) const
+void ImplicitBackwardEulerEnergy::hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const
 {
   // x is u (the full position)
   // constexpr double eps = 1e-8;
@@ -66,7 +66,7 @@ void ImplicitBackwardEulerEnergy::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess)
     const ES::SpMatI &mapping = *intg->implicitModelsAll_Kmaping[i];
 
     // beta/h K + K
-    intg->implicitModelsAll[i]->hessian(x, K);
+    intg->implicitModelsAll[i]->hessianInPlace(x, K);
     double scale = 1.0;
 
     ES::addSmallToBig(scale, K, hess, 1.0, mapping, 1);
@@ -92,7 +92,7 @@ void ImplicitBackwardEulerEnergy::gradient_hessian(ES::ConstRefVecXd x, ES::RefV
       const ES::SpMatI &mapping = *intg->implicitModelsAll_Kmaping[i];
 
       intg->implicitModelsAll[i]->gradient(x, fint);
-      intg->implicitModelsAll[i]->hessian(x, K);
+      intg->implicitModelsAll[i]->hessianInPlace(x, K);
       ES::addSmallToBig(1.0, K, hess, 1.0, mapping, 1);
     }
     else {
@@ -137,7 +137,7 @@ double ImplicitBackwardEulerEnergy::func_grad_hessian(ES::ConstRefVecXd x, ES::R
       ES::SpMatD &K = *intg->implicitModelsAll_K[i];
       const ES::SpMatI &mapping = *intg->implicitModelsAll_Kmaping[i];
       intg->implicitModelsAll[i]->gradient(x, fint);
-      intg->implicitModelsAll[i]->hessian(x, K);
+      intg->implicitModelsAll[i]->hessianInPlace(x, K);
       ES::addSmallToBig(1.0, K, hess, 1.0, mapping, 1);
     }
     else {
@@ -164,7 +164,7 @@ void ImplicitBackwardEulerEnergy::getDOFs(std::vector<int> &dofs) const
   dofs = intg->allDOFs;
 }
 
-void ImplicitBackwardEulerEnergy::createHessian(ES::SpMatD &hess) const
+void ImplicitBackwardEulerEnergy::hessianAlloc(ES::SpMatD &hess) const
 {
   hess = intg->hessianAll;
 }
@@ -237,7 +237,7 @@ int ImplicitBackwardEulerEnergy::isHessianTopologyFixed() const
   return 1;
 }
 
-void ImplicitBackwardEulerEnergy::hessianDirect(ES::ConstRefVecXd x, ES::SpMatD &hess) const
+void ImplicitBackwardEulerEnergy::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) const
 {
   // Start with hessianAll pattern (covers A + all fixed-topology models)
   hess = intg->hessianAll;
@@ -254,7 +254,7 @@ void ImplicitBackwardEulerEnergy::hessianDirect(ES::ConstRefVecXd x, ES::SpMatD 
         continue;
 
       const ES::SpMatI &mapping = *intg->implicitModelsAll_Kmaping[i];
-      intg->implicitModelsAll[i]->hessian(x, K);
+      intg->implicitModelsAll[i]->hessianInPlace(x, K);
       ES::addSmallToBig(1.0, K, hess, 1.0, mapping, 1);
     }
   }
@@ -263,7 +263,7 @@ void ImplicitBackwardEulerEnergy::hessianDirect(ES::ConstRefVecXd x, ES::SpMatD 
   for (size_t i = 0; i < intg->implicitModelsAll.size(); i++) {
     if (!intg->implicitModelsAll[i]->isHessianTopologyFixed()) {
       ES::SpMatD Ki;
-      intg->implicitModelsAll[i]->hessianDirect(x, Ki);
+      intg->implicitModelsAll[i]->hessian(x, Ki);
       if (Ki.nonZeros() == 0)
         continue;
 

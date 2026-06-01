@@ -465,7 +465,7 @@ void SmoothRSEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVe
 // first term: S
 // h = (dS/dF)^T LTL dS/dF + S^T LTL d2S/dF2
 
-void SmoothRSEnergy::hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
+void SmoothRSEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
   int nele = tetMesh.numTets();
   int n3 = tetMesh.numVertices() * 3;

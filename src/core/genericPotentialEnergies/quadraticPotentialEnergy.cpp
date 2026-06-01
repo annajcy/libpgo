@@ -141,7 +141,7 @@ void QuadraticPotentialEnergy::gradient(ES::ConstRefVecXd x, ES::RefVecXd grad) 
   }
 }
 
-void QuadraticPotentialEnergy::hessian(ES::ConstRefVecXd, ES::SpMatD &hess) const
+void QuadraticPotentialEnergy::hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) const
 {
   memcpy(hess.valuePtr(), A.valuePtr(), sizeof(double) * A.nonZeros());
 }

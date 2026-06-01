@@ -22,10 +22,10 @@ public:
 
   virtual double func(EigenSupport::ConstRefVecXd x) const = 0;
   virtual void jacobian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &jac) const = 0;
-  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const = 0;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const = 0;
 
   virtual void createJacobian(EigenSupport::SpMatD &jac) const = 0;
-  virtual void createHessian(EigenSupport::SpMatD &hess) const = 0;
+  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const = 0;
 
   virtual const std::vector<int> &getDOFs() const { return dofs; }
 

@@ -22,15 +22,15 @@ public:
 
   virtual double func(EigenSupport::ConstRefVecXd x) const = 0;
   virtual void gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const = 0;
-  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const = 0;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const = 0;
   virtual void hessianVector(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd vec, EigenSupport::RefVecXd hessVec) const;
 
   virtual double func_grad(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const { gradient(x, grad); return func(x); }
-  virtual double func_grad_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const { gradient(x, grad), hessian(x, hess); return func(x); }
-  virtual void gradient_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const { gradient(x, grad); hessianDirect(x, hess); }
+  virtual double func_grad_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const { gradient(x, grad), hessianInPlace(x, hess); return func(x); }
+  virtual void gradient_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const { gradient(x, grad); hessian(x, hess); }
 
-  virtual void hessianDirect(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const;
-  virtual void createHessian(EigenSupport::SpMatD &hess) const = 0;
+  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const;
+  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const = 0;
 
   virtual void getDOFs(std::vector<int> &dofs) const = 0;
   virtual int getNumDOFs() const = 0;
@@ -52,10 +52,10 @@ inline void PotentialEnergy::hessianVector(EigenSupport::ConstRefVecXd, EigenSup
 {
 }
 
-inline void PotentialEnergy::hessianDirect(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
+inline void PotentialEnergy::hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
-  createHessian(hess);
-  hessian(x, hess);
+  hessianAlloc(hess);
+  hessianInPlace(x, hess);
 }
 
 }  // namespace NonlinearOptimization

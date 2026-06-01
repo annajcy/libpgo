@@ -209,7 +209,7 @@ void TetVolumeConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac
   });
 }
 
-void TetVolumeConstraintFunctions::hessian(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
+void TetVolumeConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 

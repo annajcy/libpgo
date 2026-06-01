@@ -243,7 +243,7 @@ void BarycentricCoordinateSliding::computeHessian()
     tbb::static_partitioner());
 }
 
-void BarycentricCoordinateSliding::hessian(ES::ConstRefVecXd q, ES::SpMatD &hess) const
+void BarycentricCoordinateSliding::hessianInPlace(ES::ConstRefVecXd q, ES::SpMatD &hess) const
 {
   if (checkPenetration) {
     memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());

@@ -241,7 +241,7 @@ void SegmentBinormalConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMat
     tbb::static_partitioner());
 }
 
-void SegmentBinormalConstraintFunctions::hessian(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
+void SegmentBinormalConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 

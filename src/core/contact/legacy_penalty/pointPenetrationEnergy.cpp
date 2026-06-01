@@ -412,7 +412,7 @@ void PointPenetrationEnergy::computeHessian()
     tbb::static_partitioner());
 }
 
-void PointPenetrationEnergy::hessian(ES::ConstRefVecXd u, ES::SpMatD &hess) const
+void PointPenetrationEnergy::hessianInPlace(ES::ConstRefVecXd u, ES::SpMatD &hess) const
 {
   if (checkPenetration) {
     std::memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());

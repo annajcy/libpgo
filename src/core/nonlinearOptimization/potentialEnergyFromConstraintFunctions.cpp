@@ -17,7 +17,7 @@ PotentialEnergyConstraintFunctions::PotentialEnergyConstraintFunctions(int nAll,
 {
   g.resize(cnstt->getNumConstraints());
   cnstt->createJacobian(jac);
-  cnstt->createHessian(lambdaHessian);
+  cnstt->hessianAlloc(lambdaHessian);
 
   allDOFs.resize(nAll);
   std::iota(allDOFs.begin(), allDOFs.end(), 0);
@@ -59,7 +59,7 @@ void PotentialEnergyConstraintFunctions::gradient(ES::ConstRefVecXd x, ES::RefVe
   ES::mv(jac, g, grad, 1);
 }
 
-void PotentialEnergyConstraintFunctions::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) const
+void PotentialEnergyConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, hess.nonZeros() * sizeof(double));
 
@@ -75,7 +75,7 @@ void PotentialEnergyConstraintFunctions::hessian(ES::ConstRefVecXd x, ES::SpMatD
     // std::cout << ES::MXd(jac) << std::endl;
 
     cnstt->func(x, g);
-    cnstt->hessian(x, g, lambdaHessian);
+    cnstt->hessianInPlace(x, g, lambdaHessian);
 
     // std::cout << "g:\n"
     //           << g << std::endl;

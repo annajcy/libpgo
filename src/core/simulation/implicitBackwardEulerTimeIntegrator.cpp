@@ -215,7 +215,7 @@ void ImplicitBackwardEulerTimeIntegrator::updateD()
 
     // D += dK * K
     if (dampingParamsAll[i] > 0) {
-      implicitModelsAll[i]->hessian(q, curK);
+      implicitModelsAll[i]->hessianInPlace(q, curK);
       ES::addSmallToBig(dampingParamsAll[i], curK, D, 1.0, mapping, 1);
     }
   }

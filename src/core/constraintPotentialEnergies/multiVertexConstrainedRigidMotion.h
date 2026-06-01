@@ -21,7 +21,7 @@ public:
 
   virtual double func(EigenSupport::ConstRefVecXd u) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd grad) const override;
-  virtual void hessian(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &hess) const override;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &hess) const override;
 
   void setCoeff(double r, double t) { coeff[0] = r, coeff[1] = t; }
   void setCoeff(const double *v) { vertexWeights.assign(v, v + vertexIndices.size()); }
@@ -32,7 +32,7 @@ public:
   void setRestCenter(const double origin[3] = nullptr);
   EigenSupport::V3d getRestCenter() const { return centerRest; }
 
-  virtual void createHessian(EigenSupport::SpMatD &hess) const override { hess = hessTemplate; }
+  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const override { hess = hessTemplate; }
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = allDOFs; }
   virtual int getNumDOFs() const override { return (int)allDOFs.size(); }
 

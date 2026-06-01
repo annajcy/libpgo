@@ -26,9 +26,9 @@ NonlinearProblem::NonlinearProblem(PotentialEnergy_const_p energy_, ConstraintFu
   clow = Eigen::VectorXd::Zero(constraints->getNumConstraints());
   chi = Eigen::VectorXd::Zero(constraints->getNumConstraints());
 
-  problem->createHessian(energyHessian);
+  problem->hessianAlloc(energyHessian);
   constraints->createJacobian(jac);
-  constraints->createHessian(lambdaHessian);
+  constraints->hessianAlloc(lambdaHessian);
 
   ES::mergeSparseMatrix(hessianAll, energyHessian, lambdaHessian);
   ES::small2Big(energyHessian, hessianAll, 0, 0, energyHessianMapping);
@@ -38,7 +38,7 @@ NonlinearProblem::NonlinearProblem(PotentialEnergy_const_p energy_, ConstraintFu
 NonlinearProblem::NonlinearProblem(PotentialEnergy_const_p energy_):
   problem(energy_)
 {
-  problem->createHessian(energyHessian);
+  problem->hessianAlloc(energyHessian);
   xinit.resize(problem->getNumDOFs());
 
   xlow.resize(problem->getNumDOFs());
@@ -108,22 +108,22 @@ ES::SpMatD &NonlinearProblem::hessian(EigenSupport::ConstRefVecXd x, EigenSuppor
 
   if (objScale > 0) {
     if (constraints) {
-      problem->hessian(x, energyHessian);
+      problem->hessianInPlace(x, energyHessian);
       ES::addSmallToBig(objScale, energyHessian, hessianAll, 0.0, energyHessianMapping, 1);
 
       if (lambdaHessian.nonZeros()) {
-        constraints->hessian(x, lambda, lambdaHessian);
+        constraints->hessianInPlace(x, lambda, lambdaHessian);
         ES::addSmallToBig(1.0, lambdaHessian, hessianAll, 1.0, lambdaHessianMapping, 1);
       }
     }
     else {
-      problem->hessian(x, hessianAll);
+      problem->hessianInPlace(x, hessianAll);
       hessianAll *= objScale;
     }
   }
   else {
     if (constraints && lambdaHessian.nonZeros()) {
-      constraints->hessian(x, lambda, lambdaHessian);
+      constraints->hessianInPlace(x, lambda, lambdaHessian);
       ES::transferSmallToBig(lambdaHessian, hessianAll, lambdaHessianMapping, 1);
     }
   }

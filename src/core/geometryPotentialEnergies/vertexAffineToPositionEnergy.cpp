@@ -30,7 +30,7 @@ VertexAffineToPositionEnergy::VertexAffineToPositionEnergy(int totalNumDOFs,
   restPosition(restp), originalEnergy(origE)
 {
   buf = std::make_shared<VertexAffineToPositionEnergyBuf>();
-  originalEnergy->createHessian(buf->hess_orig);
+  originalEnergy->hessianAlloc(buf->hess_orig);
   buf->grad_orig.setZero(originalEnergy->getNumDOFs());
   buf->x_orig.setZero(originalEnergy->getNumDOFs());
 
@@ -213,12 +213,12 @@ void VertexAffineToPositionEnergy::gradient(pgo::EigenSupport::ConstRefVecXd x, 
   }
 }
 
-void VertexAffineToPositionEnergy::hessian(pgo::EigenSupport::ConstRefVecXd x, pgo::EigenSupport::SpMatD &hess) const
+void VertexAffineToPositionEnergy::hessianInPlace(pgo::EigenSupport::ConstRefVecXd x, pgo::EigenSupport::SpMatD &hess) const
 {
   compute_x_orig(x, buf->x_orig);
 
   std::memset(buf->hess_orig.valuePtr(), 0, sizeof(double) * buf->hess_orig.nonZeros());
-  originalEnergy->hessian(buf->x_orig, buf->hess_orig);
+  originalEnergy->hessianInPlace(buf->x_orig, buf->hess_orig);
 
   if (nRestDOFs == 0) {
     ES::mm(buf->hess_orig, AToX, buf->mul_hc, buf->H11C, 0);

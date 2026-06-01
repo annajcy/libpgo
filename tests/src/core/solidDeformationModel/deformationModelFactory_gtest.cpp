@@ -58,7 +58,6 @@ TEST(DeformationModelFactoryGTest, TetZeroDisplacementBaseline)
     EXPECT_TRUE(std::isfinite(grad0[i])) << "Non-finite gradient entry at " << i;
 
   ES::SpMatD h0;
-  energy->createHessian(h0);
   energy->hessian(u0, h0);
   for (Eigen::Index i = 0; i < h0.nonZeros(); i++)
     EXPECT_TRUE(std::isfinite(h0.valuePtr()[i])) << "Non-finite Hessian entry at " << i;
@@ -90,7 +89,6 @@ TEST(DeformationModelFactoryGTest, CubicZeroDisplacementBaseline)
     EXPECT_TRUE(std::isfinite(grad0[i])) << "Non-finite gradient entry at " << i;
 
   ES::SpMatD h0;
-  energy->createHessian(h0);
   energy->hessian(u0, h0);
   for (Eigen::Index i = 0; i < h0.nonZeros(); i++)
     EXPECT_TRUE(std::isfinite(h0.valuePtr()[i])) << "Non-finite Hessian entry at " << i;
@@ -238,9 +236,9 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoCubicEnergies)
 
   // Hessian at zero displacement: both must produce same sparsity pattern.
   ES::SpMatD h1, h2;
-  b1->createHessian(h1);
-  b2->createHessian(h2);
-  b1->hessian(u1, h1);
-  b2->hessian(u2, h2);
+  b1->hessianAlloc(h1);
+  b2->hessianAlloc(h2);
+  b1->hessianInPlace(u1, h1);
+  b2->hessianInPlace(u2, h2);
   EXPECT_EQ(h1.nonZeros(), h2.nonZeros());
 }

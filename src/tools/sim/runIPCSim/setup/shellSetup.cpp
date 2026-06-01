@@ -159,7 +159,6 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
 
   ES::VXd zero = ES::VXd::Zero(n3);
   ES::SpMatD K;
-  elasticEnergy->createHessian(K);
   elasticEnergy->hessian(zero, K);
 
   std::vector<std::string> fixedVertexFilenames;

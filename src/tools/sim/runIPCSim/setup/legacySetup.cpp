@@ -62,7 +62,6 @@ IpcSimulationContext buildVolumeLegacyPenaltySimulation(const pgo::ConfigFileJSO
 
   ES::VXd zero = ES::VXd::Zero(initialized.restPosition.size());
   ES::SpMatD K;
-  initialized.elasticEnergy->createHessian(K);
   initialized.elasticEnergy->hessian(zero, K);
 
   std::vector<std::shared_ptr<ConstraintPotentialEnergies::MultipleVertexPulling>> pullingEnergies;

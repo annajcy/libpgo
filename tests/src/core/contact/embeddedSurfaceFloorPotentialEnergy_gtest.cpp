@@ -120,7 +120,7 @@ TEST(EmbeddedSurfaceFloorPotentialEnergyGTest, IdentityEmbeddingMatchesReference
     ES::VXd gradient(energy.getNumDOFs());
     energy.gradient(u, gradient);
     ES::SpMatD hessian;
-    energy.hessianDirect(u, hessian);
+    energy.hessian(u, hessian);
 
     EXPECT_NEAR(energy.func(u), expectedEnergy, 1e-12);
     EXPECT_LT(relativeError(gradient, expectedGradient), 1e-12);
@@ -177,7 +177,7 @@ TEST(EmbeddedSurfaceFloorPotentialEnergyGTest, SparseEmbeddingPullsBackGradientA
   ES::VXd simulationGradient(energy.getNumDOFs());
   energy.gradient(simulationDisplacements, simulationGradient);
   ES::SpMatD simulationHessian;
-  energy.hessianDirect(simulationDisplacements, simulationHessian);
+  energy.hessian(simulationDisplacements, simulationHessian);
 
   const ES::VXd expectedGradient = W.transpose() * surfaceGradient;
   const ES::MXd expectedHessian = W.transpose() * surfaceHessian * ES::MXd(W);
@@ -211,7 +211,7 @@ TEST(EmbeddedSurfaceFloorPotentialEnergyGTest, UpperSidePenalizesPointsAboveHeig
   ES::VXd gradient(energy.getNumDOFs());
   energy.gradient(u, gradient);
   ES::SpMatD hessian;
-  energy.hessianDirect(u, hessian);
+  energy.hessian(u, hessian);
 
   EXPECT_NEAR(energy.func(u), expectedEnergy, 1e-12);
   EXPECT_LT(relativeError(gradient, expectedGradient), 1e-12);

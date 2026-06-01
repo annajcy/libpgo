@@ -67,7 +67,7 @@ void PotentialEnergies::init()
 
     // Only include fixed-topology energies in hessianAll
     if (energy->isHessianTopologyFixed()) {
-      energy->createHessian(h);
+      energy->hessianAlloc(h);
       entries.reserve(entries.size() + static_cast<std::size_t>(h.nonZeros()));
       for (ES::IDX outeri = 0; outeri < h.outerSize(); ++outeri) {
         for (ES::SpMatD::InnerIterator it(h, outeri); it; ++it) {
@@ -171,7 +171,7 @@ void PotentialEnergies::gradient(ES::ConstRefVecXd x, ES::RefVecXd grad) const
   }
 }
 
-void PotentialEnergies::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) const
+void PotentialEnergies::hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const
 {
   std::memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
   for (size_t i = 0; i < potentialEnergies.size(); i++) {
@@ -183,7 +183,7 @@ void PotentialEnergies::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess) const
       continue;
 
     mapx(x, energyDOFs[i], buffer->xlocals[i]);
-    potentialEnergies[i]->hessian(buffer->xlocals[i], buffer->hessianMatrices[i]);
+    potentialEnergies[i]->hessianInPlace(buffer->xlocals[i], buffer->hessianMatrices[i]);
 
     ES::addSmallToBig(energyCoeffs[i], buffer->hessianMatrices[i], hess, 1.0, hessianMatrixMappings[i]);
   }
@@ -227,7 +227,7 @@ int PotentialEnergies::isHessianTopologyFixed() const
   return 1;
 }
 
-void PotentialEnergies::hessianDirect(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
+void PotentialEnergies::hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
   // Start with hessianAll pattern (covers all fixed-topology energies)
   hess = hessianAll;
@@ -243,7 +243,7 @@ void PotentialEnergies::hessianDirect(EigenSupport::ConstRefVecXd x, EigenSuppor
 
     if (potentialEnergies[i]->isHessianTopologyFixed()) {
       mapx(x, energyDOFs[i], buffer->xlocals[i]);
-      potentialEnergies[i]->hessian(buffer->xlocals[i], buffer->hessianMatrices[i]);
+      potentialEnergies[i]->hessianInPlace(buffer->xlocals[i], buffer->hessianMatrices[i]);
       ES::addSmallToBig(energyCoeffs[i], buffer->hessianMatrices[i], hess, 1.0, hessianMatrixMappings[i]);
     }
   }
@@ -256,7 +256,7 @@ void PotentialEnergies::hessianDirect(EigenSupport::ConstRefVecXd x, EigenSuppor
     if (!potentialEnergies[i]->isHessianTopologyFixed()) {
       mapx(x, energyDOFs[i], buffer->xlocals[i]);
       ES::SpMatD Ki;
-      potentialEnergies[i]->hessianDirect(buffer->xlocals[i], Ki);
+      potentialEnergies[i]->hessian(buffer->xlocals[i], Ki);
       if (Ki.nonZeros() == 0)
         continue;
 
@@ -296,7 +296,7 @@ void PotentialEnergies::gradient_hessian(EigenSupport::ConstRefVecXd x, EigenSup
       potentialEnergies[i]->gradient(buffer->xlocals[i], buffer->gradients[i]);
 
       if (buffer->hessianMatrices[i].nonZeros()) {
-        potentialEnergies[i]->hessian(buffer->xlocals[i], buffer->hessianMatrices[i]);
+        potentialEnergies[i]->hessianInPlace(buffer->xlocals[i], buffer->hessianMatrices[i]);
         ES::addSmallToBig(energyCoeffs[i], buffer->hessianMatrices[i], hess, 1.0, hessianMatrixMappings[i]);
       }
     }
