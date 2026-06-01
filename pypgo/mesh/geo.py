@@ -14,7 +14,7 @@ class TriMeshGeo:
     """Triangle surface mesh geometry facade."""
 
     def __init__(self, vertices, triangles=None):
-        if isinstance(vertices, _core.TriMeshGeoCore) and triangles is None:
+        if isinstance(vertices, _core.PyTriMeshGeo) and triangles is None:
             self._core_obj = vertices
             return
 
@@ -26,7 +26,7 @@ class TriMeshGeo:
     def from_mesh_data(cls, mesh_data: TriMeshData) -> "TriMeshGeo":
         if not isinstance(mesh_data, TriMeshData):
             raise TypeError(f"mesh_data must be a TriMeshData, got {type(mesh_data).__name__}")
-        return cls(_core.TriMeshGeoCore(mesh_data._core_obj))
+        return cls(_core.PyTriMeshGeo(mesh_data._core_obj))
 
     @property
     def vertices(self) -> np.ndarray:
@@ -85,7 +85,7 @@ class BarycentricEmbedding:
             raise TypeError(f"volume_mesh must be a VolumeMesh, got {type(volume_mesh).__name__}")
         locations = float_matrix("target_locations", target_locations, 3)
         self._num_target_locations = int(locations.shape[0])
-        self._core_obj = _core.BarycentricEmbeddingCore(
+        self._core_obj = _core.PyBarycentricEmbedding(
             locations.ravel().tolist(), volume_mesh._core_obj)
 
     @property
@@ -110,7 +110,7 @@ class TetMeshGeo:
     """Tetrahedral mesh geometry facade."""
 
     def __init__(self, vertices, tets=None):
-        if isinstance(vertices, _core.TetMeshGeoCore) and tets is None:
+        if isinstance(vertices, _core.PyTetMeshGeo) and tets is None:
             self._core_obj = vertices
             return
 
@@ -122,7 +122,7 @@ class TetMeshGeo:
     def from_mesh_data(cls, mesh_data: TetMeshData) -> "TetMeshGeo":
         if not isinstance(mesh_data, TetMeshData):
             raise TypeError(f"mesh_data must be a TetMeshData, got {type(mesh_data).__name__}")
-        return cls(_core.TetMeshGeoCore(mesh_data._core_obj))
+        return cls(_core.PyTetMeshGeo(mesh_data._core_obj))
 
     @property
     def vertices(self) -> np.ndarray:
@@ -151,7 +151,7 @@ class CubicMeshGeo:
     """Cubic/hexahedral mesh geometry facade."""
 
     def __init__(self, vertices, cubes=None):
-        if isinstance(vertices, _core.CubicMeshGeoCore) and cubes is None:
+        if isinstance(vertices, _core.PyCubicMeshGeo) and cubes is None:
             self._core_obj = vertices
             return
 
@@ -163,7 +163,7 @@ class CubicMeshGeo:
     def from_mesh_data(cls, mesh_data: CubicMeshData) -> "CubicMeshGeo":
         if not isinstance(mesh_data, CubicMeshData):
             raise TypeError(f"mesh_data must be a CubicMeshData, got {type(mesh_data).__name__}")
-        return cls(_core.CubicMeshGeoCore(mesh_data._core_obj))
+        return cls(_core.PyCubicMeshGeo(mesh_data._core_obj))
 
     @property
     def vertices(self) -> np.ndarray:

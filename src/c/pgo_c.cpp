@@ -727,9 +727,8 @@ int pgo_run_sim_from_config(const char *configFileName)
     }
 
     // initialize fixed constraints
-    auto pullingEnergy = std::make_shared<ConstraintPotentialEnergies::MultipleVertexPulling>(K, restPosition.data(),
-      (int)fixedVertices.size(), fixedVertices.data(), tgtVertexPositions.data(), nullptr, 1);
-    pullingEnergy->setCoeff(attachmentCoeff);
+    auto pullingEnergy = std::make_shared<ConstraintPotentialEnergies::MultipleVertexPulling>(
+      K, restPosition, fixedVertices, tgtVertexPositions, attachmentCoeff, true);
     pullingEnergies.push_back(pullingEnergy);
     pullingTargets.push_back(tgtVertexPositions);
     pullingTargetRests.push_back(tgtVertexRests);
@@ -828,7 +827,7 @@ int pgo_run_sim_from_config(const char *configFileName)
       for (size_t pi = 0; pi < pullingEnergies.size(); pi++) {
         ES::VXd restTgt = pullingTargetRests[pi];
         ES::VXd curTgt = restTgt * (1 - ratio) + pullingTargets[pi] * ratio;
-        pullingEnergies[pi]->setTargetPos(curTgt.data());
+        pullingEnergies[pi]->setTargetPositions(curTgt);
 
         std::cout << "Frame " << framei << ", attachment " << pi << " target: " << curTgt.transpose().head(3) << std::endl;
       }

@@ -25,7 +25,7 @@ namespace
 void setStaticPullingTargets(IpcSimulationContext &context)
 {
   for (std::size_t pi = 0; pi < context.pullingEnergies.size(); ++pi) {
-    context.pullingEnergies[pi]->setTargetPos(context.pullingTargets[pi].data());
+    context.pullingEnergies[pi]->setTargetPositions(context.pullingTargets[pi]);
     std::cout << "Static attachment " << pi << " target: "
               << context.pullingTargets[pi].transpose().head(3) << std::endl;
   }

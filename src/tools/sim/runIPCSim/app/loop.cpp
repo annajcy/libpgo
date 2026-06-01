@@ -24,7 +24,7 @@ void runIPCSimLoop(const RunIPCSimRuntimeConfig &runtimeConfig,
     const double ratio = runtimeConfig.numSimSteps > 1 ? static_cast<double>(framei) / ratioDenom : 1.0;
     for (std::size_t pi = 0; pi < context.pullingEnergies.size(); ++pi) {
       const ES::VXd curTgt = context.pullingTargetRests[pi] * (1.0 - ratio) + context.pullingTargets[pi] * ratio;
-      context.pullingEnergies[pi]->setTargetPos(curTgt.data());
+      context.pullingEnergies[pi]->setTargetPositions(curTgt);
       std::cout << "Frame " << framei << ", attachment " << pi << " target: " << curTgt.transpose().head(3) << std::endl;
     }
 

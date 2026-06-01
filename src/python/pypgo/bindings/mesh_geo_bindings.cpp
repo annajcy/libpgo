@@ -304,7 +304,7 @@ void init_mesh_geo_bindings(nb::module_ &m)
     .value("Tet", Mesh::MeshDataType::Tet)
     .value("Cubic", Mesh::MeshDataType::Cubic);
 
-  nb::class_<Mesh::MeshData<3>>(m, "TriMeshDataCore")
+  nb::class_<Mesh::MeshData<3>>(m, "PyTriMeshData")
     .def("num_vertices", &Mesh::MeshData<3>::numVertices)
     .def("num_elements", &Mesh::MeshData<3>::numElements)
     .def("mesh_type", &Mesh::MeshData<3>::meshType)
@@ -312,7 +312,7 @@ void init_mesh_geo_bindings(nb::module_ &m)
     .def("elements", [](const Mesh::MeshData<3> &self) { return self.elementsFlat(); })
     .def("element_vtx_id", &Mesh::MeshData<3>::elementVtxID);
 
-  nb::class_<Mesh::MeshData<4>>(m, "TetMeshDataCore")
+  nb::class_<Mesh::MeshData<4>>(m, "PyTetMeshData")
     .def("num_vertices", &Mesh::MeshData<4>::numVertices)
     .def("num_elements", &Mesh::MeshData<4>::numElements)
     .def("mesh_type", &Mesh::MeshData<4>::meshType)
@@ -320,7 +320,7 @@ void init_mesh_geo_bindings(nb::module_ &m)
     .def("elements", [](const Mesh::MeshData<4> &self) { return self.elementsFlat(); })
     .def("element_vtx_id", &Mesh::MeshData<4>::elementVtxID);
 
-  nb::class_<Mesh::MeshData<8>>(m, "CubicMeshDataCore")
+  nb::class_<Mesh::MeshData<8>>(m, "PyCubicMeshData")
     .def("num_vertices", &Mesh::MeshData<8>::numVertices)
     .def("num_elements", &Mesh::MeshData<8>::numElements)
     .def("mesh_type", &Mesh::MeshData<8>::meshType)
@@ -328,7 +328,7 @@ void init_mesh_geo_bindings(nb::module_ &m)
     .def("elements", [](const Mesh::MeshData<8> &self) { return self.elementsFlat(); })
     .def("element_vtx_id", &Mesh::MeshData<8>::elementVtxID);
 
-  nb::class_<Mesh::TriMeshGeo>(m, "TriMeshGeoCore")
+  nb::class_<Mesh::TriMeshGeo>(m, "PyTriMeshGeo")
     .def(nb::init<const Mesh::MeshData<3> &>())
     .def("num_vertices", &Mesh::TriMeshGeo::numVertices)
     .def("num_triangles", &Mesh::TriMeshGeo::numTriangles)
@@ -337,7 +337,7 @@ void init_mesh_geo_bindings(nb::module_ &m)
     .def("tri_vtx_id", &Mesh::TriMeshGeo::triVtxID)
     .def("to_mesh_data", &Mesh::TriMeshGeo::toMeshData);
 
-  nb::class_<Mesh::TetMeshGeo>(m, "TetMeshGeoCore")
+  nb::class_<Mesh::TetMeshGeo>(m, "PyTetMeshGeo")
     .def(nb::init<const Mesh::MeshData<4> &>())
     .def("num_vertices", &Mesh::TetMeshGeo::numVertices)
     .def("num_tets", &Mesh::TetMeshGeo::numTets)
@@ -346,7 +346,7 @@ void init_mesh_geo_bindings(nb::module_ &m)
     .def("tet_vtx_id", &Mesh::TetMeshGeo::tetVtxID)
     .def("to_mesh_data", &Mesh::TetMeshGeo::toMeshData);
 
-  nb::class_<Mesh::CubicMeshGeo>(m, "CubicMeshGeoCore")
+  nb::class_<Mesh::CubicMeshGeo>(m, "PyCubicMeshGeo")
     .def(nb::init<const Mesh::MeshData<8> &>())
     .def("num_vertices", &Mesh::CubicMeshGeo::numVertices)
     .def("num_cubes", &Mesh::CubicMeshGeo::numCubes)
@@ -355,11 +355,11 @@ void init_mesh_geo_bindings(nb::module_ &m)
     .def("cube_vtx_id", &Mesh::CubicMeshGeo::cubeVtxID)
     .def("to_mesh_data", &Mesh::CubicMeshGeo::toMeshData);
 
-  nb::class_<MaterialSpecCore>(m, "MaterialSpecCore")
+  nb::class_<PyMaterialSpec>(m, "PyMaterialSpec")
     .def(nb::init<double, double, double>(), nb::arg("E") = 1e9, nb::arg("nu") = 0.45, nb::arg("density") = 1000.0)
-    .def("E", &MaterialSpecCore::E)
-    .def("nu", &MaterialSpecCore::nu)
-    .def("density", &MaterialSpecCore::density);
+    .def("E", &PyMaterialSpec::E)
+    .def("nu", &PyMaterialSpec::nu)
+    .def("density", &PyMaterialSpec::density);
 
   m.def("create_tri_mesh_data", &create_tri_mesh_data);
   m.def("create_tet_mesh_data", &create_tet_mesh_data);

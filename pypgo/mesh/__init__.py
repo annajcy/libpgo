@@ -48,11 +48,11 @@ def _array_from_core(core_obj, method_name, columns, dtype):
 
 
 def _wrap_mesh_data_core(core_obj):
-    if isinstance(core_obj, _core.TriMeshDataCore):
+    if isinstance(core_obj, _core.PyTriMeshData):
         return TriMeshData(core_obj)
-    if isinstance(core_obj, _core.TetMeshDataCore):
+    if isinstance(core_obj, _core.PyTetMeshData):
         return TetMeshData(core_obj)
-    if isinstance(core_obj, _core.CubicMeshDataCore):
+    if isinstance(core_obj, _core.PyCubicMeshData):
         return CubicMeshData(core_obj)
     raise RuntimeError(f"Unexpected core mesh data type: {type(core_obj).__name__}")
 
@@ -127,7 +127,7 @@ class _MeshDataBase:
 class TriMeshData(_MeshDataBase):
     """Triangle surface mesh data (MeshData<3>)."""
 
-    _core_type = _core.TriMeshDataCore
+    _core_type = _core.PyTriMeshData
     _create = staticmethod(_core.create_tri_mesh_data)
     _element_width = 3
 
@@ -135,7 +135,7 @@ class TriMeshData(_MeshDataBase):
 class TetMeshData(_MeshDataBase):
     """Tetrahedral volume mesh data (MeshData<4>)."""
 
-    _core_type = _core.TetMeshDataCore
+    _core_type = _core.PyTetMeshData
     _create = staticmethod(_core.create_tet_mesh_data)
     _element_width = 4
 
@@ -157,7 +157,7 @@ class TetMeshData(_MeshDataBase):
 class CubicMeshData(_MeshDataBase):
     """Cubic/hexahedral volume mesh data (MeshData<8>)."""
 
-    _core_type = _core.CubicMeshDataCore
+    _core_type = _core.PyCubicMeshData
     _create = staticmethod(_core.create_cubic_mesh_data)
     _element_width = 8
 

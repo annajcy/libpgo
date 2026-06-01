@@ -118,12 +118,12 @@ class VegFile:
         ]
 
 def _wrap_material_payload(m) -> MaterialLike:
-    if isinstance(m, _core.VegENuMaterialPayloadCore):
+    if isinstance(m, _core.PyVegENuMaterialPayload):
         return ENuMaterial(m.name, density=m.density, E=m.E, nu=m.nu)
-    if isinstance(m, _core.VegMooneyRivlinMaterialPayloadCore):
+    if isinstance(m, _core.PyVegMooneyRivlinMaterialPayload):
         return MooneyRivlinMaterial(
             m.name, density=m.density, mu01=m.mu01, mu10=m.mu10, v1=m.v1)
-    if isinstance(m, _core.VegOrthotropicMaterialPayloadCore):
+    if isinstance(m, _core.PyVegOrthotropicMaterialPayload):
         return OrthotropicMaterial(
             m.name, density=m.density,
             E1=m.E1, E2=m.E2, E3=m.E3,

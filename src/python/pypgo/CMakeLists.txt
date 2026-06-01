@@ -25,6 +25,9 @@ target_link_libraries(pypgo_core PRIVATE
   volumetricMesh
   interpolationCoordinates
   solidDeformationModel
+  nonlinearOptimization
+  genericPotentialEnergies
+  constraintPotentialEnergies
   tetgenInterface
 )
 
@@ -40,6 +43,9 @@ target_include_directories(pypgo_core
     ${CMAKE_SOURCE_DIR}/src/core/interpolationCoordinates
     ${CMAKE_SOURCE_DIR}/src/core/eigenSupport
     ${CMAKE_SOURCE_DIR}/src/core/solidDeformationModel
+    ${CMAKE_SOURCE_DIR}/src/core/nonlinearOptimization
+    ${CMAKE_SOURCE_DIR}/src/core/genericPotentialEnergies
+    ${CMAKE_SOURCE_DIR}/src/core/constraintPotentialEnergies
     ${CMAKE_SOURCE_DIR}/src/core/tetgenInterface
     ${CMAKE_SOURCE_DIR}/src/tools/mesh/volumetric/cubicMesher
     ${CMAKE_SOURCE_DIR}/src/tools/mesh/volumetric/tetMesher

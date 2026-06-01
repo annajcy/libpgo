@@ -44,7 +44,7 @@ public:
     grad = x;
   }
 
-  void hessian(ES::ConstRefVecXd, ES::SpMatD &hess) const override
+  void hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) const override
   {
     hess.setIdentity();
   }
@@ -88,7 +88,7 @@ public:
     grad = x;
   }
 
-  void hessian(ES::ConstRefVecXd, ES::SpMatD &hess) const override
+  void hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) const override
   {
     hessianCalls++;
     hess.resize(n, n);

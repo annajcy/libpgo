@@ -11,10 +11,10 @@ namespace pgo
 // Python-facing SimulationMesh owner. Holds a unique_ptr<SimulationMesh> and
 // exposes a const reference so energy_bindings can borrow the mesh without
 // consuming it.
-class SimulationMeshCore
+class PySimulationMesh
 {
 public:
-  explicit SimulationMeshCore(std::unique_ptr<SolidDeformationModel::SimulationMesh> mesh)
+  explicit PySimulationMesh(std::unique_ptr<SolidDeformationModel::SimulationMesh> mesh)
     : mesh_(std::move(mesh)) {}
 
   const SolidDeformationModel::SimulationMesh &mesh() const { return *mesh_; }

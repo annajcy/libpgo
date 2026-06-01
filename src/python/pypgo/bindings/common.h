@@ -1,8 +1,8 @@
 #pragma once
 
-class MaterialSpecCore {
+class PyMaterialSpec {
 public:
-    MaterialSpecCore(double E = 1e9, double nu = 0.45, double density = 1000.0)
+    PyMaterialSpec(double E = 1e9, double nu = 0.45, double density = 1000.0)
         : E_(E), nu_(nu), density_(density) {}
 
     double E() const { return E_; }

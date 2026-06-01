@@ -40,8 +40,7 @@ void buildPullingConstraints(const pgo::ConfigFileJSON &jconfig, const std::vect
     }
 
     auto pullingEnergy = std::make_shared<ConstraintPotentialEnergies::MultipleVertexPulling>(
-      K, simulationRestPosition.data(), static_cast<int>(fixedVertices.size()), fixedVertices.data(), tgtVertexPositions.data(), nullptr, 1);
-    pullingEnergy->setCoeff(attachmentCoeff);
+      K, simulationRestPosition, fixedVertices, tgtVertexPositions, attachmentCoeff, true);
     pullingEnergies.push_back(pullingEnergy);
     pullingTargets.push_back(tgtVertexPositions);
     pullingTargetRests.push_back(tgtVertexRests);

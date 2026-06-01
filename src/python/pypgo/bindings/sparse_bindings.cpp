@@ -8,23 +8,24 @@
 
 namespace nb = nanobind;
 
-SparseMatrixCore create_sparse_matrix(
+PySparseMatrix create_sparse_matrix(
     int rows,
     int cols,
     const std::vector<int>& rowIndices,
     const std::vector<int>& colIndices,
     const std::vector<double>& values)
 {
-    return SparseMatrixCore(rows, cols, rowIndices, colIndices, values);
+    return PySparseMatrix(rows, cols, rowIndices, colIndices, values);
 }
 
 void init_sparse_bindings(nb::module_& m)
 {
-    nb::class_<SparseMatrixCore>(m, "SparseMatrixCore")
-        .def("rows", &SparseMatrixCore::rows)
-        .def("cols", &SparseMatrixCore::cols)
-        .def("nnz", &SparseMatrixCore::nnz)
-        .def("to_coo", &SparseMatrixCore::toCOO);
+    nb::class_<PySparseMatrix>(m, "PySparseMatrix")
+        .def("rows", &PySparseMatrix::rows)
+        .def("cols", &PySparseMatrix::cols)
+        .def("nnz", &PySparseMatrix::nnz)
+        .def("to_coo", &PySparseMatrix::toCOO)
+        .def("to_dense", &PySparseMatrix::toDense);
 
     m.def("create_sparse_matrix", &create_sparse_matrix);
 }

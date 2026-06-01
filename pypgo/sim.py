@@ -25,8 +25,8 @@ class SimulationMesh:
     """Solver-ready simulation mesh created by explicit factory methods."""
 
     def __init__(self, core_obj):
-        if not isinstance(core_obj, _core.SimulationMeshCore):
-            raise TypeError(f"core_obj must be SimulationMeshCore, got {type(core_obj).__name__}")
+        if not isinstance(core_obj, _core.PySimulationMesh):
+            raise TypeError(f"core_obj must be PySimulationMesh, got {type(core_obj).__name__}")
         self._core_obj = core_obj
 
     @classmethod

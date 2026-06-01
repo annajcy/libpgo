@@ -659,7 +659,7 @@ pypgo.energy
   - `linearPotentialEnergy_ownership_gtest.cpp`：构造后立即让原 `VXd b_input` 出作用域（destructive scope test），`energy.func / gradient` 仍正确。
   - `quadraticPotentialEnergy_ownership_gtest.cpp`：A / b / W / parentheses+b ownership 测试，含 factory 路径。
 
-### Task E3: 把 `PotentialEnergies` 改名为 `EnergySet` 并改造 ctor
+### Task E3: 把 `PotentialEnergies` 改名为 `EnergySet` 并改造 ctor ✅
 
 - 新增 `energySet.h/.cpp`，把 `potentialEnergies.cpp` 的实现整体搬过来，类名改为 `EnergySet`，namespace 不变 (`pgo::NonlinearOptimization`)。
 - ctor 签名改为 `EnergySet(int numDofs, std::vector<Term> terms)`，内部按 `terms` 顺序填充原 `potentialEnergies` 字段、`energyCoeffs` 字段，然后立即跑原 `init()` 的全部逻辑（不再公开 `init`）。
@@ -675,7 +675,7 @@ pypgo.energy
   - `term(i).energy.use_count()` 在外部 `shared_ptr` 释放后仍 >= 1。
   - 与重命名前 `PotentialEnergies`（在 git checkout 前一个 commit）数值结果一致：用相同 children + weights，比较 value/gradient/hessian 在多组 random `x` 下的 max-diff。这一对比测试可单独写为一个 driver 程序保留若干 commit，不必作为长期 gtest。
 
-### Task E3a: 迁移内部 `PotentialEnergies` 调用点
+### Task E3a: 迁移内部 `PotentialEnergies` 调用点 ✅
 
 - 构造形态（`make_shared<PotentialEnergies>(n)` + add + init）改为 `make_shared<EnergySet>(n, std::vector<EnergySet::Term>{...})`：
   - `src/tools/sim/runIPCSim/solver/staticSolve.cpp:65`
@@ -686,16 +686,6 @@ pypgo.energy
   - `src/tools/sim/runIPCSim/contact/legacyPenaltyContact.cpp:150`
 - 审计：上述虚函数实现内部目前都没有真正调用 `addPotentialEnergy` / `init` / `setEnergyCoeffs` mutating 路径；如审计发现存在 mutation，需在本 task 决定是否把 `setWeight` 之外的 mutator 重新提供给 backend，或重构 backend 不需要 mutation。
 - `runIPCSim` 端到端：与重命名前比较一个静态 IPC scene 的最终 deform state（用 git stash + 跑两遍 + diff），确认数值一致。
-
-### Task E3 + E3a Commit 序列
-
-E3（新增 `EnergySet`、删除 `PotentialEnergies`）和 E3a（caller 迁移）共享同一 commit 序列，保证主干始终可编译：
-
-- **Commit 1**：新增 `src/core/nonlinearOptimization/energySet.h/.cpp`，`PotentialEnergies.h/.cpp` 暂时保留共存。新增 `EnergySet_p` / `EnergySet_const_p` typedef 取代 `PotentialEnergies_p` 系列。CMakeLists 编译两份。
-- **Commit 2**：迁移构造点（`staticSolve.cpp:65`、`laplacianProblem.cpp:55`）到 `EnergySet`。
-- **Commit 3**：迁移引用参数 (`PotentialEnergies &` → `EnergySet &`) 的 3 处 caller (`contactBackend.h`、`ipcContactBackend.cpp`、`legacyPenaltyContact.cpp`)。
-- **Commit 4**：删除 `potentialEnergies.h/.cpp`、`PotentialEnergies_p` typedef、所有 `class PotentialEnergies;` forward decl；CMakeLists 移除编译条目；`grep -rn "PotentialEnergies\b" src/` 验证 0 hit。
-- 中间每个 commit 主干都可编译并跑通现有 gtest。
 
 ### Task E4: Python binding — `pypgo.energy.PotentialEnergy` handle
 

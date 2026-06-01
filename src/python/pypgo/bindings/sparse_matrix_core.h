@@ -7,9 +7,9 @@
 #include <tuple>
 #include <vector>
 
-class SparseMatrixCore {
+class PySparseMatrix {
 public:
-    SparseMatrixCore(int rows, int cols,
+    PySparseMatrix(int rows, int cols,
         const std::vector<int>& rowIndices,
         const std::vector<int>& colIndices,
         const std::vector<double>& values):
@@ -18,7 +18,7 @@ public:
         initializeFromCOO(rows, cols, rowIndices, colIndices, values);
     }
 
-    explicit SparseMatrixCore(pgo::EigenSupport::SpMatD matrix):
+    explicit PySparseMatrix(pgo::EigenSupport::SpMatD matrix):
         rows_(static_cast<int>(matrix.rows())), cols_(static_cast<int>(matrix.cols()))
     {
         matrix.makeCompressed();
@@ -38,6 +38,16 @@ public:
     std::tuple<std::vector<int>, std::vector<int>, std::vector<double>> toCOO() const
     {
         return { rowsIndex_, colsIndex_, values_ };
+    }
+
+    std::vector<double> toDense() const
+    {
+        std::vector<double> dense(static_cast<size_t>(rows_) * static_cast<size_t>(cols_), 0.0);
+        for (size_t k = 0; k < values_.size(); ++k) {
+            dense[static_cast<size_t>(rowsIndex_[k]) * static_cast<size_t>(cols_) + static_cast<size_t>(colsIndex_[k])]
+              += values_[k];
+        }
+        return dense;
     }
 
 private:

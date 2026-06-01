@@ -11,8 +11,8 @@ class SparseMatrix:
     """Owned sparse matrix exposed through COO arrays."""
 
     def __init__(self, core_obj):
-        if not isinstance(core_obj, _core.SparseMatrixCore):
-            raise TypeError(f"core_obj must be SparseMatrixCore, got {type(core_obj).__name__}")
+        if not isinstance(core_obj, _core.PySparseMatrix):
+            raise TypeError(f"core_obj must be PySparseMatrix, got {type(core_obj).__name__}")
         self._core_obj = core_obj
 
     @property
@@ -30,3 +30,8 @@ class SparseMatrix:
             np.asarray(cols, dtype=np.int64),
             np.asarray(values, dtype=np.float64),
         )
+
+    def to_dense(self) -> np.ndarray:
+        """Return a dense (rows, cols) float64 ndarray copy."""
+        flat = np.asarray(self._core_obj.to_dense(), dtype=np.float64)
+        return flat.reshape(self._core_obj.rows(), self._core_obj.cols())
