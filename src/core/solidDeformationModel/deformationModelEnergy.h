@@ -34,6 +34,8 @@ public:
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = this->allDOFs; }
   virtual int getNumDOFs() const override { return (int)allDOFs.size(); }
 
+  virtual NonlinearOptimization::EnergyStateKind stateKind() const override { return NonlinearOptimization::EnergyStateKind::Displacement; }
+
   virtual NonlinearOptimization::MaxStepResult computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
 
   void setEnableMaterialMaxStep(bool enable) { enableMaterialMaxStep_ = enable; }

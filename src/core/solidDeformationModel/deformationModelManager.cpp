@@ -603,12 +603,14 @@ void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
     },
     tbb::static_partitioner());
 
-  tbb::parallel_for(
-    0, data->nele, [this](int ele) {
-      if (data->plasticVol3DOF[ele])
-        data->plasticVol3DOF[ele]->setR(data->fiberAxes.data() + ele * 9);
-    },
-    tbb::static_partitioner());
+  if (!data->plasticVol3DOF.empty() && data->fiberAxes.cols() > 0) {
+    tbb::parallel_for(
+      0, data->nele, [this](int ele) {
+        if (data->plasticVol3DOF[ele])
+          data->plasticVol3DOF[ele]->setR(data->fiberAxes.data() + ele * 9);
+      },
+      tbb::static_partitioner());
+  }
 }
 
 void DeformationModelManager::getVertexAlignedMatrix(int id, double R[9]) const
@@ -618,7 +620,9 @@ void DeformationModelManager::getVertexAlignedMatrix(int id, double R[9]) const
 
 void DeformationModelManager::getElementAlignedMatrix(int id, double R[9]) const
 {
-  if (data->plasticVol6DOF[id] || data->plasticVolConstant[id]) {
+  bool isIdentity = (!data->plasticVol6DOF.empty() && data->plasticVol6DOF[id]) ||
+                    (!data->plasticVolConstant.empty() && data->plasticVolConstant[id]);
+  if (isIdentity || data->fiberAxes.cols() < (id + 1) * 3) {
     (Eigen::Map<ES::M3d>(R)) = ES::M3d::Identity();
   }
   else {
@@ -628,10 +632,13 @@ void DeformationModelManager::getElementAlignedMatrix(int id, double R[9]) const
 
 void DeformationModelManager::setElementAlignedMatrix(int id, double R[9])
 {
+  if (data->fiberAxesRest.cols() < (id + 1) * 3)
+    return;
+
   data->fiberAxesRest.block<3, 3>(0, id * 3) = Eigen::Map<ES::M3d>(R);
   data->fiberAxes.block<3, 3>(0, id * 3) = data->fiberAxesRest.block<3, 3>(0, id * 3) * data->globalRotation.transpose();
 
-  if (data->plasticVol3DOF[id] == nullptr)
+  if (data->plasticVol3DOF.empty() || data->plasticVol3DOF[id] == nullptr)
     return;
 
   data->plasticVol3DOF[id]->setR(data->fiberAxes.data() + id * 9);

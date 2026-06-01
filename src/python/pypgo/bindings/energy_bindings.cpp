@@ -443,96 +443,105 @@ std::shared_ptr<PyEnergySet> createEnergySet(
   return std::make_shared<PyEnergySet>(std::move(set));
 }
 
-// Private/experimental deformation energy wrapper.
-// Keeps the PySimulationMesh alive so the borrowed mesh outlives the energy chain.
+// Deformation energy wrapper — bridges the shared PyPotentialEnergy handle
+// protocol with deformation-specific metadata (rest_position, etc.).
+//
+// Owns the PySimulationMesh so the borrowed C++ mesh outlives the energy chain.
 class PyDeformationEnergy
 {
 public:
   PyDeformationEnergy(std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy,
     std::shared_ptr<PySimulationMesh> meshOwner)
-    : meshOwner_(std::move(meshOwner)),
-      energy_(std::move(energy))
+    : meshOwner_(std::move(meshOwner))
   {
+    // Wrap the DeformationModelEnergy in the shared energy handle.
+    // DeformationModelEnergy inherits PotentialEnergy, so this is a direct
+    // shared_ptr<const PotentialEnergy> cast.
+    handle_ = std::make_shared<PyPotentialEnergy>(energy);
   }
 
-  int numDofs() const { return energy_->getNumDOFs(); }
+  // Shared energy handle — compatible with EnergySet and all evaluation paths.
+  std::shared_ptr<PyPotentialEnergy> handle() const { return handle_; }
 
-  std::vector<double> restPositionFlat() const
+  // Rest position as (num_vertices, 3) ndarray.
+  nb::ndarray<nb::numpy, double> restPosition() const
   {
-    const auto &rp = energy_->getRestPosition();
-    return std::vector<double>(rp.data(), rp.data() + rp.size());
-  }
-
-  std::vector<double> zeroState() const
-  {
-    return std::vector<double>(static_cast<size_t>(numDofs()), 0.0);
-  }
-
-  double value(const std::vector<double> &u) const
-  {
-    validateInput(u);
-    Eigen::Map<const Eigen::VectorXd> uMap(u.data(), static_cast<Eigen::Index>(u.size()));
-    double result;
-    {
-      nb::gil_scoped_release release;
-      result = energy_->func(uMap);
+    // DeformationModelEnergy is held inside handle_ as a shared_ptr<const PotentialEnergy>.
+    // We need to recover the non-const rest position — the underlying energy owns it.
+    // Access through the handle's owned PotentialEnergy which is actually a DeformationModelEnergy.
+    auto *defEnergy = dynamic_cast<const SolidDeformationModel::DeformationModelEnergy *>(
+      handle_->handle_.get());
+    if (!defEnergy) {
+      throw std::runtime_error("PyDeformationEnergy: internal energy is not a DeformationModelEnergy");
     }
-    return result;
+    const auto &rp = defEnergy->getRestPosition();
+    int n3 = static_cast<int>(rp.size());
+    int nv = n3 / 3;
+    auto data = new std::vector<double>(rp.data(), rp.data() + n3);
+    nb::capsule owner(data, [](void *p) noexcept {
+      delete static_cast<std::vector<double> *>(p);
+    });
+    return nb::ndarray<nb::numpy, double>(
+      data->data(), {static_cast<size_t>(nv), static_cast<size_t>(3)}, owner);
   }
 
-  std::vector<double> gradient(const std::vector<double> &u) const
-  {
-    validateInput(u);
-    Eigen::Map<const Eigen::VectorXd> uMap(u.data(), static_cast<Eigen::Index>(u.size()));
-    std::vector<double> grad(static_cast<size_t>(numDofs()));
-    Eigen::Map<Eigen::VectorXd> gradMap(grad.data(), static_cast<Eigen::Index>(grad.size()));
-    {
-      nb::gil_scoped_release release;
-      energy_->gradient(uMap, gradMap);
-    }
-    return grad;
-  }
-
-  PySparseMatrix hessian(const std::vector<double> &u) const
-  {
-    validateInput(u);
-    Eigen::Map<const Eigen::VectorXd> uMap(u.data(), static_cast<Eigen::Index>(u.size()));
-    EigenSupport::SpMatD H;
-    {
-      nb::gil_scoped_release release;
-      energy_->hessian(uMap, H);
-    }
-    return PySparseMatrix(std::move(H));
-  }
+  // Number of vertices (rest_position rows).
+  int numVertices() const { return meshOwner_->numVertices(); }
 
 private:
-  void validateInput(const std::vector<double> &u) const
+  std::shared_ptr<PySimulationMesh> meshOwner_;
+  std::shared_ptr<PyPotentialEnergy> handle_;
+};
+
+// Unified deformation energy factory.
+// Accepts formulation name, elastic/plastic material strings, and options.
+std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
+  std::shared_ptr<PySimulationMesh> meshCore,
+  const std::string &formulationName,
+  const std::string &elasticMaterial,
+  const std::string &plasticMaterial,
+  bool enforceSPD,
+  bool enableMaterialMaxStep)
+{
+  auto elastic = parseElasticMaterial(elasticMaterial);
+  auto plastic = parsePlasticMaterial(plasticMaterial);
+
+  SolidDeformationModel::DeformationModelOptions opts;
+  opts.enforceSPD = enforceSPD;
+  opts.enableMaterialMaxStep = enableMaterialMaxStep;
+
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
   {
-    if (static_cast<int>(u.size()) != numDofs()) {
+    nb::gil_scoped_release release;
+    if (formulationName == "tet_p1") {
+      energy = SolidDeformationModel::makeDeformationEnergy(
+        meshCore->mesh(), SolidDeformationModel::P1TetFormulation{}, elastic, plastic, opts);
+    } else if (formulationName == "hex_trilinear") {
+      energy = SolidDeformationModel::makeDeformationEnergy(
+        meshCore->mesh(), SolidDeformationModel::LinearCubicFormulation{}, elastic, plastic, opts);
+    } else if (formulationName == "shell_koiter") {
+      energy = SolidDeformationModel::makeDeformationEnergy(
+        meshCore->mesh(), SolidDeformationModel::KoiterShellFormulation{}, elastic, plastic, opts);
+    } else {
       throw std::invalid_argument(
-        "u size " + std::to_string(u.size()) + " must equal num_dofs (" + std::to_string(numDofs()) + ")");
+        "Unknown formulation: '" + formulationName +
+        "'.  Expected 'tet_p1', 'hex_trilinear', or 'shell_koiter'.");
     }
   }
+  return std::make_shared<PyDeformationEnergy>(std::move(energy), std::move(meshCore));
+}
 
-  std::shared_ptr<PySimulationMesh> meshOwner_;
-  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy_;
-};
+// ── Backward-compatible private test hooks ──────────────────────────
+// These delegate to the unified factory above; kept for existing private
+// tests until they are migrated to the public API.
 
 std::shared_ptr<PyDeformationEnergy> createTetDeformationEnergyForTest(
   std::shared_ptr<PySimulationMesh> meshCore,
   const std::string &elasticMaterial,
   const std::string &plasticMaterial)
 {
-  auto elastic = parseElasticMaterial(elasticMaterial);
-  auto plastic = parsePlasticMaterial(plasticMaterial);
-
-  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
-  {
-    nb::gil_scoped_release release;
-    energy = SolidDeformationModel::makeDeformationEnergy(
-      meshCore->mesh(), SolidDeformationModel::P1TetFormulation{}, elastic, plastic);
-  }
-  return std::make_shared<PyDeformationEnergy>(std::move(energy), std::move(meshCore));
+  return createDeformationEnergy(std::move(meshCore), "tet_p1",
+    elasticMaterial, plasticMaterial, true, true);
 }
 
 std::shared_ptr<PyDeformationEnergy> createCubicDeformationEnergyForTest(
@@ -540,16 +549,8 @@ std::shared_ptr<PyDeformationEnergy> createCubicDeformationEnergyForTest(
   const std::string &elasticMaterial,
   const std::string &plasticMaterial)
 {
-  auto elastic = parseElasticMaterial(elasticMaterial);
-  auto plastic = parsePlasticMaterial(plasticMaterial);
-
-  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
-  {
-    nb::gil_scoped_release release;
-    energy = SolidDeformationModel::makeDeformationEnergy(
-      meshCore->mesh(), SolidDeformationModel::LinearCubicFormulation{}, elastic, plastic);
-  }
-  return std::make_shared<PyDeformationEnergy>(std::move(energy), std::move(meshCore));
+  return createDeformationEnergy(std::move(meshCore), "hex_trilinear",
+    elasticMaterial, plasticMaterial, true, true);
 }
 
 std::shared_ptr<PyDeformationEnergy> createShellDeformationEnergyForTest(
@@ -557,16 +558,8 @@ std::shared_ptr<PyDeformationEnergy> createShellDeformationEnergyForTest(
   const std::string &elasticMaterial,
   const std::string &plasticMaterial)
 {
-  auto elastic = parseElasticMaterial(elasticMaterial);
-  auto plastic = parsePlasticMaterial(plasticMaterial);
-
-  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
-  {
-    nb::gil_scoped_release release;
-    energy = SolidDeformationModel::makeDeformationEnergy(
-      meshCore->mesh(), SolidDeformationModel::KoiterShellFormulation{}, elastic, plastic);
-  }
-  return std::make_shared<PyDeformationEnergy>(std::move(energy), std::move(meshCore));
+  return createDeformationEnergy(std::move(meshCore), "shell_koiter",
+    elasticMaterial, plasticMaterial, true, true);
 }
 
 }  // namespace
@@ -600,18 +593,27 @@ void init_energy_bindings(nb::module_ &m)
     .def("max_step", &PyPotentialEnergy::maxStep, nb::arg("x"), nb::arg("dx"))
     .def("zero_state", &PyPotentialEnergy::zeroState);
 
-  // ── PyDeformationEnergy (private/experimental) ────────────────
+  // ── PyDeformationEnergy ────────────────────────────────────────
+  //
+  // Bridges the shared PyPotentialEnergy handle protocol with
+  // deformation-specific metadata.  Python DeformationEnergy wraps
+  // this: evaluation goes through handle(), rest_position is separate.
 
   nb::class_<PyDeformationEnergy>(m, "PyDeformationEnergy")
-    .def("num_dofs", &PyDeformationEnergy::numDofs)
-    .def("rest_position_flat", &PyDeformationEnergy::restPositionFlat)
-    .def("zero_state", &PyDeformationEnergy::zeroState)
-    .def("value", &PyDeformationEnergy::value, nb::arg("u"))
-    .def("gradient", &PyDeformationEnergy::gradient, nb::arg("u"))
-    .def("hessian", &PyDeformationEnergy::hessian, nb::arg("u"));
+    .def_prop_ro("handle", &PyDeformationEnergy::handle)
+    .def("rest_position", &PyDeformationEnergy::restPosition)
+    .def_prop_ro("num_vertices", &PyDeformationEnergy::numVertices);
 
-  // Private/experimental factory hooks — only for regression/smoke validation.
-  // These names and signatures are NOT public API and will change before Task 10.
+  // Unified deformation energy factory (public API entry point).
+  m.def("_create_deformation_energy", &createDeformationEnergy,
+    nb::arg("mesh_core"),
+    nb::arg("formulation"),
+    nb::arg("elastic_material"),
+    nb::arg("plastic_material"),
+    nb::arg("enforce_spd") = true,
+    nb::arg("enable_material_max_step") = true);
+
+  // Backward-compatible private hooks (delegate to the unified factory).
   m.def("_create_tet_deformation_energy_for_test", &createTetDeformationEnergyForTest,
     nb::arg("mesh_core"),
     nb::arg("elastic_material") = "stable_neo",

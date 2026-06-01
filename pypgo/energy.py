@@ -86,18 +86,37 @@ def _dispatch_matrix_input(A):
     )
 
 
-class LinearEnergy:
-    """Linear potential energy: b^T x.
+# ---------------------------------------------------------------------------
+# PotentialEnergy — shared base protocol
+# ---------------------------------------------------------------------------
 
-    Parameters
-    ----------
-    b : ndarray (n,) float64
-        Linear coefficient vector.  Copied into C++ owned storage.
+class PotentialEnergy:
+    """Read-only handle for any C++ potential energy.
+
+    This is not directly constructible from Python.  All energy types
+    (LinearEnergy, QuadraticEnergy, DeformationEnergy, VertexAttachment,
+    EnergySet) expose the same evaluation interface through their
+    ``_handle`` attribute, and ``isinstance(x, PotentialEnergy)``
+    checks work for all of them.
     """
 
-    def __init__(self, b: np.ndarray) -> None:
-        b_arr = _float_vector("b", b)
-        self._handle = _core._create_linear_energy(b_arr)
+    def __init__(self, handle):
+        if not isinstance(handle, _core.PotentialEnergy):
+            raise TypeError(
+                f"handle must be a _core.PotentialEnergy, got {type(handle).__name__}"
+            )
+        object.__setattr__(self, "_handle", handle)
+
+    def __setattr__(self, name, value):
+        raise AttributeError(f"PotentialEnergy is immutable; cannot set {name!r}")
+
+    def __delattr__(self, name):
+        raise AttributeError(f"PotentialEnergy is immutable; cannot delete {name!r}")
+
+    def __repr__(self) -> str:
+        return self._handle.__repr__()
+
+    # -- read-only properties --------------------------------------------------
 
     @property
     def num_dofs(self) -> int:
@@ -110,6 +129,8 @@ class LinearEnergy:
     @property
     def state_kind(self) -> str:
         return self._handle.state_kind
+
+    # -- evaluation ------------------------------------------------------------
 
     def zero_state(self) -> np.ndarray:
         return self._handle.zero_state()
@@ -129,11 +150,29 @@ class LinearEnergy:
             np.asarray(dx, dtype=np.float64),
         )
 
+
+# ---------------------------------------------------------------------------
+# LinearEnergy
+# ---------------------------------------------------------------------------
+
+class LinearEnergy(PotentialEnergy):
+    """Linear potential energy: b^T x.
+
+    Parameters
+    ----------
+    b : ndarray (n,) float64
+        Linear coefficient vector.  Copied into C++ owned storage.
+    """
+
+    def __init__(self, b: np.ndarray) -> None:
+        b_arr = _float_vector("b", b)
+        super().__init__(_core._create_linear_energy(b_arr))
+
     def __repr__(self) -> str:
         return f"LinearEnergy({self.num_dofs} DOFs)"
 
 
-class QuadraticEnergy:
+class QuadraticEnergy(PotentialEnergy):
     """Quadratic potential energy: 1/2 x^T A x + b^T x.
 
     Parameters
@@ -150,43 +189,14 @@ class QuadraticEnergy:
 
         if b is not None:
             b_arr = _float_vector("b", b)
-            self._handle = _core._create_quadratic_energy_from_coo_with_b(
+            handle = _core._create_quadratic_energy_from_coo_with_b(
                 rows, cols, row_indices, col_indices, values, b_arr,
             )
         else:
-            self._handle = _core._create_quadratic_energy_from_coo(
+            handle = _core._create_quadratic_energy_from_coo(
                 rows, cols, row_indices, col_indices, values,
             )
-
-    @property
-    def num_dofs(self) -> int:
-        return self._handle.num_dofs
-
-    @property
-    def dofs(self) -> np.ndarray:
-        return self._handle.dofs()
-
-    @property
-    def state_kind(self) -> str:
-        return self._handle.state_kind
-
-    def zero_state(self) -> np.ndarray:
-        return self._handle.zero_state()
-
-    def value(self, x: np.ndarray) -> float:
-        return self._handle.value(np.asarray(x, dtype=np.float64))
-
-    def gradient(self, x: np.ndarray) -> np.ndarray:
-        return self._handle.gradient(np.asarray(x, dtype=np.float64))
-
-    def hessian(self, x: np.ndarray):
-        return SparseMatrix(self._handle.hessian(np.asarray(x, dtype=np.float64)))
-
-    def max_step(self, x: np.ndarray, dx: np.ndarray):
-        return self._handle.max_step(
-            np.asarray(x, dtype=np.float64),
-            np.asarray(dx, dtype=np.float64),
-        )
+        super().__init__(handle)
 
     def __repr__(self) -> str:
         return f"QuadraticEnergy({self.num_dofs} DOFs)"
@@ -226,7 +236,7 @@ def _sparse_to_coo(sparse_or_tuple):
 # VertexAttachment (E9b)
 # ---------------------------------------------------------------------------
 
-class VertexAttachment:
+class VertexAttachment(PotentialEnergy):
     """Soft pin constraint on selected vertices: coef * ||u_i - target_i||^2.
 
     The Hessian sparsity template is taken from the sim mesh (Koff).
@@ -266,10 +276,7 @@ class VertexAttachment:
             )
 
         if sim_mesh is not None:
-            # sim_mesh provides DOF count; Koff is built from its DOF structure.
-            # For now, use a simple diagonal Koff template of size nDofs.
             nDofs = sim_mesh.num_vertices * 3
-            # Build Koff as diagonal identity-like sparsity
             rows = nDofs
             cols = nDofs
             kri = list(range(nDofs))
@@ -283,7 +290,7 @@ class VertexAttachment:
         else:
             raise ValueError("Either sim_mesh or koff must be provided")
 
-        self._handle = _core._create_vertex_attachment(
+        handle = _core._create_vertex_attachment(
             nDofs, rows, cols, kri, kci, list(kvals),
             rest_positions,
             vtx,
@@ -291,36 +298,7 @@ class VertexAttachment:
             float(coeff),
             bool(is_displacement),
         )
-
-    @property
-    def num_dofs(self) -> int:
-        return self._handle.num_dofs
-
-    @property
-    def dofs(self) -> np.ndarray:
-        return self._handle.dofs()
-
-    @property
-    def state_kind(self) -> str:
-        return self._handle.state_kind
-
-    def zero_state(self) -> np.ndarray:
-        return self._handle.zero_state()
-
-    def value(self, x: np.ndarray) -> float:
-        return self._handle.value(np.asarray(x, dtype=np.float64))
-
-    def gradient(self, x: np.ndarray) -> np.ndarray:
-        return self._handle.gradient(np.asarray(x, dtype=np.float64))
-
-    def hessian(self, x: np.ndarray):
-        return SparseMatrix(self._handle.hessian(np.asarray(x, dtype=np.float64)))
-
-    def max_step(self, x: np.ndarray, dx: np.ndarray):
-        return self._handle.max_step(
-            np.asarray(x, dtype=np.float64),
-            np.asarray(dx, dtype=np.float64),
-        )
+        super().__init__(handle)
 
     def set_targets(self, target_positions):
         """Update target positions."""
@@ -331,6 +309,47 @@ class VertexAttachment:
 
     def __repr__(self) -> str:
         return f"VertexAttachment({self.num_dofs} DOFs)"
+
+
+# ---------------------------------------------------------------------------
+# DeformationEnergy — FEM deformation energy
+# ---------------------------------------------------------------------------
+
+class DeformationEnergy(PotentialEnergy):
+    """Deformation energy for FEM simulations (tet, cubic, shell).
+
+    Created by ``pypgo.fem.deformation_energy()``, not directly by users.
+    This is a **displacement**-kind energy: ``state_kind == "displacement"``.
+
+    Parameters
+    ----------
+    core : PyDeformationEnergy
+        C++ deformation energy wrapper (from ``_core._create_deformation_energy``).
+
+    Properties
+    ----------
+    rest_position : ndarray (num_vertices, 3) float64
+        Rest (undeformed) positions.
+    """
+
+    def __init__(self, core):
+        if not isinstance(core, _core.PyDeformationEnergy):
+            raise TypeError(
+                f"core must be a PyDeformationEnergy, got {type(core).__name__}"
+            )
+        object.__setattr__(self, "_core", core)
+        super().__init__(core.handle)
+
+    @property
+    def rest_position(self) -> np.ndarray:
+        return np.asarray(self._core.rest_position(), dtype=np.float64)
+
+    @property
+    def num_vertices(self) -> int:
+        return self._core.num_vertices
+
+    def __repr__(self) -> str:
+        return f"DeformationEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
 
 
 # ---------------------------------------------------------------------------

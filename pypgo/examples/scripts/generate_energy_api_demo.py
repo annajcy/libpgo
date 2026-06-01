@@ -18,7 +18,9 @@ CELLS = [
 
         This tutorial demonstrates every public energy type in the `pypgo.energy`
         module: `LinearEnergy`, `QuadraticEnergy`, `VertexAttachment`, and
-        `EnergySet`.
+        `EnergySet`.  FEM deformation energies built by `pypgo.fem` are
+        also `PotentialEnergy` instances and are covered in
+        `deformation_fem_api_demo.ipynb`.
 
         **Audience:** users building energy-based models (FEM, IPC, optimization)
         with pypgo.
@@ -476,10 +478,19 @@ CELLS = [
         the state `x` is interpreted as a displacement from rest.  Set
         `is_displacement=False` if your state is absolute positions.
 
-        **Extension:** for FEM deformation energies, use the `pypgo.fem` module
-        (once available).  The resulting `DeformationEnergy` is a
-        `"displacement"`-kind energy that can be combined in the same
-        `EnergySet`.
+        **Pitfall:** `QuadraticEnergy` accepts 5-tuple COO input `(rows, cols,
+        row_indices, col_indices, values)` — 4-tuples are rejected with a
+        clear error.
+
+        **Extension:** for FEM deformation energies (tet, hex, shell), see
+        `deformation_fem_api_demo.ipynb`.  The `pypgo.fem` module builds
+        `DeformationEnergy` objects that are full `PotentialEnergy` instances
+        with `state_kind == "displacement"` and can be combined in
+        `EnergySet` alongside `LinearEnergy`, `QuadraticEnergy`, and
+        `VertexAttachment`.
+
+        **Extension:** `DeformationEnergy` exposes `rest_position` — a
+        `(num_vertices, 3)` ndarray of undeformed vertex coordinates.
         """
     ),
 ]

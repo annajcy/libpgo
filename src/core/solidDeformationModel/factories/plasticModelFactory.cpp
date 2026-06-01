@@ -43,7 +43,10 @@ PlasticModelResult PlasticModelFactory::create(
     result.model = result.volConstant;
   }
   else if (type == DeformationModelPlasticMaterial::VOLUMETRIC_DOF3) {
-    result.vol3DOF = new PlasticModel3D3DOF(fiberAxesRestRow0);
+    // fiberAxesRestRow0 is null when no fiber directions were provided;
+    // fall back to identity so the constructor's memcpy is safe.
+    ES::M3d I = ES::M3d::Identity();
+    result.vol3DOF = new PlasticModel3D3DOF(fiberAxesRestRow0 ? fiberAxesRestRow0 : I.data());
     result.model = result.vol3DOF;
   }
   else if (type == DeformationModelPlasticMaterial::VOLUMETRIC_DOF6) {

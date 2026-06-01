@@ -4,7 +4,12 @@ import importlib.util
 def test_python_first_package_imports_without_legacy_api():
     import pypgo
 
-    assert pypgo.__all__ == ["mesh", "sim", "sparse", "tools"]
+    assert "mesh" in pypgo.__all__
+    assert "sim" in pypgo.__all__
+    assert "sparse" in pypgo.__all__
+    assert "tools" in pypgo.__all__
+    assert "fem" in pypgo.__all__
+    assert "energy" in pypgo.__all__
     assert importlib.util.find_spec("pypgo.legacy") is None
     assert importlib.util.find_spec("pypgo.mesh_geo") is None
     assert importlib.util.find_spec("pypgo.io") is None
