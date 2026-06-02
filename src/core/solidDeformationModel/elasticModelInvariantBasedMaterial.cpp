@@ -6,6 +6,8 @@ copyright to USC,MIT,NUS
 #include "elasticModelInvariantBasedMaterial.h"
 #include "invariantBasedMaterial.h"
 
+
+
 #include "EigenSupport.h"
 #include "meshLinearAlgebra.h"
 
@@ -14,6 +16,12 @@ copyright to USC,MIT,NUS
 
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
+
+pgo::SolidDeformationModel::ElasticModelInvariantBasedMaterial::ElasticModelInvariantBasedMaterial(
+  std::unique_ptr<InvariantBasedMaterial> invMat)
+  : invariantBasedMaterial_(std::move(invMat))
+{
+}
 
 double ElasticModelInvariantBasedMaterial::compute_psi(const double * /*param*/, const double *, const double *, const double *, const double S[3]) const
 {
@@ -27,7 +35,7 @@ double ElasticModelInvariantBasedMaterial::compute_psi(const double * /*param*/,
   invariants[1] = IIC;
   invariants[2] = IIIC;
 
-  return invariantBasedMaterial->compute_psi(invariants);
+  return invariantBasedMaterial_->compute_psi(invariants);
 }
 
 void ElasticModelInvariantBasedMaterial::compute_P(const double * /*param*/, const double *, const double U[9], const double V[9], const double S[3], double POut[9]) const
@@ -45,7 +53,7 @@ void ElasticModelInvariantBasedMaterial::compute_P(const double * /*param*/, con
 
   double dPsidI[3];
 
-  invariantBasedMaterial->compute_dpsi_dI(invariants, dPsidI);
+  invariantBasedMaterial_->compute_dpsi_dI(invariants, dPsidI);
 
   // PDiag = [ dI / dlambda ]^T * dPsidI
 
@@ -188,7 +196,7 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF(const double * /*param*/, 
   // E[2] = 0.5 * (Fhats[el][2] * Fhats[el][2] - 1);
 
   double gradient[3];
-  invariantBasedMaterial->compute_dpsi_dI(invariants, gradient);
+  invariantBasedMaterial_->compute_dpsi_dI(invariants, gradient);
 
   /*
     in order (11,12,13,22,23,33)
@@ -197,7 +205,7 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF(const double * /*param*/, 
     | 31 32 33 |   | 2 4 5 |
   */
   double hessian[6];
-  invariantBasedMaterial->compute_d2psi_dI2(invariants, hessian);
+  invariantBasedMaterial_->compute_d2psi_dI2(invariants, hessian);
 
   //// modify hessian to compute correct values if in the inversion handling regime
   // if (clamped & 1) // first S was clamped (in inversion handling)

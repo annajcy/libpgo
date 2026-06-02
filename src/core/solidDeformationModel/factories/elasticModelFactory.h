@@ -1,8 +1,9 @@
 #pragma once
 
-#include "../elasticModelResult.h"
 #include "../deformationModelManager.h"  // DeformationModelElasticMaterial
 #include "EigenDef.h"
+
+#include <memory>
 
 namespace pgo
 {
@@ -10,6 +11,7 @@ namespace SolidDeformationModel
 {
 
 class SimulationMesh;
+class ElasticModel;
 
 class ElasticModelFactory
 {
@@ -17,7 +19,7 @@ public:
   // Create the elastic material model for one element.
   // fiberDirection: 3-vector in the element's fiber frame (row 0 of fiberAxesRest),
   // used by Hill-type materials. May be nullptr when no fiber direction is configured.
-  static ElasticModelResult create(
+  static std::unique_ptr<ElasticModel> create(
     const SimulationMesh &mesh,
     int ele,
     DeformationModelElasticMaterial type,

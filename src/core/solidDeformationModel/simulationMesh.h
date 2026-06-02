@@ -5,8 +5,6 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
-#include "elasticModelResult.h"
-
 #include <memory>
 
 namespace pgo
@@ -31,6 +29,8 @@ namespace SolidDeformationModel
 enum class DeformationModelElasticMaterial : int;
 enum class DeformationModelPlasticMaterial : int;
 
+class ElasticModel;
+
 class SimulationMeshMaterial
 {
 public:
@@ -49,7 +49,7 @@ public:
   // auxMat is the material at slot 1 (required for Hill-type materials, nullptr otherwise).
   // fiberDirection is the fiber axis row-0 vector, or nullptr when not applicable.
   // Base implementation throws std::logic_error; subclasses override for their supported types.
-  virtual ElasticModelResult createElasticModel(
+  virtual std::unique_ptr<ElasticModel> createElasticModel(
     DeformationModelElasticMaterial type,
     const double *fiberDirection,
     const SimulationMeshMaterial *auxMat) const;
@@ -76,7 +76,7 @@ public:
 
   std::unique_ptr<SimulationMeshMaterial> clone() const override { return std::make_unique<SimulationMeshENuMaterial>(E, nu, J); }
 
-  ElasticModelResult createElasticModel(
+  std::unique_ptr<ElasticModel> createElasticModel(
     DeformationModelElasticMaterial type,
     const double *fiberDirection,
     const SimulationMeshMaterial *auxMat) const override;
@@ -222,7 +222,7 @@ public:
     return std::make_unique<SimulationMeshMooneyRivlinMaterial>(N, M, C, D);
   }
 
-  ElasticModelResult createElasticModel(
+  std::unique_ptr<ElasticModel> createElasticModel(
     DeformationModelElasticMaterial type,
     const double *fiberDirection,
     const SimulationMeshMaterial *auxMat) const override;

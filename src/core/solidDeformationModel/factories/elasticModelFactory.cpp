@@ -1,12 +1,13 @@
 #include "elasticModelFactory.h"
 
 #include "../simulationMesh.h"
+#include "../elasticModel.h"
 
 namespace pgo::SolidDeformationModel
 {
 namespace ES = EigenSupport;
 
-ElasticModelResult ElasticModelFactory::create(
+std::unique_ptr<ElasticModel> ElasticModelFactory::create(
   const SimulationMesh &mesh,
   int ele,
   DeformationModelElasticMaterial type,

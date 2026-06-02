@@ -7,8 +7,10 @@ copyright to USC,MIT,NUS
 
 #include "elasticModel3DDeformationGradient.h"
 
+#include <memory>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace pgo
 {
@@ -19,8 +21,8 @@ class ElasticModelCombinedMaterial : public ElasticModel3DDeformationGradient
 {
 public:
   template<typename... T>
-  ElasticModelCombinedMaterial(const T... materials);
-  virtual ~ElasticModelCombinedMaterial() {}
+  explicit ElasticModelCombinedMaterial(T&&... mats);
+  ~ElasticModelCombinedMaterial() override = default;
 
   virtual double compute_psi(const double *param, const double F[9],
     const double U[9], const double V[9], const double S[3]) const override;
@@ -53,6 +55,7 @@ public:
   const ElasticModel3DDeformationGradient *getMaterial(int id) const { return materials[id]; }
 
 protected:
+  std::unique_ptr<ElasticModel3DDeformationGradient> owned_[count];
   const ElasticModel3DDeformationGradient *materials[count];
   int parameterOffsets[count + 1];
   int numTotalParameters;
@@ -60,32 +63,27 @@ protected:
 
 template<int count>
 template<typename... T>
-inline ElasticModelCombinedMaterial<count>::ElasticModelCombinedMaterial(const T... mats)
+inline ElasticModelCombinedMaterial<count>::ElasticModelCombinedMaterial(T&&... mats)
 {
   static_assert(count > 0);
-  static_assert(
-    std::is_same<
-      std::integer_sequence<bool, true, std::is_convertible<std::decay_t<T>, ElasticModel3DDeformationGradient *>::value...>,
-      std::integer_sequence<bool, std::is_convertible<std::decay_t<T>, const ElasticModel3DDeformationGradient *>::value..., true>>::value,
-    "T should be const MuscleElasticModel*");
+  static_assert(sizeof...(T) == count, "Number of args must match count");
 
-  // std::cout << __PRETTY_FUNCTION__ << std::endl;
-
-  const ElasticModel3DDeformationGradient *mats2[] = { mats... };
+  int i = 0;
+  (..., (owned_[i] = std::unique_ptr<ElasticModel3DDeformationGradient>(std::forward<T>(mats)),
+         materials[i] = owned_[i].get(),
+         ++i));
 
   int offset = 0;
-  for (int i = 0; i < count; i++) {
-    materials[i] = mats2[i];
-    parameterOffsets[i] = offset;
-    offset += materials[i]->getNumParameters();
+  for (int j = 0; j < count; j++) {
+    parameterOffsets[j] = offset;
+    offset += materials[j]->getNumParameters();
   }
-
   parameterOffsets[count] = offset;
   numTotalParameters = offset;
 
   has3rdOrderDerivative = true;
-  for (int i = 0; i < count; i++) {
-    if (materials[i]->Has3rdOrderDerivative() == false) {
+  for (int j = 0; j < count; j++) {
+    if (!materials[j]->Has3rdOrderDerivative()) {
       has3rdOrderDerivative = false;
       break;
     }
@@ -279,8 +277,9 @@ template<>
 class ElasticModelCombinedMaterial<-1> : public ElasticModel3DDeformationGradient
 {
 public:
-  ElasticModelCombinedMaterial(int numMaterials, const ElasticModel3DDeformationGradient *const *mats);
-  virtual ~ElasticModelCombinedMaterial() { delete[] materials; }
+  ElasticModelCombinedMaterial(
+    std::vector<std::unique_ptr<ElasticModel3DDeformationGradient>> mats);
+  ~ElasticModelCombinedMaterial() override = default;
 
   virtual double compute_psi(const double *param, const double F[9],
     const double U[9], const double V[9], const double S[3]) const override;
@@ -311,32 +310,34 @@ public:
   }
 
 protected:
-  const ElasticModel3DDeformationGradient **materials;
+  std::vector<std::unique_ptr<ElasticModel3DDeformationGradient>> owned_;
+  std::vector<const ElasticModel3DDeformationGradient *> materials;
   int count;
 
-  int *parameterOffsets;
+  std::vector<int> parameterOffsets;
   int numTotalParameters;
 };
 
-inline ElasticModelCombinedMaterial<-1>::ElasticModelCombinedMaterial(int numMaterials, const ElasticModel3DDeformationGradient *const *mats):
-  count(numMaterials)
+inline ElasticModelCombinedMaterial<-1>::ElasticModelCombinedMaterial(
+  std::vector<std::unique_ptr<ElasticModel3DDeformationGradient>> mats)
+  : count(static_cast<int>(mats.size()))
 {
-  materials = new const ElasticModel3DDeformationGradient *[numMaterials];
-  parameterOffsets = new int[numMaterials + 1];
+  owned_ = std::move(mats);
+  materials.resize(count);
+  parameterOffsets.resize(count + 1);
 
   int offset = 0;
   for (int i = 0; i < count; i++) {
-    materials[i] = mats[i];
+    materials[i] = owned_[i].get();
     parameterOffsets[i] = offset;
     offset += materials[i]->getNumParameters();
   }
-
   parameterOffsets[count] = offset;
   numTotalParameters = offset;
 
   has3rdOrderDerivative = true;
   for (int i = 0; i < count; i++) {
-    if (materials[i]->Has3rdOrderDerivative() == false) {
+    if (!materials[i]->Has3rdOrderDerivative()) {
       has3rdOrderDerivative = false;
       break;
     }

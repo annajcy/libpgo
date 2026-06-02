@@ -14,19 +14,6 @@ copyright to USC, MIT, NUS
 
 #include "elasticModel.h"
 #include "elasticModel3DDeformationGradient.h"
-#include "elasticModelCombinedMaterial.h"
-#include "elasticModelHillTypeMaterial.h"
-#include "elasticModelInvariantBasedMaterial.h"
-#include "elasticModelStableNeoHookeanMaterial.h"
-#include "elasticModelVolumeMaterial.h"
-#include "invariantBasedMaterialStVK.h"
-#include "elasticModelLinearMaterial.h"
-#include "elasticModel3DSTVKMaterial.h"
-#include "elasticModel3DMooneyRivlin.h"
-
-#include "elasticModel2DFundamentalForms.h"
-#include "elasticModel2DFundamentalFormsFabric.h"
-#include "elasticModel2DFundamentalFormsSTVK.h"
 
 #include "plasticModel.h"
 
@@ -61,24 +48,8 @@ public:
 
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
 
-  // element elastic material
-  // volumetric elastic material
-  std::vector<ElasticModelStableNeoHookeanMaterial *> stableNeoHookeanMaterials;
-  std::vector<ElasticModelLinearMaterial *> linearMaterials;
-  std::vector<ElasticModelHillTypeMaterial *> hillTypeMaterials;
-  std::vector<ElasticModelInvariantBasedMaterial *> invariantBasedMaterials;
-  std::vector<ElasticModelVolumeMaterial *> volumeMaterials;
-  std::vector<ElasticModel3DSTVKMaterial *> stvkMaterials;
-  std::vector<ElasticModel3DMooneyRivlin *> mooneyRivlinMaterials;
-  std::vector<ElasticModelCombinedMaterial<2> *> combined2Materials;
-  std::vector<ElasticModelCombinedMaterial<3> *> combined3Materials;
-
-  // shell elastic material
-  std::vector<ElasticModel2DFundamentalFormsFabric *> shellFabricMaterials;
-  std::vector<ElasticModel2DFundamentalFormsSTVK *> shellSTVKMaterials;
-
-  std::vector<ElasticModel *> elementMaterials;
-  std::vector<InvariantBasedMaterial *> invariantModels;
+  // elastic models (owned; element models hold non-owning raw pointers)
+  std::vector<std::unique_ptr<ElasticModel>> ownedElasticModels;
 
   // plastic models (owned; element models hold non-owning raw pointers)
   std::vector<std::unique_ptr<PlasticModel>> ownedPlasticModels;
@@ -104,54 +75,6 @@ public:
 
 DeformationModelManagerImpl::~DeformationModelManagerImpl()
 {
-  for (auto ptr : stableNeoHookeanMaterials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : linearMaterials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : hillTypeMaterials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : invariantBasedMaterials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : volumeMaterials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : combined2Materials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : combined3Materials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : stvkMaterials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : mooneyRivlinMaterials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : invariantModels)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : shellFabricMaterials)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : shellSTVKMaterials)
-    if (ptr)
-      delete ptr;
-
 }
 
 void DeformationModelManagerImpl::computeFiberAxes()
@@ -343,64 +266,8 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
   data->globalRotation = ES::M3d::Identity();
   const int nele = data->nele;
 
-  // Allocate storage vectors before creating element models.
-  if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
-    elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK ||
-    elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL) {
-    data->hillTypeMaterials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
-    elasticMaterialType == DeformationModelElasticMaterial::STABLE_NEO) {
-    data->stableNeoHookeanMaterials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK ||
-    elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL ||
-    elasticMaterialType == DeformationModelElasticMaterial::INV_STVK ||
-    elasticMaterialType == DeformationModelElasticMaterial::STVK_VOL) {
-    data->invariantModels.assign(nele, nullptr);
-    data->invariantBasedMaterials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL ||
-    elasticMaterialType == DeformationModelElasticMaterial::VOLUME ||
-    elasticMaterialType == DeformationModelElasticMaterial::STVK_VOL) {
-    data->volumeMaterials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
-    elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK ||
-    elasticMaterialType == DeformationModelElasticMaterial::STVK_VOL) {
-    data->combined2Materials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::HILL_STVK_VOL) {
-    data->combined3Materials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::LINEAR) {
-    data->linearMaterials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::STVK) {
-    data->stvkMaterials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::MOONEY_RIVLIN) {
-    data->mooneyRivlinMaterials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_FABRIC) {
-    data->shellFabricMaterials.assign(nele, nullptr);
-  }
-
-  if (elasticMaterialType == DeformationModelElasticMaterial::KOITER_STVK) {
-    data->shellSTVKMaterials.assign(nele, nullptr);
-  }
-
   data->elementFEMs.resize(nele);
-  data->elementMaterials.assign(nele, nullptr);
+  data->ownedElasticModels.resize(nele);
   data->ownedPlasticModels.resize(nele);
 
   // Per-element FEM creation (all elements in parallel).
@@ -411,29 +278,15 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
         fiberDir = data->fiberAxesRest.block<3, 3>(0, ele * 3).row(0).data();
       }
 
-      auto eR = ElasticModelFactory::create(
+      data->ownedElasticModels[ele] = ElasticModelFactory::create(
         *data->simulationMesh, ele, elasticMaterialType, fiberDir);
-
-      data->elementMaterials[ele] = eR.elementMaterial;
-      if (eR.stableNeo) data->stableNeoHookeanMaterials[ele] = eR.stableNeo;
-      if (eR.linear) data->linearMaterials[ele] = eR.linear;
-      if (eR.hill) data->hillTypeMaterials[ele] = eR.hill;
-      if (eR.invariantBased) data->invariantBasedMaterials[ele] = eR.invariantBased;
-      if (eR.volume) data->volumeMaterials[ele] = eR.volume;
-      if (eR.stvk) data->stvkMaterials[ele] = eR.stvk;
-      if (eR.mooneyRivlin) data->mooneyRivlinMaterials[ele] = eR.mooneyRivlin;
-      if (eR.combined2) data->combined2Materials[ele] = eR.combined2;
-      if (eR.combined3) data->combined3Materials[ele] = eR.combined3;
-      if (eR.shellFabric) data->shellFabricMaterials[ele] = eR.shellFabric;
-      if (eR.shellSTVK) data->shellSTVKMaterials[ele] = eR.shellSTVK;
-      if (eR.invariantModel) data->invariantModels[ele] = eR.invariantModel;
 
       const double *fiberAxesRest = (data->fiberAxesRest.size() > 0)
         ? data->fiberAxesRest.data() + ele * 9 : nullptr;
 
       data->ownedPlasticModels[ele] = PlasticModelFactory::create(plasticModelType, fiberAxesRest);
 
-      ElasticBlock elasticBlock{eR.elementMaterial, data->elasticField.get()};
+      ElasticBlock elasticBlock{data->ownedElasticModels[ele].get(), data->elasticField.get()};
       PlasticBlock plasticBlock{data->ownedPlasticModels[ele].get(), data->plasticField.get()};
 
       data->elementFEMs[ele] = ElementModelFactory::create(
@@ -449,7 +302,7 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
     setPlasticParams(PlasticModelFactory::initializeDefaultPlasticParams(
       nele, data->numPlasticParams, plasticModels.data()));
 
-    const int numElasticParams = data->elementMaterials[0]->getNumParameters();
+    const int numElasticParams = data->ownedElasticModels[0]->getNumParameters();
     setElasticParams(ElasticModelFactory::initializeDefaultElasticParams(
       *data->simulationMesh, elasticMaterialType, numElasticParams));
   }
@@ -510,7 +363,7 @@ void DeformationModelManager::setEnforceSPD(int enable)
       dm->enableSPD(enable);
   }
 
-  for (auto mat : data->elementMaterials) {
+  for (const auto &mat : data->ownedElasticModels) {
     if (mat)
       mat->enableSPD(enable);
   }
@@ -579,7 +432,7 @@ int DeformationModelManager::getNumPlasticParameters() const
 
 int DeformationModelManager::getNumElasticParameters() const
 {
-  return data->elementMaterials[0]->getNumParameters();
+  return data->ownedElasticModels[0]->getNumParameters();
 }
 
 const ES::VXd &DeformationModelManager::getElasticGlobalParams() const
