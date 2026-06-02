@@ -1,7 +1,6 @@
 #include "plasticModelFactory.h"
 
 #include "../plasticModel.h"
-#include "../plasticModel3DDeformationGradient.h"
 #include "../plasticModel3D3DOF.h"
 #include "../plasticModel3D6DOF.h"
 #include "../plasticModel3DConstant.h"

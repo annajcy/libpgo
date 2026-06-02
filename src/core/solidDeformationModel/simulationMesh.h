@@ -293,7 +293,7 @@ public:
   void appendMaterialToAllElements(const SimulationMeshMaterial *mat);
 
 protected:
-  SimulationMeshImpl *impl;
+  std::unique_ptr<SimulationMeshImpl> impl;
 };
 
 std::unique_ptr<SimulationMesh> loadTetMesh(const VolumetricMeshes::TetMesh *tetmesh);

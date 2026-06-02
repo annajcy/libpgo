@@ -1,6 +1,8 @@
 #include "shellElementModel.h"
 #include "../parameters/parameterField.h"
 
+#include "pgoLogging.h"
+
 namespace pgo
 {
 namespace ES = pgo::EigenSupport;
@@ -41,7 +43,8 @@ void ShellElementModel::prepareData(
   const double *x,
   DeformationModelCacheData *cacheDataBase) const
 {
-  CacheData *cacheData = dynamic_cast<CacheData *>(cacheDataBase);
+  PGO_ALOG(dynamic_cast<CacheData *>(cacheDataBase) != nullptr);
+  CacheData *cacheData = static_cast<CacheData *>(cacheDataBase);
   cacheData->x[0] = ES::V3d(x[0], x[1], x[2]);
   cacheData->x[1] = ES::V3d(x[3], x[4], x[5]);
   cacheData->x[2] = ES::V3d(x[6], x[7], x[8]);
@@ -69,7 +72,8 @@ void ShellElementModel::prepareData(
 
 double ShellElementModel::computeEnergy(const DeformationModelCacheData *cacheDataBase) const
 {
-  const CacheData *cacheData = dynamic_cast<const CacheData *>(cacheDataBase);
+  PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
+  const CacheData *cacheData = static_cast<const CacheData *>(cacheDataBase);
 
   double E1 = elasticModel_->compute_psi_a(
     cacheData->elasticParams.data(), cacheData->a.data(),
@@ -84,7 +88,8 @@ double ShellElementModel::computeEnergy(const DeformationModelCacheData *cacheDa
 void ShellElementModel::compute_dE_dx(const DeformationModelCacheData *cacheDataBase,
   double *grad) const
 {
-  const CacheData *cacheData = dynamic_cast<const CacheData *>(cacheDataBase);
+  PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
+  const CacheData *cacheData = static_cast<const CacheData *>(cacheDataBase);
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
@@ -110,7 +115,8 @@ void ShellElementModel::compute_dE_dx(const DeformationModelCacheData *cacheData
 void ShellElementModel::compute_d2E_dx2(const DeformationModelCacheData *cacheDataBase,
   double *hess) const
 {
-  const CacheData *cacheData = dynamic_cast<const CacheData *>(cacheDataBase);
+  PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
+  const CacheData *cacheData = static_cast<const CacheData *>(cacheDataBase);
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
@@ -168,7 +174,8 @@ void ShellElementModel::compute_d2E_dx2(const DeformationModelCacheData *cacheDa
 void ShellElementModel::compute_d2E_dxda(const DeformationModelCacheData *cacheDataBase,
   double *hess) const
 {
-  const CacheData *cacheData = dynamic_cast<const CacheData *>(cacheDataBase);
+  PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
+  const CacheData *cacheData = static_cast<const CacheData *>(cacheDataBase);
   ES::V4d dpsi_da, dpsi_db;
   elasticModel_->compute_dpsi_da(
     cacheData->elasticParams.data(), cacheData->a.data(),
@@ -226,7 +233,8 @@ void ShellElementModel::compute_d2E_dxda(const DeformationModelCacheData *cacheD
 void ShellElementModel::compute_d2E_dxdb(const DeformationModelCacheData *cacheDataBase,
   double *hess) const
 {
-  const CacheData *cacheData = dynamic_cast<const CacheData *>(cacheDataBase);
+  PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
+  const CacheData *cacheData = static_cast<const CacheData *>(cacheDataBase);
 
   ES::M4x18d d2psi_da_dparam, d2psi_db_dparam;
   elasticModel_->compute_d2psi_da_dparam(
