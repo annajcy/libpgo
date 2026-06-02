@@ -253,6 +253,9 @@ class TestNotebookSources:
         source = "\n".join("".join(c["source"]) for c in nb["cells"])
         assert 'Path(pgo.__file__).resolve().parent' in source
         assert 'ASSET_DIR / "veg" / "cubic" / "box.veg"' in source
+        assert 'ASSET_DIR / "obj" / "box.obj"' in source
+        assert "embedded_surface = pgo.mesh.read_obj(str(BOX_SURFACE))" in source
+        assert "make_box_surface" not in source
         assert "bbox_min, bbox_max = cubic_data.bbox" in source
         assert "corner_patch_mask" in source
         assert "fixed_vertices = np.flatnonzero(corner_patch_mask)" in source
@@ -261,13 +264,19 @@ class TestNotebookSources:
         assert "pe.LinearEnergy(-gravity_force)" in source
         assert "ps.solve_newton" in source
         assert "fixed_dofs=fixed_dofs.tolist()" in source
-        assert "deformed_volume.extract_surface_mesh()" in source
+        assert "surface_embedding = pgo.mesh.SurfaceEmbedding(embedded_surface, volume)" in source
+        assert "surface_embedding.deform(result.x)" in source
+        assert "surface_embedding.deform(result_with_soft_pin.x)" in source
         assert "pgo.mesh.write_obj" in source
         assert "static_solve_box_hang_deformed.obj" in source
-        assert "deformed_volume_with_soft_pin.extract_surface_mesh()" in source
         assert "static_solve_box_hang_soft_pin_deformed.obj" in source
         assert "vis.plot_volume_surface" in source
         assert "vis.plot_surface" in source
+        assert "surface_to_volume_interpolation_matrix" not in source
+        assert "surface_from_volume @ result.x" not in source
+        assert "surface_from_volume @ result_with_soft_pin.x" not in source
+        assert "deformed_volume.extract_surface_mesh()" not in source
+        assert "deformed_volume_with_soft_pin.extract_surface_mesh()" not in source
 
 
 # =========================================================================

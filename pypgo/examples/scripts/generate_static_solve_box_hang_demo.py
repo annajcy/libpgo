@@ -61,8 +61,10 @@ CELLS = [
         ASSET_DIR = PACKAGE_ROOT / "examples" / "assets"
         OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs"
         CUBIC_BOX = ASSET_DIR / "veg" / "cubic" / "box.veg"
+        BOX_SURFACE = ASSET_DIR / "obj" / "box.obj"
 
-        print("asset:", CUBIC_BOX)
+        print("volume asset:", CUBIC_BOX)
+        print("embedded surface asset:", BOX_SURFACE)
         print("output dir:", OUTPUT_DIR)
         """
     ),
@@ -82,6 +84,9 @@ CELLS = [
         cubic_data = volume.mesh_data
 
         bbox_min, bbox_max = cubic_data.bbox
+        embedded_surface = pgo.mesh.read_obj(str(BOX_SURFACE))
+        surface_embedding = pgo.mesh.SurfaceEmbedding(embedded_surface, volume)
+
         x_levels = np.unique(np.round(cubic_data.vertices[:, 0], decimals=12))
         z_levels = np.unique(np.round(cubic_data.vertices[:, 2], decimals=12))
         corner_patch_mask = (
@@ -95,6 +100,13 @@ CELLS = [
         print("geometry:", cubic_data.num_vertices, "vertices,", cubic_data.num_elements, "cubes")
         print("material:", volume.material)
         print("bbox:", cubic_data.bbox)
+        print("embedded surface:", embedded_surface.num_vertices, "vertices,", embedded_surface.num_elements, "triangles")
+        print(
+            "surface interpolation:",
+            surface_embedding.interpolation_matrix.shape,
+            "nnz:",
+            surface_embedding.interpolation_matrix.nnz,
+        )
         print("fixed top-corner patch vertices:", fixed_vertices.tolist())
         print("num fixed vertices:", len(fixed_vertices))
 
@@ -216,8 +228,9 @@ CELLS = [
 
         The solver state is a displacement vector. Reshape it to `(n, 3)` and
         add it to the rest vertices to build a deformed `CubicMeshData`.
-        The deformed volume can then be wrapped as a `VolumeMesh`, converted
-        to a triangle surface, and exported as OBJ.
+        The display surface is driven by `pgo.mesh.SurfaceEmbedding`, which
+        preserves the `box.obj` surface topology while interpolating volume
+        displacements.
         """
     ),
     code(
@@ -225,8 +238,7 @@ CELLS = [
         displacement = result.x.reshape((-1, 3))
         deformed_vertices = cubic_data.vertices + displacement
         deformed_cubic = pgo.mesh.CubicMeshData(deformed_vertices, cubic_data.elements)
-        deformed_volume = VolumeMesh.create_from_single_material(deformed_cubic, volume.material)
-        deformed_surface = deformed_volume.extract_surface_mesh()
+        deformed_surface = surface_embedding.deform(result.x)
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         deformed_obj = OUTPUT_DIR / "static_solve_box_hang_deformed.obj"
@@ -237,19 +249,12 @@ CELLS = [
         print("deformed surface:", deformed_surface.num_vertices, "vertices,", deformed_surface.num_elements, "triangles")
         print("wrote OBJ:", deformed_obj)
 
-        vis.plot_volume_surface(
-            [cubic_data, deformed_cubic],
-            titles=["rest", "static solve"],
+        vis.plot_surface(
+            [embedded_surface, deformed_surface],
+            titles=["embedded rest surface", "embedded static solve"],
             colors=["lightgray", "salmon"],
             show_edges=True,
-            window_size=(900, 360),
-        )
-        vis.plot_surface(
-            deformed_surface,
-            titles=["extracted deformed surface"],
-            colors=["salmon"],
-            show_edges=True,
-            window_size=(600, 420),
+            window_size=(900, 420),
         )
         """
     ),
@@ -301,8 +306,8 @@ CELLS = [
         displacement_with_soft_pin = result_with_soft_pin.x.reshape((-1, 3))
         deformed_vertices_with_soft_pin = cubic_data.vertices + displacement_with_soft_pin
         deformed_cubic_with_soft_pin = pgo.mesh.CubicMeshData(deformed_vertices_with_soft_pin, cubic_data.elements)
-        deformed_volume_with_soft_pin = VolumeMesh.create_from_single_material(deformed_cubic_with_soft_pin, volume.material)
-        deformed_surface_with_soft_pin = deformed_volume_with_soft_pin.extract_surface_mesh()
+        deformed_surface_with_soft_pin = surface_embedding.deform(result_with_soft_pin.x)
+
         soft_pin_obj = OUTPUT_DIR / "static_solve_box_hang_soft_pin_deformed.obj"
         pgo.mesh.write_obj(str(soft_pin_obj), deformed_surface_with_soft_pin)
 
@@ -315,19 +320,12 @@ CELLS = [
             "triangles",
         )
         print("wrote soft pin OBJ:", soft_pin_obj)
-        vis.plot_volume_surface(
-            [cubic_data, deformed_cubic_with_soft_pin],
-            titles=["rest", "static solve with soft pin"],
+        vis.plot_surface(
+            [embedded_surface, deformed_surface_with_soft_pin],
+            titles=["embedded rest surface", "embedded soft pin solve"],
             colors=["lightgray", "lightcoral"],
             show_edges=True,
-            window_size=(900, 360),
-        )
-        vis.plot_surface(
-            deformed_surface_with_soft_pin,
-            titles=["soft pin extracted surface"],
-            colors=["lightcoral"],
-            show_edges=True,
-            window_size=(600, 420),
+            window_size=(900, 420),
         )
         """
     ),

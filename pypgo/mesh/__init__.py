@@ -16,6 +16,7 @@ __all__ = [
     "TriMeshData",
     "TetMeshData",
     "CubicMeshData",
+    "SurfaceEmbedding",
     "read_obj",
     "write_obj",
     "create_box",
@@ -188,6 +189,58 @@ class CubicMeshData(_MeshDataBase):
             return self.vertices.mean(axis=0)
         centroids = tets.mean(axis=1)
         return np.average(centroids, axis=0, weights=volumes)
+
+
+class SurfaceEmbedding:
+    """Map volume displacements onto an embedded triangle surface mesh."""
+
+    def __init__(self, surface_mesh: TriMeshData, volume_mesh):
+        from pypgo.mesh.geo import surface_to_volume_interpolation_matrix
+        from pypgo.mesh.veg import VolumeMesh
+
+        if not isinstance(surface_mesh, TriMeshData):
+            raise TypeError(f"surface_mesh must be a TriMeshData, got {type(surface_mesh).__name__}")
+        if not isinstance(volume_mesh, VolumeMesh):
+            raise TypeError(f"volume_mesh must be a VolumeMesh, got {type(volume_mesh).__name__}")
+
+        self._rest_surface = surface_mesh
+        self._interpolation_matrix = surface_to_volume_interpolation_matrix(surface_mesh, volume_mesh)
+
+    @property
+    def rest_surface(self) -> TriMeshData:
+        return self._rest_surface
+
+    @property
+    def interpolation_matrix(self):
+        return self._interpolation_matrix
+
+    def _flat_volume_displacement(self, volume_displacement) -> np.ndarray:
+        disp = np.asarray(volume_displacement, dtype=np.float64)
+        if disp.ndim == 2:
+            if disp.shape[1] != 3:
+                raise ValueError(f"volume_displacement must have shape (n, 3), got {disp.shape}")
+            disp = disp.reshape(-1)
+        elif disp.ndim != 1:
+            raise ValueError(f"volume_displacement must be a flat vector or an (n, 3) array, got {disp.shape}")
+
+        expected = self._interpolation_matrix.shape[1]
+        if disp.size != expected:
+            raise ValueError(f"volume_displacement has {disp.size} entries, expected {expected}")
+        return np.ascontiguousarray(disp, dtype=np.float64)
+
+    def displacement(self, volume_displacement) -> np.ndarray:
+        """Interpolate a volume displacement field onto the embedded surface."""
+
+        disp = self._flat_volume_displacement(volume_displacement)
+        return (self._interpolation_matrix @ disp).reshape((-1, 3))
+
+    def deform(self, volume_displacement) -> TriMeshData:
+        """Return a deformed surface mesh with the rest topology preserved."""
+
+        return TriMeshData(
+            self._rest_surface.vertices + self.displacement(volume_displacement),
+            self._rest_surface.elements,
+        )
 
 
 def read_obj(path: str) -> TriMeshData:

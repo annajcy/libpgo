@@ -243,3 +243,45 @@ def test_barycentric_embedding_matrix_and_deform():
         dtype=np.float64,
     ).ravel()
     assert np.allclose(embedding.deform(volume_disp), [0.25, 0.25, 0.25])
+
+
+def test_surface_embedding_deforms_surface_from_volume_displacement():
+    tet = pgo.mesh.TetMeshData(
+        np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        ),
+        np.array([[0, 1, 2, 3]], dtype=np.int64),
+    )
+    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet, pgo.mesh.veg.ENuMaterial())
+    surface = pgo.mesh.TriMeshData(
+        np.array(
+            [
+                [0.25, 0.25, 0.25],
+                [0.50, 0.25, 0.25],
+                [0.25, 0.50, 0.25],
+            ],
+            dtype=np.float64,
+        ),
+        np.array([[0, 1, 2]], dtype=np.int64),
+    )
+
+    embedding = pgo.mesh.SurfaceEmbedding(surface, volume)
+    volume_disp = tet.vertices.copy()
+
+    assert embedding.rest_surface is surface
+    assert embedding.interpolation_matrix.shape == (3 * surface.num_vertices, 3 * tet.num_vertices)
+    assert np.allclose(embedding.displacement(volume_disp), surface.vertices)
+
+    deformed = embedding.deform(volume_disp.ravel())
+    assert isinstance(deformed, pgo.mesh.TriMeshData)
+    assert np.array_equal(deformed.elements, surface.elements)
+    assert np.allclose(deformed.vertices, 2.0 * surface.vertices)
+
+    with pytest.raises(ValueError, match="volume_displacement"):
+        embedding.deform(np.zeros(5, dtype=np.float64))
