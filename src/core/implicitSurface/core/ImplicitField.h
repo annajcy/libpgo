@@ -22,9 +22,9 @@ public:
   virtual void evalBatch(const V3d *pts, double *out, std::size_t n) const;
 
   // numThreads:
-  //   0: use OpenMP defaults
+  //   0: use the default parallel backend
   //   1: force a serial loop
-  //  >1: request that many OpenMP threads
+  //  >1: request that many worker threads
   virtual GridField sampleToGrid(const GridSpec &spec, int numThreads = 0) const;
 
   virtual ~ImplicitField() = default;

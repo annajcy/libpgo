@@ -2,7 +2,20 @@
 
 from importlib import import_module
 
-__all__ = ["animation", "constraints", "fem", "energy", "implicit", "mesh", "sim", "solver", "sparse", "tools", "vis"]
+__all__ = [
+    "animation",
+    "constraints",
+    "fem",
+    "energy",
+    "implicit",
+    "mesh",
+    "parallel",
+    "sim",
+    "solver",
+    "sparse",
+    "tools",
+    "vis",
+]
 
 
 def __getattr__(name: str):

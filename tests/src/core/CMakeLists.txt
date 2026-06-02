@@ -7,6 +7,11 @@ target_compile_definitions(configFileJSON_gtest PRIVATE
 set_property(TARGET configFileJSON_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(configFileJSON_gtest)
 
+add_executable(parallelism_gtest parallelism_gtest.cpp)
+target_link_libraries(parallelism_gtest PRIVATE GTest::gtest_main parallelism)
+set_property(TARGET parallelism_gtest PROPERTY FOLDER "tests/gtest")
+add_test(NAME parallelism_gtest COMMAND parallelism_gtest)
+
 if (TARGET animationIO)
   add_executable(animationLoader_gtest animationLoader_gtest.cpp)
   target_link_libraries(animationLoader_gtest PRIVATE GTest::gtest_main animationIO)

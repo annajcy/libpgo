@@ -4,6 +4,15 @@
 > **适用范围：** C++ `src/core` 中简单并行循环的统一封装；从 `ImplicitField::sampleToGrid` 开始迁移。
 > **执行约束：** 不重写复杂 TBB reduction / TLS / concurrent container 算法；第一阶段只统一 embarrassingly parallel 的 `parallel_for`。
 
+## 后续计划执行规则
+
+从本计划落地后，所有后续 Python API migration / C++ refactor plan 遇到 TBB/OpenMP 并行循环时，默认规则是：
+
+- 简单 `parallel_for` / 三维逐点循环必须使用 `src/core/parallelism` 提供的 `pgo::parallel::parallelFor*` API。
+- 业务模块不得新增直接 `#include <tbb/...>`、`tbb::parallel_for` 或 `#pragma omp parallel for`。
+- 如果遇到 `parallel_reduce`、TLS、`concurrent_vector`、锁、custom partitioner 等复杂模式，不要临时在业务模块里复制 TBB/OpenMP 用法；先判断是否暂缓迁移，或为 `core/parallelism` 增加一个窄的专用抽象。
+- Python API 不暴露底层 backend 选择；Python 入口只保留局部 `num_threads` 或未来的 coarse-grained runtime config。
+
 ## 目标
 
 在 `src/core/parallelism` 新增一个轻量并行能力核心库，让业务代码不再直接 include `tbb/...` 或写 `#pragma omp`：
@@ -497,4 +506,3 @@ chunk-based type erasure 可以避免业务代码直接 include TBB/OpenMP，但
 - `src/core/implicitSurface` 只 include `parallelism/parallelFor.h`，不直接 include TBB/OpenMP。
 - `rg "<tbb/parallel_for.h>|#pragma omp" src/core/implicitSurface` 无命中。
 - C++ implicit surface tests 和 Python implicit tests 通过。
-

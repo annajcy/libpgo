@@ -91,9 +91,9 @@ public:
 
 `BooleanField(shared_ptr<ImplicitField> a, b, BooleanOp op)` 的 `eval` 直接做 `min/max/max(a,-b)`。`OffsetField(shared_ptr<ImplicitField> inner, double offset)` 的 `eval` 做 `inner->eval(p) - offset`。只有 `.sample_to_grid()` 时才一次性物化。`applyBoolean` / `thickenMeshShell` 保留为调用惰性 op 后立即 `.sampleToGrid()` 的 convenience wrapper（deprecated）。
 
-### D6. sampleToGrid 用 OpenMP collapse(3) 并行，Python-derived 类型不支持并行
+### D6. sampleToGrid 通过 core/parallelism 并行，Python-derived 类型不支持并行
 
-`ImplicitField::sampleToGrid` 默认实现用 OpenMP 并行调用 `eval`。因为 `eval` 是纯 C++ virtual，这是安全的。如果未来引入 Python trampoline（subclass in Python），Python-defined `eval` 需要持有 GIL，与 OpenMP 并行冲突——届时 trampoline 实现需标记为"no-parallel"。本计划不实现 trampoline，只文档化此约束。`MeshUnsignedDistanceField::sampleToGrid` 覆盖为 libigl 批量调用，不走 OpenMP eval 路径。
+`ImplicitField::sampleToGrid` 默认实现通过 `src/core/parallelism` 的 `pgo::parallel::parallelFor3D` 并行调用 `eval`。业务模块不直接 include TBB/OpenMP 头文件，也不写新的 `#pragma omp`。因为 `eval` 是纯 C++ virtual，这是安全的。如果未来引入 Python trampoline（subclass in Python），Python-defined `eval` 需要持有 GIL，与多线程逐点调用冲突——届时 trampoline 实现需标记为"no-parallel" 或强制 `numThreads=1`。本计划不实现 trampoline，只文档化此约束。`MeshUnsignedDistanceField::sampleToGrid` 覆盖为 libigl 批量调用，不走默认逐点 eval 路径。
 
 ### D7. Python 运算符：`|`、`&`、`-`，返回 shared_ptr<ImplicitField>
 
@@ -151,16 +151,14 @@ public:
 
     // Sample this field to a GridField.
     //
-    // numThreads controls OpenMP parallelism:
-    //     0 (default) — do not call omp_set_num_threads; respects env/variable
-    //                   OMP_NUM_THREADS and OpenMP's own default (typically
-    //                   hardware concurrency).
-    //     1           — single-threaded (omp_set_num_threads(1) or plain for-loop).
-    //     > 1         — omp_set_num_threads(numThreads) explicitly.
+    // numThreads controls libpgo core/parallelism:
+    //     0 (default) — use the default parallel backend.
+    //     1           — force a serial loop.
+    //     > 1         — request that many worker threads.
     //
     // WARNING: not safe for Python-trampoline subclasses when numThreads != 1,
     // because the trampoline would need to acquire the GIL on every eval() call
-    // but OpenMP threads don't hold it.
+    // from worker threads.
     GridField sampleToGrid(const GridSpec& spec, int numThreads = 0) const;
 
     virtual ~ImplicitField() = default;
@@ -174,7 +172,7 @@ inline bool isUnbounded(const Mesh::LightBoundingBox& bb) { return !bb.verifyBox
 **实现文件** `core/ImplicitField.cpp`：
 - `bounds()` 默认返回 `Mesh::LightBoundingBox{}`（`bmin=+DBL_MAX`，`bmax=-DBL_MAX`，即 `!verifyBox()`）
 - `evalBatch` 默认 for 循环
-- `sampleToGrid`：分配 `GridField(spec)`，`#pragma omp parallel for collapse(3) num_threads(t)` 遍历 xyz，调 `eval`，填入 flat index
+- `sampleToGrid`：分配 `GridField(spec)`，通过 `pgo::parallel::parallelFor3D` 遍历 xyz，调 `eval`，填入 flat index。此文件只 include `"parallelism/parallelFor.h"`，不直接 include TBB/OpenMP。
 
 ---
 
@@ -333,14 +331,11 @@ double MeshUnsignedDistanceField::eval(const V3d& p) const {
 GridField MeshUnsignedDistanceField::sampleToGrid(const GridSpec& spec, int numThreads) const {
     // Use libigl batch — equivalent to old computeMeshUnsignedDistance.
     //
-    // Note: libigl's computeDistanceField uses its own internal OpenMP
+    // Note: libigl's computeDistanceField may use its own internal
     // parallelism.  The numThreads parameter from ImplicitField is NOT
     // directly forwarded to libigl here.  If precise thread control is
-    // needed, the implementation should:
-    //   1. Cache current omp_get_max_threads()
-    //   2. omp_set_num_threads(numThreads > 0 ? numThreads : omp_get_max_threads())
-    //   3. Call libigl
-    //   4. Restore previous omp_get_max_threads()
+    // needed, add a scoped helper to core/parallelism first instead of
+    // manipulating OpenMP/TBB state directly in this module.
     //
     // Whether this is necessary depends on libigl's actual OpenMP usage
     // in the bundled version — to be confirmed during implementation.
@@ -1213,9 +1208,9 @@ conda run -n libpgo python -m pytest tests/pypgo/test_implicit.py -v
 
 **U2 ✅：`sampleToGrid(numThreads)` 语义**
 
-- `numThreads == 0`：不调 `omp_set_num_threads`，尊重环境变量 `OMP_NUM_THREADS` 和 OpenMP 默认值
-- `numThreads == 1`：单线程（`omp_set_num_threads(1)` 或纯 for 循环）
-- `numThreads > 1`：`omp_set_num_threads(numThreads)`
+- `numThreads == 0`：使用 `core/parallelism` 默认 backend
+- `numThreads == 1`：强制单线程
+- `numThreads > 1`：请求该数量的 worker threads
 
 语义记录在 `ImplicitField.h` 的 `sampleToGrid` 注释中。
 
@@ -1232,6 +1227,6 @@ conda run -n libpgo python -m pytest tests/pypgo/test_implicit.py -v
 
 **U6（新增）：`MeshUnsignedDistanceField::sampleToGrid` 的并行控制**
 
-libigl 的 `computeDistanceField` 内部自带并行（OpenMP）。`sampleToGrid` override
+libigl 的 `computeDistanceField` 内部可能自带并行。`sampleToGrid` override
 的 `numThreads` 参数在该路径中不直接控制 libigl 的线程数——libigl 会用自己的默认值。
-如果要精确控制，调用前设 `omp_set_num_threads(numThreads)` 再调 libigl 入口，调用后恢复。这个细节在实现时确认 libigl 的 OpenMP 行为后再决定是否需要显式设置。
+如果要精确控制，先在 `core/parallelism` 中增加 scoped backend/thread-control helper，再从该 override 调用；不要在 implicit surface 模块里直接调用 `omp_set_num_threads` 或 include TBB/OpenMP 头文件。

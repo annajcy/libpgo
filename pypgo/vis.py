@@ -15,6 +15,14 @@ if TYPE_CHECKING:
     import pyvista as pv
 
 _INSTALL_HINT = "Install visualization dependencies with: pip install -e .[examples]"
+_DEFAULT_BACKEND = "jupyter"
+_VALID_BACKENDS = {"jupyter", "static", "none"}
+_PYVISTA_BACKENDS = {
+    "jupyter": "trame",
+    "static": "static",
+    "none": "none",
+}
+_backend = _DEFAULT_BACKEND
 
 try:
     import pyvista as _pv
@@ -27,6 +35,38 @@ def _require_pyvista() -> bool:
         print(f"Skipping PyVista view. {_INSTALL_HINT}")
         return False
     return True
+
+
+def _normalize_backend(backend: str) -> str:
+    backend = str(backend).lower()
+    if backend not in _VALID_BACKENDS:
+        valid = ", ".join(sorted(_VALID_BACKENDS))
+        raise ValueError(f"backend must be one of: {valid}")
+    return backend
+
+
+def set_backend(backend: str) -> None:
+    """Set the default visualization backend used when a plot call omits one."""
+
+    global _backend
+    _backend = _normalize_backend(backend)
+
+
+def reset_backend() -> None:
+    """Reset pypgo visualization defaults to the interactive Jupyter backend."""
+
+    set_backend(_DEFAULT_BACKEND)
+
+
+def get_backend() -> str:
+    """Return the current default pypgo visualization backend for plot calls."""
+
+    return _backend
+
+
+def _show_plotter(plotter, *, backend: str | None):
+    effective_backend = _backend if backend is None else _normalize_backend(backend)
+    return plotter.show(jupyter_backend=_PYVISTA_BACKENDS[effective_backend])
 
 
 def to_pyvista_surface(surface_data: TriMeshData) -> "pv.PolyData":
@@ -80,8 +120,13 @@ def plot_surface(
     show_edges: bool = True,
     colors=None,
     window_size: tuple[int, int] = (900, 360),
+    backend: str | None = None,
 ):
-    """Render one or more TriMeshData objects side-by-side with PyVista."""
+    """Render one or more TriMeshData objects side-by-side with PyVista.
+
+    ``backend`` overrides the module default for this call only. Use
+    ``"jupyter"`` for interactive notebook views or ``"static"`` for images.
+    """
     if not _require_pyvista():
         return None
 
@@ -105,7 +150,7 @@ def plot_surface(
             plotter.add_text(titles[index], position="upper_left", font_size=10)
         plotter.view_isometric()
         plotter.camera.zoom(1.2)
-    return plotter.show()
+    return _show_plotter(plotter, backend=backend)
 
 
 def plot_volume_surface(
@@ -115,8 +160,13 @@ def plot_volume_surface(
     show_edges: bool = True,
     colors=None,
     window_size: tuple[int, int] = (900, 360),
+    backend: str | None = None,
 ):
-    """Render the surface of one or more volume meshes side-by-side with PyVista."""
+    """Render the surface of one or more volume meshes side-by-side with PyVista.
+
+    ``backend`` overrides the module default for this call only. Use
+    ``"jupyter"`` for interactive notebook views or ``"static"`` for images.
+    """
     if not _require_pyvista():
         return None
 
@@ -140,4 +190,4 @@ def plot_volume_surface(
             plotter.add_text(titles[index], position="upper_left", font_size=10)
         plotter.view_isometric()
         plotter.camera.zoom(1.2)
-    return plotter.show()
+    return _show_plotter(plotter, backend=backend)

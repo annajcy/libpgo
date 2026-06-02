@@ -3,6 +3,7 @@
 > **状态日期：** 2026-06-01
 > **适用范围：** C++ `contact/` construction boundary + Python `pypgo.contact` binding.
 > **执行约束：** 不重写 IPC barrier、CCD、sampled penalty 数值 kernel、active-set 数值逻辑或 floor/contact 能量公式。本计划只重构 contact energy 的长期构造边界、ownership、obstacle lifecycle、stateful contact energy contract、Python API、以及与 `EnergySet` / solver service 的对接方式。
+> **并行约束：** 本计划后续实现中，凡遇到可表达为简单 `parallel_for` / range loop / 三维逐点循环的 TBB 或 OpenMP 并行需求，统一使用 `src/core/parallelism` 的 facade API（当前命名空间为 `pgo::parallel`，如 `pgo::parallel::parallelFor*`），contact 业务模块不得新增直接 `#include <tbb/...>`、`tbb::parallel_for` 或 `#pragma omp parallel for`。如果 contact kernel 确实需要 `parallel_reduce`、TLS、concurrent containers、锁、custom partitioner 等复杂 TBB/OpenMP 模式，先为 `core/parallelism` 增加窄抽象，或在本 plan 中明确记录为 scoped exception。
 
 ## 目标
 

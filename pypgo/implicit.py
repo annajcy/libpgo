@@ -70,10 +70,16 @@ class ImplicitField:
             return None
         return tuple(np.asarray(v, dtype=np.float64) for v in result)
 
-    def sample_to_grid(self, grid_spec: GridSpec, *, num_threads: int = 0) -> "GridField":
+    def sample_to_grid(self, grid_spec: GridSpec, *, num_threads: int | None = None) -> "GridField":
         if not isinstance(grid_spec, GridSpec):
             raise TypeError(f"grid_spec must be GridSpec, got {type(grid_spec).__name__}")
-        return GridField(self._core_obj.sample_to_grid(grid_spec._core_obj, int(num_threads)))
+        if num_threads is None:
+            core_num_threads = 0
+        else:
+            core_num_threads = int(num_threads)
+            if core_num_threads <= 0:
+                raise ValueError("num_threads must be a positive integer or None")
+        return GridField(self._core_obj.sample_to_grid(grid_spec._core_obj, core_num_threads))
 
     def __or__(self, other: "ImplicitField") -> "ImplicitField":
         return ImplicitField(_core.implicit_union(self._core_obj, _field_core(other)))

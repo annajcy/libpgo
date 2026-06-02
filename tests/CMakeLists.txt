@@ -1,6 +1,8 @@
 include(FetchContent)
 include(GoogleTest)
 
+enable_testing()
+
 set(INSTALL_GTEST OFF CACHE BOOL "Disable GoogleTest installation" FORCE)
 set(BUILD_GMOCK OFF CACHE BOOL "Disable GoogleMock build" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "Use shared CRT for GoogleTest on Windows" FORCE)

@@ -41,6 +41,7 @@ This makes the next API free to model user workflows instead of mirroring histor
 5. **Interop is layered.** NumPy is required and foundational; SciPy and PyTorch integration should be optional adapters built on top of the same sparse/vector contracts.
 6. **Keep C++ bindings narrow.** Bind stable service boundaries and value types; do not expose every internal helper class just because it exists.
 7. **Refactor C++ when Python exposes bad boundaries.** If a clean Python API would require binding awkward ownership chains, oversized classes, global side effects, raw pointer lifetimes, or C++ implementation details, first introduce or refactor a C++ service/facade API and bind that instead.
+8. **C++ parallelism goes through `core/parallelism`.** Any future plan or implementation that encounters simple TBB/OpenMP parallel loops must use the libpgo parallel facade (`#include "parallelism/parallelFor.h"`, `pgo::parallel::parallelFor*`) instead of adding direct `#include <tbb/...>` or new `#pragma omp` usage in business modules. Complex TBB patterns such as `parallel_reduce`, TLS, concurrent containers, locks, or tuned partitioners must either stay explicitly scoped as exceptions or first extend `core/parallelism` with a narrow abstraction.
 
 ## C++ API Refactoring Policy
 
@@ -70,6 +71,7 @@ Refactor constraints:
 - Prefer additive C++ APIs until Python parity tests are stable.
 - Do not refactor numerical kernels just to make bindings prettier; refactor orchestration, ownership, data conversion, and service boundaries first.
 - Every C++ refactor that changes a binding boundary should have a C++ test and a Python test.
+- Do not introduce new direct TBB/OpenMP parallel-for code in migrated modules. Use `pgo::parallel` from `src/core/parallelism` for simple loops, and document any performance-specific exception in the relevant plan.
 
 ## Milestone 0: Scaffold and Parity Inventory
 

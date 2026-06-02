@@ -1,6 +1,7 @@
 #include "core/ImplicitField.h"
 
 #include "fields/GridField.h"
+#include "parallelism/parallelFor.h"
 
 namespace pgo::ImplicitSurface {
 
@@ -21,40 +22,12 @@ GridField ImplicitField::sampleToGrid(const GridSpec &spec, int numThreads) cons
   const int resolution = spec.resolution;
   const V3d delta = (spec.bmax - spec.bmin) / static_cast<double>(resolution - 1);
 
-  auto sample = [&](int x, int y, int z) {
-    const V3d p = spec.bmin + delta.cwiseProduct(V3d(x, y, z).cast<double>());
-    grid.at(x, y, z) = eval(p);
-  };
-
-  if (numThreads == 1) {
-    for (int z = 0; z < resolution; ++z)
-      for (int y = 0; y < resolution; ++y)
-        for (int x = 0; x < resolution; ++x)
-          sample(x, y, z);
-    return grid;
-  }
-
-#ifdef USE_OPENMP
-  if (numThreads > 1) {
-#pragma omp parallel for collapse(3) num_threads(numThreads)
-    for (int z = 0; z < resolution; ++z)
-      for (int y = 0; y < resolution; ++y)
-        for (int x = 0; x < resolution; ++x)
-          sample(x, y, z);
-  }
-  else {
-#pragma omp parallel for collapse(3)
-    for (int z = 0; z < resolution; ++z)
-      for (int y = 0; y < resolution; ++y)
-        for (int x = 0; x < resolution; ++x)
-          sample(x, y, z);
-  }
-#else
-  for (int z = 0; z < resolution; ++z)
-    for (int y = 0; y < resolution; ++y)
-      for (int x = 0; x < resolution; ++x)
-        sample(x, y, z);
-#endif
+  pgo::parallel::parallelFor3D(resolution, resolution, resolution,
+    { .numThreads = numThreads },
+    [&](int x, int y, int z) {
+      const V3d p = spec.bmin + delta.cwiseProduct(V3d(x, y, z).cast<double>());
+      grid.at(x, y, z) = eval(p);
+    });
 
   return grid;
 }

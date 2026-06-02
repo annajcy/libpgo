@@ -5,6 +5,7 @@
 > **状态日期：** 2026-06-01
 > **适用范围：** C++ `simulation` time-integrator architecture + Python `pypgo.sim` dynamic step API.
 > **执行约束：** 不改变 implicit Euler / TRBDF2 数值公式、Newton line-search / damping / max-step 语义、dynamic timestep acceptance policy、IPC active-set timing 或现有 `runIPCSim` 输出语义。本计划先把 residual energy 和 step lifecycle 服务化，再绑定 Python API。
+> **并行约束：** 本计划后续实现中，凡遇到可表达为简单 `parallel_for` / range loop / 三维逐点循环的 TBB 或 OpenMP 并行需求，统一使用 `src/core/parallelism` 的 facade API（当前命名空间为 `pgo::parallel`，如 `pgo::parallel::parallelFor*`），业务模块不得新增直接 `#include <tbb/...>`、`tbb::parallel_for` 或 `#pragma omp parallel for`。如果遇到 `parallel_reduce`、TLS、concurrent containers、锁、custom partitioner 等复杂模式，先为 `core/parallelism` 增加窄抽象或在本 plan 中明确记录为 scoped exception。
 
 **Goal:** 把 IBE 和 TRBDF2 迁移到统一的 dynamic step service，其中 residual energy 是自包含 stage problem，Python 通过 `DynamicSimulation.step()` / `run()` 驱动动态仿真。
 

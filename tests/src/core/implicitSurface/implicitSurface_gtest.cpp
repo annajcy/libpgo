@@ -220,6 +220,22 @@ TEST(ImplicitFieldTest, SphereSampleToGridUsesAnalyticEval)
   EXPECT_EQ(grid.gridSpec(), spec);
 }
 
+TEST(ImplicitFieldTest, SampleToGridParallelMatchesSerial)
+{
+  IS::GridSpec spec;
+  spec.bmin = ES::V3d(-1.0, -1.0, -1.0);
+  spec.bmax = ES::V3d(1.0, 1.0, 1.0);
+  spec.resolution = 8;
+
+  IS::SphereField sphere(ES::V3d(0.25, -0.25, 0.5), 0.75);
+  IS::GridField serial = sphere.sampleToGrid(spec, /*numThreads=*/1);
+  IS::GridField parallel = sphere.sampleToGrid(spec, /*numThreads=*/2);
+
+  ASSERT_EQ(serial.size(), parallel.size());
+  for (int i = 0; i < serial.size(); ++i)
+    EXPECT_NEAR(serial[i], parallel[i], 1e-12);
+}
+
 TEST(SphereFieldTest, AnalyticEvalAndBounds)
 {
   IS::SphereField sphere(ES::V3d(1.0, 2.0, 3.0), 2.0);
