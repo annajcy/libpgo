@@ -1,6 +1,6 @@
 #include "implicitBackwardEulerTimeIntegrator.h"
 #include "implicitBackwardEulerTimeIntegratorHelper.h"
-#include "NewtonSolver.h"
+#include "solver/newton/NewtonSolver.h"
 #include "timeIntegratorSolver.h"
 
 #include "potentialEnergy.h"

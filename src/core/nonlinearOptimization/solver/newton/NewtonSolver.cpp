@@ -1,7 +1,7 @@
-#include "NewtonSolver.h"
+#include "solver/newton/NewtonSolver.h"
 
 #include "EigenSupport.h"
-#include "lineSearch.h"
+#include "solver/newton/lineSearch.h"
 #include "lineSearchAwareEnergy.h"
 #include "pgoLogging.h"
 #include "scopedProfileSection.h"

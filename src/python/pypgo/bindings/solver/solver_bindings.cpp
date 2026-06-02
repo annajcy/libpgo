@@ -6,7 +6,7 @@
 
 #include "eigen_numpy.h"
 #include "energy_core.h"
-#include "optimizationService.h"
+#include "solver/service/optimizationService.h"
 
 #include <cstdint>
 #include <memory>

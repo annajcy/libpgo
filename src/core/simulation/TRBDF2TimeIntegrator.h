@@ -2,7 +2,7 @@
 
 #include "timeIntegrator.h"
 #include "timeIntegratorSolver.h"
-#include "solveDiagnostics.h"
+#include "solver/common/solveDiagnostics.h"
 
 namespace pgo
 {

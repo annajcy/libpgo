@@ -7,7 +7,7 @@ copyright to USC, MIT
 
 #include "energySet.h"
 #include "quadraticPotentialEnergy.h"
-#include "minimizeEnergy.h"
+#include "solver/legacy/minimizeEnergy.h"
 
 #include <numeric>
 #include <iostream>

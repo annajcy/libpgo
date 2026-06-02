@@ -1,6 +1,6 @@
-#include "optimizationService.h"
+#include "solver/service/optimizationService.h"
 
-#include "optimizationBackend.h"
+#include "solver/service/optimizationBackend.h"
 
 namespace pgo::NonlinearOptimization
 {

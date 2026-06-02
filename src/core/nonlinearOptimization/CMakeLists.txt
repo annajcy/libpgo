@@ -6,57 +6,57 @@ set(NONLINEAROPTIMIZATION_HEADERS
   energySet.h
   potentialEnergy.h
   lineSearchAwareEnergy.h
-  solveDiagnostics.h
-  solverResult.h
-  optimizationService.h
-  optimizationBackend.h
-  newtonLineSearchPolicy.h
-  newtonSparseSolverBackend.h
+  solver/common/solveDiagnostics.h
+  solver/common/solverResult.h
+  solver/service/optimizationService.h
+  solver/service/optimizationBackend.h
+  solver/newton/newtonLineSearchPolicy.h
+  solver/newton/newtonSparseSolverBackend.h
 
   potentialEnergyFromConstraintFunctions.h
 
   constraintFunction.h constraintFunctions.h constraintFunctionsAssember.h
   linearConstraintFunctions.h
 
-  nonlinearProblem.h lagrangian.h
-  NewtonSolver.h minimizeEnergy.h
+  solver/external/common/nonlinearProblem.h lagrangian.h
+  solver/newton/NewtonSolver.h solver/legacy/minimizeEnergy.h
   finiteDifference.h
   determinantDerivatives.h polarDecompositionDerivatives.h naturalCubicSplineDerivatives.h svdDerivatives.h
   barrierFunction.h
   naturalCubicSplineFitting.h
-  lineSearch.h
+  solver/newton/lineSearch.h
 )
 
 set(NONLINEAROPTIMIZATION_SOURCES
   evaluation.cpp
   energySet.cpp
-  solverResult.cpp
-  optimizationService.cpp
-  optimizationBackend.cpp
-  newtonLineSearchPolicy.cpp
-  newtonSparseSolverBackend.cpp
+  solver/common/solverResult.cpp
+  solver/service/optimizationService.cpp
+  solver/service/optimizationBackend.cpp
+  solver/newton/newtonLineSearchPolicy.cpp
+  solver/newton/newtonSparseSolverBackend.cpp
 
   constraintFunctions.cpp constraintFunctionsAssember.cpp
   linearConstraintFunctions.cpp
 
   potentialEnergyFromConstraintFunctions.cpp
-  nonlinearProblem.cpp lagrangian.cpp
-  NewtonSolver.cpp minimizeEnergy.cpp
+  solver/external/common/nonlinearProblem.cpp lagrangian.cpp
+  solver/newton/NewtonSolver.cpp solver/legacy/minimizeEnergy.cpp
   finiteDifference.cpp
   determinantDerivatives.cpp polarDecompositionDerivatives.cpp naturalCubicSplineDerivatives.cpp svdDerivatives.cpp
   barrierFunction.cpp
   naturalCubicSplineFitting.cpp
-  lineSearch.cpp
+  solver/newton/lineSearch.cpp
 )
 
 if(TARGET Knitro::Knitro)
-  set(NONLINEAROPTIMIZATION_HEADERS ${NONLINEAROPTIMIZATION_HEADERS} knitroProblem.h knitroOptimizer.h)
-  set(NONLINEAROPTIMIZATION_SOURCES ${NONLINEAROPTIMIZATION_SOURCES} knitroProblem.cpp knitroOptimizer.cpp)
+  set(NONLINEAROPTIMIZATION_HEADERS ${NONLINEAROPTIMIZATION_HEADERS} solver/external/knitro/knitroProblem.h solver/external/knitro/knitroOptimizer.h)
+  set(NONLINEAROPTIMIZATION_SOURCES ${NONLINEAROPTIMIZATION_SOURCES} solver/external/knitro/knitroProblem.cpp solver/external/knitro/knitroOptimizer.cpp)
 endif()
 
 if(TARGET Ipopt::Core)
-  set(NONLINEAROPTIMIZATION_HEADERS ${NONLINEAROPTIMIZATION_HEADERS} IpoptProblem.h IpoptOptimizer.h)
-  set(NONLINEAROPTIMIZATION_SOURCES ${NONLINEAROPTIMIZATION_SOURCES} IpoptProblem.cpp IpoptOptimizer.cpp)
+  set(NONLINEAROPTIMIZATION_HEADERS ${NONLINEAROPTIMIZATION_HEADERS} solver/external/ipopt/IpoptProblem.h solver/external/ipopt/IpoptOptimizer.h)
+  set(NONLINEAROPTIMIZATION_SOURCES ${NONLINEAROPTIMIZATION_SOURCES} solver/external/ipopt/IpoptProblem.cpp solver/external/ipopt/IpoptOptimizer.cpp)
 endif()
 
 set(NONLINEAROPTIMIZATION_DEPS eigenSupport pgoLogging autodiff::autodiff profiling)

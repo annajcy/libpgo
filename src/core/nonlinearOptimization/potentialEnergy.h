@@ -6,7 +6,7 @@ copyright to USC
 #pragma once
 
 #include "EigenDef.h"
-#include "solveDiagnostics.h"
+#include "solver/common/solveDiagnostics.h"
 
 #include <memory>
 

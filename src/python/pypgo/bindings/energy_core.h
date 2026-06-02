@@ -3,7 +3,7 @@
 #include "eigen_numpy.h"
 #include "evaluation.h"
 #include "potentialEnergy.h"
-#include "solveDiagnostics.h"
+#include "solver/common/solveDiagnostics.h"
 #include "sparse_matrix_core.h"
 
 #include <nanobind/nanobind.h>

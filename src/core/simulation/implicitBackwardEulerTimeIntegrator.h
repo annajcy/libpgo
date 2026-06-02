@@ -1,7 +1,7 @@
 #pragma once
 
 #include "timeIntegrator.h"
-#include "solveDiagnostics.h"
+#include "solver/common/solveDiagnostics.h"
 
 namespace pgo
 {

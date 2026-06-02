@@ -6,7 +6,7 @@ copyright to USC
 #pragma once
 
 #include "EigenSupport.h"
-#include "solverResult.h"
+#include "solver/common/solverResult.h"
 
 #include <memory>
 #include <functional>

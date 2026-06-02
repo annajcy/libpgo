@@ -3,8 +3,8 @@
 #include "timeIntegratorOptions.h"
 
 #include "EigenSupport.h"
-#include "solveDiagnostics.h"
-#include "solverResult.h"
+#include "solver/common/solveDiagnostics.h"
+#include "solver/common/solverResult.h"
 
 #include <memory>
 

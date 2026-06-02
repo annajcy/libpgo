@@ -5,9 +5,7 @@ copyright to USC
 
 #pragma once
 
-#include "nonlinearProblem.h"
-
-#include <memory>
+#include "solver/external/common/nonlinearProblem.h"
 #include <functional>
 
 namespace pgo

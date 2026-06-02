@@ -1,6 +1,6 @@
 #pragma once
 
-#include "solveDiagnostics.h"
+#include "solver/common/solveDiagnostics.h"
 
 #include <string>
 

@@ -1,6 +1,6 @@
-#include "optimizationBackend.h"
+#include "solver/service/optimizationBackend.h"
 
-#include "NewtonSolver.h"
+#include "solver/newton/NewtonSolver.h"
 
 #include <algorithm>
 #include <cmath>

@@ -1,4 +1,4 @@
-#include "solverResult.h"
+#include "solver/common/solverResult.h"
 
 #include <sstream>
 

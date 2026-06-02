@@ -3,9 +3,9 @@ author: Bohan Wang
 copyright to USC
 */
 
-#include "minimizeEnergy.h"
+#include "solver/legacy/minimizeEnergy.h"
 #include "lagrangian.h"
-#include "NewtonSolver.h"
+#include "solver/newton/NewtonSolver.h"
 #include "potentialEnergy.h"
 
 #ifdef PGO_HAS_IPOPT

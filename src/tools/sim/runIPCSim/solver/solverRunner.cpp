@@ -1,6 +1,6 @@
 #include "solver/solverRunner.h"
 
-#include "NewtonSolver.h"
+#include "solver/newton/NewtonSolver.h"
 
 #include <stdexcept>
 #include <string>

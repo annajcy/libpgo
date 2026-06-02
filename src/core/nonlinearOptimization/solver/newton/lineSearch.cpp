@@ -1,7 +1,7 @@
 /*
 copyright: vegafem
 */
-#include "lineSearch.h"
+#include "solver/newton/lineSearch.h"
 
 #include <cassert>
 #include <cmath>

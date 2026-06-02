@@ -10,12 +10,12 @@
 #  include "IpoptProblem.h"
 #endif
 
-#include "NewtonSolver.h"
+#include "solver/newton/NewtonSolver.h"
 
 #include "potentialEnergy.h"
 #include "constraintFunctions.h"
 #include "lagrangian.h"
-#include "minimizeEnergy.h"
+#include "solver/legacy/minimizeEnergy.h"
 
 using namespace pgo;
 using namespace pgo::NonlinearOptimization;

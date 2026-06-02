@@ -9,7 +9,7 @@ copyright to Bohan Wang
 #include "ipc/core/surfaceIPCPairs.h"
 #include "ipc/external/obstacleSurface.h"
 #include "ipc/topology/surfaceIPCTopology.h"
-#include "solveDiagnostics.h"
+#include "solver/common/solveDiagnostics.h"
 
 #include <cstdint>
 #include <vector>

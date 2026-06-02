@@ -1,4 +1,4 @@
-#include "newtonLineSearchPolicy.h"
+#include "solver/newton/newtonLineSearchPolicy.h"
 
 #include <cmath>
 #include <limits>

@@ -31,7 +31,7 @@
 #include "legacy_penalty/triangleMeshSelfContactHandler.h"
 #include "legacy_penalty/pointTrianglePairCouplingEnergyWithCollision.h"
 #include "linearPotentialEnergy.h"
-#include "NewtonSolver.h"
+#include "solver/newton/NewtonSolver.h"
 
 #if defined(PGO_HAS_ANIMATION_IO)
 #  include "animationLoader.h"

@@ -1,10 +1,10 @@
 #pragma once
 
 #include "constraintFunctions.h"
-#include "newtonLineSearchPolicy.h"
-#include "newtonSparseSolverBackend.h"
+#include "solver/newton/newtonLineSearchPolicy.h"
+#include "solver/newton/newtonSparseSolverBackend.h"
 #include "potentialEnergy.h"
-#include "solverResult.h"
+#include "solver/common/solverResult.h"
 
 #include <optional>
 #include <vector>

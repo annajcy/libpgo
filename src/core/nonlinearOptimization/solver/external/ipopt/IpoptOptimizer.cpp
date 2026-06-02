@@ -3,8 +3,8 @@ author: Bohan Wang
 copyright to USC
 */
 
-#include "IpoptOptimizer.h"
-#include "IpoptProblem.h"
+#include "solver/external/ipopt/IpoptOptimizer.h"
+#include "solver/external/ipopt/IpoptProblem.h"
 
 #include "pgoLogging.h"
 

@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "lineSearchAwareEnergy.h"
-#include "newtonLineSearchPolicy.h"
-#include "optimizationService.h"
+#include "solver/newton/newtonLineSearchPolicy.h"
+#include "solver/service/optimizationService.h"
 #include "pgoLogging.h"
 
 #include <Eigen/Sparse>

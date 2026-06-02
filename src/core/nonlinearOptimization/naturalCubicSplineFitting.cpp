@@ -8,8 +8,8 @@ copyright to USC
 #include "constraintFunctionsAssember.h"
 #include "linearConstraintFunctions.h"
 #include "potentialEnergy.h"
-#include "knitroOptimizer.h"
-#include "knitroProblem.h"
+#include "solver/external/knitro/knitroOptimizer.h"
+#include "solver/external/knitro/knitroProblem.h"
 
 #include "pgoLogging.h"
 

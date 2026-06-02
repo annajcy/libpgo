@@ -5,7 +5,7 @@ copyright to USC
 
 #pragma once
 
-#include "nonlinearProblem.h"
+#include "solver/external/common/nonlinearProblem.h"
 
 #include <coin-or/IpTNLP.hpp>
 

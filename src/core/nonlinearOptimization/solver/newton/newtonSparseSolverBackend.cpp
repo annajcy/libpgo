@@ -1,4 +1,4 @@
-#include "newtonSparseSolverBackend.h"
+#include "solver/newton/newtonSparseSolverBackend.h"
 
 #if defined(PGO_HAS_MKL) && !defined(PGO_HAS_ORIG_PARDISO)
 #  include "EigenMKLPardisoSupport.h"

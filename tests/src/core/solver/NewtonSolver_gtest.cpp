@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 
-#include "NewtonSolver.h"
+#include "solver/newton/NewtonSolver.h"
 #include "lineSearchAwareEnergy.h"
 #include "pgoLogging.h"
-#include "solveDiagnostics.h"
+#include "solver/common/solveDiagnostics.h"
 
 #include <cmath>
 #include <limits>

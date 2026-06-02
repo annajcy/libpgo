@@ -6,7 +6,7 @@ set(PYPGO_BINDING_SOURCES
   bindings/mesh_geo_bindings.cpp
   bindings/mesh_bindings.cpp
   bindings/energy_bindings.cpp
-  bindings/solver_bindings.cpp
+  bindings/solver/solver_bindings.cpp
   bindings/sparse_bindings.cpp
   ../../tools/mesh/volumetric/cubicMesher/triangleMeshVoxelizer.cpp
   ../../tools/mesh/volumetric/tetMesher/tetMesherBackend.cpp
@@ -77,6 +77,7 @@ endif()
 
 target_include_directories(pypgo_core
   PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/bindings
     ${CMAKE_SOURCE_DIR}/src/core/mesh
     ${CMAKE_SOURCE_DIR}/src/core/volumetricMesh
     ${CMAKE_SOURCE_DIR}/src/core/interpolationCoordinates

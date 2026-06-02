@@ -3,13 +3,9 @@ author: Bohan Wang
 copyright to USC
 */
 
-#include "nonlinearProblem.h"
+#include "solver/external/common/nonlinearProblem.h"
 #include "EigenSupport.h"
-
-#include "pgoLogging.h"
-
 #include <cstring>
-#include <iostream>
 
 using namespace pgo;
 using namespace pgo::NonlinearOptimization;

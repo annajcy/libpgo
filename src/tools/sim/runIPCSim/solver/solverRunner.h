@@ -2,7 +2,7 @@
 
 #include "EigenSupport.h"
 #include "potentialEnergy.h"
-#include "solverResult.h"
+#include "solver/common/solverResult.h"
 
 namespace pgo::RunIPCSim
 {

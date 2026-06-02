@@ -3,7 +3,7 @@ author: Bohan Wang
 copyright to USC
 */
 
-#include "knitroProblem.h"
+#include "solver/external/knitro/knitroProblem.h"
 
 #include <knitro.h>
 

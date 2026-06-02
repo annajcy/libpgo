@@ -3,8 +3,8 @@ author: Bohan Wang
 copyright to USC
 */
 
-#include "knitroOptimizer.h"
-#include "knitroProblem.h"
+#include "solver/external/knitro/knitroOptimizer.h"
+#include "solver/external/knitro/knitroProblem.h"
 
 #include "EigenSupport.h"
 #include "pgoLogging.h"

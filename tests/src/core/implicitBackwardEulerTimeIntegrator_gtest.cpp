@@ -2,7 +2,7 @@
 
 #include "implicitBackwardEulerTimeIntegrator.h"
 #include "pgoLogging.h"
-#include "solverResult.h"
+#include "solver/common/solverResult.h"
 #include "TRBDF2TimeIntegrator.h"
 
 #include <numeric>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EigenDef.h"
-#include "lineSearch.h"
+#include "solver/newton/lineSearch.h"
 
 #include <memory>
 

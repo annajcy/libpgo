@@ -23,7 +23,7 @@
 #include "potentialEnergy.h"
 #include "quadraticPotentialEnergy.h"
 #include "simulation_mesh_core.h"
-#include "solveDiagnostics.h"
+#include "solver/common/solveDiagnostics.h"
 #include "sparse_matrix_core.h"
 
 namespace nb = nanobind;
