@@ -13,6 +13,9 @@
 #include "tetMesh.h"
 #include "pgoLogging.h"
 
+#include <stdexcept>
+#include <string>
+
 namespace
 {
 using namespace pgo::SolidDeformationModel;
@@ -26,12 +29,16 @@ TEST(ElasticModelFactoryGTest, CreateStableNeo)
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
   auto simMesh = loadTetMesh(&tetMesh);
   ASSERT_NE(simMesh, nullptr);
+  ASSERT_EQ(simMesh->getElementNumMaterials(0), 1);
 
+  testing::internal::CaptureStdout();
   auto result = ElasticModelFactory::create(
     *simMesh, 0, DeformationModelElasticMaterial::STABLE_NEO, nullptr);
+  const std::string stdoutText = testing::internal::GetCapturedStdout();
 
   ASSERT_NE(result, nullptr);
   EXPECT_NE(dynamic_cast<ElasticModelStableNeoHookeanMaterial *>(result.get()), nullptr);
+  EXPECT_EQ(stdoutText.find("j >= 0 && j < getElementNumMaterials"), std::string::npos);
 }
 
 TEST(ElasticModelFactoryGTest, CreateLinear)
@@ -72,5 +79,5 @@ TEST(ElasticModelFactoryGTest, UnknownElasticModelThrows)
   auto invalidType = static_cast<DeformationModelElasticMaterial>(999);
   EXPECT_THROW(
     ElasticModelFactory::create(*simMesh, 0, invalidType, nullptr),
-    std::runtime_error);
+    std::logic_error);
 }

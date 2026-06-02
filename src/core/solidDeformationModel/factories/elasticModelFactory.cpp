@@ -13,8 +13,11 @@ std::unique_ptr<ElasticModel> ElasticModelFactory::create(
   DeformationModelElasticMaterial type,
   const double *fiberDirection)
 {
-  return mesh.getElementMaterial(ele, 0)->createElasticModel(
-    type, fiberDirection, mesh.getElementMaterial(ele, 1));
+  const SimulationMeshMaterial *auxMat = nullptr;
+  if (mesh.getElementNumMaterials(ele) > 1)
+    auxMat = mesh.getElementMaterial(ele, 1);
+
+  return mesh.getElementMaterial(ele, 0)->createElasticModel(type, fiberDirection, auxMat);
 }
 
 ES::VXd ElasticModelFactory::initializeDefaultElasticParams(

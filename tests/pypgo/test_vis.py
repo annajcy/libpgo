@@ -39,3 +39,17 @@ def test_explicit_plot_backend_overrides_default_without_mutating_it():
     assert vis._show_plotter(plotter, backend="jupyter") == "trame"
     assert plotter.seen_backend == "trame"
     assert vis.get_backend() == "static"
+
+
+def test_extract_volume_surface_pins_pyvista_algorithm_default():
+    class FakeGrid:
+        def __init__(self):
+            self.algorithm = None
+
+        def extract_surface(self, *, algorithm):
+            self.algorithm = algorithm
+            return "surface"
+
+    grid = FakeGrid()
+    assert vis._extract_volume_surface(grid) == "surface"
+    assert grid.algorithm == "dataset_surface"

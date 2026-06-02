@@ -50,6 +50,7 @@ GENERATORS: dict[str, str] = {
     "numpy_interoperate": "generate_numpy_interoperate.py",
     "solver_api_demo": "generate_solver_api_demo.py",
     "implicit_api_demo": "generate_implicit_api_demo.py",
+    "static_solve_box_hang_demo": "generate_static_solve_box_hang_demo.py",
 }
 
 # ---------------------------------------------------------------------------
@@ -245,6 +246,28 @@ class TestNotebookSources:
             nb = json.load(fh)
         source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
         assert "ndarray" in source or "numpy" in source
+
+    def test_static_solve_demo_covers_box_hang_path(self, generated_notebooks):
+        with open(generated_notebooks["static_solve_box_hang_demo"]) as fh:
+            nb = json.load(fh)
+        source = "\n".join("".join(c["source"]) for c in nb["cells"])
+        assert 'Path(pgo.__file__).resolve().parent' in source
+        assert 'ASSET_DIR / "veg" / "cubic" / "box.veg"' in source
+        assert "bbox_min, bbox_max = cubic_data.bbox" in source
+        assert "corner_patch_mask" in source
+        assert "fixed_vertices = np.flatnonzero(corner_patch_mask)" in source
+        assert "pf.LinearCubic()" in source
+        assert "pf.StableNeo()" in source
+        assert "pe.LinearEnergy(-gravity_force)" in source
+        assert "ps.solve_newton" in source
+        assert "fixed_dofs=fixed_dofs.tolist()" in source
+        assert "deformed_volume.extract_surface_mesh()" in source
+        assert "pgo.mesh.write_obj" in source
+        assert "static_solve_box_hang_deformed.obj" in source
+        assert "deformed_volume_with_soft_pin.extract_surface_mesh()" in source
+        assert "static_solve_box_hang_soft_pin_deformed.obj" in source
+        assert "vis.plot_volume_surface" in source
+        assert "vis.plot_surface" in source
 
 
 # =========================================================================

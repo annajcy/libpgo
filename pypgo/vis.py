@@ -69,6 +69,10 @@ def _show_plotter(plotter, *, backend: str | None):
     return plotter.show(jupyter_backend=_PYVISTA_BACKENDS[effective_backend])
 
 
+def _extract_volume_surface(volume_grid):
+    return volume_grid.extract_surface(algorithm="dataset_surface")
+
+
 def to_pyvista_surface(surface_data: TriMeshData) -> "pv.PolyData":
     """Convert a TriMeshData to a PyVista PolyData surface."""
     if not isinstance(surface_data, TriMeshData):
@@ -181,7 +185,7 @@ def plot_volume_surface(
         if len(meshes) > 1:
             plotter.subplot(0, index)
         plotter.add_mesh(
-            to_pyvista_volume(mesh).extract_surface(),
+            _extract_volume_surface(to_pyvista_volume(mesh)),
             color=colors[index % len(colors)],
             show_edges=show_edges,
             smooth_shading=False,

@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""Generate pypgo/examples/static_solve_box_hang_demo.ipynb.
+
+Run from the repository root:
+
+    conda run -n libpgo python pypgo/examples/scripts/generate_static_solve_box_hang_demo.py
+"""
+
+from __future__ import annotations
+
+from notebook_builder import code, md, repo_root, write_notebook
+
+
+CELLS = [
+    md(
+        """
+        # Static Solve — Hanging Cubic Box
+
+        This notebook builds a complete static equilibrium solve using only
+        Python-facing APIs and assets from `pypgo/examples/assets`.
+
+        The setup mirrors a "box hanging under gravity" scene:
+
+        1. Load a cubic `.veg` volume mesh.
+        2. Build a `SimulationMesh`.
+        3. Construct a stable Neo-Hookean deformation energy.
+        4. Convert gravity into a linear potential energy.
+        5. Fix a small top-corner patch directly in the notebook.
+        6. Solve the static energy minimization with Newton.
+        7. Visualize the rest and solved shapes.
+
+        This is a **static solve**. It does not use the dynamic time integrator
+        or contact/IP C lifecycle.
+        """
+    ),
+    code(
+        """
+        from pathlib import Path
+
+        import numpy as np
+        import pypgo as pgo
+        import pypgo.energy as pe
+        import pypgo.fem as pf
+        import pypgo.solver as ps
+        from pypgo import vis
+        from pypgo.mesh.veg import VolumeMesh, read_veg
+        """
+    ),
+    md(
+        """
+        ## 1. Locate the Example Assets
+
+        The notebook intentionally uses `pypgo/examples/assets` rather than
+        any simulator-specific example directory. The fixed vertex set is
+        derived from the loaded mesh in the next step.
+        """
+    ),
+    code(
+        """
+        PACKAGE_ROOT = Path(pgo.__file__).resolve().parent
+        ASSET_DIR = PACKAGE_ROOT / "examples" / "assets"
+        OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs"
+        CUBIC_BOX = ASSET_DIR / "veg" / "cubic" / "box.veg"
+
+        print("asset:", CUBIC_BOX)
+        print("output dir:", OUTPUT_DIR)
+        """
+    ),
+    md(
+        """
+        ## 2. Load the Cubic Volume Mesh
+
+        `read_veg()` returns a `VegFile` payload. `VolumeMesh.from_veg_file()`
+        turns that payload into a solver-facing volumetric mesh with geometry,
+        material regions, and mass-matrix support.
+        """
+    ),
+    code(
+        """
+        veg = read_veg(str(CUBIC_BOX))
+        volume = VolumeMesh.from_veg_file(veg)
+        cubic_data = volume.mesh_data
+
+        bbox_min, bbox_max = cubic_data.bbox
+        x_levels = np.unique(np.round(cubic_data.vertices[:, 0], decimals=12))
+        z_levels = np.unique(np.round(cubic_data.vertices[:, 2], decimals=12))
+        corner_patch_mask = (
+            np.isclose(cubic_data.vertices[:, 1], bbox_max[1])
+            & (cubic_data.vertices[:, 0] <= x_levels[1])
+            & (cubic_data.vertices[:, 2] <= z_levels[1])
+        )
+        fixed_vertices = np.flatnonzero(corner_patch_mask).astype(np.int64)
+
+        print(volume)
+        print("geometry:", cubic_data.num_vertices, "vertices,", cubic_data.num_elements, "cubes")
+        print("material:", volume.material)
+        print("bbox:", cubic_data.bbox)
+        print("fixed top-corner patch vertices:", fixed_vertices.tolist())
+        print("num fixed vertices:", len(fixed_vertices))
+
+        vis.plot_volume_surface(cubic_data, titles=["rest cubic box"], show_edges=True)
+        """
+    ),
+    md(
+        """
+        ## 3. Build the Simulation Mesh and Deformation Energy
+
+        The asset is a cubic/hexahedral mesh, so the formulation is
+        `LinearCubic()`. The JSON-style `stable-neo` material maps to
+        `pf.StableNeo()`.
+        """
+    ),
+    code(
+        """
+        sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
+
+        deformation = pf.deformation_energy(
+            sim_mesh,
+            formulation=pf.LinearCubic(),
+            elastic=pf.StableNeo(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+        )
+
+        print("mesh_type:", sim_mesh.mesh_type)
+        print("vertices:", sim_mesh.num_vertices)
+        print("elements:", sim_mesh.num_elements)
+        print("DOFs:", deformation.num_dofs)
+        print("state_kind:", deformation.state_kind)
+        """
+    ),
+    md(
+        """
+        ## 4. Convert Gravity into a Linear Potential
+
+        Static solve minimizes potential energy. If `f` is the gravity force
+        vector, the external potential is `-f^T u`, so we pass `-f` to
+        `LinearEnergy`.
+
+        For this compact tutorial we densify the small mass matrix. For larger
+        meshes, a sparse matvec helper would be preferable.
+        """
+    ),
+    code(
+        """
+        mass = volume.mass_matrix().to_dense()
+        gravity_accel = np.array([0.0, -981, 0.0], dtype=np.float64)
+        gravity_accel_dofs = np.tile(gravity_accel, sim_mesh.num_vertices)
+
+        gravity_force = mass @ gravity_accel_dofs
+        gravity_energy = pe.LinearEnergy(-gravity_force)
+
+        print("mass matrix:", mass.shape)
+        print("gravity force norm:", float(np.linalg.norm(gravity_force)))
+        print("linear energy DOFs:", gravity_energy.num_dofs)
+        """
+    ),
+    md(
+        """
+        ## 5. Convert Fixed Vertices to Fixed DOFs
+
+        Each fixed vertex contributes three displacement DOFs: `x`, `y`, and
+        `z`. Passing `fixed_values=None` means the solver fixes those DOFs to
+        their current values in `x0`, which is zero displacement here.
+        """
+    ),
+    code(
+        """
+        fixed_dofs = (3 * fixed_vertices[:, None] + np.arange(3, dtype=np.int64)).ravel()
+        x0 = np.zeros(deformation.num_dofs, dtype=np.float64)
+
+        print("fixed DOFs:", fixed_dofs.tolist())
+        print("initial fixed values:", x0[fixed_dofs])
+        """
+    ),
+    md(
+        """
+        ## 6. Compose the Static Objective and Solve
+
+        The static objective is:
+
+        &&
+        E(u) = E_\\text{elastic}(u) - f_\\text{gravity}^T u
+        &&
+
+        The fixed boundary is handled by `solve_newton(..., fixed_dofs=...)`,
+        not by adding another energy term.
+        """
+    ),
+    code(
+        """
+        total_energy = pe.EnergySet([
+            (deformation, 1.0),
+            (gravity_energy, 1.0),
+        ])
+
+        result = ps.solve_newton(
+            total_energy,
+            x0=x0,
+            fixed_dofs=fixed_dofs.tolist(),
+            fixed_values=None,
+            options=ps.NewtonOptions(max_iter=200, tol=1e-4, damping=True, line_search="backtrack"),
+        )
+
+        print("status:", result.status.name)
+        print("converged:", result.converged)
+        print("iterations:", result.iterations)
+        print("final objective:", result.final_objective)
+        print("final gradient max norm:", result.final_gradient_max_norm)
+        print("max |u|:", float(np.max(np.abs(result.x))))
+        print("fixed values after solve:", result.x[fixed_dofs])
+        """
+    ),
+    md(
+        """
+        ## 7. Visualize the Solved Shape
+
+        The solver state is a displacement vector. Reshape it to `(n, 3)` and
+        add it to the rest vertices to build a deformed `CubicMeshData`.
+        The deformed volume can then be wrapped as a `VolumeMesh`, converted
+        to a triangle surface, and exported as OBJ.
+        """
+    ),
+    code(
+        """
+        displacement = result.x.reshape((-1, 3))
+        deformed_vertices = cubic_data.vertices + displacement
+        deformed_cubic = pgo.mesh.CubicMeshData(deformed_vertices, cubic_data.elements)
+        deformed_volume = VolumeMesh.create_from_single_material(deformed_cubic, volume.material)
+        deformed_surface = deformed_volume.extract_surface_mesh()
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        deformed_obj = OUTPUT_DIR / "static_solve_box_hang_deformed.obj"
+        pgo.mesh.write_obj(str(deformed_obj), deformed_surface)
+
+        print("rest bbox:    ", cubic_data.bbox)
+        print("deformed bbox:", deformed_cubic.bbox)
+        print("deformed surface:", deformed_surface.num_vertices, "vertices,", deformed_surface.num_elements, "triangles")
+        print("wrote OBJ:", deformed_obj)
+
+        vis.plot_volume_surface(
+            [cubic_data, deformed_cubic],
+            titles=["rest", "static solve"],
+            colors=["lightgray", "salmon"],
+            show_edges=True,
+            window_size=(900, 360),
+        )
+        vis.plot_surface(
+            deformed_surface,
+            titles=["extracted deformed surface"],
+            colors=["salmon"],
+            show_edges=True,
+            window_size=(600, 420),
+        )
+        """
+    ),
+    md(
+        """
+        ## 8. Optional: Soft Pin Energy
+
+        A JSON-style `coeff` pin is a soft penalty. For a hard static boundary,
+        prefer `fixed_dofs` as above. If you want a soft attachment term
+        instead, use `VertexAttachment` and include it in the `EnergySet`.
+        """
+    ),
+    code(
+        """
+        soft_pin = pe.VertexAttachment(
+            sim_mesh=sim_mesh,
+            vertex_indices=fixed_vertices,
+            target_positions=np.zeros(3 * len(fixed_vertices), dtype=np.float64),
+            coeff=1e4,
+            is_displacement=True,
+        )
+
+        print("soft pin:", soft_pin)
+        print("soft pin energy at solved state:", soft_pin.value(result.x))
+
+        # add soft pin energy to the total energy and solve again
+        total_energy_with_soft_pin = pe.EnergySet([
+            (deformation, 1.0),
+            (gravity_energy, 1.0),
+            (soft_pin, 1.0),
+        ])
+        result_with_soft_pin = ps.solve_newton(
+            total_energy_with_soft_pin,
+            x0=result.x,
+            fixed_dofs=fixed_dofs.tolist(),
+            fixed_values=None,
+            options=ps.NewtonOptions(max_iter=200, tol=1e-4, damping=True, line_search="backtrack"),
+        )
+
+        print("status:", result_with_soft_pin.status.name)
+        print("converged:", result_with_soft_pin.converged)
+        print("iterations:", result_with_soft_pin.iterations)
+        print("final objective:", result_with_soft_pin.final_objective)
+        print("final gradient max norm:", result_with_soft_pin.final_gradient_max_norm)
+        print("max |u|:", float(np.max(np.abs(result_with_soft_pin.x))))
+        print("soft pin energy at new solved state:", soft_pin.value(result_with_soft_pin.x))
+
+        # visualize the new deformed shape
+        displacement_with_soft_pin = result_with_soft_pin.x.reshape((-1, 3))
+        deformed_vertices_with_soft_pin = cubic_data.vertices + displacement_with_soft_pin
+        deformed_cubic_with_soft_pin = pgo.mesh.CubicMeshData(deformed_vertices_with_soft_pin, cubic_data.elements)
+        deformed_volume_with_soft_pin = VolumeMesh.create_from_single_material(deformed_cubic_with_soft_pin, volume.material)
+        deformed_surface_with_soft_pin = deformed_volume_with_soft_pin.extract_surface_mesh()
+        soft_pin_obj = OUTPUT_DIR / "static_solve_box_hang_soft_pin_deformed.obj"
+        pgo.mesh.write_obj(str(soft_pin_obj), deformed_surface_with_soft_pin)
+
+        print("deformed bbox with soft pin:", deformed_cubic_with_soft_pin.bbox)
+        print(
+            "soft pin deformed surface:",
+            deformed_surface_with_soft_pin.num_vertices,
+            "vertices,",
+            deformed_surface_with_soft_pin.num_elements,
+            "triangles",
+        )
+        print("wrote soft pin OBJ:", soft_pin_obj)
+        vis.plot_volume_surface(
+            [cubic_data, deformed_cubic_with_soft_pin],
+            titles=["rest", "static solve with soft pin"],
+            colors=["lightgray", "lightcoral"],
+            show_edges=True,
+            window_size=(900, 360),
+        )
+        vis.plot_surface(
+            deformed_surface_with_soft_pin,
+            titles=["soft pin extracted surface"],
+            colors=["lightcoral"],
+            show_edges=True,
+            window_size=(600, 420),
+        )
+        """
+    ),
+]
+
+
+def main() -> None:
+    root = repo_root()
+    write_notebook(root / "pypgo" / "examples" / "static_solve_box_hang_demo.ipynb", CELLS)
+
+
+if __name__ == "__main__":
+    main()
