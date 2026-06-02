@@ -41,6 +41,12 @@ public:
 
   virtual void compute_paramfull(double *param) const;
 
+  void defaultParams(double *param) const override
+  {
+    static constexpr double kIdentity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+    toParam(kIdentity, param);
+  }
+
 protected:
   int numParams;
 };

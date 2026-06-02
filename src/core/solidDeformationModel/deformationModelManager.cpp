@@ -29,13 +29,6 @@ copyright to USC, MIT, NUS
 #include "elasticModel2DFundamentalFormsSTVK.h"
 
 #include "plasticModel.h"
-#include "plasticModel3DDeformationGradient.h"
-#include "plasticModel3D3DOF.h"
-#include "plasticModel3D6DOF.h"
-#include "plasticModel3DConstant.h"
-
-#include "plasticModel2DFundamentalForms.h"
-#include "plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "factories/elasticModelFactory.h"
 #include "factories/plasticModelFactory.h"
@@ -87,14 +80,8 @@ public:
   std::vector<ElasticModel *> elementMaterials;
   std::vector<InvariantBasedMaterial *> invariantModels;
 
-  // plastic models
-  std::vector<PlasticModel3DConstant *> plasticVolConstant;
-  std::vector<PlasticModel3D3DOF *> plasticVol3DOF;
-  std::vector<PlasticModel3D6DOF *> plasticVol6DOF;
-
-  // plastic model shell
-  std::vector<PlasticModel2DFundamentalForms *> plasticShellConstant;
-  std::vector<PlasticModel2DFundamentalFormsUniformStretch *> plasticShellUniformStretch;
+  // plastic models (owned; element models hold non-owning raw pointers)
+  std::vector<std::unique_ptr<PlasticModel>> ownedPlasticModels;
 
   ES::VXd fiberDirections;
   ES::VXd vertexFiberDirections;
@@ -165,25 +152,6 @@ DeformationModelManagerImpl::~DeformationModelManagerImpl()
     if (ptr)
       delete ptr;
 
-  for (auto ptr : plasticVol3DOF)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : plasticVol6DOF)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : plasticVolConstant)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : plasticShellConstant)
-    if (ptr)
-      delete ptr;
-
-  for (auto ptr : plasticShellUniformStretch)
-    if (ptr)
-      delete ptr;
 }
 
 void DeformationModelManagerImpl::computeFiberAxes()
@@ -433,22 +401,7 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
 
   data->elementFEMs.resize(nele);
   data->elementMaterials.assign(nele, nullptr);
-
-  if (plasticModelType == DeformationModelPlasticMaterial::VOLUMETRIC_DOF0) {
-    data->plasticVolConstant.assign(nele, nullptr);
-  }
-  else if (plasticModelType == DeformationModelPlasticMaterial::VOLUMETRIC_DOF3) {
-    data->plasticVol3DOF.assign(nele, nullptr);
-  }
-  else if (plasticModelType == DeformationModelPlasticMaterial::VOLUMETRIC_DOF6) {
-    data->plasticVol6DOF.assign(nele, nullptr);
-  }
-  else if (plasticModelType == DeformationModelPlasticMaterial::SHELL_FF_DOF0) {
-    data->plasticShellConstant.assign(nele, nullptr);
-  }
-  else if (plasticModelType == DeformationModelPlasticMaterial::SHELL_FF_DOF1) {
-    data->plasticShellUniformStretch.assign(nele, nullptr);
-  }
+  data->ownedPlasticModels.resize(nele);
 
   // Per-element FEM creation (all elements in parallel).
   tbb::parallel_for(
@@ -478,16 +431,10 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
       const double *fiberAxesRest = (data->fiberAxesRest.size() > 0)
         ? data->fiberAxesRest.data() + ele * 9 : nullptr;
 
-      auto pR = PlasticModelFactory::create(plasticModelType, fiberAxesRest);
-
-      if (pR.volConstant) data->plasticVolConstant[ele] = pR.volConstant;
-      if (pR.vol3DOF) data->plasticVol3DOF[ele] = pR.vol3DOF;
-      if (pR.vol6DOF) data->plasticVol6DOF[ele] = pR.vol6DOF;
-      if (pR.shellConstant) data->plasticShellConstant[ele] = pR.shellConstant;
-      if (pR.shellUniformStretch) data->plasticShellUniformStretch[ele] = pR.shellUniformStretch;
+      data->ownedPlasticModels[ele] = PlasticModelFactory::create(plasticModelType, fiberAxesRest);
 
       ElasticBlock elasticBlock{eR.elementMaterial, data->elasticField.get()};
-      PlasticBlock plasticBlock{pR.model, data->plasticField.get()};
+      PlasticBlock plasticBlock{data->ownedPlasticModels[ele].get(), data->plasticField.get()};
 
       data->elementFEMs[ele] = ElementModelFactory::create(
         *data->simulationMesh, ele, elasticBlock, plasticBlock, formulation);
@@ -498,7 +445,7 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
   {
     std::vector<PlasticModel *> plasticModels(nele);
     for (int ei = 0; ei < nele; ei++)
-      plasticModels[ei] = const_cast<PlasticModel *>(data->elementFEMs[ei]->getPlasticModel());
+      plasticModels[ei] = data->ownedPlasticModels[ei].get();
     setPlasticParams(PlasticModelFactory::initializeDefaultPlasticParams(
       nele, data->numPlasticParams, plasticModels.data()));
 
@@ -589,11 +536,10 @@ void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
     },
     tbb::static_partitioner());
 
-  if (!data->plasticVol3DOF.empty() && data->fiberAxes.cols() > 0) {
+  if (!data->ownedPlasticModels.empty() && data->fiberAxes.cols() > 0) {
     tbb::parallel_for(
       0, data->nele, [this](int ele) {
-        if (data->plasticVol3DOF[ele])
-          data->plasticVol3DOF[ele]->setR(data->fiberAxes.data() + ele * 9);
+        data->ownedPlasticModels[ele]->setFiberAxes(data->fiberAxes.data() + ele * 9);
       },
       tbb::static_partitioner());
   }
@@ -606,8 +552,7 @@ void DeformationModelManager::getVertexAlignedMatrix(int id, double R[9]) const
 
 void DeformationModelManager::getElementAlignedMatrix(int id, double R[9]) const
 {
-  bool isIdentity = (!data->plasticVol6DOF.empty() && data->plasticVol6DOF[id]) ||
-                    (!data->plasticVolConstant.empty() && data->plasticVolConstant[id]);
+  bool isIdentity = data->ownedPlasticModels[id]->isIdentityTransform();
   if (isIdentity || data->fiberAxes.cols() < (id + 1) * 3) {
     (Eigen::Map<ES::M3d>(R)) = ES::M3d::Identity();
   }
@@ -624,10 +569,7 @@ void DeformationModelManager::setElementAlignedMatrix(int id, double R[9])
   data->fiberAxesRest.block<3, 3>(0, id * 3) = Eigen::Map<ES::M3d>(R);
   data->fiberAxes.block<3, 3>(0, id * 3) = data->fiberAxesRest.block<3, 3>(0, id * 3) * data->globalRotation.transpose();
 
-  if (data->plasticVol3DOF.empty() || data->plasticVol3DOF[id] == nullptr)
-    return;
-
-  data->plasticVol3DOF[id]->setR(data->fiberAxes.data() + id * 9);
+  data->ownedPlasticModels[id]->setFiberAxes(data->fiberAxes.data() + id * 9);
 }
 
 int DeformationModelManager::getNumPlasticParameters() const

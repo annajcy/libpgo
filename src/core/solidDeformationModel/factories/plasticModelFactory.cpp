@@ -5,7 +5,6 @@
 #include "../plasticModel3D3DOF.h"
 #include "../plasticModel3D6DOF.h"
 #include "../plasticModel3DConstant.h"
-
 #include "../plasticModel2DFundamentalForms.h"
 #include "../plasticModel2DFundamentalFormsUniformStretch.h"
 
@@ -31,41 +30,30 @@ int PlasticModelFactory::numParameters(DeformationModelPlasticMaterial type)
   }
 }
 
-PlasticModelResult PlasticModelFactory::create(
+std::unique_ptr<PlasticModel> PlasticModelFactory::create(
   DeformationModelPlasticMaterial type,
   const double *fiberAxesRestRow0)
 {
-  PlasticModelResult result;
-
   if (type == DeformationModelPlasticMaterial::VOLUMETRIC_DOF0) {
-    ES::M3d I = ES::M3d::Identity();
-    result.volConstant = new PlasticModel3DConstant(I.data());
-    result.model = result.volConstant;
+    static constexpr double kIdentity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+    return std::make_unique<PlasticModel3DConstant>(kIdentity);
   }
   else if (type == DeformationModelPlasticMaterial::VOLUMETRIC_DOF3) {
-    // fiberAxesRestRow0 is null when no fiber directions were provided;
-    // fall back to identity so the constructor's memcpy is safe.
-    ES::M3d I = ES::M3d::Identity();
-    result.vol3DOF = new PlasticModel3D3DOF(fiberAxesRestRow0 ? fiberAxesRestRow0 : I.data());
-    result.model = result.vol3DOF;
+    static constexpr double kIdentity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+    return std::make_unique<PlasticModel3D3DOF>(fiberAxesRestRow0 ? fiberAxesRestRow0 : kIdentity);
   }
   else if (type == DeformationModelPlasticMaterial::VOLUMETRIC_DOF6) {
-    result.vol6DOF = new PlasticModel3D6DOF();
-    result.model = result.vol6DOF;
+    return std::make_unique<PlasticModel3D6DOF>();
   }
   else if (type == DeformationModelPlasticMaterial::SHELL_FF_DOF0) {
-    result.shellConstant = new PlasticModel2DFundamentalForms();
-    result.model = result.shellConstant;
+    return std::make_unique<PlasticModel2DFundamentalForms>();
   }
   else if (type == DeformationModelPlasticMaterial::SHELL_FF_DOF1) {
-    result.shellUniformStretch = new PlasticModel2DFundamentalFormsUniformStretch();
-    result.model = result.shellUniformStretch;
+    return std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   }
   else {
-    throw std::runtime_error("unknown plastic model");
+    throw std::runtime_error("PlasticModelFactory::create: unknown plastic model type");
   }
-
-  return result;
 }
 
 ES::VXd PlasticModelFactory::initializeDefaultPlasticParams(
@@ -74,17 +62,11 @@ ES::VXd PlasticModelFactory::initializeDefaultPlasticParams(
   PlasticModel *const *plasticModels)
 {
   ES::VXd plasticParams(static_cast<Eigen::Index>(nele) * numPlasticParams);
-
+  plasticParams.setZero();
   if (numPlasticParams > 0) {
-    plasticParams.setZero();
-    const ES::M3d identity = ES::M3d::Identity();
-    for (int ei = 0; ei < nele; ei++) {
-      const auto *pm = dynamic_cast<const PlasticModel3DDeformationGradient *>(plasticModels[ei]);
-      if (pm)
-        pm->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
-    }
+    for (int ei = 0; ei < nele; ei++)
+      plasticModels[ei]->defaultParams(plasticParams.data() + ei * numPlasticParams);
   }
-
   return plasticParams;
 }
 

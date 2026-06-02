@@ -7,9 +7,6 @@ copyright to USC,MIT,NUS
 #include "deformationModelManager.h"
 #include "simulationMesh.h"
 
-#include "formulations/basis/tetP1Basis.h"
-#include "formulations/quadrature/tetP1DefaultQuadrature.h"
-#include "formulations/kernels/volumetricKernel.h"
 #include "formulations/elements/volumetricElementModel.h"
 
 #include "svdDerivatives.h"
@@ -27,8 +24,12 @@ PrescribedPrincipleStressConstraintFunctions::PrescribedPrincipleStressConstrain
   targetPrincipleStress.resize(numElements * 3);
 
   elementCacheData.resize(numElements);
+  elementFEMs_.resize(numElements);
   for (int ei = 0; ei < numElements; ei++) {
-    elementCacheData[ei] = tetMeshDMM->getDeformationModel(elements[ei])->allocateCacheData();
+    const auto *dm = tetMeshDMM->getDeformationModel(elements[ei]);
+    PGO_ALOG(dynamic_cast<const TetFEM *>(dm) != nullptr);
+    elementFEMs_[ei] = static_cast<const TetFEM *>(dm);
+    elementCacheData[ei] = dm->allocateCacheData();
   }
 
   std::vector<ES::TripletD> entries;
@@ -81,7 +82,7 @@ void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES:
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
+    const auto *fem = elementFEMs_[i];
 
     fem->prepareData(localp.data(), elementCacheData[i].get());
 
@@ -110,7 +111,7 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
+    const auto *fem = elementFEMs_[i];
 
     fem->prepareData(localp.data(), elementCacheData[i].get());
 
@@ -136,7 +137,8 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
 
 double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractionFromElement(ES::ConstRefVecXd x, const ES::V3d &n, int eleID) const
 {
-  const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
+  const auto *fem = static_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
+  PGO_ALOG(dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID)) != nullptr);
   auto cache = fem->allocateCacheData();
 
   ES::V18d localp;
@@ -168,7 +170,7 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
+    const auto *fem = elementFEMs_[i];
 
     fem->prepareData(localp.data(), elementCacheData[i].get());
 
@@ -231,7 +233,7 @@ void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVe
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const auto *fem = dynamic_cast<const TetFEM *>(tetMeshDMM->getDeformationModel(eleID));
+    const auto *fem = elementFEMs_[ei];
 
     fem->prepareData(localp.data(), elementCacheData[ei].get());
 

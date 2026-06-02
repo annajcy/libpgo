@@ -31,6 +31,7 @@ public:
   virtual void compute_d2AInv_da2(const double *param, int pi, int pj, double ret[9]) const override;
 
   virtual void defaultFp(double *Fp) const override { Fp[0] = Fp[1] = Fp[2] = 1.0; }
+  void setFiberAxes(const double *R) override { setR(R); }
   virtual void projectParam(double *param, double zeroThreshold) const override;
   virtual void toParam(const double *Fp, double *param) const override;
 

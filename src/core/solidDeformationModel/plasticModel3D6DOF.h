@@ -19,6 +19,7 @@ public:
   ~PlasticModel3D6DOF() {}
 
   virtual int getNumParameters() const override { return 6; }
+  bool isIdentityTransform() const override { return true; }
   virtual void computeA(const double *param, double A[9]) const override;
   virtual void computeAInv(const double *param, double AInv[9]) const override;
   virtual double compute_detA(const double *param) const override;

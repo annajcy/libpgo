@@ -19,7 +19,6 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   invariantBasedMaterial.h
   invariantBasedMaterialStVK.h
-  invariantBasedMaterialNeoHookean.h
 
   plasticModel.h
   plasticModel3DDeformationGradient.h
@@ -29,7 +28,6 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   plasticModel2DFundamentalForms.h
   plasticModel2DFundamentalFormsUniformStretch.h
-  plasticModel2DFundamentalFormsFirstOnly.h
 
   deformationModel.h
   materialMaxStepPolynomialUtils.h
@@ -101,15 +99,12 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   elasticModel2DFundamentalFormsSTVK.cpp
 
   invariantBasedMaterialStVK.cpp
-  invariantBasedMaterialNeoHookean.cpp
-  
+
   plasticModel3DConstant.cpp
   plasticModel3D3DOF.cpp
   plasticModel3D6DOF.cpp
 
-  plasticModel2DFundamentalForms.cpp
   plasticModel2DFundamentalFormsUniformStretch.cpp
-  plasticModel2DFundamentalFormsFirstOnly.cpp
 
   materialMaxStepPolynomialUtils.cpp
 
