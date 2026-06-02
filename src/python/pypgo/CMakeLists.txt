@@ -9,6 +9,7 @@ set(PYPGO_BINDING_SOURCES
   bindings/constraints/constraint_bindings.cpp
   bindings/solver/solver_bindings.cpp
   bindings/sparse_bindings.cpp
+  bindings/implicit_bindings.cpp
   ../../tools/mesh/volumetric/cubicMesher/triangleMeshVoxelizer.cpp
   ../../tools/mesh/volumetric/tetMesher/tetMesherBackend.cpp
   ../../tools/mesh/volumetric/tetMesher/tetgenBackend.cpp
@@ -49,6 +50,7 @@ target_link_libraries(pypgo_core PRIVATE
   genericPotentialEnergies
   constraintPotentialEnergies
   tetgenInterface
+  implicitSurface
 )
 
 if(TARGET cgalInterface)
@@ -88,6 +90,7 @@ target_include_directories(pypgo_core
     ${CMAKE_SOURCE_DIR}/src/core/genericPotentialEnergies
     ${CMAKE_SOURCE_DIR}/src/core/constraintPotentialEnergies
     ${CMAKE_SOURCE_DIR}/src/core/tetgenInterface
+    ${CMAKE_SOURCE_DIR}/src/core/implicitSurface
     ${CMAKE_SOURCE_DIR}/src/tools/mesh/volumetric/cubicMesher
     ${CMAKE_SOURCE_DIR}/src/tools/mesh/volumetric/tetMesher
 )

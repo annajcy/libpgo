@@ -1,13 +1,32 @@
 #pragma once
 
-#include "field/denseGrid.h"
+#include "core/ImplicitField.h"
+
+#include <memory>
 
 namespace pgo::ImplicitSurface {
 
 enum class BooleanOp { Union, Intersection, Difference };
 
-// Apply boolean op: Union=min(a,b), Intersection=max(a,b), Difference=max(a,-b).
-// All grids must have matching GridSpec. out must not alias a or b.
-void applyBoolean(const DenseGrid &a, const DenseGrid &b, BooleanOp op, DenseGrid &out);
+class BooleanField : public ImplicitField {
+public:
+  BooleanField(std::shared_ptr<ImplicitField> a,
+    std::shared_ptr<ImplicitField> b, BooleanOp op);
+
+  double eval(const V3d &p) const override;
+  Mesh::LightBoundingBox bounds() const override;
+
+private:
+  std::shared_ptr<ImplicitField> a_;
+  std::shared_ptr<ImplicitField> b_;
+  BooleanOp op_;
+};
+
+std::shared_ptr<ImplicitField> makeUnion(std::shared_ptr<ImplicitField> a,
+  std::shared_ptr<ImplicitField> b);
+std::shared_ptr<ImplicitField> makeIntersection(std::shared_ptr<ImplicitField> a,
+  std::shared_ptr<ImplicitField> b);
+std::shared_ptr<ImplicitField> makeDifference(std::shared_ptr<ImplicitField> a,
+  std::shared_ptr<ImplicitField> b);
 
 }  // namespace pgo::ImplicitSurface

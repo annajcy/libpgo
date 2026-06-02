@@ -1,17 +1,20 @@
 set(IMPLICIT_SURFACE_HEADERS
+  core/ImplicitField.h
   field/gridSpec.h
-  field/denseGrid.h
-  geometry/meshDistance.h
-  geometry/shellThickening.h
-  geometry/sphereField.h
+  fields/GridField.h
+  fields/SphereField.h
+  fields/MeshUnsignedDistanceField.h
+  fields/BoxField.h
   operations/booleanOps.h
+  operations/OffsetField.h
   extraction/marchingCubesExtractor.h)
 
 set(IMPLICIT_SURFACE_SOURCES
-  field/denseGrid.cpp
-  geometry/meshDistance.cpp
-  geometry/shellThickening.cpp
-  geometry/sphereField.cpp
+  core/ImplicitField.cpp
+  field/gridSpec.cpp
+  fields/GridField.cpp
+  fields/SphereField.cpp
+  fields/MeshUnsignedDistanceField.cpp
   operations/booleanOps.cpp
   extraction/marchingCubesExtractor.cpp)
 

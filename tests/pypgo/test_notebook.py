@@ -49,6 +49,7 @@ GENERATORS: dict[str, str] = {
     "animation_api_demo": "generate_animation_api_demo.py",
     "numpy_interoperate": "generate_numpy_interoperate.py",
     "solver_api_demo": "generate_solver_api_demo.py",
+    "implicit_api_demo": "generate_implicit_api_demo.py",
 }
 
 # ---------------------------------------------------------------------------

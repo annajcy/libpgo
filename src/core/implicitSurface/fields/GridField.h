@@ -1,15 +1,17 @@
 #pragma once
 
-#include "field/gridSpec.h"
-#include "EigenSupport.h"
+#include "core/ImplicitField.h"
 
 #include <vector>
 
 namespace pgo::ImplicitSurface {
 
-class DenseGrid {
+class GridField : public ImplicitField {
 public:
-  explicit DenseGrid(const GridSpec &spec);
+  explicit GridField(const GridSpec &spec);
+
+  double eval(const V3d &p) const override;
+  Mesh::LightBoundingBox bounds() const override;
 
   const GridSpec &gridSpec() const { return spec_; }
   [[nodiscard]] int resolution() const { return spec_.resolution; }

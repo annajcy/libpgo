@@ -1,12 +1,14 @@
 #include <gtest/gtest.h>
 
 #include "field/gridSpec.h"
-#include "field/denseGrid.h"
+#include "core/ImplicitField.h"
+#include "fields/GridField.h"
+#include "fields/SphereField.h"
+#include "fields/BoxField.h"
+#include "fields/MeshUnsignedDistanceField.h"
 #include "operations/booleanOps.h"
+#include "operations/OffsetField.h"
 #include "extraction/marchingCubesExtractor.h"
-#include "geometry/meshDistance.h"
-#include "geometry/shellThickening.h"
-#include "geometry/sphereField.h"
 
 #include "extraction/openVDBExtractor.h"
 
@@ -78,17 +80,17 @@ TEST(GridSpecTest, DifferentSpecsNotEqual)
 }
 
 // =========================================================================
-// DenseGrid
+// GridField storage
 // =========================================================================
 
-TEST(DenseGridTest, ConstructAndAccess)
+TEST(GridFieldStorageTest, ConstructAndAccess)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(0.0, 0.0, 0.0);
   spec.bmax = ES::V3d(1.0, 1.0, 1.0);
   spec.resolution = 4;
 
-  IS::DenseGrid grid(spec);
+  IS::GridField grid(spec);
   EXPECT_EQ(grid.resolution(), 4);
   EXPECT_EQ(grid.size(), 64);
 
@@ -103,23 +105,23 @@ TEST(DenseGridTest, ConstructAndAccess)
   EXPECT_DOUBLE_EQ(grid.at(0, 0, 1), 0.0);
 }
 
-TEST(DenseGridTest, InvalidGridSpecThrows)
+TEST(GridFieldStorageTest, InvalidGridSpecThrows)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(0.0, 0.0, 0.0);
   spec.bmax = ES::V3d(1.0, 1.0, 1.0);
   spec.resolution = 1;
-  EXPECT_THROW(IS::DenseGrid grid(spec), std::runtime_error);
+  EXPECT_THROW(IS::GridField grid(spec), std::runtime_error);
 }
 
-TEST(DenseGridTest, LinearIndexOrder)
+TEST(GridFieldStorageTest, LinearIndexOrder)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(0.0, 0.0, 0.0);
   spec.bmax = ES::V3d(1.0, 1.0, 1.0);
   spec.resolution = 4;
 
-  IS::DenseGrid grid(spec);
+  IS::GridField grid(spec);
   for (int z = 0; z < 4; ++z)
     for (int y = 0; y < 4; ++y)
       for (int x = 0; x < 4; ++x)
@@ -132,28 +134,28 @@ TEST(DenseGridTest, LinearIndexOrder)
   EXPECT_DOUBLE_EQ(grid[63], 63.0);
 }
 
-TEST(DenseGridTest, SetZeroClearsAllValues)
+TEST(GridFieldStorageTest, SetZeroClearsAllValues)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(0.0, 0.0, 0.0);
   spec.bmax = ES::V3d(1.0, 1.0, 1.0);
   spec.resolution = 4;
 
-  IS::DenseGrid grid(spec);
+  IS::GridField grid(spec);
   grid.fill(3.14);
   grid.setZero();
   for (int i = 0; i < grid.size(); ++i)
     EXPECT_DOUBLE_EQ(grid[i], 0.0);
 }
 
-TEST(DenseGridTest, DataPointerAccess)
+TEST(GridFieldStorageTest, DataPointerAccess)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(0.0, 0.0, 0.0);
   spec.bmax = ES::V3d(1.0, 1.0, 1.0);
   spec.resolution = 3;
 
-  IS::DenseGrid grid(spec);
+  IS::GridField grid(spec);
   grid.fill(7.0);
   const double *data = grid.data();
   EXPECT_DOUBLE_EQ(data[0], 7.0);
@@ -165,86 +167,187 @@ TEST(DenseGridTest, DataPointerAccess)
 }
 
 // =========================================================================
-// BooleanOps
+// ImplicitField / GridField
 // =========================================================================
 
-TEST(BooleanOpsTest, Union)
+TEST(GridFieldTest, EvalReturnsNodeValuesAndTrilinearInterpolation)
+{
+  IS::GridSpec spec;
+  spec.bmin = ES::V3d(0.0, 0.0, 0.0);
+  spec.bmax = ES::V3d(1.0, 1.0, 1.0);
+  spec.resolution = 2;
+
+  IS::GridField grid(spec);
+  for (int z = 0; z < 2; ++z)
+    for (int y = 0; y < 2; ++y)
+      for (int x = 0; x < 2; ++x)
+        grid.at(x, y, z) = static_cast<double>(x + 2 * y + 4 * z);
+
+  EXPECT_DOUBLE_EQ(grid.eval(ES::V3d(0.0, 0.0, 0.0)), 0.0);
+  EXPECT_DOUBLE_EQ(grid.eval(ES::V3d(1.0, 0.0, 0.0)), 1.0);
+  EXPECT_DOUBLE_EQ(grid.eval(ES::V3d(0.0, 1.0, 0.0)), 2.0);
+  EXPECT_DOUBLE_EQ(grid.eval(ES::V3d(0.0, 0.0, 1.0)), 4.0);
+  EXPECT_DOUBLE_EQ(grid.eval(ES::V3d(0.5, 0.5, 0.5)), 3.5);
+}
+
+TEST(GridFieldTest, EvalClampsOutsideBounds)
+{
+  IS::GridSpec spec;
+  spec.bmin = ES::V3d(0.0, 0.0, 0.0);
+  spec.bmax = ES::V3d(1.0, 1.0, 1.0);
+  spec.resolution = 2;
+
+  IS::GridField grid(spec);
+  for (int i = 0; i < grid.size(); ++i)
+    grid[i] = static_cast<double>(i);
+
+  EXPECT_DOUBLE_EQ(grid.eval(ES::V3d(-10.0, 0.0, 0.0)), grid.at(0, 0, 0));
+  EXPECT_DOUBLE_EQ(grid.eval(ES::V3d(10.0, 1.0, 1.0)), grid.at(1, 1, 1));
+}
+
+TEST(ImplicitFieldTest, SphereSampleToGridUsesAnalyticEval)
+{
+  IS::GridSpec spec;
+  spec.bmin = ES::V3d(-1.0, -1.0, -1.0);
+  spec.bmax = ES::V3d(1.0, 1.0, 1.0);
+  spec.resolution = 3;
+
+  IS::SphereField sphere(ES::V3d(0.0, 0.0, 0.0), 1.0);
+  IS::GridField grid = sphere.sampleToGrid(spec, /*numThreads=*/1);
+
+  EXPECT_NEAR(grid.at(1, 1, 1), -1.0, 1e-12);
+  EXPECT_NEAR(grid.at(2, 1, 1), 0.0, 1e-12);
+  EXPECT_EQ(grid.gridSpec(), spec);
+}
+
+TEST(SphereFieldTest, AnalyticEvalAndBounds)
+{
+  IS::SphereField sphere(ES::V3d(1.0, 2.0, 3.0), 2.0);
+
+  EXPECT_NEAR(sphere.eval(ES::V3d(1.0, 2.0, 3.0)), -2.0, 1e-12);
+  EXPECT_NEAR(sphere.eval(ES::V3d(3.0, 2.0, 3.0)), 0.0, 1e-12);
+
+  const auto bb = sphere.bounds();
+  ASSERT_TRUE(bb.verifyBox());
+  EXPECT_NEAR(bb.bmin()[0], -1.0, 1e-12);
+  EXPECT_NEAR(bb.bmin()[1], 0.0, 1e-12);
+  EXPECT_NEAR(bb.bmin()[2], 1.0, 1e-12);
+  EXPECT_NEAR(bb.bmax()[0], 3.0, 1e-12);
+  EXPECT_NEAR(bb.bmax()[1], 4.0, 1e-12);
+  EXPECT_NEAR(bb.bmax()[2], 5.0, 1e-12);
+}
+
+TEST(BoxFieldTest, EvalAndBounds)
+{
+  IS::BoxField box(ES::V3d(0.0, 0.0, 0.0), ES::V3d(1.0, 2.0, 3.0));
+
+  EXPECT_NEAR(box.eval(ES::V3d(0.0, 0.0, 0.0)), -1.0, 1e-12);
+  EXPECT_NEAR(box.eval(ES::V3d(1.0, 0.0, 0.0)), 0.0, 1e-12);
+  EXPECT_GT(box.eval(ES::V3d(1.5, 0.0, 0.0)), 0.0);
+
+  const auto bb = box.bounds();
+  ASSERT_TRUE(bb.verifyBox());
+  EXPECT_NEAR(bb.bmin()[0], -1.0, 1e-12);
+  EXPECT_NEAR(bb.bmax()[2], 3.0, 1e-12);
+}
+
+TEST(BooleanFieldTest, LazyEvalAndBounds)
+{
+  auto a = std::make_shared<IS::SphereField>(ES::V3d(0.0, 0.0, 0.0), 1.0);
+  auto b = std::make_shared<IS::SphereField>(ES::V3d(0.5, 0.0, 0.0), 1.0);
+
+  auto uni = IS::makeUnion(a, b);
+  auto inter = IS::makeIntersection(a, b);
+  auto diff = IS::makeDifference(a, b);
+
+  const ES::V3d p(0.0, 0.0, 0.0);
+  EXPECT_NEAR(uni->eval(p), std::min(a->eval(p), b->eval(p)), 1e-12);
+  EXPECT_NEAR(inter->eval(p), std::max(a->eval(p), b->eval(p)), 1e-12);
+  EXPECT_NEAR(diff->eval(p), std::max(a->eval(p), -b->eval(p)), 1e-12);
+
+  EXPECT_TRUE(uni->bounds().verifyBox());
+  EXPECT_TRUE(inter->bounds().verifyBox());
+  EXPECT_EQ(diff->bounds().bmin(), a->bounds().bmin());
+}
+
+TEST(OffsetFieldTest, EvalSubtractsOffset)
+{
+  auto sphere = std::make_shared<IS::SphereField>(ES::V3d(0.0, 0.0, 0.0), 1.0);
+  IS::OffsetField offset(sphere, 0.25);
+
+  EXPECT_NEAR(offset.eval(ES::V3d(1.0, 0.0, 0.0)), -0.25, 1e-12);
+  EXPECT_EQ(offset.bounds().bmin(), sphere->bounds().bmin());
+}
+
+// =========================================================================
+// BooleanField sampling
+// =========================================================================
+
+TEST(BooleanFieldTest, UnionSampleToGrid)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(0.0, 0.0, 0.0);
   spec.bmax = ES::V3d(1.0, 1.0, 1.0);
   spec.resolution = 3;
 
-  IS::DenseGrid a(spec), b(spec), out(spec);
-  a.fill(-1.0);
-  b.fill(1.0);
-  IS::applyBoolean(a, b, IS::BooleanOp::Union, out);
+  auto a = std::make_shared<IS::GridField>(spec);
+  auto b = std::make_shared<IS::GridField>(spec);
+  a->fill(-1.0);
+  b->fill(1.0);
+  IS::GridField out = IS::makeUnion(a, b)->sampleToGrid(spec, /*numThreads=*/1);
   for (int i = 0; i < out.size(); ++i)
     EXPECT_DOUBLE_EQ(out[i], -1.0);
 }
 
-TEST(BooleanOpsTest, Intersection)
+TEST(BooleanFieldTest, IntersectionSampleToGrid)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(0.0, 0.0, 0.0);
   spec.bmax = ES::V3d(1.0, 1.0, 1.0);
   spec.resolution = 3;
 
-  IS::DenseGrid a(spec), b(spec), out(spec);
-  a.fill(-1.0);
-  b.fill(1.0);
-  IS::applyBoolean(a, b, IS::BooleanOp::Intersection, out);
+  auto a = std::make_shared<IS::GridField>(spec);
+  auto b = std::make_shared<IS::GridField>(spec);
+  a->fill(-1.0);
+  b->fill(1.0);
+  IS::GridField out = IS::makeIntersection(a, b)->sampleToGrid(spec, /*numThreads=*/1);
   for (int i = 0; i < out.size(); ++i)
     EXPECT_DOUBLE_EQ(out[i], 1.0);
 }
 
-TEST(BooleanOpsTest, Difference)
+TEST(BooleanFieldTest, DifferenceSampleToGrid)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(0.0, 0.0, 0.0);
   spec.bmax = ES::V3d(1.0, 1.0, 1.0);
   spec.resolution = 3;
 
-  IS::DenseGrid a(spec), b(spec), out(spec);
-  a.fill(-1.0);
-  b.fill(1.0);
-  IS::applyBoolean(a, b, IS::BooleanOp::Difference, out);
+  auto a = std::make_shared<IS::GridField>(spec);
+  auto b = std::make_shared<IS::GridField>(spec);
+  a->fill(-1.0);
+  b->fill(1.0);
+  IS::GridField out = IS::makeDifference(a, b)->sampleToGrid(spec, /*numThreads=*/1);
   for (int i = 0; i < out.size(); ++i)
     EXPECT_DOUBLE_EQ(out[i], -1.0);
 }
 
-TEST(BooleanOpsTest, MismatchedSpecThrows)
-{
-  IS::GridSpec spec1;
-  spec1.bmin = ES::V3d(0.0, 0.0, 0.0);
-  spec1.bmax = ES::V3d(1.0, 1.0, 1.0);
-  spec1.resolution = 3;
-
-  IS::GridSpec spec2;
-  spec2.bmin = ES::V3d(0.0, 0.0, 0.0);
-  spec2.bmax = ES::V3d(2.0, 1.0, 1.0);
-  spec2.resolution = 3;
-
-  IS::DenseGrid a(spec1), b(spec2), out(spec1);
-  EXPECT_THROW(IS::applyBoolean(a, b, IS::BooleanOp::Union, out), std::runtime_error);
-}
-
-TEST(BooleanOpsTest, UnionPointwiseCheck)
+TEST(BooleanFieldTest, UnionPointwiseCheck)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(0.0, 0.0, 0.0);
   spec.bmax = ES::V3d(1.0, 1.0, 1.0);
   spec.resolution = 3;
 
-  IS::DenseGrid a(spec), b(spec), out(spec);
-  a.fill(0.0);
-  b.fill(0.0);
+  auto a = std::make_shared<IS::GridField>(spec);
+  auto b = std::make_shared<IS::GridField>(spec);
+  a->fill(0.0);
+  b->fill(0.0);
 
   // a: alternating -1 and 1, b: all 0 → Union = min
-  for (int i = 0; i < a.size(); ++i)
-    a[i] = (i % 2 == 0) ? -1.0 : 1.0;
+  for (int i = 0; i < a->size(); ++i)
+    (*a)[i] = (i % 2 == 0) ? -1.0 : 1.0;
 
-  IS::applyBoolean(a, b, IS::BooleanOp::Union, out);
+  IS::GridField out = IS::makeUnion(a, b)->sampleToGrid(spec, /*numThreads=*/1);
   EXPECT_DOUBLE_EQ(out[0], -1.0);   // min(-1, 0)
   EXPECT_DOUBLE_EQ(out[1], 0.0);    // min(1, 0)
 }
@@ -261,7 +364,7 @@ TEST(MarchingCubesTest, SphereFieldExtraction)
   spec.bmax = ES::V3d(1.5, 1.5, 1.5);
   spec.resolution = res;
 
-  IS::DenseGrid field(spec);
+  IS::GridField field(spec);
   const ES::V3d center(0.0, 0.0, 0.0);
   const double radius = 1.0;
 
@@ -290,7 +393,7 @@ TEST(MarchingCubesTest, NonZeroIsoOffsetShiftsSurface)
   spec.bmax = ES::V3d(1.5, 1.5, 1.5);
   spec.resolution = res;
 
-  IS::DenseGrid field(spec);
+  IS::GridField field(spec);
   const ES::V3d center(0.0, 0.0, 0.0);
   const double radius = 1.0;
 
@@ -383,10 +486,10 @@ TEST(MeshVolumeTest, ScaledCubeVolume)
 }
 
 // =========================================================================
-// ShellThickening (thickenMeshShell) + sphereField evaluation
+// OffsetField and sphere sampling
 // =========================================================================
 
-TEST(ShellThickeningTest, ThickenMeshShellProducesNegativeInside)
+TEST(OffsetFieldTest, SampledMeshDistanceOffsetProducesNegativeInside)
 {
   const int res = 16;
   IS::GridSpec spec;
@@ -394,20 +497,19 @@ TEST(ShellThickeningTest, ThickenMeshShellProducesNegativeInside)
   spec.bmax = ES::V3d(2.0, 2.0, 2.0);
   spec.resolution = res;
 
-  IS::DenseGrid distance(spec);
-  IS::DenseGrid outField(spec);
+  auto distance = std::make_shared<IS::GridField>(spec);
 
   const ES::V3d delta = (spec.bmax - spec.bmin) / static_cast<double>(res - 1);
   for (int z = 0; z < res; ++z)
     for (int y = 0; y < res; ++y)
       for (int x = 0; x < res; ++x) {
         const ES::V3d p = spec.bmin + delta.cwiseProduct(ES::V3d(x, y, z).cast<double>());
-        distance.at(x, y, z) = p.norm();
+        distance->at(x, y, z) = p.norm();
       }
 
-  IS::thickenMeshShell(distance, 2.0, outField);
+  IS::GridField outField = IS::OffsetField(distance, 1.0).sampleToGrid(spec, /*numThreads=*/1);
 
-  // With thickness=2.0, half=1.0. Near origin distance≈0 → shell≈-1 (inside)
+  // Offset 1.0 from a distance field. Near origin distance≈0 → shell≈-1.
   int negativeCount = 0;
   for (int i = 0; i < outField.size(); ++i)
     if (outField[i] < 0.0) ++negativeCount;
@@ -422,12 +524,13 @@ TEST(SphereFieldTest, ThickenSphereShellProducesShellAroundSphere)
   spec.bmax = ES::V3d(2.0, 2.0, 2.0);
   spec.resolution = res;
 
-  IS::DenseGrid outField(spec);
-  IS::SphereField sphere;
-  sphere.center = ES::V3d(0.0, 0.0, 0.0);
-  sphere.radius = 1.0;
+  auto sphere = std::make_shared<IS::SphereField>(ES::V3d(0.0, 0.0, 0.0), 1.0);
 
-  IS::thickenSphereShell(sphere, 0.2, spec, outField);
+  IS::GridField radiusField = sphere->sampleToGrid(spec, /*numThreads=*/1);
+  for (int i = 0; i < radiusField.size(); ++i)
+    radiusField[i] = std::abs(radiusField[i]);
+  IS::GridField outField = IS::OffsetField(std::make_shared<IS::GridField>(radiusField), 0.1)
+    .sampleToGrid(spec, /*numThreads=*/1);
 
   // At grid center (8,8,8): p≈(0.133,0.133,0.133), |p|≈0.231
   // sphereShell = |0.231-1.0|-0.1 = 0.769-0.1 = 0.669
@@ -442,12 +545,8 @@ TEST(SphereFieldTest, EvaluateBallSDFIsNegativeInside)
   spec.bmax = ES::V3d(2.0, 2.0, 2.0);
   spec.resolution = res;
 
-  IS::DenseGrid outField(spec);
-  IS::SphereField sphere;
-  sphere.center = ES::V3d(0.0, 0.0, 0.0);
-  sphere.radius = 1.0;
-
-  IS::evaluateBallSDF(sphere, spec, outField);
+  IS::SphereField sphere(ES::V3d(0.0, 0.0, 0.0), 1.0);
+  IS::GridField outField = sphere.sampleToGrid(spec, /*numThreads=*/1);
 
   // Center (r=0): 0 - 1 = -1 (inside ball)
   EXPECT_LT(outField.at(8, 8, 8), 0.0);
@@ -464,30 +563,18 @@ TEST(SphereFieldTest, TruncationViaBooleanIntersection)
   spec.resolution = res;
 
   // Create a synthetic mesh distance field (zero at center, grows outward)
-  IS::DenseGrid distance(spec);
+  auto distance = std::make_shared<IS::GridField>(spec);
   const ES::V3d delta = (spec.bmax - spec.bmin) / static_cast<double>(res - 1);
   for (int z = 0; z < res; ++z)
     for (int y = 0; y < res; ++y)
       for (int x = 0; x < res; ++x) {
         const ES::V3d p = spec.bmin + delta.cwiseProduct(ES::V3d(x, y, z).cast<double>());
-        distance.at(x, y, z) = p.norm();
+        distance->at(x, y, z) = p.norm();
       }
 
-  IS::SphereField sphere;
-  sphere.center = ES::V3d(0.0, 0.0, 0.0);
-  sphere.radius = 1.0;
-
-  // Build mesh shell
-  IS::DenseGrid shellGrid(spec);
-  IS::thickenMeshShell(distance, 0.2, shellGrid);
-
-  // Build ball SDF
-  IS::DenseGrid ballGrid(spec);
-  IS::evaluateBallSDF(sphere, spec, ballGrid);
-
-  // Truncate: shell ∩ ball
-  IS::DenseGrid truncated(spec);
-  IS::applyBoolean(shellGrid, ballGrid, IS::BooleanOp::Intersection, truncated);
+  auto sphere = std::make_shared<IS::SphereField>(ES::V3d(0.0, 0.0, 0.0), 1.0);
+  auto shell = std::make_shared<IS::OffsetField>(distance, 0.1);
+  IS::GridField truncated = IS::makeIntersection(shell, sphere)->sampleToGrid(spec, /*numThreads=*/1);
 
   // Far outside the ball (>1.5), truncated field should be positive
   int farPositiveCount = 0;
@@ -518,7 +605,7 @@ TEST(SphereFieldTest, ComputeFromBBox)
   };
   pgo::Mesh::TriMeshGeo mesh(std::move(positions), std::move(triangles));
 
-  IS::SphereField sphere = IS::computeSphereFieldFromBBox(mesh);
+  IS::SphereField sphere = IS::SphereField::fromMeshBBox(mesh);
   EXPECT_NEAR(sphere.center[0], 0.0, 0.5);
   EXPECT_NEAR(sphere.center[1], 0.0, 0.5);
   EXPECT_NEAR(sphere.center[2], 0.0, 0.5);
@@ -528,7 +615,7 @@ TEST(SphereFieldTest, ComputeFromBBox)
 TEST(SphereFieldTest, EmptyMeshThrows)
 {
   pgo::Mesh::TriMeshGeo mesh;
-  EXPECT_THROW(IS::computeSphereFieldFromBBox(mesh), std::runtime_error);
+  EXPECT_THROW(IS::SphereField::fromMeshBBox(mesh), std::runtime_error);
 }
 
 TEST(SphereFieldTest, ProjectOpenBoundaryToSphere)
@@ -549,7 +636,7 @@ TEST(SphereFieldTest, ProjectOpenBoundaryToSphere)
   sphere.center = ES::V3d(0.0, 0.0, 0.0);
   sphere.radius = 1.0;
 
-  const int n = IS::projectOpenBoundaryToSphere(mesh, sphere);
+  const int n = sphere.projectOpenBoundaryToSphere(mesh);
   EXPECT_GT(n, 0);
 
   // Boundary vertices (1 and 2) should now be on the sphere

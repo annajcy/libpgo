@@ -161,6 +161,31 @@ std::unique_ptr<OpenVDBLevelSet> buildOpenVDBBallLevelSet(
   return std::make_unique<OpenVDBLevelSet>(std::move(grid));
 }
 
+std::unique_ptr<OpenVDBLevelSet> buildOpenVDBFromGridField(
+  const GridField &field, const OpenVDBOptions &options)
+{
+  validateOpenVDBOptions(options);
+
+  openvdb::FloatGrid::Ptr grid = openvdb::FloatGrid::create(
+    static_cast<float>(options.halfWidth * options.voxelSize));
+  grid->setGridClass(openvdb::GRID_LEVEL_SET);
+  grid->setName("grid_field");
+
+  const GridSpec &spec = field.gridSpec();
+  const V3d delta = (spec.bmax - spec.bmin) / static_cast<double>(spec.resolution - 1);
+  const openvdb::math::Transform::Ptr transform =
+    openvdb::math::Transform::createLinearTransform(delta[0]);
+  transform->postTranslate(openvdb::Vec3d(spec.bmin[0], spec.bmin[1], spec.bmin[2]));
+  grid->setTransform(transform);
+
+  for (int z = 0; z < spec.resolution; ++z)
+    for (int y = 0; y < spec.resolution; ++y)
+      for (int x = 0; x < spec.resolution; ++x)
+        grid->tree().setValue(openvdb::Coord(x, y, z), static_cast<float>(field.at(x, y, z)));
+
+  return std::make_unique<OpenVDBLevelSet>(std::move(grid));
+}
+
 std::unique_ptr<OpenVDBLevelSet> combineOpenVDBLevelSets(
   const OpenVDBLevelSet &a, const OpenVDBLevelSet &b, BooleanOp op)
 {
@@ -222,6 +247,12 @@ std::unique_ptr<OpenVDBLevelSet> buildOpenVDBSphereShell(
 
 std::unique_ptr<OpenVDBLevelSet> buildOpenVDBBallLevelSet(
   const SphereField &, const OpenVDBOptions &)
+{
+  throw std::runtime_error("OpenVDB backend is unavailable; configure with -DPGO_ENABLE_OPENVDB=ON");
+}
+
+std::unique_ptr<OpenVDBLevelSet> buildOpenVDBFromGridField(
+  const GridField &, const OpenVDBOptions &)
 {
   throw std::runtime_error("OpenVDB backend is unavailable; configure with -DPGO_ENABLE_OPENVDB=ON");
 }

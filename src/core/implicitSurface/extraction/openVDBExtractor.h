@@ -2,7 +2,8 @@
 
 #include "EigenSupport.h"
 #include "triMeshGeo.h"
-#include "geometry/sphereField.h"
+#include "fields/GridField.h"
+#include "fields/SphereField.h"
 #include "operations/booleanOps.h"
 
 #include <memory>
@@ -50,6 +51,9 @@ std::unique_ptr<OpenVDBLevelSet> buildOpenVDBSphereShell(
 // Build solid ball SDF (for truncation).
 std::unique_ptr<OpenVDBLevelSet> buildOpenVDBBallLevelSet(
   const SphereField &sphere, const OpenVDBOptions &options);
+
+std::unique_ptr<OpenVDBLevelSet> buildOpenVDBFromGridField(
+  const GridField &field, const OpenVDBOptions &options);
 
 // CSG combine two level sets.
 std::unique_ptr<OpenVDBLevelSet> combineOpenVDBLevelSets(

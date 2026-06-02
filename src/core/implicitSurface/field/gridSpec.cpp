@@ -1,6 +1,5 @@
-#include "field/denseGrid.h"
+#include "field/gridSpec.h"
 
-#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -29,37 +28,6 @@ bool GridSpec::operator==(const GridSpec &other) const
 int linearIndex(int x, int y, int z, int resolution)
 {
   return z * resolution * resolution + y * resolution + x;
-}
-
-DenseGrid::DenseGrid(const GridSpec &spec)
-  : spec_(spec)
-{
-  validateGridSpec(spec_);
-
-  const std::size_t total = static_cast<std::size_t>(spec_.resolution) *
-                            static_cast<std::size_t>(spec_.resolution) *
-                            static_cast<std::size_t>(spec_.resolution);
-  values_.resize(total, 0.0);
-}
-
-double &DenseGrid::at(int x, int y, int z)
-{
-  return values_[linearIndex(x, y, z, spec_.resolution)];
-}
-
-const double &DenseGrid::at(int x, int y, int z) const
-{
-  return values_[linearIndex(x, y, z, spec_.resolution)];
-}
-
-void DenseGrid::fill(double value)
-{
-  std::fill(values_.begin(), values_.end(), value);
-}
-
-void DenseGrid::setZero()
-{
-  fill(0.0);
 }
 
 }  // namespace pgo::ImplicitSurface
