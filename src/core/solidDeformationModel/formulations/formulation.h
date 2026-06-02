@@ -16,6 +16,7 @@ class SimulationMesh;
 class DeformationModel;
 struct ElasticBlock;
 struct PlasticBlock;
+enum class SimulationMeshType;
 
 // ============================================================
 // Formulation — top-level abstract base
@@ -32,6 +33,8 @@ public:
   virtual std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
     const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const = 0;
+
+  virtual SimulationMeshType compatibleMeshType() const = 0;
 };
 
 // ============================================================
@@ -72,6 +75,8 @@ public:
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
     const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const override;
+
+  SimulationMeshType compatibleMeshType() const override;
 };
 
 // ============================================================
@@ -82,12 +87,14 @@ class TetFormulation : public VolumetricFormulation
 {
 public:
   using VolumetricFormulation::VolumetricFormulation;
+  SimulationMeshType compatibleMeshType() const override;
 };
 
 class CubicFormulation : public VolumetricFormulation
 {
 public:
   using VolumetricFormulation::VolumetricFormulation;
+  SimulationMeshType compatibleMeshType() const override;
 };
 
 // ============================================================

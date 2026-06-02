@@ -85,6 +85,14 @@ int KoiterShellFormulation::getNodesPerElement() const { return 6; }
 int KoiterShellFormulation::getLocalDofs() const { return 18; }
 
 // ============================================================
+// compatibleMeshType implementations
+// ============================================================
+
+SimulationMeshType TetFormulation::compatibleMeshType() const { return SimulationMeshType::TET; }
+SimulationMeshType CubicFormulation::compatibleMeshType() const { return SimulationMeshType::CUBIC; }
+SimulationMeshType ShellFormulation::compatibleMeshType() const { return SimulationMeshType::SHELL; }
+
+// ============================================================
 // createElement implementations
 // ============================================================
 

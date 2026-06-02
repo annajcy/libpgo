@@ -310,22 +310,8 @@ namespace
 
 void validateFormulation(SimulationMeshType meshType, const Formulation &formulation)
 {
-  switch (meshType) {
-  case SimulationMeshType::TET:
-    if (!dynamic_cast<const TetFormulation *>(&formulation))
-      throw std::invalid_argument("formulation does not match TET mesh");
-    return;
-  case SimulationMeshType::CUBIC:
-    if (!dynamic_cast<const CubicFormulation *>(&formulation))
-      throw std::invalid_argument("formulation does not match CUBIC mesh");
-    return;
-  case SimulationMeshType::SHELL:
-    if (!dynamic_cast<const ShellFormulation *>(&formulation))
-      throw std::invalid_argument("formulation does not match SHELL mesh");
-    return;
-  default:
-    throw std::logic_error("unsupported mesh element type");
-  }
+  if (formulation.compatibleMeshType() != meshType)
+    throw std::invalid_argument("formulation does not match mesh type");
 }
 
 }  // namespace

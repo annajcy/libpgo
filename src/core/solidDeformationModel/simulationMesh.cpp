@@ -6,6 +6,18 @@ copyright to USC,MIT,NUS
 #include "simulationMesh.h"
 #include "deformationModelManager.h"
 
+#include "elasticModelLinearMaterial.h"
+#include "elasticModelStableNeoHookeanMaterial.h"
+#include "elasticModel3DSTVKMaterial.h"
+#include "invariantBasedMaterialStVK.h"
+#include "elasticModelInvariantBasedMaterial.h"
+#include "elasticModelVolumeMaterial.h"
+#include "elasticModelHillTypeMaterial.h"
+#include "elasticModelCombinedMaterial.h"
+#include "elasticModel3DMooneyRivlin.h"
+#include "elasticModel2DFundamentalFormsFabric.h"
+#include "elasticModel2DFundamentalFormsSTVK.h"
+
 #include "tetMesh.h"
 #include "cubicMesh.h"
 #include "triMeshGeo.h"
@@ -686,4 +698,104 @@ int SimulationMeshMaterial::numPlasticParameters(DeformationModelPlasticMaterial
     return 1;
   }
   return 0;
+}
+
+ElasticModelResult SimulationMeshMaterial::createElasticModel(
+  DeformationModelElasticMaterial /*type*/,
+  const double * /*fiberDirection*/,
+  const SimulationMeshMaterial * /*auxMat*/) const
+{
+  throw std::logic_error("SimulationMeshMaterial::createElasticModel: material type not supported by this material class");
+}
+
+ElasticModelResult SimulationMeshENuMaterial::createElasticModel(
+  DeformationModelElasticMaterial type,
+  const double *fiberDirection,
+  const SimulationMeshMaterial *auxMat) const
+{
+  ElasticModelResult result;
+
+  if (type == DeformationModelElasticMaterial::LINEAR) {
+    result.linear = new ElasticModelLinearMaterial(getMuLame(), getLambdaLame());
+    result.elementMaterial = result.linear;
+  }
+  else if (type == DeformationModelElasticMaterial::STABLE_NEO) {
+    result.stableNeo = new ElasticModelStableNeoHookeanMaterial(getMuLame(), getLambdaLame());
+    result.elementMaterial = result.stableNeo;
+  }
+  else if (type == DeformationModelElasticMaterial::STVK) {
+    result.stvk = new ElasticModel3DSTVKMaterial(getMuLame(), getLambdaLame());
+    result.elementMaterial = result.stvk;
+  }
+  else if (type == DeformationModelElasticMaterial::INV_STVK) {
+    result.invariantModel = new InvariantBasedMaterialStVK(getE(), getNu(), getCompressionRatio());
+    result.invariantBased = new ElasticModelInvariantBasedMaterial(result.invariantModel);
+    result.elementMaterial = result.invariantBased;
+  }
+  else if (type == DeformationModelElasticMaterial::VOLUME) {
+    result.volume = new ElasticModelVolumeMaterial(getCompressionRatio());
+    result.elementMaterial = result.volume;
+  }
+  else if (type == DeformationModelElasticMaterial::STVK_VOL) {
+    result.invariantModel = new InvariantBasedMaterialStVK(getE(), getNu(), getCompressionRatio());
+    result.invariantBased = new ElasticModelInvariantBasedMaterial(result.invariantModel);
+    result.volume = new ElasticModelVolumeMaterial(getCompressionRatio());
+    result.combined2 = new ElasticModelCombinedMaterial<2>(result.invariantBased, result.volume);
+    result.elementMaterial = result.combined2;
+  }
+  else if (type == DeformationModelElasticMaterial::HILL_STABLE_NEO) {
+    const auto *hillMat = dynamic_cast<const SimulationMeshHillMaterial *>(auxMat);
+    PGO_ALOG(hillMat != nullptr);
+    result.stableNeo = new ElasticModelStableNeoHookeanMaterial(getMuLame(), getLambdaLame());
+    result.hill = new ElasticModelHillTypeMaterial(hillMat->getGamma(), hillMat->getEact(), hillMat->getLo(), fiberDirection);
+    result.combined2 = new ElasticModelCombinedMaterial<2>(result.stableNeo, result.hill);
+    result.elementMaterial = result.combined2;
+  }
+  else if (type == DeformationModelElasticMaterial::HILL_STVK) {
+    const auto *hillMat = dynamic_cast<const SimulationMeshHillMaterial *>(auxMat);
+    PGO_ALOG(hillMat != nullptr);
+    result.invariantModel = new InvariantBasedMaterialStVK(getE(), getNu(), getCompressionRatio());
+    result.invariantBased = new ElasticModelInvariantBasedMaterial(result.invariantModel);
+    result.hill = new ElasticModelHillTypeMaterial(hillMat->getGamma(), hillMat->getEact(), hillMat->getLo(), fiberDirection);
+    result.combined2 = new ElasticModelCombinedMaterial<2>(result.invariantBased, result.hill);
+    result.elementMaterial = result.combined2;
+  }
+  else if (type == DeformationModelElasticMaterial::HILL_STVK_VOL) {
+    const auto *hillMat = dynamic_cast<const SimulationMeshHillMaterial *>(auxMat);
+    PGO_ALOG(hillMat != nullptr);
+    result.invariantModel = new InvariantBasedMaterialStVK(getE(), getNu(), getCompressionRatio());
+    result.invariantBased = new ElasticModelInvariantBasedMaterial(result.invariantModel);
+    result.hill = new ElasticModelHillTypeMaterial(hillMat->getGamma(), hillMat->getEact(), hillMat->getLo(), fiberDirection);
+    result.volume = new ElasticModelVolumeMaterial(getCompressionRatio());
+    result.combined3 = new ElasticModelCombinedMaterial<3>(result.invariantBased, result.hill, result.volume);
+    result.elementMaterial = result.combined3;
+  }
+  else if (type == DeformationModelElasticMaterial::KOITER_FABRIC) {
+    ES::V2d dir0(1, 0), dir1(0, 1);
+    result.shellFabric = new ElasticModel2DFundamentalFormsFabric(dir0, dir1);
+    result.elementMaterial = result.shellFabric;
+  }
+  else if (type == DeformationModelElasticMaterial::KOITER_STVK) {
+    result.shellSTVK = new ElasticModel2DFundamentalFormsSTVK;
+    result.elementMaterial = result.shellSTVK;
+  }
+  else {
+    return SimulationMeshMaterial::createElasticModel(type, fiberDirection, auxMat);
+  }
+
+  return result;
+}
+
+ElasticModelResult SimulationMeshMooneyRivlinMaterial::createElasticModel(
+  DeformationModelElasticMaterial type,
+  const double *fiberDirection,
+  const SimulationMeshMaterial *auxMat) const
+{
+  if (type != DeformationModelElasticMaterial::MOONEY_RIVLIN)
+    return SimulationMeshMaterial::createElasticModel(type, fiberDirection, auxMat);
+
+  ElasticModelResult result;
+  result.mooneyRivlin = new ElasticModel3DMooneyRivlin(N, getC(), M, getD());
+  result.elementMaterial = result.mooneyRivlin;
+  return result;
 }
