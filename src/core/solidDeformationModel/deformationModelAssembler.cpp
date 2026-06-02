@@ -81,8 +81,7 @@ DeformationModelAssembler::DeformationModelAssembler(
 
   if (elementWeights_) {
     elementWeights.assign(elementWeights_, elementWeights_ + nele);
-  }
-  else {
+  } else {
     elementWeights.assign(nele, 1);
   }
 

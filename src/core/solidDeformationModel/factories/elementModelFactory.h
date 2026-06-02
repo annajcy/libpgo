@@ -23,21 +23,6 @@ public:
     const ElasticBlock &elasticBlock,
     const PlasticBlock &plasticBlock,
     const Formulation &formulation);
-
-private:
-  static std::unique_ptr<DeformationModel> create_volume(
-    const SimulationMesh &mesh,
-    int ele,
-    const ElasticBlock &elasticBlock,
-    const PlasticBlock &plasticBlock,
-    const VolumetricFormulation &formulation);
-
-  static std::unique_ptr<DeformationModel> create_shell(
-    const SimulationMesh &mesh,
-    int ele,
-    const ElasticBlock &elasticBlock,
-    const PlasticBlock &plasticBlock,
-    const ShellFormulation &formulation);
 };
 
 }  // namespace SolidDeformationModel

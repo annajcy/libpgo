@@ -12,6 +12,10 @@ class Basis;
 class Quadrature;
 class VolumetricKernel;
 class ShellKernel;
+class SimulationMesh;
+class DeformationModel;
+struct ElasticBlock;
+struct PlasticBlock;
 
 // ============================================================
 // Formulation — top-level abstract base
@@ -24,6 +28,10 @@ public:
   virtual std::string_view getName() const = 0;
   virtual int getNodesPerElement() const = 0;
   virtual int getLocalDofs() const = 0;
+
+  virtual std::unique_ptr<DeformationModel> createElement(
+    const SimulationMesh &mesh, int ele,
+    const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const = 0;
 };
 
 // ============================================================
@@ -42,6 +50,10 @@ public:
 
   std::unique_ptr<VolumetricKernel> createKernel(const double *restPositions) const;
 
+  std::unique_ptr<DeformationModel> createElement(
+    const SimulationMesh &mesh, int ele,
+    const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const override;
+
 private:
   std::unique_ptr<Basis> basis_;
   std::unique_ptr<Quadrature> quad_;
@@ -56,6 +68,10 @@ class ShellFormulation : public Formulation
 public:
   std::unique_ptr<ShellKernel> createKernel(
     const double restX[18], const bool hasVtx[6]) const;
+
+  std::unique_ptr<DeformationModel> createElement(
+    const SimulationMesh &mesh, int ele,
+    const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const override;
 };
 
 // ============================================================

@@ -6,6 +6,11 @@
 #include "quadrature/gaussLegendreHexQuadrature.h"
 #include "kernels/volumetricKernel.h"
 #include "kernels/koiterShellKernel.h"
+#include "elements/volumetricElementModel.h"
+#include "elements/shellElementModel.h"
+#include "../simulationMesh.h"
+
+#include <vector>
 
 namespace pgo
 {
@@ -78,6 +83,45 @@ int LinearCubicFormulation::getLocalDofs() const { return 24; }
 std::string_view KoiterShellFormulation::getName() const { return "shell_koiter"; }
 int KoiterShellFormulation::getNodesPerElement() const { return 6; }
 int KoiterShellFormulation::getLocalDofs() const { return 18; }
+
+// ============================================================
+// createElement implementations
+// ============================================================
+
+std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
+  const SimulationMesh &mesh, int ele,
+  const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const
+{
+  const int numNodes = getNodesPerElement();
+  std::vector<double> restPosition(numNodes * 3);
+  for (int j = 0; j < numNodes; j++)
+    mesh.getVertex(ele, j, &restPosition[3 * j]);
+
+  auto kernel = createKernel(restPosition.data());
+  return std::make_unique<VolumetricElementModel>(
+    ele, std::move(*kernel), elasticBlock, plasticBlock);
+}
+
+std::unique_ptr<DeformationModel> ShellFormulation::createElement(
+  const SimulationMesh &mesh, int ele,
+  const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const
+{
+  double restPosition[18] = {};
+  bool hasVtx[6];
+  for (int j = 0; j < 6; j++) {
+    if (mesh.getVertexIndex(ele, j) < 0) {
+      hasVtx[j] = false;
+    }
+    else {
+      hasVtx[j] = true;
+      mesh.getVertex(ele, j, restPosition + 3 * j);
+    }
+  }
+
+  auto kernel = createKernel(restPosition, hasVtx);
+  return std::make_unique<ShellElementModel>(
+    ele, std::move(kernel), elasticBlock, plasticBlock);
+}
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo
