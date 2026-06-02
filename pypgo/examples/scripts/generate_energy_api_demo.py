@@ -234,7 +234,7 @@ CELLS = [
         ## 4. VertexAttachment — soft pin constraints
 
         `VertexAttachment` pins selected vertices to target positions with a
-        quadratic penalty: `coeff · ||u_i − target_i||²`.  It is a **displacement**
+        quadratic penalty: $\\text{coeff}\\,\\|u_i - \\text{target}_i\\|^2$.  It is a **displacement**
         energy (`state_kind == "displacement"`) — it assumes `x` is a displacement
         from the rest configuration.
         """

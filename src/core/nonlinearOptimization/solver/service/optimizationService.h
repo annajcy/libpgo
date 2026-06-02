@@ -1,6 +1,6 @@
 #pragma once
 
-#include "constraintFunctions.h"
+#include "constraints/constraintFunctions.h"
 #include "solver/newton/newtonLineSearchPolicy.h"
 #include "solver/newton/newtonSparseSolverBackend.h"
 #include "potentialEnergy.h"

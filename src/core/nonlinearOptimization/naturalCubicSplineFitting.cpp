@@ -5,8 +5,8 @@ copyright to USC
 
 #include "naturalCubicSplineFitting.h"
 #include "naturalCubicSplineDerivatives.h"
-#include "constraintFunctionsAssember.h"
-#include "linearConstraintFunctions.h"
+#include "constraints/constraintSet.h"
+#include "constraints/linearConstraintFunctions.h"
 #include "potentialEnergy.h"
 #include "solver/external/knitro/knitroOptimizer.h"
 #include "solver/external/knitro/knitroProblem.h"
@@ -185,10 +185,10 @@ int NaturalCubicSplineFitting::fit(const char *solverConfigFilename)
   C.setFromTriplets(entries.begin(), entries.end());
   std::shared_ptr<LinearConstraintFunctions> sortedXC = std::make_shared<LinearConstraintFunctions>(C, d);
 
-  std::shared_ptr<ConstraintFunctionsAssembler> constraints = std::make_shared<ConstraintFunctionsAssembler>(nAll);
-  constraints->addConstraint(sortedXC);
-  constraints->addConstraint(splineC);
-  constraints->init();
+  std::shared_ptr<ConstraintSet> constraints = std::make_shared<ConstraintSet>(nAll, std::vector<ConstraintSet::Term>{
+    ConstraintSet::Term{ sortedXC },
+    ConstraintSet::Term{ splineC },
+  });
 
   double xLeft = xVals[0];
   double xRight = xVals[xVals.size() - 1];

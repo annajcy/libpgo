@@ -3,6 +3,7 @@
 > **状态日期：** 2026-05-29
 > **适用范围：** C++ solver service boundary + Python `pypgo.solver` Newton binding。
 > **执行约束：** 不重写 Newton 数值内核；damping、line search、linear solve 的数学路径、IPC active-set scope、现有 `NewtonSolver` 默认行为保持不变。本计划只重构 solver 的长期服务边界、backend 分层、参数表达、结果格式、以及 Python 入口。
+> **当前仓库状态：** M3 Newton service / Python API 已落地，并在 2026-06-02 完成 solver 目录重构。本文主体保留 M3 实施计划语义；后续 backend 迁移以文末 `solver_future_work` 为准。
 
 ## 目标
 
@@ -71,17 +72,17 @@ OptimizationBackend
 
 相关文件：
 
-- `src/core/nonlinearOptimization/NewtonSolver.h/.cpp`
-- `src/core/nonlinearOptimization/optimizationService.h/.cpp`（M3 新增）
-- `src/core/nonlinearOptimization/optimizationBackend.h/.cpp`（M3 新增）
-- `src/core/nonlinearOptimization/newtonLineSearchPolicy.h/.cpp`（M3 新增）
-- `src/core/nonlinearOptimization/newtonSparseSolverBackend.h/.cpp`（M3 新增）
-- `src/core/nonlinearOptimization/minimizeEnergy.h/.cpp`
-- `src/core/nonlinearOptimization/solverResult.h/.cpp`
-- `src/core/nonlinearOptimization/solveDiagnostics.h`
-- `src/core/nonlinearOptimization/lineSearch.h/.cpp`
+- `src/core/nonlinearOptimization/solver/newton/NewtonSolver.h/.cpp`
+- `src/core/nonlinearOptimization/solver/service/optimizationService.h/.cpp`（M3 新增）
+- `src/core/nonlinearOptimization/solver/service/optimizationBackend.h/.cpp`（M3 新增）
+- `src/core/nonlinearOptimization/solver/newton/newtonLineSearchPolicy.h/.cpp`（M3 新增）
+- `src/core/nonlinearOptimization/solver/newton/newtonSparseSolverBackend.h/.cpp`（M3 新增）
+- `src/core/nonlinearOptimization/solver/legacy/minimizeEnergy.h/.cpp`
+- `src/core/nonlinearOptimization/solver/common/solverResult.h/.cpp`
+- `src/core/nonlinearOptimization/solver/common/solveDiagnostics.h`
+- `src/core/nonlinearOptimization/solver/newton/lineSearch.h/.cpp`
 - `src/core/nonlinearOptimization/lineSearchAwareEnergy.h`
-- `src/python/pypgo/bindings/solver_bindings.cpp`（M3 新增）
+- `src/python/pypgo/bindings/solver/solver_bindings.cpp`（M3 新增）
 
 具体别扭点：
 
@@ -137,14 +138,14 @@ SolverResult minimize(RefVecXd x, PotentialEnergy_const_p energy,
 
 ### 6. optimizer backend、Newton line search 和 Newton sparse solver 分散在不同分支里
 
-当前 optimizer 分发集中在 `EnergyOptimizer::minimize(...)` 的 `SolverType` switch-like `if/else`，部分 caller 又直接调用 `minimizeUsingKnitro(...)`。Newton 内部 sparse linear solver 的选择则写在 `NewtonSolver.h/.cpp` 的 `PGO_HAS_MKL` / `PGO_HAS_ORIG_PARDISO` 条件编译里。
+当前 optimizer 分发集中在 `EnergyOptimizer::minimize(...)` 的 `SolverType` switch-like `if/else`，部分 caller 又直接调用 `minimizeUsingKnitro(...)`。Newton 内部 sparse linear solver 的选择则写在 `solver/newton/NewtonSolver.h/.cpp` 的 `PGO_HAS_MKL` / `PGO_HAS_ORIG_PARDISO` 条件编译里。
 
 另外，Newton line-search mode 已经有 service-level `LineSearchMethod`，但具体执行仍在 `NewtonSolver::runLineSearchStep(...)` 里用 `LSM_GOLDEN` / `LSM_BRENTS` / `LSM_BACKTRACK` / `LSM_SIMPLE` 分支。`StepStrategy` 已经抽出了“line-search / static-damping / full-step”这一级 subiteration mode，line-search 内部的 alpha policy 也应该同样收口。
 
 这导致几个问题：
 
 - 上层 service 如果继续复用 `SolverType`，未来 IPOPT / Knitro / Newton options 会继续塞进一个宽签名；
-- `NewtonSolver.h` 直接暴露 MKL / Orig Pardiso wrapper 类型，调用侧不关心的编译条件泄漏进核心 solver class。
+- `solver/newton/NewtonSolver.h` 直接暴露 MKL / Orig Pardiso wrapper 类型，调用侧不关心的编译条件泄漏进核心 solver class。
 - `runLineSearchStep(...)` 同时负责 feasible alpha、IPC active-set freeze、trial energy、line-search method dispatch、diagnostics，职责偏胖，后续新增或替换 line-search mode 会继续长分支。
 
 新设计把 optimizer backend selection 收口到 `OptimizationBackend`；把 Newton line-search method selection 收口到 `NewtonLineSearchPolicy` factory；把 Newton sparse solver selection 收口到 `NewtonSparseSolverBackend` factory。`if/#if` 不要求完全消失，但只能出现在很小的 adapter/factory 实现里。
@@ -170,8 +171,8 @@ SolverResult minimize(RefVecXd x, PotentialEnergy_const_p energy,
 
 新增文件：
 
-- `src/core/nonlinearOptimization/optimizationService.h`
-- `src/core/nonlinearOptimization/optimizationService.cpp`
+- `src/core/nonlinearOptimization/solver/service/optimizationService.h`
+- `src/core/nonlinearOptimization/solver/service/optimizationService.cpp`
 
 核心 public API：
 
@@ -262,21 +263,21 @@ OptimizationResult minimize(
 }  // namespace pgo::NonlinearOptimization
 ```
 
-`optimizationService.h` 不应该暴露 `NewtonSolver::SolverParam`、`NewtonSolver::LineSearchMethod`、raw pointer fixed values 或 mutable solver internals。`optimizationService.cpp` 内部负责把 service-level `LineSearchMethod` 翻译成 legacy `NewtonSolver::LineSearchMethod`。
+`solver/service/optimizationService.h` 不应该暴露 `NewtonSolver::SolverParam`、`NewtonSolver::LineSearchMethod`、raw pointer fixed values 或 mutable solver internals。`solver/service/optimizationService.cpp` 内部负责把 service-level `LineSearchMethod` 翻译成 legacy `NewtonSolver::LineSearchMethod`。
 
 Header ownership：
 
-- `NewtonSparseSolverKind` / `NewtonSparseSolverOptions` 定义在 `newtonSparseSolverBackend.h`，`optimizationService.h` include 该 header 并把 options 放进 `NewtonOptions`。
-- `NewtonSparseSolverBackend` interface 和 factory 也定义在 `newtonSparseSolverBackend.h`，但它们只给 `NewtonSolver` / service implementation 使用，不绑定到 Python。
-- `NewtonLineSearchPolicy` interface 和 factory 定义在 `newtonLineSearchPolicy.h`，只给 `NewtonSolver` implementation 使用；service public header 只暴露 `LineSearchMethod` enum，不暴露 policy class。
-- `optimizationBackend.h` include `optimizationService.h`，因此只依赖 service-level problem/result/options types；`optimizationService.h` 不 include `optimizationBackend.h`，避免 service public header 反向暴露 backend implementation。
+- `NewtonSparseSolverKind` / `NewtonSparseSolverOptions` 定义在 `solver/newton/newtonSparseSolverBackend.h`，`solver/service/optimizationService.h` include 该 header 并把 options 放进 `NewtonOptions`。
+- `NewtonSparseSolverBackend` interface 和 factory 也定义在 `solver/newton/newtonSparseSolverBackend.h`，但它们只给 `NewtonSolver` / service implementation 使用，不绑定到 Python。
+- `NewtonLineSearchPolicy` interface 和 factory 定义在 `solver/newton/newtonLineSearchPolicy.h`，只给 `NewtonSolver` implementation 使用；service public header 只暴露 `LineSearchMethod` enum，不暴露 policy class。
+- `solver/service/optimizationBackend.h` include `solver/service/optimizationService.h`，因此只依赖 service-level problem/result/options types；`solver/service/optimizationService.h` 不 include `solver/service/optimizationBackend.h`，避免 service public header 反向暴露 backend implementation。
 
 ### 2. optimizer backend 是 typed adapter，不再扩展 `SolverType` 宽签名
 
 新增内部 backend 层：
 
-- `src/core/nonlinearOptimization/optimizationBackend.h`
-- `src/core/nonlinearOptimization/optimizationBackend.cpp`
+- `src/core/nonlinearOptimization/solver/service/optimizationBackend.h`
+- `src/core/nonlinearOptimization/solver/service/optimizationBackend.cpp`
 
 核心形状：
 
@@ -336,8 +337,8 @@ M3 只实现 `NewtonOptimizationBackend`。`IpoptOptimizationBackend` / `KnitroO
 
 新增：
 
-- `src/core/nonlinearOptimization/newtonLineSearchPolicy.h`
-- `src/core/nonlinearOptimization/newtonLineSearchPolicy.cpp`
+- `src/core/nonlinearOptimization/solver/newton/newtonLineSearchPolicy.h`
+- `src/core/nonlinearOptimization/solver/newton/newtonLineSearchPolicy.cpp`
 
 核心形状：
 
@@ -401,7 +402,7 @@ Golden / Brent        -> infinity
 
 `runLineSearchStep(...)` 使用 `policy.maxProbeAlpha()` 判断是否允许冻结 `LineSearchAwareEnergy`。这等价于当前 `lineSearchMethodMaxAlpha(...)` 的行为，不改变 IPC / line-search-aware 能量的有效 alpha window。
 
-`NewtonLineSearchKind` 是内部 enum。`optimizationService.cpp` 继续把 service-level `LineSearchMethod` 翻译成 legacy `NewtonSolver::LineSearchMethod`；`NewtonSolver.cpp` 再把 legacy enum 翻译成 `NewtonLineSearchKind` 来创建 policy。这样不需要把 `NewtonLineSearchPolicy` 纳入 public service API，也不要求 Python 暴露新的 policy 类型。
+`NewtonLineSearchKind` 是内部 enum。`solver/service/optimizationService.cpp` 继续把 service-level `LineSearchMethod` 翻译成 legacy `NewtonSolver::LineSearchMethod`；`solver/newton/NewtonSolver.cpp` 再把 legacy enum 翻译成 `NewtonLineSearchKind` 来创建 policy。这样不需要把 `NewtonLineSearchPolicy` 纳入 public service API，也不要求 Python 暴露新的 policy 类型。
 
 四个 concrete policy：
 
@@ -420,8 +421,8 @@ M3 不改变 service-level `LineSearchMethod` enum，也不把 policy 类型暴�
 
 新增：
 
-- `src/core/nonlinearOptimization/newtonSparseSolverBackend.h`
-- `src/core/nonlinearOptimization/newtonSparseSolverBackend.cpp`
+- `src/core/nonlinearOptimization/solver/newton/newtonSparseSolverBackend.h`
+- `src/core/nonlinearOptimization/solver/newton/newtonSparseSolverBackend.cpp`
 
 核心形状：
 
@@ -449,7 +450,7 @@ std::unique_ptr<NewtonSparseSolverBackend> solver;
 NewtonSparseSolverOptions sparseSolverOptions;
 ```
 
-`NewtonSolver.h` 不再 include `EigenMKLPardisoSupport.h` / `EigenOrigPardisoSupport.h`，也不再按宏声明三种不同的 solver member 类型。`PGO_HAS_MKL` / `PGO_HAS_ORIG_PARDISO` 只允许出现在 `newtonSparseSolverBackend.cpp` 里。
+`solver/newton/NewtonSolver.h` 不再 include `EigenMKLPardisoSupport.h` / `EigenOrigPardisoSupport.h`，也不再按宏声明三种不同的 solver member 类型。`PGO_HAS_MKL` / `PGO_HAS_ORIG_PARDISO` 只允许出现在 `solver/newton/newtonSparseSolverBackend.cpp` 里。
 
 `NewtonSparseSolverKind::Auto` 保持当前默认优先级：
 
@@ -636,7 +637,7 @@ Python binding 将这些自然映射为 `ValueError`。未知 `line_search` stri
 ## 目标 C++ API
 
 ```cpp
-// nonlinearOptimization/optimizationService.h
+// nonlinearOptimization/solver/service/optimizationService.h
 
 namespace pgo::NonlinearOptimization
 {
@@ -789,23 +790,23 @@ minimize
 
 ### 新增
 
-- `src/core/nonlinearOptimization/optimizationService.h`
-- `src/core/nonlinearOptimization/optimizationService.cpp`
-- `src/core/nonlinearOptimization/optimizationBackend.h`
-- `src/core/nonlinearOptimization/optimizationBackend.cpp`
-- `src/core/nonlinearOptimization/newtonLineSearchPolicy.h`
-- `src/core/nonlinearOptimization/newtonLineSearchPolicy.cpp`
-- `src/core/nonlinearOptimization/newtonSparseSolverBackend.h`
-- `src/core/nonlinearOptimization/newtonSparseSolverBackend.cpp`
-- `src/python/pypgo/bindings/solver_bindings.cpp`
+- `src/core/nonlinearOptimization/solver/service/optimizationService.h`
+- `src/core/nonlinearOptimization/solver/service/optimizationService.cpp`
+- `src/core/nonlinearOptimization/solver/service/optimizationBackend.h`
+- `src/core/nonlinearOptimization/solver/service/optimizationBackend.cpp`
+- `src/core/nonlinearOptimization/solver/newton/newtonLineSearchPolicy.h`
+- `src/core/nonlinearOptimization/solver/newton/newtonLineSearchPolicy.cpp`
+- `src/core/nonlinearOptimization/solver/newton/newtonSparseSolverBackend.h`
+- `src/core/nonlinearOptimization/solver/newton/newtonSparseSolverBackend.cpp`
+- `src/python/pypgo/bindings/solver/solver_bindings.cpp`
 - `pypgo/solver.py`
-- `tests/src/core/optimizationService_gtest.cpp`
+- `tests/src/core/solver/optimizationService_gtest.cpp`
 - `tests/pypgo/test_solver.py`
 
 ### 修改
 
 - `src/core/nonlinearOptimization/CMakeLists.txt`：编入 `optimizationService.*`、`optimizationBackend.*`、`newtonLineSearchPolicy.*`、`newtonSparseSolverBackend.*`。
-- `src/core/nonlinearOptimization/NewtonSolver.h/.cpp`：把 line-search method dispatch 替换成 `NewtonLineSearchPolicy`，把 concrete sparse solver member 替换成 `NewtonSparseSolverBackend`，并把 MKL / Orig Pardiso 条件编译移出 header。
+- `src/core/nonlinearOptimization/solver/newton/NewtonSolver.h/.cpp`：把 line-search method dispatch 替换成 `NewtonLineSearchPolicy`，把 concrete sparse solver member 替换成 `NewtonSparseSolverBackend`，并把 MKL / Orig Pardiso 条件编译移出 header。
 - `tests/src/core/CMakeLists.txt`：新增 `optimizationService_gtest`。
 - `src/python/pypgo/CMakeLists.txt`：编入 `solver_bindings.cpp`，并确保 `pypgo_core` 显式链接 `nonlinearOptimization`。
 - `src/python/pypgo/bindings/module.cpp`：注册 solver bindings。
@@ -816,8 +817,8 @@ minimize
 ### 不动
 
 - `NewtonSolver` 的数值流程、line-search 默认数值参数、damping 策略和默认 sparse solver 行为。
-- `minimizeEnergy.h/.cpp` public API（不绑定，不迁移）。
-- `lineSearch.h/.cpp`、`lineSearchAwareEnergy.h`。
+- `solver/legacy/minimizeEnergy.h/.cpp` public API（不绑定，不迁移）。
+- `solver/newton/lineSearch.h/.cpp`、`lineSearchAwareEnergy.h`。
 - `IpoptOptimizer*`、`knitroOptimizer*`。
 - `runIPCSim` 内部 solver 调用。
 
@@ -825,7 +826,7 @@ minimize
 
 ### Task S1: Solver status/result parity audit
 
-- 读 `solverResult.h/.cpp`、`solveDiagnostics.h`、`NewtonSolver.cpp`。
+- 读 `solver/common/solverResult.h/.cpp`、`solver/common/solveDiagnostics.h`、`solver/newton/NewtonSolver.cpp`。
 - 确认 `SolveStatus` table 与当前 C++ enum 完全一致。
 - 确认 `SolverResult` 当前没有 final objective 字段，且 final gradient stats 由 `hasFinalGradientStats` gate。
 - 确认 `fixedValues == nullptr` 对非空 fixed DOF 不安全，不是 fallback 语义。
@@ -834,13 +835,13 @@ minimize
 
 ### Task S2: C++ optimization service + tests
 
-- 新增 `optimizationService.h/.cpp`。
-- 新增 `optimizationBackend.h/.cpp`：
+- 新增 `solver/service/optimizationService.h/.cpp`。
+- 新增 `solver/service/optimizationBackend.h/.cpp`：
   - 定义内部 `OptimizationBackend` interface；
   - 实现 `NewtonOptimizationBackend`；
   - `minimize(problem, x0, NewtonOptions)` 委托到 `NewtonOptimizationBackend(options).solve(...)`；
   - 不引入新的 `SolverType` enum，不把 backend choice 和 backend-specific options 塞进一个宽签名。
-- 新增 `newtonLineSearchPolicy.h/.cpp`：
+- 新增 `solver/newton/newtonLineSearchPolicy.h/.cpp`：
   - 定义内部 `NewtonLineSearchKind`；
   - 定义 `NewtonLineSearchInput` / `NewtonLineSearchResult`；
   - 定义 `NewtonLineSearchPolicy` interface；
@@ -849,7 +850,7 @@ minimize
   - Simple policy 搬出现有 halving loop，不改变 `kSimpleLineSearchMaxIter`；
   - 实现 `createNewtonLineSearchPolicy(kind, numDofs, evaluate)`；
   - `maxProbeAlpha()` 保持当前 active-set freeze 判定：Backtracking/Simple 为 `1.0`，Golden/Brent 为 `infinity`。
-- 新增 `newtonSparseSolverBackend.h/.cpp`：
+- 新增 `solver/newton/newtonSparseSolverBackend.h/.cpp`：
   - 定义 `NewtonSparseSolverKind` / `NewtonSparseSolverOptions`；
   - 定义 `NewtonSparseSolverBackend` interface；
   - 实现 Eigen `SimplicialLDLT` adapter；
@@ -858,7 +859,7 @@ minimize
   - 实现 `createNewtonSparseSolverBackend(options, A)`；
   - `Auto` 保持当前 Orig Pardiso -> MKL Pardiso -> Eigen fallback 的默认优先级；
   - 显式请求不可用 backend 时抛 `std::invalid_argument`。
-- 修改 `NewtonSolver.h/.cpp`：
+- 修改 `solver/newton/NewtonSolver.h/.cpp`：
   - constructor 增加 source-compatible 的 optional `NewtonSparseSolverOptions` 参数，默认 `Auto`；
   - header 不再 include `EigenMKLPardisoSupport.h` 或 `EigenOrigPardisoSupport.h`；
   - member 新增 `std::unique_ptr<NewtonLineSearchPolicy>`，替代 `LineSearchHandle` / `nativeLineSearch` 作为 line-search method dispatch 点；
@@ -957,7 +958,7 @@ minimize
 - Update `api_coverage.md`:
   - Newton solver maps to `pypgo.solver.solve_newton`；
   - general minimize remains future work；
-  - solver service C++ boundary is `optimizationService.h`。
+  - solver service C++ boundary is `solver/service/optimizationService.h`。
 
 ## 验收标准
 
@@ -968,13 +969,13 @@ minimize
 - `result.x` 是独立 NumPy array。
 - Python `final_gradient_norm` / `final_gradient_max_norm` 在 C++ 没有 final stats 时为 `None`。
 - `pypgo.solver` 公开名集合不出现 `NewtonSolver`、`SolverParam`、`EnergyOptimizer`、`OptimizationProblem`、`FixedVariables`、`BoxBounds`、`NonlinearConstraints`、`OptimizationBackend`、`NewtonLineSearchPolicy`、`NewtonSparseSolverBackend`、`NewtonSparseSolverKind`、`NewtonSparseSolverOptions`、`SST_*`、`LSM_*`、`minimize`。
-- `optimizationService.h` 不暴露 legacy raw pointer fixed values 或 `NewtonSolver::SolverParam`。
-- `optimizationService.cpp` 不使用 `EnergyOptimizer::SolverType` 做 backend 分发；Newton 路径通过 `NewtonOptimizationBackend`。
+- `solver/service/optimizationService.h` 不暴露 legacy raw pointer fixed values 或 `NewtonSolver::SolverParam`。
+- `solver/service/optimizationService.cpp` 不使用 `EnergyOptimizer::SolverType` 做 backend 分发；Newton 路径通过 `NewtonOptimizationBackend`。
 - `runLineSearchStep(...)` 不再用 `LSM_GOLDEN` / `LSM_BRENTS` / `LSM_BACKTRACK` / `LSM_SIMPLE` 分支执行具体算法，而是委托给 `NewtonLineSearchPolicy`。
 - `LineSearchAwareEnergy` active-set freeze 规则不变：只有 `policy.maxProbeAlpha() <= maxValidLineSearchAlpha()` 时冻结。
 - Backtracking 的 `kBacktrackArmijo` / `kBacktrackShrink` / `kBacktrackInitAlpha` 默认值不变。
-- `NewtonSolver.h` 不 include `EigenMKLPardisoSupport.h` 或 `EigenOrigPardisoSupport.h`，也不声明 preprocessor-specific concrete solver member。
-- Newton sparse solver 的 `PGO_HAS_MKL` / `PGO_HAS_ORIG_PARDISO` 条件编译集中在 `newtonSparseSolverBackend.cpp`。
+- `solver/newton/NewtonSolver.h` 不 include `EigenMKLPardisoSupport.h` 或 `EigenOrigPardisoSupport.h`，也不声明 preprocessor-specific concrete solver member。
+- Newton sparse solver 的 `PGO_HAS_MKL` / `PGO_HAS_ORIG_PARDISO` 条件编译集中在 `solver/newton/newtonSparseSolverBackend.cpp`。
 - `NewtonSparseSolverKind::Auto` 的默认选择保持旧行为：Orig Pardiso 优先于 MKL Pardiso，二者都不可用时使用 Eigen `SimplicialLDLT`。
 - `runIPCSim` 内部 Newton 调用不受本 service 引入影响。
 
@@ -1049,7 +1050,7 @@ S2 可与 Energy E1-E3 并行；S4/S5 必须等 Energy E4/E5。
 
 ```text
 pypgo.solver.solve_newton
-  -> src/python/pypgo/bindings/solver_bindings.cpp
+  -> src/python/pypgo/bindings/solver/solver_bindings.cpp
   -> NonlinearOptimization::minimize(problem, x0, NewtonOptions)
   -> NewtonOptimizationBackend
   -> NewtonSolver
@@ -1067,7 +1068,20 @@ EnergyOptimizer::minimizeUsingApproximateActiveSet(...)
 EnergyOptimizer::minimizeUsingNewton(...)
 ```
 
-这些函数仍在 `src/core/nonlinearOptimization/minimizeEnergy.h/.cpp` 体系中，不属于当前 Python-first `pypgo.solver` 的 public API。当前 Python API 只暴露 `solve_newton`，不暴露通用 `minimize`，也不暴露 `EnergyOptimizer::SolverType`。
+这些函数仍在 `src/core/nonlinearOptimization/solver/legacy/minimizeEnergy.h/.cpp` 体系中，不属于当前 Python-first `pypgo.solver` 的 public API。当前 Python API 只暴露 `solve_newton`，不暴露通用 `minimize`，也不暴露 `EnergyOptimizer::SolverType`。
+
+旧 IPOPT / Knitro adapter 已按当前目录结构放到 `solver/external`，但语义上仍属于 legacy external backend，尚未接入 `OptimizationBackend`：
+
+```text
+src/core/nonlinearOptimization/solver/external/
+  common/nonlinearProblem.h/.cpp
+  ipopt/IpoptProblem.h/.cpp
+  ipopt/IpoptOptimizer.h/.cpp
+  knitro/knitroProblem.h/.cpp
+  knitro/knitroOptimizer.h/.cpp
+```
+
+这里的 `external` 是为未来 service backend 迁移预留的结构位置；不要把这些文件理解成已经完成的新架构 backend。当前真正接入 service 的 backend 仍只有 `NewtonOptimizationBackend`。
 
 ### 为什么暂缓迁移其他 backend
 
@@ -1141,19 +1155,19 @@ struct KnitroOptions
 
 验收：
 
-- `optimizationService.h` 能表达 IPOPT/Knitro options，但 `minimize(..., IpoptOptions)` 尚未声明或声明后必须有明确 unavailable behavior。
+- `solver/service/optimizationService.h` 能表达 IPOPT/Knitro options，但 `minimize(..., IpoptOptions)` 尚未声明或声明后必须有明确 unavailable behavior。
 - Newton tests 不受影响。
 
 ### Phase F2: IPOPT backend adapter
 
-**目标：** 先迁 IPOPT，因为它最自然消费 `bounds` 和 `constraints`，且旧代码已有 `IpoptProblem` / `IpoptOptimizer` / `makeIpoptSolverResult(...)`。
+**目标：** 先迁 IPOPT，因为它最自然消费 `bounds` 和 `constraints`，且旧代码已有 `solver/external/ipopt/IpoptProblem.*`、`solver/external/ipopt/IpoptOptimizer.*` 和 `makeIpoptSolverResult(...)`。
 
 新增：
 
 - `IpoptOptimizationBackend final : public OptimizationBackend`
 - `OptimizationResult minimize(problem, x0, IpoptOptions)`
 
-Adapter 初版可以复用旧实现，不重写 IPOPT problem：
+Adapter 初版可以复用 `solver/legacy/minimizeEnergy.*` 的旧入口，不重写 IPOPT problem：
 
 ```cpp
 SolverResult ret = EnergyOptimizer::minimizeUsingIpopt(
@@ -1261,7 +1275,9 @@ result = pgo.solver.minimize(
 
 Adapter 初版可以复用：
 
-- `EnergyOptimizer::minimizeUsingKnitro(...)`
+- `solver/legacy/minimizeEnergy.*` 中的 `EnergyOptimizer::minimizeUsingKnitro(...)`
+- `solver/external/knitro/knitroProblem.*`
+- `solver/external/knitro/knitroOptimizer.*`
 - `makeKnitroSolverResult(...)`
 
 输入输出映射与 IPOPT 类似，但需要额外处理：
@@ -1302,7 +1318,7 @@ Unavailable behavior：
 - 能定义清楚它相对 IPOPT/Knitro 的用途；
 - 能提供稳定 tests。
 
-如果不满足这些条件，保留在旧 `EnergyOptimizer` 内部，不进入 Python public API。
+如果不满足这些条件，保留在 `solver/legacy/minimizeEnergy.*` 的旧 `EnergyOptimizer` 体系内，不进入 Python public API。
 
 ### 风险与缓解
 

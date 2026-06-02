@@ -436,7 +436,7 @@ First C++ refactor preserves current `runIPCSim` contact timing. A later contact
 ### 新增
 
 - `src/core/simulation/dynamicState.h`
-- `src/core/simulation/dynamicStepOptions.h`（含 `ImplicitModelTerm`、`DynamicProblem`、`DynamicStepRequest`；`SolverControl` 来自 `solver_api_refactor.plan.md` 的 `optimizationService.h`，不重复定义）
+- `src/core/simulation/dynamicStepOptions.h`（含 `ImplicitModelTerm`、`DynamicProblem`、`DynamicStepRequest`；`SolverControl` 来自 `solver_api_refactor.plan.md` 的 `solver/service/optimizationService.h`，不重复定义）
 - `src/core/simulation/rayleighDampingAssembly.h`
 - `src/core/simulation/rayleighDampingAssembly.cpp`
 - `src/core/simulation/stageResidual.h`（`StageResidualHandle`、`initStageResidual`（构造时建持久 EnergySet）、`prepareStageResidual`（per-step 原地更新）、`ImplicitStageProblem` value object）
@@ -625,7 +625,7 @@ Validation:
 把"问题不变量"和"每帧变化量"分开，避免每步重传/重拷贝 mass（per-term damping 系数随 `ImplicitModelTerm` 走，不再有全局 `massDamping`/`stiffnessDamping`）。`solver` 字段复用 solver plan 的 `NonlinearOptimization::SolverControl`，不重复定义同构 struct：
 
 ```cpp
-// #include "nonlinearOptimization/optimizationService.h"  // for SolverControl
+// #include "nonlinearOptimization/solver/service/optimizationService.h"  // for SolverControl
 
 namespace pgo::Simulation
 {

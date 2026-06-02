@@ -37,8 +37,9 @@ CELLS = [
         6. Line-search modes
         7. `NewtonOptions` as a reusable parameter object
         8. Solving a weighted `EnergySet`
-        9. Common validation errors
-        10. Public surface check
+        9. Constraint functions and soft penalties
+        10. Common validation errors
+        11. Public surface check
         """
     ),
     code(
@@ -54,10 +55,10 @@ CELLS = [
 
         We solve:
 
-        `min_x 1/2 x^T A x + b^T x`
+        $$\\min_x \\; \\frac{1}{2} x^T A x + b^T x$$
 
         with `A = I` and `b = [-1, 2, -4]`.  The exact minimizer is
-        `x* = -b = [1, -2, 4]`.
+        $x^* = -b = [1, -2, 4]$.
         """
     ),
     code(
@@ -259,7 +260,185 @@ CELLS = [
     ),
     md(
         """
-        ## 9. Common validation errors
+        ## 9. Constraint functions and soft penalties
+
+        `pypgo.constraints` represents hard constraint functions such as
+        $C(x) = A x + d$.  `Bounded` attaches solver-facing bounds:
+        $\\ell \\le C(x) \\le u$.
+
+        The Newton API in this demo still solves unconstrained or fixed-DOF
+        problems only.  For Newton, use a soft penalty energy:
+
+        - `ConstraintPenalty(c)` penalizes zero residual: $\\|C(x)\\|^2$.
+        - `ConstraintViolationPenalty(Bounded(c, ...))` penalizes only bound
+          violations.
+
+        In formulas, a vector constraint function is:
+
+        $$
+        C(x) = A x + d.
+        $$
+
+        A hard bounded constraint descriptor represents:
+
+        $$
+        \\ell \\le C(x) \\le u.
+        $$
+        """
+    ),
+    code(
+        """
+        C = np.array([[1.0, 0.0, 0.0]], dtype=np.float64)
+        linear_constraint = pgo.constraints.Linear(C, offset=np.array([-2.0], dtype=np.float64))
+
+        x_probe = np.array([1.5, 0.0, 0.0], dtype=np.float64)
+        print("C(x):", linear_constraint.value(x_probe))
+        print("Jacobian:\\n", linear_constraint.jacobian(x_probe).to_dense())
+        print("Hessian nnz:", linear_constraint.hessian(x_probe, np.ones(1)).nnz)
+
+        hard_equality_descriptor = pgo.constraints.Bounded(linear_constraint, lower=0.0, upper=0.0)
+        print("hard equality descriptor:", hard_equality_descriptor.lower, hard_equality_descriptor.upper)
+        """
+    ),
+    md(
+        """
+        For the first example,
+
+        $$
+        C(x) = [1\\;0\\;0]x - 2 = x_0 - 2.
+        $$
+
+        `Bounded(linear_constraint, lower=0, upper=0)` describes the hard
+        equality:
+
+        $$
+        x_0 - 2 = 0 \\quad \\Longleftrightarrow \\quad x_0 = 2.
+        $$
+
+        Since `solve_newton` does not consume hard constraints yet, the
+        zero-residual penalty solves:
+
+        $$
+        \\min_x \\; \\frac{1}{2}\\|x\\|^2
+        + \\frac{100}{2}(x_0 - 2)^2.
+        $$
+        """
+    ),
+    code(
+        """
+        zero_residual_penalty = pgo.energy.ConstraintPenalty(linear_constraint, weight=100.0)
+        zero_residual_total = pgo.energy.EnergySet([
+            (pgo.energy.QuadraticEnergy(np.eye(3, dtype=np.float64)), 1.0),
+            (zero_residual_penalty, 1.0),
+        ])
+
+        zero_residual_result = solver.solve_newton(
+            zero_residual_total,
+            x0=np.zeros(3, dtype=np.float64),
+            damping=False,
+        )
+
+        print("zero-residual penalty solution:", zero_residual_result.x)
+        print("constraint residual:", linear_constraint.value(zero_residual_result.x))
+        """
+    ),
+    md(
+        """
+        The second example uses bound-violation penalty.  For each constraint
+        component, define:
+
+        $$
+        v_i(x) =
+        \\begin{cases}
+        C_i(x) - \\ell_i, & C_i(x) < \\ell_i,\\\\
+        C_i(x) - u_i, & C_i(x) > u_i,\\\\
+        0, & \\ell_i \\le C_i(x) \\le u_i.
+        \\end{cases}
+        $$
+
+        Then:
+
+        $$
+        E_{\\text{viol}}(x) = \\frac{w}{2}\\sum_i v_i(x)^2.
+        $$
+
+        In the code below, $C(x)=x$, $w=100$, and the bounds encode
+        $x_0 = 2$, $x_1 \\ge 0$, and $-1 \\le x_2 \\le 1$.  At
+        $x = [1.5, -0.5, 0.25]$, only the first two components violate their
+        bounds.
+        """
+    ),
+    code(
+        """
+        # Bound-violation penalties consume Bounded descriptors.
+        bound_constraint = pgo.constraints.Linear(
+            np.eye(3, dtype=np.float64),
+            offset=np.zeros(3, dtype=np.float64),
+        )
+        bounds = pgo.constraints.Bounded(
+            bound_constraint,
+            lower=np.array([2.0, 0.0, -1.0], dtype=np.float64),
+            upper=np.array([2.0, np.inf, 1.0], dtype=np.float64),
+        )
+        violation_penalty = pgo.energy.ConstraintViolationPenalty(bounds, weight=100.0)
+
+        x_probe = np.array([1.5, -0.5, 0.25], dtype=np.float64)
+        print("probe value:", violation_penalty.value(x_probe))
+        print("probe gradient:", violation_penalty.gradient(x_probe))
+        print("probe Hessian:\\n", violation_penalty.hessian(x_probe).to_dense())
+        """
+    ),
+    md(
+        """
+        To optimize with the same soft bounds, combine the violation penalty
+        with any other potential energy.  Here the unconstrained attraction
+        target is outside the bounds:
+
+        $$
+        E_{\\text{target}}(x)
+        = \\frac{1}{2}\\|x - t\\|^2,
+        \\quad t = [0, -1, 2.5].
+        $$
+
+        The total energy is:
+
+        $$
+        \\min_x \\;
+        E_{\\text{target}}(x) + E_{\\text{viol}}(x).
+        $$
+
+        Because this is still a soft penalty, the solution is pulled close to
+        the bounds but is not projected exactly onto the hard feasible set.
+        """
+    ),
+    code(
+        """
+        target = np.array([0.0, -1.0, 2.5], dtype=np.float64)
+        target_energy = pgo.energy.QuadraticEnergy(
+            np.eye(3, dtype=np.float64),
+            b=-target,
+        )
+        soft_bounded_total = pgo.energy.EnergySet([
+            (target_energy, 1.0),
+            (violation_penalty, 1.0),
+        ])
+
+        soft_bounded_result = solver.solve_newton(
+            soft_bounded_total,
+            x0=target.copy(),
+            damping=False,
+        )
+
+        print("target:", target)
+        print("soft-bounded solution:", soft_bounded_result.x)
+        print("constraint value:", bound_constraint.value(soft_bounded_result.x))
+        print("bound violation penalty:", violation_penalty.value(soft_bounded_result.x))
+        print("total objective:", soft_bounded_result.final_objective)
+        """
+    ),
+    md(
+        """
+        ## 10. Common validation errors
 
         Invalid line-search names and inconsistent fixed values raise
         `ValueError`.
@@ -285,7 +464,7 @@ CELLS = [
     ),
     md(
         """
-        ## 10. Public surface
+        ## 11. Public surface
 
         The first Python release intentionally hides legacy C++ names such as
         `NewtonSolver`, `SolverParam`, and `EnergyOptimizer`.

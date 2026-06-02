@@ -6,7 +6,7 @@
 #include "potentialEnergy.h"
 #include "potentialEnergy.h"
 #include "potentialEnergyAligningMeshConnectivity.h"
-#include "constraintFunctions.h"
+#include "constraints/constraintFunctions.h"
 #include "solver/common/solverResult.h"
 
 namespace pgo

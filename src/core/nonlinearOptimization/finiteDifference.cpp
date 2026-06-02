@@ -6,7 +6,7 @@ copyright to USC
 #include "finiteDifference.h"
 
 #include "potentialEnergy.h"
-#include "constraintFunctions.h"
+#include "constraints/constraintFunctions.h"
 #include "EigenSupport.h"
 
 #include <random>

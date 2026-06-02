@@ -481,7 +481,7 @@ CELLS = [
         Use the tet `box.veg` asset:
         1. Build a `DeformationEnergy` with `StVK` material and `dofs=3`
            plastic.
-        2. Verify the Hessian at rest is symmetric (check `|H - H^T| < 1e-8`).
+        2. Verify the Hessian at rest is symmetric (check $\\|H - H^T\\| < 10^{-8}$).
         3. Add a `VertexAttachment` that pins the first 5 vertices.
         4. Compose them in an `EnergySet`.
         5. Disable the pin constraint weight → energy drops.

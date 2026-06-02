@@ -5,7 +5,7 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
-#include "constraintFunctions.h"
+#include "constraints/constraintFunctions.h"
 #include "deformationModel.h"
 
 #include <tbb/spin_mutex.h>

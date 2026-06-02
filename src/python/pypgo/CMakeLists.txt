@@ -6,6 +6,7 @@ set(PYPGO_BINDING_SOURCES
   bindings/mesh_geo_bindings.cpp
   bindings/mesh_bindings.cpp
   bindings/energy_bindings.cpp
+  bindings/constraints/constraint_bindings.cpp
   bindings/solver/solver_bindings.cpp
   bindings/sparse_bindings.cpp
   ../../tools/mesh/volumetric/cubicMesher/triangleMeshVoxelizer.cpp

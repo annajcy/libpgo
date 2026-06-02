@@ -13,10 +13,11 @@ set(NONLINEAROPTIMIZATION_HEADERS
   solver/newton/newtonLineSearchPolicy.h
   solver/newton/newtonSparseSolverBackend.h
 
-  potentialEnergyFromConstraintFunctions.h
+  constraints/potentialEnergyFromConstraintFunctions.h
 
-  constraintFunction.h constraintFunctions.h constraintFunctionsAssember.h
-  linearConstraintFunctions.h
+  constraints/constraintEvaluation.h
+  constraints/constraintFunction.h constraints/constraintFunctions.h constraints/constraintSet.h
+  constraints/linearConstraintFunctions.h
 
   solver/external/common/nonlinearProblem.h lagrangian.h
   solver/newton/NewtonSolver.h solver/legacy/minimizeEnergy.h
@@ -36,10 +37,11 @@ set(NONLINEAROPTIMIZATION_SOURCES
   solver/newton/newtonLineSearchPolicy.cpp
   solver/newton/newtonSparseSolverBackend.cpp
 
-  constraintFunctions.cpp constraintFunctionsAssember.cpp
-  linearConstraintFunctions.cpp
+  constraints/constraintEvaluation.cpp
+  constraints/constraintFunctions.cpp constraints/constraintSet.cpp
+  constraints/linearConstraintFunctions.cpp
 
-  potentialEnergyFromConstraintFunctions.cpp
+  constraints/potentialEnergyFromConstraintFunctions.cpp
   solver/external/common/nonlinearProblem.cpp lagrangian.cpp
   solver/newton/NewtonSolver.cpp solver/legacy/minimizeEnergy.cpp
   finiteDifference.cpp

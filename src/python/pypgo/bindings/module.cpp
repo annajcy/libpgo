@@ -11,6 +11,7 @@ void init_mesh_bindings(nb::module_ &m);
 void init_sparse_bindings(nb::module_ &m);
 void init_dense_bindings(nb::module_ &m);
 void init_energy_bindings(nb::module_ &m);
+void init_constraint_bindings(nb::module_ &m);
 void init_solver_bindings(nb::module_ &m);
 void init_animation_bindings(nb::module_ &m);
 
@@ -28,6 +29,7 @@ NB_MODULE(_core, m) {
     init_sparse_bindings(m);
     init_dense_bindings(m);
     init_energy_bindings(m);
+    init_constraint_bindings(m);
     init_solver_bindings(m);
     init_animation_bindings(m);
 }

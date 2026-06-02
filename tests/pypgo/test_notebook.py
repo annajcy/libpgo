@@ -228,6 +228,10 @@ class TestNotebookSources:
         assert "fixed_dofs" in source
         assert "line_search" in source
         assert "EnergySet" in source
+        assert "constraints.Linear" in source
+        assert "constraints.Bounded" in source
+        assert "ConstraintPenalty" in source
+        assert "ConstraintViolationPenalty" in source
 
     def test_animation_demo_uses_animation_io(self, generated_notebooks):
         with open(generated_notebooks["animation_api_demo"]) as fh:

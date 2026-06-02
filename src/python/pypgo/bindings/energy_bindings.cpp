@@ -13,6 +13,7 @@
 
 #include "deformationModelFactory.h"
 #include "deformationModelEnergy.h"
+#include "constraints/constraint_core.h"
 #include "EigenDef.h"
 #include "energy_core.h"
 #include "eigen_numpy.h"
@@ -21,6 +22,7 @@
 #include "linearPotentialEnergy.h"
 #include "multiVertexPullingSoftConstraints.h"
 #include "potentialEnergy.h"
+#include "constraints/potentialEnergyFromConstraintFunctions.h"
 #include "quadraticPotentialEnergy.h"
 #include "simulation_mesh_core.h"
 #include "solver/common/solveDiagnostics.h"
@@ -86,6 +88,40 @@ std::shared_ptr<PyPotentialEnergy> createLinearEnergy(
   auto bVec = python::ndarrayToVectorXd(b);
   auto energy = std::make_shared<PredefinedPotentialEnergies::LinearPotentialEnergy>(std::move(bVec));
   return std::make_shared<PyPotentialEnergy>(std::move(energy));
+}
+
+std::shared_ptr<PyPotentialEnergy> createConstraintPenalty(
+  std::shared_ptr<PyConstraintFunctions> constraints,
+  double weight)
+{
+  if (!constraints) {
+    throw nb::value_error("constraints must be non-null");
+  }
+  auto penalty = std::make_shared<NonlinearOptimization::PotentialEnergyConstraintFunctions>(
+    constraints->numDofs(), constraints->handle_);
+  std::vector<NonlinearOptimization::EnergySet::Term> terms;
+  terms.push_back({ std::move(penalty), weight });
+  auto weighted = std::make_shared<NonlinearOptimization::EnergySet>(constraints->numDofs(), std::move(terms));
+  return std::make_shared<PyPotentialEnergy>(std::move(weighted));
+}
+
+std::shared_ptr<PyPotentialEnergy> createConstraintViolationPenalty(
+  std::shared_ptr<PyConstraintFunctions> constraints,
+  nb::ndarray<nb::numpy, const double> lower,
+  nb::ndarray<nb::numpy, const double> upper,
+  double weight)
+{
+  if (!constraints) {
+    throw nb::value_error("constraints must be non-null");
+  }
+  auto lowerVec = python::ndarrayToVectorXd(lower);
+  auto upperVec = python::ndarrayToVectorXd(upper);
+  auto penalty = std::make_shared<NonlinearOptimization::PotentialEnergyBoundedConstraintFunctions>(
+    constraints->numDofs(), constraints->handle_, std::move(lowerVec), std::move(upperVec));
+  std::vector<NonlinearOptimization::EnergySet::Term> terms;
+  terms.push_back({ std::move(penalty), weight });
+  auto weighted = std::make_shared<NonlinearOptimization::EnergySet>(constraints->numDofs(), std::move(terms));
+  return std::make_shared<PyPotentialEnergy>(std::move(weighted));
 }
 
 // ── QuadraticEnergy factories ────────────────────────────────────────
@@ -530,6 +566,16 @@ void init_energy_bindings(nb::module_ &m)
 
   m.def("_create_linear_energy", &createLinearEnergy,
     nb::arg("b"));
+
+  m.def("_create_constraint_penalty", &createConstraintPenalty,
+    nb::arg("constraints"),
+    nb::arg("weight") = 1.0);
+
+  m.def("_create_constraint_violation_penalty", &createConstraintViolationPenalty,
+    nb::arg("constraints"),
+    nb::arg("lower"),
+    nb::arg("upper"),
+    nb::arg("weight") = 1.0);
 
   m.def("_create_quadratic_energy_from_sparse", &createQuadraticEnergyFromSparse,
     nb::arg("A"));

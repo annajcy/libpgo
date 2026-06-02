@@ -8,6 +8,7 @@ copyright to USC, MIT
 #include "EigenDef.h"
 
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace pgo
@@ -27,6 +28,7 @@ public:
 
   virtual void createJacobian(EigenSupport::SpMatD &jac) const { jac = jacobianTemplate; }
   virtual void hessianAlloc(EigenSupport::SpMatD &hess) const { hess = lambdahTemplate; }
+  virtual int getNumDOFs() const { return nAll; }
   virtual int getNumConstraints() const { return (int)jacobianTemplate.rows(); }
 
   virtual const EigenSupport::SpMatD &getlambdaHessianTemplate() const { return lambdahTemplate; }
@@ -50,6 +52,7 @@ typedef std::shared_ptr<const ConstraintFunctions> ConstraintFunctions_const_p;
 
 inline void ConstraintFunctions::hessianVector(EigenSupport::ConstRefVecXd, EigenSupport::ConstRefVecXd, EigenSupport::ConstRefVecXd, EigenSupport::RefVecXd) const
 {
+  throw std::logic_error("ConstraintFunctions::hessianVector called but hasHessianVector() is false");
 }
 
 }  // namespace NonlinearOptimization

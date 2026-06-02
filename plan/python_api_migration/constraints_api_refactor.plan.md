@@ -53,7 +53,7 @@ struct NonlinearConstraints
 - `src/core/nonlinearOptimization/linearConstraintFunctions.h/.cpp`
 - `src/core/nonlinearOptimization/potentialEnergyFromConstraintFunctions.h/.cpp`
 - `src/core/nonlinearOptimization/lagrangian.h/.cpp`
-- `src/core/nonlinearOptimization/minimizeEnergy.h/.cpp`
+- `src/core/nonlinearOptimization/solver/legacy/minimizeEnergy.h/.cpp`
 - deformation-specific constraints:
   - `src/core/solidDeformationModel/tetVolumeConstraintFunctions.*`
   - `src/core/solidDeformationModel/segmentChainConstraintFunctions.*`
@@ -380,7 +380,7 @@ Shape and dtype rules:
 
 ### 不动
 
-- `NewtonSolver.h/.cpp` 数值内核。
+- `solver/newton/NewtonSolver.h/.cpp` 数值内核。
 - `contact/` IPC / floor energy。
 - deformation-specific constraint implementations，直到 deformation public API 稳定。
 - `ConstraintFunction` scalar base 暂不进入 Python public API；如果未来需要，先做 vector-valued adapter 再加入 `ConstraintSet::Term`。

@@ -6,7 +6,7 @@ copyright to USC
 #pragma once
 
 #include "potentialEnergy.h"
-#include "constraintFunctions.h"
+#include "constraints/constraintFunctions.h"
 
 namespace pgo
 {

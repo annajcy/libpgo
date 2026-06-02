@@ -29,6 +29,16 @@ if(TARGET nonlinearOptimization)
   target_link_libraries(evaluation_gtest PRIVATE GTest::gtest_main nonlinearOptimization)
   set_property(TARGET evaluation_gtest PROPERTY FOLDER "tests/gtest")
   pgo_gtest_discover_tests(evaluation_gtest)
+
+  add_executable(linearConstraintFunctions_ownership_gtest linearConstraintFunctions_ownership_gtest.cpp)
+  target_link_libraries(linearConstraintFunctions_ownership_gtest PRIVATE GTest::gtest_main nonlinearOptimization)
+  set_property(TARGET linearConstraintFunctions_ownership_gtest PROPERTY FOLDER "tests/gtest")
+  pgo_gtest_discover_tests(linearConstraintFunctions_ownership_gtest)
+
+  add_executable(constraintEvaluation_gtest constraintEvaluation_gtest.cpp)
+  target_link_libraries(constraintEvaluation_gtest PRIVATE GTest::gtest_main nonlinearOptimization)
+  set_property(TARGET constraintEvaluation_gtest PROPERTY FOLDER "tests/gtest")
+  pgo_gtest_discover_tests(constraintEvaluation_gtest)
 endif()
 
 if(TARGET genericPotentialEnergies)
