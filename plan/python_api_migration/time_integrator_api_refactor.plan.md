@@ -396,6 +396,20 @@ First C++ refactor preserves current `runIPCSim` contact timing. A later contact
 - **`contact_api_refactor.plan.md` C2**（`StepAwareEnergy` + `StatefulContactEnergy`）：T7.3/T7.4 的 `dynamic_cast<StepAwareEnergy*>` / `dynamic_cast<StatefulContactEnergy*>` 调用依赖 C2 产出的 `stepAwareEnergy.h`。C2 必须在 T7 之前完成，或 T7 在两者并行时做条件编译过渡。
 - 复用 `acceptsDynamicSolveStatus`（已在 `solverResult.h:41` / `solverResult.cpp:101`，语义已与本 plan 需要的一致），不重新定义。
 
+### 全局执行顺序（跨 plan）
+
+本 plan 是**全局第 5 个（最后）**（Contact plan 完成后启动）。执行顺序：
+
+```
+1. Solver plan          → 产出 SolverControl, minimize, FixedVariables
+2. Constraints plan     → 产出 ConstraintSet（Time Integrator 暂不消费，但提前完成）
+3. Implicit Surface plan → 自包含，不交互
+4. Contact plan         → 产出 StepAwareEnergy, StatefulContactEnergy, StepState
+5. Time Integrator plan  ← 本 plan
+```
+
+**为什么最后**：本 plan 消费 Solver（`SolverControl` + `minimize`）+ Contact（`StepAwareEnergy::beginStep` + `StatefulContactEnergy::refreshActiveSet`）。两者都就绪后，T7 不需要条件编译过渡，T9 直接对已迁移的 `beginStep/refreshActiveSet` 流程包装。
+
 ## 设计决策（已拍板）
 
 - **D1（EnergySet 跨帧生命周期 / contact terms）**：两个持久容器，构造一次，不 rebuild：

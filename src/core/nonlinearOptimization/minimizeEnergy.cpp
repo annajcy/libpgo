@@ -529,8 +529,8 @@ SolverResult EnergyOptimizer::minimizeUsingNewton(EigenSupport::RefVecXd x, Pote
   }
 
   NewtonSolver::SolverParam solverParam;
-  solverParam.lsm = NewtonSolver::LSM_BACKTRACK;
-  // solverParam.lsm = NewtonSolver::LSM_BRENTS;
+  solverParam.lineSearch = NewtonLineSearchKind::Backtrack;
+  // solverParam.lineSearch = NewtonLineSearchKind::Brents;
   // solverParam.sst = NewtonSolver::SST_SUBITERATION_ONE;
   NewtonSolver solver(x.data(), solverParam, L, fixedDOFs);
   ES::VXd xinit(L->getNumDOFs());

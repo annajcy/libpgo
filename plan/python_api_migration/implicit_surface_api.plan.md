@@ -149,8 +149,18 @@ public:
     // Batch eval. Default: loop over eval(). Override for SIMD or BVH batching.
     virtual void evalBatch(const V3d* pts, double* out, size_t n) const;
 
-    // Sample this field to a GridField (parallel unless numThreads==0 → hardware concurrency).
-    // WARNING: not safe for Python-trampoline subclasses if numThreads != 1.
+    // Sample this field to a GridField.
+    //
+    // numThreads controls OpenMP parallelism:
+    //     0 (default) — do not call omp_set_num_threads; respects env/variable
+    //                   OMP_NUM_THREADS and OpenMP's own default (typically
+    //                   hardware concurrency).
+    //     1           — single-threaded (omp_set_num_threads(1) or plain for-loop).
+    //     > 1         — omp_set_num_threads(numThreads) explicitly.
+    //
+    // WARNING: not safe for Python-trampoline subclasses when numThreads != 1,
+    // because the trampoline would need to acquire the GIL on every eval() call
+    // but OpenMP threads don't hold it.
     GridField sampleToGrid(const GridSpec& spec, int numThreads = 0) const;
 
     virtual ~ImplicitField() = default;
@@ -186,6 +196,13 @@ public:
     explicit GridField(const GridSpec& spec);
 
     // ImplicitField interface
+    //
+    // eval: trilinear interpolation within the grid bounds.
+    //   Query points outside the grid are handled by clamping fractional
+    //   grid coordinates to [0, res-1] before interpolation.  This is
+    //   equivalent to Neumann / zero-normal-derivative boundary extension:
+    //   boundary-slab values are replicated outward.  Safe for marching-cubes
+    //   extraction — the iso-surface will never lie outside the grid.
     double eval(const V3d& p) const override;         // trilinear interpolation; clamps outside bounds
     Mesh::LightBoundingBox bounds() const override;
 
@@ -313,8 +330,20 @@ double MeshUnsignedDistanceField::eval(const V3d& p) const {
 
 **sampleToGrid override**：
 ```cpp
-GridField MeshUnsignedDistanceField::sampleToGrid(const GridSpec& spec, int) const {
-    // Use libigl batch — equivalent to old computeMeshUnsignedDistance
+GridField MeshUnsignedDistanceField::sampleToGrid(const GridSpec& spec, int numThreads) const {
+    // Use libigl batch — equivalent to old computeMeshUnsignedDistance.
+    //
+    // Note: libigl's computeDistanceField uses its own internal OpenMP
+    // parallelism.  The numThreads parameter from ImplicitField is NOT
+    // directly forwarded to libigl here.  If precise thread control is
+    // needed, the implementation should:
+    //   1. Cache current omp_get_max_threads()
+    //   2. omp_set_num_threads(numThreads > 0 ? numThreads : omp_get_max_threads())
+    //   3. Call libigl
+    //   4. Restore previous omp_get_max_threads()
+    //
+    // Whether this is necessary depends on libigl's actual OpenMP usage
+    // in the bundled version — to be confirmed during implementation.
     EigenSupport::VXd dist;
     libiglInterface::computeDistanceField(
         mesh_, spec.bmin, spec.bmax, spec.resolution, /*robust=*/1, /*sign=*/0, dist);
@@ -420,6 +449,9 @@ Mesh::LightBoundingBox BooleanField::bounds() const {
     case BooleanOp::Intersection:
         if (isUnbounded(ba)) return bb;
         if (isUnbounded(bb)) return ba;
+        // Both unbounded → getIntersection also produces an invalid
+        //   box (!verifyBox()), i.e. unbounded — which is correct:
+        //   the intersection of two unbounded fields is also unbounded.
         return ba.getIntersection(bb);
     case BooleanOp::Difference:
         return ba;   // A - B 的 bounds 不超过 A
@@ -645,26 +677,36 @@ m.def("extract_marching_cubes",
         return out.toMeshData();
     }, nb::arg("field"), nb::arg("iso_offset") = 0.0);
 
-m.def("has_openvdb", &has_openvdb_impl);  // returns compile-time bool
+	m.def("has_openvdb", &has_openvdb_impl);  // returns compile-time bool
 
-// OpenVDB opaque handle
-nb::class_<OpenVDBLevelSet, std::shared_ptr<OpenVDBLevelSet>>(m, "PyOpenVDBLevelSet");
+	// OpenVDBOptions — bind as nanobind class, same pattern as GridSpec
+	nb::class_<OpenVDBOptions>(m, "PyOpenVDBOptions")
+	    .def(nb::init<double>(), nb::arg("voxel_size"))   // only voxelSize is required
+	    .def_rw("voxel_size",    &OpenVDBOptions::voxelSize)
+	    .def_rw("half_width",    &OpenVDBOptions::halfWidth)
+	    .def_rw("adaptivity",    &OpenVDBOptions::adaptivity)
+	    .def_rw("smooth_steps",  &OpenVDBOptions::smoothSteps);
 
-m.def("build_openvdb_shell_from_mesh", [](const Mesh::MeshData<3>& data,
-        double thickness, ...) {
-    nb::gil_scoped_release _;
-    return buildOpenVDBShellFromMesh(Mesh::TriMeshGeo(data), thickness, opts);
-});
-m.def("build_openvdb_from_grid_field", [](const GridField& field, ...) {
-    nb::gil_scoped_release _;
-    return buildOpenVDBFromGridField(field, opts);
-});
-m.def("extract_openvdb", [](const OpenVDBLevelSet& ls, ...) {
-    Mesh::TriMeshGeo out;
-    nb::gil_scoped_release _;
-    extractOpenVDBLevelSet(ls, opts, out);
-    return out.toMeshData();
-});
+	// OpenVDB opaque handle
+	nb::class_<OpenVDBLevelSet, std::shared_ptr<OpenVDBLevelSet>>(m, "PyOpenVDBLevelSet");
+
+	m.def("build_openvdb_shell_from_mesh", [](const Mesh::MeshData<3>& data,
+	        double thickness, const OpenVDBOptions& opts) {
+	    nb::gil_scoped_release _;
+	    return buildOpenVDBShellFromMesh(Mesh::TriMeshGeo(data), thickness, opts);
+	});
+	m.def("build_openvdb_from_grid_field", [](const GridField& field,
+	         const OpenVDBOptions& opts) {
+	    nb::gil_scoped_release _;
+	    return buildOpenVDBFromGridField(field, opts);
+	});
+	m.def("extract_openvdb", [](const OpenVDBLevelSet& ls,
+	         const OpenVDBOptions& opts) {
+	    Mesh::TriMeshGeo out;
+	    nb::gil_scoped_release _;
+	    extractOpenVDBLevelSet(ls, opts, out);
+	    return out.toMeshData();
+	});
 ```
 
 ---
@@ -932,7 +974,7 @@ thicken_mesh_surface(mesh, *, thickness, resolution,
 ```
 PyGridSpec, PyGridField (buffer_protocol), PyImplicitField
 PySphereField, PyMeshUnsignedDistanceField, PyBoxField
-PyOpenVDBLevelSet (opaque)
+PyOpenVDBOptions, PyOpenVDBLevelSet (opaque)
 implicit_union / implicit_intersection / implicit_difference / implicit_offset
 extract_marching_cubes(field, iso_offset) -> PyTriMeshData
 has_openvdb() -> bool
@@ -1092,6 +1134,39 @@ conda run -n libpgo python -m pytest tests/pypgo/test_implicit.py -v
 
 ---
 
+## Dependencies & Execution Order
+
+### 外部依赖
+
+- **mesh 库**（`TriMeshGeo`、`LightBoundingBox`、`TriMeshBVTree`）：已就绪（FEM plan 已完成），无阻塞。
+- **Energy / Solver / Contact / Time Integrator / Constraints plan**：无依赖。本 plan 是一个自包含的数学/工具库重构，不消费任何 plan 的产物。
+
+### 任务拆分
+
+本 plan 无外部 plan 依赖，建议一口气完成，不拆分 phase。内部实现顺序：
+
+```text
+5.1 ImplicitField base → 5.2 GridField → 5.3 SphereField → 5.4 MeshUnsignedDistanceField
+→ 5.5 BoxField → 5.6 BooleanField → 5.7 OffsetField → 5.8 Extraction 更新
+→ 6.x nanobind binding → 7.x Python layer → 测试
+```
+
+### 全局执行顺序（跨 plan）
+
+本 plan 是**全局第 3 个**（Constraints plan 完成后启动）。执行顺序：
+
+```
+1. Solver plan
+2. Constraints plan
+3. Implicit Surface plan    ← 本 plan
+4. Contact plan
+5. Time Integrator plan
+```
+
+本 plan 是自包含的隐式场库重构，不依赖也不阻塞任何 plan。放在 Contact plan 之前作为 Contact（step-aware + stateful contact energy）前面的"缓冲区"。
+
+---
+
 ## Self-Review
 
 > 初稿后的自查记录。已解决的问题用 ✅ 标注；仍需关注的用 ⚠️ 标注。
@@ -1128,20 +1203,35 @@ conda run -n libpgo python -m pytest tests/pypgo/test_implicit.py -v
 
 **Q3 ✅：BoxField 本期 AABB only**
 
-### 仍需关注（实现时确认）
+### 设计确认项（已决策，实现时遵守）
 
-**U1 ⚠️：`GridField::eval` 越界 clamp 行为**
+**U1 ✅：`GridField::eval` — clamp 格点坐标，零法向导数外延**
 
-计划写"clamp 格点坐标到 `[0, resolution-1]` 再三线性插值"，但没有在 C++ 头文件的 API 注释里写明。实现时需要在 `GridField.h` 的 `eval` 声明处加注释。
+查询点映射到 fractional 格点坐标 `[0, res-1]` 后 clamp 到有效范围，再三线性插值。
+边界面的值沿法向"复制"到 grid 外（等价 Neumann 边界条件）。对于 marching cubes
+提取是安全的——等值面不会跑到 grid 外面。C++ 头文件声明处加注释说明此行为。
 
-**U2 ⚠️：`sampleToGrid(numThreads=0)` 语义**
+**U2 ✅：`sampleToGrid(numThreads)` 语义**
 
-`0` = "不调 `omp_set_num_threads`，让 OpenMP 用自己的默认值（通常 = hardware concurrency）"。实现时记录在 `ImplicitField.h` API 注释里。
+- `numThreads == 0`：不调 `omp_set_num_threads`，尊重环境变量 `OMP_NUM_THREADS` 和 OpenMP 默认值
+- `numThreads == 1`：单线程（`omp_set_num_threads(1)` 或纯 for 循环）
+- `numThreads > 1`：`omp_set_num_threads(numThreads)`
 
-**U3 ⚠️：`BooleanField::bounds()` 双无界 Intersection 情况**
+语义记录在 `ImplicitField.h` 的 `sampleToGrid` 注释中。
 
-`isUnbounded(ba) && isUnbounded(bb)` → `getIntersection` 结果仍无界（`!verifyBox()`），行为正确但需在代码注释里说明，避免以后维护者觉得是 bug。
+**U3 ✅：`BooleanField::bounds()` 双无界 Intersection**
 
-**U5 ⚠️：OpenVDB binding 细节省略（用 `...` 占位）**
+两个输入都无界时，`getIntersection` 结果仍无效（`!verifyBox()`）= 无界。这是正确的——两个无边界的场，交集也无边界。实现时在 `BooleanField::bounds()` 的 Intersection 分支加注释说明。
 
-`OpenVDBOptions` 的 nanobind binding 需要在实现阶段展开；建议 bind 为 Python class，与 `MarchingCubesOptions` 模式一致。
+**U5 ✅：OpenVDBOptions — bind 为 nanobind class，与 GridSpec 同模式**
+
+不用 Python dataclass。nanobind 直接 `.def_rw` 映射字段（`voxelSize`, `halfWidth`,
+`adaptivity`, `smoothSteps`），与 `GridSpec` 的 binding 风格一致。`build_openvdb_*`
+和 `extract_openvdb` 的 binding 接收 `const OpenVDBOptions&`，从 nanobind object
+取字段。
+
+**U6（新增）：`MeshUnsignedDistanceField::sampleToGrid` 的并行控制**
+
+libigl 的 `computeDistanceField` 内部自带并行（OpenMP）。`sampleToGrid` override
+的 `numThreads` 参数在该路径中不直接控制 libigl 的线程数——libigl 会用自己的默认值。
+如果要精确控制，调用前设 `omp_set_num_threads(numThreads)` 再调 libigl 入口，调用后恢复。这个细节在实现时确认 libigl 的 OpenMP 行为后再决定是否需要显式设置。

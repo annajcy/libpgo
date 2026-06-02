@@ -8,6 +8,10 @@ set(NONLINEAROPTIMIZATION_HEADERS
   lineSearchAwareEnergy.h
   solveDiagnostics.h
   solverResult.h
+  optimizationService.h
+  optimizationBackend.h
+  newtonLineSearchPolicy.h
+  newtonSparseSolverBackend.h
 
   potentialEnergyFromConstraintFunctions.h
 
@@ -27,6 +31,10 @@ set(NONLINEAROPTIMIZATION_SOURCES
   evaluation.cpp
   energySet.cpp
   solverResult.cpp
+  optimizationService.cpp
+  optimizationBackend.cpp
+  newtonLineSearchPolicy.cpp
+  newtonSparseSolverBackend.cpp
 
   constraintFunctions.cpp constraintFunctionsAssember.cpp
   linearConstraintFunctions.cpp

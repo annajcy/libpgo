@@ -20,6 +20,11 @@ if(TARGET nonlinearOptimization)
   set_property(TARGET NewtonSolver_gtest PROPERTY FOLDER "tests/gtest")
   pgo_gtest_discover_tests(NewtonSolver_gtest)
 
+  add_executable(optimizationService_gtest optimizationService_gtest.cpp)
+  target_link_libraries(optimizationService_gtest PRIVATE GTest::gtest_main nonlinearOptimization)
+  set_property(TARGET optimizationService_gtest PROPERTY FOLDER "tests/gtest")
+  pgo_gtest_discover_tests(optimizationService_gtest)
+
   add_executable(evaluation_gtest evaluation_gtest.cpp)
   target_link_libraries(evaluation_gtest PRIVATE GTest::gtest_main nonlinearOptimization)
   set_property(TARGET evaluation_gtest PROPERTY FOLDER "tests/gtest")

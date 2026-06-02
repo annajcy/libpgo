@@ -10,6 +10,7 @@ def test_python_first_package_imports_without_legacy_api():
     assert "tools" in pypgo.__all__
     assert "fem" in pypgo.__all__
     assert "energy" in pypgo.__all__
+    assert "solver" in pypgo.__all__
     assert importlib.util.find_spec("pypgo.legacy") is None
     assert importlib.util.find_spec("pypgo.mesh_geo") is None
     assert importlib.util.find_spec("pypgo.io") is None
@@ -24,3 +25,4 @@ def test_public_modules_are_lazy_importable():
     assert pypgo.sim.__name__ == "pypgo.sim"
     assert pypgo.sparse.__name__ == "pypgo.sparse"
     assert pypgo.tools.__name__ == "pypgo.tools"
+    assert pypgo.solver.__name__ == "pypgo.solver"

@@ -38,6 +38,8 @@ dependencies:
   - pytest
   - notebook
 
-  # --- Python: optional example visualisation ---
-  - pip:
-    - pyvista[jupyter]
+  # --- Python: example visualisation ---
+  - pyvista
+  - trame
+  - trame-vtk
+  - trame-vuetify

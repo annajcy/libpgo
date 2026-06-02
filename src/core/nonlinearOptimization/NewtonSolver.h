@@ -1,13 +1,9 @@
 #pragma once
 
+#include "newtonLineSearchPolicy.h"
+#include "newtonSparseSolverBackend.h"
 #include "potentialEnergy.h"
 #include "solverResult.h"
-
-#if defined(PGO_HAS_MKL) && !defined(PGO_HAS_ORIG_PARDISO)
-#  include "EigenMKLPardisoSupport.h"
-#elif defined(PGO_HAS_ORIG_PARDISO)
-#  include "EigenOrigPardisoSupport.h"
-#endif
 
 #include <cfloat>
 #include <memory>
@@ -16,9 +12,6 @@ namespace pgo
 {
 namespace NonlinearOptimization
 {
-
-class LineSearchHandle;
-
 class NewtonSolver
 {
 public:
@@ -29,25 +22,18 @@ public:
     SST_SUBITERATION_ONE
   };
 
-  enum LineSearchMethod
-  {
-    LSM_GOLDEN,
-    LSM_BRENTS,
-    LSM_BACKTRACK,
-    LSM_SIMPLE,
-  };
-
   struct SolverParam
   {
     double alpha = 0.5;
     SolverSubiterationType sst = SST_SUBITERATION_LINE_SEARCH;
-    LineSearchMethod lsm = LSM_BACKTRACK;
+    NewtonLineSearchKind lineSearch = NewtonLineSearchKind::Backtrack;
     int stopAfterIncrease = 1;
     int addDamping = 0;
   };
 
   NewtonSolver(const double *x, SolverParam sp, PotentialEnergy_const_p energy_,
-    const std::vector<int> &fixedDOFs, const double *fixedValues_ = nullptr);
+    const std::vector<int> &fixedDOFs, const double *fixedValues_ = nullptr,
+    NewtonSparseSolverOptions sparseSolverOptions_ = {});
 
   void setFixedDOFs(const std::vector<int> &fixedDOFs, const double *fixedValues);
   SolverResult solve(double *x, int numIter, double epsilon, int verbose);
@@ -149,19 +135,14 @@ protected:
 
   PotentialEnergy_const_p energy;
   SolverParam solverParam;
-  std::shared_ptr<LineSearchHandle> lineSearchHandle;
+  NewtonSparseSolverOptions sparseSolverOptions;
+  std::unique_ptr<NewtonLineSearchPolicy> lineSearchPolicy;
 
   EigenSupport::VXd x, grad, deltax, deltaxSmall, lineSearchx;
   EigenSupport::SpMatD sysFull, A11, A12;
   EigenSupport::SpMatI A11Mapping, A12Mapping;
 
-#if defined(PGO_HAS_MKL) && !defined(PGO_HAS_ORIG_PARDISO)
-  std::shared_ptr<EigenSupport::EigenMKLPardisoSupport> solver;
-#elif defined(PGO_HAS_ORIG_PARDISO)
-  std::shared_ptr<EigenSupport::EigenOrigPardisoSupport> solver;
-#else
-  std::shared_ptr<EigenSupport::SymSolver> solver;
-#endif
+  std::unique_ptr<NewtonSparseSolverBackend> solver;
 
   std::vector<int> allDOFs, fixedDOFs;
   std::vector<int> rhss2b, rhsb2s;

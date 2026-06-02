@@ -89,9 +89,9 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `PotentialEnergy` handle / future nanobind trampoline | `NonlinearOptimization::PotentialEnergy` | `pypgo.energy.PotentialEnergy` | M3/M9+ | `tests/pypgo/test_energy.py::test_builtin_energy_solves`；future: `test_python_defined_energy_solves` | needs small facade | M3 先服务 solver-facing energy；`state_kind` 由 C++ `EnergyStateKind` 映射；完整 Python programming API 和 nanobind trampoline 见 `future_work.md` |
 | 多能量组合 | `PotentialEnergies` | `pypgo.energy.EnergySet` | M3 | `tests/pypgo/test_energy.py::test_energy_set_weights_terms` | needs refactor | C++ `PotentialEnergies` 迁移到 constructor-complete `EnergySet`，不暴露 add/init |
-| Newton solver | `NewtonSolver` | `pypgo.solver.solve_newton` | M3 | `tests/pypgo/test_solver.py::test_newton_solves_quadratic` | needs facade | 提供 `optimizationService` + Python `NewtonOptions`/`SolverResult`，不暴露 stateful `NewtonSolver` |
-| General minimize | `EnergyOptimizer::minimize` | future `pypgo.solver.minimize` | post-M3 | future constrained solver tests | needs facade | M3 不绑定；等 bounds/constraints 和 backend-specific options 稳定后再设计 |
-| Solver status/result | `SolverResult`, `SolveStatus`, `solveDiagnostics` | `pypgo.solver.SolverResult`, `pypgo.solver.SolveStatus` | M3 | `tests/pypgo/test_solver.py::test_solver_result_fields` | bind-ready | 直接暴露 value object |
+| Newton solver | `NewtonSolver` through `optimizationService.h` | `pypgo.solver.solve_newton` | M3 | `tests/pypgo/test_solver.py::test_newton_solves_quadratic__warm_start` | needs facade | C++ 长期边界是 `minimize(problem, x0, NewtonOptions)`；Python 只暴露 `solve_newton`，不暴露 stateful `NewtonSolver` / `SolverParam` |
+| General minimize | `EnergyOptimizer::minimize` | future `pypgo.solver.minimize` | post-M3 | future constrained solver tests | needs facade | M3 不绑定；等 bounds/constraints 和 backend-specific options 稳定后再设计，不复用旧宽签名 |
+| Solver status/result | `SolverResult`, `SolveStatus`, `solveDiagnostics`, `OptimizationResult` | `pypgo.solver.SolverResult`, `pypgo.solver.SolveStatus`, `pypgo.solver.SolveDiagnostics` | M3 | `tests/pypgo/test_solver.py::test_status_roundtrip_for_all_values` | bind-ready | `SolverResult` 保持 solver 语义；`OptimizationResult` 拥有 `x` 和 final objective；Python result 是 value object |
 | Smooth RS energy | `SmoothRSEnergy` behind MKL | `pypgo.energy.SmoothRS` | M9 | optional MKL-gated test | needs refactor | MKL-gated，延后到核心 sim path 之后 |
 
 ### Contact 和 IPC

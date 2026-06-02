@@ -26,12 +26,8 @@ constexpr double kLambdaScaleFloor = 1e-8;   // below this damping scale, snap t
 constexpr double kDampingDecay = 0.9;        // per-iteration damping decay when gradient is not increasing
 constexpr double kStepTooSmallEps = 1e-15;   // accepted step max-norm below this == stalled
 constexpr double kHistoryGradNormInit = 1e100;
-constexpr double kBacktrackArmijo = 0.0001;
-constexpr double kBacktrackShrink = 0.5;
-constexpr double kBacktrackInitAlpha = 1.0;
 constexpr int kLineSearchMaxIter = 50;
 constexpr int kLineSearchMaxIterDescent = 3; // fewer iters when the full step already decreases energy
-constexpr int kSimpleLineSearchMaxIter = 100;
 
 class LineSearchScope
 {
@@ -57,24 +53,7 @@ private:
   const LineSearchAwareEnergy *energy_ = nullptr;
 };
 
-// Largest alpha a line-search method may probe. Backtracking and the simple
-// search only shrink from alpha=1; golden/Brent may expand the bracket past 1.
-double lineSearchMethodMaxAlpha(NewtonSolver::LineSearchMethod lsm)
-{
-  return (lsm == NewtonSolver::LSM_BACKTRACK || lsm == NewtonSolver::LSM_SIMPLE)
-    ? 1.0
-    : std::numeric_limits<double>::infinity();
-}
 }  // namespace
-
-namespace pgo::NonlinearOptimization
-{
-class LineSearchHandle
-{
-public:
-  std::shared_ptr<LineSearch> nativeLineSearch;
-};
-}  // namespace pgo::NonlinearOptimization
 
 inline double dura(const hclock::time_point &t1, const hclock::time_point &t2)
 {
@@ -206,8 +185,9 @@ public:
   }
 };
 
-NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_const_p energy_, const std::vector<int> &fixedDOFs_, const double *fixedValues_):
-  energy(energy_), solverParam(sp)
+NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_const_p energy_, const std::vector<int> &fixedDOFs_, const double *fixedValues_,
+  NewtonSparseSolverOptions sparseSolverOptions_):
+  energy(energy_), solverParam(sp), sparseSolverOptions(sparseSolverOptions_)
 {
   n3 = (int)energy->getNumDOFs();
   allDOFs.resize(energy->getNumDOFs());
@@ -223,8 +203,6 @@ NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_con
   setFixedDOFs(fixedDOFs_, fixedValues_);
 
   if (solverParam.sst == SST_SUBITERATION_LINE_SEARCH) {
-    lineSearchHandle = std::make_shared<LineSearchHandle>();
-
     LineSearch::EvaluateFunction evalFunc = [this](const double *x, double *f, double *grad) -> int {
       if (f)
         *f = energy->func(Eigen::Map<const ES::VXd>(x, n3));
@@ -237,7 +215,7 @@ NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_con
       return 0;
     };
 
-    lineSearchHandle->nativeLineSearch = std::make_shared<LineSearch>(n3, evalFunc);
+    lineSearchPolicy = createNewtonLineSearchPolicy(solverParam.lineSearch, n3, std::move(evalFunc));
   }
 
   switch (solverParam.sst) {
@@ -287,18 +265,7 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
 
 void NewtonSolver::makeLinearSolver(const ES::SpMatD &A)
 {
-#if defined(PGO_HAS_MKL) && !defined(PGO_HAS_ORIG_PARDISO)
-  solver = std::make_shared<ES::EigenMKLPardisoSupport>(A, ES::EigenMKLPardisoSupport::MatrixType::REAL_SYM_INDEFINITE,
-    ES::EigenMKLPardisoSupport::ReorderingType::NESTED_DISSECTION, 0, 0, 0, 0, 0, 0);
-  solver->analyze(A);
-#elif defined(PGO_HAS_ORIG_PARDISO)
-  solver = std::make_shared<ES::EigenOrigPardisoSupport>(A, ES::EigenOrigPardisoSupport::MatrixType::REAL_SYM_INDEFINITE,
-    ES::EigenOrigPardisoSupport::ReorderingType::NESTED_DISSECTION_4, 0, 0, 0, 0, 0, 0);
-  solver->analyze(A);
-#else
-  solver = std::make_shared<EigenSupport::SymSolver>();
-  solver->analyzePattern(A);
-#endif
+  solver = createNewtonSparseSolverBackend(sparseSolverOptions, A);
 }
 
 SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int verbose)
@@ -533,25 +500,13 @@ void NewtonSolver::ensureLinearSolver(bool fixedHessianTopology)
 
 bool NewtonSolver::solveReducedNewtonDirection(bool fixedHessianTopology)
 {
-#if defined(PGO_HAS_MKL) && !defined(PGO_HAS_ORIG_PARDISO)
   {
     Profiling::ScopedProfileSection scopedProfile("solver.linear_solve");
-    solver->factorize(A11);
-    solver->solve(A11, deltaxSmall.data(), rhs.data(), 1);
+    if (!solver->factorize(A11))
+      return false;
+    if (!solver->solve(A11, deltaxSmall.data(), rhs.data()))
+      return false;
   }
-#elif defined(PGO_HAS_ORIG_PARDISO)
-  {
-    Profiling::ScopedProfileSection scopedProfile("solver.linear_solve");
-    solver->factorize(A11);
-    solver->solve(A11, deltaxSmall.data(), rhs.data(), 1);
-  }
-#else
-  {
-    Profiling::ScopedProfileSection scopedProfile("solver.linear_solve");
-    solver->factorize(A11);
-    deltaxSmall.noalias() = solver->solve(rhs);
-  }
-#endif
 
   if (fixedHessianTopology) {
     solver.reset();  // free symbolic factorization memory since we won't reuse it anymore
@@ -588,7 +543,7 @@ NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnerg
     // past that window, so they run without the frozen state.
     const auto *lineSearchAware = dynamic_cast<const LineSearchAwareEnergy *>(energy.get());
     const bool useFrozenActiveSet = lineSearchAware != nullptr &&
-      lineSearchMethodMaxAlpha(solverParam.lsm) <= lineSearchAware->maxValidLineSearchAlpha();
+      lineSearchPolicy->maxProbeAlpha() <= lineSearchAware->maxValidLineSearchAlpha();
     LineSearchScope lineSearchScope(useFrozenActiveSet ? lineSearchAware : nullptr, x, deltax);
 
     lineSearchx.noalias() = x + deltax;
@@ -604,42 +559,10 @@ NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnerg
         maxIter = kLineSearchMaxIterDescent;
       }
 
-      if (solverParam.lsm == LSM_GOLDEN) {
-        lineSearchHandle->nativeLineSearch->setMaxIterations(maxIter);
-        LineSearch::Result ret = lineSearchHandle->nativeLineSearch->golden(x.data(), deltax.data(), currentEnergy);
-        accepted.lineSearchAlpha = ret.alpha;
-        accepted.acceptedEnergy = ret.f;
-      }
-      else if (solverParam.lsm == LSM_BRENTS) {
-        lineSearchHandle->nativeLineSearch->setMaxIterations(maxIter);
-        LineSearch::Result ret = lineSearchHandle->nativeLineSearch->BrentsMethod(x.data(), deltax.data(), currentEnergy);
-        accepted.lineSearchAlpha = ret.alpha;
-        accepted.acceptedEnergy = ret.f;
-      }
-      else if (solverParam.lsm == LSM_BACKTRACK) {
-        lineSearchHandle->nativeLineSearch->setMaxIterations(maxIter);
-        LineSearch::Result ret = lineSearchHandle->nativeLineSearch->backtrackingWithInitialValue(
-          x.data(), deltax.data(), currentEnergy, grad.data(), kBacktrackArmijo, kBacktrackShrink, kBacktrackInitAlpha, accepted.acceptedEnergy);
-        accepted.lineSearchAlpha = ret.alpha;
-        accepted.acceptedEnergy = ret.f;
-      }
-      else if (solverParam.lsm == LSM_SIMPLE) {
-        accepted.acceptedEnergy = currentEnergy;
-        for (int i = 0; i < kSimpleLineSearchMaxIter; i++) {
-          lineSearchx.noalias() = x + deltax * accepted.lineSearchAlpha;
-          accepted.acceptedEnergy = energy->func(lineSearchx);
-          if (!std::isfinite(accepted.acceptedEnergy)) {
-            accepted.nonFiniteReason = StepAcceptance::NonFiniteReason::LineSearchResult;
-            break;
-          }
-
-          if (accepted.acceptedEnergy < currentEnergy) {
-            break;
-          }
-
-          accepted.lineSearchAlpha *= 0.5;
-        }
-      }
+      NewtonLineSearchInput input{x, deltax, grad, currentEnergy, accepted.acceptedEnergy, maxIter};
+      NewtonLineSearchResult ret = lineSearchPolicy->search(input);
+      accepted.lineSearchAlpha = ret.alpha;
+      accepted.acceptedEnergy = ret.energy;
 
       if (!std::isfinite(accepted.lineSearchAlpha) || !std::isfinite(accepted.acceptedEnergy))
         accepted.nonFiniteReason = StepAcceptance::NonFiniteReason::LineSearchResult;

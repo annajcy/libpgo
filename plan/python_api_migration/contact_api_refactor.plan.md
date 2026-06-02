@@ -1602,6 +1602,20 @@ C1 -> C2 -> C3 -> C4 -> C5 -> C6 -> C7 -> C8 -> C9 -> C10 -> C11.
 
 C5 / C6 可在 C4 后并行，但 C7/C9 必须等两者都完成。C9 还必须等 Energy E4/E6，因为 Python contact energy 要包装成统一 `pypgo.energy.PotentialEnergy` 并能进入 `EnergySet`。
 
+### 全局执行顺序（跨 plan）
+
+本 plan 是**全局第 4 个**（Implicit Surface plan 完成后启动）。执行顺序：
+
+```
+1. Solver plan
+2. Constraints plan
+3. Implicit Surface plan
+4. Contact plan         ← 本 plan
+5. Time Integrator plan
+```
+
+**为什么接触必须在时间积分之前**：C2 产出的 `StepAwareEnergy` 是 Time Integrator T7 的硬依赖（`dynamic_cast<StepAwareEnergy*>` 调用）。如果 Time Integrator 先跑，T9 按旧 runIPCSim loop 写（`addGeneralImplicitForceModel`），等 Contact 落地又要改一遍——做两次。Contact 先跑完 C8（runIPCSim 迁移到 stateful contact），Time Integrator T9 直接对已迁移好的 `beginStep/refreshActiveSet` 流程包装，省掉 adapter 层。
+
 ## 输出（供下游使用）
 
 - C++:

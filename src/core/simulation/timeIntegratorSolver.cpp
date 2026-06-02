@@ -180,8 +180,8 @@ SolverResult TimeIntegratorSolver::solve(bool needRenew, ES::VXd &x,
       da->xinit.resize(da->L->getNumDOFs());
 
       NewtonSolver::SolverParam solverParam;
-      solverParam.lsm = NewtonSolver::LSM_THUENTEMORE;
-      // solverParam.lsm = NewtonSolver::LSM_BRENTS;
+      solverParam.lineSearch = NewtonLineSearchKind::Brents;
+      // solverParam.lineSearch = NewtonLineSearchKind::Backtrack;
       // solverParam.sst = NewtonSolver::SST_SUBITERATION_ONE;
 
       da->solver = std::make_shared<NewtonSolver>(da->xinit.data(), solverParam, da->L, da->fixedDOFs[0]);

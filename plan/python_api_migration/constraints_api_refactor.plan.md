@@ -523,6 +523,20 @@ External dependencies:
 - `pypgo.solver.minimize` constrained path waits for IPOPT / Knitro service backend.
 - deformation-specific constraints wait for deformation FEM API stabilization.
 
+### 全局执行顺序（跨 plan）
+
+本 plan 是**全局第 2 个**（Solver plan 完成后启动）。执行顺序：
+
+```
+1. Solver plan
+2. Constraints plan    ← 本 plan
+3. Implicit Surface plan
+4. Contact plan
+5. Time Integrator plan
+```
+
+本 plan 只有 Solver plan 一个上游（消费 `NonlinearConstraints`、`OptimizationProblem`），不阻塞任何下游 plan。放在第二提前完成，后续不用惦记。
+
 ## 输出（供下游使用）
 
 - C++:

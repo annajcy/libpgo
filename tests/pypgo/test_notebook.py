@@ -48,6 +48,7 @@ GENERATORS: dict[str, str] = {
     "deformation_fem_api_demo": "generate_deformation_fem_api_demo.py",
     "animation_api_demo": "generate_animation_api_demo.py",
     "numpy_interoperate": "generate_numpy_interoperate.py",
+    "solver_api_demo": "generate_solver_api_demo.py",
 }
 
 # ---------------------------------------------------------------------------
@@ -217,6 +218,16 @@ class TestNotebookSources:
         assert "LinearCubic" in source
         assert "KoiterShell" in source
         assert "deformation_energy" in source
+
+    def test_solver_demo_covers_newton_api(self, generated_notebooks):
+        with open(generated_notebooks["solver_api_demo"]) as fh:
+            nb = json.load(fh)
+        source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+        assert "solve_newton" in source
+        assert "NewtonOptions" in source
+        assert "fixed_dofs" in source
+        assert "line_search" in source
+        assert "EnergySet" in source
 
     def test_animation_demo_uses_animation_io(self, generated_notebooks):
         with open(generated_notebooks["animation_api_demo"]) as fh:

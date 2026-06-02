@@ -39,7 +39,6 @@ jobs:
           environment-file: environment.yml
           activate-environment: libpgo
           auto-activate-base: false
-          use-mamba: true
           channels: conda-forge
           channel-priority: strict
 
@@ -88,12 +87,11 @@ jobs:
           environment-file: environment.yml
           activate-environment: libpgo
           auto-activate-base: false
-          use-mamba: true
           channels: conda-forge
           channel-priority: strict
 
       - name: Install MKL
-        run: mamba install -y mkl-devel
+        run: conda install -y mkl-devel
 
       - name: Remove incompatible Fortran tools from PATH
         run: |

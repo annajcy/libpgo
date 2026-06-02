@@ -34,7 +34,6 @@ jobs:
           environment-file: environment.yml
           activate-environment: libpgo
           auto-activate-base: false
-          use-mamba: true
           channels: conda-forge
           channel-priority: strict
 
@@ -74,7 +73,6 @@ jobs:
           environment-file: environment.yml
           activate-environment: libpgo
           auto-activate-base: false
-          use-mamba: true
           channels: conda-forge
           channel-priority: strict
 

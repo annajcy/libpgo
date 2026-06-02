@@ -15,6 +15,7 @@ namespace ES = pgo::EigenSupport;
 using pgo::NonlinearOptimization::NewtonSolver;
 using pgo::NonlinearOptimization::PotentialEnergy;
 using pgo::NonlinearOptimization::LineSearchAwareEnergy;
+using pgo::NonlinearOptimization::NewtonLineSearchKind;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 using pgo::NonlinearOptimization::SolverResult;
 using pgo::NonlinearOptimization::StepSource;
@@ -436,7 +437,7 @@ TEST(NewtonSolverGTest, NonFiniteTrialEnergyEndsLineSearchScope)
   x[0] = 2.0;
 
   NewtonSolver::SolverParam solverParam;
-  solverParam.lsm = NewtonSolver::LSM_BACKTRACK;
+  solverParam.lineSearch = NewtonLineSearchKind::Backtrack;
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
@@ -457,7 +458,7 @@ TEST(NewtonSolverGTest, BacktrackingReusesInitialTrialEnergy)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
-  solverParam.lsm = NewtonSolver::LSM_BACKTRACK;
+  solverParam.lineSearch = NewtonLineSearchKind::Backtrack;
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
@@ -482,7 +483,7 @@ TEST(NewtonSolverGTest, GoldenLineSearchDoesNotUseBoundedActiveSetScope)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
-  solverParam.lsm = NewtonSolver::LSM_GOLDEN;
+  solverParam.lineSearch = NewtonLineSearchKind::Golden;
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
@@ -591,7 +592,7 @@ TEST(NewtonSolverGTest, AddDampingConvergesOnQuadratic)
   x[1] = 4.0;
 
   NewtonSolver::SolverParam solverParam;
-  solverParam.lsm = NewtonSolver::LSM_BACKTRACK;
+  solverParam.lineSearch = NewtonLineSearchKind::Backtrack;
   solverParam.addDamping = 1;
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);

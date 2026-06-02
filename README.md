@@ -20,14 +20,14 @@ other dependencies are resolved from a consistent prefix.
 - Platform compilers still come from the host system: GCC/Clang on Linux,
   Apple Clang on macOS, and Visual Studio 2022 on Windows.
 
-Use Miniforge/Mambaforge when possible, and keep packages on the `conda-forge`
-channel. `mamba` is used below for speed; `conda install` works too if you
-prefer it.
+Use Miniforge or Miniconda when possible, and keep packages on the
+`conda-forge` channel. The commands below use `conda` consistently so the
+environment, Python packages, and native CMake dependencies all resolve from
+one conda prefix.
 
 ### System Prerequisites
 
 Install conda: See [Conda Installation](https://www.anaconda.com/docs/getting-started/miniconda/install/overview#choose-your-installation-guide).
-Install mamba: See [Mamba Installation](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html#automatic-install).
 
 A C++ compiler is the only system-level requirement — all library dependencies
 are managed by the `environment.yml` file in the repository root.
@@ -59,14 +59,23 @@ declared in `environment.yml`. Create the `libpgo` environment with a single
 command:
 
 ```bash
-mamba env create -f environment.yml
+conda env create -f environment.yml
 conda activate libpgo
 ```
 
 To update an existing environment after pulling changes:
 
 ```bash
-mamba env update -f environment.yml --prune
+conda env update -f environment.yml --prune
+```
+
+To recreate the environment from scratch:
+
+```bash
+conda deactivate
+conda env remove -n libpgo -y
+conda env create -f environment.yml
+conda activate libpgo
 ```
 
 **MKL (Linux / Windows only):** MKL is commented out in `environment.yml`
@@ -74,8 +83,13 @@ because it is unavailable on Apple Silicon. Linux and Windows users who want
 the `base` preset to pick up MKL can install it after environment creation:
 
 ```bash
-mamba install -n libpgo mkl-devel
+conda install -n libpgo -y mkl-devel
 ```
+
+`mamba` can be used as an optional accelerator only when it belongs to the same
+conda installation that owns the `libpgo` environment. Avoid mixing a
+Homebrew/micromamba `mamba` with a Miniconda environment, because that can
+create another `libpgo` under a different prefix.
 
 ### Python Package Build
 

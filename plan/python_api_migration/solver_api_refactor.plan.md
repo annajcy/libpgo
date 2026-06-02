@@ -1004,6 +1004,20 @@ S1 -> S2 -> S3 -> S4 -> S5。
 
 S2 可与 Energy E1-E3 并行；S4/S5 必须等 Energy E4/E5。
 
+### 全局执行顺序（跨 plan）
+
+本 plan 是**全局第 1 个**（Energy / FEM 已完成）。执行顺序：
+
+```
+1. Solver plan      ← 本 plan（共享基础设施）
+2. Constraints plan
+3. Implicit Surface plan
+4. Contact plan
+5. Time Integrator plan
+```
+
+本 plan 产出 `SolverControl`、`FixedVariables`、`OptimizationProblem`、`minimize()`——被 Time Integrator plan 和 Constraints plan 直接消费，必须在所有下游 plan 之前完成。
+
 ## 输出（供下游使用）
 
 - C++:
@@ -1023,3 +1037,289 @@ S2 可与 Energy E1-E3 并行；S4/S5 必须等 Energy E4/E5。
 - Future:
   - IPOPT / Knitro backends add typed overloads using the same `OptimizationProblem` / `OptimizationResult` shape.
   - Python `pypgo.solver.minimize` is designed only when bounds/constraints and backend-specific options are actually implemented.
+
+## solver_future_work
+
+> **状态日期：** 2026-06-02
+> **当前决策：** 不在本轮实现 IPOPT / Knitro / KnitroDense / ApproximateActiveSet backend。当前机器和 CI 都不保证这些外部 solver 可用；强行实现会把 Python API、optional dependency、CMake 条件编译和测试矩阵同时拉大。本节只记录未来迁移计划。
+
+### 当前 solver 架构边界
+
+当前新架构已经完成的部分：
+
+```text
+pypgo.solver.solve_newton
+  -> src/python/pypgo/bindings/solver_bindings.cpp
+  -> NonlinearOptimization::minimize(problem, x0, NewtonOptions)
+  -> NewtonOptimizationBackend
+  -> NewtonSolver
+       -> NewtonLineSearchPolicy
+       -> NewtonSparseSolverBackend
+```
+
+这条链只覆盖 Newton backend。旧系统里仍存在以下完整 optimizer backend：
+
+```text
+EnergyOptimizer::minimizeUsingIpopt(...)
+EnergyOptimizer::minimizeUsingKnitro(...)
+EnergyOptimizer::minimizeUsingKnitroDense(...)
+EnergyOptimizer::minimizeUsingApproximateActiveSet(...)
+EnergyOptimizer::minimizeUsingNewton(...)
+```
+
+这些函数仍在 `src/core/nonlinearOptimization/minimizeEnergy.h/.cpp` 体系中，不属于当前 Python-first `pypgo.solver` 的 public API。当前 Python API 只暴露 `solve_newton`，不暴露通用 `minimize`，也不暴露 `EnergyOptimizer::SolverType`。
+
+### 为什么暂缓迁移其他 backend
+
+1. **本机不可验证。** IPOPT / Knitro 都是 optional dependency；Knitro 还涉及 license / vendor install。没有稳定本地环境时，实现 adapter 只能编译部分路径，无法做端到端行为验证。
+2. **Python constraints API 尚未稳定。** IPOPT / Knitro 的核心价值是 bounds 和 nonlinear constraints；如果 Python 侧 `ConstraintFunctions` 还没有完整 facade，过早暴露 `solve_ipopt` / `solve_knitro` 会形成半成品 API。
+3. **旧接口签名过宽。** `EnergyOptimizer::minimize(...)` 把 objective、bounds、constraints、backend choice、lambda/g 输出和 solver-specific options 混在一个函数里。新 API 不应直接复制这个签名。
+4. **CI 矩阵会变复杂。** Newton 可以在默认 conda 环境中验证；IPOPT/Knitro 需要按 build availability 分条件测试，避免在无依赖机器上误报失败。
+
+### 目标状态
+
+未来目标是让完整 optimization backend 也走同一个 service boundary：
+
+```text
+OptimizationService
+  -> NewtonOptimizationBackend
+  -> IpoptOptimizationBackend
+  -> KnitroOptimizationBackend
+  -> KnitroDenseOptimizationBackend       // optional, if still needed
+  -> ApproximateActiveSetOptimizationBackend
+```
+
+长期 C++ 入口保持 typed options，而不是复活旧的 `SolverType` 宽签名：
+
+```cpp
+OptimizationResult minimize(
+  const OptimizationProblem &problem,
+  EigenSupport::ConstRefVecXd x0,
+  const NewtonOptions &options);
+
+OptimizationResult minimize(
+  const OptimizationProblem &problem,
+  EigenSupport::ConstRefVecXd x0,
+  const IpoptOptions &options);
+
+OptimizationResult minimize(
+  const OptimizationProblem &problem,
+  EigenSupport::ConstRefVecXd x0,
+  const KnitroOptions &options);
+```
+
+这样每个 backend 的 options 可以独立演化，不需要把 IPOPT 的 bounds/constraints、Knitro 的 config file/callback/feasibility tolerance、Newton 的 damping/line-search 混到一个结构里。
+
+### Phase F1: Service options and backend dispatch shape
+
+**目标：** 只扩展 C++ 类型形状，不实现新 backend 行为。
+
+建议新增：
+
+```cpp
+struct IpoptOptions
+{
+  SolverControl control;
+  double feasibilityTolerance = -1.0;  // -1 means backend default
+};
+
+struct KnitroOptions
+{
+  SolverControl control;
+  std::string configFilename;
+  int parallelEval = 0;
+  double feasibilityTolerance = -1.0;
+};
+```
+
+约束：
+
+- 不新增 Python API。
+- 不新增空壳 `IpoptOptimizationBackend` 类，除非同一阶段能提供可测试行为。
+- `OptimizationProblem` 继续作为统一 problem shape，包含 `energy`、`fixedVariables`、`bounds`、`constraints`。
+- `OptimizationResult` 继续作为统一 result shape，包含 `x`、`solver`、`finalObjective`、future `lambda`、future `constraintValues`。
+
+验收：
+
+- `optimizationService.h` 能表达 IPOPT/Knitro options，但 `minimize(..., IpoptOptions)` 尚未声明或声明后必须有明确 unavailable behavior。
+- Newton tests 不受影响。
+
+### Phase F2: IPOPT backend adapter
+
+**目标：** 先迁 IPOPT，因为它最自然消费 `bounds` 和 `constraints`，且旧代码已有 `IpoptProblem` / `IpoptOptimizer` / `makeIpoptSolverResult(...)`。
+
+新增：
+
+- `IpoptOptimizationBackend final : public OptimizationBackend`
+- `OptimizationResult minimize(problem, x0, IpoptOptions)`
+
+Adapter 初版可以复用旧实现，不重写 IPOPT problem：
+
+```cpp
+SolverResult ret = EnergyOptimizer::minimizeUsingIpopt(
+  x,
+  problem.energy,
+  xlow,
+  xhi,
+  lambda,
+  g,
+  constraints,
+  clow,
+  chi,
+  options.control.maxIterations,
+  options.control.tolerance,
+  options.control.verbose);
+```
+
+输入映射：
+
+- `problem.energy` -> `PotentialEnergy_const_p energy`
+- `x0` -> mutable `x`
+- `problem.bounds` -> `xlow/xhi`
+- no bounds -> `xlow=-inf`, `xhi=+inf` 或沿用旧 IPOPT problem 的 default infinity convention
+- `problem.constraints` -> `ConstraintFunctions_const_p constraints`, `clow/chi`
+- no constraints -> empty `lambda/g/clow/chi`
+- `problem.fixedVariables` -> convert to equivalent bounds where `xlow[dof] == xhi[dof] == fixedValue`
+
+输出映射：
+
+- solved `x` -> `OptimizationResult.x`
+- `SolverResult` -> `OptimizationResult.solver`
+- final objective -> `OptimizationResult.finalObjective`
+- `lambda` if available -> `OptimizationResult.lambda`
+- constraint values `g` if available -> `OptimizationResult.constraintValues`
+
+Unavailable behavior：
+
+- 如果 build 没有 `TARGET Ipopt::Core`，`minimize(..., IpoptOptions)` 必须抛：
+  ```text
+  IPOPT backend is not available in this build
+  ```
+- 不要 silently fallback 到 Newton 或 Knitro。
+
+测试：
+
+- C++ unit: unconstrained quadratic solved by IPOPT when IPOPT is available.
+- C++ unit: fixedVariables are translated into bounds.
+- C++ unit: bounds-only problem respects lower/upper bounds.
+- C++ unit: unavailable build throws clear error.
+- C++ unit: raw IPOPT status maps through `makeIpoptSolverResult`.
+
+CI 策略：
+
+- 默认 CI 不要求 IPOPT。
+- 有 IPOPT 的 workflow 或 local-only target 才跑 IPOPT end-to-end tests。
+- 无 IPOPT 时只跑 unavailable behavior tests。
+
+### Phase F3: Python `minimize` design gate
+
+**目标：** 只有在 IPOPT C++ adapter 可验证后，才设计 Python 通用入口。
+
+候选 API：
+
+```python
+result = pgo.solver.minimize(
+    energy,
+    x0=x0,
+    backend="newton",
+    options=solver.NewtonOptions(...),
+    fixed_dofs=[...],
+    fixed_values=None,
+)
+
+result = pgo.solver.minimize(
+    energy,
+    x0=x0,
+    backend="ipopt",
+    options=solver.IpoptOptions(...),
+    bounds=(lower, upper),
+    constraints=constraints,
+)
+```
+
+原则：
+
+- `solve_newton(...)` 保留为快捷 API。
+- `minimize(...)` 只在至少两个 backend 可用时公开；否则没有必要让用户多记一个入口。
+- `backend` string 只选择 optimizer backend，不选择 Newton 内部 line-search 或 sparse solver backend。
+- `bounds` 和 `constraints` 必须是 Python-first 类型，不暴露 C++ `BoxBounds` / `NonlinearConstraints`。
+- 如果 backend 不支持某字段，必须抛清楚错误。例如 Newton 收到 `bounds` 应继续拒绝。
+
+暂缓项：
+
+- Python `solve_ipopt(...)` 是否需要单独快捷入口，等 `minimize(..., backend="ipopt")` 设计后再决定。
+- Python custom constraint trampoline 等 constraints plan 完成后再接。
+
+### Phase F4: Knitro backend adapter
+
+**目标：** 在 IPOPT adapter 稳定后，按同样方式迁移 Knitro。
+
+新增：
+
+- `KnitroOptimizationBackend final : public OptimizationBackend`
+- `OptimizationResult minimize(problem, x0, KnitroOptions)`
+
+Adapter 初版可以复用：
+
+- `EnergyOptimizer::minimizeUsingKnitro(...)`
+- `makeKnitroSolverResult(...)`
+
+输入输出映射与 IPOPT 类似，但需要额外处理：
+
+- `configFilename`
+- `parallelEval`
+- `feasibilityTolerance`
+- optional callback：第一版不迁移到 Python，C++ service 可暂不支持 callback
+- `KnitroData` warm-start / persistent optimizer state：第一版不暴露，避免 stateful backend API 过早定型
+
+Unavailable behavior：
+
+- 如果 build 没有 `TARGET Knitro::Knitro`，抛：
+  ```text
+  Knitro backend is not available in this build
+  ```
+- 不要 fallback 到 IPOPT。旧 `minimizeUsingKnitro` 在无 Knitro 时可能 fallback 到 IPOPT；新 service 不应复制这个行为，因为 backend selection 应该可预测。
+
+测试：
+
+- 有 Knitro 时跑 quadratic / bounds / constraints smoke tests。
+- 无 Knitro 时跑 unavailable behavior tests。
+- raw status 继续通过 `makeKnitroSolverResult(...)` 映射。
+
+### Phase F5: KnitroDense and ApproximateActiveSet decision
+
+**目标：** 不默认把所有旧函数都变成 public API，先判断是否还值得迁。
+
+`KnitroDense` 迁移条件：
+
+- 仍有下游模块需要 dense energy / dense constraints；
+- dense 类型能自然放进 `OptimizationProblem`，或需要独立 `DenseOptimizationProblem`；
+- Python 侧确实需要 dense objective API。
+
+`ApproximateActiveSet` 迁移条件：
+
+- 有明确调用方或实验用例；
+- 能定义清楚它相对 IPOPT/Knitro 的用途；
+- 能提供稳定 tests。
+
+如果不满足这些条件，保留在旧 `EnergyOptimizer` 内部，不进入 Python public API。
+
+### 风险与缓解
+
+- **行为回归风险：** adapter 复用旧 `minimizeUsingIpopt/Knitro`，先不重写 solver problem，降低数值行为变化。
+- **API 过早冻结风险：** Python `minimize` 等 IPOPT C++ adapter 完成后再设计，不提前暴露半成品。
+- **dependency 风险：** unavailable behavior tests 必须和 available backend tests 分开；默认 CI 不因缺 IPOPT/Knitro 失败。
+- **callback / warm-start 风险：** 第一版不暴露 stateful callback 和 persistent optimizer state；以后单独设计。
+- **bounds/fixedVariables 冲突风险：** 如果同一个 dof 同时出现在 `fixedVariables` 和 `bounds`，future backend 必须定义优先级。推荐规则：fixedVariables 覆盖 bounds，并在冲突时要求 fixed value 落在 bounds 内，否则抛 `std::invalid_argument`。
+
+### Future work 验收标准
+
+本节完成时只要求文档存在，不要求实现。未来真正执行各 phase 时，至少满足：
+
+- Newton 现有 tests 继续通过。
+- `pypgo.solver.solve_newton` API 不破坏。
+- `EnergyOptimizer::SolverType` 不进入 Python API。
+- 新 service backend 不 silently fallback 到其他 backend。
+- 无 IPOPT/Knitro 的 build 有清晰 unavailable error。
+- 有 IPOPT/Knitro 的 build 有对应 end-to-end tests。
+- Python `minimize` 只在 bounds/constraints/options 都有 Python-first 表达后公开。

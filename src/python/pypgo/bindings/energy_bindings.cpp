@@ -14,6 +14,7 @@
 #include "deformationModelFactory.h"
 #include "deformationModelEnergy.h"
 #include "EigenDef.h"
+#include "energy_core.h"
 #include "eigen_numpy.h"
 #include "energySet.h"
 #include "evaluation.h"
@@ -29,20 +30,6 @@ namespace nb = nanobind;
 using namespace pgo;
 
 namespace {
-
-// ── int64 ndarray helper ───────────────────────────────────────────
-
-nb::ndarray<nb::numpy, std::int64_t> intVectorToNdarray(std::vector<int> values)
-{
-  auto storage = new std::vector<std::int64_t>(values.begin(), values.end());
-  nb::capsule owner(storage, [](void *p) noexcept {
-    delete static_cast<std::vector<std::int64_t> *>(p);
-  });
-  return nb::ndarray<nb::numpy, std::int64_t>(
-    storage->data(),
-    { storage->size() },
-    owner);
-}
 
 SolidDeformationModel::DeformationModelElasticMaterial parseElasticMaterial(const std::string &s)
 {
@@ -67,106 +54,6 @@ SolidDeformationModel::DeformationModelPlasticMaterial parsePlasticMaterial(cons
   if (s == "shell_ff_dof0") return SolidDeformationModel::DeformationModelPlasticMaterial::SHELL_FF_DOF0;
   throw std::invalid_argument("Unknown plastic material: " + s);
 }
-
-// ── PotentialEnergy handle — base for all Python energy types ────────
-//
-// Non-subclassable from Python. Every public pypgo.energy class holds
-// one of these internally; the handle_ is the single source of truth
-// for all evaluation paths (value / gradient / hessian / max_step).
-
-class PyPotentialEnergy
-{
-public:
-  explicit PyPotentialEnergy(std::shared_ptr<const NonlinearOptimization::PotentialEnergy> energy)
-    : handle_(std::move(energy))
-  {
-  }
-
-  int numDofs() const { return handle_->getNumDOFs(); }
-
-  nb::ndarray<nb::numpy, std::int64_t> dofs() const
-  {
-    auto d = NonlinearOptimization::dofsOf(*handle_);
-    return intVectorToNdarray(std::move(d));
-  }
-
-  std::string stateKind() const
-  {
-    switch (handle_->stateKind()) {
-      case NonlinearOptimization::EnergyStateKind::Displacement:
-        return "displacement";
-      default:
-        return "generic";
-    }
-  }
-
-  double value(nb::ndarray<nb::numpy, const double> x) const
-  {
-    auto xMap = python::ndarrayToVectorMapXd(x);
-    double result;
-    {
-      nb::gil_scoped_release release;
-      result = NonlinearOptimization::evaluateValue(*handle_, xMap);
-    }
-    return result;
-  }
-
-  nb::ndarray<nb::numpy, double> gradient(nb::ndarray<nb::numpy, const double> x) const
-  {
-    auto xMap = python::ndarrayToVectorMapXd(x);
-    EigenSupport::VXd grad;
-    {
-      nb::gil_scoped_release release;
-      grad = NonlinearOptimization::evaluateGradient(*handle_, xMap);
-    }
-    return python::vectorXdToNdarray(std::move(grad));
-  }
-
-  PySparseMatrix hessian(nb::ndarray<nb::numpy, const double> x) const
-  {
-    auto xMap = python::ndarrayToVectorMapXd(x);
-    EigenSupport::SpMatD H;
-    {
-      nb::gil_scoped_release release;
-      H = NonlinearOptimization::evaluateHessian(*handle_, xMap);
-    }
-    return PySparseMatrix(std::move(H));
-  }
-
-  NonlinearOptimization::StepConstraint maxStep(
-    nb::ndarray<nb::numpy, const double> x,
-    nb::ndarray<nb::numpy, const double> dx) const
-  {
-    auto xMap = python::ndarrayToVectorMapXd(x);
-    auto dxMap = python::ndarrayToVectorMapXd(dx);
-    NonlinearOptimization::StepConstraint result;
-    {
-      nb::gil_scoped_release release;
-      result = NonlinearOptimization::evaluateMaxStep(*handle_, xMap, dxMap);
-    }
-    return result;
-  }
-
-  nb::ndarray<nb::numpy, double> zeroState() const
-  {
-    int n = handle_->getNumDOFs();
-    auto data = new std::vector<double>(static_cast<size_t>(n), 0.0);
-    nb::capsule owner(data, [](void *p) noexcept {
-      delete static_cast<std::vector<double> *>(p);
-    });
-    return nb::ndarray<nb::numpy, double>(
-      data->data(),
-      { data->size() },
-      owner);
-  }
-
-  std::string repr() const
-  {
-    return "PotentialEnergy(" + std::to_string(handle_->getNumDOFs()) + " DOFs)";
-  }
-
-  std::shared_ptr<const NonlinearOptimization::PotentialEnergy> handle_;
-};
 
 // ── Quadratic test factory ─────────────────────────────────────────
 
