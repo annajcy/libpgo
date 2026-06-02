@@ -13,11 +13,13 @@ namespace
 {
 namespace ES = pgo::EigenSupport;
 using pgo::NonlinearOptimization::NewtonSolver;
-using pgo::NonlinearOptimization::MaxStepResult;
 using pgo::NonlinearOptimization::PotentialEnergy;
 using pgo::NonlinearOptimization::LineSearchAwareEnergy;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 using pgo::NonlinearOptimization::SolverResult;
+using pgo::NonlinearOptimization::StepSource;
+using pgo::NonlinearOptimization::StepConstraint;
+constexpr int src(StepSource s) { return static_cast<int>(s); }
 using pgo::NonlinearOptimization::SolveStatus;
 using pgo::NonlinearOptimization::acceptsDynamicSolveStatus;
 using pgo::NonlinearOptimization::acceptsStrictSolveStatus;
@@ -37,7 +39,7 @@ void initializeLogging()
 class TestQuadraticEnergy : public PotentialEnergy, public LineSearchAwareEnergy
 {
 public:
-  explicit TestQuadraticEnergy(int n, MaxStepResult maxStep = MaxStepResult::unconstrained()): n(n), maxStep(maxStep) {}
+  explicit TestQuadraticEnergy(int n, StepConstraint maxStep = {}): n(n), maxStep(maxStep) {}
 
   double func(ES::ConstRefVecXd x) const override
   {
@@ -70,7 +72,7 @@ public:
   }
 
   int getNumDOFs() const override { return n; }
-  MaxStepResult computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { return maxStep; }
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override { if (sink) sink->report(maxStep); return maxStep; }
   void beginLineSearch(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { beginLineSearchCalls++; }
   void endLineSearch() const override { endLineSearchCalls++; }
 
@@ -82,7 +84,7 @@ public:
 
 private:
   int n;
-  MaxStepResult maxStep;
+  StepConstraint maxStep;
 };
 
 class TestNonFixedQuadraticEnergy : public PotentialEnergy
@@ -135,7 +137,7 @@ public:
 
   int getNumDOFs() const override { return n; }
   int isHessianTopologyFixed() const override { return 0; }
-  MaxStepResult computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { return MaxStepResult::unconstrained(); }
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override { return {}; }
 
   mutable int gradientCalls = 0;
   mutable int hessianCalls = 0;
@@ -177,11 +179,14 @@ public:
 
   int getNumDOFs() const override { return 1; }
 
-  MaxStepResult computeMaxStepLimit(ES::ConstRefVecXd x, ES::ConstRefVecXd) const override
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd x, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override
   {
-    if (std::abs(x[0]) < 2e-4)
-      return MaxStepResult::contact(0.0);
-    return MaxStepResult::unconstrained();
+    if (std::abs(x[0]) < 2e-4) {
+      StepConstraint c{StepSource::Contact, 0.0};
+      if (sink) sink->report(c);
+      return c;
+    }
+    return {};
   }
 };
 
@@ -218,7 +223,7 @@ public:
   }
 
   int getNumDOFs() const override { return 1; }
-  MaxStepResult computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { return MaxStepResult::unconstrained(); }
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override { return {}; }
   void beginLineSearch(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { beginLineSearchCalls++; }
   void endLineSearch() const override { endLineSearchCalls++; }
 
@@ -232,38 +237,118 @@ TEST(SolveDiagnosticsGTest, RecordsAndResetsMaxStepAndLineSearch)
 {
   SolveDiagnostics diagnostics;
 
-  diagnostics.recordMaxStep(MaxStepResult::material(0.4));
-  diagnostics.recordMaxStep(MaxStepResult::contact(0.25));
+  diagnostics.report(StepConstraint{StepSource::Material, 0.4});
+  diagnostics.report(StepConstraint{StepSource::Contact, 0.25});
   diagnostics.recordLineSearch(0.25, 0.5, 0.125);
   diagnostics.recordFinalGradientStats(2.0, 1.5);
 
-  EXPECT_EQ(diagnostics.materialClampCount, 1);
-  EXPECT_EQ(diagnostics.contactClampCount, 1);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 1);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Contact)], 1);
   EXPECT_DOUBLE_EQ(diagnostics.minFeasibleAlpha, 0.25);
-  EXPECT_DOUBLE_EQ(diagnostics.minMaterialFeasibleAlpha, 0.4);
-  EXPECT_DOUBLE_EQ(diagnostics.minContactFeasibleAlpha, 0.25);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], 0.4);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Contact)], 0.25);
   EXPECT_DOUBLE_EQ(diagnostics.minLineSearchAlpha, 0.5);
   EXPECT_DOUBLE_EQ(diagnostics.minEffectiveAlpha, 0.125);
-  EXPECT_DOUBLE_EQ(diagnostics.currentMaterialAlpha, 1.0);
-  EXPECT_DOUBLE_EQ(diagnostics.currentContactAlpha, 0.25);
+  EXPECT_EQ(diagnostics.lastMaxStep.source, StepSource::Contact);
+  EXPECT_DOUBLE_EQ(diagnostics.lastMaxStep.alpha, 0.25);
   EXPECT_TRUE(diagnostics.hasFinalGradientStats);
   EXPECT_DOUBLE_EQ(diagnostics.finalGradientNorm, 2.0);
   EXPECT_DOUBLE_EQ(diagnostics.finalGradientMaxNorm, 1.5);
 
   diagnostics.reset();
 
-  EXPECT_EQ(diagnostics.materialClampCount, 0);
-  EXPECT_EQ(diagnostics.contactClampCount, 0);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 0);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Contact)], 0);
   EXPECT_DOUBLE_EQ(diagnostics.minFeasibleAlpha, 1.0);
-  EXPECT_DOUBLE_EQ(diagnostics.minMaterialFeasibleAlpha, 1.0);
-  EXPECT_DOUBLE_EQ(diagnostics.minContactFeasibleAlpha, 1.0);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], 1.0);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Contact)], 1.0);
   EXPECT_DOUBLE_EQ(diagnostics.minLineSearchAlpha, 1.0);
   EXPECT_DOUBLE_EQ(diagnostics.minEffectiveAlpha, 1.0);
-  EXPECT_DOUBLE_EQ(diagnostics.currentMaterialAlpha, 1.0);
-  EXPECT_DOUBLE_EQ(diagnostics.currentContactAlpha, 1.0);
+  EXPECT_DOUBLE_EQ(diagnostics.lastMaxStep.alpha, 1.0);
   EXPECT_FALSE(diagnostics.hasFinalGradientStats);
   EXPECT_DOUBLE_EQ(diagnostics.finalGradientNorm, 0.0);
   EXPECT_DOUBLE_EQ(diagnostics.finalGradientMaxNorm, 0.0);
+}
+
+// Verify that the sink accumulates the same source independently (clamp-counter
+// increments per clamped call; min-alpha tracks the tightest).
+TEST(SolveDiagnosticsGTest, SameSourceTracksTightestAlpha)
+{
+  SolveDiagnostics diagnostics;
+  diagnostics.report(StepConstraint{StepSource::Material, 0.4});
+  diagnostics.report(StepConstraint{StepSource::Material, 0.3});
+  diagnostics.report(StepConstraint{StepSource::Material, 0.5});
+
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 3);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], 0.3);
+  // Contact untouched.
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Contact)], 0);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Contact)], 1.0);
+  // Binding alpha.
+  EXPECT_DOUBLE_EQ(diagnostics.minFeasibleAlpha, 0.3);
+  // lastMaxStep is the last report.
+  EXPECT_EQ(diagnostics.lastMaxStep.source, StepSource::Material);
+  EXPECT_DOUBLE_EQ(diagnostics.lastMaxStep.alpha, 0.5);
+}
+
+// An energy that unconditionally reports a fixed constraint through the sink
+// during computeMaxStepLimit.
+class SinkTestEnergy : public PotentialEnergy
+{
+public:
+  explicit SinkTestEnergy(int n, StepConstraint c): n_(n), c_(c) {}
+  double func(ES::ConstRefVecXd) const override { return 0.0; }
+  void gradient(ES::ConstRefVecXd, ES::RefVecXd) const override {}
+  void hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &) const override {}
+  void hessianAlloc(ES::SpMatD &h) const override { h.resize(n_, n_); h.setIdentity(); }
+  void getDOFs(std::vector<int> &dofs) const override { dofs.resize(n_); std::iota(dofs.begin(), dofs.end(), 0); }
+  int getNumDOFs() const override { return n_; }
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override
+  {
+    if (sink) sink->report(c_); return c_;
+  }
+
+private:
+  int n_;
+  StepConstraint c_;
+};
+
+// End-to-end: a sink-aware energy reports through the traversal path.
+TEST(SolveDiagnosticsGTest, SinkReportsThroughTraversal)
+{
+  SolveDiagnostics diagnostics;
+  SinkTestEnergy energy(4, StepConstraint{StepSource::Material, 0.3});
+  ES::VXd x = ES::VXd::Zero(4);
+  ES::VXd dx = ES::VXd::Ones(4);
+
+  // computeMaxStepLimit without sink → diagnostics untouched.
+  (void)energy.computeMaxStepLimit(x, dx);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 0);
+
+  // computeMaxStepLimit WITH sink → recorded.
+  (void)energy.computeMaxStepLimit(x, dx, &diagnostics);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 1);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], 0.3);
+  EXPECT_DOUBLE_EQ(diagnostics.minFeasibleAlpha, 0.3);
+}
+
+// Two different sources in the same step → both independently recorded.
+TEST(SolveDiagnosticsGTest, CrossSourceRecognizesBoth)
+{
+  SolveDiagnostics diagnostics;
+
+  // Simulate a Newton step with both material (0.3) and contact (0.5) constraints.
+  diagnostics.report(StepConstraint{StepSource::Material, 0.3});
+  diagnostics.report(StepConstraint{StepSource::Contact, 0.5});
+
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 1);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Contact)], 1);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], 0.3);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Contact)], 0.5);
+  // Binding across sources is the material one.
+  EXPECT_DOUBLE_EQ(diagnostics.minFeasibleAlpha, 0.3);
+  // lastMaxStep is the last report (contact).
+  EXPECT_EQ(diagnostics.lastMaxStep.source, StepSource::Contact);
 }
 
 TEST(NewtonSolverGTest, ConvergedSolveReturnsConvergedStatus)
@@ -292,7 +377,7 @@ TEST(NewtonSolverGTest, ZeroFeasibleStepWithLargeResidualReturnsStepTooSmall)
 {
   initializeLogging();
 
-  auto energy = std::make_shared<TestQuadraticEnergy>(2, MaxStepResult::contact(0.0));
+  auto energy = std::make_shared<TestQuadraticEnergy>(2, StepConstraint{StepSource::Contact, 0.0});
   ES::VXd x(2);
   x[0] = 2.0;
   x[1] = 0.0;
@@ -315,7 +400,7 @@ TEST(NewtonSolverGTest, SolveDiagnosticsRecordsMaxStepBreakdown)
 {
   initializeLogging();
 
-  auto energy = std::make_shared<TestQuadraticEnergy>(2, MaxStepResult::material(0.25));
+  auto energy = std::make_shared<TestQuadraticEnergy>(2, StepConstraint{StepSource::Material, 0.25});
   ES::VXd x(2);
   x[0] = 2.0;
   x[1] = 0.0;
@@ -331,15 +416,15 @@ TEST(NewtonSolverGTest, SolveDiagnosticsRecordsMaxStepBreakdown)
 
   const SolveDiagnostics &diagnostics = solver.getSolveDiagnostics();
   EXPECT_EQ(result.status, SolveStatus::MaxIterations);
-  EXPECT_EQ(result.diagnostics.materialClampCount, 1);
-  EXPECT_EQ(diagnostics.materialClampCount, 1);
-  EXPECT_EQ(diagnostics.contactClampCount, 0);
+  EXPECT_EQ(result.diagnostics.clampCounts[src(StepSource::Material)], 1);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 1);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Contact)], 0);
   EXPECT_DOUBLE_EQ(diagnostics.minFeasibleAlpha, 0.25);
-  EXPECT_DOUBLE_EQ(diagnostics.minMaterialFeasibleAlpha, 0.25);
-  EXPECT_DOUBLE_EQ(diagnostics.minContactFeasibleAlpha, 1.0);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], 0.25);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Contact)], 1.0);
   EXPECT_DOUBLE_EQ(diagnostics.minLineSearchAlpha, 1.0);
   EXPECT_DOUBLE_EQ(diagnostics.minEffectiveAlpha, 0.25);
-  EXPECT_NE(output.find("feasible alpha clamped: material:0.25 contact:1"), std::string::npos);
+  EXPECT_NE(output.find("feasible alpha clamped by material: 0.25"), std::string::npos);
 }
 
 TEST(NewtonSolverGTest, NonFiniteTrialEnergyEndsLineSearchScope)

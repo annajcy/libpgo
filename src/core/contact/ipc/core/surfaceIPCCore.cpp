@@ -137,7 +137,7 @@ SurfaceIPCActiveSet SurfaceIPCCore::buildLineSearchActiveSetSuperset(
 // =========================================================================
 //  1)  Maximum step size  (CCD-based line search with spatial hashing)
 // =========================================================================
-NonlinearOptimization::MaxStepResult SurfaceIPCCore::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const
+NonlinearOptimization::StepConstraint SurfaceIPCCore::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink) const
 {
   double alpha = computeSelfMaxStep(topology_, x, dx, dhat, slackness, ccd_thickness);
   alpha = std::min(alpha, computeExternalMaxStep(topology_, x, dx, obstacles_, dhat_external, slackness, ccd_thickness));
@@ -158,7 +158,10 @@ NonlinearOptimization::MaxStepResult SurfaceIPCCore::computeMaxStepLimit(EigenSu
     }
   }
 
-  return NonlinearOptimization::MaxStepResult::contact(clampedAlpha);
+  NonlinearOptimization::StepConstraint c{NonlinearOptimization::StepSource::Contact, clampedAlpha};
+  if (sink)
+    sink->report(c);
+  return c;
 }
 
 // =========================================================================

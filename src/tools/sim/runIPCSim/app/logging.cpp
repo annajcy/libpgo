@@ -84,9 +84,10 @@ void logRunIPCSimMaxStepSummary(
   if (logger->should_log(spdlog::level::info)) {
     SPDLOG_LOGGER_INFO(logger,
       "runIPCSim max-step summary: materialClampCount={} contactClampCount={} minMaterialFeasibleAlphaThisSolve={} minContactFeasibleAlphaThisSolve={} minFeasibleAlphaThisSolve={} minLineSearchAlphaThisSolve={} minEffectiveAlphaThisSolve={}",
-      summary.materialClampCount, summary.contactClampCount,
-      summary.minMaterialFeasibleAlpha,
-      summary.minContactFeasibleAlpha,
+      summary.clampCounts[static_cast<int>(pgo::StepSource::Material)],
+      summary.clampCounts[static_cast<int>(pgo::StepSource::Contact)],
+      summary.minSourceFeasibleAlpha[static_cast<int>(pgo::StepSource::Material)],
+      summary.minSourceFeasibleAlpha[static_cast<int>(pgo::StepSource::Contact)],
       summary.minFeasibleAlpha,
       summary.minLineSearchAlpha,
       summary.minEffectiveAlpha);

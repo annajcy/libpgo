@@ -133,13 +133,13 @@ public:
     return PySparseMatrix(std::move(H));
   }
 
-  NonlinearOptimization::MaxStepResult maxStep(
+  NonlinearOptimization::StepConstraint maxStep(
     nb::ndarray<nb::numpy, const double> x,
     nb::ndarray<nb::numpy, const double> dx) const
   {
     auto xMap = python::ndarrayToVectorMapXd(x);
     auto dxMap = python::ndarrayToVectorMapXd(dx);
-    NonlinearOptimization::MaxStepResult result;
+    NonlinearOptimization::StepConstraint result;
     {
       nb::gil_scoped_release release;
       result = NonlinearOptimization::evaluateMaxStep(*handle_, xMap, dxMap);
@@ -566,14 +566,14 @@ std::shared_ptr<PyDeformationEnergy> createShellDeformationEnergyForTest(
 
 void init_energy_bindings(nb::module_ &m)
 {
-  // ── MaxStepResult ──────────────────────────────────────────────
+  // ── StepConstraint ─────────────────────────────────────────────
 
-  nb::class_<NonlinearOptimization::MaxStepResult>(m, "MaxStepResult")
-    .def_ro("alpha", &NonlinearOptimization::MaxStepResult::alpha)
-    .def_ro("material_alpha", &NonlinearOptimization::MaxStepResult::materialAlpha)
-    .def_ro("contact_alpha", &NonlinearOptimization::MaxStepResult::contactAlpha)
-    .def_ro("material_clamped", &NonlinearOptimization::MaxStepResult::materialClamped)
-    .def_ro("contact_clamped", &NonlinearOptimization::MaxStepResult::contactClamped);
+  nb::class_<NonlinearOptimization::StepConstraint>(m, "StepConstraint")
+    .def_ro("alpha", &NonlinearOptimization::StepConstraint::alpha)
+    .def_prop_ro("clamped", [](const NonlinearOptimization::StepConstraint &r) { return r.clamped(); })
+    .def_prop_ro("source", [](const NonlinearOptimization::StepConstraint &r) {
+      return r.source == NonlinearOptimization::StepSource::Contact ? "contact" : "material";
+    });
 
   // ── PotentialEnergy handle ─────────────────────────────────────
   //

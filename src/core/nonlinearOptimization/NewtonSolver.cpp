@@ -571,8 +571,7 @@ NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnerg
 {
   StepAcceptance accepted;
 
-  const MaxStepResult maxStep = energy->computeMaxStepLimit(x, deltax);
-  solveDiagnostics.recordMaxStep(maxStep);
+  const StepConstraint maxStep = energy->computeMaxStepLimit(x, deltax, &solveDiagnostics);
   accepted.feasibleAlpha = maxStep.alpha;
   if (!std::isfinite(accepted.feasibleAlpha)) {
     accepted.nonFiniteReason = StepAcceptance::NonFiniteReason::FeasibleAlpha;
@@ -660,8 +659,9 @@ NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnerg
   if (verbose >= 2 && iter % printGap == 0) {
     std::cout << "        feasibleAlpha=" << accepted.feasibleAlpha << std::endl;
     if (accepted.feasibleAlpha < 1.0) {
-      std::cout << "        feasible alpha clamped: material:" << solveDiagnostics.currentMaterialAlpha
-                << " contact:" << solveDiagnostics.currentContactAlpha << std::endl;
+      const char *clampSource = solveDiagnostics.lastMaxStep.source == StepSource::Contact ? "contact" : "material";
+      std::cout << "        feasible alpha clamped by " << clampSource << ": "
+                << solveDiagnostics.lastMaxStep.alpha << std::endl;
     }
     std::cout << "        lineSearchAlpha=" << accepted.lineSearchAlpha << std::endl;
     std::cout << "        effectiveAlpha=" << accepted.effectiveAlpha << std::endl;

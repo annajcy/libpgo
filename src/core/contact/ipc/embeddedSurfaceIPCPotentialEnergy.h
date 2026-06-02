@@ -57,9 +57,10 @@ private:
     double &surfaceEnergy,
     EigenSupport::RefVecXd surfaceGradient,
     EigenSupport::SpMatD &surfaceHessian) const override;
-  virtual NonlinearOptimization::MaxStepResult computeSurfaceMaxStepLimit(
+  virtual NonlinearOptimization::StepConstraint computeSurfaceMaxStepLimit(
     EigenSupport::ConstRefVecXd surfacePositions,
-    EigenSupport::ConstRefVecXd surfaceDisplacements) const override;
+    EigenSupport::ConstRefVecXd surfaceDisplacements,
+    NonlinearOptimization::StepConstraintSink *sink = nullptr) const override;
   virtual void beginSurfaceLineSearch(
     EigenSupport::ConstRefVecXd surfacePositions,
     EigenSupport::ConstRefVecXd surfaceDisplacements) const override;

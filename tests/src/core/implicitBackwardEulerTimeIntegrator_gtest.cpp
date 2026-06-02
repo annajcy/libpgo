@@ -11,7 +11,8 @@
 namespace
 {
 namespace ES = pgo::EigenSupport;
-using pgo::NonlinearOptimization::MaxStepResult;
+using pgo::NonlinearOptimization::StepConstraint;
+using pgo::NonlinearOptimization::StepSource;
 using pgo::NonlinearOptimization::PotentialEnergy;
 using pgo::NonlinearOptimization::SolverResult;
 using pgo::NonlinearOptimization::SolveStatus;
@@ -62,7 +63,7 @@ public:
   }
 
   int getNumDOFs() const override { return n; }
-  MaxStepResult computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { return MaxStepResult::material(maxStep); }
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override { StepConstraint c{StepSource::Material, maxStep}; if (sink) sink->report(c); return c; }
 
   mutable int funcCalls = 0;
   mutable int gradientCalls = 0;
@@ -123,7 +124,7 @@ public:
 
   int getNumDOFs() const override { return n; }
   int isHessianTopologyFixed() const override { return 0; }
-  MaxStepResult computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { return MaxStepResult::unconstrained(); }
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override { return {}; }
 
   void resetCounts() const
   {

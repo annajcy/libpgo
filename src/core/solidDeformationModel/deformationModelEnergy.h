@@ -36,7 +36,7 @@ public:
 
   virtual NonlinearOptimization::EnergyStateKind stateKind() const override { return NonlinearOptimization::EnergyStateKind::Displacement; }
 
-  virtual NonlinearOptimization::MaxStepResult computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
+  virtual NonlinearOptimization::StepConstraint computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink = nullptr) const override;
 
   void setEnableMaterialMaxStep(bool enable) { enableMaterialMaxStep_ = enable; }
   bool isMaterialMaxStepEnabled() const { return enableMaterialMaxStep_; }

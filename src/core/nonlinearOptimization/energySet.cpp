@@ -333,15 +333,18 @@ double EnergySet::func_grad_hessian(
   return func(x);
 }
 
-MaxStepResult EnergySet::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const
+StepConstraint EnergySet::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink) const
 {
-  MaxStepResult result = MaxStepResult::unconstrained();
+  // Across energies of possibly different sources, keep the binding (min-alpha) one.
+  StepConstraint binding = {};
   for (std::size_t i = 0; i < potentialEnergies.size(); i++) {
     mapx(x, energyDOFs[i], buffer_->xlocals[i]);
     mapx(dx, energyDOFs[i], buffer_->vecs[i]);
-    result = mergeMaxStepResults(result, potentialEnergies[i]->computeMaxStepLimit(buffer_->xlocals[i], buffer_->vecs[i]));
+    const StepConstraint c = potentialEnergies[i]->computeMaxStepLimit(buffer_->xlocals[i], buffer_->vecs[i], sink);
+    if (c.alpha < binding.alpha)
+      binding = c;
   }
-  return result;
+  return binding;
 }
 
 void EnergySet::beginLineSearch(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const

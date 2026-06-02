@@ -272,12 +272,14 @@ void ImplicitBackwardEulerEnergy::hessian(ES::ConstRefVecXd x, ES::SpMatD &hess)
   }
 }
 
-NonlinearOptimization::MaxStepResult ImplicitBackwardEulerEnergy::computeMaxStepLimit(ES::ConstRefVecXd x, ES::ConstRefVecXd dx) const
+NonlinearOptimization::StepConstraint ImplicitBackwardEulerEnergy::computeMaxStepLimit(ES::ConstRefVecXd x, ES::ConstRefVecXd dx, StepConstraintSink *sink) const
 {
-  NonlinearOptimization::MaxStepResult result = NonlinearOptimization::MaxStepResult::unconstrained();
+  NonlinearOptimization::StepConstraint binding = {};
   for (size_t i = 0; i < intg->implicitModelsAll.size(); i++) {
     const auto &model = intg->implicitModelsAll[i];
-    result = NonlinearOptimization::mergeMaxStepResults(result, model->computeMaxStepLimit(x, dx));
+    const NonlinearOptimization::StepConstraint c = model->computeMaxStepLimit(x, dx, sink);
+    if (c.alpha < binding.alpha)
+      binding = c;
   }
-  return result;
+  return binding;
 }

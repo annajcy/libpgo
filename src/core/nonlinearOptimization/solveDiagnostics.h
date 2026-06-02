@@ -1,100 +1,87 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 
 namespace pgo::NonlinearOptimization
 {
 
-struct MaxStepResult
+// Identifies the source of a step-size constraint for diagnostic attribution.
+// Add new values before kCount; all per-source loops automatically cover them.
+enum class StepSource : int
 {
-  double alpha = 1.0;
-  double materialAlpha = 1.0;
-  double contactAlpha = 1.0;
-  bool materialClamped = false;
-  bool contactClamped = false;
-
-  static MaxStepResult unconstrained()
-  {
-    return {};
-  }
-
-  static MaxStepResult material(double alpha)
-  {
-    MaxStepResult result;
-    result.alpha = alpha;
-    result.materialAlpha = alpha;
-    result.materialClamped = alpha < 1.0;
-    return result;
-  }
-
-  static MaxStepResult contact(double alpha)
-  {
-    MaxStepResult result;
-    result.alpha = alpha;
-    result.contactAlpha = alpha;
-    result.contactClamped = alpha < 1.0;
-    return result;
-  }
+  Material = 0,
+  Contact  = 1,
+  kCount   = 2,
 };
 
-inline MaxStepResult mergeMaxStepResults(const MaxStepResult &lhs, const MaxStepResult &rhs)
+// Largest feasible step along a search direction, attributed to one source.
+// Energies report a single source; aggregators keep the binding (min-alpha) one.
+struct StepConstraint
 {
-  MaxStepResult result;
-  result.alpha = std::min(lhs.alpha, rhs.alpha);
-  result.materialAlpha = std::min(lhs.materialAlpha, rhs.materialAlpha);
-  result.contactAlpha = std::min(lhs.contactAlpha, rhs.contactAlpha);
-  result.materialClamped = lhs.materialClamped || rhs.materialClamped;
-  result.contactClamped = lhs.contactClamped || rhs.contactClamped;
-  return result;
-}
+  StepSource source = StepSource::Material;
+  double alpha = 1.0;
 
-struct SolveDiagnostics
+  bool clamped() const { return alpha < 1.0; }
+};
+
+// Callback interface for collecting per-source step constraints during
+// computeMaxStepLimit traversals. Each energy reports its own constraint;
+// the sink accumulates them independently by source.
+struct StepConstraintSink
 {
-  std::int64_t materialClampCount = 0;
-  std::int64_t contactClampCount = 0;
+  virtual ~StepConstraintSink() = default;
+  virtual void report(StepConstraint c) = 0;
+};
+
+struct SolveDiagnostics : StepConstraintSink
+{
+  StepConstraint lastMaxStep;
+  std::array<std::int64_t, static_cast<int>(StepSource::kCount)> clampCounts;
   double minFeasibleAlpha = 1.0;
-  double minMaterialFeasibleAlpha = 1.0;
-  double minContactFeasibleAlpha = 1.0;
+  std::array<double, static_cast<int>(StepSource::kCount)> minSourceFeasibleAlpha;
   double minLineSearchAlpha = 1.0;
   double minEffectiveAlpha = 1.0;
-  double currentMaterialAlpha = 1.0;
-  double currentContactAlpha = 1.0;
   bool hasFinalGradientStats = false;
   double finalGradientNorm = 0.0;
   double finalGradientMaxNorm = 0.0;
+
+  SolveDiagnostics()
+  {
+    clampCounts.fill(0);
+    minSourceFeasibleAlpha.fill(1.0);
+  }
 
   void reset()
   {
     *this = SolveDiagnostics{};
   }
 
-  void recordMaxStep(const MaxStepResult &result)
+  // Merge a step constraint into the per-source diagnostics, attributed by source.
+  // This is the only place step constraints are combined across calls.
+  void report(StepConstraint result) override
   {
-    currentMaterialAlpha = result.materialAlpha;
-    currentContactAlpha = result.contactAlpha;
+    lastMaxStep = result;
     minFeasibleAlpha = std::min(minFeasibleAlpha, result.alpha);
-    minMaterialFeasibleAlpha = std::min(minMaterialFeasibleAlpha, result.materialAlpha);
-    minContactFeasibleAlpha = std::min(minContactFeasibleAlpha, result.contactAlpha);
-
-    if (result.materialClamped)
-      materialClampCount += 1;
-    if (result.contactClamped)
-      contactClampCount += 1;
+    const int i = static_cast<int>(result.source);
+    minSourceFeasibleAlpha[i] = std::min(minSourceFeasibleAlpha[i], result.alpha);
+    if (result.clamped())
+      clampCounts[i] += 1;
   }
 
   void recordLineSearch(double feasibleAlpha, double lineSearchAlpha, double effectiveAlpha)
   {
-    minFeasibleAlpha = std::min(minFeasibleAlpha, feasibleAlpha);
+    minFeasibleAlpha   = std::min(minFeasibleAlpha,   feasibleAlpha);
     minLineSearchAlpha = std::min(minLineSearchAlpha, lineSearchAlpha);
-    minEffectiveAlpha = std::min(minEffectiveAlpha, effectiveAlpha);
+    minEffectiveAlpha  = std::min(minEffectiveAlpha,  effectiveAlpha);
   }
 
   void recordFinalGradientStats(double gradientNorm, double gradientMaxNorm)
   {
     hasFinalGradientStats = true;
-    finalGradientNorm = gradientNorm;
-    finalGradientMaxNorm = gradientMaxNorm;
+    finalGradientNorm     = gradientNorm;
+    finalGradientMaxNorm  = gradientMaxNorm;
   }
 };
 
@@ -102,6 +89,8 @@ struct SolveDiagnostics
 
 namespace pgo
 {
-using NonlinearOptimization::MaxStepResult;
+using NonlinearOptimization::StepConstraintSink;
+using NonlinearOptimization::StepSource;
+using NonlinearOptimization::StepConstraint;
 using NonlinearOptimization::SolveDiagnostics;
 }  // namespace pgo

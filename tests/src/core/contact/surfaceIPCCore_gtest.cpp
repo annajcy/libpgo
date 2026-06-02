@@ -18,6 +18,9 @@ namespace
 {
 namespace ES = pgo::EigenSupport;
 using pgo::Contact::IPC::SurfaceIPCCore;
+using pgo::NonlinearOptimization::StepConstraint;
+using pgo::NonlinearOptimization::StepSource;
+constexpr int src(StepSource s) { return static_cast<int>(s); }
 using pgo::Contact::CIPCTest::computeFloorEnergy;
 using pgo::Contact::CIPCTest::computeFloorGradient;
 using pgo::Contact::CIPCTest::computeFloorHessian;
@@ -27,7 +30,6 @@ using pgo::Contact::CIPCTest::flattenPositions;
 using pgo::Contact::CIPCTest::makeTwoTriangleMesh;
 using pgo::Contact::CIPCTest::relativeError;
 using pgo::Contact::CIPCTest::sparseToDense;
-using pgo::NonlinearOptimization::MaxStepResult;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 using pgo::Profiling::ProfileStat;
 
@@ -201,12 +203,12 @@ TEST(SurfaceIPCCoreGTest, ComputeMaxStepLimitDetectsImpendingCollision)
   for (int vi = 3; vi < 6; ++vi)
     dx[3 * vi + 2] = -0.1;
 
-  const MaxStepResult result = core.computeMaxStepLimit(x, dx);
+  const StepConstraint result = core.computeMaxStepLimit(x, dx);
   const double alpha = result.alpha;
   EXPECT_GT(alpha, 0.0);
   EXPECT_LT(alpha, 1.0);
-  EXPECT_DOUBLE_EQ(result.contactAlpha, alpha);
-  EXPECT_TRUE(result.contactClamped);
+  EXPECT_DOUBLE_EQ(result.alpha, alpha);
+  EXPECT_TRUE(result.clamped());
 }
 
 TEST(SurfaceIPCCoreGTest, ComputeMaxStepLimitCanBeRecordedInDiagnostics)
@@ -220,16 +222,16 @@ TEST(SurfaceIPCCoreGTest, ComputeMaxStepLimitCanBeRecordedInDiagnostics)
   for (int vi = 3; vi < 6; ++vi)
     dx[3 * vi + 2] = -0.1;
 
-  const MaxStepResult result = core.computeMaxStepLimit(x, dx);
+  const StepConstraint result = core.computeMaxStepLimit(x, dx);
   const double alpha = result.alpha;
   EXPECT_GT(alpha, 0.0);
   EXPECT_LT(alpha, 1.0);
-  EXPECT_TRUE(result.contactClamped);
+  EXPECT_TRUE(result.clamped());
 
   SolveDiagnostics diagnostics;
-  diagnostics.recordMaxStep(result);
-  EXPECT_EQ(diagnostics.contactClampCount, 1);
-  EXPECT_DOUBLE_EQ(diagnostics.minContactFeasibleAlpha, alpha);
+  diagnostics.report(result);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Contact)], 1);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Contact)], alpha);
 }
 
 TEST(SurfaceIPCCoreGTest, SmallContactAlphaWarnsAndDiagnosticsResetClearsStats)
@@ -244,23 +246,23 @@ TEST(SurfaceIPCCoreGTest, SmallContactAlphaWarnsAndDiagnosticsResetClearsStats)
     dx[3 * vi + 2] = -10.0;
 
   testing::internal::CaptureStdout();
-  const MaxStepResult result = core.computeMaxStepLimit(x, dx);
+  const StepConstraint result = core.computeMaxStepLimit(x, dx);
   const std::string logOutput = testing::internal::GetCapturedStdout();
 
   const double alpha = result.alpha;
   EXPECT_GT(alpha, 0.0);
   EXPECT_LT(alpha, 0.01);
-  EXPECT_TRUE(result.contactClamped);
+  EXPECT_TRUE(result.clamped());
   EXPECT_NE(logOutput.find("contactFeasibleAlpha"), std::string::npos);
 
   SolveDiagnostics diagnostics;
-  diagnostics.recordMaxStep(result);
-  ASSERT_EQ(diagnostics.contactClampCount, 1);
-  ASSERT_DOUBLE_EQ(diagnostics.minContactFeasibleAlpha, alpha);
+  diagnostics.report(result);
+  ASSERT_EQ(diagnostics.clampCounts[src(StepSource::Contact)], 1);
+  ASSERT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Contact)], alpha);
 
   diagnostics.reset();
-  EXPECT_EQ(diagnostics.contactClampCount, 0);
-  EXPECT_DOUBLE_EQ(diagnostics.minContactFeasibleAlpha, 1.0);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Contact)], 0);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Contact)], 1.0);
 }
 
 TEST(SurfaceIPCCoreGTest, BuildActiveSetCapturesPositionsAndPairs)

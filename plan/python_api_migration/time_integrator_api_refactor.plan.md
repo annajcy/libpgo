@@ -316,7 +316,7 @@ IBE 的 legacy `b` 通过 `l_s = -b` 转换；TRBDF2 的 legacy `b1/b2` 直接�
 
 - `init()` 构建合并 `hessianAll` 模板 + per-energy `small2Big` mapping；
 - `func / gradient / hessianInPlace / gradient_hessian / hessian / func_grad_hessian`；
-- `computeMaxStepLimit` 经 `mergeMaxStepResults` 合并；
+- `computeMaxStepLimit` 经跨来源内联 min（所有子节点通过 `StepConstraintSink` 各自 report）合并；
 - `isHessianTopologyFixed()` 聚合；
 - `beginLineSearch / endLineSearch`（`LineSearchAwareEnergy`）—— IPC active-set 在 line-search 段内冻结的生命周期已内置；
 - 支持 per-energy DOF 子集（比"全 DOF"更通用），固定拓扑用预分配 buffer + mapping，非固定拓扑走 safe one-shot，保留 IPC active-set 行为。
@@ -719,7 +719,7 @@ Tests：
 
 - 两个固定拓扑二次 term：`func_grad_hessian` 的 value/grad/hess 与分开调用一致；
 - 一个固定拓扑 + 一个"计数 stub"非固定拓扑 term：`func_grad_hessian` 只触发该 term 的 `func_grad_hessian` **一次**（计数器==1），不再额外触发 `func` / `gradient_hessian`；
-- `computeMaxStepLimit` 经 `mergeMaxStepResults` 返回 min alpha；
+- `computeMaxStepLimit` 经跨来源内联 min（所有子节点通过 `StepConstraintSink` 各自 report）返回绑定 alpha；
 - 改动前后固定拓扑场景的 value/grad/hess 数值不变。
 
 Run:

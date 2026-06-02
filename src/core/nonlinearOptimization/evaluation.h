@@ -13,7 +13,7 @@ EigenSupport::VXd evaluateGradient(const PotentialEnergy &energy, EigenSupport::
 
 EigenSupport::SpMatD evaluateHessian(const PotentialEnergy &energy, EigenSupport::ConstRefVecXd x);
 
-MaxStepResult evaluateMaxStep(const PotentialEnergy &energy, EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx);
+StepConstraint evaluateMaxStep(const PotentialEnergy &energy, EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink = nullptr);
 
 std::vector<int> dofsOf(const PotentialEnergy &energy);
 

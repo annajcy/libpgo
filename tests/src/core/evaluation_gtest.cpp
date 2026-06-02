@@ -15,6 +15,8 @@ using pgo::NonlinearOptimization::evaluateGradient;
 using pgo::NonlinearOptimization::evaluateHessian;
 using pgo::NonlinearOptimization::evaluateMaxStep;
 using pgo::NonlinearOptimization::dofsOf;
+using pgo::NonlinearOptimization::StepSource;
+constexpr int src(StepSource s) { return static_cast<int>(s); }
 
 // ── Fixed-topology fake energy ──────────────────────────────────
 // func = 0.5 * (a*x0^2 + b*x1^2), grad = [a*x0, b*x1], Hessian = diag(a, b)
@@ -254,8 +256,7 @@ TEST(EvaluationGTest, EvaluateMaxStepUnconstrainedByDefault)
   auto result = evaluateMaxStep(energy, x, dx);
 
   EXPECT_DOUBLE_EQ(result.alpha, 1.0);
-  EXPECT_FALSE(result.materialClamped);
-  EXPECT_FALSE(result.contactClamped);
+  EXPECT_FALSE(result.clamped());
 }
 
 // ── dofsOf ──────────────────────────────────────────────────────

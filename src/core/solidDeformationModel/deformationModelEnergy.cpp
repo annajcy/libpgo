@@ -92,11 +92,11 @@ void DeformationModelEnergy::hessianAlloc(EigenSupport::SpMatD &hess) const
   hess = forceModelAssembler->getHessianTemplate();
 }
 
-NonlinearOptimization::MaxStepResult DeformationModelEnergy::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const
+NonlinearOptimization::StepConstraint DeformationModelEnergy::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.max_step");
   if (!enableMaterialMaxStep_) {
-    return NonlinearOptimization::MaxStepResult::unconstrained();
+    return NonlinearOptimization::StepConstraint{};
   }
 
   const int offset = allDOFs.empty() ? 0 : allDOFs[0];
@@ -104,7 +104,7 @@ NonlinearOptimization::MaxStepResult DeformationModelEnergy::computeMaxStepLimit
 
   const ES::VXd dxLocal = assembleDirectionSlice(dx, offset, numDOFs);
   if (dxLocal.size() == 0 || dxLocal.squaredNorm() == 0.0) {
-    return NonlinearOptimization::MaxStepResult::unconstrained();
+    return NonlinearOptimization::StepConstraint{};
   }
 
   const ES::VXd absolutePositions = assembleAbsolutePositions(x, *restPosition, offset, numDOFs);
@@ -141,5 +141,8 @@ NonlinearOptimization::MaxStepResult DeformationModelEnergy::computeMaxStepLimit
     }
   }
 
-  return NonlinearOptimization::MaxStepResult::material(maxStepSize);
+  NonlinearOptimization::StepConstraint c{NonlinearOptimization::StepSource::Material, maxStepSize};
+  if (sink)
+    sink->report(c);
+  return c;
 }

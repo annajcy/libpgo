@@ -40,10 +40,10 @@ EigenSupport::SpMatD evaluateHessian(const PotentialEnergy &energy, EigenSupport
   return H;
 }
 
-MaxStepResult evaluateMaxStep(const PotentialEnergy &energy, EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx)
+StepConstraint evaluateMaxStep(const PotentialEnergy &energy, EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink)
 {
   validateStateSize(energy, x);
-  return energy.computeMaxStepLimit(x, dx);
+  return energy.computeMaxStepLimit(x, dx, sink);
 }
 
 std::vector<int> dofsOf(const PotentialEnergy &energy)

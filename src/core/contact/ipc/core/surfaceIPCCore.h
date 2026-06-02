@@ -68,7 +68,7 @@ public:
   void computeGradient(const SurfaceIPCActiveSet &activeSet, EigenSupport::RefVecXd g_surf) const;
   void computeHessian(const SurfaceIPCActiveSet &activeSet, EigenSupport::SpMatD &H_surf) const;
   void computeAll(const SurfaceIPCActiveSet &activeSet, double &energy, EigenSupport::VXd &g_surf, EigenSupport::SpMatD &H_surf) const;
-  NonlinearOptimization::MaxStepResult computeMaxStepLimit(EigenSupport::ConstRefVecXd x_surf, EigenSupport::ConstRefVecXd dx_surf) const;
+  NonlinearOptimization::StepConstraint computeMaxStepLimit(EigenSupport::ConstRefVecXd x_surf, EigenSupport::ConstRefVecXd dx_surf, StepConstraintSink *sink = nullptr) const;
 
   const SurfaceIPCTopology& topology() const { return topology_; }
 

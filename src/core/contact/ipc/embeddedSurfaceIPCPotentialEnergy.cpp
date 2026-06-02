@@ -146,11 +146,12 @@ void EmbeddedSurfaceIPCPotentialEnergy::computeSurfaceAll(
   surfaceGradient = localGradient;
 }
 
-NonlinearOptimization::MaxStepResult EmbeddedSurfaceIPCPotentialEnergy::computeSurfaceMaxStepLimit(
+NonlinearOptimization::StepConstraint EmbeddedSurfaceIPCPotentialEnergy::computeSurfaceMaxStepLimit(
   EigenSupport::ConstRefVecXd surfacePositions,
-  EigenSupport::ConstRefVecXd surfaceDisplacements) const
+  EigenSupport::ConstRefVecXd surfaceDisplacements,
+  NonlinearOptimization::StepConstraintSink *sink) const
 {
-  return surfaceIPCCore_.computeMaxStepLimit(surfacePositions, surfaceDisplacements);
+  return surfaceIPCCore_.computeMaxStepLimit(surfacePositions, surfaceDisplacements, sink);
 }
 
 void EmbeddedSurfaceIPCPotentialEnergy::beginSurfaceLineSearch(

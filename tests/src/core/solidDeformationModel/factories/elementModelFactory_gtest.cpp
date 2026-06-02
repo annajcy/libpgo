@@ -44,15 +44,13 @@ TEST(ElementModelFactoryGTest, CreateShellKoiterReturnsNewElementModelType)
   ASSERT_NE(simMesh, nullptr);
   ASSERT_GT(simMesh->getNumElements(), 0);
 
-  auto elasticResult = ElasticModelFactory::create(
+  auto elasticModel = ElasticModelFactory::create(
     *simMesh, 0, DeformationModelElasticMaterial::KOITER_STVK, nullptr);
-  std::unique_ptr<ElasticModel> elasticOwner(elasticResult.elementMaterial);
-  auto plasticResult = PlasticModelFactory::create(
+  auto plasticModel = PlasticModelFactory::create(
     DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
-  std::unique_ptr<PlasticModel> plasticOwner(plasticResult.model);
 
-  ElasticBlock elasticBlock{elasticResult.elementMaterial, nullptr};
-  PlasticBlock plasticBlock{plasticResult.model, nullptr};
+  ElasticBlock elasticBlock{elasticModel.get(), nullptr};
+  PlasticBlock plasticBlock{plasticModel.get(), nullptr};
   KoiterShellFormulation formulation;
   auto fem = ElementModelFactory::create(
     *simMesh, 0, elasticBlock, plasticBlock, formulation);
@@ -76,15 +74,13 @@ TEST(ElementModelFactoryGTest, CreateShellKoiterRejectsNonShellElasticMaterial)
   auto simMesh = loadShellMesh(surfaceMesh, &shellMaterial);
   ASSERT_NE(simMesh, nullptr);
 
-  auto elasticResult = ElasticModelFactory::create(
+  auto elasticModel = ElasticModelFactory::create(
     *simMesh, 0, DeformationModelElasticMaterial::STABLE_NEO, nullptr);
-  std::unique_ptr<ElasticModel> elasticOwner(elasticResult.elementMaterial);
-  auto plasticResult = PlasticModelFactory::create(
+  auto plasticModel = PlasticModelFactory::create(
     DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
-  std::unique_ptr<PlasticModel> plasticOwner(plasticResult.model);
 
-  ElasticBlock elasticBlock{elasticResult.elementMaterial, nullptr};
-  PlasticBlock plasticBlock{plasticResult.model, nullptr};
+  ElasticBlock elasticBlock{elasticModel.get(), nullptr};
+  PlasticBlock plasticBlock{plasticModel.get(), nullptr};
   KoiterShellFormulation formulation;
   EXPECT_THROW(
     ElementModelFactory::create(

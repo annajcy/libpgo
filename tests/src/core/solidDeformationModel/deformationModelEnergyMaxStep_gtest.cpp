@@ -45,10 +45,12 @@ using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
-using pgo::NonlinearOptimization::MaxStepResult;
 using pgo::SolidDeformationModel::tetP1ComputeDs;
 using CubicFEM = pgo::SolidDeformationModel::VolumetricElementModel;
 using pgo::NonlinearOptimization::SolveDiagnostics;
+using pgo::NonlinearOptimization::StepSource;
+using pgo::NonlinearOptimization::StepConstraint;
+constexpr int src(StepSource s) { return static_cast<int>(s); }
 
 constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
 
@@ -137,7 +139,7 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
-  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
+  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::LinearCubicFormulation{}, 1, nullptr, nullptr);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
   fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), 0);
@@ -274,7 +276,7 @@ public:
   void hessianAlloc(ES::SpMatD &hess) const override { hess = ES::SpMatD(numDOFs_, numDOFs_); }
   void getDOFs(std::vector<int> &dofs) const override { dofs = dofs_; }
   int getNumDOFs() const override { return numDOFs_; }
-  MaxStepResult computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { return MaxStepResult::material(maxStep_); }
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override { StepConstraint c{StepSource::Material, maxStep_}; if (sink) sink->report(c); return c; }
 
 private:
   int numDOFs_;
@@ -308,10 +310,10 @@ TEST(DeformationModelEnergyMaxStepGTest, ZeroDirectionReturnsOneAndDoesNotClamp)
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
   const ES::VXd dx = ES::VXd::Zero(fixture.restPositions.size());
 
-  const MaxStepResult result = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = fixture.energy->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(result.alpha, 1.0);
-  EXPECT_DOUBLE_EQ(result.materialAlpha, 1.0);
-  EXPECT_FALSE(result.materialClamped);
+  EXPECT_DOUBLE_EQ(result.alpha, 1.0);
+  EXPECT_FALSE(result.clamped());
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, TetPureTranslationReturnsOne)
@@ -321,10 +323,10 @@ TEST(DeformationModelEnergyMaxStepGTest, TetPureTranslationReturnsOne)
   ES::VXd dx = ES::VXd::Zero(fixture.restPositions.size());
   applyUniformTranslation(dx, 1.0, 2.0, 3.0);
 
-  const MaxStepResult result = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = fixture.energy->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(result.alpha, 1.0);
-  EXPECT_DOUBLE_EQ(result.materialAlpha, 1.0);
-  EXPECT_FALSE(result.materialClamped);
+  EXPECT_DOUBLE_EQ(result.alpha, 1.0);
+  EXPECT_FALSE(result.clamped());
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, TetShrinksBeforeInversion)
@@ -333,12 +335,12 @@ TEST(DeformationModelEnergyMaxStepGTest, TetShrinksBeforeInversion)
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
   const ES::VXd dx = makeTetFlipDirection(fixture.mesh().getNumVertices(), 3, -2.0);
 
-  const MaxStepResult result = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = fixture.energy->computeMaxStepLimit(x, dx);
   const double alpha = result.alpha;
   ASSERT_LT(alpha, 1.0);
   ASSERT_GT(alpha, 0.0);
-  EXPECT_DOUBLE_EQ(result.materialAlpha, alpha);
-  EXPECT_TRUE(result.materialClamped);
+  EXPECT_DOUBLE_EQ(result.alpha, alpha);
+  EXPECT_TRUE(result.clamped());
 
   const ES::VXd updatedPositions = fixture.restPositions + alpha * dx;
   EXPECT_LT(tetDeterminant(fixture.mesh(), 0, fixture.restPositions + dx), 0.0);
@@ -353,10 +355,10 @@ TEST(DeformationModelEnergyMaxStepGTest, DisabledMaterialMaxStepSkipsTetClamp)
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
   const ES::VXd dx = makeTetFlipDirection(fixture.mesh().getNumVertices(), 3, -2.0);
 
-  const MaxStepResult result = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = fixture.energy->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(result.alpha, 1.0);
-  EXPECT_DOUBLE_EQ(result.materialAlpha, 1.0);
-  EXPECT_FALSE(result.materialClamped);
+  EXPECT_DOUBLE_EQ(result.alpha, 1.0);
+  EXPECT_FALSE(result.clamped());
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, TetIllegalInitialStateWarnsEachCallAndClamps)
@@ -368,8 +370,8 @@ TEST(DeformationModelEnergyMaxStepGTest, TetIllegalInitialStateWarnsEachCallAndC
   dx[0] = 0.1;
 
   testing::internal::CaptureStdout();
-  const MaxStepResult result1 = fixture.energy->computeMaxStepLimit(x, dx);
-  const MaxStepResult result2 = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result1 = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result2 = fixture.energy->computeMaxStepLimit(x, dx);
   const std::string logOutput = testing::internal::GetCapturedStdout();
 
   const double alpha1 = result1.alpha;
@@ -377,8 +379,8 @@ TEST(DeformationModelEnergyMaxStepGTest, TetIllegalInitialStateWarnsEachCallAndC
   EXPECT_GT(alpha1, 0.0);
   EXPECT_LT(alpha1, 1e-9);
   EXPECT_DOUBLE_EQ(alpha1, alpha2);
-  EXPECT_TRUE(result1.materialClamped);
-  EXPECT_TRUE(result2.materialClamped);
+  EXPECT_TRUE(result1.clamped());
+  EXPECT_TRUE(result2.clamped());
   EXPECT_EQ(countOccurrences(logOutput, "material max step encountered illegal initial state"), 2u);
 }
 
@@ -389,19 +391,19 @@ TEST(DeformationModelEnergyMaxStepGTest, TetSmallAlphaWarnsAndCanBeRecordedInDia
   const ES::VXd dx = makeTetFlipDirection(fixture.mesh().getNumVertices(), 3, -200.0);
 
   testing::internal::CaptureStdout();
-  const MaxStepResult result = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = fixture.energy->computeMaxStepLimit(x, dx);
   const std::string logOutput = testing::internal::GetCapturedStdout();
 
   const double alpha = result.alpha;
   EXPECT_GT(alpha, 0.0);
   EXPECT_LT(alpha, 0.01);
-  EXPECT_TRUE(result.materialClamped);
+  EXPECT_TRUE(result.clamped());
   EXPECT_NE(logOutput.find("materialFeasibleAlpha"), std::string::npos);
 
   SolveDiagnostics diagnostics;
-  diagnostics.recordMaxStep(result);
-  EXPECT_EQ(diagnostics.materialClampCount, 1);
-  EXPECT_DOUBLE_EQ(diagnostics.minMaterialFeasibleAlpha, alpha);
+  diagnostics.report(result);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 1);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], alpha);
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, SolveDiagnosticsResetClearsMaterialCountAndMinimumAlpha)
@@ -410,18 +412,18 @@ TEST(DeformationModelEnergyMaxStepGTest, SolveDiagnosticsResetClearsMaterialCoun
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
   const ES::VXd dx = makeTetFlipDirection(fixture.mesh().getNumVertices(), 3, -2.0);
 
-  const MaxStepResult result = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = fixture.energy->computeMaxStepLimit(x, dx);
   ASSERT_LT(result.alpha, 1.0);
-  ASSERT_TRUE(result.materialClamped);
+  ASSERT_TRUE(result.clamped());
 
   SolveDiagnostics diagnostics;
-  diagnostics.recordMaxStep(result);
-  ASSERT_EQ(diagnostics.materialClampCount, 1);
-  ASSERT_DOUBLE_EQ(diagnostics.minMaterialFeasibleAlpha, result.alpha);
+  diagnostics.report(result);
+  ASSERT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 1);
+  ASSERT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], result.alpha);
 
   diagnostics.reset();
-  EXPECT_EQ(diagnostics.materialClampCount, 0);
-  EXPECT_DOUBLE_EQ(diagnostics.minMaterialFeasibleAlpha, 1.0);
+  EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 0);
+  EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], 1.0);
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, TetMultipleElementsReturnEarliestClamp)
@@ -447,7 +449,7 @@ TEST(DeformationModelEnergyMaxStepGTest, TetMultipleElementsReturnEarliestClamp)
   dx[3 * 3 + 2] = -2.0;
   dx[7 * 3 + 2] = -1.2;
 
-  const MaxStepResult result = multiFixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = multiFixture.energy->computeMaxStepLimit(x, dx);
   const double alpha = result.alpha;
 
   EnergyFixture singleFixture = makeSingleTetFixture();
@@ -456,7 +458,7 @@ TEST(DeformationModelEnergyMaxStepGTest, TetMultipleElementsReturnEarliestClamp)
   const double alphaB = singleFixture.energy->computeMaxStepLimit(singleX, makeTetFlipDirection(singleFixture.mesh().getNumVertices(), 3, -1.2)).alpha;
 
   EXPECT_NEAR(alpha, std::min(alphaA, alphaB), 1e-12);
-  EXPECT_TRUE(result.materialClamped);
+  EXPECT_TRUE(result.clamped());
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, CubicShrinksBeforeInversion)
@@ -465,12 +467,12 @@ TEST(DeformationModelEnergyMaxStepGTest, CubicShrinksBeforeInversion)
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
   const ES::VXd dx = makeCubicTopFaceDirection(fixture.mesh().getNumVertices(), 0, -2.0);
 
-  const MaxStepResult result = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = fixture.energy->computeMaxStepLimit(x, dx);
   const double alpha = result.alpha;
   ASSERT_LT(alpha, 1.0);
   ASSERT_GT(alpha, 0.0);
-  EXPECT_DOUBLE_EQ(result.materialAlpha, alpha);
-  EXPECT_TRUE(result.materialClamped);
+  EXPECT_DOUBLE_EQ(result.alpha, alpha);
+  EXPECT_TRUE(result.clamped());
 
   const ES::VXd updatedPositions = fixture.restPositions + alpha * dx;
   EXPECT_LT(minCubicDeterminant(fixture.mesh(), fixture.manager(), 0, fixture.restPositions + dx), 0.0);
@@ -483,10 +485,10 @@ TEST(DeformationModelEnergyMaxStepGTest, CubicFeasibleDirectionReturnsOne)
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
   const ES::VXd dx = makeCubicTopFaceDirection(fixture.mesh().getNumVertices(), 0, -0.2);
 
-  const MaxStepResult result = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = fixture.energy->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(result.alpha, 1.0);
-  EXPECT_DOUBLE_EQ(result.materialAlpha, 1.0);
-  EXPECT_FALSE(result.materialClamped);
+  EXPECT_DOUBLE_EQ(result.alpha, 1.0);
+  EXPECT_FALSE(result.clamped());
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, CubicMultipleElementsReturnEarliestClamp)
@@ -520,7 +522,7 @@ TEST(DeformationModelEnergyMaxStepGTest, CubicMultipleElementsReturnEarliestClam
   dx += makeCubicTopFaceDirection(multiFixture.mesh().getNumVertices(), 0, -2.0);
   dx += makeCubicTopFaceDirection(multiFixture.mesh().getNumVertices(), 8, -1.2);
 
-  const MaxStepResult result = multiFixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = multiFixture.energy->computeMaxStepLimit(x, dx);
   const double alpha = result.alpha;
 
   EnergyFixture singleFixture = makeSingleCubicFixture();
@@ -529,7 +531,7 @@ TEST(DeformationModelEnergyMaxStepGTest, CubicMultipleElementsReturnEarliestClam
   const double alphaB = singleFixture.energy->computeMaxStepLimit(singleX, makeCubicTopFaceDirection(singleFixture.mesh().getNumVertices(), 0, -1.2)).alpha;
 
   EXPECT_NEAR(alpha, std::min(alphaA, alphaB), 1e-12);
-  EXPECT_TRUE(result.materialClamped);
+  EXPECT_TRUE(result.clamped());
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, ShellKeepsUnitStep)
@@ -539,10 +541,10 @@ TEST(DeformationModelEnergyMaxStepGTest, ShellKeepsUnitStep)
   ES::VXd dx = ES::VXd::Zero(fixture.restPositions.size());
   applyUniformTranslation(dx, 0.1, -0.05, 0.2);
 
-  const MaxStepResult result = fixture.energy->computeMaxStepLimit(x, dx);
+  const StepConstraint result = fixture.energy->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(result.alpha, 1.0);
-  EXPECT_DOUBLE_EQ(result.materialAlpha, 1.0);
-  EXPECT_FALSE(result.materialClamped);
+  EXPECT_DOUBLE_EQ(result.alpha, 1.0);
+  EXPECT_FALSE(result.clamped());
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, ImplicitBackwardEulerTakesMinWithOtherEnergy)
@@ -560,18 +562,18 @@ TEST(DeformationModelEnergyMaxStepGTest, ImplicitBackwardEulerTakesMinWithOtherE
 
   integrator.addGeneralImplicitForceModel(std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.95));
   integrator.assembleImplicitModels();
-  MaxStepResult merged = integrator.getInternalEnergy()->computeMaxStepLimit(x, dx);
+  StepConstraint merged = integrator.getInternalEnergy()->computeMaxStepLimit(x, dx);
   EXPECT_NEAR(merged.alpha, materialAlpha, 1e-12);
-  EXPECT_NEAR(merged.materialAlpha, materialAlpha, 1e-12);
-  EXPECT_TRUE(merged.materialClamped);
+  EXPECT_NEAR(merged.alpha, materialAlpha, 1e-12);
+  EXPECT_TRUE(merged.clamped());
 
   integrator.clearGeneralImplicitForceModel();
   integrator.addGeneralImplicitForceModel(std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.25));
   integrator.assembleImplicitModels();
   merged = integrator.getInternalEnergy()->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(merged.alpha, 0.25);
-  EXPECT_DOUBLE_EQ(merged.materialAlpha, 0.25);
-  EXPECT_TRUE(merged.materialClamped);
+  EXPECT_DOUBLE_EQ(merged.alpha, 0.25);
+  EXPECT_TRUE(merged.clamped());
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, TRBDF2TakesMinWithOtherEnergy)
@@ -589,16 +591,16 @@ TEST(DeformationModelEnergyMaxStepGTest, TRBDF2TakesMinWithOtherEnergy)
 
   integrator.addGeneralImplicitForceModel(std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.9));
   integrator.assembleImplicitModels();
-  MaxStepResult merged = integrator.getTRStageEnergy()->computeMaxStepLimit(x, dx);
+  StepConstraint merged = integrator.getTRStageEnergy()->computeMaxStepLimit(x, dx);
   EXPECT_NEAR(merged.alpha, materialAlpha, 1e-12);
-  EXPECT_NEAR(merged.materialAlpha, materialAlpha, 1e-12);
-  EXPECT_TRUE(merged.materialClamped);
+  EXPECT_NEAR(merged.alpha, materialAlpha, 1e-12);
+  EXPECT_TRUE(merged.clamped());
 
   integrator.clearGeneralImplicitForceModel();
   integrator.addGeneralImplicitForceModel(std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.2));
   integrator.assembleImplicitModels();
   merged = integrator.getTRStageEnergy()->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(merged.alpha, 0.2);
-  EXPECT_DOUBLE_EQ(merged.materialAlpha, 0.2);
-  EXPECT_TRUE(merged.materialClamped);
+  EXPECT_DOUBLE_EQ(merged.alpha, 0.2);
+  EXPECT_TRUE(merged.clamped());
 }

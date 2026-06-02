@@ -25,7 +25,7 @@ public:
   virtual void getDOFs(std::vector<int> &dofs) const override;
   virtual int getNumDOFs() const override;
 
-  virtual NonlinearOptimization::MaxStepResult computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
+  virtual NonlinearOptimization::StepConstraint computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink = nullptr) const override;
 
   virtual int isHessianTopologyFixed() const override;
   virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;

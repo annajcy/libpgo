@@ -120,8 +120,7 @@ class TestPotentialEnergyHandleBasicMethods:
         dx = np.ones(4, dtype=np.float64)
         result = e.max_step(x, dx)
         assert result.alpha == 1.0
-        assert result.material_clamped == False
-        assert result.contact_clamped == False
+        assert result.clamped == False
 
     def test_repr(self):
         e = _make_quadratic_energy(6)

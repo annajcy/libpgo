@@ -56,6 +56,9 @@ jobs:
       - name: Run Python API pytest suite
         run: python -m pytest -q tests/pypgo
 
+      - name: Execute example notebooks
+        run: $env:PYVISTA_OFF_SCREEN='True'; $env:RUN_NOTEBOOKS='1'; python -m pytest tests/pypgo/test_notebook.py -v -k "TestNotebookExecution"
+
   cmake-build:
     name: CMake Preset Build and Test
     runs-on: windows-2022

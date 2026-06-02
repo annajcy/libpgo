@@ -201,14 +201,14 @@ void MappedSurfacePotentialEnergy::hessian(
   }
 }
 
-NonlinearOptimization::MaxStepResult MappedSurfacePotentialEnergy::computeMaxStepLimit(
+NonlinearOptimization::StepConstraint MappedSurfacePotentialEnergy::computeMaxStepLimit(
   EigenSupport::ConstRefVecXd simulationDisplacements,
-  EigenSupport::ConstRefVecXd trialSimulationDisplacements) const
+  EigenSupport::ConstRefVecXd trialSimulationDisplacements, StepConstraintSink *sink) const
 {
   Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kAdapterMaxStep);
   const VXd surfacePositions = computeSurfacePositionsFromSimulationDisplacements(simulationDisplacements);
   const VXd trialSurfaceDisplacements = computeSurfaceDisplacementsFromSimulationDisplacements(trialSimulationDisplacements);
-  return computeSurfaceMaxStepLimit(surfacePositions, trialSurfaceDisplacements);
+  return computeSurfaceMaxStepLimit(surfacePositions, trialSurfaceDisplacements, sink);
 }
 
 void MappedSurfacePotentialEnergy::beginLineSearch(
@@ -225,11 +225,12 @@ void MappedSurfacePotentialEnergy::endLineSearch() const
   endSurfaceLineSearch();
 }
 
-NonlinearOptimization::MaxStepResult MappedSurfacePotentialEnergy::computeSurfaceMaxStepLimit(
+NonlinearOptimization::StepConstraint MappedSurfacePotentialEnergy::computeSurfaceMaxStepLimit(
   EigenSupport::ConstRefVecXd,
-  EigenSupport::ConstRefVecXd) const
+  EigenSupport::ConstRefVecXd,
+  NonlinearOptimization::StepConstraintSink *) const
 {
-  return NonlinearOptimization::MaxStepResult::unconstrained();
+  return NonlinearOptimization::StepConstraint{NonlinearOptimization::StepSource::Contact, 1.0};
 }
 
 void MappedSurfacePotentialEnergy::beginSurfaceLineSearch(

@@ -51,7 +51,7 @@ public:
 
   // Largest feasible step along dx before a barrier (FEM element inversion, contact
   // CCD, ...) is violated. Energies without such a barrier keep the default.
-  virtual MaxStepResult computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const { return MaxStepResult::unconstrained(); }
+  virtual StepConstraint computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink = nullptr) const { return {}; }
 };
 
 typedef std::shared_ptr<PotentialEnergy> PotentialEnergy_p;

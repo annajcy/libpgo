@@ -45,12 +45,10 @@ public:
   ~DeformationModelManagerImpl();
 
   const SimulationMesh *simulationMesh = nullptr;   // non-owning immutable borrow
-
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
 
   // elastic models (owned; element models hold non-owning raw pointers)
   std::vector<std::unique_ptr<ElasticModel>> ownedElasticModels;
-
   // plastic models (owned; element models hold non-owning raw pointers)
   std::vector<std::unique_ptr<PlasticModel>> ownedPlasticModels;
 
