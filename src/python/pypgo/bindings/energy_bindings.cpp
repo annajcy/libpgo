@@ -12,7 +12,9 @@
 #include <vector>
 
 #include "deformationModelFactory.h"
+#include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
+#include "deformationModelManager.h"
 #include "constraints/constraint_core.h"
 #include "EigenDef.h"
 #include "energy_core.h"
@@ -25,6 +27,7 @@
 #include "constraints/potentialEnergyFromConstraintFunctions.h"
 #include "quadraticPotentialEnergy.h"
 #include "simulation_mesh_core.h"
+#include "simulationMesh.h"
 #include "solver/common/solveDiagnostics.h"
 #include "sparse_matrix_core.h"
 
@@ -375,12 +378,12 @@ class PyDeformationEnergy
 public:
   PyDeformationEnergy(std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy,
     std::shared_ptr<PySimulationMesh> meshOwner)
-    : meshOwner_(std::move(meshOwner))
+    : energy_(std::move(energy)), meshOwner_(std::move(meshOwner))
   {
     // Wrap the DeformationModelEnergy in the shared energy handle.
     // DeformationModelEnergy inherits PotentialEnergy, so this is a direct
     // shared_ptr<const PotentialEnergy> cast.
-    handle_ = std::make_shared<PyPotentialEnergy>(energy);
+    handle_ = std::make_shared<PyPotentialEnergy>(energy_);
   }
 
   // Shared energy handle — compatible with EnergySet and all evaluation paths.
@@ -389,15 +392,7 @@ public:
   // Rest position as (num_vertices, 3) ndarray.
   nb::ndarray<nb::numpy, double> restPosition() const
   {
-    // DeformationModelEnergy is held inside handle_ as a shared_ptr<const PotentialEnergy>.
-    // We need to recover the non-const rest position — the underlying energy owns it.
-    // Access through the handle's owned PotentialEnergy which is actually a DeformationModelEnergy.
-    auto *defEnergy = dynamic_cast<const SolidDeformationModel::DeformationModelEnergy *>(
-      handle_->handle_.get());
-    if (!defEnergy) {
-      throw std::runtime_error("PyDeformationEnergy: internal energy is not a DeformationModelEnergy");
-    }
-    const auto &rp = defEnergy->getRestPosition();
+    const auto &rp = energy_->getRestPosition();
     int n3 = static_cast<int>(rp.size());
     int nv = n3 / 3;
     auto data = new std::vector<double>(rp.data(), rp.data() + n3);
@@ -408,10 +403,43 @@ public:
       data->data(), {static_cast<size_t>(nv), static_cast<size_t>(3)}, owner);
   }
 
+  nb::ndarray<nb::numpy, double> plasticParams() const
+  {
+    const auto &manager = energy_->assembler().getDeformationModelManager();
+    const auto &params = manager.getPlasticGlobalParams();
+    const int np = manager.getNumPlasticParameters();
+    const int nele = manager.getMesh()->getNumElements();
+    auto data = params.size() == 0
+      ? new std::vector<double>()
+      : new std::vector<double>(params.data(), params.data() + params.size());
+    nb::capsule owner(data, [](void *p) noexcept {
+      delete static_cast<std::vector<double> *>(p);
+    });
+    return nb::ndarray<nb::numpy, double>(
+      data->data(),
+      {static_cast<size_t>(nele), static_cast<size_t>(np)},
+      owner);
+  }
+
+  void setPlasticParams(nb::ndarray<nb::numpy, const double> params)
+  {
+    auto values = python::ndarrayToVectorXd(params);
+    auto &manager = energy_->assembler().getDeformationModelManager();
+    const auto expected = manager.getPlasticGlobalParams().size();
+    if (values.size() != expected) {
+      throw nb::value_error("plastic_params size must match num_elements * plastic dofs");
+    }
+    {
+      nb::gil_scoped_release release;
+      manager.setPlasticParams(values);
+    }
+  }
+
   // Number of vertices (rest_position rows).
   int numVertices() const { return meshOwner_->numVertices(); }
 
 private:
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy_;
   std::shared_ptr<PySimulationMesh> meshOwner_;
   std::shared_ptr<PyPotentialEnergy> handle_;
 };
@@ -525,6 +553,8 @@ void init_energy_bindings(nb::module_ &m)
   nb::class_<PyDeformationEnergy>(m, "PyDeformationEnergy")
     .def_prop_ro("handle", &PyDeformationEnergy::handle)
     .def("rest_position", &PyDeformationEnergy::restPosition)
+    .def("plastic_params", &PyDeformationEnergy::plasticParams)
+    .def("set_plastic_params", &PyDeformationEnergy::setPlasticParams, nb::arg("plastic_params"))
     .def_prop_ro("num_vertices", &PyDeformationEnergy::numVertices);
 
   // Unified deformation energy factory (public API entry point).

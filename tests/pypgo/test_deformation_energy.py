@@ -22,6 +22,7 @@ import pypgo as pgo
 import pypgo.energy as pe
 import pypgo.fem as pf
 import pypgo._core as _core
+import pypgo.solver as ps
 import pytest
 
 
@@ -338,6 +339,57 @@ class TestTetDeformationEnergy:
         assert es.num_terms == 1
         assert es.num_dofs == energy.num_dofs
         assert es.state_kind == "displacement"
+
+    def test_plastic_params_roundtrip(self):
+        sim = _make_tet_sim_mesh()
+        energy = pf.deformation_energy(
+            sim,
+            elastic=pf.StableNeo(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+        )
+
+        default_params = energy.plastic_params
+        assert default_params.shape == (sim.num_elements, 6)
+        assert np.allclose(default_params, [[1.0, 0.0, 0.0, 1.0, 0.0, 1.0]])
+
+        updated = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
+        energy.set_plastic_params(updated)
+
+        assert np.allclose(energy.plastic_params, updated)
+        updated[0, 0] = 2.0
+        assert energy.plastic_params[0, 0] == pytest.approx(1.05)
+
+    def test_factory_accepts_initial_plastic_params(self):
+        sim = _make_tet_sim_mesh()
+        params = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
+
+        energy = pf.deformation_energy(
+            sim,
+            elastic=pf.StableNeo(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_params=params,
+        )
+
+        assert np.allclose(energy.plastic_params, params)
+
+    def test_static_solve_uses_given_plastic_params(self):
+        sim = _make_tet_sim_mesh()
+        energy = pf.deformation_energy(
+            sim,
+            elastic=pf.StVK(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_params=np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64),
+        )
+
+        x0 = energy.zero_state()
+        fixed_dofs = [dof for dof in range(energy.num_dofs) if dof != 3]
+        problem = ps.OptimizationProblem(objective=energy)
+        problem.fix_variables(fixed_dofs, x0[fixed_dofs], num_dofs=x0.size)
+        result = ps.NewtonOptimizer(max_iterations=50, gradient_tolerance=1e-8).solve(problem, x0)
+
+        assert result.converged
+        assert result.x[3] > 1e-4
+        assert np.allclose(result.x[fixed_dofs], 0.0)
 
 
 # ---------------------------------------------------------------------------

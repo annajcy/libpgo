@@ -262,7 +262,97 @@ CELLS = [
     ),
     md(
         """
-        ## 8. Optional: Soft Pin Energy
+        ## 8. Static Solve with Given Plastic Parameters
+
+        `DeformationEnergy.plastic_params` exposes the per-element plastic
+        field used by the FEM energy.  For volumetric `dofs=6`, each row is a
+        symmetric plastic deformation-gradient parameter:
+
+        $$
+        [F_{xx}, F_{xy}, F_{xz}, F_{yy}, F_{yz}, F_{zz}]
+        $$
+
+        Here we prescribe a spatially varying field on the same box: elements
+        higher in the box want more stretch in `x` and a mild compression in
+        `y`.  The static solve still optimizes only displacement `u`; the
+        plastic parameters are fixed inputs.
+        """
+    ),
+    code(
+        """
+        element_centers = cubic_data.vertices[cubic_data.elements].mean(axis=1)
+        y01 = (element_centers[:, 1] - bbox_min[1]) / (bbox_max[1] - bbox_min[1])
+
+        plastic_params = deformation.plastic_params.copy()
+        plastic_params[:, 0] = 1.00 + 0.18 * y01  # F_xx
+        plastic_params[:, 3] = 1.00 - 0.06 * y01  # F_yy
+        plastic_params[:, 5] = 1.00               # F_zz
+
+        deformation_plastic = pf.deformation_energy(
+            sim_mesh,
+            formulation=pf.LinearCubic(),
+            elastic=pf.StableNeo(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_params=plastic_params,
+        )
+
+        print("plastic params shape:", deformation_plastic.plastic_params.shape)
+        print("F_xx range:", float(plastic_params[:, 0].min()), float(plastic_params[:, 0].max()))
+        print("F_yy range:", float(plastic_params[:, 3].min()), float(plastic_params[:, 3].max()))
+        print("stored params match input:", np.allclose(deformation_plastic.plastic_params, plastic_params))
+
+        total_energy_plastic = pe.EnergySet([
+            (deformation_plastic, 1.0)
+        ])
+
+        problem_plastic = ps.OptimizationProblem(objective=total_energy_plastic)
+        # problem_plastic.fix_variables(fixed_dofs.tolist(), x0[fixed_dofs], num_dofs=x0.size)
+        result_plastic = optimizer.solve(problem_plastic, x0)
+
+        print("status:", result_plastic.status.name)
+        print("converged:", result_plastic.converged)
+        print("iterations:", result_plastic.iterations)
+        print("final objective:", result_plastic.final_objective)
+        print("final gradient max norm:", result_plastic.final_gradient_max_norm)
+        print("max |u|:", float(np.max(np.abs(result_plastic.x))))
+        # print("fixed values after plastic solve:", result_plastic.x[fixed_dofs])
+        """
+    ),
+    code(
+        """
+        plastic_displacement = result_plastic.x.reshape((-1, 3))
+        plastic_deformed_vertices = cubic_data.vertices + plastic_displacement
+        plastic_deformed_cubic = pgo.mesh.CubicMeshData(plastic_deformed_vertices, cubic_data.elements)
+        plastic_deformed_surface = surface_embedding.deform(result_plastic.x)
+
+        plastic_obj = OUTPUT_DIR / "static_solve_box_hang_plastic_deformed.obj"
+        pgo.mesh.write_obj(str(plastic_obj), plastic_deformed_surface)
+
+        print("plastic deformed bbox:", plastic_deformed_cubic.bbox)
+        print(
+            "plastic deformed surface:",
+            plastic_deformed_surface.num_vertices,
+            "vertices,",
+            plastic_deformed_surface.num_elements,
+            "triangles",
+        )
+        print("wrote plastic OBJ:", plastic_obj)
+
+        vis.plot_surface(
+            [embedded_surface, plastic_deformed_surface],
+            titles=[
+                "embedded rest surface",
+                "given plastic params static solve",
+            ],
+            colors=["lightgray", "cornflowerblue"],
+            show_edges=True,
+            window_size=(1100, 420),
+        )
+        """
+    ),
+    md(
+        """
+        ## 9. Optional: Soft Pin Energy
 
         A JSON-style `coeff` pin is a soft penalty. For a hard static boundary,
         prefer hard variable bounds as above. If you want a soft attachment

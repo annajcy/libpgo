@@ -271,6 +271,11 @@ class TestNotebookSources:
         assert "pgo.mesh.write_obj" in source
         assert "static_solve_box_hang_deformed.obj" in source
         assert "static_solve_box_hang_soft_pin_deformed.obj" in source
+        assert "plastic_params" in source
+        assert "deformation_plastic = pf.deformation_energy" in source
+        assert "plastic_deformed_surface = surface_embedding.deform(result_plastic.x)" in source
+        assert "static_solve_box_hang_plastic_deformed.obj" in source
+        assert "given plastic params static solve" in source
         assert "vis.plot_volume_surface" in source
         assert "vis.plot_surface" in source
         assert "surface_to_volume_interpolation_matrix" not in source

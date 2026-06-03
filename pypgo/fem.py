@@ -200,6 +200,7 @@ def deformation_energy(
     elastic=None,           # StableNeo | StVK | StVKVolume | LinearElastic | MooneyRivlin | KoiterStVK
     plastic=None,           # VolumetricPlasticity | ShellPlasticity
     options=None,           # DeformationOptions | None
+    plastic_params=None,    # ndarray | None
 ) -> DeformationEnergy:
     """Create a deformation energy from a simulation mesh.
 
@@ -216,6 +217,9 @@ def deformation_energy(
         Plastic parametrization.  Required.
     options : DeformationOptions, optional
         Additional options (SPD enforcement, max-step limiting).
+    plastic_params : ndarray, optional
+        Initial per-element plastic parameters.  Shape must be
+        ``(num_elements, plastic.dofs)`` or flat equivalent.
 
     Returns
     -------
@@ -289,4 +293,7 @@ def deformation_energy(
         bool(options.enable_material_max_step),
     )
 
-    return DeformationEnergy(core)
+    energy = DeformationEnergy(core)
+    if plastic_params is not None:
+        energy.set_plastic_params(plastic_params)
+    return energy
