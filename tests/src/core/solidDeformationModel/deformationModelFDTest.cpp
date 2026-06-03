@@ -106,8 +106,8 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
         mesh->setMaterial(-1, mat);
       }
 
-      auto elasticField = ElasticModelFactory::createDefaultField(*mesh, elasticMat);
-      auto plasticField = PlasticModelFactory::createDefaultField(*mesh, plasticMat);
+      auto elasticField = ElasticModelFactory::createDefaultElementwiseField(*mesh, elasticMat);
+      auto plasticField = PlasticModelFactory::createDefaultElementwiseField(*mesh, plasticMat);
       std::unique_ptr<DeformationModelManager> dmm = std::make_unique<DeformationModelManager>(
         *mesh,
         pgo::SolidDeformationModel::P1TetFormulation{},
@@ -450,8 +450,8 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
         mesh->setMaterial(-1, mat);
       }
 
-      auto elasticField = ElasticModelFactory::createDefaultField(*mesh, elasticMat);
-      auto plasticField = PlasticModelFactory::createDefaultField(*mesh, plasticMat);
+      auto elasticField = ElasticModelFactory::createDefaultElementwiseField(*mesh, elasticMat);
+      auto plasticField = PlasticModelFactory::createDefaultElementwiseField(*mesh, plasticMat);
       std::unique_ptr<DeformationModelManager> dmm = std::make_unique<DeformationModelManager>(
         *mesh,
         pgo::SolidDeformationModel::P1TetFormulation{},

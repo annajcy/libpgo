@@ -655,9 +655,9 @@ int SimulationMeshMaterial::numElasticParameters(DeformationModelElasticMaterial
   case DeformationModelElasticMaterial::HILL_STABLE_NEO:
   case DeformationModelElasticMaterial::HILL_STVK:
   case DeformationModelElasticMaterial::HILL_STVK_VOL:
-    return 3;
+    return 1;
   case DeformationModelElasticMaterial::KOITER_FABRIC:
-    return 2;
+    return 12;
   case DeformationModelElasticMaterial::KOITER_STVK:
     return 5;
   case DeformationModelElasticMaterial::MOONEY_RIVLIN:

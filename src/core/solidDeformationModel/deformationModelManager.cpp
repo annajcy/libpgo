@@ -208,7 +208,11 @@ void validateParameterField(const char *name, const OptimizableField *field,
   if (!layout)
     throw std::invalid_argument(std::string(name) + " must provide a DOF layout.");
 
-  if (layout->numGlobalDofs() != expectedChannels * expectedElements)
+  // A constant (mesh-wide shared) field stores a single set of expectedChannels
+  // parameters; an elementwise field stores one set per element.
+  const bool shared = field->kind() == ParameterFieldKind::CONSTANT;
+  const int expectedGlobalDofs = shared ? expectedChannels : expectedChannels * expectedElements;
+  if (layout->numGlobalDofs() != expectedGlobalDofs)
     throw std::invalid_argument(std::string(name) + " global DOF count does not match the mesh.");
 }
 

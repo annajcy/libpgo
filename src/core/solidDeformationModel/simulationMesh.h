@@ -39,9 +39,9 @@ public:
 
   virtual std::unique_ptr<SimulationMeshMaterial> clone() const = 0;
 
-  // Number of optimization parameters for a given material model type.
-  // Material + model type jointly determine the count. Base implementation
-  // dispatches by enum; override for runtime-defined counts (e.g. Mooney-Rivlin).
+  // Number of parameter-field channels for a given material model type. This
+  // excludes fixed material constants such as E, nu, h, and Hill shape constants
+  // unless the created ElasticModel differentiates with respect to them.
   virtual int numElasticParameters(DeformationModelElasticMaterial t) const;
   virtual int numPlasticParameters(DeformationModelPlasticMaterial t) const;
 
@@ -214,8 +214,6 @@ public:
 
   int getM() const { return M; }
   int getN() const { return N; }
-
-  int numElasticParameters(DeformationModelElasticMaterial) const override { return N + M; }
 
   std::unique_ptr<SimulationMeshMaterial> clone() const override
   {

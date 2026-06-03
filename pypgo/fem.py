@@ -145,6 +145,18 @@ class ElementwiseField:
     values: object = None
 
 
+@dataclass(frozen=True)
+class ConstantField:
+    """Constant (mesh-wide shared) parameter field descriptor.
+
+    A single set of ``num_channels`` parameters is shared by every element.
+    ``values=None`` asks C++ to seed the shared values from the mesh/material
+    payload. Otherwise values may be flat ``(num_channels,)`` or ``(1, num_channels)``.
+    """
+
+    values: object = None
+
+
 class ParameterField:
     """View of a state-owned C++ parameter field."""
 
@@ -235,12 +247,29 @@ def _field_values_array(name, values, num_elements, num_channels=None):
     return np.ascontiguousarray(arr, dtype=np.float64)
 
 
+def _field_type_string(name, field):
+    if isinstance(field, ElementwiseField):
+        return "elementwise"
+    if isinstance(field, ConstantField):
+        return "constant"
+    raise TypeError(
+        f"{name} must be ElementwiseField or ConstantField, got {type(field).__name__}"
+    )
+
+
 def _field_init_values(name, field, num_elements, num_channels=None):
-    if not isinstance(field, ElementwiseField):
-        raise TypeError(f"{name} must be ElementwiseField, got {type(field).__name__}")
-    if field.values is None:
-        return None
-    return _field_values_array(name, field.values, num_elements, num_channels).ravel()
+    if isinstance(field, ConstantField):
+        # A constant field stores a single shared set of num_channels parameters.
+        if field.values is None:
+            return None
+        return _field_values_array(name, field.values, 1, num_channels).ravel()
+    if isinstance(field, ElementwiseField):
+        if field.values is None:
+            return None
+        return _field_values_array(name, field.values, num_elements, num_channels).ravel()
+    raise TypeError(
+        f"{name} must be ElementwiseField or ConstantField, got {type(field).__name__}"
+    )
 
 
 def _require_sim_mesh(sim_mesh):
@@ -296,6 +325,8 @@ def deformation_model_state(
         elastic_values,
         plastic._to_string(),
         plastic_values,
+        _field_type_string("elastic_field", elastic_field),
+        _field_type_string("plastic_field", plastic_field),
     )
     return DeformationModelState(core)
 

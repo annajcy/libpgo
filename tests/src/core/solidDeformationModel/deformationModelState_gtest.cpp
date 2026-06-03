@@ -70,6 +70,69 @@ TEST(DeformationModelStateGTest, OwnsAndUpdatesElementwisePlasticValues)
   EXPECT_TRUE(state->plasticParameterSnapshot().isApprox(updated));
 }
 
+TEST(DeformationModelStateGTest, CreatesConstantFieldsSharedAcrossMesh)
+{
+  pgo::Logging::init();
+
+  auto mesh = makeCubicSimulationMesh();
+
+  auto state = DeformationModelState::create(
+    mesh,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    ElasticFieldInit{ ElasticMaterialFieldType::CONSTANT, std::nullopt },
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, std::nullopt });
+
+  ASSERT_NE(state, nullptr);
+  // A constant (mesh-wide shared) field has numChannels global dofs, not
+  // numChannels * numElements.
+  EXPECT_EQ(state->elasticField().dofLayout()->numGlobalDofs(), 2);
+  EXPECT_EQ(state->plasticField().dofLayout()->numGlobalDofs(), 6);
+  EXPECT_EQ(state->elasticField().kind(), ParameterFieldKind::CONSTANT);
+  EXPECT_EQ(state->plasticField().kind(), ParameterFieldKind::CONSTANT);
+}
+
+TEST(DeformationModelStateGTest, OwnsAndUpdatesConstantPlasticValues)
+{
+  pgo::Logging::init();
+
+  auto mesh = makeCubicSimulationMesh();
+  ES::VXd plasticValues(6);
+  plasticValues << 1.05, 0.0, 0.0, 1.0, 0.0, 1.0;
+
+  auto state = DeformationModelState::create(
+    mesh,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    ElasticFieldInit{},
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, plasticValues });
+
+  EXPECT_EQ(state->plasticParameterSnapshot().size(), 6);
+  EXPECT_TRUE(state->plasticParameterSnapshot().isApprox(plasticValues));
+
+  ES::VXd updated = plasticValues;
+  updated[0] = 0.95;
+  state->setPlasticValues(updated);
+  EXPECT_TRUE(state->plasticParameterSnapshot().isApprox(updated));
+}
+
+TEST(DeformationModelStateGTest, RejectsWrongConstantValueSize)
+{
+  pgo::Logging::init();
+
+  auto mesh = makeCubicSimulationMesh();
+  ES::VXd wrongPlastic = ES::VXd::Zero(mesh->getNumElements() * 6);
+
+  EXPECT_THROW(
+    DeformationModelState::create(
+      mesh,
+      DeformationModelElasticMaterial::STABLE_NEO,
+      ElasticFieldInit{},
+      DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+      PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, wrongPlastic }),
+    std::invalid_argument);
+}
+
 TEST(DeformationModelStateGTest, RejectsWrongElementwiseValueSize)
 {
   pgo::Logging::init();

@@ -18,7 +18,7 @@ public:
     numParams(np) {}
   virtual ~PlasticModel3DDeformationGradient() {}
 
-  virtual int getNumParameters() const { return 0; }
+  virtual int getNumParameters() const override { return 0; }
   virtual void computeA(const double *param, double A[9]) const;
   virtual void computeAInv(const double *param, double AInv[9]) const;
   virtual double compute_detA(const double *param) const { return 1.0; }

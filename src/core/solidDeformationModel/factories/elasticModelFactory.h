@@ -34,7 +34,7 @@ public:
     const SimulationMesh &mesh,
     DeformationModelElasticMaterial type);
 
-  static std::shared_ptr<OptimizableField> createDefaultField(
+  static std::shared_ptr<OptimizableField> createDefaultElementwiseField(
     const SimulationMesh &mesh,
     DeformationModelElasticMaterial type);
 
@@ -43,9 +43,20 @@ public:
     DeformationModelElasticMaterial type,
     EigenSupport::VXd values);
 
-  // Initialize default elastic parameter snapshot for the full mesh.
-  // Currently handles KOITER_STVK shell params; leaves others zero.
-  // Returns per-element elastic params (flattened, size nele * paramsPerElement).
+  // Constant (mesh-wide shared) elastic parameter field: a single set of
+  // numChannels parameters used by every element. The default variant seeds the
+  // shared values from element 0's material.
+  static std::shared_ptr<OptimizableField> createDefaultConstantField(
+    const SimulationMesh &mesh,
+    DeformationModelElasticMaterial type);
+
+  static std::shared_ptr<OptimizableField> createConstantField(
+    const SimulationMesh &mesh,
+    DeformationModelElasticMaterial type,
+    EigenSupport::VXd values);
+
+  // Initialize default elastic parameter-field values for the full mesh.
+  // Returns per-element values (flattened, size nele * paramsPerElement).
   static EigenSupport::VXd initializeDefaultElasticParams(
     const SimulationMesh &mesh,
     DeformationModelElasticMaterial elastic,

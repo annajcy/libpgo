@@ -3,6 +3,7 @@
 #include "../simulationMesh.h"
 #include "../elasticModel.h"
 #include "../formulations/parameters/elementwiseParameterField.h"
+#include "../formulations/parameters/constantParameterField.h"
 
 #include <stdexcept>
 
@@ -38,6 +39,8 @@ std::string ElasticModelFactory::modelId(DeformationModelElasticMaterial type)
     return "mooney_rivlin";
   case DeformationModelElasticMaterial::KOITER_STVK:
     return "koiter_stvk";
+  case DeformationModelElasticMaterial::KOITER_FABRIC:
+    return "koiter_fabric";
   case DeformationModelElasticMaterial::HILL_STABLE_NEO:
     return "hill_stable_neo";
   case DeformationModelElasticMaterial::HILL_STVK:
@@ -57,6 +60,7 @@ DeformationModelElasticMaterial ElasticModelFactory::materialFromModelId(const s
   if (modelId == "linear") return DeformationModelElasticMaterial::LINEAR;
   if (modelId == "mooney_rivlin") return DeformationModelElasticMaterial::MOONEY_RIVLIN;
   if (modelId == "koiter_stvk") return DeformationModelElasticMaterial::KOITER_STVK;
+  if (modelId == "koiter_fabric") return DeformationModelElasticMaterial::KOITER_FABRIC;
   if (modelId == "hill_stable_neo") return DeformationModelElasticMaterial::HILL_STABLE_NEO;
   if (modelId == "hill_stvk") return DeformationModelElasticMaterial::HILL_STVK;
   if (modelId == "hill_stvk_vol") return DeformationModelElasticMaterial::HILL_STVK_VOL;
@@ -74,10 +78,24 @@ ParameterFieldSpec ElasticModelFactory::parameterSpec(
   if (type == DeformationModelElasticMaterial::KOITER_STVK && spec.numChannels == 5) {
     spec.channelNames = { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" };
   }
+  else if (type == DeformationModelElasticMaterial::KOITER_FABRIC && spec.numChannels == 12) {
+    spec.channelNames = {
+      "membrane_warp", "membrane_weft", "membrane_shear", "membrane_cross",
+      "bend_warp", "bend_weft", "bend_shear",
+      "warp_stretch", "weft_stretch", "shear_stretch",
+      "fiber_coupling", "thickness"
+    };
+  }
+  else if ((type == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
+            type == DeformationModelElasticMaterial::HILL_STVK ||
+            type == DeformationModelElasticMaterial::HILL_STVK_VOL) &&
+      spec.numChannels == 1) {
+    spec.channelNames = { "activation" };
+  }
   return spec;
 }
 
-std::shared_ptr<OptimizableField> ElasticModelFactory::createDefaultField(
+std::shared_ptr<OptimizableField> ElasticModelFactory::createDefaultElementwiseField(
   const SimulationMesh &mesh,
   DeformationModelElasticMaterial type)
 {
@@ -92,6 +110,27 @@ std::shared_ptr<OptimizableField> ElasticModelFactory::createElementwiseField(
   ES::VXd values)
 {
   return std::make_shared<ElementwiseParameterField>(
+    parameterSpec(mesh, type), mesh.getNumElements(), std::move(values));
+}
+
+std::shared_ptr<OptimizableField> ElasticModelFactory::createDefaultConstantField(
+  const SimulationMesh &mesh,
+  DeformationModelElasticMaterial type)
+{
+  const auto spec = parameterSpec(mesh, type);
+  // Seed the shared values from element 0's material (first segment of the
+  // per-element default initialization).
+  ES::VXd perElement = initializeDefaultElasticParams(mesh, type, spec.numChannels);
+  ES::VXd values = spec.numChannels > 0 ? ES::VXd(perElement.head(spec.numChannels)) : ES::VXd();
+  return std::make_shared<ConstantParameterField>(spec, mesh.getNumElements(), std::move(values));
+}
+
+std::shared_ptr<OptimizableField> ElasticModelFactory::createConstantField(
+  const SimulationMesh &mesh,
+  DeformationModelElasticMaterial type,
+  ES::VXd values)
+{
+  return std::make_shared<ConstantParameterField>(
     parameterSpec(mesh, type), mesh.getNumElements(), std::move(values));
 }
 
@@ -134,6 +173,22 @@ ES::VXd ElasticModelFactory::initializeDefaultElasticParams(
           throw std::runtime_error("ElasticModelFactory::initializeDefaultElasticParams: KOITER_STVK requires SimulationMeshENuhMaterial.");
         elasticParams.segment<5>(ei * 5) << mat->getE(), mat->getNu(), mat->getE(), mat->getNu(), mat->geth();
       }
+    }
+    else if (elastic == DeformationModelElasticMaterial::KOITER_FABRIC) {
+      for (int ei = 0; ei < nele; ei++) {
+        const auto *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(mesh.getElementMaterial(ei, 0));
+        if (!mat)
+          throw std::runtime_error("ElasticModelFactory::initializeDefaultElasticParams: KOITER_FABRIC requires SimulationMeshENuhMaterial.");
+        elasticParams.segment<12>(ei * 12) << 1.0, 1.0, 1.0, 1.0,
+          1.0, 1.0, 1.0,
+          1000.0, 1000.0, 1000.0,
+          1.0, mat->geth();
+      }
+    }
+    else if (elastic == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
+        elastic == DeformationModelElasticMaterial::HILL_STVK ||
+        elastic == DeformationModelElasticMaterial::HILL_STVK_VOL) {
+      elasticParams.setOnes();
     }
   }
 

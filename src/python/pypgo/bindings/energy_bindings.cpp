@@ -17,7 +17,6 @@
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
-#include "formulations/parameters/elementwiseParameterField.h"
 #include "formulations/parameters/parameterField.h"
 #include "constraints/constraint_core.h"
 #include "EigenDef.h"
@@ -152,12 +151,10 @@ public:
   std::string model() const { return field_->spec().modelId; }
   int numChannels() const { return field_->numChannels(); }
 
+  // Number of parameter rows: nele for an elementwise field, 1 for a constant
+  // (mesh-wide shared) field.
   int numElements() const
   {
-    const auto *elementwise = dynamic_cast<const SolidDeformationModel::ElementwiseParameterField *>(field_.get());
-    if (elementwise) {
-      return elementwise->numElements();
-    }
     const auto *layout = field_->dofLayout();
     if (!layout || field_->numChannels() == 0) {
       return 0;
@@ -167,33 +164,32 @@ public:
 
   nb::ndarray<nb::numpy, double> values() const
   {
-    const auto *elementwise = dynamic_cast<const SolidDeformationModel::ElementwiseParameterField *>(field_.get());
-    if (!elementwise) {
-      throw nb::type_error("ParameterField values are only exposed for elementwise fields.");
-    }
-    const auto &values = elementwise->values();
-    const int nele = elementwise->numElements();
-    const int nc = elementwise->numChannels();
-    auto data = values.size() == 0
+    const auto *layout = field_->dofLayout();
+    const int nc = field_->numChannels();
+    const int n = layout ? layout->numGlobalDofs() : 0;
+    const int rows = nc > 0 ? n / nc : 0;
+    const double *src = field_->globalData();
+    auto data = (n == 0 || !src)
       ? new std::vector<double>()
-      : new std::vector<double>(values.data(), values.data() + values.size());
+      : new std::vector<double>(src, src + n);
     nb::capsule owner(data, [](void *p) noexcept {
       delete static_cast<std::vector<double> *>(p);
     });
     return nb::ndarray<nb::numpy, double>(
       data->data(),
-      {static_cast<size_t>(nele), static_cast<size_t>(nc)},
+      {static_cast<size_t>(rows), static_cast<size_t>(nc)},
       owner);
   }
 
   void setValues(nb::ndarray<nb::numpy, const double> values)
   {
-    auto *elementwise = dynamic_cast<SolidDeformationModel::ElementwiseParameterField *>(field_.get());
-    if (!elementwise) {
-      throw nb::type_error("ParameterField values can only be set for elementwise fields.");
-    }
+    const auto *layout = field_->dofLayout();
+    const int expected = layout ? layout->numGlobalDofs() : 0;
     auto vec = python::ndarrayToVectorXd(values);
-    elementwise->setValues(std::move(vec));
+    if (vec.size() != expected) {
+      throw nb::value_error("ParameterField.set_values: values size does not match the field's global dof count.");
+    }
+    field_->setGlobalData(vec.data());
   }
 
 private:
@@ -254,21 +250,39 @@ private:
   std::shared_ptr<SolidDeformationModel::DeformationModelState> state_;
 };
 
+SolidDeformationModel::ElasticMaterialFieldType parseElasticFieldType(const std::string &type)
+{
+  if (type == "elementwise") return SolidDeformationModel::ElasticMaterialFieldType::ELEMENTWISE;
+  if (type == "constant") return SolidDeformationModel::ElasticMaterialFieldType::CONSTANT;
+  throw nb::value_error("unknown elastic field type (expected 'elementwise' or 'constant')");
+}
+
+SolidDeformationModel::PlasticMaterialFieldType parsePlasticFieldType(const std::string &type)
+{
+  if (type == "elementwise") return SolidDeformationModel::PlasticMaterialFieldType::ELEMENTWISE;
+  if (type == "constant") return SolidDeformationModel::PlasticMaterialFieldType::CONSTANT;
+  throw nb::value_error("unknown plastic field type (expected 'elementwise' or 'constant')");
+}
+
 std::shared_ptr<PyDeformationModelState> createDeformationModelState(
   std::shared_ptr<PySimulationMesh> meshCore,
   const std::string &elasticModel,
   nb::object elasticValues,
   const std::string &plasticModel,
-  nb::object plasticValues)
+  nb::object plasticValues,
+  const std::string &elasticFieldType,
+  const std::string &plasticFieldType)
 {
   if (!meshCore) {
     throw nb::value_error("mesh_core must be non-null");
   }
 
   SolidDeformationModel::ElasticFieldInit elasticField;
+  elasticField.type = parseElasticFieldType(elasticFieldType);
   elasticField.values = optionalVectorFromObject(elasticValues);
 
   SolidDeformationModel::PlasticFieldInit plasticField;
+  plasticField.type = parsePlasticFieldType(plasticFieldType);
   plasticField.values = optionalVectorFromObject(plasticValues);
 
   auto state = SolidDeformationModel::DeformationModelState::create(
@@ -666,7 +680,9 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("elastic_model"),
     nb::arg("elastic_values").none(),
     nb::arg("plastic_model"),
-    nb::arg("plastic_values").none());
+    nb::arg("plastic_values").none(),
+    nb::arg("elastic_field_type") = "elementwise",
+    nb::arg("plastic_field_type") = "elementwise");
 
   // Unified deformation energy factory (public API entry point).
   m.def("_create_deformation_energy", &createDeformationEnergy,

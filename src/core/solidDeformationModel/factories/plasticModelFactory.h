@@ -25,11 +25,23 @@ public:
   static DeformationModelPlasticMaterial materialFromModelId(const std::string &modelId);
   static ParameterFieldSpec parameterSpec(DeformationModelPlasticMaterial type);
 
-  static std::shared_ptr<OptimizableField> createDefaultField(
+  static std::shared_ptr<OptimizableField> createDefaultElementwiseField(
     const SimulationMesh &mesh,
     DeformationModelPlasticMaterial type);
 
   static std::shared_ptr<OptimizableField> createElementwiseField(
+    const SimulationMesh &mesh,
+    DeformationModelPlasticMaterial type,
+    EigenSupport::VXd values);
+
+  // Constant (mesh-wide shared) plastic parameter field: a single set of
+  // numChannels parameters used by every element. The default variant seeds the
+  // shared values from PlasticModel::defaultParams().
+  static std::shared_ptr<OptimizableField> createDefaultConstantField(
+    const SimulationMesh &mesh,
+    DeformationModelPlasticMaterial type);
+
+  static std::shared_ptr<OptimizableField> createConstantField(
     const SimulationMesh &mesh,
     DeformationModelPlasticMaterial type,
     EigenSupport::VXd values);

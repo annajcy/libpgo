@@ -22,11 +22,13 @@ class SimulationMesh;
 enum class ElasticMaterialFieldType
 {
   ELEMENTWISE,
+  CONSTANT,
 };
 
 enum class PlasticMaterialFieldType
 {
   ELEMENTWISE,
+  CONSTANT,
 };
 
 struct ElasticFieldInit

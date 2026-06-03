@@ -13,6 +13,9 @@
 #include "tetMesh.h"
 #include "triMeshGeo.h"
 
+#include <tbb/global_control.h>
+
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -39,6 +42,8 @@ using pgo::SolidDeformationModel::SimulationMeshType;
 constexpr const char *kTorusVegPath = LIBPGO_TEST_TORUS_VEG;
 constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
 constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
+constexpr double kFiniteDifferenceStep = 1e-6;
+constexpr int kExactDerivativeEnforceSpd = 0;
 
 void setFieldDataIfPresent(OptimizableField &field, const ES::VXd &values)
 {
@@ -143,6 +148,30 @@ FieldBackedManager makeFieldBackedManager(
     vertexFiberDirections);
   return { std::move(manager), std::move(state), std::move(elasticField), std::move(plasticField) };
 }
+
+class ScopedSerialTbb
+{
+public:
+  ScopedSerialTbb(): control_(tbb::global_control::max_allowed_parallelism, 1) {}
+
+private:
+  tbb::global_control control_;
+};
+
+template<class EvalGradientAtDelta>
+ES::VXd fivePointFiniteDifference(EvalGradientAtDelta eval, double h = kFiniteDifferenceStep)
+{
+  ES::VXd gp2 = eval(2.0 * h);
+  ES::VXd gp1 = eval(h);
+  ES::VXd gm1 = eval(-h);
+  ES::VXd gm2 = eval(-2.0 * h);
+  return (-gp2 + 8.0 * gp1 - 8.0 * gm1 + gm2) / (12.0 * h);
+}
+
+double relativeColumnError(const ES::VXd &fd, const ES::VXd &analytic)
+{
+  return (fd - analytic).norm() / std::max(1.0, analytic.norm());
+}
 }
 
 TEST(DeformationModelAssemblerGTest, TetAssemblerRegression)
@@ -154,8 +183,6 @@ TEST(DeformationModelAssemblerGTest, TetAssemblerRegression)
   ASSERT_NE(mesh, nullptr);
 
   const int nele = mesh->getNumElements();
-  const int nvtx = mesh->getNumVertices();
-  const int n3 = nvtx * 3;
 
   auto managerFields = makeFieldBackedManager(mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{});
 
@@ -195,6 +222,194 @@ TEST(DeformationModelAssemblerGTest, TetAssemblerRegression)
   EXPECT_EQ(dfda.rows(), assembler->getNumDOFs());
   EXPECT_EQ(dfda.cols(), nele * numPlasticParams);
   expectAllFinite(dfda);
+}
+
+TEST(DeformationModelAssemblerGTest, ConstantFieldSharesParamColumnsAcrossElements)
+{
+  using pgo::SolidDeformationModel::ElasticMaterialFieldType;
+  using pgo::SolidDeformationModel::PlasticMaterialFieldType;
+
+  pgo::Logging::init();
+
+  pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadTetMesh(&tetMesh).release());
+  ASSERT_NE(mesh, nullptr);
+
+  const int nele = mesh->getNumElements();
+  ASSERT_GT(nele, 1);
+
+  const pgo::SolidDeformationModel::P1TetFormulation formulation{};
+  const auto elastic = DeformationModelElasticMaterial::STABLE_NEO;
+  const auto plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
+  const int numPlasticParams = 6;
+
+  // A single shared plastic set (a mild stretch so the derivatives are nonzero).
+  ES::VXd plasticShared(numPlasticParams);
+  plasticShared << 1.1, 0.0, 0.0, 1.0, 0.0, 1.0;
+
+  // Constant (mesh-wide shared) state.
+  auto constantState = DeformationModelState::create(
+    mesh, elastic, ElasticFieldInit{},
+    plastic, PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, plasticShared });
+
+  // Elementwise state whose per-element values broadcast the same shared set.
+  ES::VXd plasticEw(static_cast<Eigen::Index>(nele) * numPlasticParams);
+  for (int ei = 0; ei < nele; ei++)
+    plasticEw.segment(ei * numPlasticParams, numPlasticParams) = plasticShared;
+  auto elementwiseState = DeformationModelState::create(
+    mesh, elastic, ElasticFieldInit{},
+    plastic, PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticEw });
+
+  auto makeAssembler = [&](std::shared_ptr<DeformationModelState> state) {
+    auto manager = std::make_unique<DeformationModelManager>(state, formulation, 1, nullptr, nullptr);
+    return std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  };
+  auto constantAssembler = makeAssembler(constantState);
+  auto elementwiseAssembler = makeAssembler(elementwiseState);
+  ASSERT_EQ(constantAssembler->getNumPlasticParams(), numPlasticParams);
+
+  ES::VXd x = makePerturbedRestPositions(*constantAssembler->getDeformationModelManager().getMesh());
+  const int numDOFs = constantAssembler->getNumDOFs();
+  ASSERT_EQ(numDOFs, elementwiseAssembler->getNumDOFs());
+
+  // Constant field: numPlasticParams shared columns (NOT nele * numPlasticParams).
+  ES::SpMatD dfdaConst = constantAssembler->get_dfda_Template();
+  constantAssembler->compute_df_da(x.data(), dfdaConst);
+  EXPECT_EQ(dfdaConst.rows(), numDOFs);
+  EXPECT_EQ(dfdaConst.cols(), numPlasticParams);
+  expectAllFinite(dfdaConst);
+  EXPECT_GT(dfdaConst.norm(), 0.0);
+
+  // Elementwise field: per-element columns.
+  ES::SpMatD dfdaEw = elementwiseAssembler->get_dfda_Template();
+  elementwiseAssembler->compute_df_da(x.data(), dfdaEw);
+  ASSERT_EQ(dfdaEw.cols(), nele * numPlasticParams);
+
+  // A shared parameter's derivative column equals the sum over all elements of the
+  // corresponding per-element columns: that is exactly what the constant-field
+  // column folding produces in the assembler.
+  ES::MXd accum = ES::MXd::Zero(numDOFs, numPlasticParams);
+  for (int ei = 0; ei < nele; ei++) {
+    for (int j = 0; j < numPlasticParams; j++) {
+      accum.col(j) += dfdaEw.col(ei * numPlasticParams + j);
+    }
+  }
+  ES::MXd constDense = ES::MXd(dfdaConst);
+  EXPECT_TRUE(accum.isApprox(constDense, 1e-9))
+    << "Constant dfda columns must equal the sum of the elementwise per-element columns.";
+}
+
+TEST(DeformationModelAssemblerGTest, PlasticParamJacobianMatchesFiniteDifference)
+{
+  using pgo::SolidDeformationModel::PlasticMaterialFieldType;
+
+  pgo::Logging::init();
+
+  // Use the regular-hex cubic box: well-conditioned elements (no slivers) so the
+  // SVD-based plastic gradient is smooth and central differences are reliable. The
+  // torus tet mesh, by contrast, has sliver elements where the gradient has kinks
+  // that wreck finite-difference accuracy.
+  pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh).release());
+  ASSERT_NE(mesh, nullptr);
+
+  const int nele = mesh->getNumElements();
+  ASSERT_GT(nele, 2);
+
+  const pgo::SolidDeformationModel::LinearCubicFormulation formulation{};
+  const auto elastic = DeformationModelElasticMaterial::STABLE_NEO;
+  const auto plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
+  const int numPlasticParams = 6;
+
+  // A single shared plastic set (a mild stretch so the derivatives are nonzero).
+  ES::VXd plasticShared(numPlasticParams);
+  plasticShared << 1.01, 0.004, -0.003, 0.994, 0.005, 1.008;
+
+  // Tolerance for the finite-difference cross-check. A correctly-placed column with a
+  // sign/factor/index bug would be off by O(1); exact column-folding correctness is
+  // covered separately by ConstantFieldSharesParamColumnsAcrossElements.
+  const double fdTol = 1e-6;
+
+  struct StateAssembler
+  {
+    std::shared_ptr<DeformationModelState> state;
+    std::unique_ptr<DeformationModelAssembler> assembler;
+  };
+  auto build = [&](std::shared_ptr<DeformationModelState> state) {
+    // Finite differences measure the true derivative of computeGradient. The SPD
+    // projected Hessian is an optimizer stabilization, not the exact dP/dF.
+    auto manager = std::make_unique<DeformationModelManager>(state, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+    return StateAssembler{ std::move(state), std::move(assembler) };
+  };
+
+  // gradient(x) as a function of the plastic parameter vector.
+  auto gradientAtPlastic = [&](StateAssembler &sa, const ES::VXd &params, const ES::VXd &x) {
+    sa.state->setPlasticValues(params);
+    ES::VXd g = ES::VXd::Zero(sa.assembler->getNumDOFs());
+    sa.assembler->computeGradient(x.data(), g.data());
+    return g;
+  };
+
+  // Serialize gradient assembly while constructing the FD reference: otherwise
+  // atomic accumulation order can add tiny run-to-run noise that FD divides by h.
+  ScopedSerialTbb fdSerialTbb;
+  auto fdColumn = [&](StateAssembler &sa, const ES::VXd &base, int idx, const ES::VXd &x) {
+    return fivePointFiniteDifference([&](double delta) {
+      ES::VXd b = base;
+      b[idx] += delta;
+      return gradientAtPlastic(sa, b, x);
+    });
+  };
+
+  // ---- Constant field: every shared column is checked (only numPlasticParams of them). ----
+  auto constantSA = build(DeformationModelState::create(
+    mesh, elastic, ElasticFieldInit{},
+    plastic, PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, plasticShared }));
+
+  ES::VXd x = makePerturbedRestPositions(*constantSA.assembler->getDeformationModelManager().getMesh());
+
+  ES::SpMatD dfdaConstSp = constantSA.assembler->get_dfda_Template();
+  constantSA.state->setPlasticValues(plasticShared);
+  constantSA.assembler->compute_df_da(x.data(), dfdaConstSp);
+  ES::MXd dfdaConst(dfdaConstSp);
+  ASSERT_EQ(dfdaConst.cols(), numPlasticParams);
+
+  for (int j = 0; j < numPlasticParams; j++) {
+    ES::VXd fd = fdColumn(constantSA, plasticShared, j, x);
+    EXPECT_LT(relativeColumnError(fd, dfdaConst.col(j)), fdTol)
+      << "Constant dfda column " << j << " disagrees with the finite-difference gradient.";
+  }
+  // Restore the field state after the perturbations.
+  constantSA.state->setPlasticValues(plasticShared);
+
+  // ---- Elementwise field: sample a few per-element columns (cheap) to confirm placement. ----
+  ES::VXd plasticEw(static_cast<Eigen::Index>(nele) * numPlasticParams);
+  for (int ei = 0; ei < nele; ei++)
+    plasticEw.segment(ei * numPlasticParams, numPlasticParams) = plasticShared;
+  auto elementwiseSA = build(DeformationModelState::create(
+    mesh, elastic, ElasticFieldInit{},
+    plastic, PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticEw }));
+
+  ES::SpMatD dfdaEwSp = elementwiseSA.assembler->get_dfda_Template();
+  elementwiseSA.state->setPlasticValues(plasticEw);
+  elementwiseSA.assembler->compute_df_da(x.data(), dfdaEwSp);
+  ES::MXd dfdaEw(dfdaEwSp);
+  ASSERT_EQ(dfdaEw.cols(), nele * numPlasticParams);
+
+  // Spot-check a few elements to confirm each element's derivative lands in its own
+  // column block. Cross-element placement is additionally pinned by
+  // ConstantFieldSharesParamColumnsAcrossElements.
+  const int sampleEles[] = { 0, 1, 2 };
+  for (int ele : sampleEles) {
+    for (int j = 0; j < numPlasticParams; j++) {
+      const int col = ele * numPlasticParams + j;
+      ES::VXd fd = fdColumn(elementwiseSA, plasticEw, col, x);
+      EXPECT_LT(relativeColumnError(fd, dfdaEw.col(col)), fdTol)
+        << "Elementwise dfda column for element " << ele << ", param " << j
+        << " disagrees with the finite-difference gradient.";
+    }
+  }
 }
 
 TEST(DeformationModelAssemblerGTest, TetVonMisesStressIsZeroAtRestAndNonzeroUnderStretch)

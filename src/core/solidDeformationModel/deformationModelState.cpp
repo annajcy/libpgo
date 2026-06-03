@@ -53,20 +53,38 @@ std::shared_ptr<DeformationModelState> DeformationModelState::create(
 {
   if (!mesh)
     throw std::invalid_argument("DeformationModelState::create: mesh must be non-null.");
-  if (elasticField.type != ElasticMaterialFieldType::ELEMENTWISE)
-    throw std::invalid_argument("DeformationModelState::create: unsupported elastic field type.");
-  if (plasticField.type != PlasticMaterialFieldType::ELEMENTWISE)
-    throw std::invalid_argument("DeformationModelState::create: unsupported plastic field type.");
 
-  std::shared_ptr<OptimizableField> elasticParamField =
-    elasticField.values ?
+  std::shared_ptr<OptimizableField> elasticParamField;
+  switch (elasticField.type) {
+  case ElasticMaterialFieldType::ELEMENTWISE:
+    elasticParamField = elasticField.values ?
       ElasticModelFactory::createElementwiseField(*mesh, elastic, ES::VXd(*elasticField.values)) :
-      ElasticModelFactory::createDefaultField(*mesh, elastic);
+      ElasticModelFactory::createDefaultElementwiseField(*mesh, elastic);
+    break;
+  case ElasticMaterialFieldType::CONSTANT:
+    elasticParamField = elasticField.values ?
+      ElasticModelFactory::createConstantField(*mesh, elastic, ES::VXd(*elasticField.values)) :
+      ElasticModelFactory::createDefaultConstantField(*mesh, elastic);
+    break;
+  default:
+    throw std::invalid_argument("DeformationModelState::create: unsupported elastic field type.");
+  }
 
-  std::shared_ptr<OptimizableField> plasticParamField =
-    plasticField.values ?
+  std::shared_ptr<OptimizableField> plasticParamField;
+  switch (plasticField.type) {
+  case PlasticMaterialFieldType::ELEMENTWISE:
+    plasticParamField = plasticField.values ?
       PlasticModelFactory::createElementwiseField(*mesh, plastic, ES::VXd(*plasticField.values)) :
-      PlasticModelFactory::createDefaultField(*mesh, plastic);
+      PlasticModelFactory::createDefaultElementwiseField(*mesh, plastic);
+    break;
+  case PlasticMaterialFieldType::CONSTANT:
+    plasticParamField = plasticField.values ?
+      PlasticModelFactory::createConstantField(*mesh, plastic, ES::VXd(*plasticField.values)) :
+      PlasticModelFactory::createDefaultConstantField(*mesh, plastic);
+    break;
+  default:
+    throw std::invalid_argument("DeformationModelState::create: unsupported plastic field type.");
+  }
 
   return std::shared_ptr<DeformationModelState>(new DeformationModelState(
     std::move(mesh),

@@ -8,6 +8,7 @@
 #include "../plasticModel2DFundamentalFormsUniformStretch.h"
 #include "../simulationMesh.h"
 #include "../formulations/parameters/elementwiseParameterField.h"
+#include "../formulations/parameters/constantParameterField.h"
 
 #include <vector>
 
@@ -123,7 +124,7 @@ ParameterFieldSpec PlasticModelFactory::parameterSpec(DeformationModelPlasticMat
   return spec;
 }
 
-std::shared_ptr<OptimizableField> PlasticModelFactory::createDefaultField(
+std::shared_ptr<OptimizableField> PlasticModelFactory::createDefaultElementwiseField(
   const SimulationMesh &mesh,
   DeformationModelPlasticMaterial type)
 {
@@ -146,6 +147,30 @@ std::shared_ptr<OptimizableField> PlasticModelFactory::createElementwiseField(
   ES::VXd values)
 {
   return std::make_shared<ElementwiseParameterField>(
+    parameterSpec(type), mesh.getNumElements(), std::move(values));
+}
+
+std::shared_ptr<OptimizableField> PlasticModelFactory::createDefaultConstantField(
+  const SimulationMesh &mesh,
+  DeformationModelPlasticMaterial type)
+{
+  const int np = numParameters(type);
+  ES::VXd values(np);
+  values.setZero();
+  if (np > 0) {
+    std::unique_ptr<PlasticModel> model = create(type, nullptr);
+    model->defaultParams(values.data());
+  }
+  return std::make_shared<ConstantParameterField>(
+    parameterSpec(type), mesh.getNumElements(), std::move(values));
+}
+
+std::shared_ptr<OptimizableField> PlasticModelFactory::createConstantField(
+  const SimulationMesh &mesh,
+  DeformationModelPlasticMaterial type,
+  ES::VXd values)
+{
+  return std::make_shared<ConstantParameterField>(
     parameterSpec(type), mesh.getNumElements(), std::move(values));
 }
 
