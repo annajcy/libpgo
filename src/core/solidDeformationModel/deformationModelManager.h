@@ -86,8 +86,7 @@ protected:
   std::unique_ptr<DeformationModelManagerImpl> data;
 
 private:
-  void initBase(const SimulationMesh &simulationMesh,
-    const double *elementFiberDirections,
+  void initFiber(const double *elementFiberDirections,
     const double *vertexFiberDirections);
 
   void initImpl(DeformationModelPlasticMaterial plasticModelType,

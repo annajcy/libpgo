@@ -6,8 +6,8 @@
 #include "quadrature/gaussLegendreHexQuadrature.h"
 #include "kernels/volumetricKernel.h"
 #include "kernels/koiterShellKernel.h"
-#include "elements/volumetricElementModel.h"
-#include "elements/shellElementModel.h"
+#include "elements/volumetricDeformationModel.h"
+#include "elements/shellDeformationModel.h"
 #include "../simulationMesh.h"
 
 #include <vector>
@@ -98,7 +98,8 @@ SimulationMeshType ShellFormulation::compatibleMeshType() const { return Simulat
 
 std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
   const SimulationMesh &mesh, int ele,
-  const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+  const ParameterField *elasticParams, const ParameterField *plasticParams) const
 {
   const int numNodes = getNodesPerElement();
   std::vector<double> restPosition(numNodes * 3);
@@ -106,13 +107,15 @@ std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
     mesh.getVertex(ele, j, &restPosition[3 * j]);
 
   auto kernel = createKernel(restPosition.data());
-  return std::make_unique<VolumetricElementModel>(
-    ele, std::move(*kernel), elasticBlock, plasticBlock);
+  return std::make_unique<VolumetricDeformationModel>(
+    ele, std::move(*kernel), std::move(elasticModel), std::move(plasticModel),
+    elasticParams, plasticParams);
 }
 
 std::unique_ptr<DeformationModel> ShellFormulation::createElement(
   const SimulationMesh &mesh, int ele,
-  const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+  const ParameterField *elasticParams, const ParameterField *plasticParams) const
 {
   double restPosition[18] = {};
   bool hasVtx[6];
@@ -127,8 +130,9 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
   }
 
   auto kernel = createKernel(restPosition, hasVtx);
-  return std::make_unique<ShellElementModel>(
-    ele, std::move(kernel), elasticBlock, plasticBlock);
+  return std::make_unique<ShellDeformationModel>(
+    ele, std::move(kernel), std::move(elasticModel), std::move(plasticModel),
+    elasticParams, plasticParams);
 }
 
 }  // namespace SolidDeformationModel

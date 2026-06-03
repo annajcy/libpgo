@@ -5,6 +5,9 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
+#include "elasticModel.h"
+#include "plasticModel.h"
+
 #include <limits>
 #include <memory>
 
@@ -12,8 +15,8 @@ namespace pgo
 {
 namespace SolidDeformationModel
 {
-class ElasticModel;
-class PlasticModel;
+
+class ParameterField;
 
 class DeformationModelCacheData
 {
@@ -34,8 +37,10 @@ public:
     int locationId = -1;
   };
 
-  DeformationModel(ElasticModel *elasticModel, PlasticModel *plasticModel):
-    em(elasticModel), pm(plasticModel) {}
+  DeformationModel(std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+    const ParameterField *elasticParams, const ParameterField *plasticParams)
+    : em_(std::move(elasticModel)), pm_(std::move(plasticModel))
+    , elasticParams_(elasticParams), plasticParams_(plasticParams) {}
   virtual ~DeformationModel() {}
 
   typedef DeformationModelCacheData CacheData;
@@ -59,7 +64,7 @@ public:
   virtual void compute_d2E_db2(const CacheData *cacheData, double *hess) const {}
   virtual void compute_d2E_dadb(const CacheData *cacheData, double *hess) const {}
 
-  virtual void enableSPD(int enable) = 0;
+  virtual void enableSPD(int enable) { em_->enableSPD(enable); }
 
   // virtual void compute_d3E_dx3(const CacheData *cacheData, double *tensor) const = 0;
   // virtual void compute_d3E_dxdadx(const CacheData *cacheData, double *tensor) const = 0;
@@ -68,8 +73,13 @@ public:
   // inline static double d3E_dx3_ijk(const double *tensor, int i, int j, int k, int dim) { return tensor[k * dim * dim + j * dim + i]; }
   // inline static double &d3E_dx3_ijk(double *tensor, int i, int j, int k, int dim) { return tensor[k * dim * dim + j * dim + i]; }
 
-  const PlasticModel *getPlasticModel() const { return pm; }
-  const ElasticModel *getElasticModel() const { return em; }
+  PlasticModel *getPlasticModel() { return pm_.get(); }
+  const PlasticModel *getPlasticModel() const { return pm_.get(); }
+  ElasticModel *getElasticModel() { return em_.get(); }
+  const ElasticModel *getElasticModel() const { return em_.get(); }
+
+  const ParameterField *elasticParams() const { return elasticParams_; }
+  const ParameterField *plasticParams() const { return plasticParams_; }
 
   virtual int getNumVertices() const = 0;
   virtual int getNumDOFs() const = 0;
@@ -90,8 +100,10 @@ public:
 protected:
   int numMaterialLocations = 1;
 
-  ElasticModel *em;
-  PlasticModel *pm;
+  std::unique_ptr<ElasticModel> em_;
+  std::unique_ptr<PlasticModel> pm_;
+  const ParameterField *elasticParams_ = nullptr;
+  const ParameterField *plasticParams_ = nullptr;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

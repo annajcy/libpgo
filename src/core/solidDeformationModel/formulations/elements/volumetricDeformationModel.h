@@ -6,24 +6,26 @@
 #include "../basis/basis.h"
 #include "../quadrature/quadrature.h"
 #include "../kernels/volumetricKernel.h"
-#include "volumetricElementModelCacheData.h"
-#include "parameterizedMaterialBlock.h"
+#include "volumetricDeformationModelCacheData.h"
 
 #include "EigenSupport.h"
+
+#include <memory>
 
 namespace pgo
 {
 namespace SolidDeformationModel
 {
 
-class VolumetricElementModel : public DeformationModel
+class VolumetricDeformationModel : public DeformationModel
 {
 public:
   using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
 
-  VolumetricElementModel(int ele, VolumetricKernel &&kernel,
-    const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock);
+  VolumetricDeformationModel(int ele, VolumetricKernel &&kernel,
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+    const ParameterField *elasticParams, const ParameterField *plasticParams);
 
   // DeformationModel overrides.
   std::unique_ptr<DeformationModelCacheData> allocateCacheData() const override;
@@ -75,8 +77,6 @@ private:
   const PlasticModel3DDeformationGradient *plasticModel_ = nullptr;
 
   int ele_ = -1;
-  ElasticBlock elasticBlock_;
-  PlasticBlock plasticBlock_;
 
   int numPlasticParams_ = 0;
   int numElasticParams_ = 0;

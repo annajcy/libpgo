@@ -2,8 +2,7 @@
 
 #include "../../deformationModel.h"
 #include "../kernels/shellKernel.h"
-#include "shellElementModelCacheData.h"
-#include "parameterizedMaterialBlock.h"
+#include "shellDeformationModelCacheData.h"
 #include "EigenSupport.h"
 
 #include <memory>
@@ -14,16 +13,17 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-// ShellElementModel — generic shell element facade.
+// ShellDeformationModel — generic shell element facade.
 // Works with any ShellKernel implementation.
 
-class ShellElementModel : public DeformationModel
+class ShellDeformationModel : public DeformationModel
 {
 public:
-  using CacheData = ShellElementModelCacheData;
+  using CacheData = ShellDeformationModelCacheData;
 
-  ShellElementModel(int ele, std::unique_ptr<ShellKernel> kernel,
-    const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock);
+  ShellDeformationModel(int ele, std::unique_ptr<ShellKernel> kernel,
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+    const ParameterField *elasticParams, const ParameterField *plasticParams);
 
   std::unique_ptr<DeformationModelCacheData> allocateCacheData() const override;
 
@@ -59,9 +59,6 @@ private:
   int enableSPD_ = 0;
 
   int ele_ = -1;
-  ElasticBlock elasticBlock_;
-  PlasticBlock plasticBlock_;
-
 };
 
 }  // namespace SolidDeformationModel

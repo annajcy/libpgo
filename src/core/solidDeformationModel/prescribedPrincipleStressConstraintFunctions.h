@@ -19,7 +19,7 @@ namespace pgo
 namespace SolidDeformationModel
 {
 class DeformationModelManager;
-class VolumetricElementModel;
+class VolumetricDeformationModel;
 
 class PrescribedPrincipleStressConstraintFunctions : public NonlinearOptimization::ConstraintFunctions
 {
@@ -50,7 +50,7 @@ protected:
   EigenSupport::VXd targetPrincipleStress;
   std::vector<std::unique_ptr<DeformationModel::CacheData>> elementCacheData;
 
-  std::vector<const VolumetricElementModel *> elementFEMs_;
+  std::vector<const VolumetricDeformationModel *> elementFEMs_;
 
   EigenSupport::EntryMap jacEntries, hessEntries;
 

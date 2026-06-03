@@ -15,15 +15,6 @@ target_compile_definitions(deformationModelAssembler_gtest PRIVATE
 set_property(TARGET deformationModelAssembler_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(deformationModelAssembler_gtest)
 
-add_executable(deformationModelFactory_gtest deformationModelFactory_gtest.cpp)
-target_link_libraries(deformationModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh mesh)
-target_compile_definitions(deformationModelFactory_gtest PRIVATE
-  LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/tet/torus.veg"
-  LIBPGO_TEST_SHELL_OBJ="${CMAKE_SOURCE_DIR}/tests/fixtures/shell/shell.obj"
-  LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/cubic/box/box.veg")
-set_property(TARGET deformationModelFactory_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(deformationModelFactory_gtest)
-
 add_executable(deformationModelState_gtest deformationModelState_gtest.cpp)
 target_link_libraries(deformationModelState_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
 target_compile_definitions(deformationModelState_gtest PRIVATE
@@ -46,15 +37,15 @@ target_link_libraries(volumetricKernel_gtest PRIVATE GTest::gtest_main solidDefo
 set_property(TARGET volumetricKernel_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(volumetricKernel_gtest)
 
-add_executable(volumetricElementModel_gtest formulations/elements/volumetricElementModel_gtest.cpp)
-target_link_libraries(volumetricElementModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
-set_property(TARGET volumetricElementModel_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(volumetricElementModel_gtest)
+add_executable(volumetricDeformationModel_gtest formulations/elements/volumetricDeformationModel_gtest.cpp)
+target_link_libraries(volumetricDeformationModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET volumetricDeformationModel_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(volumetricDeformationModel_gtest)
 
-add_executable(shellElementModel_gtest formulations/elements/shellElementModel_gtest.cpp)
-target_link_libraries(shellElementModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
-set_property(TARGET shellElementModel_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(shellElementModel_gtest)
+add_executable(shellDeformationModel_gtest formulations/elements/shellDeformationModel_gtest.cpp)
+target_link_libraries(shellDeformationModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET shellDeformationModel_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(shellDeformationModel_gtest)
 
 add_executable(deformationModelFormulation_gtest formulations/deformationModelFormulation_gtest.cpp)
 target_link_libraries(deformationModelFormulation_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
@@ -97,11 +88,11 @@ target_compile_definitions(elasticModelFactory_gtest PRIVATE
 set_property(TARGET elasticModelFactory_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(elasticModelFactory_gtest)
 
-add_executable(elementModelFactory_gtest factories/elementModelFactory_gtest.cpp)
-target_link_libraries(elementModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh mesh)
-target_compile_definitions(elementModelFactory_gtest PRIVATE
+add_executable(deformationModelFactory_gtest factories/deformationModelFactory_gtest.cpp)
+target_link_libraries(deformationModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh mesh)
+target_compile_definitions(deformationModelFactory_gtest PRIVATE
   LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/tet/torus.veg"
   LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/cubic/box/box.veg"
   LIBPGO_TEST_SHELL_OBJ="${CMAKE_SOURCE_DIR}/tests/fixtures/shell/shell.obj")
-set_property(TARGET elementModelFactory_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(elementModelFactory_gtest)
+set_property(TARGET deformationModelFactory_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(deformationModelFactory_gtest)

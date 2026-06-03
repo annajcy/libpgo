@@ -7,7 +7,7 @@ copyright to USC, MIT, NUS
 
 #include "deformationModel.h"
 #include "deformationModelState.h"
-#include "factories/elementModelFactory.h"
+#include "factories/deformationModelFactory.h"
 #include "formulations/dof/vertex3DofLayout.h"
 #include "formulations/formulation.h"
 
@@ -20,8 +20,6 @@ copyright to USC, MIT, NUS
 
 #include "factories/elasticModelFactory.h"
 #include "factories/plasticModelFactory.h"
-
-#include "formulations/elements/parameterizedMaterialBlock.h"
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
@@ -45,14 +43,8 @@ class DeformationModelManagerImpl
 public:
   ~DeformationModelManagerImpl();
 
-  const SimulationMesh *simulationMesh = nullptr;   // non-owning immutable borrow
   std::shared_ptr<DeformationModelState> state;
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
-
-  // elastic models (owned; element models hold non-owning raw pointers)
-  std::vector<std::unique_ptr<ElasticModel>> ownedElasticModels;
-  // plastic models (owned; element models hold non-owning raw pointers)
-  std::vector<std::unique_ptr<PlasticModel>> ownedPlasticModels;
 
   ES::VXd fiberDirections;
   ES::VXd vertexFiberDirections;
@@ -63,10 +55,6 @@ public:
   int numPlasticParams;
   int nele;
   int nvtx;
-
-  // Parameter field ownership.
-  std::shared_ptr<OptimizableField> elasticField;
-  std::shared_ptr<OptimizableField> plasticField;
 
   void computeFiberAxes();
 };
@@ -83,14 +71,14 @@ void DeformationModelManagerImpl::computeFiberAxes()
   std::vector<std::vector<int>> elementNearbyElements(nele);
 
   for (int i = 0; i < nele; i++) {
-    for (int j = 0; j < simulationMesh->getNumElementVertices(); j++) {
-      vertexNearbyElements[simulationMesh->getVertexIndex(i, j)].push_back(i);
+    for (int j = 0; j < state->mesh()->getNumElementVertices(); j++) {
+      vertexNearbyElements[state->mesh()->getVertexIndex(i, j)].push_back(i);
     }
   }
 
   for (int i = 0; i < nele; i++) {
-    for (int j = 0; j < simulationMesh->getNumElementVertices(); j++) {
-      const auto &eles = vertexNearbyElements[simulationMesh->getVertexIndex(i, j)];
+    for (int j = 0; j < state->mesh()->getNumElementVertices(); j++) {
+      const auto &eles = vertexNearbyElements[state->mesh()->getVertexIndex(i, j)];
       elementNearbyElements[i].insert(elementNearbyElements[i].end(), eles.begin(), eles.end());
     }
 
@@ -226,14 +214,11 @@ void validateParameterField(const char *name, const OptimizableField *field,
 
 }  // namespace
 
-void DeformationModelManager::initBase(const SimulationMesh &simulationMesh,
+void DeformationModelManager::initFiber(
   const double *elementFiberDirections, const double *vertexFiberDirections)
 {
-  data = std::make_unique<DeformationModelManagerImpl>();
-
-  data->simulationMesh = &simulationMesh;
-  data->nele = data->simulationMesh->getNumElements();
-  data->nvtx = data->simulationMesh->getNumVertices();
+  data->nele = data->state->mesh()->getNumElements();
+  data->nvtx = data->state->mesh()->getNumVertices();
 
   if (elementFiberDirections)
     data->fiberDirections = Eigen::Map<const ES::VXd>(elementFiberDirections, data->nele * 3);
@@ -255,9 +240,10 @@ DeformationModelManager::DeformationModelManager(std::shared_ptr<DeformationMode
 {
   if (!state)
     throw std::invalid_argument("DeformationModelManager: state must be non-null.");
-  const SimulationMesh &simulationMesh = *state->mesh();
-  initBase(simulationMesh, elementFiberDirections, vertexFiberDirections);
+  data = std::make_unique<DeformationModelManagerImpl>();
   data->state = std::move(state);
+  const SimulationMesh &simulationMesh = *data->state->mesh();
+  initFiber(elementFiberDirections, vertexFiberDirections);
   validateFormulation(simulationMesh.getElementType(), formulation);
 
   const auto plasticModelType = data->state->plasticMaterial();
@@ -271,9 +257,6 @@ DeformationModelManager::DeformationModelManager(std::shared_ptr<DeformationMode
 
   validateParameterField("elasticField", elasticField.get(), ParameterDomain::ELASTIC, ne, data->nele);
   validateParameterField("plasticField", plasticField.get(), ParameterDomain::PLASTIC, np, data->nele);
-
-  data->elasticField = std::move(elasticField);
-  data->plasticField = std::move(plasticField);
 
   initImpl(plasticModelType, elasticMaterialType, formulation);
 
@@ -291,8 +274,6 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
   const int nele = data->nele;
 
   data->elementFEMs.resize(nele);
-  data->ownedElasticModels.resize(nele);
-  data->ownedPlasticModels.resize(nele);
 
   // Per-element FEM creation (all elements in parallel).
   tbb::parallel_for(
@@ -302,19 +283,19 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
         fiberDir = data->fiberAxesRest.block<3, 3>(0, ele * 3).row(0).data();
       }
 
-      data->ownedElasticModels[ele] = ElasticModelFactory::create(
-        *data->simulationMesh, ele, elasticMaterialType, fiberDir);
+      auto em = ElasticModelFactory::create(
+        *data->state->mesh(), ele, elasticMaterialType, fiberDir);
 
       const double *fiberAxesRest = (data->fiberAxesRest.size() > 0)
         ? data->fiberAxesRest.data() + ele * 9 : nullptr;
 
-      data->ownedPlasticModels[ele] = PlasticModelFactory::create(plasticModelType, fiberAxesRest);
+      auto pm = PlasticModelFactory::create(plasticModelType, fiberAxesRest);
 
-      ElasticBlock elasticBlock{data->ownedElasticModels[ele].get(), data->elasticField.get()};
-      PlasticBlock plasticBlock{data->ownedPlasticModels[ele].get(), data->plasticField.get()};
-
-      data->elementFEMs[ele] = ElementModelFactory::create(
-        *data->simulationMesh, ele, elasticBlock, plasticBlock, formulation);
+      data->elementFEMs[ele] = DeformationModelFactory::create(
+        *data->state->mesh(), ele,
+        std::move(em), std::move(pm),
+        data->state->elasticFieldPtr().get(), data->state->plasticFieldPtr().get(),
+        formulation);
     },
     tbb::static_partitioner());
 
@@ -328,12 +309,12 @@ const DeformationModel *DeformationModelManager::getDeformationModel(int eleID) 
 
 const ParameterField *DeformationModelManager::getElasticParameterField() const
 {
-  return data->elasticField.get();
+  return data->state->elasticFieldPtr().get();
 }
 
 const ParameterField *DeformationModelManager::getPlasticParameterField() const
 {
-  return data->plasticField.get();
+  return data->state->plasticFieldPtr().get();
 }
 
 std::unique_ptr<const DofLayout> DeformationModelManager::createDofLayout() const
@@ -363,16 +344,11 @@ void DeformationModelManager::setEnforceSPD(int enable)
     if (dm)
       dm->enableSPD(enable);
   }
-
-  for (const auto &mat : data->ownedElasticModels) {
-    if (mat)
-      mat->enableSPD(enable);
-  }
 }
 
 const SimulationMesh *DeformationModelManager::getMesh() const
 {
-  return data->simulationMesh;
+  return data->state->mesh().get();
 }
 
 void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
@@ -390,10 +366,11 @@ void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
     },
     tbb::static_partitioner());
 
-  if (!data->ownedPlasticModels.empty() && data->fiberAxes.cols() > 0) {
+  if (!data->elementFEMs.empty() && data->fiberAxes.cols() > 0) {
     tbb::parallel_for(
       0, data->nele, [this](int ele) {
-        data->ownedPlasticModels[ele]->setFiberAxes(data->fiberAxes.data() + ele * 9);
+        if (auto *pm = data->elementFEMs[ele]->getPlasticModel())
+          pm->setFiberAxes(data->fiberAxes.data() + ele * 9);
       },
       tbb::static_partitioner());
   }
@@ -406,7 +383,7 @@ void DeformationModelManager::getVertexAlignedMatrix(int id, double R[9]) const
 
 void DeformationModelManager::getElementAlignedMatrix(int id, double R[9]) const
 {
-  bool isIdentity = data->ownedPlasticModels[id]->isIdentityTransform();
+  bool isIdentity = data->elementFEMs[id]->getPlasticModel()->isIdentityTransform();
   if (isIdentity || data->fiberAxes.cols() < (id + 1) * 3) {
     (Eigen::Map<ES::M3d>(R)) = ES::M3d::Identity();
   }
@@ -423,7 +400,7 @@ void DeformationModelManager::setElementAlignedMatrix(int id, double R[9])
   data->fiberAxesRest.block<3, 3>(0, id * 3) = Eigen::Map<ES::M3d>(R);
   data->fiberAxes.block<3, 3>(0, id * 3) = data->fiberAxesRest.block<3, 3>(0, id * 3) * data->globalRotation.transpose();
 
-  data->ownedPlasticModels[id]->setFiberAxes(data->fiberAxes.data() + id * 9);
+  data->elementFEMs[id]->getPlasticModel()->setFiberAxes(data->fiberAxes.data() + id * 9);
 }
 
 int DeformationModelManager::getNumPlasticParameters() const
@@ -433,25 +410,25 @@ int DeformationModelManager::getNumPlasticParameters() const
 
 int DeformationModelManager::getNumElasticParameters() const
 {
-  return data->ownedElasticModels[0]->getNumParameters();
+  return data->elementFEMs[0]->getElasticModel()->getNumParameters();
 }
 
 ES::VXd DeformationModelManager::getElasticParameterSnapshot() const
 {
-  const auto *layout = data->elasticField->dofLayout();
+  const auto *layout = data->state->elasticFieldPtr()->dofLayout();
   const int n = layout ? layout->numGlobalDofs() : 0;
   ES::VXd params(n);
   if (n > 0)
-    params = Eigen::Map<const ES::VXd>(data->elasticField->globalData(), n);
+    params = Eigen::Map<const ES::VXd>(data->state->elasticFieldPtr()->globalData(), n);
   return params;
 }
 
 ES::VXd DeformationModelManager::getPlasticParameterSnapshot() const
 {
-  const auto *layout = data->plasticField->dofLayout();
+  const auto *layout = data->state->plasticFieldPtr()->dofLayout();
   const int n = layout ? layout->numGlobalDofs() : 0;
   ES::VXd params(n);
   if (n > 0)
-    params = Eigen::Map<const ES::VXd>(data->plasticField->globalData(), n);
+    params = Eigen::Map<const ES::VXd>(data->state->plasticFieldPtr()->globalData(), n);
   return params;
 }

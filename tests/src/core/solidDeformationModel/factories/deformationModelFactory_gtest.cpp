@@ -10,9 +10,9 @@
 #include "tetMesh.h"
 #include "cubicMesh.h"
 #include "triMeshGeo.h"
-#include "factories/elementModelFactory.h"
+#include "factories/deformationModelFactory.h"
 #include "factories/elasticModelFactory.h"
-#include "formulations/elements/shellElementModel.h"
+#include "formulations/elements/shellDeformationModel.h"
 #include "factories/plasticModelFactory.h"
 #include "pgoLogging.h"
 
@@ -49,9 +49,9 @@ std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
 // Shell element model factory tests
 // ============================================================
 
-// Verify that ElementModelFactory::create<ShellKoiter> returns the new
-// ShellElementModel type.
-TEST(ElementModelFactoryGTest, CreateShellKoiterReturnsNewElementModelType)
+// Verify that DeformationModelFactory::create<ShellKoiter> returns the new
+// ShellDeformationModel type.
+TEST(DeformationModelFactoryGTest, CreateShellKoiterReturnsNewDeformationModelType)
 {
   pgo::Logging::init();
 
@@ -67,22 +67,21 @@ TEST(ElementModelFactoryGTest, CreateShellKoiterReturnsNewElementModelType)
   auto plasticModel = PlasticModelFactory::create(
     DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
 
-  ElasticBlock elasticBlock{elasticModel.get(), nullptr};
-  PlasticBlock plasticBlock{plasticModel.get(), nullptr};
   KoiterShellFormulation formulation;
-  auto fem = ElementModelFactory::create(
-    *simMesh, 0, elasticBlock, plasticBlock, formulation);
+  auto fem = DeformationModelFactory::create(
+    *simMesh, 0, std::move(elasticModel), std::move(plasticModel),
+    nullptr, nullptr, formulation);
 
   ASSERT_NE(fem, nullptr);
   EXPECT_EQ(fem->getNumVertices(), 6);
   EXPECT_EQ(fem->getNumDOFs(), 18);
 
-  auto *typed = dynamic_cast<ShellElementModel *>(fem.get());
-  EXPECT_NE(typed, nullptr) << "expected ShellElementModel from factory";
+  auto *typed = dynamic_cast<ShellDeformationModel *>(fem.get());
+  EXPECT_NE(typed, nullptr) << "expected ShellDeformationModel from factory";
 }
 
 // Factory throws for non-Koiter elastic materials on shell elements.
-TEST(ElementModelFactoryGTest, CreateShellKoiterRejectsNonShellElasticMaterial)
+TEST(DeformationModelFactoryGTest, CreateShellKoiterRejectsNonShellElasticMaterial)
 {
   pgo::Logging::init();
 
@@ -97,12 +96,11 @@ TEST(ElementModelFactoryGTest, CreateShellKoiterRejectsNonShellElasticMaterial)
   auto plasticModel = PlasticModelFactory::create(
     DeformationModelPlasticMaterial::SHELL_FF_DOF1, nullptr);
 
-  ElasticBlock elasticBlock{elasticModel.get(), nullptr};
-  PlasticBlock plasticBlock{plasticModel.get(), nullptr};
   KoiterShellFormulation formulation;
   EXPECT_THROW(
-    ElementModelFactory::create(
-      *simMesh, 0, elasticBlock, plasticBlock, formulation),
+    DeformationModelFactory::create(
+      *simMesh, 0, std::move(elasticModel), std::move(plasticModel),
+      nullptr, nullptr, formulation),
     std::logic_error);
 }
 
@@ -110,8 +108,8 @@ TEST(ElementModelFactoryGTest, CreateShellKoiterRejectsNonShellElasticMaterial)
 // Task 5p/5q: Verify production factories use formulation-aware element models
 // ============================================================
 
-// Tet: DeformationModelManager initImpl creates VolumetricElementModel.
-TEST(ElementModelFactoryGTest, TetManagerCreatesFormulationAwareModel)
+// Tet: DeformationModelManager initImpl creates VolumetricDeformationModel.
+TEST(DeformationModelFactoryGTest, TetManagerCreatesFormulationAwareModel)
 {
   pgo::Logging::init();
 
@@ -138,8 +136,8 @@ TEST(ElementModelFactoryGTest, TetManagerCreatesFormulationAwareModel)
   }
 }
 
-// Cubic: DeformationModelManager initImpl creates VolumetricElementModel.
-TEST(ElementModelFactoryGTest, CubicManagerCreatesFormulationAwareModel)
+// Cubic: DeformationModelManager initImpl creates VolumetricDeformationModel.
+TEST(DeformationModelFactoryGTest, CubicManagerCreatesFormulationAwareModel)
 {
   pgo::Logging::init();
 
@@ -167,7 +165,7 @@ TEST(ElementModelFactoryGTest, CubicManagerCreatesFormulationAwareModel)
 }
 
 // Verify public topology-specific factory produces valid energy end-to-end.
-TEST(ElementModelFactoryGTest, MakeTetDeformationModelEndToEnd)
+TEST(DeformationModelFactoryGTest, MakeTetDeformationModelEndToEnd)
 {
   pgo::Logging::init();
 
@@ -196,7 +194,7 @@ TEST(ElementModelFactoryGTest, MakeTetDeformationModelEndToEnd)
 }
 
 // Verify public cubic topology-specific factory produces valid energy end-to-end.
-TEST(ElementModelFactoryGTest, MakeCubicDeformationModelEndToEnd)
+TEST(DeformationModelFactoryGTest, MakeCubicDeformationModelEndToEnd)
 {
   pgo::Logging::init();
 

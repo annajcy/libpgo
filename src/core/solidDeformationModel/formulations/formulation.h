@@ -14,8 +14,9 @@ class VolumetricKernel;
 class ShellKernel;
 class SimulationMesh;
 class DeformationModel;
-struct ElasticBlock;
-struct PlasticBlock;
+class ElasticModel;
+class PlasticModel;
+class ParameterField;
 enum class SimulationMeshType;
 
 // ============================================================
@@ -32,7 +33,8 @@ public:
 
   virtual std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
-    const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const = 0;
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+    const ParameterField *elasticParams, const ParameterField *plasticParams) const = 0;
 
   virtual SimulationMeshType compatibleMeshType() const = 0;
 };
@@ -55,7 +57,8 @@ public:
 
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
-    const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const override;
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+    const ParameterField *elasticParams, const ParameterField *plasticParams) const override;
 
 private:
   std::unique_ptr<Basis> basis_;
@@ -74,7 +77,8 @@ public:
 
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
-    const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock) const override;
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+    const ParameterField *elasticParams, const ParameterField *plasticParams) const override;
 
   SimulationMeshType compatibleMeshType() const override;
 };

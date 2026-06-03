@@ -9,9 +9,7 @@
 #include "formulations/quadrature/tetP1DefaultQuadrature.h"
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
 #include "formulations/kernels/volumetricKernel.h"
-#include "formulations/elements/volumetricElementModel.h"
-#include "formulations/elements/parameterizedMaterialBlock.h"
-
+#include "formulations/elements/volumetricDeformationModel.h"
 #include "EigenSupport.h"
 
 #include <memory>
@@ -39,15 +37,13 @@ const double restHex[24] = {
 // Tet: energy is finite at rest and gradient FD check
 // ============================================================
 
-TEST(VolumetricElementModelGTest, TetEnergyFiniteAtRest)
+TEST(VolumetricDeformationModelGTest, TetEnergyFiniteAtRest)
 {
-  ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
+  auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
-  PlasticModel3DConstant plasticModel(identity);
+  auto plasticModel = std::make_unique<PlasticModel3DConstant>(identity);
   VolumetricKernel kernel(restTet, TetP1Basis{}, TetP1DefaultQuadrature{});
-  ElasticBlock elasticBlock{&elasticModel, nullptr};
-  PlasticBlock plasticBlock{&plasticModel, nullptr};
-  VolumetricElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
+  VolumetricDeformationModel model(-1, std::move(kernel), std::move(elasticModel), std::move(plasticModel), nullptr, nullptr);
 
   ES::V12d xVec;
   for (int i = 0; i < 12; i++) xVec[i] = restTet[i];
@@ -76,15 +72,13 @@ TEST(VolumetricElementModelGTest, TetEnergyFiniteAtRest)
 // Hex: energy is finite at rest and gradient FD check
 // ============================================================
 
-TEST(VolumetricElementModelGTest, HexEnergyFiniteAtRest)
+TEST(VolumetricDeformationModelGTest, HexEnergyFiniteAtRest)
 {
-  ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
+  auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
-  PlasticModel3DConstant plasticModel(identity);
+  auto plasticModel = std::make_unique<PlasticModel3DConstant>(identity);
   VolumetricKernel kernel(restHex, HexTrilinearBasis{}, GaussLegendreHexQuadrature2{});
-  ElasticBlock elasticBlock{&elasticModel, nullptr};
-  PlasticBlock plasticBlock{&plasticModel, nullptr};
-  VolumetricElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
+  VolumetricDeformationModel model(-1, std::move(kernel), std::move(elasticModel), std::move(plasticModel), nullptr, nullptr);
 
   ES::V24d xVec;
   for (int i = 0; i < 24; i++) xVec[i] = restHex[i];
@@ -113,15 +107,13 @@ TEST(VolumetricElementModelGTest, HexEnergyFiniteAtRest)
 // Tet: gradient matches finite difference of energy
 // ============================================================
 
-TEST(VolumetricElementModelGTest, TetGradientMatchesFD)
+TEST(VolumetricDeformationModelGTest, TetGradientMatchesFD)
 {
-  ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
+  auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
-  PlasticModel3DConstant plasticModel(identity);
+  auto plasticModel = std::make_unique<PlasticModel3DConstant>(identity);
   VolumetricKernel kernel(restTet, TetP1Basis{}, TetP1DefaultQuadrature{});
-  ElasticBlock elasticBlock{&elasticModel, nullptr};
-  PlasticBlock plasticBlock{&plasticModel, nullptr};
-  VolumetricElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
+  VolumetricDeformationModel model(-1, std::move(kernel), std::move(elasticModel), std::move(plasticModel), nullptr, nullptr);
 
   ES::V12d xVec;
   for (int i = 0; i < 12; i++) xVec[i] = restTet[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));
@@ -160,15 +152,13 @@ TEST(VolumetricElementModelGTest, TetGradientMatchesFD)
 // Hex: gradient matches finite difference of energy
 // ============================================================
 
-TEST(VolumetricElementModelGTest, HexGradientMatchesFD)
+TEST(VolumetricDeformationModelGTest, HexGradientMatchesFD)
 {
-  ElasticModelStableNeoHookeanMaterial elasticModel(1200.0, 1800.0);
+  auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
   double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
-  PlasticModel3DConstant plasticModel(identity);
+  auto plasticModel = std::make_unique<PlasticModel3DConstant>(identity);
   VolumetricKernel kernel(restHex, HexTrilinearBasis{}, GaussLegendreHexQuadrature2{});
-  ElasticBlock elasticBlock{&elasticModel, nullptr};
-  PlasticBlock plasticBlock{&plasticModel, nullptr};
-  VolumetricElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
+  VolumetricDeformationModel model(-1, std::move(kernel), std::move(elasticModel), std::move(plasticModel), nullptr, nullptr);
 
   ES::V24d xVec;
   for (int i = 0; i < 24; i++) xVec[i] = restHex[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));

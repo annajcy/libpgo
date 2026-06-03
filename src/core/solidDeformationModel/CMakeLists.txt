@@ -64,10 +64,10 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/kernels/shellKernel.h
   formulations/kernels/koiterShellKernel.h
 
-  formulations/elements/volumetricElementModel.h
-  formulations/elements/volumetricElementModelCacheData.h
-  formulations/elements/shellElementModel.h
-  formulations/elements/shellElementModelCacheData.h
+  formulations/elements/volumetricDeformationModel.h
+  formulations/elements/volumetricDeformationModelCacheData.h
+  formulations/elements/shellDeformationModel.h
+  formulations/elements/shellDeformationModelCacheData.h
 
   formulations/geometry/tetP1Geometry.h
 
@@ -78,11 +78,9 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/parameters/constantParameterField.h
   formulations/parameters/elementwiseParameterField.h
 
-  formulations/elements/parameterizedMaterialBlock.h
-
   factories/elasticModelFactory.h
   factories/plasticModelFactory.h
-  factories/elementModelFactory.h
+  factories/deformationModelFactory.h
 )
 
 set(SOLID_DEFORMATION_MODEL_SOURCES
@@ -121,9 +119,9 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 		formulations/kernels/volumetricKernel.cpp
 		formulations/kernels/koiterShellKernel.cpp
 
-		formulations/elements/volumetricElementModel.cpp
-		formulations/elements/volumetricElementModelCacheData.cpp
-		formulations/elements/shellElementModel.cpp
+		formulations/elements/volumetricDeformationModel.cpp
+		formulations/elements/volumetricDeformationModelCacheData.cpp
+		formulations/elements/shellDeformationModel.cpp
 
 		formulations/dof/vertex3DofLayout.cpp
 
@@ -137,7 +135,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   factories/elasticModelFactory.cpp
   factories/plasticModelFactory.cpp
-  factories/elementModelFactory.cpp
+  factories/deformationModelFactory.cpp
 
   simulationMesh.cpp
   tetVolumeConstraintFunctions.cpp

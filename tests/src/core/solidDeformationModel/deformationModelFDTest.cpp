@@ -11,7 +11,7 @@ copyright to USC,MIT,NUS
 #include "formulations/basis/tetP1Basis.h"
 #include "formulations/quadrature/tetP1DefaultQuadrature.h"
 #include "formulations/kernels/volumetricKernel.h"
-#include "formulations/elements/volumetricElementModel.h"
+#include "formulations/elements/volumetricDeformationModel.h"
 #include "formulations/parameters/parameterField.h"
 #include "factories/elasticModelFactory.h"
 #include "factories/plasticModelFactory.h"
@@ -35,7 +35,7 @@ copyright to USC,MIT,NUS
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 using namespace pgo::NonlinearOptimization;
-using TetFEM = VolumetricElementModel;
+using TetFEM = VolumetricDeformationModel;
 
 namespace ES = pgo::EigenSupport;
 

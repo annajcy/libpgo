@@ -14,7 +14,7 @@
 #include "formulations/basis/hexTrilinearBasis.h"
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
 #include "formulations/kernels/volumetricKernel.h"
-#include "formulations/elements/volumetricElementModel.h"
+#include "formulations/elements/volumetricDeformationModel.h"
 #include "triMeshGeo.h"
 
 #include <algorithm>
@@ -46,7 +46,7 @@ using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::SolidDeformationModel::tetP1ComputeDs;
-using CubicFEM = pgo::SolidDeformationModel::VolumetricElementModel;
+using CubicFEM = pgo::SolidDeformationModel::VolumetricDeformationModel;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 using pgo::NonlinearOptimization::StepSource;
 using pgo::NonlinearOptimization::StepConstraint;

@@ -1,4 +1,4 @@
-#include "shellElementModel.h"
+#include "shellDeformationModel.h"
 #include "../parameters/parameterField.h"
 
 #include "pgoLogging.h"
@@ -9,24 +9,23 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-ShellElementModel::ShellElementModel(
+ShellDeformationModel::ShellDeformationModel(
   int ele, std::unique_ptr<ShellKernel> kernel,
-  const ElasticBlock &elasticBlock, const PlasticBlock &plasticBlock)
-  : DeformationModel(elasticBlock.model, plasticBlock.model)
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+  const ParameterField *elasticParams, const ParameterField *plasticParams)
+  : DeformationModel(std::move(elasticModel), std::move(plasticModel), elasticParams, plasticParams)
   , kernel_(std::move(kernel))
   , ele_(ele)
-  , elasticBlock_(elasticBlock)
-  , plasticBlock_(plasticBlock)
 {
-  elasticModel_ = dynamic_cast<ElasticModel2DFundamentalForms *>(em);
+  elasticModel_ = dynamic_cast<ElasticModel2DFundamentalForms *>(getElasticModel());
   if (!elasticModel_) {
     throw std::logic_error(
-      "ShellElementModel requires ElasticModel2DFundamentalForms");
+      "ShellDeformationModel requires ElasticModel2DFundamentalForms");
   }
-  plasticModel_ = dynamic_cast<PlasticModel2DFundamentalForms *>(pm);
+  plasticModel_ = dynamic_cast<PlasticModel2DFundamentalForms *>(getPlasticModel());
   if (!plasticModel_) {
     throw std::logic_error(
-      "ShellElementModel requires PlasticModel2DFundamentalForms");
+      "ShellDeformationModel requires PlasticModel2DFundamentalForms");
   }
 
   plasticModel_->set_abar(kernel_->restI());
@@ -34,12 +33,12 @@ ShellElementModel::ShellElementModel(
   plasticModel_->setArea(kernel_->restArea());
 }
 
-std::unique_ptr<DeformationModelCacheData> ShellElementModel::allocateCacheData() const
+std::unique_ptr<DeformationModelCacheData> ShellDeformationModel::allocateCacheData() const
 {
   return std::make_unique<CacheData>();
 }
 
-void ShellElementModel::prepareData(
+void ShellDeformationModel::prepareData(
   const double *x,
   DeformationModelCacheData *cacheDataBase) const
 {
@@ -52,25 +51,25 @@ void ShellElementModel::prepareData(
   cacheData->x[4] = ES::V3d(x[12], x[13], x[14]);
   cacheData->x[5] = ES::V3d(x[15], x[16], x[17]);
 
-  const int numPlasticParams = pm->getNumParameters();
-  const int numElasticParams = em->getNumParameters();
+  const int numPlasticParams = getPlasticModel()->getNumParameters();
+  const int numElasticParams = getElasticModel()->getNumParameters();
 
-  if (plasticBlock_.parameters && numPlasticParams > 0) {
-    plasticBlock_.parameters->computeValue(ele_, 0, cacheData->plasticParams.data());
+  if (plasticParams() && numPlasticParams > 0) {
+    plasticParams()->computeValue(ele_, 0, cacheData->plasticParams.data());
     plasticModel_->compute_abar(cacheData->plasticParams.data(), cacheData->abar.data());
     plasticModel_->compute_bbar(cacheData->plasticParams.data(), cacheData->bbar.data());
     cacheData->area = plasticModel_->computeArea(cacheData->plasticParams.data());
   }
 
-  if (elasticBlock_.parameters && numElasticParams > 0) {
-    elasticBlock_.parameters->computeValue(ele_, 0, cacheData->elasticParams.data());
+  if (elasticParams() && numElasticParams > 0) {
+    elasticParams()->computeValue(ele_, 0, cacheData->elasticParams.data());
   }
 
   cacheData->a = kernel_->compute_a_and_derivatives(cacheData->x, nullptr, nullptr);
   cacheData->b = kernel_->compute_b_and_derivatives(cacheData->x, nullptr, nullptr);
 }
 
-double ShellElementModel::computeEnergy(const DeformationModelCacheData *cacheDataBase) const
+double ShellDeformationModel::computeEnergy(const DeformationModelCacheData *cacheDataBase) const
 {
   PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
   const CacheData *cacheData = static_cast<const CacheData *>(cacheDataBase);
@@ -85,7 +84,7 @@ double ShellElementModel::computeEnergy(const DeformationModelCacheData *cacheDa
   return (E1 + E2) * cacheData->area;
 }
 
-void ShellElementModel::compute_dE_dx(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_dE_dx(const DeformationModelCacheData *cacheDataBase,
   double *grad) const
 {
   PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
@@ -112,7 +111,7 @@ void ShellElementModel::compute_dE_dx(const DeformationModelCacheData *cacheData
     dbdx.transpose() * ES::Mp<const ES::V4d>(dEdb.data()) * cacheData->area;
 }
 
-void ShellElementModel::compute_d2E_dx2(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_d2E_dx2(const DeformationModelCacheData *cacheDataBase,
   double *hess) const
 {
   PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
@@ -171,7 +170,7 @@ void ShellElementModel::compute_d2E_dx2(const DeformationModelCacheData *cacheDa
   }
 }
 
-void ShellElementModel::compute_d2E_dxda(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_d2E_dxda(const DeformationModelCacheData *cacheDataBase,
   double *hess) const
 {
   PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
@@ -213,7 +212,7 @@ void ShellElementModel::compute_d2E_dxda(const DeformationModelCacheData *cacheD
   ES::V9d dpsi_a_dx = dpsi_da.transpose() * dadx;
   ES::V18d dpsi_b_dx = dpsi_db.transpose() * dbdx;
 
-  int np = pm->getNumParameters();
+  int np = getPlasticModel()->getNumParameters();
   ES::Mp<ES::MXd> hessMap(hess, 18, np);
   hessMap.setZero();
 
@@ -230,7 +229,7 @@ void ShellElementModel::compute_d2E_dxda(const DeformationModelCacheData *cacheD
     dpsi_b_dx * darea_dF.head(np).transpose();
 }
 
-void ShellElementModel::compute_d2E_dxdb(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *cacheDataBase,
   double *hess) const
 {
   PGO_ALOG(dynamic_cast<const CacheData *>(cacheDataBase) != nullptr);
@@ -249,7 +248,7 @@ void ShellElementModel::compute_d2E_dxdb(const DeformationModelCacheData *cacheD
   kernel_->compute_a_and_derivatives(cacheData->x, &dadx, nullptr);
   kernel_->compute_b_and_derivatives(cacheData->x, &dbdx, nullptr);
 
-  int np = em->getNumParameters();
+  int np = getElasticModel()->getNumParameters();
   ES::Mp<ES::MXd> hessMap(hess, 18, np);
   hessMap.setZero();
 
@@ -259,22 +258,23 @@ void ShellElementModel::compute_d2E_dxdb(const DeformationModelCacheData *cacheD
     dbdx.transpose() * d2psi_db_dparam.leftCols(np) * cacheData->area;
 }
 
-void ShellElementModel::enableSPD(int enable)
+void ShellDeformationModel::enableSPD(int enable)
 {
   enableSPD_ = enable;
+  DeformationModel::enableSPD(enable);
 }
 
-int ShellElementModel::getNumVertices() const
+int ShellDeformationModel::getNumVertices() const
 {
   return kernel_->getNumNodes();
 }
 
-int ShellElementModel::getNumDOFs() const
+int ShellDeformationModel::getNumDOFs() const
 {
   return kernel_->getLocalDofs();
 }
 
-DeformationModel::LocalMaxStepResult ShellElementModel::computeLocalMaxStepSize(
+DeformationModel::LocalMaxStepResult ShellDeformationModel::computeLocalMaxStepSize(
   const double *x_local, const double *dx_local) const
 {
   (void)x_local;

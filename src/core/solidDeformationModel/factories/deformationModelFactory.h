@@ -1,9 +1,7 @@
 #pragma once
 
 #include "../formulations/formulation.h"
-#include "../formulations/elements/parameterizedMaterialBlock.h"
 #include "../deformationModel.h"
-#include "deformationModelManager.h"
 
 #include <memory>
 
@@ -14,14 +12,16 @@ namespace SolidDeformationModel
 
 class SimulationMesh;
 
-class ElementModelFactory
+class DeformationModelFactory
 {
 public:
   static std::unique_ptr<DeformationModel> create(
     const SimulationMesh &mesh,
     int ele,
-    const ElasticBlock &elasticBlock,
-    const PlasticBlock &plasticBlock,
+    std::unique_ptr<ElasticModel> elasticModel,
+    std::unique_ptr<PlasticModel> plasticModel,
+    const ParameterField *elasticParams,
+    const ParameterField *plasticParams,
     const Formulation &formulation);
 };
 

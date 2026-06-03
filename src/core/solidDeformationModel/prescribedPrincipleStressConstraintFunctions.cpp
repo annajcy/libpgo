@@ -7,7 +7,7 @@ copyright to USC,MIT,NUS
 #include "deformationModelManager.h"
 #include "simulationMesh.h"
 
-#include "formulations/elements/volumetricElementModel.h"
+#include "formulations/elements/volumetricDeformationModel.h"
 
 #include "svdDerivatives.h"
 #include "pgoLogging.h"
@@ -15,7 +15,7 @@ copyright to USC,MIT,NUS
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 
-using TetFEM = VolumetricElementModel;
+using TetFEM = VolumetricDeformationModel;
 
 PrescribedPrincipleStressConstraintFunctions::PrescribedPrincipleStressConstraintFunctions(int nAll, int doff, int numElements, const int *elementIDs, const DeformationModelManager *tmdmm):
   ConstraintFunctions(nAll), dofStart(doff), tetMeshDMM(tmdmm)

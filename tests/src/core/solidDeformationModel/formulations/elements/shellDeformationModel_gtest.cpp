@@ -3,8 +3,7 @@
 #include "elasticModel2DFundamentalFormsSTVK.h"
 #include "plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "formulations/elements/shellElementModel.h"
-#include "formulations/elements/parameterizedMaterialBlock.h"
+#include "formulations/elements/shellDeformationModel.h"
 #include "formulations/kernels/koiterShellKernel.h"
 
 #include <cmath>
@@ -39,16 +38,14 @@ void perturbedDisplacement(double *x, const double *rest, int n, double scale)
 // Interior triangle: energy finite at rest and gradient FD check
 // ============================================================
 
-TEST(ShellElementModelTest, InteriorEnergyFiniteAtRest)
+TEST(ShellDeformationModelTest, InteriorEnergyFiniteAtRest)
 {
-  ElasticModel2DFundamentalFormsSTVK elasticModel;
-  PlasticModel2DFundamentalFormsUniformStretch plasticModel;
+  auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
+  auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
   auto kernel = std::make_unique<KoiterShellKernel>(interiorRestX, hasVtx);
-  ElasticBlock elasticBlock{&elasticModel, nullptr};
-  PlasticBlock plasticBlock{&plasticModel, nullptr};
-  ShellElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
+  ShellDeformationModel model(-1, std::move(kernel), std::move(elasticModel), std::move(plasticModel), nullptr, nullptr);
 
   auto cd = model.allocateCacheData();
   model.prepareData(interiorRestX, cd.get());
@@ -66,16 +63,14 @@ TEST(ShellElementModelTest, InteriorEnergyFiniteAtRest)
 // Boundary triangle (node 4 missing): energy finite at rest
 // ============================================================
 
-TEST(ShellElementModelTest, BoundaryMissingNode4EnergyFinite)
+TEST(ShellDeformationModelTest, BoundaryMissingNode4EnergyFinite)
 {
-  ElasticModel2DFundamentalFormsSTVK elasticModel;
-  PlasticModel2DFundamentalFormsUniformStretch plasticModel;
+  auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
+  auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, false, true };
 
   auto kernel = std::make_unique<KoiterShellKernel>(interiorRestX, hasVtx);
-  ElasticBlock elasticBlock{&elasticModel, nullptr};
-  PlasticBlock plasticBlock{&plasticModel, nullptr};
-  ShellElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
+  ShellDeformationModel model(-1, std::move(kernel), std::move(elasticModel), std::move(plasticModel), nullptr, nullptr);
 
   auto cd = model.allocateCacheData();
   model.prepareData(interiorRestX, cd.get());
@@ -93,16 +88,14 @@ TEST(ShellElementModelTest, BoundaryMissingNode4EnergyFinite)
 // FD sanity check — gradient matches finite difference
 // ============================================================
 
-TEST(ShellElementModelFDTest, GradientMatchesFiniteDifference)
+TEST(ShellDeformationModelFDTest, GradientMatchesFiniteDifference)
 {
-  ElasticModel2DFundamentalFormsSTVK elasticModel;
-  PlasticModel2DFundamentalFormsUniformStretch plasticModel;
+  auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
+  auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
   auto kernel = std::make_unique<KoiterShellKernel>(interiorRestX, hasVtx);
-  ElasticBlock elasticBlock{&elasticModel, nullptr};
-  PlasticBlock plasticBlock{&plasticModel, nullptr};
-  ShellElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
+  ShellDeformationModel model(-1, std::move(kernel), std::move(elasticModel), std::move(plasticModel), nullptr, nullptr);
 
   auto cd = model.allocateCacheData();
 
@@ -133,16 +126,14 @@ TEST(ShellElementModelFDTest, GradientMatchesFiniteDifference)
 // SPD enable produces symmetric PSD hessian
 // ============================================================
 
-TEST(ShellElementModelTest, SPDEnableProducesSymmetricPSD)
+TEST(ShellDeformationModelTest, SPDEnableProducesSymmetricPSD)
 {
-  ElasticModel2DFundamentalFormsSTVK elasticModel;
-  PlasticModel2DFundamentalFormsUniformStretch plasticModel;
+  auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
+  auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
   auto kernel = std::make_unique<KoiterShellKernel>(interiorRestX, hasVtx);
-  ElasticBlock elasticBlock{&elasticModel, nullptr};
-  PlasticBlock plasticBlock{&plasticModel, nullptr};
-  ShellElementModel model(-1, std::move(kernel), elasticBlock, plasticBlock);
+  ShellDeformationModel model(-1, std::move(kernel), std::move(elasticModel), std::move(plasticModel), nullptr, nullptr);
 
   auto cd = model.allocateCacheData();
 
