@@ -3,6 +3,7 @@
 #include "parameterField.h"
 
 #include <cstring>
+#include <utility>
 
 namespace pgo
 {
@@ -14,7 +15,9 @@ class ConstantParameterField : public OptimizableField
 {
 public:
   ConstantParameterField(int numChannels, int numElements, const double *globalParams);
+  ConstantParameterField(ParameterFieldSpec spec, int numElements, const double *globalParams);
 
+  const ParameterFieldSpec &spec() const override { return spec_; }
   ParameterFieldKind kind() const override { return ParameterFieldKind::CONSTANT; }
   int numChannels() const override { return numChannels_; }
   int numLocalDofs() const override { return numChannels_; }
@@ -23,6 +26,7 @@ public:
   void setGlobalData(const double *data) override { globalParams_ = data; }
 
   const ParameterDofLayout *dofLayout() const override { return &dofLayout_; }
+  const double *globalData() const override { return globalParams_; }
   void computeDerivative(int ele, int quadratureId, double *derivOut) const override;
 
 private:
@@ -42,6 +46,7 @@ private:
   int numChannels_ = 0;
   const double *globalParams_ = nullptr;
   ElementParameterDofLayout dofLayout_;
+  ParameterFieldSpec spec_;
 };
 
 // ---- Implementation ----
@@ -51,6 +56,16 @@ inline ConstantParameterField::ConstantParameterField(
   numChannels_(numChannels),
   globalParams_(globalParams),
   dofLayout_(numChannels, numElements)
+{
+  spec_.numChannels = numChannels;
+}
+
+inline ConstantParameterField::ConstantParameterField(
+  ParameterFieldSpec spec, int numElements, const double *globalParams):
+  numChannels_(spec.numChannels),
+  globalParams_(globalParams),
+  dofLayout_(spec.numChannels, numElements),
+  spec_(std::move(spec))
 {
 }
 

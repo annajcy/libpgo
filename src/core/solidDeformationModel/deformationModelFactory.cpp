@@ -12,6 +12,8 @@ copyright to USC
 #include "deformationModelAssembler.h"
 #include "pgoLogging.h"
 
+#include <utility>
+
 namespace pgo::SolidDeformationModel
 {
 namespace ES = pgo::EigenSupport;
@@ -47,18 +49,19 @@ std::unique_ptr<SimulationMesh> makeSimulationMesh(const VolumetricMeshes::Volum
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   const SimulationMesh &mesh,
   const Formulation &formulation,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
+  std::shared_ptr<OptimizableField> elasticField,
+  std::shared_ptr<OptimizableField> plasticField,
   const DeformationModelOptions &opts)
 {
   const int nele = mesh.getNumElements();
 
-  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {}",
+  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {} and explicit parameter fields",
     formulation.getName());
 
-  // Formulation flows through to the manager (→ initImpl → ElementModelFactory).
   auto manager = std::make_unique<DeformationModelManager>(
-    mesh, plastic, elastic, formulation,
+    mesh, formulation,
+    std::move(elasticField),
+    std::move(plasticField),
     opts.enforceSPD ? 1 : 0,
     /*elementFiberDirections=*/nullptr,
     /*vertexFiberDirections=*/nullptr);

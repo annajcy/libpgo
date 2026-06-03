@@ -9,12 +9,17 @@
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "deformationModelFactory.h"
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
+#include "factories/elasticModelFactory.h"
+#include "factories/plasticModelFactory.h"
+#include "formulations/parameters/elementwiseParameterField.h"
+#include "formulations/parameters/parameterField.h"
 #include "constraints/constraint_core.h"
 #include "EigenDef.h"
 #include "energy_core.h"
@@ -125,6 +130,115 @@ std::shared_ptr<PyPotentialEnergy> createConstraintViolationPenalty(
   terms.push_back({ std::move(penalty), weight });
   auto weighted = std::make_shared<NonlinearOptimization::EnergySet>(constraints->numDofs(), std::move(terms));
   return std::make_shared<PyPotentialEnergy>(std::move(weighted));
+}
+
+class PyParameterField
+{
+public:
+  explicit PyParameterField(std::shared_ptr<SolidDeformationModel::OptimizableField> field)
+    : field_(std::move(field))
+  {
+    if (!field_) {
+      throw std::invalid_argument("PyParameterField requires a non-null field.");
+    }
+  }
+
+  std::shared_ptr<SolidDeformationModel::OptimizableField> field() const { return field_; }
+
+  std::string domain() const
+  {
+    return field_->spec().domain == SolidDeformationModel::ParameterDomain::ELASTIC ? "elastic" : "plastic";
+  }
+
+  std::string model() const { return field_->spec().modelId; }
+  int numChannels() const { return field_->numChannels(); }
+
+  int numElements() const
+  {
+    const auto *elementwise = dynamic_cast<const SolidDeformationModel::ElementwiseParameterField *>(field_.get());
+    if (elementwise) {
+      return elementwise->numElements();
+    }
+    const auto *layout = field_->dofLayout();
+    if (!layout || field_->numChannels() == 0) {
+      return 0;
+    }
+    return layout->numGlobalDofs() / field_->numChannels();
+  }
+
+  nb::ndarray<nb::numpy, double> values() const
+  {
+    const auto *elementwise = dynamic_cast<const SolidDeformationModel::ElementwiseParameterField *>(field_.get());
+    if (!elementwise) {
+      throw nb::type_error("ParameterField values are only exposed for elementwise fields.");
+    }
+    const auto &values = elementwise->values();
+    const int nele = elementwise->numElements();
+    const int nc = elementwise->numChannels();
+    auto data = values.size() == 0
+      ? new std::vector<double>()
+      : new std::vector<double>(values.data(), values.data() + values.size());
+    nb::capsule owner(data, [](void *p) noexcept {
+      delete static_cast<std::vector<double> *>(p);
+    });
+    return nb::ndarray<nb::numpy, double>(
+      data->data(),
+      {static_cast<size_t>(nele), static_cast<size_t>(nc)},
+      owner);
+  }
+
+  void setValues(nb::ndarray<nb::numpy, const double> values)
+  {
+    auto *elementwise = dynamic_cast<SolidDeformationModel::ElementwiseParameterField *>(field_.get());
+    if (!elementwise) {
+      throw nb::type_error("ParameterField values can only be set for elementwise fields.");
+    }
+    auto vec = python::ndarrayToVectorXd(values);
+    elementwise->setValues(std::move(vec));
+  }
+
+private:
+  std::shared_ptr<SolidDeformationModel::OptimizableField> field_;
+};
+
+std::shared_ptr<PyParameterField> createElasticDefaultField(
+  std::shared_ptr<PySimulationMesh> meshCore,
+  const std::string &elasticModel)
+{
+  auto type = SolidDeformationModel::ElasticModelFactory::materialFromModelId(elasticModel);
+  return std::make_shared<PyParameterField>(
+    SolidDeformationModel::ElasticModelFactory::createDefaultField(meshCore->mesh(), type));
+}
+
+std::shared_ptr<PyParameterField> createElasticElementwiseField(
+  std::shared_ptr<PySimulationMesh> meshCore,
+  const std::string &elasticModel,
+  nb::ndarray<nb::numpy, const double> values)
+{
+  auto type = SolidDeformationModel::ElasticModelFactory::materialFromModelId(elasticModel);
+  auto vec = python::ndarrayToVectorXd(values);
+  return std::make_shared<PyParameterField>(
+    SolidDeformationModel::ElasticModelFactory::createElementwiseField(meshCore->mesh(), type, std::move(vec)));
+}
+
+std::shared_ptr<PyParameterField> createPlasticDefaultField(
+  std::shared_ptr<PySimulationMesh> meshCore,
+  const std::string &plasticModel)
+{
+  auto type = SolidDeformationModel::PlasticModelFactory::materialFromModelId(plasticModel);
+  return std::make_shared<PyParameterField>(
+    SolidDeformationModel::PlasticModelFactory::createDefaultField(meshCore->mesh(), type));
+}
+
+std::shared_ptr<PyParameterField> createPlasticElementwiseField(
+  std::shared_ptr<PySimulationMesh> meshCore,
+  const std::string &plasticModel,
+  nb::ndarray<nb::numpy, const double> values)
+{
+  auto type = SolidDeformationModel::PlasticModelFactory::materialFromModelId(plasticModel);
+  auto vec = python::ndarrayToVectorXd(values);
+  return std::make_shared<PyParameterField>(
+    SolidDeformationModel::PlasticModelFactory::createElementwiseField(meshCore->mesh(), type, std::move(vec)));
 }
 
 // ── QuadraticEnergy factories ────────────────────────────────────────
@@ -388,6 +502,7 @@ public:
 
   // Shared energy handle — compatible with EnergySet and all evaluation paths.
   std::shared_ptr<PyPotentialEnergy> handle() const { return handle_; }
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy() const { return energy_; }
 
   // Rest position as (num_vertices, 3) ndarray.
   nb::ndarray<nb::numpy, double> restPosition() const
@@ -403,38 +518,6 @@ public:
       data->data(), {static_cast<size_t>(nv), static_cast<size_t>(3)}, owner);
   }
 
-  nb::ndarray<nb::numpy, double> plasticParams() const
-  {
-    const auto &manager = energy_->assembler().getDeformationModelManager();
-    const auto &params = manager.getPlasticGlobalParams();
-    const int np = manager.getNumPlasticParameters();
-    const int nele = manager.getMesh()->getNumElements();
-    auto data = params.size() == 0
-      ? new std::vector<double>()
-      : new std::vector<double>(params.data(), params.data() + params.size());
-    nb::capsule owner(data, [](void *p) noexcept {
-      delete static_cast<std::vector<double> *>(p);
-    });
-    return nb::ndarray<nb::numpy, double>(
-      data->data(),
-      {static_cast<size_t>(nele), static_cast<size_t>(np)},
-      owner);
-  }
-
-  void setPlasticParams(nb::ndarray<nb::numpy, const double> params)
-  {
-    auto values = python::ndarrayToVectorXd(params);
-    auto &manager = energy_->assembler().getDeformationModelManager();
-    const auto expected = manager.getPlasticGlobalParams().size();
-    if (values.size() != expected) {
-      throw nb::value_error("plastic_params size must match num_elements * plastic dofs");
-    }
-    {
-      nb::gil_scoped_release release;
-      manager.setPlasticParams(values);
-    }
-  }
-
   // Number of vertices (rest_position rows).
   int numVertices() const { return meshOwner_->numVertices(); }
 
@@ -444,18 +527,20 @@ private:
   std::shared_ptr<PyPotentialEnergy> handle_;
 };
 
-// Unified deformation energy factory.
-// Accepts formulation name, elastic/plastic material strings, and options.
 std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
   std::shared_ptr<PySimulationMesh> meshCore,
   const std::string &formulationName,
-  const std::string &elasticMaterial,
-  const std::string &plasticMaterial,
+  std::shared_ptr<PyParameterField> elasticField,
+  std::shared_ptr<PyParameterField> plasticField,
   bool enforceSPD,
   bool enableMaterialMaxStep)
 {
-  auto elastic = parseElasticMaterial(elasticMaterial);
-  auto plastic = parsePlasticMaterial(plasticMaterial);
+  if (!elasticField) {
+    throw nb::value_error("elastic_field must be non-null");
+  }
+  if (!plasticField) {
+    throw nb::value_error("plastic_field must be non-null");
+  }
 
   SolidDeformationModel::DeformationModelOptions opts;
   opts.enforceSPD = enforceSPD;
@@ -466,13 +551,16 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
     nb::gil_scoped_release release;
     if (formulationName == "tet_p1") {
       energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->mesh(), SolidDeformationModel::P1TetFormulation{}, elastic, plastic, opts);
+        meshCore->mesh(), SolidDeformationModel::P1TetFormulation{},
+        elasticField->field(), plasticField->field(), opts);
     } else if (formulationName == "hex_trilinear") {
       energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->mesh(), SolidDeformationModel::LinearCubicFormulation{}, elastic, plastic, opts);
+        meshCore->mesh(), SolidDeformationModel::LinearCubicFormulation{},
+        elasticField->field(), plasticField->field(), opts);
     } else if (formulationName == "shell_koiter") {
       energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->mesh(), SolidDeformationModel::KoiterShellFormulation{}, elastic, plastic, opts);
+        meshCore->mesh(), SolidDeformationModel::KoiterShellFormulation{},
+        elasticField->field(), plasticField->field(), opts);
     } else {
       throw std::invalid_argument(
         "Unknown formulation: '" + formulationName +
@@ -480,37 +568,6 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
     }
   }
   return std::make_shared<PyDeformationEnergy>(std::move(energy), std::move(meshCore));
-}
-
-// ── Backward-compatible private test hooks ──────────────────────────
-// These delegate to the unified factory above; kept for existing private
-// tests until they are migrated to the public API.
-
-std::shared_ptr<PyDeformationEnergy> createTetDeformationEnergyForTest(
-  std::shared_ptr<PySimulationMesh> meshCore,
-  const std::string &elasticMaterial,
-  const std::string &plasticMaterial)
-{
-  return createDeformationEnergy(std::move(meshCore), "tet_p1",
-    elasticMaterial, plasticMaterial, true, true);
-}
-
-std::shared_ptr<PyDeformationEnergy> createCubicDeformationEnergyForTest(
-  std::shared_ptr<PySimulationMesh> meshCore,
-  const std::string &elasticMaterial,
-  const std::string &plasticMaterial)
-{
-  return createDeformationEnergy(std::move(meshCore), "hex_trilinear",
-    elasticMaterial, plasticMaterial, true, true);
-}
-
-std::shared_ptr<PyDeformationEnergy> createShellDeformationEnergyForTest(
-  std::shared_ptr<PySimulationMesh> meshCore,
-  const std::string &elasticMaterial,
-  const std::string &plasticMaterial)
-{
-  return createDeformationEnergy(std::move(meshCore), "shell_koiter",
-    elasticMaterial, plasticMaterial, true, true);
 }
 
 }  // namespace
@@ -553,34 +610,42 @@ void init_energy_bindings(nb::module_ &m)
   nb::class_<PyDeformationEnergy>(m, "PyDeformationEnergy")
     .def_prop_ro("handle", &PyDeformationEnergy::handle)
     .def("rest_position", &PyDeformationEnergy::restPosition)
-    .def("plastic_params", &PyDeformationEnergy::plasticParams)
-    .def("set_plastic_params", &PyDeformationEnergy::setPlasticParams, nb::arg("plastic_params"))
     .def_prop_ro("num_vertices", &PyDeformationEnergy::numVertices);
+
+  nb::class_<PyParameterField>(m, "PyParameterField")
+    .def_prop_ro("domain", &PyParameterField::domain)
+    .def_prop_ro("model", &PyParameterField::model)
+    .def_prop_ro("num_elements", &PyParameterField::numElements)
+    .def_prop_ro("num_channels", &PyParameterField::numChannels)
+    .def("values", &PyParameterField::values)
+    .def("set_values", &PyParameterField::setValues, nb::arg("values"));
+
+  m.def("_create_elastic_default_field", &createElasticDefaultField,
+    nb::arg("mesh_core"),
+    nb::arg("elastic_model"));
+
+  m.def("_create_elastic_elementwise_field", &createElasticElementwiseField,
+    nb::arg("mesh_core"),
+    nb::arg("elastic_model"),
+    nb::arg("values"));
+
+  m.def("_create_plastic_default_field", &createPlasticDefaultField,
+    nb::arg("mesh_core"),
+    nb::arg("plastic_model"));
+
+  m.def("_create_plastic_elementwise_field", &createPlasticElementwiseField,
+    nb::arg("mesh_core"),
+    nb::arg("plastic_model"),
+    nb::arg("values"));
 
   // Unified deformation energy factory (public API entry point).
   m.def("_create_deformation_energy", &createDeformationEnergy,
     nb::arg("mesh_core"),
     nb::arg("formulation"),
-    nb::arg("elastic_material"),
-    nb::arg("plastic_material"),
+    nb::arg("elastic_field"),
+    nb::arg("plastic_field"),
     nb::arg("enforce_spd") = true,
     nb::arg("enable_material_max_step") = true);
-
-  // Backward-compatible private hooks (delegate to the unified factory).
-  m.def("_create_tet_deformation_energy_for_test", &createTetDeformationEnergyForTest,
-    nb::arg("mesh_core"),
-    nb::arg("elastic_material") = "stable_neo",
-    nb::arg("plastic_material") = "volumetric_dof6");
-
-  m.def("_create_cubic_deformation_energy_for_test", &createCubicDeformationEnergyForTest,
-    nb::arg("mesh_core"),
-    nb::arg("elastic_material") = "stable_neo",
-    nb::arg("plastic_material") = "volumetric_dof6");
-
-  m.def("_create_shell_deformation_energy_for_test", &createShellDeformationEnergyForTest,
-    nb::arg("mesh_core"),
-    nb::arg("elastic_material") = "koiter_stvk",
-    nb::arg("plastic_material") = "shell_ff_dof1");
 
   // Private/experimental — minimal QuadraticPotentialEnergy factory for
   // PotentialEnergy-handle tests.  Signature will change when

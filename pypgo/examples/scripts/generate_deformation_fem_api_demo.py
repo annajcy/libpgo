@@ -138,11 +138,13 @@ CELLS = [
     code(
         """
         # Build Tet P1 deformation energy
+        bunny_elastic = pf.StableNeo().default_field(bunny_mesh)
+        bunny_plastic = pf.VolumetricPlasticity(dofs=6).default_field(bunny_mesh)
         energy_tet = pf.deformation_energy(
             bunny_mesh,
             formulation=pf.TetP1(),
-            elastic=pf.StableNeo(),
-            plastic=pf.VolumetricPlasticity(dofs=6),
+            elastic_field=bunny_elastic,
+            plastic_field=bunny_plastic,
         )
         print(type(energy_tet).__name__)
         print(f"num_dofs:     {energy_tet.num_dofs}")
@@ -163,8 +165,8 @@ CELLS = [
         # Also try with StVK and different plastic DOFs
         energy_tet_stvk = pf.deformation_energy(
             bunny_mesh,
-            elastic=pf.StVK(),
-            plastic=pf.VolumetricPlasticity(dofs=3),
+            elastic_field=pf.StVK().default_field(bunny_mesh),
+            plastic_field=pf.VolumetricPlasticity(dofs=3).default_field(bunny_mesh),
         )
         print(f"StVK + dof3: {energy_tet_stvk.num_dofs} DOFs, "
               f"state_kind={energy_tet_stvk.state_kind}")
@@ -204,11 +206,13 @@ CELLS = [
     code(
         """
         # REQUIRED: explicit LinearCubic() formulation
+        box_elastic = pf.StableNeo().default_field(box_mesh)
+        box_plastic = pf.VolumetricPlasticity(dofs=6).default_field(box_mesh)
         energy_cubic = pf.deformation_energy(
             box_mesh,
             formulation=pf.LinearCubic(),
-            elastic=pf.StableNeo(),
-            plastic=pf.VolumetricPlasticity(dofs=6),
+            elastic_field=box_elastic,
+            plastic_field=box_plastic,
         )
         print(f"num_dofs:   {energy_cubic.num_dofs}")
         print(f"state_kind: {energy_cubic.state_kind}")
@@ -221,8 +225,8 @@ CELLS = [
         try:
             pf.deformation_energy(
                 box_mesh,
-                elastic=pf.StableNeo(),
-                plastic=pf.VolumetricPlasticity(dofs=6),
+                elastic_field=box_elastic,
+                plastic_field=box_plastic,
             )
         except ValueError as e:
             print(f"Error (expected): {e}")
@@ -262,11 +266,13 @@ CELLS = [
     code(
         """
         # Build shell deformation energy
+        shell_elastic = pf.KoiterStVK().default_field(shell_mesh)
+        shell_plastic = pf.ShellPlasticity(dofs=1).default_field(shell_mesh)
         energy_shell = pf.deformation_energy(
             shell_mesh,
             formulation=pf.KoiterShell(),
-            elastic=pf.KoiterStVK(),
-            plastic=pf.ShellPlasticity(dofs=1),
+            elastic_field=shell_elastic,
+            plastic_field=shell_plastic,
         )
         print(f"num_dofs:     {energy_shell.num_dofs}")
         print(f"state_kind:   {energy_shell.state_kind}")
@@ -430,8 +436,8 @@ CELLS = [
 
         e = pf.deformation_energy(
             tmp_sim,
-            elastic=pf.StableNeo(),
-            plastic=pf.VolumetricPlasticity(dofs=6),
+            elastic_field=pf.StableNeo().default_field(tmp_sim),
+            plastic_field=pf.VolumetricPlasticity(dofs=6).default_field(tmp_sim),
         )
         u0 = e.zero_state()
         val_before = e.value(u0)
@@ -460,13 +466,13 @@ CELLS = [
         """
         e1 = pf.deformation_energy(
             bunny_mesh,
-            elastic=pf.StableNeo(),
-            plastic=pf.VolumetricPlasticity(dofs=6),
+            elastic_field=pf.StableNeo().default_field(bunny_mesh),
+            plastic_field=pf.VolumetricPlasticity(dofs=6).default_field(bunny_mesh),
         )
         e2 = pf.deformation_energy(
             bunny_mesh,
-            elastic=pf.StVK(),
-            plastic=pf.VolumetricPlasticity(dofs=3),
+            elastic_field=pf.StVK().default_field(bunny_mesh),
+            plastic_field=pf.VolumetricPlasticity(dofs=3).default_field(bunny_mesh),
         )
         u = e1.zero_state()
         print(f"e1 (StableNeo, dof6):  {e1.value(u):.6e}")
@@ -497,8 +503,8 @@ CELLS = [
 
         e = pf.deformation_energy(
             box_tet_sim,
-            elastic=pf.StVK(),
-            plastic=pf.VolumetricPlasticity(dofs=3),
+            elastic_field=pf.StVK().default_field(box_tet_sim),
+            plastic_field=pf.VolumetricPlasticity(dofs=3).default_field(box_tet_sim),
         )
         u = e.zero_state()
         print(f"energy at rest: {e.value(u):.6e}")

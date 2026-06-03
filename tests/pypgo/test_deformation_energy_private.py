@@ -58,8 +58,10 @@ def _make_shell_sim_mesh():
 
 # Helper to evaluate energy using the unified factory + handle protocol
 def _make_deformation_energy(sim_mesh, formulation, elastic="stable_neo", plastic="volumetric_dof6"):
+    elastic_field = _core._create_elastic_default_field(sim_mesh._core_obj, elastic)
+    plastic_field = _core._create_plastic_default_field(sim_mesh._core_obj, plastic)
     return _core._create_deformation_energy(
-        sim_mesh._core_obj, formulation, elastic, plastic
+        sim_mesh._core_obj, formulation, elastic_field, plastic_field
     )
 
 
@@ -219,19 +221,17 @@ class TestShellDeformationEnergyPrivate:
 class TestLifetime:
     def test_two_energies_from_same_mesh_owner(self):
         sim = _make_tet_sim_mesh()
-        core = sim._core_obj
 
-        e1 = _core._create_deformation_energy(core, "tet_p1", "stable_neo", "volumetric_dof6")
-        e2 = _core._create_deformation_energy(core, "tet_p1", "stable_neo", "volumetric_dof6")
+        e1 = _make_deformation_energy(sim, "tet_p1")
+        e2 = _make_deformation_energy(sim, "tet_p1")
 
         u = e1.handle.zero_state()
         assert e1.handle.value(u) == pytest.approx(e2.handle.value(u), rel=1e-12)
 
     def test_energy_survives_python_sim_mesh_deletion(self):
         sim = _make_tet_sim_mesh()
-        core = sim._core_obj
 
-        energy = _core._create_deformation_energy(core, "tet_p1", "stable_neo", "volumetric_dof6")
+        energy = _make_deformation_energy(sim, "tet_p1")
         h = energy.handle
         u = h.zero_state()
         val_before = h.value(u)

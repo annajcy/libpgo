@@ -4,6 +4,8 @@
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
+#include "factories/elasticModelFactory.h"
+#include "factories/plasticModelFactory.h"
 #include "embeddedSurfaceFloorPotentialEnergy.h"
 #include "ipc/embeddedSurfaceIPCPotentialEnergy.h"
 #include "libiglInterface.h"
@@ -128,13 +130,6 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
     simulationRestPosition.segment<3>(vi * 3) = ES::V3d(p[0], p[1], p[2]);
   }
 
-  auto dmm = std::make_unique<SolidDeformationModel::DeformationModelManager>(
-    *simMesh,
-    pgo::SolidDeformationModel::DeformationModelPlasticMaterial::SHELL_FF_DOF0,
-    SolidDeformationModel::DeformationModelElasticMaterial::KOITER_STVK,
-    SolidDeformationModel::KoiterShellFormulation{},
-    1);
-
   ES::VXd elasticParams(5 * nele);
   for (int ei = 0; ei < nele; ++ei) {
     const double E_bend = kShellYoungsModulus;
@@ -146,7 +141,21 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
     elasticParams[ei * 5 + 3] = nu;
     elasticParams[ei * 5 + 4] = kShellThickness;
   }
-  dmm->setElasticParams(elasticParams);
+
+  auto elasticField = SolidDeformationModel::ElasticModelFactory::createElementwiseField(
+    *simMesh,
+    SolidDeformationModel::DeformationModelElasticMaterial::KOITER_STVK,
+    ES::VXd(elasticParams));
+  auto plasticField = SolidDeformationModel::PlasticModelFactory::createDefaultField(
+    *simMesh,
+    pgo::SolidDeformationModel::DeformationModelPlasticMaterial::SHELL_FF_DOF0);
+
+  auto dmm = std::make_unique<SolidDeformationModel::DeformationModelManager>(
+    *simMesh,
+    SolidDeformationModel::KoiterShellFormulation{},
+    std::move(elasticField),
+    std::move(plasticField),
+    1);
 
   std::vector<double> elementWeights(nele, 1.0);
   auto assembler =

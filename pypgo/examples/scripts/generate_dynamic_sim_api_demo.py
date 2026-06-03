@@ -397,10 +397,12 @@ CELLS = [
         print(f"Tet mesh: {vol.num_vertices} vertices, {vol.num_elements} tets")
 
         # ── 2. Deformation energy (Stable Neo-Hookean, no plasticity) ─
+        elastic_field = pf.StableNeo().default_field(sim_mesh)
+        plastic_field = pf.VolumetricPlasticity(dofs=0).default_field(sim_mesh)
         energy = pf.deformation_energy(
             sim_mesh,
-            elastic=pf.StableNeo(),
-            plastic=pf.VolumetricPlasticity(dofs=0),
+            elastic_field=elastic_field,
+            plastic_field=plastic_field,
         )
         n_dof = energy.num_dofs
         print(f"Energy: {n_dof} DOFs, state_kind={energy.state_kind}")

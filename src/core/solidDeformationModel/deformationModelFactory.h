@@ -35,13 +35,11 @@ struct DeformationModelOptions
 // Build a SimulationMesh from a volumetric mesh.
 std::unique_ptr<SimulationMesh> makeSimulationMesh(const VolumetricMeshes::VolumetricMesh &mesh);
 
-// Build a ready-to-use deformation energy from an existing SimulationMesh.
-// The returned energy owns its rest position and initial material parameters.
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   const SimulationMesh &mesh,
   const Formulation &formulation,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
+  std::shared_ptr<OptimizableField> elasticField,
+  std::shared_ptr<OptimizableField> plasticField,
   const DeformationModelOptions &opts = {});
 
 }  // namespace SolidDeformationModel

@@ -78,6 +78,11 @@ target_link_libraries(constantParameterField_gtest PRIVATE GTest::gtest_main sol
 set_property(TARGET constantParameterField_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(constantParameterField_gtest)
 
+add_executable(elementwiseParameterField_gtest formulations/parameters/elementwiseParameterField_gtest.cpp)
+target_link_libraries(elementwiseParameterField_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET elementwiseParameterField_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(elementwiseParameterField_gtest)
+
 add_executable(elasticModelFactory_gtest factories/elasticModelFactory_gtest.cpp)
 target_link_libraries(elasticModelFactory_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
 target_compile_definitions(elasticModelFactory_gtest PRIVATE

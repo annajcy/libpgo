@@ -1,9 +1,11 @@
 #pragma once
 
 #include "../deformationModelManager.h"  // DeformationModelElasticMaterial
+#include "../formulations/parameters/parameterField.h"
 #include "EigenDef.h"
 
 #include <memory>
+#include <string>
 
 namespace pgo
 {
@@ -12,6 +14,7 @@ namespace SolidDeformationModel
 
 class SimulationMesh;
 class ElasticModel;
+class OptimizableField;
 
 class ElasticModelFactory
 {
@@ -24,6 +27,21 @@ public:
     int ele,
     DeformationModelElasticMaterial type,
     const double *fiberDirection);
+
+  static std::string modelId(DeformationModelElasticMaterial type);
+  static DeformationModelElasticMaterial materialFromModelId(const std::string &modelId);
+  static ParameterFieldSpec parameterSpec(
+    const SimulationMesh &mesh,
+    DeformationModelElasticMaterial type);
+
+  static std::shared_ptr<OptimizableField> createDefaultField(
+    const SimulationMesh &mesh,
+    DeformationModelElasticMaterial type);
+
+  static std::shared_ptr<OptimizableField> createElementwiseField(
+    const SimulationMesh &mesh,
+    DeformationModelElasticMaterial type,
+    EigenSupport::VXd values);
 
   // Initialize default elastic parameter snapshot for the full mesh.
   // Currently handles KOITER_STVK shell params; leaves others zero.

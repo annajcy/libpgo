@@ -14,6 +14,8 @@
 #include "simulationMesh.h"
 #include "deformationModelFactory.h"
 #include "deformationModelManager.h"
+#include "factories/elasticModelFactory.h"
+#include "factories/plasticModelFactory.h"
 #include "basicIO.h"
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
@@ -680,17 +682,18 @@ int pgo_run_sim_from_config(const char *configFileName)
   int n3 = n * 3;
 
   // Build deformation energy.
+  auto elasticField = SolidDeformationModel::ElasticModelFactory::createDefaultField(*simMesh, elasticMat);
+  auto plasticField = SolidDeformationModel::PlasticModelFactory::createDefaultField(
+    *simMesh, SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy;
   switch (simMesh->getElementType()) {
   case SolidDeformationModel::SimulationMeshType::TET:
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      *simMesh, SolidDeformationModel::P1TetFormulation{}, elasticMat,
-      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+      *simMesh, SolidDeformationModel::P1TetFormulation{}, elasticField, plasticField);
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      *simMesh, SolidDeformationModel::LinearCubicFormulation{}, elasticMat,
-      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+      *simMesh, SolidDeformationModel::LinearCubicFormulation{}, elasticField, plasticField);
     break;
   default:
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");

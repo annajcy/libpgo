@@ -25,6 +25,22 @@ using namespace pgo::SolidDeformationModel;
 
 constexpr const char *kTorusVegPath = LIBPGO_TEST_TORUS_VEG;
 constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
+
+template<class FormulationT>
+std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
+  const SimulationMesh &mesh,
+  const FormulationT &formulation,
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
+  const DeformationModelOptions &opts = {})
+{
+  return makeDeformationEnergy(
+    mesh,
+    formulation,
+    ElasticModelFactory::createDefaultField(mesh, elastic),
+    PlasticModelFactory::createDefaultField(mesh, plastic),
+    opts);
+}
 }  // namespace
 
 // ============================================================
@@ -101,10 +117,12 @@ TEST(ElementModelFactoryGTest, TetManagerCreatesFormulationAwareModel)
   auto simMesh = loadTetMesh(&tetMesh);
   ASSERT_NE(simMesh, nullptr);
 
-  DeformationModelManager manager(*simMesh,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    DeformationModelElasticMaterial::STABLE_NEO,
-    P1TetFormulation{}, 1);
+  DeformationModelManager manager(
+    *simMesh,
+    P1TetFormulation{},
+    ElasticModelFactory::createDefaultField(*simMesh, DeformationModelElasticMaterial::STABLE_NEO),
+    PlasticModelFactory::createDefaultField(*simMesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
+    1);
 
   for (int ele = 0; ele < simMesh->getNumElements(); ele++) {
     const auto *fem = manager.getDeformationModel(ele);
@@ -123,10 +141,12 @@ TEST(ElementModelFactoryGTest, CubicManagerCreatesFormulationAwareModel)
   auto simMesh = loadCubicMesh(&cubicMesh);
   ASSERT_NE(simMesh, nullptr);
 
-  DeformationModelManager manager(*simMesh,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    DeformationModelElasticMaterial::STABLE_NEO,
-    LinearCubicFormulation{}, 1);
+  DeformationModelManager manager(
+    *simMesh,
+    LinearCubicFormulation{},
+    ElasticModelFactory::createDefaultField(*simMesh, DeformationModelElasticMaterial::STABLE_NEO),
+    PlasticModelFactory::createDefaultField(*simMesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
+    1);
 
   for (int ele = 0; ele < simMesh->getNumElements(); ele++) {
     const auto *fem = manager.getDeformationModel(ele);
@@ -147,7 +167,7 @@ TEST(ElementModelFactoryGTest, MakeTetDeformationModelEndToEnd)
 
   DeformationModelOptions opts;
   opts.enforceSPD = true;
-  auto bundle = makeDeformationEnergy(*simMesh,
+  auto bundle = makeDefaultFieldEnergy(*simMesh,
     P1TetFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, opts);
@@ -176,7 +196,7 @@ TEST(ElementModelFactoryGTest, MakeCubicDeformationModelEndToEnd)
 
   DeformationModelOptions opts;
   opts.enforceSPD = true;
-  auto bundle = makeDeformationEnergy(*simMesh,
+  auto bundle = makeDefaultFieldEnergy(*simMesh,
     LinearCubicFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, opts);

@@ -3,6 +3,8 @@
 #include "deformationModelFactory.h"
 #include "deformationModelEnergy.h"
 
+#include "factories/elasticModelFactory.h"
+#include "factories/plasticModelFactory.h"
 #include "simulationMesh.h"
 #include "tetMesh.h"
 #include "cubicMesh.h"
@@ -17,9 +19,25 @@ using pgo::SolidDeformationModel::KoiterShellFormulation;
 using pgo::SolidDeformationModel::LinearCubicFormulation;
 using pgo::SolidDeformationModel::P1TetFormulation;
 using pgo::SolidDeformationModel::SimulationMesh;
+using pgo::SolidDeformationModel::ElasticModelFactory;
+using pgo::SolidDeformationModel::PlasticModelFactory;
 
 constexpr const char *kTorusVegPath = LIBPGO_TEST_TORUS_VEG;
 constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
+
+template<class FormulationT>
+std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> makeDefaultFieldEnergy(
+  const SimulationMesh &mesh,
+  const FormulationT &formulation,
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic)
+{
+  return pgo::SolidDeformationModel::makeDeformationEnergy(
+    mesh,
+    formulation,
+    ElasticModelFactory::createDefaultField(mesh, elastic),
+    PlasticModelFactory::createDefaultField(mesh, plastic));
+}
 }  // namespace
 
 // ============================================================
@@ -61,7 +79,7 @@ TEST(DeformationModelFormulationGTest, TetFormulationBuildsEnergy)
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
   auto simMesh = pgo::SolidDeformationModel::loadTetMesh(&tetMesh);
   ASSERT_NE(simMesh, nullptr);
-  auto bundle = pgo::SolidDeformationModel::makeDeformationEnergy(
+  auto bundle = makeDefaultFieldEnergy(
     *simMesh,
     P1TetFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
@@ -81,7 +99,7 @@ TEST(DeformationModelFormulationGTest, CubicFormulationBuildsEnergy)
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   auto simMesh = pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh);
   ASSERT_NE(simMesh, nullptr);
-  auto bundle = pgo::SolidDeformationModel::makeDeformationEnergy(
+  auto bundle = makeDefaultFieldEnergy(
     *simMesh,
     LinearCubicFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,

@@ -125,12 +125,14 @@ CELLS = [
     code(
         """
         sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
+        elastic_field = pf.StableNeo().default_field(sim_mesh)
+        plastic_field = pf.VolumetricPlasticity(dofs=6).default_field(sim_mesh)
 
         deformation = pf.deformation_energy(
             sim_mesh,
             formulation=pf.LinearCubic(),
-            elastic=pf.StableNeo(),
-            plastic=pf.VolumetricPlasticity(dofs=6),
+            elastic_field=elastic_field,
+            plastic_field=plastic_field,
         )
 
         print("mesh_type:", sim_mesh.mesh_type)
@@ -264,9 +266,9 @@ CELLS = [
         """
         ## 8. Static Solve with Given Plastic Parameters
 
-        `DeformationEnergy.plastic_params` exposes the per-element plastic
-        field used by the FEM energy.  For volumetric `dofs=6`, each row is a
-        symmetric plastic deformation-gradient parameter:
+        The plastic model creates the per-element plastic field used by the
+        FEM energy. For volumetric `dofs=6`, each row is a symmetric plastic
+        deformation-gradient parameter:
 
         $$
         [F_{xx}, F_{xy}, F_{xz}, F_{yy}, F_{yz}, F_{zz}]
@@ -283,30 +285,34 @@ CELLS = [
         element_centers = cubic_data.vertices[cubic_data.elements].mean(axis=1)
         y01 = (element_centers[:, 1] - bbox_min[1]) / (bbox_max[1] - bbox_min[1])
 
-        plastic_params = deformation.plastic_params.copy()
-        plastic_params[:, 0] = 1.00 + 0.18 * y01  # F_xx
-        plastic_params[:, 3] = 1.00 - 0.06 * y01  # F_yy
-        plastic_params[:, 5] = 1.00               # F_zz
+        plastic_model = pf.VolumetricPlasticity(dofs=6)
+        plastic_values = plastic_model.default_field(sim_mesh).values
+        plastic_values[:, 0] = 1.00 + 0.18 * y01  # F_xx
+        plastic_values[:, 3] = 1.00 - 0.06 * y01  # F_yy
+        plastic_values[:, 5] = 1.00               # F_zz
+        plastic_field_spatial = plastic_model.elementwise_field(
+            sim_mesh,
+            values=plastic_values,
+        )
 
         deformation_plastic = pf.deformation_energy(
             sim_mesh,
             formulation=pf.LinearCubic(),
-            elastic=pf.StableNeo(),
-            plastic=pf.VolumetricPlasticity(dofs=6),
-            plastic_params=plastic_params,
+            elastic_field=elastic_field,
+            plastic_field=plastic_field_spatial,
         )
 
-        print("plastic params shape:", deformation_plastic.plastic_params.shape)
-        print("F_xx range:", float(plastic_params[:, 0].min()), float(plastic_params[:, 0].max()))
-        print("F_yy range:", float(plastic_params[:, 3].min()), float(plastic_params[:, 3].max()))
-        print("stored params match input:", np.allclose(deformation_plastic.plastic_params, plastic_params))
+        print("plastic field shape:", plastic_field_spatial.values.shape)
+        print("F_xx range:", float(plastic_values[:, 0].min()), float(plastic_values[:, 0].max()))
+        print("F_yy range:", float(plastic_values[:, 3].min()), float(plastic_values[:, 3].max()))
+        print("field values match input:", np.allclose(plastic_field_spatial.values, plastic_values))
 
         total_energy_plastic = pe.EnergySet([
             (deformation_plastic, 1.0)
         ])
 
         problem_plastic = ps.OptimizationProblem(objective=total_energy_plastic)
-        # problem_plastic.fix_variables(fixed_dofs.tolist(), x0[fixed_dofs], num_dofs=x0.size)
+        problem_plastic.fix_variables(fixed_dofs.tolist(), x0[fixed_dofs], num_dofs=x0.size)
         result_plastic = optimizer.solve(problem_plastic, x0)
 
         print("status:", result_plastic.status.name)
@@ -315,7 +321,7 @@ CELLS = [
         print("final objective:", result_plastic.final_objective)
         print("final gradient max norm:", result_plastic.final_gradient_max_norm)
         print("max |u|:", float(np.max(np.abs(result_plastic.x))))
-        # print("fixed values after plastic solve:", result_plastic.x[fixed_dofs])
+        print("fixed values after plastic solve:", result_plastic.x[fixed_dofs])
         """
     ),
     code(

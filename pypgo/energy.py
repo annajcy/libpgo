@@ -377,10 +377,6 @@ class DeformationEnergy(PotentialEnergy):
     ----------
     rest_position : ndarray (num_vertices, 3) float64
         Rest (undeformed) positions.
-    plastic_params : ndarray (num_elements, plastic_dofs) float64
-        Per-element plastic parameters.  For ``VolumetricPlasticity(dofs=6)``,
-        columns are the symmetric deformation-gradient entries
-        ``[xx, xy, xz, yy, yz, zz]``.
     """
 
     def __init__(self, core):
@@ -398,30 +394,6 @@ class DeformationEnergy(PotentialEnergy):
     @property
     def num_vertices(self) -> int:
         return self._core.num_vertices
-
-    @property
-    def plastic_params(self) -> np.ndarray:
-        return np.asarray(self._core.plastic_params(), dtype=np.float64)
-
-    def set_plastic_params(self, plastic_params) -> None:
-        expected_shape = self.plastic_params.shape
-        arr = np.asarray(plastic_params, dtype=np.float64, order="C")
-        if arr.ndim == 1:
-            if arr.size != expected_shape[0] * expected_shape[1]:
-                raise ValueError(
-                    "plastic_params flat size must match "
-                    "num_elements * plastic_dofs"
-                )
-            arr = arr.reshape(expected_shape)
-        elif arr.ndim != 2:
-            raise ValueError(
-                f"plastic_params must be 1-D or 2-D, got shape {arr.shape}"
-            )
-        if arr.shape != expected_shape:
-            raise ValueError(
-                f"plastic_params shape must be {expected_shape}, got {arr.shape}"
-            )
-        self._core.set_plastic_params(np.ascontiguousarray(arr.ravel(), dtype=np.float64))
 
     def __repr__(self) -> str:
         return f"DeformationEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"

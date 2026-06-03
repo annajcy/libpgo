@@ -271,8 +271,14 @@ class TestNotebookSources:
         assert "pgo.mesh.write_obj" in source
         assert "static_solve_box_hang_deformed.obj" in source
         assert "static_solve_box_hang_soft_pin_deformed.obj" in source
-        assert "plastic_params" in source
+        assert "elastic_field=elastic_field" in source
+        assert "plastic_field=plastic_field" in source
+        assert "plastic_values" in source
+        assert "plastic_field_spatial = plastic_model.elementwise_field" in source
         assert "deformation_plastic = pf.deformation_energy" in source
+        assert "plastic_field=plastic_field_spatial" in source
+        assert "DeformationEnergy.plastic_params" not in source
+        assert "plastic_params=" not in source
         assert "plastic_deformed_surface = surface_embedding.deform(result_plastic.x)" in source
         assert "static_solve_box_hang_plastic_deformed.obj" in source
         assert "given plastic params static solve" in source

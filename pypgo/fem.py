@@ -3,7 +3,7 @@
 All FEM-specific construction types live here:
   - Formulations:   TetP1, LinearCubic, KoiterShell
   - Elastic laws:   StableNeo, StVK, StVKVolume, LinearElastic, MooneyRivlin, KoiterStVK
-  - Plastic params: VolumetricPlasticity, ShellPlasticity
+  - Parameter fields: VolumetricPlasticity, ShellPlasticity
   - Options:        DeformationOptions
 
 The deformation_energy() factory returns a pypgo.energy.DeformationEnergy.
@@ -13,6 +13,8 @@ Do NOT expose FEM construction helpers in pypgo.energy.
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+import numpy as np
 
 import pypgo._core as _core
 from pypgo.energy import DeformationEnergy
@@ -73,6 +75,9 @@ class StableNeo:
     def _to_string(self) -> str:
         return self._kind
 
+    def default_field(self, sim_mesh) -> "ParameterField":
+        return _make_elastic_field(self, sim_mesh)
+
 
 @dataclass(frozen=True)
 class StVK:
@@ -81,6 +86,9 @@ class StVK:
 
     def _to_string(self) -> str:
         return self._kind
+
+    def default_field(self, sim_mesh) -> "ParameterField":
+        return _make_elastic_field(self, sim_mesh)
 
 
 @dataclass(frozen=True)
@@ -91,6 +99,9 @@ class StVKVolume:
     def _to_string(self) -> str:
         return self._kind
 
+    def default_field(self, sim_mesh) -> "ParameterField":
+        return _make_elastic_field(self, sim_mesh)
+
 
 @dataclass(frozen=True)
 class LinearElastic:
@@ -99,6 +110,9 @@ class LinearElastic:
 
     def _to_string(self) -> str:
         return self._kind
+
+    def default_field(self, sim_mesh) -> "ParameterField":
+        return _make_elastic_field(self, sim_mesh)
 
 
 @dataclass(frozen=True)
@@ -112,6 +126,9 @@ class MooneyRivlin:
     def _to_string(self) -> str:
         return self._kind
 
+    def default_field(self, sim_mesh) -> "ParameterField":
+        return _make_elastic_field(self, sim_mesh)
+
 
 @dataclass(frozen=True)
 class KoiterStVK:
@@ -120,6 +137,9 @@ class KoiterStVK:
 
     def _to_string(self) -> str:
         return self._kind
+
+    def default_field(self, sim_mesh) -> "ParameterField":
+        return _make_elastic_field(self, sim_mesh)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +167,12 @@ class VolumetricPlasticity:
     def _to_string(self) -> str:
         return f"volumetric_dof{self.dofs}"
 
+    def default_field(self, sim_mesh) -> "ParameterField":
+        return self.elementwise_field(sim_mesh, values=_default_plastic_values(sim_mesh, self))
+
+    def elementwise_field(self, sim_mesh, values) -> "ParameterField":
+        return _make_plastic_field(self, sim_mesh, values)
+
 
 @dataclass(frozen=True)
 class ShellPlasticity:
@@ -167,6 +193,116 @@ class ShellPlasticity:
 
     def _to_string(self) -> str:
         return f"shell_ff_dof{self.dofs}"
+
+    def default_field(self, sim_mesh) -> "ParameterField":
+        return self.elementwise_field(sim_mesh, values=_default_plastic_values(sim_mesh, self))
+
+    def elementwise_field(self, sim_mesh, values) -> "ParameterField":
+        return _make_plastic_field(self, sim_mesh, values)
+
+
+# ---------------------------------------------------------------------------
+# Parameter fields
+# ---------------------------------------------------------------------------
+
+
+class ParameterField:
+    """Fixed per-element parameter field backed by a C++ owning field.
+
+    Users construct these through material wrappers, e.g.
+    ``pf.StableNeo().default_field(sim_mesh)`` or
+    ``pf.VolumetricPlasticity(dofs=6).elementwise_field(sim_mesh, values)``.
+    """
+
+    def __init__(self, core) -> None:
+        if not isinstance(core, _core.PyParameterField):
+            raise TypeError(
+                f"core must be a PyParameterField, got {type(core).__name__}"
+            )
+        self._core = core
+
+    @property
+    def domain(self) -> str:
+        return self._core.domain
+
+    @property
+    def model(self) -> str:
+        return self._core.model
+
+    @property
+    def num_elements(self) -> int:
+        return self._core.num_elements
+
+    @property
+    def num_channels(self) -> int:
+        return self._core.num_channels
+
+    @property
+    def values(self) -> np.ndarray:
+        return np.asarray(self._core.values(), dtype=np.float64).copy()
+
+    def set_values(self, values) -> None:
+        arr = _field_values_array("values", values, self.num_elements, self.num_channels)
+        self._core.set_values(arr.ravel())
+
+    def _flat_values(self) -> np.ndarray:
+        return np.ascontiguousarray(self.values.ravel(), dtype=np.float64)
+
+
+def _make_elastic_field(model, sim_mesh) -> ParameterField:
+    sim_mesh = _require_sim_mesh(sim_mesh)
+    return ParameterField(
+        _core._create_elastic_default_field(sim_mesh._core_obj, model._to_string())
+    )
+
+
+def _make_plastic_field(model, sim_mesh, values) -> ParameterField:
+    sim_mesh = _require_sim_mesh(sim_mesh)
+    arr = _field_values_array("values", values, sim_mesh.num_elements, model.dofs)
+    return ParameterField(
+        _core._create_plastic_elementwise_field(
+            sim_mesh._core_obj,
+            model._to_string(),
+            arr.ravel(),
+        )
+    )
+
+
+def _default_plastic_values(sim_mesh, model) -> np.ndarray:
+    sim_mesh = _require_sim_mesh(sim_mesh)
+    return np.asarray(
+        _core._create_plastic_default_field(
+            sim_mesh._core_obj,
+            model._to_string(),
+        ).values(),
+        dtype=np.float64,
+    )
+
+
+def _field_values_array(name, values, num_elements, num_channels):
+    arr = np.asarray(values, dtype=np.float64, order="C")
+    if arr.ndim == 1:
+        expected = num_elements * num_channels
+        if arr.size != expected:
+            raise ValueError(f"{name} flat size must be {expected}, got {arr.size}")
+        arr = arr.reshape((num_elements, num_channels))
+    elif arr.ndim != 2:
+        raise ValueError(f"{name} must be 1-D or 2-D, got shape {arr.shape}")
+    if arr.shape != (num_elements, num_channels):
+        raise ValueError(
+            f"{name} shape must be {(num_elements, num_channels)}, got {arr.shape}"
+        )
+    return np.ascontiguousarray(arr, dtype=np.float64)
+
+
+def _require_sim_mesh(sim_mesh):
+    from pypgo.sim import SimulationMesh as _SimulationMesh
+
+    if not isinstance(sim_mesh, _SimulationMesh):
+        raise TypeError(
+            f"sim_mesh must be a SimulationMesh, got {type(sim_mesh).__name__}"
+        )
+    return sim_mesh
 
 
 # ---------------------------------------------------------------------------
@@ -195,14 +331,14 @@ class DeformationOptions:
 
 
 def deformation_energy(
-    sim_mesh,               # SimulationMesh
-    formulation=None,       # TetP1 | LinearCubic | KoiterShell | None
-    elastic=None,           # StableNeo | StVK | StVKVolume | LinearElastic | MooneyRivlin | KoiterStVK
-    plastic=None,           # VolumetricPlasticity | ShellPlasticity
-    options=None,           # DeformationOptions | None
-    plastic_params=None,    # ndarray | None
+    sim_mesh,                # SimulationMesh
+    formulation=None,        # TetP1 | LinearCubic | KoiterShell | None
+    *,
+    elastic_field=None,      # ParameterField
+    plastic_field=None,      # ParameterField
+    options=None,            # DeformationOptions | None
 ) -> DeformationEnergy:
-    """Create a deformation energy from a simulation mesh.
+    """Create a deformation energy from explicit fixed parameter fields.
 
     Parameters
     ----------
@@ -211,15 +347,12 @@ def deformation_energy(
     formulation : TetP1, LinearCubic, or KoiterShell
         Element formulation.  If None, defaults to TetP1 for tet meshes.
         Cubic and shell meshes REQUIRE an explicit formulation.
-    elastic : StableNeo, StVK, StVKVolume, LinearElastic, MooneyRivlin, or KoiterStVK
-        Elastic material law.  Required.
-    plastic : VolumetricPlasticity or ShellPlasticity
-        Plastic parametrization.  Required.
+    elastic_field : ParameterField
+        Fixed elastic parameter field created by an elastic model wrapper.
+    plastic_field : ParameterField
+        Fixed plastic parameter field created by a plastic model wrapper.
     options : DeformationOptions, optional
         Additional options (SPD enforcement, max-step limiting).
-    plastic_params : ndarray, optional
-        Initial per-element plastic parameters.  Shape must be
-        ``(num_elements, plastic.dofs)`` or flat equivalent.
 
     Returns
     -------
@@ -258,23 +391,26 @@ def deformation_energy(
             f"got {type(formulation).__name__}"
         )
 
-    # Resolve elastic
-    if elastic is None:
-        raise ValueError("elastic material is required")
-    if not hasattr(elastic, "_to_string"):
+    if elastic_field is None:
+        raise ValueError("elastic_field is required")
+    if plastic_field is None:
+        raise ValueError("plastic_field is required")
+    if not isinstance(elastic_field, ParameterField):
         raise TypeError(
-            f"elastic must be a pypgo.fem elastic wrapper, "
-            f"got {type(elastic).__name__}"
+            f"elastic_field must be a ParameterField, got {type(elastic_field).__name__}"
         )
-
-    # Resolve plastic
-    if plastic is None:
-        raise ValueError("plastic parametrization is required")
-    if not hasattr(plastic, "_to_string"):
+    if not isinstance(plastic_field, ParameterField):
         raise TypeError(
-            f"plastic must be a pypgo.fem plastic wrapper, "
-            f"got {type(plastic).__name__}"
+            f"plastic_field must be a ParameterField, got {type(plastic_field).__name__}"
         )
+    if elastic_field.domain != "elastic":
+        raise ValueError("elastic_field must have domain 'elastic'")
+    if plastic_field.domain != "plastic":
+        raise ValueError("plastic_field must have domain 'plastic'")
+    if elastic_field.num_elements != sim_mesh.num_elements:
+        raise ValueError("elastic_field element count must match sim_mesh")
+    if plastic_field.num_elements != sim_mesh.num_elements:
+        raise ValueError("plastic_field element count must match sim_mesh")
 
     # Resolve options
     if options is None:
@@ -287,13 +423,9 @@ def deformation_energy(
     core = _core._create_deformation_energy(
         sim_mesh._core_obj,
         formulation._to_string(),
-        elastic._to_string(),
-        plastic._to_string(),
+        elastic_field._core,
+        plastic_field._core,
         bool(options.enforce_spd),
         bool(options.enable_material_max_step),
     )
-
-    energy = DeformationEnergy(core)
-    if plastic_params is not None:
-        energy.set_plastic_params(plastic_params)
-    return energy
+    return DeformationEnergy(core)

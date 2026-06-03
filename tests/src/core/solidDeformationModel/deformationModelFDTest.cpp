@@ -13,6 +13,8 @@ copyright to USC,MIT,NUS
 #include "formulations/kernels/volumetricKernel.h"
 #include "formulations/elements/volumetricElementModel.h"
 #include "formulations/parameters/parameterField.h"
+#include "factories/elasticModelFactory.h"
+#include "factories/plasticModelFactory.h"
 
 // #include "elementLocalDirection.h"
 #include "tetMesh.h"
@@ -104,8 +106,16 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
         mesh->setMaterial(-1, mat);
       }
 
+      auto elasticField = ElasticModelFactory::createDefaultField(*mesh, elasticMat);
+      auto plasticField = PlasticModelFactory::createDefaultField(*mesh, plasticMat);
       std::unique_ptr<DeformationModelManager> dmm = std::make_unique<DeformationModelManager>(
-        *mesh, plasticMat, elasticMat, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
+        *mesh,
+        pgo::SolidDeformationModel::P1TetFormulation{},
+        elasticField,
+        plasticField,
+        1,
+        nullptr,
+        nullptr);
 
       int nplastic = dmm->getNumPlasticParameters();
       int nelastic = 0;
@@ -325,7 +335,7 @@ int SolidDeformationModel::fdTestTetMesh(const char *tetMeshFilename, int numTes
 forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm), nullptr);
 
         std::shared_ptr<DeformationModelEnergy> energy = std::make_shared<DeformationModelEnergy>(std::move(forceModelAssembler));
-        energy->assembler().getDeformationModelManager().setPlasticParams(scales);
+        plasticField->setGlobalData(scales.data());
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
         fd.testEnergy(energy, false, true, -1.0, x.data(), numTestDOFs, nullptr, &hessError);
@@ -336,7 +346,7 @@ forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm)
           scales.segment(hi * nplastic, nplastic) = scaleParam + ES::VXd::Constant(nplastic, 1.0 * hi / nele);
         }
 
-        energy->assembler().getDeformationModelManager().setPlasticParams(scales);
+        plasticField->setGlobalData(scales.data());
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
         fd.testEnergy(energy, false, true, -1.0, x.data(), numTestDOFs, nullptr, &hessError);
@@ -440,8 +450,16 @@ int SolidDeformationModel::fdTestShellMesh(const char *surfaceMeshFilename, int 
         mesh->setMaterial(-1, mat);
       }
 
+      auto elasticField = ElasticModelFactory::createDefaultField(*mesh, elasticMat);
+      auto plasticField = PlasticModelFactory::createDefaultField(*mesh, plasticMat);
       std::unique_ptr<DeformationModelManager> dmm = std::make_unique<DeformationModelManager>(
-        *mesh, plasticMat, elasticMat, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
+        *mesh,
+        pgo::SolidDeformationModel::P1TetFormulation{},
+        elasticField,
+        plasticField,
+        1,
+        nullptr,
+        nullptr);
 
       int nplastic = dmm->getNumPlasticParameters();
       int nelastic = dmm->getNumElasticParameters();
@@ -631,7 +649,7 @@ forceModelAssembler = std::make_unique<DeformationModelAssembler>(std::move(dmm)
           scales.segment(hi * nplastic, nplastic) = scaleParam + ES::VXd::Constant(nplastic, 1.0 * hi / nele);
         }
 
-        energy->assembler().getDeformationModelManager().setPlasticParams(scales);
+        plasticField->setGlobalData(scales.data());
 
         fd.testEnergy(energy, true, false, -1.0, x.data(), -1, &gradError, nullptr);
         fd.testEnergy(energy, false, true, -1.0, x.data(), numTestDOFs, nullptr, &hessError);

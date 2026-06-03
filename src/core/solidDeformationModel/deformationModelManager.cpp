@@ -20,7 +20,6 @@ copyright to USC, MIT, NUS
 #include "factories/elasticModelFactory.h"
 #include "factories/plasticModelFactory.h"
 
-#include "formulations/parameters/constantParameterField.h"
 #include "formulations/elements/parameterizedMaterialBlock.h"
 
 #include "pgoLogging.h"
@@ -32,6 +31,7 @@ copyright to USC, MIT, NUS
 #include <tbb/enumerable_thread_specific.h>
 
 #include <memory>
+#include <string>
 
 namespace ES = pgo::EigenSupport;
 
@@ -63,10 +63,8 @@ public:
   int nvtx;
 
   // Parameter field ownership.
-  std::unique_ptr<ConstantParameterField> elasticField;
-  std::unique_ptr<ConstantParameterField> plasticField;
-  ES::VXd elasticGlobalParams;
-  ES::VXd plasticGlobalParams;
+  std::shared_ptr<OptimizableField> elasticField;
+  std::shared_ptr<OptimizableField> plasticField;
 
   void computeFiberAxes();
 };
@@ -203,6 +201,41 @@ void validateFormulation(SimulationMeshType meshType, const Formulation &formula
     throw std::invalid_argument("formulation does not match mesh type");
 }
 
+void validateParameterField(const char *name, const OptimizableField *field,
+  ParameterDomain expectedDomain, int expectedChannels, int expectedElements)
+{
+  if (!field)
+    throw std::invalid_argument(std::string(name) + " must be non-null.");
+
+  const auto &spec = field->spec();
+  if (spec.domain != expectedDomain)
+    throw std::invalid_argument(std::string(name) + " has an incompatible domain.");
+
+  if (field->numChannels() != expectedChannels || spec.numChannels != expectedChannels)
+    throw std::invalid_argument(std::string(name) + " channel count does not match the material model.");
+
+  const auto *layout = field->dofLayout();
+  if (!layout)
+    throw std::invalid_argument(std::string(name) + " must provide a DOF layout.");
+
+  if (layout->numGlobalDofs() != expectedChannels * expectedElements)
+    throw std::invalid_argument(std::string(name) + " global DOF count does not match the mesh.");
+}
+
+DeformationModelElasticMaterial inferElasticMaterial(const std::shared_ptr<OptimizableField> &field)
+{
+  if (!field)
+    throw std::invalid_argument("elasticField must be non-null.");
+  return ElasticModelFactory::materialFromModelId(field->spec().modelId);
+}
+
+DeformationModelPlasticMaterial inferPlasticMaterial(const std::shared_ptr<OptimizableField> &field)
+{
+  if (!field)
+    throw std::invalid_argument("plasticField must be non-null.");
+  return PlasticModelFactory::materialFromModelId(field->spec().modelId);
+}
+
 }  // namespace
 
 void DeformationModelManager::initBase(const SimulationMesh &simulationMesh,
@@ -229,25 +262,26 @@ void DeformationModelManager::initBase(const SimulationMesh &simulationMesh,
 }
 
 DeformationModelManager::DeformationModelManager(const SimulationMesh &simulationMesh,
-  DeformationModelPlasticMaterial plasticModelType, DeformationModelElasticMaterial elasticMaterialType,
   const Formulation &formulation,
+  std::shared_ptr<OptimizableField> elasticField,
+  std::shared_ptr<OptimizableField> plasticField,
   int enforceSPD, const double *elementFiberDirections, const double *vertexFiberDirections)
 {
   initBase(simulationMesh, elementFiberDirections, vertexFiberDirections);
   validateFormulation(simulationMesh.getElementType(), formulation);
 
+  const auto plasticModelType = inferPlasticMaterial(plasticField);
+  const auto elasticMaterialType = inferElasticMaterial(elasticField);
   const auto *mat = simulationMesh.getElementMaterial(0, 0);
   const int ne = mat->numElasticParameters(elasticMaterialType);
   const int np = mat->numPlasticParameters(plasticModelType);
   data->numPlasticParams = np;
 
-  data->elasticGlobalParams = ES::VXd::Zero(static_cast<Eigen::Index>(data->nele) * ne);
-  data->plasticGlobalParams = ES::VXd::Zero(static_cast<Eigen::Index>(data->nele) * np);
+  validateParameterField("elasticField", elasticField.get(), ParameterDomain::ELASTIC, ne, data->nele);
+  validateParameterField("plasticField", plasticField.get(), ParameterDomain::PLASTIC, np, data->nele);
 
-  data->elasticField = std::make_unique<ConstantParameterField>(
-    ne, data->nele, data->elasticGlobalParams.data());
-  data->plasticField = std::make_unique<ConstantParameterField>(
-    np, data->nele, data->plasticGlobalParams.data());
+  data->elasticField = std::move(elasticField);
+  data->plasticField = std::move(plasticField);
 
   initImpl(plasticModelType, elasticMaterialType, formulation);
 
@@ -292,18 +326,7 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
     },
     tbb::static_partitioner());
 
-  // Initialize default plastic / elastic parameters.
-  {
-    std::vector<PlasticModel *> plasticModels(nele);
-    for (int ei = 0; ei < nele; ei++)
-      plasticModels[ei] = data->ownedPlasticModels[ei].get();
-    setPlasticParams(PlasticModelFactory::initializeDefaultPlasticParams(
-      nele, data->numPlasticParams, plasticModels.data()));
-
-    const int numElasticParams = data->ownedElasticModels[0]->getNumParameters();
-    setElasticParams(ElasticModelFactory::initializeDefaultElasticParams(
-      *data->simulationMesh, elasticMaterialType, numElasticParams));
-  }
+  // Parameter values are owned by the explicit fields passed to the manager.
 }
 
 const DeformationModel *DeformationModelManager::getDeformationModel(int eleID) const
@@ -319,18 +342,6 @@ const ParameterField *DeformationModelManager::getElasticParameterField() const
 const ParameterField *DeformationModelManager::getPlasticParameterField() const
 {
   return data->plasticField.get();
-}
-
-void DeformationModelManager::setElasticParams(const EigenSupport::VXd &params)
-{
-  data->elasticGlobalParams = params;
-  data->elasticField->setGlobalData(data->elasticGlobalParams.data());
-}
-
-void DeformationModelManager::setPlasticParams(const EigenSupport::VXd &params)
-{
-  data->plasticGlobalParams = params;
-  data->plasticField->setGlobalData(data->plasticGlobalParams.data());
 }
 
 std::unique_ptr<const DofLayout> DeformationModelManager::createDofLayout() const
@@ -433,12 +444,22 @@ int DeformationModelManager::getNumElasticParameters() const
   return data->ownedElasticModels[0]->getNumParameters();
 }
 
-const ES::VXd &DeformationModelManager::getElasticGlobalParams() const
+ES::VXd DeformationModelManager::getElasticParameterSnapshot() const
 {
-  return data->elasticGlobalParams;
+  const auto *layout = data->elasticField->dofLayout();
+  const int n = layout ? layout->numGlobalDofs() : 0;
+  ES::VXd params(n);
+  if (n > 0)
+    params = Eigen::Map<const ES::VXd>(data->elasticField->globalData(), n);
+  return params;
 }
 
-const ES::VXd &DeformationModelManager::getPlasticGlobalParams() const
+ES::VXd DeformationModelManager::getPlasticParameterSnapshot() const
 {
-  return data->plasticGlobalParams;
+  const auto *layout = data->plasticField->dofLayout();
+  const int n = layout ? layout->numGlobalDofs() : 0;
+  ES::VXd params(n);
+  if (n > 0)
+    params = Eigen::Map<const ES::VXd>(data->plasticField->globalData(), n);
+  return params;
 }

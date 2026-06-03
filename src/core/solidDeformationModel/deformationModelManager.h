@@ -18,7 +18,7 @@ class SimulationMesh;
 class DeformationModel;
 class DeformationModelManagerImpl;
 class ParameterField;
-class ConstantParameterField;
+class OptimizableField;
 class DofLayout;
 
 enum class DeformationModelElasticMaterial
@@ -54,9 +54,9 @@ class DeformationModelManager
 {
 public:
   DeformationModelManager(const SimulationMesh &simulationMesh,
-    DeformationModelPlasticMaterial plasticModelType,
-    DeformationModelElasticMaterial elasticMaterialType,
     const Formulation &formulation,
+    std::shared_ptr<OptimizableField> elasticField,
+    std::shared_ptr<OptimizableField> plasticField,
     int enforceSPD = 1,
     const double *elementFiberDirections = nullptr,
     const double *vertexFiberDirections = nullptr);
@@ -67,8 +67,8 @@ public:
 
   int getNumPlasticParameters() const;
   int getNumElasticParameters() const;
-  const EigenSupport::VXd &getElasticGlobalParams() const;
-  const EigenSupport::VXd &getPlasticGlobalParams() const;
+  EigenSupport::VXd getElasticParameterSnapshot() const;
+  EigenSupport::VXd getPlasticParameterSnapshot() const;
   const SimulationMesh *getMesh() const;
 
   void setElementAlignedMatrix(int id, double R[9]);
@@ -79,9 +79,6 @@ public:
 
   const ParameterField *getElasticParameterField() const;
   const ParameterField *getPlasticParameterField() const;
-
-  void setElasticParams(const EigenSupport::VXd &params);
-  void setPlasticParams(const EigenSupport::VXd &params);
 
   std::unique_ptr<const DofLayout> createDofLayout() const;
   EigenSupport::VXd buildRestPosition() const;
