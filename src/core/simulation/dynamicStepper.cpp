@@ -87,7 +87,7 @@ ImplicitEulerStepper::ImplicitEulerStepper(DynamicProblem problem)
 {
   n_ = (int)problem_.mass.rows();
   validateDynamicProblem(problem_, n_);
-  newtonOptions_.control = problem_.solver;
+  newtonOptions_ = std::get<NO::NewtonOptions>(problem_.solver);
 
   const DynamicState zero = makeZeroState(n_);
   const DynamicStepRequest zeroReq = makeZeroRequest(n_);
@@ -126,7 +126,7 @@ TRBDF2Stepper::TRBDF2Stepper(DynamicProblem problem, double gamma)
 {
   n_ = (int)problem_.mass.rows();
   validateDynamicProblem(problem_, n_);
-  newtonOptions_.control = problem_.solver;
+  newtonOptions_ = std::get<NO::NewtonOptions>(problem_.solver);
 
   coeffs_ = computeTRBDF2Coefficients(gamma, problem_.timestep);
   singleStage_ = (gamma >= 1.0 - 1e-9);

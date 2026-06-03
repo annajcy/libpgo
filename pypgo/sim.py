@@ -107,6 +107,13 @@ def read_shell(path):
 
 _INTEGRATORS = ("implicit_euler", "trbdf2")
 
+_SPARSE_SOLVERS = {
+    "auto": 0,
+    "eigen_ldlt": 1,
+    "pardiso": 2,
+    "orig_pardiso": 3,
+}
+
 
 @dataclass(frozen=True)
 class DynamicState:
@@ -224,6 +231,9 @@ class DynamicSimulation:
 
         mass_damping, stiffness_damping = (float(damping[0]), float(damping[1]))
         opts = solver if solver is not None else _solver.NewtonOptions()
+        ss = opts.sparse_solver
+        if ss not in _SPARSE_SOLVERS:
+            raise ValueError(f"solver.sparse_solver must be one of {list(_SPARSE_SOLVERS)}, got {ss!r}")
 
         self._n = n
         self._frame_index = 0
@@ -244,6 +254,7 @@ class DynamicSimulation:
             max_iter=int(opts.max_iter),
             tol=float(opts.tol),
             verbose=int(opts.verbose),
+            sparse_solver_kind=_SPARSE_SOLVERS[ss],
             gamma=float(trbdf2_gamma),
         )
 

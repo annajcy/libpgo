@@ -425,6 +425,7 @@ CELLS = [
             energy=energy,
             integrator="implicit_euler",
             damping=(0.5, 0.0),
+            solver=pgo.solver.NewtonOptions(sparse_solver="auto"),
         )
 
         surf_disps = []

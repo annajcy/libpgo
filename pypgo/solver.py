@@ -53,6 +53,15 @@ class NewtonOptions:
     damping: bool = True
     line_search: str = "backtrack"
     verbose: int = 0
+    sparse_solver: str = "auto"  # "auto" | "eigen_ldlt" | "pardiso" | "orig_pardiso"
+
+
+_SPARSE_SOLVERS = {
+    "auto": 0,
+    "eigen_ldlt": 1,
+    "pardiso": 2,
+    "orig_pardiso": 3,
+}
 
 
 def _merge_newton_options(
@@ -63,6 +72,7 @@ def _merge_newton_options(
     damping: bool | None,
     line_search: str | None,
     verbose: int | None,
+    sparse_solver: str | None,
 ) -> NewtonOptions:
     if options is None:
         options = NewtonOptions()
@@ -80,6 +90,8 @@ def _merge_newton_options(
         overrides["line_search"] = line_search
     if verbose is not None:
         overrides["verbose"] = verbose
+    if sparse_solver is not None:
+        overrides["sparse_solver"] = sparse_solver
 
     return replace(options, **overrides) if overrides else options
 
@@ -124,6 +136,7 @@ def solve_newton(
     damping: bool | None = None,
     line_search: str | None = None,
     verbose: int | None = None,
+    sparse_solver: str | None = None,
 ) -> SolverResult:
     """Minimize a PotentialEnergy with the Newton backend.
 
@@ -142,7 +155,11 @@ def solve_newton(
         damping=damping,
         line_search=line_search,
         verbose=verbose,
+        sparse_solver=sparse_solver,
     )
+    ss = opts.sparse_solver
+    if ss not in _SPARSE_SOLVERS:
+        raise ValueError(f"sparse_solver must be one of {list(_SPARSE_SOLVERS)}, got {ss!r}")
 
     x0_arr = _as_float_vector("x0", x0)
     has_fixed_values = fixed_values is not None
@@ -163,6 +180,7 @@ def solve_newton(
         bool(opts.damping),
         str(opts.line_search),
         int(opts.verbose),
+        sparse_solver_kind=_SPARSE_SOLVERS[ss],
     )
     return _result_from_core(data)
 

@@ -87,6 +87,7 @@ public:
     const std::string &integrator,
     std::vector<int> fixedDofs,
     int maxIter, double tol, int verbose,
+    int sparseSolverKind,
     double gamma)
     : n_(numDofs)
   {
@@ -94,9 +95,11 @@ public:
     problem.mass = buildSparse(numDofs, massRows, massCols, massVals);
     problem.timestep = timestep;
     problem.fixedDofs = std::move(fixedDofs);
-    problem.solver.maxIterations = maxIter;
-    problem.solver.tolerance = tol;
-    problem.solver.verbose = verbose;
+    auto &no = std::get<NO::NewtonOptions>(problem.solver);
+    no.control.maxIterations = maxIter;
+    no.control.tolerance = tol;
+    no.control.verbose = verbose;
+    no.sparseSolver.kind = static_cast<NO::NewtonSparseSolverKind>(sparseSolverKind);
 
     if (energy) {
       SIM::ImplicitModelTerm term;
@@ -167,14 +170,14 @@ void init_simulation_bindings(nb::module_ &m)
     .def(nb::init<int, std::vector<int>, std::vector<int>, std::vector<double>,
            std::shared_ptr<PyPotentialEnergy>, double, double,
            nb::ndarray<nb::numpy, const double>, nb::ndarray<nb::numpy, const double>, nb::ndarray<nb::numpy, const double>,
-           double, const std::string &, std::vector<int>, int, double, int, double>(),
+           double, const std::string &, std::vector<int>, int, double, int, int, double>(),
       nb::arg("num_dofs"),
       nb::arg("mass_rows"), nb::arg("mass_cols"), nb::arg("mass_vals"),
       nb::arg("energy").none(),
       nb::arg("mass_damping"), nb::arg("stiffness_damping"),
       nb::arg("displacement"), nb::arg("velocity"), nb::arg("acceleration"),
       nb::arg("timestep"), nb::arg("integrator"), nb::arg("fixed_dofs"),
-      nb::arg("max_iter"), nb::arg("tol"), nb::arg("verbose"), nb::arg("gamma"))
+      nb::arg("max_iter"), nb::arg("tol"), nb::arg("verbose"), nb::arg("sparse_solver_kind"), nb::arg("gamma"))
     .def("step", &PyDynamicSimulation::step,
       nb::arg("external_force"), nb::arg("fixed_values"), nb::arg("has_fixed_values"))
     .def_prop_ro("displacement", &PyDynamicSimulation::displacement, nb::rv_policy::move)

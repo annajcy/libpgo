@@ -104,6 +104,46 @@ def test_newton_options_can_be_passed_directly():
     assert np.allclose(result.x, [1.0, -2.0, 4.0])
 
 
+def test_newton_options_sparse_solver_is_forwarded(monkeypatch):
+    class FakeEnergy:
+        _handle = object()
+
+    captured = {}
+
+    def fake_solve_newton(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return {
+            "x": np.zeros(3, dtype=np.float64),
+            "status": int(solver.SolveStatus.CONVERGED),
+            "converged": True,
+            "iterations": 0,
+            "raw_status_code": int(solver.SolveStatus.CONVERGED),
+            "final_objective": 0.0,
+            "final_gradient_norm": None,
+            "final_gradient_max_norm": None,
+            "diagnostics": {
+                "min_feasible_alpha": 1.0,
+                "min_line_search_alpha": 1.0,
+                "min_effective_alpha": 1.0,
+                "material_clamp_count": 0,
+                "contact_clamp_count": 0,
+                "final_gradient_norm": None,
+                "final_gradient_max_norm": None,
+            },
+        }
+
+    monkeypatch.setattr(solver._core, "_solve_newton", fake_solve_newton)
+
+    solver.solve_newton(
+        FakeEnergy(),
+        x0=np.zeros(3, dtype=np.float64),
+        options=solver.NewtonOptions(sparse_solver="eigen_ldlt"),
+    )
+
+    assert captured["kwargs"]["sparse_solver_kind"] == 1
+
+
 def test_explicit_solver_keywords_override_newton_options():
     energy = make_quadratic()
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)

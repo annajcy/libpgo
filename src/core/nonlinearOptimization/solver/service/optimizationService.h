@@ -7,6 +7,7 @@
 #include "solver/common/solverResult.h"
 
 #include <optional>
+#include <variant>
 #include <vector>
 
 namespace pgo::NonlinearOptimization
@@ -28,6 +29,18 @@ struct NewtonOptions
   LineSearchMethod lineSearch = LineSearchMethod::Backtrack;
   NewtonSparseSolverOptions sparseSolver;
 };
+
+// Multi-backend solver options.   Each alternative MUST expose a `control`
+// member of type `SolverControl`.   Use `getSolverControl(opts)` to read it
+// generically; use `std::get<NewtonOptions>(opts)` when you know the backend.
+//
+// Add IpoptOptions / KnitroOptions here when the solver service grows them.
+using SolverOptions = std::variant<NewtonOptions>;
+
+inline const SolverControl &getSolverControl(const SolverOptions &opts)
+{
+  return std::visit([](const auto &o) -> const SolverControl & { return o.control; }, opts);
+}
 
 struct FixedVariables
 {

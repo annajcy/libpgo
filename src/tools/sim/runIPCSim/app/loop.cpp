@@ -43,9 +43,9 @@ void runIPCSimLoop(const RunIPCSimRuntimeConfig &runtimeConfig,
     pgo::Simulation::DynamicProblem problem;
     problem.mass = session.mass;
     problem.timestep = session.timestep;
-    problem.solver.maxIterations = session.solverMaxIter;
-    problem.solver.tolerance = session.solverEps;
-    problem.solver.verbose = 0;
+    std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.maxIterations = session.solverMaxIter;
+    std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.tolerance = session.solverEps;
+    std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.verbose = 0;
 
     // Persistent terms: elastic energy + pulling (attachment) energies.
     {

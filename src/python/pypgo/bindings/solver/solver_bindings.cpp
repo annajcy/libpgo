@@ -57,7 +57,8 @@ nb::dict solveNewton(
   double tol,
   bool damping,
   const std::string &lineSearch,
-  int verbose)
+  int verbose,
+  int sparseSolverKind)
 {
   auto x0Map = python::ndarrayToVectorMapXd(x0);
 
@@ -79,6 +80,7 @@ nb::dict solveNewton(
   options.control.verbose = verbose;
   options.damping = damping;
   options.lineSearch = parseLineSearch(lineSearch);
+  options.sparseSolver.kind = static_cast<NonlinearOptimization::NewtonSparseSolverKind>(sparseSolverKind);
 
   NonlinearOptimization::OptimizationResult result;
   {
@@ -114,5 +116,6 @@ void init_solver_bindings(nb::module_ &m)
     nb::arg("tol"),
     nb::arg("damping"),
     nb::arg("line_search"),
-    nb::arg("verbose"));
+    nb::arg("verbose"),
+    nb::arg("sparse_solver_kind"));
 }

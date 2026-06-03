@@ -39,7 +39,7 @@ struct DynamicProblem
   std::vector<ImplicitModelTerm> persistentTerms;  // elastic / attachments / contact
   std::vector<int> fixedDofs;                       // immutable across steps (D5)
   double timestep = 0.0;
-  NonlinearOptimization::SolverControl solver;      // reuse solver-plan SolverControl
+  NonlinearOptimization::SolverOptions solver;  // control + Newton damping / line-search / sparse solver
 };
 
 // Per-step. Contact energies are already held persistently in

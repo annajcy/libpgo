@@ -819,9 +819,9 @@ int pgo_run_sim_from_config(const char *configFileName)
       Simulation::DynamicProblem problem;
       problem.mass = M;
       problem.timestep = timestep;
-      problem.solver.maxIterations = solverMaxIter;
-      problem.solver.tolerance = solverEps;
-      problem.solver.verbose = 0;
+      std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.maxIterations = solverMaxIter;
+      std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.tolerance = solverEps;
+      std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.verbose = 0;
 
       problem.persistentTerms.push_back({elasticEnergy, 0.0, 0.0});
       for (auto &pe : pullingEnergies)
