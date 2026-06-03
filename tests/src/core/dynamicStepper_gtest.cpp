@@ -10,6 +10,7 @@
 #include "dynamicStepService.h"
 
 #include "energySet.h"
+#include "solver/newton/NewtonOptimizer.h"
 #include "quadraticPotentialEnergy.h"
 #include "pgoLogging.h"
 
@@ -20,6 +21,7 @@ namespace
 {
 namespace ES = pgo::EigenSupport;
 namespace NO = pgo::NonlinearOptimization;
+namespace OPT = pgo::NonlinearOptimization::Optimization;
 using namespace pgo::Simulation;
 using pgo::PredefinedPotentialEnergies::QuadraticPotentialEnergy;
 
@@ -83,13 +85,13 @@ private:
   int n;
 };
 
-NO::SolverControl quickSolver()
+OPT::NewtonOptimizer quickOptimizer()
 {
-  NO::SolverControl c;
-  c.maxIterations = 100;
-  c.tolerance = 1e-12;
-  c.verbose = 0;
-  return c;
+  OPT::NewtonOptimizer::Options options;
+  options.maxIterations = 100;
+  options.gradientTolerance = 1e-12;
+  options.verbose = 0;
+  return OPT::NewtonOptimizer(options);
 }
 
 DynamicState restState(int n)
@@ -213,7 +215,6 @@ TEST(ImplicitEuler, CoefficientFormulas)
   DynamicProblem prob;
   prob.mass = diagSparse({2.0, 3.0});
   prob.timestep = h;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control = quickSolver();
 
   DynamicState state;
   state.displacement = ES::VXd(n); state.displacement << 0.1, -0.2;
@@ -252,10 +253,10 @@ TEST(ImplicitEuler, SolveAndAdvanceState)
   prob.mass = identitySparse(n);
   prob.persistentTerms = {{elastic, 0.0, 0.0}};
   prob.timestep = h;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control = quickSolver();
   auto stepper = makeDynamicStepper(TimeIntegratorKind::ImplicitEuler, prob);
+  auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd(n); req.externalForce << 1.0, -2.0;
-  DynamicStepResult res = stepper->step(restState(n), req);
+  DynamicStepResult res = stepper->step(restState(n), req, optimizer);
 
   EXPECT_TRUE(res.accepted);
   EXPECT_EQ(res.stageResults.size(), 1u);
@@ -287,10 +288,10 @@ TEST(TRBDF2, TwoStageSolveAdvancesState)
   prob.mass = identitySparse(n);
   prob.persistentTerms = {{elastic, 0.0, 0.0}};
   prob.timestep = h;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control = quickSolver();
   auto stepper = makeDynamicStepper(TimeIntegratorKind::TRBDF2, prob, gamma);
+  auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd(n); req.externalForce << 1.0, -2.0;
-  DynamicStepResult res = stepper->step(restState(n), req);
+  DynamicStepResult res = stepper->step(restState(n), req, optimizer);
 
   EXPECT_TRUE(res.accepted);
   EXPECT_EQ(res.stageResults.size(), 2u);
@@ -306,11 +307,11 @@ TEST(TRBDF2, GammaOneIsSingleStage)
   prob.mass = identitySparse(n);
   prob.persistentTerms = {{elastic, 0.0, 0.0}};
   prob.timestep = 0.1;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control = quickSolver();
 
   auto stepper = makeDynamicStepper(TimeIntegratorKind::TRBDF2, prob, 1.0);
+  auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd::Constant(n, 1.0);
-  DynamicStepResult res = stepper->step(restState(n), req);
+  DynamicStepResult res = stepper->step(restState(n), req, optimizer);
   EXPECT_TRUE(res.accepted);
   EXPECT_EQ(res.stageResults.size(), 1u);
 }
@@ -327,13 +328,13 @@ TEST(DynamicStepper, FixedDofsRemainFixed)
   prob.persistentTerms = {{elastic, 0.0, 0.0}};
   prob.fixedDofs = {1};
   prob.timestep = 0.1;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control = quickSolver();
 
   auto stepper = makeDynamicStepper(TimeIntegratorKind::ImplicitEuler, prob);
+  auto optimizer = quickOptimizer();
   DynamicState s = restState(n);
   s.displacement[1] = 0.42;
   DynamicStepRequest req; req.externalForce = ES::VXd::Constant(n, 1.0);
-  DynamicStepResult res = stepper->step(s, req);
+  DynamicStepResult res = stepper->step(s, req, optimizer);
 
   EXPECT_TRUE(res.accepted);
   EXPECT_NEAR(res.state.displacement[1], 0.42, 1e-9);
@@ -348,18 +349,18 @@ TEST(DynamicStepper, FreeFallMatchesImplicitEulerRecurrence)
   DynamicProblem prob;
   prob.mass = diagSparse({m});
   prob.timestep = h;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control = quickSolver();
 
   auto stepper = makeDynamicStepper(TimeIntegratorKind::ImplicitEuler, prob);
+  auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd::Constant(n, fGrav);
 
   DynamicState s = restState(n);
   double u = 0.0, v = 0.0;
   for (int k = 0; k < 10; k++) {
-    DynamicStepResult res = stepper->step(s, req);
+    DynamicStepResult res = stepper->step(s, req, optimizer);
     ASSERT_TRUE(res.accepted);
     // Implicit Euler with constant force: v_{k+1} = v_k + h f/m, u_{k+1} = u_k + h v_{k+1}.
-    // The production Newton solve uses Hessian damping (NewtonOptions.damping),
+    // The production Newton solve uses Hessian damping (NewtonOptimizer::Options::damping),
     // so it approaches this idealized recurrence to a physical tolerance rather
     // than machine precision. Exact-formula correctness is covered by the
     // legacy-parity tests above.
@@ -376,6 +377,5 @@ TEST(DynamicStepper, RejectsBadProblem)
   DynamicProblem prob;
   prob.mass = identitySparse(2);
   prob.timestep = -1.0;  // invalid
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control = quickSolver();
   EXPECT_THROW(makeDynamicStepper(TimeIntegratorKind::ImplicitEuler, prob), std::invalid_argument);
 }

@@ -5,17 +5,28 @@ import pypgo as pgo
 import pypgo.solver as solver
 
 
-def make_quadratic():
-    A = np.eye(3, dtype=np.float64)
-    b = np.array([-1.0, 2.0, -4.0], dtype=np.float64)
+def make_quadratic(dim=3):
+    A = np.eye(dim, dtype=np.float64)
+    b = np.zeros(dim, dtype=np.float64)
+    if dim == 3:
+        b[:] = [-1.0, 2.0, -4.0]
     return pgo.energy.QuadraticEnergy(A, b=b)
 
 
-def test_newton_solves_quadratic__warm_start():
+def make_problem(energy):
+    return solver.OptimizationProblem(objective=energy)
+
+
+def make_optimizer(**kwargs):
+    return solver.NewtonOptimizer(damping=False, **kwargs)
+
+
+def test_newton_optimizer_solves_quadratic():
     energy = make_quadratic()
+    problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.solve_newton(energy, x0=x0, damping=False)
+    result = make_optimizer().solve(problem, x0)
 
     assert isinstance(result, solver.SolverResult)
     assert result.status == solver.SolveStatus.CONVERGED
@@ -25,92 +36,59 @@ def test_newton_solves_quadratic__warm_start():
     assert result.final_objective is not None
 
 
-def test_newton_solves_quadratic__implicit_fixed_values_from_x0():
+def test_optimization_problem_fix_variables():
     energy = make_quadratic()
-    x0 = np.array([7.0, 10.0, -3.0], dtype=np.float64)
+    problem = make_problem(energy)
+    problem.fix_variables([2, 0], [-3.0, 7.0])
+    x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.solve_newton(
-        energy,
-        x0=x0,
-        fixed_dofs=[2, 0],
-        fixed_values=None,
-        damping=False,
-    )
+    result = make_optimizer().solve(problem, x0)
 
     assert result.converged
     assert np.allclose(result.x, [7.0, -2.0, -3.0])
 
 
-def test_newton_solves_quadratic__explicit_fixed_values():
-    energy = make_quadratic()
-    x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
-
-    result = solver.solve_newton(
-        energy,
-        x0=x0,
-        fixed_dofs=[2],
-        fixed_values=np.array([9.0], dtype=np.float64),
-        damping=False,
-    )
-
-    assert result.converged
-    assert np.allclose(result.x, [1.0, -2.0, 9.0])
-
-
 def test_x0_not_mutated():
     energy = make_quadratic()
+    problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
     original = x0.copy()
 
-    solver.solve_newton(energy, x0=x0, damping=False)
+    make_optimizer().solve(problem, x0)
 
     assert np.array_equal(x0, original)
 
 
 def test_result_x_is_independent_numpy_array():
     energy = make_quadratic()
+    problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.solve_newton(energy, x0=x0, damping=False)
+    result = make_optimizer().solve(problem, x0)
     result.x[0] = 123.0
 
-    second = solver.solve_newton(energy, x0=x0, damping=False)
+    second = make_optimizer().solve(problem, x0)
     assert np.allclose(second.x, [1.0, -2.0, 4.0])
 
 
 def test_line_search_keywords():
     energy = make_quadratic()
+    problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
     for keyword in ("golden", "brents", "backtrack", "simple"):
-        result = solver.solve_newton(energy, x0=x0, line_search=keyword, damping=False)
+        result = solver.NewtonOptimizer(line_search=keyword, damping=False).solve(problem, x0)
         assert result.converged
 
 
-def test_newton_options_can_be_passed_directly():
-    energy = make_quadratic()
-    x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
-    options = solver.NewtonOptions(
-        max_iter=20,
-        tol=1e-8,
-        damping=False,
-        line_search="backtrack",
-        verbose=0,
-    )
-
-    result = solver.solve_newton(energy, x0=x0, options=options)
-
-    assert result.converged
-    assert np.allclose(result.x, [1.0, -2.0, 4.0])
-
-
-def test_newton_options_sparse_solver_is_forwarded(monkeypatch):
+def test_newton_optimizer_sparse_solver_is_forwarded(monkeypatch):
     class FakeEnergy:
         _handle = object()
+        num_dofs = 3
 
     captured = {}
 
-    def fake_solve_newton(*args, **kwargs):
+    def fake_newton_optimizer_solve(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
         return {
@@ -133,33 +111,43 @@ def test_newton_options_sparse_solver_is_forwarded(monkeypatch):
             },
         }
 
-    monkeypatch.setattr(solver._core, "_solve_newton", fake_solve_newton)
+    monkeypatch.setattr(solver._core, "_newton_optimizer_solve", fake_newton_optimizer_solve)
 
-    solver.solve_newton(
-        FakeEnergy(),
-        x0=np.zeros(3, dtype=np.float64),
-        options=solver.NewtonOptions(sparse_solver="eigen_ldlt"),
-    )
+    problem = solver.OptimizationProblem(objective=FakeEnergy())
+    optimizer = solver.NewtonOptimizer(sparse_solver="eigen_ldlt")
+    optimizer.solve(problem, np.zeros(3, dtype=np.float64))
 
-    assert captured["kwargs"]["sparse_solver_kind"] == 1
+    assert captured["args"][-1] == 1
+    assert captured["kwargs"] == {}
 
 
-def test_explicit_solver_keywords_override_newton_options():
+def test_optimizer_keywords_control_solve():
     energy = make_quadratic()
+    problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
-    options = solver.NewtonOptions(max_iter=20, damping=False)
+    optimizer = solver.NewtonOptimizer(max_iterations=0, damping=False)
 
-    result = solver.solve_newton(energy, x0=x0, options=options, max_iter=0)
+    result = optimizer.solve(problem, x0)
 
     assert result.status == solver.SolveStatus.MAX_ITERATIONS
 
 
-def test_invalid_newton_options_type_raises():
+def test_solve_newton_shim_uses_object_api():
     energy = make_quadratic()
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    with pytest.raises(TypeError, match="NewtonOptions"):
-        solver.solve_newton(energy, x0=x0, options={"max_iter": 20})
+    result = solver.solve_newton(energy, x0=x0, fixed_dofs=[2], fixed_values=[9.0], damping=False)
+
+    assert result.converged
+    assert np.allclose(result.x, [1.0, -2.0, 9.0])
+
+
+def test_invalid_options_type_raises():
+    energy = make_quadratic()
+    x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
+
+    with pytest.raises(TypeError, match="NewtonOptimizer"):
+        solver.solve_newton(energy, x0=x0, options={"max_iterations": 20})
 
 
 def test_status_roundtrip_for_all_values():
@@ -178,9 +166,10 @@ def test_status_roundtrip_for_all_values():
 
 def test_final_gradient_stats_are_optional():
     energy = make_quadratic()
+    problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.solve_newton(energy, x0=x0, max_iter=0, damping=False)
+    result = solver.NewtonOptimizer(max_iterations=0, damping=False).solve(problem, x0)
 
     assert result.status == solver.SolveStatus.MAX_ITERATIONS
     assert result.final_gradient_norm is None
@@ -189,30 +178,28 @@ def test_final_gradient_stats_are_optional():
 
 def test_invalid_fixed_values_length_raises():
     energy = make_quadratic()
-    x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
+    problem = make_problem(energy)
 
     with pytest.raises(ValueError):
-        solver.solve_newton(
-            energy,
-            x0=x0,
-            fixed_dofs=[0, 1],
-            fixed_values=np.array([1.0], dtype=np.float64),
-        )
+        problem.fix_variables([0, 1], [1.0])
 
 
 def test_invalid_line_search_raises():
-    energy = make_quadratic()
-    x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
-
     with pytest.raises(ValueError):
-        solver.solve_newton(energy, x0=x0, line_search="wolfe")
+        solver.NewtonOptimizer(line_search="wolfe")
+
+
+def test_invalid_sparse_solver_raises():
+    with pytest.raises(ValueError):
+        solver.NewtonOptimizer(sparse_solver="not_a_solver")
 
 
 def test_verbose_does_not_crash():
     energy = make_quadratic()
+    problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.solve_newton(energy, x0=x0, verbose=1, damping=False)
+    result = solver.NewtonOptimizer(verbose=1, damping=False).solve(problem, x0)
 
     assert result.status in {
         solver.SolveStatus.CONVERGED,
@@ -224,10 +211,10 @@ def test_verbose_does_not_crash():
 
 def test_solver_public_surface_hides_legacy_names():
     hidden = {
+        "NewtonOptions",
         "NewtonSolver",
         "SolverParam",
         "EnergyOptimizer",
-        "OptimizationProblem",
         "FixedVariables",
         "BoxBounds",
         "NonlinearConstraints",

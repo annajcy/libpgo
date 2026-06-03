@@ -1,21 +1,28 @@
 #include "timeIntegratorSolver.h"
 
 #if defined(PGO_HAS_KNITRO)
-#  include "knitroOptimizer.h"
-#  include "knitroProblem.h"
+#  include "solver/knitro/knitroSolverWrapper.h"
+#  include "solver/knitro/knitroProblem.h"
 #endif
 
 #if defined(PGO_HAS_IPOPT)
-#  include "IpoptOptimizer.h"
-#  include "IpoptProblem.h"
+#  include "solver/ipopt/IpoptSolverWrapper.h"
+#  include "solver/ipopt/IpoptProblem.h"
 #endif
 
 #include "solver/newton/NewtonSolver.h"
+#include "solver/newton/NewtonOptimizer.h"
+#include "solver/ipopt/IpoptOptimizer.h"
+#include "solver/knitro/KnitroOptimizer.h"
+#include "solver/service/optimizationProblem.h"
 
 #include "potentialEnergy.h"
 #include "constraints/constraintFunctions.h"
 #include "lagrangian.h"
-#include "solver/legacy/minimizeEnergy.h"
+
+#include <algorithm>
+#include <cstring>
+#include <utility>
 
 using namespace pgo;
 using namespace pgo::NonlinearOptimization;
@@ -29,7 +36,7 @@ class TimeIntegratorSolverData
 {
 public:
 #if defined(PGO_HAS_KNITRO)
-  std::shared_ptr<KnitroOptimizer> opt;
+  std::shared_ptr<KnitroSolverWrapper> opt;
   std::shared_ptr<KnitroProblem> problem;
 #endif
 
@@ -80,7 +87,7 @@ SolverResult TimeIntegratorSolver::solve(bool needRenew, ES::VXd &x,
         da->problem->setRange(xlow, xhi);
       }
 
-      da->opt = std::make_shared<KnitroOptimizer>(da->problem.get());
+      da->opt = std::make_shared<KnitroSolverWrapper>(da->problem.get());
       if (solverConfigFilename && strlen(solverConfigFilename))
         da->opt->setConfigFile(solverConfigFilename);
 
@@ -263,35 +270,68 @@ SolverResult TimeIntegratorSolver::solveDirect(ES::VXd &x, ES::VXd &g, ES::VXd &
   int nIter, double eps, int verbose, const char *solverConfigFilename,
   TimeIntegratorSolverOption solverOption)
 {
-  SolverResult result = makeSolverResult(SolveStatus::UnsupportedBackend,
-    static_cast<int>(SolveStatus::UnsupportedBackend));
+  Optimization::OptimizationProblem problem;
+  problem.objective = std::move(energy);
+  if (xlow.size() > 0) {
+    problem.variableBounds.lower = xlow;
+  }
+  if (xhi.size() > 0) {
+    problem.variableBounds.upper = xhi;
+  }
 
   if (constraints) {
-    if (solverOption == TimeIntegratorSolverOption::SO_IPOPT)
-      result = EnergyOptimizer::minimize(x, energy, xlow, xhi,
-        lambda, g, constraints, clow, chi,
-        EnergyOptimizer::SolverType::ST_IPOPT, nIter, eps, verbose);
-    else if (solverOption == TimeIntegratorSolverOption::SO_NEWTON)
-      result = EnergyOptimizer::minimize(x, energy, xlow, xhi,
-        lambda, g, constraints, clow, chi,
-        EnergyOptimizer::SolverType::ST_NEWTON, nIter, eps, verbose);
-    else if (solverOption == TimeIntegratorSolverOption::SO_KNITRO)
-      result = EnergyOptimizer::minimizeUsingKnitro(x, energy, xlow, xhi,
-        lambda, g, constraints, clow, chi,
-        nIter, eps, verbose, solverConfigFilename);
-  }
-  else {
-    if (solverOption == TimeIntegratorSolverOption::SO_IPOPT)
-      result = EnergyOptimizer::minimize(x, energy, xlow, xhi,
-        EnergyOptimizer::SolverType::ST_IPOPT, nIter, eps, verbose);
-    else if (solverOption == TimeIntegratorSolverOption::SO_NEWTON)
-      result = EnergyOptimizer::minimize(x, energy, xlow, xhi,
-        EnergyOptimizer::SolverType::ST_NEWTON, nIter, eps, verbose);
-    else if (solverOption == TimeIntegratorSolverOption::SO_KNITRO)
-      result = EnergyOptimizer::minimizeUsingKnitro(x, energy, xlow, xhi,
-        lambda, g, nullptr, ES::VXd(), ES::VXd(), nIter, eps, verbose,
-        solverConfigFilename);
+    Optimization::ConstraintBlock block;
+    block.functions = std::move(constraints);
+    if (clow.size() > 0) {
+      block.bounds.lower = clow;
+    }
+    if (chi.size() > 0) {
+      block.bounds.upper = chi;
+    }
+    problem.constraints.push_back(std::move(block));
   }
 
-  return result;
+  Optimization::OptimizationResult optimizationResult;
+  const int clampedVerbose = std::max(verbose, 0);
+  if (solverOption == TimeIntegratorSolverOption::SO_IPOPT) {
+    Optimization::IpoptOptimizer::Options options;
+    options.maxIterations = nIter;
+    options.tolerance = eps;
+    options.printLevel = clampedVerbose;
+    Optimization::IpoptOptimizer optimizer(options);
+    optimizationResult = optimizer.solve(problem, x);
+  }
+  else if (solverOption == TimeIntegratorSolverOption::SO_NEWTON) {
+    Optimization::NewtonOptimizer::Options options;
+    options.maxIterations = nIter;
+    options.gradientTolerance = eps;
+    options.verbose = clampedVerbose;
+    Optimization::NewtonOptimizer optimizer(options);
+    optimizationResult = optimizer.solve(problem, x);
+  }
+  else if (solverOption == TimeIntegratorSolverOption::SO_KNITRO) {
+    Optimization::KnitroOptimizer::Options options;
+    options.maxIterations = nIter;
+    options.optimalityTolerance = eps;
+    options.verbose = clampedVerbose;
+    if (solverConfigFilename) {
+      options.configFilename = solverConfigFilename;
+    }
+    Optimization::KnitroOptimizer optimizer(options);
+    optimizationResult = optimizer.solve(problem, x);
+  }
+  else {
+    return makeSolverResult(SolveStatus::UnsupportedBackend,
+      static_cast<int>(SolveStatus::UnsupportedBackend));
+  }
+
+  x = optimizationResult.x;
+  if (optimizationResult.multipliers && lambda.size() > 0) {
+    lambda = *optimizationResult.multipliers;
+  }
+  if (optimizationResult.constraintValues && g.size() > 0) {
+    g = *optimizationResult.constraintValues;
+  }
+
+  return optimizationResult.solver;
 }

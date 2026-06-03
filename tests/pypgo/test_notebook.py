@@ -225,9 +225,9 @@ class TestNotebookSources:
         with open(generated_notebooks["solver_api_demo"]) as fh:
             nb = json.load(fh)
         source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
-        assert "solve_newton" in source
-        assert "NewtonOptions" in source
-        assert "fixed_dofs" in source
+        assert "OptimizationProblem" in source
+        assert "NewtonOptimizer" in source
+        assert "fix_variables" in source
         assert "line_search" in source
         assert "EnergySet" in source
         assert "constraints.Linear" in source
@@ -262,8 +262,9 @@ class TestNotebookSources:
         assert "pf.LinearCubic()" in source
         assert "pf.StableNeo()" in source
         assert "pe.LinearEnergy(-gravity_force)" in source
-        assert "ps.solve_newton" in source
-        assert "fixed_dofs=fixed_dofs.tolist()" in source
+        assert "ps.OptimizationProblem" in source
+        assert "ps.NewtonOptimizer" in source
+        assert "problem.fix_variables" in source
         assert "surface_embedding = pgo.mesh.SurfaceEmbedding(embedded_surface, volume)" in source
         assert "surface_embedding.deform(result.x)" in source
         assert "surface_embedding.deform(result_with_soft_pin.x)" in source

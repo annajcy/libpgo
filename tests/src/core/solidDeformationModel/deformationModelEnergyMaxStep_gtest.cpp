@@ -539,8 +539,6 @@ TEST(DeformationModelEnergyMaxStepGTest, ImplicitBackwardEulerTakesMinWithOtherE
   pgo::Simulation::DynamicProblem prob;
   prob.mass = mass;
   prob.timestep = 0.01;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control.maxIterations = 0;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control.tolerance = 1e-6;
   prob.persistentTerms = {{fixture.energy, 0.0, 0.0},
     {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.95), 0.0, 0.0}};
   pgo::Simulation::ImplicitEulerStepper stepper(std::move(prob));
@@ -554,8 +552,6 @@ TEST(DeformationModelEnergyMaxStepGTest, ImplicitBackwardEulerTakesMinWithOtherE
   pgo::Simulation::DynamicProblem prob2;
   prob2.mass = mass;
   prob2.timestep = 0.01;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob2.solver).control.maxIterations = 0;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob2.solver).control.tolerance = 1e-6;
   prob2.persistentTerms = {{fixture.energy, 0.0, 0.0},
     {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.25), 0.0, 0.0}};
   pgo::Simulation::ImplicitEulerStepper stepper2(std::move(prob2));
@@ -580,8 +576,6 @@ TEST(DeformationModelEnergyMaxStepGTest, TRBDF2TakesMinWithOtherEnergy)
   pgo::Simulation::DynamicProblem prob;
   prob.mass = mass;
   prob.timestep = 0.01;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control.maxIterations = 0;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob.solver).control.tolerance = 1e-6;
   prob.persistentTerms = {{fixture.energy, 0.0, 0.0},
     {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.9), 0.0, 0.0}};
   pgo::Simulation::TRBDF2Stepper stepper(std::move(prob), 0.5);
@@ -595,8 +589,6 @@ TEST(DeformationModelEnergyMaxStepGTest, TRBDF2TakesMinWithOtherEnergy)
   pgo::Simulation::DynamicProblem prob2;
   prob2.mass = mass;
   prob2.timestep = 0.01;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob2.solver).control.maxIterations = 0;
-  std::get<pgo::NonlinearOptimization::NewtonOptions>(prob2.solver).control.tolerance = 1e-6;
   prob2.persistentTerms = {{fixture.energy, 0.0, 0.0},
     {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.2), 0.0, 0.0}};
   pgo::Simulation::TRBDF2Stepper stepper2(std::move(prob2), 0.5);

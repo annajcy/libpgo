@@ -8,8 +8,8 @@ copyright to USC
 #include "constraints/constraintSet.h"
 #include "constraints/linearConstraintFunctions.h"
 #include "potentialEnergy.h"
-#include "solver/external/knitro/knitroOptimizer.h"
-#include "solver/external/knitro/knitroProblem.h"
+#include "solver/knitro/knitroSolverWrapper.h"
+#include "solver/knitro/knitroProblem.h"
 
 #include "pgoLogging.h"
 
@@ -257,7 +257,7 @@ int NaturalCubicSplineFitting::fit(const char *solverConfigFilename)
   problem->setRange(xlow, xhi);
   problem->setConstraintsRange(clow, chi);
 
-  KnitroOptimizer solver(problem.get());
+  KnitroSolverWrapper solver(problem.get());
 
   if (solverConfigFilename) {
     solver.setConfigFile(solverConfigFilename);

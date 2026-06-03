@@ -171,8 +171,8 @@ CELLS = [
         ## 5. Convert Fixed Vertices to Fixed DOFs
 
         Each fixed vertex contributes three displacement DOFs: `x`, `y`, and
-        `z`. Passing `fixed_values=None` means the solver fixes those DOFs to
-        their current values in `x0`, which is zero displacement here.
+        `z`. `OptimizationProblem.fix_variables` stores the prescribed values
+        explicitly; here they are zero displacement from `x0`.
         """
     ),
     code(
@@ -194,8 +194,8 @@ CELLS = [
         E(u) = E_\\text{elastic}(u) - f_\\text{gravity}^T u
         &&
 
-        The fixed boundary is handled by `solve_newton(..., fixed_dofs=...)`,
-        not by adding another energy term.
+        The fixed boundary is handled by equality variable bounds on the
+        `OptimizationProblem`, not by adding another energy term.
         """
     ),
     code(
@@ -205,13 +205,15 @@ CELLS = [
             (gravity_energy, 1.0),
         ])
 
-        result = ps.solve_newton(
-            total_energy,
-            x0=x0,
-            fixed_dofs=fixed_dofs.tolist(),
-            fixed_values=None,
-            options=ps.NewtonOptions(max_iter=200, tol=1e-4, damping=True, line_search="backtrack"),
+        problem = ps.OptimizationProblem(objective=total_energy)
+        problem.fix_variables(fixed_dofs.tolist(), x0[fixed_dofs], num_dofs=x0.size)
+        optimizer = ps.NewtonOptimizer(
+            max_iterations=200,
+            gradient_tolerance=1e-4,
+            damping=True,
+            line_search="backtrack",
         )
+        result = optimizer.solve(problem, x0)
 
         print("status:", result.status.name)
         print("converged:", result.converged)
@@ -263,8 +265,8 @@ CELLS = [
         ## 8. Optional: Soft Pin Energy
 
         A JSON-style `coeff` pin is a soft penalty. For a hard static boundary,
-        prefer `fixed_dofs` as above. If you want a soft attachment term
-        instead, use `VertexAttachment` and include it in the `EnergySet`.
+        prefer hard variable bounds as above. If you want a soft attachment
+        term instead, use `VertexAttachment` and include it in the `EnergySet`.
         """
     ),
     code(
@@ -286,13 +288,9 @@ CELLS = [
             (gravity_energy, 1.0),
             (soft_pin, 1.0),
         ])
-        result_with_soft_pin = ps.solve_newton(
-            total_energy_with_soft_pin,
-            x0=result.x,
-            fixed_dofs=fixed_dofs.tolist(),
-            fixed_values=None,
-            options=ps.NewtonOptions(max_iter=200, tol=1e-4, damping=True, line_search="backtrack"),
-        )
+        problem_with_soft_pin = ps.OptimizationProblem(objective=total_energy_with_soft_pin)
+        problem_with_soft_pin.fix_variables(fixed_dofs.tolist(), result.x[fixed_dofs], num_dofs=result.x.size)
+        result_with_soft_pin = optimizer.solve(problem_with_soft_pin, result.x)
 
         print("status:", result_with_soft_pin.status.name)
         print("converged:", result_with_soft_pin.converged)

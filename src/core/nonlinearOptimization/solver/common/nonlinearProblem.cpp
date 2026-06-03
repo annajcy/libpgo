@@ -3,7 +3,7 @@ author: Bohan Wang
 copyright to USC
 */
 
-#include "solver/external/common/nonlinearProblem.h"
+#include "solver/common/nonlinearProblem.h"
 #include "EigenSupport.h"
 #include <cstring>
 

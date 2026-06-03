@@ -12,6 +12,7 @@
 #include "dynamicStepOptions.h"
 #include "dynamicStepper.h"
 #include "dynamicStepService.h"
+#include "solver/newton/NewtonOptimizer.h"
 
 #include <memory>
 #include <optional>
@@ -23,6 +24,7 @@ namespace nb = nanobind;
 using namespace pgo;
 namespace ES = pgo::EigenSupport;
 namespace NO = pgo::NonlinearOptimization;
+namespace NOO = pgo::NonlinearOptimization::Optimization;
 namespace SIM = pgo::Simulation;
 
 namespace
@@ -48,6 +50,19 @@ SIM::TimeIntegratorKind parseIntegrator(const std::string &name)
   if (name == "trbdf2")
     return SIM::TimeIntegratorKind::TRBDF2;
   throw nb::value_error("unknown integrator; expected 'implicit_euler' or 'trbdf2'");
+}
+
+NO::NewtonLineSearchKind parseLineSearch(const std::string &name)
+{
+  if (name == "golden")
+    return NO::NewtonLineSearchKind::Golden;
+  if (name == "brents")
+    return NO::NewtonLineSearchKind::Brents;
+  if (name == "backtrack")
+    return NO::NewtonLineSearchKind::Backtrack;
+  if (name == "simple")
+    return NO::NewtonLineSearchKind::Simple;
+  throw nb::value_error("unknown line_search; expected 'golden', 'brents', 'backtrack', or 'simple'");
 }
 
 nb::dict solverResultToDict(const NO::SolverResult &r)
@@ -86,8 +101,6 @@ public:
     double timestep,
     const std::string &integrator,
     std::vector<int> fixedDofs,
-    int maxIter, double tol, int verbose,
-    int sparseSolverKind,
     double gamma)
     : n_(numDofs)
   {
@@ -95,11 +108,6 @@ public:
     problem.mass = buildSparse(numDofs, massRows, massCols, massVals);
     problem.timestep = timestep;
     problem.fixedDofs = std::move(fixedDofs);
-    auto &no = std::get<NO::NewtonOptions>(problem.solver);
-    no.control.maxIterations = maxIter;
-    no.control.tolerance = tol;
-    no.control.verbose = verbose;
-    no.sparseSolver.kind = static_cast<NO::NewtonSparseSolverKind>(sparseSolverKind);
 
     if (energy) {
       SIM::ImplicitModelTerm term;
@@ -119,17 +127,28 @@ public:
   }
 
   nb::dict step(nb::ndarray<nb::numpy, const double> externalForce,
-    nb::ndarray<nb::numpy, const double> fixedValues, bool hasFixedValues)
+    nb::ndarray<nb::numpy, const double> fixedValues, bool hasFixedValues,
+    int maxIterations, double gradientTolerance, bool damping,
+    const std::string &lineSearch, int verbose, int sparseSolverKind)
   {
     SIM::DynamicStepRequest request;
     request.externalForce = python::ndarrayToVectorXd(externalForce);
     if (hasFixedValues)
       request.fixedValues = python::ndarrayToVectorXd(fixedValues);
 
+    NOO::NewtonOptimizer::Options options;
+    options.maxIterations = maxIterations;
+    options.gradientTolerance = gradientTolerance;
+    options.damping = damping;
+    options.lineSearch = parseLineSearch(lineSearch);
+    options.verbose = verbose;
+    options.sparseSolver.kind = static_cast<NO::NewtonSparseSolverKind>(sparseSolverKind);
+    NOO::NewtonOptimizer optimizer(options);
+
     SIM::DynamicStepResult result;
     {
       nb::gil_scoped_release release;
-      result = stepper_->step(state_, request);
+      result = stepper_->step(state_, request, optimizer);
     }
     state_ = result.state;
 
@@ -170,16 +189,18 @@ void init_simulation_bindings(nb::module_ &m)
     .def(nb::init<int, std::vector<int>, std::vector<int>, std::vector<double>,
            std::shared_ptr<PyPotentialEnergy>, double, double,
            nb::ndarray<nb::numpy, const double>, nb::ndarray<nb::numpy, const double>, nb::ndarray<nb::numpy, const double>,
-           double, const std::string &, std::vector<int>, int, double, int, int, double>(),
+           double, const std::string &, std::vector<int>, double>(),
       nb::arg("num_dofs"),
       nb::arg("mass_rows"), nb::arg("mass_cols"), nb::arg("mass_vals"),
       nb::arg("energy").none(),
       nb::arg("mass_damping"), nb::arg("stiffness_damping"),
       nb::arg("displacement"), nb::arg("velocity"), nb::arg("acceleration"),
       nb::arg("timestep"), nb::arg("integrator"), nb::arg("fixed_dofs"),
-      nb::arg("max_iter"), nb::arg("tol"), nb::arg("verbose"), nb::arg("sparse_solver_kind"), nb::arg("gamma"))
+      nb::arg("gamma"))
     .def("step", &PyDynamicSimulation::step,
-      nb::arg("external_force"), nb::arg("fixed_values"), nb::arg("has_fixed_values"))
+      nb::arg("external_force"), nb::arg("fixed_values"), nb::arg("has_fixed_values"),
+      nb::arg("max_iterations"), nb::arg("gradient_tolerance"), nb::arg("damping"),
+      nb::arg("line_search"), nb::arg("verbose"), nb::arg("sparse_solver_kind"))
     .def_prop_ro("displacement", &PyDynamicSimulation::displacement, nb::rv_policy::move)
     .def_prop_ro("velocity", &PyDynamicSimulation::velocity, nb::rv_policy::move)
     .def_prop_ro("acceleration", &PyDynamicSimulation::acceleration, nb::rv_policy::move)

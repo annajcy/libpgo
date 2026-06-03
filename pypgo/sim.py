@@ -198,9 +198,8 @@ class DynamicSimulation:
     """Drive an implicit dynamic simulation from in-memory mass / energy / state.
 
     The integrator (``"implicit_euler"`` or ``"trbdf2"``), mass, persistent
-    energy, damping, fixed DOFs, and solver settings are fixed at construction
-    (the fixed-DOF set is immutable; rebuild the object to change it). Each
-    :meth:`step` advances one time step under an external force.
+    energy, damping, and fixed DOFs are fixed at construction. Solver settings
+    live on the optimizer object passed to :meth:`step`.
     """
 
     def __init__(
@@ -212,7 +211,6 @@ class DynamicSimulation:
         energy=None,
         integrator: str = "implicit_euler",
         damping: tuple[float, float] = (0.0, 0.0),
-        solver: _solver.NewtonOptions | None = None,
         fixed_dofs: Sequence[int] | None = None,
         trbdf2_gamma: float = 0.5,
     ) -> None:
@@ -230,10 +228,6 @@ class DynamicSimulation:
             handle = energy._handle
 
         mass_damping, stiffness_damping = (float(damping[0]), float(damping[1]))
-        opts = solver if solver is not None else _solver.NewtonOptions()
-        ss = opts.sparse_solver
-        if ss not in _SPARSE_SOLVERS:
-            raise ValueError(f"solver.sparse_solver must be one of {list(_SPARSE_SOLVERS)}, got {ss!r}")
 
         self._n = n
         self._frame_index = 0
@@ -251,10 +245,6 @@ class DynamicSimulation:
             timestep=float(timestep),
             integrator=integrator,
             fixed_dofs=[int(d) for d in (fixed_dofs or [])],
-            max_iter=int(opts.max_iter),
-            tol=float(opts.tol),
-            verbose=int(opts.verbose),
-            sparse_solver_kind=_SPARSE_SOLVERS[ss],
             gamma=float(trbdf2_gamma),
         )
 
@@ -277,7 +267,12 @@ class DynamicSimulation:
         *,
         external_force: np.ndarray | Sequence[float] | None = None,
         fixed_values: np.ndarray | Sequence[float] | None = None,
+        optimizer: _solver.NewtonOptimizer | None = None,
     ) -> DynamicFrame:
+        optimizer = optimizer if optimizer is not None else _solver.NewtonOptimizer()
+        if not isinstance(optimizer, _solver.NewtonOptimizer):
+            raise TypeError("optimizer must be a pypgo.solver.NewtonOptimizer")
+
         force = (
             np.zeros(self._n, dtype=np.float64)
             if external_force is None
@@ -290,7 +285,17 @@ class DynamicSimulation:
             else np.ascontiguousarray(np.asarray(fixed_values, dtype=np.float64).ravel())
         )
 
-        data = self._sim.step(force, fixed_arr, has_fixed)
+        data = self._sim.step(
+            force,
+            fixed_arr,
+            has_fixed,
+            int(optimizer.max_iterations),
+            float(optimizer.gradient_tolerance),
+            bool(optimizer.damping),
+            str(optimizer.line_search),
+            int(optimizer.verbose),
+            _SPARSE_SOLVERS[optimizer.sparse_solver],
+        )
 
         displacement = np.asarray(data["displacement"], dtype=np.float64)
         velocity = np.asarray(data["velocity"], dtype=np.float64)

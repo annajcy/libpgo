@@ -13,11 +13,11 @@ namespace NonlinearOptimization
 class KnitroProblem;
 class KnitroHandles;
 
-class KnitroOptimizer
+class KnitroSolverWrapper
 {
 public:
-  KnitroOptimizer(KnitroProblem *problem);
-  virtual ~KnitroOptimizer();
+  KnitroSolverWrapper(KnitroProblem *problem);
+  virtual ~KnitroSolverWrapper();
 
   void setConfigFile(const char *filename);
   void setMaxIter(int maxIter);

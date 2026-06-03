@@ -16,13 +16,13 @@ CELLS = [
         """
         # pypgo.solver API Demo
 
-        This tutorial demonstrates the Python Newton solver API:
-        `pypgo.solver.solve_newton`, `SolveStatus`, `SolverResult`,
-        `SolveDiagnostics`, and `NewtonOptions`.
+        This tutorial demonstrates the Python optimization API:
+        `OptimizationProblem`, `NewtonOptimizer`, `SolveStatus`,
+        `SolverResult`, and `SolveDiagnostics`.
 
-        The Python API is intentionally small: users pass a `pypgo.energy`
-        potential energy and an initial state `x0`; the solver returns a new
-        solution array and diagnostics without mutating `x0`.
+        The API separates the mathematical problem from the backend. The
+        problem owns the objective and bounds; the optimizer owns Newton-specific
+        choices and returns a new solution array without mutating `x0`.
         """
     ),
     md(
@@ -35,7 +35,7 @@ CELLS = [
         4. Input ownership: `x0` is not mutated
         5. Fixed DOFs with implicit and explicit values
         6. Line-search modes
-        7. `NewtonOptions` as a reusable parameter object
+        7. `NewtonOptimizer` as a reusable solver object
         8. Solving a weighted `EnergySet`
         9. Constraint functions and soft penalties
         10. Common validation errors
@@ -79,20 +79,20 @@ CELLS = [
         """
         ## 2. Basic Newton solve
 
-        `solve_newton` returns a `SolverResult` object.  The default line search
-        is `"backtrack"` and the default tolerance is `1e-6`.
+        `OptimizationProblem` describes the objective. `NewtonOptimizer` owns
+        Newton-specific options and returns a `SolverResult` object.
         """
     ),
     code(
         """
-        result = solver.solve_newton(
-            energy,
-            x0=x0,
-            max_iter=50,
-            tol=1e-8,
+        problem = solver.OptimizationProblem(objective=energy)
+        optimizer = solver.NewtonOptimizer(
+            max_iterations=50,
+            gradient_tolerance=1e-8,
             damping=False,
             line_search="backtrack",
         )
+        result = optimizer.solve(problem, x0)
 
         print("status:", result.status)
         print("converged:", result.converged)
@@ -135,13 +135,13 @@ CELLS = [
     code(
         """
         before = x0.copy()
-        result = solver.solve_newton(energy, x0=x0, damping=False)
+        result = optimizer.solve(problem, x0)
 
         print("x0 unchanged:", np.array_equal(x0, before))
         print("result.x shares memory with x0:", np.shares_memory(result.x, x0))
 
         result.x[0] = 123.0
-        again = solver.solve_newton(energy, x0=x0, damping=False)
+        again = optimizer.solve(problem, x0)
         print("mutating one result does not affect a fresh solve:", again.x)
         """
     ),
@@ -149,22 +149,22 @@ CELLS = [
         """
         ## 5. Fixed DOFs
 
-        `fixed_dofs` pins selected variables.  If `fixed_values=None`, each fixed
-        value is taken from `x0[fixed_dofs]`.  DOFs may be unsorted; the service
-        canonicalizes them before calling the native Newton service.
+        `OptimizationProblem.fix_variables` encodes fixed DOFs as equality
+        variable bounds. Values are explicit, so the problem is independent of
+        any particular initial guess. DOFs may be unsorted.
         """
     ),
     code(
         """
         x0_fixed = np.array([7.0, 10.0, -3.0], dtype=np.float64)
 
-        implicit = solver.solve_newton(
-            energy,
-            x0=x0_fixed,
-            fixed_dofs=[2, 0],
-            fixed_values=None,
-            damping=False,
+        implicit_problem = solver.OptimizationProblem(objective=energy)
+        implicit_problem.fix_variables(
+            [2, 0],
+            x0_fixed[[2, 0]],
+            num_dofs=x0_fixed.size,
         )
+        implicit = optimizer.solve(implicit_problem, x0_fixed)
 
         print("implicit fixed values:", implicit.x)
         print("x[0] fixed to x0[0]:", implicit.x[0])
@@ -173,13 +173,9 @@ CELLS = [
     ),
     code(
         """
-        explicit = solver.solve_newton(
-            energy,
-            x0=x0,
-            fixed_dofs=[2],
-            fixed_values=np.array([9.0], dtype=np.float64),
-            damping=False,
-        )
+        explicit_problem = solver.OptimizationProblem(objective=energy)
+        explicit_problem.fix_variables([2], np.array([9.0], dtype=np.float64))
+        explicit = optimizer.solve(explicit_problem, x0)
 
         print("explicit fixed value:", explicit.x)
         """
@@ -195,39 +191,30 @@ CELLS = [
     code(
         """
         for line_search in ("golden", "brents", "backtrack", "simple"):
-            r = solver.solve_newton(
-                energy,
-                x0=x0,
-                line_search=line_search,
-                damping=False,
-            )
+            mode_optimizer = solver.NewtonOptimizer(line_search=line_search, damping=False)
+            r = mode_optimizer.solve(problem, x0)
             print(f"{line_search:10s}", r.status.name, r.iterations, r.x)
         """
     ),
     md(
         """
-        ## 7. `NewtonOptions`
+        ## 7. `NewtonOptimizer`
 
-        `NewtonOptions` is a small frozen dataclass.  It is useful for keeping
-        solver parameters near an experiment, and it can be passed directly to
-        `solve_newton`.
+        `NewtonOptimizer` is the backend object. Reuse it when a workflow should
+        keep the same Newton parameters across many related problems.
         """
     ),
     code(
         """
-        opts = solver.NewtonOptions(
-            max_iter=20,
-            tol=1e-8,
+        local_optimizer = solver.NewtonOptimizer(
+            max_iterations=20,
+            gradient_tolerance=1e-8,
             damping=False,
             line_search="backtrack",
             verbose=0,
         )
 
-        result = solver.solve_newton(
-            energy,
-            x0=x0,
-            options=opts,
-        )
+        result = local_optimizer.solve(problem, x0)
         print(result)
         """
     ),
@@ -235,9 +222,9 @@ CELLS = [
         """
         ## 8. Solving a weighted EnergySet
 
-        `solve_newton` accepts any object with a `pypgo.energy.PotentialEnergy`
-        handle, including `EnergySet`.  This example combines two quadratic
-        terms with different weights.
+        `OptimizationProblem` accepts any object with a
+        `pypgo.energy.PotentialEnergy` handle, including `EnergySet`. This
+        example combines two quadratic terms with different weights.
         """
     ),
     code(
@@ -253,7 +240,8 @@ CELLS = [
             (regularizer, 1.0),
         ])
 
-        r = solver.solve_newton(total, x0=total.zero_state(), damping=False)
+        total_problem = solver.OptimizationProblem(objective=total)
+        r = optimizer.solve(total_problem, total.zero_state())
         print("EnergySet solution:", r.x)
         print("final objective:", r.final_objective)
         """
@@ -315,7 +303,7 @@ CELLS = [
         x_0 - 2 = 0 \\quad \\Longleftrightarrow \\quad x_0 = 2.
         $$
 
-        Since `solve_newton` does not consume hard constraints yet, the
+        Since `NewtonOptimizer` does not consume hard constraints yet, the
         zero-residual penalty solves:
 
         $$
@@ -332,11 +320,8 @@ CELLS = [
             (zero_residual_penalty, 1.0),
         ])
 
-        zero_residual_result = solver.solve_newton(
-            zero_residual_total,
-            x0=np.zeros(3, dtype=np.float64),
-            damping=False,
-        )
+        zero_residual_problem = solver.OptimizationProblem(objective=zero_residual_total)
+        zero_residual_result = optimizer.solve(zero_residual_problem, np.zeros(3, dtype=np.float64))
 
         print("zero-residual penalty solution:", zero_residual_result.x)
         print("constraint residual:", linear_constraint.value(zero_residual_result.x))
@@ -423,11 +408,8 @@ CELLS = [
             (violation_penalty, 1.0),
         ])
 
-        soft_bounded_result = solver.solve_newton(
-            soft_bounded_total,
-            x0=target.copy(),
-            damping=False,
-        )
+        soft_bounded_problem = solver.OptimizationProblem(objective=soft_bounded_total)
+        soft_bounded_result = optimizer.solve(soft_bounded_problem, target.copy())
 
         print("target:", target)
         print("soft-bounded solution:", soft_bounded_result.x)
@@ -447,17 +429,13 @@ CELLS = [
     code(
         """
         try:
-            solver.solve_newton(energy, x0=x0, line_search="wolfe")
+            solver.NewtonOptimizer(line_search="wolfe")
         except ValueError as exc:
             print("invalid line_search:", exc)
 
         try:
-            solver.solve_newton(
-                energy,
-                x0=x0,
-                fixed_dofs=[0, 1],
-                fixed_values=np.array([1.0], dtype=np.float64),
-            )
+            invalid_problem = solver.OptimizationProblem(objective=energy)
+            invalid_problem.fix_variables([0, 1], np.array([1.0], dtype=np.float64))
         except ValueError as exc:
             print("fixed_values mismatch:", exc)
         """

@@ -17,11 +17,11 @@ namespace NonlinearOptimization
 class IpoptProblem;
 typedef Ipopt::SmartPtr<IpoptProblem> IpoptProblem_ptr;
 
-class IpoptOptimizer
+class IpoptSolverWrapper
 {
 public:
-  IpoptOptimizer(IpoptProblem_ptr problem);
-  virtual ~IpoptOptimizer();
+  IpoptSolverWrapper(IpoptProblem_ptr problem);
+  virtual ~IpoptSolverWrapper();
 
   void setVerbose(int verbose) { printLevel = verbose; }
   void setTol(double val) { tol = val; }

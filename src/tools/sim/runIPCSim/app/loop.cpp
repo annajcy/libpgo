@@ -3,6 +3,7 @@
 #include "deformationModelEnergy.h"
 #include "dynamicStepper.h"
 #include "multiVertexPullingSoftConstraints.h"
+#include "solver/newton/NewtonOptimizer.h"
 
 #include <algorithm>
 #include <iostream>
@@ -43,9 +44,11 @@ void runIPCSimLoop(const RunIPCSimRuntimeConfig &runtimeConfig,
     pgo::Simulation::DynamicProblem problem;
     problem.mass = session.mass;
     problem.timestep = session.timestep;
-    std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.maxIterations = session.solverMaxIter;
-    std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.tolerance = session.solverEps;
-    std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.verbose = 0;
+    pgo::NonlinearOptimization::Optimization::NewtonOptimizer::Options optimizerOptions;
+    optimizerOptions.maxIterations = session.solverMaxIter;
+    optimizerOptions.gradientTolerance = session.solverEps;
+    optimizerOptions.verbose = 0;
+    pgo::NonlinearOptimization::Optimization::NewtonOptimizer optimizer(optimizerOptions);
 
     // Persistent terms: elastic energy + pulling (attachment) energies.
     {
@@ -74,7 +77,7 @@ void runIPCSimLoop(const RunIPCSimRuntimeConfig &runtimeConfig,
     pgo::Simulation::DynamicStepRequest request;
     request.externalForce = session.fext;
 
-    pgo::Simulation::DynamicStepResult result = stepper.step(state, request);
+    pgo::Simulation::DynamicStepResult result = stepper.step(state, request, optimizer);
     executedStep = true;
     session.lastDiagnostics = result.solver.diagnostics;
 

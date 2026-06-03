@@ -34,7 +34,8 @@ def test_one_step_implicit_euler_quadratic():
         energy=_spring(n),
         integrator="implicit_euler",
     )
-    frame = sim.step(external_force=np.array([1.0, -2.0, 0.5]))
+    optimizer = pgo.solver.NewtonOptimizer(max_iterations=50, gradient_tolerance=1e-9)
+    frame = sim.step(external_force=np.array([1.0, -2.0, 0.5]), optimizer=optimizer)
     assert frame.accepted
     assert frame.displacement.shape == (n,)
     assert len(frame.stage_results) == 1
@@ -65,6 +66,12 @@ def test_unknown_integrator_raises():
             timestep=0.05,
             integrator="rk4",
         )
+
+
+def test_step_rejects_non_optimizer():
+    sim = DynamicSimulation(mass=np.eye(1), state=_rest_state(1), timestep=0.05)
+    with pytest.raises(TypeError, match="NewtonOptimizer"):
+        sim.step(optimizer=object())
 
 
 def test_fixed_dofs_remain_fixed():

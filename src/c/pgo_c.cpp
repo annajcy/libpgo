@@ -31,6 +31,7 @@
 #include "legacy_penalty/pointTrianglePairCouplingEnergyWithCollision.h"
 #include "linearPotentialEnergy.h"
 #include "solver/newton/NewtonSolver.h"
+#include "solver/newton/NewtonOptimizer.h"
 
 #if defined(PGO_HAS_ANIMATION_IO)
 #  include "animationLoader.h"
@@ -819,9 +820,11 @@ int pgo_run_sim_from_config(const char *configFileName)
       Simulation::DynamicProblem problem;
       problem.mass = M;
       problem.timestep = timestep;
-      std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.maxIterations = solverMaxIter;
-      std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.tolerance = solverEps;
-      std::get<pgo::NonlinearOptimization::NewtonOptions>(problem.solver).control.verbose = 0;
+      NonlinearOptimization::Optimization::NewtonOptimizer::Options optimizerOptions;
+      optimizerOptions.maxIterations = solverMaxIter;
+      optimizerOptions.gradientTolerance = solverEps;
+      optimizerOptions.verbose = 0;
+      NonlinearOptimization::Optimization::NewtonOptimizer optimizer(optimizerOptions);
 
       problem.persistentTerms.push_back({elasticEnergy, 0.0, 0.0});
       for (auto &pe : pullingEnergies)
@@ -884,7 +887,7 @@ int pgo_run_sim_from_config(const char *configFileName)
       state.acceleration = uacc;
       Simulation::DynamicStepRequest request;
       request.externalForce = fext;
-      Simulation::DynamicStepResult result = stepper.step(state, request);
+      Simulation::DynamicStepResult result = stepper.step(state, request, optimizer);
 
       u = result.state.displacement;
       uvel = result.state.velocity;

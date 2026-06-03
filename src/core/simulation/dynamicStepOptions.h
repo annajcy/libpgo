@@ -2,17 +2,16 @@
   Immutable problem description (DynamicProblem) and per-step input
   (DynamicStepRequest) for the dynamic time-stepping service.
 
-  The split keeps invariants (mass, persistent energies, per-term damping,
-  fixed-DOF index set, solver options) out of the per-step hot path so they are
-  never re-copied each frame. See time_integrator_api_refactor.plan.md Task T1
-  and design decisions D1/D5.
+  The split keeps invariants (mass, persistent energies, per-term damping, and
+  fixed-DOF index set) out of the per-step hot path so they are never re-copied
+  each frame. Solver/backend configuration lives on the optimizer object passed
+  to DynamicStepper::step().
 */
 
 #pragma once
 
 #include "dynamicState.h"
 #include "potentialEnergy.h"
-#include "solver/service/optimizationService.h"  // NonlinearOptimization::SolverControl
 
 #include <optional>
 #include <vector>
@@ -39,7 +38,6 @@ struct DynamicProblem
   std::vector<ImplicitModelTerm> persistentTerms;  // elastic / attachments / contact
   std::vector<int> fixedDofs;                       // immutable across steps (D5)
   double timestep = 0.0;
-  NonlinearOptimization::SolverOptions solver;  // control + Newton damping / line-search / sparse solver
 };
 
 // Per-step. Contact energies are already held persistently in

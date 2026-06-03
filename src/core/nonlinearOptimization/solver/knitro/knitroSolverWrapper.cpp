@@ -3,8 +3,8 @@ author: Bohan Wang
 copyright to USC
 */
 
-#include "solver/external/knitro/knitroOptimizer.h"
-#include "solver/external/knitro/knitroProblem.h"
+#include "solver/knitro/knitroSolverWrapper.h"
+#include "solver/knitro/knitroProblem.h"
 
 #include "EigenSupport.h"
 #include "pgoLogging.h"
@@ -320,7 +320,7 @@ static int callbackNewPt(KN_context_ptr /*kc*/,
   return 0;
 }
 
-KnitroOptimizer::KnitroOptimizer(KnitroProblem *p)
+KnitroSolverWrapper::KnitroSolverWrapper(KnitroProblem *p)
 {
   handles = new KnitroHandles;
   handles->problem = p;
@@ -339,7 +339,7 @@ KnitroOptimizer::KnitroOptimizer(KnitroProblem *p)
   g = new double[p->getm()];
 }
 
-KnitroOptimizer::~KnitroOptimizer()
+KnitroSolverWrapper::~KnitroSolverWrapper()
 {
   KN_free(&handles->kc);
 
@@ -349,7 +349,7 @@ KnitroOptimizer::~KnitroOptimizer()
   delete[] g;
 }
 
-void KnitroOptimizer::setConfigFile(const char *filename)
+void KnitroSolverWrapper::setConfigFile(const char *filename)
 {
   if (filename && strlen(filename)) {
     KNITRO_ERROR(KN_load_param_file(handles->kc, filename),
@@ -400,49 +400,49 @@ void KnitroOptimizer::setConfigFile(const char *filename)
   }
 }
 
-void KnitroOptimizer::setMaxIter(int maxIter)
+void KnitroSolverWrapper::setMaxIter(int maxIter)
 {
   KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_MAXIT, maxIter),
     throw std::domain_error("set max iter"));
 }
 
-void KnitroOptimizer::setFeasTol(double eps)
+void KnitroSolverWrapper::setFeasTol(double eps)
 {
   KNITRO_ERROR(KN_set_double_param(handles->kc, KN_PARAM_FEASTOL, eps),
     throw std::domain_error("set feasible tol"));
 }
 
-void KnitroOptimizer::setOptTol(double eps)
+void KnitroSolverWrapper::setOptTol(double eps)
 {
   KNITRO_ERROR(KN_set_double_param(handles->kc, KN_PARAM_OPTTOL, eps),
     throw std::domain_error("set optimality tol"));
 }
 
-void KnitroOptimizer::setVerbose(int verbose)
+void KnitroSolverWrapper::setVerbose(int verbose)
 {
   KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_OUTLEV, verbose),
     throw std::domain_error("set verbose level"));
 }
 
-void KnitroOptimizer::enableWarmStart(int enable)
+void KnitroSolverWrapper::enableWarmStart(int enable)
 {
   KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_STRAT_WARM_START, enable ? 1 : 0),
     throw std::domain_error("set warm start"));
 }
 
-void KnitroOptimizer::enableMultiEvaluation(int enable)
+void KnitroSolverWrapper::enableMultiEvaluation(int enable)
 {
   handles->enableMultiEval = enable ? 1 : 0;
   KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_PAR_CONCURRENT_EVALS, handles->enableMultiEval),
     throw std::domain_error("set multi eval"));
 }
-void KnitroOptimizer::honorBoundary(int enable)
+void KnitroSolverWrapper::honorBoundary(int enable)
 {
   KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_HONORBNDS, enable),
     throw std::domain_error("set honor boundary"));
 }
 
-void KnitroOptimizer::emphasisFeasibility(int opt)
+void KnitroSolverWrapper::emphasisFeasibility(int opt)
 {
   if (opt == 0) {
     KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_BAR_FEASIBLE, KN_BAR_FEASIBLE_NO),
@@ -465,7 +465,7 @@ void KnitroOptimizer::emphasisFeasibility(int opt)
   }
 }
 
-void KnitroOptimizer::initQuadraticProblem()
+void KnitroSolverWrapper::initQuadraticProblem()
 {
   std::vector<KNINT> rows;
   std::vector<KNINT> cols;
@@ -504,7 +504,7 @@ void KnitroOptimizer::initQuadraticProblem()
   }
 }
 
-void KnitroOptimizer::init()
+void KnitroSolverWrapper::init()
 {
   // KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_NUMTHREADS, (int)std::thread::hardware_concurrency()),
   //   throw std::domain_error("set num threads"));
@@ -910,7 +910,7 @@ void KnitroOptimizer::init()
     throw std::domain_error("goal of the obj is minimize"));
 }
 
-int KnitroOptimizer::solve()
+int KnitroSolverWrapper::solve()
 {
   /** Solve the problem.
    *
@@ -936,14 +936,14 @@ int KnitroOptimizer::solve()
   return retCode;
 }
 
-void KnitroOptimizer::setxInit(const double *x)
+void KnitroSolverWrapper::setxInit(const double *x)
 {
   /** Define an initial point.  If not set, Knitro will generate one. */
   KNITRO_ERROR(KN_set_var_primal_init_values_all(handles->kc, x),
     throw std::domain_error("set x init"));
 }
 
-void KnitroOptimizer::setxRange(const double *xlow, const double *xhi)
+void KnitroSolverWrapper::setxRange(const double *xlow, const double *xhi)
 {
   KNITRO_ERROR(KN_set_var_lobnds_all(handles->kc, xlow),
     throw std::domain_error("set x lower bound"));
@@ -952,7 +952,7 @@ void KnitroOptimizer::setxRange(const double *xlow, const double *xhi)
     throw std::domain_error("set x hi bound"));
 }
 
-void KnitroOptimizer::setcRange(const double *lo, const double *hi)
+void KnitroSolverWrapper::setcRange(const double *lo, const double *hi)
 {
   if (!handles->problem->hasConstraints())
     return;
@@ -998,7 +998,7 @@ void KnitroOptimizer::setcRange(const double *lo, const double *hi)
     throw std::domain_error("set constraints hi bound"));
 }
 
-void KnitroOptimizer::printInfo() const
+void KnitroSolverWrapper::printInfo() const
 {
   int niter = 0;
   KNITRO_ERROR(KN_get_number_iters(handles->kc, &niter),

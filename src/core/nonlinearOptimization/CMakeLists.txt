@@ -8,10 +8,16 @@ set(NONLINEAROPTIMIZATION_HEADERS
   lineSearchAwareEnergy.h
   solver/common/solveDiagnostics.h
   solver/common/solverResult.h
+  solver/service/optimizationProblem.h
+  solver/service/optimizationResult.h
+  solver/service/optimizer.h
+  solver/service/optimizerUtils.h
   solver/service/optimizationService.h
-  solver/service/optimizationBackend.h
   solver/newton/newtonLineSearchPolicy.h
   solver/newton/newtonSparseSolverBackend.h
+  solver/newton/NewtonOptimizer.h
+  solver/ipopt/IpoptOptimizer.h
+  solver/knitro/KnitroOptimizer.h
 
   constraints/potentialEnergyFromConstraintFunctions.h
 
@@ -19,8 +25,8 @@ set(NONLINEAROPTIMIZATION_HEADERS
   constraints/constraintFunction.h constraints/constraintFunctions.h constraints/constraintSet.h
   constraints/linearConstraintFunctions.h
 
-  solver/external/common/nonlinearProblem.h lagrangian.h
-  solver/newton/NewtonSolver.h solver/legacy/minimizeEnergy.h
+  solver/common/nonlinearProblem.h lagrangian.h
+  solver/newton/NewtonSolver.h
   finiteDifference.h
   determinantDerivatives.h polarDecompositionDerivatives.h naturalCubicSplineDerivatives.h svdDerivatives.h
   barrierFunction.h
@@ -33,17 +39,20 @@ set(NONLINEAROPTIMIZATION_SOURCES
   energySet.cpp
   solver/common/solverResult.cpp
   solver/service/optimizationService.cpp
-  solver/service/optimizationBackend.cpp
+  solver/service/optimizerUtils.cpp
   solver/newton/newtonLineSearchPolicy.cpp
   solver/newton/newtonSparseSolverBackend.cpp
+  solver/newton/NewtonOptimizer.cpp
+  solver/ipopt/IpoptOptimizer.cpp
+  solver/knitro/KnitroOptimizer.cpp
 
   constraints/constraintEvaluation.cpp
   constraints/constraintFunctions.cpp constraints/constraintSet.cpp
   constraints/linearConstraintFunctions.cpp
 
   constraints/potentialEnergyFromConstraintFunctions.cpp
-  solver/external/common/nonlinearProblem.cpp lagrangian.cpp
-  solver/newton/NewtonSolver.cpp solver/legacy/minimizeEnergy.cpp
+  solver/common/nonlinearProblem.cpp lagrangian.cpp
+  solver/newton/NewtonSolver.cpp
   finiteDifference.cpp
   determinantDerivatives.cpp polarDecompositionDerivatives.cpp naturalCubicSplineDerivatives.cpp svdDerivatives.cpp
   barrierFunction.cpp
@@ -52,13 +61,13 @@ set(NONLINEAROPTIMIZATION_SOURCES
 )
 
 if(TARGET Knitro::Knitro)
-  set(NONLINEAROPTIMIZATION_HEADERS ${NONLINEAROPTIMIZATION_HEADERS} solver/external/knitro/knitroProblem.h solver/external/knitro/knitroOptimizer.h)
-  set(NONLINEAROPTIMIZATION_SOURCES ${NONLINEAROPTIMIZATION_SOURCES} solver/external/knitro/knitroProblem.cpp solver/external/knitro/knitroOptimizer.cpp)
+  set(NONLINEAROPTIMIZATION_HEADERS ${NONLINEAROPTIMIZATION_HEADERS} solver/knitro/knitroProblem.h solver/knitro/knitroSolverWrapper.h)
+  set(NONLINEAROPTIMIZATION_SOURCES ${NONLINEAROPTIMIZATION_SOURCES} solver/knitro/knitroProblem.cpp solver/knitro/knitroSolverWrapper.cpp)
 endif()
 
 if(TARGET Ipopt::Core)
-  set(NONLINEAROPTIMIZATION_HEADERS ${NONLINEAROPTIMIZATION_HEADERS} solver/external/ipopt/IpoptProblem.h solver/external/ipopt/IpoptOptimizer.h)
-  set(NONLINEAROPTIMIZATION_SOURCES ${NONLINEAROPTIMIZATION_SOURCES} solver/external/ipopt/IpoptProblem.cpp solver/external/ipopt/IpoptOptimizer.cpp)
+  set(NONLINEAROPTIMIZATION_HEADERS ${NONLINEAROPTIMIZATION_HEADERS} solver/ipopt/IpoptProblem.h solver/ipopt/IpoptSolverWrapper.h)
+  set(NONLINEAROPTIMIZATION_SOURCES ${NONLINEAROPTIMIZATION_SOURCES} solver/ipopt/IpoptProblem.cpp solver/ipopt/IpoptSolverWrapper.cpp)
 endif()
 
 set(NONLINEAROPTIMIZATION_DEPS eigenSupport pgoLogging autodiff::autodiff profiling)

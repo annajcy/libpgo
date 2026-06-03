@@ -28,13 +28,12 @@ CELLS = [
         - an initial **state** (displacement / velocity / acceleration),
         - a **timestep** and an **integrator** (`"implicit_euler"` or
           `"trbdf2"`),
-        - an optional set of **fixed DOFs**, and
-        - **solver** options (`pypgo.solver.NewtonOptions`).
+        - an optional set of **fixed DOFs**.
 
-        Then each call to `step(external_force=...)` solves one implicit stage
-        problem and returns a `DynamicFrame` with the new state and solver
-        diagnostics. The integrator's internals (stage residual assembly,
-        Newton solve, fixed-DOF handling, contact lifecycle) stay in C++.
+        Then each call to `step(external_force=..., optimizer=...)` solves one
+        implicit stage problem and returns a `DynamicFrame` with the new state
+        and solver diagnostics. The simulation owns the dynamic problem; the
+        caller supplies the optimizer.
         """
     ),
     md(
@@ -218,6 +217,7 @@ CELLS = [
         gravity = np.array([0.0, 0.0, -9.81]) * m        # force per (x, y, z) DOF
         equilibrium = gravity / k
 
+        optimizer = solver.NewtonOptimizer(max_iterations=50, gradient_tolerance=1e-9)
         sim = DynamicSimulation(
             mass=m * np.eye(n),
             state=DynamicState(np.zeros(n), np.zeros(n), np.zeros(n)),
@@ -225,11 +225,10 @@ CELLS = [
             energy=spring,
             integrator="trbdf2",
             damping=(4.0, 0.0),                          # mass-proportional damping to settle
-            solver=solver.NewtonOptions(max_iter=50, tol=1e-9),
         )
 
         for _ in range(400):
-            frame = sim.step(external_force=gravity)
+            frame = sim.step(external_force=gravity, optimizer=optimizer)
 
         print("final displacement:", sim.state.displacement)
         print("expected equilibrium:", equilibrium)
@@ -306,8 +305,9 @@ CELLS = [
         ## 7. Driving many steps with `run`
 
         `run(num_steps, **step_kwargs)` is a convenience loop that calls `step`
-        repeatedly with the same keyword arguments and returns the list of
-        `DynamicFrame`s. `run(0)` is a no-op that returns an empty list.
+        repeatedly with the same keyword arguments, including an optional
+        optimizer, and returns the list of `DynamicFrame`s. `run(0)` is a no-op
+        that returns an empty list.
         """
     ),
     code(
@@ -425,12 +425,12 @@ CELLS = [
             energy=energy,
             integrator="implicit_euler",
             damping=(0.5, 0.0),
-            solver=pgo.solver.NewtonOptions(sparse_solver="auto"),
         )
+        optimizer = pgo.solver.NewtonOptimizer(sparse_solver="auto")
 
         surf_disps = []
         for k in range(200):
-            fr = sim.step(external_force=gravity)
+            fr = sim.step(external_force=gravity, optimizer=optimizer)
             surf_disps.append(embedding.displacement(fr.displacement).ravel())
         print(f"Simulated {len(surf_disps)} frames")
 

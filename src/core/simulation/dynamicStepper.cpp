@@ -9,6 +9,7 @@ namespace pgo
 namespace Simulation
 {
 namespace NO = pgo::NonlinearOptimization;
+namespace NOO = pgo::NonlinearOptimization::Optimization;
 namespace ES = pgo::EigenSupport;
 
 namespace
@@ -55,28 +56,25 @@ ES::VXd resolveFixedValues(const DynamicProblem &problem, const DynamicState &st
   return values;
 }
 
-NO::OptimizationResult solveStageProblem(
+NOO::OptimizationResult solveStageProblem(
   const ImplicitStageProblem &stage,
   const std::vector<int> &fixedDofs,
   const ES::VXd &fixedValues,
-  const NO::NewtonOptions &options)
+  NOO::Optimizer &optimizer)
 {
-  NO::OptimizationProblem problem;
-  problem.energy = stage.energy;
+  NOO::OptimizationProblem problem;
+  problem.objective = stage.energy;
 
   ES::VXd x0 = stage.initialGuess;
   if (!fixedDofs.empty()) {
-    NO::FixedVariables fv;
-    fv.dofs = fixedDofs;
-    fv.values = fixedValues;
-    problem.fixedVariables = std::move(fv);
+    NOO::fixVariables(problem, fixedDofs, fixedValues, static_cast<int>(x0.size()));
 
     // Pin the initial guess on fixed DOFs so the solver starts feasible.
     for (size_t k = 0; k < fixedDofs.size(); k++)
       x0[fixedDofs[k]] = fixedValues[(Eigen::Index)k];
   }
 
-  return NO::minimize(problem, x0, options);
+  return optimizer.solve(problem, x0);
 }
 }  // namespace
 
@@ -87,7 +85,6 @@ ImplicitEulerStepper::ImplicitEulerStepper(DynamicProblem problem)
 {
   n_ = (int)problem_.mass.rows();
   validateDynamicProblem(problem_, n_);
-  newtonOptions_ = std::get<NO::NewtonOptions>(problem_.solver);
 
   const DynamicState zero = makeZeroState(n_);
   const DynamicStepRequest zeroReq = makeZeroRequest(n_);
@@ -97,7 +94,10 @@ ImplicitEulerStepper::ImplicitEulerStepper(DynamicProblem problem)
   stageHandle_ = initStageResidual(coeffs.A, ES::VXd::Zero(n_), problem_.persistentTerms);
 }
 
-DynamicStepResult ImplicitEulerStepper::step(const DynamicState &state, const DynamicStepRequest &request)
+DynamicStepResult ImplicitEulerStepper::step(
+  const DynamicState &state,
+  const DynamicStepRequest &request,
+  NOO::Optimizer &optimizer)
 {
   validateDynamicState(state, n_);
   validateDynamicStepRequest(request, problem_, n_);
@@ -109,7 +109,7 @@ DynamicStepResult ImplicitEulerStepper::step(const DynamicState &state, const Dy
   const ImplicitStageProblem stage = prepareStageResidual(stageHandle_, coeffs.A, coeffs.linear, coeffs.initialGuess);
 
   const ES::VXd fixedValues = resolveFixedValues(problem_, state, request);
-  const NO::OptimizationResult res = solveStageProblem(stage, problem_.fixedDofs, fixedValues, newtonOptions_);
+  const NOO::OptimizationResult res = solveStageProblem(stage, problem_.fixedDofs, fixedValues, optimizer);
 
   DynamicStepResult out;
   out.solver = res.solver;
@@ -126,7 +126,6 @@ TRBDF2Stepper::TRBDF2Stepper(DynamicProblem problem, double gamma)
 {
   n_ = (int)problem_.mass.rows();
   validateDynamicProblem(problem_, n_);
-  newtonOptions_ = std::get<NO::NewtonOptions>(problem_.solver);
 
   coeffs_ = computeTRBDF2Coefficients(gamma, problem_.timestep);
   singleStage_ = (gamma >= 1.0 - 1e-9);
@@ -148,7 +147,10 @@ TRBDF2Stepper::TRBDF2Stepper(DynamicProblem problem, double gamma)
   }
 }
 
-DynamicStepResult TRBDF2Stepper::step(const DynamicState &state, const DynamicStepRequest &request)
+DynamicStepResult TRBDF2Stepper::step(
+  const DynamicState &state,
+  const DynamicStepRequest &request,
+  NOO::Optimizer &optimizer)
 {
   validateDynamicState(state, n_);
   validateDynamicStepRequest(request, problem_, n_);
@@ -161,7 +163,7 @@ DynamicStepResult TRBDF2Stepper::step(const DynamicState &state, const DynamicSt
   // Stage 1 (trapezoidal rule).
   const TRBDF2StageCoefficients c1 = builder_.computeStage1(state, problem_, request, D, coeffs_);
   const ImplicitStageProblem stage1 = prepareStageResidual(stage1Handle_, c1.A, c1.linear, c1.initialGuess);
-  const NO::OptimizationResult res1 = solveStageProblem(stage1, problem_.fixedDofs, fixedValues, newtonOptions_);
+  const NOO::OptimizationResult res1 = solveStageProblem(stage1, problem_.fixedDofs, fixedValues, optimizer);
 
   DynamicStepResult out;
   out.stageResults.push_back(res1.solver);
@@ -193,7 +195,7 @@ DynamicStepResult TRBDF2Stepper::step(const DynamicState &state, const DynamicSt
   // Stage 2 (BDF2).
   const TRBDF2StageCoefficients c2 = builder_.computeStage2(state, mid, problem_, request, D, coeffs_);
   const ImplicitStageProblem stage2 = prepareStageResidual(stage2Handle_, c2.A, c2.linear, c2.initialGuess);
-  const NO::OptimizationResult res2 = solveStageProblem(stage2, problem_.fixedDofs, fixedValues, newtonOptions_);
+  const NOO::OptimizationResult res2 = solveStageProblem(stage2, problem_.fixedDofs, fixedValues, optimizer);
 
   out.stageResults.push_back(res2.solver);
   out.solver = res2.solver;

@@ -44,7 +44,10 @@ class DynamicStepper
 {
 public:
   virtual ~DynamicStepper() = default;
-  virtual DynamicStepResult step(const DynamicState &state, const DynamicStepRequest &request) = 0;
+  virtual DynamicStepResult step(
+    const DynamicState &state,
+    const DynamicStepRequest &request,
+    NonlinearOptimization::Optimization::Optimizer &optimizer) = 0;
   virtual int numDofs() const = 0;
 };
 
@@ -52,7 +55,10 @@ class ImplicitEulerStepper final : public DynamicStepper
 {
 public:
   explicit ImplicitEulerStepper(DynamicProblem problem);
-  DynamicStepResult step(const DynamicState &state, const DynamicStepRequest &request) override;
+  DynamicStepResult step(
+    const DynamicState &state,
+    const DynamicStepRequest &request,
+    NonlinearOptimization::Optimization::Optimizer &optimizer) override;
   int numDofs() const override { return n_; }
 
   // Expose the stage EnergySet for legacy getInternalEnergy() / max-step tests.
@@ -61,7 +67,6 @@ public:
 private:
   DynamicProblem problem_;
   int n_;
-  NonlinearOptimization::NewtonOptions newtonOptions_;
   ImplicitEulerStageBuilder builder_;
   StageResidualHandle stageHandle_;
 };
@@ -70,7 +75,10 @@ class TRBDF2Stepper final : public DynamicStepper
 {
 public:
   explicit TRBDF2Stepper(DynamicProblem problem, double gamma = 0.5);
-  DynamicStepResult step(const DynamicState &state, const DynamicStepRequest &request) override;
+  DynamicStepResult step(
+    const DynamicState &state,
+    const DynamicStepRequest &request,
+    NonlinearOptimization::Optimization::Optimizer &optimizer) override;
   int numDofs() const override { return n_; }
 
   // Expose stage energies for legacy tests.
@@ -82,7 +90,6 @@ private:
   int n_;
   TRBDF2Coefficients coeffs_;
   bool singleStage_;
-  NonlinearOptimization::NewtonOptions newtonOptions_;
   TRBDF2StageBuilder builder_;
   StageResidualHandle stage1Handle_;
   StageResidualHandle stage2Handle_;

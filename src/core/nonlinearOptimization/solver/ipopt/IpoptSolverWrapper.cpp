@@ -3,8 +3,8 @@ author: Bohan Wang
 copyright to USC
 */
 
-#include "solver/external/ipopt/IpoptOptimizer.h"
-#include "solver/external/ipopt/IpoptProblem.h"
+#include "solver/ipopt/IpoptSolverWrapper.h"
+#include "solver/ipopt/IpoptProblem.h"
 
 #include "pgoLogging.h"
 
@@ -14,16 +14,16 @@ copyright to USC
 using namespace pgo;
 using namespace pgo::NonlinearOptimization;
 
-IpoptOptimizer::IpoptOptimizer(IpoptProblem_ptr prob):
+IpoptSolverWrapper::IpoptSolverWrapper(IpoptProblem_ptr prob):
   problem(prob)
 {
 }
 
-IpoptOptimizer::~IpoptOptimizer()
+IpoptSolverWrapper::~IpoptSolverWrapper()
 {
 }
 
-int IpoptOptimizer::init()
+int IpoptSolverWrapper::init()
 {
   // Create an instance of the IpoptApplication
   //
@@ -55,7 +55,7 @@ int IpoptOptimizer::init()
   return 0;
 }
 
-int IpoptOptimizer::solve()
+int IpoptSolverWrapper::solve()
 {
   Ipopt::ApplicationReturnStatus status;
 

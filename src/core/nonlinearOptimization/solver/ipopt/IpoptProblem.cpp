@@ -3,7 +3,7 @@ author: Bohan Wang
 copyright to USC
 */
 
-#include "solver/external/ipopt/IpoptProblem.h"
+#include "solver/ipopt/IpoptProblem.h"
 
 #include "pgoLogging.h"
 
