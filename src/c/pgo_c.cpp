@@ -13,9 +13,8 @@
 #include "EigenSupport.h"
 #include "simulationMesh.h"
 #include "deformationModelFactory.h"
+#include "deformationModelState.h"
 #include "deformationModelManager.h"
-#include "factories/elasticModelFactory.h"
-#include "factories/plasticModelFactory.h"
 #include "basicIO.h"
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
@@ -675,25 +674,28 @@ int pgo_run_sim_from_config(const char *configFileName)
   InterpolationCoordinates::BarycentricCoordinates bc(surfaceMesh.numVertices(), surfaceRestPositions.data(), &tetMesh);
   ES::SpMatD W = bc.generateInterpolationMatrix();
 
-  // initialize fem; simMesh must outlive the energy chain because the manager borrows it
-  std::unique_ptr<SolidDeformationModel::SimulationMesh> simMesh = SolidDeformationModel::loadTetMesh(&tetMesh);
+  std::shared_ptr<const SolidDeformationModel::SimulationMesh> simMesh(
+    SolidDeformationModel::loadTetMesh(&tetMesh).release());
 
   int n = simMesh->getNumVertices();
   int n3 = n * 3;
 
   // Build deformation energy.
-  auto elasticField = SolidDeformationModel::ElasticModelFactory::createDefaultField(*simMesh, elasticMat);
-  auto plasticField = SolidDeformationModel::PlasticModelFactory::createDefaultField(
-    *simMesh, SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  auto deformationState = SolidDeformationModel::DeformationModelState::create(
+    simMesh,
+    elasticMat,
+    SolidDeformationModel::ElasticFieldInit{},
+    SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    SolidDeformationModel::PlasticFieldInit{});
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy;
   switch (simMesh->getElementType()) {
   case SolidDeformationModel::SimulationMeshType::TET:
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      *simMesh, SolidDeformationModel::P1TetFormulation{}, elasticField, plasticField);
+      deformationState, SolidDeformationModel::P1TetFormulation{});
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      *simMesh, SolidDeformationModel::LinearCubicFormulation{}, elasticField, plasticField);
+      deformationState, SolidDeformationModel::LinearCubicFormulation{});
     break;
   default:
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");

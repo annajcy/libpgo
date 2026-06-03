@@ -16,6 +16,7 @@ namespace SolidDeformationModel
 {
 class SimulationMesh;
 class DeformationModel;
+class DeformationModelState;
 class DeformationModelManagerImpl;
 class ParameterField;
 class OptimizableField;
@@ -53,10 +54,8 @@ enum class DeformationModelPlasticMaterial
 class DeformationModelManager
 {
 public:
-  DeformationModelManager(const SimulationMesh &simulationMesh,
+  DeformationModelManager(std::shared_ptr<DeformationModelState> state,
     const Formulation &formulation,
-    std::shared_ptr<OptimizableField> elasticField,
-    std::shared_ptr<OptimizableField> plasticField,
     int enforceSPD = 1,
     const double *elementFiberDirections = nullptr,
     const double *vertexFiberDirections = nullptr);

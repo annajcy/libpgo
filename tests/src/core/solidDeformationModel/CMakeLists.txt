@@ -24,6 +24,12 @@ target_compile_definitions(deformationModelFactory_gtest PRIVATE
 set_property(TARGET deformationModelFactory_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(deformationModelFactory_gtest)
 
+add_executable(deformationModelState_gtest deformationModelState_gtest.cpp)
+target_link_libraries(deformationModelState_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
+target_compile_definitions(deformationModelState_gtest PRIVATE
+  LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/tests/fixtures/legacy/cubic/box/box.veg")
+set_property(TARGET deformationModelState_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(deformationModelState_gtest)
 
 add_executable(tetP1Basis_gtest formulations/basis/tetP1Basis_gtest.cpp)
 target_link_libraries(tetP1Basis_gtest PRIVATE GTest::gtest_main solidDeformationModel)

@@ -125,14 +125,17 @@ CELLS = [
     code(
         """
         sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
-        elastic_field = pf.StableNeo().default_field(sim_mesh)
-        plastic_field = pf.VolumetricPlasticity(dofs=6).default_field(sim_mesh)
+        deformation_state = pf.deformation_model_state(
+            sim_mesh,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_field=pf.ElementwiseField(),
+        )
 
         deformation = pf.deformation_energy(
-            sim_mesh,
+            deformation_state,
             formulation=pf.LinearCubic(),
-            elastic_field=elastic_field,
-            plastic_field=plastic_field,
         )
 
         print("mesh_type:", sim_mesh.mesh_type)
@@ -286,26 +289,27 @@ CELLS = [
         y01 = (element_centers[:, 1] - bbox_min[1]) / (bbox_max[1] - bbox_min[1])
 
         plastic_model = pf.VolumetricPlasticity(dofs=6)
-        plastic_values = plastic_model.default_field(sim_mesh).values
+        plastic_values = deformation_state.plastic_field.values
         plastic_values[:, 0] = 1.00 + 0.18 * y01  # F_xx
         plastic_values[:, 3] = 1.00 - 0.06 * y01  # F_yy
         plastic_values[:, 5] = 1.00               # F_zz
-        plastic_field_spatial = plastic_model.elementwise_field(
+        deformation_state_spatial = pf.deformation_model_state(
             sim_mesh,
-            values=plastic_values,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=plastic_model,
+            plastic_field=pf.ElementwiseField(values=plastic_values),
         )
 
         deformation_plastic = pf.deformation_energy(
-            sim_mesh,
+            deformation_state_spatial,
             formulation=pf.LinearCubic(),
-            elastic_field=elastic_field,
-            plastic_field=plastic_field_spatial,
         )
 
-        print("plastic field shape:", plastic_field_spatial.values.shape)
+        print("plastic field shape:", deformation_state_spatial.plastic_field.values.shape)
         print("F_xx range:", float(plastic_values[:, 0].min()), float(plastic_values[:, 0].max()))
         print("F_yy range:", float(plastic_values[:, 3].min()), float(plastic_values[:, 3].max()))
-        print("field values match input:", np.allclose(plastic_field_spatial.values, plastic_values))
+        print("field values match input:", np.allclose(deformation_state_spatial.plastic_field.values, plastic_values))
 
         total_energy_plastic = pe.EnergySet([
             (deformation_plastic, 1.0)

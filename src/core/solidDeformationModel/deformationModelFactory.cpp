@@ -5,6 +5,7 @@ copyright to USC
 #include "deformationModelFactory.h"
 
 #include "simulationMesh.h"
+#include "deformationModelState.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "volumetricMesh.h"
@@ -47,21 +48,20 @@ std::unique_ptr<SimulationMesh> makeSimulationMesh(const VolumetricMeshes::Volum
 }
 
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
-  const SimulationMesh &mesh,
+  std::shared_ptr<DeformationModelState> state,
   const Formulation &formulation,
-  std::shared_ptr<OptimizableField> elasticField,
-  std::shared_ptr<OptimizableField> plasticField,
   const DeformationModelOptions &opts)
 {
+  if (!state)
+    throw std::invalid_argument("makeDeformationEnergy: state must be non-null.");
+  const SimulationMesh &mesh = *state->mesh();
   const int nele = mesh.getNumElements();
 
-  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {} and explicit parameter fields",
+  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {} and deformation model state",
     formulation.getName());
 
   auto manager = std::make_unique<DeformationModelManager>(
-    mesh, formulation,
-    std::move(elasticField),
-    std::move(plasticField),
+    std::move(state), formulation,
     opts.enforceSPD ? 1 : 0,
     /*elementFiberDirections=*/nullptr,
     /*vertexFiberDirections=*/nullptr);

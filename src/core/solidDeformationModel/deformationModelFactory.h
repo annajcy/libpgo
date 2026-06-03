@@ -24,6 +24,8 @@ class VolumetricMesh;
 namespace SolidDeformationModel
 {
 
+class DeformationModelState;
+
 struct DeformationModelOptions
 {
   bool enforceSPD = true;
@@ -36,10 +38,8 @@ struct DeformationModelOptions
 std::unique_ptr<SimulationMesh> makeSimulationMesh(const VolumetricMeshes::VolumetricMesh &mesh);
 
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
-  const SimulationMesh &mesh,
+  std::shared_ptr<DeformationModelState> state,
   const Formulation &formulation,
-  std::shared_ptr<OptimizableField> elasticField,
-  std::shared_ptr<OptimizableField> plasticField,
   const DeformationModelOptions &opts = {});
 
 }  // namespace SolidDeformationModel

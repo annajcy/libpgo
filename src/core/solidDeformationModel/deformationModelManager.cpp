@@ -6,6 +6,7 @@ copyright to USC, MIT, NUS
 #include "deformationModelManager.h"
 
 #include "deformationModel.h"
+#include "deformationModelState.h"
 #include "factories/elementModelFactory.h"
 #include "formulations/dof/vertex3DofLayout.h"
 #include "formulations/formulation.h"
@@ -45,6 +46,7 @@ public:
   ~DeformationModelManagerImpl();
 
   const SimulationMesh *simulationMesh = nullptr;   // non-owning immutable borrow
+  std::shared_ptr<DeformationModelState> state;
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
 
   // elastic models (owned; element models hold non-owning raw pointers)
@@ -222,20 +224,6 @@ void validateParameterField(const char *name, const OptimizableField *field,
     throw std::invalid_argument(std::string(name) + " global DOF count does not match the mesh.");
 }
 
-DeformationModelElasticMaterial inferElasticMaterial(const std::shared_ptr<OptimizableField> &field)
-{
-  if (!field)
-    throw std::invalid_argument("elasticField must be non-null.");
-  return ElasticModelFactory::materialFromModelId(field->spec().modelId);
-}
-
-DeformationModelPlasticMaterial inferPlasticMaterial(const std::shared_ptr<OptimizableField> &field)
-{
-  if (!field)
-    throw std::invalid_argument("plasticField must be non-null.");
-  return PlasticModelFactory::materialFromModelId(field->spec().modelId);
-}
-
 }  // namespace
 
 void DeformationModelManager::initBase(const SimulationMesh &simulationMesh,
@@ -261,17 +249,21 @@ void DeformationModelManager::initBase(const SimulationMesh &simulationMesh,
     data->computeFiberAxes();
 }
 
-DeformationModelManager::DeformationModelManager(const SimulationMesh &simulationMesh,
+DeformationModelManager::DeformationModelManager(std::shared_ptr<DeformationModelState> state,
   const Formulation &formulation,
-  std::shared_ptr<OptimizableField> elasticField,
-  std::shared_ptr<OptimizableField> plasticField,
   int enforceSPD, const double *elementFiberDirections, const double *vertexFiberDirections)
 {
+  if (!state)
+    throw std::invalid_argument("DeformationModelManager: state must be non-null.");
+  const SimulationMesh &simulationMesh = *state->mesh();
   initBase(simulationMesh, elementFiberDirections, vertexFiberDirections);
+  data->state = std::move(state);
   validateFormulation(simulationMesh.getElementType(), formulation);
 
-  const auto plasticModelType = inferPlasticMaterial(plasticField);
-  const auto elasticMaterialType = inferElasticMaterial(elasticField);
+  const auto plasticModelType = data->state->plasticMaterial();
+  const auto elasticMaterialType = data->state->elasticMaterial();
+  std::shared_ptr<OptimizableField> elasticField = data->state->elasticFieldPtr();
+  std::shared_ptr<OptimizableField> plasticField = data->state->plasticFieldPtr();
   const auto *mat = simulationMesh.getElementMaterial(0, 0);
   const int ne = mat->numElasticParameters(elasticMaterialType);
   const int np = mat->numPlasticParameters(plasticModelType);

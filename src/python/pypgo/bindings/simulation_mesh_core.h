@@ -8,9 +8,8 @@
 namespace pgo
 {
 
-// Python-facing SimulationMesh owner. Holds a unique_ptr<SimulationMesh> and
-// exposes a const reference so energy_bindings can borrow the mesh without
-// consuming it.
+// Python-facing SimulationMesh owner. Holds a shared SimulationMesh handle so
+// DeformationModelState can retain the exact same mesh instance.
 class PySimulationMesh
 {
 public:
@@ -18,6 +17,7 @@ public:
     : mesh_(std::move(mesh)) {}
 
   const SolidDeformationModel::SimulationMesh &mesh() const { return *mesh_; }
+  std::shared_ptr<const SolidDeformationModel::SimulationMesh> meshPtr() const { return mesh_; }
 
   std::string meshType() const
   {
@@ -41,7 +41,7 @@ public:
   int numElementVertices() const { return mesh_->getNumElementVertices(); }
 
 private:
-  std::unique_ptr<SolidDeformationModel::SimulationMesh> mesh_;
+  std::shared_ptr<SolidDeformationModel::SimulationMesh> mesh_;
 };
 
 }  // namespace pgo

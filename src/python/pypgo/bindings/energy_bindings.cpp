@@ -13,11 +13,10 @@
 #include <vector>
 
 #include "deformationModelFactory.h"
+#include "deformationModelState.h"
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
-#include "factories/elasticModelFactory.h"
-#include "factories/plasticModelFactory.h"
 #include "formulations/parameters/elementwiseParameterField.h"
 #include "formulations/parameters/parameterField.h"
 #include "constraints/constraint_core.h"
@@ -201,44 +200,85 @@ private:
   std::shared_ptr<SolidDeformationModel::OptimizableField> field_;
 };
 
-std::shared_ptr<PyParameterField> createElasticDefaultField(
-  std::shared_ptr<PySimulationMesh> meshCore,
-  const std::string &elasticModel)
+std::optional<EigenSupport::VXd> optionalVectorFromObject(const nb::object &values)
 {
-  auto type = SolidDeformationModel::ElasticModelFactory::materialFromModelId(elasticModel);
-  return std::make_shared<PyParameterField>(
-    SolidDeformationModel::ElasticModelFactory::createDefaultField(meshCore->mesh(), type));
+  if (values.is_none()) {
+    return std::nullopt;
+  }
+  auto arr = nb::cast<nb::ndarray<nb::numpy, const double>>(values);
+  return python::ndarrayToVectorXd(arr);
 }
 
-std::shared_ptr<PyParameterField> createElasticElementwiseField(
+class PyDeformationModelState
+{
+public:
+  PyDeformationModelState(
+    std::shared_ptr<PySimulationMesh> meshOwner,
+    std::shared_ptr<SolidDeformationModel::DeformationModelState> state)
+    : meshOwner_(std::move(meshOwner)), state_(std::move(state))
+  {
+    if (!meshOwner_ || !state_) {
+      throw std::invalid_argument("PyDeformationModelState requires non-null mesh and state.");
+    }
+  }
+
+  std::shared_ptr<SolidDeformationModel::DeformationModelState> state() const { return state_; }
+  std::shared_ptr<PySimulationMesh> meshOwner() const { return meshOwner_; }
+
+  std::string elasticModel() const { return state_->elasticField().spec().modelId; }
+  std::string plasticModel() const { return state_->plasticField().spec().modelId; }
+  int numElements() const { return state_->mesh()->getNumElements(); }
+
+  std::shared_ptr<PyParameterField> elasticField() const
+  {
+    return std::make_shared<PyParameterField>(state_->elasticFieldPtr());
+  }
+
+  std::shared_ptr<PyParameterField> plasticField() const
+  {
+    return std::make_shared<PyParameterField>(state_->plasticFieldPtr());
+  }
+
+  void setElasticValues(nb::ndarray<nb::numpy, const double> values)
+  {
+    state_->setElasticValues(python::ndarrayToVectorMapXd(values));
+  }
+
+  void setPlasticValues(nb::ndarray<nb::numpy, const double> values)
+  {
+    state_->setPlasticValues(python::ndarrayToVectorMapXd(values));
+  }
+
+private:
+  std::shared_ptr<PySimulationMesh> meshOwner_;
+  std::shared_ptr<SolidDeformationModel::DeformationModelState> state_;
+};
+
+std::shared_ptr<PyDeformationModelState> createDeformationModelState(
   std::shared_ptr<PySimulationMesh> meshCore,
   const std::string &elasticModel,
-  nb::ndarray<nb::numpy, const double> values)
-{
-  auto type = SolidDeformationModel::ElasticModelFactory::materialFromModelId(elasticModel);
-  auto vec = python::ndarrayToVectorXd(values);
-  return std::make_shared<PyParameterField>(
-    SolidDeformationModel::ElasticModelFactory::createElementwiseField(meshCore->mesh(), type, std::move(vec)));
-}
-
-std::shared_ptr<PyParameterField> createPlasticDefaultField(
-  std::shared_ptr<PySimulationMesh> meshCore,
-  const std::string &plasticModel)
-{
-  auto type = SolidDeformationModel::PlasticModelFactory::materialFromModelId(plasticModel);
-  return std::make_shared<PyParameterField>(
-    SolidDeformationModel::PlasticModelFactory::createDefaultField(meshCore->mesh(), type));
-}
-
-std::shared_ptr<PyParameterField> createPlasticElementwiseField(
-  std::shared_ptr<PySimulationMesh> meshCore,
+  nb::object elasticValues,
   const std::string &plasticModel,
-  nb::ndarray<nb::numpy, const double> values)
+  nb::object plasticValues)
 {
-  auto type = SolidDeformationModel::PlasticModelFactory::materialFromModelId(plasticModel);
-  auto vec = python::ndarrayToVectorXd(values);
-  return std::make_shared<PyParameterField>(
-    SolidDeformationModel::PlasticModelFactory::createElementwiseField(meshCore->mesh(), type, std::move(vec)));
+  if (!meshCore) {
+    throw nb::value_error("mesh_core must be non-null");
+  }
+
+  SolidDeformationModel::ElasticFieldInit elasticField;
+  elasticField.values = optionalVectorFromObject(elasticValues);
+
+  SolidDeformationModel::PlasticFieldInit plasticField;
+  plasticField.values = optionalVectorFromObject(plasticValues);
+
+  auto state = SolidDeformationModel::DeformationModelState::create(
+    meshCore->meshPtr(),
+    parseElasticMaterial(elasticModel),
+    std::move(elasticField),
+    parsePlasticMaterial(plasticModel),
+    std::move(plasticField));
+
+  return std::make_shared<PyDeformationModelState>(std::move(meshCore), std::move(state));
 }
 
 // ── QuadraticEnergy factories ────────────────────────────────────────
@@ -491,8 +531,8 @@ class PyDeformationEnergy
 {
 public:
   PyDeformationEnergy(std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy,
-    std::shared_ptr<PySimulationMesh> meshOwner)
-    : energy_(std::move(energy)), meshOwner_(std::move(meshOwner))
+    std::shared_ptr<PyDeformationModelState> stateOwner)
+    : energy_(std::move(energy)), stateOwner_(std::move(stateOwner))
   {
     // Wrap the DeformationModelEnergy in the shared energy handle.
     // DeformationModelEnergy inherits PotentialEnergy, so this is a direct
@@ -519,27 +559,22 @@ public:
   }
 
   // Number of vertices (rest_position rows).
-  int numVertices() const { return meshOwner_->numVertices(); }
+  int numVertices() const { return static_cast<int>(energy_->getRestPosition().size() / 3); }
 
 private:
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy_;
-  std::shared_ptr<PySimulationMesh> meshOwner_;
+  std::shared_ptr<PyDeformationModelState> stateOwner_;
   std::shared_ptr<PyPotentialEnergy> handle_;
 };
 
 std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
-  std::shared_ptr<PySimulationMesh> meshCore,
+  std::shared_ptr<PyDeformationModelState> stateCore,
   const std::string &formulationName,
-  std::shared_ptr<PyParameterField> elasticField,
-  std::shared_ptr<PyParameterField> plasticField,
   bool enforceSPD,
   bool enableMaterialMaxStep)
 {
-  if (!elasticField) {
-    throw nb::value_error("elastic_field must be non-null");
-  }
-  if (!plasticField) {
-    throw nb::value_error("plastic_field must be non-null");
+  if (!stateCore) {
+    throw nb::value_error("state must be non-null");
   }
 
   SolidDeformationModel::DeformationModelOptions opts;
@@ -551,23 +586,20 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
     nb::gil_scoped_release release;
     if (formulationName == "tet_p1") {
       energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->mesh(), SolidDeformationModel::P1TetFormulation{},
-        elasticField->field(), plasticField->field(), opts);
+        stateCore->state(), SolidDeformationModel::P1TetFormulation{}, opts);
     } else if (formulationName == "hex_trilinear") {
       energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->mesh(), SolidDeformationModel::LinearCubicFormulation{},
-        elasticField->field(), plasticField->field(), opts);
+        stateCore->state(), SolidDeformationModel::LinearCubicFormulation{}, opts);
     } else if (formulationName == "shell_koiter") {
       energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->mesh(), SolidDeformationModel::KoiterShellFormulation{},
-        elasticField->field(), plasticField->field(), opts);
+        stateCore->state(), SolidDeformationModel::KoiterShellFormulation{}, opts);
     } else {
       throw std::invalid_argument(
         "Unknown formulation: '" + formulationName +
         "'.  Expected 'tet_p1', 'hex_trilinear', or 'shell_koiter'.");
     }
   }
-  return std::make_shared<PyDeformationEnergy>(std::move(energy), std::move(meshCore));
+  return std::make_shared<PyDeformationEnergy>(std::move(energy), std::move(stateCore));
 }
 
 }  // namespace
@@ -620,30 +652,26 @@ void init_energy_bindings(nb::module_ &m)
     .def("values", &PyParameterField::values)
     .def("set_values", &PyParameterField::setValues, nb::arg("values"));
 
-  m.def("_create_elastic_default_field", &createElasticDefaultField,
-    nb::arg("mesh_core"),
-    nb::arg("elastic_model"));
+  nb::class_<PyDeformationModelState>(m, "PyDeformationModelState")
+    .def_prop_ro("elastic_model", &PyDeformationModelState::elasticModel)
+    .def_prop_ro("plastic_model", &PyDeformationModelState::plasticModel)
+    .def_prop_ro("num_elements", &PyDeformationModelState::numElements)
+    .def_prop_ro("elastic_field", &PyDeformationModelState::elasticField)
+    .def_prop_ro("plastic_field", &PyDeformationModelState::plasticField)
+    .def("set_elastic_values", &PyDeformationModelState::setElasticValues, nb::arg("values"))
+    .def("set_plastic_values", &PyDeformationModelState::setPlasticValues, nb::arg("values"));
 
-  m.def("_create_elastic_elementwise_field", &createElasticElementwiseField,
+  m.def("_create_deformation_model_state", &createDeformationModelState,
     nb::arg("mesh_core"),
     nb::arg("elastic_model"),
-    nb::arg("values"));
-
-  m.def("_create_plastic_default_field", &createPlasticDefaultField,
-    nb::arg("mesh_core"),
-    nb::arg("plastic_model"));
-
-  m.def("_create_plastic_elementwise_field", &createPlasticElementwiseField,
-    nb::arg("mesh_core"),
+    nb::arg("elastic_values").none(),
     nb::arg("plastic_model"),
-    nb::arg("values"));
+    nb::arg("plastic_values").none());
 
   // Unified deformation energy factory (public API entry point).
   m.def("_create_deformation_energy", &createDeformationEnergy,
-    nb::arg("mesh_core"),
+    nb::arg("state_core"),
     nb::arg("formulation"),
-    nb::arg("elastic_field"),
-    nb::arg("plastic_field"),
     nb::arg("enforce_spd") = true,
     nb::arg("enable_material_max_step") = true);
 

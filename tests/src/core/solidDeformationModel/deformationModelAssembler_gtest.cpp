@@ -3,6 +3,7 @@
 #include "deformationModelAssembler.h"
 #include "deformationModel.h"
 #include "deformationModelManager.h"
+#include "deformationModelState.h"
 #include "pgoLogging.h"
 #include "simulationMesh.h"
 #include "factories/elasticModelFactory.h"
@@ -28,6 +29,9 @@ using pgo::SolidDeformationModel::OptimizableField;
 using pgo::SolidDeformationModel::PlasticModel3DDeformationGradient;
 using pgo::SolidDeformationModel::PlasticModelFactory;
 using pgo::SolidDeformationModel::SimulationMesh;
+using pgo::SolidDeformationModel::DeformationModelState;
+using pgo::SolidDeformationModel::ElasticFieldInit;
+using pgo::SolidDeformationModel::PlasticFieldInit;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
@@ -108,13 +112,14 @@ std::unique_ptr<SimulationMesh> makeSingleElementCubicSimulationMesh()
 struct FieldBackedManager
 {
   std::unique_ptr<DeformationModelManager> manager;
+  std::shared_ptr<DeformationModelState> state;
   std::shared_ptr<OptimizableField> elasticField;
   std::shared_ptr<OptimizableField> plasticField;
 };
 
 template<class FormulationT>
 FieldBackedManager makeFieldBackedManager(
-  const SimulationMesh &mesh,
+  std::shared_ptr<const SimulationMesh> mesh,
   DeformationModelPlasticMaterial plastic,
   DeformationModelElasticMaterial elastic,
   const FormulationT &formulation,
@@ -122,17 +127,21 @@ FieldBackedManager makeFieldBackedManager(
   const double *elementFiberDirections = nullptr,
   const double *vertexFiberDirections = nullptr)
 {
-  auto elasticField = ElasticModelFactory::createDefaultField(mesh, elastic);
-  auto plasticField = PlasticModelFactory::createDefaultField(mesh, plastic);
-  auto manager = std::make_unique<DeformationModelManager>(
+  auto state = DeformationModelState::create(
     mesh,
+    elastic,
+    ElasticFieldInit{},
+    plastic,
+    PlasticFieldInit{});
+  auto elasticField = state->elasticFieldPtr();
+  auto plasticField = state->plasticFieldPtr();
+  auto manager = std::make_unique<DeformationModelManager>(
+    state,
     formulation,
-    elasticField,
-    plasticField,
     enforceSPD,
     elementFiberDirections,
     vertexFiberDirections);
-  return { std::move(manager), std::move(elasticField), std::move(plasticField) };
+  return { std::move(manager), std::move(state), std::move(elasticField), std::move(plasticField) };
 }
 }
 
@@ -141,14 +150,14 @@ TEST(DeformationModelAssemblerGTest, TetAssemblerRegression)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  std::unique_ptr<SimulationMesh> mesh = pgo::SolidDeformationModel::loadTetMesh(&tetMesh);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadTetMesh(&tetMesh).release());
   ASSERT_NE(mesh, nullptr);
 
   const int nele = mesh->getNumElements();
   const int nvtx = mesh->getNumVertices();
   const int n3 = nvtx * 3;
 
-  auto managerFields = makeFieldBackedManager(*mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{});
+  auto managerFields = makeFieldBackedManager(mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{});
 
   const int numPlasticParams = managerFields.manager->getNumPlasticParameters();
   const int numElasticParams = managerFields.manager->getNumElasticParameters();
@@ -193,13 +202,13 @@ TEST(DeformationModelAssemblerGTest, TetVonMisesStressIsZeroAtRestAndNonzeroUnde
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  std::unique_ptr<SimulationMesh> mesh = pgo::SolidDeformationModel::loadTetMesh(&tetMesh);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadTetMesh(&tetMesh).release());
   ASSERT_NE(mesh, nullptr);
 
   const int nele = mesh->getNumElements();
   const int nvtx = mesh->getNumVertices();
 
-  auto managerFields = makeFieldBackedManager(*mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{});
+  auto managerFields = makeFieldBackedManager(mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{});
 
   const int numPlasticParams = managerFields.manager->getNumPlasticParameters();
   const int numElasticParams = managerFields.manager->getNumElasticParameters();
@@ -247,12 +256,12 @@ TEST(DeformationModelAssemblerGTest, ShellAssemblerRegression)
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
 
   SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
-  std::unique_ptr<SimulationMesh> mesh = pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
   ASSERT_NE(mesh, nullptr);
 
   const int nele = mesh->getNumElements();
 
-  auto managerFields = makeFieldBackedManager(*mesh, DeformationModelPlasticMaterial::SHELL_FF_DOF1, DeformationModelElasticMaterial::KOITER_STVK, pgo::SolidDeformationModel::KoiterShellFormulation{});
+  auto managerFields = makeFieldBackedManager(mesh, DeformationModelPlasticMaterial::SHELL_FF_DOF1, DeformationModelElasticMaterial::KOITER_STVK, pgo::SolidDeformationModel::KoiterShellFormulation{});
 
   const int numPlasticParams = managerFields.manager->getNumPlasticParameters();
   const int numElasticParams = managerFields.manager->getNumElasticParameters();
@@ -302,12 +311,12 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerSmokeRegression)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::unique_ptr<SimulationMesh> mesh = pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(mesh, nullptr);
 
   const int nele = mesh->getNumElements();
 
-  auto managerFields = makeFieldBackedManager(*mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::LinearCubicFormulation{});
+  auto managerFields = makeFieldBackedManager(mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::LinearCubicFormulation{});
 
   const int numPlasticParams = managerFields.manager->getNumPlasticParameters();
   const int numElasticParams = managerFields.manager->getNumElasticParameters();
@@ -352,11 +361,12 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerMaterialParamRegression)
 {
   pgo::Logging::init();
 
-  std::unique_ptr<SimulationMesh> mesh = makeSingleElementCubicSimulationMesh();
-  ASSERT_NE(mesh, nullptr);
+  auto meshMutable = makeSingleElementCubicSimulationMesh();
+  ASSERT_NE(meshMutable, nullptr);
 
   pgo::SolidDeformationModel::SimulationMeshHillMaterial hillMaterial(2500.0, 0.35, 1.0);
-  mesh->appendMaterialToAllElements(&hillMaterial);
+  meshMutable->appendMaterialToAllElements(&hillMaterial);
+  std::shared_ptr<const SimulationMesh> mesh(std::move(meshMutable));
 
   const int nele = mesh->getNumElements();
   const int nvtx = mesh->getNumVertices();
@@ -372,7 +382,7 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerMaterialParamRegression)
   }
 
   auto managerFields = makeFieldBackedManager(
-    *mesh,
+    mesh,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
     DeformationModelElasticMaterial::HILL_STABLE_NEO,
     pgo::SolidDeformationModel::LinearCubicFormulation{},

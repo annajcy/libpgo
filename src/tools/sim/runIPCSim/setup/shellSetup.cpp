@@ -4,8 +4,7 @@
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
-#include "factories/elasticModelFactory.h"
-#include "factories/plasticModelFactory.h"
+#include "deformationModelState.h"
 #include "embeddedSurfaceFloorPotentialEnergy.h"
 #include "ipc/embeddedSurfaceIPCPotentialEnergy.h"
 #include "libiglInterface.h"
@@ -113,8 +112,8 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
   std::cout << std::endl;
 
   SolidDeformationModel::SimulationMeshENuhMaterial matParam(10000, 0.4, 0.001);
-  std::unique_ptr<SolidDeformationModel::SimulationMesh> simMesh =
-    SolidDeformationModel::loadShellMesh(surfaceMesh, &matParam);
+  std::shared_ptr<const SolidDeformationModel::SimulationMesh> simMesh(
+    SolidDeformationModel::loadShellMesh(surfaceMesh, &matParam).release());
 
   const int n = simMesh->getNumVertices();
   const int n3 = n * 3;
@@ -142,19 +141,18 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
     elasticParams[ei * 5 + 4] = kShellThickness;
   }
 
-  auto elasticField = SolidDeformationModel::ElasticModelFactory::createElementwiseField(
-    *simMesh,
+  auto state = SolidDeformationModel::DeformationModelState::create(
+    simMesh,
     SolidDeformationModel::DeformationModelElasticMaterial::KOITER_STVK,
-    ES::VXd(elasticParams));
-  auto plasticField = SolidDeformationModel::PlasticModelFactory::createDefaultField(
-    *simMesh,
-    pgo::SolidDeformationModel::DeformationModelPlasticMaterial::SHELL_FF_DOF0);
+    SolidDeformationModel::ElasticFieldInit{
+      SolidDeformationModel::ElasticMaterialFieldType::ELEMENTWISE,
+      ES::VXd(elasticParams) },
+    pgo::SolidDeformationModel::DeformationModelPlasticMaterial::SHELL_FF_DOF0,
+    SolidDeformationModel::PlasticFieldInit{});
 
   auto dmm = std::make_unique<SolidDeformationModel::DeformationModelManager>(
-    *simMesh,
+    state,
     SolidDeformationModel::KoiterShellFormulation{},
-    std::move(elasticField),
-    std::move(plasticField),
     1);
 
   std::vector<double> elementWeights(nele, 1.0);
@@ -190,7 +188,7 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
 
   IpcSimulationContext context;
   context.M = std::move(M);
-  context.simulationMesh = std::move(simMesh);
+  context.simulationMesh = simMesh;
   context.simulationRestPosition = elasticEnergy->getRestPosition();
   context.surfaceRestPositions = std::move(surfaceRestPositions);
   context.elasticParams = std::move(elasticParams);

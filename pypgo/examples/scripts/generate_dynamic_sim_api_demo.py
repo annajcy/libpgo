@@ -362,7 +362,7 @@ CELLS = [
         **Steps:**
 
         1. ``box.veg`` → ``VolumeMesh`` → ``SimulationMesh``
-        2. ``deformation_energy(...)``  (Stable Neo-Hookean)
+        2. ``deformation_model_state(...)`` + ``deformation_energy(...)``
         3. ``vol.mass_matrix()`` → sparse mass
         4. ``box.obj`` → ``TriMeshData`` (display surface)
         5. ``pgo.mesh.SurfaceEmbedding(surface, vol)`` — one-liner that
@@ -397,12 +397,16 @@ CELLS = [
         print(f"Tet mesh: {vol.num_vertices} vertices, {vol.num_elements} tets")
 
         # ── 2. Deformation energy (Stable Neo-Hookean, no plasticity) ─
-        elastic_field = pf.StableNeo().default_field(sim_mesh)
-        plastic_field = pf.VolumetricPlasticity(dofs=0).default_field(sim_mesh)
-        energy = pf.deformation_energy(
+        deformation_state = pf.deformation_model_state(
             sim_mesh,
-            elastic_field=elastic_field,
-            plastic_field=plastic_field,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=0),
+            plastic_field=pf.ElementwiseField(),
+        )
+        energy = pf.deformation_energy(
+            deformation_state,
+            formulation=pf.TetP1(),
         )
         n_dof = energy.num_dofs
         print(f"Energy: {n_dof} DOFs, state_kind={energy.state_kind}")

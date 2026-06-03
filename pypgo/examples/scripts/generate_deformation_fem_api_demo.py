@@ -33,7 +33,7 @@ CELLS = [
         1. Load `.veg` / `.obj` assets and create `SimulationMesh` objects.
         2. Choose a formulation (`TetP1`, `LinearCubic`, `KoiterShell`).
         3. Choose elastic and plastic material laws.
-        4. Build a `DeformationEnergy` via `pypgo.fem.deformation_energy()`.
+        4. Build a `DeformationModelState`, then a `DeformationEnergy`.
         5. Evaluate energy, gradient, Hessian at displacement states.
         6. Compose with `EnergySet` for multi-term objective functions.
         7. Understand `state_kind` and `rest_position` conventions.
@@ -109,7 +109,7 @@ CELLS = [
         `DeformationEnergy` with the `TetP1` formulation.
 
         **Steps:** `.veg` → `VegFile` → `VolumeMesh` → `SimulationMesh` →
-        `deformation_energy()`
+        `deformation_model_state()` and `deformation_energy()`
         """
     ),
     code(
@@ -138,13 +138,16 @@ CELLS = [
     code(
         """
         # Build Tet P1 deformation energy
-        bunny_elastic = pf.StableNeo().default_field(bunny_mesh)
-        bunny_plastic = pf.VolumetricPlasticity(dofs=6).default_field(bunny_mesh)
-        energy_tet = pf.deformation_energy(
+        bunny_state = pf.deformation_model_state(
             bunny_mesh,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_field=pf.ElementwiseField(),
+        )
+        energy_tet = pf.deformation_energy(
+            bunny_state,
             formulation=pf.TetP1(),
-            elastic_field=bunny_elastic,
-            plastic_field=bunny_plastic,
         )
         print(type(energy_tet).__name__)
         print(f"num_dofs:     {energy_tet.num_dofs}")
@@ -155,18 +158,23 @@ CELLS = [
     ),
     md(
         """
-        Tet meshes can omit the `formulation` argument — `TetP1()` is the
-        default.  But **cubic** and **shell** meshes **must** pass it
-        explicitly (shown below).
+        The formulation is passed explicitly.  Cubic and shell examples use
+        their topology-specific formulations below.
         """
     ),
     code(
         """
         # Also try with StVK and different plastic DOFs
-        energy_tet_stvk = pf.deformation_energy(
+        bunny_state_stvk = pf.deformation_model_state(
             bunny_mesh,
-            elastic_field=pf.StVK().default_field(bunny_mesh),
-            plastic_field=pf.VolumetricPlasticity(dofs=3).default_field(bunny_mesh),
+            elastic=pf.StVK(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=3),
+            plastic_field=pf.ElementwiseField(),
+        )
+        energy_tet_stvk = pf.deformation_energy(
+            bunny_state_stvk,
+            formulation=pf.TetP1(),
         )
         print(f"StVK + dof3: {energy_tet_stvk.num_dofs} DOFs, "
               f"state_kind={energy_tet_stvk.state_kind}")
@@ -206,13 +214,16 @@ CELLS = [
     code(
         """
         # REQUIRED: explicit LinearCubic() formulation
-        box_elastic = pf.StableNeo().default_field(box_mesh)
-        box_plastic = pf.VolumetricPlasticity(dofs=6).default_field(box_mesh)
-        energy_cubic = pf.deformation_energy(
+        box_state = pf.deformation_model_state(
             box_mesh,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_field=pf.ElementwiseField(),
+        )
+        energy_cubic = pf.deformation_energy(
+            box_state,
             formulation=pf.LinearCubic(),
-            elastic_field=box_elastic,
-            plastic_field=box_plastic,
         )
         print(f"num_dofs:   {energy_cubic.num_dofs}")
         print(f"state_kind: {energy_cubic.state_kind}")
@@ -221,12 +232,10 @@ CELLS = [
     ),
     code(
         """
-        # Omitting the formulation for a cubic mesh → ValueError
+        # Omitting the formulation → ValueError
         try:
             pf.deformation_energy(
-                box_mesh,
-                elastic_field=box_elastic,
-                plastic_field=box_plastic,
+                box_state,
             )
         except ValueError as e:
             print(f"Error (expected): {e}")
@@ -266,13 +275,16 @@ CELLS = [
     code(
         """
         # Build shell deformation energy
-        shell_elastic = pf.KoiterStVK().default_field(shell_mesh)
-        shell_plastic = pf.ShellPlasticity(dofs=1).default_field(shell_mesh)
-        energy_shell = pf.deformation_energy(
+        shell_state = pf.deformation_model_state(
             shell_mesh,
+            elastic=pf.KoiterStVK(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.ShellPlasticity(dofs=1),
+            plastic_field=pf.ElementwiseField(),
+        )
+        energy_shell = pf.deformation_energy(
+            shell_state,
             formulation=pf.KoiterShell(),
-            elastic_field=shell_elastic,
-            plastic_field=shell_plastic,
         )
         print(f"num_dofs:     {energy_shell.num_dofs}")
         print(f"state_kind:   {energy_shell.state_kind}")
@@ -434,16 +446,22 @@ CELLS = [
         tmp_vol = VolumeMesh.from_veg_file(tmp_veg)
         tmp_sim = pgo.sim.SimulationMesh.create_volumetric(tmp_vol)
 
-        e = pf.deformation_energy(
+        tmp_state = pf.deformation_model_state(
             tmp_sim,
-            elastic_field=pf.StableNeo().default_field(tmp_sim),
-            plastic_field=pf.VolumetricPlasticity(dofs=6).default_field(tmp_sim),
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_field=pf.ElementwiseField(),
+        )
+        e = pf.deformation_energy(
+            tmp_state,
+            formulation=pf.TetP1(),
         )
         u0 = e.zero_state()
         val_before = e.value(u0)
 
-        # Delete Python mesh wrappers
-        del tmp_sim, tmp_vol, tmp_veg
+        # Delete Python mesh wrappers and state wrapper
+        del tmp_state, tmp_sim, tmp_vol, tmp_veg
         gc.collect()
 
         val_after = e.value(u0)
@@ -464,16 +482,22 @@ CELLS = [
     ),
     code(
         """
-        e1 = pf.deformation_energy(
+        state1 = pf.deformation_model_state(
             bunny_mesh,
-            elastic_field=pf.StableNeo().default_field(bunny_mesh),
-            plastic_field=pf.VolumetricPlasticity(dofs=6).default_field(bunny_mesh),
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_field=pf.ElementwiseField(),
         )
-        e2 = pf.deformation_energy(
+        state2 = pf.deformation_model_state(
             bunny_mesh,
-            elastic_field=pf.StVK().default_field(bunny_mesh),
-            plastic_field=pf.VolumetricPlasticity(dofs=3).default_field(bunny_mesh),
+            elastic=pf.StVK(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=3),
+            plastic_field=pf.ElementwiseField(),
         )
+        e1 = pf.deformation_energy(state1, formulation=pf.TetP1())
+        e2 = pf.deformation_energy(state2, formulation=pf.TetP1())
         u = e1.zero_state()
         print(f"e1 (StableNeo, dof6):  {e1.value(u):.6e}")
         print(f"e2 (StVK, dof3):       {e2.value(u):.6e}")
@@ -501,10 +525,16 @@ CELLS = [
         box_tet_vol = VolumeMesh.from_veg_file(box_tet_veg)
         box_tet_sim = pgo.sim.SimulationMesh.create_volumetric(box_tet_vol)
 
-        e = pf.deformation_energy(
+        box_tet_state = pf.deformation_model_state(
             box_tet_sim,
-            elastic_field=pf.StVK().default_field(box_tet_sim),
-            plastic_field=pf.VolumetricPlasticity(dofs=3).default_field(box_tet_sim),
+            elastic=pf.StVK(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=3),
+            plastic_field=pf.ElementwiseField(),
+        )
+        e = pf.deformation_energy(
+            box_tet_state,
+            formulation=pf.TetP1(),
         )
         u = e.zero_state()
         print(f"energy at rest: {e.value(u):.6e}")

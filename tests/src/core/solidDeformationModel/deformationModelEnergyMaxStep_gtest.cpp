@@ -4,6 +4,7 @@
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
+#include "deformationModelState.h"
 #include "dynamicStepper.h"
 #include "energySet.h"
 #include "pgoLogging.h"
@@ -37,6 +38,9 @@ using pgo::SolidDeformationModel::DeformationModelEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
 using pgo::SolidDeformationModel::SimulationMesh;
+using pgo::SolidDeformationModel::DeformationModelState;
+using pgo::SolidDeformationModel::ElasticFieldInit;
+using pgo::SolidDeformationModel::PlasticFieldInit;
 using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshMaterial;
@@ -61,7 +65,7 @@ void initializeLogging()
 
 struct EnergyFixture
 {
-  std::unique_ptr<SimulationMesh> meshOwner;
+  std::shared_ptr<const SimulationMesh> meshOwner;
   std::shared_ptr<DeformationModelEnergy> energy;
   ES::VXd restPositions;
 
@@ -91,7 +95,7 @@ EnergyFixture makeTetFixture(const std::vector<double> &vertices, const std::vec
   const SimulationMeshMaterial *materials[] = { &baseMaterial };
 
   EnergyFixture fixture;
-  fixture.meshOwner.reset(new SimulationMesh(
+  fixture.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     static_cast<int>(vertices.size() / 3), vertices.data(),
     static_cast<int>(elementVertices.size() / 4), 4, elementVertices.data(),
     elementMaterialIndices.data(), 1, materials,
@@ -99,7 +103,13 @@ EnergyFixture makeTetFixture(const std::vector<double> &vertices, const std::vec
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
-  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
+  auto state = DeformationModelState::create(
+    fixture.meshOwner,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    ElasticFieldInit{},
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    PlasticFieldInit{});
+  auto manager = std::make_unique<DeformationModelManager>(state, pgo::SolidDeformationModel::P1TetFormulation{}, 1, nullptr, nullptr);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
   fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), 0);
@@ -127,7 +137,7 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
   const SimulationMeshMaterial *materials[] = { &baseMaterial };
 
   EnergyFixture fixture;
-  fixture.meshOwner.reset(new SimulationMesh(
+  fixture.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     static_cast<int>(vertices.size() / 3), vertices.data(),
     static_cast<int>(elementVertices.size() / 8), 8, elementVertices.data(),
     elementMaterialIndices.data(), 1, materials,
@@ -135,7 +145,13 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
-  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::LinearCubicFormulation{}, 1, nullptr, nullptr);
+  auto state = DeformationModelState::create(
+    fixture.meshOwner,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    ElasticFieldInit{},
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    PlasticFieldInit{});
+  auto manager = std::make_unique<DeformationModelManager>(state, pgo::SolidDeformationModel::LinearCubicFormulation{}, 1, nullptr, nullptr);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
   fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), 0);
@@ -169,11 +185,18 @@ EnergyFixture makeShellFixture()
   SimulationMeshENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
 
   EnergyFixture fixture;
-  fixture.meshOwner = pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &shellMaterial);
+  fixture.meshOwner = std::shared_ptr<const SimulationMesh>(
+    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &shellMaterial).release());
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
-  auto manager = std::make_unique<DeformationModelManager>(*fixture.meshOwner, DeformationModelPlasticMaterial::SHELL_FF_DOF1, DeformationModelElasticMaterial::KOITER_STVK, pgo::SolidDeformationModel::KoiterShellFormulation{}, 1, nullptr, nullptr);
+  auto state = DeformationModelState::create(
+    fixture.meshOwner,
+    DeformationModelElasticMaterial::KOITER_STVK,
+    ElasticFieldInit{},
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    PlasticFieldInit{});
+  auto manager = std::make_unique<DeformationModelManager>(state, pgo::SolidDeformationModel::KoiterShellFormulation{}, 1, nullptr, nullptr);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
   fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), 0);

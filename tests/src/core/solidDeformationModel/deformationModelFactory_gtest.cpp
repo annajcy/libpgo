@@ -1,10 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "deformationModelFactory.h"
+#include "deformationModelState.h"
 
 #include "deformationModelEnergy.h"
-#include "factories/elasticModelFactory.h"
-#include "factories/plasticModelFactory.h"
 #include "simulationMesh.h"
 #include "tetMesh.h"
 #include "cubicMesh.h"
@@ -24,16 +23,18 @@ constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
 
 template<class FormulationT>
 std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
-  const SimulationMesh &mesh,
+  std::shared_ptr<const SimulationMesh> mesh,
   const FormulationT &formulation,
   DeformationModelElasticMaterial elastic,
   DeformationModelPlasticMaterial plastic)
 {
-  return makeDeformationEnergy(
+  auto state = DeformationModelState::create(
     mesh,
-    formulation,
-    ElasticModelFactory::createDefaultField(mesh, elastic),
-    PlasticModelFactory::createDefaultField(mesh, plastic));
+    elastic,
+    ElasticFieldInit{},
+    plastic,
+    PlasticFieldInit{});
+  return makeDeformationEnergy(state, formulation);
 }
 }  // namespace
 
@@ -55,10 +56,10 @@ TEST(DeformationModelFactoryGTest, TetZeroDisplacementBaseline)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  auto simMesh = loadTetMesh(&tetMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
   auto energy = makeDefaultFieldEnergy(
-    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -86,10 +87,10 @@ TEST(DeformationModelFactoryGTest, CubicZeroDisplacementBaseline)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  auto simMesh = loadCubicMesh(&cubicMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
   auto energy = makeDefaultFieldEnergy(
-    *simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -116,11 +117,11 @@ TEST(DeformationModelFactoryGTest, TetSimulationMeshFactoryValidatesTopology)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  auto simMesh = loadTetMesh(&tetMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
 }
@@ -131,11 +132,11 @@ TEST(DeformationModelFactoryGTest, CubicSimulationMeshFactoryValidatesTopology)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  auto simMesh = loadCubicMesh(&cubicMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    *simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
 }
@@ -149,11 +150,11 @@ TEST(DeformationModelFactoryGTest, ShellSimulationMeshFactoryValidatesTopology)
   pgo::Mesh::TriMeshGeo surfaceMesh;
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
   SimulationMeshENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
-  auto simMesh = loadShellMesh(surfaceMesh, &shellMaterial);
+  std::shared_ptr<const SimulationMesh> simMesh(loadShellMesh(surfaceMesh, &shellMaterial).release());
   ASSERT_NE(simMesh, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    *simMesh, KoiterShellFormulation{}, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1);
+    simMesh, KoiterShellFormulation{}, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1);
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -169,11 +170,11 @@ TEST(DeformationModelFactoryGTest, TetFactoryRejectsCubicSimulationMesh)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  auto simMesh = loadCubicMesh(&cubicMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
 
   EXPECT_THROW(
-    makeDefaultFieldEnergy(*simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
+    makeDefaultFieldEnergy(simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
     std::invalid_argument);
 }
 
@@ -184,13 +185,13 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoTetEnergies)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  auto simMesh = loadTetMesh(&tetMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
 
   auto b1 = makeDefaultFieldEnergy(
-    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   auto b2 = makeDefaultFieldEnergy(
-    *simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
   ASSERT_NE(b1, nullptr);
   ASSERT_NE(b2, nullptr);
@@ -229,13 +230,13 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoCubicEnergies)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  auto simMesh = loadCubicMesh(&cubicMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
 
   auto b1 = makeDefaultFieldEnergy(
-    *simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   auto b2 = makeDefaultFieldEnergy(
-    *simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
   ASSERT_NE(b1, nullptr);
   ASSERT_NE(b2, nullptr);

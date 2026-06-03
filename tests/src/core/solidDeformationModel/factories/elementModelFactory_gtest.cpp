@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "deformationModelFactory.h"
+#include "deformationModelState.h"
 
 #include "deformationModelEnergy.h"
 #include "deformationModelAssembler.h"
@@ -28,18 +29,19 @@ constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 
 template<class FormulationT>
 std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
-  const SimulationMesh &mesh,
+  std::shared_ptr<const SimulationMesh> mesh,
   const FormulationT &formulation,
   DeformationModelElasticMaterial elastic,
   DeformationModelPlasticMaterial plastic,
   const DeformationModelOptions &opts = {})
 {
-  return makeDeformationEnergy(
+  auto state = DeformationModelState::create(
     mesh,
-    formulation,
-    ElasticModelFactory::createDefaultField(mesh, elastic),
-    PlasticModelFactory::createDefaultField(mesh, plastic),
-    opts);
+    elastic,
+    ElasticFieldInit{},
+    plastic,
+    PlasticFieldInit{});
+  return makeDeformationEnergy(state, formulation, opts);
 }
 }  // namespace
 
@@ -114,14 +116,18 @@ TEST(ElementModelFactoryGTest, TetManagerCreatesFormulationAwareModel)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  auto simMesh = loadTetMesh(&tetMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
 
+  auto state = DeformationModelState::create(
+    simMesh,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    ElasticFieldInit{},
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    PlasticFieldInit{});
   DeformationModelManager manager(
-    *simMesh,
+    state,
     P1TetFormulation{},
-    ElasticModelFactory::createDefaultField(*simMesh, DeformationModelElasticMaterial::STABLE_NEO),
-    PlasticModelFactory::createDefaultField(*simMesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
     1);
 
   for (int ele = 0; ele < simMesh->getNumElements(); ele++) {
@@ -138,14 +144,18 @@ TEST(ElementModelFactoryGTest, CubicManagerCreatesFormulationAwareModel)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  auto simMesh = loadCubicMesh(&cubicMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
 
+  auto state = DeformationModelState::create(
+    simMesh,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    ElasticFieldInit{},
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    PlasticFieldInit{});
   DeformationModelManager manager(
-    *simMesh,
+    state,
     LinearCubicFormulation{},
-    ElasticModelFactory::createDefaultField(*simMesh, DeformationModelElasticMaterial::STABLE_NEO),
-    PlasticModelFactory::createDefaultField(*simMesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
     1);
 
   for (int ele = 0; ele < simMesh->getNumElements(); ele++) {
@@ -162,12 +172,12 @@ TEST(ElementModelFactoryGTest, MakeTetDeformationModelEndToEnd)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  auto simMesh = loadTetMesh(&tetMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
 
   DeformationModelOptions opts;
   opts.enforceSPD = true;
-  auto bundle = makeDefaultFieldEnergy(*simMesh,
+  auto bundle = makeDefaultFieldEnergy(simMesh,
     P1TetFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, opts);
@@ -191,12 +201,12 @@ TEST(ElementModelFactoryGTest, MakeCubicDeformationModelEndToEnd)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  auto simMesh = loadCubicMesh(&cubicMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
 
   DeformationModelOptions opts;
   opts.enforceSPD = true;
-  auto bundle = makeDefaultFieldEnergy(*simMesh,
+  auto bundle = makeDefaultFieldEnergy(simMesh,
     LinearCubicFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, opts);

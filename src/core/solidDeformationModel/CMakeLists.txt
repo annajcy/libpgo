@@ -37,6 +37,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   deformationModelAssembler.h
   deformationModelAssemblerCacheData.h
   deformationModelFactory.h
+  deformationModelState.h
   hessianMatrixHandle.h
 
   simulationMesh.h
@@ -75,6 +76,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   formulations/parameters/parameterField.h
   formulations/parameters/constantParameterField.h
+  formulations/parameters/elementwiseParameterField.h
 
   formulations/elements/parameterizedMaterialBlock.h
 
@@ -131,6 +133,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformationModelEnergy.cpp
   deformationModelAssembler.cpp
   deformationModelFactory.cpp
+  deformationModelState.cpp
 
   factories/elasticModelFactory.cpp
   factories/plasticModelFactory.cpp

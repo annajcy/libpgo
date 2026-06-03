@@ -1,9 +1,8 @@
 #include "setup/femSetup.h"
 
 #include "deformationModelFactory.h"
+#include "deformationModelState.h"
 #include "deformationModelAssembler.h"
-#include "factories/elasticModelFactory.h"
-#include "factories/plasticModelFactory.h"
 #include "tetMesh.h"
 #include "cubicMesh.h"
 
@@ -24,21 +23,25 @@ InitializedVolumetricSimulation initializeVolumetricSimulation(
   opts.enforceSPD = true;
   opts.enableMaterialMaxStep = enableMaterialMaxStep;
 
-  auto simMesh = makeSimulationMesh(volumetricMesh);
+  std::shared_ptr<const SimulationMesh> simMesh(makeSimulationMesh(volumetricMesh).release());
   if (!simMesh)
     throw std::runtime_error("initializeVolumetricSimulation: failed to create SimulationMesh.");
 
   std::shared_ptr<DeformationModelEnergy> energy;
-  auto elasticField = ElasticModelFactory::createDefaultField(*simMesh, elasticMat);
-  auto plasticField = PlasticModelFactory::createDefaultField(*simMesh, plasticMat);
+  auto state = DeformationModelState::create(
+    simMesh,
+    elasticMat,
+    ElasticFieldInit{},
+    plasticMat,
+    PlasticFieldInit{});
 
   switch (simMesh->getElementType()) {
   case SimulationMeshType::TET: {
-    energy = makeDeformationEnergy(*simMesh, P1TetFormulation{}, elasticField, plasticField, opts);
+    energy = makeDeformationEnergy(state, P1TetFormulation{}, opts);
     break;
   }
   case SimulationMeshType::CUBIC: {
-    energy = makeDeformationEnergy(*simMesh, LinearCubicFormulation{}, elasticField, plasticField, opts);
+    energy = makeDeformationEnergy(state, LinearCubicFormulation{}, opts);
     break;
   }
   default:
@@ -49,7 +52,7 @@ InitializedVolumetricSimulation initializeVolumetricSimulation(
   initialized.elasticEnergy = energy;
   initialized.plasticity = energy->assembler().getDeformationModelManager().getPlasticParameterSnapshot();
   initialized.restPosition = energy->getRestPosition();
-  initialized.simulationMesh = std::move(simMesh);
+  initialized.simulationMesh = simMesh;
   return initialized;
 }
 }  // namespace pgo::RunSim
