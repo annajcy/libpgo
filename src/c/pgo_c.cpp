@@ -20,8 +20,7 @@
 #include "plasticModel.h"
 #include "plasticModel3DDeformationGradient.h"
 #include "multiVertexPullingSoftConstraints.h"
-#include "implicitBackwardEulerTimeIntegrator.h"
-#include "TRBDF2TimeIntegrator.h"
+#include "dynamicStepper.h"
 #include "generateMassMatrix.h"
 #include "generateSurfaceMesh.h"
 #include "barycentricCoordinates.h"
@@ -788,20 +787,6 @@ int pgo_run_sim_from_config(const char *configFileName)
         surfaceMesh.positions(), surfaceMesh.triangles(), n3, contactSamples, &bc.getEmbeddingVertexIndices(), &bc.getEmbeddingWeights());
     }
 
-    std::shared_ptr<Simulation::ImplicitBackwardEulerTimeIntegrator> intg =
-      std::make_shared<Simulation::ImplicitBackwardEulerTimeIntegrator>(M, elasticEnergy,
-        dampingParams[0], dampingParams[1], timestep, solverMaxIter, solverEps);
-
-#if defined(PGO_HAS_KNITRO)
-    intg->setSolverOption(Simulation::TimeIntegratorSolverOption::SO_KNITRO);
-    intg->setSolverConfigFile("config.opt");
-#endif
-
-    for (auto pullingEnergy : pullingEnergies)
-      intg->addImplicitForceModel(pullingEnergy, 0, 0);
-
-    intg->setExternalForce(fext.data());
-
     ES::VXd curSurfacePos = surfaceRestPositions;
     ES::VXd x = restPosition, u(n3);
     ES::VXd uvel(n3), uacc(n3), usurf(surfn3);
@@ -821,103 +806,102 @@ int pgo_run_sim_from_config(const char *configFileName)
     }
 
     for (int framei = 0; framei < numSimSteps; framei++) {
-      intg->clearGeneralImplicitForceModel();
-
+      // ── Pulling targets ──────────────────────────────────────────
       double ratio = (double)framei / (numSimSteps - 1);
       for (size_t pi = 0; pi < pullingEnergies.size(); pi++) {
         ES::VXd restTgt = pullingTargetRests[pi];
         ES::VXd curTgt = restTgt * (1 - ratio) + pullingTargets[pi] * ratio;
         pullingEnergies[pi]->setTargetPositions(curTgt);
-
         std::cout << "Frame " << framei << ", attachment " << pi << " target: " << curTgt.transpose().head(3) << std::endl;
       }
 
+      // ── Build per-frame problem ──────────────────────────────────
+      Simulation::DynamicProblem problem;
+      problem.mass = M;
+      problem.timestep = timestep;
+      problem.solver.maxIterations = solverMaxIter;
+      problem.solver.tolerance = solverEps;
+      problem.solver.verbose = 0;
+
+      problem.persistentTerms.push_back({elasticEnergy, 0.0, 0.0});
+      for (auto &pe : pullingEnergies)
+        problem.persistentTerms.push_back({pe, 0.0, 0.0});
+
+      // ── Contact ──────────────────────────────────────────────────
       std::shared_ptr<Contact::PointPenetrationEnergy> extContactEnergy;
       Contact::PointPenetrationEnergyBuffer *extContactBuffer = nullptr;
       if (externalContactHandler) {
         externalContactHandler->execute(usurf.data());
-
         if (externalContactHandler->getNumCollidingSamples()) {
           extContactEnergy = externalContactHandler->buildContactEnergy();
           extContactBuffer = extContactEnergy->allocateBuffer();
-
-          auto posFunc = [&restPosition](const EigenSupport::V3d &u, EigenSupport::V3d &p, int dofStart) {
-            p = u + restPosition.segment<3>(dofStart);
+          auto posFunc = [&restPosition](const ES::V3d &v, ES::V3d &p, int dofStart) {
+            p = v + restPosition.segment<3>(dofStart);
           };
-
-          auto lastPosFunc = [&restPosition, &u](const EigenSupport::V3d &x, EigenSupport::V3d &p, int dofStart) {
+          auto lastPosFunc = [&restPosition, &u](const ES::V3d &v, ES::V3d &p, int dofStart) {
             p = u.segment<3>(dofStart) + restPosition.segment<3>(dofStart);
           };
-
           extContactEnergy->setComputePosFunction(posFunc);
           extContactEnergy->setBuffer(extContactBuffer);
           extContactEnergy->setCoeff(contactK);
-
           extContactEnergy->setFrictionCoeff(fricCoeff);
           extContactEnergy->setComputeLastPosFunction(lastPosFunc);
           extContactEnergy->setVelEps(velEps);
           extContactEnergy->setTimestep(timestep);
-
-          intg->addGeneralImplicitForceModel(extContactEnergy, 0, 0);
+          problem.persistentTerms.push_back({extContactEnergy, 0.0, 0.0});
         }
       }
 
       std::shared_ptr<Contact::PointTrianglePairCouplingEnergyWithCollision> selfContactEnergy;
       Contact::PointTrianglePairCouplingEnergyWithCollisionBuffer *selfContactEnergyBuf = nullptr;
-
       if (selfCD) {
         selfCD->execute(usurf.data());
-
         if (selfCD->getCollidingTrianglePair().size() > 0) {
           selfCD->handleContactDCD(0, 100);
-
           selfContactEnergy = selfCD->buildContactEnergy();
-          selfContactEnergy->setToPosFunction([&restPosition](const ES::V3d &x, ES::V3d &p, int offset) {
-            p = x + restPosition.segment<3>(offset);
+          selfContactEnergy->setToPosFunction([&restPosition](const ES::V3d &v, ES::V3d &p, int offset) {
+            p = v + restPosition.segment<3>(offset);
           });
-
-          selfContactEnergy->setToLastPosFunction([&restPosition, &u](const ES::V3d &x, ES::V3d &p, int offset) {
+          selfContactEnergy->setToLastPosFunction([&restPosition, &u](const ES::V3d &v, ES::V3d &p, int offset) {
             p = restPosition.segment<3>(offset) + u.segment<3>(offset);
           });
-
           selfContactEnergyBuf = selfContactEnergy->allocateBuffer();
           selfContactEnergy->setBuffer(selfContactEnergyBuf);
           selfContactEnergy->setCoeff(contactK);
           selfContactEnergy->computeClosestPosition(u.data());
-
           selfContactEnergy->setFrictionCoeff(fricCoeff);
           selfContactEnergy->setTimestep(timestep);
           selfContactEnergy->setVelEps(velEps);
-
-          intg->addGeneralImplicitForceModel(selfContactEnergy, 0, 0);
+          problem.persistentTerms.push_back({selfContactEnergy, 0.0, 0.0});
         }
       }
 
-      intg->setqState(u, uvel, uacc);
+      // ── Step ─────────────────────────────────────────────────────
+      Simulation::ImplicitEulerStepper stepper(std::move(problem));
+      Simulation::DynamicState state;
+      state.displacement = u;
+      state.velocity = uvel;
+      state.acceleration = uacc;
+      Simulation::DynamicStepRequest request;
+      request.externalForce = fext;
+      Simulation::DynamicStepResult result = stepper.step(state, request);
 
-      intg->doTimestep(1, 2, 1);
+      u = result.state.displacement;
+      uvel = result.state.velocity;
+      uacc = result.state.acceleration;
 
-      intg->getq(u);
-      intg->getqvel(uvel);
-      intg->getqacc(uacc);
-
-      if (extContactBuffer && extContactEnergy) {
+      if (extContactBuffer && extContactEnergy)
         extContactEnergy->freeBuffer(extContactBuffer);
-      }
-
-      if (selfContactEnergyBuf && selfContactEnergy) {
+      if (selfContactEnergyBuf && selfContactEnergy)
         selfContactEnergy->freeBuffer(selfContactEnergyBuf);
-      }
 
       ES::mv(W, u, usurf);
 
       if (framei % frameGap == 0) {
         ES::VXd psurf = surfaceRestPositions + usurf;
-
         Mesh::TriMeshGeo mesh = surfaceMesh;
-        for (int vi = 0; vi < mesh.numVertices(); vi++) {
+        for (int vi = 0; vi < mesh.numVertices(); vi++)
           mesh.pos(vi) = psurf.segment<3>(vi * 3) / scale;
-        }
         mesh.save(fmt::format("{}/ret{:04d}.obj", outputFolder, framei / frameGap));
       }
     }

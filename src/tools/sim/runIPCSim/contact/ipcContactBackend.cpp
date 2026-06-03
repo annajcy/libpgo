@@ -1,8 +1,8 @@
 #include "contact/contactBackend.h"
 
+#include "dynamicStepOptions.h"
 #include "embeddedSurfaceFloorPotentialEnergy.h"
 #include "ipc/embeddedSurfaceIPCPotentialEnergy.h"
-#include "implicitBackwardEulerTimeIntegrator.h"
 #include "energySet.h"
 #include "app/config.h"
 #include "app/logging.h"
@@ -30,9 +30,9 @@ public:
   {
     const double tCurr = static_cast<double>(frame) * runtimeConfig.timestep;
     context.collisionHandler->setObstacleTime(tCurr + runtimeConfig.timestep);
-    session.integrator->addGeneralImplicitForceModel(context.collisionHandler, 0, 0);
+    session.transientContactModels.push_back({context.collisionHandler, 0.0, 0.0});
     for (const auto &forceModel : context.extraGeneralImplicitForceModels)
-      session.integrator->addGeneralImplicitForceModel(forceModel, 0, 0);
+      session.transientContactModels.push_back({forceModel, 0.0, 0.0});
   }
 
   void afterStep(int, const RunIPCSimRuntimeConfig &, IpcSimulationContext &, RunIPCSimSession &) override {}
@@ -52,9 +52,9 @@ public:
       terms.push_back({forceModel, 1.0});
   }
 
-  void logSummary(const IpcSimulationContext &context, const RunIPCSimSession &session) const override
+  void logSummary(const IpcSimulationContext &, const RunIPCSimSession &session) const override
   {
-    logRunIPCSimMaxStepSummary(context.elasticEnergy, context.collisionHandler, session.integrator);
+    logRunIPCSimMaxStepSummary(session.lastDiagnostics);
   }
 };
 

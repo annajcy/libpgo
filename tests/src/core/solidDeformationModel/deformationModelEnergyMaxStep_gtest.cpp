@@ -1,13 +1,11 @@
 #include <gtest/gtest.h>
 
 #include "EigenSupport.h"
-#include "TRBDF2TimeIntegratorHelper.h"
-#include "TRBDF2TimeIntegrator.h"
 #include "deformationModelAssembler.h"
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
-#include "implicitBackwardEulerTimeIntegratorHelper.h"
-#include "implicitBackwardEulerTimeIntegrator.h"
+#include "dynamicStepper.h"
+#include "energySet.h"
 #include "pgoLogging.h"
 #include "potentialEnergy.h"
 #include "simulationMesh.h"
@@ -32,8 +30,6 @@ namespace
 {
 namespace ES = pgo::EigenSupport;
 using pgo::NonlinearOptimization::PotentialEnergy;
-using pgo::Simulation::ImplicitBackwardEulerTimeIntegrator;
-using pgo::Simulation::TRBDF2TimeIntegrator;
 using pgo::SolidDeformationModel::DeformationModelAssembler;
 using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
 using pgo::SolidDeformationModel::ParameterField;
@@ -284,24 +280,6 @@ private:
   std::vector<int> dofs_;
 };
 
-class TestImplicitBackwardEulerTimeIntegrator : public ImplicitBackwardEulerTimeIntegrator
-{
-public:
-  using ImplicitBackwardEulerTimeIntegrator::ImplicitBackwardEulerTimeIntegrator;
-  using pgo::Simulation::TimeIntegrator::assembleImplicitModels;
-};
-
-class TestTRBDF2TimeIntegrator : public TRBDF2TimeIntegrator
-{
-public:
-  using TRBDF2TimeIntegrator::TRBDF2TimeIntegrator;
-  using pgo::Simulation::TimeIntegrator::assembleImplicitModels;
-
-  std::shared_ptr<const PotentialEnergy> getTRStageEnergy() const
-  {
-    return std::static_pointer_cast<const PotentialEnergy>(trEnergy);
-  }
-};
 }  // namespace
 
 TEST(DeformationModelEnergyMaxStepGTest, ZeroDirectionReturnsOneAndDoesNotClamp)
@@ -558,19 +536,31 @@ TEST(DeformationModelEnergyMaxStepGTest, ImplicitBackwardEulerTakesMinWithOtherE
   ES::SpMatD mass(fixture.restPositions.size(), fixture.restPositions.size());
   mass.setIdentity();
 
-  TestImplicitBackwardEulerTimeIntegrator integrator(mass, fixture.energy, 0.0, 0.0, 0.01, 0, 1e-6);
+  pgo::Simulation::DynamicProblem prob;
+  prob.mass = mass;
+  prob.timestep = 0.01;
+  prob.solver.maxIterations = 0;
+  prob.solver.tolerance = 1e-6;
+  prob.persistentTerms = {{fixture.energy, 0.0, 0.0},
+    {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.95), 0.0, 0.0}};
+  pgo::Simulation::ImplicitEulerStepper stepper(std::move(prob));
 
-  integrator.addGeneralImplicitForceModel(std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.95));
-  integrator.assembleImplicitModels();
-  StepConstraint merged = integrator.getInternalEnergy()->computeMaxStepLimit(x, dx);
+  StepConstraint merged = stepper.getStageEnergy()->computeMaxStepLimit(x, dx);
   EXPECT_NEAR(merged.alpha, materialAlpha, 1e-12);
   EXPECT_NEAR(merged.alpha, materialAlpha, 1e-12);
   EXPECT_TRUE(merged.clamped());
 
-  integrator.clearGeneralImplicitForceModel();
-  integrator.addGeneralImplicitForceModel(std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.25));
-  integrator.assembleImplicitModels();
-  merged = integrator.getInternalEnergy()->computeMaxStepLimit(x, dx);
+  // Rebuild with a tighter max-step constraint.
+  pgo::Simulation::DynamicProblem prob2;
+  prob2.mass = mass;
+  prob2.timestep = 0.01;
+  prob2.solver.maxIterations = 0;
+  prob2.solver.tolerance = 1e-6;
+  prob2.persistentTerms = {{fixture.energy, 0.0, 0.0},
+    {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.25), 0.0, 0.0}};
+  pgo::Simulation::ImplicitEulerStepper stepper2(std::move(prob2));
+
+  merged = stepper2.getStageEnergy()->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(merged.alpha, 0.25);
   EXPECT_DOUBLE_EQ(merged.alpha, 0.25);
   EXPECT_TRUE(merged.clamped());
@@ -587,19 +577,31 @@ TEST(DeformationModelEnergyMaxStepGTest, TRBDF2TakesMinWithOtherEnergy)
   ES::SpMatD mass(fixture.restPositions.size(), fixture.restPositions.size());
   mass.setIdentity();
 
-  TestTRBDF2TimeIntegrator integrator(mass, fixture.energy, 0.0, 0.0, 0.5, 0.01, 0, 1e-6);
+  pgo::Simulation::DynamicProblem prob;
+  prob.mass = mass;
+  prob.timestep = 0.01;
+  prob.solver.maxIterations = 0;
+  prob.solver.tolerance = 1e-6;
+  prob.persistentTerms = {{fixture.energy, 0.0, 0.0},
+    {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.9), 0.0, 0.0}};
+  pgo::Simulation::TRBDF2Stepper stepper(std::move(prob), 0.5);
 
-  integrator.addGeneralImplicitForceModel(std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.9));
-  integrator.assembleImplicitModels();
-  StepConstraint merged = integrator.getTRStageEnergy()->computeMaxStepLimit(x, dx);
+  StepConstraint merged = stepper.getStage1Energy()->computeMaxStepLimit(x, dx);
   EXPECT_NEAR(merged.alpha, materialAlpha, 1e-12);
   EXPECT_NEAR(merged.alpha, materialAlpha, 1e-12);
   EXPECT_TRUE(merged.clamped());
 
-  integrator.clearGeneralImplicitForceModel();
-  integrator.addGeneralImplicitForceModel(std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.2));
-  integrator.assembleImplicitModels();
-  merged = integrator.getTRStageEnergy()->computeMaxStepLimit(x, dx);
+  // Rebuild with a tighter constraint.
+  pgo::Simulation::DynamicProblem prob2;
+  prob2.mass = mass;
+  prob2.timestep = 0.01;
+  prob2.solver.maxIterations = 0;
+  prob2.solver.tolerance = 1e-6;
+  prob2.persistentTerms = {{fixture.energy, 0.0, 0.0},
+    {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.2), 0.0, 0.0}};
+  pgo::Simulation::TRBDF2Stepper stepper2(std::move(prob2), 0.5);
+
+  merged = stepper2.getStage1Energy()->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(merged.alpha, 0.2);
   EXPECT_DOUBLE_EQ(merged.alpha, 0.2);
   EXPECT_TRUE(merged.clamped());

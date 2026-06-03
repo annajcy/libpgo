@@ -371,6 +371,45 @@ def _build_display_mesh(
 # Public API
 # ---------------------------------------------------------------------------
 
+def dump_mesh_animation(
+    path: str | Path,
+    name: str,
+    *,
+    rest_positions: np.ndarray,
+    displacements: list[np.ndarray],
+    triangles: np.ndarray,
+) -> None:
+    """Write an Alembic (``.abc``) file from in-memory mesh animation data.
+
+    Parameters
+    ----------
+    path :
+        Output ``.abc`` file path.
+    name :
+        Alembic object name.
+    rest_positions :
+        Flat ``(3 * n_verts,)`` float64 array of rest positions.
+    displacements :
+        List of ``n_frames`` arrays, each flat ``(3 * n_verts,)`` float64.
+    triangles :
+        Flat ``(3 * n_tris,)`` int array of face indices.
+    """
+    if not _core.has_animation_io():
+        raise RuntimeError("Alembic I/O is not available in this build.")
+
+    rest = np.asarray(rest_positions, dtype=np.float64).ravel()
+    tris = np.asarray(triangles, dtype=np.int32).ravel()
+    n_tris = len(tris) // 3
+
+    _core.dump_abc(
+        str(path),
+        str(name),
+        rest.tolist(),
+        [np.asarray(d, dtype=np.float64).ravel().tolist() for d in displacements],
+        [tris[i * 3:(i + 1) * 3].tolist() for i in range(n_tris)],
+    )
+
+
 def process_sequence(seq: AnimationSequence, output_folder: str | Path) -> None:
     """Process a single AnimationSequence and write an Alembic .abc file."""
     if not _core.has_animation_io():

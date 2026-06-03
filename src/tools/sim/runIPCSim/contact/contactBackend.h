@@ -6,11 +6,6 @@
 #include <string>
 #include <vector>
 
-namespace pgo::Simulation
-{
-class ImplicitBackwardEulerTimeIntegrator;
-}
-
 namespace pgo::RunIPCSim
 {
 struct IpcSimulationContext;

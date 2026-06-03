@@ -6,24 +6,14 @@ namespace pgo
 {
 class ConfigFileJSON;
 
-namespace Contact::IPC
+namespace NonlinearOptimization
 {
-class EmbeddedSurfaceIPCPotentialEnergy;
+struct SolveDiagnostics;
 }
 
 namespace RunSim
 {
 class ScopedRunSimCliLogRedirect;
-}
-
-namespace Simulation
-{
-class ImplicitBackwardEulerTimeIntegrator;
-}
-
-namespace SolidDeformationModel
-{
-class DeformationModelEnergy;
 }
 }  // namespace pgo
 
@@ -53,7 +43,5 @@ private:
 };
 
 void logRunIPCSimMaxStepSummary(
-  const std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> &elasticEnergy,
-  const std::shared_ptr<pgo::Contact::IPC::EmbeddedSurfaceIPCPotentialEnergy> &collisionHandler,
-  const std::shared_ptr<pgo::Simulation::ImplicitBackwardEulerTimeIntegrator> &integrator);
+  const pgo::NonlinearOptimization::SolveDiagnostics &diagnostics);
 }  // namespace pgo::RunIPCSim

@@ -31,6 +31,17 @@ public:
 
   void setDOFs(const std::vector<int> &dofs);
 
+  // In-place updaters for time-integrator stage residuals (D2):
+  // the stage energy ½xᵀAx + lᵀx is constructed once and updated each step
+  // without rebuilding the owning EnergySet's Hessian template.
+  //
+  // setLinearTerm replaces lᵀx (the b_ term); cheap, called every step.
+  // setAValues overwrites the quadratic values in place and REQUIRES the same
+  // sparsity pattern as the A passed to the constructor (only the scalar values
+  // change when the timestep changes); the Hessian topology stays fixed.
+  void setLinearTerm(EigenSupport::VXd b);
+  void setAValues(const EigenSupport::SpMatD &A);
+
   virtual double func(EigenSupport::ConstRefVecXd x) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const override;
   virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;

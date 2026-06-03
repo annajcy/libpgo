@@ -1,9 +1,37 @@
 # Contact API Refactor Plan
 
-> **状态日期：** 2026-06-01
+> **状态日期：** 2026-06-03
 > **适用范围：** C++ `contact/` construction boundary + Python `pypgo.contact` binding.
 > **执行约束：** 不重写 IPC barrier、CCD、sampled penalty 数值 kernel、active-set 数值逻辑或 floor/contact 能量公式。本计划只重构 contact energy 的长期构造边界、ownership、obstacle lifecycle、stateful contact energy contract、Python API、以及与 `EnergySet` / solver service 的对接方式。
 > **并行约束：** 本计划后续实现中，凡遇到可表达为简单 `parallel_for` / range loop / 三维逐点循环的 TBB 或 OpenMP 并行需求，统一使用 `src/core/parallelism` 的 facade API（当前命名空间为 `pgo::parallel`，如 `pgo::parallel::parallelFor*`），contact 业务模块不得新增直接 `#include <tbb/...>`、`tbb::parallel_for` 或 `#pragma omp parallel for`。如果 contact kernel 确实需要 `parallel_reduce`、TLS、concurrent containers、锁、custom partitioner 等复杂 TBB/OpenMP 模式，先为 `core/parallelism` 增加窄抽象，或在本 plan 中明确记录为 scoped exception。
+>
+> ## 依赖 plan 的实施状态（2026-06-03）
+>
+> 本 plan 依赖 4 个姊妹 plan。time integrator plan 已在 contact plan 之前实施完成，
+> 其间落地了部分 contact plan 所需的基础设施。下表标注哪些已经就绪：
+>
+> | 交叉决策 / 依赖 | 来源 | 状态 |
+> |---|---|:-:|
+> | `StepAwareEnergy` + `StepState` under `NonlinearOptimization`（§18.1）| time integrator T1 | ✅ |
+> | `EnergyStateKind` + `PotentialEnergy::stateKind()`（§18.3）| energy plan E1 | ✅ |
+> | `PotentialEnergy` / `LineSearchAwareEnergy` 角色分离（§18.2）| 既有 | ✅ |
+> | `EnergySet`（原 `PotentialEnergies`）| energy plan | ✅ |
+> | `minimize(problem, x0, NewtonOptions)` + `FixedVariables` | solver plan | ✅ |
+> | `SolverControl` | solver plan | ✅ |
+> | `QuadraticPotentialEnergy::setLinearTerm/setAValues`（D2）| time integrator | ✅ |
+> | `acceptsDynamicSolveStatus` | 既有 | ✅ |
+> | `EmbeddedDofMap`（§18.4）| contact C2 | ❌ |
+> | `StatefulContactEnergy`（§4）| contact C2 | ❌ |
+> | Obstacle hierarchy（§7）| contact C3 | ❌ |
+> | `IPCContactEnergy`（§5）| contact C5 | ❌ |
+> | `SampledPenaltyContactEnergy`（§6）| contact C6 | ❌ |
+> | `runIPCSim` SimulationProblem/SimulationRuntime 分离（§18.5）| contact C8 | ❌ |
+>
+> **过渡期设计：** `runIPCSim` loop 当前（time integrator plan 之后）直接使用
+> `ImplicitEulerStepper`，每帧重建 stepper。`ImplicitEulerStepper::step()` 内已有
+> `dynamic_cast<StepAwareEnergy*>` 的 per-term dispatch 循环，对尚未成为
+> `StepAwareEnergy` 的 contact energy 是空转。contact plan 产出
+> `StatefulContactEnergy` 后，该循环自动生效，无需改 stepper 代码。
 
 ## 目标
 
@@ -988,17 +1016,23 @@ Migration rule:
 
 这些决策不只属于 contact，但 contact plan 必须按它们落地，避免把长期边界又写回局部 special case：
 
-1. Step lifecycle is common infrastructure.
+1. ✅ Step lifecycle is common infrastructure.  **（已落地）**
 
 `StepAwareEnergy` lives under `NonlinearOptimization`, not under `Contact`. `StatefulContactEnergy` derives from it and adds only contact-specific `refreshActiveSet(x)` / `clearActiveSet()` semantics. Future time integrator energies or history-dependent material energies can reuse `StepAwareEnergy` without pretending to be contact energies.
 
-2. Energy roles stay separated.
+→ 文件：`src/core/nonlinearOptimization/stepAwareEnergy.h`（time integrator plan 落地）。
+
+2. ✅ Energy roles stay separated.  **（已落地）**
 
 `PotentialEnergy` is value/gradient/Hessian. `LineSearchAwareEnergy` is freeze/unfreeze for line-search evaluation. A future `MaxStepAwareEnergy` should own feasible-step / CCD-style capability instead of leaving every caller to branch on `PotentialEnergy::computeMaxStepLimit(...)`. This contact plan does not require the full `MaxStepAwareEnergy` extraction to finish first, but new IPC/contact code should be written as if max-step is an optional capability, not a hard assumption on every energy.
 
-3. `state_kind` comes from C++.
+→ 既有代码，无变化。
+
+3. ✅ `state_kind` comes from C++.  **（已落地）**
 
 Use the shared `NonlinearOptimization::EnergyStateKind { Generic, Displacement }` and `PotentialEnergy::stateKind() const` from the Energy plan. Python `energy.state_kind` maps this enum. `StatefulContactEnergy` returns `Displacement` by default, and contact Python wrappers must not hard-code a divergent string.
+
+→ 文件：`src/core/nonlinearOptimization/potentialEnergy.h`（energy plan 落地）。
 
 4. Surface mapping uses `EmbeddedDofMap`.
 
@@ -1302,8 +1336,9 @@ set_obstacle_time
 
 ### Task C2: Step-aware base + embedded DOF map + stateful contact base
 
-- Use Energy plan E1's `EnergyStateKind` / `PotentialEnergy::stateKind() const`; do not define a second enum in contact.
-- Add `stepAwareEnergy.h` with `StepState` and `StepAwareEnergy`.
+- ✅ Use Energy plan E1's `EnergyStateKind` / `PotentialEnergy::stateKind() const`; do not define a second enum in contact.
+- ✅ Add `stepAwareEnergy.h` with `StepState` and `StepAwareEnergy`.
+  → 文件：`src/core/nonlinearOptimization/stepAwareEnergy.h`（time integrator plan 已落地）。
 - Add `statefulContactEnergy.h` with:
   - `ContactModelKind`
   - `ContactStepState = NonlinearOptimization::StepState`
@@ -1605,17 +1640,25 @@ C5 / C6 可在 C4 后并行，但 C7/C9 必须等两者都完成。C9 还必须�
 
 ### 全局执行顺序（跨 plan）
 
-本 plan 是**全局第 4 个**（Implicit Surface plan 完成后启动）。执行顺序：
+原计划顺序（本 plan 第 4，Time Integrator 第 5）：
 
 ```
-1. Solver plan
-2. Constraints plan
-3. Implicit Surface plan
-4. Contact plan         ← 本 plan
-5. Time Integrator plan
+1. Solver plan          ✅ 已完成
+2. Constraints plan     ✅ 已完成
+3. Implicit Surface plan ✅ 已完成
+4. Contact plan         ← 本 plan（当前）
+5. Time Integrator plan ✅ 已完成（在 contact 之前实施）
 ```
 
-**为什么接触必须在时间积分之前**：C2 产出的 `StepAwareEnergy` 是 Time Integrator T7 的硬依赖（`dynamic_cast<StepAwareEnergy*>` 调用）。如果 Time Integrator 先跑，T9 按旧 runIPCSim loop 写（`addGeneralImplicitForceModel`），等 Contact 落地又要改一遍——做两次。Contact 先跑完 C8（runIPCSim 迁移到 stateful contact），Time Integrator T9 直接对已迁移好的 `beginStep/refreshActiveSet` 流程包装，省掉 adapter 层。
+**实际执行顺序的变更：** Time Integrator plan 在 contact plan 之前实施完成。
+原计划要求 C2 产出 `StepAwareEnergy` 作为 Time Integrator T7 的硬依赖。实际执行中，
+`StepAwareEnergy` / `StepState` 作为共享基础设施直接落地在 `NonlinearOptimization`
+（符合 §18.1 的设计），不属于 Contact namespace。Time Integrator 的 `ImplicitEulerStepper::step()`
+内已有 `dynamic_cast<StepAwareEnergy*>` 的 per-term dispatch 循环，contact plan 产出
+`StatefulContactEnergy` 后自动生效，无需额外 adapter。
+
+**结果：** contact plan 现在可以依赖已就绪的 `StepAwareEnergy` + `StepState` +
+`DynamicStepper` 基础设施，从 C1/C2 的 `StatefulContactEnergy` 和 obstacle hierarchy 开始实施。
 
 ## 输出（供下游使用）
 

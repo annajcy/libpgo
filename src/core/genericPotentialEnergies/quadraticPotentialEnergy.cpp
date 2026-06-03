@@ -115,6 +115,19 @@ void QuadraticPotentialEnergy::setDOFs(const std::vector<int> &dofs)
   allDOFs = dofs;
 }
 
+void QuadraticPotentialEnergy::setLinearTerm(ES::VXd b)
+{
+  PGO_ALOG((int)b.size() == (int)A_.rows());
+  b_ = std::move(b);
+}
+
+void QuadraticPotentialEnergy::setAValues(const ES::SpMatD &A)
+{
+  PGO_ALOG(A.rows() == A_.rows() && A.cols() == A_.cols());
+  PGO_ALOG(A.nonZeros() == A_.nonZeros());
+  memcpy(A_.valuePtr(), A.valuePtr(), sizeof(double) * A_.nonZeros());
+}
+
 double QuadraticPotentialEnergy::func(ES::ConstRefVecXd x) const
 {
   ES::VXd &temp = cache->temp;

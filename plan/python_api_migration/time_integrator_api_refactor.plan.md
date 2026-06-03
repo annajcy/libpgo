@@ -2,9 +2,36 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **状态日期：** 2026-06-01
+> **状态日期：** 2026-06-03（已实施，全 task 完成）
 > **适用范围：** C++ `simulation` time-integrator architecture + Python `pypgo.sim` dynamic step API.
 > **执行约束：** 不改变 implicit Euler / TRBDF2 数值公式、Newton line-search / damping / max-step 语义、dynamic timestep acceptance policy、IPC active-set timing 或现有 `runIPCSim` 输出语义。本计划先把 residual energy 和 step lifecycle 服务化，再绑定 Python API。
+>
+> ## 实施状态（2026-06-03）
+>
+> 全部 task 已完成。Legacy `ImplicitBackwardEulerTimeIntegrator` / `TRBDF2TimeIntegrator`
+> 及两个 helper residual energy 类已删除；`runIPCSim` 直接使用 `ImplicitEulerStepper`。
+>
+> | Task | 内容 | 状态 |
+> |------|------|------|
+> | T0 | 公式特征测试 + 基线验证 | ✅ |
+> | T1 | `DynamicState`, `DynamicProblem`, `DynamicStepRequest` 等 value object | ✅ |
+> | T2 | `EnergySet::func_grad_hessian` 单遍 fused 实现 | ✅ |
+> | T3 | `assembleRayleighDamping` 独立 assembly | ✅ |
+> | T4 | `initStageResidual` / `prepareStageResidual`（持久 EnergySet + 原地更新 QuadraticEnergy） | ✅ |
+> | T5 | `ImplicitEulerStageBuilder` + `updateImplicitEulerState` | ✅ |
+> | T6 | `TRBDF2StageBuilder` + 两阶段状态更新 | ✅ |
+> | T7 | `ImplicitEulerStepper` / `TRBDF2Stepper` + `solveStageProblem` bridge + factory | ✅ |
+> | T8 | Legacy `ImplicitBackwardEulerTimeIntegrator` / `TRBDF2TimeIntegrator` 迁移至 stepper | ✅ 已删除 |
+> | T9 | `runIPCSim` dynamic loop 直接使用 `ImplicitEulerStepper` | ✅ |
+> | T10 | Python `_core.PyDynamicSimulation` nanobind binding + `DynamicState`/`DynamicFrame` | ✅ |
+> | T11 | `DynamicSimulation.from_context` 及 output adapter | ⏸ 依赖 M4 context builder，延后 |
+> | T12 | 文档/矩阵更新 | ✅ |
+>
+> **与 contact plan 的关系：** `StepAwareEnergy` / `StepState` 已作为共享基础设施
+> 落地在 `NonlinearOptimization`（非 Contact）。`StatefulContactEnergy` 尚未落地，
+> stepper 内 `beginStep` dispatch 循环已就绪，contact plan 完成后自然接上。
+> `runIPCSim` loop 当前每帧重建 stepper（因 contact 尚未成为 persistent energy），
+> contact plan 落地后可改为持久 EnergySet + per-frame active-set refresh。
 > **并行约束：** 本计划后续实现中，凡遇到可表达为简单 `parallel_for` / range loop / 三维逐点循环的 TBB 或 OpenMP 并行需求，统一使用 `src/core/parallelism` 的 facade API（当前命名空间为 `pgo::parallel`，如 `pgo::parallel::parallelFor*`），业务模块不得新增直接 `#include <tbb/...>`、`tbb::parallel_for` 或 `#pragma omp parallel for`。如果遇到 `parallel_reduce`、TLS、concurrent containers、锁、custom partitioner 等复杂模式，先为 `core/parallelism` 增加窄抽象或在本 plan 中明确记录为 scoped exception。
 
 **Goal:** 把 IBE 和 TRBDF2 迁移到统一的 dynamic step service，其中 residual energy 是自包含 stage problem，Python 通过 `DynamicSimulation.step()` / `run()` 驱动动态仿真。

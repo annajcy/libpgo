@@ -1,9 +1,5 @@
 #include "app/session.h"
 
-#include "deformationModelEnergy.h"
-#include "implicitBackwardEulerTimeIntegrator.h"
-#include "multiVertexPullingSoftConstraints.h"
-
 #include <iostream>
 
 namespace pgo::RunIPCSim
@@ -26,14 +22,10 @@ RunIPCSimSession createRunIPCSimSession(const RunIPCSimRuntimeConfig &runtimeCon
   ES::mv(context.M, g, session.gravityForce);
   session.fext = session.gravityForce;
 
-  session.integrator = std::make_shared<pgo::Simulation::ImplicitBackwardEulerTimeIntegrator>(context.M, context.elasticEnergy,
-    runtimeConfig.dampingParams[0], runtimeConfig.dampingParams[1], runtimeConfig.timestep,
-    runtimeConfig.solverMaxIter, runtimeConfig.solverEps);
-
-  for (auto &pullingEnergy : context.pullingEnergies)
-    session.integrator->addImplicitForceModel(pullingEnergy, 0, 0);
-
-  session.integrator->setExternalForce(session.fext.data());
+  session.mass = context.M;
+  session.timestep = runtimeConfig.timestep;
+  session.solverMaxIter = runtimeConfig.solverMaxIter;
+  session.solverEps = runtimeConfig.solverEps;
 
   session.u = ES::VXd::Zero(n3);
   session.uvel = ES::VXd::Zero(n3);

@@ -1,7 +1,7 @@
 #include "contact/legacyPenaltyContact.h"
 
 #include "configFileJSON.h"
-#include "implicitBackwardEulerTimeIntegrator.h"
+#include "dynamicStepOptions.h"
 #include "energySet.h"
 #include "legacy_penalty/pointPenetrationEnergy.h"
 #include "legacy_penalty/pointTrianglePairCouplingEnergyWithCollision.h"
@@ -154,7 +154,7 @@ public:
 
   void logSummary(const IpcSimulationContext &context, const RunIPCSimSession &session) const override
   {
-    logRunIPCSimMaxStepSummary(context.elasticEnergy, nullptr, session.integrator);
+    logRunIPCSimMaxStepSummary(session.lastDiagnostics);
   }
 
 private:
@@ -211,7 +211,7 @@ private:
     activeExternalEnergy_->setFrictionCoeff(config_.frictionCoeff);
     activeExternalEnergy_->setTimestep(runtimeConfig.timestep);
     activeExternalEnergy_->setVelEps(config_.velocityEps);
-    session.integrator->addGeneralImplicitForceModel(activeExternalEnergy_, 0, 0);
+    session.transientContactModels.push_back({activeExternalEnergy_, 0.0, 0.0});
   }
 
   void addSelfContactForce(const RunIPCSimRuntimeConfig &runtimeConfig,
@@ -240,7 +240,7 @@ private:
     activeSelfEnergy_->setFrictionCoeff(config_.frictionCoeff);
     activeSelfEnergy_->setTimestep(runtimeConfig.timestep);
     activeSelfEnergy_->setVelEps(config_.velocityEps);
-    session.integrator->addGeneralImplicitForceModel(activeSelfEnergy_, 0, 0);
+    session.transientContactModels.push_back({activeSelfEnergy_, 0.0, 0.0});
   }
 
   LegacyPenaltyContactConfig config_;

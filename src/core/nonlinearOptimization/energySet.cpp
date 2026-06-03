@@ -329,8 +329,58 @@ double EnergySet::func_grad_hessian(
   EigenSupport::RefVecXd grad,
   EigenSupport::SpMatD &hess) const
 {
-  gradient_hessian(x, grad, hess);
-  return func(x);
+  // Single fused pass: each term is evaluated once. This matters for
+  // non-fixed-topology terms (e.g. IPC contact), where the previous
+  // gradient_hessian(...)+func(...) split triggered two active-set builds per
+  // call. Mirrors gradient_hessian but accumulates the objective value too.
+  double energyAll = 0;
+  grad.setZero();
+
+  hess = hessianAll;
+  std::memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
+
+  for (std::size_t i = 0; i < potentialEnergies.size(); i++) {
+    if (energyCoeffs[i] == 0)
+      continue;
+
+    mapx(x, energyDOFs[i], buffer_->xlocals[i]);
+    buffer_->gradients[i].setZero();
+
+    if (potentialEnergies[i]->isHessianTopologyFixed()) {
+      // Fixed-topology terms do not build an active set, so func+grad here is cheap.
+      energyAll += potentialEnergies[i]->func_grad(buffer_->xlocals[i], buffer_->gradients[i]) * energyCoeffs[i];
+
+      if (buffer_->hessianMatrices[i].nonZeros()) {
+        potentialEnergies[i]->hessianInPlace(buffer_->xlocals[i], buffer_->hessianMatrices[i]);
+        ES::addSmallToBig(energyCoeffs[i], buffer_->hessianMatrices[i], hess, 1.0, hessianMatrixMappings[i]);
+      }
+    }
+    else {
+      ES::SpMatD Ki;
+      // One call -> one active-set build for this term.
+      energyAll += potentialEnergies[i]->func_grad_hessian(buffer_->xlocals[i], buffer_->gradients[i], Ki) * energyCoeffs[i];
+      if (Ki.nonZeros()) {
+        ES::SpMatD KiGlobal(nAll, nAll);
+        std::vector<ES::TripletD> entries;
+        entries.reserve(Ki.nonZeros());
+        for (Eigen::Index outeri = 0; outeri < Ki.outerSize(); outeri++) {
+          for (ES::SpMatD::InnerIterator it(Ki, outeri); it; ++it) {
+            entries.emplace_back(
+              static_cast<ES::SpMatD::StorageIndex>(energyDOFs[i][it.row()]),
+              static_cast<ES::SpMatD::StorageIndex>(energyDOFs[i][it.col()]),
+              it.value() * energyCoeffs[i]);
+          }
+        }
+        KiGlobal.setFromTriplets(entries.begin(), entries.end());
+        hess = hess + KiGlobal;
+      }
+    }
+
+    for (Eigen::Index j = 0; j < buffer_->gradients[i].size(); j++)
+      grad[energyDOFs[i][j]] += buffer_->gradients[i][j] * energyCoeffs[i];
+  }
+
+  return energyAll;
 }
 
 StepConstraint EnergySet::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink) const

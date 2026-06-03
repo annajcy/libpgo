@@ -11,6 +11,7 @@ set(PYPGO_BINDING_SOURCES
   bindings/sparse_bindings.cpp
   bindings/implicit_bindings.cpp
   bindings/parallel_bindings.cpp
+  bindings/simulation_bindings.cpp
   ../../tools/mesh/volumetric/cubicMesher/triangleMeshVoxelizer.cpp
   ../../tools/mesh/volumetric/tetMesher/tetMesherBackend.cpp
   ../../tools/mesh/volumetric/tetMesher/tetgenBackend.cpp
@@ -50,6 +51,7 @@ target_link_libraries(pypgo_core PRIVATE
   nonlinearOptimization
   genericPotentialEnergies
   constraintPotentialEnergies
+  simulation
   tetgenInterface
   implicitSurface
   parallelism
@@ -91,6 +93,7 @@ target_include_directories(pypgo_core
     ${CMAKE_SOURCE_DIR}/src/core/nonlinearOptimization
     ${CMAKE_SOURCE_DIR}/src/core/genericPotentialEnergies
     ${CMAKE_SOURCE_DIR}/src/core/constraintPotentialEnergies
+    ${CMAKE_SOURCE_DIR}/src/core/simulation
     ${CMAKE_SOURCE_DIR}/src/core/tetgenInterface
     ${CMAKE_SOURCE_DIR}/src/core/implicitSurface
     ${CMAKE_SOURCE_DIR}/src/core/parallelism

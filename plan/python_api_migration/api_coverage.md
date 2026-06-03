@@ -117,7 +117,7 @@
 | Output path layout | `RunIPCSimOutput` | `pypgo.sim.OutputLayout` | M5 | `tests/pypgo/test_sim_output.py::test_output_paths_match_cli` | bind-ready | 绑定或 Python 重写 path rule |
 | State/surface/stress frame writing | `RunIPCSimOutput` | `SimulationFrame.write(output)` | M5/M6 | `tests/pypgo/test_sim_output.py` | needs facade | output service 接受 frame state value object |
 | Static solve | `runIPCSimStaticSolve` | `pypgo.sim.solve_static` | M5 | `tests/pypgo/test_static_sim.py` | needs facade | 抽 `runStaticSolve(context, output/options)` service |
-| Dynamic loop | `runIPCSimLoop` | `pypgo.sim.DynamicSimulation.run` | M6 | `tests/pypgo/test_dynamic_sim.py` | needs refactor | 抽 per-step API，让 Python 编排 timestep |
+| Dynamic loop | `runIPCSimLoop` | `pypgo.sim.DynamicSimulation.step/run` | M6 | `tests/pypgo/test_dynamic_stepper.py` | partial | C++ DynamicStepper + Python DynamicSimulation 已落地（IBE/TRBDF2）；runIPCSim T9 迁移和 from_context 待做 |
 | Restart from `.u` | `RunIPCSimOutput::loadLatestRestartState`, `restoreRestartStateIfRequested` | `DynamicSimulation.restore_latest()` | M6 | `tests/pypgo/test_dynamic_sim.py::test_restart_from_u` | bind-ready | 绑定 restart service 或 Python I/O 复现 |
 | CLI log/profiling | `RunIPCSimRunScope`, CLI log redirect | `pypgo.tools.run_sim --log`, `RunResult.log_path` | M7 | `tests/pypgo/test_python_cli.py::test_log_flag_writes_log` | needs facade | 保持 C++ logger 初始化为 service |
 

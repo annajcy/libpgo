@@ -1,6 +1,6 @@
 #include "app/logging.h"
 
-#include "implicitBackwardEulerTimeIntegrator.h"
+#include "solver/common/solveDiagnostics.h"
 #include "pgoLogging.h"
 #include "app/app.h"
 #include "app/config.h"
@@ -69,17 +69,11 @@ void RunIPCSimRunScope::logProfileSummaryIfEnabled() const
 }
 
 void logRunIPCSimMaxStepSummary(
-  const std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> &elasticEnergy,
-  const std::shared_ptr<pgo::Contact::IPC::EmbeddedSurfaceIPCPotentialEnergy> &collisionHandler,
-  const std::shared_ptr<pgo::Simulation::ImplicitBackwardEulerTimeIntegrator> &integrator)
+  const pgo::NonlinearOptimization::SolveDiagnostics &summary)
 {
   auto logger = pgo::Logging::lgr();
   if (!logger)
     return;
-
-  (void)elasticEnergy;
-  (void)collisionHandler;
-  const pgo::NonlinearOptimization::SolveDiagnostics &summary = integrator->getLastSolveDiagnostics();
 
   if (logger->should_log(spdlog::level::info)) {
     SPDLOG_LOGGER_INFO(logger,

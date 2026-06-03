@@ -1,22 +1,29 @@
 set(SIMULATION_HEADERS
   timeIntegrator.h
   timeIntegratorSolver.h
-  implicitBackwardEulerTimeIntegratorHelper.h
-  implicitBackwardEulerTimeIntegrator.h
-  TRBDF2TimeIntegratorHelper.h
-  TRBDF2TimeIntegrator.h
+  dynamicState.h
+  dynamicStepOptions.h
+  rayleighDampingAssembly.h
+  stageResidual.h
+  implicitEulerStageBuilder.h
+  trbdf2StageBuilder.h
+  dynamicStepper.h
+  dynamicStepService.h
 )
 
 set(SIMULATION_SOURCES
   timeIntegrator.cpp
   timeIntegratorSolver.cpp
-  implicitBackwardEulerTimeIntegratorHelper.cpp
-  implicitBackwardEulerTimeIntegrator.cpp
-  TRBDF2TimeIntegratorHelper.cpp
-  TRBDF2TimeIntegrator.cpp
+  dynamicStepOptions.cpp
+  rayleighDampingAssembly.cpp
+  stageResidual.cpp
+  implicitEulerStageBuilder.cpp
+  trbdf2StageBuilder.cpp
+  dynamicStepper.cpp
+  dynamicStepService.cpp
 )
 
-set(SIMULATION_DEPS constraintPotentialEnergies solidDeformationModel contact)
+set(SIMULATION_DEPS constraintPotentialEnergies solidDeformationModel contact genericPotentialEnergies)
 
 foreach(tgt ${SIMULATION_DEPS})
   if(NOT TARGET ${tgt})

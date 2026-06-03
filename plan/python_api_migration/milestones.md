@@ -332,6 +332,19 @@ result = pgo.solver.solve_newton(energy, x, max_iter=50, tol=1e-6)
 - Static solve building blocks are available without invoking the C++ CLI.
 - Contact/floor energies can be composed with other energies from Python.
 
+### M3 Progress Status
+
+| Item | Status |
+|------|--------|
+| `pypgo.energy.PotentialEnergy` + evaluation protocol | ✅ |
+| `pypgo.energy.EnergySet` (weighted composition) | ✅ |
+| `pypgo.energy.QuadraticEnergy` / `LinearEnergy` | ✅ |
+| `pypgo.energy.DeformationEnergy` (FEM) | ✅ |
+| `pypgo.energy.ConstraintPenalty` / `ConstraintViolationPenalty` | ✅ |
+| `pypgo.energy.VertexAttachment` | ✅ |
+| `pypgo.solver.solve_newton` + `NewtonOptions` + `SolverResult` | ✅ |
+| Contact energies (IPC / floor / sampled penalty) | ⏸ 待 contact plan |
+
 ## Milestone 4: Python Run-Sim Config and Context Builder
 
 **Goal:** Load existing `runIPCSim` JSON configs in Python and build the same simulation context.
@@ -430,6 +443,18 @@ Static mode exercises config parsing, context setup, energies, solver, output, a
 - Solver acceptance policy matches current `runIPCSim` dynamic semantics.
 - Per-step C++ APIs are clean enough that Python owns orchestration without manually reproducing internal contact/session side effects.
 
+### M6 Progress Status
+
+| Item | Status |
+|------|--------|
+| C++ `DynamicStepper` service (`ImplicitEulerStepper` / `TRBDF2Stepper`) | ✅ |
+| `EnergySet::func_grad_hessian` fused 实现 | ✅ |
+| Legacy `ImplicitBackwardEulerTimeIntegrator` / `TRBDF2TimeIntegrator` 删除 | ✅ |
+| `runIPCSim` 直接使用 `ImplicitEulerStepper` | ✅ |
+| Python `pypgo.sim.DynamicSimulation` / `DynamicState` / `DynamicFrame` | ✅ |
+| `StepAwareEnergy` / `StepState` 共享基础设施 | ✅ |
+| `from_context` / `write_frame` / restart / von Mises / surface pressure | ⏸ 依赖 M4 context builder |
+
 ## Milestone 7: Python CLI Replacement
 
 **Goal:** Provide a Python CLI that can replace the C++ executable for normal workflows.
@@ -522,4 +547,19 @@ M0 的规划文档已经具备：coverage matrix、parity matrix、NumPy data co
 
 M1 核心实现已完成：`MeshData<K>` 数据容器、`TriMeshData`/`TetMeshData`/`CubicMeshData` Python 类型、`TriMeshGeo`/`TetMeshGeo`/`CubicMeshGeo` façade、`MaterialSpec`、`VolumeMesh`（接受 MeshData）、I/O（收发 MeshData）、旧 public names 移除、C++ 和 Python 测试覆盖。
 
-下一步进入 M2：Sparse Matrix 和 FEM Building Blocks，恢复 sparse/FEM 能力并补齐 geometry queries。
+M2 sparse/FEM building blocks 已落地：`SparseMatrix`（COO/CSR/torch export）、`tet_laplacian`/`tet_gradient`/`tet_biharmonic_gradient`、geometry queries（surface area、normals、barycentric weights 等）。
+
+M3 energy/solver 已落地：`PotentialEnergy`、`EnergySet`、`QuadraticEnergy`、`LinearEnergy`、`DeformationEnergy`（FEM）、`ConstraintPenalty`、`VertexAttachment`、`solve_newton` + `NewtonOptions` + `SolverResult`。
+
+**Time integrator plan（全局第 5 个 plan）已全部实施完成：**
+- C++ `DynamicStepper` service：`ImplicitEulerStepper` + `TRBDF2Stepper`，统一的 `DynamicProblem`/`DynamicState`/`DynamicStepRequest`/`DynamicStepResult` value object
+- `EnergySet::func_grad_hessian` 单遍 fused 实现（T2）
+- Rayleigh damping 独立 assembly（T3）
+- Stage residual 持久 `EnergySet` + per-step 原地 `QuadraticEnergy` 更新（T4）
+- IBE / TRBDF2 stage builder 纯系数计算（T5/T6）
+- Legacy `ImplicitBackwardEulerTimeIntegrator` / `TRBDF2TimeIntegrator` 及其 helper residual energy 类全部删除
+- `runIPCSim` 直接使用 `ImplicitEulerStepper`，每帧构建 `DynamicProblem` + `DynamicStepRequest` → `stepper.step()`
+- Python `pypgo.sim.DynamicSimulation` / `DynamicState` / `DynamicFrame` 已可用
+- `StepAwareEnergy` / `StepState` 作为共享基础设施落地在 `NonlinearOptimization`
+
+**下一步：contact plan。** `StepAwareEnergy` 基础已就绪，`StatefulContactEnergy` + `IPCContactEnergy` + `SampledPenaltyContactEnergy` 的 facade 和 Python binding 可以在此基础上进行。

@@ -16,6 +16,7 @@ void init_solver_bindings(nb::module_ &m);
 void init_animation_bindings(nb::module_ &m);
 void init_implicit_bindings(nb::module_ &m);
 void init_parallel_bindings(nb::module_ &m);
+void init_simulation_bindings(nb::module_ &m);
 
 NB_MODULE(_core, m) {
     m.def("build_info", []() {
@@ -36,4 +37,5 @@ NB_MODULE(_core, m) {
     init_animation_bindings(m);
     init_implicit_bindings(m);
     init_parallel_bindings(m);
+    init_simulation_bindings(m);
 }
