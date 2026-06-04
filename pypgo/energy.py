@@ -395,8 +395,57 @@ class DeformationEnergy(PotentialEnergy):
     def num_vertices(self) -> int:
         return self._core.num_vertices
 
+    @property
+    def num_plastic_dofs(self) -> int:
+        return self._core.num_plastic_dofs
+
+    def plastic_gradient(self, displacement: np.ndarray) -> np.ndarray:
+        u = _float_vector("displacement", displacement)
+        return np.asarray(self._core.plastic_gradient(u), dtype=np.float64)
+
+    def plastic_hessian(self, displacement: np.ndarray):
+        u = _float_vector("displacement", displacement)
+        return SparseMatrix(self._core.plastic_hessian(u))
+
+    def plastic_jacobian(self, displacement: np.ndarray):
+        u = _float_vector("displacement", displacement)
+        return SparseMatrix(self._core.plastic_jacobian(u))
+
     def __repr__(self) -> str:
         return f"DeformationEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
+
+
+class PlasticMaterialEnergy(PotentialEnergy):
+    """Material energy with the plastic field as the optimization variable.
+
+    Created by ``pypgo.fem.plastic_material_energy()``. The displacement is fixed;
+    the input state vector is the plastic field's global DOF vector.
+    """
+
+    def __init__(self, handle, *, state, deformation_energy, fixed_displacement):
+        object.__setattr__(self, "_state", state)
+        object.__setattr__(self, "_deformation_energy", deformation_energy)
+        object.__setattr__(
+            self,
+            "_fixed_displacement",
+            np.asarray(fixed_displacement, dtype=np.float64).copy(),
+        )
+        super().__init__(handle)
+
+    @property
+    def state(self):
+        return self._state
+
+    @property
+    def deformation_energy(self):
+        return self._deformation_energy
+
+    @property
+    def fixed_displacement(self) -> np.ndarray:
+        return self._fixed_displacement.copy()
+
+    def __repr__(self) -> str:
+        return f"PlasticMaterialEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
 
 
 # ---------------------------------------------------------------------------

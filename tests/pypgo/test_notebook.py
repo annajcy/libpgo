@@ -51,6 +51,7 @@ GENERATORS: dict[str, str] = {
     "solver_api_demo": "generate_solver_api_demo.py",
     "implicit_api_demo": "generate_implicit_api_demo.py",
     "static_solve_box_hang_demo": "generate_static_solve_box_hang_demo.py",
+    "plastic_shape_match_demo": "generate_plastic_shape_match_demo.py",
 }
 
 # ---------------------------------------------------------------------------
@@ -289,6 +290,52 @@ class TestNotebookSources:
         assert "surface_from_volume @ result_with_soft_pin.x" not in source
         assert "deformed_volume.extract_surface_mesh()" not in source
         assert "deformed_volume_with_soft_pin.extract_surface_mesh()" not in source
+
+    def test_plastic_shape_match_demo_covers_inverse_design_path(self, generated_notebooks):
+        with open(generated_notebooks["plastic_shape_match_demo"]) as fh:
+            nb = json.load(fh)
+        source = "\n".join("".join(c["source"]) for c in nb["cells"])
+        assert "pf.ElementwiseField()" in source
+        assert "target_vertices" in source
+        assert "pgo.torch.StaticEquilibriumLayer" in source
+        assert "energy.num_plastic_dofs" in source
+        assert "pgo.vis.plot_volume_surface" in source
+        assert "pgo.vis.plot_surface" in source
+        assert "optimized_surface" in source
+        assert "optimized_plastic" in source
+        assert "plastic_delta" in source
+        assert "plastic_delta_norm" in source
+        assert "plastic_shape_match_weights.npz" in source
+        assert "np.savez" in source
+        assert "scalars=[" in source
+        assert "scalar_bar_titles" in source
+        assert "torch.optim.Adam" in source
+        assert "loss.backward()" in source
+        assert "equilibrium_layer(plastic_param)" in source
+        assert "equilibrium_layer.reset_warm_start()" in source
+        assert "optimized_plastic_tensor" in source
+        assert "optimized_vertices =" in source
+        assert "num_outer_steps" in source
+        assert "learning_rate" in source
+        assert "nx = ny = nz" in source
+        assert "surface_vertex_ids" in source
+        assert "shear_strength" in source
+        assert "sheared cubic target" in source
+        assert "vertex_error_stats" in source
+        assert "mean_vertex_error" in source
+        assert "max_vertex_error" in source
+        assert "per_vertex_rms" in source
+        assert "PyTorch" in source
+        assert "sphere target" not in source
+        assert "one-hex" not in source
+        assert "SciPy" not in source
+        assert "PlasticEquilibriumShapeMatcher" not in source
+        assert "pp.solve_static_equilibrium" not in source
+        assert "solve_static_equilibrium" not in source
+        assert "import pypgo.plastic" not in source
+        assert "value_and_gradient" not in source
+        assert "plastic_param.grad =" not in source
+        assert "best_surface_vertices" not in source
 
 
 # =========================================================================

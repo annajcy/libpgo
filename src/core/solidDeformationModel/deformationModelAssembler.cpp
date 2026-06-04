@@ -219,6 +219,43 @@ DeformationModelAssembler::DeformationModelAssembler(
       element_dfda_InverseIndices[ele] = idxM;
     }
   }
+
+  entries.clear();
+  if (numPlasticParams_ > 0 && plasticParamLayout) {
+    for (int ele = 0; ele < nele; ele++) {
+      for (int pi = 0; pi < numPlasticParams_; pi++) {
+        const int globalRow = plasticGlobalCol(ele, pi);
+        for (int pj = 0; pj < numPlasticParams_; pj++) {
+          const int globalCol = plasticGlobalCol(ele, pj);
+          entries.emplace_back(globalRow, globalCol, 1.0);
+        }
+      }
+    }
+
+    d2Eda2Template.resize(numPlasticGlobalParams, numPlasticGlobalParams);
+    d2Eda2Template.setFromTriplets(entries.begin(), entries.end());
+  }
+  else {
+    d2Eda2Template.resize(0, 0);
+  }
+
+  element_d2Eda2_InverseIndices.resize(nele);
+  if (numPlasticParams_ > 0 && plasticParamLayout) {
+    for (int ele = 0; ele < nele; ele++) {
+      DynamicIndexMatrix idxM(numPlasticParams_, numPlasticParams_);
+      idxM.setConstant(-1);
+
+      for (int pi = 0; pi < numPlasticParams_; pi++) {
+        const int globalRow = plasticGlobalCol(ele, pi);
+        for (int pj = 0; pj < numPlasticParams_; pj++) {
+          const int globalCol = plasticGlobalCol(ele, pj);
+          idxM(pi, pj) = ES::findEntryOffset(d2Eda2Template, globalRow, globalCol);
+        }
+      }
+
+      element_d2Eda2_InverseIndices[ele] = idxM;
+    }
+  }
 }
 
 DeformationModelAssembler::~DeformationModelAssembler() = default;
@@ -389,6 +426,118 @@ void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::Sp
       if (fpclass == FP_INFINITE || fpclass == FP_NAN) {
         SPDLOG_LOGGER_ERROR(Logging::lgr(), "Encounter weird numbers at {}: {}", i, hess.valuePtr()[i]);
         throw std::logic_error("Encounter weird numbers.");
+      }
+      else if (fpclass == FP_SUBNORMAL) {
+        hess.valuePtr()[i] = 0;
+      }
+    }
+  }
+}
+
+int DeformationModelAssembler::getNumPlasticGlobalParams() const
+{
+  const auto *layout = plasticParamField_ ? plasticParamField_->dofLayout() : nullptr;
+  return layout ? layout->numGlobalDofs() : 0;
+}
+
+void DeformationModelAssembler::computePlasticGradient(const double *x, double *grad) const
+{
+  const int numPlasticGlobalParams = getNumPlasticGlobalParams();
+  std::fill(grad, grad + numPlasticGlobalParams, 0.0);
+
+  if (numPlasticParams_ == 0 || numPlasticGlobalParams == 0)
+    return;
+
+  const auto *plasticParamLayout = plasticParamField_ ? plasticParamField_->dofLayout() : nullptr;
+  if (!plasticParamLayout)
+    return;
+
+  auto localGradFunc = [this, x, grad, plasticParamLayout](int ele) {
+    if (elementWeights[ele] == 0)
+      return;
+
+    ES::VXd localp(localDOFs);
+    dofLayout->gather(ele, x, localp.data());
+
+    const DeformationModel *fem = femModels[ele];
+    fem->prepareData(localp.data(), data->elementCacheData[ele].get());
+
+    ES::VXd localGrad = ES::VXd::Zero(numPlasticParams_);
+    fem->compute_dE_da(data->elementCacheData[ele].get(), localGrad.data());
+    localGrad *= elementWeights[ele];
+
+    for (int pi = 0; pi < numPlasticParams_; pi++) {
+      const int globalRow = plasticParamLayout->globalDof(ele, pi);
+      std::atomic_ref<double> gradRef(grad[globalRow]);
+      gradRef.fetch_add(localGrad[pi]);
+    }
+  };
+
+  tbb::parallel_for(0, nele, localGradFunc, data->partitioners[0]);
+
+  if (enableSanityCheck) {
+    for (int i = 0; i < numPlasticGlobalParams; i++) {
+      int fpclass = std::fpclassify(grad[i]);
+      if (fpclass == FP_INFINITE || fpclass == FP_NAN) {
+        SPDLOG_LOGGER_ERROR(Logging::lgr(), "Encounter weird plastic gradient number at {}: {}", i, grad[i]);
+        throw std::logic_error("Encounter weird plastic gradient numbers.");
+      }
+      else if (fpclass == FP_SUBNORMAL) {
+        grad[i] = 0;
+      }
+    }
+  }
+}
+
+void DeformationModelAssembler::computePlasticHessian(const double *x, EigenSupport::SpMatD &hess) const
+{
+  if (hess.rows() != d2Eda2Template.rows() || hess.cols() != d2Eda2Template.cols() ||
+    hess.nonZeros() != d2Eda2Template.nonZeros()) {
+    hess = d2Eda2Template;
+  }
+
+  memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
+
+  const int numPlasticGlobalParams = getNumPlasticGlobalParams();
+  if (numPlasticParams_ == 0 || numPlasticGlobalParams == 0)
+    return;
+
+  auto localHessFunc = [this, x, &hess](int ele) {
+    if (elementWeights[ele] == 0)
+      return;
+
+    ES::VXd localp(localDOFs);
+    dofLayout->gather(ele, x, localp.data());
+
+    const DeformationModel *fem = femModels[ele];
+    fem->prepareData(localp.data(), data->elementCacheData[ele].get());
+
+    std::vector<double> localHData(numPlasticParams_ * numPlasticParams_);
+    fem->compute_d2E_da2(data->elementCacheData[ele].get(), localHData.data());
+
+    ES::Mp<ES::MXd> localH(localHData.data(), numPlasticParams_, numPlasticParams_);
+    localH *= elementWeights[ele];
+
+    const auto &idxM = element_d2Eda2_InverseIndices[ele];
+    for (int localRow = 0; localRow < numPlasticParams_; localRow++) {
+      for (int localCol = 0; localCol < numPlasticParams_; localCol++) {
+        std::ptrdiff_t offset = idxM(localRow, localCol);
+        if (offset >= 0) {
+          std::atomic_ref<double> hessRef(hess.valuePtr()[offset]);
+          hessRef.fetch_add(localH(localRow, localCol));
+        }
+      }
+    }
+  };
+
+  tbb::parallel_for(0, nele, localHessFunc, data->partitioners[1]);
+
+  if (enableSanityCheck) {
+    for (Eigen::Index i = 0; i < hess.nonZeros(); i++) {
+      int fpclass = std::fpclassify(hess.valuePtr()[i]);
+      if (fpclass == FP_INFINITE || fpclass == FP_NAN) {
+        SPDLOG_LOGGER_ERROR(Logging::lgr(), "Encounter weird plastic Hessian number at {}: {}", i, hess.valuePtr()[i]);
+        throw std::logic_error("Encounter weird plastic Hessian numbers.");
       }
       else if (fpclass == FP_SUBNORMAL) {
         hess.valuePtr()[i] = 0;

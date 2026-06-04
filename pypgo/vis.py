@@ -73,6 +73,24 @@ def _extract_volume_surface(volume_grid):
     return volume_grid.extract_surface(algorithm="dataset_surface")
 
 
+def _normalize_scalar_inputs(scalars, count: int):
+    if scalars is None:
+        return [None] * count
+    if isinstance(scalars, np.ndarray):
+        if count != 1:
+            raise ValueError("scalars must be a list with one array per mesh")
+        return [scalars]
+    if isinstance(scalars, (list, tuple)):
+        if count == 1:
+            return [np.asarray(scalars, dtype=np.float64)]
+        if len(scalars) != count:
+            raise ValueError("scalars must have one entry per mesh")
+        return [None if values is None else np.asarray(values, dtype=np.float64) for values in scalars]
+    if count != 1:
+        raise ValueError("scalars must be a list with one array per mesh")
+    return [np.asarray(scalars, dtype=np.float64)]
+
+
 def to_pyvista_surface(surface_data: TriMeshData) -> "pv.PolyData":
     """Convert a TriMeshData to a PyVista PolyData surface."""
     if not isinstance(surface_data, TriMeshData):
@@ -163,6 +181,8 @@ def plot_volume_surface(
     titles=None,
     show_edges: bool = True,
     colors=None,
+    scalars=None,
+    scalar_bar_titles=None,
     window_size: tuple[int, int] = (900, 360),
     backend: str | None = None,
 ):
@@ -179,17 +199,37 @@ def plot_volume_surface(
     meshes = list(meshes)
     titles = titles or [None] * len(meshes)
     colors = colors or ["lightsteelblue"] * len(meshes)
+    scalar_arrays = _normalize_scalar_inputs(scalars, len(meshes))
+    scalar_bar_titles = scalar_bar_titles or [None] * len(meshes)
 
     plotter = _pv.Plotter(shape=(1, len(meshes)), window_size=window_size)
     for index, mesh in enumerate(meshes):
         if len(meshes) > 1:
             plotter.subplot(0, index)
-        plotter.add_mesh(
-            _extract_volume_surface(to_pyvista_volume(mesh)),
-            color=colors[index % len(colors)],
-            show_edges=show_edges,
-            smooth_shading=False,
-        )
+        grid = to_pyvista_volume(mesh)
+        scalar_array = scalar_arrays[index]
+        if scalar_array is None:
+            plotter.add_mesh(
+                _extract_volume_surface(grid),
+                color=colors[index % len(colors)],
+                show_edges=show_edges,
+                smooth_shading=False,
+            )
+        else:
+            if scalar_array.ndim != 1 or scalar_array.size != mesh.num_elements:
+                raise ValueError(
+                    f"scalars[{index}] must have shape ({mesh.num_elements},), got {scalar_array.shape}"
+                )
+            name = f"cell_scalars_{index}"
+            grid.cell_data[name] = scalar_array
+            plotter.add_mesh(
+                grid,
+                scalars=name,
+                preference="cell",
+                show_edges=show_edges,
+                smooth_shading=False,
+                scalar_bar_args={"title": scalar_bar_titles[index] or ""},
+            )
         if titles[index]:
             plotter.add_text(titles[index], position="upper_left", font_size=10)
         plotter.view_isometric()

@@ -31,6 +31,7 @@ dependencies:
   # --- Python: core ---
   - numpy
   - pip
+  - pytorch
   - setuptools
   - wheel
 

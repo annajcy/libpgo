@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 
 import pypgo._core as _core
-from pypgo.energy import DeformationEnergy
+from pypgo.energy import DeformationEnergy, PlasticMaterialEnergy
 
 
 # ---------------------------------------------------------------------------
@@ -377,3 +377,40 @@ def deformation_energy(
         bool(options.enable_material_max_step),
     )
     return DeformationEnergy(core)
+
+
+def plastic_material_energy(
+    state,
+    deformation_energy,
+    *,
+    fixed_displacement,
+) -> PlasticMaterialEnergy:
+    """Create a material energy whose optimization variable is the plastic field."""
+    if not isinstance(state, DeformationModelState):
+        raise TypeError(
+            f"state must be a DeformationModelState, got {type(state).__name__}"
+        )
+    if not isinstance(deformation_energy, DeformationEnergy):
+        raise TypeError(
+            f"deformation_energy must be a DeformationEnergy, got {type(deformation_energy).__name__}"
+        )
+
+    u = np.asarray(fixed_displacement, dtype=np.float64, order="C")
+    if u.ndim != 1:
+        raise ValueError(f"fixed_displacement must be 1-D, got shape {u.shape}")
+    if u.size != deformation_energy.num_dofs:
+        raise ValueError(
+            f"fixed_displacement size must be {deformation_energy.num_dofs}, got {u.size}"
+        )
+
+    handle = _core._create_plastic_material_energy(
+        state._core,
+        deformation_energy._core,
+        u,
+    )
+    return PlasticMaterialEnergy(
+        handle,
+        state=state,
+        deformation_energy=deformation_energy,
+        fixed_displacement=u,
+    )

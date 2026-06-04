@@ -14,6 +14,7 @@ __all__ = [
     "solver",
     "sparse",
     "tools",
+    "torch",
     "vis",
 ]
 

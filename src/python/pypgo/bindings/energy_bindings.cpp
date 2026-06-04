@@ -19,6 +19,7 @@
 #include "deformationModelManager.h"
 #include "formulations/parameters/parameterField.h"
 #include "factories/elasticModelFactory.h"
+#include "plasticMaterialEnergy.h"
 #include "constraints/constraint_core.h"
 #include "EigenDef.h"
 #include "energy_core.h"
@@ -573,6 +574,56 @@ public:
   // Number of vertices (rest_position rows).
   int numVertices() const { return static_cast<int>(energy_->getRestPosition().size() / 3); }
 
+  int numPlasticDofs() const { return energy_->assembler().getNumPlasticGlobalParams(); }
+
+  nb::ndarray<nb::numpy, double> plasticGradient(nb::ndarray<nb::numpy, const double> displacement) const
+  {
+    auto u = python::ndarrayToVectorMapXd(displacement);
+    if (u.size() != energy_->getRestPosition().size()) {
+      throw nb::value_error("displacement size must match deformation energy num_dofs.");
+    }
+
+    EigenSupport::VXd grad = EigenSupport::VXd::Zero(numPlasticDofs());
+    {
+      nb::gil_scoped_release release;
+      const EigenSupport::VXd p = energy_->getRestPosition() + u;
+      energy_->assembler().computePlasticGradient(p.data(), grad.data());
+    }
+    return python::vectorXdToNdarray(std::move(grad));
+  }
+
+  PySparseMatrix plasticHessian(nb::ndarray<nb::numpy, const double> displacement) const
+  {
+    auto u = python::ndarrayToVectorMapXd(displacement);
+    if (u.size() != energy_->getRestPosition().size()) {
+      throw nb::value_error("displacement size must match deformation energy num_dofs.");
+    }
+
+    EigenSupport::SpMatD hess = energy_->assembler().getPlasticHessianTemplate();
+    {
+      nb::gil_scoped_release release;
+      const EigenSupport::VXd p = energy_->getRestPosition() + u;
+      energy_->assembler().computePlasticHessian(p.data(), hess);
+    }
+    return PySparseMatrix(std::move(hess));
+  }
+
+  PySparseMatrix plasticJacobian(nb::ndarray<nb::numpy, const double> displacement) const
+  {
+    auto u = python::ndarrayToVectorMapXd(displacement);
+    if (u.size() != energy_->getRestPosition().size()) {
+      throw nb::value_error("displacement size must match deformation energy num_dofs.");
+    }
+
+    EigenSupport::SpMatD jac = energy_->assembler().get_dfda_Template();
+    {
+      nb::gil_scoped_release release;
+      const EigenSupport::VXd p = energy_->getRestPosition() + u;
+      energy_->assembler().compute_df_da(p.data(), jac);
+    }
+    return PySparseMatrix(std::move(jac));
+  }
+
 private:
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy_;
   std::shared_ptr<PyDeformationModelState> stateOwner_;
@@ -612,6 +663,24 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
     }
   }
   return std::make_shared<PyDeformationEnergy>(std::move(energy), std::move(stateCore));
+}
+
+std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(
+  std::shared_ptr<PyDeformationModelState> stateCore,
+  std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,
+  nb::ndarray<nb::numpy, const double> fixedDisplacement)
+{
+  if (!stateCore) {
+    throw nb::value_error("state must be non-null");
+  }
+  if (!deformationEnergyCore) {
+    throw nb::value_error("deformation_energy must be non-null");
+  }
+
+  auto fixed = python::ndarrayToVectorXd(fixedDisplacement);
+  auto energy = std::make_shared<SolidDeformationModel::PlasticMaterialEnergy>(
+    stateCore->state(), deformationEnergyCore->energy(), fixed);
+  return std::make_shared<PyPotentialEnergy>(std::move(energy));
 }
 
 }  // namespace
@@ -654,7 +723,11 @@ void init_energy_bindings(nb::module_ &m)
   nb::class_<PyDeformationEnergy>(m, "PyDeformationEnergy")
     .def_prop_ro("handle", &PyDeformationEnergy::handle)
     .def("rest_position", &PyDeformationEnergy::restPosition)
-    .def_prop_ro("num_vertices", &PyDeformationEnergy::numVertices);
+    .def_prop_ro("num_vertices", &PyDeformationEnergy::numVertices)
+    .def_prop_ro("num_plastic_dofs", &PyDeformationEnergy::numPlasticDofs)
+    .def("plastic_gradient", &PyDeformationEnergy::plasticGradient, nb::arg("displacement"))
+    .def("plastic_hessian", &PyDeformationEnergy::plasticHessian, nb::arg("displacement"))
+    .def("plastic_jacobian", &PyDeformationEnergy::plasticJacobian, nb::arg("displacement"));
 
   nb::class_<PyParameterField>(m, "PyParameterField")
     .def_prop_ro("domain", &PyParameterField::domain)
@@ -693,6 +766,11 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("formulation"),
     nb::arg("enforce_spd") = true,
     nb::arg("enable_material_max_step") = true);
+
+  m.def("_create_plastic_material_energy", &createPlasticMaterialEnergy,
+    nb::arg("state_core"),
+    nb::arg("deformation_energy_core"),
+    nb::arg("fixed_displacement"));
 
   // Private/experimental — minimal QuadraticPotentialEnergy factory for
   // PotentialEnergy-handle tests.  Signature will change when

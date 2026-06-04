@@ -201,6 +201,39 @@ class TestDeformationEnergy:
         assert np.isfinite(energy.value(u))
         assert energy.hessian(u).nnz > 0
 
+    def test_cubic_energy_exposes_plastic_derivatives_and_material_energy(self):
+        sim = _make_cubic_sim_mesh()
+        plastic = np.array([[1.01, 0.004, -0.003, 0.994, 0.005, 1.008]], dtype=np.float64)
+        state = _make_state(sim, plastic_values=plastic)
+        energy = pf.deformation_energy(
+            state,
+            formulation=pf.LinearCubic(),
+            options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+        )
+        u = energy.zero_state()
+        for vi in range(sim.num_vertices):
+            u[3 * vi + 0] = 5e-3 * np.sin(0.9 * vi + 0.1)
+            u[3 * vi + 1] = 4e-3 * np.cos(0.7 * vi + 0.3)
+            u[3 * vi + 2] = 3e-3 * np.sin(1.3 * vi + 0.5)
+
+        grad = energy.plastic_gradient(u)
+        hess = energy.plastic_hessian(u)
+        jac = energy.plastic_jacobian(u)
+        assert grad.shape == (6,)
+        assert hess.shape == (6, 6)
+        assert jac.shape == (energy.num_dofs, 6)
+        assert np.linalg.norm(grad) > 0.0
+        assert hess.nnz > 0
+        assert jac.nnz > 0
+
+        material_energy = pf.plastic_material_energy(state, energy, fixed_displacement=u)
+        assert isinstance(material_energy, pe.PotentialEnergy)
+        assert material_energy.num_dofs == 6
+        assert material_energy.state_kind == "generic"
+        assert np.isclose(material_energy.value(plastic.ravel()), energy.value(u))
+        assert np.allclose(material_energy.gradient(plastic.ravel()), grad)
+        assert np.allclose(material_energy.hessian(plastic.ravel()).to_dense(), hess.to_dense())
+
     def test_shell_energy_evaluates(self):
         sim = _make_shell_sim_mesh()
         state = _make_state(

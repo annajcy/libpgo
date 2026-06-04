@@ -34,6 +34,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   deformationModelManager.h
 
   deformationModelEnergy.h
+  plasticMaterialEnergy.h
   deformationModelAssembler.h
   deformationModelAssemblerCacheData.h
   deformationModelFactory.h
@@ -132,6 +133,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformationModelManager.cpp
 
   deformationModelEnergy.cpp
+  plasticMaterialEnergy.cpp
   deformationModelAssembler.cpp
   deformationModelFactory.cpp
   deformationModelState.cpp

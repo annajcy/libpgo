@@ -25,6 +25,11 @@ target_link_libraries(deformationModelEnergyFD_gtest PRIVATE GTest::gtest_main s
 set_property(TARGET deformationModelEnergyFD_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(deformationModelEnergyFD_gtest)
 
+add_executable(plasticMaterialEnergy_gtest plasticMaterialEnergy_gtest.cpp)
+target_link_libraries(plasticMaterialEnergy_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET plasticMaterialEnergy_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(plasticMaterialEnergy_gtest)
+
 add_executable(deformationModelState_gtest deformationModelState_gtest.cpp)
 target_link_libraries(deformationModelState_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
 target_compile_definitions(deformationModelState_gtest PRIVATE

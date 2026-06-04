@@ -41,6 +41,10 @@ public:
 
   void compute_df_da(const double *x, EigenSupport::SpMatD &hess) const;
   void compute_df_db(const double *x, EigenSupport::SpMatD &hess) const;
+  int getNumPlasticGlobalParams() const;
+  const EigenSupport::SpMatD &getPlasticHessianTemplate() const { return d2Eda2Template; }
+  void computePlasticGradient(const double *x, double *grad) const;
+  void computePlasticHessian(const double *x, EigenSupport::SpMatD &hess) const;
 
   void computeVonMisesStresses(const double *x, double *elementStresses) const;
   void computeMaxStrains(const double *x, double *elementStrain) const;
@@ -69,8 +73,8 @@ protected:
   int numElasticParams_ = 0;
   int numPlasticParams_ = 0;
 
-  EigenSupport::SpMatD KTemplate, dfdaTemplate, dfdbTemplate;
-  std::vector<DynamicIndexMatrix> elementKInverseIndices, element_dfda_InverseIndices, element_dfdb_InverseIndices;
+  EigenSupport::SpMatD KTemplate, dfdaTemplate, dfdbTemplate, d2Eda2Template;
+  std::vector<DynamicIndexMatrix> elementKInverseIndices, element_dfda_InverseIndices, element_dfdb_InverseIndices, element_d2Eda2_InverseIndices;
 
   std::vector<double> elementWeights;
   std::vector<const DeformationModel *> femModels;
