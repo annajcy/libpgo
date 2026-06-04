@@ -33,6 +33,10 @@ std::string ElasticModelFactory::modelId(DeformationModelElasticMaterial type)
     return "stvk";
   case DeformationModelElasticMaterial::STVK_VOL:
     return "stvk_vol";
+  case DeformationModelElasticMaterial::INV_STVK:
+    return "inv_stvk";
+  case DeformationModelElasticMaterial::VOLUME:
+    return "volume";
   case DeformationModelElasticMaterial::LINEAR:
     return "linear";
   case DeformationModelElasticMaterial::MOONEY_RIVLIN:
@@ -57,6 +61,8 @@ DeformationModelElasticMaterial ElasticModelFactory::materialFromModelId(const s
   if (modelId == "stable_neo") return DeformationModelElasticMaterial::STABLE_NEO;
   if (modelId == "stvk") return DeformationModelElasticMaterial::STVK;
   if (modelId == "stvk_vol") return DeformationModelElasticMaterial::STVK_VOL;
+  if (modelId == "inv_stvk") return DeformationModelElasticMaterial::INV_STVK;
+  if (modelId == "volume") return DeformationModelElasticMaterial::VOLUME;
   if (modelId == "linear") return DeformationModelElasticMaterial::LINEAR;
   if (modelId == "mooney_rivlin") return DeformationModelElasticMaterial::MOONEY_RIVLIN;
   if (modelId == "koiter_stvk") return DeformationModelElasticMaterial::KOITER_STVK;
@@ -74,7 +80,11 @@ ParameterFieldSpec ElasticModelFactory::parameterSpec(
   ParameterFieldSpec spec;
   spec.domain = ParameterDomain::ELASTIC;
   spec.modelId = modelId(type);
-  spec.numChannels = mesh.getElementMaterial(0, 0)->numElasticParameters(type);
+  // Single source of truth: the channel count is the created model's differentiable
+  // parameter count. The fiber direction is irrelevant to the count (Hill reports 1
+  // regardless), so a dummy axis is sufficient to instantiate the model.
+  const double dummyFiber[3] = { 1.0, 0.0, 0.0 };
+  spec.numChannels = create(mesh, 0, type, dummyFiber)->getNumParameters();
   if (type == DeformationModelElasticMaterial::KOITER_STVK && spec.numChannels == 5) {
     spec.channelNames = { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" };
   }
@@ -144,29 +154,11 @@ ES::VXd ElasticModelFactory::initializeDefaultElasticParams(
 
   if (numElasticParams > 0) {
     elasticParams.setZero();
-    if (numElasticParams == 2 &&
-        (elastic == DeformationModelElasticMaterial::STABLE_NEO ||
-         elastic == DeformationModelElasticMaterial::STVK ||
-         elastic == DeformationModelElasticMaterial::LINEAR)) {
-      for (int ei = 0; ei < nele; ei++) {
-        const auto *mat = dynamic_cast<const SimulationMeshENuMaterial *>(mesh.getElementMaterial(ei, 0));
-        if (!mat)
-          throw std::runtime_error("ElasticModelFactory::initializeDefaultElasticParams: ENu elastic model requires SimulationMeshENuMaterial.");
-        elasticParams.segment<2>(ei * 2) << mat->getE(), mat->getNu();
-      }
-    }
-    else if (numElasticParams == 3 &&
-        (elastic == DeformationModelElasticMaterial::STVK_VOL ||
-         elastic == DeformationModelElasticMaterial::INV_STVK ||
-         elastic == DeformationModelElasticMaterial::VOLUME)) {
-      for (int ei = 0; ei < nele; ei++) {
-        const auto *mat = dynamic_cast<const SimulationMeshENuMaterial *>(mesh.getElementMaterial(ei, 0));
-        if (!mat)
-          throw std::runtime_error("ElasticModelFactory::initializeDefaultElasticParams: ENu elastic model requires SimulationMeshENuMaterial.");
-        elasticParams.segment<3>(ei * 3) << mat->getE(), mat->getNu(), mat->getCompressionRatio();
-      }
-    }
-    else if (elastic == DeformationModelElasticMaterial::KOITER_STVK) {
+    // Basic 3D materials (StableNeo/StVK/Linear/InvStVK/Volume/StVK_Vol) expose no
+    // differentiable elastic parameters, so numElasticParams is 0 for them and they
+    // never reach this block; only Hill (1) and the Koiter shell materials (5/12)
+    // have an optimizable elastic field to seed.
+    if (elastic == DeformationModelElasticMaterial::KOITER_STVK) {
       for (int ei = 0; ei < nele; ei++) {
         const auto *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(mesh.getElementMaterial(ei, 0));
         if (!mat)

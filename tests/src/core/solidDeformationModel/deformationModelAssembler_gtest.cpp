@@ -172,7 +172,55 @@ double relativeColumnError(const ES::VXd &fd, const ES::VXd &analytic)
 {
   return (fd - analytic).norm() / std::max(1.0, analytic.norm());
 }
+
+// A state + assembler pair built with enforceSPD = 0 so that finite differences
+// measure the true derivative of computeGradient. The state is kept alive so the
+// caller can mutate the parameter fields (setElasticValues / setPlasticValues)
+// between gradient evaluations.
+struct ExactStateAssembler
+{
+  std::shared_ptr<DeformationModelState> state;
+  std::unique_ptr<DeformationModelAssembler> assembler;
+};
+
+template<class FormulationT>
+ExactStateAssembler buildExactAssembler(
+  std::shared_ptr<const SimulationMesh> mesh,
+  DeformationModelElasticMaterial elastic, ElasticFieldInit elasticInit,
+  DeformationModelPlasticMaterial plastic, PlasticFieldInit plasticInit,
+  const FormulationT &formulation,
+  const double *elementFiberDirections = nullptr,
+  const double *vertexFiberDirections = nullptr)
+{
+  auto state = DeformationModelState::create(
+    mesh, elastic, std::move(elasticInit), plastic, std::move(plasticInit));
+  auto manager = std::make_unique<DeformationModelManager>(
+    state, formulation, kExactDerivativeEnforceSpd, elementFiberDirections, vertexFiberDirections);
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  return { std::move(state), std::move(assembler) };
 }
+
+// Central five-point finite-difference of the assembled gradient with respect to
+// a single scalar entry of a parameter vector. setParams installs a candidate
+// parameter vector into the live field the assembler reads. The step is scaled by
+// the parameter magnitude so that large-valued channels (e.g. a Young's modulus
+// of 2e4) and tiny ones (e.g. a 1e-3 thickness) are both perturbed meaningfully.
+template<class SetParams>
+ES::VXd fdGradientColumn(DeformationModelAssembler &assembler, SetParams setParams,
+  const ES::VXd &base, int idx, const ES::VXd &x)
+{
+  const double h = kFiniteDifferenceStep * std::max(1.0, std::abs(base[idx]));
+  return fivePointFiniteDifference([&](double delta) {
+    ES::VXd b = base;
+    b[idx] += delta;
+    setParams(b);
+    ES::VXd g = ES::VXd::Zero(assembler.getNumDOFs());
+    assembler.computeGradient(x.data(), g.data());
+    return g;
+  },
+    h);
+}
+}  // namespace
 
 TEST(DeformationModelAssemblerGTest, TetAssemblerRegression)
 {
@@ -633,4 +681,267 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerMaterialParamRegression)
   EXPECT_EQ(dfdb.cols(), nele * numElasticParams);
   expectAllFinite(dfdb);
   EXPECT_GT(dfdb.norm(), 0.0);
+}
+
+// dfdb == d(gradient)/d(elastic parameter): cross-check the assembled elastic-parameter
+// Jacobian against a finite difference of the gradient. STABLE_NEO exposes zero
+// differentiable elastic parameters, so we use a Hill-type material (one activation
+// parameter) on a single well-conditioned hex.
+TEST(DeformationModelAssemblerGTest, CubicElasticParamJacobianMatchesFiniteDifference)
+{
+  using pgo::SolidDeformationModel::ElasticMaterialFieldType;
+
+  pgo::Logging::init();
+
+  auto meshMutable = makeSingleElementCubicSimulationMesh();
+  ASSERT_NE(meshMutable, nullptr);
+
+  pgo::SolidDeformationModel::SimulationMeshHillMaterial hillMaterial(2500.0, 0.35, 1.0);
+  meshMutable->appendMaterialToAllElements(&hillMaterial);
+  std::shared_ptr<const SimulationMesh> mesh(std::move(meshMutable));
+
+  const int nele = mesh->getNumElements();
+  const int nvtx = mesh->getNumVertices();
+
+  ES::VXd elementFiberDirections = ES::VXd::Zero(nele * 3);
+  for (int ei = 0; ei < nele; ei++)
+    elementFiberDirections.segment<3>(ei * 3) << 1.0, 0.0, 0.0;
+  ES::VXd vertexFiberDirections = ES::VXd::Zero(nvtx * 3);
+  for (int vi = 0; vi < nvtx; vi++)
+    vertexFiberDirections.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
+
+  // Activation level slightly off rest so the derivative is nonzero.
+  const int numElasticParams = 1;
+  ES::VXd elasticBase = ES::VXd::Constant(nele * numElasticParams, 0.75);
+
+  auto sa = buildExactAssembler(
+    mesh,
+    DeformationModelElasticMaterial::HILL_STABLE_NEO,
+    ElasticFieldInit{ ElasticMaterialFieldType::ELEMENTWISE, elasticBase },
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    PlasticFieldInit{},
+    pgo::SolidDeformationModel::LinearCubicFormulation{},
+    elementFiberDirections.data(),
+    vertexFiberDirections.data());
+  ASSERT_EQ(sa.assembler->getNumElasticParams(), numElasticParams);
+
+  // Set plastic to identity so the Hill material sits at a smooth operating point.
+  const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(
+    sa.assembler->getDeformationModelManager().getDeformationModel(0)->getPlasticModel());
+  ASSERT_NE(plasticModel, nullptr);
+  const int numPlasticParams = sa.assembler->getNumPlasticParams();
+  ES::VXd plasticParams(numPlasticParams * nele);
+  ES::M3d identity = ES::M3d::Identity();
+  for (int ei = 0; ei < nele; ei++)
+    plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+  sa.state->setPlasticValues(plasticParams);
+
+  ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
+
+  sa.state->setElasticValues(elasticBase);
+  ES::SpMatD dfdbSp = sa.assembler->get_dfdb_Template();
+  sa.assembler->compute_df_db(x.data(), dfdbSp);
+  ES::MXd dfdb(dfdbSp);
+  ASSERT_EQ(dfdb.cols(), nele * numElasticParams);
+
+  ScopedSerialTbb fdSerialTbb;
+  auto setElastic = [&](const ES::VXd &p) {
+    sa.state->setElasticValues(p);
+  };
+  for (int j = 0; j < dfdb.cols(); j++) {
+    ES::VXd fd = fdGradientColumn(*sa.assembler, setElastic, elasticBase, j, x);
+    EXPECT_LT(relativeColumnError(fd, dfdb.col(j)), 1e-6)
+      << "Cubic dfdb column " << j << " disagrees with the finite-difference gradient.";
+  }
+  sa.state->setElasticValues(elasticBase);
+}
+
+// Shell dfda == d(gradient)/d(plastic parameter): the shell formulation has its own
+// element kinematics and (for the Hessian) an eigenvalue clamp, so it needs an
+// independent FD net. The clamp does not touch the gradient, so FD of the gradient
+// is a valid reference for the plastic Jacobian.
+TEST(DeformationModelAssemblerGTest, ShellPlasticParamJacobianMatchesFiniteDifference)
+{
+  using pgo::SolidDeformationModel::ElasticMaterialFieldType;
+  using pgo::SolidDeformationModel::PlasticMaterialFieldType;
+
+  pgo::Logging::init();
+
+  pgo::Mesh::TriMeshGeo surfaceMesh;
+  ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
+
+  SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
+  ASSERT_NE(mesh, nullptr);
+
+  const int nele = mesh->getNumElements();
+  const int numPlasticParams = 1;  // SHELL_FF_DOF1
+
+  ES::VXd plasticBase = ES::VXd::Constant(static_cast<Eigen::Index>(nele) * numPlasticParams, 1.2);
+
+  auto sa = buildExactAssembler(
+    mesh,
+    DeformationModelElasticMaterial::KOITER_STVK,
+    ElasticFieldInit{},
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticBase },
+    pgo::SolidDeformationModel::KoiterShellFormulation{});
+  ASSERT_EQ(sa.assembler->getNumPlasticParams(), numPlasticParams);
+
+  const int numElasticParams = sa.assembler->getNumElasticParams();
+  ASSERT_EQ(numElasticParams, 5);
+  ES::VXd elasticBase(static_cast<Eigen::Index>(nele) * numElasticParams);
+  for (int ei = 0; ei < nele; ei++)
+    elasticBase.segment<5>(ei * 5) << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
+  sa.state->setElasticValues(elasticBase);
+
+  ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
+
+  sa.state->setPlasticValues(plasticBase);
+  ES::SpMatD dfdaSp = sa.assembler->get_dfda_Template();
+  sa.assembler->compute_df_da(x.data(), dfdaSp);
+  ES::MXd dfda(dfdaSp);
+  ASSERT_EQ(dfda.cols(), nele * numPlasticParams);
+
+  ScopedSerialTbb fdSerialTbb;
+  auto setPlastic = [&](const ES::VXd &p) {
+    sa.state->setPlasticValues(p);
+  };
+  // Spot-check a few elements (each column is a full-gradient FD, so keep it cheap).
+  const int sampleEles[] = { 0, 1, nele / 2 };
+  for (int ele : sampleEles) {
+    const int col = ele * numPlasticParams;  // single plastic param per element
+    ES::VXd fd = fdGradientColumn(*sa.assembler, setPlastic, plasticBase, col, x);
+    EXPECT_LT(relativeColumnError(fd, dfda.col(col)), 1e-5)
+      << "Shell dfda column for element " << ele << " disagrees with the finite-difference gradient.";
+  }
+  sa.state->setPlasticValues(plasticBase);
+}
+
+// Shell dfdb == d(gradient)/d(elastic parameter), exercising all five KOITER_STVK
+// elastic channels [stretchE, stretchNu, bendE, bendNu, thickness]. This pins both
+// the per-channel derivatives and the column placement of the elastic Jacobian.
+TEST(DeformationModelAssemblerGTest, ShellElasticParamJacobianMatchesFiniteDifference)
+{
+  using pgo::SolidDeformationModel::ElasticMaterialFieldType;
+  using pgo::SolidDeformationModel::PlasticMaterialFieldType;
+
+  pgo::Logging::init();
+
+  pgo::Mesh::TriMeshGeo surfaceMesh;
+  ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
+
+  SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
+  ASSERT_NE(mesh, nullptr);
+
+  const int nele = mesh->getNumElements();
+  const int numElasticParams = 5;  // KOITER_STVK
+  const int numPlasticParams = 1;  // SHELL_FF_DOF1
+
+  ES::VXd elasticBase(static_cast<Eigen::Index>(nele) * numElasticParams);
+  for (int ei = 0; ei < nele; ei++)
+    elasticBase.segment<5>(ei * 5) << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
+
+  ES::VXd plasticBase = ES::VXd::Constant(static_cast<Eigen::Index>(nele) * numPlasticParams, 1.2);
+
+  auto sa = buildExactAssembler(
+    mesh,
+    DeformationModelElasticMaterial::KOITER_STVK,
+    ElasticFieldInit{ ElasticMaterialFieldType::ELEMENTWISE, elasticBase },
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticBase },
+    pgo::SolidDeformationModel::KoiterShellFormulation{});
+  ASSERT_EQ(sa.assembler->getNumElasticParams(), numElasticParams);
+
+  ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
+
+  sa.state->setElasticValues(elasticBase);
+  ES::SpMatD dfdbSp = sa.assembler->get_dfdb_Template();
+  sa.assembler->compute_df_db(x.data(), dfdbSp);
+  ES::MXd dfdb(dfdbSp);
+  ASSERT_EQ(dfdb.cols(), nele * numElasticParams);
+
+  ScopedSerialTbb fdSerialTbb;
+  auto setElastic = [&](const ES::VXd &p) {
+    sa.state->setElasticValues(p);
+  };
+  // Check every elastic channel on a couple of elements.
+  const int sampleEles[] = { 0, nele / 2 };
+  for (int ele : sampleEles) {
+    for (int c = 0; c < numElasticParams; c++) {
+      const int col = ele * numElasticParams + c;
+      ES::VXd fd = fdGradientColumn(*sa.assembler, setElastic, elasticBase, col, x);
+      EXPECT_LT(relativeColumnError(fd, dfdb.col(col)), 1e-5)
+        << "Shell dfdb column for element " << ele << ", channel " << c
+        << " disagrees with the finite-difference gradient.";
+    }
+  }
+  sa.state->setElasticValues(elasticBase);
+}
+
+// dfdb for the anisotropic Koiter fabric across all 12 elastic channels
+// [mu0, k1_warp, k2_warp, k1_weft, k2_weft, ks, alpha, kappa11, kappa22, kappa12,
+//  I8_0, thickness]. This exercises compute_dP_dparam for every channel of the
+// fabric model (whose membrane energy uses exponential fiber laws).
+TEST(DeformationModelAssemblerGTest, ShellFabricElasticParamJacobianMatchesFiniteDifference)
+{
+  using pgo::SolidDeformationModel::ElasticMaterialFieldType;
+  using pgo::SolidDeformationModel::PlasticMaterialFieldType;
+
+  pgo::Logging::init();
+
+  pgo::Mesh::TriMeshGeo surfaceMesh;
+  ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
+
+  SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
+  ASSERT_NE(mesh, nullptr);
+
+  const int nele = mesh->getNumElements();
+  const int numElasticParams = 12;  // KOITER_FABRIC
+  const int numPlasticParams = 1;   // SHELL_FF_DOF1
+
+  ES::VXd channelTemplate(numElasticParams);
+  channelTemplate << 1, 1, 1, 1, 1, 1, 1, 1000, 1000, 1000, 1, 1e-3;
+  ES::VXd elasticBase(static_cast<Eigen::Index>(nele) * numElasticParams);
+  for (int ei = 0; ei < nele; ei++)
+    elasticBase.segment<12>(ei * 12) = channelTemplate;
+
+  ES::VXd plasticBase = ES::VXd::Constant(static_cast<Eigen::Index>(nele) * numPlasticParams, 1.2);
+
+  auto sa = buildExactAssembler(
+    mesh,
+    DeformationModelElasticMaterial::KOITER_FABRIC,
+    ElasticFieldInit{ ElasticMaterialFieldType::ELEMENTWISE, elasticBase },
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticBase },
+    pgo::SolidDeformationModel::KoiterShellFormulation{});
+  ASSERT_EQ(sa.assembler->getNumElasticParams(), numElasticParams);
+
+  ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
+
+  sa.state->setElasticValues(elasticBase);
+  ES::SpMatD dfdbSp = sa.assembler->get_dfdb_Template();
+  sa.assembler->compute_df_db(x.data(), dfdbSp);
+  ES::MXd dfdb(dfdbSp);
+  ASSERT_EQ(dfdb.cols(), nele * numElasticParams);
+
+  ScopedSerialTbb fdSerialTbb;
+  auto setElastic = [&](const ES::VXd &p) {
+    sa.state->setElasticValues(p);
+  };
+
+  const int sampleEles[] = { 0, nele / 2 };
+  for (int ele : sampleEles) {
+    for (int c = 0; c < numElasticParams; c++) {
+      const int col = ele * numElasticParams + c;
+      ES::VXd fd = fdGradientColumn(*sa.assembler, setElastic, elasticBase, col, x);
+      const double err = relativeColumnError(fd, dfdb.col(col));
+      EXPECT_LT(err, 1e-5)
+        << "Fabric dfdb column for element " << ele << ", channel " << c
+        << " disagrees with the finite-difference gradient.";
+    }
+  }
+  sa.state->setElasticValues(elasticBase);
 }

@@ -18,20 +18,10 @@ namespace ES = EigenSupport;
 
 int PlasticModelFactory::numParameters(DeformationModelPlasticMaterial type)
 {
-  switch (type) {
-  case DeformationModelPlasticMaterial::VOLUMETRIC_DOF0:
-    return 0;
-  case DeformationModelPlasticMaterial::VOLUMETRIC_DOF3:
-    return 3;
-  case DeformationModelPlasticMaterial::VOLUMETRIC_DOF6:
-    return 6;
-  case DeformationModelPlasticMaterial::SHELL_FF_DOF0:
-    return 0;
-  case DeformationModelPlasticMaterial::SHELL_FF_DOF1:
-    return 1;
-  default:
-    return 0;
-  }
+  // Single source of truth: the plastic model's differentiable parameter count.
+  // create() needs no mesh and the fiber axes do not affect the count, so a
+  // throwaway model with a null axis is sufficient.
+  return create(type, nullptr)->getNumParameters();
 }
 
 std::unique_ptr<PlasticModel> PlasticModelFactory::create(

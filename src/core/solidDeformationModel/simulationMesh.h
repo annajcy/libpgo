@@ -39,11 +39,10 @@ public:
 
   virtual std::unique_ptr<SimulationMeshMaterial> clone() const = 0;
 
-  // Number of parameter-field channels for a given material model type. This
-  // excludes fixed material constants such as E, nu, h, and Hill shape constants
-  // unless the created ElasticModel differentiates with respect to them.
-  virtual int numElasticParameters(DeformationModelElasticMaterial t) const;
-  virtual int numPlasticParameters(DeformationModelPlasticMaterial t) const;
+  // The number of optimizable parameter-field channels is the differentiable
+  // parameter count of the created model (ElasticModel/PlasticModel::getNumParameters()),
+  // queried directly from the model -- there is no separate per-type table to keep
+  // in sync. See ElasticModelFactory::parameterSpec / PlasticModelFactory::numParameters.
 
   // Create the elastic model for one element.
   // auxMat is the material at slot 1 (required for Hill-type materials, nullptr otherwise).

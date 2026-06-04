@@ -41,7 +41,9 @@ TEST(DeformationModelStateGTest, CreatesDefaultElementwiseFieldsFromOneMesh)
   EXPECT_EQ(state->plasticMaterial(), DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   EXPECT_EQ(state->elasticField().spec().domain, ParameterDomain::ELASTIC);
   EXPECT_EQ(state->plasticField().spec().domain, ParameterDomain::PLASTIC);
-  EXPECT_EQ(state->elasticField().dofLayout()->numGlobalDofs(), mesh->getNumElements() * 2);
+  // STABLE_NEO exposes no differentiable elastic parameters, so its elastic field
+  // has 0 channels (matches getNumParameters()); the plastic DOF6 field has 6.
+  EXPECT_EQ(state->elasticField().dofLayout()->numGlobalDofs(), 0);
   EXPECT_EQ(state->plasticField().dofLayout()->numGlobalDofs(), mesh->getNumElements() * 6);
 }
 
@@ -85,8 +87,9 @@ TEST(DeformationModelStateGTest, CreatesConstantFieldsSharedAcrossMesh)
 
   ASSERT_NE(state, nullptr);
   // A constant (mesh-wide shared) field has numChannels global dofs, not
-  // numChannels * numElements.
-  EXPECT_EQ(state->elasticField().dofLayout()->numGlobalDofs(), 2);
+  // numChannels * numElements. STABLE_NEO has 0 elastic channels; the constant
+  // sharing semantics are exercised by the plastic DOF6 field (6 shared dofs).
+  EXPECT_EQ(state->elasticField().dofLayout()->numGlobalDofs(), 0);
   EXPECT_EQ(state->plasticField().dofLayout()->numGlobalDofs(), 6);
   EXPECT_EQ(state->elasticField().kind(), ParameterFieldKind::CONSTANT);
   EXPECT_EQ(state->plasticField().kind(), ParameterFieldKind::CONSTANT);

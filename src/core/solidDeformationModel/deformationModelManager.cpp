@@ -254,15 +254,17 @@ DeformationModelManager::DeformationModelManager(std::shared_ptr<DeformationMode
   const auto elasticMaterialType = data->state->elasticMaterial();
   std::shared_ptr<OptimizableField> elasticField = data->state->elasticFieldPtr();
   std::shared_ptr<OptimizableField> plasticField = data->state->plasticFieldPtr();
-  const auto *mat = simulationMesh.getElementMaterial(0, 0);
-  const int ne = mat->numElasticParameters(elasticMaterialType);
-  const int np = mat->numPlasticParameters(plasticModelType);
-  data->numPlasticParams = np;
-
-  validateParameterField("elasticField", elasticField.get(), ParameterDomain::ELASTIC, ne, data->nele);
-  validateParameterField("plasticField", plasticField.get(), ParameterDomain::PLASTIC, np, data->nele);
 
   initImpl(plasticModelType, elasticMaterialType, formulation);
+
+  // Parameter-field channel counts are the differentiable parameter counts reported
+  // by the created models (the single source of truth), so the fields are validated
+  // after the elements -- and their elastic/plastic models -- exist.
+  const int ne = data->elementFEMs[0]->getElasticModel()->getNumParameters();
+  const int np = data->elementFEMs[0]->getPlasticModel()->getNumParameters();
+  data->numPlasticParams = np;
+  validateParameterField("elasticField", elasticField.get(), ParameterDomain::ELASTIC, ne, data->nele);
+  validateParameterField("plasticField", plasticField.get(), ParameterDomain::PLASTIC, np, data->nele);
 
   if (enforceSPD)
     setEnforceSPD(enforceSPD);

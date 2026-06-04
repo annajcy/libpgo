@@ -23,6 +23,9 @@ public:
   void compute_d2psi_da2(const double *param, const double a[4], const double abar[4], double da2[16]) const override;
   void compute_d2psi_db2(const double *param, const double b[4], const double abar[4], const double bbar[4], double db2[16]) const override;
 
+  void compute_d2psi_da_dparam(const double *param, const double a[4], const double abar[4], double d2psi_dadparam[/*4 x numParams*/]) const override;
+  void compute_d2psi_db_dparam(const double *param, const double b[4], const double abar[4], const double bbar[4], double d2psi_dbdparam[/*4 x numParams*/]) const override;
+
   int getNumParameters() const override { return 12; };
 
 protected:

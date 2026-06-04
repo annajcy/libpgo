@@ -138,8 +138,6 @@ TEST(ElasticModelFactoryGTest, HillParameterSpecMatchesCreatedModelParameters)
 
   const auto spec = ElasticModelFactory::parameterSpec(
     *simMesh, DeformationModelElasticMaterial::HILL_STABLE_NEO);
-  EXPECT_EQ(simMesh->getElementMaterial(0, 0)->numElasticParameters(
-    DeformationModelElasticMaterial::HILL_STABLE_NEO), result->getNumParameters());
   EXPECT_EQ(spec.numChannels, result->getNumParameters());
   ASSERT_EQ(spec.channelNames.size(), 1);
   EXPECT_EQ(spec.channelNames[0], "activation");
@@ -156,8 +154,6 @@ TEST(ElasticModelFactoryGTest, KoiterFabricParameterSpecMatchesCreatedModelParam
 
   const auto spec = ElasticModelFactory::parameterSpec(
     *simMesh, DeformationModelElasticMaterial::KOITER_FABRIC);
-  EXPECT_EQ(simMesh->getElementMaterial(0, 0)->numElasticParameters(
-    DeformationModelElasticMaterial::KOITER_FABRIC), result->getNumParameters());
   EXPECT_EQ(spec.numChannels, result->getNumParameters());
   EXPECT_EQ(spec.channelNames.size(), static_cast<size_t>(result->getNumParameters()));
 }

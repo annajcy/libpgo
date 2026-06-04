@@ -629,7 +629,19 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::aba(const SpMatD &A, const double *
   mkl_sparse_destroy(BM);
   mkl_sparse_destroy(AM);
 #else
-  abort();
+  // Non-MKL fallback: C = op(A) * diag(W) * op(A)^T, matching the MKL sypr above.
+  // diag(W) has the same orientation as the MKL path (W indexed over the rows for
+  // transpose, over the columns otherwise).
+  const IDX diagSize = transpose ? A.rows() : A.cols();
+  SpMatD Wd(diagSize, diagSize);
+  Wd.reserve(Eigen::VectorXi::Constant(diagSize, 1));
+  for (IDX i = 0; i < diagSize; i++)
+    Wd.insert(i, i) = W[i];
+  Wd.makeCompressed();
+  if (transpose)
+    C = A.transpose() * Wd * A;
+  else
+    C = A * Wd * A.transpose();
 #endif
 }
 

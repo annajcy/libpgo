@@ -236,6 +236,8 @@ void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *ca
   const CacheData *cacheData = static_cast<const CacheData *>(cacheDataBase);
 
   ES::M4x18d d2psi_da_dparam, d2psi_db_dparam;
+  d2psi_da_dparam.setZero();
+  d2psi_db_dparam.setZero();
   elasticModel_->compute_d2psi_da_dparam(
     cacheData->elasticParams.data(), cacheData->a.data(),
     cacheData->abar.data(), d2psi_da_dparam.data());

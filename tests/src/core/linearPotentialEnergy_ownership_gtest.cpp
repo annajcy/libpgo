@@ -71,8 +71,12 @@ TEST(LinearPotentialEnergyOwnershipGTest, HessianIsEmpty)
   ES::SpMatD H;
   energy.hessian(x, H);
 
-  EXPECT_EQ(H.rows(), 0);
-  EXPECT_EQ(H.cols(), 0);
+  // A linear energy has no second-order term, but hessianAlloc sizes the matrix to
+  // the DOF count so it stays composable with other energies' Hessians in the
+  // solver; hessianInPlace adds nothing, leaving a 3x3 matrix with no nonzeros.
+  EXPECT_EQ(H.rows(), 3);
+  EXPECT_EQ(H.cols(), 3);
+  EXPECT_EQ(H.nonZeros(), 0);
 }
 
 TEST(LinearPotentialEnergyOwnershipGTest, DofsAndSize)

@@ -283,12 +283,13 @@ def _require_sim_mesh(sim_mesh):
 
 
 def _elastic_value_channels(elastic):
+    # Must mirror SimulationMeshMaterial::numElasticParameters (== the elastic
+    # model's getNumParameters). The basic 3D materials expose no differentiable
+    # elastic parameters, so their optimizable elastic field has 0 channels.
     if isinstance(elastic, KoiterStVK):
         return 5
-    if isinstance(elastic, StVKVolume):
-        return 3
-    if isinstance(elastic, (StableNeo, StVK, LinearElastic)):
-        return 2
+    if isinstance(elastic, (StableNeo, StVK, LinearElastic, StVKVolume, MooneyRivlin)):
+        return 0
     return None
 
 
