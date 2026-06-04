@@ -28,19 +28,19 @@ dependencies:
   # --- MKL (Linux / Windows only — CMake auto-disables on macOS / Apple Silicon) ---
   # - mkl-devel
 
-  # --- Python: core ---
-  - numpy
+  # --- Python: core (conda) ---
+  - numpy        # kept on conda — openvdb's python bindings hard-depend on conda-numpy
   - pip
-  - pytorch
   - setuptools
   - wheel
 
-  # --- Python: testing & notebooks ---
-  - pytest
-  - notebook
-
-  # --- Python: example visualisation ---
-  - pyvista
-  - trame
-  - trame-vtk
-  - trame-vuetify
+  # --- Python: pip-managed (pip-first / moved off conda) ---
+  # Native build deps (gmp, tbb, openvdb, gmsh, numpy, ...) stay on conda above.
+  - pip:
+      - torch         # was conda `pytorch`; official pip wheel (MPS) on macOS arm64
+      - pyvista       # pulls its own vtk wheel; conda vtk-base removed to avoid collision
+      - pytest
+      - notebook
+      - trame
+      - trame-vtk
+      - trame-vuetify

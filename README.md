@@ -69,6 +69,13 @@ To update an existing environment after pulling changes:
 conda env update -f environment.yml --prune
 ```
 
+Note: `--prune` removes conda packages no longer listed, but it does **not**
+migrate a package that moved between the conda list and the `pip:` subsection
+(conda leaves the old build in place and pip then sees it as already
+satisfied). If a dependency was switched from conda to pip (e.g. `pytorch` →
+pip `torch`, `pyvista`, `pytest`, `notebook`), recreate the environment from
+scratch using the block below so it resolves from the intended source.
+
 To recreate the environment from scratch:
 
 ```bash
@@ -259,9 +266,19 @@ Example `CMakeUserPresets.json` (local, optional):
 
 ### Dependency Ownership
 
-- Conda supplies CMake, Ninja, Python packages, and most native runtime/build
-  packages: Boost, MKL, TBB, Gmsh, OpenVDB, Imath, zlib, numpy, pytest,
-  setuptools, and wheel.
+- Conda supplies CMake, Ninja, and the native runtime/build packages plus the
+  Python packages that are ABI-tied to them: Boost, MKL, TBB, Gmsh, OpenVDB,
+  Imath, zlib, numpy, setuptools, and wheel. `numpy` stays on conda because
+  OpenVDB's Python bindings hard-depend on conda-numpy — making it pip-only
+  would leave two conflicting numpy installs on the same import path.
+- Pip (declared in the `pip:` subsection of `environment.yml`) supplies the
+  pure-Python / pip-first packages that are not build-time native deps: `torch`
+  (official macOS arm64 wheel, with MPS; replaces conda `pytorch`), `pyvista`
+  (pulls its own `vtk` wheel — conda `vtk-base` is intentionally not installed,
+  to avoid a duplicate `vtkmodules` import path), `pytest`, `notebook`, and the
+  `trame` / `trame-vtk` / `trame-vuetify` stack (conda-forge lags their
+  releases). `conda env create` installs these automatically after the conda
+  solve, including in CI.
 - The host package manager supplies platform basics that are awkward to keep
   fully inside conda: Linux compiler/system BLAS/GMP/MPFR headers and macOS
   Homebrew GMP/MPFR/Imath.
