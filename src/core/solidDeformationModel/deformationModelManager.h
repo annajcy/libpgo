@@ -76,8 +76,8 @@ public:
 
   const DeformationModel *getDeformationModel(int eleID) const;
 
-  const ParameterField *getElasticParameterField() const;
-  const ParameterField *getPlasticParameterField() const;
+  const OptimizableField *getElasticParameterField() const;
+  const OptimizableField *getPlasticParameterField() const;
 
   std::unique_ptr<const DofLayout> createDofLayout() const;
   EigenSupport::VXd buildRestPosition() const;

@@ -208,11 +208,7 @@ void validateParameterField(const char *name, const OptimizableField *field,
   if (!layout)
     throw std::invalid_argument(std::string(name) + " must provide a DOF layout.");
 
-  // A constant (mesh-wide shared) field stores a single set of expectedChannels
-  // parameters; an elementwise field stores one set per element.
-  const bool shared = field->kind() == ParameterFieldKind::CONSTANT;
-  const int expectedGlobalDofs = shared ? expectedChannels : expectedChannels * expectedElements;
-  if (layout->numGlobalDofs() != expectedGlobalDofs)
+  if (!layout->matchesParameterShape(expectedChannels, expectedElements))
     throw std::invalid_argument(std::string(name) + " global DOF count does not match the mesh.");
 }
 
@@ -313,12 +309,12 @@ const DeformationModel *DeformationModelManager::getDeformationModel(int eleID) 
   return data->elementFEMs[eleID].get();
 }
 
-const ParameterField *DeformationModelManager::getElasticParameterField() const
+const OptimizableField *DeformationModelManager::getElasticParameterField() const
 {
   return data->state->elasticFieldPtr().get();
 }
 
-const ParameterField *DeformationModelManager::getPlasticParameterField() const
+const OptimizableField *DeformationModelManager::getPlasticParameterField() const
 {
   return data->state->plasticFieldPtr().get();
 }
@@ -421,20 +417,10 @@ int DeformationModelManager::getNumElasticParameters() const
 
 ES::VXd DeformationModelManager::getElasticParameterSnapshot() const
 {
-  const auto *layout = data->state->elasticFieldPtr()->dofLayout();
-  const int n = layout ? layout->numGlobalDofs() : 0;
-  ES::VXd params(n);
-  if (n > 0)
-    params = Eigen::Map<const ES::VXd>(data->state->elasticFieldPtr()->globalData(), n);
-  return params;
+  return data->state->elasticParameterSnapshot();
 }
 
 ES::VXd DeformationModelManager::getPlasticParameterSnapshot() const
 {
-  const auto *layout = data->state->plasticFieldPtr()->dofLayout();
-  const int n = layout ? layout->numGlobalDofs() : 0;
-  ES::VXd params(n);
-  if (n > 0)
-    params = Eigen::Map<const ES::VXd>(data->state->plasticFieldPtr()->globalData(), n);
-  return params;
+  return data->state->plasticParameterSnapshot();
 }

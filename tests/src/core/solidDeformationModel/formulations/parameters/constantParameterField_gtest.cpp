@@ -72,6 +72,11 @@ TEST(ConstantParameterField, DofLayoutGlobalDofsEqualsNumChannels)
   EXPECT_EQ(dofLayout->numLocalDofs(), 5);
   // Shared across the whole mesh: numGlobalDofs == numChannels, NOT * numElements.
   EXPECT_EQ(dofLayout->numGlobalDofs(), 5);
+  EXPECT_TRUE(dofLayout->matchesParameterShape(5, 4));
+  EXPECT_TRUE(dofLayout->matchesParameterShape(5, 9));
+  EXPECT_FALSE(dofLayout->matchesParameterShape(4, 4));
+  EXPECT_EQ(dofLayout->globalDof(0, 3), 3);
+  EXPECT_EQ(dofLayout->globalDof(8, 3), 3);
 }
 
 TEST(ConstantParameterField, DofLayoutGatherIgnoresElement)
@@ -100,6 +105,7 @@ TEST(ConstantParameterField, ZeroChannelField)
 
   EXPECT_EQ(field.numChannels(), 0);
   EXPECT_EQ(field.numLocalDofs(), 0);
+  EXPECT_EQ(field.numValueRows(), 0);
   EXPECT_EQ(field.kind(), ParameterFieldKind::CONSTANT);
 
   field.computeValue(0, 0, nullptr);
@@ -154,6 +160,7 @@ TEST(ConstantParameterField, ValuesAccessorReflectsSharedSet)
   ConstantParameterField field(spec, 5, vals);
 
   EXPECT_EQ(field.numElements(), 5);
+  EXPECT_EQ(field.numValueRows(), 1);
   ASSERT_EQ(field.values().size(), 2);
   EXPECT_DOUBLE_EQ(field.values()[0], 7.0);
   EXPECT_DOUBLE_EQ(field.values()[1], 8.0);

@@ -25,8 +25,13 @@ TEST(ElementwiseParameterField, OwnsValuesAndGathersPerElement)
   EXPECT_EQ(field.spec().modelId, "volumetric_dof6");
   EXPECT_EQ(field.kind(), ParameterFieldKind::ELEMENTWISE);
   EXPECT_EQ(field.numElements(), 2);
+  EXPECT_EQ(field.numValueRows(), 2);
   EXPECT_EQ(field.numChannels(), 6);
   EXPECT_EQ(field.dofLayout()->numGlobalDofs(), 12);
+  EXPECT_TRUE(field.dofLayout()->matchesParameterShape(6, 2));
+  EXPECT_FALSE(field.dofLayout()->matchesParameterShape(6, 3));
+  EXPECT_FALSE(field.dofLayout()->matchesParameterShape(5, 2));
+  EXPECT_EQ(field.dofLayout()->globalDof(1, 3), 9);
 
   double out[6] = {};
   field.computeValue(1, 0, out);

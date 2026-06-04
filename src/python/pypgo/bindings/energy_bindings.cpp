@@ -18,6 +18,7 @@
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
 #include "formulations/parameters/parameterField.h"
+#include "factories/elasticModelFactory.h"
 #include "constraints/constraint_core.h"
 #include "EigenDef.h"
 #include "energy_core.h"
@@ -41,16 +42,7 @@ namespace {
 
 SolidDeformationModel::DeformationModelElasticMaterial parseElasticMaterial(const std::string &s)
 {
-  if (s == "stable_neo") return SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
-  if (s == "stvk") return SolidDeformationModel::DeformationModelElasticMaterial::STVK;
-  if (s == "stvk_vol") return SolidDeformationModel::DeformationModelElasticMaterial::STVK_VOL;
-  if (s == "linear") return SolidDeformationModel::DeformationModelElasticMaterial::LINEAR;
-  if (s == "mooney_rivlin") return SolidDeformationModel::DeformationModelElasticMaterial::MOONEY_RIVLIN;
-  if (s == "koiter_stvk") return SolidDeformationModel::DeformationModelElasticMaterial::KOITER_STVK;
-  if (s == "hill_stable_neo") return SolidDeformationModel::DeformationModelElasticMaterial::HILL_STABLE_NEO;
-  if (s == "hill_stvk") return SolidDeformationModel::DeformationModelElasticMaterial::HILL_STVK;
-  if (s == "hill_stvk_vol") return SolidDeformationModel::DeformationModelElasticMaterial::HILL_STVK_VOL;
-  throw std::invalid_argument("Unknown elastic material: " + s);
+  return SolidDeformationModel::ElasticModelFactory::materialFromModelId(s);
 }
 
 SolidDeformationModel::DeformationModelPlasticMaterial parsePlasticMaterial(const std::string &s)
@@ -150,16 +142,14 @@ public:
 
   std::string model() const { return field_->spec().modelId; }
   int numChannels() const { return field_->numChannels(); }
+  int numValueRows() const { return field_->numValueRows(); }
 
-  // Number of parameter rows: nele for an elementwise field, 1 for a constant
-  // (mesh-wide shared) field.
+  // Compatibility alias for the number of stored parameter rows, not the mesh
+  // element count. Elementwise fields store one row per element; constant fields
+  // store one shared row.
   int numElements() const
   {
-    const auto *layout = field_->dofLayout();
-    if (!layout || field_->numChannels() == 0) {
-      return 0;
-    }
-    return layout->numGlobalDofs() / field_->numChannels();
+    return numValueRows();
   }
 
   nb::ndarray<nb::numpy, double> values() const
@@ -167,7 +157,7 @@ public:
     const auto *layout = field_->dofLayout();
     const int nc = field_->numChannels();
     const int n = layout ? layout->numGlobalDofs() : 0;
-    const int rows = nc > 0 ? n / nc : 0;
+    const int rows = field_->numValueRows();
     const double *src = field_->globalData();
     auto data = (n == 0 || !src)
       ? new std::vector<double>()
@@ -208,18 +198,16 @@ std::optional<EigenSupport::VXd> optionalVectorFromObject(const nb::object &valu
 class PyDeformationModelState
 {
 public:
-  PyDeformationModelState(
-    std::shared_ptr<PySimulationMesh> meshOwner,
+  explicit PyDeformationModelState(
     std::shared_ptr<SolidDeformationModel::DeformationModelState> state)
-    : meshOwner_(std::move(meshOwner)), state_(std::move(state))
+    : state_(std::move(state))
   {
-    if (!meshOwner_ || !state_) {
-      throw std::invalid_argument("PyDeformationModelState requires non-null mesh and state.");
+    if (!state_) {
+      throw std::invalid_argument("PyDeformationModelState requires non-null state.");
     }
   }
 
   std::shared_ptr<SolidDeformationModel::DeformationModelState> state() const { return state_; }
-  std::shared_ptr<PySimulationMesh> meshOwner() const { return meshOwner_; }
 
   std::string elasticModel() const { return state_->elasticField().spec().modelId; }
   std::string plasticModel() const { return state_->plasticField().spec().modelId; }
@@ -246,7 +234,6 @@ public:
   }
 
 private:
-  std::shared_ptr<PySimulationMesh> meshOwner_;
   std::shared_ptr<SolidDeformationModel::DeformationModelState> state_;
 };
 
@@ -292,7 +279,18 @@ std::shared_ptr<PyDeformationModelState> createDeformationModelState(
     parsePlasticMaterial(plasticModel),
     std::move(plasticField));
 
-  return std::make_shared<PyDeformationModelState>(std::move(meshCore), std::move(state));
+  return std::make_shared<PyDeformationModelState>(std::move(state));
+}
+
+int elasticNumChannels(
+  const std::shared_ptr<PySimulationMesh> &meshCore,
+  const std::string &elasticModel)
+{
+  if (!meshCore) {
+    throw nb::value_error("mesh_core must be non-null");
+  }
+  const auto type = parseElasticMaterial(elasticModel);
+  return SolidDeformationModel::ElasticModelFactory::parameterSpec(meshCore->mesh(), type).numChannels;
 }
 
 // ── QuadraticEnergy factories ────────────────────────────────────────
@@ -540,7 +538,7 @@ std::shared_ptr<PyEnergySet> createEnergySet(
 // Deformation energy wrapper — bridges the shared PyPotentialEnergy handle
 // protocol with deformation-specific metadata (rest_position, etc.).
 //
-// Owns the PySimulationMesh so the borrowed C++ mesh outlives the energy chain.
+// Owns the model state so the C++ mesh and parameter fields outlive the energy chain.
 class PyDeformationEnergy
 {
 public:
@@ -662,6 +660,7 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("domain", &PyParameterField::domain)
     .def_prop_ro("model", &PyParameterField::model)
     .def_prop_ro("num_elements", &PyParameterField::numElements)
+    .def_prop_ro("num_value_rows", &PyParameterField::numValueRows)
     .def_prop_ro("num_channels", &PyParameterField::numChannels)
     .def("values", &PyParameterField::values)
     .def("set_values", &PyParameterField::setValues, nb::arg("values"));
@@ -683,6 +682,10 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("plastic_values").none(),
     nb::arg("elastic_field_type") = "elementwise",
     nb::arg("plastic_field_type") = "elementwise");
+
+  m.def("_elastic_num_channels", &elasticNumChannels,
+    nb::arg("mesh_core"),
+    nb::arg("elastic_model"));
 
   // Unified deformation energy factory (public API entry point).
   m.def("_create_deformation_energy", &createDeformationEnergy,

@@ -110,20 +110,14 @@ DeformationModelAssembler::DeformationModelAssembler(
     elementKInverseIndices[ele] = idxM;
   }
 
-  // dfdbTemplate sparsity. A constant (mesh-wide shared) elastic field folds every
-  // element's differentiated parameters onto the same numElasticParams_ columns; an
-  // elementwise field gives each element its own block. The column stride is the
-  // differentiated parameter count numElasticParams_, which may be smaller than the
-  // field's channel count (e.g. Hill materials store extra non-optimized channels).
-  const bool elasticShared = elasticParamField_ &&
-    elasticParamField_->kind() == ParameterFieldKind::CONSTANT;
-  const int numElasticGlobalParams = elasticShared ? numElasticParams_ : nele * numElasticParams_;
+  const auto *elasticParamLayout = elasticParamField_ ? elasticParamField_->dofLayout() : nullptr;
+  const int numElasticGlobalParams = elasticParamLayout ? elasticParamLayout->numGlobalDofs() : 0;
   const auto elasticGlobalCol = [&](int ele, int ep) {
-    return elasticShared ? ep : ele * numElasticParams_ + ep;
+    return elasticParamLayout->globalDof(ele, ep);
   };
 
   entries.clear();
-  if (numElasticParams_ > 0 && elasticParamField_) {
+  if (numElasticParams_ > 0 && elasticParamLayout) {
     for (int ele = 0; ele < nele; ele++) {
       for (int vi = 0; vi < neleVtx; vi++) {
         int vidx = deformationModelManager->getMesh()->getVertexIndex(ele, vi);
@@ -142,7 +136,7 @@ DeformationModelAssembler::DeformationModelAssembler(
   }
 
   element_dfdb_InverseIndices.resize(nele);
-  if (numElasticParams_ > 0 && elasticParamField_) {
+  if (numElasticParams_ > 0 && elasticParamLayout) {
     for (int ele = 0; ele < nele; ele++) {
       const int *vertexIndices = deformationModelManager->getMesh()->getVertexIndices(ele);
       DynamicIndexMatrix idxM(localDOFs, numElasticParams_);
@@ -171,16 +165,14 @@ DeformationModelAssembler::DeformationModelAssembler(
     }
   }
 
-  // dfdaTemplate sparsity (see dfdbTemplate above for the constant-vs-elementwise rule).
-  const bool plasticShared = plasticParamField_ &&
-    plasticParamField_->kind() == ParameterFieldKind::CONSTANT;
-  const int numPlasticGlobalParams = plasticShared ? numPlasticParams_ : nele * numPlasticParams_;
+  const auto *plasticParamLayout = plasticParamField_ ? plasticParamField_->dofLayout() : nullptr;
+  const int numPlasticGlobalParams = plasticParamLayout ? plasticParamLayout->numGlobalDofs() : 0;
   const auto plasticGlobalCol = [&](int ele, int pp) {
-    return plasticShared ? pp : ele * numPlasticParams_ + pp;
+    return plasticParamLayout->globalDof(ele, pp);
   };
 
   entries.clear();
-  if (numPlasticParams_ > 0 && plasticParamField_) {
+  if (numPlasticParams_ > 0 && plasticParamLayout) {
     for (int ele = 0; ele < nele; ele++) {
       for (int vi = 0; vi < neleVtx; vi++) {
         int vidx = deformationModelManager->getMesh()->getVertexIndex(ele, vi);
@@ -199,7 +191,7 @@ DeformationModelAssembler::DeformationModelAssembler(
   }
 
   element_dfda_InverseIndices.resize(nele);
-  if (numPlasticParams_ > 0 && plasticParamField_) {
+  if (numPlasticParams_ > 0 && plasticParamLayout) {
     for (int ele = 0; ele < nele; ele++) {
       const int *vertexIndices = deformationModelManager->getMesh()->getVertexIndices(ele);
       DynamicIndexMatrix idxM(localDOFs, numPlasticParams_);

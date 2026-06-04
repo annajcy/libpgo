@@ -104,8 +104,8 @@ class TestDeformationModelState:
         assert state.plastic_model == "volumetric_dof6"
         assert state.num_elements == sim.num_elements
         assert state.elastic_field.domain == "elastic"
-        assert state.elastic_field.values.shape == (sim.num_elements, 2)
-        assert np.allclose(state.elastic_field.values, [[1e6, 0.45]])
+        assert state.elastic_field.num_channels == 0
+        assert state.elastic_field.values.shape == (0, 0)
         assert state.plastic_field.domain == "plastic"
         assert state.plastic_field.values.shape == (sim.num_elements, 6)
         assert np.allclose(state.plastic_field.values, [[1.0, 0.0, 0.0, 1.0, 0.0, 1.0]])
@@ -121,6 +121,46 @@ class TestDeformationModelState:
         updated = np.array([[0.95, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
         state.set_plastic_values(updated)
         assert np.allclose(state.plastic_field.values, updated)
+
+    def test_given_elastic_values_use_cpp_channel_count(self):
+        class KoiterFabric:
+            def _to_string(self):
+                return "koiter_fabric"
+
+        sim = _make_shell_sim_mesh()
+        params = np.array(
+            [[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1000.0, 1000.0, 1000.0, 1.0, 0.01]],
+            dtype=np.float64,
+        )
+
+        state = pf.deformation_model_state(
+            sim,
+            elastic=KoiterFabric(),
+            elastic_field=pf.ElementwiseField(values=params),
+            plastic=pf.ShellPlasticity(dofs=1),
+            plastic_field=pf.ElementwiseField(),
+        )
+
+        assert state.elastic_model == "koiter_fabric"
+        assert state.elastic_field.values.shape == (sim.num_elements, 12)
+        assert np.allclose(state.elastic_field.values, params)
+
+    def test_constant_field_reports_shared_value_row(self):
+        sim = _make_tet_sim_mesh()
+        params = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
+
+        state = pf.deformation_model_state(
+            sim,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_field=pf.ConstantField(values=params),
+        )
+
+        assert state.plastic_field.num_value_rows == 1
+        assert state.plastic_field.num_elements == 1
+        assert state.plastic_field.values.shape == (1, 6)
+        assert np.allclose(state.plastic_field.values, params)
 
     def test_rejects_wrong_field_shape(self):
         sim = _make_tet_sim_mesh()

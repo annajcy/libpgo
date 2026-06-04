@@ -56,11 +56,14 @@ public:
     virtual ~ParameterDofLayout() = default;
     virtual int numGlobalDofs() const = 0;
     virtual int numLocalDofs() const = 0;
+    virtual bool matchesParameterShape(int numChannels, int numElements) const = 0;
+    virtual int globalDof(int ele, int localDof) const = 0;
     virtual void gather(int ele, const double *global, double *local) const = 0;
   };
 
   virtual const ParameterDofLayout *dofLayout() const = 0;
   virtual const double *globalData() const = 0;
+  virtual int numValueRows() const = 0;
   virtual void computeDerivative(int ele, int quadratureId, double *derivOut) const = 0;
 };
 

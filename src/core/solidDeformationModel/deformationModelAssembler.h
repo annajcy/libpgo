@@ -62,8 +62,8 @@ protected:
   std::unique_ptr<const DofLayout> dofLayout;
   std::unique_ptr<DeformationModelAssemblerCacheData> data;
 
-  const ParameterField *elasticParamField_ = nullptr;
-  const ParameterField *plasticParamField_ = nullptr;
+  const OptimizableField *elasticParamField_ = nullptr;
+  const OptimizableField *plasticParamField_ = nullptr;
 
   int numDOFs, nele, neleVtx, localDOFs;
   int numElasticParams_ = 0;

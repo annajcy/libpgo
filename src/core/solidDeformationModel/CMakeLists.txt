@@ -125,6 +125,9 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
 		formulations/dof/vertex3DofLayout.cpp
 
+    formulations/parameters/constantParameterField.cpp
+    formulations/parameters/elementwiseParameterField.cpp
+
 
   deformationModelManager.cpp
 

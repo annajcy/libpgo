@@ -43,6 +43,10 @@ struct PlasticFieldInit
   std::optional<EigenSupport::VXd> values;
 };
 
+// Aggregate owner for one simulation mesh and the material parameter fields
+// created for that exact mesh/material pair. Managers and assemblers borrow
+// these objects through the state; they do not own independent mesh/field
+// lifetimes.
 class DeformationModelState
 {
 public:

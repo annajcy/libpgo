@@ -180,6 +180,10 @@ class ParameterField:
         return self._core.num_elements
 
     @property
+    def num_value_rows(self) -> int:
+        return self._core.num_value_rows
+
+    @property
     def num_channels(self) -> int:
         return self._core.num_channels
 
@@ -282,15 +286,8 @@ def _require_sim_mesh(sim_mesh):
     return sim_mesh
 
 
-def _elastic_value_channels(elastic):
-    # Must mirror SimulationMeshMaterial::numElasticParameters (== the elastic
-    # model's getNumParameters). The basic 3D materials expose no differentiable
-    # elastic parameters, so their optimizable elastic field has 0 channels.
-    if isinstance(elastic, KoiterStVK):
-        return 5
-    if isinstance(elastic, (StableNeo, StVK, LinearElastic, StVKVolume, MooneyRivlin)):
-        return 0
-    return None
+def _elastic_value_channels(sim_mesh, elastic):
+    return _core._elastic_num_channels(sim_mesh._core_obj, elastic._to_string())
 
 
 def deformation_model_state(
@@ -311,7 +308,7 @@ def deformation_model_state(
         "elastic_field.values",
         elastic_field,
         sim_mesh.num_elements,
-        _elastic_value_channels(elastic),
+        _elastic_value_channels(sim_mesh, elastic),
     )
     plastic_values = _field_init_values(
         "plastic_field.values",

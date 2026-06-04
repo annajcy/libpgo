@@ -61,6 +61,25 @@ def _make_deformation_energy(sim, formulation, elastic="stable_neo", plastic="vo
 
 
 class TestCoreState:
+    def test_elastic_num_channels_uses_cpp_parameter_spec(self):
+        tet_sim = _make_tet_sim_mesh()
+        assert _core._elastic_num_channels(tet_sim._core_obj, "stable_neo") == 0
+
+        shell_sim = pgo.sim.SimulationMesh.create_shell(
+            pgo.mesh.TriMeshData(
+                np.array(
+                    [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    dtype=np.float64,
+                ),
+                np.array([[0, 1, 2]], dtype=np.int64),
+            ),
+            pgo.sim.KoiterStVKShellMaterial(
+                thickness=0.01, E_membrane=2e6, nu_membrane=0.35
+            ),
+        )
+        assert _core._elastic_num_channels(shell_sim._core_obj, "koiter_stvk") == 5
+        assert _core._elastic_num_channels(shell_sim._core_obj, "koiter_fabric") == 12
+
     def test_state_exposes_state_owned_fields(self):
         sim = _make_tet_sim_mesh()
         state = _make_state(sim)
@@ -68,7 +87,8 @@ class TestCoreState:
         assert state.elastic_model == "stable_neo"
         assert state.plastic_model == "volumetric_dof6"
         assert state.num_elements == sim.num_elements
-        assert state.elastic_field.values().shape == (sim.num_elements, 2)
+        assert state.elastic_field.num_channels == 0
+        assert state.elastic_field.values().shape == (0, 0)
         assert state.plastic_field.values().shape == (sim.num_elements, 6)
 
     def test_state_setters_update_fields(self):
