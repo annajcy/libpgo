@@ -43,6 +43,7 @@ OUTPUT_DIR = ROOT / "pypgo" / "examples"
 
 # Map notebook stem → generator script filename.
 GENERATORS: dict[str, str] = {
+    "contact_api_demo": "generate_contact_api_demo.py",
     "energy_api_demo": "generate_energy_api_demo.py",
     "mesh_api_demo": "generate_mesh_api_demo.py",
     "deformation_fem_api_demo": "generate_deformation_fem_api_demo.py",
@@ -204,6 +205,26 @@ class TestNotebookSources:
         assert "VertexAttachment" in source
         assert "EnergySet" in source
         assert "max_step" in source
+
+    def test_contact_demo_rebuilds_box_ipc_scene_in_python(self, generated_notebooks):
+        with open(generated_notebooks["contact_api_demo"]) as fh:
+            nb = json.load(fh)
+        source = "\n".join("".join(c["source"]) for c in nb["cells"])
+        assert 'SCENE = {' in source
+        assert '"cubic_mesh": "box.veg"' in source
+        assert '"surface_mesh": "box.obj"' in source
+        assert '"filename": "bottom.obj"' in source
+        assert 'ASSET_DIR / "veg" / "cubic" / SCENE["cubic_mesh"]' in source
+        assert 'ASSET_DIR / "obj" / SCENE["surface_mesh"]' in source
+        assert 'ASSET_DIR / "obj" / SCENE["external_objects"][0]["filename"]' in source
+        assert "ContactSurface.from_surface_embedding" in source
+        assert "pc.IPCEnergy" in source
+        assert "pc.IPCParameters" in source
+        assert "pf.StableNeo()" in source
+        assert "pf.LinearCubic()" in source
+        assert "DynamicSimulation" in source
+        assert "dump_mesh_animation" in source
+        assert "json.load" not in source
 
     def test_mesh_demo_loads_assets(self, generated_notebooks):
         with open(generated_notebooks["mesh_api_demo"]) as fh:

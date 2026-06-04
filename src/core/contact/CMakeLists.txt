@@ -1,14 +1,18 @@
 set(CONTACT_HEADERS
-  legacy_penalty/CCDKernel.h
-  legacy_penalty/contactEnergyUtilities.h
-  legacy_penalty/pointPenetrationEnergy.h
-  legacy_penalty/pointTrianglePairCouplingEnergyWithCollision.h
-  legacy_penalty/triangleMeshExternalContactHandler.h
-  legacy_penalty/triangleMeshSelfContactDetection.h
-  legacy_penalty/triangleMeshSelfContactHandler.h
+  sampled_penalty/kernels/CCDKernel.h
+  sampled_penalty/kernels/contactEnergyUtilities.h
+  sampled_penalty/kernels/pointPenetrationEnergy.h
+  sampled_penalty/kernels/pointTrianglePairCouplingEnergyWithCollision.h
+  sampled_penalty/kernels/triangleMeshExternalContactHandler.h
+  sampled_penalty/kernels/triangleMeshSelfContactDetection.h
+  sampled_penalty/kernels/triangleMeshSelfContactHandler.h
+  sampled_penalty/sampledPenaltyContactEnergy.h
+  contactEnergyFactory.h
+  embeddedDofMap.h
+  statefulContactEnergy.h
   mappedSurfacePotentialEnergy.h
   embeddedSurfaceFloorPotentialEnergy.h
-  ipc/embeddedSurfaceIPCPotentialEnergy.h
+  ipc/ipcContactEnergy.h
   ipc/broadPhase/spatialHashGrid.h
   ipc/broadPhase/surfaceIPCBroadPhase.h
   ipc/core/surfaceIPCSelfBarrierAssembler.h
@@ -29,16 +33,19 @@ set(CONTACT_HEADERS
 )
 
 set(CONTACT_SOURCES
-  legacy_penalty/CCDKernel.cpp
-  legacy_penalty/contactEnergyUtilities.cpp
-  legacy_penalty/pointPenetrationEnergy.cpp
-  legacy_penalty/pointTrianglePairCouplingEnergyWithCollision.cpp
-  legacy_penalty/triangleMeshExternalContactHandler.cpp
-  legacy_penalty/triangleMeshSelfContactDetection.cpp
-  legacy_penalty/triangleMeshSelfContactHandler.cpp
+  sampled_penalty/kernels/CCDKernel.cpp
+  sampled_penalty/kernels/contactEnergyUtilities.cpp
+  sampled_penalty/kernels/pointPenetrationEnergy.cpp
+  sampled_penalty/kernels/pointTrianglePairCouplingEnergyWithCollision.cpp
+  sampled_penalty/kernels/triangleMeshExternalContactHandler.cpp
+  sampled_penalty/kernels/triangleMeshSelfContactDetection.cpp
+  sampled_penalty/kernels/triangleMeshSelfContactHandler.cpp
+  sampled_penalty/sampledPenaltyContactEnergy.cpp
+  contactEnergyFactory.cpp
+  embeddedDofMap.cpp
   mappedSurfacePotentialEnergy.cpp
   embeddedSurfaceFloorPotentialEnergy.cpp
-  ipc/embeddedSurfaceIPCPotentialEnergy.cpp
+  ipc/ipcContactEnergy.cpp
   ipc/broadPhase/spatialHashGrid.cpp
   ipc/broadPhase/surfaceIPCBroadPhase.cpp
   ipc/broadPhase/surfaceIPCSelfBroadPhase.cpp

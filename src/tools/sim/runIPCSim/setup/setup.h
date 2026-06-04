@@ -34,7 +34,7 @@ namespace Contact
 namespace IPC
 {
 class EmbeddedSurfaceFloorPotentialEnergy;
-class EmbeddedSurfaceIPCPotentialEnergy;
+class IPCContactEnergy;
 }
 }  // namespace Contact
 
@@ -64,7 +64,7 @@ struct IpcSimulationContext
   std::vector<EigenSupport::VXd> pullingTargetRests;
   pgo::Mesh::TriMeshGeo surfaceMesh;
   std::shared_ptr<RunIPCSimContactBackend> contactBackend;
-  std::shared_ptr<Contact::IPC::EmbeddedSurfaceIPCPotentialEnergy> collisionHandler;
+  std::shared_ptr<Contact::IPC::IPCContactEnergy> collisionHandler;
   std::vector<std::shared_ptr<NonlinearOptimization::PotentialEnergy>> extraGeneralImplicitForceModels;
   std::vector<std::shared_ptr<Contact::IPC::EmbeddedSurfaceFloorPotentialEnergy>> floorPotentialEnergies;
   std::vector<IpcFloorMotionState> floorMotionStates;
@@ -75,7 +75,7 @@ struct IpcSimulationContext
 
 IpcSimulationContext buildShellIpcSimulation(const ConfigFileJSON &jconfig);
 IpcSimulationContext buildVolumeIpcSimulation(const ConfigFileJSON &jconfig);
-IpcSimulationContext buildVolumeLegacyPenaltySimulation(const ConfigFileJSON &jconfig);
+IpcSimulationContext buildVolumeSampledPenaltySimulation(const ConfigFileJSON &jconfig);
 std::shared_ptr<RunIPCSimContactBackend> makeIpcContactBackend();
 double floorHeightAtFrame(const IpcFloorMotionState &motion, int frame);
 }  // namespace RunIPCSim

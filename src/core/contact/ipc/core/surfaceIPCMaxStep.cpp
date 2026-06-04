@@ -286,7 +286,7 @@ double computeExternalMaxStep(
   const SurfaceIPCTopology &topology,
   EigenSupport::ConstRefVecXd x,
   EigenSupport::ConstRefVecXd dx,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   double dhatExternal,
   double slackness,
   double thickness)
@@ -324,7 +324,7 @@ double computeExternalMaxStep(
   SpatialHashGrid::AABB dynSurfaceBox;
   const bool hasDynSurfaceBox = computeUnionAABB(dynVertBox, dynSurfaceBox);
 
-  std::vector<const ObstacleSurface *> overlappingObstacles;
+  std::vector<const ObstacleSurfaceView *> overlappingObstacles;
   overlappingObstacles.reserve(obstacles.size());
   for (const auto &obs : obstacles) {
     const ObstaclePoseCache &poseCache = obs.cache();
@@ -385,8 +385,8 @@ double computeExternalMaxStep(
       }
     });
 
-  for (const ObstacleSurface *obsPtr : overlappingObstacles) {
-    const ObstacleSurface &obs = *obsPtr;
+  for (const ObstacleSurfaceView *obsPtr : overlappingObstacles) {
+    const ObstacleSurfaceView &obs = *obsPtr;
     const VXd &obsCur = obs.currentPositions();
     int nObsVert = (int)obsCur.size() / 3;
     int nObsTri = (int)obs.triangles().rows();

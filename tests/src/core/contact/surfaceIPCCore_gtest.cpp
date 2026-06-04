@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <memory>
 #include <stdexcept>
 #include <string_view>
 #include <vector>
@@ -18,6 +19,9 @@ namespace
 {
 namespace ES = pgo::EigenSupport;
 using pgo::Contact::IPC::SurfaceIPCCore;
+using pgo::Contact::IPC::StaticObstacleSurface;
+using pgo::Contact::IPC::LinearMovingObstacleSurface;
+using pgo::Contact::IPC::TrajectoryObstacleSurface;
 using pgo::NonlinearOptimization::StepConstraint;
 using pgo::NonlinearOptimization::StepSource;
 constexpr int src(StepSource s) { return static_cast<int>(s); }
@@ -139,6 +143,22 @@ void expectActiveSetSubset(
     EXPECT_TRUE(containsPair(superset.externalPairs.tpPairs, pair, externalTPKey));
   for (const auto &pair : exact.externalPairs.eePairs)
     EXPECT_TRUE(containsPair(superset.externalPairs.eePairs, pair, externalEEKey));
+}
+
+ES::MXd makeObstacleTriangle(double z)
+{
+  ES::MXd V(3, 3);
+  V << 0.0, 0.0, z,
+       1.0, 0.0, z,
+       0.0, 1.0, z;
+  return V;
+}
+
+ES::MXi makeObstacleFace()
+{
+  ES::MXi F(1, 3);
+  F << 0, 1, 2;
+  return F;
 }
 }  // namespace
 
@@ -356,11 +376,8 @@ TEST(SurfaceIPCCoreGTest, LineSearchActiveSetSupersetContainsExactSampledAlphas)
   obsF << 0, 1, 2,
           1, 3, 2;
 
-  const ES::VXd obsRest = flattenPositions(obsV);
-  std::vector<ObstacleSurface> obstacles;
-  obstacles.emplace_back(obsV, obsF,
-    pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d::Zero()));
-  obstacles.front().update(0.0);
+  std::vector<std::unique_ptr<pgo::Contact::IPC::ObstacleSurface>> obstacles;
+  obstacles.push_back(std::make_unique<StaticObstacleSurface>(obsV, obsF));
 
   SurfaceIPCCore::Parameters params;
   params.dhat = 0.1;
@@ -396,8 +413,6 @@ TEST(SurfaceIPCCoreGTest, LineSearchActiveSetSupersetContainsExactSampledAlphas)
 
 TEST(SurfaceIPCCoreGTest, ConstructorInjectedObstaclesAssignSequentialSlots)
 {
-  using pgo::Contact::IPC::ObstacleSurface;
-
   ES::MXd dynV(4, 3);
   dynV << 0.0, 0.0, 0.0,
           1.0, 0.0, 0.0,
@@ -414,18 +429,12 @@ TEST(SurfaceIPCCoreGTest, ConstructorInjectedObstaclesAssignSequentialSlots)
             0.0, 1.0, zOffset;
     ES::MXi obsF(1, 3);
     obsF << 0, 1, 2;
-    ES::VXd rest(obsV.rows() * 3);
-    for (int vi = 0; vi < obsV.rows(); ++vi)
-      rest.segment<3>(3 * vi) = obsV.row(vi).transpose();
-    return ObstacleSurface(obsV, obsF,
-      pgo::Contact::IPC::makeLinearTrajectorySampler(rest, ES::V3d::Zero()));
+    return std::make_unique<StaticObstacleSurface>(obsV, obsF);
   };
 
-  std::vector<ObstacleSurface> obstacles;
-  obstacles.emplace_back(buildPlaneObstacle( 0.3));
-  obstacles.emplace_back(buildPlaneObstacle(-0.3));
-  for (auto &obs : obstacles)
-    obs.update(0.0);
+  std::vector<std::unique_ptr<pgo::Contact::IPC::ObstacleSurface>> obstacles;
+  obstacles.push_back(buildPlaneObstacle( 0.3));
+  obstacles.push_back(buildPlaneObstacle(-0.3));
 
   SurfaceIPCCore::Parameters params;
   params.dhat = 0.1;
@@ -462,21 +471,19 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceEmptySamplerThrows)
   F << 0, 1, 2;
 
   EXPECT_THROW(
-    pgo::Contact::IPC::ObstacleSurface(V, F, pgo::Contact::IPC::ObstacleSurface::TrajectorySampler{}),
+    TrajectoryObstacleSurface(V, F, pgo::Contact::IPC::ObstacleSurface::TrajectorySampler{}),
     std::invalid_argument);
 }
 
 TEST(SurfaceIPCCoreGTest, ObstacleSurfaceStoresRestPositionsRowWise)
 {
-  using pgo::Contact::IPC::ObstacleSurface;
-
   ES::MXd V(2, 3);
   V << 1.0, 2.0, 3.0,
        4.0, 5.0, 6.0;
   ES::MXi F(0, 3);
 
   auto sampler = [](double, ES::RefVecXd out) { out.setZero(); };
-  ObstacleSurface obs(V, F, sampler);
+  TrajectoryObstacleSurface obs(V, F, sampler);
 
   ES::VXd expected(6);
   expected << 1.0, 2.0, 3.0, 4.0, 5.0, 6.0;
@@ -485,14 +492,12 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceStoresRestPositionsRowWise)
 
 TEST(SurfaceIPCCoreGTest, ObstacleSurfaceInvalidVertexColumnCountThrows)
 {
-  using pgo::Contact::IPC::ObstacleSurface;
-
   ES::MXd V(2, 4);
   V.setZero();
   ES::MXi F(0, 3);
 
   auto sampler = [](double, ES::RefVecXd out) { out.setZero(); };
-  EXPECT_THROW(ObstacleSurface(V, F, sampler), std::invalid_argument);
+  EXPECT_THROW(TrajectoryObstacleSurface(V, F, sampler), std::invalid_argument);
 }
 
 // update(t) must refresh every pose-derived cache so that downstream broad
@@ -501,7 +506,6 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceInvalidVertexColumnCountThrows)
 // covers a known triangle.
 TEST(SurfaceIPCCoreGTest, ObstacleSurfaceUpdateRefreshesBroadPhaseCache)
 {
-  using pgo::Contact::IPC::ObstacleSurface;
   using pgo::Contact::IPC::SpatialHashGrid;
 
   ES::MXd V(4, 3);
@@ -517,9 +521,9 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceUpdateRefreshesBroadPhaseCache)
   for (int vi = 0; vi < V.rows(); ++vi)
     rest.segment<3>(3 * vi) = V.row(vi).transpose();
 
-  ObstacleSurface obs(V, F,
+  TrajectoryObstacleSurface obs(V, F,
     pgo::Contact::IPC::makeLinearTrajectorySampler(rest, ES::V3d(0.0, 0.0, 1.0)));
-  obs.update(0.5);  // moves obstacle by +z 0.5
+  obs.setTime(0.5);  // moves obstacle by +z 0.5
   const auto &cache = obs.cache();
 
   // Vector sizes match primitive counts.
@@ -550,7 +554,7 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceUpdateRefreshesBroadPhaseCache)
   EXPECT_NE(std::find(candidates.begin(), candidates.end(), 0), candidates.end());
 
   // A second update(t) overwrites the cache cleanly (no stale entries).
-  obs.update(1.0);
+  obs.setTime(1.0);
   const auto &cache2 = obs.cache();
   EXPECT_EQ(static_cast<int>(cache2.triBoxes.size()), F.rows());
   for (int fi = 0; fi < F.rows(); ++fi) {
@@ -563,8 +567,6 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceUpdateRefreshesBroadPhaseCache)
 
 TEST(SurfaceIPCCoreGTest, ObstacleSurfaceKeepsOnlyFeatureEdgesForExternalEECache)
 {
-  using pgo::Contact::IPC::ObstacleSurface;
-
   ES::MXd V(4, 3);
   V << 0.0, 0.0, 0.0,
        1.0, 0.0, 0.0,
@@ -578,9 +580,8 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceKeepsOnlyFeatureEdgesForExternalEECache
   for (int vi = 0; vi < V.rows(); ++vi)
     rest.segment<3>(3 * vi) = V.row(vi).transpose();
 
-  ObstacleSurface obs(V, F,
+  TrajectoryObstacleSurface obs(V, F,
     pgo::Contact::IPC::makeLinearTrajectorySampler(rest, ES::V3d::Zero()));
-  obs.update(0.0);
 
   ASSERT_EQ(obs.uniqueEdges().rows(), 5);
   ASSERT_EQ(obs.contactEdges().rows(), 4);
@@ -596,8 +597,6 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceKeepsOnlyFeatureEdgesForExternalEECache
 
 TEST(SurfaceIPCCoreGTest, ObstacleSurfaceKeepsSharpInteriorEdgesForExternalEECache)
 {
-  using pgo::Contact::IPC::ObstacleSurface;
-
   ES::MXd V(4, 3);
   V << 0.0, 0.0, 0.0,
        1.0, 0.0, 0.0,
@@ -611,9 +610,8 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceKeepsSharpInteriorEdgesForExternalEECac
   for (int vi = 0; vi < V.rows(); ++vi)
     rest.segment<3>(3 * vi) = V.row(vi).transpose();
 
-  ObstacleSurface obs(V, F,
+  TrajectoryObstacleSurface obs(V, F,
     pgo::Contact::IPC::makeLinearTrajectorySampler(rest, ES::V3d::Zero()));
-  obs.update(0.0);
 
   ASSERT_EQ(obs.uniqueEdges().rows(), 5);
   ASSERT_EQ(obs.contactEdges().rows(), 5);
@@ -626,4 +624,58 @@ TEST(SurfaceIPCCoreGTest, ObstacleSurfaceKeepsSharpInteriorEdgesForExternalEECac
       sawSharedSharpEdge = true;
   }
   EXPECT_TRUE(sawSharedSharpEdge);
+}
+
+TEST(SurfaceIPCCoreGTest, StaticAndLinearMovingObstacleSurfacesAreReadyAndCloneable)
+{
+  StaticObstacleSurface staticObstacle(makeObstacleTriangle(0.1), makeObstacleFace());
+  LinearMovingObstacleSurface movingObstacle(
+    makeObstacleTriangle(0.2), makeObstacleFace(), ES::V3d(0.0, 0.0, 0.5));
+
+  EXPECT_EQ(staticObstacle.currentPositions().size(), 9);
+  EXPECT_TRUE(staticObstacle.cache().hasSurfaceBox);
+  EXPECT_EQ(movingObstacle.currentPositions().size(), 9);
+  EXPECT_TRUE(movingObstacle.cache().hasSurfaceBox);
+
+  const double before = movingObstacle.currentPositions()[2];
+  movingObstacle.setTime(2.0);
+  EXPECT_DOUBLE_EQ(movingObstacle.currentPositions()[2], before + 1.0);
+
+  auto staticClone = staticObstacle.cloneStatic();
+  auto movingClone = movingObstacle.cloneMoving();
+  EXPECT_DOUBLE_EQ(staticClone->currentPositions()[2], staticObstacle.currentPositions()[2]);
+  EXPECT_DOUBLE_EQ(movingClone->currentPositions()[2], movingObstacle.currentPositions()[2]);
+  EXPECT_TRUE(staticClone->cache().hasSurfaceBox);
+  EXPECT_TRUE(movingClone->cache().hasSurfaceBox);
+}
+
+TEST(SurfaceIPCCoreGTest, ObstacleViewsPreserveInputOrderAndMovingTimeUpdatesOnlyMovingObstacles)
+{
+  SurfaceIPCCore core;
+  std::vector<std::unique_ptr<pgo::Contact::IPC::ObstacleSurface>> obstacles;
+  obstacles.push_back(std::make_unique<StaticObstacleSurface>(makeObstacleTriangle(0.1), makeObstacleFace()));
+  obstacles.push_back(std::make_unique<LinearMovingObstacleSurface>(
+    makeObstacleTriangle(0.2), makeObstacleFace(), ES::V3d(0.0, 0.0, 0.5)));
+  obstacles.push_back(std::make_unique<StaticObstacleSurface>(makeObstacleTriangle(0.3), makeObstacleFace()));
+  core = SurfaceIPCCore(SurfaceIPCCore::Parameters{}, std::move(obstacles));
+
+  const std::vector<pgo::Contact::IPC::ObstacleSurfaceView> before = core.obstacleViews();
+  ASSERT_EQ(before.size(), 3u);
+  EXPECT_EQ(before[0].objectId(), 0);
+  EXPECT_EQ(before[1].objectId(), 1);
+  EXPECT_EQ(before[2].objectId(), 2);
+  const double static0Z = before[0].currentPositions()[2];
+  const double movingZ = before[1].currentPositions()[2];
+  const double static2Z = before[2].currentPositions()[2];
+
+  core.setMovingObstacleTime(2.0);
+
+  const std::vector<pgo::Contact::IPC::ObstacleSurfaceView> after = core.obstacleViews();
+  ASSERT_EQ(after.size(), 3u);
+  EXPECT_DOUBLE_EQ(after[0].currentPositions()[2], static0Z);
+  EXPECT_DOUBLE_EQ(after[1].currentPositions()[2], movingZ + 1.0);
+  EXPECT_DOUBLE_EQ(after[2].currentPositions()[2], static2Z);
+  EXPECT_EQ(after[0].objectId(), 0);
+  EXPECT_EQ(after[1].objectId(), 1);
+  EXPECT_EQ(after[2].objectId(), 2);
 }

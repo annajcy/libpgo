@@ -26,6 +26,19 @@ namespace IPC {
 using namespace pgo::EigenSupport;
 static constexpr double kSmallContactAlphaWarnThreshold = 1e-2;
 
+namespace
+{
+std::vector<std::unique_ptr<ObstacleSurface>> cloneObstacleVector(
+  const std::vector<std::unique_ptr<ObstacleSurface>> &obstacles)
+{
+  std::vector<std::unique_ptr<ObstacleSurface>> out;
+  out.reserve(obstacles.size());
+  for (const auto &obstacle : obstacles)
+    out.push_back(obstacle->cloneSurface());
+  return out;
+}
+}  // namespace
+
 SurfaceIPCCore::SurfaceIPCCore(const SurfaceIPCCore &other):
   dhat(other.dhat),
   dhat_external(other.dhat_external),
@@ -34,8 +47,9 @@ SurfaceIPCCore::SurfaceIPCCore(const SurfaceIPCCore &other):
   slackness(other.slackness),
   ccd_thickness(other.ccd_thickness),
   topology_(other.topology_),
-  obstacles_(other.obstacles_),
-  staticObstacles_(other.staticObstacles_)
+  staticObstacles_(cloneObstacleVector(other.staticObstacles_)),
+  movingObstacles_(cloneObstacleVector(other.movingObstacles_)),
+  obstacleOrder_(other.obstacleOrder_)
 {
 }
 
@@ -51,8 +65,9 @@ SurfaceIPCCore &SurfaceIPCCore::operator=(const SurfaceIPCCore &other)
   slackness = other.slackness;
   ccd_thickness = other.ccd_thickness;
   topology_ = other.topology_;
-  obstacles_ = other.obstacles_;
-  staticObstacles_ = other.staticObstacles_;
+  staticObstacles_ = cloneObstacleVector(other.staticObstacles_);
+  movingObstacles_ = cloneObstacleVector(other.movingObstacles_);
+  obstacleOrder_ = other.obstacleOrder_;
   return *this;
 }
 
@@ -103,8 +118,9 @@ SurfaceIPCActiveSet SurfaceIPCCore::buildActiveSet(EigenSupport::ConstRefVecXd x
   activeSet.positions = x_surf;
   buildSelfPairs(topology_, activeSet.positions, dhat, activeSet.selfPairs);
 
-  if (!obstacles_.empty())
-    buildExternalPairs(topology_, activeSet.positions, obstacles_, dhat_external, activeSet.externalPairs);
+  const std::vector<ObstacleSurfaceView> views = obstacleViews();
+  if (!views.empty())
+    buildExternalPairs(topology_, activeSet.positions, views, dhat_external, activeSet.externalPairs);
 
   if (auto logger = Logging::lgr(); logger && logger->should_log(spdlog::level::debug)) {
     const size_t selfTotal = activeSet.selfPairs.size();
@@ -128,8 +144,9 @@ SurfaceIPCActiveSet SurfaceIPCCore::buildLineSearchActiveSetSuperset(
   activeSet.positions = x_surf;
   buildSelfPairsLineSearchSuperset(topology_, activeSet.positions, dx_surf, dhat, activeSet.selfPairs);
 
-  if (!obstacles_.empty())
-    buildExternalPairsLineSearchSuperset(topology_, activeSet.positions, dx_surf, obstacles_, dhat_external, activeSet.externalPairs);
+  const std::vector<ObstacleSurfaceView> views = obstacleViews();
+  if (!views.empty())
+    buildExternalPairsLineSearchSuperset(topology_, activeSet.positions, dx_surf, views, dhat_external, activeSet.externalPairs);
 
   return activeSet;
 }
@@ -140,7 +157,7 @@ SurfaceIPCActiveSet SurfaceIPCCore::buildLineSearchActiveSetSuperset(
 NonlinearOptimization::StepConstraint SurfaceIPCCore::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink) const
 {
   double alpha = computeSelfMaxStep(topology_, x, dx, dhat, slackness, ccd_thickness);
-  alpha = std::min(alpha, computeExternalMaxStep(topology_, x, dx, obstacles_, dhat_external, slackness, ccd_thickness));
+  alpha = std::min(alpha, computeExternalMaxStep(topology_, x, dx, obstacleViews(), dhat_external, slackness, ccd_thickness));
 
   const double clampedAlpha = std::max(alpha, 1e-12);
 
@@ -177,9 +194,10 @@ double SurfaceIPCCore::computeEnergy(const SurfaceIPCActiveSet &activeSet) const
 {
   Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetEnergy);
   double e = computeSelfEnergy(activeSet.positions, activeSet.selfPairs, topology_.numVerts, dhat, kappa, eps_ee);
-  if (!obstacles_.empty()) {
+  const std::vector<ObstacleSurfaceView> views = obstacleViews();
+  if (!views.empty()) {
     e += computeExternalEnergy(
-      activeSet.positions, obstacles_, activeSet.externalPairs, dhat_external, kappa, eps_ee);
+      activeSet.positions, views, activeSet.externalPairs, dhat_external, kappa, eps_ee);
   }
   return e;
 }
@@ -197,9 +215,10 @@ void SurfaceIPCCore::computeGradient(const SurfaceIPCActiveSet &activeSet, Eigen
 {
   Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetGradient);
   computeSelfGradient(activeSet.positions, activeSet.selfPairs, topology_.numVerts, dhat, kappa, eps_ee, grad);
-  if (!obstacles_.empty()) {
+  const std::vector<ObstacleSurfaceView> views = obstacleViews();
+  if (!views.empty()) {
     computeExternalGradient(
-      activeSet.positions, obstacles_, activeSet.externalPairs, topology_.numVerts, dhat_external, kappa, eps_ee, grad);
+      activeSet.positions, views, activeSet.externalPairs, topology_.numVerts, dhat_external, kappa, eps_ee, grad);
   }
 }
 
@@ -216,9 +235,10 @@ void SurfaceIPCCore::computeHessian(const SurfaceIPCActiveSet &activeSet, SpMatD
 {
   Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetHessian);
   computeSelfHessian(activeSet.positions, activeSet.selfPairs, topology_.numVerts, dhat, kappa, eps_ee, hess);
-  if (!obstacles_.empty()) {
+  const std::vector<ObstacleSurfaceView> views = obstacleViews();
+  if (!views.empty()) {
     computeExternalHessian(
-      activeSet.positions, obstacles_, activeSet.externalPairs, topology_.numVerts, dhat_external, kappa, eps_ee, hess);
+      activeSet.positions, views, activeSet.externalPairs, topology_.numVerts, dhat_external, kappa, eps_ee, hess);
   }
   if (auto logger = Logging::lgr(); logger && logger->should_log(spdlog::level::debug))
     SPDLOG_LOGGER_DEBUG(logger, "# nonzeros in Hessian: {}", hess.nonZeros());
@@ -238,10 +258,11 @@ void SurfaceIPCCore::computeAll(const SurfaceIPCActiveSet &activeSet, double &en
 {
   Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetCombined);
   computeSelfAll(activeSet.positions, activeSet.selfPairs, topology_.numVerts, dhat, kappa, eps_ee, energy, grad, hess);
-  if (!obstacles_.empty()) {
+  const std::vector<ObstacleSurfaceView> views = obstacleViews();
+  if (!views.empty()) {
     double extEnergy = 0.0;
     computeExternalAll(
-      activeSet.positions, obstacles_, activeSet.externalPairs, topology_.numVerts, dhat_external, kappa, eps_ee, extEnergy, grad, hess);
+      activeSet.positions, views, activeSet.externalPairs, topology_.numVerts, dhat_external, kappa, eps_ee, extEnergy, grad, hess);
     energy += extEnergy;
   }
   if (auto logger = Logging::lgr(); logger && logger->should_log(spdlog::level::debug))
@@ -251,28 +272,46 @@ void SurfaceIPCCore::computeAll(const SurfaceIPCActiveSet &activeSet, double &en
 // =========================================================================
 //  Obstacle (external) registration
 // =========================================================================
-void SurfaceIPCCore::setObstacles(std::vector<ObstacleSurface> obstacles)
+void SurfaceIPCCore::setObstacles(std::vector<std::unique_ptr<ObstacleSurface>> obstacles)
 {
-  obstacles_ = std::move(obstacles);
-  staticObstacles_.assign(obstacles_.size(), false);
-  for (std::size_t slot = 0; slot < obstacles_.size(); ++slot)
-    obstacles_[slot].setObjectId(static_cast<int32_t>(slot));
-}
+  staticObstacles_.clear();
+  movingObstacles_.clear();
+  obstacleOrder_.clear();
 
-void SurfaceIPCCore::markObstacleStatic(int32_t objectId)
-{
-  if (objectId < 0 || static_cast<std::size_t>(objectId) >= obstacles_.size())
-    return;
-  staticObstacles_[static_cast<std::size_t>(objectId)] = true;
-  obstacles_[static_cast<std::size_t>(objectId)].update(0.0);
-}
+  for (std::size_t slot = 0; slot < obstacles.size(); ++slot) {
+    std::unique_ptr<ObstacleSurface> obstacle = std::move(obstacles[slot]);
+    obstacle->setObjectId(static_cast<int32_t>(slot));
 
-void SurfaceIPCCore::setObstacleTime(double t)
-{
-  for (std::size_t i = 0; i < obstacles_.size(); ++i) {
-    if (!staticObstacles_[i])
-      obstacles_[i].update(t);
+    if (dynamic_cast<StaticObstacleSurface *>(obstacle.get()) != nullptr) {
+      const std::size_t index = staticObstacles_.size();
+      staticObstacles_.push_back(std::move(obstacle));
+      obstacleOrder_.push_back({ ObstacleSlot::Kind::Static, index, static_cast<int32_t>(slot) });
+    }
+    else {
+      const std::size_t index = movingObstacles_.size();
+      movingObstacles_.push_back(std::move(obstacle));
+      obstacleOrder_.push_back({ ObstacleSlot::Kind::Moving, index, static_cast<int32_t>(slot) });
+    }
   }
+}
+
+std::vector<ObstacleSurfaceView> SurfaceIPCCore::obstacleViews() const
+{
+  std::vector<ObstacleSurfaceView> views;
+  views.reserve(obstacleOrder_.size());
+  for (const ObstacleSlot &slot : obstacleOrder_) {
+    const ObstacleSurface *obstacle = slot.kind == ObstacleSlot::Kind::Static ?
+      staticObstacles_[slot.index].get() :
+      movingObstacles_[slot.index].get();
+    views.push_back(makeObstacleSurfaceView(*obstacle));
+  }
+  return views;
+}
+
+void SurfaceIPCCore::setMovingObstacleTime(double t)
+{
+  for (std::unique_ptr<ObstacleSurface> &obstacle : movingObstacles_)
+    obstacle->update(t);
 }
 
 }  // namespace IPC

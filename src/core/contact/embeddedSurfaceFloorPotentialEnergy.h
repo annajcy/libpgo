@@ -50,6 +50,7 @@ public:
 
   void setFloorHeight(double h);
   double floorHeight() const;
+  virtual ContactModelKind contactModelKind() const override { return ContactModelKind::Floor; }
 
 protected:
   virtual double computeSurfaceEnergy(EigenSupport::ConstRefVecXd surfacePositions) const override;

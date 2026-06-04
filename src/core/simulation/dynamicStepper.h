@@ -7,10 +7,8 @@
   passed. Each stepper holds its persistent stage residual(s) and updates them
   in place. See Tasks T7.
 
-  Contact note: beginStep is dispatched to every StepAwareEnergy term. The
-  StatefulContactEnergy::refreshActiveSet hook is gated behind
-  PGO_HAS_STATEFUL_CONTACT_ENERGY until contact_api_refactor.plan.md lands that
-  type; for non-contact problems (free fall, elastic) this is a no-op.
+  Contact note: beginStep is dispatched to every StepAwareEnergy term. Contact
+  active sets are prepared at nonlinear evaluation points by the solver.
 */
 
 #pragma once

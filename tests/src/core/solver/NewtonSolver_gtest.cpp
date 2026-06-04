@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "solver/newton/NewtonSolver.h"
+#include "energySet.h"
+#include "evaluationStateAwareEnergy.h"
 #include "lineSearchAwareEnergy.h"
 #include "pgoLogging.h"
 #include "solver/common/solveDiagnostics.h"
@@ -8,11 +10,14 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <stdexcept>
 
 namespace
 {
 namespace ES = pgo::EigenSupport;
 using pgo::NonlinearOptimization::NewtonSolver;
+using pgo::NonlinearOptimization::EnergySet;
+using pgo::NonlinearOptimization::EvaluationStateAwareEnergy;
 using pgo::NonlinearOptimization::PotentialEnergy;
 using pgo::NonlinearOptimization::LineSearchAwareEnergy;
 using pgo::NonlinearOptimization::NewtonLineSearchKind;
@@ -86,6 +91,58 @@ public:
 private:
   int n;
   StepConstraint maxStep;
+};
+
+class TestEvaluationStateEnergy : public PotentialEnergy, public EvaluationStateAwareEnergy
+{
+public:
+  explicit TestEvaluationStateEnergy(std::vector<int> dofs):
+    dofs_(std::move(dofs)) {}
+
+  double func(ES::ConstRefVecXd x) const override
+  {
+    requirePreparedFor(x);
+    return 0.5 * x.squaredNorm();
+  }
+
+  void gradient(ES::ConstRefVecXd x, ES::RefVecXd grad) const override
+  {
+    requirePreparedFor(x);
+    grad = x;
+  }
+
+  void hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const override
+  {
+    requirePreparedFor(x);
+    hess.setIdentity();
+  }
+
+  void hessianAlloc(ES::SpMatD &hess) const override
+  {
+    hess.resize(getNumDOFs(), getNumDOFs());
+    hess.setIdentity();
+  }
+
+  void getDOFs(std::vector<int> &dofs) const override { dofs = dofs_; }
+  int getNumDOFs() const override { return static_cast<int>(dofs_.size()); }
+
+  void prepareEvaluationState(ES::ConstRefVecXd x) const override
+  {
+    prepareCalls++;
+    lastPreparedState = x;
+  }
+
+  mutable int prepareCalls = 0;
+  mutable ES::VXd lastPreparedState;
+
+private:
+  void requirePreparedFor(ES::ConstRefVecXd x) const
+  {
+    if (lastPreparedState.size() != x.size() || !(lastPreparedState.array() == x.array()).all())
+      throw std::logic_error("evaluation state was not prepared for this point");
+  }
+
+  std::vector<int> dofs_;
 };
 
 class TestNonFixedQuadraticEnergy : public PotentialEnergy
@@ -471,6 +528,42 @@ TEST(NewtonSolverGTest, BacktrackingReusesInitialTrialEnergy)
   EXPECT_EQ(energy->hessianCalls, 2);
   EXPECT_EQ(energy->beginLineSearchCalls, 1);
   EXPECT_EQ(energy->endLineSearchCalls, 1);
+}
+
+TEST(NewtonSolverGTest, EnergySetPrepareEvaluationStateMapsGlobalStateToChildDofs)
+{
+  auto energy = std::make_shared<TestEvaluationStateEnergy>(std::vector<int>{ 2, 0 });
+  EnergySet set(3, { EnergySet::Term{ energy, 1.0 } });
+
+  ES::VXd x(3);
+  x << 10.0, 20.0, 30.0;
+  set.prepareEvaluationState(x);
+
+  ASSERT_EQ(energy->prepareCalls, 1);
+  ASSERT_EQ(energy->lastPreparedState.size(), 2);
+  EXPECT_DOUBLE_EQ(energy->lastPreparedState[0], 30.0);
+  EXPECT_DOUBLE_EQ(energy->lastPreparedState[1], 10.0);
+}
+
+TEST(NewtonSolverGTest, SubiterationOnePreparesEvaluationStateBeforeCurrentAndAcceptedEvaluations)
+{
+  initializeLogging();
+
+  auto energy = std::make_shared<TestEvaluationStateEnergy>(std::vector<int>{ 0 });
+  ES::VXd x(1);
+  x[0] = 2.0;
+
+  NewtonSolver::SolverParam solverParam;
+  solverParam.sst = NewtonSolver::SST_SUBITERATION_ONE;
+  const std::vector<int> fixedDOFs;
+  NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
+
+  const SolverResult result = solver.solve(x.data(), 1, 1e-10, 0);
+
+  EXPECT_EQ(result.status, SolveStatus::Converged);
+  EXPECT_GE(energy->prepareCalls, 2);
+  ASSERT_EQ(energy->lastPreparedState.size(), 1);
+  EXPECT_NEAR(energy->lastPreparedState[0], x[0], 1e-12);
 }
 
 TEST(NewtonSolverGTest, GoldenLineSearchDoesNotUseBoundedActiveSetScope)

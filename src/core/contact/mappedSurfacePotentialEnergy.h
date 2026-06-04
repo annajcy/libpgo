@@ -4,8 +4,7 @@ copyright to Bohan Wang
 
 #pragma once
 
-#include "potentialEnergy.h"
-#include "lineSearchAwareEnergy.h"
+#include "statefulContactEnergy.h"
 
 #include <vector>
 
@@ -18,8 +17,7 @@ namespace IPC
 
 using namespace pgo::EigenSupport;
 
-class MappedSurfacePotentialEnergy : public NonlinearOptimization::PotentialEnergy,
-                                     public NonlinearOptimization::LineSearchAwareEnergy
+class MappedSurfacePotentialEnergy : public StatefulContactEnergy
 {
 public:
   MappedSurfacePotentialEnergy(

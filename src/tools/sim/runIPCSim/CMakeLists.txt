@@ -18,7 +18,7 @@ set(RUN_IPC_SIM_CORE_SOURCES
   setup/obstacleSetup.cpp
   setup/shellSetup.cpp
   setup/volumeSetup.cpp
-  setup/legacySetup.cpp
+  setup/sampledPenaltySetup.cpp
   app/app.cpp
   app/config.cpp
   app/output.cpp
@@ -28,7 +28,7 @@ set(RUN_IPC_SIM_CORE_SOURCES
   solver/solverRunner.cpp
   solver/staticSolve.cpp
   contact/ipcContactBackend.cpp
-  contact/legacyPenaltyContact.cpp
+  contact/sampledPenaltyContact.cpp
 )
 
 add_library(runIPCSimCore STATIC ${RUN_IPC_SIM_CORE_SOURCES})

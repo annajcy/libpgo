@@ -9,6 +9,7 @@ copyright to Bohan Wang
 #include "ipc/external/obstacleSurface.h"
 
 #include <vector>
+#include <memory>
 
 namespace pgo
 {
@@ -19,22 +20,29 @@ namespace IPC
 
 using namespace pgo::EigenSupport;
 
-class EmbeddedSurfaceIPCPotentialEnergy : public MappedSurfacePotentialEnergy
+class IPCContactEnergy : public MappedSurfacePotentialEnergy
 {
 public:
-  EmbeddedSurfaceIPCPotentialEnergy(
+  IPCContactEnergy(
     const EigenSupport::MXd &surfaceRestVertices,
     const EigenSupport::MXi &surfaceTriangles,
     const EigenSupport::SpMatD &surfaceFromSimulationDispMap,
     const SurfaceIPCCore::Parameters &ipcParams = {},
-    std::vector<ObstacleSurface> obstacleSurfaces = {});
+    std::vector<std::unique_ptr<ObstacleSurface>> obstacleSurfaces = {});
 
-  void setObstacleTime(double t);
-  void markObstacleStatic(int32_t objectId);
+  virtual ContactModelKind contactModelKind() const override { return ContactModelKind::IPC; }
+  virtual void beginStep(const NonlinearOptimization::StepState &state) override;
+  virtual void refreshActiveSet(EigenSupport::ConstRefVecXd simulationDisplacements) const override;
+  virtual void clearActiveSet() const override;
+
+  void setMovingObstacleTime(double t);
 
 private:
   void cacheEnergyActiveSet(SurfaceIPCActiveSet activeSet) const;
   const SurfaceIPCActiveSet *cachedEnergyActiveSetFor(EigenSupport::ConstRefVecXd surfacePositions) const;
+  const SurfaceIPCActiveSet &evaluationActiveSetFor(
+    EigenSupport::ConstRefVecXd surfacePositions,
+    const char *reason) const;
   void clearCachedEnergyActiveSet() const;
 
   virtual double computeSurfaceEnergy(EigenSupport::ConstRefVecXd surfacePositions) const override;
@@ -70,7 +78,6 @@ private:
   mutable bool hasCachedEnergyActiveSet_ = false;
   mutable SurfaceIPCActiveSet cachedEnergyActiveSet_;
   mutable bool hasLineSearchActiveSet_ = false;
-  mutable bool hasLineSearchEnergyState_ = false;
   mutable SurfaceIPCActiveSet lineSearchActiveSet_;
 };
 

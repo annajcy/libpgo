@@ -2,6 +2,7 @@
 
 #include "EigenSupport.h"
 #include "solver/newton/lineSearch.h"
+#include "evaluationStateAwareEnergy.h"
 #include "lineSearchAwareEnergy.h"
 #include "pgoLogging.h"
 #include "scopedProfileSection.h"
@@ -51,6 +52,28 @@ public:
 
 private:
   const LineSearchAwareEnergy *energy_ = nullptr;
+};
+
+class ScopedBoolAssignment
+{
+public:
+  ScopedBoolAssignment(bool &target, bool value):
+    target_(target), oldValue_(target)
+  {
+    target_ = value;
+  }
+
+  ~ScopedBoolAssignment()
+  {
+    target_ = oldValue_;
+  }
+
+  ScopedBoolAssignment(const ScopedBoolAssignment &) = delete;
+  ScopedBoolAssignment &operator=(const ScopedBoolAssignment &) = delete;
+
+private:
+  bool &target_;
+  bool oldValue_;
 };
 
 }  // namespace
@@ -157,6 +180,7 @@ public:
   {
     s.x += s.deltax;
     s.historyx.noalias() = s.x;
+    s.dispatchPrepareEvaluationState(s.x);
 
     memset(s.grad.data(), 0, sizeof(double) * s.grad.size());
     s.energy->gradient(s.x, s.grad);
@@ -204,12 +228,15 @@ NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_con
 
   if (solverParam.sst == SST_SUBITERATION_LINE_SEARCH) {
     LineSearch::EvaluateFunction evalFunc = [this](const double *x, double *f, double *grad) -> int {
+      const Eigen::Map<const ES::VXd> xEval(x, n3);
+      dispatchPrepareEvaluationState(xEval);
+
       if (f)
-        *f = energy->func(Eigen::Map<const ES::VXd>(x, n3));
+        *f = energy->func(xEval);
 
       if (grad) {
         memset(grad, 0, sizeof(double) * n3);
-        energy->gradient(Eigen::Map<const ES::VXd>(x, n3), Eigen::Map<ES::VXd>(grad, n3));
+        energy->gradient(xEval, Eigen::Map<ES::VXd>(grad, n3));
       }
 
       return 0;
@@ -250,6 +277,7 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
 
     if (energy->isHessianTopologyFixed()) {
       // sparse matrix
+      dispatchPrepareEvaluationState(x);
       energy->hessianAlloc(sysFull);
       energy->hessianInPlace(x, sysFull);
 
@@ -413,6 +441,7 @@ NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double
   state.iter = iter;
 
   memset(grad.data(), 0, sizeof(double) * grad.size());
+  dispatchPrepareEvaluationState(x);
   state.energy = energy->func_grad_hessian(x, grad, sysFull);
   if (!std::isfinite(state.energy)) {
     state.nonFiniteEnergy = true;
@@ -522,6 +551,14 @@ bool NewtonSolver::expandReducedStep()
   return deltax.allFinite();
 }
 
+void NewtonSolver::dispatchPrepareEvaluationState(EigenSupport::ConstRefVecXd xEval) const
+{
+  if (lineSearchEvaluationStateFrozen)
+    return;
+  if (const auto *aware = dynamic_cast<const EvaluationStateAwareEnergy *>(energy.get()))
+    aware->prepareEvaluationState(xEval);
+}
+
 NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnergy, int verbose, int printGap, int iter)
 {
   StepAcceptance accepted;
@@ -544,9 +581,11 @@ NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnerg
     const auto *lineSearchAware = dynamic_cast<const LineSearchAwareEnergy *>(energy.get());
     const bool useFrozenActiveSet = lineSearchAware != nullptr &&
       lineSearchPolicy->maxProbeAlpha() <= lineSearchAware->maxValidLineSearchAlpha();
+    ScopedBoolAssignment frozenGuard(lineSearchEvaluationStateFrozen, useFrozenActiveSet);
     LineSearchScope lineSearchScope(useFrozenActiveSet ? lineSearchAware : nullptr, x, deltax);
 
     lineSearchx.noalias() = x + deltax;
+    dispatchPrepareEvaluationState(lineSearchx);
     accepted.acceptedEnergy = energy->func(lineSearchx);
     if (!std::isfinite(accepted.acceptedEnergy)) {
       accepted.nonFiniteReason = StepAcceptance::NonFiniteReason::TrialEnergy;

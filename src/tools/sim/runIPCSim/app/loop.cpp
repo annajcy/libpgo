@@ -6,6 +6,7 @@
 #include "solver/newton/NewtonOptimizer.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <iostream>
 
 namespace pgo::RunIPCSim
@@ -73,6 +74,8 @@ void runIPCSimLoop(const RunIPCSimRuntimeConfig &runtimeConfig,
     state.displacement = session.u;
     state.velocity = session.uvel;
     state.acceleration = session.uacc;
+    state.timestepId = static_cast<std::uint64_t>(framei);
+    state.time = static_cast<double>(framei) * runtimeConfig.timestep;
 
     pgo::Simulation::DynamicStepRequest request;
     request.externalForce = session.fext;

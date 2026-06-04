@@ -2,6 +2,7 @@
 
 #include "ipc/external/obstacleSurface.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,6 @@ class ConfigFileJSON;
 
 namespace pgo::RunIPCSim
 {
-std::vector<Contact::IPC::ObstacleSurface> parseExternalObjects(
+std::vector<std::unique_ptr<Contact::IPC::ObstacleSurface>> parseExternalObjects(
   const pgo::ConfigFileJSON &jconfig, double scale, std::vector<bool> *outStaticFlags = nullptr);
 }  // namespace pgo::RunIPCSim

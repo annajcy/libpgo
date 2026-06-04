@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -18,8 +19,19 @@ using pgo::Contact::IPC::ExternalPairSet;
 using pgo::Contact::IPC::ExternalPTPair;
 using pgo::Contact::IPC::ExternalTPPair;
 using pgo::Contact::IPC::ObstacleSurface;
+using pgo::Contact::IPC::ObstacleSurfaceView;
 using pgo::Contact::IPC::SurfaceIPCCore;
 using pgo::Contact::IPC::SurfaceIPCTopology;
+using pgo::Contact::IPC::TrajectoryObstacleSurface;
+
+static std::vector<ObstacleSurfaceView> obstacleViews(const std::vector<std::unique_ptr<ObstacleSurface>> &obstacles)
+{
+  std::vector<ObstacleSurfaceView> views;
+  views.reserve(obstacles.size());
+  for (const auto &obstacle : obstacles)
+    views.push_back(pgo::Contact::IPC::makeObstacleSurfaceView(*obstacle));
+  return views;
+}
 
 static ES::VXd flattenRows(const ES::MXd &V)
 {
@@ -129,17 +141,16 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, BuilderMatchesSurfaceIPCCoreExternalPair
   const ES::VXd obsRest = flattenRows(obsV);
 
   auto makeObs = [&]() {
-    ObstacleSurface o(obsV, obsF,
+    return std::make_unique<TrajectoryObstacleSurface>(
+      obsV, obsF,
       pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d::Zero()));
-    o.update(0.0);
-    return o;
   };
 
   SurfaceIPCCore::Parameters params;
   params.dhat_external = 1.0;
 
-  std::vector<ObstacleSurface> coreObstacles;
-  coreObstacles.emplace_back(makeObs());
+  std::vector<std::unique_ptr<ObstacleSurface>> coreObstacles;
+  coreObstacles.push_back(makeObs());
   SurfaceIPCCore core(params, std::move(coreObstacles));
   core.setMesh(V, F);
 
@@ -148,12 +159,12 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, BuilderMatchesSurfaceIPCCoreExternalPair
 
   SurfaceIPCTopology topology;
   topology.setMesh(V, F);
-  std::vector<ObstacleSurface> obstacles;
-  obstacles.emplace_back(makeObs());
-  obstacles.front().setObjectId(0);
+  std::vector<std::unique_ptr<ObstacleSurface>> obstacles;
+  obstacles.push_back(makeObs());
+  obstacles.front()->setObjectId(0);
 
   ExternalPairSet pairs;
-  buildExternalPairs(topology, x, obstacles, params.dhat_external, pairs);
+  buildExternalPairs(topology, x, obstacleViews(obstacles), params.dhat_external, pairs);
 
   EXPECT_EQ(canonicalPT(pairs.ptPairs), canonicalPT(activeSet.externalPairs.ptPairs));
   EXPECT_EQ(canonicalTP(pairs.tpPairs), canonicalTP(activeSet.externalPairs.tpPairs));
@@ -177,19 +188,19 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, MovingObstacleProducesGoldenPairsAndWeig
   ES::MXi obsF(1, 3);
   obsF << 0, 1, 2;
 
-  ObstacleSurface obs(
+  auto obs = std::make_unique<TrajectoryObstacleSurface>(
     obsV, obsF,
     pgo::Contact::IPC::makeLinearTrajectorySampler(flattenRows(obsV), ES::V3d(0.0, 0.0, -0.15)));
-  obs.setObjectId(7);
-  obs.update(1.0);
+  obs->setObjectId(7);
+  obs->setTime(1.0);
 
   SurfaceIPCTopology topology;
   topology.setMesh(V, F);
-  std::vector<ObstacleSurface> obstacles;
-  obstacles.emplace_back(std::move(obs));
+  std::vector<std::unique_ptr<ObstacleSurface>> obstacles;
+  obstacles.push_back(std::move(obs));
 
   ExternalPairSet pairs;
-  buildExternalPairs(topology, flattenRows(V), obstacles, 0.2, pairs);
+  buildExternalPairs(topology, flattenRows(V), obstacleViews(obstacles), 0.2, pairs);
 
   const long long oneTwelfth = weightKey(1.0 / 12.0);
   const long long half = weightKey(0.5);
@@ -230,20 +241,19 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, ExternalEEDoesNotUseCoplanarInteriorObst
 
   auto [obsV, obsF] = makeUnitSquareMesh();
   const ES::VXd obsRest = flattenRows(obsV);
-  ObstacleSurface obs(
+  auto obs = std::make_unique<TrajectoryObstacleSurface>(
     obsV, obsF,
     pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d::Zero()));
-  obs.setObjectId(0);
-  obs.update(0.0);
+  obs->setObjectId(0);
 
   SurfaceIPCTopology topology;
   topology.setMesh(V, F);
 
-  std::vector<ObstacleSurface> obstacles;
-  obstacles.emplace_back(std::move(obs));
+  std::vector<std::unique_ptr<ObstacleSurface>> obstacles;
+  obstacles.push_back(std::move(obs));
 
   ExternalPairSet pairs;
-  buildExternalPairs(topology, flattenRows(V), obstacles, 0.2, pairs);
+  buildExternalPairs(topology, flattenRows(V), obstacleViews(obstacles), 0.2, pairs);
 
   bool sawBoundaryEdge = false;
   for (const auto &pair : pairs.eePairs) {
@@ -270,11 +280,10 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, LineSearchSupersetContainsExactExternalP
 
   auto [obsV, obsF] = makeUnitSquareMesh();
   const ES::VXd obsRest = flattenRows(obsV);
-  ObstacleSurface obs(
+  auto obs = std::make_unique<TrajectoryObstacleSurface>(
     obsV, obsF,
     pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d::Zero()));
-  obs.setObjectId(3);
-  obs.update(0.0);
+  obs->setObjectId(3);
 
   SurfaceIPCTopology topology;
   topology.setMesh(dynV, dynF);
@@ -284,16 +293,16 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, LineSearchSupersetContainsExactExternalP
   for (int vi = 0; vi < dynV.rows(); ++vi)
     dx[3 * vi + 2] = -0.28;
 
-  std::vector<ObstacleSurface> obstacles;
-  obstacles.emplace_back(std::move(obs));
+  std::vector<std::unique_ptr<ObstacleSurface>> obstacles;
+  obstacles.push_back(std::move(obs));
 
   ExternalPairSet superset;
-  buildExternalPairsLineSearchSuperset(topology, x, dx, obstacles, 0.35, superset);
+  buildExternalPairsLineSearchSuperset(topology, x, dx, obstacleViews(obstacles), 0.35, superset);
 
   bool sawExactPairs = false;
   for (double alpha : { 0.0, 0.25, 0.5, 1.0 }) {
     ExternalPairSet exact;
-    buildExternalPairs(topology, x + alpha * dx, obstacles, 0.35, exact);
+    buildExternalPairs(topology, x + alpha * dx, obstacleViews(obstacles), 0.35, exact);
     sawExactPairs = sawExactPairs || exact.size() > 0;
 
     for (const auto &pair : exact.ptPairs)
@@ -310,10 +319,10 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, LineSearchSupersetContainsExactExternalP
 TEST(SurfaceIPCExternalBroadPhaseGTest, ObstaclePoseCacheTracksSurfaceBounds)
 {
   auto [obsV, obsF] = makeSmallBoxObstacle();
-  ObstacleSurface obs(
+  TrajectoryObstacleSurface obs(
     obsV, obsF,
     pgo::Contact::IPC::makeLinearTrajectorySampler(flattenRows(obsV), ES::V3d(1.0, 2.0, 3.0)));
-  obs.update(0.5);
+  obs.setTime(0.5);
 
   const auto &surfaceBox = obs.cache().surfaceBox;
   EXPECT_NEAR(surfaceBox.lo.x(), 0.0, 1e-12);
@@ -323,7 +332,7 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, ObstaclePoseCacheTracksSurfaceBounds)
   EXPECT_NEAR(surfaceBox.hi.y(), 1.5, 1e-12);
   EXPECT_NEAR(surfaceBox.hi.z(), 2.0, 1e-12);
 
-  obs.update(1.0);
+  obs.setTime(1.0);
   const auto &updatedBox = obs.cache().surfaceBox;
   EXPECT_NEAR(updatedBox.lo.x(), 0.5, 1e-12);
   EXPECT_NEAR(updatedBox.lo.y(), 1.5, 1e-12);

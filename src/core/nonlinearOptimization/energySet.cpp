@@ -194,6 +194,7 @@ void EnergySet::hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const
 
 void EnergySet::printEnergy(EigenSupport::ConstRefVecXd x) const
 {
+  prepareEvaluationState(x);
   for (std::size_t i = 0; i < potentialEnergies.size(); i++) {
     mapx(x, energyDOFs[i], buffer_->xlocals[i]);
     double energy = potentialEnergies[i]->func(buffer_->xlocals[i]);
@@ -397,6 +398,23 @@ StepConstraint EnergySet::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, Eig
   return binding;
 }
 
+void EnergySet::beginStep(const StepState &state)
+{
+  for (std::size_t i = 0; i < potentialEnergies.size(); i++) {
+    auto *aware = dynamic_cast<StepAwareEnergy *>(
+      const_cast<PotentialEnergy *>(potentialEnergies[i].get()));
+    if (!aware)
+      continue;
+
+    StepState localState = state;
+    if (state.previousX) {
+      mapx(*state.previousX, energyDOFs[i], buffer_->vecs[i]);
+      localState.previousX = &buffer_->vecs[i];
+    }
+    aware->beginStep(localState);
+  }
+}
+
 void EnergySet::beginLineSearch(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const
 {
   for (std::size_t i = 0; i < potentialEnergies.size(); i++) {
@@ -406,6 +424,17 @@ void EnergySet::beginLineSearch(EigenSupport::ConstRefVecXd x, EigenSupport::Con
     mapx(x, energyDOFs[i], buffer_->xlocals[i]);
     mapx(dx, energyDOFs[i], buffer_->vecs[i]);
     aware->beginLineSearch(buffer_->xlocals[i], buffer_->vecs[i]);
+  }
+}
+
+void EnergySet::prepareEvaluationState(EigenSupport::ConstRefVecXd x) const
+{
+  for (std::size_t i = 0; i < potentialEnergies.size(); i++) {
+    const auto *aware = dynamic_cast<const EvaluationStateAwareEnergy *>(potentialEnergies[i].get());
+    if (!aware)
+      continue;
+    mapx(x, energyDOFs[i], buffer_->xlocals[i]);
+    aware->prepareEvaluationState(buffer_->xlocals[i]);
   }
 }
 

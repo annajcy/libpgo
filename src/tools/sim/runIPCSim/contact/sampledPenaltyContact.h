@@ -14,7 +14,7 @@ class ConfigFileJSON;
 
 namespace pgo::RunIPCSim
 {
-struct LegacyPenaltyContactConfig
+struct SampledPenaltyContactConfig
 {
   double stiffness = 0.0;
   int samples = 0;
@@ -22,14 +22,14 @@ struct LegacyPenaltyContactConfig
   double velocityEps = 0.0;
 };
 
-LegacyPenaltyContactConfig parseLegacyPenaltyContactConfig(const pgo::ConfigFileJSON &config);
+SampledPenaltyContactConfig parseSampledPenaltyContactConfig(const pgo::ConfigFileJSON &config);
 
-std::shared_ptr<RunIPCSimContactBackend> makeLegacyPenaltyContactBackend(
+std::shared_ptr<RunIPCSimContactBackend> makeSampledPenaltyContactBackend(
   const pgo::ConfigFileJSON &config,
-  const LegacyPenaltyContactConfig &contactConfig,
+  const SampledPenaltyContactConfig &contactConfig,
   const pgo::Mesh::TriMeshGeo &surfaceMesh,
   const std::vector<int> &embeddingVertexIndices,
   const std::vector<double> &embeddingWeights,
-  int simulationDofCount,
+  EigenSupport::ConstRefVecXd simulationRestPosition,
   double scale);
 }  // namespace pgo::RunIPCSim

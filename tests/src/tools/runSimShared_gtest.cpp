@@ -15,8 +15,8 @@
 #include "io/volumeMeshIO.h"
 #include "simulationMesh.h"
 #include "tetMesh.h"
-#include "legacy_penalty/triangleMeshExternalContactHandler.h"
-#include "legacy_penalty/triangleMeshSelfContactHandler.h"
+#include "sampled_penalty/kernels/triangleMeshExternalContactHandler.h"
+#include "sampled_penalty/kernels/triangleMeshSelfContactHandler.h"
 #include "triMeshGeo.h"
 #include "volumetricMesh.h"
 

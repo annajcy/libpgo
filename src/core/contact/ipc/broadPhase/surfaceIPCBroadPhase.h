@@ -30,7 +30,7 @@ void buildSelfPairsLineSearchSuperset(
 void buildExternalPairs(
   const SurfaceIPCTopology &topology,
   EigenSupport::ConstRefVecXd positions,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   double dhatExternal,
   ExternalPairSet &pairs);
 
@@ -38,7 +38,7 @@ void buildExternalPairsLineSearchSuperset(
   const SurfaceIPCTopology &topology,
   EigenSupport::ConstRefVecXd positions,
   EigenSupport::ConstRefVecXd displacements,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   double dhatExternal,
   ExternalPairSet &pairs);
 

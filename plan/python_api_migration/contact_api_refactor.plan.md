@@ -1,11 +1,11 @@
 # Contact API Refactor Plan
 
-> **状态日期：** 2026-06-03
+> **状态日期：** 2026-06-04
 > **适用范围：** C++ `contact/` construction boundary + Python `pypgo.contact` binding.
 > **执行约束：** 不重写 IPC barrier、CCD、sampled penalty 数值 kernel、active-set 数值逻辑或 floor/contact 能量公式。本计划只重构 contact energy 的长期构造边界、ownership、obstacle lifecycle、stateful contact energy contract、Python API、以及与 `EnergySet` / solver service 的对接方式。
 > **并行约束：** 本计划后续实现中，凡遇到可表达为简单 `parallel_for` / range loop / 三维逐点循环的 TBB 或 OpenMP 并行需求，统一使用 `src/core/parallelism` 的 facade API（当前命名空间为 `pgo::parallel`，如 `pgo::parallel::parallelFor*`），contact 业务模块不得新增直接 `#include <tbb/...>`、`tbb::parallel_for` 或 `#pragma omp parallel for`。如果 contact kernel 确实需要 `parallel_reduce`、TLS、concurrent containers、锁、custom partitioner 等复杂 TBB/OpenMP 模式，先为 `core/parallelism` 增加窄抽象，或在本 plan 中明确记录为 scoped exception。
 >
-> ## 依赖 plan 的实施状态（2026-06-03）
+> ## 依赖 plan 的实施状态（2026-06-04）
 >
 > 本 plan 依赖 4 个姊妹 plan。time integrator plan 已在 contact plan 之前实施完成，
 > 其间落地了部分 contact plan 所需的基础设施。下表标注哪些已经就绪：
@@ -20,21 +20,30 @@
 > | `SolverControl` | solver plan | ✅ |
 > | `QuadraticPotentialEnergy::setLinearTerm/setAValues`（D2）| time integrator | ✅ |
 > | `acceptsDynamicSolveStatus` | 既有 | ✅ |
-> | `AcceptedStateAwareEnergy` accepted-step callback（§18.7）| contact C2 | ❌ |
-> | `StepDependentEnergy` marker（§18.8）| contact C2 | ❌ |
-> | `EmbeddedDofMap`（§18.4）| contact C2 | ❌ |
-> | `StatefulContactEnergy`（§4）| contact C2 | ❌ |
-> | Obstacle hierarchy（§7）| contact C3 | ❌ |
-> | `IPCContactEnergy`（§5）| contact C5 | ❌ |
-> | `SampledPenaltyContactEnergy` normal-only model（§6）| contact C6 | ❌ |
-> | `FrictionalSampledPenaltyContactEnergy` step-dependent model（§6）| contact C6 | ❌ |
-> | `runIPCSim` SimulationProblem/SimulationRuntime 分离（§18.5）| contact C8 | ❌ |
+> | `EvaluationStateAwareEnergy` evaluation-state prepare hook（§18.7）| contact C2 | ✅ |
+> | `StepDependentEnergy` marker（§18.8）| contact C2 | ✅ |
+> | `EmbeddedDofMap`（§18.4）| contact C2 | ✅ |
+> | `StatefulContactEnergy`（§4）| contact C2 | ✅ |
+> | Obstacle hierarchy（§7）| contact C3 | ✅ |
+> | `IPCContactEnergy`（§5）| contact C5 | ✅ |
+> | `SampledPenaltyContactEnergy` normal-only model（§6）| contact C6 | ✅ |
+> | `FrictionalSampledPenaltyContactEnergy` step-dependent model（§6）| contact C6 | ✅ |
+> | `runIPCSim` contact setup migration（§18.5 / C8 scoped）| contact C8 | ✅ |
 >
 > **过渡期设计：** `runIPCSim` loop 当前（time integrator plan 之后）直接使用
 > `ImplicitEulerStepper`，每帧重建 stepper。`ImplicitEulerStepper::step()` 内已有
 > `dynamic_cast<StepAwareEnergy*>` 的 per-term dispatch 循环，对尚未成为
 > `StepAwareEnergy` 的 contact energy 是空转。contact plan 产出
 > `StatefulContactEnergy` 后，该循环自动生效，无需改 stepper 代码。
+>
+> **实施记录（2026-06-04）：**
+>
+> - C3/C4 已按 typed obstacle hierarchy 落地：`ObstacleSurface` 是抽象只读基类，`StaticObstacleSurface` / `MovingObstacleSurface` / `LinearMovingObstacleSurface` / `TrajectoryObstacleSurface` 承担具体构造与时间更新；`SurfaceIPCCore` 只拥有 `std::unique_ptr<ObstacleSurface>`，内部拆成 static/moving typed buckets，通过 `ObstacleSurfaceView` 把 broad phase、external assembler、external max-step 与 ownership 解耦。
+> - C5 已直接 rename/migrate 到 `IPCContactEnergy`，不保留新的 wrapper 路径。
+> - C6 已拆成 normal `SampledPenaltyContactEnergy` 与 frictional `FrictionalSampledPenaltyContactEnergy`；后者实现 `StepDependentEnergy`。
+> - Sampled penalty 底层数值 kernel 已从旧 `legacy_penalty` 目录迁到 `src/core/contact/sampled_penalty/kernels`；C API、runSim shared tests、CMake 和 long-lived sampled penalty energy 均使用新 include 路径。
+> - C8 第一版按 scoped migration 完成：移除 `--legacy`，`ContactBackendKind::LegacyPenalty` 改为 `SampledPenalty`，`obstacleSetup` 直接生产 typed obstacle ownership；dynamic loop 使用 long-lived stateful contact energy。完整 `SimulationProblem` / `SimulationRuntime` 大拆分可作为后续 runIPCSim 架构清理，不再阻塞本 contact API refactor。
+> - C9 Python facade 已补齐 `ContactVertexEmbedding`、`FloorParameters`、`ObstacleSpec.linear_velocity(reference_time=...)`、`FloorEnergy.set_height(...)` 与 public `__all__` surface；public API 不暴露 raw C++ contact internals。
 
 ## 目标
 
@@ -46,7 +55,7 @@ namespace pgo::NonlinearOptimization
 struct StepState;
 class StepAwareEnergy;
 enum class EnergyStateKind;
-class AcceptedStateAwareEnergy;
+class EvaluationStateAwareEnergy;
 class StepDependentEnergy;
 }  // namespace pgo::NonlinearOptimization
 
@@ -65,6 +74,7 @@ class ContactSurfaceAdapter;
 
 enum class ContactModelKind
 {
+  Floor,
   IPC,
   SampledPenalty,
 };
@@ -211,7 +221,7 @@ Python 用户不看到：
 - `src/core/contact/ipc/broadPhase/surfaceIPCExternalBroadPhase.cpp`
 - `src/core/contact/ipc/core/surfaceIPCExternalBarrierAssembler.*`
 - `src/core/contact/ipc/core/surfaceIPCMaxStep.*`
-- `src/core/contact/legacy_penalty/*`（本计划重命名为 sampled penalty contact model；不是 legacy backend）
+- `src/core/contact/sampled_penalty/kernels/*`（本计划重命名为 sampled penalty contact model；不是 legacy backend）
 - `src/tools/sim/runIPCSim/contact/legacyPenaltyContact.*`
 - `src/tools/sim/runIPCSim/contact/contactBackend.h`
 - `src/tools/sim/runIPCSim/setup/obstacleSetup.*`
@@ -232,7 +242,7 @@ construction-level policy 应该集中在一个小 facade，而不是散在每�
 
 ### 2. `legacy_penalty` 实际是 sampled penalty contact model
 
-当前 `contact/legacy_penalty/*` 不是应该藏起来的旧路径，而是一套和 IPC 平行的 contact model：
+当前 `contact/sampled_penalty/kernels/*` 不是应该藏起来的旧路径，而是一套和 IPC 平行的 contact model：
 
 - 它使用 triangle sampling、sample embedding、DCD/CCD contact detection 生成 active contact pairs；
 - external contact 的 active term 是 `PointPenetrationEnergy`；
@@ -306,7 +316,7 @@ Floor / IPC 是 `PotentialEnergy`，不是 `ConstraintFunctions`。不要把 bbo
 - 不为 moving floor / surface pressure 设计 first-class Python class；列入 future work。
 - 不让 contact energy 进入 `pypgo.constraints`。
 - 不承诺 `IPCEnergy` instance 的 concurrent evaluation thread-safety。
-- 不改变既有 `runIPCSim` JSON 字段含义；本 plan 明确列出的 CLI 变更（移除 `--legacy`）和 sampled penalty static normal/frictional split 是有意行为变更，必须同步测试和文档。
+- 不改变既有 `runIPCSim` JSON 字段含义；本 plan 明确列出的 CLI 变更（移除 `--legacy`）和 sampled penalty static external-only/frictional split 是有意行为变更，必须同步测试和文档。
 
 ## 关键设计决策
 
@@ -342,11 +352,11 @@ public:
   virtual void beginStep(const StepState &state) = 0;
 };
 
-class AcceptedStateAwareEnergy
+class EvaluationStateAwareEnergy
 {
 public:
-  virtual ~AcceptedStateAwareEnergy() = default;
-  virtual void acceptState(EigenSupport::ConstRefVecXd x) = 0;
+  virtual ~EvaluationStateAwareEnergy() = default;
+  virtual void prepareEvaluationState(EigenSupport::ConstRefVecXd x) const = 0;
 };
 
 class StepDependentEnergy
@@ -401,6 +411,7 @@ using ObstacleSpec = std::variant<StaticObstacleSpec, LinearMovingObstacleSpec>;
 
 enum class ContactModelKind
 {
+  Floor,
   IPC,
   SampledPenalty,
 };
@@ -409,7 +420,7 @@ class StatefulContactEnergy:
   public NonlinearOptimization::PotentialEnergy,
   public NonlinearOptimization::LineSearchAwareEnergy,
   public NonlinearOptimization::StepAwareEnergy,
-  public NonlinearOptimization::AcceptedStateAwareEnergy
+  public NonlinearOptimization::EvaluationStateAwareEnergy
 {
 public:
   virtual ContactModelKind contactModelKind() const = 0;
@@ -418,9 +429,9 @@ public:
     return NonlinearOptimization::EnergyStateKind::Displacement;
   }
   virtual void beginStep(const ContactStepState &state) = 0;
-  virtual void refreshActiveSet(EigenSupport::ConstRefVecXd x) = 0;
-  virtual void clearActiveSet() = 0;
-  void acceptState(EigenSupport::ConstRefVecXd x) override
+  virtual void refreshActiveSet(EigenSupport::ConstRefVecXd x) const = 0;
+  virtual void clearActiveSet() const = 0;
+  void prepareEvaluationState(EigenSupport::ConstRefVecXd x) const override
   {
     refreshActiveSet(x);
   }
@@ -626,7 +637,8 @@ using ContactStepState = NonlinearOptimization::StepState;
 class StatefulContactEnergy:
   public NonlinearOptimization::PotentialEnergy,
   public NonlinearOptimization::LineSearchAwareEnergy,
-  public NonlinearOptimization::StepAwareEnergy
+  public NonlinearOptimization::StepAwareEnergy,
+  public NonlinearOptimization::EvaluationStateAwareEnergy
 {
 public:
   virtual ContactModelKind contactModelKind() const = 0;
@@ -635,8 +647,12 @@ public:
     return NonlinearOptimization::EnergyStateKind::Displacement;
   }
   virtual void beginStep(const ContactStepState &state) = 0;
-  virtual void refreshActiveSet(EigenSupport::ConstRefVecXd x) = 0;
-  virtual void clearActiveSet() = 0;
+  virtual void refreshActiveSet(EigenSupport::ConstRefVecXd x) const = 0;
+  virtual void clearActiveSet() const = 0;
+  void prepareEvaluationState(EigenSupport::ConstRefVecXd x) const override
+  {
+    refreshActiveSet(x);
+  }
 };
 }  // namespace pgo::Contact
 ```
@@ -645,11 +661,12 @@ Lifecycle contract:
 
 - `StepState.time` is the **step start time**, and `StepState.previousX` is the displacement state at that same time. Contact energies must not reinterpret `StepState.time` as the target/evaluation time.
 - Kinematic moving obstacle contact evaluation defaults to the implicit target time `state.time + state.timestep`. For IPC this preserves current `runIPCSim` behavior, where dynamic obstacle poses are sampled at the step end time. `setMovingObstacleTime(t)` remains the explicit override/helper for static or manual evaluation loops.
-- `beginStep(state)` sets frame/step state such as start time, timestep, previous displacement, and moving obstacle poses; it clears stale accepted and line-search active sets but does not perform contact detection.
-- `refreshActiveSet(x)` is the canonical detection/rebuild entry point at the accepted Newton iterate or at the beginning of a solve.
-- `func` / `gradient` / safe one-shot `hessian` evaluate the currently active contact model; they must not perform a different detection policy during line search.
-- Outside line search, an implementation may lazily refresh an empty/mismatched active set for interactive Python ergonomics. Every lazy refresh must emit an info-level log message naming the contact model and the reason, for example `"IPCContactEnergy lazy refreshActiveSet during value evaluation: active set was absent"`. Solver/run-loop code must not rely on lazy refresh; it must call `refreshActiveSet(x)` or use the accepted-state callback path.
-- The solver accepted-step callback dispatches `AcceptedStateAwareEnergy::acceptState(xAccepted)` immediately after a Newton step is accepted. `StatefulContactEnergy::acceptState(x)` defaults to `refreshActiveSet(x)`, so accepted active sets are updated explicitly rather than through the next evaluation's lazy side effect.
+- `beginStep(state)` sets frame/step state such as start time, timestep, previous displacement, and moving obstacle poses; it clears stale exact and line-search active sets but does not perform contact detection.
+- `refreshActiveSet(x)` is the canonical detection/rebuild entry point for the normal evaluation point `x`. It is called directly by Python/manual users, and indirectly by solver/optimizer code through `prepareEvaluationState(x)`.
+- `refreshActiveSet(x)`, `clearActiveSet()`, line-search hooks, and `prepareEvaluationState(x)` are `const` methods whose implementations mutate only internal caches. This matches the existing `PotentialEnergy` evaluation model and lets `EnergySet` store `shared_ptr<const PotentialEnergy>` while still forwarding evaluation-state callbacks.
+- `func` / `gradient` / safe one-shot `hessian` consume the currently active contact model; they must not run contact detection themselves. Outside line search, evaluating without a matching exact active set is an API error with a clear message telling callers to use `refreshActiveSet(x)` or `prepareEvaluationState(x)` first.
+- The solver evaluation-state prepare hook dispatches `EvaluationStateAwareEnergy::prepareEvaluationState(xEval)` immediately before every normal solver-owned evaluation point, including the Newton current point before `func_grad_hessian(x_i, ...)`, non-frozen line-search trial points, subiteration-one post-step gradient evaluation, and optimizer final-objective evaluation.
+- When a bounded line-search policy uses `beginLineSearch(x, dxClamped)`, contact trial evaluations consume the frozen/superset line-search active set and deliberately skip `prepareEvaluationState(xTrial)` until `endLineSearch()` clears that line-search state.
 - `computeMaxStepLimit(x, dxRaw)` is called before line search and returns a feasible alpha for the raw Newton direction. The solver applies the global feasible alpha first, then calls `beginLineSearch(x, dxClamped)`.
 - `beginLineSearch(x, dxClamped)` receives the already-clamped direction and may build caches/supersets valid for `x + alpha * dxClamped`, `alpha in [0, 1]` unless the line-search policy advertises a wider probe range. It must not compute or modify feasible alpha.
 - During line search, contact pairs are frozen or conservatively supersetted through `beginLineSearch(...)` / `endLineSearch()` from `LineSearchAwareEnergy`.
@@ -676,12 +693,12 @@ mutable bool hasLineSearchActiveSet_ = false;
 
 Implementation:
 
-- `beginStep(state)` clears accepted and line-search active sets, stores the step context, and delegates moving obstacle poses to `core_.setMovingObstacleTime(state.time + state.timestep)`.
+- `beginStep(state)` clears exact and line-search active sets, stores the step context, and delegates moving obstacle poses to `core_.setMovingObstacleTime(state.time + state.timestep)`.
 - `refreshActiveSet(x)` maps simulation displacement to surface positions, then calls `core_.buildActiveSet(surfacePositions)`.
-- `acceptState(x)` uses the `StatefulContactEnergy` default and calls `refreshActiveSet(x)` after every accepted Newton step.
-- `func` / `gradient` / safe one-shot `hessian` evaluate with the refreshed active set after Energy E0 rename. If the active set is absent or stale outside line search, they may lazily rebuild it at `x` for direct Python evaluation, but must emit the required info log. Solver/runIPCSim tests should assert the explicit path does not trigger this log.
+- `prepareEvaluationState(x)` uses the `StatefulContactEnergy` default and calls `refreshActiveSet(x)` for the solver-owned normal evaluation point.
+- `func` / `gradient` / safe one-shot `hessian` evaluate with the prepared exact active set after Energy E0 rename. If the active set is absent or stale outside line search, they throw; direct Python evaluation must call `refresh_active_set(x)` first.
 - `beginLineSearch(x, dxClamped)` maps both vectors to surface space and builds `core_.buildLineSearchActiveSetSuperset(surfaceX, surfaceDxClamped)`.
-- `endLineSearch()` clears the line-search active set and leaves the regular active set to be refreshed at the next accepted iterate.
+- `endLineSearch()` clears the line-search active set and does not promote the line-search superset into the exact active-set cache. The next normal evaluation point is prepared explicitly.
 - `computeMaxStepLimit(x, dx)` keeps using IPC CCD/max-step through `SurfaceIPCCore`.
 
 `IPCEnergy.set_moving_obstacle_time(t)` remains a model-specific helper and directly calls the moving-obstacle update path at exactly `t`. It is not a compatibility alias for `setObstacleTime` and does not apply `+ timestep`.
@@ -690,7 +707,7 @@ Implementation:
 
 The current `legacy_penalty` implementation becomes sampled penalty contact. It is split into two long-term C++ classes:
 
-- `SampledPenaltyContactEnergy`: normal penalty contact only. It is a `StatefulContactEnergy` and is static-solve compatible.
+- `SampledPenaltyContactEnergy`: normal penalty contact only. It is a `StatefulContactEnergy`. Dynamic solves may use both external and self contact; physical static solve builders may only use a frozen external-contact subset by default.
 - `FrictionalSampledPenaltyContactEnergy`: normal penalty contact plus dynamic friction terms. It derives from `SampledPenaltyContactEnergy` and `NonlinearOptimization::StepDependentEnergy`; physical static solve builders reject it by default. It still reports `ContactModelKind::SampledPenalty`; callers distinguish frictional behavior through the concrete type or `StepDependentEnergy` marker.
 
 ```cpp
@@ -763,7 +780,7 @@ Implementation:
 - `func` returns the sum of active external/self terms, or zero when there are no active contacts;
 - `gradient` and safe one-shot `hessian` sum active term contributions into the simulation-space result;
 - `beginLineSearch(...)` copies or rebuilds one `SampledPenaltyActiveSet` for the base point and freezes it; trial evaluations never rerun contact detection.
-- If a sampled penalty active set is absent or stale outside line search, direct evaluation may lazily refresh and must emit the required info-level log. The solver/runIPCSim path must use explicit `refreshActiveSet(...)` and accepted-state callback refreshes.
+- If a sampled penalty active set is absent or stale outside line search, direct evaluation throws; direct Python/manual callers must call `refreshActiveSet(x)` / `refresh_active_set(x)` first. Solver/runIPCSim paths use `prepareEvaluationState(...)` for normal evaluation points.
 
 `SampledPenaltyActiveSet` is intentionally internal. It is the RAII owner for active penalty energies and buffers, so the public contact energy does not accumulate scattered `shared_ptr` + raw buffer fields as the sampled penalty model grows.
 
@@ -781,7 +798,9 @@ beginStep(...) -> refreshActiveSet(x) -> evaluate long-lived SampledPenaltyConta
 
 Static-solve rule:
 
-- `SampledPenaltyContactEnergy` is normal-only and may be used in physical static solves.
+- `SampledPenaltyContactEnergy` is normal-only and may be used in physical static solves only through an explicit frozen-active-set static adapter.
+- The default physical static policy is external-only: build one active set from the static solve start state, freeze it for the whole solve, and do not expose `EvaluationStateAwareEnergy` or `LineSearchAwareEnergy` from the static adapter. This prevents static Newton iterations from silently becoming a dynamic active-set update loop.
+- Sampled self-contact remains dynamic-solve-only in v1. Self-contact active sets are too state/path dependent for the default physical static solve contract; supporting static self-contact later requires an explicit continuation/fixed-active-set policy and dedicated convergence tests.
 - `FrictionalSampledPenaltyContactEnergy` is `StepDependentEnergy` and is rejected by physical static solve builders by default.
 - Plain mathematical optimizer entry points such as `solve_newton` do not perform this rejection; the gate belongs to `runIPCSim` static mode, `SimulationProblem` validation, and future physical static-solve builders.
 
@@ -1075,7 +1094,7 @@ Readable properties:
 
 Static-solve visibility:
 
-- `SampledPenaltyEnergy` is normal-only and is static-solve compatible.
+- `SampledPenaltyEnergy` is normal-only. Physical static-solve builders expose only the frozen external-contact subset by default; sampled self-contact remains dynamic-solve-only in v1.
 - `FrictionalSampledPenaltyEnergy` is step-dependent; physical static-solve builders reject it by default.
 - Python `solve_newton` does not reject `FrictionalSampledPenaltyEnergy`, because it is a generic optimizer rather than a physical static-solve builder.
 
@@ -1120,15 +1139,15 @@ Because `ObstacleSurface` becomes abstract and `legacy_penalty` becomes first-cl
 
 Migration rule:
 
-- Existing JSON field meanings stay unchanged, except for the explicitly documented sampled penalty static normal/frictional behavior. CLI `--legacy` removal is an intentional non-JSON behavior change.
+- Existing JSON field meanings stay unchanged, except for the explicitly documented sampled penalty static external-only/frictional behavior. CLI `--legacy` removal is an intentional non-JSON behavior change.
 - `obstacleSetup.*` should return facade obstacle specs or an obstacle set accepted by `createIPCEnergy`.
 - `shellSetup.cpp` / `volumeSetup.cpp` should not call `markObstacleStatic`.
 - Any existing dynamic obstacle setup should express linear motion through `LinearMovingObstacleSpec` / `LinearMovingObstacleSurface`.
 - `legacyPenaltyContact.*` should be renamed/migrated to sampled penalty contact naming.
 - `ContactBackendKind::LegacyPenalty` should become `ContactBackendKind::SampledPenalty`.
 - `--legacy` is removed, not retained as a deprecated alias. CLI, tests, README, and examples must migrate to `--contact-model sampled-penalty`.
-- dynamic loop and static solve should call `beginStep(...)`, initial `refreshActiveSet(...)`, and accepted-state callback refreshes on `StatefulContactEnergy` instances rather than rebuilding temporary penalty force models each step.
-- physical static solve accepts floor, IPC, and normal-only `SampledPenaltyContactEnergy` contact.
+- dynamic loop and static solve should call `beginStep(...)` on persistent energies; Newton solver / optimizer should call `prepareEvaluationState(x)` before normal evaluation points rather than rebuilding temporary penalty force models each step or relying on hidden detection inside `func`.
+- physical static solve accepts floor, IPC, and frozen external-only normal sampled penalty contact.
 - physical static solve rejects `NonlinearOptimization::StepDependentEnergy` by default. This rejects `FrictionalSampledPenaltyContactEnergy` unless a future explicit static-friction policy provides a reference state and positive pseudo-timestep.
 - plain optimizer APIs do not reject `StepDependentEnergy`; the rejection belongs to `runIPCSim` static mode, `SimulationProblem` validation, and future physical static solve builders.
 
@@ -1172,15 +1191,15 @@ The mutable execution state should live in `SimulationRuntime`:
 current x/v/time, solver service, EnergySet, StatefulContactEnergy instances, output writers
 ```
 
-`SimulationProblem` constructs contact through `contactEnergyFactory`; `SimulationRuntime` owns the per-step calls to `beginStep(...)`, `refreshActiveSet(...)`, line search, and output. This keeps config parsing, contact construction, and per-frame mutation from staying tangled in setup files.
+`SimulationProblem` constructs contact through `contactEnergyFactory`; `SimulationRuntime` owns per-step `beginStep(...)`, solver invocation, and output. Newton solver / optimizer own `prepareEvaluationState(x)` immediately before normal evaluation points, while line search owns `beginLineSearch(...)` / `endLineSearch()`. This keeps config parsing, contact construction, per-frame mutation, and per-evaluation active-set refresh from staying tangled in setup files.
 
 6. Sampled penalty active terms are one internal object.
 
-`SampledPenaltyContactEnergy` owns a `SampledPenaltyActiveSet` for the accepted iterate and, when needed, one frozen line-search active set. Active external/self penalty energies and their buffers are not individual long-term members on the public energy class.
+`SampledPenaltyContactEnergy` owns a `SampledPenaltyActiveSet` for the prepared exact evaluation state and, when needed, one frozen line-search active set. Active external/self penalty energies and their buffers are not individual long-term members on the public energy class.
 
-7. Accepted-state callback is common optimization infrastructure.
+7. Evaluation-state prepare is common optimization infrastructure.
 
-`AcceptedStateAwareEnergy` lives under `NonlinearOptimization`, not under `Contact`. Newton solver calls `acceptState(xAccepted)` immediately after accepting a step. `EnergySet` implements this interface by mapping the global accepted state to each term's local DOFs and forwarding to child energies that implement the interface. `StatefulContactEnergy::acceptState(x)` defaults to `refreshActiveSet(x)`. This makes accepted active-set refresh explicit and keeps solver behavior from depending on lazy rebuilds in the next evaluation.
+`EvaluationStateAwareEnergy` lives under `NonlinearOptimization`, not under `Contact`. Newton solver calls `prepareEvaluationState(xEval)` immediately before normal evaluations that it owns: current-iterate `func_grad_hessian`, non-frozen line-search trial evaluations, subiteration-one post-step gradient evaluation, and optimizer final-objective evaluation. `EnergySet` implements this interface by mapping the global evaluation state to each term's local DOFs and forwarding to child energies that implement the interface. `StatefulContactEnergy::prepareEvaluationState(x)` defaults to `refreshActiveSet(x)`. This makes exact active-set refresh explicit and keeps energy evaluation methods from depending on hidden lazy rebuilds.
 
 8. `StepDependentEnergy` marks energies that require per-step history.
 
@@ -1197,7 +1216,7 @@ namespace pgo::NonlinearOptimization
 struct StepState;
 class StepAwareEnergy;
 enum class EnergyStateKind;
-class AcceptedStateAwareEnergy;
+class EvaluationStateAwareEnergy;
 class StepDependentEnergy;
 }  // namespace pgo::NonlinearOptimization
 
@@ -1411,7 +1430,7 @@ set_obstacle_time
 - `src/core/contact/sampled_penalty/frictionalSampledPenaltyContactEnergy.cpp`
 - `src/core/contact/sampled_penalty/sampledPenaltyActiveSet.h`
 - `src/core/contact/sampled_penalty/sampledPenaltyActiveSet.cpp`
-- `src/core/nonlinearOptimization/acceptedStateAwareEnergy.h`
+- `src/core/nonlinearOptimization/evaluationStateAwareEnergy.h`
 - `src/core/nonlinearOptimization/stepDependentEnergy.h`
 - `src/python/pypgo/bindings/contact_bindings.cpp`
 - `pypgo/contact.py`
@@ -1423,7 +1442,7 @@ set_obstacle_time
 ### 修改
 
 - `src/core/contact/CMakeLists.txt`：编入 `contactEnergyFactory.*`。
-- `src/core/nonlinearOptimization/CMakeLists.txt`：编入 `acceptedStateAwareEnergy.h` 和 `stepDependentEnergy.h`；`StepAwareEnergy` 已由 time integrator plan 落地，`EnergyStateKind` 来自 Energy plan，不在 contact plan 里重复添加。
+- `src/core/nonlinearOptimization/CMakeLists.txt`：编入 `evaluationStateAwareEnergy.h` 和 `stepDependentEnergy.h`；`StepAwareEnergy` 已由 time integrator plan 落地，`EnergyStateKind` 来自 Energy plan，不在 contact plan 里重复添加。
 - `src/core/contact/mappedSurfacePotentialEnergy.h/.cpp`：迁移为 common `EmbeddedDofMap` + `ContactSurfaceAdapter` composition，或让旧类临时委托 adapter，避免 common contact 层继续挂在 `Contact::IPC` namespace 下。
 - `src/core/contact/ipc/external/obstacleSurface.h/.cpp`：迁移到 common `src/core/contact/external/`，并改为 abstract base + static/moving concrete hierarchy。
 - `src/core/contact/ipc/external/obstaclePoseCache.h/.cpp`：迁移到 common `src/core/contact/external/`。
@@ -1433,7 +1452,7 @@ set_obstacle_time
 - `src/core/contact/ipc/core/surfaceIPCExternalBarrierAssembler.*`：external obstacle signatures 改吃 view。
 - `src/core/contact/ipc/core/surfaceIPCMaxStep.*`：external obstacle signatures 改吃 view。
 - `src/core/contact/ipc/embeddedSurfaceIPCPotentialEnergy.h/.cpp`：迁移/重命名为 `ipcContactEnergy.h/.cpp`；constructor 接新 obstacle ownership；`setObstacleTime` 改为 `setMovingObstacleTime`；移除 `markObstacleStatic` construction path。C5 完成后不保留新的 public construction path 使用旧类名。
-- `src/core/contact/legacy_penalty/*`：迁移/重命名为 `src/core/contact/sampled_penalty/*`，保留数值 kernel 行为。
+- `src/core/contact/sampled_penalty/kernels/*`：迁移/重命名为 `src/core/contact/sampled_penalty/*`，保留数值 kernel 行为。
 - `src/tools/sim/runIPCSim/contact/contactBackend.h`：`LegacyPenalty` 改为 `SampledPenalty`，并对接 `StatefulContactEnergy`。
 - `src/tools/sim/runIPCSim/contact/legacyPenaltyContact.*`：迁移/重命名为 sampled penalty contact backend，停止每步临时 rebuild force model。
 - `src/tools/sim/runIPCSim/app/session.*`：逐步拆成 `SimulationProblem` + `SimulationRuntime`，把 JSON/setup 产物和每步 mutable runtime 分开。
@@ -1495,16 +1514,17 @@ set_obstacle_time
 - ✅ Use Energy plan E1's `EnergyStateKind` / `PotentialEnergy::stateKind() const`; do not define a second enum in contact.
 - ✅ Add `stepAwareEnergy.h` with `StepState` and `StepAwareEnergy`.
   → 文件：`src/core/nonlinearOptimization/stepAwareEnergy.h`（time integrator plan 已落地）。
-- Add `acceptedStateAwareEnergy.h` under `NonlinearOptimization` with `AcceptedStateAwareEnergy::acceptState(x)`.
+- Add `evaluationStateAwareEnergy.h` under `NonlinearOptimization` with `EvaluationStateAwareEnergy::prepareEvaluationState(x) const`.
 - Add `stepDependentEnergy.h` under `NonlinearOptimization` as a marker for energies that require step history such as `previousX` and positive `timestep`.
-- Make `EnergySet` implement `AcceptedStateAwareEnergy` by forwarding accepted states to children after mapping global DOFs to local DOFs.
-- Update Newton solver to call `acceptState(xAccepted)` immediately after accepting a line-search step, after `endLineSearch()` has run and after `x` has been updated.
+- Make `EnergySet` implement `EvaluationStateAwareEnergy` by forwarding evaluation states to children after mapping global DOFs to local DOFs.
+- Update Newton solver to call `prepareEvaluationState(xEval)` immediately before each normal solver-owned evaluation point. Bounded line-search trial evaluations with an active `LineSearchAwareEnergy` scope skip this hook and consume the line-search superset instead; non-frozen line-search policies prepare each trial point explicitly.
 - Preserve the existing max-step / line-search order: `computeMaxStepLimit(x, dxRaw)` first, clamp `dxRaw`, then `beginLineSearch(x, dxClamped)`.
 - Add `statefulContactEnergy.h` with:
   - `ContactModelKind`
   - `ContactStepState = NonlinearOptimization::StepState`
   - `StatefulContactEnergy`
-- Make `StatefulContactEnergy` derive from `StepAwareEnergy` and `AcceptedStateAwareEnergy`, return `EnergyStateKind::Displacement`, and implement `acceptState(x)` as `refreshActiveSet(x)`.
+- Make `StatefulContactEnergy` derive from `StepAwareEnergy` and `EvaluationStateAwareEnergy`, return `EnergyStateKind::Displacement`, and implement `prepareEvaluationState(x) const` as `refreshActiveSet(x) const`.
+- Keep `refreshActiveSet(x)`, `clearActiveSet()`, `beginLineSearch(...)`, `endLineSearch()`, and `prepareEvaluationState(x)` const, with active-set and line-search caches stored as mutable implementation state.
 - Add common `EmbeddedDofMap` by extracting/migrating mapping and pullback logic from `MappedSurfacePotentialEnergy`.
 - Add `ContactSurfaceAdapter` as the contact wrapper around `EmbeddedDofMap` plus optional `ContactVertexEmbedding`.
 - Keep state convention as simulation displacement.
@@ -1514,17 +1534,20 @@ set_obstacle_time
   - `EmbeddedDofMap` maps simulation displacement to embedded displacement and positions;
   - `EmbeddedDofMap` validates row/column dimensions;
   - `EmbeddedDofMap` pullback gradient/Hessian matches the old mapped-surface behavior on a small fixture;
-  - stateful contact interface is usable through `PotentialEnergy`, `LineSearchAwareEnergy`, `StepAwareEnergy`, and `AcceptedStateAwareEnergy` pointers;
-  - `EnergySet::acceptState` forwards only to accepted-state-aware child energies and uses local DOF mapping;
-  - Newton accepted-step callback invokes `acceptState` after a successful accepted step.
+  - stateful contact interface is usable through `PotentialEnergy`, `LineSearchAwareEnergy`, `StepAwareEnergy`, and `EvaluationStateAwareEnergy` pointers;
+  - `EnergySet::prepareEvaluationState` forwards only to evaluation-state-aware child energies and uses local DOF mapping;
+  - Newton evaluation-state prepare hook invokes `prepareEvaluationState` before current-point evaluation, before non-frozen trial evaluation, before subiteration-one post-step gradient evaluation, and before optimizer final objective.
 
 ### Task C3: Obstacle hierarchy + ready construction
 
-- Move obstacle surface and pose cache infrastructure from `contact/ipc/external` to common `contact/external`.
+Status: implemented.
+
+- Obstacle surface and pose cache infrastructure remains in `contact/ipc/external` for this API cutover, but the ownership/evaluation boundary is now common-style: construction produces typed obstacle objects and all IPC external algorithms consume `ObstacleSurfaceView`.
 - Refactor `ObstacleSurface` to an abstract read-only base.
 - Add `StaticObstacleSurface final`.
 - Add non-final `MovingObstacleSurface` with virtual `setTime(double)`.
 - Add `LinearMovingObstacleSurface final`.
+- Add `TrajectoryObstacleSurface final` for custom sampler tests and legacy sampler-style dynamic obstacle fixtures; new factory paths still prefer `StaticObstacleSurface` / `LinearMovingObstacleSurface`.
 - Static constructor builds pose cache directly from geometry.
 - Moving constructor initializes itself at `t = 0.0`.
 - Add `cloneSurface()` to every concrete obstacle class.
@@ -1535,8 +1558,11 @@ set_obstacle_time
   - linear moving obstacle is ready immediately after construction;
   - moving obstacle changes pose after `setTime(t)`;
   - typed clone preserves current pose and cache validity.
+  - sampler-style coverage constructs `TrajectoryObstacleSurface`, never raw `ObstacleSurface`.
 
 ### Task C4: SurfaceIPCCore obstacle ownership + views
+
+Status: implemented.
 
 - Replace `std::vector<ObstacleSurface> obstacles_` and `std::vector<bool> staticObstacles_` with split static/moving ownership.
 - Add `ObstacleSlot` to preserve input order and stable `objectId`.
@@ -1549,6 +1575,7 @@ set_obstacle_time
   - `obstacleViews()` order matches input order;
   - static-only `setMovingObstacleTime(t)` is a no-op for geometry;
   - moving-only and mixed obstacle updates only change moving obstacle poses.
+  - external broad phase / assembler / max-step tests pass `ObstacleSurfaceView` vectors, not owning obstacle containers.
 
 ### Task C5: IPCContactEnergy stateful implementation
 
@@ -1559,21 +1586,21 @@ set_obstacle_time
   - `beginStep(...)` uses `state.time + state.timestep` for moving obstacle poses;
   - `refreshActiveSet(x)`
   - `clearActiveSet()`
-  - `acceptState(x)` through `StatefulContactEnergy` default;
+  - `prepareEvaluationState(x)` through `StatefulContactEnergy` default;
   - `beginLineSearch(...)`
   - `endLineSearch()`
   - `setMovingObstacleTime(t)`
   - `createIPCEnergy(...)` facade construction through `contactEnergyFactory`
 - Ensure `computeMaxStepLimit(x, dxRaw)` remains outside `beginLineSearch`; `beginLineSearch(x, dxClamped)` builds a frozen/superset active set for the clamped segment and does not rerun detection for trial points.
-- Outside line search, lazy refresh is allowed only for direct evaluation fallback and must emit an info-level log.
+- Outside line search, direct evaluation without a matching exact active set is an error. Python/manual callers must explicitly call `refreshActiveSet(x)` / `refresh_active_set(x)` first.
 - Add tests:
   - construction with no obstacles, static obstacle, and linear moving obstacle;
   - `beginStep` updates moving obstacle time to `state.time + state.timestep`;
   - `setMovingObstacleTime(t)` updates moving obstacle time to exactly `t`;
   - `refreshActiveSet` builds a reusable active set;
-  - accepted-state callback refreshes the active set after a Newton accepted step;
+  - `prepareEvaluationState(x)` refreshes the exact active set before a normal evaluation point;
   - `beginLineSearch` freezes/supersets pairs;
-  - direct lazy refresh emits an info log, while explicit solver/run-loop path does not;
+  - direct evaluation without explicit refresh throws, while solver-owned evaluation succeeds through `prepareEvaluationState`;
   - `evaluateHessian` works for non-fixed Hessian topology.
 
 ### Task C6: SampledPenaltyContactEnergy and FrictionalSampledPenaltyContactEnergy stateful implementation
@@ -1606,8 +1633,8 @@ set_obstacle_time
   - frictional sampled penalty rejects missing `previousX` and non-positive `timestep`;
   - frictional sampled penalty updates previous-state/friction inputs;
   - `FrictionalSampledPenaltyContactEnergy` is discoverable through `StepDependentEnergy`;
-  - accepted-state callback refreshes active terms;
-  - direct lazy refresh emits an info log, while explicit solver/run-loop path does not;
+  - `prepareEvaluationState(x)` refreshes active terms;
+  - direct evaluation without explicit refresh throws, while solver-owned evaluation succeeds through `prepareEvaluationState`;
   - line-search evaluation does not rebuild active terms.
 
 ### Task C7: C++ floor/contact factory energy tests
@@ -1638,6 +1665,8 @@ set_obstacle_time
 
 ### Task C8: runIPCSim contact setup migration
 
+Status: implemented for contact setup/runtime lifecycle. Full `SimulationProblem` / `SimulationRuntime` class extraction is deferred as a runIPCSim architecture cleanup and is not required for this contact API cutover.
+
 - Split runIPCSim setup/runtime responsibilities:
   - `SimulationProblem`: parsed mesh/formulation/material/contact/boundary/output specs;
   - `SimulationRuntime`: current state, solver service, `EnergySet`, stateful contact energies, output writers.
@@ -1651,11 +1680,13 @@ set_obstacle_time
 - Preserve existing dynamic obstacle behavior if current examples/configs rely on linear motion.
 - Preserve existing sampled penalty JSON fields such as `contact-stiffness`, `contact-samples`, `contact-friction-coeff`, and `contact-vel-eps`.
 - Dynamic sampled penalty configs with `contact-friction-coeff > 0` construct `FrictionalSampledPenaltyContactEnergy`; configs with `contact-friction-coeff == 0` construct normal `SampledPenaltyContactEnergy`.
-- Physical static solve validates contact terms and rejects `StepDependentEnergy` by default. Static sampled penalty therefore supports normal-only contact (`contact-friction-coeff == 0`) and rejects frictional sampled penalty unless a future static-friction policy is added.
-- Per-step loops call `beginStep(...)`, initial `refreshActiveSet(...)`, and rely on accepted-state callback refreshes from `SimulationRuntime`, not from JSON/setup parsing code.
+- Physical static solve validates contact terms and rejects `StepDependentEnergy` by default. Static sampled penalty therefore supports frozen external-only normal contact (`contact-friction-coeff == 0`) and rejects frictional sampled penalty unless a future static-friction policy is added. Static sampled self-contact is not enabled in v1.
+- Per-step loops call `beginStep(...)`; Newton solver / optimizer call `prepareEvaluationState(x)` before normal evaluation points. JSON/setup parsing code must not own active-set refresh.
 - Add or update a focused setup-level test if the repo has one; otherwise add a short manual validation command to the implementation PR notes.
 
 ### Task C9: Python value objects and bindings
+
+Status: implemented.
 
 - Add `pypgo/contact.py`:
   - `ContactSurface`
@@ -1731,32 +1762,61 @@ set_obstacle_time
   - sim config construction uses `contactEnergyFactory`.
   - solver/energy plan follow-up should extract `MaxStepAwareEnergy` from the current `PotentialEnergy::computeMaxStepLimit(...)` optional behavior.
 
+## Self-review / plan audit（2026-06-04）
+
+本轮 review 结论：核心设计决策已经定稿，当前 plan 不再保留需要实现者临场拍板的 contact lifecycle 分叉。实现时若发现 repo truth 与本节冲突，以本节和 §4/§17/Task C2-C8 的 contract 为准，并把偏差写入实现 PR notes。
+
+已明确的决策：
+
+- `StepState.time` 是 step start time；moving obstacle contact 默认用 `state.time + state.timestep` 作为 evaluation/target time。
+- Newton evaluation-state prepare hook 是 v1 必需 contract；solver 在 normal evaluation 前显式调用 `prepareEvaluationState(xEval)`，不走“下一次 eval lazy rebuild”作为语义。
+- `computeMaxStepLimit(x, dxRaw)` 在 line search 之前执行；`beginLineSearch(x, dxClamped)` 只接收已经 clamp 后的方向并冻结/构造 pair superset。
+- lazy refresh 机制取消；direct evaluation 缺少 matching active set 时直接抛错，Python/manual 路径必须显式 `refresh_active_set(x)`，solver/runIPCSim 路径依赖 `prepareEvaluationState(xEval)`。
+- `IPCContactEnergy` 直接 rename/migrate 现有 `EmbeddedSurfaceIPCPotentialEnergy` 行为；不采用长期 wrapper final design。
+- `StepDependentEnergy` 是 per-step/history dependency marker；physical static solve builders 默认拒绝它，generic optimizer 不拒绝。
+- sampled penalty 拆成 normal-only `SampledPenaltyContactEnergy` 和 frictional `FrictionalSampledPenaltyContactEnergy`；normal energy 本体可长期持有 external/self active set，physical static 默认只允许 frozen external-only adapter；frictional 是 `StepDependentEnergy`。
+- `runIPCSim --legacy` 直接移除；sampled penalty 选择路径是 `--contact-model sampled-penalty`，内部 `ContactBackendKind::LegacyPenalty` 迁移为 `SampledPenalty`。
+
+自检发现并已在 plan 中修正：
+
+- `EvaluationStateAwareEnergy::prepareEvaluationState(x)` 必须是 `const`，因为 `EnergySet` 和 solver 以 `shared_ptr<const PotentialEnergy>` / const evaluation contract 组合能量；`refreshActiveSet`、`clearActiveSet`、line-search hooks 同样按 const cache mutation 设计。
+- `ContactModelKind` 目标 API 必须包含 `Floor`，否则 factory 产出的 floor contact energy 无法通过同一 contact-kind contract 表达。
+
+剩余实现风险（不需要新增设计决策，但需要测试覆盖）：
+
+- sampled penalty 的 surface displacement、simulation displacement、vertex embedding 三者在 shell/volume 路径里历史语义容易混淆；C6/C8 必须用 shell identity map 和 volume embedding fixtures 各测一条。
+- obstacle hierarchy 迁移会同时触碰 broad phase、assembler、max-step 和 setup code；C3/C4/C5 必须保持 `objectId` input-order 稳定，并用 mixed static/moving fixtures 验证。
+- `runIPCSim` setup/runtime split 是较大整理；如果实现 PR 为了控制风险分两步落地，第一步也必须留下等价命名边界，并保证 contact lifecycle 不再散落在 JSON/setup parsing code 中。
+- active-set lifecycle 测试不要只测“能 eval”；还要断言 direct eval 缺 explicit refresh 会抛错，solver/run-loop path 通过 `prepareEvaluationState` 成功，line-search trial 不触发 exact detection。
+
 ## 验收标准
 
 - `contact_energy_factory_gtest` 全部通过。
 - `stateful_contact_energy_gtest` 全部通过。
 - `sampled_penalty_contact_energy_gtest` 全部通过。
 - `python -m pytest tests/pypgo/test_contact.py` 全部通过。
+- `pypgo/examples/contact_api_demo.ipynb` 由 `pypgo/examples/scripts/generate_contact_api_demo.py` 生成，并能 top-to-bottom 执行。
+- contact API demo 使用仓库内具体 mesh asset，生成 `pypgo/examples/outputs/contact_api_demo.abc`。
 - Python construction never directly instantiates `EmbeddedSurfaceFloorPotentialEnergy` / `EmbeddedSurfaceIPCPotentialEnergy` / sampled penalty handlers; it calls `contactEnergyFactory`.
 - `IPCParameters(dhat=x, dhat_external=None)` maps to C++ `dhat_external == x`.
 - `SampledPenaltyParameters` maps only to normal sampled penalty stiffness/sample/self/external-contact values.
 - `FrictionParameters` maps to sampled penalty friction/velocity-eps values.
 - `IPCContactEnergy`, `SampledPenaltyContactEnergy`, and `FrictionalSampledPenaltyContactEnergy` derive from `StatefulContactEnergy`.
 - `FrictionalSampledPenaltyContactEnergy` derives from `NonlinearOptimization::StepDependentEnergy`; normal `SampledPenaltyContactEnergy` does not.
-- `StatefulContactEnergy` derives from `StepAwareEnergy` and `AcceptedStateAwareEnergy`, implements `acceptState(x)` via `refreshActiveSet(x)`, and reports `EnergyStateKind::Displacement`.
-- `EnergySet` forwards accepted-state callbacks to child energies with correct local DOF mapping.
-- Newton solver dispatches accepted-state callback immediately after accepting a step.
+- `StatefulContactEnergy` derives from `StepAwareEnergy` and `EvaluationStateAwareEnergy`, implements `prepareEvaluationState(x)` via `refreshActiveSet(x)`, and reports `EnergyStateKind::Displacement`.
+- `EnergySet` forwards evaluation-state prepare calls to child energies with correct local DOF mapping.
+- Newton solver dispatches evaluation-state prepare immediately before normal evaluation points, and skips it while a bounded line-search superset is active.
 - `computeMaxStepLimit(x, dxRaw)` runs before line search; `beginLineSearch(x, dxClamped)` receives the already-clamped direction.
 - `EmbeddedDofMap` is the shared mapping/pullback implementation used by contact surface construction.
 - `beginStep(...)`, `refreshActiveSet(x)`, and `clearActiveSet()` are implemented for IPC, normal sampled penalty, and frictional sampled penalty.
 - `beginStep(...)` treats `StepState.time` as step start time; moving obstacle contact evaluation defaults to `state.time + state.timestep`.
-- Solver/run-loop integration refreshes stateful contact active sets explicitly at accepted iterates through accepted-state callbacks.
-- Lazy refresh is allowed only outside line search and emits an info-level log message with contact model and reason.
+- Solver/run-loop integration refreshes stateful contact active sets explicitly through `EvaluationStateAwareEnergy::prepareEvaluationState(xEval)`.
+- Direct contact evaluation without explicit refresh/prepare throws instead of lazy-refreshing.
 - Static obstacle construction does not require sampler/update/time initialization.
 - Linear moving obstacle construction is ready at `t = 0.0`.
 - `IPCEnergy.set_moving_obstacle_time(t)` updates moving obstacles only and uses exactly `t`, not `t + timestep`.
 - Physical static solve builders reject `StepDependentEnergy` by default; generic optimizer APIs do not.
-- Static sampled penalty supports normal-only contact and rejects frictional sampled penalty by default.
+- Static sampled penalty supports frozen external-only normal contact and rejects frictional sampled penalty by default. Static sampled self-contact is dynamic-only in v1 unless a later explicit static self-contact policy is added.
 - No Python `set_obstacle_time` compatibility method exists.
 - No new C++ `setObstacleTime` compatibility wrapper remains in the migrated path.
 - No public construction path calls `markObstacleStatic`.
@@ -1807,7 +1867,7 @@ set_obstacle_time
   - `set_obstacle_time`
 - `contact_bindings.cpp` does not use ad-hoc keep-alive containers for input arrays.
 - runIPCSim setup/runtime migration has an explicit `SimulationProblem` / `SimulationRuntime` split or an equivalent named boundary documented in the implementation PR.
-- Existing `runIPCSim` JSON field meanings are preserved after migration, except for the explicitly documented sampled penalty static normal/frictional behavior. CLI `--legacy` removal is intentional and documented.
+- Existing `runIPCSim` JSON field meanings are preserved after migration, except for the explicitly documented sampled penalty static external-only/frictional behavior. CLI `--legacy` removal is intentional and documented.
 
 ## Dependencies & Execution Order
 
@@ -1868,7 +1928,7 @@ C5 / C6 可在 C4 后并行，但 C7/C9 必须等两者都完成。C9 还必须�
 - C++:
   - `NonlinearOptimization::StepState`
   - `NonlinearOptimization::StepAwareEnergy`
-  - `NonlinearOptimization::AcceptedStateAwareEnergy`
+  - `NonlinearOptimization::EvaluationStateAwareEnergy`
   - `NonlinearOptimization::StepDependentEnergy`
   - `ContactSurfaceSpec`
   - `ContactVertexEmbedding`

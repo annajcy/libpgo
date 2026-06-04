@@ -15,7 +15,7 @@ namespace IPC
 
 double computeExternalEnergy(
   EigenSupport::ConstRefVecXd dynPos,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   const ExternalPairSet &pairs,
   double dhat,
   double kappa,
@@ -23,7 +23,7 @@ double computeExternalEnergy(
 
 void computeExternalGradient(
   EigenSupport::ConstRefVecXd dynPos,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   const ExternalPairSet &pairs,
   int numDynVerts,
   double dhat,
@@ -33,7 +33,7 @@ void computeExternalGradient(
 
 void computeExternalHessian(
   EigenSupport::ConstRefVecXd dynPos,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   const ExternalPairSet &pairs,
   int numDynVerts,
   double dhat,
@@ -43,7 +43,7 @@ void computeExternalHessian(
 
 void computeExternalAll(
   EigenSupport::ConstRefVecXd dynPos,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   const ExternalPairSet &pairs,
   int numDynVerts,
   double dhat,

@@ -1,14 +1,18 @@
 #include "solver/newton/NewtonOptimizer.h"
 #include "solver/service/optimizerUtils.h"
 
+#include "evaluationStateAwareEnergy.h"
 #include "pgoLogging.h"
 #include "potentialEnergy.h"
 
 #include <Eigen/Sparse>
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <numeric>
+#include <stdexcept>
 #include <utility>
 
 namespace
@@ -74,6 +78,68 @@ private:
   ES::SpMatD A_;
   ES::VXd b_;
   std::vector<int> allDofs_;
+};
+
+class FinalObjectiveCacheEnergy : public NO::PotentialEnergy, public NO::EvaluationStateAwareEnergy
+{
+public:
+  double func(ES::ConstRefVecXd x) const override
+  {
+    requirePreparedFor(x);
+    return 0.5 * x.squaredNorm();
+  }
+
+  void gradient(ES::ConstRefVecXd x, ES::RefVecXd grad) const override
+  {
+    requirePreparedFor(x);
+    grad = x;
+  }
+
+  void hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const override
+  {
+    requirePreparedFor(x);
+    hess.setIdentity();
+  }
+
+  void hessianAlloc(ES::SpMatD &hess) const override
+  {
+    hess.resize(1, 1);
+    hess.setIdentity();
+  }
+
+  double func_grad_hessian(ES::ConstRefVecXd x, ES::RefVecXd grad, ES::SpMatD &hess) const override
+  {
+    requirePreparedFor(x);
+    gradient(x, grad);
+    hessianInPlace(x, hess);
+    return 0.5 * x.squaredNorm();
+  }
+
+  void getDOFs(std::vector<int> &dofs) const override
+  {
+    dofs = { 0 };
+  }
+
+  int getNumDOFs() const override
+  {
+    return 1;
+  }
+
+  void prepareEvaluationState(ES::ConstRefVecXd x) const override
+  {
+    prepareCalls++;
+    lastPreparedState = x;
+  }
+
+  mutable int prepareCalls = 0;
+  mutable ES::VXd lastPreparedState;
+
+private:
+  void requirePreparedFor(ES::ConstRefVecXd x) const
+  {
+    if (lastPreparedState.size() != x.size() || !(lastPreparedState.array() == x.array()).all())
+      throw std::logic_error("evaluation state was not prepared for this point");
+  }
 };
 
 std::shared_ptr<QuadraticEnergy> makeQuadraticEnergy()
@@ -145,6 +211,23 @@ TEST(NewtonOptimizer, SolvesWithFixedVariablesAsEqualityBounds)
   EXPECT_NEAR(result.x[0], 7.0, 1e-10);
   EXPECT_NEAR(result.x[2], -3.0, 1e-10);
   EXPECT_NEAR(result.x[1], -2.0, 1e-8);
+}
+
+TEST(NewtonOptimizer, PreparesEvaluationStateBeforeFinalObjective)
+{
+  initializeLogging();
+  auto energy = std::make_shared<FinalObjectiveCacheEnergy>();
+  OPT::OptimizationProblem problem = makeProblem(energy);
+  ES::VXd x0(1);
+  x0 << 1.0;
+
+  const OPT::OptimizationResult result = makeOptimizer().solve(problem, x0);
+
+  EXPECT_TRUE(result.solver.converged());
+  ASSERT_TRUE(result.finalObjective.has_value());
+  EXPECT_NEAR(*result.finalObjective, 0.0, 1e-14);
+  EXPECT_GE(energy->prepareCalls, 2);
+  EXPECT_TRUE(energy->lastPreparedState.isApprox(result.x));
 }
 
 TEST(NewtonOptimizer, RejectsInvalidProblemAndOptions)

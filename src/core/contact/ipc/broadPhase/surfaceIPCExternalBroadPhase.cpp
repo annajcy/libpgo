@@ -23,7 +23,7 @@ using namespace broad_phase_detail;
 void buildExternalPairs(
   const SurfaceIPCTopology &topology,
   EigenSupport::ConstRefVecXd positions,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   double dhatExternal,
   ExternalPairSet &pairs)
 {
@@ -54,7 +54,7 @@ void buildExternalPairs(
   SpatialHashGrid::AABB dynSurfaceBox;
   const bool hasDynSurfaceBox = computeUnionAABB(dynVertBox, dynSurfaceBox);
 
-  std::vector<const ObstacleSurface *> overlappingObstacles;
+  std::vector<const ObstacleSurfaceView *> overlappingObstacles;
   overlappingObstacles.reserve(obstacles.size());
   for (const auto &obs : obstacles) {
     const ObstaclePoseCache &poseCache = obs.cache();
@@ -94,8 +94,8 @@ void buildExternalPairs(
     buildEdgeAABBs(dynEdgeBox, nDynEdge, topology.edges, getV, inflate);
   }
 
-  for (const ObstacleSurface *obsPtr : overlappingObstacles) {
-    const ObstacleSurface &obs = *obsPtr;
+  for (const ObstacleSurfaceView *obsPtr : overlappingObstacles) {
+    const ObstacleSurfaceView &obs = *obsPtr;
     const EigenSupport::VXd &obsPos = obs.currentPositions();
     int nObsVert = (int)obsPos.size() / 3;
     int nObsTri = (int)obs.triangles().rows();
@@ -253,7 +253,7 @@ void buildExternalPairsLineSearchSuperset(
   const SurfaceIPCTopology &topology,
   EigenSupport::ConstRefVecXd positions,
   EigenSupport::ConstRefVecXd displacements,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   double dhatExternal,
   ExternalPairSet &pairs)
 {
@@ -284,7 +284,7 @@ void buildExternalPairsLineSearchSuperset(
   SpatialHashGrid::AABB dynSurfaceBox;
   const bool hasDynSurfaceBox = computeUnionAABB(dynVertBox, dynSurfaceBox);
 
-  std::vector<const ObstacleSurface *> overlappingObstacles;
+  std::vector<const ObstacleSurfaceView *> overlappingObstacles;
   overlappingObstacles.reserve(obstacles.size());
   for (const auto &obs : obstacles) {
     const ObstaclePoseCache &poseCache = obs.cache();
@@ -324,8 +324,8 @@ void buildExternalPairsLineSearchSuperset(
     buildSweptEdgeAABBs(dynEdgeBox, nDynEdge, topology.edges, getV, getDV, dhatExternal);
   }
 
-  for (const ObstacleSurface *obsPtr : overlappingObstacles) {
-    const ObstacleSurface &obs = *obsPtr;
+  for (const ObstacleSurfaceView *obsPtr : overlappingObstacles) {
+    const ObstacleSurfaceView &obs = *obsPtr;
     const EigenSupport::VXd &obsPos = obs.currentPositions();
     const int nObsVert = static_cast<int>(obsPos.size()) / 3;
     const int nObsTri = static_cast<int>(obs.triangles().rows());

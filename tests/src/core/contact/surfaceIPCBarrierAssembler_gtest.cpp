@@ -13,6 +13,7 @@
 #include "testCIPCHelpers.h"
 
 #include <algorithm>
+#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -22,10 +23,12 @@ namespace ES = pgo::EigenSupport;
 using pgo::Contact::IPC::ExternalPairSet;
 using pgo::Contact::IPC::EEPair;
 using pgo::Contact::IPC::ObstacleSurface;
+using pgo::Contact::IPC::ObstacleSurfaceView;
 using pgo::Contact::IPC::PTPair;
 using pgo::Contact::IPC::SelfPairSet;
 using pgo::Contact::IPC::SurfaceIPCCore;
 using pgo::Contact::IPC::SurfaceIPCTopology;
+using pgo::Contact::IPC::TrajectoryObstacleSurface;
 using pgo::Contact::CIPCTest::flattenPositions;
 using pgo::Contact::CIPCTest::makeTwoTriangleMesh;
 using pgo::Contact::CIPCTest::relativeError;
@@ -33,6 +36,15 @@ using pgo::Contact::CIPCTest::sparseToDense;
 using pgo::Profiling::ProfileCounterStat;
 using pgo::Profiling::ProfileStat;
 namespace kernels = pgo::Contact::IPC::barrier_kernels;
+
+std::vector<ObstacleSurfaceView> obstacleViews(const std::vector<std::unique_ptr<ObstacleSurface>> &obstacles)
+{
+  std::vector<ObstacleSurfaceView> views;
+  views.reserve(obstacles.size());
+  for (const auto &obstacle : obstacles)
+    views.push_back(pgo::Contact::IPC::makeObstacleSurfaceView(*obstacle));
+  return views;
+}
 
 const ProfileStat *findStat(const std::vector<ProfileStat> &stats, std::string_view name)
 {
@@ -368,12 +380,11 @@ TEST_F(SurfaceIPCBarrierAssemblerProfilingGTest, ComputeExternalAllRecordsBarrie
   obsF << 0, 1, 2,
           1, 3, 2;
   const ES::VXd obsRest = flattenPositions(obsV);
-  ObstacleSurface obs(obsV, obsF,
+  auto obs = std::make_unique<TrajectoryObstacleSurface>(obsV, obsF,
     pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d::Zero()));
-  obs.setObjectId(0);
-  obs.update(0.0);
-  std::vector<ObstacleSurface> obstacles;
-  obstacles.emplace_back(std::move(obs));
+  obs->setObjectId(0);
+  std::vector<std::unique_ptr<ObstacleSurface>> obstacles;
+  obstacles.push_back(std::move(obs));
 
   ExternalPairSet pairs;
   pairs.ptPairs.push_back({ 0, 0, { 0, 1, 2 }, 1.0 });
@@ -385,7 +396,7 @@ TEST_F(SurfaceIPCBarrierAssemblerProfilingGTest, ComputeExternalAllRecordsBarrie
   double energy = 0.0;
   ES::VXd grad;
   ES::SpMatD hess;
-  computeExternalAll(x, obstacles, pairs, static_cast<int>(V.rows()), 0.1, 1.0, 0.0, energy, grad, hess);
+  computeExternalAll(x, obstacleViews(obstacles), pairs, static_cast<int>(V.rows()), 0.1, 1.0, 0.0, energy, grad, hess);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
   const auto counters = pgo::Profiling::snapshotProfileCounterStatistics();

@@ -2,6 +2,8 @@
 
 #include "potentialEnergy.h"
 #include "lineSearchAwareEnergy.h"
+#include "evaluationStateAwareEnergy.h"
+#include "stepAwareEnergy.h"
 
 #include <memory>
 #include <vector>
@@ -12,7 +14,7 @@ namespace NonlinearOptimization
 {
 class EnergySetBuffer;
 
-class EnergySet : public PotentialEnergy, public LineSearchAwareEnergy
+class EnergySet : public PotentialEnergy, public LineSearchAwareEnergy, public EvaluationStateAwareEnergy, public StepAwareEnergy
 {
 public:
   struct Term
@@ -55,6 +57,8 @@ public:
   virtual EnergyStateKind stateKind() const override;
 
   virtual StepConstraint computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink = nullptr) const override;
+  virtual void beginStep(const StepState &state) override;
+  virtual void prepareEvaluationState(EigenSupport::ConstRefVecXd x) const override;
   virtual void beginLineSearch(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
   virtual void endLineSearch() const override;
 

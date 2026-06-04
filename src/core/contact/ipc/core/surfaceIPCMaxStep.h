@@ -30,7 +30,7 @@ double computeExternalMaxStep(
   const SurfaceIPCTopology &topology,
   EigenSupport::ConstRefVecXd x,
   EigenSupport::ConstRefVecXd dx,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   double dhatExternal,
   double slackness,
   double thickness = 0.0);

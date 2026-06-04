@@ -1,4 +1,4 @@
-#include "legacy_penalty/pointTrianglePairCouplingEnergyWithCollision.h"
+#include "sampled_penalty/kernels/pointTrianglePairCouplingEnergyWithCollision.h"
 
 #include "triMeshGeo.h"
 #include "triMeshNeighbor.h"

@@ -1,5 +1,6 @@
 #include "solver/newton/NewtonOptimizer.h"
 
+#include "evaluationStateAwareEnergy.h"
 #include "solver/newton/NewtonSolver.h"
 #include "solver/service/optimizerUtils.h"
 
@@ -71,6 +72,9 @@ OptimizationResult NewtonOptimizer::solve(
   OptimizationResult result;
   result.solver = std::move(solverResult);
   result.x = std::move(x);
+
+  if (const auto *aware = dynamic_cast<const EvaluationStateAwareEnergy *>(problem.objective.get()))
+    aware->prepareEvaluationState(result.x);
 
   const double finalObjective = problem.objective->func(result.x);
   if (std::isfinite(finalObjective)) {

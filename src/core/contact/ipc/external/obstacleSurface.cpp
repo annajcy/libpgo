@@ -136,6 +136,103 @@ void ObstacleSurface::update(double t)
   buildObstaclePoseCache(current_, triangles_, contactEdges_, cache_);
 }
 
+StaticObstacleSurface::StaticObstacleSurface(EigenSupport::MXd restVertices, EigenSupport::MXi triangles):
+  ObstacleSurface(
+    restVertices,
+    std::move(triangles),
+    [rest = [&]() {
+       EigenSupport::VXd out(restVertices.rows() * 3);
+       for (int vi = 0; vi < restVertices.rows(); ++vi)
+         out.segment<3>(3 * vi) = restVertices.row(vi).transpose();
+       return out;
+     }()](double, EigenSupport::RefVecXd out) {
+      if (out.size() != rest.size())
+        throw std::runtime_error("StaticObstacleSurface: output vector has wrong size.");
+      out = rest;
+    })
+{
+  update(0.0);
+}
+
+std::unique_ptr<StaticObstacleSurface> StaticObstacleSurface::cloneStatic() const
+{
+  return std::make_unique<StaticObstacleSurface>(*this);
+}
+
+std::unique_ptr<ObstacleSurface> StaticObstacleSurface::cloneSurface() const
+{
+  return cloneStatic();
+}
+
+LinearMovingObstacleSurface::LinearMovingObstacleSurface(
+  EigenSupport::MXd restVertices,
+  EigenSupport::MXi triangles,
+  EigenSupport::V3d velocity,
+  double referenceTime):
+  MovingObstacleSurface(
+    restVertices,
+    std::move(triangles),
+    makeLinearTrajectorySampler([&]() {
+      EigenSupport::VXd rest(restVertices.rows() * 3);
+      for (int vi = 0; vi < restVertices.rows(); ++vi)
+        rest.segment<3>(3 * vi) = restVertices.row(vi).transpose();
+      return rest;
+    }(), velocity, referenceTime))
+{
+  setTime(0.0);
+}
+
+void LinearMovingObstacleSurface::setTime(double t)
+{
+  update(t);
+}
+
+std::unique_ptr<MovingObstacleSurface> LinearMovingObstacleSurface::cloneMoving() const
+{
+  return std::make_unique<LinearMovingObstacleSurface>(*this);
+}
+
+std::unique_ptr<ObstacleSurface> LinearMovingObstacleSurface::cloneSurface() const
+{
+  return cloneMoving();
+}
+
+TrajectoryObstacleSurface::TrajectoryObstacleSurface(
+  EigenSupport::MXd restVertices,
+  EigenSupport::MXi triangles,
+  TrajectorySampler sampler):
+  MovingObstacleSurface(std::move(restVertices), std::move(triangles), std::move(sampler))
+{
+  setTime(0.0);
+}
+
+void TrajectoryObstacleSurface::setTime(double t)
+{
+  update(t);
+}
+
+std::unique_ptr<MovingObstacleSurface> TrajectoryObstacleSurface::cloneMoving() const
+{
+  return std::make_unique<TrajectoryObstacleSurface>(*this);
+}
+
+std::unique_ptr<ObstacleSurface> TrajectoryObstacleSurface::cloneSurface() const
+{
+  return cloneMoving();
+}
+
+ObstacleSurfaceView makeObstacleSurfaceView(const ObstacleSurface &obstacle)
+{
+  return ObstacleSurfaceView{
+    obstacle.objectId(),
+    &obstacle.currentPositions(),
+    &obstacle.triangles(),
+    &obstacle.uniqueEdges(),
+    &obstacle.contactEdges(),
+    &obstacle.cache(),
+  };
+}
+
 ObstacleSurface::TrajectorySampler makeLinearTrajectorySampler(
   const EigenSupport::VXd &restPositions,
   const EigenSupport::V3d &velocity,

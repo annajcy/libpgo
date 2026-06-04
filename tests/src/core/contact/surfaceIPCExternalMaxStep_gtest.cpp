@@ -5,13 +5,25 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <utility>
 #include <vector>
 
 namespace ES = pgo::EigenSupport;
 using pgo::Contact::IPC::ObstacleSurface;
+using pgo::Contact::IPC::ObstacleSurfaceView;
 using pgo::Contact::IPC::SurfaceIPCCore;
 using pgo::Contact::IPC::SurfaceIPCTopology;
+using pgo::Contact::IPC::TrajectoryObstacleSurface;
+
+static std::vector<ObstacleSurfaceView> obstacleViews(const std::vector<std::unique_ptr<ObstacleSurface>> &obstacles)
+{
+  std::vector<ObstacleSurfaceView> views;
+  views.reserve(obstacles.size());
+  for (const auto &obstacle : obstacles)
+    views.push_back(pgo::Contact::IPC::makeObstacleSurfaceView(*obstacle));
+  return views;
+}
 
 // Dynamic mesh moves into a fixed-pose obstacle: external max-step
 // must clamp alpha < 1 and match SurfaceIPCCore's contribution exactly.
@@ -42,18 +54,17 @@ TEST(SurfaceIPCExternalMaxStepGTest, HelperMatchesSurfaceIPCCoreExternalContribu
 
   // Sampler is stationary; obstacle stays at its rest pose.
   auto makeObs = [&]() {
-    ObstacleSurface o(obsV, obsF,
+    return std::make_unique<TrajectoryObstacleSurface>(
+      obsV, obsF,
       pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d::Zero()));
-    o.update(0.0);
-    return o;
   };
 
   SurfaceIPCCore::Parameters params;
   params.dhat_external = 0.5;
   params.slackness = 1.0;
 
-  std::vector<ObstacleSurface> coreObstacles;
-  coreObstacles.emplace_back(makeObs());
+  std::vector<std::unique_ptr<ObstacleSurface>> coreObstacles;
+  coreObstacles.push_back(makeObs());
   SurfaceIPCCore core(params, std::move(coreObstacles));
   core.setMesh(V, F);
 
@@ -67,15 +78,15 @@ TEST(SurfaceIPCExternalMaxStepGTest, HelperMatchesSurfaceIPCCoreExternalContribu
 
   SurfaceIPCTopology topology;
   topology.setMesh(V, F);
-  std::vector<ObstacleSurface> obstacles;
-  obstacles.emplace_back(makeObs());
-  obstacles.front().setObjectId(0);
+  std::vector<std::unique_ptr<ObstacleSurface>> obstacles;
+  obstacles.push_back(makeObs());
+  obstacles.front()->setObjectId(0);
 
   const double selfAlpha = computeSelfMaxStep(topology, x, dx, params.dhat, params.slackness);
   ASSERT_NEAR(selfAlpha, 1.0, 1e-12);
 
   const double helperAlpha = computeExternalMaxStep(
-    topology, x, dx, obstacles, params.dhat_external, params.slackness);
+    topology, x, dx, obstacleViews(obstacles), params.dhat_external, params.slackness);
   const double coreAlpha = core.computeMaxStepLimit(x, dx).alpha;
 
   EXPECT_NEAR(helperAlpha, coreAlpha, 1e-12);
@@ -114,10 +125,10 @@ TEST(SurfaceIPCExternalMaxStepGTest, ZeroDynamicDisplacementReturnsUnitAlphaEven
 
   // Obstacle velocity drives it from y=0.5 toward y=-0.5 over a unit time;
   // the sampler is non-trivial but obstacle motion is invisible to max-step.
-  ObstacleSurface obs(obsV, obsF,
+  auto obs = std::make_unique<TrajectoryObstacleSurface>(obsV, obsF,
     pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d(0.0, -1.0, 0.0)));
-  obs.setObjectId(0);
-  obs.update(1.0);
+  obs->setObjectId(0);
+  obs->setTime(1.0);
 
   ES::VXd x(V.rows() * 3);
   for (int vi = 0; vi < V.rows(); ++vi)
@@ -126,9 +137,9 @@ TEST(SurfaceIPCExternalMaxStepGTest, ZeroDynamicDisplacementReturnsUnitAlphaEven
 
   SurfaceIPCTopology topology;
   topology.setMesh(V, F);
-  std::vector<ObstacleSurface> obstacles;
-  obstacles.emplace_back(std::move(obs));
+  std::vector<std::unique_ptr<ObstacleSurface>> obstacles;
+  obstacles.push_back(std::move(obs));
 
-  const double alpha = computeExternalMaxStep(topology, x, dx, obstacles, 0.5, 1.0);
+  const double alpha = computeExternalMaxStep(topology, x, dx, obstacleViews(obstacles), 0.5, 1.0);
   EXPECT_DOUBLE_EQ(alpha, 1.0);
 }

@@ -5,17 +5,18 @@
 #include "triMeshGeo.h"
 
 #include <array>
+#include <memory>
 #include <stdexcept>
 
 namespace pgo::RunIPCSim
 {
 namespace ES = pgo::EigenSupport;
 
-std::vector<Contact::IPC::ObstacleSurface> parseExternalObjects(
+std::vector<std::unique_ptr<Contact::IPC::ObstacleSurface>> parseExternalObjects(
   const pgo::ConfigFileJSON &jconfig, double scale,
   std::vector<bool> *outStaticFlags)
 {
-  std::vector<Contact::IPC::ObstacleSurface> obstacles;
+  std::vector<std::unique_ptr<Contact::IPC::ObstacleSurface>> obstacles;
   if (outStaticFlags)
     outStaticFlags->clear();
 
@@ -58,14 +59,15 @@ std::vector<Contact::IPC::ObstacleSurface> parseExternalObjects(
     for (int fi = 0; fi < obsMesh.numTriangles(); ++fi)
       F.row(fi) = obsMesh.tri(fi).transpose();
 
-    ES::VXd restFlat(V.rows() * 3);
-    for (int vi = 0; vi < V.rows(); ++vi)
-      restFlat.segment<3>(vi * 3) = V.row(vi).transpose();
-
     ES::V3d velocity(movementArr[0], movementArr[1], movementArr[2]);
-    auto sampler = Contact::IPC::makeLinearTrajectorySampler(restFlat, velocity);
-
-    obstacles.emplace_back(std::move(V), std::move(F), std::move(sampler));
+    if (velocity.isZero()) {
+      obstacles.push_back(std::make_unique<Contact::IPC::StaticObstacleSurface>(
+        std::move(V), std::move(F)));
+    }
+    else {
+      obstacles.push_back(std::make_unique<Contact::IPC::LinearMovingObstacleSurface>(
+        std::move(V), std::move(F), velocity));
+    }
     if (outStaticFlags)
       outStaticFlags->push_back(velocity.isZero());
   }

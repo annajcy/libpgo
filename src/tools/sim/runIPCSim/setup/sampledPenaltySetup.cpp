@@ -6,7 +6,7 @@
 #include "deformationModelEnergy.h"
 #include "generateMassMatrix.h"
 #include "setup/attachmentSetup.h"
-#include "contact/legacyPenaltyContact.h"
+#include "contact/sampledPenaltyContact.h"
 #include "setup/setupCommon.h"
 #include "setup/femSetup.h"
 #include "io/volumeMeshIO.h"
@@ -19,13 +19,13 @@ namespace pgo::RunIPCSim
 {
 namespace ES = pgo::EigenSupport;
 
-IpcSimulationContext buildVolumeLegacyPenaltySimulation(const pgo::ConfigFileJSON &jconfig)
+IpcSimulationContext buildVolumeSampledPenaltySimulation(const pgo::ConfigFileJSON &jconfig)
 {
   validateZeroInitialDisplacement(jconfig);
   if (!jconfig.exist("tet-mesh") && !jconfig.exist("cubic-mesh"))
-    throwConfigError("runIPCSim --legacy only supports volume legacy configs with `tet-mesh` or `cubic-mesh`; shell legacy has been removed.");
+    throwConfigError("runIPCSim sampled-penalty contact currently supports volume configs with `tet-mesh` or `cubic-mesh`; shell sampled-penalty setup is not available.");
   if (jconfig.exist("tet-mesh") && jconfig.exist("cubic-mesh"))
-    throwConfigError("runIPCSim --legacy expects exactly one of `tet-mesh` or `cubic-mesh`.");
+    throwConfigError("runIPCSim sampled-penalty contact expects exactly one of `tet-mesh` or `cubic-mesh`.");
   if (!jconfig.exist("fixed-vertices"))
     throwConfigError("Missing required field `fixed-vertices`.");
 
@@ -44,11 +44,11 @@ IpcSimulationContext buildVolumeLegacyPenaltySimulation(const pgo::ConfigFileJSO
     surfaceMesh.numVertices(), surfaceRestPositions.data(), volumetricMesh.get());
   ES::SpMatD W = bc.generateInterpolationMatrix();
   if (W.rows() != surfaceMesh.numVertices() * 3)
-    throwConfigError("runIPCSim --legacy volume setup produced an embedding matrix with unexpected row count.");
+    throwConfigError("runIPCSim sampled-penalty volume setup produced an embedding matrix with unexpected row count.");
   if (W.cols() != volumetricMesh->getNumVertices() * 3)
-    throwConfigError("runIPCSim --legacy volume setup produced an embedding matrix with unexpected column count.");
+    throwConfigError("runIPCSim sampled-penalty volume setup produced an embedding matrix with unexpected column count.");
   if (W.nonZeros() <= 0)
-    throwConfigError("runIPCSim --legacy volume setup produced an empty embedding matrix.");
+    throwConfigError("runIPCSim sampled-penalty volume setup produced an empty embedding matrix.");
 
   ES::SpMatD M;
   VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(volumetricMesh.get(), M, true);
@@ -58,7 +58,7 @@ IpcSimulationContext buildVolumeLegacyPenaltySimulation(const pgo::ConfigFileJSO
       SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
       enableMaterialMaxStep);
   if (W.cols() != initialized.restPosition.size())
-    throwConfigError("runIPCSim --legacy volume setup produced an embedding matrix incompatible with simulation DOFs.");
+    throwConfigError("runIPCSim sampled-penalty volume setup produced an embedding matrix incompatible with simulation DOFs.");
 
   ES::VXd zero = ES::VXd::Zero(initialized.restPosition.size());
   ES::SpMatD K;
@@ -70,12 +70,12 @@ IpcSimulationContext buildVolumeLegacyPenaltySimulation(const pgo::ConfigFileJSO
   buildPullingConstraints(jconfig, resolvedPaths.fixedVertexFilenames, initialized.restPosition, K,
     pullingEnergies, pullingTargets, pullingTargetRests);
 
-  LegacyPenaltyContactConfig legacyContactConfig = parseLegacyPenaltyContactConfig(jconfig);
-  std::cout << "runIPCSim legacy volume penalty contact parameters: "
-            << "contact-stiffness=" << legacyContactConfig.stiffness << ", "
-            << "contact-samples=" << legacyContactConfig.samples << ", "
-            << "contact-friction-coeff=" << legacyContactConfig.frictionCoeff << ", "
-            << "contact-vel-eps=" << legacyContactConfig.velocityEps << std::endl;
+  SampledPenaltyContactConfig sampledPenaltyContactConfig = parseSampledPenaltyContactConfig(jconfig);
+  std::cout << "runIPCSim sampled-penalty volume contact parameters: "
+            << "contact-stiffness=" << sampledPenaltyContactConfig.stiffness << ", "
+            << "contact-samples=" << sampledPenaltyContactConfig.samples << ", "
+            << "contact-friction-coeff=" << sampledPenaltyContactConfig.frictionCoeff << ", "
+            << "contact-vel-eps=" << sampledPenaltyContactConfig.velocityEps << std::endl;
 
   IpcSimulationContext context;
   context.M = std::move(M);
@@ -89,9 +89,9 @@ IpcSimulationContext buildVolumeLegacyPenaltySimulation(const pgo::ConfigFileJSO
   context.pullingTargets = std::move(pullingTargets);
   context.pullingTargetRests = std::move(pullingTargetRests);
   context.surfaceMesh = std::move(surfaceMesh);
-  context.contactBackend = makeLegacyPenaltyContactBackend(jconfig, legacyContactConfig,
+  context.contactBackend = makeSampledPenaltyContactBackend(jconfig, sampledPenaltyContactConfig,
     context.surfaceMesh, bc.getEmbeddingVertexIndices(), bc.getEmbeddingWeights(),
-    static_cast<int>(context.simulationRestPosition.size()), scale);
+    context.simulationRestPosition, scale);
   return context;
 }
 }  // namespace pgo::RunIPCSim

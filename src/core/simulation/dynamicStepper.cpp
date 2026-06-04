@@ -30,8 +30,8 @@ DynamicStepRequest makeZeroRequest(int n)
   return r;
 }
 
-// Dispatch beginStep to every step-aware persistent energy. Contact active-set
-// refresh (StatefulContactEnergy) plugs in here once contact_api_refactor lands.
+// Dispatch beginStep to every step-aware persistent energy. Evaluation-time
+// state such as contact active sets is prepared by the nonlinear solver.
 void dispatchBeginStep(const DynamicProblem &problem, const DynamicState &state)
 {
   NO::StepState ss;

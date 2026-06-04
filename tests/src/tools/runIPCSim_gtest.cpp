@@ -152,6 +152,24 @@ std::string addBoolConfigField(std::string json, const std::string &name, bool v
   return json;
 }
 
+std::string replaceNumberConfigField(std::string json, const std::string &name, double value)
+{
+  const std::string key = "\"" + name + "\": ";
+  const std::size_t valueStart = json.find(key);
+  if (valueStart == std::string::npos)
+    throw std::runtime_error("Failed to find numeric config field in test JSON.");
+
+  const std::size_t numberStart = valueStart + key.size();
+  const std::size_t numberEnd = json.find_first_of(",\n", numberStart);
+  if (numberEnd == std::string::npos)
+    throw std::runtime_error("Failed to replace numeric config field in test JSON.");
+
+  std::ostringstream replacement;
+  replacement << std::setprecision(17) << value;
+  json.replace(numberStart, numberEnd - numberStart, replacement.str());
+  return json;
+}
+
 std::string addSurfacePressureForceConfig(std::string json, bool enabled, double pressure = 1000.0, std::optional<int> rampSteps = 20,
   const std::string &centerField = "[0, 0, 0]")
 {
@@ -707,12 +725,12 @@ TEST(RunIPCSimAppGTest, RunFromConfigReturnsFailureForMissingRequiredIPCFields)
   EXPECT_NE(pgo::RunIPCSim::runFromConfig(configPath, options), 0);
 }
 
-TEST(RunIPCSimCliGTest, LegacyFlagSelectsLegacyPenaltyBackend)
+TEST(RunIPCSimCliGTest, LegacyFlagIsRemoved)
 {
   const char *argv[] = { "runIPCSim", "--legacy", "scene.json" };
-  const auto options = pgo::RunIPCSim::parseRunIPCSimCli(3, const_cast<char **>(argv));
-  EXPECT_EQ(options.configPath, fs::path("scene.json"));
-  EXPECT_EQ(options.runOptions.contactBackendKind, pgo::RunIPCSim::ContactBackendKind::LegacyPenalty);
+  EXPECT_THROW(
+    (void)pgo::RunIPCSim::parseRunIPCSimCli(3, const_cast<char **>(argv)),
+    std::exception);
 }
 
 TEST(RunIPCSimCliGTest, DefaultBackendIsIpc)
@@ -720,6 +738,13 @@ TEST(RunIPCSimCliGTest, DefaultBackendIsIpc)
   const char *argv[] = { "runIPCSim", "scene.json" };
   const auto options = pgo::RunIPCSim::parseRunIPCSimCli(2, const_cast<char **>(argv));
   EXPECT_EQ(options.runOptions.contactBackendKind, pgo::RunIPCSim::ContactBackendKind::Ipc);
+}
+
+TEST(RunIPCSimCliGTest, ContactModelSampledPenaltySelectsSampledPenaltyBackend)
+{
+  const char *argv[] = { "runIPCSim", "--contact-model", "sampled-penalty", "scene.json" };
+  const auto options = pgo::RunIPCSim::parseRunIPCSimCli(4, const_cast<char **>(argv));
+  EXPECT_EQ(options.runOptions.contactBackendKind, pgo::RunIPCSim::ContactBackendKind::SampledPenalty);
 }
 
 TEST(RunIPCSimLegacyGTest, LegacyTetConfigRunsOneStepAndWritesUnifiedOutput)
@@ -735,7 +760,7 @@ TEST(RunIPCSimLegacyGTest, LegacyTetConfigRunsOneStepAndWritesUnifiedOutput)
     outputDir, "tet-mesh", "stable-neo", 1));
 
   pgo::RunIPCSim::RunIPCSimOptions options;
-  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::LegacyPenalty;
+  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::SampledPenalty;
   EXPECT_EQ(pgo::RunIPCSim::runFromConfig(configPath, options), 0);
   EXPECT_TRUE(fs::exists(outputDir / "states" / "deform0000.u"));
   EXPECT_TRUE(fs::exists(outputDir / "surface" / "ret0000.obj"));
@@ -754,7 +779,7 @@ TEST(RunIPCSimLegacyGTest, LegacyCubicConfigRunsOneStepAndWritesUnifiedOutput)
     outputDir, "cubic-mesh", "stable-neo", 1));
 
   pgo::RunIPCSim::RunIPCSimOptions options;
-  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::LegacyPenalty;
+  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::SampledPenalty;
   EXPECT_EQ(pgo::RunIPCSim::runFromConfig(configPath, options), 0);
   EXPECT_TRUE(fs::exists(outputDir / "states" / "deform0000.u"));
   EXPECT_TRUE(fs::exists(outputDir / "surface" / "ret0000.obj"));
@@ -769,7 +794,7 @@ TEST(RunIPCSimLegacyGTest, LegacyShellConfigIsRejected)
   writeTextFile(configPath, makeShellIPCConfig(tempDir.path(), 0));
 
   pgo::RunIPCSim::RunIPCSimOptions options;
-  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::LegacyPenalty;
+  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::SampledPenalty;
   EXPECT_EQ(pgo::RunIPCSim::runFromConfig(configPath, options), 1);
 }
 
@@ -835,7 +860,7 @@ TEST(RunIPCSimStaticGTest, StaticLegacyTetDropWithoutAttachmentFails)
     outputDir, "tet-mesh", "stable-neo", 1)));
 
   pgo::RunIPCSim::RunIPCSimOptions options;
-  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::LegacyPenalty;
+  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::SampledPenalty;
   EXPECT_NE(pgo::RunIPCSim::runFromConfig(configPath, options), 0);
   EXPECT_FALSE(fs::exists(surfacePath(outputDir, 0)));
   EXPECT_FALSE(fs::exists(statePath(outputDir, 0)));
@@ -856,7 +881,7 @@ TEST(RunIPCSimStaticGTest, StaticLegacyTetBoxHangWritesUnifiedSurfaceAndState)
     fixedPath, outputDir, "tet-mesh", "stable-neo"));
 
   pgo::RunIPCSim::RunIPCSimOptions options;
-  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::LegacyPenalty;
+  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::SampledPenalty;
   EXPECT_EQ(pgo::RunIPCSim::runFromConfig(configPath, options), 0);
   EXPECT_TRUE(fs::exists(surfacePath(outputDir, 0)));
   EXPECT_TRUE(fs::exists(statePath(outputDir, 0)));
@@ -877,10 +902,34 @@ TEST(RunIPCSimStaticGTest, StaticLegacyCubicBoxHangWritesUnifiedSurfaceAndState)
     fixedPath, outputDir, "cubic-mesh", "stable-neo"));
 
   pgo::RunIPCSim::RunIPCSimOptions options;
-  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::LegacyPenalty;
+  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::SampledPenalty;
   EXPECT_EQ(pgo::RunIPCSim::runFromConfig(configPath, options), 0);
   EXPECT_TRUE(fs::exists(surfacePath(outputDir, 0)));
   EXPECT_TRUE(fs::exists(statePath(outputDir, 0)));
+}
+
+TEST(RunIPCSimStaticGTest, StaticSampledPenaltyRejectsFrictionalContact)
+{
+  initializeRunIPCSimTestEnvironment();
+
+  ScopedTempDir tempDir;
+  const fs::path fixedPath = tempDir.path() / "box-fixed.txt";
+  writeTextFile(fixedPath, "0\n");
+  const fs::path configPath = tempDir.path() / "tet-static-sampled-penalty-friction.json";
+  const fs::path outputDir = tempDir.path() / "sampled-penalty-friction-static-output";
+  writeTextFile(configPath,
+    replaceNumberConfigField(
+      makeLegacyBoxHangVolumeConfig(
+        fs::path(kLegacyTetBoxDir) / "box.veg",
+        fs::path(kLegacyTetBoxDir) / "box.obj",
+        fixedPath, outputDir, "tet-mesh", "stable-neo"),
+      "contact-friction-coeff", 0.5));
+
+  pgo::RunIPCSim::RunIPCSimOptions options;
+  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::SampledPenalty;
+  EXPECT_NE(pgo::RunIPCSim::runFromConfig(configPath, options), 0);
+  EXPECT_FALSE(fs::exists(surfacePath(outputDir, 0)));
+  EXPECT_FALSE(fs::exists(statePath(outputDir, 0)));
 }
 
 TEST(RunIPCSimStaticGTest, StaticLegacyShellIsRejected)
@@ -892,7 +941,7 @@ TEST(RunIPCSimStaticGTest, StaticLegacyShellIsRejected)
   writeTextFile(configPath, makeStaticConfig(makeShellIPCConfig(tempDir.path(), 1)));
 
   pgo::RunIPCSim::RunIPCSimOptions options;
-  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::LegacyPenalty;
+  options.contactBackendKind = pgo::RunIPCSim::ContactBackendKind::SampledPenalty;
   EXPECT_NE(pgo::RunIPCSim::runFromConfig(configPath, options), 0);
 }
 

@@ -12,6 +12,7 @@ copyright to Bohan Wang
 #include "solver/common/solveDiagnostics.h"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace pgo
@@ -43,7 +44,7 @@ public:
 
   SurfaceIPCCore() = default;
   explicit SurfaceIPCCore(const Parameters &params) { setParameters(params); }
-  SurfaceIPCCore(const Parameters &params, std::vector<ObstacleSurface> obstacles)
+  SurfaceIPCCore(const Parameters &params, std::vector<std::unique_ptr<ObstacleSurface>> obstacles)
   {
     setParameters(params);
     setObstacles(std::move(obstacles));
@@ -71,21 +72,27 @@ public:
   NonlinearOptimization::StepConstraint computeMaxStepLimit(EigenSupport::ConstRefVecXd x_surf, EigenSupport::ConstRefVecXd dx_surf, StepConstraintSink *sink = nullptr) const;
 
   const SurfaceIPCTopology& topology() const { return topology_; }
+  std::vector<ObstacleSurfaceView> obstacleViews() const;
 
-  // Sample all registered obstacles at absolute time t. The obstacle pose is
-  // treated as fixed during the subsequent solve / line-search; intra-frame
-  // swept obstacle CCD is not performed.
-  // Obstacles marked static via markObstacleStatic() are skipped — their
-  // cache was built once during the markObstacleStatic call.
-  void setObstacleTime(double t);
-
-  // Mark the obstacle at the given slot as having a static (time-invariant)
-  // pose, and immediately call update(0.0) to populate its cache exactly once.
-  // Subsequent setObstacleTime() calls skip this obstacle.
-  void markObstacleStatic(int32_t objectId);
+  // Sample all registered moving-obstacle samplers at absolute time t. Static
+  // obstacle specs use an idempotent sampler and therefore keep the same
+  // geometry while refreshing the pose cache.
+  void setMovingObstacleTime(double t);
 
 private:
-  void setObstacles(std::vector<ObstacleSurface> obstacles);
+  struct ObstacleSlot
+  {
+    enum class Kind
+    {
+      Static,
+      Moving,
+    };
+    Kind kind = Kind::Static;
+    std::size_t index = 0;
+    int32_t objectId = -1;
+  };
+
+  void setObstacles(std::vector<std::unique_ptr<ObstacleSurface>> obstacles);
 
   double dhat = 1e-1;
   double dhat_external = 1e-1;
@@ -94,8 +101,9 @@ private:
   double slackness = 1.0;
   double ccd_thickness = 0.0;
   SurfaceIPCTopology topology_;
-  std::vector<ObstacleSurface> obstacles_;
-  std::vector<bool> staticObstacles_;
+  std::vector<std::unique_ptr<ObstacleSurface>> staticObstacles_;
+  std::vector<std::unique_ptr<ObstacleSurface>> movingObstacles_;
+  std::vector<ObstacleSlot> obstacleOrder_;
 };
 
 }  // namespace IPC

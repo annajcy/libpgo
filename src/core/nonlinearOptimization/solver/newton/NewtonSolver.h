@@ -128,6 +128,7 @@ protected:
   bool solveReducedNewtonDirection(bool fixedHessianTopology);
   bool expandReducedStep();
   StepAcceptance runLineSearchStep(double currentEnergy, int verbose, int printGap, int iter);
+  void dispatchPrepareEvaluationState(EigenSupport::ConstRefVecXd xEval) const;
   bool looseRelativeConverged(double gradMaxNorm, double lambda0) const;
   double updateDampingScale(double lambdaScale, double gradMaxNorm, double gradMaxNormLast) const;
   SolveStatus resolveFpLimitFallback(SolveStatus failStatus, double gradMaxNorm, double lambda0, double epsilon);
@@ -153,6 +154,7 @@ protected:
   EigenSupport::VXd historyx;
   double historyGradNormMin;
   SolveDiagnostics solveDiagnostics;
+  bool lineSearchEvaluationStateFrozen = false;
 
   std::unique_ptr<StepStrategy> stepStrategy;
   StepFunc stepFunc;

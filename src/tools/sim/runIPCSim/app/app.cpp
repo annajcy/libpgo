@@ -35,8 +35,8 @@ IpcSimulationContext buildIpcSimulation(const pgo::ConfigFileJSON &config)
 
 IpcSimulationContext buildRunIPCSimSimulation(const pgo::ConfigFileJSON &config, const RunIPCSimOptions &options)
 {
-  if (options.contactBackendKind == ContactBackendKind::LegacyPenalty)
-    return buildVolumeLegacyPenaltySimulation(config);
+  if (options.contactBackendKind == ContactBackendKind::SampledPenalty)
+    return buildVolumeSampledPenaltySimulation(config);
 
   return buildIpcSimulation(config);
 }

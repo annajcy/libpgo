@@ -24,7 +24,7 @@ using namespace pgo::EigenSupport;
 // =========================================================================
 
 static const VXd &obsPositions(
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   int32_t slot)
 {
   return obstacles.at(static_cast<std::size_t>(slot)).currentPositions();
@@ -123,7 +123,7 @@ static void scatterExternalEEHessian(int tripletOffset, const M6d &localH, const
 
 double computeExternalEnergy(
   ConstRefVecXd dynPos,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   const ExternalPairSet &pairs,
   double dhat,
   double kappa,
@@ -198,7 +198,7 @@ double computeExternalEnergy(
 
 void computeExternalGradient(
   ConstRefVecXd dynPos,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   const ExternalPairSet &pairs,
   int numDynVerts,
   double dhat,
@@ -276,7 +276,7 @@ void computeExternalGradient(
 
 void computeExternalHessian(
   ConstRefVecXd dynPos,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   const ExternalPairSet &pairs,
   int numDynVerts,
   double dhat,
@@ -368,7 +368,7 @@ void computeExternalHessian(
 
 void computeExternalAll(
   ConstRefVecXd dynPos,
-  const std::vector<ObstacleSurface> &obstacles,
+  const std::vector<ObstacleSurfaceView> &obstacles,
   const ExternalPairSet &pairs,
   int numDynVerts,
   double dhat,

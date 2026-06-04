@@ -15,7 +15,7 @@ struct RunIPCSimSession;
 enum class ContactBackendKind
 {
   Ipc,
-  LegacyPenalty,
+  SampledPenalty,
 };
 
 class RunIPCSimContactBackend

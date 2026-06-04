@@ -1,4 +1,4 @@
-#include "legacy_penalty/contactEnergyUtilities.h"
+#include "sampled_penalty/kernels/contactEnergyUtilities.h"
 
 #include "EigenSupport.h"
 

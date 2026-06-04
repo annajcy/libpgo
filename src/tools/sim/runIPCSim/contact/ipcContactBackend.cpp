@@ -2,7 +2,7 @@
 
 #include "dynamicStepOptions.h"
 #include "embeddedSurfaceFloorPotentialEnergy.h"
-#include "ipc/embeddedSurfaceIPCPotentialEnergy.h"
+#include "ipc/ipcContactEnergy.h"
 #include "energySet.h"
 #include "app/config.h"
 #include "app/logging.h"
@@ -29,7 +29,7 @@ public:
     IpcSimulationContext &context, RunIPCSimSession &session) override
   {
     const double tCurr = static_cast<double>(frame) * runtimeConfig.timestep;
-    context.collisionHandler->setObstacleTime(tCurr + runtimeConfig.timestep);
+    context.collisionHandler->setMovingObstacleTime(tCurr + runtimeConfig.timestep);
     session.transientContactModels.push_back({context.collisionHandler, 0.0, 0.0});
     for (const auto &forceModel : context.extraGeneralImplicitForceModels)
       session.transientContactModels.push_back({forceModel, 0.0, 0.0});
@@ -45,7 +45,7 @@ public:
       context.floorPotentialEnergies[fi]->setFloorHeight(floorHeightAtFrame(context.floorMotionStates[fi], finalFrame));
 
     const double staticObstacleTime = runtimeConfig.timestep * static_cast<double>(finalFrame);
-    context.collisionHandler->setObstacleTime(staticObstacleTime);
+    context.collisionHandler->setMovingObstacleTime(staticObstacleTime);
     terms.push_back({context.collisionHandler, 1.0});
 
     for (const auto &forceModel : context.extraGeneralImplicitForceModels)
