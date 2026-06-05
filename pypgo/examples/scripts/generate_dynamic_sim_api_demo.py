@@ -329,12 +329,10 @@ CELLS = [
         ## 8. Clean API surface
 
         The Python API exposes only `DynamicSimulation.step` / `run` and the
-        `DynamicState` / `DynamicFrame` value objects.  The C++ layer behind it
-        uses `ImplicitEulerStepper` and `TRBDF2Stepper` directly — the old
-        `ImplicitBackwardEulerTimeIntegrator` / `TRBDF2TimeIntegrator` wrapper
-        classes and their helper residual-energy objects have been deleted.
-        `runIPCSim` itself builds a stepper each frame from the persistent energy
-        terms plus per-frame contact models.
+        `DynamicState` / `DynamicFrame` value objects. The C++ layer behind it
+        uses `ImplicitEulerStepper` and `TRBDF2Stepper` directly through the
+        unified `DynamicStepper` interface. `runIPCSim` builds the same stepper
+        service from persistent energy terms plus per-frame contact models.
 
         Contact energies, when added by the contact API, plug into the same
         persistent-energy + per-step lifecycle without changing this surface.

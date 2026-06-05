@@ -3,10 +3,10 @@
 
   D_n = (Σ_i massDamping_i) M + Σ_i stiffnessDamping_i ∇²Φ_i(u_n)
 
-  Matches the behavior of the legacy TimeIntegrator::updateD(): all terms share
-  the global mass for mass damping, fixed-topology terms contribute a stiffness
-  Hessian evaluated at the current state, and non-fixed-topology terms (e.g. IPC
-  contact) are skipped for stiffness damping. See Task T3.
+  All terms share the global mass for mass damping, fixed-topology terms
+  contribute a stiffness Hessian evaluated at the current state, and
+  non-fixed-topology terms (e.g. IPC contact) are skipped for stiffness damping.
+  See Task T3.
 */
 
 #pragma once

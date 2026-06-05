@@ -59,7 +59,7 @@ public:
     NonlinearOptimization::Optimization::Optimizer &optimizer) override;
   int numDofs() const override { return n_; }
 
-  // Expose the stage EnergySet for legacy getInternalEnergy() / max-step tests.
+  // Expose the stage EnergySet for max-step tests.
   NonlinearOptimization::EnergySet_const_p getStageEnergy() const { return stageHandle_.energySet; }
 
 private:

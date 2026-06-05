@@ -1,6 +1,4 @@
 set(SIMULATION_HEADERS
-  timeIntegrator.h
-  timeIntegratorSolver.h
   dynamicState.h
   dynamicStepOptions.h
   rayleighDampingAssembly.h
@@ -12,8 +10,6 @@ set(SIMULATION_HEADERS
 )
 
 set(SIMULATION_SOURCES
-  timeIntegrator.cpp
-  timeIntegratorSolver.cpp
   dynamicStepOptions.cpp
   rayleighDampingAssembly.cpp
   stageResidual.cpp
