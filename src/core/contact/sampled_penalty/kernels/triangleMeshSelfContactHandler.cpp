@@ -326,7 +326,7 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
       }
     });
 
-    interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, vertices.size());
+    interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, vertices.size() * 3);
     interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
   }
 

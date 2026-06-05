@@ -63,6 +63,11 @@ target_link_libraries(contactEnergyFactory_gtest PRIVATE GTest::gtest_main conta
 set_property(TARGET contactEnergyFactory_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(contactEnergyFactory_gtest)
 
+add_executable(mappedContactEnergy_gtest mappedContactEnergy_gtest.cpp)
+target_link_libraries(mappedContactEnergy_gtest PRIVATE GTest::gtest_main contact)
+set_property(TARGET mappedContactEnergy_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(mappedContactEnergy_gtest)
+
 add_executable(sampledPenaltyContactEnergy_gtest sampledPenaltyContactEnergy_gtest.cpp)
 target_link_libraries(sampledPenaltyContactEnergy_gtest PRIVATE GTest::gtest_main contact)
 set_property(TARGET sampledPenaltyContactEnergy_gtest PROPERTY FOLDER "tests/gtest")

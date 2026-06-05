@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EigenSupport.h"
+#include "contactEnergyFactory.h"
 #include "contact/contactBackend.h"
 #include "triMeshGeo.h"
 
@@ -27,9 +28,7 @@ SampledPenaltyContactConfig parseSampledPenaltyContactConfig(const pgo::ConfigFi
 std::shared_ptr<RunIPCSimContactBackend> makeSampledPenaltyContactBackend(
   const pgo::ConfigFileJSON &config,
   const SampledPenaltyContactConfig &contactConfig,
-  const pgo::Mesh::TriMeshGeo &surfaceMesh,
-  const std::vector<int> &embeddingVertexIndices,
-  const std::vector<double> &embeddingWeights,
-  EigenSupport::ConstRefVecXd simulationRestPosition,
+  Contact::ContactSurfaceSpec surfaceSpec,
+  EigenSupport::MXi surfaceTriangles,
   double scale);
 }  // namespace pgo::RunIPCSim

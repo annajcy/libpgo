@@ -36,42 +36,46 @@ ES::VXd flattenMeshPositions(const pgo::Mesh::TriMeshGeo &mesh)
 }
 }  // namespace
 
-TEST(SampledPenaltyContactEnergyGTest, NormalEnergyIsStatefulDisplacementContactButNotStepDependent)
+TEST(SampledPenaltyContactEnergyGTest, SurfacePositionEnergyUsesAbsolutePositions)
 {
   const pgo::Mesh::TriMeshGeo mesh = makeSingleTriangleMesh();
-  const ES::VXd rest = flattenMeshPositions(mesh);
   SP::ParametersSpec params;
   params.stiffness = 10.0;
   params.samples = 1;
 
-  SP::SampledPenaltyContactEnergy energy(mesh, rest, params);
+  SP::SampledPenaltySurfaceContactEnergy energy(mesh, params);
 
+  const ES::VXd x = flattenMeshPositions(mesh);
+  EXPECT_EQ(energy.getNumDOFs(), x.size());
   EXPECT_EQ(energy.contactModelKind(), Contact::ContactModelKind::SampledPenalty);
-  EXPECT_EQ(energy.stateKind(), NO::EnergyStateKind::Displacement);
-  EXPECT_EQ(dynamic_cast<NO::StepDependentEnergy *>(&energy), nullptr);
-  EXPECT_EQ(energy.isHessianTopologyFixed(), 0);
 
-  NO::StepState state;
-  state.time = 2.0;
-  state.timestep = 0.25;
-
-  const ES::VXd u = ES::VXd::Zero(rest.size());
-
-  ES::VXd g = ES::VXd::Ones(rest.size());
+  ES::VXd g = ES::VXd::Ones(x.size());
   ES::SpMatD H;
-  EXPECT_DOUBLE_EQ(energy.func(u), 0.0);
-  energy.gradient(u, g);
-  energy.hessian(u, H);
+  EXPECT_DOUBLE_EQ(energy.func(x), 0.0);
+  energy.gradient(x, g);
+  energy.hessian(x, H);
 
   EXPECT_EQ(g.norm(), 0.0);
-  EXPECT_EQ(H.rows(), rest.size());
-  EXPECT_EQ(H.cols(), rest.size());
+  EXPECT_EQ(H.rows(), x.size());
+  EXPECT_EQ(H.cols(), x.size());
 }
 
-TEST(SampledPenaltyContactEnergyGTest, FrictionalEnergyRequiresPreviousStateAndPositiveTimestep)
+TEST(SampledPenaltyContactEnergyGTest, SurfacePositionEnergySupportsSubdividedSamples)
 {
   const pgo::Mesh::TriMeshGeo mesh = makeSingleTriangleMesh();
-  const ES::VXd rest = flattenMeshPositions(mesh);
+  SP::ParametersSpec params;
+  params.stiffness = 10.0;
+  params.samples = 2;
+
+  SP::SampledPenaltySurfaceContactEnergy energy(mesh, params);
+
+  const ES::VXd x = flattenMeshPositions(mesh);
+  EXPECT_NO_THROW((void)energy.func(x));
+}
+
+TEST(SampledPenaltyContactEnergyGTest, FrictionalSurfacePositionEnergyReceivesPreviousAbsolutePositions)
+{
+  const pgo::Mesh::TriMeshGeo mesh = makeSingleTriangleMesh();
   SP::ParametersSpec params;
   params.stiffness = 10.0;
   params.samples = 1;
@@ -79,14 +83,14 @@ TEST(SampledPenaltyContactEnergyGTest, FrictionalEnergyRequiresPreviousStateAndP
   friction.frictionCoeff = 0.4;
   friction.velocityEps = 1e-5;
 
-  SP::FrictionalSampledPenaltyContactEnergy energy(mesh, rest, params, friction);
+  SP::FrictionalSampledPenaltySurfaceContactEnergy energy(mesh, params, friction);
   EXPECT_NE(dynamic_cast<NO::StepDependentEnergy *>(&energy), nullptr);
 
   NO::StepState missingPrevious;
   missingPrevious.timestep = 0.1;
   EXPECT_THROW(energy.beginStep(missingPrevious), std::invalid_argument);
 
-  ES::VXd previous = ES::VXd::Zero(rest.size());
+  ES::VXd previous = flattenMeshPositions(mesh);
   NO::StepState nonPositiveTimestep;
   nonPositiveTimestep.previousX = &previous;
   nonPositiveTimestep.timestep = 0.0;

@@ -6,6 +6,7 @@
 
 #include "embeddedDofMap.h"
 #include "statefulContactEnergy.h"
+#include "triMeshGeo.h"
 
 #include "EigenDef.h"
 #include "potentialEnergy.h"
@@ -104,13 +105,15 @@ namespace SampledPenalty
 std::shared_ptr<StatefulContactEnergy> createSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
-  const SampledPenaltyContactSpec &params);
+  const SampledPenaltyContactSpec &params,
+  std::vector<Mesh::TriMeshGeo> externalSurfaces = {});
 
 std::shared_ptr<StatefulContactEnergy> createFrictionalSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
   const SampledPenaltyContactSpec &params,
-  const FrictionContactSpec &friction);
+  const FrictionContactSpec &friction,
+  std::vector<Mesh::TriMeshGeo> externalSurfaces = {});
 }  // namespace SampledPenalty
 
 }  // namespace Contact

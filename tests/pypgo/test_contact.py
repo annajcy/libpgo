@@ -98,9 +98,7 @@ def test_embedded_contact_surface_uses_simulation_dof_count():
     rows = list(range(9))
     cols = list(range(9))
     values = [1.0] * 9
-    surface_map = pypgo.sparse.SparseMatrix(
-        pypgo._core.create_sparse_matrix(9, 12, rows, cols, values)
-    )
+    surface_map = pypgo.sparse.SparseMatrix.from_coo((9, 12), rows, cols, values)
 
     surface = contact.ContactSurface.embedded(vertices, surface_map)
     assert surface.num_surface_dofs == 9
@@ -138,6 +136,22 @@ def test_sampled_penalty_energy_lifecycle_and_metadata():
     assert penalty.value(x) == pytest.approx(0.0)
     assert penalty.gradient(x).shape == (9,)
     assert penalty.hessian(x).shape == (9, 9)
+
+
+def test_sampled_penalty_accepts_embedded_surface_map():
+    vertices, triangles = _triangle_surface()
+
+    rows = list(range(9)) + [0]
+    cols = list(range(9)) + [9]
+    values = [1.0] * 9 + [0.25]
+    surface_map = pypgo.sparse.SparseMatrix.from_coo((9, 10), rows, cols, values)
+
+    surface = contact.ContactSurface.embedded(vertices, surface_map)
+    params = contact.SampledPenaltyParameters(stiffness=3.0, samples=1)
+    penalty = contact.SampledPenaltyEnergy(surface, triangles, params=params)
+
+    assert penalty.num_dofs == 10
+    assert penalty.value(np.zeros(10, dtype=np.float64)) == pytest.approx(0.0)
 
 
 def test_ipc_energy_lifecycle_and_metadata():

@@ -14,6 +14,7 @@ set(CONTACT_HEADERS
   sampled_penalty/sampledPenaltySpecs.h
   contactEnergyFactory.h
   embeddedDofMap.h
+  mappedContactEnergy.h
   statefulContactEnergy.h
   mappedSurfacePotentialEnergy.h
   floor/floorContactEnergy.h
@@ -53,6 +54,7 @@ set(CONTACT_SOURCES
   sampled_penalty/sampledPenaltyFrictionState.cpp
   contactEnergyFactory.cpp
   embeddedDofMap.cpp
+  mappedContactEnergy.cpp
   mappedSurfacePotentialEnergy.cpp
   floor/floorContactEnergy.cpp
   ipc/ipcActiveSetCache.cpp

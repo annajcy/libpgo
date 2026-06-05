@@ -24,8 +24,8 @@ public:
   explicit SampledPenaltyFrictionState(const FrictionParametersSpec &params);
 
   void beginStep(const NonlinearOptimization::StepState &state, int expectedDofs);
-  void configureExternal(PointPenetrationEnergy &energy, EigenSupport::ConstRefVecXd restPositions) const;
-  void configureSelf(PointTrianglePairCouplingEnergyWithCollision &energy, EigenSupport::ConstRefVecXd restPositions) const;
+  void configureExternalSurfacePositions(PointPenetrationEnergy &energy) const;
+  void configureSelfSurfacePositions(PointTrianglePairCouplingEnergyWithCollision &energy) const;
 
 private:
   FrictionParametersSpec params_;

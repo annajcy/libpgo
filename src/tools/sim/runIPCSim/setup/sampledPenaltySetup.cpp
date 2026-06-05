@@ -7,6 +7,7 @@
 #include "generateMassMatrix.h"
 #include "setup/attachmentSetup.h"
 #include "contact/sampledPenaltyContact.h"
+#include "contactEnergyFactory.h"
 #include "setup/setupCommon.h"
 #include "setup/femSetup.h"
 #include "io/volumeMeshIO.h"
@@ -89,9 +90,14 @@ IpcSimulationContext buildVolumeSampledPenaltySimulation(const pgo::ConfigFileJS
   context.pullingTargets = std::move(pullingTargets);
   context.pullingTargetRests = std::move(pullingTargetRests);
   context.surfaceMesh = std::move(surfaceMesh);
+  ES::MXd V;
+  ES::MXi F;
+  Mesh::triMeshGeoToMatrices(context.surfaceMesh, V, F);
+  Contact::ContactSurfaceSpec surfaceSpec;
+  surfaceSpec.restVertices = std::move(V);
+  surfaceSpec.surfaceFromSimulationDispMap = context.surfaceFromSimulationDispMap;
   context.contactBackend = makeSampledPenaltyContactBackend(jconfig, sampledPenaltyContactConfig,
-    context.surfaceMesh, bc.getEmbeddingVertexIndices(), bc.getEmbeddingWeights(),
-    context.simulationRestPosition, scale);
+    std::move(surfaceSpec), std::move(F), scale);
   return context;
 }
 }  // namespace pgo::RunIPCSim

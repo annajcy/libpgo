@@ -468,11 +468,13 @@ CELLS = [
 
         `SampledPenaltyEnergy` uses sample points on surface triangles to detect
         and penalize penetration. Unlike IPC's barrier, this is a quadratic penalty.
-        It requires an **identity** contact surface (surface DOFs ≡ simulation DOFs).
+        It works with any `ContactSurface`: internally the surface positions are
+        evaluated as `surface_rest + W @ simulation_displacement`, and contact
+        forces/Hessians are pulled back through `W.T`.
 
         We use `volume.extract_surface_mesh()` which returns the boundary triangles
-        referencing the **same** vertex positions as the volume mesh, so
-        `ContactSurface.identity(extracted.vertices)` satisfies the constraint.
+        referencing the **same** vertex positions as the volume mesh, so this
+        section uses the identity surface as the simplest special case.
         """
     ),
     md(
@@ -551,12 +553,13 @@ CELLS = [
     ),
     md(
         """
-        ### 3.3 Identity Contact Surface + SampledPenalty + Floor
+        ### 3.3 Contact Surface + SampledPenalty + Floor
         """
     ),
     code(
         """
-        # Identity surface: tet vertices ARE the contact surface vertices
+        # Identity surface: tet vertices ARE the contact surface vertices.
+        # Non-identity embedded surfaces use the same SampledPenaltyEnergy API.
         s3_contact_surface = pc.ContactSurface.identity(s3_surface.vertices)
 
         sampled_penalty = pc.SampledPenaltyEnergy(
@@ -638,7 +641,7 @@ CELLS = [
         print("\\nSection 3 done — accepted steps:", s3_sim.state.timestep_id)
         print("unique solver statuses:", sorted(set(s3_statuses)))
 
-        # Export — identity surface, so displacement IS the surface displacement
+        # Export — this demo uses an identity surface, so displacement IS the surface displacement.
         s3_abc = OUTPUT_DIR / f"{SAMPLED_SCENE['output']}-python.abc"
         dump_mesh_animation(
             s3_abc, "tet_box_sampled_penalty",
@@ -661,8 +664,9 @@ CELLS = [
         prior timestep) to compute sliding velocity — the framework handles this
         automatically via `begin_step()`.
 
-        We use a Koiter shell mesh (`shell.obj`) with identity contact surface
-        and a `FloorEnergy` for the ground plane.
+        We use a Koiter shell mesh (`shell.obj`) with the identity surface as a
+        simple special case, and a `FloorEnergy` for the ground plane. Embedded
+        surfaces are handled by the same mapped-contact path.
         """
     ),
     md(
@@ -757,10 +761,9 @@ CELLS = [
         s4_cols = list(range(n_shell_dofs))
         s4_vals = [vert_mass_s4] * n_shell_dofs
 
-        core_sparse_s4 = pgo._core.create_sparse_matrix(
-            n_shell_dofs, n_shell_dofs, s4_rows, s4_cols, s4_vals,
+        shell_mass = SparseMatrix.from_coo(
+            (n_shell_dofs, n_shell_dofs), s4_rows, s4_cols, s4_vals,
         )
-        shell_mass = SparseMatrix(core_sparse_s4)
         shell_gravity_accel = np.tile(FRICTIONAL_SCENE["g"], n_shell_verts)
         shell_gravity = shell_mass @ shell_gravity_accel
         print("shell mass:", shell_mass.shape, "per-vertex mass:", vert_mass_s4)
@@ -979,8 +982,8 @@ CELLS = [
         s5_rows = list(range(s5_n_dofs))
         s5_cols = list(range(s5_n_dofs))
         s5_vals = [vert_mass_s5] * s5_n_dofs
-        s5_mass = SparseMatrix(pgo._core.create_sparse_matrix(
-            s5_n_dofs, s5_n_dofs, s5_rows, s5_cols, s5_vals))
+        s5_mass = SparseMatrix.from_coo(
+            (s5_n_dofs, s5_n_dofs), s5_rows, s5_cols, s5_vals)
         s5_gravity_accel = np.tile(SHELL_IPC_SCENE["g"], s5_n_verts)
         s5_gravity = s5_mass @ s5_gravity_accel
 
@@ -1094,15 +1097,15 @@ CELLS = [
         |---|-------------|------|----------|------|---------|-----------|
         | 1 | IPCEnergy | Cubic hex | 125 | 375 | Embedded | kappa=3000, dhat=0.002 |
         | 2 | FloorEnergy | Tet | 203 | 609 | Embedded (bunny.obj) | height=0.03, stiffness=5e3 |
-        | 3 | SampledPenaltyEnergy | Tet | 243 | 729 | Identity | stiffness=10 |
-        | 4 | FrictionalSampledPenalty | Shell | 1089 | 3267 | Identity | friction=0.3 |
+        | 3 | SampledPenaltyEnergy | Tet | 243 | 729 | Identity special case | stiffness=10 |
+        | 4 | FrictionalSampledPenalty | Shell | 1089 | 3267 | Identity special case | friction=0.3 |
         | 5 | IPCEnergy | Shell | 1089 | 3267 | Identity | kappa=1000, dhat=0.005 |
 
         ### Key Takeaways
 
-        - **IPCEnergy** works with both embedded (non-identity) and identity surfaces.
-        - **FloorEnergy** works with any `ContactSurface`; it is not step-aware.
-        - **SampledPenaltyEnergy** requires an identity contact surface (`num_surface_dofs == num_simulation_dofs`).
+        - **IPCEnergy**, **FloorEnergy**, and **SampledPenaltyEnergy** all work with mapped `ContactSurface` objects.
+        - **FloorEnergy** is not step-aware.
+        - **SampledPenaltyEnergy** is defined in surface-position space and maps back to simulation DOFs through `W.T`.
         - **FrictionalSampledPenaltyEnergy** requires `previous_x` for friction velocity — the framework handles this automatically.
         - Shell meshes need a manually-constructed lumped mass; `VolumeMesh.mass_matrix()` does not apply.
         """

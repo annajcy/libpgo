@@ -8,7 +8,6 @@
 #include "sampled_penalty/kernels/pointTrianglePairCouplingEnergyWithCollision.h"
 
 #include <stdexcept>
-#include <utility>
 
 namespace pgo
 {
@@ -40,32 +39,26 @@ void SampledPenaltyFrictionState::beginStep(const NonlinearOptimization::StepSta
   hasStepState_ = true;
 }
 
-void SampledPenaltyFrictionState::configureExternal(
-  PointPenetrationEnergy &energy,
-  EigenSupport::ConstRefVecXd restPositions) const
+void SampledPenaltyFrictionState::configureExternalSurfacePositions(PointPenetrationEnergy &energy) const
 {
   if (!hasStepState_)
     throw std::invalid_argument("FrictionalSampledPenaltyContactEnergy requires beginStep before active contact evaluation.");
 
-  EigenSupport::VXd restCopy = restPositions;
-  energy.setComputeLastPosFunction([this, rest = std::move(restCopy)](const EigenSupport::V3d &, EigenSupport::V3d &p, int dofStart) {
-    p = previousX_.segment<3>(dofStart) + rest.segment<3>(dofStart);
+  energy.setComputeLastPosFunction([this](const EigenSupport::V3d &, EigenSupport::V3d &p, int dofStart) {
+    p = previousX_.segment<3>(dofStart);
   });
   energy.setFrictionCoeff(params_.frictionCoeff);
   energy.setTimestep(timestep_);
   energy.setVelEps(params_.velocityEps);
 }
 
-void SampledPenaltyFrictionState::configureSelf(
-  PointTrianglePairCouplingEnergyWithCollision &energy,
-  EigenSupport::ConstRefVecXd restPositions) const
+void SampledPenaltyFrictionState::configureSelfSurfacePositions(PointTrianglePairCouplingEnergyWithCollision &energy) const
 {
   if (!hasStepState_)
     throw std::invalid_argument("FrictionalSampledPenaltyContactEnergy requires beginStep before active contact evaluation.");
 
-  EigenSupport::VXd restCopy = restPositions;
-  energy.setToLastPosFunction([this, rest = std::move(restCopy)](const EigenSupport::V3d &, EigenSupport::V3d &p, int dofStart) {
-    p = previousX_.segment<3>(dofStart) + rest.segment<3>(dofStart);
+  energy.setToLastPosFunction([this](const EigenSupport::V3d &, EigenSupport::V3d &p, int dofStart) {
+    p = previousX_.segment<3>(dofStart);
   });
   energy.setFrictionCoeff(params_.frictionCoeff);
   energy.setTimestep(timestep_);

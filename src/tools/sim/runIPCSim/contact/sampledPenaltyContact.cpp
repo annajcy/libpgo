@@ -1,7 +1,6 @@
 #include "contact/sampledPenaltyContact.h"
 
 #include "configFileJSON.h"
-#include "sampled_penalty/sampledPenaltyContactEnergy.h"
 #include "dynamicStepOptions.h"
 #include "energySet.h"
 #include "app/config.h"
@@ -69,68 +68,19 @@ std::vector<pgo::Mesh::TriMeshGeo> copyObjectMeshes(const std::vector<SampledPen
   return meshes;
 }
 
-class FrozenSampledPenaltyStaticEnergy final : public NonlinearOptimization::PotentialEnergy
-{
-public:
-  explicit FrozenSampledPenaltyStaticEnergy(
-    std::shared_ptr<Contact::SampledPenalty::SampledPenaltyContactEnergy> energy):
-    energy_(std::move(energy))
-  {
-    if (!energy_)
-      throw std::invalid_argument("FrozenSampledPenaltyStaticEnergy requires a contact energy.");
-  }
-
-  double func(ES::ConstRefVecXd x) const override { return energy_->func(x); }
-  void gradient(ES::ConstRefVecXd x, ES::RefVecXd grad) const override { energy_->gradient(x, grad); }
-  void hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const override { energy_->hessianInPlace(x, hess); }
-  void hessianAlloc(ES::SpMatD &hess) const override { energy_->hessianAlloc(hess); }
-  void getDOFs(std::vector<int> &dofs) const override { energy_->getDOFs(dofs); }
-  int getNumDOFs() const override { return energy_->getNumDOFs(); }
-  int isHessianTopologyFixed() const override { return energy_->isHessianTopologyFixed(); }
-  NonlinearOptimization::EnergyStateKind stateKind() const override { return energy_->stateKind(); }
-
-private:
-  std::shared_ptr<Contact::SampledPenalty::SampledPenaltyContactEnergy> energy_;
-};
-
 class SampledPenaltyContactBackend final : public RunIPCSimContactBackend
 {
 public:
   SampledPenaltyContactBackend(const SampledPenaltyContactConfig &config,
-    const pgo::Mesh::TriMeshGeo &surfaceMesh,
-    ES::ConstRefVecXd simulationRestPosition,
-    std::vector<SampledPenaltyKinematicObject> objects,
-    const std::vector<int> &embeddingVertexIndices,
-    const std::vector<double> &embeddingWeights):
+    Contact::ContactSurfaceSpec surfaceSpec,
+    ES::MXi surfaceTriangles,
+    std::vector<SampledPenaltyKinematicObject> objects):
     config_(config),
-    surfaceMesh_(surfaceMesh),
-    simulationRestPosition_(simulationRestPosition),
-    objects_(std::move(objects)),
-    vertexEmbeddingIndices_(embeddingVertexIndices),
-    vertexEmbeddingWeights_(embeddingWeights)
+    surfaceSpec_(std::move(surfaceSpec)),
+    surfaceTriangles_(std::move(surfaceTriangles)),
+    objects_(std::move(objects))
   {
-    if (config_.stiffness <= 0.0)
-      return;
-
-    Contact::SampledPenalty::ParametersSpec params;
-    params.stiffness = config_.stiffness;
-    params.samples = config_.samples;
-    params.enableSelfContact = true;
-    params.enableExternalContact = !objects_.empty();
-
-    if (config_.frictionCoeff > 0.0) {
-      Contact::SampledPenalty::FrictionParametersSpec friction;
-      friction.frictionCoeff = config_.frictionCoeff;
-      friction.velocityEps = config_.velocityEps;
-      contactEnergy_ = std::make_shared<Contact::SampledPenalty::FrictionalSampledPenaltyContactEnergy>(
-        surfaceMesh_, simulationRestPosition_, params, friction, copyObjectMeshes(objects_),
-        vertexEmbeddingIndices_, vertexEmbeddingWeights_);
-    }
-    else {
-      contactEnergy_ = std::make_shared<Contact::SampledPenalty::SampledPenaltyContactEnergy>(
-        surfaceMesh_, simulationRestPosition_, params, copyObjectMeshes(objects_),
-        vertexEmbeddingIndices_, vertexEmbeddingWeights_);
-    }
+    rebuildContactEnergy();
   }
 
   ~SampledPenaltyContactBackend() override = default;
@@ -148,8 +98,8 @@ public:
       const ES::V3d movement = objects_[oi].movement / denom * advanceFrames;
       for (int vi = 0; vi < objects_[oi].mesh.numVertices(); ++vi)
         objects_[oi].mesh.pos(vi) += movement;
-      updateExternalSurface(oi);
     }
+    rebuildContactEnergy();
   }
 
   void beginFrame(int, const RunIPCSimRuntimeConfig &, IpcSimulationContext &, RunIPCSimSession &) override
@@ -175,8 +125,8 @@ public:
       const ES::V3d movement = objects_[oi].movement / denom;
       for (int vi = 0; vi < objects_[oi].mesh.numVertices(); ++vi)
         objects_[oi].mesh.pos(vi) += movement;
-      updateExternalSurface(oi);
     }
+    rebuildContactEnergy();
   }
 
   void addStaticEnergies(const RunIPCSimRuntimeConfig &,
@@ -189,15 +139,13 @@ public:
     if (objects_.empty())
       return;
 
-    Contact::SampledPenalty::ParametersSpec params;
+    Contact::SampledPenaltyContactSpec params;
     params.stiffness = config_.stiffness;
     params.samples = config_.samples;
     params.enableSelfContact = false;
     params.enableExternalContact = true;
-    auto staticExternalEnergy = std::make_shared<Contact::SampledPenalty::SampledPenaltyContactEnergy>(
-      surfaceMesh_, simulationRestPosition_, params, copyObjectMeshes(objects_),
-      vertexEmbeddingIndices_, vertexEmbeddingWeights_);
-    terms.push_back({std::make_shared<FrozenSampledPenaltyStaticEnergy>(staticExternalEnergy), 1.0});
+    terms.push_back({Contact::SampledPenalty::createSampledPenaltyEnergy(
+      surfaceSpec_, surfaceTriangles_, params, copyObjectMeshes(objects_)), 1.0});
   }
 
   void logSummary(const IpcSimulationContext &, const RunIPCSimSession &session) const override
@@ -206,20 +154,35 @@ public:
   }
 
 private:
-  void updateExternalSurface(std::size_t objectIndex)
+  void rebuildContactEnergy()
   {
-    if (!contactEnergy_)
+    if (config_.stiffness <= 0.0)
       return;
-    contactEnergy_->updateExternalSurface(static_cast<int>(objectIndex), objects_[objectIndex].mesh);
+
+    Contact::SampledPenaltyContactSpec params;
+    params.stiffness = config_.stiffness;
+    params.samples = config_.samples;
+    params.enableSelfContact = true;
+    params.enableExternalContact = !objects_.empty();
+
+    if (config_.frictionCoeff > 0.0) {
+      Contact::FrictionContactSpec friction;
+      friction.frictionCoeff = config_.frictionCoeff;
+      friction.velocityEps = config_.velocityEps;
+      contactEnergy_ = Contact::SampledPenalty::createFrictionalSampledPenaltyEnergy(
+        surfaceSpec_, surfaceTriangles_, params, friction, copyObjectMeshes(objects_));
+    }
+    else {
+      contactEnergy_ = Contact::SampledPenalty::createSampledPenaltyEnergy(
+        surfaceSpec_, surfaceTriangles_, params, copyObjectMeshes(objects_));
+    }
   }
 
   SampledPenaltyContactConfig config_;
-  pgo::Mesh::TriMeshGeo surfaceMesh_;
-  ES::VXd simulationRestPosition_;
+  Contact::ContactSurfaceSpec surfaceSpec_;
+  ES::MXi surfaceTriangles_;
   std::vector<SampledPenaltyKinematicObject> objects_;
-  std::vector<int> vertexEmbeddingIndices_;
-  std::vector<double> vertexEmbeddingWeights_;
-  std::shared_ptr<Contact::SampledPenalty::SampledPenaltyContactEnergy> contactEnergy_;
+  std::shared_ptr<Contact::StatefulContactEnergy> contactEnergy_;
 };
 }  // namespace
 
@@ -249,14 +212,11 @@ SampledPenaltyContactConfig parseSampledPenaltyContactConfig(const pgo::ConfigFi
 std::shared_ptr<RunIPCSimContactBackend> makeSampledPenaltyContactBackend(
   const pgo::ConfigFileJSON &config,
   const SampledPenaltyContactConfig &contactConfig,
-  const pgo::Mesh::TriMeshGeo &surfaceMesh,
-  const std::vector<int> &embeddingVertexIndices,
-  const std::vector<double> &embeddingWeights,
-  ES::ConstRefVecXd simulationRestPosition,
+  Contact::ContactSurfaceSpec surfaceSpec,
+  ES::MXi surfaceTriangles,
   double scale)
 {
   return std::make_shared<SampledPenaltyContactBackend>(
-    contactConfig, surfaceMesh, simulationRestPosition, loadSampledPenaltyKinematicObjects(config, scale),
-    embeddingVertexIndices, embeddingWeights);
+    contactConfig, std::move(surfaceSpec), std::move(surfaceTriangles), loadSampledPenaltyKinematicObjects(config, scale));
 }
 }  // namespace pgo::RunIPCSim

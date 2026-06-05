@@ -26,6 +26,26 @@ def test_sparse_matrix_exports_numpy_coo():
     assert np.allclose(values, np.array([1.5, 7.5]))
 
 
+def test_sparse_matrix_constructs_from_coo_helper():
+    matrix = pgo.sparse.SparseMatrix.from_coo(
+        (3, 4),
+        [2, 0, 2],
+        [1, 3, 1],
+        [5.0, 1.5, 2.5],
+    )
+
+    assert matrix.shape == (3, 4)
+    assert matrix.nnz == 2
+    assert np.allclose(matrix.to_dense(), np.array(
+        [
+            [0.0, 0.0, 0.0, 1.5],
+            [0.0, 0.0, 0.0, 0.0],
+            [0.0, 7.5, 0.0, 0.0],
+        ],
+        dtype=np.float64,
+    ))
+
+
 def test_shell_spec_io_roundtrip(tmp_path):
     tri = pgo.mesh.TriMeshData(
         np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64),

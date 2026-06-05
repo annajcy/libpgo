@@ -1688,6 +1688,30 @@ TEST(RunIPCSimSetupGTest, CubicEmbeddingMatrixMatchesBarycentricBaseline)
   expectSparseMatrixNear(context.surfaceFromSimulationDispMap, expected);
 }
 
+TEST(RunIPCSimSetupGTest, VolumeSampledPenaltySetupUsesSimulationDofContactBackend)
+{
+  initializeRunIPCSimTestEnvironment();
+
+  ScopedTempDir tempDir;
+  const fs::path configPath = tempDir.path() / "tet-sampled-penalty-setup.json";
+  const fs::path outputDir = tempDir.path() / "tet-sampled-penalty-output";
+  writeTextFile(configPath, makeLegacyVolumeConfig(
+    fs::path(kLegacyTetBoxDir) / "box.veg",
+    fs::path(kLegacyTetBoxDir) / "box.obj",
+    outputDir, "tet-mesh", "stable-neo", 0));
+
+  pgo::ConfigFileJSON config;
+  ASSERT_TRUE(config.open(configPath.string().c_str()));
+
+  const auto context = pgo::RunIPCSim::buildVolumeSampledPenaltySimulation(config);
+  EXPECT_EQ(context.surfaceFromSimulationDispMap.rows(), context.surfaceMesh.numVertices() * 3);
+  ASSERT_NE(context.contactBackend, nullptr);
+  EXPECT_EQ(context.contactBackend->kind(), pgo::RunIPCSim::ContactBackendKind::SampledPenalty);
+  ASSERT_NE(context.elasticEnergy, nullptr);
+  EXPECT_EQ(context.elasticEnergy->getNumDOFs(), context.simulationRestPosition.size());
+  EXPECT_EQ(context.surfaceFromSimulationDispMap.cols(), context.simulationRestPosition.size());
+}
+
 TEST(RunIPCSimSetupGTest, VolumeSurfacePressureForceProjectsToSimulationDofs)
 {
   initializeRunIPCSimTestEnvironment();

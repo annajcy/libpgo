@@ -3,6 +3,7 @@
 #include "floor/floorContactEnergy.h"
 #include "ipc/ipcContactEnergy.h"
 #include "ipc/core/surfaceIPCCore.h"
+#include "mappedContactEnergy.h"
 #include "sampled_penalty/sampledPenaltyContactEnergy.h"
 #include "triMeshGeo.h"
 
@@ -42,14 +43,6 @@ Floor::FloorSide convertFloorSide(FloorSide side)
     default:
       throw std::invalid_argument("FloorContactSpec.side must be KeepAbove or KeepBelow.");
   }
-}
-
-EigenSupport::VXd flattenRestVertices(const EigenSupport::MXd &restVertices)
-{
-  EigenSupport::VXd rest(restVertices.rows() * 3);
-  for (Eigen::Index vi = 0; vi < restVertices.rows(); ++vi)
-    rest.segment<3>(vi * 3) = restVertices.row(vi).transpose();
-  return rest;
 }
 
 Mesh::TriMeshGeo makeSurfaceMesh(const ContactSurfaceSpec &surface, const EigenSupport::MXi &surfaceTriangles)
@@ -137,23 +130,6 @@ SampledPenalty::FrictionParametersSpec toFrictionParameters(const FrictionContac
   return friction;
 }
 
-void requireSurfaceIdentitySizedMap(const ContactSurfaceSpec &surface, const char *backendName)
-{
-  const Eigen::Index expectedDofs = surface.restVertices.rows() * 3;
-  if (surface.surfaceFromSimulationDispMap.rows() != expectedDofs ||
-    surface.surfaceFromSimulationDispMap.cols() != expectedDofs) {
-    throw std::invalid_argument(std::string(backendName) +
-      " currently requires a surface-identity-sized ContactSurfaceSpec.");
-  }
-
-  EigenSupport::SpMatD identity(expectedDofs, expectedDofs);
-  identity.setIdentity();
-  if ((surface.surfaceFromSimulationDispMap - identity).norm() != 0.0) {
-    throw std::invalid_argument(std::string(backendName) +
-      " currently requires a surface-identity ContactSurfaceSpec.");
-  }
-}
-
 }  // namespace
 
 std::shared_ptr<NonlinearOptimization::PotentialEnergy> createFloorEnergy(
@@ -197,29 +173,37 @@ namespace SampledPenalty
 std::shared_ptr<StatefulContactEnergy> createSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
-  const SampledPenaltyContactSpec &params)
+  const SampledPenaltyContactSpec &params,
+  std::vector<Mesh::TriMeshGeo> externalSurfaces)
 {
-  requireSurfaceIdentitySizedMap(surface, "Sampled penalty factory");
-
-  return std::make_shared<SampledPenaltyContactEnergy>(
+  auto surfaceEnergy = std::make_shared<SampledPenaltySurfaceContactEnergy>(
     makeSurfaceMesh(surface, surfaceTriangles),
-    flattenRestVertices(surface.restVertices),
-    toSampledPenaltyParameters(params));
+    toSampledPenaltyParameters(params),
+    std::move(externalSurfaces));
+
+  return makeMappedContactEnergy(
+    surface.restVertices,
+    surface.surfaceFromSimulationDispMap,
+    std::move(surfaceEnergy));
 }
 
 std::shared_ptr<StatefulContactEnergy> createFrictionalSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
   const SampledPenaltyContactSpec &params,
-  const FrictionContactSpec &friction)
+  const FrictionContactSpec &friction,
+  std::vector<Mesh::TriMeshGeo> externalSurfaces)
 {
-  requireSurfaceIdentitySizedMap(surface, "Frictional sampled penalty factory");
-
-  return std::make_shared<FrictionalSampledPenaltyContactEnergy>(
+  auto surfaceEnergy = std::make_shared<FrictionalSampledPenaltySurfaceContactEnergy>(
     makeSurfaceMesh(surface, surfaceTriangles),
-    flattenRestVertices(surface.restVertices),
     toSampledPenaltyParameters(params),
-    toFrictionParameters(friction));
+    toFrictionParameters(friction),
+    std::move(externalSurfaces));
+
+  return makeMappedContactEnergy(
+    surface.restVertices,
+    surface.surfaceFromSimulationDispMap,
+    std::move(surfaceEnergy));
 }
 
 }  // namespace SampledPenalty
