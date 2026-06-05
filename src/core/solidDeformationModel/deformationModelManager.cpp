@@ -46,6 +46,11 @@ public:
   std::shared_ptr<DeformationModelState> state;
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
 
+  // Formulation-chosen DOF policy, built once at manager construction (while the formulation is
+  // alive) and handed out by createDofLayout()/buildRestPosition(). Vertex3 + nvtx*3 by default.
+  std::shared_ptr<const DofLayout> dofLayout;
+  ES::VXd restDofs;
+
   ES::VXd fiberDirections;
   ES::VXd vertexFiberDirections;
   ES::M3Xd fiberAxesRest, vertexFiberAxesRest;
@@ -246,6 +251,12 @@ DeformationModelManager::DeformationModelManager(std::shared_ptr<DeformationMode
   initFiber(elementFiberDirections, vertexFiberDirections);
   validateFormulation(simulationMesh.getElementType(), formulation);
 
+  // Capture the formulation's DOF-layout / rest-state policy now, while the formulation reference is
+  // guaranteed alive. The assembler (createDofLayout) and energy (buildRestPosition) consume these
+  // during their own construction; caching here keeps the manager from ever holding the formulation.
+  data->dofLayout = formulation.createDofLayout(simulationMesh);
+  data->restDofs = formulation.buildGlobalRestDofs(simulationMesh);
+
   const auto plasticModelType = data->state->plasticMaterial();
   const auto elasticMaterialType = data->state->elasticMaterial();
   std::shared_ptr<OptimizableField> elasticField = data->state->elasticFieldPtr();
@@ -319,25 +330,18 @@ const OptimizableField *DeformationModelManager::getPlasticParameterField() cons
   return data->state->plasticFieldPtr().get();
 }
 
-std::unique_ptr<const DofLayout> DeformationModelManager::createDofLayout() const
+std::shared_ptr<const DofLayout> DeformationModelManager::createDofLayout() const
 {
-  // Currently all formulations (tet P1, hex trilinear, shell Koiter) use Vertex3DofLayout.
-  // Future formulations (e.g. hex tricubic Hermite) will return a different DofLayout.
-  return std::make_unique<Vertex3DofLayout>(*getMesh());
+  // The layout was chosen by the formulation and cached at construction (see the constructor).
+  return data->dofLayout;
 }
 
 DeformationModelManager::~DeformationModelManager() = default;
 
 ES::VXd DeformationModelManager::buildRestPosition() const
 {
-  auto *mesh = getMesh();
-  ES::VXd rest(mesh->getNumVertices() * 3);
-  for (int vi = 0; vi < mesh->getNumVertices(); vi++) {
-    double p[3];
-    mesh->getVertex(vi, p);
-    rest.segment<3>(vi * 3) = ES::V3d(p[0], p[1], p[2]);
-  }
-  return rest;
+  // The global rest DOFs were built by the formulation and cached at construction.
+  return data->restDofs;
 }
 
 void DeformationModelManager::setEnforceSPD(int enable)

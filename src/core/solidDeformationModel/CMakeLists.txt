@@ -56,6 +56,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/basis/basis.h
   formulations/basis/tetP1Basis.h
   formulations/basis/hexTrilinearBasis.h
+  formulations/basis/hexTricubicHermiteBasis.h
 
   formulations/quadrature/quadrature.h
   formulations/quadrature/tetP1DefaultQuadrature.h
@@ -74,6 +75,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   formulations/dof/dofLayout.h
   formulations/dof/vertex3DofLayout.h
+  formulations/dof/hexTricubicHermiteDofLayout.h
 
   formulations/parameters/parameterField.h
   formulations/parameters/constantParameterField.h
@@ -113,6 +115,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
 		formulations/basis/tetP1Basis.cpp
 		formulations/basis/hexTrilinearBasis.cpp
+		formulations/basis/hexTricubicHermiteBasis.cpp
 
 		formulations/quadrature/tetP1DefaultQuadrature.cpp
 		formulations/quadrature/gaussLegendreHexQuadrature.cpp
@@ -125,6 +128,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 		formulations/elements/shellDeformationModel.cpp
 
 		formulations/dof/vertex3DofLayout.cpp
+		formulations/dof/hexTricubicHermiteDofLayout.cpp
 
     formulations/parameters/constantParameterField.cpp
     formulations/parameters/elementwiseParameterField.cpp

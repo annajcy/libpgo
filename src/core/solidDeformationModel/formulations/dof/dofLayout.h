@@ -29,6 +29,12 @@ public:
   // missing/invalid slots (e.g. shell sentinel vertices).
   virtual void getGlobalDofIndices(int ele, std::vector<int> &indices) const = 0;
 
+  // gather/scatter map local <-> global by index only (a permutation with sign +1). This is
+  // sufficient when local DOFs equal a selection of global DOFs -- including regular axis-aligned
+  // tricubic Hermite, where element-local ksi/eta/zeta axes align with global axes so the chain-rule
+  // transform T is the identity. A general cubic mesh whose local axes flip/rotate would need
+  // local = T*global / global += T^T*local; that requires extending this interface and is out of
+  // scope for the regular-grid MVP.
   virtual void gather(int ele, const double *global, double *local) const = 0;
   virtual void scatterAddGradient(int ele, const double *local, double *global) const = 0;
 

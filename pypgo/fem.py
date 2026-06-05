@@ -37,6 +37,25 @@ class LinearCubic:
 
 
 @dataclass(frozen=True)
+class TricubicHermite:
+    """Regular-grid tricubic Hermite hex formulation.
+
+    Each vertex carries 24 DOFs (8 Hermite modes x 3 coords): the value mode plus the 7 first/second/
+    third derivative modes. ``deformation_energy(...).num_dofs`` is therefore ``num_vertices * 24``
+    (not ``* 3``). DOF ``vertex*24 + mode*3 + coord`` with mode order
+    [value, d/dxi, d/deta, d/dzeta, d2/dxideta, d2/dxidzeta, d2/detadzeta, d3/dxidetadzeta].
+
+    MVP scope: a uniform axis-aligned / affine-parallelepiped hex grid. The element is C1 within
+    each cell and the synthesized rest field is exactly affine (rest deformation gradient = I).
+    """
+
+    name: str = "hex_tricubic_hermite"
+
+    def _to_string(self) -> str:
+        return self.name
+
+
+@dataclass(frozen=True)
 class KoiterShell:
     name: str = "shell_koiter"
 
@@ -343,11 +362,11 @@ class DeformationOptions:
 def _resolve_formulation(state: DeformationModelState, formulation):
     if formulation is None:
         raise ValueError(
-            "formulation is required. Pass TetP1(), LinearCubic(), or KoiterShell()."
+            "formulation is required. Pass TetP1(), LinearCubic(), TricubicHermite(), or KoiterShell()."
         )
     if not hasattr(formulation, "_to_string"):
         raise TypeError(
-            f"formulation must be TetP1(), LinearCubic(), or KoiterShell(), "
+            f"formulation must be TetP1(), LinearCubic(), TricubicHermite(), or KoiterShell(), "
             f"got {type(formulation).__name__}"
         )
     return formulation

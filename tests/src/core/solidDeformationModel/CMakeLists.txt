@@ -47,6 +47,21 @@ target_link_libraries(hexTrilinearBasis_gtest PRIVATE GTest::gtest_main solidDef
 set_property(TARGET hexTrilinearBasis_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(hexTrilinearBasis_gtest)
 
+add_executable(hexTricubicHermiteBasis_gtest formulations/basis/hexTricubicHermiteBasis_gtest.cpp)
+target_link_libraries(hexTricubicHermiteBasis_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET hexTricubicHermiteBasis_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(hexTricubicHermiteBasis_gtest)
+
+add_executable(gaussLegendreHexQuadrature4_gtest formulations/quadrature/gaussLegendreHexQuadrature4_gtest.cpp)
+target_link_libraries(gaussLegendreHexQuadrature4_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET gaussLegendreHexQuadrature4_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(gaussLegendreHexQuadrature4_gtest)
+
+add_executable(tricubicHermiteFormulation_gtest formulations/tricubicHermiteFormulation_gtest.cpp)
+target_link_libraries(tricubicHermiteFormulation_gtest PRIVATE GTest::gtest_main solidDeformationModel mesh)
+set_property(TARGET tricubicHermiteFormulation_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(tricubicHermiteFormulation_gtest)
+
 add_executable(volumetricKernel_gtest formulations/kernels/volumetricKernel_gtest.cpp)
 target_link_libraries(volumetricKernel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
 set_property(TARGET volumetricKernel_gtest PROPERTY FOLDER "tests/gtest")

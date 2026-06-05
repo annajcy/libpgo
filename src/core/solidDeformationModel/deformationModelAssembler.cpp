@@ -110,6 +110,11 @@ DeformationModelAssembler::DeformationModelAssembler(
     elementKInverseIndices[ele] = idxM;
   }
 
+  // NOTE (tricubic Hermite seam): the df/db, df/da and d2E/da2 templates and their inverse-index
+  // maps below still assume one mesh vertex == 3 displacement DOFs (globalRow = vertexIndex*3+dof,
+  // localRow = vi*3+dof). This is correct for Vertex3DofLayout and is guarded by numParams>0, so it
+  // is inert for the displacement-only MVP. When Hermite inverse design lands (phase 3), generalize
+  // these to the layout's getGlobalDofIndices, exactly as computeHessian was generalized.
   const auto *elasticParamLayout = elasticParamField_ ? elasticParamField_->dofLayout() : nullptr;
   const int numElasticGlobalParams = elasticParamLayout ? elasticParamLayout->numGlobalDofs() : 0;
   const auto elasticGlobalCol = [&](int ele, int ep) {
@@ -397,22 +402,21 @@ void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::Sp
     std::vector<int> globalDofIndices;
     dofLayout->getGlobalDofIndices(ele, globalDofIndices);
 
-    for (int vi = 0; vi < neleVtx; vi++) {
-      if (globalDofIndices[vi * 3] < 0)
+    // Generic over the layout's local DOF count: idxM and globalDofIndices are both sized to
+    // localDOFs by the DofLayout, so this fills the whole local stiffness block regardless of how
+    // many DOFs each node carries. For Vertex3 (localDOFs == neleVtx*3) this visits exactly the
+    // same (row, col) pairs as the old per-vertex nest; for tricubic Hermite it assembles the full
+    // 192x192 instead of only the first 24x24.
+    for (int localRow = 0; localRow < localDOFs; localRow++) {
+      if (globalDofIndices[localRow] < 0)
         continue;
-      for (int vj = 0; vj < neleVtx; vj++) {
-        if (globalDofIndices[vj * 3] < 0)
+      for (int localCol = 0; localCol < localDOFs; localCol++) {
+        if (globalDofIndices[localCol] < 0)
           continue;
-        for (int dofi = 0; dofi < 3; dofi++) {
-          for (int dofj = 0; dofj < 3; dofj++) {
-            int localRow = vi * 3 + dofi;
-            int localCol = vj * 3 + dofj;
-            std::ptrdiff_t offset = idxM(localRow, localCol);
-            if (offset >= 0) {
-              std::atomic_ref<double> hessRef(hess.valuePtr()[offset]);
-              hessRef.fetch_add(localK(localRow, localCol));
-            }
-          }
+        std::ptrdiff_t offset = idxM(localRow, localCol);
+        if (offset >= 0) {
+          std::atomic_ref<double> hessRef(hess.valuePtr()[offset]);
+          hessRef.fetch_add(localK(localRow, localCol));
         }
       }
     }

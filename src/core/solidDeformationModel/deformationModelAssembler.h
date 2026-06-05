@@ -63,7 +63,8 @@ public:
 
 protected:
   std::unique_ptr<DeformationModelManager> deformationModelManager;
-  std::unique_ptr<const DofLayout> dofLayout;
+  // Borrowed (shared) from the manager, which owns the formulation-chosen layout.
+  std::shared_ptr<const DofLayout> dofLayout;
   std::unique_ptr<DeformationModelAssemblerCacheData> data;
 
   const OptimizableField *elasticParamField_ = nullptr;

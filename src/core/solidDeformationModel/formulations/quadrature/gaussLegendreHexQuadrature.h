@@ -21,5 +21,18 @@ public:
   double weight(int i) const override;
 };
 
+// 4x4x4 Gauss-Legendre quadrature for the unit hex [0,1]^3 (64 points), exact for polynomials up
+// to degree 7 per axis. Used with HexTricubicHermiteBasis, whose deformation gradient is higher
+// order than trilinear, so 2x2x2 would under-integrate nonlinear materials.
+class GaussLegendreHexQuadrature4 : public Quadrature
+{
+public:
+  static constexpr int kNumPoints = 64;
+
+  int numPoints() const override { return kNumPoints; }
+  void point(int i, double xi[3]) const override;
+  double weight(int i) const override;
+};
+
 }  // namespace SolidDeformationModel
 }  // namespace pgo

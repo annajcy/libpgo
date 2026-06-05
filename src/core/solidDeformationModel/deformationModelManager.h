@@ -79,7 +79,11 @@ public:
   const OptimizableField *getElasticParameterField() const;
   const OptimizableField *getPlasticParameterField() const;
 
-  std::unique_ptr<const DofLayout> createDofLayout() const;
+  // Layout + rest state are chosen by the Formulation and cached at manager construction.
+  // createDofLayout() returns that cached layout (shared with the assembler); buildRestPosition()
+  // returns the cached global rest DOFs. Both are vertex*3 for current formulations and will differ
+  // for tricubic Hermite -- the manager itself no longer hardcodes the assumption.
+  std::shared_ptr<const DofLayout> createDofLayout() const;
   EigenSupport::VXd buildRestPosition() const;
 
 protected:

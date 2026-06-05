@@ -653,13 +653,16 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
     } else if (formulationName == "hex_trilinear") {
       energy = SolidDeformationModel::makeDeformationEnergy(
         stateCore->state(), SolidDeformationModel::LinearCubicFormulation{}, opts);
+    } else if (formulationName == "hex_tricubic_hermite") {
+      energy = SolidDeformationModel::makeDeformationEnergy(
+        stateCore->state(), SolidDeformationModel::TricubicHermiteFormulation{}, opts);
     } else if (formulationName == "shell_koiter") {
       energy = SolidDeformationModel::makeDeformationEnergy(
         stateCore->state(), SolidDeformationModel::KoiterShellFormulation{}, opts);
     } else {
       throw std::invalid_argument(
         "Unknown formulation: '" + formulationName +
-        "'.  Expected 'tet_p1', 'hex_trilinear', or 'shell_koiter'.");
+        "'.  Expected 'tet_p1', 'hex_trilinear', 'hex_tricubic_hermite', or 'shell_koiter'.");
     }
   }
   return std::make_shared<PyDeformationEnergy>(std::move(energy), std::move(stateCore));

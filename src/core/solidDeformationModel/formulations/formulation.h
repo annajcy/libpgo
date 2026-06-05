@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EigenDef.h"
+
 #include <memory>
 #include <string_view>
 
@@ -17,6 +19,7 @@ class DeformationModel;
 class ElasticModel;
 class PlasticModel;
 class ParameterField;
+class DofLayout;
 enum class SimulationMeshType;
 
 // ============================================================
@@ -37,6 +40,20 @@ public:
     const ParameterField *elasticParams, const ParameterField *plasticParams) const = 0;
 
   virtual SimulationMeshType compatibleMeshType() const = 0;
+
+  // DOF-layout / rest-state policy. The default reproduces the historical behavior used by every
+  // current formulation (tet P1, hex trilinear, shell Koiter): one mesh vertex carries 3 DOFs
+  // (Vertex3DofLayout) and the global rest state is the vertex positions (size numVertices*3).
+  //
+  // A future tricubic Hermite formulation overrides both: createDofLayout returns a
+  // HexTricubicHermiteDofLayout (global = vertexId*24 + mode*3 + coord) and buildGlobalRestDofs
+  // emits the Hermite rest field (value + derivative modes per vertex). The manager calls these
+  // once at its own construction (while the formulation is alive) and caches the results, so the
+  // assembler/energy never see the vertex*3 assumption.
+  //
+  // Invariant: buildGlobalRestDofs(mesh).size() == createDofLayout(mesh)->numGlobalDofs().
+  virtual std::unique_ptr<DofLayout> createDofLayout(const SimulationMesh &mesh) const;
+  virtual EigenSupport::VXd buildGlobalRestDofs(const SimulationMesh &mesh) const;
 };
 
 // ============================================================
@@ -121,6 +138,29 @@ public:
   std::string_view getName() const override;
   int getNodesPerElement() const override;
   int getLocalDofs() const override;
+};
+
+// Regular-grid tricubic Hermite hex: 64 scalar basis functions (8 corners x 8 Hermite modes),
+// 192 local DOFs, 4x4x4 Gauss quadrature. Overrides the DOF-layout / rest-state policy with the
+// 24-DOF-per-vertex Hermite layout and synthesizes per-corner rest Hermite DOFs from element edge
+// vectors (value = corner position, axis modes = edge vectors, mixed = 0). MVP scope: uniform
+// axis-aligned / affine-parallelepiped grid (so shared-vertex derivative DOFs agree across
+// elements and the rest deformation gradient is exactly I).
+class TricubicHermiteFormulation : public CubicFormulation
+{
+public:
+  TricubicHermiteFormulation();
+  std::string_view getName() const override;
+  int getNodesPerElement() const override;
+  int getLocalDofs() const override;
+
+  std::unique_ptr<DofLayout> createDofLayout(const SimulationMesh &mesh) const override;
+  EigenSupport::VXd buildGlobalRestDofs(const SimulationMesh &mesh) const override;
+
+  std::unique_ptr<DeformationModel> createElement(
+    const SimulationMesh &mesh, int ele,
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+    const ParameterField *elasticParams, const ParameterField *plasticParams) const override;
 };
 
 class KoiterShellFormulation : public ShellFormulation
