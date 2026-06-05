@@ -1,0 +1,153 @@
+import numpy as np
+import pytest
+
+import pypgo as pgo
+import pypgo.fem as pf
+from pypgo.mesh.geo import BarycentricEmbedding
+
+
+def _single_cube_volume(*, density=2.0):
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    elements = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
+    mesh = pgo.mesh.CubicMeshData(vertices, elements)
+    material = pgo.mesh.veg.ENuMaterial(density=density, E=1e6, nu=0.45)
+    return pgo.mesh.veg.VolumeMesh.create_from_single_material(mesh, material)
+
+
+def test_barycentric_embedding_exposes_all_local_corners():
+    volume = _single_cube_volume()
+    target = np.array([[0.25, 0.5, 0.75]], dtype=np.float64)
+    emb = BarycentricEmbedding(target, volume)
+
+    np.testing.assert_array_equal(emb.embedding_indices, np.array([[0, 1, 2, 3, 4, 5, 6, 7]]))
+    np.testing.assert_array_equal(emb.embedding_elements, np.array([0]))
+    assert emb.embedding_weights.shape == (1, 8)
+    assert emb.embedding_weights.sum() == pytest.approx(1.0)
+
+
+def test_hermite_mass_matrix_has_correct_size_symmetry_and_constant_velocity_energy():
+    volume = _single_cube_volume(density=2.0)
+    M = pf.formulation_mass_matrix(volume, pf.TricubicHermite())
+
+    assert M.shape == (8 * 24, 8 * 24)
+    Md = M.to_dense()
+    np.testing.assert_allclose(Md, Md.T, atol=1e-12)
+
+    qdot = np.zeros(8 * 24, dtype=np.float64)
+    v = np.array([0.4, -0.2, 0.7], dtype=np.float64)
+    for vertex in range(8):
+        qdot[vertex * 24: vertex * 24 + 3] = v
+    kinetic = 0.5 * qdot @ (Md @ qdot)
+    expected = 0.5 * 2.0 * 1.0 * float(v @ v)
+    assert kinetic == pytest.approx(expected, rel=1e-10, abs=1e-10)
+
+
+def test_hermite_body_force_has_generalized_derivative_entries_and_correct_total_force():
+    volume = _single_cube_volume(density=3.0)
+    g = np.array([0.0, -9.8, 0.0], dtype=np.float64)
+    f = pf.body_force(volume, pf.TricubicHermite(), g)
+
+    assert f.shape == (8 * 24,)
+    value_force = np.zeros(3)
+    derivative_force_norm = 0.0
+    for vertex in range(8):
+        value_force += f[vertex * 24: vertex * 24 + 3]
+        derivative_force_norm += np.linalg.norm(f[vertex * 24 + 3: vertex * 24 + 24])
+    np.testing.assert_allclose(value_force, 3.0 * g, atol=1e-10)
+    assert derivative_force_norm > 0.0
+
+
+def test_hermite_surface_embedding_reproduces_affine_displacement():
+    volume = _single_cube_volume()
+    points = np.array(
+        [[0.25, 0.5, 0.75], [1.0, 0.0, 0.5], [0.0, 1.0, 0.0]],
+        dtype=np.float64,
+    )
+    W = pf.surface_embedding_matrix(volume, points, pf.TricubicHermite())
+    assert W.shape == (points.shape[0] * 3, 8 * 24)
+
+    A = np.array([[0.1, 0.2, 0.0], [0.0, -0.1, 0.3], [0.05, 0.0, 0.2]], dtype=np.float64)
+    b = np.array([0.3, -0.4, 0.2], dtype=np.float64)
+    q = np.zeros(8 * 24, dtype=np.float64)
+    vertices = volume.mesh_data.vertices
+    for vertex, X in enumerate(vertices):
+        base = vertex * 24
+        q[base:base + 3] = A @ X + b
+        q[base + 3:base + 6] = A @ np.array([1.0, 0.0, 0.0])
+        q[base + 6:base + 9] = A @ np.array([0.0, 1.0, 0.0])
+        q[base + 9:base + 12] = A @ np.array([0.0, 0.0, 1.0])
+
+    mapped = (W @ q).reshape(-1, 3)
+    expected = points @ A.T + b
+    np.testing.assert_allclose(mapped, expected, atol=1e-12)
+
+
+def test_hermite_dof_helpers_make_boundary_semantics_explicit():
+    np.testing.assert_array_equal(pf.hermite_vertex_dofs([2], policy="value"), np.arange(48, 51))
+    np.testing.assert_array_equal(pf.hermite_vertex_dofs([2], policy="first"), np.arange(48, 60))
+    np.testing.assert_array_equal(pf.hermite_vertex_dofs([2], policy="all"), np.arange(48, 72))
+
+    volume = _single_cube_volume()
+    left = pf.hermite_face_dofs(volume, axis="x", side="min", policy="all")
+    expected_vertices = [0, 3, 4, 7]
+    expected = np.concatenate([np.arange(v * 24, v * 24 + 24) for v in expected_vertices])
+    np.testing.assert_array_equal(left, expected)
+
+
+def test_hermite_dynamic_free_fall_uses_24_dofs():
+    volume = _single_cube_volume(density=2.0)
+    sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
+    state = pf.deformation_model_state(
+        sim_mesh,
+        elastic=pf.StableNeo(),
+        elastic_field=pf.ElementwiseField(),
+        plastic=pf.VolumetricPlasticity(dofs=0),
+        plastic_field=pf.ElementwiseField(),
+    )
+    energy = pf.deformation_energy(state, formulation=pf.TricubicHermite())
+    M = pf.formulation_mass_matrix(volume, pf.TricubicHermite())
+    f = pf.body_force(volume, pf.TricubicHermite(), [0.0, -9.8, 0.0])
+    dyn_state = pgo.sim.DynamicState(
+        displacement=np.zeros(energy.num_dofs),
+        velocity=np.zeros(energy.num_dofs),
+        acceleration=np.zeros(energy.num_dofs),
+    )
+    sim = pgo.sim.DynamicSimulation(mass=M, state=dyn_state, timestep=0.01, energy=energy)
+    frame = sim.step(
+        external_force=f,
+        optimizer=pgo.solver.NewtonOptimizer(max_iterations=20, gradient_tolerance=1e-6),
+    )
+
+    assert frame.accepted
+    assert sim.num_dofs == 8 * 24
+    assert frame.displacement.shape == (8 * 24,)
+
+
+def test_hermite_mapped_floor_contact_has_hermite_dof_count():
+    volume = _single_cube_volume()
+    surface = volume.extract_surface_mesh()
+    W = pf.surface_embedding_matrix(volume, surface.vertices, pf.TricubicHermite())
+    contact_surface = pgo.contact.ContactSurface.embedded(surface.vertices, W)
+    floor = pgo.contact.FloorEnergy(
+        contact_surface,
+        axis="z",
+        side="keep_above",
+        height=-0.2,
+        stiffness=100.0,
+    )
+    x = np.zeros(volume.num_vertices * 24, dtype=np.float64)
+
+    assert floor.num_dofs == volume.num_vertices * 24
+    assert floor.value(x) == pytest.approx(0.0)

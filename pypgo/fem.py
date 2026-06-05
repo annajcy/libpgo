@@ -64,6 +64,108 @@ class KoiterShell:
 
 
 # ---------------------------------------------------------------------------
+# Formulation-aware dynamic operators
+# ---------------------------------------------------------------------------
+
+
+def _require_volume_mesh(volume):
+    from pypgo.mesh.veg import VolumeMesh
+
+    if not isinstance(volume, VolumeMesh):
+        raise TypeError(f"volume must be a pypgo.mesh.veg.VolumeMesh, got {type(volume).__name__}")
+
+
+def _formulation_name(formulation) -> str:
+    if formulation is None:
+        raise ValueError(
+            "formulation is required. Pass TetP1(), LinearCubic(), TricubicHermite(), or KoiterShell()."
+        )
+    if not hasattr(formulation, "_to_string"):
+        raise TypeError(
+            f"formulation must be TetP1(), LinearCubic(), TricubicHermite(), or KoiterShell(), "
+            f"got {type(formulation).__name__}"
+        )
+    return str(formulation._to_string())
+
+
+def formulation_mass_matrix(volume, formulation):
+    """C++ formulation-aware mass matrix.
+
+    ``TetP1`` and ``LinearCubic`` use the legacy volumetric mass matrix.
+    ``TricubicHermite`` uses the C++ consistent ``num_vertices*24`` mass.
+    """
+    from pypgo.sparse import SparseMatrix
+
+    _require_volume_mesh(volume)
+    return SparseMatrix(
+        _core.compute_formulation_mass_matrix(volume._core_obj, _formulation_name(formulation))
+    )
+
+
+def body_force(volume, formulation, acceleration) -> np.ndarray:
+    """C++ generalized body force for a constant acceleration field."""
+
+    accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
+    if accel.size != 3:
+        raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
+
+    _require_volume_mesh(volume)
+    return np.asarray(
+        _core.compute_formulation_body_force(
+            volume._core_obj,
+            _formulation_name(formulation),
+            accel.tolist(),
+        ),
+        dtype=np.float64,
+    )
+
+
+def surface_embedding_matrix(volume, surface_vertices, formulation):
+    """C++ map from formulation simulation DOFs to surface displacement DOFs."""
+
+    from pypgo.sparse import SparseMatrix
+
+    points = np.asarray(surface_vertices, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(f"surface_vertices must have shape (n, 3), got {points.shape}")
+
+    _require_volume_mesh(volume)
+    return SparseMatrix(
+        _core.compute_formulation_surface_embedding_matrix(
+            volume._core_obj,
+            _formulation_name(formulation),
+            np.ascontiguousarray(points).reshape(-1).tolist(),
+        )
+    )
+
+
+def hermite_vertex_dofs(vertex_ids, *, policy: str = "value") -> np.ndarray:
+    """Return Hermite DOF indices for vertex-based boundary conditions."""
+
+    vertices = np.asarray(vertex_ids, dtype=np.int64).reshape(-1)
+    return np.asarray(
+        _core.hermite_vertex_dofs([int(v) for v in vertices], str(policy)),
+        dtype=np.int64,
+    )
+
+
+def hermite_face_dofs(volume, *, axis: str, side: str, policy: str = "all") -> np.ndarray:
+    """Return Hermite DOFs on an axis-aligned min/max volume face."""
+
+    _require_volume_mesh(volume)
+    if axis not in {"x", "y", "z"}:
+        raise ValueError("axis must be 'x', 'y', or 'z'")
+    if side not in {"min", "max"}:
+        raise ValueError("side must be 'min' or 'max'")
+
+    axis_id = {"x": 0, "y": 1, "z": 2}[axis]
+    return np.asarray(
+        _core.hermite_face_dofs(volume._core_obj, axis_id, side == "max", str(policy)),
+        dtype=np.int64,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Elastic law wrappers
 # ---------------------------------------------------------------------------
 

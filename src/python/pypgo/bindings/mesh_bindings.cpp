@@ -24,6 +24,8 @@
 #include "barycentricCoordinates.h"
 #include "generateMassMatrix.h"
 #include "simulationMesh.h"
+#include "formulations/formulation.h"
+#include "formulations/formulationDynamics.h"
 #include "sparse_matrix_core.h"
 #include "simulation_mesh_core.h"
 #include "vegFile.h"
@@ -252,6 +254,115 @@ PySparseMatrix compute_mass_matrix(const PyVolumeMesh& volumeMesh, bool inflate3
     return PySparseMatrix(std::move(M));
 }
 
+std::unique_ptr<SolidDeformationModel::Formulation> make_volume_formulation(
+    const std::string& formulationName)
+{
+    if (formulationName == "tet_p1") {
+        return std::make_unique<SolidDeformationModel::P1TetFormulation>();
+    }
+    if (formulationName == "hex_trilinear") {
+        return std::make_unique<SolidDeformationModel::LinearCubicFormulation>();
+    }
+    if (formulationName == "hex_tricubic_hermite") {
+        return std::make_unique<SolidDeformationModel::TricubicHermiteFormulation>();
+    }
+    throw std::invalid_argument(
+        "Unknown volume formulation '" + formulationName +
+        "'. Expected 'tet_p1', 'hex_trilinear', or 'hex_tricubic_hermite'.");
+}
+
+SolidDeformationModel::HermiteBoundaryPolicy parse_hermite_boundary_policy(
+    const std::string& policy)
+{
+    if (policy == "value") {
+        return SolidDeformationModel::HermiteBoundaryPolicy::Value;
+    }
+    if (policy == "first") {
+        return SolidDeformationModel::HermiteBoundaryPolicy::First;
+    }
+    if (policy == "all") {
+        return SolidDeformationModel::HermiteBoundaryPolicy::All;
+    }
+    throw std::invalid_argument("Hermite boundary policy must be 'value', 'first', or 'all'");
+}
+
+PySparseMatrix compute_formulation_mass_matrix(
+    const PyVolumeMesh& volumeMesh,
+    const std::string& formulationName)
+{
+    auto formulation = make_volume_formulation(formulationName);
+    pgo::EigenSupport::SpMatD M;
+    {
+        nb::gil_scoped_release release;
+        M = SolidDeformationModel::buildFormulationMassMatrix(
+            *volumeMesh.getVM(), *formulation);
+    }
+    return PySparseMatrix(std::move(M));
+}
+
+std::vector<double> compute_formulation_body_force(
+    const PyVolumeMesh& volumeMesh,
+    const std::string& formulationName,
+    const std::vector<double>& acceleration)
+{
+    if (acceleration.size() != 3) {
+        throw std::invalid_argument("acceleration must contain exactly 3 values");
+    }
+    auto formulation = make_volume_formulation(formulationName);
+    pgo::EigenSupport::V3d a(acceleration[0], acceleration[1], acceleration[2]);
+    pgo::EigenSupport::VXd f;
+    {
+        nb::gil_scoped_release release;
+        f = SolidDeformationModel::buildFormulationBodyForce(
+            *volumeMesh.getVM(), *formulation, a);
+    }
+    return std::vector<double>(f.data(), f.data() + f.size());
+}
+
+PySparseMatrix compute_formulation_surface_embedding_matrix(
+    const PyVolumeMesh& volumeMesh,
+    const std::string& formulationName,
+    const std::vector<double>& surfaceVerticesFlat)
+{
+    if (surfaceVerticesFlat.size() % 3 != 0) {
+        throw std::invalid_argument("surface vertices must be a flat 3*m vector");
+    }
+    const int numVertices = static_cast<int>(surfaceVerticesFlat.size() / 3);
+    pgo::EigenSupport::MXd surfaceVertices(numVertices, 3);
+    for (int i = 0; i < numVertices; i++) {
+        surfaceVertices(i, 0) = surfaceVerticesFlat[static_cast<size_t>(i) * 3 + 0];
+        surfaceVertices(i, 1) = surfaceVerticesFlat[static_cast<size_t>(i) * 3 + 1];
+        surfaceVertices(i, 2) = surfaceVerticesFlat[static_cast<size_t>(i) * 3 + 2];
+    }
+
+    auto formulation = make_volume_formulation(formulationName);
+    pgo::EigenSupport::SpMatD W;
+    {
+        nb::gil_scoped_release release;
+        W = SolidDeformationModel::buildFormulationSurfaceEmbeddingMatrix(
+            *volumeMesh.getVM(), *formulation, surfaceVertices);
+    }
+    return PySparseMatrix(std::move(W));
+}
+
+std::vector<int> hermite_vertex_dofs(
+    const std::vector<int>& vertexIds,
+    const std::string& policy)
+{
+    return SolidDeformationModel::hermiteVertexDofs(
+        vertexIds, parse_hermite_boundary_policy(policy));
+}
+
+std::vector<int> hermite_face_dofs(
+    const PyVolumeMesh& volumeMesh,
+    int axis,
+    bool maxSide,
+    const std::string& policy)
+{
+    return SolidDeformationModel::hermiteFaceDofs(
+        *volumeMesh.getVM(), axis, maxSide, parse_hermite_boundary_policy(policy));
+}
+
 class PyBarycentricEmbedding {
 public:
     PyBarycentricEmbedding(const std::vector<double>& targetLocationsFlat, const PyVolumeMesh& volumeMesh)
@@ -281,6 +392,26 @@ public:
     std::tuple<std::vector<int>, std::vector<int>, std::vector<double>> interpolationMatrixCOO() const
     {
         return interpolationMatrix().toCOO();
+    }
+
+    int numElementVertices() const { return coords_->getNumElementVertices(); }
+
+    std::vector<int> embeddingIndicesFlat() const
+    {
+        const auto& indices = coords_->getEmbeddingVertexIndices();
+        return std::vector<int>(indices.begin(), indices.end());
+    }
+
+    std::vector<double> embeddingWeightsFlat() const
+    {
+        const auto& weights = coords_->getEmbeddingWeights();
+        return std::vector<double>(weights.begin(), weights.end());
+    }
+
+    std::vector<int> embeddingElements() const
+    {
+        const auto& elements = coords_->getElements();
+        return std::vector<int>(elements.begin(), elements.end());
     }
 
     std::vector<double> deform(const std::vector<double>& volumeDispFlat) const
@@ -660,6 +791,10 @@ void init_mesh_bindings(nb::module_ &m) {
         .def(nb::init<const std::vector<double>&, const PyVolumeMesh&>())
         .def("num_target_locations", &PyBarycentricEmbedding::numTargetLocations)
         .def("num_volume_vertices", &PyBarycentricEmbedding::numVolumeVertices)
+        .def("num_element_vertices", &PyBarycentricEmbedding::numElementVertices)
+        .def("embedding_indices_flat", &PyBarycentricEmbedding::embeddingIndicesFlat)
+        .def("embedding_weights_flat", &PyBarycentricEmbedding::embeddingWeightsFlat)
+        .def("embedding_elements", &PyBarycentricEmbedding::embeddingElements)
         .def("interpolation_matrix", &PyBarycentricEmbedding::interpolationMatrix)
         .def("interpolation_matrix_coo", &PyBarycentricEmbedding::interpolationMatrixCOO)
         .def("deform", &PyBarycentricEmbedding::deform);
@@ -719,4 +854,14 @@ void init_mesh_bindings(nb::module_ &m) {
         nb::arg("surface_data"), nb::arg("thickness"), nb::arg("E"), nb::arg("nu"));
     m.def("compute_mass_matrix", &compute_mass_matrix,
         nb::arg("volume_mesh"), nb::arg("inflate3dim") = true);
+    m.def("compute_formulation_mass_matrix", &compute_formulation_mass_matrix,
+        nb::arg("volume_mesh"), nb::arg("formulation"));
+    m.def("compute_formulation_body_force", &compute_formulation_body_force,
+        nb::arg("volume_mesh"), nb::arg("formulation"), nb::arg("acceleration"));
+    m.def("compute_formulation_surface_embedding_matrix", &compute_formulation_surface_embedding_matrix,
+        nb::arg("volume_mesh"), nb::arg("formulation"), nb::arg("surface_vertices_flat"));
+    m.def("hermite_vertex_dofs", &hermite_vertex_dofs,
+        nb::arg("vertex_ids"), nb::arg("policy") = "value");
+    m.def("hermite_face_dofs", &hermite_face_dofs,
+        nb::arg("volume_mesh"), nb::arg("axis"), nb::arg("max_side"), nb::arg("policy") = "all");
 }

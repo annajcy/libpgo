@@ -93,6 +93,26 @@ class BarycentricEmbedding:
         return self._num_target_locations
 
     @property
+    def num_element_vertices(self) -> int:
+        return int(self._core_obj.num_element_vertices())
+
+    @property
+    def embedding_indices(self) -> np.ndarray:
+        return np.asarray(self._core_obj.embedding_indices_flat(), dtype=np.int64).reshape(
+            self.num_target_locations, self.num_element_vertices
+        )
+
+    @property
+    def embedding_weights(self) -> np.ndarray:
+        return np.asarray(self._core_obj.embedding_weights_flat(), dtype=np.float64).reshape(
+            self.num_target_locations, self.num_element_vertices
+        )
+
+    @property
+    def embedding_elements(self) -> np.ndarray:
+        return np.asarray(self._core_obj.embedding_elements(), dtype=np.int64)
+
+    @property
     def interpolation_matrix(self) -> SparseMatrix:
         return SparseMatrix(self._core_obj.interpolation_matrix())
 

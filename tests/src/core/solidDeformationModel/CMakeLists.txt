@@ -62,6 +62,21 @@ target_link_libraries(tricubicHermiteFormulation_gtest PRIVATE GTest::gtest_main
 set_property(TARGET tricubicHermiteFormulation_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(tricubicHermiteFormulation_gtest)
 
+add_executable(tricubicHermiteMaterialSweepFD_gtest formulations/tricubicHermiteMaterialSweepFD_gtest.cpp)
+target_link_libraries(tricubicHermiteMaterialSweepFD_gtest PRIVATE GTest::gtest_main solidDeformationModel mesh)
+set_property(TARGET tricubicHermiteMaterialSweepFD_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(tricubicHermiteMaterialSweepFD_gtest)
+
+add_executable(tricubicHermiteElementParamHessianFD_gtest formulations/tricubicHermiteElementParamHessianFD_gtest.cpp)
+target_link_libraries(tricubicHermiteElementParamHessianFD_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET tricubicHermiteElementParamHessianFD_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(tricubicHermiteElementParamHessianFD_gtest)
+
+add_executable(formulationDynamics_gtest formulations/formulationDynamics_gtest.cpp)
+target_link_libraries(formulationDynamics_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh mesh)
+set_property(TARGET formulationDynamics_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(formulationDynamics_gtest)
+
 add_executable(volumetricKernel_gtest formulations/kernels/volumetricKernel_gtest.cpp)
 target_link_libraries(volumetricKernel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
 set_property(TARGET volumetricKernel_gtest PROPERTY FOLDER "tests/gtest")

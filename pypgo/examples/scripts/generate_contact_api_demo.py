@@ -32,11 +32,11 @@ CELLS = [
         """
         ## Outline
 
-        1. **IPC** — cubic hex box with static obstacle (barrier contact)
-        2. **FloorEnergy** — tet bunny on implicit floor plane (embedded surface)
+        1. **IPC** — cubic box falls onto `bottom.obj` obstacle (barrier contact, embedded surface)
+        2. **FloorEnergy** — bunny falls onto implicit floor plane (embedded surface)
         3. **SampledPenalty** — tet box self-contact + floor (identity surface)
-        4. **FrictionalSampledPenalty** — shell with friction on floor
-        5. **IPC Shell** — shell with static obstacle (barrier on thin shell)
+        4. **FrictionalSampledPenalty** — shell falls with friction + floor
+        5. **IPC Shell** — shell self-contact + floor (IPC barrier on thin shell)
         6. Summary comparison table
         """
     ),
@@ -68,11 +68,13 @@ CELLS = [
     # ──────────────────────────────────────────────────────────────────
     md(
         """
-        ## 1. IPC Barrier — Cubic Box with Obstacle
+        ## 1. IPC Barrier — Cubic Box Falls onto `bottom.obj` Obstacle
 
         Rebuilds the scene from `examples/ipc/cubic/box/box-ipc.json` using
-        the Python API. Cubic hex mesh (125 verts), embedded surface (194 verts),
-        IPC barrier contact with a static `bottom.obj` obstacle.
+        the Python API. A cubic hex mesh (125 verts, embedded surface 194 verts)
+        falls under gravity and lands on the static `bottom.obj` obstacle via
+        IPC barrier contact. Watch the `y_min` value approach the obstacle
+        surface and the `contact_clamp_count` become nonzero.
         """
     ),
     md(
@@ -89,7 +91,7 @@ CELLS = [
                 {"filename": "bottom.obj", "movement": [0.0, 0.0, 0.0]},
             ],
             "g": np.array([0.0, -9.81, 0.0], dtype=np.float64),
-            "init_vel": np.array([0.0, 0.0, 0.0], dtype=np.float64),
+            "init_vel": np.array([0.0, -3.0, 0.0], dtype=np.float64),
             "init_disp": np.array([0.0, 0.0, 0.0], dtype=np.float64),
             "scale": 1.0,
             "timestep": 0.001,
@@ -107,10 +109,10 @@ CELLS = [
         }
 
         RUN_FULL_SECTION1 = False
-        PREVIEW_STEPS = 80
+        PREVIEW_STEPS = 200
         NUM_STEPS = IPC_SCENE["num_timestep"] if RUN_FULL_SECTION1 else PREVIEW_STEPS
 
-        print("Section 1 — IPC cubic box")
+        print("Section 1 — IPC cubic box + bottom.obj obstacle")
         print("  steps this run:", NUM_STEPS)
         """
     ),
@@ -199,6 +201,9 @@ CELLS = [
         print(ipc)
         print("IPC value at x0:", ipc.value(x0))
         print("IPC is step dependent:", ipc.is_step_dependent)
+
+        # Initialize IPC active set and barrier detection
+        ipc.begin_step(time=0.0, timestep=IPC_SCENE["timestep"], previous_x=x0)
         """
     ),
     md(
@@ -310,14 +315,15 @@ CELLS = [
             "solver_max_iter": 200,
             "floor_axis": "y",
             "floor_side": "keep_above",
-            "floor_height": 0.03,
+            "floor_offset": 0.02,       # floor placed this far below the surface bbox bottom
             "floor_stiffness": 5000.0,
+            "init_vel_y": -1.0,         # initial downward velocity to hit floor sooner
             "dump_interval": 10,
             "output": "bunny-floor",
         }
 
         RUN_FULL_SECTION2 = False
-        PREVIEW_STEPS_S2 = 40
+        PREVIEW_STEPS_S2 = 80
         NUM_STEPS_S2 = FLOOR_SCENE["num_timestep"] if RUN_FULL_SECTION2 else PREVIEW_STEPS_S2
 
         print("Section 2 — FloorEnergy bunny")
@@ -357,12 +363,20 @@ CELLS = [
         bunny_gravity_accel = np.tile(FLOOR_SCENE["g"], bunny_sim_mesh.num_vertices)
         bunny_gravity_force = bunny_mass @ bunny_gravity_accel
 
+        # Place floor just below the bunny surface's bottom
+        surf_y_min = float(bunny_surf.vertices[:, 1].min())
+        floor_height = surf_y_min - FLOOR_SCENE["floor_offset"]
+        print(f"surface bbox y: [{surf_y_min:.3f}, {float(bunny_surf.vertices[:, 1].max()):.3f}]")
+        print(f"floor height: {floor_height:.3f}  (bbox_bottom - {FLOOR_SCENE['floor_offset']})")
+
         x0_s2 = np.zeros(bunny_deformation.num_dofs, dtype=np.float64)
         v0_s2 = np.zeros_like(x0_s2)
+        v0_s2[1::3] = FLOOR_SCENE["init_vel_y"]   # downward initial velocity
         a0_s2 = np.zeros_like(x0_s2)
 
         print("tet DOFs:", bunny_deformation.num_dofs)
         print("tet mass:", bunny_mass.shape)
+        print(f"initial v_y: {FLOOR_SCENE['init_vel_y']}")
         """
     ),
     md(
@@ -383,7 +397,7 @@ CELLS = [
             bunny_contact_surface,
             axis=FLOOR_SCENE["floor_axis"],
             side=FLOOR_SCENE["floor_side"],
-            height=FLOOR_SCENE["floor_height"],
+            height=floor_height,
             stiffness=FLOOR_SCENE["floor_stiffness"],
         )
 
@@ -504,10 +518,10 @@ CELLS = [
         }
 
         RUN_FULL_SECTION3 = False
-        PREVIEW_STEPS_S3 = 40
+        PREVIEW_STEPS_S3 = 80
         NUM_STEPS_S3 = SAMPLED_SCENE["num_timestep"] if RUN_FULL_SECTION3 else PREVIEW_STEPS_S3
 
-        print("Section 3 — SampledPenalty tet box")
+        print("Section 3 — SampledPenalty tet box + floor")
         print("  steps this run:", NUM_STEPS_S3)
         """
     ),
@@ -584,6 +598,8 @@ CELLS = [
         print(sampled_penalty)
         print("sampled penalty is step dependent:", sampled_penalty.is_step_dependent)
         print("floor energy at x0:", s3_floor.value(x0_s3))
+
+        sampled_penalty.begin_step(time=0.0, timestep=SAMPLED_SCENE["timestep"], previous_x=x0_s3)
         """
     ),
     md(
@@ -703,10 +719,10 @@ CELLS = [
         }
 
         RUN_FULL_SECTION4 = False
-        PREVIEW_STEPS_S4 = 40
+        PREVIEW_STEPS_S4 = 80
         NUM_STEPS_S4 = FRICTIONAL_SCENE["num_timestep"] if RUN_FULL_SECTION4 else PREVIEW_STEPS_S4
 
-        print("Section 4 — FrictionalSampledPenalty shell")
+        print("Section 4 — FrictionalSampledPenalty shell + floor")
         print("  steps this run:", NUM_STEPS_S4)
         """
     ),
@@ -819,6 +835,9 @@ CELLS = [
         print(frictional_penalty)
         print("frictional penalty is step dependent:", frictional_penalty.is_step_dependent)
         print(f"initial lift: {FRICTIONAL_SCENE['lift_height']}m, tilt: 2°")
+
+        # FrictionalSampledPenalty REQUIRES previous_x for velocity computation
+        frictional_penalty.begin_step(time=0.0, timestep=FRICTIONAL_SCENE["timestep"], previous_x=x0_s4)
         """
     ),
     md(
@@ -891,11 +910,12 @@ CELLS = [
     # ──────────────────────────────────────────────────────────────────
     md(
         """
-        ## 5. IPCEnergy — Shell with Static Obstacle
+        ## 5. IPCEnergy — Shell Self-Contact with Floor
 
-        IPC barrier contact on a thin Koiter shell. The shell falls under gravity
-        onto a `bottom.obj` static obstacle. This section mirrors Section 1's
-        IPC setup but uses a shell deformation model instead of a volumetric one.
+        IPC barrier contact on a thin Koiter shell. The shell is lifted, tilted,
+        then falls under gravity. IPC handles self-contact (preventing the shell
+        from self-intersecting as it folds), while `FloorEnergy` provides the
+        ground plane. This demonstrates IPC on a non-volumetric mesh.
         """
     ),
     md(
@@ -907,7 +927,6 @@ CELLS = [
         """
         SHELL_IPC_SCENE = {
             "surface_mesh": "shell.obj",
-            "obstacle_mesh": "bottom.obj",
             "shell_thickness": 0.001,
             "shell_E": 1.0e6,
             "shell_nu": 0.4,
@@ -920,35 +939,35 @@ CELLS = [
             "ipc_dhat": 0.005,
             "ipc_kappa": 1000.0,
             "lift_height": 1.5,
+            "floor_axis": "z",
+            "floor_height": -0.1,
+            "floor_stiffness": 5000.0,
             "dump_interval": 10,
             "output": "shell-ipc",
         }
 
         RUN_FULL_SECTION5 = False
-        PREVIEW_STEPS_S5 = 40
+        PREVIEW_STEPS_S5 = 80
         NUM_STEPS_S5 = SHELL_IPC_SCENE["num_timestep"] if RUN_FULL_SECTION5 else PREVIEW_STEPS_S5
 
-        print("Section 5 — IPC shell")
+        print("Section 5 — IPC shell + bottom.obj obstacle")
         print("  steps this run:", NUM_STEPS_S5)
         """
     ),
     md(
         """
-        ### 5.2 Load Shell and Obstacle
+        ### 5.2 Load Shell Mesh and Build FEM
         """
     ),
     code(
         """
         s5_shell_path = ASSET_DIR / "obj" / SHELL_IPC_SCENE["surface_mesh"]
-        s5_obstacle_path = ASSET_DIR / "obj" / SHELL_IPC_SCENE["obstacle_mesh"]
 
         s5_shell_mesh = read_obj(str(s5_shell_path))
-        s5_obstacle_mesh = read_obj(str(s5_obstacle_path))
         s5_n_verts = s5_shell_mesh.num_vertices
         s5_n_dofs = 3 * s5_n_verts
 
         print("shell:", s5_n_verts, "vertices,", s5_shell_mesh.num_elements, "triangles")
-        print("obstacle:", s5_obstacle_mesh.num_vertices, "vertices,", s5_obstacle_mesh.num_elements, "triangles")
 
         s5_shell_mat = KoiterStVKShellMaterial(
             thickness=SHELL_IPC_SCENE["shell_thickness"],
@@ -972,7 +991,7 @@ CELLS = [
     ),
     md(
         """
-        ### 5.3 Mass Matrix, Contact, and Obstacle
+        ### 5.3 Mass Matrix, IPC Contact, and Floor
         """
     ),
     code(
@@ -990,11 +1009,7 @@ CELLS = [
         # Identity contact surface for shell
         s5_contact_surface = pc.ContactSurface.identity(s5_shell_mesh.vertices)
 
-        # Static obstacle
-        s5_obstacles = [
-            pc.ObstacleSpec.static(s5_obstacle_mesh.vertices, s5_obstacle_mesh.elements)
-        ]
-
+        # IPC for self-contact prevention, Floor for ground plane
         s5_ipc = pc.IPCEnergy(
             s5_contact_surface,
             s5_shell_mesh.elements,
@@ -1002,7 +1017,13 @@ CELLS = [
                 dhat=SHELL_IPC_SCENE["ipc_dhat"],
                 kappa=SHELL_IPC_SCENE["ipc_kappa"],
             ),
-            obstacles=s5_obstacles,
+        )
+
+        s5_floor = pc.FloorEnergy(
+            s5_contact_surface,
+            axis=SHELL_IPC_SCENE["floor_axis"],
+            height=SHELL_IPC_SCENE["floor_height"],
+            stiffness=SHELL_IPC_SCENE["floor_stiffness"],
         )
 
         # Initial state: lift shell
@@ -1020,6 +1041,8 @@ CELLS = [
         print(s5_ipc)
         print("IPC is step dependent:", s5_ipc.is_step_dependent)
         print(f"initial lift: {SHELL_IPC_SCENE['lift_height']}m")
+
+        s5_ipc.begin_step(time=0.0, timestep=SHELL_IPC_SCENE["timestep"], previous_x=x0_s5)
         """
     ),
     md(
@@ -1032,6 +1055,7 @@ CELLS = [
         s5_energy = pe.EnergySet([
             (s5_def, 1.0),
             (s5_ipc, 1.0),
+            (s5_floor, 1.0),
         ])
 
         s5_sim = DynamicSimulation(
@@ -1093,19 +1117,20 @@ CELLS = [
         """
         ## 6. Summary
 
-        | # | Contact Type | Mesh | Vertices | DOFs | Surface | Key Param |
-        |---|-------------|------|----------|------|---------|-----------|
-        | 1 | IPCEnergy | Cubic hex | 125 | 375 | Embedded | kappa=3000, dhat=0.002 |
-        | 2 | FloorEnergy | Tet | 203 | 609 | Embedded (bunny.obj) | height=0.03, stiffness=5e3 |
-        | 3 | SampledPenaltyEnergy | Tet | 243 | 729 | Identity special case | stiffness=10 |
-        | 4 | FrictionalSampledPenalty | Shell | 1089 | 3267 | Identity special case | friction=0.3 |
-        | 5 | IPCEnergy | Shell | 1089 | 3267 | Identity | kappa=1000, dhat=0.005 |
+        | # | Contact Type | Mesh | Surface | Obstacle / Floor | Preview Steps | Key Param |
+        |---|-------------|------|---------|------------------|---------------|-----------|
+        | 1 | IPCEnergy | Cubic hex | Embedded | bottom.obj obstacle | 200 | kappa=3000, dhat=0.002 |
+        | 2 | FloorEnergy | Tet | Embedded (bunny.obj) | implicit floor plane | 80 | offset=0.02, v0=-1 m/s |
+        | 3 | SampledPenaltyEnergy | Tet | Identity | implicit floor plane | 80 | stiffness=10 |
+        | 4 | FrictionalSampledPenalty | Shell | Identity | implicit floor plane | 80 | friction=0.3 |
+        | 5 | IPCEnergy | Shell | Identity | implicit floor plane | 80 | kappa=1000, dhat=0.005 |
 
         ### Key Takeaways
 
-        - **IPCEnergy**, **FloorEnergy**, and **SampledPenaltyEnergy** all work with mapped `ContactSurface` objects.
-        - **FloorEnergy** is not step-aware.
-        - **SampledPenaltyEnergy** is defined in surface-position space and maps back to simulation DOFs through `W.T`.
+        - **IPCEnergy** works with mesh obstacles (`ObstacleSpec`); Section 1 uses `bottom.obj`.
+        - **FloorEnergy** uses an implicit plane (no mesh) and works with any contact surface.
+        - **SampledPenaltyEnergy** requires identity contact surface (extracted from volume mesh).
+        - **FrictionalSampledPenaltyEnergy** adds Coulomb friction and requires `previous_x`.
         - **FrictionalSampledPenaltyEnergy** requires `previous_x` for friction velocity — the framework handles this automatically.
         - Shell meshes need a manually-constructed lumped mass; `VolumeMesh.mass_matrix()` does not apply.
         """

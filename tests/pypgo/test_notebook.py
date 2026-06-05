@@ -53,6 +53,7 @@ GENERATORS: dict[str, str] = {
     "implicit_api_demo": "generate_implicit_api_demo.py",
     "static_solve_box_hang_demo": "generate_static_solve_box_hang_demo.py",
     "plastic_shape_match_demo": "generate_plastic_shape_match_demo.py",
+    "tricubic_hermite_box_drop_ipc_demo": "generate_tricubic_hermite_box_drop_ipc_demo.py",
 }
 
 # ---------------------------------------------------------------------------
@@ -214,9 +215,9 @@ class TestNotebookSources:
         assert '"cubic_mesh": "box.veg"' in source
         assert '"surface_mesh": "box.obj"' in source
         assert '"filename": "bottom.obj"' in source
-        assert 'ASSET_DIR / "veg" / "cubic" / SCENE["cubic_mesh"]' in source
-        assert 'ASSET_DIR / "obj" / SCENE["surface_mesh"]' in source
-        assert 'ASSET_DIR / "obj" / SCENE["external_objects"][0]["filename"]' in source
+        assert 'CUBIC_BOX = ASSET_DIR / "veg" / "cubic" / IPC_SCENE["cubic_mesh"]' in source
+        assert 'BOX_SURFACE = ASSET_DIR / "obj" / IPC_SCENE["surface_mesh"]' in source
+        assert 'BOTTOM_SURFACE = ASSET_DIR / "obj" / IPC_SCENE["external_objects"][0]["filename"]' in source
         assert "ContactSurface.from_surface_embedding" in source
         assert "pc.IPCEnergy" in source
         assert "pc.IPCParameters" in source
@@ -357,6 +358,19 @@ class TestNotebookSources:
         assert "value_and_gradient" not in source
         assert "plastic_param.grad =" not in source
         assert "best_surface_vertices" not in source
+
+    def test_tricubic_hermite_box_drop_demo_uses_dynamic_mapped_contact_helpers(self, generated_notebooks):
+        with open(generated_notebooks["tricubic_hermite_box_drop_ipc_demo"]) as fh:
+            nb = json.load(fh)
+        source = "\n".join("".join(c["source"]) for c in nb["cells"])
+        assert "pf.TricubicHermite()" in source
+        assert "pf.formulation_mass_matrix" in source
+        assert "pf.body_force" in source
+        assert "pf.surface_embedding_matrix" in source
+        assert "pc.ContactSurface.embedded" in source
+        assert "pc.FloorEnergy" in source
+        assert "pc.IPCEnergy" in source
+        assert "DynamicSimulation" in source
 
 
 # =========================================================================

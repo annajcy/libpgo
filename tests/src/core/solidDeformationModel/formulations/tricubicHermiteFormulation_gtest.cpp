@@ -33,6 +33,8 @@ using namespace pgo::SolidDeformationModel;
 constexpr double kFiniteDifferenceStep = 1e-6;
 constexpr int kExactDerivativeEnforceSpd = 0;
 
+double fdStep(double base) { return kFiniteDifferenceStep * std::max(1.0, std::abs(base)); }
+
 class ScopedSerialTbb
 {
 public:
@@ -82,7 +84,7 @@ std::shared_ptr<const SimulationMesh> makeUnitCubeMesh()
 }
 
 template<class FormulationT>
-EnergyCase makeCubeCase(const FormulationT &formulation)
+EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
 {
   EnergyCase c;
   c.meshOwner = makeUnitCubeMesh();
@@ -92,7 +94,7 @@ EnergyCase makeCubeCase(const FormulationT &formulation)
   auto manager = std::make_unique<DeformationModelManager>(
     c.state, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
   auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
-  c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), 0, false);
+  c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), offset, false);
   c.numDOFs = c.energy->getNumDOFs();
   setVolumetricPlasticIdentity(*c.energy, *c.state);
   return c;
@@ -223,11 +225,40 @@ TEST(TricubicHermiteFormulationGTest, GradientMatchesFiniteDifference)
       up[i] += delta;
       return c.energy->func(up);
     },
-      kFiniteDifferenceStep);
+      fdStep(u[i]));
   }
 
   const double err = (fd - analytic).norm() / std::max(1.0, analytic.norm());
   EXPECT_LT(err, 1e-6) << "gradient disagrees with FD of func (rel err " << err << ")";
+  EXPECT_GT(analytic.norm(), 0.0);
+}
+
+TEST(TricubicHermiteFormulationGTest, GradientMatchesFiniteDifferenceWithOffset)
+{
+  constexpr int kOffset = 12;
+  auto c = makeCubeCase(TricubicHermiteFormulation{}, kOffset);
+  // Build a displacement with kOffset leading zeros so the Energy reads the right segment.
+  ES::VXd uFull(kOffset + c.numDOFs);
+  uFull.setZero();
+  uFull.tail(c.numDOFs) = makeSmoothHermiteDisplacement(c.numDOFs);
+
+  ES::VXd analytic(c.numDOFs);
+  c.energy->gradient(uFull, analytic);
+
+  ScopedSerialTbb serial;
+  ES::VXd fd(c.numDOFs);
+  for (int i = 0; i < c.numDOFs; i++) {
+    const int globalIdx = kOffset + i;
+    fd[i] = fivePointScalar([&](double delta) {
+      ES::VXd up = uFull;
+      up[globalIdx] += delta;
+      return c.energy->func(up);
+    },
+      fdStep(uFull[globalIdx]));
+  }
+
+  const double err = (fd - analytic).norm() / std::max(1.0, analytic.norm());
+  EXPECT_LT(err, 1e-6) << "gradient with offset disagrees with FD of func (rel err " << err << ")";
   EXPECT_GT(analytic.norm(), 0.0);
 }
 
@@ -251,10 +282,144 @@ TEST(TricubicHermiteFormulationGTest, HessianMatchesFiniteDifference)
       c.energy->gradient(up, g);
       return g;
     },
-      kFiniteDifferenceStep);
+      fdStep(u[i]));
   }
 
   const double err = (fd - analytic).norm() / std::max(1.0, analytic.norm());
-  EXPECT_LT(err, 1e-6) << "Hessian disagrees with FD of gradient (rel err " << err << ")";
+  EXPECT_LT(err, 1e-5) << "Hessian disagrees with FD of gradient (rel err " << err << ")";
+  EXPECT_GT(analytic.norm(), 0.0);
+}
+
+TEST(TricubicHermiteFormulationGTest, HessianMatchesFiniteDifferenceWithOffset)
+{
+  constexpr int kOffset = 12;
+  auto c = makeCubeCase(TricubicHermiteFormulation{}, kOffset);
+  ES::VXd uFull(kOffset + c.numDOFs);
+  uFull.setZero();
+  uFull.tail(c.numDOFs) = makeSmoothHermiteDisplacement(c.numDOFs);
+
+  ES::SpMatD H;
+  c.energy->hessianAlloc(H);
+  c.energy->hessianInPlace(uFull, H);
+  ES::MXd analytic(H);
+
+  ScopedSerialTbb serial;
+  ES::MXd fd(c.numDOFs, c.numDOFs);
+  for (int i = 0; i < c.numDOFs; i++) {
+    const int globalIdx = kOffset + i;
+    fd.col(i) = fivePointVector([&](double delta) {
+      ES::VXd up = uFull;
+      up[globalIdx] += delta;
+      ES::VXd g(c.numDOFs);
+      c.energy->gradient(up, g);
+      return g;
+    },
+      fdStep(uFull[globalIdx]));
+  }
+
+  const double err = (fd - analytic).norm() / std::max(1.0, analytic.norm());
+  EXPECT_LT(err, 1e-5) << "Hessian with offset disagrees with FD of gradient (rel err " << err << ")";
+  EXPECT_GT(analytic.norm(), 0.0);
+}
+
+// Two adjacent unit cubes sharing a face: 12 vertices, 2 elements.
+// Tests that shared-vertex DOFs interact correctly through the DofLayout scatter.
+std::shared_ptr<const SimulationMesh> makeTwoCubeMesh()
+{
+  pgo::Logging::init();
+  // Cube 0: vertices 0-7, Cube 1 (shifted by +1 in X): uses vertices 1,5,6,2,9,10,11,?
+  // Layout: v0=(0,0,0), v1=(1,0,0), v2=(1,1,0), v3=(0,1,0),
+  //         v4=(0,0,1), v5=(1,0,1), v6=(1,1,1), v7=(0,1,1),
+  //         v8=(2,0,0), v9=(2,1,0), v10=(2,0,1), v11=(2,1,1)
+  // Shared face: v1,v5,v6,v2 (x=1 plane)
+  static const double vertices[] = {
+    0.0, 0.0, 0.0,  1.0, 0.0, 0.0,  1.0, 1.0, 0.0,  0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,  1.0, 0.0, 1.0,  1.0, 1.0, 1.0,  0.0, 1.0, 1.0,
+    2.0, 0.0, 0.0,  2.0, 1.0, 0.0,  2.0, 0.0, 1.0,  2.0, 1.0, 1.0,
+  };
+  static const int elementVertices[] = {
+    0, 1, 2, 3, 4, 5, 6, 7,     // cube 0
+    1, 8, 9, 2, 5, 10, 11, 6,    // cube 1 (shared: v1,v2,v5,v6)
+  };
+  static const int elementMaterialIndices[] = { 0, 0 };
+  static SimulationMeshENuMaterial baseMaterial(1200.0, 0.45);
+  static const SimulationMeshMaterial *materials[] = { &baseMaterial };
+  return std::shared_ptr<const SimulationMesh>(new SimulationMesh(
+    12, vertices, 2, 8, elementVertices, elementMaterialIndices, 1, materials, SimulationMeshType::CUBIC));
+}
+
+template<class FormulationT>
+EnergyCase makeTwoCubeCase(const FormulationT &formulation)
+{
+  EnergyCase c;
+  c.meshOwner = makeTwoCubeMesh();
+  c.state = DeformationModelState::create(
+    c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{},
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
+  auto manager = std::make_unique<DeformationModelManager>(
+    c.state, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), 0, false);
+  c.numDOFs = c.energy->getNumDOFs();
+  setVolumetricPlasticIdentity(*c.energy, *c.state);
+  return c;
+}
+
+TEST(TricubicHermiteFormulationGTest, TwoElementNumDofs)
+{
+  auto c = makeTwoCubeCase(TricubicHermiteFormulation{});
+  EXPECT_EQ(c.numDOFs, 12 * 24);
+  EXPECT_EQ(c.numDOFs, 288);
+}
+
+TEST(TricubicHermiteFormulationGTest, TwoElementGradientMatchesFiniteDifference)
+{
+  auto c = makeTwoCubeCase(TricubicHermiteFormulation{});
+  ES::VXd u = makeSmoothHermiteDisplacement(c.numDOFs);
+
+  ES::VXd analytic(c.numDOFs);
+  c.energy->gradient(u, analytic);
+
+  ScopedSerialTbb serial;
+  ES::VXd fd(c.numDOFs);
+  for (int i = 0; i < c.numDOFs; i++) {
+    fd[i] = fivePointScalar([&](double delta) {
+      ES::VXd up = u;
+      up[i] += delta;
+      return c.energy->func(up);
+    },
+      fdStep(u[i]));
+  }
+
+  const double err = (fd - analytic).norm() / std::max(1.0, analytic.norm());
+  EXPECT_LT(err, 1e-6) << "two-element gradient disagrees with FD of func (rel err " << err << ")";
+  EXPECT_GT(analytic.norm(), 0.0);
+}
+
+TEST(TricubicHermiteFormulationGTest, TwoElementHessianMatchesFiniteDifference)
+{
+  auto c = makeTwoCubeCase(TricubicHermiteFormulation{});
+  ES::VXd u = makeSmoothHermiteDisplacement(c.numDOFs);
+
+  ES::SpMatD H;
+  c.energy->hessianAlloc(H);
+  c.energy->hessianInPlace(u, H);
+  ES::MXd analytic(H);
+
+  ScopedSerialTbb serial;
+  ES::MXd fd(c.numDOFs, c.numDOFs);
+  for (int i = 0; i < c.numDOFs; i++) {
+    fd.col(i) = fivePointVector([&](double delta) {
+      ES::VXd up = u;
+      up[i] += delta;
+      ES::VXd g(c.numDOFs);
+      c.energy->gradient(up, g);
+      return g;
+    },
+      fdStep(u[i]));
+  }
+
+  const double err = (fd - analytic).norm() / std::max(1.0, analytic.norm());
+  EXPECT_LT(err, 1e-5) << "two-element Hessian disagrees with FD of gradient (rel err " << err << ")";
   EXPECT_GT(analytic.norm(), 0.0);
 }

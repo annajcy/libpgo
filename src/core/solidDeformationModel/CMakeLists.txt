@@ -53,6 +53,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   generateTetMeshMatrix.h
 
   formulations/formulation.h
+  formulations/formulationDynamics.h
   formulations/basis/basis.h
   formulations/basis/tetP1Basis.h
   formulations/basis/hexTrilinearBasis.h
@@ -112,6 +113,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   materialMaxStepPolynomialUtils.cpp
 
 			formulations/formulation.cpp
+      formulations/formulationDynamics.cpp
 
 		formulations/basis/tetP1Basis.cpp
 		formulations/basis/hexTrilinearBasis.cpp
@@ -159,7 +161,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 )
 
 set(SOLID_DEFORMATION_MODEL_DEPS
-  pgoLogging basicAlgorithms eigenSupport nonlinearOptimization configFileJSON volumetricMesh
+  pgoLogging basicAlgorithms eigenSupport nonlinearOptimization configFileJSON volumetricMesh interpolationCoordinates
   Eigen3::Eigen TBB::tbb fmt::fmt-header-only
 )
 
