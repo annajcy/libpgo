@@ -6,12 +6,18 @@ set(CONTACT_HEADERS
   sampled_penalty/kernels/triangleMeshExternalContactHandler.h
   sampled_penalty/kernels/triangleMeshSelfContactDetection.h
   sampled_penalty/kernels/triangleMeshSelfContactHandler.h
+  sampled_penalty/sampledPenaltyActiveSet.h
+  sampled_penalty/sampledPenaltyActiveSetCache.h
   sampled_penalty/sampledPenaltyContactEnergy.h
+  sampled_penalty/sampledPenaltyContactDetector.h
+  sampled_penalty/sampledPenaltyFrictionState.h
+  sampled_penalty/sampledPenaltySpecs.h
   contactEnergyFactory.h
   embeddedDofMap.h
   statefulContactEnergy.h
   mappedSurfacePotentialEnergy.h
-  embeddedSurfaceFloorPotentialEnergy.h
+  floor/floorContactEnergy.h
+  ipc/ipcActiveSetCache.h
   ipc/ipcContactEnergy.h
   ipc/broadPhase/spatialHashGrid.h
   ipc/broadPhase/surfaceIPCBroadPhase.h
@@ -40,11 +46,16 @@ set(CONTACT_SOURCES
   sampled_penalty/kernels/triangleMeshExternalContactHandler.cpp
   sampled_penalty/kernels/triangleMeshSelfContactDetection.cpp
   sampled_penalty/kernels/triangleMeshSelfContactHandler.cpp
+  sampled_penalty/sampledPenaltyActiveSet.cpp
+  sampled_penalty/sampledPenaltyActiveSetCache.cpp
   sampled_penalty/sampledPenaltyContactEnergy.cpp
+  sampled_penalty/sampledPenaltyContactDetector.cpp
+  sampled_penalty/sampledPenaltyFrictionState.cpp
   contactEnergyFactory.cpp
   embeddedDofMap.cpp
   mappedSurfacePotentialEnergy.cpp
-  embeddedSurfaceFloorPotentialEnergy.cpp
+  floor/floorContactEnergy.cpp
+  ipc/ipcActiveSetCache.cpp
   ipc/ipcContactEnergy.cpp
   ipc/broadPhase/spatialHashGrid.cpp
   ipc/broadPhase/surfaceIPCBroadPhase.cpp

@@ -8,9 +8,9 @@
 
 namespace pgo::RunIPCSim
 {
-using pgo::Contact::IPC::FloorAxis;
-using pgo::Contact::IPC::FloorPenaltyParameters;
-using pgo::Contact::IPC::FloorSide;
+using pgo::Contact::Floor::FloorAxis;
+using pgo::Contact::Floor::FloorPenaltyParameters;
+using pgo::Contact::Floor::FloorSide;
 
 FloorAxis parseFloorAxis(const std::string &axis)
 {

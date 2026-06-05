@@ -33,10 +33,6 @@ public:
   virtual void hessian(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::SpMatD &simulationHessian) const override;
-  virtual NonlinearOptimization::StepConstraint computeMaxStepLimit(
-    EigenSupport::ConstRefVecXd simulationDisplacements,
-    EigenSupport::ConstRefVecXd trialSimulationDisplacements,
-    NonlinearOptimization::StepConstraintSink *sink = nullptr) const override;
   virtual double func_grad(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::RefVecXd simulationGradient) const override;
@@ -48,10 +44,6 @@ public:
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::RefVecXd simulationGradient,
     EigenSupport::SpMatD &simulationHessian) const override;
-  virtual void beginLineSearch(
-    EigenSupport::ConstRefVecXd simulationDisplacements,
-    EigenSupport::ConstRefVecXd trialSimulationDisplacements) const override;
-  virtual void endLineSearch() const override;
 
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = simulationDOFs_; }
   virtual int getNumDOFs() const override { return static_cast<int>(simulationDOFs_.size()); }
@@ -61,6 +53,10 @@ protected:
   void validateSimulationDisplacementSize(EigenSupport::ConstRefVecXd simulationDisplacements) const;
   VXd computeSurfaceDisplacementsFromSimulationDisplacements(EigenSupport::ConstRefVecXd simulationDisplacements) const;
   VXd computeSurfacePositionsFromSimulationDisplacements(EigenSupport::ConstRefVecXd simulationDisplacements) const;
+  VXd pullbackSurfaceGradient(EigenSupport::ConstRefVecXd surfaceGradient) const;
+  void pullbackSurfaceHessian(
+    const EigenSupport::SpMatD &surfaceHessian,
+    EigenSupport::SpMatD &simulationHessian) const;
 
   virtual double computeSurfaceEnergy(EigenSupport::ConstRefVecXd surfacePositions) const = 0;
   virtual void computeSurfaceGradient(
@@ -82,14 +78,6 @@ protected:
     double &surfaceEnergy,
     EigenSupport::RefVecXd surfaceGradient,
     EigenSupport::SpMatD &surfaceHessian) const;
-  virtual NonlinearOptimization::StepConstraint computeSurfaceMaxStepLimit(
-    EigenSupport::ConstRefVecXd surfacePositions,
-    EigenSupport::ConstRefVecXd surfaceDisplacements,
-    NonlinearOptimization::StepConstraintSink *sink = nullptr) const;
-  virtual void beginSurfaceLineSearch(
-    EigenSupport::ConstRefVecXd surfacePositions,
-    EigenSupport::ConstRefVecXd surfaceDisplacements) const;
-  virtual void endSurfaceLineSearch() const;
 
 private:
   VXd surfaceRestPositions_;

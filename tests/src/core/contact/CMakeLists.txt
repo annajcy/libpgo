@@ -48,10 +48,15 @@ target_link_libraries(ipcContactEnergy_gtest PRIVATE GTest::gtest_main contact p
 set_property(TARGET ipcContactEnergy_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(ipcContactEnergy_gtest)
 
-add_executable(embeddedSurfaceFloorPotentialEnergy_gtest embeddedSurfaceFloorPotentialEnergy_gtest.cpp)
-target_link_libraries(embeddedSurfaceFloorPotentialEnergy_gtest PRIVATE GTest::gtest_main contact)
-set_property(TARGET embeddedSurfaceFloorPotentialEnergy_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(embeddedSurfaceFloorPotentialEnergy_gtest)
+add_executable(ipcActiveSetCache_gtest ipcActiveSetCache_gtest.cpp)
+target_link_libraries(ipcActiveSetCache_gtest PRIVATE GTest::gtest_main contact)
+set_property(TARGET ipcActiveSetCache_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(ipcActiveSetCache_gtest)
+
+add_executable(floorContactEnergy_gtest floorContactEnergy_gtest.cpp)
+target_link_libraries(floorContactEnergy_gtest PRIVATE GTest::gtest_main contact)
+set_property(TARGET floorContactEnergy_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(floorContactEnergy_gtest)
 
 add_executable(contactEnergyFactory_gtest contactEnergyFactory_gtest.cpp)
 target_link_libraries(contactEnergyFactory_gtest PRIVATE GTest::gtest_main contact)
@@ -62,3 +67,8 @@ add_executable(sampledPenaltyContactEnergy_gtest sampledPenaltyContactEnergy_gte
 target_link_libraries(sampledPenaltyContactEnergy_gtest PRIVATE GTest::gtest_main contact)
 set_property(TARGET sampledPenaltyContactEnergy_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(sampledPenaltyContactEnergy_gtest)
+
+add_executable(sampledPenaltyInternals_gtest sampledPenaltyInternals_gtest.cpp)
+target_link_libraries(sampledPenaltyInternals_gtest PRIVATE GTest::gtest_main contact)
+set_property(TARGET sampledPenaltyInternals_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(sampledPenaltyInternals_gtest)

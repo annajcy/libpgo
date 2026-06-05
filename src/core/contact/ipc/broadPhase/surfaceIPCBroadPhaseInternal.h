@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace pgo
@@ -140,6 +141,13 @@ struct PairQueryCounts
   std::uint64_t exactTests = 0;
 };
 
+struct PairQueryProfileNames
+{
+  std::string_view hashCandidates;
+  std::string_view exactTests;
+  std::string_view acceptedPairs;
+};
+
 inline void addCounts(PairQueryCounts &dst, const PairQueryCounts &src)
 {
   dst.hashCandidates += src.hashCandidates;
@@ -159,6 +167,19 @@ inline void recordPairQueryCounters(
   Profiling::recordProfileCounter(hashCandidateName, counts.hashCandidates);
   Profiling::recordProfileCounter(exactTestName, counts.exactTests);
   Profiling::recordProfileCounter(acceptedPairName, static_cast<std::uint64_t>(acceptedPairCount));
+}
+
+inline void recordPairQueryCounters(
+  const PairQueryProfileNames &names,
+  const PairQueryCounts &counts,
+  std::size_t acceptedPairCount)
+{
+  recordPairQueryCounters(
+    names.hashCandidates,
+    names.exactTests,
+    names.acceptedPairs,
+    counts,
+    acceptedPairCount);
 }
 
 template<typename PairType, typename Body>
@@ -188,6 +209,22 @@ PairQueryCounts collectPairsParallel(
   for (const auto &localCounts : tls_counts)
     addCounts(counts, localCounts);
   return counts;
+}
+
+template<typename PairType, typename QueryBody>
+PairQueryCounts collectHashPairsParallel(
+  int nTarget,
+  int queryBegin,
+  int queryEnd,
+  QueryBody &&queryBody,
+  std::vector<PairType> &outputPairs)
+{
+  return collectPairsParallel<PairType>(
+    nTarget,
+    queryBegin,
+    queryEnd,
+    std::forward<QueryBody>(queryBody),
+    outputPairs);
 }
 
 inline EigenSupport::V3d obsVtx(const EigenSupport::VXd &pos, int i)

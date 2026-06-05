@@ -131,11 +131,13 @@ def test_sampled_penalty_energy_lifecycle_and_metadata():
     assert penalty.state_kind == "displacement"
     assert penalty.params == params
     assert penalty.is_step_dependent is False
+    assert not hasattr(penalty, "refresh_active_set")
+    assert not hasattr(penalty, "clear_active_set")
 
     x = np.zeros(9, dtype=np.float64)
-    penalty.begin_step(time=0.0, timestep=0.1, previous_x=x)
-    penalty.refresh_active_set(x)
     assert penalty.value(x) == pytest.approx(0.0)
+    assert penalty.gradient(x).shape == (9,)
+    assert penalty.hessian(x).shape == (9, 9)
 
 
 def test_ipc_energy_lifecycle_and_metadata():
@@ -148,11 +150,14 @@ def test_ipc_energy_lifecycle_and_metadata():
     assert ipc.state_kind == "displacement"
     assert ipc.params == params
     assert ipc.is_step_dependent is False
+    assert not hasattr(ipc, "refresh_active_set")
+    assert not hasattr(ipc, "clear_active_set")
 
     x = np.zeros(9, dtype=np.float64)
     ipc.begin_step(time=0.0, timestep=0.1, previous_x=x)
-    ipc.refresh_active_set(x)
     assert ipc.value(x) == pytest.approx(0.0)
+    assert ipc.gradient(x).shape == (9,)
+    assert ipc.hessian(x).shape == (9, 9)
     assert not hasattr(ipc, "set_obstacle_time")
 
 
@@ -185,10 +190,8 @@ def test_ipc_energy_accepts_obstacle_specs_and_moving_time_update():
     assert ipc.obstacles == tuple(obstacles)
     x = np.zeros(9, dtype=np.float64)
     ipc.begin_step(time=0.0, timestep=0.1, previous_x=x)
-    ipc.refresh_active_set(x)
     assert np.isfinite(ipc.value(x))
     ipc.set_moving_obstacle_time(0.25)
-    ipc.refresh_active_set(x)
     assert np.isfinite(ipc.value(x))
 
 
@@ -211,7 +214,7 @@ def test_contact_public_surface_matches_plan():
 
     forbidden = {
         "MappedSurfacePotentialEnergy",
-        "EmbeddedSurfaceFloorPotentialEnergy",
+        "FloorContactEnergy",
         "EmbeddedSurfaceIPCPotentialEnergy",
         "EmbeddedDofMap",
         "ContactSurfaceAdapter",

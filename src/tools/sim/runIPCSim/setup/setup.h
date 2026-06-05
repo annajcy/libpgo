@@ -31,9 +31,12 @@ class PotentialEnergy;
 
 namespace Contact
 {
+namespace Floor
+{
+class FloorContactEnergy;
+}
 namespace IPC
 {
-class EmbeddedSurfaceFloorPotentialEnergy;
 class IPCContactEnergy;
 }
 }  // namespace Contact
@@ -66,7 +69,7 @@ struct IpcSimulationContext
   std::shared_ptr<RunIPCSimContactBackend> contactBackend;
   std::shared_ptr<Contact::IPC::IPCContactEnergy> collisionHandler;
   std::vector<std::shared_ptr<NonlinearOptimization::PotentialEnergy>> extraGeneralImplicitForceModels;
-  std::vector<std::shared_ptr<Contact::IPC::EmbeddedSurfaceFloorPotentialEnergy>> floorPotentialEnergies;
+  std::vector<std::shared_ptr<Contact::Floor::FloorContactEnergy>> floorPotentialEnergies;
   std::vector<IpcFloorMotionState> floorMotionStates;
   bool surfacePressureForceEnabled = false;
   int surfacePressureRampSteps = 1;

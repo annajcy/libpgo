@@ -5,7 +5,7 @@
 #pragma once
 
 #include "embeddedDofMap.h"
-#include "ipc/core/surfaceIPCCore.h"
+#include "statefulContactEnergy.h"
 
 #include "EigenDef.h"
 #include "potentialEnergy.h"
@@ -18,19 +18,6 @@ namespace pgo
 {
 namespace Contact
 {
-namespace IPC
-{
-class IPCContactEnergy;
-using ParametersSpec = SurfaceIPCCore::Parameters;
-}  // namespace IPC
-
-namespace SampledPenalty
-{
-struct ParametersSpec;
-struct FrictionParametersSpec;
-class SampledPenaltyContactEnergy;
-class FrictionalSampledPenaltyContactEnergy;
-}  // namespace SampledPenalty
 
 enum class FloorAxis
 {
@@ -75,31 +62,55 @@ struct LinearMovingObstacleSpec
 
 using ObstacleSpec = std::variant<StaticObstacleSpec, LinearMovingObstacleSpec>;
 
+struct IPCContactSpec
+{
+  double dhat = 1e-1;
+  double dhatExternal = 1e-1;
+  double kappa = 0.1;
+  double epsEE = 0.0;
+  double slackness = 1.0;
+  double ccdThickness = 0.0;
+};
+
+struct SampledPenaltyContactSpec
+{
+  double stiffness = 1.0;
+  int samples = 1;
+  bool enableSelfContact = true;
+  bool enableExternalContact = true;
+};
+
+struct FrictionContactSpec
+{
+  double frictionCoeff = 1.0;
+  double velocityEps = 1.0;
+};
+
 std::shared_ptr<NonlinearOptimization::PotentialEnergy> createFloorEnergy(
   const ContactSurfaceSpec &surface,
   const FloorContactSpec &floor);
 
 namespace IPC
 {
-std::shared_ptr<IPCContactEnergy> createIPCEnergy(
+std::shared_ptr<StatefulContactEnergy> createIPCEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
-  const ParametersSpec &params,
+  const IPCContactSpec &params,
   std::vector<ObstacleSpec> obstacles = {});
 }  // namespace IPC
 
 namespace SampledPenalty
 {
-std::shared_ptr<SampledPenaltyContactEnergy> createSampledPenaltyEnergy(
+std::shared_ptr<StatefulContactEnergy> createSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
-  const ParametersSpec &params);
+  const SampledPenaltyContactSpec &params);
 
-std::shared_ptr<FrictionalSampledPenaltyContactEnergy> createFrictionalSampledPenaltyEnergy(
+std::shared_ptr<StatefulContactEnergy> createFrictionalSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
-  const ParametersSpec &params,
-  const FrictionParametersSpec &friction);
+  const SampledPenaltyContactSpec &params,
+  const FrictionContactSpec &friction);
 }  // namespace SampledPenalty
 
 }  // namespace Contact

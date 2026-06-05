@@ -54,12 +54,8 @@ TEST(SampledPenaltyContactEnergyGTest, NormalEnergyIsStatefulDisplacementContact
   NO::StepState state;
   state.time = 2.0;
   state.timestep = 0.25;
-  EXPECT_NO_THROW(energy.beginStep(state));
 
   const ES::VXd u = ES::VXd::Zero(rest.size());
-  EXPECT_THROW((void)energy.func(u), std::logic_error);
-
-  energy.refreshActiveSet(u);
 
   ES::VXd g = ES::VXd::Ones(rest.size());
   ES::SpMatD H;

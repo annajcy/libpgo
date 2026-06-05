@@ -356,12 +356,6 @@ class _StatefulContactMixin:
         previous = None if previous_x is None else np.asarray(previous_x, dtype=np.float64)
         self._contact_core.begin_step(float(time), float(timestep), previous)
 
-    def refresh_active_set(self, x) -> None:
-        self._contact_core.refresh_active_set(np.asarray(x, dtype=np.float64))
-
-    def clear_active_set(self) -> None:
-        self._contact_core.clear_active_set()
-
     @property
     def is_step_dependent(self) -> bool:
         return bool(self._contact_core.is_step_dependent)

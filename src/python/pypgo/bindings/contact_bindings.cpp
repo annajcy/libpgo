@@ -1,11 +1,12 @@
 #include "contactEnergyFactory.h"
-#include "embeddedSurfaceFloorPotentialEnergy.h"
+#include "floor/floorContactEnergy.h"
 #include "eigen_numpy.h"
 #include "energy_core.h"
 #include "ipc/ipcContactEnergy.h"
 #include "sampled_penalty/sampledPenaltyContactEnergy.h"
 #include "sparse_matrix_core.h"
 #include "statefulContactEnergy.h"
+#include "stepAwareEnergy.h"
 #include "stepDependentEnergy.h"
 
 #include <nanobind/nanobind.h>
@@ -135,6 +136,10 @@ public:
 
   void beginStep(double time, double timestep, nb::object previousX) const
   {
+    auto *stepAware = dynamic_cast<NO::StepAwareEnergy *>(energy_.get());
+    if (!stepAware)
+      return;
+
     NO::StepState state;
     state.time = time;
     state.timestep = timestep;
@@ -145,18 +150,7 @@ public:
       state.previousX = &previous;
     }
 
-    energy_->beginStep(state);
-  }
-
-  void refreshActiveSet(nb::ndarray<nb::numpy, const double> x) const
-  {
-    auto xMap = pgo::python::ndarrayToVectorMapXd(x);
-    energy_->refreshActiveSet(xMap);
-  }
-
-  void clearActiveSet() const
-  {
-    energy_->clearActiveSet();
+    stepAware->beginStep(state);
   }
 
   void setMovingObstacleTime(double t) const
@@ -213,20 +207,20 @@ std::shared_ptr<PyPotentialEnergy> createFloorEnergy(
 
 void setFloorEnergyHeight(const PyPotentialEnergy &energy, double height)
 {
-  auto *floor = dynamic_cast<CT::IPC::EmbeddedSurfaceFloorPotentialEnergy *>(
+  auto *floor = dynamic_cast<CT::Floor::FloorContactEnergy *>(
     const_cast<NO::PotentialEnergy *>(energy.handle_.get()));
   if (!floor)
     throw std::runtime_error("set_floor_height is only available on FloorEnergy.");
   floor->setFloorHeight(height);
 }
 
-CT::SampledPenalty::ParametersSpec makeSampledPenaltyParams(
+CT::SampledPenaltyContactSpec makeSampledPenaltyParams(
   double stiffness,
   int samples,
   bool enableSelfContact,
   bool enableExternalContact)
 {
-  CT::SampledPenalty::ParametersSpec params;
+  CT::SampledPenaltyContactSpec params;
   params.stiffness = stiffness;
   params.samples = samples;
   params.enableSelfContact = enableSelfContact;
@@ -310,13 +304,13 @@ std::shared_ptr<PyStatefulContactEnergy> createIPCEnergy(
   nb::object obstacleSpecs)
 {
   auto triangles = ndarrayToMatrixXi(surfaceTriangles, "surface_triangles");
-  CT::IPC::ParametersSpec params;
+  CT::IPCContactSpec params;
   params.dhat = dhat;
-  params.dhat_external = dhatExternal;
+  params.dhatExternal = dhatExternal;
   params.kappa = kappa;
-  params.eps_ee = epsEE;
+  params.epsEE = epsEE;
   params.slackness = slackness;
-  params.ccd_thickness = ccdThickness;
+  params.ccdThickness = ccdThickness;
 
   auto energy = CT::IPC::createIPCEnergy(
     surface.spec(),
@@ -337,7 +331,7 @@ std::shared_ptr<PyStatefulContactEnergy> createFrictionalSampledPenaltyEnergy(
   double velocityEps)
 {
   auto triangles = ndarrayToMatrixXi(surfaceTriangles, "surface_triangles");
-  CT::SampledPenalty::FrictionParametersSpec friction;
+  CT::FrictionContactSpec friction;
   friction.frictionCoeff = frictionCoeff;
   friction.velocityEps = velocityEps;
   auto energy = CT::SampledPenalty::createFrictionalSampledPenaltyEnergy(
@@ -363,8 +357,6 @@ void init_contact_bindings(nb::module_ &m)
       nb::arg("time"),
       nb::arg("timestep"),
       nb::arg("previous_x") = nb::none())
-    .def("refresh_active_set", &PyStatefulContactEnergy::refreshActiveSet, nb::arg("x"))
-    .def("clear_active_set", &PyStatefulContactEnergy::clearActiveSet)
     .def("set_moving_obstacle_time", &PyStatefulContactEnergy::setMovingObstacleTime, nb::arg("time"));
 
   m.def("_create_contact_surface_identity", &createContactSurfaceIdentity,

@@ -45,6 +45,10 @@
 > - C8 第一版按 scoped migration 完成：移除 `--legacy`，`ContactBackendKind::LegacyPenalty` 改为 `SampledPenalty`，`obstacleSetup` 直接生产 typed obstacle ownership；dynamic loop 使用 long-lived stateful contact energy。完整 `SimulationProblem` / `SimulationRuntime` 大拆分可作为后续 runIPCSim 架构清理，不再阻塞本 contact API refactor。
 > - C9 Python facade 已补齐 `ContactVertexEmbedding`、`FloorParameters`、`ObstacleSpec.linear_velocity(reference_time=...)`、`FloorEnergy.set_height(...)` 与 public `__all__` surface；public API 不暴露 raw C++ contact internals。
 
+> **生命周期决策更新（2026-06-05）：**
+>
+> 手动 `refreshActiveSet(...)` / `clearActiveSet()` 公开协议已废弃并从 C++/Python public API 移除。`StatefulContactEnergy` 现在只表示 common contact boundary；需要 active-set cache 的 IPC 与 sampled penalty 通过内部 `ActiveSetContactEnergy` 接收 solver-owned `prepareEvaluationState(x)` / line-search hooks。直接 `func` / `gradient` / `hessian` 与 Python `value` / `gradient` / `hessian` 会按状态自动构建或复用 active set。本文后续历史段落中要求 Python/manual caller 显式 `refresh_active_set(x)` 的说法均已被本决策取代。
+
 ## 目标
 
 建立一个长期可复用的 C++ contact construction facade，并把 IPC 与 sampled penalty 都提升为一等 `StatefulContactEnergy`：

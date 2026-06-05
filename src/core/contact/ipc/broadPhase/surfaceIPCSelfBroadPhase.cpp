@@ -30,6 +30,16 @@ void buildSelfPairs(
 
   Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildStatic);
   const bool profilingEnabled = Profiling::isProfilingEnabled();
+  const PairQueryProfileNames ptProfileNames{
+    SurfaceIPCProfileSections::kPairBuildSelfPTHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildSelfPTDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildSelfPTAcceptedPairs,
+  };
+  const PairQueryProfileNames eeProfileNames{
+    SurfaceIPCProfileSections::kPairBuildSelfEEHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildSelfEEDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildSelfEEAcceptedPairs,
+  };
 
   pairs.clear();
 
@@ -72,7 +82,7 @@ void buildSelfPairs(
     }
     {
       Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfPTQuery);
-      const PairQueryCounts counts = collectPairsParallel<PTPair>(nTri, 0, topology.numVerts,
+      const PairQueryCounts counts = collectHashPairsParallel<PTPair>(nTri, 0, topology.numVerts,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -102,11 +112,7 @@ void buildSelfPairs(
           }
         },
         pairs.ptPairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildSelfPTHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildSelfPTDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildSelfPTAcceptedPairs,
-        counts, pairs.ptPairs.size());
+      recordPairQueryCounters(ptProfileNames, counts, pairs.ptPairs.size());
     }
   }
 
@@ -121,7 +127,7 @@ void buildSelfPairs(
     }
     {
       Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfEEQuery);
-      const PairQueryCounts counts = collectPairsParallel<EEPair>(nEdge, 0, nEdge,
+      const PairQueryCounts counts = collectHashPairsParallel<EEPair>(nEdge, 0, nEdge,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -152,11 +158,7 @@ void buildSelfPairs(
           }
         },
         pairs.eePairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildSelfEEHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildSelfEEDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildSelfEEAcceptedPairs,
-        counts, pairs.eePairs.size());
+      recordPairQueryCounters(eeProfileNames, counts, pairs.eePairs.size());
     }
   }
 }
@@ -172,6 +174,16 @@ void buildSelfPairsLineSearchSuperset(
 
   Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildStatic);
   const bool profilingEnabled = Profiling::isProfilingEnabled();
+  const PairQueryProfileNames ptProfileNames{
+    SurfaceIPCProfileSections::kPairBuildSelfPTHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildSelfPTDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildSelfPTAcceptedPairs,
+  };
+  const PairQueryProfileNames eeProfileNames{
+    SurfaceIPCProfileSections::kPairBuildSelfEEHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildSelfEEDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildSelfEEAcceptedPairs,
+  };
 
   pairs.clear();
 
@@ -210,7 +222,7 @@ void buildSelfPairsLineSearchSuperset(
     }
     {
       Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfPTQuery);
-      const PairQueryCounts counts = collectPairsParallel<PTPair>(nTri, 0, topology.numVerts,
+      const PairQueryCounts counts = collectHashPairsParallel<PTPair>(nTri, 0, topology.numVerts,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -233,11 +245,7 @@ void buildSelfPairsLineSearchSuperset(
           }
         },
         pairs.ptPairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildSelfPTHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildSelfPTDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildSelfPTAcceptedPairs,
-        counts, pairs.ptPairs.size());
+      recordPairQueryCounters(ptProfileNames, counts, pairs.ptPairs.size());
     }
   }
 
@@ -251,7 +259,7 @@ void buildSelfPairsLineSearchSuperset(
     }
     {
       Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfEEQuery);
-      const PairQueryCounts counts = collectPairsParallel<EEPair>(nEdge, 0, nEdge,
+      const PairQueryCounts counts = collectHashPairsParallel<EEPair>(nEdge, 0, nEdge,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -277,11 +285,7 @@ void buildSelfPairsLineSearchSuperset(
           }
         },
         pairs.eePairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildSelfEEHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildSelfEEDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildSelfEEAcceptedPairs,
-        counts, pairs.eePairs.size());
+      recordPairQueryCounters(eeProfileNames, counts, pairs.eePairs.size());
     }
   }
 }

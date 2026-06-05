@@ -402,6 +402,8 @@ Constraints remain covered by `constraints_api_refactor.plan.md` and can later p
 
 ### 6. Contact lifecycle stays outside residual energy
 
+> **2026-06-05 更新：** contact plan 后续 refactor 已移除 public/manual `refreshActiveSet(...)` / Python `refresh_active_set(...)`。本节保留 residual energy 不拥有 per-frame contact orchestration 的设计结论，但下面旧流程中的 `refresh_active_set(initial_guess)` 已被 solver-owned `prepareEvaluationState(x)` 和 direct-eval lazy prepare 取代；Python/manual direct evaluation 不再需要也不能调用 refresh 方法。
+
 Residual energy only evaluates `Phi(x)`. Per-frame contact lifecycle belongs to step orchestration:
 
 ```text

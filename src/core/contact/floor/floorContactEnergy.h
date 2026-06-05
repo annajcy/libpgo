@@ -12,7 +12,7 @@ namespace pgo
 {
 namespace Contact
 {
-namespace IPC
+namespace Floor
 {
 
 enum class FloorAxis : int
@@ -40,10 +40,10 @@ struct FloorPenaltyParameters
   double floorKappa = std::numeric_limits<double>::quiet_NaN();
 };
 
-class EmbeddedSurfaceFloorPotentialEnergy : public MappedSurfacePotentialEnergy
+class FloorContactEnergy : public IPC::MappedSurfacePotentialEnergy
 {
 public:
-  EmbeddedSurfaceFloorPotentialEnergy(
+  FloorContactEnergy(
     const EigenSupport::MXd &surfaceRestVertices,
     const EigenSupport::SpMatD &surfaceFromSimulationDispMap,
     const FloorPenaltyParameters &params);
@@ -65,6 +65,6 @@ private:
   FloorPenaltyParameters params_;
 };
 
-}  // namespace IPC
+}  // namespace Floor
 }  // namespace Contact
 }  // namespace pgo

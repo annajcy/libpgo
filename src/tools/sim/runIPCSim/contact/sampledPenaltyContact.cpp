@@ -154,8 +154,6 @@ public:
 
   void beginFrame(int, const RunIPCSimRuntimeConfig &, IpcSimulationContext &, RunIPCSimSession &) override
   {
-    if (contactEnergy_)
-      contactEnergy_->clearActiveSet();
   }
 
   void addForces(int, const RunIPCSimRuntimeConfig &runtimeConfig,
@@ -182,7 +180,7 @@ public:
   }
 
   void addStaticEnergies(const RunIPCSimRuntimeConfig &,
-    IpcSimulationContext &context, std::vector<NonlinearOptimization::EnergySet::Term> &terms) override
+    IpcSimulationContext &, std::vector<NonlinearOptimization::EnergySet::Term> &terms) override
   {
     if (!contactEnergy_)
       return;
@@ -199,7 +197,6 @@ public:
     auto staticExternalEnergy = std::make_shared<Contact::SampledPenalty::SampledPenaltyContactEnergy>(
       surfaceMesh_, simulationRestPosition_, params, copyObjectMeshes(objects_),
       vertexEmbeddingIndices_, vertexEmbeddingWeights_);
-    staticExternalEnergy->refreshActiveSet(ES::VXd::Zero(context.simulationRestPosition.size()));
     terms.push_back({std::make_shared<FrozenSampledPenaltyStaticEnergy>(staticExternalEnergy), 1.0});
   }
 

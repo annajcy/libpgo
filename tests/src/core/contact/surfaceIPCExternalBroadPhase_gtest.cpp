@@ -316,6 +316,41 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, LineSearchSupersetContainsExactExternalP
   EXPECT_TRUE(sawExactPairs);
 }
 
+TEST(SurfaceIPCExternalBroadPhaseGTest, ZeroDisplacementLineSearchSupersetContainsNormalPairsOnFixture)
+{
+  auto [V, F] = makeUnitSquareMesh();
+  auto [obsV, obsF] = makeSmallBoxObstacle();
+  const ES::VXd obsRest = flattenRows(obsV);
+  auto obs = std::make_unique<TrajectoryObstacleSurface>(
+    obsV, obsF,
+    pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d::Zero()));
+  obs->setObjectId(0);
+
+  SurfaceIPCTopology topology;
+  topology.setMesh(V, F);
+
+  std::vector<std::unique_ptr<ObstacleSurface>> obstacles;
+  obstacles.push_back(std::move(obs));
+
+  const ES::VXd x = flattenRows(V);
+  const ES::VXd dx = ES::VXd::Zero(x.size());
+
+  ExternalPairSet normalPairs;
+  ExternalPairSet supersetPairs;
+  buildExternalPairs(topology, x, obstacleViews(obstacles), 1.0, normalPairs);
+  buildExternalPairsLineSearchSuperset(topology, x, dx, obstacleViews(obstacles), 1.0, supersetPairs);
+
+  EXPECT_GE(supersetPairs.ptPairs.size(), normalPairs.ptPairs.size());
+  EXPECT_GE(supersetPairs.tpPairs.size(), normalPairs.tpPairs.size());
+  EXPECT_GE(supersetPairs.eePairs.size(), normalPairs.eePairs.size());
+  for (const auto &pair : normalPairs.ptPairs)
+    EXPECT_TRUE(containsExternalPT(supersetPairs.ptPairs, pair));
+  for (const auto &pair : normalPairs.tpPairs)
+    EXPECT_TRUE(containsExternalTP(supersetPairs.tpPairs, pair));
+  for (const auto &pair : normalPairs.eePairs)
+    EXPECT_TRUE(containsExternalEE(supersetPairs.eePairs, pair));
+}
+
 TEST(SurfaceIPCExternalBroadPhaseGTest, ObstaclePoseCacheTracksSurfaceBounds)
 {
   auto [obsV, obsF] = makeSmallBoxObstacle();

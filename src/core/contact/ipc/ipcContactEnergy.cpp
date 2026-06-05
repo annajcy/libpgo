@@ -39,75 +39,38 @@ IPCContactEnergy::IPCContactEnergy(
   surfaceIPCCore_.setMovingObstacleTime(0.0);
 }
 
-void IPCContactEnergy::cacheEnergyActiveSet(SurfaceIPCActiveSet activeSet) const
+SurfaceIPCActiveSet IPCContactEnergy::buildExactActiveSet(EigenSupport::ConstRefVecXd surfacePositions) const
 {
-  cachedEnergyActiveSet_ = std::move(activeSet);
-  hasCachedEnergyActiveSet_ = true;
+  return surfaceIPCCore_.buildActiveSet(surfacePositions);
 }
 
-const SurfaceIPCActiveSet *IPCContactEnergy::cachedEnergyActiveSetFor(
-  EigenSupport::ConstRefVecXd surfacePositions) const
+const SurfaceIPCActiveSet &IPCContactEnergy::activeSetForEvaluation(EigenSupport::ConstRefVecXd surfacePositions) const
 {
-  if (!hasCachedEnergyActiveSet_)
-    return nullptr;
-  if (cachedEnergyActiveSet_.positions.size() != surfacePositions.size())
-    return nullptr;
-  if (!(cachedEnergyActiveSet_.positions.array() == surfacePositions.array()).all())
-    return nullptr;
-  return &cachedEnergyActiveSet_;
-}
-
-const SurfaceIPCActiveSet &IPCContactEnergy::evaluationActiveSetFor(
-  EigenSupport::ConstRefVecXd surfacePositions,
-  const char *reason) const
-{
-  if (hasLineSearchActiveSet_) {
-    lineSearchActiveSet_.positions = surfacePositions;
-    return lineSearchActiveSet_;
-  }
-
-  if (const SurfaceIPCActiveSet *cachedActiveSet = cachedEnergyActiveSetFor(surfacePositions))
-    return *cachedActiveSet;
-
-  throw std::logic_error(
-    std::string("IPCContactEnergy requires refreshActiveSet(x) or prepareEvaluationState(x) before ") +
-    reason + " outside line search.");
-}
-
-void IPCContactEnergy::clearCachedEnergyActiveSet() const
-{
-  cachedEnergyActiveSet_.clear();
-  hasCachedEnergyActiveSet_ = false;
+  return activeSetCache_.forEvaluation(
+    surfacePositions,
+    [this](EigenSupport::ConstRefVecXd x) { return buildExactActiveSet(x); });
 }
 
 double IPCContactEnergy::computeSurfaceEnergy(EigenSupport::ConstRefVecXd surfacePositions) const
 {
   Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kEnergy);
-  return surfaceIPCCore_.computeEnergy(evaluationActiveSetFor(surfacePositions, "value evaluation"));
+  return surfaceIPCCore_.computeEnergy(activeSetForEvaluation(surfacePositions));
 }
 
 void IPCContactEnergy::computeSurfaceGradient(
   EigenSupport::ConstRefVecXd surfacePositions,
   EigenSupport::RefVecXd surfaceGradient) const
 {
-  if (const SurfaceIPCActiveSet *cachedActiveSet = cachedEnergyActiveSetFor(surfacePositions)) {
-    surfaceIPCCore_.computeGradient(*cachedActiveSet, surfaceGradient);
-    return;
-  }
-
-  surfaceIPCCore_.computeGradient(evaluationActiveSetFor(surfacePositions, "gradient evaluation"), surfaceGradient);
+  const SurfaceIPCActiveSet &activeSet = activeSetForEvaluation(surfacePositions);
+  surfaceIPCCore_.computeGradient(activeSet, surfaceGradient);
 }
 
 void IPCContactEnergy::computeSurfaceHessian(
   EigenSupport::ConstRefVecXd surfacePositions,
   EigenSupport::SpMatD &surfaceHessian) const
 {
-  if (const SurfaceIPCActiveSet *cachedActiveSet = cachedEnergyActiveSetFor(surfacePositions)) {
-    surfaceIPCCore_.computeHessian(*cachedActiveSet, surfaceHessian);
-    return;
-  }
-
-  surfaceIPCCore_.computeHessian(evaluationActiveSetFor(surfacePositions, "hessian evaluation"), surfaceHessian);
+  const SurfaceIPCActiveSet &activeSet = activeSetForEvaluation(surfacePositions);
+  surfaceIPCCore_.computeHessian(activeSet, surfaceHessian);
 }
 
 void IPCContactEnergy::computeSurfaceGradHessian(
@@ -115,13 +78,7 @@ void IPCContactEnergy::computeSurfaceGradHessian(
   EigenSupport::RefVecXd surfaceGradient,
   EigenSupport::SpMatD &surfaceHessian) const
 {
-  if (const SurfaceIPCActiveSet *cachedActiveSet = cachedEnergyActiveSetFor(surfacePositions)) {
-    surfaceIPCCore_.computeGradient(*cachedActiveSet, surfaceGradient);
-    surfaceIPCCore_.computeHessian(*cachedActiveSet, surfaceHessian);
-    return;
-  }
-
-  const SurfaceIPCActiveSet &activeSet = evaluationActiveSetFor(surfacePositions, "gradient/hessian evaluation");
+  const SurfaceIPCActiveSet &activeSet = activeSetForEvaluation(surfacePositions);
   surfaceIPCCore_.computeGradient(activeSet, surfaceGradient);
   surfaceIPCCore_.computeHessian(activeSet, surfaceHessian);
 }
@@ -131,13 +88,7 @@ void IPCContactEnergy::computeSurfaceFuncGrad(
   double &surfaceEnergy,
   EigenSupport::RefVecXd surfaceGradient) const
 {
-  if (const SurfaceIPCActiveSet *cachedActiveSet = cachedEnergyActiveSetFor(surfacePositions)) {
-    surfaceEnergy = surfaceIPCCore_.computeEnergy(*cachedActiveSet);
-    surfaceIPCCore_.computeGradient(*cachedActiveSet, surfaceGradient);
-    return;
-  }
-
-  const SurfaceIPCActiveSet &activeSet = evaluationActiveSetFor(surfacePositions, "value/gradient evaluation");
+  const SurfaceIPCActiveSet &activeSet = activeSetForEvaluation(surfacePositions);
   surfaceEnergy = surfaceIPCCore_.computeEnergy(activeSet);
   surfaceIPCCore_.computeGradient(activeSet, surfaceGradient);
 }
@@ -148,40 +99,21 @@ void IPCContactEnergy::computeSurfaceAll(
   EigenSupport::RefVecXd surfaceGradient,
   EigenSupport::SpMatD &surfaceHessian) const
 {
-  if (const SurfaceIPCActiveSet *cachedActiveSet = cachedEnergyActiveSetFor(surfacePositions)) {
-    EigenSupport::VXd localGradient = EigenSupport::VXd::Zero(surfaceGradient.size());
-    surfaceIPCCore_.computeAll(*cachedActiveSet, surfaceEnergy, localGradient, surfaceHessian);
-    surfaceGradient = localGradient;
-    return;
-  }
-
-  const SurfaceIPCActiveSet &activeSet = evaluationActiveSetFor(surfacePositions, "value/gradient/hessian evaluation");
+  const SurfaceIPCActiveSet &activeSet = activeSetForEvaluation(surfacePositions);
   EigenSupport::VXd localGradient = EigenSupport::VXd::Zero(surfaceGradient.size());
   surfaceIPCCore_.computeAll(activeSet, surfaceEnergy, localGradient, surfaceHessian);
   surfaceGradient = localGradient;
 }
 
-NonlinearOptimization::StepConstraint IPCContactEnergy::computeSurfaceMaxStepLimit(
-  EigenSupport::ConstRefVecXd surfacePositions,
-  EigenSupport::ConstRefVecXd surfaceDisplacements,
+NonlinearOptimization::StepConstraint IPCContactEnergy::computeMaxStepLimit(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::ConstRefVecXd trialSimulationDisplacements,
   NonlinearOptimization::StepConstraintSink *sink) const
 {
-  return surfaceIPCCore_.computeMaxStepLimit(surfacePositions, surfaceDisplacements, sink);
-}
-
-void IPCContactEnergy::beginSurfaceLineSearch(
-  EigenSupport::ConstRefVecXd surfacePositions,
-  EigenSupport::ConstRefVecXd surfaceDisplacements) const
-{
-  clearCachedEnergyActiveSet();
-  lineSearchActiveSet_ = surfaceIPCCore_.buildLineSearchActiveSetSuperset(surfacePositions, surfaceDisplacements);
-  hasLineSearchActiveSet_ = true;
-}
-
-void IPCContactEnergy::endSurfaceLineSearch() const
-{
-  lineSearchActiveSet_.clear();
-  hasLineSearchActiveSet_ = false;
+  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kAdapterMaxStep);
+  const VXd surfacePositions = computeSurfacePositionsFromSimulationDisplacements(simulationDisplacements);
+  const VXd trialSurfaceDisplacements = computeSurfaceDisplacementsFromSimulationDisplacements(trialSimulationDisplacements);
+  return surfaceIPCCore_.computeMaxStepLimit(surfacePositions, trialSurfaceDisplacements, sink);
 }
 
 void IPCContactEnergy::beginStep(const NonlinearOptimization::StepState &state)
@@ -189,22 +121,37 @@ void IPCContactEnergy::beginStep(const NonlinearOptimization::StepState &state)
   setMovingObstacleTime(state.time + state.timestep);
 }
 
-void IPCContactEnergy::refreshActiveSet(EigenSupport::ConstRefVecXd simulationDisplacements) const
+void IPCContactEnergy::prepareActiveSet(EigenSupport::ConstRefVecXd simulationDisplacements) const
 {
-  cacheEnergyActiveSet(surfaceIPCCore_.buildActiveSet(
-    computeSurfacePositionsFromSimulationDisplacements(simulationDisplacements)));
+  const VXd surfacePositions = computeSurfacePositionsFromSimulationDisplacements(simulationDisplacements);
+  activeSetCache_.prepareExact(
+    surfacePositions,
+    [this](EigenSupport::ConstRefVecXd x) { return buildExactActiveSet(x); });
 }
 
-void IPCContactEnergy::clearActiveSet() const
+void IPCContactEnergy::clearPreparedActiveSet() const
 {
-  clearCachedEnergyActiveSet();
-  lineSearchActiveSet_.clear();
-  hasLineSearchActiveSet_ = false;
+  activeSetCache_.clearExact();
+}
+
+void IPCContactEnergy::beginActiveSetLineSearch(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::ConstRefVecXd trialSimulationDisplacements) const
+{
+  const VXd surfacePositions = computeSurfacePositionsFromSimulationDisplacements(simulationDisplacements);
+  const VXd trialSurfaceDisplacements = computeSurfaceDisplacementsFromSimulationDisplacements(trialSimulationDisplacements);
+  activeSetCache_.beginLineSearch(
+    surfaceIPCCore_.buildLineSearchActiveSetSuperset(surfacePositions, trialSurfaceDisplacements));
+}
+
+void IPCContactEnergy::endActiveSetLineSearch() const
+{
+  activeSetCache_.endLineSearch();
 }
 
 void IPCContactEnergy::setMovingObstacleTime(double t)
 {
-  clearActiveSet();
+  activeSetCache_.clearAll();
   surfaceIPCCore_.setMovingObstacleTime(t);
 }
 

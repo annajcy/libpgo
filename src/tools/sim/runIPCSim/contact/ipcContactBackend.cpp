@@ -1,7 +1,7 @@
 #include "contact/contactBackend.h"
 
 #include "dynamicStepOptions.h"
-#include "embeddedSurfaceFloorPotentialEnergy.h"
+#include "floor/floorContactEnergy.h"
 #include "ipc/ipcContactEnergy.h"
 #include "energySet.h"
 #include "app/config.h"

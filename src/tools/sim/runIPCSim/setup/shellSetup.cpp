@@ -5,7 +5,7 @@
 #include "deformationModelEnergy.h"
 #include "deformationModelManager.h"
 #include "deformationModelState.h"
-#include "embeddedSurfaceFloorPotentialEnergy.h"
+#include "floor/floorContactEnergy.h"
 #include "ipc/ipcContactEnergy.h"
 #include "libiglInterface.h"
 #include "multiVertexPullingSoftConstraints.h"
@@ -207,7 +207,7 @@ IpcSimulationContext buildShellIpcSimulation(const pgo::ConfigFileJSON &jconfig)
   context.contactBackend = makeIpcContactBackend();
   for (const ParsedFloorConfig &floorConfig : floorConfigs) {
     auto floorEnergy =
-      std::make_shared<Contact::IPC::EmbeddedSurfaceFloorPotentialEnergy>(V, context.surfaceFromSimulationDispMap, floorConfig.params);
+      std::make_shared<Contact::Floor::FloorContactEnergy>(V, context.surfaceFromSimulationDispMap, floorConfig.params);
     context.floorPotentialEnergies.push_back(floorEnergy);
     context.floorMotionStates.push_back(floorConfig.motionState);
     context.extraGeneralImplicitForceModels.push_back(

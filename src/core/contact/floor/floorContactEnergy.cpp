@@ -2,7 +2,7 @@
 copyright to Bohan Wang
 */
 
-#include "embeddedSurfaceFloorPotentialEnergy.h"
+#include "floor/floorContactEnergy.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -12,7 +12,7 @@ namespace pgo
 {
 namespace Contact
 {
-namespace IPC
+namespace Floor
 {
 
 namespace
@@ -47,11 +47,11 @@ double floorSideToSign(FloorSide side)
 }
 }  // namespace
 
-EmbeddedSurfaceFloorPotentialEnergy::EmbeddedSurfaceFloorPotentialEnergy(
+FloorContactEnergy::FloorContactEnergy(
   const EigenSupport::MXd &surfaceRestVertices,
   const EigenSupport::SpMatD &surfaceFromSimulationDispMap,
   const FloorPenaltyParameters &params):
-  MappedSurfacePotentialEnergy(surfaceRestVertices, surfaceFromSimulationDispMap),
+  IPC::MappedSurfacePotentialEnergy(surfaceRestVertices, surfaceFromSimulationDispMap),
   params_(params)
 {
   (void)floorAxisToIndex(params_.floorAxis);
@@ -62,19 +62,19 @@ EmbeddedSurfaceFloorPotentialEnergy::EmbeddedSurfaceFloorPotentialEnergy(
     throw std::invalid_argument("FloorPenaltyParameters.floorKappa must be finite.");
 }
 
-void EmbeddedSurfaceFloorPotentialEnergy::setFloorHeight(double h)
+void FloorContactEnergy::setFloorHeight(double h)
 {
   if (!std::isfinite(h))
     throw std::invalid_argument("FloorPenaltyParameters.floorHeight must be finite.");
   params_.floorHeight = h;
 }
 
-double EmbeddedSurfaceFloorPotentialEnergy::floorHeight() const
+double FloorContactEnergy::floorHeight() const
 {
   return params_.floorHeight;
 }
 
-double EmbeddedSurfaceFloorPotentialEnergy::computeSurfaceEnergy(EigenSupport::ConstRefVecXd surfacePositions) const
+double FloorContactEnergy::computeSurfaceEnergy(EigenSupport::ConstRefVecXd surfacePositions) const
 {
   const int axis = floorAxisToIndex(params_.floorAxis);
   const double sideSign = floorSideToSign(params_.floorSide);
@@ -87,7 +87,7 @@ double EmbeddedSurfaceFloorPotentialEnergy::computeSurfaceEnergy(EigenSupport::C
   return energy;
 }
 
-void EmbeddedSurfaceFloorPotentialEnergy::computeSurfaceGradient(
+void FloorContactEnergy::computeSurfaceGradient(
   EigenSupport::ConstRefVecXd surfacePositions,
   EigenSupport::RefVecXd surfaceGradient) const
 {
@@ -101,7 +101,7 @@ void EmbeddedSurfaceFloorPotentialEnergy::computeSurfaceGradient(
   }
 }
 
-void EmbeddedSurfaceFloorPotentialEnergy::computeSurfaceHessian(
+void FloorContactEnergy::computeSurfaceHessian(
   EigenSupport::ConstRefVecXd surfacePositions,
   EigenSupport::SpMatD &surfaceHessian) const
 {
@@ -121,6 +121,6 @@ void EmbeddedSurfaceFloorPotentialEnergy::computeSurfaceHessian(
   surfaceHessian.setFromTriplets(triplets.begin(), triplets.end());
 }
 
-}  // namespace IPC
+}  // namespace Floor
 }  // namespace Contact
 }  // namespace pgo

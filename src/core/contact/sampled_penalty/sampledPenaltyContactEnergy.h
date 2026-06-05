@@ -4,11 +4,17 @@
 
 #pragma once
 
+#include "sampled_penalty/sampledPenaltyActiveSetCache.h"
+#include "sampled_penalty/sampledPenaltyContactDetector.h"
+#include "sampled_penalty/sampledPenaltyFrictionState.h"
+#include "sampled_penalty/sampledPenaltySpecs.h"
 #include "statefulContactEnergy.h"
+#include "stepAwareEnergy.h"
 #include "stepDependentEnergy.h"
 #include "triMeshGeo.h"
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace pgo
@@ -17,29 +23,13 @@ namespace Contact
 {
 class PointPenetrationEnergy;
 class PointTrianglePairCouplingEnergyWithCollision;
-class TriangleMeshExternalContactHandler;
-class TriangleMeshSelfContactHandler;
 
 namespace SampledPenalty
 {
 
-struct ParametersSpec
-{
-  double stiffness = 1.0;
-  int samples = 1;
-  bool enableSelfContact = true;
-  bool enableExternalContact = true;
-};
-
-struct FrictionParametersSpec
-{
-  double frictionCoeff = 1.0;
-  double velocityEps = 1.0;
-};
-
-struct SampledPenaltyActiveSet;
-
-class SampledPenaltyContactEnergy : public StatefulContactEnergy
+class SampledPenaltyContactEnergy:
+  public StatefulContactEnergy,
+  public ActiveSetContactEnergy
 {
 public:
   SampledPenaltyContactEnergy(
@@ -62,46 +52,39 @@ public:
   int getNumDOFs() const override { return static_cast<int>(simulationRestPositions_.size()); }
   int isHessianTopologyFixed() const override { return 0; }
 
-  void beginStep(const NonlinearOptimization::StepState &state) override;
-  void refreshActiveSet(EigenSupport::ConstRefVecXd x) const override;
-  void clearActiveSet() const override;
   void updateExternalSurface(int index, const Mesh::TriMeshGeo &surface);
-  void beginLineSearch(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
-  void endLineSearch() const override;
 
 protected:
-  virtual bool hasFrictionStepState() const { return false; }
-  virtual const EigenSupport::VXd *previousStepState() const { return nullptr; }
-  virtual double stepTimestep() const { return 0.0; }
-  virtual double frictionCoeff() const { return 0.0; }
-  virtual double velocityEps() const { return 0.0; }
-
-  virtual void configureExternalActiveEnergy(PointPenetrationEnergy &energy) const;
-  virtual void configureSelfActiveEnergy(PointTrianglePairCouplingEnergyWithCollision &energy, EigenSupport::ConstRefVecXd x) const;
+  void configureExternalActiveEnergy(PointPenetrationEnergy &energy) const;
+  void configureSelfActiveEnergy(PointTrianglePairCouplingEnergyWithCollision &energy, EigenSupport::ConstRefVecXd x) const;
 
 private:
   void validateStateVector(EigenSupport::ConstRefVecXd x) const;
-  const SampledPenaltyActiveSet &evaluationActiveSet(EigenSupport::ConstRefVecXd x, const char *reason) const;
+  const SampledPenaltyActiveSet &evaluationActiveSet(EigenSupport::ConstRefVecXd x) const;
   std::unique_ptr<SampledPenaltyActiveSet> buildActiveSet(EigenSupport::ConstRefVecXd x) const;
 
+  virtual void prepareActiveSet(EigenSupport::ConstRefVecXd x) const override;
+  virtual void clearPreparedActiveSet() const override;
+  virtual void beginActiveSetLineSearch(
+    EigenSupport::ConstRefVecXd x,
+    EigenSupport::ConstRefVecXd dx) const override;
+  virtual void endActiveSetLineSearch() const override;
+
 protected:
-  Mesh::TriMeshGeo surfaceMesh_;
+  void resetActiveSets() const;
+
   EigenSupport::VXd simulationRestPositions_;
   ParametersSpec params_;
-  std::vector<Mesh::TriMeshGeo> externalSurfaces_;
-  std::vector<int> vertexEmbeddingIndices_;
-  std::vector<double> vertexEmbeddingWeights_;
+  SampledPenaltyContactDetector detector_;
   std::vector<int> dofs_;
 
-  std::shared_ptr<TriangleMeshExternalContactHandler> externalHandler_;
-  std::shared_ptr<TriangleMeshSelfContactHandler> selfHandler_;
-
-  mutable std::unique_ptr<SampledPenaltyActiveSet> activeSet_;
-  mutable std::unique_ptr<SampledPenaltyActiveSet> lineSearchActiveSet_;
+  mutable SampledPenaltyActiveSetCache activeSetCache_;
+  std::optional<SampledPenaltyFrictionState> frictionState_;
 };
 
 class FrictionalSampledPenaltyContactEnergy final:
   public SampledPenaltyContactEnergy,
+  public NonlinearOptimization::StepAwareEnergy,
   public NonlinearOptimization::StepDependentEnergy
 {
 public:
@@ -115,22 +98,6 @@ public:
     std::vector<double> vertexEmbeddingWeights = {});
 
   void beginStep(const NonlinearOptimization::StepState &state) override;
-
-protected:
-  bool hasFrictionStepState() const override { return hasStepState_; }
-  const EigenSupport::VXd *previousStepState() const override { return &previousX_; }
-  double stepTimestep() const override { return timestep_; }
-  double frictionCoeff() const override { return frictionParams_.frictionCoeff; }
-  double velocityEps() const override { return frictionParams_.velocityEps; }
-
-  void configureExternalActiveEnergy(PointPenetrationEnergy &energy) const override;
-  void configureSelfActiveEnergy(PointTrianglePairCouplingEnergyWithCollision &energy, EigenSupport::ConstRefVecXd x) const override;
-
-private:
-  FrictionParametersSpec frictionParams_;
-  EigenSupport::VXd previousX_;
-  double timestep_ = 0.0;
-  bool hasStepState_ = false;
 };
 
 }  // namespace SampledPenalty

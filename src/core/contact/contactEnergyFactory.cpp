@@ -1,7 +1,8 @@
 #include "contactEnergyFactory.h"
 
-#include "embeddedSurfaceFloorPotentialEnergy.h"
+#include "floor/floorContactEnergy.h"
 #include "ipc/ipcContactEnergy.h"
+#include "ipc/core/surfaceIPCCore.h"
 #include "sampled_penalty/sampledPenaltyContactEnergy.h"
 #include "triMeshGeo.h"
 
@@ -17,27 +18,27 @@ namespace Contact
 namespace
 {
 
-IPC::FloorAxis convertFloorAxis(FloorAxis axis)
+Floor::FloorAxis convertFloorAxis(FloorAxis axis)
 {
   switch (axis) {
     case FloorAxis::X:
-      return IPC::FloorAxis::X;
+      return Floor::FloorAxis::X;
     case FloorAxis::Y:
-      return IPC::FloorAxis::Y;
+      return Floor::FloorAxis::Y;
     case FloorAxis::Z:
-      return IPC::FloorAxis::Z;
+      return Floor::FloorAxis::Z;
     default:
       throw std::invalid_argument("FloorContactSpec.axis must be X, Y, or Z.");
   }
 }
 
-IPC::FloorSide convertFloorSide(FloorSide side)
+Floor::FloorSide convertFloorSide(FloorSide side)
 {
   switch (side) {
     case FloorSide::KeepAbove:
-      return IPC::FloorSide::KEEP_ABOVE;
+      return Floor::FloorSide::KEEP_ABOVE;
     case FloorSide::KeepBelow:
-      return IPC::FloorSide::KEEP_BELOW;
+      return Floor::FloorSide::KEEP_BELOW;
     default:
       throw std::invalid_argument("FloorContactSpec.side must be KeepAbove or KeepBelow.");
   }
@@ -106,19 +107,66 @@ std::vector<std::unique_ptr<IPC::ObstacleSurface>> makeObstacleSurfaces(std::vec
   return obstacles;
 }
 
+IPC::SurfaceIPCCore::Parameters toIPCParameters(const IPCContactSpec &spec)
+{
+  IPC::SurfaceIPCCore::Parameters params;
+  params.dhat = spec.dhat;
+  params.dhat_external = spec.dhatExternal;
+  params.kappa = spec.kappa;
+  params.eps_ee = spec.epsEE;
+  params.slackness = spec.slackness;
+  params.ccd_thickness = spec.ccdThickness;
+  return params;
+}
+
+SampledPenalty::ParametersSpec toSampledPenaltyParameters(const SampledPenaltyContactSpec &spec)
+{
+  SampledPenalty::ParametersSpec params;
+  params.stiffness = spec.stiffness;
+  params.samples = spec.samples;
+  params.enableSelfContact = spec.enableSelfContact;
+  params.enableExternalContact = spec.enableExternalContact;
+  return params;
+}
+
+SampledPenalty::FrictionParametersSpec toFrictionParameters(const FrictionContactSpec &spec)
+{
+  SampledPenalty::FrictionParametersSpec friction;
+  friction.frictionCoeff = spec.frictionCoeff;
+  friction.velocityEps = spec.velocityEps;
+  return friction;
+}
+
+void requireSurfaceIdentitySizedMap(const ContactSurfaceSpec &surface, const char *backendName)
+{
+  const Eigen::Index expectedDofs = surface.restVertices.rows() * 3;
+  if (surface.surfaceFromSimulationDispMap.rows() != expectedDofs ||
+    surface.surfaceFromSimulationDispMap.cols() != expectedDofs) {
+    throw std::invalid_argument(std::string(backendName) +
+      " currently requires a surface-identity-sized ContactSurfaceSpec.");
+  }
+
+  EigenSupport::SpMatD identity(expectedDofs, expectedDofs);
+  identity.setIdentity();
+  if ((surface.surfaceFromSimulationDispMap - identity).norm() != 0.0) {
+    throw std::invalid_argument(std::string(backendName) +
+      " currently requires a surface-identity ContactSurfaceSpec.");
+  }
+}
+
 }  // namespace
 
 std::shared_ptr<NonlinearOptimization::PotentialEnergy> createFloorEnergy(
   const ContactSurfaceSpec &surface,
   const FloorContactSpec &floor)
 {
-  IPC::FloorPenaltyParameters params;
+  Floor::FloorPenaltyParameters params;
   params.floorAxis = convertFloorAxis(floor.axis);
   params.floorSide = convertFloorSide(floor.side);
   params.floorHeight = floor.height;
   params.floorKappa = floor.stiffness;
 
-  return std::make_shared<IPC::EmbeddedSurfaceFloorPotentialEnergy>(
+  return std::make_shared<Floor::FloorContactEnergy>(
     surface.restVertices,
     surface.surfaceFromSimulationDispMap,
     params);
@@ -127,17 +175,17 @@ std::shared_ptr<NonlinearOptimization::PotentialEnergy> createFloorEnergy(
 namespace IPC
 {
 
-std::shared_ptr<IPCContactEnergy> createIPCEnergy(
+std::shared_ptr<StatefulContactEnergy> createIPCEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
-  const ParametersSpec &params,
+  const IPCContactSpec &params,
   std::vector<ObstacleSpec> obstacles)
 {
   return std::make_shared<IPCContactEnergy>(
     surface.restVertices,
     surfaceTriangles,
     surface.surfaceFromSimulationDispMap,
-    params,
+    toIPCParameters(params),
     makeObstacleSurfaces(std::move(obstacles)));
 }
 
@@ -146,34 +194,32 @@ std::shared_ptr<IPCContactEnergy> createIPCEnergy(
 namespace SampledPenalty
 {
 
-std::shared_ptr<SampledPenaltyContactEnergy> createSampledPenaltyEnergy(
+std::shared_ptr<StatefulContactEnergy> createSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
-  const ParametersSpec &params)
+  const SampledPenaltyContactSpec &params)
 {
-  if (surface.surfaceFromSimulationDispMap.cols() != surface.restVertices.rows() * 3)
-    throw std::invalid_argument("Sampled penalty factory currently requires an identity/surface-sized simulation map.");
+  requireSurfaceIdentitySizedMap(surface, "Sampled penalty factory");
 
   return std::make_shared<SampledPenaltyContactEnergy>(
     makeSurfaceMesh(surface, surfaceTriangles),
     flattenRestVertices(surface.restVertices),
-    params);
+    toSampledPenaltyParameters(params));
 }
 
-std::shared_ptr<FrictionalSampledPenaltyContactEnergy> createFrictionalSampledPenaltyEnergy(
+std::shared_ptr<StatefulContactEnergy> createFrictionalSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
-  const ParametersSpec &params,
-  const FrictionParametersSpec &friction)
+  const SampledPenaltyContactSpec &params,
+  const FrictionContactSpec &friction)
 {
-  if (surface.surfaceFromSimulationDispMap.cols() != surface.restVertices.rows() * 3)
-    throw std::invalid_argument("Sampled penalty factory currently requires an identity/surface-sized simulation map.");
+  requireSurfaceIdentitySizedMap(surface, "Frictional sampled penalty factory");
 
   return std::make_shared<FrictionalSampledPenaltyContactEnergy>(
     makeSurfaceMesh(surface, surfaceTriangles),
     flattenRestVertices(surface.restVertices),
-    params,
-    friction);
+    toSampledPenaltyParameters(params),
+    toFrictionParameters(friction));
 }
 
 }  // namespace SampledPenalty

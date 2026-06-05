@@ -243,7 +243,6 @@ CELLS = [
         )
 
         ipc.begin_step(time=0.0, timestep=SCENE["timestep"], previous_x=x0)
-        ipc.refresh_active_set(x0)
 
         print(ipc)
         print("IPC value at initial state:", ipc.value(x0))

@@ -34,6 +34,21 @@ void buildExternalPairs(
 
   Profiling::ScopedProfileSection scopedExternalProfile(SurfaceIPCProfileSections::kPairBuildExternal);
   const bool profilingEnabled = Profiling::isProfilingEnabled();
+  const PairQueryProfileNames ptProfileNames{
+    SurfaceIPCProfileSections::kPairBuildExternalPTHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildExternalPTDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildExternalPTAcceptedPairs,
+  };
+  const PairQueryProfileNames tpProfileNames{
+    SurfaceIPCProfileSections::kPairBuildExternalTPHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildExternalTPDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildExternalTPAcceptedPairs,
+  };
+  const PairQueryProfileNames eeProfileNames{
+    SurfaceIPCProfileSections::kPairBuildExternalEEHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildExternalEEDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildExternalEEAcceptedPairs,
+  };
 
   const double inflate = dhatExternal;
   const double dhat2 = dhatExternal * dhatExternal;
@@ -68,21 +83,9 @@ void buildExternalPairs(
       static_cast<std::uint64_t>(overlappingObstacles.size()));
 
   if (overlappingObstacles.empty()) {
-    recordPairQueryCounters(
-      SurfaceIPCProfileSections::kPairBuildExternalPTHashCandidates,
-      SurfaceIPCProfileSections::kPairBuildExternalPTDistanceTests,
-      SurfaceIPCProfileSections::kPairBuildExternalPTAcceptedPairs,
-      PairQueryCounts{}, 0);
-    recordPairQueryCounters(
-      SurfaceIPCProfileSections::kPairBuildExternalTPHashCandidates,
-      SurfaceIPCProfileSections::kPairBuildExternalTPDistanceTests,
-      SurfaceIPCProfileSections::kPairBuildExternalTPAcceptedPairs,
-      PairQueryCounts{}, 0);
-    recordPairQueryCounters(
-      SurfaceIPCProfileSections::kPairBuildExternalEEHashCandidates,
-      SurfaceIPCProfileSections::kPairBuildExternalEEDistanceTests,
-      SurfaceIPCProfileSections::kPairBuildExternalEEAcceptedPairs,
-      PairQueryCounts{}, 0);
+    recordPairQueryCounters(ptProfileNames, PairQueryCounts{}, 0);
+    recordPairQueryCounters(tpProfileNames, PairQueryCounts{}, 0);
+    recordPairQueryCounters(eeProfileNames, PairQueryCounts{}, 0);
     return;
   }
 
@@ -119,7 +122,7 @@ void buildExternalPairs(
       const SpatialHashGrid &obsTriHash = poseCache.triHash;
 
       const std::size_t acceptedBefore = pairs.ptPairs.size();
-      const PairQueryCounts counts = collectPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
+      const PairQueryCounts counts = collectHashPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -150,11 +153,7 @@ void buildExternalPairs(
           }
         },
         pairs.ptPairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildExternalPTHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildExternalPTDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildExternalPTAcceptedPairs,
-        counts, pairs.ptPairs.size() - acceptedBefore);
+      recordPairQueryCounters(ptProfileNames, counts, pairs.ptPairs.size() - acceptedBefore);
     }
 
     // ---- External TP: obs vertex x dyn triangle ----
@@ -165,7 +164,7 @@ void buildExternalPairs(
       dynTriHash.build(dynTriBox);
 
       const std::size_t acceptedBefore = pairs.tpPairs.size();
-      const PairQueryCounts counts = collectPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
+      const PairQueryCounts counts = collectHashPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -196,11 +195,7 @@ void buildExternalPairs(
           }
         },
         pairs.tpPairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildExternalTPHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildExternalTPDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildExternalTPAcceptedPairs,
-        counts, pairs.tpPairs.size() - acceptedBefore);
+      recordPairQueryCounters(tpProfileNames, counts, pairs.tpPairs.size() - acceptedBefore);
     }
 
     // ---- External EE: dyn edge x obs edge ----
@@ -209,7 +204,7 @@ void buildExternalPairs(
       const SpatialHashGrid &obsEdgeHash = poseCache.edgeHash;
 
       const std::size_t acceptedBefore = pairs.eePairs.size();
-      const PairQueryCounts counts = collectPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
+      const PairQueryCounts counts = collectHashPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -240,11 +235,7 @@ void buildExternalPairs(
           }
         },
         pairs.eePairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildExternalEEHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildExternalEEDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildExternalEEAcceptedPairs,
-        counts, pairs.eePairs.size() - acceptedBefore);
+      recordPairQueryCounters(eeProfileNames, counts, pairs.eePairs.size() - acceptedBefore);
     }
   }
 }
@@ -264,6 +255,21 @@ void buildExternalPairsLineSearchSuperset(
 
   Profiling::ScopedProfileSection scopedExternalProfile(SurfaceIPCProfileSections::kPairBuildExternal);
   const bool profilingEnabled = Profiling::isProfilingEnabled();
+  const PairQueryProfileNames ptProfileNames{
+    SurfaceIPCProfileSections::kPairBuildExternalPTHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildExternalPTDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildExternalPTAcceptedPairs,
+  };
+  const PairQueryProfileNames tpProfileNames{
+    SurfaceIPCProfileSections::kPairBuildExternalTPHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildExternalTPDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildExternalTPAcceptedPairs,
+  };
+  const PairQueryProfileNames eeProfileNames{
+    SurfaceIPCProfileSections::kPairBuildExternalEEHashCandidates,
+    SurfaceIPCProfileSections::kPairBuildExternalEEDistanceTests,
+    SurfaceIPCProfileSections::kPairBuildExternalEEAcceptedPairs,
+  };
 
   auto getV = [&](int i) -> EigenSupport::V3d {
     return positions.segment<3>(3 * i);
@@ -298,21 +304,9 @@ void buildExternalPairsLineSearchSuperset(
       static_cast<std::uint64_t>(overlappingObstacles.size()));
 
   if (overlappingObstacles.empty()) {
-    recordPairQueryCounters(
-      SurfaceIPCProfileSections::kPairBuildExternalPTHashCandidates,
-      SurfaceIPCProfileSections::kPairBuildExternalPTDistanceTests,
-      SurfaceIPCProfileSections::kPairBuildExternalPTAcceptedPairs,
-      PairQueryCounts{}, 0);
-    recordPairQueryCounters(
-      SurfaceIPCProfileSections::kPairBuildExternalTPHashCandidates,
-      SurfaceIPCProfileSections::kPairBuildExternalTPDistanceTests,
-      SurfaceIPCProfileSections::kPairBuildExternalTPAcceptedPairs,
-      PairQueryCounts{}, 0);
-    recordPairQueryCounters(
-      SurfaceIPCProfileSections::kPairBuildExternalEEHashCandidates,
-      SurfaceIPCProfileSections::kPairBuildExternalEEDistanceTests,
-      SurfaceIPCProfileSections::kPairBuildExternalEEAcceptedPairs,
-      PairQueryCounts{}, 0);
+    recordPairQueryCounters(ptProfileNames, PairQueryCounts{}, 0);
+    recordPairQueryCounters(tpProfileNames, PairQueryCounts{}, 0);
+    recordPairQueryCounters(eeProfileNames, PairQueryCounts{}, 0);
     return;
   }
 
@@ -347,7 +341,7 @@ void buildExternalPairsLineSearchSuperset(
       const SpatialHashGrid &obsTriHash = poseCache.triHash;
 
       const std::size_t acceptedBefore = pairs.ptPairs.size();
-      const PairQueryCounts counts = collectPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
+      const PairQueryCounts counts = collectHashPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -369,11 +363,7 @@ void buildExternalPairsLineSearchSuperset(
           }
         },
         pairs.ptPairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildExternalPTHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildExternalPTDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildExternalPTAcceptedPairs,
-        counts, pairs.ptPairs.size() - acceptedBefore);
+      recordPairQueryCounters(ptProfileNames, counts, pairs.ptPairs.size() - acceptedBefore);
     }
 
     {
@@ -383,7 +373,7 @@ void buildExternalPairsLineSearchSuperset(
       dynTriHash.build(dynTriBox);
 
       const std::size_t acceptedBefore = pairs.tpPairs.size();
-      const PairQueryCounts counts = collectPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
+      const PairQueryCounts counts = collectHashPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -405,11 +395,7 @@ void buildExternalPairsLineSearchSuperset(
           }
         },
         pairs.tpPairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildExternalTPHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildExternalTPDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildExternalTPAcceptedPairs,
-        counts, pairs.tpPairs.size() - acceptedBefore);
+      recordPairQueryCounters(tpProfileNames, counts, pairs.tpPairs.size() - acceptedBefore);
     }
 
     {
@@ -417,7 +403,7 @@ void buildExternalPairsLineSearchSuperset(
       const SpatialHashGrid &obsEdgeHash = poseCache.edgeHash;
 
       const std::size_t acceptedBefore = pairs.eePairs.size();
-      const PairQueryCounts counts = collectPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
+      const PairQueryCounts counts = collectHashPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
         [&](const tbb::blocked_range<int> &range,
           std::vector<int> &visited,
           std::vector<int> &candidates,
@@ -442,11 +428,7 @@ void buildExternalPairsLineSearchSuperset(
           }
         },
         pairs.eePairs);
-      recordPairQueryCounters(
-        SurfaceIPCProfileSections::kPairBuildExternalEEHashCandidates,
-        SurfaceIPCProfileSections::kPairBuildExternalEEDistanceTests,
-        SurfaceIPCProfileSections::kPairBuildExternalEEAcceptedPairs,
-        counts, pairs.eePairs.size() - acceptedBefore);
+      recordPairQueryCounters(eeProfileNames, counts, pairs.eePairs.size() - acceptedBefore);
     }
   }
 }

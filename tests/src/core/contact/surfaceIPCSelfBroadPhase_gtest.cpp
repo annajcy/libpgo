@@ -202,6 +202,28 @@ TEST(SurfaceIPCSelfBroadPhaseGTest, LineSearchSupersetContainsExactSelfPairsAtTr
   EXPECT_TRUE(sawExactPairs);
 }
 
+TEST(SurfaceIPCSelfBroadPhaseGTest, ZeroDisplacementLineSearchSupersetContainsNormalPairsOnFixture)
+{
+  const auto [V, F] = makeTwoTriangleMesh();
+  const ES::VXd x = flattenPositions(V);
+  const ES::VXd dx = ES::VXd::Zero(x.size());
+
+  SurfaceIPCTopology topology;
+  topology.setMesh(V, F);
+
+  SelfPairSet normalPairs;
+  SelfPairSet supersetPairs;
+  buildSelfPairs(topology, x, 0.1, normalPairs);
+  buildSelfPairsLineSearchSuperset(topology, x, dx, 0.1, supersetPairs);
+
+  EXPECT_GE(supersetPairs.ptPairs.size(), normalPairs.ptPairs.size());
+  EXPECT_GE(supersetPairs.eePairs.size(), normalPairs.eePairs.size());
+  for (const auto &pair : normalPairs.ptPairs)
+    EXPECT_TRUE(containsSelfPT(supersetPairs.ptPairs, pair));
+  for (const auto &pair : normalPairs.eePairs)
+    EXPECT_TRUE(containsSelfEE(supersetPairs.eePairs, pair));
+}
+
 TEST(SurfaceIPCSelfBroadPhaseGTest, ProfilingRecordsSelfCandidateCounters)
 {
   const auto [V, F] = makeTwoTriangleMesh();

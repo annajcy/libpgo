@@ -8,6 +8,7 @@
 #include "stepAwareEnergy.h"
 
 #include <numeric>
+#include <stdexcept>
 
 namespace
 {
@@ -58,18 +59,6 @@ public:
   }
   int getNumDOFs() const override { return n_; }
   Contact::ContactModelKind contactModelKind() const override { return Contact::ContactModelKind::IPC; }
-  void beginStep(const NO::StepState &) override { beginStepCalls++; }
-  void refreshActiveSet(ES::ConstRefVecXd x) const override
-  {
-    refreshCalls++;
-    lastRefresh = x;
-  }
-  void clearActiveSet() const override { clearCalls++; }
-
-  int beginStepCalls = 0;
-  mutable int refreshCalls = 0;
-  mutable int clearCalls = 0;
-  mutable ES::VXd lastRefresh;
 
 private:
   int n_;
@@ -112,24 +101,17 @@ TEST(ContactEnergyFactoryGTest, CreateFloorEnergyBuildsDisplacementEnergy)
   EXPECT_GT(energy->func(u), 0.0);
 }
 
-TEST(ContactEnergyFactoryGTest, StatefulContactEnergyPrepareEvaluationRefreshesActiveSet)
+TEST(ContactEnergyFactoryGTest, StatefulContactEnergyIsOnlyCommonContactBoundary)
 {
   TestStatefulContactEnergy energy(3);
   const auto *stepAware = dynamic_cast<NO::StepAwareEnergy *>(&energy);
   const auto *evaluationAware = dynamic_cast<const NO::EvaluationStateAwareEnergy *>(&energy);
   const auto *lineSearchAware = dynamic_cast<const NO::LineSearchAwareEnergy *>(&energy);
 
-  EXPECT_NE(stepAware, nullptr);
-  EXPECT_NE(evaluationAware, nullptr);
-  EXPECT_NE(lineSearchAware, nullptr);
+  EXPECT_EQ(stepAware, nullptr);
+  EXPECT_EQ(evaluationAware, nullptr);
+  EXPECT_EQ(lineSearchAware, nullptr);
   EXPECT_EQ(energy.stateKind(), NO::EnergyStateKind::Displacement);
-
-  ES::VXd x(3);
-  x << 1.0, 2.0, 3.0;
-  energy.prepareEvaluationState(x);
-
-  ASSERT_EQ(energy.refreshCalls, 1);
-  EXPECT_DOUBLE_EQ(energy.lastRefresh[1], 2.0);
 }
 
 TEST(ContactEnergyFactoryGTest, CreateSampledPenaltyEnergyBuildsNormalAndFrictionalModels)
@@ -138,21 +120,27 @@ TEST(ContactEnergyFactoryGTest, CreateSampledPenaltyEnergyBuildsNormalAndFrictio
   surface.restVertices = makeTriangle();
   surface.surfaceFromSimulationDispMap = makeIdentityMap(9);
 
-  Contact::SampledPenalty::ParametersSpec params;
+  Contact::SampledPenaltyContactSpec params;
   params.stiffness = 10.0;
   params.samples = 1;
 
   auto normal = Contact::SampledPenalty::createSampledPenaltyEnergy(surface, makeTriangleFaces(), params);
   ASSERT_NE(normal, nullptr);
   EXPECT_EQ(normal->contactModelKind(), Contact::ContactModelKind::SampledPenalty);
+  EXPECT_NE(dynamic_cast<const NO::EvaluationStateAwareEnergy *>(normal.get()), nullptr);
+  EXPECT_NE(dynamic_cast<const NO::LineSearchAwareEnergy *>(normal.get()), nullptr);
+  EXPECT_EQ(dynamic_cast<NO::StepAwareEnergy *>(normal.get()), nullptr);
   EXPECT_EQ(dynamic_cast<NO::StepDependentEnergy *>(normal.get()), nullptr);
 
-  Contact::SampledPenalty::FrictionParametersSpec friction;
+  Contact::FrictionContactSpec friction;
   friction.frictionCoeff = 0.5;
   friction.velocityEps = 1e-5;
   auto frictional = Contact::SampledPenalty::createFrictionalSampledPenaltyEnergy(surface, makeTriangleFaces(), params, friction);
   ASSERT_NE(frictional, nullptr);
   EXPECT_EQ(frictional->contactModelKind(), Contact::ContactModelKind::SampledPenalty);
+  EXPECT_NE(dynamic_cast<const NO::EvaluationStateAwareEnergy *>(frictional.get()), nullptr);
+  EXPECT_NE(dynamic_cast<const NO::LineSearchAwareEnergy *>(frictional.get()), nullptr);
+  EXPECT_NE(dynamic_cast<NO::StepAwareEnergy *>(frictional.get()), nullptr);
   EXPECT_NE(dynamic_cast<NO::StepDependentEnergy *>(frictional.get()), nullptr);
 }
 
@@ -163,9 +151,9 @@ TEST(ContactEnergyFactoryGTest, CreateIPCEnergyBuildsStaticAndMovingObstacleSpec
   surface.restVertices.col(2).array() += 0.02;
   surface.surfaceFromSimulationDispMap = makeIdentityMap(9);
 
-  Contact::IPC::ParametersSpec params;
+  Contact::IPCContactSpec params;
   params.dhat = 0.1;
-  params.dhat_external = 0.1;
+  params.dhatExternal = 0.1;
   params.kappa = 1.0;
 
   Contact::StaticObstacleSpec staticObstacle;
@@ -186,16 +174,32 @@ TEST(ContactEnergyFactoryGTest, CreateIPCEnergyBuildsStaticAndMovingObstacleSpec
   ASSERT_NE(ipc, nullptr);
   EXPECT_EQ(ipc->contactModelKind(), Contact::ContactModelKind::IPC);
   EXPECT_EQ(ipc->stateKind(), NO::EnergyStateKind::Displacement);
+  auto *ipcConcrete = dynamic_cast<Contact::IPC::IPCContactEnergy *>(ipc.get());
+  ASSERT_NE(ipcConcrete, nullptr);
 
   ES::VXd x = ES::VXd::Zero(ipc->getNumDOFs());
   NO::StepState state;
   state.time = 0.0;
   state.timestep = 0.1;
-  ipc->beginStep(state);
-  ipc->refreshActiveSet(x);
+  ipcConcrete->beginStep(state);
   EXPECT_NO_THROW((void)ipc->func(x));
 
-  ipc->setMovingObstacleTime(0.25);
-  ipc->refreshActiveSet(x);
+  ipcConcrete->setMovingObstacleTime(0.25);
   EXPECT_NO_THROW((void)ipc->func(x));
+}
+
+TEST(ContactEnergyFactoryGTest, SampledPenaltyFactoryRejectsNonIdentitySurfaceMap)
+{
+  Contact::ContactSurfaceSpec surface;
+  surface.restVertices = makeTriangle();
+  surface.surfaceFromSimulationDispMap = makeIdentityMap(9);
+  surface.surfaceFromSimulationDispMap.coeffRef(0, 0) = 0.5;
+
+  Contact::SampledPenaltyContactSpec params;
+  params.stiffness = 10.0;
+  params.samples = 1;
+
+  EXPECT_THROW(
+    (void)Contact::SampledPenalty::createSampledPenaltyEnergy(surface, makeTriangleFaces(), params),
+    std::invalid_argument);
 }
