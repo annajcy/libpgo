@@ -75,3 +75,4 @@ dist/
 
 pypgo/examples/outputs
 .VSCodeCounter
+.claude
