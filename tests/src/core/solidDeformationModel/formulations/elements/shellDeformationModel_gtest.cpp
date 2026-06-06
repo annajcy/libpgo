@@ -1,7 +1,7 @@
 #include "gtest/gtest.h"
 
-#include "elasticModel2DFundamentalFormsSTVK.h"
-#include "plasticModel2DFundamentalFormsUniformStretch.h"
+#include "elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "formulations/elements/shellDeformationModel.h"
 #include "formulations/kernels/koiterShellKernel.h"

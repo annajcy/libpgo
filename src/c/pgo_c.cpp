@@ -12,7 +12,7 @@
 #include "initPredicates.h"
 #include "EigenSupport.h"
 #include "simulation/simulationMesh.h"
-#include "deformationModelFactory.h"
+#include "energy/deformationEnergyBuilder.h"
 #include "deformation/deformationModelState.h"
 #include "deformation/deformationModelManager.h"
 #include "basicIO.h"

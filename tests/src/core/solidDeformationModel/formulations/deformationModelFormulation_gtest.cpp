@@ -1,15 +1,15 @@
 #include <gtest/gtest.h>
 
-#include "deformationModelFactory.h"
-#include "deformationModelState.h"
-#include "deformationModelEnergy.h"
-#include "deformationModelAssembler.h"
-#include "deformationModelManager.h"
+#include "energy/deformationEnergyBuilder.h"
+#include "deformation/deformationModelState.h"
+#include "energy/deformationModelEnergy.h"
+#include "deformation/deformationModelAssembler.h"
+#include "deformation/deformationModelManager.h"
 
 #include "formulations/formulation.h"
 #include "formulations/dof/dofLayout.h"
 
-#include "simulationMesh.h"
+#include "simulation/simulationMesh.h"
 #include "tetMesh.h"
 #include "cubicMesh.h"
 #include "pgoLogging.h"

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "formulations/dof/vertex3DofLayout.h"
-#include "simulationMesh.h"
+#include "simulation/simulationMesh.h"
 #include "triMeshGeo.h"
 
 #include <memory>

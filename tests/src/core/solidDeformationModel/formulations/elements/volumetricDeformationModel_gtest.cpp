@@ -1,8 +1,8 @@
 #include "gtest/gtest.h"
 
-#include "elasticModelStableNeoHookeanMaterial.h"
-#include "plasticModel3DConstant.h"
-#include "plasticModel3D3DOF.h"
+#include "elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "plastic/plasticModel3DConstant.h"
+#include "plastic/plasticModel3D3DOF.h"
 
 #include "formulations/basis/tetP1Basis.h"
 #include "formulations/basis/hexTrilinearBasis.h"

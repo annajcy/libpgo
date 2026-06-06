@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "simulationMesh.h"
+#include "simulation/simulationMesh.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "volumetricMeshENuMaterial.h"

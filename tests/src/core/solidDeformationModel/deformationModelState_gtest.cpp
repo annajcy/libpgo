@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "deformationModelState.h"
+#include "deformation/deformationModelState.h"
 #include "formulations/parameters/parameterField.h"
-#include "simulationMesh.h"
+#include "simulation/simulationMesh.h"
 #include "cubicMesh.h"
 #include "pgoLogging.h"
 

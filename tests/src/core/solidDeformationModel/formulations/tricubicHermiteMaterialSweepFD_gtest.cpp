@@ -13,12 +13,12 @@
 
 #include <gtest/gtest.h>
 
-#include "deformationModelAssembler.h"
-#include "deformationModelEnergy.h"
-#include "deformationModelManager.h"
-#include "deformationModelState.h"
-#include "plasticModel3DDeformationGradient.h"
-#include "simulationMesh.h"
+#include "deformation/deformationModelAssembler.h"
+#include "energy/deformationModelEnergy.h"
+#include "deformation/deformationModelManager.h"
+#include "deformation/deformationModelState.h"
+#include "plastic/plasticModel3DDeformationGradient.h"
+#include "simulation/simulationMesh.h"
 #include "formulations/formulation.h"
 #include "pgoLogging.h"
 #include "EigenSupport.h"

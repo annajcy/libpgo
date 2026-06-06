@@ -15,12 +15,12 @@
 
 #include <gtest/gtest.h>
 
-#include "deformationModelAssembler.h"
-#include "deformationModel.h"
-#include "deformationModelManager.h"
-#include "deformationModelState.h"
-#include "simulationMesh.h"
-#include "plasticModel3DDeformationGradient.h"
+#include "deformation/deformationModelAssembler.h"
+#include "deformation/deformationModel.h"
+#include "deformation/deformationModelManager.h"
+#include "deformation/deformationModelState.h"
+#include "simulation/simulationMesh.h"
+#include "plastic/plasticModel3DDeformationGradient.h"
 #include "formulations/formulation.h"
 #include "pgoLogging.h"
 #include "triMeshGeo.h"

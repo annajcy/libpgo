@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
-#include "deformationModelFactory.h"
-#include "deformationModelState.h"
+#include "energy/deformationEnergyBuilder.h"
+#include "deformation/deformationModelState.h"
 
-#include "deformationModelEnergy.h"
-#include "simulationMesh.h"
+#include "energy/deformationModelEnergy.h"
+#include "simulation/simulationMesh.h"
 #include "tetMesh.h"
 #include "cubicMesh.h"
 #include "triMeshGeo.h"

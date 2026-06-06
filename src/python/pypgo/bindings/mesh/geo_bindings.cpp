@@ -571,17 +571,4 @@ void init_mesh_geo_bindings(nb::module_ &m)
     nb::arg("surface"), nb::arg("target_ratio"));
 
   m.def("has_cgal_remesher", &surface_remesh::has_cgal);
-
-  m.def("geogram_remesh_surface",
-    [](const Mesh::MeshData<3> &surface, int target_num_vertices, double size_factor,
-       double anisotropy, int num_threads) {
-      Mesh::TriMeshGeo mesh(surface);
-      nb::gil_scoped_release release;
-      return surface_remesh::geogram_remesh(mesh, target_num_vertices, size_factor,
-                                             anisotropy, num_threads).toMeshData();
-    },
-    nb::arg("surface"), nb::arg("target_num_vertices"),
-    nb::arg("size_factor") = 1.0, nb::arg("anisotropy") = 1.0, nb::arg("num_threads") = 1);
-
-  m.def("has_geogram_remesher", &surface_remesh::has_geogram);
 }

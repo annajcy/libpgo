@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
 
-#include "deformationModelAssembler.h"
-#include "deformationModelEnergy.h"
-#include "deformationModelManager.h"
-#include "deformationModelState.h"
-#include "plasticMaterialEnergy.h"
-#include "simulationMesh.h"
+#include "deformation/deformationModelAssembler.h"
+#include "energy/deformationModelEnergy.h"
+#include "deformation/deformationModelManager.h"
+#include "deformation/deformationModelState.h"
+#include "energy/plasticMaterialEnergy.h"
+#include "simulation/simulationMesh.h"
 #include "pgoLogging.h"
 #include "evaluation.h"
 

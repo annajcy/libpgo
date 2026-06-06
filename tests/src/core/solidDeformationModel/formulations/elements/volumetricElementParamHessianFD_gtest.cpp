@@ -22,10 +22,10 @@
 
 #include "gtest/gtest.h"
 
-#include "deformationModel.h"
-#include "deformationModelManager.h"
-#include "deformationModelState.h"
-#include "simulationMesh.h"
+#include "deformation/deformationModel.h"
+#include "deformation/deformationModelManager.h"
+#include "deformation/deformationModelState.h"
+#include "simulation/simulationMesh.h"
 #include "formulations/elements/volumetricDeformationModel.h"
 #include "formulations/formulation.h"
 #include "pgoLogging.h"
