@@ -338,8 +338,8 @@ CELLS = [
         )
 
         cubic = pgo.mesh.CubicMeshData(cube_vertices, cube_elements)
-        volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(
-            cubic, pgo.mesh.veg.ENuMaterial(E=1e6, nu=0.45)
+        volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+            cubic, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
         )
         sim = pgo.sim.SimulationMesh.create_volumetric(volume)
         print("hex grid:", nx, "x", ny, "x", nz,

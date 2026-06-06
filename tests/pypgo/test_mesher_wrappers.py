@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import pypgo as pgo
-from pypgo.tools.mesh import cubic_mesher, has_tetwild, tet_mesher
+from pypgo.mesh import cubic_mesher, has_tetwild, tet_mesher
 
 
 def test_cubic_mesher_voxelizes_closed_surface():

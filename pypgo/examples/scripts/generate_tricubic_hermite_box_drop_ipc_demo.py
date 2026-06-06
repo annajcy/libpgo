@@ -46,7 +46,7 @@ CELLS = [
         ASSET_DIR = Path(pgo.__file__).resolve().parent / "examples" / "assets"
         BOX_VEG = ASSET_DIR / "veg" / "cubic" / "box.veg"
 
-        volume = pgo.mesh.veg.VolumeMesh.from_veg_file(pgo.mesh.veg.read_veg(str(BOX_VEG)))
+        volume = pgo.mesh.volume.VolumeMesh.from_veg_file(pgo.mesh.volume.read_veg(str(BOX_VEG)))
         surface = volume.extract_surface_mesh()
 
         print("volume:", volume.num_vertices, "vertices,", volume.num_elements, "cubes")

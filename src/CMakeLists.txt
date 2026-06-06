@@ -21,6 +21,7 @@ set(PGO_GLOBAL_LIBRARY_TARGETS
   geogramInterface
   libiglInterface
   tetgenInterface
+  volumetricMeshMeshing
   animationIO
   CACHE INTERNAL ""
 )
@@ -44,7 +45,5 @@ add_subdirectory(c)
 if(PGO_ENABLE_PYTHON)
   add_subdirectory(python)
 endif()
-
-add_subdirectory(tools)
 
 add_subdirectory(tests)

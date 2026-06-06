@@ -35,7 +35,7 @@ class SimulationMesh:
 
     @classmethod
     def create_volumetric(cls, volume_mesh) -> "SimulationMesh":
-        from pypgo.mesh.veg import VolumeMesh
+        from pypgo.mesh.volume import VolumeMesh
 
         if not isinstance(volume_mesh, VolumeMesh):
             raise TypeError(f"volume_mesh must be a VolumeMesh, got {type(volume_mesh).__name__}")
@@ -321,3 +321,14 @@ class DynamicSimulation:
         if num_steps < 0:
             raise ValueError("num_steps must be non-negative")
         return [self.step(**step_kwargs) for _ in range(num_steps)]
+
+
+from pypgo.sim_builders import (  # noqa: E402
+    FloorSpec,
+    IPCContactSpec,
+    RuntimeConfig,
+    VolumeIPCSimulationBuild,
+    VolumeIPCSimulationRunner,
+    VolumeIPCSimulationSpec,
+    build_volume_ipc_simulation,
+)

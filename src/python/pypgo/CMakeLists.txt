@@ -13,16 +13,7 @@ set(PYPGO_BINDING_SOURCES
   bindings/parallel_bindings.cpp
   bindings/simulation_bindings.cpp
   bindings/contact_bindings.cpp
-  ../../tools/mesh/volumetric/cubicMesher/triangleMeshVoxelizer.cpp
-  ../../tools/mesh/volumetric/tetMesher/tetMesherBackend.cpp
-  ../../tools/mesh/volumetric/tetMesher/tetgenBackend.cpp
 )
-
-if(PGO_TET_MESHER_USE_TET_WILD)
-  list(APPEND PYPGO_BINDING_SOURCES ../../tools/mesh/volumetric/tetMesher/tetwildBackend.cpp)
-else()
-  list(APPEND PYPGO_BINDING_SOURCES ../../tools/mesh/volumetric/tetMesher/tetwildBackendDisabled.cpp)
-endif()
 
 if(TARGET cgalInterface)
   list(APPEND PYPGO_BINDING_SOURCES bindings/surface_remesh_cgal.cpp)
@@ -55,6 +46,7 @@ target_link_libraries(pypgo_core PRIVATE
   simulation
   contact
   tetgenInterface
+  volumetricMeshMeshing
   implicitSurface
   parallelism
 )
@@ -79,11 +71,6 @@ if(TARGET animationIO)
   endif()
 endif()
 
-if(PGO_TET_MESHER_USE_TET_WILD)
-  target_link_libraries(pypgo_core PRIVATE FloatTetwild)
-  target_compile_definitions(pypgo_core PRIVATE PGO_TET_MESHER_HAS_TET_WILD=1)
-endif()
-
 target_include_directories(pypgo_core
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/bindings
@@ -98,10 +85,9 @@ target_include_directories(pypgo_core
     ${CMAKE_SOURCE_DIR}/src/core/simulation
     ${CMAKE_SOURCE_DIR}/src/core/contact
     ${CMAKE_SOURCE_DIR}/src/core/tetgenInterface
+    ${CMAKE_SOURCE_DIR}/src/core/volumetricMeshMeshing
     ${CMAKE_SOURCE_DIR}/src/core/implicitSurface
     ${CMAKE_SOURCE_DIR}/src/core/parallelism
-    ${CMAKE_SOURCE_DIR}/src/tools/mesh/volumetric/cubicMesher
-    ${CMAKE_SOURCE_DIR}/src/tools/mesh/volumetric/tetMesher
 )
 
 set_target_properties(pypgo_core PROPERTIES

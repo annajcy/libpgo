@@ -51,9 +51,9 @@ CELLS = [
         import pypgo.energy as pe
         import pypgo.fem as pf
         import pypgo.solver as ps
-        from pypgo.animation import dump_mesh_animation
+        from pypgo.animation import AbcWriter
         from pypgo.mesh import read_obj, SurfaceEmbedding, TriMeshData
-        from pypgo.mesh.veg import VolumeMesh, read_veg
+        from pypgo.mesh.volume import VolumeMesh, read_veg
         from pypgo.sim import DynamicSimulation, DynamicState, SimulationMesh, KoiterStVKShellMaterial
         from pypgo.sparse import SparseMatrix
 
@@ -272,13 +272,10 @@ CELLS = [
 
         # Export Alembic
         abc_path = OUTPUT_DIR / f"{IPC_SCENE['output']}-python.abc"
-        dump_mesh_animation(
-            abc_path,
-            "box_ipc_python",
-            rest_positions=surface_mesh.vertices.reshape(-1),
-            displacements=dumped,
-            triangles=surface_mesh.elements,
-        )
+        AbcWriter.dump(abc_path, "box_ipc_python",
+                       rest_positions=surface_mesh.vertices.reshape(-1),
+                       triangles=surface_mesh.elements,
+                       displacements=dumped)
         print("wrote:", abc_path, f"({abc_path.stat().st_size} bytes)")
         """
     ),
@@ -464,12 +461,10 @@ CELLS = [
 
         # Export
         s2_abc = OUTPUT_DIR / f"{FLOOR_SCENE['output']}-python.abc"
-        dump_mesh_animation(
-            s2_abc, "floor_bunny",
-            rest_positions=bunny_surf.vertices.reshape(-1),
-            displacements=s2_dumped,
-            triangles=bunny_surf.elements,
-        )
+        AbcWriter.dump(s2_abc, "floor_bunny",
+                       rest_positions=bunny_surf.vertices.reshape(-1),
+                       triangles=bunny_surf.elements,
+                       displacements=s2_dumped)
         print("wrote:", s2_abc, f"({s2_abc.stat().st_size} bytes)")
         """
     ),
@@ -659,12 +654,10 @@ CELLS = [
 
         # Export — this demo uses an identity surface, so displacement IS the surface displacement.
         s3_abc = OUTPUT_DIR / f"{SAMPLED_SCENE['output']}-python.abc"
-        dump_mesh_animation(
-            s3_abc, "tet_box_sampled_penalty",
-            rest_positions=s3_surface.vertices.reshape(-1),
-            displacements=s3_dumped_disp,
-            triangles=s3_surface.elements,
-        )
+        AbcWriter.dump(s3_abc, "tet_box_sampled_penalty",
+                       rest_positions=s3_surface.vertices.reshape(-1),
+                       triangles=s3_surface.elements,
+                       displacements=s3_dumped_disp)
         print("wrote:", s3_abc, f"({s3_abc.stat().st_size} bytes)")
         """
     ),
@@ -896,12 +889,10 @@ CELLS = [
         print("unique solver statuses:", sorted(set(s4_statuses)))
 
         s4_abc = OUTPUT_DIR / f"{FRICTIONAL_SCENE['output']}-python.abc"
-        dump_mesh_animation(
-            s4_abc, "shell_frictional",
-            rest_positions=shell_mesh.vertices.reshape(-1),
-            displacements=s4_dumped,
-            triangles=shell_mesh.elements,
-        )
+        AbcWriter.dump(s4_abc, "shell_frictional",
+                       rest_positions=shell_mesh.vertices.reshape(-1),
+                       triangles=shell_mesh.elements,
+                       displacements=s4_dumped)
         print("wrote:", s4_abc, f"({s4_abc.stat().st_size} bytes)")
         """
     ),
@@ -1101,12 +1092,10 @@ CELLS = [
         print("unique solver statuses:", sorted(set(s5_statuses)))
 
         s5_abc = OUTPUT_DIR / f"{SHELL_IPC_SCENE['output']}-python.abc"
-        dump_mesh_animation(
-            s5_abc, "shell_ipc",
-            rest_positions=s5_shell_mesh.vertices.reshape(-1),
-            displacements=s5_dumped,
-            triangles=s5_shell_mesh.elements,
-        )
+        AbcWriter.dump(s5_abc, "shell_ipc",
+                       rest_positions=s5_shell_mesh.vertices.reshape(-1),
+                       triangles=s5_shell_mesh.elements,
+                       displacements=s5_dumped)
         print("wrote:", s5_abc, f"({s5_abc.stat().st_size} bytes)")
         """
     ),

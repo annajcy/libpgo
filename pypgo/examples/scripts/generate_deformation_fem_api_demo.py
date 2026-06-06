@@ -61,7 +61,7 @@ CELLS = [
         import pypgo as pgo
         import pypgo.fem as pf
         import pypgo.energy as pe
-        from pypgo.mesh.veg import VolumeMesh, read_veg
+        from pypgo.mesh.volume import VolumeMesh, read_veg
         """
     ),
     md(

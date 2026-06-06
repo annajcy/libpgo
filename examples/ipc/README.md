@@ -1,300 +1,84 @@
-# IPC Examples
+# IPC Example Assets
 
-This directory contains runnable examples for `runIPCSim`, along with the per-case animation configs used by `convertAnimation`.
+This directory keeps the IPC meshes, fixed-vertex lists, legacy JSON configs,
+and historical animation configs that were previously used by the C++
+`runIPCSim` and `convertAnimation` command-line tools.
 
-The current examples are meant to cover the three IPC entry points that exist in this repo today:
+The C++ CLI tools have been removed. New runnable workflows should use the
+Python API:
 
-1. shell self-contact IPC
-2. tetrahedral volume unified IPC
-3. cubic volume unified IPC
-4. conversion of dumped frame sequences into Alembic caches
+- `pypgo.tools.sim` for simulation scene construction and dynamic stepping
+- `pypgo.fem` for formulation-aware FEM operators
+- `pypgo.contact` for IPC, floor, and penalty contact energies
+- `pypgo.animation` for Alembic/VDB export
 
-## Quick Start
+The existing JSON files remain useful as reference data while the Python API
+gains full JSON compatibility. For new code, prefer constructing scenes with
+Python dataclasses instead of adding new C++ tool config fields.
 
-Build the tools:
+## Asset Layout
 
-```bash
-cmake --preset base_debug
-cmake --build build/base_debug --target runIPCSim convertAnimation
+Representative assets live under:
+
+- `shell/shell-hang/`
+- `shell/shell-drop/`
+- `tet/box-hang/`
+- `tet/box-squash/`
+- `cubic/box-hang/`
+- `cubic/box-squash/`
+- `cubic/box-with-sphere/`
+
+Volume cases usually contain:
+
+- `box.obj`: display/contact surface mesh
+- `box.veg`: tetrahedral or cubic simulation mesh
+- `box-fixed*.txt`: fixed or pulled simulation vertex lists
+- `box-ipc.json`: historical C++ CLI config retained for migration reference
+- `anim.json`: historical animation conversion config retained for migration reference
+
+Shell cases usually contain:
+
+- `shell.obj`: shell simulation/display mesh
+- `shell-fixed*.txt`: fixed or pulled shell vertex lists
+- `bottom.obj`: optional external obstacle mesh
+- `shell-ipc.json`: historical C++ CLI config retained for migration reference
+- `anim.json`: historical animation conversion config retained for migration reference
+
+## Python Direction
+
+The first Python simulation builder supports volumetric IPC scenes:
+
+```python
+import pypgo as pgo
+from pypgo.tools import sim as tsim
+
+volume = pgo.mesh.veg.VolumeMesh.from_veg_file(
+    pgo.mesh.veg.read_veg("examples/ipc/cubic/box-hang/box.veg")
+)
+surface = pgo.mesh.read_obj("examples/ipc/cubic/box-hang/box.obj")
+
+spec = tsim.VolumeIPCSimulationSpec(
+    volume=volume,
+    surface=surface,
+    formulation=pgo.fem.LinearCubic(),
+    runtime=tsim.RuntimeConfig(
+        timestep=0.001,
+        num_steps=10,
+        gravity=(0.0, -9.81, 0.0),
+    ),
+    contact=tsim.IPCContactSpec(
+        parameters=pgo.contact.IPCParameters(
+            dhat=0.002,
+            dhat_external=0.1,
+            kappa=3000.0,
+        ),
+    ),
+)
+
+runner = tsim.build_volume_ipc_simulation(spec)
+frames = runner.run()
+deformed_surface = runner.deformed_surface(frames[-1].displacement)
 ```
 
-Run the shipped cases from the repo root:
-
-```bash
-build/base_debug/bin/runIPCSim examples/ipc/shell/shell-hang/shell-ipc.json
-build/base_debug/bin/runIPCSim examples/ipc/shell/shell-drop/shell-ipc.json
-build/base_debug/bin/runIPCSim examples/ipc/tet/box-hang/box-ipc.json
-build/base_debug/bin/runIPCSim examples/ipc/tet/box-squash/box-ipc.json
-build/base_debug/bin/runIPCSim examples/ipc/cubic/box-hang/box-ipc.json
-build/base_debug/bin/runIPCSim examples/ipc/cubic/box-squash/box-ipc.json
-build/base_debug/bin/runIPCSim examples/ipc/cubic/box-with-sphere/box-ipc.json
-```
-
-Convert the dumped frames into Alembic:
-
-```bash
-build/base_debug/bin/convertAnimation examples/ipc/shell/shell-hang/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/shell/shell-drop/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/tet/box-hang/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/tet/box-squash/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/cubic/box-hang/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/cubic/box-squash/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/cubic/box-with-sphere/anim.json
-```
-
-The JSON configs use paths relative to the config file, so they can be launched from the repo root without first changing into the case directory.
-
-Static solves use the same entrypoint by setting `"sim-type": "static"` in a config. Static mode performs one Newton solve from the rest state and writes only frame `0` (`states/deform0000.u` and `surface/ret0000.obj`) when the solve converges. It is intentionally strict: if Newton returns any non-converged status, `runIPCSim` exits with failure and does not write a partial static state.
-
-Solver logs use the shared `SolverResult` / `SolveStatus` API used by `NewtonSolver`, `EnergyOptimizer`, and `TimeIntegratorSolver`. Static mode only accepts `Converged`; dynamic implicit Euler keeps the current legacy acceptance policy for `Converged`, `MaxIterations`, and `StepTooSmall`. External solver return codes are preserved as `rawStatusCode`.
-
-Legacy penalty contact is also routed through `runIPCSim`:
-
-```bash
-build/base_debug/bin/runIPCSim --legacy path/to/legacy-volume-config.json
-```
-
-`--legacy` accepts old tet/cubic volume JSON files and swaps the contact backend to the legacy penalty model (`contact-stiffness`, `contact-sample`, `contact-friction-coeff`, `contact-vel-eps`). Shell legacy has been removed. In static mode, a gravity-only legacy drop is not a well-posed equilibrium unless the model has an attachment or another constraint; use fixed vertices for box-hang-style static tests.
-
-## Batch Runner
-
-Use `ipc_batch.json` with `scripts/run_sim_batch.py` to define named IPC case groups. The script command line is only for execution control: selecting jobs, dry-run mode, and overwrite/skip behavior.
-
-Preview the squash regression batch without running the tools:
-
-```bash
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json \
-  --job squash_regression \
-  --dry-run
-```
-
-Run the squash regression batch, skipping cases whose `runIPCSim` output folder already exists:
-
-```bash
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json \
-  --job squash_regression \
-  --skip-existing
-```
-
-Run all configured IPC cases explicitly:
-
-```bash
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json \
-  --job all_ipc \
-  --skip-existing
-```
-
-Run one configured case directly, without creating a one-case job:
-
-```bash
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json \
-  --case cubic_box_with_sphere_lite \
-  --overwrite
-```
-
-Regenerate Alembic caches from existing frame dumps without rerunning simulation:
-
-```bash
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json \
-  --job all_ipc_abc
-```
-
-The default batch config uses `build/base`. Edit `ipc_batch.json` if you want to use another build directory such as `build/base_debug`.
-
-Each case entry references its `runIPCSim` config. The per-case `anim_config` defaults to `anim.json` next to that simulation config:
-
-```json
-{
-  "build_dir": "build/base",
-  "defaults": {
-    "anim_config": "anim.json",
-    "log": true
-  },
-  "cases": {
-    "cubic_box_squash": {
-      "sim_config": "examples/ipc/cubic/box-squash/box-ipc.json"
-    }
-  },
-  "jobs": [
-    {
-      "name": "squash_regression",
-      "stages": ["sim", "abc"],
-      "cases": ["tet_box_squash", "cubic_box_squash"]
-    }
-  ]
-}
-```
-
-If `stages` is omitted, the runner defaults to `["sim", "abc"]`. Use a job with `["abc"]` for Alembic-only postprocessing.
-
-`scripts/run_sim_batch.py` reads the `output` field from each simulation config to apply `--skip-existing` and `--overwrite`. Without either flag, it stops before running `runIPCSim` if that output folder already exists, because `runIPCSim` clears the output folder unless `restart-from-u` is enabled.
-
-## What Each Case Contains
-
-The directory currently ships these representative runnable IPC inputs:
-
-- `examples/ipc/shell/shell-hang/shell-ipc.json`
-- `examples/ipc/shell/shell-drop/shell-ipc.json`
-- `examples/ipc/tet/box-hang/box-ipc.json`
-- `examples/ipc/tet/box-squash/box-ipc.json`
-- `examples/ipc/cubic/box-hang/box-ipc.json`
-- `examples/ipc/cubic/box-squash/box-ipc.json`
-- `examples/ipc/cubic/box-with-sphere/box-ipc.json`
-
-The shell cases live under:
-
-- `examples/ipc/shell/shell-hang/`
-- `examples/ipc/shell/shell-drop/`
-
-The volume cases currently live under:
-
-- `examples/ipc/tet/box-hang/`
-- `examples/ipc/tet/box-squash/`
-- `examples/ipc/cubic/box-hang/`
-- `examples/ipc/cubic/box-squash/`
-- `examples/ipc/cubic/box-with-sphere/`
-
-The volume cases each contain:
-
-- the display surface mesh: `box.obj`
-- the volumetric mesh: `box.veg`
-- the fixed-vertex list: `box-fixed.txt`
-- the `runIPCSim` config: `box-ipc.json`
-- the `convertAnimation` config: `anim.json`
-
-The shell hang case contains:
-
-- the display mesh: `shell.obj`
-- the fixed-vertex list: `shell-fixed0.txt`
-- the `runIPCSim` config: `shell-ipc.json`
-- the `convertAnimation` config: `anim.json`
-- previously generated output folders and a generated `shell-ipc.abc`
-
-The shell drop case contains:
-
-- the raised display mesh: `shell.obj`
-- the static external floor mesh: `bottom.obj`
-- the `runIPCSim` config: `shell-ipc.json`
-- the `convertAnimation` config: `anim.json`
-
-Current config convention:
-
-- shell uses `surface-mesh` together with `elastic-material = koiter-stvk`
-- tet/cubic volume IPC uses `tet-mesh` or `cubic-mesh`, `surface-mesh`, and explicit `ipc-dhat`/`ipc-kappa`
-- legacy tet/cubic volume runs use the same `runIPCSim` entrypoint with `--legacy` and the old penalty contact fields
-- static configs must converge before any frame is written; unconstrained gravity-only drops should be treated as expected failures
-- tet uses `tet-mesh` together with `surface-mesh`
-- cubic uses `cubic-mesh` together with `surface-mesh`
-- supported IPC shell, tet, and cubic cases can switch from `"sim-type": "dynamic"` to `"sim-type": "static"` for a one-shot Newton solve that writes `states/deform0000.u` and `surface/ret0000.obj`
-- tet and cubic provide explicit `ipc-dhat` and `ipc-kappa`
-- floor-enabled cases additionally provide a `floors` array with `axis`, `side`, `height` or `motion`, and `kappa`
-- shell currently uses `ipc-heuristic: true`
-- in tet and cubic, `fixed-vertices` refers to volume simulation vertex indices, not surface vertex indices
-
-## Case Guide
-
-### `shell/shell-hang`
-
-Existing shell self-contact IPC example. This is the legacy shell-only setup under `examples/ipc`, organized as the hanging shell case, and it is the only shell case in this directory that already includes historical output folders and a generated `.abc` cache.
-
-- files: `shell.obj`, `shell-fixed0.txt`, `shell-ipc.json`, `anim.json`
-- material: `koiter-stvk`
-- IPC params: shell heuristic via `ipc-heuristic: true`
-- run: `build/base_debug/bin/runIPCSim examples/ipc/shell/shell-hang/shell-ipc.json`
-- output: `examples/ipc/shell/shell-hang/ret-shell-ipc/`
-- animation: `build/base_debug/bin/convertAnimation examples/ipc/shell/shell-hang/anim.json`
-- Alembic: `examples/ipc/shell/shell-hang/shell-ipc.abc`
-
-### `shell/shell-drop`
-
-Shell external-obstacle drop example. This case starts from the same shell mesh translated upward in `y`, leaves `fixed-vertices` empty, and drops the shell onto a static `bottom.obj` obstacle through IPC external-object contact.
-
-- files: `shell.obj`, `bottom.obj`, `shell-ipc.json`, `anim.json`
-- material: `koiter-stvk`
-- IPC params: shell heuristic via `ipc-heuristic: true`
-- external object: static `bottom.obj` with `movement = [0, 0, 0]`
-- run: `build/base_debug/bin/runIPCSim examples/ipc/shell/shell-drop/shell-ipc.json`
-- output: `examples/ipc/shell/shell-drop/ret-shell-drop-ipc/`
-- animation: `build/base_debug/bin/convertAnimation examples/ipc/shell/shell-drop/anim.json`
-
-### `tet/box-hang`
-
-Minimal tetrahedral unified IPC hanging-box case. This is the compact tet sanity check for the `runIPCSim` volume path: it pins the vertices listed in `box-fixed.txt`, uses `stable-neo`, and writes a display-surface OBJ sequence through the embedded IPC mapping.
-
-- files: `box.obj`, `box.veg`, `box-fixed.txt`, `box-ipc.json`, `anim.json`
-- material: `stable-neo`
-- IPC params: explicit `ipc-dhat = 0.002`, `ipc-kappa = 3000.0`
-- config note: `fixed-vertices` means tet simulation vertex indices
-- run: `build/base_debug/bin/runIPCSim examples/ipc/tet/box-hang/box-ipc.json`
-- output: `examples/ipc/tet/box-hang/ret-box-ipc/`
-- animation: `build/base_debug/bin/convertAnimation examples/ipc/tet/box-hang/anim.json`
-- Alembic: `examples/ipc/tet/box-hang/box-hang-ipc-tet.abc`
-
-### `tet/box-squash`
-
-Tet unified IPC material max-step regression case. This setup is intentionally not contact-rich: it fixes one full tet volume face and pushes the opposite face inward along the volume mesh `z` axis, so the primary validation target is that unified IPC line search still honors material clamping.
-
-- files: `box.obj`, `box.veg`, `box-zmin-fixed.txt`, `box-zmax-push.txt`, `box-ipc.json`, `anim.json`
-- material: `stable-neo`
-- IPC params: explicit `ipc-dhat = 0.002`, `ipc-kappa = 3000.0`
-- config note: `fixed-vertices` means tet simulation vertex indices
-- config note: `enable-material-max-step = true`
-- run: `build/base_debug/bin/runIPCSim examples/ipc/tet/box-squash/box-ipc.json`
-- output: `examples/ipc/tet/box-squash/ret-box-squash-ipc/`
-- animation: `build/base_debug/bin/convertAnimation examples/ipc/tet/box-squash/anim.json`
-
-### `cubic/box-hang`
-
-Minimal cubic unified IPC hanging-box case. This case mirrors the tet setup, but drives contact and output from a cubic volumetric simulation mesh.
-
-- files: `box.obj`, `box.veg`, `box-fixed.txt`, `box-ipc.json`, `anim.json`
-- material: `stable-neo`
-- IPC params: explicit `ipc-dhat = 0.002`, `ipc-kappa = 3000.0`
-- config note: `fixed-vertices` means cubic volume simulation vertex indices
-- run: `build/base_debug/bin/runIPCSim examples/ipc/cubic/box-hang/box-ipc.json`
-- output: `examples/ipc/cubic/box-hang/ret-box-ipc/`
-- animation: `build/base_debug/bin/convertAnimation examples/ipc/cubic/box-hang/anim.json`
-- Alembic: `examples/ipc/cubic/box-hang/box-hang-ipc-cubic.abc`
-
-### `cubic/box-squash`
-
-Cubic unified IPC material max-step regression case. This mirrors the tet squash setup, but drives the embedded IPC path from a cubic volume mesh. The goal is to verify that unified IPC line search does not drop the cubic material clamp.
-
-- files: `box.obj`, `box.veg`, `box-zmin-fixed.txt`, `box-zmax-push.txt`, `box-ipc.json`, `anim.json`
-- material: `stable-neo`
-- IPC params: explicit `ipc-dhat = 0.002`, `ipc-kappa = 3000.0`
-- config note: `fixed-vertices` means cubic volume simulation vertex indices
-- config note: `enable-material-max-step = true`
-- run: `build/base_debug/bin/runIPCSim examples/ipc/cubic/box-squash/box-ipc.json`
-- output: `examples/ipc/cubic/box-squash/ret-box-squash-ipc/`
-- animation: `build/base_debug/bin/convertAnimation examples/ipc/cubic/box-squash/anim.json`
-
-### `cubic/box-with-sphere`
-
-Cubic unified IPC floor-contact example migrated from the old cubic penalty-contact setup. This case removes the legacy external obstacle mesh and replaces it with the mapped-surface floor penalty path in `runIPCSim`.
-
-- files: `box-with-sphere.obj`, `box-with-sphere.veg`, `box-ipc.json`, `anim.json`
-- material: `stable-neo`
-- IPC params: explicit `ipc-dhat = 0.002`, `ipc-kappa = 3000.0`
-- floor params: one lower `y` floor with `height = -1.0` and `kappa = 1000.0`
-- config note: restores the source-case gravity direction with `g = [0, -9.81, 0]`
-- run: `build/base_debug/bin/runIPCSim examples/ipc/cubic/box-with-sphere/box-ipc.json`
-- output: `examples/ipc/cubic/box-with-sphere/ret-box-with-sphere-ipc/`
-- animation: `build/base_debug/bin/convertAnimation examples/ipc/cubic/box-with-sphere/anim.json`
-- Alembic: `examples/ipc/cubic/box-with-sphere/box-with-sphere-ipc-cubic.abc`
-
-## Rebuilding Animation Outputs
-
-After `runIPCSim` dumps the OBJ sequence, use the per-case animation config to convert it:
-
-```bash
-build/base_debug/bin/convertAnimation examples/ipc/shell/shell-hang/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/shell/shell-drop/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/tet/box-hang/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/tet/box-squash/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/cubic/box-hang/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/cubic/box-squash/anim.json
-build/base_debug/bin/convertAnimation examples/ipc/cubic/box-with-sphere/anim.json
-```
-
-If the optional output path is omitted, `convertAnimation` writes the `.abc` file next to the animation config and uses the mesh `name` field from that config as the output filename stem.
+Future migration work should add Python JSON loaders and shell/static parity
+there, not reintroduce C++ CLI tools.

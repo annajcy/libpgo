@@ -20,8 +20,8 @@ CELLS = [
 
         - `pypgo.mesh`: `TriMeshData`, `TetMeshData`, `CubicMeshData`, OBJ I/O, and shape factories
         - `pypgo.mesh.geo`: geometry facades, normals, and barycentric embedding
-        - `pypgo.mesh.veg`: Vega volume materials, `.veg` I/O, `VolumeMesh`, and surface extraction
-        - `pypgo.tools.mesh`: quality checks and mesher wrappers
+        - `pypgo.mesh.volume`: Vega volume materials, `.veg` I/O, `VolumeMesh`, and surface extraction
+        - `pypgo.mesh`: quality checks and mesher wrappers
         - `pypgo.sparse` / `pypgo.sim`: sparse COO export and solver-ready mesh factories
         """
     ),
@@ -43,7 +43,7 @@ CELLS = [
             connected_components_by_vertex, filter_small_components, get_outer_component,
             split_components, minimum_bounding_sphere,
         )
-        from pypgo.mesh.veg import (
+        from pypgo.mesh.volume import (
             ENuMaterial,
             MeshRegion,
             MeshSet,
@@ -51,7 +51,7 @@ CELLS = [
             VegFile,
             VolumeMesh,
         )
-        from pypgo.tools.mesh import (
+        from pypgo.mesh import (
             check_surface_quality, cubic_mesher, has_tetwild, tet_mesher,
             has_cgal_remesher,
             cgal_smooth, cgal_isotropic_remesh, cgal_simplify,
@@ -345,8 +345,8 @@ CELLS = [
         tmpdir = tempfile.mkdtemp()
         try:
             veg_path = os.path.join(tmpdir, "two_materials.veg")
-            pgo.mesh.veg.write_veg(veg_path, veg)
-            loaded = pgo.mesh.veg.read_veg(veg_path)
+            pgo.mesh.volume.write_veg(veg_path, veg)
+            loaded = pgo.mesh.volume.read_veg(veg_path)
 
             print("loaded mesh:", type(loaded.mesh_data).__name__, loaded.mesh_data.num_elements)
             print("materials:", [type(m).__name__ + ':' + m.name for m in loaded.materials])
@@ -491,7 +491,7 @@ CELLS = [
         """
         ## 11. Surface remeshing tools
 
-        `pypgo.tools.mesh` exposes CGAL surface remeshing. Availability is build-dependent — check with `has_cgal_remesher()` before calling. All functions accept and return `TriMeshData`.
+        `pypgo.mesh` exposes CGAL surface remeshing. Availability is build-dependent — check with `has_cgal_remesher()` before calling. All functions accept and return `TriMeshData`.
 
         | Function | Backend | Key parameter |
         |---|---|---|
@@ -501,7 +501,7 @@ CELLS = [
         | `cgal_repair_self_intersections` | CGAL | `method` |
         | `remove_isolated_vertices` | pure mesh | — |
 
-        > **Note — Geogram remeshing removed:** `pypgo_core` links both Geogram and Ceres into the same shared library. Both libraries register global C++ objects (OpenMP/TBB thread pools, static singletons) that conflict during process teardown, causing a SIGSEGV that kills the Jupyter kernel. There is no in-process workaround short of building Geogram into a separate extension that does not link Ceres. The Geogram Python API (`geogram_remesh`, `has_geogram_remesher`) has therefore been removed. The underlying C++ API (`pgo::GeogramInterface`) and the standalone `remeshSurface` binary remain available for use outside Python.
+        > **Note — Geogram remeshing removed:** `pypgo_core` links both Geogram and Ceres into the same shared library. Both libraries register global C++ objects (OpenMP/TBB thread pools, static singletons) that conflict during process teardown, causing a SIGSEGV that kills the Jupyter kernel. There is no in-process workaround short of building Geogram into a separate extension that does not link Ceres. The Geogram Python API (`geogram_remesh`, `has_geogram_remesher`) has therefore been removed.
         """
     ),
     code(

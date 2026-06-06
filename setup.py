@@ -18,9 +18,6 @@ try:
 except ImportError:
     bdist_wheel = None
 
-install_requires = ["numpy"]
-
-
 class CMakeExtension(Extension):
     """Placeholder extension built by the CMake preset."""
 
@@ -99,19 +96,28 @@ if bdist_wheel is not None:
 
 setup(
     name="pypgo",
-    version="0.0.3",
+    version="0.0.4",
     author="Bohan Wang",
     author_email="wangbh11@gmail.com",
-    description="Python-first libpgo package",
+    description="libpgo python binding",
     long_description="",
     packages=find_packages(include=["pypgo", "pypgo.*"]),
     ext_modules=[CMakeExtension("pypgo._core")],
     cmdclass=cmdclass,
-    zip_safe=False,
-    install_requires=install_requires,
-    extras_require={
-        "test": ["pytest>=6.0"],
-        "examples": ["pyvista[jupyter]"],
+    entry_points={
+        "console_scripts": [
+            "pypgo-volume-info=pypgo.tools.mesh.volume.volume_info:main",
+            "pypgo-cubic-mesher=pypgo.tools.mesh.volume.cubic_mesher:main",
+            "pypgo-tetgen-mesher=pypgo.tools.mesh.volume.tetgen_mesher:main",
+            "pypgo-ftetwild-mesher=pypgo.tools.mesh.volume.ftetwild_mesher:main",
+            "pypgo-surface-quality=pypgo.tools.mesh.surface.quality:main",
+            "pypgo-surface-remesh=pypgo.tools.mesh.surface.remesh:main",
+            "pypgo-surface-cleanup=pypgo.tools.mesh.surface.cleanup:main",
+            "pypgo-volume-ipc=pypgo.tools.sim.volume_ipc:main",
+            "pypgo-animation-convert=pypgo.tools.animation.abc_convert:main",
+            "pypgo-stress-vdb=pypgo.tools.animation.stress_vdb:main",
+        ],
     },
+    zip_safe=False,
     python_requires=">=3.12",
 )

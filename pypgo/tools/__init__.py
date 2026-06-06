@@ -1,3 +1,3 @@
-"""Tool-oriented mesh and simulation helpers."""
+"""CLI entry modules replacing the historical libpgo tools."""
 
-__all__ = ["mesh", "stress"]
+__all__ = ["animation", "mesh", "sim"]

@@ -331,7 +331,7 @@ CELLS = [
         The Python API exposes only `DynamicSimulation.step` / `run` and the
         `DynamicState` / `DynamicFrame` value objects. The C++ layer behind it
         uses `ImplicitEulerStepper` and `TRBDF2Stepper` directly through the
-        unified `DynamicStepper` interface. `runIPCSim` builds the same stepper
+        unified `DynamicStepper` interface. High-level simulation runners build the same stepper
         service from persistent energy terms plus per-frame contact models.
 
         Contact energies, when added by the contact API, plug into the same
@@ -366,7 +366,7 @@ CELLS = [
         5. ``pgo.mesh.SurfaceEmbedding(surface, vol)`` — one-liner that
            builds the volume‑to‑surface interpolation matrix
         6. ``DynamicSimulation`` with gravity, collect per‑frame displacements
-        7. ``_core.dump_abc(...)``
+        7. ``AbcWriter(...)``
         """
     ),
     code(
@@ -375,7 +375,7 @@ CELLS = [
         from pathlib import Path
 
         import pypgo.fem as pf
-        from pypgo.mesh.veg import VolumeMesh, read_veg
+        from pypgo.mesh.volume import VolumeMesh, read_veg
 
         def _find_repo_root() -> Path:
             cwd = Path.cwd().resolve()
@@ -440,11 +440,11 @@ CELLS = [
 
         # ── 6. Dump Alembic ──────────────────────────────────────────
         out_path = str(REPO_ROOT / "box_fall.abc")
-        pgo.animation.dump_mesh_animation(
+        pgo.animation.AbcWriter.dump(
             out_path, "box_fall",
             rest_positions=surface.vertices.ravel(),
-            displacements=surf_disps,
             triangles=surface.elements.ravel(),
+            displacements=surf_disps,
         )
         size_kb = os.path.getsize(out_path) / 1024
         print(f"Alembic written: {out_path}  ({size_kb:.1f} KB)")

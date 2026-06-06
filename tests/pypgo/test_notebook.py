@@ -224,7 +224,7 @@ class TestNotebookSources:
         assert "pf.StableNeo()" in source
         assert "pf.LinearCubic()" in source
         assert "DynamicSimulation" in source
-        assert "dump_mesh_animation" in source
+        assert "AbcWriter" in source
         assert "json.load" not in source
 
     def test_mesh_demo_loads_assets(self, generated_notebooks):
@@ -433,7 +433,7 @@ class TestNotebookExecution:
         [
             p
             for p in GENERATORS
-            if p != "animation_api_demo"  # animation needs runIPCSim output
+            if p != "animation_api_demo"  # animation needs precomputed simulation output
         ],
     )
     def test_notebook_executes_cleanly(

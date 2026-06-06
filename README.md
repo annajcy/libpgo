@@ -290,173 +290,30 @@ Example `CMakeUserPresets.json` (local, optional):
 
 ## Usage & Test
 
-The primary runnable examples in this repository are now IPC examples driven by `runIPCSim` under `examples/ipc/`.
+The repository is Python-first for runnable workflows. C++ command-line tools
+have been removed; C++ remains the numerical kernel and Python bindings expose
+the user-facing API.
 
-Build the IPC tools:
-
-```bash
-cmake --preset base
-cmake --build --preset base --target runIPCSim convertAnimation
-```
-
-Run named IPC batches from the JSON config:
+Build the Python extension and core tests:
 
 ```bash
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json --job squash_regression --dry-run
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json --job squash_regression --skip-existing
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json --case cubic_box_with_sphere_lite --overwrite
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json --job all_ipc_abc
+cmake --preset base -DPGO_ENABLE_PYTHON=ON
+cmake --build --preset base --target pypgo_core
+python -m pytest tests/pypgo
 ```
 
-The generic batch runner reads [`examples/ipc/ipc_batch.json`](./examples/ipc/ipc_batch.json), runs the stages declared by each job, and defaults jobs without a `stages` field to `runIPCSim` with `--log` followed by `convertAnimation` with the matching per-case `anim.json`. Use [`examples/ipc/README.md`](./examples/ipc/README.md) for the full case list, job definitions, and output-overwrite policy.
+Common Python entry points:
 
-The same runner also supports Alembic preview rendering when a case supplies
-`render_config`. The render stage calls
-[`scripts/render_abc_preview.py`](./scripts/render_abc_preview.py), which uses
-Blender to render `.abc` frames and ffmpeg to encode a GIF:
+- `pypgo.tools.sim`: high-level simulation builders and dynamic runners
+- `pypgo.fem`: formulation-aware FEM energy, mass, body force, and embedding helpers
+- `pypgo.contact`: IPC, floor, and sampled-penalty contact energies
+- `pypgo.sim`: dynamic stepping
+- `pypgo.tools.mesh`: mesh quality, cubic meshing, tet meshing, and remeshing wrappers
+- `pypgo.animation`: animation loading and Alembic/VDB export
+- `pypgo.tools.stress`: stress-field statistics
 
-```bash
-scripts/render_abc_preview.py --config my_render_config.json --overwrite
-scripts/run_sim_batch.py --config examples/ipc/ipc_batch.json --job sim --overwrite
-```
-
-Run representative IPC cases from the repo root:
-
-```bash
-build/base/bin/runIPCSim examples/ipc/shell/shell-hang/shell-ipc.json
-build/base/bin/runIPCSim examples/ipc/shell/shell-drop/shell-ipc.json
-build/base/bin/runIPCSim examples/ipc/tet/box-hang/box-ipc.json
-build/base/bin/runIPCSim examples/ipc/cubic/box-with-sphere/box-ipc.json
-```
-
-Convert dumped frame sequences to Alembic:
-
-```bash
-build/base/bin/convertAnimation examples/ipc/shell/shell-hang/anim.json
-build/base/bin/convertAnimation examples/ipc/shell/shell-drop/anim.json
-build/base/bin/convertAnimation examples/ipc/tet/box-hang/anim.json
-build/base/bin/convertAnimation examples/ipc/cubic/box-with-sphere/anim.json
-```
-
-For the full IPC case list and per-case notes, see [`examples/ipc/README.md`](./examples/ipc/README.md).
-
-Legacy penalty-based volume contact is available through the same entrypoint:
-
-```bash
-build/base/bin/runIPCSim --legacy path/to/legacy-volume-config.json
-```
-
-`runIPCSim` accepts both `"sim-type": "dynamic"` and `"sim-type": "static"`. Static mode performs a one-shot Newton solve from the rest state, writes the same unified `states/deform0000.u` and `surface/ret0000.obj` layout as dynamic mode, and does not support `restart-from-u`. Static output is written only after Newton convergence; unconstrained gravity-only static drops, including legacy penalty-contact drops without attachments, are expected to fail instead of producing a partial state.
-
-`--legacy` accepts the old volume JSON shape with either `tet-mesh` or `cubic-mesh` and uses the penalty contact model instead of IPC contact. Legacy static mode preserves the old volume static semantics: it solves elastic, attachment, and external-force energies without adding the legacy penalty contact energies. Shell legacy configs are no longer supported; use the IPC shell examples above for shell simulations.
-
-Solver status is reported through the shared `SolverResult` / `SolveStatus` API used by `NewtonSolver`, `EnergyOptimizer`, and `DynamicStepper`. Static runs require `Converged` before writing output. Dynamic implicit Euler accepts `Converged`, `MaxIterations`, and `StepTooSmall` timestep statuses, while other statuses are failures. External solvers keep backend-specific return codes in `SolverResult::rawStatusCode`.
-
-## Tools
-
-### Cubic Mesher
-
-`cubicMesher` converts a closed triangle surface mesh in `.obj` format into a cubic volumetric `.veg` mesh and can optionally export the extracted cubic surface as `.obj`.
-
-Build the tool:
-
-```bash
-cmake --preset base
-cmake --build --preset base --target cubicMesher
-```
-
-Basic usage:
-
-```bash
-build/base/bin/cubicMesher \
---input-mesh examples/ipc/cubic/box/box.obj \
---resolution 4 \
---output-mesh /tmp/libpgo-box.veg \
---output-surface /tmp/libpgo-box-surface.obj \
---E 10000000 \
---nu 0.45 \
---density 1000
-```
-
-Main arguments:
-
-- `--input-mesh`: input closed triangle mesh in `.obj`
-- `--resolution`: number of cubic cells along the shortest input AABB edge
-- `--output-mesh`: output cubic `.veg`
-- `--output-surface`: optional extracted surface `.obj`
-- `--E`, `--nu`, `--density`: isotropic material parameters written into the output mesh
-
-### Tet Mesher
-
-`tetMesher` converts a closed triangle surface mesh into a tetrahedral `.veg` simulation mesh from a JSON job config. The JSON selects the backend, backend parameters, input/output paths, and optional generated boundary surface export. Paths inside the config are resolved relative to the config file.
-
-Build `tetMesher` with the default `base` preset:
-
-```bash
-cmake --preset base
-cmake --build --preset base --target tetMesher
-```
-
-Run a tet meshing job:
-
-```bash
-build/base/bin/tetMesher --config path/to/tetmesh.json
-```
-
-Basic TetGen config:
-
-```json
-{
-  "version": 1,
-  "backend": "tetgen",
-  "input_mesh": "union_shell_remesh.obj",
-  "output_mesh": "union_shell_tetgen.veg",
-  "output_surface": "union_shell_tetgen_surface.obj",
-  "print_stats": true,
-  "tetgen": {
-    "command": "pq1.414a0.01"
-  }
-}
-```
-
-The fTetWild backend is optional. Enable it when configuring, then build it in the preset build tree:
-
-```bash
-cmake --preset base -DPGO_TET_MESHER_USE_TET_WILD=ON
-cmake --build --preset base --target tetMesher
-```
-
-Basic fTetWild config:
-
-```json
-{
-  "version": 1,
-  "backend": "tetwild",
-  "input_mesh": "union_shell_remesh.obj",
-  "output_mesh": "union_shell.veg",
-  "output_surface": "union_shell_tet_surface.obj",
-  "print_stats": true,
-  "quiet": true,
-  "tetwild": {
-    "lr": 0.05,
-    "epsr": 0.001,
-    "stop_energy": 10,
-    "max_threads": 8
-  }
-}
-```
-
-Config fields:
-
-- `backend`: `tetgen` or `tetwild`
-- `input_mesh`: input closed triangle mesh, typically `.obj`
-- `output_mesh`: output tetrahedral `.veg`
-- `output_surface`: optional generated tet boundary surface `.obj`
-- `print_stats`, `quiet`: optional shared booleans
-- `tetgen.command`: TetGen command string
-- `tetwild.lr` / `tetwild.la`: relative or absolute fTetWild target edge length
-- `tetwild.epsr`: fTetWild relative envelope tolerance
-- `tetwild.stop_energy`, `tetwild.max_threads`: fTetWild optimization controls
+For IPC scene assets and Python migration notes, see
+[`examples/ipc/README.md`](./examples/ipc/README.md).
 
 ## Third-party libraries
 

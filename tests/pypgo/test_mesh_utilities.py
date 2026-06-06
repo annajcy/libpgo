@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import pypgo as pgo
-from pypgo.tools.mesh import QualityReport, check_surface_quality
+from pypgo.mesh import QualityReport, check_surface_quality
 
 
 def standard_cube_vertices():
@@ -158,6 +158,61 @@ def test_surface_quality_detects_non_manifold_flipped_and_intersections():
     )
     assert check_surface_quality(crossing).has_self_intersections
     assert pgo._core.check_self_intersections(crossing._core_obj)
+
+
+def test_surface_cleanup_merges_close_vertices():
+    surface = pgo.mesh.TriMeshData(
+        np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1e-7, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            dtype=np.float64,
+        ),
+        np.array([[0, 2, 3]], dtype=np.int64),
+    )
+
+    result = pgo.mesh.merge_close_vertices(surface, eps=1e-6)
+
+    assert result.merged_vertices == 1
+    assert result.eps == pytest.approx(1e-6)
+    assert result.surface.num_vertices == 3
+    assert result.surface.num_elements == 1
+
+
+def test_raw_surface_cleanup_removes_degenerate_triangle_with_report():
+    surface = pgo.mesh.TriMeshData(
+        np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        ),
+        np.array(
+            [
+                [0, 2, 1],
+                [0, 1, 3],
+                [1, 2, 3],
+                [2, 0, 3],
+                [0, 0, 1],
+            ],
+            dtype=np.int64,
+        ),
+    )
+
+    result = pgo.mesh.raw_surface_cleanup(surface, expected_components=1)
+
+    assert result.surface.num_elements == 4
+    assert result.report.before.invalid_triangles == 1
+    assert result.report.after.invalid_triangles == 0
+    assert result.report.accepted_deletions == 1
+    assert result.report.cleanup_complete
+    assert result.report.topology_preserved
 
 
 def test_volume_mesh_extract_surface_mesh_for_tet_and_cubic():

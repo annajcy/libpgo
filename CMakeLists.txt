@@ -29,7 +29,7 @@ option(PGO_MKL_LINK_DYNAMIC "MKL Link" ON)
 option(PGO_ENABLE_ALEMBIC "Enable Alembic support" OFF)
 option(PGO_ENABLE_OPENVDB "Enable OpenVDB support" OFF)
 option(PGO_ENABLE_GMSH "Enable GMSH support" OFF)
-option(PGO_TET_MESHER_USE_TET_WILD "Enable fTetWild backend for tetMesher" OFF)
+option(PGO_TET_MESHER_USE_TET_WILD "Enable fTetWild backend for volumetric meshing" OFF)
 option(PGO_BUILD_TESTING "Build libpgo tests" OFF)
 
 project(libpgo LANGUAGES CXX C)

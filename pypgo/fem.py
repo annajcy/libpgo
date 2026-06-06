@@ -69,10 +69,10 @@ class KoiterShell:
 
 
 def _require_volume_mesh(volume):
-    from pypgo.mesh.veg import VolumeMesh
+    from pypgo.mesh.volume import VolumeMesh
 
     if not isinstance(volume, VolumeMesh):
-        raise TypeError(f"volume must be a pypgo.mesh.veg.VolumeMesh, got {type(volume).__name__}")
+        raise TypeError(f"volume must be a pypgo.mesh.volume.VolumeMesh, got {type(volume).__name__}")
 
 
 def _formulation_name(formulation) -> str:

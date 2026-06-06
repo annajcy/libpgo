@@ -43,7 +43,7 @@ CELLS = [
         import pypgo.fem as pf
         import pypgo.solver as ps
         from pypgo import vis
-        from pypgo.mesh.veg import VolumeMesh, read_veg
+        from pypgo.mesh.volume import VolumeMesh, read_veg
         """
     ),
     md(

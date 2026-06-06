@@ -192,8 +192,8 @@ CELLS = [
     ),
     code(
         """
-        material = pgo.mesh.veg.ENuMaterial("rubber", E=1e6, nu=0.35, density=1000.0)
-        volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet, material)
+        material = pgo.mesh.volume.ENuMaterial("rubber", E=1e6, nu=0.35, density=1000.0)
+        volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, material)
         embedding = pgo.mesh.geo.BarycentricEmbedding(
             np.array([[0.25, 0.25, 0.25]], dtype=np.float64),
             volume,

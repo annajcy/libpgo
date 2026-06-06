@@ -13,7 +13,7 @@ namespace AnimationIO
 {
 // Builds a per-frame OpenVDB scalar field from a tet-mesh simulation.
 //
-// Inputs (all written by tools/runSim/runIPCSim):
+// Inputs:
 //   - .veg volumetric mesh (rest configuration)
 //   - per-frame deformation files: deform{frame:04d}.u
 //       each .u stores a (3*numVertices) x 3 matrix; columns are [u, uvel, uacc]
@@ -31,14 +31,14 @@ public:
 
   int loadTetMesh(const char *vegFilename);
 
-  // Loads the deformation sequence written by runIPCSim.
+  // Loads a deformation sequence.
   // `folderPath` is the "states" subfolder; `pattern` is a fmt-style pattern
   // for the per-frame file name (e.g. "deform{:04d}.u"). Frames in
   // [frameStart, frameEnd) are loaded.
   int loadDeformationSequence(const char *folderPath, const char *pattern,
     int frameStart, int frameEnd);
 
-  // Loads the von Mises stress sequence written by runIPCSim.
+  // Loads a von Mises stress sequence.
   // `folderPath` is the "stress" subfolder; `pattern` is a fmt-style pattern
   // for the per-frame file name (e.g. "von_mises{:04d}.json").
   int loadVonMisesSequence(const char *folderPath, const char *pattern,

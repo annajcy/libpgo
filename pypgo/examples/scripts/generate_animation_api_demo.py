@@ -21,17 +21,16 @@ CELLS = [
         **Animation export (Alembic)**
         | API | Description |
         |---|---|
-        | `_core.dump_abc` | Low-level Alembic writer |
-        | `AnimationSequence` + `process_sequence` | High-level per-sequence export |
-        | `convert_animation` | JSON-config-driven multi-sequence export |
+        | `AbcWriter` | Incremental Alembic writer |
+        | `dump_animation` | JSON-config-driven export (one-shot) |
 
         **Stress field**
         | API | Module | Requires |
         |---|---|---|
-        | `compute_stress_field_stats` | `pypgo.tools.stress` | NumPy only |
+        | `compute_stress_field_stats` | `pypgo.stress` | NumPy only |
         | `dump_stress_vdb` | `pypgo.animation` | OpenVDB build |
 
-        Both pipelines consume the output layout written by `runIPCSim`:
+        Both pipelines consume the standard simulation output layout:
 
         ```
         sim_output/
@@ -52,20 +51,19 @@ CELLS = [
 
         import numpy as np
         import pypgo as pgo
-        import pypgo._core as _core
 
         from pypgo.animation import (
-            AnimationSequence,
-            convert_animation,
+            AbcWriter,
+            dump_animation,
             dump_stress_vdb,
+            has_animation_io,
             has_stress_vdb_export,
-            process_sequence,
             read_u_file,
             write_u_file,
         )
         from pypgo.mesh import TriMeshData
-        from pypgo.mesh.veg import read_veg
-        from pypgo.tools.stress import compute_stress_field_stats
+        from pypgo.mesh.volume import read_veg
+        from pypgo.stress import compute_stress_field_stats
         from pypgo.vis import plot_surface
 
         def _find_repo_root() -> Path:
@@ -81,7 +79,7 @@ CELLS = [
 
         tmpdir = Path(tempfile.mkdtemp())
 
-        print("Animation IO available :", _core.has_animation_io())
+        print("Animation IO available :", has_animation_io())
         print("Stress VDB available   :", has_stress_vdb_export())
         """
     ),
@@ -135,61 +133,62 @@ CELLS = [
     ),
     md(
         """
-        ## 3. Low-level export: `_core.dump_abc`
+        ## 3. Incremental export: `AbcWriter`
 
-        `dump_abc` is the thin C++ wrapper around the Alembic writer.
-
-        - `rest_positions` — flat `list[float]`, length `3 × n_verts`
-        - `displacements`  — `list[list[float]]`, one inner list per frame (delta from rest)
-        - `triangles`      — `list[list[int]]`, one inner list of three indices per face
+        ``AbcWriter`` accumulates displacement frames one at a time and writes
+        the ``.abc`` file in one shot. Use it as a context manager for automatic
+        finalisation, or call ``add_frame`` / ``write`` manually.
         """
     ),
     code(
         """
         abc_low = tmpdir / "box_lowlevel.abc"
 
-        _core.dump_abc(
-            str(abc_low),
-            "box",
-            box.vertices.astype(np.float32).ravel().tolist(),
-            [displacements[f].astype(np.float32).tolist() for f in range(N_FRAMES)],
-            box.elements.tolist(),
-        )
+        with AbcWriter(abc_low, "box",
+                       rest_positions=box.vertices.ravel(),
+                       triangles=box.elements.ravel()) as w:
+            for f in range(N_FRAMES):
+                w.add_frame(displacements[f])
 
         print(f"Written: {abc_low}  ({abc_low.stat().st_size / 1024:.1f} KB)")
         """
     ),
     md(
         """
-        ## 4. High-level export: `AnimationSequence` + `process_sequence`
+        ## 4. Config-driven export: `dump_animation`
 
-        The high-level API reads displacements from `.u` Eigen binary files on disk,
-        matching the `runIPCSim` output convention.
+        ``dump_animation`` is the one-shot convenience: it loads a JSON config
+        file and exports all meshes to the target folder in one call.
 
-        **`.u` format:** header `(nrows, ncols, entry_size=8)` as three `int32`,
-        followed by column-major `float64` data. `write_u_file` / `read_u_file`
-        handle both reading and writing from Python.
+        Here we use ``"sequence-type": "objmesh"`` — each frame is an
+        individual ``.obj`` file containing the deformed vertex positions.
         """
     ),
     code(
         """
-        u_dir = tmpdir / "u_files"
-        u_dir.mkdir()
+        frame_dir = tmpdir / "obj_frames"
+        frame_dir.mkdir()
 
         for f in range(N_FRAMES):
-            write_u_file(u_dir / f"frame_{f:04d}.u", displacements[f])
+            frame_verts = rest_verts + displacements[f].reshape(-1, 3)
+            pgo.mesh.write_obj(str(frame_dir / f"frame_{f:04d}.obj"),
+                               TriMeshData(frame_verts, box.elements))
 
-        loaded = read_u_file(u_dir / "frame_0000.u")
-        print("round-trip check:", np.allclose(loaded[:, 0], displacements[0]))
+        config_single = {
+            "meshes": [
+                {
+                    "name": "box_oscillation",
+                    "driving-mesh": str(ASSET_DIR / "box.obj"),
+                    "sequence": str(frame_dir / "frame_{:04d}.obj"),
+                    "sequence-type": "objmesh",
+                    "sequence-range": [0, N_FRAMES],
+                }
+            ]
+        }
+        json_path = tmpdir / "config_single.json"
+        json_path.write_text(json.dumps(config_single, indent=2))
 
-        seq = AnimationSequence(
-            name="box_oscillation",
-            driving_mesh=str(ASSET_DIR / "box.obj"),
-            sequence=str(u_dir / "frame_{:04d}.u"),
-            sequence_type="u",
-            sequence_range=(0, N_FRAMES),
-        )
-        process_sequence(seq, tmpdir)
+        dump_animation(json_path, tmpdir)
 
         abc_hl = tmpdir / "box_oscillation.abc"
         print(f"Written: {abc_hl}  ({abc_hl.stat().st_size / 1024:.1f} KB)")
@@ -197,29 +196,29 @@ CELLS = [
     ),
     md(
         """
-        ## 5. Multi-sequence export: `convert_animation`
+        ## 5. Multi-sequence export with `dump_animation`
 
-        `convert_animation` accepts a JSON config dict (same format as the C++
-        `convertAnimation` tool). Each `"meshes"` entry becomes one `.abc` file.
+        Multiple meshes can be exported by listing them in the same JSON config.
+        Each ``"meshes"`` entry becomes one ``.abc`` file.
         """
     ),
     code(
         """
-        config = {
+        config_multi = {
             "meshes": [
                 {
                     "name": "box_sin",
                     "driving-mesh": str(ASSET_DIR / "box.obj"),
-                    "sequence": str(u_dir / "frame_{:04d}.u"),
-                    "sequence-type": "u",
+                    "sequence": str(frame_dir / "frame_{:04d}.obj"),
+                    "sequence-type": "objmesh",
                     "sequence-range": [0, N_FRAMES],
                     "scale": "1,1,1",
                 },
                 {
                     "name": "box_sin_half",
                     "driving-mesh": str(ASSET_DIR / "box.obj"),
-                    "sequence": str(u_dir / "frame_{:04d}.u"),
-                    "sequence-type": "u",
+                    "sequence": str(frame_dir / "frame_{:04d}.obj"),
+                    "sequence-type": "objmesh",
                     "sequence-range": [0, N_FRAMES],
                     "gap": 2,
                     "scale": "1,1,0.5",
@@ -228,7 +227,10 @@ CELLS = [
         }
 
         out_dir = tmpdir / "multi"
-        convert_animation(config, output_folder=out_dir)
+        json_multi = tmpdir / "config_multi.json"
+        json_multi.write_text(json.dumps(config_multi, indent=2))
+
+        dump_animation(json_multi, out_dir)
 
         for abc in sorted(out_dir.glob("*.abc")):
             print(f"  {abc.name}  ({abc.stat().st_size / 1024:.1f} KB)")
@@ -236,40 +238,9 @@ CELLS = [
     ),
     md(
         """
-        ## 6. `"objmesh"` sequence type
+        ## 6. Synthetic stress simulation data
 
-        When per-frame geometry is stored as individual `.obj` files, set
-        `sequence_type="objmesh"`. Displacement = `frame_vertices − rest_vertices`.
-        """
-    ),
-    code(
-        """
-        obj_dir = tmpdir / "obj_frames"
-        obj_dir.mkdir()
-
-        for f in range(N_FRAMES):
-            frame_verts = rest_verts + displacements[f].reshape(-1, 3)
-            pgo.mesh.write_obj(str(obj_dir / f"frame_{f:04d}.obj"),
-                               TriMeshData(frame_verts, box.elements))
-
-        seq_obj = AnimationSequence(
-            name="box_objmesh",
-            driving_mesh=str(ASSET_DIR / "box.obj"),
-            sequence=str(obj_dir / "frame_{:04d}.obj"),
-            sequence_type="objmesh",
-            sequence_range=(0, N_FRAMES),
-        )
-        process_sequence(seq_obj, tmpdir)
-
-        abc_obj = tmpdir / "box_objmesh.abc"
-        print(f"Written: {abc_obj}  ({abc_obj.stat().st_size / 1024:.1f} KB)")
-        """
-    ),
-    md(
-        """
-        ## 7. Synthetic stress simulation data
-
-        The stress pipeline expects the `runIPCSim` output layout. Here we generate
+        The stress pipeline expects the standard simulation output layout. Here we generate
         synthetic data from `bunny.veg`:
 
         - **Displacements** — a "breathing" animation: vertices oscillate radially
@@ -321,10 +292,10 @@ CELLS = [
     ),
     md(
         """
-        ## 8. `compute_stress_field_stats`
+        ## 7. `compute_stress_field_stats`
 
         Aggregates per-frame statistics (min, mean, stddev, median, p99, max)
-        and saves a single summary JSON matching the C++ `computeStressFieldStats`
+        and saves a single summary JSON with stress statistics
         tool format exactly. Works for **any mesh type** — tet or cubic — because
         it only reads the JSON files and is mesh-agnostic.
         """
@@ -389,7 +360,7 @@ CELLS = [
     ),
     md(
         """
-        ## 9. `dump_stress_vdb` — OpenVDB export
+        ## 8. `dump_stress_vdb` — OpenVDB export
 
         `dump_stress_vdb` reads the `states/` and `stress/` layout and writes one
         `.vdb` file per frame. Each file contains a `FloatGrid` named `"von_mises"`
@@ -397,7 +368,7 @@ CELLS = [
 
         > **Tet-only limitation.** `dump_stress_vdb` uses `StressFieldVDBExporter`
         > internally, which only supports **tetrahedral** meshes. Cubic hex meshes
-        > are not supported for VDB export. Use `compute_stress_field_stats` (section 8)
+        > are not supported for VDB export. Use `compute_stress_field_stats` (section 7)
         > for mesh-agnostic per-frame statistics on hex outputs.
 
         `voxel_size=0.0` auto-derives the voxel size from ~½ the rest mesh's average
@@ -432,7 +403,7 @@ CELLS = [
     ),
     md(
         """
-        ## 10. Cleanup
+        ## 9. Cleanup
         """
     ),
     code(

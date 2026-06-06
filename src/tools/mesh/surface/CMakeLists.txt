@@ -1,2 +1,0 @@
-add_subdirectory(remeshSurface)
-add_subdirectory(meshQualityCheck)

@@ -24,6 +24,9 @@
 #include "triangleMeshVoxelizer.h"
 #include "triMeshGeo.h"
 #include "triMeshNeighbor.h"
+#ifdef PYPGO_HAS_CGAL
+#include "cgalInterface.h"
+#endif
 
 namespace nb = nanobind;
 using namespace pgo;
@@ -102,6 +105,52 @@ Mesh::MeshData<K> exportVolumeMeshData(const VolumeMeshT &mesh)
   mesh.exportMeshGeometry(vertices, elements);
   return Mesh::MeshData<K>::fromFlatElements(std::move(vertices), std::move(elements));
 }
+
+#ifdef PYPGO_HAS_CGAL
+nb::dict rawCleanupStatsToDict(const CGALInterface::RawSurfaceCleanupStats &stats)
+{
+  nb::dict d;
+  d[nb::str("vertices")] = stats.vertices;
+  d[nb::str("triangles")] = stats.triangles;
+  d[nb::str("invalid_triangles")] = stats.invalidTriangles;
+  d[nb::str("components")] = stats.components;
+  d[nb::str("boundary_or_nonmanifold_edges")] = stats.boundaryOrNonmanifoldEdges;
+  d[nb::str("is_manifold")] = stats.isManifold;
+  return d;
+}
+
+nb::dict rawCleanupReportToDict(const CGALInterface::RawSurfaceCleanupReport &report)
+{
+  nb::dict d;
+  d[nb::str("expected_components")] = report.expectedComponents;
+  d[nb::str("short_edge_threshold")] = report.shortEdgeThreshold;
+  d[nb::str("max_passes")] = report.maxPasses;
+  d[nb::str("max_collapses")] = report.maxCollapses;
+  d[nb::str("before")] = rawCleanupStatsToDict(report.before);
+  d[nb::str("after")] = rawCleanupStatsToDict(report.after);
+  d[nb::str("vertices_before")] = report.before.vertices;
+  d[nb::str("vertices_after")] = report.after.vertices;
+  d[nb::str("triangles_before")] = report.before.triangles;
+  d[nb::str("triangles_after")] = report.after.triangles;
+  d[nb::str("invalid_triangles_before")] = report.before.invalidTriangles;
+  d[nb::str("invalid_triangles_after")] = report.after.invalidTriangles;
+  d[nb::str("components_before")] = report.before.components;
+  d[nb::str("components_after")] = report.after.components;
+  d[nb::str("boundary_or_nonmanifold_edges_before")] = report.before.boundaryOrNonmanifoldEdges;
+  d[nb::str("boundary_or_nonmanifold_edges_after")] = report.after.boundaryOrNonmanifoldEdges;
+  d[nb::str("is_manifold_before")] = report.before.isManifold;
+  d[nb::str("is_manifold_after")] = report.after.isManifold;
+  d[nb::str("topology_preserved")] = report.topologyPreserved;
+  d[nb::str("cleanup_complete")] = report.cleanupComplete;
+  d[nb::str("attempted_deletions")] = report.attemptedDeletions;
+  d[nb::str("accepted_deletions")] = report.acceptedDeletions;
+  d[nb::str("attempted_collapses")] = report.attemptedCollapses;
+  d[nb::str("accepted_collapses")] = report.acceptedCollapses;
+  d[nb::str("rejected_by_topology")] = report.rejectedByTopology;
+  d[nb::str("rejected_by_invalid_count")] = report.rejectedByInvalidCount;
+  return d;
+}
+#endif
 
 }  // namespace
 
@@ -452,6 +501,41 @@ void init_mesh_geo_bindings(nb::module_ &m)
       return Mesh::removeIsolatedVertices(mesh.ref()).toMeshData();
     },
     nb::arg("surface"));
+
+#ifdef PYPGO_HAS_CGAL
+  m.def("surface_merge_close_vertices",
+    [](const Mesh::MeshData<3> &surface, double eps) {
+      Mesh::TriMeshGeo mesh(surface);
+      CGALInterface::MergeCloseVerticesResult result;
+      {
+        nb::gil_scoped_release release;
+        result = CGALInterface::mergeCloseVertices(mesh, eps);
+      }
+      return nb::make_tuple(result.mesh.toMeshData(), result.mergedVertices, result.eps);
+    },
+    nb::arg("surface"), nb::arg("eps") = -1.0);
+
+  m.def("raw_surface_cleanup",
+    [](const Mesh::MeshData<3> &surface, int expected_components, double short_edge_threshold,
+      int max_passes, int max_collapses) {
+      Mesh::TriMeshGeo mesh(surface);
+      CGALInterface::RawSurfaceCleanupOptions options;
+      options.expectedComponents = expected_components;
+      options.shortEdgeThreshold = short_edge_threshold;
+      options.maxPasses = max_passes;
+      options.maxCollapses = max_collapses;
+
+      CGALInterface::RawSurfaceCleanupResult result;
+      {
+        nb::gil_scoped_release release;
+        result = CGALInterface::rawSurfaceCleanup(mesh, options);
+      }
+      return nb::make_tuple(result.mesh.toMeshData(), rawCleanupReportToDict(result.report));
+    },
+    nb::arg("surface"), nb::arg("expected_components") = -1,
+    nb::arg("short_edge_threshold") = 1e-5, nb::arg("max_passes") = 3,
+    nb::arg("max_collapses") = 10000);
+#endif
 
   m.def("cgal_smooth_surface",
     [](const Mesh::MeshData<3> &surface, int num_iter, double sharp_angle) {

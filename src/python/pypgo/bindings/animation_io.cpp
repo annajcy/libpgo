@@ -1,4 +1,5 @@
 #include "abcWriter.h"
+#include "animationLoader.h"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
@@ -14,10 +15,8 @@ void init_animation_bindings(nb::module_ &m)
 {
     m.def("has_animation_io", []() { return true; });
 
-    // dump_abc(filename, name, rest_positions, displacements, triangles)
-    // rest_positions : flat float list, length 3*n_verts
-    // displacements  : list of n_frames flat float lists, each 3*n_verts
-    // triangles      : list of n_tri [i,j,k] lists
+    // ---------- low-level Alembic writer ----------
+
     m.def("dump_abc",
         [](const std::string &filename,
            const std::string &name,
@@ -31,6 +30,25 @@ void init_animation_bindings(nb::module_ &m)
         },
         nb::arg("filename"), nb::arg("name"),
         nb::arg("rest_positions"), nb::arg("displacements"), nb::arg("triangles"));
+
+    // ---------- AnimationLoader — config-driven pipeline ----------
+
+    nb::class_<pgo::AnimationIO::AnimationLoader>(m, "PyAnimationLoader")
+        .def(nb::init<>())
+        .def("load",
+            [](pgo::AnimationIO::AnimationLoader &self, const std::string &filename) {
+                nb::gil_scoped_release release;
+                return self.load(filename.c_str());
+            },
+            nb::arg("filename"))
+        .def("save_abc",
+            [](pgo::AnimationIO::AnimationLoader &self, const std::string &prefix) {
+                nb::gil_scoped_release release;
+                return self.saveABC(prefix.c_str());
+            },
+            nb::arg("prefix"));
+
+    // ---------- Stress VDB exporter ----------
 
 #if defined(PYPGO_HAS_STRESS_VDB)
     m.def("has_stress_vdb_export", []() { return true; });
