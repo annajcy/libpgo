@@ -17,7 +17,7 @@
 #include "deformation/deformationModelManager.h"
 #include "basicIO.h"
 #include "deformation/deformationModelAssembler.h"
-#include "deformation/deformationModelEnergy.h"
+#include "energy/deformationModelEnergy.h"
 #include "plastic/plasticModel.h"
 #include "plastic/plasticModel3DDeformationGradient.h"
 #include "multiVertexPullingSoftConstraints.h"

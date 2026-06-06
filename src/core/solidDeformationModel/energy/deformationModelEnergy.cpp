@@ -3,7 +3,7 @@ author: Bohan Wang
 copyright to USC,MIT,NUS
 */
 
-#include "deformation/deformationModelEnergy.h"
+#include "energy/deformationModelEnergy.h"
 
 #include "deformation/deformationModelAssembler.h"
 #include "scopedProfileSection.h"

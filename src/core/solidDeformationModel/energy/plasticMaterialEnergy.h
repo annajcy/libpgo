@@ -5,7 +5,7 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
-#include "deformation/deformationModelEnergy.h"
+#include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelState.h"
 #include "potentialEnergy.h"
 

@@ -12,14 +12,14 @@
 #include <utility>
 #include <vector>
 
-#include "deformation/deformationModelBuilder.h"
+#include "energy/deformationEnergyBuilder.h"
 #include "deformation/deformationModelState.h"
 #include "deformation/deformationModelAssembler.h"
-#include "deformation/deformationModelEnergy.h"
+#include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/parameters/parameterField.h"
 #include "elastic/elasticModelFactory.h"
-#include "deformation/plasticMaterialEnergy.h"
+#include "energy/plasticMaterialEnergy.h"
 #include "constraints/constraint_core.h"
 #include "EigenDef.h"
 #include "core.h"

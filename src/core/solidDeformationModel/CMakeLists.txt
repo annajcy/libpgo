@@ -10,8 +10,9 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   elastic/elasticModel3DMooneyRivlin.h
   elastic/elasticModel3DSTVKMaterial.h
 
-  # elastic/elasticModel1DQuadratic.h
-  # elastic/elasticModel1DCubicSpline.h
+
+  elastic/elasticModel1DQuadratic.h
+  elastic/elasticModel1DCubicSpline.h
 
   elastic/elasticModel2DFundamentalForms.h
   elastic/elasticModel2DFundamentalFormsFabric.h
@@ -33,15 +34,17 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   deformation/materialMaxStepPolynomialUtils.h
   deformation/deformationModelManager.h
 
-  deformation/deformationModelEnergy.h
-  deformation/plasticMaterialEnergy.h
   deformation/deformationModelAssembler.h
   deformation/deformationModelAssemblerCacheData.h
-  deformation/deformationModelBuilder.h
   deformation/deformationModelState.h
   deformation/hessianMatrixHandle.h
 
+  energy/deformationModelEnergy.h
+  energy/plasticMaterialEnergy.h
+  energy/deformationEnergyBuilder.h
+
   simulation/simulationMesh.h
+  simulation/simulationMeshMaterial.h
   constraints/tetVolumeConstraintFunctions.h
   simulation/tetMeshOccupation.h
 
@@ -94,8 +97,8 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   elastic/elasticModel3DMooneyRivlin.cpp
   elastic/elasticModel3DSTVKMaterial.cpp
 
-  # elastic/elasticModel1DQuadratic.cpp
-  # elastic/elasticModel1DCubicSpline.cpp
+  elastic/elasticModel1DQuadratic.cpp
+  elastic/elasticModel1DCubicSpline.cpp
 
   elastic/elasticModel2DFundamentalFormsFabric.cpp
   elastic/elasticModel2DFundamentalFormsSTVK.cpp
@@ -135,11 +138,12 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   deformation/deformationModelManager.cpp
 
-  deformation/deformationModelEnergy.cpp
-  deformation/plasticMaterialEnergy.cpp
   deformation/deformationModelAssembler.cpp
-  deformation/deformationModelBuilder.cpp
   deformation/deformationModelState.cpp
+
+  energy/deformationModelEnergy.cpp
+  energy/plasticMaterialEnergy.cpp
+  energy/deformationEnergyBuilder.cpp
 
   elastic/elasticModelFactory.cpp
   plastic/plasticModelFactory.cpp

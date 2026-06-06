@@ -2,6 +2,17 @@
 
 #include "simulation/simulationMesh.h"
 #include "elastic/elasticModel.h"
+#include "elastic/elasticModelLinearMaterial.h"
+#include "elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "elastic/elasticModel3DSTVKMaterial.h"
+#include "elastic/elasticModelInvariantBasedMaterial.h"
+#include "elastic/invariantBasedMaterialStVK.h"
+#include "elastic/elasticModelVolumeMaterial.h"
+#include "elastic/elasticModelCombinedMaterial.h"
+#include "elastic/elasticModelHillTypeMaterial.h"
+#include "elastic/elasticModel2DFundamentalFormsFabric.h"
+#include "elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "elastic/elasticModel3DMooneyRivlin.h"
 #include "formulations/parameters/elementwiseParameterField.h"
 #include "formulations/parameters/constantParameterField.h"
 
@@ -17,11 +28,79 @@ std::unique_ptr<ElasticModel> ElasticModelFactory::create(
   DeformationModelElasticMaterial type,
   const double *fiberDirection)
 {
+  const auto *mat = mesh.getElementMaterial(ele, 0);
   const SimulationMeshMaterial *auxMat = nullptr;
   if (mesh.getElementNumMaterials(ele) > 1)
     auxMat = mesh.getElementMaterial(ele, 1);
 
-  return mesh.getElementMaterial(ele, 0)->createElasticModel(type, fiberDirection, auxMat);
+  // --- ENuMaterial-based types ---
+  if (const auto *enu = dynamic_cast<const SimulationMeshENuMaterial *>(mat)) {
+    const double mu = enu->getMuLame();
+    const double lam = enu->getLambdaLame();
+    const double E = enu->getE();
+    const double nu = enu->getNu();
+    const double J = enu->getCompressionRatio();
+
+    switch (type) {
+    case DeformationModelElasticMaterial::LINEAR:
+      return std::make_unique<ElasticModelLinearMaterial>(mu, lam);
+    case DeformationModelElasticMaterial::STABLE_NEO:
+      return std::make_unique<ElasticModelStableNeoHookeanMaterial>(mu, lam);
+    case DeformationModelElasticMaterial::STVK:
+      return std::make_unique<ElasticModel3DSTVKMaterial>(mu, lam);
+    case DeformationModelElasticMaterial::INV_STVK:
+      return std::make_unique<ElasticModelInvariantBasedMaterial>(
+        std::make_unique<InvariantBasedMaterialStVK>(E, nu, J));
+    case DeformationModelElasticMaterial::VOLUME:
+      return std::make_unique<ElasticModelVolumeMaterial>(J);
+    case DeformationModelElasticMaterial::STVK_VOL:
+      return std::make_unique<ElasticModelCombinedMaterial<2>>(
+        std::make_unique<ElasticModelInvariantBasedMaterial>(
+          std::make_unique<InvariantBasedMaterialStVK>(E, nu, J)),
+        std::make_unique<ElasticModelVolumeMaterial>(J));
+    case DeformationModelElasticMaterial::HILL_STABLE_NEO: {
+      const auto *hill = dynamic_cast<const SimulationMeshHillMaterial *>(auxMat);
+      if (!hill) throw std::invalid_argument("HILL_STABLE_NEO requires auxMat of type SimulationMeshHillMaterial");
+      return std::make_unique<ElasticModelCombinedMaterial<2>>(
+        std::make_unique<ElasticModelStableNeoHookeanMaterial>(mu, lam),
+        std::make_unique<ElasticModelHillTypeMaterial>(hill->getGamma(), hill->getEact(), hill->getLo(), fiberDirection));
+    }
+    case DeformationModelElasticMaterial::HILL_STVK: {
+      const auto *hill = dynamic_cast<const SimulationMeshHillMaterial *>(auxMat);
+      if (!hill) throw std::invalid_argument("HILL_STVK requires auxMat of type SimulationMeshHillMaterial");
+      return std::make_unique<ElasticModelCombinedMaterial<2>>(
+        std::make_unique<ElasticModelInvariantBasedMaterial>(
+          std::make_unique<InvariantBasedMaterialStVK>(E, nu, J)),
+        std::make_unique<ElasticModelHillTypeMaterial>(hill->getGamma(), hill->getEact(), hill->getLo(), fiberDirection));
+    }
+    case DeformationModelElasticMaterial::HILL_STVK_VOL: {
+      const auto *hill = dynamic_cast<const SimulationMeshHillMaterial *>(auxMat);
+      if (!hill) throw std::invalid_argument("HILL_STVK_VOL requires auxMat of type SimulationMeshHillMaterial");
+      return std::make_unique<ElasticModelCombinedMaterial<3>>(
+        std::make_unique<ElasticModelInvariantBasedMaterial>(
+          std::make_unique<InvariantBasedMaterialStVK>(E, nu, J)),
+        std::make_unique<ElasticModelHillTypeMaterial>(hill->getGamma(), hill->getEact(), hill->getLo(), fiberDirection),
+        std::make_unique<ElasticModelVolumeMaterial>(J));
+    }
+    case DeformationModelElasticMaterial::KOITER_FABRIC: {
+      ES::V2d dir0(1, 0), dir1(0, 1);
+      return std::make_unique<ElasticModel2DFundamentalFormsFabric>(dir0, dir1);
+    }
+    case DeformationModelElasticMaterial::KOITER_STVK:
+      return std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
+    default:
+      break;
+    }
+  }
+
+  // --- MooneyRivlinMaterial ---
+  if (const auto *mr = dynamic_cast<const SimulationMeshMooneyRivlinMaterial *>(mat)) {
+    if (type == DeformationModelElasticMaterial::MOONEY_RIVLIN)
+      return std::make_unique<ElasticModel3DMooneyRivlin>(mr->getN(), mr->getC(), mr->getM(), mr->getD());
+  }
+
+  throw std::invalid_argument(
+    "ElasticModelFactory::create: unsupported combination of material class and elastic model type");
 }
 
 std::string ElasticModelFactory::modelId(DeformationModelElasticMaterial type)
@@ -80,9 +159,6 @@ ParameterFieldSpec ElasticModelFactory::parameterSpec(
   ParameterFieldSpec spec;
   spec.domain = ParameterDomain::ELASTIC;
   spec.modelId = modelId(type);
-  // Single source of truth: the channel count is the created model's differentiable
-  // parameter count. The fiber direction is irrelevant to the count (Hill reports 1
-  // regardless), so a dummy axis is sufficient to instantiate the model.
   const double dummyFiber[3] = { 1.0, 0.0, 0.0 };
   spec.numChannels = create(mesh, 0, type, dummyFiber)->getNumParameters();
   if (type == DeformationModelElasticMaterial::KOITER_STVK && spec.numChannels == 5) {
@@ -128,8 +204,6 @@ std::shared_ptr<OptimizableField> ElasticModelFactory::createDefaultConstantFiel
   DeformationModelElasticMaterial type)
 {
   const auto spec = parameterSpec(mesh, type);
-  // Seed the shared values from element 0's material (first segment of the
-  // per-element default initialization).
   ES::VXd perElement = initializeDefaultElasticParams(mesh, type, spec.numChannels);
   ES::VXd values = spec.numChannels > 0 ? ES::VXd(perElement.head(spec.numChannels)) : ES::VXd();
   return std::make_shared<ConstantParameterField>(spec, mesh.getNumElements(), std::move(values));
@@ -154,16 +228,12 @@ ES::VXd ElasticModelFactory::initializeDefaultElasticParams(
 
   if (numElasticParams > 0) {
     elasticParams.setZero();
-    // Basic 3D materials (StableNeo/StVK/Linear/InvStVK/Volume/StVK_Vol) expose no
-    // differentiable elastic parameters, so numElasticParams is 0 for them and they
-    // never reach this block; only Hill (1) and the Koiter shell materials (5/12)
-    // have an optimizable elastic field to seed.
     if (elastic == DeformationModelElasticMaterial::KOITER_STVK) {
       for (int ei = 0; ei < nele; ei++) {
         const auto *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(mesh.getElementMaterial(ei, 0));
         if (!mat)
           throw std::runtime_error("ElasticModelFactory::initializeDefaultElasticParams: KOITER_STVK requires SimulationMeshENuhMaterial.");
-        elasticParams.segment<5>(ei * 5) << mat->getE(), mat->getNu(), mat->getE(), mat->getNu(), mat->geth();
+        elasticParams.segment<5>(static_cast<Eigen::Index>(ei) * 5) << mat->getE(), mat->getNu(), mat->getE(), mat->getNu(), mat->geth();
       }
     }
     else if (elastic == DeformationModelElasticMaterial::KOITER_FABRIC) {
@@ -171,7 +241,7 @@ ES::VXd ElasticModelFactory::initializeDefaultElasticParams(
         const auto *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(mesh.getElementMaterial(ei, 0));
         if (!mat)
           throw std::runtime_error("ElasticModelFactory::initializeDefaultElasticParams: KOITER_FABRIC requires SimulationMeshENuhMaterial.");
-        elasticParams.segment<12>(ei * 12) << 1.0, 1.0, 1.0, 1.0,
+        elasticParams.segment<12>(static_cast<Eigen::Index>(ei) * 12) << 1.0, 1.0, 1.0, 1.0,
           1.0, 1.0, 1.0,
           1000.0, 1000.0, 1000.0,
           1.0, mat->geth();

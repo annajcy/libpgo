@@ -9,7 +9,7 @@ copyright to USC
 #include "EigenSupport.h"
 
 #include "formulations/formulation.h"
-#include "deformation/deformationModelEnergy.h"
+#include "energy/deformationModelEnergy.h"
 
 #include <memory>
 

@@ -3,7 +3,7 @@ author: Bohan Wang
 copyright to USC,MIT,NUS
 */
 
-#include "deformation/plasticMaterialEnergy.h"
+#include "energy/plasticMaterialEnergy.h"
 
 #include "deformation/deformationModelAssembler.h"
 

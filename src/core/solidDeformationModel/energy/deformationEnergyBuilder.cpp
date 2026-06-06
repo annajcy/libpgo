@@ -2,7 +2,7 @@
 author: Bohan Wang
 copyright to USC
 */
-#include "deformation/deformationModelBuilder.h"
+#include "energy/deformationEnergyBuilder.h"
 
 #include "simulation/simulationMesh.h"
 #include "deformation/deformationModelState.h"
