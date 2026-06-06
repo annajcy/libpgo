@@ -7,6 +7,11 @@
 
 namespace pgo
 {
+namespace VolumetricMeshes
+{
+class VolumetricMesh;
+}
+
 namespace SolidDeformationModel
 {
 
@@ -76,6 +81,20 @@ public:
     const SimulationMesh &mesh, int ele,
     std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
     const ParameterField *elasticParams, const ParameterField *plasticParams) const override;
+
+  // Formulation-aware dynamics operators.
+  //
+  // Default (VolumetricFormulation): standard lumped-mass / barycentric interpolation path
+  // using GenerateMassMatrix and BarycentricCoordinates.  TricubicHermiteFormulation
+  // overrides with Hermite-specific operators.
+  virtual EigenSupport::SpMatD buildMassMatrix(
+    const VolumetricMeshes::VolumetricMesh &mesh) const;
+  virtual EigenSupport::VXd buildBodyForce(
+    const VolumetricMeshes::VolumetricMesh &mesh,
+    const EigenSupport::V3d &acceleration) const;
+  virtual EigenSupport::SpMatD buildSurfaceEmbeddingMatrix(
+    const VolumetricMeshes::VolumetricMesh &mesh,
+    const EigenSupport::MXd &surfaceVertices) const;
 
 private:
   std::unique_ptr<Basis> basis_;
@@ -156,6 +175,15 @@ public:
 
   std::unique_ptr<DofLayout> createDofLayout(const SimulationMesh &mesh) const override;
   EigenSupport::VXd buildGlobalRestDofs(const SimulationMesh &mesh) const override;
+
+  EigenSupport::SpMatD buildMassMatrix(
+    const VolumetricMeshes::VolumetricMesh &mesh) const override;
+  EigenSupport::VXd buildBodyForce(
+    const VolumetricMeshes::VolumetricMesh &mesh,
+    const EigenSupport::V3d &acceleration) const override;
+  EigenSupport::SpMatD buildSurfaceEmbeddingMatrix(
+    const VolumetricMeshes::VolumetricMesh &mesh,
+    const EigenSupport::MXd &surfaceVertices) const override;
 
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,

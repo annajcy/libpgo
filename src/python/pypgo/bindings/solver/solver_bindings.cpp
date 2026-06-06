@@ -5,7 +5,7 @@
 #include <nanobind/stl/vector.h>
 
 #include "eigen_numpy.h"
-#include "energy_core.h"
+#include "../energy/core.h"
 #include "solver/newton/NewtonOptimizer.h"
 #include "solver/service/optimizerUtils.h"
 

@@ -5,7 +5,7 @@
 #include "constraint_core.h"
 #include "constraints/constraintSet.h"
 #include "constraints/linearConstraintFunctions.h"
-#include "sparse_matrix_core.h"
+#include "../sparse/core.h"
 
 #include <memory>
 #include <stdexcept>

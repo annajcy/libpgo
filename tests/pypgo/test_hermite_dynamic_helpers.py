@@ -22,8 +22,8 @@ def _single_cube_volume(*, density=2.0):
     )
     elements = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
     mesh = pgo.mesh.CubicMeshData(vertices, elements)
-    material = pgo.mesh.veg.ENuMaterial(density=density, E=1e6, nu=0.45)
-    return pgo.mesh.veg.VolumeMesh.create_from_single_material(mesh, material)
+    material = pgo.mesh.volume.ENuMaterial(density=density, E=1e6, nu=0.45)
+    return pgo.mesh.volume.VolumeMesh.create_from_single_material(mesh, material)
 
 
 def test_barycentric_embedding_exposes_all_local_corners():
@@ -39,7 +39,7 @@ def test_barycentric_embedding_exposes_all_local_corners():
 
 def test_hermite_mass_matrix_has_correct_size_symmetry_and_constant_velocity_energy():
     volume = _single_cube_volume(density=2.0)
-    M = pf.formulation_mass_matrix(volume, pf.TricubicHermite())
+    M = pf.TricubicHermite().mass_matrix(volume)
 
     assert M.shape == (8 * 24, 8 * 24)
     Md = M.to_dense()
@@ -57,7 +57,7 @@ def test_hermite_mass_matrix_has_correct_size_symmetry_and_constant_velocity_ene
 def test_hermite_body_force_has_generalized_derivative_entries_and_correct_total_force():
     volume = _single_cube_volume(density=3.0)
     g = np.array([0.0, -9.8, 0.0], dtype=np.float64)
-    f = pf.body_force(volume, pf.TricubicHermite(), g)
+    f = pf.TricubicHermite().body_force(volume, g)
 
     assert f.shape == (8 * 24,)
     value_force = np.zeros(3)
@@ -75,7 +75,7 @@ def test_hermite_surface_embedding_reproduces_affine_displacement():
         [[0.25, 0.5, 0.75], [1.0, 0.0, 0.5], [0.0, 1.0, 0.0]],
         dtype=np.float64,
     )
-    W = pf.surface_embedding_matrix(volume, points, pf.TricubicHermite())
+    W = pf.TricubicHermite().surface_embedding_matrix(volume, points)
     assert W.shape == (points.shape[0] * 3, 8 * 24)
 
     A = np.array([[0.1, 0.2, 0.0], [0.0, -0.1, 0.3], [0.05, 0.0, 0.2]], dtype=np.float64)
@@ -94,18 +94,6 @@ def test_hermite_surface_embedding_reproduces_affine_displacement():
     np.testing.assert_allclose(mapped, expected, atol=1e-12)
 
 
-def test_hermite_dof_helpers_make_boundary_semantics_explicit():
-    np.testing.assert_array_equal(pf.hermite_vertex_dofs([2], policy="value"), np.arange(48, 51))
-    np.testing.assert_array_equal(pf.hermite_vertex_dofs([2], policy="first"), np.arange(48, 60))
-    np.testing.assert_array_equal(pf.hermite_vertex_dofs([2], policy="all"), np.arange(48, 72))
-
-    volume = _single_cube_volume()
-    left = pf.hermite_face_dofs(volume, axis="x", side="min", policy="all")
-    expected_vertices = [0, 3, 4, 7]
-    expected = np.concatenate([np.arange(v * 24, v * 24 + 24) for v in expected_vertices])
-    np.testing.assert_array_equal(left, expected)
-
-
 def test_hermite_dynamic_free_fall_uses_24_dofs():
     volume = _single_cube_volume(density=2.0)
     sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
@@ -117,8 +105,8 @@ def test_hermite_dynamic_free_fall_uses_24_dofs():
         plastic_field=pf.ElementwiseField(),
     )
     energy = pf.deformation_energy(state, formulation=pf.TricubicHermite())
-    M = pf.formulation_mass_matrix(volume, pf.TricubicHermite())
-    f = pf.body_force(volume, pf.TricubicHermite(), [0.0, -9.8, 0.0])
+    M = pf.TricubicHermite().mass_matrix(volume)
+    f = pf.TricubicHermite().body_force(volume, [0.0, -9.8, 0.0])
     dyn_state = pgo.sim.DynamicState(
         displacement=np.zeros(energy.num_dofs),
         velocity=np.zeros(energy.num_dofs),
@@ -138,7 +126,7 @@ def test_hermite_dynamic_free_fall_uses_24_dofs():
 def test_hermite_mapped_floor_contact_has_hermite_dof_count():
     volume = _single_cube_volume()
     surface = volume.extract_surface_mesh()
-    W = pf.surface_embedding_matrix(volume, surface.vertices, pf.TricubicHermite())
+    W = pf.TricubicHermite().surface_embedding_matrix(volume, surface.vertices)
     contact_surface = pgo.contact.ContactSurface.embedded(surface.vertices, W)
     floor = pgo.contact.FloorEnergy(
         contact_surface,

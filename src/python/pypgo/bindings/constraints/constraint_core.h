@@ -3,7 +3,7 @@
 #include "constraints/constraintEvaluation.h"
 #include "constraints/constraintFunctions.h"
 #include "eigen_numpy.h"
-#include "sparse_matrix_core.h"
+#include "../sparse/core.h"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>

@@ -4,7 +4,7 @@
 #include "evaluation.h"
 #include "potentialEnergy.h"
 #include "solver/common/solveDiagnostics.h"
-#include "sparse_matrix_core.h"
+#include "../sparse/core.h"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>

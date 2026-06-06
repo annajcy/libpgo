@@ -22,7 +22,7 @@
 #include "plasticMaterialEnergy.h"
 #include "constraints/constraint_core.h"
 #include "EigenDef.h"
-#include "energy_core.h"
+#include "core.h"
 #include "eigen_numpy.h"
 #include "energySet.h"
 #include "evaluation.h"
@@ -31,10 +31,10 @@
 #include "potentialEnergy.h"
 #include "constraints/potentialEnergyFromConstraintFunctions.h"
 #include "quadraticPotentialEnergy.h"
-#include "simulation_mesh_core.h"
+#include "../simulation/core.h"
 #include "simulationMesh.h"
 #include "solver/common/solveDiagnostics.h"
-#include "sparse_matrix_core.h"
+#include "../sparse/core.h"
 
 namespace nb = nanobind;
 using namespace pgo;

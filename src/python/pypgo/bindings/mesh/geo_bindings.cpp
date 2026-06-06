@@ -18,7 +18,7 @@
 #include "cubicMesh.h"
 #include "cubicMeshGeo.h"
 #include "meshData.h"
-#include "surface_remesh_backend.h"
+#include "remesh_backend.h"
 #include "tetMesherBackend.h"
 #include "tetMeshGeo.h"
 #include "triangleMeshVoxelizer.h"

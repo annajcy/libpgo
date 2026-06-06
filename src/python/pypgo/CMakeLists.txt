@@ -2,35 +2,55 @@ find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Developme
 
 set(PYPGO_BINDING_SOURCES
   bindings/module.cpp
-  bindings/dense_bindings.cpp
-  bindings/mesh_geo_bindings.cpp
-  bindings/mesh_bindings.cpp
-  bindings/energy_bindings.cpp
+
+  # sparse / dense
+  bindings/sparse/bindings.cpp
+  bindings/dense/bindings.cpp
+
+  # mesh
+  bindings/mesh/geo_bindings.cpp
+  bindings/mesh/volume_bindings.cpp
+
+  # fem
+  bindings/fem/formulation_bindings.cpp
+  bindings/fem/formulation_core.cpp
+  bindings/fem/elastic_bindings.cpp
+  bindings/fem/elastic_core.cpp
+  bindings/fem/plastic_bindings.cpp
+  bindings/fem/plastic_core.cpp
+
+  # energy
+  bindings/energy/bindings.cpp
+
+  # constraints / solver
   bindings/constraints/constraint_bindings.cpp
   bindings/solver/solver_bindings.cpp
-  bindings/sparse_bindings.cpp
-  bindings/implicit_bindings.cpp
-  bindings/parallel_bindings.cpp
-  bindings/simulation_bindings.cpp
-  bindings/contact_bindings.cpp
+
+  # simulation
+  bindings/simulation/bindings.cpp
+
+  # contact / implicit / parallel
+  bindings/contact/bindings.cpp
+  bindings/implicit/bindings.cpp
+  bindings/parallel/bindings.cpp
 )
 
 if(TARGET cgalInterface)
-  list(APPEND PYPGO_BINDING_SOURCES bindings/surface_remesh_cgal.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES bindings/mesh/remesh_cgal.cpp)
 else()
-  list(APPEND PYPGO_BINDING_SOURCES bindings/surface_remesh_cgal_disabled.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES bindings/mesh/remesh_cgal_disabled.cpp)
 endif()
 
 if(TARGET geogramInterface)
-  list(APPEND PYPGO_BINDING_SOURCES bindings/surface_remesh_geogram.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES bindings/mesh/remesh_geogram.cpp)
 else()
-  list(APPEND PYPGO_BINDING_SOURCES bindings/surface_remesh_geogram_disabled.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES bindings/mesh/remesh_geogram_disabled.cpp)
 endif()
 
 if(TARGET animationIO)
-  list(APPEND PYPGO_BINDING_SOURCES bindings/animation_io.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES bindings/animation/animation_io.cpp)
 else()
-  list(APPEND PYPGO_BINDING_SOURCES bindings/animation_io_disabled.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES bindings/animation/animation_io_disabled.cpp)
 endif()
 
 nanobind_add_module(pypgo_core STABLE_ABI NB_DOMAIN pypgo ${PYPGO_BINDING_SOURCES})

@@ -204,7 +204,7 @@ def build_volume_ipc_simulation(spec: VolumeIPCSimulationSpec) -> VolumeIPCSimul
         options=spec.deformation_options,
     )
 
-    mass = _fem.formulation_mass_matrix(spec.volume, formulation)
+    mass = formulation.mass_matrix(spec.volume)
     surface_map = _surface_embedding_matrix(spec.volume, spec.surface, formulation)
     contact_surface = _contact.ContactSurface.embedded(spec.surface.vertices, surface_map)
     ipc = _contact.IPCEnergy(
@@ -220,7 +220,7 @@ def build_volume_ipc_simulation(spec: VolumeIPCSimulationSpec) -> VolumeIPCSimul
 
     terms = [(deformation, 1.0), (ipc, 1.0), *((floor, 1.0) for floor in floors)]
     energy = _energy.EnergySet(terms)
-    external_force = _fem.body_force(spec.volume, formulation, spec.runtime.gravity)
+    external_force = formulation.body_force(spec.volume, spec.runtime.gravity)
     initial_state = DynamicState(
         displacement=_initial_vector(
             spec.volume,
@@ -293,7 +293,7 @@ def _default_volume_formulation(volume: VolumeMesh):
 
 
 def _surface_embedding_matrix(volume: VolumeMesh, surface: TriMeshData, formulation):
-    return _fem.surface_embedding_matrix(volume, surface.vertices, formulation)
+    return formulation.surface_embedding_matrix(volume, surface.vertices)
 
 
 def _initial_vector(volume: VolumeMesh, num_dofs: int, values, formulation) -> np.ndarray:

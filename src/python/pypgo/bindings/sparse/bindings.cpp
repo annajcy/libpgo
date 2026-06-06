@@ -4,7 +4,7 @@
 
 #include <vector>
 
-#include "sparse_matrix_core.h"
+#include "core.h"
 
 namespace nb = nanobind;
 

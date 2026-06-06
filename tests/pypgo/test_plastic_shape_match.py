@@ -23,8 +23,8 @@ def make_cubic_case():
         ),
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
-    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(
-        cube, pgo.mesh.veg.ENuMaterial(E=1e6, nu=0.45)
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+        cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
     sim = pgo.sim.SimulationMesh.create_volumetric(volume)
     state = fem.deformation_model_state(

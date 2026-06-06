@@ -18,8 +18,8 @@ def _make_tet_sim_mesh():
         ),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
-    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(
-        tet, pgo.mesh.veg.ENuMaterial(E=1e6, nu=0.45)
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+        tet, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
     return pgo.sim.SimulationMesh.create_volumetric(volume)
 
@@ -41,8 +41,8 @@ def _make_cubic_sim_mesh():
         ),
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
-    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(
-        cube, pgo.mesh.veg.ENuMaterial(E=1e6, nu=0.45)
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+        cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
     return pgo.sim.SimulationMesh.create_volumetric(volume)
 
@@ -70,22 +70,22 @@ def _make_state(sim, elastic=None, plastic=None, plastic_values=None):
 
 class TestWrappers:
     def test_formulations(self):
-        assert pf.TetP1()._to_string() == "tet_p1"
-        assert pf.LinearCubic()._to_string() == "hex_trilinear"
-        assert pf.KoiterShell()._to_string() == "shell_koiter"
+        assert pf.TetP1().name == "tet_p1"
+        assert pf.LinearCubic().name == "hex_trilinear"
+        assert pf.KoiterShell().name == "shell_koiter"
 
     def test_material_ids(self):
-        assert pf.StableNeo()._to_string() == "stable_neo"
-        assert pf.StVK()._to_string() == "stvk"
-        assert pf.StVKVolume()._to_string() == "stvk_vol"
-        assert pf.LinearElastic()._to_string() == "linear"
-        assert pf.MooneyRivlin()._to_string() == "mooney_rivlin"
-        assert pf.KoiterStVK()._to_string() == "koiter_stvk"
-        assert pf.VolumetricPlasticity(dofs=6)._to_string() == "volumetric_dof6"
-        assert pf.VolumetricPlasticity(dofs=3)._to_string() == "volumetric_dof3"
-        assert pf.VolumetricPlasticity(dofs=0)._to_string() == "volumetric_dof0"
-        assert pf.ShellPlasticity(dofs=1)._to_string() == "shell_ff_dof1"
-        assert pf.ShellPlasticity(dofs=0)._to_string() == "shell_ff_dof0"
+        assert pf.StableNeo().name == "stable_neo"
+        assert pf.StVK().name == "stvk"
+        assert pf.StVKVolume().name == "stvk_vol"
+        assert pf.LinearElastic().name == "linear"
+        assert pf.MooneyRivlin().name == "mooney_rivlin"
+        assert pf.KoiterStVK().name == "koiter_stvk"
+        assert pf.VolumetricPlasticity(dofs=6).name == "volumetric_dof6"
+        assert pf.VolumetricPlasticity(dofs=3).name == "volumetric_dof3"
+        assert pf.VolumetricPlasticity(dofs=0).name == "volumetric_dof0"
+        assert pf.ShellPlasticity(dofs=1).name == "shell_ff_dof1"
+        assert pf.ShellPlasticity(dofs=0).name == "shell_ff_dof0"
 
     def test_invalid_plastic_dofs(self):
         with pytest.raises(ValueError):

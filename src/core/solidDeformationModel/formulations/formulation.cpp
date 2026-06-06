@@ -11,9 +11,15 @@
 #include "elements/shellDeformationModel.h"
 #include "dof/vertex3DofLayout.h"
 #include "dof/hexTricubicHermiteDofLayout.h"
+#include "barycentricCoordinates.h"
+#include "generateMassMatrix.h"
+#include "volumetricMesh.h"
 #include "../simulationMesh.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
+#include <stdexcept>
 #include <vector>
 
 namespace pgo
@@ -140,7 +146,219 @@ void elementHermiteRestDofs(const SimulationMesh &mesh, int ele, std::array<doub
     }
   }
 }
+// -- Hermite dynamics helpers -------------------------------------------------
+
+namespace ES = EigenSupport;
+
+constexpr int kHermiteNodes = 64;
+constexpr int kHermiteModes = 8;
+constexpr int kHermiteLocalDofs = 192;
+
+const ES::MXd &hermiteUnitMass64()
+{
+  static const ES::MXd unitMass = [] {
+    HexTricubicHermiteBasis basis;
+    GaussLegendreHexQuadrature4 quadrature;
+    ES::MXd M = ES::MXd::Zero(kHermiteNodes, kHermiteNodes);
+    std::array<double, kHermiteNodes> H{};
+
+    for (int q = 0; q < quadrature.numPoints(); q++) {
+      double xi[3];
+      quadrature.point(q, xi);
+      basis.N(xi[0], xi[1], xi[2], H.data());
+      const double w = quadrature.weight(q);
+      for (int i = 0; i < kHermiteNodes; i++)
+        for (int j = 0; j < kHermiteNodes; j++)
+          M(i, j) += w * H[i] * H[j];
+    }
+    return M;
+  }();
+  return unitMass;
+}
+
+const ES::VXd &hermiteUnitBody64()
+{
+  static const ES::VXd unitBody = [] {
+    HexTricubicHermiteBasis basis;
+    GaussLegendreHexQuadrature4 quadrature;
+    ES::VXd b = ES::VXd::Zero(kHermiteNodes);
+    std::array<double, kHermiteNodes> H{};
+
+    for (int q = 0; q < quadrature.numPoints(); q++) {
+      double xi[3];
+      quadrature.point(q, xi);
+      basis.N(xi[0], xi[1], xi[2], H.data());
+      const double w = quadrature.weight(q);
+      for (int i = 0; i < kHermiteNodes; i++)
+        b[i] += w * H[i];
+    }
+    return b;
+  }();
+  return unitBody;
+}
+
+std::vector<double> flattenSurfaceVertices(const ES::MXd &surfaceVertices)
+{
+  if (surfaceVertices.cols() != 3) {
+    throw std::invalid_argument("surfaceVertices must have shape numVertices x 3");
+  }
+  std::vector<double> flat(static_cast<size_t>(surfaceVertices.rows()) * 3);
+  for (Eigen::Index i = 0; i < surfaceVertices.rows(); i++)
+    for (int d = 0; d < 3; d++)
+      flat[static_cast<size_t>(i) * 3 + d] = surfaceVertices(i, d);
+  return flat;
+}
+
+ES::SpMatD buildHermiteMassMatrix(const VolumetricMeshes::VolumetricMesh &mesh)
+{
+  if (mesh.getNumElementVertices() != 8) {
+    throw std::invalid_argument("hex_tricubic_hermite mass requires an 8-corner cubic mesh");
+  }
+
+  const int numDofs = mesh.getNumVertices() * HexTricubicHermiteDofLayout::kDofsPerVertex;
+  std::vector<ES::TripletD> entries;
+  entries.reserve(static_cast<size_t>(mesh.getNumElements()) * kHermiteNodes * kHermiteNodes * 3);
+
+  const ES::MXd &unitMass = hermiteUnitMass64();
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    const double scale = mesh.getElementVolume(ele) * mesh.getElementDensity(ele);
+    for (int a = 0; a < kHermiteNodes; a++) {
+      const int va = mesh.getVertexIndex(ele, a / kHermiteModes);
+      const int ma = a % kHermiteModes;
+      for (int b = 0; b < kHermiteNodes; b++) {
+        const double value = scale * unitMass(a, b);
+        if (value == 0.0)
+          continue;
+        const int vb = mesh.getVertexIndex(ele, b / kHermiteModes);
+        const int mb = b % kHermiteModes;
+        for (int coord = 0; coord < 3; coord++) {
+          entries.emplace_back(
+            va * HexTricubicHermiteDofLayout::kDofsPerVertex + ma * 3 + coord,
+            vb * HexTricubicHermiteDofLayout::kDofsPerVertex + mb * 3 + coord,
+            value);
+        }
+      }
+    }
+  }
+
+  ES::SpMatD M(numDofs, numDofs);
+  M.setFromTriplets(entries.begin(), entries.end());
+  return M;
+}
+
+ES::VXd buildHermiteBodyForce(
+  const VolumetricMeshes::VolumetricMesh &mesh,
+  const ES::V3d &acceleration)
+{
+  if (mesh.getNumElementVertices() != 8) {
+    throw std::invalid_argument("hex_tricubic_hermite body force requires an 8-corner cubic mesh");
+  }
+
+  ES::VXd force = ES::VXd::Zero(mesh.getNumVertices() * HexTricubicHermiteDofLayout::kDofsPerVertex);
+  const ES::VXd &unitBody = hermiteUnitBody64();
+
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    const double scale = mesh.getElementVolume(ele) * mesh.getElementDensity(ele);
+    for (int node = 0; node < kHermiteNodes; node++) {
+      const int vertex = mesh.getVertexIndex(ele, node / kHermiteModes);
+      const int mode = node % kHermiteModes;
+      const int base = vertex * HexTricubicHermiteDofLayout::kDofsPerVertex + mode * 3;
+      force.segment<3>(base) += scale * unitBody[node] * acceleration;
+    }
+  }
+
+  return force;
+}
+
+ES::SpMatD buildHermiteSurfaceEmbeddingMatrix(
+  const VolumetricMeshes::VolumetricMesh &mesh,
+  const ES::MXd &surfaceVertices)
+{
+  if (mesh.getNumElementVertices() != 8) {
+    throw std::invalid_argument("hex_tricubic_hermite surface embedding requires an 8-corner cubic mesh");
+  }
+
+  const int numTargets = static_cast<int>(surfaceVertices.rows());
+  const std::vector<double> flat = flattenSurfaceVertices(surfaceVertices);
+  InterpolationCoordinates::BarycentricCoordinates bc(numTargets, flat.data(), &mesh);
+
+  if (bc.getNumElementVertices() != 8) {
+    throw std::runtime_error("Hermite surface embedding expected 8 interpolation weights per target");
+  }
+
+  HexTricubicHermiteBasis basis;
+  std::array<double, kHermiteNodes> H{};
+  std::vector<ES::TripletD> entries;
+  entries.reserve(static_cast<size_t>(numTargets) * kHermiteNodes * 3);
+
+  for (int target = 0; target < numTargets; target++) {
+    const double *w = bc.getEmbeddingWeights(target);
+    const int *indices = bc.getEmbeddingVertexIndices(target);
+
+    const double xi = w[1] + w[2] + w[5] + w[6];
+    const double eta = w[2] + w[3] + w[6] + w[7];
+    const double zeta = w[4] + w[5] + w[6] + w[7];
+    basis.N(xi, eta, zeta, H.data());
+
+    for (int node = 0; node < kHermiteNodes; node++) {
+      const double value = H[node];
+      if (value == 0.0)
+        continue;
+      const int vertex = indices[node / kHermiteModes];
+      const int mode = node % kHermiteModes;
+      for (int coord = 0; coord < 3; coord++) {
+        entries.emplace_back(
+          target * 3 + coord,
+          vertex * HexTricubicHermiteDofLayout::kDofsPerVertex + mode * 3 + coord,
+          value);
+      }
+    }
+  }
+
+  ES::SpMatD W(numTargets * 3, mesh.getNumVertices() * HexTricubicHermiteDofLayout::kDofsPerVertex);
+  W.setFromTriplets(entries.begin(), entries.end());
+  return W;
+}
+
 }  // namespace
+
+// ============================================================
+// VolumetricFormulation — dynamics operators (non-Hermite default)
+// ============================================================
+
+EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
+  const VolumetricMeshes::VolumetricMesh &mesh) const
+{
+  ES::SpMatD M;
+  VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(&mesh, M, true);
+  return M;
+}
+
+EigenSupport::VXd VolumetricFormulation::buildBodyForce(
+  const VolumetricMeshes::VolumetricMesh &mesh,
+  const EigenSupport::V3d &acceleration) const
+{
+  ES::SpMatD M;
+  VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(&mesh, M, true);
+  ES::VXd accelField(mesh.getNumVertices() * 3);
+  for (int vertex = 0; vertex < mesh.getNumVertices(); vertex++)
+    accelField.segment<3>(vertex * 3) = acceleration;
+  return M * accelField;
+}
+
+EigenSupport::SpMatD VolumetricFormulation::buildSurfaceEmbeddingMatrix(
+  const VolumetricMeshes::VolumetricMesh &mesh,
+  const EigenSupport::MXd &surfaceVertices) const
+{
+  const int numTargets = static_cast<int>(surfaceVertices.rows());
+  const std::vector<double> flat = flattenSurfaceVertices(surfaceVertices);
+  InterpolationCoordinates::BarycentricCoordinates bc(numTargets, flat.data(), &mesh);
+  return bc.generateInterpolationMatrix();
+}
+
+// ============================================================
+// TricubicHermiteFormulation
+// ============================================================
 
 TricubicHermiteFormulation::TricubicHermiteFormulation()
   : CubicFormulation(
@@ -152,6 +370,26 @@ TricubicHermiteFormulation::TricubicHermiteFormulation()
 std::string_view TricubicHermiteFormulation::getName() const { return "hex_tricubic_hermite"; }
 int TricubicHermiteFormulation::getNodesPerElement() const { return 64; }
 int TricubicHermiteFormulation::getLocalDofs() const { return 192; }
+
+EigenSupport::SpMatD TricubicHermiteFormulation::buildMassMatrix(
+  const VolumetricMeshes::VolumetricMesh &mesh) const
+{
+  return buildHermiteMassMatrix(mesh);
+}
+
+EigenSupport::VXd TricubicHermiteFormulation::buildBodyForce(
+  const VolumetricMeshes::VolumetricMesh &mesh,
+  const EigenSupport::V3d &acceleration) const
+{
+  return buildHermiteBodyForce(mesh, acceleration);
+}
+
+EigenSupport::SpMatD TricubicHermiteFormulation::buildSurfaceEmbeddingMatrix(
+  const VolumetricMeshes::VolumetricMesh &mesh,
+  const EigenSupport::MXd &surfaceVertices) const
+{
+  return buildHermiteSurfaceEmbeddingMatrix(mesh, surfaceVertices);
+}
 
 std::unique_ptr<DofLayout> TricubicHermiteFormulation::createDofLayout(const SimulationMesh &mesh) const
 {

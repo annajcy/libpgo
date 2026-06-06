@@ -1,4 +1,4 @@
-#include "surface_remesh_backend.h"
+#include "remesh_backend.h"
 #include "geogramInterface.h"
 
 #include <geogram/basic/process.h>

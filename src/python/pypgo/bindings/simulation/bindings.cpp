@@ -6,7 +6,7 @@
 #include <nanobind/stl/optional.h>
 
 #include "eigen_numpy.h"
-#include "energy_core.h"
+#include "../energy/core.h"
 
 #include "dynamicState.h"
 #include "dynamicStepOptions.h"

@@ -1,7 +1,6 @@
 #include "gtest/gtest.h"
 
 #include "formulations/formulation.h"
-#include "formulations/formulationDynamics.h"
 #include "barycentricCoordinates.h"
 #include "cubicMesh.h"
 #include "generateMassMatrix.h"
@@ -42,7 +41,7 @@ double sparseCoeff(const EigenSupport::SpMatD &M, int r, int c)
 TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelocityEnergy)
 {
   auto mesh = makeSingleCube(2.0);
-  EigenSupport::SpMatD M = buildFormulationMassMatrix(*mesh, TricubicHermiteFormulation{});
+  EigenSupport::SpMatD M = TricubicHermiteFormulation{}.buildMassMatrix(*mesh);
   ASSERT_EQ(M.rows(), 8 * 24);
   ASSERT_EQ(M.cols(), 8 * 24);
 
@@ -66,7 +65,7 @@ TEST(FormulationDynamicsGTest, HermiteBodyForceHasCorrectTotalAndDerivativeEntri
 {
   auto mesh = makeSingleCube(3.0);
   EigenSupport::V3d a(0.0, -9.8, 0.0);
-  EigenSupport::VXd f = buildFormulationBodyForce(*mesh, TricubicHermiteFormulation{}, a);
+  EigenSupport::VXd f = TricubicHermiteFormulation{}.buildBodyForce(*mesh, a);
   ASSERT_EQ(f.size(), 8 * 24);
 
   EigenSupport::V3d valueForce = EigenSupport::V3d::Zero();
@@ -88,7 +87,7 @@ TEST(FormulationDynamicsGTest, HermiteSurfaceEmbeddingReproducesAffineDisplaceme
             1.00, 0.00, 0.50,
             0.00, 1.00, 0.00;
 
-  EigenSupport::SpMatD W = buildFormulationSurfaceEmbeddingMatrix(*mesh, TricubicHermiteFormulation{}, points);
+  EigenSupport::SpMatD W = TricubicHermiteFormulation{}.buildSurfaceEmbeddingMatrix(*mesh, points);
   ASSERT_EQ(W.rows(), points.rows() * 3);
   ASSERT_EQ(W.cols(), 8 * 24);
 
@@ -120,7 +119,7 @@ TEST(FormulationDynamicsGTest, TrilinearMassMatchesLegacyOperator)
   EigenSupport::SpMatD legacyMass;
   VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(mesh.get(), legacyMass, true);
 
-  EigenSupport::SpMatD mass = buildFormulationMassMatrix(*mesh, LinearCubicFormulation{});
+  EigenSupport::SpMatD mass = LinearCubicFormulation{}.buildMassMatrix(*mesh);
   EXPECT_TRUE(mass.isApprox(legacyMass, 1e-12));
 }
 
@@ -131,7 +130,7 @@ TEST(FormulationDynamicsGTest, TrilinearSurfaceEmbeddingMatchesLegacyBarycentric
   points << 0.25, 0.50, 0.75,
             1.00, 0.00, 0.50;
 
-  EigenSupport::SpMatD W = buildFormulationSurfaceEmbeddingMatrix(*mesh, LinearCubicFormulation{}, points);
+  EigenSupport::SpMatD W = LinearCubicFormulation{}.buildSurfaceEmbeddingMatrix(*mesh, points);
 
   std::vector<double> flat = {
     0.25, 0.50, 0.75,
@@ -143,18 +142,3 @@ TEST(FormulationDynamicsGTest, TrilinearSurfaceEmbeddingMatchesLegacyBarycentric
   EXPECT_TRUE(W.isApprox(legacyW, 1e-12));
 }
 
-TEST(FormulationDynamicsGTest, HermiteBoundaryHelpersExposePolicies)
-{
-  std::vector<int> value = hermiteVertexDofs({ 2 }, HermiteBoundaryPolicy::Value);
-  std::vector<int> first = hermiteVertexDofs({ 2 }, HermiteBoundaryPolicy::First);
-  std::vector<int> all = hermiteVertexDofs({ 2 }, HermiteBoundaryPolicy::All);
-
-  ASSERT_EQ(value.size(), 3);
-  EXPECT_EQ(value.front(), 48);
-  ASSERT_EQ(first.size(), 12);
-  EXPECT_EQ(first.front(), 48);
-  EXPECT_EQ(first.back(), 59);
-  ASSERT_EQ(all.size(), 24);
-  EXPECT_EQ(all.front(), 48);
-  EXPECT_EQ(all.back(), 71);
-}

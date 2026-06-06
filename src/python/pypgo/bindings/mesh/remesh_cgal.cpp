@@ -1,4 +1,4 @@
-#include "surface_remesh_backend.h"
+#include "remesh_backend.h"
 #include "cgalInterface.h"
 
 namespace surface_remesh
