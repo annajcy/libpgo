@@ -1,6 +1,6 @@
 #include "volumetricDeformationModel.h"
 
-#include "../../materialMaxStepPolynomialUtils.h"
+#include "../../deformation/materialMaxStepPolynomialUtils.h"
 #include "../parameters/parameterField.h"
 
 #include <stdexcept>

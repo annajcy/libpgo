@@ -1,7 +1,7 @@
 #pragma once
 
-#include "deformationModelManager.h"
-#include "simulationMesh.h"
+#include "deformation/deformationModelManager.h"
+#include "simulation/simulationMesh.h"
 
 #include <memory>
 #include <string>

@@ -1,56 +1,56 @@
 set(SOLID_DEFORMATION_MODEL_HEADERS
-  elasticModel.h
-  elasticModel3DDeformationGradient.h
-  elasticModelStableNeoHookeanMaterial.h
-  elasticModelInvariantBasedMaterial.h  
-  elasticModelLinearMaterial.h
-  elasticModelHillTypeMaterial.h
-  elasticModelVolumeMaterial.h
-  elasticModelCombinedMaterial.h
-  elasticModel3DMooneyRivlin.h
-  elasticModel3DSTVKMaterial.h
+  elastic/elasticModel.h
+  elastic/elasticModel3DDeformationGradient.h
+  elastic/elasticModelStableNeoHookeanMaterial.h
+  elastic/elasticModelInvariantBasedMaterial.h
+  elastic/elasticModelLinearMaterial.h
+  elastic/elasticModelHillTypeMaterial.h
+  elastic/elasticModelVolumeMaterial.h
+  elastic/elasticModelCombinedMaterial.h
+  elastic/elasticModel3DMooneyRivlin.h
+  elastic/elasticModel3DSTVKMaterial.h
 
-  # elasticModel1DQuadratic.h
-  # elasticModel1DCubicSpline.h
+  # elastic/elasticModel1DQuadratic.h
+  # elastic/elasticModel1DCubicSpline.h
 
-  elasticModel2DFundamentalForms.h
-  elasticModel2DFundamentalFormsFabric.h
-  elasticModel2DFundamentalFormsSTVK.h
+  elastic/elasticModel2DFundamentalForms.h
+  elastic/elasticModel2DFundamentalFormsFabric.h
+  elastic/elasticModel2DFundamentalFormsSTVK.h
 
-  invariantBasedMaterial.h
-  invariantBasedMaterialStVK.h
+  elastic/invariantBasedMaterial.h
+  elastic/invariantBasedMaterialStVK.h
 
-  plasticModel.h
-  plasticModel3DDeformationGradient.h
-  plasticModel3DConstant.h
-  plasticModel3D3DOF.h
-  plasticModel3D6DOF.h
+  plastic/plasticModel.h
+  plastic/plasticModel3DDeformationGradient.h
+  plastic/plasticModel3DConstant.h
+  plastic/plasticModel3D3DOF.h
+  plastic/plasticModel3D6DOF.h
 
-  plasticModel2DFundamentalForms.h
-  plasticModel2DFundamentalFormsUniformStretch.h
+  plastic/plasticModel2DFundamentalForms.h
+  plastic/plasticModel2DFundamentalFormsUniformStretch.h
 
-  deformationModel.h
-  materialMaxStepPolynomialUtils.h
-  deformationModelManager.h
+  deformation/deformationModel.h
+  deformation/materialMaxStepPolynomialUtils.h
+  deformation/deformationModelManager.h
 
-  deformationModelEnergy.h
-  plasticMaterialEnergy.h
-  deformationModelAssembler.h
-  deformationModelAssemblerCacheData.h
-  deformationModelFactory.h
-  deformationModelState.h
-  hessianMatrixHandle.h
+  deformation/deformationModelEnergy.h
+  deformation/plasticMaterialEnergy.h
+  deformation/deformationModelAssembler.h
+  deformation/deformationModelAssemblerCacheData.h
+  deformation/deformationModelBuilder.h
+  deformation/deformationModelState.h
+  deformation/hessianMatrixHandle.h
 
-  simulationMesh.h
-  tetVolumeConstraintFunctions.h
-  tetMeshOccupation.h
+  simulation/simulationMesh.h
+  constraints/tetVolumeConstraintFunctions.h
+  simulation/tetMeshOccupation.h
 
-  segmentChainConstraintFunctions.h
-  segmentBinormalConstraintFunctions.h
+  constraints/segmentChainConstraintFunctions.h
+  constraints/segmentBinormalConstraintFunctions.h
 
-  prescribedPrincipleStressConstraintFunctions.h
+  constraints/prescribedPrincipleStressConstraintFunctions.h
 
-  generateTetMeshMatrix.h
+  simulation/generateTetMeshMatrix.h
 
   formulations/formulation.h
   formulations/basis/basis.h
@@ -81,81 +81,79 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/parameters/constantParameterField.h
   formulations/parameters/elementwiseParameterField.h
 
-  factories/elasticModelFactory.h
-  factories/plasticModelFactory.h
-  factories/deformationModelFactory.h
+  elastic/elasticModelFactory.h
+  plastic/plasticModelFactory.h
 )
 
 set(SOLID_DEFORMATION_MODEL_SOURCES
-  elasticModelInvariantBasedMaterial.cpp
-  elasticModelStableNeoHookeanMaterial.cpp
-  elasticModelLinearMaterial.cpp
-  elasticModelHillTypeMaterial.cpp
-  elasticModelVolumeMaterial.cpp
-  elasticModel3DMooneyRivlin.cpp
-  elasticModel3DSTVKMaterial.cpp
+  elastic/elasticModelInvariantBasedMaterial.cpp
+  elastic/elasticModelStableNeoHookeanMaterial.cpp
+  elastic/elasticModelLinearMaterial.cpp
+  elastic/elasticModelHillTypeMaterial.cpp
+  elastic/elasticModelVolumeMaterial.cpp
+  elastic/elasticModel3DMooneyRivlin.cpp
+  elastic/elasticModel3DSTVKMaterial.cpp
 
-  # elasticModel1DQuadratic.cpp
-  # elasticModel1DCubicSpline.cpp  
-  
-  elasticModel2DFundamentalFormsFabric.cpp
-  elasticModel2DFundamentalFormsSTVK.cpp
+  # elastic/elasticModel1DQuadratic.cpp
+  # elastic/elasticModel1DCubicSpline.cpp
 
-  invariantBasedMaterialStVK.cpp
+  elastic/elasticModel2DFundamentalFormsFabric.cpp
+  elastic/elasticModel2DFundamentalFormsSTVK.cpp
 
-  plasticModel3DConstant.cpp
-  plasticModel3D3DOF.cpp
-  plasticModel3D6DOF.cpp
+  elastic/invariantBasedMaterialStVK.cpp
 
-  plasticModel2DFundamentalFormsUniformStretch.cpp
+  plastic/plasticModel3DConstant.cpp
+  plastic/plasticModel3D3DOF.cpp
+  plastic/plasticModel3D6DOF.cpp
 
-  materialMaxStepPolynomialUtils.cpp
+  plastic/plasticModel2DFundamentalFormsUniformStretch.cpp
 
-			formulations/formulation.cpp
+  deformation/materialMaxStepPolynomialUtils.cpp
 
-		formulations/basis/tetP1Basis.cpp
-		formulations/basis/hexTrilinearBasis.cpp
-		formulations/basis/hexTricubicHermiteBasis.cpp
+  formulations/formulation.cpp
 
-		formulations/quadrature/tetP1DefaultQuadrature.cpp
-		formulations/quadrature/gaussLegendreHexQuadrature.cpp
+  formulations/basis/tetP1Basis.cpp
+  formulations/basis/hexTrilinearBasis.cpp
+  formulations/basis/hexTricubicHermiteBasis.cpp
 
-		formulations/kernels/volumetricKernel.cpp
-		formulations/kernels/koiterShellKernel.cpp
+  formulations/quadrature/tetP1DefaultQuadrature.cpp
+  formulations/quadrature/gaussLegendreHexQuadrature.cpp
 
-		formulations/elements/volumetricDeformationModel.cpp
-		formulations/elements/volumetricDeformationModelCacheData.cpp
-		formulations/elements/shellDeformationModel.cpp
+  formulations/kernels/volumetricKernel.cpp
+  formulations/kernels/koiterShellKernel.cpp
 
-		formulations/dof/vertex3DofLayout.cpp
-		formulations/dof/hexTricubicHermiteDofLayout.cpp
+  formulations/elements/volumetricDeformationModel.cpp
+  formulations/elements/volumetricDeformationModelCacheData.cpp
+  formulations/elements/shellDeformationModel.cpp
 
-    formulations/parameters/constantParameterField.cpp
-    formulations/parameters/elementwiseParameterField.cpp
+  formulations/dof/vertex3DofLayout.cpp
+  formulations/dof/hexTricubicHermiteDofLayout.cpp
+
+  formulations/parameters/constantParameterField.cpp
+  formulations/parameters/elementwiseParameterField.cpp
 
 
-  deformationModelManager.cpp
+  deformation/deformationModelManager.cpp
 
-  deformationModelEnergy.cpp
-  plasticMaterialEnergy.cpp
-  deformationModelAssembler.cpp
-  deformationModelFactory.cpp
-  deformationModelState.cpp
+  deformation/deformationModelEnergy.cpp
+  deformation/plasticMaterialEnergy.cpp
+  deformation/deformationModelAssembler.cpp
+  deformation/deformationModelBuilder.cpp
+  deformation/deformationModelState.cpp
 
-  factories/elasticModelFactory.cpp
-  factories/plasticModelFactory.cpp
-  factories/deformationModelFactory.cpp
+  elastic/elasticModelFactory.cpp
+  plastic/plasticModelFactory.cpp
 
-  simulationMesh.cpp
-  tetVolumeConstraintFunctions.cpp
-  tetMeshOccupation.cpp
+  simulation/simulationMesh.cpp
+  constraints/tetVolumeConstraintFunctions.cpp
+  simulation/tetMeshOccupation.cpp
 
-  segmentChainConstraintFunctions.cpp
-  segmentBinormalConstraintFunctions.cpp
+  constraints/segmentChainConstraintFunctions.cpp
+  constraints/segmentBinormalConstraintFunctions.cpp
 
-  prescribedPrincipleStressConstraintFunctions.cpp
+  constraints/prescribedPrincipleStressConstraintFunctions.cpp
 
-  generateTetMeshMatrix.cpp
+  simulation/generateTetMeshMatrix.cpp
 )
 
 set(SOLID_DEFORMATION_MODEL_DEPS

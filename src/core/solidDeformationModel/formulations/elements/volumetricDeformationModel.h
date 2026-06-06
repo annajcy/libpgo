@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../../deformationModel.h"
-#include "../../elasticModel3DDeformationGradient.h"
-#include "../../plasticModel3DDeformationGradient.h"
+#include "../../deformation/deformationModel.h"
+#include "../../elastic/elasticModel3DDeformationGradient.h"
+#include "../../plastic/plasticModel3DDeformationGradient.h"
 #include "../basis/basis.h"
 #include "../quadrature/quadrature.h"
 #include "../kernels/volumetricKernel.h"

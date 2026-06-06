@@ -1,6 +1,6 @@
 #include "vertex3DofLayout.h"
 
-#include "simulationMesh.h"
+#include "simulation/simulationMesh.h"
 #include "EigenSupport.h"
 
 #include <atomic>

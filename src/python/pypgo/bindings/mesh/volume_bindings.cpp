@@ -21,7 +21,7 @@
 #include "common.h"
 #include "barycentricCoordinates.h"
 #include "generateMassMatrix.h"
-#include "simulationMesh.h"
+#include "simulation/simulationMesh.h"
 #include "../sparse/core.h"
 #include "../simulation/core.h"
 #include "vegFile.h"

@@ -14,7 +14,7 @@
 #include "barycentricCoordinates.h"
 #include "generateMassMatrix.h"
 #include "volumetricMesh.h"
-#include "../simulationMesh.h"
+#include "../simulation/simulationMesh.h"
 
 #include <algorithm>
 #include <array>

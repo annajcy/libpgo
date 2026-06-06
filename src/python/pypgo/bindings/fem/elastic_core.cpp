@@ -1,6 +1,6 @@
 #include "elastic_core.h"
 
-#include "factories/elasticModelFactory.h"
+#include "elastic/elasticModelFactory.h"
 
 namespace pgo
 {

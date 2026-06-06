@@ -1,6 +1,6 @@
 #include "plastic_core.h"
 
-#include "factories/plasticModelFactory.h"
+#include "plastic/plasticModelFactory.h"
 
 namespace pgo
 {

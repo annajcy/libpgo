@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../../deformationModel.h"
-#include "../../elasticModel2DFundamentalForms.h"
-#include "../../plasticModel2DFundamentalForms.h"
+#include "../../deformation/deformationModel.h"
+#include "../../elastic/elasticModel2DFundamentalForms.h"
+#include "../../plastic/plasticModel2DFundamentalForms.h"
 #include "EigenSupport.h"
 
 namespace pgo

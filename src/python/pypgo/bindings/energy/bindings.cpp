@@ -12,14 +12,14 @@
 #include <utility>
 #include <vector>
 
-#include "deformationModelFactory.h"
-#include "deformationModelState.h"
-#include "deformationModelAssembler.h"
-#include "deformationModelEnergy.h"
-#include "deformationModelManager.h"
+#include "deformation/deformationModelBuilder.h"
+#include "deformation/deformationModelState.h"
+#include "deformation/deformationModelAssembler.h"
+#include "deformation/deformationModelEnergy.h"
+#include "deformation/deformationModelManager.h"
 #include "formulations/parameters/parameterField.h"
-#include "factories/elasticModelFactory.h"
-#include "plasticMaterialEnergy.h"
+#include "elastic/elasticModelFactory.h"
+#include "deformation/plasticMaterialEnergy.h"
 #include "constraints/constraint_core.h"
 #include "EigenDef.h"
 #include "core.h"
@@ -32,7 +32,7 @@
 #include "constraints/potentialEnergyFromConstraintFunctions.h"
 #include "quadraticPotentialEnergy.h"
 #include "../simulation/core.h"
-#include "simulationMesh.h"
+#include "simulation/simulationMesh.h"
 #include "solver/common/solveDiagnostics.h"
 #include "../sparse/core.h"
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../deformationModel.h"
+#include "../../deformation/deformationModel.h"
 #include "../kernels/shellKernel.h"
 #include "shellDeformationModelCacheData.h"
 #include "EigenSupport.h"
