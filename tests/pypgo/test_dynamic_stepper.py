@@ -70,7 +70,7 @@ def test_unknown_integrator_raises():
 
 def test_step_rejects_non_optimizer():
     sim = DynamicSimulation(mass=np.eye(1), state=_rest_state(1), timestep=0.05)
-    with pytest.raises(TypeError, match="NewtonOptimizer"):
+    with pytest.raises(TypeError, match="Optimizer"):
         sim.step(optimizer=object())
 
 

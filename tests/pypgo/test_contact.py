@@ -263,3 +263,16 @@ def test_frictional_sampled_penalty_requires_previous_state():
         frictional.begin_step(time=0.0, timestep=0.0, previous_x=np.zeros(9))
 
     frictional.begin_step(time=0.0, timestep=0.1, previous_x=np.zeros(9))
+
+
+def test_contact_surface_and_energy_handles_are_concrete_peers():
+    import pypgo._core as _core
+
+    surface = contact.ContactSurface.identity(
+        np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=np.float64)
+    )
+    triangles = np.array([[0, 1, 2]], dtype=np.int64)
+    e = contact.SampledPenaltyEnergy(surface, triangles)
+
+    assert isinstance(surface._core, _core.PyContactSurface)
+    assert isinstance(e._handle, _core.PyPotentialEnergy)

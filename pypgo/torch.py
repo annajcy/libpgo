@@ -117,7 +117,7 @@ class StaticEquilibriumLayer(_torch.nn.Module):
         fixed_values,
         surface_vertices,
         surface_vertex_ids: Sequence[int],
-        inner_optimizer: solver.NewtonOptimizer | None = None,
+        inner_optimizer: solver.Optimizer | None = None,
     ) -> None:
         super().__init__()
         if not hasattr(energy, "_handle"):
@@ -140,8 +140,8 @@ class StaticEquilibriumLayer(_torch.nn.Module):
             raise ValueError("surface_vertex_ids contain out-of-range vertex ids")
 
         self.inner_optimizer = inner_optimizer or solver.NewtonOptimizer()
-        if not isinstance(self.inner_optimizer, solver.NewtonOptimizer):
-            raise TypeError("inner_optimizer must be a pypgo.solver.NewtonOptimizer")
+        if not isinstance(self.inner_optimizer, solver.Optimizer):
+            raise TypeError("inner_optimizer must be a pypgo.solver.Optimizer")
 
         self.plastic_shape = tuple(state.plastic_field.values.shape)
         self.num_plastic_dofs = int(np.prod(self.plastic_shape))

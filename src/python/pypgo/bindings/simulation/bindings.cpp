@@ -7,12 +7,12 @@
 
 #include "eigen_numpy.h"
 #include "../energy/core.h"
+#include "../solver/core.h"
 
 #include "dynamicState.h"
 #include "dynamicStepOptions.h"
 #include "dynamicStepper.h"
 #include "dynamicStepService.h"
-#include "solver/newton/NewtonOptimizer.h"
 
 #include <memory>
 #include <optional>
@@ -128,27 +128,17 @@ public:
 
   nb::dict step(nb::ndarray<nb::numpy, const double> externalForce,
     nb::ndarray<nb::numpy, const double> fixedValues, bool hasFixedValues,
-    int maxIterations, double gradientTolerance, bool damping,
-    const std::string &lineSearch, int verbose, int sparseSolverKind)
+    PyOptimizer &optimizer)
   {
     SIM::DynamicStepRequest request;
     request.externalForce = python::ndarrayToVectorXd(externalForce);
     if (hasFixedValues)
       request.fixedValues = python::ndarrayToVectorXd(fixedValues);
 
-    NOO::NewtonOptimizer::Options options;
-    options.maxIterations = maxIterations;
-    options.gradientTolerance = gradientTolerance;
-    options.damping = damping;
-    options.lineSearch = parseLineSearch(lineSearch);
-    options.verbose = verbose;
-    options.sparseSolver.kind = static_cast<NO::NewtonSparseSolverKind>(sparseSolverKind);
-    NOO::NewtonOptimizer optimizer(options);
-
     SIM::DynamicStepResult result;
     {
       nb::gil_scoped_release release;
-      result = stepper_->step(state_, request, optimizer);
+      result = stepper_->step(state_, request, optimizer.asOptimizer());
     }
     state_ = result.state;
 
@@ -199,8 +189,7 @@ void init_simulation_bindings(nb::module_ &m)
       nb::arg("gamma"))
     .def("step", &PyDynamicSimulation::step,
       nb::arg("external_force"), nb::arg("fixed_values"), nb::arg("has_fixed_values"),
-      nb::arg("max_iterations"), nb::arg("gradient_tolerance"), nb::arg("damping"),
-      nb::arg("line_search"), nb::arg("verbose"), nb::arg("sparse_solver_kind"))
+      nb::arg("optimizer"))
     .def_prop_ro("displacement", &PyDynamicSimulation::displacement, nb::rv_policy::move)
     .def_prop_ro("velocity", &PyDynamicSimulation::velocity, nb::rv_policy::move)
     .def_prop_ro("acceleration", &PyDynamicSimulation::acceleration, nb::rv_policy::move)

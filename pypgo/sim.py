@@ -267,11 +267,11 @@ class DynamicSimulation:
         *,
         external_force: np.ndarray | Sequence[float] | None = None,
         fixed_values: np.ndarray | Sequence[float] | None = None,
-        optimizer: _solver.NewtonOptimizer | None = None,
+        optimizer: _solver.Optimizer | None = None,
     ) -> DynamicFrame:
         optimizer = optimizer if optimizer is not None else _solver.NewtonOptimizer()
-        if not isinstance(optimizer, _solver.NewtonOptimizer):
-            raise TypeError("optimizer must be a pypgo.solver.NewtonOptimizer")
+        if not isinstance(optimizer, _solver.Optimizer):
+            raise TypeError("optimizer must be a pypgo.solver.Optimizer")
 
         force = (
             np.zeros(self._n, dtype=np.float64)
@@ -289,12 +289,7 @@ class DynamicSimulation:
             force,
             fixed_arr,
             has_fixed,
-            int(optimizer.max_iterations),
-            float(optimizer.gradient_tolerance),
-            bool(optimizer.damping),
-            str(optimizer.line_search),
-            int(optimizer.verbose),
-            _SPARSE_SOLVERS[optimizer.sparse_solver],
+            optimizer._handle,
         )
 
         displacement = np.asarray(data["displacement"], dtype=np.float64)
