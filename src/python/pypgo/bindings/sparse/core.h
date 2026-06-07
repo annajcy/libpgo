@@ -1,6 +1,10 @@
 #pragma once
 
 #include "EigenDef.h"
+#include "eigen_numpy.h"
+
+#include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
 
 #include <map>
 #include <optional>
@@ -49,6 +53,39 @@ public:
               += values_[k];
         }
         return dense;
+    }
+
+    // Matrix-vector product: y = A * x
+    nanobind::ndarray<nanobind::numpy, double> matvec(
+      nanobind::ndarray<nanobind::numpy, const double> x) const
+    {
+        auto xMap = pgo::python::ndarrayToVectorMapXd(x);
+        pgo::EigenSupport::VXd y = eigenMatrix() * xMap;
+        return pgo::python::vectorXdToNdarray(std::move(y));
+    }
+
+    // Matrix-matrix product: C = A * B
+    nanobind::ndarray<nanobind::numpy, double> matmat(
+      nanobind::ndarray<nanobind::numpy, const double> B) const
+    {
+        pgo::python::requireFloat64(B);
+        if (B.ndim() != 2) {
+            throw std::runtime_error("matmat: B must be a 2-D array");
+        }
+        auto bMap = pgo::python::ndarrayToMatrixXd(B);
+        Eigen::MatrixXd C = eigenMatrix() * bMap;
+        return pgo::python::matrixXdToNdarray(std::move(C));
+    }
+
+    // Named factory
+    static PySparseMatrix create(
+      int rows,
+      int cols,
+      const std::vector<int>& rowIndices,
+      const std::vector<int>& colIndices,
+      const std::vector<double>& values)
+    {
+        return PySparseMatrix(rows, cols, rowIndices, colIndices, values);
     }
 
     // Lazily build and cache the Eigen sparse matrix from the stored COO data.
