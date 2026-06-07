@@ -28,7 +28,7 @@ class CMakeExtension(Extension):
 class CMakeBuildExt(build_ext):
     """Build pypgo's native extension through the CMake pypgo preset."""
 
-    preset = "pypgo"
+    preset = os.environ.get("PYPGO_CMAKE_PRESET", "pypgo")
     target = "pypgo_core"
 
     def build_extension(self, ext):
@@ -110,6 +110,7 @@ setup(
             "pypgo-cubic-mesher=pypgo.tools.mesh.volume.cubic_mesher:main",
             "pypgo-tetgen-mesher=pypgo.tools.mesh.volume.tetgen_mesher:main",
             "pypgo-ftetwild-mesher=pypgo.tools.mesh.volume.ftetwild_mesher:main",
+            "pypgo-msh-converter=pypgo.tools.mesh.volume.msh_converter:main",
             "pypgo-surface-quality=pypgo.tools.mesh.surface.quality:main",
             "pypgo-surface-remesh=pypgo.tools.mesh.surface.remesh:main",
             "pypgo-surface-cleanup=pypgo.tools.mesh.surface.cleanup:main",

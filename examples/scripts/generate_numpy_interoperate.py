@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate pypgo/examples/numpy_interoperate.ipynb.
+"""Generate examples/numpy_interoperate.ipynb.
 
 Run from the repository root:
 
-    conda run -n libpgo python pypgo/examples/scripts/generate_numpy_interoperate.py
+    conda run -n libpgo python examples/scripts/generate_numpy_interoperate.py
 """
 
 from __future__ import annotations
@@ -265,7 +265,7 @@ CELLS = [
 
 def main() -> None:
     root = repo_root()
-    write_notebook(root / "pypgo" / "examples" / "numpy_interoperate.ipynb", CELLS)
+    write_notebook(root / "examples" / "numpy_interoperate.ipynb", CELLS)
 
 
 if __name__ == "__main__":

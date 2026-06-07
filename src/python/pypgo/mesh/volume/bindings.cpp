@@ -83,6 +83,7 @@ void init_volume_mesh_bindings(nb::module_ &m)
     m.def("load_volume_mesh", &load_volume_mesh);
     m.def("save_volume_mesh", &save_volume_mesh);
     m.def("read_veg", &read_veg);
+    m.def("read_msh", &read_msh);
     m.def("write_veg", &write_veg);
     m.def("extract_surface_mesh", &extract_surface_mesh, nb::arg("volume_mesh"), nb::arg("triangulate") = true);
     m.def("extract_veg_payload_from_volume_mesh", &extract_veg_payload_from_volume_mesh, nb::arg("volume_mesh"));

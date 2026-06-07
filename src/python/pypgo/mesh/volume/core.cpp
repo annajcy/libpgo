@@ -2,6 +2,7 @@
 
 #include "generateMassMatrix.h"
 #include "generateSurfaceMesh.h"
+#include "loadMshFile.h"
 #include "triMeshGeo.h"
 #include "vegFile.h"
 #include "volumetricMeshENuMaterial.h"
@@ -439,6 +440,29 @@ PyVegPayload read_veg(const std::string& path) {
         result.regions.emplace_back(region.materialIndex, region.setIndex);
     }
     return result;
+}
+
+PyTetMeshData read_msh(const std::string& path) {
+    std::vector<Vec3d> vertices;
+    std::vector<int> elements;
+    {
+        nb::gil_scoped_release release;
+        auto tetMesh = VolumetricMeshes::loadMshFile(path.c_str());
+
+        // Extract geometry as Vec3d + Vec4i, then flatten to int for MeshData<4>
+        std::vector<Vec4i> tetElements;
+        tetMesh.exportMeshGeometry(vertices, tetElements);
+
+        elements.reserve(tetElements.size() * 4);
+        for (const auto& tet : tetElements) {
+            elements.push_back(tet[0]);
+            elements.push_back(tet[1]);
+            elements.push_back(tet[2]);
+            elements.push_back(tet[3]);
+        }
+    }
+    return PyTetMeshData(
+        Mesh::MeshData<4>::fromFlatElements(std::move(vertices), std::move(elements)));
 }
 
 void write_veg(

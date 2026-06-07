@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate pypgo/examples/mesh_api_demo.ipynb.
+"""Generate examples/mesh_api_demo.ipynb.
 
 Run from the repository root:
 
-    conda run -n libpgo python pypgo/examples/scripts/generate_mesh_api_demo.py
+    conda run -n libpgo python examples/scripts/generate_mesh_api_demo.py
 """
 
 from __future__ import annotations
@@ -72,13 +72,13 @@ CELLS = [
         def _find_repo_root() -> Path:
             cwd = Path.cwd().resolve()
             for candidate in (cwd, *cwd.parents):
-                if (candidate / "setup.py").exists() and (candidate / "pypgo").exists():
+                if (candidate / ".git").exists():
                     return candidate
             raise RuntimeError("Could not find repository root from the current working directory")
 
 
         REPO_ROOT = _find_repo_root()
-        ASSET_DIR = REPO_ROOT / "pypgo" / "examples" / "assets" / "obj"
+        ASSET_DIR = REPO_ROOT / "examples" / "assets" / "obj"
 
         from pypgo.mesh.visualize import plot_surface, plot_volume_surface
 
@@ -803,7 +803,7 @@ CELLS = [
 
 def main() -> None:
     root = repo_root()
-    write_notebook(root / "pypgo" / "examples" / "mesh_api_demo.ipynb", CELLS)
+    write_notebook(root / "examples" / "mesh_api_demo.ipynb", CELLS)
 
 
 if __name__ == "__main__":

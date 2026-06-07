@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate pypgo/examples/energy_api_demo.ipynb.
+"""Generate examples/energy_api_demo.ipynb.
 
 Run from the repository root:
 
-    conda run -n libpgo python pypgo/examples/scripts/generate_energy_api_demo.py
+    conda run -n libpgo python examples/scripts/generate_energy_api_demo.py
 """
 
 from __future__ import annotations
@@ -400,14 +400,12 @@ CELLS = [
     ),
     code(
         """
-        # max_step returns a MaxStepResult with alpha + clamp info
+        # max_step returns a StepConstraint with alpha + clamp info
         dx = np.ones_like(u)
         ms = total.max_step(u, dx)
         print(f"alpha:             {ms.alpha}")
-        print(f"material_alpha:    {ms.material_alpha}")
-        print(f"contact_alpha:     {ms.contact_alpha}")
-        print(f"material_clamped:  {ms.material_clamped}")
-        print(f"contact_clamped:   {ms.contact_clamped}")
+        print(f"clamped:           {ms.clamped}")
+        print(f"source:            {ms.source}")
         """
     ),
     md(
@@ -498,7 +496,7 @@ CELLS = [
 
 def main() -> None:
     root = repo_root()
-    write_notebook(root / "pypgo" / "examples" / "energy_api_demo.ipynb", CELLS)
+    write_notebook(root / "examples" / "energy_api_demo.ipynb", CELLS)
 
 
 if __name__ == "__main__":

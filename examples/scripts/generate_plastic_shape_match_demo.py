@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate pypgo/examples/plastic_shape_match_demo.ipynb.
+"""Generate examples/plastic_shape_match_demo.ipynb.
 
 This tutorial walks through *differentiable inverse design* of a plastic field:
 we bake a per-element plastic distortion into an elastic block, let it relax to
@@ -10,12 +10,12 @@ through it.
 
 Run from the repository root:
 
-    conda run -n libpgo python pypgo/examples/scripts/generate_plastic_shape_match_demo.py
+    conda run -n libpgo python examples/scripts/generate_plastic_shape_match_demo.py
 
 Then execute top-to-bottom to validate:
 
     conda run -n libpgo python -m jupyter nbconvert --to notebook --execute \
-        pypgo/examples/plastic_shape_match_demo.ipynb \
+        examples/plastic_shape_match_demo.ipynb \
         --output /tmp/pypgo_plastic_shape_match_executed.ipynb \
         --ExecutePreprocessor.timeout=600
 """
@@ -36,7 +36,7 @@ def run_demo(volume_veg=None, surface_obj=None, target_obj=None, output_dir=None
     """
     del volume_veg, surface_obj, target_obj, output_dir
     root = repo_root()
-    write_notebook(root / "pypgo" / "examples" / "plastic_shape_match_demo.ipynb", CELLS)
+    write_notebook(root / "examples" / "plastic_shape_match_demo.ipynb", CELLS)
 
 
 CELLS = [
@@ -269,7 +269,7 @@ CELLS = [
         import pypgo.solver as ps
         import torch
 
-        PACKAGE_ROOT = Path(pgo.__file__).resolve().parent
+        PACKAGE_ROOT = Path(pgo.__file__).resolve().parent.parent
         OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs"
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

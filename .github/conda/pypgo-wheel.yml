@@ -1,0 +1,22 @@
+name: pypgo-wheel
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - cmake>=3.29
+  - ninja
+  - pkg-config
+  - gmp
+  - mpfr
+  - imath
+  - libblas
+  - liblapack
+  - zlib
+  - libboost-devel
+  - tbb-devel
+  - gmsh
+  - openvdb
+  - numpy
+  - pip
+  - setuptools
+  - wheel

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate pypgo/examples/dynamic_sim_api_demo.ipynb.
+"""Generate examples/dynamic_sim_api_demo.ipynb.
 
 Run from the repository root:
 
-    conda run -n libpgo python pypgo/examples/scripts/generate_dynamic_sim_api_demo.py
+    conda run -n libpgo python examples/scripts/generate_dynamic_sim_api_demo.py
 """
 
 from __future__ import annotations
@@ -399,7 +399,7 @@ CELLS = [
             return cwd
 
         REPO_ROOT = _find_repo_root()
-        ASSET_DIR = REPO_ROOT / "pypgo" / "examples" / "assets"
+        ASSET_DIR = REPO_ROOT / "examples" / "assets"
         VEG_DIR = ASSET_DIR / "veg" / "tet"
 
         # ── 1. Load box tet mesh ──────────────────────────────────────
@@ -469,7 +469,7 @@ CELLS = [
 
 def main() -> None:
     root = repo_root()
-    write_notebook(root / "pypgo" / "examples" / "dynamic_sim_api_demo.ipynb", CELLS)
+    write_notebook(root / "examples" / "dynamic_sim_api_demo.ipynb", CELLS)
 
 
 if __name__ == "__main__":

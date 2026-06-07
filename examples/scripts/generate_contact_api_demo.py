@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate pypgo/examples/contact_api_demo.ipynb.
+"""Generate examples/contact_api_demo.ipynb.
 
 Run from the repository root:
 
-    conda run -n libpgo python pypgo/examples/scripts/generate_contact_api_demo.py
+    conda run -n libpgo python examples/scripts/generate_contact_api_demo.py
 """
 
 from __future__ import annotations
@@ -58,12 +58,11 @@ CELLS = [
             BackwardEulerDynamicStepper,
             DynamicSimulation,
             DynamicState,
-            SimulationMesh,
-            KoiterStVKShellMaterial,
         )
+        from pypgo.fem import SimulationMesh, KoiterStVKShellMaterial
         from pypgo.sparse import SparseMatrix
 
-        PACKAGE_ROOT = Path(pgo.__file__).resolve().parent
+        PACKAGE_ROOT = Path(pgo.__file__).resolve().parent.parent
         ASSET_DIR = PACKAGE_ROOT / "examples" / "assets"
         OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs"
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1124,7 +1123,7 @@ CELLS = [
 
         - **IPCEnergy** works with mesh obstacles (`ObstacleSpec`); Section 1 uses `bottom.obj`.
         - **FloorEnergy** uses an implicit plane (no mesh) and works with any contact surface.
-        - **SampledPenaltyEnergy** requires identity contact surface (extracted from volume mesh).
+        - **SampledPenaltyEnergy** works with any contact surface (identity or embedded); the demo uses identity for simplicity.
         - **FrictionalSampledPenaltyEnergy** adds Coulomb friction and requires `previous_x`.
         - **FrictionalSampledPenaltyEnergy** requires `previous_x` for friction velocity — the framework handles this automatically.
         - Shell meshes need a manually-constructed lumped mass; `VolumeMesh.mass_matrix()` does not apply.

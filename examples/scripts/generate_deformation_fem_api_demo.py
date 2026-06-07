@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Generate pypgo/examples/deformation_fem_api_demo.ipynb.
+"""Generate examples/deformation_fem_api_demo.ipynb.
 
 Uses real assets from pypgo/examples/assets/veg/{tet,cubic}/ and
 pypgo/examples/assets/obj/shell.obj.
 
 Run from the repository root:
 
-    conda run -n libpgo python pypgo/examples/scripts/generate_deformation_fem_api_demo.py
+    conda run -n libpgo python examples/scripts/generate_deformation_fem_api_demo.py
 """
 
 from __future__ import annotations
@@ -81,13 +81,12 @@ CELLS = [
         """
         def _repo_root() -> Path:
             for p in Path.cwd().resolve().parents:
-                if (p / "setup.py").exists() and (p / "pypgo").exists():
+                if (p / ".git").exists():
                     return p
-            # fallback: look for pypgo/examples/assets relative to this file
             return Path.cwd().resolve()
 
         ROOT = _repo_root()
-        ASSETS = ROOT / "pypgo" / "examples" / "assets"
+        ASSETS = ROOT / "examples" / "assets"
         TET_VEG = ASSETS / "veg" / "tet"
         CUBIC_VEG = ASSETS / "veg" / "cubic"
         OBJ_DIR = ASSETS / "obj"
@@ -619,7 +618,7 @@ CELLS = [
 
 def main() -> None:
     root = repo_root()
-    write_notebook(root / "pypgo" / "examples" / "deformation_fem_api_demo.ipynb", CELLS)
+    write_notebook(root / "examples" / "deformation_fem_api_demo.ipynb", CELLS)
 
 
 if __name__ == "__main__":

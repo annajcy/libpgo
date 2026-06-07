@@ -124,6 +124,7 @@ std::shared_ptr<PyVolumeMesh> create_volume_mesh_multi(
     const std::vector<std::pair<int, int>>& regionPayloads);
 
 PyVegPayload read_veg(const std::string& path);
+PyTetMeshData read_msh(const std::string& path);
 
 void write_veg(
     const std::string& path,

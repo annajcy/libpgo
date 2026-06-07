@@ -53,6 +53,18 @@
             }
         },
         {
+            "name": "pypgo-wheel",
+            "hidden": false,
+            "inherits": [
+                "pypgo"
+            ],
+            "binaryDir": "${sourceDir}/build/pypgo-wheel",
+            "cacheVariables": {
+                "PGO_NATIVE_OPTIMIZATION": "OFF",
+                "Python_FIND_VIRTUALENV": "FIRST"
+            }
+        },
+        {
             "name": "knitro",
             "hidden": true,
             "cacheVariables": {
@@ -145,6 +157,13 @@
         {
             "name": "pypgo",
             "configurePreset": "pypgo",
+            "targets": [
+                "pypgo_core"
+            ]
+        },
+        {
+            "name": "pypgo-wheel",
+            "configurePreset": "pypgo-wheel",
             "targets": [
                 "pypgo_core"
             ]

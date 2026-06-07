@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate pypgo/examples/tricubic_hermite_box_drop_ipc_demo.ipynb.
+"""Generate examples/tricubic_hermite_box_drop_ipc_demo.ipynb.
 
 Run from the repository root:
 
-    conda run -n libpgo python pypgo/examples/scripts/generate_tricubic_hermite_box_drop_ipc_demo.py
+    conda run -n libpgo python examples/scripts/generate_tricubic_hermite_box_drop_ipc_demo.py
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ CELLS = [
         import pypgo.sim as psim
         import pypgo.solver as ps
 
-        ASSET_DIR = Path(pgo.__file__).resolve().parent / "examples" / "assets"
+        ASSET_DIR = Path(pgo.__file__).resolve().parent.parent / "examples" / "assets"
         BOX_VEG = ASSET_DIR / "veg" / "cubic" / "box.veg"
 
         volume = pgo.mesh.volume.VolumeMesh.from_veg_file(pgo.mesh.volume.read_veg(str(BOX_VEG)))
@@ -76,8 +76,8 @@ CELLS = [
             options=pf.DeformationOptions(enable_material_max_step=True),
         )
 
-        mass = pf.formulation_mass_matrix(volume, formulation)
-        gravity = pf.body_force(volume, formulation, [0.0, -9.8, 0.0])
+        mass = formulation.mass_matrix(volume)
+        gravity = formulation.body_force(volume, [0.0, -9.8, 0.0])
 
         print("Hermite DOFs:", deformation.num_dofs)
         print("mass shape:", mass.shape, "nnz:", mass.nnz)
@@ -91,7 +91,7 @@ CELLS = [
     ),
     code(
         """
-        W = pf.surface_embedding_matrix(volume, surface.vertices, formulation)
+        W = formulation.surface_embedding_matrix(volume, surface.vertices)
         contact_surface = pc.ContactSurface.embedded(surface.vertices, W)
 
         floor_height = float(surface.vertices[:, 1].min() - 0.01)
@@ -205,7 +205,7 @@ CELLS = [
 
 def main() -> None:
     root = repo_root()
-    write_notebook(root / "pypgo" / "examples" / "tricubic_hermite_box_drop_ipc_demo.ipynb", CELLS)
+    write_notebook(root / "examples" / "tricubic_hermite_box_drop_ipc_demo.ipynb", CELLS)
 
 
 if __name__ == "__main__":

@@ -214,6 +214,11 @@ class VolumeMesh:
 # ---------------------------------------------------------------------------
 
 
+def read_msh(path: str) -> TetMeshData:
+    """Load a Gmsh .msh file and return a TetMeshData (geometry only, no material)."""
+    return _wrap_mesh_data_core(_core.read_msh(str(path)))
+
+
 def read_veg(path: str) -> VegFile:
     payload = _core.read_veg(str(path))
     return VegFile(

@@ -10,6 +10,7 @@ from pypgo.mesh.volume.core import (
     MeshSet,
     VegFile,
     VolumeMesh,
+    read_msh,
     read_veg,
     write_veg,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "MooneyRivlinMaterial",
     "VegFile",
     "VolumeMesh",
+    "read_msh",
     "read_veg",
     "write_veg",
 ]

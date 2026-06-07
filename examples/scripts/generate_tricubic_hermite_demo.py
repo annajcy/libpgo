@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate pypgo/examples/tricubic_hermite_demo.ipynb.
+"""Generate examples/tricubic_hermite_demo.ipynb.
 
 Run from the repository root:
 
-    conda run -n libpgo python pypgo/examples/scripts/generate_tricubic_hermite_demo.py
+    conda run -n libpgo python examples/scripts/generate_tricubic_hermite_demo.py
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ CELLS = [
     ),
     code(
         """
-        PACKAGE_ROOT = Path(pgo.__file__).resolve().parent
+        PACKAGE_ROOT = Path(pgo.__file__).resolve().parent.parent
         ASSET_DIR = PACKAGE_ROOT / "examples" / "assets"
         OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs"
         CUBIC_BOX = ASSET_DIR / "veg" / "cubic" / "box.veg"
@@ -297,7 +297,7 @@ CELLS = [
 
 def main() -> None:
     root = repo_root()
-    write_notebook(root / "pypgo" / "examples" / "tricubic_hermite_demo.ipynb", CELLS)
+    write_notebook(root / "examples" / "tricubic_hermite_demo.ipynb", CELLS)
 
 
 if __name__ == "__main__":

@@ -78,6 +78,49 @@ def test_cmake_build_ext_uses_python_build_preset(monkeypatch, tmp_path):
     ]
 
 
+def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYPGO_CMAKE_PRESET", "pypgo-wheel")
+    namespace, setup_kwargs = load_setup_namespace(monkeypatch)
+    build_ext_cls = setup_kwargs["cmdclass"]["build_ext"]
+
+    commands = []
+    monkeypatch.setattr(
+        namespace["subprocess"],
+        "check_call",
+        lambda command, cwd: commands.append((command, cwd)),
+    )
+
+    built_extension = tmp_path / "_core.abi3.so"
+    built_extension.write_bytes(b"native extension")
+
+    builder = object.__new__(build_ext_cls)
+    builder.parallel = 2
+    builder._find_built_extension = lambda source_dir, expected_name: built_extension
+    builder.get_ext_fullpath = lambda name: str(
+        tmp_path / "build" / "lib" / "pypgo" / "_core.abi3.so"
+    )
+
+    ext = setup_kwargs["ext_modules"][0]
+    builder.build_extension(ext)
+
+    assert commands == [
+        (["cmake", "--preset", "pypgo-wheel"], ROOT),
+        (
+            [
+                "cmake",
+                "--build",
+                "--preset",
+                "pypgo-wheel",
+                "--target",
+                "pypgo_core",
+                "--parallel",
+                "2",
+            ],
+            ROOT,
+        ),
+    ]
+
+
 def test_cmake_build_ext_infers_parallel_jobs_by_default(monkeypatch, tmp_path):
     namespace, setup_kwargs = load_setup_namespace(monkeypatch)
     build_ext_cls = setup_kwargs["cmdclass"]["build_ext"]
