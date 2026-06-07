@@ -21,6 +21,7 @@
 #include "plastic/plasticModel.h"
 #include "plastic/plasticModel3DDeformationGradient.h"
 #include "multiVertexPullingSoftConstraints.h"
+#include "backwardEuler/backwardEulerStepper.h"
 #include "dynamicStepper.h"
 #include "generateMassMatrix.h"
 #include "generateSurfaceMesh.h"
@@ -885,7 +886,7 @@ int pgo_run_sim_from_config(const char *configFileName)
       }
 
       // ── Step ─────────────────────────────────────────────────────
-      Simulation::ImplicitEulerStepper stepper(std::move(problem));
+      Simulation::BackwardEulerStepper stepper(std::move(problem));
       Simulation::DynamicState state;
       state.displacement = u;
       state.velocity = uvel;

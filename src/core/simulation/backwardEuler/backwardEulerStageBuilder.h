@@ -1,5 +1,5 @@
 /*
-  Implicit backward Euler stage builder.
+  Backward Euler stage builder.
 
   Pure coefficient computation for the single IBE stage:
     A   = M/h² + D/h
@@ -26,7 +26,7 @@ struct IBEStageCoefficients
   EigenSupport::VXd initialGuess;
 };
 
-class ImplicitEulerStageBuilder
+class BackwardEulerStageBuilder
 {
 public:
   IBEStageCoefficients compute(
@@ -36,7 +36,7 @@ public:
     const EigenSupport::SpMatD &damping) const;
 };
 
-DynamicState updateImplicitEulerState(
+DynamicState updateBackwardEulerState(
   const DynamicState &state,
   EigenSupport::ConstRefVecXd solution,
   double timestep);

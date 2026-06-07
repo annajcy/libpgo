@@ -1,11 +1,11 @@
-#include "implicitEulerStageBuilder.h"
+#include "backwardEulerStageBuilder.h"
 
 namespace pgo
 {
 namespace Simulation
 {
 
-IBEStageCoefficients ImplicitEulerStageBuilder::compute(
+IBEStageCoefficients BackwardEulerStageBuilder::compute(
   const DynamicState &state,
   const DynamicProblem &problem,
   const DynamicStepRequest &request,
@@ -26,7 +26,7 @@ IBEStageCoefficients ImplicitEulerStageBuilder::compute(
   return coeffs;
 }
 
-DynamicState updateImplicitEulerState(
+DynamicState updateBackwardEulerState(
   const DynamicState &state,
   EigenSupport::ConstRefVecXd solution,
   double timestep)

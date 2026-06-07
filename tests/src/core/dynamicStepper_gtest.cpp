@@ -2,10 +2,10 @@
 
 #include "dynamicState.h"
 #include "dynamicStepOptions.h"
-#include "rayleighDampingAssembly.h"
-#include "stageResidual.h"
-#include "implicitEulerStageBuilder.h"
-#include "trbdf2StageBuilder.h"
+#include "common/rayleighDampingAssembly.h"
+#include "common/stageResidual.h"
+#include "backwardEuler/backwardEulerStageBuilder.h"
+#include "trbdf2/trbdf2StageBuilder.h"
 #include "dynamicStepper.h"
 #include "dynamicStepService.h"
 
@@ -208,7 +208,7 @@ TEST(StageResidual, TemplateStableAndValueCorrect)
 
 // ── T5.4: IBE builder formula + state update ────────────────────────────
 
-TEST(ImplicitEuler, CoefficientFormulas)
+TEST(BackwardEuler, CoefficientFormulas)
 {
   const int n = 2;
   const double h = 0.25;
@@ -225,7 +225,7 @@ TEST(ImplicitEuler, CoefficientFormulas)
   req.externalForce = ES::VXd(n); req.externalForce << 1.0, -2.0;
 
   ES::SpMatD damping = diagSparse({0.4, 0.6});
-  ImplicitEulerStageBuilder builder;
+  BackwardEulerStageBuilder builder;
   IBEStageCoefficients c = builder.compute(state, prob, req, damping);
 
   ES::SpMatD expectedA = (1.0 / (h * h)) * prob.mass + (1.0 / h) * damping;
@@ -234,7 +234,7 @@ TEST(ImplicitEuler, CoefficientFormulas)
   EXPECT_LT((ES::MXd(c.A) - ES::MXd(expectedA)).norm(), 1e-12);
   EXPECT_LT((c.linear - expectedLinear).norm(), 1e-12);
 
-  DynamicState next = updateImplicitEulerState(state, req.externalForce, h);  // arbitrary solution vector
+  DynamicState next = updateBackwardEulerState(state, req.externalForce, h);  // arbitrary solution vector
   EXPECT_LT((next.velocity - (req.externalForce - state.displacement) / h).norm(), 1e-12);
   EXPECT_EQ(next.timestepId, 1u);
   EXPECT_NEAR(next.time, h, 1e-15);
@@ -242,7 +242,7 @@ TEST(ImplicitEuler, CoefficientFormulas)
 
 // ── T5.4: IBE solve end-to-end ──────────────────────────────────────────
 
-TEST(ImplicitEuler, SolveAndAdvanceState)
+TEST(BackwardEuler, SolveAndAdvanceState)
 {
   initLogging();
   const int n = 2;
@@ -253,7 +253,7 @@ TEST(ImplicitEuler, SolveAndAdvanceState)
   prob.mass = identitySparse(n);
   prob.persistentTerms = {{elastic, 0.0, 0.0}};
   prob.timestep = h;
-  auto stepper = makeDynamicStepper(DynamicStepperKind::ImplicitEuler, prob);
+  auto stepper = makeDynamicStepper(DynamicStepperKind::BackwardEuler, prob);
   auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd(n); req.externalForce << 1.0, -2.0;
   DynamicStepResult res = stepper->step(restState(n), req, optimizer);
@@ -329,7 +329,7 @@ TEST(DynamicStepper, FixedDofsRemainFixed)
   prob.fixedDofs = {1};
   prob.timestep = 0.1;
 
-  auto stepper = makeDynamicStepper(DynamicStepperKind::ImplicitEuler, prob);
+  auto stepper = makeDynamicStepper(DynamicStepperKind::BackwardEuler, prob);
   auto optimizer = quickOptimizer();
   DynamicState s = restState(n);
   s.displacement[1] = 0.42;
@@ -340,7 +340,7 @@ TEST(DynamicStepper, FixedDofsRemainFixed)
   EXPECT_NEAR(res.state.displacement[1], 0.42, 1e-9);
 }
 
-TEST(DynamicStepper, FreeFallMatchesImplicitEulerRecurrence)
+TEST(DynamicStepper, FreeFallMatchesBackwardEulerRecurrence)
 {
   initLogging();
   // No elastic energy: a single point mass under constant gravity.
@@ -350,7 +350,7 @@ TEST(DynamicStepper, FreeFallMatchesImplicitEulerRecurrence)
   prob.mass = diagSparse({m});
   prob.timestep = h;
 
-  auto stepper = makeDynamicStepper(DynamicStepperKind::ImplicitEuler, prob);
+  auto stepper = makeDynamicStepper(DynamicStepperKind::BackwardEuler, prob);
   auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd::Constant(n, fGrav);
 
@@ -377,5 +377,5 @@ TEST(DynamicStepper, RejectsBadProblem)
   DynamicProblem prob;
   prob.mass = identitySparse(2);
   prob.timestep = -1.0;  // invalid
-  EXPECT_THROW(makeDynamicStepper(DynamicStepperKind::ImplicitEuler, prob), std::invalid_argument);
+  EXPECT_THROW(makeDynamicStepper(DynamicStepperKind::BackwardEuler, prob), std::invalid_argument);
 }

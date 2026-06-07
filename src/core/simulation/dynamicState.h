@@ -19,7 +19,7 @@ namespace Simulation
 
 enum class DynamicStepperKind
 {
-  ImplicitEuler,
+  BackwardEuler,
   TRBDF2,
 };
 

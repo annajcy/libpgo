@@ -341,7 +341,7 @@ CELLS = [
         volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
             cubic, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
         )
-        sim = pgo.sim.SimulationMesh.create_volumetric(volume)
+        sim = pgo.fem.SimulationMesh.create_volumetric(volume)
         print("hex grid:", nx, "x", ny, "x", nz,
               "->", cube_vertices.shape[0], "vertices,", cube_elements.shape[0], "elements")
         pgo.mesh.plot_volume_surface(cubic, titles=["rest cubic volume"], show_edges=True)

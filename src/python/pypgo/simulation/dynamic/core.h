@@ -28,7 +28,7 @@ class PyBackwardEulerDynamicStepper final : public PyDynamicStepper
 public:
   pgo::Simulation::DynamicStepperKind kind() const override
   {
-    return pgo::Simulation::DynamicStepperKind::ImplicitEuler;
+    return pgo::Simulation::DynamicStepperKind::BackwardEuler;
   }
 };
 

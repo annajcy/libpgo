@@ -1,5 +1,8 @@
 #include "dynamicStepService.h"
 
+#include "backwardEuler/backwardEulerStepper.h"
+#include "trbdf2/trbdf2Stepper.h"
+
 #include <stdexcept>
 #include <utility>
 
@@ -17,8 +20,8 @@ std::unique_ptr<DynamicStepper> makeDynamicStepper(
   validateDynamicProblem(problem, n);
 
   switch (kind) {
-  case DynamicStepperKind::ImplicitEuler:
-    return std::make_unique<ImplicitEulerStepper>(std::move(problem));
+  case DynamicStepperKind::BackwardEuler:
+    return std::make_unique<BackwardEulerStepper>(std::move(problem));
   case DynamicStepperKind::TRBDF2:
     return std::make_unique<TRBDF2Stepper>(std::move(problem), trbdf2Gamma);
   }

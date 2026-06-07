@@ -7,6 +7,13 @@ def float_vector(name: str, value) -> np.ndarray:
         raise ValueError(f"{name} must be 1-D, got shape {arr.shape}")
     return arr
 
+def sized_vector(name: str, value, n: int) -> np.ndarray:
+    """Validate and return a contiguous float64 1-D array of exactly length *n*."""
+    out = np.ascontiguousarray(np.asarray(value, dtype=np.float64).ravel())
+    if out.size != n:
+        raise ValueError(f"{name} must have length {n}, got {out.size}")
+    return out
+
 def vec3(name: str, value) -> np.ndarray:
     """Validate and return a contiguous float64 3-vector (flat input is reshaped)."""
     arr = np.asarray(value, dtype=np.float64).reshape(-1)

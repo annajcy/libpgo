@@ -15,10 +15,6 @@
 
 #include "dynamicState.h"
 #include "dynamicStepOptions.h"
-#include "stageResidual.h"
-#include "energySet.h"
-#include "implicitEulerStageBuilder.h"
-#include "trbdf2StageBuilder.h"
 #include "solver/common/solverResult.h"
 #include "solver/service/optimizationService.h"
 
@@ -47,50 +43,6 @@ public:
     const DynamicStepRequest &request,
     NonlinearOptimization::Optimization::Optimizer &optimizer) = 0;
   virtual int numDofs() const = 0;
-};
-
-class ImplicitEulerStepper final : public DynamicStepper
-{
-public:
-  explicit ImplicitEulerStepper(DynamicProblem problem);
-  DynamicStepResult step(
-    const DynamicState &state,
-    const DynamicStepRequest &request,
-    NonlinearOptimization::Optimization::Optimizer &optimizer) override;
-  int numDofs() const override { return n_; }
-
-  // Expose the stage EnergySet for max-step tests.
-  NonlinearOptimization::EnergySet_const_p getStageEnergy() const { return stageHandle_.energySet; }
-
-private:
-  DynamicProblem problem_;
-  int n_;
-  ImplicitEulerStageBuilder builder_;
-  StageResidualHandle stageHandle_;
-};
-
-class TRBDF2Stepper final : public DynamicStepper
-{
-public:
-  explicit TRBDF2Stepper(DynamicProblem problem, double gamma = 0.5);
-  DynamicStepResult step(
-    const DynamicState &state,
-    const DynamicStepRequest &request,
-    NonlinearOptimization::Optimization::Optimizer &optimizer) override;
-  int numDofs() const override { return n_; }
-
-  // Expose stage energies for legacy tests.
-  NonlinearOptimization::EnergySet_const_p getStage1Energy() const { return stage1Handle_.energySet; }
-  NonlinearOptimization::EnergySet_const_p getStage2Energy() const { return stage2Handle_.energySet; }
-
-private:
-  DynamicProblem problem_;
-  int n_;
-  TRBDF2Coefficients coeffs_;
-  bool singleStage_;
-  TRBDF2StageBuilder builder_;
-  StageResidualHandle stage1Handle_;
-  StageResidualHandle stage2Handle_;
 };
 
 }  // namespace Simulation

@@ -96,7 +96,7 @@ def test_hermite_surface_embedding_reproduces_affine_displacement():
 
 def test_hermite_dynamic_free_fall_uses_24_dofs():
     volume = _single_cube_volume(density=2.0)
-    sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
     state = pf.deformation_model_state(
         sim_mesh,
         elastic=pf.StableNeo(),

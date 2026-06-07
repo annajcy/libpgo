@@ -26,7 +26,7 @@ def make_cubic_case():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    sim = pgo.sim.SimulationMesh.create_volumetric(volume)
+    sim = pgo.fem.SimulationMesh.create_volumetric(volume)
     state = fem.deformation_model_state(
         sim,
         elastic=fem.StVK(),

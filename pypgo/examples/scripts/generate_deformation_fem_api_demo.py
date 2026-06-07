@@ -128,7 +128,7 @@ CELLS = [
     code(
         """
         # Create solver-ready simulation mesh
-        bunny_mesh = pgo.sim.SimulationMesh.create_volumetric(bunny_volume)
+        bunny_mesh = pgo.fem.SimulationMesh.create_volumetric(bunny_volume)
         print(f"mesh_type:      {bunny_mesh.mesh_type}")
         print(f"num_vertices:   {bunny_mesh.num_vertices}")
         print(f"num_elements:   {bunny_mesh.num_elements}")
@@ -205,7 +205,7 @@ CELLS = [
     ),
     code(
         """
-        box_mesh = pgo.sim.SimulationMesh.create_volumetric(box_volume)
+        box_mesh = pgo.fem.SimulationMesh.create_volumetric(box_volume)
         print(f"mesh_type:    {box_mesh.mesh_type}")
         print(f"num_vertices: {box_mesh.num_vertices}")
         print(f"num_elements: {box_mesh.num_elements}")
@@ -262,12 +262,12 @@ CELLS = [
               f"{shell_surface.num_elements} triangles")
 
         # Assign shell material (membrane + bending stiffness)
-        shell_mat = pgo.sim.KoiterStVKShellMaterial(
+        shell_mat = pgo.fem.KoiterStVKShellMaterial(
             thickness=0.001,
             E_membrane=2e6,
             nu_membrane=0.35,
         )
-        shell_mesh = pgo.sim.SimulationMesh.create_shell(shell_surface, shell_mat)
+        shell_mesh = pgo.fem.SimulationMesh.create_shell(shell_surface, shell_mat)
         print(f"mesh_type:    {shell_mesh.mesh_type}")
         print(f"num_vertices: {shell_mesh.num_vertices}")
         """
@@ -444,7 +444,7 @@ CELLS = [
         # Build energy from a temporary mesh
         tmp_veg = read_veg(str(TET_VEG / "box.veg"))
         tmp_vol = VolumeMesh.from_veg_file(tmp_veg)
-        tmp_sim = pgo.sim.SimulationMesh.create_volumetric(tmp_vol)
+        tmp_sim = pgo.fem.SimulationMesh.create_volumetric(tmp_vol)
 
         tmp_state = pf.deformation_model_state(
             tmp_sim,
@@ -523,7 +523,7 @@ CELLS = [
         box_tet_path = str(TET_VEG / "box.veg")
         box_tet_veg = read_veg(box_tet_path)
         box_tet_vol = VolumeMesh.from_veg_file(box_tet_veg)
-        box_tet_sim = pgo.sim.SimulationMesh.create_volumetric(box_tet_vol)
+        box_tet_sim = pgo.fem.SimulationMesh.create_volumetric(box_tet_vol)
 
         box_tet_state = pf.deformation_model_state(
             box_tet_sim,

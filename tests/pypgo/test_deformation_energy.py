@@ -21,7 +21,7 @@ def _make_tet_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         tet, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.sim.SimulationMesh.create_volumetric(volume)
+    return pgo.fem.SimulationMesh.create_volumetric(volume)
 
 
 def _make_cubic_sim_mesh():
@@ -44,7 +44,7 @@ def _make_cubic_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.sim.SimulationMesh.create_volumetric(volume)
+    return pgo.fem.SimulationMesh.create_volumetric(volume)
 
 
 def _make_shell_sim_mesh():
@@ -52,8 +52,8 @@ def _make_shell_sim_mesh():
         np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64),
         np.array([[0, 1, 2]], dtype=np.int64),
     )
-    material = pgo.sim.KoiterStVKShellMaterial(thickness=0.01, E_membrane=2e6, nu_membrane=0.35)
-    return pgo.sim.SimulationMesh.create_shell(surface, material)
+    material = pgo.fem.KoiterStVKShellMaterial(thickness=0.01, E_membrane=2e6, nu_membrane=0.35)
+    return pgo.fem.SimulationMesh.create_shell(surface, material)
 
 
 def _make_state(sim, elastic=None, plastic=None, plastic_values=None):

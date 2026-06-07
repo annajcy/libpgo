@@ -18,7 +18,7 @@ def test_simulation_mesh_create_volumetric_for_tet_and_cubic():
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
     tet_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.ENuMaterial())
-    tet_sim = pgo.sim.SimulationMesh.create_volumetric(tet_volume)
+    tet_sim = pgo.fem.SimulationMesh.create_volumetric(tet_volume)
     assert tet_sim.mesh_type == "tet"
     assert tet_sim.num_vertices == 4
     assert tet_sim.num_elements == 1
@@ -41,7 +41,7 @@ def test_simulation_mesh_create_volumetric_for_tet_and_cubic():
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
     cubic_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(cube, pgo.mesh.volume.ENuMaterial())
-    cubic_sim = pgo.sim.SimulationMesh.create_volumetric(cubic_volume)
+    cubic_sim = pgo.fem.SimulationMesh.create_volumetric(cubic_volume)
     assert cubic_sim.mesh_type == "cubic"
     assert cubic_sim.num_vertices == 8
     assert cubic_sim.num_elements == 1
@@ -63,7 +63,7 @@ def test_simulation_mesh_create_volumetric_rejects_non_enu_material():
     )
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.MooneyRivlinMaterial(mu01=1.0))
     with pytest.raises(RuntimeError, match="only ENuMaterial"):
-        pgo.sim.SimulationMesh.create_volumetric(volume)
+        pgo.fem.SimulationMesh.create_volumetric(volume)
 
 
 def test_simulation_mesh_create_shell():
@@ -71,9 +71,9 @@ def test_simulation_mesh_create_shell():
         np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64),
         np.array([[0, 1, 2]], dtype=np.int64),
     )
-    material = pgo.sim.KoiterStVKShellMaterial(
+    material = pgo.fem.KoiterStVKShellMaterial(
         "cloth", thickness=0.01, E_membrane=2e6, nu_membrane=0.35)
-    sim = pgo.sim.SimulationMesh.create_shell(surface, material)
+    sim = pgo.fem.SimulationMesh.create_shell(surface, material)
     assert sim.mesh_type == "shell"
     assert sim.num_vertices == 3
     assert sim.num_elements == 1
@@ -126,7 +126,7 @@ def test_cubic_mesh_type_is_topology_metadata():
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
     cubic_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(cube, pgo.mesh.volume.ENuMaterial())
-    cubic_sim = pgo.sim.SimulationMesh.create_volumetric(cubic_volume)
+    cubic_sim = pgo.fem.SimulationMesh.create_volumetric(cubic_volume)
     assert cubic_sim.mesh_type == "cubic"
     assert cubic_sim.num_element_vertices == 8
 
@@ -141,7 +141,7 @@ def test_simulation_mesh_can_be_reused():
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.ENuMaterial())
-    sim = pgo.sim.SimulationMesh.create_volumetric(volume)
+    sim = pgo.fem.SimulationMesh.create_volumetric(volume)
 
     # Multiple queries on the same mesh must work.
     assert sim.mesh_type == "tet"
@@ -152,7 +152,7 @@ def test_simulation_mesh_can_be_reused():
     assert sim.num_vertices == 4
 
     # Creating a second SimulationMesh from the same VolumeMesh must work.
-    sim2 = pgo.sim.SimulationMesh.create_volumetric(volume)
+    sim2 = pgo.fem.SimulationMesh.create_volumetric(volume)
     assert sim2.mesh_type == "tet"
     assert sim2.num_vertices == 4
     # The first mesh must still be usable.

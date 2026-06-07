@@ -439,11 +439,11 @@ CELLS = [
     ),
     code(
         """
-        sim_volume = pgo.sim.SimulationMesh.create_volumetric(single_volume)
-        shell_material = pgo.sim.KoiterStVKShellMaterial(
+        sim_volume = pgo.fem.SimulationMesh.create_volumetric(single_volume)
+        shell_material = pgo.fem.KoiterStVKShellMaterial(
             "cloth", thickness=0.01, E_membrane=1e6, nu_membrane=0.35
         )
-        sim_shell = pgo.sim.SimulationMesh.create_shell(tri_data, shell_material)
+        sim_shell = pgo.fem.SimulationMesh.create_shell(tri_data, shell_material)
 
         print("volume sim:", sim_volume.mesh_type, sim_volume.num_vertices, sim_volume.num_elements)
         print("shell sim:", sim_shell.mesh_type, sim_shell.num_vertices, sim_shell.num_elements)

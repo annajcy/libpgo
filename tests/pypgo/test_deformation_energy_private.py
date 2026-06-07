@@ -19,7 +19,7 @@ def _make_tet_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         tet, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.sim.SimulationMesh.create_volumetric(volume)
+    return pgo.fem.SimulationMesh.create_volumetric(volume)
 
 
 def _make_cubic_sim_mesh():
@@ -42,7 +42,7 @@ def _make_cubic_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.sim.SimulationMesh.create_volumetric(volume)
+    return pgo.fem.SimulationMesh.create_volumetric(volume)
 
 
 def _make_state(sim, elastic="stable_neo", plastic="volumetric_dof6", plastic_values=None):
@@ -65,7 +65,7 @@ class TestCoreState:
         tet_sim = _make_tet_sim_mesh()
         assert _core._elastic_num_channels(tet_sim._handle, "stable_neo") == 0
 
-        shell_sim = pgo.sim.SimulationMesh.create_shell(
+        shell_sim = pgo.fem.SimulationMesh.create_shell(
             pgo.mesh.TriMeshData(
                 np.array(
                     [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
@@ -73,7 +73,7 @@ class TestCoreState:
                 ),
                 np.array([[0, 1, 2]], dtype=np.int64),
             ),
-            pgo.sim.KoiterStVKShellMaterial(
+            pgo.fem.KoiterStVKShellMaterial(
                 thickness=0.01, E_membrane=2e6, nu_membrane=0.35
             ),
         )

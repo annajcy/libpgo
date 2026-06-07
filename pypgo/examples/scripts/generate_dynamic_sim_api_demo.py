@@ -405,7 +405,7 @@ CELLS = [
         # ── 1. Load box tet mesh ──────────────────────────────────────
         veg = read_veg(str(VEG_DIR / "box.veg"))
         vol = VolumeMesh.from_veg_file(veg)
-        sim_mesh = pgo.sim.SimulationMesh.create_volumetric(vol)
+        sim_mesh = pgo.fem.SimulationMesh.create_volumetric(vol)
         print(f"Tet mesh: {vol.num_vertices} vertices, {vol.num_elements} tets")
 
         # ── 2. Deformation energy (Stable Neo-Hookean, no plasticity) ─

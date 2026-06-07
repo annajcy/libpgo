@@ -5,6 +5,8 @@
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
 #include "deformation/deformationModelState.h"
+#include "backwardEuler/backwardEulerStepper.h"
+#include "trbdf2/trbdf2Stepper.h"
 #include "dynamicStepper.h"
 #include "energySet.h"
 #include "pgoLogging.h"
@@ -548,7 +550,7 @@ TEST(DeformationModelEnergyMaxStepGTest, ShellKeepsUnitStep)
   EXPECT_FALSE(result.clamped());
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, ImplicitBackwardEulerTakesMinWithOtherEnergy)
+TEST(DeformationModelEnergyMaxStepGTest, BackwardEulerTakesMinWithOtherEnergy)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -564,7 +566,7 @@ TEST(DeformationModelEnergyMaxStepGTest, ImplicitBackwardEulerTakesMinWithOtherE
   prob.timestep = 0.01;
   prob.persistentTerms = {{fixture.energy, 0.0, 0.0},
     {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.95), 0.0, 0.0}};
-  pgo::Simulation::ImplicitEulerStepper stepper(std::move(prob));
+  pgo::Simulation::BackwardEulerStepper stepper(std::move(prob));
 
   StepConstraint merged = stepper.getStageEnergy()->computeMaxStepLimit(x, dx);
   EXPECT_NEAR(merged.alpha, materialAlpha, 1e-12);
@@ -577,7 +579,7 @@ TEST(DeformationModelEnergyMaxStepGTest, ImplicitBackwardEulerTakesMinWithOtherE
   prob2.timestep = 0.01;
   prob2.persistentTerms = {{fixture.energy, 0.0, 0.0},
     {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.25), 0.0, 0.0}};
-  pgo::Simulation::ImplicitEulerStepper stepper2(std::move(prob2));
+  pgo::Simulation::BackwardEulerStepper stepper2(std::move(prob2));
 
   merged = stepper2.getStageEnergy()->computeMaxStepLimit(x, dx);
   EXPECT_DOUBLE_EQ(merged.alpha, 0.25);

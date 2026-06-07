@@ -78,13 +78,13 @@ def test_shell_spec_io_roundtrip(tmp_path):
         np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64),
         np.array([[0, 1, 2]], dtype=np.int64),
     )
-    mat = pgo.sim.KoiterStVKShellMaterial(
+    mat = pgo.fem.KoiterStVKShellMaterial(
         "cloth", thickness=0.01, E_membrane=1e6, nu_membrane=0.35
     )
 
     shell_path = tmp_path / "cloth.shell.json"
-    pgo.sim.write_shell(shell_path, tri, mat)
-    loaded_tri, loaded_mat = pgo.sim.read_shell(shell_path)
+    pgo.fem.write_shell_config(shell_path, tri, mat)
+    loaded_tri, loaded_mat = pgo.fem.read_shell_config(shell_path)
 
     assert isinstance(loaded_tri, pgo.mesh.TriMeshData)
     assert np.allclose(loaded_tri.vertices, tri.vertices)

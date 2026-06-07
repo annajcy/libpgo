@@ -59,7 +59,7 @@ def _field_init_values(name, field, num_elements, num_channels=None):
 
 
 def _require_sim_mesh(sim_mesh):
-    from pypgo.sim import SimulationMesh as _SimulationMesh
+    from pypgo.fem.mesh import SimulationMesh as _SimulationMesh
 
     if not isinstance(sim_mesh, _SimulationMesh):
         raise TypeError(

@@ -89,7 +89,7 @@ CELLS = [
         embedded_surface = pgo.mesh.read_obj(str(BOX_SURFACE))
         surface_embedding = pgo.mesh.SurfaceEmbedding(embedded_surface, volume)
 
-        sim_mesh = pgo.sim.SimulationMesh.create_volumetric(volume)
+        sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
         nvtx = sim_mesh.num_vertices
 
         print("vertices:", nvtx, "cubes:", sim_mesh.num_elements)

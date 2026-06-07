@@ -1,22 +1,27 @@
 set(SIMULATION_HEADERS
   dynamicState.h
   dynamicStepOptions.h
-  rayleighDampingAssembly.h
-  stageResidual.h
-  implicitEulerStageBuilder.h
-  trbdf2StageBuilder.h
   dynamicStepper.h
   dynamicStepService.h
+  common/dynamicStepperUtils.h
+  common/rayleighDampingAssembly.h
+  common/stageResidual.h
+  backwardEuler/backwardEulerStageBuilder.h
+  backwardEuler/backwardEulerStepper.h
+  trbdf2/trbdf2StageBuilder.h
+  trbdf2/trbdf2Stepper.h
 )
 
 set(SIMULATION_SOURCES
   dynamicStepOptions.cpp
-  rayleighDampingAssembly.cpp
-  stageResidual.cpp
-  implicitEulerStageBuilder.cpp
-  trbdf2StageBuilder.cpp
-  dynamicStepper.cpp
   dynamicStepService.cpp
+  common/dynamicStepperUtils.cpp
+  common/rayleighDampingAssembly.cpp
+  common/stageResidual.cpp
+  backwardEuler/backwardEulerStageBuilder.cpp
+  backwardEuler/backwardEulerStepper.cpp
+  trbdf2/trbdf2StageBuilder.cpp
+  trbdf2/trbdf2Stepper.cpp
 )
 
 set(SIMULATION_DEPS constraintPotentialEnergies solidDeformationModel contact genericPotentialEnergies)

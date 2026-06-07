@@ -118,7 +118,7 @@ def _validate_and_split_regions(regions, num_elements: int):
 class VolumeMesh:
     """Vega FEM volumetric mesh wrapper.
 
-    Use pypgo.sim.SimulationMesh factory methods for solver-ready meshes.
+    Use pypgo.fem.SimulationMesh factory methods for solver-ready meshes.
     """
 
     def __init__(self, mesh_data, regions):

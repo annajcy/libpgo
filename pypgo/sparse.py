@@ -145,3 +145,34 @@ def as_coo(A):
     rows, cols = matrix.shape
     row_indices, col_indices, values = matrix.to_coo()
     return rows, cols, row_indices.tolist(), col_indices.tolist(), values
+
+
+def mass_to_coo_lists(mass):
+    """Normalize a mass matrix to ``(n, rows, cols, values)`` COO-list format.
+
+    Accepts a :class:`SparseMatrix`, a SciPy sparse matrix, or a dense
+    array-like square matrix.  Returns integer/floating-point Python lists
+    suitable for the C++ ``PyDynamicSimulation`` constructor.
+    """
+    import numpy as np
+
+    if isinstance(mass, SparseMatrix):
+        row_indices, col_indices, values = mass.to_coo()
+        n = mass.shape[0]
+    elif hasattr(mass, "tocoo"):  # scipy.sparse
+        coo = mass.tocoo()
+        row_indices, col_indices, values = coo.row, coo.col, coo.data
+        n = mass.shape[0]
+    else:
+        dense = np.asarray(mass, dtype=np.float64)
+        if dense.ndim != 2 or dense.shape[0] != dense.shape[1]:
+            raise ValueError(f"mass must be a square matrix, got shape {dense.shape}")
+        row_indices, col_indices = np.nonzero(dense)
+        values = dense[row_indices, col_indices]
+        n = dense.shape[0]
+    return (
+        int(n),
+        [int(r) for r in np.asarray(row_indices).ravel()],
+        [int(c) for c in np.asarray(col_indices).ravel()],
+        [float(v) for v in np.asarray(values).ravel()],
+    )
