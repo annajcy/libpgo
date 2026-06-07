@@ -75,4 +75,5 @@ dist/
 
 pypgo/examples/outputs
 .VSCodeCounter
-.claude
+.claude.worktrees/
+.worktrees/
