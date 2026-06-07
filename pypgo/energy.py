@@ -1,8 +1,10 @@
 """pypgo.energy — General-purpose energy types for pypgo.
 
-All Python energy classes hold a PyPotentialEnergy handle internally;
-evaluation always dispatches through C++ evaluation.h helpers so
-Python users never see hessianInPlace / hessianAlloc / isHessianTopologyFixed.
+Each Python facade stores its concrete C++ PyXXXX peer in ``_handle``.
+Energy peers inherit ``_core.PyPotentialEnergy``, and C++ internals use
+``potentialEnergyHandle()`` when a core ``PotentialEnergy`` pointer is required.
+Evaluation dispatches through the virtual method so Python users never see
+hessianInPlace / hessianAlloc / isHessianTopologyFixed.
 """
 
 from __future__ import annotations
