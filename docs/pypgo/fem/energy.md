@@ -43,8 +43,9 @@ energy = deformation_energy(state, TetP1(),
 
 ### Evaluating it — the `PotentialEnergy` interface
 
-`DeformationEnergy` inherits the same interface as every pypgo energy
-(`pypgo/energy.py`), so it drops straight into the optimizer:
+`DeformationEnergy` is defined in `pypgo/fem/energy.py` (and re-exported as
+`pypgo.fem.DeformationEnergy`) and inherits the same `PotentialEnergy` interface
+as every pypgo energy (`pypgo/energy.py`), so it drops straight into the optimizer:
 
 ```python
 import numpy as np
@@ -148,7 +149,7 @@ $J_q=|\det\mathbf D_m^q|\,w_q$, $V_q=J_q\det\mathbf F_p$.
 | von Mises stress | $\sigma_{vM}(\boldsymbol\sigma)$, $\boldsymbol\sigma=\mathbf P\mathbf F_e^{\!\top}/\det\mathbf F_e$ | — | `vonMisesStress` |
 | max principal strain | $\lambda_{\max}\!\big(\tfrac12(\mathbf F_e^{\!\top}\mathbf F_e-\mathbf I)\big)$ | — | `maxStrain` |
 
-Python methods are on `DeformationEnergy` (`pypgo/energy.py`); C++ element kernels on
+Python methods are on `DeformationEnergy` (`pypgo/fem/energy.py`); C++ element kernels on
 `VolumetricDeformationModel` and assembler methods on `DeformationModelAssembler`.
 
 ## Further reading

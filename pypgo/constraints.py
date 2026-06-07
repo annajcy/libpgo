@@ -2,76 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import numpy as np
 
 import pypgo._core as _core
-from pypgo.sparse import SparseMatrix
-
-
-def _float_vector(name, arr):
-    a = np.asarray(arr, dtype=np.float64, order="C")
-    if a.ndim != 1:
-        raise ValueError(f"{name} must be 1-D, got shape {a.shape}")
-    return a
-
-
-def _int_vector(name, arr):
-    a = np.asarray(arr, dtype=np.int64, order="C")
-    if a.ndim != 1:
-        raise ValueError(f"{name} must be 1-D, got shape {a.shape}")
-    return a.tolist()
-
-
-def _dense_to_sparse(mat) -> SparseMatrix:
-    a = np.asarray(mat, dtype=np.float64, order="C")
-    if a.ndim != 2:
-        raise ValueError(f"dense matrix must be 2-D, got shape {a.shape}")
-    rows, cols = a.shape
-    row_indices, col_indices = np.nonzero(a)
-    values = a[row_indices, col_indices]
-    return SparseMatrix(
-        _core.create_sparse_matrix(
-            int(rows),
-            int(cols),
-            row_indices.astype(np.int64).tolist(),
-            col_indices.astype(np.int64).tolist(),
-            np.asarray(values, dtype=np.float64).tolist(),
-        )
-    )
-
-
-def _coo_to_sparse(data) -> SparseMatrix:
-    if not isinstance(data, (list, tuple)) or len(data) != 5:
-        raise TypeError(
-            "A must be a SparseMatrix, 2-D ndarray, or "
-            "(rows, cols, row_indices, col_indices, values) tuple"
-        )
-    rows, cols, row_indices, col_indices, values = data
-    return SparseMatrix(
-        _core.create_sparse_matrix(
-            int(rows),
-            int(cols),
-            _int_vector("row_indices", row_indices),
-            _int_vector("col_indices", col_indices),
-            _float_vector("values", values).tolist(),
-        )
-    )
-
-
-def _as_sparse_matrix(A) -> SparseMatrix:
-    if isinstance(A, SparseMatrix):
-        return A
-    if isinstance(A, _core.PySparseMatrix):
-        return SparseMatrix(A)
-    if isinstance(A, np.ndarray) or (hasattr(A, "__array__") and not isinstance(A, (list, tuple))):
-        return _dense_to_sparse(A)
-    return _coo_to_sparse(A)
+from pypgo._arrays import float_vector
+from pypgo.sparse import SparseMatrix, as_sparse_matrix
 
 
 def _bounds_vector(name, value, size):
     if np.isscalar(value):
         return np.full(size, float(value), dtype=np.float64)
-    arr = _float_vector(name, value)
+    arr = float_vector(name, value)
     if arr.shape != (size,):
         raise ValueError(f"{name} must be scalar or shape ({size},), got shape {arr.shape}")
     return arr.copy()
@@ -89,6 +32,9 @@ class ConstraintFunction:
 
     def __setattr__(self, name, value):
         raise AttributeError(f"ConstraintFunction is immutable; cannot set {name!r}")
+
+    def __delattr__(self, name):
+        raise AttributeError(f"ConstraintFunction is immutable; cannot delete {name!r}")
 
     @property
     def num_dofs(self) -> int:
@@ -124,11 +70,11 @@ class Linear(ConstraintFunction):
     """Linear vector constraint ``C(x) = A @ x + offset``."""
 
     def __init__(self, A, offset=None):
-        sparse = _as_sparse_matrix(A)
+        sparse = as_sparse_matrix(A)
         if offset is None:
             offset_arr = np.zeros(sparse.shape[0], dtype=np.float64)
         else:
-            offset_arr = _float_vector("offset", offset)
+            offset_arr = float_vector("offset", offset)
             if offset_arr.shape != (sparse.shape[0],):
                 raise ValueError(
                     f"offset must have shape ({sparse.shape[0]},), got shape {offset_arr.shape}"
@@ -154,18 +100,29 @@ class ConstraintFunctionSet(ConstraintFunction):
         return f"ConstraintFunctionSet({self.num_constraints} constraints, {self.num_dofs} DOFs)"
 
 
+@dataclass(frozen=True, repr=False)
 class Bounded:
     """Bounds for ``lower <= functions(x) <= upper``."""
 
-    def __init__(self, functions, *, lower, upper):
-        if not isinstance(functions, ConstraintFunction):
-            raise TypeError("functions must be a pypgo.constraints.ConstraintFunction")
-        object.__setattr__(self, "functions", functions)
-        object.__setattr__(self, "lower", _bounds_vector("lower", lower, functions.num_constraints))
-        object.__setattr__(self, "upper", _bounds_vector("upper", upper, functions.num_constraints))
+    functions: ConstraintFunction
+    lower: np.ndarray = field(kw_only=True)
+    upper: np.ndarray = field(kw_only=True)
 
-    def __setattr__(self, name, value):
-        raise AttributeError(f"Bounded is immutable; cannot set {name!r}")
+    def __post_init__(self):
+        if not isinstance(self.functions, ConstraintFunction):
+            raise TypeError("functions must be a pypgo.constraints.ConstraintFunction")
+        object.__setattr__(
+            self, "lower", _bounds_vector("lower", self.lower, self.functions.num_constraints))
+        object.__setattr__(
+            self, "upper", _bounds_vector("upper", self.upper, self.functions.num_constraints))
 
     def __repr__(self) -> str:
         return f"Bounded({self.functions.num_constraints} constraints)"
+
+
+__all__ = [
+    "Bounded",
+    "ConstraintFunction",
+    "ConstraintFunctionSet",
+    "Linear",
+]

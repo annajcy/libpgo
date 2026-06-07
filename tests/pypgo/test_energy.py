@@ -437,6 +437,23 @@ class TestVertexAttachment:
         )
         assert e.state_kind == "generic"
 
+    def test_set_targets_updates_energy_in_place(self):
+        n = 3
+        koff = (n, n, list(range(n)), list(range(n)), [1.0] * n)
+        e = pe.VertexAttachment(
+            koff=koff,
+            vertex_indices=np.array([0], dtype=np.int64),
+            target_positions=np.zeros(3, dtype=np.float64),
+            coeff=2.0,
+        )
+        handle = e._handle
+        x = np.zeros(3, dtype=np.float64)
+
+        e.set_targets(np.array([1.0, 2.0, 2.0], dtype=np.float64))
+
+        assert e._handle is handle
+        assert e.value(x) == pytest.approx(9.0, rel=1e-12)
+
 
 # ---------------------------------------------------------------------------
 # Task E6: EnergySet

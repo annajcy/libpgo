@@ -10,8 +10,8 @@ FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "legacy" / "cu
 
 
 def _cubic_box_volume_and_surface():
-    volume = pgo.mesh.veg.VolumeMesh.from_veg_file(
-        pgo.mesh.veg.read_veg(str(FIXTURE_ROOT / "box.veg"))
+    volume = pgo.mesh.volume.VolumeMesh.from_veg_file(
+        pgo.mesh.volume.read_veg(str(FIXTURE_ROOT / "box.veg"))
     )
     surface = pgo.mesh.read_obj(str(FIXTURE_ROOT / "box.obj"))
     return volume, surface

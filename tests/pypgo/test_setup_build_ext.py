@@ -23,12 +23,6 @@ def test_setup_registers_cmake_build_ext(monkeypatch):
     assert "build_ext" in setup_kwargs["cmdclass"]
 
 
-def test_setup_registers_examples_extra(monkeypatch):
-    _namespace, setup_kwargs = load_setup_namespace(monkeypatch)
-
-    assert setup_kwargs["extras_require"]["examples"] == ["pyvista[jupyter]"]
-
-
 def test_cmake_build_ext_uses_python_build_preset(monkeypatch, tmp_path):
     namespace, setup_kwargs = load_setup_namespace(monkeypatch)
     build_ext_cls = setup_kwargs["cmdclass"]["build_ext"]

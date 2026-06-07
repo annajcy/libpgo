@@ -7,8 +7,101 @@ from dataclasses import dataclass
 import numpy as np
 
 import pypgo._core as _core
-from pypgo.energy import DeformationEnergy, PlasticMaterialEnergy
+from pypgo._arrays import float_vector
+from pypgo.energy import PotentialEnergy
 from pypgo.fem.state import DeformationModelState
+from pypgo.sparse import SparseMatrix
+
+
+# ---------------------------------------------------------------------------
+# DeformationEnergy — FEM deformation energy
+# ---------------------------------------------------------------------------
+
+
+class DeformationEnergy(PotentialEnergy):
+    """Deformation energy for FEM simulations (tet, cubic, shell).
+
+    Created by ``pypgo.fem.deformation_energy()``, not directly by users.
+    This is a **displacement**-kind energy: ``state_kind == "displacement"``.
+
+    Parameters
+    ----------
+    core : PyDeformationEnergy
+        C++ deformation energy wrapper (from ``_core._create_deformation_energy``).
+
+    Properties
+    ----------
+    rest_position : ndarray (num_vertices, 3) float64
+        Rest (undeformed) positions.
+    """
+
+    def __init__(self, core):
+        if not isinstance(core, _core.PyDeformationEnergy):
+            raise TypeError(
+                f"core must be a PyDeformationEnergy, got {type(core).__name__}"
+            )
+        object.__setattr__(self, "_core", core)
+        super().__init__(core.handle)
+
+    @property
+    def rest_position(self) -> np.ndarray:
+        return np.asarray(self._core.rest_position(), dtype=np.float64)
+
+    @property
+    def num_vertices(self) -> int:
+        return self._core.num_vertices
+
+    @property
+    def num_plastic_dofs(self) -> int:
+        return self._core.num_plastic_dofs
+
+    def plastic_gradient(self, displacement: np.ndarray) -> np.ndarray:
+        u = float_vector("displacement", displacement)
+        return np.asarray(self._core.plastic_gradient(u), dtype=np.float64)
+
+    def plastic_hessian(self, displacement: np.ndarray):
+        u = float_vector("displacement", displacement)
+        return SparseMatrix(self._core.plastic_hessian(u))
+
+    def plastic_jacobian(self, displacement: np.ndarray):
+        u = float_vector("displacement", displacement)
+        return SparseMatrix(self._core.plastic_jacobian(u))
+
+    def __repr__(self) -> str:
+        return f"DeformationEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
+
+
+class PlasticMaterialEnergy(PotentialEnergy):
+    """Material energy with the plastic field as the optimization variable.
+
+    Created by ``pypgo.fem.plastic_material_energy()``. The displacement is fixed;
+    the input state vector is the plastic field's global DOF vector.
+    """
+
+    def __init__(self, handle, *, state, deformation_energy, fixed_displacement):
+        object.__setattr__(self, "_state", state)
+        object.__setattr__(self, "_deformation_energy", deformation_energy)
+        object.__setattr__(
+            self,
+            "_fixed_displacement",
+            np.asarray(fixed_displacement, dtype=np.float64).copy(),
+        )
+        super().__init__(handle)
+
+    @property
+    def state(self):
+        return self._state
+
+    @property
+    def deformation_energy(self):
+        return self._deformation_energy
+
+    @property
+    def fixed_displacement(self) -> np.ndarray:
+        return self._fixed_displacement.copy()
+
+    def __repr__(self) -> str:
+        return f"PlasticMaterialEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
 
 
 # ---------------------------------------------------------------------------

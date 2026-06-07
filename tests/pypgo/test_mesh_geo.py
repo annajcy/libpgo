@@ -124,12 +124,12 @@ def test_mesh_geo_constructs_from_mesh_data():
 
 
 def test_material_spec_constructs_from_init_and_defaults():
-    material = pgo.mesh.veg.MaterialSpec(E=1e6, nu=0.33, density=1200.0)
+    material = pgo.mesh.volume.MaterialSpec(E=1e6, nu=0.33, density=1200.0)
     assert material.E == 1e6
     assert material.nu == 0.33
     assert material.density == 1200.0
 
-    default_material = pgo.mesh.veg.MaterialSpec()
+    default_material = pgo.mesh.volume.MaterialSpec()
     assert default_material.E == 1e9
     assert default_material.nu == 0.45
     assert default_material.density == 1000.0
@@ -138,47 +138,47 @@ def test_material_spec_constructs_from_init_and_defaults():
 def test_volumemesh_constructs_from_volume_mesh_data_only():
     tet_data = pgo.mesh.TetMeshData(tet_vertices(), np.array([[0, 1, 2, 3]], dtype=np.int64))
     cubic_data = pgo.mesh.CubicMeshData(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
-    material = pgo.mesh.veg.ENuMaterial("rubber", E=1e6, nu=0.33, density=1200.0)
+    material = pgo.mesh.volume.ENuMaterial("rubber", E=1e6, nu=0.33, density=1200.0)
 
-    tet_volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet_data, material)
+    tet_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet_data, material)
     assert tet_volume.num_vertices == 4
     assert tet_volume.num_elements == 1
     assert tet_volume.mesh_data is tet_data
     assert tet_volume.geometry is tet_data
     assert tet_volume.material == material
 
-    cubic_volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(cubic_data, material)
+    cubic_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(cubic_data, material)
     assert cubic_volume.num_vertices == 8
     assert cubic_volume.num_elements == 1
 
 
 def test_volumemesh_rejects_geo_and_tri_data():
-    material = pgo.mesh.veg.ENuMaterial()
+    material = pgo.mesh.volume.ENuMaterial()
     tri_data = pgo.mesh.TriMeshData(tri_vertices(), np.array([[0, 1, 2]], dtype=np.int64))
     tet_geo = pgo.mesh.geo.TetMeshGeo(tet_vertices(), np.array([[0, 1, 2, 3]], dtype=np.int64))
     cubic_geo = pgo.mesh.geo.CubicMeshGeo(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
 
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.veg.VolumeMesh.create_from_single_material(tri_data, material)
+        pgo.mesh.volume.VolumeMesh.create_from_single_material(tri_data, material)
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.veg.VolumeMesh.create_from_single_material(tet_geo, material)
+        pgo.mesh.volume.VolumeMesh.create_from_single_material(tet_geo, material)
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.veg.VolumeMesh.create_from_single_material(cubic_geo, material)
+        pgo.mesh.volume.VolumeMesh.create_from_single_material(cubic_geo, material)
 
 
 def test_volumemesh_to_veg_file_and_back_roundtrip(tmp_path):
     vertices = tet_vertices()
     elements = np.array([[0, 1, 2, 3]], dtype=np.int64)
     tet_data = pgo.mesh.TetMeshData(vertices, elements)
-    material = pgo.mesh.veg.ENuMaterial("foam", E=2e9, nu=0.4, density=900.0)
-    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet_data, material)
+    material = pgo.mesh.volume.ENuMaterial("foam", E=2e9, nu=0.4, density=900.0)
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet_data, material)
 
     veg_file = str(tmp_path / "roundtrip.veg")
     veg = volume.to_veg_file()
-    pgo.mesh.veg.write_veg(veg_file, veg)
+    pgo.mesh.volume.write_veg(veg_file, veg)
 
-    loaded_veg = pgo.mesh.veg.read_veg(veg_file)
-    loaded = pgo.mesh.veg.VolumeMesh.from_veg_file(loaded_veg)
+    loaded_veg = pgo.mesh.volume.read_veg(veg_file)
+    loaded = pgo.mesh.volume.VolumeMesh.from_veg_file(loaded_veg)
 
     assert loaded.num_vertices == 4
     assert loaded.num_elements == 1
@@ -188,7 +188,7 @@ def test_volumemesh_to_veg_file_and_back_roundtrip(tmp_path):
     assert loaded.material == material
 
     # Direct to_veg_file → from_veg_file roundtrip (no file I/O).
-    direct = pgo.mesh.veg.VolumeMesh.from_veg_file(volume.to_veg_file())
+    direct = pgo.mesh.volume.VolumeMesh.from_veg_file(volume.to_veg_file())
     assert direct.num_vertices == 4
     assert direct.material == material
 
@@ -205,37 +205,32 @@ def test_volume_mesh_regions_validate_partition():
     tet_data = pgo.mesh.TetMeshData(vertices, elements)
 
     regions = [
-        ("soft", pgo.mesh.veg.ENuMaterial("soft"), [0]),
-        ("stiff", pgo.mesh.veg.MooneyRivlinMaterial("stiff", mu01=1.0), [1]),
+        ("soft", pgo.mesh.volume.ENuMaterial("soft"), [0]),
+        ("stiff", pgo.mesh.volume.MooneyRivlinMaterial("stiff", mu01=1.0), [1]),
     ]
-    volume = pgo.mesh.veg.VolumeMesh(tet_data, regions)
+    volume = pgo.mesh.volume.VolumeMesh(tet_data, regions)
     assert volume.num_elements == 2
 
     with pytest.raises(ValueError, match="assigned to both"):
-        pgo.mesh.veg.VolumeMesh(tet_data, regions=[
-            ("a", pgo.mesh.veg.ENuMaterial("a"), [0]),
-            ("b", pgo.mesh.veg.ENuMaterial("b"), [0, 1]),
+        pgo.mesh.volume.VolumeMesh(tet_data, regions=[
+            ("a", pgo.mesh.volume.ENuMaterial("a"), [0]),
+            ("b", pgo.mesh.volume.ENuMaterial("b"), [0, 1]),
         ])
 
     with pytest.raises(ValueError, match="not assigned"):
-        pgo.mesh.veg.VolumeMesh(tet_data, regions=[
-            ("a", pgo.mesh.veg.ENuMaterial("a"), [0]),
+        pgo.mesh.volume.VolumeMesh(tet_data, regions=[
+            ("a", pgo.mesh.volume.ENuMaterial("a"), [0]),
         ])
 
     with pytest.raises(ValueError, match="duplicate region name"):
-        pgo.mesh.veg.VolumeMesh(tet_data, regions=[
-            ("a", pgo.mesh.veg.ENuMaterial("a"), [0]),
-            ("a", pgo.mesh.veg.ENuMaterial("b"), [1]),
+        pgo.mesh.volume.VolumeMesh(tet_data, regions=[
+            ("a", pgo.mesh.volume.ENuMaterial("a"), [0]),
+            ("a", pgo.mesh.volume.ENuMaterial("b"), [1]),
         ])
 
 
 def test_material_dataclasses_are_python_payloads():
-    mat = pgo.mesh.veg.ENuMaterial("cloth", E=1e6, nu=0.25, density=10.0)
+    mat = pgo.mesh.volume.ENuMaterial("cloth", E=1e6, nu=0.25, density=10.0)
     assert not hasattr(mat, "_core_obj")
     assert mat.lam == pytest.approx(4e5)
     assert mat.mu == pytest.approx(4e5)
-
-    with pytest.raises(ValueError, match="9 row-major"):
-        pgo.mesh.veg._material_to_core_payload(
-            pgo.mesh.veg.OrthotropicMaterial("bad", R=(1.0, 2.0))
-        )

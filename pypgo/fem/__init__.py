@@ -38,7 +38,9 @@ from pypgo.fem.state import (
     deformation_model_state,
 )
 from pypgo.fem.energy import (
+    DeformationEnergy,
     DeformationOptions,
+    PlasticMaterialEnergy,
     deformation_energy,
     plastic_material_energy,
 )
@@ -72,7 +74,9 @@ __all__ = [
     "DeformationModelState",
     "deformation_model_state",
     # Energy
+    "DeformationEnergy",
     "DeformationOptions",
+    "PlasticMaterialEnergy",
     "deformation_energy",
     "plastic_material_energy",
 ]

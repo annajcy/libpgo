@@ -228,14 +228,14 @@ def test_volume_mesh_extract_surface_mesh_for_tet_and_cubic():
         ),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
-    material = pgo.mesh.veg.ENuMaterial()
-    tet_surface = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet, material).extract_surface_mesh()
+    material = pgo.mesh.volume.ENuMaterial()
+    tet_surface = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, material).extract_surface_mesh()
     assert isinstance(tet_surface, pgo.mesh.TriMeshData)
     assert tet_surface.num_vertices == 4
     assert tet_surface.num_elements == 4
 
     cube = pgo.mesh.CubicMeshData(standard_cube_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]]))
-    cubic_surface = pgo.mesh.veg.VolumeMesh.create_from_single_material(cube, material).extract_surface_mesh()
+    cubic_surface = pgo.mesh.volume.VolumeMesh.create_from_single_material(cube, material).extract_surface_mesh()
     assert isinstance(cubic_surface, pgo.mesh.TriMeshData)
     assert cubic_surface.num_vertices == 8
     assert cubic_surface.num_elements == 12
@@ -271,7 +271,7 @@ def test_barycentric_embedding_matrix_and_deform():
         ),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
-    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet, pgo.mesh.veg.ENuMaterial())
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.ENuMaterial())
     embedding = pgo.mesh.geo.BarycentricEmbedding(np.array([[0.25, 0.25, 0.25]], dtype=np.float64), volume)
 
     matrix = embedding.interpolation_matrix
@@ -313,7 +313,7 @@ def test_surface_embedding_deforms_surface_from_volume_displacement():
         ),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
-    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet, pgo.mesh.veg.ENuMaterial())
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.ENuMaterial())
     surface = pgo.mesh.TriMeshData(
         np.array(
             [

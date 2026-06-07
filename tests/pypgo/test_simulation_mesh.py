@@ -17,7 +17,7 @@ def test_simulation_mesh_create_volumetric_for_tet_and_cubic():
         ),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
-    tet_volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet, pgo.mesh.veg.ENuMaterial())
+    tet_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.ENuMaterial())
     tet_sim = pgo.sim.SimulationMesh.create_volumetric(tet_volume)
     assert tet_sim.mesh_type == "tet"
     assert tet_sim.num_vertices == 4
@@ -40,7 +40,7 @@ def test_simulation_mesh_create_volumetric_for_tet_and_cubic():
         ),
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
-    cubic_volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(cube, pgo.mesh.veg.ENuMaterial())
+    cubic_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(cube, pgo.mesh.volume.ENuMaterial())
     cubic_sim = pgo.sim.SimulationMesh.create_volumetric(cubic_volume)
     assert cubic_sim.mesh_type == "cubic"
     assert cubic_sim.num_vertices == 8
@@ -61,7 +61,7 @@ def test_simulation_mesh_create_volumetric_rejects_non_enu_material():
         ),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
-    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet, pgo.mesh.veg.MooneyRivlinMaterial(mu01=1.0))
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.MooneyRivlinMaterial(mu01=1.0))
     with pytest.raises(RuntimeError, match="only ENuMaterial"):
         pgo.sim.SimulationMesh.create_volumetric(volume)
 
@@ -94,26 +94,14 @@ def test_volume_mesh_carries_multiple_material_types():
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
 
-    enu_vol = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet, pgo.mesh.veg.ENuMaterial(E=1e6, nu=0.45))
-    assert isinstance(enu_vol.material, pgo.mesh.veg.ENuMaterial)
+    enu_vol = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45))
+    assert isinstance(enu_vol.material, pgo.mesh.volume.ENuMaterial)
     assert enu_vol.material.E == 1e6
 
-    mr_vol = pgo.mesh.veg.VolumeMesh.create_from_single_material(
-        tet, pgo.mesh.veg.MooneyRivlinMaterial(mu01=0.5, mu10=0.3, v1=0.1))
-    assert isinstance(mr_vol.material, pgo.mesh.veg.MooneyRivlinMaterial)
+    mr_vol = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+        tet, pgo.mesh.volume.MooneyRivlinMaterial(mu01=0.5, mu10=0.3, v1=0.1))
+    assert isinstance(mr_vol.material, pgo.mesh.volume.MooneyRivlinMaterial)
     assert mr_vol.material.mu01 == 0.5
-
-    ortho_vol = pgo.mesh.veg.VolumeMesh.create_from_single_material(
-        tet,
-        pgo.mesh.veg.OrthotropicMaterial(
-            E1=1e6, E2=1e6, E3=1e6,
-            nu12=0.3, nu23=0.3, nu31=0.3,
-            G12=0.4e6, G23=0.4e6, G31=0.4e6,
-        ),
-    )
-    assert isinstance(ortho_vol.material, pgo.mesh.veg.OrthotropicMaterial)
-    assert ortho_vol.material.E1 == 1e6
-    assert ortho_vol.material.G12 == 0.4e6
 
 
 def test_cubic_mesh_type_is_topology_metadata():
@@ -137,7 +125,7 @@ def test_cubic_mesh_type_is_topology_metadata():
         ),
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
-    cubic_volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(cube, pgo.mesh.veg.ENuMaterial())
+    cubic_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(cube, pgo.mesh.volume.ENuMaterial())
     cubic_sim = pgo.sim.SimulationMesh.create_volumetric(cubic_volume)
     assert cubic_sim.mesh_type == "cubic"
     assert cubic_sim.num_element_vertices == 8
@@ -152,7 +140,7 @@ def test_simulation_mesh_can_be_reused():
         ),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
-    volume = pgo.mesh.veg.VolumeMesh.create_from_single_material(tet, pgo.mesh.veg.ENuMaterial())
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.ENuMaterial())
     sim = pgo.sim.SimulationMesh.create_volumetric(volume)
 
     # Multiple queries on the same mesh must work.

@@ -20,7 +20,7 @@ def test_tool_modules_are_per_cli_files():
 
 
 def test_tools_package_remains_cli_facing_namespace():
-    assert pgo.tools.__all__ == ["mesh", "sim"]
+    assert pgo.tools.__all__ == ["animation", "mesh", "sim"]
     assert pgo.tools.mesh.__all__ == ["surface", "volume"]
     assert importlib.util.find_spec("pypgo.tools.stress") is None
     assert importlib.util.find_spec("pypgo.tools.mesh.tet_mesher") is None

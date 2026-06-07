@@ -178,7 +178,7 @@ class TestDeformationEnergy:
         state = _make_state(sim)
         energy = pf.deformation_energy(state, formulation=pf.TetP1())
 
-        assert isinstance(energy, pe.DeformationEnergy)
+        assert isinstance(energy, pf.DeformationEnergy)
         assert isinstance(energy, pe.PotentialEnergy)
         assert energy.num_dofs == 3 * sim.num_vertices
         assert energy.state_kind == "displacement"
@@ -338,4 +338,8 @@ class TestModuleSurface:
         assert not hasattr(pe, "TetP1")
         assert not hasattr(pe, "StableNeo")
         assert hasattr(pe, "PotentialEnergy")
-        assert hasattr(pe, "DeformationEnergy")
+        # FEM energy classes live with their domain module (pypgo.fem),
+        # not in the generic pypgo.energy namespace.
+        assert not hasattr(pe, "DeformationEnergy")
+        assert hasattr(pf, "DeformationEnergy")
+        assert hasattr(pf, "PlasticMaterialEnergy")

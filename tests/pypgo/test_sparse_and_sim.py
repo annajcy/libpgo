@@ -46,6 +46,33 @@ def test_sparse_matrix_constructs_from_coo_helper():
     ))
 
 
+def test_sparse_matmul_matches_dense_reference():
+    rng = np.random.default_rng(0)
+    dense = rng.standard_normal((5, 4))
+    dense[dense < 0.5] = 0.0  # exercise the sparse (zeros-dropped) path
+    rows, cols = np.nonzero(dense)
+    matrix = pgo.sparse.SparseMatrix.from_coo((5, 4), rows, cols, dense[rows, cols])
+
+    # matvec (1-D) and matmat (2-D) both delegate to the C++ multiply.
+    vector = rng.standard_normal(4)
+    block = rng.standard_normal((4, 3))
+    assert np.allclose(matrix @ vector, dense @ vector)
+    assert np.allclose(matrix @ block, dense @ block)
+
+    # repeated multiply reuses the cached Eigen matrix.
+    assert np.allclose(matrix @ vector, dense @ vector)
+
+    # non-contiguous (strided) input is handled.
+    assert np.allclose(matrix @ block[::1, ::1], dense @ block)
+
+
+def test_sparse_matmul_rejects_shape_mismatch():
+    matrix = pgo.sparse.SparseMatrix.from_coo((3, 4), [0, 2], [1, 3], [1.0, 2.0])
+    for bad in (np.ones(3), np.ones((3, 2))):
+        with np.testing.assert_raises(ValueError):
+            matrix @ bad
+
+
 def test_shell_spec_io_roundtrip(tmp_path):
     tri = pgo.mesh.TriMeshData(
         np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64),

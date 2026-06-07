@@ -16,11 +16,11 @@ def test_veg_tet_io_roundtrip(tmp_path):
     )
     elements = np.array([[0, 1, 2, 3]], dtype=np.int64)
     tet_data = pgo.mesh.TetMeshData(vertices, elements)
-    material = pgo.mesh.veg.ENuMaterial("rubber", E=1e6, nu=0.33, density=1200.0)
+    material = pgo.mesh.volume.ENuMaterial("rubber", E=1e6, nu=0.33, density=1200.0)
 
     veg_file = str(tmp_path / "temp_mesh.veg")
-    pgo.mesh.veg.write_veg(veg_file, pgo.mesh.veg.VegFile.from_single_material(tet_data, material))
-    loaded = pgo.mesh.veg.read_veg(veg_file)
+    pgo.mesh.volume.write_veg(veg_file, pgo.mesh.volume.VegFile.from_single_material(tet_data, material))
+    loaded = pgo.mesh.volume.read_veg(veg_file)
     loaded_data = loaded.mesh_data
     loaded_material = loaded.first_material()
 
@@ -30,7 +30,7 @@ def test_veg_tet_io_roundtrip(tmp_path):
     assert np.allclose(loaded_data.vertices, vertices)
     assert np.array_equal(loaded_data.elements, elements)
 
-    assert isinstance(loaded_material, pgo.mesh.veg.ENuMaterial)
+    assert isinstance(loaded_material, pgo.mesh.volume.ENuMaterial)
     assert loaded_material.E == 1e6
     assert loaded_material.nu == 0.33
     assert loaded_material.density == 1200.0
@@ -71,13 +71,13 @@ def test_veg_roundtrip_then_volume_mesh(tmp_path):
     )
     elements = np.array([[0, 1, 2, 3]], dtype=np.int64)
     tet_data = pgo.mesh.TetMeshData(vertices, elements)
-    material = pgo.mesh.veg.ENuMaterial("foam", E=2e9, nu=0.4, density=900.0)
+    material = pgo.mesh.volume.ENuMaterial("foam", E=2e9, nu=0.4, density=900.0)
 
     veg_file = str(tmp_path / "temp2.veg")
-    pgo.mesh.veg.write_veg(veg_file, pgo.mesh.veg.VegFile.from_single_material(tet_data, material))
-    veg = pgo.mesh.veg.read_veg(veg_file)
+    pgo.mesh.volume.write_veg(veg_file, pgo.mesh.volume.VegFile.from_single_material(tet_data, material))
+    veg = pgo.mesh.volume.read_veg(veg_file)
 
-    volume = pgo.mesh.veg.VolumeMesh(veg.mesh_data, regions=veg.to_volume_regions())
+    volume = pgo.mesh.volume.VolumeMesh(veg.mesh_data, regions=veg.to_volume_regions())
     assert volume.num_vertices == 4
     assert volume.num_elements == 1
 
@@ -95,26 +95,26 @@ def test_veg_roundtrip_preserves_multiple_material_payloads(tmp_path):
     )
     elements = np.array([[0, 1, 2, 3], [1, 2, 3, 4]], dtype=np.int64)
     tet_data = pgo.mesh.TetMeshData(vertices, elements)
-    veg = pgo.mesh.veg.VegFile(
+    veg = pgo.mesh.volume.VegFile(
         mesh_data=tet_data,
         materials=[
-            pgo.mesh.veg.ENuMaterial("soft", density=1000.0, E=2e6, nu=0.35),
-            pgo.mesh.veg.MooneyRivlinMaterial("insert", density=1200.0, mu01=3.0, mu10=4.0, v1=0.2),
+            pgo.mesh.volume.ENuMaterial("soft", density=1000.0, E=2e6, nu=0.35),
+            pgo.mesh.volume.MooneyRivlinMaterial("insert", density=1200.0, mu01=3.0, mu10=4.0, v1=0.2),
         ],
         sets=[
-            pgo.mesh.veg.MeshSet("allElements", [0, 1]),
-            pgo.mesh.veg.MeshSet("softSet", [0]),
-            pgo.mesh.veg.MeshSet("insertSet", [1]),
+            pgo.mesh.volume.MeshSet("allElements", [0, 1]),
+            pgo.mesh.volume.MeshSet("softSet", [0]),
+            pgo.mesh.volume.MeshSet("insertSet", [1]),
         ],
         regions=[
-            pgo.mesh.veg.MeshRegion(0, 1),
-            pgo.mesh.veg.MeshRegion(1, 2),
+            pgo.mesh.volume.MeshRegion(0, 1),
+            pgo.mesh.volume.MeshRegion(1, 2),
         ],
     )
 
     path = str(tmp_path / "multi.veg")
-    pgo.mesh.veg.write_veg(path, veg)
-    loaded = pgo.mesh.veg.read_veg(path)
+    pgo.mesh.volume.write_veg(path, veg)
+    loaded = pgo.mesh.volume.read_veg(path)
 
     assert isinstance(loaded.mesh_data, pgo.mesh.TetMeshData)
     assert np.allclose(loaded.mesh_data.vertices, vertices)
@@ -122,14 +122,14 @@ def test_veg_roundtrip_preserves_multiple_material_payloads(tmp_path):
     assert [s.name for s in loaded.sets] == ["allElements", "softSet", "insertSet"]
     assert [s.elements for s in loaded.sets] == [[0, 1], [0], [1]]
     assert [(r.material_index, r.set_index) for r in loaded.regions] == [(0, 1), (1, 2)]
-    assert isinstance(loaded.materials[0], pgo.mesh.veg.ENuMaterial)
+    assert isinstance(loaded.materials[0], pgo.mesh.volume.ENuMaterial)
     assert loaded.materials[0].E == pytest.approx(2e6)
-    assert isinstance(loaded.materials[1], pgo.mesh.veg.MooneyRivlinMaterial)
+    assert isinstance(loaded.materials[1], pgo.mesh.volume.MooneyRivlinMaterial)
     assert loaded.materials[1].mu10 == pytest.approx(4.0)
 
 
 def test_io_rejects_mesh_geo_facades(tmp_path):
-    material = pgo.mesh.veg.ENuMaterial()
+    material = pgo.mesh.volume.ENuMaterial()
     tri_geo = pgo.mesh.geo.TriMeshGeo(
         np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64),
         np.array([[0, 1, 2]], dtype=np.int64),
@@ -142,9 +142,9 @@ def test_io_rejects_mesh_geo_facades(tmp_path):
     with pytest.raises(TypeError, match="TriMeshData"):
         pgo.mesh.write_obj(str(tmp_path / "surface.obj"), tri_geo)
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.veg.write_veg(
+        pgo.mesh.volume.write_veg(
             str(tmp_path / "mesh.veg"),
-            pgo.mesh.veg.VegFile.from_single_material(tet_geo, material),
+            pgo.mesh.volume.VegFile.from_single_material(tet_geo, material),
         )
 
 

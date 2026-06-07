@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 import pypgo as pgo
-from pypgo.mesh.veg import ENuMaterial, VegFile, read_veg, write_veg
+from pypgo.mesh.volume import ENuMaterial, VegFile, read_veg, write_veg
 from pypgo.tools.mesh.surface import cleanup as surface_cleanup_cli
 from pypgo.tools.mesh.volume import cubic_mesher as cubic_mesher_cli
 from pypgo.tools.mesh.volume import tetgen_mesher as tetgen_mesher_cli

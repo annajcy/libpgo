@@ -455,6 +455,18 @@ std::shared_ptr<PyPotentialEnergy> createVertexAttachment(
   return std::make_shared<PyPotentialEnergy>(std::move(energy));
 }
 
+void setVertexAttachmentTargetPositions(
+  const PyPotentialEnergy &energy,
+  nb::ndarray<nb::numpy, const double> targetPositions)
+{
+  auto *attachment = dynamic_cast<ConstraintPotentialEnergies::MultipleVertexPulling *>(
+    const_cast<NonlinearOptimization::PotentialEnergy *>(energy.handle_.get()));
+  if (!attachment) {
+    throw nb::type_error("set_targets is only available on VertexAttachment.");
+  }
+  attachment->setTargetPositions(python::ndarrayToVectorXd(targetPositions));
+}
+
 // ── EnergySet binding ───────────────────────────────────────────────
 
 // EnergySet Python wrapper.  Holds the set directly as its handle.
@@ -835,6 +847,10 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("target_positions"),
     nb::arg("coeff") = 1.0,
     nb::arg("is_displacement") = true);
+
+  m.def("_set_vertex_attachment_target_positions", &setVertexAttachmentTargetPositions,
+    nb::arg("energy"),
+    nb::arg("target_positions"));
 
   // ── EnergySet (Task E6) ────────────────────────────────────────────
 

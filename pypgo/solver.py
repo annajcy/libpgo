@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import IntEnum
 from typing import Sequence
 
 import numpy as np
 
 import pypgo._core as _core
+from pypgo._arrays import float_vector
+from pypgo.energy import PotentialEnergy
 
 
 class SolveStatus(IntEnum):
@@ -57,13 +59,6 @@ _SPARSE_SOLVERS = {
 _LINE_SEARCH_METHODS = {"golden", "brents", "backtrack", "simple"}
 
 
-def _as_float_vector(name: str, arr) -> np.ndarray:
-    out = np.asarray(arr, dtype=np.float64, order="C")
-    if out.ndim != 1:
-        raise ValueError(f"{name} must be 1-D, got shape {out.shape}")
-    return out
-
-
 def _as_fixed_dofs(fixed_dofs: Sequence[int] | None):
     if fixed_dofs is None:
         return None
@@ -99,8 +94,8 @@ class OptimizationProblem:
     """
 
     def __init__(self, *, objective) -> None:
-        if not hasattr(objective, "_handle"):
-            raise TypeError("objective must be a pypgo.energy PotentialEnergy-compatible object")
+        if not isinstance(objective, PotentialEnergy):
+            raise TypeError("objective must be a pypgo.energy.PotentialEnergy")
         self.objective = objective
         self.variable_bounds = Bounds()
 
@@ -112,7 +107,7 @@ class OptimizationProblem:
         num_dofs: int | None = None,
     ) -> None:
         dof_list = [int(dof) for dof in dofs]
-        value_arr = _as_float_vector("values", values)
+        value_arr = float_vector("values", values)
         if value_arr.size != len(dof_list):
             raise ValueError("values size must match dofs size")
         if len(set(dof_list)) != len(dof_list):
@@ -123,12 +118,12 @@ class OptimizationProblem:
         lower = (
             np.full(num_dofs, -np.inf, dtype=np.float64)
             if self.variable_bounds.lower is None
-            else _as_float_vector("variable_bounds.lower", self.variable_bounds.lower).copy()
+            else float_vector("variable_bounds.lower", self.variable_bounds.lower).copy()
         )
         upper = (
             np.full(num_dofs, np.inf, dtype=np.float64)
             if self.variable_bounds.upper is None
-            else _as_float_vector("variable_bounds.upper", self.variable_bounds.upper).copy()
+            else float_vector("variable_bounds.upper", self.variable_bounds.upper).copy()
         )
         if lower.size != num_dofs or upper.size != num_dofs:
             raise ValueError("variable bounds size must match num_dofs")
@@ -142,45 +137,44 @@ class OptimizationProblem:
         self.variable_bounds = Bounds(lower=lower, upper=upper)
 
 
+@dataclass(kw_only=True)
 class NewtonOptimizer:
     """Newton optimizer with backend-specific options."""
 
-    def __init__(
-        self,
-        *,
-        max_iterations: int = 50,
-        gradient_tolerance: float = 1e-6,
-        damping: bool = True,
-        line_search: str = "backtrack",
-        verbose: int = 0,
-        sparse_solver: str = "auto",
-    ) -> None:
-        if sparse_solver not in _SPARSE_SOLVERS:
-            raise ValueError(f"sparse_solver must be one of {list(_SPARSE_SOLVERS)}, got {sparse_solver!r}")
-        if line_search not in _LINE_SEARCH_METHODS:
-            raise ValueError(f"line_search must be one of {sorted(_LINE_SEARCH_METHODS)}, got {line_search!r}")
+    max_iterations: int = 50
+    gradient_tolerance: float = 1e-6
+    damping: bool = True
+    line_search: str = "backtrack"
+    verbose: int = 0
+    sparse_solver: str = "auto"
 
-        self.max_iterations = int(max_iterations)
-        self.gradient_tolerance = float(gradient_tolerance)
-        self.damping = bool(damping)
-        self.line_search = str(line_search)
-        self.verbose = int(verbose)
-        self.sparse_solver = str(sparse_solver)
+    def __post_init__(self) -> None:
+        if self.sparse_solver not in _SPARSE_SOLVERS:
+            raise ValueError(f"sparse_solver must be one of {list(_SPARSE_SOLVERS)}, got {self.sparse_solver!r}")
+        if self.line_search not in _LINE_SEARCH_METHODS:
+            raise ValueError(f"line_search must be one of {sorted(_LINE_SEARCH_METHODS)}, got {self.line_search!r}")
+
+        self.max_iterations = int(self.max_iterations)
+        self.gradient_tolerance = float(self.gradient_tolerance)
+        self.damping = bool(self.damping)
+        self.line_search = str(self.line_search)
+        self.verbose = int(self.verbose)
+        self.sparse_solver = str(self.sparse_solver)
 
     def solve(self, problem: OptimizationProblem, x0: np.ndarray | Sequence[float]) -> SolverResult:
         if not isinstance(problem, OptimizationProblem):
             raise TypeError("problem must be an OptimizationProblem")
 
-        x0_arr = _as_float_vector("x0", x0)
+        x0_arr = float_vector("x0", x0)
         lower = (
             np.empty(0, dtype=np.float64)
             if problem.variable_bounds.lower is None
-            else _as_float_vector("variable_bounds.lower", problem.variable_bounds.lower)
+            else float_vector("variable_bounds.lower", problem.variable_bounds.lower)
         )
         upper = (
             np.empty(0, dtype=np.float64)
             if problem.variable_bounds.upper is None
-            else _as_float_vector("variable_bounds.upper", problem.variable_bounds.upper)
+            else float_vector("variable_bounds.upper", problem.variable_bounds.upper)
         )
 
         data = _core._newton_optimizer_solve(
@@ -215,26 +209,29 @@ def solve_newton(
     sparse_solver: str | None = None,
 ) -> SolverResult:
     """Compatibility shim for the object-style Newton API."""
-    if not hasattr(energy, "_handle"):
-        raise TypeError("energy must be a pypgo.energy PotentialEnergy-compatible object")
+    if not isinstance(energy, PotentialEnergy):
+        raise TypeError("energy must be a pypgo.energy.PotentialEnergy")
     if options is not None and not isinstance(options, NewtonOptimizer):
         raise TypeError("options must be a NewtonOptimizer instance")
 
-    x0_arr = _as_float_vector("x0", x0)
-    optimizer = options or NewtonOptimizer()
-    optimizer = NewtonOptimizer(
-        max_iterations=optimizer.max_iterations if max_iter is None else int(max_iter),
-        gradient_tolerance=optimizer.gradient_tolerance if tol is None else float(tol),
-        damping=optimizer.damping if damping is None else bool(damping),
-        line_search=optimizer.line_search if line_search is None else str(line_search),
-        verbose=optimizer.verbose if verbose is None else int(verbose),
-        sparse_solver=optimizer.sparse_solver if sparse_solver is None else str(sparse_solver),
+    x0_arr = float_vector("x0", x0)
+    overrides = {
+        "max_iterations": max_iter,
+        "gradient_tolerance": tol,
+        "damping": damping,
+        "line_search": line_search,
+        "verbose": verbose,
+        "sparse_solver": sparse_solver,
+    }
+    optimizer = replace(
+        options or NewtonOptimizer(),
+        **{key: value for key, value in overrides.items() if value is not None},
     )
 
     problem = OptimizationProblem(objective=energy)
     fixed = _as_fixed_dofs(fixed_dofs) or []
     if fixed:
-        values = _as_float_vector("fixed_values", fixed_values) if fixed_values is not None else x0_arr[fixed]
+        values = float_vector("fixed_values", fixed_values) if fixed_values is not None else x0_arr[fixed]
         problem.fix_variables(fixed, values, num_dofs=x0_arr.size)
 
     return optimizer.solve(problem, x0_arr)

@@ -1,5 +1,19 @@
 import numpy as np
 
+def float_vector(name: str, value) -> np.ndarray:
+    """Validate and return a contiguous float64 1-D array."""
+    arr = np.asarray(value, dtype=np.float64, order="C")
+    if arr.ndim != 1:
+        raise ValueError(f"{name} must be 1-D, got shape {arr.shape}")
+    return arr
+
+def int_vector(name: str, value) -> np.ndarray:
+    """Validate and return a contiguous int64 1-D array."""
+    arr = np.asarray(value, dtype=np.int64, order="C")
+    if arr.ndim != 1:
+        raise ValueError(f"{name} must be 1-D, got shape {arr.shape}")
+    return arr
+
 def float_matrix(name: str, value, columns: int) -> np.ndarray:
     try:
         arr = np.ascontiguousarray(value, dtype=np.float64)

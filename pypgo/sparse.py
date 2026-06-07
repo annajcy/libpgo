@@ -1,4 +1,10 @@
-"""Sparse matrix wrapper with NumPy COO export."""
+"""Sparse matrix wrapper with NumPy COO export.
+
+Also provides the matrix-coercion helpers :func:`as_sparse_matrix` (to a
+:class:`SparseMatrix`) and :func:`as_coo` (to COO arrays for the C++
+constructors), which accept a SparseMatrix, a dense 2-D array, a
+``_core.PySparseMatrix``, or a COO 5-tuple.
+"""
 
 from __future__ import annotations
 
@@ -63,15 +69,65 @@ class SparseMatrix:
         flat = np.asarray(self._core_obj.to_dense(), dtype=np.float64)
         return flat.reshape(self._core_obj.rows(), self._core_obj.cols())
 
+    def __repr__(self) -> str:
+        return f"SparseMatrix(shape={self.shape}, nnz={self.nnz})"
+
     def __matmul__(self, other: np.ndarray) -> np.ndarray:
         other = np.asarray(other, dtype=np.float64)
         if other.ndim not in (1, 2):
             return NotImplemented
-        rows, cols, values = self.to_coo()
+        if other.shape[0] != self.shape[1]:
+            raise ValueError(
+                f"shape mismatch for matmul: {self.shape} @ {other.shape}"
+            )
+        # Delegate the multiply to C++ (MKL-accelerated when available).
         if other.ndim == 1:
-            result = np.zeros(self.shape[0], dtype=np.float64)
-            np.add.at(result, rows, values * other[cols])
-        else:
-            result = np.zeros((self.shape[0], other.shape[1]), dtype=np.float64)
-            np.add.at(result, rows, values[:, None] * other[cols])
-        return result
+            return self._core_obj.matvec(np.ascontiguousarray(other))
+        return self._core_obj.matmat(np.ascontiguousarray(other))
+
+
+def as_sparse_matrix(A) -> "SparseMatrix":
+    """Coerce a matrix-like argument to a :class:`SparseMatrix`.
+
+    Accepts a ``SparseMatrix``, a ``_core.PySparseMatrix``, a dense 2-D
+    array-like (zeros are dropped), or a
+    ``(rows, cols, row_indices, col_indices, values)`` COO 5-tuple.
+    """
+    if isinstance(A, SparseMatrix):
+        return A
+    if isinstance(A, _core.PySparseMatrix):
+        return SparseMatrix(A)
+    if isinstance(A, np.ndarray) or (hasattr(A, "__array__") and not isinstance(A, (list, tuple))):
+        a = np.asarray(A, dtype=np.float64, order="C")
+        if a.ndim != 2:
+            raise ValueError(f"dense matrix must be 2-D, got shape {a.shape}")
+        row_indices, col_indices = np.nonzero(a)
+        return SparseMatrix.from_coo(a.shape, row_indices, col_indices, a[row_indices, col_indices])
+    if isinstance(A, (list, tuple)):
+        if len(A) == 5:
+            rows, cols, row_indices, col_indices, values = A
+            return SparseMatrix.from_coo((int(rows), int(cols)), row_indices, col_indices, values)
+        if len(A) == 4:
+            raise TypeError(
+                "Four-tuple input is ambiguous; pass "
+                "(rows, cols, row_indices, col_indices, values)."
+            )
+    raise TypeError(
+        "A must be a SparseMatrix, a 2-D ndarray, a PySparseMatrix, or a "
+        "(rows, cols, row_indices, col_indices, values) tuple, "
+        f"got {type(A).__name__}"
+    )
+
+
+def as_coo(A):
+    """Coerce a matrix-like ``A`` to ``(rows, cols, row_list, col_list, values)``.
+
+    Like :func:`as_sparse_matrix` followed by ``to_coo``, but also returns the
+    matrix dimensions and gives the row/column indices as plain ``list`` objects
+    — the shape expected by the C++ COO constructors. ``values`` is a float64
+    ndarray. Accepts the same inputs as :func:`as_sparse_matrix`.
+    """
+    matrix = as_sparse_matrix(A)
+    rows, cols = matrix.shape
+    row_indices, col_indices, values = matrix.to_coo()
+    return rows, cols, row_indices.tolist(), col_indices.tolist(), values

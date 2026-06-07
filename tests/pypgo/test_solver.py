@@ -82,10 +82,6 @@ def test_line_search_keywords():
 
 
 def test_newton_optimizer_sparse_solver_is_forwarded(monkeypatch):
-    class FakeEnergy:
-        _handle = object()
-        num_dofs = 3
-
     captured = {}
 
     def fake_newton_optimizer_solve(*args, **kwargs):
@@ -113,12 +109,26 @@ def test_newton_optimizer_sparse_solver_is_forwarded(monkeypatch):
 
     monkeypatch.setattr(solver._core, "_newton_optimizer_solve", fake_newton_optimizer_solve)
 
-    problem = solver.OptimizationProblem(objective=FakeEnergy())
+    problem = make_problem(make_quadratic())
     optimizer = solver.NewtonOptimizer(sparse_solver="eigen_ldlt")
     optimizer.solve(problem, np.zeros(3, dtype=np.float64))
 
     assert captured["args"][-1] == 1
     assert captured["kwargs"] == {}
+
+
+def test_optimization_problem_rejects_non_energy_objective():
+    # A bare object and a ConstraintFunction (which also exposes a `_handle`)
+    # must both be rejected now that the check is isinstance(PotentialEnergy).
+    with pytest.raises(TypeError):
+        solver.OptimizationProblem(objective=object())
+
+    constraint = pgo.constraints.Linear(
+        pgo.sparse.SparseMatrix.from_coo((1, 3), [0], [0], [1.0])
+    )
+    assert hasattr(constraint, "_handle")  # would have passed the old duck-typed check
+    with pytest.raises(TypeError):
+        solver.OptimizationProblem(objective=constraint)
 
 
 def test_optimizer_keywords_control_solve():

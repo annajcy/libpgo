@@ -3,6 +3,7 @@
 #include "EigenDef.h"
 
 #include <map>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -50,6 +51,24 @@ public:
         return dense;
     }
 
+    // Lazily build and cache the Eigen sparse matrix from the stored COO data.
+    // The matrix is immutable after construction, so caching is safe.
+    const pgo::EigenSupport::SpMatD& eigenMatrix() const
+    {
+        if (!eigenCache_) {
+            std::vector<Eigen::Triplet<double>> triplets;
+            triplets.reserve(values_.size());
+            for (size_t k = 0; k < values_.size(); ++k) {
+                triplets.emplace_back(rowsIndex_[k], colsIndex_[k], values_[k]);
+            }
+            pgo::EigenSupport::SpMatD m(rows_, cols_);
+            m.setFromTriplets(triplets.begin(), triplets.end());
+            m.makeCompressed();
+            eigenCache_ = std::move(m);
+        }
+        return *eigenCache_;
+    }
+
 private:
     void initializeFromCOO(
         int rows,
@@ -94,4 +113,5 @@ private:
     std::vector<int> rowsIndex_;
     std::vector<int> colsIndex_;
     std::vector<double> values_;
+    mutable std::optional<pgo::EigenSupport::SpMatD> eigenCache_;
 };
