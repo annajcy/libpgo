@@ -180,7 +180,7 @@ public:
   std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> energy() const { return energy_; }
 
   nb::ndarray<nb::numpy, double> restPosition() const;
-  int numVertices() const { return static_cast<int>(energy_->getRestPosition().size() / 3); }
+  int numVertices() const { return energy_->assembler().getDeformationModelManager().getMesh()->getNumVertices(); }
   int numPlasticDofs() const { return energy_->assembler().getNumPlasticGlobalParams(); }
   nb::ndarray<nb::numpy, double> plasticGradient(nb::ndarray<nb::numpy, const double> displacement) const;
   PySparseMatrix plasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;

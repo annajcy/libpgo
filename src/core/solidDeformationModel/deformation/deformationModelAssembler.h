@@ -11,6 +11,7 @@ copyright to USC,MIT,NUS
 #include "formulations/parameters/parameterField.h"
 #include "EigenDef.h"
 
+#include <functional>
 #include <memory>
 
 namespace pgo
@@ -81,6 +82,36 @@ protected:
   std::vector<const DeformationModel *> femModels;
 
   const int enableSanityCheck = 1;
+
+private:
+  // Build a mixed sparsity template + inverse-index map for d²E/dx dp (df/dp).
+  // Shared by the dfdb and dfda template construction in the constructor.
+  void buildMixedSparsityTemplate(
+    int numParams,
+    int numGlobalParams,
+    const std::function<int(int, int)> &paramGlobalCol,
+    EigenSupport::SpMatD &tmpl,
+    std::vector<DynamicIndexMatrix> &inverseIndices,
+    std::vector<EigenSupport::TripletD> &entries);
+
+  // Generic df/dparam assembly loop — shared by compute_df_da and compute_df_db.
+  // computeLocal is a pointer to DeformationModel::compute_d2E_dxda (or _dxdb).
+  void assembleDfDparam(
+    const double *x,
+    int numParams,
+    const std::vector<DynamicIndexMatrix> &inverseIndices,
+    void (DeformationModel::*computeLocal)(const DeformationModel::CacheData *, double *) const,
+    EigenSupport::SpMatD &hess,
+    const char *label) const;
+
+  // Gather local DOFs and prepare element cache — shared by every compute method.
+  inline const DeformationModel *gatherAndPrepare(int ele, const double *x, double *localBuf) const
+  {
+    dofLayout->gather(ele, x, localBuf);
+    const DeformationModel *fem = femModels[ele];
+    fem->prepareData(localBuf, data->elementCacheData[ele].get());
+    return fem;
+  }
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

@@ -87,5 +87,8 @@ std::unique_ptr<SimulationMesh> loadShellMesh(const Mesh::TriMeshGeo &triMeshGeo
 std::unique_ptr<SimulationMesh> loadShellMesh(const Mesh::TriMeshGeo &triMeshGeo, const int *elementMaterialIndices, const SimulationMeshMaterial *const *mat);
 
 void computeTriangleUV(SimulationMesh *mesh, double scaleFactor);
+
+const char *meshTypeName(SimulationMeshType meshType);
+
 }  // namespace SolidDeformationModel
 }  // namespace pgo

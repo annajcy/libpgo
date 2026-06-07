@@ -358,17 +358,13 @@ const SimulationMesh *DeformationModelManager::getMesh() const
 void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
 {
   data->globalRotation = Eigen::Map<const ES::M3d>(R);
-  tbb::parallel_for(
-    0, (int)data->fiberAxes.cols() / 3, [this](int i) {
-      data->fiberAxes.block<3, 3>(0, i * 3) = data->fiberAxesRest.block<3, 3>(0, i * 3) * data->globalRotation.transpose();
-    },
-    tbb::static_partitioner());
-
-  tbb::parallel_for(
-    0, (int)data->vertexFiberAxes.cols() / 3, [this](int i) {
-      data->vertexFiberAxes.block<3, 3>(0, i * 3) = data->vertexFiberAxesRest.block<3, 3>(0, i * 3) * data->globalRotation.transpose();
-    },
-    tbb::static_partitioner());
+  auto rotateAxes = [this](ES::M3Xd &axes, const ES::M3Xd &axesRest) {
+    tbb::parallel_for(0, (int)axes.cols() / 3, [&](int i) {
+      axes.block<3, 3>(0, i * 3) = axesRest.block<3, 3>(0, i * 3) * data->globalRotation.transpose();
+    }, tbb::static_partitioner());
+  };
+  rotateAxes(data->fiberAxes, data->fiberAxesRest);
+  rotateAxes(data->vertexFiberAxes, data->vertexFiberAxesRest);
 
   if (!data->elementFEMs.empty() && data->fiberAxes.cols() > 0) {
     tbb::parallel_for(

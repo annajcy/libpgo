@@ -30,25 +30,6 @@ ES::VXd assembleDirectionSlice(ES::ConstRefVecXd dx, int offset, int numDOFs)
   return ES::VXd(Eigen::Map<const ES::VXd>(dx.data() + offset, numDOFs));
 }
 
-const char *meshTypeName(pgo::SolidDeformationModel::SimulationMeshType meshType)
-{
-  using pgo::SolidDeformationModel::SimulationMeshType;
-  switch (meshType) {
-  case SimulationMeshType::TET:
-    return "TET";
-  case SimulationMeshType::CUBIC:
-    return "CUBIC";
-  case SimulationMeshType::TRIANGLE:
-    return "TRIANGLE";
-  case SimulationMeshType::EDGE_QUAD:
-    return "EDGE_QUAD";
-  case SimulationMeshType::SHELL:
-    return "SHELL";
-  default:
-    return "UNKNOWN";
-  }
-}
-
 }  // namespace
 
 DeformationModelEnergy::DeformationModelEnergy(std::unique_ptr<DeformationModelAssembler> fma,

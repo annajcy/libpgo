@@ -38,7 +38,7 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
         inner = layer.inner_optimizer.solve(problem, layer._warm_start)
         layer._warm_start = inner.x.copy()
 
-        surface_vertices = layer.surface_vertices + inner.x.reshape((-1, 3))[layer.surface_vertex_ids]
+        surface_vertices = layer.surface_vertices + inner.x.reshape((-1, layer._dof_stride))[layer.surface_vertex_ids, :3]
         layer._last_equilibrium_displacement = inner.x.copy()
         layer._last_surface_vertices = surface_vertices.copy()
         layer._last_inner_result = inner
@@ -64,7 +64,10 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
             )
 
         grad_u = np.zeros(layer.energy.num_dofs, dtype=np.float64)
-        np.add.at(grad_u.reshape((-1, 3)), layer.surface_vertex_ids, grad_surface_np)
+        grad_u_reshaped = grad_u.reshape((-1, layer._dof_stride))
+        padded = np.zeros((len(layer.surface_vertex_ids), layer._dof_stride), dtype=np.float64)
+        padded[:, :3] = grad_surface_np
+        np.add.at(grad_u_reshaped, layer.surface_vertex_ids, padded)
 
         grad_plastic = np.zeros(layer.num_plastic_dofs, dtype=np.float64)
         if layer.free_dofs.size:
@@ -128,6 +131,8 @@ class StaticEquilibriumLayer(_torch.nn.Module):
         self.num_plastic_dofs = int(np.prod(self.plastic_shape))
         if self.num_plastic_dofs != energy.num_plastic_dofs:
             raise ValueError("state plastic field size does not match energy.num_plastic_dofs")
+
+        self._dof_stride = energy.num_dofs // energy.num_vertices
 
         mask = np.ones(energy.num_dofs, dtype=bool)
         if np.any(self.fixed_dofs < 0) or np.any(self.fixed_dofs >= energy.num_dofs):

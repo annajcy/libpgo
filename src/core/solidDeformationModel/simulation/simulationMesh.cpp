@@ -642,3 +642,15 @@ void pgo::SolidDeformationModel::computeTriangleUV(SimulationMesh *mesh, double 
   mesh->assignElementUVs(uvs.data());
 }
 
+const char *pgo::SolidDeformationModel::meshTypeName(SimulationMeshType meshType)
+{
+  switch (meshType) {
+  case SimulationMeshType::TET: return "TET";
+  case SimulationMeshType::CUBIC: return "CUBIC";
+  case SimulationMeshType::TRIANGLE: return "TRIANGLE";
+  case SimulationMeshType::EDGE_QUAD: return "EDGE_QUAD";
+  case SimulationMeshType::SHELL: return "SHELL";
+  default: return "UNKNOWN";
+  }
+}
+
