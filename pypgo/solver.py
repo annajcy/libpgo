@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 from enum import IntEnum
 from typing import Sequence
 
@@ -24,28 +23,46 @@ class SolveStatus(IntEnum):
     UNSUPPORTED_BACKEND = 101
 
 
-@dataclass(frozen=True)
 class SolveDiagnostics:
-    min_feasible_alpha: float = 1.0
-    min_line_search_alpha: float = 1.0
-    min_effective_alpha: float = 1.0
-    material_clamp_count: int = 0
-    contact_clamp_count: int = 0
-    final_gradient_norm: float | None = None
-    final_gradient_max_norm: float | None = None
+    """Diagnostics from the most recent solve step.
+
+    Constructed from the C++ solve result dictionary; intentionally not
+    a frozen dataclass so the solver peer layer controls the shape.
+    """
+
+    __slots__ = (
+        "min_feasible_alpha",
+        "min_line_search_alpha",
+        "min_effective_alpha",
+        "material_clamp_count",
+        "contact_clamp_count",
+        "final_gradient_norm",
+        "final_gradient_max_norm",
+    )
+
+    def __init__(self, **kwargs):
+        for k in self.__slots__:
+            object.__setattr__(self, k, kwargs.get(k))
 
 
-@dataclass(frozen=True)
 class SolverResult:
-    x: np.ndarray
-    status: SolveStatus
-    converged: bool
-    iterations: int
-    raw_status_code: int
-    final_objective: float | None
-    final_gradient_norm: float | None
-    final_gradient_max_norm: float | None
-    diagnostics: SolveDiagnostics
+    """Result of a single call to :meth:`Optimizer.solve`."""
+
+    __slots__ = (
+        "x",
+        "status",
+        "converged",
+        "iterations",
+        "raw_status_code",
+        "final_objective",
+        "final_gradient_norm",
+        "final_gradient_max_norm",
+        "diagnostics",
+    )
+
+    def __init__(self, **kwargs):
+        for k in self.__slots__:
+            object.__setattr__(self, k, kwargs.get(k))
 
 
 _SPARSE_SOLVERS = {
@@ -55,14 +72,7 @@ _SPARSE_SOLVERS = {
     "orig_pardiso": 3,
 }
 
-
 _LINE_SEARCH_METHODS = {"golden", "brents", "backtrack", "simple"}
-
-
-def _as_fixed_dofs(fixed_dofs: Sequence[int] | None):
-    if fixed_dofs is None:
-        return None
-    return [int(dof) for dof in fixed_dofs]
 
 
 def _result_from_core(data: dict) -> SolverResult:
@@ -80,17 +90,22 @@ def _result_from_core(data: dict) -> SolverResult:
     )
 
 
-@dataclass(frozen=True)
 class Bounds:
-    lower: np.ndarray | None = None
-    upper: np.ndarray | None = None
+    """Lower/upper variable bounds for :class:`OptimizationProblem`."""
+
+    __slots__ = ("lower", "upper")
+
+    def __init__(self, lower=None, upper=None):
+        self.lower = lower
+        self.upper = upper
 
 
 class OptimizationProblem:
     """Mathematical nonlinear optimization problem.
 
-    The problem describes only the objective and mathematical bounds. Solver
-    choices and Newton/Ipopt/Knitro options live on optimizer objects.
+    The problem describes the objective and mathematical bounds.  Solver
+    choices live on :class:`Optimizer` objects.  Variable bounds are
+    editable on the Python side and synced to C++ before each solve.
     """
 
     def __init__(self, *, objective) -> None:
@@ -98,6 +113,25 @@ class OptimizationProblem:
             raise TypeError("objective must be a pypgo.energy.PotentialEnergy")
         self.objective = objective
         self.variable_bounds = Bounds()
+        self._handle = _core._create_optimization_problem(objective._handle)
+
+    def _sync_variable_bounds_to_handle(self) -> None:
+        lower = (
+            np.empty(0, dtype=np.float64)
+            if self.variable_bounds.lower is None
+            else float_vector("variable_bounds.lower", self.variable_bounds.lower)
+        )
+        upper = (
+            np.empty(0, dtype=np.float64)
+            if self.variable_bounds.upper is None
+            else float_vector("variable_bounds.upper", self.variable_bounds.upper)
+        )
+        self._handle.set_variable_bounds(
+            lower,
+            self.variable_bounds.lower is not None,
+            upper,
+            self.variable_bounds.upper is not None,
+        )
 
     def fix_variables(
         self,
@@ -137,112 +171,59 @@ class OptimizationProblem:
         self.variable_bounds = Bounds(lower=lower, upper=upper)
 
 
-@dataclass(kw_only=True)
-class NewtonOptimizer:
-    """Newton optimizer with backend-specific options."""
+class Optimizer:
+    """Abstract base for all pypgo optimizers.
 
-    max_iterations: int = 50
-    gradient_tolerance: float = 1e-6
-    damping: bool = True
-    line_search: str = "backtrack"
-    verbose: int = 0
-    sparse_solver: str = "auto"
+    Each concrete optimizer holds a C++ peer via ``_handle``.  The
+    :meth:`solve` method accepts an :class:`OptimizationProblem` and an
+    initial guess and returns a :class:`SolverResult`.
+    """
 
-    def __post_init__(self) -> None:
-        if self.sparse_solver not in _SPARSE_SOLVERS:
-            raise ValueError(f"sparse_solver must be one of {list(_SPARSE_SOLVERS)}, got {self.sparse_solver!r}")
-        if self.line_search not in _LINE_SEARCH_METHODS:
-            raise ValueError(f"line_search must be one of {sorted(_LINE_SEARCH_METHODS)}, got {self.line_search!r}")
-
-        self.max_iterations = int(self.max_iterations)
-        self.gradient_tolerance = float(self.gradient_tolerance)
-        self.damping = bool(self.damping)
-        self.line_search = str(self.line_search)
-        self.verbose = int(self.verbose)
-        self.sparse_solver = str(self.sparse_solver)
+    def __init__(self, handle) -> None:
+        if not isinstance(handle, _core.PyOptimizer):
+            raise TypeError(f"handle must be a _core.PyOptimizer, got {type(handle).__name__}")
+        self._handle = handle
 
     def solve(self, problem: OptimizationProblem, x0: np.ndarray | Sequence[float]) -> SolverResult:
         if not isinstance(problem, OptimizationProblem):
             raise TypeError("problem must be an OptimizationProblem")
-
+        problem._sync_variable_bounds_to_handle()
         x0_arr = float_vector("x0", x0)
-        lower = (
-            np.empty(0, dtype=np.float64)
-            if problem.variable_bounds.lower is None
-            else float_vector("variable_bounds.lower", problem.variable_bounds.lower)
-        )
-        upper = (
-            np.empty(0, dtype=np.float64)
-            if problem.variable_bounds.upper is None
-            else float_vector("variable_bounds.upper", problem.variable_bounds.upper)
-        )
-
-        data = _core._newton_optimizer_solve(
-            problem.objective._handle,
-            x0_arr,
-            lower,
-            problem.variable_bounds.lower is not None,
-            upper,
-            problem.variable_bounds.upper is not None,
-            self.max_iterations,
-            self.gradient_tolerance,
-            self.damping,
-            self.line_search,
-            self.verbose,
-            _SPARSE_SOLVERS[self.sparse_solver],
-        )
-        return _result_from_core(data)
+        return _result_from_core(self._handle.solve(problem._handle, x0_arr))
 
 
-def solve_newton(
-    energy,
-    x0: np.ndarray,
-    *,
-    options: NewtonOptimizer | None = None,
-    max_iter: int | None = None,
-    tol: float | None = None,
-    fixed_dofs: Sequence[int] | None = None,
-    fixed_values: np.ndarray | Sequence[float] | None = None,
-    damping: bool | None = None,
-    line_search: str | None = None,
-    verbose: int | None = None,
-    sparse_solver: str | None = None,
-) -> SolverResult:
-    """Compatibility shim for the object-style Newton API."""
-    if not isinstance(energy, PotentialEnergy):
-        raise TypeError("energy must be a pypgo.energy.PotentialEnergy")
-    if options is not None and not isinstance(options, NewtonOptimizer):
-        raise TypeError("options must be a NewtonOptimizer instance")
+class NewtonOptimizer(Optimizer):
+    """Newton optimizer with backend-specific options.
 
-    x0_arr = float_vector("x0", x0)
-    overrides = {
-        "max_iterations": max_iter,
-        "gradient_tolerance": tol,
-        "damping": damping,
-        "line_search": line_search,
-        "verbose": verbose,
-        "sparse_solver": sparse_solver,
-    }
-    optimizer = replace(
-        options or NewtonOptimizer(),
-        **{key: value for key, value in overrides.items() if value is not None},
-    )
+    Parameters are validated at construction time and used to build the
+    C++ peer once.  The peer is immutable after construction; to change
+    options, create a new ``NewtonOptimizer``.
+    """
 
-    problem = OptimizationProblem(objective=energy)
-    fixed = _as_fixed_dofs(fixed_dofs) or []
-    if fixed:
-        values = float_vector("fixed_values", fixed_values) if fixed_values is not None else x0_arr[fixed]
-        problem.fix_variables(fixed, values, num_dofs=x0_arr.size)
+    def __init__(self, *, max_iterations=50, gradient_tolerance=1e-6,
+                 damping=True, line_search="backtrack", verbose=0,
+                 sparse_solver="auto"):
+        if sparse_solver not in _SPARSE_SOLVERS:
+            raise ValueError(f"sparse_solver must be one of {list(_SPARSE_SOLVERS)}, got {sparse_solver!r}")
+        if line_search not in _LINE_SEARCH_METHODS:
+            raise ValueError(f"line_search must be one of {sorted(_LINE_SEARCH_METHODS)}, got {line_search!r}")
 
-    return optimizer.solve(problem, x0_arr)
+        options = _core.PyNewtonOptimizerOptions()
+        options.max_iterations = int(max_iterations)
+        options.gradient_tolerance = float(gradient_tolerance)
+        options.damping = bool(damping)
+        options.line_search = str(line_search)
+        options.verbose = int(verbose)
+        options.sparse_solver_kind = _SPARSE_SOLVERS[sparse_solver]
+        super().__init__(_core.PyNewtonOptimizer(options))
 
 
 __all__ = [
-    "SolveStatus",
-    "SolveDiagnostics",
-    "SolverResult",
     "Bounds",
-    "OptimizationProblem",
     "NewtonOptimizer",
-    "solve_newton",
+    "OptimizationProblem",
+    "Optimizer",
+    "SolveDiagnostics",
+    "SolveStatus",
+    "SolverResult",
 ]

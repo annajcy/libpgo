@@ -25,6 +25,7 @@ set(PYPGO_BINDING_SOURCES
 
   # constraints / solver
   bindings/constraints/constraint_bindings.cpp
+  bindings/solver/core.cpp
   bindings/solver/solver_bindings.cpp
 
   # simulation
