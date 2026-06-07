@@ -47,7 +47,7 @@ def check_surface_quality(
     short_edges = _short_edges(vertices, edge_counts.keys(), float(short_edge_threshold))
     non_manifold_edges = sorted(edge for edge, count in edge_counts.items() if count > 2)
     flipped_tris = _flipped_tris(edge_records)
-    has_self_intersections = _core.check_self_intersections(tri_data._core_obj)
+    has_self_intersections = _core.check_self_intersections(tri_data._handle)
 
     is_clean = not (
         degenerate_tris
@@ -184,7 +184,7 @@ def remove_isolated_vertices(tri_data: TriMeshData) -> TriMeshData:
     """Remove vertices not referenced by any triangle."""
     if not isinstance(tri_data, TriMeshData):
         raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
-    return TriMeshData(_core.surface_remove_isolated_vertices(tri_data._core_obj))
+    return TriMeshData(_core.surface_remove_isolated_vertices(tri_data._handle))
 
 
 def merge_close_vertices(tri_data: TriMeshData, *, eps: float | None = None) -> MergeCloseVerticesResult:
@@ -194,7 +194,7 @@ def merge_close_vertices(tri_data: TriMeshData, *, eps: float | None = None) -> 
     if not has_cgal_remesher():
         raise RuntimeError("CGAL surface cleanup is not available in this build")
     eps_value = -1.0 if eps is None else float(eps)
-    surface_core, merged_vertices, used_eps = _core.surface_merge_close_vertices(tri_data._core_obj, eps_value)
+    surface_core, merged_vertices, used_eps = _core.surface_merge_close_vertices(tri_data._handle, eps_value)
     return MergeCloseVerticesResult(
         surface=TriMeshData(surface_core),
         merged_vertices=int(merged_vertices),
@@ -217,7 +217,7 @@ def raw_surface_cleanup(
         raise RuntimeError("CGAL surface cleanup is not available in this build")
     expected = -1 if expected_components is None else int(expected_components)
     surface_core, report_payload = _core.raw_surface_cleanup(
-        tri_data._core_obj,
+        tri_data._handle,
         expected,
         float(short_edge_threshold),
         int(max_passes),
@@ -274,7 +274,7 @@ def cgal_smooth(tri_data: TriMeshData, *, num_iter: int = 10, sharp_angle: float
         raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
     if not has_cgal_remesher():
         raise RuntimeError("CGAL remesher is not available in this build")
-    return TriMeshData(_core.cgal_smooth_surface(tri_data._core_obj, int(num_iter), float(sharp_angle)))
+    return TriMeshData(_core.cgal_smooth_surface(tri_data._handle, int(num_iter), float(sharp_angle)))
 
 
 def cgal_isotropic_remesh(
@@ -291,7 +291,7 @@ def cgal_isotropic_remesh(
         raise RuntimeError("CGAL remesher is not available in this build")
     return TriMeshData(
         _core.cgal_isotropic_remesh(
-            tri_data._core_obj, float(target_edge_length), int(num_iter), float(sharp_angle)
+            tri_data._handle, float(target_edge_length), int(num_iter), float(sharp_angle)
         )
     )
 
@@ -310,7 +310,7 @@ def cgal_repair_self_intersections(
         raise ValueError(f"method must be 'autorefine', 'autorefine-only', or 'remove', got {method!r}")
     if not has_cgal_remesher():
         raise RuntimeError("CGAL remesher is not available in this build")
-    mesh_core, all_fixed = _core.cgal_repair_self_intersections(tri_data._core_obj, method)
+    mesh_core, all_fixed = _core.cgal_repair_self_intersections(tri_data._handle, method)
     return TriMeshData(mesh_core), bool(all_fixed)
 
 
@@ -320,4 +320,4 @@ def cgal_simplify(tri_data: TriMeshData, *, target_ratio: float) -> TriMeshData:
         raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
     if not has_cgal_remesher():
         raise RuntimeError("CGAL remesher is not available in this build")
-    return TriMeshData(_core.cgal_simplify_surface(tri_data._core_obj, float(target_ratio)))
+    return TriMeshData(_core.cgal_simplify_surface(tri_data._handle, float(target_ratio)))

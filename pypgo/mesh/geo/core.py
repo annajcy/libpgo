@@ -24,34 +24,34 @@ class TriMeshGeo:
 
     def __init__(self, vertices, triangles=None):
         if isinstance(vertices, _core.PyTriMeshGeo) and triangles is None:
-            self._core_obj = vertices
+            self._handle = vertices
             return
 
         v_arr = float_matrix("vertices", vertices, 3)
         t_arr = index_matrix("triangles", triangles, 3, num_vertices=v_arr.shape[0])
-        self._core_obj = _core.create_tri_mesh_geo(v_arr.ravel().tolist(), t_arr.ravel().tolist())
+        self._handle = _core.create_tri_mesh_geo(v_arr.ravel().tolist(), t_arr.ravel().tolist())
 
     @classmethod
     def from_mesh_data(cls, mesh_data: TriMeshData) -> "TriMeshGeo":
         if not isinstance(mesh_data, TriMeshData):
             raise TypeError(f"mesh_data must be a TriMeshData, got {type(mesh_data).__name__}")
-        return cls(_core.PyTriMeshGeo(mesh_data._core_obj))
+        return cls(_core.PyTriMeshGeo(mesh_data._handle))
 
     @property
     def vertices(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "vertices", 3, np.float64)
+        return _array_from_core(self._handle, "vertices", 3, np.float64)
 
     @property
     def triangles(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "triangles", 3, np.int64)
+        return _array_from_core(self._handle, "triangles", 3, np.int64)
 
     @property
     def num_vertices(self) -> int:
-        return self._core_obj.num_vertices()
+        return self._handle.num_vertices()
 
     @property
     def num_triangles(self) -> int:
-        return self._core_obj.num_triangles()
+        return self._handle.num_triangles()
 
     @property
     def face_areas(self) -> np.ndarray:
@@ -78,10 +78,10 @@ class TriMeshGeo:
         return normals / np.where(lengths == 0.0, 1.0, lengths)
 
     def tri_vtx_id(self, tri_id: int, local_vertex_id: int) -> int:
-        return self._core_obj.tri_vtx_id(int(tri_id), int(local_vertex_id))
+        return self._handle.tri_vtx_id(int(tri_id), int(local_vertex_id))
 
     def to_mesh_data(self) -> TriMeshData:
-        return TriMeshData(self._core_obj.to_mesh_data())
+        return TriMeshData(self._handle.to_mesh_data())
 
 # ---------------------------------------------------------------------------
 # Tet / Cubic geometry facades
@@ -93,40 +93,40 @@ class TetMeshGeo:
 
     def __init__(self, vertices, tets=None):
         if isinstance(vertices, _core.PyTetMeshGeo) and tets is None:
-            self._core_obj = vertices
+            self._handle = vertices
             return
 
         v_arr = float_matrix("vertices", vertices, 3)
         t_arr = index_matrix("tets", tets, 4, num_vertices=v_arr.shape[0])
-        self._core_obj = _core.create_tet_mesh_geo(v_arr.ravel().tolist(), t_arr.ravel().tolist())
+        self._handle = _core.create_tet_mesh_geo(v_arr.ravel().tolist(), t_arr.ravel().tolist())
 
     @classmethod
     def from_mesh_data(cls, mesh_data: TetMeshData) -> "TetMeshGeo":
         if not isinstance(mesh_data, TetMeshData):
             raise TypeError(f"mesh_data must be a TetMeshData, got {type(mesh_data).__name__}")
-        return cls(_core.PyTetMeshGeo(mesh_data._core_obj))
+        return cls(_core.PyTetMeshGeo(mesh_data._handle))
 
     @property
     def vertices(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "vertices", 3, np.float64)
+        return _array_from_core(self._handle, "vertices", 3, np.float64)
 
     @property
     def tets(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "tets", 4, np.int64)
+        return _array_from_core(self._handle, "tets", 4, np.int64)
 
     @property
     def num_vertices(self) -> int:
-        return self._core_obj.num_vertices()
+        return self._handle.num_vertices()
 
     @property
     def num_tets(self) -> int:
-        return self._core_obj.num_tets()
+        return self._handle.num_tets()
 
     def tet_vtx_id(self, tet_id: int, local_vertex_id: int) -> int:
-        return self._core_obj.tet_vtx_id(int(tet_id), int(local_vertex_id))
+        return self._handle.tet_vtx_id(int(tet_id), int(local_vertex_id))
 
     def to_mesh_data(self) -> TetMeshData:
-        return TetMeshData(self._core_obj.to_mesh_data())
+        return TetMeshData(self._handle.to_mesh_data())
 
 
 class CubicMeshGeo:
@@ -134,40 +134,40 @@ class CubicMeshGeo:
 
     def __init__(self, vertices, cubes=None):
         if isinstance(vertices, _core.PyCubicMeshGeo) and cubes is None:
-            self._core_obj = vertices
+            self._handle = vertices
             return
 
         v_arr = float_matrix("vertices", vertices, 3)
         c_arr = index_matrix("cubes", cubes, 8, num_vertices=v_arr.shape[0])
-        self._core_obj = _core.create_cubic_mesh_geo(v_arr.ravel().tolist(), c_arr.ravel().tolist())
+        self._handle = _core.create_cubic_mesh_geo(v_arr.ravel().tolist(), c_arr.ravel().tolist())
 
     @classmethod
     def from_mesh_data(cls, mesh_data: CubicMeshData) -> "CubicMeshGeo":
         if not isinstance(mesh_data, CubicMeshData):
             raise TypeError(f"mesh_data must be a CubicMeshData, got {type(mesh_data).__name__}")
-        return cls(_core.PyCubicMeshGeo(mesh_data._core_obj))
+        return cls(_core.PyCubicMeshGeo(mesh_data._handle))
 
     @property
     def vertices(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "vertices", 3, np.float64)
+        return _array_from_core(self._handle, "vertices", 3, np.float64)
 
     @property
     def cubes(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "cubes", 8, np.int64)
+        return _array_from_core(self._handle, "cubes", 8, np.int64)
 
     @property
     def num_vertices(self) -> int:
-        return self._core_obj.num_vertices()
+        return self._handle.num_vertices()
 
     @property
     def num_cubes(self) -> int:
-        return self._core_obj.num_cubes()
+        return self._handle.num_cubes()
 
     def cube_vtx_id(self, cube_id: int, local_vertex_id: int) -> int:
-        return self._core_obj.cube_vtx_id(int(cube_id), int(local_vertex_id))
+        return self._handle.cube_vtx_id(int(cube_id), int(local_vertex_id))
 
     def to_mesh_data(self) -> CubicMeshData:
-        return CubicMeshData(self._core_obj.to_mesh_data())
+        return CubicMeshData(self._handle.to_mesh_data())
 
 
 # ---------------------------------------------------------------------------
@@ -185,8 +185,8 @@ class BarycentricEmbedding:
             raise TypeError(f"volume_mesh must be a VolumeMesh, got {type(volume_mesh).__name__}")
         locations = float_matrix("target_locations", target_locations, 3)
         self._num_target_locations = int(locations.shape[0])
-        self._core_obj = _core.PyBarycentricEmbedding(
-            locations.ravel().tolist(), volume_mesh._core_obj)
+        self._handle = _core.PyBarycentricEmbedding(
+            locations.ravel().tolist(), volume_mesh._handle)
 
     @property
     def num_target_locations(self) -> int:
@@ -194,27 +194,27 @@ class BarycentricEmbedding:
 
     @property
     def num_element_vertices(self) -> int:
-        return int(self._core_obj.num_element_vertices())
+        return int(self._handle.num_element_vertices())
 
     @property
     def embedding_indices(self) -> np.ndarray:
-        return np.asarray(self._core_obj.embedding_indices_flat(), dtype=np.int64).reshape(
+        return np.asarray(self._handle.embedding_indices_flat(), dtype=np.int64).reshape(
             self.num_target_locations, self.num_element_vertices
         )
 
     @property
     def embedding_weights(self) -> np.ndarray:
-        return np.asarray(self._core_obj.embedding_weights_flat(), dtype=np.float64).reshape(
+        return np.asarray(self._handle.embedding_weights_flat(), dtype=np.float64).reshape(
             self.num_target_locations, self.num_element_vertices
         )
 
     @property
     def embedding_elements(self) -> np.ndarray:
-        return np.asarray(self._core_obj.embedding_elements(), dtype=np.int64)
+        return np.asarray(self._handle.embedding_elements(), dtype=np.int64)
 
     @property
     def interpolation_matrix(self) -> SparseMatrix:
-        return SparseMatrix(self._core_obj.interpolation_matrix())
+        return SparseMatrix(self._handle.interpolation_matrix())
 
     def interpolation_matrix_coo(self):
         return self.interpolation_matrix.to_coo()
@@ -223,7 +223,7 @@ class BarycentricEmbedding:
         disp = np.ascontiguousarray(volume_disp, dtype=np.float64)
         if disp.ndim != 1:
             disp = disp.reshape(-1)
-        return np.asarray(self._core_obj.deform(disp.tolist()), dtype=np.float64)
+        return np.asarray(self._handle.deform(disp.tolist()), dtype=np.float64)
 
 
 def surface_to_volume_interpolation_matrix(surface_mesh: TriMeshData, volume_mesh) -> SparseMatrix:

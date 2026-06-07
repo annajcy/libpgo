@@ -31,7 +31,7 @@ class SimulationMesh:
     def __init__(self, core_obj):
         if not isinstance(core_obj, _core.PySimulationMesh):
             raise TypeError(f"core_obj must be PySimulationMesh, got {type(core_obj).__name__}")
-        self._core_obj = core_obj
+        self._handle = core_obj
 
     @classmethod
     def create_volumetric(cls, volume_mesh) -> "SimulationMesh":
@@ -39,7 +39,7 @@ class SimulationMesh:
 
         if not isinstance(volume_mesh, VolumeMesh):
             raise TypeError(f"volume_mesh must be a VolumeMesh, got {type(volume_mesh).__name__}")
-        return cls(_core.create_simulation_mesh_from_volume(volume_mesh._core_obj))
+        return cls(_core.create_simulation_mesh_from_volume(volume_mesh._handle))
 
     @classmethod
     def create_shell(cls, surface: TriMeshData, material: ShellMaterialLike) -> "SimulationMesh":
@@ -48,7 +48,7 @@ class SimulationMesh:
         if not isinstance(material, KoiterStVKShellMaterial):
             raise TypeError(f"material must be a KoiterStVKShellMaterial, got {type(material).__name__}")
         return cls(_core.create_simulation_mesh_from_shell(
-            surface._core_obj,
+            surface._handle,
             float(material.thickness),
             float(material.E_membrane),
             float(material.nu_membrane),
@@ -56,19 +56,19 @@ class SimulationMesh:
 
     @property
     def mesh_type(self) -> str:
-        return self._core_obj.mesh_type()
+        return self._handle.mesh_type()
 
     @property
     def num_vertices(self) -> int:
-        return self._core_obj.num_vertices()
+        return self._handle.num_vertices()
 
     @property
     def num_elements(self) -> int:
-        return self._core_obj.num_elements()
+        return self._handle.num_elements()
 
     @property
     def num_element_vertices(self) -> int:
-        return self._core_obj.num_element_vertices()
+        return self._handle.num_element_vertices()
 
 
 def write_shell(path, surface: TriMeshData, material: ShellMaterialLike) -> None:

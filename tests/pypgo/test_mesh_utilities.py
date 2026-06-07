@@ -157,7 +157,7 @@ def test_surface_quality_detects_non_manifold_flipped_and_intersections():
         np.array([[0, 1, 2], [3, 4, 5]], dtype=np.int64),
     )
     assert check_surface_quality(crossing).has_self_intersections
-    assert pgo._core.check_self_intersections(crossing._core_obj)
+    assert pgo._core.check_self_intersections(crossing._handle)
 
 
 def test_surface_cleanup_merges_close_vertices():

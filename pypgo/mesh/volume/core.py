@@ -127,8 +127,8 @@ class VolumeMesh:
 
         self._mesh_data = mesh_data
         materials, sets, region_payloads = _validate_and_split_regions(regions, mesh_data.num_elements)
-        self._core_obj = _core.create_volume_mesh_multi(
-            mesh_data._core_obj, materials, sets, region_payloads)
+        self._handle = _core.create_volume_mesh_multi(
+            mesh_data._handle, materials, sets, region_payloads)
 
     @classmethod
     def create_from_single_material(cls, mesh_data, material) -> "VolumeMesh":
@@ -138,8 +138,8 @@ class VolumeMesh:
             raise TypeError(f"material must be a veg material type, got {type(material).__name__}")
         obj = cls.__new__(cls)
         obj._mesh_data = mesh_data
-        obj._core_obj = _core.create_volume_mesh_multi(
-            mesh_data._core_obj,
+        obj._handle = _core.create_volume_mesh_multi(
+            mesh_data._handle,
             [_material_to_core_payload(material)],
             [("allElements", list(range(mesh_data.num_elements)))],
             [(0, 0)],
@@ -151,7 +151,7 @@ class VolumeMesh:
         return cls(veg.mesh_data, veg.to_volume_regions())
 
     def extract_surface_mesh(self, *, triangulate: bool = True) -> TriMeshData:
-        return TriMeshData(_core.extract_surface_mesh(self._core_obj, bool(triangulate)))
+        return TriMeshData(_core.extract_surface_mesh(self._handle, bool(triangulate)))
 
     def mass_matrix(self, *, inflate3dim: bool = True):
         """Consistent mass matrix of the volume mesh.
@@ -161,24 +161,24 @@ class VolumeMesh:
         inflate3dim=False → shape (n, n), scalar mass matrix per vertex.
         """
         from pypgo.sparse import SparseMatrix
-        return SparseMatrix(_core.compute_mass_matrix(self._core_obj, bool(inflate3dim)))
+        return SparseMatrix(_core.compute_mass_matrix(self._handle, bool(inflate3dim)))
 
     @property
     def num_vertices(self) -> int:
-        return self._core_obj.num_vertices()
+        return self._handle.num_vertices()
 
     @property
     def num_elements(self) -> int:
-        return self._core_obj.num_elements()
+        return self._handle.num_elements()
 
     @property
     def mesh_type(self):
-        return self._core_obj.mesh_type()
+        return self._handle.mesh_type()
 
     @property
     def mesh_data(self):
         if self._mesh_data is None:
-            self._mesh_data = _wrap_mesh_data_core(self._core_obj.export_geometry())
+            self._mesh_data = _wrap_mesh_data_core(self._handle.export_geometry())
         return self._mesh_data
 
     @property
@@ -187,14 +187,14 @@ class VolumeMesh:
 
     @property
     def material(self):
-        return _wrap_material_payload(self._core_obj.export_material_payload())
+        return _wrap_material_payload(self._handle.export_material_payload())
 
     @property
     def material_spec(self):
         return self.material
 
     def to_veg_file(self) -> VegFile:
-        payload = _core.extract_veg_payload_from_volume_mesh(self._core_obj)
+        payload = _core.extract_veg_payload_from_volume_mesh(self._handle)
         return VegFile(
             mesh_data=_wrap_mesh_data_core(payload.mesh_data),
             materials=[_wrap_material_payload(m) for m in payload.materials],
@@ -229,7 +229,7 @@ def write_veg(path: str, veg: VegFile) -> None:
         raise TypeError(f"mesh_data must be a TetMeshData or CubicMeshData, got {type(veg.mesh_data).__name__}")
     _core.write_veg(
         str(path),
-        veg.mesh_data._core_obj,
+        veg.mesh_data._handle,
         [_material_to_core_payload(m) for m in veg.materials],
         [(s.name, list(s.elements)) for s in veg.sets],
         [(r.material_index, r.set_index) for r in veg.regions],

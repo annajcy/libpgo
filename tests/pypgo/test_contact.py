@@ -274,5 +274,5 @@ def test_contact_surface_and_energy_handles_are_concrete_peers():
     triangles = np.array([[0, 1, 2]], dtype=np.int64)
     e = contact.SampledPenaltyEnergy(surface, triangles)
 
-    assert isinstance(surface._core, _core.PyContactSurface)
+    assert isinstance(surface._handle, _core.PyContactSurface)
     assert isinstance(e._handle, _core.PyPotentialEnergy)

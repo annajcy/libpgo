@@ -47,7 +47,7 @@ def _make_cubic_sim_mesh():
 
 def _make_state(sim, elastic="stable_neo", plastic="volumetric_dof6", plastic_values=None):
     return _core._create_deformation_model_state(
-        sim._core_obj,
+        sim._handle,
         elastic,
         None,
         plastic,
@@ -63,7 +63,7 @@ def _make_deformation_energy(sim, formulation, elastic="stable_neo", plastic="vo
 class TestCoreState:
     def test_elastic_num_channels_uses_cpp_parameter_spec(self):
         tet_sim = _make_tet_sim_mesh()
-        assert _core._elastic_num_channels(tet_sim._core_obj, "stable_neo") == 0
+        assert _core._elastic_num_channels(tet_sim._handle, "stable_neo") == 0
 
         shell_sim = pgo.sim.SimulationMesh.create_shell(
             pgo.mesh.TriMeshData(
@@ -77,8 +77,8 @@ class TestCoreState:
                 thickness=0.01, E_membrane=2e6, nu_membrane=0.35
             ),
         )
-        assert _core._elastic_num_channels(shell_sim._core_obj, "koiter_stvk") == 5
-        assert _core._elastic_num_channels(shell_sim._core_obj, "koiter_fabric") == 12
+        assert _core._elastic_num_channels(shell_sim._handle, "koiter_stvk") == 5
+        assert _core._elastic_num_channels(shell_sim._handle, "koiter_fabric") == 12
 
     def test_state_exposes_state_owned_fields(self):
         sim = _make_tet_sim_mesh()

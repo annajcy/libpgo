@@ -41,7 +41,7 @@ def cubic_mesher(
         raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
     return CubicMeshData(
         _core.cubic_mesher(
-            tri_data._core_obj,
+            tri_data._handle,
             int(resolution),
             float(E),
             float(nu),
@@ -64,7 +64,7 @@ def tet_mesher(tri_data: TriMeshData, *, backend: str = "tetgen", config: dict |
     tetwild_la = float(config.get("la", 0.0))
     return TetMeshData(
         _core.tet_mesher(
-            tri_data._core_obj,
+            tri_data._handle,
             backend,
             tetgen_command,
             float(config.get("lr", 0.05)),

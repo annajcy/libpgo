@@ -9,15 +9,15 @@ class PlasticModel:
     """Abstract base — owns a C++ PyPlasticModel handle."""
 
     def __init__(self, core_obj) -> None:
-        self._core_obj = core_obj
+        self._handle = core_obj
 
     @property
     def name(self) -> str:
-        return self._core_obj.name
+        return self._handle.name
 
     @property
     def dofs(self) -> int:
-        return self._core_obj.dofs
+        return self._handle.dofs
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(dofs={self.dofs})"

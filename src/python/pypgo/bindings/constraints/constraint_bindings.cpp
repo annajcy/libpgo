@@ -69,7 +69,7 @@ std::shared_ptr<PyConstraintFunctions> createConstraintSet(nb::list terms)
 
 void init_constraint_bindings(nb::module_ &m)
 {
-  nb::class_<PyConstraintFunctions>(m, "ConstraintFunctions")
+  nb::class_<PyConstraintFunctions>(m, "PyConstraintFunctions")
     .def("__repr__", &PyConstraintFunctions::repr)
     .def_prop_ro("num_dofs", &PyConstraintFunctions::numDofs)
     .def_prop_ro("num_constraints", &PyConstraintFunctions::numConstraints)
