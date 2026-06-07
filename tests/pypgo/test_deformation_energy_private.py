@@ -112,7 +112,7 @@ class TestCoreEnergy:
     def test_tet_value_gradient_hessian_at_zero_state(self):
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_p1")
-        h = energy.handle
+        h = energy
         u = h.zero_state()
 
         assert h.num_dofs == 3 * sim.num_vertices
@@ -126,7 +126,7 @@ class TestCoreEnergy:
     def test_cubic_value_gradient_hessian_at_zero_state(self):
         sim = _make_cubic_sim_mesh()
         energy = _make_deformation_energy(sim, "hex_trilinear")
-        h = energy.handle
+        h = energy
         u = h.zero_state()
 
         assert np.isfinite(h.value(u))
@@ -137,7 +137,7 @@ class TestCoreEnergy:
         sim = _make_tet_sim_mesh()
         state = _make_state(sim, elastic="stvk")
         energy = _core._create_deformation_energy(state, "tet_p1")
-        h = energy.handle
+        h = energy
         u = h.zero_state()
 
         before = h.value(u)
@@ -151,7 +151,7 @@ class TestCoreEnergy:
         sim = _make_tet_sim_mesh()
         state = _make_state(sim)
         energy = _core._create_deformation_energy(state, "tet_p1")
-        h = energy.handle
+        h = energy
         u = h.zero_state()
         before = h.value(u)
 
