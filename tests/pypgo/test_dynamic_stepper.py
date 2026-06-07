@@ -2,7 +2,13 @@ import numpy as np
 import pytest
 
 import pypgo as pgo
-from pypgo.sim import DynamicSimulation, DynamicState, DynamicFrame
+from pypgo.sim import (
+    BackwardEulerDynamicStepper,
+    DynamicFrame,
+    DynamicSimulation,
+    DynamicState,
+    TRBDF2DynamicStepper,
+)
 
 
 def _rest_state(n):
@@ -23,6 +29,36 @@ def test_import_dynamic_simulation():
     assert DynamicSimulation is not None
     assert DynamicState is not None
     assert DynamicFrame is not None
+    assert BackwardEulerDynamicStepper is not None
+    assert TRBDF2DynamicStepper is not None
+
+
+def test_one_step_backward_euler_dynamic_stepper_object():
+    n = 3
+    sim = DynamicSimulation(
+        mass=np.eye(n),
+        state=_rest_state(n),
+        timestep=0.05,
+        energy=_spring(n),
+        integrator=BackwardEulerDynamicStepper(),
+    )
+    frame = sim.step(external_force=np.array([1.0, -2.0, 0.5]))
+    assert frame.accepted
+    assert len(frame.stage_results) == 1
+
+
+def test_one_step_trbdf2_dynamic_stepper_object_has_two_stages():
+    n = 2
+    sim = DynamicSimulation(
+        mass=np.eye(n),
+        state=_rest_state(n),
+        timestep=0.05,
+        energy=_spring(n),
+        integrator=TRBDF2DynamicStepper(gamma=0.5),
+    )
+    frame = sim.step(external_force=np.array([1.0, -1.0]))
+    assert frame.accepted
+    assert len(frame.stage_results) == 2
 
 
 def test_one_step_implicit_euler_quadratic():

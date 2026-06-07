@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 import pypgo._core as _core
-from pypgo._arrays import float_matrix, index_matrix
+from pypgo._utils import float_matrix, index_matrix
 
 MeshDataType = _core.MeshDataType
 

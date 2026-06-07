@@ -119,6 +119,20 @@ def as_sparse_matrix(A) -> "SparseMatrix":
     )
 
 
+def as_sparse_handle(value, *, name: str = "value"):
+    """Extract the ``_core.PySparseMatrix`` handle from a :class:`SparseMatrix` or raw handle.
+
+    This is the inverse of :func:`as_sparse_matrix`: given a public-facing wrapper
+    or a raw C++ handle, return the handle suitable for passing to C++ constructors.
+    """
+    if isinstance(value, _core.PySparseMatrix):
+        return value
+    core_obj = getattr(value, "_handle", None)
+    if isinstance(core_obj, _core.PySparseMatrix):
+        return core_obj
+    raise TypeError(f"{name} must be a pypgo.sparse.SparseMatrix")
+
+
 def as_coo(A):
     """Coerce a matrix-like ``A`` to ``(rows, cols, row_list, col_list, values)``.
 

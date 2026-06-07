@@ -5,7 +5,7 @@ This tutorial walks through *differentiable inverse design* of a plastic field:
 we bake a per-element plastic distortion into an elastic block, let it relax to
 static equilibrium, and optimize the plastic field so the relaxed shape matches a
 target. The interesting machinery is the implicitly-differentiable equilibrium
-solve (`pypgo.torch.StaticEquilibriumLayer`) and the adjoint gradient that flows
+solve (`pypgo.fem.StaticEquilibriumLayer`) and the adjoint gradient that flows
 through it.
 
 Run from the repository root:
@@ -229,7 +229,7 @@ CELLS = [
 
         ### How this maps to `StaticEquilibriumLayer`
 
-        | Math | Code (in `pypgo/torch.py`) |
+        | Math | Code (in `pypgo/fem/torch.py`) |
         |---|---|
         | solve $\mathbf u^\star(\mathbf a)$ | `forward`: `inner_optimizer.solve(problem, warm_start)` |
         | upstream $\mathbf r=\partial L/\partial\mathbf x_{\text{surf}}$ | `backward`'s `grad_surface` (from autograd) |
@@ -255,7 +255,7 @@ CELLS = [
         r"""
         ## 5. Setup — imports and output directory
 
-        `pypgo.torch` is pypgo's PyTorch bridge (distinct from the `torch` package).
+        `pypgo.fem` is pypgo's PyTorch bridge (distinct from the `torch` package).
         The layer currently runs on **CPU `float64`** tensors only.
         """
     ),
@@ -480,7 +480,7 @@ CELLS = [
         a0_torch = torch.as_tensor(a0, dtype=torch.float64)
         target_vertices_torch = torch.as_tensor(target_vertices, dtype=torch.float64)
 
-        equilibrium_layer = pgo.torch.StaticEquilibriumLayer(
+        equilibrium_layer = pgo.fem.StaticEquilibriumLayer(
             state=state,
             energy=energy,
             fixed_dofs=fixed_dofs,
@@ -799,7 +799,7 @@ CELLS = [
         a0_const = state_const.plastic_field.values.ravel().copy()
         a0_const_torch = torch.as_tensor(a0_const, dtype=torch.float64)
 
-        equilibrium_layer_const = pgo.torch.StaticEquilibriumLayer(
+        equilibrium_layer_const = pgo.fem.StaticEquilibriumLayer(
             state=state_const,
             energy=energy_const,
             fixed_dofs=fixed_dofs,

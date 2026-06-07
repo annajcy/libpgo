@@ -319,10 +319,10 @@ class TestNotebookSources:
         source = "\n".join("".join(c["source"]) for c in nb["cells"])
         assert "pf.ElementwiseField()" in source
         assert "target_vertices" in source
-        assert "pgo.torch.StaticEquilibriumLayer" in source
+        assert "pgo.fem.StaticEquilibriumLayer" in source
         assert "energy.num_plastic_dofs" in source
-        assert "pgo.vis.plot_volume_surface" in source
-        assert "pgo.vis.plot_surface" in source
+        assert "pgo.mesh.plot_volume_surface" in source
+        assert "pgo.mesh.plot_surface" in source
         assert "optimized_surface" in source
         assert "optimized_plastic" in source
         assert "plastic_delta" in source

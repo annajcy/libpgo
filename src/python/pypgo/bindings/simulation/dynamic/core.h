@@ -11,10 +11,41 @@
 
 #include <cstdint>
 #include <memory>
-#include <string>
 #include <vector>
 
 namespace nb = nanobind;
+
+class PyDynamicStepper
+{
+public:
+  virtual ~PyDynamicStepper() = default;
+  virtual pgo::Simulation::DynamicStepperKind kind() const = 0;
+  virtual double trbdf2Gamma() const { return 0.5; }
+};
+
+class PyBackwardEulerDynamicStepper final : public PyDynamicStepper
+{
+public:
+  pgo::Simulation::DynamicStepperKind kind() const override
+  {
+    return pgo::Simulation::DynamicStepperKind::ImplicitEuler;
+  }
+};
+
+class PyTRBDF2DynamicStepper final : public PyDynamicStepper
+{
+public:
+  explicit PyTRBDF2DynamicStepper(double gamma = 0.5);
+  pgo::Simulation::DynamicStepperKind kind() const override
+  {
+    return pgo::Simulation::DynamicStepperKind::TRBDF2;
+  }
+  double trbdf2Gamma() const override { return gamma_; }
+  double gamma() const { return gamma_; }
+
+private:
+  double gamma_;
+};
 
 // Low-level dynamic simulation peer: owns a DynamicStepper plus the current
 // state.  Evaluation energy is supplied as a PyPotentialEnergy peer; each step
@@ -31,9 +62,8 @@ public:
     nb::ndarray<nb::numpy, const double> velocity,
     nb::ndarray<nb::numpy, const double> acceleration,
     double timestep,
-    const std::string &integrator,
-    std::vector<int> fixedDofs,
-    double gamma);
+    std::shared_ptr<PyDynamicStepper> integrator,
+    std::vector<int> fixedDofs);
 
   nb::dict step(nb::ndarray<nb::numpy, const double> externalForce,
     nb::ndarray<nb::numpy, const double> fixedValues, bool hasFixedValues,

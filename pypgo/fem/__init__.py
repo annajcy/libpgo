@@ -44,6 +44,9 @@ from pypgo.fem.energy import (
     deformation_energy,
     plastic_material_energy,
 )
+from pypgo.fem.torch import (
+    StaticEquilibriumLayer,
+)
 
 __all__ = [
     # Formulations
@@ -79,4 +82,6 @@ __all__ = [
     "PlasticMaterialEnergy",
     "deformation_energy",
     "plastic_material_energy",
+    # Torch
+    "StaticEquilibriumLayer",
 ]

@@ -80,7 +80,7 @@ CELLS = [
         REPO_ROOT = _find_repo_root()
         ASSET_DIR = REPO_ROOT / "pypgo" / "examples" / "assets" / "obj"
 
-        from pypgo.vis import plot_surface, plot_volume_surface
+        from pypgo.mesh.visualize import plot_surface, plot_volume_surface
 
         print("asset directory:", ASSET_DIR)
         print("available OBJ assets:", sorted(path.name for path in ASSET_DIR.glob("*.obj")))

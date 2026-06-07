@@ -253,7 +253,7 @@ TEST(ImplicitEuler, SolveAndAdvanceState)
   prob.mass = identitySparse(n);
   prob.persistentTerms = {{elastic, 0.0, 0.0}};
   prob.timestep = h;
-  auto stepper = makeDynamicStepper(TimeIntegratorKind::ImplicitEuler, prob);
+  auto stepper = makeDynamicStepper(DynamicStepperKind::ImplicitEuler, prob);
   auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd(n); req.externalForce << 1.0, -2.0;
   DynamicStepResult res = stepper->step(restState(n), req, optimizer);
@@ -288,7 +288,7 @@ TEST(TRBDF2, TwoStageSolveAdvancesState)
   prob.mass = identitySparse(n);
   prob.persistentTerms = {{elastic, 0.0, 0.0}};
   prob.timestep = h;
-  auto stepper = makeDynamicStepper(TimeIntegratorKind::TRBDF2, prob, gamma);
+  auto stepper = makeDynamicStepper(DynamicStepperKind::TRBDF2, prob, gamma);
   auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd(n); req.externalForce << 1.0, -2.0;
   DynamicStepResult res = stepper->step(restState(n), req, optimizer);
@@ -308,7 +308,7 @@ TEST(TRBDF2, GammaOneIsSingleStage)
   prob.persistentTerms = {{elastic, 0.0, 0.0}};
   prob.timestep = 0.1;
 
-  auto stepper = makeDynamicStepper(TimeIntegratorKind::TRBDF2, prob, 1.0);
+  auto stepper = makeDynamicStepper(DynamicStepperKind::TRBDF2, prob, 1.0);
   auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd::Constant(n, 1.0);
   DynamicStepResult res = stepper->step(restState(n), req, optimizer);
@@ -329,7 +329,7 @@ TEST(DynamicStepper, FixedDofsRemainFixed)
   prob.fixedDofs = {1};
   prob.timestep = 0.1;
 
-  auto stepper = makeDynamicStepper(TimeIntegratorKind::ImplicitEuler, prob);
+  auto stepper = makeDynamicStepper(DynamicStepperKind::ImplicitEuler, prob);
   auto optimizer = quickOptimizer();
   DynamicState s = restState(n);
   s.displacement[1] = 0.42;
@@ -350,7 +350,7 @@ TEST(DynamicStepper, FreeFallMatchesImplicitEulerRecurrence)
   prob.mass = diagSparse({m});
   prob.timestep = h;
 
-  auto stepper = makeDynamicStepper(TimeIntegratorKind::ImplicitEuler, prob);
+  auto stepper = makeDynamicStepper(DynamicStepperKind::ImplicitEuler, prob);
   auto optimizer = quickOptimizer();
   DynamicStepRequest req; req.externalForce = ES::VXd::Constant(n, fGrav);
 
@@ -377,5 +377,5 @@ TEST(DynamicStepper, RejectsBadProblem)
   DynamicProblem prob;
   prob.mass = identitySparse(2);
   prob.timestep = -1.0;  // invalid
-  EXPECT_THROW(makeDynamicStepper(TimeIntegratorKind::ImplicitEuler, prob), std::invalid_argument);
+  EXPECT_THROW(makeDynamicStepper(DynamicStepperKind::ImplicitEuler, prob), std::invalid_argument);
 }

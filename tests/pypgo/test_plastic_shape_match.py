@@ -91,7 +91,7 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
 
     fixed_dofs = np.arange(0, 9, dtype=np.int64)
     fixed_values = np.zeros(9, dtype=np.float64)
-    layer = pgo.torch.StaticEquilibriumLayer(
+    layer = pgo.fem.StaticEquilibriumLayer(
         state=state,
         energy=energy,
         fixed_dofs=fixed_dofs,

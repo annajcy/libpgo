@@ -16,7 +16,7 @@ namespace Simulation
 {
 
 std::unique_ptr<DynamicStepper> makeDynamicStepper(
-  TimeIntegratorKind kind,
+  DynamicStepperKind kind,
   DynamicProblem problem,
   double trbdf2Gamma = 0.5);
 

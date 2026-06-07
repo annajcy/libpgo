@@ -63,8 +63,8 @@ CELLS = [
         )
         from pypgo.mesh import TriMeshData
         from pypgo.mesh.volume import read_veg
-        from pypgo.stress import compute_stress_field_stats
-        from pypgo.vis import plot_surface
+        from pypgo.animation import compute_stress_field_stats
+        from pypgo.mesh.visualize import plot_surface
 
         def _find_repo_root() -> Path:
             cwd = Path.cwd().resolve()

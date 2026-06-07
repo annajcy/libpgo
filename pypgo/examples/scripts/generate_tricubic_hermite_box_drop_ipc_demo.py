@@ -143,7 +143,7 @@ CELLS = [
             state=state0,
             timestep=0.002,
             energy=total,
-            integrator="implicit_euler",
+            integrator=psim.BackwardEulerDynamicStepper(),
             damping=(0.0, 0.0),
         )
 

@@ -1,6 +1,6 @@
 import pytest
 
-from pypgo import vis
+from pypgo.mesh import visualize as vis
 
 
 def teardown_function():

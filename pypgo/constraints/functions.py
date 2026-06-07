@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 import pypgo._core as _core
-from pypgo._arrays import float_vector
+from pypgo._utils import float_vector
 from pypgo.sparse import as_sparse_matrix
 from pypgo.constraints.base import ConstraintFunction
 

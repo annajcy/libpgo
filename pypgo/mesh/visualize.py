@@ -1,20 +1,12 @@
-"""PyVista-based visualization helpers for pypgo mesh types.
-
-Optional dependency — install with: pip install -e .[examples]
-"""
+"""PyVista-based visualization helpers for pypgo mesh types."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
+import pyvista as _pv
 
-from pypgo.mesh import CubicMeshData, TetMeshData, TriMeshData
+from pypgo.mesh.data import CubicMeshData, TetMeshData, TriMeshData
 
-if TYPE_CHECKING:
-    import pyvista as pv
-
-_INSTALL_HINT = "Install visualization dependencies with: pip install -e .[examples]"
 _DEFAULT_BACKEND = "jupyter"
 _VALID_BACKENDS = {"jupyter", "static", "none"}
 _PYVISTA_BACKENDS = {
@@ -23,18 +15,6 @@ _PYVISTA_BACKENDS = {
     "none": "none",
 }
 _backend = _DEFAULT_BACKEND
-
-try:
-    import pyvista as _pv
-except ModuleNotFoundError:
-    _pv = None
-
-
-def _require_pyvista() -> bool:
-    if _pv is None:
-        print(f"Skipping PyVista view. {_INSTALL_HINT}")
-        return False
-    return True
 
 
 def _normalize_backend(backend: str) -> str:
@@ -47,20 +27,17 @@ def _normalize_backend(backend: str) -> str:
 
 def set_backend(backend: str) -> None:
     """Set the default visualization backend used when a plot call omits one."""
-
     global _backend
     _backend = _normalize_backend(backend)
 
 
 def reset_backend() -> None:
     """Reset pypgo visualization defaults to the interactive Jupyter backend."""
-
     set_backend(_DEFAULT_BACKEND)
 
 
 def get_backend() -> str:
     """Return the current default pypgo visualization backend for plot calls."""
-
     return _backend
 
 
@@ -91,12 +68,10 @@ def _normalize_scalar_inputs(scalars, count: int):
     return [np.asarray(scalars, dtype=np.float64)]
 
 
-def to_pyvista_surface(surface_data: TriMeshData) -> "pv.PolyData":
+def to_pyvista_surface(surface_data: TriMeshData) -> _pv.PolyData:
     """Convert a TriMeshData to a PyVista PolyData surface."""
     if not isinstance(surface_data, TriMeshData):
         raise TypeError(f"surface_data must be a TriMeshData, got {type(surface_data).__name__}")
-    if _pv is None:
-        raise RuntimeError(_INSTALL_HINT)
 
     faces = np.column_stack(
         [
@@ -107,10 +82,8 @@ def to_pyvista_surface(surface_data: TriMeshData) -> "pv.PolyData":
     return _pv.PolyData(surface_data.vertices, faces)
 
 
-def to_pyvista_volume(volume_data: TetMeshData | CubicMeshData) -> "pv.UnstructuredGrid":
+def to_pyvista_volume(volume_data: TetMeshData | CubicMeshData) -> _pv.UnstructuredGrid:
     """Convert a TetMeshData or CubicMeshData to a PyVista UnstructuredGrid."""
-    if _pv is None:
-        raise RuntimeError(_INSTALL_HINT)
     if not isinstance(volume_data, (TetMeshData, CubicMeshData)):
         raise TypeError(
             f"volume_data must be a TetMeshData or CubicMeshData, got {type(volume_data).__name__}"
@@ -149,9 +122,6 @@ def plot_surface(
     ``backend`` overrides the module default for this call only. Use
     ``"jupyter"`` for interactive notebook views or ``"static"`` for images.
     """
-    if not _require_pyvista():
-        return None
-
     if isinstance(meshes, TriMeshData):
         meshes = [meshes]
     meshes = list(meshes)
@@ -191,9 +161,6 @@ def plot_volume_surface(
     ``backend`` overrides the module default for this call only. Use
     ``"jupyter"`` for interactive notebook views or ``"static"`` for images.
     """
-    if not _require_pyvista():
-        return None
-
     if isinstance(meshes, (TetMeshData, CubicMeshData)):
         meshes = [meshes]
     meshes = list(meshes)

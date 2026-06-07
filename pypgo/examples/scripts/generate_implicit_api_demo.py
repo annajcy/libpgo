@@ -25,7 +25,7 @@ CELLS = [
         """
         import numpy as np
         import pypgo as pgo
-        from pypgo import implicit, vis
+        from pypgo import implicit; from pypgo.mesh import visualize as vis
 
         # PyVista notebook views are interactive by default. For lightweight
         # static outputs, uncomment:

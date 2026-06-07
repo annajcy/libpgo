@@ -7,7 +7,7 @@ from typing import Sequence
 import numpy as np
 
 import pypgo._core as _core
-from pypgo._arrays import float_vector
+from pypgo._utils import float_vector
 from pypgo.solver.problem import OptimizationProblem
 from pypgo.solver.result import SolverResult, _result_from_core
 

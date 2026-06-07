@@ -144,6 +144,51 @@ class DynamicFrame:
     accepted: bool
 
 
+class DynamicStepper:
+    """Base facade for dynamic time integrators used by ``DynamicSimulation``."""
+
+    def __init__(self, core_obj):
+        if not isinstance(core_obj, _core.PyDynamicStepper):
+            raise TypeError(f"core_obj must be PyDynamicStepper, got {type(core_obj).__name__}")
+        self._handle = core_obj
+
+
+class BackwardEulerDynamicStepper(DynamicStepper):
+    """Implicit/backward Euler dynamic stepper."""
+
+    def __init__(self):
+        super().__init__(_core.PyBackwardEulerDynamicStepper())
+
+    def __repr__(self) -> str:
+        return "BackwardEulerDynamicStepper()"
+
+
+class TRBDF2DynamicStepper(DynamicStepper):
+    """Two-stage TRBDF2 dynamic stepper."""
+
+    def __init__(self, gamma: float = 0.5):
+        super().__init__(_core.PyTRBDF2DynamicStepper(float(gamma)))
+
+    @property
+    def gamma(self) -> float:
+        return float(self._handle.gamma)
+
+    def __repr__(self) -> str:
+        return f"TRBDF2DynamicStepper(gamma={self.gamma!r})"
+
+
+def _normalize_dynamic_stepper(integrator, trbdf2_gamma: float) -> DynamicStepper:
+    if isinstance(integrator, DynamicStepper):
+        return integrator
+    if isinstance(integrator, str):
+        if integrator == "implicit_euler":
+            return BackwardEulerDynamicStepper()
+        if integrator == "trbdf2":
+            return TRBDF2DynamicStepper(gamma=trbdf2_gamma)
+        raise ValueError(f"integrator must be one of {_INTEGRATORS}, got {integrator!r}")
+    raise TypeError("integrator must be a pypgo.sim.DynamicStepper")
+
+
 def _mass_to_coo(mass):
     """Normalize a mass matrix to (num_dofs, rows, cols, values) COO arrays.
 
@@ -197,9 +242,9 @@ def _solver_result(data: dict, x: np.ndarray) -> _solver.SolverResult:
 class DynamicSimulation:
     """Drive an implicit dynamic simulation from in-memory mass / energy / state.
 
-    The integrator (``"implicit_euler"`` or ``"trbdf2"``), mass, persistent
-    energy, damping, and fixed DOFs are fixed at construction. Solver settings
-    live on the optimizer object passed to :meth:`step`.
+    The dynamic stepper, mass, persistent energy, damping, and fixed DOFs are
+    fixed at construction. Solver settings live on the optimizer object passed
+    to :meth:`step`.
     """
 
     def __init__(
@@ -209,16 +254,18 @@ class DynamicSimulation:
         state: DynamicState,
         timestep: float,
         energy=None,
-        integrator: str = "implicit_euler",
+        integrator: DynamicStepper | str | None = None,
         damping: tuple[float, float] = (0.0, 0.0),
         fixed_dofs: Sequence[int] | None = None,
         trbdf2_gamma: float = 0.5,
     ) -> None:
-        if integrator not in _INTEGRATORS:
-            raise ValueError(f"integrator must be one of {_INTEGRATORS}, got {integrator!r}")
         if not timestep > 0.0:
             raise ValueError("timestep must be positive")
 
+        stepper = _normalize_dynamic_stepper(
+            BackwardEulerDynamicStepper() if integrator is None else integrator,
+            float(trbdf2_gamma),
+        )
         n, mass_rows, mass_cols, mass_vals = _mass_to_coo(mass)
 
         handle = None
@@ -243,9 +290,8 @@ class DynamicSimulation:
             velocity=_vec("velocity", state.velocity, n),
             acceleration=_vec("acceleration", state.acceleration, n),
             timestep=float(timestep),
-            integrator=integrator,
+            integrator=stepper._handle,
             fixed_dofs=[int(d) for d in (fixed_dofs or [])],
-            gamma=float(trbdf2_gamma),
         )
 
     @property

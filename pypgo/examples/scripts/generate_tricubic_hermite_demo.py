@@ -59,7 +59,7 @@ CELLS = [
         import pypgo.energy as pe
         import pypgo.fem as pf
         import pypgo.solver as ps
-        from pypgo import vis
+        from pypgo.mesh import visualize as vis
         from pypgo.mesh.volume import VolumeMesh, read_veg
         """
     ),

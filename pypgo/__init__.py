@@ -14,10 +14,7 @@ __all__ = [
     "sim",
     "solver",
     "sparse",
-    "stress",
     "tools",
-    "torch",
-    "vis",
 ]
 
 

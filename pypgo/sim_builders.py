@@ -12,13 +12,20 @@ from typing import Sequence
 
 import numpy as np
 
+from pypgo._utils import vec3_finite
 import pypgo.contact as _contact
 import pypgo.energy as _energy
 import pypgo.fem as _fem
 import pypgo.solver as _solver
 from pypgo.mesh import TriMeshData
 from pypgo.mesh.volume import VolumeMesh
-from pypgo.sim import DynamicSimulation, DynamicState, SimulationMesh
+from pypgo.sim import (
+    BackwardEulerDynamicStepper,
+    DynamicSimulation,
+    DynamicState,
+    DynamicStepper,
+    SimulationMesh,
+)
 
 
 @dataclass(frozen=True)
@@ -31,7 +38,7 @@ class RuntimeConfig:
     initial_displacement: Sequence[float] = (0.0, 0.0, 0.0)
     initial_velocity: Sequence[float] = (0.0, 0.0, 0.0)
     damping: tuple[float, float] = (0.0, 0.0)
-    integrator: str = "implicit_euler"
+    integrator: DynamicStepper | str = field(default_factory=BackwardEulerDynamicStepper)
     solver_max_iterations: int = 50
     solver_gradient_tolerance: float = 1e-6
     solver_line_search: str = "backtrack"
@@ -43,9 +50,9 @@ class RuntimeConfig:
             raise ValueError("timestep must be positive")
         if int(self.num_steps) < 0:
             raise ValueError("num_steps must be non-negative")
-        _vec3("gravity", self.gravity)
-        _vec3("initial_displacement", self.initial_displacement)
-        _vec3("initial_velocity", self.initial_velocity)
+        vec3_finite("gravity", self.gravity)
+        vec3_finite("initial_displacement", self.initial_displacement)
+        vec3_finite("initial_velocity", self.initial_velocity)
         if len(tuple(self.damping)) != 2:
             raise ValueError("damping must contain two values")
 
@@ -274,15 +281,6 @@ def build_volume_ipc_simulation(spec: VolumeIPCSimulationSpec) -> VolumeIPCSimul
     return VolumeIPCSimulationRunner(spec, build, simulation)
 
 
-def _vec3(name: str, values) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.float64)
-    if arr.shape != (3,):
-        raise ValueError(f"{name} must be a 3-vector, got shape {arr.shape}")
-    if not np.all(np.isfinite(arr)):
-        raise ValueError(f"{name} must contain finite values")
-    return arr
-
-
 def _default_volume_formulation(volume: VolumeMesh):
     element_width = int(volume.mesh_data.elements.shape[1])
     if element_width == 4:
@@ -297,7 +295,7 @@ def _surface_embedding_matrix(volume: VolumeMesh, surface: TriMeshData, formulat
 
 
 def _initial_vector(volume: VolumeMesh, num_dofs: int, values, formulation) -> np.ndarray:
-    vec = _vec3("initial vector", values)
+    vec = vec3_finite("initial vector", values)
     if num_dofs == volume.num_vertices * 3:
         return np.tile(vec, volume.num_vertices).astype(np.float64, copy=False)
     out = np.zeros(num_dofs, dtype=np.float64)

@@ -33,15 +33,6 @@ ES::SpMatD buildSparse(int n, const std::vector<int> &rows, const std::vector<in
   return m;
 }
 
-SIM::TimeIntegratorKind parseIntegrator(const std::string &name)
-{
-  if (name == "implicit_euler")
-    return SIM::TimeIntegratorKind::ImplicitEuler;
-  if (name == "trbdf2")
-    return SIM::TimeIntegratorKind::TRBDF2;
-  throw nb::value_error("unknown integrator; expected 'implicit_euler' or 'trbdf2'");
-}
-
 nb::dict solverResultToDict(const NO::SolverResult &r)
 {
   nb::dict out;
@@ -65,6 +56,13 @@ nb::dict solverResultToDict(const NO::SolverResult &r)
 
 }  // namespace
 
+PyTRBDF2DynamicStepper::PyTRBDF2DynamicStepper(double gamma)
+  : gamma_(gamma)
+{
+  if (!(gamma > 0.0 && gamma <= 1.0))
+    throw nb::value_error("gamma must be in (0, 1]");
+}
+
 PyDynamicSimulation::PyDynamicSimulation(
   int numDofs,
   std::vector<int> massRows, std::vector<int> massCols, std::vector<double> massVals,
@@ -74,11 +72,13 @@ PyDynamicSimulation::PyDynamicSimulation(
   nb::ndarray<nb::numpy, const double> velocity,
   nb::ndarray<nb::numpy, const double> acceleration,
   double timestep,
-  const std::string &integrator,
-  std::vector<int> fixedDofs,
-  double gamma)
+  std::shared_ptr<PyDynamicStepper> integrator,
+  std::vector<int> fixedDofs)
   : n_(numDofs)
 {
+  if (!integrator)
+    throw nb::value_error("integrator must be a DynamicStepper");
+
   SIM::DynamicProblem problem;
   problem.mass = buildSparse(numDofs, massRows, massCols, massVals);
   problem.timestep = timestep;
@@ -98,7 +98,7 @@ PyDynamicSimulation::PyDynamicSimulation(
   state_.velocity = python::ndarrayToVectorXd(velocity);
   state_.acceleration = python::ndarrayToVectorXd(acceleration);
 
-  stepper_ = SIM::makeDynamicStepper(parseIntegrator(integrator), std::move(problem), gamma);
+  stepper_ = SIM::makeDynamicStepper(integrator->kind(), std::move(problem), integrator->trbdf2Gamma());
 }
 
 nb::dict PyDynamicSimulation::step(nb::ndarray<nb::numpy, const double> externalForce,

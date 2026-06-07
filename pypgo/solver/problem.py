@@ -7,7 +7,7 @@ from typing import Sequence
 import numpy as np
 
 import pypgo._core as _core
-from pypgo._arrays import float_vector
+from pypgo._utils import float_vector
 from pypgo.energy import PotentialEnergy
 
 

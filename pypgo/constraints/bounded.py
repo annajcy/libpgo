@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from pypgo._arrays import float_vector
+from pypgo._utils import float_vector
 from pypgo.constraints.base import ConstraintFunction
 
 

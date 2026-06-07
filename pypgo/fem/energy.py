@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 import pypgo._core as _core
-from pypgo._arrays import float_vector
+from pypgo._utils import float_vector
 from pypgo.energy import PotentialEnergy
 from pypgo.fem.state import DeformationModelState
 from pypgo.sparse import SparseMatrix

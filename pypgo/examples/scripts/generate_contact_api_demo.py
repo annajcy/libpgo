@@ -54,7 +54,13 @@ CELLS = [
         from pypgo.animation import AbcWriter
         from pypgo.mesh import read_obj, SurfaceEmbedding, TriMeshData
         from pypgo.mesh.volume import VolumeMesh, read_veg
-        from pypgo.sim import DynamicSimulation, DynamicState, SimulationMesh, KoiterStVKShellMaterial
+        from pypgo.sim import (
+            BackwardEulerDynamicStepper,
+            DynamicSimulation,
+            DynamicState,
+            SimulationMesh,
+            KoiterStVKShellMaterial,
+        )
         from pypgo.sparse import SparseMatrix
 
         PACKAGE_ROOT = Path(pgo.__file__).resolve().parent
@@ -227,7 +233,7 @@ CELLS = [
             ),
             timestep=IPC_SCENE["timestep"],
             energy=total_energy,
-            integrator="implicit_euler",
+            integrator=BackwardEulerDynamicStepper(),
             damping=IPC_SCENE["damping_params"],
         )
 
@@ -420,7 +426,7 @@ CELLS = [
             state=DynamicState(displacement=x0_s2, velocity=v0_s2, acceleration=a0_s2),
             timestep=FLOOR_SCENE["timestep"],
             energy=s2_energy,
-            integrator="implicit_euler",
+            integrator=BackwardEulerDynamicStepper(),
             damping=(0.0, 0.0),
         )
 
@@ -615,7 +621,7 @@ CELLS = [
             state=DynamicState(displacement=x0_s3, velocity=v0_s3, acceleration=a0_s3),
             timestep=SAMPLED_SCENE["timestep"],
             energy=s3_energy,
-            integrator="implicit_euler",
+            integrator=BackwardEulerDynamicStepper(),
             damping=(0.0, 0.0),
         )
 
@@ -851,7 +857,7 @@ CELLS = [
             state=DynamicState(displacement=x0_s4, velocity=v0_s4, acceleration=a0_s4),
             timestep=FRICTIONAL_SCENE["timestep"],
             energy=s4_energy,
-            integrator="implicit_euler",
+            integrator=BackwardEulerDynamicStepper(),
             damping=(0.0, 0.0),
         )
 
@@ -1054,7 +1060,7 @@ CELLS = [
             state=DynamicState(displacement=x0_s5, velocity=v0_s5, acceleration=a0_s5),
             timestep=SHELL_IPC_SCENE["timestep"],
             energy=s5_energy,
-            integrator="implicit_euler",
+            integrator=BackwardEulerDynamicStepper(),
             damping=(0.0, 0.0),
         )
 

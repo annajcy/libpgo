@@ -17,7 +17,7 @@ namespace pgo
 namespace Simulation
 {
 
-enum class TimeIntegratorKind
+enum class DynamicStepperKind
 {
   ImplicitEuler,
   TRBDF2,

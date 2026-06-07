@@ -26,8 +26,8 @@ CELLS = [
         - an optional **potential energy** (`pypgo.energy`) plus Rayleigh
           **damping** coefficients,
         - an initial **state** (displacement / velocity / acceleration),
-        - a **timestep** and an **integrator** (`"implicit_euler"` or
-          `"trbdf2"`),
+        - a **timestep** and a dynamic stepper
+          (`BackwardEulerDynamicStepper` or `TRBDF2DynamicStepper`),
         - an optional set of **fixed DOFs**.
 
         Then each call to `step(external_force=..., optimizer=...)` solves one
@@ -58,7 +58,13 @@ CELLS = [
 
         import pypgo as pgo
         import pypgo.solver as solver
-        from pypgo.sim import DynamicSimulation, DynamicState, DynamicFrame
+        from pypgo.sim import (
+            BackwardEulerDynamicStepper,
+            DynamicSimulation,
+            DynamicState,
+            DynamicFrame,
+            TRBDF2DynamicStepper,
+        )
         """
     ),
     md(
@@ -93,12 +99,12 @@ CELLS = [
                 acceleration=np.zeros(1),
             ),
             timestep=h,
-            integrator="implicit_euler",
+            integrator=BackwardEulerDynamicStepper(),
             # energy is omitted: a free particle has no potential energy
         )
 
         print("num_dofs:", sim.num_dofs)
-        print("integrator: implicit_euler")
+        print("dynamic stepper:", BackwardEulerDynamicStepper())
         """
     ),
     code(
@@ -167,11 +173,12 @@ CELLS = [
         """
         ## 3. Implicit Euler vs TRBDF2
 
-        `DynamicSimulation` supports two integrators:
+        `DynamicSimulation` supports two dynamic stepper objects:
 
-        - `"implicit_euler"` — first order, one implicit stage per step.
-        - `"trbdf2"` — second order, **two** implicit stages per step (a
-          trapezoidal-rule stage followed by a BDF2 stage), for `gamma < 1`.
+        - `BackwardEulerDynamicStepper()` — first order, one implicit stage per step.
+        - `TRBDF2DynamicStepper(gamma=0.5)` — second order, **two** implicit
+          stages per step (a trapezoidal-rule stage followed by a BDF2 stage),
+          for `gamma < 1`.
 
         `frame.stage_results` exposes the per-stage solver result, so TRBDF2
         reports two entries.
@@ -187,12 +194,12 @@ CELLS = [
                 integrator=integrator,
             )
 
-        ibe = fresh_free_fall("implicit_euler").step(external_force=np.array([f]))
-        tr = fresh_free_fall("trbdf2").step(external_force=np.array([f]))
+        ibe = fresh_free_fall(BackwardEulerDynamicStepper()).step(external_force=np.array([f]))
+        tr = fresh_free_fall(TRBDF2DynamicStepper(gamma=0.5)).step(external_force=np.array([f]))
 
-        print("implicit_euler stages:", len(ibe.stage_results))
-        print("trbdf2 stages        :", len(tr.stage_results))
-        print("trbdf2 stage statuses:", [r.status for r in tr.stage_results])
+        print("BackwardEulerDynamicStepper stages:", len(ibe.stage_results))
+        print("TRBDF2DynamicStepper stages        :", len(tr.stage_results))
+        print("TRBDF2DynamicStepper stage statuses:", [r.status for r in tr.stage_results])
         """
     ),
     md(
@@ -223,7 +230,7 @@ CELLS = [
             state=DynamicState(np.zeros(n), np.zeros(n), np.zeros(n)),
             timestep=0.02,
             energy=spring,
-            integrator="trbdf2",
+            integrator=TRBDF2DynamicStepper(gamma=0.5),
             damping=(4.0, 0.0),                          # mass-proportional damping to settle
         )
 
@@ -285,7 +292,7 @@ CELLS = [
                 state=DynamicState(np.array([1.0]), np.zeros(1), np.zeros(1)),
                 timestep=0.02,
                 energy=pgo.energy.QuadraticEnergy(np.array([[80.0]])),
-                integrator="trbdf2",
+                integrator=TRBDF2DynamicStepper(gamma=0.5),
                 damping=(mass_damping, 0.0),
             )
             for i in range(steps):
@@ -316,7 +323,7 @@ CELLS = [
             mass=np.array([[m]]),
             state=DynamicState(np.zeros(1), np.zeros(1), np.zeros(1)),
             timestep=h,
-            integrator="implicit_euler",
+            integrator=BackwardEulerDynamicStepper(),
         )
         frames = sim.run(5, external_force=np.array([f]))
         print("num frames:", len(frames))
@@ -330,7 +337,7 @@ CELLS = [
 
         The Python API exposes only `DynamicSimulation.step` / `run` and the
         `DynamicState` / `DynamicFrame` value objects. The C++ layer behind it
-        uses `ImplicitEulerStepper` and `TRBDF2Stepper` directly through the
+        uses `BackwardEulerDynamicStepper` and `TRBDF2DynamicStepper` through the
         unified `DynamicStepper` interface. High-level simulation runners build the same stepper
         service from persistent energy terms plus per-frame contact models.
 
@@ -344,7 +351,14 @@ CELLS = [
 
         public = [name for name in dir(sim_mod) if not name.startswith("_")]
         print("pypgo.sim public dynamic API:")
-        for name in ("DynamicSimulation", "DynamicState", "DynamicFrame"):
+        for name in (
+            "DynamicSimulation",
+            "DynamicState",
+            "DynamicFrame",
+            "DynamicStepper",
+            "BackwardEulerDynamicStepper",
+            "TRBDF2DynamicStepper",
+        ):
             print("  ", name, "->", name in public)
         """
     ),
@@ -427,7 +441,7 @@ CELLS = [
             state=DynamicState(np.zeros(n_dof), np.zeros(n_dof), np.zeros(n_dof)),
             timestep=0.005,
             energy=energy,
-            integrator="implicit_euler",
+            integrator=BackwardEulerDynamicStepper(),
             damping=(0.5, 0.0),
         )
         optimizer = pgo.solver.NewtonOptimizer(sparse_solver="auto")

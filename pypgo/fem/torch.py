@@ -8,27 +8,8 @@ import numpy as np
 import torch as _torch
 
 from pypgo import solver
-
-
-def _float_vector(name: str, values) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.float64, order="C")
-    if arr.ndim != 1:
-        raise ValueError(f"{name} must be 1-D, got shape {arr.shape}")
-    return arr
-
-
-def _float_matrix3(name: str, values) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.float64, order="C")
-    if arr.ndim != 2 or arr.shape[1] != 3:
-        raise ValueError(f"{name} must have shape (n, 3), got {arr.shape}")
-    return arr
-
-
-def _int_vector(name: str, values) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.int64, order="C")
-    if arr.ndim != 1:
-        raise ValueError(f"{name} must be 1-D, got shape {arr.shape}")
-    return arr
+from pypgo._utils import float_vector, int_vector, vertex_array
+from pypgo.energy import PotentialEnergy
 
 
 class _StaticEquilibriumFunction(_torch.autograd.Function):
@@ -120,20 +101,20 @@ class StaticEquilibriumLayer(_torch.nn.Module):
         inner_optimizer: solver.Optimizer | None = None,
     ) -> None:
         super().__init__()
-        if not hasattr(energy, "_handle"):
-            raise TypeError("energy must be a pypgo.energy PotentialEnergy-compatible object")
+        if not isinstance(energy, PotentialEnergy):
+            raise TypeError("energy must be a pypgo.energy.PotentialEnergy")
 
         self.state = state
         self.energy = energy
-        self.fixed_dofs = _int_vector("fixed_dofs", fixed_dofs)
-        self.fixed_values = _float_vector("fixed_values", fixed_values)
+        self.fixed_dofs = int_vector("fixed_dofs", fixed_dofs)
+        self.fixed_values = float_vector("fixed_values", fixed_values)
         if self.fixed_values.size != self.fixed_dofs.size:
             raise ValueError("fixed_values size must match fixed_dofs size")
         if len(set(self.fixed_dofs.tolist())) != self.fixed_dofs.size:
             raise ValueError("fixed_dofs must be unique")
 
-        self.surface_vertices = _float_matrix3("surface_vertices", surface_vertices)
-        self.surface_vertex_ids = _int_vector("surface_vertex_ids", surface_vertex_ids)
+        self.surface_vertices = vertex_array("surface_vertices", surface_vertices)
+        self.surface_vertex_ids = int_vector("surface_vertex_ids", surface_vertex_ids)
         if self.surface_vertex_ids.size != self.surface_vertices.shape[0]:
             raise ValueError("surface_vertex_ids size must match surface_vertices rows")
         if np.any(self.surface_vertex_ids < 0) or np.any(self.surface_vertex_ids >= energy.num_vertices):
@@ -165,7 +146,7 @@ class StaticEquilibriumLayer(_torch.nn.Module):
         if displacement is None:
             self._warm_start = self.energy.zero_state()
             return
-        self._warm_start = _float_vector("displacement", displacement).copy()
+        self._warm_start = float_vector("displacement", displacement).copy()
         if self._warm_start.size != self.energy.num_dofs:
             raise ValueError("displacement size must match energy.num_dofs")
 

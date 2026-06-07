@@ -7,6 +7,7 @@ from importlib import import_module
 import numpy as np
 
 import pypgo._core as _core
+from pypgo._utils import vec3_list
 from pypgo.mesh.data import (
     CubicMeshData,
     MeshDataType,
@@ -14,6 +15,15 @@ from pypgo.mesh.data import (
     TriMeshData,
 )
 from pypgo.mesh.geo import SurfaceEmbedding
+from pypgo.mesh.visualize import (
+    get_backend,
+    plot_surface,
+    plot_volume_surface,
+    reset_backend,
+    set_backend,
+    to_pyvista_surface,
+    to_pyvista_volume,
+)
 
 __all__ = [
     "MeshDataType",
@@ -51,13 +61,6 @@ __all__ = [
 ]
 
 
-def _vec3(name: str, value) -> list[float]:
-    arr = np.ascontiguousarray(value, dtype=np.float64)
-    if arr.shape != (3,):
-        raise ValueError(f"{name} must be a 3-vector, got shape {arr.shape}")
-    return arr.tolist()
-
-
 def read_obj(path: str) -> TriMeshData:
     """Read an OBJ surface mesh."""
     return TriMeshData(_core.read_obj(str(path)))
@@ -72,7 +75,7 @@ def write_obj(path: str, surface_data: TriMeshData) -> None:
 
 def create_box(*, bmin, bmax) -> TriMeshData:
     """Create an axis-aligned box surface mesh."""
-    return TriMeshData(_core.create_box_mesh(_vec3("bmin", bmin), _vec3("bmax", bmax)))
+    return TriMeshData(_core.create_box_mesh(vec3_list("bmin", bmin), vec3_list("bmax", bmax)))
 
 
 def create_sphere(*, radius: float, axis_subdiv: int, height_subdiv: int) -> TriMeshData:

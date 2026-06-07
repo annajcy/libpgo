@@ -9,7 +9,7 @@ namespace Simulation
 {
 
 std::unique_ptr<DynamicStepper> makeDynamicStepper(
-  TimeIntegratorKind kind,
+  DynamicStepperKind kind,
   DynamicProblem problem,
   double trbdf2Gamma)
 {
@@ -17,13 +17,13 @@ std::unique_ptr<DynamicStepper> makeDynamicStepper(
   validateDynamicProblem(problem, n);
 
   switch (kind) {
-  case TimeIntegratorKind::ImplicitEuler:
+  case DynamicStepperKind::ImplicitEuler:
     return std::make_unique<ImplicitEulerStepper>(std::move(problem));
-  case TimeIntegratorKind::TRBDF2:
+  case DynamicStepperKind::TRBDF2:
     return std::make_unique<TRBDF2Stepper>(std::move(problem), trbdf2Gamma);
   }
 
-  throw std::invalid_argument("makeDynamicStepper: unknown TimeIntegratorKind");
+  throw std::invalid_argument("makeDynamicStepper: unknown DynamicStepperKind");
 }
 
 }  // namespace Simulation
