@@ -231,7 +231,7 @@ class DynamicSimulation:
 
         self._n = n
         self._frame_index = 0
-        self._sim = _core.PyDynamicSimulation(
+        self._handle = _core.PyDynamicSimulation(
             num_dofs=n,
             mass_rows=mass_rows,
             mass_cols=mass_cols,
@@ -255,11 +255,11 @@ class DynamicSimulation:
     @property
     def state(self) -> DynamicState:
         return DynamicState(
-            displacement=np.asarray(self._sim.displacement, dtype=np.float64),
-            velocity=np.asarray(self._sim.velocity, dtype=np.float64),
-            acceleration=np.asarray(self._sim.acceleration, dtype=np.float64),
-            timestep_id=int(self._sim.timestep_id),
-            time=float(self._sim.time),
+            displacement=np.asarray(self._handle.displacement, dtype=np.float64),
+            velocity=np.asarray(self._handle.velocity, dtype=np.float64),
+            acceleration=np.asarray(self._handle.acceleration, dtype=np.float64),
+            timestep_id=int(self._handle.timestep_id),
+            time=float(self._handle.time),
         )
 
     def step(
@@ -285,7 +285,7 @@ class DynamicSimulation:
             else np.ascontiguousarray(np.asarray(fixed_values, dtype=np.float64).ravel())
         )
 
-        data = self._sim.step(
+        data = self._handle.step(
             force,
             fixed_arr,
             has_fixed,

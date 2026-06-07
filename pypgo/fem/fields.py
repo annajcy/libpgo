@@ -51,28 +51,28 @@ class ParameterField:
             raise TypeError(
                 f"core must be a PyParameterField, got {type(core).__name__}"
             )
-        self._core = core
+        self._handle = core
 
     @property
     def domain(self) -> str:
-        return self._core.domain
+        return self._handle.domain
 
     @property
     def model(self) -> str:
-        return self._core.model
+        return self._handle.model
 
     @property
     def num_elements(self) -> int:
-        return self._core.num_elements
+        return self._handle.num_elements
 
     @property
     def num_value_rows(self) -> int:
-        return self._core.num_value_rows
+        return self._handle.num_value_rows
 
     @property
     def num_channels(self) -> int:
-        return self._core.num_channels
+        return self._handle.num_channels
 
     @property
     def values(self) -> np.ndarray:
-        return np.asarray(self._core.values(), dtype=np.float64).copy()
+        return np.asarray(self._handle.values(), dtype=np.float64).copy()
