@@ -99,7 +99,7 @@ nb::dict solveWithNewtonOptimizer(
   auto x0Map = python::ndarrayToVectorMapXd(x0);
 
   NonlinearOptimization::Optimization::OptimizationProblem problem;
-  problem.objective = energy->handle_;
+  problem.objective = energy->potentialEnergyHandle();
   if (hasLower) {
     problem.variableBounds.lower = python::ndarrayToVectorXd(lower);
   }
@@ -135,7 +135,7 @@ nb::dict solveNewton(
   auto x0Map = python::ndarrayToVectorMapXd(x0);
 
   NonlinearOptimization::Optimization::OptimizationProblem problem;
-  problem.objective = energy->handle_;
+  problem.objective = energy->potentialEnergyHandle();
   if (!fixedDofs.empty() || hasFixedValues) {
     EigenSupport::VXd values = hasFixedValues ? python::ndarrayToVectorXd(fixedValues) : EigenSupport::VXd::Zero(static_cast<Eigen::Index>(fixedDofs.size()));
     if (!hasFixedValues) {

@@ -113,7 +113,7 @@ public:
       SIM::ImplicitModelTerm term;
       // The stepper needs non-const access (StepAwareEnergy::beginStep); the
       // underlying energy objects are constructed mutable, so this cast is safe.
-      term.energy = std::const_pointer_cast<NO::PotentialEnergy>(energy->handle_);
+      term.energy = std::const_pointer_cast<NO::PotentialEnergy>(energy->potentialEnergyHandle());
       term.stiffnessDamping = stiffnessDamping;
       term.massDamping = massDamping;
       problem.persistentTerms.push_back(std::move(term));

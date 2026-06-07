@@ -58,7 +58,7 @@ SolidDeformationModel::DeformationModelPlasticMaterial parsePlasticMaterial(cons
 
 // ── Quadratic test factory ─────────────────────────────────────────
 
-std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyForTest(
+std::shared_ptr<PyOwnedPotentialEnergy> createQuadraticEnergyForTest(
   int rows,
   int cols,
   const std::vector<int> &rowIndices,
@@ -75,21 +75,21 @@ std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyForTest(
   A.setFromTriplets(triplets.begin(), triplets.end());
 
   auto energy = std::make_shared<PredefinedPotentialEnergies::QuadraticPotentialEnergy>(std::move(A));
-  return std::make_shared<PyPotentialEnergy>(std::move(energy));
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
 }
 
 // ── LinearEnergy factory ────────────────────────────────────────────
 
 // b^T x.  b is (n,) float64 NumPy array; copied into owned VXd.
-std::shared_ptr<PyPotentialEnergy> createLinearEnergy(
+std::shared_ptr<PyOwnedPotentialEnergy> createLinearEnergy(
   nb::ndarray<nb::numpy, const double> b)
 {
   auto bVec = python::ndarrayToVectorXd(b);
   auto energy = std::make_shared<PredefinedPotentialEnergies::LinearPotentialEnergy>(std::move(bVec));
-  return std::make_shared<PyPotentialEnergy>(std::move(energy));
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
 }
 
-std::shared_ptr<PyPotentialEnergy> createConstraintPenalty(
+std::shared_ptr<PyOwnedPotentialEnergy> createConstraintPenalty(
   std::shared_ptr<PyConstraintFunctions> constraints,
   double weight)
 {
@@ -101,10 +101,10 @@ std::shared_ptr<PyPotentialEnergy> createConstraintPenalty(
   std::vector<NonlinearOptimization::EnergySet::Term> terms;
   terms.push_back({ std::move(penalty), weight });
   auto weighted = std::make_shared<NonlinearOptimization::EnergySet>(constraints->numDofs(), std::move(terms));
-  return std::make_shared<PyPotentialEnergy>(std::move(weighted));
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(weighted));
 }
 
-std::shared_ptr<PyPotentialEnergy> createConstraintViolationPenalty(
+std::shared_ptr<PyOwnedPotentialEnergy> createConstraintViolationPenalty(
   std::shared_ptr<PyConstraintFunctions> constraints,
   nb::ndarray<nb::numpy, const double> lower,
   nb::ndarray<nb::numpy, const double> upper,
@@ -120,7 +120,7 @@ std::shared_ptr<PyPotentialEnergy> createConstraintViolationPenalty(
   std::vector<NonlinearOptimization::EnergySet::Term> terms;
   terms.push_back({ std::move(penalty), weight });
   auto weighted = std::make_shared<NonlinearOptimization::EnergySet>(constraints->numDofs(), std::move(terms));
-  return std::make_shared<PyPotentialEnergy>(std::move(weighted));
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(weighted));
 }
 
 class PyParameterField
@@ -297,7 +297,7 @@ int elasticNumChannels(
 // ── QuadraticEnergy factories ────────────────────────────────────────
 
 // 1/2 x^T A x  from a PySparseMatrix.
-std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyFromSparse(
+std::shared_ptr<PyOwnedPotentialEnergy> createQuadraticEnergyFromSparse(
   const PySparseMatrix &A)
 {
   auto coo = A.toCOO();
@@ -316,11 +316,11 @@ std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyFromSparse(
   A_eigen.setFromTriplets(triplets.begin(), triplets.end());
 
   auto energy = std::make_shared<PredefinedPotentialEnergies::QuadraticPotentialEnergy>(std::move(A_eigen));
-  return std::make_shared<PyPotentialEnergy>(std::move(energy));
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
 }
 
 // 1/2 x^T A x + b^T x  from SparseMatrix + optional (n,) float64 b.
-std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyFromSparseWithB(
+std::shared_ptr<PyOwnedPotentialEnergy> createQuadraticEnergyFromSparseWithB(
   const PySparseMatrix &A,
   nb::ndarray<nb::numpy, const double> b)
 {
@@ -342,11 +342,11 @@ std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyFromSparseWithB(
   auto bVec = python::ndarrayToVectorXd(b);
   auto energy = std::make_shared<PredefinedPotentialEnergies::QuadraticPotentialEnergy>(
     std::move(A_eigen), std::move(bVec));
-  return std::make_shared<PyPotentialEnergy>(std::move(energy));
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
 }
 
 // 1/2 x^T A x  from (rows, cols, row_indices, col_indices, values) COO tuple.
-std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyFromCOO(
+std::shared_ptr<PyOwnedPotentialEnergy> createQuadraticEnergyFromCOO(
   int rows,
   int cols,
   const std::vector<int> &rowIndices,
@@ -372,11 +372,11 @@ std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyFromCOO(
   A.setFromTriplets(triplets.begin(), triplets.end());
 
   auto energy = std::make_shared<PredefinedPotentialEnergies::QuadraticPotentialEnergy>(std::move(A));
-  return std::make_shared<PyPotentialEnergy>(std::move(energy));
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
 }
 
 // 1/2 x^T A x + b^T x  from COO tuple + optional b.
-std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyFromCOOWithB(
+std::shared_ptr<PyOwnedPotentialEnergy> createQuadraticEnergyFromCOOWithB(
   int rows,
   int cols,
   const std::vector<int> &rowIndices,
@@ -405,14 +405,14 @@ std::shared_ptr<PyPotentialEnergy> createQuadraticEnergyFromCOOWithB(
   auto bVec = python::ndarrayToVectorXd(b);
   auto energy = std::make_shared<PredefinedPotentialEnergies::QuadraticPotentialEnergy>(
     std::move(A), std::move(bVec));
-  return std::make_shared<PyPotentialEnergy>(std::move(energy));
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
 }
 
 // ── VertexAttachment factory ─────────────────────────────────────────
 
 // Creates a MultipleVertexPulling energy.  Koff is built from the COO
 // inputs; all other inputs are copied/moved into owned storage.
-std::shared_ptr<PyPotentialEnergy> createVertexAttachment(
+std::shared_ptr<PyVertexAttachmentEnergy> createVertexAttachment(
   int numDofs,
   int rows, int cols,
   const std::vector<int> &kRowIndices,
@@ -452,42 +452,28 @@ std::shared_ptr<PyPotentialEnergy> createVertexAttachment(
     coeff,
     isDisplacement);
 
-  return std::make_shared<PyPotentialEnergy>(std::move(energy));
+  return std::make_shared<PyVertexAttachmentEnergy>(std::move(energy));
 }
 
-void setVertexAttachmentTargetPositions(
-  const PyPotentialEnergy &energy,
-  nb::ndarray<nb::numpy, const double> targetPositions)
-{
-  auto *attachment = dynamic_cast<ConstraintPotentialEnergies::MultipleVertexPulling *>(
-    const_cast<NonlinearOptimization::PotentialEnergy *>(energy.handle_.get()));
-  if (!attachment) {
-    throw nb::type_error("set_targets is only available on VertexAttachment.");
-  }
-  attachment->setTargetPositions(python::ndarrayToVectorXd(targetPositions));
-}
 
 // ── EnergySet binding ───────────────────────────────────────────────
 
-// EnergySet Python wrapper.  Holds the set directly as its handle.
-class PyEnergySet
+// EnergySet Python wrapper.  Inherits PyPotentialEnergy directly so
+// _handle is the concrete PyEnergySet peer (no separate handle_ wrapper).
+class PyEnergySet final : public PyPotentialEnergy
 {
 public:
   explicit PyEnergySet(std::shared_ptr<NonlinearOptimization::EnergySet> set)
     : set_(std::move(set))
   {
-    // Also expose as a generic PotentialEnergy handle for eval.
-    handle_ = std::make_shared<PyPotentialEnergy>(set_);
   }
 
-  int numDofs() const { return set_->getNumDOFs(); }
+  std::shared_ptr<const NO::PotentialEnergy> potentialEnergyHandle() const override { return set_; }
+
   int numTerms() const { return set_->numTerms(); }
 
   nb::object term(int i) const
   {
-    // Returns (energy_handle, weight) — energy_handle is a new PyPotentialEnergy
-    // wrapping the child, but we can't retrieve the original Python wrapper.
-    // For now this returns a lightweight info tuple.
     nb::dict info;
     info["weight"] = set_->term(i).weight;
     info["num_dofs"] = set_->term(i).energy->getNumDOFs();
@@ -496,17 +482,14 @@ public:
 
   void setWeight(int i, double w) { set_->setWeight(i, w); }
 
-  std::shared_ptr<PyPotentialEnergy> handle() const { return handle_; }
-
   std::string repr() const
   {
     return "EnergySet(" + std::to_string(set_->numTerms()) + " terms, " +
       std::to_string(set_->getNumDOFs()) + " DOFs, state_kind='" +
-      handle_->stateKind() + "')";
+      PyPotentialEnergy::stateKind() + "')";
   }
 
   std::shared_ptr<NonlinearOptimization::EnergySet> set_;
-  std::shared_ptr<PyPotentialEnergy> handle_;
 };
 
 // Construct an EnergySet from a list of (PyPotentialEnergy, weight) pairs.
@@ -537,7 +520,7 @@ std::shared_ptr<PyEnergySet> createEnergySet(
       throw nb::value_error("All EnergySet terms must have the same num_dofs");
     }
 
-    cppTerms.push_back({energyHandle->handle_, weight});
+    cppTerms.push_back({energyHandle->potentialEnergyHandle(), weight});
   }
 
   if (cppTerms.empty()) {
@@ -548,25 +531,21 @@ std::shared_ptr<PyEnergySet> createEnergySet(
   return std::make_shared<PyEnergySet>(std::move(set));
 }
 
-// Deformation energy wrapper — bridges the shared PyPotentialEnergy handle
-// protocol with deformation-specific metadata (rest_position, etc.).
+// Deformation energy wrapper — inherits PyPotentialEnergy directly so
+// _handle is the concrete peer.  Provides deformation-specific metadata
+// (rest_position, plastic_gradient, etc.).
 //
 // Owns the model state so the C++ mesh and parameter fields outlive the energy chain.
-class PyDeformationEnergy
+class PyDeformationEnergy : public PyPotentialEnergy
 {
 public:
   PyDeformationEnergy(std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy,
     std::shared_ptr<PyDeformationModelState> stateOwner)
     : energy_(std::move(energy)), stateOwner_(std::move(stateOwner))
   {
-    // Wrap the DeformationModelEnergy in the shared energy handle.
-    // DeformationModelEnergy inherits PotentialEnergy, so this is a direct
-    // shared_ptr<const PotentialEnergy> cast.
-    handle_ = std::make_shared<PyPotentialEnergy>(energy_);
   }
 
-  // Shared energy handle — compatible with EnergySet and all evaluation paths.
-  std::shared_ptr<PyPotentialEnergy> handle() const { return handle_; }
+  std::shared_ptr<const NO::PotentialEnergy> potentialEnergyHandle() const override { return energy_; }
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy() const { return energy_; }
 
   // Rest position as (num_vertices, 3) ndarray.
@@ -639,7 +618,6 @@ public:
 private:
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy_;
   std::shared_ptr<PyDeformationModelState> stateOwner_;
-  std::shared_ptr<PyPotentialEnergy> handle_;
 };
 
 std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
@@ -695,7 +673,7 @@ std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(
   auto fixed = python::ndarrayToVectorXd(fixedDisplacement);
   auto energy = std::make_shared<SolidDeformationModel::PlasticMaterialEnergy>(
     stateCore->state(), deformationEnergyCore->energy(), fixed);
-  return std::make_shared<PyPotentialEnergy>(std::move(energy));
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
 }
 
 }  // namespace
@@ -713,12 +691,11 @@ void init_energy_bindings(nb::module_ &m)
 
   // ── PotentialEnergy handle ─────────────────────────────────────
   //
-  // Non-subclassable type.  Every public pypgo.energy class holds one
-  // of these internally; evaluation always dispatches through
-  // evaluation.h helpers so Python never sees hessianInPlace /
-  // hessianAlloc / isHessianTopologyFixed.
+  // Polymorphic base for all energy peers.  Each concrete Python energy
+  // type stores a derived peer in _handle.  Evaluation dispatches through
+  // the virtual potentialEnergyHandle() method.
 
-  nb::class_<PyPotentialEnergy>(m, "PotentialEnergy")
+  nb::class_<PyPotentialEnergy>(m, "PyPotentialEnergy")
     .def("__repr__", &PyPotentialEnergy::repr)
     .def_prop_ro("num_dofs", &PyPotentialEnergy::numDofs)
     .def("dofs", &PyPotentialEnergy::dofs)
@@ -729,14 +706,18 @@ void init_energy_bindings(nb::module_ &m)
     .def("max_step", &PyPotentialEnergy::maxStep, nb::arg("x"), nb::arg("dx"))
     .def("zero_state", &PyPotentialEnergy::zeroState);
 
+  nb::class_<PyOwnedPotentialEnergy, PyPotentialEnergy>(m, "PyOwnedPotentialEnergy");
+
+  nb::class_<PyVertexAttachmentEnergy, PyPotentialEnergy>(m, "PyVertexAttachmentEnergy")
+    .def("set_target_positions", &PyVertexAttachmentEnergy::setTargetPositions);
+
   // ── PyDeformationEnergy ────────────────────────────────────────
   //
   // Bridges the shared PyPotentialEnergy handle protocol with
   // deformation-specific metadata.  Python DeformationEnergy wraps
   // this: evaluation goes through handle(), rest_position is separate.
 
-  nb::class_<PyDeformationEnergy>(m, "PyDeformationEnergy")
-    .def_prop_ro("handle", &PyDeformationEnergy::handle)
+  nb::class_<PyDeformationEnergy, PyPotentialEnergy>(m, "PyDeformationEnergy")
     .def("rest_position", &PyDeformationEnergy::restPosition)
     .def_prop_ro("num_vertices", &PyDeformationEnergy::numVertices)
     .def_prop_ro("num_plastic_dofs", &PyDeformationEnergy::numPlasticDofs)
@@ -848,19 +829,16 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("coeff") = 1.0,
     nb::arg("is_displacement") = true);
 
-  m.def("_set_vertex_attachment_target_positions", &setVertexAttachmentTargetPositions,
-    nb::arg("energy"),
-    nb::arg("target_positions"));
-
   // ── EnergySet (Task E6) ────────────────────────────────────────────
+  //
+  // Inherits PyPotentialEnergy so _handle is the concrete peer and
+  // num_dofs / value / gradient / etc. are inherited from the base.
 
-  nb::class_<PyEnergySet>(m, "EnergySet")
+  nb::class_<PyEnergySet, PyPotentialEnergy>(m, "PyEnergySet")
     .def("__repr__", &PyEnergySet::repr)
-    .def_prop_ro("num_dofs", &PyEnergySet::numDofs)
     .def_prop_ro("num_terms", &PyEnergySet::numTerms)
     .def("term", &PyEnergySet::term, nb::arg("i"))
-    .def("set_weight", &PyEnergySet::setWeight, nb::arg("i"), nb::arg("w"))
-    .def_prop_ro("handle", &PyEnergySet::handle);
+    .def("set_weight", &PyEnergySet::setWeight, nb::arg("i"), nb::arg("w"));
 
   m.def("_create_energy_set", &createEnergySet, nb::arg("terms"));
 }

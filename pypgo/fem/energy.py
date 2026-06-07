@@ -41,7 +41,7 @@ class DeformationEnergy(PotentialEnergy):
                 f"core must be a PyDeformationEnergy, got {type(core).__name__}"
             )
         object.__setattr__(self, "_core", core)
-        super().__init__(core.handle)
+        super().__init__(core)
 
     @property
     def rest_position(self) -> np.ndarray:
