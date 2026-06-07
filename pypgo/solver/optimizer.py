@@ -3,7 +3,8 @@
 This is the side of the solver package expected to grow: each optimizer keeps
 its own option mapping and validation here, so adding a new one (LBFGS,
 trust-region, ...) is a local change that never touches the result/problem
-data layer.
+data layer.  When this file gets heavy, promote it to an ``optimizer/``
+subpackage (one module per optimizer).
 """
 
 from __future__ import annotations
