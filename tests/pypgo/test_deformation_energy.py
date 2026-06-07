@@ -342,4 +342,19 @@ class TestModuleSurface:
         # not in the generic pypgo.energy namespace.
         assert not hasattr(pe, "DeformationEnergy")
         assert hasattr(pf, "DeformationEnergy")
-        assert hasattr(pf, "PlasticMaterialEnergy")
+
+
+# ---------------------------------------------------------------------------
+# Handle architecture: FEM energy peer
+# ---------------------------------------------------------------------------
+
+
+def test_deformation_energy_handle_is_concrete_peer():
+    import pypgo._core as _core
+
+    sim = _make_tet_sim_mesh()
+    state = _make_state(sim)
+    e = pf.deformation_energy(state, formulation=pf.TetP1())
+
+    assert isinstance(e._handle, _core.PyDeformationEnergy)
+    assert isinstance(e._handle, _core.PyPotentialEnergy)

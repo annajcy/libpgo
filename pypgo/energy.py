@@ -1,8 +1,10 @@
 """pypgo.energy — General-purpose energy types for pypgo.
 
-All Python energy classes hold a PyPotentialEnergy handle internally;
-evaluation always dispatches through C++ evaluation.h helpers so
-Python users never see hessianInPlace / hessianAlloc / isHessianTopologyFixed.
+Each Python facade stores its concrete C++ PyXXXX peer in ``_handle``.
+Energy peers inherit ``_core.PyPotentialEnergy``, and C++ internals use
+``potentialEnergyHandle()`` when a core ``PotentialEnergy`` pointer is required.
+Evaluation dispatches through the virtual method so Python users never see
+hessianInPlace / hessianAlloc / isHessianTopologyFixed.
 """
 
 from __future__ import annotations
@@ -30,9 +32,9 @@ class PotentialEnergy:
     """
 
     def __init__(self, handle):
-        if not isinstance(handle, _core.PotentialEnergy):
+        if not isinstance(handle, _core.PyPotentialEnergy):
             raise TypeError(
-                f"handle must be a _core.PotentialEnergy, got {type(handle).__name__}"
+                f"handle must be a _core.PyPotentialEnergy, got {type(handle).__name__}"
             )
         object.__setattr__(self, "_handle", handle)
 
@@ -253,7 +255,7 @@ class VertexAttachment(PotentialEnergy):
                 f"target_positions length ({len(tgt)}) must match existing "
                 f"target length ({self._num_target_dofs})"
             )
-        _core._set_vertex_attachment_target_positions(self._handle, tgt)
+        self._handle.set_target_positions(tgt)
 
     def __repr__(self) -> str:
         return f"VertexAttachment({self.num_dofs} DOFs)"
@@ -285,23 +287,18 @@ class EnergySet(PotentialEnergy):
                     f"term {i}: energy must have a _handle attribute"
                 )
             cpp_terms.append((energy._handle, float(weight)))
-        core_handle = _core._create_energy_set(cpp_terms)
-        object.__setattr__(self, "_core_handle", core_handle)
-        super().__init__(core_handle.handle)
-
-    @property
-    def num_dofs(self) -> int:
-        return self._core_handle.num_dofs
+        handle = _core._create_energy_set(cpp_terms)
+        super().__init__(handle)
 
     @property
     def num_terms(self) -> int:
-        return self._core_handle.num_terms
+        return self._handle.num_terms
 
     def set_weight(self, i: int, w: float) -> None:
-        self._core_handle.set_weight(i, float(w))
+        self._handle.set_weight(i, float(w))
 
     def __repr__(self) -> str:
-        return self._core_handle.__repr__()
+        return self._handle.__repr__()
 
 
 __all__ = [

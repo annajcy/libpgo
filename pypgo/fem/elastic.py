@@ -9,11 +9,11 @@ class ElasticModel:
     """Abstract base — owns a C++ PyElasticModel handle."""
 
     def __init__(self, core_obj) -> None:
-        self._core_obj = core_obj
+        self._handle = core_obj
 
     @property
     def name(self) -> str:
-        return self._core_obj.name
+        return self._handle.name
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"

@@ -123,7 +123,7 @@ class VolumeIPCSimulationBuild:
     energy: _energy.EnergySet
     external_force: np.ndarray
     initial_state: DynamicState
-    optimizer: _solver.NewtonOptimizer
+    optimizer: _solver.Optimizer
     surface_map: object
 
 

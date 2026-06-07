@@ -67,7 +67,7 @@ def write_obj(path: str, surface_data: TriMeshData) -> None:
     """Write a triangle surface mesh to OBJ."""
     if not isinstance(surface_data, TriMeshData):
         raise TypeError(f"surface_data must be a TriMeshData, got {type(surface_data).__name__}")
-    _core.write_obj(str(path), surface_data._core_obj)
+    _core.write_obj(str(path), surface_data._handle)
 
 
 def create_box(*, bmin, bmax) -> TriMeshData:

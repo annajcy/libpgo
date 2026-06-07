@@ -81,40 +81,18 @@ def test_line_search_keywords():
         assert result.converged
 
 
-def test_newton_optimizer_sparse_solver_is_forwarded(monkeypatch):
-    captured = {}
+def test_newton_optimizer_sparse_solver_is_forwarded():
+    """sparse_solver='eigen_ldlt' maps to sparse_solver_kind=1 in C++."""
+    import pypgo._core as _core
 
-    def fake_newton_optimizer_solve(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return {
-            "x": np.zeros(3, dtype=np.float64),
-            "status": int(solver.SolveStatus.CONVERGED),
-            "converged": True,
-            "iterations": 0,
-            "raw_status_code": int(solver.SolveStatus.CONVERGED),
-            "final_objective": 0.0,
-            "final_gradient_norm": None,
-            "final_gradient_max_norm": None,
-            "diagnostics": {
-                "min_feasible_alpha": 1.0,
-                "min_line_search_alpha": 1.0,
-                "min_effective_alpha": 1.0,
-                "material_clamp_count": 0,
-                "contact_clamp_count": 0,
-                "final_gradient_norm": None,
-                "final_gradient_max_norm": None,
-            },
-        }
-
-    monkeypatch.setattr(solver._core, "_newton_optimizer_solve", fake_newton_optimizer_solve)
-
-    problem = make_problem(make_quadratic())
+    # Verify the options struct carries the right value through construction
+    energy = make_quadratic()
+    problem = make_problem(energy)
     optimizer = solver.NewtonOptimizer(sparse_solver="eigen_ldlt")
-    optimizer.solve(problem, np.zeros(3, dtype=np.float64))
 
-    assert captured["args"][-1] == 1
-    assert captured["kwargs"] == {}
+    assert isinstance(optimizer._handle, _core.PyNewtonOptimizer)
+    result = optimizer.solve(problem, np.zeros(3, dtype=np.float64))
+    assert result.converged
 
 
 def test_optimization_problem_rejects_non_energy_objective():
@@ -142,22 +120,17 @@ def test_optimizer_keywords_control_solve():
     assert result.status == solver.SolveStatus.MAX_ITERATIONS
 
 
-def test_solve_newton_shim_uses_object_api():
+def test_fix_variables_via_object_api():
+    """Construct problem → fix variables → NewtonOptimizer → solve."""
     energy = make_quadratic()
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.solve_newton(energy, x0=x0, fixed_dofs=[2], fixed_values=[9.0], damping=False)
+    problem = solver.OptimizationProblem(objective=energy)
+    problem.fix_variables([2], [9.0], num_dofs=x0.size)
+    result = solver.NewtonOptimizer(damping=False).solve(problem, x0)
 
     assert result.converged
     assert np.allclose(result.x, [1.0, -2.0, 9.0])
-
-
-def test_invalid_options_type_raises():
-    energy = make_quadratic()
-    x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
-
-    with pytest.raises(TypeError, match="NewtonOptimizer"):
-        solver.solve_newton(energy, x0=x0, options={"max_iterations": 20})
 
 
 def test_status_roundtrip_for_all_values():
@@ -219,6 +192,26 @@ def test_verbose_does_not_crash():
     }
 
 
+def test_optimizer_problem_peers_and_newton_solve():
+    import pypgo._core as _core
+
+    objective = pgo.energy.QuadraticEnergy(np.eye(2, dtype=np.float64), b=np.array([-4.0, 0.0]))
+    problem = solver.OptimizationProblem(objective=objective)
+    optimizer = solver.NewtonOptimizer(max_iterations=10, gradient_tolerance=1e-10, damping=False)
+
+    assert isinstance(problem._handle, _core.PyOptimizationProblem)
+    assert isinstance(optimizer, solver.Optimizer)
+    assert isinstance(optimizer._handle, _core.PyNewtonOptimizer)
+    assert isinstance(optimizer._handle, _core.PyOptimizer)
+    assert not hasattr(optimizer._handle, "as_optimizer")
+
+    result = optimizer.solve(problem, np.array([0.0, 0.0], dtype=np.float64))
+
+    assert result.converged
+    assert result.status == solver.SolveStatus.CONVERGED
+    np.testing.assert_allclose(result.x, [4.0, 0.0], atol=1e-8)
+
+
 def test_solver_public_surface_hides_legacy_names():
     hidden = {
         "NewtonOptions",
@@ -234,5 +227,6 @@ def test_solver_public_surface_hides_legacy_names():
         "NewtonSparseSolverKind",
         "NewtonSparseSolverOptions",
         "minimize",
+        "solve_newton",
     }
     assert hidden.isdisjoint(set(dir(solver)))

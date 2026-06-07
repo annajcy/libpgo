@@ -25,7 +25,7 @@ def triangle_component_ids(tri_data: TriMeshData) -> tuple[np.ndarray, np.ndarra
     """
     if not isinstance(tri_data, TriMeshData):
         raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
-    ids, sizes = _core.triangle_component_ids(tri_data._core_obj)
+    ids, sizes = _core.triangle_component_ids(tri_data._handle)
     return np.asarray(ids, dtype=np.int64), np.asarray(sizes, dtype=np.int64)
 
 
@@ -38,7 +38,7 @@ def connected_components_by_edge(tri_data: TriMeshData) -> list[np.ndarray]:
     """
     if not isinstance(tri_data, TriMeshData):
         raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
-    groups = _core.connected_components_by_edge(tri_data._core_obj)
+    groups = _core.connected_components_by_edge(tri_data._handle)
     return [np.asarray(g, dtype=np.int64) for g in groups]
 
 
@@ -51,7 +51,7 @@ def connected_components_by_vertex(tri_data: TriMeshData) -> list[np.ndarray]:
     """
     if not isinstance(tri_data, TriMeshData):
         raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
-    groups = _core.connected_components_by_vertex(tri_data._core_obj)
+    groups = _core.connected_components_by_vertex(tri_data._handle)
     return [np.asarray(g, dtype=np.int64) for g in groups]
 
 
@@ -69,7 +69,7 @@ def filter_small_components(
     """
     if not isinstance(tri_data, TriMeshData):
         raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
-    return TriMeshData(_core.filter_small_components(tri_data._core_obj, int(min_triangles), int(keep_largest)))
+    return TriMeshData(_core.filter_small_components(tri_data._handle, int(min_triangles), int(keep_largest)))
 
 
 def get_outer_component(tri_data: TriMeshData) -> TriMeshData:
@@ -81,7 +81,7 @@ def get_outer_component(tri_data: TriMeshData) -> TriMeshData:
     """
     if not isinstance(tri_data, TriMeshData):
         raise TypeError(f"tri_data must be a TriMeshData, got {type(tri_data).__name__}")
-    return TriMeshData(_core.get_outer_component(tri_data._core_obj))
+    return TriMeshData(_core.get_outer_component(tri_data._handle))
 
 
 def split_components(tri_data: TriMeshData) -> list[TriMeshData]:

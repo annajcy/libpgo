@@ -121,7 +121,7 @@ class PyStatefulContactEnergy
 public:
   explicit PyStatefulContactEnergy(std::shared_ptr<CT::StatefulContactEnergy> energy):
     energy_(std::move(energy)),
-    handle_(std::make_shared<PyPotentialEnergy>(energy_))
+    handle_(std::make_shared<PyOwnedPotentialEnergy>(energy_))
   {
     if (!energy_)
       throw std::invalid_argument("PyStatefulContactEnergy requires a contact energy.");
@@ -202,13 +202,13 @@ std::shared_ptr<PyPotentialEnergy> createFloorEnergy(
   floor.side = parseFloorSide(side);
   floor.height = height;
   floor.stiffness = stiffness;
-  return std::make_shared<PyPotentialEnergy>(CT::createFloorEnergy(surface.spec(), floor));
+  return std::make_shared<PyOwnedPotentialEnergy>(CT::createFloorEnergy(surface.spec(), floor));
 }
 
 void setFloorEnergyHeight(const PyPotentialEnergy &energy, double height)
 {
   auto *floor = dynamic_cast<CT::Floor::FloorContactEnergy *>(
-    const_cast<NO::PotentialEnergy *>(energy.handle_.get()));
+    const_cast<NO::PotentialEnergy *>(energy.potentialEnergyHandle().get()));
   if (!floor)
     throw std::runtime_error("set_floor_height is only available on FloorEnergy.");
   floor->setFloorHeight(height);

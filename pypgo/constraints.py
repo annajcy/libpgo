@@ -24,9 +24,9 @@ class ConstraintFunction:
     """Read-only handle for vector-valued hard constraint functions."""
 
     def __init__(self, handle):
-        if not isinstance(handle, _core.ConstraintFunctions):
+        if not isinstance(handle, _core.PyConstraintFunctions):
             raise TypeError(
-                f"handle must be a _core.ConstraintFunctions, got {type(handle).__name__}"
+                f"handle must be a _core.PyConstraintFunctions, got {type(handle).__name__}"
             )
         object.__setattr__(self, "_handle", handle)
 
@@ -79,7 +79,7 @@ class Linear(ConstraintFunction):
                 raise ValueError(
                     f"offset must have shape ({sparse.shape[0]},), got shape {offset_arr.shape}"
                 )
-        super().__init__(_core._create_linear_constraint(sparse._core_obj, offset_arr.copy()))
+        super().__init__(_core._create_linear_constraint(sparse._handle, offset_arr.copy()))
 
     def __repr__(self) -> str:
         return f"Linear({self.num_constraints} constraints, {self.num_dofs} DOFs)"

@@ -31,7 +31,7 @@ class SimulationMesh:
     def __init__(self, core_obj):
         if not isinstance(core_obj, _core.PySimulationMesh):
             raise TypeError(f"core_obj must be PySimulationMesh, got {type(core_obj).__name__}")
-        self._core_obj = core_obj
+        self._handle = core_obj
 
     @classmethod
     def create_volumetric(cls, volume_mesh) -> "SimulationMesh":
@@ -39,7 +39,7 @@ class SimulationMesh:
 
         if not isinstance(volume_mesh, VolumeMesh):
             raise TypeError(f"volume_mesh must be a VolumeMesh, got {type(volume_mesh).__name__}")
-        return cls(_core.create_simulation_mesh_from_volume(volume_mesh._core_obj))
+        return cls(_core.create_simulation_mesh_from_volume(volume_mesh._handle))
 
     @classmethod
     def create_shell(cls, surface: TriMeshData, material: ShellMaterialLike) -> "SimulationMesh":
@@ -48,7 +48,7 @@ class SimulationMesh:
         if not isinstance(material, KoiterStVKShellMaterial):
             raise TypeError(f"material must be a KoiterStVKShellMaterial, got {type(material).__name__}")
         return cls(_core.create_simulation_mesh_from_shell(
-            surface._core_obj,
+            surface._handle,
             float(material.thickness),
             float(material.E_membrane),
             float(material.nu_membrane),
@@ -56,19 +56,19 @@ class SimulationMesh:
 
     @property
     def mesh_type(self) -> str:
-        return self._core_obj.mesh_type()
+        return self._handle.mesh_type()
 
     @property
     def num_vertices(self) -> int:
-        return self._core_obj.num_vertices()
+        return self._handle.num_vertices()
 
     @property
     def num_elements(self) -> int:
-        return self._core_obj.num_elements()
+        return self._handle.num_elements()
 
     @property
     def num_element_vertices(self) -> int:
-        return self._core_obj.num_element_vertices()
+        return self._handle.num_element_vertices()
 
 
 def write_shell(path, surface: TriMeshData, material: ShellMaterialLike) -> None:
@@ -231,7 +231,7 @@ class DynamicSimulation:
 
         self._n = n
         self._frame_index = 0
-        self._sim = _core.PyDynamicSimulation(
+        self._handle = _core.PyDynamicSimulation(
             num_dofs=n,
             mass_rows=mass_rows,
             mass_cols=mass_cols,
@@ -255,11 +255,11 @@ class DynamicSimulation:
     @property
     def state(self) -> DynamicState:
         return DynamicState(
-            displacement=np.asarray(self._sim.displacement, dtype=np.float64),
-            velocity=np.asarray(self._sim.velocity, dtype=np.float64),
-            acceleration=np.asarray(self._sim.acceleration, dtype=np.float64),
-            timestep_id=int(self._sim.timestep_id),
-            time=float(self._sim.time),
+            displacement=np.asarray(self._handle.displacement, dtype=np.float64),
+            velocity=np.asarray(self._handle.velocity, dtype=np.float64),
+            acceleration=np.asarray(self._handle.acceleration, dtype=np.float64),
+            timestep_id=int(self._handle.timestep_id),
+            time=float(self._handle.time),
         )
 
     def step(
@@ -267,11 +267,11 @@ class DynamicSimulation:
         *,
         external_force: np.ndarray | Sequence[float] | None = None,
         fixed_values: np.ndarray | Sequence[float] | None = None,
-        optimizer: _solver.NewtonOptimizer | None = None,
+        optimizer: _solver.Optimizer | None = None,
     ) -> DynamicFrame:
         optimizer = optimizer if optimizer is not None else _solver.NewtonOptimizer()
-        if not isinstance(optimizer, _solver.NewtonOptimizer):
-            raise TypeError("optimizer must be a pypgo.solver.NewtonOptimizer")
+        if not isinstance(optimizer, _solver.Optimizer):
+            raise TypeError("optimizer must be a pypgo.solver.Optimizer")
 
         force = (
             np.zeros(self._n, dtype=np.float64)
@@ -285,16 +285,11 @@ class DynamicSimulation:
             else np.ascontiguousarray(np.asarray(fixed_values, dtype=np.float64).ravel())
         )
 
-        data = self._sim.step(
+        data = self._handle.step(
             force,
             fixed_arr,
             has_fixed,
-            int(optimizer.max_iterations),
-            float(optimizer.gradient_tolerance),
-            bool(optimizer.damping),
-            str(optimizer.line_search),
-            int(optimizer.verbose),
-            _SPARSE_SOLVERS[optimizer.sparse_solver],
+            optimizer._handle,
         )
 
         displacement = np.asarray(data["displacement"], dtype=np.float64)

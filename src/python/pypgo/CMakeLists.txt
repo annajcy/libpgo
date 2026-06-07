@@ -20,10 +20,12 @@ set(PYPGO_BINDING_SOURCES
   bindings/fem/plastic_core.cpp
 
   # energy
+  bindings/energy/peer.cpp
   bindings/energy/bindings.cpp
 
   # constraints / solver
   bindings/constraints/constraint_bindings.cpp
+  bindings/solver/core.cpp
   bindings/solver/solver_bindings.cpp
 
   # simulation

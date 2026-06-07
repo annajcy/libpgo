@@ -1,6 +1,6 @@
 """Formulation descriptors — Python class hierarchy mirrors C++ Formulation classes.
 
-Each instance holds a persistent C++ formulation object (_core_obj).  Methods
+Each instance holds a persistent C++ formulation object (_handle).  Methods
 delegate to C++ virtual dispatch directly.
 """
 
@@ -32,11 +32,11 @@ class Formulation:
     """Abstract base — owns a C++ PyFormulation handle."""
 
     def __init__(self, core_obj) -> None:
-        self._core_obj = core_obj
+        self._handle = core_obj
 
     @property
     def name(self) -> str:
-        return self._core_obj.name
+        return self._handle.name
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
@@ -51,7 +51,7 @@ class VolumetricFormulation(Formulation):
 
         _require_volume_mesh(volume)
         return SparseMatrix(
-            _core.compute_formulation_mass_matrix(volume._core_obj, self._core_obj))
+            _core.compute_formulation_mass_matrix(volume._handle, self._handle))
 
     def body_force(self, volume, acceleration) -> np.ndarray:
         """Generalized body force for a constant 3-vector acceleration."""
@@ -61,7 +61,7 @@ class VolumetricFormulation(Formulation):
         _require_volume_mesh(volume)
         return np.asarray(
             _core.compute_formulation_body_force(
-                volume._core_obj, self._core_obj, accel.tolist()),
+                volume._handle, self._handle, accel.tolist()),
             dtype=np.float64,
         )
 
@@ -75,7 +75,7 @@ class VolumetricFormulation(Formulation):
         _require_volume_mesh(volume)
         return SparseMatrix(
             _core.compute_formulation_surface_embedding_matrix(
-                volume._core_obj, self._core_obj,
+                volume._handle, self._handle,
                 np.ascontiguousarray(points).reshape(-1).tolist()),
         )
 

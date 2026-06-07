@@ -61,32 +61,32 @@ class _MeshDataBase:
 
     def __init__(self, vertices, elements=None):
         if isinstance(vertices, self._core_type) and elements is None:
-            self._core_obj = vertices
+            self._handle = vertices
             return
 
         v_arr = float_matrix("vertices", vertices, 3)
         e_arr = index_matrix("elements", elements, self._element_width, num_vertices=v_arr.shape[0])
-        self._core_obj = self._create(v_arr.ravel().tolist(), e_arr.ravel().tolist())
+        self._handle = self._create(v_arr.ravel().tolist(), e_arr.ravel().tolist())
 
     @property
     def vertices(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "vertices", 3, np.float64)
+        return _array_from_core(self._handle, "vertices", 3, np.float64)
 
     @property
     def elements(self) -> np.ndarray:
-        return _array_from_core(self._core_obj, "elements", self._element_width, np.int64)
+        return _array_from_core(self._handle, "elements", self._element_width, np.int64)
 
     @property
     def mesh_type(self):
-        return self._core_obj.mesh_type()
+        return self._handle.mesh_type()
 
     @property
     def num_vertices(self) -> int:
-        return self._core_obj.num_vertices()
+        return self._handle.num_vertices()
 
     @property
     def num_elements(self) -> int:
-        return self._core_obj.num_elements()
+        return self._handle.num_elements()
 
     @property
     def bbox(self) -> tuple[np.ndarray, np.ndarray]:
@@ -96,7 +96,7 @@ class _MeshDataBase:
         return vertices.min(axis=0), vertices.max(axis=0)
 
     def element_vtx_id(self, element_id: int, local_vertex_id: int) -> int:
-        return self._core_obj.element_vtx_id(int(element_id), int(local_vertex_id))
+        return self._handle.element_vtx_id(int(element_id), int(local_vertex_id))
 
     def take_elements(self, indices):
         idx = np.asarray(indices, dtype=np.int64)

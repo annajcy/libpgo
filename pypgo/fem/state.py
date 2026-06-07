@@ -71,10 +71,10 @@ def _require_sim_mesh(sim_mesh):
 def _elastic_value_channels(sim_mesh, elastic):
     from pypgo.fem.elastic import ElasticModel
     if isinstance(elastic, ElasticModel):
-        return elastic._core_obj.num_channels(sim_mesh._core_obj)
+        return elastic._handle.num_channels(sim_mesh._handle)
     # backward compat: duck-typed object with _to_string() or name
     name = getattr(elastic, "name", None) or elastic._to_string()
-    return _core._elastic_num_channels(sim_mesh._core_obj, name)
+    return _core._elastic_num_channels(sim_mesh._handle, name)
 
 
 # ---------------------------------------------------------------------------
@@ -88,37 +88,37 @@ class DeformationModelState:
             raise TypeError(
                 f"core must be a PyDeformationModelState, got {type(core).__name__}"
             )
-        self._core = core
+        self._handle = core
 
     @property
     def elastic_model(self) -> str:
-        return self._core.elastic_model
+        return self._handle.elastic_model
 
     @property
     def plastic_model(self) -> str:
-        return self._core.plastic_model
+        return self._handle.plastic_model
 
     @property
     def num_elements(self) -> int:
-        return self._core.num_elements
+        return self._handle.num_elements
 
     @property
     def elastic_field(self) -> ParameterField:
-        return ParameterField(self._core.elastic_field)
+        return ParameterField(self._handle.elastic_field)
 
     @property
     def plastic_field(self) -> ParameterField:
-        return ParameterField(self._core.plastic_field)
+        return ParameterField(self._handle.plastic_field)
 
     def set_elastic_values(self, values) -> None:
         field = self.elastic_field
         arr = _field_values_array("values", values, field.num_elements, field.num_channels)
-        self._core.set_elastic_values(arr.ravel())
+        self._handle.set_elastic_values(arr.ravel())
 
     def set_plastic_values(self, values) -> None:
         field = self.plastic_field
         arr = _field_values_array("values", values, field.num_elements, field.num_channels)
-        self._core.set_plastic_values(arr.ravel())
+        self._handle.set_plastic_values(arr.ravel())
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ def deformation_model_state(
     plastic_name = plastic.name if isinstance(plastic, PlasticModel) else plastic._to_string()
 
     core = _core._create_deformation_model_state(
-        sim_mesh._core_obj,
+        sim_mesh._handle,
         elastic_name,
         elastic_values,
         plastic_name,

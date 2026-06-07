@@ -231,6 +231,6 @@ def test_volume_mesh_regions_validate_partition():
 
 def test_material_dataclasses_are_python_payloads():
     mat = pgo.mesh.volume.ENuMaterial("cloth", E=1e6, nu=0.25, density=10.0)
-    assert not hasattr(mat, "_core_obj")
+    assert not hasattr(mat, "_handle")
     assert mat.lam == pytest.approx(4e5)
     assert mat.mu == pytest.approx(4e5)

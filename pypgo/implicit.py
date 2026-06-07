@@ -17,12 +17,12 @@ def _vec3(name: str, value) -> np.ndarray:
 
 class GridSpec:
     def __init__(self, bmin, bmax, resolution: int):
-        self._core_obj = _core.PyGridSpec(_vec3("bmin", bmin), _vec3("bmax", bmax), int(resolution))
+        self._handle = _core.PyGridSpec(_vec3("bmin", bmin), _vec3("bmax", bmax), int(resolution))
 
     @classmethod
     def _from_core(cls, core_obj) -> "GridSpec":
         obj = object.__new__(cls)
-        obj._core_obj = core_obj
+        obj._handle = core_obj
         return obj
 
     @classmethod
@@ -37,15 +37,15 @@ class GridSpec:
 
     @property
     def resolution(self) -> int:
-        return int(self._core_obj.resolution)
+        return int(self._handle.resolution)
 
     @property
     def bmin(self) -> np.ndarray:
-        return np.asarray(self._core_obj.bmin(), dtype=np.float64)
+        return np.asarray(self._handle.bmin(), dtype=np.float64)
 
     @property
     def bmax(self) -> np.ndarray:
-        return np.asarray(self._core_obj.bmax(), dtype=np.float64)
+        return np.asarray(self._handle.bmax(), dtype=np.float64)
 
     def __repr__(self) -> str:
         return f"GridSpec(bmin={self.bmin.tolist()}, bmax={self.bmax.tolist()}, resolution={self.resolution})"
@@ -53,19 +53,19 @@ class GridSpec:
 
 class ImplicitField:
     def __init__(self, core_obj):
-        self._core_obj = core_obj
+        self._handle = core_obj
 
     @classmethod
     def _from_core(cls, core_obj):
         obj = object.__new__(cls)
-        obj._core_obj = core_obj
+        obj._handle = core_obj
         return obj
 
     def eval(self, p) -> float:
-        return float(self._core_obj.eval(_vec3("p", p)))
+        return float(self._handle.eval(_vec3("p", p)))
 
     def bounds(self):
-        result = self._core_obj.bounds()
+        result = self._handle.bounds()
         if result is None:
             return None
         return tuple(np.asarray(v, dtype=np.float64) for v in result)
@@ -79,35 +79,35 @@ class ImplicitField:
             core_num_threads = int(num_threads)
             if core_num_threads <= 0:
                 raise ValueError("num_threads must be a positive integer or None")
-        return GridField(self._core_obj.sample_to_grid(grid_spec._core_obj, core_num_threads))
+        return GridField(self._handle.sample_to_grid(grid_spec._handle, core_num_threads))
 
     def __or__(self, other: "ImplicitField") -> "ImplicitField":
-        return ImplicitField(_core.implicit_union(self._core_obj, _field_core(other)))
+        return ImplicitField(_core.implicit_union(self._handle, _field_core(other)))
 
     def __and__(self, other: "ImplicitField") -> "ImplicitField":
-        return ImplicitField(_core.implicit_intersection(self._core_obj, _field_core(other)))
+        return ImplicitField(_core.implicit_intersection(self._handle, _field_core(other)))
 
     def __sub__(self, other: "ImplicitField") -> "ImplicitField":
-        return ImplicitField(_core.implicit_difference(self._core_obj, _field_core(other)))
+        return ImplicitField(_core.implicit_difference(self._handle, _field_core(other)))
 
     def offset(self, value: float) -> "ImplicitField":
-        return ImplicitField(_core.implicit_offset(self._core_obj, float(value)))
+        return ImplicitField(_core.implicit_offset(self._handle, float(value)))
 
 
 def _field_core(value: ImplicitField):
     if not isinstance(value, ImplicitField):
         raise TypeError(f"value must be ImplicitField, got {type(value).__name__}")
-    return value._core_obj
+    return value._handle
 
 
 class GridField(ImplicitField):
     @property
     def values(self) -> np.ndarray:
-        return np.asarray(self._core_obj)
+        return np.asarray(self._handle)
 
     @property
     def grid_spec(self) -> GridSpec:
-        return GridSpec._from_core(self._core_obj.grid_spec())
+        return GridSpec._from_core(self._handle.grid_spec())
 
 
 class SphereField(ImplicitField):
@@ -118,22 +118,22 @@ class SphereField(ImplicitField):
     def from_mesh_bbox(cls, mesh: TriMeshData) -> "SphereField":
         if not isinstance(mesh, TriMeshData):
             raise TypeError(f"mesh must be TriMeshData, got {type(mesh).__name__}")
-        return cls._from_core(_core.PySphereField.from_mesh_bbox(mesh._core_obj))
+        return cls._from_core(_core.PySphereField.from_mesh_bbox(mesh._handle))
 
     @property
     def center(self) -> np.ndarray:
-        return np.asarray(self._core_obj.center(), dtype=np.float64)
+        return np.asarray(self._handle.center(), dtype=np.float64)
 
     @property
     def radius(self) -> float:
-        return float(self._core_obj.radius())
+        return float(self._handle.radius())
 
 
 class MeshUnsignedDistanceField(ImplicitField):
     def __init__(self, mesh: TriMeshData):
         if not isinstance(mesh, TriMeshData):
             raise TypeError(f"mesh must be TriMeshData, got {type(mesh).__name__}")
-        super().__init__(_core.PyMeshUnsignedDistanceField(mesh._core_obj))
+        super().__init__(_core.PyMeshUnsignedDistanceField(mesh._handle))
 
 
 class BoxField(ImplicitField):
@@ -148,7 +148,7 @@ class BoxField(ImplicitField):
 def extract_marching_cubes(field: GridField, *, iso_offset: float = 0.0) -> TriMeshData:
     if not isinstance(field, GridField):
         raise TypeError("field must be a GridField; call .sample_to_grid() first")
-    return TriMeshData(_core.extract_marching_cubes(field._core_obj, float(iso_offset)))
+    return TriMeshData(_core.extract_marching_cubes(field._handle, float(iso_offset)))
 
 
 def has_openvdb() -> bool:
@@ -157,10 +157,10 @@ def has_openvdb() -> bool:
 
 class OpenVDBOptions:
     def __init__(self, voxel_size: float, half_width: float = 3.0, adaptivity: float = 0.0, smooth_steps: int = 0):
-        self._core_obj = _core.PyOpenVDBOptions(float(voxel_size))
-        self._core_obj.half_width = float(half_width)
-        self._core_obj.adaptivity = float(adaptivity)
-        self._core_obj.smooth_steps = int(smooth_steps)
+        self._handle = _core.PyOpenVDBOptions(float(voxel_size))
+        self._handle.half_width = float(half_width)
+        self._handle.adaptivity = float(adaptivity)
+        self._handle.smooth_steps = int(smooth_steps)
 
 
 def build_openvdb_shell_from_mesh(mesh: TriMeshData, shell_thickness: float, options: OpenVDBOptions):
@@ -168,7 +168,7 @@ def build_openvdb_shell_from_mesh(mesh: TriMeshData, shell_thickness: float, opt
         raise RuntimeError("OpenVDB is not available in this build")
     if not isinstance(mesh, TriMeshData):
         raise TypeError(f"mesh must be TriMeshData, got {type(mesh).__name__}")
-    return _core.build_openvdb_shell_from_mesh(mesh._core_obj, float(shell_thickness), options._core_obj)
+    return _core.build_openvdb_shell_from_mesh(mesh._handle, float(shell_thickness), options._handle)
 
 
 def build_openvdb_from_grid_field(field: GridField, options: OpenVDBOptions):
@@ -176,13 +176,13 @@ def build_openvdb_from_grid_field(field: GridField, options: OpenVDBOptions):
         raise RuntimeError("OpenVDB is not available in this build")
     if not isinstance(field, GridField):
         raise TypeError("field must be a GridField; call .sample_to_grid() first")
-    return _core.build_openvdb_from_grid_field(field._core_obj, options._core_obj)
+    return _core.build_openvdb_from_grid_field(field._handle, options._handle)
 
 
 def extract_openvdb(levelset, options: OpenVDBOptions) -> TriMeshData:
     if not has_openvdb():
         raise RuntimeError("OpenVDB is not available in this build")
-    return TriMeshData(_core.extract_openvdb(levelset, options._core_obj))
+    return TriMeshData(_core.extract_openvdb(levelset, options._handle))
 
 
 def thicken_mesh_surface(

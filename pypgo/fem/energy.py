@@ -40,32 +40,32 @@ class DeformationEnergy(PotentialEnergy):
             raise TypeError(
                 f"core must be a PyDeformationEnergy, got {type(core).__name__}"
             )
-        object.__setattr__(self, "_core", core)
-        super().__init__(core.handle)
+        object.__setattr__(self, "_handle", core)
+        super().__init__(core)
 
     @property
     def rest_position(self) -> np.ndarray:
-        return np.asarray(self._core.rest_position(), dtype=np.float64)
+        return np.asarray(self._handle.rest_position(), dtype=np.float64)
 
     @property
     def num_vertices(self) -> int:
-        return self._core.num_vertices
+        return self._handle.num_vertices
 
     @property
     def num_plastic_dofs(self) -> int:
-        return self._core.num_plastic_dofs
+        return self._handle.num_plastic_dofs
 
     def plastic_gradient(self, displacement: np.ndarray) -> np.ndarray:
         u = float_vector("displacement", displacement)
-        return np.asarray(self._core.plastic_gradient(u), dtype=np.float64)
+        return np.asarray(self._handle.plastic_gradient(u), dtype=np.float64)
 
     def plastic_hessian(self, displacement: np.ndarray):
         u = float_vector("displacement", displacement)
-        return SparseMatrix(self._core.plastic_hessian(u))
+        return SparseMatrix(self._handle.plastic_hessian(u))
 
     def plastic_jacobian(self, displacement: np.ndarray):
         u = float_vector("displacement", displacement)
-        return SparseMatrix(self._core.plastic_jacobian(u))
+        return SparseMatrix(self._handle.plastic_jacobian(u))
 
     def __repr__(self) -> str:
         return f"DeformationEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
@@ -157,7 +157,7 @@ def deformation_energy(
         raise TypeError(f"options must be DeformationOptions, got {type(options).__name__}")
 
     core = _core._create_deformation_energy(
-        state._core,
+        state._handle,
         formulation.name,
         bool(options.enforce_spd),
         bool(options.enable_material_max_step),
@@ -190,8 +190,8 @@ def plastic_material_energy(
         )
 
     handle = _core._create_plastic_material_energy(
-        state._core,
-        deformation_energy._core,
+        state._handle,
+        deformation_energy._handle,
         u,
     )
     return PlasticMaterialEnergy(

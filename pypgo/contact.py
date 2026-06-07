@@ -29,7 +29,7 @@ def _triangles(name, values):
 def _sparse_core(name, value):
     if isinstance(value, _core.PySparseMatrix):
         return value
-    core_obj = getattr(value, "_core_obj", None)
+    core_obj = getattr(value, "_handle", None)
     if isinstance(core_obj, _core.PySparseMatrix):
         return core_obj
     raise TypeError(f"{name} must be a pypgo.sparse.SparseMatrix")
@@ -91,7 +91,7 @@ class ContactVertexEmbedding:
 class ContactSurface:
     """Contact surface with a surface-sized identity simulation map."""
 
-    _core: object
+    _handle: object
     rest_vertices: np.ndarray
     vertex_embedding: ContactVertexEmbedding | None = None
 
@@ -146,15 +146,15 @@ class ContactSurface:
 
     @property
     def num_surface_vertices(self) -> int:
-        return self._core.num_surface_vertices
+        return self._handle.num_surface_vertices
 
     @property
     def num_surface_dofs(self) -> int:
-        return self._core.num_surface_dofs
+        return self._handle.num_surface_dofs
 
     @property
     def num_simulation_dofs(self) -> int:
-        return self._core.num_simulation_dofs
+        return self._handle.num_simulation_dofs
 
 
 @dataclass(frozen=True)
@@ -315,7 +315,7 @@ class FloorEnergy(PotentialEnergy):
             )
 
         handle = _core._create_floor_contact_energy(
-            surface._core,
+            surface._handle,
             parameters.axis,
             parameters.side,
             parameters.height,
@@ -378,7 +378,7 @@ class SampledPenaltyEnergy(_StatefulContactMixin, PotentialEnergy):
             raise TypeError("params must be a SampledPenaltyParameters")
         triangles = _triangles("surface_triangles", surface_triangles)
         core = _core._create_sampled_penalty_contact_energy(
-            surface._core,
+            surface._handle,
             triangles,
             params.stiffness,
             params.samples,
@@ -416,7 +416,7 @@ class IPCEnergy(_StatefulContactMixin, PotentialEnergy):
         if any(not isinstance(obs, ObstacleSpec) for obs in obstacle_specs):
             raise TypeError("obstacles must be an iterable of ObstacleSpec")
         core = _core._create_ipc_contact_energy(
-            surface._core,
+            surface._handle,
             triangles,
             params.dhat,
             params.dhat_external,
@@ -461,7 +461,7 @@ class FrictionalSampledPenaltyEnergy(_StatefulContactMixin, PotentialEnergy):
             raise TypeError("friction must be a FrictionParameters")
         triangles = _triangles("surface_triangles", surface_triangles)
         core = _core._create_frictional_sampled_penalty_contact_energy(
-            surface._core,
+            surface._handle,
             triangles,
             params.stiffness,
             params.samples,

@@ -598,3 +598,23 @@ class TestStateKind:
             assert isinstance(z, np.ndarray)
             assert np.all(z == 0.0)
             assert z.dtype == np.float64
+
+
+# ---------------------------------------------------------------------------
+# Handle architecture: concrete peers
+# ---------------------------------------------------------------------------
+
+def test_energy_handles_are_concrete_peers_and_abstract_peers():
+    linear = pe.LinearEnergy([1.0, 2.0])
+    quadratic = pe.QuadraticEnergy(
+        (2, 2, [0, 1], [0, 1], np.array([1.0, 2.0], dtype=np.float64))
+    )
+    total = pe.EnergySet([(linear, 1.0), (quadratic, 2.0)])
+
+    assert isinstance(linear._handle, _core.PyOwnedPotentialEnergy)
+    assert isinstance(quadratic._handle, _core.PyOwnedPotentialEnergy)
+    assert isinstance(total._handle, _core.PyEnergySet)
+    assert isinstance(linear._handle, _core.PyPotentialEnergy)
+    assert isinstance(total._handle, _core.PyPotentialEnergy)
+    assert not hasattr(linear, "_potential_handle")
+    assert not hasattr(linear._handle, "as_potential_energy")
