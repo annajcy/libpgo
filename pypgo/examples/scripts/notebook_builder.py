@@ -52,7 +52,7 @@ def write_notebook(path: Path, cells: list[Cell]) -> None:
         cells=notebook_cells,
         metadata={
             "kernelspec": {
-                "display_name": "Python 3",
+                "display_name": "libpgo",
                 "language": "python",
                 "name": "python3",
             },

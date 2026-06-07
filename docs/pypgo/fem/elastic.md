@@ -152,8 +152,8 @@ from pypgo.fem import StableNeo, StVK, KoiterStVK
 mat = StableNeo()        # volumetric default
 mat.name                 # "stable_neo"
 # Channels are model-defined; query against a mesh:
-StVK()._core_obj.num_channels(sim_mesh._core_obj)   # -> 0 (Lamé come from the mesh material)
-KoiterStVK()._core_obj.num_channels(sim_mesh._core_obj)  # -> 5
+StVK()._handle.num_channels(sim_mesh._handle)       # -> 0 (Lamé come from the mesh material)
+KoiterStVK()._handle.num_channels(sim_mesh._handle) # -> 5
 ```
 
 ## Further reading

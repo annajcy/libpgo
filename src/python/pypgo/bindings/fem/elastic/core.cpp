@@ -1,6 +1,7 @@
-#include "elastic_core.h"
+#include "core.h"
 
 #include "elastic/elasticModelFactory.h"
+#include "../../simulation/core.h"
 
 namespace pgo
 {
@@ -19,6 +20,11 @@ std::string PyElasticModel::name() const
 int PyElasticModel::numChannels(const SD::SimulationMesh &mesh) const
 {
   return SD::ElasticModelFactory::parameterSpec(mesh, type_).numChannels;
+}
+
+int PyElasticModel::numChannels(const PySimulationMesh &mesh) const
+{
+  return numChannels(mesh.mesh());
 }
 
 std::shared_ptr<PyElasticModel> make_stable_neo()

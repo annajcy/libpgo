@@ -80,7 +80,7 @@ PySparseMatrix PyPotentialEnergy::hessian(
   return PySparseMatrix(std::move(H));
 }
 
-NO::StepConstraint PyPotentialEnergy::maxStep(
+PyStepConstraint PyPotentialEnergy::maxStep(
   nb::ndarray<nb::numpy, const double> x,
   nb::ndarray<nb::numpy, const double> dx) const
 {
@@ -91,7 +91,7 @@ NO::StepConstraint PyPotentialEnergy::maxStep(
     nb::gil_scoped_release release;
     result = NO::evaluateMaxStep(*potentialEnergyHandle(), xMap, dxMap);
   }
-  return result;
+  return PyStepConstraint(std::move(result));
 }
 
 nb::ndarray<nb::numpy, double> PyPotentialEnergy::zeroState() const

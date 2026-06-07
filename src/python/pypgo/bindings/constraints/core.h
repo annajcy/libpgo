@@ -68,3 +68,11 @@ public:
 
   std::shared_ptr<const pgo::NonlinearOptimization::ConstraintFunctions> handle_;
 };
+
+// ── Factories (implemented in constraints/core.cpp) ──────────────────────
+
+std::shared_ptr<PyConstraintFunctions> createLinearConstraint(
+  const PySparseMatrix &A,
+  nanobind::ndarray<nanobind::numpy, const double> offset);
+
+std::shared_ptr<PyConstraintFunctions> createConstraintSet(nanobind::list terms);

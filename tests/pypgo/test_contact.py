@@ -275,4 +275,16 @@ def test_contact_surface_and_energy_handles_are_concrete_peers():
     e = contact.SampledPenaltyEnergy(surface, triangles)
 
     assert isinstance(surface._handle, _core.PyContactSurface)
+    assert isinstance(e._handle, _core.PySampledPenaltyContactEnergy)
+    assert isinstance(e._handle, _core.PyStatefulContactEnergy)
     assert isinstance(e._handle, _core.PyPotentialEnergy)
+    # The stateful peer is the single source of truth: no dual _contact_core.
+    assert not hasattr(e, "_contact_core")
+
+    ipc = contact.IPCEnergy(surface, triangles)
+    assert isinstance(ipc._handle, _core.PyIPCContactEnergy)
+    assert not hasattr(ipc, "_contact_core")
+
+    frictional = contact.FrictionalSampledPenaltyEnergy(surface, triangles)
+    assert isinstance(frictional._handle, _core.PyFrictionalSampledPenaltyContactEnergy)
+    assert not hasattr(frictional, "_contact_core")

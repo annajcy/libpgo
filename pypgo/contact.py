@@ -354,11 +354,11 @@ class FloorEnergy(PotentialEnergy):
 class _StatefulContactMixin:
     def begin_step(self, *, time: float, timestep: float, previous_x=None) -> None:
         previous = None if previous_x is None else np.asarray(previous_x, dtype=np.float64)
-        self._contact_core.begin_step(float(time), float(timestep), previous)
+        self._handle.begin_step(float(time), float(timestep), previous)
 
     @property
     def is_step_dependent(self) -> bool:
-        return bool(self._contact_core.is_step_dependent)
+        return bool(self._handle.is_step_dependent)
 
 
 class SampledPenaltyEnergy(_StatefulContactMixin, PotentialEnergy):
@@ -388,8 +388,7 @@ class SampledPenaltyEnergy(_StatefulContactMixin, PotentialEnergy):
         object.__setattr__(self, "surface", surface)
         object.__setattr__(self, "surface_triangles", triangles.copy())
         object.__setattr__(self, "params", params)
-        object.__setattr__(self, "_contact_core", core)
-        super().__init__(core.handle)
+        super().__init__(core)
 
     def __repr__(self) -> str:
         return f"SampledPenaltyEnergy({self.num_dofs} DOFs, samples={self.params.samples})"
@@ -430,11 +429,10 @@ class IPCEnergy(_StatefulContactMixin, PotentialEnergy):
         object.__setattr__(self, "surface_triangles", triangles.copy())
         object.__setattr__(self, "params", params)
         object.__setattr__(self, "obstacles", tuple(obstacle_specs))
-        object.__setattr__(self, "_contact_core", core)
-        super().__init__(core.handle)
+        super().__init__(core)
 
     def set_moving_obstacle_time(self, time: float) -> None:
-        self._contact_core.set_moving_obstacle_time(float(time))
+        self._handle.set_moving_obstacle_time(float(time))
 
     def __repr__(self) -> str:
         return f"IPCEnergy({self.num_dofs} DOFs, dhat={self.params.dhat:g})"
@@ -474,8 +472,7 @@ class FrictionalSampledPenaltyEnergy(_StatefulContactMixin, PotentialEnergy):
         object.__setattr__(self, "surface_triangles", triangles.copy())
         object.__setattr__(self, "params", params)
         object.__setattr__(self, "friction", friction)
-        object.__setattr__(self, "_contact_core", core)
-        super().__init__(core.handle)
+        super().__init__(core)
 
     def begin_step(self, *, time: float, timestep: float, previous_x=None) -> None:
         if previous_x is None:

@@ -2,7 +2,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/shared_ptr.h>
 
-#include "plastic_core.h"
+#include "core.h"
 
 namespace nb = nanobind;
 using namespace pgo;

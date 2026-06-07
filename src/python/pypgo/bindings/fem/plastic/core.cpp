@@ -1,4 +1,4 @@
-#include "plastic_core.h"
+#include "core.h"
 
 #include "plastic/plasticModelFactory.h"
 

@@ -147,7 +147,7 @@ class TestNotebookGeneration:
         with open(path) as fh:
             nb = json.load(fh)
         ks = nb["metadata"]["kernelspec"]
-        assert ks["display_name"] == "Python 3"
+        assert ks["display_name"] == "libpgo"
         assert ks["language"] == "python"
 
     @pytest.mark.parametrize("stem", list(GENERATORS))

@@ -3,6 +3,8 @@
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/pair.h>
 
+#include "core.h"
+
 namespace nb = nanobind;
 
 // Forward declarations of bind functions
@@ -22,17 +24,8 @@ void init_parallel_bindings(nb::module_ &m);
 void init_simulation_bindings(nb::module_ &m);
 void init_contact_bindings(nb::module_ &m);
 
-nb::dict buildInfo()
-{
-    nb::dict info;
-    info["module"] = "pypgo._core";
-    info["binding"] = "nanobind";
-    info["mesh_geo"] = true;
-    return info;
-}
-
 NB_MODULE(_core, m) {
-    m.def("build_info", &buildInfo);
+    m.def("build_info", &pgo::buildInfo);
 
     init_mesh_geo_bindings(m);
     init_volume_mesh_bindings(m);

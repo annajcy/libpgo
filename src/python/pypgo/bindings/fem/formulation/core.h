@@ -2,8 +2,12 @@
 
 #include "formulations/formulation.h"
 
+#include "../../mesh/volume/core.h"
+#include "../../sparse/core.h"
+
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace pgo
 {
@@ -51,5 +55,19 @@ std::shared_ptr<PyVolumetricFormulation> make_tet_p1();
 std::shared_ptr<PyVolumetricFormulation> make_linear_cubic();
 std::shared_ptr<PyVolumetricFormulation> make_tricubic_hermite();
 std::shared_ptr<PyShellFormulation> make_koiter_shell();
+
+PySparseMatrix compute_formulation_mass_matrix(
+  const PyVolumeMesh &volumeMesh,
+  const PyVolumetricFormulation &formulation);
+
+std::vector<double> compute_formulation_body_force(
+  const PyVolumeMesh &volumeMesh,
+  const PyVolumetricFormulation &formulation,
+  const std::vector<double> &acceleration);
+
+PySparseMatrix compute_formulation_surface_embedding_matrix(
+  const PyVolumeMesh &volumeMesh,
+  const PyVolumetricFormulation &formulation,
+  const std::vector<double> &surfaceVerticesFlat);
 
 }  // namespace pgo

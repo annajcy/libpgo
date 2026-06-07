@@ -1,6 +1,6 @@
 # pypgo Handle Architecture Refactor Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 统一 `pypgo` Python facade 与 C++ binding 的对象模型，使每个 Python facade 的 `_handle` 都保存对应的 concrete `PyXXXX` C++ peer，并让 binding 注册文件只声明绑定，不承载具体实现。
 
@@ -176,7 +176,7 @@ problem.variable_bounds = Bounds(lower=lower, upper=upper)
 - Modify: `pypgo/energy.py`
 - Modify: `tests/pypgo/test_energy.py`
 
-- [ ] **Step 1: 写失败测试，确认 `_handle` 是 concrete peer 且直接继承 abstract peer**
+- [x] **Step 1: 写失败测试，确认 `_handle` 是 concrete peer 且直接继承 abstract peer**
 
 在 `tests/pypgo/test_energy.py` 增加：
 
@@ -198,7 +198,7 @@ def test_energy_handles_are_concrete_peers_and_abstract_peers():
     assert not hasattr(linear._handle, "as_potential_energy")
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run:
 
@@ -208,7 +208,7 @@ pytest tests/pypgo/test_energy.py::test_energy_handles_are_concrete_peers_and_ab
 
 Expected: fail because concrete peers are not exposed and Python still uses abstract `_core.PotentialEnergy` style handles.
 
-- [ ] **Step 3: 设计 C++ `PyPotentialEnergy` base**
+- [x] **Step 3: 设计 C++ `PyPotentialEnergy` base**
 
 在 `energy/peer.h` 中声明 polymorphic base：
 
@@ -256,7 +256,7 @@ public:
 
 `energy/core.h` 可以 include `peer.h`，或迁移旧 `PyPotentialEnergy` 定义到 `peer.h` 后保持 include 路径兼容。
 
-- [ ] **Step 4: 增加 concrete energy peers**
+- [x] **Step 4: 增加 concrete energy peers**
 
 在 `energy/peer.h` 继续声明：
 
@@ -289,7 +289,7 @@ private:
 
 只为有类型特有行为的 energy 建 typed peer（Task 1 内只有 `PyVertexAttachmentEnergy`）。Linear / Quadratic / constraint penalty 共用 `PyOwnedPotentialEnergy`，不造空标签类，也不需要 `PyTypedPotentialEnergy` 模板。若后续某个 generic energy 需要类型特有行为，再单独拆 typed peer。
 
-- [ ] **Step 5: 实现 `energy/peer.cpp`**
+- [x] **Step 5: 实现 `energy/peer.cpp`**
 
 将旧 `PyPotentialEnergy` 求值逻辑迁移为成员函数，所有 `handle_` 使用改成：
 
@@ -307,7 +307,7 @@ void PyVertexAttachmentEnergy::setTargetPositions(nb::ndarray<nb::numpy, const d
 }
 ```
 
-- [ ] **Step 6: 让 factories 返回 concrete peers**
+- [x] **Step 6: 让 factories 返回 concrete peers**
 
 在 `energy/bindings.cpp` 或 `energy/peer.cpp` 中的 named factory 返回具体 peer：
 
@@ -322,7 +322,7 @@ std::shared_ptr<PyOwnedPotentialEnergy> createLinearEnergy(nb::ndarray<nb::numpy
 
 `_create_linear_energy`、`_create_quadratic_energy_*` 和 constraint penalty factory 都返回 `std::shared_ptr<PyOwnedPotentialEnergy>`。只有 `_create_vertex_attachment` 返回 `std::shared_ptr<PyVertexAttachmentEnergy>`。
 
-- [ ] **Step 7: 改造 `PyEnergySet`**
+- [x] **Step 7: 改造 `PyEnergySet`**
 
 `PyEnergySet` 继承 `PyPotentialEnergy` 并直接持有 concrete `EnergySet`：
 
@@ -343,7 +343,7 @@ private:
 
 `createEnergySet` 接收 `std::shared_ptr<PyPotentialEnergy>`，使用 `term->potentialEnergyHandle()`。
 
-- [ ] **Step 8: 绑定 base-before-derived，不绑定 `as_potential_energy`**
+- [x] **Step 8: 绑定 base-before-derived，不绑定 `as_potential_energy`**
 
 `energy/bindings.cpp` 绑定：
 
@@ -368,7 +368,7 @@ nb::class_<PyEnergySet, PyPotentialEnergy, std::shared_ptr<PyEnergySet>>(m, "PyE
   .def_prop_ro("num_terms", &PyEnergySet::numTerms);
 ```
 
-- [ ] **Step 9: 更新 CMake**
+- [x] **Step 9: 更新 CMake**
 
 在 `src/python/pypgo/CMakeLists.txt` energy 段加入：
 
@@ -377,7 +377,7 @@ bindings/energy/peer.cpp
 bindings/energy/bindings.cpp
 ```
 
-- [ ] **Step 10: 修改 Python `PotentialEnergy` base**
+- [x] **Step 10: 修改 Python `PotentialEnergy` base**
 
 `pypgo/energy.py` 中：
 
@@ -395,7 +395,7 @@ class PotentialEnergy:
 
 保留现有 `__setattr__` / `__delattr__` immutability guard；`ConstraintPenalty`、`VertexAttachment`、`EnergySet` 等子类继续使用 `object.__setattr__` 写私有字段。
 
-- [ ] **Step 11: 修改 concrete Python energies**
+- [x] **Step 11: 修改 concrete Python energies**
 
 `LinearEnergy`、`QuadraticEnergy`、`ConstraintPenalty`、`ConstraintViolationPenalty`、`VertexAttachment` 继续 `super().__init__(factory_result)`，但 factory result 是 concrete peer。
 
@@ -417,7 +417,7 @@ super().__init__(handle)
 
 删除 `_core_handle` 字段，`num_terms`、`set_weight` 和 `__repr__` 直接委托 `self._handle`。
 
-- [ ] **Step 12: 跑 energy 测试**
+- [x] **Step 12: 跑 energy 测试**
 
 Run:
 
@@ -441,7 +441,7 @@ Expected: all energy tests pass.
 - Modify: `pypgo/solver.py`
 - Modify: `tests/pypgo/test_solver.py`
 
-- [ ] **Step 1: 写失败测试，覆盖 C++ peer、Python facade 和 solve 行为**
+- [x] **Step 1: 写失败测试，覆盖 C++ peer、Python facade 和 solve 行为**
 
 在 `tests/pypgo/test_solver.py` 增加：
 
@@ -468,7 +468,7 @@ def test_optimizer_problem_peers_and_newton_solve():
     np.testing.assert_allclose(result.x, [2.0], atol=1e-8)
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run:
 
@@ -478,7 +478,7 @@ pytest tests/pypgo/test_solver.py::test_optimizer_problem_peers_and_newton_solve
 
 Expected: fail because solver peers and Python facade are not wired.
 
-- [ ] **Step 3: 新增 `solver/core.h`**
+- [x] **Step 3: 新增 `solver/core.h`**
 
 写入 `src/python/pypgo/bindings/solver/core.h`：
 
@@ -557,7 +557,7 @@ nb::dict optimizationResultToDict(NOO::OptimizationResult result);
 NOO::NewtonOptimizer::Options makeNewtonOptions(const PyNewtonOptimizerOptions &options);
 ```
 
-- [ ] **Step 4: 新增 `solver/core.cpp`**
+- [x] **Step 4: 新增 `solver/core.cpp`**
 
 实现中使用 Task 1 已存在的 `PyPotentialEnergy::potentialEnergyHandle()`：
 
@@ -599,7 +599,7 @@ PyNewtonOptimizer::PyNewtonOptimizer(PyNewtonOptimizerOptions options):
 }
 ```
 
-- [ ] **Step 5: 重写 `solver_bindings.cpp` 为纯 binding**
+- [x] **Step 5: 重写 `solver_bindings.cpp` 为纯 binding**
 
 Binding 不暴露 Python 侧 `as_optimizer`：
 
@@ -613,7 +613,7 @@ nb::class_<PyNewtonOptimizer, PyOptimizer, std::shared_ptr<PyNewtonOptimizer>>(m
 
 保留 `PyOptimizationProblem` 和 `PyNewtonOptimizerOptions` bindings。`PyNewtonOptimizerOptions` 必须支持默认构造，并以 `def_rw` 暴露 `max_iterations`、`gradient_tolerance`、`damping`、`line_search`、`verbose`、`sparse_solver_kind`，供 Python `NewtonOptimizer.__init__` 填充。
 
-- [ ] **Step 6: 更新 CMake**
+- [x] **Step 6: 更新 CMake**
 
 在 `src/python/pypgo/CMakeLists.txt` solver 段加入：
 
@@ -622,7 +622,7 @@ bindings/solver/core.cpp
 bindings/solver/solver_bindings.cpp
 ```
 
-- [ ] **Step 7: 修改 `pypgo/solver.py`**
+- [x] **Step 7: 修改 `pypgo/solver.py`**
 
 新增 Python `Optimizer` base：
 
@@ -697,7 +697,7 @@ class NewtonOptimizer(Optimizer):
 
 不提供构造后修改 options 的接口（无 dataclass 字段、无 setter、无 `_sync_handle_before_solve`）。`Optimizer.solve()` 直接用稳定的 `self._handle`；要换参数就新建一个 `NewtonOptimizer`。若将来需要只读访问，可加 property 委托到 C++ peer，但当前没有读者，先不加。
 
-- [ ] **Step 8: 删除 `solve_newton`，更新 `__all__`**
+- [x] **Step 8: 删除 `solve_newton`，更新 `__all__`**
 
 删除 `solve_newton` 函数、`__all__` 中的 `"solve_newton"`，以及随之失去引用的 `replace` import 和 `_as_fixed_dofs` helper。规范用法改为「构造 problem → 实例化 optimizer → solve」：
 
@@ -709,7 +709,7 @@ result = solver.NewtonOptimizer(damping=False).solve(problem, x0)
 
 `__all__` 加入 `"Optimizer"`。把 `tests/pypgo/test_solver.py::test_solve_newton_shim_uses_object_api` 改写成上面的 object API 流程以保留 `fix_variables` 覆盖；删除只验证 `solve_newton(options={...})` 报错的那个用例。
 
-- [ ] **Step 9: 构建并跑 solver tests**
+- [x] **Step 9: 构建并跑 solver tests**
 
 Run:
 
@@ -732,7 +732,7 @@ Expected: all solver tests pass.
 - Modify: `pypgo/fem/energy.py`
 - Modify: `tests/pypgo/test_deformation_energy.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/pypgo/test_deformation_energy.py` 中复用该文件已有 helper，新增 top-level 测试：
 
@@ -749,7 +749,7 @@ def test_deformation_energy_handle_is_concrete_peer():
     assert isinstance(e._handle, _core.PyPotentialEnergy)
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run:
 
@@ -759,7 +759,7 @@ pytest tests/pypgo/test_deformation_energy.py::test_deformation_energy_handle_is
 
 Expected: fail because Python currently stores `_core` plus abstract `_handle`.
 
-- [ ] **Step 3: 让 `PyDeformationEnergy` 继承 `PyPotentialEnergy`**
+- [x] **Step 3: 让 `PyDeformationEnergy` 继承 `PyPotentialEnergy`**
 
 `PyDeformationEnergy` 存 concrete `std::shared_ptr<SolidDeformationModel::DeformationModelEnergy>`，实现：
 
@@ -772,7 +772,7 @@ std::shared_ptr<const NO::PotentialEnergy> potentialEnergyHandle() const overrid
 
 删除内部 `std::shared_ptr<PyPotentialEnergy> handle_`。
 
-- [ ] **Step 4: 绑定继承关系**
+- [x] **Step 4: 绑定继承关系**
 
 ```cpp
 nb::class_<PyDeformationEnergy, PyPotentialEnergy, std::shared_ptr<PyDeformationEnergy>>(m, "PyDeformationEnergy")
@@ -784,7 +784,7 @@ nb::class_<PyDeformationEnergy, PyPotentialEnergy, std::shared_ptr<PyDeformation
   .def("plastic_jacobian", &PyDeformationEnergy::plasticJacobian);
 ```
 
-- [ ] **Step 5: 修改 Python `DeformationEnergy`**
+- [x] **Step 5: 修改 Python `DeformationEnergy`**
 
 ```python
 def __init__(self, core):
@@ -795,7 +795,7 @@ def __init__(self, core):
 
 所有 `self._core` 使用改成 `self._handle`。
 
-- [ ] **Step 6: 处理 `PlasticMaterialEnergy`**
+- [x] **Step 6: 处理 `PlasticMaterialEnergy`**
 
 若 C++ factory 仍返回 generic owned energy，Python `PlasticMaterialEnergy._handle` 可以是 `_core.PyOwnedPotentialEnergy`。若需要一一对应到更细类型，新增 `PyPlasticMaterialEnergy : PyPotentialEnergy` 并让 factory 返回它。测试至少确认：
 
@@ -803,7 +803,7 @@ def __init__(self, core):
 assert isinstance(plastic_energy._handle, _core.PyPotentialEnergy)
 ```
 
-- [ ] **Step 7: 跑 FEM energy tests**
+- [x] **Step 7: 跑 FEM energy tests**
 
 Run:
 
@@ -827,7 +827,7 @@ Expected: tests pass.
 - Modify: `pypgo/contact.py`
 - Modify: `tests/pypgo/test_contact.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/pypgo/test_contact.py` 增加：
 
@@ -849,7 +849,7 @@ def test_contact_surface_and_energy_handles_are_concrete_peers():
     assert isinstance(e._handle, _core.PyPotentialEnergy)
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run:
 
@@ -859,7 +859,7 @@ pytest tests/pypgo/test_contact.py::test_contact_surface_and_energy_handles_are_
 
 Expected: fail because `ContactSurface` still uses `_core` and contact energies store `_contact_core`.
 
-- [ ] **Step 3: 建立 contact peer hierarchy**
+- [x] **Step 3: 建立 contact peer hierarchy**
 
 `contact/core.h`：
 
@@ -899,7 +899,7 @@ public:
 };
 ```
 
-- [ ] **Step 4: 让 factories 返回 concrete peers**
+- [x] **Step 4: 让 factories 返回 concrete peers**
 
 `_create_contact_surface_identity` / `_create_contact_surface_embedded` 返回 `PyContactSurface`。
 
@@ -907,7 +907,7 @@ public:
 
 Floor energy 若没有 stateful 行为，可返回 typed `PyFloorContactEnergy : PyPotentialEnergy` 或 `PyOwnedPotentialEnergy`。
 
-- [ ] **Step 5: 修改 Python contact**
+- [x] **Step 5: 修改 Python contact**
 
 `ContactSurface` dataclass 字段从 `_core` 改为 `_handle`。所有 `surface._core` 使用改成 `surface._handle`。
 
@@ -925,7 +925,7 @@ return bool(self._handle.is_step_dependent)
 
 删除 `_contact_core`。`IPCEnergy.set_moving_obstacle_time` 改成 `self._handle.set_moving_obstacle_time(float(time))`。
 
-- [ ] **Step 6: 跑 contact tests**
+- [x] **Step 6: 跑 contact tests**
 
 Run:
 
@@ -952,7 +952,7 @@ Expected: tests pass.
 - Modify: `tests/pypgo/test_dynamic_stepper.py`
 - Modify: `tests/pypgo/test_sparse_and_sim.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/pypgo/test_dynamic_stepper.py` 中复用已有 `_rest_state()` / `_spring()` helper，新增：
 
@@ -978,7 +978,7 @@ def test_dynamic_step_accepts_optimizer_base():
     assert frame.solver_result.raw_status_code is not None
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run after Task 2 is complete and before Task 5 implementation:
 
@@ -988,7 +988,7 @@ pytest tests/pypgo/test_dynamic_stepper.py::test_dynamic_step_accepts_optimizer_
 
 Expected: fail because current `DynamicSimulation.step` still requires `pypgo.solver.NewtonOptimizer`, not the `Optimizer` base.
 
-- [ ] **Step 3: 修改 C++ `PyDynamicSimulation::step` 签名**
+- [x] **Step 3: 修改 C++ `PyDynamicSimulation::step` 签名**
 
 从散装 Newton 参数改为：
 
@@ -1008,11 +1008,11 @@ if (!optimizer)
 result = stepper_->step(state_, request, optimizer->asOptimizer());
 ```
 
-- [ ] **Step 4: 移动 simulation helper**
+- [x] **Step 4: 移动 simulation helper**
 
 `PyDynamicSimulation` class、`buildSparse`、`parseIntegrator`、`solverResultToDict` 移到 `simulation/core.h` / `simulation/core.cpp`。`simulation/bindings.cpp` 只保留 bindings。
 
-- [ ] **Step 5: 修改 Python `pypgo/sim.py`**
+- [x] **Step 5: 修改 Python `pypgo/sim.py`**
 
 Dynamic simulation 构造时 energy handle 改为：
 
@@ -1042,7 +1042,7 @@ data = self._handle.step(force, fixed_arr, has_fixed, optimizer._handle)
 
 如果 `DynamicSimulation` 仍暂时使用 `_sim` 字段，本任务中同步改成 `_handle`，避免 Task 7 重复触碰。
 
-- [ ] **Step 6: 修改 `pypgo/torch.py` 和 `pypgo/sim_builders.py`**
+- [x] **Step 6: 修改 `pypgo/torch.py` 和 `pypgo/sim_builders.py`**
 
 `StaticEquilibriumLayer.__init__`：
 
@@ -1059,7 +1059,7 @@ if not isinstance(self.inner_optimizer, solver.Optimizer):
 
 `VolumeIPCSimulationBuild.optimizer` 标注改为 `_solver.Optimizer`。默认构造仍使用 `_solver.NewtonOptimizer(...)`。
 
-- [ ] **Step 7: 跑 simulation tests**
+- [x] **Step 7: 跑 simulation tests**
 
 Run:
 
@@ -1084,7 +1084,7 @@ Expected: tests pass.
 - Modify: `pypgo/energy.py`
 - Modify: `tests/pypgo/test_constraints.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `tests/pypgo/test_constraints.py` 增加：
 
@@ -1102,7 +1102,7 @@ def test_constraint_handle_uses_py_prefix_and_no_python_adapter():
     assert not hasattr(c._handle, "as_constraint_functions")
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run:
 
@@ -1112,7 +1112,7 @@ pytest tests/pypgo/test_constraints.py::test_constraint_handle_uses_py_prefix_an
 
 Expected: fail because current binding still exposes the old constraint peer naming and/or Python still carries adapter fields.
 
-- [ ] **Step 3: C++ 统一命名**
+- [x] **Step 3: C++ 统一命名**
 
 把 binding class 名从 `"ConstraintFunctions"` 改为 `"PyConstraintFunctions"`。若需要保留兼容 alias，可在同一 task 中明确：
 
@@ -1123,7 +1123,7 @@ nb::class_<PyConstraintFunctions, std::shared_ptr<PyConstraintFunctions>>(m, "Py
 
 不再绑定 `as_constraint_functions`。
 
-- [ ] **Step 4: 移动 constraints helper**
+- [x] **Step 4: 移动 constraints helper**
 
 `sparseMatrixToEigen`、`createLinearConstraint`、`createConstraintSet` 移到 `constraints/core.cpp` 或 `PyConstraintFunctions` static factory。
 
@@ -1134,11 +1134,11 @@ m.def("_create_linear_constraint", &createLinearConstraint);
 m.def("_create_constraint_function_set", &createConstraintSet);
 ```
 
-- [ ] **Step 5: 修改 Python `constraints.py` 和 `energy.py`**
+- [x] **Step 5: 修改 Python `constraints.py` 和 `energy.py`**
 
 `ConstraintFunction.__init__` 检查 `_core.PyConstraintFunctions`。`ConstraintFunctionSet` 和 penalty energy factories 直接传 `constraint._handle`。
 
-- [ ] **Step 6: 跑 constraints tests**
+- [x] **Step 6: 跑 constraints tests**
 
 Run:
 
@@ -1168,7 +1168,7 @@ Expected: tests pass.
 - Modify: `pypgo/implicit.py`
 - Modify: tests that directly inspect `_core_obj`
 
-- [ ] **Step 1: 写兼容测试**
+- [x] **Step 1: 写兼容测试**
 
 在 `tests/pypgo/test_binding_infrastructure.py` 增加：
 
@@ -1182,7 +1182,7 @@ def test_public_facades_use_handle_name_for_core_peer():
     assert not hasattr(s, "_core_obj")
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run:
 
@@ -1192,7 +1192,7 @@ pytest tests/pypgo/test_binding_infrastructure.py::test_public_facades_use_handl
 
 Expected: fail because many wrappers still use `_core_obj`.
 
-- [ ] **Step 3: 安全机械替换 private peer 字段**
+- [x] **Step 3: 安全机械替换 private peer 字段**
 
 逐文件替换 instance fields：
 
@@ -1218,7 +1218,7 @@ _core.create_sparse_matrix
 
 不要用全局 regex 盲替换 `_core.`。只替换对象字段访问。
 
-- [ ] **Step 4: 更新 helper 函数**
+- [x] **Step 4: 更新 helper 函数**
 
 例如 `pypgo/contact.py::_sparse_core` 改为读取：
 
@@ -1228,7 +1228,7 @@ handle = getattr(value, "_handle", None)
 
 `pypgo/sparse.py::as_sparse_matrix` 保留接受 `_core.PySparseMatrix`，但返回对象内部字段为 `_handle`。
 
-- [ ] **Step 5: 更新 tests**
+- [x] **Step 5: 更新 tests**
 
 测试中直接访问 `_core_obj` 的地方改为 `_handle`。如果测试目的是验证私有字段，断言 concrete C++ 类型：
 
@@ -1236,7 +1236,7 @@ handle = getattr(value, "_handle", None)
 assert isinstance(mesh._handle, _core.PyTriMeshData)
 ```
 
-- [ ] **Step 6: 跑基础 wrapper tests**
+- [x] **Step 6: 跑基础 wrapper tests**
 
 Run:
 
@@ -1336,7 +1336,7 @@ src/python/pypgo/bindings/parallel/bindings.cpp
   - thread getter/setter helper implementations should move to a small parallel core wrapper
 ```
 
-- [ ] **Step 1: 写 sparse binding 零实现回归检查**
+- [x] **Step 1: 写 sparse binding 零实现回归检查**
 
 Run:
 
@@ -1346,7 +1346,7 @@ rg -n "\\.def\\([^\\n]*\\[|create_sparse_matrix\\(" src/python/pypgo/bindings/sp
 
 Expected before cleanup: reports `matvec` / `matmat` lambdas and the local `create_sparse_matrix` helper.
 
-- [ ] **Step 2: 将 sparse 逻辑移动到 `PySparseMatrix`**
+- [x] **Step 2: 将 sparse 逻辑移动到 `PySparseMatrix`**
 
 在 `src/python/pypgo/bindings/sparse/core.h` 增加:
 
@@ -1364,7 +1364,7 @@ nb::ndarray<nb::numpy, double> matmat(nb::ndarray<nb::numpy, const double> B) co
 
 实现可以放在 header inline 或新 `sparse/core.cpp`，但不得放在 `sparse/bindings.cpp`。
 
-- [ ] **Step 3: 将 `sparse/bindings.cpp` 改成纯绑定**
+- [x] **Step 3: 将 `sparse/bindings.cpp` 改成纯绑定**
 
 ```cpp
 nb::class_<PySparseMatrix>(m, "PySparseMatrix")
@@ -1379,7 +1379,7 @@ nb::class_<PySparseMatrix>(m, "PySparseMatrix")
 m.def("create_sparse_matrix", &PySparseMatrix::create);
 ```
 
-- [ ] **Step 4: 搜索所有 binding 注册文件中的局部业务实现**
+- [x] **Step 4: 搜索所有 binding 注册文件中的局部业务实现**
 
 Run:
 
@@ -1392,7 +1392,7 @@ rg -n "class Py|struct Py|parse[A-Z]|ToDict|create[A-Z]|make[A-Z]|build[A-Z]|com
 
 Expected before cleanup: reports the known offender inventory above. Expected after cleanup: no local `Py...` class/struct, no helper implementation, and no `.def` / `.def_prop_*` / `m.def` lambda with implementation remains in binding registration files.
 
-- [ ] **Step 5: 按模块移动残留实现**
+- [x] **Step 5: 按模块移动残留实现**
 
 ```text
 implicit/bindings.cpp -> implicit/core.h and implicit/core.cpp or PyImplicit... wrappers
@@ -1406,7 +1406,7 @@ parallel/bindings.cpp -> parallel/core.h or named PyParallel facade functions
 constraints/constraint_bindings.cpp -> constraints/core.cpp or PyConstraintFunctions factories
 ```
 
-- [ ] **Step 6: 保留纯绑定声明**
+- [x] **Step 6: 保留纯绑定声明**
 
 每个 binding registration file 允许包含：
 
@@ -1417,7 +1417,7 @@ m.def(...)
 
 不允许包含跨语言对象实现、状态持有 class、算法参数解析函数、Eigen/solver/contact 计算逻辑，或带业务逻辑的 lambda。
 
-- [ ] **Step 7: 构建检查**
+- [x] **Step 7: 构建检查**
 
 Run:
 
@@ -1427,7 +1427,7 @@ cmake --build build --target pypgo_core
 
 Expected: build succeeds.
 
-- [ ] **Step 8: 验证 binding 零实现检查通过**
+- [x] **Step 8: 验证 binding 零实现检查通过**
 
 Run:
 
@@ -1450,7 +1450,7 @@ Expected: no output.
 - Modify: relevant docs under `docs/pypgo/`
 - Modify: notebook generator scripts under `pypgo/examples/scripts/` only if they mention `_handle` / `_core_obj`
 
-- [ ] **Step 1: 搜索旧术语**
+- [x] **Step 1: 搜索旧术语**
 
 Run:
 
@@ -1460,7 +1460,7 @@ rg -n "_core_obj|_core_handle|_contact_core|_potential_handle|as_potential_energ
 
 Expected: matches are either removed or intentionally documented compatibility references.
 
-- [ ] **Step 2: 更新 docs**
+- [x] **Step 2: 更新 docs**
 
 把旧说法：
 
@@ -1475,7 +1475,7 @@ Each Python facade stores its concrete C++ PyXXXX peer in `_handle`.
 Energy peers inherit `_core.PyPotentialEnergy`, and C++ internals use `potentialEnergyHandle()` when a core `PotentialEnergy` pointer is required.
 ```
 
-- [ ] **Step 3: 跑 focused tests**
+- [x] **Step 3: 跑 focused tests**
 
 Run:
 
@@ -1485,7 +1485,7 @@ pytest tests/pypgo/test_solver.py tests/pypgo/test_energy.py tests/pypgo/test_de
 
 Expected: all focused tests pass.
 
-- [ ] **Step 4: 跑全量 pypgo tests**
+- [x] **Step 4: 跑全量 pypgo tests**
 
 Run:
 
@@ -1495,7 +1495,7 @@ pytest tests/pypgo -q
 
 Expected: all tests pass, or optional dependency tests skip for unavailable build features.
 
-- [ ] **Step 5: 记录迁移摘要**
+- [x] **Step 5: 记录迁移摘要**
 
 在最终 PR / commit message 中写明：
 
@@ -1555,3 +1555,17 @@ Expected: all tests pass, or optional dependency tests skip for unavailable buil
 **类型一致性检查：**
 
 计划中统一使用 C++ `potentialEnergyHandle()` 返回 core energy pointer；Python 不使用 `_potential_handle`。Optimizer 统一使用 C++ `PyOptimizer` / `PyNewtonOptimizer` 与 Python `Optimizer` / `NewtonOptimizer`，C++ 内部使用 `asOptimizer()`；`NewtonOptimizer` 构造期定死 options，C++ `_handle` 为唯一真相源。Constraint peer 统一使用 `_core.PyConstraintFunctions`。
+
+---
+
+## 执行完成记录
+
+2026-06-07 implementation pass completed:
+
+- C++ binding registration files now contain only binding declarations / init functions; business helpers, trivial capability flags, `build_info`, and algorithm calls are moved to named core functions.
+- Python facades use `_handle` for concrete C++ peers; legacy `_core_obj`, `_core_handle`, `_contact_core`, `_potential_handle`, Python-side `as_potential_energy()`, and Python-visible `as_optimizer()` have no implementation-side residue.
+- Focused verification passed:
+  - `cmake --build build/pypgo --target pypgo_core`
+  - binding zero-implementation grep
+  - legacy terminology grep, excluding this plan and negative tests
+  - `python -m pytest ...` focused regression: 175 passed

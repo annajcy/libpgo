@@ -1,39 +1,49 @@
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
 
 set(PYPGO_BINDING_SOURCES
+  bindings/core.cpp
   bindings/module.cpp
 
   # sparse / dense
   bindings/sparse/bindings.cpp
+  bindings/dense/core.cpp
   bindings/dense/bindings.cpp
 
   # mesh
-  bindings/mesh/geo_bindings.cpp
-  bindings/mesh/volume_bindings.cpp
+  bindings/mesh/geo/core.cpp
+  bindings/mesh/geo/bindings.cpp
+  bindings/mesh/volume/core.cpp
+  bindings/mesh/volume/bindings.cpp
 
   # fem
-  bindings/fem/formulation_bindings.cpp
-  bindings/fem/formulation_core.cpp
-  bindings/fem/elastic_bindings.cpp
-  bindings/fem/elastic_core.cpp
-  bindings/fem/plastic_bindings.cpp
-  bindings/fem/plastic_core.cpp
+  bindings/fem/formulation/bindings.cpp
+  bindings/fem/formulation/core.cpp
+  bindings/fem/elastic/bindings.cpp
+  bindings/fem/elastic/core.cpp
+  bindings/fem/plastic/bindings.cpp
+  bindings/fem/plastic/core.cpp
 
   # energy
   bindings/energy/peer.cpp
+  bindings/energy/core.cpp
   bindings/energy/bindings.cpp
 
   # constraints / solver
-  bindings/constraints/constraint_bindings.cpp
+  bindings/constraints/core.cpp
+  bindings/constraints/bindings.cpp
   bindings/solver/core.cpp
-  bindings/solver/solver_bindings.cpp
+  bindings/solver/bindings.cpp
 
   # simulation
+  bindings/simulation/dynamic/core.cpp
   bindings/simulation/bindings.cpp
 
   # contact / implicit / parallel
+  bindings/contact/core.cpp
   bindings/contact/bindings.cpp
+  bindings/implicit/core.cpp
   bindings/implicit/bindings.cpp
+  bindings/parallel/core.cpp
   bindings/parallel/bindings.cpp
 )
 
@@ -44,9 +54,13 @@ else()
 endif()
 
 if(TARGET animationIO)
-  list(APPEND PYPGO_BINDING_SOURCES bindings/animation/animation_io.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES
+    bindings/animation/core.cpp
+    bindings/animation/bindings.cpp)
 else()
-  list(APPEND PYPGO_BINDING_SOURCES bindings/animation/animation_io_disabled.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES
+    bindings/animation/disabled/core.cpp
+    bindings/animation/disabled/bindings.cpp)
 endif()
 
 nanobind_add_module(pypgo_core STABLE_ABI NB_DOMAIN pypgo ${PYPGO_BINDING_SOURCES})

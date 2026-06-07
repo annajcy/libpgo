@@ -1,14 +1,13 @@
-#include <nanobind/nanobind.h>
-#include <nanobind/stl/shared_ptr.h>
-#include <nanobind/stl/vector.h>
+#include "core.h"
 
-#include "constraint_core.h"
 #include "constraints/constraintSet.h"
 #include "constraints/linearConstraintFunctions.h"
 #include "../sparse/core.h"
 
+#include <nanobind/stl/shared_ptr.h>
+#include <nanobind/stl/vector.h>
+
 #include <memory>
-#include <stdexcept>
 #include <vector>
 
 namespace nb = nanobind;
@@ -33,8 +32,11 @@ EigenSupport::SpMatD sparseMatrixToEigen(const PySparseMatrix &A)
   matrix.setFromTriplets(triplets.begin(), triplets.end());
   return matrix;
 }
+}  // namespace
 
-std::shared_ptr<PyConstraintFunctions> createLinearConstraint(const PySparseMatrix &A, nb::ndarray<nb::numpy, const double> offset)
+std::shared_ptr<PyConstraintFunctions> createLinearConstraint(
+  const PySparseMatrix &A,
+  nb::ndarray<nb::numpy, const double> offset)
 {
   auto offsetVec = python::ndarrayToVectorXd(offset);
   auto constraints = std::make_shared<NonlinearOptimization::LinearConstraintFunctions>(
@@ -64,23 +66,4 @@ std::shared_ptr<PyConstraintFunctions> createConstraintSet(nb::list terms)
 
   auto set = std::make_shared<NonlinearOptimization::ConstraintSet>(numDofs, std::move(cppTerms));
   return std::make_shared<PyConstraintFunctions>(std::move(set));
-}
-}  // namespace
-
-void init_constraint_bindings(nb::module_ &m)
-{
-  nb::class_<PyConstraintFunctions>(m, "PyConstraintFunctions")
-    .def("__repr__", &PyConstraintFunctions::repr)
-    .def_prop_ro("num_dofs", &PyConstraintFunctions::numDofs)
-    .def_prop_ro("num_constraints", &PyConstraintFunctions::numConstraints)
-    .def_prop_ro("is_linear", &PyConstraintFunctions::isLinear)
-    .def("value", &PyConstraintFunctions::value, nb::arg("x"))
-    .def("jacobian", &PyConstraintFunctions::jacobian, nb::arg("x"))
-    .def("hessian", &PyConstraintFunctions::hessian, nb::arg("x"), nb::arg("multipliers"));
-
-  m.def("_create_linear_constraint", &createLinearConstraint,
-    nb::arg("A"), nb::arg("offset"));
-
-  m.def("_create_constraint_function_set", &createConstraintSet,
-    nb::arg("terms"));
 }

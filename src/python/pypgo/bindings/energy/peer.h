@@ -12,10 +12,30 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace nb = nanobind;
 namespace NO = pgo::NonlinearOptimization;
+
+class PyStepConstraint
+{
+public:
+  explicit PyStepConstraint(NO::StepConstraint result)
+    : result_(std::move(result))
+  {
+  }
+
+  double alpha() const { return result_.alpha; }
+  bool clamped() const { return result_.clamped(); }
+  std::string source() const
+  {
+    return result_.source == NO::StepSource::Contact ? "contact" : "material";
+  }
+
+private:
+  NO::StepConstraint result_;
+};
 
 class PyPotentialEnergy
 {
@@ -29,7 +49,7 @@ public:
   double value(nb::ndarray<nb::numpy, const double> x) const;
   nb::ndarray<nb::numpy, double> gradient(nb::ndarray<nb::numpy, const double> x) const;
   PySparseMatrix hessian(nb::ndarray<nb::numpy, const double> x) const;
-  NO::StepConstraint maxStep(
+  PyStepConstraint maxStep(
     nb::ndarray<nb::numpy, const double> x,
     nb::ndarray<nb::numpy, const double> dx) const;
   nb::ndarray<nb::numpy, double> zeroState() const;

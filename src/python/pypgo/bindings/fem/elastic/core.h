@@ -9,6 +9,8 @@
 namespace pgo
 {
 
+class PySimulationMesh;
+
 // Python-facing elastic model wrapper.  Holds a DeformationModelElasticMaterial
 // enum (the C++ "elastic model" is just a factory discriminator, not a polymorphic
 // object), plus cached per-element parameter channel count.
@@ -22,6 +24,7 @@ public:
 
   // Number of parameter channels per element for the given mesh.
   int numChannels(const SolidDeformationModel::SimulationMesh &mesh) const;
+  int numChannels(const PySimulationMesh &mesh) const;
 
 private:
   SolidDeformationModel::DeformationModelElasticMaterial type_;
