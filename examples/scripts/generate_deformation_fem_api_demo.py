@@ -11,7 +11,7 @@ Run from the repository root:
 
 from __future__ import annotations
 
-from notebook_builder import code, md, repo_root, write_notebook
+from examples.scripts.notebook_builder import code, md, repo_root, write_notebook
 
 CELLS = [
     md(

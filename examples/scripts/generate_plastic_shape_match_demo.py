@@ -25,7 +25,7 @@ from __future__ import annotations
 try:
     from .notebook_builder import code, md, repo_root, write_notebook
 except ImportError:
-    from notebook_builder import code, md, repo_root, write_notebook
+    from examples.scripts.notebook_builder import code, md, repo_root, write_notebook
 
 
 def run_demo(volume_veg=None, surface_obj=None, target_obj=None, output_dir=None):

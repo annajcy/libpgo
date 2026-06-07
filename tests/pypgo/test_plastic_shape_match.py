@@ -126,6 +126,6 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
 
 
 def test_plastic_shape_match_demo_module_imports():
-    import pypgo.examples.scripts.generate_plastic_shape_match_demo as demo
+    import examples.scripts.generate_plastic_shape_match_demo as demo
 
     assert hasattr(demo, "run_demo")
