@@ -1,6 +1,6 @@
 """Geometry facades, embeddings, and algorithms."""
 
-from pypgo.mesh.geo.core import (
+from pypgo.mesh.geometry.core import (
     BarycentricEmbedding,
     CubicMeshGeo,
     SurfaceEmbedding,
@@ -8,7 +8,7 @@ from pypgo.mesh.geo.core import (
     TriMeshGeo,
     surface_to_volume_interpolation_matrix,
 )
-from pypgo.mesh.geo.algorithms import (
+from pypgo.mesh.geometry.algorithms import (
     connected_components_by_edge,
     connected_components_by_vertex,
     filter_small_components,

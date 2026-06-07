@@ -76,7 +76,7 @@ def test_volume_mesh_data_volume_and_center_of_mass():
 
 
 def test_tri_mesh_geo_area_and_normals():
-    tri = pgo.mesh.geo.TriMeshGeo(
+    tri = pgo.mesh.geometry.TriMeshGeo(
         np.array(
             [
                 [0.0, 0.0, 0.0],
@@ -272,7 +272,7 @@ def test_barycentric_embedding_matrix_and_deform():
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.ENuMaterial())
-    embedding = pgo.mesh.geo.BarycentricEmbedding(np.array([[0.25, 0.25, 0.25]], dtype=np.float64), volume)
+    embedding = pgo.mesh.geometry.BarycentricEmbedding(np.array([[0.25, 0.25, 0.25]], dtype=np.float64), volume)
 
     matrix = embedding.interpolation_matrix
     assert isinstance(matrix, pgo.sparse.SparseMatrix)

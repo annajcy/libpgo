@@ -1,0 +1,5 @@
+{
+  "exclude": ["**/__pycache__", "build", ".claude"],
+  "ignore": ["pypgo/_core.abi3.so"],
+  "reportMissingTypeStubs": false
+}

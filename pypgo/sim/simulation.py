@@ -10,7 +10,7 @@ import pypgo._core as _core
 from pypgo import solver as _solver
 from pypgo._utils import sized_vector
 from pypgo.energy import PotentialEnergy
-from pypgo.sparse import mass_to_coo_lists
+from pypgo.sparse import sparse_to_coo_lists
 from pypgo.sim.state import DynamicFrame, DynamicState
 from pypgo.sim.stepper import BackwardEulerDynamicStepper, DynamicStepper, TRBDF2DynamicStepper
 
@@ -69,7 +69,7 @@ class DynamicSimulation:
             raise ValueError("timestep must be positive")
 
         stepper = _normalize_dynamic_stepper(integrator)
-        n, mass_rows, mass_cols, mass_vals = mass_to_coo_lists(mass)
+        n, mass_rows, mass_cols, mass_vals = sparse_to_coo_lists(mass)
 
         handle = None
         if energy is not None:

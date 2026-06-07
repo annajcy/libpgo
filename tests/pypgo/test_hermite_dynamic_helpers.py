@@ -3,7 +3,7 @@ import pytest
 
 import pypgo as pgo
 import pypgo.fem as pf
-from pypgo.mesh.geo import BarycentricEmbedding
+from pypgo.mesh.geometry import BarycentricEmbedding
 
 
 def _single_cube_volume(*, density=2.0):

@@ -19,7 +19,7 @@ CELLS = [
         This notebook is a compact tour of the current M1 mesh API:
 
         - `pypgo.mesh`: `TriMeshData`, `TetMeshData`, `CubicMeshData`, OBJ I/O, and shape factories
-        - `pypgo.mesh.geo`: geometry facades, normals, and barycentric embedding
+        - `pypgo.mesh.geometry`: geometry facades, normals, and barycentric embedding
         - `pypgo.mesh.volume`: Vega volume materials, `.veg` I/O, `VolumeMesh`, and surface extraction
         - `pypgo.mesh`: quality checks and mesher wrappers
         - `pypgo.sparse` / `pypgo.sim`: sparse COO export and solver-ready mesh factories
@@ -36,7 +36,7 @@ CELLS = [
         import pypgo as pgo
 
         from pypgo.mesh import CubicMeshData, MeshDataType, TetMeshData, TriMeshData
-        from pypgo.mesh.geo import (
+        from pypgo.mesh.geometry import (
             BarycentricEmbedding, CubicMeshGeo, TetMeshGeo, TriMeshGeo,
             surface_to_volume_interpolation_matrix,
             triangle_component_ids, connected_components_by_edge,

@@ -14,7 +14,7 @@ from pypgo.mesh.data import (
     TetMeshData,
     TriMeshData,
 )
-from pypgo.mesh.geo import SurfaceEmbedding
+from pypgo.mesh.geometry import SurfaceEmbedding
 from pypgo.mesh.visualize import (
     get_backend,
     plot_surface,
@@ -56,7 +56,7 @@ __all__ = [
     "cgal_repair_self_intersections",
     "cgal_simplify",
     "check_surface_quality",
-    "geo",
+    "geometry",
     "volume",
 ]
 
@@ -98,7 +98,7 @@ def create_torus(*, radial_res: int, tubular_res: int, radius: float, thickness:
 
 
 def __getattr__(name: str):
-    if name in {"geo", "volume"}:
+    if name in {"geometry", "volume"}:
         module = import_module(f"{__name__}.{name}")
         globals()[name] = module
         return module

@@ -137,7 +137,7 @@ CELLS = [
     code(
         """
         surface = pgo.mesh.create_box(bmin=(0, 0, 0), bmax=(1, 1, 1))
-        surface_geo = pgo.mesh.geo.TriMeshGeo.from_mesh_data(surface)
+        surface_geo = pgo.mesh.geometry.TriMeshGeo.from_mesh_data(surface)
 
         print("surface bbox:", surface.bbox)
         print("face area sum:", surface_geo.face_areas.sum())
@@ -194,7 +194,7 @@ CELLS = [
         """
         material = pgo.mesh.volume.ENuMaterial("rubber", E=1e6, nu=0.35, density=1000.0)
         volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, material)
-        embedding = pgo.mesh.geo.BarycentricEmbedding(
+        embedding = pgo.mesh.geometry.BarycentricEmbedding(
             np.array([[0.25, 0.25, 0.25]], dtype=np.float64),
             volume,
         )

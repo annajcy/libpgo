@@ -21,7 +21,7 @@ def test_public_modules_are_lazy_importable():
     import pypgo
 
     assert pypgo.mesh.__name__ == "pypgo.mesh"
-    assert pypgo.mesh.geo.__name__ == "pypgo.mesh.geo"
+    assert pypgo.mesh.geometry.__name__ == "pypgo.mesh.geometry"
     assert pypgo.mesh.volume.__name__ == "pypgo.mesh.volume"
     assert pypgo.sim.__name__ == "pypgo.sim"
     assert pypgo.sparse.__name__ == "pypgo.sparse"

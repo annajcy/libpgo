@@ -3,7 +3,6 @@
 from pypgo.mesh.volume.material import (
     ENuMaterial,
     MaterialLike,
-    MaterialSpec,
     MooneyRivlinMaterial,
 )
 from pypgo.mesh.volume.core import (
@@ -18,7 +17,6 @@ from pypgo.mesh.volume.core import (
 __all__ = [
     "ENuMaterial",
     "MaterialLike",
-    "MaterialSpec",
     "MeshRegion",
     "MeshSet",
     "MooneyRivlinMaterial",

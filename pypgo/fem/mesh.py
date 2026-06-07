@@ -8,17 +8,7 @@ from pathlib import Path
 
 import pypgo._core as _core
 from pypgo.mesh import TriMeshData, read_obj, write_obj
-
-
-@dataclass(frozen=True)
-class KoiterStVKShellMaterial:
-    name: str = "shell"
-    thickness: float = 0.001
-    E_membrane: float = 1e6
-    nu_membrane: float = 0.4
-
-
-ShellMaterialLike = KoiterStVKShellMaterial
+from pypgo.fem.elastic import KoiterStVKShellMaterial, ShellMaterialLike
 
 
 class SimulationMesh:

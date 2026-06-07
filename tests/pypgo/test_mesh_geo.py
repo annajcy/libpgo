@@ -90,9 +90,9 @@ def test_mesh_data_rejects_invalid_shapes_and_indices():
 
 
 def test_mesh_geo_facades_query_and_convert_to_mesh_data():
-    tri = pgo.mesh.geo.TriMeshGeo(tri_vertices(), np.array([[0, 1, 2]], dtype=np.int64))
-    tet = pgo.mesh.geo.TetMeshGeo(tet_vertices(), np.array([[0, 1, 2, 3]], dtype=np.int64))
-    cubic = pgo.mesh.geo.CubicMeshGeo(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
+    tri = pgo.mesh.geometry.TriMeshGeo(tri_vertices(), np.array([[0, 1, 2]], dtype=np.int64))
+    tet = pgo.mesh.geometry.TetMeshGeo(tet_vertices(), np.array([[0, 1, 2, 3]], dtype=np.int64))
+    cubic = pgo.mesh.geometry.CubicMeshGeo(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
 
     assert tri.num_triangles == 1
     assert np.array_equal(tri.triangles, np.array([[0, 1, 2]], dtype=np.int64))
@@ -115,21 +115,21 @@ def test_mesh_geo_constructs_from_mesh_data():
     tet_data = pgo.mesh.TetMeshData(tet_vertices(), np.array([[0, 1, 2, 3]], dtype=np.int64))
     cubic_data = pgo.mesh.CubicMeshData(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
 
-    assert np.array_equal(pgo.mesh.geo.TriMeshGeo.from_mesh_data(tri_data).triangles, tri_data.elements)
-    assert np.array_equal(pgo.mesh.geo.TetMeshGeo.from_mesh_data(tet_data).tets, tet_data.elements)
-    assert np.array_equal(pgo.mesh.geo.CubicMeshGeo.from_mesh_data(cubic_data).cubes, cubic_data.elements)
+    assert np.array_equal(pgo.mesh.geometry.TriMeshGeo.from_mesh_data(tri_data).triangles, tri_data.elements)
+    assert np.array_equal(pgo.mesh.geometry.TetMeshGeo.from_mesh_data(tet_data).tets, tet_data.elements)
+    assert np.array_equal(pgo.mesh.geometry.CubicMeshGeo.from_mesh_data(cubic_data).cubes, cubic_data.elements)
 
     with pytest.raises(TypeError):
-        pgo.mesh.geo.TetMeshGeo.from_mesh_data(tri_data)
+        pgo.mesh.geometry.TetMeshGeo.from_mesh_data(tri_data)
 
 
 def test_material_spec_constructs_from_init_and_defaults():
-    material = pgo.mesh.volume.MaterialSpec(E=1e6, nu=0.33, density=1200.0)
+    material = pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.33, density=1200.0)
     assert material.E == 1e6
     assert material.nu == 0.33
     assert material.density == 1200.0
 
-    default_material = pgo.mesh.volume.MaterialSpec()
+    default_material = pgo.mesh.volume.ENuMaterial()
     assert default_material.E == 1e9
     assert default_material.nu == 0.45
     assert default_material.density == 1000.0
@@ -155,8 +155,8 @@ def test_volumemesh_constructs_from_volume_mesh_data_only():
 def test_volumemesh_rejects_geo_and_tri_data():
     material = pgo.mesh.volume.ENuMaterial()
     tri_data = pgo.mesh.TriMeshData(tri_vertices(), np.array([[0, 1, 2]], dtype=np.int64))
-    tet_geo = pgo.mesh.geo.TetMeshGeo(tet_vertices(), np.array([[0, 1, 2, 3]], dtype=np.int64))
-    cubic_geo = pgo.mesh.geo.CubicMeshGeo(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
+    tet_geo = pgo.mesh.geometry.TetMeshGeo(tet_vertices(), np.array([[0, 1, 2, 3]], dtype=np.int64))
+    cubic_geo = pgo.mesh.geometry.CubicMeshGeo(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
 
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
         pgo.mesh.volume.VolumeMesh.create_from_single_material(tri_data, material)

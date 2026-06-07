@@ -130,11 +130,11 @@ def test_veg_roundtrip_preserves_multiple_material_payloads(tmp_path):
 
 def test_io_rejects_mesh_geo_facades(tmp_path):
     material = pgo.mesh.volume.ENuMaterial()
-    tri_geo = pgo.mesh.geo.TriMeshGeo(
+    tri_geo = pgo.mesh.geometry.TriMeshGeo(
         np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64),
         np.array([[0, 1, 2]], dtype=np.int64),
     )
-    tet_geo = pgo.mesh.geo.TetMeshGeo(
+    tet_geo = pgo.mesh.geometry.TetMeshGeo(
         np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )

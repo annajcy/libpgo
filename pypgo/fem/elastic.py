@@ -47,3 +47,22 @@ class MooneyRivlin(ElasticModel):
 class KoiterStVK(ElasticModel):
     def __init__(self) -> None:
         super().__init__(_core.make_koiter_stvk())
+
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class KoiterStVKShellMaterial:
+    """Material parameters for the Koiter-St.Venant-Kirchhoff shell model.
+
+    Used by ``SimulationMesh.create_shell`` and shell config I/O.
+    """
+
+    name: str = "shell"
+    thickness: float = 0.001
+    E_membrane: float = 1e6
+    nu_membrane: float = 0.4
+
+
+ShellMaterialLike = KoiterStVKShellMaterial

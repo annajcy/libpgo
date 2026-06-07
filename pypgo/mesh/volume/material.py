@@ -32,7 +32,6 @@ class ENuMaterial:
         return self.E / (2 * (1 + self.nu))
 
 
-MaterialSpec = ENuMaterial
 
 
 @dataclass
