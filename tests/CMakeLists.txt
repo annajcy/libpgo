@@ -37,10 +37,4 @@ endif()
 set_property(TARGET pgo_c_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(pgo_c_gtest)
 
-add_executable(mesh_gtest mesh_gtest.cpp)
-target_include_directories(mesh_gtest PRIVATE ${CMAKE_SOURCE_DIR}/src/core/mesh)
-target_link_libraries(mesh_gtest PRIVATE GTest::gtest_main mesh)
-set_property(TARGET mesh_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(mesh_gtest)
-
 add_subdirectory(src)

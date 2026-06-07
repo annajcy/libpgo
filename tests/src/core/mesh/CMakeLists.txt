@@ -22,3 +22,8 @@ add_executable(vegFile_gtest vegFile_gtest.cpp)
 target_link_libraries(vegFile_gtest PRIVATE GTest::gtest_main mesh volumetricMesh)
 set_property(TARGET vegFile_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(vegFile_gtest)
+
+add_executable(mesh_gtest mesh_gtest.cpp)
+target_link_libraries(mesh_gtest PRIVATE GTest::gtest_main mesh)
+set_property(TARGET mesh_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(mesh_gtest)
