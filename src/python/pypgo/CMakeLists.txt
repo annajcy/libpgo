@@ -1,66 +1,66 @@
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
 
 set(PYPGO_BINDING_SOURCES
-  bindings/core.cpp
-  bindings/module.cpp
+  core.cpp
+  module.cpp
 
   # sparse / dense
-  bindings/sparse/bindings.cpp
-  bindings/dense/core.cpp
-  bindings/dense/bindings.cpp
+  sparse/bindings.cpp
+  dense/core.cpp
+  dense/bindings.cpp
 
   # mesh
-  bindings/mesh/geo/core.cpp
-  bindings/mesh/geo/bindings.cpp
-  bindings/mesh/volume/core.cpp
-  bindings/mesh/volume/bindings.cpp
+  mesh/geo/core.cpp
+  mesh/geo/bindings.cpp
+  mesh/volume/core.cpp
+  mesh/volume/bindings.cpp
 
   # fem
-  bindings/fem/formulation/bindings.cpp
-  bindings/fem/formulation/core.cpp
-  bindings/fem/elastic/bindings.cpp
-  bindings/fem/elastic/core.cpp
-  bindings/fem/plastic/bindings.cpp
-  bindings/fem/plastic/core.cpp
+  fem/formulation/bindings.cpp
+  fem/formulation/core.cpp
+  fem/elastic/bindings.cpp
+  fem/elastic/core.cpp
+  fem/plastic/bindings.cpp
+  fem/plastic/core.cpp
 
   # energy
-  bindings/energy/peer.cpp
-  bindings/energy/core.cpp
-  bindings/energy/bindings.cpp
+  energy/peer.cpp
+  energy/core.cpp
+  energy/bindings.cpp
 
   # constraints / solver
-  bindings/constraints/core.cpp
-  bindings/constraints/bindings.cpp
-  bindings/solver/core.cpp
-  bindings/solver/bindings.cpp
+  constraints/core.cpp
+  constraints/bindings.cpp
+  solver/core.cpp
+  solver/bindings.cpp
 
   # simulation
-  bindings/simulation/dynamic/core.cpp
-  bindings/simulation/bindings.cpp
+  simulation/dynamic/core.cpp
+  simulation/bindings.cpp
 
   # contact / implicit / parallel
-  bindings/contact/core.cpp
-  bindings/contact/bindings.cpp
-  bindings/implicit/core.cpp
-  bindings/implicit/bindings.cpp
-  bindings/parallel/core.cpp
-  bindings/parallel/bindings.cpp
+  contact/core.cpp
+  contact/bindings.cpp
+  implicit/core.cpp
+  implicit/bindings.cpp
+  parallel/core.cpp
+  parallel/bindings.cpp
 )
 
 if(TARGET cgalInterface)
-  list(APPEND PYPGO_BINDING_SOURCES bindings/mesh/remesh_cgal.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES mesh/remesh_cgal.cpp)
 else()
-  list(APPEND PYPGO_BINDING_SOURCES bindings/mesh/remesh_cgal_disabled.cpp)
+  list(APPEND PYPGO_BINDING_SOURCES mesh/remesh_cgal_disabled.cpp)
 endif()
 
 if(TARGET animationIO)
   list(APPEND PYPGO_BINDING_SOURCES
-    bindings/animation/core.cpp
-    bindings/animation/bindings.cpp)
+    animation/core.cpp
+    animation/bindings.cpp)
 else()
   list(APPEND PYPGO_BINDING_SOURCES
-    bindings/animation/disabled/core.cpp
-    bindings/animation/disabled/bindings.cpp)
+    animation/disabled/core.cpp
+    animation/disabled/bindings.cpp)
 endif()
 
 nanobind_add_module(pypgo_core STABLE_ABI NB_DOMAIN pypgo ${PYPGO_BINDING_SOURCES})
@@ -97,7 +97,7 @@ endif()
 
 target_include_directories(pypgo_core
   PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/bindings
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/src/core/mesh
     ${CMAKE_SOURCE_DIR}/src/core/volumetricMesh
     ${CMAKE_SOURCE_DIR}/src/core/interpolationCoordinates

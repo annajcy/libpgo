@@ -344,7 +344,7 @@ CELLS = [
         sim = pgo.sim.SimulationMesh.create_volumetric(volume)
         print("hex grid:", nx, "x", ny, "x", nz,
               "->", cube_vertices.shape[0], "vertices,", cube_elements.shape[0], "elements")
-        pgo.vis.plot_volume_surface(cubic, titles=["rest cubic volume"], show_edges=True)
+        pgo.mesh.plot_volume_surface(cubic, titles=["rest cubic volume"], show_edges=True)
         """
     ),
     code(
@@ -445,7 +445,7 @@ CELLS = [
         target_vertices[:, 2] += depth_shear * surface.vertices[:, 1]
         target_surface = pgo.mesh.TriMeshData(target_vertices, surface.elements)
 
-        pgo.vis.plot_surface(
+        pgo.mesh.plot_surface(
             [surface, target_surface],
             titles=["rest cubic surface", "sheared cubic target"],
             colors=["lightgray", "palegreen"],
@@ -547,7 +547,7 @@ CELLS = [
         print("gradient norm ||dL/da||:", float(torch.linalg.norm(plastic_param.grad)))
 
         initial_surface = pgo.mesh.TriMeshData(initial_vertices.detach().numpy(), surface.elements)
-        pgo.vis.plot_surface(
+        pgo.mesh.plot_surface(
             [surface, target_surface, initial_surface],
             titles=["rest", "target", "initial equilibrium (a = a0)"],
             colors=["lightgray", "palegreen", "lightskyblue"],
@@ -663,7 +663,7 @@ CELLS = [
         print("saved plastic weights ->", weight_path)
 
         optimized_surface = pgo.mesh.TriMeshData(optimized_vertices, surface.elements)
-        pgo.vis.plot_surface(
+        pgo.mesh.plot_surface(
             [target_surface, optimized_surface],
             titles=["target", "optimized equilibrium"],
             colors=["palegreen", "salmon"],
@@ -741,7 +741,7 @@ CELLS = [
         print("plastic strain |S*-I|  mean:", plastic_delta_norm.mean(),
               " max:", plastic_delta_norm.max())
 
-        pgo.vis.plot_volume_surface(
+        pgo.mesh.plot_volume_surface(
             [cubic, cubic, cubic],
             titles=["rest plastic magnitude", "optimized plastic magnitude", "learned plastic strain"],
             scalars=[initial_plastic_norm, optimized_plastic_norm, plastic_delta_norm],
@@ -901,7 +901,7 @@ CELLS = [
                           vertex_error_stats(final_residual_const))
 
         optimized_surface_const = pgo.mesh.TriMeshData(optimized_vertices_const, surface.elements)
-        pgo.vis.plot_surface(
+        pgo.mesh.plot_surface(
             [target_surface, optimized_surface_const],
             titles=["target", "constant-field equilibrium"],
             colors=["palegreen", "gold"],
