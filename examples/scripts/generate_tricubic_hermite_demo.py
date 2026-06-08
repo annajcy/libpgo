@@ -76,7 +76,8 @@ CELLS = [
         """
         PACKAGE_ROOT = Path(pgo.__file__).resolve().parent.parent
         ASSET_DIR = PACKAGE_ROOT / "examples" / "assets"
-        OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs"
+        OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs" / "tricubic_hermite"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         CUBIC_BOX = ASSET_DIR / "veg" / "cubic" / "box.veg"
         BOX_SURFACE = ASSET_DIR / "obj" / "box.obj"
 
@@ -253,7 +254,6 @@ CELLS = [
         surf_h = surface_embedding.deform(disp_h.reshape(-1))
         surf_t = surface_embedding.deform(disp_t.reshape(-1))
 
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         pgo.mesh.write_obj(str(OUTPUT_DIR / "tricubic_hermite_sheared.obj"), surf_h)
 
         print("rest bbox:           ", cubic_data.bbox)

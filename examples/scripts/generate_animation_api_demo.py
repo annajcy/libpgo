@@ -48,8 +48,6 @@ CELLS = [
     code(
         """
         import json
-        import shutil
-        import tempfile
         from pathlib import Path
 
         import numpy as np
@@ -79,8 +77,8 @@ CELLS = [
         REPO_ROOT = _find_repo_root()
         ASSET_DIR = REPO_ROOT / "examples" / "assets" / "obj"
         VEG_DIR   = REPO_ROOT / "examples" / "assets" / "veg" / "tet"
-
-        tmpdir = Path(tempfile.mkdtemp())
+        OUTPUT_DIR = REPO_ROOT / "examples" / "outputs" / "animation"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         print("Animation IO available :", has_animation_io())
         print("Stress VDB available   :", has_stress_vdb_export())
@@ -145,7 +143,7 @@ CELLS = [
     ),
     code(
         """
-        abc_low = tmpdir / "box_lowlevel.abc"
+        abc_low = OUTPUT_DIR / "box_lowlevel.abc"
 
         with AbcWriter(abc_low, "box",
                        rest_positions=box.vertices.ravel(),
@@ -169,7 +167,7 @@ CELLS = [
     ),
     code(
         """
-        frame_dir = tmpdir / "obj_frames"
+        frame_dir = OUTPUT_DIR / "obj_frames"
         frame_dir.mkdir()
 
         for f in range(N_FRAMES):
@@ -188,12 +186,12 @@ CELLS = [
                 }
             ]
         }
-        json_path = tmpdir / "config_single.json"
+        json_path = OUTPUT_DIR / "config_single.json"
         json_path.write_text(json.dumps(config_single, indent=2))
 
-        dump_animation(json_path, tmpdir)
+        dump_animation(json_path, OUTPUT_DIR)
 
-        abc_hl = tmpdir / "box_oscillation.abc"
+        abc_hl = OUTPUT_DIR / "box_oscillation.abc"
         print(f"Written: {abc_hl}  ({abc_hl.stat().st_size / 1024:.1f} KB)")
         """
     ),
@@ -229,8 +227,8 @@ CELLS = [
             ]
         }
 
-        out_dir = tmpdir / "multi"
-        json_multi = tmpdir / "config_multi.json"
+        out_dir = OUTPUT_DIR / "multi"
+        json_multi = OUTPUT_DIR / "config_multi.json"
         json_multi.write_text(json.dumps(config_multi, indent=2))
 
         dump_animation(json_multi, out_dir)
@@ -271,7 +269,7 @@ CELLS = [
         breath_amp = bbox_diag * 0.04
 
         ts         = np.linspace(0, 2 * np.pi, N_STRESS_FRAMES, endpoint=False)
-        sim_dir    = tmpdir / "stress_sim"
+        sim_dir    = OUTPUT_DIR / "stress_sim"
         states_dir = sim_dir / "states"
         stress_dir = sim_dir / "stress"
         states_dir.mkdir(parents=True)
@@ -402,17 +400,6 @@ CELLS = [
         else:
             print("Skipping: OpenVDB not available in this build.")
             print("Reconfigure with PGO_ENABLE_OPENVDB=ON to enable VDB export.")
-        """
-    ),
-    md(
-        """
-        ## 9. Cleanup
-        """
-    ),
-    code(
-        """
-        shutil.rmtree(tmpdir)
-        print("Temporary files removed.")
         """
     ),
 ]

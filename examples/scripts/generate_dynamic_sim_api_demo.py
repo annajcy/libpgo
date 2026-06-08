@@ -401,6 +401,8 @@ CELLS = [
         REPO_ROOT = _find_repo_root()
         ASSET_DIR = REPO_ROOT / "examples" / "assets"
         VEG_DIR = ASSET_DIR / "veg" / "tet"
+        OUTPUT_DIR = REPO_ROOT / "examples" / "outputs" / "dynamic_sim"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         # ── 1. Load box tet mesh ──────────────────────────────────────
         veg = read_veg(str(VEG_DIR / "box.veg"))
@@ -453,7 +455,7 @@ CELLS = [
         print(f"Simulated {len(surf_disps)} frames")
 
         # ── 6. Dump Alembic ──────────────────────────────────────────
-        out_path = str(REPO_ROOT / "box_fall.abc")
+        out_path = str(OUTPUT_DIR / "box_fall.abc")
         pgo.animation.AbcWriter.dump(
             out_path, "box_fall",
             rest_positions=surface.vertices.ravel(),

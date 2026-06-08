@@ -64,7 +64,7 @@ CELLS = [
 
         PACKAGE_ROOT = Path(pgo.__file__).resolve().parent.parent
         ASSET_DIR = PACKAGE_ROOT / "examples" / "assets"
-        OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs"
+        OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs" / "contact"
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         """
     ),
@@ -1134,7 +1134,7 @@ CELLS = [
 
 def main() -> None:
     root = repo_root()
-    write_notebook(root / "pypgo" / "examples" / NOTEBOOK, CELLS)
+    write_notebook(root / "examples" / NOTEBOOK, CELLS)
 
 
 if __name__ == "__main__":
