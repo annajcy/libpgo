@@ -358,6 +358,64 @@ CELLS = [
     ),
     md(
         """
+        ## 5b. Gmsh `.msh` import via `read_msh`
+
+        `read_msh` loads a Gmsh `.msh` tet mesh into a `TetMeshData` (geometry only,
+        no material). Pair it with `VegFile.from_single_material` to produce a
+        `VolumeMesh`, then export to `.veg` with `write_veg`. The demo uses
+        `examples/assets/msh/bunny.msh`.
+        """
+    ),
+    code(
+        """
+        from pypgo.mesh.volume import read_msh
+
+        # 1. Load the .msh file → raw tet mesh data
+        msh_path = str(REPO_ROOT / "examples" / "assets" / "msh" / "bunny.msh")
+        msh_data = read_msh(msh_path)
+
+        print(f"msh mesh: {msh_data.num_vertices} vertices, {msh_data.num_elements} tets")
+        print(f"  vertices dtype: {msh_data.vertices.dtype}")
+        print(f"  elements dtype: {msh_data.elements.dtype}")
+        print(f"  bbox: {msh_data.bbox}")
+        print(f"  first 3 elements:\\n{msh_data.elements[:3]}")
+
+        # 2. Attach material → VolumeMesh
+        msh_vol = VolumeMesh.create_from_single_material(msh_data, soft)
+        print(f"\\nVolumeMesh: {msh_vol.num_vertices} vertices, {msh_vol.num_elements} elements")
+
+        # 3. Extract surface for visualization
+        msh_surface = msh_vol.extract_surface_mesh()
+        print(f"extracted surface: {msh_surface.num_vertices} vertices, {msh_surface.num_elements} triangles")
+
+        plot_surface(
+            msh_surface,
+            titles=["bunny.msh surface (via read_msh)"],
+            show_edges=False,
+            colors=["salmon"],
+        )
+        """
+    ),
+    code(
+        """
+        # 4. Round-trip: .msh → .veg → read back
+        tmpdir2 = tempfile.mkdtemp()
+        try:
+            veg_path = os.path.join(tmpdir2, "bunny_from_msh.veg")
+            veg_from_msh = VegFile.from_single_material(msh_data, soft)
+            write_veg(veg_path, veg_from_msh)
+            reloaded = read_veg(veg_path)
+
+            print("msh → veg → round-trip:")
+            print(f"  vertices: {reloaded.mesh_data.num_vertices} (original: {msh_data.num_vertices})")
+            print(f"  elements: {reloaded.mesh_data.num_elements} (original: {msh_data.num_elements})")
+            print(f"  materials: {[type(m).__name__ + ':' + m.name for m in reloaded.materials]}")
+        finally:
+            shutil.rmtree(tmpdir2)
+        """
+    ),
+    md(
+        """
         ## 6. Barycentric embedding and sparse COO
 
         `BarycentricEmbedding` maps volume displacements to target locations. Its interpolation matrix is exposed through `pypgo.sparse.SparseMatrix.to_coo()`.

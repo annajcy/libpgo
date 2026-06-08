@@ -16,7 +16,7 @@ CELLS = [
         """
         # pypgo Animation & Stress Field API Demo
 
-        This notebook covers two related pipelines:
+        This notebook covers two related pipelines in `pypgo.animation`:
 
         **Animation export (Alembic)**
         | API | Description |
@@ -25,18 +25,21 @@ CELLS = [
         | `dump_animation` | JSON-config-driven export (one-shot) |
 
         **Stress field**
-        | API | Module | Requires |
+        | API | Requires | Input |
         |---|---|---|
-        | `compute_stress_field_stats` | `pypgo.stress` | NumPy only |
-        | `dump_stress_vdb` | `pypgo.animation` | OpenVDB build |
+        | `compute_stress_field_stats` | NumPy only | per-frame stress JSON |
+        | `dump_stress_vdb` | OpenVDB build | `.veg` mesh + displacement `.u` + stress JSON |
 
-        Both pipelines consume the standard simulation output layout:
+        `dump_stress_vdb` expects a standard sim-output directory:
 
         ```
-        sim_output/
-          states/deform{frame:04d}.u       ← per-frame displacement (3n × 1 Eigen binary)
-          stress/von_mises{frame:04d}.json  ← per-element von Mises values
+        {sim_output}/
+          states/deform{frame:04d}.u         ← per-frame displacement (Eigen binary)
+          stress/von_mises{frame:04d}.json    ← per-element von Mises values
         ```
+
+        `compute_stress_field_stats` is layout-agnostic — it only reads stress
+        JSON files from a folder.
 
         Synthetic data is generated throughout so the notebook runs without any
         real simulation output.
