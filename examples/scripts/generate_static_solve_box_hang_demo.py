@@ -59,7 +59,7 @@ CELLS = [
         """
         PACKAGE_ROOT = Path(pgo.__file__).resolve().parent.parent
         ASSET_DIR = PACKAGE_ROOT / "examples" / "assets"
-        OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs"
+        OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs" / "static_solve_box_hang"
         CUBIC_BOX = ASSET_DIR / "veg" / "cubic" / "box.veg"
         BOX_SURFACE = ASSET_DIR / "obj" / "box.obj"
 
@@ -195,9 +195,9 @@ CELLS = [
 
         The static objective is:
 
-        &&
+        $$
         E(u) = E_\\text{elastic}(u) - f_\\text{gravity}^T u
-        &&
+        $$
 
         The fixed boundary is handled by equality variable bounds on the
         `OptimizationProblem`, not by adding another energy term.
@@ -216,7 +216,7 @@ CELLS = [
             max_iterations=200,
             gradient_tolerance=1e-4,
             damping=True,
-            line_search="backtrack",
+            line_search=ps.Backtrack(),
         )
         result = optimizer.solve(problem, x0)
 

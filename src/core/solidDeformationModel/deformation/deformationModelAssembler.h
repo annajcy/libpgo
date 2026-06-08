@@ -42,6 +42,7 @@ public:
 
   void compute_df_da(const double *x, EigenSupport::SpMatD &hess) const;
   void compute_df_db(const double *x, EigenSupport::SpMatD &hess) const;
+  int getNumElasticGlobalParams() const;
   int getNumPlasticGlobalParams() const;
   const EigenSupport::SpMatD &getPlasticHessianTemplate() const { return d2Eda2Template; }
   void computePlasticGradient(const double *x, double *grad) const;

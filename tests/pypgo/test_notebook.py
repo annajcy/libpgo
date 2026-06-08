@@ -38,8 +38,8 @@ import pytest
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT_DIR = ROOT / "pypgo" / "examples" / "scripts"
-OUTPUT_DIR = ROOT / "pypgo" / "examples"
+SCRIPT_DIR = ROOT / "examples" / "scripts"
+OUTPUT_DIR = ROOT / "examples"
 
 # Map notebook stem → generator script filename.
 GENERATORS: dict[str, str] = {
@@ -364,7 +364,7 @@ class TestNotebookSources:
             nb = json.load(fh)
         source = "\n".join("".join(c["source"]) for c in nb["cells"])
         assert "pf.TricubicHermite()" in source
-        assert "pf.formulation_mass_matrix" in source
+        assert ".mass_matrix" in source
         assert ".body_force" in source
         assert ".surface_embedding_matrix" in source
         assert "pc.ContactSurface.embedded" in source

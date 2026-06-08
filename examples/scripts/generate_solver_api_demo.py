@@ -90,7 +90,7 @@ CELLS = [
             max_iterations=50,
             gradient_tolerance=1e-8,
             damping=False,
-            line_search="backtrack",
+            line_search=solver.Backtrack(),
         )
         result = optimizer.solve(problem, x0)
 
@@ -184,16 +184,30 @@ CELLS = [
         """
         ## 6. Line-search modes
 
-        Python exposes four stable keywords:
-        `"golden"`, `"brents"`, `"backtrack"`, and `"simple"`.
+        `line_search` takes a concrete `LineSearch` object that binds the C++
+        policy and its parameters: `solver.Golden()`, `solver.Brents()`,
+        `solver.Backtrack(armijo_c=..., shrink=..., initial_alpha=...)`, and
+        `solver.Simple(max_iterations=..., shrink=...)`. The tunables default to
+        the historical values, so `solver.Backtrack()` reproduces the old
+        `"backtrack"` behavior.
         """
     ),
     code(
         """
-        for line_search in ("golden", "brents", "backtrack", "simple"):
+        line_searches = [
+            solver.Golden(),
+            solver.Brents(),
+            solver.Backtrack(),
+            solver.Simple(),
+        ]
+        for line_search in line_searches:
             mode_optimizer = solver.NewtonOptimizer(line_search=line_search, damping=False)
             r = mode_optimizer.solve(problem, x0)
-            print(f"{line_search:10s}", r.status.name, r.iterations, r.x)
+            print(f"{type(line_search).__name__:10s}", r.status.name, r.iterations, r.x)
+
+        # Parameters are explicit and validated, e.g. a tighter Armijo constant:
+        tuned = solver.NewtonOptimizer(line_search=solver.Backtrack(armijo_c=1e-3, shrink=0.7))
+        print("tuned backtrack:", tuned.solve(problem, x0).status.name)
         """
     ),
     md(
@@ -210,7 +224,7 @@ CELLS = [
             max_iterations=20,
             gradient_tolerance=1e-8,
             damping=False,
-            line_search="backtrack",
+            line_search=solver.Backtrack(),
             verbose=0,
         )
 
@@ -422,16 +436,22 @@ CELLS = [
         """
         ## 10. Common validation errors
 
-        Invalid line-search names and inconsistent fixed values raise
+        Passing something other than a `LineSearch` object raises `TypeError`;
+        out-of-range line-search parameters and inconsistent fixed values raise
         `ValueError`.
         """
     ),
     code(
         """
         try:
-            solver.NewtonOptimizer(line_search="wolfe")
+            solver.NewtonOptimizer(line_search="wolfe")  # must be a LineSearch object
+        except TypeError as exc:
+            print("invalid line_search type:", exc)
+
+        try:
+            solver.Backtrack(shrink=2.0)  # shrink must be in (0, 1)
         except ValueError as exc:
-            print("invalid line_search:", exc)
+            print("invalid line_search param:", exc)
 
         try:
             invalid_problem = solver.OptimizationProblem(objective=energy)

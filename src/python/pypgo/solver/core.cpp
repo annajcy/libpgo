@@ -9,9 +9,6 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 
-#include <stdexcept>
-#include <string>
-
 namespace nb = nanobind;
 using namespace pgo;
 namespace NOO = NonlinearOptimization::Optimization;
@@ -19,19 +16,6 @@ namespace NOO = NonlinearOptimization::Optimization;
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 namespace {
-
-NonlinearOptimization::NewtonLineSearchKind parseLineSearch(const std::string &name)
-{
-  if (name == "golden")
-    return NonlinearOptimization::NewtonLineSearchKind::Golden;
-  if (name == "brents")
-    return NonlinearOptimization::NewtonLineSearchKind::Brents;
-  if (name == "backtrack")
-    return NonlinearOptimization::NewtonLineSearchKind::Backtrack;
-  if (name == "simple")
-    return NonlinearOptimization::NewtonLineSearchKind::Simple;
-  throw nb::value_error("unknown line_search; expected 'golden', 'brents', 'backtrack', or 'simple'");
-}
 
 nb::dict diagnosticsToDict(const NonlinearOptimization::SolveDiagnostics &diagnostics)
 {
@@ -108,8 +92,11 @@ NOO::NewtonOptimizer::Options makeNewtonOptions(const PyNewtonOptimizerOptions &
   opts.gradientTolerance = options.gradientTolerance;
   opts.verbose = options.verbose;
   opts.damping = options.damping;
-  opts.lineSearch = parseLineSearch(options.lineSearch);
-  opts.sparseSolver.kind = static_cast<NonlinearOptimization::NewtonSparseSolverKind>(options.sparseSolverKind);
+  // Null handles let the core defaults (Backtracking / Auto) kick in.
+  if (options.lineSearch)
+    opts.lineSearch = options.lineSearch->handle();
+  if (options.sparseSolver)
+    opts.sparseSolver = options.sparseSolver->handle();
   return opts;
 }
 

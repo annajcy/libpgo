@@ -13,7 +13,6 @@
 #include "solver/service/optimizationResult.h"
 
 #include <memory>
-#include <string>
 #include <vector>
 
 namespace nb = nanobind;
@@ -52,14 +51,122 @@ std::shared_ptr<PyOptimizationProblem> createOptimizationProblem(
 std::shared_ptr<PyOptimizationProblem> createOptimizationProblemFromPeer(
   PyPotentialEnergy &objective);
 
+// ── Line-search policy handles ──────────────────────────────────────────────
+// Python-facing wrapper around a concrete core NewtonLineSearchPolicy.  Each
+// subclass constructs its policy (with that policy's own parameters) and exposes
+// the shared handle; PyNewtonOptimizerOptions stores a reference to one of them.
+
+class PyLineSearchPolicy
+{
+public:
+  virtual ~PyLineSearchPolicy() = default;
+
+  const std::shared_ptr<const pgo::NonlinearOptimization::NewtonLineSearchPolicy> &handle() const { return handle_; }
+
+protected:
+  std::shared_ptr<const pgo::NonlinearOptimization::NewtonLineSearchPolicy> handle_;
+};
+
+class PyGoldenLineSearch final : public PyLineSearchPolicy
+{
+public:
+  PyGoldenLineSearch()
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::GoldenLineSearchPolicy>();
+  }
+};
+
+class PyBrentsLineSearch final : public PyLineSearchPolicy
+{
+public:
+  PyBrentsLineSearch()
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::BrentsLineSearchPolicy>();
+  }
+};
+
+class PyBacktrackLineSearch final : public PyLineSearchPolicy
+{
+public:
+  PyBacktrackLineSearch(double armijoC, double shrink, double initialAlpha)
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::BacktrackingLineSearchPolicy>(
+      pgo::NonlinearOptimization::BacktrackingLineSearchPolicy::Params{armijoC, shrink, initialAlpha});
+  }
+};
+
+class PySimpleLineSearch final : public PyLineSearchPolicy
+{
+public:
+  PySimpleLineSearch(int maxIterations, double shrink)
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::SimpleLineSearchPolicy>(
+      pgo::NonlinearOptimization::SimpleLineSearchPolicy::Params{shrink, maxIterations});
+  }
+};
+
+// ── Sparse linear-solver backends ───────────────────────────────────────────
+// Python-facing selector for the Newton step's sparse linear solver.  Each
+// subclass constructs the concrete C++ selector and exposes the shared handle,
+// identical in shape to PyLineSearchPolicy.  PyNewtonOptimizerOptions stores a
+// reference to one of them.
+
+class PySparseSolver
+{
+public:
+  virtual ~PySparseSolver() = default;
+
+  const std::shared_ptr<const pgo::NonlinearOptimization::NewtonSparseSolverSelector> &handle() const { return handle_; }
+
+protected:
+  std::shared_ptr<const pgo::NonlinearOptimization::NewtonSparseSolverSelector> handle_;
+};
+
+class PyAutoSparseSolver final : public PySparseSolver
+{
+public:
+  PyAutoSparseSolver()
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::AutoSparseSolverSelector>();
+  }
+};
+
+class PyEigenLDLTSparseSolver final : public PySparseSolver
+{
+public:
+  PyEigenLDLTSparseSolver()
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::EigenLDLTSparseSolverSelector>();
+  }
+};
+
+class PyMKLPardisoSparseSolver final : public PySparseSolver
+{
+public:
+  PyMKLPardisoSparseSolver()
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::MKLPardisoSparseSolverSelector>();
+  }
+};
+
+class PyOrigPardisoSparseSolver final : public PySparseSolver
+{
+public:
+  PyOrigPardisoSparseSolver()
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::OrigPardisoSparseSolverSelector>();
+  }
+};
+
 struct PyNewtonOptimizerOptions
 {
   int maxIterations = 50;
   double gradientTolerance = 1e-6;
   bool damping = true;
-  std::string lineSearch = "backtrack";
+  // References to concrete subclasses (null => defaults: Backtrack / Auto).
+  std::shared_ptr<PyLineSearchPolicy> lineSearch;
+  std::shared_ptr<PySparseSolver> sparseSolver;
   int verbose = 0;
-  int sparseSolverKind = 0;
 };
 
 class PyOptimizer

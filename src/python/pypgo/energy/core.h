@@ -181,6 +181,9 @@ public:
 
   nb::ndarray<nb::numpy, double> restPosition() const;
   int numVertices() const { return energy_->assembler().getDeformationModelManager().getMesh()->getNumVertices(); }
+  int numElasticParams() const { return energy_->assembler().getNumElasticParams(); }
+  int numPlasticParams() const { return energy_->assembler().getNumPlasticParams(); }
+  int numElasticDofs() const { return energy_->assembler().getNumElasticGlobalParams(); }
   int numPlasticDofs() const { return energy_->assembler().getNumPlasticGlobalParams(); }
   nb::ndarray<nb::numpy, double> plasticGradient(nb::ndarray<nb::numpy, const double> displacement) const;
   PySparseMatrix plasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;

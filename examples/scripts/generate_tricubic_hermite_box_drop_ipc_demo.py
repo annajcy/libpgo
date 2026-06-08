@@ -151,7 +151,7 @@ CELLS = [
             max_iterations=30,
             gradient_tolerance=1e-6,
             damping=True,
-            sparse_solver="auto",
+            sparse_solver=ps.Auto(),
         )
 
         frames = []

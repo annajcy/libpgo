@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT_DIR = ROOT / "pypgo" / "examples" / "scripts"
+SCRIPT_DIR = ROOT / "examples" / "scripts"
 
 
 def load_mesh_demo_generator():
@@ -39,7 +39,7 @@ def test_mesh_api_demo_includes_pyvista_helpers_and_real_assets():
     module = load_mesh_demo_generator()
     source = "\n".join(cell.source for cell in module.CELLS)
 
-    assert "ASSET_DIR = REPO_ROOT / \"pypgo\" / \"examples\" / \"assets\" / \"obj\"" in source
+    assert "ASSET_DIR = REPO_ROOT / \"examples\" / \"assets\" / \"obj\"" in source
     assert "pip install -e .[examples]" in source
     assert "from pypgo.mesh.visualize import plot_surface, plot_volume_surface" in source
 

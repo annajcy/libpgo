@@ -375,7 +375,8 @@ CELLS = [
 
         1. ``box.veg`` → ``VolumeMesh`` → ``SimulationMesh``
         2. ``deformation_model_state(...)`` + ``deformation_energy(...)``
-        3. ``vol.mass_matrix()`` → sparse mass
+        3. ``formulation.mass_matrix(vol)`` and ``formulation.body_force(...)``
+           → consistent mass and generalized gravity, derived from the formulation
         4. ``box.obj`` → ``TriMeshData`` (display surface)
         5. ``pgo.mesh.SurfaceEmbedding(surface, vol)`` — one-liner that
            builds the volume‑to‑surface interpolation matrix
@@ -418,15 +419,19 @@ CELLS = [
             plastic=pf.VolumetricPlasticity(dofs=0),
             plastic_field=pf.ElementwiseField(),
         )
+        formulation = pf.TetP1()
         energy = pf.deformation_energy(
             deformation_state,
-            formulation=pf.TetP1(),
+            formulation=formulation,
         )
         n_dof = energy.num_dofs
         print(f"Energy: {n_dof} DOFs, state_kind={energy.state_kind}")
 
-        # ── 3. Mass matrix ────────────────────────────────────────────
-        mass = vol.mass_matrix()
+        # ── 3. Mass matrix (from the formulation, not the raw mesh) ───
+        # The formulation owns the DOF layout and basis, so the consistent
+        # mass matrix and body forces are derived from it — this stays correct
+        # for any formulation (e.g. a 24-DOF/vertex Hermite hex), not just P1.
+        mass = formulation.mass_matrix(vol)
 
         # ── 4. Display surface & embedding ────────────────────────────
         surface = pgo.mesh.read_obj(str(ASSET_DIR / "obj" / "box.obj"))
@@ -435,8 +440,10 @@ CELLS = [
         print(f"Embedding matrix: {embedding.interpolation_matrix.shape}")
 
         # ── 5. Build and run dynamic simulation ───────────────────────
-        gravity = np.zeros(n_dof, dtype=np.float64)
-        gravity[1::3] = -9.81          # y-axis gravity on every vertex
+        # Generalized gravity force from a constant acceleration — mass-weighted
+        # and layout-agnostic. (The old `gravity[1::3] = -9.81` hardcoded the
+        # nvtx*3 layout and applied a uniform, non-mass-weighted per-vertex force.)
+        gravity = formulation.body_force(vol, [0.0, -9.81, 0.0])
 
         sim = DynamicSimulation(
             mass=mass,
@@ -446,7 +453,7 @@ CELLS = [
             integrator=BackwardEulerDynamicStepper(),
             damping=(0.5, 0.0),
         )
-        optimizer = pgo.solver.NewtonOptimizer(sparse_solver="auto")
+        optimizer = pgo.solver.NewtonOptimizer(sparse_solver=solver.Auto())
 
         surf_disps = []
         for k in range(200):

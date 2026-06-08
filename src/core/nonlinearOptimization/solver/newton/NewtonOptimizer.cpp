@@ -60,9 +60,10 @@ OptimizationResult NewtonOptimizer::solve(
   sp.addDamping = options_.damping ? 1 : 0;
   sp.sst = NewtonSolver::SST_SUBITERATION_LINE_SEARCH;
   sp.lineSearch = options_.lineSearch;
+  sp.sparseSolver = options_.sparseSolver;
 
   const double *fixedValues = fixed.values.size() > 0 ? fixed.values.data() : nullptr;
-  NewtonSolver solver(x.data(), sp, problem.objective, fixed.dofs, fixedValues, options_.sparseSolver);
+  NewtonSolver solver(x.data(), sp, problem.objective, fixed.dofs, fixedValues);
   SolverResult solverResult = solver.solve(
     x.data(),
     options_.maxIterations,

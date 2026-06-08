@@ -2,135 +2,87 @@
 
 #include <cmath>
 #include <limits>
-#include <stdexcept>
-#include <utility>
 
 namespace pgo::NonlinearOptimization
 {
-namespace
+
+// ── Golden ────────────────────────────────────────────────────────────────
+
+double GoldenLineSearchPolicy::maxProbeAlpha() const
 {
-constexpr double kBacktrackArmijo = 0.0001;
-constexpr double kBacktrackShrink = 0.5;
-constexpr double kBacktrackInitAlpha = 1.0;
-constexpr int kSimpleLineSearchMaxIter = 100;
+  return std::numeric_limits<double>::infinity();
+}
 
-class NativeLineSearchPolicy : public NewtonLineSearchPolicy
+NewtonLineSearchResult GoldenLineSearchPolicy::search(const NewtonLineSearchContext &ctx) const
 {
-public:
-  NativeLineSearchPolicy(int numDofs, LineSearch::EvaluateFunction evaluate):
-    lineSearch_(numDofs, std::move(evaluate))
-  {
-  }
+  ctx.helper.setMaxIterations(ctx.maxIterations);
+  const LineSearch::Result ret = ctx.helper.golden(
+    ctx.x.data(), ctx.direction.data(), ctx.currentEnergy);
+  return {ret.alpha, ret.f, ret.numIter};
+}
 
-protected:
-  LineSearch lineSearch_;
-};
+// ── Brents ────────────────────────────────────────────────────────────────
 
-class GoldenLineSearchPolicy final : public NativeLineSearchPolicy
+double BrentsLineSearchPolicy::maxProbeAlpha() const
 {
-public:
-  using NativeLineSearchPolicy::NativeLineSearchPolicy;
+  return std::numeric_limits<double>::infinity();
+}
 
-  double maxProbeAlpha() const override { return std::numeric_limits<double>::infinity(); }
-
-  NewtonLineSearchResult search(const NewtonLineSearchInput &input) override
-  {
-    lineSearch_.setMaxIterations(input.maxIterations);
-    const LineSearch::Result ret = lineSearch_.golden(
-      input.x.data(), input.direction.data(), input.currentEnergy);
-    return {ret.alpha, ret.f, ret.numIter};
-  }
-};
-
-class BrentLineSearchPolicy final : public NativeLineSearchPolicy
+NewtonLineSearchResult BrentsLineSearchPolicy::search(const NewtonLineSearchContext &ctx) const
 {
-public:
-  using NativeLineSearchPolicy::NativeLineSearchPolicy;
+  ctx.helper.setMaxIterations(ctx.maxIterations);
+  const LineSearch::Result ret = ctx.helper.BrentsMethod(
+    ctx.x.data(), ctx.direction.data(), ctx.currentEnergy);
+  return {ret.alpha, ret.f, ret.numIter};
+}
 
-  double maxProbeAlpha() const override { return std::numeric_limits<double>::infinity(); }
+// ── Backtracking ────────────────────────────────────────────────────────────
 
-  NewtonLineSearchResult search(const NewtonLineSearchInput &input) override
-  {
-    lineSearch_.setMaxIterations(input.maxIterations);
-    const LineSearch::Result ret = lineSearch_.BrentsMethod(
-      input.x.data(), input.direction.data(), input.currentEnergy);
-    return {ret.alpha, ret.f, ret.numIter};
-  }
-};
-
-class BacktrackingLineSearchPolicy final : public NativeLineSearchPolicy
+double BacktrackingLineSearchPolicy::maxProbeAlpha() const
 {
-public:
-  using NativeLineSearchPolicy::NativeLineSearchPolicy;
+  return params_.initialAlpha;
+}
 
-  double maxProbeAlpha() const override { return 1.0; }
-
-  NewtonLineSearchResult search(const NewtonLineSearchInput &input) override
-  {
-    lineSearch_.setMaxIterations(input.maxIterations);
-    const LineSearch::Result ret = lineSearch_.backtrackingWithInitialValue(
-      input.x.data(), input.direction.data(), input.currentEnergy, input.gradient.data(),
-      kBacktrackArmijo, kBacktrackShrink, kBacktrackInitAlpha, input.trialEnergyAtAlphaOne);
-    return {ret.alpha, ret.f, ret.numIter};
-  }
-};
-
-class SimpleLineSearchPolicy final : public NewtonLineSearchPolicy
+NewtonLineSearchResult BacktrackingLineSearchPolicy::search(const NewtonLineSearchContext &ctx) const
 {
-public:
-  explicit SimpleLineSearchPolicy(LineSearch::EvaluateFunction evaluate): evaluate_(std::move(evaluate)) {}
+  ctx.helper.setMaxIterations(ctx.maxIterations);
+  const LineSearch::Result ret = ctx.helper.backtrackingWithInitialValue(
+    ctx.x.data(), ctx.direction.data(), ctx.currentEnergy, ctx.gradient.data(),
+    params_.armijoC, params_.shrink, params_.initialAlpha, ctx.trialEnergyAtAlphaOne);
+  return {ret.alpha, ret.f, ret.numIter};
+}
 
-  double maxProbeAlpha() const override { return 1.0; }
+// ── Simple ──────────────────────────────────────────────────────────────────
 
-  NewtonLineSearchResult search(const NewtonLineSearchInput &input) override
-  {
-    EigenSupport::VXd trial(input.x.size());
-    NewtonLineSearchResult result;
-    result.energy = input.currentEnergy;
+double SimpleLineSearchPolicy::maxProbeAlpha() const
+{
+  return 1.0;
+}
 
-    for (int i = 0; i < kSimpleLineSearchMaxIter; i++) {
-      trial.noalias() = input.x + input.direction * result.alpha;
-      double f = 0.0;
-      evaluate_(trial.data(), &f, nullptr);
-      result.energy = f;
-      result.iterations = i + 1;
-      if (!std::isfinite(result.energy)) {
-        break;
-      }
+NewtonLineSearchResult SimpleLineSearchPolicy::search(const NewtonLineSearchContext &ctx) const
+{
+  EigenSupport::VXd trial(ctx.x.size());
+  NewtonLineSearchResult result;
+  result.energy = ctx.currentEnergy;
 
-      if (result.energy < input.currentEnergy) {
-        break;
-      }
-
-      result.alpha *= 0.5;
+  for (int i = 0; i < params_.maxIterations; i++) {
+    trial.noalias() = ctx.x + ctx.direction * result.alpha;
+    double f = 0.0;
+    ctx.evaluate(trial.data(), &f, nullptr);
+    result.energy = f;
+    result.iterations = i + 1;
+    if (!std::isfinite(result.energy)) {
+      break;
     }
 
-    return result;
+    if (result.energy < ctx.currentEnergy) {
+      break;
+    }
+
+    result.alpha *= params_.shrink;
   }
 
-private:
-  LineSearch::EvaluateFunction evaluate_;
-};
-
-}  // namespace
-
-std::unique_ptr<NewtonLineSearchPolicy> createNewtonLineSearchPolicy(
-  NewtonLineSearchKind kind,
-  int numDofs,
-  LineSearch::EvaluateFunction evaluate)
-{
-  switch (kind) {
-    case NewtonLineSearchKind::Golden:
-      return std::make_unique<GoldenLineSearchPolicy>(numDofs, std::move(evaluate));
-    case NewtonLineSearchKind::Brents:
-      return std::make_unique<BrentLineSearchPolicy>(numDofs, std::move(evaluate));
-    case NewtonLineSearchKind::Backtrack:
-      return std::make_unique<BacktrackingLineSearchPolicy>(numDofs, std::move(evaluate));
-    case NewtonLineSearchKind::Simple:
-      return std::make_unique<SimpleLineSearchPolicy>(std::move(evaluate));
-  }
-
-  throw std::invalid_argument("Unknown Newton line search policy");
+  return result;
 }
 
 }  // namespace pgo::NonlinearOptimization

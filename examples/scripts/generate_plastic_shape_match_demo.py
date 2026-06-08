@@ -270,7 +270,7 @@ CELLS = [
         import torch
 
         PACKAGE_ROOT = Path(pgo.__file__).resolve().parent.parent
-        OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs"
+        OUTPUT_DIR = PACKAGE_ROOT / "examples" / "outputs" / "plastic_field_optimization"
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         np.set_printoptions(precision=4, suppress=True)
@@ -741,11 +741,19 @@ CELLS = [
         print("plastic strain |S*-I|  mean:", plastic_delta_norm.mean(),
               " max:", plastic_delta_norm.max())
 
+        # The first two panels are absolute magnitudes (||a0|| is the uniform
+        # rest value sqrt(3)); share one color range so "rest vs optimized" is
+        # actually comparable. The third panel is a difference on a much smaller
+        # scale, so give it its own [0, max] range or it would wash out.
+        mag_lo = float(min(initial_plastic_norm.min(), optimized_plastic_norm.min()))
+        mag_hi = float(max(initial_plastic_norm.max(), optimized_plastic_norm.max()))
+
         pgo.mesh.plot_volume_surface(
             [cubic, cubic, cubic],
             titles=["rest plastic magnitude", "optimized plastic magnitude", "learned plastic strain"],
             scalars=[initial_plastic_norm, optimized_plastic_norm, plastic_delta_norm],
             scalar_bar_titles=["||a0||", "||a*||", "||a* - a0||"],
+            clims=[(mag_lo, mag_hi), (mag_lo, mag_hi), (0.0, float(plastic_delta_norm.max()))],
             show_edges=True,
             window_size=(1200, 420),
         )

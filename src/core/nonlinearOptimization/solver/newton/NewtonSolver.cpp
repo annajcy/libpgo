@@ -209,9 +209,9 @@ public:
   }
 };
 
-NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_const_p energy_, const std::vector<int> &fixedDOFs_, const double *fixedValues_,
-  NewtonSparseSolverOptions sparseSolverOptions_):
-  energy(energy_), solverParam(sp), sparseSolverOptions(sparseSolverOptions_)
+NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_const_p energy_, const std::vector<int> &fixedDOFs_, const double *fixedValues_):
+  energy(energy_), solverParam(sp),
+  sparseSolverSelector(sp.sparseSolver ? sp.sparseSolver : std::make_shared<AutoSparseSolverSelector>())
 {
   n3 = (int)energy->getNumDOFs();
   allDOFs.resize(energy->getNumDOFs());
@@ -227,7 +227,7 @@ NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_con
   setFixedDOFs(fixedDOFs_, fixedValues_);
 
   if (solverParam.sst == SST_SUBITERATION_LINE_SEARCH) {
-    LineSearch::EvaluateFunction evalFunc = [this](const double *x, double *f, double *grad) -> int {
+    lineSearchEval = [this](const double *x, double *f, double *grad) -> int {
       const Eigen::Map<const ES::VXd> xEval(x, n3);
       dispatchPrepareEvaluationState(xEval);
 
@@ -242,7 +242,12 @@ NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_con
       return 0;
     };
 
-    lineSearchPolicy = createNewtonLineSearchPolicy(solverParam.lineSearch, n3, std::move(evalFunc));
+    // The helper is per-solve scratch; immutable policies borrow it via the context.
+    lineSearchHelper.emplace(n3, lineSearchEval);
+    if (solverParam.lineSearch)
+      lineSearchPolicy = solverParam.lineSearch;
+    else
+      lineSearchPolicy = std::make_shared<BacktrackingLineSearchPolicy>(BacktrackingLineSearchPolicy::Params{});
   }
 
   switch (solverParam.sst) {
@@ -293,7 +298,7 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
 
 void NewtonSolver::makeLinearSolver(const ES::SpMatD &A)
 {
-  solver = createNewtonSparseSolverBackend(sparseSolverOptions, A);
+  solver = sparseSolverSelector->build(A);
 }
 
 SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int verbose)
@@ -598,8 +603,9 @@ NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnerg
         maxIter = kLineSearchMaxIterDescent;
       }
 
-      NewtonLineSearchInput input{x, deltax, grad, currentEnergy, accepted.acceptedEnergy, maxIter};
-      NewtonLineSearchResult ret = lineSearchPolicy->search(input);
+      NewtonLineSearchContext ctx{x, deltax, grad, currentEnergy, accepted.acceptedEnergy, maxIter,
+        *lineSearchHelper, lineSearchEval};
+      NewtonLineSearchResult ret = lineSearchPolicy->search(ctx);
       accepted.lineSearchAlpha = ret.alpha;
       accepted.acceptedEnergy = ret.energy;
 

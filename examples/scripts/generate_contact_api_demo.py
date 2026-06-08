@@ -240,8 +240,8 @@ CELLS = [
             max_iterations=IPC_SCENE["solver_max_iter"],
             gradient_tolerance=IPC_SCENE["solver_eps"],
             damping=True,
-            line_search="backtrack",
-            sparse_solver="auto",
+            line_search=ps.Backtrack(),
+            sparse_solver=ps.Auto(),
         )
 
         def surface_disp_s1(vol_disp):
@@ -433,8 +433,8 @@ CELLS = [
             max_iterations=FLOOR_SCENE["solver_max_iter"],
             gradient_tolerance=FLOOR_SCENE["solver_eps"],
             damping=True,
-            line_search="backtrack",
-            sparse_solver="auto",
+            line_search=ps.Backtrack(),
+            sparse_solver=ps.Auto(),
         )
 
         def s2_surface_disp(vol_disp):
@@ -628,8 +628,8 @@ CELLS = [
             max_iterations=SAMPLED_SCENE["solver_max_iter"],
             gradient_tolerance=SAMPLED_SCENE["solver_eps"],
             damping=True,
-            line_search="backtrack",
-            sparse_solver="auto",
+            line_search=ps.Backtrack(),
+            sparse_solver=ps.Auto(),
         )
 
         s3_dumped_disp = [s3_sim.state.displacement.copy()]
@@ -864,8 +864,8 @@ CELLS = [
             max_iterations=FRICTIONAL_SCENE["solver_max_iter"],
             gradient_tolerance=FRICTIONAL_SCENE["solver_eps"],
             damping=True,
-            line_search="backtrack",
-            sparse_solver="auto",
+            line_search=ps.Backtrack(),
+            sparse_solver=ps.Auto(),
         )
 
         s4_dumped = [s4_sim.state.displacement.copy()]
@@ -1067,8 +1067,8 @@ CELLS = [
             max_iterations=SHELL_IPC_SCENE["solver_max_iter"],
             gradient_tolerance=SHELL_IPC_SCENE["solver_eps"],
             damping=True,
-            line_search="backtrack",
-            sparse_solver="auto",
+            line_search=ps.Backtrack(),
+            sparse_solver=ps.Auto(),
         )
 
         s5_dumped = [s5_sim.state.displacement.copy()]

@@ -16,14 +16,38 @@ from pypgo.solver.problem import (
     OptimizationProblem,
 )
 from pypgo.solver.base import Optimizer
+from pypgo.solver.line_search import (
+    Backtrack,
+    Brents,
+    Golden,
+    LineSearch,
+    Simple,
+)
+from pypgo.solver.sparse_solver import (
+    Auto,
+    EigenLDLT,
+    MKLPardiso,
+    OrigPardiso,
+    SparseSolver,
+)
 from pypgo.solver.optimizer import NewtonOptimizer
 
 __all__ = [
+    "Auto",
+    "Backtrack",
     "Bounds",
+    "Brents",
+    "EigenLDLT",
+    "Golden",
+    "LineSearch",
+    "MKLPardiso",
     "NewtonOptimizer",
     "OptimizationProblem",
     "Optimizer",
+    "OrigPardiso",
+    "Simple",
     "SolveDiagnostics",
     "SolveStatus",
     "SolverResult",
+    "SparseSolver",
 ]

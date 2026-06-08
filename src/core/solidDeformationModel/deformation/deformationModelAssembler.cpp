@@ -318,6 +318,12 @@ void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::Sp
     sanityCheckValues(hess.valuePtr(), hess.nonZeros(), "Hessian");
 }
 
+int DeformationModelAssembler::getNumElasticGlobalParams() const
+{
+  const auto *layout = elasticParamField_ ? elasticParamField_->dofLayout() : nullptr;
+  return layout ? layout->numGlobalDofs() : 0;
+}
+
 int DeformationModelAssembler::getNumPlasticGlobalParams() const
 {
   const auto *layout = plasticParamField_ ? plasticParamField_->dofLayout() : nullptr;

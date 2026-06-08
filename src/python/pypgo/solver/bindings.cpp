@@ -9,6 +9,39 @@ namespace nb = nanobind;
 
 void init_solver_bindings(nb::module_ &m)
 {
+  // ── Line-search policies ──────────────────────────────────────────────
+
+  nb::class_<PyLineSearchPolicy>(m, "PyLineSearchPolicy");
+
+  nb::class_<PyGoldenLineSearch, PyLineSearchPolicy>(m, "PyGoldenLineSearch")
+    .def(nb::init<>());
+
+  nb::class_<PyBrentsLineSearch, PyLineSearchPolicy>(m, "PyBrentsLineSearch")
+    .def(nb::init<>());
+
+  nb::class_<PyBacktrackLineSearch, PyLineSearchPolicy>(m, "PyBacktrackLineSearch")
+    .def(nb::init<double, double, double>(),
+      nb::arg("armijo_c"), nb::arg("shrink"), nb::arg("initial_alpha"));
+
+  nb::class_<PySimpleLineSearch, PyLineSearchPolicy>(m, "PySimpleLineSearch")
+    .def(nb::init<int, double>(), nb::arg("max_iterations"), nb::arg("shrink"));
+
+  // ── Sparse linear solvers ─────────────────────────────────────────────
+
+  nb::class_<PySparseSolver>(m, "PySparseSolver");
+
+  nb::class_<PyAutoSparseSolver, PySparseSolver>(m, "PyAutoSparseSolver")
+    .def(nb::init<>());
+
+  nb::class_<PyEigenLDLTSparseSolver, PySparseSolver>(m, "PyEigenLDLTSparseSolver")
+    .def(nb::init<>());
+
+  nb::class_<PyMKLPardisoSparseSolver, PySparseSolver>(m, "PyMKLPardisoSparseSolver")
+    .def(nb::init<>());
+
+  nb::class_<PyOrigPardisoSparseSolver, PySparseSolver>(m, "PyOrigPardisoSparseSolver")
+    .def(nb::init<>());
+
   // ── PyNewtonOptimizerOptions ──────────────────────────────────────────
 
   nb::class_<PyNewtonOptimizerOptions>(m, "PyNewtonOptimizerOptions")
@@ -17,8 +50,8 @@ void init_solver_bindings(nb::module_ &m)
     .def_rw("gradient_tolerance", &PyNewtonOptimizerOptions::gradientTolerance)
     .def_rw("damping", &PyNewtonOptimizerOptions::damping)
     .def_rw("line_search", &PyNewtonOptimizerOptions::lineSearch)
-    .def_rw("verbose", &PyNewtonOptimizerOptions::verbose)
-    .def_rw("sparse_solver_kind", &PyNewtonOptimizerOptions::sparseSolverKind);
+    .def_rw("sparse_solver", &PyNewtonOptimizerOptions::sparseSolver)
+    .def_rw("verbose", &PyNewtonOptimizerOptions::verbose);
 
   // ── PyOptimizationProblem ─────────────────────────────────────────────
 

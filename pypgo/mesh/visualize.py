@@ -153,6 +153,7 @@ def plot_volume_surface(
     colors=None,
     scalars=None,
     scalar_bar_titles=None,
+    clims=None,
     window_size: tuple[int, int] = (900, 360),
     backend: str | None = None,
 ):
@@ -160,6 +161,11 @@ def plot_volume_surface(
 
     ``backend`` overrides the module default for this call only. Use
     ``"jupyter"`` for interactive notebook views or ``"static"`` for images.
+
+    ``clims`` optionally fixes the color range per subplot: pass a list with one
+    ``(lo, hi)`` tuple (or ``None`` for autoscale) per mesh. Use this to make
+    panels share a comparable scale, or to keep a small-magnitude field from
+    being washed out next to a large one. Default ``None`` autoscales each panel.
     """
     if isinstance(meshes, (TetMeshData, CubicMeshData)):
         meshes = [meshes]
@@ -168,6 +174,10 @@ def plot_volume_surface(
     colors = colors or ["lightsteelblue"] * len(meshes)
     scalar_arrays = _normalize_scalar_inputs(scalars, len(meshes))
     scalar_bar_titles = scalar_bar_titles or [None] * len(meshes)
+    if clims is None:
+        clims = [None] * len(meshes)
+    elif len(clims) != len(meshes):
+        raise ValueError("clims must have one (lo, hi) entry (or None) per mesh")
 
     plotter = _pv.Plotter(shape=(1, len(meshes)), window_size=window_size)
     for index, mesh in enumerate(meshes):
@@ -193,6 +203,7 @@ def plot_volume_surface(
                 grid,
                 scalars=name,
                 preference="cell",
+                clim=clims[index],
                 show_edges=show_edges,
                 smooth_shading=False,
                 scalar_bar_args={"title": scalar_bar_titles[index] or ""},

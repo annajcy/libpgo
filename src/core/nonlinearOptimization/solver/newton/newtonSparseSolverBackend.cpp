@@ -133,4 +133,42 @@ std::unique_ptr<NewtonSparseSolverBackend> createNewtonSparseSolverBackend(
   throw std::invalid_argument("Unknown Newton sparse solver backend");
 }
 
+// ── Selector ``build`` — thin wrappers around the existing factory ─────────
+
+std::unique_ptr<NewtonSparseSolverBackend> AutoSparseSolverSelector::build(const EigenSupport::SpMatD &A) const
+{
+#if defined(PGO_HAS_ORIG_PARDISO)
+  return std::make_unique<OrigPardisoBackend>(A);
+#elif defined(PGO_HAS_MKL)
+  return std::make_unique<MKLPardisoBackend>(A);
+#else
+  auto backend = std::make_unique<EigenSimplicialLDLTBackend>();
+  backend->analyze(A);
+  return backend;
+#endif
+}
+
+std::unique_ptr<NewtonSparseSolverBackend> EigenLDLTSparseSolverSelector::build(const EigenSupport::SpMatD &A) const
+{
+  return createEigenBackend(A);
+}
+
+std::unique_ptr<NewtonSparseSolverBackend> MKLPardisoSparseSolverSelector::build(const EigenSupport::SpMatD &A) const
+{
+#if defined(PGO_HAS_MKL) && !defined(PGO_HAS_ORIG_PARDISO)
+  return std::make_unique<MKLPardisoBackend>(A);
+#else
+  throw std::invalid_argument("MKL Pardiso sparse solver backend is not available in this build");
+#endif
+}
+
+std::unique_ptr<NewtonSparseSolverBackend> OrigPardisoSparseSolverSelector::build(const EigenSupport::SpMatD &A) const
+{
+#if defined(PGO_HAS_ORIG_PARDISO)
+  return std::make_unique<OrigPardisoBackend>(A);
+#else
+  throw std::invalid_argument("Original Pardiso sparse solver backend is not available in this build");
+#endif
+}
+
 }  // namespace pgo::NonlinearOptimization

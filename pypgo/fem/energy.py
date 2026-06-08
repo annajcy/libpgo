@@ -52,7 +52,23 @@ class DeformationEnergy(PotentialEnergy):
         return self._handle.num_vertices
 
     @property
+    def num_elastic_params(self) -> int:
+        """Per-element elastic parameter count."""
+        return self._handle.num_elastic_params
+
+    @property
+    def num_plastic_params(self) -> int:
+        """Per-element plastic parameter count."""
+        return self._handle.num_plastic_params
+
+    @property
+    def num_elastic_dofs(self) -> int:
+        """Total elastic parameter DOFs across all elements."""
+        return self._handle.num_elastic_dofs
+
+    @property
     def num_plastic_dofs(self) -> int:
+        """Total plastic parameter DOFs across all elements."""
         return self._handle.num_plastic_dofs
 
     def plastic_gradient(self, displacement: np.ndarray) -> np.ndarray:

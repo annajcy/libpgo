@@ -158,7 +158,7 @@ OPT::NewtonOptimizer makeOptimizer()
   options.gradientTolerance = 1e-10;
   options.verbose = 0;
   options.damping = false;
-  options.lineSearch = NO::NewtonLineSearchKind::Backtrack;
+  options.lineSearch = std::make_shared<NO::BacktrackingLineSearchPolicy>(NO::BacktrackingLineSearchPolicy::Params{});
   return OPT::NewtonOptimizer(options);
 }
 
@@ -282,12 +282,13 @@ TEST(NewtonOptimizer, AllLineSearchMethodsAreAccepted)
   ES::VXd x0(3);
   x0 << 10.0, -3.0, 5.0;
 
-  for (NO::NewtonLineSearchKind method : {
-         NO::NewtonLineSearchKind::Golden,
-         NO::NewtonLineSearchKind::Brents,
-         NO::NewtonLineSearchKind::Backtrack,
-         NO::NewtonLineSearchKind::Simple,
-       }) {
+  const std::vector<std::shared_ptr<NO::NewtonLineSearchPolicy>> methods = {
+    std::make_shared<NO::GoldenLineSearchPolicy>(),
+    std::make_shared<NO::BrentsLineSearchPolicy>(),
+    std::make_shared<NO::BacktrackingLineSearchPolicy>(NO::BacktrackingLineSearchPolicy::Params{}),
+    std::make_shared<NO::SimpleLineSearchPolicy>(NO::SimpleLineSearchPolicy::Params{}),
+  };
+  for (const auto &method : methods) {
     OPT::NewtonOptimizer::Options options;
     options.maxIterations = 8;
     options.gradientTolerance = 1e-10;
@@ -302,5 +303,6 @@ TEST(NewtonOptimizer, AllLineSearchMethodsAreAccepted)
 TEST(NewtonOptimizer, DefaultSparseSolverOptionIsAuto)
 {
   OPT::NewtonOptimizer::Options options;
-  EXPECT_EQ(options.sparseSolver.kind, NO::NewtonSparseSolverKind::Auto);
+  // Default: no selector → solver picks the best available backend.
+  EXPECT_EQ(options.sparseSolver, nullptr);
 }

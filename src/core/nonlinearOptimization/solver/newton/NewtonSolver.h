@@ -7,6 +7,7 @@
 
 #include <cfloat>
 #include <memory>
+#include <optional>
 
 namespace pgo
 {
@@ -26,14 +27,17 @@ public:
   {
     double alpha = 0.5;
     SolverSubiterationType sst = SST_SUBITERATION_LINE_SEARCH;
-    NewtonLineSearchKind lineSearch = NewtonLineSearchKind::Backtrack;
+    // Concrete (immutable) line-search policy handle; null selects a default
+    // Backtracking policy.
+    std::shared_ptr<const NewtonLineSearchPolicy> lineSearch;
+    // Sparse linear-solver selector; null picks Auto (best available backend).
+    std::shared_ptr<const NewtonSparseSolverSelector> sparseSolver;
     int stopAfterIncrease = 1;
     int addDamping = 0;
   };
 
   NewtonSolver(const double *x, SolverParam sp, PotentialEnergy_const_p energy_,
-    const std::vector<int> &fixedDOFs, const double *fixedValues_ = nullptr,
-    NewtonSparseSolverOptions sparseSolverOptions_ = {});
+    const std::vector<int> &fixedDOFs, const double *fixedValues_ = nullptr);
 
   void setFixedDOFs(const std::vector<int> &fixedDOFs, const double *fixedValues);
   SolverResult solve(double *x, int numIter, double epsilon, int verbose);
@@ -136,8 +140,11 @@ protected:
 
   PotentialEnergy_const_p energy;
   SolverParam solverParam;
-  NewtonSparseSolverOptions sparseSolverOptions;
-  std::unique_ptr<NewtonLineSearchPolicy> lineSearchPolicy;
+  std::shared_ptr<const NewtonSparseSolverSelector> sparseSolverSelector;
+  std::shared_ptr<const NewtonLineSearchPolicy> lineSearchPolicy;
+  // Per-solve line-search scratch owned here; policies borrow these via the context.
+  LineSearch::EvaluateFunction lineSearchEval;
+  std::optional<LineSearch> lineSearchHelper;
 
   EigenSupport::VXd x, grad, deltax, deltaxSmall, lineSearchx;
   EigenSupport::SpMatD sysFull, A11, A12;

@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <numeric>
 #include <stdexcept>
 
@@ -20,7 +21,8 @@ using pgo::NonlinearOptimization::EnergySet;
 using pgo::NonlinearOptimization::EvaluationStateAwareEnergy;
 using pgo::NonlinearOptimization::PotentialEnergy;
 using pgo::NonlinearOptimization::LineSearchAwareEnergy;
-using pgo::NonlinearOptimization::NewtonLineSearchKind;
+using pgo::NonlinearOptimization::BacktrackingLineSearchPolicy;
+using pgo::NonlinearOptimization::GoldenLineSearchPolicy;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 using pgo::NonlinearOptimization::SolverResult;
 using pgo::NonlinearOptimization::StepSource;
@@ -494,7 +496,7 @@ TEST(NewtonSolverGTest, NonFiniteTrialEnergyEndsLineSearchScope)
   x[0] = 2.0;
 
   NewtonSolver::SolverParam solverParam;
-  solverParam.lineSearch = NewtonLineSearchKind::Backtrack;
+  solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(BacktrackingLineSearchPolicy::Params{});
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
@@ -515,7 +517,7 @@ TEST(NewtonSolverGTest, BacktrackingReusesInitialTrialEnergy)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
-  solverParam.lineSearch = NewtonLineSearchKind::Backtrack;
+  solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(BacktrackingLineSearchPolicy::Params{});
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
@@ -576,7 +578,7 @@ TEST(NewtonSolverGTest, GoldenLineSearchDoesNotUseBoundedActiveSetScope)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
-  solverParam.lineSearch = NewtonLineSearchKind::Golden;
+  solverParam.lineSearch = std::make_shared<GoldenLineSearchPolicy>();
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
@@ -685,7 +687,7 @@ TEST(NewtonSolverGTest, AddDampingConvergesOnQuadratic)
   x[1] = 4.0;
 
   NewtonSolver::SolverParam solverParam;
-  solverParam.lineSearch = NewtonLineSearchKind::Backtrack;
+  solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(BacktrackingLineSearchPolicy::Params{});
   solverParam.addDamping = 1;
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);

@@ -76,19 +76,18 @@ def test_line_search_keywords():
     problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    for keyword in ("golden", "brents", "backtrack", "simple"):
-        result = solver.NewtonOptimizer(line_search=keyword, damping=False).solve(problem, x0)
+    for line_search in (solver.Golden(), solver.Brents(), solver.Backtrack(), solver.Simple()):
+        result = solver.NewtonOptimizer(line_search=line_search, damping=False).solve(problem, x0)
         assert result.converged
 
 
 def test_newton_optimizer_sparse_solver_is_forwarded():
-    """sparse_solver='eigen_ldlt' maps to sparse_solver_kind=1 in C++."""
+    """sparse_solver=EigenLDLT() selects the Eigen sparse LDLT backend."""
     import pypgo._core as _core
 
-    # Verify the options struct carries the right value through construction
     energy = make_quadratic()
     problem = make_problem(energy)
-    optimizer = solver.NewtonOptimizer(sparse_solver="eigen_ldlt")
+    optimizer = solver.NewtonOptimizer(sparse_solver=solver.EigenLDLT())
 
     assert isinstance(optimizer._handle, _core.PyNewtonOptimizer)
     result = optimizer.solve(problem, np.zeros(3, dtype=np.float64))
@@ -168,12 +167,21 @@ def test_invalid_fixed_values_length_raises():
 
 
 def test_invalid_line_search_raises():
-    with pytest.raises(ValueError):
+    # A bare string is no longer accepted — line_search must be a LineSearch object.
+    with pytest.raises(TypeError):
         solver.NewtonOptimizer(line_search="wolfe")
 
 
-def test_invalid_sparse_solver_raises():
+def test_invalid_line_search_params_raise():
     with pytest.raises(ValueError):
+        solver.Backtrack(shrink=2.0)
+    with pytest.raises(ValueError):
+        solver.Simple(max_iterations=0)
+
+
+def test_invalid_sparse_solver_raises():
+    # A bare string is no longer accepted — sparse_solver must be a SparseSolver object.
+    with pytest.raises(TypeError):
         solver.NewtonOptimizer(sparse_solver="not_a_solver")
 
 

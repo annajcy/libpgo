@@ -16,20 +16,19 @@ CELLS = [
         """
         # pypgo Mesh API Demo
 
-        This notebook is a compact tour of the current M1 mesh API:
+        This notebook is a compact tour of the pypgo mesh API:
 
-        - `pypgo.mesh`: `TriMeshData`, `TetMeshData`, `CubicMeshData`, OBJ I/O, and shape factories
-        - `pypgo.mesh.geometry`: geometry facades, normals, and barycentric embedding
-        - `pypgo.mesh.volume`: Vega volume materials, `.veg` I/O, `VolumeMesh`, and surface extraction
-        - `pypgo.mesh`: quality checks and mesher wrappers
-        - `pypgo.sparse` / `pypgo.sim`: sparse COO export and solver-ready mesh factories
+        | Module | Covers |
+        |---|---|
+        | `pypgo.mesh` | `TriMeshData`, `TetMeshData`, `CubicMeshData`, OBJ I/O, shape factories, quality checks, mesher wrappers, CGAL surface remeshing |
+        | `pypgo.mesh.geometry` | `TriMeshGeo` / `TetMeshGeo` / `CubicMeshGeo` facades, normals, barycentric embedding, surface-to-volume interpolation, connected components, bounding sphere |
+        | `pypgo.mesh.volume` | `VolumeMesh`, ENu / MooneyRivlin materials, `.veg` I/O, Gmsh `.msh` import (`read_msh`), mass matrix, surface extraction |
+        | `pypgo.fem` | `SimulationMesh` factories (volumetric / shell) |
+        | `pypgo.sparse` | `SparseMatrix` COO export |
         """
     ),
     code(
         """
-        import os
-        import shutil
-        import tempfile
         from pathlib import Path
 
         import numpy as np
@@ -64,7 +63,7 @@ CELLS = [
         """
         ## Notebook visualization helpers
 
-        The demo uses real OBJ assets from `pypgo/examples/assets/obj`. PyVista is optional and only needed for interactive 3D views; install it with `pip install -e .[examples]`. The heavier `dragon.obj` asset is included for experimentation, but the default cells use smaller assets so the notebook stays quick to run.
+        The demo uses real OBJ assets from `examples/assets/obj`. PyVista is optional and only needed for interactive 3D views; install it with `pip install -e .[examples]`. The heavier `dragon.obj` asset is included for experimentation, but the default cells use smaller assets so the notebook stays quick to run.
         """
     ),
     code(
@@ -79,10 +78,13 @@ CELLS = [
 
         REPO_ROOT = _find_repo_root()
         ASSET_DIR = REPO_ROOT / "examples" / "assets" / "obj"
+        OUTPUT_DIR = REPO_ROOT / "examples" / "outputs" / "mesh"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         from pypgo.mesh.visualize import plot_surface, plot_volume_surface
 
         print("asset directory:", ASSET_DIR)
+        print("output directory:", OUTPUT_DIR)
         print("available OBJ assets:", sorted(path.name for path in ASSET_DIR.glob("*.obj")))
         """
     ),
@@ -139,7 +141,7 @@ CELLS = [
         """
         ## 2. NumPy properties and shape factories
 
-        Derived properties are intentionally NumPy-friendly: bounding boxes, volumes, centers of mass, subsetting, concatenation, and triangle normals all come back as arrays or scalars. The surface examples below load real OBJ assets from `pypgo/examples/assets/obj`.
+        Derived properties are intentionally NumPy-friendly: bounding boxes, volumes, centers of mass, subsetting, concatenation, and triangle normals all come back as arrays or scalars. The surface examples below load real OBJ assets from `examples/assets/obj`.
         """
     ),
     code(
@@ -164,25 +166,30 @@ CELLS = [
     ),
     code(
         """
-        bunny_subset = bunny.take_elements(np.arange(0, bunny.num_elements, 4))
-        bunny_width = bunny.bbox[1][0] - bunny.bbox[0][0]
-        shifted_subset = TriMeshData(
-            bunny_subset.vertices + np.array([1.4 * bunny_width, 0.0, 0.0]),
-            bunny_subset.elements,
-        )
-        merged = TriMeshData.concatenate([bunny_subset, shifted_subset])
+        # Split bunny faces into odd and even indices
+        all_ids = np.arange(bunny.num_elements)
+        even_ids = all_ids[all_ids % 2 == 0]
+        odd_ids  = all_ids[all_ids % 2 == 1]
 
-        print("bunny subset elements:", bunny_subset.num_elements)
-        print("merged vertices/elements:", merged.num_vertices, merged.num_elements)
-        print("merged bbox:", merged.bbox)
+        even_half = bunny.take_elements(even_ids)
+        odd_half  = bunny.take_elements(odd_ids)
+
+        print(f"original:  {bunny.num_elements} tris")
+        print(f"even half: {even_half.num_elements} tris   odd half: {odd_half.num_elements} tris")
 
         plot_surface(
-            [bunny, bunny_subset],
-            titles=["original bunny.obj", "take_elements every 4th face"],
+            [even_half, odd_half],
+            titles=["even-indexed faces", "odd-indexed faces"],
             show_edges=True,
-            colors=["lightgray", "cornflowerblue"],
+            colors=["cornflowerblue", "salmon"],
         )
-        plot_surface(merged, titles=["concatenated shifted subsets"], show_edges=True, colors=["plum"])
+
+        # Merge back — should match the original
+        merged = TriMeshData.concatenate([even_half, odd_half])
+        print(f"merged:    {merged.num_elements} tris (original: {bunny.num_elements})")
+        print(f"merged bbox equals original: {np.allclose(merged.bbox[0], bunny.bbox[0]) and np.allclose(merged.bbox[1], bunny.bbox[1])}")
+
+        plot_surface(merged, titles=["merged (odd+even)"], show_edges=False, colors=["plum"])
         """
     ),
     md(
@@ -270,6 +277,22 @@ CELLS = [
 
         bad_mesh = TriMeshData(verts, tris)
         print(f"bad_mesh: {bad_mesh.num_vertices} vertices, {bad_mesh.num_elements} triangles")
+
+        # Split into per-defect submeshes for visualization
+        clean_a   = bad_mesh.take_elements([0, 1])         # A: clean pair
+        flipped_b = bad_mesh.take_elements([2, 3])         # B: flipped winding
+        nonman_c  = bad_mesh.take_elements([4, 5, 6])      # C: non-manifold
+        degen_d   = bad_mesh.take_elements([7])             # D: degenerate (collinear)
+        short_e   = bad_mesh.take_elements([8])             # E: short edge
+        inter_f   = bad_mesh.take_elements([9, 10])         # F: self-intersecting star
+
+        plot_surface(
+            [clean_a, flipped_b, nonman_c, degen_d, short_e, inter_f],
+            titles=["A clean", "B flipped", "C non-manifold", "D degenerate", "E short edge", "F intersecting"],
+            show_edges=True,
+            colors=["mediumseagreen", "gold", "salmon", "lightgray", "lightskyblue", "plum"],
+            window_size=(1200, 300),
+        )
         """
     ),
     code(
@@ -342,18 +365,14 @@ CELLS = [
     ),
     code(
         """
-        tmpdir = tempfile.mkdtemp()
-        try:
-            veg_path = os.path.join(tmpdir, "two_materials.veg")
-            pgo.mesh.volume.write_veg(veg_path, veg)
-            loaded = pgo.mesh.volume.read_veg(veg_path)
+        veg_path = OUTPUT_DIR / "two_materials.veg"
+        pgo.mesh.volume.write_veg(str(veg_path), veg)
+        loaded = pgo.mesh.volume.read_veg(str(veg_path))
 
-            print("loaded mesh:", type(loaded.mesh_data).__name__, loaded.mesh_data.num_elements)
-            print("materials:", [type(m).__name__ + ':' + m.name for m in loaded.materials])
-            print("sets:", [(s.name, s.elements) for s in loaded.sets])
-            print("regions:", [(r.material_index, r.set_index) for r in loaded.regions])
-        finally:
-            shutil.rmtree(tmpdir)
+        print("loaded mesh:", type(loaded.mesh_data).__name__, loaded.mesh_data.num_elements)
+        print("materials:", [type(m).__name__ + ':' + m.name for m in loaded.materials])
+        print("sets:", [(s.name, s.elements) for s in loaded.sets])
+        print("regions:", [(r.material_index, r.set_index) for r in loaded.regions])
         """
     ),
     md(
@@ -399,19 +418,15 @@ CELLS = [
     code(
         """
         # 4. Round-trip: .msh → .veg → read back
-        tmpdir2 = tempfile.mkdtemp()
-        try:
-            veg_path = os.path.join(tmpdir2, "bunny_from_msh.veg")
-            veg_from_msh = VegFile.from_single_material(msh_data, soft)
-            write_veg(veg_path, veg_from_msh)
-            reloaded = read_veg(veg_path)
+        veg_path = OUTPUT_DIR / "bunny_from_msh.veg"
+        veg_from_msh = VegFile.from_single_material(msh_data, soft)
+        pgo.mesh.volume.write_veg(str(veg_path), veg_from_msh)
+        reloaded = pgo.mesh.volume.read_veg(str(veg_path))
 
-            print("msh → veg → round-trip:")
-            print(f"  vertices: {reloaded.mesh_data.num_vertices} (original: {msh_data.num_vertices})")
-            print(f"  elements: {reloaded.mesh_data.num_elements} (original: {msh_data.num_elements})")
-            print(f"  materials: {[type(m).__name__ + ':' + m.name for m in reloaded.materials]}")
-        finally:
-            shutil.rmtree(tmpdir2)
+        print("msh → veg → round-trip:")
+        print(f"  vertices: {reloaded.mesh_data.num_vertices} (original: {msh_data.num_vertices})")
+        print(f"  elements: {reloaded.mesh_data.num_elements} (original: {msh_data.num_elements})")
+        print(f"  materials: {[type(m).__name__ + ':' + m.name for m in reloaded.materials]}")
         """
     ),
     md(
@@ -433,7 +448,35 @@ CELLS = [
 
         print("matrix shape/nnz:", matrix.shape, matrix.nnz)
         print("coo:", rows, cols, values)
-        print("embedded displacement:", embedding.deform(displacement.ravel()))
+        # Visualize the interpolation matrix structure
+        M_dense = np.zeros(matrix.shape, dtype=np.float64)
+        for r, c, v in zip(rows, cols, values):
+            M_dense[r, c] = v
+        print("\\ninterpolation matrix (dense):")
+        print(np.array2string(M_dense, precision=2, suppress_small=True))
+        print(f"\\nshape  = {matrix.shape}  →  rows = n_targets × 3,  cols = n_vol_verts × 3")
+        print(f"nnz    = {matrix.nnz}  →  n_targets × 4 (one weight per tet vertex, repeated per coord)")
+        """
+    ),
+    md(
+        """
+        ### Interpolation matrix structure
+
+        Each target point contributes 3 rows (x, y, z displacement).  Each volume
+        vertex contributes 3 columns.  A vertex's barycentric weight is repeated
+        across the three coordinate columns — so for a tet with 4 vertices and
+        1 target point you get a `(3, 12)` matrix with 12 nonzeros (4 identical
+        weights × 3 coords):
+
+        ```
+               v0           v1           v2           v3
+            x  y  z     x  y  z     x  y  z     x  y  z
+        tx [w  0  0     w  0  0     w  0  0     w  0  0]
+        ty [0  w  0     0  w  0     0  w  0     0  w  0]
+        tz [0  0  w     0  0  w     0  0  w     0  0  w]
+        ```
+
+        where `w` = barycentric weight of that vertex at the target point.
         """
     ),
     md(
@@ -811,9 +854,6 @@ CELLS = [
     md(
         """
         ## 13. `split_components` and `minimum_bounding_sphere`
-
-        These two functions were migrated from `scripts/dump_obj_components.py` and
-        `scripts/generate_bounding_sphere.py` respectively.
 
         `split_components` is a convenience wrapper around `connected_components_by_edge`
         that returns ready-to-use `TriMeshData` objects instead of triangle-index arrays.

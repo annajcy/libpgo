@@ -31,7 +31,7 @@ CELLS = [
         **Learning goals:**
 
         1. Load `.veg` / `.obj` assets and create `SimulationMesh` objects.
-        2. Choose a formulation (`TetP1`, `LinearCubic`, `KoiterShell`).
+        2. Choose a formulation (`TetP1`, `LinearCubic`, `TricubicHermite`, `KoiterShell`).
         3. Choose elastic and plastic material laws.
         4. Build a `DeformationModelState`, then a `DeformationEnergy`.
         5. Evaluate energy, gradient, Hessian at displacement states.
@@ -47,6 +47,7 @@ CELLS = [
         2. Tet P1 energy from `bunny.veg` (711 vertices, 436 elements)
         3. Cubic hex trilinear energy from `box.veg` (125 vertices, 64 elements)
         4. Shell Koiter energy from `shell.obj` (surface mesh)
+        4b. Tricubic Hermite from `box.veg` (24 DOFs/vertex, C1, patch tests)
         5. Evaluate energy, gradient, Hessian at zero state
         6. Compose with EnergySet + VertexAttachment
         7. Lifetime and ownership
@@ -148,10 +149,13 @@ CELLS = [
             bunny_state,
             formulation=pf.TetP1(),
         )
+        nv, ne = bunny_mesh.num_vertices, bunny_state.num_elements
         print(type(energy_tet).__name__)
-        print(f"num_dofs:     {energy_tet.num_dofs}")
-        print(f"state_kind:   {energy_tet.state_kind}")
-        print(f"num_vertices: {energy_tet.num_vertices}")
+        print(f"  deformation DOFs:     {nv} verts × 3 = {nv * 3}")
+        print(f"  elastic params:       {energy_tet.num_elastic_params} / elem ({energy_tet.num_elastic_dofs} total)")
+        print(f"  plastic params:       {energy_tet.num_plastic_params} / elem ({energy_tet.num_plastic_dofs} total)")
+        print(f"  energy.num_dofs:      {energy_tet.num_dofs}  (deformation only)")
+        print(f"  state_kind:           {energy_tet.state_kind}")
         print(repr(energy_tet))
         """
     ),
@@ -175,8 +179,12 @@ CELLS = [
             bunny_state_stvk,
             formulation=pf.TetP1(),
         )
-        print(f"StVK + dof3: {energy_tet_stvk.num_dofs} DOFs, "
-              f"state_kind={energy_tet_stvk.state_kind}")
+        nv, ne = bunny_mesh.num_vertices, bunny_state_stvk.num_elements
+        print(f"StVK + dof3:")
+        print(f"  deformation DOFs:     {nv} verts × 3 = {nv * 3}")
+        print(f"  elastic params:       {energy_tet_stvk.num_elastic_params} / elem ({energy_tet_stvk.num_elastic_dofs} total)")
+        print(f"  plastic params:       {energy_tet_stvk.num_plastic_params} / elem ({energy_tet_stvk.num_plastic_dofs} total)")
+        print(f"  energy.num_dofs:      {energy_tet_stvk.num_dofs}  (deformation only)")
         """
     ),
     md(
@@ -224,9 +232,13 @@ CELLS = [
             box_state,
             formulation=pf.LinearCubic(),
         )
-        print(f"num_dofs:   {energy_cubic.num_dofs}")
-        print(f"state_kind: {energy_cubic.state_kind}")
-        print(f"rest_position shape: {energy_cubic.rest_position.shape}")
+        nv = box_mesh.num_vertices
+        print(f"  deformation DOFs:     {nv} verts × 3 = {nv * 3}")
+        print(f"  elastic params:       {energy_cubic.num_elastic_params} / elem ({energy_cubic.num_elastic_dofs} total)")
+        print(f"  plastic params:       {energy_cubic.num_plastic_params} / elem ({energy_cubic.num_plastic_dofs} total)")
+        print(f"  energy.num_dofs:      {energy_cubic.num_dofs}")
+        print(f"  state_kind:           {energy_cubic.state_kind}")
+        print(f"  rest_position shape:  {energy_cubic.rest_position.shape}")
         """
     ),
     code(
@@ -285,16 +297,135 @@ CELLS = [
             shell_state,
             formulation=pf.KoiterShell(),
         )
-        print(f"num_dofs:     {energy_shell.num_dofs}")
-        print(f"state_kind:   {energy_shell.state_kind}")
+        nv = shell_mesh.num_vertices
+        print(f"  deformation DOFs:     {nv} verts × 3 = {nv * 3}")
+        print(f"  elastic params:       {energy_shell.num_elastic_params} / elem ({energy_shell.num_elastic_dofs} total)")
+        print(f"  plastic params:       {energy_shell.num_plastic_params} / elem ({energy_shell.num_plastic_dofs} total)")
+        print(f"  energy.num_dofs:      {energy_shell.num_dofs}")
+        print(f"  state_kind:           {energy_shell.state_kind}")
         print(repr(energy_shell))
         """
     ),
     md(
         """
+        ## 4b. Tricubic Hermite — 24 DOFs per vertex (C1)
+
+        `TricubicHermite()` is a high-order hex formulation where each vertex
+        carries **8 Hermite modes** (value + 7 derivative modes), yielding
+        **24 DOFs per vertex** instead of the usual 3.  The field is C1
+        continuous within each cell.
+
+        It currently targets **regular axis-aligned hex grids** — the
+        formulation's DOF layout assumes the local ξ/η/ζ axes align with
+        global x/y/z, so `box.veg` (5×5×5 uniform grid) is the ideal test
+        case.  General curvilinear meshes need the next-phase inverse-design
+        transform.
+        """
+    ),
+    code(
+        """
+        # Load the regular-grid cubic box (required for Hermite MVP)
+        herm_path = str(CUBIC_VEG / "box.veg")
+        herm_veg = read_veg(herm_path)
+        herm_volume = VolumeMesh.from_veg_file(herm_veg)
+        herm_mesh = pgo.fem.SimulationMesh.create_volumetric(herm_volume)
+        print(f"VolumeMesh: {herm_volume.num_vertices} vertices, "
+              f"{herm_volume.num_elements} hex elements")
+
+        # Build Hermite energy — 24 DOFs per vertex
+        herm_state = pf.deformation_model_state(
+            herm_mesh,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_field=pf.ElementwiseField(),
+        )
+        energy_herm = pf.deformation_energy(
+            herm_state,
+            formulation=pf.TricubicHermite(),
+        )
+        print(f"  deformation DOFs:     {herm_volume.num_vertices} verts × 24 = {energy_herm.num_dofs}")
+        print(f"  elastic params:       {energy_herm.num_elastic_params} / elem ({energy_herm.num_elastic_dofs} total)")
+        print(f"  plastic params:       {energy_herm.num_plastic_params} / elem ({energy_herm.num_plastic_dofs} total)")
+        print(f"  state_kind:           {energy_herm.state_kind}")
+        print(f"  rest_position shape:  {energy_herm.rest_position.shape}")
+        """
+    ),
+    code(
+        """
+        # Compare: same mesh with LinearCubic() → only 3 DOFs per vertex
+        box_state = pf.deformation_model_state(
+            herm_mesh,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=6),
+            plastic_field=pf.ElementwiseField(),
+        )
+        energy_linear = pf.deformation_energy(
+            box_state,
+            formulation=pf.LinearCubic(),
+        )
+        print(f"LinearCubic:   {energy_linear.num_dofs} deformation DOFs  (= {herm_volume.num_vertices} × 3)")
+        print(f"TricubicHermite: {energy_herm.num_dofs} deformation DOFs  (= {herm_volume.num_vertices} × 24)")
+        """
+    ),
+    code(
+        """
+        # --- Patch tests ---
+
+        rest = np.asarray(energy_herm.rest_position)   # (nvtx, 24) → value modes are cols 0:3
+        rest_modes = rest.reshape(-1, 8, 3)            # per-vertex 8 modes × 3 coords
+
+        def hermite_affine_disp(A, t):
+            \"\"\"Map an affine deformation x = A·X + t onto Hermite DOFs.
+            Value modes transform as A·pos + t; derivative modes as A·mode.\"\"\"
+            deformed = rest_modes @ A.T
+            deformed[:, 0, :] += t                     # translation only on value mode
+            return (deformed - rest_modes).reshape(-1)
+
+        u0 = energy_herm.zero_state()
+        print(f"rest energy:  {energy_herm.value(u0):.4e}")
+        print(f"rest |grad|:  {float(np.linalg.norm(energy_herm.gradient(u0))):.2e}")
+
+        # Rigid translation → zero energy
+        u_t = hermite_affine_disp(np.eye(3), np.array([0.3, -0.7, 1.1]))
+        print(f"translation:  {energy_herm.value(u_t):.4e}")
+
+        # Rigid rotation → zero energy (frame-invariant material)
+        ax = np.array([0.3, 0.8, 0.5]); ax /= np.linalg.norm(ax)
+        th = 0.4
+        K = np.array([[0, -ax[2], ax[1]], [ax[2], 0, -ax[0]], [-ax[1], ax[0], 0]])
+        R = np.eye(3) + np.sin(th) * K + (1 - np.cos(th)) * (K @ K)
+        u_r = hermite_affine_disp(R, np.zeros(3))
+        print(f"rotation:     {energy_herm.value(u_r):.4e}")
+
+        # Affine deformation → Hermite matches LinearCubic exactly
+        A = np.array([[1.05, 0.03, 0.0], [0.0, 0.98, 0.02], [0.01, 0.0, 1.03]])
+        t = np.array([0.01, -0.02, 0.0])
+        eH = energy_herm.value(hermite_affine_disp(A, t))
+        eL = energy_linear.value(
+            (herm_volume.mesh_data.vertices @ A.T + t - herm_volume.mesh_data.vertices).reshape(-1))
+        print(f"affine Hermite:     {eH:.6e}")
+        print(f"affine LinearCubic: {eL:.6e}")
+        print(f"relative diff:      {abs(eH - eL) / max(1.0, abs(eL)):.2e}")
+        """,
+    ),
+    md(
+        """
+        ### When to use TricubicHermite
+
+        - **Smooth deformation fields** — C1 continuity avoids the kinks of trilinear hex.
+        - **Inverse design / PDE-constrained optimization** — the richer DOF space
+          parameterises a higher-dimensional design space.
+        - **Currently targets regular axis-aligned hex grids**; general curvilinear
+          meshes are planned for a future phase.
+        """,
+    ),
+    md(
+        """
         ## 5. Evaluate energy, gradient, Hessian at zero state
 
-        All three energy types share the same evaluation protocol.
+        All energy types share the same evaluation protocol.
         `state_kind == "displacement"` means the state vector `u` is a
         displacement from `rest_position`.
         """
@@ -570,11 +701,12 @@ CELLS = [
         """
         ## Available formulations, materials, and plastics
 
-        | Type | Formulation | Nodes | DOFs | Example |
+        | Type | Formulation | Nodes | DOFs/vertex | Example |
         |---|---|---|---|---|
-        | Tet | `pf.TetP1()` (default) | 4 | 12 | `veg/tet/*.veg` |
-        | Cubic | `pf.LinearCubic()` (required) | 8 | 24 | `veg/cubic/*.veg` |
-        | Shell | `pf.KoiterShell()` (required) | 6 | 18 | `obj/shell.obj` |
+        | Tet | `pf.TetP1()` (default) | 4 | 3 | `veg/tet/*.veg` |
+        | Cubic (trilinear) | `pf.LinearCubic()` (required) | 8 | 3 | `veg/cubic/*.veg` |
+        | Cubic (tricubic Hermite) | `pf.TricubicHermite()` (required) | 8 | 24 | `veg/cubic/*.veg` (regular grid) |
+        | Shell | `pf.KoiterShell()` (required) | 6 | 3 | `obj/shell.obj` |
 
         | Elastic Law | Wrapper | Valid With |
         |---|---|---|

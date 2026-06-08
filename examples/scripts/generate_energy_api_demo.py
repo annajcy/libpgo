@@ -203,30 +203,43 @@ CELLS = [
     ),
     md(
         """
-        ### Dense ndarray input
+        ### Dense ndarray and SparseMatrix input
 
-        You can also pass a 2-D NumPy array directly — zeros are automatically
-        dropped during COO conversion.
+        You can pass a 2-D NumPy array, a ``SparseMatrix``, or a SciPy sparse
+        matrix directly — they are all normalized to COO internally.  Zeros are
+        dropped during conversion.
         """
     ),
     code(
         """
-        # Dense ndarray input — zeros are dropped automatically
+        # Dense ndarray — zeros are dropped automatically
         A_dense = np.diag([2.0, 3.0, 4.0])
         q_dense = pe.QuadraticEnergy(A_dense)
 
         x = np.ones(3, dtype=np.float64)
-        print("value from dense:", q_dense.value(x))
-        print("gradient from dense:", q_dense.gradient(x))
+        print("from dense ndarray:")
+        print("  value:", q_dense.value(x))
+        print("  gradient:", q_dense.gradient(x))
 
-        # COO tuple still works too
-        q_coo = pe.QuadraticEnergy(
-            (2, 2,
-             [0, 1],             # row_indices (list of int)
-             [0, 1],             # col_indices (list of int)
-             [10.0, 20.0]),      # values (plain list)
+        # SparseMatrix — same matrix via different path
+        from pypgo.sparse import SparseMatrix
+        A_sparse = SparseMatrix.from_coo(
+            (3, 3),
+            [0, 1, 2], [0, 1, 2],
+            [2.0, 3.0, 4.0],
         )
-        print("value from coo:", q_coo.value(np.array([1.0, 0.0])))
+        q_sparse = pe.QuadraticEnergy(A_sparse)
+        print("\\nfrom SparseMatrix:")
+        print("  value:", q_sparse.value(x))
+        print("  gradient:", q_sparse.gradient(x))
+        print("  same result:", bool(np.allclose(q_dense.value(x), q_sparse.value(x))))
+
+        # Dense → SparseMatrix → QuadraticEnergy (two-step)
+        A_big = np.eye(5) * 10.0 + np.eye(5, k=1) * 2.0
+        from pypgo.sparse import as_sparse_matrix
+        q_big = pe.QuadraticEnergy(as_sparse_matrix(A_big))
+        print(f"\\nfrom dense→sparse (5×5, {int(np.count_nonzero(A_big))} nonzeros):")
+        print("  value at ones:", q_big.value(np.ones(5)))
         """
     ),
     md(
@@ -264,10 +277,6 @@ CELLS = [
     ),
     code(
         """
-        # At zero displacement, vertices 0 and 1 are at rest (0,0,0) and (1,0,0)?
-        # Wait — if is_displacement=True (default), then absolute position =
-        # rest + displacement.  Our rest_positions are all-zero here, so the
-        # targets are absolute positions in this simplified setup.
         u = np.zeros(n_dofs, dtype=np.float64)
         print("energy at zero disp:", pin.value(u))
 
