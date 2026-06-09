@@ -10,6 +10,7 @@ copyright to USC,MIT,NUS
 #include "simulation/simulationMesh.h"
 #include "pgoLogging.h"
 
+#include <algorithm>
 #include <numeric>
 
 using namespace pgo;
@@ -20,14 +21,14 @@ namespace ES = pgo::EigenSupport;
 namespace
 {
 
-ES::VXd assembleAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restPosition, int offset, int)
+void fillAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restPosition, int offset, ES::VXd &out)
 {
-  return restPosition + x.segment(offset, restPosition.size());
+  out.noalias() = restPosition + x.segment(offset, restPosition.size());
 }
 
-ES::VXd assembleDirectionSlice(ES::ConstRefVecXd dx, int offset, int numDOFs)
+void fillDirectionSlice(ES::ConstRefVecXd dx, int offset, int numDOFs, ES::VXd &out)
 {
-  return ES::VXd(Eigen::Map<const ES::VXd>(dx.data() + offset, numDOFs));
+  out = Eigen::Map<const ES::VXd>(dx.data() + offset, numDOFs);
 }
 
 }  // namespace
@@ -36,6 +37,10 @@ DeformationModelEnergy::DeformationModelEnergy(std::unique_ptr<DeformationModelA
   int offset, bool enableMaterialMaxStep):
   forceModelAssembler(std::move(fma)),
   restPosition(std::make_unique<ES::VXd>(forceModelAssembler->getRestPosition())),
+  absolutePositionScratch_(std::max(1, tbb::this_task_arena::max_concurrency()),
+    ES::VXd(forceModelAssembler->getNumDOFs())),
+  directionScratch_(std::max(1, tbb::this_task_arena::max_concurrency()),
+    ES::VXd(forceModelAssembler->getNumDOFs())),
   enableMaterialMaxStep_(enableMaterialMaxStep)
 {
   allDOFs.resize(forceModelAssembler->getNumDOFs());
@@ -46,24 +51,47 @@ DeformationModelEnergy::~DeformationModelEnergy()
 {
 }
 
+ES::VXd &DeformationModelEnergy::absolutePositionScratch() const
+{
+  int threadIndex = tbb::this_task_arena::current_thread_index();
+  if (threadIndex < 0)
+    threadIndex = 0;
+  if (threadIndex >= static_cast<int>(absolutePositionScratch_.size()))
+    threadIndex = static_cast<int>(absolutePositionScratch_.size()) - 1;
+  return absolutePositionScratch_[threadIndex];
+}
+
+ES::VXd &DeformationModelEnergy::directionScratch() const
+{
+  int threadIndex = tbb::this_task_arena::current_thread_index();
+  if (threadIndex < 0)
+    threadIndex = 0;
+  if (threadIndex >= static_cast<int>(directionScratch_.size()))
+    threadIndex = static_cast<int>(directionScratch_.size()) - 1;
+  return directionScratch_[threadIndex];
+}
+
 double DeformationModelEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.energy");
-  ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(x, *restPosition, allDOFs[0], p);
   return forceModelAssembler->computeEnergy(p.data());
 }
 
 void DeformationModelEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
-  ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(x, *restPosition, allDOFs[0], p);
   forceModelAssembler->computeGradient(p.data(), grad.data());
 }
 
 void DeformationModelEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
-  ES::VXd p = *restPosition + x.segment(allDOFs[0], restPosition->size());
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(x, *restPosition, allDOFs[0], p);
   forceModelAssembler->computeHessian(p.data(), hess);
 }
 
@@ -82,12 +110,14 @@ NonlinearOptimization::StepConstraint DeformationModelEnergy::computeMaxStepLimi
   const int offset = allDOFs.empty() ? 0 : allDOFs[0];
   const int numDOFs = getNumDOFs();
 
-  const ES::VXd dxLocal = assembleDirectionSlice(dx, offset, numDOFs);
+  ES::VXd &dxLocal = directionScratch();
+  fillDirectionSlice(dx, offset, numDOFs, dxLocal);
   if (dxLocal.size() == 0 || dxLocal.squaredNorm() == 0.0) {
     return NonlinearOptimization::StepConstraint{};
   }
 
-  const ES::VXd absolutePositions = assembleAbsolutePositions(x, *restPosition, offset, numDOFs);
+  ES::VXd &absolutePositions = absolutePositionScratch();
+  fillAbsolutePositions(x, *restPosition, offset, absolutePositions);
   const auto observation = forceModelAssembler->computeMaxStepObservation(absolutePositions.data(), dxLocal.data());
   const double maxStepSize = observation.alpha;
 

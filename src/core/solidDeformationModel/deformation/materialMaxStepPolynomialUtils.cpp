@@ -3,7 +3,9 @@
 #include "deformation/materialMaxStepPolynomialUtils.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <iterator>
 
 namespace pgo::SolidDeformationModel
 {
@@ -12,6 +14,38 @@ namespace ES = pgo::EigenSupport;
 namespace
 {
 constexpr double kBoundaryEvalTol = 1e-12;
+
+void insertCriticalPointIfInUnitInterval(std::array<double, 4> &cuts, int &count, double value)
+{
+  if (value > 0.0 && value < 1.0) {
+    cuts[count++] = value;
+  }
+}
+
+void appendCriticalPointsInUnitInterval(
+  const BasicAlgorithms::CubicPolynomial &poly, std::array<double, 4> &cuts, int &count)
+{
+  const double qa = 3.0 * poly.c3;
+  const double qb = 2.0 * poly.c2;
+  const double qc = poly.c1;
+
+  if (qa == 0.0) {
+    if (qb != 0.0) {
+      insertCriticalPointIfInUnitInterval(cuts, count, -qc / qb);
+    }
+    return;
+  }
+
+  const double disc = qb * qb - 4.0 * qa * qc;
+  if (disc < 0.0) {
+    return;
+  }
+
+  const double sqrtDisc = std::sqrt(std::max(0.0, disc));
+  const double denom = 2.0 * qa;
+  insertCriticalPointIfInUnitInterval(cuts, count, (-qb - sqrtDisc) / denom);
+  insertCriticalPointIfInUnitInterval(cuts, count, (-qb + sqrtDisc) / denom);
+}
 }
 
 double detFromColumns(const ES::V3d &c0, const ES::V3d &c1, const ES::V3d &c2)
@@ -62,19 +96,19 @@ ConservativeFeasibleAlphaResult findConservativeFeasibleAlpha(const BasicAlgorit
     return result;
   }
 
-  std::vector<double> cuts;
-  cuts.reserve(4);
-  cuts.push_back(0.0);
-  std::vector<double> criticalPoints = BasicAlgorithms::findCriticalPointsInUnitInterval(poly);
-  cuts.insert(cuts.end(), criticalPoints.begin(), criticalPoints.end());
-  cuts.push_back(1.0);
+  std::array<double, 4> cuts{};
+  int cutCount = 0;
+  cuts[cutCount++] = 0.0;
+  appendCriticalPointsInUnitInterval(poly, cuts, cutCount);
+  cuts[cutCount++] = 1.0;
 
-  std::sort(cuts.begin(), cuts.end());
-  cuts.erase(std::unique(cuts.begin(), cuts.end(), [](double lhs, double rhs) {
+  std::sort(cuts.begin(), cuts.begin() + cutCount);
+  const auto uniqueEnd = std::unique(cuts.begin(), cuts.begin() + cutCount, [](double lhs, double rhs) {
     return std::abs(lhs - rhs) <= kBoundaryEvalTol;
-  }), cuts.end());
+  });
+  cutCount = static_cast<int>(std::distance(cuts.begin(), uniqueEnd));
 
-  for (size_t i = 1; i < cuts.size(); i++) {
+  for (int i = 1; i < cutCount; i++) {
     const double left = cuts[i - 1];
     const double right = cuts[i];
     const double gr = poly.eval(right);

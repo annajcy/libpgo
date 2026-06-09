@@ -57,8 +57,13 @@ public:
   const OptimizableField &elasticParameterField() const { return *elasticParamField_; }
   const OptimizableField &plasticParameterField() const { return *plasticParamField_; }
   const EigenSupport::SpMatD &getPlasticHessianTemplate() const { return d2Eda2Template; }
+  const EigenSupport::SpMatD &getElasticHessianTemplate() const { return d2Edb2Template; }
+  const EigenSupport::SpMatD &getPlasticElasticHessianTemplate() const { return d2EdadbTemplate; }
   void computePlasticGradient(const double *x, double *grad) const;
   void computePlasticHessian(const double *x, EigenSupport::SpMatD &hess) const;
+  void computeElasticGradient(const double *x, double *grad) const;
+  void computeElasticHessian(const double *x, EigenSupport::SpMatD &hess) const;
+  void computePlasticElasticHessian(const double *x, EigenSupport::SpMatD &hess) const;
 
   void computeVonMisesStresses(const double *x, double *elementStresses) const;
   void computeMaxStrains(const double *x, double *elementStrain) const;
@@ -91,8 +96,9 @@ protected:
   int numElasticLocalParams_ = 0;
   int numPlasticLocalParams_ = 0;
 
-  EigenSupport::SpMatD KTemplate, dfdaTemplate, dfdbTemplate, d2Eda2Template;
-  std::vector<DynamicIndexMatrix> elementKInverseIndices, element_dfda_InverseIndices, element_dfdb_InverseIndices, element_d2Eda2_InverseIndices;
+  EigenSupport::SpMatD KTemplate, dfdaTemplate, dfdbTemplate, d2Eda2Template, d2Edb2Template, d2EdadbTemplate;
+  std::vector<DynamicIndexMatrix> elementKInverseIndices, element_dfda_InverseIndices, element_dfdb_InverseIndices;
+  std::vector<DynamicIndexMatrix> element_d2Eda2_InverseIndices, element_d2Edb2_InverseIndices, element_d2Edadb_InverseIndices;
 
   std::vector<double> elementWeights;
   std::vector<const DeformationModel *> femModels;
@@ -124,7 +130,9 @@ private:
 
   // Gather local displacement DOFs and externally computed material parameter values,
   // then prepare the element cache.
-  const DeformationModel *gatherAndPrepare(int ele, const double *x, double *localBuf) const;
+  const DeformationModel *gatherAndPrepare(
+    int ele, const double *x,
+    DeformationModelAssemblerCacheData::ThreadScratch &scratch) const;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

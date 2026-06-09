@@ -7,6 +7,8 @@ copyright to USC,MIT,NUS
 
 #include "potentialEnergy.h"
 
+#include <tbb/task_arena.h>
+
 #include <memory>
 #include <vector>
 
@@ -45,7 +47,13 @@ protected:
   std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
   std::vector<int> allDOFs;
   std::unique_ptr<EigenSupport::VXd> restPosition;
+  mutable std::vector<EigenSupport::VXd> absolutePositionScratch_;
+  mutable std::vector<EigenSupport::VXd> directionScratch_;
   bool enableMaterialMaxStep_ = true;
+
+private:
+  EigenSupport::VXd &absolutePositionScratch() const;
+  EigenSupport::VXd &directionScratch() const;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

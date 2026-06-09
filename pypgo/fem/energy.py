@@ -160,6 +160,18 @@ class DeformationEnergy(PotentialEnergy):
         arr = _field_values_array("values", values, field.num_elements, field.num_channels)
         self._handle.set_plastic_values(arr.ravel())
 
+    def elastic_gradient(self, displacement: np.ndarray) -> np.ndarray:
+        u = float_vector("displacement", displacement)
+        return np.asarray(self._handle.elastic_gradient(u), dtype=np.float64)
+
+    def elastic_hessian(self, displacement: np.ndarray):
+        u = float_vector("displacement", displacement)
+        return SparseMatrix(self._handle.elastic_hessian(u))
+
+    def plastic_elastic_hessian(self, displacement: np.ndarray):
+        u = float_vector("displacement", displacement)
+        return SparseMatrix(self._handle.plastic_elastic_hessian(u))
+
     def plastic_gradient(self, displacement: np.ndarray) -> np.ndarray:
         u = float_vector("displacement", displacement)
         return np.asarray(self._handle.plastic_gradient(u), dtype=np.float64)
@@ -167,6 +179,10 @@ class DeformationEnergy(PotentialEnergy):
     def plastic_hessian(self, displacement: np.ndarray):
         u = float_vector("displacement", displacement)
         return SparseMatrix(self._handle.plastic_hessian(u))
+
+    def elastic_jacobian(self, displacement: np.ndarray):
+        u = float_vector("displacement", displacement)
+        return SparseMatrix(self._handle.elastic_jacobian(u))
 
     def plastic_jacobian(self, displacement: np.ndarray):
         u = float_vector("displacement", displacement)
@@ -202,6 +218,34 @@ class PlasticMaterialEnergy(PotentialEnergy):
 
     def __repr__(self) -> str:
         return f"PlasticMaterialEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
+
+
+class ElasticMaterialEnergy(PotentialEnergy):
+    """Material energy with the elastic field as the optimization variable.
+
+    Created by ``pypgo.fem.elastic_material_energy()``. The displacement is fixed;
+    the input state vector is the elastic field's global DOF vector.
+    """
+
+    def __init__(self, handle, *, deformation_energy, fixed_displacement):
+        object.__setattr__(self, "_deformation_energy", deformation_energy)
+        object.__setattr__(
+            self,
+            "_fixed_displacement",
+            np.asarray(fixed_displacement, dtype=np.float64).copy(),
+        )
+        super().__init__(handle)
+
+    @property
+    def deformation_energy(self):
+        return self._deformation_energy
+
+    @property
+    def fixed_displacement(self) -> np.ndarray:
+        return self._fixed_displacement.copy()
+
+    def __repr__(self) -> str:
+        return f"ElasticMaterialEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +364,36 @@ def plastic_material_energy(
         u,
     )
     return PlasticMaterialEnergy(
+        handle,
+        deformation_energy=deformation_energy,
+        fixed_displacement=u,
+    )
+
+
+def elastic_material_energy(
+    deformation_energy,
+    *,
+    fixed_displacement,
+) -> ElasticMaterialEnergy:
+    """Create a material energy whose optimization variable is the elastic field."""
+    if not isinstance(deformation_energy, DeformationEnergy):
+        raise TypeError(
+            f"deformation_energy must be a DeformationEnergy, got {type(deformation_energy).__name__}"
+        )
+
+    u = np.asarray(fixed_displacement, dtype=np.float64, order="C")
+    if u.ndim != 1:
+        raise ValueError(f"fixed_displacement must be 1-D, got shape {u.shape}")
+    if u.size != deformation_energy.num_dofs:
+        raise ValueError(
+            f"fixed_displacement size must be {deformation_energy.num_dofs}, got {u.size}"
+        )
+
+    handle = _core._create_elastic_material_energy(
+        deformation_energy._handle,
+        u,
+    )
+    return ElasticMaterialEnergy(
         handle,
         deformation_energy=deformation_energy,
         fixed_displacement=u,

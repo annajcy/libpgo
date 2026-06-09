@@ -5,8 +5,10 @@
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
 #include "material/fields/materialParameterFieldInit.h"
+#include "energy/elasticMaterialEnergy.h"
 #include "energy/plasticMaterialEnergy.h"
 #include "simulation/simulationMesh.h"
+#include "triMeshGeo.h"
 #include "pgoLogging.h"
 #include "evaluation.h"
 
@@ -27,9 +29,11 @@ using pgo::SolidDeformationModel::DeformationModelEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
 using pgo::SolidDeformationModel::ElasticFieldInit;
+using pgo::SolidDeformationModel::ElasticMaterialEnergy;
 using pgo::SolidDeformationModel::PlasticFieldInit;
 using pgo::SolidDeformationModel::PlasticMaterialEnergy;
 using pgo::SolidDeformationModel::SimulationMesh;
+using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::SolidDeformationModel::createElasticParameterField;
@@ -108,6 +112,52 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(std::shared_ptr<co
     PlasticFieldInit{ pgo::SolidDeformationModel::PlasticMaterialFieldType::ELEMENTWISE, plasticBase });
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
+  return std::make_shared<DeformationModelEnergy>(std::move(assembler), 0, false);
+}
+
+std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd &elasticBase)
+{
+  constexpr int N = 4;
+  std::vector<double> vertices;
+  vertices.reserve(N * N * 3);
+  for (int j = 0; j < N; j++)
+    for (int i = 0; i < N; i++) {
+      vertices.push_back(0.1 * i);
+      vertices.push_back(0.1 * j);
+      vertices.push_back(0.0);
+    }
+
+  auto vid = [](int i, int j) { return j * N + i; };
+  std::vector<int> triangles;
+  for (int j = 0; j < N - 1; j++)
+    for (int i = 0; i < N - 1; i++) {
+      triangles.push_back(vid(i, j));
+      triangles.push_back(vid(i + 1, j));
+      triangles.push_back(vid(i + 1, j + 1));
+      triangles.push_back(vid(i, j));
+      triangles.push_back(vid(i + 1, j + 1));
+      triangles.push_back(vid(i, j + 1));
+    }
+
+  pgo::Mesh::TriMeshGeo surfaceMesh(N * N, vertices.data(),
+    static_cast<int>(triangles.size() / 3), triangles.data());
+  SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
+  std::shared_ptr<const SimulationMesh> mesh(
+    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
+
+  pgo::SolidDeformationModel::KoiterShellFormulation formulation;
+  auto elasticField = createElasticParameterField(
+    *mesh, DeformationModelElasticMaterial::KOITER_STVK,
+    ElasticFieldInit{ pgo::SolidDeformationModel::ElasticMaterialFieldType::CONSTANT, elasticBase });
+  auto plasticField = createPlasticParameterField(
+    *mesh, DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    PlasticFieldInit{ pgo::SolidDeformationModel::PlasticMaterialFieldType::ELEMENTWISE,
+      ES::VXd::Constant(mesh->getNumElements(), 1.0) });
+  auto manager = std::make_shared<DeformationModelManager>(
+    mesh, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1,
     formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
@@ -193,4 +243,73 @@ TEST(PlasticMaterialEnergyGTest, GradientAndHessianMatchFiniteDifference)
   EXPECT_DOUBLE_EQ(pgo::NonlinearOptimization::evaluateValue(plasticEnergy, plasticBase), plasticEnergy.func(plasticBase));
   EXPECT_TRUE(pgo::NonlinearOptimization::evaluateGradient(plasticEnergy, plasticBase).isApprox(grad, 1e-12));
   EXPECT_EQ(pgo::NonlinearOptimization::evaluateHessian(plasticEnergy, plasticBase).rows(), 6);
+}
+
+TEST(ElasticMaterialEnergyGTest, ValueGradientAndHessianMatchFiniteDifference)
+{
+  pgo::Logging::init();
+
+  ES::VXd elasticBase(5);
+  elasticBase << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
+
+  auto deformationEnergy = makeShellDeformationEnergy(elasticBase);
+  ES::VXd fixedDisplacement = makeFixedDisplacement(
+    deformationEnergy->assembler().getDeformationModelManager().getMesh()->getNumVertices());
+  ElasticMaterialEnergy elasticEnergy(deformationEnergy, fixedDisplacement);
+
+  EXPECT_EQ(elasticEnergy.stateKind(), pgo::NonlinearOptimization::EnergyStateKind::Generic);
+  EXPECT_EQ(elasticEnergy.getNumDOFs(), 5);
+
+  std::vector<int> dofs;
+  elasticEnergy.getDOFs(dofs);
+  ASSERT_EQ(dofs.size(), 5u);
+  for (int i = 0; i < 5; i++)
+    EXPECT_EQ(dofs[i], i);
+
+  deformationEnergy->assembler().setElasticValues(elasticBase);
+  const double expected = deformationEnergy->func(fixedDisplacement);
+  const double actual = elasticEnergy.func(elasticBase);
+  EXPECT_NEAR(actual, expected, 1e-12 * std::max(1.0, std::abs(expected)));
+
+  ES::VXd grad(5);
+  elasticEnergy.gradient(elasticBase, grad);
+  EXPECT_GT(grad.norm(), 0.0);
+
+  ScopedSerialTbb serial;
+  ES::VXd fdGrad(5);
+  for (int i = 0; i < 5; i++) {
+    const double h = kFiniteDifferenceStep * std::max(1.0, std::abs(elasticBase[i]));
+    fdGrad[i] = fivePointScalar([&](double delta) {
+      ES::VXd p = elasticBase;
+      p[i] += delta;
+      return elasticEnergy.func(p);
+    },
+      h);
+  }
+  EXPECT_LT((fdGrad - grad).norm() / std::max(1.0, grad.norm()), 1e-5);
+
+  ES::SpMatD hess;
+  elasticEnergy.hessianAlloc(hess);
+  elasticEnergy.hessianInPlace(elasticBase, hess);
+  ES::MXd hessDense(hess);
+  ASSERT_EQ(hessDense.rows(), 5);
+  ASSERT_EQ(hessDense.cols(), 5);
+
+  ES::MXd fdHess(5, 5);
+  for (int i = 0; i < 5; i++) {
+    const double h = kFiniteDifferenceStep * std::max(1.0, std::abs(elasticBase[i]));
+    fdHess.col(i) = fivePointVector([&](double delta) {
+      ES::VXd p = elasticBase;
+      p[i] += delta;
+      ES::VXd g(5);
+      elasticEnergy.gradient(p, g);
+      return g;
+    },
+      h);
+  }
+  EXPECT_LT((fdHess - hessDense).norm() / std::max(1.0, hessDense.norm()), 1e-5);
+
+  EXPECT_DOUBLE_EQ(pgo::NonlinearOptimization::evaluateValue(elasticEnergy, elasticBase), elasticEnergy.func(elasticBase));
+  EXPECT_TRUE(pgo::NonlinearOptimization::evaluateGradient(elasticEnergy, elasticBase).isApprox(grad, 1e-12));
+  EXPECT_EQ(pgo::NonlinearOptimization::evaluateHessian(elasticEnergy, elasticBase).rows(), 5);
 }

@@ -45,6 +45,7 @@ OUTPUT_DIR = ROOT / "examples"
 GENERATORS: dict[str, str] = {
     "contact_api_demo": "generate_contact_api_demo.py",
     "energy_api_demo": "generate_energy_api_demo.py",
+    "elastic_material_optimization_demo": "generate_elastic_material_optimization_demo.py",
     "mesh_api_demo": "generate_mesh_api_demo.py",
     "deformation_fem_api_demo": "generate_deformation_fem_api_demo.py",
     "animation_api_demo": "generate_animation_api_demo.py",
@@ -76,6 +77,7 @@ def _load_generator_module(script_name: str):
     )
     module = importlib.util.module_from_spec(spec)
     sys_path = sys.path.copy()
+    sys.path.insert(0, str(ROOT))
     sys.path.insert(0, str(SCRIPT_DIR))
     try:
         spec.loader.exec_module(module)
@@ -319,7 +321,7 @@ class TestNotebookSources:
         source = "\n".join("".join(c["source"]) for c in nb["cells"])
         assert "pf.ElementwiseField()" in source
         assert "target_vertices" in source
-        assert "pgo.fem.StaticEquilibriumLayer" in source
+        assert "pgo.fem.PlasticStaticEquilibriumLayer" in source
         assert "energy.num_plastic_dofs" in source
         assert "pgo.mesh.plot_volume_surface" in source
         assert "pgo.mesh.plot_surface" in source
@@ -358,6 +360,54 @@ class TestNotebookSources:
         assert "value_and_gradient" not in source
         assert "plastic_param.grad =" not in source
         assert "best_surface_vertices" not in source
+
+    def test_elastic_material_optimization_demo_covers_inverse_design_path(self, generated_notebooks):
+        with open(generated_notebooks["elastic_material_optimization_demo"]) as fh:
+            nb = json.load(fh)
+        source = "\n".join("".join(c["source"]) for c in nb["cells"])
+        assert "pf.ElementwiseField(values=" in source
+        assert "target_vertices" in source
+        assert "pgo.fem.ElasticStaticEquilibriumLayer" in source
+        assert "objective_energy=objective" in source
+        assert "pe.LinearEnergy(-gravity_force)" in source
+        assert "pe.EnergySet" in source
+        assert "gravity_force" in source
+        assert "gravity_accel" in source
+        assert "energy.num_elastic_dofs" in source
+        assert "energy.elastic_jacobian" in source
+        assert "pgo.mesh.plot_surface" in source
+        assert "optimized_surface" in source
+        assert "optimized_elastic" in source
+        assert "elastic_delta" in source
+        assert "elastic_delta_norm" in source
+        assert "E_membrane_delta" in source
+        assert "thickness_delta" in source
+        assert "elastic_shape_match_weights.npz" in source
+        assert "np.savez" in source
+        assert "tripcolor" in source
+        assert "torch.optim.Adam" in source
+        assert "loss.backward()" in source
+        assert "equilibrium_layer(elastic_param)" in source
+        assert "equilibrium_layer.reset_warm_start(best_displacement)" in source
+        assert "optimized_elastic_tensor" in source
+        assert "optimized_vertices =" in source
+        assert "num_outer_steps" in source
+        assert "learning_rate" in source
+        assert "nx = ny" in source
+        assert "surface_vertex_ids" in source
+        assert "shear_strength" in source
+        assert "sag_strength" in source
+        assert "Koiter shell grid" in source
+        assert "ShellPlasticity" in source
+        assert "vertex_error_stats" in source
+        assert "mean_vertex_error" in source
+        assert "max_vertex_error" in source
+        assert "per_vertex_rms" in source
+        assert "PyTorch" in source
+        assert "plastic_material_energy" not in source
+        assert "sphere target" not in source
+        assert "one-hex" not in source
+        assert "SciPy" not in source
 
     def test_tricubic_hermite_box_drop_demo_uses_dynamic_mapped_contact_helpers(self, generated_notebooks):
         with open(generated_notebooks["tricubic_hermite_box_drop_ipc_demo"]) as fh:

@@ -510,6 +510,60 @@ TEST(DeformationModelAssemblerGTest, PlasticEnergyGradientMatchesFiniteDifferenc
   sa.assembler->setPlasticValues(plasticBase);
 }
 
+TEST(DeformationModelAssemblerGTest, ElasticEnergyGradientMatchesFiniteDifference)
+{
+  using pgo::SolidDeformationModel::ElasticMaterialFieldType;
+  using pgo::SolidDeformationModel::PlasticMaterialFieldType;
+
+  pgo::Logging::init();
+
+  pgo::Mesh::TriMeshGeo surfaceMesh;
+  ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
+
+  SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
+  ASSERT_NE(mesh, nullptr);
+
+  const int nele = mesh->getNumElements();
+  const int numElasticParams = 5;
+  const int numPlasticParams = 1;
+  ES::VXd elasticBase(numElasticParams);
+  elasticBase << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
+  ES::VXd plasticBase = ES::VXd::Constant(static_cast<Eigen::Index>(nele) * numPlasticParams, 1.2);
+
+  auto sa = buildExactAssembler(
+    mesh,
+    DeformationModelElasticMaterial::KOITER_STVK,
+    ElasticFieldInit{ ElasticMaterialFieldType::CONSTANT, elasticBase },
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticBase },
+    pgo::SolidDeformationModel::KoiterShellFormulation{});
+
+  ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
+
+  ES::VXd analytic = ES::VXd::Zero(sa.assembler->getNumElasticGlobalParams());
+  sa.assembler->setElasticValues(elasticBase);
+  sa.assembler->computeElasticGradient(x.data(), analytic.data());
+  ASSERT_EQ(analytic.size(), numElasticParams);
+  EXPECT_GT(analytic.norm(), 0.0);
+
+  ScopedSerialTbb serial;
+  for (int col = 0; col < numElasticParams; col++) {
+    auto energyAt = [&](double delta) {
+      ES::VXd p = elasticBase;
+      p[col] += delta;
+      sa.assembler->setElasticValues(p);
+      return sa.assembler->computeEnergy(x.data());
+    };
+    const double h = kFiniteDifferenceStep * std::max(1.0, std::abs(elasticBase[col]));
+    const double fd =
+      (-energyAt(2.0 * h) + 8.0 * energyAt(h) - 8.0 * energyAt(-h) + energyAt(-2.0 * h)) / (12.0 * h);
+    EXPECT_LT(std::abs(fd - analytic[col]) / std::max(1.0, std::abs(fd)), 1e-5)
+      << "Elastic energy gradient column " << col << " disagrees with FD.";
+  }
+  sa.assembler->setElasticValues(elasticBase);
+}
+
 TEST(DeformationModelAssemblerGTest, ConstantPlasticEnergyGradientAccumulatesElementwiseGradient)
 {
   using pgo::SolidDeformationModel::PlasticMaterialFieldType;
@@ -606,6 +660,120 @@ TEST(DeformationModelAssemblerGTest, PlasticEnergyHessianMatchesFiniteDifference
     });
   }
   EXPECT_LT((fd - analytic).norm() / std::max(1.0, analytic.norm()), 1e-6);
+  sa.assembler->setPlasticValues(plasticBase);
+}
+
+TEST(DeformationModelAssemblerGTest, ElasticEnergyHessianMatchesFiniteDifferenceOfGradient)
+{
+  using pgo::SolidDeformationModel::ElasticMaterialFieldType;
+  using pgo::SolidDeformationModel::PlasticMaterialFieldType;
+
+  pgo::Logging::init();
+
+  pgo::Mesh::TriMeshGeo surfaceMesh;
+  ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
+
+  SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
+  ASSERT_NE(mesh, nullptr);
+
+  const int nele = mesh->getNumElements();
+  const int numElasticParams = 5;
+  const int numPlasticParams = 1;
+  ES::VXd elasticBase(numElasticParams);
+  elasticBase << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
+  ES::VXd plasticBase = ES::VXd::Constant(static_cast<Eigen::Index>(nele) * numPlasticParams, 1.2);
+
+  auto sa = buildExactAssembler(
+    mesh,
+    DeformationModelElasticMaterial::KOITER_STVK,
+    ElasticFieldInit{ ElasticMaterialFieldType::CONSTANT, elasticBase },
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticBase },
+    pgo::SolidDeformationModel::KoiterShellFormulation{});
+
+  ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
+
+  ES::SpMatD hess = sa.assembler->getElasticHessianTemplate();
+  sa.assembler->setElasticValues(elasticBase);
+  sa.assembler->computeElasticHessian(x.data(), hess);
+  ES::MXd analytic(hess);
+  ASSERT_EQ(analytic.rows(), numElasticParams);
+  ASSERT_EQ(analytic.cols(), numElasticParams);
+
+  ScopedSerialTbb serial;
+  ES::MXd fd(numElasticParams, numElasticParams);
+  for (int col = 0; col < numElasticParams; col++) {
+    const double h = kFiniteDifferenceStep * std::max(1.0, std::abs(elasticBase[col]));
+    fd.col(col) = fivePointFiniteDifference([&](double delta) {
+      ES::VXd p = elasticBase;
+      p[col] += delta;
+      sa.assembler->setElasticValues(p);
+      ES::VXd g = ES::VXd::Zero(numElasticParams);
+      sa.assembler->computeElasticGradient(x.data(), g.data());
+      return g;
+    },
+      h);
+  }
+  EXPECT_LT((fd - analytic).norm() / std::max(1.0, analytic.norm()), 1e-5);
+  sa.assembler->setElasticValues(elasticBase);
+}
+
+TEST(DeformationModelAssemblerGTest, PlasticElasticEnergyHessianMatchesFiniteDifferenceOfPlasticGradient)
+{
+  using pgo::SolidDeformationModel::ElasticMaterialFieldType;
+  using pgo::SolidDeformationModel::PlasticMaterialFieldType;
+
+  pgo::Logging::init();
+
+  pgo::Mesh::TriMeshGeo surfaceMesh;
+  ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
+
+  SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
+  std::shared_ptr<const SimulationMesh> mesh(pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
+  ASSERT_NE(mesh, nullptr);
+
+  const int nele = mesh->getNumElements();
+  const int numElasticParams = 5;
+  const int numPlasticParams = 1;
+  ES::VXd elasticBase(numElasticParams);
+  elasticBase << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
+  ES::VXd plasticBase = ES::VXd::Constant(static_cast<Eigen::Index>(nele) * numPlasticParams, 1.2);
+
+  auto sa = buildExactAssembler(
+    mesh,
+    DeformationModelElasticMaterial::KOITER_STVK,
+    ElasticFieldInit{ ElasticMaterialFieldType::CONSTANT, elasticBase },
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticBase },
+    pgo::SolidDeformationModel::KoiterShellFormulation{});
+
+  ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
+
+  sa.assembler->setElasticValues(elasticBase);
+  sa.assembler->setPlasticValues(plasticBase);
+  ES::SpMatD hess = sa.assembler->getPlasticElasticHessianTemplate();
+  sa.assembler->computePlasticElasticHessian(x.data(), hess);
+  ES::MXd analytic(hess);
+  ASSERT_EQ(analytic.rows(), nele * numPlasticParams);
+  ASSERT_EQ(analytic.cols(), numElasticParams);
+
+  ScopedSerialTbb serial;
+  ES::MXd fd(nele * numPlasticParams, numElasticParams);
+  for (int col = 0; col < numElasticParams; col++) {
+    const double h = kFiniteDifferenceStep * std::max(1.0, std::abs(elasticBase[col]));
+    fd.col(col) = fivePointFiniteDifference([&](double delta) {
+      ES::VXd p = elasticBase;
+      p[col] += delta;
+      sa.assembler->setElasticValues(p);
+      ES::VXd g = ES::VXd::Zero(nele * numPlasticParams);
+      sa.assembler->computePlasticGradient(x.data(), g.data());
+      return g;
+    },
+      h);
+  }
+  EXPECT_LT((fd - analytic).norm() / std::max(1.0, analytic.norm()), 2e-5);
+  sa.assembler->setElasticValues(elasticBase);
   sa.assembler->setPlasticValues(plasticBase);
 }
 

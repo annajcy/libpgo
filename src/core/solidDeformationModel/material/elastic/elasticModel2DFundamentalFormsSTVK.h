@@ -33,6 +33,34 @@ public:
   void compute_d2psi_da_dparam(const double *param, const double a[4], const double abar[4], double d2psi_dadparam[/*4 x numParams*/]) const override;
   void compute_d2psi_db_dparam(const double *param, const double b[4], const double abar[4], const double bbar[4], double d2psi_dbdparam[/*4 x numParams*/]) const override;
 
+  void compute_dpsi_dabar(
+    const double *param, const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double dpsi_dabar[4]) const override;
+  void compute_dpsi_dbbar(
+    const double *param, const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double dpsi_dbbar[4]) const override;
+  void compute_dpsi_dparam(
+    const double *param, const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double dpsi_dparam[/*numParams*/]) const override;
+  void compute_d2psi_dparam2(
+    const double *param, const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double d2psi_dparam2[/*numParams x numParams*/]) const override;
+  void compute_d2psi_dabar_dparam(
+    const double *param, const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double d2psi_dabar_dparam[/*4 x numParams*/]) const override;
+  void compute_d2psi_dbbar_dparam(
+    const double *param, const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double d2psi_dbbar_dparam[/*4 x numParams*/]) const override;
+  void compute_d2psi_dabar2(
+    const double *param, const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double d2psi_dabar2[16]) const override;
+  void compute_d2psi_dabar_dbbar(
+    const double *param, const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double d2psi_dabar_dbbar[16]) const override;
+  void compute_d2psi_dbbar2(
+    const double *param, const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double d2psi_dbbar2[16]) const override;
+
   int getNumParameters() const override { return 5; };
 };
 

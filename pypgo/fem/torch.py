@@ -14,22 +14,22 @@ from pypgo.energy import PotentialEnergy
 
 class _StaticEquilibriumFunction(_torch.autograd.Function):
     @staticmethod
-    def forward(ctx, plastic_values, layer):
-        if plastic_values.device.type != "cpu":
-            raise ValueError("StaticEquilibriumLayer currently supports CPU tensors only")
-        if plastic_values.dtype != _torch.float64:
-            raise TypeError("StaticEquilibriumLayer currently requires torch.float64 plastic tensors")
-        if plastic_values.ndim != 1:
-            raise ValueError(f"plastic_values must be 1-D, got shape {tuple(plastic_values.shape)}")
+    def forward(ctx, parameter_values, layer):
+        if parameter_values.device.type != "cpu":
+            raise ValueError(f"{layer._layer_name} currently supports CPU tensors only")
+        if parameter_values.dtype != _torch.float64:
+            raise TypeError(f"{layer._layer_name} currently requires torch.float64 parameter tensors")
+        if parameter_values.ndim != 1:
+            raise ValueError(f"parameter_values must be 1-D, got shape {tuple(parameter_values.shape)}")
 
-        plastic_np = plastic_values.detach().cpu().numpy().copy()
-        if plastic_np.size != layer.num_plastic_dofs:
+        parameter_np = parameter_values.detach().cpu().numpy().copy()
+        if parameter_np.size != layer.num_parameter_dofs:
             raise ValueError(
-                f"plastic_values size must be {layer.num_plastic_dofs}, got {plastic_np.size}"
+                f"{layer._parameter_name}_values size must be {layer.num_parameter_dofs}, got {parameter_np.size}"
             )
 
-        layer.energy.set_plastic_values(plastic_np.reshape(layer.plastic_shape))
-        problem = solver.OptimizationProblem(objective=layer.energy)
+        layer._set_parameter_values(parameter_np)
+        problem = solver.OptimizationProblem(objective=layer.objective_energy)
         problem.fix_variables(
             layer.fixed_dofs.tolist(),
             layer.fixed_values,
@@ -44,9 +44,9 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
         layer._last_inner_result = inner
 
         ctx.layer = layer
-        ctx.plastic_values = plastic_np
+        ctx.parameter_values = parameter_np
         ctx.displacement = inner.x.copy()
-        return _torch.as_tensor(surface_vertices, dtype=plastic_values.dtype)
+        return _torch.as_tensor(surface_vertices, dtype=parameter_values.dtype)
 
     @staticmethod
     def backward(ctx, grad_surface):
@@ -54,9 +54,9 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
         if grad_surface is None:
             return None, None
         if grad_surface.device.type != "cpu":
-            raise ValueError("StaticEquilibriumLayer currently supports CPU tensors only")
+            raise ValueError(f"{layer._layer_name} currently supports CPU tensors only")
 
-        layer.energy.set_plastic_values(ctx.plastic_values.reshape(layer.plastic_shape))
+        layer._set_parameter_values(ctx.parameter_values)
         grad_surface_np = np.asarray(grad_surface.detach().cpu().numpy(), dtype=np.float64)
         if grad_surface_np.shape != layer.surface_vertices.shape:
             raise ValueError(
@@ -69,28 +69,25 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
         padded[:, :3] = grad_surface_np
         np.add.at(grad_u_reshaped, layer.surface_vertex_ids, padded)
 
-        grad_plastic = np.zeros(layer.num_plastic_dofs, dtype=np.float64)
+        grad_parameter = np.zeros(layer.num_parameter_dofs, dtype=np.float64)
         if layer.free_dofs.size:
-            hessian = layer.energy.hessian(ctx.displacement).to_dense()
-            plastic_jacobian = layer.energy.plastic_jacobian(ctx.displacement).to_dense()
+            hessian = layer.objective_energy.hessian(ctx.displacement).to_dense()
+            parameter_jacobian = layer._parameter_jacobian(ctx.displacement)
             adjoint = np.zeros(layer.energy.num_dofs, dtype=np.float64)
             adjoint[layer.free_dofs] = np.linalg.solve(
                 hessian[np.ix_(layer.free_dofs, layer.free_dofs)],
                 grad_u[layer.free_dofs],
             )
-            grad_plastic = -(plastic_jacobian.T @ adjoint)
+            grad_parameter = -(parameter_jacobian.T @ adjoint)
 
-        return _torch.as_tensor(grad_plastic, dtype=grad_surface.dtype), None
+        return _torch.as_tensor(grad_parameter, dtype=grad_surface.dtype), None
 
 
-class StaticEquilibriumLayer(_torch.nn.Module):
-    """Implicitly differentiable static equilibrium layer.
+class _BaseStaticEquilibriumLayer(_torch.nn.Module):
+    """Shared implementation for implicitly differentiable equilibrium layers."""
 
-    The forward pass solves ``argmin_u E(u, a)`` for the given plastic field
-    ``a`` and returns observed surface vertices. The backward pass uses implicit
-    differentiation of the equilibrium equation, solving the adjoint system
-    ``H_ff lambda = dL/du_f`` and returning ``-J.T @ lambda``.
-    """
+    _layer_name = "BaseStaticEquilibriumLayer"
+    _parameter_name = "parameter"
 
     def __init__(
         self,
@@ -101,12 +98,20 @@ class StaticEquilibriumLayer(_torch.nn.Module):
         surface_vertices,
         surface_vertex_ids: Sequence[int],
         inner_optimizer: solver.Optimizer | None = None,
+        objective_energy=None,
     ) -> None:
         super().__init__()
         if not isinstance(energy, PotentialEnergy):
             raise TypeError("energy must be a pypgo.energy.PotentialEnergy")
+        if objective_energy is None:
+            objective_energy = energy
+        if not isinstance(objective_energy, PotentialEnergy):
+            raise TypeError("objective_energy must be a pypgo.energy.PotentialEnergy")
+        if objective_energy.num_dofs != energy.num_dofs:
+            raise ValueError("objective_energy num_dofs must match energy.num_dofs")
 
         self.energy = energy
+        self.objective_energy = objective_energy
         self.fixed_dofs = int_vector("fixed_dofs", fixed_dofs)
         self.fixed_values = float_vector("fixed_values", fixed_values)
         if self.fixed_values.size != self.fixed_dofs.size:
@@ -129,6 +134,10 @@ class StaticEquilibriumLayer(_torch.nn.Module):
         self.num_plastic_dofs = int(np.prod(self.plastic_shape))
         if self.num_plastic_dofs != energy.num_plastic_dofs:
             raise ValueError("plastic field size does not match energy.num_plastic_dofs")
+        self.elastic_shape = tuple(energy.elastic_field.values.shape)
+        self.num_elastic_dofs = int(np.prod(self.elastic_shape))
+        if self.num_elastic_dofs != energy.num_elastic_dofs:
+            raise ValueError("elastic field size does not match energy.num_elastic_dofs")
 
         self._dof_stride = energy.num_dofs // energy.num_vertices
 
@@ -156,25 +165,78 @@ class StaticEquilibriumLayer(_torch.nn.Module):
     @property
     def last_equilibrium_displacement(self) -> np.ndarray:
         if self._last_equilibrium_displacement is None:
-            raise RuntimeError("StaticEquilibriumLayer has not run a forward pass yet")
+            raise RuntimeError(f"{self._layer_name} has not run a forward pass yet")
         return self._last_equilibrium_displacement.copy()
 
     @property
     def last_surface_vertices(self) -> np.ndarray:
         if self._last_surface_vertices is None:
-            raise RuntimeError("StaticEquilibriumLayer has not run a forward pass yet")
+            raise RuntimeError(f"{self._layer_name} has not run a forward pass yet")
         return self._last_surface_vertices.copy()
 
     @property
     def last_inner_result(self):
         if self._last_inner_result is None:
-            raise RuntimeError("StaticEquilibriumLayer has not run a forward pass yet")
+            raise RuntimeError(f"{self._layer_name} has not run a forward pass yet")
         return self._last_inner_result
 
-    def forward(self, plastic_values):
-        return _StaticEquilibriumFunction.apply(plastic_values, self)
+    def forward(self, parameter_values):
+        return _StaticEquilibriumFunction.apply(parameter_values, self)
+
+
+class PlasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
+    """Implicitly differentiable equilibrium layer with plastic field input.
+
+    The forward pass solves ``argmin_u E(u, a)`` for the given plastic field
+    ``a`` and returns observed surface vertices. The backward pass uses
+    ``energy.plastic_jacobian(u)`` in the adjoint contraction.
+    """
+
+    _layer_name = "PlasticStaticEquilibriumLayer"
+    _parameter_name = "plastic"
+
+    @property
+    def parameter_shape(self):
+        return self.plastic_shape
+
+    @property
+    def num_parameter_dofs(self) -> int:
+        return self.num_plastic_dofs
+
+    def _set_parameter_values(self, values) -> None:
+        self.energy.set_plastic_values(values.reshape(self.plastic_shape))
+
+    def _parameter_jacobian(self, displacement) -> np.ndarray:
+        return self.energy.plastic_jacobian(displacement).to_dense()
+
+
+class ElasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
+    """Implicitly differentiable equilibrium layer with elastic field input.
+
+    The forward pass solves ``argmin_u E(u, b)`` for the given elastic field
+    ``b`` and returns observed surface vertices. The backward pass uses
+    ``energy.elastic_jacobian(u)`` in the adjoint contraction.
+    """
+
+    _layer_name = "ElasticStaticEquilibriumLayer"
+    _parameter_name = "elastic"
+
+    @property
+    def parameter_shape(self):
+        return self.elastic_shape
+
+    @property
+    def num_parameter_dofs(self) -> int:
+        return self.num_elastic_dofs
+
+    def _set_parameter_values(self, values) -> None:
+        self.energy.set_elastic_values(values.reshape(self.elastic_shape))
+
+    def _parameter_jacobian(self, displacement) -> np.ndarray:
+        return self.energy.elastic_jacobian(displacement).to_dense()
 
 
 __all__ = [
-    "StaticEquilibriumLayer",
+    "PlasticStaticEquilibriumLayer",
+    "ElasticStaticEquilibriumLayer",
 ]

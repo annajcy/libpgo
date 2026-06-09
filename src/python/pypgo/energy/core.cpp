@@ -4,6 +4,7 @@
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
 #include "material/elastic/elasticModelFactory.h"
+#include "energy/elasticMaterialEnergy.h"
 #include "energy/plasticMaterialEnergy.h"
 #include "constraints/core.h"
 #include "constraints/potentialEnergyFromConstraintFunctions.h"
@@ -139,6 +140,57 @@ nb::ndarray<nb::numpy, double> PyDeformationEnergy::plasticGradient(
   return python::vectorXdToNdarray(std::move(grad));
 }
 
+nb::ndarray<nb::numpy, double> PyDeformationEnergy::elasticGradient(
+  nb::ndarray<nb::numpy, const double> displacement) const
+{
+  auto u = python::ndarrayToVectorMapXd(displacement);
+  if (u.size() != energy_->getRestPosition().size()) {
+    throw nb::value_error("displacement size must match deformation energy num_dofs.");
+  }
+
+  EigenSupport::VXd grad = EigenSupport::VXd::Zero(numElasticDofs());
+  {
+    nb::gil_scoped_release release;
+    const EigenSupport::VXd p = energy_->getRestPosition() + u;
+    energy_->assembler().computeElasticGradient(p.data(), grad.data());
+  }
+  return python::vectorXdToNdarray(std::move(grad));
+}
+
+PySparseMatrix PyDeformationEnergy::elasticHessian(
+  nb::ndarray<nb::numpy, const double> displacement) const
+{
+  auto u = python::ndarrayToVectorMapXd(displacement);
+  if (u.size() != energy_->getRestPosition().size()) {
+    throw nb::value_error("displacement size must match deformation energy num_dofs.");
+  }
+
+  EigenSupport::SpMatD hess = energy_->assembler().getElasticHessianTemplate();
+  {
+    nb::gil_scoped_release release;
+    const EigenSupport::VXd p = energy_->getRestPosition() + u;
+    energy_->assembler().computeElasticHessian(p.data(), hess);
+  }
+  return PySparseMatrix(std::move(hess));
+}
+
+PySparseMatrix PyDeformationEnergy::plasticElasticHessian(
+  nb::ndarray<nb::numpy, const double> displacement) const
+{
+  auto u = python::ndarrayToVectorMapXd(displacement);
+  if (u.size() != energy_->getRestPosition().size()) {
+    throw nb::value_error("displacement size must match deformation energy num_dofs.");
+  }
+
+  EigenSupport::SpMatD hess = energy_->assembler().getPlasticElasticHessianTemplate();
+  {
+    nb::gil_scoped_release release;
+    const EigenSupport::VXd p = energy_->getRestPosition() + u;
+    energy_->assembler().computePlasticElasticHessian(p.data(), hess);
+  }
+  return PySparseMatrix(std::move(hess));
+}
+
 PySparseMatrix PyDeformationEnergy::plasticHessian(
   nb::ndarray<nb::numpy, const double> displacement) const
 {
@@ -154,6 +206,23 @@ PySparseMatrix PyDeformationEnergy::plasticHessian(
     energy_->assembler().computePlasticHessian(p.data(), hess);
   }
   return PySparseMatrix(std::move(hess));
+}
+
+PySparseMatrix PyDeformationEnergy::elasticJacobian(
+  nb::ndarray<nb::numpy, const double> displacement) const
+{
+  auto u = python::ndarrayToVectorMapXd(displacement);
+  if (u.size() != energy_->getRestPosition().size()) {
+    throw nb::value_error("displacement size must match deformation energy num_dofs.");
+  }
+
+  EigenSupport::SpMatD jac = energy_->assembler().get_dfdb_Template();
+  {
+    nb::gil_scoped_release release;
+    const EigenSupport::VXd p = energy_->getRestPosition() + u;
+    energy_->assembler().compute_df_db(p.data(), jac);
+  }
+  return PySparseMatrix(std::move(jac));
 }
 
 PySparseMatrix PyDeformationEnergy::plasticJacobian(
@@ -509,6 +578,20 @@ std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(
 
   auto fixed = python::ndarrayToVectorXd(fixedDisplacement);
   auto energy = std::make_shared<SolidDeformationModel::PlasticMaterialEnergy>(
+    deformationEnergyCore->energy(), fixed);
+  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
+}
+
+std::shared_ptr<PyPotentialEnergy> createElasticMaterialEnergy(
+  std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,
+  nb::ndarray<nb::numpy, const double> fixedDisplacement)
+{
+  if (!deformationEnergyCore) {
+    throw nb::value_error("deformation_energy must be non-null");
+  }
+
+  auto fixed = python::ndarrayToVectorXd(fixedDisplacement);
+  auto energy = std::make_shared<SolidDeformationModel::ElasticMaterialEnergy>(
     deformationEnergyCore->energy(), fixed);
   return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
 }

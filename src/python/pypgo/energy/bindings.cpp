@@ -56,8 +56,12 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("plastic_field", &PyDeformationEnergy::plasticField)
     .def("set_elastic_values", &PyDeformationEnergy::setElasticValues, nb::arg("values"))
     .def("set_plastic_values", &PyDeformationEnergy::setPlasticValues, nb::arg("values"))
+    .def("elastic_gradient", &PyDeformationEnergy::elasticGradient, nb::arg("displacement"))
+    .def("elastic_hessian", &PyDeformationEnergy::elasticHessian, nb::arg("displacement"))
+    .def("plastic_elastic_hessian", &PyDeformationEnergy::plasticElasticHessian, nb::arg("displacement"))
     .def("plastic_gradient", &PyDeformationEnergy::plasticGradient, nb::arg("displacement"))
     .def("plastic_hessian", &PyDeformationEnergy::plasticHessian, nb::arg("displacement"))
+    .def("elastic_jacobian", &PyDeformationEnergy::elasticJacobian, nb::arg("displacement"))
     .def("plastic_jacobian", &PyDeformationEnergy::plasticJacobian, nb::arg("displacement"));
 
   nb::class_<PyParameterField>(m, "PyParameterField")
@@ -87,6 +91,10 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("enable_material_max_step") = true);
 
   m.def("_create_plastic_material_energy", &createPlasticMaterialEnergy,
+    nb::arg("deformation_energy_core"),
+    nb::arg("fixed_displacement"));
+
+  m.def("_create_elastic_material_energy", &createElasticMaterialEnergy,
     nb::arg("deformation_energy_core"),
     nb::arg("fixed_displacement"));
 

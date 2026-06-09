@@ -12,6 +12,8 @@ of energy, one for each of the two variational problems:
   $\mathbf u$.
 - `plastic_material_energy(...)` → **`PlasticMaterialEnergy`** — the inverse problem,
   variable = the plastic parameter field, with $\mathbf u$ fixed.
+- `elastic_material_energy(...)` → **`ElasticMaterialEnergy`** — the same fixed-$\mathbf u$
+  material-parameter problem, but with the elastic field as the variable.
 
 ## Forward energy: $E(\mathbf u)$
 
@@ -104,38 +106,43 @@ The assembler folds these into global operators via the field's `computeDerivati
 `computePlasticHessian`, `compute_df_da`, `compute_df_db`
 (`deformation/deformationModelAssembler.h:42-47,57-62`).
 
-### The plastic path (exposed in Python)
+### Parameter paths (exposed in Python)
 
-`DeformationEnergy` surfaces the plastic sensitivities directly:
+`DeformationEnergy` surfaces the elastic and plastic sensitivities directly:
 
 ```python
+energy.num_elastic_dofs
+energy.elastic_gradient(u)           # ∂E/∂b
+energy.elastic_hessian(u)            # ∂²E/∂b²        (SparseMatrix)
+energy.plastic_elastic_hessian(u)    # ∂²E/∂a∂b       (SparseMatrix)
+
 energy.num_plastic_dofs
-energy.plastic_gradient(u)    # ∂E/∂a          at displacement u
-energy.plastic_hessian(u)     # ∂²E/∂a²        (SparseMatrix)
-energy.plastic_jacobian(u)    # ∂²E/∂x∂a       (= compute_df_da, the displacement–plastic coupling)
+energy.plastic_gradient(u)           # ∂E/∂a          at displacement u
+energy.plastic_hessian(u)            # ∂²E/∂a²        (SparseMatrix)
+energy.plastic_jacobian(u)           # ∂²E/∂x∂a       (= compute_df_da, the displacement–plastic coupling)
 ```
 
-To optimize the plastic field as a variational problem, wrap it as a `PlasticMaterialEnergy`,
-whose **optimization variable is the plastic field** and whose displacement is frozen
-(`state_kind == "generic"`, `energy/plasticMaterialEnergy.h:36`):
+To optimize a material field as a variational problem, wrap the deformation energy
+with the displacement frozen (`state_kind == "generic"`). The plastic and elastic
+wrappers are symmetric:
 
 ```python
-from pypgo.fem import plastic_material_energy
+from pypgo.fem import elastic_material_energy, plastic_material_energy
 
-pe = plastic_material_energy(config, energy, fixed_displacement=u)
-p0 = pe.zero_state()
-pe.value(p)      # E(u_fixed, p)
-pe.gradient(p)   # ∂E/∂p
-pe.hessian(p)    # ∂²E/∂p²
+plastic_pe = plastic_material_energy(energy, fixed_displacement=u)
+plastic_pe.value(a)       # E(u_fixed, a)
+plastic_pe.gradient(a)    # ∂E/∂a
+plastic_pe.hessian(a)     # ∂²E/∂a²
+
+elastic_pe = elastic_material_energy(energy, fixed_displacement=u)
+elastic_pe.value(b)       # E(u_fixed, b)
+elastic_pe.gradient(b)    # ∂E/∂b
+elastic_pe.hessian(b)     # ∂²E/∂b²
 ```
 
-Minimizing `pe` over `p` is the energy-based plastic update of [`plastic.md`](plastic.md).
-
-> The C++ assembler also computes the **elastic**-parameter sensitivities
-> (`compute_dE_db`, `compute_df_db`, `getNumElasticParams`), so inverse design over elastic
-> coefficients is supported by the engine; the current Python convenience surface wires up
-> the **plastic** field. Elastic-parameter optimization can be driven through the same
-> assembler entry points.
+Minimizing `plastic_pe` over `a` is the energy-based plastic update of
+[`plastic.md`](plastic.md). Optimizing `elastic_pe` is useful for material fitting
+or inverse design when combined with data terms, priors, or bounds.
 
 ## Formula ↔ function reference
 
@@ -151,10 +158,10 @@ $J_q=|\det\mathbf D_m^q|\,w_q$, $V_q=J_q\det\mathbf F_p$.
 | plastic gradient | $\partial E/\partial a$ | `plastic_gradient(u)` | `compute_dE_da` → `computePlasticGradient` |
 | plastic Hessian | $\partial^2E/\partial a^2$ | `plastic_hessian(u)` | `compute_d2E_da2` → `computePlasticHessian` (`d2Eda2Template`) |
 | displ.–plastic coupling | $\partial^2E/\partial\mathbf u\,\partial a$ | `plastic_jacobian(u)` | `compute_d2E_dxda` → `compute_df_da` (`dfdaTemplate`) |
-| elastic gradient | $\partial E/\partial b$ | — | `compute_dE_db` |
-| elastic Hessian | $\partial^2E/\partial b^2$ | — | `compute_d2E_db2` |
+| elastic gradient | $\partial E/\partial b$ | `elastic_gradient(u)` | `compute_dE_db` → `computeElasticGradient` |
+| elastic Hessian | $\partial^2E/\partial b^2$ | `elastic_hessian(u)` | `compute_d2E_db2` → `computeElasticHessian` (`d2Edb2Template`) |
 | displ.–elastic coupling | $\partial^2E/\partial\mathbf u\,\partial b$ | — | `compute_d2E_dxdb` → `compute_df_db` (`dfdbTemplate`) |
-| plastic–elastic cross | $\partial^2E/\partial a\,\partial b$ | — | `compute_d2E_dadb` |
+| plastic–elastic cross | $\partial^2E/\partial a\,\partial b$ | `plastic_elastic_hessian(u)` | `compute_d2E_dadb` → `computePlasticElasticHessian` (`d2EdadbTemplate`) |
 | von Mises stress | $\sigma_{vM}(\boldsymbol\sigma)$, $\boldsymbol\sigma=\mathbf P\mathbf F_e^{\!\top}/\det\mathbf F_e$ | — | `vonMisesStress` |
 | max principal strain | $\lambda_{\max}\!\big(\tfrac12(\mathbf F_e^{\!\top}\mathbf F_e-\mathbf I)\big)$ | — | `maxStrain` |
 

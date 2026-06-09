@@ -93,7 +93,8 @@ Formulation  =  shapeFunction  +  quadrature  +  dof-layout      (formulations/)
                             (E_e, ∂E/∂x, ∂²E/∂x², parameter derivs)
           └─ DeformationModelManager   (owns element models + OptimizableField parameters)
                 └─ DeformationModelAssembler   (gather/scatter ▶ global E, g, K, parameter Jacobians)
-                      └─ DeformationModelEnergy / PlasticMaterialEnergy   (PotentialEnergy: value/grad/hessian)
+                      └─ DeformationModelEnergy / PlasticMaterialEnergy / ElasticMaterialEnergy
+                         (PotentialEnergy: value/grad/hessian)
 ```
 
 Each subsystem answers exactly one question of the discrete theory:
@@ -118,12 +119,11 @@ The same assembled energy supports two optimizations, distinguished by *what is 
 - **Forward (simulation)** — variable is the displacement $\mathbf u$; minimize
   $E(\mathbf u)$. This is [`DeformationEnergy`](energy.md) (`state_kind == "displacement"`).
 - **Inverse (material parameter optimization)** — variable is a *material parameter field*
-  with $\mathbf u$ held fixed. This is [`PlasticMaterialEnergy`](energy.md)
-  (`state_kind == "generic"`). The assembler provides the needed sensitivities — gradients
+  with $\mathbf u$ held fixed. These are [`PlasticMaterialEnergy`](energy.md) and
+  [`ElasticMaterialEnergy`](energy.md) (`state_kind == "generic"`). The assembler provides the needed sensitivities — gradients
   $\partial E/\partial a$ (plastic), $\partial E/\partial b$ (elastic), their Hessians, and
   the displacement–parameter cross-blocks $\partial^2E/\partial\mathbf x\,\partial a$
   (`compute_df_da`, `src/core/solidDeformationModel/deformation/deformationModelAssembler.h:42`).
-  The Python surface currently exposes the **plastic** path.
 
 ## Public API
 
@@ -140,7 +140,7 @@ from pypgo.fem import (
     # Parameter field descriptors
     ConstantField, ElementwiseField,
     # Energy
-    deformation_energy, plastic_material_energy,
+    deformation_energy, elastic_material_energy, plastic_material_energy,
     DeformationOptions,
 )
 ```
@@ -194,7 +194,9 @@ parameters. Each row is detailed in the linked document.
 | plastic gradient | $\partial E/\partial a$ | `energy.plastic_gradient(u)` | `compute_dE_da` | [energy](energy.md) |
 | plastic Hessian | $\partial^2E/\partial a^2$ | `energy.plastic_hessian(u)` | `compute_d2E_da2` | [energy](energy.md) |
 | displ.–plastic coupling | $\partial^2E/\partial\mathbf u\,\partial a$ | `energy.plastic_jacobian(u)` | `compute_d2E_dxda` / `compute_df_da` | [energy](energy.md) |
-| elastic-param gradient | $\partial E/\partial b$ | (assembler) | `compute_dE_db` | [energy](energy.md) |
+| elastic-param gradient | $\partial E/\partial b$ | `energy.elastic_gradient(u)` | `compute_dE_db` | [energy](energy.md) |
+| elastic-param Hessian | $\partial^2E/\partial b^2$ | `energy.elastic_hessian(u)` | `compute_d2E_db2` | [energy](energy.md) |
+| plastic–elastic cross | $\partial^2E/\partial a\,\partial b$ | `energy.plastic_elastic_hessian(u)` | `compute_d2E_dadb` | [energy](energy.md) |
 | admissible step | $\alpha^\star:\ \det(\mathbf F+\alpha\,\Delta\mathbf F)>0$ | `energy.max_step(u, du)` | `computeLocalMaxStepSize` | [energy](energy.md) |
 | von Mises stress | $\sigma_{vM}(\boldsymbol\sigma),\ \boldsymbol\sigma=\mathbf P\mathbf F_e^{\!\top}/\det\mathbf F_e$ | — | `vonMisesStress` | [energy](energy.md) |
 

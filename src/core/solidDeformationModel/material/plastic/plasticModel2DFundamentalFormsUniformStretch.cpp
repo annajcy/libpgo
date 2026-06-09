@@ -111,3 +111,27 @@ void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::c
   EigenSupport::M2d zero = EigenSupport::M2d::Zero();
   (EigenSupport::Mp<EigenSupport::M2d>(dbbar_dparam)) = zero;
 }
+
+void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2abar_dparam2(
+  const double *, int pi, int pj, double *d2abar_dparam2) const
+{
+  EigenSupport::Mp<EigenSupport::M2d> d2abar(d2abar_dparam2);
+  if (pi == 0 && pj == 0) {
+    d2abar = 2.0 * abar;
+  }
+  else {
+    d2abar.setZero();
+  }
+}
+
+void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2dbbar_dparam2(
+  const double *, int, int, double *d2dbbar_dparam2) const
+{
+  EigenSupport::Mp<EigenSupport::M2d>(d2dbbar_dparam2).setZero();
+}
+
+double pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2area_dparam2(
+  const double *, int pi, int pj) const
+{
+  return (pi == 0 && pj == 0) ? 2.0 * areaRest : 0.0;
+}

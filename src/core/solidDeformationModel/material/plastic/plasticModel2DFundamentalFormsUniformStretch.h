@@ -32,6 +32,9 @@ public:
   void compute_darea_dparam(const double *params, double *darea_da) const override;
   void compute_dabar_dparam(const double *params, double *dabar_dparam) const override;
   void compute_dbbar_dparam(const double *params, double *dbbar_dparam) const override;
+  void compute_d2abar_dparam2(const double *params, int pi, int pj, double *d2abar_dparam2) const override;
+  void compute_d2dbbar_dparam2(const double *params, int pi, int pj, double *d2dbbar_dparam2) const override;
+  double compute_d2area_dparam2(const double *params, int pi, int pj) const override;
 
   int getNumParameters() const override { return 1; }
   void defaultParams(double *param) const override { param[0] = 1.0; }

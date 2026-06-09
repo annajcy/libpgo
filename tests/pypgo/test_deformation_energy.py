@@ -244,6 +244,36 @@ class TestDeformationEnergy:
         assert np.allclose(material_energy.gradient(plastic.ravel()), grad)
         assert np.allclose(material_energy.hessian(plastic.ravel()).to_dense(), hess.to_dense())
 
+    def test_shell_energy_exposes_elastic_material_energy(self):
+        sim = _make_shell_sim_mesh()
+        elastic = np.array([[20000.0, 0.45, 10000.0, 0.3, 1e-3]], dtype=np.float64)
+        energy = _make_energy(
+            sim,
+            formulation=pf.KoiterShell(),
+            elastic=pf.KoiterStVK(),
+            elastic_field=pf.ConstantField(values=elastic),
+            plastic=pf.ShellPlasticity(dofs=1),
+            plastic_field=pf.ElementwiseField(),
+            options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+        )
+        u = energy.zero_state()
+        for vi in range(sim.num_vertices):
+            u[3 * vi + 0] = 5e-3 * np.sin(0.9 * vi + 0.1)
+            u[3 * vi + 1] = 4e-3 * np.cos(0.7 * vi + 0.3)
+            u[3 * vi + 2] = 3e-3 * np.sin(1.3 * vi + 0.5)
+
+        grad = energy.elastic_gradient(u)
+        hess = energy.elastic_hessian(u)
+        material_energy = pf.elastic_material_energy(energy, fixed_displacement=u)
+
+        assert isinstance(material_energy, pe.PotentialEnergy)
+        assert isinstance(material_energy, pf.ElasticMaterialEnergy)
+        assert material_energy.num_dofs == 5
+        assert material_energy.state_kind == "generic"
+        assert np.isclose(material_energy.value(elastic.ravel()), energy.value(u))
+        assert np.allclose(material_energy.gradient(elastic.ravel()), grad)
+        assert np.allclose(material_energy.hessian(elastic.ravel()).to_dense(), hess.to_dense())
+
     def test_shell_energy_evaluates(self):
         sim = _make_shell_sim_mesh()
         energy = _make_energy(
@@ -255,6 +285,15 @@ class TestDeformationEnergy:
         u = energy.zero_state()
         assert np.isfinite(energy.value(u))
         assert energy.hessian(u).nnz > 0
+        assert energy.elastic_gradient(u).shape == (energy.num_elastic_dofs,)
+        assert energy.elastic_hessian(u).shape == (
+            energy.num_elastic_dofs,
+            energy.num_elastic_dofs,
+        )
+        assert energy.plastic_elastic_hessian(u).shape == (
+            energy.num_plastic_dofs,
+            energy.num_elastic_dofs,
+        )
 
     def test_energy_observes_state_field_update(self):
         sim = _make_tet_sim_mesh()

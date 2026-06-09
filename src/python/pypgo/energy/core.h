@@ -153,8 +153,12 @@ public:
   }
   void setElasticValues(nb::ndarray<nb::numpy, const double> values) { elasticField()->setValues(values); }
   void setPlasticValues(nb::ndarray<nb::numpy, const double> values) { plasticField()->setValues(values); }
+  nb::ndarray<nb::numpy, double> elasticGradient(nb::ndarray<nb::numpy, const double> displacement) const;
+  PySparseMatrix elasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;
+  PySparseMatrix plasticElasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;
   nb::ndarray<nb::numpy, double> plasticGradient(nb::ndarray<nb::numpy, const double> displacement) const;
   PySparseMatrix plasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;
+  PySparseMatrix elasticJacobian(nb::ndarray<nb::numpy, const double> displacement) const;
   PySparseMatrix plasticJacobian(nb::ndarray<nb::numpy, const double> displacement) const;
 
 private:
@@ -227,5 +231,9 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
   bool enableMaterialMaxStep);
 
 std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(
+  std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,
+  nb::ndarray<nb::numpy, const double> fixedDisplacement);
+
+std::shared_ptr<PyPotentialEnergy> createElasticMaterialEnergy(
   std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,
   nb::ndarray<nb::numpy, const double> fixedDisplacement);

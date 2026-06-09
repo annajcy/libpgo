@@ -3,6 +3,8 @@
 #include "material/plastic/plasticModel.h"
 #include "EigenDef.h"
 
+#include <stdexcept>
+
 namespace pgo
 {
 namespace SolidDeformationModel
@@ -37,14 +39,74 @@ public:
 
   virtual double computeArea(const double *params) const { return areaRest; }
 
-  virtual void compute_dtbar_inv_dparam(const double *params, int j, double *dtbar_da) const {}
-  virtual void compute_dqbar_dparam(const double *params, int j, double *dqbar_da) const {}
-  virtual void compute_dK_dparam(const double *params, double *dK_da) const {}
-  virtual void compute_dH_dparam(const double *params, double *dH_da) const {}
-  virtual void compute_darea_dparam(const double *params, double *darea_da) const {}
+  virtual void compute_dtbar_inv_dparam(const double *params, int j, double *dtbar_da) const
+  {
+    (void)params;
+    (void)j;
+    (void)dtbar_da;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_dtbar_inv_dparam is not implemented");
+  }
+  virtual void compute_dqbar_dparam(const double *params, int j, double *dqbar_da) const
+  {
+    (void)params;
+    (void)j;
+    (void)dqbar_da;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_dqbar_dparam is not implemented");
+  }
+  virtual void compute_dK_dparam(const double *params, double *dK_da) const
+  {
+    (void)params;
+    (void)dK_da;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_dK_dparam is not implemented");
+  }
+  virtual void compute_dH_dparam(const double *params, double *dH_da) const
+  {
+    (void)params;
+    (void)dH_da;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_dH_dparam is not implemented");
+  }
+  virtual void compute_darea_dparam(const double *params, double *darea_da) const
+  {
+    (void)params;
+    (void)darea_da;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_darea_dparam is not implemented");
+  }
 
-  virtual void compute_dabar_dparam(const double *params, double *dabar_dparam) const {}
-  virtual void compute_dbbar_dparam(const double *params, double *dbbar_dparam) const {}
+  virtual void compute_dabar_dparam(const double *params, double *dabar_dparam) const
+  {
+    (void)params;
+    (void)dabar_dparam;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_dabar_dparam is not implemented");
+  }
+  virtual void compute_dbbar_dparam(const double *params, double *dbbar_dparam) const
+  {
+    (void)params;
+    (void)dbbar_dparam;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_dbbar_dparam is not implemented");
+  }
+  virtual void compute_d2abar_dparam2(const double *params, int pi, int pj, double *d2abar_dparam2) const
+  {
+    (void)params;
+    (void)pi;
+    (void)pj;
+    (void)d2abar_dparam2;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_d2abar_dparam2 is not implemented");
+  }
+  virtual void compute_d2dbbar_dparam2(const double *params, int pi, int pj, double *d2dbbar_dparam2) const
+  {
+    (void)params;
+    (void)pi;
+    (void)pj;
+    (void)d2dbbar_dparam2;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_d2dbbar_dparam2 is not implemented");
+  }
+  virtual double compute_d2area_dparam2(const double *params, int pi, int pj) const
+  {
+    (void)params;
+    (void)pi;
+    (void)pj;
+    throw std::logic_error("PlasticModel2DFundamentalForms::compute_d2area_dparam2 is not implemented");
+  }
 
 protected:
   EigenSupport::M2d abar = EigenSupport::M2d::Identity(), bbar = EigenSupport::M2d::Identity();

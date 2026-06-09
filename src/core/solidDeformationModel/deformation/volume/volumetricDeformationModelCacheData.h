@@ -43,6 +43,12 @@ struct VolumetricDeformationModelCacheData : public DeformationModelCacheData
   std::vector<ES::VXd> plasticParamsValue;
   std::vector<ES::VXd> elasticParamsValue;
 
+  mutable ES::VXd dpsiDxScratch;
+  mutable ES::VXd localDofScratch;
+  mutable M9xNDOF d2FdxdaScratch;
+  mutable std::vector<ES::M3d> dPdbScratch;
+  mutable std::vector<ES::M3d> dFdaScratch;
+
   VolumetricDeformationModelCacheData(int numNodes, int numQuadPts,
     int numPlasticParams, int numElasticParams);
 

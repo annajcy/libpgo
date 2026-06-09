@@ -46,6 +46,12 @@ VolumetricDeformationModelCacheData::VolumetricDeformationModelCacheData(
 
   plasticParamsValue.resize(numQuadPts, ES::VXd::Zero(np));
   elasticParamsValue.resize(numQuadPts, ES::VXd::Zero(ne));
+
+  dpsiDxScratch.resize(localDofs);
+  localDofScratch.resize(localDofs);
+  d2FdxdaScratch.resize(9, localDofs);
+  dPdbScratch.resize(ne, ES::M3d::Zero());
+  dFdaScratch.resize(np, ES::M3d::Zero());
 }
 
 }  // namespace SolidDeformationModel

@@ -3,7 +3,6 @@
 #include "pgoLogging.h"
 
 #include <algorithm>
-#include <cmath>
 #include <stdexcept>
 
 namespace pgo
@@ -11,14 +10,6 @@ namespace pgo
 namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
-namespace
-{
-double parameterStep(double value)
-{
-  return 1e-6 * std::max(1.0, std::abs(value));
-}
-}  // namespace
-
 ShellDeformationModelCacheData::ShellDeformationModelCacheData(
   int numPlasticParams_, int numElasticParams_):
   numPlasticParams(numPlasticParams_),
@@ -30,6 +21,17 @@ ShellDeformationModelCacheData::ShellDeformationModelCacheData(
     xi.setZero();
   plasticParamsValue.setZero();
   elasticParamsValue.setZero();
+
+  const int maxParams = std::max(numPlasticParams, numElasticParams);
+  elasticDpsiDparamScratch.resize(numElasticParams);
+  plasticDAreaDparamScratch.resize(numPlasticParams);
+  plasticDAbarDparamScratch.resize(4, numPlasticParams);
+  plasticDBbarDparamScratch.resize(4, numPlasticParams);
+  elasticDpsiDaDparamScratch.resize(4, numElasticParams);
+  elasticDpsiDbDparamScratch.resize(4, numElasticParams);
+  elasticDpsiDabarDparamScratch.resize(4, numElasticParams);
+  elasticDpsiDbbarDparamScratch.resize(4, numElasticParams);
+  mixedDerivativeScratch.resize(18, maxParams);
 }
 
 ShellDeformationModel::ShellDeformationModel(
@@ -230,9 +232,9 @@ void ShellDeformationModel::compute_d2E_dxda(const DeformationModelCacheData *ca
   elementMapping_->compute_a_and_derivatives(cacheData->x.data(), &dadx, nullptr);
   elementMapping_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, nullptr);
 
-  ES::MXd dabar_dF(4, numPlasticParams_);
-  ES::MXd dbbar_dF(4, numPlasticParams_);
-  ES::VXd darea_dF(numPlasticParams_);
+  ES::MXd &dabar_dF = cacheData->plasticDAbarDparamScratch;
+  ES::MXd &dbbar_dF = cacheData->plasticDBbarDparamScratch;
+  ES::VXd &darea_dF = cacheData->plasticDAreaDparamScratch;
   dabar_dF.setZero();
   dbbar_dF.setZero();
   darea_dF.setZero();
@@ -247,7 +249,8 @@ void ShellDeformationModel::compute_d2E_dxda(const DeformationModelCacheData *ca
   ES::V18d dpsi_b_dx = dpsi_db.transpose() * dbdx;
 
   int np = numPlasticParams_;
-  ES::MXd mixed = ES::MXd::Zero(18, np);
+  ES::MXd &mixed = cacheData->mixedDerivativeScratch;
+  mixed.block(0, 0, 18, np).setZero();
 
   mixed.block(0, 0, 9, np) +=
     dadx.transpose() * d2psi_da_dabar * dabar_dF * cacheData->area;
@@ -261,7 +264,7 @@ void ShellDeformationModel::compute_d2E_dxda(const DeformationModelCacheData *ca
   mixed.block(0, 0, 18, np) +=
     dpsi_b_dx * darea_dF.transpose();
 
-  ES::Mp<ES::MXd>(hess, 18, np) = mixed;
+  ES::Mp<ES::MXd>(hess, 18, np) = mixed.block(0, 0, 18, np);
 }
 
 void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *cacheDataBase,
@@ -271,8 +274,8 @@ void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *ca
   if (numElasticParams_ == 0)
     return;
 
-  ES::MXd d2psi_da_dparam(4, numElasticParams_);
-  ES::MXd d2psi_db_dparam(4, numElasticParams_);
+  ES::MXd &d2psi_da_dparam = cacheData->elasticDpsiDaDparamScratch;
+  ES::MXd &d2psi_db_dparam = cacheData->elasticDpsiDbDparamScratch;
   d2psi_da_dparam.setZero();
   d2psi_db_dparam.setZero();
   const double *elasticParamPtr = cacheData->elasticParamsValue.data();
@@ -289,14 +292,15 @@ void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *ca
   elementMapping_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, nullptr);
 
   int np = numElasticParams_;
-  ES::MXd mixed = ES::MXd::Zero(18, np);
+  ES::MXd &mixed = cacheData->mixedDerivativeScratch;
+  mixed.block(0, 0, 18, np).setZero();
 
   mixed.block(0, 0, 9, np) +=
     dadx.transpose() * d2psi_da_dparam * cacheData->area;
   mixed.block(0, 0, 18, np) +=
     dbdx.transpose() * d2psi_db_dparam * cacheData->area;
 
-  ES::Mp<ES::MXd>(hess, 18, np) = mixed;
+  ES::Mp<ES::MXd>(hess, 18, np) = mixed.block(0, 0, 18, np);
 }
 
 void ShellDeformationModel::compute_dE_da(const DeformationModelCacheData *cacheDataBase,
@@ -307,7 +311,33 @@ void ShellDeformationModel::compute_dE_da(const DeformationModelCacheData *cache
     return;
 
   const double *elasticParamPtr = numElasticParams_ > 0 ? cacheData->elasticParamsValue.data() : nullptr;
-  computePlasticGradientWithParams(*cacheData, cacheData->plasticParamsValue.data(), elasticParamPtr, grad);
+  Eigen::Map<ES::VXd> gradMap(grad, numPlasticParams_);
+  gradMap.setZero();
+
+  const double *plasticParamPtr = cacheData->plasticParamsValue.data();
+  const double psi = computeEnergyWithParams(*cacheData, plasticParamPtr, elasticParamPtr) / cacheData->area;
+
+  ES::V4d dpsiDabar;
+  ES::V4d dpsiDbbar;
+  elastic2D_->compute_dpsi_dabar(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), dpsiDabar.data());
+  elastic2D_->compute_dpsi_dbbar(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), dpsiDbbar.data());
+
+  plastic2D_->compute_dabar_dparam(plasticParamPtr, cacheData->plasticDAbarDparamScratch.data());
+  plastic2D_->compute_dbbar_dparam(plasticParamPtr, cacheData->plasticDBbarDparamScratch.data());
+  plastic2D_->compute_darea_dparam(plasticParamPtr, cacheData->plasticDAreaDparamScratch.data());
+
+  const Eigen::Map<const ES::MXd> dabarDp(
+    cacheData->plasticDAbarDparamScratch.data(), 4, numPlasticParams_);
+  const Eigen::Map<const ES::MXd> dbbarDp(
+    cacheData->plasticDBbarDparamScratch.data(), 4, numPlasticParams_);
+  for (int i = 0; i < numPlasticParams_; i++) {
+    gradMap[i] = cacheData->plasticDAreaDparamScratch[i] * psi +
+      cacheData->area * (dpsiDabar.dot(dabarDp.col(i)) + dpsiDbbar.dot(dbbarDp.col(i)));
+  }
 }
 
 void ShellDeformationModel::compute_d2E_da2(const DeformationModelCacheData *cacheDataBase,
@@ -320,20 +350,65 @@ void ShellDeformationModel::compute_d2E_da2(const DeformationModelCacheData *cac
   Eigen::Map<ES::MXd> hessMap(hess, numPlasticParams_, numPlasticParams_);
   hessMap.setZero();
   const double *elasticParamPtr = numElasticParams_ > 0 ? cacheData->elasticParamsValue.data() : nullptr;
-  ES::VXd params = cacheData->plasticParamsValue;
-  ES::VXd gradPlus(numPlasticParams_);
-  ES::VXd gradMinus(numPlasticParams_);
-  for (int col = 0; col < numPlasticParams_; col++) {
-    const double h = parameterStep(params[col]);
-    ES::VXd plus = params;
-    ES::VXd minus = params;
-    plus[col] += h;
-    minus[col] -= h;
-    computePlasticGradientWithParams(*cacheData, plus.data(), elasticParamPtr, gradPlus.data());
-    computePlasticGradientWithParams(*cacheData, minus.data(), elasticParamPtr, gradMinus.data());
-    hessMap.col(col) = (gradPlus - gradMinus) / (2.0 * h);
+  const double *plasticParamPtr = cacheData->plasticParamsValue.data();
+  const double psi = computeEnergyWithParams(*cacheData, plasticParamPtr, elasticParamPtr) / cacheData->area;
+
+  ES::V4d dpsiDabar;
+  ES::V4d dpsiDbbar;
+  ES::M4d d2psiDabar2;
+  ES::M4d d2psiDabarDbbar;
+  ES::M4d d2psiDbbar2;
+  elastic2D_->compute_dpsi_dabar(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), dpsiDabar.data());
+  elastic2D_->compute_dpsi_dbbar(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), dpsiDbbar.data());
+  elastic2D_->compute_d2psi_dabar2(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), d2psiDabar2.data());
+  elastic2D_->compute_d2psi_dabar_dbbar(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), d2psiDabarDbbar.data());
+  elastic2D_->compute_d2psi_dbbar2(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), d2psiDbbar2.data());
+
+  plastic2D_->compute_dabar_dparam(plasticParamPtr, cacheData->plasticDAbarDparamScratch.data());
+  plastic2D_->compute_dbbar_dparam(plasticParamPtr, cacheData->plasticDBbarDparamScratch.data());
+  plastic2D_->compute_darea_dparam(plasticParamPtr, cacheData->plasticDAreaDparamScratch.data());
+
+  const Eigen::Map<const ES::MXd> dabarDp(
+    cacheData->plasticDAbarDparamScratch.data(), 4, numPlasticParams_);
+  const Eigen::Map<const ES::MXd> dbbarDp(
+    cacheData->plasticDBbarDparamScratch.data(), 4, numPlasticParams_);
+
+  for (int i = 0; i < numPlasticParams_; i++) {
+    const double dpsiDpI = dpsiDabar.dot(dabarDp.col(i)) + dpsiDbbar.dot(dbbarDp.col(i));
+    for (int j = 0; j < numPlasticParams_; j++) {
+      const double dpsiDpJ = dpsiDabar.dot(dabarDp.col(j)) + dpsiDbbar.dot(dbbarDp.col(j));
+
+      ES::M2d d2abar;
+      ES::M2d d2bbar;
+      plastic2D_->compute_d2abar_dparam2(plasticParamPtr, i, j, d2abar.data());
+      plastic2D_->compute_d2dbbar_dparam2(plasticParamPtr, i, j, d2bbar.data());
+      const double d2area = plastic2D_->compute_d2area_dparam2(plasticParamPtr, i, j);
+
+      const ES::V4d d2abarVec = ES::Mp<const ES::V4d>(d2abar.data());
+      const ES::V4d d2bbarVec = ES::Mp<const ES::V4d>(d2bbar.data());
+      hessMap(i, j) =
+        d2area * psi +
+        cacheData->plasticDAreaDparamScratch[i] * dpsiDpJ +
+        cacheData->plasticDAreaDparamScratch[j] * dpsiDpI +
+        cacheData->area * (
+          dabarDp.col(i).dot(d2psiDabar2 * dabarDp.col(j)) +
+          dabarDp.col(i).dot(d2psiDabarDbbar * dbbarDp.col(j)) +
+          dbbarDp.col(i).dot(d2psiDabarDbbar.transpose() * dabarDp.col(j)) +
+          dbbarDp.col(i).dot(d2psiDbbar2 * dbbarDp.col(j)) +
+          dpsiDabar.dot(d2abarVec) +
+          dpsiDbbar.dot(d2bbarVec));
+    }
   }
-  hessMap = (0.5 * (hessMap + hessMap.transpose())).eval();
 }
 
 void ShellDeformationModel::compute_dE_db(const DeformationModelCacheData *cacheDataBase,
@@ -344,7 +419,13 @@ void ShellDeformationModel::compute_dE_db(const DeformationModelCacheData *cache
     return;
 
   const double *plasticParamPtr = numPlasticParams_ > 0 ? cacheData->plasticParamsValue.data() : nullptr;
-  computeElasticGradientWithParams(*cacheData, plasticParamPtr, cacheData->elasticParamsValue.data(), grad);
+  (void)plasticParamPtr;
+  Eigen::Map<ES::VXd> gradMap(grad, numElasticParams_);
+  gradMap.setZero();
+  elastic2D_->compute_dpsi_dparam(
+    cacheData->elasticParamsValue.data(), cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), gradMap.data());
+  gradMap *= cacheData->area;
 }
 
 void ShellDeformationModel::compute_d2E_db2(const DeformationModelCacheData *cacheDataBase,
@@ -357,20 +438,11 @@ void ShellDeformationModel::compute_d2E_db2(const DeformationModelCacheData *cac
   Eigen::Map<ES::MXd> hessMap(hess, numElasticParams_, numElasticParams_);
   hessMap.setZero();
   const double *plasticParamPtr = numPlasticParams_ > 0 ? cacheData->plasticParamsValue.data() : nullptr;
-  ES::VXd params = cacheData->elasticParamsValue;
-  ES::VXd gradPlus(numElasticParams_);
-  ES::VXd gradMinus(numElasticParams_);
-  for (int col = 0; col < numElasticParams_; col++) {
-    const double h = parameterStep(params[col]);
-    ES::VXd plus = params;
-    ES::VXd minus = params;
-    plus[col] += h;
-    minus[col] -= h;
-    computeElasticGradientWithParams(*cacheData, plasticParamPtr, plus.data(), gradPlus.data());
-    computeElasticGradientWithParams(*cacheData, plasticParamPtr, minus.data(), gradMinus.data());
-    hessMap.col(col) = (gradPlus - gradMinus) / (2.0 * h);
-  }
-  hessMap = (0.5 * (hessMap + hessMap.transpose())).eval();
+  (void)plasticParamPtr;
+  elastic2D_->compute_d2psi_dparam2(
+    cacheData->elasticParamsValue.data(), cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), hess);
+  hessMap *= cacheData->area;
 }
 
 void ShellDeformationModel::compute_d2E_dadb(const DeformationModelCacheData *cacheDataBase,
@@ -382,18 +454,41 @@ void ShellDeformationModel::compute_d2E_dadb(const DeformationModelCacheData *ca
 
   Eigen::Map<ES::MXd> hessMap(hess, numPlasticParams_, numElasticParams_);
   hessMap.setZero();
-  ES::VXd elasticParams = cacheData->elasticParamsValue;
-  ES::VXd gradPlus(numPlasticParams_);
-  ES::VXd gradMinus(numPlasticParams_);
-  for (int col = 0; col < numElasticParams_; col++) {
-    const double h = parameterStep(elasticParams[col]);
-    ES::VXd plus = elasticParams;
-    ES::VXd minus = elasticParams;
-    plus[col] += h;
-    minus[col] -= h;
-    computePlasticGradientWithParams(*cacheData, cacheData->plasticParamsValue.data(), plus.data(), gradPlus.data());
-    computePlasticGradientWithParams(*cacheData, cacheData->plasticParamsValue.data(), minus.data(), gradMinus.data());
-    hessMap.col(col) = (gradPlus - gradMinus) / (2.0 * h);
+  const double *elasticParamPtr = cacheData->elasticParamsValue.data();
+  const double *plasticParamPtr = cacheData->plasticParamsValue.data();
+
+  ES::VXd &dpsiDparam = cacheData->elasticDpsiDparamScratch;
+  dpsiDparam.setZero();
+  elastic2D_->compute_dpsi_dparam(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), dpsiDparam.data());
+
+  elastic2D_->compute_d2psi_dabar_dparam(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), cacheData->elasticDpsiDabarDparamScratch.data());
+  elastic2D_->compute_d2psi_dbbar_dparam(
+    elasticParamPtr, cacheData->a.data(), cacheData->b.data(),
+    cacheData->abar.data(), cacheData->bbar.data(), cacheData->elasticDpsiDbbarDparamScratch.data());
+  plastic2D_->compute_dabar_dparam(plasticParamPtr, cacheData->plasticDAbarDparamScratch.data());
+  plastic2D_->compute_dbbar_dparam(plasticParamPtr, cacheData->plasticDBbarDparamScratch.data());
+  plastic2D_->compute_darea_dparam(plasticParamPtr, cacheData->plasticDAreaDparamScratch.data());
+
+  const Eigen::Map<const ES::MXd> dpsiDabarDparam(
+    cacheData->elasticDpsiDabarDparamScratch.data(), 4, numElasticParams_);
+  const Eigen::Map<const ES::MXd> dpsiDbbarDparam(
+    cacheData->elasticDpsiDbbarDparamScratch.data(), 4, numElasticParams_);
+  const Eigen::Map<const ES::MXd> dabarDp(
+    cacheData->plasticDAbarDparamScratch.data(), 4, numPlasticParams_);
+  const Eigen::Map<const ES::MXd> dbbarDp(
+    cacheData->plasticDBbarDparamScratch.data(), 4, numPlasticParams_);
+
+  for (int i = 0; i < numPlasticParams_; i++) {
+    for (int j = 0; j < numElasticParams_; j++) {
+      hessMap(i, j) = cacheData->plasticDAreaDparamScratch[i] * dpsiDparam[j] +
+        cacheData->area * (
+          dpsiDabarDparam.col(j).dot(dabarDp.col(i)) +
+          dpsiDbbarDparam.col(j).dot(dbbarDp.col(i)));
+    }
   }
 }
 
@@ -460,48 +555,6 @@ double ShellDeformationModel::computeEnergyWithParams(
     elasticParams, cacheData.b.data(), abar.data(), bbar.data());
 
   return (E1 + E2) * area;
-}
-
-void ShellDeformationModel::computePlasticGradientWithParams(
-  const CacheData &cacheData, const double *plasticParams, const double *elasticParams, double *grad) const
-{
-  Eigen::Map<ES::VXd> gradMap(grad, numPlasticParams_);
-  gradMap.setZero();
-  if (numPlasticParams_ == 0)
-    return;
-
-  const Eigen::Map<const ES::VXd> params(plasticParams, numPlasticParams_);
-  for (int i = 0; i < numPlasticParams_; i++) {
-    const double h = parameterStep(params[i]);
-    ES::VXd plus = params;
-    ES::VXd minus = params;
-    plus[i] += h;
-    minus[i] -= h;
-    const double ePlus = computeEnergyWithParams(cacheData, plus.data(), elasticParams);
-    const double eMinus = computeEnergyWithParams(cacheData, minus.data(), elasticParams);
-    gradMap[i] = (ePlus - eMinus) / (2.0 * h);
-  }
-}
-
-void ShellDeformationModel::computeElasticGradientWithParams(
-  const CacheData &cacheData, const double *plasticParams, const double *elasticParams, double *grad) const
-{
-  Eigen::Map<ES::VXd> gradMap(grad, numElasticParams_);
-  gradMap.setZero();
-  if (numElasticParams_ == 0)
-    return;
-
-  const Eigen::Map<const ES::VXd> params(elasticParams, numElasticParams_);
-  for (int i = 0; i < numElasticParams_; i++) {
-    const double h = parameterStep(params[i]);
-    ES::VXd plus = params;
-    ES::VXd minus = params;
-    plus[i] += h;
-    minus[i] -= h;
-    const double ePlus = computeEnergyWithParams(cacheData, plasticParams, plus.data());
-    const double eMinus = computeEnergyWithParams(cacheData, plasticParams, minus.data());
-    gradMap[i] = (ePlus - eMinus) / (2.0 * h);
-  }
 }
 
 }  // namespace SolidDeformationModel

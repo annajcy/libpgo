@@ -5,7 +5,7 @@ This tutorial walks through *differentiable inverse design* of a plastic field:
 we bake a per-element plastic distortion into an elastic block, let it relax to
 static equilibrium, and optimize the plastic field so the relaxed shape matches a
 target. The interesting machinery is the implicitly-differentiable equilibrium
-solve (`pypgo.fem.StaticEquilibriumLayer`) and the adjoint gradient that flows
+solve (`pypgo.fem.PlasticStaticEquilibriumLayer`) and the adjoint gradient that flows
 through it.
 
 Run from the repository root:
@@ -25,7 +25,10 @@ from __future__ import annotations
 try:
     from .notebook_builder import code, md, repo_root, write_notebook
 except ImportError:
-    from examples.scripts.notebook_builder import code, md, repo_root, write_notebook
+    try:
+        from notebook_builder import code, md, repo_root, write_notebook
+    except ImportError:
+        from examples.scripts.notebook_builder import code, md, repo_root, write_notebook
 
 
 def run_demo(volume_veg=None, surface_obj=None, target_obj=None, output_dir=None):
@@ -141,7 +144,7 @@ CELLS = [
         $$
 
         A Newton iteration solves this nonlinear system — this is precisely what
-        `StaticEquilibriumLayer.forward` does (via `pypgo.solver.NewtonOptimizer`),
+        `PlasticStaticEquilibriumLayer.forward` does (via `pypgo.solver.NewtonOptimizer`),
         warm-starting from the previous outer step. The quantities we will reuse for
         the gradient are the **tangent stiffness** (Hessian) and the **plastic
         Jacobian**:
@@ -227,7 +230,7 @@ CELLS = [
         \nabla_{\mathbf a}L=-\,\mathbf J^{\!\top}\boldsymbol\lambda\;+\;\mu_{\text{reg}}(\mathbf a-\mathbf a_0).
         $$
 
-        ### How this maps to `StaticEquilibriumLayer`
+        ### How this maps to `PlasticStaticEquilibriumLayer`
 
         | Math | Code (in `pypgo/fem/torch.py`) |
         |---|---|
@@ -457,7 +460,7 @@ CELLS = [
 
         We clamp the bottom face ($y=0$): those DOFs are *fixed* and removed from
         the free set used in the adjoint solve. We then assemble the
-        `StaticEquilibriumLayer`, which packages the inner Newton solve plus its
+        `PlasticStaticEquilibriumLayer`, which packages the inner Newton solve plus its
         adjoint backward pass behind a single PyTorch-callable module.
 
         `a0` is the flat rest plastic vector $\mathbf a_0$ — both the **Adam start**
@@ -477,7 +480,7 @@ CELLS = [
         a0_torch = torch.as_tensor(a0, dtype=torch.float64)
         target_vertices_torch = torch.as_tensor(target_vertices, dtype=torch.float64)
 
-        equilibrium_layer = pgo.fem.StaticEquilibriumLayer(
+        equilibrium_layer = pgo.fem.PlasticStaticEquilibriumLayer(
             energy=energy,
             fixed_dofs=fixed_dofs,
             fixed_values=fixed_values,
@@ -800,7 +803,7 @@ CELLS = [
         a0_const = energy_const.plastic_field.values.ravel().copy()
         a0_const_torch = torch.as_tensor(a0_const, dtype=torch.float64)
 
-        equilibrium_layer_const = pgo.fem.StaticEquilibriumLayer(
+        equilibrium_layer_const = pgo.fem.PlasticStaticEquilibriumLayer(
             energy=energy_const,
             fixed_dofs=fixed_dofs,
             fixed_values=fixed_values,
@@ -958,7 +961,7 @@ CELLS = [
         $$
 
         with gradients supplied by the **adjoint method** through
-        `StaticEquilibriumLayer`. We ran it on the **same** target with two design
+        `PlasticStaticEquilibriumLayer`. We ran it on the **same** target with two design
         spaces — a per-element `ElementwiseField` (384 dofs) and a single shared
         `ConstantField` tensor (6 dofs). For this spatially-uniform shear the constant
         field matched *at least as well with $64\times$ fewer variables*: the right

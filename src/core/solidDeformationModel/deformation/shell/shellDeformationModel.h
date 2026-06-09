@@ -88,10 +88,6 @@ private:
   CacheData *cacheData(DeformationModelCacheData *cacheDataBase) const;
   double computeEnergyWithParams(const CacheData &cacheData,
     const double *plasticParams, const double *elasticParams) const;
-  void computePlasticGradientWithParams(const CacheData &cacheData,
-    const double *plasticParams, const double *elasticParams, double *grad) const;
-  void computeElasticGradientWithParams(const CacheData &cacheData,
-    const double *plasticParams, const double *elasticParams, double *grad) const;
 };
 
 }  // namespace SolidDeformationModel

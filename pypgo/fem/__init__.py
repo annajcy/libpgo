@@ -31,8 +31,10 @@ from pypgo.fem.fields import (
 from pypgo.fem.energy import (
     DeformationEnergy,
     DeformationOptions,
+    ElasticMaterialEnergy,
     PlasticMaterialEnergy,
     deformation_energy,
+    elastic_material_energy,
     plastic_material_energy,
 )
 from pypgo.fem.mesh import (
@@ -42,7 +44,8 @@ from pypgo.fem.mesh import (
     write_shell_config,
 )
 from pypgo.fem.torch import (
-    StaticEquilibriumLayer,
+    ElasticStaticEquilibriumLayer,
+    PlasticStaticEquilibriumLayer,
 )
 
 __all__ = [
@@ -73,8 +76,10 @@ __all__ = [
     # Energy
     "DeformationEnergy",
     "DeformationOptions",
+    "ElasticMaterialEnergy",
     "PlasticMaterialEnergy",
     "deformation_energy",
+    "elastic_material_energy",
     "plastic_material_energy",
     # Mesh
     "KoiterStVKShellMaterial",
@@ -82,5 +87,6 @@ __all__ = [
     "read_shell_config",
     "write_shell_config",
     # Torch
-    "StaticEquilibriumLayer",
+    "ElasticStaticEquilibriumLayer",
+    "PlasticStaticEquilibriumLayer",
 ]
