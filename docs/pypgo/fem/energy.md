@@ -28,7 +28,7 @@ a `DeformationEnergy`, whose `state_kind` is `"displacement"`
 
 ```python
 from pypgo.fem import (
-    deformation_energy, DeformationOptions, TetP1,
+    deformation_energy, DeformationOptions, TetLinear,
     StableNeo, VolumetricPlasticity, ElementwiseField,
 )
 
@@ -38,7 +38,7 @@ energy = deformation_energy(
     elastic_field=ElementwiseField(),
     plastic=VolumetricPlasticity(dofs=6),
     plastic_field=ElementwiseField(),
-    formulation=TetP1(),
+    formulation=TetLinear(),
     options=DeformationOptions(enforce_spd=True, enable_material_max_step=True),
 )
 ```

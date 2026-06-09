@@ -6,7 +6,7 @@
 
 #include "deformation/shell/shellDeformationModelCacheData.h"
 #include "deformation/shell/shellDeformationModel.h"
-#include "formulations/kinematics/koiterShellKinematics.h"
+#include "deformation/shell/koiterShellElementMapping.h"
 
 #include <cmath>
 #include <algorithm>
@@ -129,8 +129,8 @@ TEST(ShellDeformationModelTest, InteriorEnergyFiniteAtRest)
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  auto kinematics = std::make_unique<KoiterShellKinematics>(interiorRestX, hasVtx);
-  ShellDeformationModel model(std::move(kinematics), std::move(elasticModel), std::move(plasticModel));
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
   model.prepareData(interiorRestX, cd.get());
@@ -150,11 +150,11 @@ TEST(ShellDeformationModelTest, DefaultPlasticParametersInitializeRestMetric)
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  auto kinematics = std::make_unique<KoiterShellKinematics>(interiorRestX, hasVtx);
-  const ES::M2d restI = kinematics->restI();
-  const ES::M2d restII = kinematics->restII();
-  const double restArea = kinematics->restArea();
-  ShellDeformationModel model(std::move(kinematics), std::move(elasticModel), std::move(plasticModel));
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  const ES::M2d restI = mapping->restI();
+  const ES::M2d restII = mapping->restII();
+  const double restArea = mapping->restArea();
+  ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
   model.prepareData(interiorRestX, cd.get());
@@ -177,8 +177,8 @@ TEST(ShellDeformationModelTest, BoundaryMissingNode4EnergyFinite)
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, false, true };
 
-  auto kinematics = std::make_unique<KoiterShellKinematics>(interiorRestX, hasVtx);
-  ShellDeformationModel model(std::move(kinematics), std::move(elasticModel), std::move(plasticModel));
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
   model.prepareData(interiorRestX, cd.get());
@@ -202,8 +202,8 @@ TEST(ShellDeformationModelFDTest, GradientMatchesFiniteDifference)
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  auto kinematics = std::make_unique<KoiterShellKinematics>(interiorRestX, hasVtx);
-  ShellDeformationModel model(std::move(kinematics), std::move(elasticModel), std::move(plasticModel));
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
 
@@ -240,8 +240,8 @@ TEST(ShellDeformationModelFDTest, PlasticParameterGradientMatchesFiniteDifferenc
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  auto kinematics = std::make_unique<KoiterShellKinematics>(interiorRestX, hasVtx);
-  ShellDeformationModel model(std::move(kinematics), std::move(elasticModel), std::move(plasticModel));
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   double x[18] = {};
   perturbedDisplacement(x, interiorRestX, 18, 0.1);
@@ -276,8 +276,8 @@ TEST(ShellDeformationModelFDTest, ElasticParameterGradientMatchesFiniteDifferenc
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  auto kinematics = std::make_unique<KoiterShellKinematics>(interiorRestX, hasVtx);
-  ShellDeformationModel model(std::move(kinematics), std::move(elasticModel), std::move(plasticModel));
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   double x[18] = {};
   perturbedDisplacement(x, interiorRestX, 18, 0.1);
@@ -321,8 +321,8 @@ TEST(ShellDeformationModelFDTest, ScaledParameterFieldLeavesModelDerivativeRaw)
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  auto kinematics = std::make_unique<KoiterShellKinematics>(interiorRestX, hasVtx);
-  ShellDeformationModel model(std::move(kinematics), std::move(elasticModel), std::move(plasticModel));
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   double x[18] = {};
   perturbedDisplacement(x, interiorRestX, 18, 0.1);
@@ -391,8 +391,8 @@ TEST(ShellDeformationModelTest, SPDEnableProducesSymmetricPSD)
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
   const bool hasVtx[6] = { true, true, true, true, true, true };
 
-  auto kinematics = std::make_unique<KoiterShellKinematics>(interiorRestX, hasVtx);
-  ShellDeformationModel model(std::move(kinematics), std::move(elasticModel), std::move(plasticModel));
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
 

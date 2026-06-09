@@ -17,7 +17,7 @@ CELLS = [
         # Tricubic Hermite FEM — Static Deformation Demo
 
         This notebook demonstrates the **regular-grid tricubic Hermite** hex
-        formulation (`pf.TricubicHermite()`) on a cubic box, using only the
+        formulation (`pf.CubicTricubicHermite()`) on a cubic box, using only the
         Python-facing `pypgo.fem` / `pypgo.energy` / `pypgo.solver` APIs.
 
         **What makes tricubic Hermite different from trilinear hex.**
@@ -111,8 +111,8 @@ CELLS = [
                 formulation=formulation,
             )
 
-        hermite = make_energy(pf.TricubicHermite())
-        trilinear = make_energy(pf.LinearCubic())
+        hermite = make_energy(pf.CubicTricubicHermite())
+        trilinear = make_energy(pf.CubicLinear())
 
         print("hermite   num_dofs:", hermite.num_dofs, "= nvtx * 24 =", nvtx * 24)
         print("trilinear num_dofs:", trilinear.num_dofs, "= nvtx * 3  =", nvtx * 3)
@@ -249,8 +249,8 @@ CELLS = [
 
         # Drive the embedded surface through each formulation's real basis.
         surf_verts = embedded_surface.vertices
-        W_surf_h = pf.TricubicHermite().surface_embedding_matrix(volume, surf_verts)
-        W_surf_t = pf.LinearCubic().surface_embedding_matrix(volume, surf_verts)
+        W_surf_h = pf.CubicTricubicHermite().surface_embedding_matrix(volume, surf_verts)
+        W_surf_t = pf.CubicLinear().surface_embedding_matrix(volume, surf_verts)
         surf_h = pgo.mesh.TriMeshData(
             surf_verts + (W_surf_h @ result_h.x).reshape(-1, 3), embedded_surface.elements)
         surf_t = pgo.mesh.TriMeshData(
@@ -317,8 +317,8 @@ CELLS = [
         probes = np.column_stack([xs, np.full(n, y_probe), np.full(n, z_probe)])
 
         # ── Reconstruct the displacement field through each REAL basis. ─────
-        W_h = pf.TricubicHermite().surface_embedding_matrix(volume, probes)  # (3n, nvtx*24)
-        W_t = pf.LinearCubic().surface_embedding_matrix(volume, probes)      # (3n, nvtx*3)
+        W_h = pf.CubicTricubicHermite().surface_embedding_matrix(volume, probes)  # (3n, nvtx*24)
+        W_t = pf.CubicLinear().surface_embedding_matrix(volume, probes)      # (3n, nvtx*3)
         u_h = (W_h @ result_h.x).reshape(-1, 3)
         u_t = (W_t @ result_t.x).reshape(-1, 3)
 

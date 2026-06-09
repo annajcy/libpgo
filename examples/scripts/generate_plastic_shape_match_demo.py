@@ -294,7 +294,7 @@ CELLS = [
           $\mathbf S$ (6 channels) per element.
         - `*_field=pf.ElementwiseField()` — each element owns its own parameters
           (vs. a single mesh-wide `ConstantField`).
-        - `formulation=pf.LinearCubic()` — **required** for hex meshes.
+        - `formulation=pf.CubicLinear()` — **required** for hex meshes.
 
         `energy.plastic_field.values` comes seeded with the **rest** plastic state
         $\mathbf S=\mathbf I$, i.e. rows $(1,0,0,1,0,1)$ — we keep a copy as our
@@ -357,7 +357,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.LinearCubic(),
+            formulation=pf.CubicLinear(),
             options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
         )
 
@@ -792,7 +792,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ConstantField(),     # <-- one shared tensor for all elements
-            formulation=pf.LinearCubic(),
+            formulation=pf.CubicLinear(),
             options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
         )
 

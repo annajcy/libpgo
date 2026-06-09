@@ -9,7 +9,7 @@ copyright to USC
 #include "material/fields/materialParameterFieldInit.h"
 #include "EigenSupport.h"
 
-#include "formulations/formulation.h"
+#include "formulations/formulation/formulation.h"
 #include "energy/deformationModelEnergy.h"
 
 #include <memory>

@@ -33,7 +33,7 @@ def make_cubic_case():
         elastic_field=fem.ElementwiseField(),
         plastic=fem.VolumetricPlasticity(dofs=6),
         plastic_field=fem.ConstantField(),
-        formulation=fem.LinearCubic(),
+        formulation=fem.CubicLinear(),
         options=fem.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
     )
     return sim, energy

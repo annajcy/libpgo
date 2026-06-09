@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "energy/deformationEnergyBuilder.h"
+#include "formulations/formulation/formulations.h"
 #include "material/fields/materialParameterFieldInit.h"
 
 #include "energy/deformationModelEnergy.h"
@@ -53,7 +54,7 @@ TEST(DeformationModelFactoryGTest, TetZeroDisplacementBaseline)
   std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
   auto energy = makeDefaultFieldEnergy(
-    simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -84,7 +85,7 @@ TEST(DeformationModelFactoryGTest, CubicZeroDisplacementBaseline)
   std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
   auto energy = makeDefaultFieldEnergy(
-    simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, CubicLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -115,7 +116,7 @@ TEST(DeformationModelFactoryGTest, TetSimulationMeshFactoryValidatesTopology)
   ASSERT_NE(simMesh, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
 }
@@ -130,7 +131,7 @@ TEST(DeformationModelFactoryGTest, CubicSimulationMeshFactoryValidatesTopology)
   ASSERT_NE(simMesh, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, CubicLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
 }
@@ -168,7 +169,7 @@ TEST(DeformationModelFactoryGTest, TetFactoryRejectsCubicSimulationMesh)
   ASSERT_NE(simMesh, nullptr);
 
   EXPECT_THROW(
-    makeDefaultFieldEnergy(simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
+    makeDefaultFieldEnergy(simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
     std::invalid_argument);
 }
 
@@ -183,9 +184,9 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoTetEnergies)
   ASSERT_NE(simMesh, nullptr);
 
   auto b1 = makeDefaultFieldEnergy(
-    simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   auto b2 = makeDefaultFieldEnergy(
-    simMesh, P1TetFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
   ASSERT_NE(b1, nullptr);
   ASSERT_NE(b2, nullptr);
@@ -228,9 +229,9 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoCubicEnergies)
   ASSERT_NE(simMesh, nullptr);
 
   auto b1 = makeDefaultFieldEnergy(
-    simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, CubicLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   auto b2 = makeDefaultFieldEnergy(
-    simMesh, LinearCubicFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, CubicLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
   ASSERT_NE(b1, nullptr);
   ASSERT_NE(b2, nullptr);

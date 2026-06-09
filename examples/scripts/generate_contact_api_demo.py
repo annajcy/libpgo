@@ -157,7 +157,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=0),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.LinearCubic(),
+            formulation=pf.CubicLinear(),
             options=pf.DeformationOptions(
                 enable_material_max_step=IPC_SCENE["enable_material_max_step"],
             ),
@@ -353,7 +353,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=0),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.TetP1(),
+            formulation=pf.TetLinear(),
         )
 
         bunny_mass = bunny_vol.mass_matrix()
@@ -544,7 +544,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=0),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.TetP1(),
+            formulation=pf.TetLinear(),
         )
 
         s3_mass = s3_vol.mass_matrix()

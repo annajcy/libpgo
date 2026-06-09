@@ -25,7 +25,7 @@
 #include "material/fields/materialParameterFieldInit.h"
 #include "simulation/simulationMesh.h"
 #include "deformation/volume/volumetricDeformationModel.h"
-#include "formulations/formulation.h"
+#include "formulations/formulation/formulations.h"
 #include "material/fields/parameterField.h"
 #include "pgoLogging.h"
 #include "EigenSupport.h"
@@ -182,14 +182,14 @@ ElementCase makeCase(std::unique_ptr<SimulationMesh> meshMutable,
   const double *ef = withHill ? c.elementFiber.data() : nullptr;
   const double *vf = withHill ? c.vertexFiber.data() : nullptr;
   if (type == SimulationMeshType::TET) {
-    pgo::SolidDeformationModel::P1TetFormulation formulation;
+    pgo::SolidDeformationModel::TetLinearFormulation formulation;
     auto manager = std::make_shared<DeformationModelManager>(
       c.meshOwner, elastic, plastic, formulation, kExactDerivativeEnforceSpd, ef, vf);
     c.assembler = std::make_unique<DeformationModelAssembler>(
       std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   }
   else {
-    pgo::SolidDeformationModel::LinearCubicFormulation formulation;
+    pgo::SolidDeformationModel::CubicLinearFormulation formulation;
     auto manager = std::make_shared<DeformationModelManager>(
       c.meshOwner, elastic, plastic, formulation, kExactDerivativeEnforceSpd, ef, vf);
     c.assembler = std::make_unique<DeformationModelAssembler>(

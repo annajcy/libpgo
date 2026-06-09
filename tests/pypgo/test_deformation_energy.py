@@ -58,7 +58,7 @@ def _make_shell_sim_mesh():
 
 def _make_energy(
     sim,
-    formulation=pf.TetP1(),
+    formulation=pf.TetLinear(),
     elastic=None,
     plastic=None,
     elastic_field=None,
@@ -81,8 +81,8 @@ def _make_energy(
 
 class TestWrappers:
     def test_formulations(self):
-        assert pf.TetP1().name == "tet_p1"
-        assert pf.LinearCubic().name == "hex_trilinear"
+        assert pf.TetLinear().name == "tet_linear"
+        assert pf.CubicLinear().name == "cubic_linear"
         assert pf.KoiterShell().name == "shell_koiter"
 
     def test_material_ids(self):
@@ -166,7 +166,7 @@ class TestDeformationEnergyFields:
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ConstantField(values=params),
-            formulation=pf.TetP1(),
+            formulation=pf.TetLinear(),
         )
 
         assert energy.plastic_field.num_value_rows == 1
@@ -206,7 +206,7 @@ class TestDeformationEnergy:
 
     def test_cubic_energy_evaluates(self):
         sim = _make_cubic_sim_mesh()
-        energy = _make_energy(sim, formulation=pf.LinearCubic())
+        energy = _make_energy(sim, formulation=pf.CubicLinear())
         u = energy.zero_state()
         assert np.isfinite(energy.value(u))
         assert energy.hessian(u).nnz > 0
@@ -216,7 +216,7 @@ class TestDeformationEnergy:
         plastic = np.array([[1.01, 0.004, -0.003, 0.994, 0.005, 1.008]], dtype=np.float64)
         energy = _make_energy(
             sim,
-            formulation=pf.LinearCubic(),
+            formulation=pf.CubicLinear(),
             options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
             plastic_values=plastic,
         )
@@ -308,7 +308,7 @@ class TestLifetimeAndErrors:
         sim = _make_tet_sim_mesh()
 
         with pytest.raises(TypeError, match="elastic"):
-            pf.deformation_energy(sim, formulation=pf.TetP1())
+            pf.deformation_energy(sim, formulation=pf.TetLinear())
         with pytest.raises(ValueError, match="formulation is required"):
             pf.deformation_energy(
                 sim,
@@ -324,7 +324,7 @@ class TestLifetimeAndErrors:
                 elastic_field=pf.ElementwiseField(),
                 plastic=pf.VolumetricPlasticity(dofs=6),
                 plastic_field=pf.ElementwiseField(),
-                formulation="tet_p1",
+                formulation="tet_linear",
             )
         with pytest.raises(TypeError, match="options must be"):
             pf.deformation_energy(
@@ -333,7 +333,7 @@ class TestLifetimeAndErrors:
                 elastic_field=pf.ElementwiseField(),
                 plastic=pf.VolumetricPlasticity(dofs=6),
                 plastic_field=pf.ElementwiseField(),
-                formulation=pf.TetP1(),
+                formulation=pf.TetLinear(),
                 options={},
             )
         with pytest.raises(TypeError, match="ElementwiseField"):
@@ -343,7 +343,7 @@ class TestLifetimeAndErrors:
                 elastic_field=None,
                 plastic=pf.VolumetricPlasticity(dofs=6),
                 plastic_field=pf.ElementwiseField(),
-                formulation=pf.TetP1(),
+                formulation=pf.TetLinear(),
             )
 
     def test_no_legacy_energy_keywords(self):
@@ -351,7 +351,7 @@ class TestLifetimeAndErrors:
         with pytest.raises(TypeError):
             pf.deformation_energy(
                 sim,
-                formulation=pf.TetP1(),
+                formulation=pf.TetLinear(),
                 elastic_field=pf.ElementwiseField(),
             )
 
@@ -361,7 +361,7 @@ class TestModuleSurface:
         assert hasattr(pgo, "fem")
         assert hasattr(pgo, "energy")
         assert not hasattr(pe, "deformation_energy")
-        assert not hasattr(pe, "TetP1")
+        assert not hasattr(pe, "TetLinear")
         assert not hasattr(pe, "StableNeo")
         assert hasattr(pe, "PotentialEnergy")
         # FEM energy classes live with their domain module (pypgo.fem),

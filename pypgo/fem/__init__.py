@@ -3,10 +3,10 @@
 from pypgo.fem.formulations import (
     Formulation,
     KoiterShell,
-    LinearCubic,
+    CubicLinear,
     ShellFormulation,
-    TetP1,
-    TricubicHermite,
+    TetLinear,
+    CubicTricubicHermite,
     VolumetricFormulation,
 )
 from pypgo.fem.elastic import (
@@ -49,10 +49,10 @@ __all__ = [
     # Formulations
     "Formulation",
     "KoiterShell",
-    "LinearCubic",
+    "CubicLinear",
     "ShellFormulation",
-    "TetP1",
-    "TricubicHermite",
+    "TetLinear",
+    "CubicTricubicHermite",
     "VolumetricFormulation",
     # Elastic
     "ElasticModel",

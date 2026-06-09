@@ -3,6 +3,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModel.h"
 #include "deformation/deformationModelManager.h"
+#include "formulations/formulation/formulations.h"
 #include "material/fields/materialParameterFieldInit.h"
 #include "pgoLogging.h"
 #include "simulation/simulationMesh.h"
@@ -227,7 +228,7 @@ TEST(DeformationModelAssemblerGTest, TetAssemblerRegression)
 
   const int nele = mesh->getNumElements();
 
-  const pgo::SolidDeformationModel::P1TetFormulation formulation{};
+  const pgo::SolidDeformationModel::TetLinearFormulation formulation{};
   auto managerFields = makeFieldBackedManager(
     mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, formulation);
 
@@ -282,7 +283,7 @@ TEST(DeformationModelAssemblerGTest, ConstantFieldSharesParamColumnsAcrossElemen
   const int nele = mesh->getNumElements();
   ASSERT_GT(nele, 1);
 
-  const pgo::SolidDeformationModel::P1TetFormulation formulation{};
+  const pgo::SolidDeformationModel::TetLinearFormulation formulation{};
   const auto elastic = DeformationModelElasticMaterial::STABLE_NEO;
   const auto plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
   const int numPlasticParams = 6;
@@ -360,7 +361,7 @@ TEST(DeformationModelAssemblerGTest, PlasticParamJacobianMatchesFiniteDifference
   const int nele = mesh->getNumElements();
   ASSERT_GT(nele, 2);
 
-  const pgo::SolidDeformationModel::LinearCubicFormulation formulation{};
+  const pgo::SolidDeformationModel::CubicLinearFormulation formulation{};
   const auto elastic = DeformationModelElasticMaterial::STABLE_NEO;
   const auto plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
   const int numPlasticParams = 6;
@@ -468,7 +469,7 @@ TEST(DeformationModelAssemblerGTest, PlasticEnergyGradientMatchesFiniteDifferenc
   const int nele = mesh->getNumElements();
   ASSERT_GT(nele, 2);
   const int numPlasticParams = 6;
-  const pgo::SolidDeformationModel::LinearCubicFormulation formulation{};
+  const pgo::SolidDeformationModel::CubicLinearFormulation formulation{};
   const auto elastic = DeformationModelElasticMaterial::STABLE_NEO;
   const auto plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
 
@@ -522,7 +523,7 @@ TEST(DeformationModelAssemblerGTest, ConstantPlasticEnergyGradientAccumulatesEle
   const int nele = mesh->getNumElements();
   ASSERT_GT(nele, 1);
   const int numPlasticParams = 6;
-  const pgo::SolidDeformationModel::LinearCubicFormulation formulation{};
+  const pgo::SolidDeformationModel::CubicLinearFormulation formulation{};
   const auto elastic = DeformationModelElasticMaterial::STABLE_NEO;
   const auto plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
 
@@ -581,7 +582,7 @@ TEST(DeformationModelAssemblerGTest, PlasticEnergyHessianMatchesFiniteDifference
     ElasticFieldInit{},
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
     PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticBase },
-    pgo::SolidDeformationModel::LinearCubicFormulation{});
+    pgo::SolidDeformationModel::CubicLinearFormulation{});
 
   ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
 
@@ -621,7 +622,7 @@ TEST(DeformationModelAssemblerGTest, ConstantPlasticEnergyHessianAccumulatesElem
   const int nele = mesh->getNumElements();
   ASSERT_GT(nele, 1);
   const int numPlasticParams = 6;
-  const pgo::SolidDeformationModel::LinearCubicFormulation formulation{};
+  const pgo::SolidDeformationModel::CubicLinearFormulation formulation{};
   const auto elastic = DeformationModelElasticMaterial::STABLE_NEO;
   const auto plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
 
@@ -672,7 +673,7 @@ TEST(DeformationModelAssemblerGTest, TetVonMisesStressIsZeroAtRestAndNonzeroUnde
   const int nele = mesh->getNumElements();
   const int nvtx = mesh->getNumVertices();
 
-  pgo::SolidDeformationModel::P1TetFormulation formulation;
+  pgo::SolidDeformationModel::TetLinearFormulation formulation;
   auto managerFields = makeFieldBackedManager(
     mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, formulation);
 
@@ -783,7 +784,7 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerSmokeRegression)
 
   const int nele = mesh->getNumElements();
 
-  pgo::SolidDeformationModel::LinearCubicFormulation formulation;
+  pgo::SolidDeformationModel::CubicLinearFormulation formulation;
   auto managerFields = makeFieldBackedManager(
     mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, formulation);
 
@@ -848,7 +849,7 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerMaterialParamRegression)
     vertexFiberDirections.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
   }
 
-  pgo::SolidDeformationModel::LinearCubicFormulation formulation;
+  pgo::SolidDeformationModel::CubicLinearFormulation formulation;
   auto managerFields = makeFieldBackedManager(
     mesh,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
@@ -922,7 +923,7 @@ TEST(DeformationModelAssemblerGTest, CubicElasticParamJacobianMatchesFiniteDiffe
     ElasticFieldInit{ ElasticMaterialFieldType::ELEMENTWISE, elasticBase },
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
     PlasticFieldInit{},
-    pgo::SolidDeformationModel::LinearCubicFormulation{},
+    pgo::SolidDeformationModel::CubicLinearFormulation{},
     elementFiberDirections.data(),
     vertexFiberDirections.data());
   ASSERT_EQ(sa.assembler->getNumElasticParams(), numElasticParams);
@@ -956,7 +957,7 @@ TEST(DeformationModelAssemblerGTest, CubicElasticParamJacobianMatchesFiniteDiffe
 }
 
 // Shell dfda == d(gradient)/d(plastic parameter): the shell formulation has its own
-// element kinematics and (for the Hessian) an eigenvalue clamp, so it needs an
+// element mapping and (for the Hessian) an eigenvalue clamp, so it needs an
 // independent FD net. The clamp does not touch the gradient, so FD of the gradient
 // is a valid reference for the plastic Jacobian.
 TEST(DeformationModelAssemblerGTest, ShellPlasticParamJacobianMatchesFiniteDifference)

@@ -8,7 +8,7 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelManager.h"
 #include "deformation/deformationModelAssemblerCacheData.h"
 #include "formulations/dof/dofLayout.h"
-#include "formulations/formulation.h"
+#include "formulations/formulation/formulation.h"
 #include "material/fields/parameterField.h"
 #include "EigenDef.h"
 

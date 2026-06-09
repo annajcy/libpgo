@@ -16,14 +16,14 @@ namespace SolidDeformationModel
 // ============================================================
 
 VolumetricDeformationModel::VolumetricDeformationModel(
-  VolumetricKinematics &&kinematics,
+  VolumetricElementMapping &&mapping,
   std::unique_ptr<ElasticModel3DDeformationGradient> elasticModel,
   std::unique_ptr<PlasticModel3DDeformationGradient> plasticModel):
   DeformationModel(),
-  numNodes_(kinematics.numNodes()),
-  numQuadPts_(kinematics.numQuadraturePoints()),
-  localDofs_(kinematics.localDofs()),
-  kinematics_(std::move(kinematics)),
+  numNodes_(mapping.numNodes()),
+  numQuadPts_(mapping.numQuadraturePoints()),
+  localDofs_(mapping.localDofs()),
+  elementMapping_(std::move(mapping)),
   elasticModel_(std::move(elasticModel)),
   plasticModel_(std::move(plasticModel))
 {
@@ -128,11 +128,11 @@ void VolumetricDeformationModel::prepareData(
       }
     }
 
-    kinematics_.computeFref(x, q, cd->Fref[q].data());
+    elementMapping_.computeFref(x, q, cd->Fref[q].data());
     cd->Fe[q] = cd->Fref[q] * cd->FpInv[q];
     computeSVD(cd->Fe[q], cd->U[q], cd->V[q], cd->S[q]);
-    computeCurrent_dFdx(kinematics_.rest_dFdx(q), cd->FpInv[q], cd->dFdx[q]);
-    cd->Bm[q] = cd->detFp[q] * cd->FpInv[q].transpose() * kinematics_.restBm(q);
+    computeCurrent_dFdx(elementMapping_.rest_dFdx(q), cd->FpInv[q], cd->dFdx[q]);
+    cd->Bm[q] = cd->detFp[q] * cd->FpInv[q].transpose() * elementMapping_.restBm(q);
   }
 }
 
@@ -151,7 +151,7 @@ double VolumetricDeformationModel::computeEnergy(
     const double *mp = elasticParamsPtr(cacheDataBase, q);
     energy += elasticModel_->compute_psi(mp, cd->Fe[q].data(),
       cd->U[q].data(), cd->V[q].data(), cd->S[q].data()) *
-      kinematics_.weightDetJ(q) * cd->detFp[q];
+      elementMapping_.weightDetJ(q) * cd->detFp[q];
   }
   return energy;
 }
@@ -189,7 +189,7 @@ void VolumetricDeformationModel::compute_d2E_dx2(
     ES::M9d dPdF;
     elasticModel_->compute_dPdF(mp, cd->Fe[q].data(),
       cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
-    dPdF *= kinematics_.weightDetJ(q) * cd->detFp[q];
+    dPdF *= elementMapping_.weightDetJ(q) * cd->detFp[q];
     hessMat += cd->dFdx[q].transpose() * dPdF * cd->dFdx[q];
   }
 
@@ -264,7 +264,7 @@ VolumetricDeformationModel::computeLocalMaxStepSize(
 void VolumetricDeformationModel::computeF(
   const double *x, int materialLocationID, double F[9]) const
 {
-  kinematics_.computeFref(x, materialLocationID, F);
+  elementMapping_.computeFref(x, materialLocationID, F);
 }
 
 void VolumetricDeformationModel::computeFe(
@@ -394,9 +394,9 @@ void VolumetricDeformationModel::compute_dE_da(
       cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), P.data());
 
     for (int i = 0; i < numPlasticParams_; i++) {
-      double dVda = compute_dV_dai(kinematics_.weightDetJ(q), cd->ddetA_da[q][i]);
+      double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][i]);
       double dpsi_da = compute_dpsi_dai(cd->Fref[q], cd->dAInv_dai[q][i], P);
-      gradVec[i] += dVda * psi + kinematics_.weightDetJ(q) * cd->detFp[q] * dpsi_da;
+      gradVec[i] += dVda * psi + elementMapping_.weightDetJ(q) * cd->detFp[q] * dpsi_da;
     }
   }
 
@@ -416,7 +416,7 @@ void VolumetricDeformationModel::compute_d2E_da2(
   ES::MXd hessMat = ES::MXd::Zero(numPlasticParams_, numPlasticParams_);
   for (int q = 0; q < numQuadPts_; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = kinematics_.weightDetJ(q) * cd->detFp[q];
+    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
     double psi = elasticModel_->compute_psi(mp, cd->Fe[q].data(),
       cd->U[q].data(), cd->V[q].data(), cd->S[q].data());
 
@@ -429,12 +429,12 @@ void VolumetricDeformationModel::compute_d2E_da2(
       cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
 
     for (int i = 0; i < numPlasticParams_; i++) {
-      double dVda_i = compute_dV_dai(kinematics_.weightDetJ(q), cd->ddetA_da[q][i]);
+      double dVda_i = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][i]);
       double dpsi_da_i = compute_dpsi_dai(cd->Fref[q], cd->dAInv_dai[q][i], P);
 
       for (int j = 0; j < numPlasticParams_; j++) {
-        double dVda_j = compute_dV_dai(kinematics_.weightDetJ(q), cd->ddetA_da[q][j]);
-        double d2V = compute_d2V_daidaj(kinematics_.weightDetJ(q), cd->d2detA_da2[q](i, j));
+        double dVda_j = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][j]);
+        double d2V = compute_d2V_daidaj(elementMapping_.weightDetJ(q), cd->d2detA_da2[q](i, j));
         double dpsi_da_j = compute_dpsi_dai(cd->Fref[q], cd->dAInv_dai[q][j], P);
         double d2psi = compute_d2psi_dai_daj(cd->Fref[q],
           cd->dAInv_dai[q][i], cd->dAInv_dai[q][j],
@@ -470,9 +470,9 @@ void VolumetricDeformationModel::compute_d2E_dxda(
     elasticModel_->compute_dPdF(mp, cd->Fe[q].data(),
       cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
 
-    const double vol = kinematics_.weightDetJ(q) * cd->detFp[q];
+    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
     for (int i = 0; i < numPlasticParams_; i++) {
-      const double dVda = compute_dV_dai(kinematics_.weightDetJ(q), cd->ddetA_da[q][i]);
+      const double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][i]);
 
       ES::M3d dFda;
       compute_dFe_dai(cd->Fref[q], cd->dAInv_dai[q][i], dFda);
@@ -484,7 +484,7 @@ void VolumetricDeformationModel::compute_d2E_dxda(
         Eigen::Map<const ES::V9d>(dPda.data());
 
       M9xNDOF d2F_duda(9, localDofs_);
-      compute_d2Fe_dx_dai(cd->dAInv_dai[q][i], kinematics_.rest_dFdx(q), d2F_duda);
+      compute_d2Fe_dx_dai(cd->dAInv_dai[q][i], elementMapping_.rest_dFdx(q), d2F_duda);
 
       mixed.col(i) += dVda * dpsi_dx + vol *
         (temp + d2F_duda.transpose() * Eigen::Map<const ES::V9d>(P.data()));
@@ -509,7 +509,7 @@ void VolumetricDeformationModel::compute_dE_db(
   ES::VXd gradVec = ES::VXd::Zero(numElasticParams_);
   for (int q = 0; q < numQuadPts_; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = kinematics_.weightDetJ(q) * cd->detFp[q];
+    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
     for (int i = 0; i < numElasticParams_; i++) {
       gradVec[i] += vol * elasticModel_->compute_dpsi_dparam(mp, i,
         cd->Fe[q].data(), cd->U[q].data(), cd->V[q].data(), cd->S[q].data());
@@ -532,7 +532,7 @@ void VolumetricDeformationModel::compute_d2E_db2(
   ES::MXd hessMat = ES::MXd::Zero(numElasticParams_, numElasticParams_);
   for (int q = 0; q < numQuadPts_; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = kinematics_.weightDetJ(q) * cd->detFp[q];
+    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
     for (int i = 0; i < numElasticParams_; i++) {
       for (int j = 0; j < numElasticParams_; j++) {
         hessMat(i, j) += vol * elasticModel_->compute_d2psi_dparam2(mp, i, j,
@@ -555,7 +555,7 @@ void VolumetricDeformationModel::compute_d2E_dxdb(
   ES::MXd mixed = ES::MXd::Zero(localDofs_, numElasticParams_);
   for (int q = 0; q < numQuadPts_; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = kinematics_.weightDetJ(q) * cd->detFp[q];
+    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
     for (int i = 0; i < numElasticParams_; i++) {
       ES::M3d dPdb;
       elasticModel_->compute_dP_dparam(mp, i, cd->Fe[q].data(),
@@ -585,7 +585,7 @@ void VolumetricDeformationModel::compute_d2E_dadb(
 
   for (int q = 0; q < numQuadPts_; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = kinematics_.weightDetJ(q) * cd->detFp[q];
+    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
 
     std::vector<ES::M3d> dPdb(numElasticParams_, ES::M3d::Zero());
     for (int i = 0; i < numElasticParams_; i++) {
@@ -596,7 +596,7 @@ void VolumetricDeformationModel::compute_d2E_dadb(
     std::vector<ES::M3d> dFda(numPlasticParams_, ES::M3d::Zero());
     for (int i = 0; i < numPlasticParams_; i++) {
       compute_dFe_dai(cd->Fref[q], cd->dAInv_dai[q][i], dFda[i]);
-      double dVda = compute_dV_dai(kinematics_.weightDetJ(q), cd->ddetA_da[q][i]);
+      double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][i]);
       for (int j = 0; j < numElasticParams_; j++) {
         double dpsi_db = elasticModel_->compute_dpsi_dparam(mp, j,
           cd->Fe[q].data(), cd->U[q].data(), cd->V[q].data(), cd->S[q].data());

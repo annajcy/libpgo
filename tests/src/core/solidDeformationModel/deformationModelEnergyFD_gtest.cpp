@@ -18,6 +18,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
+#include "formulations/formulation/formulations.h"
 #include "material/fields/materialParameterFieldInit.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "simulation/simulationMesh.h"
@@ -149,7 +150,7 @@ EnergyCase makeSingleTetCase(int offset)
     4, vertices, 1, 4, elementVertices, elementMaterialIndices, 1, materials, SimulationMeshType::TET));
   c.energy = finalizeEnergy(
     c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    pgo::SolidDeformationModel::P1TetFormulation{}, offset);
+    pgo::SolidDeformationModel::TetLinearFormulation{}, offset);
   c.offset = offset;
   c.numDOFs = c.energy->getNumDOFs();
   setVolumetricPlasticIdentity(*c.energy);
@@ -173,7 +174,7 @@ EnergyCase makeSingleHexCase(int offset)
     8, vertices, 1, 8, elementVertices, elementMaterialIndices, 1, materials, SimulationMeshType::CUBIC));
   c.energy = finalizeEnergy(
     c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    pgo::SolidDeformationModel::LinearCubicFormulation{}, offset);
+    pgo::SolidDeformationModel::CubicLinearFormulation{}, offset);
   c.offset = offset;
   c.numDOFs = c.energy->getNumDOFs();
   setVolumetricPlasticIdentity(*c.energy);

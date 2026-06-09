@@ -2,6 +2,7 @@
 
 #include "energy/deformationEnergyBuilder.h"
 #include "deformation/deformationModelManager.h"
+#include "formulations/formulation/formulations.h"
 #include "material/elastic/elasticModelFactory.h"
 #include "energy/plasticMaterialEnergy.h"
 #include "constraints/core.h"
@@ -453,8 +454,8 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
   {
     nb::gil_scoped_release release;
-    if (formulationName == "tet_p1") {
-      SolidDeformationModel::P1TetFormulation formulation;
+    if (formulationName == "tet_linear") {
+      SolidDeformationModel::TetLinearFormulation formulation;
       auto manager = std::make_shared<SolidDeformationModel::DeformationModelManager>(
         meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
         formulation, opts.enforceSPD ? 1 : 0, nullptr, nullptr);
@@ -462,8 +463,8 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
         std::move(manager), formulation, inputs.elasticField, inputs.plasticField, nullptr);
       energy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
         std::move(assembler), 0, opts.enableMaterialMaxStep);
-    } else if (formulationName == "hex_trilinear") {
-      SolidDeformationModel::LinearCubicFormulation formulation;
+    } else if (formulationName == "cubic_linear") {
+      SolidDeformationModel::CubicLinearFormulation formulation;
       auto manager = std::make_shared<SolidDeformationModel::DeformationModelManager>(
         meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
         formulation, opts.enforceSPD ? 1 : 0, nullptr, nullptr);
@@ -471,8 +472,8 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
         std::move(manager), formulation, inputs.elasticField, inputs.plasticField, nullptr);
       energy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
         std::move(assembler), 0, opts.enableMaterialMaxStep);
-    } else if (formulationName == "hex_tricubic_hermite") {
-      SolidDeformationModel::TricubicHermiteFormulation formulation;
+    } else if (formulationName == "cubic_tricubic_hermite") {
+      SolidDeformationModel::CubicTricubicHermiteFormulation formulation;
       auto manager = std::make_shared<SolidDeformationModel::DeformationModelManager>(
         meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
         formulation, opts.enforceSPD ? 1 : 0, nullptr, nullptr);
@@ -492,7 +493,7 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
     } else {
       throw std::invalid_argument(
         "Unknown formulation: '" + formulationName +
-        "'.  Expected 'tet_p1', 'hex_trilinear', 'hex_tricubic_hermite', or 'shell_koiter'.");
+        "'.  Expected 'tet_linear', 'cubic_linear', 'cubic_tricubic_hermite', or 'shell_koiter'.");
     }
   }
   return std::make_shared<PyDeformationEnergy>(std::move(energy));

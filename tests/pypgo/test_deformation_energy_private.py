@@ -80,7 +80,7 @@ class TestCoreDeformationEnergy:
 
     def test_energy_exposes_shared_fields(self):
         sim = _make_tet_sim_mesh()
-        energy = _make_deformation_energy(sim, "tet_p1")
+        energy = _make_deformation_energy(sim, "tet_linear")
 
         assert energy.elastic_model == "stable_neo"
         assert energy.plastic_model == "volumetric_dof6"
@@ -90,7 +90,7 @@ class TestCoreDeformationEnergy:
 
     def test_energy_setters_update_fields(self):
         sim = _make_tet_sim_mesh()
-        energy = _make_deformation_energy(sim, "tet_p1")
+        energy = _make_deformation_energy(sim, "tet_linear")
         values = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
         energy.set_plastic_values(values.ravel())
         assert np.allclose(energy.plastic_field.values(), values)
@@ -98,7 +98,7 @@ class TestCoreDeformationEnergy:
     def test_wrong_size_rejected(self):
         sim = _make_tet_sim_mesh()
         with pytest.raises(ValueError):
-            _make_deformation_energy(sim, "tet_p1", plastic_values=np.zeros(5, dtype=np.float64))
+            _make_deformation_energy(sim, "tet_linear", plastic_values=np.zeros(5, dtype=np.float64))
 
     def test_old_field_factories_are_not_exposed(self):
         assert not hasattr(_core, "_create_elastic_default_field")
@@ -108,7 +108,7 @@ class TestCoreDeformationEnergy:
 class TestCoreEnergy:
     def test_tet_value_gradient_hessian_at_zero_state(self):
         sim = _make_tet_sim_mesh()
-        energy = _make_deformation_energy(sim, "tet_p1")
+        energy = _make_deformation_energy(sim, "tet_linear")
         h = energy
         u = h.zero_state()
 
@@ -122,7 +122,7 @@ class TestCoreEnergy:
 
     def test_cubic_value_gradient_hessian_at_zero_state(self):
         sim = _make_cubic_sim_mesh()
-        energy = _make_deformation_energy(sim, "hex_trilinear")
+        energy = _make_deformation_energy(sim, "cubic_linear")
         h = energy
         u = h.zero_state()
 
@@ -132,7 +132,7 @@ class TestCoreEnergy:
 
     def test_energy_observes_state_updates(self):
         sim = _make_tet_sim_mesh()
-        energy = _make_deformation_energy(sim, "tet_p1", elastic="stvk")
+        energy = _make_deformation_energy(sim, "tet_linear", elastic="stvk")
         h = energy
         u = h.zero_state()
 
@@ -145,7 +145,7 @@ class TestCoreEnergy:
 
     def test_energy_survives_mesh_and_state_deletion(self):
         sim = _make_tet_sim_mesh()
-        energy = _make_deformation_energy(sim, "tet_p1")
+        energy = _make_deformation_energy(sim, "tet_linear")
         h = energy
         u = h.zero_state()
         before = h.value(u)

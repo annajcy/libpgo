@@ -3,6 +3,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
+#include "formulations/formulation/formulations.h"
 #include "material/fields/materialParameterFieldInit.h"
 #include "energy/plasticMaterialEnergy.h"
 #include "simulation/simulationMesh.h"
@@ -99,7 +100,7 @@ ES::VXd makeFixedDisplacement(int numVertices)
 
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(std::shared_ptr<const SimulationMesh> mesh, const ES::VXd &plasticBase)
 {
-  pgo::SolidDeformationModel::LinearCubicFormulation formulation;
+  pgo::SolidDeformationModel::CubicLinearFormulation formulation;
   auto elasticField = createElasticParameterField(
     *mesh, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{});
   auto plasticField = createPlasticParameterField(

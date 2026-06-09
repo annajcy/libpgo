@@ -90,21 +90,21 @@ class ShellFormulation(Formulation):
 # ---------------------------------------------------------------------------
 
 
-class TetP1(VolumetricFormulation):
+class TetLinear(VolumetricFormulation):
     def __init__(self) -> None:
-        super().__init__(_core.make_tet_p1())
+        super().__init__(_core.make_tet_linear())
 
 
-class LinearCubic(VolumetricFormulation):
+class CubicLinear(VolumetricFormulation):
     def __init__(self) -> None:
-        super().__init__(_core.make_linear_cubic())
+        super().__init__(_core.make_cubic_linear())
 
 
-class TricubicHermite(VolumetricFormulation):
+class CubicTricubicHermite(VolumetricFormulation):
     """Regular-grid tricubic Hermite hex formulation (24 DOFs/vertex)."""
 
     def __init__(self) -> None:
-        super().__init__(_core.make_tricubic_hermite())
+        super().__init__(_core.make_cubic_tricubic_hermite())
 
 
 class KoiterShell(ShellFormulation):

@@ -22,7 +22,7 @@ the Python module that exposes it, and the C++ subsystem that realizes it.
 FEM elasticity is a chain of four modeling decisions and one assembly step. Read it
 top-to-bottom; each row is a later document.
 
-### 1. Kinematics — how shape becomes strain
+### 1. ElementMapping — how shape becomes strain
 
 A body has a *rest* (material) configuration $\mathbf X\in\Omega$ and a *deformed* (world)
 configuration $\mathbf x = \mathbf X + \mathbf u$, where $\mathbf u$ is the **displacement**
@@ -87,8 +87,10 @@ fields; the assembler gathers element contributions into the global operators; a
 energy class exposes them through the optimizer's `PotentialEnergy` interface.
 
 ```
-Formulation  =  basis  +  quadrature  +  dof-layout  +  kinematics/geometry      (formulations/)
-    └─ createElement() ──▶ DeformationModel per element   (E_e, ∂E/∂x, ∂²E/∂x², parameter derivs)
+Formulation  =  shapeFunction  +  quadrature  +  dof-layout      (formulations/)
+    └─ createElement() ──▶ DeformationModel per element
+                            owns ElementMapping + Material models
+                            (E_e, ∂E/∂x, ∂²E/∂x², parameter derivs)
           └─ DeformationModelManager   (owns element models + OptimizableField parameters)
                 └─ DeformationModelAssembler   (gather/scatter ▶ global E, g, K, parameter Jacobians)
                       └─ DeformationModelEnergy / PlasticMaterialEnergy   (PotentialEnergy: value/grad/hessian)
@@ -98,16 +100,16 @@ Each subsystem answers exactly one question of the discrete theory:
 
 | C++ subsystem | Mathematical role | Key types |
 |---|---|---|
-| `formulations/basis/` | shape functions $N_a(\boldsymbol\xi)$ and $\partial N_a/\partial\boldsymbol\xi$ — *interpolation* | `Basis`; `TetP1Basis` (4 nodes), `HexTrilinearBasis` (8), `HexTricubicHermiteBasis` (64 = 8 corners × 8 Hermite modes) |
-| `formulations/quadrature/` | the integral $\int_e\!\Psi\,dV\approx\sum_q w_q\,\Psi(\boldsymbol\xi_q)$ — *numerical integration* | `Quadrature`; `TetP1DefaultQuadrature` (1 pt), `GaussLegendreHexQuadrature2`/`…4` (2³ / 4³) |
-| `formulations/geometry/` + `formulations/kinematics/` | rest Jacobian $\mathbf D_m=\partial\mathbf X/\partial\boldsymbol\xi$, $\mathbf F$ and $\partial\mathbf F/\partial\mathbf x$ — *kinematics* | `VolumetricKinematics` |
-| `formulations/dof/` | local↔global DOF map, gather/scatter, Hessian sparsity — *assembly bookkeeping* | `DofLayout`; `Vertex3DofLayout` (3/vertex), `HexTricubicHermiteDofLayout` (24/vertex) |
-| `deformation/` | per-element $E_e,\nabla E_e,\nabla^2E_e$ and parameter derivatives — *the element kinematics* | `VolumetricDeformationModel`, `ShellDeformationModel` |
+| `formulations/shapeFunction/` | shape functions $N_a(\boldsymbol\xi)$ and $\partial N_a/\partial\boldsymbol\xi$ — *interpolation* | `ShapeFunction`; `TetLinearShapeFunction` (4 nodes), `CubicLinearShapeFunction` (8), `CubicTricubicHermiteShapeFunction` (64 = 8 corners × 8 Hermite modes) |
+| `formulations/quadrature/` | the integral $\int_e\!\Psi\,dV\approx\sum_q w_q\,\Psi(\boldsymbol\xi_q)$ — *numerical integration* | `Quadrature`; `TetLinearDefaultQuadrature` (1 pt), `GaussLegendreHexQuadrature2`/`…4` (2³ / 4³) |
+| `deformation/volume/`, `deformation/shell/` | local element DOFs $\to$ strain measures — *element mapping* | `VolumetricElementMapping`, `ShellElementMapping`, `KoiterShellElementMapping` |
+| `formulations/dof/` | local↔global DOF map, gather/scatter, Hessian sparsity — *assembly bookkeeping* | `DofLayout`; `Vertex3DofLayout` (3/vertex), `CubicTricubicHermiteDofLayout` (24/vertex) |
+| `deformation/` | per-element $E_e,\nabla E_e,\nabla^2E_e$ and parameter derivatives — *the element energy model* | `VolumetricDeformationModel`, `ShellDeformationModel` |
 | `material/fields/` | coefficient storage and $\partial(\text{value})/\partial(\text{params})$ — *material fields* | `ParameterField`, `OptimizableField` |
 
-The four concrete formulations are just different (basis, quadrature, DOF-layout) triples
-— see `src/core/solidDeformationModel/formulations/formulation.cpp:96` (`tet_p1`), `:111`
-(`hex_trilinear`), `:370` (`hex_tricubic_hermite`), `:440` (`shell_koiter`).
+The four concrete formulations are just different (shape-function, quadrature, DOF-layout) triples
+— see `src/core/solidDeformationModel/formulations/formulation/volumetricFormulation/`
+and `src/core/solidDeformationModel/formulations/formulation/shellFormulation/`.
 
 ## Two variational problems
 
@@ -130,7 +132,7 @@ Everything is importable directly from `pypgo.fem` (see `pypgo/fem/__init__.py`)
 ```python
 from pypgo.fem import (
     # Formulations (discretization)
-    TetP1, LinearCubic, TricubicHermite, KoiterShell,
+    TetLinear, CubicLinear, CubicTricubicHermite, KoiterShell,
     # Elastic constitutive models
     StableNeo, StVK, StVKVolume, LinearElastic, MooneyRivlin, KoiterStVK,
     # Plasticity
@@ -149,7 +151,7 @@ from pypgo.fem import (
 import numpy as np
 from pypgo.fem import (
     deformation_energy,
-    StableNeo, ElementwiseField, VolumetricPlasticity, TetP1,
+    StableNeo, ElementwiseField, VolumetricPlasticity, TetLinear,
 )
 
 # 1. Assemble E(u) for a chosen discretization.
@@ -159,7 +161,7 @@ energy = deformation_energy(
     elastic_field=ElementwiseField(),   # defaults seeded from the mesh material
     plastic=VolumetricPlasticity(dofs=0),  # purely elastic
     plastic_field=ElementwiseField(),
-    formulation=TetP1(),
+    formulation=TetLinear(),
 )
 
 # 2. Evaluate at a displacement u (force = -gradient, stiffness K = hessian).
@@ -171,17 +173,17 @@ K = energy.hessian(u)           # tangent stiffness (SparseMatrix)
 
 ## Formula ↔ function index
 
-A master map from each mathematical object to the Python entry point and the C++ kinematics that
+A master map from each mathematical object to the Python entry point and the C++ mapping that
 computes it. Notation: $J_q = w_q\,|\det\mathbf D_m^q|$ is the rest quadrature weight,
 $\mathbf F_e=\mathbf F\,\mathbf F_p^{-1}$ the elastic gradient, $a$/$b$ the plastic/elastic
 parameters. Each row is detailed in the linked document.
 
-| Math object | Formula | Python | C++ kinematics | Doc |
+| Math object | Formula | Python | C++ mapping | Doc |
 |---|---|---|---|---|
 | strain energy density | $\Psi(\mathbf F_e)$ | model class | `compute_psi` | [elastic](elastic.md) |
 | 1st PK stress | $\mathbf P=\partial\Psi/\partial\mathbf F$ | — | `compute_P` | [elastic](elastic.md) |
 | material tangent | $\partial^2\Psi/\partial\mathbf F^2$ | — | `compute_dPdF` | [elastic](elastic.md) |
-| deformation gradient | $\mathbf F=\mathbf x\,(\partial N/\partial\boldsymbol\xi)^{\!\top}\mathbf D_m^{-1}$ | — | `VolumetricKinematics::computeFref` | [formulations](formulations.md) |
+| deformation gradient | $\mathbf F=\mathbf x\,(\partial N/\partial\boldsymbol\xi)^{\!\top}\mathbf D_m^{-1}$ | — | `VolumetricElementMapping::computeFref` | [formulations](formulations.md) |
 | plastic split | $\mathbf F_p=A(a)$, $\mathbf F_e=\mathbf F\,\mathbf F_p^{-1}$ | — | `computeA` / `computeAInv` | [plastic](plastic.md) |
 | element energy | $E_e=\sum_q J_q\det\mathbf F_p\;\Psi(\mathbf F_e^q)$ | — | `computeEnergy` | [formulations](formulations.md) |
 | total energy | $E(\mathbf u)=\sum_e E_e$ | `energy.value(u)` | assembler `computeEnergy` | [energy](energy.md) |
@@ -199,7 +201,7 @@ parameters. Each row is detailed in the linked document.
 ## Further reading
 
 - [`elastic.md`](elastic.md) — strain energy densities $\Psi(\mathbf F)$ and stress.
-- [`formulations.md`](formulations.md) — basis · quadrature · DOF layout · kinematics.
+- [`formulations.md`](formulations.md) — shape functions · quadrature · DOF layout · mapping.
 - [`fields.md`](fields.md) — material parameter fields and their sensitivities.
 - [`plastic.md`](plastic.md) — the elastic/plastic split $\mathbf F=\mathbf F_e\mathbf F_p$.
 - [`energy.md`](energy.md) — assembly, solver interface, and parameter optimization.

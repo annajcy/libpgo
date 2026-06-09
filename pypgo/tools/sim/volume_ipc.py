@@ -31,9 +31,9 @@ from pypgo.sim import DynamicSimulation, DynamicState
 def _default_formulation(volume: VolumeMesh):
     element_width = int(volume.mesh_data.elements.shape[1])
     if element_width == 4:
-        return _fem.TetP1()
+        return _fem.TetLinear()
     if element_width == 8:
-        return _fem.LinearCubic()
+        return _fem.CubicLinear()
     raise ValueError(f"unsupported volume element width: {element_width}")
 
 
@@ -44,7 +44,7 @@ def _initial_vector(volume: VolumeMesh, num_dofs: int, values, formulation) -> n
     if num_dofs == volume.num_vertices * 3:
         return np.tile(vec, volume.num_vertices).astype(np.float64, copy=False)
     out = np.zeros(num_dofs, dtype=np.float64)
-    if isinstance(formulation, _fem.TricubicHermite):
+    if isinstance(formulation, _fem.CubicTricubicHermite):
         for vertex_id in range(volume.num_vertices):
             out[vertex_id * 24:vertex_id * 24 + 3] = vec
     return out
@@ -82,9 +82,9 @@ def run_volume_ipc(
     # 2. Pick formulation
     fm = {
         "auto": _default_formulation(volume),
-        "tet-p1": _fem.TetP1(),
-        "linear-cubic": _fem.LinearCubic(),
-        "tricubic-hermite": _fem.TricubicHermite(),
+        "tet-linear": _fem.TetLinear(),
+        "cubic-linear": _fem.CubicLinear(),
+        "cubic-tricubic-hermite": _fem.CubicTricubicHermite(),
     }[formulation]
 
     # 3. Build deformation energy
@@ -188,7 +188,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gravity", nargs=3, type=float, default=(0.0, 0.0, 0.0), metavar=("GX", "GY", "GZ"))
     parser.add_argument(
         "--formulation",
-        choices=("auto", "tet-p1", "linear-cubic", "tricubic-hermite"),
+        choices=("auto", "tet-linear", "cubic-linear", "cubic-tricubic-hermite"),
         default="auto",
     )
     parser.add_argument("--dhat", type=float, default=0.001, help="IPC self-contact dhat")

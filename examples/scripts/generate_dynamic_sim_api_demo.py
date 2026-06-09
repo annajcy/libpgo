@@ -412,7 +412,7 @@ CELLS = [
         print(f"Tet mesh: {vol.num_vertices} vertices, {vol.num_elements} tets")
 
         # ── 2. Deformation energy (Stable Neo-Hookean, no plasticity) ─
-        formulation = pf.TetP1()
+        formulation = pf.TetLinear()
         energy = pf.deformation_energy(
             sim_mesh,
             elastic=pf.StableNeo(),

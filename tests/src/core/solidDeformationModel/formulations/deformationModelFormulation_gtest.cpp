@@ -6,7 +6,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
 
-#include "formulations/formulation.h"
+#include "formulations/formulation/formulations.h"
 #include "formulations/dof/dofLayout.h"
 
 #include "simulation/simulationMesh.h"
@@ -20,8 +20,8 @@ namespace ES = pgo::EigenSupport;
 using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
 using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
 using pgo::SolidDeformationModel::KoiterShellFormulation;
-using pgo::SolidDeformationModel::LinearCubicFormulation;
-using pgo::SolidDeformationModel::P1TetFormulation;
+using pgo::SolidDeformationModel::CubicLinearFormulation;
+using pgo::SolidDeformationModel::TetLinearFormulation;
 using pgo::SolidDeformationModel::SimulationMesh;
 
 constexpr const char *kTorusVegPath = LIBPGO_TEST_TORUS_VEG;
@@ -46,18 +46,18 @@ std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> makeDefaultF
 // Formulation metadata checks
 // ============================================================
 
-TEST(DeformationModelFormulationGTest, P1TetFormulationProvidesCorrectMetadata)
+TEST(DeformationModelFormulationGTest, TetLinearFormulationProvidesCorrectMetadata)
 {
-  P1TetFormulation f;
-  EXPECT_EQ(f.getName(), "tet_p1");
+  TetLinearFormulation f;
+  EXPECT_EQ(f.getName(), "tet_linear");
   EXPECT_EQ(f.getNodesPerElement(), 4);
   EXPECT_EQ(f.getLocalDofs(), 12);
 }
 
-TEST(DeformationModelFormulationGTest, LinearCubicFormulationProvidesCorrectMetadata)
+TEST(DeformationModelFormulationGTest, CubicLinearFormulationProvidesCorrectMetadata)
 {
-  LinearCubicFormulation f;
-  EXPECT_EQ(f.getName(), "hex_trilinear");
+  CubicLinearFormulation f;
+  EXPECT_EQ(f.getName(), "cubic_linear");
   EXPECT_EQ(f.getNodesPerElement(), 8);
   EXPECT_EQ(f.getLocalDofs(), 24);
 }
@@ -83,7 +83,7 @@ TEST(DeformationModelFormulationGTest, TetFormulationBuildsEnergy)
   ASSERT_NE(simMesh, nullptr);
   auto bundle = makeDefaultFieldEnergy(
     simMesh,
-    P1TetFormulation{},
+    TetLinearFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 
@@ -131,7 +131,7 @@ TEST(DeformationModelFormulationGTest, TetFormulationVertex3PolicyDefaults)
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
   std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadTetMesh(&tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
-  checkVertex3DefaultPolicy(*simMesh, P1TetFormulation{});
+  checkVertex3DefaultPolicy(*simMesh, TetLinearFormulation{});
 }
 
 TEST(DeformationModelFormulationGTest, CubicFormulationVertex3PolicyDefaults)
@@ -140,7 +140,7 @@ TEST(DeformationModelFormulationGTest, CubicFormulationVertex3PolicyDefaults)
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
-  checkVertex3DefaultPolicy(*simMesh, LinearCubicFormulation{});
+  checkVertex3DefaultPolicy(*simMesh, CubicLinearFormulation{});
 }
 
 TEST(DeformationModelFormulationGTest, AssemblerSurfacesFormulationRestInvariant)
@@ -151,7 +151,7 @@ TEST(DeformationModelFormulationGTest, AssemblerSurfacesFormulationRestInvariant
   ASSERT_NE(simMesh, nullptr);
   auto bundle = makeDefaultFieldEnergy(
     simMesh,
-    LinearCubicFormulation{},
+    CubicLinearFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   ASSERT_NE(bundle, nullptr);
@@ -171,7 +171,7 @@ TEST(DeformationModelFormulationGTest, CubicFormulationBuildsEnergy)
   ASSERT_NE(simMesh, nullptr);
   auto bundle = makeDefaultFieldEnergy(
     simMesh,
-    LinearCubicFormulation{},
+    CubicLinearFormulation{},
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
 

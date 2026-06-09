@@ -39,7 +39,7 @@ def test_barycentric_embedding_exposes_all_local_corners():
 
 def test_hermite_mass_matrix_has_correct_size_symmetry_and_constant_velocity_energy():
     volume = _single_cube_volume(density=2.0)
-    M = pf.TricubicHermite().mass_matrix(volume)
+    M = pf.CubicTricubicHermite().mass_matrix(volume)
 
     assert M.shape == (8 * 24, 8 * 24)
     Md = M.to_dense()
@@ -57,7 +57,7 @@ def test_hermite_mass_matrix_has_correct_size_symmetry_and_constant_velocity_ene
 def test_hermite_body_force_has_generalized_derivative_entries_and_correct_total_force():
     volume = _single_cube_volume(density=3.0)
     g = np.array([0.0, -9.8, 0.0], dtype=np.float64)
-    f = pf.TricubicHermite().body_force(volume, g)
+    f = pf.CubicTricubicHermite().body_force(volume, g)
 
     assert f.shape == (8 * 24,)
     value_force = np.zeros(3)
@@ -75,7 +75,7 @@ def test_hermite_surface_embedding_reproduces_affine_displacement():
         [[0.25, 0.5, 0.75], [1.0, 0.0, 0.5], [0.0, 1.0, 0.0]],
         dtype=np.float64,
     )
-    W = pf.TricubicHermite().surface_embedding_matrix(volume, points)
+    W = pf.CubicTricubicHermite().surface_embedding_matrix(volume, points)
     assert W.shape == (points.shape[0] * 3, 8 * 24)
 
     A = np.array([[0.1, 0.2, 0.0], [0.0, -0.1, 0.3], [0.05, 0.0, 0.2]], dtype=np.float64)
@@ -103,10 +103,10 @@ def test_hermite_dynamic_free_fall_uses_24_dofs():
         elastic_field=pf.ElementwiseField(),
         plastic=pf.VolumetricPlasticity(dofs=0),
         plastic_field=pf.ElementwiseField(),
-        formulation=pf.TricubicHermite(),
+        formulation=pf.CubicTricubicHermite(),
     )
-    M = pf.TricubicHermite().mass_matrix(volume)
-    f = pf.TricubicHermite().body_force(volume, [0.0, -9.8, 0.0])
+    M = pf.CubicTricubicHermite().mass_matrix(volume)
+    f = pf.CubicTricubicHermite().body_force(volume, [0.0, -9.8, 0.0])
     dyn_state = pgo.sim.DynamicState(
         displacement=np.zeros(energy.num_dofs),
         velocity=np.zeros(energy.num_dofs),
@@ -126,7 +126,7 @@ def test_hermite_dynamic_free_fall_uses_24_dofs():
 def test_hermite_mapped_floor_contact_has_hermite_dof_count():
     volume = _single_cube_volume()
     surface = volume.extract_surface_mesh()
-    W = pf.TricubicHermite().surface_embedding_matrix(volume, surface.vertices)
+    W = pf.CubicTricubicHermite().surface_embedding_matrix(volume, surface.vertices)
     contact_surface = pgo.contact.ContactSurface.embedded(surface.vertices, W)
     floor = pgo.contact.FloorEnergy(
         contact_surface,

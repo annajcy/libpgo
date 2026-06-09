@@ -1,7 +1,7 @@
 #pragma once
 
 #include "deformation/deformationModel.h"
-#include "formulations/kinematics/shellKinematics.h"
+#include "deformation/shell/shellElementMapping.h"
 #include "material/elastic/elasticModel2DFundamentalForms.h"
 #include "material/plastic/plasticModel2DFundamentalForms.h"
 #include "shellDeformationModelCacheData.h"
@@ -16,7 +16,7 @@ namespace SolidDeformationModel
 {
 
 // ShellDeformationModel — generic shell element facade.
-// Works with any ShellKinematics implementation.
+// Works with any ShellElementMapping implementation.
 
 class ShellDeformationModel : public DeformationModel
 {
@@ -24,7 +24,7 @@ public:
   using CacheData = ShellDeformationModelCacheData;
   using DeformationModel::prepareData;
 
-  ShellDeformationModel(std::unique_ptr<ShellKinematics> kinematics,
+  ShellDeformationModel(std::unique_ptr<ShellElementMapping> mapping,
     std::unique_ptr<ElasticModel2DFundamentalForms> elasticModel,
     std::unique_ptr<PlasticModel2DFundamentalForms> plasticModel);
 
@@ -76,7 +76,7 @@ public:
     const double *x_local, const double *dx_local) const override;
 
 private:
-  std::unique_ptr<ShellKinematics> kinematics_;
+  std::unique_ptr<ShellElementMapping> elementMapping_;
   std::unique_ptr<ElasticModel2DFundamentalForms> elastic2D_;
   std::unique_ptr<PlasticModel2DFundamentalForms> plastic2D_;
   int enableSPD_ = 0;

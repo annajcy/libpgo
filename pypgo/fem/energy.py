@@ -225,7 +225,7 @@ def _resolve_formulation(formulation):
 
     if formulation is None:
         raise ValueError(
-            "formulation is required. Pass TetP1(), LinearCubic(), TricubicHermite(), or KoiterShell()."
+            "formulation is required. Pass TetLinear(), CubicLinear(), CubicTricubicHermite(), or KoiterShell()."
         )
     if not isinstance(formulation, Formulation):
         raise TypeError(

@@ -9,13 +9,14 @@
 #include "trbdf2/trbdf2Stepper.h"
 #include "dynamicStepper.h"
 #include "energySet.h"
+#include "formulations/formulation/formulations.h"
 #include "pgoLogging.h"
 #include "potentialEnergy.h"
 #include "simulation/simulationMesh.h"
-#include "formulations/geometry/tetP1Geometry.h"
-#include "formulations/basis/hexTrilinearBasis.h"
+#include "formulations/shapeFunction/cubicLinearShapeFunction.h"
+#include "formulations/shapeFunction/tetLinearShapeFunction.h"
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
-#include "formulations/kinematics/volumetricKinematics.h"
+#include "deformation/volume/volumetricElementMapping.h"
 #include "deformation/volume/volumetricDeformationModel.h"
 #include "triMeshGeo.h"
 
@@ -48,7 +49,7 @@ using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
-using pgo::SolidDeformationModel::tetP1ComputeDs;
+using pgo::SolidDeformationModel::tetLinearComputeDs;
 using CubicFEM = pgo::SolidDeformationModel::VolumetricDeformationModel;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 using pgo::NonlinearOptimization::StepSource;
@@ -106,7 +107,7 @@ EnergyFixture makeTetFixture(const std::vector<double> &vertices, const std::vec
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
-  pgo::SolidDeformationModel::P1TetFormulation formulation;
+  pgo::SolidDeformationModel::TetLinearFormulation formulation;
   auto elasticField = createElasticParameterField(
     *fixture.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{});
   auto plasticField = createPlasticParameterField(
@@ -150,7 +151,7 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
-  pgo::SolidDeformationModel::LinearCubicFormulation formulation;
+  pgo::SolidDeformationModel::CubicLinearFormulation formulation;
   auto elasticField = createElasticParameterField(
     *fixture.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{});
   auto plasticField = createPlasticParameterField(
@@ -248,7 +249,7 @@ double tetDeterminant(const SimulationMesh &mesh, int ele, const ES::VXd &absolu
   }
 
   std::array<double, 9> Ds{};
-  tetP1ComputeDs(localPositions.data(), Ds.data());
+  tetLinearComputeDs(localPositions.data(), Ds.data());
   return Eigen::Map<const ES::M3d>(Ds.data()).determinant();
 }
 

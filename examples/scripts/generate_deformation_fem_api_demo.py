@@ -31,7 +31,7 @@ CELLS = [
         **Learning goals:**
 
         1. Load `.veg` / `.obj` assets and create `SimulationMesh` objects.
-        2. Choose a formulation (`TetP1`, `LinearCubic`, `TricubicHermite`, `KoiterShell`).
+        2. Choose a formulation (`TetLinear`, `CubicLinear`, `CubicTricubicHermite`, `KoiterShell`).
         3. Choose elastic and plastic material laws.
         4. Build a `DeformationEnergy` directly from mesh, materials, and parameter fields.
         5. Evaluate energy, gradient, Hessian at displacement states.
@@ -106,7 +106,7 @@ CELLS = [
         We load a real tetrahedral mesh — `bunny.veg` (711 vertices, 436
         tets, ENu material) — convert it to a `VolumeMesh`, then to a
         solver-ready `SimulationMesh`, and finally build a
-        `DeformationEnergy` with the `TetP1` formulation.
+        `DeformationEnergy` with the `TetLinear` formulation.
 
         **Steps:** `.veg` → `VegFile` → `VolumeMesh` → `SimulationMesh` →
         `deformation_energy()`
@@ -144,7 +144,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.TetP1(),
+            formulation=pf.TetLinear(),
         )
         nv, ne = bunny_mesh.num_vertices, bunny_mesh.num_elements
         print(type(energy_tet).__name__)
@@ -171,7 +171,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=3),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.TetP1(),
+            formulation=pf.TetLinear(),
         )
         nv, ne = bunny_mesh.num_vertices, bunny_mesh.num_elements
         print(f"StVK + dof3:")
@@ -186,7 +186,7 @@ CELLS = [
         ## 3. Cubic hex trilinear energy from `box.veg`
 
         Cubic (hex) meshes use 8-node trilinear elements.  The formulation
-        `LinearCubic()` is **required** — the factory will raise
+        `CubicLinear()` is **required** — the factory will raise
         `ValueError` if you omit it.
 
         We use `box.veg` (125 vertices, 64 hex elements) from the cubic
@@ -214,14 +214,14 @@ CELLS = [
     ),
     code(
         """
-        # REQUIRED: explicit LinearCubic() formulation
+        # REQUIRED: explicit CubicLinear() formulation
         energy_cubic = pf.deformation_energy(
             box_mesh,
             elastic=pf.StableNeo(),
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.LinearCubic(),
+            formulation=pf.CubicLinear(),
         )
         nv = box_mesh.num_vertices
         print(f"  deformation DOFs:     {nv} verts × 3 = {nv * 3}")
@@ -302,7 +302,7 @@ CELLS = [
         """
         ## 4b. Tricubic Hermite — 24 DOFs per vertex (C1)
 
-        `TricubicHermite()` is a high-order hex formulation where each vertex
+        `CubicTricubicHermite()` is a high-order hex formulation where each vertex
         carries **8 Hermite modes** (value + 7 derivative modes), yielding
         **24 DOFs per vertex** instead of the usual 3.  The field is C1
         continuous within each cell.
@@ -331,7 +331,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.TricubicHermite(),
+            formulation=pf.CubicTricubicHermite(),
         )
         print(f"  deformation DOFs:     {herm_volume.num_vertices} verts × 24 = {energy_herm.num_dofs}")
         print(f"  elastic params:       {energy_herm.num_elastic_params} / elem ({energy_herm.num_elastic_dofs} total)")
@@ -342,17 +342,17 @@ CELLS = [
     ),
     code(
         """
-        # Compare: same mesh with LinearCubic() → only 3 DOFs per vertex
+        # Compare: same mesh with CubicLinear() → only 3 DOFs per vertex
         energy_linear = pf.deformation_energy(
             herm_mesh,
             elastic=pf.StableNeo(),
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.LinearCubic(),
+            formulation=pf.CubicLinear(),
         )
-        print(f"LinearCubic:   {energy_linear.num_dofs} deformation DOFs  (= {herm_volume.num_vertices} × 3)")
-        print(f"TricubicHermite: {energy_herm.num_dofs} deformation DOFs  (= {herm_volume.num_vertices} × 24)")
+        print(f"CubicLinear:   {energy_linear.num_dofs} deformation DOFs  (= {herm_volume.num_vertices} × 3)")
+        print(f"CubicTricubicHermite: {energy_herm.num_dofs} deformation DOFs  (= {herm_volume.num_vertices} × 24)")
         """
     ),
     code(
@@ -385,20 +385,20 @@ CELLS = [
         u_r = hermite_affine_disp(R, np.zeros(3))
         print(f"rotation:     {energy_herm.value(u_r):.4e}")
 
-        # Affine deformation → Hermite matches LinearCubic exactly
+        # Affine deformation → Hermite matches CubicLinear exactly
         A = np.array([[1.05, 0.03, 0.0], [0.0, 0.98, 0.02], [0.01, 0.0, 1.03]])
         t = np.array([0.01, -0.02, 0.0])
         eH = energy_herm.value(hermite_affine_disp(A, t))
         eL = energy_linear.value(
             (herm_volume.mesh_data.vertices @ A.T + t - herm_volume.mesh_data.vertices).reshape(-1))
         print(f"affine Hermite:     {eH:.6e}")
-        print(f"affine LinearCubic: {eL:.6e}")
+        print(f"affine CubicLinear: {eL:.6e}")
         print(f"relative diff:      {abs(eH - eL) / max(1.0, abs(eL)):.2e}")
         """,
     ),
     md(
         """
-        ### When to use TricubicHermite
+        ### When to use CubicTricubicHermite
 
         - **Smooth deformation fields** — C1 continuity avoids the kinks of trilinear hex.
         - **Inverse design / PDE-constrained optimization** — the richer DOF space
@@ -568,7 +568,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.TetP1(),
+            formulation=pf.TetLinear(),
         )
         u0 = e.zero_state()
         val_before = e.value(u0)
@@ -601,7 +601,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.TetP1(),
+            formulation=pf.TetLinear(),
         )
         e2 = pf.deformation_energy(
             bunny_mesh,
@@ -609,7 +609,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=3),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.TetP1(),
+            formulation=pf.TetLinear(),
         )
         u = e1.zero_state()
         print(f"e1 (StableNeo, dof6):  {e1.value(u):.6e}")
@@ -644,7 +644,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=3),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.TetP1(),
+            formulation=pf.TetLinear(),
         )
         u = e.zero_state()
         print(f"energy at rest: {e.value(u):.6e}")
@@ -683,9 +683,9 @@ CELLS = [
 
         | Type | Formulation | Nodes | DOFs/vertex | Example |
         |---|---|---|---|---|
-        | Tet | `pf.TetP1()` (default) | 4 | 3 | `veg/tet/*.veg` |
-        | Cubic (trilinear) | `pf.LinearCubic()` (required) | 8 | 3 | `veg/cubic/*.veg` |
-        | Cubic (tricubic Hermite) | `pf.TricubicHermite()` (required) | 8 | 24 | `veg/cubic/*.veg` (regular grid) |
+        | Tet | `pf.TetLinear()` (default) | 4 | 3 | `veg/tet/*.veg` |
+        | Cubic (trilinear) | `pf.CubicLinear()` (required) | 8 | 3 | `veg/cubic/*.veg` |
+        | Cubic (tricubic Hermite) | `pf.CubicTricubicHermite()` (required) | 8 | 24 | `veg/cubic/*.veg` (regular grid) |
         | Shell | `pf.KoiterShell()` (required) | 6 | 3 | `obj/shell.obj` |
 
         | Elastic Law | Wrapper | Valid With |

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "formulations/formulation.h"
+#include "formulations/formulation/formulations.h"
 
 #include "../../mesh/volume/core.h"
 #include "../../sparse/core.h"
@@ -51,9 +51,9 @@ public:
 
 // --- factory functions ---
 
-std::shared_ptr<PyVolumetricFormulation> make_tet_p1();
-std::shared_ptr<PyVolumetricFormulation> make_linear_cubic();
-std::shared_ptr<PyVolumetricFormulation> make_tricubic_hermite();
+std::shared_ptr<PyVolumetricFormulation> make_tet_linear();
+std::shared_ptr<PyVolumetricFormulation> make_cubic_linear();
+std::shared_ptr<PyVolumetricFormulation> make_cubic_tricubic_hermite();
 std::shared_ptr<PyShellFormulation> make_koiter_shell();
 
 PySparseMatrix compute_formulation_mass_matrix(

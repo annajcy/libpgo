@@ -1,8 +1,8 @@
 #pragma once
 
 #include "deformation/deformationModel.h"
-#include "formulations/basis/basis.h"
-#include "formulations/kinematics/volumetricKinematics.h"
+#include "formulations/shapeFunction/shapeFunction.h"
+#include "deformation/volume/volumetricElementMapping.h"
 #include "formulations/quadrature/quadrature.h"
 #include "material/elastic/elasticModel3DDeformationGradient.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
@@ -24,7 +24,7 @@ public:
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
   using DeformationModel::prepareData;
 
-  VolumetricDeformationModel(VolumetricKinematics &&kinematics,
+  VolumetricDeformationModel(VolumetricElementMapping &&mapping,
     std::unique_ptr<ElasticModel3DDeformationGradient> elasticModel,
     std::unique_ptr<PlasticModel3DDeformationGradient> plasticModel);
 
@@ -70,7 +70,7 @@ public:
   void maxStrain(const DeformationModelCacheData *cacheData,
     int &nPt, double *stresses) const override;
 
-  const VolumetricKinematics &kinematics() const { return kinematics_; }
+  const VolumetricElementMapping &mapping() const { return elementMapping_; }
 
   static void computeSVD(const ES::M3d &Fe, ES::M3d &U, ES::M3d &V, ES::V3d &S);
 
@@ -79,7 +79,7 @@ private:
   int numQuadPts_ = 0;
   int localDofs_ = 0;
 
-  VolumetricKinematics kinematics_;
+  VolumetricElementMapping elementMapping_;
   std::unique_ptr<ElasticModel3DDeformationGradient> elasticModel_;
   std::unique_ptr<PlasticModel3DDeformationGradient> plasticModel_;
 

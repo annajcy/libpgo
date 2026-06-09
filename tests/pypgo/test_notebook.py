@@ -222,7 +222,7 @@ class TestNotebookSources:
         assert "pc.IPCEnergy" in source
         assert "pc.IPCParameters" in source
         assert "pf.StableNeo()" in source
-        assert "pf.LinearCubic()" in source
+        assert "pf.CubicLinear()" in source
         assert "DynamicSimulation" in source
         assert "AbcWriter" in source
         assert "json.load" not in source
@@ -239,8 +239,8 @@ class TestNotebookSources:
         with open(generated_notebooks["deformation_fem_api_demo"]) as fh:
             nb = json.load(fh)
         source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
-        assert "TetP1" in source
-        assert "LinearCubic" in source
+        assert "TetLinear" in source
+        assert "CubicLinear" in source
         assert "KoiterShell" in source
         assert "deformation_energy" in source
 
@@ -282,7 +282,7 @@ class TestNotebookSources:
         assert "bbox_min, bbox_max = cubic_data.bbox" in source
         assert "corner_patch_mask" in source
         assert "fixed_vertices = np.flatnonzero(corner_patch_mask)" in source
-        assert "pf.LinearCubic()" in source
+        assert "pf.CubicLinear()" in source
         assert "pf.StableNeo()" in source
         assert "pe.LinearEnergy(-gravity_force)" in source
         assert "ps.OptimizationProblem" in source
@@ -363,7 +363,7 @@ class TestNotebookSources:
         with open(generated_notebooks["tricubic_hermite_box_drop_ipc_demo"]) as fh:
             nb = json.load(fh)
         source = "\n".join("".join(c["source"]) for c in nb["cells"])
-        assert "pf.TricubicHermite()" in source
+        assert "pf.CubicTricubicHermite()" in source
         assert ".mass_matrix" in source
         assert ".body_force" in source
         assert ".surface_embedding_matrix" in source

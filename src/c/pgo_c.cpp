@@ -13,6 +13,7 @@
 #include "EigenSupport.h"
 #include "simulation/simulationMesh.h"
 #include "energy/deformationEnergyBuilder.h"
+#include "formulations/formulation/formulations.h"
 #include "material/fields/materialParameterFieldInit.h"
 #include "deformation/deformationModelManager.h"
 #include "basicIO.h"
@@ -688,13 +689,13 @@ int pgo_run_sim_from_config(const char *configFileName)
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
       simMesh, elasticMat,
       SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-      SolidDeformationModel::P1TetFormulation{});
+      SolidDeformationModel::TetLinearFormulation{});
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
       simMesh, elasticMat,
       SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-      SolidDeformationModel::LinearCubicFormulation{});
+      SolidDeformationModel::CubicLinearFormulation{});
     break;
   default:
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");

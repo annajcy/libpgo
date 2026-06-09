@@ -6,7 +6,7 @@ copyright to USC, MIT, NUS
 #pragma once
 
 #include "EigenDef.h"
-#include "formulations/formulation.h"
+#include "formulations/formulation/formulation.h"
 #include "material/materialTypes.h"
 
 #include <memory>

@@ -118,7 +118,7 @@ CELLS = [
         ## 3. Build the Simulation Mesh and Deformation Energy
 
         The asset is a cubic/hexahedral mesh, so the formulation is
-        `LinearCubic()`. The JSON-style `stable-neo` material maps to
+        `CubicLinear()`. The JSON-style `stable-neo` material maps to
         `pf.StableNeo()`.
         """
     ),
@@ -131,7 +131,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ElementwiseField(),
-            formulation=pf.LinearCubic(),
+            formulation=pf.CubicLinear(),
         )
 
         print("mesh_type:", sim_mesh.mesh_type)
@@ -295,7 +295,7 @@ CELLS = [
             elastic_field=pf.ElementwiseField(),
             plastic=plastic_model,
             plastic_field=pf.ElementwiseField(values=plastic_values),
-            formulation=pf.LinearCubic(),
+            formulation=pf.CubicLinear(),
         )
 
         print("plastic field shape:", deformation_plastic.plastic_field.values.shape)

@@ -19,9 +19,9 @@ void init_formulation_bindings(nb::module_ &m)
 
     nb::class_<PyShellFormulation, PyFormulation>(m, "PyShellFormulation");
 
-    m.def("make_tet_p1", &make_tet_p1);
-    m.def("make_linear_cubic", &make_linear_cubic);
-    m.def("make_tricubic_hermite", &make_tricubic_hermite);
+    m.def("make_tet_linear", &make_tet_linear);
+    m.def("make_cubic_linear", &make_cubic_linear);
+    m.def("make_cubic_tricubic_hermite", &make_cubic_tricubic_hermite);
     m.def("make_koiter_shell", &make_koiter_shell);
 
     m.def("compute_formulation_mass_matrix", &compute_formulation_mass_matrix,

@@ -56,30 +56,37 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   simulation/generateTetMeshMatrix.h
 
-  formulations/formulation.h
-  formulations/basis/basis.h
-  formulations/basis/tetP1Basis.h
-  formulations/basis/hexTrilinearBasis.h
-  formulations/basis/hexTricubicHermiteBasis.h
+  formulations/formulation/formulation.h
+  formulations/formulation/formulations.h
+  formulations/formulation/volumetricFormulation/volumetricFormulation.h
+  formulations/formulation/volumetricFormulation/tetFormulation.h
+  formulations/formulation/volumetricFormulation/cubicFormulation.h
+  formulations/formulation/volumetricFormulation/tetLinearFormulation.h
+  formulations/formulation/volumetricFormulation/cubicLinearFormulation.h
+  formulations/formulation/volumetricFormulation/cubicTricubicHermiteFormulation.h
+  formulations/formulation/shellFormulation/shellFormulation.h
+  formulations/formulation/shellFormulation/koiterShellFormulation.h
+  formulations/shapeFunction/shapeFunction.h
+  formulations/shapeFunction/tetLinearShapeFunction.h
+  formulations/shapeFunction/cubicLinearShapeFunction.h
+  formulations/shapeFunction/cubicTricubicHermiteShapeFunction.h
 
   formulations/quadrature/quadrature.h
-  formulations/quadrature/tetP1DefaultQuadrature.h
+  formulations/quadrature/tetLinearDefaultQuadrature.h
   formulations/quadrature/gaussLegendreHexQuadrature.h
 
-  formulations/kinematics/volumetricKinematics.h
-  formulations/kinematics/shellKinematics.h
-  formulations/kinematics/koiterShellKinematics.h
+  deformation/volume/volumetricElementMapping.h
+  deformation/shell/shellElementMapping.h
+  deformation/shell/koiterShellElementMapping.h
 
   deformation/volume/volumetricDeformationModel.h
   deformation/volume/volumetricDeformationModelCacheData.h
   deformation/shell/shellDeformationModel.h
   deformation/shell/shellDeformationModelCacheData.h
 
-  formulations/geometry/tetP1Geometry.h
-
   formulations/dof/dofLayout.h
   formulations/dof/vertex3DofLayout.h
-  formulations/dof/hexTricubicHermiteDofLayout.h
+  formulations/dof/cubicTricubicHermiteDofLayout.h
 
   material/fields/parameterField.h
   material/fields/materialParameterFieldInit.h
@@ -115,24 +122,32 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   deformation/materialMaxStepPolynomialUtils.cpp
 
-  formulations/formulation.cpp
+  formulations/formulation/formulation.cpp
+  formulations/formulation/volumetricFormulation/volumetricFormulation.cpp
+  formulations/formulation/volumetricFormulation/tetFormulation.cpp
+  formulations/formulation/volumetricFormulation/cubicFormulation.cpp
+  formulations/formulation/volumetricFormulation/tetLinearFormulation.cpp
+  formulations/formulation/volumetricFormulation/cubicLinearFormulation.cpp
+  formulations/formulation/volumetricFormulation/cubicTricubicHermiteFormulation.cpp
+  formulations/formulation/shellFormulation/shellFormulation.cpp
+  formulations/formulation/shellFormulation/koiterShellFormulation.cpp
 
-  formulations/basis/tetP1Basis.cpp
-  formulations/basis/hexTrilinearBasis.cpp
-  formulations/basis/hexTricubicHermiteBasis.cpp
+  formulations/shapeFunction/tetLinearShapeFunction.cpp
+  formulations/shapeFunction/cubicLinearShapeFunction.cpp
+  formulations/shapeFunction/cubicTricubicHermiteShapeFunction.cpp
 
-  formulations/quadrature/tetP1DefaultQuadrature.cpp
+  formulations/quadrature/tetLinearDefaultQuadrature.cpp
   formulations/quadrature/gaussLegendreHexQuadrature.cpp
 
-  formulations/kinematics/volumetricKinematics.cpp
-  formulations/kinematics/koiterShellKinematics.cpp
+  deformation/volume/volumetricElementMapping.cpp
+  deformation/shell/koiterShellElementMapping.cpp
 
   deformation/volume/volumetricDeformationModel.cpp
   deformation/volume/volumetricDeformationModelCacheData.cpp
   deformation/shell/shellDeformationModel.cpp
 
   formulations/dof/vertex3DofLayout.cpp
-  formulations/dof/hexTricubicHermiteDofLayout.cpp
+  formulations/dof/cubicTricubicHermiteDofLayout.cpp
 
   material/fields/constantParameterField.cpp
   material/fields/elementwiseParameterField.cpp

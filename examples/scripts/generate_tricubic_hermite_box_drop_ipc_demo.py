@@ -60,7 +60,7 @@ CELLS = [
     ),
     code(
         """
-        formulation = pf.TricubicHermite()
+        formulation = pf.CubicTricubicHermite()
         sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
 
         deformation = pf.deformation_energy(

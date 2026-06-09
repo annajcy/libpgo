@@ -33,16 +33,16 @@ ShellDeformationModelCacheData::ShellDeformationModelCacheData(
 }
 
 ShellDeformationModel::ShellDeformationModel(
-  std::unique_ptr<ShellKinematics> kinematics,
+  std::unique_ptr<ShellElementMapping> mapping,
   std::unique_ptr<ElasticModel2DFundamentalForms> elasticModel,
   std::unique_ptr<PlasticModel2DFundamentalForms> plasticModel)
   : DeformationModel()
-  , kinematics_(std::move(kinematics))
+  , elementMapping_(std::move(mapping))
   , elastic2D_(std::move(elasticModel))
   , plastic2D_(std::move(plasticModel))
 {
-  if (!kinematics_) {
-    throw std::logic_error("ShellDeformationModel requires non-null shell kinematics");
+  if (!elementMapping_) {
+    throw std::logic_error("ShellDeformationModel requires non-null shell mapping");
   }
   if (!elastic2D_) {
     throw std::logic_error("ShellDeformationModel requires non-null ElasticModel2DFundamentalForms");
@@ -51,9 +51,9 @@ ShellDeformationModel::ShellDeformationModel(
     throw std::logic_error("ShellDeformationModel requires non-null PlasticModel2DFundamentalForms");
   }
 
-  plastic2D_->set_abar(kinematics_->restI());
-  plastic2D_->set_bbar(kinematics_->restII());
-  plastic2D_->setArea(kinematics_->restArea());
+  plastic2D_->set_abar(elementMapping_->restI());
+  plastic2D_->set_bbar(elementMapping_->restII());
+  plastic2D_->setArea(elementMapping_->restArea());
 
   numPlasticParams_ = plastic2D_->getNumParameters();
   numElasticParams_ = elastic2D_->getNumParameters();
@@ -99,8 +99,8 @@ void ShellDeformationModel::prepareData(
   plastic2D_->compute_bbar(plasticParamPtr, cacheData->bbar.data());
   cacheData->area = plastic2D_->computeArea(plasticParamPtr);
 
-  cacheData->a = kinematics_->compute_a_and_derivatives(cacheData->x.data(), nullptr, nullptr);
-  cacheData->b = kinematics_->compute_b_and_derivatives(cacheData->x.data(), nullptr, nullptr);
+  cacheData->a = elementMapping_->compute_a_and_derivatives(cacheData->x.data(), nullptr, nullptr);
+  cacheData->b = elementMapping_->compute_b_and_derivatives(cacheData->x.data(), nullptr, nullptr);
 }
 
 double ShellDeformationModel::computeEnergy(const DeformationModelCacheData *cacheDataBase) const
@@ -119,8 +119,8 @@ void ShellDeformationModel::compute_dE_dx(const DeformationModelCacheData *cache
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
 
-  kinematics_->compute_a_and_derivatives(cacheData->x.data(), &dadx, nullptr);
-  kinematics_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, nullptr);
+  elementMapping_->compute_a_and_derivatives(cacheData->x.data(), &dadx, nullptr);
+  elementMapping_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, nullptr);
 
   ES::M2d dEda, dEdb;
   const double *elasticParamPtr = numElasticParams_ > 0 ? cacheData->elasticParamsValue.data() : nullptr;
@@ -149,8 +149,8 @@ void ShellDeformationModel::compute_d2E_dx2(const DeformationModelCacheData *cac
   ES::M9d d2adx2[4];
   ES::M18d d2bdx2[4];
 
-  kinematics_->compute_a_and_derivatives(cacheData->x.data(), &dadx, d2adx2);
-  kinematics_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, d2bdx2);
+  elementMapping_->compute_a_and_derivatives(cacheData->x.data(), &dadx, d2adx2);
+  elementMapping_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, d2bdx2);
 
   ES::M2d dEda, dEdb;
   const double *elasticParamPtr = numElasticParams_ > 0 ? cacheData->elasticParamsValue.data() : nullptr;
@@ -227,8 +227,8 @@ void ShellDeformationModel::compute_d2E_dxda(const DeformationModelCacheData *ca
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
-  kinematics_->compute_a_and_derivatives(cacheData->x.data(), &dadx, nullptr);
-  kinematics_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, nullptr);
+  elementMapping_->compute_a_and_derivatives(cacheData->x.data(), &dadx, nullptr);
+  elementMapping_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, nullptr);
 
   ES::MXd dabar_dF(4, numPlasticParams_);
   ES::MXd dbbar_dF(4, numPlasticParams_);
@@ -285,8 +285,8 @@ void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *ca
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
-  kinematics_->compute_a_and_derivatives(cacheData->x.data(), &dadx, nullptr);
-  kinematics_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, nullptr);
+  elementMapping_->compute_a_and_derivatives(cacheData->x.data(), &dadx, nullptr);
+  elementMapping_->compute_b_and_derivatives(cacheData->x.data(), &dbdx, nullptr);
 
   int np = numElasticParams_;
   ES::MXd mixed = ES::MXd::Zero(18, np);
@@ -415,12 +415,12 @@ bool ShellDeformationModel::isPlasticIdentityTransform() const
 
 int ShellDeformationModel::getNumVertices() const
 {
-  return kinematics_->getNumNodes();
+  return elementMapping_->getNumNodes();
 }
 
 int ShellDeformationModel::getNumDOFs() const
 {
-  return kinematics_->getLocalDofs();
+  return elementMapping_->getLocalDofs();
 }
 
 DeformationModel::LocalMaxStepResult ShellDeformationModel::computeLocalMaxStepSize(

@@ -21,7 +21,7 @@
 #include "material/fields/materialParameterFieldInit.h"
 #include "simulation/simulationMesh.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
-#include "formulations/formulation.h"
+#include "formulations/formulation/formulations.h"
 #include "pgoLogging.h"
 #include "triMeshGeo.h"
 
@@ -117,7 +117,7 @@ Case makeVolCase(DeformationModelElasticMaterial elastic, std::unique_ptr<Simula
     *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
   const double *ef = withHill ? c.elementFiber.data() : nullptr;
   const double *vf = withHill ? c.vertexFiber.data() : nullptr;
-  P1TetFormulation formulation;
+  TetLinearFormulation formulation;
   auto manager = std::make_shared<DeformationModelManager>(
     c.meshOwner, elastic, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
     formulation, kExactDerivativeEnforceSpd, ef, vf);

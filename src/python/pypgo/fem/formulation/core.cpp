@@ -7,22 +7,22 @@
 namespace pgo
 {
 
-std::shared_ptr<PyVolumetricFormulation> make_tet_p1()
+std::shared_ptr<PyVolumetricFormulation> make_tet_linear()
 {
   return std::make_shared<PyVolumetricFormulation>(
-    std::make_shared<SolidDeformationModel::P1TetFormulation>());
+    std::make_shared<SolidDeformationModel::TetLinearFormulation>());
 }
 
-std::shared_ptr<PyVolumetricFormulation> make_linear_cubic()
+std::shared_ptr<PyVolumetricFormulation> make_cubic_linear()
 {
   return std::make_shared<PyVolumetricFormulation>(
-    std::make_shared<SolidDeformationModel::LinearCubicFormulation>());
+    std::make_shared<SolidDeformationModel::CubicLinearFormulation>());
 }
 
-std::shared_ptr<PyVolumetricFormulation> make_tricubic_hermite()
+std::shared_ptr<PyVolumetricFormulation> make_cubic_tricubic_hermite()
 {
   return std::make_shared<PyVolumetricFormulation>(
-    std::make_shared<SolidDeformationModel::TricubicHermiteFormulation>());
+    std::make_shared<SolidDeformationModel::CubicTricubicHermiteFormulation>());
 }
 
 std::shared_ptr<PyShellFormulation> make_koiter_shell()

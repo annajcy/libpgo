@@ -6,7 +6,7 @@ copyright to USC, MIT, NUS
 #include "deformation/deformationModelManager.h"
 
 #include "deformation/deformationModel.h"
-#include "formulations/formulation.h"
+#include "formulations/formulation/formulation.h"
 
 #include "simulation/simulationMesh.h"
 
