@@ -5,8 +5,8 @@ copyright to USC
 #include "energy/deformationEnergyBuilder.h"
 
 #include "simulation/simulationMesh.h"
-#include "deformation/deformationModelState.h"
 #include "deformation/deformationModelAssembler.h"
+#include "material/fields/materialParameterFieldInit.h"
 #include "pgoLogging.h"
 
 #include <utility>
@@ -16,20 +16,26 @@ namespace pgo::SolidDeformationModel
 namespace ES = pgo::EigenSupport;
 
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
-  std::shared_ptr<DeformationModelState> state,
+  std::shared_ptr<const SimulationMesh> mesh,
+  DeformationModelElasticMaterial elastic,
+  ElasticFieldInit elasticField,
+  DeformationModelPlasticMaterial plastic,
+  PlasticFieldInit plasticField,
   const Formulation &formulation,
   const DeformationModelOptions &opts)
 {
-  if (!state)
-    throw std::invalid_argument("makeDeformationEnergy: state must be non-null.");
-  const SimulationMesh &mesh = *state->mesh();
-  const int nele = mesh.getNumElements();
+  if (!mesh)
+    throw std::invalid_argument("makeDeformationEnergy: mesh must be non-null.");
+  const int nele = mesh->getNumElements();
 
-  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {} and deformation model state",
+  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {}",
     formulation.getName());
 
-  auto manager = std::make_unique<DeformationModelManager>(
-    std::move(state), formulation,
+  auto elasticParamField = createElasticParameterField(*mesh, elastic, std::move(elasticField));
+  auto plasticParamField = createPlasticParameterField(*mesh, plastic, std::move(plasticField));
+
+  auto manager = std::make_shared<DeformationModelManager>(
+    mesh, elastic, plastic, formulation,
     opts.enforceSPD ? 1 : 0,
     /*elementFiberDirections=*/nullptr,
     /*vertexFiberDirections=*/nullptr);
@@ -40,12 +46,24 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   else if (static_cast<int>(elementWeights.size()) != nele)
     throw std::invalid_argument("makeDeformationEnergy: elementWeights size does not match the element count.");
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), elementWeights.data());
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation, std::move(elasticParamField), std::move(plasticParamField), elementWeights.data());
 
   auto energy = std::make_shared<DeformationModelEnergy>(
     std::move(assembler), 0, opts.enableMaterialMaxStep);
 
   return energy;
+}
+
+std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
+  std::shared_ptr<const SimulationMesh> mesh,
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
+  const Formulation &formulation,
+  const DeformationModelOptions &opts)
+{
+  return makeDeformationEnergy(
+    std::move(mesh), elastic, ElasticFieldInit{}, plastic, PlasticFieldInit{}, formulation, opts);
 }
 
 }  // namespace pgo::SolidDeformationModel

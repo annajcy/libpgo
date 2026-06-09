@@ -1,14 +1,14 @@
 #include <gtest/gtest.h>
 
-#include "elastic/elasticModelFactory.h"
+#include "material/elastic/elasticModelFactory.h"
 
 #include "simulation/simulationMesh.h"
-#include "elastic/elasticModelStableNeoHookeanMaterial.h"
-#include "elastic/elasticModelLinearMaterial.h"
-#include "elastic/elasticModelInvariantBasedMaterial.h"
-#include "elastic/elasticModel3DSTVKMaterial.h"
-#include "elastic/elasticModel3DMooneyRivlin.h"
-#include "elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelLinearMaterial.h"
+#include "material/elastic/elasticModelInvariantBasedMaterial.h"
+#include "material/elastic/elasticModel3DSTVKMaterial.h"
+#include "material/elastic/elasticModel3DMooneyRivlin.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "pgoLogging.h"

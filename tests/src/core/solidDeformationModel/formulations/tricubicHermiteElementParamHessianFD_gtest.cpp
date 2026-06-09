@@ -4,13 +4,13 @@
 // These three derivatives — d2E/da2, d2E/db2, d2E/dadb — live in
 // VolumetricDeformationModel and are NOT assembled into any global matrix, so
 // assembler/Energy FD nets cannot reach them. The tricubic Hermite variant
-// exercises the 192-DOF kernel (HexTricubicHermiteBasis + GaussLegendreHexQuadrature4)
+// exercises the 192-DOF kinematics (HexTricubicHermiteBasis + GaussLegendreHexQuadrature4)
 // and Hermite rest-field synthesis, which are different code paths from the
 // trilinear-hex variant tested in volumetricElementParamHessianFD_gtest.cpp.
 //
-// Mechanism: the element reads a/b from the bound ParameterField during
-// prepareData. We perturb parameters through DeformationModelState, re-run
-// prepareData, and finite-difference the element's first parameter derivatives:
+// Mechanism: we perturb parameters through assembler-owned fields, compute
+// material parameter values from its fields, pass those values into prepareData,
+// and finite-difference the element's first parameter derivatives:
 //   d2E/da2  == d(dE/da)/da
 //   d2E/db2  == d(dE/db)/db
 //   d2E/dadb == d(dE/da)/db   (np x ne)
@@ -20,11 +20,13 @@
 #include "gtest/gtest.h"
 
 #include "deformation/deformationModel.h"
+#include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
-#include "deformation/deformationModelState.h"
+#include "material/fields/materialParameterFieldInit.h"
 #include "simulation/simulationMesh.h"
-#include "formulations/elements/volumetricDeformationModel.h"
+#include "deformation/volume/volumetricDeformationModel.h"
 #include "formulations/formulation.h"
+#include "material/fields/parameterField.h"
 #include "pgoLogging.h"
 #include "EigenSupport.h"
 
@@ -32,22 +34,26 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 
 namespace
 {
 namespace ES = pgo::EigenSupport;
 using pgo::SolidDeformationModel::DeformationModelCacheData;
+using pgo::SolidDeformationModel::DeformationModelAssembler;
 using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
 using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
-using pgo::SolidDeformationModel::DeformationModelState;
 using pgo::SolidDeformationModel::ElasticFieldInit;
 using pgo::SolidDeformationModel::PlasticFieldInit;
 using pgo::SolidDeformationModel::SimulationMesh;
 using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
+using pgo::SolidDeformationModel::OptimizableField;
 using pgo::SolidDeformationModel::VolumetricDeformationModel;
+using pgo::SolidDeformationModel::createElasticParameterField;
+using pgo::SolidDeformationModel::createPlasticParameterField;
 
 constexpr double kFiniteDifferenceStep = 1e-6;
 constexpr int kExactDerivativeEnforceSpd = 0;
@@ -78,11 +84,23 @@ double relColumnError(const ES::VXd &fd, const ES::VXd &analytic)
   return (fd - analytic).norm() / std::max(1.0, analytic.norm());
 }
 
+ES::VXd materialValuesForElement(
+  const OptimizableField *field, int ele, int numLocations, int numChannels)
+{
+  if (!field || numChannels == 0)
+    return ES::VXd();
+
+  ES::VXd values(numLocations * numChannels);
+  for (int q = 0; q < numLocations; q++) {
+    field->computeValue(ele, q, values.data() + static_cast<std::ptrdiff_t>(q) * numChannels);
+  }
+  return values;
+}
+
 struct ElementCase
 {
   std::shared_ptr<const SimulationMesh> meshOwner;
-  std::shared_ptr<DeformationModelState> state;
-  std::unique_ptr<DeformationModelManager> manager;
+  std::unique_ptr<DeformationModelAssembler> assembler;
   const VolumetricDeformationModel *fem = nullptr;
   std::unique_ptr<DeformationModelCacheData> cache;
   ES::VXd elementFiber, vertexFiber;
@@ -130,23 +148,26 @@ ElementCase makeCase(std::unique_ptr<SimulationMesh> meshMutable,
   for (int vi = 0; vi < nvtx; vi++)
     c.vertexFiber.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
 
-  c.state = DeformationModelState::create(
-    c.meshOwner, elastic, ElasticFieldInit{}, plastic, PlasticFieldInit{});
+  auto elasticField = createElasticParameterField(*c.meshOwner, elastic, ElasticFieldInit{});
+  auto plasticField = createPlasticParameterField(*c.meshOwner, plastic, PlasticFieldInit{});
 
   const double *ef = withHill ? c.elementFiber.data() : nullptr;
   const double *vf = withHill ? c.vertexFiber.data() : nullptr;
-  c.manager = std::make_unique<DeformationModelManager>(
-    c.state, pgo::SolidDeformationModel::TricubicHermiteFormulation{}, kExactDerivativeEnforceSpd, ef, vf);
+  pgo::SolidDeformationModel::TricubicHermiteFormulation formulation;
+  auto manager = std::make_shared<DeformationModelManager>(
+    c.meshOwner, elastic, plastic, formulation, kExactDerivativeEnforceSpd, ef, vf);
+  c.assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
 
-  c.fem = dynamic_cast<const VolumetricDeformationModel *>(c.manager->getDeformationModel(0));
+  const auto &managerRef = c.assembler->getDeformationModelManager();
+  c.fem = dynamic_cast<const VolumetricDeformationModel *>(managerRef.getDeformationModel(0));
   EXPECT_NE(c.fem, nullptr);
   c.cache = c.fem->allocateCacheData();
-  c.np = c.manager->getNumPlasticParameters();
-  c.ne = withHill ? c.manager->getNumElasticParameters() : 0;
+  c.np = managerRef.getNumPlasticParameters();
+  c.ne = withHill ? managerRef.getNumElasticParameters() : 0;
 
   // Build the Hermite rest field by evaluating the formulation's buildGlobalRestDofs,
   // then add a smooth perturbation to all 192 DOFs.
-  pgo::SolidDeformationModel::TricubicHermiteFormulation formulation;
   ES::VXd rest = formulation.buildGlobalRestDofs(*c.meshOwner);
   EXPECT_EQ(rest.size(), nvtx * 24);
 
@@ -156,7 +177,7 @@ ElementCase makeCase(std::unique_ptr<SimulationMesh> meshMutable,
 
   // Plastic base: identity stretch nudged off-rest so the derivatives are nonzero.
   c.aBase = ES::VXd::Zero(c.np);
-  c.manager->getDeformationModel(0)->getPlasticModel()->defaultParams(c.aBase.data());
+  managerRef.getDeformationModel(0)->defaultPlasticParams(c.aBase.data());
   for (int i = 0; i < c.np; i++)
     c.aBase[i] += 0.03 * std::sin(1.7 * i + 0.4);
 
@@ -170,10 +191,18 @@ ElementCase makeCase(std::unique_ptr<SimulationMesh> meshMutable,
 // Refresh the cache after installing candidate parameters.
 void prepareAt(ElementCase &c, const ES::VXd &a, const ES::VXd &b)
 {
-  c.state->setPlasticValues(a);
+  c.assembler->setPlasticValues(a);
   if (c.ne > 0)
-    c.state->setElasticValues(b);
-  c.fem->prepareData(c.positions.data(), c.cache.get());
+    c.assembler->setElasticValues(b);
+  const int numLocations = c.fem->getNumMaterialLocations();
+  const ES::VXd plasticValues =
+    materialValuesForElement(c.assembler->plasticParameterFieldPtr().get(), 0, numLocations, c.np);
+  const ES::VXd elasticValues =
+    materialValuesForElement(c.assembler->elasticParameterFieldPtr().get(), 0, numLocations, c.ne);
+  c.fem->prepareData(c.positions.data(),
+    elasticValues.size() ? elasticValues.data() : nullptr,
+    plasticValues.size() ? plasticValues.data() : nullptr,
+    c.cache.get());
 }
 
 ES::VXd gradA(ElementCase &c, const ES::VXd &a, const ES::VXd &b)

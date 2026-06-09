@@ -30,12 +30,12 @@ target_link_libraries(plasticMaterialEnergy_gtest PRIVATE GTest::gtest_main soli
 set_property(TARGET plasticMaterialEnergy_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(plasticMaterialEnergy_gtest)
 
-add_executable(deformationModelState_gtest deformationModelState_gtest.cpp)
-target_link_libraries(deformationModelState_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
-target_compile_definitions(deformationModelState_gtest PRIVATE
+add_executable(materialParameterFieldInit_gtest materialParameterFieldInit_gtest.cpp)
+target_link_libraries(materialParameterFieldInit_gtest PRIVATE GTest::gtest_main solidDeformationModel volumetricMesh)
+target_compile_definitions(materialParameterFieldInit_gtest PRIVATE
   LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/cubic/box.veg")
-set_property(TARGET deformationModelState_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(deformationModelState_gtest)
+set_property(TARGET materialParameterFieldInit_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(materialParameterFieldInit_gtest)
 
 add_executable(tetP1Basis_gtest formulations/basis/tetP1Basis_gtest.cpp)
 target_link_libraries(tetP1Basis_gtest PRIVATE GTest::gtest_main solidDeformationModel)
@@ -77,22 +77,22 @@ target_link_libraries(formulationDynamics_gtest PRIVATE GTest::gtest_main solidD
 set_property(TARGET formulationDynamics_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(formulationDynamics_gtest)
 
-add_executable(volumetricKernel_gtest formulations/kernels/volumetricKernel_gtest.cpp)
-target_link_libraries(volumetricKernel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
-set_property(TARGET volumetricKernel_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(volumetricKernel_gtest)
+add_executable(volumetricKinematics_gtest formulations/kinematics/volumetricKinematics_gtest.cpp)
+target_link_libraries(volumetricKinematics_gtest PRIVATE GTest::gtest_main solidDeformationModel)
+set_property(TARGET volumetricKinematics_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(volumetricKinematics_gtest)
 
-add_executable(volumetricDeformationModel_gtest formulations/elements/volumetricDeformationModel_gtest.cpp)
+add_executable(volumetricDeformationModel_gtest deformation/volume/volumetricDeformationModel_gtest.cpp)
 target_link_libraries(volumetricDeformationModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
 set_property(TARGET volumetricDeformationModel_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(volumetricDeformationModel_gtest)
 
-add_executable(volumetricElementParamHessianFD_gtest formulations/elements/volumetricElementParamHessianFD_gtest.cpp)
+add_executable(volumetricElementParamHessianFD_gtest deformation/volume/volumetricElementParamHessianFD_gtest.cpp)
 target_link_libraries(volumetricElementParamHessianFD_gtest PRIVATE GTest::gtest_main solidDeformationModel)
 set_property(TARGET volumetricElementParamHessianFD_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(volumetricElementParamHessianFD_gtest)
 
-add_executable(shellDeformationModel_gtest formulations/elements/shellDeformationModel_gtest.cpp)
+add_executable(shellDeformationModel_gtest deformation/shell/shellDeformationModel_gtest.cpp)
 target_link_libraries(shellDeformationModel_gtest PRIVATE GTest::gtest_main solidDeformationModel)
 set_property(TARGET shellDeformationModel_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(shellDeformationModel_gtest)
@@ -120,12 +120,12 @@ target_compile_definitions(vertex3DofLayout_gtest PRIVATE
 set_property(TARGET vertex3DofLayout_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(vertex3DofLayout_gtest)
 
-add_executable(constantParameterField_gtest formulations/parameters/constantParameterField_gtest.cpp)
+add_executable(constantParameterField_gtest material/fields/constantParameterField_gtest.cpp)
 target_link_libraries(constantParameterField_gtest PRIVATE GTest::gtest_main solidDeformationModel)
 set_property(TARGET constantParameterField_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(constantParameterField_gtest)
 
-add_executable(elementwiseParameterField_gtest formulations/parameters/elementwiseParameterField_gtest.cpp)
+add_executable(elementwiseParameterField_gtest material/fields/elementwiseParameterField_gtest.cpp)
 target_link_libraries(elementwiseParameterField_gtest PRIVATE GTest::gtest_main solidDeformationModel)
 set_property(TARGET elementwiseParameterField_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(elementwiseParameterField_gtest)

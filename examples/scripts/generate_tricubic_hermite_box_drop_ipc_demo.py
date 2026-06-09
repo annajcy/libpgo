@@ -63,15 +63,12 @@ CELLS = [
         formulation = pf.TricubicHermite()
         sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
 
-        deformation_state = pf.deformation_model_state(
+        deformation = pf.deformation_energy(
             sim_mesh,
             elastic=pf.StableNeo(),
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=0),
             plastic_field=pf.ElementwiseField(),
-        )
-        deformation = pf.deformation_energy(
-            deformation_state,
             formulation=formulation,
             options=pf.DeformationOptions(enable_material_max_step=True),
         )

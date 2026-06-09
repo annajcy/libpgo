@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 namespace pgo
 {
 namespace SolidDeformationModel
@@ -12,6 +14,7 @@ public:
 
   virtual int numNodes() const = 0;
   virtual int localDofs() const = 0;
+  virtual std::unique_ptr<Basis> clone() const = 0;
 
   virtual void N(double xi, double eta, double zeta, double N_out[]) const = 0;
   virtual void dN_dxi(double xi, double eta, double zeta, double dN_out[]) const = 0;

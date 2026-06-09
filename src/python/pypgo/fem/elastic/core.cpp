@@ -1,6 +1,6 @@
 #include "core.h"
 
-#include "elastic/elasticModelFactory.h"
+#include "material/elastic/elasticModelFactory.h"
 #include "../../simulation/core.h"
 
 namespace pgo

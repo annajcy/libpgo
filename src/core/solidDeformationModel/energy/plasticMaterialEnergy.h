@@ -6,7 +6,6 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "energy/deformationModelEnergy.h"
-#include "deformation/deformationModelState.h"
 #include "potentialEnergy.h"
 
 #include <memory>
@@ -21,7 +20,6 @@ class PlasticMaterialEnergy : public NonlinearOptimization::PotentialEnergy
 {
 public:
   PlasticMaterialEnergy(
-    std::shared_ptr<DeformationModelState> state,
     std::shared_ptr<DeformationModelEnergy> deformationEnergy,
     EigenSupport::ConstRefVecXd fixedDisplacement);
   virtual ~PlasticMaterialEnergy();
@@ -37,13 +35,11 @@ public:
 
   const EigenSupport::VXd &fixedDisplacement() const { return fixedDisplacement_; }
   std::shared_ptr<DeformationModelEnergy> deformationEnergy() const { return deformationEnergy_; }
-  std::shared_ptr<DeformationModelState> state() const { return state_; }
 
 private:
   void setPlasticState(EigenSupport::ConstRefVecXd x) const;
   EigenSupport::VXd absolutePositions() const;
 
-  std::shared_ptr<DeformationModelState> state_;
   std::shared_ptr<DeformationModelEnergy> deformationEnergy_;
   EigenSupport::VXd fixedDisplacement_;
   std::vector<int> allDOFs_;

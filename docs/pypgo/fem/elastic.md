@@ -31,7 +31,7 @@ Three details matter for reading the math:
   $\mathbf F_e=\mathbf F\,\mathbf F_p^{-1}$, takes its SVD
   $\mathbf F_e=\mathbf U\boldsymbol\Sigma\mathbf V^\top$, and passes
   $(\mathbf F_e,\mathbf U,\mathbf V,\boldsymbol\Sigma)$ to the model
-  (`formulations/elements/volumetricDeformationModel.h:54,68`). Singular values make the
+  (`deformation/volume/volumetricDeformationModel.h:54,68`). Singular values make the
   energy **rotation-invariant** and let stable models clamp eigenvalues analytically.
 - **`param` carries the optimizable elastic channels** (from the field in
   [`fields.md`](fields.md)). For the standard volumetric models below it is **ignored** —

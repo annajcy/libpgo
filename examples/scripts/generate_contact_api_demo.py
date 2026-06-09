@@ -151,15 +151,12 @@ CELLS = [
     code(
         """
         sim_mesh = SimulationMesh.create_volumetric(volume)
-        deformation_state = pf.deformation_model_state(
+        deformation = pf.deformation_energy(
             sim_mesh,
             elastic=pf.StableNeo(),
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=0),
             plastic_field=pf.ElementwiseField(),
-        )
-        deformation = pf.deformation_energy(
-            deformation_state,
             formulation=pf.LinearCubic(),
             options=pf.DeformationOptions(
                 enable_material_max_step=IPC_SCENE["enable_material_max_step"],
@@ -351,13 +348,11 @@ CELLS = [
 
         bunny_sim_mesh = SimulationMesh.create_volumetric(bunny_vol)
         bunny_deformation = pf.deformation_energy(
-            pf.deformation_model_state(
-                bunny_sim_mesh,
-                elastic=pf.StableNeo(),
-                elastic_field=pf.ElementwiseField(),
-                plastic=pf.VolumetricPlasticity(dofs=0),
-                plastic_field=pf.ElementwiseField(),
-            ),
+            bunny_sim_mesh,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=0),
+            plastic_field=pf.ElementwiseField(),
             formulation=pf.TetP1(),
         )
 
@@ -544,13 +539,11 @@ CELLS = [
 
         s3_sim_mesh = SimulationMesh.create_volumetric(s3_vol)
         s3_def = pf.deformation_energy(
-            pf.deformation_model_state(
-                s3_sim_mesh,
-                elastic=pf.StableNeo(),
-                elastic_field=pf.ElementwiseField(),
-                plastic=pf.VolumetricPlasticity(dofs=0),
-                plastic_field=pf.ElementwiseField(),
-            ),
+            s3_sim_mesh,
+            elastic=pf.StableNeo(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.VolumetricPlasticity(dofs=0),
+            plastic_field=pf.ElementwiseField(),
             formulation=pf.TetP1(),
         )
 
@@ -747,13 +740,11 @@ CELLS = [
         print("shell sim mesh type:", shell_sim_mesh.mesh_type)
 
         shell_def = pf.deformation_energy(
-            pf.deformation_model_state(
-                shell_sim_mesh,
-                elastic=pf.KoiterStVK(),
-                elastic_field=pf.ElementwiseField(),
-                plastic=pf.ShellPlasticity(dofs=0),
-                plastic_field=pf.ElementwiseField(),
-            ),
+            shell_sim_mesh,
+            elastic=pf.KoiterStVK(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.ShellPlasticity(dofs=0),
+            plastic_field=pf.ElementwiseField(),
             formulation=pf.KoiterShell(),
         )
         print("shell DOFs:", shell_def.num_dofs)
@@ -973,13 +964,11 @@ CELLS = [
         s5_sim_mesh = SimulationMesh.create_shell(s5_shell_mesh, s5_shell_mat)
 
         s5_def = pf.deformation_energy(
-            pf.deformation_model_state(
-                s5_sim_mesh,
-                elastic=pf.KoiterStVK(),
-                elastic_field=pf.ElementwiseField(),
-                plastic=pf.ShellPlasticity(dofs=0),
-                plastic_field=pf.ElementwiseField(),
-            ),
+            s5_sim_mesh,
+            elastic=pf.KoiterStVK(),
+            elastic_field=pf.ElementwiseField(),
+            plastic=pf.ShellPlasticity(dofs=0),
+            plastic_field=pf.ElementwiseField(),
             formulation=pf.KoiterShell(),
         )
         print("shell DOFs:", s5_def.num_dofs)

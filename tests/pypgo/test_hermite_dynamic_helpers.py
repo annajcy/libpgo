@@ -97,14 +97,14 @@ def test_hermite_surface_embedding_reproduces_affine_displacement():
 def test_hermite_dynamic_free_fall_uses_24_dofs():
     volume = _single_cube_volume(density=2.0)
     sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
-    state = pf.deformation_model_state(
+    energy = pf.deformation_energy(
         sim_mesh,
         elastic=pf.StableNeo(),
         elastic_field=pf.ElementwiseField(),
         plastic=pf.VolumetricPlasticity(dofs=0),
         plastic_field=pf.ElementwiseField(),
+        formulation=pf.TricubicHermite(),
     )
-    energy = pf.deformation_energy(state, formulation=pf.TricubicHermite())
     M = pf.TricubicHermite().mass_matrix(volume)
     f = pf.TricubicHermite().body_force(volume, [0.0, -9.8, 0.0])
     dyn_state = pgo.sim.DynamicState(

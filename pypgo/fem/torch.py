@@ -28,7 +28,7 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
                 f"plastic_values size must be {layer.num_plastic_dofs}, got {plastic_np.size}"
             )
 
-        layer.state.set_plastic_values(plastic_np.reshape(layer.plastic_shape))
+        layer.energy.set_plastic_values(plastic_np.reshape(layer.plastic_shape))
         problem = solver.OptimizationProblem(objective=layer.energy)
         problem.fix_variables(
             layer.fixed_dofs.tolist(),
@@ -56,7 +56,7 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
         if grad_surface.device.type != "cpu":
             raise ValueError("StaticEquilibriumLayer currently supports CPU tensors only")
 
-        layer.state.set_plastic_values(ctx.plastic_values.reshape(layer.plastic_shape))
+        layer.energy.set_plastic_values(ctx.plastic_values.reshape(layer.plastic_shape))
         grad_surface_np = np.asarray(grad_surface.detach().cpu().numpy(), dtype=np.float64)
         if grad_surface_np.shape != layer.surface_vertices.shape:
             raise ValueError(
@@ -95,7 +95,6 @@ class StaticEquilibriumLayer(_torch.nn.Module):
     def __init__(
         self,
         *,
-        state,
         energy,
         fixed_dofs: Sequence[int],
         fixed_values,
@@ -107,7 +106,6 @@ class StaticEquilibriumLayer(_torch.nn.Module):
         if not isinstance(energy, PotentialEnergy):
             raise TypeError("energy must be a pypgo.energy.PotentialEnergy")
 
-        self.state = state
         self.energy = energy
         self.fixed_dofs = int_vector("fixed_dofs", fixed_dofs)
         self.fixed_values = float_vector("fixed_values", fixed_values)
@@ -127,10 +125,10 @@ class StaticEquilibriumLayer(_torch.nn.Module):
         if not isinstance(self.inner_optimizer, solver.Optimizer):
             raise TypeError("inner_optimizer must be a pypgo.solver.Optimizer")
 
-        self.plastic_shape = tuple(state.plastic_field.values.shape)
+        self.plastic_shape = tuple(energy.plastic_field.values.shape)
         self.num_plastic_dofs = int(np.prod(self.plastic_shape))
         if self.num_plastic_dofs != energy.num_plastic_dofs:
-            raise ValueError("state plastic field size does not match energy.num_plastic_dofs")
+            raise ValueError("plastic field size does not match energy.num_plastic_dofs")
 
         self._dof_stride = energy.num_dofs // energy.num_vertices
 

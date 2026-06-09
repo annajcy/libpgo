@@ -2,10 +2,10 @@
 
 #include "peer.h"
 
-#include "deformation/deformationModelState.h"
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
-#include "formulations/parameters/parameterField.h"
+#include "material/fields/materialParameterFieldInit.h"
+#include "material/fields/parameterField.h"
 #include "energySet.h"
 #include "../simulation/core.h"
 #include "constraints/core.h"
@@ -87,48 +87,6 @@ private:
   std::shared_ptr<pgo::SolidDeformationModel::OptimizableField> field_;
 };
 
-class PyDeformationModelState
-{
-public:
-  explicit PyDeformationModelState(
-    std::shared_ptr<pgo::SolidDeformationModel::DeformationModelState> state)
-    : state_(std::move(state))
-  {
-    if (!state_) {
-      throw std::invalid_argument("PyDeformationModelState requires non-null state.");
-    }
-  }
-
-  std::shared_ptr<pgo::SolidDeformationModel::DeformationModelState> state() const { return state_; }
-
-  std::string elasticModel() const { return state_->elasticField().spec().modelId; }
-  std::string plasticModel() const { return state_->plasticField().spec().modelId; }
-  int numElements() const { return state_->mesh()->getNumElements(); }
-
-  std::shared_ptr<PyParameterField> elasticField() const
-  {
-    return std::make_shared<PyParameterField>(state_->elasticFieldPtr());
-  }
-
-  std::shared_ptr<PyParameterField> plasticField() const
-  {
-    return std::make_shared<PyParameterField>(state_->plasticFieldPtr());
-  }
-
-  void setElasticValues(nb::ndarray<nb::numpy, const double> values)
-  {
-    state_->setElasticValues(pgo::python::ndarrayToVectorMapXd(values));
-  }
-
-  void setPlasticValues(nb::ndarray<nb::numpy, const double> values)
-  {
-    state_->setPlasticValues(pgo::python::ndarrayToVectorMapXd(values));
-  }
-
-private:
-  std::shared_ptr<pgo::SolidDeformationModel::DeformationModelState> state_;
-};
-
 // Weighted sum of energy terms.  Inherits PyPotentialEnergy directly so
 // _handle is the concrete PyEnergySet peer (evaluation inherited from base).
 class PyEnergySet final : public PyPotentialEnergy
@@ -165,14 +123,12 @@ public:
 
 // Deformation energy peer.  Inherits PyPotentialEnergy directly so _handle is
 // the concrete peer; adds deformation-specific metadata (rest_position,
-// plastic_gradient, etc.).  Owns the model state so the C++ mesh and parameter
-// fields outlive the energy chain.
+// plastic_gradient, parameter fields, etc.).
 class PyDeformationEnergy : public PyPotentialEnergy
 {
 public:
-  PyDeformationEnergy(std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> energy,
-    std::shared_ptr<PyDeformationModelState> stateOwner)
-    : energy_(std::move(energy)), stateOwner_(std::move(stateOwner))
+  explicit PyDeformationEnergy(std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> energy)
+    : energy_(std::move(energy))
   {
   }
 
@@ -185,13 +141,24 @@ public:
   int numPlasticParams() const { return energy_->assembler().getNumPlasticParams(); }
   int numElasticDofs() const { return energy_->assembler().getNumElasticGlobalParams(); }
   int numPlasticDofs() const { return energy_->assembler().getNumPlasticGlobalParams(); }
+  std::string elasticModel() const { return energy_->assembler().elasticParameterField().spec().modelId; }
+  std::string plasticModel() const { return energy_->assembler().plasticParameterField().spec().modelId; }
+  std::shared_ptr<PyParameterField> elasticField() const
+  {
+    return std::make_shared<PyParameterField>(energy_->assembler().elasticParameterFieldPtr());
+  }
+  std::shared_ptr<PyParameterField> plasticField() const
+  {
+    return std::make_shared<PyParameterField>(energy_->assembler().plasticParameterFieldPtr());
+  }
+  void setElasticValues(nb::ndarray<nb::numpy, const double> values) { elasticField()->setValues(values); }
+  void setPlasticValues(nb::ndarray<nb::numpy, const double> values) { plasticField()->setValues(values); }
   nb::ndarray<nb::numpy, double> plasticGradient(nb::ndarray<nb::numpy, const double> displacement) const;
   PySparseMatrix plasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;
   PySparseMatrix plasticJacobian(nb::ndarray<nb::numpy, const double> displacement) const;
 
 private:
   std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> energy_;
-  std::shared_ptr<PyDeformationModelState> stateOwner_;
 };
 
 // ── Factories (implemented in energy/core.cpp) ────────────────────────────
@@ -243,26 +210,22 @@ std::shared_ptr<PyVertexAttachmentEnergy> createVertexAttachment(
 
 std::shared_ptr<PyEnergySet> createEnergySet(nb::list terms);
 
-std::shared_ptr<PyDeformationModelState> createDeformationModelState(
+int elasticNumChannels(
+  const std::shared_ptr<pgo::PySimulationMesh> &meshCore,
+  const std::string &elasticModel);
+
+std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
   std::shared_ptr<pgo::PySimulationMesh> meshCore,
   const std::string &elasticModel,
   nb::object elasticValues,
   const std::string &plasticModel,
   nb::object plasticValues,
   const std::string &elasticFieldType,
-  const std::string &plasticFieldType);
-
-int elasticNumChannels(
-  const std::shared_ptr<pgo::PySimulationMesh> &meshCore,
-  const std::string &elasticModel);
-
-std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
-  std::shared_ptr<PyDeformationModelState> stateCore,
+  const std::string &plasticFieldType,
   const std::string &formulationName,
   bool enforceSPD,
   bool enableMaterialMaxStep);
 
 std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(
-  std::shared_ptr<PyDeformationModelState> stateCore,
   std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,
   nb::ndarray<nb::numpy, const double> fixedDisplacement);

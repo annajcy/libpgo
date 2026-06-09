@@ -18,9 +18,9 @@
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModel.h"
 #include "deformation/deformationModelManager.h"
-#include "deformation/deformationModelState.h"
+#include "material/fields/materialParameterFieldInit.h"
 #include "simulation/simulationMesh.h"
-#include "plastic/plasticModel3DDeformationGradient.h"
+#include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "formulations/formulation.h"
 #include "pgoLogging.h"
 #include "triMeshGeo.h"
@@ -79,7 +79,6 @@ ES::VXd perturbedPositions(const SimulationMesh &mesh)
 struct Case
 {
   std::shared_ptr<const SimulationMesh> meshOwner;
-  std::shared_ptr<DeformationModelState> state;
   std::unique_ptr<DeformationModelAssembler> assembler;
   ES::VXd elementFiber, vertexFiber;  // owned; outlive the manager
   ES::VXd x;
@@ -113,23 +112,25 @@ Case makeVolCase(DeformationModelElasticMaterial elastic, std::unique_ptr<Simula
   for (int ei = 0; ei < nele; ei++) c.elementFiber.segment<3>(ei * 3) << 1.0, 0.0, 0.0;
   for (int vi = 0; vi < nvtx; vi++) c.vertexFiber.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
 
-  c.state = DeformationModelState::create(
-    c.meshOwner, elastic, ElasticFieldInit{}, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
+  auto elasticField = createElasticParameterField(*c.meshOwner, elastic, ElasticFieldInit{});
+  auto plasticField = createPlasticParameterField(
+    *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
   const double *ef = withHill ? c.elementFiber.data() : nullptr;
   const double *vf = withHill ? c.vertexFiber.data() : nullptr;
-  auto manager = std::make_unique<DeformationModelManager>(
-    c.state, P1TetFormulation{}, kExactDerivativeEnforceSpd, ef, vf);
+  P1TetFormulation formulation;
+  auto manager = std::make_shared<DeformationModelManager>(
+    c.meshOwner, elastic, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    formulation, kExactDerivativeEnforceSpd, ef, vf);
 
   // Plastic identity.
-  const auto *pm = dynamic_cast<const PlasticModel3DDeformationGradient *>(
-    manager->getDeformationModel(0)->getPlasticModel());
   const int np = manager->getNumPlasticParameters();
   ES::VXd plastic(static_cast<Eigen::Index>(np) * nele);
-  ES::M3d identity = ES::M3d::Identity();
-  for (int ei = 0; ei < nele; ei++) pm->toParam(identity.data(), plastic.data() + ei * np);
+  for (int ei = 0; ei < nele; ei++)
+    manager->getDeformationModel(ei)->defaultPlasticParams(plastic.data() + ei * np);
 
-  c.assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
-  c.state->setPlasticValues(plastic);
+  c.assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
+  c.assembler->setPlasticValues(plastic);
   c.x = perturbedPositions(*c.meshOwner);
   return c;
 }
@@ -160,17 +161,21 @@ Case makeShellCase(DeformationModelElasticMaterial elastic, const ES::VXd &elast
   c.meshOwner = std::shared_ptr<const SimulationMesh>(loadShellMesh(surfaceMesh, &mat).release());
   const int nele = c.meshOwner->getNumElements();
 
-  c.state = DeformationModelState::create(
-    c.meshOwner, elastic, ElasticFieldInit{}, DeformationModelPlasticMaterial::SHELL_FF_DOF1, PlasticFieldInit{});
-  auto manager = std::make_unique<DeformationModelManager>(
-    c.state, KoiterShellFormulation{}, kExactDerivativeEnforceSpd, nullptr, nullptr);
-  c.assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  auto elasticField = createElasticParameterField(*c.meshOwner, elastic, ElasticFieldInit{});
+  auto plasticField = createPlasticParameterField(
+    *c.meshOwner, DeformationModelPlasticMaterial::SHELL_FF_DOF1, PlasticFieldInit{});
+  KoiterShellFormulation formulation;
+  auto manager = std::make_shared<DeformationModelManager>(
+    c.meshOwner, elastic, DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+  c.assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
 
-  c.state->setPlasticValues(ES::VXd::Constant(nele, 1.0));
+  c.assembler->setPlasticValues(ES::VXd::Constant(nele, 1.0));
   const int ne = static_cast<int>(elasticParamsPerElement.size());
   ES::VXd elasticAll(static_cast<Eigen::Index>(ne) * nele);
   for (int ei = 0; ei < nele; ei++) elasticAll.segment(ei * ne, ne) = elasticParamsPerElement;
-  c.state->setElasticValues(elasticAll);
+  c.assembler->setElasticValues(elasticAll);
 
   c.x = perturbedPositions(*c.meshOwner);
   return c;

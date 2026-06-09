@@ -374,7 +374,7 @@ CELLS = [
         **Steps:**
 
         1. ``box.veg`` → ``VolumeMesh`` → ``SimulationMesh``
-        2. ``deformation_model_state(...)`` + ``deformation_energy(...)``
+        2. ``deformation_energy(...)`` from mesh, materials, and parameter fields
         3. ``formulation.mass_matrix(vol)`` and ``formulation.body_force(...)``
            → consistent mass and generalized gravity, derived from the formulation
         4. ``box.obj`` → ``TriMeshData`` (display surface)
@@ -412,16 +412,13 @@ CELLS = [
         print(f"Tet mesh: {vol.num_vertices} vertices, {vol.num_elements} tets")
 
         # ── 2. Deformation energy (Stable Neo-Hookean, no plasticity) ─
-        deformation_state = pf.deformation_model_state(
+        formulation = pf.TetP1()
+        energy = pf.deformation_energy(
             sim_mesh,
             elastic=pf.StableNeo(),
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=0),
             plastic_field=pf.ElementwiseField(),
-        )
-        formulation = pf.TetP1()
-        energy = pf.deformation_energy(
-            deformation_state,
             formulation=formulation,
         )
         n_dof = energy.num_dofs

@@ -18,8 +18,8 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
-#include "deformation/deformationModelState.h"
-#include "plastic/plasticModel3DDeformationGradient.h"
+#include "material/fields/materialParameterFieldInit.h"
+#include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "simulation/simulationMesh.h"
 #include "pgoLogging.h"
 #include "triMeshGeo.h"
@@ -39,9 +39,10 @@ using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
 using pgo::SolidDeformationModel::DeformationModelEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
-using pgo::SolidDeformationModel::DeformationModelState;
 using pgo::SolidDeformationModel::ElasticFieldInit;
 using pgo::SolidDeformationModel::PlasticFieldInit;
+using pgo::SolidDeformationModel::createElasticParameterField;
+using pgo::SolidDeformationModel::createPlasticParameterField;
 using pgo::SolidDeformationModel::PlasticModel3DDeformationGradient;
 using pgo::SolidDeformationModel::SimulationMesh;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
@@ -80,7 +81,6 @@ ES::VXd fivePointVector(Eval eval, double h)
 struct EnergyCase
 {
   std::shared_ptr<const SimulationMesh> meshOwner;
-  std::shared_ptr<DeformationModelState> state;
   std::unique_ptr<DeformationModelEnergy> energy;
   int offset = 0;
   int numDOFs = 0;
@@ -88,29 +88,33 @@ struct EnergyCase
 
 template<class FormulationT>
 std::unique_ptr<DeformationModelEnergy> finalizeEnergy(
-  std::shared_ptr<DeformationModelState> state, const FormulationT &formulation, int offset)
+  std::shared_ptr<const SimulationMesh> mesh,
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
+  const FormulationT &formulation,
+  int offset)
 {
-  auto manager = std::make_unique<DeformationModelManager>(
-    state, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  auto elasticField = createElasticParameterField(*mesh, elastic, ElasticFieldInit{});
+  auto plasticField = createPlasticParameterField(*mesh, plastic, PlasticFieldInit{});
+  auto manager = std::make_shared<DeformationModelManager>(
+    mesh, elastic, plastic, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   // enableMaterialMaxStep = false: the max-step clamp is irrelevant to derivative FD
   // and only adds logging noise.
   return std::make_unique<DeformationModelEnergy>(std::move(assembler), offset, false);
 }
 
-void setVolumetricPlasticIdentity(DeformationModelEnergy &energy, DeformationModelState &state)
+void setVolumetricPlasticIdentity(DeformationModelEnergy &energy)
 {
-  const auto &assembler = energy.assembler();
-  const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(
-    assembler.getDeformationModelManager().getDeformationModel(0)->getPlasticModel());
-  ASSERT_NE(plasticModel, nullptr);
+  auto &assembler = energy.assembler();
+  const auto &manager = assembler.getDeformationModelManager();
   const int nele = assembler.getDeformationModelManager().getMesh()->getNumElements();
   const int npp = assembler.getNumPlasticParams();
   ES::VXd plastic(static_cast<Eigen::Index>(npp) * nele);
-  ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++)
-    plasticModel->toParam(identity.data(), plastic.data() + ei * npp);
-  state.setPlasticValues(plastic);
+    manager.getDeformationModel(ei)->defaultPlasticParams(plastic.data() + ei * npp);
+  assembler.setPlasticValues(plastic);
 }
 
 // A smooth, element-valid displacement so the gradient/Hessian are nontrivially
@@ -143,13 +147,12 @@ EnergyCase makeSingleTetCase(int offset)
   EnergyCase c;
   c.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     4, vertices, 1, 4, elementVertices, elementMaterialIndices, 1, materials, SimulationMeshType::TET));
-  c.state = DeformationModelState::create(
-    c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{},
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
-  c.energy = finalizeEnergy(c.state, pgo::SolidDeformationModel::P1TetFormulation{}, offset);
+  c.energy = finalizeEnergy(
+    c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    pgo::SolidDeformationModel::P1TetFormulation{}, offset);
   c.offset = offset;
   c.numDOFs = c.energy->getNumDOFs();
-  setVolumetricPlasticIdentity(*c.energy, *c.state);
+  setVolumetricPlasticIdentity(*c.energy);
   return c;
 }
 
@@ -168,13 +171,12 @@ EnergyCase makeSingleHexCase(int offset)
   EnergyCase c;
   c.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     8, vertices, 1, 8, elementVertices, elementMaterialIndices, 1, materials, SimulationMeshType::CUBIC));
-  c.state = DeformationModelState::create(
-    c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{},
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
-  c.energy = finalizeEnergy(c.state, pgo::SolidDeformationModel::LinearCubicFormulation{}, offset);
+  c.energy = finalizeEnergy(
+    c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    pgo::SolidDeformationModel::LinearCubicFormulation{}, offset);
   c.offset = offset;
   c.numDOFs = c.energy->getNumDOFs();
-  setVolumetricPlasticIdentity(*c.energy, *c.state);
+  setVolumetricPlasticIdentity(*c.energy);
   return c;
 }
 
@@ -210,21 +212,20 @@ EnergyCase makeShellPatchCase(int offset)
   EnergyCase c;
   c.meshOwner = std::shared_ptr<const SimulationMesh>(
     pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
-  c.state = DeformationModelState::create(
-    c.meshOwner, DeformationModelElasticMaterial::KOITER_STVK, ElasticFieldInit{},
-    DeformationModelPlasticMaterial::SHELL_FF_DOF1, PlasticFieldInit{});
-  c.energy = finalizeEnergy(c.state, pgo::SolidDeformationModel::KoiterShellFormulation{}, offset);
+  c.energy = finalizeEnergy(
+    c.meshOwner, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    pgo::SolidDeformationModel::KoiterShellFormulation{}, offset);
   c.offset = offset;
   c.numDOFs = c.energy->getNumDOFs();
 
   const int nele = c.meshOwner->getNumElements();
   // Plastic stretch identity (1.0) and a reasonable elastic parameter set.
   ES::VXd plastic = ES::VXd::Constant(nele, 1.0);
-  c.state->setPlasticValues(plastic);
+  c.energy->assembler().setPlasticValues(plastic);
   ES::VXd elastic(static_cast<Eigen::Index>(nele) * 5);
   for (int ei = 0; ei < nele; ei++)
     elastic.segment<5>(ei * 5) << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
-  c.state->setElasticValues(elastic);
+  c.energy->assembler().setElasticValues(elastic);
   return c;
 }
 

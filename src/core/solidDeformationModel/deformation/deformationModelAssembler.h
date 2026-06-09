@@ -8,7 +8,8 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelManager.h"
 #include "deformation/deformationModelAssemblerCacheData.h"
 #include "formulations/dof/dofLayout.h"
-#include "formulations/parameters/parameterField.h"
+#include "formulations/formulation.h"
+#include "material/fields/parameterField.h"
 #include "EigenDef.h"
 
 #include <functional>
@@ -30,7 +31,10 @@ public:
     int limitingLocationId = -1;
   };
 
-  DeformationModelAssembler(std::unique_ptr<DeformationModelManager> dm,
+  DeformationModelAssembler(std::shared_ptr<DeformationModelManager> dm,
+    const Formulation &formulation,
+    std::shared_ptr<OptimizableField> elasticParamField,
+    std::shared_ptr<OptimizableField> plasticParamField,
     const double *elementWeights = nullptr);
   virtual ~DeformationModelAssembler();
 
@@ -44,6 +48,14 @@ public:
   void compute_df_db(const double *x, EigenSupport::SpMatD &hess) const;
   int getNumElasticGlobalParams() const;
   int getNumPlasticGlobalParams() const;
+  EigenSupport::VXd getElasticParameterSnapshot() const;
+  EigenSupport::VXd getPlasticParameterSnapshot() const;
+  void setElasticValues(EigenSupport::ConstRefVecXd values);
+  void setPlasticValues(EigenSupport::ConstRefVecXd values);
+  std::shared_ptr<OptimizableField> elasticParameterFieldPtr() const { return elasticParamField_; }
+  std::shared_ptr<OptimizableField> plasticParameterFieldPtr() const { return plasticParamField_; }
+  const OptimizableField &elasticParameterField() const { return *elasticParamField_; }
+  const OptimizableField &plasticParameterField() const { return *plasticParamField_; }
   const EigenSupport::SpMatD &getPlasticHessianTemplate() const { return d2Eda2Template; }
   void computePlasticGradient(const double *x, double *grad) const;
   void computePlasticHessian(const double *x, EigenSupport::SpMatD &hess) const;
@@ -56,6 +68,7 @@ public:
   const DeformationModelManager &getDeformationModelManager() const { return *deformationModelManager; }
   DeformationModelManager &getDeformationModelManager() { return *deformationModelManager; }
   const DofLayout &getDofLayout() const { return *dofLayout; }
+  const EigenSupport::VXd &getRestPosition() const { return restDofs_; }
   const EigenSupport::SpMatD &getHessianTemplate() const { return KTemplate; }
   const EigenSupport::SpMatD &get_dfda_Template() const { return dfdaTemplate; }
   const EigenSupport::SpMatD &get_dfdb_Template() const { return dfdbTemplate; }
@@ -64,17 +77,19 @@ public:
   int getNumPlasticParams() const { return numPlasticParams_; }
 
 protected:
-  std::unique_ptr<DeformationModelManager> deformationModelManager;
-  // Borrowed (shared) from the manager, which owns the formulation-chosen layout.
+  std::shared_ptr<DeformationModelManager> deformationModelManager;
   std::shared_ptr<const DofLayout> dofLayout;
+  EigenSupport::VXd restDofs_;
   std::unique_ptr<DeformationModelAssemblerCacheData> data;
 
-  const OptimizableField *elasticParamField_ = nullptr;
-  const OptimizableField *plasticParamField_ = nullptr;
+  std::shared_ptr<OptimizableField> elasticParamField_;
+  std::shared_ptr<OptimizableField> plasticParamField_;
 
   int numDOFs, nele, neleVtx, localDOFs;
   int numElasticParams_ = 0;
   int numPlasticParams_ = 0;
+  int numElasticLocalParams_ = 0;
+  int numPlasticLocalParams_ = 0;
 
   EigenSupport::SpMatD KTemplate, dfdaTemplate, dfdbTemplate, d2Eda2Template;
   std::vector<DynamicIndexMatrix> elementKInverseIndices, element_dfda_InverseIndices, element_dfdb_InverseIndices, element_d2Eda2_InverseIndices;
@@ -88,7 +103,7 @@ private:
   // Build a mixed sparsity template + inverse-index map for d²E/dx dp (df/dp).
   // Shared by the dfdb and dfda template construction in the constructor.
   void buildMixedSparsityTemplate(
-    int numParams,
+    int numLocalParams,
     int numGlobalParams,
     const std::function<int(int, int)> &paramGlobalCol,
     EigenSupport::SpMatD &tmpl,
@@ -99,20 +114,17 @@ private:
   // computeLocal is a pointer to DeformationModel::compute_d2E_dxda (or _dxdb).
   void assembleDfDparam(
     const double *x,
-    int numParams,
+    int numMaterialParams,
+    int numLocalParams,
+    const OptimizableField *paramField,
     const std::vector<DynamicIndexMatrix> &inverseIndices,
     void (DeformationModel::*computeLocal)(const DeformationModel::CacheData *, double *) const,
     EigenSupport::SpMatD &hess,
     const char *label) const;
 
-  // Gather local DOFs and prepare element cache — shared by every compute method.
-  inline const DeformationModel *gatherAndPrepare(int ele, const double *x, double *localBuf) const
-  {
-    dofLayout->gather(ele, x, localBuf);
-    const DeformationModel *fem = femModels[ele];
-    fem->prepareData(localBuf, data->elementCacheData[ele].get());
-    return fem;
-  }
+  // Gather local displacement DOFs and externally computed material parameter values,
+  // then prepare the element cache.
+  const DeformationModel *gatherAndPrepare(int ele, const double *x, double *localBuf) const;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

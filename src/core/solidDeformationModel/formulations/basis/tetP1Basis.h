@@ -26,6 +26,7 @@ public:
 
   int numNodes() const override { return kNumNodes; }
   int localDofs() const override { return kLocalDofs; }
+  std::unique_ptr<Basis> clone() const override { return std::make_unique<TetP1Basis>(*this); }
 
   void N(double xi, double eta, double zeta, double N_out[]) const override;
   void dN_dxi(double xi, double eta, double zeta, double dN_dxi[]) const override;

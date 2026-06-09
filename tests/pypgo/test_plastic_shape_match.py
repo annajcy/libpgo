@@ -27,23 +27,20 @@ def make_cubic_case():
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
     sim = pgo.fem.SimulationMesh.create_volumetric(volume)
-    state = fem.deformation_model_state(
+    energy = fem.deformation_energy(
         sim,
         elastic=fem.StVK(),
         elastic_field=fem.ElementwiseField(),
         plastic=fem.VolumetricPlasticity(dofs=6),
         plastic_field=fem.ConstantField(),
-    )
-    energy = fem.deformation_energy(
-        state,
         formulation=fem.LinearCubic(),
         options=fem.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
     )
-    return sim, state, energy
+    return sim, energy
 
 
 def test_adjoint_plastic_gradient_can_be_assembled_directly():
-    _, state, energy = make_cubic_case()
+    _, energy = make_cubic_case()
     rest = energy.rest_position
     surface = pgo.mesh.TriMeshData(
         rest[[0, 1, 2, 3]],
@@ -52,8 +49,8 @@ def test_adjoint_plastic_gradient_can_be_assembled_directly():
     target = surface.vertices.copy()
     target[:, 0] *= 1.02
 
-    a0 = state.plastic_field.values.ravel()
-    state.set_plastic_values(a0.reshape(state.plastic_field.values.shape))
+    a0 = energy.plastic_field.values.ravel()
+    energy.set_plastic_values(a0.reshape(energy.plastic_field.values.shape))
     fixed_dofs = np.arange(0, 9, dtype=np.int64)
     fixed_values = np.zeros(9, dtype=np.float64)
     problem = solver.OptimizationProblem(objective=energy)
@@ -82,7 +79,7 @@ def test_adjoint_plastic_gradient_can_be_assembled_directly():
 
 
 def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
-    _, state, energy = make_cubic_case()
+    _, energy = make_cubic_case()
     rest = energy.rest_position
     surface_vertex_ids = np.array([0, 1, 2, 3], dtype=np.int64)
     surface_vertices = rest[surface_vertex_ids]
@@ -92,7 +89,6 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
     fixed_dofs = np.arange(0, 9, dtype=np.int64)
     fixed_values = np.zeros(9, dtype=np.float64)
     layer = pgo.fem.StaticEquilibriumLayer(
-        state=state,
         energy=energy,
         fixed_dofs=fixed_dofs,
         fixed_values=fixed_values,
@@ -101,7 +97,7 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
         inner_optimizer=solver.NewtonOptimizer(max_iterations=5, damping=False),
     )
 
-    a0 = state.plastic_field.values.ravel()
+    a0 = energy.plastic_field.values.ravel()
     plastic_param = torch.tensor(a0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 

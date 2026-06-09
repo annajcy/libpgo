@@ -16,7 +16,7 @@ answering one question of the discrete theory:
 |---|---|---|
 | **basis** | how do nodal values interpolate inside an element? | `formulations/basis/` |
 | **quadrature** | how is $\int_e\Psi\,dV$ approximated? | `formulations/quadrature/` |
-| **kernel / geometry** | how does $\mathbf F$ come from nodal positions? | `formulations/kernels/` |
+| **kinematics / geometry** | how does $\mathbf F$ come from nodal positions? | `formulations/kinematics/` |
 | **DOF layout** | how do element DOFs map into the global vector? | `formulations/dof/` |
 
 ## Kinematics inside an element
@@ -27,17 +27,17 @@ Within an element, world position interpolates the nodal positions $\mathbf x_a$
 $$\mathbf x(\boldsymbol\xi)=\sum_a N_a(\boldsymbol\xi)\,\mathbf x_a, \qquad \mathbf F=\sum_a \mathbf x_a\otimes\nabla_{\mathbf X}N_a, \qquad \nabla_{\mathbf X}N_a=\mathbf D_m^{-\top}\,\frac{\partial N_a}{\partial\boldsymbol\xi},$$
 
 where $\mathbf D_m=\partial\mathbf X/\partial\boldsymbol\xi$ is the **rest Jacobian**. The
-`VolumetricKernel` precomputes the rest-only quantities once and then evaluates $\mathbf F$
+`VolumetricKinematics` precomputes the rest-only quantities once and then evaluates $\mathbf F$
 per quadrature point as $\mathbf F=\mathbf x\,(\partial N/\partial\boldsymbol\xi)^\top\mathbf D_m^{-1}$
-(`src/core/solidDeformationModel/formulations/kernels/volumetricKernel.h:31,49`). The cached
+(`src/core/solidDeformationModel/formulations/kinematics/volumetricKinematics.h:31,49`). The cached
 pieces are `restDmInv` ($\mathbf D_m^{-1}$), `dN_dX` ($\nabla_{\mathbf X}N_a$),
 `rest_dFdx` ($\partial\mathbf F/\partial\mathbf x$, constant per element), and
 `weightDetJ` $=|\det\mathbf D_m|\,w_q$ — the rest volume carried by quadrature point $q$
-(`…/volumetricKernel.h:22-28`). The element energy is then simply
+(`…/volumetricKinematics.h:22-28`). The element energy is then simply
 
 $$E_e=\sum_q \underbrace{|\det\mathbf D_m^{q}|\,w_q}_{\texttt{weightDetJ}}\;\Psi\big(\mathbf F_e(\boldsymbol\xi_q)\big).$$
 
-## Element kernels: energy, force, stiffness
+## Element operators: energy, force, stiffness
 
 Differentiating $E_e$ through the chain $\mathbf u\to\mathbf F\to\Psi$ gives the element's
 internal force and stiffness. Writing $J_q=|\det\mathbf D_m^q|\,w_q$ and taking the purely
@@ -49,7 +49,7 @@ with $\mathbf P=\partial\Psi/\partial\mathbf F$ from [`elastic.md`](elastic.md) 
 $\partial\mathbf F/\partial\mathbf x$ the constant (per element) `rest_dFdx`. The
 implementation folds $J_q$ and the rest basis into $\mathbf B_m^q=J_q\,\partial N/\partial\mathbf X$
 so the force is the compact product $\mathbf P^q\mathbf B_m^q$
-(`formulations/elements/volumetricDeformationModel.cpp:122-177`).
+(`deformation/volume/volumetricDeformationModel.cpp:122-177`).
 
 > With plasticity the same formulas hold after $\mathbf F\to\mathbf F_e$,
 > $J_q\to J_q\det\mathbf F_p$, $\partial\mathbf F/\partial\mathbf x\to\partial\mathbf F_e/\partial\mathbf x$,
@@ -60,8 +60,8 @@ so the force is the compact product $\mathbf P^q\mathbf B_m^q$
 
 | Quantity | Formula | C++ |
 |---|---|---|
-| rest Jacobian | $\mathbf D_m=\partial\mathbf X/\partial\boldsymbol\xi$ | `VolumetricKernel` (`restDmInv` $=\mathbf D_m^{-1}$) |
-| shape gradients | $\nabla_{\mathbf X}N_a=\mathbf D_m^{-\top}\partial N_a/\partial\boldsymbol\xi$ | `VolumetricKernel` (`dN_dX`) |
+| rest Jacobian | $\mathbf D_m=\partial\mathbf X/\partial\boldsymbol\xi$ | `VolumetricKinematics` (`restDmInv` $=\mathbf D_m^{-1}$) |
+| shape gradients | $\nabla_{\mathbf X}N_a=\mathbf D_m^{-\top}\partial N_a/\partial\boldsymbol\xi$ | `VolumetricKinematics` (`dN_dX`) |
 | deformation gradient | $\mathbf F=\mathbf x\,(\partial N/\partial\boldsymbol\xi)^{\!\top}\mathbf D_m^{-1}$ | `computeFref` / `computeF` |
 | $\mathbf F$ sensitivity | $\partial\mathbf F/\partial\mathbf x$ (const.) | `computedFrefdx` / `rest_dFdx` |
 | quadrature weight | $J_q=|\det\mathbf D_m^q|\,w_q$ | `weightDetJ(q)` |
@@ -100,9 +100,9 @@ polynomial degree:
 - **`GaussLegendreHexQuadrature4`** — $4^3=64$ points; the tricubic Hermite deformation
   gradient is high-order, so $2^3$ would **under-integrate** (rank-deficient stiffness).
 
-### Kernel / geometry — `formulations/kernels/`, `formulations/geometry/`
+### Kinematics / geometry — `formulations/kinematics/`, `formulations/geometry/`
 
-The `VolumetricKernel` above: rest-geometry precomputation and the $\mathbf F$,
+The `VolumetricKinematics` above: rest-geometry precomputation and the $\mathbf F$,
 $\partial\mathbf F/\partial\mathbf x$ kinematics shared by all volumetric formulations.
 
 ### DOF layout — `formulations/dof/`

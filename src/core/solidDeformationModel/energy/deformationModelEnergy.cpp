@@ -35,8 +35,7 @@ ES::VXd assembleDirectionSlice(ES::ConstRefVecXd dx, int offset, int numDOFs)
 DeformationModelEnergy::DeformationModelEnergy(std::unique_ptr<DeformationModelAssembler> fma,
   int offset, bool enableMaterialMaxStep):
   forceModelAssembler(std::move(fma)),
-  restPosition(std::make_unique<ES::VXd>(
-    forceModelAssembler->getDeformationModelManager().buildRestPosition())),
+  restPosition(std::make_unique<ES::VXd>(forceModelAssembler->getRestPosition())),
   enableMaterialMaxStep_(enableMaterialMaxStep)
 {
   allDOFs.resize(forceModelAssembler->getNumDOFs());

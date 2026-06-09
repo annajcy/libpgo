@@ -7,7 +7,7 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelManager.h"
 #include "simulation/simulationMesh.h"
 
-#include "formulations/elements/volumetricDeformationModel.h"
+#include "deformation/volume/volumetricDeformationModel.h"
 
 #include "svdDerivatives.h"
 #include "pgoLogging.h"

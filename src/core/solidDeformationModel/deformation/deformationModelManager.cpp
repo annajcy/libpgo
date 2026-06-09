@@ -6,19 +6,17 @@ copyright to USC, MIT, NUS
 #include "deformation/deformationModelManager.h"
 
 #include "deformation/deformationModel.h"
-#include "deformation/deformationModelState.h"
-#include "formulations/dof/vertex3DofLayout.h"
 #include "formulations/formulation.h"
 
 #include "simulation/simulationMesh.h"
 
-#include "elastic/elasticModel.h"
-#include "elastic/elasticModel3DDeformationGradient.h"
+#include "material/elastic/elasticModel.h"
+#include "material/elastic/elasticModel3DDeformationGradient.h"
 
-#include "plastic/plasticModel.h"
+#include "material/plastic/plasticModel.h"
 
-#include "elastic/elasticModelFactory.h"
-#include "plastic/plasticModelFactory.h"
+#include "material/elastic/elasticModelFactory.h"
+#include "material/plastic/plasticModelFactory.h"
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
@@ -42,13 +40,10 @@ class DeformationModelManagerImpl
 public:
   ~DeformationModelManagerImpl();
 
-  std::shared_ptr<DeformationModelState> state;
+  std::shared_ptr<const SimulationMesh> mesh;
+  DeformationModelElasticMaterial elasticMaterial;
+  DeformationModelPlasticMaterial plasticMaterial;
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
-
-  // Formulation-chosen DOF policy, built once at manager construction (while the formulation is
-  // alive) and handed out by createDofLayout()/buildRestPosition(). Vertex3 + nvtx*3 by default.
-  std::shared_ptr<const DofLayout> dofLayout;
-  ES::VXd restDofs;
 
   ES::VXd fiberDirections;
   ES::VXd vertexFiberDirections;
@@ -75,14 +70,14 @@ void DeformationModelManagerImpl::computeFiberAxes()
   std::vector<std::vector<int>> elementNearbyElements(nele);
 
   for (int i = 0; i < nele; i++) {
-    for (int j = 0; j < state->mesh()->getNumElementVertices(); j++) {
-      vertexNearbyElements[state->mesh()->getVertexIndex(i, j)].push_back(i);
+    for (int j = 0; j < mesh->getNumElementVertices(); j++) {
+      vertexNearbyElements[mesh->getVertexIndex(i, j)].push_back(i);
     }
   }
 
   for (int i = 0; i < nele; i++) {
-    for (int j = 0; j < state->mesh()->getNumElementVertices(); j++) {
-      const auto &eles = vertexNearbyElements[state->mesh()->getVertexIndex(i, j)];
+    for (int j = 0; j < mesh->getNumElementVertices(); j++) {
+      const auto &eles = vertexNearbyElements[mesh->getVertexIndex(i, j)];
       elementNearbyElements[i].insert(elementNearbyElements[i].end(), eles.begin(), eles.end());
     }
 
@@ -195,34 +190,13 @@ void validateFormulation(SimulationMeshType meshType, const Formulation &formula
     throw std::invalid_argument("formulation does not match mesh type");
 }
 
-void validateParameterField(const char *name, const OptimizableField *field,
-  ParameterDomain expectedDomain, int expectedChannels, int expectedElements)
-{
-  if (!field)
-    throw std::invalid_argument(std::string(name) + " must be non-null.");
-
-  const auto &spec = field->spec();
-  if (spec.domain != expectedDomain)
-    throw std::invalid_argument(std::string(name) + " has an incompatible domain.");
-
-  if (field->numChannels() != expectedChannels || spec.numChannels != expectedChannels)
-    throw std::invalid_argument(std::string(name) + " channel count does not match the material model.");
-
-  const auto *layout = field->dofLayout();
-  if (!layout)
-    throw std::invalid_argument(std::string(name) + " must provide a DOF layout.");
-
-  if (!layout->matchesParameterShape(expectedChannels, expectedElements))
-    throw std::invalid_argument(std::string(name) + " global DOF count does not match the mesh.");
-}
-
 }  // namespace
 
 void DeformationModelManager::initFiber(
   const double *elementFiberDirections, const double *vertexFiberDirections)
 {
-  data->nele = data->state->mesh()->getNumElements();
-  data->nvtx = data->state->mesh()->getNumVertices();
+  data->nele = data->mesh->getNumElements();
+  data->nvtx = data->mesh->getNumVertices();
 
   if (elementFiberDirections)
     data->fiberDirections = Eigen::Map<const ES::VXd>(elementFiberDirections, data->nele * 3);
@@ -238,39 +212,30 @@ void DeformationModelManager::initFiber(
     data->computeFiberAxes();
 }
 
-DeformationModelManager::DeformationModelManager(std::shared_ptr<DeformationModelState> state,
+DeformationModelManager::DeformationModelManager(std::shared_ptr<const SimulationMesh> mesh,
+  DeformationModelElasticMaterial elasticMaterial,
+  DeformationModelPlasticMaterial plasticModelType,
   const Formulation &formulation,
   int enforceSPD, const double *elementFiberDirections, const double *vertexFiberDirections)
 {
-  if (!state)
-    throw std::invalid_argument("DeformationModelManager: state must be non-null.");
+  if (!mesh)
+    throw std::invalid_argument("DeformationModelManager: mesh must be non-null.");
   data = std::make_unique<DeformationModelManagerImpl>();
-  data->state = std::move(state);
-  const SimulationMesh &simulationMesh = *data->state->mesh();
+  data->mesh = std::move(mesh);
+  data->elasticMaterial = elasticMaterial;
+  data->plasticMaterial = plasticModelType;
+  const SimulationMesh &simulationMesh = *data->mesh;
   initFiber(elementFiberDirections, vertexFiberDirections);
   validateFormulation(simulationMesh.getElementType(), formulation);
 
-  // Capture the formulation's DOF-layout / rest-state policy now, while the formulation reference is
-  // guaranteed alive. The assembler (createDofLayout) and energy (buildRestPosition) consume these
-  // during their own construction; caching here keeps the manager from ever holding the formulation.
-  data->dofLayout = formulation.createDofLayout(simulationMesh);
-  data->restDofs = formulation.buildGlobalRestDofs(simulationMesh);
-
-  const auto plasticModelType = data->state->plasticMaterial();
-  const auto elasticMaterialType = data->state->elasticMaterial();
-  std::shared_ptr<OptimizableField> elasticField = data->state->elasticFieldPtr();
-  std::shared_ptr<OptimizableField> plasticField = data->state->plasticFieldPtr();
-
-  initImpl(plasticModelType, elasticMaterialType, formulation);
+  initImpl(data->plasticMaterial, data->elasticMaterial, formulation);
 
   // Parameter-field channel counts are the differentiable parameter counts reported
-  // by the created models (the single source of truth), so the fields are validated
-  // after the elements -- and their elastic/plastic models -- exist.
-  const int ne = data->elementFEMs[0]->getElasticModel()->getNumParameters();
-  const int np = data->elementFEMs[0]->getPlasticModel()->getNumParameters();
+  // by the created models (the single source of truth).
+  const int ne = data->elementFEMs[0]->getNumElasticParameters();
+  const int np = data->elementFEMs[0]->getNumPlasticParameters();
   data->numPlasticParams = np;
-  validateParameterField("elasticField", elasticField.get(), ParameterDomain::ELASTIC, ne, data->nele);
-  validateParameterField("plasticField", plasticField.get(), ParameterDomain::PLASTIC, np, data->nele);
+  (void)ne;
 
   if (enforceSPD)
     setEnforceSPD(enforceSPD);
@@ -296,7 +261,7 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
       }
 
       auto em = ElasticModelFactory::create(
-        *data->state->mesh(), ele, elasticMaterialType, fiberDir);
+        *data->mesh, ele, elasticMaterialType, fiberDir);
 
       const double *fiberAxesRest = (data->fiberAxesRest.size() > 0)
         ? data->fiberAxesRest.data() + ele * 9 : nullptr;
@@ -304,13 +269,12 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
       auto pm = PlasticModelFactory::create(plasticModelType, fiberAxesRest);
 
       data->elementFEMs[ele] = formulation.createElement(
-        *data->state->mesh(), ele,
-        std::move(em), std::move(pm),
-        data->state->elasticFieldPtr().get(), data->state->plasticFieldPtr().get());
+        *data->mesh, ele,
+        std::move(em), std::move(pm));
     },
     tbb::static_partitioner());
 
-  // Parameter values are owned by the explicit fields passed to the manager.
+  // Parameter values are owned by the assembler.
 }
 
 const DeformationModel *DeformationModelManager::getDeformationModel(int eleID) const
@@ -318,29 +282,7 @@ const DeformationModel *DeformationModelManager::getDeformationModel(int eleID) 
   return data->elementFEMs[eleID].get();
 }
 
-const OptimizableField *DeformationModelManager::getElasticParameterField() const
-{
-  return data->state->elasticFieldPtr().get();
-}
-
-const OptimizableField *DeformationModelManager::getPlasticParameterField() const
-{
-  return data->state->plasticFieldPtr().get();
-}
-
-std::shared_ptr<const DofLayout> DeformationModelManager::createDofLayout() const
-{
-  // The layout was chosen by the formulation and cached at construction (see the constructor).
-  return data->dofLayout;
-}
-
 DeformationModelManager::~DeformationModelManager() = default;
-
-ES::VXd DeformationModelManager::buildRestPosition() const
-{
-  // The global rest DOFs were built by the formulation and cached at construction.
-  return data->restDofs;
-}
 
 void DeformationModelManager::setEnforceSPD(int enable)
 {
@@ -352,7 +294,7 @@ void DeformationModelManager::setEnforceSPD(int enable)
 
 const SimulationMesh *DeformationModelManager::getMesh() const
 {
-  return data->state->mesh().get();
+  return data->mesh.get();
 }
 
 void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
@@ -369,8 +311,7 @@ void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
   if (!data->elementFEMs.empty() && data->fiberAxes.cols() > 0) {
     tbb::parallel_for(
       0, data->nele, [this](int ele) {
-        if (auto *pm = data->elementFEMs[ele]->getPlasticModel())
-          pm->setFiberAxes(data->fiberAxes.data() + ele * 9);
+        data->elementFEMs[ele]->setPlasticFiberAxes(data->fiberAxes.data() + ele * 9);
       },
       tbb::static_partitioner());
   }
@@ -383,7 +324,7 @@ void DeformationModelManager::getVertexAlignedMatrix(int id, double R[9]) const
 
 void DeformationModelManager::getElementAlignedMatrix(int id, double R[9]) const
 {
-  bool isIdentity = data->elementFEMs[id]->getPlasticModel()->isIdentityTransform();
+  bool isIdentity = data->elementFEMs[id]->isPlasticIdentityTransform();
   if (isIdentity || data->fiberAxes.cols() < (id + 1) * 3) {
     (Eigen::Map<ES::M3d>(R)) = ES::M3d::Identity();
   }
@@ -400,7 +341,7 @@ void DeformationModelManager::setElementAlignedMatrix(int id, double R[9])
   data->fiberAxesRest.block<3, 3>(0, id * 3) = Eigen::Map<ES::M3d>(R);
   data->fiberAxes.block<3, 3>(0, id * 3) = data->fiberAxesRest.block<3, 3>(0, id * 3) * data->globalRotation.transpose();
 
-  data->elementFEMs[id]->getPlasticModel()->setFiberAxes(data->fiberAxes.data() + id * 9);
+  data->elementFEMs[id]->setPlasticFiberAxes(data->fiberAxes.data() + id * 9);
 }
 
 int DeformationModelManager::getNumPlasticParameters() const
@@ -410,15 +351,5 @@ int DeformationModelManager::getNumPlasticParameters() const
 
 int DeformationModelManager::getNumElasticParameters() const
 {
-  return data->elementFEMs[0]->getElasticModel()->getNumParameters();
-}
-
-ES::VXd DeformationModelManager::getElasticParameterSnapshot() const
-{
-  return data->state->elasticParameterSnapshot();
-}
-
-ES::VXd DeformationModelManager::getPlasticParameterSnapshot() const
-{
-  return data->state->plasticParameterSnapshot();
+  return data->elementFEMs[0]->getNumElasticParameters();
 }

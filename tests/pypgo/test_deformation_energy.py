@@ -1,4 +1,4 @@
-"""Public tests for the state-based pypgo.fem deformation API."""
+"""Public tests for the config-based pypgo.fem deformation API."""
 
 import gc
 
@@ -56,15 +56,26 @@ def _make_shell_sim_mesh():
     return pgo.fem.SimulationMesh.create_shell(surface, material)
 
 
-def _make_state(sim, elastic=None, plastic=None, plastic_values=None):
+def _make_energy(
+    sim,
+    formulation=pf.TetP1(),
+    elastic=None,
+    plastic=None,
+    elastic_field=None,
+    plastic_field=None,
+    plastic_values=None,
+    options=None,
+):
     elastic = elastic or pf.StableNeo()
     plastic = plastic or pf.VolumetricPlasticity(dofs=6)
-    return pf.deformation_model_state(
+    return pf.deformation_energy(
         sim,
         elastic=elastic,
-        elastic_field=pf.ElementwiseField(),
+        elastic_field=elastic_field or pf.ElementwiseField(),
         plastic=plastic,
-        plastic_field=pf.ElementwiseField(values=plastic_values),
+        plastic_field=plastic_field or pf.ElementwiseField(values=plastic_values),
+        formulation=formulation,
+        options=options,
     )
 
 
@@ -94,33 +105,32 @@ class TestWrappers:
             pf.ShellPlasticity(dofs=2)
 
 
-class TestDeformationModelState:
-    def test_default_state_owns_fields(self):
+class TestDeformationEnergyFields:
+    def test_default_energy_owns_fields(self):
         sim = _make_tet_sim_mesh()
-        state = _make_state(sim)
+        energy = _make_energy(sim)
 
-        assert isinstance(state, pf.DeformationModelState)
-        assert state.elastic_model == "stable_neo"
-        assert state.plastic_model == "volumetric_dof6"
-        assert state.num_elements == sim.num_elements
-        assert state.elastic_field.domain == "elastic"
-        assert state.elastic_field.num_channels == 0
-        assert state.elastic_field.values.shape == (0, 0)
-        assert state.plastic_field.domain == "plastic"
-        assert state.plastic_field.values.shape == (sim.num_elements, 6)
-        assert np.allclose(state.plastic_field.values, [[1.0, 0.0, 0.0, 1.0, 0.0, 1.0]])
+        assert isinstance(energy, pf.DeformationEnergy)
+        assert energy.elastic_model == "stable_neo"
+        assert energy.plastic_model == "volumetric_dof6"
+        assert energy.elastic_field.domain == "elastic"
+        assert energy.elastic_field.num_channels == 0
+        assert energy.elastic_field.values.shape == (0, 0)
+        assert energy.plastic_field.domain == "plastic"
+        assert energy.plastic_field.values.shape == (sim.num_elements, 6)
+        assert np.allclose(energy.plastic_field.values, [[1.0, 0.0, 0.0, 1.0, 0.0, 1.0]])
 
-    def test_given_plastic_values_are_copied_and_mutable_through_state(self):
+    def test_given_plastic_values_are_copied_and_mutable_through_energy(self):
         sim = _make_tet_sim_mesh()
         params = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
-        state = _make_state(sim, plastic_values=params)
+        energy = _make_energy(sim, plastic_values=params)
 
         params[0, 0] = 9.0
-        assert state.plastic_field.values[0, 0] == pytest.approx(1.05)
+        assert energy.plastic_field.values[0, 0] == pytest.approx(1.05)
 
         updated = np.array([[0.95, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
-        state.set_plastic_values(updated)
-        assert np.allclose(state.plastic_field.values, updated)
+        energy.set_plastic_values(updated)
+        assert np.allclose(energy.plastic_field.values, updated)
 
     def test_given_elastic_values_use_cpp_channel_count(self):
         class KoiterFabric:
@@ -133,39 +143,41 @@ class TestDeformationModelState:
             dtype=np.float64,
         )
 
-        state = pf.deformation_model_state(
+        energy = pf.deformation_energy(
             sim,
             elastic=KoiterFabric(),
             elastic_field=pf.ElementwiseField(values=params),
             plastic=pf.ShellPlasticity(dofs=1),
             plastic_field=pf.ElementwiseField(),
+            formulation=pf.KoiterShell(),
         )
 
-        assert state.elastic_model == "koiter_fabric"
-        assert state.elastic_field.values.shape == (sim.num_elements, 12)
-        assert np.allclose(state.elastic_field.values, params)
+        assert energy.elastic_model == "koiter_fabric"
+        assert energy.elastic_field.values.shape == (sim.num_elements, 12)
+        assert np.allclose(energy.elastic_field.values, params)
 
     def test_constant_field_reports_shared_value_row(self):
         sim = _make_tet_sim_mesh()
         params = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
 
-        state = pf.deformation_model_state(
+        energy = pf.deformation_energy(
             sim,
             elastic=pf.StableNeo(),
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ConstantField(values=params),
+            formulation=pf.TetP1(),
         )
 
-        assert state.plastic_field.num_value_rows == 1
-        assert state.plastic_field.num_elements == 1
-        assert state.plastic_field.values.shape == (1, 6)
-        assert np.allclose(state.plastic_field.values, params)
+        assert energy.plastic_field.num_value_rows == 1
+        assert energy.plastic_field.num_elements == 1
+        assert energy.plastic_field.values.shape == (1, 6)
+        assert np.allclose(energy.plastic_field.values, params)
 
     def test_rejects_wrong_field_shape(self):
         sim = _make_tet_sim_mesh()
         with pytest.raises(ValueError, match="shape must be"):
-            _make_state(sim, plastic_values=np.ones((sim.num_elements, 3), dtype=np.float64))
+            _make_energy(sim, plastic_values=np.ones((sim.num_elements, 3), dtype=np.float64))
 
     def test_legacy_material_wrappers_do_not_create_fields(self):
         assert not hasattr(pf.StableNeo(), "default_field")
@@ -175,8 +187,7 @@ class TestDeformationModelState:
 class TestDeformationEnergy:
     def test_tet_energy_evaluates(self):
         sim = _make_tet_sim_mesh()
-        state = _make_state(sim)
-        energy = pf.deformation_energy(state, formulation=pf.TetP1())
+        energy = _make_energy(sim)
 
         assert isinstance(energy, pf.DeformationEnergy)
         assert isinstance(energy, pe.PotentialEnergy)
@@ -195,8 +206,7 @@ class TestDeformationEnergy:
 
     def test_cubic_energy_evaluates(self):
         sim = _make_cubic_sim_mesh()
-        state = _make_state(sim)
-        energy = pf.deformation_energy(state, formulation=pf.LinearCubic())
+        energy = _make_energy(sim, formulation=pf.LinearCubic())
         u = energy.zero_state()
         assert np.isfinite(energy.value(u))
         assert energy.hessian(u).nnz > 0
@@ -204,11 +214,11 @@ class TestDeformationEnergy:
     def test_cubic_energy_exposes_plastic_derivatives_and_material_energy(self):
         sim = _make_cubic_sim_mesh()
         plastic = np.array([[1.01, 0.004, -0.003, 0.994, 0.005, 1.008]], dtype=np.float64)
-        state = _make_state(sim, plastic_values=plastic)
-        energy = pf.deformation_energy(
-            state,
+        energy = _make_energy(
+            sim,
             formulation=pf.LinearCubic(),
             options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+            plastic_values=plastic,
         )
         u = energy.zero_state()
         for vi in range(sim.num_vertices):
@@ -226,7 +236,7 @@ class TestDeformationEnergy:
         assert hess.nnz > 0
         assert jac.nnz > 0
 
-        material_energy = pf.plastic_material_energy(state, energy, fixed_displacement=u)
+        material_energy = pf.plastic_material_energy(energy, fixed_displacement=u)
         assert isinstance(material_energy, pe.PotentialEnergy)
         assert material_energy.num_dofs == 6
         assert material_energy.state_kind == "generic"
@@ -236,35 +246,33 @@ class TestDeformationEnergy:
 
     def test_shell_energy_evaluates(self):
         sim = _make_shell_sim_mesh()
-        state = _make_state(
+        energy = _make_energy(
             sim,
+            formulation=pf.KoiterShell(),
             elastic=pf.KoiterStVK(),
             plastic=pf.ShellPlasticity(dofs=1),
         )
-        energy = pf.deformation_energy(state, formulation=pf.KoiterShell())
         u = energy.zero_state()
         assert np.isfinite(energy.value(u))
         assert energy.hessian(u).nnz > 0
 
     def test_energy_observes_state_field_update(self):
         sim = _make_tet_sim_mesh()
-        state = _make_state(sim, elastic=pf.StVK())
-        energy = pf.deformation_energy(state, formulation=pf.TetP1())
+        energy = _make_energy(sim, elastic=pf.StVK())
 
         x0 = energy.zero_state()
         before = energy.value(x0)
-        state.set_plastic_values(np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64))
+        energy.set_plastic_values(np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64))
         after = energy.value(x0)
         assert after != pytest.approx(before, abs=1e-15)
 
     def test_static_solve_uses_given_plastic_params(self):
         sim = _make_tet_sim_mesh()
-        state = _make_state(
+        energy = _make_energy(
             sim,
             elastic=pf.StVK(),
             plastic_values=np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64),
         )
-        energy = pf.deformation_energy(state, formulation=pf.TetP1())
 
         x0 = energy.zero_state()
         fixed_dofs = [dof for dof in range(energy.num_dofs) if dof != 3]
@@ -278,7 +286,7 @@ class TestDeformationEnergy:
 
     def test_energy_set_compatible(self):
         sim = _make_tet_sim_mesh()
-        energy = pf.deformation_energy(_make_state(sim), formulation=pf.TetP1())
+        energy = _make_energy(sim)
         es = pe.EnergySet([(energy, 1.0)])
         assert es.num_terms == 1
         assert es.num_dofs == energy.num_dofs
@@ -287,12 +295,10 @@ class TestDeformationEnergy:
 class TestLifetimeAndErrors:
     def test_energy_survives_mesh_and_state_deletion(self):
         sim = _make_tet_sim_mesh()
-        state = _make_state(sim)
-        energy = pf.deformation_energy(state, formulation=pf.TetP1())
+        energy = _make_energy(sim)
         u = energy.zero_state()
         before = energy.value(u)
 
-        del state
         del sim
         gc.collect()
 
@@ -300,31 +306,51 @@ class TestLifetimeAndErrors:
 
     def test_wrong_inputs_raise(self):
         sim = _make_tet_sim_mesh()
-        state = _make_state(sim)
 
-        with pytest.raises(TypeError, match="DeformationModelState"):
+        with pytest.raises(TypeError, match="elastic"):
             pf.deformation_energy(sim, formulation=pf.TetP1())
         with pytest.raises(ValueError, match="formulation is required"):
-            pf.deformation_energy(state)
+            pf.deformation_energy(
+                sim,
+                elastic=pf.StableNeo(),
+                elastic_field=pf.ElementwiseField(),
+                plastic=pf.VolumetricPlasticity(dofs=6),
+                plastic_field=pf.ElementwiseField(),
+            )
         with pytest.raises(TypeError, match="formulation must be"):
-            pf.deformation_energy(state, formulation="tet_p1")
+            pf.deformation_energy(
+                sim,
+                elastic=pf.StableNeo(),
+                elastic_field=pf.ElementwiseField(),
+                plastic=pf.VolumetricPlasticity(dofs=6),
+                plastic_field=pf.ElementwiseField(),
+                formulation="tet_p1",
+            )
         with pytest.raises(TypeError, match="options must be"):
-            pf.deformation_energy(state, formulation=pf.TetP1(), options={})
+            pf.deformation_energy(
+                sim,
+                elastic=pf.StableNeo(),
+                elastic_field=pf.ElementwiseField(),
+                plastic=pf.VolumetricPlasticity(dofs=6),
+                plastic_field=pf.ElementwiseField(),
+                formulation=pf.TetP1(),
+                options={},
+            )
         with pytest.raises(TypeError, match="ElementwiseField"):
-            pf.deformation_model_state(
+            pf.deformation_energy(
                 sim,
                 elastic=pf.StableNeo(),
                 elastic_field=None,
                 plastic=pf.VolumetricPlasticity(dofs=6),
                 plastic_field=pf.ElementwiseField(),
+                formulation=pf.TetP1(),
             )
 
     def test_no_legacy_energy_keywords(self):
         sim = _make_tet_sim_mesh()
-        state = _make_state(sim)
         with pytest.raises(TypeError):
             pf.deformation_energy(
-                state,
+                sim,
                 formulation=pf.TetP1(),
                 elastic_field=pf.ElementwiseField(),
             )
@@ -342,6 +368,8 @@ class TestModuleSurface:
         # not in the generic pypgo.energy namespace.
         assert not hasattr(pe, "DeformationEnergy")
         assert hasattr(pf, "DeformationEnergy")
+        assert not hasattr(pf, "DeformationModelConfig")
+        assert not hasattr(pf, "deformation_model_config")
 
 
 # ---------------------------------------------------------------------------
@@ -353,8 +381,7 @@ def test_deformation_energy_handle_is_concrete_peer():
     import pypgo._core as _core
 
     sim = _make_tet_sim_mesh()
-    state = _make_state(sim)
-    e = pf.deformation_energy(state, formulation=pf.TetP1())
+    e = _make_energy(sim)
 
     assert isinstance(e._handle, _core.PyDeformationEnergy)
     assert isinstance(e._handle, _core.PyPotentialEnergy)

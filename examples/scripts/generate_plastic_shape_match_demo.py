@@ -296,7 +296,7 @@ CELLS = [
           (vs. a single mesh-wide `ConstantField`).
         - `formulation=pf.LinearCubic()` — **required** for hex meshes.
 
-        `state.plastic_field.values` comes seeded with the **rest** plastic state
+        `energy.plastic_field.values` comes seeded with the **rest** plastic state
         $\mathbf S=\mathbf I$, i.e. rows $(1,0,0,1,0,1)$ — we keep a copy as our
         reference `initial_plastic` so that later `optimized − initial` is exactly
         the *learned plastic strain* $\mathbf S^\star-\mathbf I$.
@@ -349,27 +349,24 @@ CELLS = [
     ),
     code(
         """
-        state = pf.deformation_model_state(
+        # enforce_spd=False keeps the TRUE Hessian for an unbiased adjoint;
+        # enable_material_max_step=False keeps the plain analytic tangent.
+        energy = pf.deformation_energy(
             sim,
             elastic=pf.StVK(),
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ElementwiseField(),
-        )
-        # enforce_spd=False keeps the TRUE Hessian for an unbiased adjoint;
-        # enable_material_max_step=False keeps the plain analytic tangent.
-        energy = pf.deformation_energy(
-            state,
             formulation=pf.LinearCubic(),
             options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
         )
 
         # Rest plastic state S = I per element, channels (Sxx,Sxy,Sxz,Syy,Syz,Szz).
-        initial_plastic = state.plastic_field.values.copy()
+        initial_plastic = energy.plastic_field.values.copy()
         initial_plastic_norm = np.linalg.norm(initial_plastic, axis=1)
 
-        print("plastic field shape:", state.plastic_field.values.shape,
-              "channels:", state.plastic_field.num_channels)
+        print("plastic field shape:", energy.plastic_field.values.shape,
+              "channels:", energy.plastic_field.num_channels)
         print("rest plastic row[0] (should be identity):", initial_plastic[0])
         print("deformation dofs:", energy.num_dofs, "| plastic dofs:", energy.num_plastic_dofs)
         """
@@ -476,12 +473,11 @@ CELLS = [
 
         inner_optimizer = ps.NewtonOptimizer(max_iterations=10, damping=False)
         l2_weight = 1e-4  # mu_reg
-        a0 = state.plastic_field.values.ravel().copy()
+        a0 = energy.plastic_field.values.ravel().copy()
         a0_torch = torch.as_tensor(a0, dtype=torch.float64)
         target_vertices_torch = torch.as_tensor(target_vertices, dtype=torch.float64)
 
         equilibrium_layer = pgo.fem.StaticEquilibriumLayer(
-            state=state,
             energy=energy,
             fixed_dofs=fixed_dofs,
             fixed_values=fixed_values,
@@ -635,7 +631,7 @@ CELLS = [
               "(shape:", final_shape_value, "+ reg:", final_regularization, ")")
         print_error_stats("final shape error", vertex_error_stats(final_residual))
 
-        optimized_plastic = best_plastic.reshape(state.plastic_field.values.shape)
+        optimized_plastic = best_plastic.reshape(energy.plastic_field.values.shape)
         plastic_delta = optimized_plastic - initial_plastic  # learned plastic strain S* - I
         optimized_plastic_norm = np.linalg.norm(optimized_plastic, axis=1)
         plastic_delta_norm = np.linalg.norm(plastic_delta, axis=1)
@@ -790,25 +786,21 @@ CELLS = [
     ),
     code(
         """
-        state_const = pf.deformation_model_state(
+        energy_const = pf.deformation_energy(
             sim,
             elastic=pf.StVK(),
             elastic_field=pf.ElementwiseField(),
             plastic=pf.VolumetricPlasticity(dofs=6),
             plastic_field=pf.ConstantField(),     # <-- one shared tensor for all elements
-        )
-        energy_const = pf.deformation_energy(
-            state_const,
             formulation=pf.LinearCubic(),
             options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
         )
 
         # Shared rest tensor S = I, stored as a single (1, 6) row.
-        a0_const = state_const.plastic_field.values.ravel().copy()
+        a0_const = energy_const.plastic_field.values.ravel().copy()
         a0_const_torch = torch.as_tensor(a0_const, dtype=torch.float64)
 
         equilibrium_layer_const = pgo.fem.StaticEquilibriumLayer(
-            state=state_const,
             energy=energy_const,
             fixed_dofs=fixed_dofs,
             fixed_values=fixed_values,
@@ -816,8 +808,8 @@ CELLS = [
             surface_vertex_ids=surface_vertex_ids,
             inner_optimizer=ps.NewtonOptimizer(max_iterations=10, damping=False),
         )
-        print("plastic field shape:", state_const.plastic_field.values.shape,
-              "| domain:", state_const.plastic_field.domain)
+        print("plastic field shape:", energy_const.plastic_field.values.shape,
+              "| domain:", energy_const.plastic_field.domain)
         print("constant plastic dofs:", energy_const.num_plastic_dofs,
               "  (elementwise had", energy.num_plastic_dofs, "->",
               energy.num_plastic_dofs // energy_const.num_plastic_dofs, "x fewer)")

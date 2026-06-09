@@ -24,7 +24,7 @@ namespace SolidDeformationModel
 // Corner ordering matches HexTrilinearBasis (so the 8 mesh hex vertices map 1:1):
 //   corner c parametric coords come from kVertexAlpha/Beta/Gamma.
 //
-// Scalar basis index (the "node" the kernel sees): node = corner * 8 + mode.
+// Scalar basis index (the "node" the kinematics sees): node = corner * 8 + mode.
 // Local DOF index: node * 3 + coord. dN_dxi is column-major 3 x 64: dN[deriv + 3*node].
 //
 // Defining property (tensor-product cubic Hermite): given a separable cubic field
@@ -36,6 +36,7 @@ class HexTricubicHermiteBasis : public Basis
 public:
   int numNodes() const override { return 64; }
   int localDofs() const override { return 192; }
+  std::unique_ptr<Basis> clone() const override { return std::make_unique<HexTricubicHermiteBasis>(*this); }
 
   void N(double xi, double eta, double zeta, double N_out[]) const override;
   void dN_dxi(double xi, double eta, double zeta, double dN_out[]) const override;

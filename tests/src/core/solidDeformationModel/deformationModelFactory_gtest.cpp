@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "energy/deformationEnergyBuilder.h"
-#include "deformation/deformationModelState.h"
+#include "material/fields/materialParameterFieldInit.h"
 
 #include "energy/deformationModelEnergy.h"
 #include "simulation/simulationMesh.h"
@@ -28,13 +28,7 @@ std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
   DeformationModelElasticMaterial elastic,
   DeformationModelPlasticMaterial plastic)
 {
-  auto state = DeformationModelState::create(
-    mesh,
-    elastic,
-    ElasticFieldInit{},
-    plastic,
-    PlasticFieldInit{});
-  return makeDeformationEnergy(state, formulation);
+  return makeDeformationEnergy(mesh, elastic, plastic, formulation);
 }
 }  // namespace
 

@@ -7,6 +7,7 @@ copyright to USC, MIT, NUS
 
 #include "EigenDef.h"
 #include "formulations/formulation.h"
+#include "material/materialTypes.h"
 
 #include <memory>
 
@@ -16,45 +17,14 @@ namespace SolidDeformationModel
 {
 class SimulationMesh;
 class DeformationModel;
-class DeformationModelState;
 class DeformationModelManagerImpl;
-class ParameterField;
-class OptimizableField;
-class DofLayout;
-
-enum class DeformationModelElasticMaterial
-{
-  STABLE_NEO,
-  STVK_VOL,
-  INV_STVK,
-  LINEAR,
-  VOLUME,
-
-  HILL_STABLE_NEO,
-  HILL_STVK_VOL,
-  HILL_STVK,
-
-  STVK,
-  MOONEY_RIVLIN,
-
-  KOITER_FABRIC,
-  KOITER_STVK,
-};
-
-enum class DeformationModelPlasticMaterial
-{
-  VOLUMETRIC_DOF0 = 0,
-  VOLUMETRIC_DOF3 = 1,
-  VOLUMETRIC_DOF6 = 2,
-
-  SHELL_FF_DOF0 = 3,
-  SHELL_FF_DOF1 = 4,
-};
 
 class DeformationModelManager
 {
 public:
-  DeformationModelManager(std::shared_ptr<DeformationModelState> state,
+  DeformationModelManager(std::shared_ptr<const SimulationMesh> mesh,
+    DeformationModelElasticMaterial elasticMaterial,
+    DeformationModelPlasticMaterial plasticModel,
     const Formulation &formulation,
     int enforceSPD = 1,
     const double *elementFiberDirections = nullptr,
@@ -66,8 +36,6 @@ public:
 
   int getNumPlasticParameters() const;
   int getNumElasticParameters() const;
-  EigenSupport::VXd getElasticParameterSnapshot() const;
-  EigenSupport::VXd getPlasticParameterSnapshot() const;
   const SimulationMesh *getMesh() const;
 
   void setElementAlignedMatrix(int id, double R[9]);
@@ -75,16 +43,6 @@ public:
   void getVertexAlignedMatrix(int id, double R[9]) const;
 
   const DeformationModel *getDeformationModel(int eleID) const;
-
-  const OptimizableField *getElasticParameterField() const;
-  const OptimizableField *getPlasticParameterField() const;
-
-  // Layout + rest state are chosen by the Formulation and cached at manager construction.
-  // createDofLayout() returns that cached layout (shared with the assembler); buildRestPosition()
-  // returns the cached global rest DOFs. Both are vertex*3 for current formulations and will differ
-  // for tricubic Hermite -- the manager itself no longer hardcodes the assumption.
-  std::shared_ptr<const DofLayout> createDofLayout() const;
-  EigenSupport::VXd buildRestPosition() const;
 
 protected:
   std::unique_ptr<DeformationModelManagerImpl> data;

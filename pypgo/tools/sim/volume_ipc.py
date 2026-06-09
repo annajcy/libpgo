@@ -89,14 +89,14 @@ def run_volume_ipc(
 
     # 3. Build deformation energy
     sim_mesh = SimulationMesh.create_volumetric(volume)
-    deform_state = _fem.deformation_model_state(
+    deformation = _fem.deformation_energy(
         sim_mesh,
         elastic=_fem.StableNeo(),
         elastic_field=_fem.ElementwiseField(),
         plastic=_fem.VolumetricPlasticity(dofs=0),
         plastic_field=_fem.ElementwiseField(),
+        formulation=fm,
     )
-    deformation = _fem.deformation_energy(deform_state, formulation=fm)
 
     # 4. Mass, surface embedding, contact surface
     mass = fm.mass_matrix(volume)

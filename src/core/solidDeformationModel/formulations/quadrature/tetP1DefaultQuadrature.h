@@ -16,6 +16,7 @@ public:
   static constexpr int kNumPoints = 1;
 
   int numPoints() const override { return kNumPoints; }
+  std::unique_ptr<Quadrature> clone() const override { return std::make_unique<TetP1DefaultQuadrature>(*this); }
   void point(int i, double xi[3]) const override;
   double weight(int i) const override;
 };

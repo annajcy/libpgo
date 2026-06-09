@@ -6,6 +6,7 @@ copyright to USC
 #pragma once
 
 #include "deformation/deformationModelManager.h"
+#include "material/fields/materialParameterFieldInit.h"
 #include "EigenSupport.h"
 
 #include "formulations/formulation.h"
@@ -18,7 +19,7 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-class DeformationModelState;
+class SimulationMesh;
 
 struct DeformationModelOptions
 {
@@ -29,7 +30,18 @@ struct DeformationModelOptions
 };
 
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
-  std::shared_ptr<DeformationModelState> state,
+  std::shared_ptr<const SimulationMesh> mesh,
+  DeformationModelElasticMaterial elastic,
+  ElasticFieldInit elasticField,
+  DeformationModelPlasticMaterial plastic,
+  PlasticFieldInit plasticField,
+  const Formulation &formulation,
+  const DeformationModelOptions &opts = {});
+
+std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
+  std::shared_ptr<const SimulationMesh> mesh,
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
   const Formulation &formulation,
   const DeformationModelOptions &opts = {});
 

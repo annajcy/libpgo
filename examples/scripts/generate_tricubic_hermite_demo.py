@@ -102,14 +102,14 @@ CELLS = [
     code(
         """
         def make_energy(formulation):
-            state = pf.deformation_model_state(
+            return pf.deformation_energy(
                 sim_mesh,
                 elastic=pf.StableNeo(),
                 elastic_field=pf.ElementwiseField(),
                 plastic=pf.VolumetricPlasticity(dofs=6),
                 plastic_field=pf.ElementwiseField(),
+                formulation=formulation,
             )
-            return pf.deformation_energy(state, formulation=formulation)
 
         hermite = make_energy(pf.TricubicHermite())
         trilinear = make_energy(pf.LinearCubic())

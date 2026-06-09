@@ -17,13 +17,12 @@ namespace SolidDeformationModel
 
 class Basis;
 class Quadrature;
-class VolumetricKernel;
-class ShellKernel;
+class VolumetricKinematics;
+class ShellKinematics;
 class SimulationMesh;
 class DeformationModel;
 class ElasticModel;
 class PlasticModel;
-class ParameterField;
 class DofLayout;
 enum class SimulationMeshType;
 
@@ -41,8 +40,7 @@ public:
 
   virtual std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
-    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-    const ParameterField *elasticParams, const ParameterField *plasticParams) const = 0;
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const = 0;
 
   virtual SimulationMeshType compatibleMeshType() const = 0;
 
@@ -63,7 +61,7 @@ public:
 
 // ============================================================
 // VolumetricFormulation — owns Basis + Quadrature, creates
-// VolumetricKernel per element.
+// VolumetricKinematics per element.
 // ============================================================
 
 class VolumetricFormulation : public Formulation
@@ -75,12 +73,11 @@ public:
   const Basis &basis() const { return *basis_; }
   const Quadrature &quadrature() const { return *quad_; }
 
-  std::unique_ptr<VolumetricKernel> createKernel(const double *restPositions) const;
+  std::unique_ptr<VolumetricKinematics> createKinematics(const double *restPositions) const;
 
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
-    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-    const ParameterField *elasticParams, const ParameterField *plasticParams) const override;
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const override;
 
   // Formulation-aware dynamics operators.
   //
@@ -102,19 +99,18 @@ private:
 };
 
 // ============================================================
-// ShellFormulation — creates ShellKernel per element.
+// ShellFormulation — creates ShellKinematics per element.
 // ============================================================
 
 class ShellFormulation : public Formulation
 {
 public:
-  std::unique_ptr<ShellKernel> createKernel(
+  std::unique_ptr<ShellKinematics> createKinematics(
     const double restX[18], const bool hasVtx[6]) const;
 
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
-    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-    const ParameterField *elasticParams, const ParameterField *plasticParams) const override;
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const override;
 
   SimulationMeshType compatibleMeshType() const override;
 };
@@ -187,8 +183,7 @@ public:
 
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
-    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-    const ParameterField *elasticParams, const ParameterField *plasticParams) const override;
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const override;
 };
 
 class KoiterShellFormulation : public ShellFormulation

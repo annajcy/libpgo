@@ -5,10 +5,10 @@
 #include "basis/hexTricubicHermiteBasis.h"
 #include "quadrature/tetP1DefaultQuadrature.h"
 #include "quadrature/gaussLegendreHexQuadrature.h"
-#include "kernels/volumetricKernel.h"
-#include "kernels/koiterShellKernel.h"
-#include "elements/volumetricDeformationModel.h"
-#include "elements/shellDeformationModel.h"
+#include "kinematics/volumetricKinematics.h"
+#include "kinematics/koiterShellKinematics.h"
+#include "deformation/volume/volumetricDeformationModel.h"
+#include "deformation/shell/shellDeformationModel.h"
 #include "dof/vertex3DofLayout.h"
 #include "dof/hexTricubicHermiteDofLayout.h"
 #include "barycentricCoordinates.h"
@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -26,6 +27,20 @@ namespace pgo
 {
 namespace SolidDeformationModel
 {
+namespace
+{
+template<class Derived, class Base>
+std::unique_ptr<Derived> checkedMaterialCast(
+  std::unique_ptr<Base> model, const char *message)
+{
+  if (Derived *typed = dynamic_cast<Derived *>(model.get())) {
+    model.release();
+    return std::unique_ptr<Derived>(typed);
+  }
+
+  throw std::invalid_argument(message);
+}
+}  // namespace
 
 // ============================================================
 // Formulation — DOF-layout / rest-state policy defaults
@@ -65,21 +80,21 @@ VolumetricFormulation::VolumetricFormulation(
 
 VolumetricFormulation::~VolumetricFormulation() = default;
 
-std::unique_ptr<VolumetricKernel> VolumetricFormulation::createKernel(
+std::unique_ptr<VolumetricKinematics> VolumetricFormulation::createKinematics(
   const double *restPositions) const
 {
-  return std::make_unique<VolumetricKernel>(
-    restPositions, *basis_, *quad_);
+  return std::make_unique<VolumetricKinematics>(
+    restPositions, basis_->clone(), quad_->clone());
 }
 
 // ============================================================
 // ShellFormulation
 // ============================================================
 
-std::unique_ptr<ShellKernel> ShellFormulation::createKernel(
+std::unique_ptr<ShellKinematics> ShellFormulation::createKinematics(
   const double restX[18], const bool hasVtx[6]) const
 {
-  return std::make_unique<KoiterShellKernel>(restX, hasVtx);
+  return std::make_unique<KoiterShellKinematics>(restX, hasVtx);
 }
 
 // ============================================================
@@ -421,16 +436,20 @@ EigenSupport::VXd TricubicHermiteFormulation::buildGlobalRestDofs(const Simulati
 
 std::unique_ptr<DeformationModel> TricubicHermiteFormulation::createElement(
   const SimulationMesh &mesh, int ele,
-  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-  const ParameterField *elasticParams, const ParameterField *plasticParams) const
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const
 {
   std::array<double, 192> restPosition;
   elementHermiteRestDofs(mesh, ele, restPosition);
 
-  auto kernel = createKernel(restPosition.data());
+  auto kinematics = createKinematics(restPosition.data());
   return std::make_unique<VolumetricDeformationModel>(
-    ele, std::move(*kernel), std::move(elasticModel), std::move(plasticModel),
-    elasticParams, plasticParams);
+    std::move(*kinematics),
+    checkedMaterialCast<ElasticModel3DDeformationGradient>(
+      std::move(elasticModel),
+      "TricubicHermiteFormulation requires ElasticModel3DDeformationGradient."),
+    checkedMaterialCast<PlasticModel3DDeformationGradient>(
+      std::move(plasticModel),
+      "TricubicHermiteFormulation requires PlasticModel3DDeformationGradient."));
 }
 
 // ============================================================
@@ -455,28 +474,31 @@ SimulationMeshType ShellFormulation::compatibleMeshType() const { return Simulat
 
 std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
   const SimulationMesh &mesh, int ele,
-  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-  const ParameterField *elasticParams, const ParameterField *plasticParams) const
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const
 {
   // NOTE (tricubic Hermite seam): this assumes every basis node IS a mesh vertex with a 3-vector
   // rest position. A tricubic Hermite formulation has 64 basis functions but only 8 mesh corners,
   // so it overrides createElement to synthesize the 64 local rest Hermite DOFs (value + derivative
-  // modes) from the 8 corner positions; VolumetricKernel then consumes them unchanged.
+  // modes) from the 8 corner positions; VolumetricKinematics then consumes them unchanged.
   const int numNodes = getNodesPerElement();
   std::vector<double> restPosition(numNodes * 3);
   for (int j = 0; j < numNodes; j++)
     mesh.getVertex(ele, j, &restPosition[3 * j]);
 
-  auto kernel = createKernel(restPosition.data());
+  auto kinematics = createKinematics(restPosition.data());
   return std::make_unique<VolumetricDeformationModel>(
-    ele, std::move(*kernel), std::move(elasticModel), std::move(plasticModel),
-    elasticParams, plasticParams);
+    std::move(*kinematics),
+    checkedMaterialCast<ElasticModel3DDeformationGradient>(
+      std::move(elasticModel),
+      "VolumetricFormulation requires ElasticModel3DDeformationGradient."),
+    checkedMaterialCast<PlasticModel3DDeformationGradient>(
+      std::move(plasticModel),
+      "VolumetricFormulation requires PlasticModel3DDeformationGradient."));
 }
 
 std::unique_ptr<DeformationModel> ShellFormulation::createElement(
   const SimulationMesh &mesh, int ele,
-  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-  const ParameterField *elasticParams, const ParameterField *plasticParams) const
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const
 {
   double restPosition[18] = {};
   bool hasVtx[6];
@@ -490,10 +512,15 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
     }
   }
 
-  auto kernel = createKernel(restPosition, hasVtx);
+  auto kinematics = createKinematics(restPosition, hasVtx);
   return std::make_unique<ShellDeformationModel>(
-    ele, std::move(kernel), std::move(elasticModel), std::move(plasticModel),
-    elasticParams, plasticParams);
+    std::move(kinematics),
+    checkedMaterialCast<ElasticModel2DFundamentalForms>(
+      std::move(elasticModel),
+      "ShellFormulation requires ElasticModel2DFundamentalForms."),
+    checkedMaterialCast<PlasticModel2DFundamentalForms>(
+      std::move(plasticModel),
+      "ShellFormulation requires PlasticModel2DFundamentalForms."));
 }
 
 }  // namespace SolidDeformationModel

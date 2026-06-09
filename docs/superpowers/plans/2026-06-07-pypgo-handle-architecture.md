@@ -1163,7 +1163,7 @@ Expected: tests pass.
 - Modify: `pypgo/fem/elastic.py`
 - Modify: `pypgo/fem/plastic.py`
 - Modify: `pypgo/fem/formulations.py`
-- Modify: `pypgo/fem/state.py`
+- Modify: `pypgo/fem/energy.py`
 - Modify: `pypgo/fem/fields.py`
 - Modify: `pypgo/implicit.py`
 - Modify: tests that directly inspect `_core_obj`
@@ -1299,7 +1299,7 @@ src/python/pypgo/bindings/mesh/volume_bindings.cpp
   - export_* and PyVegPayload property lambdas
 
 src/python/pypgo/bindings/energy/bindings.cpp
-  - PyParameterField, PyDeformationModelState, PyEnergySet, PyDeformationEnergy classes
+  - PyParameterField, PyEnergySet, PyDeformationEnergy classes
   - parse/material/field/energy factory helper implementations
   - capsule owner lambdas inside local classes
 

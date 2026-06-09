@@ -19,7 +19,7 @@ field); for `KoiterStVK` it is `5`; for `VolumetricPlasticity(dofs=6)` it is `6`
 ## Two layouts
 
 How many independent copies of $\boldsymbol\theta$ exist is the whole distinction
-(`src/core/solidDeformationModel/formulations/parameters/parameterField.h:13-49`):
+(`src/core/solidDeformationModel/material/fields/parameterField.h:13-49`):
 
 | Descriptor | Meaning | Stored shape | Global DOFs | `globalDof(e,i)` |
 |---|---|---|---|---|
@@ -41,10 +41,10 @@ ElementwiseField(values=per_element_arr) # (num_elements, num_channels)
 
 ## The runtime view: `ParameterField`
 
-After a state is built ([`state.md`](state.md)), the live C++-owned field is exposed read-only:
+After a `DeformationEnergy` is built, the live C++-owned fields are exposed through it:
 
 ```python
-pf = state.elastic_field          # a ParameterField
+pf = energy.elastic_field         # a ParameterField
 pf.domain                          # "elastic" or "plastic"
 pf.model                           # e.g. "stvk", "koiter_stvk"
 pf.num_elements
@@ -68,7 +68,7 @@ Material-parameter optimization needs more than storage — it needs to express 
   `gather(e, global, local)`; this is what makes `ConstantField` accumulate into shared
   columns while `ElementwiseField` writes to disjoint blocks.
 
-### Field kernels ↔ function
+### Field operators ↔ function
 
 Writing $\mathbf g$ for the global parameter vector and $\boldsymbol\theta_{e,q}$ for the
 $C$-vector seen at material point $(e,q)$ (`…/parameterField.h:46-68`):
@@ -89,16 +89,15 @@ field. The field kinds enum (`ParameterFieldKind`) also reserves `QUADRATURE_POI
 
 ## Updating values
 
-Fields are mutated in place through the state (see [`state.md`](state.md)):
+Fields are mutated in place through the energy:
 
 ```python
-state.set_elastic_values(new_values)   # validates shape/dtype, writes into C++ storage
-state.set_plastic_values(new_values)
+energy.set_elastic_values(new_values)   # validates shape/dtype, writes into C++ storage
+energy.set_plastic_values(new_values)
 ```
 
 ## Further reading
 
 - [`elastic.md`](elastic.md) — what the elastic channels mean per model.
 - [`plastic.md`](plastic.md) — the plastic field as $\mathbf F_p$ parameters.
-- [`state.md`](state.md) — how descriptors become live fields bound to a mesh.
 - [`energy.md`](energy.md) — the parameter derivatives that consume `computeDerivative`.

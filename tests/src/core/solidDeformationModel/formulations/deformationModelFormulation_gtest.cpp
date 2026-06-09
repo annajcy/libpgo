@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "energy/deformationEnergyBuilder.h"
-#include "deformation/deformationModelState.h"
+#include "material/fields/materialParameterFieldInit.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
@@ -23,9 +23,6 @@ using pgo::SolidDeformationModel::KoiterShellFormulation;
 using pgo::SolidDeformationModel::LinearCubicFormulation;
 using pgo::SolidDeformationModel::P1TetFormulation;
 using pgo::SolidDeformationModel::SimulationMesh;
-using pgo::SolidDeformationModel::DeformationModelState;
-using pgo::SolidDeformationModel::ElasticFieldInit;
-using pgo::SolidDeformationModel::PlasticFieldInit;
 
 constexpr const char *kTorusVegPath = LIBPGO_TEST_TORUS_VEG;
 constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
@@ -37,14 +34,10 @@ std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> makeDefaultF
   DeformationModelElasticMaterial elastic,
   DeformationModelPlasticMaterial plastic)
 {
-  auto state = DeformationModelState::create(
+  return pgo::SolidDeformationModel::makeDeformationEnergy(
     mesh,
     elastic,
-    ElasticFieldInit{},
     plastic,
-    PlasticFieldInit{});
-  return pgo::SolidDeformationModel::makeDeformationEnergy(
-    state,
     formulation);
 }
 }  // namespace
@@ -150,7 +143,7 @@ TEST(DeformationModelFormulationGTest, CubicFormulationVertex3PolicyDefaults)
   checkVertex3DefaultPolicy(*simMesh, LinearCubicFormulation{});
 }
 
-TEST(DeformationModelFormulationGTest, ManagerSurfacesFormulationRestInvariant)
+TEST(DeformationModelFormulationGTest, AssemblerSurfacesFormulationRestInvariant)
 {
   pgo::Logging::init();
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
@@ -163,12 +156,10 @@ TEST(DeformationModelFormulationGTest, ManagerSurfacesFormulationRestInvariant)
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   ASSERT_NE(bundle, nullptr);
 
-  const auto &manager = bundle->assembler().getDeformationModelManager();
-  auto layout = manager.createDofLayout();
-  ASSERT_NE(layout, nullptr);
-  EXPECT_EQ(layout->numGlobalDofs(), simMesh->getNumVertices() * 3);
-  EXPECT_EQ(manager.buildRestPosition().size(),
-    static_cast<Eigen::Index>(layout->numGlobalDofs()));
+  const auto &assembler = bundle->assembler();
+  EXPECT_EQ(assembler.getDofLayout().numGlobalDofs(), simMesh->getNumVertices() * 3);
+  EXPECT_EQ(assembler.getRestPosition().size(),
+    static_cast<Eigen::Index>(assembler.getDofLayout().numGlobalDofs()));
 }
 
 TEST(DeformationModelFormulationGTest, CubicFormulationBuildsEnergy)

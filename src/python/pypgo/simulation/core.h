@@ -9,7 +9,7 @@ namespace pgo
 {
 
 // Python-facing SimulationMesh owner. Holds a shared SimulationMesh handle so
-// DeformationModelState can retain the exact same mesh instance.
+// deformation energies and parameter-field configs retain the exact same mesh instance.
 class PySimulationMesh
 {
 public:

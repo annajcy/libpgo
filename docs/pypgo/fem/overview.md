@@ -65,7 +65,7 @@ per element (elementwise). → [`fields.md`](fields.md).
 ### 5. Assembly — the discrete energy and its derivatives
 
 Summing the element integrals gives the global energy, force, and stiffness consumed by the
-solver. → state container in [`state.md`](state.md), energy in [`energy.md`](energy.md).
+solver. → [`energy.md`](energy.md).
 
 $$E(\mathbf u)=\sum_e \sum_q w_q\,|\det \mathbf D_m^{q}|\;\Psi\big(\mathbf F_e(\mathbf u)\big), \qquad \mathbf g=\nabla_{\mathbf u}E,\qquad \mathbf K=\nabla^2_{\mathbf u}E.$$
 
@@ -75,9 +75,8 @@ $$E(\mathbf u)=\sum_e \sum_q w_q\,|\det \mathbf D_m^{q}|\;\Psi\big(\mathbf F_e(\
 |---|---|---|---|
 | [`elastic.py`](elastic.md) | $\Psi(\mathbf F)$, $\mathbf P=\partial\Psi/\partial\mathbf F$ | constitutive law | `elastic/` |
 | [`formulations.py`](formulations.md) | $\mathbf F(\mathbf u)$, $N_a$, $\mathbf M$, $\mathbf f$ | discretization | `formulations/` |
-| [`fields.py`](fields.md) | material coefficients + sensitivities | parameters | `formulations/parameters/` |
+| [`fields.py`](fields.md) | material coefficients + sensitivities | parameters | `material/fields/` |
 | [`plastic.py`](plastic.md) | $\mathbf F_p$ (plastic field) | plasticity | `plastic/` |
-| [`state.py`](state.md) | $(\text{mesh},\Psi,\text{p-model},\text{fields})$ bundle | state | `deformation/deformationModelState.*` |
 | [`energy.py`](energy.md) | $E(\mathbf u)$, $\mathbf g$, $\mathbf K$, param derivatives | assembly | `deformation/`, `energy/` |
 
 ## The C++ engine architecture
@@ -88,7 +87,7 @@ fields; the assembler gathers element contributions into the global operators; a
 energy class exposes them through the optimizer's `PotentialEnergy` interface.
 
 ```
-Formulation  =  basis  +  quadrature  +  dof-layout  +  kernel/geometry      (formulations/)
+Formulation  =  basis  +  quadrature  +  dof-layout  +  kinematics/geometry      (formulations/)
     └─ createElement() ──▶ DeformationModel per element   (E_e, ∂E/∂x, ∂²E/∂x², parameter derivs)
           └─ DeformationModelManager   (owns element models + OptimizableField parameters)
                 └─ DeformationModelAssembler   (gather/scatter ▶ global E, g, K, parameter Jacobians)
@@ -101,10 +100,10 @@ Each subsystem answers exactly one question of the discrete theory:
 |---|---|---|
 | `formulations/basis/` | shape functions $N_a(\boldsymbol\xi)$ and $\partial N_a/\partial\boldsymbol\xi$ — *interpolation* | `Basis`; `TetP1Basis` (4 nodes), `HexTrilinearBasis` (8), `HexTricubicHermiteBasis` (64 = 8 corners × 8 Hermite modes) |
 | `formulations/quadrature/` | the integral $\int_e\!\Psi\,dV\approx\sum_q w_q\,\Psi(\boldsymbol\xi_q)$ — *numerical integration* | `Quadrature`; `TetP1DefaultQuadrature` (1 pt), `GaussLegendreHexQuadrature2`/`…4` (2³ / 4³) |
-| `formulations/geometry/` + `kernels/` | rest Jacobian $\mathbf D_m=\partial\mathbf X/\partial\boldsymbol\xi$, $\mathbf F$ and $\partial\mathbf F/\partial\mathbf x$ — *kinematics* | `VolumetricKernel` |
+| `formulations/geometry/` + `formulations/kinematics/` | rest Jacobian $\mathbf D_m=\partial\mathbf X/\partial\boldsymbol\xi$, $\mathbf F$ and $\partial\mathbf F/\partial\mathbf x$ — *kinematics* | `VolumetricKinematics` |
 | `formulations/dof/` | local↔global DOF map, gather/scatter, Hessian sparsity — *assembly bookkeeping* | `DofLayout`; `Vertex3DofLayout` (3/vertex), `HexTricubicHermiteDofLayout` (24/vertex) |
-| `formulations/elements/` | per-element $E_e,\nabla E_e,\nabla^2E_e$ and parameter derivatives — *the element kernel* | `VolumetricDeformationModel`, `ShellDeformationModel` |
-| `formulations/parameters/` | coefficient storage and $\partial(\text{value})/\partial(\text{params})$ — *material fields* | `ParameterField`, `OptimizableField` |
+| `deformation/` | per-element $E_e,\nabla E_e,\nabla^2E_e$ and parameter derivatives — *the element kinematics* | `VolumetricDeformationModel`, `ShellDeformationModel` |
+| `material/fields/` | coefficient storage and $\partial(\text{value})/\partial(\text{params})$ — *material fields* | `ParameterField`, `OptimizableField` |
 
 The four concrete formulations are just different (basis, quadrature, DOF-layout) triples
 — see `src/core/solidDeformationModel/formulations/formulation.cpp:96` (`tet_p1`), `:111`
@@ -138,8 +137,8 @@ from pypgo.fem import (
     VolumetricPlasticity, ShellPlasticity,
     # Parameter field descriptors
     ConstantField, ElementwiseField,
-    # State + energy
-    deformation_model_state, deformation_energy, plastic_material_energy,
+    # Energy
+    deformation_energy, plastic_material_energy,
     DeformationOptions,
 )
 ```
@@ -149,23 +148,21 @@ from pypgo.fem import (
 ```python
 import numpy as np
 from pypgo.fem import (
-    deformation_model_state, deformation_energy,
+    deformation_energy,
     StableNeo, ElementwiseField, VolumetricPlasticity, TetP1,
 )
 
-# 1. Bind material + parameter fields to a SimulationMesh (built elsewhere).
-state = deformation_model_state(
+# 1. Assemble E(u) for a chosen discretization.
+energy = deformation_energy(
     sim_mesh,
     elastic=StableNeo(),       # Ψ(F): Stable Neo-Hookean
     elastic_field=ElementwiseField(),   # defaults seeded from the mesh material
     plastic=VolumetricPlasticity(dofs=0),  # purely elastic
     plastic_field=ElementwiseField(),
+    formulation=TetP1(),
 )
 
-# 2. Assemble E(u) for a chosen discretization.
-energy = deformation_energy(state, TetP1())
-
-# 3. Evaluate at a displacement u (force = -gradient, stiffness K = hessian).
+# 2. Evaluate at a displacement u (force = -gradient, stiffness K = hessian).
 u = np.zeros(energy.num_dofs)
 print(energy.value(u))          # scalar elastic energy
 g = energy.gradient(u)          # internal force vector
@@ -174,17 +171,17 @@ K = energy.hessian(u)           # tangent stiffness (SparseMatrix)
 
 ## Formula ↔ function index
 
-A master map from each mathematical object to the Python entry point and the C++ kernel that
+A master map from each mathematical object to the Python entry point and the C++ kinematics that
 computes it. Notation: $J_q = w_q\,|\det\mathbf D_m^q|$ is the rest quadrature weight,
 $\mathbf F_e=\mathbf F\,\mathbf F_p^{-1}$ the elastic gradient, $a$/$b$ the plastic/elastic
 parameters. Each row is detailed in the linked document.
 
-| Math object | Formula | Python | C++ kernel | Doc |
+| Math object | Formula | Python | C++ kinematics | Doc |
 |---|---|---|---|---|
 | strain energy density | $\Psi(\mathbf F_e)$ | model class | `compute_psi` | [elastic](elastic.md) |
 | 1st PK stress | $\mathbf P=\partial\Psi/\partial\mathbf F$ | — | `compute_P` | [elastic](elastic.md) |
 | material tangent | $\partial^2\Psi/\partial\mathbf F^2$ | — | `compute_dPdF` | [elastic](elastic.md) |
-| deformation gradient | $\mathbf F=\mathbf x\,(\partial N/\partial\boldsymbol\xi)^{\!\top}\mathbf D_m^{-1}$ | — | `VolumetricKernel::computeFref` | [formulations](formulations.md) |
+| deformation gradient | $\mathbf F=\mathbf x\,(\partial N/\partial\boldsymbol\xi)^{\!\top}\mathbf D_m^{-1}$ | — | `VolumetricKinematics::computeFref` | [formulations](formulations.md) |
 | plastic split | $\mathbf F_p=A(a)$, $\mathbf F_e=\mathbf F\,\mathbf F_p^{-1}$ | — | `computeA` / `computeAInv` | [plastic](plastic.md) |
 | element energy | $E_e=\sum_q J_q\det\mathbf F_p\;\Psi(\mathbf F_e^q)$ | — | `computeEnergy` | [formulations](formulations.md) |
 | total energy | $E(\mathbf u)=\sum_e E_e$ | `energy.value(u)` | assembler `computeEnergy` | [energy](energy.md) |
@@ -205,7 +202,6 @@ parameters. Each row is detailed in the linked document.
 - [`formulations.md`](formulations.md) — basis · quadrature · DOF layout · kinematics.
 - [`fields.md`](fields.md) — material parameter fields and their sensitivities.
 - [`plastic.md`](plastic.md) — the elastic/plastic split $\mathbf F=\mathbf F_e\mathbf F_p$.
-- [`state.md`](state.md) — `DeformationModelState`, the mesh+material bundle.
 - [`energy.md`](energy.md) — assembly, solver interface, and parameter optimization.
 - [`../mesh/volume/material.md`](../mesh/volume/material.md) — mesh-level material specs
   ($E,\nu$ → Lamé $\lambda,\mu$; Mooney-Rivlin) consumed by the elastic models here.

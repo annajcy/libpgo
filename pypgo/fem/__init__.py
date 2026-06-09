@@ -1,9 +1,4 @@
-"""pypgo.fem - FEM construction surface for deformation energy.
-
-The deformation model API is state-based: material choices and parameter field
-descriptors are bound to one SimulationMesh through DeformationModelState, then
-deformation_energy() consumes that state plus a formulation.
-"""
+"""pypgo.fem - FEM construction surface for deformation energy."""
 
 from pypgo.fem.formulations import (
     Formulation,
@@ -32,10 +27,6 @@ from pypgo.fem.fields import (
     ConstantField,
     ElementwiseField,
     ParameterField,
-)
-from pypgo.fem.state import (
-    DeformationModelState,
-    deformation_model_state,
 )
 from pypgo.fem.energy import (
     DeformationEnergy,
@@ -79,9 +70,6 @@ __all__ = [
     "ConstantField",
     "ElementwiseField",
     "ParameterField",
-    # State
-    "DeformationModelState",
-    "deformation_model_state",
     # Energy
     "DeformationEnergy",
     "DeformationOptions",

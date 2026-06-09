@@ -13,13 +13,13 @@
 #include "EigenSupport.h"
 #include "simulation/simulationMesh.h"
 #include "energy/deformationEnergyBuilder.h"
-#include "deformation/deformationModelState.h"
+#include "material/fields/materialParameterFieldInit.h"
 #include "deformation/deformationModelManager.h"
 #include "basicIO.h"
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
-#include "plastic/plasticModel.h"
-#include "plastic/plasticModel3DDeformationGradient.h"
+#include "material/plastic/plasticModel.h"
+#include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "multiVertexPullingSoftConstraints.h"
 #include "backwardEuler/backwardEulerStepper.h"
 #include "dynamicStepper.h"
@@ -682,21 +682,19 @@ int pgo_run_sim_from_config(const char *configFileName)
   int n3 = n * 3;
 
   // Build deformation energy.
-  auto deformationState = SolidDeformationModel::DeformationModelState::create(
-    simMesh,
-    elasticMat,
-    SolidDeformationModel::ElasticFieldInit{},
-    SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    SolidDeformationModel::PlasticFieldInit{});
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy;
   switch (simMesh->getElementType()) {
   case SolidDeformationModel::SimulationMeshType::TET:
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      deformationState, SolidDeformationModel::P1TetFormulation{});
+      simMesh, elasticMat,
+      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+      SolidDeformationModel::P1TetFormulation{});
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      deformationState, SolidDeformationModel::LinearCubicFormulation{});
+      simMesh, elasticMat,
+      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+      SolidDeformationModel::LinearCubicFormulation{});
     break;
   default:
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");

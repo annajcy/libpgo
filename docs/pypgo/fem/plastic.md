@@ -29,11 +29,11 @@ plus derivatives ($\partial\mathbf F_p^{-1}/\partial a$, $\partial\det\mathbf F_
 (`defaultParams` → identity, `…/plasticModel3DDeformationGradient.h:44-48`); a model with
 zero parameters leaves $\mathbf F_e=\mathbf F$ and the simulation is purely elastic.
 
-### Plastic kernels ↔ function
+### Plastic operators ↔ function
 
 Because $\mathbf F_e=\mathbf F\,\mathbf F_p^{-1}(a)$, every energy derivative with respect to
 the plastic parameters $a$ flows through the plastic factor by the chain rule
-(`formulations/elements/volumetricDeformationModel.cpp:636-688`):
+(`deformation/volume/volumetricDeformationModel.cpp:636-688`):
 
 $$\frac{\partial\mathbf F_e}{\partial a_i}=\mathbf F\,\frac{\partial\mathbf F_p^{-1}}{\partial a_i}, \qquad \frac{\partial\Psi}{\partial a_i}=\mathbf P:\frac{\partial\mathbf F_e}{\partial a_i}, \qquad \frac{\partial\mathbf F_e}{\partial\mathbf x}=\frac{\partial\mathbf F}{\partial\mathbf x}\,\mathbf F_p^{-1}.$$
 

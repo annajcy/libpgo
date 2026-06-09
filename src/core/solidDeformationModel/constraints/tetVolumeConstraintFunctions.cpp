@@ -8,7 +8,7 @@ copyright to USC,MIT,NUS
 
 #include "formulations/basis/tetP1Basis.h"
 #include "formulations/quadrature/tetP1DefaultQuadrature.h"
-#include "formulations/kernels/volumetricKernel.h"
+#include "formulations/kinematics/volumetricKinematics.h"
 
 #include "determinantDerivatives.h"
 #include "tetMesh.h"
@@ -42,9 +42,9 @@ TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(const SimulationMesh 
       for (int i = 0; i < 4; i++) {
         tetMesh->getVertex(ei, i, xlocal.data() + i * 3);
       }
-      VolumetricKernel kernel(xlocal.data(), tetBasis, tetQuad);
-      DmInv.block<3, 3>(0, ei * 3) = kernel.restDmInv(0);
-      dFdx[ei] = kernel.rest_dFdx(0);
+      VolumetricKinematics kinematics(xlocal.data(), tetBasis, tetQuad);
+      DmInv.block<3, 3>(0, ei * 3) = kinematics.restDmInv(0);
+      dFdx[ei] = kinematics.rest_dFdx(0);
     }
   }
 

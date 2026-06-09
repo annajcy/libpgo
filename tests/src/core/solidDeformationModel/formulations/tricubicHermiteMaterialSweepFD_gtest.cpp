@@ -16,8 +16,8 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
-#include "deformation/deformationModelState.h"
-#include "plastic/plasticModel3DDeformationGradient.h"
+#include "material/fields/materialParameterFieldInit.h"
+#include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "simulation/simulationMesh.h"
 #include "formulations/formulation.h"
 #include "pgoLogging.h"
@@ -62,19 +62,16 @@ ES::VXd fivePointVector(Eval eval, double h)
 }
 
 // Set plastic to identity for all elements.
-void setVolumetricPlasticIdentity(DeformationModelEnergy &energy, DeformationModelState &state)
+void setVolumetricPlasticIdentity(DeformationModelEnergy &energy)
 {
-  const auto &assembler = energy.assembler();
-  const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(
-    assembler.getDeformationModelManager().getDeformationModel(0)->getPlasticModel());
-  ASSERT_NE(plasticModel, nullptr);
+  auto &assembler = energy.assembler();
+  const auto &manager = assembler.getDeformationModelManager();
   const int nele = assembler.getDeformationModelManager().getMesh()->getNumElements();
   const int npp = assembler.getNumPlasticParams();
   ES::VXd plastic(static_cast<Eigen::Index>(npp) * nele);
-  ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++)
-    plasticModel->toParam(identity.data(), plastic.data() + ei * npp);
-  state.setPlasticValues(plastic);
+    manager.getDeformationModel(ei)->defaultPlasticParams(plastic.data() + ei * npp);
+  assembler.setPlasticValues(plastic);
 }
 
 // Smooth nonzero displacement over all Hermite DOFs.
@@ -89,7 +86,6 @@ ES::VXd makeSmoothHermiteDisplacement(int n)
 struct HermiteSweepCase
 {
   std::shared_ptr<const SimulationMesh> meshOwner;
-  std::shared_ptr<DeformationModelState> state;
   std::unique_ptr<DeformationModelEnergy> energy;
   ES::VXd elementFiber, vertexFiber;
   int numDOFs = 0;
@@ -128,18 +124,21 @@ HermiteSweepCase makeHermiteCase(DeformationModelElasticMaterial elastic, bool w
   for (int vi = 0; vi < nvtx; vi++)
     c.vertexFiber.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
 
-  c.state = DeformationModelState::create(
-    c.meshOwner, elastic, ElasticFieldInit{},
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
+  auto elasticField = createElasticParameterField(*c.meshOwner, elastic, ElasticFieldInit{});
+  auto plasticField = createPlasticParameterField(
+    *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
 
   const double *ef = withHill ? c.elementFiber.data() : nullptr;
   const double *vf = withHill ? c.vertexFiber.data() : nullptr;
-  auto manager = std::make_unique<DeformationModelManager>(
-    c.state, TricubicHermiteFormulation{}, kExactDerivativeEnforceSpd, ef, vf);
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  TricubicHermiteFormulation formulation;
+  auto manager = std::make_shared<DeformationModelManager>(
+    c.meshOwner, elastic, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    formulation, kExactDerivativeEnforceSpd, ef, vf);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), 0, false);
   c.numDOFs = c.energy->getNumDOFs();
-  setVolumetricPlasticIdentity(*c.energy, *c.state);
+  setVolumetricPlasticIdentity(*c.energy);
   return c;
 }
 
@@ -234,15 +233,20 @@ TEST(TricubicHermiteMaterialSweepFDGTest, MooneyRivlin)
 
   HermiteSweepCase c;
   c.meshOwner = mesh;
-  c.state = DeformationModelState::create(
-    c.meshOwner, DeformationModelElasticMaterial::MOONEY_RIVLIN, ElasticFieldInit{},
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
-  auto manager = std::make_unique<DeformationModelManager>(
-    c.state, TricubicHermiteFormulation{}, kExactDerivativeEnforceSpd, nullptr, nullptr);
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  auto elasticField = createElasticParameterField(
+    *c.meshOwner, DeformationModelElasticMaterial::MOONEY_RIVLIN, ElasticFieldInit{});
+  auto plasticField = createPlasticParameterField(
+    *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
+  TricubicHermiteFormulation formulation;
+  auto manager = std::make_shared<DeformationModelManager>(
+    c.meshOwner, DeformationModelElasticMaterial::MOONEY_RIVLIN,
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), 0, false);
   c.numDOFs = c.energy->getNumDOFs();
-  setVolumetricPlasticIdentity(*c.energy, *c.state);
+  setVolumetricPlasticIdentity(*c.energy);
 
   checkGradientVsFDFunc(c, 1e-6, "MOONEY_RIVLIN");
   checkHessianVsFDGradient(c, 1e-5, "MOONEY_RIVLIN");

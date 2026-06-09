@@ -14,7 +14,7 @@ class SimulationMesh;
 // Each mesh vertex carries 24 DOFs = 8 Hermite modes x 3 coords. Global DOF index:
 //   global = vertexIndex * 24 + mode * 3 + coord
 // Local element DOFs = 8 corners x 8 modes x 3 coords = 192. Local index matches the basis
-// "node = corner*8 + mode" ordering the kernel consumes:
+// "node = corner*8 + mode" ordering the kinematics consumes:
 //   local = (corner * 8 + mode) * 3 + coord
 //
 // This is a pure index permutation (transform T = identity): it assumes the element-local

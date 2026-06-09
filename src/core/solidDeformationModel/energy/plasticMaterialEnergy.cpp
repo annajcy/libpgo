@@ -16,16 +16,11 @@ using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
 PlasticMaterialEnergy::PlasticMaterialEnergy(
-  std::shared_ptr<DeformationModelState> state,
   std::shared_ptr<DeformationModelEnergy> deformationEnergy,
   EigenSupport::ConstRefVecXd fixedDisplacement):
-  state_(std::move(state)),
   deformationEnergy_(std::move(deformationEnergy)),
   fixedDisplacement_(fixedDisplacement)
 {
-  if (!state_) {
-    throw std::invalid_argument("PlasticMaterialEnergy requires a non-null state.");
-  }
   if (!deformationEnergy_) {
     throw std::invalid_argument("PlasticMaterialEnergy requires a non-null deformation energy.");
   }
@@ -44,7 +39,7 @@ void PlasticMaterialEnergy::setPlasticState(EigenSupport::ConstRefVecXd x) const
   if (x.size() != getNumDOFs()) {
     throw std::invalid_argument("PlasticMaterialEnergy state size does not match the number of plastic DOFs.");
   }
-  state_->setPlasticValues(x);
+  deformationEnergy_->assembler().setPlasticValues(x);
 }
 
 ES::VXd PlasticMaterialEnergy::absolutePositions() const

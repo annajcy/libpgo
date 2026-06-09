@@ -50,6 +50,12 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("num_plastic_params", &PyDeformationEnergy::numPlasticParams)
     .def_prop_ro("num_elastic_dofs", &PyDeformationEnergy::numElasticDofs)
     .def_prop_ro("num_plastic_dofs", &PyDeformationEnergy::numPlasticDofs)
+    .def_prop_ro("elastic_model", &PyDeformationEnergy::elasticModel)
+    .def_prop_ro("plastic_model", &PyDeformationEnergy::plasticModel)
+    .def_prop_ro("elastic_field", &PyDeformationEnergy::elasticField)
+    .def_prop_ro("plastic_field", &PyDeformationEnergy::plasticField)
+    .def("set_elastic_values", &PyDeformationEnergy::setElasticValues, nb::arg("values"))
+    .def("set_plastic_values", &PyDeformationEnergy::setPlasticValues, nb::arg("values"))
     .def("plastic_gradient", &PyDeformationEnergy::plasticGradient, nb::arg("displacement"))
     .def("plastic_hessian", &PyDeformationEnergy::plasticHessian, nb::arg("displacement"))
     .def("plastic_jacobian", &PyDeformationEnergy::plasticJacobian, nb::arg("displacement"));
@@ -63,37 +69,24 @@ void init_energy_bindings(nb::module_ &m)
     .def("values", &PyParameterField::values)
     .def("set_values", &PyParameterField::setValues, nb::arg("values"));
 
-  nb::class_<PyDeformationModelState>(m, "PyDeformationModelState")
-    .def_prop_ro("elastic_model", &PyDeformationModelState::elasticModel)
-    .def_prop_ro("plastic_model", &PyDeformationModelState::plasticModel)
-    .def_prop_ro("num_elements", &PyDeformationModelState::numElements)
-    .def_prop_ro("elastic_field", &PyDeformationModelState::elasticField)
-    .def_prop_ro("plastic_field", &PyDeformationModelState::plasticField)
-    .def("set_elastic_values", &PyDeformationModelState::setElasticValues, nb::arg("values"))
-    .def("set_plastic_values", &PyDeformationModelState::setPlasticValues, nb::arg("values"));
-
-  m.def("_create_deformation_model_state", &createDeformationModelState,
-    nb::arg("mesh_core"),
-    nb::arg("elastic_model"),
-    nb::arg("elastic_values").none(),
-    nb::arg("plastic_model"),
-    nb::arg("plastic_values").none(),
-    nb::arg("elastic_field_type") = "elementwise",
-    nb::arg("plastic_field_type") = "elementwise");
-
   m.def("_elastic_num_channels", &elasticNumChannels,
     nb::arg("mesh_core"),
     nb::arg("elastic_model"));
 
   // Unified deformation energy factory (public API entry point).
   m.def("_create_deformation_energy", &createDeformationEnergy,
-    nb::arg("state_core"),
+    nb::arg("mesh_core"),
+    nb::arg("elastic_model"),
+    nb::arg("elastic_values").none(),
+    nb::arg("plastic_model"),
+    nb::arg("plastic_values").none(),
+    nb::arg("elastic_field_type") = "elementwise",
+    nb::arg("plastic_field_type") = "elementwise",
     nb::arg("formulation"),
     nb::arg("enforce_spd") = true,
     nb::arg("enable_material_max_step") = true);
 
   m.def("_create_plastic_material_energy", &createPlasticMaterialEnergy,
-    nb::arg("state_core"),
     nb::arg("deformation_energy_core"),
     nb::arg("fixed_displacement"));
 

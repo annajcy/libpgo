@@ -3,10 +3,10 @@
 ## Purpose
 
 `energy.py` is where the modeling decisions become a **callable energy**. It assembles the
-per-element contributions ([`formulations.md`](formulations.md)) over a state
-([`state.md`](state.md)) into the global potential and its derivatives, and exposes them
-through the optimizer's standard interface. It builds two kinds of energy, one for each of
-the two variational problems:
+per-element contributions ([`formulations.md`](formulations.md)) directly from a
+`SimulationMesh`, material models, and parameter-field descriptors, then exposes the global
+potential and its derivatives through the optimizer's standard interface. It builds two kinds
+of energy, one for each of the two variational problems:
 
 - `deformation_energy(...)` → **`DeformationEnergy`** — the forward problem, variable
   $\mathbf u$.
@@ -27,11 +27,20 @@ a `DeformationEnergy`, whose `state_kind` is `"displacement"`
 ### Building it
 
 ```python
-from pypgo.fem import deformation_energy, DeformationOptions, TetP1
+from pypgo.fem import (
+    deformation_energy, DeformationOptions, TetP1,
+    StableNeo, VolumetricPlasticity, ElementwiseField,
+)
 
-energy = deformation_energy(state, TetP1(),
-                            options=DeformationOptions(enforce_spd=True,
-                                                       enable_material_max_step=True))
+energy = deformation_energy(
+    sim_mesh,
+    elastic=StableNeo(),
+    elastic_field=ElementwiseField(),
+    plastic=VolumetricPlasticity(dofs=6),
+    plastic_field=ElementwiseField(),
+    formulation=TetP1(),
+    options=DeformationOptions(enforce_spd=True, enable_material_max_step=True),
+)
 ```
 
 `DeformationOptions` controls two solver-critical behaviors:
@@ -63,7 +72,7 @@ energy.rest_position          # (num_vertices, 3) undeformed positions
 
 The same assembled energy can be differentiated with respect to **material parameters**, not
 just displacement. Internally each element computes (notation: $a$ = plastic params, $b$ =
-elastic params; `formulations/elements/volumetricDeformationModel.h:37-44`):
+elastic params; `deformation/volume/volumetricDeformationModel.h:37-44`):
 
 $$\frac{\partial E}{\partial a},\ \frac{\partial^2 E}{\partial a^2},\qquad \frac{\partial E}{\partial b},\ \frac{\partial^2 E}{\partial b^2},\qquad \underbrace{\frac{\partial^2 E}{\partial \mathbf x\,\partial a},\ \frac{\partial^2 E}{\partial \mathbf x\,\partial b}}_{\text{displacement–parameter coupling}}.$$
 
@@ -84,7 +93,7 @@ The displacement–plastic coupling combines stress sensitivity and second-order
 $$\frac{\partial^2 E}{\partial\mathbf x\,\partial a_i}=\sum_q\Big[\,J_q\frac{\partial\det\mathbf F_p}{\partial a_i}\Big(\frac{\partial\mathbf F_e}{\partial\mathbf x}\Big)^{\!\top}\!\mathbf P^q + V_q\Big(\big(\tfrac{\partial\mathbf F_e}{\partial\mathbf x}\big)^{\!\top}\tfrac{\partial\mathbf P}{\partial a_i} + \big(\tfrac{\partial^2\mathbf F_e}{\partial\mathbf x\,\partial a_i}\big)^{\!\top}\!\mathbf P^q\Big)\Big],$$
 
 with $\partial\mathbf P/\partial a_i=\frac{\partial^2\Psi}{\partial\mathbf F^2}\,\frac{\partial\mathbf F_e}{\partial a_i}$
-(`formulations/elements/volumetricDeformationModel.cpp:354-477`). All three are mapped from
+(`deformation/volume/volumetricDeformationModel.cpp:354-477`). All three are mapped from
 local parameters to the global vector by the field Jacobian
 $\mathbf D=\partial(\text{local})/\partial(\text{global})$ as $\mathbf D^\top(\cdot)$ /
 $\mathbf D^\top(\cdot)\mathbf D$.
@@ -113,7 +122,7 @@ whose **optimization variable is the plastic field** and whose displacement is f
 ```python
 from pypgo.fem import plastic_material_energy
 
-pe = plastic_material_energy(state, energy, fixed_displacement=u)
+pe = plastic_material_energy(config, energy, fixed_displacement=u)
 p0 = pe.zero_state()
 pe.value(p)      # E(u_fixed, p)
 pe.gradient(p)   # ∂E/∂p
@@ -130,7 +139,7 @@ Minimizing `pe` over `p` is the energy-based plastic update of [`plastic.md`](pl
 
 ## Formula ↔ function reference
 
-Every assembled quantity, its Python entry point, and the C++ element/assembler kernels.
+Every assembled quantity, its Python entry point, and the C++ element/assembler operators.
 $J_q=|\det\mathbf D_m^q|\,w_q$, $V_q=J_q\det\mathbf F_p$.
 
 | Quantity | Formula | Python | C++ (element → assembler) |
@@ -149,7 +158,7 @@ $J_q=|\det\mathbf D_m^q|\,w_q$, $V_q=J_q\det\mathbf F_p$.
 | von Mises stress | $\sigma_{vM}(\boldsymbol\sigma)$, $\boldsymbol\sigma=\mathbf P\mathbf F_e^{\!\top}/\det\mathbf F_e$ | — | `vonMisesStress` |
 | max principal strain | $\lambda_{\max}\!\big(\tfrac12(\mathbf F_e^{\!\top}\mathbf F_e-\mathbf I)\big)$ | — | `maxStrain` |
 
-Python methods are on `DeformationEnergy` (`pypgo/fem/energy.py`); C++ element kernels on
+Python methods are on `DeformationEnergy` (`pypgo/fem/energy.py`); C++ element operators on
 `VolumetricDeformationModel` and assembler methods on `DeformationModelAssembler`.
 
 ## Further reading
@@ -157,5 +166,4 @@ Python methods are on `DeformationEnergy` (`pypgo/fem/energy.py`); C++ element k
 - [`formulations.md`](formulations.md) — the element integrals and `DofLayout` assembly.
 - [`fields.md`](fields.md) — `computeDerivative`, the bridge to parameter gradients.
 - [`plastic.md`](plastic.md) — what the plastic optimization variable means.
-- [`state.md`](state.md) — parameter snapshots for linearizing the inverse problem.
 - [`overview.md`](overview.md) — the two-variational-problems picture.

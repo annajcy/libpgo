@@ -28,6 +28,7 @@ public:
 
   int numNodes() const override { return kNumNodes; }
   int localDofs() const override { return kLocalDofs; }
+  std::unique_ptr<Basis> clone() const override { return std::make_unique<HexTrilinearBasis>(*this); }
 
   void N(double alpha, double beta, double gamma, double N_out[]) const override;
   void dN_dxi(double alpha, double beta, double gamma, double dN_dxi[]) const override;

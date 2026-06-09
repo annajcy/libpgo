@@ -3,12 +3,12 @@
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModel.h"
 #include "deformation/deformationModelManager.h"
-#include "deformation/deformationModelState.h"
+#include "material/fields/materialParameterFieldInit.h"
 #include "pgoLogging.h"
 #include "simulation/simulationMesh.h"
-#include "elastic/elasticModelFactory.h"
-#include "plastic/plasticModelFactory.h"
-#include "plastic/plasticModel3DDeformationGradient.h"
+#include "material/elastic/elasticModelFactory.h"
+#include "material/plastic/plasticModelFactory.h"
+#include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "triMeshGeo.h"
@@ -32,9 +32,10 @@ using pgo::SolidDeformationModel::OptimizableField;
 using pgo::SolidDeformationModel::PlasticModel3DDeformationGradient;
 using pgo::SolidDeformationModel::PlasticModelFactory;
 using pgo::SolidDeformationModel::SimulationMesh;
-using pgo::SolidDeformationModel::DeformationModelState;
 using pgo::SolidDeformationModel::ElasticFieldInit;
 using pgo::SolidDeformationModel::PlasticFieldInit;
+using pgo::SolidDeformationModel::createElasticParameterField;
+using pgo::SolidDeformationModel::createPlasticParameterField;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
@@ -116,8 +117,7 @@ std::unique_ptr<SimulationMesh> makeSingleElementCubicSimulationMesh()
 
 struct FieldBackedManager
 {
-  std::unique_ptr<DeformationModelManager> manager;
-  std::shared_ptr<DeformationModelState> state;
+  std::shared_ptr<DeformationModelManager> manager;
   std::shared_ptr<OptimizableField> elasticField;
   std::shared_ptr<OptimizableField> plasticField;
 };
@@ -132,21 +132,17 @@ FieldBackedManager makeFieldBackedManager(
   const double *elementFiberDirections = nullptr,
   const double *vertexFiberDirections = nullptr)
 {
-  auto state = DeformationModelState::create(
+  auto elasticField = createElasticParameterField(*mesh, elastic, ElasticFieldInit{});
+  auto plasticField = createPlasticParameterField(*mesh, plastic, PlasticFieldInit{});
+  auto manager = std::make_shared<DeformationModelManager>(
     mesh,
     elastic,
-    ElasticFieldInit{},
     plastic,
-    PlasticFieldInit{});
-  auto elasticField = state->elasticFieldPtr();
-  auto plasticField = state->plasticFieldPtr();
-  auto manager = std::make_unique<DeformationModelManager>(
-    state,
     formulation,
     enforceSPD,
     elementFiberDirections,
     vertexFiberDirections);
-  return { std::move(manager), std::move(state), std::move(elasticField), std::move(plasticField) };
+  return { std::move(manager), std::move(elasticField), std::move(plasticField) };
 }
 
 class ScopedSerialTbb
@@ -173,13 +169,11 @@ double relativeColumnError(const ES::VXd &fd, const ES::VXd &analytic)
   return (fd - analytic).norm() / std::max(1.0, analytic.norm());
 }
 
-// A state + assembler pair built with enforceSPD = 0 so that finite differences
-// measure the true derivative of computeGradient. The state is kept alive so the
-// caller can mutate the parameter fields (setElasticValues / setPlasticValues)
-// between gradient evaluations.
+// An assembler built with enforceSPD = 0 so finite differences measure the true
+// derivative of computeGradient. The assembler owns the parameter fields so callers
+// can mutate them between gradient evaluations.
 struct ExactStateAssembler
 {
-  std::shared_ptr<DeformationModelState> state;
   std::unique_ptr<DeformationModelAssembler> assembler;
 };
 
@@ -192,12 +186,13 @@ ExactStateAssembler buildExactAssembler(
   const double *elementFiberDirections = nullptr,
   const double *vertexFiberDirections = nullptr)
 {
-  auto state = DeformationModelState::create(
-    mesh, elastic, std::move(elasticInit), plastic, std::move(plasticInit));
-  auto manager = std::make_unique<DeformationModelManager>(
-    state, formulation, kExactDerivativeEnforceSpd, elementFiberDirections, vertexFiberDirections);
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
-  return { std::move(state), std::move(assembler) };
+  auto elasticField = createElasticParameterField(*mesh, elastic, std::move(elasticInit));
+  auto plasticField = createPlasticParameterField(*mesh, plastic, std::move(plasticInit));
+  auto manager = std::make_shared<DeformationModelManager>(
+    mesh, elastic, plastic, formulation, kExactDerivativeEnforceSpd, elementFiberDirections, vertexFiberDirections);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
+  return { std::move(assembler) };
 }
 
 // Central five-point finite-difference of the assembled gradient with respect to
@@ -232,24 +227,25 @@ TEST(DeformationModelAssemblerGTest, TetAssemblerRegression)
 
   const int nele = mesh->getNumElements();
 
-  auto managerFields = makeFieldBackedManager(mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{});
+  const pgo::SolidDeformationModel::P1TetFormulation formulation{};
+  auto managerFields = makeFieldBackedManager(
+    mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, formulation);
 
   const int numPlasticParams = managerFields.manager->getNumPlasticParameters();
   const int numElasticParams = managerFields.manager->getNumElasticParameters();
-  const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(managerFields.manager->getDeformationModel(0)->getPlasticModel());
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(managerFields.manager), nullptr);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(managerFields.manager), formulation,
+    managerFields.elasticField, managerFields.plasticField, nullptr);
 
   ES::VXd x = makePerturbedRestPositions(*assembler->getDeformationModelManager().getMesh());
   ES::VXd plasticParams(numPlasticParams * nele);
   ES::VXd elasticParams(numElasticParams * nele);
   elasticParams.setZero();
 
-  ASSERT_NE(plasticModel, nullptr);
-
-  ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++) {
-    plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+    assembler->getDeformationModelManager().getDeformationModel(ei)->defaultPlasticParams(
+      plasticParams.data() + ei * numPlasticParams);
   }
   setFieldDataIfPresent(*managerFields.elasticField, elasticParams);
   setFieldDataIfPresent(*managerFields.plasticField, plasticParams);
@@ -295,25 +291,25 @@ TEST(DeformationModelAssemblerGTest, ConstantFieldSharesParamColumnsAcrossElemen
   ES::VXd plasticShared(numPlasticParams);
   plasticShared << 1.1, 0.0, 0.0, 1.0, 0.0, 1.0;
 
-  // Constant (mesh-wide shared) state.
-  auto constantState = DeformationModelState::create(
-    mesh, elastic, ElasticFieldInit{},
-    plastic, PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, plasticShared });
+  auto constantElasticField = createElasticParameterField(*mesh, elastic, ElasticFieldInit{});
+  auto constantPlasticField = createPlasticParameterField(
+    *mesh, plastic, PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, plasticShared });
 
-  // Elementwise state whose per-element values broadcast the same shared set.
   ES::VXd plasticEw(static_cast<Eigen::Index>(nele) * numPlasticParams);
   for (int ei = 0; ei < nele; ei++)
     plasticEw.segment(ei * numPlasticParams, numPlasticParams) = plasticShared;
-  auto elementwiseState = DeformationModelState::create(
-    mesh, elastic, ElasticFieldInit{},
-    plastic, PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticEw });
+  auto elementwiseElasticField = createElasticParameterField(*mesh, elastic, ElasticFieldInit{});
+  auto elementwisePlasticField = createPlasticParameterField(
+    *mesh, plastic, PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticEw });
 
-  auto makeAssembler = [&](std::shared_ptr<DeformationModelState> state) {
-    auto manager = std::make_unique<DeformationModelManager>(state, formulation, 1, nullptr, nullptr);
-    return std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  auto makeAssembler = [&](std::shared_ptr<OptimizableField> elasticField,
+                         std::shared_ptr<OptimizableField> plasticField) {
+    auto manager = std::make_shared<DeformationModelManager>(mesh, elastic, plastic, formulation, 1, nullptr, nullptr);
+    return std::make_unique<DeformationModelAssembler>(
+      std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   };
-  auto constantAssembler = makeAssembler(constantState);
-  auto elementwiseAssembler = makeAssembler(elementwiseState);
+  auto constantAssembler = makeAssembler(std::move(constantElasticField), std::move(constantPlasticField));
+  auto elementwiseAssembler = makeAssembler(std::move(elementwiseElasticField), std::move(elementwisePlasticField));
   ASSERT_EQ(constantAssembler->getNumPlasticParams(), numPlasticParams);
 
   ES::VXd x = makePerturbedRestPositions(*constantAssembler->getDeformationModelManager().getMesh());
@@ -380,20 +376,23 @@ TEST(DeformationModelAssemblerGTest, PlasticParamJacobianMatchesFiniteDifference
 
   struct StateAssembler
   {
-    std::shared_ptr<DeformationModelState> state;
     std::unique_ptr<DeformationModelAssembler> assembler;
   };
-  auto build = [&](std::shared_ptr<DeformationModelState> state) {
+  auto build = [&](PlasticFieldInit plasticInit) {
     // Finite differences measure the true derivative of computeGradient. The SPD
     // projected Hessian is an optimizer stabilization, not the exact dP/dF.
-    auto manager = std::make_unique<DeformationModelManager>(state, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
-    auto assembler = std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
-    return StateAssembler{ std::move(state), std::move(assembler) };
+    auto elasticField = createElasticParameterField(*mesh, elastic, ElasticFieldInit{});
+    auto plasticField = createPlasticParameterField(*mesh, plastic, std::move(plasticInit));
+    auto manager = std::make_shared<DeformationModelManager>(
+      mesh, elastic, plastic, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    auto assembler = std::make_unique<DeformationModelAssembler>(
+      std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
+    return StateAssembler{ std::move(assembler) };
   };
 
   // gradient(x) as a function of the plastic parameter vector.
   auto gradientAtPlastic = [&](StateAssembler &sa, const ES::VXd &params, const ES::VXd &x) {
-    sa.state->setPlasticValues(params);
+    sa.assembler->setPlasticValues(params);
     ES::VXd g = ES::VXd::Zero(sa.assembler->getNumDOFs());
     sa.assembler->computeGradient(x.data(), g.data());
     return g;
@@ -411,14 +410,12 @@ TEST(DeformationModelAssemblerGTest, PlasticParamJacobianMatchesFiniteDifference
   };
 
   // ---- Constant field: every shared column is checked (only numPlasticParams of them). ----
-  auto constantSA = build(DeformationModelState::create(
-    mesh, elastic, ElasticFieldInit{},
-    plastic, PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, plasticShared }));
+  auto constantSA = build(PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, plasticShared });
 
   ES::VXd x = makePerturbedRestPositions(*constantSA.assembler->getDeformationModelManager().getMesh());
 
   ES::SpMatD dfdaConstSp = constantSA.assembler->get_dfda_Template();
-  constantSA.state->setPlasticValues(plasticShared);
+  constantSA.assembler->setPlasticValues(plasticShared);
   constantSA.assembler->compute_df_da(x.data(), dfdaConstSp);
   ES::MXd dfdaConst(dfdaConstSp);
   ASSERT_EQ(dfdaConst.cols(), numPlasticParams);
@@ -429,18 +426,16 @@ TEST(DeformationModelAssemblerGTest, PlasticParamJacobianMatchesFiniteDifference
       << "Constant dfda column " << j << " disagrees with the finite-difference gradient.";
   }
   // Restore the field state after the perturbations.
-  constantSA.state->setPlasticValues(plasticShared);
+  constantSA.assembler->setPlasticValues(plasticShared);
 
   // ---- Elementwise field: sample a few per-element columns (cheap) to confirm placement. ----
   ES::VXd plasticEw(static_cast<Eigen::Index>(nele) * numPlasticParams);
   for (int ei = 0; ei < nele; ei++)
     plasticEw.segment(ei * numPlasticParams, numPlasticParams) = plasticShared;
-  auto elementwiseSA = build(DeformationModelState::create(
-    mesh, elastic, ElasticFieldInit{},
-    plastic, PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticEw }));
+  auto elementwiseSA = build(PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticEw });
 
   ES::SpMatD dfdaEwSp = elementwiseSA.assembler->get_dfda_Template();
-  elementwiseSA.state->setPlasticValues(plasticEw);
+  elementwiseSA.assembler->setPlasticValues(plasticEw);
   elementwiseSA.assembler->compute_df_da(x.data(), dfdaEwSp);
   ES::MXd dfdaEw(dfdaEwSp);
   ASSERT_EQ(dfdaEw.cols(), nele * numPlasticParams);
@@ -492,7 +487,7 @@ TEST(DeformationModelAssemblerGTest, PlasticEnergyGradientMatchesFiniteDifferenc
   ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
 
   ES::VXd analytic = ES::VXd::Zero(sa.assembler->getNumPlasticGlobalParams());
-  sa.state->setPlasticValues(plasticBase);
+  sa.assembler->setPlasticValues(plasticBase);
   sa.assembler->computePlasticGradient(x.data(), analytic.data());
   ASSERT_EQ(analytic.size(), nele * numPlasticParams);
   EXPECT_GT(analytic.norm(), 0.0);
@@ -502,7 +497,7 @@ TEST(DeformationModelAssemblerGTest, PlasticEnergyGradientMatchesFiniteDifferenc
     auto energyAt = [&](double delta) {
       ES::VXd p = plasticBase;
       p[col] += delta;
-      sa.state->setPlasticValues(p);
+      sa.assembler->setPlasticValues(p);
       return sa.assembler->computeEnergy(x.data());
     };
     const double h = kFiniteDifferenceStep;
@@ -511,7 +506,7 @@ TEST(DeformationModelAssemblerGTest, PlasticEnergyGradientMatchesFiniteDifferenc
     EXPECT_LT(std::abs(fd - analytic[col]) / std::max(1.0, std::abs(fd)), 1e-6)
       << "Plastic energy gradient column " << col << " disagrees with FD.";
   }
-  sa.state->setPlasticValues(plasticBase);
+  sa.assembler->setPlasticValues(plasticBase);
 }
 
 TEST(DeformationModelAssemblerGTest, ConstantPlasticEnergyGradientAccumulatesElementwiseGradient)
@@ -534,24 +529,21 @@ TEST(DeformationModelAssemblerGTest, ConstantPlasticEnergyGradientAccumulatesEle
   ES::VXd shared(numPlasticParams);
   shared << 1.01, 0.004, -0.003, 0.994, 0.005, 1.008;
 
-  auto makeAssembler = [&](std::shared_ptr<DeformationModelState> state) {
-    auto manager = std::make_unique<DeformationModelManager>(
-      state, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
-    return std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  auto makeAssembler = [&](PlasticFieldInit plasticInit) {
+    auto elasticField = createElasticParameterField(*mesh, elastic, ElasticFieldInit{});
+    auto plasticField = createPlasticParameterField(*mesh, plastic, std::move(plasticInit));
+    auto manager = std::make_shared<DeformationModelManager>(
+      mesh, elastic, plastic, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    return std::make_unique<DeformationModelAssembler>(
+      std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   };
 
-  auto constantState = DeformationModelState::create(
-    mesh, elastic, ElasticFieldInit{},
-    plastic, PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, shared });
-  auto constantAssembler = makeAssembler(constantState);
+  auto constantAssembler = makeAssembler(PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, shared });
 
   ES::VXd elementwiseValues(static_cast<Eigen::Index>(nele) * numPlasticParams);
   for (int ei = 0; ei < nele; ei++)
     elementwiseValues.segment(ei * numPlasticParams, numPlasticParams) = shared;
-  auto elementwiseState = DeformationModelState::create(
-    mesh, elastic, ElasticFieldInit{},
-    plastic, PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, elementwiseValues });
-  auto elementwiseAssembler = makeAssembler(elementwiseState);
+  auto elementwiseAssembler = makeAssembler(PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, elementwiseValues });
 
   ES::VXd x = makePerturbedRestPositions(*constantAssembler->getDeformationModelManager().getMesh());
   ES::VXd gConst = ES::VXd::Zero(constantAssembler->getNumPlasticGlobalParams());
@@ -594,7 +586,7 @@ TEST(DeformationModelAssemblerGTest, PlasticEnergyHessianMatchesFiniteDifference
   ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
 
   ES::SpMatD hess = sa.assembler->getPlasticHessianTemplate();
-  sa.state->setPlasticValues(plasticBase);
+  sa.assembler->setPlasticValues(plasticBase);
   sa.assembler->computePlasticHessian(x.data(), hess);
   ES::MXd analytic(hess);
   ASSERT_EQ(analytic.rows(), numPlasticParams);
@@ -606,14 +598,14 @@ TEST(DeformationModelAssemblerGTest, PlasticEnergyHessianMatchesFiniteDifference
     fd.col(col) = fivePointFiniteDifference([&](double delta) {
       ES::VXd p = plasticBase;
       p[col] += delta;
-      sa.state->setPlasticValues(p);
+      sa.assembler->setPlasticValues(p);
       ES::VXd g = ES::VXd::Zero(numPlasticParams);
       sa.assembler->computePlasticGradient(x.data(), g.data());
       return g;
     });
   }
   EXPECT_LT((fd - analytic).norm() / std::max(1.0, analytic.norm()), 1e-6);
-  sa.state->setPlasticValues(plasticBase);
+  sa.assembler->setPlasticValues(plasticBase);
 }
 
 TEST(DeformationModelAssemblerGTest, ConstantPlasticEnergyHessianAccumulatesElementwiseHessian)
@@ -636,24 +628,21 @@ TEST(DeformationModelAssemblerGTest, ConstantPlasticEnergyHessianAccumulatesElem
   ES::VXd shared(numPlasticParams);
   shared << 1.01, 0.004, -0.003, 0.994, 0.005, 1.008;
 
-  auto makeAssembler = [&](std::shared_ptr<DeformationModelState> state) {
-    auto manager = std::make_unique<DeformationModelManager>(
-      state, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
-    return std::make_unique<DeformationModelAssembler>(std::move(manager), nullptr);
+  auto makeAssembler = [&](PlasticFieldInit plasticInit) {
+    auto elasticField = createElasticParameterField(*mesh, elastic, ElasticFieldInit{});
+    auto plasticField = createPlasticParameterField(*mesh, plastic, std::move(plasticInit));
+    auto manager = std::make_shared<DeformationModelManager>(
+      mesh, elastic, plastic, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    return std::make_unique<DeformationModelAssembler>(
+      std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   };
 
-  auto constantState = DeformationModelState::create(
-    mesh, elastic, ElasticFieldInit{},
-    plastic, PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, shared });
-  auto constantAssembler = makeAssembler(constantState);
+  auto constantAssembler = makeAssembler(PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, shared });
 
   ES::VXd elementwiseValues(static_cast<Eigen::Index>(nele) * numPlasticParams);
   for (int ei = 0; ei < nele; ei++)
     elementwiseValues.segment(ei * numPlasticParams, numPlasticParams) = shared;
-  auto elementwiseState = DeformationModelState::create(
-    mesh, elastic, ElasticFieldInit{},
-    plastic, PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, elementwiseValues });
-  auto elementwiseAssembler = makeAssembler(elementwiseState);
+  auto elementwiseAssembler = makeAssembler(PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, elementwiseValues });
 
   ES::VXd x = makePerturbedRestPositions(*constantAssembler->getDeformationModelManager().getMesh());
   ES::SpMatD hConstSp = constantAssembler->getPlasticHessianTemplate();
@@ -683,23 +672,23 @@ TEST(DeformationModelAssemblerGTest, TetVonMisesStressIsZeroAtRestAndNonzeroUnde
   const int nele = mesh->getNumElements();
   const int nvtx = mesh->getNumVertices();
 
-  auto managerFields = makeFieldBackedManager(mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::P1TetFormulation{});
+  pgo::SolidDeformationModel::P1TetFormulation formulation;
+  auto managerFields = makeFieldBackedManager(
+    mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, formulation);
 
   const int numPlasticParams = managerFields.manager->getNumPlasticParameters();
   const int numElasticParams = managerFields.manager->getNumElasticParameters();
-  const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(managerFields.manager->getDeformationModel(0)->getPlasticModel());
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(managerFields.manager), nullptr);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    managerFields.manager, formulation, managerFields.elasticField, managerFields.plasticField, nullptr);
 
   ES::VXd plasticParams(numPlasticParams * nele);
   ES::VXd elasticParams(numElasticParams * nele);
   elasticParams.setZero();
 
-  ASSERT_NE(plasticModel, nullptr);
-
-  ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++) {
-    plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+    assembler->getDeformationModelManager().getDeformationModel(ei)->defaultPlasticParams(
+      plasticParams.data() + ei * numPlasticParams);
   }
 
   setFieldDataIfPresent(*managerFields.elasticField, elasticParams);
@@ -736,12 +725,15 @@ TEST(DeformationModelAssemblerGTest, ShellAssemblerRegression)
 
   const int nele = mesh->getNumElements();
 
-  auto managerFields = makeFieldBackedManager(mesh, DeformationModelPlasticMaterial::SHELL_FF_DOF1, DeformationModelElasticMaterial::KOITER_STVK, pgo::SolidDeformationModel::KoiterShellFormulation{});
+  pgo::SolidDeformationModel::KoiterShellFormulation formulation;
+  auto managerFields = makeFieldBackedManager(
+    mesh, DeformationModelPlasticMaterial::SHELL_FF_DOF1, DeformationModelElasticMaterial::KOITER_STVK, formulation);
 
   const int numPlasticParams = managerFields.manager->getNumPlasticParameters();
   const int numElasticParams = managerFields.manager->getNumElasticParameters();
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(managerFields.manager), nullptr);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    managerFields.manager, formulation, managerFields.elasticField, managerFields.plasticField, nullptr);
 
   const auto &meshPtr = *assembler->getDeformationModelManager().getMesh();
   ES::VXd x = makePerturbedRestPositions(meshPtr);
@@ -791,13 +783,15 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerSmokeRegression)
 
   const int nele = mesh->getNumElements();
 
-  auto managerFields = makeFieldBackedManager(mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, pgo::SolidDeformationModel::LinearCubicFormulation{});
+  pgo::SolidDeformationModel::LinearCubicFormulation formulation;
+  auto managerFields = makeFieldBackedManager(
+    mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, DeformationModelElasticMaterial::STABLE_NEO, formulation);
 
   const int numPlasticParams = managerFields.manager->getNumPlasticParameters();
   const int numElasticParams = managerFields.manager->getNumElasticParameters();
-  const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(managerFields.manager->getDeformationModel(0)->getPlasticModel());
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(managerFields.manager), nullptr);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    managerFields.manager, formulation, managerFields.elasticField, managerFields.plasticField, nullptr);
 
   const auto &meshPtr = *assembler->getDeformationModelManager().getMesh();
   ES::VXd x = makePerturbedRestPositions(meshPtr);
@@ -805,11 +799,9 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerSmokeRegression)
   ES::VXd elasticParams(numElasticParams * nele);
   elasticParams.setZero();
 
-  ASSERT_NE(plasticModel, nullptr);
-
-  ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++) {
-    plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+    assembler->getDeformationModelManager().getDeformationModel(ei)->defaultPlasticParams(
+      plasticParams.data() + ei * numPlasticParams);
   }
   setFieldDataIfPresent(*managerFields.elasticField, elasticParams);
   setFieldDataIfPresent(*managerFields.plasticField, plasticParams);
@@ -856,11 +848,12 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerMaterialParamRegression)
     vertexFiberDirections.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
   }
 
+  pgo::SolidDeformationModel::LinearCubicFormulation formulation;
   auto managerFields = makeFieldBackedManager(
     mesh,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
     DeformationModelElasticMaterial::HILL_STABLE_NEO,
-    pgo::SolidDeformationModel::LinearCubicFormulation{},
+    formulation,
     1,
     elementFiberDirections.data(),
     vertexFiberDirections.data());
@@ -869,20 +862,17 @@ TEST(DeformationModelAssemblerGTest, CubicAssemblerMaterialParamRegression)
   const int numElasticParams = managerFields.manager->getNumElasticParameters();
   ASSERT_EQ(numElasticParams, 1);
 
-  auto assembler = std::make_unique<DeformationModelAssembler>(std::move(managerFields.manager), nullptr);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    managerFields.manager, formulation, managerFields.elasticField, managerFields.plasticField, nullptr);
 
   const auto &meshPtr = *assembler->getDeformationModelManager().getMesh();
   ES::VXd x = makePerturbedRestPositions(meshPtr);
   ES::VXd plasticParams(numPlasticParams * nele);
   ES::VXd elasticParams = ES::VXd::Constant(numElasticParams * nele, 0.75);
 
-  const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(
-    assembler->getDeformationModelManager().getDeformationModel(0)->getPlasticModel());
-  ASSERT_NE(plasticModel, nullptr);
-
-  ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++) {
-    plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
+    assembler->getDeformationModelManager().getDeformationModel(ei)->defaultPlasticParams(
+      plasticParams.data() + ei * numPlasticParams);
   }
   setFieldDataIfPresent(*managerFields.elasticField, elasticParams);
   setFieldDataIfPresent(*managerFields.plasticField, plasticParams);
@@ -938,19 +928,16 @@ TEST(DeformationModelAssemblerGTest, CubicElasticParamJacobianMatchesFiniteDiffe
   ASSERT_EQ(sa.assembler->getNumElasticParams(), numElasticParams);
 
   // Set plastic to identity so the Hill material sits at a smooth operating point.
-  const auto *plasticModel = dynamic_cast<const PlasticModel3DDeformationGradient *>(
-    sa.assembler->getDeformationModelManager().getDeformationModel(0)->getPlasticModel());
-  ASSERT_NE(plasticModel, nullptr);
   const int numPlasticParams = sa.assembler->getNumPlasticParams();
   ES::VXd plasticParams(numPlasticParams * nele);
-  ES::M3d identity = ES::M3d::Identity();
   for (int ei = 0; ei < nele; ei++)
-    plasticModel->toParam(identity.data(), plasticParams.data() + ei * numPlasticParams);
-  sa.state->setPlasticValues(plasticParams);
+    sa.assembler->getDeformationModelManager().getDeformationModel(ei)->defaultPlasticParams(
+      plasticParams.data() + ei * numPlasticParams);
+  sa.assembler->setPlasticValues(plasticParams);
 
   ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
 
-  sa.state->setElasticValues(elasticBase);
+  sa.assembler->setElasticValues(elasticBase);
   ES::SpMatD dfdbSp = sa.assembler->get_dfdb_Template();
   sa.assembler->compute_df_db(x.data(), dfdbSp);
   ES::MXd dfdb(dfdbSp);
@@ -958,14 +945,14 @@ TEST(DeformationModelAssemblerGTest, CubicElasticParamJacobianMatchesFiniteDiffe
 
   ScopedSerialTbb fdSerialTbb;
   auto setElastic = [&](const ES::VXd &p) {
-    sa.state->setElasticValues(p);
+    sa.assembler->setElasticValues(p);
   };
   for (int j = 0; j < dfdb.cols(); j++) {
     ES::VXd fd = fdGradientColumn(*sa.assembler, setElastic, elasticBase, j, x);
     EXPECT_LT(relativeColumnError(fd, dfdb.col(j)), 1e-6)
       << "Cubic dfdb column " << j << " disagrees with the finite-difference gradient.";
   }
-  sa.state->setElasticValues(elasticBase);
+  sa.assembler->setElasticValues(elasticBase);
 }
 
 // Shell dfda == d(gradient)/d(plastic parameter): the shell formulation has its own
@@ -1005,11 +992,11 @@ TEST(DeformationModelAssemblerGTest, ShellPlasticParamJacobianMatchesFiniteDiffe
   ES::VXd elasticBase(static_cast<Eigen::Index>(nele) * numElasticParams);
   for (int ei = 0; ei < nele; ei++)
     elasticBase.segment<5>(ei * 5) << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
-  sa.state->setElasticValues(elasticBase);
+  sa.assembler->setElasticValues(elasticBase);
 
   ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
 
-  sa.state->setPlasticValues(plasticBase);
+  sa.assembler->setPlasticValues(plasticBase);
   ES::SpMatD dfdaSp = sa.assembler->get_dfda_Template();
   sa.assembler->compute_df_da(x.data(), dfdaSp);
   ES::MXd dfda(dfdaSp);
@@ -1017,7 +1004,7 @@ TEST(DeformationModelAssemblerGTest, ShellPlasticParamJacobianMatchesFiniteDiffe
 
   ScopedSerialTbb fdSerialTbb;
   auto setPlastic = [&](const ES::VXd &p) {
-    sa.state->setPlasticValues(p);
+    sa.assembler->setPlasticValues(p);
   };
   // Spot-check a few elements (each column is a full-gradient FD, so keep it cheap).
   const int sampleEles[] = { 0, 1, nele / 2 };
@@ -1027,7 +1014,7 @@ TEST(DeformationModelAssemblerGTest, ShellPlasticParamJacobianMatchesFiniteDiffe
     EXPECT_LT(relativeColumnError(fd, dfda.col(col)), 1e-5)
       << "Shell dfda column for element " << ele << " disagrees with the finite-difference gradient.";
   }
-  sa.state->setPlasticValues(plasticBase);
+  sa.assembler->setPlasticValues(plasticBase);
 }
 
 // Shell dfdb == d(gradient)/d(elastic parameter), exercising all five KOITER_STVK
@@ -1068,7 +1055,7 @@ TEST(DeformationModelAssemblerGTest, ShellElasticParamJacobianMatchesFiniteDiffe
 
   ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
 
-  sa.state->setElasticValues(elasticBase);
+  sa.assembler->setElasticValues(elasticBase);
   ES::SpMatD dfdbSp = sa.assembler->get_dfdb_Template();
   sa.assembler->compute_df_db(x.data(), dfdbSp);
   ES::MXd dfdb(dfdbSp);
@@ -1076,7 +1063,7 @@ TEST(DeformationModelAssemblerGTest, ShellElasticParamJacobianMatchesFiniteDiffe
 
   ScopedSerialTbb fdSerialTbb;
   auto setElastic = [&](const ES::VXd &p) {
-    sa.state->setElasticValues(p);
+    sa.assembler->setElasticValues(p);
   };
   // Check every elastic channel on a couple of elements.
   const int sampleEles[] = { 0, nele / 2 };
@@ -1089,7 +1076,7 @@ TEST(DeformationModelAssemblerGTest, ShellElasticParamJacobianMatchesFiniteDiffe
         << " disagrees with the finite-difference gradient.";
     }
   }
-  sa.state->setElasticValues(elasticBase);
+  sa.assembler->setElasticValues(elasticBase);
 }
 
 // dfdb for the anisotropic Koiter fabric across all 12 elastic channels
@@ -1133,7 +1120,7 @@ TEST(DeformationModelAssemblerGTest, ShellFabricElasticParamJacobianMatchesFinit
 
   ES::VXd x = makePerturbedRestPositions(*sa.assembler->getDeformationModelManager().getMesh());
 
-  sa.state->setElasticValues(elasticBase);
+  sa.assembler->setElasticValues(elasticBase);
   ES::SpMatD dfdbSp = sa.assembler->get_dfdb_Template();
   sa.assembler->compute_df_db(x.data(), dfdbSp);
   ES::MXd dfdb(dfdbSp);
@@ -1141,7 +1128,7 @@ TEST(DeformationModelAssemblerGTest, ShellFabricElasticParamJacobianMatchesFinit
 
   ScopedSerialTbb fdSerialTbb;
   auto setElastic = [&](const ES::VXd &p) {
-    sa.state->setElasticValues(p);
+    sa.assembler->setElasticValues(p);
   };
 
   const int sampleEles[] = { 0, nele / 2 };
@@ -1155,5 +1142,5 @@ TEST(DeformationModelAssemblerGTest, ShellFabricElasticParamJacobianMatchesFinit
         << " disagrees with the finite-difference gradient.";
     }
   }
-  sa.state->setElasticValues(elasticBase);
+  sa.assembler->setElasticValues(elasticBase);
 }
