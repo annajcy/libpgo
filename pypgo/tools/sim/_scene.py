@@ -6,7 +6,7 @@ _runners.py never branch on mesh type.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -36,7 +36,11 @@ def resolve_vertex_selector(selector: VertexSelector, vertices: np.ndarray) -> n
             tokens = Path(selector.file).read_text().split()
         except OSError as exc:
             raise ConfigError(f"cannot read vertex file {selector.file}: {exc}") from exc
-        idx = np.array([int(t) for t in tokens], dtype=np.int64)
+        try:
+            idx = np.array([int(t) for t in tokens], dtype=np.int64)
+        except ValueError as exc:
+            raise ConfigError(
+                f"non-integer token in vertex file {selector.file}: {exc}") from exc
     elif selector.indices is not None:
         idx = np.asarray(selector.indices, dtype=np.int64)
     else:
@@ -102,7 +106,7 @@ class SceneBundle:
 
 def _fixed_dofs_from_selector(selector, vertices, dofs_per_vertex) -> np.ndarray:
     idx = resolve_vertex_selector(selector, vertices)
-    return (idx[:, None] * dofs_per_vertex + np.arange(3, dtype=np.int64)).ravel()
+    return (idx[:, None] * dofs_per_vertex + np.arange(dofs_per_vertex, dtype=np.int64)).ravel()
 
 
 def _build_contact_energies(contact_cfgs, contact_surface, surface_triangles):

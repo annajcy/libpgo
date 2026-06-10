@@ -38,10 +38,31 @@ def test_resolve_selector_out_of_range():
         resolve_vertex_selector(sel, np.zeros((3, 3)))
 
 
-def test_resolve_selector_empty_region():
+def test_resolve_selector_empty_indices():
     sel = VertexSelector(indices=())
     with pytest.raises(ConfigError, match="no vertices"):
         resolve_vertex_selector(sel, np.zeros((3, 3)))
+
+
+def test_resolve_selector_file_non_integer(tmp_path):
+    f = tmp_path / "bad.txt"
+    f.write_text("2 abc")
+    sel = VertexSelector(file=f)
+    with pytest.raises(ConfigError, match="non-integer"):
+        resolve_vertex_selector(sel, np.zeros((5, 3)))
+
+
+def test_hermite_fixed_dofs_pins_all_24():
+    cfg = load_config(mesh_type="cubic", mode="static", overrides={
+        "mesh.volume": str(ASSETS / "veg" / "cubic" / "box.veg"),
+        "mesh.surface": str(ASSETS / "obj" / "box.obj"),
+        "mesh.formulation": "cubic-tricubic-hermite",
+        "constraints.fixed": {"region": {"axis": "y", "side": "min", "tolerance": 1e-3}},
+        "output.directory": "/tmp/unused",
+    })
+    bundle = build_scene(cfg)
+    assert bundle.fixed_dofs is not None
+    assert bundle.fixed_dofs.size % 24 == 0
 
 
 @pytest.fixture(scope="module")
