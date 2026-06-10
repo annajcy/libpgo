@@ -165,3 +165,52 @@ def test_formulation_mismatch_rejected():
     })
     with pytest.raises(ConfigError, match="element"):
         build_scene(cfg)
+
+
+def _shell_overrides():
+    return {
+        "mesh.surface": str(ASSETS / "obj" / "shell.obj"),
+        "material": {"thickness": 0.001, "E_membrane": 1.0e6,
+                     "nu_membrane": 0.4, "mass": {"density": 1000.0}},
+        "output.directory": "/tmp/unused",
+    }
+
+
+def test_build_shell_scene_static():
+    cfg = load_config(mesh_type="shell", mode="static", overrides={
+        **_shell_overrides(),
+        "loads.gravity": (0.0, 0.0, -9.81),
+        "constraints.fixed": {"region": {"axis": "y", "side": "max",
+                                         "tolerance": 1e-6}},
+    })
+    bundle = build_scene(cfg)
+    assert bundle.dofs_per_vertex == 3
+    assert bundle.surface_map is None
+    n = bundle.num_dofs
+    assert bundle.mass.shape == (n, n)
+    assert float(np.linalg.norm(bundle.gravity_force)) > 0.0
+    # shell.obj y=max edge has 33 vertices -> 99 fixed DOFs
+    assert bundle.fixed_dofs.size == 99
+    # identity surface mapping
+    u = np.zeros(n)
+    u[2] = -0.5
+    pos = bundle.surface_positions(u)
+    assert pos[0, 2] == pytest.approx(bundle.surface_rest[0, 2] - 0.5)
+
+
+def test_build_shell_scene_areal_density_and_contact():
+    cfg = load_config(mesh_type="shell", mode="dynamic", overrides={
+        "mesh.surface": str(ASSETS / "obj" / "shell.obj"),
+        "material": {"mass": {"areal_density": 1.0}},
+        "dynamic.timestep": 0.0005,
+        "contact": [
+            {"model": "frictional_sampled_penalty", "stiffness": 10.0,
+             "friction_coeff": 0.3, "velocity_eps": 1e-4},
+            {"model": "floor", "axis": "z", "height": -0.1, "stiffness": 5000.0},
+        ],
+        "output.directory": "/tmp/unused",
+    })
+    bundle = build_scene(cfg)
+    assert len(bundle.contact_energies) == 2
+    assert len(bundle.stateful_contacts) == 1  # frictional penalty only
+    assert bundle.mass.shape == (bundle.num_dofs, bundle.num_dofs)

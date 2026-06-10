@@ -244,7 +244,67 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
 
 
 def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
-    raise NotImplementedError  # Task 3
+    surface = read_obj(str(cfg.mesh.surface))
+    material = _fem.KoiterStVKShellMaterial(
+        thickness=cfg.material.thickness,
+        E_membrane=cfg.material.E_membrane,
+        nu_membrane=cfg.material.nu_membrane,
+    )
+    sim_mesh = _fem.SimulationMesh.create_shell(surface, material)
+    fm = _fem.KoiterShell()
+    deformation = _fem.deformation_energy(
+        sim_mesh,
+        elastic=_fem.KoiterStVK(),
+        elastic_field=_fem.ElementwiseField(),
+        plastic=_fem.ShellPlasticity(dofs=0),
+        plastic_field=_fem.ElementwiseField(),
+        formulation=fm,
+    )
+    num_dofs = deformation.num_dofs
+    rest_vertices = np.asarray(surface.vertices, dtype=np.float64)
+
+    if cfg.material.mass.areal_density is not None:
+        mass_field = _fem.ShellArealDensity(cfg.material.mass.areal_density)
+    else:
+        mass_field = _fem.ShellDensityThickness(
+            density=cfg.material.mass.density, thickness=cfg.material.thickness)
+    mass = fm.mass_matrix(sim_mesh, mass_field)
+    gravity = np.asarray(cfg.loads.gravity, dtype=np.float64)
+    gravity_force = (
+        fm.body_force(sim_mesh, gravity, mass_field)
+        if float(np.linalg.norm(gravity)) > 0.0
+        else np.zeros(num_dofs, dtype=np.float64)
+    )
+
+    contact_surface = _contact.ContactSurface.identity(surface.vertices)
+    contact_energies, stateful, ipcs = _build_contact_energies(
+        cfg.contact, contact_surface, surface.elements)
+
+    fixed_dofs = None
+    if cfg.constraints.fixed is not None:
+        fixed_dofs = _fixed_dofs_from_selector(cfg.constraints.fixed, rest_vertices, 3)
+
+    attachments = []
+    for att in cfg.constraints.attachments:
+        idx = resolve_vertex_selector(att.vertices, rest_vertices)
+        attachments.append(_energy.VertexAttachment(
+            sim_mesh=sim_mesh,
+            vertex_indices=idx,
+            target_positions=np.zeros(3 * idx.size, dtype=np.float64),
+            coeff=att.coeff,
+            is_displacement=True,
+        ))
+
+    return SceneBundle(
+        sim_mesh=sim_mesh, formulation=fm, deformation=deformation,
+        attachment_energies=attachments, contact_energies=contact_energies,
+        stateful_contacts=stateful, ipc_contacts=ipcs,
+        mass=mass, gravity_force=np.asarray(gravity_force, dtype=np.float64),
+        fixed_dofs=fixed_dofs, num_dofs=num_dofs, dofs_per_vertex=3,
+        surface_rest=rest_vertices,
+        surface_triangles=np.asarray(surface.elements),
+        surface_map=None,
+    )
 
 
 def build_scene(cfg: SimConfig) -> SceneBundle:
