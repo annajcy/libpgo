@@ -383,7 +383,6 @@ class TestNotebookSources:
         assert "optimized_surface" in source
         assert "optimized_elastic" in source
         assert "elastic_delta" in source
-        assert "elastic_delta_norm" in source
         assert "E_membrane_delta" in source
         assert "E_membrane recovery" in source
         assert "correlation r" in source
@@ -397,7 +396,10 @@ class TestNotebookSources:
         assert "optimized_elastic_tensor" in source
         assert "optimized_vertices =" in source
         assert "num_outer_steps" in source
-        assert "learning_rate" in source
+        assert "EmNet" in source
+        assert "build_param" in source
+        assert "em_net" in source
+        assert "best_state" in source
         assert "nx = ny" in source
         assert "surface_vertex_ids" in source
         assert "shear_strength" in source

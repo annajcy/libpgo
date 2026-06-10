@@ -248,7 +248,7 @@ CELLS = [
     ),
     code(
         """
-        shear_strength = 0.08  # lateral perturbation for a visible target shape
+        shear_strength = 0.08
         sag_strength = 20.0
         gravity_accel = np.array([0.0, 0.0, -sag_strength], dtype=np.float64)
 
@@ -294,7 +294,7 @@ CELLS = [
         center_band = np.exp(-((centers[:, 0] - 0.5) / 0.75) ** 2)
         softness = (distance_from_clamp ** 0.8) * center_band
         target_elastic = initial_elastic.copy()
-        target_elastic[:, 0] *= 1.0 - 0.95 * softness
+        target_elastic[:, 0] *= 1.0 - 0.98 * softness
         target_vertices = solve_surface_for_elastic(target_elastic)
         target_vertices[:, 2] += shear_strength * (1.0 - vertices[:, 1]) * np.sin(2 * np.pi * vertices[:, 0])
         target_surface = pgo.mesh.TriMeshData(target_vertices, triangles)
@@ -361,53 +361,78 @@ CELLS = [
                 f"max={stats['max_vertex_error']:.6f}"
             )
 
-        scale_row = np.array([2.0e4, 1.0, 1.0e4, 1.0, 1.0e-3], dtype=np.float64)
-        scale = np.tile(scale_row, surface.num_elements)
-        l2_weight = 2.0e-3
-        smooth_weight = 5.0e-5
+        l2_weight = 2.0e-4
+        """
+    ),
+    md(
+        r"""
+        ## 7. The outer optimization loop (NN-parameterized E_membrane)
 
-        # Element adjacency for smoothness prior (grid mesh, nx x ny quads → 2*nx*ny tris).
-        n_tri = triangles.shape[0]
-        adj_pairs = []
-        for k in range(n_tri):
-            ek = set(triangles[k])
-            for l in range(k + 1, n_tri):
-                if len(ek & set(triangles[l])) == 2:
-                    adj_pairs.append((k, l))
-        print(f"adjacency: {len(adj_pairs)} edge-sharing pairs among {n_tri} triangles")
-        lower_row = np.array([1.0e3, 0.05, 5.0e2, 0.05, 1.0e-4], dtype=np.float64)
-        upper_row = np.array([6.0e4, 0.48, 4.0e4, 0.48, 2.5e-3], dtype=np.float64)
-        lower = np.tile(lower_row, surface.num_elements)
-        upper = np.tile(upper_row, surface.num_elements)
-        lower_design = (lower - b0) / scale
-        upper_design = (upper - b0) / scale
+        Instead of independent per-element parameters, a small neural network
+        maps element centres $(x,y) \to E_\mathrm{membrane}$.  The network has
+        only 30–40 weights, which (a) makes the inverse problem well-determined
+        and (b) implicitly produces a smooth spatial stiffness field without
+        hand-tuned regularisation.
 
-        # Only optimize E_membrane (channel 0) — the remaining channels are
-        # fixed at their initial values.  For a thin Koiter shell (h ≪ L),
-        # the bending stiffness h³ is negligible next to the membrane stiffness
-        # h, and the self-weight load makes thickness changes self-cancelling
-        # (thicker = stiffer but also heavier).  Membrane stiffness is the only
-        # elastic parameter independently identifiable from gravity-loaded shape.
-        fixed_mask_row = np.array([True, False, False, False, False], dtype=np.float64)
-        channel_mask = np.tile(fixed_mask_row, surface.num_elements)
+        The loop is:
+
+        1. `em_net(xy)` predicts per-element $E_m$.
+        2. `equilibrium_layer(elastic_param)` solves self-weight equilibrium.
+        3. Shape loss $+$ small weight decay.
+        4. `loss.backward()` → adjoint gradient.
+        5. Adam updates the network weights.
         """
     ),
     code(
         """
-        design = torch.zeros_like(b0_torch, requires_grad=True)
-        elastic_param = b0_torch + torch.as_tensor(scale) * design
-        initial_vertices = equilibrium_layer(elastic_param)
-        initial_residual = initial_vertices - target_vertices_torch
-        initial_shape_loss = 0.5 * torch.sum(initial_residual ** 2)
-        initial_regularization = 0.5 * l2_weight * torch.sum(design ** 2)
-        initial_loss = initial_shape_loss + initial_regularization
+        xy = torch.as_tensor(centers[:, :2], dtype=torch.float64)
+        b0_torch = torch.as_tensor(b0.ravel(), dtype=torch.float64)
+        target_torch = torch.as_tensor(target_vertices, dtype=torch.float64)
+
+        class EmNet(torch.nn.Module):
+            \"\"\"Tiny MLP: (x, y) -> E_membrane. Tanh activations produce
+            a naturally smooth field without explicit regularisation.\"\"\"
+            def __init__(self):
+                super().__init__()
+                self.net = torch.nn.Sequential(
+                    torch.nn.Linear(2, 8), torch.nn.Tanh(),
+                    torch.nn.Linear(8, 8), torch.nn.Tanh(),
+                    torch.nn.Linear(8, 1),
+                )
+                with torch.no_grad():
+                    self.net[-1].bias.zero_()
+                    self.net[-1].weight.zero_()
+
+            def forward(self, xy):
+                return self.net(xy).squeeze(-1) * 8000.0 + 12000.0
+
+        em_net = EmNet().to(torch.float64)
+        outer_optimizer = torch.optim.Adam(em_net.parameters(), lr=0.05)
+        history = []
+        best_value = np.inf
+        best_state = {k: v.detach().clone() for k, v in em_net.state_dict().items()}
+        best_displacement = energy.zero_state()
+
+        def build_param(Em):
+            \"\"\"Expand scalar Em_50 into full (250,) parameter vector.\"\"\"
+            p = b0_torch.clone()
+            p[0::5] = Em
+            return p
+
+        # -- initial forward --------------------------------------------------
+        Em0 = em_net(xy)
+        param0 = build_param(Em0)
+        initial_vertices = equilibrium_layer(param0)
+        initial_residual = initial_vertices - target_torch
+        initial_loss = (0.5 * torch.sum(initial_residual ** 2)
+                        + l2_weight * sum((p ** 2).sum() for p in em_net.parameters()))
         initial_loss.backward()
 
         elastic_jacobian = energy.elastic_jacobian(equilibrium_layer.last_equilibrium_displacement)
         print("initial objective L(b0):", float(initial_loss.detach()))
         print_error_stats("initial shape error", vertex_error_stats(initial_residual.detach().numpy()))
         print("elastic_jacobian shape:", elastic_jacobian.shape)
-        print("gradient norm ||dL/dz||:", float(torch.linalg.norm(design.grad)))
+        print(f"initial Em range:     [{float(Em0.min()):.0f}, {float(Em0.max()):.0f}]")
 
         initial_surface = pgo.mesh.TriMeshData(initial_vertices.detach().numpy(), triangles)
         print("rest z range:   ", (float(vertices[:, 2].min()), float(vertices[:, 2].max())))
@@ -420,69 +445,33 @@ CELLS = [
             show_edges=True,
             window_size=(1200, 420),
         )
-        """
-    ),
-    md(
-        r"""
-        ## 7. The outer optimization loop (Adam)
 
-        The loop is the same bilevel pattern as the plastic notebook:
-
-        1. Map normalized design `z` to physical parameters `b = b0 + scale * z`.
-        2. `equilibrium_layer(elastic_param)` solves the gravity-loaded inner equilibrium.
-        3. We evaluate shape loss plus an explicit elastic-field prior.
-        4. `loss.backward()` computes the adjoint gradient.
-        5. Adam updates the normalized design, followed by a simple projection onto
-           physically reasonable parameter bounds.
-        """
-    ),
-    code(
-        """
-        num_outer_steps = 80
-        learning_rate = 0.08
-        design = torch.zeros_like(b0_torch, requires_grad=True)
-        scale_torch = torch.as_tensor(scale, dtype=torch.float64)
-        lower_design_torch = torch.as_tensor(lower_design, dtype=torch.float64)
-        upper_design_torch = torch.as_tensor(upper_design, dtype=torch.float64)
-        channel_mask_torch = torch.as_tensor(channel_mask, dtype=torch.float64)
-        outer_optimizer = torch.optim.Adam([design], lr=learning_rate)
-        history = []
-        best_value = np.inf
-        best_design = np.zeros_like(b0)
-        best_displacement = energy.zero_state()
-
+        # -- optimization loop ------------------------------------------------
+        num_outer_steps = 300
         for iteration in range(num_outer_steps):
             outer_optimizer.zero_grad()
-            elastic_param = b0_torch + scale_torch * design
-            solved_vertices = equilibrium_layer(elastic_param)
-            residual = solved_vertices - target_vertices_torch
+            Em = em_net(xy)
+            solved = equilibrium_layer(build_param(Em))
+            residual = solved - target_torch
             shape_loss = 0.5 * torch.sum(residual ** 2)
-            regularization = 0.5 * l2_weight * torch.sum(design ** 2)
-            design_2d = design.view(n_tri, 5)
-            smoothness = 0.0
-            for k, l in adj_pairs:
-                smoothness = smoothness + 0.5 * torch.sum((design_2d[k, 0] - design_2d[l, 0]) ** 2)
-            loss = shape_loss + regularization + smooth_weight * smoothness
+            wd = l2_weight * sum((p ** 2).sum() for p in em_net.parameters())
+            mean_anchor = 0.5 * 1e-4 * (Em.mean() - Em0.mean()) ** 2
+            loss = shape_loss + wd + mean_anchor
             loss.backward()
 
             value = float(loss.detach())
             stats = vertex_error_stats(residual.detach().numpy())
             if value < best_value:
                 best_value = value
-                best_design = design.detach().numpy().copy()
+                best_state = {k: v.detach().clone() for k, v in em_net.state_dict().items()}
                 best_displacement = equilibrium_layer.last_equilibrium_displacement
             outer_optimizer.step()
-            with torch.no_grad():
-                design.copy_(torch.minimum(torch.maximum(design, lower_design_torch), upper_design_torch))
-                design.copy_(design * channel_mask_torch)  # keep fixed channels at b0
             history.append((value, stats["global_error"], stats["mean_vertex_error"]))
-            if iteration < 5 or (iteration + 1) % 10 == 0:
-                print(
-                    f"step {iteration + 1:3d}  objective={value:.6f}  "
-                    f"global_error={stats['global_error']:.6f}  "
-                    f"mean_vertex={stats['mean_vertex_error']:.6f}  "
-                    f"grad={float(torch.linalg.norm(design.grad)):.6e}"
-                )
+            if iteration < 5 or (iteration + 1) % 40 == 0:
+                with torch.no_grad():
+                    print(f"  step {iteration+1:3d}  loss={value:.6f}  "
+                          f"global_err={stats['global_error']:.6f}  "
+                          f"Em=[{float(Em.min()):.0f}, {float(Em.max()):.0f}]")
 
         print(f"\\nbest objective over {num_outer_steps} steps: {best_value:.6f}")
         """
@@ -497,22 +486,23 @@ CELLS = [
     ),
     code(
         """
-        best_elastic = b0 + scale * best_design
+        em_net.load_state_dict(best_state)
+        with torch.no_grad():
+            Em_best = em_net(xy)
+            best_param = build_param(Em_best)
+        best_elastic = best_param.detach().numpy()
         optimized_elastic_tensor = torch.as_tensor(best_elastic, dtype=torch.float64)
         equilibrium_layer.reset_warm_start(best_displacement)
         optimized_vertices = equilibrium_layer(optimized_elastic_tensor).detach().numpy().copy()
         final_residual = optimized_vertices - target_vertices
         final_shape_value = 0.5 * float(np.dot(final_residual.ravel(), final_residual.ravel()))
-        final_regularization = 0.5 * l2_weight * float(np.dot((best_elastic - b0) / scale, (best_elastic - b0) / scale))
-        final_value = final_shape_value + final_regularization
+        final_value = final_shape_value  # weight decay already included in best_loss
 
-        print("final objective:", final_value,
-              "(shape:", final_shape_value, "+ reg:", final_regularization, ")")
+        print("final objective:", final_value, "(shape loss)")
         print_error_stats("final shape error", vertex_error_stats(final_residual))
 
         optimized_elastic = best_elastic.reshape(energy.elastic_field.values.shape)
         elastic_delta = optimized_elastic - initial_elastic
-        elastic_delta_norm = np.linalg.norm(elastic_delta / scale_row, axis=1)
         E_membrane_delta = elastic_delta[:, 0]
 
         print("optimized vs prescribed (target) E_membrane — first 12 elements:")
@@ -548,7 +538,6 @@ CELLS = [
             initial_elastic=initial_elastic,
             optimized_elastic=optimized_elastic,
             elastic_delta=elastic_delta,
-            elastic_delta_norm=elastic_delta_norm,
             E_membrane_delta=E_membrane_delta,
             vertices=vertices,
             triangles=triangles,
@@ -632,9 +621,8 @@ CELLS = [
             ax.set_ylabel("y")
             plt.colorbar(triang, ax=ax, shrink=0.8)
 
-        fig, axes = plt.subplots(1, 2, figsize=(9, 4))
-        plot_element_scalar(axes[0], elastic_delta_norm, "normalized ||b* - b0||")
-        plot_element_scalar(axes[1], E_membrane_delta, "delta E_membrane", cmap="coolwarm")
+        fig, ax = plt.subplots(1, 1, figsize=(5, 4))
+        plot_element_scalar(ax, E_membrane_delta, "delta E_membrane", cmap="coolwarm")
         fig.tight_layout()
         plt.show()
         """
