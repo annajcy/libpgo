@@ -3,9 +3,10 @@
 #include "barycentricCoordinates.h"
 #include "deformation/volume/volumetricDeformationModel.h"
 #include "deformation/volume/volumetricElementMapping.h"
+#include "formulations/dof/dofLayout.h"
 #include "formulations/quadrature/quadrature.h"
 #include "formulations/shapeFunction/shapeFunction.h"
-#include "generateMassMatrix.h"
+#include "mass/volumeMassField.h"
 #include "simulation/simulationMesh.h"
 #include "volumetricMesh.h"
 
@@ -62,23 +63,110 @@ std::unique_ptr<VolumetricElementMapping> VolumetricFormulation::createElementMa
 }
 
 EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
-  const VolumetricMeshes::VolumetricMesh &mesh) const
+  const SimulationMesh &mesh, const VolumeMassField &massField) const
 {
-  ES::SpMatD M;
-  VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(&mesh, M, true);
+  if (mesh.getElementType() != compatibleMeshType()) {
+    throw std::invalid_argument("mesh type is incompatible with this formulation");
+  }
+  massField.validate(mesh);
+
+  const std::unique_ptr<DofLayout> dofLayout = createDofLayout(mesh);
+  const ES::VXd restDofs = buildGlobalRestDofs(mesh);
+  const ShapeFunction &sf = shapeFunction();
+  const Quadrature &quad = massQuadrature();
+  const int numNodes = sf.numNodes();
+
+  std::vector<double> N(numNodes);
+  std::vector<double> localRest;
+  std::vector<int> globalIdx;
+  std::vector<ES::TripletD> entries;
+
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    localRest.resize(dofLayout->numLocalDofs(ele));
+    dofLayout->gather(ele, restDofs.data(), localRest.data());
+    const VolumetricElementMapping mapping(localRest.data(), sf, quad);
+    dofLayout->getGlobalDofIndices(ele, globalIdx);
+    const double rho = massField.volumeDensity(ele);
+
+    for (int q = 0; q < quad.numPoints(); q++) {
+      double xi[3];
+      quad.point(q, xi);
+      sf.N(xi[0], xi[1], xi[2], N.data());
+      const double w = rho * mapping.weightDetJ(q);
+
+      for (int a = 0; a < numNodes; a++) {
+        const double wa = w * N[a];
+        if (wa == 0.0)
+          continue;
+        for (int b = 0; b < numNodes; b++) {
+          const double m = wa * N[b];
+          if (m == 0.0)
+            continue;
+          for (int d = 0; d < 3; d++) {
+            const int ga = globalIdx[a * 3 + d];
+            const int gb = globalIdx[b * 3 + d];
+            if (ga < 0 || gb < 0)
+              continue;
+            entries.emplace_back(ga, gb, m);
+          }
+        }
+      }
+    }
+  }
+
+  ES::SpMatD M(dofLayout->numGlobalDofs(), dofLayout->numGlobalDofs());
+  M.setFromTriplets(entries.begin(), entries.end());
   return M;
 }
 
 EigenSupport::VXd VolumetricFormulation::buildBodyForce(
-  const VolumetricMeshes::VolumetricMesh &mesh,
-  const EigenSupport::V3d &acceleration) const
+  const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
+  const VolumeMassField &massField) const
 {
-  ES::SpMatD M;
-  VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(&mesh, M, true);
-  ES::VXd accelField(mesh.getNumVertices() * 3);
-  for (int vertex = 0; vertex < mesh.getNumVertices(); vertex++)
-    accelField.segment<3>(vertex * 3) = acceleration;
-  return M * accelField;
+  if (mesh.getElementType() != compatibleMeshType()) {
+    throw std::invalid_argument("mesh type is incompatible with this formulation");
+  }
+  massField.validate(mesh);
+
+  const std::unique_ptr<DofLayout> dofLayout = createDofLayout(mesh);
+  const ES::VXd restDofs = buildGlobalRestDofs(mesh);
+  const ShapeFunction &sf = shapeFunction();
+  const Quadrature &quad = massQuadrature();
+  const int numNodes = sf.numNodes();
+
+  std::vector<double> N(numNodes);
+  std::vector<double> localRest;
+  std::vector<int> globalIdx;
+  ES::VXd f = ES::VXd::Zero(dofLayout->numGlobalDofs());
+
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    localRest.resize(dofLayout->numLocalDofs(ele));
+    dofLayout->gather(ele, restDofs.data(), localRest.data());
+    const VolumetricElementMapping mapping(localRest.data(), sf, quad);
+    dofLayout->getGlobalDofIndices(ele, globalIdx);
+    const double rho = massField.volumeDensity(ele);
+
+    for (int q = 0; q < quad.numPoints(); q++) {
+      double xi[3];
+      quad.point(q, xi);
+      sf.N(xi[0], xi[1], xi[2], N.data());
+      const double w = rho * mapping.weightDetJ(q);
+
+      for (int a = 0; a < numNodes; a++) {
+        const double fa = w * N[a];
+        if (fa == 0.0)
+          continue;
+        for (int d = 0; d < 3; d++) {
+          const int ga = globalIdx[a * 3 + d];
+          if (ga < 0)
+            continue;
+          f[ga] += fa * acceleration[d];
+        }
+      }
+    }
+  }
+
+  return f;
 }
 
 EigenSupport::SpMatD VolumetricFormulation::buildSurfaceEmbeddingMatrix(

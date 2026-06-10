@@ -18,11 +18,6 @@ public:
   std::unique_ptr<DofLayout> createDofLayout(const SimulationMesh &mesh) const override;
   EigenSupport::VXd buildGlobalRestDofs(const SimulationMesh &mesh) const override;
 
-  EigenSupport::SpMatD buildMassMatrix(
-    const VolumetricMeshes::VolumetricMesh &mesh) const override;
-  EigenSupport::VXd buildBodyForce(
-    const VolumetricMeshes::VolumetricMesh &mesh,
-    const EigenSupport::V3d &acceleration) const override;
   EigenSupport::SpMatD buildSurfaceEmbeddingMatrix(
     const VolumetricMeshes::VolumetricMesh &mesh,
     const EigenSupport::MXd &surfaceVertices) const override;

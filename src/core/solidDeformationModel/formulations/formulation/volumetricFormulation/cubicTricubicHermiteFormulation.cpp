@@ -60,49 +60,6 @@ void elementHermiteRestDofs(const SimulationMesh &mesh, int ele, std::array<doub
   }
 }
 
-const ES::MXd &hermiteUnitMass64()
-{
-  static const ES::MXd unitMass = [] {
-    CubicTricubicHermiteShapeFunction shapeFunction;
-    GaussLegendreHexQuadrature4 quadrature;
-    ES::MXd M = ES::MXd::Zero(kHermiteNodes, kHermiteNodes);
-    std::array<double, kHermiteNodes> H{};
-
-    for (int q = 0; q < quadrature.numPoints(); q++) {
-      double xi[3];
-      quadrature.point(q, xi);
-      shapeFunction.N(xi[0], xi[1], xi[2], H.data());
-      const double w = quadrature.weight(q);
-      for (int i = 0; i < kHermiteNodes; i++)
-        for (int j = 0; j < kHermiteNodes; j++)
-          M(i, j) += w * H[i] * H[j];
-    }
-    return M;
-  }();
-  return unitMass;
-}
-
-const ES::VXd &hermiteUnitBody64()
-{
-  static const ES::VXd unitBody = [] {
-    CubicTricubicHermiteShapeFunction shapeFunction;
-    GaussLegendreHexQuadrature4 quadrature;
-    ES::VXd b = ES::VXd::Zero(kHermiteNodes);
-    std::array<double, kHermiteNodes> H{};
-
-    for (int q = 0; q < quadrature.numPoints(); q++) {
-      double xi[3];
-      quadrature.point(q, xi);
-      shapeFunction.N(xi[0], xi[1], xi[2], H.data());
-      const double w = quadrature.weight(q);
-      for (int i = 0; i < kHermiteNodes; i++)
-        b[i] += w * H[i];
-    }
-    return b;
-  }();
-  return unitBody;
-}
-
 std::vector<double> flattenSurfaceVertices(const ES::MXd &surfaceVertices)
 {
   if (surfaceVertices.cols() != 3) {
@@ -113,67 +70,6 @@ std::vector<double> flattenSurfaceVertices(const ES::MXd &surfaceVertices)
     for (int d = 0; d < 3; d++)
       flat[static_cast<size_t>(i) * 3 + d] = surfaceVertices(i, d);
   return flat;
-}
-
-ES::SpMatD buildHermiteMassMatrix(const VolumetricMeshes::VolumetricMesh &mesh)
-{
-  if (mesh.getNumElementVertices() != 8) {
-    throw std::invalid_argument("cubic_tricubic_hermite mass requires an 8-corner cubic mesh");
-  }
-
-  const int numDofs = mesh.getNumVertices() * CubicTricubicHermiteDofLayout::kDofsPerVertex;
-  std::vector<ES::TripletD> entries;
-  entries.reserve(static_cast<size_t>(mesh.getNumElements()) * kHermiteNodes * kHermiteNodes * 3);
-
-  const ES::MXd &unitMass = hermiteUnitMass64();
-  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    const double scale = mesh.getElementVolume(ele) * mesh.getElementDensity(ele);
-    for (int a = 0; a < kHermiteNodes; a++) {
-      const int va = mesh.getVertexIndex(ele, a / kHermiteModes);
-      const int ma = a % kHermiteModes;
-      for (int b = 0; b < kHermiteNodes; b++) {
-        const double value = scale * unitMass(a, b);
-        if (value == 0.0)
-          continue;
-        const int vb = mesh.getVertexIndex(ele, b / kHermiteModes);
-        const int mb = b % kHermiteModes;
-        for (int coord = 0; coord < 3; coord++) {
-          entries.emplace_back(
-            va * CubicTricubicHermiteDofLayout::kDofsPerVertex + ma * 3 + coord,
-            vb * CubicTricubicHermiteDofLayout::kDofsPerVertex + mb * 3 + coord,
-            value);
-        }
-      }
-    }
-  }
-
-  ES::SpMatD M(numDofs, numDofs);
-  M.setFromTriplets(entries.begin(), entries.end());
-  return M;
-}
-
-ES::VXd buildHermiteBodyForce(
-  const VolumetricMeshes::VolumetricMesh &mesh,
-  const ES::V3d &acceleration)
-{
-  if (mesh.getNumElementVertices() != 8) {
-    throw std::invalid_argument("cubic_tricubic_hermite body force requires an 8-corner cubic mesh");
-  }
-
-  ES::VXd force = ES::VXd::Zero(mesh.getNumVertices() * CubicTricubicHermiteDofLayout::kDofsPerVertex);
-  const ES::VXd &unitBody = hermiteUnitBody64();
-
-  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    const double scale = mesh.getElementVolume(ele) * mesh.getElementDensity(ele);
-    for (int node = 0; node < kHermiteNodes; node++) {
-      const int vertex = mesh.getVertexIndex(ele, node / kHermiteModes);
-      const int mode = node % kHermiteModes;
-      const int base = vertex * CubicTricubicHermiteDofLayout::kDofsPerVertex + mode * 3;
-      force.segment<3>(base) += scale * unitBody[node] * acceleration;
-    }
-  }
-
-  return force;
 }
 
 ES::SpMatD buildHermiteSurfaceEmbeddingMatrix(
@@ -237,19 +133,6 @@ CubicTricubicHermiteFormulation::CubicTricubicHermiteFormulation()
 std::string_view CubicTricubicHermiteFormulation::getName() const { return "cubic_tricubic_hermite"; }
 int CubicTricubicHermiteFormulation::getNodesPerElement() const { return 64; }
 int CubicTricubicHermiteFormulation::getLocalDofs() const { return 192; }
-
-EigenSupport::SpMatD CubicTricubicHermiteFormulation::buildMassMatrix(
-  const VolumetricMeshes::VolumetricMesh &mesh) const
-{
-  return buildHermiteMassMatrix(mesh);
-}
-
-EigenSupport::VXd CubicTricubicHermiteFormulation::buildBodyForce(
-  const VolumetricMeshes::VolumetricMesh &mesh,
-  const EigenSupport::V3d &acceleration) const
-{
-  return buildHermiteBodyForce(mesh, acceleration);
-}
 
 EigenSupport::SpMatD CubicTricubicHermiteFormulation::buildSurfaceEmbeddingMatrix(
   const VolumetricMeshes::VolumetricMesh &mesh,

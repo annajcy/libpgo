@@ -4,6 +4,8 @@
 
 #include "EigenSupport.h"
 
+#include <cassert>
+
 namespace pgo
 {
 namespace SolidDeformationModel
@@ -35,7 +37,11 @@ public:
   explicit ElementwiseVolumeDensity(EigenSupport::VXd densities);
 
   void validate(const SimulationMesh &mesh) const override;
-  double volumeDensity(int ele) const override { return densities_[ele]; }
+  double volumeDensity(int ele) const override
+  {
+    assert(ele >= 0 && ele < static_cast<int>(densities_.size()));
+    return densities_[ele];
+  }
 
 private:
   EigenSupport::VXd densities_;
