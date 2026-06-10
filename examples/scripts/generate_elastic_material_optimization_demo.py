@@ -48,9 +48,11 @@ CELLS = [
 
         1. Problem statement — optimize elastic parameters, not displacement
         2. Adjoint path — the elastic Jacobian $\partial^2E/\partial u\,\partial b$
+           and the load-gradient correction for self-weight gravity
         3. Setup — imports and output directory
         4. Build a Koiter shell grid with an elastic field
-        5. Add gravity, generate a sagging target, and fix boundary DOFs
+        5. Add gravity (two modes: `fixed_area_load` and `self_weight`),
+           generate a sagging target, and fix boundary DOFs
         6. One forward + one gradient sanity check
         7. The outer optimization loop (Adam)
         8. Inspect the optimized elastic field
@@ -103,6 +105,22 @@ CELLS = [
         +\mathbf J^b_f=0,\qquad
         \mathbf J^b=\frac{\partial^2 E}{\partial \mathbf u\,\partial\mathbf b}.
         $$
+
+        When the load itself depends on $\mathbf b$ (the `self_weight` mode with
+        a thickness-coupled gravity field), the stationarity condition picks up a
+        load-force term:
+
+        $$
+        \mathbf J^b=\frac{\partial^2 E}{\partial \mathbf u\,\partial\mathbf b}
+        -\frac{\partial\mathbf f_g}{\partial\mathbf b},
+        $$
+
+        where $\mathbf f_g$ is the gravity force vector assembled by
+        `SelfWeightGravity`.  In code, `energy.elastic_jacobian(u)` returns only
+        the second-mixed Hessian $\partial^2E/\partial u\,\partial b$; the
+        layer's backward pass adds the
+        `-external_load.force_jacobian(u)`
+        contribution automatically when `external_load` is provided.
 
         For a shape residual upstream gradient $\mathbf q=\partial L/\partial u$,
         solve one adjoint system
@@ -221,25 +239,61 @@ CELLS = [
         synthetic target by solving the same gravity-loaded system with a hidden
         softer/thinner elastic field.  In your own fitting run, replace only
         `target_vertices`; the rest of the pipeline is the same.
+
+        Two gravity modes are demonstrated:
+
+        - **`fixed_area_load`** (old behavior): an areal force density in N/m^2
+          that does *not* change when thickness is optimized.  This is the simpler
+          mode but it decouples the load from the material parameter being fitted.
+        - **`self_weight`** (default, physically correct): a
+          `ShellDensityElasticThickness` mass field reads the live thickness from
+          elastic channel 4, and `SelfWeightGravity` converts it to nodal forces.
+          The load updates every time the elastic parameters change, so the adjoint
+          gains an additional $-(\partial\mathbf f_g/\partial\mathbf b)^\top\bm\lambda$
+          term.
+
+        Both modes are kept in the generator so they can be swapped with a single
+        flag.  The `self_weight` mode is the physically meaningful one for material
+        optimization because the gravitational load couples to the thickness being
+        optimized.
         """
     ),
     code(
         """
         shear_strength = 0.0
         sag_strength = 20.0
-
-        # Lumped shell gravity: triangle area / 3 to each incident vertex.
-        vertex_area = np.zeros(vertices.shape[0], dtype=np.float64)
-        for tri in triangles:
-            a, b, c = vertices[tri]
-            area = 0.5 * np.linalg.norm(np.cross(b - a, c - a))
-            vertex_area[tri] += area / 3.0
-        areal_density = 1.0
         gravity_accel = np.array([0.0, 0.0, -sag_strength], dtype=np.float64)
-        gravity_force = np.zeros(energy.num_dofs, dtype=np.float64)
-        gravity_force.reshape((-1, 3))[:] = areal_density * vertex_area[:, None] * gravity_accel
-        gravity_energy = pe.LinearEnergy(-gravity_force)
-        objective = pe.EnergySet([(energy, 1.0), (gravity_energy, 1.0)])
+
+        GRAVITY_MODE = "self_weight"  # "self_weight" | "fixed_area_load"
+
+        if GRAVITY_MODE == "fixed_area_load":
+            # Fixed downward areal load (the old behavior, now honestly named):
+            # the load does NOT change when thickness is optimized.
+            vertex_area = np.zeros(vertices.shape[0], dtype=np.float64)
+            for tri in triangles:
+                a, b, c = vertices[tri]
+                area = 0.5 * np.linalg.norm(np.cross(b - a, c - a))
+                vertex_area[tri] += area / 3.0
+            gravity_force = np.zeros(energy.num_dofs, dtype=np.float64)
+            gravity_force.reshape((-1, 3))[:] = 1.0 * vertex_area[:, None] * gravity_accel
+            external_load = None
+            objective = pe.EnergySet([(energy, 1.0), (pe.LinearEnergy(-gravity_force), 1.0)])
+        else:
+            # Physically correct self-weight: f_g = rho * h * area/3 per corner
+            # vertex, with h read live from elastic channel 4.  rho chosen so
+            # rho*h0 = 1 kg/m^2 matches the old load magnitude at b0.
+            mass_field = pf.ShellDensityElasticThickness(
+                density=1000.0, parameter_field=energy.elastic_field, channel=4)
+            external_load = pf.SelfWeightGravity(
+                formulation=pf.KoiterShell(), sim_mesh=sim,
+                mass_field=mass_field, acceleration=gravity_accel)
+            gravity_force = external_load.force()
+            objective = energy  # the layer / target solve add the load at current b
+
+        def _objective_at_current_b():
+            if external_load is None:
+                return objective
+            return pe.EnergySet([(energy, 1.0), (pe.LinearEnergy(-external_load.force()), 1.0)])
 
         fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 1.0)).astype(np.int64)
         fixed_dofs = (3 * fixed_vertices[:, None] + np.arange(3, dtype=np.int64)).ravel()
@@ -248,7 +302,7 @@ CELLS = [
 
         def solve_surface_for_elastic(elastic_values):
             energy.set_elastic_values(elastic_values)
-            problem = ps.OptimizationProblem(objective=objective)
+            problem = ps.OptimizationProblem(objective=_objective_at_current_b())
             problem.fix_variables(fixed_dofs.tolist(), fixed_values, num_dofs=energy.num_dofs)
             result = ps.NewtonOptimizer(
                 max_iterations=80,
@@ -275,7 +329,8 @@ CELLS = [
 
         equilibrium_layer = pgo.fem.ElasticStaticEquilibriumLayer(
             energy=energy,
-            objective_energy=objective,
+            objective_energy=_objective_at_current_b(),
+            external_load=external_load,
             fixed_dofs=fixed_dofs,
             fixed_values=fixed_values,
             surface_vertices=vertices,
@@ -573,6 +628,10 @@ CELLS = [
           `PlasticStaticEquilibriumLayer`.
         - The backward pass uses `energy.elastic_jacobian(u)`:
           $\partial^2E/\partial u\,\partial b$.
+        - When `external_load` is provided (self-weight gravity), the layer's
+          backward pass automatically adds
+          $-\lambda^\top(\partial\mathbf f_g/\partial\mathbf b)$ to the
+          parameter gradient.
         - Purely scaling every elastic parameter often does not change the
           equilibrium shape much; the useful design space here is the *spatial
           distribution* of stiffness and thickness.

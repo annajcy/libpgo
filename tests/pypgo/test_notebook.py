@@ -368,11 +368,15 @@ class TestNotebookSources:
         assert "pf.ElementwiseField(values=" in source
         assert "target_vertices" in source
         assert "pgo.fem.ElasticStaticEquilibriumLayer" in source
-        assert "objective_energy=objective" in source
-        assert "pe.LinearEnergy(-gravity_force)" in source
+        assert "objective_energy=_objective_at_current_b()" in source
+        assert "pe.LinearEnergy(" in source
         assert "pe.EnergySet" in source
         assert "gravity_force" in source
         assert "gravity_accel" in source
+        assert "external_load=" in source
+        assert "ShellDensityElasticThickness" in source
+        assert "SelfWeightGravity" in source
+        assert "_objective_at_current_b" in source
         assert "energy.num_elastic_dofs" in source
         assert "energy.elastic_jacobian" in source
         assert "pgo.mesh.plot_surface" in source
