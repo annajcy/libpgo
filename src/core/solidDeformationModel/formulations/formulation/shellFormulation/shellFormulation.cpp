@@ -139,6 +139,7 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
   const int numLocal = layout->numLocalDofs();
   std::vector<double> dRho(numLocal);
   std::vector<ES::TripletD> entries;
+  entries.reserve(static_cast<size_t>(mesh.getNumElements()) * numLocal * 9);
 
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
     dependent->arealDensityParameterDerivative(ele, dRho.data());

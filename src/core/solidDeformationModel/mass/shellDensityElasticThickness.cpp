@@ -37,8 +37,9 @@ void ShellDensityElasticThickness::validate(const SimulationMesh &mesh) const
 
 double ShellDensityElasticThickness::arealDensity(int ele) const
 {
-  std::vector<double> value(field_->numChannels());
-  field_->computeValue(ele, 0, value.data());
+  double value[64];  // far exceeds any current or foreseeable channel count
+  assert(field_->numChannels() <= 64);
+  field_->computeValue(ele, 0, value);
   return density_ * value[channel_];
 }
 
