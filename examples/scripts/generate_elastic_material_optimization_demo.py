@@ -500,18 +500,28 @@ CELLS = [
         elastic_delta_norm = np.linalg.norm(elastic_delta / scale_row, axis=1)
         E_membrane_delta = elastic_delta[:, 0]
 
-        print("optimized elastic sample rows (E_m,nu_m,E_b,nu_b,h):")
-        print(optimized_elastic[: min(8, optimized_elastic.shape[0])])
+        print("optimized vs prescribed (target) E_membrane — first 12 elements:")
+        target_Em = target_elastic[:, 0]
+        optimized_Em = optimized_elastic[:, 0]
+        print(f"{'elem':>4s}  {'target':>8s}  {'optimized':>10s}  {'delta':>10s}")
+        n_show = min(12, optimized_elastic.shape[0])
+        for i in range(n_show):
+            print(f"{i:4d}  {target_Em[i]:8.1f}  {optimized_Em[i]:10.1f}  {optimized_Em[i] - target_Em[i]:+10.1f}")
         print()
-        print("E_membrane statistics:  "
-              f"init={initial_elastic[0,0]:.0f}  "
-              f"min={optimized_elastic[:,0].min():.0f}  "
-              f"max={optimized_elastic[:,0].max():.0f}  "
-              f"mean={optimized_elastic[:,0].mean():.0f}")
-        print("E_membrane delta:      "
-              f"min={E_membrane_delta.min():+.0f}  "
-              f"max={E_membrane_delta.max():+.0f}")
-        print("fixed channels:        "
+        Em_diff = optimized_Em - target_Em
+        Em_relerr = np.abs(Em_diff) / np.maximum(np.abs(target_Em), 1.0)
+        corr = np.corrcoef(target_Em, optimized_Em)[0, 1]
+        print("E_membrane recovery:")
+        print(f"  target:               min={target_Em.min():.0f}  max={target_Em.max():.0f}  "
+              f"mean={target_Em.mean():.0f}")
+        print(f"  optimized:            min={optimized_Em.min():.0f}  max={optimized_Em.max():.0f}  "
+              f"mean={optimized_Em.mean():.0f}")
+        print(f"  correlation r:        {corr:.4f}")
+        print(f"  max |delta|:          {np.abs(Em_diff).max():.0f}")
+        print(f"  mean relative error:  {Em_relerr.mean():.4f}")
+        print(f"  max relative error:   {Em_relerr.max():.4f}")
+        print()
+        print("fixed channels (unchanged from initial):  "
               f"E_b={optimized_elastic[0,2]:.0f}  "
               f"nu_m={optimized_elastic[0,1]:.2f}  "
               f"nu_b={optimized_elastic[0,3]:.2f}  "

@@ -385,7 +385,8 @@ class TestNotebookSources:
         assert "elastic_delta" in source
         assert "elastic_delta_norm" in source
         assert "E_membrane_delta" in source
-        assert "E_membrane statistics" in source
+        assert "E_membrane recovery" in source
+        assert "correlation r" in source
         assert "elastic_shape_match_weights.npz" in source
         assert "np.savez" in source
         assert "tripcolor" in source
