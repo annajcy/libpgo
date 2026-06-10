@@ -285,17 +285,18 @@ CELLS = [
                 print("target solve warning:", result.status.name, "grad:", result.final_gradient_max_norm)
             return vertices + result.x.reshape((-1, 3))
 
-        # Hidden target material: softer near the free lower middle.
-        # Thickness is kept at the initial value so that weight stays constant —
-        # stiffness alone produces the sag difference.
+        # Hidden target material: softer (lower E_membrane) near the free
+        # lower middle.  Only E_membrane is varied; all other channels
+        # (nu_m, E_bending, nu_b, thickness) stay at their initial values.
+        # For a thin shell (h ≪ L) under self-weight, membrane stiffness
+        # is the only elastic parameter independently identifiable from shape.
         distance_from_clamp = 1.0 - centers[:, 1]
         center_band = np.exp(-((centers[:, 0] - 0.5) / 0.75) ** 2)
         softness = (distance_from_clamp ** 0.8) * center_band
         target_elastic = initial_elastic.copy()
         target_elastic[:, 0] *= 1.0 - 0.95 * softness
-        target_elastic[:, 2] *= 1.0 - 0.95 * softness
         target_vertices = solve_surface_for_elastic(target_elastic)
-        target_vertices[:, 0] += shear_strength * (1.0 - vertices[:, 1]) * np.sin(np.pi * vertices[:, 0])
+        target_vertices[:, 2] += shear_strength * (1.0 - vertices[:, 1]) * np.sin(2 * np.pi * vertices[:, 0])
         target_surface = pgo.mesh.TriMeshData(target_vertices, triangles)
         energy.set_elastic_values(initial_elastic)
 
@@ -369,6 +370,15 @@ CELLS = [
         upper = np.tile(upper_row, surface.num_elements)
         lower_design = (lower - b0) / scale
         upper_design = (upper - b0) / scale
+
+        # Only optimize E_membrane (channel 0) — the remaining channels are
+        # fixed at their initial values.  For a thin Koiter shell (h ≪ L),
+        # the bending stiffness h³ is negligible next to the membrane stiffness
+        # h, and the self-weight load makes thickness changes self-cancelling
+        # (thicker = stiffer but also heavier).  Membrane stiffness is the only
+        # elastic parameter independently identifiable from gravity-loaded shape.
+        fixed_mask_row = np.array([True, False, False, False, False], dtype=np.float64)
+        channel_mask = np.tile(fixed_mask_row, surface.num_elements)
         """
     ),
     code(
@@ -423,6 +433,7 @@ CELLS = [
         scale_torch = torch.as_tensor(scale, dtype=torch.float64)
         lower_design_torch = torch.as_tensor(lower_design, dtype=torch.float64)
         upper_design_torch = torch.as_tensor(upper_design, dtype=torch.float64)
+        channel_mask_torch = torch.as_tensor(channel_mask, dtype=torch.float64)
         outer_optimizer = torch.optim.Adam([design], lr=learning_rate)
         history = []
         best_value = np.inf
@@ -448,6 +459,7 @@ CELLS = [
             outer_optimizer.step()
             with torch.no_grad():
                 design.copy_(torch.minimum(torch.maximum(design, lower_design_torch), upper_design_torch))
+                design.copy_(design * channel_mask_torch)  # keep fixed channels at b0
             history.append((value, stats["global_error"], stats["mean_vertex_error"]))
             if iteration < 5 or (iteration + 1) % 10 == 0:
                 print(
@@ -561,8 +573,8 @@ CELLS = [
         ## 8. Inspect the optimized elastic field
 
         We visualize elementwise parameter changes on the rest triangulation.
-        `elastic_delta_norm` is normalized channel-wise so membrane stiffness and
-        thickness can be compared on one scalar map.
+        `elastic_delta_norm` is the elementwise change in E_membrane relative to
+        the channel-wise scale.
         """
     ),
     code(
@@ -604,9 +616,14 @@ CELLS = [
           backward pass automatically adds
           $-\lambda^\top(\partial\mathbf f_g/\partial\mathbf b)$ to the
           parameter gradient.
-        - Purely scaling every elastic parameter often does not change the
-          equilibrium shape much; the useful design space here is the *spatial
-          distribution* of stiffness and thickness.
+        - **Only E_membrane is optimised here.**  For a thin Koiter shell
+          ($h \ll L$), the bending stiffness scales as $h^3$ and is typically
+          six orders of magnitude smaller than the membrane stiffness ($h$).
+          Under self-weight gravity, the thickness channel is also
+          self-cancelling: doubling $h$ makes the shell twice as stiff but also
+          twice as heavy.  The remaining channels ($\nu_m, E_b, \nu_b, h$) are
+          fixed at their initial values — the gradient simply has no independent
+          information about them from the equilibrium shape.
         - Bounds matter: unconstrained elastic constants can become negative or
           leave the stable range of Poisson ratios.
         """
