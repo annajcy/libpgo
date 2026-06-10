@@ -1,10 +1,14 @@
 #include "shellFormulation.h"
 
+#include "mass/shellMassField.h"
 #include "deformation/shell/shellDeformationModel.h"
 #include "simulation/simulationMesh.h"
 
+#include "EigenSupport.h"
+
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 namespace pgo
 {
@@ -12,6 +16,8 @@ namespace SolidDeformationModel
 {
 namespace
 {
+namespace ES = EigenSupport;
+
 template<class Derived, class Base>
 std::unique_ptr<Derived> checkedMaterialCast(
   std::unique_ptr<Base> model, const char *message)
@@ -22,6 +28,15 @@ std::unique_ptr<Derived> checkedMaterialCast(
   }
 
   throw std::invalid_argument(message);
+}
+
+double triangleRestArea(const SimulationMesh &mesh, int ele)
+{
+  double p[3][3];
+  for (int j = 0; j < 3; j++)
+    mesh.getVertex(ele, j, p[j]);
+  const ES::V3d a(p[0]), b(p[1]), c(p[2]);
+  return 0.5 * ((b - a).cross(c - a)).norm();
 }
 }  // namespace
 
@@ -55,6 +70,44 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
     checkedMaterialCast<PlasticModel2DFundamentalForms>(
       std::move(plasticModel),
       "ShellFormulation requires PlasticModel2DFundamentalForms."));
+}
+
+EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
+  const SimulationMesh &mesh, const ShellMassField &massField) const
+{
+  massField.validate(mesh);
+
+  std::vector<ES::TripletD> entries;
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    const double m = massField.arealDensity(ele) * triangleRestArea(mesh, ele) / 3.0;
+    for (int j = 0; j < 3; j++) {
+      const int v = mesh.getVertexIndex(ele, j);
+      for (int d = 0; d < 3; d++)
+        entries.emplace_back(v * 3 + d, v * 3 + d, m);
+    }
+  }
+
+  const int numDofs = mesh.getNumVertices() * 3;
+  ES::SpMatD M(numDofs, numDofs);
+  M.setFromTriplets(entries.begin(), entries.end());
+  return M;
+}
+
+EigenSupport::VXd ShellFormulation::buildBodyForce(
+  const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
+  const ShellMassField &massField) const
+{
+  massField.validate(mesh);
+
+  ES::VXd f = ES::VXd::Zero(mesh.getNumVertices() * 3);
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    const double m = massField.arealDensity(ele) * triangleRestArea(mesh, ele) / 3.0;
+    for (int j = 0; j < 3; j++) {
+      const int v = mesh.getVertexIndex(ele, j);
+      f.segment<3>(v * 3) += m * acceleration;
+    }
+  }
+  return f;
 }
 
 }  // namespace SolidDeformationModel
