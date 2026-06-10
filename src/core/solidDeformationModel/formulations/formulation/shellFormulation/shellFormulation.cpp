@@ -75,6 +75,10 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
 EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
   const SimulationMesh &mesh, const ShellMassField &massField) const
 {
+  if (mesh.getElementType() != compatibleMeshType()) {
+    throw std::invalid_argument("mesh type is incompatible with this formulation");
+  }
+
   massField.validate(mesh);
 
   std::vector<ES::TripletD> entries;
@@ -97,6 +101,10 @@ EigenSupport::VXd ShellFormulation::buildBodyForce(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
   const ShellMassField &massField) const
 {
+  if (mesh.getElementType() != compatibleMeshType()) {
+    throw std::invalid_argument("mesh type is incompatible with this formulation");
+  }
+
   massField.validate(mesh);
 
   ES::VXd f = ES::VXd::Zero(mesh.getNumVertices() * 3);
