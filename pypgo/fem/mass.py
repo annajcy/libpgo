@@ -70,3 +70,20 @@ class ShellDensityThickness(ShellMassField):
             super().__init__(_core.make_shell_density_thickness_elementwise(float(density), arr.tolist()))
         else:
             raise ValueError(f"thickness must be a scalar or 1-D array, got shape {arr.shape}")
+
+
+class ShellDensityElasticThickness(ShellMassField):
+    """rho * h with h read live from an elastic ParameterField channel.
+
+    Shares storage with the energy's elastic field: set_elastic_values()
+    updates the thickness seen here, no manual sync.
+    """
+
+    def __init__(self, *, density: float, parameter_field, channel: int = 4) -> None:
+        from pypgo.fem.fields import ParameterField
+
+        if not isinstance(parameter_field, ParameterField):
+            raise TypeError(
+                f"parameter_field must be a ParameterField, got {type(parameter_field).__name__}")
+        super().__init__(_core.make_shell_density_elastic_thickness(
+            float(density), parameter_field._handle, int(channel)))

@@ -35,4 +35,8 @@ void init_formulation_bindings(nb::module_ &m)
         nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("mass_field"));
     m.def("compute_shell_formulation_body_force", &compute_shell_formulation_body_force,
         nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("mass_field"));
+
+    m.def("compute_shell_formulation_body_force_parameter_jacobian",
+        &compute_shell_formulation_body_force_parameter_jacobian,
+        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("mass_field"));
 }

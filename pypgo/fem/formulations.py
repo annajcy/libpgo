@@ -128,6 +128,19 @@ class ShellFormulation(Formulation):
             dtype=np.float64,
         )
 
+    def body_force_parameter_jacobian(self, sim_mesh, acceleration, mass_field):
+        """d(body force)/d(elastic parameters) for a parameter-dependent mass field."""
+        from pypgo.sparse import SparseMatrix
+
+        accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
+        if accel.size != 3:
+            raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
+        _require_sim_mesh(sim_mesh)
+        self._require_shell_mass_field(mass_field)
+        return SparseMatrix(
+            _core.compute_shell_formulation_body_force_parameter_jacobian(
+                sim_mesh._handle, self._handle, accel.tolist(), mass_field._handle))
+
 
 # ---------------------------------------------------------------------------
 # Concrete formulations

@@ -1,6 +1,8 @@
 #include "core.h"
 
+#include "mass/shellDensityElasticThickness.h"
 #include "EigenSupport.h"
+#include "../../energy/core.h"
 
 namespace pgo
 {
@@ -40,6 +42,14 @@ std::shared_ptr<PyShellMassField> make_shell_density_thickness_elementwise(
     values[static_cast<Eigen::Index>(i)] = thickness[i];
   return std::make_shared<PyShellMassField>(
     std::make_shared<SolidDeformationModel::ShellDensityThickness>(density, std::move(values)));
+}
+
+std::shared_ptr<PyShellMassField> make_shell_density_elastic_thickness(
+  double density, const PyParameterField &field, int thicknessChannel)
+{
+  return std::make_shared<PyShellMassField>(
+    std::make_shared<SolidDeformationModel::ShellDensityElasticThickness>(
+      density, field.field(), thicknessChannel));
 }
 
 }  // namespace pgo

@@ -175,6 +175,65 @@ def test_shell_mass_matrix_row_sums_are_lumped_vertex_masses():
     np.testing.assert_allclose(M, np.diag(np.diag(M)), atol=1e-15)
 
 
+def _shell_energy(sim, triangles):
+    base_row = np.array([2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3], dtype=np.float64)
+    elastic = np.tile(base_row, (triangles.shape[0], 1))
+    plastic = np.ones((triangles.shape[0], 1), dtype=np.float64)
+    return pf.deformation_energy(
+        sim,
+        elastic=pf.KoiterStVK(),
+        elastic_field=pf.ElementwiseField(values=elastic),
+        plastic=pf.ShellPlasticity(dofs=1),
+        plastic_field=pf.ElementwiseField(values=plastic),
+        formulation=pf.KoiterShell(),
+        options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+    )
+
+
+def test_shell_elastic_thickness_mass_field_reads_live_values():
+    _surface, _vertices, triangles, sim = _shell_grid()
+    energy = _shell_energy(sim, triangles)
+    field = pf.ShellDensityElasticThickness(density=1000.0, parameter_field=energy.elastic_field, channel=4)
+    g = np.array([0.0, 0.0, -9.81])
+    ks = pf.KoiterShell()
+
+    f0 = ks.body_force(sim, g, field)
+    values = energy.elastic_field.values.copy()
+    values[:, 4] *= 2.0  # double the thickness
+    energy.set_elastic_values(values)
+    f1 = ks.body_force(sim, g, field)
+    np.testing.assert_allclose(f1, 2.0 * f0, rtol=1e-12)
+
+
+def test_shell_body_force_parameter_jacobian_matches_differences():
+    _surface, _vertices, triangles, sim = _shell_grid()
+    energy = _shell_energy(sim, triangles)
+    field = pf.ShellDensityElasticThickness(density=1000.0, parameter_field=energy.elastic_field, channel=4)
+    g = np.array([0.0, 0.0, -9.81])
+    ks = pf.KoiterShell()
+
+    b0 = energy.elastic_field.values.copy()
+    f0 = ks.body_force(sim, g, field)
+    J = ks.body_force_parameter_jacobian(sim, g, field).to_dense()
+    assert J.shape == (sim.num_vertices * 3, b0.size)
+
+    rng = np.random.default_rng(0)
+    db = np.zeros_like(b0)
+    db[:, 4] = rng.uniform(-0.5, 0.5, size=b0.shape[0]) * b0[:, 4]
+    energy.set_elastic_values(b0 + db)
+    f1 = ks.body_force(sim, g, field)
+    # f_g is linear in h, so the Jacobian is exact even for finite steps.
+    np.testing.assert_allclose(f1 - f0, J @ db.ravel(), rtol=1e-10, atol=1e-14)
+    energy.set_elastic_values(b0)
+
+
+def test_body_force_parameter_jacobian_rejects_fixed_mass_fields():
+    _surface, _vertices, _triangles, sim = _shell_grid()
+    with pytest.raises(ValueError):
+        pf.KoiterShell().body_force_parameter_jacobian(
+            sim, [0.0, 0.0, -9.81], pf.ShellArealDensity(1.0))
+
+
 def test_shell_volume_mass_field_cross_domain_type_errors():
     _surface, _vertices, _triangles, sim = _shell_grid()
     with pytest.raises(TypeError):

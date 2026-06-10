@@ -90,4 +90,10 @@ std::vector<double> compute_shell_formulation_body_force(
   const std::vector<double> &acceleration,
   const PyShellMassField &massField);
 
+PySparseMatrix compute_shell_formulation_body_force_parameter_jacobian(
+  const PySimulationMesh &simMesh,
+  const PyShellFormulation &formulation,
+  const std::vector<double> &acceleration,
+  const PyShellMassField &massField);
+
 }  // namespace pgo

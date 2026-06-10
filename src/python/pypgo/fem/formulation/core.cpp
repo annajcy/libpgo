@@ -121,4 +121,23 @@ std::vector<double> compute_shell_formulation_body_force(
   return std::vector<double>(f.data(), f.data() + f.size());
 }
 
+PySparseMatrix compute_shell_formulation_body_force_parameter_jacobian(
+  const PySimulationMesh &simMesh,
+  const PyShellFormulation &formulation,
+  const std::vector<double> &acceleration,
+  const PyShellMassField &massField)
+{
+  if (acceleration.size() != 3) {
+    throw std::invalid_argument("acceleration must contain exactly 3 values");
+  }
+
+  pgo::EigenSupport::V3d a(acceleration[0], acceleration[1], acceleration[2]);
+  pgo::EigenSupport::SpMatD J;
+  {
+    nanobind::gil_scoped_release release;
+    J = formulation.shell().buildBodyForceParameterJacobian(simMesh.mesh(), a, massField.get());
+  }
+  return PySparseMatrix(std::move(J));
+}
+
 }  // namespace pgo

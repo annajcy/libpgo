@@ -23,4 +23,7 @@ void init_mass_bindings(nb::module_ &m)
         nb::arg("density"), nb::arg("thickness"));
     m.def("make_shell_density_thickness_elementwise", &make_shell_density_thickness_elementwise,
         nb::arg("density"), nb::arg("thickness"));
+
+    m.def("make_shell_density_elastic_thickness", &make_shell_density_elastic_thickness,
+        nb::arg("density"), nb::arg("parameter_field"), nb::arg("channel"));
 }
