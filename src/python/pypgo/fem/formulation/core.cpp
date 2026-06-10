@@ -32,21 +32,23 @@ std::shared_ptr<PyShellFormulation> make_koiter_shell()
 }
 
 PySparseMatrix compute_formulation_mass_matrix(
-  const PyVolumeMesh &volumeMesh,
-  const PyVolumetricFormulation &formulation)
+  const PySimulationMesh &simMesh,
+  const PyVolumetricFormulation &formulation,
+  const PyVolumeMassField &massField)
 {
   pgo::EigenSupport::SpMatD M;
   {
     nanobind::gil_scoped_release release;
-    M = formulation.volumetric().buildMassMatrix(*volumeMesh.getVM());
+    M = formulation.volumetric().buildMassMatrix(simMesh.mesh(), massField.get());
   }
   return PySparseMatrix(std::move(M));
 }
 
 std::vector<double> compute_formulation_body_force(
-  const PyVolumeMesh &volumeMesh,
+  const PySimulationMesh &simMesh,
   const PyVolumetricFormulation &formulation,
-  const std::vector<double> &acceleration)
+  const std::vector<double> &acceleration,
+  const PyVolumeMassField &massField)
 {
   if (acceleration.size() != 3) {
     throw std::invalid_argument("acceleration must contain exactly 3 values");
@@ -56,7 +58,7 @@ std::vector<double> compute_formulation_body_force(
   pgo::EigenSupport::VXd f;
   {
     nanobind::gil_scoped_release release;
-    f = formulation.volumetric().buildBodyForce(*volumeMesh.getVM(), a);
+    f = formulation.volumetric().buildBodyForce(simMesh.mesh(), a, massField.get());
   }
   return std::vector<double>(f.data(), f.data() + f.size());
 }

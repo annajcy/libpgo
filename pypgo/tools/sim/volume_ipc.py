@@ -99,7 +99,8 @@ def run_volume_ipc(
     )
 
     # 4. Mass, surface embedding, contact surface
-    mass = fm.mass_matrix(volume)
+    mass_field = _fem.volume_density_from_veg(volume)
+    mass = fm.mass_matrix(sim_mesh, mass_field)
     surface_map = fm.surface_embedding_matrix(volume, surface.vertices)
     contact_surface = _contact.ContactSurface.embedded(surface.vertices, surface_map)
 
@@ -111,7 +112,7 @@ def run_volume_ipc(
     energy = _energy.EnergySet([(deformation, 1.0), (ipc, 1.0)])
 
     # 7. Body force (gravity)
-    external_force = fm.body_force(volume, np.array(gravity, dtype=np.float64))
+    external_force = fm.body_force(sim_mesh, np.array(gravity, dtype=np.float64), mass_field)
 
     # 8. Initial state
     n = deformation.num_dofs

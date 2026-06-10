@@ -16,6 +16,8 @@ set(PYPGO_BINDING_SOURCES
   mesh/volume/bindings.cpp
 
   # fem
+  fem/mass/core.cpp
+  fem/mass/bindings.cpp
   fem/formulation/bindings.cpp
   fem/formulation/core.cpp
   fem/elastic/bindings.cpp

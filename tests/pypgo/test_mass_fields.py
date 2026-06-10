@@ -1,0 +1,101 @@
+import numpy as np
+import pytest
+
+import pypgo as pgo
+import pypgo.fem as pf
+
+
+def _unit_tet_volume(*, density=2.0):
+    vertices = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        dtype=np.float64,
+    )
+    elements = np.array([[0, 1, 2, 3]], dtype=np.int64)
+    mesh = pgo.mesh.TetMeshData(vertices, elements)
+    material = pgo.mesh.volume.ENuMaterial(density=density, E=1e6, nu=0.45)
+    return pgo.mesh.volume.VolumeMesh.create_from_single_material(mesh, material)
+
+
+def _single_cube_volume(*, density=2.0):
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    elements = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
+    mesh = pgo.mesh.CubicMeshData(vertices, elements)
+    material = pgo.mesh.volume.ENuMaterial(density=density, E=1e6, nu=0.45)
+    return pgo.mesh.volume.VolumeMesh.create_from_single_material(mesh, material)
+
+
+def test_tet_mass_matrix_matches_legacy_vega_consistent_mass():
+    volume = _unit_tet_volume(density=2.0)
+    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    M_new = pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(2.0)).to_dense()
+    M_legacy = volume.mass_matrix().to_dense()
+    np.testing.assert_allclose(M_new, M_legacy, rtol=1e-12, atol=1e-14)
+
+
+def test_cubic_mass_matrix_matches_legacy_vega_consistent_mass():
+    volume = _single_cube_volume(density=3.0)
+    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    M_new = pf.CubicLinear().mass_matrix(sim_mesh, pf.VolumeDensity(3.0)).to_dense()
+    # The legacy vega cubic mass uses hardcoded approximate constants (~1e-8 relative
+    # error). Our Gauss-2^3 quadrature is analytically exact for the trilinear N^TN
+    # integrand. Compare against the analytically correct consistent-mass values:
+    # for a unit cube with density rho, M[i,j] = rho * integral_{[0,1]^3} N_i N_j dV.
+    # For node 0 (corner): M[0,0] = rho/27 = 3/27 = 1/9.
+    M_legacy = volume.mass_matrix().to_dense()
+    # Ensure we agree with legacy to the precision of legacy's own truncated constants
+    # (~7 significant figures), and that our values are more accurate.
+    np.testing.assert_allclose(M_new, M_legacy, rtol=1e-6, atol=1e-7)
+    # Verify that M_new is analytically correct (density * unit-cube Gauss integral).
+    # rho=3, V=1: M[0,0] = 3 * (1/3)^3 = 3/27 = 1/9
+    assert M_new[0, 0] == pytest.approx(1.0 / 9.0, rel=1e-12)
+
+
+def test_tet_body_force_distributes_total_weight():
+    volume = _unit_tet_volume(density=2.0)
+    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    g = np.array([0.0, -9.8, 0.0])
+    f = pf.TetLinear().body_force(sim_mesh, g, pf.VolumeDensity(2.0))
+    tet_volume = 1.0 / 6.0
+    total = f.reshape(-1, 3).sum(axis=0)
+    np.testing.assert_allclose(total, 2.0 * tet_volume * g, rtol=1e-12)
+    # Linear tet: each vertex carries rho*V/4.
+    np.testing.assert_allclose(f.reshape(-1, 3), np.tile(2.0 * tet_volume / 4.0 * g, (4, 1)), rtol=1e-12)
+
+
+def test_volume_constant_velocity_kinetic_energy_is_exact():
+    volume = _single_cube_volume(density=2.0)
+    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    M = pf.CubicLinear().mass_matrix(sim_mesh, pf.VolumeDensity(2.0)).to_dense()
+    v = np.array([0.4, -0.2, 0.7])
+    qdot = np.tile(v, 8)
+    kinetic = 0.5 * qdot @ (M @ qdot)
+    assert kinetic == pytest.approx(0.5 * 2.0 * 1.0 * float(v @ v), rel=1e-12)
+
+
+def test_volume_density_from_veg_reads_region_density():
+    volume = _unit_tet_volume(density=7.5)
+    field = pf.volume_density_from_veg(volume)
+    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    f = pf.TetLinear().body_force(sim_mesh, [0.0, -1.0, 0.0], field)
+    np.testing.assert_allclose(f.reshape(-1, 3).sum(axis=0), [0.0, -7.5 / 6.0, 0.0], rtol=1e-12)
+
+
+def test_volume_mass_field_type_errors():
+    volume = _unit_tet_volume()
+    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    with pytest.raises(TypeError):
+        pf.TetLinear().mass_matrix(sim_mesh, "not a mass field")
+    with pytest.raises(TypeError):
+        # Old call style: VolumeMesh in place of SimulationMesh.
+        pf.TetLinear().mass_matrix(volume, pf.VolumeDensity(1.0))
+    with pytest.raises(ValueError):
+        pf.VolumeDensity(-1.0)
+    with pytest.raises(ValueError):
+        # Elementwise size mismatch surfaces as ValueError (C++ invalid_argument).
+        pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(np.array([1.0, 2.0])))

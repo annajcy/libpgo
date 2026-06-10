@@ -4,6 +4,8 @@
 
 #include "../../mesh/volume/core.h"
 #include "../../sparse/core.h"
+#include "../mass/core.h"
+#include "../../simulation/core.h"
 
 #include <memory>
 #include <string>
@@ -57,13 +59,15 @@ std::shared_ptr<PyVolumetricFormulation> make_cubic_tricubic_hermite();
 std::shared_ptr<PyShellFormulation> make_koiter_shell();
 
 PySparseMatrix compute_formulation_mass_matrix(
-  const PyVolumeMesh &volumeMesh,
-  const PyVolumetricFormulation &formulation);
+  const PySimulationMesh &simMesh,
+  const PyVolumetricFormulation &formulation,
+  const PyVolumeMassField &massField);
 
 std::vector<double> compute_formulation_body_force(
-  const PyVolumeMesh &volumeMesh,
+  const PySimulationMesh &simMesh,
   const PyVolumetricFormulation &formulation,
-  const std::vector<double> &acceleration);
+  const std::vector<double> &acceleration,
+  const PyVolumeMassField &massField);
 
 PySparseMatrix compute_formulation_surface_embedding_matrix(
   const PyVolumeMesh &volumeMesh,

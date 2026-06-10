@@ -23,6 +23,13 @@ def _require_volume_mesh(volume):
         raise TypeError(f"volume must be a VolumeMesh, got {type(volume).__name__}")
 
 
+def _require_sim_mesh(sim_mesh):
+    from pypgo.fem.mesh import SimulationMesh
+
+    if not isinstance(sim_mesh, SimulationMesh):
+        raise TypeError(f"sim_mesh must be a SimulationMesh, got {type(sim_mesh).__name__}")
+
+
 # ---------------------------------------------------------------------------
 # Formulation hierarchy
 # ---------------------------------------------------------------------------
@@ -45,23 +52,32 @@ class Formulation:
 class VolumetricFormulation(Formulation):
     """Volumetric formulation with dynamics operators."""
 
-    def mass_matrix(self, volume):
-        """Consistent mass matrix."""
+    def mass_matrix(self, sim_mesh, mass_field):
+        """Consistent mass matrix; density from a VolumeDensity (kg/m^3) field."""
         from pypgo.sparse import SparseMatrix
+        from pypgo.fem.mass import VolumeMassField
 
-        _require_volume_mesh(volume)
+        _require_sim_mesh(sim_mesh)
+        if not isinstance(mass_field, VolumeMassField):
+            raise TypeError(
+                f"volumetric mass_matrix expects a VolumeMassField (kg/m^3), got {type(mass_field).__name__}")
         return SparseMatrix(
-            _core.compute_formulation_mass_matrix(volume._handle, self._handle))
+            _core.compute_formulation_mass_matrix(sim_mesh._handle, self._handle, mass_field._handle))
 
-    def body_force(self, volume, acceleration) -> np.ndarray:
+    def body_force(self, sim_mesh, acceleration, mass_field) -> np.ndarray:
         """Generalized body force for a constant 3-vector acceleration."""
+        from pypgo.fem.mass import VolumeMassField
+
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
             raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
-        _require_volume_mesh(volume)
+        _require_sim_mesh(sim_mesh)
+        if not isinstance(mass_field, VolumeMassField):
+            raise TypeError(
+                f"volumetric body_force expects a VolumeMassField (kg/m^3), got {type(mass_field).__name__}")
         return np.asarray(
             _core.compute_formulation_body_force(
-                volume._handle, self._handle, accel.tolist()),
+                sim_mesh._handle, self._handle, accel.tolist(), mass_field._handle),
             dtype=np.float64,
         )
 

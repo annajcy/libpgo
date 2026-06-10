@@ -25,9 +25,9 @@ void init_formulation_bindings(nb::module_ &m)
     m.def("make_koiter_shell", &make_koiter_shell);
 
     m.def("compute_formulation_mass_matrix", &compute_formulation_mass_matrix,
-        nb::arg("volume_mesh"), nb::arg("formulation"));
+        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("mass_field"));
     m.def("compute_formulation_body_force", &compute_formulation_body_force,
-        nb::arg("volume_mesh"), nb::arg("formulation"), nb::arg("acceleration"));
+        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("mass_field"));
     m.def("compute_formulation_surface_embedding_matrix", &compute_formulation_surface_embedding_matrix,
         nb::arg("volume_mesh"), nb::arg("formulation"), nb::arg("surface_vertices_flat"));
 }
