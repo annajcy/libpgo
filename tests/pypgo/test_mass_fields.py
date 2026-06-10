@@ -34,7 +34,7 @@ def test_tet_mass_matrix_matches_legacy_vega_consistent_mass():
     volume = _unit_tet_volume(density=2.0)
     sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
     M_new = pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(2.0)).to_dense()
-    M_legacy = volume.mass_matrix().to_dense()
+    M_legacy = volume._mass_matrix().to_dense()
     np.testing.assert_allclose(M_new, M_legacy, rtol=1e-12, atol=1e-14)
 
 
@@ -47,7 +47,7 @@ def test_cubic_mass_matrix_matches_legacy_vega_consistent_mass():
     # integrand. Compare against the analytically correct consistent-mass values:
     # for a unit cube with density rho, M[i,j] = rho * integral_{[0,1]^3} N_i N_j dV.
     # For node 0 (corner): M[0,0] = rho/27 = 3/27 = 1/9.
-    M_legacy = volume.mass_matrix().to_dense()
+    M_legacy = volume._mass_matrix().to_dense()
     # Ensure we agree with legacy to the precision of legacy's own truncated constants
     # (~7 significant figures), and that our values are more accurate.
     np.testing.assert_allclose(M_new, M_legacy, rtol=1e-6, atol=1e-7)
@@ -104,7 +104,7 @@ def test_multi_element_tet_mass_matrix_accumulates_shared_dofs():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(mesh, material)
     sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
     M_new = pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(rho)).to_dense()
-    M_legacy = volume.mass_matrix().to_dense()
+    M_legacy = volume._mass_matrix().to_dense()
     np.testing.assert_allclose(M_new, M_legacy, rtol=1e-12, atol=1e-14)
 
 

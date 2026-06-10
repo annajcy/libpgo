@@ -163,7 +163,8 @@ CELLS = [
             ),
         )
 
-        mass = volume.mass_matrix()
+        mass_field = pf.volume_density_from_veg(volume)
+        mass = pf.CubicLinear().mass_matrix(sim_mesh, mass_field)
         gravity_accel_dofs = np.tile(IPC_SCENE["g"], sim_mesh.num_vertices)
         gravity_force = mass @ gravity_accel_dofs
 
@@ -356,7 +357,8 @@ CELLS = [
             formulation=pf.TetLinear(),
         )
 
-        bunny_mass = bunny_vol.mass_matrix()
+        bunny_mass_field = pf.volume_density_from_veg(bunny_vol)
+        bunny_mass = pf.TetLinear().mass_matrix(bunny_sim_mesh, bunny_mass_field)
         bunny_gravity_accel = np.tile(FLOOR_SCENE["g"], bunny_sim_mesh.num_vertices)
         bunny_gravity_force = bunny_mass @ bunny_gravity_accel
 
@@ -547,7 +549,8 @@ CELLS = [
             formulation=pf.TetLinear(),
         )
 
-        s3_mass = s3_vol.mass_matrix()
+        s3_mass_field = pf.volume_density_from_veg(s3_vol)
+        s3_mass = pf.TetLinear().mass_matrix(s3_sim_mesh, s3_mass_field)
         s3_gravity_accel = np.tile(SAMPLED_SCENE["g"], s3_sim_mesh.num_vertices)
         s3_gravity = s3_mass @ s3_gravity_accel
 

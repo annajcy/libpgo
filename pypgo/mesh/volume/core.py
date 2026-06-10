@@ -153,12 +153,10 @@ class VolumeMesh:
     def extract_surface_mesh(self, *, triangulate: bool = True) -> TriMeshData:
         return TriMeshData(_core.extract_surface_mesh(self._handle, bool(triangulate)))
 
-    def mass_matrix(self, *, inflate3dim: bool = True):
-        """Consistent mass matrix of the volume mesh.
+    def _mass_matrix(self, *, inflate3dim: bool = True):
+        """(Internal) Consistent mass matrix — use formulation-level API instead.
 
-        inflate3dim=True  → shape (3n, 3n), the standard 3-D mass matrix for
-                            displacement DOFs (matches IPC / solver convention).
-        inflate3dim=False → shape (n, n), scalar mass matrix per vertex.
+        Prefer ``pypgo.fem.VolumeDensity`` + ``formulation.mass_matrix(sim_mesh, mass_field)``.
         """
         from pypgo.sparse import SparseMatrix
         return SparseMatrix(_core.compute_mass_matrix(self._handle, bool(inflate3dim)))

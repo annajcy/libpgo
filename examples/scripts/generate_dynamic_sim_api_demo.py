@@ -375,8 +375,10 @@ CELLS = [
 
         1. ``box.veg`` → ``VolumeMesh`` → ``SimulationMesh``
         2. ``deformation_energy(...)`` from mesh, materials, and parameter fields
-        3. ``formulation.mass_matrix(vol)`` and ``formulation.body_force(...)``
-           → consistent mass and generalized gravity, derived from the formulation
+        3. ``pf.volume_density_from_veg(vol)`` → per-element density field,
+           then ``formulation.mass_matrix(sim_mesh, mass_field)`` for the
+           consistent mass matrix and ``formulation.body_force(sim_mesh, g, mass_field)``
+           for the generalized gravity force
         4. ``box.obj`` → ``TriMeshData`` (display surface)
         5. ``pgo.mesh.SurfaceEmbedding(surface, vol)`` — one-liner that
            builds the volume‑to‑surface interpolation matrix
@@ -428,7 +430,10 @@ CELLS = [
         # The formulation owns the DOF layout and basis, so the consistent
         # mass matrix and body forces are derived from it — this stays correct
         # for any formulation (e.g. a 24-DOF/vertex Hermite hex), not just P1.
-        mass = formulation.mass_matrix(vol)
+        # First build a per-element density field from the volume's material
+        # regions, then assemble mass / body-force from the formulation.
+        mass_field = pf.volume_density_from_veg(vol)
+        mass = formulation.mass_matrix(sim_mesh, mass_field)
 
         # ── 4. Display surface & embedding ────────────────────────────
         surface = pgo.mesh.read_obj(str(ASSET_DIR / "obj" / "box.obj"))
@@ -440,7 +445,7 @@ CELLS = [
         # Generalized gravity force from a constant acceleration — mass-weighted
         # and layout-agnostic. (The old `gravity[1::3] = -9.81` hardcoded the
         # nvtx*3 layout and applied a uniform, non-mass-weighted per-vertex force.)
-        gravity = formulation.body_force(vol, [0.0, -9.81, 0.0])
+        gravity = formulation.body_force(sim_mesh, [0.0, -9.81, 0.0], mass_field)
 
         sim = DynamicSimulation(
             mass=mass,

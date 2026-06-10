@@ -34,6 +34,7 @@ CELLS = [
         import numpy as np
         import pypgo as pgo
 
+        import pypgo.fem as pf
         from pypgo.mesh import CubicMeshData, MeshDataType, TetMeshData, TriMeshData
         from pypgo.mesh.geometry import (
             BarycentricEmbedding, CubicMeshGeo, TetMeshGeo, TriMeshGeo,
@@ -505,29 +506,32 @@ CELLS = [
         """
         ## 8. Mass matrix
 
-        `VolumeMesh.mass_matrix()` returns the consistent mass matrix as a `SparseMatrix`.
+        The volume mass matrix is constructed via a `SimulationMesh` + a
+        `VolumeDensity` mass field (read from the `.veg` file) + a volumetric
+        formulation. This replaces the old `VolumeMesh.mass_matrix()` API.
 
-        - `inflate3dim=True` (default): shape `(3n, 3n)` — the standard displacement-DOF mass matrix used by solvers and IPC.
-        - `inflate3dim=False`: shape `(n, n)` — scalar mass per vertex, useful for lumped-mass approximations.
+        The consistent mass matrix satisfies `M @ ones = lumped_mass_per_vertex`,
+        so the total mass equals the sum of **all** entries of `M` (not just the
+        diagonal).
 
-        The consistent mass matrix satisfies `M @ ones = lumped_mass_per_vertex`, so the total mass equals the sum of **all** entries of `M1` (not just the diagonal).
+        The result is always `(3n, 3n)` — the standard displacement-DOF mass matrix
+        used by solvers. The old `inflate3dim=False` option (scalar `(n, n)` mass)
+        is not available in the new API; lumped-mass approximations are constructed
+        manually when needed.
         """
     ),
     code(
         """
-        M3 = single_volume.mass_matrix()                   # (3n, 3n)
-        M1 = single_volume.mass_matrix(inflate3dim=False)  # (n, n)
+        sim_mesh = pgo.fem.SimulationMesh.create_volumetric(single_volume)
+        mass_field = pf.volume_density_from_veg(single_volume)
+        M3 = pf.TetLinear().mass_matrix(sim_mesh, mass_field)
 
         M3_dense = M3.to_dense()
-        M1_dense = M1.to_dense()
 
         print("M3 shape:", M3.shape, "  nnz:", M3.nnz)
         print("M3 (3n×3n) dense:\\n", M3_dense)
         print()
-        print("M1 shape:", M1.shape, "  nnz:", M1.nnz)
-        print("M1 (n×n) dense:\\n", M1_dense)
-        print()
-        print("total mass (M1 all-entry sum):", M1_dense.sum())
+        print("total mass (all-entry sum):", M3_dense.sum())
         print("expected  (density × volume):", soft.density * tet_data.volume)
         """
     ),

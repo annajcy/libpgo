@@ -155,7 +155,8 @@ CELLS = [
     ),
     code(
         """
-        mass = volume.mass_matrix().to_dense()
+        mass_field = pf.volume_density_from_veg(volume)
+        mass = pf.CubicLinear().mass_matrix(sim_mesh, mass_field).to_dense()
         gravity_accel = np.array([0.0, -981, 0.0], dtype=np.float64)
         gravity_accel_dofs = np.tile(gravity_accel, sim_mesh.num_vertices)
 

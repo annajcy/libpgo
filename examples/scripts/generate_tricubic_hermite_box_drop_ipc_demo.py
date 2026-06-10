@@ -73,8 +73,9 @@ CELLS = [
             options=pf.DeformationOptions(enable_material_max_step=True),
         )
 
-        mass = formulation.mass_matrix(volume)
-        gravity = formulation.body_force(volume, [0.0, -9.8, 0.0])
+        mass_field = pf.volume_density_from_veg(volume)
+        mass = formulation.mass_matrix(sim_mesh, mass_field)
+        gravity = formulation.body_force(sim_mesh, [0.0, -9.8, 0.0], mass_field)
 
         print("Hermite DOFs:", deformation.num_dofs)
         print("mass shape:", mass.shape, "nnz:", mass.nnz)
