@@ -363,7 +363,18 @@ CELLS = [
 
         scale_row = np.array([2.0e4, 1.0, 1.0e4, 1.0, 1.0e-3], dtype=np.float64)
         scale = np.tile(scale_row, surface.num_elements)
-        l2_weight = 2.0e-4
+        l2_weight = 2.0e-3
+        smooth_weight = 5.0e-5
+
+        # Element adjacency for smoothness prior (grid mesh, nx x ny quads → 2*nx*ny tris).
+        n_tri = triangles.shape[0]
+        adj_pairs = []
+        for k in range(n_tri):
+            ek = set(triangles[k])
+            for l in range(k + 1, n_tri):
+                if len(ek & set(triangles[l])) == 2:
+                    adj_pairs.append((k, l))
+        print(f"adjacency: {len(adj_pairs)} edge-sharing pairs among {n_tri} triangles")
         lower_row = np.array([1.0e3, 0.05, 5.0e2, 0.05, 1.0e-4], dtype=np.float64)
         upper_row = np.array([6.0e4, 0.48, 4.0e4, 0.48, 2.5e-3], dtype=np.float64)
         lower = np.tile(lower_row, surface.num_elements)
@@ -447,7 +458,11 @@ CELLS = [
             residual = solved_vertices - target_vertices_torch
             shape_loss = 0.5 * torch.sum(residual ** 2)
             regularization = 0.5 * l2_weight * torch.sum(design ** 2)
-            loss = shape_loss + regularization
+            design_2d = design.view(n_tri, 5)
+            smoothness = 0.0
+            for k, l in adj_pairs:
+                smoothness = smoothness + 0.5 * torch.sum((design_2d[k, 0] - design_2d[l, 0]) ** 2)
+            loss = shape_loss + regularization + smooth_weight * smoothness
             loss.backward()
 
             value = float(loss.detach())
