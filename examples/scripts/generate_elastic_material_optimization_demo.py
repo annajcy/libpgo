@@ -499,10 +499,23 @@ CELLS = [
         elastic_delta = optimized_elastic - initial_elastic
         elastic_delta_norm = np.linalg.norm(elastic_delta / scale_row, axis=1)
         E_membrane_delta = elastic_delta[:, 0]
-        thickness_delta = elastic_delta[:, 4]
 
         print("optimized elastic sample rows (E_m,nu_m,E_b,nu_b,h):")
         print(optimized_elastic[: min(8, optimized_elastic.shape[0])])
+        print()
+        print("E_membrane statistics:  "
+              f"init={initial_elastic[0,0]:.0f}  "
+              f"min={optimized_elastic[:,0].min():.0f}  "
+              f"max={optimized_elastic[:,0].max():.0f}  "
+              f"mean={optimized_elastic[:,0].mean():.0f}")
+        print("E_membrane delta:      "
+              f"min={E_membrane_delta.min():+.0f}  "
+              f"max={E_membrane_delta.max():+.0f}")
+        print("fixed channels:        "
+              f"E_b={optimized_elastic[0,2]:.0f}  "
+              f"nu_m={optimized_elastic[0,1]:.2f}  "
+              f"nu_b={optimized_elastic[0,3]:.2f}  "
+              f"h={optimized_elastic[0,4]:.4f}")
 
         weight_path = OUTPUT_DIR / "elastic_shape_match_weights.npz"
         np.savez(
@@ -512,7 +525,6 @@ CELLS = [
             elastic_delta=elastic_delta,
             elastic_delta_norm=elastic_delta_norm,
             E_membrane_delta=E_membrane_delta,
-            thickness_delta=thickness_delta,
             vertices=vertices,
             triangles=triangles,
             target_vertices=target_vertices,
@@ -572,9 +584,8 @@ CELLS = [
         r"""
         ## 8. Inspect the optimized elastic field
 
-        We visualize elementwise parameter changes on the rest triangulation.
-        `elastic_delta_norm` is the elementwise change in E_membrane relative to
-        the channel-wise scale.
+        Only E_membrane is plotted — the remaining four channels are fixed and
+        unchanged throughout the optimization.
         """
     ),
     code(
@@ -596,10 +607,9 @@ CELLS = [
             ax.set_ylabel("y")
             plt.colorbar(triang, ax=ax, shrink=0.8)
 
-        fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+        fig, axes = plt.subplots(1, 2, figsize=(9, 4))
         plot_element_scalar(axes[0], elastic_delta_norm, "normalized ||b* - b0||")
         plot_element_scalar(axes[1], E_membrane_delta, "delta E_membrane", cmap="coolwarm")
-        plot_element_scalar(axes[2], thickness_delta, "delta thickness", cmap="coolwarm")
         fig.tight_layout()
         plt.show()
         """
