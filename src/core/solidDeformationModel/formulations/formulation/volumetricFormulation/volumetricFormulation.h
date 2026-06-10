@@ -25,6 +25,11 @@ public:
   const ShapeFunction &shapeFunction() const { return *shapeFunction_; }
   const Quadrature &quadrature() const { return *quadrature_; }
 
+  // Quadrature used for mass / body-force assembly. Defaults to the elastic
+  // quadrature; formulations whose elastic rule under-integrates rho*N^T*N
+  // (tet linear) override this.
+  virtual const Quadrature &massQuadrature() const { return *quadrature_; }
+
   std::unique_ptr<VolumetricElementMapping> createElementMapping(const double *restPositions) const;
 
   std::unique_ptr<DeformationModel> createElement(
