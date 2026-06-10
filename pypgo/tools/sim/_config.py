@@ -7,6 +7,7 @@ override paths are taken as-is (the CLI layer resolves them against CWD).
 
 from __future__ import annotations
 
+import copy
 import json
 import sys
 from dataclasses import dataclass
@@ -67,13 +68,19 @@ def _selector_from_payload(payload, label: str) -> VertexSelector:
     file = payload.get("file")
     indices = payload.get("indices")
     region = payload.get("region")
+    region_selector: RegionSelector | None = None
+    if region is not None:
+        if not isinstance(region, dict) or "axis" not in region or "side" not in region:
+            raise ConfigError(f"{label}.region needs 'axis' and 'side'")
+        region_selector = RegionSelector(
+            axis=region["axis"],
+            side=region["side"],
+            tolerance=float(region.get("tolerance", 1e-6)),
+        )
     return VertexSelector(
         file=Path(file) if file is not None else None,
         indices=tuple(int(i) for i in indices) if indices is not None else None,
-        region=RegionSelector(
-            axis=region["axis"], side=region["side"],
-            tolerance=float(region.get("tolerance", 1e-6)),
-        ) if region is not None else None,
+        region=region_selector,
     )
 
 
@@ -262,6 +269,15 @@ def _build_contact(payload, label: str) -> ContactConfig:
     )
     if obstacles and model != "ipc":
         raise ConfigError(f"{label}: obstacles are only supported for ipc contact")
+    if model == "floor":
+        floor_axis = payload.get("axis", "z")
+        floor_side = payload.get("side", "keep_above")
+        if floor_axis not in ("x", "y", "z"):
+            raise ConfigError(
+                f"{label}: floor axis must be x/y/z, got {floor_axis!r}")
+        if floor_side not in ("keep_above", "keep_below"):
+            raise ConfigError(
+                f"{label}: floor side must be keep_above/keep_below, got {floor_side!r}")
     return ContactConfig(
         model=model,
         dhat=float(payload.get("dhat", 1e-3)),
@@ -281,6 +297,15 @@ def _build_contact(payload, label: str) -> ContactConfig:
     )
 
 
+def _build_attachment(att: dict) -> AttachmentConfig:
+    if "vertices" not in att:
+        raise ConfigError("constraints.attachments entries need 'vertices'")
+    return AttachmentConfig(
+        vertices=_selector_from_payload(att["vertices"], "constraints.attachments.vertices"),
+        coeff=float(att.get("coeff", 1e5)),
+    )
+
+
 def load_config(*, mesh_type: str, mode: str, json_path=None,
                 overrides: dict | None = None) -> SimConfig:
     if mesh_type not in MESH_TYPES:
@@ -292,7 +317,7 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
     if json_path is not None:
         json_path = Path(json_path)
         try:
-            payload = json.loads(json_path.read_text())
+            payload = copy.deepcopy(json.loads(json_path.read_text()))
         except (OSError, json.JSONDecodeError) as exc:
             raise ConfigError(f"cannot read config {json_path}: {exc}") from exc
         if not isinstance(payload, dict):
@@ -370,11 +395,7 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         fixed=_selector_from_payload(cons_payload["fixed"], "constraints.fixed")
         if cons_payload.get("fixed") is not None else None,
         attachments=tuple(
-            AttachmentConfig(
-                vertices=_selector_from_payload(
-                    att["vertices"], "constraints.attachments.vertices"),
-                coeff=float(att.get("coeff", 1e5)),
-            )
+            _build_attachment(att)
             for att in cons_payload.get("attachments", [])
         ),
     )
@@ -410,6 +431,8 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         integrator=dyn_payload.get("integrator", "implicit_euler"),
         damping=tuple(float(v) for v in dyn_payload.get("damping", (0.0, 0.0))),
     )
+    if len(dynamic.damping) != 2:
+        raise ConfigError("dynamic.damping must be a [mass, stiffness] pair")
     if mode == "dynamic":
         if dynamic.timestep is None or not dynamic.timestep > 0.0:
             raise ConfigError("dynamic.timestep is required and must be positive")
@@ -419,8 +442,6 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
                 f"got {dynamic.integrator!r}")
         if dynamic.num_steps < 0:
             raise ConfigError("dynamic.num_steps must be non-negative")
-        if len(dynamic.damping) != 2:
-            raise ConfigError("dynamic.damping must be a [mass, stiffness] pair")
     elif dyn_payload:
         print("warning: 'dynamic' section is ignored in static mode", file=sys.stderr)
 

@@ -209,3 +209,52 @@ def test_hermite_formulation_only_for_cubic(tmp_path):
     })
     with pytest.raises(ConfigError, match="formulation"):
         load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+
+
+# ---------------------------------------------------------------------------
+# New tests covering review-finding fixes
+# ---------------------------------------------------------------------------
+
+
+def test_region_selector_missing_side_raises_config_error(tmp_path):
+    """Fix 2a: missing 'side' in region must raise ConfigError, not KeyError."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"surface": "shell.obj"},
+        "constraints": {"fixed": {"region": {"axis": "y"}}},  # 'side' absent
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="side"):
+        load_config(mesh_type="shell", mode="static", json_path=cfg_path)
+
+
+def test_attachment_missing_vertices_raises_config_error(tmp_path):
+    """Fix 2b: attachment entry without 'vertices' must raise ConfigError, not KeyError."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "constraints": {"attachments": [{"coeff": 1e4}]},  # 'vertices' absent
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="vertices"):
+        load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+
+
+def test_floor_contact_invalid_axis_raises_config_error(tmp_path):
+    """Fix 3: floor contact with an invalid axis must raise ConfigError at load time."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "contact": [{"model": "floor", "axis": "w"}],
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="axis"):
+        load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+
+
+def test_damping_length_check_applies_in_static_mode(tmp_path):
+    """Fix 4: bad damping length must be caught even in static mode."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"damping": [1, 2, 3]},
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="damping"):
+        load_config(mesh_type="tet", mode="static", json_path=cfg_path)
