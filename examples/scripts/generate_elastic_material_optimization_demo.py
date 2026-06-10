@@ -290,6 +290,7 @@ CELLS = [
         # (nu_m, E_bending, nu_b, thickness) stay at their initial values.
         # For a thin shell (h ≪ L) under self-weight, membrane stiffness
         # is the only elastic parameter independently identifiable from shape.
+        centers = vertices[triangles].mean(axis=1)
         distance_from_clamp = 1.0 - centers[:, 1]
         center_band = np.exp(-((centers[:, 0] - 0.5) / 0.75) ** 2)
         softness = (distance_from_clamp ** 0.8) * center_band
