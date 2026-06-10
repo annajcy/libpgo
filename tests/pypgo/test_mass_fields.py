@@ -86,6 +86,28 @@ def test_volume_density_from_veg_reads_region_density():
     np.testing.assert_allclose(f.reshape(-1, 3).sum(axis=0), [0.0, -7.5 / 6.0, 0.0], rtol=1e-12)
 
 
+def test_multi_element_tet_mass_matrix_accumulates_shared_dofs():
+    # Two-element tet mesh: 5 vertices, two tets sharing a triangular face (verts 1,2,3).
+    # Tet 0 = [0,1,2,3] (volume 1/6), Tet 1 = [1,2,3,4] (volume 1/3).
+    # Both tets have positive volume (oriented consistently), so vega accepts them.
+    # The shared face means vertices 1,2,3 receive contributions from both elements;
+    # duplicate (i,j) triplets in the assembly must be summed — exercising the
+    # setFromTriplets accumulation path that single-element tests cannot cover.
+    vertices = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0]],
+        dtype=np.float64,
+    )
+    elements = np.array([[0, 1, 2, 3], [1, 2, 3, 4]], dtype=np.int64)
+    mesh = pgo.mesh.TetMeshData(vertices, elements)
+    rho = 2.0
+    material = pgo.mesh.volume.ENuMaterial(density=rho, E=1e6, nu=0.45)
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(mesh, material)
+    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    M_new = pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(rho)).to_dense()
+    M_legacy = volume.mass_matrix().to_dense()
+    np.testing.assert_allclose(M_new, M_legacy, rtol=1e-12, atol=1e-14)
+
+
 def test_volume_mass_field_type_errors():
     volume = _unit_tet_volume()
     sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
