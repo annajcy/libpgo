@@ -116,13 +116,24 @@ Implementation:
   `getGlobalDofIndices` (skipping -1 sentinel slots). Tet/cubic linear and
   tricubic Hermite all go through this one loop; Hermite no longer needs
   hand-written overrides.
-- **Lumped only, no `bool lumped` flag.** Row-sum lumping is exact even under
-  the elastic-energy quadrature rules (since Σ_j N_j = 1, the row sum of the
-  ρN^TN integrand reduces to ρN_i, which low-order rules integrate exactly
-  for linear elements). A consistent mass matrix would require auditing
-  quadrature orders per formulation (ρN^TN is degree 2p); add it only when a
-  consumer needs it. Note: row-sum lumping on Hermite derivative DOFs is a
-  known rough edge; Hermite dynamics is not a consumer in this spec.
+- **Consistent volume mass via a `massQuadrature()` hook.** (Corrected during
+  planning — an earlier revision said "lumped only", which contradicts the
+  legacy behavior.) The legacy paths are consistent, not lumped: the vega
+  `GenerateMassMatrix::computeMassMatrix(&mesh, M, true)` call computes the
+  consistent FEM mass (the `true` flag is `inflate3Dim`, not lumping), and
+  the existing Hermite tests (`tests/pypgo/test_hermite_dynamic_helpers.py`)
+  assert consistent-mass properties: exact kinetic energy under a constant
+  velocity field carried by value DOFs, and nonzero generalized body-force
+  entries on derivative DOFs. Row-sum lumping is also ill-defined for the
+  Hermite basis (the full 64-function basis is not a partition of unity).
+  So the generic loop assembles `∫ rho N^T N dV` consistently using
+  `massQuadrature()`, a new virtual on `VolumetricFormulation` defaulting to
+  the elastic `quadrature()`. Quadrature-order audit: Hermite uses Gauss 4³
+  (exact for tricubic N^TN) and cubic linear uses Gauss 2³ (exact for
+  trilinear N^TN on regular hexes), but tet linear's 1-point rule
+  under-integrates the quadratic N^TN — `TetLinearFormulation` overrides
+  `massQuadrature()` with a standard 4-point degree-2 tet rule, reproducing
+  the analytic `rho·V/20·(1+δ_ij)` consistent tet mass.
 - **Shell: direct lumped loop** (no shell quadrature infrastructure exists):
   per triangle, `arealDensity(e) * area_e / 3` to each of the three corner
   vertices. The Koiter 6-vertex stencil affects only bending energy;
@@ -188,11 +199,12 @@ A `SelfWeightGravity` helper wraps (shell formulation, sim_mesh,
 
 ## 5. Testing
 
-- Shell body force sums to total weight `rho·h·A_total·g`; shell/volume mass
-  matrix row sums equal lumped vertex masses.
-- Volume regression: new generic assembly matches the legacy
-  `GenerateMassMatrix` lumped output on a tet mesh (and a cubic mesh) before
-  the legacy path is deleted.
+- Shell body force sums to total weight `rho·h·A_total·g`; shell mass matrix
+  row sums equal lumped vertex masses. Volume: constant-velocity kinetic
+  energy equals `½·rho·V·v²` (consistent-mass invariant).
+- Volume regression: new generic assembly matches the legacy vega
+  `GenerateMassMatrix` consistent output (`VolumeMesh.mass_matrix()`, which
+  stays as a mesh-level API) on a tet mesh and a cubic mesh.
 - `buildBodyForceParameterJacobian` verified by finite differences (existing
   conventions: enforceSPD=0, magnitude-scaled steps).
 - End-to-end demo gradient check: perturb `b`, compare numerical outer-loss
