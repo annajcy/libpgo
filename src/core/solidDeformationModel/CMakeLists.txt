@@ -75,6 +75,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/quadrature/quadrature.h
   formulations/quadrature/tetLinearDefaultQuadrature.h
   formulations/quadrature/gaussLegendreHexQuadrature.h
+  formulations/quadrature/tetDegree2Quadrature.h
 
   deformation/volume/volumetricElementMapping.h
   deformation/shell/shellElementMapping.h
@@ -96,6 +97,9 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   material/elastic/elasticModelFactory.h
   material/plastic/plasticModelFactory.h
+
+  mass/massField.h
+  mass/volumeMassField.h
 )
 
 set(SOLID_DEFORMATION_MODEL_SOURCES
@@ -139,6 +143,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   formulations/quadrature/tetLinearDefaultQuadrature.cpp
   formulations/quadrature/gaussLegendreHexQuadrature.cpp
+  formulations/quadrature/tetDegree2Quadrature.cpp
 
   deformation/volume/volumetricElementMapping.cpp
   deformation/shell/koiterShellElementMapping.cpp
@@ -166,6 +171,9 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   material/elastic/elasticModelFactory.cpp
   material/plastic/plasticModelFactory.cpp
+
+  mass/massField.cpp
+  mass/volumeMassField.cpp
 
   simulation/simulationMesh.cpp
   constraints/tetVolumeConstraintFunctions.cpp
