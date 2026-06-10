@@ -523,7 +523,7 @@ CELLS = [
     code(
         """
         sim_mesh = pgo.fem.SimulationMesh.create_volumetric(single_volume)
-        mass_field = pf.volume_density_from_veg(single_volume)
+        mass_field = pf.volume_density(single_volume)
         M3 = pf.TetLinear().mass_matrix(sim_mesh, mass_field)
 
         M3_dense = M3.to_dense()

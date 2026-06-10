@@ -34,7 +34,7 @@ class VolumeDensity(VolumeMassField):
             raise ValueError(f"density must be a scalar or 1-D array, got shape {arr.shape}")
 
 
-def volume_density_from_veg(volume) -> VolumeDensity:
+def volume_density(volume) -> VolumeDensity:
     """Per-element densities from a VolumeMesh's .veg material regions."""
     densities = np.zeros(volume.num_elements, dtype=np.float64)
     for _name, material, elements in volume.to_veg_file().to_volume_regions():

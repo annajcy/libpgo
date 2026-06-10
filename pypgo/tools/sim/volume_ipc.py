@@ -99,7 +99,7 @@ def run_volume_ipc(
     )
 
     # 4. Mass, surface embedding, contact surface
-    mass_field = _fem.volume_density_from_veg(volume)
+    mass_field = _fem.volume_density(volume)
     mass = fm.mass_matrix(sim_mesh, mass_field)
     surface_map = fm.surface_embedding_matrix(volume, surface.vertices)
     contact_surface = _contact.ContactSurface.embedded(surface.vertices, surface_map)

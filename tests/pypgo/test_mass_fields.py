@@ -78,9 +78,9 @@ def test_volume_constant_velocity_kinetic_energy_is_exact():
     assert kinetic == pytest.approx(0.5 * 2.0 * 1.0 * float(v @ v), rel=1e-12)
 
 
-def test_volume_density_from_veg_reads_region_density():
+def test_volume_density_reads_region_density():
     volume = _unit_tet_volume(density=7.5)
-    field = pf.volume_density_from_veg(volume)
+    field = pf.volume_density(volume)
     sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
     f = pf.TetLinear().body_force(sim_mesh, [0.0, -1.0, 0.0], field)
     np.testing.assert_allclose(f.reshape(-1, 3).sum(axis=0), [0.0, -7.5 / 6.0, 0.0], rtol=1e-12)

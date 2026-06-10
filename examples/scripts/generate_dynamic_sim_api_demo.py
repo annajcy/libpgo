@@ -375,7 +375,7 @@ CELLS = [
 
         1. ``box.veg`` → ``VolumeMesh`` → ``SimulationMesh``
         2. ``deformation_energy(...)`` from mesh, materials, and parameter fields
-        3. ``pf.volume_density_from_veg(vol)`` → per-element density field,
+        3. ``pf.volume_density(vol)`` → per-element density field,
            then ``formulation.mass_matrix(sim_mesh, mass_field)`` for the
            consistent mass matrix and ``formulation.body_force(sim_mesh, g, mass_field)``
            for the generalized gravity force
@@ -432,7 +432,7 @@ CELLS = [
         # for any formulation (e.g. a 24-DOF/vertex Hermite hex), not just P1.
         # First build a per-element density field from the volume's material
         # regions, then assemble mass / body-force from the formulation.
-        mass_field = pf.volume_density_from_veg(vol)
+        mass_field = pf.volume_density(vol)
         mass = formulation.mass_matrix(sim_mesh, mass_field)
 
         # ── 4. Display surface & embedding ────────────────────────────
