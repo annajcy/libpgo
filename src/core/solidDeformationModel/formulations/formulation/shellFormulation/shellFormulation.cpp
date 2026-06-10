@@ -1,6 +1,8 @@
 #include "shellFormulation.h"
 
 #include "mass/shellMassField.h"
+#include "mass/elasticParameterDependentMassField.h"
+#include "material/fields/parameterField.h"
 #include "deformation/shell/shellDeformationModel.h"
 #include "simulation/simulationMesh.h"
 
@@ -116,6 +118,47 @@ EigenSupport::VXd ShellFormulation::buildBodyForce(
     }
   }
   return f;
+}
+
+EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
+  const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
+  const ShellMassField &massField) const
+{
+  if (mesh.getElementType() != compatibleMeshType()) {
+    throw std::invalid_argument("mesh type is incompatible with this formulation");
+  }
+  massField.validate(mesh);
+  const auto *dependent = dynamic_cast<const ElasticParameterDependentMassField *>(&massField);
+  if (dependent == nullptr) {
+    throw std::invalid_argument(
+      "buildBodyForceParameterJacobian requires a mass field that depends on elastic parameters");
+  }
+
+  const OptimizableField &field = dependent->parameterField();
+  const auto *layout = field.dofLayout();
+  const int numLocal = layout->numLocalDofs();
+  std::vector<double> dRho(numLocal);
+  std::vector<ES::TripletD> entries;
+
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    dependent->arealDensityParameterDerivative(ele, dRho.data());
+    const double areaThird = triangleRestArea(mesh, ele) / 3.0;
+    for (int k = 0; k < numLocal; k++) {
+      if (dRho[k] == 0.0)
+        continue;
+      const int col = layout->globalDof(ele, k);
+      const double s = dRho[k] * areaThird;
+      for (int j = 0; j < 3; j++) {
+        const int v = mesh.getVertexIndex(ele, j);
+        for (int d = 0; d < 3; d++)
+          entries.emplace_back(v * 3 + d, col, s * acceleration[d]);
+      }
+    }
+  }
+
+  ES::SpMatD J(mesh.getNumVertices() * 3, layout->numGlobalDofs());
+  J.setFromTriplets(entries.begin(), entries.end());
+  return J;
 }
 
 }  // namespace SolidDeformationModel

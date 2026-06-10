@@ -32,6 +32,13 @@ public:
   EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
     const ShellMassField &massField) const;
+
+  // d f_g / d b for a parameter-dependent shell mass field; throws
+  // std::invalid_argument if the field does not implement
+  // ElasticParameterDependentMassField. Shape: (numVertices*3) x numParameterDofs.
+  EigenSupport::SpMatD buildBodyForceParameterJacobian(
+    const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
+    const ShellMassField &massField) const;
 };
 
 }  // namespace SolidDeformationModel

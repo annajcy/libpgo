@@ -101,6 +101,8 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   mass/massField.h
   mass/volumeMassField.h
   mass/shellMassField.h
+  mass/elasticParameterDependentMassField.h
+  mass/shellDensityElasticThickness.h
 )
 
 set(SOLID_DEFORMATION_MODEL_SOURCES
@@ -176,6 +178,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   mass/massField.cpp
   mass/volumeMassField.cpp
   mass/shellMassField.cpp
+  mass/shellDensityElasticThickness.cpp
 
   simulation/simulationMesh.cpp
   constraints/tetVolumeConstraintFunctions.cpp
