@@ -17,12 +17,14 @@ from pypgo.mesh.data import (
 from pypgo.mesh.geometry import SurfaceEmbedding
 from pypgo.mesh.visualize import (
     get_backend,
+    plot_points_on_mesh,
     plot_surface,
     plot_volume_surface,
     reset_backend,
     set_backend,
     to_pyvista_surface,
     to_pyvista_volume,
+    write_points_obj,
 )
 
 __all__ = [
@@ -33,6 +35,7 @@ __all__ = [
     "SurfaceEmbedding",
     "read_obj",
     "write_obj",
+    "write_points_obj",
     "create_box",
     "create_sphere",
     "create_cylinder",
@@ -51,6 +54,7 @@ __all__ = [
     "remove_isolated_vertices",
     "merge_close_vertices",
     "raw_surface_cleanup",
+    "plot_points_on_mesh",
     "cgal_smooth",
     "cgal_isotropic_remesh",
     "cgal_repair_self_intersections",

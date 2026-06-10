@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pyvista as _pv
 
@@ -66,6 +68,13 @@ def _normalize_scalar_inputs(scalars, count: int):
     if count != 1:
         raise ValueError("scalars must be a list with one array per mesh")
     return [np.asarray(scalars, dtype=np.float64)]
+
+
+def _normalize_points(points) -> np.ndarray:
+    point_array = np.asarray(points, dtype=np.float64)
+    if point_array.ndim != 2 or point_array.shape[1] != 3:
+        raise ValueError(f"points must have shape (n, 3), got {point_array.shape}")
+    return np.ascontiguousarray(point_array, dtype=np.float64)
 
 
 def to_pyvista_surface(surface_data: TriMeshData) -> _pv.PolyData:
@@ -213,3 +222,66 @@ def plot_volume_surface(
         plotter.view_isometric()
         plotter.camera.zoom(1.2)
     return _show_plotter(plotter, backend=backend)
+
+
+def plot_points_on_mesh(
+    mesh,
+    points,
+    *,
+    title=None,
+    mesh_color="lightgray",
+    mesh_opacity: float = 0.3,
+    point_color="red",
+    point_size: float = 10,
+    render_points_as_spheres: bool = True,
+    show_edges: bool = False,
+    window_size: tuple[int, int] = (900, 650),
+    backend: str | None = None,
+):
+    """Render a mesh with an overlaid point cloud.
+
+    ``mesh`` may be a :class:`TriMeshData`, :class:`TetMeshData`, or
+    :class:`CubicMeshData`. Volume meshes are displayed through their extracted
+    surface. ``points`` must be an ``(n, 3)`` array in the same coordinate
+    system as the mesh.
+    """
+    point_array = _normalize_points(points)
+    if isinstance(mesh, TriMeshData):
+        display_mesh = to_pyvista_surface(mesh)
+    elif isinstance(mesh, (TetMeshData, CubicMeshData)):
+        display_mesh = _extract_volume_surface(to_pyvista_volume(mesh))
+    else:
+        raise TypeError(
+            "mesh must be a TriMeshData, TetMeshData, or CubicMeshData, "
+            f"got {type(mesh).__name__}"
+        )
+
+    plotter = _pv.Plotter(window_size=window_size)
+    plotter.add_mesh(
+        display_mesh,
+        color=mesh_color,
+        opacity=float(mesh_opacity),
+        show_edges=show_edges,
+        smooth_shading=False,
+    )
+    plotter.add_points(
+        point_array,
+        color=point_color,
+        point_size=float(point_size),
+        render_points_as_spheres=render_points_as_spheres,
+    )
+    if title:
+        plotter.add_text(title, position="upper_left", font_size=10)
+    plotter.view_isometric()
+    plotter.camera.zoom(1.2)
+    return _show_plotter(plotter, backend=backend)
+
+
+def write_points_obj(path, points) -> None:
+    """Write an ``(n, 3)`` point cloud as OBJ vertex records."""
+    point_array = _normalize_points(points)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as file:
+        for point in point_array:
+            file.write(f"v {point[0]} {point[1]} {point[2]}\n")
