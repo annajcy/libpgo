@@ -427,8 +427,7 @@ CELLS = [
         initial_residual = initial_vertices - target_torch
         initial_loss = (0.5 * torch.sum(initial_residual ** 2)
                         + l2_weight * sum((p ** 2).sum() for p in em_net.parameters()))
-        initial_loss.backward()
-
+        # -- sanity check: forward pass at b0, no backward yet --------
         elastic_jacobian = energy.elastic_jacobian(equilibrium_layer.last_equilibrium_displacement)
         print("initial objective L(b0):", float(initial_loss.detach()))
         print_error_stats("initial shape error", vertex_error_stats(initial_residual.detach().numpy()))
