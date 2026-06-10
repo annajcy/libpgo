@@ -51,8 +51,7 @@ CELLS = [
            and the load-gradient correction for self-weight gravity
         3. Setup — imports and output directory
         4. Build a Koiter shell grid with an elastic field
-        5. Add gravity (two modes: `fixed_area_load` and `self_weight`),
-           generate a sagging target, and fix boundary DOFs
+        5. Add self-weight gravity, generate a sagging target, and fix boundary DOFs
         6. One forward + one gradient sanity check
         7. The outer optimization loop (Adam)
         8. Inspect the optimized elastic field
@@ -106,9 +105,9 @@ CELLS = [
         \mathbf J^b=\frac{\partial^2 E}{\partial \mathbf u\,\partial\mathbf b}.
         $$
 
-        When the load itself depends on $\mathbf b$ (the `self_weight` mode with
-        a thickness-coupled gravity field), the stationarity condition picks up a
-        load-force term:
+        When the external load depends on $\mathbf b$ (self-weight gravity
+        with a thickness-coupled mass field), the stationarity condition picks
+        up a load-force term:
 
         $$
         \mathbf J^b=\frac{\partial^2 E}{\partial \mathbf u\,\partial\mathbf b}
@@ -240,59 +239,31 @@ CELLS = [
         softer/thinner elastic field.  In your own fitting run, replace only
         `target_vertices`; the rest of the pipeline is the same.
 
-        Two gravity modes are demonstrated:
-
-        - **`fixed_area_load`** (old behavior): an areal force density in N/m^2
-          that does *not* change when thickness is optimized.  This is the simpler
-          mode but it decouples the load from the material parameter being fitted.
-        - **`self_weight`** (default, physically correct): a
-          `ShellDensityElasticThickness` mass field reads the live thickness from
-          elastic channel 4, and `SelfWeightGravity` converts it to nodal forces.
-          The load updates every time the elastic parameters change, so the adjoint
-          gains an additional $-(\partial\mathbf f_g/\partial\mathbf b)^\top\bm\lambda$
-          term.
-
-        Both modes are kept in the generator so they can be swapped with a single
-        flag.  The `self_weight` mode is the physically meaningful one for material
-        optimization because the gravitational load couples to the thickness being
-        optimized.
+        A `ShellDensityElasticThickness` mass field reads the live thickness from
+        elastic channel 4, and `SelfWeightGravity` converts it to nodal forces
+        $\mathbf f_g = \rho h A g$.  The load updates every time the elastic
+        parameters change, so the adjoint gains an additional
+        $-(\partial\mathbf f_g/\partial\mathbf b)^\top\bm\lambda$ term.
         """
     ),
     code(
         """
-        shear_strength = 0.08  # lateral perturbation visible in both gravity modes
+        shear_strength = 0.08  # lateral perturbation for a visible target shape
         sag_strength = 20.0
         gravity_accel = np.array([0.0, 0.0, -sag_strength], dtype=np.float64)
 
-        GRAVITY_MODE = "self_weight"  # "self_weight" | "fixed_area_load"
-
-        if GRAVITY_MODE == "fixed_area_load":
-            # Fixed downward areal load (the old behavior, now honestly named):
-            # the load does NOT change when thickness is optimized.
-            vertex_area = np.zeros(vertices.shape[0], dtype=np.float64)
-            for tri in triangles:
-                a, b, c = vertices[tri]
-                area = 0.5 * np.linalg.norm(np.cross(b - a, c - a))
-                vertex_area[tri] += area / 3.0
-            gravity_force = np.zeros(energy.num_dofs, dtype=np.float64)
-            gravity_force.reshape((-1, 3))[:] = 1.0 * vertex_area[:, None] * gravity_accel
-            external_load = None
-            objective = pe.EnergySet([(energy, 1.0), (pe.LinearEnergy(-gravity_force), 1.0)])
-        else:
-            # Physically correct self-weight: f_g = rho * h * area/3 per corner
-            # vertex, with h read live from elastic channel 4.  rho chosen so
-            # rho*h0 = 1 kg/m^2 matches the old load magnitude at b0.
-            mass_field = pf.ShellDensityElasticThickness(
-                density=1000.0, parameter_field=energy.elastic_field, channel=4)
-            external_load = pf.SelfWeightGravity(
-                formulation=pf.KoiterShell(), sim_mesh=sim,
-                mass_field=mass_field, acceleration=gravity_accel)
-            gravity_force = external_load.force()
-            objective = energy  # the layer / target solve add the load at current b
+        # Physically correct self-weight: f_g = rho * h * area/3 per corner
+        # vertex, with h read live from elastic channel 4.  rho chosen so
+        # rho*h0 = 1 kg/m^2 at the initial thickness.
+        mass_field = pf.ShellDensityElasticThickness(
+            density=1000.0, parameter_field=energy.elastic_field, channel=4)
+        external_load = pf.SelfWeightGravity(
+            formulation=pf.KoiterShell(), sim_mesh=sim,
+            mass_field=mass_field, acceleration=gravity_accel)
+        gravity_force = external_load.force()
+        objective = energy  # the layer / target solve add the load dynamically
 
         def _objective_at_current_b():
-            if external_load is None:
-                return objective
             return pe.EnergySet([(energy, 1.0), (pe.LinearEnergy(-external_load.force()), 1.0)])
 
         fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 1.0)).astype(np.int64)
@@ -315,19 +286,14 @@ CELLS = [
             return vertices + result.x.reshape((-1, 3))
 
         # Hidden target material: softer near the free lower middle.
-        # In fixed_area_load mode the target is also thinner (producing more sag
-        # under constant load).  In self_weight mode thickness is kept at the
-        # initial value so that weight stays constant — stiffness alone produces
-        # the sag difference, avoiding the self-cancelling effect of simultaneous
-        # softening + lightening.
+        # Thickness is kept at the initial value so that weight stays constant —
+        # stiffness alone produces the sag difference.
         distance_from_clamp = 1.0 - centers[:, 1]
         center_band = np.exp(-((centers[:, 0] - 0.5) / 0.75) ** 2)
         softness = (distance_from_clamp ** 0.8) * center_band
         target_elastic = initial_elastic.copy()
         target_elastic[:, 0] *= 1.0 - 0.95 * softness
         target_elastic[:, 2] *= 1.0 - 0.95 * softness
-        if GRAVITY_MODE == "fixed_area_load":
-            target_elastic[:, 4] *= 1.0 - 0.90 * softness
         target_vertices = solve_surface_for_elastic(target_elastic)
         target_vertices[:, 0] += shear_strength * (1.0 - vertices[:, 1]) * np.sin(np.pi * vertices[:, 0])
         target_surface = pgo.mesh.TriMeshData(target_vertices, triangles)
