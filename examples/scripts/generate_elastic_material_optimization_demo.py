@@ -260,7 +260,7 @@ CELLS = [
     ),
     code(
         """
-        shear_strength = 0.04  # lateral perturbation visible in both gravity modes
+        shear_strength = 0.08  # lateral perturbation visible in both gravity modes
         sag_strength = 20.0
         gravity_accel = np.array([0.0, 0.0, -sag_strength], dtype=np.float64)
 
@@ -314,14 +314,20 @@ CELLS = [
                 print("target solve warning:", result.status.name, "grad:", result.final_gradient_max_norm)
             return vertices + result.x.reshape((-1, 3))
 
-        # Hidden target material: softer and thinner near the free lower middle.
+        # Hidden target material: softer near the free lower middle.
+        # In fixed_area_load mode the target is also thinner (producing more sag
+        # under constant load).  In self_weight mode thickness is kept at the
+        # initial value so that weight stays constant — stiffness alone produces
+        # the sag difference, avoiding the self-cancelling effect of simultaneous
+        # softening + lightening.
         distance_from_clamp = 1.0 - centers[:, 1]
         center_band = np.exp(-((centers[:, 0] - 0.5) / 0.75) ** 2)
         softness = (distance_from_clamp ** 0.8) * center_band
         target_elastic = initial_elastic.copy()
         target_elastic[:, 0] *= 1.0 - 0.95 * softness
         target_elastic[:, 2] *= 1.0 - 0.95 * softness
-        target_elastic[:, 4] *= 1.0 - 0.90 * softness
+        if GRAVITY_MODE == "fixed_area_load":
+            target_elastic[:, 4] *= 1.0 - 0.90 * softness
         target_vertices = solve_surface_for_elastic(target_elastic)
         target_vertices[:, 0] += shear_strength * (1.0 - vertices[:, 1]) * np.sin(np.pi * vertices[:, 0])
         target_surface = pgo.mesh.TriMeshData(target_vertices, triangles)
