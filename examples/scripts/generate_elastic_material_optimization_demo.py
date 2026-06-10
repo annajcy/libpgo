@@ -260,7 +260,7 @@ CELLS = [
     ),
     code(
         """
-        shear_strength = 0.0
+        shear_strength = 0.04  # lateral perturbation visible in both gravity modes
         sag_strength = 20.0
         gravity_accel = np.array([0.0, 0.0, -sag_strength], dtype=np.float64)
 
