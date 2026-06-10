@@ -87,3 +87,33 @@ class ShellDensityElasticThickness(ShellMassField):
                 f"parameter_field must be a ParameterField, got {type(parameter_field).__name__}")
         super().__init__(_core.make_shell_density_elastic_thickness(
             float(density), parameter_field._handle, int(channel)))
+
+
+class SelfWeightGravity:
+    """External-load provider: shell self-weight from a parameter-coupled mass field.
+
+    Implements the ``ElasticStaticEquilibriumLayer`` external_load protocol:
+    ``force()`` and ``parameter_jacobian()`` evaluated at the parameter
+    field's current values.
+    """
+
+    def __init__(self, *, formulation, sim_mesh, mass_field, acceleration) -> None:
+        from pypgo.fem.formulations import ShellFormulation
+
+        if not isinstance(formulation, ShellFormulation):
+            raise TypeError(
+                f"formulation must be a ShellFormulation, got {type(formulation).__name__}")
+        if not isinstance(mass_field, ShellMassField):
+            raise TypeError(
+                f"mass_field must be a ShellMassField, got {type(mass_field).__name__}")
+        self._formulation = formulation
+        self._sim_mesh = sim_mesh
+        self._mass_field = mass_field
+        self._acceleration = np.asarray(acceleration, dtype=np.float64).reshape(3)
+
+    def force(self) -> np.ndarray:
+        return self._formulation.body_force(self._sim_mesh, self._acceleration, self._mass_field)
+
+    def parameter_jacobian(self):
+        return self._formulation.body_force_parameter_jacobian(
+            self._sim_mesh, self._acceleration, self._mass_field)

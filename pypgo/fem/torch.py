@@ -8,6 +8,7 @@ import numpy as np
 import torch as _torch
 
 from pypgo import solver
+from pypgo import energy as _energy_mod
 from pypgo._utils import float_vector, int_vector, vertex_array
 from pypgo.energy import PotentialEnergy
 
@@ -29,7 +30,8 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
             )
 
         layer._set_parameter_values(parameter_np)
-        problem = solver.OptimizationProblem(objective=layer.objective_energy)
+        objective = layer._build_objective()
+        problem = solver.OptimizationProblem(objective=objective)
         problem.fix_variables(
             layer.fixed_dofs.tolist(),
             layer.fixed_values,
@@ -99,6 +101,7 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
         surface_vertex_ids: Sequence[int],
         inner_optimizer: solver.Optimizer | None = None,
         objective_energy=None,
+        external_load=None,
     ) -> None:
         super().__init__()
         if not isinstance(energy, PotentialEnergy):
@@ -129,6 +132,15 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
         self.inner_optimizer = inner_optimizer or solver.NewtonOptimizer()
         if not isinstance(self.inner_optimizer, solver.Optimizer):
             raise TypeError("inner_optimizer must be a pypgo.solver.Optimizer")
+
+        if external_load is not None:
+            if self._parameter_name != "elastic":
+                raise ValueError("external_load is only supported on ElasticStaticEquilibriumLayer")
+            if not callable(getattr(external_load, "force", None)) or not callable(
+                getattr(external_load, "parameter_jacobian", None)
+            ):
+                raise TypeError("external_load must provide force() and parameter_jacobian()")
+        self.external_load = external_load
 
         self.plastic_shape = tuple(energy.plastic_field.values.shape)
         self.num_plastic_dofs = int(np.prod(self.plastic_shape))
@@ -161,6 +173,19 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
         self._warm_start = float_vector("displacement", displacement).copy()
         if self._warm_start.size != self.energy.num_dofs:
             raise ValueError("displacement size must match energy.num_dofs")
+
+    def _build_objective(self):
+        """Objective for the inner solve; re-adds the parameter-dependent load at current b."""
+        if self.external_load is None:
+            return self.objective_energy
+        load = np.asarray(self.external_load.force(), dtype=np.float64)
+        if load.shape != (self.energy.num_dofs,):
+            raise ValueError(
+                f"external_load.force() must return shape ({self.energy.num_dofs},), got {load.shape}")
+        return _energy_mod.EnergySet([
+            (self.objective_energy, 1.0),
+            (_energy_mod.LinearEnergy(-load), 1.0),
+        ])
 
     @property
     def last_equilibrium_displacement(self) -> np.ndarray:
@@ -233,7 +258,12 @@ class ElasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
         self.energy.set_elastic_values(values.reshape(self.elastic_shape))
 
     def _parameter_jacobian(self, displacement) -> np.ndarray:
-        return self.energy.elastic_jacobian(displacement).to_dense()
+        jac = self.energy.elastic_jacobian(displacement).to_dense()
+        if self.external_load is not None:
+            # Inner gradient is ∇E(u,b) - f_g(b); its mixed b-derivative
+            # therefore subtracts d f_g / d b.
+            jac = jac - self.external_load.parameter_jacobian().to_dense()
+        return jac
 
 
 __all__ = [
