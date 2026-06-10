@@ -121,3 +121,65 @@ def test_volume_mass_field_type_errors():
     with pytest.raises(ValueError):
         # Elementwise size mismatch surfaces as ValueError (C++ invalid_argument).
         pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(np.array([1.0, 2.0])))
+
+
+def _shell_grid(nx=2, ny=2):
+    def vid(i, j):
+        return i * (ny + 1) + j
+
+    vertices = np.array(
+        [[i / nx, j / ny, 0.0] for i in range(nx + 1) for j in range(ny + 1)],
+        dtype=np.float64,
+    )
+    triangles = []
+    for i in range(nx):
+        for j in range(ny):
+            triangles.append([vid(i, j), vid(i + 1, j), vid(i + 1, j + 1)])
+            triangles.append([vid(i, j), vid(i + 1, j + 1), vid(i, j + 1)])
+    triangles = np.asarray(triangles, dtype=np.int64)
+    surface = pgo.mesh.TriMeshData(vertices, triangles)
+    material = pf.KoiterStVKShellMaterial(thickness=1e-3, E_membrane=2e4, nu_membrane=0.35)
+    return surface, vertices, triangles, pf.SimulationMesh.create_shell(surface, material)
+
+
+def test_shell_body_force_matches_manual_lumped_formula():
+    _surface, vertices, triangles, sim = _shell_grid()
+    g = np.array([0.0, 0.0, -9.81])
+    rho_h = 1.0
+    f = pf.KoiterShell().body_force(sim, g, pf.ShellArealDensity(rho_h))
+
+    vertex_area = np.zeros(vertices.shape[0])
+    for tri in triangles:
+        a, b, c = vertices[tri]
+        vertex_area[tri] += 0.5 * np.linalg.norm(np.cross(b - a, c - a)) / 3.0
+    manual = (rho_h * vertex_area[:, None] * g).ravel()
+    np.testing.assert_allclose(f, manual, rtol=1e-12, atol=1e-15)
+
+
+def test_shell_body_force_total_weight():
+    _surface, _vertices, _triangles, sim = _shell_grid()
+    g = np.array([0.0, 0.0, -9.81])
+    f = pf.KoiterShell().body_force(sim, g, pf.ShellDensityThickness(density=1000.0, thickness=1e-3))
+    # Unit square shell: total area 1, rho*h = 1.
+    np.testing.assert_allclose(f.reshape(-1, 3).sum(axis=0), 1.0 * g, rtol=1e-12)
+
+
+def test_shell_mass_matrix_row_sums_are_lumped_vertex_masses():
+    _surface, vertices, triangles, sim = _shell_grid()
+    M = pf.KoiterShell().mass_matrix(sim, pf.ShellArealDensity(2.0)).to_dense()
+    vertex_area = np.zeros(vertices.shape[0])
+    for tri in triangles:
+        a, b, c = vertices[tri]
+        vertex_area[tri] += 0.5 * np.linalg.norm(np.cross(b - a, c - a)) / 3.0
+    np.testing.assert_allclose(np.diag(M).reshape(-1, 3), 2.0 * vertex_area[:, None] * np.ones(3), rtol=1e-12)
+    np.testing.assert_allclose(M, np.diag(np.diag(M)), atol=1e-15)
+
+
+def test_shell_volume_mass_field_cross_domain_type_errors():
+    _surface, _vertices, _triangles, sim = _shell_grid()
+    with pytest.raises(TypeError):
+        pf.KoiterShell().mass_matrix(sim, pf.VolumeDensity(1000.0))
+    volume = _unit_tet_volume()
+    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    with pytest.raises(TypeError):
+        pf.TetLinear().mass_matrix(sim_mesh, pf.ShellArealDensity(1.0))

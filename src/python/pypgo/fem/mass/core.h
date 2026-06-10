@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mass/volumeMassField.h"
+#include "mass/shellMassField.h"
 
 #include <memory>
 #include <vector>
@@ -22,5 +23,22 @@ private:
 
 std::shared_ptr<PyVolumeMassField> make_constant_volume_density(double density);
 std::shared_ptr<PyVolumeMassField> make_elementwise_volume_density(const std::vector<double> &densities);
+
+class PyShellMassField
+{
+public:
+  explicit PyShellMassField(std::shared_ptr<SolidDeformationModel::ShellMassField> field)
+    : field_(std::move(field)) {}
+
+  const SolidDeformationModel::ShellMassField &get() const { return *field_; }
+
+protected:
+  std::shared_ptr<SolidDeformationModel::ShellMassField> field_;
+};
+
+std::shared_ptr<PyShellMassField> make_constant_shell_areal_density(double arealDensity);
+std::shared_ptr<PyShellMassField> make_shell_density_thickness_constant(double density, double thickness);
+std::shared_ptr<PyShellMassField> make_shell_density_thickness_elementwise(
+  double density, const std::vector<double> &thickness);
 
 }  // namespace pgo

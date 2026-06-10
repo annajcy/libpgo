@@ -97,8 +97,36 @@ class VolumetricFormulation(Formulation):
 
 
 class ShellFormulation(Formulation):
-    """Shell formulation — no volumetric dynamics operators."""
-    pass
+    """Shell formulation with lumped mass / body-force operators."""
+
+    def _require_shell_mass_field(self, mass_field):
+        from pypgo.fem.mass import ShellMassField
+
+        if not isinstance(mass_field, ShellMassField):
+            raise TypeError(
+                f"shell formulation expects a ShellMassField (kg/m^2), got {type(mass_field).__name__}")
+
+    def mass_matrix(self, sim_mesh, mass_field):
+        """Lumped shell mass matrix."""
+        from pypgo.sparse import SparseMatrix
+
+        _require_sim_mesh(sim_mesh)
+        self._require_shell_mass_field(mass_field)
+        return SparseMatrix(
+            _core.compute_shell_formulation_mass_matrix(sim_mesh._handle, self._handle, mass_field._handle))
+
+    def body_force(self, sim_mesh, acceleration, mass_field) -> np.ndarray:
+        """Lumped shell body force for a constant 3-vector acceleration."""
+        accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
+        if accel.size != 3:
+            raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
+        _require_sim_mesh(sim_mesh)
+        self._require_shell_mass_field(mass_field)
+        return np.asarray(
+            _core.compute_shell_formulation_body_force(
+                sim_mesh._handle, self._handle, accel.tolist(), mass_field._handle),
+            dtype=np.float64,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -30,4 +30,9 @@ void init_formulation_bindings(nb::module_ &m)
         nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("mass_field"));
     m.def("compute_formulation_surface_embedding_matrix", &compute_formulation_surface_embedding_matrix,
         nb::arg("volume_mesh"), nb::arg("formulation"), nb::arg("surface_vertices_flat"));
+
+    m.def("compute_shell_formulation_mass_matrix", &compute_shell_formulation_mass_matrix,
+        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("mass_field"));
+    m.def("compute_shell_formulation_body_force", &compute_shell_formulation_body_force,
+        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("mass_field"));
 }

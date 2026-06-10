@@ -89,4 +89,36 @@ PySparseMatrix compute_formulation_surface_embedding_matrix(
   return PySparseMatrix(std::move(W));
 }
 
+PySparseMatrix compute_shell_formulation_mass_matrix(
+  const PySimulationMesh &simMesh,
+  const PyShellFormulation &formulation,
+  const PyShellMassField &massField)
+{
+  pgo::EigenSupport::SpMatD M;
+  {
+    nanobind::gil_scoped_release release;
+    M = formulation.shell().buildMassMatrix(simMesh.mesh(), massField.get());
+  }
+  return PySparseMatrix(std::move(M));
+}
+
+std::vector<double> compute_shell_formulation_body_force(
+  const PySimulationMesh &simMesh,
+  const PyShellFormulation &formulation,
+  const std::vector<double> &acceleration,
+  const PyShellMassField &massField)
+{
+  if (acceleration.size() != 3) {
+    throw std::invalid_argument("acceleration must contain exactly 3 values");
+  }
+
+  pgo::EigenSupport::V3d a(acceleration[0], acceleration[1], acceleration[2]);
+  pgo::EigenSupport::VXd f;
+  {
+    nanobind::gil_scoped_release release;
+    f = formulation.shell().buildBodyForce(simMesh.mesh(), a, massField.get());
+  }
+  return std::vector<double>(f.data(), f.data() + f.size());
+}
+
 }  // namespace pgo

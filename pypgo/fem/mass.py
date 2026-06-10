@@ -40,3 +40,33 @@ def volume_density_from_veg(volume) -> VolumeDensity:
     for _name, material, elements in volume.to_veg_file().to_volume_regions():
         densities[np.asarray(elements, dtype=np.int64)] = float(material.density)
     return VolumeDensity(densities)
+
+
+class ShellMassField:
+    """Base for shell (kg/m^2) mass fields. Holds a C++ handle."""
+
+    def __init__(self, handle) -> None:
+        self._handle = handle
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}()"
+
+
+class ShellArealDensity(ShellMassField):
+    """Constant areal density rho*h in kg/m^2."""
+
+    def __init__(self, areal_density: float) -> None:
+        super().__init__(_core.make_constant_shell_areal_density(float(areal_density)))
+
+
+class ShellDensityThickness(ShellMassField):
+    """rho * h with fixed thickness (scalar or per-element array)."""
+
+    def __init__(self, *, density: float, thickness) -> None:
+        arr = np.asarray(thickness, dtype=np.float64)
+        if arr.ndim == 0:
+            super().__init__(_core.make_shell_density_thickness_constant(float(density), float(arr)))
+        elif arr.ndim == 1:
+            super().__init__(_core.make_shell_density_thickness_elementwise(float(density), arr.tolist()))
+        else:
+            raise ValueError(f"thickness must be a scalar or 1-D array, got shape {arr.shape}")

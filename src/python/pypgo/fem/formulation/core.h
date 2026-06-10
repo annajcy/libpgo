@@ -49,6 +49,11 @@ class PyShellFormulation : public PyFormulation
 {
 public:
   using PyFormulation::PyFormulation;
+
+  const SolidDeformationModel::ShellFormulation &shell() const
+  {
+    return static_cast<const SolidDeformationModel::ShellFormulation &>(get());
+  }
 };
 
 // --- factory functions ---
@@ -73,5 +78,16 @@ PySparseMatrix compute_formulation_surface_embedding_matrix(
   const PyVolumeMesh &volumeMesh,
   const PyVolumetricFormulation &formulation,
   const std::vector<double> &surfaceVerticesFlat);
+
+PySparseMatrix compute_shell_formulation_mass_matrix(
+  const PySimulationMesh &simMesh,
+  const PyShellFormulation &formulation,
+  const PyShellMassField &massField);
+
+std::vector<double> compute_shell_formulation_body_force(
+  const PySimulationMesh &simMesh,
+  const PyShellFormulation &formulation,
+  const std::vector<double> &acceleration,
+  const PyShellMassField &massField);
 
 }  // namespace pgo

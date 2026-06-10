@@ -15,4 +15,12 @@ void init_mass_bindings(nb::module_ &m)
         nb::arg("density"));
     m.def("make_elementwise_volume_density", &make_elementwise_volume_density,
         nb::arg("densities"));
+
+    nb::class_<PyShellMassField>(m, "PyShellMassField");
+    m.def("make_constant_shell_areal_density", &make_constant_shell_areal_density,
+        nb::arg("areal_density"));
+    m.def("make_shell_density_thickness_constant", &make_shell_density_thickness_constant,
+        nb::arg("density"), nb::arg("thickness"));
+    m.def("make_shell_density_thickness_elementwise", &make_shell_density_thickness_elementwise,
+        nb::arg("density"), nb::arg("thickness"));
 }

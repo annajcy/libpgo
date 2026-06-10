@@ -9,7 +9,7 @@ from pypgo.fem.formulations import (
     CubicTricubicHermite,
     VolumetricFormulation,
 )
-from pypgo.fem.mass import VolumeMassField, VolumeDensity, volume_density_from_veg
+from pypgo.fem.mass import VolumeMassField, VolumeDensity, volume_density_from_veg, ShellMassField, ShellArealDensity, ShellDensityThickness
 from pypgo.fem.elastic import (
     ElasticModel,
     KoiterStVK,
@@ -62,6 +62,9 @@ __all__ = [
     "VolumeMassField",
     "VolumeDensity",
     "volume_density_from_veg",
+    "ShellMassField",
+    "ShellArealDensity",
+    "ShellDensityThickness",
     # Elastic
     "ElasticModel",
     "KoiterStVK",
