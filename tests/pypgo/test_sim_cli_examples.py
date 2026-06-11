@@ -31,7 +31,7 @@ STATIC_CASES = [
 
 def test_all_example_configs_are_covered():
     covered = {name for _, name in DYNAMIC_CASES + STATIC_CASES}
-    on_disk = {p.name for p in CONFIG_DIR.glob("*.json")}
+    on_disk = {p.name for p in CONFIG_DIR.glob("*.json") if p.name != "batch.json"}
     assert covered == on_disk
 
 

@@ -120,6 +120,7 @@ setup(
             "pypgo-sim-cubic-dynamic=pypgo.tools.sim.cubic_dynamic:main",
             "pypgo-sim-tet-static=pypgo.tools.sim.tet_static:main",
             "pypgo-sim-tet-dynamic=pypgo.tools.sim.tet_dynamic:main",
+            "pypgo-sim-batch=pypgo.tools.sim.batch:main",
             "pypgo-animation-convert=pypgo.tools.animation.abc_convert:main",
             "pypgo-stress-vdb=pypgo.tools.animation.stress_vdb:main",
         ],

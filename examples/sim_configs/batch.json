@@ -1,0 +1,65 @@
+{
+  "cases": {
+    "tet_static_dragon": {
+      "command": "tet-static",
+      "config": "tet_static_dragon.json"
+    },
+    "cubic_static_box_hang": {
+      "command": "cubic-static",
+      "config": "cubic_static_box_hang.json"
+    },
+    "shell_static_drape": {
+      "command": "shell-static",
+      "config": "shell_static_drape.json"
+    },
+    "tet_dynamic_bunny_floor": {
+      "command": "tet-dynamic",
+      "config": "tet_dynamic_bunny_floor.json"
+    },
+    "cubic_dynamic_box_ipc": {
+      "command": "cubic-dynamic",
+      "config": "cubic_dynamic_box_ipc.json"
+    },
+    "shell_dynamic_floor": {
+      "command": "shell-dynamic",
+      "config": "shell_dynamic_floor.json"
+    },
+    "cubic_dynamic_box_squash": {
+      "command": "cubic-dynamic",
+      "config": "cubic_dynamic_box_squash.json"
+    },
+    "tet_dynamic_box_squash": {
+      "command": "tet-dynamic",
+      "config": "tet_dynamic_box_squash.json"
+    },
+    "cubic_dynamic_box_sphere_ipc": {
+      "command": "cubic-dynamic",
+      "config": "cubic_dynamic_box_sphere_ipc.json"
+    },
+    "shell_dynamic_ipc_drop": {
+      "command": "shell-dynamic",
+      "config": "shell_dynamic_ipc_drop.json"
+    }
+  },
+  "jobs": {
+    "all": "all",
+    "static": ["tet_static_dragon", "cubic_static_box_hang", "shell_static_drape"],
+    "dynamic": [
+      "tet_dynamic_bunny_floor",
+      "cubic_dynamic_box_ipc",
+      "shell_dynamic_floor",
+      "cubic_dynamic_box_squash",
+      "tet_dynamic_box_squash",
+      "cubic_dynamic_box_sphere_ipc",
+      "shell_dynamic_ipc_drop"
+    ],
+    "squash": ["cubic_dynamic_box_squash", "tet_dynamic_box_squash"],
+    "drops": [
+      "cubic_dynamic_box_ipc",
+      "cubic_dynamic_box_sphere_ipc",
+      "tet_dynamic_bunny_floor",
+      "shell_dynamic_ipc_drop",
+      "shell_dynamic_floor"
+    ]
+  }
+}

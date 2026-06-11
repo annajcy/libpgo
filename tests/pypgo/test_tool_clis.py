@@ -229,3 +229,4 @@ def test_setup_declares_sim_console_scripts():
                  "cubic-dynamic", "tet-static", "tet-dynamic"):
         module = name.replace("-", "_")
         assert f"pypgo-sim-{name}=pypgo.tools.sim.{module}:main" in setup_text
+    assert "pypgo-sim-batch=pypgo.tools.sim.batch:main" in setup_text

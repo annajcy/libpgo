@@ -54,3 +54,33 @@ The four scenes above mirror the C++ `example/ipc/` cases:
 
 Note: the legacy `ipc-heuristic` mode (automatic dhat/kappa selection) is not exposed
 in the Python binding. Use explicit `dhat` and `kappa` values as shown in these configs.
+
+## Batch runs
+
+`batch.json` groups all ten scenes into named jobs.  Use `pypgo-sim-batch`
+to run a subset or all of them in one command:
+
+```bash
+# List all cases and jobs without running anything
+pypgo-sim-batch --config examples/sim_configs/batch.json --list
+
+# Run the "drops" job (5 dynamic drop cases) and save output under /tmp/sim-batch
+pypgo-sim-batch --config examples/sim_configs/batch.json --job drops --output-root /tmp/sim-batch
+
+# Run all 10 cases
+pypgo-sim-batch --config examples/sim_configs/batch.json --output-root /tmp/sim-batch-all
+```
+
+After a run with `--output-root`, each case writes its `summary.json` to
+`<output-root>/<case_name>/` and an overall `batch_summary.json` is written to
+`<output-root>/`.
+
+Jobs defined in `batch.json`:
+
+| job | cases |
+|---|---|
+| all | all 10 cases |
+| static | tet_static_dragon, cubic_static_box_hang, shell_static_drape |
+| dynamic | all 7 dynamic cases |
+| squash | cubic_dynamic_box_squash, tet_dynamic_box_squash |
+| drops | cubic_dynamic_box_ipc, cubic_dynamic_box_sphere_ipc, tet_dynamic_bunny_floor, shell_dynamic_ipc_drop, shell_dynamic_floor |
