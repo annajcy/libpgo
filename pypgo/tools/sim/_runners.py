@@ -27,6 +27,8 @@ def run_static(bundle: SceneBundle, cfg) -> dict:
         problem.fix_variables(
             bundle.fixed_dofs.tolist(), x0[bundle.fixed_dofs],
             num_dofs=bundle.num_dofs)
+    # Static solver has no stepper, so contact state must be initialized here.
+    # timestep=1.0 is an arbitrary pseudo-timestep (no time integration in statics).
     for e in bundle.stateful_contacts:
         e.begin_step(time=0.0, timestep=1.0, previous_x=x0)
 
@@ -68,15 +70,13 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
         fixed_dofs=bundle.fixed_dofs.tolist()
         if bundle.fixed_dofs is not None else None,
     )
-    for e in bundle.stateful_contacts:
-        e.begin_step(time=0.0, timestep=dt, previous_x=x0)
+    # Contact begin_step is dispatched by the C++ stepper on every step
+    # (dispatchBeginStep), including moving-obstacle time updates — no
+    # Python-side driving needed.
 
     optimizer = _make_optimizer(cfg)
     frames = []
     for _ in range(cfg.dynamic.num_steps):
-        for ipc in bundle.ipc_contacts:
-            if ipc.obstacles:
-                ipc.set_moving_obstacle_time(sim.state.time + dt)
         frame = sim.step(external_force=bundle.gravity_force, optimizer=optimizer)
         frames.append(frame)
         if cfg.output.write_surfaces:

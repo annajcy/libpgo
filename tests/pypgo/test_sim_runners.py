@@ -50,6 +50,9 @@ def test_run_dynamic_volume_two_steps(tmp_path):
     assert summary["final_time"] == pytest.approx(0.002)
     assert (tmp_path / "surface" / "surface0000.obj").exists()
     assert (tmp_path / "surface" / "surface0001.obj").exists()
+    saved = json.loads((tmp_path / "summary.json").read_text())
+    assert saved["num_frames"] == 2
+    assert isinstance(saved["frames"], list)
 
 
 def test_run_dynamic_shell_two_steps(tmp_path):
@@ -68,6 +71,9 @@ def test_run_dynamic_shell_two_steps(tmp_path):
     assert summary["num_frames"] == 2
     # falling: mean z displacement is negative
     assert summary["frames"][-1]["accepted"] is True
+    saved = json.loads((tmp_path / "summary.json").read_text())
+    assert saved["num_frames"] == 2
+    assert isinstance(saved["frames"], list)
 
 
 def test_run_static_shell_drape(tmp_path):

@@ -258,3 +258,13 @@ def test_damping_length_check_applies_in_static_mode(tmp_path):
     })
     with pytest.raises(ConfigError, match="damping"):
         load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+
+
+def test_frictional_contact_rejected_in_static_mode(tmp_path):
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "contact": [{"model": "frictional_sampled_penalty"}],
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="frictional"):
+        load_config(mesh_type="tet", mode="static", json_path=cfg_path)

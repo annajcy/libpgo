@@ -409,6 +409,14 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         for i, c in enumerate(payload.get("contact", []))
     )
 
+    if mode == "static" and any(
+        c.model == "frictional_sampled_penalty" for c in contact
+    ):
+        raise ConfigError(
+            "frictional_sampled_penalty contact requires dynamic mode "
+            "(friction needs velocities)"
+        )
+
     init_payload = payload.get("initial_state", {})
     initial_state = InitialStateConfig(
         displacement=_vec3(init_payload.get("displacement", (0.0, 0.0, 0.0)),
