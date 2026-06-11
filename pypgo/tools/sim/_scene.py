@@ -276,7 +276,7 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
         else np.zeros(num_dofs, dtype=np.float64)
     )
 
-    contact_surface = _contact.ContactSurface.identity(surface.vertices)
+    contact_surface = _contact.ContactSurface.identity(rest_vertices)
     contact_energies, stateful, ipcs = _build_contact_energies(
         cfg.contact, contact_surface, surface.elements)
 
@@ -286,6 +286,7 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
 
     attachments = []
     for att in cfg.constraints.attachments:
+        # shell is always 3 DOFs/vertex; no Hermite guard needed here
         idx = resolve_vertex_selector(att.vertices, rest_vertices)
         attachments.append(_energy.VertexAttachment(
             sim_mesh=sim_mesh,

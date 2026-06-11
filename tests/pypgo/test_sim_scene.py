@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from pypgo.mesh import read_obj
 from pypgo.tools.sim._config import (
     ConfigError, RegionSelector, VertexSelector, load_config,
 )
@@ -189,8 +190,10 @@ def test_build_shell_scene_static():
     n = bundle.num_dofs
     assert bundle.mass.shape == (n, n)
     assert float(np.linalg.norm(bundle.gravity_force)) > 0.0
-    # shell.obj y=max edge has 33 vertices -> 99 fixed DOFs
-    assert bundle.fixed_dofs.size == 99
+    verts = np.asarray(read_obj(str(ASSETS / "obj" / "shell.obj")).vertices, dtype=np.float64)
+    y_max_count = int((np.abs(verts[:, 1] - verts[:, 1].max()) <= 1e-6).sum())
+    assert y_max_count > 0
+    assert bundle.fixed_dofs.size == y_max_count * 3
     # identity surface mapping
     u = np.zeros(n)
     u[2] = -0.5
@@ -214,3 +217,5 @@ def test_build_shell_scene_areal_density_and_contact():
     assert len(bundle.contact_energies) == 2
     assert len(bundle.stateful_contacts) == 1  # frictional penalty only
     assert bundle.mass.shape == (bundle.num_dofs, bundle.num_dofs)
+    ones = np.ones(bundle.num_dofs, dtype=np.float64)
+    assert float(ones @ (bundle.mass @ ones)) > 0.0
