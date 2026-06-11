@@ -228,3 +228,62 @@ def test_build_shell_scene_areal_density_and_contact():
     assert bundle.mass.shape == (bundle.num_dofs, bundle.num_dofs)
     ones = np.ones(bundle.num_dofs, dtype=np.float64)
     assert float(ones @ (bundle.mass @ ones)) > 0.0
+
+
+# ---------------------------------------------------------------------------
+# Task 7: MovingAttachment on SceneBundle
+# ---------------------------------------------------------------------------
+
+
+def test_volume_scene_moving_attachment_detected(tet_box_cfg_payload):
+    """Attachment with nonzero movement → appears in moving_attachments, not just attachments."""
+    cfg = load_config(mesh_type="tet", mode="dynamic", overrides={
+        **tet_box_cfg_payload,
+        "dynamic.timestep": 0.001,
+        "constraints.attachments": [
+            # plain (static) attachment at y-max
+            {"vertices": {"region": {"axis": "y", "side": "max", "tolerance": 1e-3}},
+             "coeff": 5e4},
+            # moving attachment at y-min
+            {"vertices": {"region": {"axis": "y", "side": "min", "tolerance": 1e-3}},
+             "coeff": 5e4, "movement": [0.0, -1.0, 0.0]},
+        ],
+    })
+    bundle = build_scene(cfg)
+    # Both appear in attachment_energies
+    assert len(bundle.attachment_energies) == 2
+    # Only the moving one appears in moving_attachments
+    assert len(bundle.moving_attachments) == 1
+    ma = bundle.moving_attachments[0]
+    np.testing.assert_array_equal(ma.velocity, [0.0, -1.0, 0.0])
+    assert ma.num_vertices > 0
+
+
+def test_volume_scene_plain_attachment_not_in_moving(tet_box_cfg_payload):
+    """Plain attachment (no movement) does NOT appear in moving_attachments."""
+    cfg = load_config(mesh_type="tet", mode="dynamic", overrides={
+        **tet_box_cfg_payload,
+        "dynamic.timestep": 0.001,
+        "constraints.attachments": [
+            {"vertices": {"region": {"axis": "y", "side": "max", "tolerance": 1e-3}},
+             "coeff": 5e4},
+        ],
+    })
+    bundle = build_scene(cfg)
+    assert len(bundle.attachment_energies) == 1
+    assert len(bundle.moving_attachments) == 0
+
+
+def test_volume_scene_zero_movement_not_in_moving(tet_box_cfg_payload):
+    """Attachment with all-zero movement vector does NOT appear in moving_attachments."""
+    cfg = load_config(mesh_type="tet", mode="dynamic", overrides={
+        **tet_box_cfg_payload,
+        "dynamic.timestep": 0.001,
+        "constraints.attachments": [
+            {"vertices": {"region": {"axis": "y", "side": "max", "tolerance": 1e-3}},
+             "coeff": 5e4, "movement": [0.0, 0.0, 0.0]},
+        ],
+    })
+    bundle = build_scene(cfg)
+    assert len(bundle.attachment_energies) == 1
+    assert len(bundle.moving_attachments) == 0

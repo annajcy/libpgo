@@ -268,3 +268,142 @@ def test_frictional_contact_rejected_in_static_mode(tmp_path):
     })
     with pytest.raises(ConfigError, match="frictional"):
         load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+
+
+# ---------------------------------------------------------------------------
+# Task 7: movement, dump_interval, enable_material_max_step
+# ---------------------------------------------------------------------------
+
+
+def test_attachment_movement_parsed(tmp_path):
+    """movement field is parsed into a 3-tuple on AttachmentConfig."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "constraints": {"attachments": [
+            {"vertices": {"indices": [0]}, "coeff": 5e4,
+             "movement": [0.0, -1.0, 0.0]},
+        ]},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    att = cfg.constraints.attachments[0]
+    assert att.movement == (0.0, -1.0, 0.0)
+
+
+def test_attachment_movement_none_by_default(tmp_path):
+    """Omitting movement yields None (plain static attachment)."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "constraints": {"attachments": [
+            {"vertices": {"indices": [0]}, "coeff": 1e5},
+        ]},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.constraints.attachments[0].movement is None
+
+
+def test_static_mode_with_nonzero_movement_rejected(tmp_path):
+    """Nonzero movement on a static-mode config must raise ConfigError."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "constraints": {"attachments": [
+            {"vertices": {"indices": [0]}, "movement": [0.0, -1.0, 0.0]},
+        ]},
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="movement"):
+        load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+
+
+def test_static_mode_zero_movement_allowed(tmp_path):
+    """Zero movement vector in static mode is fine (treated as plain attachment)."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "constraints": {"attachments": [
+            {"vertices": {"indices": [0]}, "movement": [0.0, 0.0, 0.0]},
+        ]},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+    assert cfg.constraints.attachments[0].movement == (0.0, 0.0, 0.0)
+
+
+def test_dump_interval_default_is_1(tmp_path):
+    """OutputConfig.dump_interval defaults to 1."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.output.dump_interval == 1
+
+
+def test_dump_interval_parsed(tmp_path):
+    """dump_interval round-trips from JSON."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out", "dump_interval": 10},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.output.dump_interval == 10
+
+
+def test_dump_interval_zero_rejected(tmp_path):
+    """dump_interval < 1 must raise ConfigError."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out", "dump_interval": 0},
+    })
+    with pytest.raises(ConfigError, match="dump_interval"):
+        load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+
+
+def test_enable_material_max_step_defaults_true_volume(tmp_path):
+    """VolumeMaterialConfig.enable_material_max_step defaults to True."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.material.enable_material_max_step is True
+
+
+def test_enable_material_max_step_false_volume(tmp_path):
+    """enable_material_max_step=false round-trips for VolumeMaterialConfig."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "material": {"model": "stable_neo", "enable_material_max_step": False},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.material.enable_material_max_step is False
+
+
+def test_enable_material_max_step_defaults_true_shell(tmp_path):
+    """ShellMaterialConfig.enable_material_max_step defaults to True."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"surface": "shell.obj"},
+        "material": {"mass": {"density": 1000.0}},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="shell", mode="static", json_path=cfg_path)
+    assert cfg.material.enable_material_max_step is True
+
+
+def test_enable_material_max_step_false_shell(tmp_path):
+    """enable_material_max_step=false round-trips for ShellMaterialConfig."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"surface": "shell.obj"},
+        "material": {"mass": {"density": 1000.0}, "enable_material_max_step": False},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="shell", mode="static", json_path=cfg_path)
+    assert cfg.material.enable_material_max_step is False

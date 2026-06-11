@@ -77,9 +77,13 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
     optimizer = _make_optimizer(cfg)
     frames = []
     for _ in range(cfg.dynamic.num_steps):
+        t_next = sim.state.time + dt
+        for ma in bundle.moving_attachments:
+            ma.energy.set_targets(np.tile(ma.velocity * t_next, ma.num_vertices))
         frame = sim.step(external_force=bundle.gravity_force, optimizer=optimizer)
         frames.append(frame)
-        if cfg.output.write_surfaces:
+        if (cfg.output.write_surfaces
+                and frame.frame_index % cfg.output.dump_interval == 0):
             write_surface(
                 cfg.output.directory / "surface" / f"surface{frame.frame_index:04d}.obj",
                 bundle.surface_positions(frame.displacement),

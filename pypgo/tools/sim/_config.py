@@ -100,6 +100,7 @@ class MeshConfig:
 class VolumeMaterialConfig:
     model: str = "stable_neo"
     density: float | None = None  # None -> per-region densities from the veg file
+    enable_material_max_step: bool = True
 
 
 @dataclass(frozen=True)
@@ -114,12 +115,14 @@ class ShellMaterialConfig:
     E_membrane: float = 1e6
     nu_membrane: float = 0.4
     mass: ShellMassConfig = ShellMassConfig(density=1000.0)
+    enable_material_max_step: bool = True
 
 
 @dataclass(frozen=True)
 class AttachmentConfig:
     vertices: VertexSelector
     coeff: float = 1e5
+    movement: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +189,7 @@ class DynamicConfig:
 class OutputConfig:
     directory: Path | None = None
     write_surfaces: bool = False
+    dump_interval: int = 1
 
 
 @dataclass(frozen=True)
@@ -300,9 +304,13 @@ def _build_contact(payload, label: str) -> ContactConfig:
 def _build_attachment(att: dict) -> AttachmentConfig:
     if "vertices" not in att:
         raise ConfigError("constraints.attachments entries need 'vertices'")
+    movement = None
+    if att.get("movement") is not None:
+        movement = _vec3(att["movement"], "constraints.attachments.movement")
     return AttachmentConfig(
         vertices=_selector_from_payload(att["vertices"], "constraints.attachments.vertices"),
         coeff=float(att.get("coeff", 1e5)),
+        movement=movement,
     )
 
 
@@ -378,12 +386,14 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
             E_membrane=float(mat_payload.get("E_membrane", 1e6)),
             nu_membrane=float(mat_payload.get("nu_membrane", 0.4)),
             mass=mass,
+            enable_material_max_step=bool(mat_payload.get("enable_material_max_step", True)),
         )
     else:
         material = VolumeMaterialConfig(
             model=mat_payload.get("model", "stable_neo"),
             density=float(mat_payload["density"])
             if mat_payload.get("density") is not None else None,
+            enable_material_max_step=bool(mat_payload.get("enable_material_max_step", True)),
         )
         if material.model not in VOLUME_ELASTIC_MODELS:
             raise ConfigError(
@@ -408,6 +418,14 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         _build_contact(c, f"contact[{i}]")
         for i, c in enumerate(payload.get("contact", []))
     )
+
+    if mode == "static" and any(
+        att.movement is not None and any(v != 0.0 for v in att.movement)
+        for att in constraints.attachments
+    ):
+        raise ConfigError(
+            "attachment movement requires dynamic mode "
+            "(movement targets only make sense with time stepping)")
 
     if mode == "static" and any(
         c.model == "frictional_sampled_penalty" for c in contact
@@ -454,10 +472,15 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         print("warning: 'dynamic' section is ignored in static mode", file=sys.stderr)
 
     out_payload = payload.get("output", {})
+    dump_interval = int(out_payload.get("dump_interval", 1))
+    if dump_interval < 1:
+        raise ConfigError(
+            f"output.dump_interval must be >= 1, got {dump_interval}")
     output = OutputConfig(
         directory=Path(out_payload["directory"])
         if out_payload.get("directory") else None,
         write_surfaces=bool(out_payload.get("write_surfaces", False)),
+        dump_interval=dump_interval,
     )
     if output.directory is None:
         raise ConfigError("output.directory is required (JSON or --output-dir)")

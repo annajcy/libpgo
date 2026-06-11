@@ -6,7 +6,7 @@ _runners.py never branch on mesh type.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -66,6 +66,15 @@ def resolve_vertex_selector(selector: VertexSelector, vertices: np.ndarray) -> n
 
 
 @dataclass
+class MovingAttachment:
+    """A VertexAttachment whose targets are updated each dynamic step."""
+
+    energy: object        # VertexAttachment instance
+    velocity: np.ndarray  # (3,) velocity vector in displacement/time units
+    num_vertices: int     # number of vertices in the attachment group
+
+
+@dataclass
 class SceneBundle:
     """Everything a runner needs, independent of mesh type."""
 
@@ -75,6 +84,7 @@ class SceneBundle:
     attachment_energies: list
     contact_energies: list
     stateful_contacts: list  # need begin_step(time, timestep, previous_x)
+    moving_attachments: list  # MovingAttachment entries updated each dynamic step
     mass: object
     gravity_force: np.ndarray
     fixed_dofs: np.ndarray | None
@@ -193,6 +203,8 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
         plastic=_fem.VolumetricPlasticity(dofs=0),
         plastic_field=_fem.ElementwiseField(),
         formulation=fm,
+        options=_fem.DeformationOptions(
+            enable_material_max_step=cfg.material.enable_material_max_step),
     )
     num_dofs = deformation.num_dofs
     dofs_per_vertex = num_dofs // volume.num_vertices
@@ -222,24 +234,32 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
             cfg.constraints.fixed, rest_vertices, dofs_per_vertex)
 
     attachments = []
+    moving_attachments = []
     for att in cfg.constraints.attachments:
         if dofs_per_vertex != 3:
             raise ConfigError(
                 "attachments are not supported for the tricubic Hermite "
                 "formulation (24 DOFs per vertex)")
         idx = resolve_vertex_selector(att.vertices, rest_vertices)
-        attachments.append(_energy.VertexAttachment(
+        energy = _energy.VertexAttachment(
             sim_mesh=sim_mesh,
             vertex_indices=idx,
             target_positions=np.zeros(3 * idx.size, dtype=np.float64),
             coeff=att.coeff,
             is_displacement=True,
-        ))
+        )
+        attachments.append(energy)
+        if att.movement is not None and any(v != 0.0 for v in att.movement):
+            moving_attachments.append(MovingAttachment(
+                energy=energy,
+                velocity=np.asarray(att.movement, dtype=np.float64),
+                num_vertices=int(idx.size),
+            ))
 
     return SceneBundle(
         sim_mesh=sim_mesh, formulation=fm, deformation=deformation,
         attachment_energies=attachments, contact_energies=contact_energies,
-        stateful_contacts=stateful,
+        stateful_contacts=stateful, moving_attachments=moving_attachments,
         mass=mass, gravity_force=np.asarray(gravity_force, dtype=np.float64),
         fixed_dofs=fixed_dofs, num_dofs=num_dofs, dofs_per_vertex=dofs_per_vertex,
         surface_rest=np.asarray(surface.vertices, dtype=np.float64),
@@ -264,6 +284,8 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
         plastic=_fem.ShellPlasticity(dofs=0),
         plastic_field=_fem.ElementwiseField(),
         formulation=fm,
+        options=_fem.DeformationOptions(
+            enable_material_max_step=cfg.material.enable_material_max_step),
     )
     num_dofs = deformation.num_dofs
     rest_vertices = np.asarray(surface.vertices, dtype=np.float64)
@@ -290,21 +312,29 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
         fixed_dofs = _fixed_dofs_from_selector(cfg.constraints.fixed, rest_vertices, 3)
 
     attachments = []
+    moving_attachments = []
     for att in cfg.constraints.attachments:
         # shell is always 3 DOFs/vertex; no Hermite guard needed here
         idx = resolve_vertex_selector(att.vertices, rest_vertices)
-        attachments.append(_energy.VertexAttachment(
+        energy = _energy.VertexAttachment(
             sim_mesh=sim_mesh,
             vertex_indices=idx,
             target_positions=np.zeros(3 * idx.size, dtype=np.float64),
             coeff=att.coeff,
             is_displacement=True,
-        ))
+        )
+        attachments.append(energy)
+        if att.movement is not None and any(v != 0.0 for v in att.movement):
+            moving_attachments.append(MovingAttachment(
+                energy=energy,
+                velocity=np.asarray(att.movement, dtype=np.float64),
+                num_vertices=int(idx.size),
+            ))
 
     return SceneBundle(
         sim_mesh=sim_mesh, formulation=fm, deformation=deformation,
         attachment_energies=attachments, contact_energies=contact_energies,
-        stateful_contacts=stateful,
+        stateful_contacts=stateful, moving_attachments=moving_attachments,
         mass=mass, gravity_force=np.asarray(gravity_force, dtype=np.float64),
         fixed_dofs=fixed_dofs, num_dofs=num_dofs, dofs_per_vertex=3,
         surface_rest=rest_vertices,
