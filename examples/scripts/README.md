@@ -29,3 +29,19 @@ conda run -n libpgo python -m jupyter nbconvert --to notebook --execute examples
 conda run -n libpgo python -m jupyter nbconvert --to notebook --execute examples/tricubic_hermite_demo.ipynb --output /tmp/pypgo_tricubic_hermite_demo_executed.ipynb --ExecutePreprocessor.timeout=400
 conda run -n libpgo python -m jupyter nbconvert --to notebook --execute examples/tricubic_hermite_box_drop_ipc_demo.ipynb --output /tmp/pypgo_tricubic_hermite_box_drop_ipc_demo_executed.ipynb --ExecutePreprocessor.timeout=400
 ```
+
+## Experiment scripts
+
+Besides notebook generators, this directory holds reproducible experiment
+scripts:
+
+- `dragon_formulation_comparison.py` — static formulation study (tet
+  reference vs cubic-linear vs tricubic Hermite on the voxel dragon, identical
+  surface-attachment constraints from `assets/fixed/dragon-surface-fixed.txt`).
+  Full run ~45 min; `--quick --cases cubic_linear` for a seconds-level
+  pipeline check (covered by `tests/pypgo/test_dragon_comparison_script.py`).
+
+```bash
+conda run -n libpgo python examples/scripts/dragon_formulation_comparison.py \
+    --output-root /tmp/dragon-comparison
+```
