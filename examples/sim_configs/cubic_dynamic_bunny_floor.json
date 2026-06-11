@@ -1,0 +1,17 @@
+{
+  "type": "cubic",
+  "mesh": {
+    "volume": "../assets/veg/cubic/bunny.veg",
+    "surface": "../assets/obj/bunny.obj"
+  },
+  "material": { "model": "stable_neo" },
+  "loads": { "gravity": [0.0, -9.81, 0.0] },
+  "initial_state": { "velocity": [0.0, -1.0, 0.0] },
+  "contact": [
+    { "model": "floor", "axis": "y", "side": "keep_above",
+      "height": 0.013, "stiffness": 5000.0 }
+  ],
+  "solver": { "max_iterations": 200, "gradient_tolerance": 0.0001 },
+  "dynamic": { "timestep": 0.001, "num_steps": 80 },
+  "output": { "directory": "../outputs/sim/cubic-dynamic-bunny-floor", "write_surfaces": true }
+}
