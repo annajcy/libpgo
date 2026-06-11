@@ -22,12 +22,15 @@ DYNAMIC_CASES = [
     (tet_dynamic, "tet_dynamic_dragon_ipc.json"),
     (cubic_dynamic, "cubic_dynamic_dragon_ipc.json"),
     (shell_dynamic, "shell_dynamic_ipc_drop.json"),
+    (cubic_dynamic, "cubic_dynamic_box_ipc_hermite.json"),
+    (cubic_dynamic, "cubic_dynamic_box_sphere_ipc_hermite.json"),
 ]
 
 STATIC_CASES = [
     (tet_static, "tet_static_dragon.json"),
     (tet_static, "tet_static_box_hang.json"),
     (cubic_static, "cubic_static_box_hang.json"),
+    (cubic_static, "cubic_static_box_hang_hermite.json"),
 ]
 
 

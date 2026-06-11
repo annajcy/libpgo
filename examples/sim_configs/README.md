@@ -47,18 +47,24 @@ Scene-to-feature map:
 | tet/cubic_dynamic_bunny_ipc | bunny IPC drop onto dish obstacle (legacy bunny-lite-ipc) |
 | tet/cubic_dynamic_dragon_ipc | dragon IPC drop, initial lift displacement (legacy dragon-dyn-lite) |
 | shell_dynamic_ipc_drop | shell IPC drop onto obstacle, explicit dhat/kappa (legacy shell-drop) |
+| cubic_dynamic_box_ipc_hermite | box IPC drop with the `cubic-tricubic-hermite` formulation (24 DOFs/vertex) |
+| cubic_dynamic_box_sphere_ipc_hermite | box-with-sphere IPC drop, tricubic Hermite |
+| cubic_static_box_hang_hermite | static box hang, tricubic Hermite (fixed regions clamp all 24 DOFs) |
 
 All IPC drop scenes run to contact with legacy step counts (2000 steps;
 dragon 4000) and export `animation.abc` (`write_abc`).
+
+The `*_hermite` scenes are identical to their cubic-linear siblings except for
+`mesh.formulation`; run the `hermite` batch job to execute all three. Soft
+attachments are not supported by the Hermite formulation (these scenes have none).
 
 Note: the legacy `ipc-heuristic` mode (automatic dhat/kappa selection) is not exposed
 in the Python binding. Use explicit `dhat` and `kappa` values as shown in these configs.
 
 The config schema additionally supports features without a dedicated example scene:
 `floor` / `sampled_penalty` / `frictional_sampled_penalty` contact models, moving
-attachment targets (`attachments[].movement`), region/index vertex selectors, and the
-`cubic-tricubic-hermite` formulation (no soft attachments) — all covered by unit tests
-under `tests/pypgo/`.
+attachment targets (`attachments[].movement`), and region/index vertex selectors —
+all covered by unit tests under `tests/pypgo/`.
 
 ## Batch runs
 
