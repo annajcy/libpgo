@@ -24,6 +24,8 @@ DYNAMIC_CASES = [
     (shell_dynamic, "shell_dynamic_ipc_drop.json"),
     (cubic_dynamic, "cubic_dynamic_box_ipc_hermite.json"),
     (cubic_dynamic, "cubic_dynamic_box_sphere_ipc_hermite.json"),
+    (cubic_dynamic, "cubic_dynamic_bunny_ipc_hermite.json"),
+    (cubic_dynamic, "cubic_dynamic_dragon_ipc_hermite.json"),
 ]
 
 STATIC_CASES = [

@@ -59,6 +59,14 @@
     "cubic_static_box_hang_hermite": {
       "command": "cubic-static",
       "config": "cubic_static_box_hang_hermite.json"
+    },
+    "cubic_dynamic_bunny_ipc_hermite": {
+      "command": "cubic-dynamic",
+      "config": "cubic_dynamic_bunny_ipc_hermite.json"
+    },
+    "cubic_dynamic_dragon_ipc_hermite": {
+      "command": "cubic-dynamic",
+      "config": "cubic_dynamic_dragon_ipc_hermite.json"
     }
   },
   "jobs": {
@@ -80,7 +88,9 @@
       "tet_dynamic_bunny_ipc",
       "cubic_dynamic_bunny_ipc",
       "cubic_dynamic_box_ipc_hermite",
-      "cubic_dynamic_box_sphere_ipc_hermite"
+      "cubic_dynamic_box_sphere_ipc_hermite",
+      "cubic_dynamic_bunny_ipc_hermite",
+      "cubic_dynamic_dragon_ipc_hermite"
     ],
     "drops": [
       "tet_dynamic_box_ipc",
@@ -93,12 +103,16 @@
       "tet_dynamic_bunny_ipc",
       "cubic_dynamic_bunny_ipc",
       "cubic_dynamic_box_ipc_hermite",
-      "cubic_dynamic_box_sphere_ipc_hermite"
+      "cubic_dynamic_box_sphere_ipc_hermite",
+      "cubic_dynamic_bunny_ipc_hermite",
+      "cubic_dynamic_dragon_ipc_hermite"
     ],
     "hermite": [
       "cubic_dynamic_box_ipc_hermite",
       "cubic_dynamic_box_sphere_ipc_hermite",
-      "cubic_static_box_hang_hermite"
+      "cubic_static_box_hang_hermite",
+      "cubic_dynamic_bunny_ipc_hermite",
+      "cubic_dynamic_dragon_ipc_hermite"
     ]
   }
 }
