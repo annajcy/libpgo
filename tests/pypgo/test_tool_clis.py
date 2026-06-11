@@ -9,7 +9,7 @@ from pypgo.tools.mesh.surface import cleanup as surface_cleanup_cli
 from pypgo.tools.mesh.volume import cubic_mesher as cubic_mesher_cli
 from pypgo.tools.mesh.volume import tetgen_mesher as tetgen_mesher_cli
 from pypgo.tools.mesh.volume import volume_info as volume_info_cli
-from pypgo.tools.sim import volume_ipc as volume_ipc_cli
+from pypgo.tools.sim import cubic_dynamic as cubic_dynamic_cli
 
 
 def test_mesh_cli_volume_info_prints_summary(tmp_path, capsys):
@@ -132,7 +132,7 @@ def test_mesh_cli_surface_cleanup_writes_report(tmp_path):
     assert report["cleanup_complete"]
 
 
-def test_sim_cli_volume_ipc_runs_zero_steps(tmp_path):
+def test_sim_cli_cubic_dynamic_runs_zero_steps(tmp_path):
     veg_path = tmp_path / "box.veg"
     obj_path = tmp_path / "box.obj"
     out_dir = tmp_path / "sim"
@@ -141,8 +141,8 @@ def test_sim_cli_volume_ipc_runs_zero_steps(tmp_path):
     cube = pgo.mesh.cubic_mesher(surface, resolution=1)
     write_veg(str(veg_path), VegFile.from_single_material(cube, ENuMaterial()))
 
-    ret = volume_ipc_cli.main([
-        "--veg",
+    ret = cubic_dynamic_cli.main([
+        "--volume",
         str(veg_path),
         "--surface",
         str(obj_path),
@@ -156,7 +156,7 @@ def test_sim_cli_volume_ipc_runs_zero_steps(tmp_path):
 
     assert ret == 0
     summary = json.loads((out_dir / "summary.json").read_text())
-    assert summary["num_steps"] == 0
+    assert summary["num_frames"] == 0
     assert summary["num_dofs"] == cube.num_vertices * 3
 
 
@@ -183,8 +183,11 @@ def test_setup_declares_console_scripts():
         "pypgo-surface-quality=pypgo.tools.mesh.surface.quality:main",
         "pypgo-surface-remesh=pypgo.tools.mesh.surface.remesh:main",
         "pypgo-surface-cleanup=pypgo.tools.mesh.surface.cleanup:main",
-        "pypgo-volume-ipc=pypgo.tools.sim.volume_ipc:main",
     }
+    assert all(
+        not script.startswith("pypgo-volume-ipc=")
+        for script in entry_points["console_scripts"]
+    )
     assert all(not script.startswith("pypgo-surface-remesher=") for script in entry_points["console_scripts"])
     assert all(not script.startswith("pypgo-surface-smooth=") for script in entry_points["console_scripts"])
     assert all(not script.startswith("pypgo-surface-repair=") for script in entry_points["console_scripts"])

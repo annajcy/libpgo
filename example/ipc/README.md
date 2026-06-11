@@ -46,39 +46,21 @@ Shell cases usually contain:
 
 ## Python Direction
 
-The first Python simulation builder supports volumetric IPC scenes:
+Runnable scenes are driven by the `pypgo-sim-*` CLI family (tet/cubic/shell x
+static/dynamic) with JSON scene configs; see `examples/sim_configs/` for
+runnable examples covering IPC, floor, and frictional penalty contact:
 
-```python
-import pypgo as pgo
-from pypgo.tools import sim as tsim
-
-volume = pgo.mesh.veg.VolumeMesh.from_veg_file(
-    pgo.mesh.veg.read_veg("examples/ipc/cubic/box-hang/box.veg")
-)
-surface = pgo.mesh.read_obj("examples/ipc/cubic/box-hang/box.obj")
-
-spec = tsim.VolumeIPCSimulationSpec(
-    volume=volume,
-    surface=surface,
-    formulation=pgo.fem.LinearCubic(),
-    runtime=tsim.RuntimeConfig(
-        timestep=0.001,
-        num_steps=10,
-        gravity=(0.0, -9.81, 0.0),
-    ),
-    contact=tsim.IPCContactSpec(
-        parameters=pgo.contact.IPCParameters(
-            dhat=0.002,
-            dhat_external=0.1,
-            kappa=3000.0,
-        ),
-    ),
-)
-
-runner = tsim.build_volume_ipc_simulation(spec)
-frames = runner.run()
-deformed_surface = runner.deformed_surface(frames[-1].displacement)
+```bash
+pypgo-sim-cubic-dynamic \
+  --volume example/ipc/cubic/box-hang/box.veg \
+  --surface example/ipc/cubic/box-hang/box.obj \
+  --output-dir /tmp/box-hang \
+  --timestep 0.001 --num-steps 100 \
+  --gravity 0 -9.81 0
 ```
 
-Future migration work should add Python JSON loaders and shell/static parity
-there, not reintroduce C++ CLI tools.
+JSON configs support contact models (`ipc` / `floor` / `sampled_penalty` /
+`frictional_sampled_penalty`), fixed-vertex selectors (`file` / `indices` /
+`region`), soft attachments, and shell scenes. CLI flags override JSON values
+(defaults < JSON < CLI). The historical C++ JSON files in this directory
+remain reference data only.

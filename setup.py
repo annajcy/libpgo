@@ -114,7 +114,6 @@ setup(
             "pypgo-surface-quality=pypgo.tools.mesh.surface.quality:main",
             "pypgo-surface-remesh=pypgo.tools.mesh.surface.remesh:main",
             "pypgo-surface-cleanup=pypgo.tools.mesh.surface.cleanup:main",
-            "pypgo-volume-ipc=pypgo.tools.sim.volume_ipc:main",
             "pypgo-sim-shell-static=pypgo.tools.sim.shell_static:main",
             "pypgo-sim-shell-dynamic=pypgo.tools.sim.shell_dynamic:main",
             "pypgo-sim-cubic-static=pypgo.tools.sim.cubic_static:main",
