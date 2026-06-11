@@ -44,6 +44,8 @@
   },
   "output": {
     "directory": "../outputs/sim/tet-dynamic-box-ipc",
-    "write_surfaces": true
+    "write_surfaces": true,
+    "write_abc": true,
+    "dump_interval": 10
   }
 }

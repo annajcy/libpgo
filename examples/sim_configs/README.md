@@ -33,6 +33,15 @@ Every config is exercised end-to-end by
 
 Every volume scene exists in both tet and cubic variants (tet/cubic pairing convention).
 
+Output flags (all in the `output` section; dynamic dumps share one `dump_interval`):
+
+| flag | output |
+|---|---|
+| `write_surfaces` | `surface/surface%04d.obj` per dumped frame (static: `final_surface.obj`) |
+| `write_states` | `states/deform%04d.u` Eigen-binary displacement (static: `deform_final.u`) |
+| `write_stress` | `stress/von_mises%04d.json` per-element von Mises (static: `von_mises_final.json`) |
+| `write_abc` | `animation.abc` Alembic of the dumped surface frames, fps = 1/(dump_interval × timestep); dynamic only |
+
 Scene-to-feature map:
 
 | config | features exercised |

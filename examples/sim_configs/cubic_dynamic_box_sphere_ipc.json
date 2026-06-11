@@ -39,6 +39,7 @@
   "output": {
     "directory": "../outputs/sim/cubic-dynamic-box-sphere-ipc",
     "write_surfaces": true,
-    "dump_interval": 10
+    "dump_interval": 10,
+    "write_abc": true
   }
 }

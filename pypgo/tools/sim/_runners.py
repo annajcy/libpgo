@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import numpy as np
 
 import pypgo.energy as _energy
 import pypgo.solver as _solver
-from pypgo.animation import write_u_file
+from pypgo.animation import AbcWriter, has_animation_io, write_u_file
 from pypgo.sim import DynamicSimulation, DynamicState
 from pypgo.tools.sim._outputs import write_summary, write_surface
 from pypgo.tools.sim._scene import SceneBundle
@@ -71,6 +72,9 @@ def run_static(bundle: SceneBundle, cfg) -> dict:
             "values": values.tolist(),
         }
         (stress_dir / "von_mises_final.json").write_text(json.dumps(doc))
+    if cfg.output.write_abc:
+        print("warning: 'write_abc' is ignored in static mode (no animation)",
+              file=sys.stderr)
     write_summary(cfg.output.directory, summary)
     return summary
 
@@ -95,8 +99,13 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
     # (dispatchBeginStep), including moving-obstacle time updates — no
     # Python-side driving needed.
 
+    if cfg.output.write_abc and not has_animation_io():
+        from pypgo.tools.sim._config import ConfigError
+        raise ConfigError("write_abc requires pypgo built with animation IO (Alembic)")
+
     optimizer = _make_optimizer(cfg)
     frames = []
+    abc_displacements = []  # dumped-frame surface displacements for the .abc
     for _ in range(cfg.dynamic.num_steps):
         t_next = sim.state.time + dt
         for ma in bundle.moving_attachments:
@@ -131,8 +140,23 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
                 }
                 (stress_dir / f"von_mises{frame.frame_index:04d}.json").write_text(
                     json.dumps(doc))
+            if cfg.output.write_abc:
+                disp = bundle.surface_positions(frame.displacement) - bundle.surface_rest
+                abc_displacements.append(np.ascontiguousarray(disp, dtype=np.float64).ravel())
         if not frame.accepted:
             break
+
+    if cfg.output.write_abc and abc_displacements:
+        # One abc sample per dumped frame -> fps follows the dump cadence.
+        AbcWriter.dump(
+            cfg.output.directory / "animation.abc",
+            cfg.output.directory.name or "simulation",
+            rest_positions=np.ascontiguousarray(
+                bundle.surface_rest, dtype=np.float64).ravel(),
+            triangles=bundle.surface_triangles,
+            displacements=abc_displacements,
+            fps=1.0 / (cfg.output.dump_interval * dt),
+        )
 
     summary = {
         "mode": "dynamic",

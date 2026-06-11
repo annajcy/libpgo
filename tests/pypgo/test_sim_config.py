@@ -472,3 +472,25 @@ def test_write_states_parsed_true(tmp_path):
     })
     cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
     assert cfg.output.write_states is True
+
+
+# ---------------------------------------------------------------------------
+# write_abc
+# ---------------------------------------------------------------------------
+
+
+def test_write_abc_default_false_and_parsed(tmp_path):
+    """OutputConfig.write_abc defaults to False and round-trips from JSON."""
+    base = {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    }
+    cfg = load_config(mesh_type="tet", mode="dynamic",
+                      json_path=_write(tmp_path, base, "a.json"))
+    assert cfg.output.write_abc is False
+
+    base["output"]["write_abc"] = True
+    cfg = load_config(mesh_type="tet", mode="dynamic",
+                      json_path=_write(tmp_path, base, "b.json"))
+    assert cfg.output.write_abc is True

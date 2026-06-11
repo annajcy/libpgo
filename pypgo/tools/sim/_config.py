@@ -191,6 +191,7 @@ class OutputConfig:
     write_surfaces: bool = False
     write_states: bool = False
     write_stress: bool = False
+    write_abc: bool = False
     dump_interval: int = 1
 
 
@@ -485,6 +486,7 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         write_surfaces=bool(out_payload.get("write_surfaces", False)),
         write_states=bool(out_payload.get("write_states", False)),
         write_stress=write_stress,
+        write_abc=bool(out_payload.get("write_abc", False)),
         dump_interval=dump_interval,
     )
     if output.directory is None:

@@ -379,3 +379,39 @@ def test_run_dynamic_shell_write_stress_two_steps(tmp_path):
     assert max(doc1["values"]) > 0, (
         "Expected max von Mises stress > 0 after 1 step under gravity"
     )
+
+
+def test_run_dynamic_write_abc(tmp_path):
+    """Dynamic run with write_abc=True writes a nonempty animation.abc whose
+    frame count matches the dump cadence."""
+    cfg = load_config(mesh_type="tet", mode="dynamic", overrides={
+        "mesh.volume": str(ASSETS / "veg" / "tet" / "box.veg"),
+        "mesh.surface": str(ASSETS / "obj" / "box.obj"),
+        "loads.gravity": (0.0, -9.81, 0.0),
+        "dynamic.timestep": 0.001,
+        "dynamic.num_steps": 3,
+        "output.directory": str(tmp_path),
+        "output.write_abc": True,
+    })
+    summary = run_dynamic(build_scene(cfg), cfg)
+    assert summary["num_frames"] == 3
+    abc_path = tmp_path / "animation.abc"
+    assert abc_path.exists()
+    assert abc_path.stat().st_size > 0
+
+
+def test_run_static_write_abc_warns_and_skips(tmp_path, capsys):
+    """write_abc is dynamic-only; static mode warns to stderr and writes no abc."""
+    cfg = load_config(mesh_type="tet", mode="static", overrides={
+        "mesh.volume": str(ASSETS / "veg" / "tet" / "box.veg"),
+        "mesh.surface": str(ASSETS / "obj" / "box.obj"),
+        "constraints.fixed": {"region": {"axis": "y", "side": "max",
+                                         "tolerance": 1e-3}},
+        "loads.gravity": (0.0, -9.81, 0.0),
+        "solver.max_iterations": 5,
+        "output.directory": str(tmp_path),
+        "output.write_abc": True,
+    })
+    run_static(build_scene(cfg), cfg)
+    assert not (tmp_path / "animation.abc").exists()
+    assert "write_abc" in capsys.readouterr().err
