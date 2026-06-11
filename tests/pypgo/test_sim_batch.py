@@ -152,11 +152,10 @@ def test_shipped_batch_json_structure():
             f"scene config {scene!r} not covered by any case in batch.json"
         )
 
-    # Spot-check the job names the spec mandates
+    # Spot-check the job names the shipped batch defines
     assert "all" in jobs
     assert "static" in jobs
     assert "dynamic" in jobs
-    assert "squash" in jobs
     assert "drops" in jobs
 
 

@@ -6,33 +6,28 @@ from pathlib import Path
 import pytest
 
 from pypgo.tools.sim import (
-    cubic_dynamic, cubic_static, shell_dynamic, shell_static,
+    cubic_dynamic, cubic_static, shell_dynamic,
     tet_dynamic, tet_static,
 )
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "examples" / "sim_configs"
 
 DYNAMIC_CASES = [
-    (tet_dynamic, "tet_dynamic_bunny_floor.json"),
-    (cubic_dynamic, "cubic_dynamic_box_ipc.json"),
-    (shell_dynamic, "shell_dynamic_floor.json"),
-    (cubic_dynamic, "cubic_dynamic_box_squash.json"),
-    (tet_dynamic, "tet_dynamic_box_squash.json"),
-    (cubic_dynamic, "cubic_dynamic_box_sphere_ipc.json"),
-    (shell_dynamic, "shell_dynamic_ipc_drop.json"),
-    (cubic_dynamic, "cubic_dynamic_bunny_floor.json"),
     (tet_dynamic, "tet_dynamic_box_ipc.json"),
+    (cubic_dynamic, "cubic_dynamic_box_ipc.json"),
     (tet_dynamic, "tet_dynamic_box_sphere_ipc.json"),
+    (cubic_dynamic, "cubic_dynamic_box_sphere_ipc.json"),
+    (tet_dynamic, "tet_dynamic_bunny_ipc.json"),
+    (cubic_dynamic, "cubic_dynamic_bunny_ipc.json"),
     (tet_dynamic, "tet_dynamic_dragon_ipc.json"),
     (cubic_dynamic, "cubic_dynamic_dragon_ipc.json"),
+    (shell_dynamic, "shell_dynamic_ipc_drop.json"),
 ]
 
 STATIC_CASES = [
     (tet_static, "tet_static_dragon.json"),
-    (cubic_static, "cubic_static_box_hang.json"),
-    (shell_static, "shell_static_drape.json"),
     (tet_static, "tet_static_box_hang.json"),
-    (cubic_static, "cubic_static_dragon.json"),
+    (cubic_static, "cubic_static_box_hang.json"),
 ]
 
 

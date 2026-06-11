@@ -12,22 +12,6 @@
       "command": "cubic-static",
       "config": "cubic_static_box_hang.json"
     },
-    "cubic_static_dragon": {
-      "command": "cubic-static",
-      "config": "cubic_static_dragon.json"
-    },
-    "shell_static_drape": {
-      "command": "shell-static",
-      "config": "shell_static_drape.json"
-    },
-    "tet_dynamic_bunny_floor": {
-      "command": "tet-dynamic",
-      "config": "tet_dynamic_bunny_floor.json"
-    },
-    "cubic_dynamic_bunny_floor": {
-      "command": "cubic-dynamic",
-      "config": "cubic_dynamic_bunny_floor.json"
-    },
     "tet_dynamic_box_ipc": {
       "command": "tet-dynamic",
       "config": "tet_dynamic_box_ipc.json"
@@ -35,18 +19,6 @@
     "cubic_dynamic_box_ipc": {
       "command": "cubic-dynamic",
       "config": "cubic_dynamic_box_ipc.json"
-    },
-    "shell_dynamic_floor": {
-      "command": "shell-dynamic",
-      "config": "shell_dynamic_floor.json"
-    },
-    "cubic_dynamic_box_squash": {
-      "command": "cubic-dynamic",
-      "config": "cubic_dynamic_box_squash.json"
-    },
-    "tet_dynamic_box_squash": {
-      "command": "tet-dynamic",
-      "config": "tet_dynamic_box_squash.json"
     },
     "tet_dynamic_box_sphere_ipc": {
       "command": "tet-dynamic",
@@ -67,6 +39,14 @@
     "shell_dynamic_ipc_drop": {
       "command": "shell-dynamic",
       "config": "shell_dynamic_ipc_drop.json"
+    },
+    "tet_dynamic_bunny_ipc": {
+      "command": "tet-dynamic",
+      "config": "tet_dynamic_bunny_ipc.json"
+    },
+    "cubic_dynamic_bunny_ipc": {
+      "command": "cubic-dynamic",
+      "config": "cubic_dynamic_bunny_ipc.json"
     }
   },
   "jobs": {
@@ -74,36 +54,29 @@
     "static": [
       "tet_static_dragon",
       "tet_static_box_hang",
-      "cubic_static_box_hang",
-      "cubic_static_dragon",
-      "shell_static_drape"
+      "cubic_static_box_hang"
     ],
     "dynamic": [
-      "tet_dynamic_bunny_floor",
-      "cubic_dynamic_bunny_floor",
       "tet_dynamic_box_ipc",
       "cubic_dynamic_box_ipc",
-      "shell_dynamic_floor",
-      "cubic_dynamic_box_squash",
-      "tet_dynamic_box_squash",
       "tet_dynamic_box_sphere_ipc",
       "cubic_dynamic_box_sphere_ipc",
       "tet_dynamic_dragon_ipc",
       "cubic_dynamic_dragon_ipc",
-      "shell_dynamic_ipc_drop"
+      "shell_dynamic_ipc_drop",
+      "tet_dynamic_bunny_ipc",
+      "cubic_dynamic_bunny_ipc"
     ],
-    "squash": ["cubic_dynamic_box_squash", "tet_dynamic_box_squash"],
     "drops": [
       "tet_dynamic_box_ipc",
       "cubic_dynamic_box_ipc",
       "tet_dynamic_box_sphere_ipc",
       "cubic_dynamic_box_sphere_ipc",
-      "tet_dynamic_bunny_floor",
-      "cubic_dynamic_bunny_floor",
       "tet_dynamic_dragon_ipc",
       "cubic_dynamic_dragon_ipc",
       "shell_dynamic_ipc_drop",
-      "shell_dynamic_floor"
+      "tet_dynamic_bunny_ipc",
+      "cubic_dynamic_bunny_ipc"
     ]
   }
 }

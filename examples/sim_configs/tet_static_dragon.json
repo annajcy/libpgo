@@ -1,19 +1,19 @@
 {
   "type": "tet",
   "mesh": {
-    "volume": "../assets/veg/tet/dragon.veg",
+    "volume": "../assets/veg/tet/dragon_big.veg",
     "surface": "../assets/obj/dragon.obj"
   },
   "material": { "model": "stable_neo" },
   "constraints": {
     "attachments": [
       {
-        "vertices": { "region": { "axis": "y", "side": "min", "tolerance": 0.05 } },
+        "vertices": { "file": "../assets/fixed/dragon-fixed.txt" },
         "coeff": 100000.0
       }
     ]
   },
   "loads": { "gravity": [0.0, -9.81, 0.0] },
   "solver": { "max_iterations": 200, "gradient_tolerance": 0.0001 },
-  "output": { "directory": "../outputs/sim/tet-static-dragon", "write_surfaces": true }
+  "output": { "directory": "../outputs/sim/tet-static-dragon-big", "write_surfaces": true }
 }

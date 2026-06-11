@@ -1,8 +1,8 @@
 {
   "type": "tet",
   "mesh": {
-    "volume": "../assets/veg/tet/dragon.veg",
-    "surface": "../assets/obj/dragon.obj"
+    "volume": "../assets/veg/tet/bunny.veg",
+    "surface": "../assets/obj/bunny.obj"
   },
   "material": {
     "model": "stable_neo",
@@ -12,13 +12,6 @@
     "gravity": [
       0.0,
       -9.81,
-      0.0
-    ]
-  },
-  "initial_state": {
-    "displacement": [
-      0.0,
-      0.5,
       0.0
     ]
   },
@@ -41,12 +34,12 @@
   },
   "dynamic": {
     "timestep": 0.001,
-    "num_steps": 4000
+    "num_steps": 2000
   },
   "output": {
-    "directory": "../outputs/sim/tet-dynamic-dragon-ipc",
+    "directory": "../outputs/sim/tet-dynamic-bunny-ipc",
     "write_surfaces": true,
-    "dump_interval": 10,
-    "write_abc": true
+    "write_abc": true,
+    "dump_interval": 10
   }
 }
