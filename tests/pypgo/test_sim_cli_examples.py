@@ -16,6 +16,10 @@ DYNAMIC_CASES = [
     (tet_dynamic, "tet_dynamic_bunny_floor.json"),
     (cubic_dynamic, "cubic_dynamic_box_ipc.json"),
     (shell_dynamic, "shell_dynamic_floor.json"),
+    (cubic_dynamic, "cubic_dynamic_box_squash.json"),
+    (tet_dynamic, "tet_dynamic_box_squash.json"),
+    (cubic_dynamic, "cubic_dynamic_box_sphere_ipc.json"),
+    (shell_dynamic, "shell_dynamic_ipc_drop.json"),
 ]
 
 STATIC_CASES = [

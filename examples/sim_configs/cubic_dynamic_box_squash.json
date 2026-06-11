@@ -1,0 +1,17 @@
+{
+  "type": "cubic",
+  "mesh": { "volume": "../assets/veg/cubic/box.veg", "surface": "../assets/obj/box.obj" },
+  "material": { "model": "stable_neo", "enable_material_max_step": false },
+  "constraints": {
+    "attachments": [
+      { "vertices": { "region": { "axis": "y", "side": "min", "tolerance": 0.001 } }, "coeff": 50000.0 },
+      { "vertices": { "region": { "axis": "y", "side": "max", "tolerance": 0.001 } }, "coeff": 50000.0,
+        "movement": [0.0, -1.0, 0.0] }
+    ]
+  },
+  "loads": { "gravity": [0.0, 0.0, 0.0] },
+  "contact": [ { "model": "ipc", "dhat": 0.002, "kappa": 3000.0 } ],
+  "solver": { "max_iterations": 200, "gradient_tolerance": 0.00001 },
+  "dynamic": { "timestep": 0.001, "num_steps": 200 },
+  "output": { "directory": "../outputs/sim/cubic-dynamic-box-squash", "write_surfaces": true, "dump_interval": 10 }
+}
