@@ -17,6 +17,10 @@ public:
   ElasticModel2DFundamentalFormsSTVK() {}
   virtual ~ElasticModel2DFundamentalFormsSTVK() {}
 
+  bool computeVonMisesStress(const double *param,
+    const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double &stress) const override;
+
   double compute_psi_a(const double *param, const double a[4], const double abar[4]) const override;
   double compute_psi_b(const double *param, const double b[4], const double abar[4], const double bbar[4]) const override;
 

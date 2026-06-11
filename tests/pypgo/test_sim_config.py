@@ -425,15 +425,15 @@ def test_write_stress_volume_accepted(tmp_path):
     assert cfg.output.write_stress is True
 
 
-def test_write_stress_shell_rejected(tmp_path):
-    """write_stress=True with mesh_type=='shell' must raise ConfigError."""
+def test_write_stress_shell_accepted(tmp_path):
+    """write_stress=True is now accepted for shell mesh types (Task 12)."""
     cfg_path = _write(tmp_path, {
         "mesh": {"surface": "shell.obj"},
         "material": {"mass": {"density": 1000.0}},
         "output": {"directory": "out", "write_stress": True},
     })
-    with pytest.raises(ConfigError, match="shell"):
-        load_config(mesh_type="shell", mode="static", json_path=cfg_path)
+    cfg = load_config(mesh_type="shell", mode="static", json_path=cfg_path)
+    assert cfg.output.write_stress is True
 
 
 def test_enable_material_max_step_false_shell(tmp_path):

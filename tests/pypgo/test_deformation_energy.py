@@ -482,3 +482,91 @@ class TestElementVonMises:
 
         stresses = energy.element_von_mises(u)
         assert len(stresses) == sim.num_elements
+
+
+# ---------------------------------------------------------------------------
+# Task 12: shell von Mises stress recovery tests
+# ---------------------------------------------------------------------------
+
+SHELL_OBJ = (
+    __import__("pathlib").Path(__file__).parent.parent.parent
+    / "examples" / "assets" / "obj" / "shell.obj"
+)
+
+
+def _make_shell_energy_full():
+    """Shell energy on shell.obj with KoiterStVK for von Mises testing."""
+    surface = pgo.mesh.read_obj(str(SHELL_OBJ))
+    material = pf.KoiterStVKShellMaterial(thickness=0.01, E_membrane=1e6, nu_membrane=0.3)
+    sim = pf.SimulationMesh.create_shell(surface, material)
+    energy = pf.deformation_energy(
+        sim,
+        elastic=pf.KoiterStVK(),
+        elastic_field=pf.ElementwiseField(),
+        plastic=pf.ShellPlasticity(dofs=0),
+        plastic_field=pf.ElementwiseField(),
+        formulation=pf.KoiterShell(),
+    )
+    return sim, energy, surface.vertices
+
+
+class TestShellVonMisesStress:
+    """Task 12: shell von Mises stress recovery (KoiterStVK).
+
+    These tests FAIL before the C++ implementation and pass after rebuild.
+    """
+
+    def test_rest_gives_near_zero_stress(self):
+        """Zero displacement -> all element stresses ~ 0."""
+        sim, energy, _verts = _make_shell_energy_full()
+        u = energy.zero_state()
+        stresses = energy.element_von_mises(u)
+
+        assert stresses.shape == (sim.num_elements,)
+        assert np.all(stresses < 1e-6), (
+            f"Expected near-zero stresses at rest, got max={stresses.max()}"
+        )
+
+    def test_inplane_stretch_gives_positive_stress(self):
+        """In-plane stretch u_x = 0.05 * x per vertex -> all stresses > 0.
+
+        shell.obj lies in the z=0 plane with x in [-0.5, 0.5].
+        Membrane strain ~ 0.05, so stresses should be O(E_m * 0.05) ~ 5e4.
+        We require each element stress to be between 1e3 and 1e6.
+        """
+        sim, energy, verts = _make_shell_energy_full()
+        u = np.zeros(energy.num_dofs, dtype=np.float64)
+        for vi in range(sim.num_vertices):
+            u[3 * vi + 0] = 0.05 * verts[vi, 0]  # u_x = 0.05 * x
+
+        stresses = energy.element_von_mises(u)
+
+        assert stresses.shape == (sim.num_elements,)
+        assert np.all(stresses > 0), (
+            f"Expected all stresses > 0 under in-plane stretch, got min={stresses.min()}"
+        )
+        assert np.all(stresses > 1e3), (
+            f"Expected stresses > 1e3 (O(E_m*strain)), got min={stresses.min()}"
+        )
+        assert np.all(stresses < 1e6), (
+            f"Expected stresses < 1e6, got max={stresses.max()}"
+        )
+
+    def test_pure_bending_gives_positive_stress(self):
+        """Pure bending u_z = 0.1 * x^2 -> max stress > 0.
+
+        shell.obj lies in z=0; moving vertices out-of-plane quadratically
+        creates curvature (bending), which the StVK shell bending energy
+        should convert to nonzero von Mises stress.
+        """
+        sim, energy, verts = _make_shell_energy_full()
+        u = np.zeros(energy.num_dofs, dtype=np.float64)
+        for vi in range(sim.num_vertices):
+            u[3 * vi + 2] = 0.1 * verts[vi, 0] ** 2  # u_z = 0.1 * x^2
+
+        stresses = energy.element_von_mises(u)
+
+        assert stresses.shape == (sim.num_elements,)
+        assert np.max(stresses) > 0, (
+            f"Expected max stress > 0 under bending, got max={stresses.max()}"
+        )

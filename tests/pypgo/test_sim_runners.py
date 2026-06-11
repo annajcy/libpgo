@@ -319,3 +319,63 @@ def test_run_dynamic_write_stress_two_steps(tmp_path):
     assert stats.num_frames == 2
     assert stats.stress_type == "von_mises"
     assert stats.location == "element"
+
+
+# ---------------------------------------------------------------------------
+# Task 12: shell dynamic write_stress
+# ---------------------------------------------------------------------------
+
+
+def test_run_dynamic_shell_write_stress_two_steps(tmp_path):
+    """Shell dynamic 2-step run with write_stress=True writes von_mises files.
+
+    Uses shell.obj with gravity + clamped top edge so deformation is nonzero.
+    Verifies: 2 files written, len(values) == num_elements (2048), all finite,
+    and max(values) > 0 on frame 1 (deformation has started under gravity).
+    """
+    import json as _json
+
+    cfg = load_config(mesh_type="shell", mode="dynamic", overrides={
+        "mesh.surface": str(ASSETS / "obj" / "shell.obj"),
+        "material": {
+            "thickness": 0.001,
+            "E_membrane": 1.0e6,
+            "nu_membrane": 0.4,
+            "mass": {"density": 1000.0},
+        },
+        "constraints.fixed": {"region": {"axis": "y", "side": "max", "tolerance": 1e-6}},
+        "loads.gravity": (0.0, 0.0, -9.81),
+        "dynamic.timestep": 0.001,
+        "dynamic.num_steps": 2,
+        "output.directory": str(tmp_path),
+        "output.write_stress": True,
+    })
+    bundle = build_scene(cfg)
+    summary = run_dynamic(bundle, cfg)
+    assert summary["num_frames"] == 2
+
+    stress_dir = tmp_path / "stress"
+    f0_path = stress_dir / "von_mises0000.json"
+    f1_path = stress_dir / "von_mises0001.json"
+    assert f0_path.exists(), "von_mises0000.json not written for shell"
+    assert f1_path.exists(), "von_mises0001.json not written for shell"
+
+    num_elements = bundle.sim_mesh.num_elements  # 2048 for shell.obj
+
+    for idx, path in enumerate([f0_path, f1_path]):
+        doc = _json.loads(path.read_text())
+        assert doc["frame"] == idx
+        assert doc["stress_type"] == "von_mises"
+        assert doc["location"] == "element"
+        values = doc["values"]
+        assert isinstance(values, list)
+        assert len(values) == num_elements, (
+            f"Expected {num_elements} values, got {len(values)}"
+        )
+        assert all(np.isfinite(v) for v in values), "Non-finite stress values"
+
+    # Frame 1: deformation under gravity with clamped top edge => some stress > 0
+    doc1 = _json.loads(f1_path.read_text())
+    assert max(doc1["values"]) > 0, (
+        "Expected max von Mises stress > 0 after 1 step under gravity"
+    )

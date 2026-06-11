@@ -492,6 +492,28 @@ void ShellDeformationModel::compute_d2E_dadb(const DeformationModelCacheData *ca
   }
 }
 
+void ShellDeformationModel::vonMisesStress(
+  const DeformationModelCacheData *cacheDataBase, int &nPt, double *stresses) const
+{
+  nPt = 0;
+  if (numElasticParams_ == 0)
+    return;
+
+  const CacheData *cd = cacheData(cacheDataBase);
+  double value = 0.0;
+  bool ok = elastic2D_->computeVonMisesStress(
+    cd->elasticParamsValue.data(),
+    cd->a.data(), cd->b.data(),
+    cd->abar.data(), cd->bbar.data(),
+    value);
+
+  if (!ok)
+    return;
+
+  nPt = 1;
+  stresses[0] = value;
+}
+
 void ShellDeformationModel::enableSPD(int enable)
 {
   enableSPD_ = enable;

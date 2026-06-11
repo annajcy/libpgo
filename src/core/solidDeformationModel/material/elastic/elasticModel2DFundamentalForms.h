@@ -19,6 +19,14 @@ public:
   ElasticModel2DFundamentalForms() {}
   virtual ~ElasticModel2DFundamentalForms() {}
 
+  virtual bool computeVonMisesStress(const double *param,
+    const double a[4], const double b[4],
+    const double abar[4], const double bbar[4], double &stress) const
+  {
+    (void)param; (void)a; (void)b; (void)abar; (void)bbar; (void)stress;
+    return false;
+  }
+
   virtual double compute_psi_a(const double *param, const double a[4], const double abar[4]) const = 0;
   virtual double compute_psi_b(const double *param, const double b[4], const double abar[4], const double bbar[4]) const = 0;
 

@@ -63,6 +63,9 @@ public:
   void compute_d2E_dadb(const DeformationModelCacheData *cacheDataBase,
     double *hess) const override;
 
+  void vonMisesStress(const DeformationModelCacheData *cacheData,
+    int &nPt, double *stresses) const override;
+
   void enableSPD(int enable) override;
   int getNumElasticParameters() const override { return numElasticParams_; }
   int getNumPlasticParameters() const override { return numPlasticParams_; }

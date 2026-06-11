@@ -2,6 +2,8 @@
 
 #include "EigenDef.h"
 
+#include <cmath>
+
 using namespace pgo;
 using namespace SolidDeformationModel;
 
@@ -94,6 +96,59 @@ static inline double stvkCoreSecondDirectionalDerivative(
 {
   return alpha * (dMi.trace() * dMj.trace() + M.trace() * d2Mij.trace()) +
     2.0 * beta * ((dMi * dMj).trace() + (M * d2Mij).trace());
+}
+
+bool ElasticModel2DFundamentalFormsSTVK::computeVonMisesStress(
+  const double *param,
+  const double a_[4], const double b_[4],
+  const double abar_[4], const double bbar_[4], double &stress) const
+{
+  const double E_m = param[0];
+  const double nu_m = param[1];
+  const double E_b = param[2];
+  const double nu_b = param[3];
+  const double h = param[4];
+
+  const double alpha_m = E_m * nu_m / ((1.0 + nu_m) * (1.0 - 2.0 * nu_m));
+  const double beta_m = E_m / (2.0 * (1.0 + nu_m));
+  const double alpha_b = E_b * nu_b / ((1.0 + nu_b) * (1.0 - 2.0 * nu_b));
+  const double beta_b = E_b / (2.0 * (1.0 + nu_b));
+
+  const ES::M2d a = ES::Mp<const ES::M2d>(a_);
+  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
+  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+
+  const ES::M2d abar_inv = abar.fullPivHouseholderQr().inverse();
+
+  // Membrane strain: E_mem = 0.5 * (abar^{-1} * a - I)
+  const ES::M2d E_mem = 0.5 * (abar_inv * a - ES::M2d::Identity());
+  // Bending curvature: kappa = abar^{-1} * (b - bbar)
+  const ES::M2d kappa = abar_inv * (b - bbar);
+
+  // Stress resultants (2x2 mixed tensors, do NOT symmetrize)
+  // sigma_mem = alpha_m * tr(E_mem) * I + 2 * beta_m * E_mem
+  const ES::M2d sigma_mem = alpha_m * E_mem.trace() * ES::M2d::Identity() + 2.0 * beta_m * E_mem;
+  // sigma_bnd = alpha_b * tr(kappa) * I + 2 * beta_b * kappa
+  const ES::M2d sigma_bnd = alpha_b * kappa.trace() * ES::M2d::Identity() + 2.0 * beta_b * kappa;
+
+  // Evaluate at z = +h/2 and z = -h/2; take the max von Mises value
+  double vm_max = 0.0;
+  for (int sign : { 1, -1 }) {
+    const double z = sign * 0.5 * h;
+    // sigma(z) = sigma_mem - z * sigma_bnd  (fiber stress at depth z)
+    const ES::M2d sigma = sigma_mem - z * sigma_bnd;
+    // Plane-stress von Mises: sqrt(max(tr^2 - 3*det, 0))
+    const double tr_s = sigma.trace();
+    const double det_s = sigma.determinant();
+    const double val = tr_s * tr_s - 3.0 * det_s;
+    const double vm = std::sqrt(std::max(val, 0.0));
+    if (vm > vm_max)
+      vm_max = vm;
+  }
+
+  stress = vm_max;
+  return true;
 }
 
 double ElasticModel2DFundamentalFormsSTVK::compute_psi_a(const double *param, const double a_[4], const double abar_[4]) const
