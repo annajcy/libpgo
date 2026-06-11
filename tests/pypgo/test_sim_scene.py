@@ -14,6 +14,16 @@ from pypgo.tools.sim._scene import build_scene, resolve_vertex_selector
 ASSETS = Path(__file__).resolve().parents[2] / "examples" / "assets"
 
 
+def test_missing_mesh_raises_config_error():
+    cfg = load_config(mesh_type="tet", mode="static", overrides={
+        "mesh.volume": "/nonexistent/missing.veg",
+        "mesh.surface": "/nonexistent/missing.obj",
+        "output.directory": "/tmp/unused",
+    })
+    with pytest.raises(ConfigError, match="cannot load"):
+        build_scene(cfg)
+
+
 def test_resolve_selector_indices():
     verts = np.zeros((5, 3))
     sel = VertexSelector(indices=(3, 1, 3))
@@ -117,8 +127,7 @@ def test_build_volume_scene_with_contact_and_attachment(tet_box_cfg_payload):
     assert len(bundle.attachment_energies) == 1
     # the IPC energy is stateful and tracks obstacles
     assert len(bundle.stateful_contacts) == 1
-    assert len(bundle.ipc_contacts) == 1
-    assert len(bundle.ipc_contacts[0].obstacles) == 1
+    assert len(bundle.stateful_contacts[0].obstacles) == 1
 
 
 def test_build_volume_scene_hermite(tet_box_cfg_payload):

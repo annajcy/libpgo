@@ -30,5 +30,5 @@ Scene-to-feature map:
 | shell_dynamic_floor | shell dynamics, shell mass matrix, frictional penalty + floor |
 
 Try `"formulation": "cubic-tricubic-hermite"` in the cubic dynamic scene
-for the tricubic Hermite variant (no constraints in that scene, which the
-Hermite formulation requires).
+for the tricubic Hermite variant
+(soft attachments are not supported by the Hermite formulation; this scene has none).

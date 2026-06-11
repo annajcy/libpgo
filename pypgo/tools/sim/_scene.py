@@ -18,6 +18,13 @@ from pypgo.mesh import read_obj
 from pypgo.mesh.volume import VolumeMesh, read_veg
 from pypgo.tools.sim._config import ConfigError, SimConfig, VertexSelector
 
+def _load_mesh(loader, path, kind):
+    try:
+        return loader(str(path))
+    except (OSError, RuntimeError) as exc:
+        raise ConfigError(f"cannot load {kind} {path}: {exc}") from exc
+
+
 _VOLUME_ELASTIC = {
     "stable_neo": _fem.StableNeo,
     "stvk": _fem.StVK,
@@ -68,7 +75,6 @@ class SceneBundle:
     attachment_energies: list
     contact_energies: list
     stateful_contacts: list  # need begin_step(time, timestep, previous_x)
-    ipc_contacts: list       # need set_moving_obstacle_time when obstacles exist
     mass: object
     gravity_force: np.ndarray
     fixed_dofs: np.ndarray | None
@@ -110,7 +116,7 @@ def _fixed_dofs_from_selector(selector, vertices, dofs_per_vertex) -> np.ndarray
 
 
 def _build_contact_energies(contact_cfgs, contact_surface, surface_triangles):
-    energies, stateful, ipcs = [], [], []
+    energies, stateful = [], []
     for cfg in contact_cfgs:
         if cfg.model == "floor":
             e = _contact.FloorEnergy(
@@ -121,7 +127,7 @@ def _build_contact_energies(contact_cfgs, contact_surface, surface_triangles):
         elif cfg.model == "ipc":
             obstacles = []
             for obs in cfg.obstacles:
-                mesh = read_obj(str(obs.mesh))
+                mesh = _load_mesh(read_obj, obs.mesh, "obstacle mesh")
                 if obs.velocity is None or not any(obs.velocity):
                     obstacles.append(
                         _contact.ObstacleSpec.static(mesh.vertices, mesh.elements))
@@ -135,7 +141,6 @@ def _build_contact_energies(contact_cfgs, contact_surface, surface_triangles):
                 obstacles=obstacles,
             )
             stateful.append(e)
-            ipcs.append(e)
         elif cfg.model == "sampled_penalty":
             e = _contact.SampledPenaltyEnergy(
                 contact_surface, surface_triangles,
@@ -158,7 +163,7 @@ def _build_contact_energies(contact_cfgs, contact_surface, surface_triangles):
             )
             stateful.append(e)
         energies.append(e)
-    return energies, stateful, ipcs
+    return energies, stateful
 
 
 def _volume_formulation(cfg: SimConfig, volume: VolumeMesh):
@@ -176,8 +181,8 @@ def _volume_formulation(cfg: SimConfig, volume: VolumeMesh):
 
 
 def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
-    volume = VolumeMesh.from_veg_file(read_veg(str(cfg.mesh.volume)))
-    surface = read_obj(str(cfg.mesh.surface))
+    volume = VolumeMesh.from_veg_file(_load_mesh(read_veg, cfg.mesh.volume, "volume mesh"))
+    surface = _load_mesh(read_obj, cfg.mesh.surface, "surface mesh")
     fm = _volume_formulation(cfg, volume)
 
     sim_mesh = _fem.SimulationMesh.create_volumetric(volume)
@@ -207,7 +212,7 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
 
     surface_map = fm.surface_embedding_matrix(volume, surface.vertices)
     contact_surface = _contact.ContactSurface.embedded(surface.vertices, surface_map)
-    contact_energies, stateful, ipcs = _build_contact_energies(
+    contact_energies, stateful = _build_contact_energies(
         cfg.contact, contact_surface, surface.elements)
 
     rest_vertices = np.asarray(volume.mesh_data.vertices, dtype=np.float64)
@@ -234,7 +239,7 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
     return SceneBundle(
         sim_mesh=sim_mesh, formulation=fm, deformation=deformation,
         attachment_energies=attachments, contact_energies=contact_energies,
-        stateful_contacts=stateful, ipc_contacts=ipcs,
+        stateful_contacts=stateful,
         mass=mass, gravity_force=np.asarray(gravity_force, dtype=np.float64),
         fixed_dofs=fixed_dofs, num_dofs=num_dofs, dofs_per_vertex=dofs_per_vertex,
         surface_rest=np.asarray(surface.vertices, dtype=np.float64),
@@ -244,7 +249,7 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
 
 
 def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
-    surface = read_obj(str(cfg.mesh.surface))
+    surface = _load_mesh(read_obj, cfg.mesh.surface, "shell mesh")
     material = _fem.KoiterStVKShellMaterial(
         thickness=cfg.material.thickness,
         E_membrane=cfg.material.E_membrane,
@@ -277,7 +282,7 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
     )
 
     contact_surface = _contact.ContactSurface.identity(rest_vertices)
-    contact_energies, stateful, ipcs = _build_contact_energies(
+    contact_energies, stateful = _build_contact_energies(
         cfg.contact, contact_surface, surface.elements)
 
     fixed_dofs = None
@@ -299,7 +304,7 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
     return SceneBundle(
         sim_mesh=sim_mesh, formulation=fm, deformation=deformation,
         attachment_energies=attachments, contact_energies=contact_energies,
-        stateful_contacts=stateful, ipc_contacts=ipcs,
+        stateful_contacts=stateful,
         mass=mass, gravity_force=np.asarray(gravity_force, dtype=np.float64),
         fixed_dofs=fixed_dofs, num_dofs=num_dofs, dofs_per_vertex=3,
         surface_rest=rest_vertices,
