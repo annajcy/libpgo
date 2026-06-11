@@ -25,12 +25,14 @@ CELLS = [
 
         This notebook builds a static equilibrium solve for the dragon tet
         volume mesh under gravity, using the display `dragon.obj` and the
-        provided `dragon-fixed.txt` fixed set.
+        provided `dragon-surface-fixed.txt` pinned set.
 
-        The fixed file is authored against the tet volume mesh. The static
-        solve keeps those volume vertices near their rest positions with a
-        soft `VertexAttachment` term, while gravity and elasticity are
-        evaluated on the same tet volume mesh.
+        The pinned set is authored on the DISPLAY SURFACE, not on any
+        particular volume mesh: the constraint is a soft
+        `EmbeddedVertexAttachment` acting on embedded surface points through
+        the formulation's surface embedding matrix. Defining constraints on
+        the shared surface keeps the scene portable across simulation meshes
+        and formulations (tet, cubic, tricubic Hermite).
         """
     ),
     code(
@@ -50,8 +52,9 @@ CELLS = [
         """
         ## 1. Locate the Dragon Assets
 
-        The volume mesh is tetrahedral. The surface mesh is only for display;
-        the provided fixed vertex set is indexed on `dragon_big.veg`.
+        The volume mesh is tetrahedral. The surface mesh doubles as the
+        display mesh and the carrier of the pinned vertex set
+        (`dragon-surface-fixed.txt` stores `dragon.obj` vertex IDs).
         """
     ),
     code(
@@ -62,7 +65,7 @@ CELLS = [
 
         DRAGON_TET = ASSET_DIR / "veg" / "tet" / "dragon_big.veg"
         DRAGON_SURFACE = ASSET_DIR / "obj" / "dragon.obj"
-        DRAGON_FIXED = ASSET_DIR / "fixed" / "dragon-fixed.txt"
+        DRAGON_FIXED = ASSET_DIR / "fixed" / "dragon-surface-fixed.txt"
 
         print("volume asset:", DRAGON_TET)
         print("surface asset:", DRAGON_SURFACE)
@@ -110,11 +113,11 @@ CELLS = [
     ),
     md(
         """
-        ## 3. Load the Fixed Volume Vertices
+        ## 3. Load the Pinned Surface Vertices
 
-        `dragon-fixed.txt` stores zero-based vertex IDs for `dragon_big.veg`.
-        These vertices are not hard constrained. They become a soft attachment
-        energy with coefficient `1e5`.
+        `dragon-surface-fixed.txt` stores zero-based vertex IDs for
+        `dragon.obj`. These points are not hard constrained. They become a
+        soft embedded attachment energy with coefficient `1e5`.
         """
     ),
     code(
@@ -125,17 +128,17 @@ CELLS = [
         fixed_vertices = np.unique(fixed_vertices)
         if fixed_vertices.min() < 0:
             raise ValueError("fixed vertex IDs must be non-negative")
-        if fixed_vertices.max() >= tet_data.num_vertices:
+        if fixed_vertices.max() >= rest_surface.num_vertices:
             raise ValueError(
-                "fixed vertex IDs do not fit dragon_big.veg: "
-                f"max={fixed_vertices.max()}, num_tet_vertices={tet_data.num_vertices}"
+                "fixed vertex IDs do not fit dragon.obj: "
+                f"max={fixed_vertices.max()}, num_surface_vertices={rest_surface.num_vertices}"
             )
 
-        fixed_positions = tet_data.vertices[fixed_vertices]
-        print("fixed volume vertices:", fixed_vertices.size)
-        print("fixed vertex ID range:", int(fixed_vertices.min()), int(fixed_vertices.max()))
-        print("first fixed vertices:", fixed_vertices[:30].tolist())
-        print("fixed volume bbox:", fixed_positions.min(axis=0), fixed_positions.max(axis=0))
+        fixed_positions = np.asarray(rest_surface.vertices)[fixed_vertices]
+        print("pinned surface vertices:", fixed_vertices.size)
+        print("pinned vertex ID range:", int(fixed_vertices.min()), int(fixed_vertices.max()))
+        print("first pinned vertices:", fixed_vertices[:30].tolist())
+        print("pinned patch bbox:", fixed_positions.min(axis=0), fixed_positions.max(axis=0))
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         fixed_points_obj = OUTPUT_DIR / "dragon_fixed_points.obj"
@@ -145,7 +148,7 @@ CELLS = [
         vis.plot_points_on_mesh(
             tet_data,
             fixed_positions,
-            title="fixed volume vertices on dragon_big.veg",
+            title="pinned surface vertices over dragon_big.veg",
             mesh_opacity=0.28,
             point_color="red",
             point_size=10,
@@ -160,8 +163,11 @@ CELLS = [
 
         The tet mesh uses `TetLinear()`. Gravity is converted to a generalized
         force with the same formulation, then represented as a linear potential
-        energy `-f^T u`. The fixed volume vertices are kept near zero
-        displacement with `VertexAttachment(coeff=1e5)`.
+        energy `-f^T u`. The pinned surface vertices are kept near their rest
+        positions with `EmbeddedVertexAttachment(coeff=1e5)`, which acts
+        through the formulation's surface embedding matrix — the same
+        constraint definition works unchanged on cubic or tricubic Hermite
+        simulation meshes.
         """
     ),
     code(
@@ -177,23 +183,24 @@ CELLS = [
             formulation=formulation,
         )
 
+        mass_field = pf.volume_density(volume)
         gravity_accel = np.array([0.0, -9.81, 0.0], dtype=np.float64)
-        gravity_force = formulation.body_force(volume, gravity_accel)
+        gravity_force = formulation.body_force(sim_mesh, gravity_accel, mass_field)
         gravity_energy = pe.LinearEnergy(-gravity_force)
 
+        surface_map = formulation.surface_embedding_matrix(volume, rest_surface.vertices)
+
         attachment_coeff = 1e5
-        volume_attachment = pe.VertexAttachment(
-            sim_mesh=sim_mesh,
+        surface_attachment = pe.EmbeddedVertexAttachment(
+            embedding=surface_map,
             vertex_indices=fixed_vertices,
-            target_positions=np.zeros(3 * fixed_vertices.size, dtype=np.float64),
             coeff=attachment_coeff,
-            is_displacement=True,
         )
 
         total_energy = pe.EnergySet([
             (deformation, 1.0),
             (gravity_energy, 1.0),
-            (volume_attachment, 1.0),
+            (surface_attachment, 1.0),
         ])
 
         print("mesh_type:", sim_mesh.mesh_type)
@@ -203,16 +210,16 @@ CELLS = [
         print("state_kind:", deformation.state_kind)
         print("gravity force norm:", float(np.linalg.norm(gravity_force)))
         print("linear energy DOFs:", gravity_energy.num_dofs)
-        print("volume attachment coeff:", attachment_coeff)
-        print("volume attachment DOFs:", volume_attachment.num_dofs)
+        print("surface attachment coeff:", attachment_coeff)
+        print("surface attachment:", surface_attachment)
         """
     ),
     md(
         """
         ## 5. Initialize the Static State
 
-        There are no hard fixed DOFs in this scene. The fixed volume vertices
-        are soft constraints in the objective with coefficient `1e5`.
+        There are no hard fixed DOFs in this scene. The pinned surface
+        vertices are soft constraints in the objective with coefficient `1e5`.
         """
     ),
     code(
@@ -220,7 +227,7 @@ CELLS = [
         x0 = np.zeros(deformation.num_dofs, dtype=np.float64)
 
         print("initial DOFs:", x0.size)
-        print("volume attachment energy at x0:", volume_attachment.value(x0))
+        print("surface attachment energy at x0:", surface_attachment.value(x0))
         """
     ),
     md(
@@ -228,7 +235,7 @@ CELLS = [
         ## 6. Solve the Static Equilibrium
 
         The static problem minimizes elastic energy, gravity potential, and
-        the volume soft attachment energy. `dragon_big.veg` is a large mesh,
+        the surface soft attachment energy. `dragon_big.veg` is a large mesh,
         so this solve can take substantially longer than the smaller example
         notebooks.
         """
@@ -251,9 +258,9 @@ CELLS = [
         print("final objective:", result.final_objective)
         print("final gradient max norm:", result.final_gradient_max_norm)
         print("max |u|:", float(np.max(np.abs(result.x))))
-        fixed_displacement = result.x.reshape((-1, 3))[fixed_vertices]
-        print("volume attachment energy after solve:", volume_attachment.value(result.x))
-        print("max fixed volume |u|:", float(np.max(np.abs(fixed_displacement))))
+        pinned_displacement = np.asarray(surface_map @ result.x).reshape((-1, 3))[fixed_vertices]
+        print("surface attachment energy after solve:", surface_attachment.value(result.x))
+        print("max pinned surface |u|:", float(np.max(np.abs(pinned_displacement))))
         """
     ),
     md(

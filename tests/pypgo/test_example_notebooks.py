@@ -61,19 +61,20 @@ def test_implicit_api_demo_uses_vis_helpers_and_parallel_controls():
     assert "pgo.parallel.set_num_threads" in source
 
 
-def test_static_solve_dragon_gravity_demo_uses_soft_volume_attachment():
+def test_static_solve_dragon_gravity_demo_uses_soft_surface_attachment():
     module = load_static_solve_dragon_generator()
     source = "\n".join(cell.source for cell in module.CELLS)
 
     assert '"dragon.obj"' in source
     assert '"dragon_big.veg"' in source
-    assert '"dragon-fixed.txt"' in source
+    assert '"dragon-surface-fixed.txt"' in source
     assert "fixed_vertices = np.loadtxt" in source
     assert "formulation = pf.TetLinear()" in source
     assert "pf.VolumetricPlasticity(dofs=0)" in source
     assert "gravity_energy = pe.LinearEnergy(-gravity_force)" in source
     assert "attachment_coeff = 1e5" in source
-    assert "volume_attachment = pe.VertexAttachment" in source
+    assert "surface_attachment = pe.EmbeddedVertexAttachment" in source
+    assert "formulation.surface_embedding_matrix" in source
     assert "vertex_indices=fixed_vertices" in source
     assert "vis.write_points_obj" in source
     assert "vis.plot_points_on_mesh(" in source

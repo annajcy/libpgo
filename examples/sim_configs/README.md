@@ -39,7 +39,7 @@ Scene-to-feature map:
 
 | config | features exercised |
 |---|---|
-| tet_static_dragon | static solve on `dragon_big.veg`, gravity, soft attachment via `dragon-fixed.txt` (file selector) |
+| tet_static_dragon | static solve on `dragon_big.veg`, gravity, surface_attachments via `dragon-surface-fixed.txt` (file selector, formulation-portable) |
 | tet_static_box_hang | static solve, hard fixed DOFs (region selector), tet mesh |
 | cubic_static_box_hang | same as tet_static_box_hang but cubic mesh |
 | tet/cubic_dynamic_box_ipc | IPC drop onto dish obstacle, initial velocity (legacy box drop) |
