@@ -494,3 +494,31 @@ def test_write_abc_default_false_and_parsed(tmp_path):
     cfg = load_config(mesh_type="tet", mode="dynamic",
                       json_path=_write(tmp_path, base, "b.json"))
     assert cfg.output.write_abc is True
+
+
+def test_surface_attachments_parsed(tmp_path):
+    """constraints.surface_attachments parse with selector + coeff."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "constraints": {
+            "surface_attachments": [
+                {"vertices": {"indices": [0, 5]}, "coeff": 2e4},
+            ],
+        },
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="cubic", mode="static", json_path=cfg_path)
+    assert len(cfg.constraints.surface_attachments) == 1
+    sa = cfg.constraints.surface_attachments[0]
+    assert sa.coeff == 2e4
+    assert sa.vertices.indices == (0, 5)
+
+
+def test_surface_attachment_missing_vertices_rejected(tmp_path):
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "constraints": {"surface_attachments": [{"coeff": 1.0}]},
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="vertices"):
+        load_config(mesh_type="cubic", mode="static", json_path=cfg_path)

@@ -126,9 +126,22 @@ class AttachmentConfig:
 
 
 @dataclass(frozen=True)
+class SurfaceAttachmentConfig:
+    """Soft pin on EMBEDDED SURFACE vertices: coeff * ||(W u)_i||^2.
+
+    Defined on the shared surface mesh, so the constraint is identical across
+    formulations (incl. tricubic Hermite) — no cross-simulation-mesh mapping.
+    """
+
+    vertices: VertexSelector
+    coeff: float = 1e5
+
+
+@dataclass(frozen=True)
 class ConstraintsConfig:
     fixed: VertexSelector | None = None
     attachments: tuple[AttachmentConfig, ...] = ()
+    surface_attachments: tuple[SurfaceAttachmentConfig, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -317,6 +330,16 @@ def _build_attachment(att: dict) -> AttachmentConfig:
     )
 
 
+def _build_surface_attachment(att: dict) -> SurfaceAttachmentConfig:
+    if "vertices" not in att:
+        raise ConfigError("constraints.surface_attachments entries need 'vertices'")
+    return SurfaceAttachmentConfig(
+        vertices=_selector_from_payload(
+            att["vertices"], "constraints.surface_attachments.vertices"),
+        coeff=float(att.get("coeff", 1e5)),
+    )
+
+
 def load_config(*, mesh_type: str, mode: str, json_path=None,
                 overrides: dict | None = None) -> SimConfig:
     if mesh_type not in MESH_TYPES:
@@ -410,6 +433,10 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         attachments=tuple(
             _build_attachment(att)
             for att in cons_payload.get("attachments", [])
+        ),
+        surface_attachments=tuple(
+            _build_surface_attachment(att)
+            for att in cons_payload.get("surface_attachments", [])
         ),
     )
 

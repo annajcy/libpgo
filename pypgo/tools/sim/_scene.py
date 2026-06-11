@@ -125,6 +125,52 @@ def _fixed_dofs_from_selector(selector, vertices, dofs_per_vertex) -> np.ndarray
     return (idx[:, None] * dofs_per_vertex + np.arange(dofs_per_vertex, dtype=np.int64)).ravel()
 
 
+def _surface_attachment_energy(att, surface_rest, surface_map, num_dofs):
+    """QuadraticEnergy coeff*||(W u)_S||^2 holding embedded surface vertices at rest.
+
+    Defined through the surface embedding, so it works for any formulation
+    (incl. tricubic Hermite) and pins the same physical points on every
+    simulation mesh. Matches VertexAttachment's coeff convention
+    (E = coeff * ||.||^2  ->  A = 2*coeff * Ws^T Ws).
+    """
+    idx = resolve_vertex_selector(att.vertices, surface_rest)
+    c2 = 2.0 * att.coeff
+    if surface_map is None:  # shell: embedding is identity
+        dof = (idx[:, None] * 3 + np.arange(3, dtype=np.int64)).ravel()
+        return _energy.QuadraticEnergy(
+            (num_dofs, num_dofs, dof.tolist(), dof.tolist(), [c2] * dof.size))
+
+    rows, cols, vals = surface_map.to_coo()
+    wanted = np.isin(rows // 3, idx)
+    rows_s = rows[wanted]
+    cols_s = cols[wanted].astype(np.int64)
+    vals_s = vals[wanted]
+    order = np.argsort(rows_s, kind="stable")
+    rows_s, cols_s, vals_s = rows_s[order], cols_s[order], vals_s[order]
+
+    out_i, out_j, out_v = [], [], []
+    row_starts = np.flatnonzero(np.r_[True, rows_s[1:] != rows_s[:-1]])
+    bounds = np.r_[row_starts, rows_s.size]
+    for s, e in zip(bounds[:-1], bounds[1:]):
+        ci, cv = cols_s[s:e], vals_s[s:e]
+        gi, gj = np.meshgrid(ci, ci, indexing="ij")
+        out_i.append(gi.ravel())
+        out_j.append(gj.ravel())
+        out_v.append((c2 * np.outer(cv, cv)).ravel())
+    oi = np.concatenate(out_i)
+    oj = np.concatenate(out_j)
+    ov = np.concatenate(out_v)
+    # merge duplicate (i, j) entries
+    key = oi * np.int64(num_dofs) + oj
+    uniq, inv = np.unique(key, return_inverse=True)
+    merged = np.zeros(uniq.size, dtype=np.float64)
+    np.add.at(merged, inv, ov)
+    ui = (uniq // num_dofs).astype(np.int64)
+    uj = (uniq % num_dofs).astype(np.int64)
+    return _energy.QuadraticEnergy(
+        (num_dofs, num_dofs, ui.tolist(), uj.tolist(), merged.tolist()))
+
+
 def _build_contact_energies(contact_cfgs, contact_surface, surface_triangles):
     energies, stateful = [], []
     for cfg in contact_cfgs:
@@ -256,13 +302,18 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
                 num_vertices=int(idx.size),
             ))
 
+    surface_rest_arr = np.asarray(surface.vertices, dtype=np.float64)
+    for satt in cfg.constraints.surface_attachments:
+        attachments.append(_surface_attachment_energy(
+            satt, surface_rest_arr, surface_map, num_dofs))
+
     return SceneBundle(
         sim_mesh=sim_mesh, formulation=fm, deformation=deformation,
         attachment_energies=attachments, contact_energies=contact_energies,
         stateful_contacts=stateful, moving_attachments=moving_attachments,
         mass=mass, gravity_force=np.asarray(gravity_force, dtype=np.float64),
         fixed_dofs=fixed_dofs, num_dofs=num_dofs, dofs_per_vertex=dofs_per_vertex,
-        surface_rest=np.asarray(surface.vertices, dtype=np.float64),
+        surface_rest=surface_rest_arr,
         surface_triangles=np.asarray(surface.elements),
         surface_map=surface_map,
     )
@@ -330,6 +381,10 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
                 velocity=np.asarray(att.movement, dtype=np.float64),
                 num_vertices=int(idx.size),
             ))
+
+    for satt in cfg.constraints.surface_attachments:
+        attachments.append(_surface_attachment_energy(
+            satt, rest_vertices, None, num_dofs))
 
     return SceneBundle(
         sim_mesh=sim_mesh, formulation=fm, deformation=deformation,

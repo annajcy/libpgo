@@ -303,3 +303,42 @@ def test_shell_scene_moving_attachment_detected():
     assert len(bundle.attachment_energies) == 1
     assert len(bundle.moving_attachments) == 1
     np.testing.assert_array_equal(bundle.moving_attachments[0].velocity, [0.0, 0.0, -0.5])
+
+
+def test_surface_attachment_volume_and_hermite():
+    """surface_attachments build a QuadraticEnergy through the embedding and
+    work for ALL formulations including tricubic Hermite (no DOF clamping)."""
+    for formulation in ("auto", "cubic-tricubic-hermite"):
+        cfg = load_config(mesh_type="cubic", mode="static", overrides={
+            "mesh.volume": str(ASSETS / "veg" / "cubic" / "box.veg"),
+            "mesh.surface": str(ASSETS / "obj" / "box.obj"),
+            "mesh.formulation": formulation,
+            "constraints.surface_attachments": [
+                {"vertices": {"region": {"axis": "y", "side": "max",
+                                         "tolerance": 1e-3}}, "coeff": 1e4},
+            ],
+            "output.directory": "/tmp/unused",
+        })
+        bundle = build_scene(cfg)
+        assert len(bundle.attachment_energies) == 1
+        e = bundle.attachment_energies[0]
+        assert e.num_dofs == bundle.num_dofs
+        # holding at rest: zero displacement has zero energy, nonzero has positive
+        n = bundle.num_dofs
+        assert e.value(np.zeros(n)) == pytest.approx(0.0, abs=1e-12)
+        u = bundle.initial_vector((0.0, -0.1, 0.0))
+        assert e.value(u) > 0.0
+
+
+def test_surface_attachment_shell_identity():
+    """For shells the embedding is identity; surface attachment still works."""
+    cfg = load_config(mesh_type="shell", mode="static", overrides={
+        **_shell_overrides(),
+        "constraints.surface_attachments": [
+            {"vertices": {"region": {"axis": "y", "side": "max",
+                                     "tolerance": 1e-6}}, "coeff": 1e4},
+        ],
+    })
+    bundle = build_scene(cfg)
+    assert len(bundle.attachment_energies) == 1
+    assert bundle.attachment_energies[0].num_dofs == bundle.num_dofs
