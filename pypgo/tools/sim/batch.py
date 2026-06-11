@@ -201,7 +201,7 @@ def main(argv=None) -> int:
         return 0
 
     # Validate and resolve cases
-    batch_dir = args.config.parent
+    batch_dir = args.config.resolve().parent
     try:
         cases = _validate_batch(payload, batch_dir, args.job)
     except ConfigError as exc:
