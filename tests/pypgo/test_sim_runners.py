@@ -266,3 +266,56 @@ def test_run_static_write_states(tmp_path):
         f"Expected ({bundle.num_dofs}, 1), got {u.shape}"
     )
     assert np.all(np.isfinite(u)), "deform_final.u contains non-finite values"
+
+
+# ---------------------------------------------------------------------------
+# Task 11: write_stress — von Mises stress output tests
+# ---------------------------------------------------------------------------
+
+
+def test_run_dynamic_write_stress_two_steps(tmp_path):
+    """Dynamic 2-step tet run with write_stress=True writes von_mises0000.json and 0001.json.
+
+    Each file must have the correct legacy format fields and len(values) == num_elements.
+    Also verifies compute_stress_field_stats can consume the output stress directory.
+    """
+    import json as _json
+    from pypgo.animation.stress_stats import compute_stress_field_stats
+
+    cfg = load_config(mesh_type="tet", mode="dynamic", overrides={
+        "mesh.volume": str(ASSETS / "veg" / "tet" / "box.veg"),
+        "mesh.surface": str(ASSETS / "obj" / "box.obj"),
+        "loads.gravity": (0.0, -9.81, 0.0),
+        "dynamic.timestep": 0.001,
+        "dynamic.num_steps": 2,
+        "output.directory": str(tmp_path),
+        "output.write_stress": True,
+    })
+    bundle = build_scene(cfg)
+    summary = run_dynamic(bundle, cfg)
+    assert summary["num_frames"] == 2
+
+    stress_dir = tmp_path / "stress"
+    f0_path = stress_dir / "von_mises0000.json"
+    f1_path = stress_dir / "von_mises0001.json"
+    assert f0_path.exists(), "von_mises0000.json not written"
+    assert f1_path.exists(), "von_mises0001.json not written"
+
+    num_elements = bundle.sim_mesh.num_elements
+
+    for idx, path in enumerate([f0_path, f1_path]):
+        doc = _json.loads(path.read_text())
+        assert doc["frame"] == idx, f"Expected frame={idx}, got {doc['frame']}"
+        assert "time" in doc and isinstance(doc["time"], float)
+        assert doc["stress_type"] == "von_mises"
+        assert doc["location"] == "element"
+        assert isinstance(doc["values"], list)
+        assert len(doc["values"]) == num_elements, (
+            f"Expected {num_elements} values, got {len(doc['values'])}"
+        )
+
+    # verify compute_stress_field_stats can consume the directory
+    stats = compute_stress_field_stats(stress_dir, prefix="von_mises", frame_start=0)
+    assert stats.num_frames == 2
+    assert stats.stress_type == "von_mises"
+    assert stats.location == "element"

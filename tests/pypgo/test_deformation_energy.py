@@ -424,3 +424,61 @@ def test_deformation_energy_handle_is_concrete_peer():
 
     assert isinstance(e._handle, _core.PyDeformationEnergy)
     assert isinstance(e._handle, _core.PyPotentialEnergy)
+
+
+# ---------------------------------------------------------------------------
+# Task 11: element_von_mises binding tests
+# ---------------------------------------------------------------------------
+
+
+class TestElementVonMises:
+    """Tests for DeformationEnergy.element_von_mises (new C++ binding)."""
+
+    def test_zero_displacement_gives_near_zero_stress(self):
+        """Zero displacement -> all von Mises stresses should be ~0."""
+        sim = _make_tet_sim_mesh()
+        energy = _make_energy(sim)
+        num_elements = sim.num_elements
+        u_zero = np.zeros(energy.num_dofs, dtype=np.float64)
+
+        stresses = energy.element_von_mises(u_zero)
+
+        assert stresses.shape == (num_elements,), (
+            f"Expected ({num_elements},), got {stresses.shape}"
+        )
+        assert np.all(stresses < 1e-6), (
+            f"Expected near-zero stresses, got max={stresses.max()}"
+        )
+
+    def test_nonzero_displacement_gives_positive_stress(self):
+        """Non-symmetric stretch displacement -> all stresses > 0.
+
+        A pure isotropic stretch has zero deviatoric (von Mises) stress,
+        so we use a uniaxial stretch (vertex 1 displaced along x) which
+        produces a nonzero deviatoric state.
+        """
+        sim = _make_tet_sim_mesh()
+        energy = _make_energy(sim)
+        num_elements = sim.num_elements
+
+        # Displace vertex 1 by 0.1 along x (uniaxial stretch — nonzero von Mises)
+        u = np.zeros(energy.num_dofs, dtype=np.float64)
+        u[3] = 0.1  # vertex 1, x-DOF
+
+        stresses = energy.element_von_mises(u)
+
+        assert stresses.shape == (num_elements,), (
+            f"Expected ({num_elements},), got {stresses.shape}"
+        )
+        assert np.all(stresses > 0), (
+            f"Expected all stresses > 0 under uniaxial stretch, got min={stresses.min()}"
+        )
+
+    def test_output_length_equals_num_elements(self):
+        """Output length matches sim_mesh.num_elements."""
+        sim = _make_tet_sim_mesh()
+        energy = _make_energy(sim)
+        u = np.zeros(energy.num_dofs, dtype=np.float64)
+
+        stresses = energy.element_von_mises(u)
+        assert len(stresses) == sim.num_elements

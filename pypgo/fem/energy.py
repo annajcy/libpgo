@@ -164,6 +164,22 @@ class DeformationEnergy(PotentialEnergy):
         u = float_vector("displacement", displacement)
         return np.asarray(self._handle.elastic_gradient(u), dtype=np.float64)
 
+    def element_von_mises(self, displacement: np.ndarray) -> np.ndarray:
+        """Compute per-element von Mises stress.
+
+        Parameters
+        ----------
+        displacement : ndarray, shape (num_dofs,)
+            Current displacement vector relative to the rest position.
+
+        Returns
+        -------
+        ndarray, shape (num_elements,)
+            Per-element von Mises stress values.
+        """
+        u = float_vector("displacement", displacement)
+        return np.asarray(self._handle.element_von_mises_stresses(u), dtype=np.float64)
+
     def elastic_hessian(self, displacement: np.ndarray):
         u = float_vector("displacement", displacement)
         return SparseMatrix(self._handle.elastic_hessian(u))

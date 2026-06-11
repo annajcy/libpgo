@@ -398,6 +398,44 @@ def test_enable_material_max_step_defaults_true_shell(tmp_path):
     assert cfg.material.enable_material_max_step is True
 
 
+# ---------------------------------------------------------------------------
+# Task 11: write_stress config tests
+# ---------------------------------------------------------------------------
+
+
+def test_write_stress_defaults_false(tmp_path):
+    """OutputConfig.write_stress defaults to False."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.output.write_stress is False
+
+
+def test_write_stress_volume_accepted(tmp_path):
+    """write_stress=True is accepted for volume (tet/cubic) mesh types."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out", "write_stress": True},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.output.write_stress is True
+
+
+def test_write_stress_shell_rejected(tmp_path):
+    """write_stress=True with mesh_type=='shell' must raise ConfigError."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"surface": "shell.obj"},
+        "material": {"mass": {"density": 1000.0}},
+        "output": {"directory": "out", "write_stress": True},
+    })
+    with pytest.raises(ConfigError, match="shell"):
+        load_config(mesh_type="shell", mode="static", json_path=cfg_path)
+
+
 def test_enable_material_max_step_false_shell(tmp_path):
     """enable_material_max_step=false round-trips for ShellMaterialConfig."""
     cfg_path = _write(tmp_path, {

@@ -190,6 +190,7 @@ class OutputConfig:
     directory: Path | None = None
     write_surfaces: bool = False
     write_states: bool = False
+    write_stress: bool = False
     dump_interval: int = 1
 
 
@@ -477,11 +478,16 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
     if dump_interval < 1:
         raise ConfigError(
             f"output.dump_interval must be >= 1, got {dump_interval}")
+    write_stress = bool(out_payload.get("write_stress", False))
+    if write_stress and mesh_type == "shell":
+        raise ConfigError(
+            "stress output is not available for shell formulations")
     output = OutputConfig(
         directory=Path(out_payload["directory"])
         if out_payload.get("directory") else None,
         write_surfaces=bool(out_payload.get("write_surfaces", False)),
         write_states=bool(out_payload.get("write_states", False)),
+        write_stress=write_stress,
         dump_interval=dump_interval,
     )
     if output.directory is None:

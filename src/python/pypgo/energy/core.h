@@ -154,6 +154,7 @@ public:
   void setElasticValues(nb::ndarray<nb::numpy, const double> values) { elasticField()->setValues(values); }
   void setPlasticValues(nb::ndarray<nb::numpy, const double> values) { plasticField()->setValues(values); }
   nb::ndarray<nb::numpy, double> elasticGradient(nb::ndarray<nb::numpy, const double> displacement) const;
+  nb::ndarray<nb::numpy, double> elementVonMisesStresses(nb::ndarray<nb::numpy, const double> displacement) const;
   PySparseMatrix elasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;
   PySparseMatrix plasticElasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;
   nb::ndarray<nb::numpy, double> plasticGradient(nb::ndarray<nb::numpy, const double> displacement) const;

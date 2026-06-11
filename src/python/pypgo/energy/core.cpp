@@ -157,6 +157,24 @@ nb::ndarray<nb::numpy, double> PyDeformationEnergy::elasticGradient(
   return python::vectorXdToNdarray(std::move(grad));
 }
 
+nb::ndarray<nb::numpy, double> PyDeformationEnergy::elementVonMisesStresses(
+  nb::ndarray<nb::numpy, const double> displacement) const
+{
+  auto u = python::ndarrayToVectorMapXd(displacement);
+  if (u.size() != energy_->getRestPosition().size()) {
+    throw nb::value_error("displacement size must match deformation energy num_dofs.");
+  }
+
+  const int nele = energy_->assembler().getDeformationModelManager().getMesh()->getNumElements();
+  EigenSupport::VXd out = EigenSupport::VXd::Zero(nele);
+  {
+    nb::gil_scoped_release release;
+    const EigenSupport::VXd p = energy_->getRestPosition() + u;
+    energy_->assembler().computeVonMisesStresses(p.data(), out.data());
+  }
+  return python::vectorXdToNdarray(std::move(out));
+}
+
 PySparseMatrix PyDeformationEnergy::elasticHessian(
   nb::ndarray<nb::numpy, const double> displacement) const
 {

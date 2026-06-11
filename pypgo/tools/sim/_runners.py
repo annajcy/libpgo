@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 
 import pypgo.energy as _energy
@@ -56,6 +58,19 @@ def run_static(bundle: SceneBundle, cfg) -> dict:
         states_dir.mkdir(parents=True, exist_ok=True)
         write_u_file(states_dir / "deform_final.u",
                      np.asarray(result.x, dtype=np.float64).reshape(-1, 1))
+    if cfg.output.write_stress:
+        stress_dir = cfg.output.directory / "stress"
+        stress_dir.mkdir(parents=True, exist_ok=True)
+        u_final = np.asarray(result.x, dtype=np.float64)
+        values = bundle.deformation.element_von_mises(u_final)
+        doc = {
+            "frame": 0,
+            "time": 0.0,
+            "stress_type": "von_mises",
+            "location": "element",
+            "values": values.tolist(),
+        }
+        (stress_dir / "von_mises_final.json").write_text(json.dumps(doc))
     write_summary(cfg.output.directory, summary)
     return summary
 
@@ -102,6 +117,20 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
                 write_u_file(
                     states_dir / f"deform{frame.frame_index:04d}.u",
                     np.asarray(frame.displacement, dtype=np.float64).reshape(-1, 1))
+            if cfg.output.write_stress:
+                stress_dir = cfg.output.directory / "stress"
+                stress_dir.mkdir(parents=True, exist_ok=True)
+                u_frame = np.asarray(frame.displacement, dtype=np.float64)
+                values = bundle.deformation.element_von_mises(u_frame)
+                doc = {
+                    "frame": frame.frame_index,
+                    "time": float(sim.state.time),
+                    "stress_type": "von_mises",
+                    "location": "element",
+                    "values": values.tolist(),
+                }
+                (stress_dir / f"von_mises{frame.frame_index:04d}.json").write_text(
+                    json.dumps(doc))
         if not frame.accepted:
             break
 
