@@ -2243,3 +2243,94 @@ Tests (`tests/pypgo/test_sim_batch.py`):
 setup.py: add `"pypgo-sim-batch=pypgo.tools.sim.batch:main"`. `__init__.py`: add `"batch"` to `__all__`. README: batch usage section.
 
 Commit: `feat(sim-cli): pypgo-sim-batch orchestrator with example batch config`
+
+---
+
+# Addendum 2 (2026-06-11): legacy output parity — .u state dumps and von Mises stress
+
+Legacy `runIPCSim` wrote `states/deform%04d.u` (Eigen binary, shape (3n,1)) and stress
+data consumable by `pypgo-stress-vdb` / `pypgo.animation.stress_stats`
+(`stress/von_mises%04d.json`). The new runners only write OBJ + summary.
+
+**Verified API facts:**
+- `pypgo.animation.read_u_file / write_u_file` exist (`pypgo/animation/abc.py:26,40`); demo writes `disp.ravel()[:, None]` shape (3n, 1).
+- Stress JSON format consumed downstream (see `generate_animation_api_demo.py:284`):
+  `{"frame": f, "time": t, "stress_type": "von_mises", "location": "element", "values": [...]}`.
+- C++: `DeformationModelAssembler::computeVonMisesStresses(const double *x, double *elementStresses)`
+  exists (`deformationModelAssembler.h:68`, impl :844) — per-element max over material
+  locations, TBB-parallel. NOT yet bound to Python.
+- Binding pattern to copy: `PyDeformationEnergy::elasticGradient`
+  (`src/python/pypgo/energy/core.cpp:143`) — validate size against
+  `energy_->getRestPosition().size()`, release GIL, **call assembler with
+  p = getRestPosition() + u (positions, not displacement)**, return ndarray.
+  Registration: `src/python/pypgo/energy/bindings.cpp:59` style `.def(...)`.
+- Element count: assembler public member `nele` (`deformationModelAssembler.h:93`);
+  Python side equivalently knows `sim_mesh.num_elements`.
+- Shell: `DeformationModel::vonMisesStress` base impl is a no-op (`deformationModel.h:48`)
+  → shell stresses would be silently zero. Therefore `output.write_stress` + shell
+  must be rejected at config time.
+- Rebuild: `cmake --build --preset pypgo --target pypgo_core` (same as setup.py);
+  verify the refreshed `pypgo/_core.abi3.so` exports the new function after build.
+
+### Task 10: `output.write_states` — .u displacement dumps (Python only)
+
+**Files:** modify `pypgo/tools/sim/_config.py`, `_runners.py`; tests in
+`test_sim_config.py`, `test_sim_runners.py`.
+
+- `OutputConfig.write_states: bool = False`.
+- `run_dynamic`: when enabled and `frame.frame_index % dump_interval == 0`, write
+  `states/deform{frame_index:04d}.u` with `write_u_file(path, frame.displacement.reshape(-1, 1))`
+  (import from `pypgo.animation`). Same gating block as surfaces.
+- `run_static`: when enabled, write `states/deform_final.u` with `result.x.reshape(-1, 1)`.
+- Tests: dynamic 2-step run with write_states → `states/deform0000.u` and `0001.u`
+  exist and `read_u_file` round-trips shape (3n, 1) with values matching
+  `summary`-consistent displacement (at least: file 0 reads back finite, shape correct);
+  dump_interval=2 → only deform0000.u; static run → deform_final.u readable.
+- Commit: `feat(sim-cli): optional .u displacement state dumps (write_states)`
+
+### Task 11: von Mises stress — C++ binding + `output.write_stress`
+
+**Files:**
+- Modify: `src/python/pypgo/energy/core.h`, `src/python/pypgo/energy/core.cpp`,
+  `src/python/pypgo/energy/bindings.cpp` (new method on PyDeformationEnergy)
+- Modify: `pypgo/fem/energy.py` (Python wrapper method), `pypgo/tools/sim/_config.py`,
+  `pypgo/tools/sim/_runners.py`, `pypgo/tools/sim/_scene.py` (SceneBundle carries the
+  deformation energy already — no change needed there unless num_elements is missing;
+  add `num_elements` to SceneBundle from `sim_mesh.num_elements`)
+- Tests: `tests/pypgo/test_deformation_energy.py` (binding-level), `test_sim_config.py`,
+  `test_sim_runners.py`
+
+Spec:
+1. C++ `PyDeformationEnergy::elementVonMisesStresses(ndarray displacement) -> ndarray`:
+   validate size like elasticGradient; `EigenSupport::VXd out = VXd::Zero(nele)` where
+   nele comes from `energy_->assembler().nele` (or the manager mesh getNumElements());
+   GIL release; `p = rest + u`; `computeVonMisesStresses(p.data(), out.data())`;
+   return ndarray. Bind as `.def("element_von_mises_stresses", ...)`.
+2. Rebuild `_core` with the cmake preset; confirm
+   `python -c "import pypgo._core as c; print(hasattr(c.PyDeformationEnergy if hasattr(c,'PyDeformationEnergy') else object(), 'element_von_mises_stresses'))"`
+   — adjust introspection to however the class is exposed; simplest is to call it via a
+   built energy in the test.
+3. Python `DeformationEnergy.element_von_mises(self, displacement) -> np.ndarray`
+   in `pypgo/fem/energy.py`, mirroring `elastic_gradient`'s docstring/validation style.
+4. Config: `OutputConfig.write_stress: bool = False`; validation: `write_stress`
+   with `mesh_type == "shell"` → ConfigError("stress output is not available for shell
+   formulations").
+5. Runner `run_dynamic`: in the dump block, when `write_stress`, compute
+   `values = bundle.deformation.element_von_mises(frame.displacement)` and write
+   `stress/von_mises{frame_index:04d}.json` in the exact legacy format with
+   `"time": float(sim.state.time)`. `run_static`: `stress/von_mises_final.json` with
+   `"frame": 0, "time": 0.0`.
+6. Tests:
+   - binding: tet box deformation energy; zero displacement → all stresses ≈ 0;
+     a uniform stretch displacement (e.g. u = 0.05 * (vertices - center) flattened)
+     → all stresses > 0; output length == num_elements.
+   - config: shell + write_stress rejected; volume accepted.
+   - runner: 2-step tet dynamic with write_stress → `stress/von_mises0000.json`
+     exists, parses, `len(values) == num_elements`, fields match legacy format;
+     verify `pypgo.animation.stress_stats.compute_stress_field_stats` can consume the
+     output directory (frame_start=0; consult its signature first).
+7. Commit: `feat(sim-cli): per-element von Mises stress output via new C++ binding`
+
+Build caveat for the implementer: the cmake build may take a while; run it once, and
+if the preset/toolchain fails, STOP and report BLOCKED with the build log tail —
+do not attempt to fix the build system.
