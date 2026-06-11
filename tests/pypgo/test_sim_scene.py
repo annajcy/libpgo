@@ -287,3 +287,19 @@ def test_volume_scene_zero_movement_not_in_moving(tet_box_cfg_payload):
     bundle = build_scene(cfg)
     assert len(bundle.attachment_energies) == 1
     assert len(bundle.moving_attachments) == 0
+
+
+def test_shell_scene_moving_attachment_detected():
+    """Shell builder populates moving_attachments just like the volume builder."""
+    cfg = load_config(mesh_type="shell", mode="dynamic", overrides={
+        **_shell_overrides(),
+        "dynamic.timestep": 0.0005,
+        "constraints.attachments": [
+            {"vertices": {"region": {"axis": "y", "side": "max", "tolerance": 1e-6}},
+             "coeff": 1e4, "movement": [0.0, 0.0, -0.5]},
+        ],
+    })
+    bundle = build_scene(cfg)
+    assert len(bundle.attachment_energies) == 1
+    assert len(bundle.moving_attachments) == 1
+    np.testing.assert_array_equal(bundle.moving_attachments[0].velocity, [0.0, 0.0, -0.5])

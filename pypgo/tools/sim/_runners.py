@@ -82,6 +82,8 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
             ma.energy.set_targets(np.tile(ma.velocity * t_next, ma.num_vertices))
         frame = sim.step(external_force=bundle.gravity_force, optimizer=optimizer)
         frames.append(frame)
+        # Surfaces are written even for rejected frames — useful when
+        # diagnosing divergence (the state is the last accepted one).
         if (cfg.output.write_surfaces
                 and frame.frame_index % cfg.output.dump_interval == 0):
             write_surface(
