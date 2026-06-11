@@ -41,7 +41,7 @@
   },
   "dynamic": {
     "timestep": 0.001,
-    "num_steps": 2000
+    "num_steps": 500
   },
   "output": {
     "directory": "../outputs/sim/cubic-dynamic-box-ipc-hermite",
