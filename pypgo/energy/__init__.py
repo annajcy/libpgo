@@ -14,12 +14,13 @@ expected to grow.  This package re-exports a flat public surface.
 from pypgo.energy.base import PotentialEnergy
 from pypgo.energy.algebraic import LinearEnergy, QuadraticEnergy
 from pypgo.energy.penalty import ConstraintPenalty, ConstraintViolationPenalty
-from pypgo.energy.attachment import VertexAttachment
+from pypgo.energy.attachment import EmbeddedVertexAttachment, VertexAttachment
 from pypgo.energy.sets import EnergySet
 
 __all__ = [
     "ConstraintPenalty",
     "ConstraintViolationPenalty",
+    "EmbeddedVertexAttachment",
     "EnergySet",
     "LinearEnergy",
     "PotentialEnergy",

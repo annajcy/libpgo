@@ -126,49 +126,16 @@ def _fixed_dofs_from_selector(selector, vertices, dofs_per_vertex) -> np.ndarray
 
 
 def _surface_attachment_energy(att, surface_rest, surface_map, num_dofs):
-    """QuadraticEnergy coeff*||(W u)_S||^2 holding embedded surface vertices at rest.
+    """Soft pin on embedded surface vertices via pypgo.energy.EmbeddedVertexAttachment.
 
     Defined through the surface embedding, so it works for any formulation
     (incl. tricubic Hermite) and pins the same physical points on every
-    simulation mesh. Matches VertexAttachment's coeff convention
-    (E = coeff * ||.||^2  ->  A = 2*coeff * Ws^T Ws).
+    simulation mesh.
     """
     idx = resolve_vertex_selector(att.vertices, surface_rest)
-    c2 = 2.0 * att.coeff
-    if surface_map is None:  # shell: embedding is identity
-        dof = (idx[:, None] * 3 + np.arange(3, dtype=np.int64)).ravel()
-        return _energy.QuadraticEnergy(
-            (num_dofs, num_dofs, dof.tolist(), dof.tolist(), [c2] * dof.size))
-
-    rows, cols, vals = surface_map.to_coo()
-    wanted = np.isin(rows // 3, idx)
-    rows_s = rows[wanted]
-    cols_s = cols[wanted].astype(np.int64)
-    vals_s = vals[wanted]
-    order = np.argsort(rows_s, kind="stable")
-    rows_s, cols_s, vals_s = rows_s[order], cols_s[order], vals_s[order]
-
-    out_i, out_j, out_v = [], [], []
-    row_starts = np.flatnonzero(np.r_[True, rows_s[1:] != rows_s[:-1]])
-    bounds = np.r_[row_starts, rows_s.size]
-    for s, e in zip(bounds[:-1], bounds[1:]):
-        ci, cv = cols_s[s:e], vals_s[s:e]
-        gi, gj = np.meshgrid(ci, ci, indexing="ij")
-        out_i.append(gi.ravel())
-        out_j.append(gj.ravel())
-        out_v.append((c2 * np.outer(cv, cv)).ravel())
-    oi = np.concatenate(out_i)
-    oj = np.concatenate(out_j)
-    ov = np.concatenate(out_v)
-    # merge duplicate (i, j) entries
-    key = oi * np.int64(num_dofs) + oj
-    uniq, inv = np.unique(key, return_inverse=True)
-    merged = np.zeros(uniq.size, dtype=np.float64)
-    np.add.at(merged, inv, ov)
-    ui = (uniq // num_dofs).astype(np.int64)
-    uj = (uniq % num_dofs).astype(np.int64)
-    return _energy.QuadraticEnergy(
-        (num_dofs, num_dofs, ui.tolist(), uj.tolist(), merged.tolist()))
+    return _energy.EmbeddedVertexAttachment(
+        embedding=surface_map, vertex_indices=idx, coeff=att.coeff,
+        num_dofs=num_dofs)
 
 
 def _build_contact_energies(contact_cfgs, contact_surface, surface_triangles):

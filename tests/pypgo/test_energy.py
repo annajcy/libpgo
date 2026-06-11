@@ -618,3 +618,52 @@ def test_energy_handles_are_concrete_peers_and_abstract_peers():
     assert isinstance(total._handle, _core.PyPotentialEnergy)
     assert not hasattr(linear, "_potential_handle")
     assert not hasattr(linear._handle, "as_potential_energy")
+
+
+class TestEmbeddedVertexAttachment:
+    def test_identity_matches_vertex_attachment_value(self):
+        """With identity embedding the energy equals VertexAttachment at rest target."""
+        import pypgo.energy as pe
+
+        n_verts = 4
+        n = 3 * n_verts
+        idx = [1, 3]
+        coeff = 250.0
+        emb = pe.EmbeddedVertexAttachment(
+            embedding=None, vertex_indices=idx, coeff=coeff, num_dofs=n)
+        rng = np.random.default_rng(7)
+        u = rng.normal(size=n)
+        expected = coeff * sum(
+            float(np.dot(u[3*i:3*i+3], u[3*i:3*i+3])) for i in idx)
+        assert emb.value(u) == pytest.approx(expected, rel=1e-12)
+
+    def test_embedded_value_matches_dense_formula(self):
+        """E = coeff * ||(W u)_S||^2 against a dense reference computation."""
+        import pypgo.energy as pe
+        from pypgo.sparse import as_sparse_matrix
+
+        rng = np.random.default_rng(3)
+        n, m = 12, 5  # sim dofs, embedded vertices
+        W_dense = rng.normal(size=(3 * m, n)) * (rng.random((3 * m, n)) < 0.4)
+        W = as_sparse_matrix(W_dense)
+        idx = [0, 2, 4]
+        coeff = 11.0
+        e = pe.EmbeddedVertexAttachment(embedding=W, vertex_indices=idx, coeff=coeff)
+        u = rng.normal(size=n)
+        rows = np.concatenate([[3*i, 3*i+1, 3*i+2] for i in idx])
+        expected = coeff * float(np.sum((W_dense[rows] @ u) ** 2))
+        assert e.value(u) == pytest.approx(expected, rel=1e-10)
+        assert e.num_dofs == n
+
+    def test_requires_num_dofs_without_embedding(self):
+        import pypgo.energy as pe
+
+        with pytest.raises(ValueError, match="num_dofs"):
+            pe.EmbeddedVertexAttachment(embedding=None, vertex_indices=[0], coeff=1.0)
+
+    def test_out_of_range_rejected(self):
+        import pypgo.energy as pe
+
+        with pytest.raises(ValueError, match="range"):
+            pe.EmbeddedVertexAttachment(
+                embedding=None, vertex_indices=[5], coeff=1.0, num_dofs=9)
