@@ -189,6 +189,7 @@ class DynamicConfig:
 class OutputConfig:
     directory: Path | None = None
     write_surfaces: bool = False
+    write_states: bool = False
     dump_interval: int = 1
 
 
@@ -480,6 +481,7 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         directory=Path(out_payload["directory"])
         if out_payload.get("directory") else None,
         write_surfaces=bool(out_payload.get("write_surfaces", False)),
+        write_states=bool(out_payload.get("write_states", False)),
         dump_interval=dump_interval,
     )
     if output.directory is None:

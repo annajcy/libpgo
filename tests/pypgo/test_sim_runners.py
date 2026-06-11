@@ -176,3 +176,93 @@ def test_dump_interval_controls_surface_writes(tmp_path):
     assert not (surface_dir / "surface0001.obj").exists()
     # frame_index 2 → written (2 % 2 == 0)
     assert (surface_dir / "surface0002.obj").exists()
+
+
+# ---------------------------------------------------------------------------
+# Task 10: write_states — .u displacement dumps
+# ---------------------------------------------------------------------------
+
+
+def test_run_dynamic_write_states_two_steps(tmp_path):
+    """Dynamic 2-step run with write_states=True writes deform0000.u and deform0001.u.
+
+    Both files must exist, be readable via read_u_file, and have shape (3n, 1)
+    with finite values.
+    """
+    from pypgo.animation import read_u_file
+
+    cfg = load_config(mesh_type="tet", mode="dynamic", overrides={
+        "mesh.volume": str(ASSETS / "veg" / "tet" / "box.veg"),
+        "mesh.surface": str(ASSETS / "obj" / "box.obj"),
+        "loads.gravity": (0.0, -9.81, 0.0),
+        "dynamic.timestep": 0.001,
+        "dynamic.num_steps": 2,
+        "output.directory": str(tmp_path),
+        "output.write_states": True,
+    })
+    bundle = build_scene(cfg)
+    summary = run_dynamic(bundle, cfg)
+    assert summary["num_frames"] == 2
+
+    states_dir = tmp_path / "states"
+    u0_path = states_dir / "deform0000.u"
+    u1_path = states_dir / "deform0001.u"
+    assert u0_path.exists(), "deform0000.u not written"
+    assert u1_path.exists(), "deform0001.u not written"
+
+    u0 = read_u_file(u0_path)
+    u1 = read_u_file(u1_path)
+    expected_rows = bundle.num_dofs  # 3n for standard volume mesh
+    assert u0.shape == (expected_rows, 1), f"Expected ({expected_rows}, 1), got {u0.shape}"
+    assert u1.shape == (expected_rows, 1), f"Expected ({expected_rows}, 1), got {u1.shape}"
+    assert np.all(np.isfinite(u0)), "deform0000.u contains non-finite values"
+    assert np.all(np.isfinite(u1)), "deform0001.u contains non-finite values"
+
+
+def test_run_dynamic_write_states_dump_interval(tmp_path):
+    """With dump_interval=2 and write_states=True, only deform0000.u is written (not 0001)."""
+    cfg = load_config(mesh_type="tet", mode="dynamic", overrides={
+        "mesh.volume": str(ASSETS / "veg" / "tet" / "box.veg"),
+        "mesh.surface": str(ASSETS / "obj" / "box.obj"),
+        "loads.gravity": (0.0, -9.81, 0.0),
+        "dynamic.timestep": 0.001,
+        "dynamic.num_steps": 2,
+        "output.directory": str(tmp_path),
+        "output.write_states": True,
+        "output.dump_interval": 2,
+    })
+    run_dynamic(build_scene(cfg), cfg)
+
+    states_dir = tmp_path / "states"
+    # frame_index 0 → 0 % 2 == 0 → written
+    assert (states_dir / "deform0000.u").exists()
+    # frame_index 1 → 1 % 2 != 0 → NOT written
+    assert not (states_dir / "deform0001.u").exists()
+
+
+def test_run_static_write_states(tmp_path):
+    """Static run with write_states=True writes states/deform_final.u, readable with correct shape."""
+    from pypgo.animation import read_u_file
+
+    cfg = load_config(mesh_type="tet", mode="static", overrides={
+        "mesh.volume": str(ASSETS / "veg" / "tet" / "box.veg"),
+        "mesh.surface": str(ASSETS / "obj" / "box.obj"),
+        "constraints.fixed": {"region": {"axis": "y", "side": "max",
+                                         "tolerance": 1e-3}},
+        "loads.gravity": (0.0, -9.81, 0.0),
+        "solver.max_iterations": 10,
+        "solver.gradient_tolerance": 1e-4,
+        "output.directory": str(tmp_path),
+        "output.write_states": True,
+    })
+    bundle = build_scene(cfg)
+    run_static(bundle, cfg)
+
+    u_path = tmp_path / "states" / "deform_final.u"
+    assert u_path.exists(), "states/deform_final.u not written"
+
+    u = read_u_file(u_path)
+    assert u.shape == (bundle.num_dofs, 1), (
+        f"Expected ({bundle.num_dofs}, 1), got {u.shape}"
+    )
+    assert np.all(np.isfinite(u)), "deform_final.u contains non-finite values"

@@ -407,3 +407,30 @@ def test_enable_material_max_step_false_shell(tmp_path):
     })
     cfg = load_config(mesh_type="shell", mode="static", json_path=cfg_path)
     assert cfg.material.enable_material_max_step is False
+
+
+# ---------------------------------------------------------------------------
+# Task 10: write_states
+# ---------------------------------------------------------------------------
+
+
+def test_write_states_default_false(tmp_path):
+    """OutputConfig.write_states defaults to False."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.output.write_states is False
+
+
+def test_write_states_parsed_true(tmp_path):
+    """write_states=true round-trips from JSON."""
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out", "write_states": True},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.output.write_states is True

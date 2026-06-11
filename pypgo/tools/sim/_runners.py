@@ -6,6 +6,7 @@ import numpy as np
 
 import pypgo.energy as _energy
 import pypgo.solver as _solver
+from pypgo.animation import write_u_file
 from pypgo.sim import DynamicSimulation, DynamicState
 from pypgo.tools.sim._outputs import write_summary, write_surface
 from pypgo.tools.sim._scene import SceneBundle
@@ -50,6 +51,11 @@ def run_static(bundle: SceneBundle, cfg) -> dict:
     if cfg.output.write_surfaces:
         write_surface(cfg.output.directory / "final_surface.obj",
                       bundle.surface_positions(result.x), bundle.surface_triangles)
+    if cfg.output.write_states:
+        states_dir = cfg.output.directory / "states"
+        states_dir.mkdir(parents=True, exist_ok=True)
+        write_u_file(states_dir / "deform_final.u",
+                     np.asarray(result.x, dtype=np.float64).reshape(-1, 1))
     write_summary(cfg.output.directory, summary)
     return summary
 
@@ -82,14 +88,20 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
             ma.energy.set_targets(np.tile(ma.velocity * t_next, ma.num_vertices))
         frame = sim.step(external_force=bundle.gravity_force, optimizer=optimizer)
         frames.append(frame)
-        # Surfaces are written even for rejected frames — useful when
+        # Surfaces and states are written even for rejected frames — useful when
         # diagnosing divergence (the state is the last accepted one).
-        if (cfg.output.write_surfaces
-                and frame.frame_index % cfg.output.dump_interval == 0):
-            write_surface(
-                cfg.output.directory / "surface" / f"surface{frame.frame_index:04d}.obj",
-                bundle.surface_positions(frame.displacement),
-                bundle.surface_triangles)
+        if frame.frame_index % cfg.output.dump_interval == 0:
+            if cfg.output.write_surfaces:
+                write_surface(
+                    cfg.output.directory / "surface" / f"surface{frame.frame_index:04d}.obj",
+                    bundle.surface_positions(frame.displacement),
+                    bundle.surface_triangles)
+            if cfg.output.write_states:
+                states_dir = cfg.output.directory / "states"
+                states_dir.mkdir(parents=True, exist_ok=True)
+                write_u_file(
+                    states_dir / f"deform{frame.frame_index:04d}.u",
+                    np.asarray(frame.displacement, dtype=np.float64).reshape(-1, 1))
         if not frame.accepted:
             break
 
