@@ -2428,3 +2428,47 @@ else `nPt = 1; stresses[0] = value`.
 
 Caveat: do NOT change the volumetric path or the assembler; the only C++ entry point is the
 model-level virtual chain.
+
+---
+
+# Addendum 4 (2026-06-11): tet/cubic symmetry for all volume scenes
+
+Every volume scene must exist in BOTH tet and cubic variants (legacy batch had
+tet+cubic for every case). Currently only box_squash is paired.
+
+### Task 13: seven new scene configs + batch/smoke/README updates
+
+**Files:**
+- Create in `examples/sim_configs/`:
+  1. `tet_static_box_hang.json` — copy of `cubic_static_box_hang.json` with
+     `"type": "tet"`, volume `../assets/veg/tet/box.veg`, output dir `tet-static-box-hang`.
+  2. `cubic_static_dragon.json` — copy of `tet_static_dragon.json` with type/veg/output
+     swapped to cubic (`../assets/veg/cubic/dragon.veg`, `cubic-static-dragon`).
+  3. `cubic_dynamic_bunny_floor.json` — copy of `tet_dynamic_bunny_floor.json`, cubic veg
+     (`../assets/veg/cubic/bunny.veg`), output `cubic-dynamic-bunny-floor`.
+  4. `tet_dynamic_box_ipc.json` — copy of `cubic_dynamic_box_ipc.json`, tet veg, output
+     `tet-dynamic-box-ipc`.
+  5. `tet_dynamic_box_sphere_ipc.json` — copy of `cubic_dynamic_box_sphere_ipc.json`,
+     tet veg (`../assets/veg/tet/box-with-sphere.veg`), output `tet-dynamic-box-sphere-ipc`.
+  6. `tet_dynamic_dragon_ipc.json` + 7. `cubic_dynamic_dragon_ipc.json` — NEW scene
+     (legacy tet/cubic dragon-dyn-lite): dragon.veg + dragon.obj, IPC dhat 0.002,
+     dhat_external 0.005, kappa 3000, obstacle `../assets/obj/bottom.obj`,
+     gravity [0,-9.81,0], `enable_material_max_step: false`, timestep 0.001,
+     num_steps 100, solver max_iterations 200 / gradient_tolerance 0.0001,
+     write_surfaces true, dump_interval 10.
+     **Geometry caveat:** dragon.obj min-y (-0.41) is below bottom.obj top (-0.14) —
+     to guarantee no initial interpenetration set `"initial_state": {"displacement": [0.0, 0.5, 0.0]}`
+     in BOTH dragon configs (lifts the dragon clear of the dish). Verify the 2-step smoke
+     runs with all frames accepted; if IPC still rejects at start, increase the lift and record it.
+- Modify `examples/sim_configs/batch.json`: add the 7 cases (commands matching type/mode);
+  update jobs — `static` grows to 5, `dynamic` to 12, add the new drops to `drops`.
+  `squash` unchanged.
+- Modify `tests/pypgo/test_sim_cli_examples.py`: extend STATIC_CASES (+2) and
+  DYNAMIC_CASES (+5) with the right modules; the coverage test then enforces the full set.
+- Update `examples/sim_configs/README.md`: command list + feature table rows for the new
+  scenes; note the tet/cubic pairing convention (every volume scene exists in both).
+
+**Verification:** `python -m pytest tests/pypgo/test_sim_cli_examples.py -v` (now 1+12+5=18 tests)
+then the full sim suite. All dynamic smoke runs must have every frame accepted.
+
+Commit: `feat(sim-cli): complete tet/cubic scene pairing incl. dragon IPC drop`
