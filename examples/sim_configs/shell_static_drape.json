@@ -1,0 +1,14 @@
+{
+  "type": "shell",
+  "mesh": { "surface": "../assets/obj/shell.obj" },
+  "material": {
+    "thickness": 0.001, "E_membrane": 1000000.0, "nu_membrane": 0.4,
+    "mass": { "density": 1000.0 }
+  },
+  "constraints": {
+    "fixed": { "region": { "axis": "y", "side": "max", "tolerance": 0.000001 } }
+  },
+  "loads": { "gravity": [0.0, 0.0, -9.81] },
+  "solver": { "max_iterations": 200, "gradient_tolerance": 0.0001 },
+  "output": { "directory": "../outputs/sim/shell-static-drape", "write_surfaces": true }
+}
