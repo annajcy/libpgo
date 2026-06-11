@@ -312,8 +312,9 @@ Common Python entry points:
 - `pypgo.animation`: animation loading and Alembic/VDB export
 - `pypgo.tools.stress`: stress-field statistics
 
-For IPC scene assets and Python migration notes, see
-[`examples/ipc/README.md`](./examples/ipc/README.md).
+For runnable simulation scenes (tet/cubic/shell, static/dynamic, IPC and
+penalty contact), see [`examples/sim_configs/README.md`](./examples/sim_configs/README.md)
+and the `pypgo-sim-*` CLI family.
 
 ## Third-party libraries
 

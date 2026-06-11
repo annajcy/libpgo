@@ -75,8 +75,9 @@ CELLS = [
         """
         ## 1. IPC Barrier — Cubic Box Falls onto `bottom.obj` Obstacle
 
-        Rebuilds the scene from `examples/ipc/cubic/box/box-ipc.json` using
-        the Python API. A cubic hex mesh (125 verts, embedded surface 194 verts)
+        Rebuilds the legacy C++ `runIPCSim` box-drop scene using the Python
+        API (the same scene ships as `examples/sim_configs/cubic_dynamic_box_ipc.json`).
+        A cubic hex mesh (125 verts, embedded surface 194 verts)
         falls under gravity and lands on the static `bottom.obj` obstacle via
         IPC barrier contact. Watch the `y_min` value approach the obstacle
         surface and the `contact_clamp_count` become nonzero.
