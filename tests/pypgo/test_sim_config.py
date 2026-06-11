@@ -522,3 +522,19 @@ def test_surface_attachment_missing_vertices_rejected(tmp_path):
     })
     with pytest.raises(ConfigError, match="vertices"):
         load_config(mesh_type="cubic", mode="static", json_path=cfg_path)
+
+
+def test_surface_attachment_file_path_resolved(tmp_path):
+    """surface_attachments[].vertices.file resolves relative to the JSON dir."""
+    (tmp_path / "patch.txt").write_text("0 1 2\n")
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "constraints": {
+            "surface_attachments": [
+                {"vertices": {"file": "patch.txt"}, "coeff": 1.0},
+            ],
+        },
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+    assert cfg.constraints.surface_attachments[0].vertices.file == tmp_path / "patch.txt"

@@ -6,9 +6,9 @@
   },
   "material": { "model": "stable_neo" },
   "constraints": {
-    "attachments": [
+    "surface_attachments": [
       {
-        "vertices": { "file": "../assets/fixed/dragon-fixed.txt" },
+        "vertices": { "file": "../assets/fixed/dragon-surface-fixed.txt" },
         "coeff": 100000.0
       }
     ]

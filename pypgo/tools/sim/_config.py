@@ -243,10 +243,11 @@ def _resolve_json_paths(payload: dict, base_dir: Path) -> dict:
     fixed = constraints.get("fixed")
     if fixed and fixed.get("file") is not None:
         fixed["file"] = _resolve(base_dir, fixed["file"])
-    for att in constraints.get("attachments", []):
-        sel = att.get("vertices", {})
-        if sel.get("file") is not None:
-            sel["file"] = _resolve(base_dir, sel["file"])
+    for group in ("attachments", "surface_attachments"):
+        for att in constraints.get(group, []):
+            sel = att.get("vertices", {})
+            if sel.get("file") is not None:
+                sel["file"] = _resolve(base_dir, sel["file"])
     for contact in payload.get("contact", []):
         for obs in contact.get("obstacles", []):
             if obs.get("mesh") is not None:
