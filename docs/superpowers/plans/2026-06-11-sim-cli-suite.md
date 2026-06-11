@@ -2334,3 +2334,97 @@ Spec:
 Build caveat for the implementer: the cmake build may take a while; run it once, and
 if the preset/toolchain fails, STOP and report BLOCKED with the build log tail —
 do not attempt to fix the build system.
+
+---
+
+# Addendum 3 (2026-06-11): shell von Mises stress (lift the shell limitation)
+
+**Verified implementation facts (read before coding):**
+- `ShellDeformationModel` (`src/core/solidDeformationModel/deformation/shell/shellDeformationModel.{h,cpp}`)
+  caches per element: `a`, `b` (current first/second fundamental forms, 2x2),
+  `abar`, `bbar` (rest/plastic forms), `area`, `elasticParamsValue` — all filled in
+  `prepareData` (cpp:69). The assembler's `computeVonMisesStresses` already calls
+  `fem->vonMisesStress(...)` per element with positions prepared, so ONLY the model-side
+  override is missing.
+- Constitutive law (`material/elastic/elasticModel2DFundamentalFormsSTVK.cpp:99,176`):
+  params (5) = `[E_m, nu_m, E_b, nu_b, h]`; **3D Lamé constants**
+  `alpha = E*nu/((1+nu)*(1-2nu))`, `beta = E/(2*(1+nu))`;
+  membrane strain measure `M_m = abar^-1 * a - I` (energy `h*(alpha/2*tr^2 + beta*tr(M^2))`),
+  bending measure `M_b = abar^-1 * (b - bbar)` (energy weight `h^3/12`).
+  `abar` inverse via `abar.fullPivHouseholderQr().inverse()` — reuse the same call.
+- Base `DeformationModel::getNumMaterialLocations()` returns 1 (shell doesn't override);
+  assembler scratch `materialLocationValues` is at least 16 long
+  (`deformationModelAssembler.h:149`) — writing `stresses[0]` with `nPt=1` is safe.
+- There are TWO 2D elastic models: STVK and Fabric. Stress recovery is constitutive-specific,
+  so it goes on the elastic model as a virtual, NOT hardcoded in ShellDeformationModel.
+
+### Task 12: implement shell vonMisesStress + unblock config
+
+**Files:**
+- Modify: `src/core/solidDeformationModel/material/elastic/elasticModel2DFundamentalForms.h`
+  (new virtual with default "not supported"), `elasticModel2DFundamentalFormsSTVK.h/.cpp`
+  (override), `deformation/shell/shellDeformationModel.h/.cpp` (vonMisesStress override
+  delegating to the elastic model)
+- Modify: `pypgo/tools/sim/_config.py` (remove the shell write_stress rejection),
+  `tests/pypgo/test_sim_config.py` (flip the rejection test to acceptance),
+  `tests/pypgo/test_deformation_energy.py` (shell binding tests),
+  `tests/pypgo/test_sim_runners.py` (shell dynamic write_stress test)
+- Check `examples/sim_configs/README.md` for any "shell stress unavailable" wording (update if present)
+
+**Math (thin-shell stress recovery, consistent with the implemented energy):**
+The first fundamental form of the offset surface at depth z is a(z) ≈ a - 2 z b, hence the
+mixed-frame Green strain at the fiber is E(z) = E_mem - z * kappa with
+`E_mem = 0.5 * (abar^-1 * a - I)` and `kappa = abar^-1 * (b - bbar)`.
+Membrane and bending have independent moduli, so build the fiber stress as a sum:
+```
+sigma_mem = alpha_m * tr(E_mem) * I + 2 * beta_m * E_mem      // (E_m, nu_m)
+sigma_bnd = alpha_b * tr(kappa) * I + 2 * beta_b * kappa      // (E_b, nu_b)
+for z in {+h/2, -h/2}:
+    sigma = sigma_mem - z * sigma_bnd                          // 2x2 mixed tensor
+    vm(z) = sqrt(max(tr(sigma)^2 - 3*det(sigma), 0))           // plane stress: s1^2 - s1 s2 + s2^2
+stress = max(vm(+h/2), vm(-h/2));  nPt = 1
+```
+(`tr^2 - 3 det` equals s1^2 - s1*s2 + s2^2 for the matrix eigenvalues; valid for the mixed
+tensor since trace/det are basis-invariant. Mixed tensors here may be non-symmetric as
+matrices — do NOT symmetrize, just use tr and det.)
+
+**API shape:**
+```cpp
+// elasticModel2DFundamentalForms.h
+virtual bool computeVonMisesStress(const double *param,
+  const double a[4], const double b[4],
+  const double abar[4], const double bbar[4], double &stress) const { return false; }
+```
+STVK overrides it with the recovery above. `ShellDeformationModel::vonMisesStress` override:
+guard `numElasticParams_ == 0` -> nPt = 0; call the elastic model with
+`cacheData->elasticParamsValue.data()` and the four cached forms; on `false` -> nPt = 0,
+else `nPt = 1; stresses[0] = value`.
+
+**Steps (TDD where the binding already exists — element_von_mises works for any mesh type):**
+1. Binding-level tests first (`test_deformation_energy.py`, copy the shell energy construction
+   from `test_sim_scene.py`'s shell tests or the contact demo pattern — `SimulationMesh.create_shell`
+   + `deformation_energy(elastic=KoiterStVK(), plastic=ShellPlasticity(dofs=0), formulation=KoiterShell())`
+   on `examples/assets/obj/shell.obj`):
+   - rest (u=0) -> all element stresses ~ 0
+   - in-plane stretch (shell.obj lies in z=0 plane, x in [-0.5,0.5]): u_x = 0.05 * x per vertex,
+     other components 0 -> all stresses > 0, magnitude order ~ E_m * 0.05 (loose bounds, e.g.
+     between 1e3 and 1e6 for E_m=1e6)
+   - pure bending: u_z = 0.1 * x^2 -> max stress > 0
+   These FAIL before the C++ change (stresses all zero), pass after rebuild.
+2. Implement the three C++ files. Follow the file's existing style (ES:: typedefs, Mp maps).
+3. Rebuild: `cmake --build --preset pypgo --target pypgo_core --parallel 8`. If the build
+   fails for environment reasons: STOP, report BLOCKED with the log tail.
+4. Run the new tests -> green.
+5. `_config.py`: delete the shell+write_stress ConfigError branch; flip
+   `test_sim_config.py`'s rejection test into an acceptance test (shell + write_stress loads fine).
+6. `test_sim_runners.py`: shell dynamic 2 steps with write_stress -> von_mises0000/0001.json,
+   len(values) == shell num elements (2048 for shell.obj), all finite, some > 0 under gravity
+   with a clamped edge (reuse the shell drape-ish setup with initial velocity or clamped edge
+   so deformation is nonzero; assert max(values) > 0 on frame 1).
+7. Full suite:
+   `python -m pytest tests/pypgo/test_deformation_energy.py tests/pypgo/test_sim_config.py tests/pypgo/test_sim_scene.py tests/pypgo/test_sim_runners.py tests/pypgo/test_sim_cli_examples.py tests/pypgo/test_sim_batch.py tests/pypgo/test_tool_clis.py -q`
+8. Commit ONLY the touched source/test files (C++ x5, _config.py, 3 test files, README if touched):
+   `git commit -m "feat(shell): von Mises stress recovery for Koiter StVK shells"`
+
+Caveat: do NOT change the volumetric path or the assembler; the only C++ entry point is the
+model-level virtual chain.
