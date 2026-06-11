@@ -2,6 +2,7 @@ import ast
 import json
 from pathlib import Path
 
+import pytest
 import pypgo as pgo
 from pypgo.mesh.volume import ENuMaterial, VegFile, read_veg, write_veg
 from pypgo.tools.mesh.surface import cleanup as surface_cleanup_cli
@@ -192,3 +193,36 @@ def test_setup_declares_console_scripts():
     assert all(not script.startswith("pypgo-surface-merge-close-vertices=") for script in entry_points["console_scripts"])
     assert all(not script.startswith("pypgo-stress=") for script in entry_points["console_scripts"])
     assert all(not script.startswith("pypgo-tet-mesher=") for script in entry_points["console_scripts"])
+
+
+def test_sim_cli_tet_dynamic_runs_from_args(tmp_path):
+    from pypgo.tools.sim import tet_dynamic
+
+    assets = Path(__file__).resolve().parents[2] / "examples" / "assets"
+    out = tmp_path / "out"
+    ret = tet_dynamic.main([
+        "--volume", str(assets / "veg" / "tet" / "box.veg"),
+        "--surface", str(assets / "obj" / "box.obj"),
+        "--output-dir", str(out),
+        "--timestep", "0.001",
+        "--num-steps", "1",
+        "--gravity", "0", "-9.81", "0",
+    ])
+    assert ret == 0
+    assert (out / "summary.json").exists()
+
+
+def test_sim_cli_config_error_exits_2(tmp_path):
+    from pypgo.tools.sim import tet_static
+
+    with pytest.raises(SystemExit) as excinfo:
+        tet_static.main(["--output-dir", str(tmp_path)])  # missing meshes
+    assert excinfo.value.code == 2
+
+
+def test_setup_declares_sim_console_scripts():
+    setup_text = (Path(__file__).resolve().parents[2] / "setup.py").read_text()
+    for name in ("shell-static", "shell-dynamic", "cubic-static",
+                 "cubic-dynamic", "tet-static", "tet-dynamic"):
+        module = name.replace("-", "_")
+        assert f"pypgo-sim-{name}=pypgo.tools.sim.{module}:main" in setup_text
