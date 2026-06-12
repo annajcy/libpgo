@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pypgo.tools.sim._config import load_config
+from pypgo.tools.sim._config import ConfigError, load_config
 from pypgo.tools.sim._runners import run_dynamic, run_static
 from pypgo.tools.sim._scene import build_scene
 
@@ -238,6 +238,162 @@ def test_run_dynamic_write_states_dump_interval(tmp_path):
     assert (states_dir / "deform0000.u").exists()
     # frame_index 1 → 1 % 2 != 0 → NOT written
     assert not (states_dir / "deform0001.u").exists()
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint / resume
+# ---------------------------------------------------------------------------
+
+
+def _dynamic_box_cfg(tmp_path, **overrides):
+    base = {
+        "mesh.volume": str(ASSETS / "veg" / "tet" / "box.veg"),
+        "mesh.surface": str(ASSETS / "obj" / "box.obj"),
+        "loads.gravity": (0.0, -9.81, 0.0),
+        "dynamic.timestep": 0.001,
+        "dynamic.num_steps": 2,
+        "output.directory": str(tmp_path),
+    }
+    base.update(overrides)
+    return load_config(mesh_type="tet", mode="dynamic", overrides=base)
+
+
+def test_run_dynamic_write_checkpoints_two_steps(tmp_path):
+    """write_checkpoints=True writes restartable npz state at dumped frames."""
+    cfg = _dynamic_box_cfg(tmp_path, **{"output.write_checkpoints": True})
+    bundle = build_scene(cfg)
+    summary = run_dynamic(bundle, cfg)
+    assert summary["num_frames"] == 2
+
+    ckpt0 = tmp_path / "checkpoints" / "state0000.npz"
+    ckpt1 = tmp_path / "checkpoints" / "state0001.npz"
+    assert ckpt0.exists()
+    assert ckpt1.exists()
+
+    data = np.load(ckpt1)
+    assert set(data.files) >= {
+        "version", "displacement", "velocity", "acceleration",
+        "timestep_id", "time", "num_dofs", "timestep", "integrator",
+    }
+    assert data["displacement"].shape == (bundle.num_dofs,)
+    assert data["velocity"].shape == (bundle.num_dofs,)
+    assert data["acceleration"].shape == (bundle.num_dofs,)
+    assert int(data["timestep_id"]) == 2
+    assert float(data["time"]) == pytest.approx(0.002)
+    assert int(data["num_dofs"]) == bundle.num_dofs
+    assert float(data["timestep"]) == pytest.approx(cfg.dynamic.timestep)
+    assert str(data["integrator"]) == cfg.dynamic.integrator
+
+
+def test_run_dynamic_resume_latest_uses_num_steps_as_total_target(tmp_path):
+    cfg = _dynamic_box_cfg(tmp_path, **{"output.write_checkpoints": True})
+    run_dynamic(build_scene(cfg), cfg)
+
+    resume_cfg = _dynamic_box_cfg(
+        tmp_path,
+        **{
+            "dynamic.num_steps": 4,
+            "dynamic.resume": "latest",
+            "output.write_checkpoints": True,
+        },
+    )
+    summary = run_dynamic(build_scene(resume_cfg), resume_cfg)
+
+    assert summary["initial_timestep_id"] == 2
+    assert summary["target_timestep_id"] == 4
+    assert summary["num_frames"] == 2
+    assert summary["final_timestep_id"] == 4
+    assert summary["final_time"] == pytest.approx(0.004)
+    assert summary["resumed_from"].endswith("state0001.npz")
+    assert (tmp_path / "checkpoints" / "state0003.npz").exists()
+
+
+def test_run_dynamic_resume_from_explicit_checkpoint_path(tmp_path):
+    cfg = _dynamic_box_cfg(tmp_path, **{"output.write_checkpoints": True})
+    run_dynamic(build_scene(cfg), cfg)
+
+    ckpt = tmp_path / "checkpoints" / "state0000.npz"
+    resume_cfg = _dynamic_box_cfg(
+        tmp_path,
+        **{
+            "dynamic.num_steps": 3,
+            "dynamic.resume": str(ckpt),
+            "output.write_checkpoints": True,
+        },
+    )
+    summary = run_dynamic(build_scene(resume_cfg), resume_cfg)
+    assert summary["initial_timestep_id"] == 1
+    assert summary["final_timestep_id"] == 3
+    assert summary["num_frames"] == 2
+
+
+def test_run_dynamic_resume_rejects_mismatched_num_dofs(tmp_path):
+    cfg = _dynamic_box_cfg(tmp_path, **{"output.write_checkpoints": True})
+    bundle = build_scene(cfg)
+    run_dynamic(bundle, cfg)
+    ckpt = tmp_path / "checkpoints" / "state0001.npz"
+    data = dict(np.load(ckpt))
+    data["num_dofs"] = np.array(bundle.num_dofs + 1)
+    bad = tmp_path / "checkpoints" / "bad_num_dofs.npz"
+    np.savez(bad, **data)
+
+    resume_cfg = _dynamic_box_cfg(
+        tmp_path,
+        **{"dynamic.resume": str(bad), "dynamic.num_steps": 4},
+    )
+    with pytest.raises(ConfigError, match="num_dofs"):
+        run_dynamic(build_scene(resume_cfg), resume_cfg)
+
+
+def test_run_dynamic_resume_rejects_mismatched_timestep(tmp_path):
+    cfg = _dynamic_box_cfg(tmp_path, **{"output.write_checkpoints": True})
+    run_dynamic(build_scene(cfg), cfg)
+    ckpt = tmp_path / "checkpoints" / "state0001.npz"
+    data = dict(np.load(ckpt))
+    data["timestep"] = np.array(0.123)
+    bad = tmp_path / "checkpoints" / "bad_timestep.npz"
+    np.savez(bad, **data)
+
+    resume_cfg = _dynamic_box_cfg(
+        tmp_path,
+        **{"dynamic.resume": str(bad), "dynamic.num_steps": 4},
+    )
+    with pytest.raises(ConfigError, match="timestep"):
+        run_dynamic(build_scene(resume_cfg), resume_cfg)
+
+
+def test_run_dynamic_resume_rejects_mismatched_integrator(tmp_path):
+    cfg = _dynamic_box_cfg(tmp_path, **{"output.write_checkpoints": True})
+    run_dynamic(build_scene(cfg), cfg)
+    ckpt = tmp_path / "checkpoints" / "state0001.npz"
+    data = dict(np.load(ckpt))
+    data["integrator"] = np.array("trbdf2")
+    bad = tmp_path / "checkpoints" / "bad_integrator.npz"
+    np.savez(bad, **data)
+
+    resume_cfg = _dynamic_box_cfg(
+        tmp_path,
+        **{"dynamic.resume": str(bad), "dynamic.num_steps": 4},
+    )
+    with pytest.raises(ConfigError, match="integrator"):
+        run_dynamic(build_scene(resume_cfg), resume_cfg)
+
+
+def test_run_dynamic_write_checkpoints_dump_interval(tmp_path):
+    cfg = _dynamic_box_cfg(
+        tmp_path,
+        **{
+            "dynamic.num_steps": 3,
+            "output.write_checkpoints": True,
+            "output.dump_interval": 2,
+        },
+    )
+    run_dynamic(build_scene(cfg), cfg)
+
+    ckpt_dir = tmp_path / "checkpoints"
+    assert (ckpt_dir / "state0000.npz").exists()
+    assert not (ckpt_dir / "state0001.npz").exists()
+    assert (ckpt_dir / "state0002.npz").exists()
 
 
 def test_run_static_write_states(tmp_path):

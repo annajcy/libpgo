@@ -32,8 +32,15 @@ Output flags (all in the `output` section; dynamic dumps share one `dump_interva
 |---|---|
 | `write_surfaces` | `surface/surface%04d.obj` per dumped frame (static: `final_surface.obj`) |
 | `write_states` | `states/deform%04d.u` Eigen-binary displacement (static: `deform_final.u`) |
+| `write_checkpoints` | `checkpoints/state%04d.npz` restart checkpoint per dumped dynamic frame |
 | `write_stress` | `stress/von_mises%04d.json` per-element von Mises (static: `von_mises_final.json`) |
 | `write_abc` | `animation.abc` Alembic of the dumped surface frames, fps = 1/(dump_interval × timestep); dynamic only |
+
+Dynamic runs can resume from checkpoints by setting `dynamic.resume` to
+`"latest"` or to a specific `checkpoints/state%04d.npz` path. `num_steps` is
+the total target timestep count, not an additional step count: resuming from a
+checkpoint at timestep 280 with `num_steps: 500` advances to timestep 500.
+The matching CLI flags are `--write-checkpoints` and `--resume latest|PATH`.
 
 Scene-to-feature map:
 

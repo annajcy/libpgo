@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import numpy as np
 
 import pypgo.energy as _energy
 import pypgo.solver as _solver
 from pypgo.animation import AbcWriter, has_animation_io, write_u_file
+from pypgo.mesh import read_obj
 from pypgo.sim import DynamicSimulation, DynamicState
 from pypgo.tools.sim._outputs import write_summary, write_surface
 from pypgo.tools.sim._scene import SceneBundle
@@ -19,6 +21,151 @@ def _make_optimizer(cfg):
     return _solver.NewtonOptimizer(
         max_iterations=cfg.solver.max_iterations,
         gradient_tolerance=cfg.solver.gradient_tolerance,
+    )
+
+
+_CHECKPOINT_VERSION = 1
+
+
+def _checkpoint_dir(output_dir: Path) -> Path:
+    return Path(output_dir) / "checkpoints"
+
+
+def _checkpoint_path(output_dir: Path, frame_index: int) -> Path:
+    return _checkpoint_dir(output_dir) / f"state{frame_index:04d}.npz"
+
+
+def _checkpoint_frame_index(path: Path) -> int:
+    return int(path.stem.removeprefix("state"))
+
+
+def _write_checkpoint(
+    path: Path,
+    *,
+    frame,
+    state: DynamicState,
+    timestep: float,
+    integrator: str,
+    num_dofs: int,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        path,
+        version=np.array(_CHECKPOINT_VERSION, dtype=np.int64),
+        displacement=np.asarray(frame.displacement, dtype=np.float64),
+        velocity=np.asarray(frame.velocity, dtype=np.float64),
+        acceleration=np.asarray(frame.acceleration, dtype=np.float64),
+        timestep_id=np.array(state.timestep_id, dtype=np.int64),
+        time=np.array(state.time, dtype=np.float64),
+        num_dofs=np.array(num_dofs, dtype=np.int64),
+        timestep=np.array(timestep, dtype=np.float64),
+        integrator=np.array(integrator),
+    )
+
+
+def _resolve_resume_checkpoint(cfg) -> Path | None:
+    resume = cfg.dynamic.resume
+    if resume is None:
+        return None
+    if resume == "latest":
+        ckpts = sorted(
+            _checkpoint_dir(cfg.output.directory).glob("state*.npz"),
+            key=_checkpoint_frame_index,
+        )
+        if not ckpts:
+            from pypgo.tools.sim._config import ConfigError
+            raise ConfigError(
+                f"dynamic.resume='latest' found no checkpoints in "
+                f"{_checkpoint_dir(cfg.output.directory)}")
+        return ckpts[-1]
+    path = Path(resume)
+    if not path.exists():
+        from pypgo.tools.sim._config import ConfigError
+        raise ConfigError(f"resume checkpoint not found: {path}")
+    return path
+
+
+def _read_checkpoint(
+    path: Path,
+    *,
+    num_dofs: int,
+    timestep: float,
+    integrator: str,
+) -> DynamicState:
+    from pypgo.tools.sim._config import ConfigError
+
+    try:
+        with np.load(path) as data:
+            version = int(data["version"])
+            displacement = np.asarray(data["displacement"], dtype=np.float64)
+            velocity = np.asarray(data["velocity"], dtype=np.float64)
+            acceleration = np.asarray(data["acceleration"], dtype=np.float64)
+            timestep_id = int(data["timestep_id"])
+            time = float(data["time"])
+            ckpt_num_dofs = int(data["num_dofs"])
+            ckpt_timestep = float(data["timestep"])
+            ckpt_integrator = str(data["integrator"].item())
+    except (OSError, KeyError, ValueError) as exc:
+        raise ConfigError(f"cannot read resume checkpoint {path}: {exc}") from exc
+
+    if version != _CHECKPOINT_VERSION:
+        raise ConfigError(
+            f"resume checkpoint version {version} is not supported "
+            f"(expected {_CHECKPOINT_VERSION})")
+    if ckpt_num_dofs != num_dofs:
+        raise ConfigError(
+            f"resume checkpoint num_dofs={ckpt_num_dofs} "
+            f"does not match scene num_dofs={num_dofs}")
+    if not np.isclose(ckpt_timestep, timestep, rtol=0.0, atol=1e-15):
+        raise ConfigError(
+            f"resume checkpoint timestep={ckpt_timestep} does not match config timestep={timestep}")
+    if ckpt_integrator != integrator:
+        raise ConfigError(
+            f"resume checkpoint integrator={ckpt_integrator!r} "
+            f"does not match config integrator={integrator!r}")
+    for label, value in (
+        ("displacement", displacement),
+        ("velocity", velocity),
+        ("acceleration", acceleration),
+    ):
+        if value.shape != (num_dofs,):
+            raise ConfigError(
+                f"resume checkpoint {label} shape {value.shape} "
+                f"does not match ({num_dofs},)")
+        if not np.all(np.isfinite(value)):
+            raise ConfigError(f"resume checkpoint {label} contains non-finite values")
+
+    return DynamicState(
+        displacement=displacement,
+        velocity=velocity,
+        acceleration=acceleration,
+        timestep_id=timestep_id,
+        time=time,
+    )
+
+
+def _surface_frame_index(path: Path) -> int:
+    return int(path.stem.removeprefix("surface"))
+
+
+def _rebuild_abc_from_surfaces(bundle: SceneBundle, cfg) -> None:
+    surface_dir = cfg.output.directory / "surface"
+    surface_paths = sorted(surface_dir.glob("surface*.obj"), key=_surface_frame_index)
+    if not surface_paths:
+        return
+    abc_displacements = []
+    for path in surface_paths:
+        surface = read_obj(str(path))
+        disp = np.asarray(surface.vertices, dtype=np.float64) - bundle.surface_rest
+        abc_displacements.append(np.ascontiguousarray(disp, dtype=np.float64).ravel())
+
+    AbcWriter.dump(
+        cfg.output.directory / "animation.abc",
+        cfg.output.directory.name or "simulation",
+        rest_positions=np.ascontiguousarray(bundle.surface_rest, dtype=np.float64).ravel(),
+        triangles=bundle.surface_triangles,
+        displacements=abc_displacements,
+        fps=1.0 / (cfg.output.dump_interval * cfg.dynamic.timestep),
     )
 
 
@@ -83,9 +230,29 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
     dt = cfg.dynamic.timestep
     x0 = bundle.initial_vector(cfg.initial_state.displacement)
     v0 = bundle.initial_vector(cfg.initial_state.velocity)
+    a0 = np.zeros(bundle.num_dofs, dtype=np.float64)
+    resume_path = _resolve_resume_checkpoint(cfg)
+    if resume_path is not None:
+        resume_state = _read_checkpoint(
+            resume_path,
+            num_dofs=bundle.num_dofs,
+            timestep=dt,
+            integrator=cfg.dynamic.integrator,
+        )
+        x0 = resume_state.displacement
+        v0 = resume_state.velocity
+        a0 = resume_state.acceleration
+        initial_timestep_id = int(resume_state.timestep_id)
+        initial_time = float(resume_state.time)
+    else:
+        initial_timestep_id = 0
+        initial_time = 0.0
+
     state = DynamicState(
         displacement=x0, velocity=v0,
-        acceleration=np.zeros(bundle.num_dofs, dtype=np.float64))
+        acceleration=a0,
+        timestep_id=initial_timestep_id,
+        time=initial_time)
 
     energy = _energy.EnergySet(
         bundle.weighted_energies(include_gravity_potential=False))
@@ -105,8 +272,7 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
 
     optimizer = _make_optimizer(cfg)
     frames = []
-    abc_displacements = []  # dumped-frame surface displacements for the .abc
-    for _ in range(cfg.dynamic.num_steps):
+    while int(sim.state.timestep_id) < cfg.dynamic.num_steps:
         t_next = sim.state.time + dt
         for ma in bundle.moving_attachments:
             ma.energy.set_targets(np.tile(ma.velocity * t_next, ma.num_vertices))
@@ -115,7 +281,7 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
         # Surfaces and states are written even for rejected frames — useful when
         # diagnosing divergence (the state is the last accepted one).
         if frame.frame_index % cfg.output.dump_interval == 0:
-            if cfg.output.write_surfaces:
+            if cfg.output.write_surfaces or cfg.output.write_abc:
                 write_surface(
                     cfg.output.directory / "surface" / f"surface{frame.frame_index:04d}.obj",
                     bundle.surface_positions(frame.displacement),
@@ -140,29 +306,29 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
                 }
                 (stress_dir / f"von_mises{frame.frame_index:04d}.json").write_text(
                     json.dumps(doc))
-            if cfg.output.write_abc:
-                disp = bundle.surface_positions(frame.displacement) - bundle.surface_rest
-                abc_displacements.append(np.ascontiguousarray(disp, dtype=np.float64).ravel())
+            if cfg.output.write_checkpoints:
+                _write_checkpoint(
+                    _checkpoint_path(cfg.output.directory, frame.frame_index),
+                    frame=frame,
+                    state=sim.state,
+                    timestep=dt,
+                    integrator=cfg.dynamic.integrator,
+                    num_dofs=bundle.num_dofs,
+                )
         if not frame.accepted:
             break
 
-    if cfg.output.write_abc and abc_displacements:
-        # One abc sample per dumped frame -> fps follows the dump cadence.
-        AbcWriter.dump(
-            cfg.output.directory / "animation.abc",
-            cfg.output.directory.name or "simulation",
-            rest_positions=np.ascontiguousarray(
-                bundle.surface_rest, dtype=np.float64).ravel(),
-            triangles=bundle.surface_triangles,
-            displacements=abc_displacements,
-            fps=1.0 / (cfg.output.dump_interval * dt),
-        )
+    if cfg.output.write_abc:
+        _rebuild_abc_from_surfaces(bundle, cfg)
 
     summary = {
         "mode": "dynamic",
         "mesh_type": cfg.mesh_type,
         "num_dofs": bundle.num_dofs,
         "num_frames": len(frames),
+        "resumed_from": str(resume_path) if resume_path is not None else None,
+        "initial_timestep_id": initial_timestep_id,
+        "target_timestep_id": int(cfg.dynamic.num_steps),
         "final_time": float(sim.state.time),
         "final_timestep_id": int(sim.state.timestep_id),
         "frames": [

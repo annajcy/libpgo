@@ -38,9 +38,11 @@ def test_minimal_volume_dynamic_config(tmp_path):
     assert cfg.mesh.formulation == "auto"
     assert cfg.material.model == "stable_neo"
     assert cfg.dynamic.integrator == "implicit_euler"
+    assert cfg.dynamic.resume is None
     assert cfg.solver.max_iterations == 50
     assert cfg.loads.gravity == (0.0, 0.0, 0.0)
     assert cfg.contact == ()
+    assert cfg.output.write_checkpoints is False
 
 
 def test_cli_overrides_beat_json(tmp_path):
@@ -472,6 +474,78 @@ def test_write_states_parsed_true(tmp_path):
     })
     cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
     assert cfg.output.write_states is True
+
+
+def test_write_checkpoints_default_false_and_parsed(tmp_path):
+    """OutputConfig.write_checkpoints defaults to False and round-trips from JSON."""
+    base = {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    }
+    cfg = load_config(mesh_type="tet", mode="dynamic",
+                      json_path=_write(tmp_path, base, "a.json"))
+    assert cfg.output.write_checkpoints is False
+
+    base["output"]["write_checkpoints"] = True
+    cfg = load_config(mesh_type="tet", mode="dynamic",
+                      json_path=_write(tmp_path, base, "b.json"))
+    assert cfg.output.write_checkpoints is True
+
+
+def test_dynamic_resume_default_latest_and_path(tmp_path):
+    """dynamic.resume accepts None, 'latest', and explicit checkpoint paths."""
+    base = {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"timestep": 0.001, "resume": "latest"},
+        "output": {"directory": "out"},
+    }
+    cfg = load_config(mesh_type="tet", mode="dynamic",
+                      json_path=_write(tmp_path, base, "latest.json"))
+    assert cfg.dynamic.resume == "latest"
+
+    ckpt = tmp_path / "state0002.npz"
+    cfg = load_config(
+        mesh_type="tet", mode="dynamic",
+        json_path=_write(tmp_path, {
+            "mesh": {"volume": "m.veg", "surface": "m.obj"},
+            "dynamic": {"timestep": 0.001, "resume": str(ckpt)},
+            "output": {"directory": "out"},
+        }, "path.json"),
+    )
+    assert cfg.dynamic.resume == ckpt
+
+
+def test_dynamic_resume_rejected_in_static_mode(tmp_path):
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "dynamic": {"resume": "latest"},
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="resume"):
+        load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+
+
+def test_dynamic_checkpoint_resume_cli_overrides(tmp_path):
+    from pypgo.tools.sim._cli import _overrides_from_args, build_parser
+
+    parser = build_parser(
+        prog="pypgo-sim-tet-dynamic",
+        mesh_type="tet",
+        mode="dynamic",
+    )
+    args = parser.parse_args([
+        "--volume", str(tmp_path / "m.veg"),
+        "--surface", str(tmp_path / "m.obj"),
+        "--output-dir", str(tmp_path / "out"),
+        "--timestep", "0.001",
+        "--write-checkpoints",
+        "--resume", "latest",
+    ])
+    overrides = _overrides_from_args(args, mesh_type="tet", mode="dynamic")
+    cfg = load_config(mesh_type="tet", mode="dynamic", overrides=overrides)
+    assert cfg.output.write_checkpoints is True
+    assert cfg.dynamic.resume == "latest"
 
 
 # ---------------------------------------------------------------------------

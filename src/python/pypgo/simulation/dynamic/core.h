@@ -61,6 +61,8 @@ public:
     nb::ndarray<nb::numpy, const double> displacement,
     nb::ndarray<nb::numpy, const double> velocity,
     nb::ndarray<nb::numpy, const double> acceleration,
+    std::uint64_t timestepId,
+    double time,
     double timestep,
     std::shared_ptr<PyDynamicStepper> integrator,
     std::vector<int> fixedDofs);

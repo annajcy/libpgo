@@ -144,6 +144,30 @@ def test_run_zero_returns_empty_and_does_not_mutate():
     np.testing.assert_array_equal(sim.state.displacement, np.zeros(n))
 
 
+def test_dynamic_simulation_starts_from_nonzero_time_and_timestep_id():
+    n = 1
+    state = DynamicState(
+        displacement=np.zeros(n),
+        velocity=np.zeros(n),
+        acceleration=np.zeros(n),
+        timestep_id=7,
+        time=0.35,
+    )
+    sim = DynamicSimulation(
+        mass=np.eye(n),
+        state=state,
+        timestep=0.05,
+        integrator="implicit_euler",
+    )
+
+    assert sim.state.timestep_id == 7
+    assert sim.state.time == pytest.approx(0.35)
+    frame = sim.step(external_force=np.zeros(n))
+    assert frame.frame_index == 7
+    assert sim.state.timestep_id == 8
+    assert sim.state.time == pytest.approx(0.40)
+
+
 def test_run_negative_raises():
     sim = DynamicSimulation(mass=np.eye(1), state=_rest_state(1), timestep=0.05)
     with pytest.raises(ValueError):

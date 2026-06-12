@@ -35,6 +35,8 @@ def build_parser(*, prog: str, mesh_type: str, mode: str) -> argparse.ArgumentPa
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--write-surfaces", action="store_true", default=None,
                         help="write deformed surface OBJ output")
+    parser.add_argument("--write-checkpoints", action="store_true", default=None,
+                        help="write restart checkpoints at dumped dynamic frames")
     parser.add_argument("--gravity", nargs=3, type=float, default=None,
                         metavar=("GX", "GY", "GZ"))
     parser.add_argument("--solver-max-iterations", type=int, default=None)
@@ -45,6 +47,8 @@ def build_parser(*, prog: str, mesh_type: str, mode: str) -> argparse.ArgumentPa
         parser.add_argument("--integrator", choices=INTEGRATORS, default=None)
         parser.add_argument("--damping", nargs=2, type=float, default=None,
                             metavar=("MASS", "STIFFNESS"))
+        parser.add_argument("--resume", default=None,
+                            help="'latest' or a checkpoint .npz path")
     return parser
 
 
@@ -65,6 +69,7 @@ def _overrides_from_args(args, *, mesh_type: str, mode: str) -> dict:
     put_path("mesh.surface", args.surface)
     put_path("output.directory", args.output_dir)
     put("output.write_surfaces", args.write_surfaces)
+    put("output.write_checkpoints", args.write_checkpoints)
     put("loads.gravity", tuple(args.gravity) if args.gravity is not None else None)
     put("solver.max_iterations", args.solver_max_iterations)
     put("solver.gradient_tolerance", args.solver_gradient_tolerance)
@@ -74,6 +79,9 @@ def _overrides_from_args(args, *, mesh_type: str, mode: str) -> dict:
         put("dynamic.integrator", args.integrator)
         put("dynamic.damping",
             tuple(args.damping) if args.damping is not None else None)
+        if args.resume is not None:
+            resume = "latest" if args.resume == "latest" else str(Path(args.resume).resolve())
+            put("dynamic.resume", resume)
     return overrides
 
 

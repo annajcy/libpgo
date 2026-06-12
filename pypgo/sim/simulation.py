@@ -80,7 +80,7 @@ class DynamicSimulation:
         mass_damping, stiffness_damping = (float(damping[0]), float(damping[1]))
 
         self._n = n
-        self._frame_index = 0
+        self._frame_index = int(state.timestep_id)
         self._handle = _core.PyDynamicSimulation(
             num_dofs=n,
             mass_rows=mass_rows,
@@ -92,6 +92,8 @@ class DynamicSimulation:
             displacement=sized_vector("displacement", state.displacement, n),
             velocity=sized_vector("velocity", state.velocity, n),
             acceleration=sized_vector("acceleration", state.acceleration, n),
+            timestep_id=int(state.timestep_id),
+            time=float(state.time),
             timestep=float(timestep),
             integrator=stepper._handle,
             fixed_dofs=[int(d) for d in (fixed_dofs or [])],

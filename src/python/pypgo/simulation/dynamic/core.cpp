@@ -71,6 +71,8 @@ PyDynamicSimulation::PyDynamicSimulation(
   nb::ndarray<nb::numpy, const double> displacement,
   nb::ndarray<nb::numpy, const double> velocity,
   nb::ndarray<nb::numpy, const double> acceleration,
+  std::uint64_t timestepId,
+  double time,
   double timestep,
   std::shared_ptr<PyDynamicStepper> integrator,
   std::vector<int> fixedDofs)
@@ -97,6 +99,8 @@ PyDynamicSimulation::PyDynamicSimulation(
   state_.displacement = python::ndarrayToVectorXd(displacement);
   state_.velocity = python::ndarrayToVectorXd(velocity);
   state_.acceleration = python::ndarrayToVectorXd(acceleration);
+  state_.timestepId = timestepId;
+  state_.time = time;
 
   stepper_ = SIM::makeDynamicStepper(integrator->kind(), std::move(problem), integrator->trbdf2Gamma());
 }

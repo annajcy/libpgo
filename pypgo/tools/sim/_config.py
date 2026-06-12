@@ -196,6 +196,7 @@ class DynamicConfig:
     num_steps: int = 1
     integrator: str = "implicit_euler"
     damping: tuple[float, float] = (0.0, 0.0)
+    resume: str | Path | None = None
 
 
 @dataclass(frozen=True)
@@ -203,6 +204,7 @@ class OutputConfig:
     directory: Path | None = None
     write_surfaces: bool = False
     write_states: bool = False
+    write_checkpoints: bool = False
     write_stress: bool = False
     write_abc: bool = False
     dump_interval: int = 1
@@ -255,6 +257,9 @@ def _resolve_json_paths(payload: dict, base_dir: Path) -> dict:
     output = payload.get("output", {})
     if output.get("directory") is not None:
         output["directory"] = _resolve(base_dir, output["directory"])
+    dynamic = payload.get("dynamic", {})
+    if dynamic.get("resume") is not None and dynamic["resume"] != "latest":
+        dynamic["resume"] = _resolve(base_dir, dynamic["resume"])
     return payload
 
 
@@ -466,6 +471,10 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
             "(friction needs velocities)"
         )
 
+    dyn_payload = payload.get("dynamic", {})
+    if mode == "static" and dyn_payload.get("resume") is not None:
+        raise ConfigError("dynamic.resume requires dynamic mode")
+
     init_payload = payload.get("initial_state", {})
     initial_state = InitialStateConfig(
         displacement=_vec3(init_payload.get("displacement", (0.0, 0.0, 0.0)),
@@ -481,12 +490,17 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
     )
 
     dyn_payload = payload.get("dynamic", {})
+    resume_raw = dyn_payload.get("resume")
+    resume = None
+    if resume_raw is not None:
+        resume = "latest" if resume_raw == "latest" else Path(resume_raw)
     dynamic = DynamicConfig(
         timestep=float(dyn_payload["timestep"])
         if dyn_payload.get("timestep") is not None else None,
         num_steps=int(dyn_payload.get("num_steps", 1)),
         integrator=dyn_payload.get("integrator", "implicit_euler"),
         damping=tuple(float(v) for v in dyn_payload.get("damping", (0.0, 0.0))),
+        resume=resume,
     )
     if len(dynamic.damping) != 2:
         raise ConfigError("dynamic.damping must be a [mass, stiffness] pair")
@@ -513,6 +527,7 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         if out_payload.get("directory") else None,
         write_surfaces=bool(out_payload.get("write_surfaces", False)),
         write_states=bool(out_payload.get("write_states", False)),
+        write_checkpoints=bool(out_payload.get("write_checkpoints", False)),
         write_stress=write_stress,
         write_abc=bool(out_payload.get("write_abc", False)),
         dump_interval=dump_interval,
