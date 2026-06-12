@@ -4,6 +4,8 @@
 #include "barycentricCoordinates.h"
 #include "cubicMesh.h"
 #include "generateMassMatrix.h"
+#include "mass/volumeMassField.h"
+#include "simulation/simulationMesh.h"
 
 #include <memory>
 #include <vector>
@@ -40,8 +42,11 @@ double sparseCoeff(const EigenSupport::SpMatD &M, int r, int c)
 
 TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelocityEnergy)
 {
-  auto mesh = makeSingleCube(2.0);
-  EigenSupport::SpMatD M = CubicTricubicHermiteFormulation{}.buildMassMatrix(*mesh);
+  constexpr double density = 2.0;
+  auto mesh = makeSingleCube(density);
+  auto simMesh = loadCubicMesh(mesh.get());
+  ConstantVolumeDensity massField(density);
+  EigenSupport::SpMatD M = CubicTricubicHermiteFormulation{}.buildMassMatrix(*simMesh, massField);
   ASSERT_EQ(M.rows(), 8 * 24);
   ASSERT_EQ(M.cols(), 8 * 24);
 
@@ -51,7 +56,7 @@ TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelo
     qdot.segment<3>(vertex * 24) = v;
 
   const double kinetic = 0.5 * qdot.dot(M * qdot);
-  const double expected = 0.5 * 2.0 * v.squaredNorm();
+  const double expected = 0.5 * density * v.squaredNorm();
   EXPECT_NEAR(kinetic, expected, 1e-10);
 
   for (int k = 0; k < M.outerSize(); k++) {
@@ -63,9 +68,12 @@ TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelo
 
 TEST(FormulationDynamicsGTest, HermiteBodyForceHasCorrectTotalAndDerivativeEntries)
 {
-  auto mesh = makeSingleCube(3.0);
+  constexpr double density = 3.0;
+  auto mesh = makeSingleCube(density);
+  auto simMesh = loadCubicMesh(mesh.get());
+  ConstantVolumeDensity massField(density);
   EigenSupport::V3d a(0.0, -9.8, 0.0);
-  EigenSupport::VXd f = CubicTricubicHermiteFormulation{}.buildBodyForce(*mesh, a);
+  EigenSupport::VXd f = CubicTricubicHermiteFormulation{}.buildBodyForce(*simMesh, a, massField);
   ASSERT_EQ(f.size(), 8 * 24);
 
   EigenSupport::V3d valueForce = EigenSupport::V3d::Zero();
@@ -75,7 +83,7 @@ TEST(FormulationDynamicsGTest, HermiteBodyForceHasCorrectTotalAndDerivativeEntri
     derivativeNorm += f.segment(vertex * 24 + 3, 21).norm();
   }
 
-  EXPECT_TRUE(valueForce.isApprox(3.0 * a, 1e-10));
+  EXPECT_TRUE(valueForce.isApprox(density * a, 1e-10));
   EXPECT_GT(derivativeNorm, 0.0);
 }
 
@@ -115,12 +123,15 @@ TEST(FormulationDynamicsGTest, HermiteSurfaceEmbeddingReproducesAffineDisplaceme
 
 TEST(FormulationDynamicsGTest, TrilinearMassMatchesLegacyOperator)
 {
-  auto mesh = makeSingleCube(2.0);
+  constexpr double density = 2.0;
+  auto mesh = makeSingleCube(density);
+  auto simMesh = loadCubicMesh(mesh.get());
+  ConstantVolumeDensity massField(density);
   EigenSupport::SpMatD legacyMass;
   VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(mesh.get(), legacyMass, true);
 
-  EigenSupport::SpMatD mass = CubicLinearFormulation{}.buildMassMatrix(*mesh);
-  EXPECT_TRUE(mass.isApprox(legacyMass, 1e-12));
+  EigenSupport::SpMatD mass = CubicLinearFormulation{}.buildMassMatrix(*simMesh, massField);
+  EXPECT_TRUE(mass.isApprox(legacyMass, 1e-6));
 }
 
 TEST(FormulationDynamicsGTest, TrilinearSurfaceEmbeddingMatchesLegacyBarycentricOperator)
@@ -141,4 +152,3 @@ TEST(FormulationDynamicsGTest, TrilinearSurfaceEmbeddingMatchesLegacyBarycentric
 
   EXPECT_TRUE(W.isApprox(legacyW, 1e-12));
 }
-

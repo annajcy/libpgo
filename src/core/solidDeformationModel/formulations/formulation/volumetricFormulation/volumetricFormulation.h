@@ -40,9 +40,9 @@ public:
   // Consistent mass matrix / generalized body force, assembled with the
   // formulation's shape function over massQuadrature(), scattered through
   // the formulation's DofLayout. Density comes from the mass field.
-  EigenSupport::SpMatD buildMassMatrix(
+  virtual EigenSupport::SpMatD buildMassMatrix(
     const SimulationMesh &mesh, const VolumeMassField &massField) const;
-  EigenSupport::VXd buildBodyForce(
+  virtual EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
     const VolumeMassField &massField) const;
   virtual EigenSupport::SpMatD buildSurfaceEmbeddingMatrix(
