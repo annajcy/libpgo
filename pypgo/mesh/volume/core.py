@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import pypgo._core as _core
 from pypgo.mesh.data import CubicMeshData, TetMeshData, TriMeshData, _wrap_mesh_data_core
@@ -213,190 +212,12 @@ class VolumeMesh:
 # ---------------------------------------------------------------------------
 
 
-def _compact(text: str) -> str:
-    return "".join(text.split())
-
-
-def _parse_ints(text: str) -> list[int]:
-    return [int(value) for value in text.replace(",", " ").split()]
-
-
-def _parse_floats(text: str) -> list[float]:
-    return [float(value) for value in text.replace(",", " ").split()]
-
-
-def _read_ascii_lines(path: Path) -> list[str]:
-    lines: list[str] = []
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("*INCLUDE "):
-            lines.extend(_read_ascii_lines(path.parent / line[9:].strip()))
-            continue
-        lines.append(line)
-    return lines
-
-
-def _parse_material(name: str, spec: str) -> MaterialLike:
-    if "," not in spec:
-        raise RuntimeError(f"Malformed material '{name}': {spec}")
-    material_type, values_text = spec.split(",", 1)
-    material_type = _compact(material_type).upper()
-    values = _parse_floats(values_text)
-
-    if material_type == "ENU":
-        if len(values) < 3:
-            raise RuntimeError(f"ENU material '{name}' requires density, E, and nu")
-        return ENuMaterial(name, density=values[0], E=values[1], nu=values[2])
-
-    if material_type.startswith("MOONEYRIVLIN"):
-        if len(values) < 4:
-            raise RuntimeError(f"Mooney-Rivlin material '{name}' requires density, mu01, mu10, and v1")
-        return MooneyRivlinMaterial(name, density=values[0], mu01=values[1], mu10=values[2], v1=values[3])
-
-    raise RuntimeError(f"Unsupported material type in ASCII .veg file: {material_type}")
-
-
-def _read_ascii_veg(path: str) -> VegFile:
-    veg_path = Path(path)
-    lines = _read_ascii_lines(veg_path)
-    vertices: list[list[float]] = []
-    elements: list[list[int]] = []
-    element_width = 0
-    parsed_num_elements = 0
-    one_indexed_vertices = True
-    one_indexed_elements = True
-    materials: list[MaterialLike] = []
-    sets: list[MeshSet] = []
-    regions: list[MeshRegion] = []
-    material_map: dict[str, int] = {}
-    set_map: dict[str, int] = {}
-
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-
-        if line.startswith("*VERTICES"):
-            i += 1
-            if i >= len(lines):
-                raise RuntimeError(f"Missing *VERTICES header in {path}")
-            header = _parse_ints(lines[i])
-            i += 1
-            if not header or header[0] < 0:
-                raise RuntimeError(f"Invalid vertex count in {path}")
-            for _ in range(header[0]):
-                if i >= len(lines):
-                    raise RuntimeError(f"Missing vertex row in {path}")
-                values = _parse_floats(lines[i])
-                i += 1
-                if len(values) < 4:
-                    raise RuntimeError(f"Malformed vertex row in {path}: {lines[i - 1]}")
-                if int(values[0]) == 0:
-                    one_indexed_vertices = False
-                vertices.append([values[1], values[2], values[3]])
-            continue
-
-        if line.startswith("*ELEMENTS"):
-            i += 1
-            if i >= len(lines):
-                raise RuntimeError(f"Missing element type in {path}")
-            element_type = _compact(lines[i]).upper()
-            i += 1
-            if element_type == "TET":
-                element_width = 4
-            elif element_type == "CUBIC":
-                element_width = 8
-            else:
-                raise RuntimeError(f"Unsupported element type in {path}: {element_type}")
-
-            if i >= len(lines):
-                raise RuntimeError(f"Missing element count in {path}")
-            header = _parse_ints(lines[i])
-            i += 1
-            if not header or header[0] < 0:
-                raise RuntimeError(f"Invalid element count in {path}")
-            parsed_num_elements = header[0]
-            vertex_offset = 1 if one_indexed_vertices else 0
-            for _ in range(parsed_num_elements):
-                if i >= len(lines):
-                    raise RuntimeError(f"Missing element row in {path}")
-                values = _parse_ints(lines[i])
-                i += 1
-                if len(values) < element_width + 1:
-                    raise RuntimeError(f"Malformed element row in {path}: {lines[i - 1]}")
-                if values[0] == 0:
-                    one_indexed_elements = False
-                elements.append([v - vertex_offset for v in values[1:element_width + 1]])
-            if not sets:
-                set_map["allElements"] = 0
-                sets.append(MeshSet("allElements", list(range(parsed_num_elements))))
-            continue
-
-        if line.startswith("*MATERIAL"):
-            name = _compact(line[9:])
-            i += 1
-            if i >= len(lines):
-                raise RuntimeError(f"Missing material payload in {path}")
-            material_map[name] = len(materials)
-            materials.append(_parse_material(name, lines[i]))
-            i += 1
-            continue
-
-        if line.startswith("*SET"):
-            name = _compact(line[4:])
-            element_offset = 1 if one_indexed_elements else 0
-            set_elements: list[int] = []
-            i += 1
-            while i < len(lines) and not lines[i].startswith("*"):
-                set_elements.extend(element - element_offset for element in _parse_ints(lines[i]))
-                i += 1
-            set_map[name] = len(sets)
-            sets.append(MeshSet(name, set_elements))
-            continue
-
-        if line.startswith("*REGION"):
-            i += 1
-            if i >= len(lines):
-                raise RuntimeError(f"Missing region payload in {path}")
-            spec = _compact(lines[i])
-            i += 1
-            if "," not in spec:
-                raise RuntimeError(f"Malformed region line in {path}: {spec}")
-            set_name, material_name = spec.split(",", 1)
-            if set_name not in set_map:
-                raise RuntimeError(f"Region references unknown set in {path}: {set_name}")
-            if material_name not in material_map:
-                raise RuntimeError(f"Region references unknown material in {path}: {material_name}")
-            regions.append(MeshRegion(material_map[material_name], set_map[set_name]))
-            continue
-
-        i += 1
-
-    if element_width == 4:
-        mesh_data = TetMeshData(vertices, elements)
-    elif element_width == 8:
-        mesh_data = CubicMeshData(vertices, elements)
-    else:
-        raise RuntimeError(f"No *ELEMENTS section found in {path}")
-
-    if not materials:
-        materials.append(ENuMaterial())
-    if not regions:
-        regions.append(MeshRegion(len(materials) - 1, 0))
-
-    return VegFile(mesh_data=mesh_data, materials=materials, sets=sets, regions=regions)
-
-
 def read_msh(path: str) -> TetMeshData:
     """Load a Gmsh .msh file and return a TetMeshData (geometry only, no material)."""
     return _wrap_mesh_data_core(_core.read_msh(str(path)))
 
 
 def read_veg(path: str) -> VegFile:
-    if Path(path).suffix.lower() != ".vegb":
-        return _read_ascii_veg(str(path))
-
     payload = _core.read_veg(str(path))
     return VegFile(
         mesh_data=_wrap_mesh_data_core(payload.mesh_data),

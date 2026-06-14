@@ -68,34 +68,14 @@ __all__ = [
 
 def read_obj(path: str) -> TriMeshData:
     """Read an OBJ surface mesh."""
-    vertices = []
-    triangles = []
-
-    with open(path, "r", encoding="utf-8") as obj_file:
-        for raw_line in obj_file:
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if parts[0] == "v" and len(parts) >= 4:
-                vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
-            elif parts[0] == "f" and len(parts) >= 4:
-                face = [int(token.split("/", 1)[0]) - 1 for token in parts[1:]]
-                for i in range(1, len(face) - 1):
-                    triangles.append([face[0], face[i], face[i + 1]])
-
-    return TriMeshData(vertices, triangles)
+    return TriMeshData(_core.read_obj(str(path)))
 
 
 def write_obj(path: str, surface_data: TriMeshData) -> None:
     """Write a triangle surface mesh to OBJ."""
     if not isinstance(surface_data, TriMeshData):
         raise TypeError(f"surface_data must be a TriMeshData, got {type(surface_data).__name__}")
-    with open(path, "w", encoding="utf-8") as obj_file:
-        for vertex in surface_data.vertices:
-            obj_file.write(f"v {vertex[0]:.17g} {vertex[1]:.17g} {vertex[2]:.17g}\n")
-        for triangle in surface_data.elements:
-            obj_file.write(f"f {int(triangle[0]) + 1} {int(triangle[1]) + 1} {int(triangle[2]) + 1}\n")
+    _core.write_obj(str(path), surface_data._handle)
 
 
 def create_box(*, bmin, bmax) -> TriMeshData:
