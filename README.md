@@ -154,6 +154,11 @@ Install either `pypgo` or `pypgo-mkl` in one environment, not both. The two
 conda packages expose the same Python package name and are marked mutually
 exclusive in the recipe.
 
+The regular `pypgo` package uses the OpenBLAS BLAS/LAPACK stack and does not
+hard-depend on conda `pytorch`; install `torch` separately if you need the
+optional `pypgo.fem` torch layers. The `pypgo-mkl` package depends on the MKL
+stack and includes conda `pytorch`.
+
 The same recipe is parameterized by CI environment variables:
 
 | Package | CMake preset | MKL |

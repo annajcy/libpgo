@@ -41,6 +41,7 @@ requirements:
     - cmake >=3.29
     - ninja
     - numpy
+    - eigen
     - gmp
     - mpfr
     - imath
@@ -63,7 +64,9 @@ requirements:
     - python >=3.12,<3.13
     - numpy
     - pyvista
+    {% if with_mkl %}
     - pytorch
+    {% endif %}
     - gmp
     - mpfr
     - imath

@@ -1,5 +1,8 @@
-if(TARGET Eigen3::Eigen)
-else()
+if(NOT TARGET Eigen3::Eigen AND PGO_CHECK_CONDA)
+  find_package(Eigen3 CONFIG QUIET)
+endif()
+
+if(NOT TARGET Eigen3::Eigen)
   message(STATUS "Loading eigen...")
 
   pgo_dep_option(BUILD_TESTING BOOL OFF "eigen build test")
