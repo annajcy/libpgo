@@ -5,12 +5,12 @@
 #include "volumetricMeshENuMaterial.h"
 #include "volumetricMeshMooneyRivlinMaterial.h"
 #include "volumetricMeshOrthotropicMaterial.h"
-#include "volumetricMeshParser.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <set>
@@ -39,21 +39,29 @@ bool startsWith(const std::string &text, const char *prefix)
 
 std::vector<std::string> readAsciiLines(const std::filesystem::path &path)
 {
-  VolumetricMeshParser parser;
-  if (parser.open(path.string().c_str()) != 0)
+  std::ifstream in(path);
+  if (!in)
     throw std::runtime_error("Failed to open veg file: " + path.string());
 
   std::vector<std::string> lines;
-  char lineBuffer[1024];
-  try {
-    while (parser.getNextLine(lineBuffer, 0, 0) != nullptr)
-      lines.emplace_back(lineBuffer);
+  std::string line;
+  while (std::getline(in, line)) {
+    line = trim(line);
+    if (line.empty() || line[0] == '#')
+      continue;
+
+    if (startsWith(line, "*INCLUDE ")) {
+      const auto includePath = path.parent_path() / trim(line.substr(9));
+      auto includeLines = readAsciiLines(includePath);
+      lines.insert(
+        lines.end(),
+        std::make_move_iterator(includeLines.begin()),
+        std::make_move_iterator(includeLines.end()));
+      continue;
+    }
+
+    lines.push_back(std::move(line));
   }
-  catch (...) {
-    parser.close();
-    throw;
-  }
-  parser.close();
   return lines;
 }
 
