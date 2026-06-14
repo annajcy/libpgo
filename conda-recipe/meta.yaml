@@ -44,16 +44,20 @@ requirements:
     - gmp
     - mpfr
     - imath
-    - libblas
-    - liblapack
+    {% if with_mkl %}
+    - libblas * *mkl
+    - liblapack * *mkl
+    - mkl-devel
+    {% else %}
+    - libblas * *openblas
+    - liblapack * *openblas
+    - libopenblas
+    {% endif %}
     - libboost-devel
     - tbb-devel
     - gmsh
     - openvdb
     - zlib
-    {% if with_mkl %}
-    - mkl-devel
-    {% endif %}
   run:
     - python >=3.12,<3.13
     - numpy
@@ -62,16 +66,20 @@ requirements:
     - gmp
     - mpfr
     - imath
-    - libblas
-    - liblapack
+    {% if with_mkl %}
+    - libblas * *mkl
+    - liblapack * *mkl
+    - mkl-devel
+    {% else %}
+    - libblas * *openblas
+    - liblapack * *openblas
+    - libopenblas
+    {% endif %}
     - libboost-devel
     - tbb
     - gmsh
     - openvdb
     - zlib
-    {% if with_mkl %}
-    - mkl-devel
-    {% endif %}
   run_constrained:
     {% if with_mkl %}
     - pypgo <0

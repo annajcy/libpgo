@@ -10,7 +10,12 @@ pgo_dep_option(BUILD_SHARED_LIBS BOOL OFF "Build shared libraries")
 pgo_dep_option(SUITESPARSE_ENABLE_PROJECTS STRING "suitesparse_config;amd;camd;ccolamd;colamd;cholmod;cxsparse;klu;umfpack;spqr;" "SuiteSparse projects to build")
 pgo_dep_option(SUITESPARSE_USE_FORTRAN BOOL OFF "SuiteSparse Fortran support")
 pgo_dep_option(SUITESPARSE_USE_OPENMP BOOL OFF "SuiteSparse OpenMP support")
-pgo_dep_option(BLA_VENDOR STRING "" "BLAS vendor")
+if(PGO_USE_MKL)
+  set(_PGO_SUITESPARSE_BLA_VENDOR "Intel10_64lp")
+else()
+  set(_PGO_SUITESPARSE_BLA_VENDOR "OpenBLAS")
+endif()
+pgo_dep_option(BLA_VENDOR STRING "${_PGO_SUITESPARSE_BLA_VENDOR}" "BLAS vendor")
 
 include(FetchContent)
 FetchContent_Declare(

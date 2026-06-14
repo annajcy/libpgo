@@ -3,7 +3,10 @@ else()
   message(STATUS "Loading eigen...")
 
   pgo_dep_option(BUILD_TESTING BOOL OFF "eigen build test")
+  pgo_dep_option(EIGEN_BUILD_TESTING BOOL OFF "eigen build test")
   pgo_dep_option(BUILD_EXAMPLES BOOL OFF "eigen build examples")
+  pgo_dep_option(EIGEN_BUILD_BLAS BOOL OFF "eigen BLAS compatibility library")
+  pgo_dep_option(EIGEN_BUILD_LAPACK BOOL OFF "eigen LAPACK compatibility library")
   pgo_dep_option(EIGEN_BUILD_DOC BOOL OFF "eigen build doc")
   pgo_dep_option(EIGEN_BUILD_CMAKE_PACKAGE BOOL ON "eigen build cmake package")
 

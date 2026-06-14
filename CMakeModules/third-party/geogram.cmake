@@ -5,6 +5,8 @@ endif()
 message(STATUS "Loading geogram...")
 
 pgo_dep_option(GEOGRAM_SUB_BUILD BOOL ON "Building as subproject")
+pgo_dep_option(GEOGRAM_BUILD_SHARED BOOL OFF "Build geogram shared library")
+pgo_dep_option(GEOGRAM_BUILD_STATIC BOOL ON "Build geogram static library")
 pgo_dep_option(GEOGRAM_LIB_ONLY BOOL ON "Build geogram lib only")
 pgo_dep_option(GEOGRAM_WITH_GRAPHICS BOOL OFF "Disable graphics")
 pgo_dep_option(GEOGRAM_WITH_HLBFGS BOOL ON "Non-linear solver (Yang Liu's HLBFGS)")
