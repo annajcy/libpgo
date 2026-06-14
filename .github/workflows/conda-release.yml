@@ -91,6 +91,7 @@ jobs:
           miniforge-version: latest
           channels: conda-forge
           channel-priority: strict
+          conda-remove-defaults: true
           auto-update-conda: false
           activate-environment: conda-build-env
           python-version: "3.12"
@@ -157,6 +158,7 @@ jobs:
           miniforge-version: latest
           channels: conda-forge
           channel-priority: strict
+          conda-remove-defaults: true
           auto-update-conda: false
           activate-environment: conda-upload-env
           python-version: "3.12"

@@ -13,10 +13,18 @@ build:
   number: 0
   script_env:
     - PYPGO_CMAKE_PRESET
-    - CMAKE_BUILD_PARALLEL_LEVEL
 {% if with_mkl %}
   skip: true  # [osx]
 {% endif %}
+  script:
+    - export PYPGO_CMAKE_PRESET="${PYPGO_CMAKE_PRESET:-pypgo-conda}"  # [unix]
+    - export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-${CPU_COUNT:-2}}"  # [unix]
+    - rm -rf build/pypgo-conda build/pypgo-conda-mkl  # [unix]
+    - if "%PYPGO_CMAKE_PRESET%"=="" set "PYPGO_CMAKE_PRESET=pypgo-conda"  # [win]
+    - if "%CMAKE_BUILD_PARALLEL_LEVEL%"=="" set "CMAKE_BUILD_PARALLEL_LEVEL=%CPU_COUNT%"  # [win]
+    - if exist build\pypgo-conda rmdir /s /q build\pypgo-conda  # [win]
+    - if exist build\pypgo-conda-mkl rmdir /s /q build\pypgo-conda-mkl  # [win]
+    - {{ PYTHON }} -m pip install . --no-build-isolation --no-deps -v
 
 requirements:
   build:
