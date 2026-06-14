@@ -114,7 +114,7 @@ jobs:
           PYPGO_CMAKE_PRESET: ${{ matrix.preset }}
           PYPGO_WITH_MKL: ${{ matrix.with_mkl }}
         run: |
-          conda build conda-recipe \
+          conda-build conda-recipe \
             --output-folder conda-bld \
             --no-anaconda-upload
 
@@ -126,7 +126,7 @@ jobs:
           PYPGO_CMAKE_PRESET: ${{ matrix.preset }}
           PYPGO_WITH_MKL: ${{ matrix.with_mkl }}
         run: |
-          conda build conda-recipe `
+          conda-build conda-recipe `
             --output-folder conda-bld `
             --no-anaconda-upload
 
