@@ -81,8 +81,8 @@ struct PyVegOrthotropicMaterialPayload {
 };
 
 struct PyVegPayload {
-    nb::object meshData;
-    nb::list materials;
+    VolumetricMeshes::VegMeshData meshData;
+    std::vector<VolumetricMeshes::VegMaterialPayload> materials;
     std::vector<std::pair<std::string, std::vector<int>>> sets;
     std::vector<std::pair<int, int>> regions;
 };

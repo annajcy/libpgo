@@ -134,6 +134,19 @@ nb::object materialPayloadFromVegPayload(const VolumetricMeshes::VegMaterialPayl
     }, payload);
 }
 
+nb::object meshDataFromVegPayload(const VolumetricMeshes::VegMeshData& meshData)
+{
+    return std::visit([](const auto& data) -> nb::object {
+        using T = std::decay_t<decltype(data)>;
+        if constexpr (std::is_same_v<T, Mesh::MeshData<4>>) {
+            return nb::cast(PyTetMeshData(data));
+        }
+        else {
+            return nb::cast(PyCubicMeshData(data));
+        }
+    }, meshData);
+}
+
 VolumetricMeshes::VegMaterialPayload vegPayloadFromMaterialObject(const nb::object& obj) {
     if (nb::isinstance<PyVegENuMaterialPayload>(obj)) {
         auto p = nb::cast<PyVegENuMaterialPayload>(obj);
@@ -337,19 +350,8 @@ PyVegPayload extract_veg_payload_from_volume_mesh(const PyVolumeMesh& vm) {
     }
 
     PyVegPayload result;
-    result.meshData = std::visit([](auto&& meshData) {
-        using T = std::decay_t<decltype(meshData)>;
-        if constexpr (std::is_same_v<T, Mesh::MeshData<4>>) {
-            return nb::cast(PyTetMeshData(std::forward<decltype(meshData)>(meshData)));
-        }
-        else {
-            return nb::cast(PyCubicMeshData(std::forward<decltype(meshData)>(meshData)));
-        }
-    }, std::move(payload.meshData));
-
-    for (const auto& material : payload.materials) {
-        result.materials.append(materialPayloadFromVegPayload(material));
-    }
+    result.meshData = std::move(payload.meshData);
+    result.materials = std::move(payload.materials);
     for (const auto& set : payload.sets) {
         result.sets.emplace_back(set.name, set.elements);
     }
@@ -420,19 +422,8 @@ PyVegPayload read_veg(const std::string& path) {
     }
 
     PyVegPayload result;
-    result.meshData = std::visit([](auto&& meshData) {
-        using T = std::decay_t<decltype(meshData)>;
-        if constexpr (std::is_same_v<T, Mesh::MeshData<4>>) {
-            return nb::cast(PyTetMeshData(std::forward<decltype(meshData)>(meshData)));
-        }
-        else {
-            return nb::cast(PyCubicMeshData(std::forward<decltype(meshData)>(meshData)));
-        }
-    }, std::move(payload.meshData));
-
-    for (const auto& material : payload.materials) {
-        result.materials.append(materialPayloadFromVegPayload(material));
-    }
+    result.meshData = std::move(payload.meshData);
+    result.materials = std::move(payload.materials);
     for (const auto& set : payload.sets) {
         result.sets.emplace_back(set.name, set.elements);
     }
@@ -597,8 +588,14 @@ PyVegOrthotropicMaterialPayload create_orthotropic_material_payload(
     return { name, density, E1, E2, E3, nu12, nu23, nu31, G12, G23, G31, R };
 }
 
-nb::object vegPayloadMeshData(const PyVegPayload& self) { return self.meshData; }
-nb::list vegPayloadMaterials(const PyVegPayload& self) { return self.materials; }
+nb::object vegPayloadMeshData(const PyVegPayload& self) { return meshDataFromVegPayload(self.meshData); }
+nb::list vegPayloadMaterials(const PyVegPayload& self) {
+    nb::list materials;
+    for (const auto& material : self.materials) {
+        materials.append(materialPayloadFromVegPayload(material));
+    }
+    return materials;
+}
 std::vector<std::pair<std::string, std::vector<int>>> vegPayloadSets(const PyVegPayload& self) { return self.sets; }
 std::vector<std::pair<int, int>> vegPayloadRegions(const PyVegPayload& self) { return self.regions; }
 
