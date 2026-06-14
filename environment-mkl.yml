@@ -1,4 +1,4 @@
-name: libpgo
+name: libpgo-mkl
 channels:
   - conda-forge
 dependencies:
@@ -9,21 +9,17 @@ dependencies:
   - ninja
   - pkg-config
 
-  # --- math / precision libraries (replaces apt libgmp-dev/libmpfr-dev/libimath-dev and brew gmp/mpfr/imath) ---
+  # --- math / precision libraries ---
   - gmp
   - mpfr
   - imath
-  # BLAS/LAPACK — OpenBLAS stack, pinned to the *openblas variant so numpy/scipy
-  # use the SAME backend as the C++ build (which forces BLA_VENDOR=OpenBLAS).
-  # Without the pin the interface could drift to a different backend, leaving
-  # numpy on one BLAS and the extension on another (two BLAS in one process).
-  # `openblas` is the build-time dev package — unversioned libopenblas.dylib +
-  # pkgconfig/openblas.pc + headers that find_package(BLAS) needs; it pulls the
-  # libopenblas runtime in automatically.
-  # For an MKL dev build, flip the whole stack to *mkl instead — see the README.
-  - libblas=*=*openblas
-  - liblapack=*=*openblas
-  - openblas
+  # BLAS/LAPACK — MKL stack, pinned to the *mkl variant so numpy/scipy use the
+  # SAME backend as the C++ build (which sets BLA_VENDOR=Intel10_64lp when
+  # PGO_USE_MKL=ON). The pin is what keeps one BLAS per process; mkl-devel
+  # alone would leave numpy on the OpenBLAS interface.
+  - libblas=*=*mkl
+  - liblapack=*=*mkl
+  - mkl-devel
   - zlib
 
   # --- C++ dependencies ---
@@ -33,9 +29,6 @@ dependencies:
   # --- meshing & geometry ---
   - gmsh
   - openvdb
-
-  # --- MKL (Linux / Windows only — CMake auto-disables on macOS / Apple Silicon) ---
-  # - mkl-devel
 
   # --- Python: core (conda) ---
   - numpy        # kept on conda — openvdb's python bindings hard-depend on conda-numpy
@@ -51,6 +44,6 @@ dependencies:
   # and pip requirement files cannot carry that flag.
   #     pip install -e .[viz,torch,dev] --no-build-isolation
   # Why pip rather than conda for some of them:
-  #   torch -> official pip wheel provides macOS arm64 MPS (was conda `pytorch`)
+  #   torch -> official pip wheel (MPS on macOS arm64); MKL-capable on Linux/Win
   #   viz   -> pyvista pulls its own vtk wheel (conda vtk-base removed to avoid a
   #            duplicate vtkmodules import path); the trame stack lags on conda-forge

@@ -105,9 +105,17 @@ std::unique_ptr<NewtonSparseSolverBackend> createNewtonSparseSolverBackend(
   switch (options.kind) {
     case NewtonSparseSolverKind::Auto:
 #if defined(PGO_HAS_ORIG_PARDISO)
-      return std::make_unique<OrigPardisoBackend>(A);
+      {
+        auto backend = std::make_unique<OrigPardisoBackend>(A);
+        backend->analyze(A);
+        return backend;
+      }
 #elif defined(PGO_HAS_MKL)
-      return std::make_unique<MKLPardisoBackend>(A);
+      {
+        auto backend = std::make_unique<MKLPardisoBackend>(A);
+        backend->analyze(A);
+        return backend;
+      }
 #else
       return createEigenBackend(A);
 #endif
@@ -117,14 +125,22 @@ std::unique_ptr<NewtonSparseSolverBackend> createNewtonSparseSolverBackend(
 
     case NewtonSparseSolverKind::MKLPardiso:
 #if defined(PGO_HAS_MKL) && !defined(PGO_HAS_ORIG_PARDISO)
-      return std::make_unique<MKLPardisoBackend>(A);
+      {
+        auto backend = std::make_unique<MKLPardisoBackend>(A);
+        backend->analyze(A);
+        return backend;
+      }
 #else
       throw std::invalid_argument("MKL Pardiso sparse solver backend is not available in this build");
 #endif
 
     case NewtonSparseSolverKind::OrigPardiso:
 #if defined(PGO_HAS_ORIG_PARDISO)
-      return std::make_unique<OrigPardisoBackend>(A);
+      {
+        auto backend = std::make_unique<OrigPardisoBackend>(A);
+        backend->analyze(A);
+        return backend;
+      }
 #else
       throw std::invalid_argument("Original Pardiso sparse solver backend is not available in this build");
 #endif
@@ -138,9 +154,13 @@ std::unique_ptr<NewtonSparseSolverBackend> createNewtonSparseSolverBackend(
 std::unique_ptr<NewtonSparseSolverBackend> AutoSparseSolverSelector::build(const EigenSupport::SpMatD &A) const
 {
 #if defined(PGO_HAS_ORIG_PARDISO)
-  return std::make_unique<OrigPardisoBackend>(A);
+  auto backend = std::make_unique<OrigPardisoBackend>(A);
+  backend->analyze(A);
+  return backend;
 #elif defined(PGO_HAS_MKL)
-  return std::make_unique<MKLPardisoBackend>(A);
+  auto backend = std::make_unique<MKLPardisoBackend>(A);
+  backend->analyze(A);
+  return backend;
 #else
   auto backend = std::make_unique<EigenSimplicialLDLTBackend>();
   backend->analyze(A);
@@ -156,7 +176,9 @@ std::unique_ptr<NewtonSparseSolverBackend> EigenLDLTSparseSolverSelector::build(
 std::unique_ptr<NewtonSparseSolverBackend> MKLPardisoSparseSolverSelector::build(const EigenSupport::SpMatD &A) const
 {
 #if defined(PGO_HAS_MKL) && !defined(PGO_HAS_ORIG_PARDISO)
-  return std::make_unique<MKLPardisoBackend>(A);
+  auto backend = std::make_unique<MKLPardisoBackend>(A);
+  backend->analyze(A);
+  return backend;
 #else
   throw std::invalid_argument("MKL Pardiso sparse solver backend is not available in this build");
 #endif
@@ -165,7 +187,9 @@ std::unique_ptr<NewtonSparseSolverBackend> MKLPardisoSparseSolverSelector::build
 std::unique_ptr<NewtonSparseSolverBackend> OrigPardisoSparseSolverSelector::build(const EigenSupport::SpMatD &A) const
 {
 #if defined(PGO_HAS_ORIG_PARDISO)
-  return std::make_unique<OrigPardisoBackend>(A);
+  auto backend = std::make_unique<OrigPardisoBackend>(A);
+  backend->analyze(A);
+  return backend;
 #else
   throw std::invalid_argument("Original Pardiso sparse solver backend is not available in this build");
 #endif

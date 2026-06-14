@@ -85,13 +85,25 @@ conda env create -f environment.yml
 conda activate libpgo
 ```
 
-**MKL (Linux / Windows only):** MKL is commented out in `environment.yml`
-because it is unavailable on Apple Silicon. Linux and Windows users who want
-the `base` preset to pick up MKL can install it after environment creation:
+**MKL (Linux / Windows only):** MKL is unavailable on Apple Silicon, so the
+default `environment.yml` is an OpenBLAS stack (its BLAS interface is pinned to
+the `*openblas` variant). Linux/Windows users who want an MKL build should use
+the dedicated environment file, which pins the entire stack to MKL:
 
 ```bash
-conda install -n libpgo -y mkl-devel
+conda env create -f environment-mkl.yml
+conda activate libpgo-mkl
 ```
+
+To switch an existing `libpgo` env to MKL instead of recreating:
+
+```bash
+conda install -n libpgo -c conda-forge mkl-devel "libblas=*=*mkl" "liblapack=*=*mkl"
+```
+
+Either way, numpy's BLAS is routed through MKL too — the same backend as the
+C++ extension (`BLA_VENDOR=Intel10_64lp` / `EIGEN_USE_MKL_ALL` / Pardiso),
+avoiding two BLAS in one process.
 
 `mamba` can be used as an optional accelerator only when it belongs to the same
 conda installation that owns the `libpgo` environment. Avoid mixing a

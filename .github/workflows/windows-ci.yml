@@ -6,6 +6,7 @@ on:
       - main
       - master
       - original/*
+      - codex/*
   pull_request:
   workflow_dispatch:
 
@@ -50,7 +51,7 @@ jobs:
           "PATH=$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build and install Python package
-        run: python -m pip install -e . --no-build-isolation
+        run: python -m pip install -e .[viz,torch,dev] --no-build-isolation
 
       - name: Run Python API pytest suite
         run: python -m pytest -q tests/pypgo
@@ -59,7 +60,7 @@ jobs:
         run: $env:PYVISTA_OFF_SCREEN='True'; $env:RUN_NOTEBOOKS='1'; python -m pytest tests/pypgo/test_notebook.py -v -k "TestNotebookExecution"
 
   cmake-build:
-    name: CMake Preset Build and Test
+    name: CMake Preset Build and Test (MKL)
     runs-on: windows-2022
     timeout-minutes: 120
 
@@ -84,14 +85,11 @@ jobs:
         with:
           miniforge-variant: Miniforge3
           miniforge-version: latest
-          environment-file: environment.yml
-          activate-environment: libpgo
+          environment-file: environment-mkl.yml
+          activate-environment: libpgo-mkl
           auto-activate-base: false
           channels: conda-forge
           channel-priority: strict
-
-      - name: Install MKL
-        run: conda install -y mkl-devel
 
       - name: Remove incompatible Fortran tools from PATH
         run: |

@@ -3,7 +3,10 @@ name: Conda Release
 on:
   push:
     branches:
-      - codex/contact-internal-refactor
+      - main
+      - master
+      - original/*
+      - codex/*
     tags:
       - "v*"
   workflow_dispatch:
@@ -100,12 +103,12 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash -l {0}
         run: |
-          conda install -y conda-build anaconda-client
+          conda install -y conda-build conda-index anaconda-client
 
       - name: Install conda build tools
         if: runner.os == 'Windows'
         shell: pwsh
-        run: conda install -y conda-build anaconda-client
+        run: conda install -y conda-build conda-index anaconda-client
 
       - name: Build conda package
         if: runner.os != 'Windows'
