@@ -2,6 +2,8 @@ name: Conda Release
 
 on:
   push:
+    branches:
+      - codex/contact-internal-refactor
     tags:
       - "v*"
   workflow_dispatch:
