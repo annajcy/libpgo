@@ -65,7 +65,7 @@ else()
     animation/disabled/bindings.cpp)
 endif()
 
-nanobind_add_module(pypgo_core STABLE_ABI NB_DOMAIN pypgo ${PYPGO_BINDING_SOURCES})
+nanobind_add_module(pypgo_core NB_DOMAIN pypgo ${PYPGO_BINDING_SOURCES})
 
 target_link_libraries(pypgo_core PRIVATE
   mesh

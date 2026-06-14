@@ -90,14 +90,14 @@ def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path)
         lambda command, cwd: commands.append((command, cwd)),
     )
 
-    built_extension = tmp_path / "_core.abi3.so"
+    built_extension = tmp_path / "_core.cpython-314-darwin.so"
     built_extension.write_bytes(b"native extension")
 
     builder = object.__new__(build_ext_cls)
     builder.parallel = 2
     builder._find_built_extension = lambda source_dir, expected_name: built_extension
     builder.get_ext_fullpath = lambda name: str(
-        tmp_path / "build" / "lib" / "pypgo" / "_core.abi3.so"
+        tmp_path / "build" / "lib" / "pypgo" / "_core.cpython-314-darwin.so"
     )
 
     ext = setup_kwargs["ext_modules"][0]
