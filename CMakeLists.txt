@@ -67,31 +67,27 @@ if(APPLE)
       link_directories("${PGO_HOMEBREW_PREFIX}/lib")
       list(APPEND CMAKE_PREFIX_PATH "${PGO_HOMEBREW_PREFIX}")
     endif()
-  else()
-    # Conda build: point standard finders at the active conda environment.
-    # Package-specific finders (TBB, Gmsh, OpenVDB, ...) hardcode their own
-    # $CONDA_PREFIX hints, but find_package(BLAS) relies on the default search
-    # path, which does not include the env when building with the system
-    # (non-conda) compiler — causing "Could NOT find BLAS" for the OpenBLAS
-    # dev build. Adding the prefix here lets it resolve the conda OpenBLAS.
-    if(NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
-      message(STATUS "Adding conda prefix to global search paths: $ENV{CONDA_PREFIX}")
-      list(APPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
+  endif()
+endif()
 
-      # conda-forge's OpenBLAS package on macOS ships libopenblas.0.dylib
-      # but not the unversioned libopenblas.dylib symlink. CMake's
-      # find_library(NAMES openblas) only matches libopenblas.dylib, so
-      # SuiteSparse's BLAS finder (BLA_VENDOR=OpenBLAS) fails. Create the
-      # missing symlink at configure time.
-      if(APPLE)
-        set(_pgo_openblas_vers "$ENV{CONDA_PREFIX}/lib/libopenblas.0.dylib")
-        set(_pgo_openblas_plain "$ENV{CONDA_PREFIX}/lib/libopenblas.dylib")
-        if(EXISTS "${_pgo_openblas_vers}" AND NOT EXISTS "${_pgo_openblas_plain}")
-          execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-            "libopenblas.0.dylib" "${_pgo_openblas_plain}")
-          message(STATUS "Created missing OpenBLAS symlink: ${_pgo_openblas_plain} -> libopenblas.0.dylib")
-        endif()
-      endif()
+# Conda builds (PGO_CHECK_CONDA=ON): make standard finders search the active
+# conda environment. Package-specific finders historically hardcoded their own
+# $CONDA_PREFIX hints, but find_package(BLAS) relies on the default search path.
+if(PGO_CHECK_CONDA AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
+  if(WIN32)
+    list(PREPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}/Library" "$ENV{CONDA_PREFIX}")
+  else()
+    list(PREPEND CMAKE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
+  endif()
+  message(STATUS "Conda build: prepended $ENV{CONDA_PREFIX} to CMAKE_PREFIX_PATH")
+
+  if(APPLE)
+    set(_pgo_openblas_vers "$ENV{CONDA_PREFIX}/lib/libopenblas.0.dylib")
+    set(_pgo_openblas_plain "$ENV{CONDA_PREFIX}/lib/libopenblas.dylib")
+    if(EXISTS "${_pgo_openblas_vers}" AND NOT EXISTS "${_pgo_openblas_plain}")
+      execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+        "libopenblas.0.dylib" "${_pgo_openblas_plain}")
+      message(STATUS "Created missing OpenBLAS symlink: ${_pgo_openblas_plain} -> libopenblas.0.dylib")
     endif()
   endif()
 endif()

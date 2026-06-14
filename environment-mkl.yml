@@ -1,6 +1,7 @@
 name: libpgo-mkl
 channels:
   - conda-forge
+  - nodefaults
 dependencies:
   - python=3.12
 
@@ -23,6 +24,9 @@ dependencies:
   - zlib
 
   # --- C++ dependencies ---
+  # Ceres 2.2 accepts Eigen 3.x; conda-forge Eigen 5.x has an incompatible
+  # package config for Ceres' `find_package(Eigen3 3.3)`.
+  - eigen>=3.4,<4
   - libboost-devel
   - tbb-devel
 

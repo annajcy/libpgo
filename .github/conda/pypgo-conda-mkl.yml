@@ -1,6 +1,7 @@
 name: pypgo-conda-mkl
 channels:
   - conda-forge
+  - nodefaults
 dependencies:
   - python=3.12
   - cmake>=3.29
@@ -9,9 +10,10 @@ dependencies:
   - gmp
   - mpfr
   - imath
-  - libblas
-  - liblapack
+  - libblas=*=*mkl
+  - liblapack=*=*mkl
   - zlib
+  - eigen>=3.4,<4
   - libboost-devel
   - tbb-devel
   - gmsh
