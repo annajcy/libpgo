@@ -15,17 +15,18 @@ from pypgo.mesh.data import (
     TriMeshData,
 )
 from pypgo.mesh.geometry import SurfaceEmbedding
-from pypgo.mesh.visualize import (
-    get_backend,
-    plot_points_on_mesh,
-    plot_surface,
-    plot_volume_surface,
-    reset_backend,
-    set_backend,
-    to_pyvista_surface,
-    to_pyvista_volume,
-    write_points_obj,
-)
+
+_VISUALIZE_EXPORTS = {
+    "get_backend",
+    "plot_points_on_mesh",
+    "plot_surface",
+    "plot_volume_surface",
+    "reset_backend",
+    "set_backend",
+    "to_pyvista_surface",
+    "to_pyvista_volume",
+    "write_points_obj",
+}
 
 __all__ = [
     "MeshDataType",
@@ -126,6 +127,15 @@ def __getattr__(name: str):
         module = import_module(f"{__name__}.{name}")
         globals()[name] = module
         return module
+    if name == "visualize":
+        module = import_module(f"{__name__}.visualize")
+        globals()[name] = module
+        return module
+    if name in _VISUALIZE_EXPORTS:
+        module = import_module(f"{__name__}.visualize")
+        value = getattr(module, name)
+        globals()[name] = value
+        return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
