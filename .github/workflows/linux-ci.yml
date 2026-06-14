@@ -51,7 +51,10 @@ jobs:
         run: python -m pip install -e .[viz,torch,dev] --no-build-isolation
 
       - name: Run Python API pytest suite
-        run: python -m pytest -q tests/pypgo
+        run: |
+          while IFS= read -r -d '' test_file; do
+            python -m pytest -q "${test_file}"
+          done < <(find tests/pypgo -maxdepth 1 -name 'test_*.py' -print0 | sort -z)
 
       - name: Execute example notebooks
         env:

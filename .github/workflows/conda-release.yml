@@ -147,7 +147,7 @@ jobs:
           mkdir -p "local-channel/${subdir}"
           find "conda-bld/${subdir}" -maxdepth 1 -type f \( -name '*.conda' -o -name '*.tar.bz2' \) \
             -exec cp {} "local-channel/${subdir}/" \;
-          conda index local-channel
+          python -m conda_index local-channel
           python -m zipfile -c "${{ matrix.artifact_name }}-channel.zip" local-channel
 
       - name: Create local conda channel
@@ -165,7 +165,7 @@ jobs:
           New-Item -ItemType Directory -Path "local-channel\$subdir" -Force | Out-Null
           Get-ChildItem -Path "conda-bld\$subdir\*.conda", "conda-bld\$subdir\*.tar.bz2" -File -ErrorAction SilentlyContinue |
             Copy-Item -Destination "local-channel\$subdir"
-          conda index local-channel
+          python -m conda_index local-channel
           python -m zipfile -c "${{ matrix.artifact_name }}-channel.zip" local-channel
 
       - name: Upload conda build artifact
