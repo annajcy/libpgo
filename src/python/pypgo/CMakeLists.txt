@@ -83,6 +83,14 @@ target_link_libraries(pypgo_core PRIVATE
   parallelism
 )
 
+if(TARGET LAPACK::LAPACK)
+  target_link_libraries(pypgo_core PRIVATE LAPACK::LAPACK)
+endif()
+
+if(TARGET BLAS::BLAS)
+  target_link_libraries(pypgo_core PRIVATE BLAS::BLAS)
+endif()
+
 if(TARGET cgalInterface)
   target_link_libraries(pypgo_core PRIVATE cgalInterface)
   target_include_directories(pypgo_core PRIVATE ${CMAKE_SOURCE_DIR}/src/core/cgalInterface)
