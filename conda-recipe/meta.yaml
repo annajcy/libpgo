@@ -41,7 +41,7 @@ requirements:
     - cmake >=3.29
     - ninja
     - numpy
-    - eigen
+    - eigen >=3.4,<4
     - gmp
     - mpfr
     - imath
