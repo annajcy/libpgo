@@ -29,6 +29,9 @@ build:
     - find "build/${PYPGO_CMAKE_PRESET}" \( -name 'libgeogram*.dylib' -o -name 'libgeogram*.so*' \) -exec cp -P {} "${PREFIX}/lib/" \;  # [unix]
     - if not exist "%PREFIX%\Library\bin" mkdir "%PREFIX%\Library\bin"  # [win]
     - for /r "build\%PYPGO_CMAKE_PRESET%" %%F in (geogram*.dll libgeogram*.dll) do copy /Y "%%F" "%PREFIX%\Library\bin\"  # [win]
+    - if exist third-party\gmp-msvc\release\gmp-10.dll copy /Y third-party\gmp-msvc\release\gmp-10.dll "%PREFIX%\Library\bin\"  # [win]
+    - if exist third-party\gmp-msvc\release\gmpxx-4.dll copy /Y third-party\gmp-msvc\release\gmpxx-4.dll "%PREFIX%\Library\bin\"  # [win]
+    - if exist third-party\mpfr-msvc\release\mpfr-6.dll copy /Y third-party\mpfr-msvc\release\mpfr-6.dll "%PREFIX%\Library\bin\"  # [win]
 
 requirements:
   build:

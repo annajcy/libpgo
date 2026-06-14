@@ -27,6 +27,11 @@ FetchContent_Declare(
 
 pgo_fetch_make_available(suitesparse)
 
+# SuiteSparse resolves BLAS/LAPACK inside its fetched subdirectories. Repeat the
+# lookup here so targets defined later, such as pypgo_core, can link them too.
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
+
 foreach(_pgo_suitesparse_blas_target IN ITEMS CHOLMOD_static SPQR_static UMFPACK_static)
   if(TARGET ${_pgo_suitesparse_blas_target})
     if(TARGET LAPACK::LAPACK)
