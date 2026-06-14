@@ -27,6 +27,17 @@ FetchContent_Declare(
 
 pgo_fetch_make_available(suitesparse)
 
+foreach(_pgo_suitesparse_blas_target IN ITEMS CHOLMOD_static SPQR_static UMFPACK_static)
+  if(TARGET ${_pgo_suitesparse_blas_target})
+    if(TARGET LAPACK::LAPACK)
+      target_link_libraries(${_pgo_suitesparse_blas_target} PUBLIC LAPACK::LAPACK)
+    endif()
+    if(TARGET BLAS::BLAS)
+      target_link_libraries(${_pgo_suitesparse_blas_target} PUBLIC BLAS::BLAS)
+    endif()
+  endif()
+endforeach()
+
 foreach(_pgo_suitesparse_component IN ITEMS AMD CAMD CCOLAMD CHOLMOD COLAMD SPQR)
   if(TARGET ${_pgo_suitesparse_component}_static AND NOT TARGET SuiteSparse::${_pgo_suitesparse_component})
     add_library(SuiteSparse::${_pgo_suitesparse_component} ALIAS ${_pgo_suitesparse_component}_static)

@@ -60,6 +60,7 @@
             ],
             "binaryDir": "${sourceDir}/build/pypgo-conda",
             "cacheVariables": {
+                "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
                 "PGO_NATIVE_OPTIMIZATION": "OFF",
                 "PGO_USE_MKL": "OFF",
                 "Python_FIND_VIRTUALENV": "FIRST"
