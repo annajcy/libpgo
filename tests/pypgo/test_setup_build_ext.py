@@ -79,7 +79,7 @@ def test_cmake_build_ext_uses_python_build_preset(monkeypatch, tmp_path):
 
 
 def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("PYPGO_CMAKE_PRESET", "pypgo-wheel")
+    monkeypatch.setenv("PYPGO_CMAKE_PRESET", "pypgo-conda-mkl")
     namespace, setup_kwargs = load_setup_namespace(monkeypatch)
     build_ext_cls = setup_kwargs["cmdclass"]["build_ext"]
 
@@ -104,13 +104,13 @@ def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path)
     builder.build_extension(ext)
 
     assert commands == [
-        (["cmake", "--preset", "pypgo-wheel"], ROOT),
+        (["cmake", "--preset", "pypgo-conda-mkl"], ROOT),
         (
             [
                 "cmake",
                 "--build",
                 "--preset",
-                "pypgo-wheel",
+                "pypgo-conda-mkl",
                 "--target",
                 "pypgo_core",
                 "--parallel",

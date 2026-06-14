@@ -1,0 +1,175 @@
+name: Conda Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload built packages to Anaconda.org
+        required: true
+        type: boolean
+        default: false
+      label:
+        description: Anaconda.org label to upload to
+        required: true
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.artifact_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            artifact_name: linux-64-pypgo
+            package_name: pypgo
+            preset: pypgo-conda
+            with_mkl: "0"
+          - os: ubuntu-24.04
+            artifact_name: linux-64-pypgo-mkl
+            package_name: pypgo-mkl
+            preset: pypgo-conda-mkl
+            with_mkl: "1"
+          - os: macos-15
+            artifact_name: osx-arm64-pypgo
+            package_name: pypgo
+            preset: pypgo-conda
+            with_mkl: "0"
+          - os: windows-2022
+            artifact_name: win-64-pypgo
+            package_name: pypgo
+            preset: pypgo-conda
+            with_mkl: "0"
+          - os: windows-2022
+            artifact_name: win-64-pypgo-mkl
+            package_name: pypgo-mkl
+            preset: pypgo-conda-mkl
+            with_mkl: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check release tag version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: python
+        run: |
+          import pathlib
+          import re
+          import sys
+
+          setup_py = pathlib.Path("setup.py").read_text()
+          match = re.search(r'version="([^"]+)"', setup_py)
+          if not match:
+              raise SystemExit("Could not find setup.py version.")
+          setup_version = match.group(1)
+          tag_version = "${{ github.ref_name }}".removeprefix("v")
+          if tag_version != setup_version:
+              raise SystemExit(
+                  f"Release tag v{tag_version} does not match setup.py version {setup_version}."
+              )
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          channels: conda-forge
+          channel-priority: strict
+          auto-update-conda: false
+          activate-environment: conda-build-env
+          python-version: "3.12"
+
+      - name: Install conda build tools
+        if: runner.os != 'Windows'
+        shell: bash -l {0}
+        run: |
+          conda install -y conda-build anaconda-client
+
+      - name: Install conda build tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: conda install -y conda-build anaconda-client
+
+      - name: Build conda package
+        if: runner.os != 'Windows'
+        shell: bash -l {0}
+        env:
+          PYPGO_CONDA_PACKAGE: ${{ matrix.package_name }}
+          PYPGO_CMAKE_PRESET: ${{ matrix.preset }}
+          PYPGO_WITH_MKL: ${{ matrix.with_mkl }}
+        run: |
+          conda build conda-recipe \
+            --output-folder conda-bld \
+            --no-anaconda-upload
+
+      - name: Build conda package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PYPGO_CONDA_PACKAGE: ${{ matrix.package_name }}
+          PYPGO_CMAKE_PRESET: ${{ matrix.preset }}
+          PYPGO_WITH_MKL: ${{ matrix.with_mkl }}
+        run: |
+          conda build conda-recipe `
+            --output-folder conda-bld `
+            --no-anaconda-upload
+
+      - name: Upload conda build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            conda-bld/**/*.conda
+            conda-bld/**/*.tar.bz2
+          if-no-files-found: error
+
+  upload:
+    name: Upload to Anaconda.org
+    needs: build
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.upload)
+    steps:
+      - name: Download conda artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: conda-artifacts
+          merge-multiple: true
+
+      - name: Set up conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          channels: conda-forge
+          channel-priority: strict
+          auto-update-conda: false
+          activate-environment: conda-upload-env
+          python-version: "3.12"
+
+      - name: Upload packages
+        shell: bash -l {0}
+        env:
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_API_TOKEN }}
+          ANACONDA_USER: ${{ vars.ANACONDA_USER }}
+          ANACONDA_LABEL: ${{ github.event.inputs.label || 'main' }}
+        run: |
+          test -n "${ANACONDA_API_TOKEN}"
+          test -n "${ANACONDA_USER}"
+          conda install -y anaconda-client
+          find conda-artifacts -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print0 \
+            | xargs -0 anaconda -t "${ANACONDA_API_TOKEN}" upload \
+                --user "${ANACONDA_USER}" \
+                --label "${ANACONDA_LABEL}"

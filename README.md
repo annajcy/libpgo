@@ -100,7 +100,8 @@ create another `libpgo` under a different prefix.
 
 ### Python Package Build
 
-The Python package is installed in editable mode with pip:
+The Python package is installed in editable mode with pip inside the active
+conda environment:
 
 ```bash
 conda activate libpgo
@@ -119,12 +120,76 @@ into `pypgo/`, where the editable package imports it. By default it uses the
 detected CPU count for the native build; pass `-j N` if you want to override
 the number of parallel build jobs.
 
-To build a wheel:
+For conda package builds, select the conda-oriented CMake presets explicitly:
 
 ```bash
-python setup.py bdist_wheel
-pip install dist/pypgo-*.whl
+PYPGO_CMAKE_PRESET=pypgo-conda python -m pip install . --no-build-isolation --no-deps -v
 ```
+
+The matching CI/local dependency file is `.github/conda/pypgo-conda.yml`.
+
+Use `pypgo-conda-mkl` for an MKL-enabled package on platforms where MKL is
+available:
+
+```bash
+PYPGO_CMAKE_PRESET=pypgo-conda-mkl python -m pip install . --no-build-isolation --no-deps -v
+```
+
+The MKL dependency file is `.github/conda/pypgo-conda-mkl.yml`.
+
+PyPI wheels are not the primary distribution target. The release path is conda
+packaging so large native runtime dependencies such as Gmsh, OpenVDB, Boost,
+TBB, Imath, and MKL can be expressed as conda package dependencies instead of
+being bundled into Python wheels.
+
+### Conda Package Release
+
+The release workflow is `.github/workflows/conda-release.yml`. It builds conda
+packages from `conda-recipe/` on tag pushes and manual dispatches:
+
+- `pypgo`: Linux, macOS Apple Silicon, and Windows.
+- `pypgo-mkl`: Linux and Windows only. macOS does not publish an MKL variant.
+
+Install either `pypgo` or `pypgo-mkl` in one environment, not both. The two
+conda packages expose the same Python package name and are marked mutually
+exclusive in the recipe.
+
+The same recipe is parameterized by CI environment variables:
+
+| Package | CMake preset | MKL |
+| --- | --- | --- |
+| `pypgo` | `pypgo-conda` | Off |
+| `pypgo-mkl` | `pypgo-conda-mkl` | On |
+
+To test the conda recipe locally:
+
+```bash
+conda activate libpgo
+conda install -y conda-build anaconda-client
+PYPGO_CONDA_PACKAGE=pypgo \
+PYPGO_CMAKE_PRESET=pypgo-conda \
+PYPGO_WITH_MKL=0 \
+conda build conda-recipe --output-folder conda-bld --no-anaconda-upload
+```
+
+For the MKL package on Linux or Windows:
+
+```bash
+PYPGO_CONDA_PACKAGE=pypgo-mkl \
+PYPGO_CMAKE_PRESET=pypgo-conda-mkl \
+PYPGO_WITH_MKL=1 \
+conda build conda-recipe --output-folder conda-bld --no-anaconda-upload
+```
+
+Every release build uploads the `.conda` packages as GitHub Actions artifacts.
+To publish them to Anaconda.org, configure these repository settings:
+
+- Secret `ANACONDA_API_TOKEN`: an Anaconda.org API token with upload access.
+- Variable `ANACONDA_USER`: the Anaconda.org account or organization name.
+
+Pushing a tag such as `v0.0.4` builds and uploads to the `main` label. Manual
+workflow runs can build artifacts without upload, or upload to a selected label
+such as `dev`.
 
 ### Native CMake Build
 
@@ -156,6 +221,8 @@ Other shared presets are available for debug, CUDA, Knitro, and Pardiso builds:
 | --- | --- | --- |
 | `base` | `build/base` | Default release build. |
 | `pypgo` | `build/pypgo` | Lightweight preset for Python-first native bindings. |
+| `pypgo-conda` | `build/pypgo-conda` | Conda package build for Python bindings, with portable CPU flags and MKL disabled. |
+| `pypgo-conda-mkl` | `build/pypgo-conda-mkl` | Conda package build for Python bindings with MKL enabled. |
 | `base_debug` | `build/base_debug` | Debug build. |
 | `base_cuda` | `build/base_cuda` | `base` plus CUDA. |
 | `base_cuda_debug` | `build/base_cuda_debug` | Debug CUDA build. |

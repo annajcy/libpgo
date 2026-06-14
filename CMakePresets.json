@@ -53,15 +53,27 @@
             }
         },
         {
-            "name": "pypgo-wheel",
+            "name": "pypgo-conda",
             "hidden": false,
             "inherits": [
                 "pypgo"
             ],
-            "binaryDir": "${sourceDir}/build/pypgo-wheel",
+            "binaryDir": "${sourceDir}/build/pypgo-conda",
             "cacheVariables": {
                 "PGO_NATIVE_OPTIMIZATION": "OFF",
+                "PGO_USE_MKL": "OFF",
                 "Python_FIND_VIRTUALENV": "FIRST"
+            }
+        },
+        {
+            "name": "pypgo-conda-mkl",
+            "hidden": false,
+            "inherits": [
+                "pypgo-conda"
+            ],
+            "binaryDir": "${sourceDir}/build/pypgo-conda-mkl",
+            "cacheVariables": {
+                "PGO_USE_MKL": "ON"
             }
         },
         {
@@ -162,8 +174,15 @@
             ]
         },
         {
-            "name": "pypgo-wheel",
-            "configurePreset": "pypgo-wheel",
+            "name": "pypgo-conda",
+            "configurePreset": "pypgo-conda",
+            "targets": [
+                "pypgo_core"
+            ]
+        },
+        {
+            "name": "pypgo-conda-mkl",
+            "configurePreset": "pypgo-conda-mkl",
             "targets": [
                 "pypgo_core"
             ]

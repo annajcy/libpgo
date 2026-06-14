@@ -1,0 +1,88 @@
+{% set package_name = environ.get("PYPGO_CONDA_PACKAGE", "pypgo") %}
+{% set version = environ.get("PYPGO_VERSION", "0.0.4") %}
+{% set with_mkl = environ.get("PYPGO_WITH_MKL", "0") == "1" %}
+
+package:
+  name: {{ package_name|lower }}
+  version: {{ version }}
+
+source:
+  path: ..
+
+build:
+  number: 0
+  script_env:
+    - PYPGO_CMAKE_PRESET
+    - CMAKE_BUILD_PARALLEL_LEVEL
+{% if with_mkl %}
+  skip: true  # [osx]
+{% endif %}
+
+requirements:
+  build:
+    - {{ compiler("c") }}
+    - {{ compiler("cxx") }}
+    - cmake >=3.29
+    - ninja
+    - pkg-config
+  host:
+    - python >=3.12,<3.13
+    - pip
+    - setuptools
+    - wheel
+    - cmake >=3.29
+    - ninja
+    - numpy
+    - gmp
+    - mpfr
+    - imath
+    - libblas
+    - liblapack
+    - libboost-devel
+    - tbb-devel
+    - gmsh
+    - openvdb
+    - zlib
+    {% if with_mkl %}
+    - mkl-devel
+    {% endif %}
+  run:
+    - python >=3.12,<3.13
+    - numpy
+    - pyvista
+    - pytorch
+    - gmp
+    - mpfr
+    - imath
+    - libblas
+    - liblapack
+    - libboost-devel
+    - tbb
+    - gmsh
+    - openvdb
+    - zlib
+    {% if with_mkl %}
+    - mkl-devel
+    {% endif %}
+  run_constrained:
+    {% if with_mkl %}
+    - pypgo <0
+    {% else %}
+    - pypgo-mkl <0
+    {% endif %}
+
+test:
+  imports:
+    - pypgo
+    - pypgo._core
+  commands:
+    - python -c "import pypgo._core as core; print(core.build_info())"
+
+about:
+  home: https://github.com/uncbiag/libpgo
+  license: BSD-3-Clause
+  summary: Python bindings for libpgo physically based simulation and geometry tools.
+
+extra:
+  recipe-maintainers:
+    - BohanWang
