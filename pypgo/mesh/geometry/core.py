@@ -185,8 +185,70 @@ class BarycentricEmbedding:
             raise TypeError(f"volume_mesh must be a VolumeMesh, got {type(volume_mesh).__name__}")
         locations = float_matrix("target_locations", target_locations, 3)
         self._num_target_locations = int(locations.shape[0])
-        self._handle = _core.PyBarycentricEmbedding(
-            locations.ravel().tolist(), volume_mesh._handle)
+        self._handle = None
+        self._python_indices = None
+        self._python_weights = None
+        self._python_elements = None
+        self._num_volume_vertices = int(volume_mesh.mesh_data.num_vertices)
+
+        if isinstance(volume_mesh.mesh_data, (TetMeshData, CubicMeshData)):
+            self._init_python_embedding(locations, volume_mesh.mesh_data)
+        else:
+            self._handle = _core.PyBarycentricEmbedding(
+                locations.ravel().tolist(), volume_mesh._handle)
+
+    def _init_python_embedding(self, locations: np.ndarray, mesh_data: TetMeshData | CubicMeshData) -> None:
+        vertices = mesh_data.vertices
+        elements = mesh_data.elements
+        arity = 4 if isinstance(mesh_data, TetMeshData) else 8
+        indices = np.empty((locations.shape[0], arity), dtype=np.int64)
+        weights = np.empty((locations.shape[0], arity), dtype=np.float64)
+        embedding_elements = np.empty(locations.shape[0], dtype=np.int64)
+
+        for target_id, x in enumerate(locations):
+            found = False
+            for element_id, element in enumerate(elements):
+                element_vertices = vertices[element]
+                if arity == 4:
+                    try:
+                        local = np.linalg.solve((element_vertices[1:] - element_vertices[0]).T, x - element_vertices[0])
+                    except np.linalg.LinAlgError:
+                        continue
+                    candidate = np.array([1.0 - local.sum(), local[0], local[1], local[2]], dtype=np.float64)
+                else:
+                    bmin = element_vertices.min(axis=0)
+                    bmax = element_vertices.max(axis=0)
+                    extent = bmax - bmin
+                    if np.any(extent == 0.0):
+                        continue
+                    u, v, w = (x - bmin) / extent
+                    candidate = np.array(
+                        [
+                            (1.0 - u) * (1.0 - v) * (1.0 - w),
+                            u * (1.0 - v) * (1.0 - w),
+                            u * v * (1.0 - w),
+                            (1.0 - u) * v * (1.0 - w),
+                            (1.0 - u) * (1.0 - v) * w,
+                            u * (1.0 - v) * w,
+                            u * v * w,
+                            (1.0 - u) * v * w,
+                        ],
+                        dtype=np.float64,
+                    )
+
+                if np.all(candidate >= -1e-10) and np.all(candidate <= 1.0 + 1e-10):
+                    indices[target_id] = element
+                    weights[target_id] = candidate
+                    embedding_elements[target_id] = element_id
+                    found = True
+                    break
+
+            if not found:
+                raise ValueError(f"target location {target_id} is outside the volume mesh")
+
+        self._python_indices = indices
+        self._python_weights = weights
+        self._python_elements = embedding_elements
 
     @property
     def num_target_locations(self) -> int:
@@ -194,26 +256,50 @@ class BarycentricEmbedding:
 
     @property
     def num_element_vertices(self) -> int:
+        if self._python_indices is not None:
+            return int(self._python_indices.shape[1])
         return int(self._handle.num_element_vertices())
 
     @property
     def embedding_indices(self) -> np.ndarray:
+        if self._python_indices is not None:
+            return self._python_indices.copy()
         return np.asarray(self._handle.embedding_indices_flat(), dtype=np.int64).reshape(
             self.num_target_locations, self.num_element_vertices
         )
 
     @property
     def embedding_weights(self) -> np.ndarray:
+        if self._python_weights is not None:
+            return self._python_weights.copy()
         return np.asarray(self._handle.embedding_weights_flat(), dtype=np.float64).reshape(
             self.num_target_locations, self.num_element_vertices
         )
 
     @property
     def embedding_elements(self) -> np.ndarray:
+        if self._python_elements is not None:
+            return self._python_elements.copy()
         return np.asarray(self._handle.embedding_elements(), dtype=np.int64)
 
     @property
     def interpolation_matrix(self) -> SparseMatrix:
+        if self._python_indices is not None:
+            rows = []
+            cols = []
+            values = []
+            for target_id, (indices, weights) in enumerate(zip(self._python_indices, self._python_weights)):
+                for local_id, vertex_id in enumerate(indices):
+                    for axis in range(3):
+                        rows.append(target_id * 3 + axis)
+                        cols.append(int(vertex_id) * 3 + axis)
+                        values.append(float(weights[local_id]))
+            return SparseMatrix.from_coo(
+                (3 * self.num_target_locations, 3 * self._num_volume_vertices),
+                rows,
+                cols,
+                values,
+            )
         return SparseMatrix(self._handle.interpolation_matrix())
 
     def interpolation_matrix_coo(self):
@@ -223,6 +309,12 @@ class BarycentricEmbedding:
         disp = np.ascontiguousarray(volume_disp, dtype=np.float64)
         if disp.ndim != 1:
             disp = disp.reshape(-1)
+        if self._python_indices is not None:
+            vertex_disp = disp.reshape(self._num_volume_vertices, 3)
+            deformed = np.zeros((self.num_target_locations, 3), dtype=np.float64)
+            for target_id, (indices, weights) in enumerate(zip(self._python_indices, self._python_weights)):
+                deformed[target_id] = np.sum(vertex_disp[indices] * weights[:, None], axis=0)
+            return deformed.reshape(-1)
         return np.asarray(self._handle.deform(disp.tolist()), dtype=np.float64)
 
 
