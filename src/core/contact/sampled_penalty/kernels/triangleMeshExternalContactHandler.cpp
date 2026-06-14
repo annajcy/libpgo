@@ -300,6 +300,18 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
     interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, vertices.size() * 3);
     interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
   }
+  else {
+    std::vector<ES::TripletD> entries;
+    entries.reserve(vertices.size() * 3);
+    for (int vi = 0; vi < static_cast<int>(vertices.size()); vi++) {
+      entries.emplace_back(vi * 3, vi * 3, 1.0);
+      entries.emplace_back(vi * 3 + 1, vi * 3 + 1, 1.0);
+      entries.emplace_back(vi * 3 + 2, vi * 3 + 2, 1.0);
+    }
+
+    interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, vertices.size() * 3);
+    interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
+  }
 
   n3 = (int)vertices.size() * 3;
   restP = ES::VXd::Zero(n3);
@@ -494,11 +506,9 @@ void TriangleMeshExternalContactHandler::execute()
   count = 0;
   for (auto it = contactInfoTLS.begin(); it != contactInfoTLS.end(); ++it) {
     for (const auto &info : *it) {
-      int vi = 0;
       for (ES::SpMatD::InnerIterator it(interpolationMatrix, info.sId * 3); it; ++it) {
         barycentricIdx[count].emplace_back((int)it.col() / 3);
         barycentricWeights[count].emplace_back(it.value());
-        vi++;
       }
 
       constraintCoeffs[count] = sampleWeights[info.sId];

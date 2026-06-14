@@ -5,10 +5,12 @@ copyright to Bohan Wang
 #pragma once
 
 #include "ipc/ipcActiveSetCache.h"
-#include "mappedSurfacePotentialEnergy.h"
-#include "ipc/core/surfaceIPCCore.h"
+#include "ipc/ipcContactAssembler.h"
+#include "ipc/ipcPairGenerator.h"
 #include "ipc/external/obstacleSurface.h"
-#include "stepAwareEnergy.h"
+#include "lineSearchAwareEnergy.h"
+#include "statefulContactEnergy.h"
+#include "surfaceDofMap.h"
 
 #include <vector>
 #include <memory>
@@ -23,24 +25,48 @@ namespace IPC
 using namespace pgo::EigenSupport;
 
 class IPCContactEnergy:
-  public MappedSurfacePotentialEnergy,
-  public ActiveSetContactEnergy,
-  public NonlinearOptimization::StepAwareEnergy
+  public StatefulContactEnergy,
+  public NonlinearOptimization::LineSearchAwareEnergy
 {
 public:
   IPCContactEnergy(
     const EigenSupport::MXd &surfaceRestVertices,
     const EigenSupport::MXi &surfaceTriangles,
     const EigenSupport::SpMatD &surfaceFromSimulationDispMap,
-    const SurfaceIPCCore::Parameters &ipcParams = {},
+    const IPCPairGenerator::Parameters &pairParams = {},
+    const IPCContactAssembler::Parameters &assemblerParams = {},
     std::vector<std::unique_ptr<ObstacleSurface>> obstacleSurfaces = {});
 
-  virtual ContactModelKind contactModelKind() const override { return ContactModelKind::IPC; }
-  virtual void beginStep(const NonlinearOptimization::StepState &state) override;
-  virtual NonlinearOptimization::StepConstraint computeMaxStepLimit(
+  ContactModelKind contactModelKind() const override { return ContactModelKind::IPC; }
+  bool isStepDependent() const override { return false; }
+  void beginStep(const NonlinearOptimization::StepState &state) override;
+  NonlinearOptimization::StepConstraint computeMaxStepLimit(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::ConstRefVecXd trialSimulationDisplacements,
     NonlinearOptimization::StepConstraintSink *sink = nullptr) const override;
+  void beginLineSearch(
+    EigenSupport::ConstRefVecXd simulationDisplacements,
+    EigenSupport::ConstRefVecXd trialSimulationDisplacements) const override;
+  void endLineSearch() const override;
+  double maxValidLineSearchAlpha() const override { return 1.0; }
+
+  double func(EigenSupport::ConstRefVecXd simulationDisplacements) const override;
+  void gradient(EigenSupport::ConstRefVecXd simulationDisplacements, EigenSupport::RefVecXd simulationGradient) const override;
+  void hessian(EigenSupport::ConstRefVecXd simulationDisplacements, EigenSupport::SpMatD &simulationHessian) const override;
+  void hessianInPlace(EigenSupport::ConstRefVecXd simulationDisplacements, EigenSupport::SpMatD &simulationHessian) const override;
+  void hessianAlloc(EigenSupport::SpMatD &simulationHessian) const override;
+  double func_grad(EigenSupport::ConstRefVecXd simulationDisplacements, EigenSupport::RefVecXd simulationGradient) const override;
+  double func_grad_hessian(
+    EigenSupport::ConstRefVecXd simulationDisplacements,
+    EigenSupport::RefVecXd simulationGradient,
+    EigenSupport::SpMatD &simulationHessian) const override;
+  void gradient_hessian(
+    EigenSupport::ConstRefVecXd simulationDisplacements,
+    EigenSupport::RefVecXd simulationGradient,
+    EigenSupport::SpMatD &simulationHessian) const override;
+  void getDOFs(std::vector<int> &dofs) const override;
+  int getNumDOFs() const override;
+  int isHessianTopologyFixed() const override { return 0; }
 
   void setMovingObstacleTime(double t);
 
@@ -48,34 +74,9 @@ private:
   SurfaceIPCActiveSet buildExactActiveSet(EigenSupport::ConstRefVecXd surfacePositions) const;
   const SurfaceIPCActiveSet &activeSetForEvaluation(EigenSupport::ConstRefVecXd surfacePositions) const;
 
-  virtual void prepareActiveSet(EigenSupport::ConstRefVecXd simulationDisplacements) const override;
-  virtual void clearPreparedActiveSet() const override;
-  virtual void beginActiveSetLineSearch(
-    EigenSupport::ConstRefVecXd simulationDisplacements,
-    EigenSupport::ConstRefVecXd trialSimulationDisplacements) const override;
-  virtual void endActiveSetLineSearch() const override;
-
-  virtual double computeSurfaceEnergy(EigenSupport::ConstRefVecXd surfacePositions) const override;
-  virtual void computeSurfaceGradient(
-    EigenSupport::ConstRefVecXd surfacePositions,
-    EigenSupport::RefVecXd surfaceGradient) const override;
-  virtual void computeSurfaceHessian(
-    EigenSupport::ConstRefVecXd surfacePositions,
-    EigenSupport::SpMatD &surfaceHessian) const override;
-  virtual void computeSurfaceGradHessian(
-    EigenSupport::ConstRefVecXd surfacePositions,
-    EigenSupport::RefVecXd surfaceGradient,
-    EigenSupport::SpMatD &surfaceHessian) const override;
-  virtual void computeSurfaceFuncGrad(
-    EigenSupport::ConstRefVecXd surfacePositions,
-    double &surfaceEnergy,
-    EigenSupport::RefVecXd surfaceGradient) const override;
-  virtual void computeSurfaceAll(
-    EigenSupport::ConstRefVecXd surfacePositions,
-    double &surfaceEnergy,
-    EigenSupport::RefVecXd surfaceGradient,
-    EigenSupport::SpMatD &surfaceHessian) const override;
-  SurfaceIPCCore surfaceIPCCore_;
+  SurfaceDofMap dofMap_;
+  IPCPairGenerator pairGenerator_;
+  IPCContactAssembler assembler_;
   mutable IPCActiveSetCache activeSetCache_;
 };
 

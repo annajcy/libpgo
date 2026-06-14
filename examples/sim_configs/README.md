@@ -73,9 +73,11 @@ Note: the legacy `ipc-heuristic` mode (automatic dhat/kappa selection) is not ex
 in the Python binding. Use explicit `dhat` and `kappa` values as shown in these configs.
 
 The config schema additionally supports features without a dedicated example scene:
-`floor` / `sampled_penalty` / `frictional_sampled_penalty` contact models, moving
-attachment targets (`attachments[].movement`), and region/index vertex selectors —
-all covered by unit tests under `tests/pypgo/`.
+`floor` / `sampled_penalty` contact models, moving attachment targets
+(`attachments[].movement`), and region/index vertex selectors — all covered by
+unit tests under `tests/pypgo/`. Sampled penalty friction is enabled by adding
+`friction_coeff` and `velocity_eps` to a `sampled_penalty` contact entry; omitting
+those fields means no friction.
 
 ## Batch runs
 

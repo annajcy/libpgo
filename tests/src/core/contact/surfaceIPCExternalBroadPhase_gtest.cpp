@@ -1,5 +1,5 @@
 #include "ipc/broadPhase/surfaceIPCBroadPhase.h"
-#include "ipc/core/surfaceIPCCore.h"
+#include "ipc/ipcPairGenerator.h"
 #include "ipc/external/obstacleSurface.h"
 #include "ipc/topology/surfaceIPCTopology.h"
 
@@ -20,7 +20,7 @@ using pgo::Contact::IPC::ExternalPTPair;
 using pgo::Contact::IPC::ExternalTPPair;
 using pgo::Contact::IPC::ObstacleSurface;
 using pgo::Contact::IPC::ObstacleSurfaceView;
-using pgo::Contact::IPC::SurfaceIPCCore;
+using pgo::Contact::IPC::IPCPairGenerator;
 using pgo::Contact::IPC::SurfaceIPCTopology;
 using pgo::Contact::IPC::TrajectoryObstacleSurface;
 
@@ -134,7 +134,7 @@ static bool containsExternalEE(const std::vector<ExternalEEPair> &pairs, const E
   return std::binary_search(keys.begin(), keys.end(), targetKey);
 }
 
-TEST(SurfaceIPCExternalBroadPhaseGTest, BuilderMatchesSurfaceIPCCoreExternalPairs)
+TEST(SurfaceIPCExternalBroadPhaseGTest, BuilderMatchesIPCPairGeneratorExternalPairs)
 {
   auto [V, F] = makeUnitSquareMesh();
   auto [obsV, obsF] = makeSmallBoxObstacle();
@@ -146,16 +146,17 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, BuilderMatchesSurfaceIPCCoreExternalPair
       pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d::Zero()));
   };
 
-  SurfaceIPCCore::Parameters params;
-  params.dhat_external = 1.0;
+  IPCPairGenerator::Parameters params;
+  params.dhat = 0.1;
+  params.dhatExternal = 1.0;
 
-  std::vector<std::unique_ptr<ObstacleSurface>> coreObstacles;
-  coreObstacles.push_back(makeObs());
-  SurfaceIPCCore core(params, std::move(coreObstacles));
-  core.setMesh(V, F);
+  std::vector<std::unique_ptr<ObstacleSurface>> generatorObstacles;
+  generatorObstacles.push_back(makeObs());
+  IPCPairGenerator generator(params, std::move(generatorObstacles));
+  generator.setMesh(V, F);
 
   const ES::VXd x = flattenRows(V);
-  const auto activeSet = core.buildActiveSet(x);
+  const auto activeSet = generator.buildActiveSet(x);
 
   SurfaceIPCTopology topology;
   topology.setMesh(V, F);
@@ -164,7 +165,7 @@ TEST(SurfaceIPCExternalBroadPhaseGTest, BuilderMatchesSurfaceIPCCoreExternalPair
   obstacles.front()->setObjectId(0);
 
   ExternalPairSet pairs;
-  buildExternalPairs(topology, x, obstacleViews(obstacles), params.dhat_external, pairs);
+  buildExternalPairs(topology, x, obstacleViews(obstacles), params.dhatExternal, pairs);
 
   EXPECT_EQ(canonicalPT(pairs.ptPairs), canonicalPT(activeSet.externalPairs.ptPairs));
   EXPECT_EQ(canonicalTP(pairs.tpPairs), canonicalTP(activeSet.externalPairs.tpPairs));

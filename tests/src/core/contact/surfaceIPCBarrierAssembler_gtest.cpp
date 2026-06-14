@@ -7,7 +7,6 @@
 #include "ipc/external/obstacleSurface.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
 #include "ipc/topology/surfaceIPCTopology.h"
-#include "ipc/core/surfaceIPCCore.h"
 #include "scopedProfileSection.h"
 
 #include "testCIPCHelpers.h"
@@ -26,7 +25,6 @@ using pgo::Contact::IPC::ObstacleSurface;
 using pgo::Contact::IPC::ObstacleSurfaceView;
 using pgo::Contact::IPC::PTPair;
 using pgo::Contact::IPC::SelfPairSet;
-using pgo::Contact::IPC::SurfaceIPCCore;
 using pgo::Contact::IPC::SurfaceIPCTopology;
 using pgo::Contact::IPC::TrajectoryObstacleSurface;
 using pgo::Contact::CIPCTest::flattenPositions;
@@ -77,7 +75,7 @@ protected:
 };
 }  // namespace
 
-TEST(SurfaceIPCBarrierAssemblerGTest, HelperMatchesSurfaceIPCCoreAssembly)
+TEST(SurfaceIPCBarrierAssemblerGTest, SelfAssemblyEnergyGradientHessianAreConsistent)
 {
   const auto [V, F] = makeTwoTriangleMesh();
   const ES::VXd x = flattenPositions(V);
@@ -97,23 +95,14 @@ TEST(SurfaceIPCBarrierAssemblerGTest, HelperMatchesSurfaceIPCCoreAssembly)
   ES::SpMatD helperHessian;
   computeSelfHessian(x, pairs, topology.numVerts, dhat, kappa, epsEE, helperHessian);
 
-  SurfaceIPCCore core;
-  SurfaceIPCCore::Parameters params;
-  params.dhat = dhat;
-  params.kappa = kappa;
-  params.eps_ee = epsEE;
-  params.slackness = 0.9;
-  core.setParameters(params);
-  core.setMesh(V, F);
+  double allEnergy = -1.0;
+  ES::VXd allGradient = ES::VXd::Constant(1, -1.0);
+  ES::SpMatD allHessian;
+  computeSelfAll(x, pairs, topology.numVerts, dhat, kappa, epsEE, allEnergy, allGradient, allHessian);
 
-  ES::VXd coreGradient(x.size());
-  core.computeGradient(x, coreGradient);
-  ES::SpMatD coreHessian;
-  core.computeHessian(x, coreHessian);
-
-  EXPECT_NEAR(helperEnergy, core.computeEnergy(x), 1e-12);
-  EXPECT_LT(relativeError(helperGradient, coreGradient), 1e-12);
-  EXPECT_LT(relativeError(sparseToDense(helperHessian), sparseToDense(coreHessian)), 1e-12);
+  EXPECT_NEAR(helperEnergy, allEnergy, 1e-12);
+  EXPECT_LT(relativeError(helperGradient, allGradient), 1e-12);
+  EXPECT_LT(relativeError(sparseToDense(helperHessian), sparseToDense(allHessian)), 1e-12);
 }
 
 TEST(SurfaceIPCBarrierAssemblerGTest, KernelPTActiveAndInactive)

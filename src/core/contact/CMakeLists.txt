@@ -6,27 +6,26 @@ set(CONTACT_HEADERS
   sampled_penalty/kernels/triangleMeshExternalContactHandler.h
   sampled_penalty/kernels/triangleMeshSelfContactDetection.h
   sampled_penalty/kernels/triangleMeshSelfContactHandler.h
-  sampled_penalty/sampledPenaltyActiveSet.h
-  sampled_penalty/sampledPenaltyActiveSetCache.h
+  sampled_penalty/sampledPenaltyEvaluationBundle.h
   sampled_penalty/sampledPenaltyContactEnergy.h
-  sampled_penalty/sampledPenaltyContactDetector.h
+  sampled_penalty/sampledPenaltyContactBuilder.h
+  sampled_penalty/sampledPenaltyContactEvaluator.h
   sampled_penalty/sampledPenaltyFrictionState.h
   sampled_penalty/sampledPenaltySpecs.h
   contactEnergyFactory.h
-  embeddedDofMap.h
-  mappedContactEnergy.h
+  surfaceDofMap.h
   statefulContactEnergy.h
-  mappedSurfacePotentialEnergy.h
   floor/floorContactEnergy.h
   ipc/ipcActiveSetCache.h
+  ipc/ipcContactAssembler.h
   ipc/ipcContactEnergy.h
+  ipc/ipcPairGenerator.h
   ipc/broadPhase/spatialHashGrid.h
   ipc/broadPhase/surfaceIPCBroadPhase.h
   ipc/core/surfaceIPCSelfBarrierAssembler.h
   ipc/core/surfaceIPCExternalBarrierAssembler.h
   ipc/core/surfaceIPCBarrierKernels.h
   ipc/core/surfaceIPCMaxStep.h
-  ipc/core/surfaceIPCCore.h
   ipc/core/surfaceIPCActiveSet.h
   ipc/core/surfaceIPCPairs.h
   ipc/external/obstacleSurface.h
@@ -47,18 +46,18 @@ set(CONTACT_SOURCES
   sampled_penalty/kernels/triangleMeshExternalContactHandler.cpp
   sampled_penalty/kernels/triangleMeshSelfContactDetection.cpp
   sampled_penalty/kernels/triangleMeshSelfContactHandler.cpp
-  sampled_penalty/sampledPenaltyActiveSet.cpp
-  sampled_penalty/sampledPenaltyActiveSetCache.cpp
+  sampled_penalty/sampledPenaltyEvaluationBundle.cpp
   sampled_penalty/sampledPenaltyContactEnergy.cpp
-  sampled_penalty/sampledPenaltyContactDetector.cpp
+  sampled_penalty/sampledPenaltyContactBuilder.cpp
+  sampled_penalty/sampledPenaltyContactEvaluator.cpp
   sampled_penalty/sampledPenaltyFrictionState.cpp
   contactEnergyFactory.cpp
-  embeddedDofMap.cpp
-  mappedContactEnergy.cpp
-  mappedSurfacePotentialEnergy.cpp
+  surfaceDofMap.cpp
   floor/floorContactEnergy.cpp
   ipc/ipcActiveSetCache.cpp
+  ipc/ipcContactAssembler.cpp
   ipc/ipcContactEnergy.cpp
+  ipc/ipcPairGenerator.cpp
   ipc/broadPhase/spatialHashGrid.cpp
   ipc/broadPhase/surfaceIPCBroadPhase.cpp
   ipc/broadPhase/surfaceIPCSelfBroadPhase.cpp
@@ -67,7 +66,6 @@ set(CONTACT_SOURCES
   ipc/core/surfaceIPCExternalBarrierAssembler.cpp
   ipc/core/surfaceIPCBarrierKernels.cpp
   ipc/core/surfaceIPCMaxStep.cpp
-  ipc/core/surfaceIPCCore.cpp
   ipc/geometry/ipcBarrier.cpp
   ipc/geometry/ipcCCD.cpp
   ipc/external/obstacleSurface.cpp

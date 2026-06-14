@@ -411,6 +411,10 @@ void EnergySet::beginStep(const StepState &state)
       mapx(*state.previousX, energyDOFs[i], buffer_->vecs[i]);
       localState.previousX = &buffer_->vecs[i];
     }
+    if (state.currentX) {
+      mapx(*state.currentX, energyDOFs[i], buffer_->xlocals[i]);
+      localState.currentX = &buffer_->xlocals[i];
+    }
     aware->beginStep(localState);
   }
 }

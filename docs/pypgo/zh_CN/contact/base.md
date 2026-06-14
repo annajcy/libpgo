@@ -2,11 +2,11 @@
 
 > 源文件：`pypgo/contact/base.py`（15 行）。模块架构见 [overview.md](overview.md)。
 >
-> C++ 协议：`src/core/nonlinearOptimization/stepAwareEnergy.h`（`StepAwareEnergy` / `StepState`）、`stepDependentEnergy.h`（`StepDependentEnergy` 标记类）；Python peer 转发在 `src/python/pypgo/contact/core.cpp:190-207`。
+> C++ 协议：`src/core/nonlinearOptimization/stepAwareEnergy.h`（`StepAwareEnergy` / `StepState`）；所有 `StatefulContactEnergy` 都实现该协议，Python peer 在 `src/python/pypgo/contact/core.cpp` 直接转发到 C++ `beginStep`。
 
 ## 定位
 
-接触能量是**长寿命**对象，但其求值可能依赖**当前时间步的状态**：摩擦需要上一步位移 $\mathbf x^t$ 定义切向滑移速度，运动障碍物需要时刻 $t$ 摆放位姿。本混入把 C++ 的步生命周期协议暴露给 Python，由 `SampledPenaltyEnergy` / `IPCEnergy` / `FrictionalSampledPenaltyEnergy` 多继承使用（[energies.md](energies.md)）。
+接触能量是**长寿命**对象，但其求值可能依赖**当前时间步的状态**：sampled penalty 摩擦需要上一步位移 $\mathbf x^t$ 定义切向滑移速度，运动障碍物需要时刻 $t$ 摆放位姿。本混入把 C++ 的步生命周期协议暴露给 Python，由 `SampledPenaltyEnergy` / `IPCEnergy` 多继承使用（[energies.md](energies.md)）。
 
 ## 数学背景：为什么需要 $\mathbf x^t$
 
@@ -32,11 +32,11 @@ energy.begin_step(time=0.0, timestep=1e-3, previous_x=x_prev)
 | `timestep` | 步长 $h$ | `StepState.timestep` |
 | `previous_x` | 上一步仿真位移 $\mathbf x^t$（`(num_dofs,)`，可省） | `StepState.previousX` |
 
-转发到 C++ peer 的 `begin_step(float(time), float(timestep), previous)`。C++ 侧（`src/python/pypgo/contact/core.cpp:190-207`）`dynamic_cast` 到 `StepAwareEnergy`：
+转发到 C++ peer 的 `begin_step(float(time), float(timestep), previous)`。C++ 侧（`src/python/pypgo/contact/core.cpp`）直接调用 `StatefulContactEnergy::beginStep`；这个共同边界已经继承 `StepAwareEnergy`，因此所有接触能量都可安全接收步生命周期：
 
-- **不是** `StepAwareEnergy` 的能量（如纯 `SampledPenaltyEnergy`）→ **静默 no-op**，调用安全；
-- `IPCEnergy` → `beginStep` 把运动障碍物推进到**步末时刻** $t+h$（`ipcContactEnergy.cpp:119-122`：`setMovingObstacleTime(state.time + state.timestep)`），并清空活动集缓存——隐式积分求的是步末状态，障碍物取步末位姿与之自洽；
-- `FrictionalSampledPenaltyEnergy` → 校验并存储 $\mathbf x^t$ 与 $h$ 供摩擦势使用（`sampledPenaltyFrictionState.cpp:28-40`，要求 `previousX != nullptr` 且 `timestep > 0`），同时重置活动集。
+- 不需要逐步历史的接触能量（如未启用摩擦的 `SampledPenaltyEnergy`、`FloorEnergy` 的 C++ 边界默认实现）→ 默认 no-op，调用安全；
+- `IPCEnergy` → `beginStep` 把运动障碍物推进到**步末时刻** $t+h$（`ipcContactEnergy.cpp:234-236`：`setMovingObstacleTime(state.time + state.timestep)`），并清空 `IPCActiveSetCache`——隐式积分求的是步末状态，障碍物取步末位姿与之自洽；
+- 启用摩擦的 `SampledPenaltyEnergy` → 校验并存储 $\mathbf x^t$ 与 $h$ 供摩擦势使用（`sampledPenaltyFrictionState.cpp:28-40`，要求 `previousX != nullptr` 且 `timestep > 0`）；后续求值会用当前表面位置重新构建 `SampledPenaltyEvaluationBundle`。
 
 **谁来调用**：
 
@@ -54,7 +54,7 @@ for e in bundle.stateful_contacts:
 energy.is_step_dependent -> bool
 ```
 
-C++ 侧 `dynamic_cast<const StepDependentEnergy*>` 判定（`core.cpp:185-188`）：能量**求值结果**是否依赖逐步历史。当前只有 `FrictionalSampledPenaltyEnergy` 为 `True`（摩擦势含 $\mathbf x^t$）；`IPCEnergy` 为 `False`——它虽是 `StepAwareEnergy`（要接收障碍物时刻），但给定障碍物位姿后能量是位置的纯函数。调用方可据此判断"是否必须在每步提供 `previous_x`"。
+C++ 侧由 `StatefulContactEnergy::isStepDependent()` 判定：能量**求值结果**是否依赖逐步历史。当前只有启用摩擦的 `SampledPenaltyEnergy` 为 `True`（摩擦势含 $\mathbf x^t$）；`IPCEnergy` 为 `False`——它同样接收 step lifecycle 来更新运动障碍物时刻，但给定障碍物位姿后能量是位置的纯函数。调用方可据此判断"是否必须在每步提供 `previous_x`"，而不是判断能量是否可接收 `begin_step`。
 
 ## 交叉链接
 

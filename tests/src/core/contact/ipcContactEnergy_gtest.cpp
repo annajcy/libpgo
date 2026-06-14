@@ -4,7 +4,6 @@
 #include "energySet.h"
 #include "pgoLogging.h"
 #include "scopedProfileSection.h"
-#include "ipc/core/surfaceIPCCore.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
 #include "testCIPCHelpers.h"
 
@@ -22,8 +21,9 @@
 namespace
 {
 namespace ES = pgo::EigenSupport;
+using pgo::Contact::IPC::IPCContactAssembler;
 using pgo::Contact::IPC::IPCContactEnergy;
-using pgo::Contact::IPC::SurfaceIPCCore;
+using pgo::Contact::IPC::IPCPairGenerator;
 using pgo::Contact::ContactModelKind;
 using pgo::Contact::StatefulContactEnergy;
 using pgo::Contact::CIPCTest::flattenPositions;
@@ -42,14 +42,39 @@ const ProfileStat *findStat(const std::vector<ProfileStat> &stats, std::string_v
   return it == stats.end() ? nullptr : &(*it);
 }
 
-SurfaceIPCCore::Parameters makeParams()
+struct IPCContactEnergyTestParameters
 {
-  SurfaceIPCCore::Parameters params;
-  params.dhat = 0.1;
-  params.kappa = 2.0;
-  params.eps_ee = 0.0;
-  params.slackness = 0.8;
+  IPCPairGenerator::Parameters pair;
+  IPCContactAssembler::Parameters assembler;
+};
+
+IPCContactEnergyTestParameters makeParams()
+{
+  IPCContactEnergyTestParameters params;
+  params.pair.dhat = 0.1;
+  params.pair.dhatExternal = 0.1;
+  params.pair.slackness = 0.8;
+
+  params.assembler.dhat = 0.1;
+  params.assembler.dhatExternal = 0.1;
+  params.assembler.kappa = 2.0;
+  params.assembler.epsEE = 0.0;
+
   return params;
+}
+
+IPCContactEnergy makeEnergy(
+  const ES::MXd &surfaceRestVertices,
+  const ES::MXi &surfaceTriangles,
+  const ES::SpMatD &surfaceFromSimulationDispMap)
+{
+  const IPCContactEnergyTestParameters params = makeParams();
+  return IPCContactEnergy(
+    surfaceRestVertices,
+    surfaceTriangles,
+    surfaceFromSimulationDispMap,
+    params.pair,
+    params.assembler);
 }
 
 ES::SpMatD makeIdentityEmbedding(int n3)
@@ -101,17 +126,20 @@ TEST(IPCContactEnergyGTest, SparseEmbeddingPullsBackGradientAndHessian)
   simulationDisplacements[14] = 0.02;
   simulationDisplacements[17] = 0.015;
 
-  IPCContactEnergy adapter(V, F, W, makeParams());
+  IPCContactEnergy adapter = makeEnergy(V, F, W);
 
-  SurfaceIPCCore core(makeParams());
-  core.setMesh(V, F);
+  const IPCContactEnergyTestParameters params = makeParams();
+  IPCPairGenerator pairGenerator(params.pair);
+  pairGenerator.setMesh(V, F);
+  IPCContactAssembler assembler(params.assembler);
 
   const ES::VXd surfacePositions = surfaceRestPositions + W * simulationDisplacements;
+  const auto activeSet = pairGenerator.buildActiveSet(surfacePositions);
 
   ES::VXd surfaceGradient(surfacePositions.size());
-  core.computeGradient(surfacePositions, surfaceGradient);
+  assembler.computeGradient(pairGenerator.topology(), pairGenerator.obstacleViews(), activeSet, surfaceGradient);
   ES::SpMatD surfaceHessian;
-  core.computeHessian(surfacePositions, surfaceHessian);
+  assembler.computeHessian(pairGenerator.topology(), pairGenerator.obstacleViews(), activeSet, surfaceHessian);
 
   ES::VXd simulationGradient(adapter.getNumDOFs());
   adapter.gradient(simulationDisplacements, simulationGradient);
@@ -130,7 +158,7 @@ TEST(IPCContactEnergyGTest, ProfilingRecordsAdapterSections)
   for (int vi = 3; vi < 6; ++vi)
     u[3 * vi + 2] = 0.01;
 
-  IPCContactEnergy adapter(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy adapter = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
 
   pgo::Profiling::setProfilingEnabled(true);
   pgo::Profiling::resetProfileStatistics();
@@ -159,7 +187,7 @@ TEST(IPCContactEnergyGTest, DirectEvaluationPreparesActiveSet)
   const ES::VXd rest = flattenPositions(V);
   const ES::VXd simDispl = ES::VXd::Zero(rest.size());
 
-  IPCContactEnergy energy(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy energy = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
 
   EXPECT_NO_THROW((void)energy.func(simDispl));
 }
@@ -172,7 +200,7 @@ TEST(IPCContactEnergyGTest, SeparateEvaluationsReuseExplicitActiveSetForSameStat
   for (int vi = 3; vi < 6; ++vi)
     u[3 * vi + 2] = 0.01;
 
-  IPCContactEnergy adapter(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy adapter = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
 
   pgo::Profiling::setProfilingEnabled(true);
   pgo::Profiling::resetProfileStatistics();
@@ -211,7 +239,7 @@ TEST(IPCContactEnergyGTest, DirectEvaluationRebuildsActiveSetForChangedState)
   for (int vi = 3; vi < 6; ++vi)
     u1[3 * vi + 2] = 0.01;
 
-  IPCContactEnergy energy(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy energy = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
 
   pgo::Profiling::setProfilingEnabled(true);
   pgo::Profiling::resetProfileStatistics();
@@ -238,7 +266,7 @@ TEST(IPCContactEnergyGTest, FuncGradFusesOneBroadPhaseForEnergyAndGradient)
   for (int vi = 3; vi < 6; ++vi)
     simDispl[3 * vi + 2] = 0.01;
 
-  IPCContactEnergy energy(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy energy = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
   ES::VXd g = ES::VXd::Zero(simDispl.size());
 
   pgo::Profiling::setProfilingEnabled(true);
@@ -263,40 +291,18 @@ TEST(IPCContactEnergyGTest, FuncGradFusesOneBroadPhaseForEnergyAndGradient)
   EXPECT_LT(relativeError(g, gRef), 1e-12);
 }
 
-TEST(IPCContactEnergyGTest, PrepareEvaluationRefreshesActiveSetThroughStatefulContactInterface)
+TEST(IPCContactEnergyGTest, ExposesOnlyLineSearchAndStepLifecycleContactCapabilities)
 {
   const auto [V, F] = makeTwoTriangleMesh();
   const ES::VXd rest = flattenPositions(V);
-  ES::VXd simDispl = ES::VXd::Zero(rest.size());
-  for (int vi = 3; vi < 6; ++vi)
-    simDispl[3 * vi + 2] = 0.01;
 
-  IPCContactEnergy energy(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy energy = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
   const StatefulContactEnergy &stateful = energy;
   EXPECT_EQ(stateful.contactModelKind(), ContactModelKind::IPC);
-  const auto *evaluationAware =
-    dynamic_cast<const pgo::NonlinearOptimization::EvaluationStateAwareEnergy *>(&energy);
-  ASSERT_NE(evaluationAware, nullptr);
-
-  pgo::Profiling::setProfilingEnabled(true);
-  pgo::Profiling::resetProfileStatistics();
-
-  evaluationAware->prepareEvaluationState(simDispl);
-  ES::VXd g = ES::VXd::Zero(simDispl.size());
-  ES::SpMatD H;
-  const double e = energy.func_grad_hessian(simDispl, g, H);
-
-  const auto stats = pgo::Profiling::snapshotProfileStatistics();
-  const ProfileStat *activeSetBuild = findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kBuildActiveSet);
-
-  pgo::Profiling::setProfilingEnabled(false);
-  pgo::Profiling::resetProfileStatistics();
-
-  ASSERT_NE(activeSetBuild, nullptr);
-  EXPECT_EQ(activeSetBuild->callCount, 1u);
-  EXPECT_GT(e, 0.0);
-  EXPECT_EQ(g.size(), simDispl.size());
-  EXPECT_EQ(H.rows(), simDispl.size());
+  EXPECT_EQ(dynamic_cast<const pgo::NonlinearOptimization::EvaluationStateAwareEnergy *>(&energy), nullptr);
+  EXPECT_NE(dynamic_cast<const pgo::NonlinearOptimization::LineSearchAwareEnergy *>(&energy), nullptr);
+  EXPECT_NE(dynamic_cast<pgo::NonlinearOptimization::StepAwareEnergy *>(&energy), nullptr);
+  EXPECT_FALSE(energy.isStepDependent());
 }
 
 TEST(IPCContactEnergyGTest, FuncGradHessianFusesOneBroadPhaseForAllThree)
@@ -307,7 +313,7 @@ TEST(IPCContactEnergyGTest, FuncGradHessianFusesOneBroadPhaseForAllThree)
   for (int vi = 3; vi < 6; ++vi)
     simDispl[3 * vi + 2] = 0.01;
 
-  IPCContactEnergy energy(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy energy = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
   ES::VXd g = ES::VXd::Zero(simDispl.size());
   ES::SpMatD H;
 
@@ -347,7 +353,7 @@ TEST(IPCContactEnergyGTest, EnergyOnlyEvaluationSeedsNextCombinedActiveSet)
   for (int vi = 3; vi < 6; ++vi)
     simDispl[3 * vi + 2] = 0.01;
 
-  IPCContactEnergy energy(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy energy = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
   ES::VXd g = ES::VXd::Zero(simDispl.size());
   ES::SpMatD H;
 
@@ -396,7 +402,7 @@ TEST(IPCContactEnergyGTest, LineSearchSupersetReusesOneActiveSetAcrossTrialEnerg
   for (int vi = 3; vi < 6; ++vi)
     du[3 * vi + 2] = -0.02;
 
-  IPCContactEnergy energy(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy energy = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
 
   const std::array<double, 3> alphas = { 1.0, 0.5, 0.25 };
   std::array<double, 3> exactEnergies = {};
@@ -444,7 +450,7 @@ TEST(IPCContactEnergyGTest, GradientHessianFusesOneBroadPhaseForGradAndHess)
   for (int vi = 3; vi < 6; ++vi)
     simDispl[3 * vi + 2] = 0.01;
 
-  IPCContactEnergy energy(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  IPCContactEnergy energy = makeEnergy(V, F, makeIdentityEmbedding(rest.size()));
   const PotentialEnergy &baseEnergy = energy;
   ES::VXd g = ES::VXd::Zero(simDispl.size());
   ES::SpMatD H;
@@ -488,7 +494,13 @@ TEST(IPCContactEnergyGTest, AggregatedGradientHessianPreservesIPCFusion)
   for (int vi = 3; vi < 6; ++vi)
     simDispl[3 * vi + 2] = 0.01;
 
-  auto ipcEnergy = std::make_shared<IPCContactEnergy>(V, F, makeIdentityEmbedding(rest.size()), makeParams());
+  const IPCContactEnergyTestParameters params = makeParams();
+  auto ipcEnergy = std::make_shared<IPCContactEnergy>(
+    V,
+    F,
+    makeIdentityEmbedding(rest.size()),
+    params.pair,
+    params.assembler);
   EnergySet aggregate(static_cast<int>(rest.size()), {{ipcEnergy, 1.0}});
 
   const PotentialEnergy &baseEnergy = aggregate;
@@ -498,7 +510,6 @@ TEST(IPCContactEnergyGTest, AggregatedGradientHessianPreservesIPCFusion)
   pgo::Profiling::setProfilingEnabled(true);
   pgo::Profiling::resetProfileStatistics();
 
-  aggregate.prepareEvaluationState(simDispl);
   baseEnergy.gradient_hessian(simDispl, g, H);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
@@ -533,6 +544,6 @@ TEST(IPCContactEnergyGTest, InvalidEmbeddingRowsThrow)
   ES::SpMatD W(3 * V.rows() - 1, 3 * V.rows());
 
   EXPECT_THROW(
-    IPCContactEnergy(V, F, W, makeParams()),
+    makeEnergy(V, F, W),
     std::invalid_argument);
 }

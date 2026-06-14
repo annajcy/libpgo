@@ -1,4 +1,4 @@
-# `pypgo/contact/energies.py` — 四种接触能量实现
+# `pypgo/contact/energies.py` — 三类接触能量实现
 
 > 源文件：`pypgo/contact/energies.py`（222 行）。模块架构见 [overview.md](overview.md)。
 >
@@ -6,13 +6,13 @@
 
 ## 共同数学框架
 
-四个类都继承 [`PotentialEnergy`](../energy/base.md)，C++ peer 都派生自 `IPC::MappedSurfacePotentialEnergy`：能量定义在表面位置 $\mathbf x_s=\bar{\mathbf x}_s+S\mathbf u$ 上，对仿真 DOF 的梯度/Hessian 经 $S^\top(\cdot)\,S$ pullback（见 [surface.md](surface.md)）。构造共性：
+各接触能量都继承 [`PotentialEnergy`](../energy/base.md)：能量定义在表面位置 $\mathbf x_s=\bar{\mathbf x}_s+S\mathbf u$ 上，对仿真 DOF 的梯度/Hessian 经 $S^\top(\cdot)\,S$ pullback（见 [surface.md](surface.md)）。构造共性：
 
 ```python
 Energy(surface, surface_triangles, *, params=...)   # surface 必须是 ContactSurface
 ```
 
-`surface_triangles` 是表面三角形索引 `(m,3)`（`FloorEnergy` 例外——逐顶点解析罚，不需要三角形）。除 `FloorEnergy` 外都混入 [`StatefulContactMixin`](base.md)（`begin_step` / `is_step_dependent`），并持有**活动集缓存**：在每个 Newton 求值点重建活动接触对、线搜索期间冻结为超集（`ipcActiveSetCache.cpp` / `sampledPenaltyActiveSetCache.cpp`）。
+`surface_triangles` 是表面三角形索引 `(m,3)`（`FloorEnergy` 例外——逐顶点解析罚，不需要三角形）。除 `FloorEnergy` 外都混入 [`StatefulContactMixin`](base.md)（`begin_step` / `is_step_dependent`）。C++ 侧的共同边界是 step-aware 的 `StatefulContactEnergy`；具体能量各自组合映射、活动对生成和装配：IPC 用 `SurfaceDofMap`、`IPCPairGenerator`、`IPCContactAssembler` 与 `IPCActiveSetCache`，采样罚接触用 `SurfaceDofMap`、`SampledPenaltyContactBuilder`、`SampledPenaltyEvaluationBundle` 与 `SampledPenaltyContactEvaluator`。
 
 三类模型的核心标量函数：
 
@@ -57,10 +57,10 @@ E(\mathbf x_s)=\sum_{v\,:\,d_v<0}\tfrac12\,\kappa_f\,d_v^2$$
 ## class `SampledPenaltyEnergy`
 
 ```python
-SampledPenaltyEnergy(surface, surface_triangles, *, params=None)
+SampledPenaltyEnergy(surface, surface_triangles, *, params=None, friction=None)
 ```
 
-采样罚接触（无摩擦版）。工厂 `_core._create_sampled_penalty_contact_energy(surface, triangles, stiffness, samples, enable_self, enable_external)`，C++ `Contact::SampledPenalty::SampledPenaltySurfaceContactEnergy`（`sampledPenaltyContactEnergy.cpp`）。参数见 [`SampledPenaltyParameters`](params.md)。
+采样罚接触；`friction=None` 时只有法向罚，传入 [`FrictionParameters`](params.md) 时启用半隐式 Coulomb 摩擦。工厂 `_core._create_sampled_penalty_contact_energy(surface, triangles, stiffness, samples, enable_self, enable_external, friction_coeff=None, velocity_eps=None)`，C++ 统一类 `Contact::SampledPenalty::SampledPenaltyContactEnergy`（`sampledPenaltyContactEnergy.cpp`）。法向罚参数见 [`SampledPenaltyParameters`](params.md)。
 
 **采样**：每个表面三角形按 `samples` 细分布点（重心坐标组合），采样点 $i$ 的位置由表面顶点插值 $\mathbf p_i=\sum_j w_{ij}\,\mathbf x_j$；其面积权 $c_i$ 是该点分摊的三角形面积、按全网格最大值归一（`triangleMeshExternalContactHandler.cpp:121-133, 321-333`），故 $c_i\in(0,1]$。
 
@@ -75,11 +75,43 @@ $$E_{\text{ext}}(\mathbf x_s)=c\sum_{i\in\mathcal A}\tfrac12\,c_i\,\big[(\mathbf
 
 $$E_{\text{self}}=c\sum_{\text{pairs}}\Big(\tfrac12\,\mathbf x_\ell^\top H_p\,\mathbf x_\ell+\mathbf g_p^\top\mathbf x_\ell\Big)$$
 
-（系数块 $H_p,\mathbf g_p$ 由 `computeClosestPosition` 以当前最近点/法线冻结生成，求值时仍复查接触状态。）`enable_self_contact` / `enable_external_contact` 分别开关两个处理器；活动集生命周期与 IPC 相同（求值点重建、线搜索冻结，`sampledPenaltyContactEnergy.cpp:57-102`）。
+（系数块 $H_p,\mathbf g_p$ 由 `computeClosestPosition` 以当前最近点/法线冻结生成，求值时仍复查接触状态。）`enable_self_contact` / `enable_external_contact` 分别开关两个处理器；`SampledPenaltyContactBuilder` 按当前表面位置构建 `SampledPenaltyEvaluationBundle`，`SampledPenaltyContactEvaluator` 再完成能量、梯度、Hessian 及 fused 输出（`sampledPenaltyContactEnergy.cpp:90-218`、`sampledPenaltyContactBuilder.cpp`、`sampledPenaltyContactEvaluator.cpp`）。
 
 罚模型**没有 `max_step`/CCD**——穿透由罚力事后推回，大步长下可能穿深；要硬保证用 [`IPCEnergy`](#class-ipcenergy)。
 
-`begin_step` 对此类是**安全 no-op**（C++ peer 不是 `StepAwareEnergy`，见 [base.md](base.md)）；`is_step_dependent == False`。
+`begin_step` 在无摩擦时是**安全 no-op**；`is_step_dependent == False`。启用摩擦后，`begin_step` 必须收到 `previous_x` 与正 `timestep`，并且 `is_step_dependent == True`。
+
+### 可选摩擦
+
+额外参数 [`FrictionParameters`](params.md)（$\mu$ = `friction_coeff`、$\varepsilon_v$ = `velocity_eps`）启用 sampled penalty 摩擦：
+
+```python
+penalty = pypgo.contact.SampledPenaltyEnergy(
+    surface, tris,
+    params=pypgo.contact.SampledPenaltyParameters(stiffness=1e5, samples=3),
+    friction=pypgo.contact.FrictionParameters(friction_coeff=0.4, velocity_eps=1e-2),
+)
+```
+
+摩擦势 as-implemented（`pointPenetrationEnergy.cpp:83-104`）。每个活动样本以**步内位移差**近似切向滑移：
+
+$$\mathbf r=\big(I-\mathbf n\mathbf n^\top\big)\big(\mathbf p-\mathbf p^{\,t}\big),\qquad
+d=\|\mathbf r\|,\qquad k=\varepsilon_v\,h$$
+
+其中 $\mathbf p^t$ 由 `begin_step` 注入的上一步位移 $\mathbf x^t$ 插值（`sampledPenaltyFrictionState.cpp:42-66`）。平滑滑移势（IPC 的 $f_0$ 同构，把静摩擦尖点 $|d|$ 在 $d<k$ 内换成三次多项式）：
+
+$$f_0(d)=\begin{cases}-\dfrac{d^3}{3k^2}+\dfrac{d^2}{k}+\dfrac{k}{3} & d<k\\[4pt] d & d\ge k\end{cases}$$
+
+每样本摩擦能量与法向力大小成比：
+
+$$E_{\text{fric}}=\mu\,f_{n,i}\,f_0(d_i),\qquad
+f_{n,i}=c\,c_i\,\big|(\mathbf p_i-\mathbf p_{0,i})\cdot\mathbf n_i\big|$$
+
+半隐式含义：$f_n$ 与 $\mathbf n$ 随当前迭代更新，但梯度/Hessian 把 $f_n$ 视为常数（只微分 $f_0$）。
+
+### 方法 `begin_step(*, time, timestep, previous_x=None)`
+
+无摩擦时可省略 `previous_x`；有摩擦时 Python 先校验 `previous_x` 非空、`timestep > 0`，C++ 再存储 $\mathbf x^t,h$ 并重置活动集。
 
 ---
 
@@ -89,7 +121,7 @@ $$E_{\text{self}}=c\sum_{\text{pairs}}\Big(\tfrac12\,\mathbf x_\ell^\top H_p\,\m
 IPCEnergy(surface, surface_triangles, *, params=None, obstacles=None)
 ```
 
-IPC（Incremental Potential Contact）屏障接触：自接触 + 可选外部障碍物，配 ACCD 可行步长，**Newton 全程保证不穿透**。工厂 `_core._create_ipc_contact_energy(surface, triangles, dhat, dhat_external, kappa, eps_ee, slackness, ccd_thickness, obstacles)`，C++ `IPC::IPCContactEnergy` → `SurfaceIPCCore`（`ipcContactEnergy.cpp`、`ipc/core/surfaceIPCCore.cpp:74-82`）。参数语义见 [`IPCParameters`](params.md)，障碍物见 [`ObstacleSpec`](params.md)。
+IPC（Incremental Potential Contact）屏障接触：自接触 + 可选外部障碍物，配 ACCD 可行步长，**Newton 全程保证不穿透**。工厂 `_core._create_ipc_contact_energy(surface, triangles, dhat, dhat_external, kappa, eps_ee, slackness, ccd_thickness, obstacles)`，C++ `IPC::IPCContactEnergy` 组合 `SurfaceDofMap`（表面映射）、`IPCPairGenerator`（活动对 / 可行步长 / 障碍物位姿）、`IPCContactAssembler`（能量、梯度、Hessian 装配）和 `IPCActiveSetCache`（直接求值缓存与线搜索 superset）。参数语义见 [`IPCParameters`](params.md)，障碍物见 [`ObstacleSpec`](params.md)。
 
 ### 屏障函数
 
@@ -145,7 +177,7 @@ m_{ab}=\begin{cases}\dfrac{x}{\varepsilon_\times}\Big(2-\dfrac{x}{\varepsilon_\t
 
 ### `max_step`（ACCD 可行步长）
 
-实现 [`PotentialEnergy.max_step(x, dx)`](../energy/base.md)，求解器在线搜索第 6 步以其为步长上界（[../solver/overview.md](../solver/overview.md)）。流程（`ipcContactEnergy.cpp:108-117` → `surfaceIPCMaxStep.cpp`）：
+实现 [`PotentialEnergy.max_step(x, dx)`](../energy/base.md)，求解器在线搜索第 6 步以其为步长上界（[../solver/overview.md](../solver/overview.md)）。流程（`ipcContactEnergy.cpp:215-231` → `IPCPairGenerator::computeMaxStepLimit` → `surfaceIPCMaxStep.cpp`）：
 
 1. 把 $(\mathbf u,\Delta\mathbf u)$ 映成表面 $(\mathbf x_s, S\Delta\mathbf u)$；
 2. 扫掠 AABB（每侧膨胀 `ccd_thickness`）+ 空间哈希枚举候选 PT/EE 对（自接触 + 障碍物三方向：表面点-障碍三角形、障碍点-表面三角形、边-边）；
@@ -156,42 +188,7 @@ m_{ab}=\begin{cases}\dfrac{x}{\varepsilon_\times}\Big(2-\dfrac{x}{\varepsilon_\t
 
 ### `begin_step` 与 `set_moving_obstacle_time(time)`
 
-`begin_step(time, timestep, ...)`（混入自 [base.md](base.md)）把运动障碍物推进到**步末时刻**：C++ `beginStep` 调 `setMovingObstacleTime(time + timestep)`（`ipcContactEnergy.cpp:119-122`）——隐式积分求步末状态，障碍物取步末位姿与之自洽。动力学循环由 C++ stepper 自动派发；静力学或自定义循环可手动调 `set_moving_obstacle_time(t)`（直转发 `_handle`，同时清空活动集缓存，`ipcContactEnergy.cpp:152-156`）。`is_step_dependent == False`：给定障碍物位姿后能量是位置的纯函数。
-
----
-
-## class `FrictionalSampledPenaltyEnergy`
-
-```python
-FrictionalSampledPenaltyEnergy(surface, surface_triangles, *,
-                               params=None, friction=None)
-```
-
-采样罚接触 + 半隐式 Coulomb 摩擦。法向罚与 `SampledPenaltyEnergy` 完全相同（C++ 子类，`sampledPenaltyContactEnergy.cpp:215-229`）；额外参数 [`FrictionParameters`](params.md)（$\mu$ = `friction_coeff`、$\varepsilon_v$ = `velocity_eps`）。
-
-**摩擦势 as-implemented**（`pointPenetrationEnergy.cpp:83-104`）。每个活动样本以**步内位移差**近似切向滑移：
-
-$$\mathbf r=\big(I-\mathbf n\mathbf n^\top\big)\big(\mathbf p-\mathbf p^{\,t}\big),\qquad
-d=\|\mathbf r\|,\qquad k=\varepsilon_v\,h$$
-
-其中 $\mathbf p^t$ 由 `begin_step` 注入的上一步位移 $\mathbf x^t$ 插值（`sampledPenaltyFrictionState.cpp:42-66`）。平滑滑移势（IPC 的 $f_0$ 同构，把静摩擦尖点 $|d|$ 在 $d<k$ 内换成三次多项式）：
-
-$$f_0(d)=\begin{cases}-\dfrac{d^3}{3k^2}+\dfrac{d^2}{k}+\dfrac{k}{3} & d<k\\[4pt] d & d\ge k\end{cases}$$
-
-（$C^1$ 拼接：$f_0(k)=k$、$f_0'(k)=1$；$d\ge k$ 段 $f_0'=1$ 即恒定动摩擦力。）$d<k$ 等价于切向速度 $d/h<\varepsilon_v$——低于 $\varepsilon_v$ 的滑移按"近静止"平滑处理。每样本摩擦能量与法向力大小成比（`pointPenetrationEnergy.cpp:221-237`）：
-
-$$E_{\text{fric}}=\mu\,f_{n,i}\,f_0(d_i),\qquad
-f_{n,i}=c\,c_i\,\big|(\mathbf p_i-\mathbf p_{0,i})\cdot\mathbf n_i\big|\ \text{（当前法向罚力模）}$$
-
-自接触对的版本同构（`pointTrianglePairCouplingEnergyWithCollision.cpp:501-513`，$f_n$ 取二次型力的点块模）。摩擦 Hessian 对切向 3×3 块做特征值截断 PSD 投影（`pointPenetrationEnergy.cpp:174-181`）。
-
-**半隐式**的含义：$f_n$ 与 $\mathbf n$ 随当前迭代更新，但梯度/Hessian 把 $f_n$ 视为常数（只微分 $f_0$）——这是 IPC 摩擦的标准 lagged 近似，能量不是严格保守的势。
-
-### 方法 `begin_step(*, time, timestep, previous_x)`
-
-覆写混入版本，**强制** `previous_x` 非空、`timestep > 0`（Python 先抛，C++ `sampledPenaltyFrictionState.cpp:28-40` 再校验一次并存储 $\mathbf x^t,h$、重置活动集）。摩擦势在整步 Newton 期间以冻结的 $\mathbf x^t$ 求值。动力学循环由 C++ stepper 自动派发（`previousX` = 步首位移）；静力学须手动调一次（模式见 [base.md](base.md)）。
-
-`is_step_dependent == True`——四个类中唯一求值依赖逐步历史的。
+`begin_step(time, timestep, ...)`（混入自 [base.md](base.md)）把运动障碍物推进到**步末时刻**：C++ `beginStep` 调 `setMovingObstacleTime(time + timestep)`（`ipcContactEnergy.cpp:234-236`）——隐式积分求步末状态，障碍物取步末位姿与之自洽。动力学循环由 C++ stepper 自动派发；静力学或自定义循环可手动调 `set_moving_obstacle_time(t)`（直转发 `_handle`，同时清空 `IPCActiveSetCache` 并更新 `IPCPairGenerator` 的障碍物位姿，`ipcContactEnergy.cpp:262-266`）。`is_step_dependent == False`：给定障碍物位姿后能量是位置的纯函数。
 
 ---
 
@@ -213,7 +210,7 @@ ipc = pypgo.contact.IPCEnergy(
 )
 
 # 摩擦罚：动力学循环里 begin_step 由 C++ stepper 自动派发
-fric = pypgo.contact.FrictionalSampledPenaltyEnergy(
+fric = pypgo.contact.SampledPenaltyEnergy(
     surface, tris,
     params=pypgo.contact.SampledPenaltyParameters(stiffness=1e5, samples=3),
     friction=pypgo.contact.FrictionParameters(friction_coeff=0.4, velocity_eps=1e-2),
@@ -233,7 +230,7 @@ total = pypgo.energy.EnergySet([(deform, 1.0), (ipc, 1.0), (floor, 1.0)])
 | 需求 | 类 |
 |---|---|
 | 绝对不穿透（自接触/大步长） | `IPCEnergy` |
-| 软接触 + Coulomb 摩擦 | `FrictionalSampledPenaltyEnergy` |
+| 软接触 + Coulomb 摩擦 | `SampledPenaltyEnergy(..., friction=FrictionParameters(...))` |
 | 外部碰撞、性能优先 | `SampledPenaltyEnergy` |
 | 解析地面/天花板 | `FloorEnergy` |
 

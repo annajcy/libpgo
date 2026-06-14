@@ -4,9 +4,11 @@ copyright to Bohan Wang
 
 #pragma once
 
-#include "mappedSurfacePotentialEnergy.h"
+#include "statefulContactEnergy.h"
+#include "surfaceDofMap.h"
 
 #include <limits>
+#include <vector>
 
 namespace pgo
 {
@@ -40,7 +42,7 @@ struct FloorPenaltyParameters
   double floorKappa = std::numeric_limits<double>::quiet_NaN();
 };
 
-class FloorContactEnergy : public IPC::MappedSurfacePotentialEnergy
+class FloorContactEnergy : public StatefulContactEnergy
 {
 public:
   FloorContactEnergy(
@@ -48,20 +50,51 @@ public:
     const EigenSupport::SpMatD &surfaceFromSimulationDispMap,
     const FloorPenaltyParameters &params);
 
+  virtual double func(EigenSupport::ConstRefVecXd simulationDisplacements) const override;
+  virtual void gradient(
+    EigenSupport::ConstRefVecXd simulationDisplacements,
+    EigenSupport::RefVecXd simulationGradient) const override;
+  virtual void hessian(
+    EigenSupport::ConstRefVecXd simulationDisplacements,
+    EigenSupport::SpMatD &simulationHessian) const override;
+  virtual void hessianInPlace(
+    EigenSupport::ConstRefVecXd simulationDisplacements,
+    EigenSupport::SpMatD &simulationHessian) const override;
+  virtual void hessianAlloc(EigenSupport::SpMatD &simulationHessian) const override;
+  virtual double func_grad(
+    EigenSupport::ConstRefVecXd simulationDisplacements,
+    EigenSupport::RefVecXd simulationGradient) const override;
+  virtual double func_grad_hessian(
+    EigenSupport::ConstRefVecXd simulationDisplacements,
+    EigenSupport::RefVecXd simulationGradient,
+    EigenSupport::SpMatD &simulationHessian) const override;
+  virtual void gradient_hessian(
+    EigenSupport::ConstRefVecXd simulationDisplacements,
+    EigenSupport::RefVecXd simulationGradient,
+    EigenSupport::SpMatD &simulationHessian) const override;
+  virtual void getDOFs(std::vector<int> &dofs) const override;
+  virtual int getNumDOFs() const override;
+  virtual int isHessianTopologyFixed() const override { return 0; }
+
   void setFloorHeight(double h);
   double floorHeight() const;
   virtual ContactModelKind contactModelKind() const override { return ContactModelKind::Floor; }
 
-protected:
-  virtual double computeSurfaceEnergy(EigenSupport::ConstRefVecXd surfacePositions) const override;
-  virtual void computeSurfaceGradient(
-    EigenSupport::ConstRefVecXd surfacePositions,
-    EigenSupport::RefVecXd surfaceGradient) const override;
-  virtual void computeSurfaceHessian(
-    EigenSupport::ConstRefVecXd surfacePositions,
-    EigenSupport::SpMatD &surfaceHessian) const override;
-
 private:
+  double computeSurfaceEnergy(EigenSupport::ConstRefVecXd surfacePositions) const;
+  void computeSurfaceGradient(
+    EigenSupport::ConstRefVecXd surfacePositions,
+    EigenSupport::RefVecXd surfaceGradient) const;
+  void computeSurfaceHessian(
+    EigenSupport::ConstRefVecXd surfacePositions,
+    EigenSupport::SpMatD &surfaceHessian) const;
+  void computeSurfaceAll(
+    EigenSupport::ConstRefVecXd surfacePositions,
+    double &surfaceEnergy,
+    EigenSupport::RefVecXd surfaceGradient,
+    EigenSupport::SpMatD &surfaceHessian) const;
+
+  SurfaceDofMap dofMap_;
   FloorPenaltyParameters params_;
 };
 

@@ -23,16 +23,16 @@ Python 层全部是**只读门面**：参数校验 + `_core._create_*` 工厂调
                                   └── CCD ──> α_max（可行步长，回馈 Newton 线搜索）
 ```
 
-**阶段 1 — 表面映射**（`src/core/contact/mappedSurfacePotentialEnergy.cpp`）。接触表面位置由稀疏插值矩阵 $S$（`surface_from_simulation`）从仿真位移线性生成：
+**阶段 1 — 表面映射**（`src/core/contact/surfaceDofMap.cpp`）。接触表面位置由稀疏插值矩阵 $S$（`surface_from_simulation`）从仿真位移线性生成：
 
 $$\mathbf x_s = \bar{\mathbf x}_s + S\,\mathbf u,\qquad
 E(\mathbf u) = E_s(\mathbf x_s),\qquad
 \nabla_{\mathbf u}E = S^\top \nabla_{\!s} E_s,\qquad
 \nabla^2_{\mathbf u}E = S^\top H_s\, S$$
 
-其中 $\bar{\mathbf x}_s$ 是表面静止位置。$S=I$ 时表面顶点即仿真顶点（`ContactSurface.identity`）；嵌入仿真时 $S$ 是重心插值矩阵（`ContactSurface.embedded`）。见 [surface.md](surface.md)。
+其中 $\bar{\mathbf x}_s$ 是表面静止位置。`SurfaceDofMap` 是共享的映射帮助类，负责由仿真位移生成表面位置，并把表面梯度 / Hessian pullback 到仿真 DOF。$S=I$ 时表面顶点即仿真顶点（`ContactSurface.identity`）；嵌入仿真时 $S$ 是重心插值矩阵（`ContactSurface.embedded`）。见 [surface.md](surface.md)。
 
-**阶段 2 — 活动集构建**（broad phase，空间哈希）。以当前表面位置枚举距离小于 $\hat d$（IPC）或发生穿透（罚接触）的几何对；活动集在每个 Newton 求值点重建、在线搜索期间冻结为超集（`ActiveSetContactEnergy` 生命周期，见 [base.md](base.md)）。
+**阶段 2 — 活动集构建**（broad phase，空间哈希）。以当前表面位置枚举距离小于 $\hat d$（IPC）或发生穿透（罚接触）的几何对；具体接触能量各自组合需要的映射、pair generator、assembler 或 evaluator。`StatefulContactEnergy` 只提供共同的 step-aware 接触边界；IPC 额外实现线搜索生命周期来在线搜索期间冻结 swept superset。
 
 **阶段 3 — 能量装配**。以 IPC 为例（as-implemented，`src/core/contact/ipc/geometry/ipcBarrier.cpp:20-27`），屏障作用在**平方距离** $s=d^2$ 上：
 
@@ -63,7 +63,7 @@ C++ 侧通过 `StepAwareEnergy::beginStep(StepState{time, timestep, previousX})`
 | `surface.py` | 表面映射 | $\mathbf x_s = \bar{\mathbf x}_s + S\mathbf u$ | [surface.md](surface.md) |
 | `params.py` | 参数值对象 | $\hat d,\kappa,\varepsilon_{ee}$；$c,\mu,\varepsilon_v$；$h,\kappa_f$ | [params.md](params.md) |
 | `base.py` | 步状态注入 | $\text{StepState}=(t,h,\mathbf x^t)$ | [base.md](base.md) |
-| `energies.py` | 四种接触能量 | $b(d^2,\hat d^2)$、单边罚、摩擦势 $f_0$ | [energies.md](energies.md) |
+| `energies.py` | 三类接触能量 | $b(d^2,\hat d^2)$、单边罚、可选摩擦势 $f_0$ | [energies.md](energies.md) |
 | `__init__.py` | 公开面 | — | [\_\_init\_\_.md](__init__.md) |
 
 ## C++ 引擎对应
@@ -72,11 +72,10 @@ C++ 侧通过 `StepAwareEnergy::beginStep(StepState{time, timestep, previousX})`
 |---|---|---|
 | `ContactSurface` | `Contact::ContactSurfaceSpec`（peer `PyContactSurface`） | `src/python/pypgo/contact/core.cpp` |
 | `FloorEnergy` | `Contact::Floor::FloorContactEnergy` | `src/core/contact/floor/floorContactEnergy.cpp` |
-| `IPCEnergy` | `Contact::IPC::IPCContactEnergy` → `SurfaceIPCCore` | `src/core/contact/ipc/ipcContactEnergy.cpp`、`ipc/core/surfaceIPCCore.cpp` |
-| `SampledPenaltyEnergy` | `Contact::SampledPenalty::SampledPenaltySurfaceContactEnergy` | `src/core/contact/sampled_penalty/sampledPenaltyContactEnergy.cpp` |
-| `FrictionalSampledPenaltyEnergy` | `…::FrictionalSampledPenaltySurfaceContactEnergy` | 同上 |
+| `IPCEnergy` | `Contact::IPC::IPCContactEnergy` → `SurfaceDofMap` + `IPCPairGenerator` + `IPCContactAssembler` + `IPCActiveSetCache` | `src/core/contact/ipc/ipcContactEnergy.cpp`、`ipc/ipcPairGenerator.cpp`、`ipc/ipcContactAssembler.cpp` |
+| `SampledPenaltyEnergy` | `Contact::SampledPenalty::SampledPenaltyContactEnergy`（可选摩擦） | `src/core/contact/sampled_penalty/sampledPenaltyContactEnergy.cpp` |
 | `ObstacleSpec` | `IPC::StaticObstacleSurface` / `LinearMovingObstacleSurface` | `src/core/contact/ipc/external/obstacleSurface.cpp` |
-| 表面↔仿真链式法则 | `IPC::MappedSurfacePotentialEnergy` | `src/core/contact/mappedSurfacePotentialEnergy.cpp` |
+| 表面↔仿真链式法则 | `Contact::SurfaceDofMap`（由具体接触能量组合使用） | `src/core/contact/surfaceDofMap.cpp` |
 | `begin_step` 协议 | `NonlinearOptimization::StepAwareEnergy` | `src/core/nonlinearOptimization/stepAwareEnergy.h` |
 
 绑定层：`src/python/pypgo/contact/bindings.cpp`（注册 `_core._create_*` 工厂与 `PyStatefulContactEnergy` 层级）+ `core.cpp`（包装实现）；C++ 工厂派发在 `src/core/contact/contactEnergyFactory.cpp`。
@@ -118,6 +117,6 @@ frames = sim.run(200, external_force=gravity)
 | 需求 | 模型 |
 |---|---|
 | 绝对不穿透（自接触/薄壳/大步长） | `IPCEnergy` |
-| 软接触、要摩擦、能接受微穿透 | `FrictionalSampledPenaltyEnergy` |
+| 软接触、要摩擦、能接受微穿透 | `SampledPenaltyEnergy(..., friction=FrictionParameters(...))` |
 | 简单外部碰撞、性能优先 | `SampledPenaltyEnergy` |
 | 解析地面/天花板 | `FloorEnergy` |

@@ -8,6 +8,13 @@ Run from the repository root:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+REPO_ROOT_FOR_IMPORTS = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT_FOR_IMPORTS) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT_FOR_IMPORTS))
+
 from examples.scripts.notebook_builder import code, md, repo_root, write_notebook
 
 
@@ -20,7 +27,7 @@ CELLS = [
         # Contact API Demo — All Contact Energy Types
 
         This notebook demonstrates every contact energy type in `pypgo.contact`:
-        **IPC**, **FloorEnergy**, **SampledPenalty**, and **FrictionalSampledPenalty**,
+        **IPC**, **FloorEnergy**, and **SampledPenalty** (with optional friction),
         across cubic, tet, and shell meshes.
 
         Each section is self-contained — you can run any section independently.
@@ -35,7 +42,7 @@ CELLS = [
         1. **IPC** — cubic box falls onto `bottom.obj` obstacle (barrier contact, embedded surface)
         2. **FloorEnergy** — bunny falls onto implicit floor plane (embedded surface)
         3. **SampledPenalty** — tet box self-contact + floor (identity surface)
-        4. **FrictionalSampledPenalty** — shell falls with friction + floor
+        4. **SampledPenalty with friction** — shell falls with friction + floor
         5. **IPC Shell** — shell self-contact + floor (IPC barrier on thin shell)
         6. Summary comparison table
         """
@@ -664,13 +671,13 @@ CELLS = [
         """
     ),
     # ──────────────────────────────────────────────────────────────────
-    # Section 4: FrictionalSampledPenaltyEnergy — Shell with Friction
+    # Section 4: SampledPenaltyEnergy with friction — Shell with Friction
     # ──────────────────────────────────────────────────────────────────
     md(
         """
-        ## 4. FrictionalSampledPenaltyEnergy — Shell on Floor with Friction
+        ## 4. SampledPenaltyEnergy with Friction — Shell on Floor
 
-        `FrictionalSampledPenaltyEnergy` adds Coulomb friction to the sampled
+        `SampledPenaltyEnergy(..., friction=FrictionParameters(...))` adds Coulomb friction to the sampled
         penalty contact. It **requires** `previous_x` (the displacement from the
         prior timestep) to compute sliding velocity — the framework handles this
         automatically via `begin_step()`.
@@ -717,7 +724,7 @@ CELLS = [
         PREVIEW_STEPS_S4 = 80
         NUM_STEPS_S4 = FRICTIONAL_SCENE["num_timestep"] if RUN_FULL_SECTION4 else PREVIEW_STEPS_S4
 
-        print("Section 4 — FrictionalSampledPenalty shell + floor")
+        print("Section 4 — SampledPenalty shell + floor with friction")
         print("  steps this run:", NUM_STEPS_S4)
         """
     ),
@@ -788,7 +795,7 @@ CELLS = [
         # Identity contact surface — shell vertices ARE simulation DOFs
         s4_contact_surface = pc.ContactSurface.identity(shell_mesh.vertices)
 
-        frictional_penalty = pc.FrictionalSampledPenaltyEnergy(
+        frictional_penalty = pc.SampledPenaltyEnergy(
             s4_contact_surface,
             shell_mesh.elements,
             params=pc.SampledPenaltyParameters(
@@ -829,7 +836,7 @@ CELLS = [
         print("frictional penalty is step dependent:", frictional_penalty.is_step_dependent)
         print(f"initial lift: {FRICTIONAL_SCENE['lift_height']}m, tilt: 2°")
 
-        # FrictionalSampledPenalty REQUIRES previous_x for velocity computation
+        # SampledPenaltyEnergy with friction REQUIRES previous_x for velocity computation
         frictional_penalty.begin_step(time=0.0, timestep=FRICTIONAL_SCENE["timestep"], previous_x=x0_s4)
         """
     ),
@@ -1109,7 +1116,7 @@ CELLS = [
         | 1 | IPCEnergy | Cubic hex | Embedded | bottom.obj obstacle | 200 | kappa=3000, dhat=0.002 |
         | 2 | FloorEnergy | Tet | Embedded (bunny.obj) | implicit floor plane | 80 | offset=0.02, v0=-1 m/s |
         | 3 | SampledPenaltyEnergy | Tet | Identity | implicit floor plane | 80 | stiffness=10 |
-        | 4 | FrictionalSampledPenalty | Shell | Identity | implicit floor plane | 80 | friction=0.3 |
+        | 4 | SampledPenaltyEnergy + friction | Shell | Identity | implicit floor plane | 80 | friction=0.3 |
         | 5 | IPCEnergy | Shell | Identity | implicit floor plane | 80 | kappa=1000, dhat=0.005 |
 
         ### Key Takeaways
@@ -1117,8 +1124,8 @@ CELLS = [
         - **IPCEnergy** works with mesh obstacles (`ObstacleSpec`); Section 1 uses `bottom.obj`.
         - **FloorEnergy** uses an implicit plane (no mesh) and works with any contact surface.
         - **SampledPenaltyEnergy** works with any contact surface (identity or embedded); the demo uses identity for simplicity.
-        - **FrictionalSampledPenaltyEnergy** adds Coulomb friction and requires `previous_x`.
-        - **FrictionalSampledPenaltyEnergy** requires `previous_x` for friction velocity — the framework handles this automatically.
+        - **SampledPenaltyEnergy** accepts optional `friction=FrictionParameters(...)` for Coulomb friction.
+        - **SampledPenaltyEnergy with friction** requires `previous_x` for friction velocity — the framework handles this automatically.
         - Shell meshes need a manually-constructed lumped mass; `VolumeMesh.mass_matrix()` does not apply.
         """
     ),

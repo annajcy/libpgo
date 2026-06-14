@@ -20,19 +20,19 @@ SampledPenaltyFrictionState::SampledPenaltyFrictionState(const FrictionParameter
   params_(params)
 {
   if (params_.frictionCoeff < 0.0)
-    throw std::invalid_argument("FrictionalSampledPenaltyContactEnergy requires non-negative friction coefficient.");
+    throw std::invalid_argument("SampledPenaltyContactEnergy requires non-negative friction coefficient.");
   if (params_.velocityEps <= 0.0)
-    throw std::invalid_argument("FrictionalSampledPenaltyContactEnergy requires positive velocity epsilon.");
+    throw std::invalid_argument("SampledPenaltyContactEnergy requires positive velocity epsilon.");
 }
 
 void SampledPenaltyFrictionState::beginStep(const NonlinearOptimization::StepState &state, int expectedDofs)
 {
   if (state.previousX == nullptr)
-    throw std::invalid_argument("FrictionalSampledPenaltyContactEnergy::beginStep requires previousX.");
+    throw std::invalid_argument("SampledPenaltyContactEnergy::beginStep requires previousX.");
   if (state.timestep <= 0.0)
-    throw std::invalid_argument("FrictionalSampledPenaltyContactEnergy::beginStep requires a positive timestep.");
+    throw std::invalid_argument("SampledPenaltyContactEnergy::beginStep requires a positive timestep.");
   if (state.previousX->size() != expectedDofs)
-    throw std::invalid_argument("FrictionalSampledPenaltyContactEnergy::beginStep previousX has unexpected size.");
+    throw std::invalid_argument("SampledPenaltyContactEnergy::beginStep previousX has unexpected size.");
 
   previousX_ = *state.previousX;
   timestep_ = state.timestep;
@@ -42,7 +42,7 @@ void SampledPenaltyFrictionState::beginStep(const NonlinearOptimization::StepSta
 void SampledPenaltyFrictionState::configureExternalSurfacePositions(PointPenetrationEnergy &energy) const
 {
   if (!hasStepState_)
-    throw std::invalid_argument("FrictionalSampledPenaltyContactEnergy requires beginStep before active contact evaluation.");
+    throw std::invalid_argument("SampledPenaltyContactEnergy requires beginStep before active contact evaluation.");
 
   energy.setComputeLastPosFunction([this](const EigenSupport::V3d &, EigenSupport::V3d &p, int dofStart) {
     p = previousX_.segment<3>(dofStart);
@@ -55,7 +55,7 @@ void SampledPenaltyFrictionState::configureExternalSurfacePositions(PointPenetra
 void SampledPenaltyFrictionState::configureSelfSurfacePositions(PointTrianglePairCouplingEnergyWithCollision &energy) const
 {
   if (!hasStepState_)
-    throw std::invalid_argument("FrictionalSampledPenaltyContactEnergy requires beginStep before active contact evaluation.");
+    throw std::invalid_argument("SampledPenaltyContactEnergy requires beginStep before active contact evaluation.");
 
   energy.setToLastPosFunction([this](const EigenSupport::V3d &, EigenSupport::V3d &p, int dofStart) {
     p = previousX_.segment<3>(dofStart);

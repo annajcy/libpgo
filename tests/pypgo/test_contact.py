@@ -219,7 +219,6 @@ def test_contact_public_surface_matches_plan():
         "IPCParameters",
         "SampledPenaltyEnergy",
         "SampledPenaltyParameters",
-        "FrictionalSampledPenaltyEnergy",
         "FrictionParameters",
         "ObstacleSpec",
     }
@@ -227,18 +226,15 @@ def test_contact_public_surface_matches_plan():
     assert public == expected
 
     forbidden = {
-        "MappedSurfacePotentialEnergy",
         "FloorContactEnergy",
         "EmbeddedSurfaceIPCPotentialEnergy",
         "EmbeddedDofMap",
         "ContactSurfaceAdapter",
         "IPCContactEnergy",
         "SampledPenaltyContactEnergy",
-        "FrictionalSampledPenaltyContactEnergy",
+        "Frictional" + "SampledPenaltyContactEnergy",
         "StatefulContactEnergy",
-        "StepDependentEnergy",
         "FloorPenaltyParameters",
-        "SurfaceIPCCore",
         "ObstacleSurfaceView",
         "markObstacleStatic",
         "setObstacleTime",
@@ -246,23 +242,42 @@ def test_contact_public_surface_matches_plan():
     }
     assert forbidden.isdisjoint(set(dir(contact)))
 
-def test_frictional_sampled_penalty_requires_previous_state():
+
+def test_sampled_penalty_optional_friction_requires_previous_state():
     vertices, triangles = _triangle_surface()
     surface = contact.ContactSurface.identity(vertices)
-    frictional = contact.FrictionalSampledPenaltyEnergy(
+    penalty = contact.SampledPenaltyEnergy(
         surface,
         triangles,
         params=contact.SampledPenaltyParameters(stiffness=3.0, samples=1),
         friction=contact.FrictionParameters(friction_coeff=0.5, velocity_eps=1e-4),
     )
 
-    assert frictional.is_step_dependent is True
+    assert penalty.is_step_dependent is True
     with pytest.raises(ValueError, match="previous_x"):
-        frictional.begin_step(time=0.0, timestep=0.1)
+        penalty.begin_step(time=0.0, timestep=0.1)
     with pytest.raises(ValueError, match="positive"):
-        frictional.begin_step(time=0.0, timestep=0.0, previous_x=np.zeros(9))
+        penalty.begin_step(time=0.0, timestep=0.0, previous_x=np.zeros(9))
 
-    frictional.begin_step(time=0.0, timestep=0.1, previous_x=np.zeros(9))
+    penalty.begin_step(time=0.0, timestep=0.1, previous_x=np.zeros(9))
+
+
+def test_sampled_penalty_core_friction_arguments_must_be_paired():
+    import pypgo._core as _core
+
+    vertices, triangles = _triangle_surface()
+    surface = contact.ContactSurface.identity(vertices)
+
+    with pytest.raises(ValueError, match="provided together"):
+        _core._create_sampled_penalty_contact_energy(
+            surface._handle,
+            triangles,
+            3.0,
+            1,
+            True,
+            True,
+            friction_coeff=0.3,
+        )
 
 
 def test_contact_surface_and_energy_handles_are_concrete_peers():
@@ -285,6 +300,11 @@ def test_contact_surface_and_energy_handles_are_concrete_peers():
     assert isinstance(ipc._handle, _core.PyIPCContactEnergy)
     assert not hasattr(ipc, "_contact_core")
 
-    frictional = contact.FrictionalSampledPenaltyEnergy(surface, triangles)
-    assert isinstance(frictional._handle, _core.PyFrictionalSampledPenaltyContactEnergy)
+    frictional = contact.SampledPenaltyEnergy(
+        surface,
+        triangles,
+        friction=contact.FrictionParameters(),
+    )
+    assert isinstance(frictional._handle, _core.PySampledPenaltyContactEnergy)
+    assert not hasattr(_core, "Py" + "Frictional" + "SampledPenaltyContactEnergy")
     assert not hasattr(frictional, "_contact_core")

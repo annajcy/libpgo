@@ -2,7 +2,7 @@
 
 > 源文件：`pypgo/contact/surface.py`（112 行）。模块架构见 [overview.md](overview.md)。
 >
-> C++ peer：`PyContactSurface`（持有 `Contact::ContactSurfaceSpec`），`src/python/pypgo/contact/core.cpp:158-241`；表面↔仿真链式法则在 `src/core/contact/mappedSurfacePotentialEnergy.cpp`。
+> C++ peer：`PyContactSurface`（持有 `Contact::ContactSurfaceSpec`），`src/python/pypgo/contact/core.cpp:158-241`；表面↔仿真的共享映射帮助类是 `Contact::SurfaceDofMap`（`src/core/contact/surfaceDofMap.cpp`）。
 
 ## 共同数学框架
 
@@ -10,7 +10,7 @@
 
 $$\mathbf x_s(\mathbf u) = \bar{\mathbf x}_s + S\,\mathbf u,\qquad S\in\mathbb R^{3n_s\times n_{\text{sim}}}\ \text{（稀疏）}$$
 
-其中 $\bar{\mathbf x}_s$ 是表面静止位置（`rest_vertices` 展平），$S$ 是 `surface_from_simulation` 位移插值矩阵。链式法则由 C++ 基类 `MappedSurfacePotentialEnergy` 统一实现（`mappedSurfacePotentialEnergy.cpp:48-74`）：
+其中 $\bar{\mathbf x}_s$ 是表面静止位置（`rest_vertices` 展平），$S$ 是 `surface_from_simulation` 位移插值矩阵。C++ 层通过 `SurfaceDofMap` 共享这套表面位置计算和 pullback 逻辑；具体能量（IPC、采样罚接触、地板）按需组合自己的映射、生成器与装配器：
 
 $$E(\mathbf u)=E_s(\mathbf x_s),\qquad
 \nabla_{\mathbf u}E = S^\top\,\nabla_{\!s}E_s,\qquad

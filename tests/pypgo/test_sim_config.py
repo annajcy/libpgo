@@ -40,9 +40,38 @@ def test_minimal_volume_dynamic_config(tmp_path):
     assert cfg.dynamic.integrator == "implicit_euler"
     assert cfg.dynamic.resume is None
     assert cfg.solver.max_iterations == 50
+    assert cfg.solver.line_search == "simple"
     assert cfg.loads.gravity == (0.0, 0.0, 0.0)
     assert cfg.contact == ()
     assert cfg.output.write_checkpoints is False
+
+
+def test_solver_line_search_config(tmp_path):
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "model.veg", "surface": "model.obj"},
+        "solver": {
+            "line_search": "simple",
+            "line_search_max_iterations": 80,
+            "line_search_shrink": 0.25,
+        },
+        "dynamic": {"timestep": 0.001, "num_steps": 5},
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+    assert cfg.solver.line_search == "simple"
+    assert cfg.solver.line_search_max_iterations == 80
+    assert cfg.solver.line_search_shrink == 0.25
+
+
+def test_solver_line_search_rejects_unknown_method(tmp_path):
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "model.veg", "surface": "model.obj"},
+        "solver": {"line_search": "wolfe"},
+        "dynamic": {"timestep": 0.001, "num_steps": 5},
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="line_search"):
+        load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
 
 
 def test_cli_overrides_beat_json(tmp_path):
@@ -187,7 +216,34 @@ def test_unknown_contact_model_rejected(tmp_path):
         load_config(mesh_type="tet", mode="static", json_path=cfg_path)
 
 
-def test_obstacles_only_for_ipc(tmp_path):
+def test_sampled_penalty_accepts_static_obstacles(tmp_path):
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "contact": [{"model": "sampled_penalty",
+                     "obstacles": [{"mesh": "bottom.obj"}]}],
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+    contact = cfg.contact[0]
+    assert contact.model == "sampled_penalty"
+    assert contact.obstacles[0].mesh == tmp_path / "bottom.obj"
+    assert contact.obstacles[0].velocity is None
+
+
+def test_sampled_penalty_rejects_moving_obstacles(tmp_path):
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "contact": [{"model": "sampled_penalty",
+                     "obstacles": [{"mesh": "bottom.obj",
+                                    "velocity": [0.0, 1.0, 0.0]}]}],
+        "dynamic": {"timestep": 0.001},
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="moving"):
+        load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
+
+
+def test_floor_obstacles_rejected(tmp_path):
     cfg_path = _write(tmp_path, {
         "mesh": {"volume": "m.veg", "surface": "m.obj"},
         "contact": [{"model": "floor", "obstacles": [{"mesh": "b.obj"}]}],
@@ -265,10 +321,30 @@ def test_damping_length_check_applies_in_static_mode(tmp_path):
 def test_frictional_contact_rejected_in_static_mode(tmp_path):
     cfg_path = _write(tmp_path, {
         "mesh": {"volume": "m.veg", "surface": "m.obj"},
-        "contact": [{"model": "frictional_sampled_penalty"}],
+        "contact": [{"model": "sampled_penalty", "friction_coeff": 0.3}],
         "output": {"directory": "out"},
     })
-    with pytest.raises(ConfigError, match="frictional"):
+    with pytest.raises(ConfigError, match="friction"):
+        load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+
+
+def test_static_sampled_penalty_without_friction_fields_allowed(tmp_path):
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "contact": [{"model": "sampled_penalty"}],
+        "output": {"directory": "out"},
+    })
+    cfg = load_config(mesh_type="tet", mode="static", json_path=cfg_path)
+    assert cfg.contact[0].friction_coeff == pytest.approx(0.0)
+
+
+def test_friction_fields_rejected_for_non_sampled_contact(tmp_path):
+    cfg_path = _write(tmp_path, {
+        "mesh": {"volume": "m.veg", "surface": "m.obj"},
+        "contact": [{"model": "floor", "friction_coeff": 0.3}],
+        "output": {"directory": "out"},
+    })
+    with pytest.raises(ConfigError, match="sampled_penalty"):
         load_config(mesh_type="tet", mode="static", json_path=cfg_path)
 
 

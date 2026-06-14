@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "embeddedDofMap.h"
+#include "surfaceDofMap.h"
 #include "statefulContactEnergy.h"
 #include "triMeshGeo.h"
 
@@ -12,6 +12,7 @@
 #include "potentialEnergy.h"
 
 #include <memory>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -106,14 +107,14 @@ std::shared_ptr<StatefulContactEnergy> createSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
   const SampledPenaltyContactSpec &params,
+  std::optional<FrictionContactSpec> friction = std::nullopt,
   std::vector<Mesh::TriMeshGeo> externalSurfaces = {});
 
-std::shared_ptr<StatefulContactEnergy> createFrictionalSampledPenaltyEnergy(
+std::shared_ptr<StatefulContactEnergy> createSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
   const SampledPenaltyContactSpec &params,
-  const FrictionContactSpec &friction,
-  std::vector<Mesh::TriMeshGeo> externalSurfaces = {});
+  std::vector<Mesh::TriMeshGeo> externalSurfaces);
 }  // namespace SampledPenalty
 
 }  // namespace Contact

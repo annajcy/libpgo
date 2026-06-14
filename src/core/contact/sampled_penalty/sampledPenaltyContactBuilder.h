@@ -1,11 +1,11 @@
 /*
-  Contact detection and active-set construction for sampled penalty contact.
+  Contact detection and evaluation-bundle construction for sampled penalty contact.
 */
 
 #pragma once
 
 #include "EigenDef.h"
-#include "sampled_penalty/sampledPenaltyActiveSet.h"
+#include "sampled_penalty/sampledPenaltyEvaluationBundle.h"
 #include "sampled_penalty/sampledPenaltySpecs.h"
 #include "triMeshGeo.h"
 
@@ -25,16 +25,16 @@ class TriangleMeshSelfContactHandler;
 namespace SampledPenalty
 {
 
-struct SampledPenaltyActiveEnergyConfigurator
+struct SampledPenaltyEnergyConfigurator
 {
   std::function<void(PointPenetrationEnergy &)> configureExternal;
   std::function<void(PointTrianglePairCouplingEnergyWithCollision &, EigenSupport::ConstRefVecXd)> configureSelf;
 };
 
-class SampledPenaltyContactDetector
+class SampledPenaltyContactBuilder
 {
 public:
-  SampledPenaltyContactDetector(
+  SampledPenaltyContactBuilder(
     const Mesh::TriMeshGeo &surfaceMesh,
     int simulationDofCount,
     const ParametersSpec &params,
@@ -44,9 +44,9 @@ public:
 
   void updateExternalSurface(int index, const Mesh::TriMeshGeo &surface);
 
-  std::unique_ptr<SampledPenaltyActiveSet> buildActiveSet(
+  std::unique_ptr<SampledPenaltyEvaluationBundle> buildFromPositions(
     EigenSupport::ConstRefVecXd x,
-    const SampledPenaltyActiveEnergyConfigurator &configurator) const;
+    const SampledPenaltyEnergyConfigurator &configurator) const;
 
 private:
   Mesh::TriMeshGeo surfaceMesh_;

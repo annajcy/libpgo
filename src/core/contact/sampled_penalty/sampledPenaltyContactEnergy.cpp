@@ -1,15 +1,15 @@
 /*
-  Long-lived sampled penalty contact energies.
+  Long-lived sampled penalty contact energy.
 */
 
 #include "sampled_penalty/sampledPenaltyContactEnergy.h"
 
-#include "sampled_penalty/sampledPenaltyActiveSet.h"
+#include "sampled_penalty/sampledPenaltyEvaluationBundle.h"
 #include "sampled_penalty/kernels/pointPenetrationEnergy.h"
 #include "sampled_penalty/kernels/pointTrianglePairCouplingEnergyWithCollision.h"
 
 #include <stdexcept>
-#include <string>
+#include <utility>
 
 namespace pgo
 {
@@ -19,101 +19,99 @@ namespace SampledPenalty
 {
 namespace
 {
-void addSparse(EigenSupport::SpMatD &dst, const EigenSupport::SpMatD &src)
+Mesh::TriMeshGeo makeSurfaceMesh(
+  const EigenSupport::MXd &surfaceRestVertices,
+  const EigenSupport::MXi &surfaceTriangles)
 {
-  if (src.nonZeros() == 0)
-    return;
-  dst = dst + src;
+  if (surfaceRestVertices.cols() != 3)
+    throw std::invalid_argument("SampledPenaltyContactEnergy rest vertices must have shape (#vertices, 3).");
+  if (surfaceTriangles.cols() != 3)
+    throw std::invalid_argument("SampledPenaltyContactEnergy surface triangles must have shape (#triangles, 3).");
+  return Mesh::matricesToTriMeshGeo(surfaceRestVertices, surfaceTriangles);
 }
 }  // namespace
 
-SampledPenaltySurfaceContactEnergy::SampledPenaltySurfaceContactEnergy(
-  const Mesh::TriMeshGeo &surfaceMesh,
-  const ParametersSpec &params,
+SampledPenaltyContactEnergy::SampledPenaltyContactEnergy(
+  const EigenSupport::MXd &surfaceRestVertices,
+  const EigenSupport::MXi &surfaceTriangles,
+  const EigenSupport::SpMatD &surfaceFromSimulationDispMap,
+  const SampledPenaltyContactEnergyOptions &options,
   std::vector<Mesh::TriMeshGeo> externalSurfaces):
-  surfaceDofCount_(surfaceMesh.numVertices() * 3),
-  params_(params),
-  detector_(
-    surfaceMesh,
-    surfaceDofCount_,
-    params,
+  dofMap_(surfaceRestVertices, surfaceFromSimulationDispMap),
+  options_(options),
+  builder_(
+    makeSurfaceMesh(surfaceRestVertices, surfaceTriangles),
+    dofMap_.numSurfaceDofs(),
+    options_.params,
     std::move(externalSurfaces),
     {},
     {})
 {
-  dofs_.resize(surfaceDofCount_);
-  for (int i = 0; i < surfaceDofCount_; ++i)
-    dofs_[i] = i;
+  if (options_.friction)
+    frictionState_.emplace(*options_.friction);
 }
 
-SampledPenaltySurfaceContactEnergy::~SampledPenaltySurfaceContactEnergy() = default;
+SampledPenaltyContactEnergy::~SampledPenaltyContactEnergy() = default;
 
-void SampledPenaltySurfaceContactEnergy::validateSurfacePositionVector(EigenSupport::ConstRefVecXd surfacePositions) const
+void SampledPenaltyContactEnergy::beginStep(const NonlinearOptimization::StepState &state)
 {
-  if (surfacePositions.size() != surfaceDofCount_)
-    throw std::invalid_argument("SampledPenaltySurfaceContactEnergy surface position vector has unexpected size.");
+  if (frictionState_) {
+    if (state.previousX == nullptr)
+      throw std::invalid_argument("SampledPenaltyContactEnergy::beginStep requires previousX when friction is enabled.");
+    if (state.timestep <= 0.0)
+      throw std::invalid_argument("SampledPenaltyContactEnergy::beginStep requires a positive timestep when friction is enabled.");
+
+    EigenSupport::VXd previousSurfacePositions = dofMap_.surfacePositions(*state.previousX);
+    NonlinearOptimization::StepState mapped = state;
+    mapped.previousX = &previousSurfacePositions;
+    frictionState_->beginStep(mapped, dofMap_.numSurfaceDofs());
+  }
+
+  const EigenSupport::VXd *bundleX = state.currentX != nullptr ? state.currentX : state.previousX;
+  if (bundleX != nullptr)
+    stepBundle_ = buildBundle(dofMap_.surfacePositions(*bundleX));
+  else
+    stepBundle_.reset();
 }
 
-void SampledPenaltySurfaceContactEnergy::prepareActiveSet(EigenSupport::ConstRefVecXd surfacePositions) const
+void SampledPenaltyContactEnergy::updateExternalSurface(int index, const Mesh::TriMeshGeo &surface)
 {
-  validateSurfacePositionVector(surfacePositions);
-  activeSetCache_.prepareExact(
-    surfacePositions,
-    [this](EigenSupport::ConstRefVecXd state) { return buildActiveSet(state); });
+  builder_.updateExternalSurface(index, surface);
+  stepBundle_.reset();
 }
 
-void SampledPenaltySurfaceContactEnergy::clearPreparedActiveSet() const
+SampledPenaltyEnergyConfigurator SampledPenaltyContactEnergy::makeConfigurator() const
 {
-  activeSetCache_.clearExact();
-}
-
-void SampledPenaltySurfaceContactEnergy::resetActiveSets() const
-{
-  activeSetCache_.clearAll();
-}
-
-void SampledPenaltySurfaceContactEnergy::updateExternalSurface(int index, const Mesh::TriMeshGeo &surface)
-{
-  detector_.updateExternalSurface(index, surface);
-  resetActiveSets();
-}
-
-void SampledPenaltySurfaceContactEnergy::beginActiveSetLineSearch(
-  EigenSupport::ConstRefVecXd surfacePositions,
-  EigenSupport::ConstRefVecXd) const
-{
-  validateSurfacePositionVector(surfacePositions);
-  activeSetCache_.beginLineSearch(
-    surfacePositions,
-    [this](EigenSupport::ConstRefVecXd state) { return buildActiveSet(state); });
-}
-
-void SampledPenaltySurfaceContactEnergy::endActiveSetLineSearch() const
-{
-  activeSetCache_.endLineSearch();
-}
-
-const SampledPenaltyActiveSet &SampledPenaltySurfaceContactEnergy::evaluationActiveSet(EigenSupport::ConstRefVecXd surfacePositions) const
-{
-  validateSurfacePositionVector(surfacePositions);
-  return activeSetCache_.forEvaluation(
-    surfacePositions,
-    [this](EigenSupport::ConstRefVecXd state) { return buildActiveSet(state); });
-}
-
-std::unique_ptr<SampledPenaltyActiveSet> SampledPenaltySurfaceContactEnergy::buildActiveSet(EigenSupport::ConstRefVecXd surfacePositions) const
-{
-  SampledPenaltyActiveEnergyConfigurator configurator;
+  SampledPenaltyEnergyConfigurator configurator;
   configurator.configureExternal = [this](PointPenetrationEnergy &energy) {
-    configureExternalActiveEnergy(energy);
+    configureExternalEnergy(energy);
   };
-  configurator.configureSelf = [this](PointTrianglePairCouplingEnergyWithCollision &energy, EigenSupport::ConstRefVecXd state) {
-    configureSelfActiveEnergy(energy, state);
+  configurator.configureSelf = [this](
+                                PointTrianglePairCouplingEnergyWithCollision &energy,
+                                EigenSupport::ConstRefVecXd state) {
+    configureSelfEnergy(energy, state);
   };
-  return detector_.buildActiveSet(surfacePositions, configurator);
+  return configurator;
 }
 
-void SampledPenaltySurfaceContactEnergy::configureExternalActiveEnergy(PointPenetrationEnergy &energy) const
+std::unique_ptr<SampledPenaltyEvaluationBundle> SampledPenaltyContactEnergy::buildBundle(
+  EigenSupport::ConstRefVecXd surfacePositions) const
+{
+  return builder_.buildFromPositions(surfacePositions, makeConfigurator());
+}
+
+const SampledPenaltyEvaluationBundle &SampledPenaltyContactEnergy::evaluationBundle(
+  EigenSupport::ConstRefVecXd surfacePositions,
+  std::unique_ptr<SampledPenaltyEvaluationBundle> &fallbackBundle) const
+{
+  if (stepBundle_)
+    return *stepBundle_;
+
+  fallbackBundle = buildBundle(surfacePositions);
+  return *fallbackBundle;
+}
+
+void SampledPenaltyContactEnergy::configureExternalEnergy(PointPenetrationEnergy &energy) const
 {
   energy.setComputePosFunction([](const EigenSupport::V3d &x, EigenSupport::V3d &p, int) {
     p = x;
@@ -121,7 +119,7 @@ void SampledPenaltySurfaceContactEnergy::configureExternalActiveEnergy(PointPene
   energy.setComputeLastPosFunction([](const EigenSupport::V3d &x, EigenSupport::V3d &p, int) {
     p = x;
   });
-  energy.setCoeff(params_.stiffness);
+  energy.setCoeff(options_.params.stiffness);
   energy.setFrictionCoeff(0.0);
   energy.setTimestep(0.0);
   energy.setVelEps(0.0);
@@ -129,7 +127,7 @@ void SampledPenaltySurfaceContactEnergy::configureExternalActiveEnergy(PointPene
     frictionState_->configureExternalSurfacePositions(energy);
 }
 
-void SampledPenaltySurfaceContactEnergy::configureSelfActiveEnergy(
+void SampledPenaltyContactEnergy::configureSelfEnergy(
   PointTrianglePairCouplingEnergyWithCollision &energy,
   EigenSupport::ConstRefVecXd surfacePositions) const
 {
@@ -139,7 +137,7 @@ void SampledPenaltySurfaceContactEnergy::configureSelfActiveEnergy(
   energy.setToLastPosFunction([](const EigenSupport::V3d &x, EigenSupport::V3d &p, int) {
     p = x;
   });
-  energy.setCoeff(params_.stiffness);
+  energy.setCoeff(options_.params.stiffness);
   energy.setFrictionCoeff(0.0);
   energy.setTimestep(0.0);
   energy.setVelEps(0.0);
@@ -148,84 +146,115 @@ void SampledPenaltySurfaceContactEnergy::configureSelfActiveEnergy(
   energy.computeClosestPosition(surfacePositions.data());
 }
 
-double SampledPenaltySurfaceContactEnergy::func(EigenSupport::ConstRefVecXd surfacePositions) const
+double SampledPenaltyContactEnergy::func(EigenSupport::ConstRefVecXd simulationDisplacements) const
 {
-  const SampledPenaltyActiveSet &activeSet = evaluationActiveSet(surfacePositions);
-  double value = 0.0;
-  if (activeSet.externalEnergy)
-    value += activeSet.externalEnergy->func(surfacePositions);
-  if (activeSet.selfEnergy)
-    value += activeSet.selfEnergy->func(surfacePositions);
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+  std::unique_ptr<SampledPenaltyEvaluationBundle> fallbackBundle;
+  const SampledPenaltyEvaluationBundle &bundle = evaluationBundle(surfacePositions, fallbackBundle);
+  return evaluator_.func(bundle, surfacePositions);
+}
+
+void SampledPenaltyContactEnergy::gradient(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::RefVecXd simulationGradient) const
+{
+  if (simulationGradient.size() != dofMap_.numSimulationDofs())
+    throw std::invalid_argument("SampledPenaltyContactEnergy gradient vector has unexpected size.");
+
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+  std::unique_ptr<SampledPenaltyEvaluationBundle> fallbackBundle;
+  const SampledPenaltyEvaluationBundle &bundle = evaluationBundle(surfacePositions, fallbackBundle);
+  EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
+  evaluator_.gradient(bundle, surfacePositions, surfaceGradient);
+  simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
+}
+
+void SampledPenaltyContactEnergy::hessian(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::SpMatD &simulationHessian) const
+{
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+  std::unique_ptr<SampledPenaltyEvaluationBundle> fallbackBundle;
+  const SampledPenaltyEvaluationBundle &bundle = evaluationBundle(surfacePositions, fallbackBundle);
+  EigenSupport::SpMatD surfaceHessian;
+  evaluator_.hessian(bundle, surfacePositions, surfaceHessian);
+  dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
+}
+
+void SampledPenaltyContactEnergy::hessianInPlace(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::SpMatD &simulationHessian) const
+{
+  hessian(simulationDisplacements, simulationHessian);
+}
+
+void SampledPenaltyContactEnergy::hessianAlloc(EigenSupport::SpMatD &simulationHessian) const
+{
+  simulationHessian.resize(getNumDOFs(), getNumDOFs());
+  simulationHessian.setZero();
+}
+
+double SampledPenaltyContactEnergy::func_grad(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::RefVecXd simulationGradient) const
+{
+  if (simulationGradient.size() != dofMap_.numSimulationDofs())
+    throw std::invalid_argument("SampledPenaltyContactEnergy gradient vector has unexpected size.");
+
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+  std::unique_ptr<SampledPenaltyEvaluationBundle> fallbackBundle;
+  const SampledPenaltyEvaluationBundle &bundle = evaluationBundle(surfacePositions, fallbackBundle);
+  EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
+  const double value = evaluator_.func_grad(bundle, surfacePositions, surfaceGradient);
+  simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
   return value;
 }
 
-void SampledPenaltySurfaceContactEnergy::gradient(EigenSupport::ConstRefVecXd surfacePositions, EigenSupport::RefVecXd grad) const
+double SampledPenaltyContactEnergy::func_grad_hessian(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::RefVecXd simulationGradient,
+  EigenSupport::SpMatD &simulationHessian) const
 {
-  if (grad.size() != surfaceDofCount_)
-    throw std::invalid_argument("SampledPenaltySurfaceContactEnergy gradient vector has unexpected size.");
+  if (simulationGradient.size() != dofMap_.numSimulationDofs())
+    throw std::invalid_argument("SampledPenaltyContactEnergy gradient vector has unexpected size.");
 
-  const SampledPenaltyActiveSet &activeSet = evaluationActiveSet(surfacePositions);
-  grad.setZero();
-  EigenSupport::VXd childGrad(grad.size());
-  if (activeSet.externalEnergy) {
-    childGrad.setZero();
-    activeSet.externalEnergy->gradient(surfacePositions, childGrad);
-    grad += childGrad;
-  }
-  if (activeSet.selfEnergy) {
-    childGrad.setZero();
-    activeSet.selfEnergy->gradient(surfacePositions, childGrad);
-    grad += childGrad;
-  }
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+  std::unique_ptr<SampledPenaltyEvaluationBundle> fallbackBundle;
+  const SampledPenaltyEvaluationBundle &bundle = evaluationBundle(surfacePositions, fallbackBundle);
+  EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
+  EigenSupport::SpMatD surfaceHessian;
+  const double value = evaluator_.func_grad_hessian(bundle, surfacePositions, surfaceGradient, surfaceHessian);
+  simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
+  dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
+  return value;
 }
 
-void SampledPenaltySurfaceContactEnergy::hessianAlloc(EigenSupport::SpMatD &hess) const
+void SampledPenaltyContactEnergy::gradient_hessian(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::RefVecXd simulationGradient,
+  EigenSupport::SpMatD &simulationHessian) const
 {
-  hess.resize(getNumDOFs(), getNumDOFs());
-  hess.setZero();
+  if (simulationGradient.size() != dofMap_.numSimulationDofs())
+    throw std::invalid_argument("SampledPenaltyContactEnergy gradient vector has unexpected size.");
+
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+  std::unique_ptr<SampledPenaltyEvaluationBundle> fallbackBundle;
+  const SampledPenaltyEvaluationBundle &bundle = evaluationBundle(surfacePositions, fallbackBundle);
+  EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
+  EigenSupport::SpMatD surfaceHessian;
+  evaluator_.gradient_hessian(bundle, surfacePositions, surfaceGradient, surfaceHessian);
+  simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
+  dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
 }
 
-void SampledPenaltySurfaceContactEnergy::hessian(EigenSupport::ConstRefVecXd surfacePositions, EigenSupport::SpMatD &hess) const
+void SampledPenaltyContactEnergy::getDOFs(std::vector<int> &dofs) const
 {
-  hessianInPlace(surfacePositions, hess);
+  dofs = dofMap_.simulationDofs();
 }
 
-void SampledPenaltySurfaceContactEnergy::hessianInPlace(EigenSupport::ConstRefVecXd surfacePositions, EigenSupport::SpMatD &hess) const
+int SampledPenaltyContactEnergy::getNumDOFs() const
 {
-  const SampledPenaltyActiveSet &activeSet = evaluationActiveSet(surfacePositions);
-  hess.resize(getNumDOFs(), getNumDOFs());
-  hess.setZero();
-
-  EigenSupport::SpMatD childHess;
-  if (activeSet.externalEnergy) {
-    activeSet.externalEnergy->hessian(surfacePositions, childHess);
-    addSparse(hess, childHess);
-  }
-  if (activeSet.selfEnergy) {
-    activeSet.selfEnergy->hessian(surfacePositions, childHess);
-    addSparse(hess, childHess);
-  }
-}
-
-void SampledPenaltySurfaceContactEnergy::getDOFs(std::vector<int> &dofs) const
-{
-  dofs = dofs_;
-}
-
-FrictionalSampledPenaltySurfaceContactEnergy::FrictionalSampledPenaltySurfaceContactEnergy(
-  const Mesh::TriMeshGeo &surfaceMesh,
-  const ParametersSpec &params,
-  const FrictionParametersSpec &frictionParams,
-  std::vector<Mesh::TriMeshGeo> externalSurfaces):
-  SampledPenaltySurfaceContactEnergy(surfaceMesh, params, std::move(externalSurfaces))
-{
-  frictionState_.emplace(frictionParams);
-}
-
-void FrictionalSampledPenaltySurfaceContactEnergy::beginStep(const NonlinearOptimization::StepState &state)
-{
-  frictionState_->beginStep(state, getNumDOFs());
-  resetActiveSets();
+  return dofMap_.numSimulationDofs();
 }
 
 }  // namespace SampledPenalty

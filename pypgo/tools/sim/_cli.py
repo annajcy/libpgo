@@ -36,7 +36,7 @@ def build_parser(*, prog: str, mesh_type: str, mode: str) -> argparse.ArgumentPa
     parser.add_argument("--write-surfaces", action="store_true", default=None,
                         help="write deformed surface OBJ output")
     parser.add_argument("--write-checkpoints", action="store_true", default=None,
-                        help="write restart checkpoints at dumped dynamic frames")
+                        help="write restart checkpoints at every dynamic frame")
     parser.add_argument("--gravity", nargs=3, type=float, default=None,
                         metavar=("GX", "GY", "GZ"))
     parser.add_argument("--solver-max-iterations", type=int, default=None)

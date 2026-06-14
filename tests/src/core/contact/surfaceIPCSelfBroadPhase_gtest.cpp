@@ -2,7 +2,6 @@
 
 #include "ipc/broadPhase/surfaceIPCBroadPhase.h"
 #include "ipc/topology/surfaceIPCTopology.h"
-#include "ipc/core/surfaceIPCCore.h"
 #include "ipc/geometry/ipcDistancePrimitives.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
 #include "scopedProfileSection.h"
@@ -20,7 +19,6 @@ namespace ES = pgo::EigenSupport;
 using pgo::Contact::IPC::EEPair;
 using pgo::Contact::IPC::PTPair;
 using pgo::Contact::IPC::SelfPairSet;
-using pgo::Contact::IPC::SurfaceIPCCore;
 using pgo::Contact::IPC::SurfaceIPCTopology;
 namespace distance = pgo::Contact::IPC::distance;
 using pgo::Contact::CIPCTest::flattenPositions;
@@ -115,7 +113,7 @@ SelfPairSet buildBruteForcePairs(const SurfaceIPCTopology &topology, const ES::V
 }
 }  // namespace
 
-TEST(SurfaceIPCSelfBroadPhaseGTest, BuilderMatchesSurfaceIPCCorePairSet)
+TEST(SurfaceIPCSelfBroadPhaseGTest, BuilderMatchesBruteForcePairSetOnFixture)
 {
   const auto [V, F] = makeTwoTriangleMesh();
   const ES::VXd x = flattenPositions(V);
@@ -126,18 +124,10 @@ TEST(SurfaceIPCSelfBroadPhaseGTest, BuilderMatchesSurfaceIPCCorePairSet)
   SelfPairSet broadPhasePairs;
   buildSelfPairs(topology, x, 0.1, broadPhasePairs);
 
-  SurfaceIPCCore core;
-  SurfaceIPCCore::Parameters params;
-  params.dhat = 0.1;
-  params.kappa = 1.0;
-  params.eps_ee = 0.0;
-  params.slackness = 0.9;
-  core.setParameters(params);
-  core.setMesh(V, F);
-  const auto activeSet = core.buildActiveSet(x);
+  const SelfPairSet bruteForcePairs = buildBruteForcePairs(topology, x, 0.1);
 
-  EXPECT_EQ(canonicalPT(broadPhasePairs.ptPairs), canonicalPT(activeSet.selfPairs.ptPairs));
-  EXPECT_EQ(canonicalEE(broadPhasePairs.eePairs), canonicalEE(activeSet.selfPairs.eePairs));
+  EXPECT_EQ(canonicalPT(broadPhasePairs.ptPairs), canonicalPT(bruteForcePairs.ptPairs));
+  EXPECT_EQ(canonicalEE(broadPhasePairs.eePairs), canonicalEE(bruteForcePairs.eePairs));
 }
 
 TEST(SurfaceIPCSelfBroadPhaseGTest, BuilderMatchesBruteForceNearThreshold)

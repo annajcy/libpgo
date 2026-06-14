@@ -13,7 +13,7 @@ SampledPenaltyParameters(stiffness=1.0, samples=1,
 
 | 字段 | 数学角色 | 约束 |
 |---|---|---|
-| `stiffness` | 罚刚度总系数 $c$：进入 `coeffAll`，整个罚能量乘 $c$（`pointPenetrationEnergy.cpp:246`、`sampledPenaltyContactEnergy.cpp:124,142`）。$c=0$ 时活动集直接为空（`sampledPenaltyContactDetector.cpp:92-93`） | $\ge 0$ |
+| `stiffness` | 罚刚度总系数 $c$：进入 `coeffAll`，整个罚能量乘 $c$（`pointPenetrationEnergy.cpp:246`、`sampledPenaltyContactEnergy.cpp:104,122`）。$c=0$ 时 `SampledPenaltyContactBuilder` 直接返回空的 `SampledPenaltyEvaluationBundle`（`sampledPenaltyContactBuilder.cpp:92-93`） | $\ge 0$ |
 | `samples` | 每三角形采样点数：罚约束施加在三角形上的采样点（重心组合）而非仅顶点，提高接触分辨率 | 正整数 |
 | `enable_self_contact` | 是否构建自接触处理器（`TriangleMeshSelfContactHandler`） | bool 化 |
 | `enable_external_contact` | 是否构建外部网格接触处理器（`TriangleMeshExternalContactHandler`） | bool 化 |
@@ -47,7 +47,7 @@ IPCParameters(dhat=1e-1, dhat_external=None, kappa=0.1,
 | `slackness` | CCD 松弛系数 $s$：发现碰撞时间 $\text{toi}<\alpha$ 时取 $\alpha\leftarrow \text{toi}\cdot s$（`surfaceIPCMaxStep.cpp:206-208`）。**注意默认 1.0 表示不留余量**；canonical IPC 常用 $s=0.8\sim0.9$ 在 toi 内侧留安全距离 | $> 0$ |
 | `ccd_thickness` | 最小分离厚度 $\xi$：CCD 把"接触"定义为 $d\le\xi$ 而非 $d\le 0$（`ipcCCD.cpp:104-106`），broad-phase AABB 同步膨胀 $\xi$（`surfaceIPCMaxStep.cpp:112-114`）。给薄壳/退化网格留几何厚度 | $\ge 0$ |
 
-派发到 `_core._create_ipc_contact_energy`，C++ 落点 `SurfaceIPCCore::Parameters`（`surfaceIPCCore.cpp:74-82`）。
+派发到 `_core._create_ipc_contact_energy`，再由 `contactEnergyFactory.cpp` 拆给两组 C++ 参数：`IPCPairGenerator::Parameters` 接收 `dhat`、`dhat_external`、`slackness`、`ccd_thickness`，用于活动对生成、障碍物位姿和 ACCD 可行步长；`IPCContactAssembler::Parameters` 接收 `dhat`、`dhat_external`、`kappa`、`eps_ee`，用于能量、梯度与 Hessian 装配。
 
 ## class `FloorParameters`
 

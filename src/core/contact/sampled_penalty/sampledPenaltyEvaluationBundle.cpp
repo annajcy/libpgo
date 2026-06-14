@@ -1,8 +1,8 @@
 /*
-  RAII holder for sampled penalty active contact energies.
+  RAII holder for sampled penalty evaluation child energies.
 */
 
-#include "sampled_penalty/sampledPenaltyActiveSet.h"
+#include "sampled_penalty/sampledPenaltyEvaluationBundle.h"
 
 #include "sampled_penalty/kernels/pointPenetrationEnergy.h"
 #include "sampled_penalty/kernels/pointTrianglePairCouplingEnergyWithCollision.h"
@@ -14,17 +14,17 @@ namespace Contact
 namespace SampledPenalty
 {
 
-SampledPenaltyActiveSet::~SampledPenaltyActiveSet()
+SampledPenaltyEvaluationBundle::~SampledPenaltyEvaluationBundle()
 {
   clear();
 }
 
-bool SampledPenaltyActiveSet::empty() const
+bool SampledPenaltyEvaluationBundle::empty() const
 {
   return !externalEnergy && !selfEnergy;
 }
 
-void SampledPenaltyActiveSet::clear()
+void SampledPenaltyEvaluationBundle::clear()
 {
   if (externalEnergy && externalBuffer) {
     externalEnergy->freeBuffer(externalBuffer);

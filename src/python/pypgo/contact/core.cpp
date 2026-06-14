@@ -5,12 +5,11 @@
 #include "ipc/ipcContactEnergy.h"
 #include "sampled_penalty/sampledPenaltyContactEnergy.h"
 #include "../sparse/core.h"
-#include "stepAwareEnergy.h"
-#include "stepDependentEnergy.h"
 
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/string.h>
 
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -153,6 +152,41 @@ std::vector<CT::ObstacleSpec> parseObstacleSpecs(nb::object obstacleSpecs)
   return obstacles;
 }
 
+std::vector<pgo::Mesh::TriMeshGeo> parseStaticObstacleSurfaces(nb::object obstacleSpecs)
+{
+  std::vector<pgo::Mesh::TriMeshGeo> surfaces;
+  if (obstacleSpecs.is_none())
+    return surfaces;
+
+  nb::iterable iterable = nb::borrow<nb::iterable>(obstacleSpecs);
+  for (nb::handle item : iterable) {
+    nb::object spec = nb::borrow<nb::object>(item);
+    const std::string kind = nb::cast<std::string>(nb::getattr(spec, "kind"));
+    if (kind != "static")
+      throw nb::value_error("SampledPenaltyEnergy only supports static obstacles");
+
+    const ES::MXd restVertices = pgo::python::ndarrayToMatrixXd(
+      nb::cast<nb::ndarray<nb::numpy, const double>>(nb::getattr(spec, "rest_vertices")));
+    const ES::MXi triangles = ndarrayToMatrixXi(
+      nb::cast<nb::ndarray<nb::numpy, const std::int64_t>>(nb::getattr(spec, "triangles")),
+      "obstacle triangles");
+
+    std::vector<pgo::Vec3d> vertices;
+    vertices.reserve(static_cast<size_t>(restVertices.rows()));
+    for (Eigen::Index i = 0; i < restVertices.rows(); ++i)
+      vertices.emplace_back(restVertices(i, 0), restVertices(i, 1), restVertices(i, 2));
+
+    std::vector<pgo::Vec3i> tris;
+    tris.reserve(static_cast<size_t>(triangles.rows()));
+    for (Eigen::Index i = 0; i < triangles.rows(); ++i)
+      tris.emplace_back(triangles(i, 0), triangles(i, 1), triangles(i, 2));
+
+    surfaces.emplace_back(std::move(vertices), std::move(tris));
+  }
+
+  return surfaces;
+}
+
 }  // namespace
 
 // ── PyContactSurface ─────────────────────────────────────────────────────
@@ -184,15 +218,11 @@ std::shared_ptr<const NO::PotentialEnergy> PyStatefulContactEnergy::potentialEne
 
 bool PyStatefulContactEnergy::isStepDependent() const
 {
-  return dynamic_cast<const NO::StepDependentEnergy *>(energy_.get()) != nullptr;
+  return energy_->isStepDependent();
 }
 
 void PyStatefulContactEnergy::beginStep(double time, double timestep, nb::object previousX) const
 {
-  auto *stepAware = dynamic_cast<NO::StepAwareEnergy *>(energy_.get());
-  if (!stepAware)
-    return;
-
   NO::StepState state;
   state.time = time;
   state.timestep = timestep;
@@ -200,10 +230,11 @@ void PyStatefulContactEnergy::beginStep(double time, double timestep, nb::object
   ES::VXd previous;
   if (!previousX.is_none()) {
     previous = pgo::python::ndarrayToVectorXd(nb::cast<nb::ndarray<nb::numpy, const double>>(previousX));
+    state.currentX = &previous;
     state.previousX = &previous;
   }
 
-  stepAware->beginStep(state);
+  energy_->beginStep(state);
 }
 
 void PyIPCContactEnergy::setMovingObstacleTime(double t) const
@@ -270,12 +301,28 @@ std::shared_ptr<PySampledPenaltyContactEnergy> createSampledPenaltyEnergy(
   double stiffness,
   int samples,
   bool enableSelfContact,
-  bool enableExternalContact)
+  bool enableExternalContact,
+  nb::object frictionCoeff,
+  nb::object velocityEps,
+  nb::object obstacleSpecs)
 {
   auto triangles = ndarrayToMatrixXi(surfaceTriangles, "surface_triangles");
+  std::optional<CT::FrictionContactSpec> friction;
+  const bool hasFrictionCoeff = !frictionCoeff.is_none();
+  const bool hasVelocityEps = !velocityEps.is_none();
+  if (hasFrictionCoeff != hasVelocityEps)
+    throw nb::value_error("friction_coeff and velocity_eps must be provided together");
+  if (hasFrictionCoeff) {
+    CT::FrictionContactSpec spec;
+    spec.frictionCoeff = nb::cast<double>(frictionCoeff);
+    spec.velocityEps = nb::cast<double>(velocityEps);
+    friction = spec;
+  }
   auto energy = CT::SampledPenalty::createSampledPenaltyEnergy(
     surface.spec(), triangles,
-    makeSampledPenaltyParams(stiffness, samples, enableSelfContact, enableExternalContact));
+    makeSampledPenaltyParams(stiffness, samples, enableSelfContact, enableExternalContact),
+    friction,
+    parseStaticObstacleSurfaces(std::move(obstacleSpecs)));
   return std::make_shared<PySampledPenaltyContactEnergy>(std::move(energy));
 }
 
@@ -305,25 +352,4 @@ std::shared_ptr<PyIPCContactEnergy> createIPCEnergy(
     params,
     parseObstacleSpecs(std::move(obstacleSpecs)));
   return std::make_shared<PyIPCContactEnergy>(std::move(energy));
-}
-
-std::shared_ptr<PyFrictionalSampledPenaltyContactEnergy> createFrictionalSampledPenaltyEnergy(
-  const PyContactSurface &surface,
-  nb::ndarray<nb::numpy, const std::int64_t> surfaceTriangles,
-  double stiffness,
-  int samples,
-  bool enableSelfContact,
-  bool enableExternalContact,
-  double frictionCoeff,
-  double velocityEps)
-{
-  auto triangles = ndarrayToMatrixXi(surfaceTriangles, "surface_triangles");
-  CT::FrictionContactSpec friction;
-  friction.frictionCoeff = frictionCoeff;
-  friction.velocityEps = velocityEps;
-  auto energy = CT::SampledPenalty::createFrictionalSampledPenaltyEnergy(
-    surface.spec(), triangles,
-    makeSampledPenaltyParams(stiffness, samples, enableSelfContact, enableExternalContact),
-    friction);
-  return std::make_shared<PyFrictionalSampledPenaltyContactEnergy>(std::move(energy));
 }

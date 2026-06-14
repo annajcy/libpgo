@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
+#include "evaluationStateAwareEnergy.h"
 #include "floor/floorContactEnergy.h"
+#include "lineSearchAwareEnergy.h"
+#include "statefulContactEnergy.h"
 #include "testCIPCHelpers.h"
 
 #include <limits>
@@ -10,6 +13,8 @@
 namespace
 {
 namespace ES = pgo::EigenSupport;
+namespace Contact = pgo::Contact;
+namespace NO = pgo::NonlinearOptimization;
 using pgo::Contact::Floor::FloorContactEnergy;
 using pgo::Contact::Floor::FloorAxis;
 using pgo::Contact::Floor::FloorPenaltyParameters;
@@ -89,6 +94,24 @@ ES::MXd computeSidedFloorHessian(const ES::VXd &x, double floorHeight, double fl
   return H;
 }
 }  // namespace
+
+TEST(FloorContactEnergyGTest, UsesOnlyStatefulContactBoundary)
+{
+  const auto [V, F] = makeTwoTriangleMesh();
+  (void)F;
+  const ES::VXd rest = flattenPositions(V);
+  Contact::Floor::FloorPenaltyParameters params;
+  params.floorAxis = Contact::Floor::FloorAxis::Z;
+  params.floorSide = Contact::Floor::FloorSide::KEEP_ABOVE;
+  params.floorHeight = 0.0;
+  params.floorKappa = 1.0;
+
+  FloorContactEnergy energy(V, makeIdentityEmbedding(rest.size()), params);
+
+  EXPECT_NE(dynamic_cast<Contact::StatefulContactEnergy *>(&energy), nullptr);
+  EXPECT_EQ(dynamic_cast<NO::LineSearchAwareEnergy *>(&energy), nullptr);
+  EXPECT_EQ(dynamic_cast<NO::EvaluationStateAwareEnergy *>(&energy), nullptr);
+}
 
 TEST(FloorContactEnergyGTest, IdentityEmbeddingMatchesReferenceFloorPenaltyOnAllAxes)
 {
@@ -277,6 +300,20 @@ TEST(FloorContactEnergyGTest, NonFiniteParametersThrow)
   FloorPenaltyParameters nonFiniteSetter = makeFloorParams();
   FloorContactEnergy energy(V, W, nonFiniteSetter);
   EXPECT_THROW(energy.setFloorHeight(std::numeric_limits<double>::quiet_NaN()), std::invalid_argument);
+}
+
+TEST(FloorContactEnergyGTest, EmptySurfaceOrZeroSimulationDofsThrow)
+{
+  FloorPenaltyParameters params = makeFloorParams();
+
+  ES::MXd emptyVertices(0, 3);
+  const ES::SpMatD emptySurfaceMap(0, 3);
+  EXPECT_THROW(FloorContactEnergy(emptyVertices, emptySurfaceMap, params), std::invalid_argument);
+
+  const auto [V, F] = makeTwoTriangleMesh();
+  (void)F;
+  const ES::SpMatD zeroSimulationDofMap(V.rows() * 3, 0);
+  EXPECT_THROW(FloorContactEnergy(V, zeroSimulationDofMap, params), std::invalid_argument);
 }
 
 TEST(FloorContactEnergyGTest, InvalidAxisThrows)

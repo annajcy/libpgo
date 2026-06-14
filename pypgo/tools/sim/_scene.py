@@ -138,6 +138,19 @@ def _surface_attachment_energy(att, surface_rest, surface_map, num_dofs):
         num_dofs=num_dofs)
 
 
+def _obstacle_specs(cfg):
+    obstacles = []
+    for obs in cfg.obstacles:
+        mesh = _load_mesh(read_obj, obs.mesh, "obstacle mesh")
+        if obs.velocity is None or not any(obs.velocity):
+            obstacles.append(
+                _contact.ObstacleSpec.static(mesh.vertices, mesh.elements))
+        else:
+            obstacles.append(_contact.ObstacleSpec.linear_velocity(
+                mesh.vertices, mesh.elements, np.asarray(obs.velocity)))
+    return obstacles
+
+
 def _build_contact_energies(contact_cfgs, contact_surface, surface_triangles):
     energies, stateful = [], []
     for cfg in contact_cfgs:
@@ -148,43 +161,30 @@ def _build_contact_energies(contact_cfgs, contact_surface, surface_triangles):
                 height=cfg.height, stiffness=cfg.stiffness,
             )
         elif cfg.model == "ipc":
-            obstacles = []
-            for obs in cfg.obstacles:
-                mesh = _load_mesh(read_obj, obs.mesh, "obstacle mesh")
-                if obs.velocity is None or not any(obs.velocity):
-                    obstacles.append(
-                        _contact.ObstacleSpec.static(mesh.vertices, mesh.elements))
-                else:
-                    obstacles.append(_contact.ObstacleSpec.linear_velocity(
-                        mesh.vertices, mesh.elements, np.asarray(obs.velocity)))
             e = _contact.IPCEnergy(
                 contact_surface, surface_triangles,
                 params=_contact.IPCParameters(
                     dhat=cfg.dhat, dhat_external=cfg.dhat_external, kappa=cfg.kappa),
-                obstacles=obstacles,
+                obstacles=_obstacle_specs(cfg),
             )
             stateful.append(e)
         elif cfg.model == "sampled_penalty":
+            friction = None
+            if cfg.friction_coeff > 0.0:
+                friction = _contact.FrictionParameters(
+                    friction_coeff=cfg.friction_coeff,
+                    velocity_eps=cfg.velocity_eps)
             e = _contact.SampledPenaltyEnergy(
                 contact_surface, surface_triangles,
                 params=_contact.SampledPenaltyParameters(
                     stiffness=cfg.stiffness, samples=cfg.samples,
                     enable_self_contact=cfg.enable_self_contact,
                     enable_external_contact=cfg.enable_external_contact),
+                friction=friction,
+                obstacles=_obstacle_specs(cfg),
             )
-            stateful.append(e)
-        else:  # frictional_sampled_penalty — validated in _config
-            e = _contact.FrictionalSampledPenaltyEnergy(
-                contact_surface, surface_triangles,
-                params=_contact.SampledPenaltyParameters(
-                    stiffness=cfg.stiffness, samples=cfg.samples,
-                    enable_self_contact=cfg.enable_self_contact,
-                    enable_external_contact=cfg.enable_external_contact),
-                friction=_contact.FrictionParameters(
-                    friction_coeff=cfg.friction_coeff,
-                    velocity_eps=cfg.velocity_eps),
-            )
-            stateful.append(e)
+            if e.is_step_dependent:
+                stateful.append(e)
         energies.append(e)
     return energies, stateful
 

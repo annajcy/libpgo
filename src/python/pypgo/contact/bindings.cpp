@@ -22,7 +22,6 @@ void init_contact_bindings(nb::module_ &m)
       nb::arg("previous_x") = nb::none());
 
   nb::class_<PySampledPenaltyContactEnergy, PyStatefulContactEnergy>(m, "PySampledPenaltyContactEnergy");
-  nb::class_<PyFrictionalSampledPenaltyContactEnergy, PyStatefulContactEnergy>(m, "PyFrictionalSampledPenaltyContactEnergy");
 
   nb::class_<PyIPCContactEnergy, PyStatefulContactEnergy>(m, "PyIPCContactEnergy")
     .def("set_moving_obstacle_time", &PyIPCContactEnergy::setMovingObstacleTime, nb::arg("time"));
@@ -47,7 +46,10 @@ void init_contact_bindings(nb::module_ &m)
     nb::arg("stiffness"),
     nb::arg("samples"),
     nb::arg("enable_self_contact"),
-    nb::arg("enable_external_contact"));
+    nb::arg("enable_external_contact"),
+    nb::arg("friction_coeff") = nb::none(),
+    nb::arg("velocity_eps") = nb::none(),
+    nb::arg("obstacles") = nb::none());
   m.def("_create_ipc_contact_energy", &createIPCEnergy,
     nb::arg("surface"),
     nb::arg("surface_triangles"),
@@ -58,13 +60,4 @@ void init_contact_bindings(nb::module_ &m)
     nb::arg("slackness"),
     nb::arg("ccd_thickness"),
     nb::arg("obstacles") = nb::none());
-  m.def("_create_frictional_sampled_penalty_contact_energy", &createFrictionalSampledPenaltyEnergy,
-    nb::arg("surface"),
-    nb::arg("surface_triangles"),
-    nb::arg("stiffness"),
-    nb::arg("samples"),
-    nb::arg("enable_self_contact"),
-    nb::arg("enable_external_contact"),
-    nb::arg("friction_coeff"),
-    nb::arg("velocity_eps"));
 }

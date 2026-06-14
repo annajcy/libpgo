@@ -24,7 +24,7 @@ fem.deformation_energy（elastic 按 material.model，ElementwiseField，塑性 
       surface_attachments → energy.EmbeddedVertexAttachment（经曲面嵌入 W，formulation 无关）
   ▼
 接触：ContactSurface.embedded(surface, W) / .identity（shell）
-      → FloorEnergy / IPCEnergy / SampledPenaltyEnergy / FrictionalSampledPenaltyEnergy
+      → FloorEnergy / IPCEnergy / SampledPenaltyEnergy（可选 friction）
   ▼
 SceneBundle（能量列表 + 质量/重力 + 表面映射）
 ```
@@ -49,7 +49,7 @@ runner 需要的一切：
 |---|---|
 | `sim_mesh` / `formulation` / `deformation` | 仿真网格、formulation、[`DeformationEnergy`](../../fem/energy.md) |
 | `attachment_energies` / `contact_energies` | 软约束与接触能量列表 |
-| `stateful_contacts` | 需要 `begin_step(time, timestep, previous_x)` 的接触（IPC、sampled penalty 两族） |
+| `stateful_contacts` | 需要 `begin_step(time, timestep, previous_x)` 的接触（IPC，以及启用 friction 的 sampled penalty） |
 | `moving_attachments` | `MovingAttachment` 列表 |
 | `mass` | 质量矩阵（SparseMatrix） |
 | `gravity_force` | $\mathbf f_g$（num_dofs 向量；$\mathbf g=0$ 时为零向量） |

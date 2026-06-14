@@ -56,12 +56,6 @@ public:
   using PyStatefulContactEnergy::PyStatefulContactEnergy;
 };
 
-class PyFrictionalSampledPenaltyContactEnergy final : public PyStatefulContactEnergy
-{
-public:
-  using PyStatefulContactEnergy::PyStatefulContactEnergy;
-};
-
 class PyIPCContactEnergy final : public PyStatefulContactEnergy
 {
 public:
@@ -92,7 +86,10 @@ std::shared_ptr<PySampledPenaltyContactEnergy> createSampledPenaltyEnergy(
   double stiffness,
   int samples,
   bool enableSelfContact,
-  bool enableExternalContact);
+  bool enableExternalContact,
+  nb::object frictionCoeff,
+  nb::object velocityEps,
+  nb::object obstacleSpecs);
 
 std::shared_ptr<PyIPCContactEnergy> createIPCEnergy(
   const PyContactSurface &surface,
@@ -104,13 +101,3 @@ std::shared_ptr<PyIPCContactEnergy> createIPCEnergy(
   double slackness,
   double ccdThickness,
   nb::object obstacleSpecs);
-
-std::shared_ptr<PyFrictionalSampledPenaltyContactEnergy> createFrictionalSampledPenaltyEnergy(
-  const PyContactSurface &surface,
-  nb::ndarray<nb::numpy, const std::int64_t> surfaceTriangles,
-  double stiffness,
-  int samples,
-  bool enableSelfContact,
-  bool enableExternalContact,
-  double frictionCoeff,
-  double velocityEps);

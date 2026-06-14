@@ -96,7 +96,7 @@ class FloorEnergy(PotentialEnergy):
 
 
 class SampledPenaltyEnergy(StatefulContactMixin, PotentialEnergy):
-    """Long-lived normal sampled-penalty contact energy."""
+    """Long-lived sampled-penalty contact energy."""
 
     def __init__(
         self,
@@ -104,12 +104,21 @@ class SampledPenaltyEnergy(StatefulContactMixin, PotentialEnergy):
         surface_triangles,
         *,
         params: SampledPenaltyParameters | None = None,
+        friction: FrictionParameters | None = None,
+        obstacles=None,
     ) -> None:
         if not isinstance(surface, ContactSurface):
             raise TypeError("surface must be a pypgo.contact.ContactSurface")
         params = SampledPenaltyParameters() if params is None else params
         if not isinstance(params, SampledPenaltyParameters):
             raise TypeError("params must be a SampledPenaltyParameters")
+        if friction is not None and not isinstance(friction, FrictionParameters):
+            raise TypeError("friction must be a FrictionParameters or None")
+        obstacle_specs = [] if obstacles is None else list(obstacles)
+        if any(not isinstance(obs, ObstacleSpec) for obs in obstacle_specs):
+            raise TypeError("obstacles must be an iterable of ObstacleSpec")
+        if any(obs.kind != "static" for obs in obstacle_specs):
+            raise ValueError("SampledPenaltyEnergy only supports static obstacles")
         triangles = triangle_array("surface_triangles", surface_triangles)
         core = _core._create_sampled_penalty_contact_energy(
             surface._handle,
@@ -118,14 +127,32 @@ class SampledPenaltyEnergy(StatefulContactMixin, PotentialEnergy):
             params.samples,
             params.enable_self_contact,
             params.enable_external_contact,
+            friction.friction_coeff if friction is not None else None,
+            friction.velocity_eps if friction is not None else None,
+            obstacle_specs,
         )
         object.__setattr__(self, "surface", surface)
         object.__setattr__(self, "surface_triangles", triangles.copy())
         object.__setattr__(self, "params", params)
+        object.__setattr__(self, "friction", friction)
+        object.__setattr__(self, "obstacles", tuple(obstacle_specs))
         super().__init__(core)
 
+    def begin_step(self, *, time: float, timestep: float, previous_x=None) -> None:
+        if self.friction is not None:
+            if previous_x is None:
+                raise ValueError("previous_x is required for SampledPenaltyEnergy.begin_step with friction")
+            if float(timestep) <= 0.0:
+                raise ValueError("timestep must be positive")
+        super().begin_step(time=time, timestep=timestep, previous_x=previous_x)
+
     def __repr__(self) -> str:
-        return f"SampledPenaltyEnergy({self.num_dofs} DOFs, samples={self.params.samples})"
+        if self.friction is None:
+            return f"SampledPenaltyEnergy({self.num_dofs} DOFs, samples={self.params.samples})"
+        return (
+            f"SampledPenaltyEnergy({self.num_dofs} DOFs, "
+            f"samples={self.params.samples}, friction={self.friction.friction_coeff:g})"
+        )
 
 
 class IPCEnergy(StatefulContactMixin, PotentialEnergy):
@@ -170,53 +197,3 @@ class IPCEnergy(StatefulContactMixin, PotentialEnergy):
 
     def __repr__(self) -> str:
         return f"IPCEnergy({self.num_dofs} DOFs, dhat={self.params.dhat:g})"
-
-
-class FrictionalSampledPenaltyEnergy(StatefulContactMixin, PotentialEnergy):
-    """Sampled-penalty contact energy with dynamic friction state."""
-
-    def __init__(
-        self,
-        surface: ContactSurface,
-        surface_triangles,
-        *,
-        params: SampledPenaltyParameters | None = None,
-        friction: FrictionParameters | None = None,
-    ) -> None:
-        if not isinstance(surface, ContactSurface):
-            raise TypeError("surface must be a pypgo.contact.ContactSurface")
-        params = SampledPenaltyParameters() if params is None else params
-        friction = FrictionParameters() if friction is None else friction
-        if not isinstance(params, SampledPenaltyParameters):
-            raise TypeError("params must be a SampledPenaltyParameters")
-        if not isinstance(friction, FrictionParameters):
-            raise TypeError("friction must be a FrictionParameters")
-        triangles = triangle_array("surface_triangles", surface_triangles)
-        core = _core._create_frictional_sampled_penalty_contact_energy(
-            surface._handle,
-            triangles,
-            params.stiffness,
-            params.samples,
-            params.enable_self_contact,
-            params.enable_external_contact,
-            friction.friction_coeff,
-            friction.velocity_eps,
-        )
-        object.__setattr__(self, "surface", surface)
-        object.__setattr__(self, "surface_triangles", triangles.copy())
-        object.__setattr__(self, "params", params)
-        object.__setattr__(self, "friction", friction)
-        super().__init__(core)
-
-    def begin_step(self, *, time: float, timestep: float, previous_x=None) -> None:
-        if previous_x is None:
-            raise ValueError("previous_x is required for FrictionalSampledPenaltyEnergy.begin_step")
-        if float(timestep) <= 0.0:
-            raise ValueError("timestep must be positive")
-        super().begin_step(time=time, timestep=timestep, previous_x=previous_x)
-
-    def __repr__(self) -> str:
-        return (
-            f"FrictionalSampledPenaltyEnergy({self.num_dofs} DOFs, "
-            f"samples={self.params.samples}, friction={self.friction.friction_coeff:g})"
-        )

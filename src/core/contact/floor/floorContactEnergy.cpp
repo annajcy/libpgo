@@ -51,7 +51,7 @@ FloorContactEnergy::FloorContactEnergy(
   const EigenSupport::MXd &surfaceRestVertices,
   const EigenSupport::SpMatD &surfaceFromSimulationDispMap,
   const FloorPenaltyParameters &params):
-  IPC::MappedSurfacePotentialEnergy(surfaceRestVertices, surfaceFromSimulationDispMap),
+  dofMap_(surfaceRestVertices, surfaceFromSimulationDispMap),
   params_(params)
 {
   (void)floorAxisToIndex(params_.floorAxis);
@@ -60,6 +60,106 @@ FloorContactEnergy::FloorContactEnergy(
     throw std::invalid_argument("FloorPenaltyParameters.floorHeight must be finite.");
   if (!std::isfinite(params_.floorKappa))
     throw std::invalid_argument("FloorPenaltyParameters.floorKappa must be finite.");
+}
+
+double FloorContactEnergy::func(EigenSupport::ConstRefVecXd simulationDisplacements) const
+{
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+  return computeSurfaceEnergy(surfacePositions);
+}
+
+void FloorContactEnergy::gradient(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::RefVecXd simulationGradient) const
+{
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+
+  EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
+  computeSurfaceGradient(surfacePositions, surfaceGradient);
+
+  simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
+}
+
+void FloorContactEnergy::hessian(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::SpMatD &simulationHessian) const
+{
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+
+  EigenSupport::SpMatD surfaceHessian(dofMap_.numSurfaceDofs(), dofMap_.numSurfaceDofs());
+  computeSurfaceHessian(surfacePositions, surfaceHessian);
+
+  dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
+}
+
+void FloorContactEnergy::hessianInPlace(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::SpMatD &simulationHessian) const
+{
+  hessian(simulationDisplacements, simulationHessian);
+}
+
+void FloorContactEnergy::hessianAlloc(EigenSupport::SpMatD &simulationHessian) const
+{
+  simulationHessian.resize(dofMap_.numSimulationDofs(), dofMap_.numSimulationDofs());
+  simulationHessian.setZero();
+}
+
+double FloorContactEnergy::func_grad(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::RefVecXd simulationGradient) const
+{
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+
+  const double surfaceEnergy = computeSurfaceEnergy(surfacePositions);
+  EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
+  computeSurfaceGradient(surfacePositions, surfaceGradient);
+
+  simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
+  return surfaceEnergy;
+}
+
+double FloorContactEnergy::func_grad_hessian(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::RefVecXd simulationGradient,
+  EigenSupport::SpMatD &simulationHessian) const
+{
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+
+  double surfaceEnergy = 0.0;
+  EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
+  EigenSupport::SpMatD surfaceHessian(dofMap_.numSurfaceDofs(), dofMap_.numSurfaceDofs());
+  computeSurfaceAll(surfacePositions, surfaceEnergy, surfaceGradient, surfaceHessian);
+
+  simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
+  dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
+  return surfaceEnergy;
+}
+
+void FloorContactEnergy::gradient_hessian(
+  EigenSupport::ConstRefVecXd simulationDisplacements,
+  EigenSupport::RefVecXd simulationGradient,
+  EigenSupport::SpMatD &simulationHessian) const
+{
+  const EigenSupport::VXd surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
+
+  EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
+  EigenSupport::SpMatD surfaceHessian(dofMap_.numSurfaceDofs(), dofMap_.numSurfaceDofs());
+  computeSurfaceGradient(surfacePositions, surfaceGradient);
+  computeSurfaceHessian(surfacePositions, surfaceHessian);
+
+  simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
+  dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
+}
+
+void FloorContactEnergy::getDOFs(std::vector<int> &dofs) const
+{
+  dofs = dofMap_.simulationDofs();
+}
+
+int FloorContactEnergy::getNumDOFs() const
+{
+  return dofMap_.numSimulationDofs();
 }
 
 void FloorContactEnergy::setFloorHeight(double h)
@@ -119,6 +219,17 @@ void FloorContactEnergy::computeSurfaceHessian(
 
   surfaceHessian.resize(surfacePositions.size(), surfacePositions.size());
   surfaceHessian.setFromTriplets(triplets.begin(), triplets.end());
+}
+
+void FloorContactEnergy::computeSurfaceAll(
+  EigenSupport::ConstRefVecXd surfacePositions,
+  double &surfaceEnergy,
+  EigenSupport::RefVecXd surfaceGradient,
+  EigenSupport::SpMatD &surfaceHessian) const
+{
+  surfaceEnergy = computeSurfaceEnergy(surfacePositions);
+  computeSurfaceGradient(surfacePositions, surfaceGradient);
+  computeSurfaceHessian(surfacePositions, surfaceHessian);
 }
 
 }  // namespace Floor

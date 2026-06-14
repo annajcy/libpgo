@@ -216,7 +216,7 @@ def test_build_shell_scene_areal_density_and_contact():
         "material": {"mass": {"areal_density": 1.0}},
         "dynamic.timestep": 0.0005,
         "contact": [
-            {"model": "frictional_sampled_penalty", "stiffness": 10.0,
+            {"model": "sampled_penalty", "stiffness": 10.0,
              "friction_coeff": 0.3, "velocity_eps": 1e-4},
             {"model": "floor", "axis": "z", "height": -0.1, "stiffness": 5000.0},
         ],
@@ -228,6 +228,34 @@ def test_build_shell_scene_areal_density_and_contact():
     assert bundle.mass.shape == (bundle.num_dofs, bundle.num_dofs)
     ones = np.ones(bundle.num_dofs, dtype=np.float64)
     assert float(ones @ (bundle.mass @ ones)) > 0.0
+
+
+def test_build_shell_scene_sampled_penalty_without_friction_is_not_step_dependent():
+    cfg = load_config(mesh_type="shell", mode="dynamic", overrides={
+        "mesh.surface": str(ASSETS / "obj" / "shell.obj"),
+        "material": {"mass": {"areal_density": 1.0}},
+        "dynamic.timestep": 0.0005,
+        "contact": [{"model": "sampled_penalty", "stiffness": 10.0}],
+        "output.directory": "/tmp/unused",
+    })
+    bundle = build_scene(cfg)
+    assert len(bundle.contact_energies) == 1
+    assert bundle.contact_energies[0].is_step_dependent is False
+    assert len(bundle.stateful_contacts) == 0
+
+
+def test_build_shell_scene_sampled_penalty_static_obstacle():
+    cfg = load_config(mesh_type="shell", mode="dynamic", overrides={
+        "mesh.surface": str(ASSETS / "obj" / "shell.obj"),
+        "material": {"mass": {"areal_density": 1.0}},
+        "dynamic.timestep": 0.0005,
+        "contact": [{"model": "sampled_penalty", "stiffness": 10.0,
+                     "obstacles": [{"mesh": str(ASSETS / "obj" / "bottom.obj")}]}],
+        "output.directory": "/tmp/unused",
+    })
+    bundle = build_scene(cfg)
+    assert len(bundle.contact_energies) == 1
+    assert len(bundle.contact_energies[0].obstacles) == 1
 
 
 # ---------------------------------------------------------------------------

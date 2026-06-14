@@ -32,6 +32,7 @@ void dispatchBeginStep(const DynamicProblem &problem, const DynamicState &state)
   NO::StepState ss;
   ss.time = state.time;
   ss.timestep = problem.timestep;
+  ss.currentX = &state.displacement;
   ss.previousX = &state.displacement;
 
   for (const ImplicitModelTerm &term : problem.persistentTerms) {

@@ -4,7 +4,9 @@
 #include "ipc/ipcContactEnergy.h"
 #include "sampled_penalty/sampledPenaltyContactEnergy.h"
 #include "statefulContactEnergy.h"
+#include "surfaceDofMap.h"
 #include "evaluationStateAwareEnergy.h"
+#include "lineSearchAwareEnergy.h"
 #include "stepAwareEnergy.h"
 
 #include <numeric>
@@ -65,11 +67,11 @@ private:
 };
 }  // namespace
 
-TEST(ContactEnergyFactoryGTest, EmbeddedDofMapMapsSimulationDisplacementsToSurfacePositions)
+TEST(ContactEnergyFactoryGTest, SurfaceDofMapMapsSimulationDisplacementsToSurfacePositions)
 {
   const ES::MXd rest = makeTriangle();
   const ES::SpMatD W = makeIdentityMap(9);
-  Contact::EmbeddedDofMap map(rest, W);
+  Contact::SurfaceDofMap map(rest, W);
 
   ES::VXd u = ES::VXd::Zero(9);
   u[2] = -0.25;
@@ -101,17 +103,21 @@ TEST(ContactEnergyFactoryGTest, CreateFloorEnergyBuildsDisplacementEnergy)
   EXPECT_GT(energy->func(u), 0.0);
 }
 
-TEST(ContactEnergyFactoryGTest, StatefulContactEnergyIsOnlyCommonContactBoundary)
+TEST(ContactEnergyFactoryGTest, StatefulContactEnergyHasDefaultStepLifecycle)
 {
   TestStatefulContactEnergy energy(3);
-  const auto *stepAware = dynamic_cast<NO::StepAwareEnergy *>(&energy);
+  auto *stepAware = dynamic_cast<NO::StepAwareEnergy *>(&energy);
   const auto *evaluationAware = dynamic_cast<const NO::EvaluationStateAwareEnergy *>(&energy);
   const auto *lineSearchAware = dynamic_cast<const NO::LineSearchAwareEnergy *>(&energy);
 
-  EXPECT_EQ(stepAware, nullptr);
+  ASSERT_NE(stepAware, nullptr);
   EXPECT_EQ(evaluationAware, nullptr);
   EXPECT_EQ(lineSearchAware, nullptr);
+  EXPECT_FALSE(energy.isStepDependent());
   EXPECT_EQ(energy.stateKind(), NO::EnergyStateKind::Displacement);
+
+  NO::StepState state;
+  EXPECT_NO_THROW(stepAware->beginStep(state));
 }
 
 TEST(ContactEnergyFactoryGTest, CreateSampledPenaltyEnergyBuildsNormalAndFrictionalModels)
@@ -127,21 +133,21 @@ TEST(ContactEnergyFactoryGTest, CreateSampledPenaltyEnergyBuildsNormalAndFrictio
   auto normal = Contact::SampledPenalty::createSampledPenaltyEnergy(surface, makeTriangleFaces(), params);
   ASSERT_NE(normal, nullptr);
   EXPECT_EQ(normal->contactModelKind(), Contact::ContactModelKind::SampledPenalty);
-  EXPECT_NE(dynamic_cast<const NO::EvaluationStateAwareEnergy *>(normal.get()), nullptr);
-  EXPECT_NE(dynamic_cast<const NO::LineSearchAwareEnergy *>(normal.get()), nullptr);
-  EXPECT_EQ(dynamic_cast<NO::StepAwareEnergy *>(normal.get()), nullptr);
-  EXPECT_EQ(dynamic_cast<NO::StepDependentEnergy *>(normal.get()), nullptr);
+  EXPECT_EQ(dynamic_cast<const NO::EvaluationStateAwareEnergy *>(normal.get()), nullptr);
+  EXPECT_EQ(dynamic_cast<const NO::LineSearchAwareEnergy *>(normal.get()), nullptr);
+  EXPECT_NE(dynamic_cast<NO::StepAwareEnergy *>(normal.get()), nullptr);
+  EXPECT_FALSE(normal->isStepDependent());
 
   Contact::FrictionContactSpec friction;
   friction.frictionCoeff = 0.5;
   friction.velocityEps = 1e-5;
-  auto frictional = Contact::SampledPenalty::createFrictionalSampledPenaltyEnergy(surface, makeTriangleFaces(), params, friction);
+  auto frictional = Contact::SampledPenalty::createSampledPenaltyEnergy(surface, makeTriangleFaces(), params, friction);
   ASSERT_NE(frictional, nullptr);
   EXPECT_EQ(frictional->contactModelKind(), Contact::ContactModelKind::SampledPenalty);
-  EXPECT_NE(dynamic_cast<const NO::EvaluationStateAwareEnergy *>(frictional.get()), nullptr);
-  EXPECT_NE(dynamic_cast<const NO::LineSearchAwareEnergy *>(frictional.get()), nullptr);
+  EXPECT_EQ(dynamic_cast<const NO::EvaluationStateAwareEnergy *>(frictional.get()), nullptr);
+  EXPECT_EQ(dynamic_cast<const NO::LineSearchAwareEnergy *>(frictional.get()), nullptr);
   EXPECT_NE(dynamic_cast<NO::StepAwareEnergy *>(frictional.get()), nullptr);
-  EXPECT_NE(dynamic_cast<NO::StepDependentEnergy *>(frictional.get()), nullptr);
+  EXPECT_TRUE(frictional->isStepDependent());
 }
 
 TEST(ContactEnergyFactoryGTest, CreateIPCEnergyBuildsStaticAndMovingObstacleSpecs)
@@ -174,6 +180,10 @@ TEST(ContactEnergyFactoryGTest, CreateIPCEnergyBuildsStaticAndMovingObstacleSpec
   ASSERT_NE(ipc, nullptr);
   EXPECT_EQ(ipc->contactModelKind(), Contact::ContactModelKind::IPC);
   EXPECT_EQ(ipc->stateKind(), NO::EnergyStateKind::Displacement);
+  EXPECT_EQ(dynamic_cast<const NO::EvaluationStateAwareEnergy *>(ipc.get()), nullptr);
+  EXPECT_NE(dynamic_cast<const NO::LineSearchAwareEnergy *>(ipc.get()), nullptr);
+  EXPECT_NE(dynamic_cast<NO::StepAwareEnergy *>(ipc.get()), nullptr);
+  EXPECT_FALSE(ipc->isStepDependent());
   auto *ipcConcrete = dynamic_cast<Contact::IPC::IPCContactEnergy *>(ipc.get());
   ASSERT_NE(ipcConcrete, nullptr);
 
@@ -205,15 +215,44 @@ TEST(ContactEnergyFactoryGTest, SampledPenaltyFactoryAcceptsNonIdentitySurfaceMa
   ASSERT_NE(energy, nullptr);
   EXPECT_EQ(energy->getNumDOFs(), 12);
   EXPECT_EQ(energy->contactModelKind(), Contact::ContactModelKind::SampledPenalty);
-  EXPECT_NE(dynamic_cast<const NO::EvaluationStateAwareEnergy *>(energy.get()), nullptr);
-  EXPECT_NE(dynamic_cast<const NO::LineSearchAwareEnergy *>(energy.get()), nullptr);
-  EXPECT_EQ(dynamic_cast<NO::StepAwareEnergy *>(energy.get()), nullptr);
+  EXPECT_EQ(dynamic_cast<const NO::EvaluationStateAwareEnergy *>(energy.get()), nullptr);
+  EXPECT_EQ(dynamic_cast<const NO::LineSearchAwareEnergy *>(energy.get()), nullptr);
+  EXPECT_NE(dynamic_cast<NO::StepAwareEnergy *>(energy.get()), nullptr);
+  EXPECT_FALSE(energy->isStepDependent());
 
   ES::VXd u = ES::VXd::Zero(12);
   EXPECT_NO_THROW((void)energy->func(u));
 }
 
-TEST(ContactEnergyFactoryGTest, FrictionalSampledPenaltyFactoryMapsPreviousSimulationState)
+TEST(ContactEnergyFactoryGTest, SampledPenaltyFactoryAcceptsExternalSurfacesWithoutFrictionArgument)
+{
+  Contact::ContactSurfaceSpec surface;
+  surface.restVertices = makeTriangle();
+  surface.surfaceFromSimulationDispMap = makeIdentityMap(9);
+
+  ES::MXd obstacleVertices = makeTriangle();
+  obstacleVertices.col(2).array() -= 1.0;
+  std::vector<pgo::Mesh::TriMeshGeo> externalSurfaces;
+  externalSurfaces.push_back(pgo::Mesh::matricesToTriMeshGeo(obstacleVertices, makeTriangleFaces()));
+
+  Contact::SampledPenaltyContactSpec params;
+  params.stiffness = 10.0;
+  params.samples = 1;
+
+  auto energy = Contact::SampledPenalty::createSampledPenaltyEnergy(
+    surface,
+    makeTriangleFaces(),
+    params,
+    std::move(externalSurfaces));
+  ASSERT_NE(energy, nullptr);
+  EXPECT_EQ(energy->contactModelKind(), Contact::ContactModelKind::SampledPenalty);
+  EXPECT_FALSE(energy->isStepDependent());
+
+  ES::VXd u = ES::VXd::Zero(energy->getNumDOFs());
+  EXPECT_NO_THROW((void)energy->func(u));
+}
+
+TEST(ContactEnergyFactoryGTest, SampledPenaltyFactoryUsesSimulationSpacePreviousState)
 {
   Contact::ContactSurfaceSpec surface;
   surface.restVertices = makeTriangle();
@@ -229,15 +268,15 @@ TEST(ContactEnergyFactoryGTest, FrictionalSampledPenaltyFactoryMapsPreviousSimul
   Contact::FrictionContactSpec friction;
   friction.frictionCoeff = 0.5;
   friction.velocityEps = 1e-5;
-  auto energy = Contact::SampledPenalty::createFrictionalSampledPenaltyEnergy(surface, makeTriangleFaces(), params, friction);
+  auto energy = Contact::SampledPenalty::createSampledPenaltyEnergy(surface, makeTriangleFaces(), params, friction);
   ASSERT_NE(energy, nullptr);
   EXPECT_EQ(energy->getNumDOFs(), 12);
+  EXPECT_TRUE(energy->isStepDependent());
   EXPECT_NE(dynamic_cast<NO::StepAwareEnergy *>(energy.get()), nullptr);
-  EXPECT_NE(dynamic_cast<NO::StepDependentEnergy *>(energy.get()), nullptr);
 
   ES::VXd previous = ES::VXd::Zero(12);
   NO::StepState state;
   state.previousX = &previous;
   state.timestep = 0.1;
-  EXPECT_NO_THROW(dynamic_cast<NO::StepAwareEnergy *>(energy.get())->beginStep(state));
+  EXPECT_NO_THROW(energy->beginStep(state));
 }

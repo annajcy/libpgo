@@ -2,8 +2,8 @@
 
 #include "floor/floorContactEnergy.h"
 #include "ipc/ipcContactEnergy.h"
-#include "ipc/core/surfaceIPCCore.h"
-#include "mappedContactEnergy.h"
+#include "ipc/ipcContactAssembler.h"
+#include "ipc/ipcPairGenerator.h"
 #include "sampled_penalty/sampledPenaltyContactEnergy.h"
 #include "triMeshGeo.h"
 
@@ -43,15 +43,6 @@ Floor::FloorSide convertFloorSide(FloorSide side)
     default:
       throw std::invalid_argument("FloorContactSpec.side must be KeepAbove or KeepBelow.");
   }
-}
-
-Mesh::TriMeshGeo makeSurfaceMesh(const ContactSurfaceSpec &surface, const EigenSupport::MXi &surfaceTriangles)
-{
-  if (surface.restVertices.cols() != 3)
-    throw std::invalid_argument("ContactSurfaceSpec.restVertices must have shape (#vertices, 3).");
-  if (surfaceTriangles.cols() != 3)
-    throw std::invalid_argument("surfaceTriangles must have shape (#triangles, 3).");
-  return Mesh::matricesToTriMeshGeo(surface.restVertices, surfaceTriangles);
 }
 
 void validateObstacleMesh(const EigenSupport::MXd &restVertices, const EigenSupport::MXi &triangles)
@@ -100,15 +91,23 @@ std::vector<std::unique_ptr<IPC::ObstacleSurface>> makeObstacleSurfaces(std::vec
   return obstacles;
 }
 
-IPC::SurfaceIPCCore::Parameters toIPCParameters(const IPCContactSpec &spec)
+IPC::IPCPairGenerator::Parameters toIPCPairParameters(const IPCContactSpec &spec)
 {
-  IPC::SurfaceIPCCore::Parameters params;
+  IPC::IPCPairGenerator::Parameters params;
   params.dhat = spec.dhat;
-  params.dhat_external = spec.dhatExternal;
-  params.kappa = spec.kappa;
-  params.eps_ee = spec.epsEE;
+  params.dhatExternal = spec.dhatExternal;
   params.slackness = spec.slackness;
-  params.ccd_thickness = spec.ccdThickness;
+  params.ccdThickness = spec.ccdThickness;
+  return params;
+}
+
+IPC::IPCContactAssembler::Parameters toIPCAssemblerParameters(const IPCContactSpec &spec)
+{
+  IPC::IPCContactAssembler::Parameters params;
+  params.dhat = spec.dhat;
+  params.dhatExternal = spec.dhatExternal;
+  params.kappa = spec.kappa;
+  params.epsEE = spec.epsEE;
   return params;
 }
 
@@ -161,7 +160,8 @@ std::shared_ptr<StatefulContactEnergy> createIPCEnergy(
     surface.restVertices,
     surfaceTriangles,
     surface.surfaceFromSimulationDispMap,
-    toIPCParameters(params),
+    toIPCPairParameters(params),
+    toIPCAssemblerParameters(params),
     makeObstacleSurfaces(std::move(obstacles)));
 }
 
@@ -174,36 +174,34 @@ std::shared_ptr<StatefulContactEnergy> createSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
   const SampledPenaltyContactSpec &params,
+  std::optional<FrictionContactSpec> friction,
   std::vector<Mesh::TriMeshGeo> externalSurfaces)
 {
-  auto surfaceEnergy = std::make_shared<SampledPenaltySurfaceContactEnergy>(
-    makeSurfaceMesh(surface, surfaceTriangles),
-    toSampledPenaltyParameters(params),
-    std::move(externalSurfaces));
+  SampledPenaltyContactEnergyOptions options;
+  options.params = toSampledPenaltyParameters(params);
+  if (friction)
+    options.friction = toFrictionParameters(*friction);
 
-  return makeMappedContactEnergy(
+  return std::make_shared<SampledPenaltyContactEnergy>(
     surface.restVertices,
+    surfaceTriangles,
     surface.surfaceFromSimulationDispMap,
-    std::move(surfaceEnergy));
+    options,
+    std::move(externalSurfaces));
 }
 
-std::shared_ptr<StatefulContactEnergy> createFrictionalSampledPenaltyEnergy(
+std::shared_ptr<StatefulContactEnergy> createSampledPenaltyEnergy(
   const ContactSurfaceSpec &surface,
   const EigenSupport::MXi &surfaceTriangles,
   const SampledPenaltyContactSpec &params,
-  const FrictionContactSpec &friction,
   std::vector<Mesh::TriMeshGeo> externalSurfaces)
 {
-  auto surfaceEnergy = std::make_shared<FrictionalSampledPenaltySurfaceContactEnergy>(
-    makeSurfaceMesh(surface, surfaceTriangles),
-    toSampledPenaltyParameters(params),
-    toFrictionParameters(friction),
+  return createSampledPenaltyEnergy(
+    surface,
+    surfaceTriangles,
+    params,
+    std::nullopt,
     std::move(externalSurfaces));
-
-  return makeMappedContactEnergy(
-    surface.restVertices,
-    surface.surfaceFromSimulationDispMap,
-    std::move(surfaceEnergy));
 }
 
 }  // namespace SampledPenalty

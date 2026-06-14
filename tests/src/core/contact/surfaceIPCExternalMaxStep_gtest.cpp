@@ -1,5 +1,4 @@
 #include "ipc/core/surfaceIPCMaxStep.h"
-#include "ipc/core/surfaceIPCCore.h"
 #include "ipc/external/obstacleSurface.h"
 #include "ipc/topology/surfaceIPCTopology.h"
 
@@ -12,7 +11,6 @@
 namespace ES = pgo::EigenSupport;
 using pgo::Contact::IPC::ObstacleSurface;
 using pgo::Contact::IPC::ObstacleSurfaceView;
-using pgo::Contact::IPC::SurfaceIPCCore;
 using pgo::Contact::IPC::SurfaceIPCTopology;
 using pgo::Contact::IPC::TrajectoryObstacleSurface;
 
@@ -26,8 +24,8 @@ static std::vector<ObstacleSurfaceView> obstacleViews(const std::vector<std::uni
 }
 
 // Dynamic mesh moves into a fixed-pose obstacle: external max-step
-// must clamp alpha < 1 and match SurfaceIPCCore's contribution exactly.
-TEST(SurfaceIPCExternalMaxStepGTest, HelperMatchesSurfaceIPCCoreExternalContribution)
+// must clamp alpha < 1 while self max-step stays unconstrained.
+TEST(SurfaceIPCExternalMaxStepGTest, HelperComputesClampedExternalContribution)
 {
   ES::MXd V(4, 3);
   V << 0.0, 0.0, 0.0,
@@ -59,14 +57,9 @@ TEST(SurfaceIPCExternalMaxStepGTest, HelperMatchesSurfaceIPCCoreExternalContribu
       pgo::Contact::IPC::makeLinearTrajectorySampler(obsRest, ES::V3d::Zero()));
   };
 
-  SurfaceIPCCore::Parameters params;
-  params.dhat_external = 0.5;
-  params.slackness = 1.0;
-
-  std::vector<std::unique_ptr<ObstacleSurface>> coreObstacles;
-  coreObstacles.push_back(makeObs());
-  SurfaceIPCCore core(params, std::move(coreObstacles));
-  core.setMesh(V, F);
+  constexpr double dhat = 0.1;
+  constexpr double dhatExternal = 0.5;
+  constexpr double slackness = 1.0;
 
   ES::VXd x(V.rows() * 3);
   for (int vi = 0; vi < V.rows(); ++vi)
@@ -82,14 +75,12 @@ TEST(SurfaceIPCExternalMaxStepGTest, HelperMatchesSurfaceIPCCoreExternalContribu
   obstacles.push_back(makeObs());
   obstacles.front()->setObjectId(0);
 
-  const double selfAlpha = computeSelfMaxStep(topology, x, dx, params.dhat, params.slackness);
+  const double selfAlpha = computeSelfMaxStep(topology, x, dx, dhat, slackness);
   ASSERT_NEAR(selfAlpha, 1.0, 1e-12);
 
   const double helperAlpha = computeExternalMaxStep(
-    topology, x, dx, obstacleViews(obstacles), params.dhat_external, params.slackness);
-  const double coreAlpha = core.computeMaxStepLimit(x, dx).alpha;
+    topology, x, dx, obstacleViews(obstacles), dhatExternal, slackness);
 
-  EXPECT_NEAR(helperAlpha, coreAlpha, 1e-12);
   EXPECT_LT(helperAlpha, 1.0);
   EXPECT_GE(helperAlpha, 0.0);
 }

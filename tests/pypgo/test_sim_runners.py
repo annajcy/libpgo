@@ -380,11 +380,13 @@ def test_run_dynamic_resume_rejects_mismatched_integrator(tmp_path):
 
 
 def test_run_dynamic_write_checkpoints_dump_interval(tmp_path):
+    """Checkpoints are written every step even when dump_interval skips visual dumps."""
     cfg = _dynamic_box_cfg(
         tmp_path,
         **{
             "dynamic.num_steps": 3,
             "output.write_checkpoints": True,
+            "output.write_surfaces": True,
             "output.dump_interval": 2,
         },
     )
@@ -392,8 +394,13 @@ def test_run_dynamic_write_checkpoints_dump_interval(tmp_path):
 
     ckpt_dir = tmp_path / "checkpoints"
     assert (ckpt_dir / "state0000.npz").exists()
-    assert not (ckpt_dir / "state0001.npz").exists()
+    assert (ckpt_dir / "state0001.npz").exists()
     assert (ckpt_dir / "state0002.npz").exists()
+
+    surface_dir = tmp_path / "surface"
+    assert (surface_dir / "surface0000.obj").exists()
+    assert not (surface_dir / "surface0001.obj").exists()
+    assert (surface_dir / "surface0002.obj").exists()
 
 
 def test_run_static_write_states(tmp_path):

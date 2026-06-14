@@ -16,8 +16,9 @@ from pathlib import Path
 MESH_TYPES = ("tet", "cubic", "shell")
 VOLUME_FORMULATIONS = ("auto", "tet-linear", "cubic-linear", "cubic-tricubic-hermite")
 VOLUME_ELASTIC_MODELS = ("stable_neo", "stvk", "stvk_volume", "linear_elastic", "mooney_rivlin")
-CONTACT_MODELS = ("ipc", "floor", "sampled_penalty", "frictional_sampled_penalty")
+CONTACT_MODELS = ("ipc", "floor", "sampled_penalty")
 INTEGRATORS = ("implicit_euler", "trbdf2")
+LINE_SEARCH_METHODS = ("backtrack", "simple", "golden", "brents")
 
 
 class ConfigError(ValueError):
@@ -174,7 +175,7 @@ class ContactConfig:
     enable_self_contact: bool = True
     enable_external_contact: bool = True
     # friction
-    friction_coeff: float = 0.3
+    friction_coeff: float = 0.0
     velocity_eps: float = 1e-4
 
 
@@ -188,6 +189,11 @@ class InitialStateConfig:
 class SolverConfig:
     max_iterations: int = 50
     gradient_tolerance: float = 1e-6
+    line_search: str = "simple"
+    line_search_max_iterations: int = 100
+    line_search_shrink: float = 0.5
+    line_search_armijo_c: float = 1e-4
+    line_search_initial_alpha: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -285,6 +291,8 @@ def _build_contact(payload, label: str) -> ContactConfig:
     if model not in CONTACT_MODELS:
         raise ConfigError(
             f"{label}: contact model must be one of {CONTACT_MODELS}, got {model!r}")
+    if model != "sampled_penalty" and ("friction_coeff" in payload or "velocity_eps" in payload):
+        raise ConfigError(f"{label}: friction fields are only supported for sampled_penalty contact")
     obstacles = tuple(
         ObstacleConfig(
             mesh=Path(obs["mesh"]),
@@ -293,8 +301,10 @@ def _build_contact(payload, label: str) -> ContactConfig:
         )
         for obs in payload.get("obstacles", [])
     )
-    if obstacles and model != "ipc":
-        raise ConfigError(f"{label}: obstacles are only supported for ipc contact")
+    if obstacles and model not in ("ipc", "sampled_penalty"):
+        raise ConfigError(f"{label}: obstacles are only supported for ipc or sampled_penalty contact")
+    if model == "sampled_penalty" and any(obs.velocity is not None for obs in obstacles):
+        raise ConfigError(f"{label}: sampled_penalty contact only supports static obstacles; moving obstacles require ipc")
     if model == "floor":
         floor_axis = payload.get("axis", "z")
         floor_side = payload.get("side", "keep_above")
@@ -318,7 +328,7 @@ def _build_contact(payload, label: str) -> ContactConfig:
         samples=int(payload.get("samples", 1)),
         enable_self_contact=bool(payload.get("enable_self_contact", True)),
         enable_external_contact=bool(payload.get("enable_external_contact", True)),
-        friction_coeff=float(payload.get("friction_coeff", 0.3)),
+        friction_coeff=float(payload.get("friction_coeff", 0.0)),
         velocity_eps=float(payload.get("velocity_eps", 1e-4)),
     )
 
@@ -464,12 +474,9 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
             "(movement targets only make sense with time stepping)")
 
     if mode == "static" and any(
-        c.model == "frictional_sampled_penalty" for c in contact
+        c.model == "sampled_penalty" and c.friction_coeff > 0.0 for c in contact
     ):
-        raise ConfigError(
-            "frictional_sampled_penalty contact requires dynamic mode "
-            "(friction needs velocities)"
-        )
+        raise ConfigError("sampled_penalty contact with friction requires dynamic mode")
 
     dyn_payload = payload.get("dynamic", {})
     if mode == "static" and dyn_payload.get("resume") is not None:
@@ -484,9 +491,21 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
     )
 
     solver_payload = payload.get("solver", {})
+    line_search = solver_payload.get("line_search", "simple")
+    if line_search not in LINE_SEARCH_METHODS:
+        raise ConfigError(
+            f"solver.line_search must be one of {LINE_SEARCH_METHODS}, "
+            f"got {line_search!r}")
     solver = SolverConfig(
         max_iterations=int(solver_payload.get("max_iterations", 50)),
         gradient_tolerance=float(solver_payload.get("gradient_tolerance", 1e-6)),
+        line_search=line_search,
+        line_search_max_iterations=int(
+            solver_payload.get("line_search_max_iterations", 100)),
+        line_search_shrink=float(solver_payload.get("line_search_shrink", 0.5)),
+        line_search_armijo_c=float(solver_payload.get("line_search_armijo_c", 1e-4)),
+        line_search_initial_alpha=float(
+            solver_payload.get("line_search_initial_alpha", 1.0)),
     )
 
     dyn_payload = payload.get("dynamic", {})

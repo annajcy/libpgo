@@ -31,7 +31,7 @@ DynamicSimulation(*, mass, state, timestep, energy=None,
 
 $$D=\alpha_M\,M+\alpha_K\,K(\mathbf u^n),\qquad K=\nabla^2E\big|_{\mathbf u^n}$$
 
-刚度项要求能量 Hessian 拓扑固定（`isHessianTopologyFixed`，39-43 行）。注意级联：接触能量声明拓扑不固定（`mappedSurfacePotentialEnergy.h:50` 返回 0），而 `EnergySet` 只有全部子项固定才算固定（`energySet.cpp:225-232`）——本门面把整个 `energy` 作为**单一**持久项，故 `EnergySet` 里只要含接触，$\alpha_K$ 就会被整体跳过、只剩 $\alpha_M M$ 生效。需要"弹性有刚度阻尼 + 接触无阻尼"的精细组合时要直接用 C++ 层的多 `ImplicitModelTerm`（Python 门面暂只暴露单项）。
+刚度项要求能量 Hessian 拓扑固定（`isHessianTopologyFixed`，39-43 行）。注意级联：IPC、采样罚接触等接触能量的 Hessian 拓扑会随几何对集合变化，而 `EnergySet` 只有全部子项固定才算固定（`energySet.cpp:225-232`）——本门面把整个 `energy` 作为**单一**持久项，故 `EnergySet` 里只要含拓扑不固定的接触项，$\alpha_K$ 就会被整体跳过、只剩 $\alpha_M M$ 生效。需要"弹性有刚度阻尼 + 接触无阻尼"的精细组合时要直接用 C++ 层的多 `ImplicitModelTerm`（Python 门面暂只暴露单项）。
 
 ### 固定 DOF
 

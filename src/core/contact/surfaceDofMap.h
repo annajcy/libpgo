@@ -1,5 +1,5 @@
 /*
-  Shared embedded surface DOF mapping for contact energies.
+  Shared surface DOF mapping for contact energies.
 */
 
 #pragma once
@@ -13,10 +13,10 @@ namespace pgo
 namespace Contact
 {
 
-class EmbeddedDofMap
+class SurfaceDofMap
 {
 public:
-  EmbeddedDofMap(
+  SurfaceDofMap(
     const EigenSupport::MXd &surfaceRestVertices,
     const EigenSupport::SpMatD &surfaceFromSimulationDispMap);
 
@@ -26,9 +26,12 @@ public:
 
   EigenSupport::VXd surfaceDisplacements(EigenSupport::ConstRefVecXd simulationDisplacements) const;
   EigenSupport::VXd surfacePositions(EigenSupport::ConstRefVecXd simulationDisplacements) const;
+  EigenSupport::VXd pullbackGradient(EigenSupport::ConstRefVecXd surfaceGradient) const;
+  void pullbackHessian(const EigenSupport::SpMatD &surfaceHessian, EigenSupport::SpMatD &simulationHessian) const;
 
 private:
   void validateSimulationDisplacementSize(EigenSupport::ConstRefVecXd simulationDisplacements) const;
+  void validateSurfaceVectorSize(EigenSupport::ConstRefVecXd surfaceVector) const;
 
   EigenSupport::VXd surfaceRestPositions_;
   EigenSupport::SpMatD surfaceFromSimulationDispMap_;

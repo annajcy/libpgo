@@ -16,7 +16,6 @@ from pypgo.contact.params import (
 )
 from pypgo.contact.energies import (
     FloorEnergy,
-    FrictionalSampledPenaltyEnergy,
     IPCEnergy,
     SampledPenaltyEnergy,
 )
@@ -27,7 +26,6 @@ __all__ = [
     "FloorEnergy",
     "FloorParameters",
     "FrictionParameters",
-    "FrictionalSampledPenaltyEnergy",
     "IPCEnergy",
     "IPCParameters",
     "ObstacleSpec",

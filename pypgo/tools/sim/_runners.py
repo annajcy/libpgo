@@ -18,9 +18,25 @@ from pypgo.tools.sim._scene import SceneBundle
 
 
 def _make_optimizer(cfg):
+    if cfg.solver.line_search == "simple":
+        line_search = _solver.Simple(
+            max_iterations=cfg.solver.line_search_max_iterations,
+            shrink=cfg.solver.line_search_shrink,
+        )
+    elif cfg.solver.line_search == "golden":
+        line_search = _solver.Golden()
+    elif cfg.solver.line_search == "brents":
+        line_search = _solver.Brents()
+    else:
+        line_search = _solver.Backtrack(
+            armijo_c=cfg.solver.line_search_armijo_c,
+            shrink=cfg.solver.line_search_shrink,
+            initial_alpha=cfg.solver.line_search_initial_alpha,
+        )
     return _solver.NewtonOptimizer(
         max_iterations=cfg.solver.max_iterations,
         gradient_tolerance=cfg.solver.gradient_tolerance,
+        line_search=line_search,
     )
 
 
@@ -278,6 +294,15 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
             ma.energy.set_targets(np.tile(ma.velocity * t_next, ma.num_vertices))
         frame = sim.step(external_force=bundle.gravity_force, optimizer=optimizer)
         frames.append(frame)
+        if cfg.output.write_checkpoints:
+            _write_checkpoint(
+                _checkpoint_path(cfg.output.directory, frame.frame_index),
+                frame=frame,
+                state=sim.state,
+                timestep=dt,
+                integrator=cfg.dynamic.integrator,
+                num_dofs=bundle.num_dofs,
+            )
         # Surfaces and states are written even for rejected frames — useful when
         # diagnosing divergence (the state is the last accepted one).
         if frame.frame_index % cfg.output.dump_interval == 0:
@@ -306,15 +331,6 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
                 }
                 (stress_dir / f"von_mises{frame.frame_index:04d}.json").write_text(
                     json.dumps(doc))
-            if cfg.output.write_checkpoints:
-                _write_checkpoint(
-                    _checkpoint_path(cfg.output.directory, frame.frame_index),
-                    frame=frame,
-                    state=sim.state,
-                    timestep=dt,
-                    integrator=cfg.dynamic.integrator,
-                    num_dofs=bundle.num_dofs,
-                )
         if not frame.accepted:
             break
 

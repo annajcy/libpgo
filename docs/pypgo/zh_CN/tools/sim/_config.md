@@ -47,7 +47,7 @@
 | `dynamic` | `DynamicConfig` | 下文 |
 | `output` | `OutputConfig` | 下文 |
 
-合法值常量：`MESH_TYPES=("tet","cubic","shell")`、`VOLUME_FORMULATIONS=("auto","tet-linear","cubic-linear","cubic-tricubic-hermite")`、`VOLUME_ELASTIC_MODELS=("stable_neo","stvk","stvk_volume","linear_elastic","mooney_rivlin")`、`CONTACT_MODELS=("ipc","floor","sampled_penalty","frictional_sampled_penalty")`、`INTEGRATORS=("implicit_euler","trbdf2")`。
+合法值常量：`MESH_TYPES=("tet","cubic","shell")`、`VOLUME_FORMULATIONS=("auto","tet-linear","cubic-linear","cubic-tricubic-hermite")`、`VOLUME_ELASTIC_MODELS=("stable_neo","stvk","stvk_volume","linear_elastic","mooney_rivlin")`、`CONTACT_MODELS=("ipc","floor","sampled_penalty")`、`INTEGRATORS=("implicit_euler","trbdf2")`。
 
 ---
 
@@ -119,7 +119,7 @@
 
 ### `ContactConfig` — `"contact"`（数组，每项一个接触能量）
 
-每项必填 `model`（4 选 1）；其余字段按模型取用：
+每项必填 `model`（3 选 1）；其余字段按模型取用：
 
 | 字段 | 默认 | 用于 | 含义 |
 |---|---|---|---|
@@ -131,9 +131,9 @@
 | `stiffness` | `1.0` | floor、sampled | 罚刚度 |
 | `samples` | `1` | sampled | 每三角形采样数 |
 | `enable_self_contact` / `enable_external_contact` | `True` / `True` | sampled | 开关 |
-| `friction_coeff` / `velocity_eps` | `0.3` / `1e-4` | frictional_sampled | 摩擦系数 $\mu$ / 速度正则 $\epsilon_v$ |
+| `friction_coeff` / `velocity_eps` | `0.0` / `1e-4` | sampled | 摩擦系数 $\mu$ / 速度正则 $\epsilon_v$；省略摩擦字段表示无摩擦 |
 
-模式约束：`frictional_sampled_penalty` **要求 dynamic**（摩擦需要速度）。各能量数学见 [../../contact/overview.md](../../contact/overview.md)。
+模式约束：只有 `sampled_penalty` 可带摩擦字段；非 sampled 模型出现 `friction_coeff` 或 `velocity_eps` 会报错。`sampled_penalty` 仅在 `friction_coeff > 0` 时启用摩擦，且**要求 dynamic**（摩擦需要速度）；省略摩擦字段时静态 sampled penalty 合法。各能量数学见 [../../contact/overview.md](../../contact/overview.md)。
 
 ### `InitialStateConfig` — `"initial_state"`
 

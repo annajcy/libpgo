@@ -1,5 +1,5 @@
 /*
-  RAII holder for sampled penalty active contact energies.
+  RAII holder for sampled penalty evaluation child energies.
 */
 
 #pragma once
@@ -18,19 +18,19 @@ class PointTrianglePairCouplingEnergyWithCollisionBuffer;
 namespace SampledPenalty
 {
 
-struct SampledPenaltyActiveSet
+struct SampledPenaltyEvaluationBundle
 {
   std::shared_ptr<PointPenetrationEnergy> externalEnergy;
   PointPenetrationEnergyBuffer *externalBuffer = nullptr;
   std::shared_ptr<PointTrianglePairCouplingEnergyWithCollision> selfEnergy;
   PointTrianglePairCouplingEnergyWithCollisionBuffer *selfBuffer = nullptr;
 
-  SampledPenaltyActiveSet() = default;
-  SampledPenaltyActiveSet(const SampledPenaltyActiveSet &) = delete;
-  SampledPenaltyActiveSet &operator=(const SampledPenaltyActiveSet &) = delete;
-  SampledPenaltyActiveSet(SampledPenaltyActiveSet &&) noexcept = default;
-  SampledPenaltyActiveSet &operator=(SampledPenaltyActiveSet &&) noexcept = default;
-  ~SampledPenaltyActiveSet();
+  SampledPenaltyEvaluationBundle() = default;
+  SampledPenaltyEvaluationBundle(const SampledPenaltyEvaluationBundle &) = delete;
+  SampledPenaltyEvaluationBundle &operator=(const SampledPenaltyEvaluationBundle &) = delete;
+  SampledPenaltyEvaluationBundle(SampledPenaltyEvaluationBundle &&) = delete;
+  SampledPenaltyEvaluationBundle &operator=(SampledPenaltyEvaluationBundle &&) = delete;
+  ~SampledPenaltyEvaluationBundle();
 
   bool empty() const;
   void clear();

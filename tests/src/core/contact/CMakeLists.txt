@@ -1,7 +1,12 @@
-add_executable(surfaceIPCCore_gtest surfaceIPCCore_gtest.cpp)
-target_link_libraries(surfaceIPCCore_gtest PRIVATE GTest::gtest_main contact)
-set_property(TARGET surfaceIPCCore_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(surfaceIPCCore_gtest)
+add_executable(ipcPairGenerator_gtest ipcPairGenerator_gtest.cpp)
+target_link_libraries(ipcPairGenerator_gtest PRIVATE GTest::gtest_main contact)
+set_property(TARGET ipcPairGenerator_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(ipcPairGenerator_gtest)
+
+add_executable(ipcContactAssembler_gtest ipcContactAssembler_gtest.cpp)
+target_link_libraries(ipcContactAssembler_gtest PRIVATE GTest::gtest_main contact)
+set_property(TARGET ipcContactAssembler_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(ipcContactAssembler_gtest)
 
 add_executable(spatialHashGrid_gtest spatialHashGrid_gtest.cpp)
 target_link_libraries(spatialHashGrid_gtest PRIVATE GTest::gtest_main contact)
@@ -63,10 +68,10 @@ target_link_libraries(contactEnergyFactory_gtest PRIVATE GTest::gtest_main conta
 set_property(TARGET contactEnergyFactory_gtest PROPERTY FOLDER "tests/gtest")
 pgo_gtest_discover_tests(contactEnergyFactory_gtest)
 
-add_executable(mappedContactEnergy_gtest mappedContactEnergy_gtest.cpp)
-target_link_libraries(mappedContactEnergy_gtest PRIVATE GTest::gtest_main contact)
-set_property(TARGET mappedContactEnergy_gtest PROPERTY FOLDER "tests/gtest")
-pgo_gtest_discover_tests(mappedContactEnergy_gtest)
+add_executable(surfaceDofMap_gtest surfaceDofMap_gtest.cpp)
+target_link_libraries(surfaceDofMap_gtest PRIVATE GTest::gtest_main contact)
+set_property(TARGET surfaceDofMap_gtest PROPERTY FOLDER "tests/gtest")
+pgo_gtest_discover_tests(surfaceDofMap_gtest)
 
 add_executable(sampledPenaltyContactEnergy_gtest sampledPenaltyContactEnergy_gtest.cpp)
 target_link_libraries(sampledPenaltyContactEnergy_gtest PRIVATE GTest::gtest_main contact)

@@ -7,7 +7,6 @@ set(NONLINEAROPTIMIZATION_HEADERS
   potentialEnergy.h
   lineSearchAwareEnergy.h
   evaluationStateAwareEnergy.h
-  stepDependentEnergy.h
   stepAwareEnergy.h
   solver/common/solveDiagnostics.h
   solver/common/solverResult.h

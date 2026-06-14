@@ -2,7 +2,6 @@
 
 #include "ipc/core/surfaceIPCMaxStep.h"
 #include "ipc/topology/surfaceIPCTopology.h"
-#include "ipc/core/surfaceIPCCore.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
 #include "scopedProfileSection.h"
 
@@ -15,7 +14,6 @@
 namespace
 {
 namespace ES = pgo::EigenSupport;
-using pgo::Contact::IPC::SurfaceIPCCore;
 using pgo::Contact::IPC::SurfaceIPCTopology;
 using pgo::Contact::CIPCTest::flattenPositions;
 using pgo::Contact::CIPCTest::makeTwoTriangleMesh;
@@ -29,7 +27,7 @@ const ProfileCounterStat *findCounterStat(const std::vector<ProfileCounterStat> 
 }
 }  // namespace
 
-TEST(SurfaceIPCMaxStepGTest, HelperMatchesSurfaceIPCCoreMaxStep)
+TEST(SurfaceIPCMaxStepGTest, HelperComputesClampedSelfMaxStep)
 {
   const auto [V, F] = makeTwoTriangleMesh();
   const ES::VXd x = flattenPositions(V);
@@ -40,21 +38,10 @@ TEST(SurfaceIPCMaxStepGTest, HelperMatchesSurfaceIPCCoreMaxStep)
   SurfaceIPCTopology topology;
   topology.setMesh(V, F);
 
-  SurfaceIPCCore core;
-  SurfaceIPCCore::Parameters params;
-  params.dhat = 0.1;
-  params.kappa = 1.0;
-  params.eps_ee = 0.0;
-  params.slackness = 0.9;
-  core.setParameters(params);
-  core.setMesh(V, F);
-
-  const double helperAlpha = computeSelfMaxStep(topology, x, dx, params.dhat, params.slackness);
-  const double coreAlpha = core.computeMaxStepLimit(x, dx).alpha;
+  const double helperAlpha = computeSelfMaxStep(topology, x, dx, 0.1, 0.9);
 
   EXPECT_GT(helperAlpha, 0.0);
   EXPECT_LT(helperAlpha, 1.0);
-  EXPECT_NEAR(helperAlpha, coreAlpha, 1e-12);
 }
 
 TEST(SurfaceIPCMaxStepGTest, ProfilingRecordsSelfSweptCandidateCounters)
