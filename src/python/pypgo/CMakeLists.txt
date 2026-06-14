@@ -81,6 +81,8 @@ target_link_libraries(pypgo_core PRIVATE
   volumetricMeshMeshing
   implicitSurface
   parallelism
+  # Ensures core.cpp (build_info) sees PGO_HAS_MKL / PGO_HAS_ORIG_PARDISO.
+  compilation_flag
 )
 
 if(TARGET LAPACK::LAPACK)

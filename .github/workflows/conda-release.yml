@@ -131,6 +131,40 @@ jobs:
             --output-folder conda-bld `
             --no-anaconda-upload
 
+      - name: Create local conda channel
+        if: runner.os != 'Windows'
+        shell: bash -l {0}
+        run: |
+          rm -rf local-channel
+          mkdir -p local-channel/noarch
+          subdir="$(find conda-bld -mindepth 1 -maxdepth 1 -type d \
+            \( -name 'linux-64' -o -name 'osx-arm64' -o -name 'win-64' \) \
+            -exec basename {} \; | head -n 1)"
+          test -n "${subdir}"
+          mkdir -p "local-channel/${subdir}"
+          find "conda-bld/${subdir}" -maxdepth 1 -type f \( -name '*.conda' -o -name '*.tar.bz2' \) \
+            -exec cp {} "local-channel/${subdir}/" \;
+          conda index local-channel
+          python -m zipfile -c "${{ matrix.artifact_name }}-channel.zip" local-channel
+
+      - name: Create local conda channel
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item local-channel -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path local-channel\noarch -Force | Out-Null
+          $subdir = Get-ChildItem conda-bld -Directory |
+            Where-Object { $_.Name -in @("linux-64", "osx-arm64", "win-64") } |
+            Select-Object -First 1 -ExpandProperty Name
+          if (-not $subdir) {
+            throw "Could not find conda build subdir."
+          }
+          New-Item -ItemType Directory -Path "local-channel\$subdir" -Force | Out-Null
+          Get-ChildItem -Path "conda-bld\$subdir\*.conda", "conda-bld\$subdir\*.tar.bz2" -File -ErrorAction SilentlyContinue |
+            Copy-Item -Destination "local-channel\$subdir"
+          conda index local-channel
+          python -m zipfile -c "${{ matrix.artifact_name }}-channel.zip" local-channel
+
       - name: Upload conda build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -138,6 +172,13 @@ jobs:
           path: |
             conda-bld/**/*.conda
             conda-bld/**/*.tar.bz2
+          if-no-files-found: error
+
+      - name: Upload local conda channel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-channel
+          path: ${{ matrix.artifact_name }}-channel.zip
           if-no-files-found: error
 
   upload:
@@ -173,7 +214,8 @@ jobs:
           test -n "${ANACONDA_API_TOKEN}"
           test -n "${ANACONDA_USER}"
           conda install -y anaconda-client
-          find conda-artifacts -type f \( -name '*.conda' -o -name '*.tar.bz2' \) -print0 \
+          find conda-artifacts -type f \( -name '*.conda' -o -name '*.tar.bz2' \) \
+            ! -path '*/local-channel/*' -print0 \
             | xargs -0 anaconda -t "${ANACONDA_API_TOKEN}" upload \
                 --user "${ANACONDA_USER}" \
                 --label "${ANACONDA_LABEL}"
