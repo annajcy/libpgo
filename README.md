@@ -54,9 +54,10 @@ Blender and ffmpeg are optional. They are only needed by
 
 ### Create the conda environment
 
-All packages — build tools, C++ libraries, and Python dependencies — are
-declared in `environment.yml`. Create the `libpgo` environment with a single
-command:
+Build tools, C++ libraries, and the conda-side Python packages are declared in
+`environment.yml`; the package's own Python dependencies live in `setup.py` and
+are installed by the editable build step below. Create the `libpgo` environment
+with a single command:
 
 ```bash
 conda env create -f environment.yml
@@ -69,12 +70,11 @@ To update an existing environment after pulling changes:
 conda env update -f environment.yml --prune
 ```
 
-Note: `--prune` removes conda packages no longer listed, but it does **not**
-migrate a package that moved between the conda list and the `pip:` subsection
-(conda leaves the old build in place and pip then sees it as already
-satisfied). If a dependency was switched from conda to pip (e.g. `pytorch` →
-pip `torch`, `pyvista`, `pytest`, `notebook`), recreate the environment from
-scratch using the block below so it resolves from the intended source.
+Note: `--prune` only reconciles the conda packages listed in `environment.yml`;
+it does not touch the editable `pypgo` install or its pip-sourced deps (`torch`,
+`pyvista`, the `trame` stack, ...), which come from the build step below. After
+changing those, re-run the editable install. For a clean slate, recreate the
+environment from scratch using the block below.
 
 To recreate the environment from scratch:
 
@@ -101,12 +101,16 @@ create another `libpgo` under a different prefix.
 ### Python Package Build
 
 The Python package is installed in editable mode with pip inside the active
-conda environment:
+conda environment. This step also pulls the package's Python dependencies,
+declared once in `setup.py` (`install_requires` plus the `torch`/`viz`/`dev`
+extras):
 
 ```bash
 conda activate libpgo
-python -m pip install -e . --no-build-isolation
+python -m pip install -e .[viz,torch,dev] --no-build-isolation
 ```
+
+Drop extras you do not need (e.g. `-e .[viz]`, or `-e .` for the bare runtime).
 
 For Python API development, rebuild the native `_core` extension in place after
 changing C++ bindings or native mesh code:
@@ -154,10 +158,13 @@ Install either `pypgo` or `pypgo-mkl` in one environment, not both. The two
 conda packages expose the same Python package name and are marked mutually
 exclusive in the recipe.
 
-The regular `pypgo` package uses the OpenBLAS BLAS/LAPACK stack and does not
-hard-depend on conda `pytorch`; install `torch` separately if you need the
-optional `pypgo.fem` torch layers. The `pypgo-mkl` package depends on the MKL
-stack and includes conda `pytorch`.
+Neither conda package depends on `pytorch`. The `pypgo.fem` torch layers are
+optional and imported lazily, so install `torch` from pip only if you need them
+(`pip install pypgo[torch]`). The regular `pypgo` package uses the OpenBLAS
+BLAS/LAPACK stack; `pypgo-mkl` uses the MKL stack. If you use `pypgo-mkl`
+together with a pip `torch` wheel and hit an MKL/OpenMP runtime clash (e.g.
+`OMP: Error #15`), install a conda MKL build of torch or set
+`KMP_DUPLICATE_LIB_OK=TRUE`.
 
 The same recipe is parameterized by CI environment variables:
 
@@ -343,14 +350,14 @@ Example `CMakeUserPresets.json` (local, optional):
   Imath, zlib, numpy, setuptools, and wheel. `numpy` stays on conda because
   OpenVDB's Python bindings hard-depend on conda-numpy — making it pip-only
   would leave two conflicting numpy installs on the same import path.
-- Pip (declared in the `pip:` subsection of `environment.yml`) supplies the
-  pure-Python / pip-first packages that are not build-time native deps: `torch`
-  (official macOS arm64 wheel, with MPS; replaces conda `pytorch`), `pyvista`
-  (pulls its own `vtk` wheel — conda `vtk-base` is intentionally not installed,
-  to avoid a duplicate `vtkmodules` import path), `pytest`, `notebook`, and the
-  `trame` / `trame-vtk` / `trame-vuetify` stack (conda-forge lags their
-  releases). `conda env create` installs these automatically after the conda
-  solve, including in CI.
+- Pip supplies the pure-Python / pip-first packages that are not build-time
+  native deps. They are declared once in `setup.py` (`install_requires` plus the
+  `torch` / `viz` / `dev` extras) and installed by the editable build step
+  (`pip install -e .[viz,torch,dev] --no-build-isolation`): `torch` (official
+  macOS arm64 wheel, with MPS; replaces conda `pytorch`), `pyvista` (pulls its
+  own `vtk` wheel — conda `vtk-base` is intentionally not installed, to avoid a
+  duplicate `vtkmodules` import path), `pytest`, `notebook`, and the `trame` /
+  `trame-vtk` / `trame-vuetify` stack (conda-forge lags their releases).
 - The host package manager supplies platform basics that are awkward to keep
   fully inside conda: Linux compiler/system BLAS/GMP/MPFR headers and macOS
   Homebrew GMP/MPFR/Imath.

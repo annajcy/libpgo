@@ -127,4 +127,17 @@ setup(
     },
     zip_safe=False,
     python_requires=">=3.12",
+    install_requires=[
+        "numpy",
+    ],
+    extras_require={
+        # Optional torch autograd layers in pypgo.fem (imported lazily).
+        # Install with: pip install pypgo[torch]
+        "torch": ["torch"],
+        # 3D visualization (pypgo.mesh.visualize) and interactive/web rendering.
+        # pyvista pulls its own vtk wheel; trame provides the web backend.
+        "viz": ["pyvista", "trame", "trame-vtk", "trame-vuetify"],
+        # Test / notebook / demo tooling (not needed at runtime).
+        "dev": ["pytest", "notebook"],
+    },
 )

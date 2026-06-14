@@ -17,6 +17,19 @@ else()
 endif()
 pgo_dep_option(BLA_VENDOR STRING "${_PGO_SUITESPARSE_BLA_VENDOR}" "BLAS vendor")
 
+# Fortran is disabled (SUITESPARSE_USE_FORTRAN=OFF), so SuiteSparse cannot probe
+# the C-to-Fortran name mangling and falls back to a platform default. On MSVC
+# that default is the no-underscore Intel MKL convention ("dgemm"), but we link
+# conda-forge OpenBLAS, which exports the Fortran symbols with a trailing
+# underscore ("dgemm_"). Without overriding this, CHOLMOD's supernodal BLAS
+# calls fail to link (unresolved dgemm/dtrsm/dpotrf/...). Force the underscore
+# convention for the OpenBLAS (non-MKL) build so the generated
+# SuiteSparse_config.h calls the symbols OpenBLAS actually provides.
+if(MSVC AND NOT PGO_USE_MKL)
+  set(SUITESPARSE_C_TO_FORTRAN "(name,NAME) name##_"
+    CACHE STRING "C to Fortran name mangling" FORCE)
+endif()
+
 include(FetchContent)
 FetchContent_Declare(
   suitesparse

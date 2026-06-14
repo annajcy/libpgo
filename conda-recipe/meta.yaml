@@ -71,9 +71,9 @@ requirements:
     - python >=3.12,<3.13
     - numpy
     - pyvista
-    {% if with_mkl %}
-    - pytorch
-    {% endif %}
+    # pytorch is an optional, pip-installed runtime dependency for the
+    # pypgo.fem torch layers (pip install pypgo[torch]); it is intentionally
+    # not conda-managed. See README for the MKL/OpenMP caveat.
     - gmp
     - mpfr
     - imath

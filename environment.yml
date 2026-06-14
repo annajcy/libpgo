@@ -34,13 +34,14 @@ dependencies:
   - setuptools
   - wheel
 
-  # --- Python: pip-managed (pip-first / moved off conda) ---
+  # --- Python: package runtime + optional deps (declared in setup.py) ---
   # Native build deps (gmp, tbb, openvdb, gmsh, numpy, ...) stay on conda above.
-  - pip:
-      - torch         # was conda `pytorch`; official pip wheel (MPS) on macOS arm64
-      - pyvista       # pulls its own vtk wheel; conda vtk-base removed to avoid collision
-      - pytest
-      - notebook
-      - trame
-      - trame-vtk
-      - trame-vuetify
+  # The package's own Python deps live once in setup.py (install_requires +
+  # extras) and are installed by the editable build step. They are intentionally
+  # NOT placed in a `pip:` section here: that step must keep --no-build-isolation,
+  # and pip requirement files cannot carry that flag.
+  #     pip install -e .[viz,torch,dev] --no-build-isolation
+  # Why pip rather than conda for some of them:
+  #   torch -> official pip wheel provides macOS arm64 MPS (was conda `pytorch`)
+  #   viz   -> pyvista pulls its own vtk wheel (conda vtk-base removed to avoid a
+  #            duplicate vtkmodules import path); the trame stack lags on conda-forge

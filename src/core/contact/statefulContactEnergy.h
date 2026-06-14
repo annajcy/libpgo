@@ -25,7 +25,7 @@ public:
   virtual ContactModelKind contactModelKind() const = 0;
   virtual bool isStepDependent() const { return false; }
 
-  void beginStep(const NonlinearOptimization::StepState &) override {}
+  virtual void beginStep(const NonlinearOptimization::StepState &) override {}
 
   NonlinearOptimization::EnergyStateKind stateKind() const override
   {
