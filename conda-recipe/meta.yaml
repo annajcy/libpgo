@@ -25,6 +25,10 @@ build:
     - if exist build\pypgo-conda rmdir /s /q build\pypgo-conda  # [win]
     - if exist build\pypgo-conda-mkl rmdir /s /q build\pypgo-conda-mkl  # [win]
     - {{ PYTHON }} -m pip install . --no-build-isolation --no-deps -v
+    - mkdir -p "${PREFIX}/lib"  # [unix]
+    - find "build/${PYPGO_CMAKE_PRESET}" \( -name 'libgeogram*.dylib' -o -name 'libgeogram*.so*' \) -exec cp -P {} "${PREFIX}/lib/" \;  # [unix]
+    - if not exist "%PREFIX%\Library\bin" mkdir "%PREFIX%\Library\bin"  # [win]
+    - for /r "build\%PYPGO_CMAKE_PRESET%" %%F in (geogram*.dll libgeogram*.dll) do copy /Y "%%F" "%PREFIX%\Library\bin\"  # [win]
 
 requirements:
   build:
