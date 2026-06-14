@@ -179,6 +179,20 @@ VolumetricMeshes::VegMaterialPayload vegPayloadFromMaterialObject(const nb::obje
     throw std::runtime_error("unsupported material payload type");
 }
 
+std::shared_ptr<PyVegPayload> makePyVegPayload(VolumetricMeshes::VegFilePayload payload)
+{
+    auto result = std::make_shared<PyVegPayload>();
+    result->meshData = std::move(payload.meshData);
+    result->materials = std::move(payload.materials);
+    for (const auto& set : payload.sets) {
+        result->sets.emplace_back(set.name, set.elements);
+    }
+    for (const auto& region : payload.regions) {
+        result->regions.emplace_back(region.materialIndex, region.setIndex);
+    }
+    return result;
+}
+
 }  // namespace
 
 PyBarycentricEmbedding::PyBarycentricEmbedding(const std::vector<double>& targetLocationsFlat, const PyVolumeMesh& volumeMesh)
@@ -342,23 +356,14 @@ nb::object export_material_payload(const PyVolumeMesh& vm) {
     return materialPayloadFromMaterial(vMesh->getMaterial(0));
 }
 
-PyVegPayload extract_veg_payload_from_volume_mesh(const PyVolumeMesh& vm) {
+std::shared_ptr<PyVegPayload> extract_veg_payload_from_volume_mesh(const PyVolumeMesh& vm) {
     VolumetricMeshes::VegFilePayload payload;
     {
         nb::gil_scoped_release release;
         payload = vm.getVM()->toVegFilePayload();
     }
 
-    PyVegPayload result;
-    result.meshData = std::move(payload.meshData);
-    result.materials = std::move(payload.materials);
-    for (const auto& set : payload.sets) {
-        result.sets.emplace_back(set.name, set.elements);
-    }
-    for (const auto& region : payload.regions) {
-        result.regions.emplace_back(region.materialIndex, region.setIndex);
-    }
-    return result;
+    return makePyVegPayload(std::move(payload));
 }
 
 std::shared_ptr<PyVolumeMesh> create_volume_mesh_multi(
@@ -414,23 +419,14 @@ std::shared_ptr<PyVolumeMesh> create_volume_mesh_multi(
     throw std::runtime_error("Unsupported element mesh type for create_volume_mesh_multi");
 }
 
-PyVegPayload read_veg(const std::string& path) {
+std::shared_ptr<PyVegPayload> read_veg(const std::string& path) {
     VolumetricMeshes::VegFilePayload payload;
     {
         nb::gil_scoped_release release;
         payload = VolumetricMeshes::readVegFile(path);
     }
 
-    PyVegPayload result;
-    result.meshData = std::move(payload.meshData);
-    result.materials = std::move(payload.materials);
-    for (const auto& set : payload.sets) {
-        result.sets.emplace_back(set.name, set.elements);
-    }
-    for (const auto& region : payload.regions) {
-        result.regions.emplace_back(region.materialIndex, region.setIndex);
-    }
-    return result;
+    return makePyVegPayload(std::move(payload));
 }
 
 PyTetMeshData read_msh(const std::string& path) {
