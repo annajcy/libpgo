@@ -52,7 +52,7 @@ requirements:
     - libblas * *openblas
     - liblapack * *openblas
     - libopenblas
-    - openblas-devel
+    - openblas
     {% endif %}
     - libboost-devel
     - tbb-devel
