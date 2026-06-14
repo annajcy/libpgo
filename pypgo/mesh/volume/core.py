@@ -218,12 +218,12 @@ def read_msh(path: str) -> TetMeshData:
 
 
 def read_veg(path: str) -> VegFile:
-    payload = _core.read_veg(str(path))
+    mesh_data, materials, sets, regions = _core.read_veg(str(path))
     return VegFile(
-        mesh_data=_wrap_mesh_data_core(payload.mesh_data),
-        materials=[_wrap_material_payload(m) for m in payload.materials],
-        sets=[MeshSet(name, list(elements)) for name, elements in payload.sets],
-        regions=[MeshRegion(material_index, set_index) for material_index, set_index in payload.regions],
+        mesh_data=_wrap_mesh_data_core(mesh_data),
+        materials=[_wrap_material_payload(m) for m in materials],
+        sets=[MeshSet(name, list(elements)) for name, elements in sets],
+        regions=[MeshRegion(material_index, set_index) for material_index, set_index in regions],
     )
 
 

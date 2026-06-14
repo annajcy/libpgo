@@ -13,6 +13,8 @@
 
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/pair.h>
+#include <nanobind/stl/tuple.h>
 #include <nanobind/stl/vector.h>
 
 #include <algorithm>
@@ -191,6 +193,26 @@ std::shared_ptr<PyVegPayload> makePyVegPayload(VolumetricMeshes::VegFilePayload 
         result->regions.emplace_back(region.materialIndex, region.setIndex);
     }
     return result;
+}
+
+nb::tuple makeVegPayloadTuple(VolumetricMeshes::VegFilePayload payload)
+{
+    auto meshData = meshDataFromVegPayload(payload.meshData);
+    nb::list materials;
+    for (const auto& material : payload.materials) {
+        materials.append(materialPayloadFromVegPayload(material));
+    }
+    std::vector<std::pair<std::string, std::vector<int>>> sets;
+    sets.reserve(payload.sets.size());
+    for (const auto& set : payload.sets) {
+        sets.emplace_back(set.name, set.elements);
+    }
+    std::vector<std::pair<int, int>> regions;
+    regions.reserve(payload.regions.size());
+    for (const auto& region : payload.regions) {
+        regions.emplace_back(region.materialIndex, region.setIndex);
+    }
+    return nb::make_tuple(meshData, materials, sets, regions);
 }
 
 }  // namespace
@@ -419,14 +441,14 @@ std::shared_ptr<PyVolumeMesh> create_volume_mesh_multi(
     throw std::runtime_error("Unsupported element mesh type for create_volume_mesh_multi");
 }
 
-std::shared_ptr<PyVegPayload> read_veg(const std::string& path) {
+nb::tuple read_veg(const std::string& path) {
     VolumetricMeshes::VegFilePayload payload;
     {
         nb::gil_scoped_release release;
         payload = VolumetricMeshes::readVegFile(path);
     }
 
-    return makePyVegPayload(std::move(payload));
+    return makeVegPayloadTuple(std::move(payload));
 }
 
 PyTetMeshData read_msh(const std::string& path) {
