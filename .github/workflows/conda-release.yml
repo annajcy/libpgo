@@ -143,27 +143,9 @@ jobs:
           # Empty for non-MKL jobs → recipe falls back to CPU_COUNT.
           CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
         run: |
-          # Periodically log memory/disk so a future "lost communication" failure
-          # shows whether the build is starved for RAM or disk (Linux only; macOS
-          # has no `free`). Output flushes as it runs, capturing the climb.
-          monitor_pid=""
-          if command -v free >/dev/null 2>&1; then
-            ( while true; do
-                date -u +'--- resources %H:%M:%S UTC ---'
-                free -m
-                df -h /
-                sleep 30
-              done ) &
-            monitor_pid=$!
-          fi
-
           conda-build conda-recipe \
             --output-folder conda-bld \
             --no-anaconda-upload
-          status=$?
-
-          [ -n "${monitor_pid}" ] && kill "${monitor_pid}" >/dev/null 2>&1 || true
-          exit "${status}"
 
       - name: Build conda package
         if: runner.os == 'Windows'
