@@ -6,3 +6,13 @@ requires = [
     "ninja",
 ]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+# Guard against hangs: a non-terminating solve (e.g. the Linux/Windows-only hang
+# in test_sim_cli_examples) is killed after this many seconds instead of burning
+# the whole 120-min job timeout, and the dumped traceback pinpoints the stuck case.
+# The `thread` method reliably kills a hang stuck in native (C++) code, unlike the
+# signal method which can't interrupt a GIL-holding call. Notebook execution tests
+# self-bound at 360s via their own subprocess timeout, so 600s is safe for them.
+timeout = 600
+timeout_method = "thread"

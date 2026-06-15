@@ -120,6 +120,8 @@ setup(
         # pyvista pulls its own vtk wheel; trame provides the web backend.
         "viz": ["pyvista", "trame", "trame-vtk", "trame-vuetify"],
         # Test / notebook / demo tooling (not needed at runtime).
-        "dev": ["pytest", "notebook"],
+        # pytest-timeout enforces the per-test timeout in pyproject.toml so a hung
+        # solve fails fast (with a traceback) instead of stalling the CI job.
+        "dev": ["pytest", "pytest-timeout", "notebook"],
     },
 )
