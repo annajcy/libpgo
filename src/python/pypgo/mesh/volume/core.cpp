@@ -42,6 +42,16 @@ std::vector<double> flattenPositions(const std::vector<Vec3d>& positions) {
     return flat;
 }
 
+template<class T>
+nb::list makePythonList(const std::vector<T>& values)
+{
+    nb::list result;
+    for (const auto& value : values) {
+        result.append(value);
+    }
+    return result;
+}
+
 template<int K>
 std::pair<std::vector<double>, std::vector<int>> flattenMeshData(const Mesh::MeshData<K>& data) {
     return { flattenPositions(data.positions()), data.elementsFlat() };
@@ -225,19 +235,20 @@ nb::tuple makeVegPayloadTuple(const VolumetricMeshes::VegFilePayload& payload)
                     "mooney_rivlin", item.name, item.density, item.mu01, item.mu10, item.v1));
             }
             else {
+                std::vector<double> R(item.R.begin(), item.R.end());
                 materials.append(nb::make_tuple(
                     "orthotropic", item.name, item.density,
                     item.E1, item.E2, item.E3,
                     item.nu12, item.nu23, item.nu31,
                     item.G12, item.G23, item.G31,
-                    std::vector<double>(item.R.begin(), item.R.end())));
+                    makePythonList(R)));
             }
         }, material);
     }
 
     nb::list sets;
     for (const auto& set : payload.sets) {
-        sets.append(nb::make_tuple(set.name, set.elements));
+        sets.append(nb::make_tuple(set.name, makePythonList(set.elements)));
     }
 
     nb::list regions;
@@ -245,7 +256,13 @@ nb::tuple makeVegPayloadTuple(const VolumetricMeshes::VegFilePayload& payload)
         regions.append(nb::make_tuple(region.materialIndex, region.setIndex));
     }
 
-    return nb::make_tuple(meshKind, vertices, elements, materials, sets, regions);
+    return nb::make_tuple(
+        meshKind,
+        makePythonList(vertices),
+        makePythonList(elements),
+        materials,
+        sets,
+        regions);
 }
 
 }  // namespace
