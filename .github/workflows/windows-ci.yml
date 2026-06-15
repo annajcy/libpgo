@@ -70,6 +70,9 @@ jobs:
           # (4) plus the torch/viz install exhausts the hosted runner mid-build.
           # Mirrors the cmake-build job's level.
           CMAKE_BUILD_PARALLEL_LEVEL: "3"
+          # Test the preset that actually ships as a conda package (native opt off)
+          # instead of the default `pypgo` preset, so CI exercises the shipped binary.
+          PYPGO_CMAKE_PRESET: pypgo-conda
         run: python -m pip install -e .[viz,torch,dev] --no-build-isolation
 
       - name: Run Python API pytest suite
