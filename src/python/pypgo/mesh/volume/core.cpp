@@ -235,16 +235,14 @@ nb::tuple makeVegPayloadTuple(const VolumetricMeshes::VegFilePayload& payload)
         }, material);
     }
 
-    std::vector<std::pair<std::string, std::vector<int>>> sets;
-    sets.reserve(payload.sets.size());
+    nb::list sets;
     for (const auto& set : payload.sets) {
-        sets.emplace_back(set.name, set.elements);
+        sets.append(nb::make_tuple(set.name, set.elements));
     }
 
-    std::vector<std::pair<int, int>> regions;
-    regions.reserve(payload.regions.size());
+    nb::list regions;
     for (const auto& region : payload.regions) {
-        regions.emplace_back(region.materialIndex, region.setIndex);
+        regions.append(nb::make_tuple(region.materialIndex, region.setIndex));
     }
 
     return nb::make_tuple(meshKind, vertices, elements, materials, sets, regions);
@@ -477,12 +475,7 @@ std::shared_ptr<PyVolumeMesh> create_volume_mesh_multi(
 }
 
 nb::tuple read_veg(const std::string& path) {
-    VolumetricMeshes::VegFilePayload payload;
-    {
-        nb::gil_scoped_release release;
-        payload = VolumetricMeshes::readVegFile(path);
-    }
-
+    auto payload = VolumetricMeshes::readVegFile(path);
     return makeVegPayloadTuple(payload);
 }
 
