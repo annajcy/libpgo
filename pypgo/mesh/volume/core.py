@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 import pypgo._core as _core
 from pypgo.mesh.data import CubicMeshData, TetMeshData, TriMeshData, _wrap_mesh_data_core
 from pypgo.mesh.volume.material import (
@@ -217,11 +219,32 @@ def read_msh(path: str) -> TetMeshData:
     return _wrap_mesh_data_core(_core.read_msh(str(path)))
 
 
+def _mesh_data_from_veg_record(mesh_kind, vertices, elements):
+    vertex_array = np.asarray(vertices, dtype=np.float64).reshape(-1, 3)
+    if mesh_kind == "tet":
+        return TetMeshData(vertex_array, np.asarray(elements, dtype=np.int64).reshape(-1, 4))
+    if mesh_kind == "cubic":
+        return CubicMeshData(vertex_array, np.asarray(elements, dtype=np.int64).reshape(-1, 8))
+    raise RuntimeError(f"Unexpected veg mesh kind from _core: {mesh_kind!r}")
+
+
+def _material_from_veg_record(record):
+    kind = record[0]
+    if kind == "enu":
+        _, name, density, E, nu = record
+        return ENuMaterial(name, density=float(density), E=float(E), nu=float(nu))
+    if kind == "mooney_rivlin":
+        _, name, density, mu01, mu10, v1 = record
+        return MooneyRivlinMaterial(
+            name, density=float(density), mu01=float(mu01), mu10=float(mu10), v1=float(v1))
+    raise RuntimeError(f"Unexpected material payload from _core: {kind!r}")
+
+
 def read_veg(path: str) -> VegFile:
-    mesh_data, materials, sets, regions = _core.read_veg(str(path))
+    mesh_kind, vertices, elements, materials, sets, regions = _core.read_veg(str(path))
     return VegFile(
-        mesh_data=_wrap_mesh_data_core(mesh_data),
-        materials=[_wrap_material_payload(m) for m in materials],
+        mesh_data=_mesh_data_from_veg_record(mesh_kind, vertices, elements),
+        materials=[_material_from_veg_record(m) for m in materials],
         sets=[MeshSet(name, list(elements)) for name, elements in sets],
         regions=[MeshRegion(material_index, set_index) for material_index, set_index in regions],
     )

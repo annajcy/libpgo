@@ -18,7 +18,6 @@
 #include <nanobind/stl/vector.h>
 
 #include <algorithm>
-#include <cstdio>
 #include <memory>
 #include <set>
 #include <stdexcept>
@@ -196,34 +195,59 @@ std::shared_ptr<PyVegPayload> makePyVegPayload(VolumetricMeshes::VegFilePayload 
     return result;
 }
 
-nb::tuple makeVegPayloadTuple(VolumetricMeshes::VegFilePayload payload)
+nb::tuple makeVegPayloadTuple(const VolumetricMeshes::VegFilePayload& payload)
 {
-    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: begin\n");
-    std::fflush(stderr);
-    auto meshData = meshDataFromVegPayload(payload.meshData);
-    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: mesh data converted\n");
-    std::fflush(stderr);
+    const char* meshKind = nullptr;
+    std::vector<double> vertices;
+    std::vector<int> elements;
+    std::visit([&](const auto& data) {
+        using T = std::decay_t<decltype(data)>;
+        if constexpr (std::is_same_v<T, Mesh::MeshData<4>>) {
+            meshKind = "tet";
+        }
+        else {
+            meshKind = "cubic";
+        }
+        auto flat = flattenMeshData(data);
+        vertices = std::move(flat.first);
+        elements = std::move(flat.second);
+    }, payload.meshData);
+
     nb::list materials;
     for (const auto& material : payload.materials) {
-        materials.append(materialPayloadFromVegPayload(material));
+        std::visit([&](const auto& item) {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, VolumetricMeshes::VegENuMaterialPayload>) {
+                materials.append(nb::make_tuple("enu", item.name, item.density, item.E, item.nu));
+            }
+            else if constexpr (std::is_same_v<T, VolumetricMeshes::VegMooneyRivlinMaterialPayload>) {
+                materials.append(nb::make_tuple(
+                    "mooney_rivlin", item.name, item.density, item.mu01, item.mu10, item.v1));
+            }
+            else {
+                materials.append(nb::make_tuple(
+                    "orthotropic", item.name, item.density,
+                    item.E1, item.E2, item.E3,
+                    item.nu12, item.nu23, item.nu31,
+                    item.G12, item.G23, item.G31,
+                    std::vector<double>(item.R.begin(), item.R.end())));
+            }
+        }, material);
     }
-    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: materials converted\n");
-    std::fflush(stderr);
+
     std::vector<std::pair<std::string, std::vector<int>>> sets;
     sets.reserve(payload.sets.size());
     for (const auto& set : payload.sets) {
         sets.emplace_back(set.name, set.elements);
     }
-    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: sets converted\n");
-    std::fflush(stderr);
+
     std::vector<std::pair<int, int>> regions;
     regions.reserve(payload.regions.size());
     for (const auto& region : payload.regions) {
         regions.emplace_back(region.materialIndex, region.setIndex);
     }
-    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: regions converted\n");
-    std::fflush(stderr);
-    return nb::make_tuple(meshData, materials, sets, regions);
+
+    return nb::make_tuple(meshKind, vertices, elements, materials, sets, regions);
 }
 
 }  // namespace
@@ -454,19 +478,12 @@ std::shared_ptr<PyVolumeMesh> create_volume_mesh_multi(
 
 nb::tuple read_veg(const std::string& path) {
     VolumetricMeshes::VegFilePayload payload;
-    std::fprintf(stderr, "PYPGO_DEBUG read_veg: begin %s\n", path.c_str());
-    std::fflush(stderr);
     {
         nb::gil_scoped_release release;
         payload = VolumetricMeshes::readVegFile(path);
     }
-    std::fprintf(stderr, "PYPGO_DEBUG read_veg: native read complete\n");
-    std::fflush(stderr);
 
-    auto result = makeVegPayloadTuple(std::move(payload));
-    std::fprintf(stderr, "PYPGO_DEBUG read_veg: tuple returned\n");
-    std::fflush(stderr);
-    return result;
+    return makeVegPayloadTuple(payload);
 }
 
 PyTetMeshData read_msh(const std::string& path) {
