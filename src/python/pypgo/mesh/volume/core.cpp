@@ -18,6 +18,7 @@
 #include <nanobind/stl/vector.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <memory>
 #include <set>
 #include <stdexcept>
@@ -197,21 +198,31 @@ std::shared_ptr<PyVegPayload> makePyVegPayload(VolumetricMeshes::VegFilePayload 
 
 nb::tuple makeVegPayloadTuple(VolumetricMeshes::VegFilePayload payload)
 {
+    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: begin\n");
+    std::fflush(stderr);
     auto meshData = meshDataFromVegPayload(payload.meshData);
+    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: mesh data converted\n");
+    std::fflush(stderr);
     nb::list materials;
     for (const auto& material : payload.materials) {
         materials.append(materialPayloadFromVegPayload(material));
     }
+    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: materials converted\n");
+    std::fflush(stderr);
     std::vector<std::pair<std::string, std::vector<int>>> sets;
     sets.reserve(payload.sets.size());
     for (const auto& set : payload.sets) {
         sets.emplace_back(set.name, set.elements);
     }
+    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: sets converted\n");
+    std::fflush(stderr);
     std::vector<std::pair<int, int>> regions;
     regions.reserve(payload.regions.size());
     for (const auto& region : payload.regions) {
         regions.emplace_back(region.materialIndex, region.setIndex);
     }
+    std::fprintf(stderr, "PYPGO_DEBUG read_veg tuple: regions converted\n");
+    std::fflush(stderr);
     return nb::make_tuple(meshData, materials, sets, regions);
 }
 
@@ -443,12 +454,19 @@ std::shared_ptr<PyVolumeMesh> create_volume_mesh_multi(
 
 nb::tuple read_veg(const std::string& path) {
     VolumetricMeshes::VegFilePayload payload;
+    std::fprintf(stderr, "PYPGO_DEBUG read_veg: begin %s\n", path.c_str());
+    std::fflush(stderr);
     {
         nb::gil_scoped_release release;
         payload = VolumetricMeshes::readVegFile(path);
     }
+    std::fprintf(stderr, "PYPGO_DEBUG read_veg: native read complete\n");
+    std::fflush(stderr);
 
-    return makeVegPayloadTuple(std::move(payload));
+    auto result = makeVegPayloadTuple(std::move(payload));
+    std::fprintf(stderr, "PYPGO_DEBUG read_veg: tuple returned\n");
+    std::fflush(stderr);
+    return result;
 }
 
 PyTetMeshData read_msh(const std::string& path) {
