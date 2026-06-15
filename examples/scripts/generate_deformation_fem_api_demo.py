@@ -80,13 +80,10 @@ CELLS = [
     ),
     code(
         """
-        def _repo_root() -> Path:
-            for p in Path.cwd().resolve().parents:
-                if (p / ".git").exists():
-                    return p
-            return Path.cwd().resolve()
-
-        ROOT = _repo_root()
+        # Resolve assets relative to the installed pypgo package, so the notebook
+        # runs from any working directory (e.g. the test harness' temp dir) rather
+        # than only from a git checkout.
+        ROOT = Path(pgo.__file__).resolve().parent.parent
         ASSETS = ROOT / "examples" / "assets"
         TET_VEG = ASSETS / "veg" / "tet"
         CUBIC_VEG = ASSETS / "veg" / "cubic"

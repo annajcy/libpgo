@@ -43,6 +43,9 @@ jobs:
             package_name: pypgo-mkl
             preset: pypgo-conda-mkl
             with_mkl: "1"
+            # The MKL build is the heaviest target and exhausts the hosted runner
+            # at the default CPU_COUNT (4) parallelism; cap concurrent compiles.
+            cmake_parallel: "2"
           - os: macos-15
             artifact_name: osx-arm64-pypgo
             package_name: pypgo
@@ -62,6 +65,26 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Free up disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "=== disk/memory before cleanup ==="
+          df -h /
+          free -m
+          # Remove large preinstalled toolchains we don't use, to give the heavy
+          # MKL build headroom. Only the MKL Linux job is tight, but this is harmless
+          # for the non-MKL job too.
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/share/swift || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "=== disk after cleanup ==="
+          df -h /
 
       - name: Check release tag version
         if: startsWith(github.ref, 'refs/tags/')
@@ -117,10 +140,30 @@ jobs:
           PYPGO_CONDA_PACKAGE: ${{ matrix.package_name }}
           PYPGO_CMAKE_PRESET: ${{ matrix.preset }}
           PYPGO_WITH_MKL: ${{ matrix.with_mkl }}
+          # Empty for non-MKL jobs → recipe falls back to CPU_COUNT.
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
         run: |
+          # Periodically log memory/disk so a future "lost communication" failure
+          # shows whether the build is starved for RAM or disk (Linux only; macOS
+          # has no `free`). Output flushes as it runs, capturing the climb.
+          monitor_pid=""
+          if command -v free >/dev/null 2>&1; then
+            ( while true; do
+                date -u +'--- resources %H:%M:%S UTC ---'
+                free -m
+                df -h /
+                sleep 30
+              done ) &
+            monitor_pid=$!
+          fi
+
           conda-build conda-recipe \
             --output-folder conda-bld \
             --no-anaconda-upload
+          status=$?
+
+          [ -n "${monitor_pid}" ] && kill "${monitor_pid}" >/dev/null 2>&1 || true
+          exit "${status}"
 
       - name: Build conda package
         if: runner.os == 'Windows'
@@ -129,6 +172,8 @@ jobs:
           PYPGO_CONDA_PACKAGE: ${{ matrix.package_name }}
           PYPGO_CMAKE_PRESET: ${{ matrix.preset }}
           PYPGO_WITH_MKL: ${{ matrix.with_mkl }}
+          # Empty for the Windows jobs → recipe falls back to CPU_COUNT.
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
         run: |
           conda-build conda-recipe `
             --output-folder conda-bld `

@@ -455,7 +455,11 @@ CELLS = [
             residual = solved - target_torch
             shape_loss = 0.5 * torch.sum(residual ** 2)
             wd = l2_weight * sum((p ** 2).sum() for p in em_net.parameters())
-            mean_anchor = 0.5 * 1e-4 * (Em.mean() - Em0.mean()) ** 2
+            # Em0 is the initial network output, computed once before the loop and
+            # therefore tied to a graph that loss.backward() frees on the first
+            # iteration. The anchor baseline is a constant, so detach it — otherwise
+            # the next iteration raises "backward through the graph a second time".
+            mean_anchor = 0.5 * 1e-4 * (Em.mean() - Em0.detach().mean()) ** 2
             loss = shape_loss + wd + mean_anchor
             loss.backward()
 

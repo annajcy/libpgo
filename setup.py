@@ -53,6 +53,12 @@ class CMakeBuildExt(build_ext):
     def _parallel_jobs(self):
         if self.parallel:
             return int(self.parallel)
+        # Honor CMAKE_BUILD_PARALLEL_LEVEL so CI can cap concurrent compiles on
+        # memory/disk-constrained runners (the Windows hosted runner otherwise dies
+        # mid-build at the default cpu_count()). Unset → full cpu_count() as before.
+        env_level = os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "").strip()
+        if env_level.isdigit() and int(env_level) > 0:
+            return int(env_level)
         return max(1, os.cpu_count() or 1)
 
     def _find_built_extension(self, source_dir, expected_name):

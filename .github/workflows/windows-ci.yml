@@ -50,7 +50,26 @@ jobs:
           }) -join ';'
           "PATH=$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Free up disk space and show resources
+        run: |
+          function Show-Resources($label) {
+            Write-Host "=== $label ==="
+            Get-PSDrive C | Select-Object @{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}}, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}} | Format-Table -AutoSize
+            Get-CimInstance Win32_OperatingSystem | Select-Object @{n='FreeMemMB';e={[math]::Round($_.FreePhysicalMemory/1KB)}}, @{n='TotalMemMB';e={[math]::Round($_.TotalVisibleMemorySize/1KB)}} | Format-Table -AutoSize
+          }
+          Show-Resources "before cleanup"
+          # Android SDK (~10 GB) is unused here; removing it gives the heavy native
+          # build headroom on the ~14 GB C: drive.
+          Remove-Item -Path "C:\Android" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "${env:ProgramFiles(x86)}\Android" -Recurse -Force -ErrorAction SilentlyContinue
+          Show-Resources "after cleanup"
+
       - name: Build and install Python package
+        env:
+          # Cap concurrent compiles (setup.py honors this): the default cpu_count()
+          # (4) plus the torch/viz install exhausts the hosted runner mid-build.
+          # Mirrors the cmake-build job's level.
+          CMAKE_BUILD_PARALLEL_LEVEL: "3"
         run: python -m pip install -e .[viz,torch,dev] --no-build-isolation
 
       - name: Run Python API pytest suite

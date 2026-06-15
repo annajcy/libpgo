@@ -69,15 +69,10 @@ CELLS = [
     ),
     code(
         """
-        def _find_repo_root() -> Path:
-            cwd = Path.cwd().resolve()
-            for candidate in (cwd, *cwd.parents):
-                if (candidate / ".git").exists():
-                    return candidate
-            raise RuntimeError("Could not find repository root from the current working directory")
-
-
-        REPO_ROOT = _find_repo_root()
+        # Resolve assets relative to the installed pypgo package, so the notebook
+        # runs from any working directory (e.g. the test harness' temp dir) rather
+        # than only from a git checkout.
+        REPO_ROOT = Path(pgo.__file__).resolve().parent.parent
         ASSET_DIR = REPO_ROOT / "examples" / "assets" / "obj"
         OUTPUT_DIR = REPO_ROOT / "examples" / "outputs" / "mesh"
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

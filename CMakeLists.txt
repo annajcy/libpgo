@@ -32,6 +32,14 @@ option(PGO_ENABLE_GMSH "Enable GMSH support" OFF)
 option(PGO_TET_MESHER_USE_TET_WILD "Enable fTetWild backend for volumetric meshing" OFF)
 option(PGO_BUILD_TESTING "Build libpgo tests" OFF)
 option(PGO_NATIVE_OPTIMIZATION "Use host-native CPU optimization flags" ON)
+# Statically embedding libstdc++/libgcc is fatal for a Python extension: the .so then
+# carries a *private* libstdc++ while numpy/openvdb/vtk in the same interpreter use the
+# shared one. Two libstdc++ copies share no locale-facet / RTTI state, so
+# std::istringstream / std::filesystem crash. This project builds and runs inside conda
+# (every shipped artifact is a conda package, which links the shared conda libstdc++),
+# so default OFF. Opt in (-DPGO_STATIC_LIBSTDCXX=ON) only to ship a standalone binary to
+# a non-conda host with an older system libstdc++.
+option(PGO_STATIC_LIBSTDCXX "Statically link libstdc++/libgcc (GNU); opt-in for non-conda portable binaries" OFF)
 
 project(libpgo LANGUAGES CXX C)
 
@@ -221,11 +229,13 @@ if(PGO_NATIVE_OPTIMIZATION)
   add_link_flag_poxis(compilation_flag -mtune=native)
 endif()
 
-# static gcc
-add_flag(compilation_flag GNU All INTERFACE -static-libstdc++)
-add_flag(compilation_flag GNU All INTERFACE -static-libgcc)
-add_link_flag(compilation_flag GNU All -static-libstdc++)
-add_link_flag(compilation_flag GNU All -static-libgcc)
+# static gcc — opt-in only (see PGO_STATIC_LIBSTDCXX); never enable for the Python module
+if(PGO_STATIC_LIBSTDCXX)
+  add_flag(compilation_flag GNU All INTERFACE -static-libstdc++)
+  add_flag(compilation_flag GNU All INTERFACE -static-libgcc)
+  add_link_flag(compilation_flag GNU All -static-libstdc++)
+  add_link_flag(compilation_flag GNU All -static-libgcc)
+endif()
 
 # if has openmp flags
 if(OPENMP_FOUND)
