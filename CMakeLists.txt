@@ -81,6 +81,22 @@ if(PGO_CHECK_CONDA AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
   endif()
   message(STATUS "Conda build: prepended $ENV{CONDA_PREFIX} to CMAKE_PREFIX_PATH")
 
+  if(PGO_ENABLE_PYTHON AND NOT DEFINED Python_EXECUTABLE)
+    if(WIN32)
+      find_program(_pgo_conda_python NAMES python.exe python
+        PATHS "$ENV{CONDA_PREFIX}" "$ENV{CONDA_PREFIX}/Scripts"
+        NO_DEFAULT_PATH)
+    else()
+      find_program(_pgo_conda_python NAMES python3 python
+        PATHS "$ENV{CONDA_PREFIX}/bin"
+        NO_DEFAULT_PATH)
+    endif()
+    if(_pgo_conda_python)
+      set(Python_EXECUTABLE "${_pgo_conda_python}" CACHE FILEPATH "Python executable for pypgo bindings" FORCE)
+      message(STATUS "Conda build: using Python executable ${Python_EXECUTABLE}")
+    endif()
+  endif()
+
   if(APPLE)
     set(_pgo_openblas_vers "$ENV{CONDA_PREFIX}/lib/libopenblas.0.dylib")
     set(_pgo_openblas_plain "$ENV{CONDA_PREFIX}/lib/libopenblas.dylib")

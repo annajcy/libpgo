@@ -55,7 +55,15 @@ def test_cmake_build_ext_uses_python_build_preset(monkeypatch, tmp_path):
     builder.build_extension(ext)
 
     assert commands == [
-        (["cmake", "--preset", "pypgo"], ROOT),
+        (
+            [
+                "cmake",
+                "--preset",
+                "pypgo",
+                f"-DPython_EXECUTABLE={namespace['sys'].executable}",
+            ],
+            ROOT,
+        ),
         (
             [
                 "cmake",
@@ -104,7 +112,15 @@ def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path)
     builder.build_extension(ext)
 
     assert commands == [
-        (["cmake", "--preset", "pypgo-conda-mkl"], ROOT),
+        (
+            [
+                "cmake",
+                "--preset",
+                "pypgo-conda-mkl",
+                f"-DPython_EXECUTABLE={namespace['sys'].executable}",
+            ],
+            ROOT,
+        ),
         (
             [
                 "cmake",

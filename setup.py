@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 import shutil
 import subprocess
+import sys
 
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
@@ -24,7 +25,13 @@ class CMakeBuildExt(build_ext):
     def build_extension(self, ext):
         source_dir = Path(__file__).resolve().parent
 
-        subprocess.check_call(["cmake", "--preset", self.preset], cwd=source_dir)
+        configure_command = [
+            "cmake",
+            "--preset",
+            self.preset,
+            f"-DPython_EXECUTABLE={sys.executable}",
+        ]
+        subprocess.check_call(configure_command, cwd=source_dir)
         build_command = [
             "cmake",
             "--build",
@@ -56,16 +63,11 @@ class CMakeBuildExt(build_ext):
             return expected_path
 
         candidates = sorted(package_dir.glob("_core.*"))
-        candidates = [
-            path
-            for path in candidates
-            if path.suffix in {".so", ".pyd", ".dll", ".dylib"}
-        ]
-        if not candidates:
-            raise RuntimeError(
-                "CMake build completed, but pypgo/_core extension was not found."
-            )
-        return candidates[-1]
+        raise RuntimeError(
+            "CMake build completed, but the expected extension "
+            f"pypgo/{expected_name} was not found. Found: "
+            f"{', '.join(path.name for path in candidates) or 'none'}."
+        )
 
 
 setup(

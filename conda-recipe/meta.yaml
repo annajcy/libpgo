@@ -32,7 +32,7 @@ build:
     - if exist third-party\gmp-msvc\release\gmp-10.dll copy /Y third-party\gmp-msvc\release\gmp-10.dll "%PREFIX%\Library\bin\"  # [win]
     - if exist third-party\gmp-msvc\release\gmpxx-4.dll copy /Y third-party\gmp-msvc\release\gmpxx-4.dll "%PREFIX%\Library\bin\"  # [win]
     - if exist third-party\mpfr-msvc\release\mpfr-6.dll copy /Y third-party\mpfr-msvc\release\mpfr-6.dll "%PREFIX%\Library\bin\"  # [win]
-    - otool -L "${SP_DIR}/pypgo/_core.abi3.so" | tee pypgo-linked-libs.txt  # [osx]
+    - _core_ext="$(ls "${SP_DIR}"/pypgo/_core*.so | head -n 1)" && test -n "${_core_ext}" && otool -L "${_core_ext}" | tee pypgo-linked-libs.txt  # [osx]
     - if grep -E '/opt/homebrew|/usr/local' pypgo-linked-libs.txt; then exit 1; fi  # [osx]
 
 requirements:

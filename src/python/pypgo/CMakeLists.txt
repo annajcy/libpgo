@@ -1,4 +1,4 @@
-find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
+find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
 
 set(PYPGO_BINDING_SOURCES
   core.cpp
