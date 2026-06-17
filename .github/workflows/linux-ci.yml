@@ -97,7 +97,13 @@ jobs:
           export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
           python -m pip install auditwheel
           rm -rf wheelhouse
-          python -m auditwheel repair -w wheelhouse dist/${PYPGO_WHEEL_DIST}-*.whl
+          python -m auditwheel repair \
+            --exclude 'libopenblas*.so*' \
+            --exclude 'libblas*.so*' \
+            --exclude 'liblapack*.so*' \
+            --exclude 'libmkl*.so*' \
+            -w wheelhouse \
+            dist/${PYPGO_WHEEL_DIST}-*.whl
           python -m auditwheel show wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
           if (( ${#wheel[@]} != 1 )); then
@@ -105,6 +111,29 @@ jobs:
             printf '%s\n' "${wheel[@]}"
             exit 1
           fi
+          python - "${wheel[0]}" <<'PY'
+          import sys
+          import zipfile
+
+          forbidden = (
+              "libopenblas",
+              "libblas",
+              "liblapack",
+              "libmkl",
+          )
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              vendored = [
+                  name
+                  for name in archive.namelist()
+                  if ".libs/" in name and any(token in name for token in forbidden)
+              ]
+          if vendored:
+              print("Repaired wheel unexpectedly vendors BLAS/LAPACK runtime libraries:")
+              for name in vendored:
+                  print(f"  {name}")
+              raise SystemExit(1)
+          print("OK: repaired wheel relies on the conda-provided BLAS/LAPACK runtime.")
+          PY
 
       - name: Upload Python wheel artifact
         uses: actions/upload-artifact@v4

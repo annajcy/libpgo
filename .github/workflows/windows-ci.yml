@@ -130,7 +130,25 @@ jobs:
             $wheelList = ($rawWheels | ForEach-Object { $_.FullName }) -join "`n"
             throw "Expected exactly one raw $env:PYPGO_WHEEL_DIST wheel, found $($rawWheels.Count).`n$wheelList"
           }
-          python -m delvewheel repair --wheel-dir wheelhouse $rawWheels[0].FullName
+          $excludedDlls = @(
+            "libopenblas.dll",
+            "openblas.dll",
+            "libblas.dll",
+            "blas.dll",
+            "liblapack.dll",
+            "lapack.dll",
+            "mkl_rt.dll",
+            "mkl_rt.2.dll",
+            "mkl_core.dll",
+            "mkl_core.2.dll",
+            "mkl_intel_lp64.dll",
+            "mkl_intel_lp64.2.dll",
+            "mkl_tbb_thread.dll",
+            "mkl_tbb_thread.2.dll",
+            "mkl_sequential.dll",
+            "mkl_sequential.2.dll"
+          ) -join ":"
+          python -m delvewheel repair --exclude $excludedDlls --wheel-dir wheelhouse $rawWheels[0].FullName
 
           $wheels = @(Get-ChildItem -Path wheelhouse -Filter "$env:PYPGO_WHEEL_DIST-*.whl")
           if ($wheels.Count -ne 1) {
@@ -138,6 +156,31 @@ jobs:
             throw "Expected exactly one repaired $env:PYPGO_WHEEL_DIST wheel, found $($wheels.Count).`n$wheelList"
           }
           python -m delvewheel show $wheels[0].FullName
+          @'
+          import sys
+          import zipfile
+
+          forbidden = (
+              "openblas",
+              "libblas",
+              "blas.dll",
+              "liblapack",
+              "lapack.dll",
+              "mkl_",
+          )
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              vendored = [
+                  name
+                  for name in archive.namelist()
+                  if ".libs/" in name and any(token in name.lower() for token in forbidden)
+              ]
+          if vendored:
+              print("Repaired wheel unexpectedly vendors BLAS/LAPACK runtime libraries:")
+              for name in vendored:
+                  print(f"  {name}")
+              raise SystemExit(1)
+          print("OK: repaired wheel relies on the conda-provided BLAS/LAPACK runtime.")
+          '@ | python - $wheels[0].FullName
 
       - name: Upload Python wheel artifact
         uses: actions/upload-artifact@v4
