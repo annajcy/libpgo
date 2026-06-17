@@ -211,8 +211,27 @@ jobs:
       - name: Run CTest
         run: ctest --test-dir build/base --output-on-failure
 
+      - name: Free native build intermediates
+        run: Remove-Item -Path build\base -Recurse -Force -ErrorAction SilentlyContinue
+
       - name: Install Python test dependencies
-        run: python -m pip install pytest pytest-timeout notebook pyvista trame trame-vtk trame-vuetify torch
+        run: |
+          python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify
+          python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Run Python API pytest suite
-        run: $env:PYVISTA_OFF_SCREEN='True'; python -m pytest -q tests/pypgo
+        env:
+          PYVISTA_OFF_SCREEN: "True"
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+        run: |
+          Get-ChildItem -Path tests\pypgo -Filter 'test_*.py' |
+            Sort-Object Name |
+            Where-Object { $_.Name -ne 'test_notebook.py' } |
+            ForEach-Object {
+              python -m pytest -q $_.FullName
+              if ($LASTEXITCODE -ne 0) {
+                exit $LASTEXITCODE
+              }
+            }

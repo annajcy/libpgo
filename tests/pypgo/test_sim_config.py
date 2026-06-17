@@ -1,6 +1,7 @@
 """Tests for pypgo.tools.sim._config."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -99,7 +100,7 @@ def test_pure_cli_no_json():
             "output.directory": "/abs/out",
         },
     )
-    assert str(cfg.mesh.volume) == "/abs/model.veg"
+    assert cfg.mesh.volume == Path("/abs/model.veg")
     assert cfg.dynamic.timestep == 0.01
 
 

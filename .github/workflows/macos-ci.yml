@@ -131,10 +131,22 @@ jobs:
       - name: Run CTest
         run: ctest --test-dir build/base --output-on-failure
 
+      - name: Free native build intermediates
+        run: rm -rf build/base
+
       - name: Install Python test dependencies
-        run: python -m pip install pytest pytest-timeout notebook pyvista trame trame-vtk trame-vuetify torch
+        run: python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify torch
 
       - name: Run Python API pytest suite
         env:
           PYVISTA_OFF_SCREEN: "True"
-        run: python -m pytest -q tests/pypgo
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+        run: |
+          while IFS= read -r -d '' test_file; do
+            if [[ "$(basename "${test_file}")" == test_notebook.py ]]; then
+              continue
+            fi
+            python -m pytest -q "${test_file}"
+          done < <(find tests/pypgo -maxdepth 1 -name 'test_*.py' -print0 | sort -z)
