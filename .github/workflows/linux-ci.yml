@@ -18,9 +18,27 @@ env:
 
 jobs:
   python-build-and-test:
-    name: Python Build and Test
+    name: Python Build and Test (${{ matrix.label }})
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: openblas
+            label: OpenBLAS
+            environment_file: environment.yml
+            conda_env: libpgo
+            cmake_preset: pypgo-conda
+            cmake_parallel: "3"
+          - variant: mkl
+            label: MKL
+            environment_file: environment-mkl.yml
+            conda_env: libpgo-mkl
+            cmake_preset: pypgo-conda-mkl
+            # Match the conda-release MKL lane: a single heavy translation unit
+            # at a time fits the hosted runner more reliably than parallel TUs.
+            cmake_parallel: "1"
 
     defaults:
       run:
@@ -40,20 +58,37 @@ jobs:
         with:
           miniforge-variant: Miniforge3
           miniforge-version: latest
-          environment-file: environment.yml
-          activate-environment: libpgo
+          environment-file: ${{ matrix.environment_file }}
+          activate-environment: ${{ matrix.conda_env }}
           auto-activate-base: false
           channels: conda-forge
           channel-priority: strict
           conda-remove-defaults: true
 
-      - name: Build and install Python package
+      - name: Build wheel and install Python package
         env:
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
           # Test the preset that actually ships as a conda package (native opt off)
           # instead of the default `pypgo` preset (-march=native), so CI exercises
           # the shipped binary, not a host-tuned one.
-          PYPGO_CMAKE_PRESET: pypgo-conda
-        run: python -m pip install -e .[viz,torch,dev] --no-build-isolation
+          PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
+        run: |
+          rm -rf dist
+          python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
+          wheel=(dist/pypgo-*.whl)
+          if (( ${#wheel[@]} != 1 )); then
+            printf 'Expected exactly one pypgo wheel, found %s.\n' "${#wheel[@]}"
+            printf '%s\n' "${wheel[@]}"
+            exit 1
+          fi
+          python -m pip install "${wheel[0]}[viz,torch,dev]"
+
+      - name: Upload Python wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypgo-wheel-linux-${{ matrix.variant }}
+          path: dist/pypgo-*.whl
+          if-no-files-found: error
 
       - name: Run Python API pytest suite
         run: |
@@ -68,16 +103,32 @@ jobs:
         run: python -m pytest tests/pypgo/test_notebook.py -v -k "TestNotebookExecution"
 
   cmake-build:
-    name: CMake Preset Build and Test (MKL)
+    name: CMake Preset Build and Test (${{ matrix.label }})
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: OpenBLAS
+            environment_file: environment.yml
+            conda_env: libpgo
+            cmake_parallel: "3"
+            cmake_configure_args: -DPGO_USE_MKL=OFF
+          - label: MKL
+            environment_file: environment-mkl.yml
+            conda_env: libpgo-mkl
+            # Match the conda-release MKL lane: a single heavy translation unit
+            # at a time fits the hosted runner more reliably than parallel TUs.
+            cmake_parallel: "1"
+            cmake_configure_args: ""
 
     defaults:
       run:
         shell: bash -l {0}
 
     env:
-      CMAKE_BUILD_PARALLEL_LEVEL: 3
+      CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
 
     steps:
       - name: Checkout repository
@@ -93,15 +144,15 @@ jobs:
         with:
           miniforge-variant: Miniforge3
           miniforge-version: latest
-          environment-file: environment-mkl.yml
-          activate-environment: libpgo-mkl
+          environment-file: ${{ matrix.environment_file }}
+          activate-environment: ${{ matrix.conda_env }}
           auto-activate-base: false
           channels: conda-forge
           channel-priority: strict
           conda-remove-defaults: true
 
       - name: Configure with preset base
-        run: cmake --preset base
+        run: cmake --preset base ${{ matrix.cmake_configure_args }}
 
       - name: Build with preset base
         run: cmake --build --preset base

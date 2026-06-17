@@ -15,9 +15,25 @@ permissions:
 
 jobs:
   python-build-and-test:
-    name: Python Build and Test
+    name: Python Build and Test (${{ matrix.label }})
     runs-on: windows-2022
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: openblas
+            label: OpenBLAS
+            environment_file: environment.yml
+            conda_env: libpgo
+            cmake_preset: pypgo-conda
+            cmake_parallel: "3"
+          - variant: mkl
+            label: MKL
+            environment_file: environment-mkl.yml
+            conda_env: libpgo-mkl
+            cmake_preset: pypgo-conda-mkl
+            cmake_parallel: "3"
 
     defaults:
       run:
@@ -37,8 +53,8 @@ jobs:
         with:
           miniforge-variant: Miniforge3
           miniforge-version: latest
-          environment-file: environment.yml
-          activate-environment: libpgo
+          environment-file: ${{ matrix.environment_file }}
+          activate-environment: ${{ matrix.conda_env }}
           auto-activate-base: false
           channels: conda-forge
           channel-priority: strict
@@ -64,16 +80,31 @@ jobs:
           Remove-Item -Path "${env:ProgramFiles(x86)}\Android" -Recurse -Force -ErrorAction SilentlyContinue
           Show-Resources "after cleanup"
 
-      - name: Build and install Python package
+      - name: Build wheel and install Python package
         env:
           # Cap concurrent compiles (setup.py honors this): the default cpu_count()
           # (4) plus the torch/viz install exhausts the hosted runner mid-build.
           # Mirrors the cmake-build job's level.
-          CMAKE_BUILD_PARALLEL_LEVEL: "3"
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
           # Test the preset that actually ships as a conda package (native opt off)
           # instead of the default `pypgo` preset, so CI exercises the shipped binary.
-          PYPGO_CMAKE_PRESET: pypgo-conda
-        run: python -m pip install -e .[viz,torch,dev] --no-build-isolation
+          PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
+        run: |
+          Remove-Item -Path dist -Recurse -Force -ErrorAction SilentlyContinue
+          python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
+          $wheels = @(Get-ChildItem -Path dist -Filter 'pypgo-*.whl')
+          if ($wheels.Count -ne 1) {
+            $wheelList = ($wheels | ForEach-Object { $_.FullName }) -join "`n"
+            throw "Expected exactly one pypgo wheel, found $($wheels.Count).`n$wheelList"
+          }
+          python -m pip install "$($wheels[0].FullName)[viz,torch,dev]"
+
+      - name: Upload Python wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypgo-wheel-windows-${{ matrix.variant }}
+          path: dist/pypgo-*.whl
+          if-no-files-found: error
 
       - name: Run Python API pytest suite
         run: python -m pytest -q tests/pypgo
@@ -82,16 +113,30 @@ jobs:
         run: $env:PYVISTA_OFF_SCREEN='True'; $env:RUN_NOTEBOOKS='1'; python -m pytest tests/pypgo/test_notebook.py -v -k "TestNotebookExecution"
 
   cmake-build:
-    name: CMake Preset Build and Test (MKL)
+    name: CMake Preset Build and Test (${{ matrix.label }})
     runs-on: windows-2022
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: OpenBLAS
+            environment_file: environment.yml
+            conda_env: libpgo
+            cmake_parallel: "3"
+            cmake_configure_args: -DPGO_USE_MKL=OFF
+          - label: MKL
+            environment_file: environment-mkl.yml
+            conda_env: libpgo-mkl
+            cmake_parallel: "3"
+            cmake_configure_args: ""
 
     defaults:
       run:
         shell: pwsh
 
     env:
-      CMAKE_BUILD_PARALLEL_LEVEL: 3
+      CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
 
     steps:
       - name: Checkout repository
@@ -107,8 +152,8 @@ jobs:
         with:
           miniforge-variant: Miniforge3
           miniforge-version: latest
-          environment-file: environment-mkl.yml
-          activate-environment: libpgo-mkl
+          environment-file: ${{ matrix.environment_file }}
+          activate-environment: ${{ matrix.conda_env }}
           auto-activate-base: false
           channels: conda-forge
           channel-priority: strict
@@ -121,7 +166,7 @@ jobs:
           "PATH=$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Configure with preset base
-        run: cmake --preset base -G Ninja
+        run: cmake --preset base -G Ninja ${{ matrix.cmake_configure_args }}
 
       - name: Build with preset base
         run: cmake --build --preset base

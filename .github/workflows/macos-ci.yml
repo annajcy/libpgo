@@ -15,9 +15,19 @@ permissions:
 
 jobs:
   python-build-and-test:
-    name: Python Build and Test
+    name: Python Build and Test (${{ matrix.label }})
     runs-on: macos-15
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: openblas
+            label: OpenBLAS
+            environment_file: environment.yml
+            conda_env: libpgo
+            cmake_preset: pypgo-conda
+            cmake_parallel: "3"
 
     defaults:
       run:
@@ -32,19 +42,36 @@ jobs:
         with:
           miniforge-variant: Miniforge3
           miniforge-version: latest
-          environment-file: environment.yml
-          activate-environment: libpgo
+          environment-file: ${{ matrix.environment_file }}
+          activate-environment: ${{ matrix.conda_env }}
           auto-activate-base: false
           channels: conda-forge
           channel-priority: strict
 
-      - name: Build and install Python package
+      - name: Build wheel and install Python package
         env:
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
           # Test the preset that actually ships as a conda package (native opt off)
           # instead of the default `pypgo` preset (-march=native), so CI exercises
           # the shipped binary, not a host-tuned one.
-          PYPGO_CMAKE_PRESET: pypgo-conda
-        run: python -m pip install -e .[viz,torch,dev] --no-build-isolation
+          PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
+        run: |
+          rm -rf dist
+          python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
+          wheel=(dist/pypgo-*.whl)
+          if (( ${#wheel[@]} != 1 )); then
+            printf 'Expected exactly one pypgo wheel, found %s.\n' "${#wheel[@]}"
+            printf '%s\n' "${wheel[@]}"
+            exit 1
+          fi
+          python -m pip install "${wheel[0]}[viz,torch,dev]"
+
+      - name: Upload Python wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypgo-wheel-macos-${{ matrix.variant }}
+          path: dist/pypgo-*.whl
+          if-no-files-found: error
 
       - name: Run Python API pytest suite
         run: python -m pytest -q tests/pypgo
