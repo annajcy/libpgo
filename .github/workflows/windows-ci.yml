@@ -80,14 +80,14 @@ jobs:
           Remove-Item -Path "${env:ProgramFiles(x86)}\Android" -Recurse -Force -ErrorAction SilentlyContinue
           Show-Resources "after cleanup"
 
-      - name: Build wheel and install Python package
+      - name: Build Python wheel
         env:
           # Cap concurrent compiles (setup.py honors this): the default cpu_count()
-          # (4) plus the torch/viz install exhausts the hosted runner mid-build.
-          # Mirrors the cmake-build job's level.
+          # (4) can exhaust the hosted runner mid native build. Mirrors the
+          # cmake-build job's level.
           CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
-          # Test the preset that actually ships as a conda package (native opt off)
-          # instead of the default `pypgo` preset, so CI exercises the shipped binary.
+          # Build the wheel with the preset that ships as a conda package (native
+          # opt off) instead of the default `pypgo` preset.
           PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
         run: |
           Remove-Item -Path dist -Recurse -Force -ErrorAction SilentlyContinue
@@ -97,7 +97,6 @@ jobs:
             $wheelList = ($wheels | ForEach-Object { $_.FullName }) -join "`n"
             throw "Expected exactly one pypgo wheel, found $($wheels.Count).`n$wheelList"
           }
-          python -m pip install "$($wheels[0].FullName)[viz,torch,dev]"
 
       - name: Upload Python wheel artifact
         uses: actions/upload-artifact@v4
@@ -106,11 +105,36 @@ jobs:
           path: dist/pypgo-*.whl
           if-no-files-found: error
 
-      - name: Run Python API pytest suite
-        run: python -m pytest -q tests/pypgo
+      - name: Verify wheel in clean conda environment
+        run: |
+          $cleanEnv = Join-Path $env:RUNNER_TEMP "pypgo-wheel-${{ matrix.variant }}"
+          conda create -y -p $cleanEnv --clone $env:CONDA_PREFIX
+          conda run -p $cleanEnv python -m pip install --no-index --find-links "$env:GITHUB_WORKSPACE\dist" pypgo
 
-      - name: Execute example notebooks
-        run: $env:PYVISTA_OFF_SCREEN='True'; $env:RUN_NOTEBOOKS='1'; python -m pytest tests/pypgo/test_notebook.py -v -k "TestNotebookExecution"
+          $script = Join-Path $env:RUNNER_TEMP "verify-pypgo-wheel-${{ matrix.variant }}.py"
+          @'
+          from pathlib import Path
+          import os
+
+          import pypgo
+          import pypgo._core as core
+          import pypgo.energy
+          import pypgo.mesh
+          import pypgo.solver
+
+          package_file = Path(pypgo.__file__).resolve()
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          assert workspace not in package_file.parents, package_file
+          info = core.build_info()
+          assert info["module"] == "pypgo._core"
+          print(f"pypgo wheel import OK from {package_file}")
+          '@ | Set-Content -Path $script -Encoding utf8
+
+          $workDir = Join-Path $env:RUNNER_TEMP "pypgo-wheel-import-${{ matrix.variant }}"
+          New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+          Push-Location $workDir
+          conda run -p $cleanEnv python $script
+          Pop-Location
 
   cmake-build:
     name: CMake Preset Build and Test (${{ matrix.label }})
@@ -165,6 +189,20 @@ jobs:
           }) -join ';'
           "PATH=$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Free up disk space and show resources
+        run: |
+          function Show-Resources($label) {
+            Write-Host "=== $label ==="
+            Get-PSDrive C | Select-Object @{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}}, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}} | Format-Table -AutoSize
+            Get-CimInstance Win32_OperatingSystem | Select-Object @{n='FreeMemMB';e={[math]::Round($_.FreePhysicalMemory/1KB)}}, @{n='TotalMemMB';e={[math]::Round($_.TotalVisibleMemorySize/1KB)}} | Format-Table -AutoSize
+          }
+          Show-Resources "before cleanup"
+          # Android SDK (~10 GB) is unused here; removing it gives the heavy native
+          # build and Python test dependencies headroom on the ~14 GB C: drive.
+          Remove-Item -Path "C:\Android" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "${env:ProgramFiles(x86)}\Android" -Recurse -Force -ErrorAction SilentlyContinue
+          Show-Resources "after cleanup"
+
       - name: Configure with preset base
         run: cmake --preset base -G Ninja ${{ matrix.cmake_configure_args }}
 
@@ -173,3 +211,9 @@ jobs:
 
       - name: Run CTest
         run: ctest --test-dir build/base --output-on-failure
+
+      - name: Install Python test dependencies
+        run: python -m pip install pytest pytest-timeout notebook pyvista trame trame-vtk trame-vuetify torch
+
+      - name: Run Python API pytest suite
+        run: $env:PYVISTA_OFF_SCREEN='True'; python -m pytest -q tests/pypgo
