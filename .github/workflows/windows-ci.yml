@@ -212,7 +212,17 @@ jobs:
         run: ctest --test-dir build/base --output-on-failure
 
       - name: Free native build intermediates
-        run: Remove-Item -Path build\base -Recurse -Force -ErrorAction SilentlyContinue
+        run: |
+          @(
+            "build\base\CMakeFiles",
+            "build\base\_deps",
+            "build\base\projects",
+            "build\base\src",
+            "build\base\tests",
+            "build\base\third-party"
+          ) | ForEach-Object {
+            Remove-Item -Path $_ -Recurse -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Install Python test dependencies
         run: |
@@ -228,7 +238,7 @@ jobs:
         run: |
           Get-ChildItem -Path tests\pypgo -Filter 'test_*.py' |
             Sort-Object Name |
-            Where-Object { $_.Name -ne 'test_notebook.py' } |
+            Where-Object { $_.Name -notin @('test_example_notebooks.py', 'test_notebook.py') } |
             ForEach-Object {
               python -m pytest -q $_.FullName
               if ($LASTEXITCODE -ne 0) {

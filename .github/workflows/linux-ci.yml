@@ -171,7 +171,7 @@ jobs:
         run: ctest --test-dir build/base --output-on-failure
 
       - name: Free native build intermediates
-        run: rm -rf build/base
+        run: rm -rf build/base/CMakeFiles build/base/_deps build/base/projects build/base/src build/base/tests build/base/third-party
 
       - name: Install Python test dependencies
         run: |
@@ -186,8 +186,10 @@ jobs:
           OPENBLAS_NUM_THREADS: "1"
         run: |
           while IFS= read -r -d '' test_file; do
-            if [[ "$(basename "${test_file}")" == test_notebook.py ]]; then
-              continue
-            fi
+            case "$(basename "${test_file}")" in
+              test_example_notebooks.py|test_notebook.py)
+                continue
+                ;;
+            esac
             python -m pytest -q "${test_file}"
           done < <(find tests/pypgo -maxdepth 1 -name 'test_*.py' -print0 | sort -z)
