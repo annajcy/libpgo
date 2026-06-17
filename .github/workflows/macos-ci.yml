@@ -28,6 +28,8 @@ jobs:
             conda_env: libpgo
             cmake_preset: pypgo-conda
             cmake_parallel: "3"
+            wheel_package: pypgo
+            wheel_dist: pypgo
 
     defaults:
       run:
@@ -54,12 +56,15 @@ jobs:
           # Build the wheel with the preset that ships as a conda package (native
           # opt off) instead of the default `pypgo` preset (-march=native).
           PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
+          PYPGO_PACKAGE_NAME: ${{ matrix.wheel_package }}
+          PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
         run: |
+          shopt -s nullglob
           rm -rf dist
           python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
-          wheel=(dist/pypgo-*.whl)
+          wheel=(dist/${PYPGO_WHEEL_DIST}-*.whl)
           if (( ${#wheel[@]} != 1 )); then
-            printf 'Expected exactly one pypgo wheel, found %s.\n' "${#wheel[@]}"
+            printf 'Expected exactly one %s wheel, found %s.\n' "${PYPGO_WHEEL_DIST}" "${#wheel[@]}"
             printf '%s\n' "${wheel[@]}"
             exit 1
           fi
@@ -67,15 +72,17 @@ jobs:
       - name: Repair Python wheel
         env:
           PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
+          PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
         run: |
+          shopt -s nullglob
           export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
           python -m pip install delocate
           rm -rf wheelhouse
-          delocate-wheel -v -w wheelhouse dist/pypgo-*.whl
-          delocate-listdeps --all wheelhouse/pypgo-*.whl
-          wheel=(wheelhouse/pypgo-*.whl)
+          delocate-wheel -v -w wheelhouse dist/${PYPGO_WHEEL_DIST}-*.whl
+          delocate-listdeps --all wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+          wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
           if (( ${#wheel[@]} != 1 )); then
-            printf 'Expected exactly one repaired pypgo wheel, found %s.\n' "${#wheel[@]}"
+            printf 'Expected exactly one repaired %s wheel, found %s.\n' "${PYPGO_WHEEL_DIST}" "${#wheel[@]}"
             printf '%s\n' "${wheel[@]}"
             exit 1
           fi
@@ -84,14 +91,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pypgo-wheel-macos-${{ matrix.variant }}
-          path: wheelhouse/pypgo-*.whl
+          path: wheelhouse/${{ matrix.wheel_dist }}-*.whl
           if-no-files-found: error
 
       - name: Verify repaired wheel in minimal conda environment
+        env:
+          PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
         run: |
+          shopt -s nullglob
           clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
-          conda create -y -p "${clean_env}" python=3.12 pip
-          conda run -p "${clean_env}" python -m pip install "${GITHUB_WORKSPACE}"/wheelhouse/pypgo-*.whl
+          conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" libopenblas
+          conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           tmpdir="$(mktemp -d)"
           cd "${tmpdir}"
           conda run -p "${clean_env}" python - <<'PY'

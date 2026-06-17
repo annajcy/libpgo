@@ -9,11 +9,20 @@ import sys
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
 
+PACKAGE_NAME = os.environ.get("PYPGO_PACKAGE_NAME", "pypgo").strip()
+SUPPORTED_PACKAGE_NAMES = {"pypgo", "pypgo-mkl"}
+if PACKAGE_NAME not in SUPPORTED_PACKAGE_NAMES:
+    raise RuntimeError(
+        f"Unsupported PYPGO_PACKAGE_NAME={PACKAGE_NAME!r}; "
+        f"expected one of {sorted(SUPPORTED_PACKAGE_NAMES)}."
+    )
+
+
 class CMakeExtension(Extension):
     """Placeholder extension built by the CMake preset."""
 
     def __init__(self, name):
-        super().__init__(name, sources=[])
+        super().__init__(name, sources=[], py_limited_api=True)
 
 
 class CMakeBuildExt(build_ext):
@@ -77,7 +86,7 @@ class CMakeBuildExt(build_ext):
 
 
 setup(
-    name="pypgo",
+    name=PACKAGE_NAME,
     version="0.0.4",
     author="Bohan Wang",
     author_email="wangbh11@gmail.com",
@@ -86,6 +95,7 @@ setup(
     packages=find_packages(include=["pypgo", "pypgo.*"]),
     ext_modules=[CMakeExtension("pypgo._core")],
     cmdclass={"build_ext": CMakeBuildExt},
+    options={"bdist_wheel": {"py_limited_api": "cp312"}},
     entry_points={
         "console_scripts": [
             "pypgo-volume-info=pypgo.tools.mesh.volume.volume_info:main",

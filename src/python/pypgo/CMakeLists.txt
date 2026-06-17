@@ -1,4 +1,12 @@
-find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(Python 3.12 REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
+
+if(NOT Python_INTERPRETER_ID STREQUAL "Python")
+  message(FATAL_ERROR "pypgo abi3 bindings require CPython 3.12 or newer.")
+endif()
+
+if(NB_FREE_THREADED)
+  message(FATAL_ERROR "pypgo abi3 bindings are not supported with free-threaded Python.")
+endif()
 
 set(PYPGO_BINDING_SOURCES
   core.cpp
@@ -65,7 +73,7 @@ else()
     animation/disabled/bindings.cpp)
 endif()
 
-nanobind_add_module(pypgo_core NB_DOMAIN pypgo ${PYPGO_BINDING_SOURCES})
+nanobind_add_module(pypgo_core STABLE_ABI NB_DOMAIN pypgo ${PYPGO_BINDING_SOURCES})
 
 target_link_libraries(pypgo_core PRIVATE
   mesh
