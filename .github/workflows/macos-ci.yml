@@ -131,9 +131,6 @@ jobs:
       - name: Run CTest
         run: ctest --test-dir build/base --output-on-failure
 
-      - name: Free native build intermediates
-        run: rm -rf build/base/CMakeFiles build/base/_deps build/base/projects build/base/src build/base/tests build/base/third-party
-
       - name: Install Python test dependencies
         run: python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify torch
 
