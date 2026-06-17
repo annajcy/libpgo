@@ -86,11 +86,14 @@ jobs:
             /usr/share/swift || true
           sudo docker image prune --all --force >/dev/null 2>&1 || true
           # Add swap so an oversized compile can spill instead of OOM-killing the
-          # runner (the runner ships only ~3 GB swap on 16 GB RAM).
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=none
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile >/dev/null
-          sudo swapon /swapfile
+          # runner (the runner ships only ~3 GB swap on 16 GB RAM). Use a
+          # dedicated file instead of /swapfile, which may already be active.
+          swapfile="${RUNNER_TEMP:-/tmp}/pypgo-swapfile"
+          sudo rm -f "${swapfile}"
+          sudo dd if=/dev/zero of="${swapfile}" bs=1M count=8192 status=none
+          sudo chmod 600 "${swapfile}"
+          sudo mkswap "${swapfile}" >/dev/null
+          sudo swapon "${swapfile}"
           echo "=== disk/memory after cleanup ==="
           df -h /
           free -m

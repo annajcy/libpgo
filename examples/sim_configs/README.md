@@ -23,8 +23,9 @@ pypgo-sim-shell-dynamic  --config examples/sim_configs/shell_dynamic_ipc_drop.js
 
 CLI flags override JSON values (defaults < JSON < CLI), e.g. append
 `--num-steps 5 --output-dir /tmp/run` for a quick look.
-Every config is exercised end-to-end by
-`tests/pypgo/test_sim_cli_examples.py`.
+Every config is listed by `tests/pypgo/test_sim_cli_examples.py`; static
+examples run by default, and dynamic end-to-end examples are opt-in with
+`PYPGO_RUN_DYNAMIC_SIM_CLI_EXAMPLES=1`.
 
 Output flags (all in the `output` section; dynamic dumps share one `dump_interval`):
 

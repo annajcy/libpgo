@@ -57,7 +57,7 @@ dynamic：[`DynamicSimulation`](../../sim/simulation.md) 逐步隐式积分（`i
 
 ## 示例场景库
 
-`examples/sim_configs/` 收录全部端到端示例（dragon 静态吊挂、box/bunny/dragon IPC 跌落、Hermite 变体、shell 跌落…），每个配置都被 `tests/pypgo/test_sim_cli_examples.py` 跑通；总表与输出 flag 速查见 [examples/sim_configs/README.md](../../../../../examples/sim_configs/README.md)。批量复跑：
+`examples/sim_configs/` 收录全部端到端示例（dragon 静态吊挂、box/bunny/dragon IPC 跌落、Hermite 变体、shell 跌落…），每个配置都由 `tests/pypgo/test_sim_cli_examples.py` 覆盖登记；静态示例默认跑通，动态端到端示例需设置 `PYPGO_RUN_DYNAMIC_SIM_CLI_EXAMPLES=1` 后显式复跑。总表与输出 flag 速查见 [examples/sim_configs/README.md](../../../../../examples/sim_configs/README.md)。批量复跑：
 
 ```bash
 pypgo-sim-batch --config examples/sim_configs/batch.json --job smoke --output-root /tmp/batch

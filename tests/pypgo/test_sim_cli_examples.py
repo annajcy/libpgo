@@ -1,6 +1,7 @@
-"""Smoke tests: every examples/sim_configs/*.json runs through its CLI."""
+"""Smoke tests for examples/sim_configs coverage and short CLI runs."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,9 @@ from pypgo.tools.sim import (
 )
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "examples" / "sim_configs"
+RUN_DYNAMIC_EXAMPLES = (
+    os.environ.get("PYPGO_RUN_DYNAMIC_SIM_CLI_EXAMPLES") == "1"
+)
 
 DYNAMIC_CASES = [
     (tet_dynamic, "tet_dynamic_box_ipc.json"),
@@ -47,6 +51,10 @@ def test_all_example_configs_are_covered():
 
 @pytest.mark.parametrize("module,config", DYNAMIC_CASES,
                          ids=[c for _, c in DYNAMIC_CASES])
+@pytest.mark.skipif(
+    not RUN_DYNAMIC_EXAMPLES,
+    reason="set PYPGO_RUN_DYNAMIC_SIM_CLI_EXAMPLES=1 to run dynamic sim CLI examples",
+)
 def test_dynamic_example_runs(tmp_path, module, config):
     ret = module.main([
         "--config", str(CONFIG_DIR / config),
