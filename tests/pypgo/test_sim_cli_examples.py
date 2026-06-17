@@ -12,8 +12,9 @@ from pypgo.tools.sim import (
 )
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "examples" / "sim_configs"
-RUN_DYNAMIC_EXAMPLES = (
-    os.environ.get("PYPGO_RUN_DYNAMIC_SIM_CLI_EXAMPLES") == "1"
+RUN_SIM_CLI_EXAMPLES = os.environ.get("PYPGO_RUN_SIM_CLI_EXAMPLES") == "1"
+SKIP_EXAMPLE_RUNS_REASON = (
+    "set PYPGO_RUN_SIM_CLI_EXAMPLES=1 to run sim CLI example scenes"
 )
 
 DYNAMIC_CASES = [
@@ -52,8 +53,8 @@ def test_all_example_configs_are_covered():
 @pytest.mark.parametrize("module,config", DYNAMIC_CASES,
                          ids=[c for _, c in DYNAMIC_CASES])
 @pytest.mark.skipif(
-    not RUN_DYNAMIC_EXAMPLES,
-    reason="set PYPGO_RUN_DYNAMIC_SIM_CLI_EXAMPLES=1 to run dynamic sim CLI examples",
+    not RUN_SIM_CLI_EXAMPLES,
+    reason=SKIP_EXAMPLE_RUNS_REASON,
 )
 def test_dynamic_example_runs(tmp_path, module, config):
     ret = module.main([
@@ -73,6 +74,10 @@ def test_dynamic_example_runs(tmp_path, module, config):
 
 @pytest.mark.parametrize("module,config", STATIC_CASES,
                          ids=[c for _, c in STATIC_CASES])
+@pytest.mark.skipif(
+    not RUN_SIM_CLI_EXAMPLES,
+    reason=SKIP_EXAMPLE_RUNS_REASON,
+)
 def test_static_example_runs(tmp_path, module, config):
     ret = module.main([
         "--config", str(CONFIG_DIR / config),
