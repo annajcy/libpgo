@@ -51,7 +51,7 @@ jobs:
       - name: Install compiler and headless rendering support
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libegl1 libgl1
+          sudo apt-get install -y build-essential libegl1 libgl1 patchelf
 
       - name: Set up Miniforge
         uses: conda-incubator/setup-miniconda@v3
@@ -81,18 +81,34 @@ jobs:
             exit 1
           fi
 
+      - name: Repair Python wheel
+        env:
+          PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
+        run: |
+          export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+          python -m pip install auditwheel
+          rm -rf wheelhouse
+          python -m auditwheel repair -w wheelhouse dist/pypgo-*.whl
+          python -m auditwheel show wheelhouse/pypgo-*.whl
+          wheel=(wheelhouse/pypgo-*.whl)
+          if (( ${#wheel[@]} != 1 )); then
+            printf 'Expected exactly one repaired pypgo wheel, found %s.\n' "${#wheel[@]}"
+            printf '%s\n' "${wheel[@]}"
+            exit 1
+          fi
+
       - name: Upload Python wheel artifact
         uses: actions/upload-artifact@v4
         with:
           name: pypgo-wheel-linux-${{ matrix.variant }}
-          path: dist/pypgo-*.whl
+          path: wheelhouse/pypgo-*.whl
           if-no-files-found: error
 
-      - name: Verify wheel in clean conda environment
+      - name: Verify repaired wheel in minimal conda environment
         run: |
           clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
-          conda create -y -p "${clean_env}" --clone "${CONDA_PREFIX}"
-          conda run -p "${clean_env}" python -m pip install --no-index --find-links "${GITHUB_WORKSPACE}/dist" pypgo
+          conda create -y -p "${clean_env}" python=3.12 pip
+          conda run -p "${clean_env}" python -m pip install "${GITHUB_WORKSPACE}"/wheelhouse/pypgo-*.whl
           tmpdir="$(mktemp -d)"
           cd "${tmpdir}"
           conda run -p "${clean_env}" python - <<'PY'
@@ -112,6 +128,7 @@ jobs:
           assert info["module"] == "pypgo._core"
           print(f"pypgo wheel import OK from {package_file}")
           PY
+          conda run -p "${clean_env}" python "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
 
   cmake-build:
     name: CMake Preset Build and Test (${{ matrix.label }})
