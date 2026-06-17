@@ -10,13 +10,13 @@ Tests are split into two tiers:
 Usage::
 
     # Tier 1 only (fast, no pypgo import needed)
-    pytest tests/pypgo/test_notebook.py -v
+    PYPGO_RUN_NOTEBOOK_TESTS=1 pytest tests/pypgo/test_notebook.py -v
 
     # Tier 2 included
-    pytest tests/pypgo/test_notebook.py -v --run-notebooks
+    PYPGO_RUN_NOTEBOOK_TESTS=1 pytest tests/pypgo/test_notebook.py -v --run-notebooks
 
     # Or via environment variable
-    RUN_NOTEBOOKS=1 pytest tests/pypgo/test_notebook.py -v
+    PYPGO_RUN_NOTEBOOK_TESTS=1 RUN_NOTEBOOKS=1 pytest tests/pypgo/test_notebook.py -v
 """
 
 from __future__ import annotations
