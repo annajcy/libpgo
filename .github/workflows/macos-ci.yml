@@ -105,9 +105,6 @@ jobs:
       run:
         shell: bash -l {0}
 
-    env:
-      CMAKE_BUILD_PARALLEL_LEVEL: 3
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -127,6 +124,8 @@ jobs:
         run: cmake --preset base
 
       - name: Build with preset base
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: 3
         run: cmake --build --preset base
 
       - name: Run CTest

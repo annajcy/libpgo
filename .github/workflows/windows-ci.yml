@@ -159,9 +159,6 @@ jobs:
       run:
         shell: pwsh
 
-    env:
-      CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -207,6 +204,8 @@ jobs:
         run: cmake --preset base -G Ninja ${{ matrix.cmake_configure_args }}
 
       - name: Build with preset base
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
         run: cmake --build --preset base
 
       - name: Run CTest
