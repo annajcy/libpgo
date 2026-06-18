@@ -45,6 +45,14 @@ def test_linux_openblas_wheel_is_pypi_friendly_and_mkl_wheel_is_conda_bound():
     assert "-X faulthandler" in workflow
 
 
+def test_ftetwild_geogram_openmp_follows_pgo_openmp_option():
+    cmake = (ROOT / "CMakeModules" / "third-party" / "ftetwild.cmake").read_text()
+
+    assert "pgo_fetch_populate_compat(ftetwild" in cmake
+    assert "_libpgo_patch_ftetwild_geogram_openmp" in cmake
+    assert 'if(${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND PGO_ENABLE_OPENMP)' in cmake
+
+
 def test_macos_openblas_wheel_is_pypi_friendly():
     workflow = read_workflow("macos-ci.yml")
 

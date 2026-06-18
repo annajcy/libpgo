@@ -36,6 +36,29 @@ COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)]=
   file(WRITE "${target_file}" "${_libpgo_geogram_cmake}")
 endfunction()
 
+function(_libpgo_patch_ftetwild_geogram_openmp target_file)
+  file(READ "${target_file}" _libpgo_geogram_cmake)
+  set(_libpgo_openmp_unpatched [=[if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")]=])
+  set(_libpgo_openmp_patched [=[if(${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND PGO_ENABLE_OPENMP)]=])
+
+  string(FIND "${_libpgo_geogram_cmake}" "${_libpgo_openmp_patched}" _libpgo_openmp_patched_index)
+  if(NOT _libpgo_openmp_patched_index EQUAL -1)
+    return()
+  endif()
+
+  string(FIND "${_libpgo_geogram_cmake}" "${_libpgo_openmp_unpatched}" _libpgo_openmp_unpatched_index)
+  if(_libpgo_openmp_unpatched_index EQUAL -1)
+    message(FATAL_ERROR "Failed to patch ${target_file}: fTetWild Geogram Linux OpenMP condition was not found.")
+  endif()
+
+  string(REPLACE
+    "${_libpgo_openmp_unpatched}"
+    "${_libpgo_openmp_patched}"
+    _libpgo_geogram_cmake
+    "${_libpgo_geogram_cmake}")
+  file(WRITE "${target_file}" "${_libpgo_geogram_cmake}")
+endfunction()
+
 function(_libpgo_prepare_ftetwild_geogram)
   if(TARGET geogram)
     if(NOT TARGET geogram::geogram)
@@ -93,7 +116,9 @@ FetchContent_Declare(
   GIT_TAG d7d99bb4387a07895b9adce058dc7305f6b6e5ab
 )
 
-pgo_fetch_make_available(ftetwild)
+pgo_fetch_populate_compat(ftetwild "fTetWild source tree is patched before add_subdirectory")
+_libpgo_patch_ftetwild_geogram_openmp("${ftetwild_SOURCE_DIR}/cmake/geogram.cmake")
+add_subdirectory(${ftetwild_SOURCE_DIR} ${ftetwild_BINARY_DIR} EXCLUDE_FROM_ALL)
 
 set(CMAKE_CXX_STANDARD "${_PGO_SAVED_CMAKE_CXX_STANDARD}")
 set(CMAKE_CXX_STANDARD_REQUIRED "${_PGO_SAVED_CMAKE_CXX_STANDARD_REQUIRED}")
