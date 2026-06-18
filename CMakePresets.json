@@ -40,7 +40,7 @@
             "binaryDir": "${sourceDir}/build/pypgo",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "PGO_USE_MKL": "OFF",
+                "PGO_USE_MKL": "ON",
                 "PGO_CHECK_CONDA": "ON",
                 "PGO_ENABLE_FULL": "ON",
                 "PGO_BUILD_SUBPROJECTS": "ON",
@@ -63,6 +63,7 @@
                 "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
                 "PGO_NATIVE_OPTIMIZATION": "OFF",
                 "PGO_ENABLE_OPENMP": "OFF",
+                "PGO_ENABLE_GMSH": "OFF",
                 "PGO_USE_MKL": "OFF",
                 "Python_FIND_VIRTUALENV": "FIRST"
             }
@@ -76,6 +77,7 @@
             "binaryDir": "${sourceDir}/build/pypgo-mkl-ci",
             "cacheVariables": {
                 "PGO_ENABLE_OPENMP": "ON",
+                "PGO_ENABLE_GMSH": "ON",
                 "PGO_USE_MKL": "ON"
             }
         },

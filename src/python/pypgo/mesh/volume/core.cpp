@@ -2,7 +2,9 @@
 
 #include "generateMassMatrix.h"
 #include "generateSurfaceMesh.h"
-#include "loadMshFile.h"
+#if defined(PGO_HAS_GMSH)
+#  include "loadMshFile.h"
+#endif
 #include "triMeshGeo.h"
 #include "vegFile.h"
 #include "volumetricMeshENuMaterial.h"
@@ -497,6 +499,10 @@ nb::tuple read_veg(const std::string& path) {
 }
 
 PyTetMeshData read_msh(const std::string& path) {
+#if !defined(PGO_HAS_GMSH)
+    (void)path;
+    throw std::runtime_error("Gmsh .msh reader is not available in this build.");
+#else
     std::vector<Vec3d> vertices;
     std::vector<int> elements;
     {
@@ -517,6 +523,7 @@ PyTetMeshData read_msh(const std::string& path) {
     }
     return PyTetMeshData(
         Mesh::MeshData<4>::fromFlatElements(std::move(vertices), std::move(elements)));
+#endif
 }
 
 void write_veg(

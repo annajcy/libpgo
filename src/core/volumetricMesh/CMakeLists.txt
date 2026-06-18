@@ -42,4 +42,5 @@ target_link_libraries(volumetricMesh PUBLIC mesh)
 
 if(TARGET Gmsh::Gmsh)
   target_link_libraries(volumetricMesh PUBLIC Gmsh::Gmsh)
+  target_compile_definitions(volumetricMesh PUBLIC PGO_HAS_GMSH=1)
 endif()

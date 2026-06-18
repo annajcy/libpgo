@@ -175,6 +175,12 @@ jobs:
                   for name in openmp:
                       print(f"  {name}")
                   raise SystemExit(1)
+              gmsh = [name for name in names if "libgmsh" in name]
+              if gmsh:
+                  print("Repaired pypgo wheel unexpectedly vendors Gmsh:")
+                  for name in gmsh:
+                      print(f"  {name}")
+                  raise SystemExit(1)
               print("OK: pypgo wheel vendors an OpenBLAS runtime.")
           PY
 

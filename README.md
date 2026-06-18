@@ -173,7 +173,9 @@ The two Python package names have different dependency contracts:
 - `pypgo` is the PyPI-friendly OpenBLAS flavor. A wheel install such as
   `pip install pypgo` may install NumPy from PyPI, while the `pypgo` wheel
   vendors the native runtime libraries it needs, including a private pthreads
-  OpenBLAS runtime when built by CI.
+  OpenBLAS runtime when built by CI. CI PyPI wheels do not enable the Gmsh-backed
+  `.msh` reader, keeping the heavy Gmsh/OpenGL dependency chain out of the
+  standalone wheel.
 - `pypgo-mkl` is the conda-dependent MKL flavor. It intentionally does not
   declare a pip NumPy dependency, because NumPy, BLAS/LAPACK, MKL, and OpenMP
   must come from the same conda environment. Do not install `pypgo-mkl` into a
@@ -393,8 +395,9 @@ Example `CMakeUserPresets.json` (local, optional):
   it shares the same BLAS backend as the native extension.
 - PyPI-style `pypgo` wheel installs are different: pip may install NumPy from
   PyPI, and the repaired `pypgo` wheel carries its needed native OpenBLAS
-  runtime privately. `pypgo-mkl` is excluded from this contract and remains
-  conda-bound.
+  runtime privately. CI builds keep Gmsh disabled for this route; use the conda
+  package if you need Gmsh `.msh` loading. `pypgo-mkl` is excluded from this
+  contract and remains conda-bound.
 - Pip supplies the pure-Python / pip-first packages that are not build-time
   native deps for the default `pypgo` flavor. `setup.py` declares NumPy plus the
   `torch` / `viz` / `dev` extras for that route. For `pypgo-mkl`, install the
