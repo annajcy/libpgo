@@ -50,7 +50,7 @@ jobs:
           channels: conda-forge
           channel-priority: strict
 
-      - name: Select pthreads OpenBLAS for PyPI wheel
+      - name: Select pthreads OpenBLAS for OpenBLAS wheel
         run: |
           conda install -y \
             "libblas=*=*openblas" \
@@ -86,7 +86,14 @@ jobs:
           export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
           python -m pip install delocate
           rm -rf wheelhouse
-          delocate-wheel -v -w wheelhouse dist/${PYPGO_WHEEL_DIST}-*.whl
+          delocate-wheel -v -w wheelhouse \
+            -e libopenblas \
+            -e libblas \
+            -e liblapack \
+            -e libiomp \
+            -e libomp \
+            -e libgomp \
+            dist/${PYPGO_WHEEL_DIST}-*.whl
           delocate-listdeps --all wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
           if (( ${#wheel[@]} != 1 )); then
@@ -100,13 +107,18 @@ jobs:
 
           with zipfile.ZipFile(sys.argv[1]) as archive:
               names = [name.lower() for name in archive.namelist() if ".dylibs/" in name]
-          openblas = [name for name in names if "openblas" in name]
-          if not openblas:
-              print("Repaired pypgo wheel did not vendor OpenBLAS:")
-              for name in names:
+          forbidden = ("openblas", "libblas", "liblapack", "libiomp", "libomp", "libgomp")
+          vendored = [
+              name
+              for name in names
+              if any(token in name for token in forbidden)
+          ]
+          if vendored:
+              print("Repaired pypgo wheel unexpectedly vendors BLAS/LAPACK/OpenMP runtime libraries:")
+              for name in vendored:
                   print(f"  {name}")
               raise SystemExit(1)
-          print("OK: pypgo wheel vendors an OpenBLAS runtime.")
+          print("OK: pypgo wheel relies on the conda-provided BLAS/LAPACK/OpenMP runtime.")
           PY
 
       - name: Upload Python wheel artifact
@@ -122,12 +134,11 @@ jobs:
         run: |
           shopt -s nullglob
           clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
-          python -m venv "${clean_env}"
-          "${clean_env}/bin/python" -m pip install --upgrade pip
-          "${clean_env}/bin/python" -m pip install "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+          conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"
+          conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           tmpdir="$(mktemp -d)"
           cd "${tmpdir}"
-          "${clean_env}/bin/python" - <<'PY'
+          conda run -p "${clean_env}" python - <<'PY'
           from pathlib import Path
           import os
 
@@ -144,7 +155,7 @@ jobs:
           assert info["module"] == "pypgo._core"
           print(f"pypgo wheel import OK from {package_file}")
           PY
-          "${clean_env}/bin/python" "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
+          conda run -p "${clean_env}" python "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
 
   cmake-build:
     name: CMake Preset Build and Test

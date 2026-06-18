@@ -64,7 +64,7 @@ jobs:
           channels: conda-forge
           channel-priority: strict
 
-      - name: Select pthreads OpenBLAS for PyPI wheel
+      - name: Select pthreads OpenBLAS for OpenBLAS wheel
         if: matrix.wheel_package == 'pypgo'
         run: |
           conda install -y `
@@ -141,40 +141,38 @@ jobs:
             $wheelList = ($rawWheels | ForEach-Object { $_.FullName }) -join "`n"
             throw "Expected exactly one raw $env:PYPGO_WHEEL_DIST wheel, found $($rawWheels.Count).`n$wheelList"
           }
+          $excludedDlls = @(
+            "libopenblas.dll",
+            "openblas.dll",
+            "libblas.dll",
+            "blas.dll",
+            "liblapack.dll",
+            "lapack.dll",
+            "mkl_rt.dll",
+            "mkl_rt.2.dll",
+            "mkl_rt.3.dll",
+            "mkl_core.dll",
+            "mkl_core.2.dll",
+            "mkl_core.3.dll",
+            "mkl_intel_lp64.dll",
+            "mkl_intel_lp64.2.dll",
+            "mkl_intel_lp64.3.dll",
+            "mkl_intel_thread.dll",
+            "mkl_intel_thread.2.dll",
+            "mkl_intel_thread.3.dll",
+            "mkl_tbb_thread.dll",
+            "mkl_tbb_thread.2.dll",
+            "mkl_tbb_thread.3.dll",
+            "mkl_sequential.dll",
+            "mkl_sequential.2.dll",
+            "mkl_sequential.3.dll",
+            "libiomp5md.dll",
+            "libomp.dll",
+            "vcomp140.dll"
+          )
           $excludeArgs = @()
-          if ($env:PYPGO_WHEEL_PACKAGE -eq "pypgo-mkl") {
-            $excludedDlls = @(
-              "libopenblas.dll",
-              "openblas.dll",
-              "libblas.dll",
-              "blas.dll",
-              "liblapack.dll",
-              "lapack.dll",
-              "mkl_rt.dll",
-              "mkl_rt.2.dll",
-              "mkl_rt.3.dll",
-              "mkl_core.dll",
-              "mkl_core.2.dll",
-              "mkl_core.3.dll",
-              "mkl_intel_lp64.dll",
-              "mkl_intel_lp64.2.dll",
-              "mkl_intel_lp64.3.dll",
-              "mkl_intel_thread.dll",
-              "mkl_intel_thread.2.dll",
-              "mkl_intel_thread.3.dll",
-              "mkl_tbb_thread.dll",
-              "mkl_tbb_thread.2.dll",
-              "mkl_tbb_thread.3.dll",
-              "mkl_sequential.dll",
-              "mkl_sequential.2.dll",
-              "mkl_sequential.3.dll",
-              "libiomp5md.dll",
-              "libomp.dll",
-              "vcomp140.dll"
-            )
-            foreach ($dll in $excludedDlls) {
-              $excludeArgs += @("--exclude", $dll)
-            }
+          foreach ($dll in $excludedDlls) {
+            $excludeArgs += @("--exclude", $dll)
           }
           python -m delvewheel repair @excludeArgs --wheel-dir wheelhouse $rawWheels[0].FullName
 
@@ -191,37 +189,28 @@ jobs:
           wheel_package = sys.argv[2]
           with zipfile.ZipFile(sys.argv[1]) as archive:
               names = [name.lower() for name in archive.namelist() if ".libs/" in name]
-          if wheel_package == "pypgo-mkl":
-              forbidden = (
-                  "openblas",
-                  "libblas",
-                  "blas.dll",
-                  "liblapack",
-                  "lapack.dll",
-                  "mkl_",
-                  "libiomp",
-                  "libomp",
-                  "vcomp",
-              )
-              vendored = [
-                  name
-                  for name in names
-                  if any(token in name for token in forbidden)
-              ]
-              if vendored:
-                  print("Repaired pypgo-mkl wheel unexpectedly vendors BLAS/MKL/OpenMP runtime libraries:")
-                  for name in vendored:
-                      print(f"  {name}")
-                  raise SystemExit(1)
-              print("OK: pypgo-mkl wheel relies on the conda-provided BLAS/MKL/OpenMP runtime.")
-          else:
-              openblas = [name for name in names if "openblas" in name]
-              if not openblas:
-                  print("Repaired pypgo wheel did not vendor OpenBLAS:")
-                  for name in names:
-                      print(f"  {name}")
-                  raise SystemExit(1)
-              print("OK: pypgo wheel vendors an OpenBLAS runtime.")
+          forbidden = (
+              "openblas",
+              "libblas",
+              "blas.dll",
+              "liblapack",
+              "lapack.dll",
+              "mkl_",
+              "libiomp",
+              "libomp",
+              "vcomp",
+          )
+          vendored = [
+              name
+              for name in names
+              if any(token in name for token in forbidden)
+          ]
+          if vendored:
+              print(f"Repaired {wheel_package} wheel unexpectedly vendors BLAS/LAPACK/OpenMP runtime libraries:")
+              for name in vendored:
+                  print(f"  {name}")
+              raise SystemExit(1)
+          print(f"OK: {wheel_package} wheel relies on the conda-provided BLAS/LAPACK/OpenMP runtime.")
           '@ | python - $wheels[0].FullName $env:PYPGO_WHEEL_PACKAGE
 
       - name: Upload Python wheel artifact
@@ -242,15 +231,14 @@ jobs:
             $wheelList = ($wheel | ForEach-Object { $_.FullName }) -join "`n"
             throw "Expected exactly one repaired $env:PYPGO_WHEEL_DIST wheel, found $($wheel.Count).`n$wheelList"
           }
-          if ($env:PYPGO_WHEEL_PACKAGE -eq "pypgo-mkl") {
+          if ($env:PYPGO_WHEEL_PACKAGE -eq "pypgo") {
+            conda create -y -p $cleanEnv python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"
+          } elseif ($env:PYPGO_WHEEL_PACKAGE -eq "pypgo-mkl") {
             conda create -y -p $cleanEnv python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
-            conda run -p $cleanEnv python -m pip install --no-deps $wheel[0].FullName
           } else {
-            python -m venv $cleanEnv
-            $python = Join-Path $cleanEnv "Scripts\python.exe"
-            & $python -m pip install --upgrade pip
-            & $python -m pip install $wheel[0].FullName
+            throw "Unsupported wheel package $env:PYPGO_WHEEL_PACKAGE"
           }
+          conda run -p $cleanEnv python -m pip install --no-deps $wheel[0].FullName
 
           $script = Join-Path $env:RUNNER_TEMP "verify-pypgo-wheel-${{ matrix.variant }}.py"
           @'
@@ -274,13 +262,8 @@ jobs:
           $workDir = Join-Path $env:RUNNER_TEMP "pypgo-wheel-import-${{ matrix.variant }}"
           New-Item -ItemType Directory -Path $workDir -Force | Out-Null
           Push-Location $workDir
-          if ($env:PYPGO_WHEEL_PACKAGE -eq "pypgo-mkl") {
-            conda run -p $cleanEnv python $script
-            conda run -p $cleanEnv python "$env:GITHUB_WORKSPACE\tests\conda_smoke_test.py"
-          } else {
-            & $python $script
-            & $python "$env:GITHUB_WORKSPACE\tests\conda_smoke_test.py"
-          }
+          conda run -p $cleanEnv python $script
+          conda run -p $cleanEnv python "$env:GITHUB_WORKSPACE\tests\conda_smoke_test.py"
           Pop-Location
 
   cmake-build:

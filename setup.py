@@ -15,8 +15,8 @@ if PACKAGE_NAME not in SUPPORTED_PACKAGE_NAMES:
     raise RuntimeError(
         f"Unsupported PYPGO_PACKAGE_NAME={PACKAGE_NAME!r}; "
         f"expected one of {sorted(SUPPORTED_PACKAGE_NAMES)}."
-    )
-INSTALL_REQUIRES = ["numpy"] if PACKAGE_NAME == "pypgo" else []
+)
+INSTALL_REQUIRES = []
 
 
 class CMakeExtension(Extension):
@@ -123,7 +123,7 @@ setup(
     install_requires=INSTALL_REQUIRES,
     extras_require={
         # Optional torch autograd layers in pypgo.fem (imported lazily).
-        # Install with: pip install pypgo[torch]
+        # Install torch explicitly in the conda environment when needed.
         "torch": ["torch"],
         # 3D visualization (pypgo.mesh.visualize) and interactive/web rendering.
         # pyvista pulls its own vtk wheel; trame provides the web backend.

@@ -69,7 +69,7 @@ jobs:
           channel-priority: strict
           conda-remove-defaults: true
 
-      - name: Select pthreads OpenBLAS for PyPI wheel
+      - name: Select pthreads OpenBLAS for OpenBLAS wheel
         if: matrix.wheel_package == 'pypgo'
         run: |
           conda install -y \
@@ -107,18 +107,16 @@ jobs:
           export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
           python -m pip install auditwheel
           rm -rf wheelhouse
-          repair_args=(-w wheelhouse)
-          if [[ "${PYPGO_WHEEL_PACKAGE}" == "pypgo-mkl" ]]; then
-            repair_args+=(
-              --exclude 'libopenblas*.so*'
-              --exclude 'libblas*.so*'
-              --exclude 'liblapack*.so*'
-              --exclude 'libmkl*.so*'
-              --exclude 'libiomp*.so*'
-              --exclude 'libomp*.so*'
-              --exclude 'libgomp*.so*'
-            )
-          fi
+          repair_args=(
+            -w wheelhouse
+            --exclude 'libopenblas*.so*'
+            --exclude 'libblas*.so*'
+            --exclude 'liblapack*.so*'
+            --exclude 'libmkl*.so*'
+            --exclude 'libiomp*.so*'
+            --exclude 'libomp*.so*'
+            --exclude 'libgomp*.so*'
+          )
           python -m auditwheel repair "${repair_args[@]}" dist/${PYPGO_WHEEL_DIST}-*.whl
           python -m auditwheel show wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
@@ -137,51 +135,26 @@ jobs:
           print("Vendored shared libraries:")
           for name in names:
               print(f"  {name}")
-          if wheel_package == "pypgo-mkl":
-              forbidden = (
-                  "libopenblas",
-                  "libblas",
-                  "liblapack",
-                  "libmkl",
-                  "libiomp",
-                  "libomp",
-                  "libgomp",
-              )
-              vendored = [
-                  name
-                  for name in names
-                  if any(token in name for token in forbidden)
-              ]
-              if vendored:
-                  print("Repaired pypgo-mkl wheel unexpectedly vendors BLAS/MKL/OpenMP runtime libraries:")
-                  for name in vendored:
-                      print(f"  {name}")
-                  raise SystemExit(1)
-              print("OK: pypgo-mkl wheel relies on the conda-provided BLAS/MKL/OpenMP runtime.")
-          else:
-              openblas = [name for name in names if "openblas" in name]
-              if not openblas:
-                  print("Repaired pypgo wheel did not vendor OpenBLAS:")
-                  for name in names:
-                      print(f"  {name}")
-                  raise SystemExit(1)
-              openmp = [
-                  name
-                  for name in names
-                  if any(token in name for token in ("libgomp", "libomp", "libiomp"))
-              ]
-              if openmp:
-                  print("Repaired pypgo wheel unexpectedly vendors an OpenMP runtime:")
-                  for name in openmp:
-                      print(f"  {name}")
-                  raise SystemExit(1)
-              gmsh = [name for name in names if "libgmsh" in name]
-              if gmsh:
-                  print("Repaired pypgo wheel unexpectedly vendors Gmsh:")
-                  for name in gmsh:
-                      print(f"  {name}")
-                  raise SystemExit(1)
-              print("OK: pypgo wheel vendors an OpenBLAS runtime.")
+          forbidden = (
+              "libopenblas",
+              "libblas",
+              "liblapack",
+              "libmkl",
+              "libiomp",
+              "libomp",
+              "libgomp",
+          )
+          vendored = [
+              name
+              for name in names
+              if any(token in name for token in forbidden)
+          ]
+          if vendored:
+              print(f"Repaired {wheel_package} wheel unexpectedly vendors BLAS/LAPACK/OpenMP runtime libraries:")
+              for name in vendored:
+                  print(f"  {name}")
+              raise SystemExit(1)
+          print(f"OK: {wheel_package} wheel relies on the conda-provided BLAS/LAPACK/OpenMP runtime.")
           PY
 
       - name: Upload Python wheel artifact
@@ -198,26 +171,21 @@ jobs:
         run: |
           shopt -s nullglob
           clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
-          if [[ "${PYPGO_WHEEL_PACKAGE}" == "pypgo-mkl" ]]; then
-            conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
-            conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
-            run_python=(conda run -p "${clean_env}" python)
+          if [[ "${PYPGO_WHEEL_PACKAGE}" == "pypgo" ]]; then
+            conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"
           else
-            python -m venv "${clean_env}"
-            "${clean_env}/bin/python" -m pip install --upgrade pip
-            "${clean_env}/bin/python" -m pip install "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
-            run_python=("${clean_env}/bin/python")
+            conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
           fi
+          conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+          run_python=(conda run -p "${clean_env}" python)
           tmpdir="$(mktemp -d)"
           cd "${tmpdir}"
           "${run_python[@]}" -X faulthandler - <<'PY'
           from pathlib import Path
           import importlib
           import os
-
-          if os.environ["PYPGO_WHEEL_PACKAGE"] == "pypgo":
-              import numpy as np
-              print(f"numpy {np.__version__} from {Path(np.__file__).resolve()}", flush=True)
+          import numpy as np
+          print(f"numpy {np.__version__} from {Path(np.__file__).resolve()}", flush=True)
 
           for module_name in (
               "pypgo",

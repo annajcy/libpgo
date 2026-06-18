@@ -20,7 +20,7 @@ def test_setup_registers_cmake_build_ext(monkeypatch):
     _namespace, setup_kwargs = load_setup_namespace(monkeypatch)
 
     assert setup_kwargs["name"] == "pypgo"
-    assert setup_kwargs["install_requires"] == ["numpy"]
+    assert setup_kwargs["install_requires"] == []
     extension = setup_kwargs["ext_modules"][0]
     assert extension.name == "pypgo._core"
     assert extension.py_limited_api is True

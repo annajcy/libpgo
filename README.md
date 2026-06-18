@@ -113,18 +113,18 @@ create another `libpgo` under a different prefix.
 ### Python Package Build
 
 The Python package is installed in editable mode with pip inside the active
-conda environment. For the default OpenBLAS flavor (`pypgo`), this step also
-pulls the package's pip-managed Python dependencies declared in `setup.py`
-(`install_requires` plus the `torch`/`viz`/`dev` extras):
+conda environment. Keep NumPy and the BLAS/LAPACK runtime on conda for both
+the default OpenBLAS flavor (`pypgo`) and the MKL flavor (`pypgo-mkl`), and
+install the Python package without pip dependency resolution:
 
 ```bash
 conda activate libpgo
-python -m pip install -e .[viz,torch,dev] --no-build-isolation
+python -m pip install -e . --no-build-isolation --no-deps
 ```
 
-Drop extras you do not need (e.g. `-e .[viz]`, or `-e .` for the bare runtime).
-For the MKL flavor (`pypgo-mkl`), keep NumPy and the BLAS/MKL runtime on conda
-and install the Python package without pip dependency resolution:
+Install optional pip-only packages (`pyvista`, `trame`, `torch`, `pytest`,
+`notebook`, ...) explicitly if you need them in the OpenBLAS environment. For
+the MKL flavor:
 
 ```bash
 conda activate libpgo-mkl
@@ -133,9 +133,8 @@ PYPGO_CMAKE_PRESET=pypgo-mkl-ci \
 python -m pip install -e . --no-build-isolation --no-deps
 ```
 
-Install optional pip-only packages (`pyvista`, `trame`, `torch`, `pytest`,
-`notebook`, ...) explicitly if you need them in the MKL environment, and keep an
-eye out for MKL/OpenMP runtime clashes from third-party wheels.
+Install optional pip-only packages explicitly in the MKL environment too, and
+keep an eye out for MKL/OpenMP runtime clashes from third-party wheels.
 
 For Python API development, rebuild the native `_core` extension in place after
 changing C++ bindings or native mesh code:
@@ -168,21 +167,25 @@ The MKL dependency file is `.github/conda/pypgo-conda-mkl.yml`.
 
 ### Wheel Distribution Policy
 
-The two Python package names have different dependency contracts:
+The CI wheel artifacts are conda-environment artifacts, not standalone PyPI
+wheels. Neither `pypgo` nor `pypgo-mkl` declares a pip NumPy dependency:
+NumPy, BLAS/LAPACK, and any OpenBLAS/MKL/OpenMP runtime must come from the same
+conda environment as the extension.
 
-- `pypgo` is the PyPI-friendly OpenBLAS flavor. A wheel install such as
-  `pip install pypgo` may install NumPy from PyPI, while the `pypgo` wheel
-  vendors the native runtime libraries it needs, including a private pthreads
-  OpenBLAS runtime when built by CI. CI PyPI wheels do not enable the Gmsh-backed
-  `.msh` reader, keeping the heavy Gmsh/OpenGL dependency chain out of the
-  standalone wheel.
-- `pypgo-mkl` is the conda-dependent MKL flavor. It intentionally does not
-  declare a pip NumPy dependency, because NumPy, BLAS/LAPACK, MKL, and OpenMP
-  must come from the same conda environment. Do not install `pypgo-mkl` into a
-  generic pip-only environment.
+- `pypgo` is the OpenBLAS flavor. Install it only inside a conda OpenBLAS
+  environment, then use `pip install --no-deps` for the wheel artifact.
+- `pypgo-mkl` is the MKL flavor. Install it only inside a conda MKL
+  environment, then use `pip install --no-deps` for the wheel artifact.
 
-CI may upload `pypgo-mkl` wheel artifacts for internal testing, but those wheels
-are only supported inside an already-correct conda MKL environment:
+OpenBLAS artifact example:
+
+```bash
+conda create -n pypgo-openblas-test -c conda-forge python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"
+conda activate pypgo-openblas-test
+python -m pip install --no-deps pypgo-*.whl
+```
+
+MKL artifact example:
 
 ```bash
 conda create -n pypgo-mkl-test -c conda-forge python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
@@ -204,7 +207,7 @@ exclusive in the recipe.
 
 Neither conda package depends on `pytorch`. The `pypgo.fem` torch layers are
 optional and imported lazily, so install `torch` from pip only if you need them
-(`pip install pypgo[torch]`). The regular `pypgo` package uses the OpenBLAS
+(`python -m pip install torch`). The regular `pypgo` package uses the OpenBLAS
 BLAS/LAPACK stack; `pypgo-mkl` uses the MKL stack. If you use `pypgo-mkl`
 together with a pip `torch` wheel and hit an MKL/OpenMP runtime clash (e.g.
 `OMP: Error #15`), install a conda MKL build of torch or set
@@ -393,15 +396,13 @@ Example `CMakeUserPresets.json` (local, optional):
   source builds and conda packages: Boost, MKL, TBB, Gmsh, OpenVDB, Imath,
   zlib, setuptools, and wheel. In conda environments, `numpy` stays on conda so
   it shares the same BLAS backend as the native extension.
-- PyPI-style `pypgo` wheel installs are different: pip may install NumPy from
-  PyPI, and the repaired `pypgo` wheel carries its needed native OpenBLAS
-  runtime privately. CI builds keep Gmsh disabled for this route; use the conda
-  package if you need Gmsh `.msh` loading. `pypgo-mkl` is excluded from this
-  contract and remains conda-bound.
-- Pip supplies the pure-Python / pip-first packages that are not build-time
-  native deps for the default `pypgo` flavor. `setup.py` declares NumPy plus the
-  `torch` / `viz` / `dev` extras for that route. For `pypgo-mkl`, install the
-  package itself with `--no-deps` and add optional pip packages explicitly:
+- CI wheel artifacts follow the same ownership model: both `pypgo` and
+  `pypgo-mkl` expect conda to supply NumPy and the BLAS/LAPACK/OpenMP runtime.
+  Install artifact wheels with `--no-deps`.
+- Pip supplies only optional pure-Python / pip-first packages that are not
+  build-time native deps. `setup.py` keeps extras for convenience, but the base
+  package itself declares no pip dependencies. Add optional pip packages
+  explicitly:
   `torch` (official macOS arm64 wheel, with MPS; replaces conda `pytorch`),
   `pyvista` (pulls its own `vtk` wheel — conda `vtk-base` is intentionally not
   installed, to avoid a duplicate `vtkmodules` import path), `pytest`,
