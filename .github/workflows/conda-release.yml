@@ -37,12 +37,12 @@ jobs:
           - os: ubuntu-24.04
             artifact_name: linux-64-pypgo
             package_name: pypgo
-            preset: pypgo-conda
+            preset: pypgo-ci
             with_mkl: "0"
           - os: ubuntu-24.04
             artifact_name: linux-64-pypgo-mkl
             package_name: pypgo-mkl
-            preset: pypgo-conda-mkl
+            preset: pypgo-mkl-ci
             with_mkl: "1"
             # The MKL build is the heaviest target: even at parallelism 2 two heavy
             # translation units together exceed the 16 GB runner and it OOMs (froze
@@ -52,17 +52,17 @@ jobs:
           - os: macos-15
             artifact_name: osx-arm64-pypgo
             package_name: pypgo
-            preset: pypgo-conda
+            preset: pypgo-ci
             with_mkl: "0"
           - os: windows-2022
             artifact_name: win-64-pypgo
             package_name: pypgo
-            preset: pypgo-conda
+            preset: pypgo-ci
             with_mkl: "0"
           - os: windows-2022
             artifact_name: win-64-pypgo-mkl
             package_name: pypgo-mkl
-            preset: pypgo-conda-mkl
+            preset: pypgo-mkl-ci
             with_mkl: "1"
 
     steps:

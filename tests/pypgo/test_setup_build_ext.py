@@ -20,6 +20,7 @@ def test_setup_registers_cmake_build_ext(monkeypatch):
     _namespace, setup_kwargs = load_setup_namespace(monkeypatch)
 
     assert setup_kwargs["name"] == "pypgo"
+    assert setup_kwargs["install_requires"] == ["numpy"]
     extension = setup_kwargs["ext_modules"][0]
     assert extension.name == "pypgo._core"
     assert extension.py_limited_api is True
@@ -32,6 +33,7 @@ def test_setup_uses_environment_package_name(monkeypatch):
     _namespace, setup_kwargs = load_setup_namespace(monkeypatch)
 
     assert setup_kwargs["name"] == "pypgo-mkl"
+    assert setup_kwargs["install_requires"] == []
     assert setup_kwargs["packages"]
     assert setup_kwargs["ext_modules"][0].name == "pypgo._core"
 
@@ -111,7 +113,7 @@ def test_cmake_build_ext_uses_python_build_preset(monkeypatch, tmp_path):
 
 
 def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("PYPGO_CMAKE_PRESET", "pypgo-conda-mkl")
+    monkeypatch.setenv("PYPGO_CMAKE_PRESET", "pypgo-mkl-ci")
     namespace, setup_kwargs = load_setup_namespace(monkeypatch)
     build_ext_cls = setup_kwargs["cmdclass"]["build_ext"]
 
@@ -140,7 +142,7 @@ def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path)
             [
                 "cmake",
                 "--preset",
-                "pypgo-conda-mkl",
+                "pypgo-mkl-ci",
                 f"-DPython_EXECUTABLE={namespace['sys'].executable}",
             ],
             ROOT,
@@ -150,7 +152,7 @@ def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path)
                 "cmake",
                 "--build",
                 "--preset",
-                "pypgo-conda-mkl",
+                "pypgo-mkl-ci",
                 "--target",
                 "pypgo_core",
                 "--parallel",

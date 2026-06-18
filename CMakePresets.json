@@ -53,12 +53,12 @@
             }
         },
         {
-            "name": "pypgo-conda",
+            "name": "pypgo-ci",
             "hidden": false,
             "inherits": [
                 "pypgo"
             ],
-            "binaryDir": "${sourceDir}/build/pypgo-conda",
+            "binaryDir": "${sourceDir}/build/pypgo-ci",
             "cacheVariables": {
                 "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
                 "PGO_NATIVE_OPTIMIZATION": "OFF",
@@ -67,12 +67,12 @@
             }
         },
         {
-            "name": "pypgo-conda-mkl",
+            "name": "pypgo-mkl-ci",
             "hidden": false,
             "inherits": [
-                "pypgo-conda"
+                "pypgo-ci"
             ],
-            "binaryDir": "${sourceDir}/build/pypgo-conda-mkl",
+            "binaryDir": "${sourceDir}/build/pypgo-mkl-ci",
             "cacheVariables": {
                 "PGO_USE_MKL": "ON"
             }
@@ -175,15 +175,15 @@
             ]
         },
         {
-            "name": "pypgo-conda",
-            "configurePreset": "pypgo-conda",
+            "name": "pypgo-ci",
+            "configurePreset": "pypgo-ci",
             "targets": [
                 "pypgo_core"
             ]
         },
         {
-            "name": "pypgo-conda-mkl",
-            "configurePreset": "pypgo-conda-mkl",
+            "name": "pypgo-mkl-ci",
+            "configurePreset": "pypgo-mkl-ci",
             "targets": [
                 "pypgo_core"
             ]

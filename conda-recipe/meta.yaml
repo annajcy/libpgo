@@ -17,13 +17,13 @@ build:
   skip: true  # [osx]
 {% endif %}
   script:
-    - export PYPGO_CMAKE_PRESET="${PYPGO_CMAKE_PRESET:-pypgo-conda}"  # [unix]
+    - export PYPGO_CMAKE_PRESET="${PYPGO_CMAKE_PRESET:-pypgo-ci}"  # [unix]
     - export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-${CPU_COUNT:-2}}"  # [unix]
-    - rm -rf build/pypgo-conda build/pypgo-conda-mkl  # [unix]
-    - if "%PYPGO_CMAKE_PRESET%"=="" set "PYPGO_CMAKE_PRESET=pypgo-conda"  # [win]
+    - rm -rf build/pypgo-ci build/pypgo-mkl-ci  # [unix]
+    - if "%PYPGO_CMAKE_PRESET%"=="" set "PYPGO_CMAKE_PRESET=pypgo-ci"  # [win]
     - if "%CMAKE_BUILD_PARALLEL_LEVEL%"=="" set "CMAKE_BUILD_PARALLEL_LEVEL=%CPU_COUNT%"  # [win]
-    - if exist build\pypgo-conda rmdir /s /q build\pypgo-conda  # [win]
-    - if exist build\pypgo-conda-mkl rmdir /s /q build\pypgo-conda-mkl  # [win]
+    - if exist build\pypgo-ci rmdir /s /q build\pypgo-ci  # [win]
+    - if exist build\pypgo-mkl-ci rmdir /s /q build\pypgo-mkl-ci  # [win]
     - {{ PYTHON }} -m pip install . --no-build-isolation --no-deps -v
     - mkdir -p "${PREFIX}/lib"  # [unix]
     - find "build/${PYPGO_CMAKE_PRESET}" \( -name 'libgeogram*.dylib' -o -name 'libgeogram*.so*' \) -exec cp -P {} "${PREFIX}/lib/" \;  # [unix]

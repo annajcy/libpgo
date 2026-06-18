@@ -55,9 +55,9 @@ Blender and ffmpeg are optional. They are only needed by
 ### Create the conda environment
 
 Build tools, C++ libraries, and the conda-side Python packages are declared in
-`environment.yml`; the package's own Python dependencies live in `setup.py` and
-are installed by the editable build step below. Create the `libpgo` environment
-with a single command:
+`environment.yml`; pip-managed Python dependencies for the default `pypgo`
+flavor are installed by the editable build step below. Create the `libpgo`
+environment with a single command:
 
 ```bash
 conda env create -f environment.yml
@@ -113,9 +113,9 @@ create another `libpgo` under a different prefix.
 ### Python Package Build
 
 The Python package is installed in editable mode with pip inside the active
-conda environment. This step also pulls the package's Python dependencies,
-declared once in `setup.py` (`install_requires` plus the `torch`/`viz`/`dev`
-extras):
+conda environment. For the default OpenBLAS flavor (`pypgo`), this step also
+pulls the package's pip-managed Python dependencies declared in `setup.py`
+(`install_requires` plus the `torch`/`viz`/`dev` extras):
 
 ```bash
 conda activate libpgo
@@ -123,6 +123,19 @@ python -m pip install -e .[viz,torch,dev] --no-build-isolation
 ```
 
 Drop extras you do not need (e.g. `-e .[viz]`, or `-e .` for the bare runtime).
+For the MKL flavor (`pypgo-mkl`), keep NumPy and the BLAS/MKL runtime on conda
+and install the Python package without pip dependency resolution:
+
+```bash
+conda activate libpgo-mkl
+PYPGO_PACKAGE_NAME=pypgo-mkl \
+PYPGO_CMAKE_PRESET=pypgo-mkl-ci \
+python -m pip install -e . --no-build-isolation --no-deps
+```
+
+Install optional pip-only packages (`pyvista`, `trame`, `torch`, `pytest`,
+`notebook`, ...) explicitly if you need them in the MKL environment, and keep an
+eye out for MKL/OpenMP runtime clashes from third-party wheels.
 
 For Python API development, rebuild the native `_core` extension in place after
 changing C++ bindings or native mesh code:
@@ -139,24 +152,41 @@ the number of parallel build jobs.
 For conda package builds, select the conda-oriented CMake presets explicitly:
 
 ```bash
-PYPGO_CMAKE_PRESET=pypgo-conda python -m pip install . --no-build-isolation --no-deps -v
+PYPGO_CMAKE_PRESET=pypgo-ci python -m pip install . --no-build-isolation --no-deps -v
 ```
 
 The matching CI/local dependency file is `.github/conda/pypgo-conda.yml`.
 
-Use `pypgo-conda-mkl` for an MKL-enabled package on platforms where MKL is
+Use `pypgo-mkl-ci` for an MKL-enabled package on platforms where MKL is
 available:
 
 ```bash
-PYPGO_CMAKE_PRESET=pypgo-conda-mkl python -m pip install . --no-build-isolation --no-deps -v
+PYPGO_CMAKE_PRESET=pypgo-mkl-ci python -m pip install . --no-build-isolation --no-deps -v
 ```
 
 The MKL dependency file is `.github/conda/pypgo-conda-mkl.yml`.
 
-PyPI wheels are not the primary distribution target. The release path is conda
-packaging so large native runtime dependencies such as Gmsh, OpenVDB, Boost,
-TBB, Imath, and MKL can be expressed as conda package dependencies instead of
-being bundled into Python wheels.
+### Wheel Distribution Policy
+
+The two Python package names have different dependency contracts:
+
+- `pypgo` is the PyPI-friendly OpenBLAS flavor. A wheel install such as
+  `pip install pypgo` may install NumPy from PyPI, while the `pypgo` wheel
+  vendors the native runtime libraries it needs, including a private pthreads
+  OpenBLAS runtime when built by CI.
+- `pypgo-mkl` is the conda-dependent MKL flavor. It intentionally does not
+  declare a pip NumPy dependency, because NumPy, BLAS/LAPACK, MKL, and OpenMP
+  must come from the same conda environment. Do not install `pypgo-mkl` into a
+  generic pip-only environment.
+
+CI may upload `pypgo-mkl` wheel artifacts for internal testing, but those wheels
+are only supported inside an already-correct conda MKL environment:
+
+```bash
+conda create -n pypgo-mkl-test -c conda-forge python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
+conda activate pypgo-mkl-test
+python -m pip install --no-deps pypgo_mkl-*.whl
+```
 
 ### Conda Package Release
 
@@ -182,8 +212,8 @@ The same recipe is parameterized by CI environment variables:
 
 | Package | CMake preset | MKL |
 | --- | --- | --- |
-| `pypgo` | `pypgo-conda` | Off |
-| `pypgo-mkl` | `pypgo-conda-mkl` | On |
+| `pypgo` | `pypgo-ci` | Off |
+| `pypgo-mkl` | `pypgo-mkl-ci` | On |
 
 To test the conda recipe locally:
 
@@ -191,7 +221,7 @@ To test the conda recipe locally:
 conda activate libpgo
 conda install -y conda-build anaconda-client
 PYPGO_CONDA_PACKAGE=pypgo \
-PYPGO_CMAKE_PRESET=pypgo-conda \
+PYPGO_CMAKE_PRESET=pypgo-ci \
 PYPGO_WITH_MKL=0 \
 conda build conda-recipe --output-folder conda-bld --no-anaconda-upload
 ```
@@ -200,7 +230,7 @@ For the MKL package on Linux or Windows:
 
 ```bash
 PYPGO_CONDA_PACKAGE=pypgo-mkl \
-PYPGO_CMAKE_PRESET=pypgo-conda-mkl \
+PYPGO_CMAKE_PRESET=pypgo-mkl-ci \
 PYPGO_WITH_MKL=1 \
 conda build conda-recipe --output-folder conda-bld --no-anaconda-upload
 ```
@@ -245,8 +275,8 @@ Other shared presets are available for debug, CUDA, Knitro, and Pardiso builds:
 | --- | --- | --- |
 | `base` | `build/base` | Default release build. |
 | `pypgo` | `build/pypgo` | Lightweight preset for Python-first native bindings. |
-| `pypgo-conda` | `build/pypgo-conda` | Conda package build for Python bindings, with portable CPU flags and MKL disabled. |
-| `pypgo-conda-mkl` | `build/pypgo-conda-mkl` | Conda package build for Python bindings with MKL enabled. |
+| `pypgo-ci` | `build/pypgo-ci` | CI/package build for Python bindings, with portable CPU flags and MKL disabled. |
+| `pypgo-mkl-ci` | `build/pypgo-mkl-ci` | CI/package build for Python bindings with MKL enabled. |
 | `base_debug` | `build/base_debug` | Debug build. |
 | `base_cuda` | `build/base_cuda` | `base` plus CUDA. |
 | `base_cuda_debug` | `build/base_cuda_debug` | Debug CUDA build. |
@@ -357,19 +387,23 @@ Example `CMakeUserPresets.json` (local, optional):
 
 ### Dependency Ownership
 
-- Conda supplies CMake, Ninja, and the native runtime/build packages plus the
-  Python packages that are ABI-tied to them: Boost, MKL, TBB, Gmsh, OpenVDB,
-  Imath, zlib, numpy, setuptools, and wheel. `numpy` stays on conda because
-  OpenVDB's Python bindings hard-depend on conda-numpy — making it pip-only
-  would leave two conflicting numpy installs on the same import path.
+- Conda supplies CMake, Ninja, and the native runtime/build packages for local
+  source builds and conda packages: Boost, MKL, TBB, Gmsh, OpenVDB, Imath,
+  zlib, setuptools, and wheel. In conda environments, `numpy` stays on conda so
+  it shares the same BLAS backend as the native extension.
+- PyPI-style `pypgo` wheel installs are different: pip may install NumPy from
+  PyPI, and the repaired `pypgo` wheel carries its needed native OpenBLAS
+  runtime privately. `pypgo-mkl` is excluded from this contract and remains
+  conda-bound.
 - Pip supplies the pure-Python / pip-first packages that are not build-time
-  native deps. They are declared once in `setup.py` (`install_requires` plus the
-  `torch` / `viz` / `dev` extras) and installed by the editable build step
-  (`pip install -e .[viz,torch,dev] --no-build-isolation`): `torch` (official
-  macOS arm64 wheel, with MPS; replaces conda `pytorch`), `pyvista` (pulls its
-  own `vtk` wheel — conda `vtk-base` is intentionally not installed, to avoid a
-  duplicate `vtkmodules` import path), `pytest`, `notebook`, and the `trame` /
-  `trame-vtk` / `trame-vuetify` stack (conda-forge lags their releases).
+  native deps for the default `pypgo` flavor. `setup.py` declares NumPy plus the
+  `torch` / `viz` / `dev` extras for that route. For `pypgo-mkl`, install the
+  package itself with `--no-deps` and add optional pip packages explicitly:
+  `torch` (official macOS arm64 wheel, with MPS; replaces conda `pytorch`),
+  `pyvista` (pulls its own `vtk` wheel — conda `vtk-base` is intentionally not
+  installed, to avoid a duplicate `vtkmodules` import path), `pytest`,
+  `notebook`, and the `trame` / `trame-vtk` / `trame-vuetify` stack
+  (conda-forge lags their releases).
 - The host package manager supplies platform basics that are awkward to keep
   fully inside conda: Linux compiler/system BLAS/GMP/MPFR headers and macOS
   Homebrew GMP/MPFR/Imath.

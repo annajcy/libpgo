@@ -29,7 +29,7 @@ jobs:
             label: OpenBLAS
             environment_file: environment.yml
             conda_env: libpgo
-            cmake_preset: pypgo-conda
+            cmake_preset: pypgo-ci
             cmake_parallel: "3"
             wheel_package: pypgo
             wheel_dist: pypgo
@@ -37,7 +37,7 @@ jobs:
             label: MKL
             environment_file: environment-mkl.yml
             conda_env: libpgo-mkl
-            cmake_preset: pypgo-conda-mkl
+            cmake_preset: pypgo-mkl-ci
             # Match the conda-release MKL lane: a single heavy translation unit
             # at a time fits the hosted runner more reliably than parallel TUs.
             cmake_parallel: "1"
@@ -69,6 +69,15 @@ jobs:
           channel-priority: strict
           conda-remove-defaults: true
 
+      - name: Select pthreads OpenBLAS for PyPI wheel
+        if: matrix.wheel_package == 'pypgo'
+        run: |
+          conda install -y \
+            "libblas=*=*openblas" \
+            "liblapack=*=*openblas" \
+            "openblas=*=*pthreads*" \
+            "libopenblas=*=*pthreads*"
+
       - name: Build Python wheel
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
@@ -91,19 +100,26 @@ jobs:
       - name: Repair Python wheel
         env:
           PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
+          PYPGO_WHEEL_PACKAGE: ${{ matrix.wheel_package }}
           PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
         run: |
           shopt -s nullglob
           export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
           python -m pip install auditwheel
           rm -rf wheelhouse
-          python -m auditwheel repair \
-            --exclude 'libopenblas*.so*' \
-            --exclude 'libblas*.so*' \
-            --exclude 'liblapack*.so*' \
-            --exclude 'libmkl*.so*' \
-            -w wheelhouse \
-            dist/${PYPGO_WHEEL_DIST}-*.whl
+          repair_args=(-w wheelhouse)
+          if [[ "${PYPGO_WHEEL_PACKAGE}" == "pypgo-mkl" ]]; then
+            repair_args+=(
+              --exclude 'libopenblas*.so*'
+              --exclude 'libblas*.so*'
+              --exclude 'liblapack*.so*'
+              --exclude 'libmkl*.so*'
+              --exclude 'libiomp*.so*'
+              --exclude 'libomp*.so*'
+              --exclude 'libgomp*.so*'
+            )
+          fi
+          python -m auditwheel repair "${repair_args[@]}" dist/${PYPGO_WHEEL_DIST}-*.whl
           python -m auditwheel show wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
           if (( ${#wheel[@]} != 1 )); then
@@ -111,28 +127,42 @@ jobs:
             printf '%s\n' "${wheel[@]}"
             exit 1
           fi
-          python - "${wheel[0]}" <<'PY'
+          python - "${wheel[0]}" "${PYPGO_WHEEL_PACKAGE}" <<'PY'
           import sys
           import zipfile
 
-          forbidden = (
-              "libopenblas",
-              "libblas",
-              "liblapack",
-              "libmkl",
-          )
+          wheel_package = sys.argv[2]
           with zipfile.ZipFile(sys.argv[1]) as archive:
+              names = [name.lower() for name in archive.namelist() if ".libs/" in name]
+          if wheel_package == "pypgo-mkl":
+              forbidden = (
+                  "libopenblas",
+                  "libblas",
+                  "liblapack",
+                  "libmkl",
+                  "libiomp",
+                  "libomp",
+                  "libgomp",
+              )
               vendored = [
                   name
-                  for name in archive.namelist()
-                  if ".libs/" in name and any(token in name for token in forbidden)
+                  for name in names
+                  if any(token in name for token in forbidden)
               ]
-          if vendored:
-              print("Repaired wheel unexpectedly vendors BLAS/LAPACK runtime libraries:")
-              for name in vendored:
-                  print(f"  {name}")
-              raise SystemExit(1)
-          print("OK: repaired wheel relies on the conda-provided BLAS/LAPACK runtime.")
+              if vendored:
+                  print("Repaired pypgo-mkl wheel unexpectedly vendors BLAS/MKL/OpenMP runtime libraries:")
+                  for name in vendored:
+                      print(f"  {name}")
+                  raise SystemExit(1)
+              print("OK: pypgo-mkl wheel relies on the conda-provided BLAS/MKL/OpenMP runtime.")
+          else:
+              openblas = [name for name in names if "openblas" in name]
+              if not openblas:
+                  print("Repaired pypgo wheel did not vendor OpenBLAS:")
+                  for name in names:
+                      print(f"  {name}")
+                  raise SystemExit(1)
+              print("OK: pypgo wheel vendors an OpenBLAS runtime.")
           PY
 
       - name: Upload Python wheel artifact
@@ -142,7 +172,7 @@ jobs:
           path: wheelhouse/${{ matrix.wheel_dist }}-*.whl
           if-no-files-found: error
 
-      - name: Verify repaired wheel in minimal conda environment
+      - name: Verify repaired wheel in minimal environment
         env:
           PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
           PYPGO_WHEEL_PACKAGE: ${{ matrix.wheel_package }}
@@ -151,13 +181,17 @@ jobs:
           clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
           if [[ "${PYPGO_WHEEL_PACKAGE}" == "pypgo-mkl" ]]; then
             conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
+            conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+            run_python=(conda run -p "${clean_env}" python)
           else
-            conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" libopenblas
+            python -m venv "${clean_env}"
+            "${clean_env}/bin/python" -m pip install --upgrade pip
+            "${clean_env}/bin/python" -m pip install "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+            run_python=("${clean_env}/bin/python")
           fi
-          conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           tmpdir="$(mktemp -d)"
           cd "${tmpdir}"
-          conda run -p "${clean_env}" python - <<'PY'
+          "${run_python[@]}" - <<'PY'
           from pathlib import Path
           import os
 
@@ -174,7 +208,7 @@ jobs:
           assert info["module"] == "pypgo._core"
           print(f"pypgo wheel import OK from {package_file}")
           PY
-          conda run -p "${clean_env}" python "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
+          "${run_python[@]}" "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
 
   cmake-build:
     name: CMake Preset Build and Test (${{ matrix.label }})

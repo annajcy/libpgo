@@ -16,6 +16,7 @@ if PACKAGE_NAME not in SUPPORTED_PACKAGE_NAMES:
         f"Unsupported PYPGO_PACKAGE_NAME={PACKAGE_NAME!r}; "
         f"expected one of {sorted(SUPPORTED_PACKAGE_NAMES)}."
     )
+INSTALL_REQUIRES = ["numpy"] if PACKAGE_NAME == "pypgo" else []
 
 
 class CMakeExtension(Extension):
@@ -119,9 +120,7 @@ setup(
     },
     zip_safe=False,
     python_requires=">=3.12",
-    install_requires=[
-        "numpy",
-    ],
+    install_requires=INSTALL_REQUIRES,
     extras_require={
         # Optional torch autograd layers in pypgo.fem (imported lazily).
         # Install with: pip install pypgo[torch]

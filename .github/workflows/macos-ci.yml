@@ -26,7 +26,7 @@ jobs:
             label: OpenBLAS
             environment_file: environment.yml
             conda_env: libpgo
-            cmake_preset: pypgo-conda
+            cmake_preset: pypgo-ci
             cmake_parallel: "3"
             wheel_package: pypgo
             wheel_dist: pypgo
@@ -49,6 +49,14 @@ jobs:
           auto-activate-base: false
           channels: conda-forge
           channel-priority: strict
+
+      - name: Select pthreads OpenBLAS for PyPI wheel
+        run: |
+          conda install -y \
+            "libblas=*=*openblas" \
+            "liblapack=*=*openblas" \
+            "openblas=*=*pthreads*" \
+            "libopenblas=*=*pthreads*"
 
       - name: Build Python wheel
         env:
@@ -78,14 +86,7 @@ jobs:
           export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
           python -m pip install delocate
           rm -rf wheelhouse
-          delocate-wheel -v \
-            -e libopenblas \
-            -e libblas \
-            -e liblapack \
-            -e libmkl \
-            -e libomp \
-            -w wheelhouse \
-            dist/${PYPGO_WHEEL_DIST}-*.whl
+          delocate-wheel -v -w wheelhouse dist/${PYPGO_WHEEL_DIST}-*.whl
           delocate-listdeps --all wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
           if (( ${#wheel[@]} != 1 )); then
@@ -97,25 +98,15 @@ jobs:
           import sys
           import zipfile
 
-          forbidden = (
-              "libopenblas",
-              "libblas",
-              "liblapack",
-              "libmkl",
-              "libomp",
-          )
           with zipfile.ZipFile(sys.argv[1]) as archive:
-              vendored = [
-                  name
-                  for name in archive.namelist()
-                  if ".dylibs/" in name and any(token in name.lower() for token in forbidden)
-              ]
-          if vendored:
-              print("Repaired wheel unexpectedly vendors BLAS/OpenMP runtime libraries:")
-              for name in vendored:
+              names = [name.lower() for name in archive.namelist() if ".dylibs/" in name]
+          openblas = [name for name in names if "openblas" in name]
+          if not openblas:
+              print("Repaired pypgo wheel did not vendor OpenBLAS:")
+              for name in names:
                   print(f"  {name}")
               raise SystemExit(1)
-          print("OK: repaired wheel relies on the conda-provided BLAS/OpenMP runtime.")
+          print("OK: pypgo wheel vendors an OpenBLAS runtime.")
           PY
 
       - name: Upload Python wheel artifact
@@ -125,17 +116,18 @@ jobs:
           path: wheelhouse/${{ matrix.wheel_dist }}-*.whl
           if-no-files-found: error
 
-      - name: Verify repaired wheel in minimal conda environment
+      - name: Verify repaired wheel in minimal environment
         env:
           PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
         run: |
           shopt -s nullglob
           clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
-          conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" libopenblas
-          conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+          python -m venv "${clean_env}"
+          "${clean_env}/bin/python" -m pip install --upgrade pip
+          "${clean_env}/bin/python" -m pip install "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           tmpdir="$(mktemp -d)"
           cd "${tmpdir}"
-          conda run -p "${clean_env}" python - <<'PY'
+          "${clean_env}/bin/python" - <<'PY'
           from pathlib import Path
           import os
 
@@ -152,7 +144,7 @@ jobs:
           assert info["module"] == "pypgo._core"
           print(f"pypgo wheel import OK from {package_file}")
           PY
-          conda run -p "${clean_env}" python "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
+          "${clean_env}/bin/python" "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
 
   cmake-build:
     name: CMake Preset Build and Test
