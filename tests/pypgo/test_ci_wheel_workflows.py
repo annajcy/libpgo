@@ -50,7 +50,15 @@ def test_ftetwild_geogram_openmp_follows_pgo_openmp_option():
 
     assert "pgo_fetch_populate_compat(ftetwild" in cmake
     assert "_libpgo_patch_ftetwild_geogram_openmp" in cmake
+    assert "_libpgo_patch_geogram_linux_openmp" in cmake
     assert 'if(${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND PGO_ENABLE_OPENMP)' in cmake
+
+
+def test_geogram_linux_platform_openmp_follows_pgo_openmp_option():
+    cmake = (ROOT / "CMakeModules" / "third-party" / "geogram.cmake").read_text()
+
+    assert "_libpgo_patch_geogram_linux_openmp" in cmake
+    assert "GCC_VERSION VERSION_GREATER 4.0 AND PGO_ENABLE_OPENMP" in cmake
 
 
 def test_macos_openblas_wheel_is_pypi_friendly():
@@ -74,6 +82,7 @@ def test_windows_openblas_wheel_is_pypi_friendly_and_mkl_wheel_is_conda_bound():
     assert "$excludeArgs += @(\"--exclude\", $dll)" in workflow
     assert "mkl_rt.2.dll" in workflow
     assert "mkl_core.2.dll" in workflow
+    assert "mkl_tbb_thread.3.dll" in workflow
 
 
 def test_windows_ci_serializes_heavy_conda_jobs():

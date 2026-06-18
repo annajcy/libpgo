@@ -59,6 +59,35 @@ function(_libpgo_patch_ftetwild_geogram_openmp target_file)
   file(WRITE "${target_file}" "${_libpgo_geogram_cmake}")
 endfunction()
 
+function(_libpgo_patch_geogram_linux_openmp target_file)
+  file(READ "${target_file}" _libpgo_geogram_platform)
+  set(_libpgo_openmp_unpatched [=[if (GCC_VERSION VERSION_GREATER 4.0)
+    add_flags(CMAKE_CXX_FLAGS -fopenmp)
+    add_flags(CMAKE_C_FLAGS -fopenmp)
+endif()]=])
+  set(_libpgo_openmp_patched [=[if (GCC_VERSION VERSION_GREATER 4.0 AND PGO_ENABLE_OPENMP)
+    add_flags(CMAKE_CXX_FLAGS -fopenmp)
+    add_flags(CMAKE_C_FLAGS -fopenmp)
+endif()]=])
+
+  string(FIND "${_libpgo_geogram_platform}" "${_libpgo_openmp_patched}" _libpgo_openmp_patched_index)
+  if(NOT _libpgo_openmp_patched_index EQUAL -1)
+    return()
+  endif()
+
+  string(FIND "${_libpgo_geogram_platform}" "${_libpgo_openmp_unpatched}" _libpgo_openmp_unpatched_index)
+  if(_libpgo_openmp_unpatched_index EQUAL -1)
+    message(FATAL_ERROR "Failed to patch ${target_file}: Geogram Linux OpenMP condition was not found.")
+  endif()
+
+  string(REPLACE
+    "${_libpgo_openmp_unpatched}"
+    "${_libpgo_openmp_patched}"
+    _libpgo_geogram_platform
+    "${_libpgo_geogram_platform}")
+  file(WRITE "${target_file}" "${_libpgo_geogram_platform}")
+endfunction()
+
 function(_libpgo_prepare_ftetwild_geogram)
   if(TARGET geogram)
     if(NOT TARGET geogram::geogram)
@@ -95,6 +124,7 @@ function(_libpgo_prepare_ftetwild_geogram)
   pgo_fetch_populate_compat(geogram "fTetWild patches geogram before add_subdirectory")
 
   _libpgo_patch_ftetwild_geogram("${geogram_SOURCE_DIR}/CMakeLists.txt")
+  _libpgo_patch_geogram_linux_openmp("${geogram_SOURCE_DIR}/cmake/platforms/Linux-gcc.cmake")
   add_subdirectory(${geogram_SOURCE_DIR} ${geogram_BINARY_DIR} EXCLUDE_FROM_ALL)
 
   if(TARGET geogram AND NOT TARGET geogram::geogram)

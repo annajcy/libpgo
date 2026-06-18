@@ -39,11 +39,26 @@ function(_libpgo_replace_in_file target_file old_text new_text)
   file(WRITE "${target_file}" "${_libpgo_file_contents}")
 endfunction()
 
+function(_libpgo_patch_geogram_linux_openmp target_file)
+  _libpgo_replace_in_file(
+    "${target_file}"
+    [=[if (GCC_VERSION VERSION_GREATER 4.0)
+    add_flags(CMAKE_CXX_FLAGS -fopenmp)
+    add_flags(CMAKE_C_FLAGS -fopenmp)
+endif()]=]
+    [=[if (GCC_VERSION VERSION_GREATER 4.0 AND PGO_ENABLE_OPENMP)
+    add_flags(CMAKE_CXX_FLAGS -fopenmp)
+    add_flags(CMAKE_C_FLAGS -fopenmp)
+endif()]=]
+  )
+endfunction()
+
 set(MODIFIED_FILE "${CMAKE_SOURCE_DIR}/CMakeModules/patches/geogram.cmake")
 set(TARGET_FILE "${geogram_SOURCE_DIR}/CMakeLists.txt")
 
 file(READ "${MODIFIED_FILE}" content)
 file(WRITE "${TARGET_FILE}" "${content}")
+_libpgo_patch_geogram_linux_openmp("${geogram_SOURCE_DIR}/cmake/platforms/Linux-gcc.cmake")
 
 set(POISSON_RECON_DIR "${geogram_SOURCE_DIR}/src/lib/geogram/third_party/PoissonRecon")
 
