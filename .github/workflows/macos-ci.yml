@@ -78,7 +78,14 @@ jobs:
           export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
           python -m pip install delocate
           rm -rf wheelhouse
-          delocate-wheel -v -w wheelhouse dist/${PYPGO_WHEEL_DIST}-*.whl
+          delocate-wheel -v \
+            -e libopenblas \
+            -e libblas \
+            -e liblapack \
+            -e libmkl \
+            -e libomp \
+            -w wheelhouse \
+            dist/${PYPGO_WHEEL_DIST}-*.whl
           delocate-listdeps --all wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
           if (( ${#wheel[@]} != 1 )); then
@@ -86,6 +93,30 @@ jobs:
             printf '%s\n' "${wheel[@]}"
             exit 1
           fi
+          python - "${wheel[0]}" <<'PY'
+          import sys
+          import zipfile
+
+          forbidden = (
+              "libopenblas",
+              "libblas",
+              "liblapack",
+              "libmkl",
+              "libomp",
+          )
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              vendored = [
+                  name
+                  for name in archive.namelist()
+                  if ".dylibs/" in name and any(token in name.lower() for token in forbidden)
+              ]
+          if vendored:
+              print("Repaired wheel unexpectedly vendors BLAS/OpenMP runtime libraries:")
+              for name in vendored:
+                  print(f"  {name}")
+              raise SystemExit(1)
+          print("OK: repaired wheel relies on the conda-provided BLAS/OpenMP runtime.")
+          PY
 
       - name: Upload Python wheel artifact
         uses: actions/upload-artifact@v4

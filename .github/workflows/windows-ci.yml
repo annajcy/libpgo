@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 120
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - variant: openblas
@@ -147,8 +148,12 @@ jobs:
             "mkl_tbb_thread.2.dll",
             "mkl_sequential.dll",
             "mkl_sequential.2.dll"
-          ) -join ":"
-          python -m delvewheel repair --exclude $excludedDlls --wheel-dir wheelhouse $rawWheels[0].FullName
+          )
+          $excludeArgs = @()
+          foreach ($dll in $excludedDlls) {
+            $excludeArgs += @("--exclude", $dll)
+          }
+          python -m delvewheel repair @excludeArgs --wheel-dir wheelhouse $rawWheels[0].FullName
 
           $wheels = @(Get-ChildItem -Path wheelhouse -Filter "$env:PYPGO_WHEEL_DIST-*.whl")
           if ($wheels.Count -ne 1) {
@@ -239,6 +244,7 @@ jobs:
     timeout-minutes: 120
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - label: OpenBLAS

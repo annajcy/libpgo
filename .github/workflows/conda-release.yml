@@ -31,6 +31,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         include:
           - os: ubuntu-24.04
@@ -143,7 +144,19 @@ jobs:
       - name: Install conda build tools
         if: runner.os == 'Windows'
         shell: pwsh
-        run: conda install -y conda-build conda-index anaconda-client
+        run: |
+          $attempts = 3
+          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            conda install -y conda-build conda-index anaconda-client
+            if ($LASTEXITCODE -eq 0) {
+              break
+            }
+            if ($attempt -eq $attempts) {
+              exit $LASTEXITCODE
+            }
+            Write-Host "conda install failed on attempt $attempt; retrying in 30 seconds..."
+            Start-Sleep -Seconds 30
+          }
 
       - name: Build conda package
         if: runner.os != 'Windows'
