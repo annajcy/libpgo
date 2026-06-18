@@ -134,6 +134,9 @@ jobs:
           wheel_package = sys.argv[2]
           with zipfile.ZipFile(sys.argv[1]) as archive:
               names = [name.lower() for name in archive.namelist() if ".libs/" in name]
+          print("Vendored shared libraries:")
+          for name in names:
+              print(f"  {name}")
           if wheel_package == "pypgo-mkl":
               forbidden = (
                   "libopenblas",
@@ -160,6 +163,16 @@ jobs:
               if not openblas:
                   print("Repaired pypgo wheel did not vendor OpenBLAS:")
                   for name in names:
+                      print(f"  {name}")
+                  raise SystemExit(1)
+              openmp = [
+                  name
+                  for name in names
+                  if any(token in name for token in ("libgomp", "libomp", "libiomp"))
+              ]
+              if openmp:
+                  print("Repaired pypgo wheel unexpectedly vendors an OpenMP runtime:")
+                  for name in openmp:
                       print(f"  {name}")
                   raise SystemExit(1)
               print("OK: pypgo wheel vendors an OpenBLAS runtime.")
@@ -191,16 +204,27 @@ jobs:
           fi
           tmpdir="$(mktemp -d)"
           cd "${tmpdir}"
-          "${run_python[@]}" - <<'PY'
+          "${run_python[@]}" -X faulthandler - <<'PY'
           from pathlib import Path
+          import importlib
           import os
+
+          if os.environ["PYPGO_WHEEL_PACKAGE"] == "pypgo":
+              import numpy as np
+              print(f"numpy {np.__version__} from {Path(np.__file__).resolve()}", flush=True)
+
+          for module_name in (
+              "pypgo",
+              "pypgo._core",
+              "pypgo.energy",
+              "pypgo.mesh",
+              "pypgo.solver",
+          ):
+              print(f"import {module_name}", flush=True)
+              importlib.import_module(module_name)
 
           import pypgo
           import pypgo._core as core
-          import pypgo.energy
-          import pypgo.mesh
-          import pypgo.solver
-
           package_file = Path(pypgo.__file__).resolve()
           workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
           assert workspace not in package_file.parents, package_file
@@ -208,7 +232,7 @@ jobs:
           assert info["module"] == "pypgo._core"
           print(f"pypgo wheel import OK from {package_file}")
           PY
-          "${run_python[@]}" "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
+          "${run_python[@]}" -X faulthandler "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
 
   cmake-build:
     name: CMake Preset Build and Test (${{ matrix.label }})

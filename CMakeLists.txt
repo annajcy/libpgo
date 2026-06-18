@@ -32,6 +32,7 @@ option(PGO_ENABLE_GMSH "Enable GMSH support" OFF)
 option(PGO_TET_MESHER_USE_TET_WILD "Enable fTetWild backend for volumetric meshing" OFF)
 option(PGO_BUILD_TESTING "Build libpgo tests" OFF)
 option(PGO_NATIVE_OPTIMIZATION "Use host-native CPU optimization flags" ON)
+option(PGO_ENABLE_OPENMP "Enable OpenMP compile/link flags and backend" ON)
 # Statically embedding libstdc++/libgcc is fatal for a Python extension: the .so then
 # carries a *private* libstdc++ while numpy/openvdb/vtk in the same interpreter use the
 # shared one. Two libstdc++ copies share no locale-facet / RTTI state, so
@@ -151,10 +152,15 @@ message(STATUS "CMake Module Path: ${CMAKE_MODULE_PATH}")
 include(CompilationUtils)
 include(PgoDependencyHelpers)
 
-find_package(OpenMP)
-
-if(OPENMP_FOUND)
-  set(OPENMP_FLAG "${OpenMP_CXX_FLAGS}")
+set(PGO_OPENMP_FOUND OFF)
+if(PGO_ENABLE_OPENMP)
+  find_package(OpenMP)
+  if(OpenMP_CXX_FOUND OR OPENMP_FOUND)
+    set(PGO_OPENMP_FOUND ON)
+    set(OPENMP_FLAG "${OpenMP_CXX_FLAGS}")
+  endif()
+else()
+  message(STATUS "OpenMP disabled by PGO_ENABLE_OPENMP=OFF")
 endif()
 
 # openmp may cause mkl pardiso error
@@ -180,7 +186,7 @@ add_flag(compilation_flag_for_debug Clang All INTERFACE -fsanitize=leak)
 add_library(compilation_flag INTERFACE)
 add_library(cuda_compilation_flag INTERFACE)
 
-if(OPENMP_FOUND)
+if(PGO_OPENMP_FOUND)
   target_compile_definitions(compilation_flag INTERFACE USE_OPENMP)
 endif()
 
@@ -238,7 +244,7 @@ if(PGO_STATIC_LIBSTDCXX)
 endif()
 
 # if has openmp flags
-if(OPENMP_FOUND)
+if(PGO_OPENMP_FOUND)
   add_flag(compilation_flag GNU All INTERFACE ${OPENMP_FLAG})
   add_flag(compilation_flag Clang All INTERFACE ${OPENMP_FLAG})
   add_link_flag(compilation_flag GNU All ${OPENMP_FLAG})

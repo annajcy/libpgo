@@ -16,7 +16,6 @@ if(TARGET TBB::tbb)
   target_compile_definitions(parallelism PRIVATE PGO_PARALLELISM_HAS_TBB)
 endif()
 
-if(OPENMP_FOUND)
+if(PGO_OPENMP_FOUND)
   target_compile_definitions(parallelism PRIVATE PGO_PARALLELISM_HAS_OPENMP)
 endif()
-

@@ -26,6 +26,8 @@ def test_ci_cmake_presets_use_ci_names():
     assert "pypgo-mkl-ci" in workflows
     assert "pypgo-conda" not in preset_file
     assert "pypgo-conda" not in workflows
+    assert '"PGO_ENABLE_OPENMP": "OFF"' in preset_file
+    assert '"PGO_ENABLE_OPENMP": "ON"' in preset_file
 
 
 def test_linux_openblas_wheel_is_pypi_friendly_and_mkl_wheel_is_conda_bound():
@@ -36,6 +38,8 @@ def test_linux_openblas_wheel_is_pypi_friendly_and_mkl_wheel_is_conda_bound():
     assert '"${clean_env}/bin/python" -m pip install "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl' in workflow
     assert 'if [[ "${PYPGO_WHEEL_PACKAGE}" == "pypgo-mkl" ]]; then' in workflow
     assert "--exclude 'libmkl*.so*'" in workflow
+    assert "unexpectedly vendors an OpenMP runtime" in workflow
+    assert "-X faulthandler" in workflow
 
 
 def test_macos_openblas_wheel_is_pypi_friendly():
