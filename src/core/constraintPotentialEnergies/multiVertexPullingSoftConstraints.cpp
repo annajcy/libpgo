@@ -7,22 +7,34 @@ copyright to USC, MIT
 
 #include "pgoLogging.h"
 
+#include <tbb/parallel_for.h>
+#include <tbb/parallel_reduce.h>
+
 #include <iostream>
 
 using namespace pgo::ConstraintPotentialEnergies;
 
 namespace ES = pgo::EigenSupport;
 
-MultipleVertexPulling::MultipleVertexPulling(const EigenSupport::SpMatD &Koff, const double *restPositionsAll,
-  int numPts, const int *vi, const double *tgt, const double *bcCoeff, int isd):
+MultipleVertexPulling::MultipleVertexPulling(
+  EigenSupport::SpMatD Koff,
+  EigenSupport::VXd restPositionsAll,
+  std::vector<int> vertexIndices,
+  EigenSupport::VXd targetPositions,
+  double coeff,
+  bool isDisplacement):
   PotentialEnergyAligningMeshConnectivity(Koff),
-  isDisp(isd)
+  tgtp_(std::move(targetPositions)),
+  restpAll_(std::move(restPositionsAll)),
+  vertexIndices_(std::move(vertexIndices)),
+  coeffAll_(coeff),
+  isDisplacement_(isDisplacement)
 {
-  vertexIndices.assign(vi, vi + numPts);
+  int numPts = static_cast<int>(vertexIndices_.size());
   KIndices.assign(numPts, M3i::Constant(-1));
 
-  for (size_t vi = 0; vi < vertexIndices.size(); vi++) {
-    int vid = vertexIndices[vi];
+  for (size_t vi = 0; vi < vertexIndices_.size(); vi++) {
+    int vid = vertexIndices_[vi];
 
     KIndices[vi] = Eigen::Matrix<ES::IDX, 3, 3>::Constant(-1);
     for (int i = 0; i < 3; i++) {
@@ -31,95 +43,110 @@ MultipleVertexPulling::MultipleVertexPulling(const EigenSupport::SpMatD &Koff, c
     }
   }
 
-  tgtp = ES::Mp<const ES::VXd>(tgt, vertexIndices.size() * 3);
-  restpAll = ES::Mp<const ES::VXd>(restPositionsAll, Koff.rows());
-
-  if (bcCoeff) {
-    coeffs.assign(bcCoeff, bcCoeff + numPts);
-  }
-  else {
-    coeffs.assign(vertexIndices.size(), 1.0);
-  }
+  coeffs_.setConstant(vertexIndices_.size(), 1.0);
+  masks_.setOnes(vertexIndices_.size() * 3);
 }
 
-void MultipleVertexPulling::setCoeff(const double *v)
+void MultipleVertexPulling::setTargetPositions(ES::VXd tgt)
 {
-  coeffs.assign(v, v + vertexIndices.size());
-}
-
-void MultipleVertexPulling::setTargetPos(const double *tgt)
-{
-  tgtp = ES::Mp<const ES::VXd>(tgt, vertexIndices.size() * 3);
+  tgtp_ = std::move(tgt);
 }
 
 double MultipleVertexPulling::func(ES::ConstRefVecXd u) const
 {
-  double eng = 0;
-  for (size_t i = 0; i < vertexIndices.size(); i++) {
+  auto computeEnergyForVertex = [&](size_t i) -> double {
     ES::V3d p;
-    if (isDisp) {
-      p = u.segment<3>(vertexIndices[i] * 3) + restpAll.segment<3>(vertexIndices[i] * 3);
+    if (isDisplacement_) {
+      p = u.segment<3>(vertexIndices_[i] * 3) + restpAll_.segment<3>(vertexIndices_[i] * 3);
     }
     else {
-      p = u.segment<3>(vertexIndices[i] * 3);
+      p = u.segment<3>(vertexIndices_[i] * 3);
     }
 
-    ES::V3d diff = p - tgtp.segment<3>(i * 3);
-    eng += diff.dot(diff) * 0.5 * coeffs[i];
-  }
+    ES::V3d diff = p - tgtp_.segment<3>(i * 3);
+    diff = diff.cwiseProduct(masks_.segment<3>(i * 3));
 
-  return eng * coeffAll;
+    return diff.dot(diff) * 0.5 * coeffs_[i];
+  };
+
+  double eng = tbb::parallel_reduce(tbb::blocked_range<size_t>(0, vertexIndices_.size()), 0.0,  //
+    [&](const tbb::blocked_range<size_t> &r, double init) -> double {
+      for (size_t i = r.begin(); i != r.end(); ++i) {
+        init += computeEnergyForVertex(i);
+      }
+      return init; }, std::plus<double>());
+
+  return eng * coeffAll_;
 }
 
 void MultipleVertexPulling::gradient(ES::ConstRefVecXd u, ES::RefVecXd grad) const
 {
-  memset(grad.data(), 0, sizeof(double) * grad.size());
+  grad.setZero();
 
-  for (size_t i = 0; i < vertexIndices.size(); i++) {
-    int vtx = vertexIndices[i];
+  auto computeGradientForVertex = [&](size_t i) {
+    int vtx = vertexIndices_[i];
+
     ES::V3d p;
-    if (isDisp) {
-      p = u.segment<3>(vertexIndices[i] * 3) + restpAll.segment<3>(vertexIndices[i] * 3);
+    if (isDisplacement_) {
+      p = u.segment<3>(vertexIndices_[i] * 3) + restpAll_.segment<3>(vertexIndices_[i] * 3);
     }
     else {
-      p = u.segment<3>(vertexIndices[i] * 3);
+      p = u.segment<3>(vertexIndices_[i] * 3);
     }
 
-    ES::V3d diff = p - tgtp.segment<3>(i * 3);
+    ES::V3d diff = p - tgtp_.segment<3>(i * 3);
+    diff = diff.cwiseProduct(masks_.segment<3>(i * 3)).cwiseProduct(masks_.segment<3>(i * 3));
 
     grad.segment<3>(vtx * 3) = diff;
-    grad.segment<3>(vtx * 3) *= coeffs[i];
-  }
+    grad.segment<3>(vtx * 3) *= coeffs_[i];
+  };
 
-  grad *= coeffAll;
+  tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexIndices_.size()),
+    [&](const tbb::blocked_range<size_t> &r) {
+      for (size_t i = r.begin(); i != r.end(); ++i) {
+        computeGradientForVertex(i);
+      }
+    });
+
+  grad *= coeffAll_;
 }
 
-void MultipleVertexPulling::hessian(ES::ConstRefVecXd, ES::SpMatD &hess) const
+void MultipleVertexPulling::hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-  for (size_t vi = 0; vi < vertexIndices.size(); vi++) {
+  auto computeHessianForVertex = [&](size_t vi) {
+    ES::V3d w = masks_.segment<3>(vi * 3).cwiseProduct(masks_.segment<3>(vi * 3));
+
     for (int i = 0; i < 3; i++) {
-      hess.valuePtr()[KIndices[vi](i, i)] = coeffs[vi] * coeffAll;
+      hess.valuePtr()[KIndices[vi](i, i)] = w[i] * coeffs_[vi] * coeffAll_;
     }
-  }
+  };
+
+  tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexIndices_.size()),
+    [&](const tbb::blocked_range<size_t> &r) {
+      for (size_t vi = r.begin(); vi != r.end(); ++vi) {
+        computeHessianForVertex(vi);
+      }
+    });
 }
 
 void MultipleVertexPulling::printErrorInfo(ES::ConstRefVecXd u) const
 {
-  ES::VXd diff(vertexIndices.size() * 3);
-  ES::VXd diff1(vertexIndices.size() * 3);
-  for (size_t i = 0; i < vertexIndices.size(); i++) {
+  ES::VXd diff(vertexIndices_.size() * 3);
+  ES::VXd diff1(vertexIndices_.size() * 3);
+  for (size_t i = 0; i < vertexIndices_.size(); i++) {
     ES::V3d p;
-    if (isDisp) {
-      p = u.segment<3>(vertexIndices[i] * 3) + restpAll.segment<3>(vertexIndices[i] * 3);
+    if (isDisplacement_) {
+      p = u.segment<3>(vertexIndices_[i] * 3) + restpAll_.segment<3>(vertexIndices_[i] * 3);
     }
     else {
-      p = u.segment<3>(vertexIndices[i] * 3);
+      p = u.segment<3>(vertexIndices_[i] * 3);
     }
 
-    diff.segment<3>(i * 3) = p - tgtp.segment<3>(i * 3);
-    diff1.segment<3>(i * 3) = diff.segment<3>(i * 3) * coeffs[i];
+    diff.segment<3>(i * 3) = p - tgtp_.segment<3>(i * 3);
+    diff.segment<3>(i * 3) = diff.segment<3>(i * 3).cwiseProduct(masks_.segment<3>(i * 3));
+    diff1.segment<3>(i * 3) = diff.segment<3>(i * 3) * coeffs_[i];
   }
 
   std::cout << "  ||Wu - bcu||=" << diff.squaredNorm() << std::endl;
@@ -128,7 +155,7 @@ void MultipleVertexPulling::printErrorInfo(ES::ConstRefVecXd u) const
 
   double mind = 1e100, maxd = 0, avgd = 0;
   for (ES::IDX i = 0; i < diff.size() / 3; i++) {
-    if (coeffs[i] < 1e-9)
+    if (coeffs_[i] < 1e-9)
       continue;
 
     double d = diff.segment<3>(i * 3).norm();

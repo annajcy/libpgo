@@ -45,6 +45,8 @@ namespace pgo
 namespace Mesh
 {
 class TetMeshGeo;
+template<int K>
+class MeshData;
 }
 
 namespace VolumetricMeshes
@@ -74,6 +76,10 @@ public:
   TetMesh(int numVertices, const double *vertices, int numElements, const int *elements,
     double E = E_default, double nu = nu_default, double density = density_default);
   TetMesh(const std::vector<Vec3d> &vertices, const std::vector<Vec4i> &elements,
+    double E = E_default, double nu = nu_default, double density = density_default);
+  TetMesh(pgo::Mesh::MeshData<4> &&meshData,
+    double E = E_default, double nu = nu_default, double density = density_default);
+  TetMesh(const pgo::Mesh::MeshData<4> &meshData,
     double E = E_default, double nu = nu_default, double density = density_default);
 
   // constructs a tet mesh from the given vertices and elements,

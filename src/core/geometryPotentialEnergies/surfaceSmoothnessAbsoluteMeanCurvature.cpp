@@ -285,7 +285,7 @@ void SurfaceSmoothnessAbsoluteMeanCurvature::gradient(EigenSupport::ConstRefVecX
 // dH/dx = M^-1L
 
 // d2E/dx2 = d(dE/dH dH/dx)/dx = dH/dx d2E/dH2 dH/dx
-void SurfaceSmoothnessAbsoluteMeanCurvature::hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
+void SurfaceSmoothnessAbsoluteMeanCurvature::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 

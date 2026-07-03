@@ -47,6 +47,9 @@ namespace pgo
 namespace Mesh
 {
 
+template<int K>
+class MeshData;
+
 // a triangle struct to hold triangle index, its vertex indices and positions
 struct IndexedTriangle
 {
@@ -199,6 +202,9 @@ public:
   // implicit conversion
   operator TriMeshRef() const { return ref(); }
 
+  MeshData<3> toMeshData() const;
+  explicit TriMeshGeo(const MeshData<3>& meshData);
+
   bool load(const std::string &filename);
   // save to obj mesh
   bool save(const std::string &filename) const { return ref().save(filename); }
@@ -327,6 +333,24 @@ TriMeshGeo mergeMesh(size_t numMeshes, const TriMeshRef *meshes);
 void triMeshGeoToMatrices(const TriMeshGeo &mesh, EigenSupport::MXd &vtx, EigenSupport::MXi &tri);
 void matricesToTriMeshGeo(const EigenSupport::MXd &vtx, const EigenSupport::MXi &tri, TriMeshGeo &mesh);
 TriMeshGeo matricesToTriMeshGeo(const EigenSupport::MXd &vtx, const EigenSupport::MXi &tri);
+
+// Compute enclosed volume of a closed mesh via the divergence theorem.
+// Returns absolute value: V = |sum (a · (b × c))| / 6 over all triangles.
+double computeMeshVolume(const TriMeshRef mesh);
+
+// Compute the union bounding box of two meshes, expanded by thickness and
+// padding (as a fraction of the union diagonal).
+void computeUnionBBox(const TriMeshRef meshA, const TriMeshRef meshB,
+  double thicknessA, double thicknessB, double paddingRatio,
+  EigenSupport::V3d &bmin, EigenSupport::V3d &bmax);
+
+// Remove small edge-connected triangle components.
+// minComponentTriangles: components with fewer triangles are dropped.
+// keepLargestComponents: if > 0, keep only the largest N after thresholding;
+//   if -1, keep all components above the threshold.
+// Throws if the result is empty.
+void filterSmallComponents(TriMeshGeo &mesh, int minComponentTriangles,
+  int keepLargestComponents);
 
 // =========================================================
 //                  Implementations

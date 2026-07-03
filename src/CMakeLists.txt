@@ -1,7 +1,9 @@
 set(PGO_GLOBAL_LIBRARY_TARGETS
   macros  
   basicAlgorithms
+  profiling
   pgoLogging
+  parallelism
   basicIO
   eigenSupport
   configFileJSON
@@ -19,13 +21,20 @@ set(PGO_GLOBAL_LIBRARY_TARGETS
   geogramInterface
   libiglInterface
   tetgenInterface
+  volumetricMeshMeshing
   animationIO
   CACHE INTERNAL ""
 )
 
+if(PGO_ENABLE_CUDA)
+  list(APPEND PGO_GLOBAL_LIBRARY_TARGETS cudaUtilities)
+endif()
+
 foreach(lib ${PGO_GLOBAL_LIBRARY_TARGETS})
   add_subdirectory(core/${lib})
 endforeach()
+
+add_subdirectory(core/implicitSurface)
 
 if(PGO_UI)
   add_subdirectory(render)
@@ -36,7 +45,3 @@ add_subdirectory(c)
 if(PGO_ENABLE_PYTHON)
   add_subdirectory(python)
 endif()
-
-add_subdirectory(tools)
-
-add_subdirectory(tests)

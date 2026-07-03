@@ -31,7 +31,9 @@
  *************************************************************************/
 
 #include "triMeshGeo.h"
+#include "meshData.h"
 #include "triKey.h"
+#include "triMeshNeighbor.h"
 #include "geometryQuery.h"
 
 #include "basicAlgorithms.h"
@@ -963,6 +965,72 @@ TriMeshGeo matricesToTriMeshGeo(const EigenSupport::MXd &vtx, const EigenSupport
   matricesToTriMeshGeo(vtx, tri, mesh);
 
   return mesh;
+}
+
+double computeMeshVolume(const TriMeshRef mesh)
+{
+  double v6 = 0.0;
+  for (int t = 0; t < mesh.numTriangles(); ++t) {
+    const Vec3d &a = mesh.pos(t, 0);
+    const Vec3d &b = mesh.pos(t, 1);
+    const Vec3d &c = mesh.pos(t, 2);
+    v6 += a.dot(b.cross(c));
+  }
+  return std::abs(v6) / 6.0;
+}
+
+void computeUnionBBox(const TriMeshRef meshA, const TriMeshRef meshB,
+  double thicknessA, double thicknessB, double paddingRatio,
+  EigenSupport::V3d &bmin, EigenSupport::V3d &bmax)
+{
+  const BoundingBox bboxA(meshA.numVertices(), meshA.positions());
+  const BoundingBox bboxB(meshB.numVertices(), meshB.positions());
+
+  bmin = bboxA.bmin().cwiseMin(bboxB.bmin());
+  bmax = bboxA.bmax().cwiseMax(bboxB.bmax());
+
+  const EigenSupport::V3d baseSides = bmax - bmin;
+  const double baseDiag = baseSides.norm();
+  const double expansion = std::max(thicknessA, thicknessB) + paddingRatio * baseDiag;
+
+  bmin.array() -= expansion;
+  bmax.array() += expansion;
+
+  const EigenSupport::V3d sides = bmax - bmin;
+  for (int axis = 0; axis < 3; ++axis) {
+    if (sides[axis] <= 0.0 || !std::isfinite(sides[axis]))
+      throw std::runtime_error("Expanded grid bbox has a non-positive or invalid side length");
+  }
+}
+
+void filterSmallComponents(TriMeshGeo &mesh, int minComponentTriangles,
+  int keepLargestComponents)
+{
+  const TriangleEdgeConnectivityStats beforeStats =
+    computeTriangleEdgeConnectivityStats(mesh.triangles());
+
+  TriMeshGeo filteredSurface =
+    filterSmallTriangleComponentsByEdge(
+      mesh, minComponentTriangles, keepLargestComponents);
+
+  if (filteredSurface.numVertices() == 0 || filteredSurface.numTriangles() == 0)
+    throw std::runtime_error("Small component filter removed the entire surface");
+
+  mesh = std::move(filteredSurface);
+}
+
+MeshData<3> TriMeshGeo::toMeshData() const
+{
+  std::vector<int> flatElements(triangles_.size() * 3);
+  std::memcpy(flatElements.data(), triangles_.data(), triangles_.size() * sizeof(Vec3i));
+  return MeshData<3>(positions_, std::move(flatElements));
+}
+
+TriMeshGeo::TriMeshGeo(const MeshData<3>& meshData)
+{
+  positions_ = meshData.positions();
+  triangles_.resize(meshData.numElements());
+  std::memcpy(triangles_.data(), meshData.elementsFlat().data(), meshData.elementsFlat().size() * sizeof(int));
 }
 
 }  // namespace Mesh

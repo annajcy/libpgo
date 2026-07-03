@@ -1,0 +1,47 @@
+{
+  "type": "cubic",
+  "mesh": {
+    "volume": "../assets/veg/cubic/box-with-sphere.veg",
+    "surface": "../assets/obj/box-with-sphere.obj"
+  },
+  "material": {
+    "model": "stable_neo",
+    "enable_material_max_step": false
+  },
+  "loads": {
+    "gravity": [
+      0.0,
+      -9.81,
+      0.0
+    ]
+  },
+  "contact": [
+    {
+      "model": "ipc",
+      "dhat": 0.002,
+      "dhat_external": 0.005,
+      "kappa": 3000.0,
+      "obstacles": [
+        {
+          "mesh": "../assets/obj/bottom.obj"
+        }
+      ]
+    }
+  ],
+  "solver": {
+    "max_iterations": 200,
+    "gradient_tolerance": 0.001,
+    "line_search": "simple"
+  },
+  "dynamic": {
+    "timestep": 0.001,
+    "num_steps": 2000,
+    "integrator": "trbdf2"
+  },
+  "output": {
+    "directory": "../outputs/sim/cubic-dynamic-box-sphere-ipc-trbdf2",
+    "write_surfaces": true,
+    "dump_interval": 10,
+    "write_abc": true
+  }
+}

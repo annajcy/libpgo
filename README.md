@@ -1,233 +1,557 @@
 ## libpgo: Library for Physically based Simulation (P), Geometric Shape Modeling (G), and Optimization (O)
 
-The library is designed to primarily focus on physically based simulations, geometric shape modeling, and optimization.
+**libpgo** is designed to primarily focus on physically based simulations, geometric shape modeling, and optimization.
 The source code extends [VegaFEM](https://viterbi-web.usc.edu/~jbarbic/vega/) and is designed for academic research purposes.
 
----
-
-## Prebuilt (Experimental)
-The wheel package of following platform have been provided for ease of use. They are in `./dist` folder:
-- Ubuntu 24.04: `ubuntu24.04/pypgo-0.0.3-cp312-cp312-linux_x86_64.whl`. Note that you still need to install `gmp` and `mpfr` as suggested in the prerequisites. You may `apt install` them if needed.
-- Ubuntu 22.04: `ubuntu22.04/pypgo-0.0.2-cp311-cp311-linux_x86_64.whl`. Note that you still need to install `gmp` and `mpfr` as suggested in the prerequisites. You may `apt install` them if needed. This version depends on a lower version of the libc, so it should be more compatible.
-- Windows: `win11/pypgo-0.0.3-cp312-cp312-win_amd64.whl`. The package is built under Windows 11, Visual Studio 2022. In theory, it supports other windows platforms.
-- MacOS Arm: `pypgo-0.0.3-cp312-cp312-macosx_26_0_arm64.whl`. The package is built under Tahoe 26.0.1 on Apple M3.
-
-Do `pip install ./dist/your-chosen.whl` to install the package. Note that the packages are experimental.
+**pypgo** is the python binding of libpgo, which is the recommended main entry point for users.
 
 ---
 
-## Prerequisites
+## Install pypgo with Python Only
 
-1. CMake >= **3.28**\
-    We use several functionalities that are only supported by 3.28+. 
-    > In most cases, both system's CMake and Conda Environment's CMake have a lower version of CMake unfortunately. In this sitation, please install a new CMake into your system. The latest CMake, either pre-built binaries or source files, can be obtained directly from the [official](https://cmake.org/download/) website. Once installed, hook `cmake` to the newly installed one, either by adding the `your-new-cmake/bin` to the front of the `PATH` or by replacing the existing `cmake` executable with the new one.
+Use a CI wheel artifact when you only need the Python package and do not want
+to build the C++ source. The wheels are conda-environment artifacts, not
+standalone PyPI wheels. Neither `pypgo` nor `pypgo-mkl` declares a pip NumPy
+dependency, so NumPy and its BLAS/LAPACK runtime must come from the same conda
+environment as the extension.
 
-2. Compilers
-    1. GCC **11, 12, 13** for Ubuntu\
-        We use C++20, so only GCC 11, 12, and 13 are supported. You can get new gcc using `apt` or compile a new one from its source code.
-
-    2. Apple Clang (We tested on 15.0.0, Mac OS 14.5)\
-        Earlier versions might work if it supports C++20.
-
-    3. Visual Studio 2022 (We tested on 17.9.5, Windows)\
-        Earlier Visual Studio 2022 versions might work.
-
-3. GMP and MPFR for **Ubuntu** and **Mac OS**\
-    This can be installed on Ubuntu by
-
-    ```bash
-        sudo apt install libgmp-dev libmpfr-dev
-    ```
-
-    Or it can be installed on Mac OS by
-
-    ```bash
-        brew install gmp mpfr
-    ```
-
-4. (Optional) Ninja\
-    It can be installed by
-
-    ```bash
-        pip install ninja
-    ```
-
-    for better compilation performance
-
-5. (Optional) numpy\
-    This is used for running tests.
-
-## Compilation
-
-Going forward, it is assumed that all specified prerequisites are installed and that a Conda environment is used for python.
-
-### Windows & Ubuntu
-
-Install prerequisites:
+Install the OpenBLAS `pypgo` wheel:
 
 ```bash
-    conda install tbb tbb-devel mkl mkl-devel
-    conda install conda-forge::imath
+conda create -n pypgo-openblas -c conda-forge python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"
+conda activate pypgo-openblas
+python -m pip install --no-deps pypgo-*.whl
 ```
 
-Install libpgo:
+Install the MKL `pypgo-mkl` wheel on Linux or Windows:
 
 ```bash
-    cd libpgo
-    pip install .
+conda create -n pypgo-mkl -c conda-forge python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
+conda activate pypgo-mkl
+python -m pip install --no-deps pypgo_mkl-*.whl
 ```
 
-If `ninja` has been installed, it will compile source files in parallel. If it is not installed,
-set `CMAKE_BUILD_PARALLEL_LEVEL` to `n`, where `n` is the number of threads for compilation, to control the parallel compilation.
+Install only one flavor in an environment. Both distributions expose the same
+`pypgo` Python package.
 
-### Mac OS
+## Build and Install pypgo from Source
 
-Install libpgo
+Conda is the recommended build environment for both the Python package and the
+native CMake build. Use one conda environment for Python packages and native
+runtime/build packages so CMake, Python, Boost, MKL, TBB, Gmsh, OpenVDB, and
+other dependencies are resolved from a consistent prefix.
+
+- The Python package is being redesigned as a Python-first API. The old
+  C-style Python wrapper has been removed and its functionality will return
+  through focused Python modules.
+- The native CMake build uses the `base` preset, which enables the full default
+  feature set including Gmsh, OpenVDB, TBB, and MKL where supported.
+- Platform compilers still come from the host system: GCC/Clang on Linux,
+  Apple Clang on macOS, and Visual Studio 2022 on Windows.
+
+Use Miniforge or Miniconda when possible, and keep packages on the
+`conda-forge` channel. The commands below use `conda` consistently so the
+environment, Python packages, and native CMake dependencies all resolve from
+one conda prefix.
+
+### System Prerequisites
+
+Install conda: See [Conda Installation](https://www.anaconda.com/docs/getting-started/miniconda/install/overview#choose-your-installation-guide).
+
+**Build toolchain policy:** 
+
+On Linux, the full build toolchain (compilers, CMake,
+Ninja, and all C++ library dependencies) should come from the active conda
+environment. Do NOT use system GCC —
+mixing a system GCC with conda-forge C++ libraries (especially TBB, MKL) causes
+CXXABI version mismatches (e.g. `undefined reference to __cxa_call_terminate@CXXABI_1.3.15`).
+Install the Linux compilers separately after creating/updating the environment:
 
 ```bash
-    cd libpgo
-    pip install .
+conda activate libpgo       # or libpgo-mkl
+conda install -c conda-forge gcc gxx
 ```
+
+On macOS, use the host Apple Clang
+
+On Windows, use the host MSVC
+
+macOS (Apple Clang via Xcode):
+
+```bash
+xcode-select --install
+```
+
+Windows:
+
+- Install Visual Studio 2022 with the C++ desktop workload.
+- Run builds from an x64 MSVC developer shell.
+
+
+
+### VS Code CMake Tools
+
+The VS Code CMake Tools extension does not source shell profiles and cannot
+inherit `conda activate`.  Its compiler-probing step runs in a minimal
+environment where only the system compiler is visible, so it will pick up the
+wrong GCC on Linux even when `CONDA_PREFIX` is set in the preset.
+
+On **Linux**, create a `.vscode/settings.json` that pins the compiler,
+build tool, and proxy settings so the entire build sees the same conda prefix:
+
+```json
+{
+  "cmake.cmakePath": "/path/to/env/bin/cmake",
+  "cmake.configureArgs": [
+    "-DCMAKE_MAKE_PROGRAM=/path/to/env/bin/ninja",
+    "-DCMAKE_C_COMPILER=/path/to/env/bin/gcc",
+    "-DCMAKE_CXX_COMPILER=/path/to/env/bin/g++"
+  ],
+  "cmake.configureEnvironment": {
+    "http_proxy": "http://127.0.0.1:7890",
+    "https_proxy": "http://127.0.0.1:7890"
+  },
+  "cmake.buildEnvironment": {
+    "http_proxy": "http://127.0.0.1:7890",
+    "https_proxy": "http://127.0.0.1:7890"
+  }
+}
+```
+
+Replace `/path/to/env` with the actual conda environment prefix.  On macOS
+and Windows this is unnecessary — the host compiler and runtime are the single
+ABI source for those platforms (see the toolchain policy above).
+
+After creating the file, run **Developer: Reload Window** for the settings to
+take effect.
+
+### Create the conda environment
+
+Build tools, C++ libraries, and the conda-side Python packages are declared in
+`environment.yml`; pip-managed Python dependencies for the default `pypgo`
+flavor are installed by the editable build step below. Create the `libpgo`
+environment with a single command:
+
+```bash
+conda env create -f environment.yml
+conda activate libpgo
+```
+
+To update an existing environment after pulling changes:
+
+```bash
+conda env update -f environment.yml --prune
+```
+
+Note: `--prune` only reconciles the conda packages listed in `environment.yml`;
+it does not touch the editable `pypgo` install or its pip-sourced deps (`torch`,
+`pyvista`, the `trame` stack, ...), which come from the build step below. After
+changing those, re-run the editable install. For a clean slate, recreate the
+environment from scratch using the block below.
+
+To recreate the environment from scratch:
+
+```bash
+conda deactivate
+conda env remove -n libpgo -y
+conda env create -f environment.yml
+conda activate libpgo
+```
+
+**MKL (Linux / Windows only):** MKL is unavailable on Apple Silicon, so the
+default `environment.yml` is an OpenBLAS stack (its BLAS interface is pinned to
+the `*openblas` variant). Linux/Windows users who want an MKL build should use
+the dedicated environment file, which pins the entire stack to MKL:
+
+```bash
+conda env create -f environment-mkl.yml
+conda activate libpgo-mkl
+```
+
+To switch an existing `libpgo` env to MKL instead of recreating:
+
+```bash
+conda install -n libpgo -c conda-forge mkl-devel "libblas=*=*mkl" "liblapack=*=*mkl"
+```
+
+Either way, numpy's BLAS is routed through MKL too — the same backend as the
+C++ extension (`BLA_VENDOR=Intel10_64lp` / `EIGEN_USE_MKL_ALL` / Pardiso),
+avoiding two BLAS in one process.
+
+`mamba` can be used as an optional accelerator only when it belongs to the same
+conda installation that owns the `libpgo` environment. Avoid mixing a
+Homebrew/micromamba `mamba` with a Miniconda environment, because that can
+create another `libpgo` under a different prefix.
+
+### Python Package Build
+
+The Python package is installed in editable mode with pip inside the active
+conda environment. Keep NumPy and the BLAS/LAPACK runtime on conda for both
+the default OpenBLAS flavor (`pypgo`) and the MKL flavor (`pypgo-mkl`), and
+install the Python package without pip dependency resolution:
+
+```bash
+conda activate libpgo
+python -m pip install -e . --no-build-isolation --no-deps
+```
+
+For the MKL flavor:
+
+```bash
+conda activate libpgo-mkl
+PYPGO_PACKAGE_NAME=pypgo-mkl \
+PYPGO_CMAKE_PRESET=pypgo-mkl-ci \
+python -m pip install -e . --no-build-isolation --no-deps
+```
+
+Install the optional Python packages you need after activating either
+environment:
+
+```bash
+# Visualization
+python -m pip install pyvista trame trame-vtk trame-vuetify
+
+# PyTorch-based FEM layers
+python -m pip install torch
+
+# Tests and notebooks
+python -m pip install pytest pytest-timeout notebook
+```
+
+In an MKL environment, keep an eye out for MKL/OpenMP runtime clashes from
+third-party wheels, especially the pip `torch` wheel.
+
+For Python API development, rebuild the native `_core` extension in place after
+changing C++ bindings or native mesh code:
+
+```bash
+python setup.py build_ext --inplace
+```
+
+This command uses the `pypgo` CMake preset and writes the extension back
+into `pypgo/`, where the editable package imports it. By default it uses the
+detected CPU count for the native build; pass `-j N` if you want to override
+the number of parallel build jobs.
+
+For conda package builds, select the conda-oriented CMake presets explicitly:
+
+```bash
+PYPGO_CMAKE_PRESET=pypgo-ci python -m pip install . --no-build-isolation --no-deps -v
+```
+
+The matching CI/local dependency file is `.github/conda/pypgo-conda.yml`.
+
+Use `pypgo-mkl-ci` for an MKL-enabled package on platforms where MKL is
+available:
+
+```bash
+PYPGO_CMAKE_PRESET=pypgo-mkl-ci python -m pip install . --no-build-isolation --no-deps -v
+```
+
+The MKL dependency file is `.github/conda/pypgo-conda-mkl.yml`.
+
+### Conda Package Release
+
+The release workflow is `.github/workflows/conda-release.yml`. It builds conda
+packages from `conda-recipe/` on tag pushes and manual dispatches:
+
+- `pypgo`: Linux, macOS Apple Silicon, and Windows.
+- `pypgo-mkl`: Linux and Windows only. macOS does not publish an MKL variant.
+
+Install either `pypgo` or `pypgo-mkl` in one environment, not both. The two
+conda packages expose the same Python package name and are marked mutually
+exclusive in the recipe.
+
+Neither conda package depends on `pytorch`. The `pypgo.fem` torch layers are
+optional and imported lazily, so install `torch` from pip only if you need them
+(`python -m pip install torch`). The regular `pypgo` package uses the OpenBLAS
+BLAS/LAPACK stack; `pypgo-mkl` uses the MKL stack. If you use `pypgo-mkl`
+together with a pip `torch` wheel and hit an MKL/OpenMP runtime clash (e.g.
+`OMP: Error #15`), install a conda MKL build of torch or set
+`KMP_DUPLICATE_LIB_OK=TRUE`.
+
+The same recipe is parameterized by CI environment variables:
+
+| Package | CMake preset | MKL |
+| --- | --- | --- |
+| `pypgo` | `pypgo-ci` | Off |
+| `pypgo-mkl` | `pypgo-mkl-ci` | On |
+
+To test the conda recipe locally:
+
+```bash
+conda activate libpgo
+conda install -y conda-build anaconda-client
+PYPGO_CONDA_PACKAGE=pypgo \
+PYPGO_CMAKE_PRESET=pypgo-ci \
+PYPGO_WITH_MKL=0 \
+conda build conda-recipe --output-folder conda-bld --no-anaconda-upload
+```
+
+For the MKL package on Linux or Windows:
+
+```bash
+PYPGO_CONDA_PACKAGE=pypgo-mkl \
+PYPGO_CMAKE_PRESET=pypgo-mkl-ci \
+PYPGO_WITH_MKL=1 \
+conda build conda-recipe --output-folder conda-bld --no-anaconda-upload
+```
+
+Every release build uploads the `.conda` packages as GitHub Actions artifacts.
+To publish them to Anaconda.org, configure these repository settings:
+
+- Secret `ANACONDA_API_TOKEN`: an Anaconda.org API token with upload access.
+- Variable `ANACONDA_USER`: the Anaconda.org account or organization name.
+
+Pushing a tag such as `v0.0.4` builds and uploads to the `main` label. Manual
+workflow runs can build artifacts without upload, or upload to a selected label
+such as `dev`.
+
+### Native CMake Build
+
+Native builds are CMake-preset driven. The default native build uses the `base`
+preset:
+
+```bash
+conda activate libpgo
+cmake --preset base
+cmake --build --preset base
+ctest --test-dir build/base --output-on-failure
+```
+
+On Windows, add `-G Ninja` to the configure step:
+
+```powershell
+cmake --preset base -G Ninja
+cmake --build --preset base
+ctest --test-dir build/base --output-on-failure
+```
+
+The `base` preset enables MKL, Alembic, Gmsh, TetWild, OpenVDB, the Python
+binding, and the C API. On macOS, CMake automatically forces `PGO_USE_MKL=OFF`
+and `PGO_ENABLE_CUDA=OFF`.
+
+Other shared presets are available for debug, CUDA, Knitro, and Pardiso builds:
+
+| Configure preset | Binary directory | Purpose |
+| --- | --- | --- |
+| `base` | `build/base` | Default release build. |
+| `pypgo` | `build/pypgo` | Lightweight preset for Python-first native bindings. |
+| `pypgo-ci` | `build/pypgo-ci` | CI/package build for Python bindings, with portable CPU flags and MKL disabled. |
+| `pypgo-mkl-ci` | `build/pypgo-mkl-ci` | CI/package build for Python bindings with MKL enabled. |
+| `base_debug` | `build/base_debug` | Debug build. |
+| `base_relwithdebinfo` | `build/base_relwithdebinfo` | Release build with debug info. |
+| `base_cuda` | `build/base_cuda` | `base` plus CUDA. |
+| `base_cuda_debug` | `build/base_cuda_debug` | Debug CUDA build. |
+| `base_cuda_relwithdebinfo` | `build/base_cuda_relwithdebinfo` | Release CUDA build with debug info. |
+| `base_knitro` | `build/base_knitro` | `base` plus Knitro. |
+| `base_knitro_cuda` | `build/base_knitro_cuda` | Knitro plus CUDA. |
+| `all` | `build/all` | `base` plus Knitro, Pardiso, and CUDA. |
+| `all_debug` | `build/all_debug` | Debug version of `all`. |
+| `all_relwithdebinfo` | `build/all_relwithdebinfo` | Release version of `all` with debug info. |
+
+Use the `*_relwithdebinfo` presets when you want optimized binaries that still
+carry symbols for profiling or debugging:
+
+```bash
+cmake --preset base_relwithdebinfo
+cmake --build --preset base_relwithdebinfo
+```
+
+Machine-specific SDK paths belong in untracked `CMakeUserPresets.json`, not in
+the shared presets. Use it for local `KNITRO_LIBRARY_HINT`,
+`PARDISO_LIBRARY_HINT`, `cudss_DIR`, or similar paths.
+
+Example `CMakeUserPresets.json` (local, optional):
+
+<details>
+<summary>Click to expand example</summary>
+
+```json
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "local-base",
+            "displayName": "Local base",
+            "description": "Local IDE profile inheriting the shared base preset.",
+            "inherits": "base",
+            "environment": {
+                "CONDA_PREFIX": "/Users/jinceyang/miniconda3/envs/libpgo"
+            }
+        },
+        {
+            "name": "local-base-debug",
+            "displayName": "Local base debug",
+            "description": "Local IDE profile inheriting the shared base_debug preset.",
+            "inherits": "base_debug",
+            "environment": {
+                "CONDA_PREFIX": "/Users/jinceyang/miniconda3/envs/libpgo"
+            }
+        },
+        {
+            "name": "local-all",
+            "displayName": "Local all",
+            "description": "Local IDE profile inheriting all with local Knitro/Pardiso hints.",
+            "inherits": "all",
+            "environment": {
+                "CONDA_PREFIX": "/Users/jinceyang/miniconda3/envs/libpgo"
+            },
+            "cacheVariables": {
+                "KNITRO_LIBRARY_HINT": "/opt/artelys/knitro-15.0.1-Linux64",
+                "PARDISO_LIBRARY_HINT": "/opt/panua-pardiso-20240229-linux"
+            }
+        },
+        {
+            "name": "local-base-cuda",
+            "displayName": "Local base CUDA",
+            "description": "Local IDE profile inheriting base_cuda with local cuDSS hint.",
+            "inherits": "base_cuda",
+            "environment": {
+                "CONDA_PREFIX": "/Users/jinceyang/miniconda3/envs/libpgo"
+            },
+            "cacheVariables": {
+                "cudss_DIR": "C:/Program Files/NVIDIA cuDSS/v0.7/lib/13/cmake/cudss"
+            }
+        },
+        {
+            "name": "local-pypgo",
+            "displayName": "Local pypgo",
+            "description": "Local IDE profile inheriting pypgo with conda env.",
+            "inherits": "pypgo",
+            "environment": {
+                "CONDA_PREFIX": "/Users/jinceyang/miniconda3/envs/libpgo"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "local-pypgo",
+            "displayName": "Local pypgo",
+            "configurePreset": "local-pypgo",
+            "targets": ["pypgo_core"],
+            "jobs": 32
+        },
+        {
+            "name": "local-base",
+            "configurePreset": "local-base",
+            "jobs": 32
+        },
+        {
+            "name": "local-base-debug",
+            "configurePreset": "local-base-debug",
+            "jobs": 32
+        },
+        {
+            "name": "local-all",
+            "configurePreset": "local-all",
+            "jobs": 32
+        },
+        {
+            "name": "local-base-cuda",
+            "configurePreset": "local-base-cuda",
+            "jobs": 32
+        }
+    ]
+}
+```
+
+```json
+
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "local-all",
+      "displayName": "Server local all",
+      "inherits": "all",
+      "environment": {
+        "CONDA_PREFIX": "/mnt/data02/jcy/miniforge3-libpgo/envs/libpgo",
+        "PATH": "/mnt/data02/jcy/miniforge3-libpgo/envs/libpgo/bin:$penv{PATH}",
+        "LD_LIBRARY_PATH": "/opt/panua-pardiso-20240229-linux/lib:/opt/artelys/knitro-15.0.1-Linux64/lib:$penv{LD_LIBRARY_PATH}"
+      },
+      "cacheVariables": {
+        "PGO_ENABLE_CUDA": "ON",
+        "PGO_USE_MKL": "ON",
+        "PGO_HAS_ORIG_PARDISO": "OFF",
+        "PARDISO_LIBRARY_HINT": "/opt/panua-pardiso-20240229-linux",
+        "KNITRO_LIBRARY_HINT": "/opt/artelys/knitro-15.0.1-Linux64",
+        "PGO_ENABLE_OPENVDB": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "local-all",
+      "configurePreset": "local-all",
+      "jobs": 32
+    }
+  ]
+}
+```
+
+</details>
+
+
+
+### Dependency Ownership
+
+- Conda supplies CMake, Ninja, and the native runtime/build packages for local
+  source builds and conda packages: Boost, MKL, TBB, Gmsh, OpenVDB, Imath,
+  zlib, setuptools, and wheel. In conda environments, `numpy` stays on conda so
+  it shares the same BLAS backend as the native extension.
+- CI wheel artifacts follow the same ownership model: both `pypgo` and
+  `pypgo-mkl` expect conda to supply NumPy and the BLAS/LAPACK/OpenMP runtime.
+  Install artifact wheels with `--no-deps`.
+- Pip supplies only optional pure-Python / pip-first packages that are not
+  build-time native deps. `setup.py` keeps extras for convenience, but the base
+  package itself declares no pip dependencies. Add optional pip packages
+  explicitly:
+  `torch` (official macOS arm64 wheel, with MPS; replaces conda `pytorch`),
+  `pyvista` (pulls its own `vtk` wheel — conda `vtk-base` is intentionally not
+  installed, to avoid a duplicate `vtkmodules` import path), `pytest`,
+  `notebook`, and the `trame` / `trame-vtk` / `trame-vuetify` stack
+  (conda-forge lags their releases).
+- The host package manager supplies platform basics that are awkward to keep
+  fully inside conda, such as macOS Homebrew GMP/MPFR/Imath.
+- FetchContent-managed C++ dependencies are downloaded and built by this
+  repository: Eigen, fmt, spdlog, nlohmann_json, SuiteSparse, Ceres, CGAL,
+  geogram, libigl, Alembic, nanobind, and related internal dependencies.
+
+---
 
 ## Usage & Test
 
-We provide three python scripts to test the installation.
+The repository is Python-first for runnable workflows. C++ command-line tools
+have been removed; C++ remains the numerical kernel and Python bindings expose
+the user-facing API.
 
-1. `pgo_test_01.py`. It runs a few basic pgo APIs.
-
-    ```bash
-        cd examples
-        python ../src/python/pypgo/pgo_test_01.py
-    ```
-
-    The expected result will look like
-
-    ```text
-    Opening file torus.veg.
-    #vtx:564
-    #tets:1950
-    164,134,506,563
-    L Info:
-    10067040
-    (10067040,)
-    (10067040,)
-    125.0
-    GTLTLG Info:
-    503400
-    (503400,)
-    (503400,)
-    9695578.0
-    [[  6.958279    0.          0.        -17.495821    0.          0.
-       13.10052     0.          0.         -2.5629783   0.          0.       ]
-     [  0.          6.958279    0.          0.        -17.495821    0.
-        0.         13.10052     0.          0.         -2.5629783   0.       ]
-     [  0.          0.          6.958279    0.          0.        -17.495821
-        0.          0.         13.10052     0.          0.         -2.5629783]
-     [ -5.1109824   0.          0.         10.111505    0.          0.
-        8.160282    0.          0.        -13.160804    0.          0.       ]
-     [  0.         -5.1109824   0.          0.         10.111505    0.
-        0.          8.160282    0.          0.        -13.160804    0.       ]
-     [  0.          0.         -5.1109824   0.          0.         10.111505
-        0.          0.          8.160282    0.          0.        -13.160804 ]
-     [ 23.97409     0.          0.         -6.634346    0.          0.
-       -1.4866991   0.          0.        -15.853046    0.          0.       ]
-     [  0.         23.97409     0.          0.         -6.634346    0.
-        0.         -1.4866991   0.          0.        -15.853046    0.       ]
-     [  0.          0.         23.97409     0.          0.         -6.634346
-        0.          0.         -1.4866991   0.          0.        -15.853046 ]]
-    ```
-
-2. `pgo_run_sim.py`. It reads input config file and run simulation. You can try `box`, `box-with-sphere`, `dragon`, and `dragon-dyn` to test different simulation results. Take the box example for illustration. You can run the box example using the following commands.
-   
-    ```bash
-        cd examples/box
-        python ../../src/python/pypgo/pgo_run_sim.py box.json
-    ```
-
-    The expected result will look like the first image. The time integrator is hard-coded as implicit backward Euler (BE). You are free to change it to implicit Newmark (NW) or TR-BDF2 integrator (not support friction).
-    <table style="width: 100%; table-layout: fixed; border-collapse: collapse;">
-        <tr>
-            <th style="width: 50%;text-align:center; border-top: 1px solid #ddd;">Box (NM)</th>
-            <th style="width: 50%;text-align:center; border-top: 1px solid #ddd;">Box with Sphere (NM)</th>
-        </tr>
-        <tr>
-            <td style="text-align: center; border-bottom: 1px solid #ddd;"><img src="./examples/box/box.gif" alt="box"></td>
-            <td style="text-align: center; border-bottom: 1px solid #ddd;"><img src="./examples/box-with-sphere/box-with-sphere.gif" alt="box with sphere"></td>
-        </tr>
-        <tr>
-            <th style="width: 50%;text-align:center;">Dragon (BE)</th>
-            <th style="width: 50%;text-align:center;">Bunny (BE)</th>
-        </tr>
-        <tr>
-            <td style="text-align: center; border-bottom: 1px solid #ddd;"><img src="./examples/dragon-dyn/dragon-dyn.gif" alt="dragon"></td>
-            <td style="text-align: center; border-bottom: 1px solid #ddd;"><img src="./examples/bunny/bunny.gif" alt="bunny"></td>
-        </tr>
-        <tr>
-            <th style="width: 50%;text-align:center;">Rest Dragon</th>
-            <th style="width: 50%;text-align:center;">Deformed Dragon</th>           
-        </tr>
-        <tr>
-            <td style="text-align: center; border-bottom: 1px solid #ddd;"><img src="./examples/dragon/dragon-rest.png" alt="dragon rest shape"></td>
-            <td style="text-align: center; border-bottom: 1px solid #ddd;"><img src="./examples/dragon/dragon-deformed.png" alt="dragon deformed shape"></td>
-        </tr>
-    </table>
-
-3. `pgo_dump_abc.py`. It creates the abc file that can be used for blender/maya from config file `anim.json`. Essentially, it takes the simulation output `.obj` sequences and output a `.abc` file.
-
-    ```bash
-        cd examples/box
-        python ../../src/python/pypgo/pgo_dump_abc.py anim.json ./
-    ```
----
-
-## Setup without Python (Optional)
-
-If you want to use the library with your C++ code or modify the source code, you may build it without python.
-
-### Windows & Ubuntu
-
-To compile the lib with a basic functionality,
+Build the Python extension and core tests:
 
 ```bash
-    cd libpgo
-    mkdir build
-    cd build
-    cmake ..
+cmake --preset base -DPGO_ENABLE_PYTHON=ON
+cmake --build --preset base --target pypgo_core
+python -m pytest tests/pypgo
 ```
 
-To enable all functionalities, Install [MKL](https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html). Then,
+Common Python entry points:
 
-```bash
-    cd libpgo
-    mkdir build
-    cd build
-    cmake .. -DPGO_USE_MKL=1 -DPGO_ENABLE_FULL=1
-```
+- `pypgo.tools.sim`: high-level simulation builders and dynamic runners
+- `pypgo.fem`: formulation-aware FEM energy, mass, body force, and embedding helpers
+- `pypgo.contact`: IPC, floor, and sampled-penalty contact energies
+- `pypgo.sim`: dynamic stepping
+- `pypgo.tools.mesh`: mesh quality, cubic meshing, tet meshing, and remeshing wrappers
+- `pypgo.animation`: animation loading and Alembic/VDB export
+- `pypgo.tools.stress`: stress-field statistics
 
-> On Windows, a few extra steps are need before running the above commands. First, the library should be configured in "x64 Native Tools Command Prompt for VS 2022". In addition, before running the commands above, run `c:\Program Files (x86)\Intel\oneAPI\setvars.bat` to setup the environments for MKL, where `c:\Program Files (x86)\Intel\oneAPI` is the path to the oneAPI installation. Once setup, run above commands.
-
-> On Ubuntu, a similar procedure is needed. Before configuring the library, run `bash /opt/intel/oneapi/setvars.sh` to setup the MKL environments for the subsequent cmake configuration.
-
-### Mac OS
-
-To have a basic functionality, use CMake to compile it like on Windows & Ubuntu.
-
-To enable all functionalities,
-
-```bash
-    cd libpgo
-    mkdir build
-    cd build
-    cmake .. -DPGO_ENABLE_FULL=1 -DDPGO_ENABLE_ALEMBIC=1 -DPGO_ENABLE_GMSH=1
-```
-The last two flags work only if you have imath and gmesh libs.
-
----
+For runnable simulation scenes (tet/cubic/shell, static/dynamic, IPC and
+penalty contact), see [`examples/sim_configs/README.md`](./examples/sim_configs/README.md)
+and the `pypgo-sim-*` CLI family.
 
 ## Third-party libraries
 
 This library use the following third-party libraries:<br>
-alembic, argparse, autodiff, boost, ceres, cgal, fmt, geogram, gmesh, json, knitro, libigl, mkl, pybind11, spdlog, suitesparse, tbb, tinyobj-loader
+alembic, argparse, autodiff, boost, ceres, cgal, fmt, geogram, gmesh, json, knitro, libigl, mkl, spdlog, suitesparse, tbb, tinyobj-loader
 
 ---
 

@@ -1,0 +1,52 @@
+{
+  "type": "tet",
+  "mesh": {
+    "volume": "../assets/veg/tet/dragon.veg",
+    "surface": "../assets/obj/dragon.obj"
+  },
+  "material": {
+    "model": "stable_neo",
+    "enable_material_max_step": false
+  },
+  "loads": {
+    "gravity": [
+      0.0,
+      -9.81,
+      0.0
+    ]
+  },
+  "initial_state": {
+    "displacement": [
+      0.0,
+      0.5,
+      0.0
+    ]
+  },
+  "contact": [
+    {
+      "model": "ipc",
+      "dhat": 0.002,
+      "dhat_external": 0.005,
+      "kappa": 3000.0,
+      "obstacles": [
+        {
+          "mesh": "../assets/obj/bottom.obj"
+        }
+      ]
+    }
+  ],
+  "solver": {
+    "max_iterations": 200,
+    "gradient_tolerance": 0.0001
+  },
+  "dynamic": {
+    "timestep": 0.001,
+    "num_steps": 4000
+  },
+  "output": {
+    "directory": "../outputs/sim/tet-dynamic-dragon-ipc",
+    "write_surfaces": true,
+    "dump_interval": 10,
+    "write_abc": true
+  }
+}

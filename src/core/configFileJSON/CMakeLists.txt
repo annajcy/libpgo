@@ -1,11 +1,6 @@
 set(CONFIGFILEJSON_DEPS pgoLogging nlohmann_json::nlohmann_json)
 
-foreach (tgt ${CONFIGFILEJSON_DEPS})
-  if (NOT TARGET ${tgt})
-    message(STATUS "configFileJSON is not included. Missing: ${tgt}")
-    return()
-  endif()
-endforeach()
+pgo_require_targets(configFileJSON TARGETS ${CONFIGFILEJSON_DEPS})
 
 add_libpgo_lib(configFileJSON configFileJSON.cpp configFileJSON.h)
 

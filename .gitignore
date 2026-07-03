@@ -5,7 +5,7 @@
 *.slo
 *.lo
 *.o
-*.obj
+# *.obj
 
 # Precompiled Headers
 *.gch
@@ -15,6 +15,12 @@
 *.so
 *.dylib
 *.dll
+!third-party/gmp-msvc/debug/gmp-10.dll
+!third-party/gmp-msvc/debug/gmpxx-4.dll
+!third-party/gmp-msvc/release/gmp-10.dll
+!third-party/gmp-msvc/release/gmpxx-4.dll
+!third-party/mpfr-msvc/debug/mpfr-6.dll
+!third-party/mpfr-msvc/release/mpfr-6.dll
 
 # Fortran module files
 *.mod
@@ -25,6 +31,12 @@
 *.la
 *.a
 *.lib
+!third-party/gmp-msvc/debug/gmp.lib
+!third-party/gmp-msvc/debug/gmpxx.lib
+!third-party/gmp-msvc/release/gmp.lib
+!third-party/gmp-msvc/release/gmpxx.lib
+!third-party/mpfr-msvc/debug/mpfr.lib
+!third-party/mpfr-msvc/release/mpfr.lib
 
 # Executables
 *.exe
@@ -37,14 +49,59 @@ _skbuild
 
 .DS_Store
 .vscode/*
-.clang-format
+CMakeUserPresets.json
+compile_commands.json
 
 *.pyd
 *.pyc
 __pycache__/
 
-projects
 build-test
 
-*.obj
+# *.obj
 *.png
+
+*.u
+
+build*
+
+.cache/
+.mypy_cache/
+
+fv.obj
+ret*
+
+paper/*
+*.pdf
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.nav
+*.out
+*.run.xml
+*.snm
+*.synctex.gz
+*.toc
+*.xdv
+*.log
+*.abc
+
+*_output
+*.avi
+.VSCodeCounter
+.claude.worktrees/
+.worktrees/
+
+.antigravitycli
+dist/
+
+pypgo/examples/outputs
+examples/outputs
+examples/scripts/tricubic-hermit-static-compare/assets/obj/*-conservative-r15-surface.obj
+examples/scripts/tricubic-hermit-static-compare/assets/veg/cubic/*.veg
+examples/scripts/tricubic-hermit-static-compare/assets/veg/tet/*.veg
+examples/scripts/tricubic-hermit-dynamic-compare/assets/veg/cubic/*.veg
+examples/scripts/tricubic-hermit-dynamic-compare/assets/veg/tet/*.veg

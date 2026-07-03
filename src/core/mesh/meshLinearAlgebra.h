@@ -13,6 +13,9 @@ using Vec4d = EigenSupport::V4d;
 using Vec2i = EigenSupport::V2i;
 using Vec3i = EigenSupport::V3i;
 using Vec4i = EigenSupport::V4i;
+using Vec8i = EigenSupport::V8i;
+
+using Vec8d = EigenSupport::V8d;
 
 using Mat3d = EigenSupport::M3d;
 using Mat4d = EigenSupport::M4d;
@@ -20,10 +23,12 @@ using Mat4d = EigenSupport::M4d;
 static_assert(sizeof(Vec2d) == sizeof(double) * 2, "Size problem");
 static_assert(sizeof(Vec3d) == sizeof(double) * 3, "Size problem");
 static_assert(sizeof(Vec4d) == sizeof(double) * 4, "Size problem");
+static_assert(sizeof(Vec8d) == sizeof(double) * 8, "Size problem");
 
 static_assert(sizeof(Vec2i) == sizeof(int) * 2, "Size problem");
 static_assert(sizeof(Vec3i) == sizeof(int) * 3, "Size problem");
 static_assert(sizeof(Vec4i) == sizeof(int) * 4, "Size problem");
+static_assert(sizeof(Vec8i) == sizeof(int) * 8, "Size problem");
 
 static_assert(sizeof(Mat3d) == sizeof(double) * 9, "Size problem");
 static_assert(sizeof(Mat4d) == sizeof(double) * 16, "Size problem");

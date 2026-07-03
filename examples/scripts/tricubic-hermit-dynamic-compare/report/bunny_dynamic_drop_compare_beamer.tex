@@ -1,0 +1,290 @@
+\documentclass[aspectratio=169,10pt]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+
+\usepackage{booktabs}
+\usepackage{array}
+
+\definecolor{pgoBlue}{RGB}{37,84,150}
+\definecolor{pgoGreen}{RGB}{54,130,91}
+\definecolor{pgoOrange}{RGB}{191,104,43}
+
+\setbeamercolor{structure}{fg=pgoBlue}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{caption}[numbered]
+
+\newcommand{\case}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\pct}[1]{#1\%}
+\newcommand{\good}[1]{\textcolor{pgoGreen}{#1}}
+\newcommand{\warn}[1]{\textcolor{pgoOrange}{#1}}
+
+\title[Bunny Dynamic FEM]{Bunny Dynamic Drop on a Conservative Cubic Domain}
+\subtitle{Cubic-Linear vs. Refined Cubic-Linear vs. Tricubic Hermite}
+\author{libpgo experiments}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Question}
+  \begin{block}{Main question}
+    During a contact-rich dynamic drop, does tricubic Hermite produce a visible-surface trajectory closer to a same-domain tet-linear numerical reference than cubic-linear FEM?
+  \end{block}
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item Compare original cubic-linear, refined cubic-linear, and cubic-tricubic-Hermite.
+    \item Use a same-domain tet-linear solve as the numerical reference.
+    \item Include \case{cubic_linear_x8} as a comparable-DOF low-order baseline.
+    \item Report accuracy and contact timing only.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Cases}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{llp{0.48\linewidth}}
+      \toprule
+      \normalfont case & formulation & role \\
+      \midrule
+      \case{tet_ref} & tet-linear & same-domain numerical reference \\
+      \case{cubic_linear} & cubic-linear & original r15 low-order cubic baseline \\
+      \case{cubic_linear_x8} & cubic-linear & same domain; each cube split 2x2x2 \\
+      \case{cubic_hermite} & cubic-tricubic-Hermite & high-order method under test \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.5em}
+  \begin{block}{Why include \case{cubic_linear_x8}?}
+    It checks whether the Hermite gain is only a DOF-count effect.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Setup}
+  \small
+  \begin{columns}[T]
+    \begin{column}{0.48\linewidth}
+      \textbf{Dynamic setup}
+      \begin{itemize}
+        \item Stable Neo-Hookean material
+        \item Gravity: $(0, -9.81, 0)$
+        \item Initial velocity: $(0,0,0)$
+        \item Timestep: $0.001$
+        \item Steps: $800$
+        \item Dump interval: $10$
+        \item IPC contact with ground obstacle
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.48\linewidth}
+      \textbf{DOF scale}
+      \begin{table}
+        \centering
+        \begin{tabular}{lr}
+          \toprule
+          case & DOFs \\
+          \midrule
+          \case{tet_ref} & 363,714 \\
+          \case{cubic_linear} & 9,102 \\
+          \case{cubic_linear_x8} & 62,355 \\
+          \case{cubic_hermite} & 72,816 \\
+          \bottomrule
+        \end{tabular}
+      \end{table}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Surface Trajectory Metric}
+  \small
+  Let $S$ be the visible surface vertices, $x_i^0$ the rest position,
+  $x_i^c(t)$ the position for case $c$, and $x_i^{ref}(t)$ the tet-reference
+  position at dumped frame $t$.
+
+  \[
+    u_i^c(t) = x_i^c(t) - x_i^0,
+    \qquad
+    u_i^{ref}(t) = x_i^{ref}(t) - x_i^0
+  \]
+
+  \[
+    E_c(t) =
+    \frac{
+      \sqrt{\sum_{i \in S}\|u_i^c(t)-u_i^{ref}(t)\|_2^2}
+    }{
+      \sqrt{\sum_{i \in S}\|u_i^{ref}(t)\|_2^2}
+    }
+  \]
+
+  \vspace{0.5em}
+  \begin{block}{Interpretation}
+    $E_c(t)$ measures surface displacement trajectory error relative to the
+    same-domain tet reference. It is computed on the original visible bunny
+    surface, not on volume mesh nodes.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Windowed Metrics}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lp{0.62\linewidth}}
+      \toprule
+      window & dumped frames \\
+      \midrule
+      full & $10,20,\ldots,790$ \\
+      pre-contact & $100,110,\ldots,390$ \\
+      post-contact & $410,420,\ldots,790$ \\
+      late & $600,610,\ldots,790$ \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.8em}
+  \begin{itemize}
+    \item \case{tet_ref} reaches the impact threshold at frame 410.
+    \item The late window isolates accumulated post-impact trajectory error.
+    \item Frame 0 is not used as a headline relative-error metric because the
+      reference displacement norm is very small.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Trajectory Accuracy}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{llrrr}
+      \toprule
+      window & statistic & cubic-linear & x8 linear & Hermite \\
+      \midrule
+      full & mean rel L2 & \pct{3.30} & \pct{1.34} & \good{\pct{0.63}} \\
+      full & p95 rel L2 & \pct{10.32} & \pct{2.92} & \good{\pct{1.29}} \\
+      pre & mean rel L2 & \pct{0.19} & \pct{0.13} & \good{\pct{0.12}} \\
+      pre & p95 rel L2 & \pct{0.46} & \pct{0.28} & \good{\pct{0.23}} \\
+      post & mean rel L2 & \pct{4.25} & \pct{1.42} & \good{\pct{0.35}} \\
+      post & p95 rel L2 & \pct{10.32} & \pct{2.74} & \good{\pct{0.93}} \\
+      late & mean rel L2 & \pct{6.33} & \pct{2.06} & \good{\pct{0.53}} \\
+      late & p95 rel L2 & \pct{11.47} & \pct{2.92} & \good{\pct{1.10}} \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.8em}
+  \begin{itemize}
+    \item Full window: dumped frames $10,20,\ldots,790$.
+    \item Refinement removes much of the original cubic-linear error.
+    \item Hermite remains closest to the tet reference at comparable DOF scale.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Before vs. After Contact}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lrrr}
+      \toprule
+      case & pre-contact & post-contact & post/pre \\
+      \midrule
+      \case{cubic_linear} & \pct{0.19} & \pct{4.25} & 22.8x \\
+      \case{cubic_linear_x8} & \pct{0.13} & \pct{1.42} & 10.8x \\
+      \case{cubic_hermite} & \good{\pct{0.12}} & \good{\pct{0.35}} & \good{2.9x} \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.8em}
+  \begin{block}{Main observation}
+    The experiment is primarily testing contact response. Before impact, all
+    cubic methods are close to the tet reference; after impact, the low-order
+    trajectories separate more strongly.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Contact Timing}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lr}
+      \toprule
+      case & impact frame \\
+      \midrule
+      \case{tet_ref} & 410 \\
+      \case{cubic_linear} & \warn{400} \\
+      \case{cubic_linear_x8} & 410 \\
+      \case{cubic_hermite} & 410 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.8em}
+  \begin{itemize}
+    \item The original cubic-linear case reaches the contact threshold one
+      dump interval earlier than the tet reference.
+    \item The refined cubic-linear and Hermite cases match the tet reference
+      impact frame.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Error Reduction}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lr}
+      \toprule
+      comparison & reduction \\
+      \midrule
+      x8 late error vs original cubic-linear & 3.1x lower \\
+      Hermite late error vs x8 cubic-linear & \good{3.9x lower} \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.8em}
+  \begin{itemize}
+    \item \case{cubic_linear_x8} is a strong baseline.
+    \item Hermite still improves over it on post-contact trajectory accuracy.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Limitations}
+  \small
+  \begin{itemize}
+    \item The tet reference is a same-domain numerical baseline, not ground truth.
+    \item Metrics are evaluated only at dumped frames every 10 simulation steps.
+    \item \case{cubic_linear_x8} is comparable-DOF, not exactly equal-DOF.
+    \item The late window is diagnostic: it highlights accumulated post-impact error.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Conclusion}
+  \small
+  \begin{block}{Main result}
+    In the bunny dynamic drop experiment, tricubic Hermite is closer to the
+    same-domain tet-linear reference than both original cubic-linear and
+    2x2x2 refined cubic-linear, especially after contact.
+  \end{block}
+
+  \vspace{0.7em}
+  \begin{itemize}
+    \item Post-contact mean rel L2: \pct{4.25} $\rightarrow$ \pct{1.42} $\rightarrow$ \good{\pct{0.35}}.
+    \item Late mean rel L2: \pct{6.33} $\rightarrow$ \pct{2.06} $\rightarrow$ \good{\pct{0.53}}.
+    \item The advantage is trajectory accuracy under contact.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Reproducibility Pointers}
+  \scriptsize
+  \begin{itemize}
+    \item Report: \texttt{examples/scripts/tricubic-hermit-dynamic-compare/report/bunny\_dynamic\_drop\_compare\_conservative\_r15.md}
+    \item Runner: \texttt{examples/scripts/tricubic-hermit-dynamic-compare/dynamic\_compare.py}
+    \item Output root: \texttt{examples/outputs/bunny-dynamic-drop-compare-conservative-r15}
+    \item Metrics use dumped surfaces: \texttt{<case>/surface/surface0000.obj} through \texttt{surface0790.obj}
+  \end{itemize}
+\end{frame}
+
+\end{document}

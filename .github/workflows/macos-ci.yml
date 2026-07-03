@@ -1,0 +1,209 @@
+name: macOS CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - original/*
+      - codex/*
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-build-and-test:
+    name: Python Build and Test (${{ matrix.label }})
+    runs-on: macos-15
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: openblas
+            label: OpenBLAS
+            environment_file: environment.yml
+            conda_env: libpgo
+            cmake_preset: pypgo-ci
+            cmake_parallel: "3"
+            wheel_package: pypgo
+            wheel_dist: pypgo
+
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Miniforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-variant: Miniforge3
+          miniforge-version: latest
+          environment-file: ${{ matrix.environment_file }}
+          activate-environment: ${{ matrix.conda_env }}
+          auto-activate-base: false
+          channels: conda-forge
+          channel-priority: strict
+
+      - name: Select pthreads OpenBLAS for OpenBLAS wheel
+        run: |
+          conda install -y \
+            "libblas=*=*openblas" \
+            "liblapack=*=*openblas" \
+            "openblas=*=*pthreads*" \
+            "libopenblas=*=*pthreads*"
+
+      - name: Build Python wheel
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
+          # Build the wheel with the preset that ships as a conda package (native
+          # opt off) instead of the default `pypgo` preset (-march=native).
+          PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
+          PYPGO_PACKAGE_NAME: ${{ matrix.wheel_package }}
+          PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
+        run: |
+          shopt -s nullglob
+          rm -rf dist
+          python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
+          wheel=(dist/${PYPGO_WHEEL_DIST}-*.whl)
+          if (( ${#wheel[@]} != 1 )); then
+            printf 'Expected exactly one %s wheel, found %s.\n' "${PYPGO_WHEEL_DIST}" "${#wheel[@]}"
+            printf '%s\n' "${wheel[@]}"
+            exit 1
+          fi
+
+      - name: Repair Python wheel
+        env:
+          PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
+          PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
+        run: |
+          shopt -s nullglob
+          export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+          python -m pip install delocate
+          rm -rf wheelhouse
+          delocate-wheel -v -w wheelhouse \
+            -e libopenblas \
+            -e libblas \
+            -e liblapack \
+            -e libiomp \
+            -e libomp \
+            -e libgomp \
+            dist/${PYPGO_WHEEL_DIST}-*.whl
+          delocate-listdeps --all wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+          wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
+          if (( ${#wheel[@]} != 1 )); then
+            printf 'Expected exactly one repaired %s wheel, found %s.\n' "${PYPGO_WHEEL_DIST}" "${#wheel[@]}"
+            printf '%s\n' "${wheel[@]}"
+            exit 1
+          fi
+          python - "${wheel[0]}" <<'PY'
+          import sys
+          import zipfile
+
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              names = [name.lower() for name in archive.namelist() if ".dylibs/" in name]
+          forbidden = ("openblas", "libblas", "liblapack", "libiomp", "libomp", "libgomp")
+          vendored = [
+              name
+              for name in names
+              if any(token in name for token in forbidden)
+          ]
+          if vendored:
+              print("Repaired pypgo wheel unexpectedly vendors BLAS/LAPACK/OpenMP runtime libraries:")
+              for name in vendored:
+                  print(f"  {name}")
+              raise SystemExit(1)
+          print("OK: pypgo wheel relies on the conda-provided BLAS/LAPACK/OpenMP runtime.")
+          PY
+
+      - name: Upload Python wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypgo-wheel-macos-${{ matrix.variant }}
+          path: wheelhouse/${{ matrix.wheel_dist }}-*.whl
+          if-no-files-found: error
+
+      - name: Verify repaired wheel in minimal environment
+        env:
+          PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
+        run: |
+          shopt -s nullglob
+          clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
+          conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"
+          conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+          tmpdir="$(mktemp -d)"
+          cd "${tmpdir}"
+          conda run -p "${clean_env}" python - <<'PY'
+          from pathlib import Path
+          import os
+
+          import pypgo
+          import pypgo._core as core
+          import pypgo.energy
+          import pypgo.mesh
+          import pypgo.solver
+
+          package_file = Path(pypgo.__file__).resolve()
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          assert workspace not in package_file.parents, package_file
+          info = core.build_info()
+          assert info["module"] == "pypgo._core"
+          print(f"pypgo wheel import OK from {package_file}")
+          PY
+          conda run -p "${clean_env}" python "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
+
+  cmake-build:
+    name: CMake Preset Build and Test
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Miniforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-variant: Miniforge3
+          miniforge-version: latest
+          environment-file: environment.yml
+          activate-environment: libpgo
+          auto-activate-base: false
+          channels: conda-forge
+          channel-priority: strict
+
+      - name: Configure with preset base
+        run: cmake --preset base
+
+      - name: Build with preset base
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: 3
+        run: cmake --build --preset base
+
+      - name: Run CTest
+        run: ctest --test-dir build/base --output-on-failure
+
+      - name: Install Python test dependencies
+        run: python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify torch
+
+      - name: Run Python API pytest suite
+        env:
+          PYVISTA_OFF_SCREEN: "True"
+        run: |
+          while IFS= read -r -d '' test_file; do
+            case "$(basename "${test_file}")" in
+              test_example_notebooks.py|test_notebook.py)
+                continue
+                ;;
+            esac
+            python -m pytest -q "${test_file}"
+          done < <(find tests/pypgo -maxdepth 1 -name 'test_*.py' -print0 | sort -z)

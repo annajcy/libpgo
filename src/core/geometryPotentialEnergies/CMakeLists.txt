@@ -22,12 +22,7 @@ if(TARGET MKL::MKL)
   list(APPEND GEOMETRY_POTENTIAL_ENERGIES_DEPS MKL::MKL)
 endif()
 
-foreach(tgt ${GEOMETRY_POTENTIAL_ENERGIES_DEPS})
-  if(NOT TARGET ${tgt})
-    message(STATUS "geometryPotentialEnergies is not included. Missing: ${tgt}")
-    return()
-  endif()
-endforeach()
+pgo_require_targets(geometryPotentialEnergies TARGETS ${GEOMETRY_POTENTIAL_ENERGIES_DEPS})
 
 add_libpgo_lib(geometryPotentialEnergies "${GEOMETRY_POTENTIAL_ENERGIES_SOURCES}" "${GEOMETRY_POTENTIAL_ENERGIES_HEADERS}")
 

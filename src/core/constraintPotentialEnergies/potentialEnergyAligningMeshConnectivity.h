@@ -6,7 +6,7 @@ copyright to USC, MIT
 #pragma once
 
 #include "EigenSupport.h"
-#include "potentialEnergy.h"
+#include "energy/potentialEnergy.h"
 
 #include <vector>
 
@@ -29,12 +29,12 @@ public:
 
   virtual ~PotentialEnergyAligningMeshConnectivity() {}
 
-  virtual void createHessian(EigenSupport::SpMatD &h) const final { h = hessianBase; }
+  virtual void hessianAlloc(EigenSupport::SpMatD &h) const final { h = hessianBase; }
   virtual void getDOFs(std::vector<int> &adofs) const final { adofs = allDOFs; }
   virtual int getNumDOFs() const final { return (int)allDOFs.size(); }
 
 protected:
-  const EigenSupport::SpMatD &hessianBase;
+  EigenSupport::SpMatD hessianBase;
   std::vector<int> allDOFs;
 };
 

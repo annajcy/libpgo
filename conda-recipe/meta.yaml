@@ -1,0 +1,122 @@
+{% set package_name = environ.get("PYPGO_CONDA_PACKAGE", "pypgo") %}
+{% set version = environ.get("PYPGO_VERSION", "0.0.4") %}
+{% set with_mkl = environ.get("PYPGO_WITH_MKL", "0") == "1" %}
+
+package:
+  name: {{ package_name|lower }}
+  version: {{ version }}
+
+source:
+  path: ..
+
+build:
+  number: 0
+  script_env:
+    - PYPGO_CMAKE_PRESET
+{% if with_mkl %}
+  skip: true  # [osx]
+{% endif %}
+  script:
+    - export PYPGO_CMAKE_PRESET="${PYPGO_CMAKE_PRESET:-pypgo-ci}"  # [unix]
+    - export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-${CPU_COUNT:-2}}"  # [unix]
+    - rm -rf build/pypgo-ci build/pypgo-mkl-ci  # [unix]
+    - if "%PYPGO_CMAKE_PRESET%"=="" set "PYPGO_CMAKE_PRESET=pypgo-ci"  # [win]
+    - if "%CMAKE_BUILD_PARALLEL_LEVEL%"=="" set "CMAKE_BUILD_PARALLEL_LEVEL=%CPU_COUNT%"  # [win]
+    - if exist build\pypgo-ci rmdir /s /q build\pypgo-ci  # [win]
+    - if exist build\pypgo-mkl-ci rmdir /s /q build\pypgo-mkl-ci  # [win]
+    - {{ PYTHON }} -m pip install . --no-build-isolation --no-deps -v
+    - mkdir -p "${PREFIX}/lib"  # [unix]
+    - find "build/${PYPGO_CMAKE_PRESET}" \( -name 'libgeogram*.dylib' -o -name 'libgeogram*.so*' \) -exec cp -P {} "${PREFIX}/lib/" \;  # [unix]
+    - if not exist "%PREFIX%\Library\bin" mkdir "%PREFIX%\Library\bin"  # [win]
+    - for /r "build\%PYPGO_CMAKE_PRESET%" %%F in (geogram*.dll libgeogram*.dll) do copy /Y "%%F" "%PREFIX%\Library\bin\"  # [win]
+    - if exist third-party\gmp-msvc\release\gmp-10.dll copy /Y third-party\gmp-msvc\release\gmp-10.dll "%PREFIX%\Library\bin\"  # [win]
+    - if exist third-party\gmp-msvc\release\gmpxx-4.dll copy /Y third-party\gmp-msvc\release\gmpxx-4.dll "%PREFIX%\Library\bin\"  # [win]
+    - if exist third-party\mpfr-msvc\release\mpfr-6.dll copy /Y third-party\mpfr-msvc\release\mpfr-6.dll "%PREFIX%\Library\bin\"  # [win]
+    - _core_ext="$(ls "${SP_DIR}"/pypgo/_core*.so | head -n 1)" && test -n "${_core_ext}" && otool -L "${_core_ext}" | tee pypgo-linked-libs.txt  # [osx]
+    - if grep -E '/opt/homebrew|/usr/local' pypgo-linked-libs.txt; then exit 1; fi  # [osx]
+
+requirements:
+  build:
+    - {{ compiler("c") }}
+    - {{ compiler("cxx") }}
+    - cmake >=3.29
+    - ninja
+    - pkg-config
+  host:
+    - python >=3.12,<3.13
+    - pip
+    - setuptools
+    - wheel
+    - cmake >=3.29
+    - ninja
+    - numpy
+    - eigen >=3.4,<4
+    - gmp
+    - mpfr
+    - imath
+    {% if with_mkl %}
+    - libblas * *mkl
+    - liblapack * *mkl
+    - mkl-devel
+    {% else %}
+    - libblas * *openblas
+    - liblapack * *openblas
+    - libopenblas
+    - openblas
+    {% endif %}
+    - libboost-devel
+    - tbb-devel
+    - gmsh
+    - openvdb
+    - zlib
+  run:
+    - python >=3.12,<3.13
+    - numpy
+    - pyvista
+    # pytorch is an optional, pip-installed runtime dependency for the
+    # pypgo.fem torch layers (pip install pypgo[torch]); it is intentionally
+    # not conda-managed. See README for the MKL/OpenMP caveat.
+    - gmp
+    - mpfr
+    - imath
+    {% if with_mkl %}
+    - libblas * *mkl
+    - liblapack * *mkl
+    - mkl-devel
+    {% else %}
+    - libblas * *openblas
+    - liblapack * *openblas
+    - libopenblas
+    {% endif %}
+    - libboost-devel
+    - tbb
+    - gmsh
+    - openvdb
+    - zlib
+  run_constrained:
+    {% if with_mkl %}
+    - pypgo <0
+    {% else %}
+    - pypgo-mkl <0
+    {% endif %}
+
+test:
+  imports:
+    - pypgo
+    - pypgo._core
+  source_files:
+    - tests/conda_smoke_test.py
+  commands:
+    - python -c "import pypgo._core as core; print(core.build_info())"
+    # End-to-end out-of-box check in conda-build's fresh test env. Self-adapts to
+    # the package flavor (verifies the MKL Pardiso backend for pypgo-mkl).
+    - python tests/conda_smoke_test.py
+
+about:
+  home: https://github.com/uncbiag/libpgo
+  license: BSD-3-Clause
+  summary: Python bindings for libpgo physically based simulation and geometry tools.
+
+extra:
+  recipe-maintainers:
+    - BohanWang

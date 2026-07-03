@@ -221,6 +221,8 @@ double NaturalCubicSpline2DWithParameterDerivatives::d2y_dx2(double x, const dou
 
 void NaturalCubicSpline2DWithParameterDerivatives::dy_dparam(double x, const double *yValues, double *dparam) const
 {
+  (void)yValues;
+
   // if x is left outside of the spline
   if (x < xNodeValue[0]) {
     ES::V4d dk_dabcd(0.0, 0.0, 1.0, 0.0);
@@ -261,11 +263,16 @@ void NaturalCubicSpline2DWithParameterDerivatives::dy_dparam(double x, const dou
 
 void NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam2(double x, const double *yValues, double *dparam) const
 {
+  (void)x;
+  (void)yValues;
+
   (ES::Mp<ES::MXd>(dparam, n, n)).setZero();
 }
 
 void NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam_dx(double x, const double *yValues, double *dparam) const
 {
+  (void)yValues;
+
   // if x is left outside of the spline
   if (x < xNodeValue[0]) {
     ES::V4d dk_dabcd(0.0, 0.0, 1.0, 0.0);
@@ -686,7 +693,7 @@ void NaturalCubicSpline2DAsNonlinearConstraints::solveParams(ES::RefVecXd x) con
   ES::SpMatD sys(4 * n, 4 * n);
   sys.setFromTriplets(entries.begin(), entries.end());
 
-  ES::LUSolver solver;
+  Eigen::SparseLU<ES::SpMatD> solver;
   solver.analyzePattern(sys);
   solver.factorize(sys);
 
@@ -962,11 +969,10 @@ void NaturalCubicSpline2DAsNonlinearConstraints::jacobian(ES::ConstRefVecXd x, E
   PGO_ALOG(si == 4 * numPoints - 4);
 }
 
-void NaturalCubicSpline2DAsNonlinearConstraints::hessian(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
+void NaturalCubicSpline2DAsNonlinearConstraints::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
   int si = 0;
   int n = numPoints - 1;
-  std::ptrdiff_t offset = -1;
 
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 

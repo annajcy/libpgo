@@ -32,7 +32,7 @@ TriangleAffineToPositionEnergy::TriangleAffineToPositionEnergy(int totalNumDOFs,
   inputMesh(mesh), originalEnergy(origE)
 {
   buf = std::make_shared<TriangleAffineToPositionEnergyBuf>();
-  originalEnergy->createHessian(buf->hess_orig);
+  originalEnergy->hessianAlloc(buf->hess_orig);
   buf->grad_orig.setZero(originalEnergy->getNumDOFs());
   buf->A_orig.setZero(originalEnergy->getNumDOFs());
 
@@ -136,12 +136,12 @@ void TriangleAffineToPositionEnergy::gradient(pgo::EigenSupport::ConstRefVecXd A
   }
 }
 
-void TriangleAffineToPositionEnergy::hessian(pgo::EigenSupport::ConstRefVecXd A, pgo::EigenSupport::SpMatD &hess) const
+void TriangleAffineToPositionEnergy::hessianInPlace(pgo::EigenSupport::ConstRefVecXd A, pgo::EigenSupport::SpMatD &hess) const
 {
   compute_A_orig(A, buf->A_orig);
 
   std::memset(buf->hess_orig.valuePtr(), 0, sizeof(double) * buf->hess_orig.nonZeros());
-  originalEnergy->hessian(buf->A_orig, buf->hess_orig);
+  originalEnergy->hessianInPlace(buf->A_orig, buf->hess_orig);
 
   if (nRestDOFs == 0) {
     ES::mm(buf->hess_orig, WA, buf->mul_hc, buf->H11C, 0);

@@ -31,6 +31,7 @@
  *************************************************************************/
 
 #include "cubicMesh.h"
+#include "meshData.h"
 
 #include "triple.h"
 #include "pgoLogging.h"
@@ -82,6 +83,42 @@ CubicMesh::CubicMesh(int numVertices, const double *vertices,
   VolumetricMesh(numVertices, vertices, numElements, 8, elements, E, nu, density),
   parallelepipedMode(0)
 {
+  if (numElements > 0)
+    cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();
+  else
+    cubeSize = 0.0;
+
+  SetInverseCubeSize();
+}
+
+CubicMesh::CubicMesh(pgo::Mesh::MeshData<8> &&meshData, double E, double nu, double density):
+  VolumetricMesh(8), parallelepipedMode(0)
+{
+  vertices = std::move(meshData.positions());
+  elements = std::move(meshData.elementsFlat());
+  numVertices = static_cast<int>(vertices.size());
+  numElements = static_cast<int>(elements.size()) / 8;
+  elementMaterial.resize(numElements);
+  setSingleMaterial(E, nu, density);
+
+  if (numElements > 0)
+    cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();
+  else
+    cubeSize = 0.0;
+
+  SetInverseCubeSize();
+}
+
+CubicMesh::CubicMesh(const pgo::Mesh::MeshData<8> &meshData, double E, double nu, double density):
+  VolumetricMesh(8), parallelepipedMode(0)
+{
+  vertices = meshData.positions();
+  elements = meshData.elementsFlat();
+  numVertices = static_cast<int>(vertices.size());
+  numElements = static_cast<int>(elements.size()) / 8;
+  elementMaterial.resize(numElements);
+  setSingleMaterial(E, nu, density);
+
   if (numElements > 0)
     cubeSize = (getVertex(0, 1) - getVertex(0, 0)).norm();
   else

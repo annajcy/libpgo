@@ -1,7 +1,12 @@
 #include "EigenMKLPardisoSupport.h"
 
+#include "EigenSupport.h"
+#include "parallelism/parallelOptions.h"
+
 #include <iostream>
 #include <chrono>
+
+#if !defined(PGO_HAS_ORIG_PARDISO)
 
 using namespace pgo;
 using namespace pgo::EigenSupport;
@@ -47,6 +52,7 @@ EigenMKLPardisoSupport::~EigenMKLPardisoSupport()
   MKL_INT nrhs = 0;
   MKL_INT error = 0;
 
+  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, nullptr, nullptr, nullptr, perm.data(), &nrhs,
     iparm.data(), &msgLvl, nullptr, nullptr, &error);
@@ -80,7 +86,7 @@ void EigenMKLPardisoSupport::setParam()
 
   iparm[0] = 1;                            // Do not use the solver default values (use custom values, provided below)
   iparm[1] = static_cast<MKL_INT>(rtype);  // matrix re-ordering algorithm
-  iparm[2] = 0;                            // unused
+  iparm[2] = 0;                            // Reserved by oneMKL PARDISO.
 
   // use iterative-direct algorithm if requested
   if (directIterative) {
@@ -203,6 +209,7 @@ int EigenMKLPardisoSupport::analyze(const SpMatD &Ain)
     std::cout << "Matrix size: " << n << std::endl;
   }
 
+  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, nullptr, nullptr, &error);
@@ -256,6 +263,7 @@ int EigenMKLPardisoSupport::factorize(const SpMatD &Ain)
   }
 
   // factorize
+  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, nullptr, nullptr, &error);
@@ -308,6 +316,7 @@ int EigenMKLPardisoSupport::solve(const SpMatD &Ain, double *x, double *rhs, int
     Aptr = &Ain;
   }
 
+  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, rhs, x, &error);
@@ -349,6 +358,7 @@ int EigenMKLPardisoSupport::solve(double *x, double *rhs, int nrhs_)
   hclockPt t1 = hclock::now();
 
   const SpMatD *Aptr = &A;
+  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, rhs, x, &error);
@@ -402,6 +412,7 @@ int EigenMKLPardisoSupport::forward(const SpMatD &Ain, double *x, double *rhs, i
     Aptr = &Ain;
   }
 
+  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, rhs, x, &error);
@@ -455,6 +466,7 @@ int EigenMKLPardisoSupport::backward(const SpMatD &Ain, double *x, double *rhs, 
     Aptr = &Ain;
   }
 
+  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, rhs, x, &error);
@@ -502,3 +514,5 @@ std::map<int, std::string> EigenMKLPardisoSupport::errorMessages = {
   { -13, "Interrupted by the(user-defined) mkl_progress function" },
   { -15, "Internal error which can appear for iparm[23] = 10 and iparm[12] = 1. Try switch matching off(set iparm[12] = 0 and rerun.)" },
 };
+
+#endif  // !defined(PGO_HAS_ORIG_PARDISO)

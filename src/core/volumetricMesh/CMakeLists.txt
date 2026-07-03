@@ -6,6 +6,7 @@ set(VOLUMETRIC_MESH_H
   volumetricMeshMooneyRivlinMaterial.h
   volumetricMeshOrthotropicMaterial.h
   volumetricMeshParser.h
+  vegFile.h
   generateMassMatrix.h
   generateSurfaceMesh.h
 )
@@ -17,14 +18,12 @@ set(VOLUMETRIC_MESH_SRC
   volumetricMeshMooneyRivlinMaterial.cpp
   volumetricMeshOrthotropicMaterial.cpp
   volumetricMeshParser.cpp
+  vegFile.cpp
   generateMassMatrix.cpp
   generateSurfaceMesh.cpp
 )
 
-if(NOT TARGET mesh)
-  message(STATUS "volumetricMesh is not included. Missing: mesh")
-  return()
-endif()
+pgo_require_targets(volumetricMesh TARGETS mesh)
 
 if(TARGET Gmsh::Gmsh)
   list(APPEND VOLUMETRIC_MESH_SRC loadMshFile.cpp)
@@ -40,4 +39,5 @@ target_link_libraries(volumetricMesh PUBLIC mesh)
 
 if(TARGET Gmsh::Gmsh)
   target_link_libraries(volumetricMesh PUBLIC Gmsh::Gmsh)
+  target_compile_definitions(volumetricMesh PUBLIC PGO_HAS_GMSH=1)
 endif()

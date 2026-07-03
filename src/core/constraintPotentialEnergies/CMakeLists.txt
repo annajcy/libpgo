@@ -18,12 +18,7 @@ set(CONSTRAINT_POTENTIAL_ENERGIES_SOURCES
 
 set(CONSTRAINT_POTENTIAL_ENERGIES_DEPS nonlinearOptimization mesh)
 
-foreach(tgt ${CONSTRAINT_POTENTIAL_ENERGIES_DEPS})
-  if(NOT TARGET ${tgt})
-    message(STATUS "constraintPotentialEnergies is not included. Missing: ${tgt}")
-    return()
-  endif()
-endforeach()
+pgo_require_targets(constraintPotentialEnergies TARGETS ${CONSTRAINT_POTENTIAL_ENERGIES_DEPS})
 
 add_libpgo_lib(constraintPotentialEnergies "${CONSTRAINT_POTENTIAL_ENERGIES_SOURCES}" "${CONSTRAINT_POTENTIAL_ENERGIES_HEADERS}")
 

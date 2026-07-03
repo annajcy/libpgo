@@ -1,3 +1,6 @@
+-- Unreleased
+  - make pypgo.parallel thread limits process-wide across TBB, Eigen, OpenMP, and supported BLAS runtimes
+
 -- v0.0.3
   - fix various bug in cmake
   - fix bugs about misusage of eigen library

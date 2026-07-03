@@ -34,6 +34,7 @@
 #include "volumetricMeshParser.h"
 #include "geometryQuery.h"
 #include "tetMeshGeo.h"
+#include "meshData.h"
 #include "predicates.h"
 
 namespace pgo
@@ -159,6 +160,28 @@ TetMesh::TetMesh(int numVertices_, const double *vertices_, int numElements_, co
 TetMesh::TetMesh(const std::vector<Vec3d> &vertices, const std::vector<Vec4i> &elements, double E, double nu, double density):
   TetMesh(vertices.size(), (double *)vertices.data(), elements.size(), (int *)elements.data(), E, nu, density)
 {
+}
+
+TetMesh::TetMesh(pgo::Mesh::MeshData<4> &&meshData, double E, double nu, double density):
+  VolumetricMesh(4)
+{
+  vertices = std::move(meshData.positions());
+  elements = std::move(meshData.elementsFlat());
+  numVertices = static_cast<int>(vertices.size());
+  numElements = static_cast<int>(elements.size()) / 4;
+  elementMaterial.resize(numElements);
+  setSingleMaterial(E, nu, density);
+}
+
+TetMesh::TetMesh(const pgo::Mesh::MeshData<4> &meshData, double E, double nu, double density):
+  VolumetricMesh(4)
+{
+  vertices = meshData.positions();
+  elements = meshData.elementsFlat();
+  numVertices = static_cast<int>(vertices.size());
+  numElements = static_cast<int>(elements.size()) / 4;
+  elementMaterial.resize(numElements);
+  setSingleMaterial(E, nu, density);
 }
 
 TetMesh::TetMesh(const TetMesh &source):

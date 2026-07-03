@@ -220,7 +220,7 @@ void SurfaceTriangleDeformation::gradient(EigenSupport::ConstRefVecXd x, EigenSu
 // E = 1/2 (|| S(0) - S(1) ||^2 + ||S - I||^2)
 // E = 1/2 ( (trA)^2 - 4 detA ) + 1/2 ((trA)^2 - 2 detA - 2 trA  + 2)
 // dE/dA = trA * dtrA/dA - 2 d detA / dA
-void SurfaceTriangleDeformation::hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
+void SurfaceTriangleDeformation::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 

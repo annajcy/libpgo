@@ -1,20 +1,144 @@
-set(PGO_PYTHON_SOURCES pypgo CACHE INTERNAL "")
-set(PGO_PYLIST_FILE "${CMAKE_CURRENT_BINARY_DIR}/pypgo_list.cpp" CACHE INTERNAL "")
+find_package(Python 3.12 REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
 
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/pypgo_list.cpp" "")
-
-add_library(pypgo MODULE pypgo.cpp pypgo.h pypgo_main.cpp "${CMAKE_CURRENT_BINARY_DIR}/pypgo_list.cpp")
-target_include_directories(pypgo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(pypgo PRIVATE pybind11::module pybind11::lto pybind11::windows_extras)
-target_link_libraries(pypgo PRIVATE pgo_c_static)
-target_compile_definitions(pypgo PRIVATE VERSION_INFO=${PYPGO_VERSION_INFO})
-
-pybind11_extension(pypgo)
-
-if(NOT MSVC AND NOT ${CMAKE_BUILD_TYPE} MATCHES Debug|RelWithDebInfo)
-    # Strip unnecessary sections of the binary on Linux/macOS
-    pybind11_strip(pypgo)
+if(NOT Python_INTERPRETER_ID STREQUAL "Python")
+  message(FATAL_ERROR "pypgo abi3 bindings require CPython 3.12 or newer.")
 endif()
 
-set_target_properties(pypgo PROPERTIES CXX_VISIBILITY_PRESET "hidden"
-    CUDA_VISIBILITY_PRESET "hidden")
+if(NB_FREE_THREADED)
+  message(FATAL_ERROR "pypgo abi3 bindings are not supported with free-threaded Python.")
+endif()
+
+set(PYPGO_BINDING_SOURCES
+  core.cpp
+  module.cpp
+
+  # sparse / dense
+  sparse/bindings.cpp
+  dense/core.cpp
+  dense/bindings.cpp
+
+  # mesh
+  mesh/geo/core.cpp
+  mesh/geo/bindings.cpp
+  mesh/volume/core.cpp
+  mesh/volume/bindings.cpp
+
+  # fem
+  fem/mass/core.cpp
+  fem/mass/bindings.cpp
+  fem/formulation/bindings.cpp
+  fem/formulation/core.cpp
+  fem/elastic/bindings.cpp
+  fem/elastic/core.cpp
+  fem/plastic/bindings.cpp
+  fem/plastic/core.cpp
+
+  # energy
+  energy/peer.cpp
+  energy/core.cpp
+  energy/bindings.cpp
+
+  # constraints / solver
+  constraints/core.cpp
+  constraints/bindings.cpp
+  solver/core.cpp
+  solver/bindings.cpp
+
+  # simulation
+  simulation/dynamic/core.cpp
+  simulation/bindings.cpp
+
+  # contact / implicit / parallel
+  contact/core.cpp
+  contact/bindings.cpp
+  profiling/core.cpp
+  profiling/bindings.cpp
+  implicit/core.cpp
+  implicit/bindings.cpp
+  parallel/core.cpp
+  parallel/bindings.cpp
+)
+
+if(TARGET cgalInterface)
+  list(APPEND PYPGO_BINDING_SOURCES mesh/remesh_cgal.cpp)
+else()
+  list(APPEND PYPGO_BINDING_SOURCES mesh/remesh_cgal_disabled.cpp)
+endif()
+
+if(TARGET animationIO)
+  list(APPEND PYPGO_BINDING_SOURCES
+    animation/core.cpp
+    animation/bindings.cpp)
+else()
+  list(APPEND PYPGO_BINDING_SOURCES
+    animation/disabled/core.cpp
+    animation/disabled/bindings.cpp)
+endif()
+
+nanobind_add_module(pypgo_core STABLE_ABI NB_DOMAIN pypgo ${PYPGO_BINDING_SOURCES})
+
+target_link_libraries(pypgo_core PRIVATE
+  mesh
+  volumetricMesh
+  interpolationCoordinates
+  solidDeformationModel
+  nonlinearOptimization
+  genericPotentialEnergies
+  constraintPotentialEnergies
+  simulation
+  contact
+  profiling
+  tetgenInterface
+  volumetricMeshMeshing
+  implicitSurface
+  parallelism
+  # Ensures core.cpp (build_info) sees PGO_HAS_MKL / PGO_HAS_ORIG_PARDISO.
+  compilation_flag
+)
+
+if(TARGET LAPACK::LAPACK)
+  target_link_libraries(pypgo_core PRIVATE LAPACK::LAPACK)
+endif()
+
+if(TARGET BLAS::BLAS)
+  target_link_libraries(pypgo_core PRIVATE BLAS::BLAS)
+endif()
+
+if(TARGET cgalInterface)
+  target_link_libraries(pypgo_core PRIVATE cgalInterface)
+  target_include_directories(pypgo_core PRIVATE ${CMAKE_SOURCE_DIR}/src/core/cgalInterface)
+  target_compile_definitions(pypgo_core PRIVATE PYPGO_HAS_CGAL=1)
+endif()
+
+if(TARGET animationIO)
+  target_link_libraries(pypgo_core PRIVATE animationIO)
+  target_include_directories(pypgo_core PRIVATE ${CMAKE_SOURCE_DIR}/src/core/animationIO)
+  if(TARGET openvdb_static OR TARGET OpenVDB::openvdb)
+    target_compile_definitions(pypgo_core PRIVATE PYPGO_HAS_STRESS_VDB=1)
+  endif()
+endif()
+
+target_include_directories(pypgo_core
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/src/core/mesh
+    ${CMAKE_SOURCE_DIR}/src/core/volumetricMesh
+    ${CMAKE_SOURCE_DIR}/src/core/interpolationCoordinates
+    ${CMAKE_SOURCE_DIR}/src/core/eigenSupport
+    ${CMAKE_SOURCE_DIR}/src/core/solidDeformationModel
+    ${CMAKE_SOURCE_DIR}/src/core/nonlinearOptimization
+    ${CMAKE_SOURCE_DIR}/src/core/genericPotentialEnergies
+    ${CMAKE_SOURCE_DIR}/src/core/constraintPotentialEnergies
+    ${CMAKE_SOURCE_DIR}/src/core/simulation
+    ${CMAKE_SOURCE_DIR}/src/core/contact
+    ${CMAKE_SOURCE_DIR}/src/core/profiling
+    ${CMAKE_SOURCE_DIR}/src/core/tetgenInterface
+    ${CMAKE_SOURCE_DIR}/src/core/volumetricMeshMeshing
+    ${CMAKE_SOURCE_DIR}/src/core/implicitSurface
+    ${CMAKE_SOURCE_DIR}/src/core/parallelism
+)
+
+set_target_properties(pypgo_core PROPERTIES
+  OUTPUT_NAME "_core"
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/pypgo"
+)

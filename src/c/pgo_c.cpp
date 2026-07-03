@@ -1,37 +1,44 @@
+#include "energy/energySet.h"
 #include "pgo_c.h"
 
 #include "basicIO.h"
 #include "tetMeshGeo.h"
 #include "triMeshGeo.h"
-#include "generateTetMeshMatrix.h"
+#include "simulation/generateTetMeshMatrix.h"
 #include "tetMesh.h"
 #include "pgoLogging.h"
 #include "geometryQuery.h"
 #include "boundingVolumeTree.h"
 #include "initPredicates.h"
 #include "EigenSupport.h"
-#include "simulationMesh.h"
-#include "deformationModelManager.h"
-#include "tetMeshDeformationModel.h"
+#include "simulation/simulationMesh.h"
+#include "energy/deformationEnergyBuilder.h"
+#include "formulations/formulation/formulations.h"
+#include "material/fields/materialParameterFieldInit.h"
+#include "deformation/deformationModelManager.h"
 #include "basicIO.h"
-#include "deformationModelAssembler.h"
-#include "deformationModelEnergy.h"
-#include "plasticModel.h"
-#include "plasticModel3DDeformationGradient.h"
+#include "deformation/deformationModelAssembler.h"
+#include "energy/deformationModelEnergy.h"
+#include "material/plastic/plasticModel.h"
+#include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "multiVertexPullingSoftConstraints.h"
-#include "implicitBackwardEulerTimeIntegrator.h"
-#include "TRBDF2TimeIntegrator.h"
+#include "backwardEuler/backwardEulerStepper.h"
+#include "dynamicStepper.h"
 #include "generateMassMatrix.h"
 #include "generateSurfaceMesh.h"
 #include "barycentricCoordinates.h"
-#include "triangleMeshExternalContactHandler.h"
+#include "sampled_penalty/kernels/triangleMeshExternalContactHandler.h"
 #include "configFileJSON.h"
-#include "pointPenetrationEnergy.h"
-#include "triangleMeshSelfContactHandler.h"
-#include "pointTrianglePairCouplingEnergyWithCollision.h"
+#include "sampled_penalty/kernels/pointPenetrationEnergy.h"
+#include "sampled_penalty/kernels/triangleMeshSelfContactHandler.h"
+#include "sampled_penalty/kernels/pointTrianglePairCouplingEnergyWithCollision.h"
 #include "linearPotentialEnergy.h"
-#include "NewtonRaphsonSolver.h"
-#include "animationLoader.h"
+#include "solver/newton/NewtonSolver.h"
+#include "solver/newton/NewtonOptimizer.h"
+
+#if defined(PGO_HAS_ANIMATION_IO)
+#  include "animationLoader.h"
+#endif
 
 #if defined(PGO_HAS_MKL)
 #  include "smoothRSEnergy.h"
@@ -268,7 +275,7 @@ int64_t pgo_smooth_rs_energy_hess_num_entries(pgoSmoothRSEnergyStructHandle ener
   pgo::PredefinedPotentialEnergies::SmoothRSEnergy *eng = reinterpret_cast<pgo::PredefinedPotentialEnergies::SmoothRSEnergy *>(energy);
 
   ES::SpMatD H;
-  eng->createHessian(H);
+  eng->hessianAlloc(H);
 
   return (int64_t)H.nonZeros();
 #else
@@ -284,10 +291,10 @@ void pgo_smooth_rs_energy_hess(pgoSmoothRSEnergyStructHandle energy, double *x, 
   pgo::PredefinedPotentialEnergies::SmoothRSEnergy *eng = reinterpret_cast<pgo::PredefinedPotentialEnergies::SmoothRSEnergy *>(energy);
 
   ES::SpMatD H;
-  eng->createHessian(H);
+  eng->hessianAlloc(H);
 
   memset(H.valuePtr(), 0, H.nonZeros() * sizeof(double));
-  eng->hessian(ES::Mp<const ES::VXd>(x, eng->getNumDOFs()), H);
+  eng->hessianInPlace(ES::Mp<const ES::VXd>(x, eng->getNumDOFs()), H);
 
   int64_t inc = 0;
   for (ES::IDX rowi = 0; rowi < H.rows(); rowi++) {
@@ -590,10 +597,10 @@ int pgo_run_sim_from_config(const char *configFileName)
   }
 
   // tet mesh filename
-  std::string tetMeshFilename = jconfig.getString("tet-mesh", 1);
+  std::string tetMeshFilename = jconfig.getResolvedPath("tet-mesh", 1);
 
   // surface mesh filename
-  std::string surfaceMeshFilename = jconfig.getString("surface-mesh", 1);
+  std::string surfaceMeshFilename = jconfig.getResolvedPath("surface-mesh", 1);
 
   // external acceleration
   ES::V3d extAcc = ES::Mp<ES::V3d>(jconfig.getValue<std::array<double, 3>>("g", 1).data());
@@ -643,7 +650,7 @@ int pgo_run_sim_from_config(const char *configFileName)
   std::string simType = jconfig.getString("sim-type");
 
   // output
-  std::string outputFolder = jconfig.getString("output", 1);
+  std::string outputFolder = jconfig.getResolvedPath("output", 1);
 
   VolumetricMeshes::TetMesh tetMesh(tetMeshFilename.c_str());
   for (int vi = 0; vi < tetMesh.getNumVertices(); vi++) {
@@ -669,56 +676,45 @@ int pgo_run_sim_from_config(const char *configFileName)
   InterpolationCoordinates::BarycentricCoordinates bc(surfaceMesh.numVertices(), surfaceRestPositions.data(), &tetMesh);
   ES::SpMatD W = bc.generateInterpolationMatrix();
 
-  // initialize fem
-  std::shared_ptr<SolidDeformationModel::SimulationMesh> simMesh(SolidDeformationModel::loadTetMesh(&tetMesh));
-  std::shared_ptr<SolidDeformationModel::DeformationModelManager> dmm = std::make_shared<SolidDeformationModel::DeformationModelManager>();
-
-  dmm->setMesh(simMesh.get(), nullptr, nullptr);
-  dmm->init(pgo::SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, elasticMat, 1);
-
-  std::vector<double> elementWeights(simMesh->getNumElements(), 1.0);
-  std::shared_ptr<SolidDeformationModel::DeformationModelAssembler> assembler =
-    std::make_shared<SolidDeformationModel::DeformationModelAssembler>(dmm, elementWeights.data());
+  std::shared_ptr<const SolidDeformationModel::SimulationMesh> simMesh(
+    SolidDeformationModel::loadTetMesh(&tetMesh).release());
 
   int n = simMesh->getNumVertices();
   int n3 = n * 3;
-  int nele = simMesh->getNumElements();
 
-  ES::VXd plasticity(nele * 6);
-  ES::M3d I = ES::M3d::Identity();
-  for (int ei = 0; ei < nele; ei++) {
-    const SolidDeformationModel::PlasticModel3DDeformationGradient *pm =
-      dynamic_cast<const SolidDeformationModel::PlasticModel3DDeformationGradient *>(dmm->getDeformationModel(ei)->getPlasticModel());
-    if (!pm) {
-      SPDLOG_LOGGER_ERROR(Logging::lgr(), "Plastic model is not of type PlasticModel3DDeformationGradient.");
-      return 1;
-    }
-    pm->toParam(I.data(), plasticity.data() + ei * dmm->getNumPlasticParameters());
+  // Build deformation energy.
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy;
+  switch (simMesh->getElementType()) {
+  case SolidDeformationModel::SimulationMeshType::TET:
+    elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
+      simMesh, elasticMat,
+      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+      SolidDeformationModel::TetLinearFormulation{});
+    break;
+  case SolidDeformationModel::SimulationMeshType::CUBIC:
+    elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
+      simMesh, elasticMat,
+      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+      SolidDeformationModel::CubicLinearFormulation{});
+    break;
+  default:
+    SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");
+    return 1;
   }
 
-  ES::VXd restPosition(n3);
-  for (int vi = 0; vi < n; vi++) {
-    double p[3];
-    simMesh->getVertex(vi, p);
-    restPosition.segment<3>(vi * 3) = ES::V3d(p[0], p[1], p[2]);
-  }
-
-  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy =
-    std::make_shared<SolidDeformationModel::DeformationModelEnergy>(assembler, &restPosition, 0);
-  elasticEnergy->setPlasticParams(plasticity);
+  ES::VXd restPosition = elasticEnergy->getRestPosition();
 
   ES::VXd zero(n3);
   zero.setZero();
 
   ES::SpMatD K;
-  elasticEnergy->createHessian(K);
   elasticEnergy->hessian(zero, K);
 
   // attachments
   std::vector<std::shared_ptr<ConstraintPotentialEnergies::MultipleVertexPulling>> pullingEnergies;
   std::vector<ES::VXd> pullingTargets, pullingTargetRests;
   for (const auto &fv : jconfig.handle()["fixed-vertices"]) {
-    std::string filename = fv["filename"].get<std::string>();
+    std::string filename = jconfig.resolvePath(fv["filename"].get<std::string>());
     std::array<double, 3> movement = fv["movement"].get<std::array<double, 3>>();
     double attachmentCoeff = fv["coeff"].get<double>();
 
@@ -736,9 +732,8 @@ int pgo_run_sim_from_config(const char *configFileName)
     }
 
     // initialize fixed constraints
-    auto pullingEnergy = std::make_shared<ConstraintPotentialEnergies::MultipleVertexPulling>(K, restPosition.data(),
-      (int)fixedVertices.size(), fixedVertices.data(), tgtVertexPositions.data(), nullptr, 1);
-    pullingEnergy->setCoeff(attachmentCoeff);
+    auto pullingEnergy = std::make_shared<ConstraintPotentialEnergies::MultipleVertexPulling>(
+      K, restPosition, fixedVertices, tgtVertexPositions, attachmentCoeff, true);
     pullingEnergies.push_back(pullingEnergy);
     pullingTargets.push_back(tgtVertexPositions);
     pullingTargetRests.push_back(tgtVertexRests);
@@ -749,7 +744,7 @@ int pgo_run_sim_from_config(const char *configFileName)
   if (jconfig.exist("external-objects")) {
     auto jkinObjects = jconfig.handle()["external-objects"];
     for (const auto &jko : jkinObjects) {
-      std::string koFilename = jko["filename"].get<std::string>();
+      std::string koFilename = jconfig.resolvePath(jko["filename"].get<std::string>());
       kinematicObjectFilenames.push_back(koFilename);
       kinematicObjectMovements.push_back(ES::Mp<ES::V3d>(jko["movement"].get<std::array<double, 3>>().data()));
     }
@@ -798,20 +793,6 @@ int pgo_run_sim_from_config(const char *configFileName)
         surfaceMesh.positions(), surfaceMesh.triangles(), n3, contactSamples, &bc.getEmbeddingVertexIndices(), &bc.getEmbeddingWeights());
     }
 
-    std::shared_ptr<Simulation::ImplicitBackwardEulerTimeIntegrator> intg =
-      std::make_shared<Simulation::ImplicitBackwardEulerTimeIntegrator>(M, elasticEnergy,
-        dampingParams[0], dampingParams[1], timestep, solverMaxIter, solverEps);
-
-#if defined(PGO_HAS_KNITRO)
-    intg->setSolverOption(Simulation::TimeIntegratorSolverOption::SO_KNITRO);
-    intg->setSolverConfigFile("config.opt");
-#endif
-
-    for (auto pullingEnergy : pullingEnergies)
-      intg->addImplicitForceModel(pullingEnergy, 0, 0);
-
-    intg->setExternalForce(fext.data());
-
     ES::VXd curSurfacePos = surfaceRestPositions;
     ES::VXd x = restPosition, u(n3);
     ES::VXd uvel(n3), uacc(n3), usurf(surfn3);
@@ -831,103 +812,104 @@ int pgo_run_sim_from_config(const char *configFileName)
     }
 
     for (int framei = 0; framei < numSimSteps; framei++) {
-      intg->clearGeneralImplicitForceModel();
-
+      // ── Pulling targets ──────────────────────────────────────────
       double ratio = (double)framei / (numSimSteps - 1);
       for (size_t pi = 0; pi < pullingEnergies.size(); pi++) {
         ES::VXd restTgt = pullingTargetRests[pi];
         ES::VXd curTgt = restTgt * (1 - ratio) + pullingTargets[pi] * ratio;
-        pullingEnergies[pi]->setTargetPos(curTgt.data());
-
+        pullingEnergies[pi]->setTargetPositions(curTgt);
         std::cout << "Frame " << framei << ", attachment " << pi << " target: " << curTgt.transpose().head(3) << std::endl;
       }
 
+      // ── Build per-frame problem ──────────────────────────────────
+      Simulation::DynamicProblem problem;
+      problem.mass = M;
+      problem.timestep = timestep;
+      NonlinearOptimization::Optimization::NewtonOptimizer::Options optimizerOptions;
+      optimizerOptions.maxIterations = solverMaxIter;
+      optimizerOptions.gradientTolerance = solverEps;
+      optimizerOptions.verbose = 0;
+      NonlinearOptimization::Optimization::NewtonOptimizer optimizer(optimizerOptions);
+
+      problem.persistentTerms.push_back({elasticEnergy, 0.0, 0.0});
+      for (auto &pe : pullingEnergies)
+        problem.persistentTerms.push_back({pe, 0.0, 0.0});
+
+      // ── Contact ──────────────────────────────────────────────────
       std::shared_ptr<Contact::PointPenetrationEnergy> extContactEnergy;
       Contact::PointPenetrationEnergyBuffer *extContactBuffer = nullptr;
       if (externalContactHandler) {
         externalContactHandler->execute(usurf.data());
-
         if (externalContactHandler->getNumCollidingSamples()) {
           extContactEnergy = externalContactHandler->buildContactEnergy();
           extContactBuffer = extContactEnergy->allocateBuffer();
-
-          auto posFunc = [&restPosition](const EigenSupport::V3d &u, EigenSupport::V3d &p, int dofStart) {
-            p = u + restPosition.segment<3>(dofStart);
+          auto posFunc = [&restPosition](const ES::V3d &v, ES::V3d &p, int dofStart) {
+            p = v + restPosition.segment<3>(dofStart);
           };
-
-          auto lastPosFunc = [&restPosition, &u](const EigenSupport::V3d &x, EigenSupport::V3d &p, int dofStart) {
+          auto lastPosFunc = [&restPosition, &u](const ES::V3d &v, ES::V3d &p, int dofStart) {
             p = u.segment<3>(dofStart) + restPosition.segment<3>(dofStart);
           };
-
           extContactEnergy->setComputePosFunction(posFunc);
           extContactEnergy->setBuffer(extContactBuffer);
           extContactEnergy->setCoeff(contactK);
-
           extContactEnergy->setFrictionCoeff(fricCoeff);
           extContactEnergy->setComputeLastPosFunction(lastPosFunc);
           extContactEnergy->setVelEps(velEps);
           extContactEnergy->setTimestep(timestep);
-
-          intg->addGeneralImplicitForceModel(extContactEnergy, 0, 0);
+          problem.persistentTerms.push_back({extContactEnergy, 0.0, 0.0});
         }
       }
 
       std::shared_ptr<Contact::PointTrianglePairCouplingEnergyWithCollision> selfContactEnergy;
       Contact::PointTrianglePairCouplingEnergyWithCollisionBuffer *selfContactEnergyBuf = nullptr;
-
       if (selfCD) {
         selfCD->execute(usurf.data());
-
         if (selfCD->getCollidingTrianglePair().size() > 0) {
           selfCD->handleContactDCD(0, 100);
-
           selfContactEnergy = selfCD->buildContactEnergy();
-          selfContactEnergy->setToPosFunction([&restPosition](const ES::V3d &x, ES::V3d &p, int offset) {
-            p = x + restPosition.segment<3>(offset);
+          selfContactEnergy->setToPosFunction([&restPosition](const ES::V3d &v, ES::V3d &p, int offset) {
+            p = v + restPosition.segment<3>(offset);
           });
-
-          selfContactEnergy->setToLastPosFunction([&restPosition, &u](const ES::V3d &x, ES::V3d &p, int offset) {
+          selfContactEnergy->setToLastPosFunction([&restPosition, &u](const ES::V3d &v, ES::V3d &p, int offset) {
             p = restPosition.segment<3>(offset) + u.segment<3>(offset);
           });
-
           selfContactEnergyBuf = selfContactEnergy->allocateBuffer();
           selfContactEnergy->setBuffer(selfContactEnergyBuf);
           selfContactEnergy->setCoeff(contactK);
           selfContactEnergy->computeClosestPosition(u.data());
-
           selfContactEnergy->setFrictionCoeff(fricCoeff);
           selfContactEnergy->setTimestep(timestep);
           selfContactEnergy->setVelEps(velEps);
-
-          intg->addGeneralImplicitForceModel(selfContactEnergy, 0, 0);
+          problem.persistentTerms.push_back({selfContactEnergy, 0.0, 0.0});
         }
       }
 
-      intg->setqState(u, uvel, uacc);
+      // ── Step ─────────────────────────────────────────────────────
+      Simulation::BackwardEulerStepper stepper(std::move(problem));
+      Simulation::DynamicState state;
+      state.displacement = u;
+      state.velocity = uvel;
+      state.acceleration = uacc;
+      Simulation::DynamicStepRequest request;
+      request.externalForce = fext;
+      Simulation::DynamicStepResult result = stepper.step(state, request, optimizer);
 
-      intg->doTimestep(1, 2, 1);
+      u = result.state.displacement;
+      uvel = result.state.velocity;
+      uacc = result.state.acceleration;
 
-      intg->getq(u);
-      intg->getqvel(uvel);
-      intg->getqacc(uacc);
-
-      if (extContactBuffer && extContactEnergy) {
+      if (extContactBuffer && extContactEnergy)
         extContactEnergy->freeBuffer(extContactBuffer);
-      }
-
-      if (selfContactEnergyBuf && selfContactEnergy) {
+      if (selfContactEnergyBuf && selfContactEnergy)
         selfContactEnergy->freeBuffer(selfContactEnergyBuf);
-      }
 
       ES::mv(W, u, usurf);
 
       if (framei % frameGap == 0) {
         ES::VXd psurf = surfaceRestPositions + usurf;
-
         Mesh::TriMeshGeo mesh = surfaceMesh;
-        for (int vi = 0; vi < mesh.numVertices(); vi++) {
+        for (int vi = 0; vi < mesh.numVertices(); vi++)
           mesh.pos(vi) = psurf.segment<3>(vi * 3) / scale;
-        }
         mesh.save(fmt::format("{}/ret{:04d}.obj", outputFolder, framei / frameGap));
       }
     }
@@ -935,21 +917,21 @@ int pgo_run_sim_from_config(const char *configFileName)
   else if (simType == "static") {
     std::shared_ptr<PredefinedPotentialEnergies::LinearPotentialEnergy> externalForcesEnergy = std::make_shared<PredefinedPotentialEnergies::LinearPotentialEnergy>(fext);
 
-    std::shared_ptr<NonlinearOptimization::PotentialEnergies> energyAll = std::make_shared<NonlinearOptimization::PotentialEnergies>(n3);
-    energyAll->addPotentialEnergy(elasticEnergy);
+    std::vector<NonlinearOptimization::EnergySet::Term> terms;
+    terms.push_back({elasticEnergy, 1.0});
     for (auto eng : pullingEnergies)
-      energyAll->addPotentialEnergy(eng, 1.0);
-    energyAll->addPotentialEnergy(externalForcesEnergy, -1.0);
-    energyAll->init();
+      terms.push_back({eng, 1.0});
+    terms.push_back({externalForcesEnergy, -1.0});
+    auto energyAll = std::make_shared<NonlinearOptimization::EnergySet>(n3, std::move(terms));
 
-    NonlinearOptimization::NewtonRaphsonSolver::SolverParam solverParam;
+    NonlinearOptimization::NewtonSolver::SolverParam solverParam;
 
     ES::VXd u(n3);
     u.setZero();
 
     energyAll->printEnergy(u);
 
-    NonlinearOptimization::NewtonRaphsonSolver solver(u.data(), solverParam, energyAll, std::vector<int>(), nullptr);
+    NonlinearOptimization::NewtonSolver solver(u.data(), solverParam, energyAll, std::vector<int>(), nullptr);
     solver.solve(u.data(), solverMaxIter, solverEps, 2);
 
     ES::VXd x = restPosition + u;
@@ -968,7 +950,8 @@ int pgo_run_sim_from_config(const char *configFileName)
 }
 
 int pgo_convert_animation_to_abc(const char *configFileName, const char *outputFolder)
-{  
+{
+#if defined(PGO_HAS_ANIMATION_IO)
   pgo::Mesh::initPredicates();
   pgo::AnimationIO::AnimationLoader loader;
   if (loader.load(configFileName) != 0) {
@@ -976,4 +959,9 @@ int pgo_convert_animation_to_abc(const char *configFileName, const char *outputF
   }
 
   return loader.saveABC(outputFolder);
+#else
+  (void)configFileName;
+  (void)outputFolder;
+  return 1;
+#endif
 }

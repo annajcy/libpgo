@@ -2,12 +2,7 @@ set(CGALINTERFACE_HEADERS cgalBasic.h cgalInterface.h cgalTemplateUtilities.h)
 set(CGALINTERFACE_SOURCES cgalInterface.cpp)
 set(CGALINTERFACE_DEPS pgoLogging eigenSupport mesh CGAL::CGAL CGAL::TBB_support)
 
-foreach (tgt ${CGALINTERFACE_DEPS})
-  if (NOT TARGET ${tgt})
-    message(STATUS "cgalInterface is not included. Missing: ${tgt}")
-    return()
-  endif()
-endforeach()
+pgo_require_targets(cgalInterface TARGETS ${CGALINTERFACE_DEPS})
 
 add_libpgo_lib(cgalInterface "${CGALINTERFACE_SOURCES}" "${CGALINTERFACE_HEADERS}")
 

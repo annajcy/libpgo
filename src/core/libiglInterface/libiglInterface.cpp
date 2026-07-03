@@ -108,7 +108,7 @@ void pgo::libiglInterface::computeDistanceField(const Mesh::TriMeshGeo &mesh,
   }
 }
 
-void pgo::libiglInterface::computeMarchingCubes(const EigenSupport::V3d &bmin, const EigenSupport::V3d &bmax, int res, const EigenSupport::VXd &dists, Mesh::TriMeshGeo &outMesh)
+void pgo::libiglInterface::computeMarchingCubes(const EigenSupport::V3d &bmin, const EigenSupport::V3d &bmax, int res, const EigenSupport::VXd &dists, Mesh::TriMeshGeo &outMesh, double isovalue)
 {
   EigenSupport::MX3d gridPoints(res * res * res, 3);
   EigenSupport::V3d diff = bmax - bmin;
@@ -123,7 +123,7 @@ void pgo::libiglInterface::computeMarchingCubes(const EigenSupport::V3d &bmin, c
 
   EigenSupport::MXd V;
   EigenSupport::MXi F;
-  igl::marching_cubes(dists, gridPoints, res, res, res, 0.0, V, F);
+  igl::marching_cubes(dists, gridPoints, res, res, res, isovalue, V, F);
 
   matrixToTriMesh(V, F, outMesh);
 }
@@ -225,7 +225,7 @@ void pgo::libiglInterface::meanCuravtures(const Mesh::TriMeshGeo &meshIn, EigenS
   igl::cotmatrix(V, F, L);
   igl::massmatrix(V, F, igl::MASSMATRIX_TYPE_VORONOI, M);
   igl::invert_diag(M, Minv);
-  HN = -Minv * (L * V);
+  HN = -Minv * (L * V) * 0.5;
   h = HN.rowwise().norm();  // up to sign
 }
 
@@ -302,5 +302,25 @@ void pgo::libiglInterface::computeMassMatrix(const Mesh::TriMeshGeo &meshIn, Eig
   }
   else {
     M = MTemp;
+  }
+}
+
+void pgo::libiglInterface::computeCotangentLaplacianMatrix(const Mesh::TriMeshGeo &meshIn, EigenSupport::SpMatD &L, int expand3)
+{
+  EigenSupport::MXd V;
+  EigenSupport::MXi F;
+  Mesh::triMeshGeoToMatrices(meshIn, V, F);
+
+  Eigen::SparseMatrix<double> LTemp;
+  igl::cotmatrix(V, F, LTemp);
+
+  PGO_ALOG(LTemp.rows() == V.rows());
+
+  if (expand3) {
+    EigenSupport::SpMatD Lrow = LTemp;
+    EigenSupport::expand3(Lrow, L);
+  }
+  else {
+    L = LTemp;
   }
 }

@@ -11,7 +11,6 @@ copyright to USC, MIT
 
 #include <numeric>
 #include <vector>
-#include <iostream>
 
 using namespace pgo;
 using namespace pgo::PredefinedPotentialEnergies;
@@ -31,137 +30,146 @@ public:
   ES::VXd temp;
 };
 
-}  // namespace pgo::NonlinearOptimization
+}  // namespace pgo::PredefinedPotentialEnergies
 
-QuadraticPotentialEnergy::QuadraticPotentialEnergy(const ES::SpMatD &A_):
-  A(A_), b(nullptr), isInParentheses(0)
+// ── Direct quadratic-form ctors ─────────────────────────────────
+
+QuadraticPotentialEnergy::QuadraticPotentialEnergy(ES::SpMatD A):
+  A_(std::move(A)), b_(std::nullopt)
 {
-  cache = std::make_shared<QuadraticPotentialEnergyCache>(A.rows());
+  cache = std::make_shared<QuadraticPotentialEnergyCache>(A_.rows());
 
-  allDOFs.resize(A.rows());
+  allDOFs.resize(A_.rows());
   std::iota(allDOFs.begin(), allDOFs.end(), 0);
 }
 
-QuadraticPotentialEnergy::QuadraticPotentialEnergy(const ES::SpMatD &A_, int):
-  A(ATA), b(nullptr), isInParentheses(1)
+QuadraticPotentialEnergy::QuadraticPotentialEnergy(ES::SpMatD A, ES::VXd b):
+  A_(std::move(A)), b_(std::move(b))
 {
-  ES::mm(A_, A_, ATA, 1);
+  cache = std::make_shared<QuadraticPotentialEnergyCache>(A_.rows());
 
-  cache = std::make_shared<QuadraticPotentialEnergyCache>(A.rows());
-
-  allDOFs.resize(A.rows());
+  allDOFs.resize(A_.rows());
   std::iota(allDOFs.begin(), allDOFs.end(), 0);
 }
 
-QuadraticPotentialEnergy::QuadraticPotentialEnergy(const ES::SpMatD &A_, const double *W, int):
-  A(ATA), b(nullptr), isInParentheses(1)
+// ── Least-squares factories ─────────────────────────────────────
+
+namespace pgo::PredefinedPotentialEnergies
 {
-  ES::aba(A_, W, ATA, 1);
 
-  cache = std::make_shared<QuadraticPotentialEnergyCache>(A.rows());
-
-  allDOFs.resize(A.rows());
-  std::iota(allDOFs.begin(), allDOFs.end(), 0);
+std::shared_ptr<QuadraticPotentialEnergy>
+  makeLeastSquaresEnergy(ES::SpMatD A)
+{
+  ES::SpMatD ATA;
+  ES::mm(A, A, ATA, 1);
+  return std::make_shared<QuadraticPotentialEnergy>(std::move(ATA));
 }
 
-QuadraticPotentialEnergy::QuadraticPotentialEnergy(const ES::SpMatD &A_, const ES::VXd &b_):
-  A(A_), b(&b_), isInParentheses(0)
+std::shared_ptr<QuadraticPotentialEnergy>
+  makeLeastSquaresEnergy(ES::SpMatD A, ES::VXd b)
 {
-  cache = std::make_shared<QuadraticPotentialEnergyCache>(A.rows());
+  ES::SpMatD ATA;
+  ES::mm(A, A, ATA, 1);
 
-  allDOFs.resize(A.rows());
-  std::iota(allDOFs.begin(), allDOFs.end(), 0);
+  ES::VXd ATb(ATA.rows());
+  ES::mv(A, b, ATb, 1);
+
+  auto energy = std::make_shared<QuadraticPotentialEnergy>(std::move(ATA), std::move(ATb));
+  energy->c = b.dot(b) * 0.5;
+  return energy;
 }
 
-QuadraticPotentialEnergy::QuadraticPotentialEnergy(const ES::SpMatD &A_, const ES::VXd &b_, int):
-  A(ATA), b(&bTA), isInParentheses(1)
+std::shared_ptr<QuadraticPotentialEnergy>
+  makeLeastSquaresEnergy(ES::SpMatD A, const double *W)
 {
-  ES::mm(A_, A_, ATA, 1);
-
-  bTA.resize(A.rows());
-  ES::mv(A_, b_, bTA, 1);
-
-  c = b_.dot(b_) * 0.5;
-
-  cache = std::make_shared<QuadraticPotentialEnergyCache>(A.rows());
-
-  allDOFs.resize(A.rows());
-  std::iota(allDOFs.begin(), allDOFs.end(), 0);
+  ES::SpMatD ATWA;
+  ES::aba(A, W, ATWA, 1);
+  return std::make_shared<QuadraticPotentialEnergy>(std::move(ATWA));
 }
 
-QuadraticPotentialEnergy::QuadraticPotentialEnergy(const ES::SpMatD &A_, const ES::VXd &b_, const double *W, int):
-  A(ATA), b(&bTA), isInParentheses(1)
+std::shared_ptr<QuadraticPotentialEnergy>
+  makeLeastSquaresEnergy(ES::SpMatD A, ES::VXd b, const double *W)
 {
-  // = 1/2 x^T (A^T W A) x + b^T W Ax + 1/2 b^T W b
-  ES::aba(A_, W, ATA, 1);
+  ES::SpMatD ATWA;
+  ES::aba(A, W, ATWA, 1);
 
-  ES::VXd Wb = b_;
-  for (ES::IDX i = 0; i < A_.rows(); i++) {
-    Wb[i] = b_[i] * W[i];
-  }
+  ES::VXd Wb = b;
+  for (ES::IDX i = 0; i < A.rows(); i++)
+    Wb[i] = b[i] * W[i];
 
-  bTA.resize(A.rows());
-  ES::mv(A_, Wb, bTA, 1);
+  ES::VXd ATWb(ATWA.rows());
+  ES::mv(A, Wb, ATWb, 1);
 
-  c = b_.dot(Wb) * 0.5;
-
-  cache = std::make_shared<QuadraticPotentialEnergyCache>(A.rows());
-
-  allDOFs.resize(A.rows());
-  std::iota(allDOFs.begin(), allDOFs.end(), 0);
+  auto energy = std::make_shared<QuadraticPotentialEnergy>(std::move(ATWA), std::move(ATWb));
+  energy->c = b.dot(Wb) * 0.5;
+  return energy;
 }
+
+}  // namespace pgo::PredefinedPotentialEnergies
+
+// ── Methods ─────────────────────────────────────────────────────
 
 void QuadraticPotentialEnergy::setDOFs(const std::vector<int> &dofs)
 {
-  PGO_ALOG((int)dofs.size() == (int)A.rows());
+  PGO_ALOG((int)dofs.size() == (int)A_.rows());
   allDOFs = dofs;
+}
+
+void QuadraticPotentialEnergy::setLinearTerm(ES::VXd b)
+{
+  PGO_ALOG((int)b.size() == (int)A_.rows());
+  b_ = std::move(b);
+}
+
+void QuadraticPotentialEnergy::setAValues(const ES::SpMatD &A)
+{
+  PGO_ALOG(A.rows() == A_.rows() && A.cols() == A_.cols());
+  PGO_ALOG(A.nonZeros() == A_.nonZeros());
+  memcpy(A_.valuePtr(), A.valuePtr(), sizeof(double) * A_.nonZeros());
 }
 
 double QuadraticPotentialEnergy::func(ES::ConstRefVecXd x) const
 {
   ES::VXd &temp = cache->temp;
-  double energy = ES::vTMv(A, x, temp) * 0.5;
-  // std::cout << energy << ',';
+  double energy = ES::vTMv(A_, x, temp) * 0.5;
 
   energy += c;
-  // std::cout << energy << ',';
-  if (b) {
-    energy += (*b).dot(x);
+  if (b_) {
+    energy += (*b_).dot(x);
   }
-  // std::cout << energy << ',';
   return energy;
 }
 
 void QuadraticPotentialEnergy::gradient(ES::ConstRefVecXd x, ES::RefVecXd grad) const
 {
-  ES::mv(A, x, grad);
+  ES::mv(A_, x, grad);
 
-  if (b) {
-    grad += (*b);
+  if (b_) {
+    grad += (*b_);
   }
 }
 
-void QuadraticPotentialEnergy::hessian(ES::ConstRefVecXd, ES::SpMatD &hess) const
+void QuadraticPotentialEnergy::hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) const
 {
-  memcpy(hess.valuePtr(), A.valuePtr(), sizeof(double) * A.nonZeros());
+  memcpy(hess.valuePtr(), A_.valuePtr(), sizeof(double) * A_.nonZeros());
 }
 
 void QuadraticPotentialEnergy::hessianVector(EigenSupport::ConstRefVecXd, EigenSupport::ConstRefVecXd vec, EigenSupport::RefVecXd hVec) const
 {
-  ES::mv(A, vec, hVec);
+  ES::mv(A_, vec, hVec);
 }
 
-void QuadraticPotentialEnergy::gradientComponent(ES::SpMatD *A_, ES::VXd *b_) const
+void QuadraticPotentialEnergy::gradientComponent(ES::SpMatD *A, ES::VXd *b) const
 {
-  if (A_)
-    *A_ = A;
+  if (A)
+    *A = A_;
 
-  if (b_) {
-    if (b) {
-      *b_ = *b;
+  if (b) {
+    if (b_) {
+      *b = *b_;
     }
     else {
-      b_->setZero(getNumDOFs());
+      b->setZero(getNumDOFs());
     }
   }
 }

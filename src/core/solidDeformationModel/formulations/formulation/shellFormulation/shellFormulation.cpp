@@ -1,0 +1,166 @@
+#include "shellFormulation.h"
+
+#include "mass/shellMassField.h"
+#include "mass/elasticParameterDependentMassField.h"
+#include "material/fields/parameterField.h"
+#include "deformation/shell/shellDeformationModel.h"
+#include "simulation/simulationMesh.h"
+
+#include "EigenSupport.h"
+
+#include <memory>
+#include <stdexcept>
+#include <vector>
+
+namespace pgo
+{
+namespace SolidDeformationModel
+{
+namespace
+{
+namespace ES = EigenSupport;
+
+template<class Derived, class Base>
+std::unique_ptr<Derived> checkedMaterialCast(
+  std::unique_ptr<Base> model, const char *message)
+{
+  if (Derived *typed = dynamic_cast<Derived *>(model.get())) {
+    model.release();
+    return std::unique_ptr<Derived>(typed);
+  }
+
+  throw std::invalid_argument(message);
+}
+
+double triangleRestArea(const SimulationMesh &mesh, int ele)
+{
+  double p[3][3];
+  for (int j = 0; j < 3; j++)
+    mesh.getVertex(ele, j, p[j]);
+  const ES::V3d a(p[0]), b(p[1]), c(p[2]);
+  return 0.5 * ((b - a).cross(c - a)).norm();
+}
+}  // namespace
+
+SimulationMeshType ShellFormulation::compatibleMeshType() const
+{
+  return SimulationMeshType::SHELL;
+}
+
+std::unique_ptr<DeformationModel> ShellFormulation::createElement(
+  const SimulationMesh &mesh, int ele,
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const
+{
+  double restPosition[18] = {};
+  bool hasVtx[6];
+  for (int j = 0; j < 6; j++) {
+    if (mesh.getVertexIndex(ele, j) < 0) {
+      hasVtx[j] = false;
+    }
+    else {
+      hasVtx[j] = true;
+      mesh.getVertex(ele, j, restPosition + 3 * j);
+    }
+  }
+
+  auto mapping = createElementMapping(restPosition, hasVtx);
+  return std::make_unique<ShellDeformationModel>(
+    std::move(mapping),
+    checkedMaterialCast<ElasticModel2DFundamentalForms>(
+      std::move(elasticModel),
+      "ShellFormulation requires ElasticModel2DFundamentalForms."),
+    checkedMaterialCast<PlasticModel2DFundamentalForms>(
+      std::move(plasticModel),
+      "ShellFormulation requires PlasticModel2DFundamentalForms."));
+}
+
+EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
+  const SimulationMesh &mesh, const ShellMassField &massField) const
+{
+  if (mesh.getElementType() != compatibleMeshType()) {
+    throw std::invalid_argument("mesh type is incompatible with this formulation");
+  }
+
+  massField.validate(mesh);
+
+  std::vector<ES::TripletD> entries;
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    const double m = massField.arealDensity(ele) * triangleRestArea(mesh, ele) / 3.0;
+    for (int j = 0; j < 3; j++) {
+      const int v = mesh.getVertexIndex(ele, j);
+      for (int d = 0; d < 3; d++)
+        entries.emplace_back(v * 3 + d, v * 3 + d, m);
+    }
+  }
+
+  const int numDofs = mesh.getNumVertices() * 3;
+  ES::SpMatD M(numDofs, numDofs);
+  M.setFromTriplets(entries.begin(), entries.end());
+  return M;
+}
+
+EigenSupport::VXd ShellFormulation::buildBodyForce(
+  const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
+  const ShellMassField &massField) const
+{
+  if (mesh.getElementType() != compatibleMeshType()) {
+    throw std::invalid_argument("mesh type is incompatible with this formulation");
+  }
+
+  massField.validate(mesh);
+
+  ES::VXd f = ES::VXd::Zero(mesh.getNumVertices() * 3);
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    const double m = massField.arealDensity(ele) * triangleRestArea(mesh, ele) / 3.0;
+    for (int j = 0; j < 3; j++) {
+      const int v = mesh.getVertexIndex(ele, j);
+      f.segment<3>(v * 3) += m * acceleration;
+    }
+  }
+  return f;
+}
+
+EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
+  const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
+  const ShellMassField &massField) const
+{
+  if (mesh.getElementType() != compatibleMeshType()) {
+    throw std::invalid_argument("mesh type is incompatible with this formulation");
+  }
+  massField.validate(mesh);
+  const auto *dependent = dynamic_cast<const ElasticParameterDependentMassField *>(&massField);
+  if (dependent == nullptr) {
+    throw std::invalid_argument(
+      "buildBodyForceParameterJacobian requires a mass field that depends on elastic parameters");
+  }
+
+  const OptimizableField &field = dependent->parameterField();
+  const auto *layout = field.dofLayout();
+  const int numLocal = layout->numLocalDofs();
+  std::vector<double> dRho(numLocal);
+  std::vector<ES::TripletD> entries;
+  entries.reserve(static_cast<size_t>(mesh.getNumElements()) * numLocal * 9);
+
+  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
+    dependent->arealDensityParameterDerivative(ele, dRho.data());
+    const double areaThird = triangleRestArea(mesh, ele) / 3.0;
+    for (int k = 0; k < numLocal; k++) {
+      if (dRho[k] == 0.0)
+        continue;
+      const int col = layout->globalDof(ele, k);
+      const double s = dRho[k] * areaThird;
+      for (int j = 0; j < 3; j++) {
+        const int v = mesh.getVertexIndex(ele, j);
+        for (int d = 0; d < 3; d++)
+          entries.emplace_back(v * 3 + d, col, s * acceleration[d]);
+      }
+    }
+  }
+
+  ES::SpMatD J(mesh.getNumVertices() * 3, layout->numGlobalDofs());
+  J.setFromTriplets(entries.begin(), entries.end());
+  return J;
+}
+
+}  // namespace SolidDeformationModel
+}  // namespace pgo

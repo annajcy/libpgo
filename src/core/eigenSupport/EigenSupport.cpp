@@ -629,7 +629,19 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::aba(const SpMatD &A, const double *
   mkl_sparse_destroy(BM);
   mkl_sparse_destroy(AM);
 #else
-  abort();
+  // Non-MKL fallback: C = op(A) * diag(W) * op(A)^T, matching the MKL sypr above.
+  // diag(W) has the same orientation as the MKL path (W indexed over the rows for
+  // transpose, over the columns otherwise).
+  const IDX diagSize = transpose ? A.rows() : A.cols();
+  SpMatD Wd(diagSize, diagSize);
+  Wd.reserve(Eigen::VectorXi::Constant(diagSize, 1));
+  for (IDX i = 0; i < diagSize; i++)
+    Wd.insert(i, i) = W[i];
+  Wd.makeCompressed();
+  if (transpose)
+    C = A.transpose() * Wd * A;
+  else
+    C = A * Wd * A.transpose();
 #endif
 }
 
@@ -819,12 +831,10 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::transposeTransfer(const SpMatD &A, 
 
 EIGEN_SUPPORT_INLINE void pgo::EigenSupport::small2Big(const SpMatD &Asmall, const SpMatD &Abig, const std::vector<int> &dofs, SpMatI &mapping)
 {
-  // std::vector<TripletI> entries;
-  tbb::concurrent_vector<TripletI> entries;
+  std::vector<TripletI> entries;
   entries.reserve(Asmall.nonZeros());
 
-  // for (Eigen::Index outeri = 0; outeri < Asmall.outerSize(); outeri++) {
-  tbb::parallel_for((IDX)0, Asmall.outerSize(), [&](IDX outeri) {
+  for (Eigen::Index outeri = 0; outeri < Asmall.outerSize(); outeri++) {
     for (SpMatD::InnerIterator it(Asmall, outeri); it; ++it) {
       Eigen::Index small_row = it.row();
       Eigen::Index small_col = it.col();
@@ -844,7 +854,8 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::small2Big(const SpMatD &Asmall, con
       else {
         throw std::domain_error("Different sparse matrix topology");
       }
-    } });
+    }
+  }
 
   mapping.resize(Asmall.rows(), Asmall.cols());
   mapping.setFromTriplets(entries.begin(), entries.end());
@@ -1067,6 +1078,11 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::removeRowsCols(const SpMatD &Abig, 
 
 EIGEN_SUPPORT_INLINE void pgo::EigenSupport::removeRowsCols(const SpMatD &Abig, const std::vector<int> &removedRowDofs, const std::vector<int> &removedColDofs, SpMatD &mat)
 {
+  if (removedRowDofs.size() == 0 && removedColDofs.size() == 0) {
+    mat = Abig;
+    return;
+  }
+
   std::vector<int> dofMappingsRow(Abig.rows());
   std::vector<int> dofMappingsCol(Abig.cols());
 

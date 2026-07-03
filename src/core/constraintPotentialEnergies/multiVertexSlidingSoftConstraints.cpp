@@ -191,7 +191,7 @@ void MultipleVertexSliding::computeHessian()
     tbb::static_partitioner());
 }
 
-void MultipleVertexSliding::hessian(ES::ConstRefVecXd u, ES::SpMatD &hess) const
+void MultipleVertexSliding::hessianInPlace(ES::ConstRefVecXd u, ES::SpMatD &hess) const
 {
   if (checkPenetration) {
     memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());

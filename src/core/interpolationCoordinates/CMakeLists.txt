@@ -2,12 +2,7 @@ set(INTERPOLATIONCOORDINATES_HEADERS interpolationCoordinatesBase.h meanValueCoo
 set(INTERPOLATIONCOORDINATES_SOURCES meanValueCoordinates.cpp GreenCoordinates.cpp barycentricCoordinates.cpp)
 set(INTERPOLATIONCOORDINATES_DEPS volumetricMesh)
 
-foreach(tgt ${INTERPOLATIONCOORDINATES_DEPS})
-  if(NOT TARGET ${tgt})
-    message(STATUS "interpolationCoordinates is not included. Missing: ${tgt}")
-    return()
-  endif()
-endforeach()
+pgo_require_targets(interpolationCoordinates TARGETS ${INTERPOLATIONCOORDINATES_DEPS})
 
 add_libpgo_lib(interpolationCoordinates "${INTERPOLATIONCOORDINATES_SOURCES}" "${INTERPOLATIONCOORDINATES_HEADERS}")
 

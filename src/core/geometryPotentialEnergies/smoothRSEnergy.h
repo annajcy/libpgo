@@ -5,7 +5,7 @@ copyright to USC, MIT
 
 #pragma once
 
-#include "potentialEnergy.h"
+#include "energy/potentialEnergy.h"
 #include "EigenSupport.h"
 #include "tetMeshGeo.h"
 
@@ -27,12 +27,13 @@ public:
 
   virtual double func(EigenSupport::ConstRefVecXd x) const;
   virtual void gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const;
-  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const;
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const;
 
-  virtual void createHessian(EigenSupport::SpMatD &hess) const { hess = hessTemplate; }
+  virtual void hessianAlloc(EigenSupport::SpMatD &hess) const { hess = hessTemplate; }
 
   virtual void getDOFs(std::vector<int> &dofs) const { dofs = allDOFs; }
   virtual int getNumDOFs() const { return (int)allDOFs.size(); }
+
 
   static void convertRowMajorFG(const EigenSupport::SpMatD &GRowMajor, EigenSupport::SpMatD &GColMajor);
 

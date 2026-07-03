@@ -5,8 +5,8 @@ copyright to USC
 
 #include "finiteDifference.h"
 
-#include "potentialEnergy.h"
-#include "constraintFunctions.h"
+#include "energy/potentialEnergy.h"
+#include "constraints/constraintFunctions.h"
 #include "EigenSupport.h"
 
 #include <random>
@@ -133,10 +133,10 @@ void FiniteDifference::testEnergy(std::shared_ptr<const PotentialEnergy> energy,
   if (testHessian) {
     ES::VXd xtemp = xcur, grad(nAll), gradSum(nAll);
     ES::SpMatD hess;
-    energy->createHessian(hess);
+    energy->hessianAlloc(hess);
 
     memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
-    energy->hessian(xcur, hess);
+    energy->hessianInPlace(xcur, hess);
 
     double exactNorm = 0;
     for (int dofi : dofs) {
@@ -374,8 +374,8 @@ void FiniteDifference::testConstraints(std::shared_ptr<const ConstraintFunctions
   gradSum.resize(nAll);
 
   ES::SpMatD hess;
-  cfunc->createHessian(hess);
-  cfunc->hessian(xcur, lambdaCur, hess);
+  cfunc->hessianAlloc(hess);
+  cfunc->hessianInPlace(xcur, lambdaCur, hess);
 
   norm = 0;
   absErr = 0;

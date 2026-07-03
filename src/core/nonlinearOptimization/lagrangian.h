@@ -5,8 +5,8 @@ copyright to USC
 
 #pragma once
 
-#include "potentialEnergy.h"
-#include "constraintFunctions.h"
+#include "energy/potentialEnergy.h"
+#include "constraints/constraintFunctions.h"
 
 namespace pgo
 {
@@ -20,11 +20,13 @@ public:
 
   virtual double func(EigenSupport::ConstRefVecXd x) const override;
   virtual void gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const override;
-  virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
-  virtual void createHessian(EigenSupport::SpMatD &h) const override { h = hess; }
+  virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
+  virtual void hessianAlloc(EigenSupport::SpMatD &h) const override { h = hess; }
 
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = allDOFs; }
   virtual int getNumDOFs() const override { return (int)allDOFs.size(); }
+
+  virtual StepConstraint computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink = nullptr) const override { return energy->computeMaxStepLimit(x, dx, sink); }
 
 protected:
   std::vector<int> allDOFs;

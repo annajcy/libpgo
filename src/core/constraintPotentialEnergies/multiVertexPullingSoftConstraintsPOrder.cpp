@@ -186,7 +186,7 @@ void MultipleVertexPullingSoftConstraintsPOrder::gradient(ES::ConstRefVecXd u, E
   grad *= coeffAll;
 }
 
-void MultipleVertexPullingSoftConstraintsPOrder::hessian(ES::ConstRefVecXd u, ES::SpMatD &hess) const
+void MultipleVertexPullingSoftConstraintsPOrder::hessianInPlace(ES::ConstRefVecXd u, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 

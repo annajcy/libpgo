@@ -330,7 +330,7 @@ void MultipleVertexConstrainedRigidMotion::gradient(ES::ConstRefVecXd u, ES::Ref
 // dx2 = dFdx^T : dRdF^T : dR/dF : dF/dx + (R - Rbar) : d2R/dF2 dFdx : dF/dx
 // dxidxj = dR/dxj : dR/dxi + (R - Rbar) : (d2R/dF2 dFdxj) : dF/dxi
 
-void MultipleVertexConstrainedRigidMotion::hessian(ES::ConstRefVecXd u, ES::SpMatD &hess) const
+void MultipleVertexConstrainedRigidMotion::hessianInPlace(ES::ConstRefVecXd u, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 

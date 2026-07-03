@@ -1,0 +1,51 @@
+{
+  "type": "cubic",
+  "mesh": {
+    "volume": "../assets/veg/cubic/box.veg",
+    "surface": "../assets/obj/box.obj"
+  },
+  "material": {
+    "model": "stable_neo"
+  },
+  "loads": {
+    "gravity": [
+      0.0,
+      -9.81,
+      0.0
+    ]
+  },
+  "initial_state": {
+    "velocity": [
+      0.0,
+      -3.0,
+      0.0
+    ]
+  },
+  "contact": [
+    {
+      "model": "ipc",
+      "dhat": 0.002,
+      "dhat_external": 0.005,
+      "kappa": 3000.0,
+      "obstacles": [
+        {
+          "mesh": "../assets/obj/bottom.obj"
+        }
+      ]
+    }
+  ],
+  "solver": {
+    "max_iterations": 200,
+    "gradient_tolerance": 0.0001
+  },
+  "dynamic": {
+    "timestep": 0.001,
+    "num_steps": 2000
+  },
+  "output": {
+    "directory": "../outputs/sim/cubic-dynamic-box-ipc",
+    "write_surfaces": true,
+    "write_abc": true,
+    "dump_interval": 10
+  }
+}

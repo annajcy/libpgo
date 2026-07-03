@@ -111,6 +111,7 @@ else()
   include(${CMAKE_ROOT}/Modules/CheckFunctionExists.cmake)
 endif()
 include(${CMAKE_ROOT}/Modules/FindPackageHandleStandardArgs.cmake)
+include("${CMAKE_CURRENT_LIST_DIR}/FindBlasLapackHelpers.cmake")
 
 
 function(_add_lapack_target)
@@ -160,28 +161,8 @@ function(CHECK_LAPACK_LIBRARIES LIBRARIES _prefix _name _flags _list _deps _addl
   set(_libraries)
   set(_combined_name)
 
-  if(BLA_STATIC)
-    if(WIN32)
-      set(CMAKE_FIND_LIBRARY_SUFFIXES .lib ${CMAKE_FIND_LIBRARY_SUFFIXES})
-    else()
-      set(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
-    endif()
-  else()
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-      # for ubuntu's libblas3gf and liblapack3gf packages
-      set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES} .so.3gf)
-    endif()
-  endif()
-
-  set(_extaddlibdir "${_addlibdir}")
-  if(WIN32)
-    list(APPEND _extaddlibdir ENV LIB)
-  elseif(APPLE)
-    list(APPEND _extaddlibdir ENV DYLD_LIBRARY_PATH)
-  else()
-    list(APPEND _extaddlibdir ENV LD_LIBRARY_PATH)
-  endif()
-  list(APPEND _extaddlibdir "${CMAKE_C_IMPLICIT_LINK_DIRECTORIES}")
+  _blas_lapack_configure_library_suffixes()
+  _blas_lapack_library_dirs(_extaddlibdir "${_addlibdir}")
 
   foreach(_library ${_list})
     if(_library MATCHES "^-")
@@ -219,6 +200,12 @@ function(CHECK_LAPACK_LIBRARIES LIBRARIES _prefix _name _flags _list _deps _addl
       check_fortran_function_exists("${_name}" ${_prefix}${_combined_name}_WORKS)
     else()
       check_function_exists("${_name}_" ${_prefix}${_combined_name}_WORKS)
+      if(NOT ${_prefix}${_combined_name}_WORKS)
+        # On macOS (especially ARM64) and some other platforms, Fortran routines
+        # in LAPACK libraries may be compiled without a trailing underscore.
+        # Try the bare name before giving up.
+        check_function_exists("${_name}" ${_prefix}${_combined_name}_WORKS)
+      endif()
     endif()
     set(CMAKE_REQUIRED_LIBRARIES)
     set(_libraries_work ${${_prefix}${_combined_name}_WORKS})
@@ -377,8 +364,12 @@ if(NOT LAPACK_NOT_FOUND_MESSAGE)
     else()
       set(LAPACK_mkl_OS_NAME "lin")
     endif()
-    if(DEFINED ENV{MKLROOT})
+    if(DEFINED MKL_ROOT AND NOT "${MKL_ROOT}" STREQUAL "")
+      set(LAPACK_mkl_MKLROOT "${MKL_ROOT}")
+    elseif(DEFINED ENV{MKLROOT})
       file(TO_CMAKE_PATH "$ENV{MKLROOT}" LAPACK_mkl_MKLROOT)
+    endif()
+    if(DEFINED LAPACK_mkl_MKLROOT)
       # If MKLROOT points to the subdirectory 'mkl', use the parent directory instead
       # so we can better detect other relevant libraries in 'compiler' or 'tbb':
       get_filename_component(LAPACK_mkl_MKLROOT_LAST_DIR "${LAPACK_mkl_MKLROOT}" NAME)

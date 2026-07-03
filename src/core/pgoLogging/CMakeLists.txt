@@ -1,12 +1,7 @@
 set(PGOLOGGING_HEADERS pgoLogging.h fmtEigen.h)
-set(PGOLOGGING_DEPS Eigen3::Eigen spdlog::spdlog_header_only fmt::fmt-header-only)
+set(PGOLOGGING_DEPS Eigen3::Eigen spdlog::spdlog fmt::fmt-header-only)
 
-foreach(tgt ${PGOLOGGING_DEPS})
-  if(NOT TARGET ${tgt})
-    message(STATUS "pgoLogging is not included. Missing: ${tgt}")
-    return()
-  endif()
-endforeach()
+pgo_require_targets(pgoLogging TARGETS ${PGOLOGGING_DEPS})
 
 add_libpgo_lib(pgoLogging pgoLogging.cpp "${PGOLOGGING_HEADERS}")
 

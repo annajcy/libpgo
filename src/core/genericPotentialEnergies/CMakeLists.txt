@@ -10,12 +10,7 @@ set(GENERIC_POTENTIAL_ENERGIES_SOURCES
 
 set(GENERIC_POTENTIAL_ENERGIES_DEPS nonlinearOptimization mesh)
 
-foreach(tgt ${GENERIC_POTENTIAL_ENERGIES_DEPS})
-  if(NOT TARGET ${tgt})
-    message(STATUS "genericPotentialEnergies is not included. Missing: ${tgt}")
-    return()
-  endif()
-endforeach()
+pgo_require_targets(genericPotentialEnergies TARGETS ${GENERIC_POTENTIAL_ENERGIES_DEPS})
 
 add_libpgo_lib(genericPotentialEnergies "${GENERIC_POTENTIAL_ENERGIES_SOURCES}" "${GENERIC_POTENTIAL_ENERGIES_HEADERS}")
 

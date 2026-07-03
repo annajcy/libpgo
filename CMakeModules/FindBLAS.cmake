@@ -255,8 +255,6 @@ linked against MKL to run.
 # The approach follows that of the ``autoconf`` macro file, ``acx_blas.m4``
 # (distributed at http://ac-archive.sourceforge.net/ac-archive/acx_blas.html).
 
-message(WARNING "our blas finder")
-
 # Check the language being used
 if(NOT (CMAKE_C_COMPILER_LOADED OR CMAKE_CXX_COMPILER_LOADED OR CMAKE_Fortran_COMPILER_LOADED))
   if(BLAS_FIND_REQUIRED)
@@ -289,6 +287,7 @@ else()
   include(${CMAKE_ROOT}/Modules/CheckFunctionExists.cmake)
 endif()
 include(${CMAKE_ROOT}/Modules/FindPackageHandleStandardArgs.cmake)
+include("${CMAKE_CURRENT_LIST_DIR}/FindBlasLapackHelpers.cmake")
 
 if(BLA_PREFER_PKGCONFIG)
   if(NOT BLA_PKGCONFIG_BLAS)
@@ -320,28 +319,8 @@ function(CHECK_BLAS_LIBRARIES LIBRARIES _prefix _name _flags _list _deps _addlib
   set(_libraries)
   set(_combined_name)
 
-  if(BLA_STATIC)
-    if(WIN32)
-      set(CMAKE_FIND_LIBRARY_SUFFIXES .lib ${CMAKE_FIND_LIBRARY_SUFFIXES})
-    else()
-      set(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
-    endif()
-  else()
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-      # for ubuntu's libblas3gf and liblapack3gf packages
-      set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES} .so.3gf)
-    endif()
-  endif()
-
-  set(_extaddlibdir "${_addlibdir}")
-  if(WIN32)
-    list(APPEND _extaddlibdir ENV LIB)
-  elseif(APPLE)
-    list(APPEND _extaddlibdir ENV DYLD_LIBRARY_PATH)
-  else()
-    list(APPEND _extaddlibdir ENV LD_LIBRARY_PATH)
-  endif()
-  list(APPEND _extaddlibdir "${CMAKE_C_IMPLICIT_LINK_DIRECTORIES}")
+  _blas_lapack_configure_library_suffixes()
+  _blas_lapack_library_dirs(_extaddlibdir "${_addlibdir}")
 
   foreach(_library ${_list})
     if(_library MATCHES "^-")
@@ -379,6 +358,12 @@ function(CHECK_BLAS_LIBRARIES LIBRARIES _prefix _name _flags _list _deps _addlib
       check_fortran_function_exists("${_name}" ${_prefix}${_combined_name}_WORKS)
     else()
       check_function_exists("${_name}_" ${_prefix}${_combined_name}_WORKS)
+      if(NOT ${_prefix}${_combined_name}_WORKS)
+        # On macOS (especially ARM64) and some other platforms, Fortran routines
+        # in BLAS libraries may be compiled without a trailing underscore (e.g.
+        # conda-forge OpenBLAS).  Try the bare name before giving up.
+        check_function_exists("${_name}" ${_prefix}${_combined_name}_WORKS)
+      endif()
     endif()
     set(CMAKE_REQUIRED_LIBRARIES)
     set(_libraries_work ${${_prefix}${_combined_name}_WORKS})
@@ -469,6 +454,39 @@ if(BLA_VENDOR MATCHES "Intel" OR BLA_VENDOR STREQUAL "All")
             set(BLAS_mkl_THREADING "tbb")
             set(BLAS_mkl_OMP)
         endif()
+        if(DEFINED PGO_MKL_THREADING AND NOT PGO_MKL_THREADING STREQUAL "")
+          if(PGO_MKL_THREADING STREQUAL "sequential")
+            set(BLAS_mkl_THREADING "sequential")
+          elseif(PGO_MKL_THREADING MATCHES "^(intel|gnu|tbb)_thread$")
+            string(REPLACE "_thread" "" BLAS_mkl_THREADING "${PGO_MKL_THREADING}")
+          else()
+            message(FATAL_ERROR "Unsupported PGO_MKL_THREADING for BLAS: ${PGO_MKL_THREADING}")
+          endif()
+        endif()
+        if(BLAS_mkl_THREADING STREQUAL "sequential")
+          set(BLAS_mkl_THREADING_LIB "mkl_sequential")
+        else()
+          set(BLAS_mkl_THREADING_LIB "mkl_${BLAS_mkl_THREADING}_thread")
+        endif()
+	if(BLAS_mkl_THREADING STREQUAL "gnu")
+	  set(BLAS_mkl_OMP "-lgomp")
+	elseif(BLAS_mkl_THREADING STREQUAL "intel")
+	  set(BLAS_mkl_OMP "-liomp5")
+	elseif(BLAS_mkl_THREADING STREQUAL "tbb")
+	  if(TARGET TBB::tbb)
+	    get_property(BLAS_mkl_TBB_LIB TARGET TBB::tbb PROPERTY IMPORTED_LOCATION_RELEASE)
+	    if(NOT BLAS_mkl_TBB_LIB)
+	      get_property(BLAS_mkl_TBB_LIB TARGET TBB::tbb PROPERTY IMPORTED_LOCATION_RELWITHDEBINFO)
+	    endif()
+	    if(BLAS_mkl_TBB_LIB)
+	      set(BLAS_mkl_THREAD_DEPS "${BLAS_mkl_TBB_LIB}")
+	    else()
+	      set(BLAS_mkl_THREAD_DEPS TBB::tbb)
+	    endif()
+	  else()
+	    set(BLAS_mkl_THREAD_DEPS "-ltbb")
+	  endif()
+	endif()
         set(BLAS_mkl_LM "-lm")
         set(BLAS_mkl_LDL "-ldl")
       endif()
@@ -535,20 +553,20 @@ if(BLA_VENDOR MATCHES "Intel" OR BLA_VENDOR STREQUAL "All")
           if(BLA_VENDOR STREQUAL "Intel10_32" OR BLA_VENDOR STREQUAL "All")
             # old version
             list(APPEND BLAS_SEARCH_LIBS
-              "mkl_blas95 mkl_${BLAS_mkl_INTFACE} mkl_${BLAS_mkl_THREADING}_thread mkl_core guide")
+              "mkl_blas95 mkl_${BLAS_mkl_INTFACE} ${BLAS_mkl_THREADING_LIB} mkl_core guide")
 
             # mkl >= 10.3
             list(APPEND BLAS_SEARCH_LIBS
-              "${BLAS_mkl_START_GROUP} mkl_blas95 mkl_${BLAS_mkl_INTFACE} mkl_${BLAS_mkl_THREADING}_thread mkl_core ${BLAS_mkl_END_GROUP} ${BLAS_mkl_OMP}")
+              "${BLAS_mkl_START_GROUP} mkl_blas95 mkl_${BLAS_mkl_INTFACE} ${BLAS_mkl_THREADING_LIB} mkl_core ${BLAS_mkl_END_GROUP} ${BLAS_mkl_OMP}")
           endif()
           if(BLA_VENDOR MATCHES "^Intel10_64i?lp$" OR BLA_VENDOR STREQUAL "All")
             # old version
             list(APPEND BLAS_SEARCH_LIBS
-              "mkl_blas95 mkl_${BLAS_mkl_INTFACE}_${BLAS_mkl_ILP_MODE} mkl_${BLAS_mkl_THREADING}_thread mkl_core guide")
+              "mkl_blas95 mkl_${BLAS_mkl_INTFACE}_${BLAS_mkl_ILP_MODE} ${BLAS_mkl_THREADING_LIB} mkl_core guide")
 
             # mkl >= 10.3
             list(APPEND BLAS_SEARCH_LIBS
-              "${BLAS_mkl_START_GROUP} mkl_blas95_${BLAS_mkl_ILP_MODE} mkl_${BLAS_mkl_INTFACE}_${BLAS_mkl_ILP_MODE} mkl_${BLAS_mkl_THREADING}_thread mkl_core ${BLAS_mkl_END_GROUP} ${BLAS_mkl_OMP}")
+              "${BLAS_mkl_START_GROUP} mkl_blas95_${BLAS_mkl_ILP_MODE} mkl_${BLAS_mkl_INTFACE}_${BLAS_mkl_ILP_MODE} ${BLAS_mkl_THREADING_LIB} mkl_core ${BLAS_mkl_END_GROUP} ${BLAS_mkl_OMP}")
           endif()
           if(BLA_VENDOR MATCHES "^Intel10_64i?lp_seq$" OR BLA_VENDOR STREQUAL "All")
             list(APPEND BLAS_SEARCH_LIBS
@@ -601,20 +619,20 @@ if(BLA_VENDOR MATCHES "Intel" OR BLA_VENDOR STREQUAL "All")
           if(BLA_VENDOR STREQUAL "Intel10_32" OR BLA_VENDOR STREQUAL "All")
             # old version
             list(APPEND BLAS_SEARCH_LIBS
-              "mkl_${BLAS_mkl_INTFACE} mkl_${BLAS_mkl_THREADING}_thread mkl_core guide")
+              "mkl_${BLAS_mkl_INTFACE} ${BLAS_mkl_THREADING_LIB} mkl_core guide")
 
             # mkl >= 10.3
             list(APPEND BLAS_SEARCH_LIBS
-              "${BLAS_mkl_START_GROUP} mkl_${BLAS_mkl_INTFACE} mkl_${BLAS_mkl_THREADING}_thread mkl_core ${BLAS_mkl_END_GROUP} ${BLAS_mkl_OMP}")
+              "${BLAS_mkl_START_GROUP} mkl_${BLAS_mkl_INTFACE} ${BLAS_mkl_THREADING_LIB} mkl_core ${BLAS_mkl_END_GROUP} ${BLAS_mkl_OMP}")
           endif()
           if(BLA_VENDOR MATCHES "^Intel10_64i?lp$" OR BLA_VENDOR STREQUAL "All")
             # old version
             list(APPEND BLAS_SEARCH_LIBS
-              "mkl_${BLAS_mkl_INTFACE}_${BLAS_mkl_ILP_MODE} mkl_${BLAS_mkl_THREADING}_thread mkl_core guide")
+              "mkl_${BLAS_mkl_INTFACE}_${BLAS_mkl_ILP_MODE} ${BLAS_mkl_THREADING_LIB} mkl_core guide")
 
             # mkl >= 10.3
             list(APPEND BLAS_SEARCH_LIBS
-              "${BLAS_mkl_START_GROUP} mkl_${BLAS_mkl_INTFACE}_${BLAS_mkl_ILP_MODE} mkl_${BLAS_mkl_THREADING}_thread mkl_core ${BLAS_mkl_END_GROUP} ${BLAS_mkl_OMP}")
+              "${BLAS_mkl_START_GROUP} mkl_${BLAS_mkl_INTFACE}_${BLAS_mkl_ILP_MODE} ${BLAS_mkl_THREADING_LIB} mkl_core ${BLAS_mkl_END_GROUP} ${BLAS_mkl_OMP}")
           endif()
           if(BLA_VENDOR MATCHES "^Intel10_64i?lp_seq$" OR BLA_VENDOR STREQUAL "All")
             list(APPEND BLAS_SEARCH_LIBS
@@ -652,8 +670,12 @@ if(BLA_VENDOR MATCHES "Intel" OR BLA_VENDOR STREQUAL "All")
       else()
         set(BLAS_mkl_OS_NAME "lin")
       endif()
-      if(DEFINED ENV{MKLROOT})
+      if(DEFINED MKL_ROOT AND NOT "${MKL_ROOT}" STREQUAL "")
+        set(BLAS_mkl_MKLROOT "${MKL_ROOT}")
+      elseif(DEFINED ENV{MKLROOT})
         file(TO_CMAKE_PATH "$ENV{MKLROOT}" BLAS_mkl_MKLROOT)
+      endif()
+      if(DEFINED BLAS_mkl_MKLROOT)
         # If MKLROOT points to the subdirectory 'mkl', use the parent directory instead
         # so we can better detect other relevant libraries in 'compiler' or 'tbb':
         get_filename_component(BLAS_mkl_MKLROOT_LAST_DIR "${BLAS_mkl_MKLROOT}" NAME)
@@ -678,11 +700,11 @@ if(BLA_VENDOR MATCHES "Intel" OR BLA_VENDOR STREQUAL "All")
             BLAS
             ${BLAS_mkl_SEARCH_SYMBOL}
             ""
-            "${_search}"
-            "${CMAKE_THREAD_LIBS_INIT};${BLAS_mkl_LM};${BLAS_mkl_LDL}"
-            "${BLAS_mkl_MKLROOT}"
-            "${BLAS_mkl_LIB_PATH_SUFFIXES}"
-            )
+	            "${_search}"
+	            "${CMAKE_THREAD_LIBS_INIT};${BLAS_mkl_LM};${BLAS_mkl_LDL};${BLAS_mkl_THREAD_DEPS}"
+	            "${BLAS_mkl_MKLROOT}"
+	            "${BLAS_mkl_LIB_PATH_SUFFIXES}"
+	            )
         endif()
       endforeach()
 
@@ -690,7 +712,10 @@ if(BLA_VENDOR MATCHES "Intel" OR BLA_VENDOR STREQUAL "All")
       unset(BLAS_mkl_ILP_MODE)
       unset(BLAS_mkl_INTFACE)
       unset(BLAS_mkl_THREADING)
+      unset(BLAS_mkl_THREADING_LIB)
       unset(BLAS_mkl_OMP)
+      unset(BLAS_mkl_THREAD_DEPS)
+      unset(BLAS_mkl_TBB_LIB)
       unset(BLAS_mkl_DLL_SUFFIX)
       unset(BLAS_mkl_LM)
       unset(BLAS_mkl_LDL)

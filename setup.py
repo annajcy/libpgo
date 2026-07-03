@@ -1,197 +1,136 @@
-"""
-modified from pybind11 example
-"""
+"""Setuptools entry point for the Python-first pypgo package."""
 
+from pathlib import Path
 import os
-import re
+import shutil
 import subprocess
 import sys
-import platform
-from pathlib import Path
-import shutil
 
-from setuptools import Extension, setup
+from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
 
-if "Win" not in platform.platform():
-    install_requires=["tbb", "mkl"]
-else:
-    install_requires=[]
-
-# Convert distutils Windows platform specifiers to CMake -A arguments
-PLAT_TO_CMAKE = {
-    "win32": "Win32",
-    "win-amd64": "x64",
-    "win-arm32": "ARM",
-    "win-arm64": "ARM64",
-}
+PACKAGE_NAME = os.environ.get("PYPGO_PACKAGE_NAME", "pypgo").strip()
+SUPPORTED_PACKAGE_NAMES = {"pypgo", "pypgo-mkl"}
+if PACKAGE_NAME not in SUPPORTED_PACKAGE_NAMES:
+    raise RuntimeError(
+        f"Unsupported PYPGO_PACKAGE_NAME={PACKAGE_NAME!r}; "
+        f"expected one of {sorted(SUPPORTED_PACKAGE_NAMES)}."
+)
+INSTALL_REQUIRES = []
 
 
-# A CMakeExtension needs a sourcedir instead of a file list.
-# The name must be the _single_ output extension from the CMake build.
-# If you need multiple extensions, see scikit-build.
 class CMakeExtension(Extension):
-    def __init__(self, name: str, sourcedir: str = "") -> None:
-        super().__init__(name, sources=[])
-        self.sourcedir = os.fspath(Path(sourcedir).resolve())
+    """Placeholder extension built by the CMake preset."""
+
+    def __init__(self, name):
+        super().__init__(name, sources=[], py_limited_api=True)
 
 
-class CMakeBuild(build_ext):
-    def build_extension(self, ext: CMakeExtension) -> None:
-        # Must be in this form due to bug in .resolve() only fixed in Python 3.10+
-        ext_fullpath = Path.cwd() / self.get_ext_fullpath(ext.name)
-        extdir = ext_fullpath.parent.resolve()
+class CMakeBuildExt(build_ext):
+    """Build pypgo's native extension through the CMake pypgo preset."""
 
-        # Using this requires trailing slash for auto-detection & inclusion of
-        # auxiliary "native" libs
+    preset = os.environ.get("PYPGO_CMAKE_PRESET", "pypgo")
+    target = "pypgo_core"
 
-        debug = int(os.environ.get("DEBUG", 0)) if self.debug is None else self.debug
-        cfg = "Debug" if debug else "Release"
+    def build_extension(self, ext):
+        source_dir = Path(__file__).resolve().parent
 
-        # CMake lets you override the generator - we need to check this.
-        # Can be set with Conda-Build, for example.
-        cmake_generator = os.environ.get("CMAKE_GENERATOR", "")
-
-        # Set Python_EXECUTABLE instead if you use PYBIND11_FINDPYTHON
-        # EXAMPLE_VERSION_INFO shows you how to pass a value into the C++ code
-        # from Python.
-        cmake_args = [
-            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}{os.sep}",
-            f"-DPYTHON_EXECUTABLE={sys.executable}",
-            f"-DCMAKE_BUILD_TYPE={cfg}",  # not used on MSVC, but no harm
+        configure_command = [
+            "cmake",
+            "--preset",
+            self.preset,
+            f"-DPython_EXECUTABLE={sys.executable}",
         ]
+        subprocess.check_call(configure_command, cwd=source_dir)
+        build_command = [
+            "cmake",
+            "--build",
+            "--preset",
+            self.preset,
+            "--target",
+            self.target,
+        ]
+        build_command.extend(["--parallel", str(self._parallel_jobs())])
+        subprocess.check_call(build_command, cwd=source_dir)
 
-        cmake_args += [f"-DPGO_ENABLE_PYTHON=1", f"-DPGO_BUILD_SUBPROJECTS=1", "-DPGO_ENABLE_ALEMBIC=1", "-DPGO_CHECK_CONDA=1"]
+        output_path = Path(self.get_ext_fullpath(ext.name)).resolve()
+        built_ext = self._find_built_extension(source_dir, output_path.name)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if "macOS" in platform.platform():
-            cmake_args += [
-                f"-DPGO_USE_MKL=0",
-            ]
-        else:
-            cmake_args += [
-                f"-DPGO_USE_MKL=1",
-            ]
+        if built_ext.resolve() != output_path:
+            shutil.copy2(built_ext, output_path)
 
-        # enable mkl
-        if "CONDA_PREFIX" in os.environ:
-            if "Windows" in platform.platform():
-                os.environ["MKLROOT"] = os.path.join(os.environ["CONDA_PREFIX"], "Library")
-            else:
-                os.environ["MKLROOT"] = os.environ["CONDA_PREFIX"]
+    def _parallel_jobs(self):
+        if self.parallel:
+            return int(self.parallel)
+        # Honor CMAKE_BUILD_PARALLEL_LEVEL so CI can cap concurrent compiles on
+        # memory/disk-constrained runners (the Windows hosted runner otherwise dies
+        # mid-build at the default cpu_count()). Unset → full cpu_count() as before.
+        env_level = os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "").strip()
+        if env_level.isdigit() and int(env_level) > 0:
+            return int(env_level)
+        return max(1, os.cpu_count() or 1)
 
-        build_args = []
-        # Adding CMake arguments set as environment variable
-        # (needed e.g. to build for ARM OSx on conda-forge)
-        if "CMAKE_ARGS" in os.environ:
-            cmake_args += [item for item in os.environ["CMAKE_ARGS"].split(" ") if item]
+    def _find_built_extension(self, source_dir, expected_name):
+        package_dir = source_dir / "pypgo"
 
-        # In this example, we pass in the version to C++. You might not need to.
-        cmake_args += [f"-DPYPGO_VERSION_INFO={self.distribution.get_version()}"]
+        expected_path = package_dir / expected_name
+        if expected_path.exists():
+            return expected_path
 
-        if self.compiler.compiler_type != "msvc":
-            # Using Ninja-build since it a) is available as a wheel and b)
-            # multithreads automatically. MSVC would require all variables be
-            # exported for Ninja to pick it up, which is a little tricky to do.
-            # Users can override the generator with CMAKE_GENERATOR in CMake
-            # 3.15+.
-            if not cmake_generator or cmake_generator == "Ninja":
-                try:
-                    import ninja
-
-                    ninja_executable_path = Path(ninja.BIN_DIR) / "ninja"
-                    cmake_args += [
-                        "-GNinja",
-                        f"-DCMAKE_MAKE_PROGRAM:FILEPATH={ninja_executable_path}",
-                    ]
-                except ImportError:
-                    pass
-
-        else:
-            # Single config generators are handled "normally"
-            single_config = any(x in cmake_generator for x in {"NMake", "Ninja"})
-
-            # CMake allows an arch-in-generator style for backward compatibility
-            contains_arch = any(x in cmake_generator for x in {"ARM", "Win64"})
-
-            # Specify the arch if using MSVC generator, but only if it doesn't
-            # contain a backward-compatibility arch spec already in the
-            # generator name.
-            if not single_config and not contains_arch:
-                cmake_args += ["-A", PLAT_TO_CMAKE[self.plat_name]]
-
-            # Multi-config generators have a different way to specify configs
-            if not single_config:
-                cmake_args += [f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_{cfg.upper()}={extdir}"]
-                build_args += ["--config", cfg]
-
-        if sys.platform.startswith("darwin"):
-            # Cross-compile support for macOS - respect ARCHFLAGS if set
-            archs = re.findall(r"-arch (\S+)", os.environ.get("ARCHFLAGS", ""))
-            if archs:
-                cmake_args += ["-DCMAKE_OSX_ARCHITECTURES={}".format(";".join(archs))]
-
-        # Set CMAKE_BUILD_PARALLEL_LEVEL to control the parallel build level
-        # across all generators.
-        if "CMAKE_BUILD_PARALLEL_LEVEL" not in os.environ:
-            # self.parallel is a Python 3 only way to set parallel jobs by hand
-            # using -j in the build_ext call, not supported by pip or PyPA-build.
-            if hasattr(self, "parallel") and self.parallel:
-                # CMake 3.12+ only.
-                build_args += [f"-j{self.parallel}"]
-
-        build_temp = Path(self.build_temp) / ext.name
-        if not build_temp.exists():
-            build_temp.mkdir(parents=True)
-
-        # e.g., copy a known DLL into the same folder as the built .pyd/.so
-        # for the extension named mypackage._example
-        if "Windows" in platform.platform():
-            ext_build_path = self.get_ext_fullpath(ext.name)
-            ext_dir = os.path.dirname(os.path.abspath(ext_build_path))
-            if not os.path.exists(ext_dir):
-                os.makedirs(ext_dir, exist_ok=True)
-
-            third_party_folder = (Path.cwd() / "third-party").resolve()
-
-            for folder in [f"{third_party_folder}/gmp-msvc/release", f"{third_party_folder}/mpfr-msvc/release"]:
-                for file in os.listdir(folder):
-                    full_filename = os.path.join(folder, file)
-                    if os.path.isfile(full_filename) and file.lower().endswith(".dll"):
-                        dest_dll = os.path.join(ext_dir, file)
-                        print(f"copying {full_filename} to {dest_dll}")
-                        shutil.copyfile(full_filename, dest_dll)
-
-        subprocess.run(["cmake", ext.sourcedir, *cmake_args], cwd=build_temp, check=True)
-        subprocess.run(["cmake", "--build", ".", "--target", "pypgo", *build_args], cwd=build_temp, check=True)
-        # subprocess.run(["cmake", "--build", ".", "--target", "pgo_c", *build_args], cwd=build_temp, check=True)
-
-        # if "CONDA_PREFIX" in os.environ:
-        #     if "Windows" in platform.platform():
-        #         install_prefix = os.path.join(os.environ["CONDA_PREFIX"], "Library")
-        #     else:
-        #         install_prefix = os.environ["CONDA_PREFIX"]
-
-        #     subprocess.run(["cmake", "--install", ".", "--prefix", install_prefix, *build_args], cwd=build_temp, check=True)
+        candidates = sorted(package_dir.glob("_core.*"))
+        raise RuntimeError(
+            "CMake build completed, but the expected extension "
+            f"pypgo/{expected_name} was not found. Found: "
+            f"{', '.join(path.name for path in candidates) or 'none'}."
+        )
 
 
-# The information here can also be placed in setup.cfg - better separation of
-# logic and declaration, and simpler if you include description/version in a file.
 setup(
-    name="pypgo",
-    version="0.0.3",
+    name=PACKAGE_NAME,
+    version="0.0.4",
     author="Bohan Wang",
     author_email="wangbh11@gmail.com",
-    description="build pypgo",
+    description="libpgo python binding",
     long_description="",
-    ext_modules=[CMakeExtension("pypgo")],
-    cmdclass={"build_ext": CMakeBuild},
+    packages=find_packages(include=["pypgo", "pypgo.*"]),
+    ext_modules=[CMakeExtension("pypgo._core")],
+    cmdclass={"build_ext": CMakeBuildExt},
+    options={"bdist_wheel": {"py_limited_api": "cp312"}},
+    entry_points={
+        "console_scripts": [
+            "pypgo-volume-info=pypgo.tools.mesh.volume.volume_info:main",
+            "pypgo-cubic-mesher=pypgo.tools.mesh.volume.cubic_mesher:main",
+            "pypgo-tetgen-mesher=pypgo.tools.mesh.volume.tetgen_mesher:main",
+            "pypgo-ftetwild-mesher=pypgo.tools.mesh.volume.ftetwild_mesher:main",
+            "pypgo-msh-converter=pypgo.tools.mesh.volume.msh_converter:main",
+            "pypgo-surface-quality=pypgo.tools.mesh.surface.quality:main",
+            "pypgo-surface-remesh=pypgo.tools.mesh.surface.remesh:main",
+            "pypgo-surface-cleanup=pypgo.tools.mesh.surface.cleanup:main",
+            "pypgo-sim-shell-static=pypgo.tools.sim.shell_static:main",
+            "pypgo-sim-shell-dynamic=pypgo.tools.sim.shell_dynamic:main",
+            "pypgo-sim-cubic-static=pypgo.tools.sim.cubic_static:main",
+            "pypgo-sim-cubic-dynamic=pypgo.tools.sim.cubic_dynamic:main",
+            "pypgo-sim-tet-static=pypgo.tools.sim.tet_static:main",
+            "pypgo-sim-tet-dynamic=pypgo.tools.sim.tet_dynamic:main",
+            "pypgo-sim-batch=pypgo.tools.sim.batch:main",
+            "pypgo-animation-convert=pypgo.tools.animation.abc_convert:main",
+            "pypgo-stress-vdb=pypgo.tools.animation.stress_vdb:main",
+        ],
+    },
     zip_safe=False,
-    install_requires=install_requires,
-    extras_require={"test": ["pytest>=6.0"]},
-    python_requires=">=3.9",
-    # Tell setuptools to include extra non-Python files in the wheel
-    # include_package_data=include_package_data,  # needs a MANIFEST.in or package_data below
-    # package_dir=package_dir,
-    # One way: use package_data
-    # package_data=package_data,
+    python_requires=">=3.12",
+    install_requires=INSTALL_REQUIRES,
+    extras_require={
+        # Optional torch autograd layers in pypgo.fem (imported lazily).
+        # Install torch explicitly in the conda environment when needed.
+        "torch": ["torch"],
+        # 3D visualization (pypgo.mesh.visualize) and interactive/web rendering.
+        # pyvista pulls its own vtk wheel; trame provides the web backend.
+        "viz": ["pyvista", "trame", "trame-vtk", "trame-vuetify"],
+        # Test / notebook / demo tooling (not needed at runtime).
+        # pytest-timeout enforces the per-test timeout in pyproject.toml so a hung
+        # solve fails fast (with a traceback) instead of stalling the CI job.
+        "dev": ["pytest", "pytest-timeout", "notebook"],
+    },
 )

@@ -1,0 +1,15 @@
+{
+  "type": "shell",
+  "mesh": { "surface": "../assets/obj/shell.obj" },
+  "material": { "thickness": 0.001, "E_membrane": 1000000.0, "nu_membrane": 0.4,
+                "mass": { "density": 1000.0 } },
+  "loads": { "gravity": [0.0, -9.81, 0.0] },
+  "initial_state": { "velocity": [0.0, -2.0, 0.0] },
+  "contact": [
+    { "model": "ipc", "dhat": 0.005, "kappa": 1000.0,
+      "obstacles": [ { "mesh": "../assets/obj/bottom.obj" } ] }
+  ],
+  "solver": { "max_iterations": 200, "gradient_tolerance": 0.0001 },
+  "dynamic": { "timestep": 0.0005, "num_steps": 80 },
+  "output": { "directory": "../outputs/sim/shell-dynamic-ipc-drop", "write_surfaces": true, "dump_interval": 10 }
+}

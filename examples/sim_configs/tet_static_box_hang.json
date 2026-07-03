@@ -1,0 +1,14 @@
+{
+  "type": "tet",
+  "mesh": {
+    "volume": "../assets/veg/tet/box.veg",
+    "surface": "../assets/obj/box.obj"
+  },
+  "material": { "model": "stable_neo" },
+  "constraints": {
+    "fixed": { "region": { "axis": "y", "side": "max", "tolerance": 0.001 } }
+  },
+  "loads": { "gravity": [0.0, -9.81, 0.0] },
+  "solver": { "max_iterations": 200, "gradient_tolerance": 0.0001 },
+  "output": { "directory": "../outputs/sim/tet-static-box-hang", "write_surfaces": true }
+}

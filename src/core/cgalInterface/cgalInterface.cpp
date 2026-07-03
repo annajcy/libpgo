@@ -8,6 +8,8 @@ copyright to MIT, USC
 #include "cgalTemplateUtilities.h"
 
 #include "triMeshGeo.h"
+#include "triMeshNeighbor.h"
+#include "arrayRef.h"
 #include "simpleSphere.h"
 #include "boundingVolumeTree.h"
 #include "triMeshPseudoNormal.h"
@@ -31,14 +33,15 @@ copyright to MIT, USC
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Polygon_mesh_processing/self_intersections.h>
 #include <CGAL/Polygon_mesh_processing/repair.h>
+#include <CGAL/Polygon_mesh_processing/repair_self_intersections.h>
 #include <CGAL/Polygon_mesh_processing/connected_components.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/extrude.h>
-#include <CGAL/Surface_mesh_default_triangulation_3.h>
 #include <CGAL/Polygon_mesh_processing/repair_polygon_soup.h>
 #include <CGAL/Polygon_mesh_processing/orient_polygon_soup.h>
 #include <CGAL/Polygon_mesh_processing/polygon_soup_to_polygon_mesh.h>
+#include <CGAL/Polygon_mesh_processing/orientation.h>
 #include <CGAL/Polygon_mesh_processing/clip.h>
 
 #include <CGAL/Surface_mesh_simplification/Policies/Edge_collapse/Edge_count_ratio_stop_predicate.h>
@@ -68,6 +71,12 @@ copyright to MIT, USC
 #include <CGAL/AABB_traits.h>
 #include <CGAL/Simple_cartesian.h>
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numeric>
+#include <set>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace pgo::CGALInterface
@@ -621,6 +630,426 @@ bool pgo::CGALInterface::isSelfIntersected(const Mesh::TriMeshGeo &meshIn)
   bool intersecting = CGAL::Polygon_mesh_processing::does_self_intersect<CGAL::Parallel_if_available_tag>(P, CGAL::parameters::vertex_point_map(CGAL::get(CGAL::vertex_point, P)));
 
   return intersecting;
+}
+
+pgo::Mesh::TriMeshGeo pgo::CGALInterface::repairSelfIntersections(const Mesh::TriMeshGeo &meshIn, const std::string &method, bool *allFixed)
+{
+  using K = KernelInexact;
+  using SM = CGAL::Surface_mesh<K::Point_3>;
+  using vertex_descriptor = boost::graph_traits<SM>::vertex_descriptor;
+
+  SM surfaceMesh;
+  triangleMesh2SurfaceMesh<SM, SM::Property_map<vertex_descriptor, int>>(meshIn, surfaceMesh, nullptr);
+
+  bool fixed = false;
+  if (method == "autorefine") {
+    fixed = CGAL::Polygon_mesh_processing::experimental::autorefine_and_remove_self_intersections(surfaceMesh);
+  }
+  else if (method == "autorefine-only") {
+    CGAL::Polygon_mesh_processing::experimental::autorefine(surfaceMesh);
+    fixed = CGAL::Polygon_mesh_processing::does_self_intersect<CGAL::Parallel_if_available_tag>(surfaceMesh) == false;
+  }
+  else if (method == "remove") {
+    fixed = CGAL::Polygon_mesh_processing::experimental::remove_self_intersections(surfaceMesh);
+  }
+  else {
+    throw std::invalid_argument("Unknown self-intersection repair method: " + method);
+  }
+
+  if (allFixed)
+    *allFixed = fixed;
+
+  CGAL::Polygon_mesh_processing::triangulate_faces(surfaceMesh);
+  CGAL::Polygon_mesh_processing::remove_isolated_vertices(surfaceMesh);
+  surfaceMesh.collect_garbage();
+
+  Mesh::TriMeshGeo meshOut;
+  surfaceMesh2TriangleMesh<K>(surfaceMesh, meshOut);
+  return meshOut;
+}
+
+pgo::CGALInterface::MergeCloseVerticesResult pgo::CGALInterface::mergeCloseVertices(const Mesh::TriMeshGeo &meshIn, double eps)
+{
+  struct GridKey
+  {
+    long long x = 0;
+    long long y = 0;
+    long long z = 0;
+
+    bool operator==(const GridKey &other) const
+    {
+      return x == other.x && y == other.y && z == other.z;
+    }
+  };
+
+  struct GridKeyHash
+  {
+    size_t operator()(const GridKey &key) const noexcept
+    {
+      size_t h = 1469598103934665603ull;
+      auto mix = [&](size_t value) {
+        h ^= value + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+      };
+      mix(std::hash<long long>{}(key.x));
+      mix(std::hash<long long>{}(key.y));
+      mix(std::hash<long long>{}(key.z));
+      return h;
+    }
+  };
+
+  auto computeMinEdgeLength = [&]() -> double {
+    double minLength = std::numeric_limits<double>::infinity();
+    for (const auto &tri : meshIn.triangles()) {
+      if (Mesh::isTriangleInvalid(tri))
+        continue;
+      for (int i = 0; i < 3; ++i) {
+        const double length = (meshIn.pos(tri[i]) - meshIn.pos(tri[(i + 1) % 3])).norm();
+        minLength = std::min(minLength, length);
+      }
+    }
+    if (std::isfinite(minLength) == false)
+      return 0.0;
+    return minLength;
+  };
+
+  if (eps < 0.0)
+    eps = 0.5 * computeMinEdgeLength();
+  if (eps < 0.0)
+    throw std::invalid_argument("mergeCloseVertices eps must be non-negative");
+
+  MergeCloseVerticesResult result;
+  result.eps = eps;
+  if (meshIn.numVertices() == 0 || eps == 0.0) {
+    result.mesh = Mesh::removeIsolatedVertices(meshIn.ref());
+    return result;
+  }
+
+  auto toGridKey = [&](const Vec3d &p) {
+    return GridKey{
+      static_cast<long long>(std::floor(p[0] / eps)),
+      static_cast<long long>(std::floor(p[1] / eps)),
+      static_cast<long long>(std::floor(p[2] / eps)),
+    };
+  };
+
+  const double eps2 = eps * eps;
+  std::unordered_map<GridKey, std::vector<int>, GridKeyHash> grid;
+  std::vector<int> representative(meshIn.numVertices(), -1);
+  std::vector<int> representatives;
+
+  for (int vtxID = 0; vtxID < meshIn.numVertices(); ++vtxID) {
+    const Vec3d &p = meshIn.pos(vtxID);
+    const GridKey key = toGridKey(p);
+    int chosen = -1;
+
+    for (int dx = -1; dx <= 1 && chosen < 0; ++dx) {
+      for (int dy = -1; dy <= 1 && chosen < 0; ++dy) {
+        for (int dz = -1; dz <= 1 && chosen < 0; ++dz) {
+          const GridKey neighborKey{ key.x + dx, key.y + dy, key.z + dz };
+          auto iter = grid.find(neighborKey);
+          if (iter == grid.end())
+            continue;
+          for (const int repID : iter->second) {
+            if ((p - meshIn.pos(repID)).squaredNorm() <= eps2) {
+              chosen = repID;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (chosen < 0) {
+      chosen = vtxID;
+      grid[key].push_back(vtxID);
+      representatives.push_back(vtxID);
+    }
+    else {
+      ++result.mergedVertices;
+    }
+    representative[vtxID] = chosen;
+  }
+
+  std::vector<int> oldToNew(meshIn.numVertices(), -1);
+  std::vector<Vec3d> positions;
+  positions.reserve(representatives.size());
+  for (const int repID : representatives) {
+    oldToNew[repID] = static_cast<int>(positions.size());
+    positions.push_back(meshIn.pos(repID));
+  }
+
+  std::vector<Vec3i> triangles;
+  triangles.reserve(meshIn.numTriangles());
+  for (const Vec3i &triIn : meshIn.triangles()) {
+    Vec3i tri;
+    for (int i = 0; i < 3; ++i) {
+      const int repID = representative[triIn[i]];
+      tri[i] = oldToNew[repID];
+    }
+    if (Mesh::isTriangleInvalid(tri))
+      continue;
+    const Vec3d e0 = positions[tri[1]] - positions[tri[0]];
+    const Vec3d e1 = positions[tri[2]] - positions[tri[0]];
+    if (e0.cross(e1).squaredNorm() <= std::numeric_limits<double>::epsilon())
+      continue;
+    triangles.push_back(tri);
+  }
+
+  Mesh::TriMeshGeo mergedMesh = Mesh::removeIsolatedVertices(Mesh::TriMeshGeo(std::move(positions), std::move(triangles)).ref());
+
+  using K = KernelInexact;
+  using SM = CGAL::Surface_mesh<K::Point_3>;
+  using vertex_descriptor = boost::graph_traits<SM>::vertex_descriptor;
+  SM surfaceMesh;
+  triangleMesh2SurfaceMesh<SM, SM::Property_map<vertex_descriptor, int>>(mergedMesh, surfaceMesh, nullptr);
+
+  CGAL::Polygon_mesh_processing::triangulate_faces(surfaceMesh);
+  CGAL::Polygon_mesh_processing::remove_degenerate_faces(surfaceMesh);
+  CGAL::Polygon_mesh_processing::remove_degenerate_edges(surfaceMesh);
+  CGAL::Polygon_mesh_processing::stitch_borders(surfaceMesh);
+  try {
+    CGAL::Polygon_mesh_processing::orient(surfaceMesh);
+  }
+  catch (...) {
+  }
+  CGAL::Polygon_mesh_processing::remove_isolated_vertices(surfaceMesh);
+  surfaceMesh.collect_garbage();
+
+  surfaceMesh2TriangleMesh<K>(surfaceMesh, result.mesh);
+  return result;
+}
+
+namespace
+{
+
+bool hasDegenerateGeometry(const pgo::Mesh::TriMeshGeo &mesh, const pgo::Vec3i &tri)
+{
+  if (pgo::Mesh::isTriangleInvalid(tri))
+    return true;
+
+  const pgo::Vec3d e0 = mesh.pos(tri[1]) - mesh.pos(tri[0]);
+  const pgo::Vec3d e1 = mesh.pos(tri[2]) - mesh.pos(tri[0]);
+  return e0.cross(e1).squaredNorm() <= std::numeric_limits<double>::epsilon();
+}
+
+int countInvalidTriangles(const pgo::Mesh::TriMeshGeo &mesh)
+{
+  int count = 0;
+  for (const pgo::Vec3i &tri : mesh.triangles()) {
+    if (hasDegenerateGeometry(mesh, tri))
+      ++count;
+  }
+  return count;
+}
+
+std::vector<int> collectInvalidTriangleIDs(const pgo::Mesh::TriMeshGeo &mesh)
+{
+  std::vector<int> invalidIDs;
+  for (int triID = 0; triID < mesh.numTriangles(); ++triID) {
+    if (hasDegenerateGeometry(mesh, mesh.tri(triID)))
+      invalidIDs.push_back(triID);
+  }
+  return invalidIDs;
+}
+
+pgo::CGALInterface::RawSurfaceCleanupStats computeRawSurfaceStats(const pgo::Mesh::TriMeshGeo &mesh)
+{
+  pgo::CGALInterface::RawSurfaceCleanupStats stats;
+  stats.vertices = mesh.numVertices();
+  stats.triangles = mesh.numTriangles();
+  stats.invalidTriangles = countInvalidTriangles(mesh);
+
+  if (mesh.numTriangles() > 0) {
+    const pgo::Mesh::TriangleEdgeConnectivityStats topology =
+      pgo::Mesh::computeTriangleEdgeConnectivityStats(pgo::BasicAlgorithms::makeArrayRef(mesh.triangles()));
+    stats.components = topology.componentsByEdge;
+    stats.boundaryOrNonmanifoldEdges = topology.boundaryOrNonManifoldEdges;
+    stats.isManifold = topology.isManifold;
+  }
+
+  return stats;
+}
+
+bool topologyGatePasses(const pgo::CGALInterface::RawSurfaceCleanupStats &stats, int expectedComponents)
+{
+  if (stats.triangles <= 0)
+    return false;
+  if (expectedComponents >= 0 && stats.components != expectedComponents)
+    return false;
+  return stats.isManifold && stats.boundaryOrNonmanifoldEdges == 0;
+}
+
+pgo::Mesh::TriMeshGeo removeTrianglesAndCompact(const pgo::Mesh::TriMeshGeo &mesh, const std::vector<int> &triIDs)
+{
+  return pgo::Mesh::removeIsolatedVertices(pgo::Mesh::removeTriangles(mesh.ref(), triIDs).ref());
+}
+
+pgo::Mesh::TriMeshGeo collapseEdgesAndCompact(const pgo::Mesh::TriMeshGeo &mesh, const std::vector<std::pair<int, int>> &edges)
+{
+  std::vector<int> parent(mesh.numVertices());
+  std::iota(parent.begin(), parent.end(), 0);
+
+  auto findRoot = [&](int v) {
+    int root = v;
+    while (parent[root] != root)
+      root = parent[root];
+    while (parent[v] != v) {
+      const int next = parent[v];
+      parent[v] = root;
+      v = next;
+    }
+    return root;
+  };
+
+  auto unite = [&](int a, int b) {
+    int ra = findRoot(a);
+    int rb = findRoot(b);
+    if (ra == rb)
+      return;
+    if (ra > rb)
+      std::swap(ra, rb);
+    parent[rb] = ra;
+  };
+
+  for (const auto &[v0, v1] : edges)
+    unite(v0, v1);
+
+  std::vector<pgo::Vec3d> positions(mesh.numVertices(), pgo::Vec3d(0.0, 0.0, 0.0));
+  std::vector<int> counts(mesh.numVertices(), 0);
+  for (int v = 0; v < mesh.numVertices(); ++v) {
+    const int root = findRoot(v);
+    positions[root] += mesh.pos(v);
+    counts[root] += 1;
+  }
+  for (int v = 0; v < mesh.numVertices(); ++v) {
+    if (counts[v] > 0)
+      positions[v] /= static_cast<double>(counts[v]);
+  }
+
+  std::vector<pgo::Vec3i> keptTriangles;
+  keptTriangles.reserve(mesh.numTriangles());
+  for (pgo::Vec3i tri : mesh.triangles()) {
+    for (int i = 0; i < 3; ++i)
+      tri[i] = findRoot(tri[i]);
+    if (pgo::Mesh::isTriangleInvalid(tri) == false)
+      keptTriangles.push_back(tri);
+  }
+
+  return pgo::Mesh::removeIsolatedVertices(pgo::Mesh::TriMeshGeo(std::move(positions), std::move(keptTriangles)).ref());
+}
+
+std::vector<std::pair<int, int>> collectShortEdgesOnInvalidTriangles(const pgo::Mesh::TriMeshGeo &mesh, double shortEdgeThreshold)
+{
+  std::set<std::pair<int, int>> edgeSet;
+  const double threshold2 = shortEdgeThreshold * shortEdgeThreshold;
+
+  for (const int triID : collectInvalidTriangleIDs(mesh)) {
+    const pgo::Vec3i &tri = mesh.tri(triID);
+    for (int i = 0; i < 3; ++i) {
+      const int a = tri[i];
+      const int b = tri[(i + 1) % 3];
+      if (a < 0 || b < 0 || a == b)
+        continue;
+      const double length2 = (mesh.pos(a) - mesh.pos(b)).squaredNorm();
+      if (length2 <= threshold2)
+        edgeSet.emplace(std::min(a, b), std::max(a, b));
+    }
+  }
+
+  return std::vector<std::pair<int, int>>(edgeSet.begin(), edgeSet.end());
+}
+
+bool tryAcceptRawCleanupCandidate(
+  const pgo::Mesh::TriMeshGeo &candidate,
+  pgo::Mesh::TriMeshGeo &mesh,
+  int expectedComponents,
+  pgo::CGALInterface::RawSurfaceCleanupReport &report)
+{
+  const pgo::CGALInterface::RawSurfaceCleanupStats currentStats = computeRawSurfaceStats(mesh);
+  const pgo::CGALInterface::RawSurfaceCleanupStats candidateStats = computeRawSurfaceStats(candidate);
+
+  if (candidateStats.invalidTriangles >= currentStats.invalidTriangles) {
+    ++report.rejectedByInvalidCount;
+    return false;
+  }
+
+  if (topologyGatePasses(candidateStats, expectedComponents) == false) {
+    ++report.rejectedByTopology;
+    return false;
+  }
+
+  mesh = candidate;
+  return true;
+}
+
+void cleanupRawSurfaceMesh(pgo::Mesh::TriMeshGeo &mesh, pgo::CGALInterface::RawSurfaceCleanupReport &report)
+{
+  for (int pass = 0; pass < report.maxPasses; ++pass) {
+    bool changed = false;
+
+    const std::vector<int> invalidIDs = collectInvalidTriangleIDs(mesh);
+    if (invalidIDs.empty())
+      break;
+
+    report.attemptedDeletions += static_cast<int>(invalidIDs.size());
+    {
+      pgo::Mesh::TriMeshGeo candidate = removeTrianglesAndCompact(mesh, invalidIDs);
+      if (tryAcceptRawCleanupCandidate(candidate, mesh, report.expectedComponents, report)) {
+        report.acceptedDeletions += static_cast<int>(invalidIDs.size());
+        changed = true;
+      }
+    }
+
+    if (report.acceptedCollapses < report.maxCollapses) {
+      const std::vector<std::pair<int, int>> shortEdges = collectShortEdgesOnInvalidTriangles(mesh, report.shortEdgeThreshold);
+      const int collapseCount = std::min(static_cast<int>(shortEdges.size()), report.maxCollapses - report.acceptedCollapses);
+      report.attemptedCollapses += collapseCount;
+
+      if (collapseCount > 0) {
+        std::vector<std::pair<int, int>> collapseEdges(shortEdges.begin(), shortEdges.begin() + collapseCount);
+        pgo::Mesh::TriMeshGeo candidate = collapseEdgesAndCompact(mesh, collapseEdges);
+        if (tryAcceptRawCleanupCandidate(candidate, mesh, report.expectedComponents, report)) {
+          report.acceptedCollapses += collapseCount;
+          changed = true;
+        }
+      }
+    }
+
+    if (changed == false)
+      break;
+  }
+}
+
+}  // namespace
+
+pgo::CGALInterface::RawSurfaceCleanupResult pgo::CGALInterface::rawSurfaceCleanup(
+  const Mesh::TriMeshGeo &meshIn, const RawSurfaceCleanupOptions &options)
+{
+  if (options.expectedComponents < -1)
+    throw std::invalid_argument("expectedComponents must be -1 or non-negative");
+  if (options.shortEdgeThreshold < 0.0)
+    throw std::invalid_argument("shortEdgeThreshold must be non-negative");
+  if (options.maxPasses < 0)
+    throw std::invalid_argument("maxPasses must be non-negative");
+  if (options.maxCollapses < 0)
+    throw std::invalid_argument("maxCollapses must be non-negative");
+
+  RawSurfaceCleanupResult result;
+  result.mesh = meshIn;
+  result.report.expectedComponents = options.expectedComponents;
+  result.report.shortEdgeThreshold = options.shortEdgeThreshold;
+  result.report.maxPasses = options.maxPasses;
+  result.report.maxCollapses = options.maxCollapses;
+  result.report.before = computeRawSurfaceStats(result.mesh);
+  if (result.report.expectedComponents < 0)
+    result.report.expectedComponents = result.report.before.components;
+
+  cleanupRawSurfaceMesh(result.mesh, result.report);
+
+  result.report.after = computeRawSurfaceStats(result.mesh);
+  result.report.topologyPreserved = topologyGatePasses(result.report.after, result.report.expectedComponents);
+  result.report.cleanupComplete = result.report.after.invalidTriangles == 0;
+  return result;
 }
 
 void pgo::CGALInterface::getLargestCC(const Mesh::TriMeshGeo &meshIn, Mesh::TriMeshGeo &meshOut)

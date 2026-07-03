@@ -1,0 +1,271 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 29,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": false,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "PGO_USE_MKL": "ON",
+                "PGO_CHECK_CONDA": "ON",
+                "PGO_ENABLE_FULL": "ON",
+                "PGO_BUILD_SUBPROJECTS": "ON",
+                "PGO_ENABLE_PYTHON": "ON",
+                "PGO_BUILD_C_API": "OFF",
+                "PGO_ENABLE_ALEMBIC": "ON",
+                "PGO_ENABLE_GMSH": "ON",
+                "PGO_TET_MESHER_USE_TET_WILD": "ON",
+                "PGO_ENABLE_OPENVDB": "ON",
+                "PGO_BUILD_TESTING": "ON"
+            }
+        },
+        {
+            "name": "debug",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "relwithdebinfo",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "pypgo",
+            "hidden": false,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/pypgo",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "PGO_USE_MKL": "ON",
+                "PGO_CHECK_CONDA": "ON",
+                "PGO_ENABLE_FULL": "ON",
+                "PGO_BUILD_SUBPROJECTS": "ON",
+                "PGO_ENABLE_PYTHON": "ON",
+                "PGO_BUILD_C_API": "OFF",
+                "PGO_ENABLE_ALEMBIC": "ON",
+                "PGO_ENABLE_GMSH": "ON",
+                "PGO_TET_MESHER_USE_TET_WILD": "ON",
+                "PGO_ENABLE_OPENVDB": "ON"
+            }
+        },
+        {
+            "name": "pypgo-ci",
+            "hidden": false,
+            "inherits": [
+                "pypgo"
+            ],
+            "binaryDir": "${sourceDir}/build/pypgo-ci",
+            "cacheVariables": {
+                "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
+                "PGO_NATIVE_OPTIMIZATION": "OFF",
+                "PGO_ENABLE_OPENMP": "OFF",
+                "PGO_ENABLE_GMSH": "OFF",
+                "PGO_USE_MKL": "OFF",
+                "Python_FIND_VIRTUALENV": "FIRST"
+            }
+        },
+        {
+            "name": "pypgo-mkl-ci",
+            "hidden": false,
+            "inherits": [
+                "pypgo-ci"
+            ],
+            "binaryDir": "${sourceDir}/build/pypgo-mkl-ci",
+            "cacheVariables": {
+                "PGO_ENABLE_OPENMP": "ON",
+                "PGO_ENABLE_GMSH": "ON",
+                "PGO_USE_MKL": "ON"
+            }
+        },
+        {
+            "name": "knitro",
+            "hidden": true,
+            "cacheVariables": {
+                "PGO_OPT_USE_KNITRO": "ON"
+            }
+        },
+        {
+            "name": "pardiso",
+            "hidden": true,
+            "cacheVariables": {
+                "PGO_HAS_ORIG_PARDISO": "ON"
+            }
+        },
+        {
+            "name": "cuda",
+            "hidden": true,
+            "cacheVariables": {
+                "PGO_ENABLE_CUDA": "ON"
+            }
+        },
+        {
+            "name": "base_debug",
+            "binaryDir": "${sourceDir}/build/base_debug",
+            "inherits": [
+                "base",
+                "debug"
+            ]
+        },
+        {
+            "name": "base_relwithdebinfo",
+            "binaryDir": "${sourceDir}/build/base_relwithdebinfo",
+            "inherits": [
+                "base",
+                "relwithdebinfo"
+            ]
+        },
+        {
+            "name": "base_knitro",
+            "binaryDir": "${sourceDir}/build/base_knitro",
+            "inherits": [
+                "base",
+                "knitro"
+            ]
+        },
+        {
+            "name": "base_knitro_cuda",
+            "binaryDir": "${sourceDir}/build/base_knitro_cuda",
+            "inherits": [
+                "base",
+                "knitro",
+                "cuda"
+            ]
+        },
+        {
+            "name": "all_debug",
+            "binaryDir": "${sourceDir}/build/all_debug",
+            "inherits": [
+                "base",
+                "knitro",
+                "pardiso",
+                "cuda",
+                "debug"
+            ]
+        },
+        {
+            "name": "all_relwithdebinfo",
+            "binaryDir": "${sourceDir}/build/all_relwithdebinfo",
+            "inherits": [
+                "base",
+                "knitro",
+                "pardiso",
+                "cuda",
+                "relwithdebinfo"
+            ]
+        },
+        {
+            "name": "all",
+            "binaryDir": "${sourceDir}/build/all",
+            "inherits": [
+                "base",
+                "knitro",
+                "pardiso",
+                "cuda"
+            ]
+        },
+        {
+            "name": "base_cuda_debug",
+            "binaryDir": "${sourceDir}/build/base_cuda_debug",
+            "inherits": [
+                "base",
+                "cuda",
+                "debug"
+            ]
+        },
+        {
+            "name": "base_cuda_relwithdebinfo",
+            "binaryDir": "${sourceDir}/build/base_cuda_relwithdebinfo",
+            "inherits": [
+                "base",
+                "cuda",
+                "relwithdebinfo"
+            ]
+        },
+        {
+            "name": "base_cuda",
+            "binaryDir": "${sourceDir}/build/base_cuda",
+            "inherits": [
+                "base",
+                "cuda"
+            ]
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "base",
+            "configurePreset": "base"
+        },
+        {
+            "name": "pypgo",
+            "configurePreset": "pypgo",
+            "targets": [
+                "pypgo_core"
+            ]
+        },
+        {
+            "name": "pypgo-ci",
+            "configurePreset": "pypgo-ci",
+            "targets": [
+                "pypgo_core"
+            ]
+        },
+        {
+            "name": "pypgo-mkl-ci",
+            "configurePreset": "pypgo-mkl-ci",
+            "targets": [
+                "pypgo_core"
+            ]
+        },
+        {
+            "name": "base_debug",
+            "configurePreset": "base_debug"
+        },
+        {
+            "name": "base_relwithdebinfo",
+            "configurePreset": "base_relwithdebinfo"
+        },
+        {
+            "name": "base_knitro",
+            "configurePreset": "base_knitro"
+        },
+        {
+            "name": "base_knitro_cuda",
+            "configurePreset": "base_knitro_cuda"
+        },
+        {
+            "name": "all",
+            "configurePreset": "all"
+        },
+        {
+            "name": "all_debug",
+            "configurePreset": "all_debug"
+        },
+        {
+            "name": "all_relwithdebinfo",
+            "configurePreset": "all_relwithdebinfo"
+        },
+        {
+            "name": "base_cuda",
+            "configurePreset": "base_cuda"
+        },
+        {
+            "name": "base_cuda_debug",
+            "configurePreset": "base_cuda_debug"
+        },
+        {
+            "name": "base_cuda_relwithdebinfo",
+            "configurePreset": "base_cuda_relwithdebinfo"
+        }
+    ]
+}

@@ -1,0 +1,33 @@
+macro(_blas_lapack_configure_library_suffixes)
+  if(BLA_STATIC)
+    if(WIN32)
+      set(CMAKE_FIND_LIBRARY_SUFFIXES .lib ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    else()
+      set(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    endif()
+  else()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      # for ubuntu's libblas3gf and liblapack3gf packages
+      set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES} .so.3gf)
+    endif()
+  endif()
+endmacro()
+
+function(_blas_lapack_library_dirs output_var addlibdir)
+  set(_library_dirs "${addlibdir}")
+  if(WIN32)
+    list(APPEND _library_dirs ENV LIB)
+  elseif(APPLE)
+    list(APPEND _library_dirs ENV DYLD_LIBRARY_PATH)
+  else()
+    list(APPEND _library_dirs ENV LD_LIBRARY_PATH)
+  endif()
+
+  # Conda often keeps BLAS/LAPACK where platform env vars do not point.
+  if(DEFINED ENV{CONDA_PREFIX})
+    list(APPEND _library_dirs "$ENV{CONDA_PREFIX}/lib")
+  endif()
+  list(APPEND _library_dirs "${CMAKE_C_IMPLICIT_LINK_DIRECTORIES}")
+
+  set(${output_var} "${_library_dirs}" PARENT_SCOPE)
+endfunction()
