@@ -16,7 +16,6 @@ def test_ci_cmake_presets_use_ci_names():
             "linux-ci.yml",
             "macos-ci.yml",
             "windows-ci.yml",
-            "conda-release.yml",
         )
     )
 
@@ -24,8 +23,6 @@ def test_ci_cmake_presets_use_ci_names():
     assert "pypgo-mkl-ci" in preset_file
     assert "pypgo-ci" in workflows
     assert "pypgo-mkl-ci" in workflows
-    assert "pypgo-conda" not in preset_file
-    assert "pypgo-conda" not in workflows
     assert '"PGO_ENABLE_OPENMP": "OFF"' in preset_file
     assert '"PGO_ENABLE_OPENMP": "ON"' in preset_file
     assert '"PGO_ENABLE_GMSH": "OFF"' in preset_file
@@ -50,7 +47,9 @@ def test_linux_wheels_are_conda_bound():
 def test_ftetwild_geogram_openmp_follows_pgo_openmp_option():
     cmake = (ROOT / "CMakeModules" / "third-party" / "ftetwild.cmake").read_text()
 
-    assert "pgo_fetch_populate_compat(ftetwild" in cmake
+    assert "pgo_add_third_party(ftetwild" in cmake
+    assert "FETCH_MODE POPULATE" in cmake
+    assert "POST_FETCH _pgo_setup_ftetwild" in cmake
     assert "_libpgo_patch_ftetwild_geogram_openmp" in cmake
     assert "_libpgo_patch_geogram_linux_openmp" in cmake
     assert 'if(${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND PGO_ENABLE_OPENMP)' in cmake
@@ -88,10 +87,3 @@ def test_windows_wheels_are_conda_bound():
     assert "mkl_rt.2.dll" in workflow
     assert "mkl_core.2.dll" in workflow
     assert "mkl_tbb_thread.3.dll" in workflow
-
-
-def test_conda_release_retries_windows_tool_install():
-    workflow = read_workflow("conda-release.yml")
-
-    assert "$attempts = 3" in workflow
-    assert "conda install failed on attempt" in workflow

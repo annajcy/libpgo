@@ -83,7 +83,7 @@ jobs:
       - name: Build Python wheel
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
-          # Build the wheel with the preset that ships as a conda package (native
+          # Build the wheel with the portable CI preset (native
           # opt off) instead of the default `pypgo` preset (-march=native).
           PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
           PYPGO_PACKAGE_NAME: ${{ matrix.wheel_package }}

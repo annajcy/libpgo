@@ -1,6 +1,6 @@
-"""Out-of-box smoke test for an installed pypgo conda package.
+"""Out-of-box smoke test for an installed pypgo wheel.
 
-Designed to run in a *fresh* environment (e.g. conda-build's test phase), with
+Designed to run in a *fresh* environment, with
 nothing on the path but the published package and its runtime dependencies. It
 verifies that:
 
@@ -12,7 +12,7 @@ verifies that:
      (the ``pypgo-mkl`` build), and is correctly *absent* otherwise.
 
 The script self-adapts to the package flavor via ``build_info()`` — the same
-file is used for both the OpenBLAS and MKL recipes. Depends only on numpy.
+file is used for both the OpenBLAS and MKL wheel checks. Depends only on numpy.
 
 Run manually inside an environment with pypgo installed:
 

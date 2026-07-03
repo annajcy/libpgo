@@ -143,7 +143,7 @@ To update an existing environment after pulling changes:
 conda env update -f environment.yml --prune
 ```
 
-Note: `--prune` only reconciles the conda packages listed in `environment.yml`;
+Note: `--prune` only reconciles the packages listed in `environment.yml`;
 it does not touch the editable `pypgo` install or its pip-sourced deps (`torch`,
 `pyvista`, the `trame` stack, ...), which come from the build step below. After
 changing those, re-run the editable install. For a clean slate, recreate the
@@ -233,13 +233,13 @@ into `pypgo/`, where the editable package imports it. By default it uses the
 detected CPU count for the native build; pass `-j N` if you want to override
 the number of parallel build jobs.
 
-For conda package builds, select the conda-oriented CMake presets explicitly:
+For CI wheel builds, select the portable CMake presets explicitly:
 
 ```bash
 PYPGO_CMAKE_PRESET=pypgo-ci python -m pip install . --no-build-isolation --no-deps -v
 ```
 
-The matching CI/local dependency file is `.github/conda/pypgo-conda.yml`.
+The matching CI/local dependency file is `environment.yml`.
 
 Use `pypgo-mkl-ci` for an MKL-enabled package on platforms where MKL is
 available:
@@ -248,64 +248,7 @@ available:
 PYPGO_CMAKE_PRESET=pypgo-mkl-ci python -m pip install . --no-build-isolation --no-deps -v
 ```
 
-The MKL dependency file is `.github/conda/pypgo-conda-mkl.yml`.
-
-### Conda Package Release
-
-The release workflow is `.github/workflows/conda-release.yml`. It builds conda
-packages from `conda-recipe/` on tag pushes and manual dispatches:
-
-- `pypgo`: Linux, macOS Apple Silicon, and Windows.
-- `pypgo-mkl`: Linux and Windows only. macOS does not publish an MKL variant.
-
-Install either `pypgo` or `pypgo-mkl` in one environment, not both. The two
-conda packages expose the same Python package name and are marked mutually
-exclusive in the recipe.
-
-Neither conda package depends on `pytorch`. The `pypgo.fem` torch layers are
-optional and imported lazily, so install `torch` from pip only if you need them
-(`python -m pip install torch`). The regular `pypgo` package uses the OpenBLAS
-BLAS/LAPACK stack; `pypgo-mkl` uses the MKL stack. If you use `pypgo-mkl`
-together with a pip `torch` wheel and hit an MKL/OpenMP runtime clash (e.g.
-`OMP: Error #15`), install a conda MKL build of torch or set
-`KMP_DUPLICATE_LIB_OK=TRUE`.
-
-The same recipe is parameterized by CI environment variables:
-
-| Package | CMake preset | MKL |
-| --- | --- | --- |
-| `pypgo` | `pypgo-ci` | Off |
-| `pypgo-mkl` | `pypgo-mkl-ci` | On |
-
-To test the conda recipe locally:
-
-```bash
-conda activate libpgo
-conda install -y conda-build anaconda-client
-PYPGO_CONDA_PACKAGE=pypgo \
-PYPGO_CMAKE_PRESET=pypgo-ci \
-PYPGO_WITH_MKL=0 \
-conda build conda-recipe --output-folder conda-bld --no-anaconda-upload
-```
-
-For the MKL package on Linux or Windows:
-
-```bash
-PYPGO_CONDA_PACKAGE=pypgo-mkl \
-PYPGO_CMAKE_PRESET=pypgo-mkl-ci \
-PYPGO_WITH_MKL=1 \
-conda build conda-recipe --output-folder conda-bld --no-anaconda-upload
-```
-
-Every release build uploads the `.conda` packages as GitHub Actions artifacts.
-To publish them to Anaconda.org, configure these repository settings:
-
-- Secret `ANACONDA_API_TOKEN`: an Anaconda.org API token with upload access.
-- Variable `ANACONDA_USER`: the Anaconda.org account or organization name.
-
-Pushing a tag such as `v0.0.4` builds and uploads to the `main` label. Manual
-workflow runs can build artifacts without upload, or upload to a selected label
-such as `dev`.
+The MKL dependency file is `environment-mkl.yml`.
 
 ### Native CMake Build
 
@@ -497,7 +440,7 @@ Example `CMakeUserPresets.json` (local, optional):
 ### Dependency Ownership
 
 - Conda supplies CMake, Ninja, and the native runtime/build packages for local
-  source builds and conda packages: Boost, MKL, TBB, Gmsh, OpenVDB, Imath,
+  source builds and CI wheels: Boost, MKL, TBB, Gmsh, OpenVDB, Imath,
   zlib, setuptools, and wheel. In conda environments, `numpy` stays on conda so
   it shares the same BLAS backend as the native extension.
 - CI wheel artifacts follow the same ownership model: both `pypgo` and
