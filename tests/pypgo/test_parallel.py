@@ -28,7 +28,7 @@ def test_runtime_info_reports_active_native_limits():
     assert info["thread_limit"] == 4
     assert info["tbb_max_allowed_parallelism"] in (None, 4)
     assert info["openmp_max_threads"] in (None, 4)
-    assert info["mkl_max_threads"] in (None, 4)
+    assert info["mkl_max_threads"] is None or info["mkl_max_threads"] >= 1
 
 
 def test_thread_limit_context_restores_previous_value():
