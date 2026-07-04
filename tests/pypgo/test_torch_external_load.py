@@ -6,6 +6,9 @@ import pypgo.fem as pf
 
 torch = pytest.importorskip("torch")
 
+# Layer 1 (physical self-weight force/Jacobian) is covered in
+# tests/pypgo/test_mass_fields.py; this file tests the torch layer wiring.
+
 
 class _DenseJacobian:
     def __init__(self, values):
@@ -112,6 +115,16 @@ def test_external_load_jacobian_contributes_to_backward_mixed_derivative():
     energy_mixed = layer.energy.elastic_jacobian(u).to_dense()
 
     assert mixed[2, 4] == pytest.approx(energy_mixed[2, 4] - 1e6)
+
+
+def test_external_load_forward_smoke_records_inner_solve_without_displacement_assumption():
+    layer, elastic, vertices = _setup(external_load="point")
+
+    solved = layer(torch.tensor(elastic.ravel(), dtype=torch.float64))
+
+    assert solved.shape == vertices.shape
+    assert np.all(np.isfinite(solved.detach().numpy()))
+    assert layer.last_inner_result.x.shape == (layer.energy.num_dofs,)
 
 
 def test_external_load_rejected_on_plastic_layer():
