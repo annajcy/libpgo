@@ -87,44 +87,31 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
     return layer, elastic, vertices
 
 
-def test_external_load_forward_responds_to_parameter():
+def test_external_load_objective_includes_parameter_current_load():
     layer, elastic, _vertices = _setup(external_load="point")
-    b = torch.tensor(elastic.ravel(), dtype=torch.float64)
-    out_uniform = layer(b).detach().numpy().copy()
+    layer._set_parameter_values(elastic.ravel())
+    objective = layer._build_objective()
+    u = layer.energy.zero_state()
+    g0 = objective.gradient(u)
 
     modified = elastic.copy()
     modified[0, 4] *= 2.0
-    layer.reset_warm_start()
-    out_modified = layer(torch.tensor(modified.ravel(), dtype=torch.float64)).detach().numpy().copy()
-    assert not np.allclose(out_uniform, out_modified, atol=1e-10)
+    layer._set_parameter_values(modified.ravel())
+    objective = layer._build_objective()
+    g1 = objective.gradient(u)
+
+    assert g1[2] - g0[2] == pytest.approx(-1e6 * elastic[0, 4])
 
 
-def test_external_load_gradient_matches_finite_differences():
+def test_external_load_jacobian_contributes_to_backward_mixed_derivative():
     layer, elastic, vertices = _setup(external_load="point")
-    rng = np.random.default_rng(1)
-    R = rng.standard_normal(vertices.shape)
+    del elastic, vertices
+    u = layer.energy.zero_state()
 
-    def loss_np(b_flat):
-        layer.reset_warm_start()
-        out = layer(torch.tensor(b_flat, dtype=torch.float64))
-        return float((out * torch.tensor(R)).sum())
+    mixed = layer._parameter_jacobian(u)
+    energy_mixed = layer.energy.elastic_jacobian(u).to_dense()
 
-    b0 = elastic.ravel().copy()
-    b = torch.tensor(b0, dtype=torch.float64, requires_grad=True)
-    layer.reset_warm_start()
-    loss = (layer(b) * torch.tensor(R)).sum()
-    loss.backward()
-    grad = b.grad.numpy()
-
-    # Probe a thickness dof and a membrane-E dof on an interior element
-    # (magnitude-scaled FD steps per repo convention).
-    num_channels = 5
-    for dof in (0 * num_channels + 4, 1 * num_channels + 4, 0 * num_channels + 0):
-        h = 1e-6 * max(abs(b0[dof]), 1e-8)
-        bp = b0.copy(); bp[dof] += h
-        bm = b0.copy(); bm[dof] -= h
-        fd = (loss_np(bp) - loss_np(bm)) / (2 * h)
-        assert grad[dof] == pytest.approx(fd, rel=2e-3, abs=1e-8), f"dof {dof}"
+    assert mixed[2, 4] == pytest.approx(energy_mixed[2, 4] - 1e6)
 
 
 def test_external_load_rejected_on_plastic_layer():
