@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-namespace tet_mesher
+namespace pgo::tet_mesher
 {
 namespace
 {
@@ -138,4 +138,4 @@ std::unique_ptr<pgo::VolumetricMeshes::TetMesh> generateTetwildMesh(const Tetwil
   return convertTetwildOutput(V, T);
 }
 
-}  // namespace tet_mesher
+}  // namespace pgo::tet_mesher

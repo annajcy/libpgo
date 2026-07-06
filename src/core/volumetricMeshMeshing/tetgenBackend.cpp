@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace tet_mesher
+namespace pgo::tet_mesher
 {
 
 std::unique_ptr<pgo::VolumetricMeshes::TetMesh> generateTetgenMesh(const TetgenOptions &options)
@@ -38,4 +38,4 @@ std::unique_ptr<pgo::VolumetricMeshes::TetMesh> generateTetgenMesh(const TetgenO
   return tetMesh;
 }
 
-}  // namespace tet_mesher
+}  // namespace pgo::tet_mesher

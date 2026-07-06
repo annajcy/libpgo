@@ -5,7 +5,7 @@
 #include <memory>
 #include <string>
 
-namespace tet_mesher
+namespace pgo::tet_mesher
 {
 
 struct MaterialOptions
@@ -48,4 +48,4 @@ std::unique_ptr<pgo::VolumetricMeshes::TetMesh> generateTetwildMesh(const Tetwil
 
 void saveTetMeshOutputs(const pgo::VolumetricMeshes::TetMesh &tetMesh, const CommonOptions &options);
 
-}  // namespace tet_mesher
+}  // namespace pgo::tet_mesher

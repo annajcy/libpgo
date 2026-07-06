@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-namespace cubic_mesher
+namespace pgo::cubic_mesher
 {
 namespace
 {
@@ -245,4 +245,4 @@ std::unique_ptr<pgo::VolumetricMeshes::CubicMesh> createTriangleMeshCubicMesh(
   return buildCubicMesh(occupiedVoxels, grid, options);
 }
 
-}  // namespace cubic_mesher
+}  // namespace pgo::cubic_mesher

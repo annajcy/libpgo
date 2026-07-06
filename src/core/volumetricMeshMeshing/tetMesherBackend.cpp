@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-namespace tet_mesher
+namespace pgo::tet_mesher
 {
 namespace
 {
@@ -76,4 +76,4 @@ void saveTetMeshOutputs(const pgo::VolumetricMeshes::TetMesh &tetMesh, const Com
     printStats(tetMesh);
 }
 
-}  // namespace tet_mesher
+}  // namespace pgo::tet_mesher

@@ -5,7 +5,7 @@
 #include <memory>
 #include <string>
 
-namespace cubic_mesher
+namespace pgo::cubic_mesher
 {
 
 enum class OccupancyMode
@@ -27,4 +27,4 @@ struct TriangleMeshVoxelizerOptions
 std::unique_ptr<pgo::VolumetricMeshes::CubicMesh> createTriangleMeshCubicMesh(
   const TriangleMeshVoxelizerOptions &options);
 
-}  // namespace cubic_mesher
+}  // namespace pgo::cubic_mesher
