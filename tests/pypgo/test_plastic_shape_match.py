@@ -2,7 +2,6 @@ import numpy as np
 import os
 import pytest
 import torch
-import sys
 from pathlib import Path
 
 import pypgo as pgo
@@ -258,11 +257,11 @@ def test_elastic_static_equilibrium_layer_uses_objective_energy_for_adjoint_hess
 
 @pytest.mark.skipif(
     os.environ.get("PYPGO_RUN_NOTEBOOK_TESTS") != "1",
-    reason="example notebook generator checks are opt-in",
+    reason="example notebook checks are opt-in",
 )
-def test_plastic_shape_match_demo_module_imports():
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
-    import examples.scripts.notebook_generators.generate_plastic_shape_match_demo as demo
+def test_plastic_shape_match_demo_notebook_covers_inverse_design_path():
+    notebook = ROOT / "examples" / "plastic_shape_match_demo.ipynb"
+    source = notebook.read_text()
 
-    assert hasattr(demo, "run_demo")
+    assert "PlasticStaticEquilibriumLayer" in source
+    assert "torch.optim.Adam" in source

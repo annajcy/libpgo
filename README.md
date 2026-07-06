@@ -185,23 +185,20 @@ create another `libpgo` under a different prefix.
 
 ### Python Package Build
 
-The Python package is installed in editable mode with pip inside the active
-conda environment. Keep NumPy and the BLAS/LAPACK runtime on conda for both
-the default OpenBLAS flavor (`pypgo`) and the MKL flavor (`pypgo-mkl`), and
-install the Python package without pip dependency resolution:
+For local development, the shortest path is to build the `pypgo_core` CMake
+target. It writes the native extension directly into `pypgo/` as
+`pypgo/_core.*`, so imports work from the repository root:
 
 ```bash
 conda activate libpgo
-python -m pip install -e . --no-build-isolation --no-deps
+cmake --preset pypgo
+cmake --build --preset pypgo
 ```
 
-For the MKL flavor:
+After changing C++ bindings or native mesh code, rerun:
 
 ```bash
-conda activate libpgo-mkl
-PYPGO_PACKAGE_NAME=pypgo-mkl \
-PYPGO_CMAKE_PRESET=pypgo-mkl-ci \
-python -m pip install -e . --no-build-isolation --no-deps
+cmake --build --preset pypgo
 ```
 
 Install the optional Python packages you need after activating either
@@ -221,17 +218,25 @@ python -m pip install pytest pytest-timeout notebook
 In an MKL environment, keep an eye out for MKL/OpenMP runtime clashes from
 third-party wheels, especially the pip `torch` wheel.
 
-For Python API development, rebuild the native `_core` extension in place after
-changing C++ bindings or native mesh code:
+Use editable install only when you want Python package metadata or console
+scripts installed into the active environment. Keep NumPy and the BLAS/LAPACK
+runtime on conda for both the default OpenBLAS flavor (`pypgo`) and the MKL
+flavor (`pypgo-mkl`), and install the Python package without pip dependency
+resolution:
 
 ```bash
-python setup.py build_ext --inplace
+conda activate libpgo
+python -m pip install -e . --no-build-isolation --no-deps
 ```
 
-This command uses the `pypgo` CMake preset and writes the extension back
-into `pypgo/`, where the editable package imports it. By default it uses the
-detected CPU count for the native build; pass `-j N` if you want to override
-the number of parallel build jobs.
+For the MKL flavor:
+
+```bash
+conda activate libpgo-mkl
+PYPGO_PACKAGE_NAME=pypgo-mkl \
+PYPGO_CMAKE_PRESET=pypgo-mkl-ci \
+python -m pip install -e . --no-build-isolation --no-deps
+```
 
 For CI wheel builds, select the portable CMake presets explicitly:
 

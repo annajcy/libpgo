@@ -1,44 +1,19 @@
-import importlib.util
-import sys
+import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT_DIR = ROOT / "examples" / "scripts" / "notebook_generators"
+EXAMPLES = ROOT / "examples"
 
 
-def load_generator(module_name, filename):
-    sys.path.insert(0, str(SCRIPT_DIR))
-    try:
-        spec = importlib.util.spec_from_file_location(
-            module_name,
-            SCRIPT_DIR / filename,
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-    finally:
-        sys.path.remove(str(SCRIPT_DIR))
-    return module
-
-
-def load_mesh_demo_generator():
-    return load_generator("generate_mesh_api_demo_test", "generate_mesh_api_demo.py")
-
-
-def load_implicit_demo_generator():
-    return load_generator("generate_implicit_api_demo_test", "generate_implicit_api_demo.py")
-
-
-def load_static_solve_dragon_generator():
-    return load_generator(
-        "generate_static_solve_dragon_gravity_demo_test",
-        "generate_static_solve_dragon_gravity_demo.py",
-    )
+def notebook_source(name: str) -> str:
+    with open(EXAMPLES / name) as fh:
+        nb = json.load(fh)
+    return "\n".join("".join(cell["source"]) for cell in nb["cells"])
 
 
 def test_mesh_api_demo_includes_pyvista_helpers_and_real_assets():
-    module = load_mesh_demo_generator()
-    source = "\n".join(cell.source for cell in module.CELLS)
+    source = notebook_source("mesh_api_demo.ipynb")
 
     assert "ASSET_DIR = REPO_ROOT / \"examples\" / \"assets\" / \"obj\"" in source
     assert "pip install -e .[examples]" in source
@@ -51,8 +26,7 @@ def test_mesh_api_demo_includes_pyvista_helpers_and_real_assets():
 
 
 def test_implicit_api_demo_uses_vis_helpers_and_parallel_controls():
-    module = load_implicit_demo_generator()
-    source = "\n".join(cell.source for cell in module.CELLS)
+    source = notebook_source("implicit_api_demo.ipynb")
 
     assert "from pypgo import implicit" in source
     assert "from pypgo.mesh import visualize as vis" in source
@@ -62,8 +36,7 @@ def test_implicit_api_demo_uses_vis_helpers_and_parallel_controls():
 
 
 def test_static_solve_dragon_gravity_demo_uses_soft_surface_attachment():
-    module = load_static_solve_dragon_generator()
-    source = "\n".join(cell.source for cell in module.CELLS)
+    source = notebook_source("static_solve_dragon_gravity_demo.ipynb")
 
     assert '"dragon.obj"' in source
     assert '"dragon_big.veg"' in source
@@ -78,5 +51,5 @@ def test_static_solve_dragon_gravity_demo_uses_soft_surface_attachment():
     assert "vertex_indices=fixed_vertices" in source
     assert "vis.write_points_obj" in source
     assert "vis.plot_points_on_mesh(" in source
-    assert "tet_data,\n            fixed_positions" in source
+    assert "tet_data,\n    fixed_positions" in source
     assert "problem.fix_variables" not in source
