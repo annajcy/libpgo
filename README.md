@@ -28,6 +28,100 @@ sudo apt-get update
 sudo apt-get install -y build-essential cmake ninja-build pkg-config
 ```
 
+Ubuntu 22.04's default packages are too old for libpgo's source build
+baseline: GCC is 11 and CMake is 3.22. Keep `ninja-build` and `pkg-config`
+from apt, but install a newer CMake and GCC:
+
+Install base build utilities, Ninja, and pkg-config:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  ca-certificates gpg wget software-properties-common \
+  build-essential ninja-build pkg-config
+```
+
+Install CMake from Kitware's apt repository:
+
+```bash
+test -f /usr/share/doc/kitware-archive-keyring/copyright || \
+wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | \
+gpg --dearmor - | \
+sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
+
+echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' | \
+sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
+
+sudo apt-get update
+test -f /usr/share/doc/kitware-archive-keyring/copyright || \
+sudo rm /usr/share/keyrings/kitware-archive-keyring.gpg
+sudo apt-get install -y kitware-archive-keyring cmake
+```
+
+Check that the default CMake tools are the Kitware versions:
+
+```bash
+which -a cmake ctest cpack
+cmake --version
+ctest --version
+cpack --version
+```
+
+If another older CMake installation appears first on `PATH`, put `/usr/bin`
+before `/usr/local/bin` for this shell:
+
+```bash
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:${PATH}"
+hash -r
+cmake --version
+ctest --version
+cpack --version
+```
+
+Put the `export PATH=...` line in `~/.bashrc`, `~/.zshrc`, or the shell startup
+file used by your build environment if you want it to persist.
+
+Install GCC 13 / G++ 13 from the Ubuntu Toolchain PPA. Add the PPA source
+directly; this avoids `add-apt-repository`, which may time out while contacting
+the Launchpad API:
+
+```bash
+sudo install -d -m 0755 /etc/apt/keyrings
+
+wget -O /tmp/ubuntu-toolchain-r-test.asc \
+  'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x1E9377A2BA9EF27F'
+
+sudo gpg --batch --yes --dearmor \
+  -o /etc/apt/keyrings/ubuntu-toolchain-r-test.gpg \
+  /tmp/ubuntu-toolchain-r-test.asc
+
+echo "deb [signed-by=/etc/apt/keyrings/ubuntu-toolchain-r-test.gpg] https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu jammy main" | \
+  sudo tee /etc/apt/sources.list.d/ubuntu-toolchain-r-test.list >/dev/null
+
+sudo apt-get update
+apt-cache policy gcc-13 g++-13
+sudo apt-get install -y gcc-13 g++-13
+```
+
+Then point CMake at the newer compiler for local builds:
+
+```bash
+cmake --preset base \
+  -DCMAKE_C_COMPILER=/usr/bin/gcc-13 \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++-13
+cmake --build --preset base
+```
+
+Optionally make GCC 13 the default `gcc` / `g++` on a personal development
+machine or container:
+
+```bash
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 130
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 130
+sudo update-alternatives --config gcc
+sudo update-alternatives --config g++
+```
+
 macOS:
 
 ```bash
