@@ -9,6 +9,28 @@ def read_workflow(name: str) -> str:
     return (ROOT / ".github" / "workflows" / name).read_text()
 
 
+def test_build_tools_are_system_owned():
+    environment = (ROOT / "environment.yml").read_text()
+    pyproject = (ROOT / "pyproject.toml").read_text()
+    workflows = "\n".join(
+        read_workflow(name)
+        for name in (
+            "linux-ci.yml",
+            "macos-ci.yml",
+            "windows-ci.yml",
+        )
+    )
+
+    for package in ("cmake", "ninja", "pkg-config", "gcc", "gxx"):
+        assert f"- {package}" not in environment
+    assert '"cmake' not in pyproject
+    assert '"ninja' not in pyproject
+    assert "conda install -y -c conda-forge gcc gxx" not in workflows
+    assert "build-essential cmake ninja-build pkg-config" in read_workflow("linux-ci.yml")
+    assert "brew install cmake ninja pkg-config" in read_workflow("macos-ci.yml")
+    assert "choco install cmake ninja" in read_workflow("windows-ci.yml")
+
+
 def test_ci_cmake_presets_use_ci_names():
     preset_file = (ROOT / "CMakePresets.json").read_text()
     presets = json.loads(preset_file)

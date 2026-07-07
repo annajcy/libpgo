@@ -42,10 +42,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install headless rendering support
+      - name: Install system build tools and headless rendering support
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 patchelf
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libegl1 libgl1 patchelf
 
       - name: Set up Miniforge
         uses: conda-incubator/setup-miniconda@v3
@@ -58,9 +58,6 @@ jobs:
           channels: conda-forge
           channel-priority: strict
           conda-remove-defaults: true
-
-      - name: Install Linux conda compilers
-        run: conda install -y -c conda-forge gcc gxx
 
       - name: Install MKL BLAS stack
         run: |
@@ -211,10 +208,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install headless rendering support
+      - name: Install system build tools and headless rendering support
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libegl1 libgl1
 
       - name: Set up Miniforge
         uses: conda-incubator/setup-miniconda@v3
@@ -227,9 +224,6 @@ jobs:
           channels: conda-forge
           channel-priority: strict
           conda-remove-defaults: true
-
-      - name: Install Linux conda compilers
-        run: conda install -y -c conda-forge gcc gxx
 
       - name: Install MKL BLAS stack
         run: conda install -y "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel

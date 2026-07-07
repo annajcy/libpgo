@@ -7,6 +7,41 @@ The source code extends [VegaFEM](https://viterbi-web.usc.edu/~jbarbic/vega/) an
 
 ---
 
+## System Prerequisites
+
+Install conda: See [Conda Installation](https://www.anaconda.com/docs/getting-started/miniconda/install/overview#choose-your-installation-guide).
+
+Install CMake 3.28 or newer, Ninja, pkg-config, and the platform compiler from
+the system package manager / platform toolchain. Conda owns the project
+libraries and Python environment, not the build tools.
+
+| Platform | System build tools | Notes |
+| --- | --- | --- |
+| Linux | `gcc`, `g++`, `cmake`, `ninja-build`, `pkg-config` | Ubuntu 24.04 packages are sufficient. |
+| macOS | Xcode command line tools, Homebrew `cmake`, `ninja`, `pkg-config` | Accelerate and the SDK are system frameworks. |
+| Windows | Visual Studio 2022 MSVC, CMake, Ninja | Run builds from an x64 MSVC developer shell. |
+
+Linux:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential cmake ninja-build pkg-config
+```
+
+macOS:
+
+```bash
+xcode-select --install
+brew install cmake ninja pkg-config
+```
+
+Windows:
+
+- Install Visual Studio 2022 with the C++ desktop workload.
+- Install CMake and Ninja, or use the versions bundled with the Visual Studio /
+  GitHub Actions runner image.
+- Run builds from an x64 MSVC developer shell.
+
 ## Install pypgo with Python Only
 
 Use a CI wheel artifact when you only need the Python package and do not want
@@ -39,100 +74,29 @@ inside TBB loops can oversubscribe CPU threads.
 ## Build and Install pypgo from Source
 
 Conda is the recommended build environment for both the Python package and the
-native CMake build. Use one conda environment for Python packages and native
-runtime/build packages so CMake, Python, Boost, MKL, TBB, Gmsh, OpenVDB, and
-other dependencies are resolved from a consistent prefix.
+native CMake build. Use one conda environment for Python, NumPy, BLAS/LAPACK,
+Boost, TBB, Gmsh, OpenVDB, and other native dependencies. Use system CMake,
+Ninja, pkg-config, and the platform compiler.
 
 - The Python package is being redesigned as a Python-first API. The old
   C-style Python wrapper has been removed and its functionality will return
   through focused Python modules.
 - The native CMake build uses the `base` preset, which enables the full default
   feature set including Gmsh, OpenVDB, TBB, and MKL where supported.
-- Platform compilers still come from the host system: GCC/Clang on Linux,
-  Apple Clang on macOS, and Visual Studio 2022 on Windows.
+- The compiler follows the platform owner: system GCC/G++ on Linux, Apple
+  Clang on macOS, and MSVC on Windows.
 
 Use Miniforge or Miniconda when possible, and keep packages on the
-`conda-forge` channel. The commands below use `conda` consistently so the
-environment, Python packages, and native CMake dependencies all resolve from
-one conda prefix.
-
-### System Prerequisites
-
-Install conda: See [Conda Installation](https://www.anaconda.com/docs/getting-started/miniconda/install/overview#choose-your-installation-guide).
-
-**Build toolchain policy:** 
-
-On Linux, the full build toolchain (compilers, CMake,
-Ninja, and all C++ library dependencies) should come from the active conda
-environment. Do NOT use system GCC —
-mixing a system GCC with conda-forge C++ libraries (especially TBB, MKL) causes
-CXXABI version mismatches (e.g. `undefined reference to __cxa_call_terminate@CXXABI_1.3.15`).
-Install the Linux compilers separately after creating/updating the environment:
-
-```bash
-conda activate libpgo       # or libpgo-mkl
-conda install -c conda-forge gcc gxx
-```
-
-On macOS, use the host Apple Clang
-
-On Windows, use the host MSVC
-
-macOS (Apple Clang via Xcode):
-
-```bash
-xcode-select --install
-```
-
-Windows:
-
-- Install Visual Studio 2022 with the C++ desktop workload.
-- Run builds from an x64 MSVC developer shell.
-
-
-
-### VS Code CMake Tools
-
-The VS Code CMake Tools extension does not source shell profiles and cannot
-inherit `conda activate`.  Its compiler-probing step runs in a minimal
-environment where only the system compiler is visible, so it will pick up the
-wrong GCC on Linux even when `CONDA_PREFIX` is set in the preset.
-
-On **Linux**, create a `.vscode/settings.json` that pins the compiler,
-build tool, and proxy settings so the entire build sees the same conda prefix:
-
-```json
-{
-  "cmake.cmakePath": "/path/to/env/bin/cmake",
-  "cmake.configureArgs": [
-    "-DCMAKE_MAKE_PROGRAM=/path/to/env/bin/ninja",
-    "-DCMAKE_C_COMPILER=/path/to/env/bin/gcc",
-    "-DCMAKE_CXX_COMPILER=/path/to/env/bin/g++"
-  ],
-  "cmake.configureEnvironment": {
-    "http_proxy": "http://127.0.0.1:7890",
-    "https_proxy": "http://127.0.0.1:7890"
-  },
-  "cmake.buildEnvironment": {
-    "http_proxy": "http://127.0.0.1:7890",
-    "https_proxy": "http://127.0.0.1:7890"
-  }
-}
-```
-
-Replace `/path/to/env` with the actual conda environment prefix.  On macOS
-and Windows this is unnecessary — the host compiler and runtime are the single
-ABI source for those platforms (see the toolchain policy above).
-
-After creating the file, run **Developer: Reload Window** for the settings to
-take effect.
+`conda-forge` channel. The commands below use `conda` consistently for Python,
+BLAS/LAPACK, and native project dependencies.
 
 ### Create the conda environment
 
-Build tools, C++ libraries, and the conda-side Python packages are declared in
+C++ libraries and the conda-side Python packages are declared in
 `environment.yml`; pip-managed Python dependencies for the default `pypgo`
-flavor are installed by the editable build step below. Create the `libpgo`
-environment with a single command:
+flavor are installed by the editable build step below. CMake, Ninja,
+pkg-config, and the compiler come from the system prerequisites above. Create
+the `libpgo` environment with a single command:
 
 ```bash
 conda env create -f environment.yml
@@ -143,6 +107,7 @@ To update an existing environment after pulling changes:
 
 ```bash
 conda env update -f environment.yml --prune
+conda activate libpgo
 ```
 
 Note: `--prune` only reconciles the packages listed in `environment.yml`;
@@ -172,6 +137,23 @@ conda install -n libpgo -c conda-forge "libblas=*=*accelerate" "liblapack=*=*acc
 ```
 
 This keeps NumPy on the same BLAS backend as the native extension.
+
+### VS Code CMake Tools
+
+With system CMake/Ninja/compiler, VS Code CMake Tools no longer needs conda
+compiler pinning. Keep the conda prefix in `CMakeUserPresets.json`, then let
+`.vscode/settings.json` only select the preset:
+
+```json
+{
+  "cmake.useCMakePresets": "always",
+  "cmake.configurePreset": "local-pypgo",
+  "cmake.buildPreset": "local-pypgo"
+}
+```
+
+The local preset examples below set `CONDA_PREFIX`, which is enough for the
+project CMake files to find conda packages and the conda Python executable.
 
 `mamba` can be used as an optional accelerator only when it belongs to the same
 conda installation that owns the `libpgo` environment. Avoid mixing a
@@ -416,10 +398,12 @@ Example `CMakeUserPresets.json` (local, optional):
 
 ### Dependency Ownership
 
-- Conda supplies CMake, Ninja, and the native runtime/build packages for local
-  source builds and CI wheels: Boost, MKL, TBB, Gmsh, OpenVDB, Imath,
-  zlib, setuptools, and wheel. In conda environments, `numpy` stays on conda so
-  it shares the same BLAS backend as the native extension.
+- The system package manager supplies CMake, Ninja, pkg-config, and the
+  platform compiler for local source builds and CI.
+- Conda supplies Python plus native project dependencies for local source
+  builds and CI wheels: Boost, MKL, TBB, Gmsh, OpenVDB, GMP, MPFR, Imath, zlib,
+  setuptools, and wheel. In conda environments, `numpy` stays on conda so it
+  shares the same BLAS backend as the native extension.
 - CI wheel artifacts follow the same ownership model: `pypgo` expects conda to
   supply NumPy and the BLAS/LAPACK runtime. Install artifact wheels with
   `--no-deps`.
@@ -432,8 +416,6 @@ Example `CMakeUserPresets.json` (local, optional):
   installed, to avoid a duplicate `vtkmodules` import path), `pytest`,
   `notebook`, and the `trame` / `trame-vtk` / `trame-vuetify` stack
   (conda-forge lags their releases).
-- The host package manager supplies platform basics that are awkward to keep
-  fully inside conda, such as macOS Homebrew GMP/MPFR/Imath.
 - FetchContent-managed C++ dependencies are downloaded and built by this
   repository: Eigen, fmt, spdlog, nlohmann_json, SuiteSparse, Ceres, CGAL,
   geogram, libigl, Alembic, nanobind, and related internal dependencies.

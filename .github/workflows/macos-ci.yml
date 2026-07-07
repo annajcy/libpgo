@@ -39,6 +39,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install system build tools
+        run: brew install cmake ninja pkg-config
+
       - name: Set up Miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -160,6 +163,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install system build tools
+        run: brew install cmake ninja pkg-config
 
       - name: Set up Miniforge
         uses: conda-incubator/setup-miniconda@v3

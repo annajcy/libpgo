@@ -44,6 +44,9 @@ jobs:
         with:
           arch: x64
 
+      - name: Install system build tools
+        run: choco install cmake ninja -y --no-progress
+
       - name: Set up Miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -265,6 +268,9 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+
+      - name: Install system build tools
+        run: choco install cmake ninja -y --no-progress
 
       - name: Set up Miniforge
         uses: conda-incubator/setup-miniconda@v3
