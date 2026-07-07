@@ -69,7 +69,8 @@
             "cacheVariables": {
                 "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
                 "PGO_NATIVE_OPTIMIZATION": "OFF",
-                "PGO_ENABLE_GMSH": "OFF",
+                "PGO_ENABLE_GMSH": "ON",
+                "PGO_ENABLE_OPENVDB": "ON",
                 "Python_FIND_VIRTUALENV": "FIRST"
             }
         },

@@ -31,6 +31,11 @@ conda activate pypgo
 python -m pip install --no-deps pypgo-*.whl
 ```
 
+Some optional geometry backends, including Gmsh and OpenVDB, may bring an
+OpenMP runtime into the Python process. Keep those calls outside
+`pgo::parallel::parallelFor` / TBB worker bodies; nesting OpenMP-backed APIs
+inside TBB loops can oversubscribe CPU threads.
+
 ## Build and Install pypgo from Source
 
 Conda is the recommended build environment for both the Python package and the

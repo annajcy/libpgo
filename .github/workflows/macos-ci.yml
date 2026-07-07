@@ -98,7 +98,7 @@ jobs:
 
           with zipfile.ZipFile(sys.argv[1]) as archive:
               names = [name.lower() for name in archive.namelist() if ".dylibs/" in name]
-          forbidden = ("openblas", "libblas", "liblapack", "libiomp", "libomp", "libgomp")
+          forbidden = ("openblas", "libblas", "liblapack")
           vendored = [
               name
               for name in names

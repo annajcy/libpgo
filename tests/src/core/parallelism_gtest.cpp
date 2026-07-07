@@ -2,11 +2,24 @@
 
 #include "parallelism/parallelFor.h"
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
+
+#ifdef __linux__
+#  include <dirent.h>
+#  include <unistd.h>
+#endif
+
+#ifdef __APPLE__
+#  include <mach/mach.h>
+#  include <unistd.h>
+#endif
 
 #ifdef PGO_PARALLELISM_HAS_TBB
 #  include <tbb/global_control.h>
@@ -52,6 +65,87 @@ P::Options optionsWithNestedPolicy(P::NestedKernelPolicy nestedKernelPolicy)
   options.nestedKernelPolicy = nestedKernelPolicy;
   return options;
 }
+
+#if defined(__linux__) || defined(__APPLE__)
+int currentProcessThreadCount()
+{
+#ifdef __linux__
+  DIR *dir = opendir("/proc/self/task");
+  if (!dir)
+    return 0;
+
+  int count = 0;
+  while (dirent *entry = readdir(dir)) {
+    if (entry->d_name[0] != '.')
+      ++count;
+  }
+  closedir(dir);
+  return count;
+#else
+  thread_act_array_t threads = nullptr;
+  mach_msg_type_number_t count = 0;
+  if (task_threads(mach_task_self(), &threads, &count) != KERN_SUCCESS)
+    return 0;
+
+  vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(threads), count * sizeof(thread_t));
+  return static_cast<int>(count);
+#endif
+}
+
+template<class Fn>
+int peakThreadCountWhile(Fn &&fn)
+{
+  std::atomic<bool> done = false;
+  std::atomic<int> peak = currentProcessThreadCount();
+  std::thread sampler([&] {
+    while (!done.load(std::memory_order_acquire)) {
+      peak.store(std::max(peak.load(std::memory_order_relaxed), currentProcessThreadCount()),
+        std::memory_order_relaxed);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  });
+
+  fn();
+  done.store(true, std::memory_order_release);
+  sampler.join();
+  return peak.load(std::memory_order_relaxed);
+}
+#endif
+
+#ifdef PGO_PARALLELISM_HAS_ACCELERATE_THREADING
+void runAccelerateDgemm()
+{
+  constexpr int n = 384;
+  std::vector<double> a(n * n, 1.0);
+  std::vector<double> b(n * n, 2.0);
+  std::vector<double> c(n * n, 0.0);
+  for (int repeat = 0; repeat < 3; ++repeat) {
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+      n, n, n, 1.0, a.data(), n, b.data(), n, 0.0, c.data(), n);
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+  }
+}
+#endif
+
+#ifdef PGO_PARALLELISM_HAS_MKL
+void runMklDgemm()
+{
+  constexpr int n = 384;
+  std::vector<double> a(n * n, 1.0);
+  std::vector<double> b(n * n, 2.0);
+  std::vector<double> c(n * n, 0.0);
+  for (int repeat = 0; repeat < 3; ++repeat) {
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+      n, n, n, 1.0, a.data(), n, b.data(), n, 0.0, c.data(), n);
+  }
+}
+#endif
 }  // namespace
 
 TEST(ParallelForTest, SerialLoopVisitsEveryIndex)
@@ -157,6 +251,47 @@ TEST(ParallelForTest, InheritLeavesAccelerateThreadingInTBBWorker)
   EXPECT_NE(warning.find("Accelerate threading enabled inside TBB workers"), std::string::npos);
 
   BLASSetThreading(initial);
+}
+
+TEST(ParallelForTest, SuppressAvoidsAccelerateThreadOversubscriptionInTBBWorker)
+{
+  const auto initial = BLASGetThreading();
+  if (BLASSetThreading(BLAS_THREADING_MULTI_THREADED) != 0)
+    GTEST_SKIP() << "Accelerate threading control is not supported on this platform.";
+
+  P::ScopedWorkerLimit workerLimit(2);
+  const int baseline = currentProcessThreadCount();
+  const int peak = peakThreadCountWhile([] {
+    P::parallelFor(0, 2, P::Options{}, [](int) {
+      runAccelerateDgemm();
+    });
+  });
+
+  EXPECT_LE(peak, baseline + 6);
+
+  BLASSetThreading(initial);
+}
+#endif
+
+#if defined(__linux__) && defined(PGO_PARALLELISM_HAS_TBB) && defined(PGO_PARALLELISM_HAS_MKL) && defined(PGO_PARALLELISM_MKL_TBB_THREADING)
+TEST(ParallelForTest, MklTbbThreadingDoesNotOversubscribeInSuppressOrInherit)
+{
+  P::ScopedWorkerLimit workerLimit(2);
+  const int baseline = currentProcessThreadCount();
+
+  const int suppressPeak = peakThreadCountWhile([] {
+    P::parallelFor(0, 2, P::Options{}, [](int) {
+      runMklDgemm();
+    });
+  });
+  EXPECT_LE(suppressPeak, baseline + 6);
+
+  const int inheritPeak = peakThreadCountWhile([] {
+    P::parallelFor(0, 2, optionsWithNestedPolicy(P::NestedKernelPolicy::Inherit), [](int) {
+      runMklDgemm();
+    });
+  });
+  EXPECT_LE(inheritPeak, baseline + 6);
 }
 #endif
 

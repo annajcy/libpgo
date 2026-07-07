@@ -127,9 +127,6 @@ jobs:
               "libblas",
               "liblapack",
               "libmkl",
-              "libiomp",
-              "libomp",
-              "libgomp",
           )
           vendored = [
               name

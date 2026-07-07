@@ -18,17 +18,6 @@ COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
 endif()]=])
 endfunction()
 
-function(_libpgo_remove_geogram_linux_thread_flags target_file)
-  pgo_replace_in_file(
-    "${target_file}"
-    [=[if (GCC_VERSION VERSION_GREATER 4.0)
-    add_flags(CMAKE_CXX_FLAGS -fopenmp)
-    add_flags(CMAKE_C_FLAGS -fopenmp)
-endif()]=]
-    ""
-  )
-endfunction()
-
 function(_libpgo_prepare_ftetwild_geogram)
   if(TARGET geogram)
     if(NOT TARGET geogram::geogram)
@@ -69,7 +58,6 @@ endfunction()
 
 function(_libpgo_setup_ftetwild_geogram)
   _libpgo_patch_ftetwild_geogram("${geogram_SOURCE_DIR}/CMakeLists.txt")
-  _libpgo_remove_geogram_linux_thread_flags("${geogram_SOURCE_DIR}/cmake/platforms/Linux-gcc.cmake")
   pgo_add_populated_subdirectory(geogram)
 
   if(TARGET geogram AND NOT TARGET geogram::geogram)

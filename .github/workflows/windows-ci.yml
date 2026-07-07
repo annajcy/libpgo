@@ -177,9 +177,6 @@ jobs:
               "liblapack",
               "lapack.dll",
               "mkl_",
-              "libiomp",
-              "libomp",
-              "vcomp",
           )
           vendored = [
               name
