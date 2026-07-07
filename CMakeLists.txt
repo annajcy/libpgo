@@ -44,6 +44,7 @@ include(CMakeModules/PgoTargets.cmake)
 add_subdirectory(src)
 
 if(PGO_BUILD_TESTING)
+  set(BUILD_TESTING ON CACHE BOOL "Enable libpgo tests after third-party dependency configuration" FORCE)
   include(CTest)
   message(STATUS "Testing enabled.")
   add_subdirectory(tests)
