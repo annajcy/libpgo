@@ -8,11 +8,11 @@ verifies that:
      resolve at import time);
   2. ``build_info()`` reports its solver-backend capabilities;
   3. a real Newton solve runs end-to-end with the default and Eigen backends;
-  4. the MKL Pardiso backend is *functional* when the package advertises it
-     (the ``pypgo-mkl`` build), and is correctly *absent* otherwise.
+  4. the MKL Pardiso backend is *functional* when the package advertises it,
+     and is correctly *absent* otherwise.
 
-The script self-adapts to the package flavor via ``build_info()`` — the same
-file is used for both the OpenBLAS and MKL wheel checks. Depends only on numpy.
+The script self-adapts to platform capabilities via ``build_info()``. Depends
+only on numpy.
 
 Run manually inside an environment with pypgo installed:
 

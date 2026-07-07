@@ -6,7 +6,10 @@ if(PGO_USE_MKL)
   message(STATUS "Searching for MKL")
 
   set(PGO_MKL_THREADING "tbb_thread" CACHE STRING "MKL threading layer")
-  set_property(CACHE PGO_MKL_THREADING PROPERTY STRINGS sequential intel_thread gnu_thread tbb_thread)
+  set_property(CACHE PGO_MKL_THREADING PROPERTY STRINGS tbb_thread)
+  if(NOT PGO_MKL_THREADING STREQUAL "tbb_thread")
+    message(FATAL_ERROR "Only MKL tbb_thread is supported.")
+  endif()
   set(MKL_THREADING ${PGO_MKL_THREADING})
   set(MKL_INTERFACE lp64)
 

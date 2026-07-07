@@ -7,26 +7,13 @@ pgo_dep_option(SUITESPARSE_DEMOS BOOL OFF "SuiteSparse demos")
 pgo_dep_option(BUILD_SHARED_LIBS BOOL OFF "Build shared libraries")
 pgo_dep_option(SUITESPARSE_ENABLE_PROJECTS STRING "suitesparse_config;amd;camd;ccolamd;colamd;cholmod;cxsparse;klu;umfpack;spqr;" "SuiteSparse projects to build")
 pgo_dep_option(SUITESPARSE_USE_FORTRAN BOOL OFF "SuiteSparse Fortran support")
-pgo_dep_option(SUITESPARSE_USE_OPENMP BOOL OFF "SuiteSparse OpenMP support")
-if(PGO_USE_MKL)
-  set(_PGO_SUITESPARSE_BLA_VENDOR "Intel10_64lp")
+set(SUITESPARSE_USE_OPENMP OFF CACHE INTERNAL "Disable SuiteSparse threaded runtime" FORCE)
+if(APPLE)
+  set(_PGO_SUITESPARSE_BLA_VENDOR "Apple")
 else()
-  set(_PGO_SUITESPARSE_BLA_VENDOR "OpenBLAS")
+  set(_PGO_SUITESPARSE_BLA_VENDOR "Intel10_64lp")
 endif()
 pgo_dep_option(BLA_VENDOR STRING "${_PGO_SUITESPARSE_BLA_VENDOR}" "BLAS vendor")
-
-# Fortran is disabled (SUITESPARSE_USE_FORTRAN=OFF), so SuiteSparse cannot probe
-# the C-to-Fortran name mangling and falls back to a platform default. On MSVC
-# that default is the no-underscore Intel MKL convention ("dgemm"), but we link
-# conda-forge OpenBLAS, which exports the Fortran symbols with a trailing
-# underscore ("dgemm_"). Without overriding this, CHOLMOD's supernodal BLAS
-# calls fail to link (unresolved dgemm/dtrsm/dpotrf/...). Force the underscore
-# convention for the OpenBLAS (non-MKL) build so the generated
-# SuiteSparse_config.h calls the symbols OpenBLAS actually provides.
-if(MSVC AND NOT PGO_USE_MKL)
-  set(SUITESPARSE_C_TO_FORTRAN "(name,NAME) name##_"
-    CACHE STRING "C to Fortran name mangling" FORCE)
-endif()
 
 function(_pgo_setup_suitesparse)
   # SuiteSparse resolves BLAS/LAPACK inside its fetched subdirectories. Repeat

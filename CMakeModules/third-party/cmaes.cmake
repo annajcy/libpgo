@@ -6,7 +6,7 @@ pgo_dep_option(LIBCMAES_BUILD_SHARED_LIBS BOOL OFF "Build libcmaes as a shared l
 pgo_dep_option(LIBCMAES_BUILD_PYTHON BOOL OFF "build python bindings")
 pgo_dep_option(LIBCMAES_BUILD_TESTS BOOL OFF "Build tests")
 pgo_dep_option(LIBCMAES_BUILD_EXAMPLES BOOL OFF "Build samples")
-pgo_dep_option(LIBCMAES_USE_OPENMP BOOL OFF "Use OpenMP for multithreading")
+set(LIBCMAES_USE_OPENMP OFF CACHE INTERNAL "Disable libcmaes threaded runtime" FORCE)
 pgo_dep_option(LIBCMAES_ENABLE_SURROG BOOL ON "support for surrogates")
 
 pgo_add_third_party(libcmaes

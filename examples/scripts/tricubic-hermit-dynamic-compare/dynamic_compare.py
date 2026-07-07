@@ -147,7 +147,7 @@ def run_case(name, study: dict, cases: dict, output_root: Path, force=False, wri
     if any((output_dir / "checkpoints").glob("state*.npz")):
         overrides["dynamic.resume"] = "latest"
     if SETTINGS["num_threads"]:
-        pp.set_num_threads(SETTINGS["num_threads"])
+        pp.set_worker_limit(SETTINGS["num_threads"])
 
     cfg = load_config(mesh_type=case["mesh_type"], mode="dynamic", overrides=overrides)
     started = time.perf_counter()

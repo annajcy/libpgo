@@ -503,7 +503,7 @@ void KnitroSolverWrapper::initQuadraticProblem()
 
 void KnitroSolverWrapper::init()
 {
-  if (const auto numThreads = pgo::parallel::threadLimit(); numThreads.has_value()) {
+  if (const auto numThreads = pgo::parallel::workerLimit(); numThreads.has_value()) {
     KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_NUMTHREADS, *numThreads),
       throw std::domain_error("set num threads"));
   }

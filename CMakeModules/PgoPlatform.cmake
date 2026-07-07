@@ -3,7 +3,16 @@ if(APPLE)
     message(WARNING "MKL is not supported on macOS; forcing PGO_USE_MKL=OFF.")
     set(PGO_USE_MKL OFF CACHE BOOL "Use MKL" FORCE)
   endif()
+  set(BLA_VENDOR "Apple" CACHE STRING "BLAS vendor" FORCE)
+else()
+  if(NOT PGO_USE_MKL)
+    message(WARNING "MKL is required on non-macOS builds; forcing PGO_USE_MKL=ON.")
+    set(PGO_USE_MKL ON CACHE BOOL "Use MKL" FORCE)
+  endif()
+  set(BLA_VENDOR "Intel10_64lp" CACHE STRING "BLAS vendor" FORCE)
+endif()
 
+if(APPLE)
   if(PGO_ENABLE_CUDA)
     message(WARNING "CUDA is not supported on macOS; forcing PGO_ENABLE_CUDA=OFF.")
     set(PGO_ENABLE_CUDA OFF CACHE BOOL "Enable CUDA" FORCE)
@@ -34,8 +43,7 @@ if(APPLE)
 endif()
 
 # Conda builds (PGO_CHECK_CONDA=ON): make standard finders search the active
-# conda environment. Package-specific finders historically hardcoded their own
-# $CONDA_PREFIX hints, but find_package(BLAS) relies on the default search path.
+# conda environment.
 if(PGO_CHECK_CONDA AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
   if(WIN32)
     # CMake >=4.3 try_compile writes CMAKE_PREFIX_PATH/CMAKE_MODULE_PATH into
@@ -51,22 +59,6 @@ if(PGO_CHECK_CONDA AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
   endif()
   message(STATUS "Conda build: prepended $ENV{CONDA_PREFIX} to CMAKE_PREFIX_PATH")
 
-  # Help the custom FindBLAS.cmake (CMakeModules/FindBLAS.cmake) locate BLAS
-  # libraries inside the conda environment.  Without these hints the module
-  # falls back to probing system paths and fails on macOS/Windows.
-  if(PGO_USE_MKL)
-    # MKL provides its own CMake package config — tell FindBLAS to use it.
-    set(BLA_VENDOR "Intel10_64lp")
-  else()
-    # OpenBLAS and other conda BLAS backends ship .pc files.  Prefer
-    # pkg-config so we do not rely on the manual library-search fallback.
-    find_package(PkgConfig QUIET)
-    if(PKG_CONFIG_FOUND)
-      set(BLA_PREFER_PKGCONFIG ON)
-      set(BLA_PKGCONFIG_BLAS "openblas")
-    endif()
-  endif()
-
   if(PGO_ENABLE_PYTHON AND NOT DEFINED Python_EXECUTABLE)
     if(WIN32)
       find_program(_pgo_conda_python NAMES python.exe python
@@ -80,16 +72,6 @@ if(PGO_CHECK_CONDA AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
     if(_pgo_conda_python)
       set(Python_EXECUTABLE "${_pgo_conda_python}" CACHE FILEPATH "Python executable for pypgo bindings" FORCE)
       message(STATUS "Conda build: using Python executable ${Python_EXECUTABLE}")
-    endif()
-  endif()
-
-  if(APPLE)
-    set(_pgo_openblas_vers "$ENV{CONDA_PREFIX}/lib/libopenblas.0.dylib")
-    set(_pgo_openblas_plain "$ENV{CONDA_PREFIX}/lib/libopenblas.dylib")
-    if(EXISTS "${_pgo_openblas_vers}" AND NOT EXISTS "${_pgo_openblas_plain}")
-      execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-        "libopenblas.0.dylib" "${_pgo_openblas_plain}")
-      message(STATUS "Created missing OpenBLAS symlink: ${_pgo_openblas_plain} -> libopenblas.0.dylib")
     endif()
   endif()
 endif()

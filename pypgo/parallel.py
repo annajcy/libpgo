@@ -7,12 +7,12 @@ from collections.abc import Iterator
 import pypgo._core as _core
 
 
-def _normalize_num_threads(num_threads: int | None) -> int | None:
-    if num_threads is None:
+def _normalize_num_workers(num_workers: int | None) -> int | None:
+    if num_workers is None:
         return None
-    value = int(num_threads)
+    value = int(num_workers)
     if value <= 0:
-        raise ValueError("num_threads must be a positive integer or None")
+        raise ValueError("num_workers must be a positive integer or None")
     return value
 
 
@@ -25,29 +25,28 @@ def _normalize_num_cpus(num_cpus: int | None) -> int | None:
     return value
 
 
-def set_num_threads(num_threads: int | None) -> None:
-    """Set the process-wide CPU concurrency limit for libpgo.
+def set_worker_limit(num_workers: int | None) -> None:
+    """Set the process-wide pgo worker limit.
 
-    The limit covers libpgo's TBB, Eigen, OpenMP, and supported MKL/OpenBLAS
-    runtimes. Because NumPy and SciPy can share the same BLAS runtime, they may
-    inherit this limit too. ``None`` restores the runtime defaults observed
-    before the first limit was set.
+    This limits pgo's outer worker scheduler. Nested native kernels are handled
+    by the per-call nested-kernel policy in native code, not by this numeric
+    limit. ``None`` restores automatic scheduling.
 
     Changing the limit is process-wide and must not race with native work or
     another thread changing the limit.
     """
 
-    value = _normalize_num_threads(num_threads)
+    value = _normalize_num_workers(num_workers)
     if value is None:
-        _core._parallel_reset_num_threads()
+        _core._parallel_reset_worker_limit()
     else:
-        _core._parallel_set_num_threads(value)
+        _core._parallel_set_worker_limit(value)
 
 
-def get_num_threads() -> int | None:
+def get_worker_limit() -> int | None:
     """Return the requested process-wide limit, or ``None`` for automatic."""
 
-    value = _core._parallel_get_num_threads()
+    value = _core._parallel_get_worker_limit()
     if value is None:
         return None
     return int(value)
@@ -90,25 +89,25 @@ def get_cpu_affinity_limit() -> int | None:
     return int(value)
 
 
-class _ThreadLimit:
-    def __init__(self, num_threads: int | None):
-        self._num_threads = _normalize_num_threads(num_threads)
+class _WorkerLimit:
+    def __init__(self, num_workers: int | None):
+        self._num_workers = _normalize_num_workers(num_workers)
         self._previous: int | None = None
 
     def __enter__(self) -> None:
-        self._previous = get_num_threads()
-        set_num_threads(self._num_threads)
+        self._previous = get_worker_limit()
+        set_worker_limit(self._num_workers)
         return None
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        set_num_threads(self._previous)
+        set_worker_limit(self._previous)
         return False
 
 
-def thread_limit(num_threads: int | None) -> Iterator[None]:
-    """Temporarily override the process-wide libpgo concurrency limit."""
+def worker_limit(num_workers: int | None) -> Iterator[None]:
+    """Temporarily override the process-wide pgo worker limit."""
 
-    return _ThreadLimit(num_threads)
+    return _WorkerLimit(num_workers)
 
 
 class _CpuAffinityLimit:
@@ -135,10 +134,10 @@ def cpu_affinity_limit(num_cpus: int | None) -> Iterator[None]:
 __all__ = [
     "cpu_affinity_limit",
     "get_cpu_affinity_limit",
-    "get_num_threads",
+    "get_worker_limit",
     "runtime_info",
     "set_cpu_affinity_limit",
-    "set_num_threads",
+    "set_worker_limit",
     "supports_cpu_affinity_limit",
-    "thread_limit",
+    "worker_limit",
 ]

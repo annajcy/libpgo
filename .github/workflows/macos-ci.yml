@@ -22,8 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - variant: openblas
-            label: OpenBLAS
+          - variant: accelerate
+            label: Accelerate
             environment_file: environment.yml
             conda_env: libpgo
             cmake_preset: pypgo-ci
@@ -50,13 +50,8 @@ jobs:
           channels: conda-forge
           channel-priority: strict
 
-      - name: Select pthreads OpenBLAS for OpenBLAS wheel
-        run: |
-          conda install -y \
-            "libblas=*=*openblas" \
-            "liblapack=*=*openblas" \
-            "openblas=*=*pthreads*" \
-            "libopenblas=*=*pthreads*"
+      - name: Install Accelerate BLAS stack
+        run: conda install -y "libblas=*=*accelerate" "liblapack=*=*accelerate"
 
       - name: Build Python wheel
         env:
@@ -87,12 +82,8 @@ jobs:
           python -m pip install delocate
           rm -rf wheelhouse
           delocate-wheel -v -w wheelhouse \
-            -e libopenblas \
             -e libblas \
             -e liblapack \
-            -e libiomp \
-            -e libomp \
-            -e libgomp \
             dist/${PYPGO_WHEEL_DIST}-*.whl
           delocate-listdeps --all wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
@@ -114,11 +105,11 @@ jobs:
               if any(token in name for token in forbidden)
           ]
           if vendored:
-              print("Repaired pypgo wheel unexpectedly vendors BLAS/LAPACK/OpenMP runtime libraries:")
+              print("Repaired pypgo wheel unexpectedly vendors disallowed native runtime libraries:")
               for name in vendored:
                   print(f"  {name}")
               raise SystemExit(1)
-          print("OK: pypgo wheel relies on the conda-provided BLAS/LAPACK/OpenMP runtime.")
+          print("OK: pypgo wheel relies on the platform BLAS/LAPACK runtime.")
           PY
 
       - name: Upload Python wheel artifact
@@ -134,7 +125,7 @@ jobs:
         run: |
           shopt -s nullglob
           clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
-          conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"
+          conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*accelerate" "liblapack=*=*accelerate"
           conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           tmpdir="$(mktemp -d)"
           cd "${tmpdir}"
@@ -180,6 +171,9 @@ jobs:
           auto-activate-base: false
           channels: conda-forge
           channel-priority: strict
+
+      - name: Install Accelerate BLAS stack
+        run: conda install -y "libblas=*=*accelerate" "liblapack=*=*accelerate"
 
       - name: Configure with preset base
         run: cmake --preset base

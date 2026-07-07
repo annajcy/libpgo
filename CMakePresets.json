@@ -69,23 +69,8 @@
             "cacheVariables": {
                 "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
                 "PGO_NATIVE_OPTIMIZATION": "OFF",
-                "PGO_ENABLE_OPENMP": "OFF",
                 "PGO_ENABLE_GMSH": "OFF",
-                "PGO_USE_MKL": "OFF",
                 "Python_FIND_VIRTUALENV": "FIRST"
-            }
-        },
-        {
-            "name": "pypgo-mkl-ci",
-            "hidden": false,
-            "inherits": [
-                "pypgo-ci"
-            ],
-            "binaryDir": "${sourceDir}/build/pypgo-mkl-ci",
-            "cacheVariables": {
-                "PGO_ENABLE_OPENMP": "ON",
-                "PGO_ENABLE_GMSH": "ON",
-                "PGO_USE_MKL": "ON"
             }
         },
         {
@@ -216,13 +201,6 @@
         {
             "name": "pypgo-ci",
             "configurePreset": "pypgo-ci",
-            "targets": [
-                "pypgo_core"
-            ]
-        },
-        {
-            "name": "pypgo-mkl-ci",
-            "configurePreset": "pypgo-mkl-ci",
             "targets": [
                 "pypgo_core"
             ]

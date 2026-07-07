@@ -1,15 +1,3 @@
-set(PGO_OPENMP_FOUND OFF)
-if(PGO_ENABLE_OPENMP)
-  find_package(OpenMP)
-  if(OpenMP_CXX_FOUND OR OPENMP_FOUND)
-    set(PGO_OPENMP_FOUND ON)
-    set(OPENMP_FLAG "${OpenMP_CXX_FLAGS}")
-  endif()
-else()
-  message(STATUS "OpenMP disabled by PGO_ENABLE_OPENMP=OFF")
-endif()
-
-# openmp may cause mkl pardiso error
 include(Find_AVX)
 CHECK_FOR_AVX()
 
@@ -31,10 +19,6 @@ add_flag(compilation_flag_for_debug Clang All INTERFACE -fsanitize=leak)
 
 add_library(compilation_flag INTERFACE)
 add_library(cuda_compilation_flag INTERFACE)
-
-if(PGO_OPENMP_FOUND)
-  target_compile_definitions(compilation_flag INTERFACE USE_OPENMP)
-endif()
 
 message(STATUS "PGO compiler: ${CMAKE_CXX_COMPILER_ID}")
 message(STATUS "OS: ${CMAKE_SYSTEM_NAME}")
@@ -87,15 +71,6 @@ if(PGO_STATIC_LIBSTDCXX)
   add_flag(compilation_flag GNU All INTERFACE -static-libgcc)
   add_link_flag(compilation_flag GNU All -static-libstdc++)
   add_link_flag(compilation_flag GNU All -static-libgcc)
-endif()
-
-# if has openmp flags
-if(PGO_OPENMP_FOUND)
-  add_flag(compilation_flag GNU All INTERFACE ${OPENMP_FLAG})
-  add_flag(compilation_flag Clang All INTERFACE ${OPENMP_FLAG})
-  add_link_flag(compilation_flag GNU All ${OPENMP_FLAG})
-  add_link_flag(compilation_flag Clang All ${OPENMP_FLAG})
-  add_flag(compilation_flag MSVC All INTERFACE ${OPENMP_FLAG})
 endif()
 
 # msvc flags

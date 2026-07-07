@@ -10,7 +10,7 @@ from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
 
 PACKAGE_NAME = os.environ.get("PYPGO_PACKAGE_NAME", "pypgo").strip()
-SUPPORTED_PACKAGE_NAMES = {"pypgo", "pypgo-mkl"}
+SUPPORTED_PACKAGE_NAMES = {"pypgo"}
 if PACKAGE_NAME not in SUPPORTED_PACKAGE_NAMES:
     raise RuntimeError(
         f"Unsupported PYPGO_PACKAGE_NAME={PACKAGE_NAME!r}; "

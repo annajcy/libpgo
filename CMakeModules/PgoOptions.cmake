@@ -30,7 +30,6 @@ option(PGO_ENABLE_GMSH "Enable GMSH support" OFF)
 option(PGO_TET_MESHER_USE_TET_WILD "Enable fTetWild backend for volumetric meshing" OFF)
 option(PGO_BUILD_TESTING "Build libpgo tests" OFF)
 option(PGO_NATIVE_OPTIMIZATION "Use host-native CPU optimization flags" ON)
-option(PGO_ENABLE_OPENMP "Enable OpenMP compile/link flags and backend" ON)
 # Statically embedding libstdc++/libgcc is fatal for a Python extension: the .so then
 # carries a *private* libstdc++ while numpy/openvdb/vtk in the same interpreter use the
 # shared one. Two libstdc++ copies share no locale-facet / RTTI state, so

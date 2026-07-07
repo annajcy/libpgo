@@ -28,18 +28,8 @@ def test_setup_registers_cmake_build_ext(monkeypatch):
     assert "build_ext" in setup_kwargs["cmdclass"]
 
 
-def test_setup_uses_environment_package_name(monkeypatch):
-    monkeypatch.setenv("PYPGO_PACKAGE_NAME", "pypgo-mkl")
-    _namespace, setup_kwargs = load_setup_namespace(monkeypatch)
-
-    assert setup_kwargs["name"] == "pypgo-mkl"
-    assert setup_kwargs["install_requires"] == []
-    assert setup_kwargs["packages"]
-    assert setup_kwargs["ext_modules"][0].name == "pypgo._core"
-
-
 def test_setup_rejects_unsupported_package_name(monkeypatch):
-    monkeypatch.setenv("PYPGO_PACKAGE_NAME", "pypgo-openblas")
+    monkeypatch.setenv("PYPGO_PACKAGE_NAME", "pypgo-mkl")
 
     try:
         load_setup_namespace(monkeypatch)
@@ -113,7 +103,7 @@ def test_cmake_build_ext_uses_python_build_preset(monkeypatch, tmp_path):
 
 
 def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("PYPGO_CMAKE_PRESET", "pypgo-mkl-ci")
+    monkeypatch.setenv("PYPGO_CMAKE_PRESET", "pypgo-ci")
     namespace, setup_kwargs = load_setup_namespace(monkeypatch)
     build_ext_cls = setup_kwargs["cmdclass"]["build_ext"]
 
@@ -142,7 +132,7 @@ def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path)
             [
                 "cmake",
                 "--preset",
-                "pypgo-mkl-ci",
+                "pypgo-ci",
                 f"-DPython_EXECUTABLE={namespace['sys'].executable}",
             ],
             ROOT,
@@ -152,7 +142,7 @@ def test_cmake_build_ext_uses_environment_preset_override(monkeypatch, tmp_path)
                 "cmake",
                 "--build",
                 "--preset",
-                "pypgo-mkl-ci",
+                "pypgo-ci",
                 "--target",
                 "pypgo_core",
                 "--parallel",

@@ -230,9 +230,9 @@ TEST(ImplicitFieldTest, SampleToGridParallelMatchesSerial)
 
   IS::SphereField sphere(ES::V3d(0.25, -0.25, 0.5), 0.75);
 
-  pgo::parallel::setThreadLimit(1);
+  pgo::parallel::setWorkerLimit(1);
   IS::GridField serial = sphere.sampleToGrid(spec);
-  pgo::parallel::setThreadLimit(2);
+  pgo::parallel::setWorkerLimit(2);
   IS::GridField parallel = sphere.sampleToGrid(spec);
 
   ASSERT_EQ(serial.size(), parallel.size());

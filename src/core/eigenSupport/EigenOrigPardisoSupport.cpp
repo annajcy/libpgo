@@ -155,7 +155,7 @@ void EigenOrigPardisoSupport::setParam()
   // iparm[0]=1 means we provide our own parameters (already set by pardisoinit default, overriding below)
   iparm[0] = 1;
   iparm[1] = static_cast<int>(rtype);  // matrix re-ordering algorithm
-  iparm[2] = pgo::parallel::threadLimit().value_or(64);  // number of threads
+  iparm[2] = pgo::parallel::workerLimit().value_or(64);  // number of threads
 
   iparm[3] = 0;                      // default value for CG
   iparm[4] = 0;                      // No user fill-in permutation

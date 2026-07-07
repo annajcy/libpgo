@@ -5,9 +5,9 @@
 namespace pgo
 {
 
-nanobind::object getNumThreads();
-void resetNumThreads();
-void setNumThreads(int numThreads);
+nanobind::object getWorkerLimit();
+void resetWorkerLimit();
+void setWorkerLimit(int numWorkers);
 nanobind::dict runtimeInfo();
 bool supportsCpuAffinityLimit();
 nanobind::object getCpuAffinityLimit();

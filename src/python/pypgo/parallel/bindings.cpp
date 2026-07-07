@@ -6,9 +6,9 @@ namespace nb = nanobind;
 
 void init_parallel_bindings(nb::module_ &m)
 {
-  m.def("_parallel_get_num_threads", &pgo::getNumThreads);
-  m.def("_parallel_set_num_threads", &pgo::setNumThreads, nb::arg("num_threads"));
-  m.def("_parallel_reset_num_threads", &pgo::resetNumThreads);
+  m.def("_parallel_get_worker_limit", &pgo::getWorkerLimit);
+  m.def("_parallel_set_worker_limit", &pgo::setWorkerLimit, nb::arg("num_workers"));
+  m.def("_parallel_reset_worker_limit", &pgo::resetWorkerLimit);
   m.def("_parallel_runtime_info", &pgo::runtimeInfo);
   m.def("_parallel_supports_cpu_affinity_limit", &pgo::supportsCpuAffinityLimit);
   m.def("_parallel_get_cpu_affinity_limit", &pgo::getCpuAffinityLimit);

@@ -20,70 +20,50 @@ def test_ci_cmake_presets_use_ci_names():
     )
 
     assert "pypgo-ci" in preset_file
-    assert "pypgo-mkl-ci" in preset_file
     assert "pypgo-ci" in workflows
-    assert "pypgo-mkl-ci" in workflows
-    assert '"PGO_ENABLE_OPENMP": "OFF"' in preset_file
-    assert '"PGO_ENABLE_OPENMP": "ON"' in preset_file
     assert '"PGO_ENABLE_GMSH": "OFF"' in preset_file
-    assert '"PGO_ENABLE_GMSH": "ON"' in preset_file
     assert '"PGO_ENABLE_OPENVDB": "ON"' in preset_file
 
 
-def test_linux_wheels_are_conda_bound():
+def test_linux_wheel_uses_mkl_and_no_openblas_or_openmp():
     workflow = read_workflow("linux-ci.yml")
 
-    assert '"libopenblas=*=*pthreads*"' in workflow
-    assert 'if [[ "${PYPGO_WHEEL_PACKAGE}" == "pypgo" ]]; then' in workflow
-    assert '"libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"' in workflow
     assert '"libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel' in workflow
+    assert '"libblas=*=*openblas"' not in workflow
     assert 'python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl' in workflow
     assert 'python -m venv "${clean_env}"' not in workflow
     assert "--exclude 'libmkl*.so*'" in workflow
-    assert "unexpectedly vendors BLAS/LAPACK/OpenMP runtime libraries" in workflow
+    assert "openmp" not in workflow.lower()
+    assert '"openblas"' in workflow
+    assert '"libgomp"' in workflow
     assert "-X faulthandler" in workflow
 
 
-def test_ftetwild_geogram_openmp_follows_pgo_openmp_option():
-    cmake = (ROOT / "CMakeModules" / "third-party" / "ftetwild.cmake").read_text()
-
-    assert "pgo_add_third_party(ftetwild" in cmake
-    assert "FETCH_MODE POPULATE" in cmake
-    assert "POST_FETCH _pgo_setup_ftetwild" in cmake
-    assert "_libpgo_patch_ftetwild_geogram_openmp" in cmake
-    assert "_libpgo_patch_geogram_linux_openmp" in cmake
-    assert 'if(${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND PGO_ENABLE_OPENMP)' in cmake
-
-
-def test_geogram_linux_platform_openmp_follows_pgo_openmp_option():
-    cmake = (ROOT / "CMakeModules" / "third-party" / "geogram.cmake").read_text()
-
-    assert "_libpgo_patch_geogram_linux_openmp" in cmake
-    assert "GCC_VERSION VERSION_GREATER 4.0 AND PGO_ENABLE_OPENMP" in cmake
-
-
-def test_macos_openblas_wheel_is_conda_bound():
+def test_macos_wheel_uses_accelerate_and_no_openblas_or_openmp():
     workflow = read_workflow("macos-ci.yml")
 
-    assert '"libopenblas=*=*pthreads*"' in workflow
-    assert 'conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"' in workflow
+    assert '"libblas=*=*accelerate" "liblapack=*=*accelerate"' in workflow
+    assert '"libblas=*=*openblas"' not in workflow
     assert 'python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl' in workflow
     assert 'python -m venv "${clean_env}"' not in workflow
-    assert "-e libopenblas" in workflow
-    assert "-e libomp" in workflow
+    assert "openmp" not in workflow.lower()
+    assert '"openblas"' in workflow
+    assert '"libomp"' in workflow
 
 
-def test_windows_wheels_are_conda_bound():
+def test_windows_wheel_uses_mkl_and_no_openblas_or_openmp():
     workflow = read_workflow("windows-ci.yml")
 
-    assert '"libopenblas=*=*pthreads*"' in workflow
-    assert '$env:PYPGO_WHEEL_PACKAGE -eq "pypgo"' in workflow
-    assert 'python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"' in workflow
+    assert 'python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel' in workflow
+    assert '"libblas=*=*openblas"' not in workflow
     assert "python -m pip install --no-deps $wheel[0].FullName" in workflow
     assert "python -m venv $cleanEnv" not in workflow
-    assert '$env:PYPGO_WHEEL_PACKAGE -eq "pypgo-mkl"' in workflow
     assert "$excludedDlls" in workflow
     assert "$excludeArgs += @(\"--exclude\", $dll)" in workflow
     assert "mkl_rt.2.dll" in workflow
     assert "mkl_core.2.dll" in workflow
     assert "mkl_tbb_thread.3.dll" in workflow
+    assert "openmp" not in workflow.lower()
+    assert '"openblas"' in workflow
+    assert '"libomp"' in workflow
+    assert '"vcomp"' in workflow

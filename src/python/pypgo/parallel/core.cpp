@@ -7,24 +7,24 @@
 namespace pgo
 {
 
-nanobind::object getNumThreads()
+nanobind::object getWorkerLimit()
 {
-  const auto numThreads = pgo::parallel::threadLimit();
-  if (!numThreads.has_value())
+  const auto numWorkers = pgo::parallel::workerLimit();
+  if (!numWorkers.has_value())
     return nanobind::none();
-  return nanobind::int_(*numThreads);
+  return nanobind::int_(*numWorkers);
 }
 
-void resetNumThreads()
+void resetWorkerLimit()
 {
-  pgo::parallel::setThreadLimit(std::nullopt);
+  pgo::parallel::setWorkerLimit(std::nullopt);
 }
 
-void setNumThreads(int numThreads)
+void setWorkerLimit(int numWorkers)
 {
-  if (numThreads <= 0)
-    throw nanobind::value_error("num_threads must be a positive integer or None");
-  pgo::parallel::setThreadLimit(numThreads);
+  if (numWorkers <= 0)
+    throw nanobind::value_error("num_workers must be a positive integer or None");
+  pgo::parallel::setWorkerLimit(numWorkers);
 }
 
 namespace
@@ -44,16 +44,12 @@ nanobind::dict runtimeInfo()
 {
   const pgo::parallel::RuntimeInfo info = pgo::parallel::runtimeInfo();
   nanobind::dict dict;
-  putOptionalInt(dict, "thread_limit", info.threadLimit);
-  putOptionalInt(dict, "cpu_affinity_limit", info.cpuAffinityLimit);
-  putOptionalInt(dict, "current_cpu_affinity_cpus", info.currentCpuAffinityCpus);
+  putOptionalInt(dict, "worker_limit", info.workerLimit);
+  if (pgo::parallel::supportsCpuAffinityLimit()) {
+    putOptionalInt(dict, "cpu_affinity_limit", info.cpuAffinityLimit);
+    putOptionalInt(dict, "current_cpu_affinity_cpus", info.currentCpuAffinityCpus);
+  }
   putOptionalInt(dict, "tbb_max_allowed_parallelism", info.tbbMaxAllowedParallelism);
-  putOptionalInt(dict, "eigen_num_threads", info.eigenNumThreads);
-  putOptionalInt(dict, "openmp_max_threads", info.openMPMaxThreads);
-  putOptionalInt(dict, "mkl_max_threads", info.mklMaxThreads);
-  putOptionalInt(dict, "mkl_effective_thread_limit", info.mklEffectiveThreadLimit);
-  putOptionalInt(dict, "mkl_pardiso_max_threads", info.mklPardisoMaxThreads);
-  putOptionalInt(dict, "openblas_num_threads", info.openBLASNumThreads);
   return dict;
 }
 

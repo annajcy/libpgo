@@ -1,11 +1,11 @@
 #include "parallelism/parallelFor.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -14,11 +14,22 @@
 #include <thread>
 #include <vector>
 
+#if defined(__linux__) || defined(_WIN32)
+#define PGO_PARALLELISM_HAS_CPU_AFFINITY 1
+#endif
+
 #ifdef __linux__
 #include <dirent.h>
 #include <sched.h>
 #include <sys/types.h>
 #include <unistd.h>
+#endif
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 
 #ifdef PGO_PARALLELISM_HAS_TBB
@@ -28,21 +39,12 @@
 #include <tbb/task_arena.h>
 #endif
 
-#ifdef PGO_PARALLELISM_HAS_EIGEN
-#include <Eigen/Core>
-#endif
-
-#ifdef PGO_PARALLELISM_HAS_OPENMP
-#include <omp.h>
-#endif
-
 #ifdef PGO_PARALLELISM_HAS_MKL
 #include <mkl.h>
 #endif
 
-#ifdef PGO_PARALLELISM_HAS_OPENBLAS
-extern "C" int openblas_get_num_threads();
-extern "C" void openblas_set_num_threads(int numThreads);
+#ifdef PGO_PARALLELISM_HAS_ACCELERATE_THREADING
+#include <Accelerate/Accelerate.h>
 #endif
 
 namespace pgo::parallel {
@@ -54,12 +56,6 @@ std::mutex &runtimeMutex()
   return mutex;
 }
 
-std::atomic<bool> &nestedThreadLimitEnabled()
-{
-  static std::atomic<bool> enabled = false;
-  return enabled;
-}
-
 using CpuList = std::vector<int>;
 
 void validatePositive(std::optional<int> value, const char *name)
@@ -67,6 +63,19 @@ void validatePositive(std::optional<int> value, const char *name)
   if (value.has_value() && *value <= 0)
     throw std::invalid_argument(std::string(name) + " must be positive or unset.");
 }
+
+#ifdef PGO_PARALLELISM_HAS_CPU_AFFINITY
+
+CpuList limitCpuList(const CpuList &cpus, int limit)
+{
+  CpuList limited = cpus;
+  std::sort(limited.begin(), limited.end());
+  if (static_cast<int>(limited.size()) > limit)
+    limited.resize(static_cast<std::size_t>(limit));
+  return limited;
+}
+
+#endif
 
 #ifdef __linux__
 
@@ -147,39 +156,60 @@ void setCurrentProcessAffinityNoThrow(const CpuList &cpus)
   }
 }
 
-CpuList limitCpuList(const CpuList &cpus, int limit)
+#endif
+
+#ifdef _WIN32
+
+CpuList currentThreadAffinity()
 {
-  CpuList limited = cpus;
-  std::sort(limited.begin(), limited.end());
-  if (static_cast<int>(limited.size()) > limit)
-    limited.resize(static_cast<std::size_t>(limit));
-  return limited;
+  DWORD_PTR processMask = 0;
+  DWORD_PTR systemMask = 0;
+  if (!GetProcessAffinityMask(GetCurrentProcess(), &processMask, &systemMask))
+    throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "GetProcessAffinityMask");
+
+  CpuList cpus;
+  constexpr int kBits = static_cast<int>(sizeof(DWORD_PTR) * 8);
+  for (int cpu = 0; cpu < kBits; ++cpu) {
+    if ((processMask & (DWORD_PTR{1} << cpu)) != 0)
+      cpus.push_back(cpu);
+  }
+  return cpus;
+}
+
+DWORD_PTR makeCpuMask(const CpuList &cpus)
+{
+  if (cpus.empty())
+    throw std::invalid_argument("CPU affinity set must not be empty.");
+
+  DWORD_PTR mask = 0;
+  constexpr int kBits = static_cast<int>(sizeof(DWORD_PTR) * 8);
+  for (int cpu : cpus) {
+    if (cpu < 0 || cpu >= kBits)
+      throw std::runtime_error("CPU id exceeds process affinity mask width.");
+    mask |= DWORD_PTR{1} << cpu;
+  }
+  return mask;
+}
+
+void setCurrentProcessAffinity(const CpuList &cpus)
+{
+  if (!SetProcessAffinityMask(GetCurrentProcess(), makeCpuMask(cpus)))
+    throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "SetProcessAffinityMask");
 }
 
 #endif
 
 struct RuntimeState {
-  std::optional<int> numThreads;
-#ifdef __linux__
+  std::optional<int> workerLimit;
+#ifdef PGO_PARALLELISM_HAS_CPU_AFFINITY
   CpuList initialCpuAffinity = currentThreadAffinity();
   std::optional<int> cpuAffinityLimit;
+#endif
+#ifdef __linux__
   std::jthread cpuAffinityWatchdog;
 #endif
 #ifdef PGO_PARALLELISM_HAS_TBB
   std::unique_ptr<tbb::global_control> tbbControl;
-#endif
-#ifdef PGO_PARALLELISM_HAS_EIGEN
-  int initialEigenThreads = Eigen::nbThreads();
-#endif
-#ifdef PGO_PARALLELISM_HAS_OPENMP
-  int initialOpenMPThreads = omp_get_max_threads();
-#endif
-#ifdef PGO_PARALLELISM_HAS_MKL
-  int initialMKLThreads = mkl_get_max_threads();
-  int initialMKLPardisoThreads = mkl_domain_get_max_threads(MKL_DOMAIN_PARDISO);
-#endif
-#ifdef PGO_PARALLELISM_HAS_OPENBLAS
-  int initialOpenBLASThreads = openblas_get_num_threads();
 #endif
 };
 
@@ -189,9 +219,9 @@ RuntimeState &runtimeState()
   return state;
 }
 
-void validateNumThreads(std::optional<int> numThreads)
+void validateNumWorkers(std::optional<int> numWorkers)
 {
-  validatePositive(numThreads, "parallel numThreads");
+  validatePositive(numWorkers, "parallel numWorkers");
 }
 
 void validateNumCpus(std::optional<int> numCpus)
@@ -219,39 +249,68 @@ void startCpuAffinityWatchdog(RuntimeState &state, CpuList cpus)
 }
 #endif
 
-Backend autoBackend()
-{
-#ifdef PGO_PARALLELISM_HAS_TBB
-  return Backend::TBB;
-#elif defined(PGO_PARALLELISM_HAS_OPENMP)
-  return Backend::OpenMP;
-#else
-  return Backend::Serial;
-#endif
-}
-
-Backend resolveBackend(Backend backend)
-{
-  if (backend == Backend::Auto)
-    return autoBackend();
-  return backend;
-}
-
-void runSerial(int begin, int end, const detail::ChunkBody &body)
+[[maybe_unused]] void runSerial(int begin, int end, const detail::ChunkBody &body)
 {
   if (begin < end)
     body(begin, end);
+}
+
+void warnIfInheritingAccelerateThreading()
+{
+#if defined(PGO_PARALLELISM_HAS_TBB) && defined(PGO_PARALLELISM_HAS_ACCELERATE_THREADING)
+  if (BLASGetThreading() == BLAS_THREADING_SINGLE_THREADED)
+    return;
+
+  static std::once_flag warningOnce;
+  std::call_once(warningOnce, [] {
+    std::cerr << "Warning: pgo::parallel::NestedKernelPolicy::Inherit leaves Accelerate threading enabled inside TBB workers; "
+                 "this can oversubscribe CPU threads on macOS. Use Suppress unless this call site is measured safe.\n";
+  });
+#endif
 }
 
 template<class Fn>
 void runNestedKernelPolicy(const Options &options, Fn &&fn)
 {
   if (options.nestedKernelPolicy == NestedKernelPolicy::Suppress) {
-    ScopedNestedThreadLimit nestedThreadLimit;
+    class ScopedNestedKernelSuppressor {
+    public:
+      ScopedNestedKernelSuppressor()
+      {
+#ifdef PGO_PARALLELISM_HAS_MKL
+        previousMKLThreads_ = mkl_set_num_threads_local(1);
+        shouldRestoreMKL_ = true;
+#endif
+#ifdef PGO_PARALLELISM_HAS_ACCELERATE_THREADING
+        previousAccelerateThreading_ = static_cast<int>(BLASGetThreading());
+        shouldRestoreAccelerate_ = BLASSetThreading(BLAS_THREADING_SINGLE_THREADED) == 0;
+#endif
+      }
+
+      ~ScopedNestedKernelSuppressor()
+      {
+#ifdef PGO_PARALLELISM_HAS_ACCELERATE_THREADING
+        if (shouldRestoreAccelerate_)
+          BLASSetThreading(static_cast<BLAS_THREADING>(previousAccelerateThreading_));
+#endif
+#ifdef PGO_PARALLELISM_HAS_MKL
+        if (shouldRestoreMKL_)
+          mkl_set_num_threads_local(previousMKLThreads_);
+#endif
+      }
+
+    private:
+      [[maybe_unused]] int previousMKLThreads_ = 0;
+      [[maybe_unused]] int previousAccelerateThreading_ = 0;
+      [[maybe_unused]] bool shouldRestoreMKL_ = false;
+      [[maybe_unused]] bool shouldRestoreAccelerate_ = false;
+    } nestedKernelSuppressor;
+
     fn();
     return;
   }
 
+  warnIfInheritingAccelerateThreading();
   fn();
 }
 
@@ -268,94 +327,34 @@ void runTBB(int begin, int end, const Options &options, const detail::ChunkBody 
 }
 #endif
 
-void runOpenMP(int begin, int end, const Options &options, const detail::ChunkBody &body)
-{
-#ifdef PGO_PARALLELISM_HAS_OPENMP
-  const int grainSize = options.grainSize > 0 ? options.grainSize : 1;
-#pragma omp parallel for schedule(static, grainSize)
-  for (int i = begin; i < end; i += grainSize) {
-    const int chunkEnd = std::min(i + grainSize, end);
-    runNestedKernelPolicy(options, [&] {
-      body(i, chunkEnd);
-    });
-  }
-#else
-  (void)begin;
-  (void)end;
-  (void)options;
-  (void)body;
-  throw std::runtime_error("OpenMP parallel backend is not available in this build.");
-#endif
-}
-
 }  // namespace
 
-bool isBackendAvailable(Backend backend)
+void setWorkerLimit(std::optional<int> numWorkers)
 {
-  switch (backend) {
-    case Backend::Auto:
-    case Backend::Serial:
-      return true;
-    case Backend::TBB:
-#ifdef PGO_PARALLELISM_HAS_TBB
-      return true;
-#else
-      return false;
-#endif
-    case Backend::OpenMP:
-#ifdef PGO_PARALLELISM_HAS_OPENMP
-      return true;
-#else
-      return false;
-#endif
-  }
-
-  return false;
-}
-
-void setThreadLimit(std::optional<int> numThreads)
-{
-  validateNumThreads(numThreads);
+  validateNumWorkers(numWorkers);
   std::lock_guard<std::mutex> lock(runtimeMutex());
   RuntimeState &state = runtimeState();
-  if (state.numThreads == numThreads)
+  if (state.workerLimit == numWorkers)
     return;
 
 #ifdef PGO_PARALLELISM_HAS_TBB
   std::unique_ptr<tbb::global_control> nextTBBControl;
-  if (numThreads.has_value()) {
+  if (numWorkers.has_value()) {
     nextTBBControl = std::make_unique<tbb::global_control>(
-      tbb::global_control::max_allowed_parallelism, static_cast<std::size_t>(*numThreads));
+      tbb::global_control::max_allowed_parallelism, static_cast<std::size_t>(*numWorkers));
   }
 #endif
 
-#ifdef PGO_PARALLELISM_HAS_OPENMP
-  omp_set_num_threads(numThreads.value_or(state.initialOpenMPThreads));
-#endif
-#ifdef PGO_PARALLELISM_HAS_EIGEN
-  Eigen::setNbThreads(numThreads.value_or(state.initialEigenThreads));
-#endif
-#ifdef PGO_PARALLELISM_HAS_MKL
-  const int mklThreads = numThreads.value_or(state.initialMKLThreads);
-  const int mklPardisoThreads = numThreads.value_or(state.initialMKLPardisoThreads);
-  mkl_set_num_threads(mklThreads);
-  mkl_domain_set_num_threads(mklThreads, MKL_DOMAIN_ALL);
-  mkl_domain_set_num_threads(mklPardisoThreads, MKL_DOMAIN_PARDISO);
-#endif
-#ifdef PGO_PARALLELISM_HAS_OPENBLAS
-  openblas_set_num_threads(numThreads.value_or(state.initialOpenBLASThreads));
-#endif
 #ifdef PGO_PARALLELISM_HAS_TBB
   state.tbbControl = std::move(nextTBBControl);
 #endif
-  state.numThreads = numThreads;
-  nestedThreadLimitEnabled().store(numThreads.has_value() && *numThreads > 1, std::memory_order_release);
+  state.workerLimit = numWorkers;
 }
 
-std::optional<int> threadLimit()
+std::optional<int> workerLimit()
 {
   std::lock_guard<std::mutex> lock(runtimeMutex());
-  return runtimeState().numThreads;
+  return runtimeState().workerLimit;
 }
 
 RuntimeInfo runtimeInfo()
@@ -365,45 +364,25 @@ RuntimeInfo runtimeInfo()
   {
     std::lock_guard<std::mutex> lock(runtimeMutex());
     RuntimeState &state = runtimeState();
-    info.threadLimit = state.numThreads;
-#ifdef __linux__
+    info.workerLimit = state.workerLimit;
+#ifdef PGO_PARALLELISM_HAS_CPU_AFFINITY
     info.cpuAffinityLimit = state.cpuAffinityLimit;
 #endif
   }
 
-#ifdef __linux__
+#ifdef PGO_PARALLELISM_HAS_CPU_AFFINITY
   info.currentCpuAffinityCpus = static_cast<int>(currentThreadAffinity().size());
 #endif
 #ifdef PGO_PARALLELISM_HAS_TBB
   info.tbbMaxAllowedParallelism = static_cast<int>(
     tbb::global_control::active_value(tbb::global_control::max_allowed_parallelism));
 #endif
-#ifdef PGO_PARALLELISM_HAS_EIGEN
-  info.eigenNumThreads = Eigen::nbThreads();
-#endif
-#ifdef PGO_PARALLELISM_HAS_OPENMP
-  info.openMPMaxThreads = omp_get_max_threads();
-#endif
-#ifdef PGO_PARALLELISM_HAS_MKL
-  info.mklMaxThreads = mkl_get_max_threads();
-  #if defined(PGO_PARALLELISM_MKL_TBB_THREADING) && defined(PGO_PARALLELISM_HAS_TBB)
-  info.mklEffectiveThreadLimit = static_cast<int>(
-    tbb::global_control::active_value(tbb::global_control::max_allowed_parallelism));
-  #else
-  info.mklEffectiveThreadLimit = info.mklMaxThreads;
-  #endif
-  info.mklPardisoMaxThreads = mkl_domain_get_max_threads(MKL_DOMAIN_PARDISO);
-#endif
-#ifdef PGO_PARALLELISM_HAS_OPENBLAS
-  info.openBLASNumThreads = openblas_get_num_threads();
-#endif
-
   return info;
 }
 
 bool supportsCpuAffinityLimit()
 {
-#ifdef __linux__
+#ifdef PGO_PARALLELISM_HAS_CPU_AFFINITY
   return true;
 #else
   return false;
@@ -414,9 +393,9 @@ void setCpuAffinityLimit(std::optional<int> numCpus)
 {
   validateNumCpus(numCpus);
 
-#ifndef __linux__
+#ifndef PGO_PARALLELISM_HAS_CPU_AFFINITY
   if (numCpus.has_value())
-    throw std::runtime_error("CPU affinity limits are only supported on Linux.");
+    throw std::runtime_error("CPU affinity limits are only supported on Linux and Windows.");
   return;
 #else
   std::lock_guard<std::mutex> lock(runtimeMutex());
@@ -424,20 +403,24 @@ void setCpuAffinityLimit(std::optional<int> numCpus)
   if (state.cpuAffinityLimit == numCpus)
     return;
 
+#ifdef __linux__
   stopCpuAffinityWatchdog(state);
+#endif
 
   const CpuList target = numCpus.has_value() ? limitCpuList(state.initialCpuAffinity, *numCpus) : state.initialCpuAffinity;
   setCurrentProcessAffinity(target);
 
   state.cpuAffinityLimit = numCpus;
+#ifdef __linux__
   if (numCpus.has_value() && target.size() < state.initialCpuAffinity.size())
     startCpuAffinityWatchdog(state, target);
+#endif
 #endif
 }
 
 std::optional<int> cpuAffinityLimit()
 {
-#ifndef __linux__
+#ifndef PGO_PARALLELISM_HAS_CPU_AFFINITY
   return std::nullopt;
 #else
   std::lock_guard<std::mutex> lock(runtimeMutex());
@@ -445,15 +428,15 @@ std::optional<int> cpuAffinityLimit()
 #endif
 }
 
-ScopedThreadLimit::ScopedThreadLimit(std::optional<int> numThreads)
-  : previousNumThreads_(threadLimit())
+ScopedWorkerLimit::ScopedWorkerLimit(std::optional<int> numWorkers)
+  : previousNumWorkers_(workerLimit())
 {
-  setThreadLimit(numThreads);
+  setWorkerLimit(numWorkers);
 }
 
-ScopedThreadLimit::~ScopedThreadLimit()
+ScopedWorkerLimit::~ScopedWorkerLimit()
 {
-  setThreadLimit(previousNumThreads_);
+  setWorkerLimit(previousNumWorkers_);
 }
 
 ScopedCpuAffinityLimit::ScopedCpuAffinityLimit(std::optional<int> numCpus)
@@ -467,64 +450,6 @@ ScopedCpuAffinityLimit::~ScopedCpuAffinityLimit()
   setCpuAffinityLimit(previousNumCpus_);
 }
 
-ScopedMklThreadLimit::ScopedMklThreadLimit(std::optional<int> numThreads)
-{
-  validateNumThreads(numThreads);
-#ifdef PGO_PARALLELISM_HAS_MKL
-  if (numThreads.has_value()) {
-  #if defined(PGO_PARALLELISM_MKL_TBB_THREADING) && defined(PGO_PARALLELISM_HAS_TBB)
-    threadingControl_ = std::make_shared<tbb::global_control>(
-      tbb::global_control::max_allowed_parallelism, static_cast<std::size_t>(*numThreads));
-  #else
-    previousNumThreads_ = mkl_set_num_threads_local(*numThreads);
-    shouldRestore_ = true;
-  #endif
-  }
-#else
-  (void)numThreads;
-#endif
-}
-
-ScopedMklThreadLimit::~ScopedMklThreadLimit()
-{
-#ifdef PGO_PARALLELISM_HAS_MKL
-#if !defined(PGO_PARALLELISM_MKL_TBB_THREADING) || !defined(PGO_PARALLELISM_HAS_TBB)
-  if (shouldRestore_)
-    mkl_set_num_threads_local(previousNumThreads_);
-#endif
-#endif
-}
-
-ScopedNestedThreadLimit::ScopedNestedThreadLimit()
-{
-  if (!nestedThreadLimitEnabled().load(std::memory_order_acquire))
-    return;
-
-#ifdef PGO_PARALLELISM_HAS_OPENMP
-  previousOpenMPThreads_ = omp_get_max_threads();
-  if (previousOpenMPThreads_ != 1) {
-    omp_set_num_threads(1);
-    shouldRestoreOpenMP_ = true;
-  }
-#endif
-#ifdef PGO_PARALLELISM_HAS_MKL
-  previousMKLThreads_ = mkl_set_num_threads_local(1);
-  shouldRestoreMKL_ = true;
-#endif
-}
-
-ScopedNestedThreadLimit::~ScopedNestedThreadLimit()
-{
-#ifdef PGO_PARALLELISM_HAS_MKL
-  if (shouldRestoreMKL_)
-    mkl_set_num_threads_local(previousMKLThreads_);
-#endif
-#ifdef PGO_PARALLELISM_HAS_OPENMP
-  if (shouldRestoreOpenMP_)
-    omp_set_num_threads(previousOpenMPThreads_);
-#endif
-}
-
 namespace detail {
 
 void parallelForChunks(int begin, int end, const Options &options, const ChunkBody &body)
@@ -532,27 +457,13 @@ void parallelForChunks(int begin, int end, const Options &options, const ChunkBo
   if (begin >= end)
     return;
 
-  if (options.backend == Backend::Serial) {
-    runSerial(begin, end, body);
-    return;
-  }
-
-  switch (resolveBackend(options.backend)) {
-    case Backend::Auto:
-    case Backend::Serial:
-      runSerial(begin, end, body);
-      return;
-    case Backend::TBB:
 #ifdef PGO_PARALLELISM_HAS_TBB
-      runTBB(begin, end, options, body);
-      return;
+  runTBB(begin, end, options, body);
 #else
-      throw std::runtime_error("TBB parallel backend is not available in this build.");
+  runNestedKernelPolicy(options, [&] {
+    runSerial(begin, end, body);
+  });
 #endif
-    case Backend::OpenMP:
-      runOpenMP(begin, end, options, body);
-      return;
-  }
 }
 
 }  // namespace detail

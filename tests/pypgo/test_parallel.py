@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 import pypgo as pgo
@@ -7,71 +5,81 @@ from pypgo import implicit
 
 
 def teardown_function():
-    pgo.parallel.set_num_threads(None)
+    pgo.parallel.set_worker_limit(None)
     pgo.parallel.set_cpu_affinity_limit(None)
 
 
-def test_parallel_module_controls_thread_limit():
-    assert pgo.parallel.get_num_threads() is None
+def test_parallel_module_controls_worker_limit():
+    assert pgo.parallel.get_worker_limit() is None
 
-    pgo.parallel.set_num_threads(4)
-    assert pgo.parallel.get_num_threads() == 4
+    pgo.parallel.set_worker_limit(4)
+    assert pgo.parallel.get_worker_limit() == 4
 
-    pgo.parallel.set_num_threads(None)
-    assert pgo.parallel.get_num_threads() is None
+    pgo.parallel.set_worker_limit(None)
+    assert pgo.parallel.get_worker_limit() is None
 
 
 def test_runtime_info_reports_active_native_limits():
-    pgo.parallel.set_num_threads(4)
+    pgo.parallel.set_worker_limit(4)
     info = pgo.parallel.runtime_info()
 
-    assert info["thread_limit"] == 4
+    assert info["worker_limit"] == 4
     assert info["tbb_max_allowed_parallelism"] in (None, 4)
-    assert info["openmp_max_threads"] in (None, 4)
-    assert info["mkl_max_threads"] is None or info["mkl_max_threads"] >= 1
+    if pgo.parallel.supports_cpu_affinity_limit():
+        assert info["cpu_affinity_limit"] is None
+        assert info["current_cpu_affinity_cpus"] >= 1
+    else:
+        assert "cpu_affinity_limit" not in info
+        assert "current_cpu_affinity_cpus" not in info
+    assert "eigen_num_threads" not in info
+    assert "openmp_max_threads" not in info
+    assert "openblas_num_threads" not in info
+    assert "mkl_max_threads" not in info
+    assert "mkl_effective_thread_limit" not in info
+    assert "mkl_pardiso_max_threads" not in info
 
 
-def test_thread_limit_context_restores_previous_value():
-    pgo.parallel.set_num_threads(3)
+def test_worker_limit_context_restores_previous_value():
+    pgo.parallel.set_worker_limit(3)
 
-    with pgo.parallel.thread_limit(1):
-        assert pgo.parallel.get_num_threads() == 1
+    with pgo.parallel.worker_limit(1):
+        assert pgo.parallel.get_worker_limit() == 1
 
-    assert pgo.parallel.get_num_threads() == 3
-
-
-def test_nested_thread_limits_restore_each_process_wide_value():
-    pgo.parallel.set_num_threads(4)
-
-    with pgo.parallel.thread_limit(2):
-        assert pgo.parallel.get_num_threads() == 2
-        with pgo.parallel.thread_limit(1):
-            assert pgo.parallel.get_num_threads() == 1
-        assert pgo.parallel.get_num_threads() == 2
-
-    assert pgo.parallel.get_num_threads() == 4
+    assert pgo.parallel.get_worker_limit() == 3
 
 
-def test_invalid_num_threads_rejected():
+def test_nested_worker_limits_restore_each_process_wide_value():
+    pgo.parallel.set_worker_limit(4)
+
+    with pgo.parallel.worker_limit(2):
+        assert pgo.parallel.get_worker_limit() == 2
+        with pgo.parallel.worker_limit(1):
+            assert pgo.parallel.get_worker_limit() == 1
+        assert pgo.parallel.get_worker_limit() == 2
+
+    assert pgo.parallel.get_worker_limit() == 4
+
+
+def test_invalid_num_workers_rejected():
     with pytest.raises(ValueError):
-        pgo.parallel.set_num_threads(0)
+        pgo.parallel.set_worker_limit(0)
     with pytest.raises(ValueError):
-        pgo.parallel.set_num_threads(-2)
+        pgo.parallel.set_worker_limit(-2)
     with pytest.raises(ValueError):
-        pgo.parallel.thread_limit(0)
+        pgo.parallel.worker_limit(0)
 
 
 def test_cpu_affinity_limit_context_restores_previous_value():
     if not pgo.parallel.supports_cpu_affinity_limit():
         pytest.skip("CPU affinity limit is not supported on this platform")
 
-    before = os.sched_getaffinity(0)
+    before = pgo.parallel.runtime_info()["current_cpu_affinity_cpus"]
     with pgo.parallel.cpu_affinity_limit(1):
         assert pgo.parallel.get_cpu_affinity_limit() == 1
-        assert len(os.sched_getaffinity(0)) == 1
+        assert pgo.parallel.runtime_info()["current_cpu_affinity_cpus"] == 1
 
     assert pgo.parallel.get_cpu_affinity_limit() is None
-    assert os.sched_getaffinity(0) == before
+    assert pgo.parallel.runtime_info()["current_cpu_affinity_cpus"] == before
 
 
 def test_sample_to_grid_respects_process_wide_limit():

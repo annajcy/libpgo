@@ -13,17 +13,14 @@ pgo_dep_option(GEOGRAM_WITH_EXPLORAGRAM BOOL OFF "Disable exploragram")
 pgo_dep_option(GEOGRAM_WITH_LEGACY_NUMERICS BOOL OFF "Disable legacy numerics")
 pgo_dep_option(GEOGRAM_WITH_TRIANGLE BOOL OFF "Disable triangle")
 
-function(_libpgo_patch_geogram_linux_openmp target_file)
+function(_libpgo_remove_geogram_linux_thread_flags target_file)
   pgo_replace_in_file(
     "${target_file}"
     [=[if (GCC_VERSION VERSION_GREATER 4.0)
     add_flags(CMAKE_CXX_FLAGS -fopenmp)
     add_flags(CMAKE_C_FLAGS -fopenmp)
 endif()]=]
-    [=[if (GCC_VERSION VERSION_GREATER 4.0 AND PGO_ENABLE_OPENMP)
-    add_flags(CMAKE_CXX_FLAGS -fopenmp)
-    add_flags(CMAKE_C_FLAGS -fopenmp)
-endif()]=]
+    ""
   )
 endfunction()
 
@@ -32,7 +29,7 @@ function(_pgo_setup_geogram)
   set(TARGET_FILE "${geogram_SOURCE_DIR}/CMakeLists.txt")
 
   pgo_copy_file("${MODIFIED_FILE}" "${TARGET_FILE}")
-  _libpgo_patch_geogram_linux_openmp("${geogram_SOURCE_DIR}/cmake/platforms/Linux-gcc.cmake")
+  _libpgo_remove_geogram_linux_thread_flags("${geogram_SOURCE_DIR}/cmake/platforms/Linux-gcc.cmake")
 
   set(POISSON_RECON_DIR "${geogram_SOURCE_DIR}/src/lib/geogram/third_party/PoissonRecon")
 

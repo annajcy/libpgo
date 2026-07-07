@@ -21,7 +21,7 @@ public:
 
   virtual void evalBatch(const V3d *pts, double *out, std::size_t n) const;
 
-  // Uses the process-wide thread limit set via pgo::parallel::setThreadLimit().
+  // Uses the process-wide worker limit set via pgo::parallel::setWorkerLimit().
   virtual GridField sampleToGrid(const GridSpec &spec) const;
 
   virtual ~ImplicitField() = default;

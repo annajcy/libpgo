@@ -56,7 +56,7 @@ overrides = {
     "output.write_checkpoints": False,
     "output.dump_interval": 10000,  # no dumps during single-frame run
 }
-pp.set_num_threads(32)
+pp.set_worker_limit(32)
 
 cfg = load_config(mesh_type="cubic", mode="dynamic", overrides=overrides)
 print(f"[Phase10A] Config loaded, mesh_type={cfg.mesh_type} formulation={cfg.mesh.formulation}")

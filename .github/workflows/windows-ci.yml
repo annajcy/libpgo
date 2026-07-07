@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   python-build-and-test:
-    name: Python Build and Test (${{ matrix.label }})
+    name: Python Build and Test
     runs-on: windows-2022
     timeout-minutes: 120
     strategy:
@@ -23,22 +23,13 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - variant: openblas
-            label: OpenBLAS
+          - variant: mkl
             environment_file: environment.yml
             conda_env: libpgo
             cmake_preset: pypgo-ci
             cmake_parallel: "3"
             wheel_package: pypgo
             wheel_dist: pypgo
-          - variant: mkl
-            label: MKL
-            environment_file: environment-mkl.yml
-            conda_env: libpgo-mkl
-            cmake_preset: pypgo-mkl-ci
-            cmake_parallel: "3"
-            wheel_package: pypgo-mkl
-            wheel_dist: pypgo_mkl
 
     defaults:
       run:
@@ -64,14 +55,12 @@ jobs:
           channels: conda-forge
           channel-priority: strict
 
-      - name: Select pthreads OpenBLAS for OpenBLAS wheel
-        if: matrix.wheel_package == 'pypgo'
+      - name: Install MKL BLAS stack
         run: |
           conda install -y `
-            "libblas=*=*openblas" `
-            "liblapack=*=*openblas" `
-            "openblas=*=*pthreads*" `
-            "libopenblas=*=*pthreads*"
+            "libblas=*=*mkl" `
+            "liblapack=*=*mkl" `
+            mkl-devel
 
       - name: Remove incompatible Fortran tools from PATH
         run: |
@@ -139,8 +128,6 @@ jobs:
             throw "Expected exactly one raw $env:PYPGO_WHEEL_DIST wheel, found $($rawWheels.Count).`n$wheelList"
           }
           $excludedDlls = @(
-            "libopenblas.dll",
-            "openblas.dll",
             "libblas.dll",
             "blas.dll",
             "liblapack.dll",
@@ -162,10 +149,7 @@ jobs:
             "mkl_tbb_thread.3.dll",
             "mkl_sequential.dll",
             "mkl_sequential.2.dll",
-            "mkl_sequential.3.dll",
-            "libiomp5md.dll",
-            "libomp.dll",
-            "vcomp140.dll"
+            "mkl_sequential.3.dll"
           )
           $excludeArgs = @()
           foreach ($dll in $excludedDlls) {
@@ -203,11 +187,11 @@ jobs:
               if any(token in name for token in forbidden)
           ]
           if vendored:
-              print(f"Repaired {wheel_package} wheel unexpectedly vendors BLAS/LAPACK/OpenMP runtime libraries:")
+              print(f"Repaired {wheel_package} wheel unexpectedly vendors disallowed native runtime libraries:")
               for name in vendored:
                   print(f"  {name}")
               raise SystemExit(1)
-          print(f"OK: {wheel_package} wheel relies on the conda-provided BLAS/LAPACK/OpenMP runtime.")
+          print(f"OK: {wheel_package} wheel relies on the conda-provided BLAS/LAPACK/MKL runtime.")
           '@ | python - $wheels[0].FullName $env:PYPGO_WHEEL_PACKAGE
 
       - name: Upload Python wheel artifact
@@ -228,13 +212,7 @@ jobs:
             $wheelList = ($wheel | ForEach-Object { $_.FullName }) -join "`n"
             throw "Expected exactly one repaired $env:PYPGO_WHEEL_DIST wheel, found $($wheel.Count).`n$wheelList"
           }
-          if ($env:PYPGO_WHEEL_PACKAGE -eq "pypgo") {
-            conda create -y -p $cleanEnv python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"
-          } elseif ($env:PYPGO_WHEEL_PACKAGE -eq "pypgo-mkl") {
-            conda create -y -p $cleanEnv python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
-          } else {
-            throw "Unsupported wheel package $env:PYPGO_WHEEL_PACKAGE"
-          }
+          conda create -y -p $cleanEnv python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
           conda run -p $cleanEnv python -m pip install --no-deps $wheel[0].FullName
 
           $script = Join-Path $env:RUNNER_TEMP "verify-pypgo-wheel-${{ matrix.variant }}.py"
@@ -264,7 +242,7 @@ jobs:
           Pop-Location
 
   cmake-build:
-    name: CMake Preset Build and Test (${{ matrix.label }})
+    name: CMake Preset Build and Test
     runs-on: windows-2022
     timeout-minutes: 120
     strategy:
@@ -272,14 +250,9 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - label: OpenBLAS
+          - label: MKL
             environment_file: environment.yml
             conda_env: libpgo
-            cmake_parallel: "3"
-            cmake_configure_args: -DPGO_USE_MKL=OFF
-          - label: MKL
-            environment_file: environment-mkl.yml
-            conda_env: libpgo-mkl
             cmake_parallel: "3"
             cmake_configure_args: ""
 
@@ -327,6 +300,9 @@ jobs:
           Remove-Item -Path "C:\Android" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "${env:ProgramFiles(x86)}\Android" -Recurse -Force -ErrorAction SilentlyContinue
           Show-Resources "after cleanup"
+
+      - name: Install MKL BLAS stack
+        run: conda install -y "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
 
       - name: Configure with preset base
         run: cmake --preset base -G Ninja ${{ matrix.cmake_configure_args }}

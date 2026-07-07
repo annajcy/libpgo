@@ -1,7 +1,6 @@
 #include "EigenMKLPardisoSupport.h"
 
 #include "EigenSupport.h"
-#include "parallelism/parallelOptions.h"
 
 #include <iostream>
 #include <chrono>
@@ -52,7 +51,6 @@ EigenMKLPardisoSupport::~EigenMKLPardisoSupport()
   MKL_INT nrhs = 0;
   MKL_INT error = 0;
 
-  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, nullptr, nullptr, nullptr, perm.data(), &nrhs,
     iparm.data(), &msgLvl, nullptr, nullptr, &error);
@@ -209,7 +207,6 @@ int EigenMKLPardisoSupport::analyze(const SpMatD &Ain)
     std::cout << "Matrix size: " << n << std::endl;
   }
 
-  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, nullptr, nullptr, &error);
@@ -263,7 +260,6 @@ int EigenMKLPardisoSupport::factorize(const SpMatD &Ain)
   }
 
   // factorize
-  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, nullptr, nullptr, &error);
@@ -316,7 +312,6 @@ int EigenMKLPardisoSupport::solve(const SpMatD &Ain, double *x, double *rhs, int
     Aptr = &Ain;
   }
 
-  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, rhs, x, &error);
@@ -358,7 +353,6 @@ int EigenMKLPardisoSupport::solve(double *x, double *rhs, int nrhs_)
   hclockPt t1 = hclock::now();
 
   const SpMatD *Aptr = &A;
-  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, rhs, x, &error);
@@ -412,7 +406,6 @@ int EigenMKLPardisoSupport::forward(const SpMatD &Ain, double *x, double *rhs, i
     Aptr = &Ain;
   }
 
-  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, rhs, x, &error);
@@ -466,7 +459,6 @@ int EigenMKLPardisoSupport::backward(const SpMatD &Ain, double *x, double *rhs, 
     Aptr = &Ain;
   }
 
-  pgo::parallel::ScopedMklThreadLimit mklThreadLimit(pgo::parallel::threadLimit());
   pardiso(pointers.data(), &maxfct, &mnum, &mi_mtype, &phase,
     &n, Aptr->valuePtr(), Aptr->outerIndexPtr(), Aptr->innerIndexPtr(), perm.data(), &nrhs,
     iparm.data(), &msgLvl, rhs, x, &error);

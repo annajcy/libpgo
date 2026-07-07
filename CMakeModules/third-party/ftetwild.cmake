@@ -18,25 +18,14 @@ COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
 endif()]=])
 endfunction()
 
-function(_libpgo_patch_ftetwild_geogram_openmp target_file)
-  pgo_replace_in_file(
-    "${target_file}"
-    [=[if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")]=]
-    [=[if(${CMAKE_SYSTEM_NAME} MATCHES "Linux" AND PGO_ENABLE_OPENMP)]=]
-  )
-endfunction()
-
-function(_libpgo_patch_geogram_linux_openmp target_file)
+function(_libpgo_remove_geogram_linux_thread_flags target_file)
   pgo_replace_in_file(
     "${target_file}"
     [=[if (GCC_VERSION VERSION_GREATER 4.0)
     add_flags(CMAKE_CXX_FLAGS -fopenmp)
     add_flags(CMAKE_C_FLAGS -fopenmp)
 endif()]=]
-    [=[if (GCC_VERSION VERSION_GREATER 4.0 AND PGO_ENABLE_OPENMP)
-    add_flags(CMAKE_CXX_FLAGS -fopenmp)
-    add_flags(CMAKE_C_FLAGS -fopenmp)
-endif()]=]
+    ""
   )
 endfunction()
 
@@ -80,7 +69,7 @@ endfunction()
 
 function(_libpgo_setup_ftetwild_geogram)
   _libpgo_patch_ftetwild_geogram("${geogram_SOURCE_DIR}/CMakeLists.txt")
-  _libpgo_patch_geogram_linux_openmp("${geogram_SOURCE_DIR}/cmake/platforms/Linux-gcc.cmake")
+  _libpgo_remove_geogram_linux_thread_flags("${geogram_SOURCE_DIR}/cmake/platforms/Linux-gcc.cmake")
   pgo_add_populated_subdirectory(geogram)
 
   if(TARGET geogram AND NOT TARGET geogram::geogram)
@@ -105,7 +94,6 @@ if(WIN32 AND GMP_INCLUDE_DIR AND NOT GMP_INCLUDE_DIRS)
 endif()
 
 function(_pgo_setup_ftetwild)
-  _libpgo_patch_ftetwild_geogram_openmp("${ftetwild_SOURCE_DIR}/cmake/geogram.cmake")
   pgo_add_populated_subdirectory(ftetwild)
 endfunction()
 

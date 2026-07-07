@@ -18,7 +18,7 @@ env:
 
 jobs:
   python-build-and-test:
-    name: Python Build and Test (${{ matrix.label }})
+    name: Python Build and Test
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -26,22 +26,13 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - variant: openblas
-            label: OpenBLAS
+          - variant: mkl
             environment_file: environment.yml
             conda_env: libpgo
             cmake_preset: pypgo-ci
             cmake_parallel: "3"
             wheel_package: pypgo
             wheel_dist: pypgo
-          - variant: mkl
-            label: MKL
-            environment_file: environment-mkl.yml
-            conda_env: libpgo-mkl
-            cmake_preset: pypgo-mkl-ci
-            cmake_parallel: "3"
-            wheel_package: pypgo-mkl
-            wheel_dist: pypgo_mkl
 
     defaults:
       run:
@@ -71,14 +62,12 @@ jobs:
       - name: Install Linux conda compilers
         run: conda install -y -c conda-forge gcc gxx
 
-      - name: Select pthreads OpenBLAS for OpenBLAS wheel
-        if: matrix.wheel_package == 'pypgo'
+      - name: Install MKL BLAS stack
         run: |
           conda install -y \
-            "libblas=*=*openblas" \
-            "liblapack=*=*openblas" \
-            "openblas=*=*pthreads*" \
-            "libopenblas=*=*pthreads*"
+            "libblas=*=*mkl" \
+            "liblapack=*=*mkl" \
+            mkl-devel
 
       - name: Build Python wheel
         env:
@@ -111,13 +100,9 @@ jobs:
           rm -rf wheelhouse
           repair_args=(
             -w wheelhouse
-            --exclude 'libopenblas*.so*'
             --exclude 'libblas*.so*'
             --exclude 'liblapack*.so*'
             --exclude 'libmkl*.so*'
-            --exclude 'libiomp*.so*'
-            --exclude 'libomp*.so*'
-            --exclude 'libgomp*.so*'
           )
           python -m auditwheel repair "${repair_args[@]}" dist/${PYPGO_WHEEL_DIST}-*.whl
           python -m auditwheel show wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
@@ -138,7 +123,7 @@ jobs:
           for name in names:
               print(f"  {name}")
           forbidden = (
-              "libopenblas",
+              "openblas",
               "libblas",
               "liblapack",
               "libmkl",
@@ -152,11 +137,11 @@ jobs:
               if any(token in name for token in forbidden)
           ]
           if vendored:
-              print(f"Repaired {wheel_package} wheel unexpectedly vendors BLAS/LAPACK/OpenMP runtime libraries:")
+              print(f"Repaired {wheel_package} wheel unexpectedly vendors disallowed native runtime libraries:")
               for name in vendored:
                   print(f"  {name}")
               raise SystemExit(1)
-          print(f"OK: {wheel_package} wheel relies on the conda-provided BLAS/LAPACK/OpenMP runtime.")
+          print(f"OK: {wheel_package} wheel relies on the conda-provided BLAS/LAPACK/MKL runtime.")
           PY
 
       - name: Upload Python wheel artifact
@@ -173,11 +158,7 @@ jobs:
         run: |
           shopt -s nullglob
           clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
-          if [[ "${PYPGO_WHEEL_PACKAGE}" == "pypgo" ]]; then
-            conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*openblas" "liblapack=*=*openblas" "libopenblas=*=*pthreads*"
-          else
-            conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
-          fi
+          conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
           conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           run_python=(conda run -p "${clean_env}" python)
           tmpdir="$(mktemp -d)"
@@ -211,7 +192,7 @@ jobs:
           "${run_python[@]}" -X faulthandler "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
 
   cmake-build:
-    name: CMake Preset Build and Test (${{ matrix.label }})
+    name: CMake Preset Build and Test
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -219,14 +200,9 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - label: OpenBLAS
+          - label: MKL
             environment_file: environment.yml
             conda_env: libpgo
-            cmake_parallel: "3"
-            cmake_configure_args: -DPGO_USE_MKL=OFF
-          - label: MKL
-            environment_file: environment-mkl.yml
-            conda_env: libpgo-mkl
             cmake_parallel: "3"
             cmake_configure_args: ""
 
@@ -257,6 +233,9 @@ jobs:
 
       - name: Install Linux conda compilers
         run: conda install -y -c conda-forge gcc gxx
+
+      - name: Install MKL BLAS stack
+        run: conda install -y "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
 
       - name: Configure with preset base
         run: cmake --preset base ${{ matrix.cmake_configure_args }}

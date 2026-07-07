@@ -14,17 +14,8 @@ dependencies:
   - gmp
   - mpfr
   - imath
-  # BLAS/LAPACK — OpenBLAS stack, pinned to the *openblas variant so numpy/scipy
-  # use the SAME backend as the C++ build (which forces BLA_VENDOR=OpenBLAS).
-  # Without the pin the interface could drift to a different backend, leaving
-  # numpy on one BLAS and the extension on another (two BLAS in one process).
-  # `openblas` is the build-time dev package — unversioned libopenblas.dylib +
-  # pkgconfig/openblas.pc + headers that find_package(BLAS) needs; it pulls the
-  # libopenblas runtime in automatically.
-  # For an MKL dev build, flip the whole stack to *mkl instead — see the README.
-  - libblas=*=*openblas
-  - liblapack=*=*openblas
-  - openblas
+  # BLAS/LAPACK is installed per platform after environment creation:
+  # Linux/Windows use MKL; macOS uses Accelerate.
   - zlib
 
   # --- C++ dependencies ---
@@ -37,9 +28,6 @@ dependencies:
   # --- meshing & geometry ---
   - gmsh
   - openvdb
-
-  # --- MKL (Linux / Windows only — CMake auto-disables on macOS / Apple Silicon) ---
-  # - mkl-devel
 
   # --- Python: core (conda) ---
   - numpy        # kept on conda — openvdb's python bindings hard-depend on conda-numpy

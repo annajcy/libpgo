@@ -155,7 +155,7 @@ def run_case(name, study: dict, cases: dict, output_root, force=False) -> dict:
     if "sparse_solver" in case:
         overrides["solver.sparse_solver"] = case["sparse_solver"]
     if SETTINGS["num_threads"]:
-        pp.set_num_threads(SETTINGS["num_threads"])
+        pp.set_worker_limit(SETTINGS["num_threads"])
     cfg = load_config(mesh_type=case["mesh_type"], mode="static", overrides=overrides)
     started = time.perf_counter()
     summary = run_static(build_scene(cfg), cfg)
