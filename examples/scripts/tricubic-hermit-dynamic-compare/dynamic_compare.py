@@ -29,7 +29,7 @@ STUDY = {
     "obstacle": ASSETS / "obj" / "bottom.1.obj",
     "output": ROOT / "examples" / "outputs" / "bunny-dynamic-drop-compare-conservative-r15",
     "prefix": "bunny-conservative-r15",
-    "tet_a": "2.89036e-9",
+    "tet_a": "2.8768e-9",
 }
 SETTINGS = {
     "gravity": [0.0, -9.81, 0.0],
@@ -44,7 +44,7 @@ SETTINGS = {
     "max_iterations": 200,
     "gradient_tolerance": 1e-4,
     "dump_interval": 10,
-    "num_threads": 32,
+    "num_threads": 12,
 }
 
 

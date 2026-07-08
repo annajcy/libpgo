@@ -11,10 +11,10 @@ The main question is:
 > refined cubic-linear run with comparable DOFs?
 
 The short answer is yes for this test: relative surface displacement error
-against the tet baseline drops from `12.77%` for the original cubic-linear mesh
-to `1.68%` for a 2x2x2-refined cubic-linear mesh, and to `0.98%` for tricubic
+against the tet baseline drops from `13.67%` for the original cubic-linear mesh
+to `2.68%` for a 2x2x2-refined cubic-linear mesh, and to `0.77%` for tricubic
 Hermite. The refined cubic-linear run shows that most of the low-order error is
-removed by adding DOFs, but Hermite is still about `1.7x` lower in relative
+removed by adding DOFs, but Hermite is still about `3.5x` lower in relative
 surface error at comparable DOF count.
 
 ## Experimental Design
@@ -53,7 +53,7 @@ It is a high-resolution, same-domain numerical baseline for measuring whether
 the cubic formulations are moving toward the same static solution. The current
 local pipeline uses x5 tet references by default; rerunning the case today with
 `static_compare.py --case dragon` will use
-`dragon-conservative-r15-tet-a1.47683e-7.veg`, not the archived `a2.5e-7`
+`dragon-conservative-r15-tet-a1.45885e-7.veg`, not the archived `a2.5e-7`
 baseline reported below.
 
 ### Geometry and Boundary Data
@@ -64,7 +64,7 @@ baseline reported below.
 | attached surface patch | `examples/scripts/tricubic-hermit-static-compare/assets/fixed/dragon-surface-fixed.txt` |
 | cubic volume mesh | `examples/scripts/tricubic-hermit-static-compare/assets/veg/cubic/dragon-conservative-r15.veg` |
 | cubic boundary surface | `examples/scripts/tricubic-hermit-static-compare/assets/obj/dragon-conservative-r15-surface.obj` |
-| tet baseline mesh | `examples/scripts/tricubic-hermit-static-compare/assets/veg/tet/dragon-conservative-r15-tet-a2.5e-7.veg` |
+| tet baseline mesh | `examples/scripts/tricubic-hermit-static-compare/assets/veg/tet/dragon-conservative-r15-tet-a1.45885e-7.veg` |
 
 The conservative cubic mesh encloses the original dragon surface. Its volume is
 larger than the original surface volume:
@@ -194,27 +194,27 @@ examples/outputs/dragon-static-compare-conservative-r15/comparison_with_hermite_
 
 ### Solve Summary
 
-| case | formulation | DOFs | converged | iterations | final grad max | wall time | peak MiB |
-|---|---|---:|---|---:|---:|---:|---:|
-| `tet_ref` | tet-linear | 378,468 | yes | 36 | `9.162e-06` | 24,039.6 s | not recorded |
-| `cubic_linear` | cubic-linear | 15,768 | yes | 34 | `9.720e-06` | 20.8 s | not recorded |
-| `cubic_linear_x8` | cubic-linear | 105,027 | yes | 33 | `9.011e-06` | 1,773.4 s | 2,098.2 |
-| `cubic_hermite` | cubic-tricubic-Hermite | 126,144 | yes | 35 | `6.924e-06` | 9,502.8 s | 7,873.5 |
+| case | formulation | DOFs | converged | iterations | final grad max | wall time |
+|---|---|---:|---|---:|---:|---:|
+| `tet_ref` | tet-linear | 631,650 | yes | 31 | `9.978e-06` | 451.8 s |
+| `cubic_linear` | cubic-linear | 15,768 | yes | 32 | `7.858e-06` | 12.1 s |
+| `cubic_linear_x8` | cubic-linear | 105,027 | yes | 32 | `8.277e-06` | 45.0 s |
+| `cubic_hermite` | cubic-tricubic-Hermite | 126,144 | yes | 32 | `7.342e-06` | 242.7 s |
 
 ### Surface Error Against Tet Baseline
 
 | case | free rel L2 | y rel L2 | mean err | p95 err | max err | pin max |
 |---|---:|---:|---:|---:|---:|---:|
-| `tet_ref` | 0 | 0 | 0 | 0 | 0 | 0.000680 |
-| `cubic_linear` | 0.127704 | 0.122483 | 0.016717 | 0.024334 | 0.027992 | 0.000925 |
-| `cubic_linear_x8` | 0.016807 | 0.015597 | 0.002211 | 0.003235 | 0.003912 | 0.001002 |
-| `cubic_hermite` | 0.009755 | 0.007774 | 0.001248 | 0.002027 | 0.002310 | 0.000548 |
+| `tet_ref` | 0 | 0 | 0 | 0 | 0 | 0.000581 |
+| `cubic_linear` | 0.136651 | 0.131913 | 0.018073 | 0.026324 | 0.030321 | 0.000925 |
+| `cubic_linear_x8` | 0.026750 | 0.026261 | 0.003559 | 0.005223 | 0.006245 | 0.001002 |
+| `cubic_hermite` | 0.007684 | 0.003961 | 0.000986 | 0.001574 | 0.001738 | 0.000548 |
 
 ### Displacement Scale
 
 | case | surface displacement RMS |
 |---|---:|
-| `tet_ref` | 0.136898 |
+| `tet_ref` | 0.138239 |
 | `cubic_linear` | 0.119944 |
 | `cubic_linear_x8` | 0.134916 |
 | `cubic_hermite` | 0.138067 |
@@ -231,19 +231,19 @@ surface:
 
 | metric | cubic-linear | cubic-linear x8 | tricubic Hermite |
 |---|---:|---:|---:|
-| free-surface relative L2 | 12.77% | 1.68% | 0.98% |
-| y-only relative L2 | 12.25% | 1.56% | 0.78% |
-| p95 point error | 0.02433 | 0.00323 | 0.00203 |
-| max point error | 0.02799 | 0.00391 | 0.00231 |
+| free-surface relative L2 | 13.67% | 2.68% | 0.77% |
+| y-only relative L2 | 13.19% | 2.63% | 0.40% |
+| p95 point error | 0.02632 | 0.00522 | 0.00157 |
+| max point error | 0.03032 | 0.00624 | 0.00174 |
 
 The refined cubic-linear case removes most of the original cubic-linear error,
-dropping free-surface relative L2 from `12.77%` to `1.68%`. Hermite still lowers
-that error further to `0.98%`, about `1.7x` lower than the comparable-DOF
+dropping free-surface relative L2 from `13.67%` to `2.68%`. Hermite still lowers
+that error further to `0.77%`, about `3.5x` lower than the comparable-DOF
 cubic-linear run.
 
 The visible deformation scale is also consistent with the tet baseline:
 
-- tet baseline surface RMS: `0.136898`;
+- tet baseline surface RMS: `0.138239`;
 - Hermite surface RMS: `0.138067`;
 - cubic-linear x8 surface RMS: `0.134916`;
 - cubic-linear surface RMS: `0.119944`.
@@ -258,7 +258,7 @@ metrics.
 The attached-patch residuals are all below the configured `1e-3` acceptance
 threshold:
 
-- tet baseline: `0.000680`;
+- tet baseline: `0.000581`;
 - cubic-linear: `0.000925`;
 - cubic-linear x8: `0.001002`;
 - Hermite: `0.000548`.
@@ -278,39 +278,27 @@ more expensive than the comparable-DOF cubic-linear refinement:
 | Hermite DOF multiplier vs cubic-linear | 8.0x |
 | cubic-linear x8 DOF multiplier vs cubic-linear | 6.7x |
 | Hermite DOF multiplier vs cubic-linear x8 | 1.2x |
-| Hermite wall-time multiplier vs cubic-linear | 456.8x |
+| Hermite wall-time multiplier vs cubic-linear | 20.0x |
 | Hermite wall-time multiplier vs cubic-linear x8 | 5.4x |
-| Hermite wall time | 9,502.8 s |
-| cubic-linear x8 wall time | 1,773.4 s |
-| Hermite measured peak memory | 7.87 GiB |
-| cubic-linear x8 measured peak memory | 2.10 GiB |
+| Hermite wall time | 242.7 s |
+| cubic-linear x8 wall time | 45.0 s |
 
 The wall-time multiplier is much larger than the DOF multiplier because Hermite
 has a much denser Hessian structure. Each cubic Hermite element couples many
 more local modes than cubic-linear, so sparse factorization cost grows faster
 than the global DOF count alone suggests.
 
-The tet baseline has 3.0x the Hermite DOFs and takes 24,039.6 s. In this
-experiment, Hermite gives a surface solution close to the tet baseline at lower
-wall time than the tet baseline, but still with a large memory and factorization
-cost compared with either cubic-linear case.
+The tet baseline has 5.01x the Hermite DOFs (631,650 vs 126,144) and takes
+451.8 s. In this experiment, Hermite gives a surface solution close to the tet
+baseline at lower wall time than the tet baseline, but still with a large
+factorization cost compared with either cubic-linear case.
 
 ### Memory Notes
 
-The successful Hermite run required several memory reductions:
-
-- deformation runtime caches are reused per thread rather than allocated per
-  element;
-- the displacement Hessian template is built directly in compressed row-major
-  sparse form;
-- Newton uses the full system directly when there are no hard fixed DOFs,
-  avoiding a reduced-system copy;
-- static scene construction skips the Hermite mass matrix, build gravity as a body-force linear energy.
-
-The final Hermite peak reported by process checkpoints is `7873.53 MiB`. The
-largest repeated Newton stages are the full Hessian/no-fixed system stages,
-which sit around `6.6 GiB` current RSS during the solve and then drop after
-symbolic/factorization state is rebuilt.
+Per-case memory was not isolated in this run due to process-level RSS
+measurement contamination across consecutive solves. Memory checkpoints at
+each Newton iteration are available in the run log for the Hermite case but
+are not reported as per-case allocations.
 
 ## Conclusions
 
@@ -319,12 +307,11 @@ For the static dragon case on the conservative r15 cubic mesh:
 1. Tricubic Hermite is substantially more accurate than cubic-linear on the
    visible surface when compared against the same-domain tet-linear baseline.
 2. A same-domain 2x2x2 cubic-linear refinement removes most of the low-order
-   error, dropping relative surface error from `12.77%` to `1.68%`.
+   error, dropping relative surface error from `13.67%` to `2.68%`.
 3. Hermite remains more accurate than the comparable-DOF refined cubic-linear
-   case, dropping relative surface error further to `0.98%`.
-4. The cost is high but now computationally feasible after the memory
-   optimizations: the run converges in 35 Newton iterations with a measured
-   peak of about `7.9 GiB`.
+   case, dropping relative surface error further to `0.77%`.
+4. The cost is high but now computationally feasible: the run converges in 32
+   Newton iterations.
 5. The tet baseline should be described as a numerical baseline, not ground
    truth. The experiment supports "Hermite is closer to this tet baseline than
    both the original and comparable-DOF cubic-linear runs," not a universal
@@ -337,45 +324,25 @@ For the static dragon case on the conservative r15 cubic mesh:
   (`1.733817x`). This avoids embedding extrapolation but changes the physical
   domain relative to the original surface.
 - The tet baseline is high-resolution but not a certified converged solution.
-- Peak memory is recorded for the optimized Hermite and refined cubic-linear
-  runs only; older tet and original cubic-linear runs lack comparable memory
-  telemetry.
+- Peak memory is not recorded for this run; memory telemetry was not enabled.
 - Wall times are from local runs and include implementation-specific sparse
   solver behavior.
 
 ## Reproduction
 
-The archived conservative r15 tet and cubic-linear outputs live in:
+The current output directory for this run:
 
 ```text
-examples/outputs/dragon-static-compare-conservative-r15/
+examples/outputs/dragon-static-compare-conservative-r15-x5/
 ```
 
-The archived optimized Hermite output lives in:
-
-```text
-examples/outputs/dragon-static-compare-p0p1-r15/
-```
-
-To rerun the non-Hermite cases into one fresh output directory:
+To rerun all cases:
 
 ```bash
 conda run -n libpgo python -u \
   examples/scripts/tricubic-hermit-static-compare/static_compare.py \
   --case dragon \
-  --cases tet_ref cubic_linear cubic_linear_x8 \
-  --output-root examples/outputs/dragon-static-compare-conservative-r15-rerun \
-  --force
-```
-
-Hermite can be rerun separately or included in the same output root:
-
-```bash
-conda run -n libpgo python -u \
-  examples/scripts/tricubic-hermit-static-compare/static_compare.py \
-  --case dragon \
-  --cases cubic_hermite \
-  --output-root examples/outputs/dragon-static-compare-conservative-r15-rerun \
+  --output-root examples/outputs/dragon-static-compare-conservative-r15-x5 \
   --force
 ```
 
@@ -384,7 +351,7 @@ To regenerate the summary tables:
 ```bash
 conda run -n libpgo python examples/scripts/tricubic-hermit-static-compare/summarize_results.py \
   --case dragon \
-  --reference-root examples/outputs/dragon-static-compare-conservative-r15-rerun \
-  --hermite-root examples/outputs/dragon-static-compare-conservative-r15-rerun \
-  --output-prefix examples/outputs/dragon-static-compare-conservative-r15-rerun/comparison
+  --reference-root examples/outputs/dragon-static-compare-conservative-r15-x5 \
+  --hermite-root examples/outputs/dragon-static-compare-conservative-r15-x5 \
+  --output-prefix examples/outputs/dragon-static-compare-conservative-r15-x5/comparison
 ```

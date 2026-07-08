@@ -30,14 +30,14 @@ STUDIES = {
         "patch": ASSETS / "fixed" / "dragon-surface-fixed.txt",
         "output": ROOT / "examples" / "outputs" / "dragon-static-compare-conservative-r15-x5",
         "prefix": "dragon-conservative-r15",
-        "tet_a": "1.47683e-7",
+        "tet_a": "1.45885e-7",
     },
     "bunny": {
         "surface": ASSETS / "obj" / "bunny.obj",
         "patch": ASSETS / "fixed" / "bunny-surface-fixed-ear-tip.txt",
         "output": ROOT / "examples" / "outputs" / "bunny-static-compare-conservative-r15-ear-tip-x5",
         "prefix": "bunny-conservative-r15",
-        "tet_a": "2.89036e-9",
+        "tet_a": "2.8768e-9",
     },
 }
 SETTINGS = {
@@ -46,7 +46,7 @@ SETTINGS = {
     "max_iterations": 300,
     "gradient_tolerance": 1e-5,
     "pin_residual_limit": 1e-3,
-    "num_threads": 4,
+    "num_threads": 12,
 }
 
 

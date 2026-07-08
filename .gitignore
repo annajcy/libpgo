@@ -105,3 +105,5 @@ examples/scripts/tricubic-hermit-static-compare/assets/veg/cubic/*.veg
 examples/scripts/tricubic-hermit-static-compare/assets/veg/tet/*.veg
 examples/scripts/tricubic-hermit-dynamic-compare/assets/veg/cubic/*.veg
 examples/scripts/tricubic-hermit-dynamic-compare/assets/veg/tet/*.veg
+
+benchmarks/results/*

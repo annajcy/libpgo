@@ -11,9 +11,9 @@ The main question is:
 > refined cubic-linear run with comparable DOFs?
 
 The short answer is yes for this test. Against the refined same-domain tet
-baseline, free-surface relative displacement error drops from `18.58%` for the
-original cubic-linear mesh to `6.01%` for a 2x2x2-refined cubic-linear mesh,
-and to `1.78%` for tricubic Hermite.
+baseline, free-surface relative displacement error drops from `19.72%` for the
+original cubic-linear mesh to `7.19%` for a 2x2x2-refined cubic-linear mesh,
+and to `0.83%` for tricubic Hermite.
 
 ## Experimental Design
 
@@ -41,20 +41,15 @@ examples/scripts/tricubic-hermit-static-compare/assets/veg/cubic/bunny-conservat
 The tet baseline uses:
 
 ```text
-examples/scripts/tricubic-hermit-static-compare/assets/veg/tet/bunny-conservative-r15-tet-a4.86822e-9.veg
+examples/scripts/tricubic-hermit-static-compare/assets/veg/tet/bunny-conservative-r15-tet-a2.8768e-9.veg
 ```
 
-This archived report used a tet mesh tuned to the earlier dragon experiment's
+This report uses an x5 tet reference matched to the dragon experiment's
 tet/Hermite DOF scale:
 
 ```text
-tet DOFs / Hermite DOFs = 220,332 / 72,816 = 3.03x
+tet DOFs / Hermite DOFs = 365,184 / 72,816 = 5.02x
 ```
-
-The current local pipeline uses x5 tet references by default; rerunning the
-case today with `static_compare.py --case bunny` will use
-`bunny-conservative-r15-tet-a2.89036e-9.veg`, not the archived `a4.86822e-9`
-baseline reported below.
 
 ### Geometry and Boundary Data
 
@@ -65,7 +60,7 @@ baseline reported below.
 | cubic volume mesh | `examples/scripts/tricubic-hermit-static-compare/assets/veg/cubic/bunny-conservative-r15.veg` |
 | cubic boundary surface | `examples/scripts/tricubic-hermit-static-compare/assets/obj/bunny-conservative-r15-surface.obj` |
 | refined cubic-linear mesh | `examples/scripts/tricubic-hermit-static-compare/assets/veg/cubic/bunny-conservative-r15-subdiv2.veg` |
-| tet baseline mesh | `examples/scripts/tricubic-hermit-static-compare/assets/veg/tet/bunny-conservative-r15-tet-a4.86822e-9.veg` |
+| tet baseline mesh | `examples/scripts/tricubic-hermit-static-compare/assets/veg/tet/bunny-conservative-r15-tet-a2.8768e-9.veg` |
 
 The conservative cubic mesh encloses the original bunny surface:
 
@@ -141,27 +136,27 @@ conda run -n libpgo python examples/scripts/tricubic-hermit-static-compare/summa
 
 ### Solve Summary
 
-| case | formulation | DOFs | converged | iterations | final grad max | wall time | peak MiB |
-|---|---|---:|---|---:|---:|---:|---:|
-| `tet_ref` | tet-linear | 220,332 | yes | 25 | `9.021e-06` | 24,313.3 s | 5,333.4 |
-| `cubic_linear` | cubic-linear | 9,102 | yes | 25 | `9.217e-06` | 20.7 s | 321.7 |
-| `cubic_linear_x8` | cubic-linear | 62,355 | yes | 26 | `7.756e-06` | 1,927.0 s | 1,681.2 |
-| `cubic_hermite` | cubic-tricubic-Hermite | 72,816 | yes | 30 | `8.187e-06` | 12,268.3 s | 6,018.9 |
+| case | formulation | DOFs | converged | iterations | final grad max | wall time |
+|---|---|---:|---|---:|---:|---:|
+| `tet_ref` | tet-linear | 365,184 | yes | 26 | `8.752e-06` | 369.5 s |
+| `cubic_linear` | cubic-linear | 9,102 | yes | 26 | `9.635e-06` | 5.2 s |
+| `cubic_linear_x8` | cubic-linear | 62,355 | yes | 24 | `8.394e-06` | 37.0 s |
+| `cubic_hermite` | cubic-tricubic-Hermite | 72,816 | yes | 30 | `8.409e-06` | 179.1 s |
 
 ### Surface Error Against Tet Baseline
 
 | case | free rel L2 | y rel L2 | mean err | p95 err | max err | pin max |
 |---|---:|---:|---:|---:|---:|---:|
-| `tet_ref` | 0 | 0 | 0 | 0 | 0 | 0.000024 |
-| `cubic_linear` | 0.185750 | 0.186164 | 0.003725 | 0.005068 | 0.005321 | 0.000068 |
-| `cubic_linear_x8` | 0.060082 | 0.051229 | 0.001197 | 0.001692 | 0.001804 | 0.000048 |
-| `cubic_hermite` | 0.017841 | 0.012166 | 0.000351 | 0.000539 | 0.000600 | 0.000034 |
+| `tet_ref` | 0 | 0 | 0 | 0 | 0 | 0.000030 |
+| `cubic_linear` | 0.197219 | 0.198427 | 0.004035 | 0.005467 | 0.005788 | 0.000068 |
+| `cubic_linear_x8` | 0.071941 | 0.062714 | 0.001461 | 0.002088 | 0.002271 | 0.000048 |
+| `cubic_hermite` | 0.008273 | 0.007221 | 0.000167 | 0.000236 | 0.000247 | 0.000034 |
 
 ### Displacement Scale
 
 | case | surface displacement RMS |
 |---|---:|
-| `tet_ref` | 0.020814 |
+| `tet_ref` | 0.021180 |
 | `cubic_linear` | 0.018100 |
 | `cubic_linear_x8` | 0.020250 |
 | `cubic_hermite` | 0.021152 |
@@ -170,27 +165,26 @@ conda run -n libpgo python examples/scripts/tricubic-hermit-static-compare/summa
 
 ### Accuracy
 
-The refined tet baseline changes the interpretation from the earlier coarse
-`a1e-8` pilot. With a tet/Hermite DOF ratio matching the dragon experiment,
+With a tet/Hermite DOF ratio of `5.02x` matching the dragon experiment,
 Hermite is clearly closest to the tet baseline:
 
 | metric | cubic-linear | cubic-linear x8 | tricubic Hermite |
 |---|---:|---:|---:|
-| free-surface relative L2 | 18.58% | 6.01% | 1.78% |
-| y-only relative L2 | 18.62% | 5.12% | 1.22% |
-| p95 point error | 0.00507 | 0.00169 | 0.00054 |
-| max point error | 0.00532 | 0.00180 | 0.00060 |
+| free-surface relative L2 | 19.72% | 7.19% | 0.83% |
+| y-only relative L2 | 19.84% | 6.27% | 0.72% |
+| p95 point error | 0.00547 | 0.00209 | 0.00024 |
+| max point error | 0.00579 | 0.00227 | 0.00025 |
 
 Refinement removes much of the original cubic-linear error. Hermite still
-reduces free-surface relative L2 by another `3.4x` compared with the
-comparable-DOF cubic-linear run, and reduces p95 point error by `3.1x`.
+reduces free-surface relative L2 by another `8.7x` compared with the
+comparable-DOF cubic-linear run, and reduces p95 point error by `8.8x`.
 
 ### Constraint Behavior
 
 The attached-patch residuals are all well below the configured `1e-3`
 acceptance threshold:
 
-- tet baseline: `0.000024`;
+- tet baseline: `0.000030`;
 - cubic-linear: `0.000068`;
 - cubic-linear x8: `0.000048`;
 - Hermite: `0.000034`.
@@ -202,27 +196,28 @@ acceptance threshold:
 | Hermite DOF multiplier vs cubic-linear | 8.0x |
 | cubic-linear x8 DOF multiplier vs cubic-linear | 6.9x |
 | Hermite DOF multiplier vs cubic-linear x8 | 1.17x |
-| Hermite wall-time multiplier vs cubic-linear | 591.7x |
-| Hermite wall-time multiplier vs cubic-linear x8 | 6.4x |
-| Hermite wall time | 12,268.3 s |
-| cubic-linear x8 wall time | 1,927.0 s |
-| Hermite measured peak memory | 6.02 GiB |
-| cubic-linear x8 measured peak memory | 1.68 GiB |
+| Hermite wall-time multiplier vs cubic-linear | 34.7x |
+| Hermite wall-time multiplier vs cubic-linear x8 | 4.8x |
+| Hermite wall time | 179.1 s |
+| cubic-linear x8 wall time | 37.0 s |
 
 Hermite is substantially more accurate than the comparable-DOF cubic-linear
-case, but much more expensive in wall time and memory.
+case, but more expensive in wall time. The wall-time gap is smaller than in the
+dragon case (4.8x vs 5.4x) because the bunny problem is smaller (72,816 Hermite
+DOFs vs 126,144). Per-case memory is not reported due to process-level RSS
+contamination across consecutive solves.
 
 ## Conclusions
 
 For the static bunny ear-tip case on the conservative r15 cubic domain:
 
-1. The coarse `a1e-8` tet pilot was not a strong enough reference; the tuned
-   `a4.86822e-9` tet baseline is a better match to the dragon experiment's
-   `tet/Hermite ~= 3x` scale.
+1. The x5 tet baseline (`a2.8768e-9`) matches the dragon experiment's
+   `tet/Hermite = 5.02x` scale.
 2. A same-domain 2x2x2 cubic-linear refinement removes much of the low-order
-   error, dropping relative surface error from `18.58%` to `6.01%`.
+   error, dropping relative surface error from `19.72%` to `7.19%`.
 3. Hermite remains clearly more accurate than the comparable-DOF refined
-   cubic-linear case, dropping relative surface error further to `1.78%`.
+   cubic-linear case, dropping relative surface error further to `0.83%`
+   (an `8.7x` improvement over cubic-linear x8).
 4. The tet baseline is still a numerical baseline, not ground truth. The
    experiment supports "Hermite is closer to this tet baseline than both
    low-order cubic-linear runs" for this bunny setup.
@@ -242,27 +237,28 @@ For the static bunny ear-tip case on the conservative r15 cubic domain:
 
 ## Reproduction
 
-Relevant outputs:
+The current output directory:
 
 ```text
-examples/outputs/bunny-static-compare-conservative-r15-ear-tip-a4.86822e-9/
-examples/outputs/bunny-static-compare-conservative-r15-ear-tip-a1e-8/
+examples/outputs/bunny-static-compare-conservative-r15-ear-tip-x5/
 ```
 
-The `a4.86822e-9` directory contains the final tet baseline and refined
-cubic-linear case. The `a1e-8` directory is only where the earlier
-`cubic_linear` and `cubic_hermite` ear-tip outputs were stored; those two cubic
-solves themselves are independent of the tet max-volume parameter.
-
-The current case-based entrypoint is:
+To rerun:
 
 ```bash
 conda run -n libpgo python -u \
   examples/scripts/tricubic-hermit-static-compare/static_compare.py \
   --case bunny \
-  --output-root examples/outputs/bunny-static-compare-conservative-r15-ear-tip-x5-rerun \
+  --output-root examples/outputs/bunny-static-compare-conservative-r15-ear-tip-x5 \
   --force
 ```
 
-That command uses the current x5 tet reference asset and is intended for fresh
-comparison runs, not byte-for-byte reproduction of the archived tables above.
+To regenerate summary tables:
+
+```bash
+conda run -n libpgo python examples/scripts/tricubic-hermit-static-compare/summarize_results.py \
+  --case bunny \
+  --reference-root examples/outputs/bunny-static-compare-conservative-r15-ear-tip-x5 \
+  --hermite-root examples/outputs/bunny-static-compare-conservative-r15-ear-tip-x5 \
+  --output-prefix examples/outputs/bunny-static-compare-conservative-r15-ear-tip-x5/comparison
+```
