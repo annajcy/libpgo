@@ -104,6 +104,12 @@ void recordCommonCounters(benchmark::State &state, int workerLimit, int matrixN)
     state.counters["tbb_max_allowed_parallelism"] = *runtime.tbbMaxAllowedParallelism;
 }
 
+void recordThresholdCounters(benchmark::State &state, int matrixN)
+{
+  state.counters["matrix_n"] = matrixN;
+  state.counters["accelerate_threading"] = static_cast<int>(BLASGetThreading());
+}
+
 void benchmarkNestedParallelDgemm(
   benchmark::State &state, Policy policy, int outerWorkers, int outerTasks, int matrixN)
 {
@@ -152,9 +158,8 @@ void benchmarkNestedParallelDgemm(
 }
 
 void benchmarkAccelerateDgemmThreadThreshold(
-  benchmark::State &state, AccelerateMode mode, int workerLimitValue, int matrixN)
+  benchmark::State &state, AccelerateMode mode, int matrixN)
 {
-  P::ScopedWorkerLimit workerLimit(workerLimitValue);
   ScopedAccelerateThreading threading(mode);
   MatrixSet matrices(matrixN);
 
@@ -178,7 +183,7 @@ void benchmarkAccelerateDgemmThreadThreshold(
     state.ResumeTiming();
   }
 
-  recordCommonCounters(state, workerLimitValue, matrixN);
+  recordThresholdCounters(state, matrixN);
   state.counters["baseline_threads"] = baselineThreads;
   state.counters["max_iteration_baseline_threads"] = maxIterationBaselineThreads;
   state.counters["peak_threads"] = peakThreads;
@@ -216,22 +221,18 @@ void registerNestedParallelDgemmBenchmarks()
 
 void registerAccelerateDgemmThreadThresholdBenchmarks()
 {
-  constexpr int workerLimits[] = { 4, 8, 16 };
   constexpr int matrixSizes[] = { 32, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048 };
   constexpr AccelerateMode modes[] = { AccelerateMode::Single, AccelerateMode::Multi };
 
   for (AccelerateMode mode : modes) {
-    for (int workerLimit : workerLimits) {
-      for (int matrixN : matrixSizes) {
-        const std::string name = std::string("AccelerateDgemmThreadThreshold/") + accelerateModeName(mode) +
-          "/workers_" + std::to_string(workerLimit) +
-          "/n_" + std::to_string(matrixN);
-        benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
-            benchmarkAccelerateDgemmThreadThreshold(state, mode, workerLimit, matrixN);
-          })
-          ->UseRealTime()
-          ->Unit(benchmark::kMicrosecond);
-      }
+    for (int matrixN : matrixSizes) {
+      const std::string name = std::string("AccelerateDgemmThreadThreshold/") + accelerateModeName(mode) +
+        "/n_" + std::to_string(matrixN);
+      benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
+          benchmarkAccelerateDgemmThreadThreshold(state, mode, matrixN);
+        })
+        ->UseRealTime()
+        ->Unit(benchmark::kMicrosecond);
     }
   }
 }
