@@ -33,6 +33,8 @@ enum class AccelerateMode
   Multi,
 };
 
+constexpr int kThresholdWorkerLimit = 8;
+
 class ScopedAccelerateThreading
 {
 public:
@@ -106,8 +108,12 @@ void recordCommonCounters(benchmark::State &state, int workerLimit, int matrixN)
 
 void recordThresholdCounters(benchmark::State &state, int matrixN)
 {
+  const P::RuntimeInfo runtime = P::runtimeInfo();
+  state.counters["thread_limit"] = kThresholdWorkerLimit;
   state.counters["matrix_n"] = matrixN;
   state.counters["accelerate_threading"] = static_cast<int>(BLASGetThreading());
+  if (runtime.tbbMaxAllowedParallelism.has_value())
+    state.counters["tbb_max_allowed_parallelism"] = *runtime.tbbMaxAllowedParallelism;
 }
 
 void benchmarkNestedParallelDgemm(
@@ -160,6 +166,7 @@ void benchmarkNestedParallelDgemm(
 void benchmarkAccelerateDgemmThreadThreshold(
   benchmark::State &state, AccelerateMode mode, int matrixN)
 {
+  P::ScopedWorkerLimit workerLimit(kThresholdWorkerLimit);
   ScopedAccelerateThreading threading(mode);
   MatrixSet matrices(matrixN);
 

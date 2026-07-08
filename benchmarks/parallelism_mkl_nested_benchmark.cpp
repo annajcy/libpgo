@@ -32,6 +32,8 @@ enum class MklMode
   Default,
 };
 
+constexpr int kThresholdWorkerLimit = 16;
+
 class ScopedMklLocalThreads
 {
 public:
@@ -99,9 +101,13 @@ void recordCommonCounters(benchmark::State &state, int workerLimit, int matrixN)
 
 void recordThresholdCounters(benchmark::State &state, int matrixN)
 {
+  const P::RuntimeInfo runtime = P::runtimeInfo();
+  state.counters["thread_limit"] = kThresholdWorkerLimit;
   state.counters["matrix_n"] = matrixN;
   state.counters["mkl_max_threads"] = mkl_get_max_threads();
   state.counters["mkl_dynamic"] = mkl_get_dynamic();
+  if (runtime.tbbMaxAllowedParallelism.has_value())
+    state.counters["tbb_max_allowed_parallelism"] = *runtime.tbbMaxAllowedParallelism;
 }
 
 void benchmarkNestedParallelDgemm(
@@ -151,6 +157,7 @@ void benchmarkNestedParallelDgemm(
 void benchmarkMklDgemmThreadThreshold(
   benchmark::State &state, MklMode mode, int matrixN)
 {
+  P::ScopedWorkerLimit workerLimit(kThresholdWorkerLimit);
   MatrixSet matrices(matrixN);
   ScopedMklLocalThreads localThreads(mode);
 
