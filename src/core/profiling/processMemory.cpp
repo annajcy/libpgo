@@ -8,9 +8,9 @@
 #  include <mach/mach.h>
 #  include <sys/resource.h>
 #elif defined(__linux__)
+#  include <cstddef>
 #  include <cstdio>
-#  include <sys/resource.h>
-#  include <unistd.h>
+#  include <cstring>
 #elif defined(_WIN32)
 #  define NOMINMAX
 #  include <windows.h>
@@ -19,6 +19,27 @@
 
 namespace pgo::Profiling
 {
+
+#if defined(__linux__)
+namespace
+{
+
+bool parseProcStatusMemoryLine(const char *line, const char *key, std::uint64_t &bytes)
+{
+  const std::size_t keyLength = std::strlen(key);
+  if (std::strncmp(line, key, keyLength) != 0 || line[keyLength] != ':')
+    return false;
+
+  unsigned long long valueKiB = 0;
+  if (std::sscanf(line + keyLength + 1, "%llu kB", &valueKiB) != 1)
+    return false;
+
+  bytes = static_cast<std::uint64_t>(valueKiB) * 1024u;
+  return true;
+}
+
+}  // namespace
+#endif
 
 ProcessMemoryUsage processMemoryUsage()
 {
@@ -36,20 +57,17 @@ ProcessMemoryUsage processMemoryUsage()
   if (getrusage(RUSAGE_SELF, &resourceUsage) == 0)
     usage.peakResidentBytes = static_cast<std::uint64_t>(resourceUsage.ru_maxrss);
 #elif defined(__linux__)
-  if (FILE *statm = std::fopen("/proc/self/statm", "r")) {
-    unsigned long long totalPages = 0;
-    unsigned long long residentPages = 0;
-    if (std::fscanf(statm, "%llu %llu", &totalPages, &residentPages) == 2) {
-      const long pageSize = sysconf(_SC_PAGESIZE);
-      if (pageSize > 0)
-        usage.residentBytes = static_cast<std::uint64_t>(residentPages) * static_cast<std::uint64_t>(pageSize);
+  if (FILE *status = std::fopen("/proc/self/status", "r")) {
+    char line[256];
+    while (std::fgets(line, sizeof(line), status)) {
+      parseProcStatusMemoryLine(line, "VmRSS", usage.residentBytes);
+      parseProcStatusMemoryLine(line, "VmHWM", usage.peakResidentBytes);
     }
-    std::fclose(statm);
+    std::fclose(status);
   }
 
-  rusage resourceUsage{};
-  if (getrusage(RUSAGE_SELF, &resourceUsage) == 0)
-    usage.peakResidentBytes = static_cast<std::uint64_t>(resourceUsage.ru_maxrss) * 1024u;
+  if (usage.peakResidentBytes > 0 && usage.residentBytes > usage.peakResidentBytes)
+    usage.peakResidentBytes = usage.residentBytes;
 #elif defined(_WIN32)
   PROCESS_MEMORY_COUNTERS counters{};
   counters.cb = sizeof(counters);

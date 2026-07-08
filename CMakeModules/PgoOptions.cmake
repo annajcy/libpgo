@@ -29,6 +29,7 @@ option(PGO_ENABLE_OPENVDB "Enable OpenVDB support" OFF)
 option(PGO_ENABLE_GMSH "Enable GMSH support" OFF)
 option(PGO_TET_MESHER_USE_TET_WILD "Enable fTetWild backend for volumetric meshing" OFF)
 option(PGO_BUILD_TESTING "Build libpgo tests" OFF)
+option(PGO_BUILD_BENCHMARKS "Build libpgo benchmarks" OFF)
 option(PGO_NATIVE_OPTIMIZATION "Use host-native CPU optimization flags" ON)
 # Statically embedding libstdc++/libgcc is fatal for a Python extension: the .so then
 # carries a *private* libstdc++ while numpy/openvdb/vtk in the same interpreter use the

@@ -29,6 +29,10 @@ include(CMakeModules/third-party/spdlog.cmake)
 include(CMakeModules/third-party/autodiff.cmake)
 include(CMakeModules/third-party/argparse.cmake)
 
+if(PGO_BUILD_BENCHMARKS)
+  include(CMakeModules/third-party/benchmark.cmake)
+endif()
+
 if(PGO_ENABLE_PYTHON OR PGO_ENABLE_FULL)
   include(CMakeModules/third-party/ceres.cmake)
   include(CMakeModules/third-party/boost.cmake)
