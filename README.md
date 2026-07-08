@@ -9,9 +9,13 @@ The source code extends [VegaFEM](https://viterbi-web.usc.edu/~jbarbic/vega/) an
 
 ## System Prerequisites
 
-Install conda: See [Conda Installation](https://www.anaconda.com/docs/getting-started/miniconda/install/overview#choose-your-installation-guide).
+### Install conda
 
-Install CMake 3.28 or newer, Ninja, pkg-config, and the platform compiler from
+See [Conda Installation](https://www.anaconda.com/docs/getting-started/miniconda/install/overview#choose-your-installation-guide).
+
+### Install build tools
+
+CMake 3.28 or newer, Ninja, pkg-config, and the platform compiler from
 the system package manager / platform toolchain. Conda owns the project
 libraries and Python environment, not the build tools.
 
@@ -21,12 +25,15 @@ libraries and Python environment, not the build tools.
 | macOS | Xcode command line tools, Homebrew `cmake`, `ninja`, `pkg-config` | Accelerate and the SDK are system frameworks. |
 | Windows | Visual Studio 2022 MSVC, CMake, Ninja | Run builds from an x64 MSVC developer shell. |
 
-Linux:
+#### Linux:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential cmake ninja-build pkg-config
 ```
+
+<details>
+<summary>What if you are using Ubuntu 22.04</summary>
 
 Ubuntu 22.04's default packages are too old for libpgo's source build
 baseline: GCC is 11 and CMake is 3.22. Keep `ninja-build` and `pkg-config`
@@ -67,19 +74,19 @@ ctest --version
 cpack --version
 ```
 
-If another older CMake installation appears first on `PATH`, put `/usr/bin`
-before `/usr/local/bin` for this shell:
+If another older CMake installation appears first on `PATH` (e.g. a `pip
+install cmake` wrapper in `/usr/local/bin`), remove it and register the
+Kitware version with `update-alternatives`:
 
 ```bash
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:${PATH}"
-hash -r
-cmake --version
-ctest --version
-cpack --version
+sudo rm /usr/local/bin/cmake /usr/local/bin/ctest /usr/local/bin/cpack 2>/dev/null
+sudo update-alternatives --install /usr/local/bin/cmake cmake /usr/bin/cmake 100
+sudo update-alternatives --install /usr/local/bin/ctest ctest /usr/bin/ctest 100
+sudo update-alternatives --install /usr/local/bin/cpack cpack /usr/bin/cpack 100
 ```
 
-Put the `export PATH=...` line in `~/.bashrc`, `~/.zshrc`, or the shell startup
-file used by your build environment if you want it to persist.
+Avoid `export PATH="/usr/bin:..."` in shell startup files — it overrides
+the entire `PATH` and breaks conda environment activation.
 
 Install GCC 13 / G++ 13 from the Ubuntu Toolchain PPA. Add the PPA source
 directly; this avoids `add-apt-repository`, which may time out while contacting
@@ -122,14 +129,16 @@ sudo update-alternatives --config gcc
 sudo update-alternatives --config g++
 ```
 
-macOS:
+</details>
+
+#### macOS:
 
 ```bash
 xcode-select --install
 brew install cmake ninja pkg-config
 ```
 
-Windows:
+#### Windows:
 
 - Install Visual Studio 2022 with the C++ desktop workload.
 - Install CMake and Ninja, or use the versions bundled with the Visual Studio /
@@ -144,7 +153,7 @@ standalone PyPI wheels. `pypgo` does not declare a pip NumPy dependency, so
 NumPy and its BLAS/LAPACK runtime must come from the same conda environment as
 the extension.
 
-Linux and Windows use MKL:
+#### Linux and Windows use MKL:
 
 ```bash
 conda create -n pypgo -c conda-forge python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
@@ -152,7 +161,7 @@ conda activate pypgo
 python -m pip install --no-deps pypgo-*.whl
 ```
 
-macOS uses Accelerate:
+#### macOS uses Accelerate:
 
 ```bash
 conda create -n pypgo -c conda-forge python=3.12 pip numpy "libblas=*=*accelerate" "liblapack=*=*accelerate"
@@ -222,37 +231,17 @@ conda activate libpgo
 Install the platform BLAS stack after creating or updating the shared
 environment:
 
+#### Linux / Windows
 ```bash
-# Linux / Windows
 conda install -n libpgo -c conda-forge mkl-devel "libblas=*=*mkl" "liblapack=*=*mkl"
+```
 
-# macOS
+#### macOS
+```bash
 conda install -n libpgo -c conda-forge "libblas=*=*accelerate" "liblapack=*=*accelerate"
 ```
 
 This keeps NumPy on the same BLAS backend as the native extension.
-
-### VS Code CMake Tools
-
-With system CMake/Ninja/compiler, VS Code CMake Tools no longer needs conda
-compiler pinning. Keep the conda prefix in `CMakeUserPresets.json`, then let
-`.vscode/settings.json` only select the preset:
-
-```json
-{
-  "cmake.useCMakePresets": "always",
-  "cmake.configurePreset": "local-pypgo",
-  "cmake.buildPreset": "local-pypgo"
-}
-```
-
-The local preset examples below set `CONDA_PREFIX`, which is enough for the
-project CMake files to find conda packages and the conda Python executable.
-
-`mamba` can be used as an optional accelerator only when it belongs to the same
-conda installation that owns the `libpgo` environment. Avoid mixing a
-Homebrew/micromamba `mamba` with a Miniconda environment, because that can
-create another `libpgo` under a different prefix.
 
 ### Python Package Build
 
