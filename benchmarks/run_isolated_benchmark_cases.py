@@ -27,6 +27,16 @@ def parse_args() -> argparse.Namespace:
         help="Forwarded --benchmark_repetitions value.",
     )
     parser.add_argument(
+        "--fresh-repetitions",
+        type=int,
+        default=0,
+        help=(
+            "Run each case this many times in separate fresh processes with "
+            "--benchmark_min_time=1x and --benchmark_repetitions=1. "
+            "0 keeps the normal single-process-per-case behavior."
+        ),
+    )
+    parser.add_argument(
         "--case-limit",
         type=int,
         default=0,
@@ -112,6 +122,10 @@ def benchmark_filter_for_exact_case(case_name: str) -> str:
 
 def main() -> int:
     args = parse_args()
+    if args.fresh_repetitions < 0:
+        print("--fresh-repetitions must be non-negative.", file=sys.stderr)
+        return 2
+
     benchmark = args.benchmark.resolve()
     if not benchmark.exists():
         print(f"Benchmark executable does not exist: {benchmark}", file=sys.stderr)
@@ -124,6 +138,11 @@ def main() -> int:
     print(f"Matched {len(cases)} benchmark case(s).")
     for case in cases:
         print(case)
+    if args.fresh_repetitions > 0:
+        print(
+            f"Fresh repetition mode: {args.fresh_repetitions} process(es) per case, "
+            "benchmark_min_time=1x, benchmark_repetitions=1."
+        )
 
     if args.dry_run:
         return 0
@@ -131,34 +150,53 @@ def main() -> int:
         return 1
 
     merged_rows: list[dict[str, str]] = []
+    process_index = 0
+    fresh_repetitions = args.fresh_repetitions if args.fresh_repetitions > 0 else 1
+    benchmark_min_time = "1x" if args.fresh_repetitions > 0 else args.min_time
+    benchmark_repetitions = 1 if args.fresh_repetitions > 0 else args.repetitions
+
     with tempfile.TemporaryDirectory(prefix="pgo-isolated-bench-") as tmp:
         tmpdir = Path(tmp)
         for index, case in enumerate(cases, start=1):
-            case_csv = tmpdir / f"case-{index:04d}.csv"
-            command = [
-                str(benchmark),
-                f"--benchmark_filter={benchmark_filter_for_exact_case(case)}",
-                f"--benchmark_min_time={args.min_time}",
-                f"--benchmark_repetitions={args.repetitions}",
-                f"--benchmark_out={case_csv}",
-                "--benchmark_out_format=csv",
-                *args.extra_arg,
-            ]
-            print(f"[{index}/{len(cases)}] {case}", flush=True)
-            result = run_command(command)
-            if result.returncode != 0:
-                print(result.stdout, file=sys.stderr)
-                return result.returncode
-            if not case_csv.exists():
-                print(f"Benchmark did not produce CSV: {case_csv}", file=sys.stderr)
-                print(result.stdout, file=sys.stderr)
-                return 1
+            for fresh_index in range(1, fresh_repetitions + 1):
+                process_index += 1
+                case_csv = tmpdir / f"case-{index:04d}-fresh-{fresh_index:04d}.csv"
+                command = [
+                    str(benchmark),
+                    f"--benchmark_filter={benchmark_filter_for_exact_case(case)}",
+                    f"--benchmark_min_time={benchmark_min_time}",
+                    f"--benchmark_repetitions={benchmark_repetitions}",
+                    f"--benchmark_out={case_csv}",
+                    "--benchmark_out_format=csv",
+                    *args.extra_arg,
+                ]
 
-            rows = read_csv(case_csv)
-            for row in rows:
-                row["isolated_case_index"] = str(index)
-                row["isolated_case_name"] = case
-            merged_rows.extend(rows)
+                if args.fresh_repetitions > 0:
+                    print(
+                        f"[{index}/{len(cases)} fresh {fresh_index}/{fresh_repetitions}] {case}",
+                        flush=True,
+                    )
+                else:
+                    print(f"[{index}/{len(cases)}] {case}", flush=True)
+
+                result = run_command(command)
+                if result.returncode != 0:
+                    print(result.stdout, file=sys.stderr)
+                    return result.returncode
+                if not case_csv.exists():
+                    print(f"Benchmark did not produce CSV: {case_csv}", file=sys.stderr)
+                    print(result.stdout, file=sys.stderr)
+                    return 1
+
+                rows = read_csv(case_csv)
+                for row in rows:
+                    row["isolated_case_index"] = str(index)
+                    row["isolated_case_name"] = case
+                    row["isolated_process_index"] = str(process_index)
+                    if args.fresh_repetitions > 0:
+                        row["fresh_repetition_index"] = str(fresh_index)
+                        row["fresh_repetitions"] = str(fresh_repetitions)
+                merged_rows.extend(rows)
 
     write_csv(args.out, merged_rows)
     print(f"Wrote {len(merged_rows)} row(s) to {args.out}")
