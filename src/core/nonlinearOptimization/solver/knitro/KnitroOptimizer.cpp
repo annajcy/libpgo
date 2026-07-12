@@ -36,7 +36,8 @@ OptimizationResult KnitroOptimizer::solve(
   if (!problem.objective) {
     throw std::invalid_argument("OptimizationProblem objective must not be null");
   }
-  if (options_.maxIterations < 0 || options_.optimalityTolerance < 0.0 || options_.verbose < 0 || options_.parallelEval < 0) {
+  if (options_.maxIterations < 0 || options_.optimalityTolerance < 0.0 || options_.verbose < 0 ||
+    options_.parallelEval < 0 || options_.numThreads < 0) {
     throw std::invalid_argument("KnitroOptimizer options must be non-negative");
   }
   if (problem.constraints.size() > 1) {
@@ -87,6 +88,9 @@ OptimizationResult KnitroOptimizer::solve(
   }
   solver.setVerbose(options_.verbose);
   solver.enableMultiEvaluation(options_.parallelEval);
+  if (options_.numThreads > 0) {
+    solver.setNumThreads(options_.numThreads);
+  }
   solver.init();
 
   const int rawStatus = solver.solve();

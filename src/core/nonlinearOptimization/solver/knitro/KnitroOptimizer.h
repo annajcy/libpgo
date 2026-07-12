@@ -18,6 +18,7 @@ public:
     int verbose = 0;
     std::string configFilename;
     int parallelEval = 0;
+    int numThreads = 0;
   };
 
   KnitroOptimizer();

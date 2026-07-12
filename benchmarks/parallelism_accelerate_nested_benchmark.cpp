@@ -34,12 +34,17 @@ enum class AccelerateMode
 };
 
 constexpr int kThresholdWorkerLimit = 8;
+constexpr int kRuntimeConcurrency = 8;
+
+P::ParallelRuntime &benchmarkRuntime()
+{
+  return P::initializeRuntime({ .maxTbbConcurrency = kRuntimeConcurrency });
+}
 
 class ScopedAccelerateThreading
 {
 public:
-  explicit ScopedAccelerateThreading(AccelerateMode mode)
-    : previousThreading_(BLASGetThreading())
+  explicit ScopedAccelerateThreading(AccelerateMode mode): previousThreading_(BLASGetThreading())
   {
     const BLAS_THREADING requested =
       mode == AccelerateMode::Single ? BLAS_THREADING_SINGLE_THREADED : BLAS_THREADING_MULTI_THREADED;
@@ -82,8 +87,8 @@ const char *accelerateModeName(AccelerateMode mode)
 double runAccelerateDgemm(MatrixSet &matrices)
 {
 #ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #endif
   cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
     matrices.n, matrices.n, matrices.n,
@@ -91,19 +96,21 @@ double runAccelerateDgemm(MatrixSet &matrices)
     matrices.b.data(), matrices.n,
     0.0, matrices.c.data(), matrices.n);
 #ifdef __clang__
-#pragma clang diagnostic pop
+#  pragma clang diagnostic pop
 #endif
   return matrices.centerValue();
 }
 
-void recordCommonCounters(benchmark::State &state, int workerLimit, int matrixN)
+void recordCommonCounters(benchmark::State &state, int arenaConcurrency, int matrixN)
 {
   const P::RuntimeInfo runtime = P::runtimeInfo();
-  state.counters["worker_limit"] = workerLimit;
+  state.counters["runtime_concurrency"] = *runtime.maxConcurrency;
+  state.counters["arena_concurrency"] = arenaConcurrency;
   state.counters["matrix_n"] = matrixN;
   state.counters["accelerate_threading"] = static_cast<int>(BLASGetThreading());
-  if (runtime.tbbMaxAllowedParallelism.has_value())
-    state.counters["tbb_max_allowed_parallelism"] = *runtime.tbbMaxAllowedParallelism;
+  state.counters["tbb_max_allowed_parallelism"] = runtime.effectiveTbbMaxAllowedParallelism;
+  state.counters["peak_participants"] = runtime.peakTotalParticipants;
+  state.counters["participant_pressure"] = runtime.participantPressureObserved ? 1 : 0;
 }
 
 void recordThresholdCounters(benchmark::State &state, int matrixN)
@@ -112,15 +119,15 @@ void recordThresholdCounters(benchmark::State &state, int matrixN)
   state.counters["thread_limit"] = kThresholdWorkerLimit;
   state.counters["matrix_n"] = matrixN;
   state.counters["accelerate_threading"] = static_cast<int>(BLASGetThreading());
-  if (runtime.tbbMaxAllowedParallelism.has_value())
-    state.counters["tbb_max_allowed_parallelism"] = *runtime.tbbMaxAllowedParallelism;
+  state.counters["tbb_max_allowed_parallelism"] = runtime.effectiveTbbMaxAllowedParallelism;
 }
 
 void benchmarkNestedParallelDgemm(
   benchmark::State &state, Policy policy, int outerWorkers, int outerTasks, int matrixN)
 {
   ScopedAccelerateThreading inheritedThreading(AccelerateMode::Multi);
-  P::ScopedWorkerLimit workerLimit(outerWorkers);
+  const P::ParallelExecutor executor =
+    benchmarkRuntime().createExecutor({ .maxConcurrency = outerWorkers });
   MatrixPool pool(std::max(1, outerWorkers), matrixN);
   std::vector<double> results(static_cast<std::size_t>(outerTasks), 0.0);
   std::atomic<int> observedThreadingInWorker = -1;
@@ -136,7 +143,7 @@ void benchmarkNestedParallelDgemm(
     sampler.start();
     state.ResumeTiming();
 
-    P::parallelFor(0, outerTasks, options, [&](int taskIndex) {
+    P::parallelFor(executor, 0, outerTasks, options, [&](int taskIndex) {
       observedThreadingInWorker.store(static_cast<int>(BLASGetThreading()), std::memory_order_relaxed);
       results[static_cast<std::size_t>(taskIndex)] = runAccelerateDgemm(pool.current());
     });
@@ -166,7 +173,7 @@ void benchmarkNestedParallelDgemm(
 void benchmarkAccelerateDgemmThreadThreshold(
   benchmark::State &state, AccelerateMode mode, int matrixN)
 {
-  P::ScopedWorkerLimit workerLimit(kThresholdWorkerLimit);
+  benchmarkRuntime();
   ScopedAccelerateThreading threading(mode);
   MatrixSet matrices(matrixN);
 
@@ -216,9 +223,8 @@ void registerNestedParallelDgemmBenchmarks()
             "/tasks_" + std::to_string(outerTasks) +
             "/n_" + std::to_string(matrixN);
           benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
-              benchmarkNestedParallelDgemm(state, policy, outerWorkers, outerTasks, matrixN);
-            })
-            ->UseRealTime()
+            benchmarkNestedParallelDgemm(state, policy, outerWorkers, outerTasks, matrixN);
+          })->UseRealTime()
             ->Unit(benchmark::kMillisecond);
         }
       }
@@ -236,9 +242,8 @@ void registerAccelerateDgemmThreadThresholdBenchmarks()
       const std::string name = std::string("AccelerateDgemmThreadThreshold/") + accelerateModeName(mode) +
         "/n_" + std::to_string(matrixN);
       benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
-          benchmarkAccelerateDgemmThreadThreshold(state, mode, matrixN);
-        })
-        ->UseRealTime()
+        benchmarkAccelerateDgemmThreadThreshold(state, mode, matrixN);
+      })->UseRealTime()
         ->Unit(benchmark::kMicrosecond);
     }
   }

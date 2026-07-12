@@ -3,25 +3,49 @@ pgo_add_gtest(parallelism_gtest
   DEPS parallelism
 )
 
-if(TARGET TBB::tbb)
-  target_link_libraries(parallelism_gtest PRIVATE TBB::tbb)
-  target_compile_definitions(parallelism_gtest PRIVATE PGO_PARALLELISM_HAS_TBB)
-endif()
-if(TARGET Eigen3::Eigen)
-  target_link_libraries(parallelism_gtest PRIVATE Eigen3::Eigen)
-  target_compile_definitions(parallelism_gtest PRIVATE PGO_PARALLELISM_HAS_EIGEN)
-endif()
-if(TARGET MKL::MKL)
-  target_link_libraries(parallelism_gtest PRIVATE MKL::MKL)
-  target_compile_definitions(parallelism_gtest PRIVATE PGO_PARALLELISM_HAS_MKL)
-  if(PGO_MKL_THREADING STREQUAL "tbb_thread")
-    target_compile_definitions(parallelism_gtest PRIVATE PGO_PARALLELISM_MKL_TBB_THREADING)
+pgo_add_gtest(parallelism_runtime_gtest
+  SOURCES parallelism_runtime_gtest.cpp
+  DEPS parallelism
+)
+
+pgo_add_gtest(parallelism_observer_gtest
+  SOURCES parallelism_observer_gtest.cpp
+  DEPS parallelism
+)
+
+pgo_add_gtest(parallelism_pressure_gtest
+  SOURCES parallelism_pressure_gtest.cpp
+  DEPS parallelism
+)
+
+set(PARALLELISM_TEST_TARGETS
+  parallelism_gtest
+  parallelism_runtime_gtest
+  parallelism_observer_gtest
+  parallelism_pressure_gtest
+)
+
+foreach(target IN LISTS PARALLELISM_TEST_TARGETS)
+  if(TARGET TBB::tbb)
+    target_link_libraries(${target} PRIVATE TBB::tbb)
+    target_compile_definitions(${target} PRIVATE PGO_PARALLELISM_HAS_TBB)
   endif()
-endif()
-if(APPLE)
-  target_link_libraries(parallelism_gtest PRIVATE "-framework Accelerate")
-  target_compile_definitions(parallelism_gtest PRIVATE PGO_PARALLELISM_HAS_ACCELERATE_THREADING)
-endif()
+  if(TARGET Eigen3::Eigen)
+    target_link_libraries(${target} PRIVATE Eigen3::Eigen)
+    target_compile_definitions(${target} PRIVATE PGO_PARALLELISM_HAS_EIGEN)
+  endif()
+  if(TARGET MKL::MKL)
+    target_link_libraries(${target} PRIVATE MKL::MKL)
+    target_compile_definitions(${target} PRIVATE PGO_PARALLELISM_HAS_MKL)
+    if(PGO_MKL_THREADING STREQUAL "tbb_thread")
+      target_compile_definitions(${target} PRIVATE PGO_PARALLELISM_MKL_TBB_THREADING)
+    endif()
+  endif()
+  if(APPLE)
+    target_link_libraries(${target} PRIVATE "-framework Accelerate")
+    target_compile_definitions(${target} PRIVATE PGO_PARALLELISM_HAS_ACCELERATE_THREADING)
+  endif()
+endforeach()
 
 if (TARGET animationIO)
   pgo_add_gtest(animationLoader_gtest

@@ -2,56 +2,44 @@
 
 #include <optional>
 
-namespace pgo::parallel {
+namespace pgo::parallel
+{
 
-enum class NestedKernelPolicy {
+enum class NestedKernelPolicy
+{
   Suppress,
   Inherit,
 };
 
-struct Options {
+struct Options
+{
   int grainSize = 0;
   NestedKernelPolicy nestedKernelPolicy = NestedKernelPolicy::Suppress;
 };
 
-struct RuntimeInfo {
-  std::optional<int> workerLimit;
-  std::optional<int> cpuAffinityLimit;
-  std::optional<int> currentCpuAffinityCpus;
-  std::optional<int> tbbMaxAllowedParallelism;
+struct RuntimeOptions
+{
+  std::optional<int> maxTbbConcurrency;
 };
 
-// Process-wide pgo worker limit. Configuration changes must not overlap native work.
-void setWorkerLimit(std::optional<int> numWorkers);
-std::optional<int> workerLimit();
-RuntimeInfo runtimeInfo();
-
-bool supportsCpuAffinityLimit();
-void setCpuAffinityLimit(std::optional<int> numCpus);
-std::optional<int> cpuAffinityLimit();
-
-class ScopedWorkerLimit {
-public:
-  explicit ScopedWorkerLimit(std::optional<int> numWorkers);
-  ~ScopedWorkerLimit();
-
-  ScopedWorkerLimit(const ScopedWorkerLimit &) = delete;
-  ScopedWorkerLimit &operator=(const ScopedWorkerLimit &) = delete;
-
-private:
-  std::optional<int> previousNumWorkers_;
+struct ExecutorOptions
+{
+  std::optional<int> maxConcurrency;
 };
 
-class ScopedCpuAffinityLimit {
-public:
-  explicit ScopedCpuAffinityLimit(std::optional<int> numCpus);
-  ~ScopedCpuAffinityLimit();
-
-  ScopedCpuAffinityLimit(const ScopedCpuAffinityLimit &) = delete;
-  ScopedCpuAffinityLimit &operator=(const ScopedCpuAffinityLimit &) = delete;
-
-private:
-  std::optional<int> previousNumCpus_;
+struct RuntimeInfo
+{
+  bool initialized = false;
+  bool usingDefaultConcurrency = false;
+  std::optional<int> maxConcurrency;
+  int defaultConcurrency = 1;
+  int effectiveTbbMaxAllowedParallelism = 1;
+  int tbbWorkerCeiling = 0;
+  int currentWorkerParticipants = 0;
+  int currentExternalParticipants = 0;
+  int currentTotalParticipants = 0;
+  int peakTotalParticipants = 0;
+  bool participantPressureObserved = false;
 };
 
 }  // namespace pgo::parallel

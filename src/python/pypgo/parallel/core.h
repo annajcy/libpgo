@@ -2,16 +2,13 @@
 
 #include <nanobind/nanobind.h>
 
+#include <optional>
+
 namespace pgo
 {
 
-nanobind::object getWorkerLimit();
-void resetWorkerLimit();
-void setWorkerLimit(int numWorkers);
-nanobind::dict runtimeInfo();
-bool supportsCpuAffinityLimit();
-nanobind::object getCpuAffinityLimit();
-void resetCpuAffinityLimit();
-void setCpuAffinityLimit(int numCpus);
+int parallelDefaultConcurrency();
+nanobind::dict parallelInitialize(std::optional<int> maxConcurrency);
+nanobind::dict parallelRuntimeInfo();
 
 }  // namespace pgo

@@ -25,7 +25,7 @@ endif()
 #   message(STATUS "has no arpack")
 # endif()
 
-set(EIGENSUPPORT_DEPS Eigen3::Eigen TBB::tbb nlohmann_json::nlohmann_json parallelism)
+set(EIGENSUPPORT_DEPS Eigen3::Eigen TBB::tbb nlohmann_json::nlohmann_json)
 
 pgo_require_targets(eigenSupport TARGETS ${EIGENSUPPORT_DEPS})
 

@@ -2,409 +2,197 @@
 
 #include "parallelism/parallelFor.h"
 
-#include <algorithm>
 #include <atomic>
-#include <chrono>
+#include <limits>
 #include <optional>
 #include <stdexcept>
-#include <string>
 #include <thread>
 #include <vector>
 
-#ifdef __linux__
-#  include <dirent.h>
-#  include <unistd.h>
-#endif
-
-#ifdef __APPLE__
-#  include <mach/mach.h>
-#  include <unistd.h>
-#endif
-
 #ifdef PGO_PARALLELISM_HAS_TBB
-#  include <tbb/global_control.h>
-#endif
-
-#ifdef PGO_PARALLELISM_HAS_EIGEN
-#  include <Eigen/Core>
-#endif
-
-#ifdef PGO_PARALLELISM_HAS_MKL
-#  include <mkl.h>
-#endif
-
-#ifdef PGO_PARALLELISM_HAS_ACCELERATE_THREADING
-#  include <Accelerate/Accelerate.h>
+#  include <tbb/task_arena.h>
 #endif
 
 namespace P = pgo::parallel;
 
-namespace
+TEST(ParallelForTest, VisitsEveryIndexAndHandlesRanges)
 {
-bool hasObservableNestedRuntime()
-{
-#if defined(PGO_PARALLELISM_HAS_MKL) && !defined(PGO_PARALLELISM_MKL_TBB_THREADING)
-  return true;
-#else
-  return false;
-#endif
-}
-
-int observableNestedRuntimeThreads()
-{
-#if defined(PGO_PARALLELISM_HAS_MKL) && !defined(PGO_PARALLELISM_MKL_TBB_THREADING)
-  return mkl_get_max_threads();
-#else
-  return 0;
-#endif
-}
-
-P::Options optionsWithNestedPolicy(P::NestedKernelPolicy nestedKernelPolicy)
-{
+  std::vector<std::atomic<int>> visits(103);
   P::Options options;
-  options.nestedKernelPolicy = nestedKernelPolicy;
-  return options;
-}
-
-#if defined(__linux__) || defined(__APPLE__)
-int currentProcessThreadCount()
-{
-#ifdef __linux__
-  DIR *dir = opendir("/proc/self/task");
-  if (!dir)
-    return 0;
-
-  int count = 0;
-  while (dirent *entry = readdir(dir)) {
-    if (entry->d_name[0] != '.')
-      ++count;
-  }
-  closedir(dir);
-  return count;
-#else
-  thread_act_array_t threads = nullptr;
-  mach_msg_type_number_t count = 0;
-  if (task_threads(mach_task_self(), &threads, &count) != KERN_SUCCESS)
-    return 0;
-
-  vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(threads), count * sizeof(thread_t));
-  return static_cast<int>(count);
-#endif
-}
-
-template<class Fn>
-int peakThreadCountWhile(Fn &&fn)
-{
-  std::atomic<bool> done = false;
-  std::atomic<int> peak = currentProcessThreadCount();
-  std::thread sampler([&] {
-    while (!done.load(std::memory_order_acquire)) {
-      peak.store(std::max(peak.load(std::memory_order_relaxed), currentProcessThreadCount()),
-        std::memory_order_relaxed);
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+  options.grainSize = 7;
+  P::parallelFor(0, static_cast<int>(visits.size()), options, [&](int i) {
+    visits[static_cast<std::size_t>(i)].fetch_add(1, std::memory_order_relaxed);
   });
 
-  fn();
-  done.store(true, std::memory_order_release);
-  sampler.join();
-  return peak.load(std::memory_order_relaxed);
-}
-#endif
+  for (const auto &visit : visits)
+    EXPECT_EQ(visit.load(std::memory_order_relaxed), 1);
 
-#ifdef PGO_PARALLELISM_HAS_ACCELERATE_THREADING
-void runAccelerateDgemm()
-{
-  constexpr int n = 384;
-  std::vector<double> a(n * n, 1.0);
-  std::vector<double> b(n * n, 2.0);
-  std::vector<double> c(n * n, 0.0);
-  for (int repeat = 0; repeat < 3; ++repeat) {
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#endif
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-      n, n, n, 1.0, a.data(), n, b.data(), n, 0.0, c.data(), n);
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-  }
-}
-#endif
-
-#ifdef PGO_PARALLELISM_HAS_MKL
-void runMklDgemm()
-{
-  constexpr int n = 384;
-  std::vector<double> a(n * n, 1.0);
-  std::vector<double> b(n * n, 2.0);
-  std::vector<double> c(n * n, 0.0);
-  for (int repeat = 0; repeat < 3; ++repeat) {
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-      n, n, n, 1.0, a.data(), n, b.data(), n, 0.0, c.data(), n);
-  }
-}
-#endif
-}  // namespace
-
-TEST(ParallelForTest, SerialLoopVisitsEveryIndex)
-{
-  std::vector<int> values(16, -1);
-
-  P::parallelFor(0, static_cast<int>(values.size()), P::Options{}, [&](int i) {
-    values[i] = i * i;
-  });
-
-  for (int i = 0; i < static_cast<int>(values.size()); ++i)
-    EXPECT_EQ(values[i], i * i);
-}
-
-TEST(ParallelForTest, ParallelLoopVisitsEveryIndex)
-{
-  std::vector<int> values(1024, 0);
-
-  P::parallelFor(0, static_cast<int>(values.size()), P::Options{}, [&](int i) {
-    values[i] = i + 1;
-  });
-
-  for (int i = 0; i < static_cast<int>(values.size()); ++i)
-    EXPECT_EQ(values[i], i + 1);
-}
-
-TEST(ParallelForTest, EmptyRangeDoesNothing)
-{
   int calls = 0;
-  P::parallelFor(5, 5, {}, [&](int) {
-    ++calls;
-  });
+  P::parallelFor(5, 5, [&](int) { ++calls; });
+  P::parallelFor(7, 2, [&](int) { ++calls; });
   EXPECT_EQ(calls, 0);
 }
 
-#ifdef PGO_PARALLELISM_HAS_TBB
-TEST(ParallelForTest, DefaultSuppressesNestedRuntimeInTBBWorker)
-{
-  if (!hasObservableNestedRuntime())
-    GTEST_SKIP() << "No observable nested runtime is available in this build.";
-
-  P::ScopedWorkerLimit workerLimit(4);
-  std::atomic<int> observed = 0;
-
-  P::parallelFor(0, 8, P::Options{}, [&](int) {
-    observed.store(observableNestedRuntimeThreads(), std::memory_order_relaxed);
-  });
-
-  EXPECT_EQ(observed.load(std::memory_order_relaxed), 1);
-  EXPECT_EQ(observableNestedRuntimeThreads(), 4);
-}
-
-TEST(ParallelForTest, InheritLeavesNestedRuntimeInTBBWorker)
-{
-  if (!hasObservableNestedRuntime())
-    GTEST_SKIP() << "No observable nested runtime is available in this build.";
-
-  P::ScopedWorkerLimit workerLimit(4);
-  std::atomic<int> observed = 0;
-
-  P::parallelFor(0, 8, optionsWithNestedPolicy(P::NestedKernelPolicy::Inherit), [&](int) {
-    observed.store(observableNestedRuntimeThreads(), std::memory_order_relaxed);
-  });
-
-  EXPECT_EQ(observed.load(std::memory_order_relaxed), 4);
-  EXPECT_EQ(observableNestedRuntimeThreads(), 4);
-}
-#endif
-
-#if defined(PGO_PARALLELISM_HAS_TBB) && defined(PGO_PARALLELISM_HAS_ACCELERATE_THREADING)
-TEST(ParallelForTest, DefaultSuppressesAccelerateThreadingInTBBWorker)
-{
-  const auto initial = BLASGetThreading();
-  if (BLASSetThreading(BLAS_THREADING_MULTI_THREADED) != 0)
-    GTEST_SKIP() << "Accelerate threading control is not supported on this platform.";
-
-  std::atomic<int> observed = -1;
-  P::parallelFor(0, 8, P::Options{}, [&](int) {
-    observed.store(static_cast<int>(BLASGetThreading()), std::memory_order_relaxed);
-  });
-
-  EXPECT_EQ(observed.load(std::memory_order_relaxed), static_cast<int>(BLAS_THREADING_SINGLE_THREADED));
-  EXPECT_EQ(BLASGetThreading(), BLAS_THREADING_MULTI_THREADED);
-
-  BLASSetThreading(initial);
-}
-
-TEST(ParallelForTest, InheritLeavesAccelerateThreadingInTBBWorker)
-{
-  const auto initial = BLASGetThreading();
-  if (BLASSetThreading(BLAS_THREADING_MULTI_THREADED) != 0)
-    GTEST_SKIP() << "Accelerate threading control is not supported on this platform.";
-
-  std::atomic<int> observed = -1;
-  testing::internal::CaptureStderr();
-  P::parallelFor(0, 8, optionsWithNestedPolicy(P::NestedKernelPolicy::Inherit), [&](int) {
-    observed.store(static_cast<int>(BLASGetThreading()), std::memory_order_relaxed);
-  });
-  const std::string warning = testing::internal::GetCapturedStderr();
-
-  EXPECT_EQ(observed.load(std::memory_order_relaxed), static_cast<int>(BLAS_THREADING_MULTI_THREADED));
-  EXPECT_EQ(BLASGetThreading(), BLAS_THREADING_MULTI_THREADED);
-  EXPECT_NE(warning.find("Accelerate threading enabled inside TBB workers"), std::string::npos);
-
-  BLASSetThreading(initial);
-}
-
-TEST(ParallelForTest, SuppressAvoidsAccelerateThreadOversubscriptionInTBBWorker)
-{
-  const auto initial = BLASGetThreading();
-  if (BLASSetThreading(BLAS_THREADING_MULTI_THREADED) != 0)
-    GTEST_SKIP() << "Accelerate threading control is not supported on this platform.";
-
-  P::ScopedWorkerLimit workerLimit(2);
-  const int baseline = currentProcessThreadCount();
-  const int peak = peakThreadCountWhile([] {
-    P::parallelFor(0, 2, P::Options{}, [](int) {
-      runAccelerateDgemm();
-    });
-  });
-
-  EXPECT_LE(peak, baseline + 6);
-
-  BLASSetThreading(initial);
-}
-#endif
-
-#if defined(__linux__) && defined(PGO_PARALLELISM_HAS_TBB) && defined(PGO_PARALLELISM_HAS_MKL) && defined(PGO_PARALLELISM_MKL_TBB_THREADING)
-TEST(ParallelForTest, MklTbbThreadingDoesNotOversubscribeInSuppressOrInherit)
-{
-  P::ScopedWorkerLimit workerLimit(2);
-  const int baseline = currentProcessThreadCount();
-
-  const int suppressPeak = peakThreadCountWhile([] {
-    P::parallelFor(0, 2, P::Options{}, [](int) {
-      runMklDgemm();
-    });
-  });
-  EXPECT_LE(suppressPeak, baseline + 6);
-
-  const int inheritPeak = peakThreadCountWhile([] {
-    P::parallelFor(0, 2, optionsWithNestedPolicy(P::NestedKernelPolicy::Inherit), [](int) {
-      runMklDgemm();
-    });
-  });
-  EXPECT_LE(inheritPeak, baseline + 6);
-}
-#endif
-
-TEST(ParallelFor3DTest, VisitsEveryCoordinateOnce)
+TEST(ParallelForTest, ParallelFor3DVisitsEveryCoordinateAndValidatesCapacity)
 {
   constexpr int nx = 3;
   constexpr int ny = 4;
-  constexpr int nz = 2;
-  std::vector<int> counts(nx * ny * nz, 0);
-
-  P::parallelFor3D(nx, ny, nz, P::Options{}, [&](int x, int y, int z) {
-    ASSERT_GE(x, 0);
-    ASSERT_LT(x, nx);
-    ASSERT_GE(y, 0);
-    ASSERT_LT(y, ny);
-    ASSERT_GE(z, 0);
-    ASSERT_LT(z, nz);
-    ++counts[x + nx * (y + ny * z)];
+  constexpr int nz = 5;
+  std::vector<std::atomic<int>> visits(nx * ny * nz);
+  P::parallelFor3D(nx, ny, nz, [&](int x, int y, int z) {
+    visits[static_cast<std::size_t>(x + nx * (y + ny * z))].fetch_add(1, std::memory_order_relaxed);
   });
-
-  for (int count : counts)
-    EXPECT_EQ(count, 1);
-}
-
-TEST(ParallelRuntimeTest, WorkerLimitControlsOptions)
-{
-  P::setWorkerLimit(std::nullopt);
-  EXPECT_EQ(P::workerLimit(), std::nullopt);
-
-  P::setWorkerLimit(3);
-  EXPECT_EQ(P::workerLimit(), std::optional<int>(3));
+  for (const auto &visit : visits)
+    EXPECT_EQ(visit.load(std::memory_order_relaxed), 1);
 
   int calls = 0;
-  P::parallelFor(0, 4, [&](int) {
-    ++calls;
+  P::parallelFor3D(0, 4, 5, [&](int, int, int) { ++calls; });
+  EXPECT_EQ(calls, 0);
+  EXPECT_THROW(P::parallelFor3D(std::numeric_limits<int>::max(), 2, 2, [](int, int, int) {}),
+    std::runtime_error);
+}
+
+TEST(ParallelExecutorTest, ExplicitExecutorCopiesAndRemainsReusableAfterException)
+{
+  auto executor = P::runtime().createExecutor({ .maxConcurrency = 2 });
+  auto copy = executor;
+  EXPECT_EQ(copy.maxConcurrency(), 2);
+
+  EXPECT_THROW(P::parallelFor(copy, 0, 16, [](int i) {
+    if (i == 3)
+      throw std::runtime_error("body failure");
+  }),
+    std::runtime_error);
+
+  std::atomic<int> count = 0;
+  executor = copy;
+  P::parallelFor(executor, 0, 29, [&](int) {
+    count.fetch_add(1, std::memory_order_relaxed);
   });
-  EXPECT_EQ(calls, 4);
-
-  P::setWorkerLimit(std::nullopt);
+  EXPECT_EQ(count.load(std::memory_order_relaxed), 29);
 }
 
-TEST(ParallelRuntimeTest, RejectsInvalidLimits)
+TEST(ParallelExecutorTest, NestedImplicitAndSameExecutorInheritArena)
 {
-  EXPECT_THROW(P::setWorkerLimit(0), std::invalid_argument);
-  EXPECT_THROW(P::setWorkerLimit(-1), std::invalid_argument);
-  EXPECT_THROW(P::setCpuAffinityLimit(0), std::invalid_argument);
-  EXPECT_THROW(P::setCpuAffinityLimit(-1), std::invalid_argument);
-}
+  const int arenaConcurrency = std::min(3, P::defaultConcurrency());
+  const auto executor = P::runtime().createExecutor({ .maxConcurrency = arenaConcurrency });
+  std::atomic<int> implicitCalls = 0;
+  std::atomic<int> sameCalls = 0;
+  std::atomic<int> observedConcurrency = arenaConcurrency;
 
-TEST(ParallelRuntimeTest, CpuAffinityLimitRestoresPreviousLimit)
-{
-  if (!P::supportsCpuAffinityLimit())
-    GTEST_SKIP() << "CPU affinity limits are not supported on this platform.";
-
-  P::setCpuAffinityLimit(std::nullopt);
-  EXPECT_EQ(P::cpuAffinityLimit(), std::nullopt);
-
-  P::setCpuAffinityLimit(1);
-  EXPECT_EQ(P::cpuAffinityLimit(), std::optional<int>(1));
-
-  {
-    P::ScopedCpuAffinityLimit limit(std::nullopt);
-    EXPECT_EQ(P::cpuAffinityLimit(), std::nullopt);
-  }
-  EXPECT_EQ(P::cpuAffinityLimit(), std::optional<int>(1));
-
-  P::setCpuAffinityLimit(std::nullopt);
-  EXPECT_EQ(P::cpuAffinityLimit(), std::nullopt);
-}
-
+  P::parallelFor(executor, 0, 4, [&](int) {
+    P::parallelFor(0, 5, [&](int) {
+      implicitCalls.fetch_add(1, std::memory_order_relaxed);
 #ifdef PGO_PARALLELISM_HAS_TBB
-TEST(ParallelRuntimeTest, GlobalLimitControlsDirectTBBAndRestoresPreviousValue)
-{
-  const auto initial = tbb::global_control::active_value(tbb::global_control::max_allowed_parallelism);
-
-  P::setWorkerLimit(1);
-  const auto limited = tbb::global_control::active_value(tbb::global_control::max_allowed_parallelism);
-  P::setWorkerLimit(std::nullopt);
-  const auto restored = tbb::global_control::active_value(tbb::global_control::max_allowed_parallelism);
-
-  EXPECT_EQ(limited, 1u);
-  EXPECT_EQ(restored, initial);
-}
-
-TEST(ParallelRuntimeTest, PerCallTBBLimitDoesNotChangeGlobalLimit)
-{
-  const auto initial = tbb::global_control::active_value(tbb::global_control::max_allowed_parallelism);
-  if (initial <= 1)
-    GTEST_SKIP() << "TBB runtime exposes only one execution slot.";
-
-  std::atomic<std::size_t> observed = 0;
-  P::parallelFor(0, 4, P::Options{}, [&](int) {
-    observed.store(tbb::global_control::active_value(tbb::global_control::max_allowed_parallelism));
+      observedConcurrency.store(tbb::this_task_arena::max_concurrency(), std::memory_order_relaxed);
+#endif
+    });
+    P::parallelFor(executor, 0, 3, [&](int) {
+      sameCalls.fetch_add(1, std::memory_order_relaxed);
+    });
   });
 
-  EXPECT_EQ(observed.load(), initial);
+  EXPECT_EQ(implicitCalls.load(std::memory_order_relaxed), 20);
+  EXPECT_EQ(sameCalls.load(std::memory_order_relaxed), 12);
+  EXPECT_EQ(observedConcurrency.load(std::memory_order_relaxed), arenaConcurrency);
+}
+
+TEST(ParallelExecutorTest, NestedDifferentExecutorIsRejectedAndContextRestores)
+{
+  auto first = P::runtime().createExecutor({ .maxConcurrency = 2 });
+  auto second = P::runtime().createExecutor({ .maxConcurrency = 2 });
+  std::atomic<int> secondCalls = 0;
+
+  EXPECT_THROW(P::parallelFor(first, 0, 1, [&](int) {
+    P::parallelFor(second, 0, 1, [&](int) {
+      secondCalls.fetch_add(1, std::memory_order_relaxed);
+    });
+  }),
+    std::logic_error);
+  EXPECT_EQ(secondCalls.load(std::memory_order_relaxed), 0);
+
+  P::parallelFor(second, 0, 7, [&](int) {
+    secondCalls.fetch_add(1, std::memory_order_relaxed);
+  });
+  EXPECT_EQ(secondCalls.load(std::memory_order_relaxed), 7);
+}
+
+TEST(ParallelExecutorTest, SharedExecutorAcceptsConcurrentCallers)
+{
+  const int arenaConcurrency = std::min(4, P::defaultConcurrency());
+  const auto executor = P::runtime().createExecutor({ .maxConcurrency = arenaConcurrency });
+  constexpr int numCallers = 6;
+  constexpr int workPerCaller = 101;
+  std::atomic<int> count = 0;
+  std::vector<std::thread> callers;
+  for (int caller = 0; caller < numCallers; ++caller) {
+    callers.emplace_back([&] {
+      P::parallelFor(executor, 0, workPerCaller, [&](int) {
+        count.fetch_add(1, std::memory_order_relaxed);
+      });
+    });
+  }
+  for (auto &caller : callers)
+    caller.join();
+
+  EXPECT_EQ(count.load(std::memory_order_relaxed), numCallers * workPerCaller);
+  const P::RuntimeInfo info = P::runtimeInfo();
+  EXPECT_GE(info.peakTotalParticipants, 1);
+  EXPECT_EQ(info.currentTotalParticipants,
+    info.currentWorkerParticipants + info.currentExternalParticipants);
+}
+
+TEST(ParallelExecutorTest, ActiveCallRetainsExecutorStateAfterHandleDestruction)
+{
+  std::optional<P::ParallelExecutor> executor(
+    P::runtime().createExecutor({ .maxConcurrency = 1 }));
+  std::atomic<bool> entered = false;
+  std::atomic<bool> release = false;
+  std::thread caller([&] {
+    P::parallelFor(*executor, 0, 1, [&](int) {
+      entered.store(true, std::memory_order_release);
+      while (!release.load(std::memory_order_acquire))
+        std::this_thread::yield();
+    });
+  });
+
+  while (!entered.load(std::memory_order_acquire))
+    std::this_thread::yield();
+  executor.reset();
+  release.store(true, std::memory_order_release);
+  caller.join();
+
+  const auto next = P::runtime().createExecutor({ .maxConcurrency = 1 });
+  EXPECT_NO_THROW(P::parallelFor(next, 0, 1, [](int) {}));
+}
+
+#ifdef PGO_PARALLELISM_HAS_ACCELERATE_THREADING
+#  include <Accelerate/Accelerate.h>
+
+TEST(ParallelNestedKernelTest, AccelerateSuppressAndInheritRestoreThreading)
+{
+  const auto initial = BLASGetThreading();
+  if (BLASSetThreading(BLAS_THREADING_MULTI_THREADED) != 0)
+    GTEST_SKIP() << "Accelerate threading control is unavailable.";
+
+  const auto executor = P::runtime().createExecutor({ .maxConcurrency = 2 });
+  std::atomic<int> suppressed = -1;
+  P::parallelFor(executor, 0, 4, [&](int) {
+    suppressed.store(static_cast<int>(BLASGetThreading()), std::memory_order_relaxed);
+  });
+  EXPECT_EQ(suppressed.load(std::memory_order_relaxed),
+    static_cast<int>(BLAS_THREADING_SINGLE_THREADED));
+  EXPECT_EQ(BLASGetThreading(), BLAS_THREADING_MULTI_THREADED);
+
+  P::Options inherit;
+  inherit.nestedKernelPolicy = P::NestedKernelPolicy::Inherit;
+  std::atomic<int> inherited = -1;
+  P::parallelFor(executor, 0, 4, inherit, [&](int) {
+    inherited.store(static_cast<int>(BLASGetThreading()), std::memory_order_relaxed);
+  });
+  EXPECT_EQ(inherited.load(std::memory_order_relaxed),
+    static_cast<int>(BLAS_THREADING_MULTI_THREADED));
+  EXPECT_EQ(BLASGetThreading(), BLAS_THREADING_MULTI_THREADED);
+  BLASSetThreading(initial);
 }
 #endif
-
-TEST(ParallelRuntimeTest, ScopedWorkerLimitRestoresPreviousLimit)
-{
-  P::setWorkerLimit(4);
-  {
-    P::ScopedWorkerLimit limit(1);
-    EXPECT_EQ(P::workerLimit(), std::optional<int>(1));
-  }
-  EXPECT_EQ(P::workerLimit(), std::optional<int>(4));
-
-  {
-    P::ScopedWorkerLimit limit(std::nullopt);
-    EXPECT_EQ(P::workerLimit(), std::nullopt);
-  }
-  EXPECT_EQ(P::workerLimit(), std::optional<int>(4));
-
-  P::setWorkerLimit(std::nullopt);
-}

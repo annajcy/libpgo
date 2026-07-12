@@ -33,6 +33,12 @@ enum class MklMode
 };
 
 constexpr int kThresholdWorkerLimit = 16;
+constexpr int kRuntimeConcurrency = 16;
+
+P::ParallelRuntime &benchmarkRuntime()
+{
+  return P::initializeRuntime({ .maxTbbConcurrency = kRuntimeConcurrency });
+}
 
 class ScopedMklLocalThreads
 {
@@ -88,15 +94,17 @@ const char *mklModeName(MklMode mode)
   return mode == MklMode::LocalOne ? "Local1" : "Default";
 }
 
-void recordCommonCounters(benchmark::State &state, int workerLimit, int matrixN)
+void recordCommonCounters(benchmark::State &state, int arenaConcurrency, int matrixN)
 {
   const P::RuntimeInfo runtime = P::runtimeInfo();
-  state.counters["worker_limit"] = workerLimit;
+  state.counters["runtime_concurrency"] = *runtime.maxConcurrency;
+  state.counters["arena_concurrency"] = arenaConcurrency;
   state.counters["matrix_n"] = matrixN;
   state.counters["mkl_max_threads"] = mkl_get_max_threads();
   state.counters["mkl_dynamic"] = mkl_get_dynamic();
-  if (runtime.tbbMaxAllowedParallelism.has_value())
-    state.counters["tbb_max_allowed_parallelism"] = *runtime.tbbMaxAllowedParallelism;
+  state.counters["tbb_max_allowed_parallelism"] = runtime.effectiveTbbMaxAllowedParallelism;
+  state.counters["peak_participants"] = runtime.peakTotalParticipants;
+  state.counters["participant_pressure"] = runtime.participantPressureObserved ? 1 : 0;
 }
 
 void recordThresholdCounters(benchmark::State &state, int matrixN)
@@ -106,14 +114,14 @@ void recordThresholdCounters(benchmark::State &state, int matrixN)
   state.counters["matrix_n"] = matrixN;
   state.counters["mkl_max_threads"] = mkl_get_max_threads();
   state.counters["mkl_dynamic"] = mkl_get_dynamic();
-  if (runtime.tbbMaxAllowedParallelism.has_value())
-    state.counters["tbb_max_allowed_parallelism"] = *runtime.tbbMaxAllowedParallelism;
+  state.counters["tbb_max_allowed_parallelism"] = runtime.effectiveTbbMaxAllowedParallelism;
 }
 
 void benchmarkNestedParallelDgemm(
   benchmark::State &state, Policy policy, int outerWorkers, int outerTasks, int matrixN)
 {
-  P::ScopedWorkerLimit workerLimit(outerWorkers);
+  const P::ParallelExecutor executor =
+    benchmarkRuntime().createExecutor({ .maxConcurrency = outerWorkers });
   MatrixPool pool(std::max(1, outerWorkers), matrixN);
   std::vector<double> results(static_cast<std::size_t>(outerTasks), 0.0);
 
@@ -129,7 +137,7 @@ void benchmarkNestedParallelDgemm(
     sampler.start();
     state.ResumeTiming();
 
-    P::parallelFor(0, outerTasks, options, [&](int taskIndex) {
+    P::parallelFor(executor, 0, outerTasks, options, [&](int taskIndex) {
       results[static_cast<std::size_t>(taskIndex)] = runMklDgemm(pool.current());
     });
 
@@ -157,7 +165,7 @@ void benchmarkNestedParallelDgemm(
 void benchmarkMklDgemmThreadThreshold(
   benchmark::State &state, MklMode mode, int matrixN)
 {
-  P::ScopedWorkerLimit workerLimit(kThresholdWorkerLimit);
+  benchmarkRuntime();
   MatrixSet matrices(matrixN);
   ScopedMklLocalThreads localThreads(mode);
 
@@ -207,9 +215,8 @@ void registerNestedParallelDgemmBenchmarks()
             "/tasks_" + std::to_string(outerTasks) +
             "/n_" + std::to_string(matrixN);
           benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
-              benchmarkNestedParallelDgemm(state, policy, outerWorkers, outerTasks, matrixN);
-            })
-            ->UseRealTime()
+            benchmarkNestedParallelDgemm(state, policy, outerWorkers, outerTasks, matrixN);
+          })->UseRealTime()
             ->Unit(benchmark::kMillisecond);
         }
       }
@@ -227,9 +234,8 @@ void registerMklDgemmThreadThresholdBenchmarks()
       const std::string name = std::string("MklDgemmThreadThreshold/") + mklModeName(mode) +
         "/n_" + std::to_string(matrixN);
       benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
-          benchmarkMklDgemmThreadThreshold(state, mode, matrixN);
-        })
-        ->UseRealTime()
+        benchmarkMklDgemmThreadThreshold(state, mode, matrixN);
+      })->UseRealTime()
         ->Unit(benchmark::kMicrosecond);
     }
   }

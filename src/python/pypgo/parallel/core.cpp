@@ -1,81 +1,49 @@
 #include "core.h"
 
-#include "parallelism/parallelOptions.h"
-
-#include <optional>
+#include "parallelism/parallelRuntime.h"
 
 namespace pgo
 {
-
-nanobind::object getWorkerLimit()
-{
-  const auto numWorkers = pgo::parallel::workerLimit();
-  if (!numWorkers.has_value())
-    return nanobind::none();
-  return nanobind::int_(*numWorkers);
-}
-
-void resetWorkerLimit()
-{
-  pgo::parallel::setWorkerLimit(std::nullopt);
-}
-
-void setWorkerLimit(int numWorkers)
-{
-  if (numWorkers <= 0)
-    throw nanobind::value_error("num_workers must be a positive integer or None");
-  pgo::parallel::setWorkerLimit(numWorkers);
-}
-
 namespace
 {
 
-void putOptionalInt(nanobind::dict &dict, const char *key, std::optional<int> value)
+nanobind::dict runtimeInfoToDict(const parallel::RuntimeInfo &info)
 {
-  if (value.has_value())
-    dict[key] = nanobind::int_(*value);
+  nanobind::dict dict;
+  dict["initialized"] = info.initialized;
+  dict["using_default_concurrency"] = info.usingDefaultConcurrency;
+  if (info.maxConcurrency.has_value())
+    dict["max_concurrency"] = *info.maxConcurrency;
   else
-    dict[key] = nanobind::none();
+    dict["max_concurrency"] = nanobind::none();
+  dict["default_concurrency"] = info.defaultConcurrency;
+  dict["effective_tbb_max_allowed_parallelism"] = info.effectiveTbbMaxAllowedParallelism;
+  dict["tbb_worker_ceiling"] = info.tbbWorkerCeiling;
+  dict["current_worker_participants"] = info.currentWorkerParticipants;
+  dict["current_external_participants"] = info.currentExternalParticipants;
+  dict["current_total_participants"] = info.currentTotalParticipants;
+  dict["peak_total_participants"] = info.peakTotalParticipants;
+  dict["participant_pressure_observed"] = info.participantPressureObserved;
+  return dict;
 }
 
 }  // namespace
 
-nanobind::dict runtimeInfo()
+int parallelDefaultConcurrency()
 {
-  const pgo::parallel::RuntimeInfo info = pgo::parallel::runtimeInfo();
-  nanobind::dict dict;
-  putOptionalInt(dict, "worker_limit", info.workerLimit);
-  if (pgo::parallel::supportsCpuAffinityLimit()) {
-    putOptionalInt(dict, "cpu_affinity_limit", info.cpuAffinityLimit);
-    putOptionalInt(dict, "current_cpu_affinity_cpus", info.currentCpuAffinityCpus);
-  }
-  putOptionalInt(dict, "tbb_max_allowed_parallelism", info.tbbMaxAllowedParallelism);
-  return dict;
+  return parallel::defaultConcurrency();
 }
 
-bool supportsCpuAffinityLimit()
+nanobind::dict parallelInitialize(std::optional<int> maxConcurrency)
 {
-  return pgo::parallel::supportsCpuAffinityLimit();
+  parallel::RuntimeOptions options;
+  options.maxTbbConcurrency = maxConcurrency;
+  return runtimeInfoToDict(parallel::initializeRuntime(options).info());
 }
 
-nanobind::object getCpuAffinityLimit()
+nanobind::dict parallelRuntimeInfo()
 {
-  const auto numCpus = pgo::parallel::cpuAffinityLimit();
-  if (!numCpus.has_value())
-    return nanobind::none();
-  return nanobind::int_(*numCpus);
-}
-
-void resetCpuAffinityLimit()
-{
-  pgo::parallel::setCpuAffinityLimit(std::nullopt);
-}
-
-void setCpuAffinityLimit(int numCpus)
-{
-  if (numCpus <= 0)
-    throw nanobind::value_error("num_cpus must be a positive integer or None");
-  pgo::parallel::setCpuAffinityLimit(numCpus);
+  return runtimeInfoToDict(parallel::runtimeInfo());
 }
 
 }  // namespace pgo

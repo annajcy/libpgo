@@ -100,10 +100,8 @@ dist/
 
 pypgo/examples/outputs
 examples/outputs
-examples/scripts/tricubic-hermit-static-compare/assets/obj/*-conservative-r15-surface.obj
-examples/scripts/tricubic-hermit-static-compare/assets/veg/cubic/*.veg
-examples/scripts/tricubic-hermit-static-compare/assets/veg/tet/*.veg
-examples/scripts/tricubic-hermit-dynamic-compare/assets/veg/cubic/*.veg
-examples/scripts/tricubic-hermit-dynamic-compare/assets/veg/tet/*.veg
+examples/experiments/tricubic_hermite_fem/assets/obj/*-conservative-r15-surface.obj
+examples/experiments/tricubic_hermite_fem/assets/veg/cubic/*.veg
+examples/experiments/tricubic_hermite_fem/assets/veg/tet/*.veg
 
 benchmarks/results/*

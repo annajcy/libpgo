@@ -1,10 +1,14 @@
 set(PARALLELISM_HEADERS
+  parallelExecutor.h
   parallelOptions.h
   parallelFor.h
+  parallelRuntime.h
 )
 
 set(PARALLELISM_SOURCES
+  parallelExecutor.cpp
   parallelFor.cpp
+  parallelRuntime.cpp
 )
 
 add_libpgo_lib(parallelism "${PARALLELISM_SOURCES}" "${PARALLELISM_HEADERS}")

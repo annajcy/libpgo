@@ -44,9 +44,10 @@ public:
   // must have: numThreads >= 1
   // "directIterative" specifies whether the multi-recursive iterative solver is used (solver=1)
   EigenOrigPardisoSupport(const SpMatD &A, MatrixType mtype = MatrixType::REAL_SYM_INDEFINITE,
-    ReorderingType rtype = ReorderingType::NESTED_DISSECTION_4, 
+    ReorderingType rtype = ReorderingType::NESTED_DISSECTION_4,
     int directIterative = 0, int msgLevel = 0, int maxNumRefinement = 0,
-    int transposeMatrix = 0, int solverMode = 0, int inputMatrixIsUpper = 0);
+    int transposeMatrix = 0, int solverMode = 0, int inputMatrixIsUpper = 0,
+    int numThreads = 64);
   EigenOrigPardisoSupport(const EigenOrigPardisoSupport &other) = delete;
   EigenOrigPardisoSupport(EigenOrigPardisoSupport &&other) = delete;
 
@@ -84,6 +85,7 @@ protected:
   int maxNumRefinementSteps;
   int transposeMatrix;
   int solverMode;
+  int numThreads;
 
   int maxfct = 1;
   int mnum = 1;

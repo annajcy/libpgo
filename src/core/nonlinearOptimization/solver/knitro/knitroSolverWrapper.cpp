@@ -7,7 +7,6 @@ copyright to USC
 #include "solver/knitro/knitroProblem.h"
 
 #include "EigenSupport.h"
-#include "parallelism/parallelOptions.h"
 #include "pgoLogging.h"
 
 #include <knitro.h>
@@ -421,6 +420,14 @@ void KnitroSolverWrapper::setVerbose(int verbose)
     throw std::domain_error("set verbose level"));
 }
 
+void KnitroSolverWrapper::setNumThreads(int numThreads)
+{
+  if (numThreads <= 0)
+    throw std::invalid_argument("Knitro numThreads must be positive.");
+  KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_NUMTHREADS, numThreads),
+    throw std::domain_error("set num threads"));
+}
+
 void KnitroSolverWrapper::enableWarmStart(int enable)
 {
   KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_STRAT_WARM_START, enable ? 1 : 0),
@@ -503,11 +510,6 @@ void KnitroSolverWrapper::initQuadraticProblem()
 
 void KnitroSolverWrapper::init()
 {
-  if (const auto numThreads = pgo::parallel::workerLimit(); numThreads.has_value()) {
-    KNITRO_ERROR(KN_set_int_param(handles->kc, KN_PARAM_NUMTHREADS, *numThreads),
-      throw std::domain_error("set num threads"));
-  }
-
   /** Initialize Knitro with the problem definition. */
   KNITRO_ERROR(KN_add_vars(handles->kc, handles->problem->getn(), nullptr),
     throw std::domain_error("add variable"));

@@ -4,10 +4,9 @@
 
 #include "EigenOrigPardisoSupport.h"
 
-#include "parallelism/parallelOptions.h"
-
-#include <iostream>
 #include <chrono>
+#include <iostream>
+#include <stdexcept>
 
 using namespace pgo;
 using namespace pgo::EigenSupport;
@@ -32,11 +31,14 @@ extern "C" void pardiso_printstats(int *, int *, double *, int *, int *, int *,
   double *, int *);
 
 EigenOrigPardisoSupport::EigenOrigPardisoSupport(const SpMatD &Ain, MatrixType mt, ReorderingType rt, int di, int ml, int mr,
-  int tm, int sm, int inputMatrixIsUpper):
+  int tm, int sm, int inputMatrixIsUpper, int nt):
   mtype(mt),
   rtype(rt), directIterative(di), msgLvl(ml), maxNumRefinementSteps(mr), transposeMatrix(tm),
-  solverMode(sm)
+  solverMode(sm), numThreads(nt)
 {
+  if (numThreads < 1)
+    throw std::invalid_argument("PARDISO numThreads must be positive.");
+
   pt.fill(nullptr);
   iparm.fill(0);
   dparm.fill(0.0);
@@ -155,7 +157,7 @@ void EigenOrigPardisoSupport::setParam()
   // iparm[0]=1 means we provide our own parameters (already set by pardisoinit default, overriding below)
   iparm[0] = 1;
   iparm[1] = static_cast<int>(rtype);  // matrix re-ordering algorithm
-  iparm[2] = pgo::parallel::workerLimit().value_or(64);  // number of threads
+  iparm[2] = numThreads;               // number of threads
 
   iparm[3] = 0;                      // default value for CG
   iparm[4] = 0;                      // No user fill-in permutation

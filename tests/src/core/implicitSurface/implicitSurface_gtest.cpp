@@ -221,7 +221,7 @@ TEST(ImplicitFieldTest, SphereSampleToGridUsesAnalyticEval)
   EXPECT_EQ(grid.gridSpec(), spec);
 }
 
-TEST(ImplicitFieldTest, SampleToGridParallelMatchesSerial)
+TEST(ImplicitFieldTest, SampleToGridMatchesAnalyticEvaluation)
 {
   IS::GridSpec spec;
   spec.bmin = ES::V3d(-1.0, -1.0, -1.0);
@@ -230,14 +230,16 @@ TEST(ImplicitFieldTest, SampleToGridParallelMatchesSerial)
 
   IS::SphereField sphere(ES::V3d(0.25, -0.25, 0.5), 0.75);
 
-  pgo::parallel::setWorkerLimit(1);
-  IS::GridField serial = sphere.sampleToGrid(spec);
-  pgo::parallel::setWorkerLimit(2);
-  IS::GridField parallel = sphere.sampleToGrid(spec);
-
-  ASSERT_EQ(serial.size(), parallel.size());
-  for (int i = 0; i < serial.size(); ++i)
-    EXPECT_NEAR(serial[i], parallel[i], 1e-12);
+  IS::GridField grid = sphere.sampleToGrid(spec);
+  const ES::V3d delta = (spec.bmax - spec.bmin) / static_cast<double>(spec.resolution - 1);
+  for (int z = 0; z < spec.resolution; ++z) {
+    for (int y = 0; y < spec.resolution; ++y) {
+      for (int x = 0; x < spec.resolution; ++x) {
+        const ES::V3d p = spec.bmin + delta.cwiseProduct(ES::V3d(x, y, z).cast<double>());
+        EXPECT_NEAR(grid.at(x, y, z), sphere.eval(p), 1e-12);
+      }
+    }
+  }
 }
 
 TEST(SphereFieldTest, AnalyticEvalAndBounds)

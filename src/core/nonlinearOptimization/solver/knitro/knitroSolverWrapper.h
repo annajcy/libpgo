@@ -24,6 +24,7 @@ public:
   void setFeasTol(double eps);
   void setOptTol(double eps);
   void setVerbose(int verbose);
+  void setNumThreads(int numThreads);
 
   void setxInit(const double *x);
 
@@ -47,8 +48,6 @@ public:
 
   double getFeasibilityError() const { return feasError; }
   double getOptimizationError() const { return optError; }
-
- 
 
 protected:
   void initQuadraticProblem();
