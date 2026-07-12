@@ -12,8 +12,7 @@ copyright to USC,MIT,NUS
 #include "tetMesh.h"
 #include "pgoLogging.h"
 #include "EigenSupport.h"
-
-#include <tbb/parallel_for.h>
+#include "parallelism/parallelFor.h"
 
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
@@ -127,141 +126,153 @@ void TetVolumeConstraintFunctions::setDmInv(const ES::M3Xd &DmInv_)
 void TetVolumeConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) const
 {
   // for (int ei = 0; ei < nele; ei++) {
-  tbb::parallel_for(0, nele, [&](int ei) {
-    if (elementFlags[ei] == 0) {
-      g[ei] = 1;
-      return;
-    }
-
-    const int *vertexIndices = tetMesh->getVertexIndices(ei);
-    ES::V12d xlocal;
-    if (restPosition) {
-      for (int i = 0; i < 4; i++) {
-        xlocal.segment<3>(i * 3) = restPosition->segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
+  pgo::parallel::parallelFor(0, nele,
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int ei) {
+      if (elementFlags[ei] == 0) {
+        g[ei] = 1;
+        return;
       }
-    }
-    else {
-      for (int i = 0; i < 4; i++) {
-        xlocal.segment<3>(i * 3) = x.segment<3>(vertexIndices[i] * 3);
+
+      const int *vertexIndices = tetMesh->getVertexIndices(ei);
+      ES::V12d xlocal;
+      if (restPosition) {
+        for (int i = 0; i < 4; i++) {
+          xlocal.segment<3>(i * 3) = restPosition->segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
+        }
       }
-    }
+      else {
+        for (int i = 0; i < 4; i++) {
+          xlocal.segment<3>(i * 3) = x.segment<3>(vertexIndices[i] * 3);
+        }
+      }
 
-    ES::M3d Ds;
-    tetLinearComputeDs(xlocal.data(), Ds.data());
+      ES::M3d Ds;
+      tetLinearComputeDs(xlocal.data(), Ds.data());
 
-    ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
-    ES::M3d F = Ds * DmInvLocal;
+      ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
+      ES::M3d F = Ds * DmInvLocal;
 
-    g[ei] = F.determinant();
-  });
+      g[ei] = F.determinant();
+    });
 }
 
 void TetVolumeConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac) const
 {
-  tbb::parallel_for(0, nele, [&](int ei) {
-    if (elementFlags[ei] == 0) {
+  pgo::parallel::parallelFor(0, nele,
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int ei) {
+      if (elementFlags[ei] == 0) {
+        for (int i = 0; i < 4; i++) {
+          ES::IDX offsetStart = jacobianIndices[ei][i];
+          jac.valuePtr()[offsetStart + 0] = 0;
+          jac.valuePtr()[offsetStart + 1] = 0;
+          jac.valuePtr()[offsetStart + 2] = 0;
+        }
+
+        return;
+      }
+
+      const int *vertexIndices = tetMesh->getVertexIndices(ei);
+
+      ES::V12d xlocal;
+      if (restPosition) {
+        for (int i = 0; i < 4; i++) {
+          xlocal.segment<3>(i * 3) = restPosition->segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
+        }
+      }
+      else {
+        for (int i = 0; i < 4; i++) {
+          xlocal.segment<3>(i * 3) = x.segment<3>(vertexIndices[i] * 3);
+        }
+      }
+
+      ES::M3d Ds;
+      tetLinearComputeDs(xlocal.data(), Ds.data());
+
+      ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
+
+      ES::M3d F = Ds * DmInvLocal;
+
+      // ddetF/dF * dF/dx
+      ES::M3d ddetA_dA;
+      NonlinearOptimization::Determinant::Dim3::ddetA_dA(F.data(), ddetA_dA.data());
+
+      ES::V9d ddetA_dA_vec = Eigen::Map<const ES::V9d>(ddetA_dA.data());
+      ES::V12d ddetA_dx = dFdx[ei].transpose() * ddetA_dA_vec;
+
       for (int i = 0; i < 4; i++) {
         ES::IDX offsetStart = jacobianIndices[ei][i];
-        jac.valuePtr()[offsetStart + 0] = 0;
-        jac.valuePtr()[offsetStart + 1] = 0;
-        jac.valuePtr()[offsetStart + 2] = 0;
+        jac.valuePtr()[offsetStart + 0] = ddetA_dx[i * 3];
+        jac.valuePtr()[offsetStart + 1] = ddetA_dx[i * 3 + 1];
+        jac.valuePtr()[offsetStart + 2] = ddetA_dx[i * 3 + 2];
       }
-
-      return;
-    }
-
-    const int *vertexIndices = tetMesh->getVertexIndices(ei);
-
-    ES::V12d xlocal;
-    if (restPosition) {
-      for (int i = 0; i < 4; i++) {
-        xlocal.segment<3>(i * 3) = restPosition->segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
-      }
-    }
-    else {
-      for (int i = 0; i < 4; i++) {
-        xlocal.segment<3>(i * 3) = x.segment<3>(vertexIndices[i] * 3);
-      }
-    }
-
-    ES::M3d Ds;
-    tetLinearComputeDs(xlocal.data(), Ds.data());
-
-    ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
-
-    ES::M3d F = Ds * DmInvLocal;
-
-    // ddetF/dF * dF/dx
-    ES::M3d ddetA_dA;
-    NonlinearOptimization::Determinant::Dim3::ddetA_dA(F.data(), ddetA_dA.data());
-
-    ES::V9d ddetA_dA_vec = Eigen::Map<const ES::V9d>(ddetA_dA.data());
-    ES::V12d ddetA_dx = dFdx[ei].transpose() * ddetA_dA_vec;
-
-    for (int i = 0; i < 4; i++) {
-      ES::IDX offsetStart = jacobianIndices[ei][i];
-      jac.valuePtr()[offsetStart + 0] = ddetA_dx[i * 3];
-      jac.valuePtr()[offsetStart + 1] = ddetA_dx[i * 3 + 1];
-      jac.valuePtr()[offsetStart + 2] = ddetA_dx[i * 3 + 2];
-    }
-  });
+    });
 }
 
 void TetVolumeConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-  tbb::parallel_for(0, nele, [&](int ei) {
-    if (elementFlags[ei] == 0)
-      return;
+  pgo::parallel::parallelFor(0, nele,
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int ei) {
+      if (elementFlags[ei] == 0)
+        return;
 
-    const int *vertexIndices = tetMesh->getVertexIndices(ei);
+      const int *vertexIndices = tetMesh->getVertexIndices(ei);
 
-    ES::V12d xlocal;
-    if (restPosition) {
-      for (int i = 0; i < 4; i++) {
-        xlocal.segment<3>(i * 3) = restPosition->segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
+      ES::V12d xlocal;
+      if (restPosition) {
+        for (int i = 0; i < 4; i++) {
+          xlocal.segment<3>(i * 3) = restPosition->segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
+        }
       }
-    }
-    else {
-      for (int i = 0; i < 4; i++) {
-        xlocal.segment<3>(i * 3) = x.segment<3>(vertexIndices[i] * 3);
+      else {
+        for (int i = 0; i < 4; i++) {
+          xlocal.segment<3>(i * 3) = x.segment<3>(vertexIndices[i] * 3);
+        }
       }
-    }
 
-    ES::M3d Ds;
-    tetLinearComputeDs(xlocal.data(), Ds.data());
+      ES::M3d Ds;
+      tetLinearComputeDs(xlocal.data(), Ds.data());
 
-    ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
+      ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
 
-    ES::M3d F = Ds * DmInvLocal;
+      ES::M3d F = Ds * DmInvLocal;
 
-    // d detF / dx = d detF / dF * dF/dx
-    // d2 detF / dx2 = d (d detF / dF * dF/dx) / dx
-    //               = (dF/dx)^T * d2 detF/ dF2 * dF/dx
+      // d detF / dx = d detF / dF * dF/dx
+      // d2 detF / dx2 = d (d detF / dF * dF/dx) / dx
+      //               = (dF/dx)^T * d2 detF/ dF2 * dF/dx
 
-    ES::M9d d2detA_dA2;
-    NonlinearOptimization::Determinant::Dim3::d2detA_dA2(F.data(), d2detA_dA2.data());
+      ES::M9d d2detA_dA2;
+      NonlinearOptimization::Determinant::Dim3::d2detA_dA2(F.data(), d2detA_dA2.data());
 
-    ES::M12d d2detA_dx2 = dFdx[ei].transpose() * d2detA_dA2 * dFdx[ei] * lambda[ei];
+      ES::M12d d2detA_dx2 = dFdx[ei].transpose() * d2detA_dA2 * dFdx[ei] * lambda[ei];
 
-    for (int col = 0; col < 4; col++) {
-      for (int dofj = 0; dofj < 3; dofj++) {
-        for (int row = 0; row < 4; row++) {
-          for (int dofi = 0; dofi < 3; dofi++) {
-            int localRow = row * 3 + dofi;
-            int localCol = col * 3 + dofj;
+      for (int col = 0; col < 4; col++) {
+        for (int dofj = 0; dofj < 3; dofj++) {
+          for (int row = 0; row < 4; row++) {
+            for (int dofi = 0; dofi < 3; dofi++) {
+              int localRow = row * 3 + dofi;
+              int localCol = col * 3 + dofj;
 
-            ES::IDX offset = hessIndices[ei](localRow, localCol);
+              ES::IDX offset = hessIndices[ei](localRow, localCol);
 
-            hessLocks[offset].lock();
+              hessLocks[offset].lock();
 
-            hess.valuePtr()[offset] += d2detA_dx2(localRow, localCol);
+              hess.valuePtr()[offset] += d2detA_dx2(localRow, localCol);
 
-            hessLocks[offset].unlock();
+              hessLocks[offset].unlock();
+            }
           }
         }
       }
-    }
-  });
+    });
 }

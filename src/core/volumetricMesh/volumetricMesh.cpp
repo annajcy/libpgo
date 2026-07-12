@@ -41,8 +41,7 @@
 #include "range.h"
 #include "stringHelper.h"
 #include "pgoLogging.h"
-
-#include <tbb/parallel_for.h>
+#include "parallelism/parallelFor.h"
 
 #include <cfloat>
 #include <cstring>
@@ -2169,14 +2168,18 @@ int VolumetricMesh::saveInterpolationWeightsBinary(FILE *fout, int numTargetLoca
 
 void VolumetricMesh::interpolate(const double *u, double *uTarget, int numTargetLocations, int numElementVertices_, const int *vertices_, const double *weights)
 {
-  tbb::parallel_for(0, numTargetLocations, [&](int i) {
-    Vec3d defo(0, 0, 0);
-    for (int j = 0; j < numElementVertices_; j++) {
-      int volumetricMeshVertexIndex = vertices_[numElementVertices_ * i + j];
-      defo += weights[numElementVertices_ * i + j] * asVec3d(u + 3 * volumetricMeshVertexIndex);
-    }
-    (Eigen::Map<Vec3d>(uTarget + 3 * i)) = defo;
-  });
+  pgo::parallel::parallelFor(0, numTargetLocations,
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int i) {
+      Vec3d defo(0, 0, 0);
+      for (int j = 0; j < numElementVertices_; j++) {
+        int volumetricMeshVertexIndex = vertices_[numElementVertices_ * i + j];
+        defo += weights[numElementVertices_ * i + j] * asVec3d(u + 3 * volumetricMeshVertexIndex);
+      }
+      (Eigen::Map<Vec3d>(uTarget + 3 * i)) = defo;
+    });
 }
 
 int VolumetricMesh::interpolateGradient(const double *U, int numFields, Vec3d pos, double *grad) const

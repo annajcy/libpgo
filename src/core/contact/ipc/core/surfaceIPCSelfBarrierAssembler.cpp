@@ -3,6 +3,7 @@
 
 #include "scopedProfileSection.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
+#include "parallelism/parallelFor.h"
 
 #include <tbb/blocked_range.h>
 #include <tbb/enumerable_thread_specific.h>
@@ -331,32 +332,32 @@ void computeSelfGradient(
   double dhat2 = dhat * dhat;
 
   // PT pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, (int)pairs.ptPairs.size()),
-    [&](const tbb::blocked_range<int> &range) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  pgo::parallel::parallelFor(0, (int)pairs.ptPairs.size(),
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      {
         auto &pair = pairs.ptPairs[i];
         auto k = barrier_kernels::pointTriangle(
           vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
           pair.weight, dhat2, kappa, true, false);
         if (!k.active)
-          continue;
+          return;
         int idx[4] = { pair.p, pair.t0, pair.t1, pair.t2 };
         scatterSelfGrad(k.gradient, idx, grad);
       }
     });
 
   // EE pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, (int)pairs.eePairs.size()),
-    [&](const tbb::blocked_range<int> &range) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  pgo::parallel::parallelFor(0, (int)pairs.eePairs.size(),
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      {
         auto &pair = pairs.eePairs[i];
         auto k = barrier_kernels::edgeEdge(
           vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
           pair.weight, dhat2, kappa, eps_ee, true, false);
         if (!k.active)
-          continue;
+          return;
         int idx[4] = { pair.ea0, pair.ea1, pair.eb0, pair.eb1 };
         scatterSelfGrad(k.gradient, idx, grad);
       }

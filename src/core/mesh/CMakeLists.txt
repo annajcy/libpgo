@@ -10,7 +10,7 @@ set(MESH_SOURCES triMeshGeo.cpp createTriMesh.cpp triMeshNeighbor.cpp triMeshPse
 
 set(MESH_DEPS basicAlgorithms eigenSupport macros pgoLogging)
 
-pgo_require_targets(mesh TARGETS ${MESH_DEPS})
+pgo_require_targets(mesh TARGETS ${MESH_DEPS} parallelism TBB::tbb)
 
 if(NOT TARGET CGAL::CGAL)
   list(APPEND MESH_SOURCES intersection_tunicate.cpp predicates_Shewchuk.c)
@@ -19,6 +19,7 @@ endif()
 add_libpgo_lib(mesh "${MESH_SOURCES}" "${MESH_HEADERS}")
 
 target_link_libraries(mesh PUBLIC ${MESH_DEPS})
+target_link_libraries(mesh PRIVATE parallelism)
 
 # use cgal predicates, the old code has some problems when running on modern hardware
 # intersection_tunicate.cpp predicates_Shewchuk.c

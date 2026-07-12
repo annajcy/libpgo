@@ -35,6 +35,7 @@
 #include "volumetricMesh.h"
 #include "boundingVolumeTree.h"
 #include "EigenSupport.h"
+#include "parallelism/parallelFor.h"
 
 #include <cassert>
 #include <iostream>
@@ -43,8 +44,6 @@
 #include <queue>
 #include <climits>
 #include <atomic>
-
-#include <tbb/parallel_for.h>
 
 using namespace pgo;
 using namespace pgo::InterpolationCoordinates;
@@ -82,48 +81,52 @@ void BarycentricCoordinates::initializeInterpolationWeights(int numLocations_, c
   }
   bvTree.buildByInertiaPartition(elementBBs);
 
-  tbb::parallel_for(0, numLocations, [&](int i) {
-    ES::V3d pos = ES::Mp<const ES::V3d>(locations + 3 * i);
-    thread_local std::vector<int> closestBBIDs;
+  pgo::parallel::parallelFor(0, numLocations,
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int i) {
+      ES::V3d pos = ES::Mp<const ES::V3d>(locations + 3 * i);
+      thread_local std::vector<int> closestBBIDs;
 
-    closestBBIDs.clear();
-    bvTree.getClosestBoundingBoxes(elementBBs, pos, closestBBIDs);
-    PGO_ALOG(closestBBIDs.size() > 0);
-    //    cout << "closestBBIDs size " << closestBBIDs.size() << endl;
+      closestBBIDs.clear();
+      bvTree.getClosestBoundingBoxes(elementBBs, pos, closestBBIDs);
+      PGO_ALOG(closestBBIDs.size() > 0);
+      //    cout << "closestBBIDs size " << closestBBIDs.size() << endl;
 
-    bool posInsideElement = true;
-    int targetElementID = -1;
-    for (int eleID : closestBBIDs) {
-      if (volumetricMesh->containsVertex(eleID, pos)) {
-        targetElementID = eleID;
-        break;
-      }
-    }
-
-    if (targetElementID < 0) {
-      posInsideElement = false;
-      // find closest element among those reported
-      double closestDistance2 = DBL_MAX;
+      bool posInsideElement = true;
+      int targetElementID = -1;
       for (int eleID : closestBBIDs) {
-        Vec3d center = volumetricMesh->getElementCenter(eleID);
-        double dist2 = (pos - center).squaredNorm();
-        if (dist2 < closestDistance2) {
-          closestDistance2 = dist2;
+        if (volumetricMesh->containsVertex(eleID, pos)) {
           targetElementID = eleID;
+          break;
         }
       }
-      numExternalVertices++;
-    }
 
-    // containing element ID
-    elements[i] = targetElementID;
+      if (targetElementID < 0) {
+        posInsideElement = false;
+        // find closest element among those reported
+        double closestDistance2 = DBL_MAX;
+        for (int eleID : closestBBIDs) {
+          Vec3d center = volumetricMesh->getElementCenter(eleID);
+          double dist2 = (pos - center).squaredNorm();
+          if (dist2 < closestDistance2) {
+            closestDistance2 = dist2;
+            targetElementID = eleID;
+          }
+        }
+        numExternalVertices++;
+      }
 
-    // element vertex indices
-    memcpy(indices.data() + i * numElementVertices, volumetricMesh->getVertexIndices(targetElementID), sizeof(int) * numElementVertices);
+      // containing element ID
+      elements[i] = targetElementID;
 
-    // barycentric weights
-    volumetricMesh->computeBarycentricWeights(targetElementID, pos, weights.data() + i * numElementVertices);
-  });
+      // element vertex indices
+      memcpy(indices.data() + i * numElementVertices, volumetricMesh->getVertexIndices(targetElementID), sizeof(int) * numElementVertices);
+
+      // barycentric weights
+      volumetricMesh->computeBarycentricWeights(targetElementID, pos, weights.data() + i * numElementVertices);
+    });
 }
 
 BarycentricCoordinates::BarycentricCoordinates(int numLocations_, int numElementVertices_, const int *indices_, const double *weights_,

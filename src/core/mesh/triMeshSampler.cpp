@@ -1,4 +1,5 @@
 #include "triMeshSampler.h"
+#include "parallelism/parallelFor.h"
 #include "triangleSampler.h"
 #include "geometryQuery.h"
 
@@ -139,16 +140,18 @@ int sampleTriangle(const TriMeshGeo &mesh, int subdivideTriangle,
   tbb::concurrent_unordered_map<SampleInfo, int, SampleInfoHash, SampleInfoEqual> sampleIDQueryTableCC;
 
   if (subdivideTriangle > 1) {
-    tbb::parallel_for((int)0, (int)triangleSamples.size(), [&](int trii) {
-      count.fetch_add((int)triangleSamples[trii].size());
+    pgo::parallel::parallelFor((int)0, (int)triangleSamples.size(),
+      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+      [&](int trii) {
+        count.fetch_add((int)triangleSamples[trii].size());
 
-      for (const auto &sample : triangleSamples[trii]) {
-        sampleIDQueryTableCC.emplace(sample, 0);
-      }
+        for (const auto &sample : triangleSamples[trii]) {
+          sampleIDQueryTableCC.emplace(sample, 0);
+        }
 
-      if (trii % 1000 == 0)
-        std::cout << trii << ' ' << std::flush;
-    });
+        if (trii % 1000 == 0)
+          std::cout << trii << ' ' << std::flush;
+      });
     std::cout << std::endl;
 
     int inc = 0;

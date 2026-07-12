@@ -9,6 +9,7 @@ copyright to USC, MIT
 #endif
 
 #include "EigenSupport.h"
+#include "parallelism/parallelFor.h"
 
 #if defined(PGO_HAS_MKL)
 #  include <mkl.h>
@@ -1648,7 +1649,11 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::symbolicMm(const SpMatD &A, const S
     AT.makeCompressed();
   }
 
-  tbb::parallel_for(0, (int)C.nonZeros(), [&](int entryi) {
+  pgo::parallel::parallelFor(0, (int)C.nonZeros(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int entryi) {
     auto iter = std::upper_bound(C.outerIndexPtr(), C.outerIndexPtr() + C.outerSize() + 1, entryi);
     if (*iter <= entryi || iter == C.outerIndexPtr())
       abort();
@@ -1708,7 +1713,11 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::mm(const SpMatD &A, const SpMatD &B
     }
   }
 
-  tbb::parallel_for(0, (int)C.nonZeros(), [&](int entryi) {
+  pgo::parallel::parallelFor(0, (int)C.nonZeros(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int entryi) {
     C.valuePtr()[entryi] = 0;
 
     for (size_t pri = 0; pri < dat->mulPairs[entryi].size(); pri++) {

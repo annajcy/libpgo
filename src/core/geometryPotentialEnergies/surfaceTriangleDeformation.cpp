@@ -5,8 +5,9 @@
 #include "geometryQuery.h"
 #include "determinantDerivatives.h"
 #include "EigenSupport.h"
+#include "parallelism/parallelFor.h"
 
-#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 #include <tbb/parallel_reduce.h>
 #include <tbb/spin_mutex.h>
 
@@ -99,28 +100,32 @@ void SurfaceTriangleDeformation::setDOFs(const std::vector<int> &dofs)
 
 void SurfaceTriangleDeformation::updateRestInfo()
 {
-  tbb::parallel_for(0, mesh.numTriangles(), [&](int ei) {
-    ES::V3d p[3] = {
-      restPositions.segment<3>(mesh.triVtxID(ei, 0) * 3),
-      restPositions.segment<3>(mesh.triVtxID(ei, 1) * 3),
-      restPositions.segment<3>(mesh.triVtxID(ei, 2) * 3),
-    };
+  pgo::parallel::parallelFor(0, mesh.numTriangles(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int ei) {
+      ES::V3d p[3] = {
+        restPositions.segment<3>(mesh.triVtxID(ei, 0) * 3),
+        restPositions.segment<3>(mesh.triVtxID(ei, 1) * 3),
+        restPositions.segment<3>(mesh.triVtxID(ei, 2) * 3),
+      };
 
-    elementWeights[ei] = Mesh::getTriangleArea(p[0], p[1], p[2]);
+      elementWeights[ei] = Mesh::getTriangleArea(p[0], p[1], p[2]);
 
-    ES::M3x2d F;
-    F.col(0) = restPositions.segment<3>(mesh.triVtxID(ei, 1) * 3) - restPositions.segment<3>(mesh.triVtxID(ei, 0) * 3);
-    F.col(1) = restPositions.segment<3>(mesh.triVtxID(ei, 2) * 3) - restPositions.segment<3>(mesh.triVtxID(ei, 0) * 3);
+      ES::M3x2d F;
+      F.col(0) = restPositions.segment<3>(mesh.triVtxID(ei, 1) * 3) - restPositions.segment<3>(mesh.triVtxID(ei, 0) * 3);
+      F.col(1) = restPositions.segment<3>(mesh.triVtxID(ei, 2) * 3) - restPositions.segment<3>(mesh.triVtxID(ei, 0) * 3);
 
-    // elementAbarInv[ei].setIdentity();
-    elementAbarInv[ei] = (F.transpose() * F).fullPivHouseholderQr().inverse();
+      // elementAbarInv[ei].setIdentity();
+      elementAbarInv[ei] = (F.transpose() * F).fullPivHouseholderQr().inverse();
 
-    Eigen::SelfAdjointEigenSolver<ES::M2d> eigSolver(elementAbarInv[ei], Eigen::ComputeEigenvectors);
-    ES::M2d U = eigSolver.eigenvectors();
-    ES::V2d S = eigSolver.eigenvalues().array().sqrt();
+      Eigen::SelfAdjointEigenSolver<ES::M2d> eigSolver(elementAbarInv[ei], Eigen::ComputeEigenvectors);
+      ES::M2d U = eigSolver.eigenvectors();
+      ES::V2d S = eigSolver.eigenvalues().array().sqrt();
 
-    elementAbarInv[ei] = U * S.asDiagonal() * U.transpose();
-  });
+      elementAbarInv[ei] = U * S.asDiagonal() * U.transpose();
+    });
 }
 
 // F = [x1 - x0, x2 - x0]
@@ -173,45 +178,49 @@ void SurfaceTriangleDeformation::gradient(EigenSupport::ConstRefVecXd x, EigenSu
   grad.setZero();
 
   // for (int ei = 0; ei < mesh.numTriangles(); ei++) {
-  tbb::parallel_for(0, mesh.numTriangles(), [&](int ei) {
-    ES::M3x2d F;
-    F.col(0) = x.segment<3>(mesh.triVtxID(ei, 1) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
-    F.col(1) = x.segment<3>(mesh.triVtxID(ei, 2) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
+  pgo::parallel::parallelFor(0, mesh.numTriangles(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int ei) {
+      ES::M3x2d F;
+      F.col(0) = x.segment<3>(mesh.triVtxID(ei, 1) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
+      F.col(1) = x.segment<3>(mesh.triVtxID(ei, 2) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
 
-    ES::M2d A = elementAbarInv[ei] * (F.transpose() * F) * elementAbarInv[ei];
-    double trA = A.trace(), detA = A.determinant();
+      ES::M2d A = elementAbarInv[ei] * (F.transpose() * F) * elementAbarInv[ei];
+      double trA = A.trace(), detA = A.determinant();
 
-    ES::M2d dtrA_dA = ES::M2d::Identity();
-    ES::M2d ddetA_dA;
-    pgo::NonlinearOptimization::Determinant::Dim2::ddetA_dA(A.data(), ddetA_dA.data());
+      ES::M2d dtrA_dA = ES::M2d::Identity();
+      ES::M2d ddetA_dA;
+      pgo::NonlinearOptimization::Determinant::Dim2::ddetA_dA(A.data(), ddetA_dA.data());
 
-    ES::M2d dEdA = trA * dtrA_dA - 2 * ddetA_dA;
-    // ES::M2d dEdA = ddetA_dA;
+      ES::M2d dEdA = trA * dtrA_dA - 2 * ddetA_dA;
+      // ES::M2d dEdA = ddetA_dA;
 
-    Eigen::Matrix<double, 4, 6> dAdF;
+      Eigen::Matrix<double, 4, 6> dAdF;
 
-    for (int c = 0; c < 2; c++) {
-      for (int r = 0; r < 3; r++) {
-        ES::M3x2d dFi;
-        dFi.setZero();
-        dFi(r, c) = 1.0;
+      for (int c = 0; c < 2; c++) {
+        for (int r = 0; r < 3; r++) {
+          ES::M3x2d dFi;
+          dFi.setZero();
+          dFi(r, c) = 1.0;
 
-        ES::M2d dA = elementAbarInv[ei] * (dFi.transpose() * F + F.transpose() * dFi) * elementAbarInv[ei];
-        dAdF.col(c * 3 + r) = ES::Mp<ES::V4d>(dA.data());
+          ES::M2d dA = elementAbarInv[ei] * (dFi.transpose() * F + F.transpose() * dFi) * elementAbarInv[ei];
+          dAdF.col(c * 3 + r) = ES::Mp<ES::V4d>(dA.data());
+        }
       }
-    }
 
-    ES::V9d dEdx = dFdx.transpose() * dAdF.transpose() * ES::Mp<ES::V4d>(dEdA.data());
-    dEdx *= elementWeights[ei];
+      ES::V9d dEdx = dFdx.transpose() * dAdF.transpose() * ES::Mp<ES::V4d>(dEdA.data());
+      dEdx *= elementWeights[ei];
 
-    for (int i = 0; i < 3; i++) {
-      buf->locks[mesh.triVtxID(ei, i)].lock();
+      for (int i = 0; i < 3; i++) {
+        buf->locks[mesh.triVtxID(ei, i)].lock();
 
-      grad.segment<3>(mesh.triVtxID(ei, i) * 3) += dEdx.segment<3>(i * 3) * coeffs[0];
+        grad.segment<3>(mesh.triVtxID(ei, i) * 3) += dEdx.segment<3>(i * 3) * coeffs[0];
 
-      buf->locks[mesh.triVtxID(ei, i)].unlock();
-    }
-  });
+        buf->locks[mesh.triVtxID(ei, i)].unlock();
+      }
+    });
 }
 
 // F = [x1 - x0, x2 - x0]
@@ -225,95 +234,99 @@ void SurfaceTriangleDeformation::hessianInPlace(EigenSupport::ConstRefVecXd x, E
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
   // for (int ei = 0; ei < mesh.numTriangles(); ei++) {
-  tbb::parallel_for(0, mesh.numTriangles(), [&](int ei) {
-    ES::M3x2d F;
-    F.col(0) = x.segment<3>(mesh.triVtxID(ei, 1) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
-    F.col(1) = x.segment<3>(mesh.triVtxID(ei, 2) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
+  pgo::parallel::parallelFor(0, mesh.numTriangles(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int ei) {
+      ES::M3x2d F;
+      F.col(0) = x.segment<3>(mesh.triVtxID(ei, 1) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
+      F.col(1) = x.segment<3>(mesh.triVtxID(ei, 2) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
 
-    ES::M2d A = elementAbarInv[ei] * (F.transpose() * F) * elementAbarInv[ei];
-    double trA = A.trace(), detA = A.determinant();
+      ES::M2d A = elementAbarInv[ei] * (F.transpose() * F) * elementAbarInv[ei];
+      double trA = A.trace(), detA = A.determinant();
 
-    ES::M2d dtrA_dA = ES::M2d::Identity();
-    ES::M2d ddetA_dA;
-    pgo::NonlinearOptimization::Determinant::Dim2::ddetA_dA(A.data(), ddetA_dA.data());
-    ES::M2d dEdA = trA * dtrA_dA - 2 * ddetA_dA;
-    // ES::M2d dEdA = ddetA_dA;
+      ES::M2d dtrA_dA = ES::M2d::Identity();
+      ES::M2d ddetA_dA;
+      pgo::NonlinearOptimization::Determinant::Dim2::ddetA_dA(A.data(), ddetA_dA.data());
+      ES::M2d dEdA = trA * dtrA_dA - 2 * ddetA_dA;
+      // ES::M2d dEdA = ddetA_dA;
 
-    // dE/dA = trA * dtrA/dA - 2 ddetA/dA
-    // d2E/dA2 = dtrA/dA * dtrA/dA - 2 d2detA/dA2
-    ES::M4d d2detA_dA2;
-    pgo::NonlinearOptimization::Determinant::Dim2::d2detA_dA2(A.data(), d2detA_dA2.data());
-    ES::M4d d2EdA2 = ES::Mp<ES::V4d>(dtrA_dA.data()) * ES::Mp<ES::V4d>(dtrA_dA.data()).transpose() - 2 * d2detA_dA2;
-    // ES::M4d d2EdA2 = d2detA_dA2;
+      // dE/dA = trA * dtrA/dA - 2 ddetA/dA
+      // d2E/dA2 = dtrA/dA * dtrA/dA - 2 d2detA/dA2
+      ES::M4d d2detA_dA2;
+      pgo::NonlinearOptimization::Determinant::Dim2::d2detA_dA2(A.data(), d2detA_dA2.data());
+      ES::M4d d2EdA2 = ES::Mp<ES::V4d>(dtrA_dA.data()) * ES::Mp<ES::V4d>(dtrA_dA.data()).transpose() - 2 * d2detA_dA2;
+      // ES::M4d d2EdA2 = d2detA_dA2;
 
-    // dE/dx = dE/dA dA/dx
-    // d2E/dx2 = dA/dx d2E/dA2 dA/dx + dE/dA d2A/dx2
-    Eigen::Matrix<double, 4, 6> dAdF;
-    for (int c = 0; c < 2; c++) {
-      for (int r = 0; r < 3; r++) {
-        ES::M3x2d dFi;
-        dFi.setZero();
-        dFi(r, c) = 1.0;
+      // dE/dx = dE/dA dA/dx
+      // d2E/dx2 = dA/dx d2E/dA2 dA/dx + dE/dA d2A/dx2
+      Eigen::Matrix<double, 4, 6> dAdF;
+      for (int c = 0; c < 2; c++) {
+        for (int r = 0; r < 3; r++) {
+          ES::M3x2d dFi;
+          dFi.setZero();
+          dFi(r, c) = 1.0;
 
-        ES::M2d dA = elementAbarInv[ei] * (dFi.transpose() * F + F.transpose() * dFi) * elementAbarInv[ei];
-        dAdF.col(c * 3 + r) = ES::Mp<ES::V4d>(dA.data());
+          ES::M2d dA = elementAbarInv[ei] * (dFi.transpose() * F + F.transpose() * dFi) * elementAbarInv[ei];
+          dAdF.col(c * 3 + r) = ES::Mp<ES::V4d>(dA.data());
+        }
       }
-    }
 
-    ES::M6d d2AidF2[4];
-    for (int c0 = 0; c0 < 2; c0++) {
-      for (int r0 = 0; r0 < 3; r0++) {
-        ES::M3x2d dFi;
-        dFi.setZero();
-        dFi(r0, c0) = 1.0;
+      ES::M6d d2AidF2[4];
+      for (int c0 = 0; c0 < 2; c0++) {
+        for (int r0 = 0; r0 < 3; r0++) {
+          ES::M3x2d dFi;
+          dFi.setZero();
+          dFi(r0, c0) = 1.0;
 
-        for (int c1 = 0; c1 < 2; c1++) {
-          for (int r1 = 0; r1 < 3; r1++) {
-            ES::M3x2d dFj;
-            dFj.setZero();
-            dFj(r1, c1) = 1.0;
+          for (int c1 = 0; c1 < 2; c1++) {
+            for (int r1 = 0; r1 < 3; r1++) {
+              ES::M3x2d dFj;
+              dFj.setZero();
+              dFj(r1, c1) = 1.0;
 
-            ES::M2d d2AdFidFj = elementAbarInv[ei] * (dFi.transpose() * dFj + dFj.transpose() * dFi) * elementAbarInv[ei];
+              ES::M2d d2AdFidFj = elementAbarInv[ei] * (dFi.transpose() * dFj + dFj.transpose() * dFi) * elementAbarInv[ei];
 
-            for (int k = 0; k < 4; k++) {
-              d2AidF2[k](c0 * 3 + r0, c1 * 3 + r1) = d2AdFidFj.data()[k];
+              for (int k = 0; k < 4; k++) {
+                d2AidF2[k](c0 * 3 + r0, c1 * 3 + r1) = d2AdFidFj.data()[k];
+              }
             }
           }
         }
       }
-    }
 
-    Eigen::Matrix<double, 4, 9> dAdx = dAdF * dFdx;
-    Eigen::Matrix<double, 9, 9> d2Aidx2[4];
-    for (int k = 0; k < 4; k++) {
-      d2Aidx2[k] = dFdx.transpose() * d2AidF2[k] * dFdx;
-    }
-
-    // d2E/dx2 = dA/dx d2E/dA2 dA/dx + dE/dA d2A/dx2
-    ES::M9d hessLocal;
-    hessLocal = dAdx.transpose() * d2EdA2 * dAdx;
-    for (int k = 0; k < 4; k++) {
-      hessLocal += dEdA.data()[k] * d2Aidx2[k];
-    }
-    hessLocal *= elementWeights[ei];
-
-    for (int vi = 0; vi < 3; vi++) {
-      int vidx_i = mesh.triVtxID(ei, vi);
-
-      for (int vj = 0; vj < 3; vj++) {
-        int vidx_j = mesh.triVtxID(ei, vj);
-
-        buf->locks[vidx_i].lock();
-
-        for (int r = 0; r < 3; r++) {
-          for (int c = 0; c < 3; c++) {
-            std::ptrdiff_t offset = elementOffsets[ei](vi * 3 + r, vj * 3 + c);
-            hess.valuePtr()[offset] += hessLocal(vi * 3 + r, vj * 3 + c) * coeffs[0];
-          }
-        }
-
-        buf->locks[vidx_i].unlock();
+      Eigen::Matrix<double, 4, 9> dAdx = dAdF * dFdx;
+      Eigen::Matrix<double, 9, 9> d2Aidx2[4];
+      for (int k = 0; k < 4; k++) {
+        d2Aidx2[k] = dFdx.transpose() * d2AidF2[k] * dFdx;
       }
-    }
-  });
+
+      // d2E/dx2 = dA/dx d2E/dA2 dA/dx + dE/dA d2A/dx2
+      ES::M9d hessLocal;
+      hessLocal = dAdx.transpose() * d2EdA2 * dAdx;
+      for (int k = 0; k < 4; k++) {
+        hessLocal += dEdA.data()[k] * d2Aidx2[k];
+      }
+      hessLocal *= elementWeights[ei];
+
+      for (int vi = 0; vi < 3; vi++) {
+        int vidx_i = mesh.triVtxID(ei, vi);
+
+        for (int vj = 0; vj < 3; vj++) {
+          int vidx_j = mesh.triVtxID(ei, vj);
+
+          buf->locks[vidx_i].lock();
+
+          for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+              std::ptrdiff_t offset = elementOffsets[ei](vi * 3 + r, vj * 3 + c);
+              hess.valuePtr()[offset] += hessLocal(vi * 3 + r, vj * 3 + c) * coeffs[0];
+            }
+          }
+
+          buf->locks[vidx_i].unlock();
+        }
+      }
+    });
 }

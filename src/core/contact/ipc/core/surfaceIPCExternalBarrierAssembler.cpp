@@ -3,9 +3,9 @@
 
 #include "scopedProfileSection.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
+#include "parallelism/parallelFor.h"
 
 #include <tbb/blocked_range.h>
-#include <tbb/parallel_for.h>
 #include <tbb/parallel_reduce.h>
 
 #include <atomic>
@@ -213,10 +213,10 @@ void computeExternalGradient(
   double dhat2 = dhat * dhat;
 
   // PT pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, (int)pairs.ptPairs.size()),
-    [&](const tbb::blocked_range<int> &range) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  pgo::parallel::parallelFor(0, (int)pairs.ptPairs.size(),
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      {
         auto &pair = pairs.ptPairs[i];
         const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
         auto k = barrier_kernels::pointStaticTriangle(
@@ -226,16 +226,16 @@ void computeExternalGradient(
           obsVtx(obsP, pair.obsTri[2]),
           pair.weight, dhat2, kappa, true, false);
         if (!k.active)
-          continue;
+          return;
         scatterExternalPTGrad(k.gradient, pair.dynVertex, grad);
       }
     });
 
   // TP pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, (int)pairs.tpPairs.size()),
-    [&](const tbb::blocked_range<int> &range) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  pgo::parallel::parallelFor(0, (int)pairs.tpPairs.size(),
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      {
         auto &pair = pairs.tpPairs[i];
         const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
         auto k = barrier_kernels::staticPointTriangle(
@@ -245,16 +245,16 @@ void computeExternalGradient(
           dynVtx(dynPos, pair.dynTri[2]),
           pair.weight, dhat2, kappa, true, false);
         if (!k.active)
-          continue;
+          return;
         scatterExternalTPGrad(k.gradient, pair.dynTri, grad);
       }
     });
 
   // EE pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, (int)pairs.eePairs.size()),
-    [&](const tbb::blocked_range<int> &range) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  pgo::parallel::parallelFor(0, (int)pairs.eePairs.size(),
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      {
         auto &pair = pairs.eePairs[i];
         const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
         auto k = barrier_kernels::edgeStaticEdge(
@@ -264,7 +264,7 @@ void computeExternalGradient(
           obsVtx(obsP, pair.obsEdge[1]),
           pair.weight, dhat2, kappa, eps_ee, true, false);
         if (!k.active)
-          continue;
+          return;
         scatterExternalEEGrad(k.gradient, pair.dynEdge, grad);
       }
     });
@@ -300,10 +300,10 @@ void computeExternalHessian(
   double dhat2 = dhat * dhat;
 
   // PT pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, nPT),
-    [&](const tbb::blocked_range<int> &range) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  pgo::parallel::parallelFor(0, nPT,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      {
         auto &pair = pairs.ptPairs[i];
         const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
         auto k = barrier_kernels::pointStaticTriangle(
@@ -313,16 +313,16 @@ void computeExternalHessian(
           obsVtx(obsP, pair.obsTri[2]),
           pair.weight, dhat2, kappa, false, true);
         if (!k.active)
-          continue;
+          return;
         scatterExternalPTHessian(9 * i, k.hessian, pair.dynVertex, state);
       }
     });
 
   // TP pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, nTP),
-    [&](const tbb::blocked_range<int> &range) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  pgo::parallel::parallelFor(0, nTP,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      {
         auto &pair = pairs.tpPairs[i];
         const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
         auto k = barrier_kernels::staticPointTriangle(
@@ -332,16 +332,16 @@ void computeExternalHessian(
           dynVtx(dynPos, pair.dynTri[2]),
           pair.weight, dhat2, kappa, false, true);
         if (!k.active)
-          continue;
+          return;
         scatterExternalTPHessian(9 * nPT + 81 * i, k.hessian, pair.dynTri, state);
       }
     });
 
   // EE pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, nEE),
-    [&](const tbb::blocked_range<int> &range) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  pgo::parallel::parallelFor(0, nEE,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      {
         auto &pair = pairs.eePairs[i];
         const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
         auto k = barrier_kernels::edgeStaticEdge(
@@ -351,7 +351,7 @@ void computeExternalHessian(
           obsVtx(obsP, pair.obsEdge[1]),
           pair.weight, dhat2, kappa, eps_ee, false, true);
         if (!k.active)
-          continue;
+          return;
         scatterExternalEEHessian(9 * nPT + 81 * nTP + 36 * i, k.hessian, pair.dynEdge, state);
       }
     });

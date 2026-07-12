@@ -31,8 +31,8 @@
  *************************************************************************/
 
 #include "generateMassMatrix.h"
+#include "parallelism/parallelFor.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/spin_mutex.h>
 
 using namespace pgo;
@@ -60,34 +60,38 @@ void GenerateMassMatrix::computeMassMatrix(const VolumetricMesh *volumetricMesh,
     entries.resize(numElementVertices * numElementVertices * volumetricMesh->getNumElements());
   }
 
-  tbb::parallel_for(0, volumetricMesh->getNumElements(), [&](int el) {
-    thread_local ES::MXd elementMass;
+  pgo::parallel::parallelFor(0, volumetricMesh->getNumElements(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int el) {
+      thread_local ES::MXd elementMass;
 
-    if (elementMass.rows() != numElementVertices || elementMass.cols() != numElementVertices) {
-      elementMass.resize(numElementVertices, numElementVertices);
-    }
+      if (elementMass.rows() != numElementVertices || elementMass.cols() != numElementVertices) {
+        elementMass.resize(numElementVertices, numElementVertices);
+      }
 
-    volumetricMesh->computeElementMassMatrix(el, elementMass.data());
-    for (int i = 0; i < numElementVertices; i++) {
-      int vtxi = volumetricMesh->getVertexIndex(el, i);
-      for (int j = 0; j < numElementVertices; j++) {
-        int vtxj = volumetricMesh->getVertexIndex(el, j);
-        double w = 1.0;
-        if (elementWeight)
-          w = elementWeight[el];
+      volumetricMesh->computeElementMassMatrix(el, elementMass.data());
+      for (int i = 0; i < numElementVertices; i++) {
+        int vtxi = volumetricMesh->getVertexIndex(el, i);
+        for (int j = 0; j < numElementVertices; j++) {
+          int vtxj = volumetricMesh->getVertexIndex(el, j);
+          double w = 1.0;
+          if (elementWeight)
+            w = elementWeight[el];
 
-        double entry = elementMass(i, j) * w;  // since element mass matrix is symmetric
-        if (inflate3Dim == false) {
-          entries[el * numElementVertices * numElementVertices + i * numElementVertices + j] = ES::TripletD(vtxi, vtxj, entry);
-        }
-        else {
-          for (int d = 0; d < 3; d++) {
-            entries[(el * numElementVertices * numElementVertices + i * numElementVertices + j) * 3 + d] = ES::TripletD(vtxi * 3 + d, vtxj * 3 + d, entry);
+          double entry = elementMass(i, j) * w;  // since element mass matrix is symmetric
+          if (inflate3Dim == false) {
+            entries[el * numElementVertices * numElementVertices + i * numElementVertices + j] = ES::TripletD(vtxi, vtxj, entry);
+          }
+          else {
+            for (int d = 0; d < 3; d++) {
+              entries[(el * numElementVertices * numElementVertices + i * numElementVertices + j) * 3 + d] = ES::TripletD(vtxi * 3 + d, vtxj * 3 + d, entry);
+            }
           }
         }
       }
-    }
-  });
+    });
 
   massMatrix.setFromTriplets(entries.begin(), entries.end());
 }
@@ -99,28 +103,32 @@ void GenerateMassMatrix::computeVertexMasses(const VolumetricMesh *volumetricMes
   memset(masses, 0, sizeof(double) * n * (inflate3Dim ? 3 : 1));
 
   std::vector<tbb::spin_mutex> vtxLocks(n);
-  tbb::parallel_for(0, volumetricMesh->getNumElements(), [&](int el) {
-    thread_local ES::MXd elementMass;
+  pgo::parallel::parallelFor(0, volumetricMesh->getNumElements(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int el) {
+      thread_local ES::MXd elementMass;
 
-    if (elementMass.rows() != numElementVertices || elementMass.cols() != numElementVertices) {
-      elementMass.resize(numElementVertices, numElementVertices);
-    }
-
-    volumetricMesh->computeElementMassMatrix(el, elementMass.data());
-    for (int i = 0; i < numElementVertices; i++) {
-      int vtxi = volumetricMesh->getVertexIndex(el, i);
-      double vtxMass = 0.0;
-      for (int j = 0; j < numElementVertices; j++) {
-        vtxMass += elementMass(i, j);  // since element mass matrix is symmetric
+      if (elementMass.rows() != numElementVertices || elementMass.cols() != numElementVertices) {
+        elementMass.resize(numElementVertices, numElementVertices);
       }
 
-      double *massBufferPtr = (inflate3Dim ? &masses[3 * vtxi] : &masses[vtxi]);
+      volumetricMesh->computeElementMassMatrix(el, elementMass.data());
+      for (int i = 0; i < numElementVertices; i++) {
+        int vtxi = volumetricMesh->getVertexIndex(el, i);
+        double vtxMass = 0.0;
+        for (int j = 0; j < numElementVertices; j++) {
+          vtxMass += elementMass(i, j);  // since element mass matrix is symmetric
+        }
 
-      vtxLocks[vtxi].lock();
-      *massBufferPtr += vtxMass;
-      vtxLocks[vtxi].unlock();
-    }
-  });
+        double *massBufferPtr = (inflate3Dim ? &masses[3 * vtxi] : &masses[vtxi]);
+
+        vtxLocks[vtxi].lock();
+        *massBufferPtr += vtxMass;
+        vtxLocks[vtxi].unlock();
+      }
+    });
 
   if (inflate3Dim)
     for (int i = 0; i < n; i++)
@@ -134,17 +142,21 @@ void GenerateMassMatrix::computeVertexMassesByAveragingNeighboringElements(const
   double invNumEleVtx = 1.0 / numElementVertices;
   memset(masses, 0, sizeof(double) * n * (inflate3Dim ? 3 : 1));
   std::vector<tbb::spin_mutex> vtxLocks(n);
-  tbb::parallel_for(0, volumetricMesh->getNumElements(), [&](int el) {
-    double vtxMass = volumetricMesh->getElementVolume(el) * volumetricMesh->getElementDensity(el) * invNumEleVtx;
-    for (int i = 0; i < numElementVertices; i++) {
-      int vtxi = volumetricMesh->getVertexIndex(el, i);
+  pgo::parallel::parallelFor(0, volumetricMesh->getNumElements(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int el) {
+      double vtxMass = volumetricMesh->getElementVolume(el) * volumetricMesh->getElementDensity(el) * invNumEleVtx;
+      for (int i = 0; i < numElementVertices; i++) {
+        int vtxi = volumetricMesh->getVertexIndex(el, i);
 
-      double *massBufferPtr = (inflate3Dim ? &masses[3 * vtxi] : &masses[vtxi]);
-      vtxLocks[vtxi].lock();
-      *massBufferPtr += vtxMass;
-      vtxLocks[vtxi].unlock();
-    }
-  });
+        double *massBufferPtr = (inflate3Dim ? &masses[3 * vtxi] : &masses[vtxi]);
+        vtxLocks[vtxi].lock();
+        *massBufferPtr += vtxMass;
+        vtxLocks[vtxi].unlock();
+      }
+    });
 
   if (inflate3Dim)
     for (int i = 0; i < n; i++)

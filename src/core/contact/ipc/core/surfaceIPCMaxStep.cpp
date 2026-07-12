@@ -4,10 +4,10 @@
 #include "ipc/geometry/ipcCCD.h"
 #include "scopedProfileSection.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
+#include "parallelism/parallelFor.h"
 
 #include <tbb/blocked_range.h>
 #include <tbb/enumerable_thread_specific.h>
-#include <tbb/parallel_for.h>
 #include <tbb/parallel_reduce.h>
 
 #include <algorithm>
@@ -111,40 +111,37 @@ double computeSelfMaxStep(
 
     // Inflate swept AABBs by `thickness` on every side so the broad-phase
     // prune stays sound for min-separation CCD (contact at distance == thickness).
-    tbb::parallel_for(tbb::blocked_range<int>(0, topology.numVerts),
-      [&](const tbb::blocked_range<int> &r) {
-        for (int vi = r.begin(); vi < r.end(); ++vi) {
-          V3d p0 = getV(vi), p1 = p0 + getdV(vi);
-          vertBox[vi].init(p0, thickness);
-          vertBox[vi].expand(p1, thickness);
-        }
+    pgo::parallel::parallelFor(0, topology.numVerts,
+      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+      [&](int vi) {
+        V3d p0 = getV(vi), p1 = p0 + getdV(vi);
+        vertBox[vi].init(p0, thickness);
+        vertBox[vi].expand(p1, thickness);
       });
 
-    tbb::parallel_for(tbb::blocked_range<int>(0, nTri),
-      [&](const tbb::blocked_range<int> &r) {
-        for (int fi = r.begin(); fi < r.end(); ++fi) {
-          auto &tri = topology.triangles[fi];
-          V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
-          V3d d0 = getdV(tri[0]), d1 = getdV(tri[1]), d2 = getdV(tri[2]);
-          triBox[fi].init(v0, thickness);
-          triBox[fi].expand(v1, thickness);
-          triBox[fi].expand(v2, thickness);
-          triBox[fi].expand(v0 + d0, thickness);
-          triBox[fi].expand(v1 + d1, thickness);
-          triBox[fi].expand(v2 + d2, thickness);
-        }
+    pgo::parallel::parallelFor(0, nTri,
+      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+      [&](int fi) {
+        auto &tri = topology.triangles[fi];
+        V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
+        V3d d0 = getdV(tri[0]), d1 = getdV(tri[1]), d2 = getdV(tri[2]);
+        triBox[fi].init(v0, thickness);
+        triBox[fi].expand(v1, thickness);
+        triBox[fi].expand(v2, thickness);
+        triBox[fi].expand(v0 + d0, thickness);
+        triBox[fi].expand(v1 + d1, thickness);
+        triBox[fi].expand(v2 + d2, thickness);
       });
 
-    tbb::parallel_for(tbb::blocked_range<int>(0, nEdge),
-      [&](const tbb::blocked_range<int> &r) {
-        for (int ei = r.begin(); ei < r.end(); ++ei) {
-          V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
-          V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
-          edgeBox[ei].init(a0, thickness);
-          edgeBox[ei].expand(a1, thickness);
-          edgeBox[ei].expand(a0 + da0, thickness);
-          edgeBox[ei].expand(a1 + da1, thickness);
-        }
+    pgo::parallel::parallelFor(0, nEdge,
+      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+      [&](int ei) {
+        V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
+        V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
+        edgeBox[ei].init(a0, thickness);
+        edgeBox[ei].expand(a1, thickness);
+        edgeBox[ei].expand(a0 + da0, thickness);
+        edgeBox[ei].expand(a1 + da1, thickness);
       });
 
     double avgBoxDiag = tbb::parallel_reduce(
@@ -312,13 +309,12 @@ double computeExternalMaxStep(
   // this swept surface box, external CCD can return before constructing the
   // heavier dynamic triangle/edge AABBs and hashes.
   std::vector<SpatialHashGrid::AABB> dynVertBox(topology.numVerts);
-  tbb::parallel_for(tbb::blocked_range<int>(0, topology.numVerts),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int vi = r.begin(); vi < r.end(); ++vi) {
-        V3d p0 = getV(vi), p1 = p0 + getdV(vi);
-        dynVertBox[vi].init(p0, thickness);
-        dynVertBox[vi].expand(p1, thickness);
-      }
+  pgo::parallel::parallelFor(0, topology.numVerts,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int vi) {
+      V3d p0 = getV(vi), p1 = p0 + getdV(vi);
+      dynVertBox[vi].init(p0, thickness);
+      dynVertBox[vi].expand(p1, thickness);
     });
 
   SpatialHashGrid::AABB dynSurfaceBox;
@@ -358,31 +354,29 @@ double computeExternalMaxStep(
   std::vector<SpatialHashGrid::AABB> dynTriBox(nDynTri);
   std::vector<SpatialHashGrid::AABB> dynEdgeBox(nDynEdge);
 
-  tbb::parallel_for(tbb::blocked_range<int>(0, nDynTri),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int fi = r.begin(); fi < r.end(); ++fi) {
-        auto &tri = topology.triangles[fi];
-        V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
-        V3d d0 = getdV(tri[0]), d1 = getdV(tri[1]), d2 = getdV(tri[2]);
-        dynTriBox[fi].init(v0, thickness);
-        dynTriBox[fi].expand(v1, thickness);
-        dynTriBox[fi].expand(v2, thickness);
-        dynTriBox[fi].expand(v0 + d0, thickness);
-        dynTriBox[fi].expand(v1 + d1, thickness);
-        dynTriBox[fi].expand(v2 + d2, thickness);
-      }
+  pgo::parallel::parallelFor(0, nDynTri,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int fi) {
+      auto &tri = topology.triangles[fi];
+      V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
+      V3d d0 = getdV(tri[0]), d1 = getdV(tri[1]), d2 = getdV(tri[2]);
+      dynTriBox[fi].init(v0, thickness);
+      dynTriBox[fi].expand(v1, thickness);
+      dynTriBox[fi].expand(v2, thickness);
+      dynTriBox[fi].expand(v0 + d0, thickness);
+      dynTriBox[fi].expand(v1 + d1, thickness);
+      dynTriBox[fi].expand(v2 + d2, thickness);
     });
 
-  tbb::parallel_for(tbb::blocked_range<int>(0, nDynEdge),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int ei = r.begin(); ei < r.end(); ++ei) {
-        V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
-        V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
-        dynEdgeBox[ei].init(a0, thickness);
-        dynEdgeBox[ei].expand(a1, thickness);
-        dynEdgeBox[ei].expand(a0 + da0, thickness);
-        dynEdgeBox[ei].expand(a1 + da1, thickness);
-      }
+  pgo::parallel::parallelFor(0, nDynEdge,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int ei) {
+      V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
+      V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
+      dynEdgeBox[ei].init(a0, thickness);
+      dynEdgeBox[ei].expand(a1, thickness);
+      dynEdgeBox[ei].expand(a0 + da0, thickness);
+      dynEdgeBox[ei].expand(a1 + da1, thickness);
     });
 
   for (const ObstacleSurfaceView *obsPtr : overlappingObstacles) {

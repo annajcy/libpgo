@@ -22,8 +22,9 @@ if(TARGET MKL::MKL)
   list(APPEND GEOMETRY_POTENTIAL_ENERGIES_DEPS MKL::MKL)
 endif()
 
-pgo_require_targets(geometryPotentialEnergies TARGETS ${GEOMETRY_POTENTIAL_ENERGIES_DEPS})
+pgo_require_targets(geometryPotentialEnergies TARGETS ${GEOMETRY_POTENTIAL_ENERGIES_DEPS} parallelism TBB::tbb)
 
 add_libpgo_lib(geometryPotentialEnergies "${GEOMETRY_POTENTIAL_ENERGIES_SOURCES}" "${GEOMETRY_POTENTIAL_ENERGIES_HEADERS}")
 
 target_link_libraries(geometryPotentialEnergies PUBLIC ${GEOMETRY_POTENTIAL_ENERGIES_DEPS})
+target_link_libraries(geometryPotentialEnergies PRIVATE parallelism TBB::tbb)

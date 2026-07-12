@@ -48,7 +48,7 @@
 #  include "cgalInterface.h"
 #endif
 
-#include <tbb/parallel_for.h>
+#include "parallelism/parallelFor.h"
 
 #include <fmt/format.h>
 
@@ -556,15 +556,19 @@ void pgo_trimesh_closest_distances(pgoTriMeshGeoStructHandle trimesh, int n, dou
   pgo::Mesh::TriMeshBVTree bvTree;
   bvTree.buildByInertiaPartition(*mesh);
 
-  tbb::parallel_for(0, n, [&](int i) {
-    pgo::Vec3d pt(queryPos + i * 3);
-    auto ret = bvTree.closestTriangleQuery(*mesh, pt);
-    queryDistance[i] = ret.dist2;
+  pgo::parallel::parallelFor(0, n,
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int i) {
+      pgo::Vec3d pt(queryPos + i * 3);
+      auto ret = bvTree.closestTriangleQuery(*mesh, pt);
+      queryDistance[i] = ret.dist2;
 
-    if (queryTri) {
-      queryTri[i] = ret.triID;
-    }
-  });
+      if (queryTri) {
+        queryTri[i] = ret.triID;
+      }
+    });
 }
 
 void pgo_tetmesh_barycentric_weights(pgoTetMeshGeoStructHandle tetmesh, int n, double *queryPos, double *queryW, int *queryEle)
@@ -575,12 +579,16 @@ void pgo_tetmesh_barycentric_weights(pgoTetMeshGeoStructHandle tetmesh, int n, d
   pgo::Mesh::TetMeshBVTree bvTree;
   bvTree.buildByInertiaPartition(*mesh);
 
-  tbb::parallel_for(0, n, [&](int i) {
-    pgo::Vec3d pt(queryPos + i * 3);
-    int ele = bvTree.getClosestTet(*mesh, pt);
-    queryEle[i] = ele;
-    pgo::Mesh::getTetBarycentricWeights(pt, mesh->pos(ele, 0), mesh->pos(ele, 1), mesh->pos(ele, 2), mesh->pos(ele, 3), queryW + i * 4);
-  });
+  pgo::parallel::parallelFor(0, n,
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int i) {
+      pgo::Vec3d pt(queryPos + i * 3);
+      int ele = bvTree.getClosestTet(*mesh, pt);
+      queryEle[i] = ele;
+      pgo::Mesh::getTetBarycentricWeights(pt, mesh->pos(ele, 0), mesh->pos(ele, 1), mesh->pos(ele, 2), mesh->pos(ele, 3), queryW + i * 4);
+    });
 }
 
 int pgo_run_sim_from_config(const char *configFileName)

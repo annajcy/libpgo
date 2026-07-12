@@ -81,9 +81,7 @@ double MultipleVertexPullingSoftConstraintsPOrder::func(ES::ConstRefVecXd u) con
   }
 
   for (int ci = 0; ci < (int)coeffs.size(); ci++) {
-    // tbb::parallel_for(    0, (int)coeffs.size(), [&](int ci) {
     if (std::abs(coeffs[ci]) < 1e-10)
-      // return;
       continue;
 
     int vid = vertexIndices[ci];
@@ -113,7 +111,7 @@ double MultipleVertexPullingSoftConstraintsPOrder::func(ES::ConstRefVecXd u) con
     else {
       energyLocal += std::pow(proj, pvalue) * 0.5 * coeffs[ci];
     }
-  }  // ,    tbb::static_partitioner());
+  }
 
   double energyAll = std::accumulate(buf->energyTLS.begin(), buf->energyTLS.end(), 0.0) * coeffAll;
 

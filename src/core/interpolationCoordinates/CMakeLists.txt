@@ -2,8 +2,9 @@ set(INTERPOLATIONCOORDINATES_HEADERS interpolationCoordinatesBase.h meanValueCoo
 set(INTERPOLATIONCOORDINATES_SOURCES meanValueCoordinates.cpp GreenCoordinates.cpp barycentricCoordinates.cpp)
 set(INTERPOLATIONCOORDINATES_DEPS volumetricMesh)
 
-pgo_require_targets(interpolationCoordinates TARGETS ${INTERPOLATIONCOORDINATES_DEPS})
+pgo_require_targets(interpolationCoordinates TARGETS ${INTERPOLATIONCOORDINATES_DEPS} parallelism TBB::tbb)
 
 add_libpgo_lib(interpolationCoordinates "${INTERPOLATIONCOORDINATES_SOURCES}" "${INTERPOLATIONCOORDINATES_HEADERS}")
 
 target_link_libraries(interpolationCoordinates PUBLIC ${INTERPOLATIONCOORDINATES_DEPS})
+target_link_libraries(interpolationCoordinates PRIVATE parallelism TBB::tbb)

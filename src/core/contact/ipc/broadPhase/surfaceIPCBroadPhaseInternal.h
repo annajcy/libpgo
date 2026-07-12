@@ -3,6 +3,7 @@
 #include "EigenDef.h"
 #include "ipc/broadPhase/spatialHashGrid.h"
 #include "scopedProfileSection.h"
+#include "parallelism/parallelFor.h"
 
 #include <tbb/blocked_range.h>
 #include <tbb/enumerable_thread_specific.h>
@@ -28,10 +29,10 @@ void buildVertexAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   GetV &&getV, double inflate)
 {
-  tbb::parallel_for(tbb::blocked_range<int>(0, n),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int i = r.begin(); i < r.end(); ++i)
-        boxes[i].init(getV(i), inflate);
+  pgo::parallel::parallelFor(0, n,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      boxes[i].init(getV(i), inflate);
     });
 }
 
@@ -40,14 +41,13 @@ void buildTriangleAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   const Triangles &triangles, GetV &&getV, double inflate)
 {
-  tbb::parallel_for(tbb::blocked_range<int>(0, n),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int fi = r.begin(); fi < r.end(); ++fi) {
-        auto &tri = triangles[fi];
-        boxes[fi].init(getV(tri[0]), inflate);
-        boxes[fi].expand(getV(tri[1]), inflate);
-        boxes[fi].expand(getV(tri[2]), inflate);
-      }
+  pgo::parallel::parallelFor(0, n,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int fi) {
+      auto &tri = triangles[fi];
+      boxes[fi].init(getV(tri[0]), inflate);
+      boxes[fi].expand(getV(tri[1]), inflate);
+      boxes[fi].expand(getV(tri[2]), inflate);
     });
 }
 
@@ -56,12 +56,11 @@ void buildEdgeAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   const Edges &edges, GetV &&getV, double inflate)
 {
-  tbb::parallel_for(tbb::blocked_range<int>(0, n),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int ei = r.begin(); ei < r.end(); ++ei) {
-        boxes[ei].init(getV(edges[ei][0]), inflate);
-        boxes[ei].expand(getV(edges[ei][1]), inflate);
-      }
+  pgo::parallel::parallelFor(0, n,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int ei) {
+      boxes[ei].init(getV(edges[ei][0]), inflate);
+      boxes[ei].expand(getV(edges[ei][1]), inflate);
     });
 }
 
@@ -70,13 +69,12 @@ void buildSweptVertexAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   GetV &&getV, GetDV &&getDV, double inflate)
 {
-  tbb::parallel_for(tbb::blocked_range<int>(0, n),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int i = r.begin(); i < r.end(); ++i) {
-        const EigenSupport::V3d v0 = getV(i);
-        boxes[i].init(v0, inflate);
-        boxes[i].expand(v0 + getDV(i), inflate);
-      }
+  pgo::parallel::parallelFor(0, n,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int i) {
+      const EigenSupport::V3d v0 = getV(i);
+      boxes[i].init(v0, inflate);
+      boxes[i].expand(v0 + getDV(i), inflate);
     });
 }
 
@@ -85,20 +83,19 @@ void buildSweptTriangleAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   const Triangles &triangles, GetV &&getV, GetDV &&getDV, double inflate)
 {
-  tbb::parallel_for(tbb::blocked_range<int>(0, n),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int fi = r.begin(); fi < r.end(); ++fi) {
-        auto &tri = triangles[fi];
-        const EigenSupport::V3d v0 = getV(tri[0]);
-        const EigenSupport::V3d v1 = getV(tri[1]);
-        const EigenSupport::V3d v2 = getV(tri[2]);
-        boxes[fi].init(v0, inflate);
-        boxes[fi].expand(v1, inflate);
-        boxes[fi].expand(v2, inflate);
-        boxes[fi].expand(v0 + getDV(tri[0]), inflate);
-        boxes[fi].expand(v1 + getDV(tri[1]), inflate);
-        boxes[fi].expand(v2 + getDV(tri[2]), inflate);
-      }
+  pgo::parallel::parallelFor(0, n,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int fi) {
+      auto &tri = triangles[fi];
+      const EigenSupport::V3d v0 = getV(tri[0]);
+      const EigenSupport::V3d v1 = getV(tri[1]);
+      const EigenSupport::V3d v2 = getV(tri[2]);
+      boxes[fi].init(v0, inflate);
+      boxes[fi].expand(v1, inflate);
+      boxes[fi].expand(v2, inflate);
+      boxes[fi].expand(v0 + getDV(tri[0]), inflate);
+      boxes[fi].expand(v1 + getDV(tri[1]), inflate);
+      boxes[fi].expand(v2 + getDV(tri[2]), inflate);
     });
 }
 
@@ -107,16 +104,15 @@ void buildSweptEdgeAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   const Edges &edges, GetV &&getV, GetDV &&getDV, double inflate)
 {
-  tbb::parallel_for(tbb::blocked_range<int>(0, n),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int ei = r.begin(); ei < r.end(); ++ei) {
-        const EigenSupport::V3d v0 = getV(edges[ei][0]);
-        const EigenSupport::V3d v1 = getV(edges[ei][1]);
-        boxes[ei].init(v0, inflate);
-        boxes[ei].expand(v1, inflate);
-        boxes[ei].expand(v0 + getDV(edges[ei][0]), inflate);
-        boxes[ei].expand(v1 + getDV(edges[ei][1]), inflate);
-      }
+  pgo::parallel::parallelFor(0, n,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int ei) {
+      const EigenSupport::V3d v0 = getV(edges[ei][0]);
+      const EigenSupport::V3d v1 = getV(edges[ei][1]);
+      boxes[ei].init(v0, inflate);
+      boxes[ei].expand(v1, inflate);
+      boxes[ei].expand(v0 + getDV(edges[ei][0]), inflate);
+      boxes[ei].expand(v1 + getDV(edges[ei][1]), inflate);
     });
 }
 

@@ -75,8 +75,8 @@ set(CONTACT_SOURCES
   ipc/topology/surfaceIPCTopology.cpp
 )
 
-set(CONTACT_PUBLIC_DEPS mesh nonlinearOptimization profiling)
-set(CONTACT_PRIVATE_DEPS CCD::SafeCCD CCD::Exact)
+set(CONTACT_PUBLIC_DEPS mesh nonlinearOptimization profiling TBB::tbb)
+set(CONTACT_PRIVATE_DEPS CCD::SafeCCD CCD::Exact parallelism)
 
 pgo_require_targets(selfContact TARGETS ${CONTACT_PUBLIC_DEPS} ${CONTACT_PRIVATE_DEPS})
 

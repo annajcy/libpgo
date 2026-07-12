@@ -1,6 +1,7 @@
 #include "energy/energySet.h"
 #include "EigenSupport.h"
 #include "scopedProfileSection.h"
+#include "parallelism/parallelFor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -337,15 +338,16 @@ void buildEnergySetHessianTemplateRowWise(
     if (canDirectFill) {
       std::copy(outerOffsets.begin(), outerOffsets.end(), hessianTemplate.outerIndexPtr());
 
-      tbb::parallel_for(tbb::blocked_range<int>(0, nAll),
-        [&](const tbb::blocked_range<int> &range) {
-          for (int row = range.begin(); row < range.end(); ++row) {
-            const auto &columns = rowColumns[static_cast<std::size_t>(row)];
-            StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
-            for (StorageIndex k = 0; k < static_cast<StorageIndex>(columns.size()); ++k) {
-              hessianTemplate.innerIndexPtr()[offset + k] = columns[k];
-              hessianTemplate.valuePtr()[offset + k] = 1.0;
-            }
+      pgo::parallel::parallelFor(0, nAll,
+        pgo::parallel::Options{
+          .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+        },
+        [&](int row) {
+          const auto &columns = rowColumns[static_cast<std::size_t>(row)];
+          StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
+          for (StorageIndex k = 0; k < static_cast<StorageIndex>(columns.size()); ++k) {
+            hessianTemplate.innerIndexPtr()[offset + k] = columns[k];
+            hessianTemplate.valuePtr()[offset + k] = 1.0;
           }
         });
     }

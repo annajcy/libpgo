@@ -9,8 +9,8 @@
 #include "triMeshPseudoNormal.h"
 #include "EigenSupport.h"
 #include "automaticDifferentiation_autodiff.h"
+#include "parallelism/parallelFor.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/cache_aligned_allocator.h>
 #include <tbb/enumerable_thread_specific.h>
 #include <tbb/spin_mutex.h>
@@ -90,83 +90,85 @@ PointTrianglePairCouplingEnergyWithCollision::PointTrianglePairCouplingEnergyWit
   neighboringTriangles.assign(numPairs, std::vector<int>());
 
   // for (int pi = 0; pi < numPairs; pi++) {
-  tbb::parallel_for(0, numPairs, [&](int pi) {
+  pgo::parallel::parallelFor(0, numPairs,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int pi) {
 #if 0
     auto &localBuf = entriesTLS.local();
     if (localBuf.size() == 0ull)
       localBuf.reserve(1 << 20);
 #else
-    auto &localBuf = entriesCC;
+      auto &localBuf = entriesCC;
 #endif
-    for (int vi = 0; vi < 4; vi++) {
-      int vidi = pointTrianglePairs[pi][vi];
-      int mi = objectIDs[pi][vi];
+      for (int vi = 0; vi < 4; vi++) {
+        int vidi = pointTrianglePairs[pi][vi];
+        int mi = objectIDs[pi][vi];
 
-      for (int vj = 0; vj < 4; vj++) {
-        int vidj = pointTrianglePairs[pi][vj];
-        int mj = objectIDs[pi][vj];
+        for (int vj = 0; vj < 4; vj++) {
+          int vidj = pointTrianglePairs[pi][vj];
+          int mj = objectIDs[pi][vj];
 
-        for (ES::SpMatD::InnerIterator it_i(sampleEmbeddingWeights[mi], vidi * 3); it_i; ++it_i) {
-          int actual_vidi = (int)it_i.col() / 3;
+          for (ES::SpMatD::InnerIterator it_i(sampleEmbeddingWeights[mi], vidi * 3); it_i; ++it_i) {
+            int actual_vidi = (int)it_i.col() / 3;
 
-          for (ES::SpMatD::InnerIterator it_j(sampleEmbeddingWeights[mj], vidj * 3); it_j; ++it_j) {
-            int actual_vidj = (int)it_j.col() / 3;
+            for (ES::SpMatD::InnerIterator it_j(sampleEmbeddingWeights[mj], vidj * 3); it_j; ++it_j) {
+              int actual_vidj = (int)it_j.col() / 3;
 
-            for (int i1 = 0; i1 < 3; i1++) {
-              for (int i2 = 0; i2 < 3; i2++) {
-                int row = objectDOFOffsets[mi] + actual_vidi * 3 + i1;
-                int col = objectDOFOffsets[mj] + actual_vidj * 3 + i2;
-                // entries.emplace_back(actual_vidi * 3 + i1, actual_vidj * 3 + i2, 0);
-                // localBuf.emplace_back(
-                //  objectDOFOffsets[mi] + actual_vidi * 3 + i1,
-                //  objectDOFOffsets[mj] + actual_vidj * 3 + i2,
-                //  1);
+              for (int i1 = 0; i1 < 3; i1++) {
+                for (int i2 = 0; i2 < 3; i2++) {
+                  int row = objectDOFOffsets[mi] + actual_vidi * 3 + i1;
+                  int col = objectDOFOffsets[mj] + actual_vidj * 3 + i2;
+                  // entries.emplace_back(actual_vidi * 3 + i1, actual_vidj * 3 + i2, 0);
+                  // localBuf.emplace_back(
+                  //  objectDOFOffsets[mi] + actual_vidi * 3 + i1,
+                  //  objectDOFOffsets[mj] + actual_vidj * 3 + i2,
+                  //  1);
 
-                uint64_t rc = (uint64_t)row << 32ull | (uint64_t)col;
-                localBuf.emplace(rc);
+                  uint64_t rc = (uint64_t)row << 32ull | (uint64_t)col;
+                  localBuf.emplace(rc);
+                }
               }
             }
           }
+        }  // vj
+      }  // vi
+
+      // for the triangle, we get the neighbors
+      int triObjID = getTriangleObjectID(pi);
+      int triID = triangleIDs[pi];
+      ES::V3i triVtxID = surfaceMeshesRest[triObjID].tri(triID);
+
+      neighboringTriangles[pi].reserve(50);
+
+      for (int vi = 0; vi < 3; vi++) {
+        const auto &neighbors = surfaceMeshNeighbors_[triObjID].getVtxNearbyTriangles(triVtxID[vi]);
+        for (int ni : neighbors)
+          if (ni >= 0)
+            neighboringTriangles[pi].emplace_back(ni);
+      }
+
+      int count = (int)neighboringTriangles[pi].size();
+      for (int ti = 0; ti < count; ti++) {
+        ES::V3i n = surfaceMeshNeighbors_[triObjID].getTriangleNeighbors(neighboringTriangles[pi][ti]);
+        for (int j = 0; j < 3; j++) {
+          int ni = n[j];
+          if (ni >= 0)
+            neighboringTriangles[pi].emplace_back(ni);
         }
-      }  // vj
-    }  // vi
-
-    // for the triangle, we get the neighbors
-    int triObjID = getTriangleObjectID(pi);
-    int triID = triangleIDs[pi];
-    ES::V3i triVtxID = surfaceMeshesRest[triObjID].tri(triID);
-
-    neighboringTriangles[pi].reserve(50);
-
-    for (int vi = 0; vi < 3; vi++) {
-      const auto &neighbors = surfaceMeshNeighbors_[triObjID].getVtxNearbyTriangles(triVtxID[vi]);
-      for (int ni : neighbors)
-        if (ni >= 0)
-          neighboringTriangles[pi].emplace_back(ni);
-    }
-
-    int count = (int)neighboringTriangles[pi].size();
-    for (int ti = 0; ti < count; ti++) {
-      ES::V3i n = surfaceMeshNeighbors_[triObjID].getTriangleNeighbors(neighboringTriangles[pi][ti]);
-      for (int j = 0; j < 3; j++) {
-        int ni = n[j];
-        if (ni >= 0)
-          neighboringTriangles[pi].emplace_back(ni);
       }
-    }
 
-    sortAndDeduplicateWithErase(neighboringTriangles[pi]);
+      sortAndDeduplicateWithErase(neighboringTriangles[pi]);
 
-    // put the direct triangle at the first of the array
-    for (size_t i = 0; i < neighboringTriangles[pi].size(); i++) {
-      if (neighboringTriangles[pi][i] == triID) {
-        if (i != 0)
-          std::swap(neighboringTriangles[pi][0], neighboringTriangles[pi][i]);
+      // put the direct triangle at the first of the array
+      for (size_t i = 0; i < neighboringTriangles[pi].size(); i++) {
+        if (neighboringTriangles[pi][i] == triID) {
+          if (i != 0)
+            std::swap(neighboringTriangles[pi][0], neighboringTriangles[pi][i]);
 
-        break;
+          break;
+        }
       }
-    }
-  });  // contacted pair
+    });  // contacted pair
 
   std::vector<ES::TripletD> entries;
 #if 0
@@ -455,14 +457,18 @@ double PointTrianglePairCouplingEnergyWithCollision::func(ES::ConstRefVecXd x) c
   for (auto it = buf->energyBufferFC.begin(); it != buf->energyBufferFC.end(); ++it)
     *it = 0;
 
-  tbb::parallel_for(0, numObjects, [&](int mi) {
-    tbb::parallel_for(0, buf->surfaceMeshesRuntime[mi].numVertices(), [&](int vi) {
-      int sampleID = vertexIDToSampleIDs[mi][vi];
-      ES::V3d p = computePosition(x, mi, sampleID);
-      buf->surfaceMeshesRuntime[mi].pos(vi) = p;
+  pgo::parallel::parallelFor(0, numObjects,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int mi) {
+      pgo::parallel::parallelFor(0, buf->surfaceMeshesRuntime[mi].numVertices(),
+        pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+        [&](int vi) {
+          int sampleID = vertexIDToSampleIDs[mi][vi];
+          ES::V3d p = computePosition(x, mi, sampleID);
+          buf->surfaceMeshesRuntime[mi].pos(vi) = p;
+        });
+      buf->surfaceNormals[mi].updateVertexPositions(buf->surfaceMeshesRuntime[mi]);
     });
-    buf->surfaceNormals[mi].updateVertexPositions(buf->surfaceMeshesRuntime[mi]);
-  });
 
   // ES::VXd p(x.size());
   // for (int i = 0; i < p.size() / 3; i++) {
@@ -546,9 +552,11 @@ double PointTrianglePairCouplingEnergyWithCollision::func(ES::ConstRefVecXd x) c
   };
 
   // for (int pi = 0; pi < numPairs; pi++) {
-  tbb::parallel_for(0, numPairs, [&](int pi) {
-    localEnergy(pi);
-  });
+  pgo::parallel::parallelFor(0, numPairs,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int pi) {
+      localEnergy(pi);
+    });
   // }
 
   double energyAll = std::accumulate(buf->energyBuffer.begin(), buf->energyBuffer.end(), 0.0);
@@ -570,14 +578,18 @@ void PointTrianglePairCouplingEnergyWithCollision::gradient(ES::ConstRefVecXd x,
   fn.setZero(grad.size());
   ff.setZero(grad.size());
 
-  tbb::parallel_for(0, numObjects, [&](int mi) {
-    tbb::parallel_for(0, buf->surfaceMeshesRuntime[mi].numVertices(), [&](int vi) {
-      int sampleID = vertexIDToSampleIDs[mi][vi];
-      ES::V3d p = computePosition(x, mi, sampleID);
-      buf->surfaceMeshesRuntime[mi].pos(vi) = p;
+  pgo::parallel::parallelFor(0, numObjects,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int mi) {
+      pgo::parallel::parallelFor(0, buf->surfaceMeshesRuntime[mi].numVertices(),
+        pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+        [&](int vi) {
+          int sampleID = vertexIDToSampleIDs[mi][vi];
+          ES::V3d p = computePosition(x, mi, sampleID);
+          buf->surfaceMeshesRuntime[mi].pos(vi) = p;
+        });
+      buf->surfaceNormals[mi].updateVertexPositions(buf->surfaceMeshesRuntime[mi]);
     });
-    buf->surfaceNormals[mi].updateVertexPositions(buf->surfaceMeshesRuntime[mi]);
-  });
 
   auto localGradFunc = [&](int pi) {
     if (contactStatus[pi] == 0)
@@ -655,10 +667,12 @@ void PointTrianglePairCouplingEnergyWithCollision::gradient(ES::ConstRefVecXd x,
     }
   };
 
-  tbb::parallel_for(0, numPairs, [&](int pi) {
-    // for (int pi = 0; pi < numPairs; pi++) {
-    localGradFunc(pi);
-  });
+  pgo::parallel::parallelFor(0, numPairs,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int pi) {
+      // for (int pi = 0; pi < numPairs; pi++) {
+      localGradFunc(pi);
+    });
 }
 
 void PointTrianglePairCouplingEnergyWithCollision::hessianInPlace(ES::ConstRefVecXd x, ES::SpMatD &hess) const
@@ -756,9 +770,11 @@ void PointTrianglePairCouplingEnergyWithCollision::hessianInPlace(ES::ConstRefVe
   };
 
   // for (int pi = 0; pi < numPairs; pi++) {
-  tbb::parallel_for(0, numPairs, [&](int pi) {
-    localHessian(pi);
-  });
+  pgo::parallel::parallelFor(0, numPairs,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int pi) {
+      localHessian(pi);
+    });
 
   // std::cerr << std::endl;
 }
@@ -855,51 +871,53 @@ void PointTrianglePairCouplingEnergyWithCollision::computeClosestPosition(const 
   // ObjMesh(ppp, ttt).save("zzz.obj");
 
   // for (int pi = 0; pi < numPairs; pi++) {
-  tbb::parallel_for(0, numPairs, [&](int pi) {
-    ES::V12d xlocal;
-    bool inContact = true;
-    inContact = std::get<0>(checkContact(x, pi, xlocal, 1));
-    contactStatus[pi] = 1;  // inContact ? 1 : 0;
+  pgo::parallel::parallelFor(0, numPairs,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int pi) {
+      ES::V12d xlocal;
+      bool inContact = true;
+      inContact = std::get<0>(checkContact(x, pi, xlocal, 1));
+      contactStatus[pi] = 1;  // inContact ? 1 : 0;
 
-    ES::V3d va = xlocal.segment<3>(3);
-    ES::V3d vb = xlocal.segment<3>(6);
-    ES::V3d vc = xlocal.segment<3>(9);
-    ES::V3d v0 = xlocal.segment<3>(0);
-    int feature;
-    ES::V3d w, pt;
-    double d2 = getSquaredDistanceToTriangle(v0, va, vb, vc, feature, pt, w);
+      ES::V3d va = xlocal.segment<3>(3);
+      ES::V3d vb = xlocal.segment<3>(6);
+      ES::V3d vc = xlocal.segment<3>(9);
+      ES::V3d v0 = xlocal.segment<3>(0);
+      int feature;
+      ES::V3d w, pt;
+      double d2 = getSquaredDistanceToTriangle(v0, va, vb, vc, feature, pt, w);
 
-    barycentricWeights[pi] = ES::V3d(w[0], w[1], w[2]);
-    closestPositions[pi] = ES::V3d(pt[0], pt[1], pt[2]);
+      barycentricWeights[pi] = ES::V3d(w[0], w[1], w[2]);
+      closestPositions[pi] = ES::V3d(pt[0], pt[1], pt[2]);
 
-    normals[pi] = (xlocal.segment<3>(6) - xlocal.segment<3>(3)).cross(xlocal.segment<3>(9) - xlocal.segment<3>(3));
-    normals[pi].normalize();
+      normals[pi] = (xlocal.segment<3>(6) - xlocal.segment<3>(3)).cross(xlocal.segment<3>(9) - xlocal.segment<3>(3));
+      normals[pi].normalize();
 
-    ES::M12d K;
-    ES::V12d f;
-    NonlinearOptimization::AutomaticDifferentiation_autodiff::computeHessian<12>(
-      relativeDistanceOnFixedDirections, xlocal, K, normals[pi], barycentricWeights[pi]);
+      ES::M12d K;
+      ES::V12d f;
+      NonlinearOptimization::AutomaticDifferentiation_autodiff::computeHessian<12>(
+        relativeDistanceOnFixedDirections, xlocal, K, normals[pi], barycentricWeights[pi]);
 
-    ES::V12d zero12 = ES::V12d::Zero();
-    NonlinearOptimization::AutomaticDifferentiation_autodiff::computeGradient<12>(
-      relativeDistanceOnFixedDirections, zero12, f, normals[pi], barycentricWeights[pi]);
+      ES::V12d zero12 = ES::V12d::Zero();
+      NonlinearOptimization::AutomaticDifferentiation_autodiff::computeGradient<12>(
+        relativeDistanceOnFixedDirections, zero12, f, normals[pi], barycentricWeights[pi]);
 
-    double eng = NonlinearOptimization::AutomaticDifferentiation_autodiff::computeEnergy<12>(
-      relativeDistanceOnFixedDirections, xlocal, normals[pi], barycentricWeights[pi]);
+      double eng = NonlinearOptimization::AutomaticDifferentiation_autodiff::computeEnergy<12>(
+        relativeDistanceOnFixedDirections, xlocal, normals[pi], barycentricWeights[pi]);
 
-    hessianBlocks[pi] = K;
-    gradientBlocks[pi] = f;
+      hessianBlocks[pi] = K;
+      gradientBlocks[pi] = f;
 
-    ES::V12d fc = K * xlocal + f;
-    contactForceMags[pi] = f.segment<3>(0).norm();
+      ES::V12d fc = K * xlocal + f;
+      contactForceMags[pi] = f.segment<3>(0).norm();
 
-    // double f1 = f.segment<3>(0).dot(normals[pi]);
-    // LGI << contactForceMags[pi] << ',' << f1;
+      // double f1 = f.segment<3>(0).dot(normals[pi]);
+      // LGI << contactForceMags[pi] << ',' << f1;
 
-    // double e1 = (K * xlocal).dot(xlocal) * 0.5 + f.dot(xlocal);
-    // double e2 = eng;
-    // LGI << e1 << ',' << e2;
-  });
+      // double e1 = (K * xlocal).dot(xlocal) * 0.5 + f.dot(xlocal);
+      // double e2 = eng;
+      // LGI << e1 << ',' << e2;
+    });
 }
 
 ES::V3d PointTrianglePairCouplingEnergyWithCollision::computePosition(ES::ConstRefVecXd x, int objID, int vid) const

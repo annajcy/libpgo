@@ -36,6 +36,7 @@
 #include "basicAlgorithms.h"
 #include "containerHelper.h"
 #include "pgoLogging.h"
+#include "parallelism/parallelFor.h"
 
 #include <tbb/parallel_for.h>
 
@@ -80,60 +81,68 @@ int TriMeshPseudoNormal::buildPseudoNormals(TriMeshRef triMesh, const TriMeshNei
   if (extTriNormals)
     memcpy(triNormals[0].data(), extTriNormals, sizeof(Vec3d) * triMesh.numTriangles());
   else {
-    tbb::parallel_for(0, triMesh.numTriangles(), [&](int triID) {
-      triNormals[triID] = triMesh.computeTriangleNormal(triID);
-      if (triNormals[triID].hasNaN()) {
-        // cout << "Error: triangle has nan pseudo-normal, ID: " << triID << endl;
-        triNormals[triID].setZero();
-        ret = 1;
-      }
-    });
+    pgo::parallel::parallelFor(0, triMesh.numTriangles(),
+      pgo::parallel::Options{
+        .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+      },
+      [&](int triID) {
+        triNormals[triID] = triMesh.computeTriangleNormal(triID);
+        if (triNormals[triID].hasNaN()) {
+          // cout << "Error: triangle has nan pseudo-normal, ID: " << triID << endl;
+          triNormals[triID].setZero();
+          ret = 1;
+        }
+      });
   }
 
   // compute each vertex normal and edge normal
 
-  tbb::parallel_for(0, triMesh.numVertices(), [&](int vtxID) {
-    auto &vtxNormal = vtxNormals[vtxID];
-    vtxNormal.setZero();
-    edgeNormals[vtxID].clear();
-    for (int triID : nbr->getVtxNearbyTriangles(vtxID)) {
-      double angle = triMesh.getTriangleAngleAtVertexRobust(triID, vtxID);
-      vtxNormal += angle * triNormals[triID];
-      for (int vtxID2 : triMesh.tri(triID)) {
-        if (vtxID >= vtxID2)  // we only consider edges where vtxID < vtxID2
-          continue;
+  pgo::parallel::parallelFor(0, triMesh.numVertices(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int vtxID) {
+      auto &vtxNormal = vtxNormals[vtxID];
+      vtxNormal.setZero();
+      edgeNormals[vtxID].clear();
+      for (int triID : nbr->getVtxNearbyTriangles(vtxID)) {
+        double angle = triMesh.getTriangleAngleAtVertexRobust(triID, vtxID);
+        vtxNormal += angle * triNormals[triID];
+        for (int vtxID2 : triMesh.tri(triID)) {
+          if (vtxID >= vtxID2)  // we only consider edges where vtxID < vtxID2
+            continue;
 
-        // now compute edgeNormal for edge <vtxID, vtxID2>
-        auto iter = edgeNormals[vtxID].find(vtxID2);
-        if (iter == edgeNormals[vtxID].end()) {
-          edgeNormals[vtxID][vtxID2] = triNormals[triID];
-        }
-        else {
-          iter->second += triNormals[triID];
-          iter->second.normalize();
-          if (iter->second.hasNaN()) {
-            // cout << "Error: edge pseudo normal has nan, edge vtx ID " << vtxID << " " << vtxID2;
-            iter->second.setZero();
-            ret = 1;
+          // now compute edgeNormal for edge <vtxID, vtxID2>
+          auto iter = edgeNormals[vtxID].find(vtxID2);
+          if (iter == edgeNormals[vtxID].end()) {
+            edgeNormals[vtxID][vtxID2] = triNormals[triID];
+          }
+          else {
+            iter->second += triNormals[triID];
+            iter->second.normalize();
+            if (iter->second.hasNaN()) {
+              // cout << "Error: edge pseudo normal has nan, edge vtx ID " << vtxID << " " << vtxID2;
+              iter->second.setZero();
+              ret = 1;
+            }
           }
         }
+      }  // end each nbring triangle
+      if (vtxNormal.squaredNorm() > std::numeric_limits<double>::epsilon()) {
+        vtxNormal.normalize();
+        if (vtxNormal.hasNaN()) {
+          // cout << "Error: vtx pseudo normal has nan after normalization, ID " << vtxID << endl;
+          vtxNormal.setZero();
+          ret = 1;
+        }
       }
-    }  // end each nbring triangle
-    if (vtxNormal.squaredNorm() > std::numeric_limits<double>::epsilon()) {
-      vtxNormal.normalize();
-      if (vtxNormal.hasNaN()) {
-        // cout << "Error: vtx pseudo normal has nan after normalization, ID " << vtxID << endl;
-        vtxNormal.setZero();
+      else if (nbr->getVtxNearbyTriangles(vtxID).size() > 0)  // this vtx has nbr triangles but its computed vtx normal has zero length
+      {
+        //      cout << "Error: vtx pseudo normal has nan, ID " << vtxID << endl;
         ret = 1;
       }
-    }
-    else if (nbr->getVtxNearbyTriangles(vtxID).size() > 0)  // this vtx has nbr triangles but its computed vtx normal has zero length
-    {
-      //      cout << "Error: vtx pseudo normal has nan, ID " << vtxID << endl;
-      ret = 1;
-    }
-    // else, this vtx has zero triangle as neighbors, then we don't consider its vertex normal
-  });
+      // else, this vtx has zero triangle as neighbors, then we don't consider its vertex normal
+    });
 
   return ret;
 }
@@ -177,27 +186,31 @@ int TriMeshPseudoNormal::buildPseudoNormals(TriMeshRef triMesh, const Vec3d *ext
   }
 
   // normalize each vertex normal and edge normal
-  tbb::parallel_for(0, triMesh.numVertices(), [&](int vtxID) {
-    if (vtxNormals[vtxID].squaredNorm() > 0) {
-      vtxNormals[vtxID].normalize();
-      if (vtxNormals[vtxID].hasNaN()) {
-        //        cout << "Error: vtx pseudo normal has nan after normalization, ID " << vtxID << endl;
-        vtxNormals[vtxID].setZero();
-        ret = 1;
+  pgo::parallel::parallelFor(0, triMesh.numVertices(),
+    pgo::parallel::Options{
+      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
+    },
+    [&](int vtxID) {
+      if (vtxNormals[vtxID].squaredNorm() > 0) {
+        vtxNormals[vtxID].normalize();
+        if (vtxNormals[vtxID].hasNaN()) {
+          //        cout << "Error: vtx pseudo normal has nan after normalization, ID " << vtxID << endl;
+          vtxNormals[vtxID].setZero();
+          ret = 1;
+        }
       }
-    }
-    // else, this vtx has zero triangle as neighbors, then we don't consider its vertex normal
+      // else, this vtx has zero triangle as neighbors, then we don't consider its vertex normal
 
-    for (auto &p : edgeNormals[vtxID]) {
-      Vec3d &edgeNormal = p.second;
-      edgeNormal.normalize();
-      if (edgeNormal.hasNaN()) {
-        edgeNormal.setZero();
-        //        cout << "Error: edge pseudo normal has nan, edge vtx ID " << vtxID << " " << p.first;
-        ret = 1;
+      for (auto &p : edgeNormals[vtxID]) {
+        Vec3d &edgeNormal = p.second;
+        edgeNormal.normalize();
+        if (edgeNormal.hasNaN()) {
+          edgeNormal.setZero();
+          //        cout << "Error: edge pseudo normal has nan, edge vtx ID " << vtxID << " " << p.first;
+          ret = 1;
+        }
       }
-    }
-  });
+    });
 
   return ret;
 }

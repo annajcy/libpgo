@@ -39,7 +39,7 @@ reduction 和 thread-local API 的事实依据。
 
 | TBB primitive | 调用/引用数 | 文件数或说明 |
 |---|---:|---|
-| `tbb::parallel_for` | 160 | 39 个文件 |
+| `tbb::parallel_for` | 160 个文本引用：159 个 active call、1 个注释死代码 | 39 个 active 文件 |
 | `tbb::parallel_reduce` | 21 | V1 不迁移 |
 | `tbb::enumerable_thread_specific` | 46 | V1 不迁移 |
 | `tbb::combinable` | 13 | V1 不迁移 |
@@ -132,25 +132,33 @@ pgo::parallel::parallelFor(
 **Expected files**
 
 - `src/core/parallelism/PARALLEL_FOR_DEFERRED.md`（新增）
-- 仓库现有测试基础设施中增加一个只检查 production source 的静态检查脚本和 CTest entry
+- `src/core/parallelism/PARALLEL_FOR_INVENTORY.json`（新增，护栏的机器可读 source of truth）
+- `tests/check_tbb_parallel_for_inventory.py`（新增）
+- `tests/CMakeLists.txt`（增加 production-source inventory guard 和 scanner self-test 的 CTest entry）
 
 **Implementation steps**
 
-1. 用 `rg` 重新生成 160 个 production 调用的基线；忽略注释中的死代码，但在 inventory 标记并单独删除
-   明确无用的注释调用。
-2. 为每个调用记录 `file:line`、原 range/index type、partitioner、scratch/TLS coupling、分类结果。
-3. 静态检查仅禁止新增未登记的裸 `tbb::parallel_for`；允许 `src/core/parallelism` backend、白盒测试、
-   benchmark 和 deferred inventory 中已有的调用。
-4. 护栏采用稳定的 `path + enclosing function + occurrence` 标识或每文件预期数量，不依赖容易漂移的精确
-   行号。
+1. 用词法扫描重新生成 production 基线。扫描范围为 `src/` 下 C/C++ source/header，排除
+   `src/core/parallelism/**`；扫描器必须忽略注释和字符串。当前 `rg` 的 160 个文本引用应拆分为 159 个
+   active call 和 1 个注释死代码，后者在 inventory 文档标记后删除。
+2. 在 `PARALLEL_FOR_INVENTORY.json` 为每个 active call 记录稳定 ID、repo-relative path、文件内 occurrence、
+   informational line、原 range/index type、partitioner、scratch/TLS coupling、分类结果和简短依据。
+   `PARALLEL_FOR_DEFERRED.md` 汇总人类可读的逐调用表和 category 统计。
+3. 静态检查只扫描上述 production 范围，因此自然允许 `src/core/parallelism` backend、tests 和 benchmark。
+   它按文件比较词法扫描得到的 active-call count 与 JSON manifest 中的 expected count；新增、删除或漏登记
+   均失败。迁移阶段必须在同一变更中更新 manifest。精确行号只用于审计展示，不参与通过判定。
+4. checker 提供 hermetic self-test：临时 fixture 的 baseline 通过，新增 active call 后失败，删除后恢复通过，
+   且注释/字符串中的 token 不计数。
+5. `tests/CMakeLists.txt` 通过 Python interpreter 注册 checker 与 self-test；脚本也可从 repo root 直接运行。
 
 **Validation budget:** `static`
 
 **Done criteria**
 
-- 每个 production 调用恰好有一个 `migrate-v1` 或 deferred category。
-- inventory 总数与 `rg` 基线一致。
-- 护栏能对一个临时新增的裸调用失败，并在删除临时调用后通过。
+- 159 个 active production call 各自恰好有一个 `migrate-v1` 或 deferred category；1 个注释死代码已登记并删除。
+- inventory active 总数与词法扫描基线一致，且文档明确解释它与 `rg` 的原始 160 文本引用之间的差异。
+- checker、hermetic self-test 和对应 CTest 均通过；self-test 证明新增 active call 会失败、删除后恢复通过，
+  并证明注释/字符串 token 不产生误报。
 
 ### Phase 2: 迁移低耦合 per-index 循环
 

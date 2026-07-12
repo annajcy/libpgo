@@ -5,6 +5,7 @@
 #include "geometryQuery.h"
 #include "triangleSampler.h"
 #include "basicAlgorithms.h"
+#include "parallelism/parallelFor.h"
 
 #include <tbb/parallel_for.h>
 #include <tbb/enumerable_thread_specific.h>
@@ -151,16 +152,18 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
     //   }
     // }
 
-    tbb::parallel_for((int)0, (int)triangleSamples.size(), [&](int trii) {
-      count.fetch_add((int)triangleSamples[trii].size());
+    pgo::parallel::parallelFor((int)0, (int)triangleSamples.size(),
+      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+      [&](int trii) {
+        count.fetch_add((int)triangleSamples[trii].size());
 
-      for (const auto &sample : triangleSamples[trii]) {
-        sampleIDQueryTableCC.emplace(sample, 0);
-      }
+        for (const auto &sample : triangleSamples[trii]) {
+          sampleIDQueryTableCC.emplace(sample, 0);
+        }
 
-      if (trii % 1000 == 0)
-        std::cout << trii << ' ' << std::flush;
-    });
+        if (trii % 1000 == 0)
+          std::cout << trii << ' ' << std::flush;
+      });
     std::cout << std::endl;
 
     int inc = 0;
@@ -192,14 +195,16 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
   std::vector<tbb::spin_mutex> sampleLocks(sampleIDQueryTable.size());
 
   sampleTriangleIDs.assign(sampleIDQueryTable.size(), std::vector<int>());
-  tbb::parallel_for(0, (int)triangleSamples.size(), [&](int tri) {
-    for (const auto &sinfo : triangleSamples[tri]) {
-      int sid = sampleIDQueryTable[sinfo];
-      sampleLocks[sid].lock();
-      sampleTriangleIDs[sid].push_back(tri);
-      sampleLocks[sid].unlock();
-    }
-  });
+  pgo::parallel::parallelFor(0, (int)triangleSamples.size(),
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int tri) {
+      for (const auto &sinfo : triangleSamples[tri]) {
+        int sid = sampleIDQueryTable[sinfo];
+        sampleLocks[sid].lock();
+        sampleTriangleIDs[sid].push_back(tri);
+        sampleLocks[sid].unlock();
+      }
+    });
 
   sampleInfoAndIDs.resize(sampleIDQueryTable.size());
   for (const auto &pr : sampleIDQueryTable) {
@@ -245,57 +250,63 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
     tbb::concurrent_vector<ES::TripletD> entries;
 
     // for (auto it = sampleIDQueryTable.begin(); it != sampleIDQueryTable.end(); ++it) {
-    tbb::parallel_for(0, (int)sampleInfoAndIDs.size(), [&](int si) {
-      int triID = sampleInfoAndIDs[si].triangleID;
+    pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(),
+      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+      [&](int si) {
+        int triID = sampleInfoAndIDs[si].triangleID;
 
-      for (int vj = 0; vj < 3; vj++) {
-        int vid = triangles[triID][vj];
-        const std::size_t embeddingOffset = static_cast<std::size_t>(vid) * static_cast<std::size_t>(embeddingArity);
+        for (int vj = 0; vj < 3; vj++) {
+          int vid = triangles[triID][vj];
+          const std::size_t embeddingOffset = static_cast<std::size_t>(vid) * static_cast<std::size_t>(embeddingArity);
 
-        for (int j = 0; j < embeddingArity; j++) {
-          int embeddedVid = vertexEmbeddingIndices->at(embeddingOffset + static_cast<std::size_t>(j));
-          double embeddedWeight = vertexEmbeddingWeights->at(embeddingOffset + static_cast<std::size_t>(j));
+          for (int j = 0; j < embeddingArity; j++) {
+            int embeddedVid = vertexEmbeddingIndices->at(embeddingOffset + static_cast<std::size_t>(j));
+            double embeddedWeight = vertexEmbeddingWeights->at(embeddingOffset + static_cast<std::size_t>(j));
 
-          double wfinal = sampleInfoAndIDs[si].w[vj] * embeddedWeight;
-          if (std::abs(wfinal) < 1e-16)
-            continue;
+            double wfinal = sampleInfoAndIDs[si].w[vj] * embeddedWeight;
+            if (std::abs(wfinal) < 1e-16)
+              continue;
 
-          for (int dofi = 0; dofi < 3; dofi++) {
-            entries.emplace_back(si * 3 + dofi, embeddedVid * 3 + dofi, wfinal);
+            for (int dofi = 0; dofi < 3; dofi++) {
+              entries.emplace_back(si * 3 + dofi, embeddedVid * 3 + dofi, wfinal);
+            }
           }
         }
-      }
-    });
+      });
 
     interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, nDOFs);
     interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
 
-    tbb::parallel_for(0, (int)interpolationMatrix.rows(), [&](int rowi) {
-      double wAll = 0;
-      for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
-        wAll += it.value();
-      }
+    pgo::parallel::parallelFor(0, (int)interpolationMatrix.rows(),
+      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+      [&](int rowi) {
+        double wAll = 0;
+        for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
+          wAll += it.value();
+        }
 
-      for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
-        it.valueRef() /= wAll;
-      }
-    });
+        for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
+          it.valueRef() /= wAll;
+        }
+      });
   }
   // if there is not embedding given, but there is still more samples than just vertices
   else if (subdivideTriangle > 1) {
     tbb::concurrent_vector<ES::TripletD> entries;
 
     // for (auto it = sampleInfoAndID.begin(); it != sampleInfoAndID.end(); ++it) {
-    tbb::parallel_for(0, (int)sampleInfoAndIDs.size(), [&](int si) {
-      int triID = sampleInfoAndIDs[si].triangleID;
+    pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(),
+      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+      [&](int si) {
+        int triID = sampleInfoAndIDs[si].triangleID;
 
-      ES::V3i tri = triangles[triID];
-      for (int j = 0; j < 3; j++) {
-        entries.emplace_back(si * 3, tri[j] * 3, sampleInfoAndIDs[si].w[j]);
-        entries.emplace_back(si * 3 + 1, tri[j] * 3 + 1, sampleInfoAndIDs[si].w[j]);
-        entries.emplace_back(si * 3 + 2, tri[j] * 3 + 2, sampleInfoAndIDs[si].w[j]);
-      }
-    });
+        ES::V3i tri = triangles[triID];
+        for (int j = 0; j < 3; j++) {
+          entries.emplace_back(si * 3, tri[j] * 3, sampleInfoAndIDs[si].w[j]);
+          entries.emplace_back(si * 3 + 1, tri[j] * 3 + 1, sampleInfoAndIDs[si].w[j]);
+          entries.emplace_back(si * 3 + 2, tri[j] * 3 + 2, sampleInfoAndIDs[si].w[j]);
+        }
+      });
 
     interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, vertices.size() * 3);
     interpolationMatrix.setFromTriplets(entries.begin(), entries.end());

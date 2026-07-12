@@ -78,13 +78,14 @@ endif()
 
 set(NONLINEAROPTIMIZATION_DEPS eigenSupport pgoLogging autodiff::autodiff profiling)
 
-pgo_require_targets(nonlinearOptimization TARGETS ${NONLINEAROPTIMIZATION_DEPS})
+pgo_require_targets(nonlinearOptimization TARGETS ${NONLINEAROPTIMIZATION_DEPS} parallelism TBB::tbb)
 
 add_libpgo_lib(nonlinearOptimization "${NONLINEAROPTIMIZATION_SOURCES}" "${NONLINEAROPTIMIZATION_HEADERS}")
 
 foreach(lib ${NONLINEAROPTIMIZATION_DEPS})
   target_link_libraries(nonlinearOptimization PUBLIC ${lib})
 endforeach()
+target_link_libraries(nonlinearOptimization PRIVATE parallelism TBB::tbb)
 
 if(TARGET Knitro::Knitro)
   target_link_libraries(nonlinearOptimization PRIVATE Knitro::Knitro)

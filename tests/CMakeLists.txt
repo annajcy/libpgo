@@ -1,6 +1,19 @@
 include(FetchContent)
 include(GoogleTest)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_test(
+  NAME tbb_parallel_for_inventory
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_tbb_parallel_for_inventory.py
+          --repo-root ${CMAKE_SOURCE_DIR}
+)
+add_test(
+  NAME tbb_parallel_for_inventory_self_test
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_tbb_parallel_for_inventory.py
+          --self-test
+)
+
 enable_testing()
 
 set(INSTALL_GTEST OFF CACHE BOOL "Disable GoogleTest installation" FORCE)
@@ -51,5 +64,15 @@ pgo_add_gtest(pgo_c_gtest
 if(TARGET MKL::MKL)
   target_compile_definitions(pgo_c_gtest PRIVATE PGO_HAS_MKL)
 endif()
+
+foreach(concurrency IN ITEMS 1 4)
+  set(target pgo_c_parallel_${concurrency}_gtest)
+  pgo_add_gtest(${target}
+    SOURCES pgo_c_parallel_gtest.cpp
+    DEPS pgo_c parallelism
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/c ${CMAKE_SOURCE_DIR}/src/core
+    DEFINITIONS PGO_TEST_MAX_CONCURRENCY=${concurrency}
+  )
+endforeach()
 
 add_subdirectory(src)

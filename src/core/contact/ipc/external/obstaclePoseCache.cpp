@@ -1,7 +1,7 @@
 #include "obstaclePoseCache.h"
+#include "parallelism/parallelFor.h"
 
 #include <tbb/blocked_range.h>
-#include <tbb/parallel_for.h>
 #include <tbb/parallel_reduce.h>
 
 #include <algorithm>
@@ -42,37 +42,34 @@ void buildObstaclePoseCache(
   }
 
   // Per-vertex degenerate point AABBs.
-  tbb::parallel_for(tbb::blocked_range<int>(0, nVerts),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int vi = r.begin(); vi < r.end(); ++vi) {
-        cache.vertBoxes[vi].init(positions.segment<3>(3 * vi), 0.0);
-      }
+  pgo::parallel::parallelFor(0, nVerts,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int vi) {
+      cache.vertBoxes[vi].init(positions.segment<3>(3 * vi), 0.0);
     });
 
   // Triangle AABBs + cached areas.
-  tbb::parallel_for(tbb::blocked_range<int>(0, nTri),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int fi = r.begin(); fi < r.end(); ++fi) {
-        const EigenSupport::V3d v0 = positions.segment<3>(3 * triangles(fi, 0));
-        const EigenSupport::V3d v1 = positions.segment<3>(3 * triangles(fi, 1));
-        const EigenSupport::V3d v2 = positions.segment<3>(3 * triangles(fi, 2));
-        cache.triAreas[fi] = 0.5 * (v1 - v0).cross(v2 - v0).norm();
-        cache.triBoxes[fi].init(v0, 0.0);
-        cache.triBoxes[fi].expand(v1);
-        cache.triBoxes[fi].expand(v2);
-      }
+  pgo::parallel::parallelFor(0, nTri,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int fi) {
+      const EigenSupport::V3d v0 = positions.segment<3>(3 * triangles(fi, 0));
+      const EigenSupport::V3d v1 = positions.segment<3>(3 * triangles(fi, 1));
+      const EigenSupport::V3d v2 = positions.segment<3>(3 * triangles(fi, 2));
+      cache.triAreas[fi] = 0.5 * (v1 - v0).cross(v2 - v0).norm();
+      cache.triBoxes[fi].init(v0, 0.0);
+      cache.triBoxes[fi].expand(v1);
+      cache.triBoxes[fi].expand(v2);
     });
 
   // Edge AABBs + cached lengths.
-  tbb::parallel_for(tbb::blocked_range<int>(0, nEdge),
-    [&](const tbb::blocked_range<int> &r) {
-      for (int ei = r.begin(); ei < r.end(); ++ei) {
-        const EigenSupport::V3d e0 = positions.segment<3>(3 * contactEdges(ei, 0));
-        const EigenSupport::V3d e1 = positions.segment<3>(3 * contactEdges(ei, 1));
-        cache.edgeLengths[ei] = (e1 - e0).norm();
-        cache.edgeBoxes[ei].init(e0, 0.0);
-        cache.edgeBoxes[ei].expand(e1);
-      }
+  pgo::parallel::parallelFor(0, nEdge,
+    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
+    [&](int ei) {
+      const EigenSupport::V3d e0 = positions.segment<3>(3 * contactEdges(ei, 0));
+      const EigenSupport::V3d e1 = positions.segment<3>(3 * contactEdges(ei, 1));
+      cache.edgeLengths[ei] = (e1 - e0).norm();
+      cache.edgeBoxes[ei].init(e0, 0.0);
+      cache.edgeBoxes[ei].expand(e1);
     });
 
   // Average tri AABB diagonal → spatial hash cell size.
