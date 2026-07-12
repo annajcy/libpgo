@@ -1,11 +1,13 @@
 #include "parallelism/parallelFor.h"
 #include "parallelism/parallelOptions.h"
 #include "parallelism_benchmark_helpers.h"
+#include "parallelism_policy_workloads.h"
 
 #include <benchmark/benchmark.h>
 #include <mkl.h>
 
 #include <algorithm>
+#include <atomic>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -16,9 +18,12 @@ namespace
 namespace P = pgo::parallel;
 using pgo::benchmark_helpers::MatrixPool;
 using pgo::benchmark_helpers::MatrixSet;
+using pgo::benchmark_helpers::RepresentativeWorkload;
 using pgo::benchmark_helpers::ThreadSampler;
 using pgo::benchmark_helpers::adjustedExtraThreads;
 using pgo::benchmark_helpers::currentProcessThreadCount;
+using pgo::benchmark_helpers::runRepresentativeWorkload;
+using pgo::benchmark_helpers::workloadName;
 
 enum class Policy
 {
@@ -107,6 +112,48 @@ void recordCommonCounters(benchmark::State &state, int arenaConcurrency, int mat
   state.counters["participant_pressure"] = runtime.participantPressureObserved ? 1 : 0;
 }
 
+void benchmarkRepresentativeWorkload(benchmark::State &state, RepresentativeWorkload workload,
+  Policy policy, int outerWorkers, int outerTasks, int workItems)
+{
+  const P::ParallelExecutor executor =
+    benchmarkRuntime().createExecutor({ .maxConcurrency = outerWorkers });
+  std::vector<double> results(static_cast<std::size_t>(outerTasks), 0.0);
+  std::atomic<int> observedMklThreadsInWorker = -1;
+  const P::Options options = optionsForPolicy(policy);
+
+  const int baselineThreads = currentProcessThreadCount();
+  int peakThreads = baselineThreads;
+  for (auto _ : state) {
+    state.PauseTiming();
+    ThreadSampler sampler;
+    sampler.start();
+    state.ResumeTiming();
+
+    P::parallelFor(executor, 0, outerTasks, options, [&](int taskIndex) {
+      observedMklThreadsInWorker.store(mkl_get_max_threads(), std::memory_order_relaxed);
+      results[static_cast<std::size_t>(taskIndex)] =
+        runRepresentativeWorkload(workload, taskIndex, workItems);
+    });
+    benchmark::DoNotOptimize(results.data());
+
+    state.PauseTiming();
+    peakThreads = std::max(peakThreads, sampler.stop());
+    state.ResumeTiming();
+  }
+
+  const double checksum = std::accumulate(results.begin(), results.end(), 0.0);
+  benchmark::DoNotOptimize(&checksum);
+  recordCommonCounters(state, outerWorkers, 0);
+  state.counters["outer_tasks"] = outerTasks;
+  state.counters["work_items_per_task"] = workItems;
+  state.counters["baseline_threads"] = baselineThreads;
+  state.counters["peak_threads"] = peakThreads;
+  state.counters["extra_threads"] = adjustedExtraThreads(baselineThreads, peakThreads);
+  state.counters["policy"] = policy == Policy::Suppress ? 0 : 1;
+  state.counters["worker_mkl_max_threads"] = observedMklThreadsInWorker.load(std::memory_order_relaxed);
+  state.counters["checksum"] = checksum;
+}
+
 void recordThresholdCounters(benchmark::State &state, int matrixN)
 {
   const P::RuntimeInfo runtime = P::runtimeInfo();
@@ -124,6 +171,7 @@ void benchmarkNestedParallelDgemm(
     benchmarkRuntime().createExecutor({ .maxConcurrency = outerWorkers });
   MatrixPool pool(std::max(1, outerWorkers), matrixN);
   std::vector<double> results(static_cast<std::size_t>(outerTasks), 0.0);
+  std::atomic<int> observedMklThreadsInWorker = -1;
 
   int baselineThreads = currentProcessThreadCount();
   int maxIterationBaselineThreads = baselineThreads;
@@ -138,6 +186,7 @@ void benchmarkNestedParallelDgemm(
     state.ResumeTiming();
 
     P::parallelFor(executor, 0, outerTasks, options, [&](int taskIndex) {
+      observedMklThreadsInWorker.store(mkl_get_max_threads(), std::memory_order_relaxed);
       results[static_cast<std::size_t>(taskIndex)] = runMklDgemm(pool.current());
     });
 
@@ -160,6 +209,8 @@ void benchmarkNestedParallelDgemm(
   state.counters["raw_extra_threads"] = peakThreads - baselineThreads;
   state.counters["extra_threads"] = adjustedExtraThreads(baselineThreads, peakThreads);
   state.counters["policy"] = policy == Policy::Suppress ? 0 : 1;
+  state.counters["worker_mkl_max_threads"] = observedMklThreadsInWorker.load(std::memory_order_relaxed);
+  state.counters["checksum"] = checksum;
 }
 
 void benchmarkMklDgemmThreadThreshold(
@@ -241,9 +292,42 @@ void registerMklDgemmThreadThresholdBenchmarks()
   }
 }
 
+void registerRepresentativeWorkloadBenchmarks()
+{
+  constexpr RepresentativeWorkload workloads[] = {
+    RepresentativeWorkload::NoBlas,
+    RepresentativeWorkload::FemElements,
+    RepresentativeWorkload::ContactPairs,
+  };
+  constexpr Policy policies[] = { Policy::Suppress, Policy::Inherit };
+  constexpr int workerCounts[] = { 1, 4, 8 };
+  constexpr int taskMultipliers[] = { 1, 4 };
+
+  for (RepresentativeWorkload workload : workloads) {
+    const int workItems = workload == RepresentativeWorkload::NoBlas ? 32768 :
+                                                                       (workload == RepresentativeWorkload::FemElements ? 4096 : 8192);
+    for (Policy policy : policies) {
+      for (int outerWorkers : workerCounts) {
+        for (int taskMultiplier : taskMultipliers) {
+          const int outerTasks = outerWorkers * taskMultiplier;
+          const std::string name = std::string("PolicyDecision/") + workloadName(workload) + "/" +
+            policyName(policy) + "/workers_" + std::to_string(outerWorkers) +
+            "/tasks_" + std::to_string(outerTasks) + "/size_" + std::to_string(workItems);
+          benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
+            benchmarkRepresentativeWorkload(
+              state, workload, policy, outerWorkers, outerTasks, workItems);
+          })->UseRealTime()
+            ->Unit(benchmark::kMillisecond);
+        }
+      }
+    }
+  }
+}
+
 const bool registered = [] {
   registerNestedParallelDgemmBenchmarks();
   registerMklDgemmThreadThresholdBenchmarks();
+  registerRepresentativeWorkloadBenchmarks();
   return true;
 }();
 
