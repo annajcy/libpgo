@@ -54,3 +54,30 @@ if(APPLE)
       PGO_PARALLELISM_HAS_ACCELERATE_THREADING
   )
 endif()
+
+if(APPLE OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET MKL::MKL AND PGO_MKL_THREADING STREQUAL "tbb_thread"))
+  add_executable(parallelism_real_fem_nested_benchmark
+    parallelism_real_fem_nested_benchmark.cpp
+  )
+
+  target_link_libraries(parallelism_real_fem_nested_benchmark
+    PRIVATE
+      benchmark::benchmark
+      solidDeformationModel
+      parallelism
+      TBB::tbb
+  )
+
+  target_compile_definitions(parallelism_real_fem_nested_benchmark
+    PRIVATE
+      PGO_PARALLELISM_HAS_TBB
+  )
+
+  if(APPLE)
+    target_link_libraries(parallelism_real_fem_nested_benchmark PRIVATE "-framework Accelerate")
+    target_compile_definitions(parallelism_real_fem_nested_benchmark PRIVATE PGO_FEM_BENCHMARK_ACCELERATE)
+  else()
+    target_link_libraries(parallelism_real_fem_nested_benchmark PRIVATE MKL::MKL)
+    target_compile_definitions(parallelism_real_fem_nested_benchmark PRIVATE PGO_FEM_BENCHMARK_MKL)
+  endif()
+endif()

@@ -17,7 +17,7 @@ The benchmark keeps the decision thresholds fixed before observing results:
 
 ## Implementation
 
-`parallelism_accelerate_nested_benchmark.cpp` now exposes four workload families:
+`parallelism_accelerate_nested_benchmark.cpp` exposes four synthetic workload families:
 
 - `NestedParallelDgemmAccelerate`: the BLAS-heavy positive/crossover control;
 - `PolicyDecision/NoBlasControl`: scalar negative control;
@@ -26,11 +26,22 @@ The benchmark keeps the decision thresholds fixed before observing results:
 - `PolicyDecision/ContactPairBatch`: benchmark-only point/triangle distance and
   barrier arithmetic representative of contact kernels.
 
-The FEM and contact cases intentionally do not instantiate production assemblers.
-Doing that would require large mesh/energy setup graphs and would make this
-diagnostic executable depend on mutable public APIs. This is recorded plan drift:
-they are near-real arithmetic kernels, not end-to-end workloads. A later full
-study should add end-to-end scenarios without changing the decision thresholds.
+`parallelism_real_fem_nested_benchmark.cpp` closes the earlier end-to-end FEM
+coverage gap. It builds production `DeformationModelAssembler` instances and
+benchmarks the real gather, material preparation, element evaluation, and
+gradient/Hessian scatter paths for:
+
+- `CubicLinear`: 24 local DOFs and 8 quadrature points per element;
+- `CubicTricubicHermite`: 192 local DOFs and 64 quadrature points per element;
+- energy, gradient, Hessian, and the combined energy+gradient+Hessian workload;
+- one element count near the runtime concurrency and one smaller/larger scaling
+  point appropriate to each formulation.
+
+The synthetic FEM/contact families remain useful controls, but they are not
+accepted as substitutes for the real FEM cases when choosing a backend default.
+The assembler's original entry points still delegate to `Options{}`; explicit
+`Options` overloads were added only so the benchmark can compare policies while
+executing the identical production loop body.
 
 Every case reports a deterministic checksum and runtime telemetry including
 outer workers/tasks, problem size, peak process threads, pgo peak participants,
@@ -42,6 +53,8 @@ mode observed in a worker.
 - discovers complete `Suppress`/`Inherit` pairs;
 - runs every policy sample in a new process, preventing persistent Accelerate
   and TBB worker pools from contaminating the other policy;
+- performs an explicit process-local Google Benchmark warm-up before recording
+  each fresh-process measurement;
 - randomizes both pair order and within-pair policy order with a recorded seed;
 - rejects checksum mismatches;
 - normalizes Google Benchmark wall/CPU times to seconds;
@@ -75,7 +88,7 @@ conda run -n libpgo python benchmarks/run_nested_policy_decision.py \
   build/base/benchmarks/parallelism_accelerate_nested_benchmark \
   --out benchmarks/results/nested_policy_accelerate_20260712.json \
   --filter '^(PolicyDecision/|NestedParallelDgemmAccelerate/(Suppress|Inherit)/workers_(1|4|8)/tasks_(1|4|8|16|32)/n_(256|1024|2048))' \
-  --repetitions 10 --min-time 0.03s --seed 20260712
+  --repetitions 10 --min-time 0.03s --warmup-time 0.10 --seed 20260712
 ```
 
 This is 36 paired configurations: 18 DGEMM configurations spanning outer
@@ -83,52 +96,125 @@ workers `1, 4, 8`, task multipliers `1, 4`, and matrix sizes `256, 1024, 2048`,
 plus all 18 representative/control configurations. Each configuration has ten
 fresh-process pairs (720 benchmark child processes total).
 
-### Result
+### Result status
 
-The sweep completed all 360 fresh-process pairs with no checksum mismatch. The
-randomized order was balanced (`Suppress` first 183 times, `Inherit` first 177
-times). The raw JSON is intentionally under the repository's ignored
-`benchmarks/results/` directory and remains available locally as
-`nested_policy_accelerate_20260712.json`.
+The previously recorded Accelerate sweep did not request process-local warm-up.
+Fresh-process isolation therefore also repeated cold BLAS/runtime initialization,
+so that artifact is superseded and must not be used to choose the default policy.
+Rerun the command above after this revision before recording a new result table.
 
-| Family | Cases | Geomean `Inherit / Suppress` | Classification |
-|---|---:|---:|---|
-| DGEMM | 18 | 0.893 | Inherit faster |
-| No-BLAS control | 6 | 0.977 | Equivalent |
-| FEM element batch | 6 | 0.968 | Equivalent |
-| Contact pair batch | 6 | 1.003 | Equivalent |
+## Real cubic FEM sweep
 
-The combined FEM/contact representative geomean is `0.985`, a 1.5% Inherit
-gain. It does not clear the predeclared 5% threshold. Three case medians crossed
-the predeclared 10% regression line, although two have wide intervals and should
-not be overinterpreted individually:
+Build on either supported backend:
 
-- DGEMM, workers 1/tasks 1/N 256: `1.252`, bootstrap 95% interval
-  `[0.780, 2.780]`;
-- FEM, workers 1/tasks 1: `1.120`, interval `[1.011, 1.235]`;
-- contact, workers 4/tasks 4: `1.104`, interval `[0.892, 1.671]`.
+```sh
+cmake --build build/base --target parallelism_real_fem_nested_benchmark -j
+```
 
-The controlled BLAS crossover is clear. With one outer worker, large DGEMM
-strongly favors Inherit: N 1024 ratios are `0.611` (one task) and `0.584` (four
-tasks), while N 2048 ratios are `0.532` and `0.522`. At outer concurrency 4 and
-8, most DGEMM cases are equivalent; workers 4/tasks 4/N 2048 favors Suppress at
-`1.093`, while workers 8/N 1024 favors Inherit (`0.924` for 8 tasks and `0.894`
-for 32 tasks). Inherit also raises the median process thread peak in the
-workers 8/tasks 32/N 1024 case from 9 to 17.
+Run all 16 paired configurations (two formulations, four evaluation kinds, and
+two element counts):
 
-The predeclared recommendation is therefore to retain `Suppress` as the global
-default. Inherit is valuable for known low-outer-concurrency, large-BLAS call
-sites, but the representative workload gain is below threshold, meaningful
-case-level regressions exist, resource use can increase, and Linux cross-platform
-evidence is still missing.
+```sh
+python benchmarks/run_nested_policy_decision.py \
+  build/base/benchmarks/parallelism_real_fem_nested_benchmark \
+  --out build/benchmark-results/real-fem-$(uname -s).json \
+  --filter '^RealFemPolicyDecision/' \
+  --repetitions 10 --min-time 0.03s --warmup-time 0.10 --seed 20260712
+```
 
-## Linux MKL-TBB gap
+On Linux, export `MKL_THREADING_LAYER=TBB` before running. The result families
+are reported separately as `CubicLinear/{Energy,Gradient,Hessian,Full}` and
+`CubicTricubicHermite/{Energy,Gradient,Hessian,Full}`. In particular, the
+Hermite Hessian executes the dynamic `dFdx.transpose() * dPdF * dFdx` products
+that exercise Eigen's MKL GEMM integration in an MKL build.
 
-Linux MKL-TBB was not available in the current macOS environment and has not
-been run. The MKL executable now registers the same shared no-BLAS, FEM, and
-contact kernels as Accelerate, in addition to its DGEMM family. It also exports
-the checksum, process/pgo telemetry, and the worker-local value of
-`mkl_get_max_threads()`. The same runner supports both executables.
+### macOS real-FEM result (2026-07-12)
+
+The 16 configurations completed with ten randomized fresh-process pairs each;
+all policy-pair checksums matched. Ratios below are family geometric means of
+the per-configuration median `Inherit / Suppress` wall times:
+
+| Family | Ratio | Classification |
+|---|---:|---|
+| CubicLinear / Energy | 0.913 | Inherit faster |
+| CubicLinear / Gradient | 1.013 | equivalent |
+| CubicLinear / Hessian | 0.967 | equivalent |
+| CubicLinear / Full | 0.898 | Inherit faster |
+| CubicTricubicHermite / Energy | 0.958 | equivalent |
+| CubicTricubicHermite / Gradient | 0.968 | equivalent |
+| CubicTricubicHermite / Hessian | 1.004 | equivalent |
+| CubicTricubicHermite / Full | 1.004 | equivalent |
+
+The aggregate real-FEM geometric mean is `0.965`, a 3.5% Inherit advantage.
+That does not clear the predeclared 5% default-change threshold. The expensive
+Hermite Hessian and Full cases have much tighter intervals than the short
+CubicLinear cases and are effectively equal: for 8 elements their medians and
+bootstrap intervals are `1.013 [0.990, 1.027]` and
+`1.008 [0.984, 1.025]`, respectively. This is evidence that Suppress does not
+help these real FEM paths on the current macOS build, but it is not sufficient
+under the fixed rule to change the platform default to Inherit.
+
+Artifact: `build/benchmark-results/real-fem-macos.json` (local build tree).
+
+An MKL `MKL_VERBOSE=1` single-iteration probe confirms that the Hermite Hessian
+is not merely large Eigen arithmetic: one policy pair emitted 2,048 calls each
+of `DGEMM(192,192,9)` and `DGEMM(192,9,9)` (1,024 of each shape per policy), in
+addition to the smaller preparation products. The probe is functional evidence
+only and is excluded from timing because another server workload was active.
+The Linux regression test
+`ParallelNestedKernelTest.MklSuppressAndInheritRestoreLocalThreads` verifies that
+Suppress exposes a worker-local MKL maximum of 1, Inherit exposes the caller's
+maximum, and both restore the caller state afterward.
+
+### Linux MKL-TBB real-FEM result (2026-07-12)
+
+The server's existing experiment was suspended with `SIGSTOP` for the complete
+sweep and restored with `SIGCONT` immediately afterward. The 16 configurations
+completed with ten randomized fresh-process pairs each; all checksums matched
+and the benchmark exited successfully. Family geometric means are:
+
+| Family | Ratio | Classification |
+|---|---:|---|
+| CubicLinear / Energy | 0.999 | equivalent |
+| CubicLinear / Gradient | 1.002 | equivalent |
+| CubicLinear / Hessian | 1.005 | equivalent |
+| CubicLinear / Full | 0.988 | equivalent |
+| CubicTricubicHermite / Energy | 0.988 | equivalent |
+| CubicTricubicHermite / Gradient | 1.022 | equivalent |
+| CubicTricubicHermite / Hessian | 1.024 | equivalent |
+| CubicTricubicHermite / Full | 1.097 | Suppress faster |
+
+The aggregate real-FEM geometric mean is `1.015`. Most cases are equivalent,
+but the decision-critical Hermite Full workload has median ratios of
+`1.077 [1.038, 1.130]` for 8 elements and
+`1.117 [1.018, 1.210]` for 16 elements. The 16-element case exceeds the
+predeclared 10% important-regression threshold. Both policies had the same
+median process-thread peak of 17, consistent with oneTBB enforcing the runtime
+ceiling while the inherited MKL request still incurs additional scheduling or
+kernel-selection overhead.
+
+Artifact: `build/benchmark-results/real-fem-mkl.json` (copied from the Linux
+host into the local build tree).
+
+### Default-policy conclusion
+
+- Keep `Suppress` as the MKL default; both the earlier nested-DGEMM evidence and
+  the real Hermite Full workload reject a portable Inherit default.
+- The current macOS real-FEM data shows no important Inherit regression, but its
+  3.5% aggregate gain does not clear the fixed 5% threshold. It therefore does
+  not justify changing the Accelerate default to Inherit yet.
+- Keep the existing portable `Suppress` default for now. A future
+  backend-specific Accelerate=Inherit proposal needs either a stronger stable
+  gain on production call sites or an explicitly revised acceptance rule.
+
+## Linux MKL-TBB synthetic sweep
+
+The MKL executable registers the same shared no-BLAS, FEM, and contact kernels
+as Accelerate, in addition to its DGEMM family. It also exports the checksum,
+process/pgo telemetry, and the worker-local value of `mkl_get_max_threads()`.
+The same runner supports both executables. Any result produced before the
+explicit runner warm-up and GCC checksum revision is superseded and must be
+rerun.
 
 Linux prerequisites are oneTBB, Google Benchmark, an MKL installation visible
 to CMake (`MKLROOT` when required), a build configured with
@@ -145,18 +231,42 @@ python benchmarks/run_nested_policy_decision.py \
   build/base/benchmarks/parallelism_mkl_nested_benchmark \
   --out benchmarks/results/nested_policy_mkl_tbb.json \
   --filter '^(PolicyDecision/|NestedParallelDgemm/(Suppress|Inherit)/workers_(1|4|8)/tasks_(1|4|8|16|32)/n_(512|1024|2048))' \
-  --repetitions 10 --min-time 0.03s --seed 20260712
+  --repetitions 10 --min-time 0.03s --warmup-time 0.10 --seed 20260712
 ```
 
 Do not combine the Accelerate and MKL raw measurements as though they came from
 one host. Compare family directions and threshold violations across the two JSON
 summaries.
 
+## Warm-up/checksum revision validation
+
+The implementation review found that fresh-process runs repeated cold runtime
+initialization and that the non-const GCC `DoNotOptimize(checksum)` call could
+overwrite the DGEMM checksum with a pointer bit pattern. This revision adds an
+explicit per-process warm-up argument, records it in the result JSON, and removes
+the mutating checksum barrier while retaining the checksum as an exported counter.
+
+Focused macOS validation after the revision:
+
+- Python byte-compilation: passed;
+- Accelerate benchmark rebuild: passed;
+- two fresh Suppress/Inherit DGEMM pairs with warm-up: passed;
+- checksum was finite, plausible, and equal (`136.236024`) for both policies;
+- `ParallelNestedKernelTest.AccelerateSuppressAndInheritRestoreThreading`: passed;
+- `git diff --check`: passed.
+
+The Linux/GCC build, checksum regression test, and real cubic FEM sweep now pass.
+The broader synthetic DGEMM/contact sweep described above remains a separate
+follow-up; prior pre-warm-up artifacts are still not accepted decision inputs.
+
 ## Reviewer checklist
 
 - Confirm every raw pair uses two distinct child processes.
+- Confirm `settings.warmup_time_seconds` records the intended process-local
+  warm-up.
 - Confirm `policy_order` varies under seed `20260712`.
-- Confirm checksums match within the fixed `1e-10` relative tolerance.
+- Confirm checksums are finite, numerically plausible, and match within the
+  fixed `1e-10` relative tolerance.
 - Independently recompute several `Inherit / Suppress` ratios from raw wall time.
 - Confirm any proposed default change satisfies all predeclared thresholds and
   has Linux MKL-TBB evidence in the same direction.

@@ -203,8 +203,7 @@ void benchmarkNestedParallelDgemm(
     state.ResumeTiming();
   }
 
-  double checksum = std::accumulate(results.begin(), results.end(), 0.0);
-  benchmark::DoNotOptimize(checksum);
+  const double checksum = std::accumulate(results.begin(), results.end(), 0.0);
 
   recordCommonCounters(state, outerWorkers, matrixN);
   state.counters["outer_tasks"] = outerTasks;

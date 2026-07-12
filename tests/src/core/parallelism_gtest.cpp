@@ -13,6 +13,10 @@
 #  include <tbb/task_arena.h>
 #endif
 
+#ifdef PGO_PARALLELISM_HAS_MKL
+#  include <mkl.h>
+#endif
+
 namespace P = pgo::parallel;
 
 TEST(ParallelForTest, VisitsEveryIndexAndHandlesRanges)
@@ -86,6 +90,7 @@ TEST(ParallelExecutorTest, NestedImplicitAndSameExecutorInheritArena)
 #ifdef PGO_PARALLELISM_HAS_TBB
       observedConcurrency.store(tbb::this_task_arena::max_concurrency(), std::memory_order_relaxed);
 #endif
+
     });
     P::parallelFor(executor, 0, 3, [&](int) {
       sameCalls.fetch_add(1, std::memory_order_relaxed);
@@ -165,6 +170,30 @@ TEST(ParallelExecutorTest, ActiveCallRetainsExecutorStateAfterHandleDestruction)
   const auto next = P::runtime().createExecutor({ .maxConcurrency = 1 });
   EXPECT_NO_THROW(P::parallelFor(next, 0, 1, [](int) {}));
 }
+
+#ifdef PGO_PARALLELISM_HAS_MKL
+TEST(ParallelNestedKernelTest, MklSuppressAndInheritRestoreLocalThreads)
+{
+  const int initial = mkl_get_max_threads();
+  const auto executor = P::runtime().createExecutor({ .maxConcurrency = 2 });
+
+  std::atomic<int> suppressed = -1;
+  P::parallelFor(executor, 0, 4, [&](int) {
+    suppressed.store(mkl_get_max_threads(), std::memory_order_relaxed);
+  });
+  EXPECT_EQ(suppressed.load(std::memory_order_relaxed), 1);
+  EXPECT_EQ(mkl_get_max_threads(), initial);
+
+  P::Options inherit;
+  inherit.nestedKernelPolicy = P::NestedKernelPolicy::Inherit;
+  std::atomic<int> inherited = -1;
+  P::parallelFor(executor, 0, 4, inherit, [&](int) {
+    inherited.store(mkl_get_max_threads(), std::memory_order_relaxed);
+  });
+  EXPECT_EQ(inherited.load(std::memory_order_relaxed), initial);
+  EXPECT_EQ(mkl_get_max_threads(), initial);
+}
+#endif
 
 #ifdef PGO_PARALLELISM_HAS_ACCELERATE_THREADING
 #  include <Accelerate/Accelerate.h>

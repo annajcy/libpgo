@@ -29,11 +29,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(
         "--filter",
-        default=r"^(PolicyDecision|NestedParallelDgemmAccelerate|NestedParallelDgemm)/",
+        default=r"^(PolicyDecision|RealFemPolicyDecision|NestedParallelDgemmAccelerate|NestedParallelDgemm)/",
         help="Regex selecting discovered benchmark names.",
     )
     parser.add_argument("--repetitions", type=int, default=10)
     parser.add_argument("--min-time", default="0.03s")
+    parser.add_argument(
+        "--warmup-time",
+        type=float,
+        default=0.10,
+        help="Per-process Google Benchmark warm-up time in seconds.",
+    )
     parser.add_argument("--seed", type=int, default=20260712)
     parser.add_argument("--case-limit", type=int, default=0, help="Limit paired configurations.")
     parser.add_argument("--bootstrap-samples", type=int, default=2000)
@@ -77,11 +83,18 @@ def exact_filter(name: str) -> str:
     return f"^{re.escape(name)}$"
 
 
-def run_one(benchmark: Path, name: str, min_time: str, output: Path) -> dict[str, Any]:
+def run_one(
+    benchmark: Path,
+    name: str,
+    min_time: str,
+    warmup_time: float,
+    output: Path,
+) -> dict[str, Any]:
     command = [
         str(benchmark),
         f"--benchmark_filter={exact_filter(name)}",
         f"--benchmark_min_time={min_time}",
+        f"--benchmark_min_warmup_time={warmup_time:g}",
         "--benchmark_repetitions=1",
         f"--benchmark_out={output}",
         "--benchmark_out_format=json",
@@ -129,6 +142,8 @@ def family_for_key(key: str) -> str:
     components = key.split("/")
     if components[0] == "PolicyDecision":
         return components[1]
+    if components[0] == "RealFemPolicyDecision":
+        return f"{components[1]}/{components[2]}"
     if components[0] in {"NestedParallelDgemmAccelerate", "NestedParallelDgemm"}:
         return "Dgemm"
     return components[0]
@@ -206,6 +221,7 @@ def summarize(records: list[dict[str, Any]], seed: int, bootstrap_samples: int) 
         case["median_inherit_over_suppress"]
         for case in cases
         if case["family"] in {"FemElementBatch", "ContactPairBatch"}
+        or case["family"].startswith("Cubic")
     ]
     representative_geomean = geometric_mean(representative) if representative else None
     important_regressions = [case["case_key"] for case in cases if case["important_regression"]]
@@ -229,8 +245,12 @@ def summarize(records: list[dict[str, Any]], seed: int, bootstrap_samples: int) 
 
 def main() -> int:
     args = parse_args()
-    if args.repetitions < 1 or args.bootstrap_samples < 1:
-        print("--repetitions and --bootstrap-samples must be positive", file=sys.stderr)
+    if args.repetitions < 1 or args.bootstrap_samples < 1 or args.warmup_time < 0:
+        print(
+            "--repetitions and --bootstrap-samples must be positive; "
+            "--warmup-time must be non-negative",
+            file=sys.stderr,
+        )
         return 2
     benchmark = args.benchmark.resolve()
     if not benchmark.exists():
@@ -267,7 +287,13 @@ def main() -> int:
             )
             for policy in policy_order:
                 output = temp / f"run-{run_index:04d}-{policy}.json"
-                result = run_one(benchmark, pairs[key][policy], args.min_time, output)
+                result = run_one(
+                    benchmark,
+                    pairs[key][policy],
+                    args.min_time,
+                    args.warmup_time,
+                    output,
+                )
                 benchmark_context = result["context"]
                 pair_result[policy] = result
             validate_checksum(pair_result["Suppress"], pair_result["Inherit"], key)
@@ -293,6 +319,7 @@ def main() -> int:
             "filter": args.filter,
             "repetitions": args.repetitions,
             "min_time": args.min_time,
+            "warmup_time_seconds": args.warmup_time,
             "seed": args.seed,
             "fresh_process_per_policy": True,
             "paired_randomized_order": True,

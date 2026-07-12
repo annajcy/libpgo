@@ -406,6 +406,52 @@ TEST(DeformationModelAssemblerGTest, TricubicHermiteHessianTemplateTopologyMatch
   expectAssemblerTopologyMatchesTripletReference(*assembler);
 }
 
+template<class FormulationT>
+void expectExplicitNestedKernelPoliciesAgree(const FormulationT &formulation)
+{
+  auto mesh = makeTwoElementCubicSimulationMesh();
+  auto assembler = buildTopologyTestAssembler(mesh, formulation);
+  ES::VXd x = assembler->getRestPosition();
+  for (Eigen::Index i = 0; i < x.size(); ++i)
+    x[i] += 1e-4 * std::sin(0.37 * static_cast<double>(i) + 0.2);
+
+  pgo::parallel::Options suppress;
+  suppress.grainSize = 1;
+  suppress.nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Suppress;
+  pgo::parallel::Options inherit = suppress;
+  inherit.nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit;
+
+  const double suppressEnergy = assembler->computeEnergy(x.data(), suppress);
+  const double inheritEnergy = assembler->computeEnergy(x.data(), inherit);
+  EXPECT_NEAR(suppressEnergy, inheritEnergy,
+    1e-10 * std::max({ 1.0, std::abs(suppressEnergy), std::abs(inheritEnergy) }));
+
+  ES::VXd suppressGradient = ES::VXd::Zero(assembler->getNumDOFs());
+  ES::VXd inheritGradient = ES::VXd::Zero(assembler->getNumDOFs());
+  assembler->computeGradient(x.data(), suppressGradient.data(), suppress);
+  assembler->computeGradient(x.data(), inheritGradient.data(), inherit);
+  EXPECT_LE((suppressGradient - inheritGradient).norm(),
+    1e-10 * std::max(1.0, suppressGradient.norm()));
+
+  ES::SpMatD suppressHessian = assembler->getHessianTemplate();
+  ES::SpMatD inheritHessian = assembler->getHessianTemplate();
+  assembler->computeHessian(x.data(), suppressHessian, suppress);
+  assembler->computeHessian(x.data(), inheritHessian, inherit);
+  EXPECT_LE((suppressHessian - inheritHessian).norm(),
+    1e-10 * std::max(1.0, suppressHessian.norm()));
+}
+
+TEST(DeformationModelAssemblerGTest, ExplicitNestedKernelPoliciesAgreeForCubicLinear)
+{
+  expectExplicitNestedKernelPoliciesAgree(pgo::SolidDeformationModel::CubicLinearFormulation{});
+}
+
+TEST(DeformationModelAssemblerGTest, ExplicitNestedKernelPoliciesAgreeForTricubicHermite)
+{
+  expectExplicitNestedKernelPoliciesAgree(
+    pgo::SolidDeformationModel::CubicTricubicHermiteFormulation{});
+}
+
 TEST(DeformationModelAssemblerGTest, HessianBlockOffsetsRejectMissingContiguousColumns)
 {
   std::vector<DofGroup> groups = {

@@ -415,6 +415,12 @@ DeformationModelAssembler::PreparedElement DeformationModelAssembler::gatherAndP
 
 double DeformationModelAssembler::computeEnergy(const double *x) const
 {
+  return computeEnergy(x, pgo::parallel::Options{});
+}
+
+double DeformationModelAssembler::computeEnergy(
+  const double *x, const pgo::parallel::Options &options) const
+{
   for (auto it = data->threadScratch().begin(); it != data->threadScratch().end(); ++it)
     it->energy = 0.0;
 
@@ -429,7 +435,7 @@ double DeformationModelAssembler::computeEnergy(const double *x) const
     scratch.energy += energy * elementWeights[ele];
   };
 
-  pgo::parallel::parallelFor(0, nele, pgo::parallel::Options{}, localEnergyFunc);
+  pgo::parallel::parallelFor(0, nele, options, localEnergyFunc);
 
   double energyAll = 0;
   for (auto it = data->threadScratch().begin(); it != data->threadScratch().end(); ++it)
@@ -479,6 +485,12 @@ double DeformationModelAssembler::computeMaxStepSize(const double *x, const doub
 
 void DeformationModelAssembler::computeGradient(const double *x, double *grad) const
 {
+  computeGradient(x, grad, pgo::parallel::Options{});
+}
+
+void DeformationModelAssembler::computeGradient(
+  const double *x, double *grad, const pgo::parallel::Options &options) const
+{
   memset(grad, 0, sizeof(double) * numDOFs);
   auto localGradFunc = [this, x, grad](int ele) {
     if (elementWeights[ele] == 0)
@@ -503,13 +515,19 @@ void DeformationModelAssembler::computeGradient(const double *x, double *grad) c
     dofLayout->scatterAddGradient(ele, scratch.localGradient.data(), grad, scratch.groups);
   };
 
-  pgo::parallel::parallelFor(0, nele, pgo::parallel::Options{}, localGradFunc);
+  pgo::parallel::parallelFor(0, nele, options, localGradFunc);
 
   if (enableSanityCheck)
     sanityCheckValues(grad, numDOFs, "gradient");
 }
 
 void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::SpMatD &hess) const
+{
+  computeHessian(x, hess, pgo::parallel::Options{});
+}
+
+void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::SpMatD &hess,
+  const pgo::parallel::Options &options) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
@@ -539,7 +557,7 @@ void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::Sp
     }
   };
 
-  pgo::parallel::parallelFor(0, nele, pgo::parallel::Options{}, localHessFunc);
+  pgo::parallel::parallelFor(0, nele, options, localHessFunc);
 
   if (enableSanityCheck)
     sanityCheckValues(hess.valuePtr(), hess.nonZeros(), "Hessian");
