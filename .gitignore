@@ -103,5 +103,7 @@ examples/outputs
 examples/experiments/tricubic_hermite_fem/assets/obj/*-conservative-r15-surface.obj
 examples/experiments/tricubic_hermite_fem/assets/veg/cubic/*.veg
 examples/experiments/tricubic_hermite_fem/assets/veg/tet/*.veg
+examples/experiments/tricubic_hermite_fem/assets/veg/tet/*-tet-reference.json
+examples/experiments/tricubic_hermite_fem/assets/veg/tet/*.meta.json
 
 benchmarks/results/*

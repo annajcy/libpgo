@@ -157,9 +157,17 @@ the extension.
 
 ```bash
 conda create -n pypgo -c conda-forge python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
+conda env config vars set -n pypgo MKL_THREADING_LAYER=TBB
 conda activate pypgo
 python -m pip install --no-deps pypgo-*.whl
 ```
+
+The conda MKL BLAS packages route NumPy through the `mkl_rt` dispatcher; they
+do not select the TBB threading layer by themselves. Set
+`MKL_THREADING_LAYER=TBB` before importing NumPy so NumPy and `pypgo` share the
+same TBB runtime. `pypgo.parallel.initialize(max_concurrency=...)` can then
+apply one process-wide TBB concurrency ceiling instead of leaving a separate
+MKL OpenMP pool outside that ceiling.
 
 #### macOS uses Accelerate:
 
@@ -234,6 +242,9 @@ environment:
 #### Linux / Windows
 ```bash
 conda install -n libpgo -c conda-forge mkl-devel "libblas=*=*mkl" "liblapack=*=*mkl"
+conda env config vars set -n libpgo MKL_THREADING_LAYER=TBB
+conda deactivate
+conda activate libpgo
 ```
 
 #### macOS
@@ -241,7 +252,12 @@ conda install -n libpgo -c conda-forge mkl-devel "libblas=*=*mkl" "liblapack=*=*
 conda install -n libpgo -c conda-forge "libblas=*=*accelerate" "liblapack=*=*accelerate"
 ```
 
-This keeps NumPy on the same BLAS backend as the native extension.
+This keeps NumPy on the same BLAS backend as the native extension. On Linux
+and Windows, the environment variable also makes NumPy's `mkl_rt` dispatcher
+select `mkl_tbb_thread`. The native build's `PGO_MKL_THREADING=tbb_thread`
+selects the libpgo link-time MKL layer; it does not configure NumPy. The
+threading-layer variable must therefore be active before the first NumPy/MKL
+import in each process.
 
 ### Python Package Build
 

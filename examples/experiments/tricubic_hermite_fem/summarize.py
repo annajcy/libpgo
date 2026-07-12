@@ -215,6 +215,12 @@ def _write_markdown(path: Path, comparison: dict) -> None:
         f"Complete five-case matrix: {'yes' if comparison['complete'] else 'no'}.",
         "",
     ]
+    if mode == "dynamic":
+        lines += [
+            "Fresh wall-time matrix: "
+            f"{'yes' if comparison['wall_time_comparable'] else 'no'}.",
+            "",
+        ]
     if mode == "static":
         lines += [
             "| case | DOFs | converged | wall s | free rel L2 | y rel L2 | p95 error | pin max |",
@@ -349,6 +355,7 @@ def summarize_dynamic(study_name: str, output: Path | None = None) -> dict | Non
             summary.get("resumed_from") is None
             and summary.get("initial_timestep_id", 0) == 0
         )
+        row["wall_time_comparable"] = row["completed"] and row["fresh_run"]
         row.update(
             trajectory_metrics(
                 _load_surface_positions(output / name),
@@ -374,6 +381,10 @@ def summarize_dynamic(study_name: str, output: Path | None = None) -> dict | Non
             set(available) == set(FORMULATION_CASES)
             and all(row.get("completed") and row.get("matched_frames", 0) > 0 for row in rows)
         ),
+        "wall_time_comparable": (
+            set(available) == set(FORMULATION_CASES)
+            and all(row.get("wall_time_comparable") for row in rows)
+        ),
         "cases": rows,
     }
     output.mkdir(parents=True, exist_ok=True)
@@ -383,6 +394,7 @@ def summarize_dynamic(study_name: str, output: Path | None = None) -> dict | Non
         rows,
         [
             "case", "formulation", "num_dofs", "completed", "fresh_run",
+            "wall_time_comparable",
             "final_timestep_id", "target_timestep_id", "num_frames", "wall_seconds",
             "volume_ratio", "matched_frames", "trajectory_rel_l2_mean",
             "trajectory_rel_l2_p95", "trajectory_rel_l2_max", "trajectory_y_rel_l2_mean",
@@ -426,7 +438,11 @@ def main(argv=None) -> int:
     incomplete = False
     for study_name, mode in targets:
         comparison = summarize(study_name, mode, args.output_root)
-        if comparison is None or not comparison["complete"]:
+        if (
+            comparison is None
+            or not comparison["complete"]
+            or (mode == "dynamic" and not comparison["wall_time_comparable"])
+        ):
             incomplete = True
         else:
             destination = args.output_root or output_root(study_name, mode)

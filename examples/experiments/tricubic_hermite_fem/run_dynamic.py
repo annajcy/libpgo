@@ -33,12 +33,14 @@ from summarize import summarize_dynamic
 
 
 def _initialize_parallelism() -> None:
-    if not SETTINGS["num_threads"]:
+    max_concurrency = SETTINGS["num_threads"]
+    if not max_concurrency:
         return
-    if hasattr(pp, "initialize"):
-        pp.initialize(max_concurrency=SETTINGS["num_threads"])
-    elif hasattr(pp, "set_worker_limit"):
-        pp.set_worker_limit(SETTINGS["num_threads"])
+    info = pp.initialize(max_concurrency=max_concurrency)
+    print(
+        f"[parallel] max_concurrency={info.max_concurrency} "
+        f"effective_tbb={info.effective_tbb_max_allowed_parallelism}"
+    )
 
 
 def _surface_volume(surface) -> float:
@@ -59,15 +61,18 @@ def _signature(
     case = cases[name]
     settings = dict(SETTINGS)
     settings["write_abc"] = bool(write_abc)
-    return {
+    signature = {
         "case": name,
         "study": study["name"],
         "surface_mesh": asset_id(study["surface"]),
         "obstacle_mesh": asset_id(study["obstacle"]),
-        "volume_mesh": asset_id(case["volume"]),
+        "volume_mesh": asset_id(case["volume"]) if case["volume"] is not None else None,
         "formulation": case["formulation"],
         "settings": settings,
     }
+    if name == "tet_ref":
+        signature["tet_reference_selection"] = case["selection"]
+    return signature
 
 
 def _completed_summary(
@@ -107,6 +112,10 @@ def run_case(
             return completed
 
     case = cases[name]
+    if name == "tet_ref" and (case["selection"] is None or case["volume"] is None):
+        raise FileNotFoundError(
+            "tet reference selection is missing; run mesh/tune_tet_reference.py first"
+        )
     overrides = {
         "mesh.volume": str(case["volume"]),
         "mesh.surface": str(study["surface"]),

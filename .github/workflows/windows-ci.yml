@@ -13,6 +13,9 @@ on:
 permissions:
   contents: read
 
+env:
+  MKL_THREADING_LAYER: TBB
+
 jobs:
   python-build-and-test:
     name: Python Build and Test
@@ -64,6 +67,9 @@ jobs:
             "libblas=*=*mkl" `
             "liblapack=*=*mkl" `
             mkl-devel
+
+      - name: Verify NumPy uses MKL-TBB
+        run: python tests/check_mkl_tbb_runtime.py
 
       - name: Remove incompatible Fortran tools from PATH
         run: |
@@ -214,6 +220,7 @@ jobs:
           }
           conda create -y -p $cleanEnv python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
           conda run -p $cleanEnv python -m pip install --no-deps $wheel[0].FullName
+          conda run -p $cleanEnv python "$env:GITHUB_WORKSPACE\tests\check_mkl_tbb_runtime.py" --import-pypgo
 
           $script = Join-Path $env:RUNNER_TEMP "verify-pypgo-wheel-${{ matrix.variant }}.py"
           @'
@@ -306,6 +313,9 @@ jobs:
 
       - name: Install MKL BLAS stack
         run: conda install -y "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
+
+      - name: Verify NumPy uses MKL-TBB
+        run: python tests/check_mkl_tbb_runtime.py
 
       - name: Configure with preset base
         run: cmake --preset base -G Ninja ${{ matrix.cmake_configure_args }}

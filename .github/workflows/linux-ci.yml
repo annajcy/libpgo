@@ -15,6 +15,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  MKL_THREADING_LAYER: TBB
 
 jobs:
   python-build-and-test:
@@ -65,6 +66,9 @@ jobs:
             "libblas=*=*mkl" \
             "liblapack=*=*mkl" \
             mkl-devel
+
+      - name: Verify NumPy uses MKL-TBB
+        run: python tests/check_mkl_tbb_runtime.py
 
       - name: Build Python wheel
         env:
@@ -155,6 +159,7 @@ jobs:
           conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
           conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
           run_python=(conda run -p "${clean_env}" python)
+          "${run_python[@]}" "${GITHUB_WORKSPACE}/tests/check_mkl_tbb_runtime.py" --import-pypgo
           tmpdir="$(mktemp -d)"
           cd "${tmpdir}"
           "${run_python[@]}" -X faulthandler - <<'PY'
@@ -227,6 +232,9 @@ jobs:
 
       - name: Install MKL BLAS stack
         run: conda install -y "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
+
+      - name: Verify NumPy uses MKL-TBB
+        run: python tests/check_mkl_tbb_runtime.py
 
       - name: Configure with preset base
         run: cmake --preset base ${{ matrix.cmake_configure_args }}

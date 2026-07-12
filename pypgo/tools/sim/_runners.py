@@ -145,7 +145,7 @@ def _format_solver_diagnostics(frame) -> str:
     )
 
 
-_CHECKPOINT_VERSION = 1
+_CHECKPOINT_VERSION = 2
 
 
 def _checkpoint_dir(output_dir: Path) -> Path:
@@ -160,6 +160,38 @@ def _checkpoint_frame_index(path: Path) -> int:
     return int(path.stem.removeprefix("state"))
 
 
+def _checkpoint_json_value(value):
+    if isinstance(value, Path):
+        stat = value.stat()
+        return {
+            "path": str(value.resolve()),
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        }
+    if isinstance(value, dict):
+        return {key: _checkpoint_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_checkpoint_json_value(item) for item in value]
+    return value
+
+
+def _checkpoint_metadata(cfg, num_dofs: int) -> dict:
+    """Capture every state-affecting setting while allowing a longer target run."""
+    simulation = asdict(cfg)
+    simulation.pop("output")
+    simulation["dynamic"].pop("resume")
+    simulation["dynamic"].pop("num_steps")
+    return {
+        "schema_version": 1,
+        "num_dofs": num_dofs,
+        "simulation": _checkpoint_json_value(simulation),
+        "solver_environment": {
+            name: os.environ.get(name)
+            for name in ("PGO_SOLVER_DAMPING", "PGO_SOLVER_DAMPING_SCALE")
+        },
+    }
+
+
 def _write_checkpoint(
     path: Path,
     *,
@@ -168,6 +200,7 @@ def _write_checkpoint(
     timestep: float,
     integrator: str,
     num_dofs: int,
+    metadata: dict,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
@@ -181,6 +214,7 @@ def _write_checkpoint(
         num_dofs=np.array(num_dofs, dtype=np.int64),
         timestep=np.array(timestep, dtype=np.float64),
         integrator=np.array(integrator),
+        metadata_json=np.array(json.dumps(metadata, sort_keys=True)),
     )
 
 
@@ -212,6 +246,7 @@ def _read_checkpoint(
     num_dofs: int,
     timestep: float,
     integrator: str,
+    metadata: dict,
 ) -> DynamicState:
     from pypgo.tools.sim._config import ConfigError
 
@@ -226,6 +261,7 @@ def _read_checkpoint(
             ckpt_num_dofs = int(data["num_dofs"])
             ckpt_timestep = float(data["timestep"])
             ckpt_integrator = str(data["integrator"].item())
+            ckpt_metadata = json.loads(str(data["metadata_json"].item()))
     except (OSError, KeyError, ValueError) as exc:
         raise ConfigError(f"cannot read resume checkpoint {path}: {exc}") from exc
 
@@ -244,6 +280,10 @@ def _read_checkpoint(
         raise ConfigError(
             f"resume checkpoint integrator={ckpt_integrator!r} "
             f"does not match config integrator={integrator!r}")
+    if ckpt_metadata != metadata:
+        raise ConfigError(
+            "resume checkpoint metadata does not match the current simulation configuration"
+        )
     for label, value in (
         ("displacement", displacement),
         ("velocity", velocity),
@@ -352,6 +392,7 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
     x0 = bundle.initial_vector(cfg.initial_state.displacement)
     v0 = bundle.initial_vector(cfg.initial_state.velocity)
     a0 = np.zeros(bundle.num_dofs, dtype=np.float64)
+    checkpoint_metadata = _checkpoint_metadata(cfg, bundle.num_dofs)
     resume_path = _resolve_resume_checkpoint(cfg)
     if resume_path is not None:
         resume_state = _read_checkpoint(
@@ -359,6 +400,7 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
             num_dofs=bundle.num_dofs,
             timestep=dt,
             integrator=cfg.dynamic.integrator,
+            metadata=checkpoint_metadata,
         )
         x0 = resume_state.displacement
         v0 = resume_state.velocity
@@ -421,6 +463,7 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
                 timestep=dt,
                 integrator=cfg.dynamic.integrator,
                 num_dofs=bundle.num_dofs,
+                metadata=checkpoint_metadata,
             )
         if profile_enabled:
             try:

@@ -19,12 +19,11 @@ sys.path.insert(0, str(EXPERIMENT_DIR))
 import pypgo as pgo
 from pypgo.mesh.volume import read_veg
 
-from common import ASSETS, STUDIES
+from common import ASSETS, STUDIES, tet_reference_mesh, tet_reference_selection
 
 CASES = {
     name: {
         "surface": study["surface"],
-        "tet": ASSETS / "veg" / "tet" / f"{study['prefix']}-tet-a{study['tet_a']}.veg",
         "cubic": ASSETS / "veg" / "cubic" / f"{study['prefix']}.veg",
     }
     for name, study in STUDIES.items()
@@ -223,9 +222,13 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     defaults = CASES[args.study]
+    selection = tet_reference_selection(STUDIES[args.study]) if args.tet is None else None
+    tet_path = args.tet or tet_reference_mesh(selection)
+    if tet_path is None:
+        parser.error("tet reference selection is missing; run tune_tet_reference.py first")
     report = build_report(
         args.surface or defaults["surface"],
-        args.tet or defaults["tet"],
+        tet_path,
         args.cubic or defaults["cubic"],
     )
     print_report(report, args.study)

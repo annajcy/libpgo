@@ -55,6 +55,9 @@ def test_linux_wheel_uses_mkl_and_allows_openmp_runtime():
     workflow = read_workflow("linux-ci.yml")
 
     assert '"libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel' in workflow
+    assert "MKL_THREADING_LAYER: TBB" in workflow
+    assert "tests/check_mkl_tbb_runtime.py" in workflow
+    assert "--import-pypgo" in workflow
     assert '"libblas=*=*openblas"' not in workflow
     assert 'python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl' in workflow
     assert 'python -m venv "${clean_env}"' not in workflow
@@ -68,6 +71,7 @@ def test_macos_wheel_uses_accelerate_and_allows_openmp_runtime():
     workflow = read_workflow("macos-ci.yml")
 
     assert '"libblas=*=*accelerate" "liblapack=*=*accelerate"' in workflow
+    assert "MKL_THREADING_LAYER" not in workflow
     assert '"libblas=*=*openblas"' not in workflow
     assert 'python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl' in workflow
     assert 'python -m venv "${clean_env}"' not in workflow
@@ -79,6 +83,9 @@ def test_windows_wheel_uses_mkl_and_allows_openmp_runtime():
     workflow = read_workflow("windows-ci.yml")
 
     assert 'python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel' in workflow
+    assert "MKL_THREADING_LAYER: TBB" in workflow
+    assert "tests/check_mkl_tbb_runtime.py" in workflow
+    assert "--import-pypgo" in workflow
     assert '"libblas=*=*openblas"' not in workflow
     assert "python -m pip install --no-deps $wheel[0].FullName" in workflow
     assert "python -m venv $cleanEnv" not in workflow

@@ -118,8 +118,8 @@ def test_static_compare_cases_are_case_based():
     bunny = module.build_cases(module.STUDIES["bunny"])
 
     assert set(dragon) == set(module.FORMULATION_CASES)
-    assert dragon["tet_ref"]["volume"].name == "dragon-conservative-r15-tet-a1.45885e-7.veg"
-    assert bunny["tet_ref"]["volume"].name == "bunny-conservative-r15-tet-a2.8768e-9.veg"
+    assert dragon["tet_ref"]["volume"] is None
+    assert bunny["tet_ref"]["volume"] is None
     assert dragon["cubic_linear"]["volume"] == dragon["cubic_hermite"]["volume"]
     assert bunny["cubic_linear_x8"]["volume"].name == "bunny-conservative-r15-subdiv2.veg"
     assert bunny["cubic_linear_x27"]["volume"].name == "bunny-conservative-r15-subdiv3.veg"
@@ -134,11 +134,26 @@ def test_dynamic_compare_cases_use_shared_study_assets():
     assert study["surface"].is_relative_to(EXPERIMENT)
     assert study["obstacle"].name == "bottom.1.obj"
     assert study["obstacle"].is_relative_to(EXPERIMENT)
-    assert cases["tet_ref"]["volume"].name == "bunny-conservative-r15-tet-a2.8768e-9.veg"
+    assert cases["tet_ref"]["volume"] is None
     assert cases["cubic_linear"]["volume"] == cases["cubic_hermite"]["volume"]
     assert cases["cubic_linear_x8"]["volume"].name == "bunny-conservative-r15-subdiv2.veg"
     assert cases["cubic_linear_x27"]["volume"].name == "bunny-conservative-r15-subdiv3.veg"
     assert module.SETTINGS["num_steps"] >= 800
+
+
+@pytest.mark.parametrize("entrypoint", [RUN_STATIC, RUN_DYNAMIC])
+def test_experiment_entrypoints_use_one_shot_parallel_runtime_api(entrypoint):
+    source = entrypoint.read_text()
+
+    assert "pp.initialize(max_concurrency=max_concurrency)" in source
+    assert "set_worker_limit" not in source
+
+
+def test_linux_pipeline_selects_mkl_tbb_before_python_launches():
+    source = RUN_EXPERIMENTS.read_text()
+
+    assert "export MKL_THREADING_LAYER=${MKL_THREADING_LAYER:-TBB}" in source
+    assert source.index("export MKL_THREADING_LAYER") < source.index("RUN=(conda run")
 
 
 def test_dynamic_compare_tet_reference_uses_default_sparse_solver():
@@ -179,6 +194,7 @@ def test_dynamic_compare_writes_abc_by_default(monkeypatch, tmp_path):
 
     monkeypatch.setattr(module, "run_case", fake_run_case)
     monkeypatch.setattr(module, "summarize_dynamic", lambda *args, **kwargs: None)
+    monkeypatch.setattr(module, "_initialize_parallelism", lambda: None)
 
     assert module.main(["--cases", "tet_ref", "--output-root", str(tmp_path)]) == 0
     assert calls == [True]
@@ -258,6 +274,63 @@ def test_tune_tet_reference_updates_log_space_bracket():
     assert module.midpoint_a(lo, hi) == pytest.approx((300.0) ** 0.5)
 
 
+def test_tune_tet_reference_publishes_selected_mesh_and_metadata(tmp_path):
+    module = load_module(TUNE_TET, "publish_tet_reference")
+    candidate = tmp_path / "candidate.veg"
+    metadata = tmp_path / "selected.json"
+    candidate.write_bytes(b"selected tet mesh")
+    input_signature = {"schema_version": 1, "input": "fingerprint"}
+    candidate.with_suffix(".meta.json").write_text(
+        json.dumps({"input_signature": input_signature})
+    )
+
+    selection = module.publish_selection(
+        study="bunny",
+        candidate=candidate,
+        selection_output=metadata,
+        a=2.5e-9,
+        target_ratio=5.0,
+        actual_ratio=4.99,
+        vertices=100,
+        elements=300,
+        input_signature=input_signature,
+    )
+
+    assert json.loads(metadata.read_text()) == selection
+    assert selection["a"] == 2.5e-9
+    assert selection["actual_dof_ratio"] == 4.99
+    assert selection["input_signature"] == input_signature
+
+
+def test_tune_tet_reference_rejects_out_of_tolerance_selection():
+    module = load_module(TUNE_TET, "tet_reference_tolerance")
+
+    with pytest.raises(RuntimeError, match="exceeds tolerance"):
+        module.require_tolerance((0.2,), tolerance=0.05)
+
+
+def test_tet_candidate_cache_requires_matching_input_signature(monkeypatch, tmp_path):
+    module = load_module(TUNE_TET, "tet_candidate_cache")
+    candidate = tmp_path / "candidate.veg"
+    tet = pgo.mesh.TetMeshData(
+        np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=float),
+        np.array([[0, 1, 2, 3]], dtype=np.int64),
+    )
+    calls = []
+
+    def fake_tet_mesher(*args, **kwargs):
+        calls.append(kwargs["config"]["command"])
+        return tet
+
+    monkeypatch.setattr(module.pgo.mesh, "tet_mesher", fake_tet_mesher)
+    signature = {"input": "first"}
+    module.generate_or_read(object(), tet.volume, candidate, 1e-6, signature)
+    module.generate_or_read(object(), tet.volume, candidate, 1e-6, signature)
+    module.generate_or_read(object(), tet.volume, candidate, 1e-6, {"input": "changed"})
+
+    assert calls == ["pq1.414a9.9999999999999995e-07"] * 2
+
+
 def test_subdivide_cubic_mesh_splits_one_cube_into_eight():
     module = load_module(SUBDIVIDE_CUBIC, "subdivide_cubic_mesh")
     cube = pgo.mesh.CubicMeshData(
@@ -298,6 +371,48 @@ def test_common_output_layout_and_stable_asset_ids():
         "examples/outputs/tricubic_hermite_fem/dragon/dynamic"
     )
     assert module.asset_id(module.STUDIES["bunny"]["surface"]) == "assets/obj/bunny.obj"
+    assert "tet_a" not in module.STUDIES["bunny"]
+    assert module.tet_reference_selection_path(module.STUDIES["dragon"]).name == (
+        "dragon-conservative-r15-tet-reference.json"
+    )
+
+
+def test_common_resolves_tet_candidate_from_selection_manifest(monkeypatch, tmp_path):
+    module = load_module(COMMON, "tricubic_common_selection")
+    assets = tmp_path / "assets"
+    tet_dir = assets / "veg" / "tet"
+    tet_dir.mkdir(parents=True)
+    candidate = tet_dir / "bunny-conservative-r15-tet-a2.5e-9.veg"
+    candidate.write_bytes(b"tet")
+    candidate_metadata = candidate.with_suffix(".meta.json")
+    input_signature = {"schema_version": 1, "input": "fingerprint"}
+    candidate_metadata.write_text(json.dumps({"input_signature": input_signature}))
+    selection_path = tet_dir / "bunny-conservative-r15-tet-reference.json"
+    selection_path.write_text(json.dumps({
+        "study": "bunny",
+        "candidate_mesh": candidate.relative_to(tmp_path).as_posix(),
+        "candidate_metadata": candidate_metadata.relative_to(tmp_path).as_posix(),
+        "input_signature": input_signature,
+    }))
+    monkeypatch.setattr(module, "EXPERIMENT_DIR", tmp_path)
+    monkeypatch.setattr(module, "ASSETS", assets)
+
+    cases = module.build_cases({"name": "bunny", "prefix": "bunny-conservative-r15"})
+
+    assert cases["tet_ref"]["volume"] == candidate
+
+
+def test_dynamic_all_rejects_resumed_wall_time(monkeypatch, tmp_path):
+    module = load_module(SUMMARIZE, "summarize_wall_time_gate")
+    monkeypatch.setattr(
+        module,
+        "summarize",
+        lambda *args, **kwargs: {"complete": True, "wall_time_comparable": False},
+    )
+
+    assert module.main([
+        "--study", "bunny", "--mode", "dynamic", "--output-root", str(tmp_path)
+    ]) == 2
 
 
 def test_run_experiments_help_does_not_start_the_pipeline():

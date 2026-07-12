@@ -22,6 +22,17 @@ fi
 
 EXPERIMENT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 CONDA_ENV=${CONDA_ENV:-libpgo}
+
+# NumPy uses MKL's dynamic dispatcher on Linux. Keep it on the same TBB
+# runtime as libpgo before any Python process imports NumPy.
+if [[ $(uname -s) == Linux* ]]; then
+  export MKL_THREADING_LAYER=${MKL_THREADING_LAYER:-TBB}
+  if [[ ${MKL_THREADING_LAYER^^} != TBB ]]; then
+    echo "MKL_THREADING_LAYER must be TBB for the Linux experiment pipeline." >&2
+    exit 2
+  fi
+fi
+
 RUN=(conda run -n "$CONDA_ENV" python)
 
 step() {

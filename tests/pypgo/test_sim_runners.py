@@ -274,6 +274,7 @@ def test_run_dynamic_write_checkpoints_two_steps(tmp_path):
     assert set(data.files) >= {
         "version", "displacement", "velocity", "acceleration",
         "timestep_id", "time", "num_dofs", "timestep", "integrator",
+        "metadata_json",
     }
     assert data["displacement"].shape == (bundle.num_dofs,)
     assert data["velocity"].shape == (bundle.num_dofs,)
@@ -283,6 +284,8 @@ def test_run_dynamic_write_checkpoints_two_steps(tmp_path):
     assert int(data["num_dofs"]) == bundle.num_dofs
     assert float(data["timestep"]) == pytest.approx(cfg.dynamic.timestep)
     assert str(data["integrator"]) == cfg.dynamic.integrator
+    metadata = json.loads(str(data["metadata_json"]))
+    assert metadata["simulation"]["loads"]["gravity"] == [0.0, -9.81, 0.0]
 
 
 def test_run_dynamic_resume_latest_uses_num_steps_as_total_target(tmp_path):
@@ -376,6 +379,22 @@ def test_run_dynamic_resume_rejects_mismatched_integrator(tmp_path):
         **{"dynamic.resume": str(bad), "dynamic.num_steps": 4},
     )
     with pytest.raises(ConfigError, match="integrator"):
+        run_dynamic(build_scene(resume_cfg), resume_cfg)
+
+
+def test_run_dynamic_resume_rejects_mismatched_checkpoint_metadata(tmp_path):
+    cfg = _dynamic_box_cfg(tmp_path, **{"output.write_checkpoints": True})
+    run_dynamic(build_scene(cfg), cfg)
+
+    resume_cfg = _dynamic_box_cfg(
+        tmp_path,
+        **{
+            "dynamic.resume": "latest",
+            "dynamic.num_steps": 4,
+            "loads.gravity": (0.0, -1.0, 0.0),
+        },
+    )
+    with pytest.raises(ConfigError, match="metadata"):
         run_dynamic(build_scene(resume_cfg), resume_cfg)
 
 

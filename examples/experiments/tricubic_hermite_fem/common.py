@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -23,7 +24,6 @@ STUDIES = {
         "name": "bunny",
         "title": "Bunny Conservative R15",
         "prefix": "bunny-conservative-r15",
-        "tet_a": "2.8768e-9",
         "surface": ASSETS / "obj" / "bunny.obj",
         "fixed": ASSETS / "fixed" / "bunny-surface-fixed-ear-tip.txt",
         "obstacle": ASSETS / "obj" / "bottom.1.obj",
@@ -32,7 +32,6 @@ STUDIES = {
         "name": "dragon",
         "title": "Dragon Conservative R15",
         "prefix": "dragon-conservative-r15",
-        "tet_a": "1.45885e-7",
         "surface": ASSETS / "obj" / "dragon.obj",
         "fixed": ASSETS / "fixed" / "dragon-surface-fixed.txt",
         "obstacle": ASSETS / "obj" / "bottom.1.obj",
@@ -44,7 +43,7 @@ STATIC_SETTINGS = {
     "gravity": [0.0, -9.81, 0.0],
     "max_iterations": 300,
     "gradient_tolerance": 1e-5,
-    "pin_residual_limit": 1e-3,
+    "pin_residual_limit": 1.5e-3,
     "num_threads": 12,
 }
 
@@ -65,15 +64,50 @@ DYNAMIC_SETTINGS = {
 }
 
 
+def tet_reference_selection_path(study: dict) -> Path:
+    """Return the atomic selection manifest written by tet tuning."""
+    return ASSETS / "veg" / "tet" / f"{study['prefix']}-tet-reference.json"
+
+
+def _selection_asset_path(identifier: str) -> Path:
+    path = Path(identifier)
+    return path if path.is_absolute() else EXPERIMENT_DIR / path
+
+
+def tet_reference_selection(study: dict) -> dict | None:
+    """Load the upstream binary-search result, if it has been generated."""
+    selection_path = tet_reference_selection_path(study)
+    if not selection_path.exists():
+        return None
+    selection = json.loads(selection_path.read_text())
+    if selection.get("study") != study["name"]:
+        raise ValueError(f"invalid tet selection study in {selection_path}")
+    candidate = _selection_asset_path(selection["candidate_mesh"])
+    metadata_path = _selection_asset_path(selection["candidate_metadata"])
+    if not candidate.exists() or not metadata_path.exists():
+        raise FileNotFoundError(f"tet selection points to missing candidate assets: {selection_path}")
+    candidate_metadata = json.loads(metadata_path.read_text())
+    if candidate_metadata.get("input_signature") != selection.get("input_signature"):
+        raise ValueError(f"tet selection metadata does not match its candidate: {selection_path}")
+    return selection
+
+
+def tet_reference_mesh(selection: dict | None) -> Path | None:
+    """Resolve the selected candidate mesh from its manifest."""
+    return None if selection is None else _selection_asset_path(selection["candidate_mesh"])
+
+
 def build_cases(study: dict) -> dict:
     """Return the five formulation cases for one study."""
     prefix = study["prefix"]
     cubic = ASSETS / "veg" / "cubic"
+    selection = tet_reference_selection(study)
     return {
         "tet_ref": {
             "mesh_type": "tet",
-            "volume": ASSETS / "veg" / "tet" / f"{prefix}-tet-a{study['tet_a']}.veg",
+            "volume": tet_reference_mesh(selection),
             "formulation": "tet-linear",
+            "selection": selection,
         },
         "cubic_linear": {
             "mesh_type": "cubic",
