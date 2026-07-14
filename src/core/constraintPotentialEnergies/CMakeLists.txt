@@ -18,9 +18,9 @@ set(CONSTRAINT_POTENTIAL_ENERGIES_SOURCES
 
 set(CONSTRAINT_POTENTIAL_ENERGIES_DEPS nonlinearOptimization mesh)
 
-pgo_require_targets(constraintPotentialEnergies TARGETS ${CONSTRAINT_POTENTIAL_ENERGIES_DEPS} parallelism TBB::tbb)
+pgo_require_targets(constraintPotentialEnergies TARGETS ${CONSTRAINT_POTENTIAL_ENERGIES_DEPS} parallel TBB::tbb)
 
 add_libpgo_lib(constraintPotentialEnergies "${CONSTRAINT_POTENTIAL_ENERGIES_SOURCES}" "${CONSTRAINT_POTENTIAL_ENERGIES_HEADERS}")
 
 target_link_libraries(constraintPotentialEnergies PUBLIC ${CONSTRAINT_POTENTIAL_ENERGIES_DEPS})
-target_link_libraries(constraintPotentialEnergies PRIVATE parallelism TBB::tbb)
+target_link_libraries(constraintPotentialEnergies PRIVATE parallel TBB::tbb)

@@ -22,7 +22,7 @@ libraries and Python environment, not the build tools.
 | Platform | System build tools | Notes |
 | --- | --- | --- |
 | Linux | `gcc`, `g++`, `cmake`, `ninja-build`, `pkg-config` | Ubuntu 24.04 packages are sufficient. |
-| macOS | Xcode command line tools, Homebrew `cmake`, `ninja`, `pkg-config` | Accelerate and the SDK are system frameworks. |
+| macOS | Xcode command line tools, Homebrew `cmake`, `ninja`, `pkg-config` | The Xcode SDK provides the platform toolchain. |
 | Windows | Visual Studio 2022 MSVC, CMake, Ninja | Run builds from an x64 MSVC developer shell. |
 
 #### Linux:
@@ -169,13 +169,17 @@ same TBB runtime. `pypgo.parallel.initialize(max_concurrency=...)` can then
 apply one process-wide TBB concurrency ceiling instead of leaving a separate
 MKL OpenMP pool outside that ceiling.
 
-#### macOS uses Accelerate:
+#### macOS NumPy may use Accelerate:
 
 ```bash
 conda create -n pypgo -c conda-forge python=3.12 pip numpy "libblas=*=*accelerate" "liblapack=*=*accelerate"
 conda activate pypgo
 python -m pip install --no-deps pypgo-*.whl
 ```
+
+This selects NumPy's application-owned BLAS. Native libpgo/pypgo targets do
+not link Accelerate, BLAS, or LAPACK on macOS and do not control NumPy's BLAS
+threads.
 
 Some optional geometry backends, including Gmsh and OpenVDB, may bring an
 OpenMP runtime into the Python process. Keep those calls outside
@@ -252,8 +256,7 @@ conda activate libpgo
 conda install -n libpgo -c conda-forge "libblas=*=*accelerate" "liblapack=*=*accelerate"
 ```
 
-This keeps NumPy on the same BLAS backend as the native extension. On Linux
-and Windows, the environment variable also makes NumPy's `mkl_rt` dispatcher
+On Linux and Windows, the environment variable makes NumPy's `mkl_rt` dispatcher
 select `mkl_tbb_thread`. The native build's `PGO_MKL_THREADING=tbb_thread`
 selects the libpgo link-time MKL layer; it does not configure NumPy. The
 threading-layer variable must therefore be active before the first NumPy/MKL
@@ -330,8 +333,9 @@ ctest --test-dir build/base --output-on-failure
 ```
 
 The `base` preset enables Alembic, Gmsh, TetWild, OpenVDB, the Python binding,
-and the C API. Linux/Windows builds use MKL; macOS builds use Accelerate and
-force `PGO_ENABLE_CUDA=OFF`.
+and the C API. Linux/Windows builds use oneMKL with its TBB threading layer;
+macOS native targets use Eigen kernels, do not link Accelerate/BLAS/LAPACK,
+and force `PGO_ENABLE_CUDA=OFF`.
 
 Other shared presets are available for debug, CUDA, Knitro, and Pardiso builds:
 
@@ -501,11 +505,12 @@ Example `CMakeUserPresets.json` (local, optional):
   platform compiler for local source builds and CI.
 - Conda supplies Python plus native project dependencies for local source
   builds and CI wheels: Boost, MKL, TBB, Gmsh, OpenVDB, GMP, MPFR, Imath, zlib,
-  setuptools, and wheel. In conda environments, `numpy` stays on conda so it
-  shares the same BLAS backend as the native extension.
+  setuptools, and wheel. In conda environments, `numpy` stays on conda; its
+  BLAS runtime is application-owned and separate from libpgo's concurrency
+  contract.
 - CI wheel artifacts follow the same ownership model: `pypgo` expects conda to
-  supply NumPy and the BLAS/LAPACK runtime. Install artifact wheels with
-  `--no-deps`.
+  supply NumPy and NumPy's own runtime dependencies. Install artifact wheels
+  with `--no-deps`.
 - Pip supplies only optional pure-Python / pip-first packages that are not
   build-time native deps. `setup.py` keeps extras for convenience, but the base
   package itself declares no pip dependencies. Add optional pip packages
@@ -516,10 +521,31 @@ Example `CMakeUserPresets.json` (local, optional):
   `notebook`, and the `trame` / `trame-vtk` / `trame-vuetify` stack
   (conda-forge lags their releases).
 - FetchContent-managed C++ dependencies are downloaded and built by this
-  repository: Eigen, fmt, spdlog, nlohmann_json, SuiteSparse, Ceres, CGAL,
+  repository: Eigen, fmt, spdlog, nlohmann_json, Ceres, CGAL,
   geogram, libigl, Alembic, nanobind, and related internal dependencies.
 
 ---
+
+## CPU Parallelism
+
+Native libpgo code starts CPU work only through `pgo::parallel`. Configure the
+repeatable process-wide ceiling with `pypgo.parallel.initialize(max_concurrency=...)`.
+The first-party scheduling primitives (`parallelFor`, `parallelForChunks`,
+`parallelReduce`, and `parallelSort`) enter an arena aligned with that ceiling,
+so oneTBB task decomposition sees the same limit. Use
+`withTbbConcurrencyLimit(N, fn)` around a nested TBB/oneMKL-TBB body when it
+needs a smaller bound; `withSingleThreadedTbb(fn)` is the `N=1` form. Nested
+bounds are monotonic: an inner helper or pgo scheduling call can only retain
+or lower an enclosing bound. Algorithms default to `tbb::auto_partitioner`;
+pass a oneTBB partitioner object such as `tbb::static_partitioner{}` for an
+explicit choice. The canonical form is
+`parallelFor(begin, end, fn, grainSize, partitioner)`; the convenience spelling
+`parallelFor(begin, end, tbb::static_partitioner{}, fn)` is also available.
+An explicitly supplied grain size must be positive.
+
+oneMKL builds must use `PGO_MKL_THREADING=tbb_thread`. Libpgo does not call MKL
+or Accelerate thread setters and does not control application-owned NumPy,
+OpenMP, BLAS, or LAPACK runtimes.
 
 ## Usage & Test
 

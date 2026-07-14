@@ -3,7 +3,7 @@ set(PGO_GLOBAL_LIBRARY_TARGETS
   basicAlgorithms
   profiling
   pgoLogging
-  parallelism
+  parallel
   basicIO
   eigenSupport
   configFileJSON

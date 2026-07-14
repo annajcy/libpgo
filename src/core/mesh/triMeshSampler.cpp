@@ -1,9 +1,8 @@
 #include "triMeshSampler.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 #include "triangleSampler.h"
 #include "geometryQuery.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/concurrent_unordered_map.h>
 
 #include <cstring>
@@ -88,8 +87,9 @@ int sampleTriangle(const TriMeshGeo &mesh, int subdivideTriangle,
 
   int ntri = mesh.numTriangles();
   std::vector<double> triangleAreas(ntri, 0);
-  tbb::parallel_for(
-    0, ntri, [&](int trii) {
+  pgo::parallel::parallelFor(
+    0, ntri,
+ tbb::static_partitioner{}, [&](int trii) {
       Vec3d vtx[3] = {
         mesh.pos(trii, 0),
         mesh.pos(trii, 1),
@@ -97,8 +97,7 @@ int sampleTriangle(const TriMeshGeo &mesh, int subdivideTriangle,
       };
 
       triangleAreas[trii] = getTriangleArea(vtx[0], vtx[1], vtx[2]);
-    },
-    tbb::static_partitioner());
+    });
 
   std::cout << "Sampling surface mesh..." << std::endl;
 
@@ -106,8 +105,9 @@ int sampleTriangle(const TriMeshGeo &mesh, int subdivideTriangle,
   std::vector<std::vector<SampleInfo>> triangleSamples(ntri, std::vector<SampleInfo>());
 
   // Sample surface
-  tbb::parallel_for(
-    0, ntri, [&](int trii) {
+  pgo::parallel::parallelFor(
+    0, ntri,
+ tbb::static_partitioner{}, [&](int trii) {
       triangleSamples[trii].reserve(100);
 
       Vec3d vtx[3] = {
@@ -133,15 +133,13 @@ int sampleTriangle(const TriMeshGeo &mesh, int subdivideTriangle,
           sampleInfo.triangleID = trii;
           triangleSamples[trii].emplace_back(sampleInfo);
         });
-    },
-    tbb::static_partitioner());
+    });
 
   std::atomic<int> count(0);
   tbb::concurrent_unordered_map<SampleInfo, int, SampleInfoHash, SampleInfoEqual> sampleIDQueryTableCC;
 
   if (subdivideTriangle > 1) {
     pgo::parallel::parallelFor((int)0, (int)triangleSamples.size(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int trii) {
         count.fetch_add((int)triangleSamples[trii].size());
 

@@ -1,12 +1,11 @@
 #include "ipc/core/surfaceIPCExternalBarrierAssembler.h"
+#include "parallel/parallelReduce.h"
 #include "ipc/core/surfaceIPCBarrierKernels.h"
 
 #include "scopedProfileSection.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/blocked_range.h>
-#include <tbb/parallel_reduce.h>
 
 #include <atomic>
 #include <cstdint>
@@ -132,10 +131,9 @@ double computeExternalEnergy(
   (void)eps_ee;
   double dhat2 = dhat * dhat;
 
-  double ptEnergy = tbb::parallel_reduce(
-    tbb::blocked_range<int>(0, (int)pairs.ptPairs.size()), 0.0,
-    [&](const tbb::blocked_range<int> &range, double localE) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  double ptEnergy = pgo::parallel::parallelReduce(0, (int)pairs.ptPairs.size(), 0.0,
+    [&](int rangeBegin, int rangeEnd, double localE) {
+      for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.ptPairs[i];
         const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
         auto k = barrier_kernels::pointStaticTriangle(
@@ -151,10 +149,9 @@ double computeExternalEnergy(
     },
     std::plus<double>());
 
-  double tpEnergy = tbb::parallel_reduce(
-    tbb::blocked_range<int>(0, (int)pairs.tpPairs.size()), 0.0,
-    [&](const tbb::blocked_range<int> &range, double localE) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  double tpEnergy = pgo::parallel::parallelReduce(0, (int)pairs.tpPairs.size(), 0.0,
+    [&](int rangeBegin, int rangeEnd, double localE) {
+      for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.tpPairs[i];
         const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
         auto k = barrier_kernels::staticPointTriangle(
@@ -170,10 +167,9 @@ double computeExternalEnergy(
     },
     std::plus<double>());
 
-  double eeEnergy = tbb::parallel_reduce(
-    tbb::blocked_range<int>(0, (int)pairs.eePairs.size()), 0.0,
-    [&](const tbb::blocked_range<int> &range, double localE) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  double eeEnergy = pgo::parallel::parallelReduce(0, (int)pairs.eePairs.size(), 0.0,
+    [&](int rangeBegin, int rangeEnd, double localE) {
+      for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.eePairs[i];
         const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
         auto k = barrier_kernels::edgeStaticEdge(
@@ -214,7 +210,6 @@ void computeExternalGradient(
 
   // PT pairs
   pgo::parallel::parallelFor(0, (int)pairs.ptPairs.size(),
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       {
         auto &pair = pairs.ptPairs[i];
@@ -233,7 +228,6 @@ void computeExternalGradient(
 
   // TP pairs
   pgo::parallel::parallelFor(0, (int)pairs.tpPairs.size(),
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       {
         auto &pair = pairs.tpPairs[i];
@@ -252,7 +246,6 @@ void computeExternalGradient(
 
   // EE pairs
   pgo::parallel::parallelFor(0, (int)pairs.eePairs.size(),
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       {
         auto &pair = pairs.eePairs[i];
@@ -301,7 +294,6 @@ void computeExternalHessian(
 
   // PT pairs
   pgo::parallel::parallelFor(0, nPT,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       {
         auto &pair = pairs.ptPairs[i];
@@ -320,7 +312,6 @@ void computeExternalHessian(
 
   // TP pairs
   pgo::parallel::parallelFor(0, nTP,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       {
         auto &pair = pairs.tpPairs[i];
@@ -339,7 +330,6 @@ void computeExternalHessian(
 
   // EE pairs
   pgo::parallel::parallelFor(0, nEE,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       {
         auto &pair = pairs.eePairs[i];
@@ -426,10 +416,9 @@ void computeExternalAll(
   double ptEnergy = 0.0;
   {
     Profiling::ScopedProfileSection ptProfile(SurfaceIPCProfileSections::kActiveSetExternalPTCombined);
-    ptEnergy = tbb::parallel_reduce(
-      tbb::blocked_range<int>(0, nPT), 0.0,
-      [&](const tbb::blocked_range<int> &range, double localE) {
-        for (int i = range.begin(); i < range.end(); ++i) {
+    ptEnergy = pgo::parallel::parallelReduce(0, nPT, 0.0,
+      [&](int rangeBegin, int rangeEnd, double localE) {
+        for (int i = rangeBegin; i < rangeEnd; ++i) {
           auto &pair = pairs.ptPairs[i];
           const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
           auto k = barrier_kernels::pointStaticTriangle(
@@ -453,10 +442,9 @@ void computeExternalAll(
   double tpEnergy = 0.0;
   {
     Profiling::ScopedProfileSection tpProfile(SurfaceIPCProfileSections::kActiveSetExternalTPCombined);
-    tpEnergy = tbb::parallel_reduce(
-      tbb::blocked_range<int>(0, nTP), 0.0,
-      [&](const tbb::blocked_range<int> &range, double localE) {
-        for (int i = range.begin(); i < range.end(); ++i) {
+    tpEnergy = pgo::parallel::parallelReduce(0, nTP, 0.0,
+      [&](int rangeBegin, int rangeEnd, double localE) {
+        for (int i = rangeBegin; i < rangeEnd; ++i) {
           auto &pair = pairs.tpPairs[i];
           const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
           auto k = barrier_kernels::staticPointTriangle(
@@ -480,10 +468,9 @@ void computeExternalAll(
   double eeEnergy = 0.0;
   {
     Profiling::ScopedProfileSection eeProfile(SurfaceIPCProfileSections::kActiveSetExternalEECombined);
-    eeEnergy = tbb::parallel_reduce(
-      tbb::blocked_range<int>(0, nEE), 0.0,
-      [&](const tbb::blocked_range<int> &range, double localE) {
-        for (int i = range.begin(); i < range.end(); ++i) {
+    eeEnergy = pgo::parallel::parallelReduce(0, nEE, 0.0,
+      [&](int rangeBegin, int rangeEnd, double localE) {
+        for (int i = rangeBegin; i < rangeEnd; ++i) {
           auto &pair = pairs.eePairs[i];
           const VXd &obsP = obsPositions(obstacles, pair.obstacleSlot);
           auto k = barrier_kernels::edgeStaticEdge(

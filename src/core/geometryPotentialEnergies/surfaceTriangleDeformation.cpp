@@ -1,14 +1,13 @@
 #include "surfaceTriangleDeformation.h"
+#include "parallel/parallelReduce.h"
 #include "pgoLogging.h"
 #include "triMeshNeighbor.h"
 #include "basicAlgorithms.h"
 #include "geometryQuery.h"
 #include "determinantDerivatives.h"
 #include "EigenSupport.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/blocked_range.h>
-#include <tbb/parallel_reduce.h>
 #include <tbb/spin_mutex.h>
 
 #include <numeric>
@@ -101,9 +100,6 @@ void SurfaceTriangleDeformation::setDOFs(const std::vector<int> &dofs)
 void SurfaceTriangleDeformation::updateRestInfo()
 {
   pgo::parallel::parallelFor(0, mesh.numTriangles(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int ei) {
       ES::V3d p[3] = {
         restPositions.segment<3>(mesh.triVtxID(ei, 0) * 3),
@@ -134,10 +130,9 @@ void SurfaceTriangleDeformation::updateRestInfo()
 // energy = 1/2 (|| S(0) - S(1) ||^2 + ||S - I||^2)
 double SurfaceTriangleDeformation::func(EigenSupport::ConstRefVecXd x) const
 {
-  double energyAll = tbb::parallel_reduce(
-    tbb::blocked_range<int>(0, mesh.numTriangles()), 0.0,
-    [&](const tbb::blocked_range<int> &r, double init) -> double {
-      for (int ei = r.begin(); ei != r.end(); ++ei) {
+  double energyAll = pgo::parallel::parallelReduce(0, mesh.numTriangles(), 0.0,
+    [&](int rBegin, int rEnd, double init) -> double {
+      for (int ei = rBegin; ei != rEnd; ++ei) {
         ES::M3x2d F;
         F.col(0) = x.segment<3>(mesh.triVtxID(ei, 1) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
         F.col(1) = x.segment<3>(mesh.triVtxID(ei, 2) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
@@ -179,9 +174,6 @@ void SurfaceTriangleDeformation::gradient(EigenSupport::ConstRefVecXd x, EigenSu
 
   // for (int ei = 0; ei < mesh.numTriangles(); ei++) {
   pgo::parallel::parallelFor(0, mesh.numTriangles(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int ei) {
       ES::M3x2d F;
       F.col(0) = x.segment<3>(mesh.triVtxID(ei, 1) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);
@@ -235,9 +227,6 @@ void SurfaceTriangleDeformation::hessianInPlace(EigenSupport::ConstRefVecXd x, E
 
   // for (int ei = 0; ei < mesh.numTriangles(); ei++) {
   pgo::parallel::parallelFor(0, mesh.numTriangles(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int ei) {
       ES::M3x2d F;
       F.col(0) = x.segment<3>(mesh.triVtxID(ei, 1) * 3) - x.segment<3>(mesh.triVtxID(ei, 0) * 3);

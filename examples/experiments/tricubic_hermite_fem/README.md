@@ -53,7 +53,7 @@ CONDA_ENV=libpgo examples/experiments/tricubic_hermite_fem/run_experiments.sh
 On Linux, the launcher sets `MKL_THREADING_LAYER=TBB` before starting any
 Python subprocess so NumPy and libpgo share the TBB runtime. The timed static
 and dynamic entrypoints initialize the process runtime once through
-`pypgo.parallel.initialize(max_concurrency=...)`; the configured value is
+`pypgo.parallel.initialize(max_concurrency=...)`; the returned effective value is
 `num_threads` in `common.py` and the resolved/effective values are printed at
 startup. Set the same conda environment variable described in the main build
 guide when invoking `run_static.py` or `run_dynamic.py` directly.

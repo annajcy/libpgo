@@ -1,12 +1,11 @@
 #include "surfaceSmoothnessAbsoluteMeanCurvature.h"
+#include "parallel/parallelReduce.h"
 #include "pgoLogging.h"
 #include "triMeshNeighbor.h"
 #include "basicAlgorithms.h"
 #include "EigenSupport.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/blocked_range.h>
-#include <tbb/parallel_reduce.h>
 #include <tbb/spin_mutex.h>
 
 #include <numeric>
@@ -37,9 +36,6 @@ SurfaceSmoothnessAbsoluteMeanCurvature::SurfaceSmoothnessAbsoluteMeanCurvature(c
 
     // for (int vi = 0; vi < surfaceIn.numVertices(); vi++) {
     pgo::parallel::parallelFor(0, mesh.numVertices(),
-      pgo::parallel::Options{
-        .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-      },
       [&](int vi) {
         vertexNeigboringTriangles[vi] = neighbor.getVtxNearbyTriangles(vi);
         vertexNeigboringVertices[vi] = neighbor.getVtxNearbyVertices(vi, mesh);
@@ -200,9 +196,6 @@ void SurfaceSmoothnessAbsoluteMeanCurvature::setDOFs(const std::vector<int> &dof
 void SurfaceSmoothnessAbsoluteMeanCurvature::updateRestInfo()
 {
   pgo::parallel::parallelFor(0, (int)surfaceQuads.size(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int ei) {
       Eigen::Matrix<double, 3, 4> p;
       for (int i = 0; i < 4; ++i) {
@@ -238,10 +231,9 @@ void SurfaceSmoothnessAbsoluteMeanCurvature::updateRestInfo()
 // ||norm(x) - norm_rest ||^2
 double SurfaceSmoothnessAbsoluteMeanCurvature::func(EigenSupport::ConstRefVecXd x) const
 {
-  double energyAll = tbb::parallel_reduce(
-    tbb::blocked_range<int>(0, (int)surfaceQuads.size()), 0.0,
-    [&](const tbb::blocked_range<int> &r, double init) -> double {
-      for (int ei = r.begin(); ei != r.end(); ++ei) {
+  double energyAll = pgo::parallel::parallelReduce(0, (int)surfaceQuads.size(), 0.0,
+    [&](int rBegin, int rEnd, double init) -> double {
+      for (int ei = rBegin; ei != rEnd; ++ei) {
         ES::V12d p;
         for (int i = 0; i < 4; ++i) {
           p.segment<3>(i * 3) = x.segment<3>(surfaceQuads[ei][i] * 3);
@@ -270,9 +262,6 @@ void SurfaceSmoothnessAbsoluteMeanCurvature::gradient(EigenSupport::ConstRefVecX
 
   // for (int ei = 0; ei < (int)surfaceQuads.size(); ei++) {
   pgo::parallel::parallelFor(0, (int)surfaceQuads.size(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int ei) {
       ES::V12d p;
       for (int i = 0; i < 4; ++i) {
@@ -304,9 +293,6 @@ void SurfaceSmoothnessAbsoluteMeanCurvature::hessianInPlace(EigenSupport::ConstR
 
   // for (int ei = 0; ei < (int)surfaceQuads.size(); ei++) {
   pgo::parallel::parallelFor(0, (int)surfaceQuads.size(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int ei) {
       ES::V12d p;
       for (int i = 0; i < 4; ++i) {

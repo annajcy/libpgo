@@ -1,14 +1,12 @@
 #include "surfaceIPCSelfBarrierAssembler.h"
+#include "parallel/parallelReduce.h"
 #include "surfaceIPCBarrierKernels.h"
 
 #include "scopedProfileSection.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/blocked_range.h>
 #include <tbb/enumerable_thread_specific.h>
-#include <tbb/parallel_for.h>
-#include <tbb/parallel_reduce.h>
 
 #include <algorithm>
 #include <atomic>
@@ -138,9 +136,9 @@ static void fillSparseRowsDirect(
   hess.resizeNonZeros(totalNnz);
   std::copy(outerOffsets.begin(), outerOffsets.end(), hess.outerIndexPtr());
 
-  tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, n),
-    [&](const tbb::blocked_range<Eigen::Index> &range) {
-      for (Eigen::Index row = range.begin(); row < range.end(); ++row) {
+  pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, n,
+    [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
         const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
         const StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
         for (std::size_t entryIndex = 0; entryIndex < rowBuffer.size(); ++entryIndex) {
@@ -175,10 +173,10 @@ static void buildSelfHessianFromThreadRows(
     Profiling::ScopedProfileSection mergeProfile(
       SurfaceIPCProfileSections::kActiveSetSelfThreadRowMerge);
 
-    const RowMergeStats mergeStats = tbb::parallel_reduce(
-      tbb::blocked_range<Eigen::Index>(0, n), RowMergeStats{},
-      [&](const tbb::blocked_range<Eigen::Index> &range, RowMergeStats localStats) {
-        for (Eigen::Index row = range.begin(); row < range.end(); ++row) {
+    const RowMergeStats mergeStats =
+      pgo::parallel::parallelReduce(Eigen::Index{ 0 }, n, RowMergeStats{},
+      [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd, RowMergeStats localStats) {
+        for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
           const std::size_t rowIndex = static_cast<std::size_t>(row);
           std::size_t rowSize = 0;
           for (const SelfHessianThreadRows *scratch : scratchRows)
@@ -212,9 +210,9 @@ static void buildSelfHessianFromThreadRows(
   {
     Profiling::ScopedProfileSection reduceProfile(
       SurfaceIPCProfileSections::kActiveSetSelfRowSortReduce);
-    tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, n),
-      [&](const tbb::blocked_range<Eigen::Index> &range) {
-        for (Eigen::Index row = range.begin(); row < range.end(); ++row) {
+    pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, n,
+      [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+        for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
           std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
           if (rowBuffer.empty())
             continue;
@@ -276,10 +274,9 @@ double computeSelfEnergy(
   double dhat2 = dhat * dhat;
 
   // PT pairs
-  double ptEnergy = tbb::parallel_reduce(
-    tbb::blocked_range<int>(0, (int)pairs.ptPairs.size()), 0.0,
-    [&](const tbb::blocked_range<int> &range, double localE) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  double ptEnergy = pgo::parallel::parallelReduce(0, (int)pairs.ptPairs.size(), 0.0,
+    [&](int rangeBegin, int rangeEnd, double localE) {
+      for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.ptPairs[i];
         auto k = barrier_kernels::pointTriangle(
           vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
@@ -292,10 +289,9 @@ double computeSelfEnergy(
     std::plus<double>());
 
   // EE pairs
-  double eeEnergy = tbb::parallel_reduce(
-    tbb::blocked_range<int>(0, (int)pairs.eePairs.size()), 0.0,
-    [&](const tbb::blocked_range<int> &range, double localE) {
-      for (int i = range.begin(); i < range.end(); ++i) {
+  double eeEnergy = pgo::parallel::parallelReduce(0, (int)pairs.eePairs.size(), 0.0,
+    [&](int rangeBegin, int rangeEnd, double localE) {
+      for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.eePairs[i];
         auto k = barrier_kernels::edgeEdge(
           vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
@@ -333,7 +329,6 @@ void computeSelfGradient(
 
   // PT pairs
   pgo::parallel::parallelFor(0, (int)pairs.ptPairs.size(),
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       {
         auto &pair = pairs.ptPairs[i];
@@ -349,7 +344,6 @@ void computeSelfGradient(
 
   // EE pairs
   pgo::parallel::parallelFor(0, (int)pairs.eePairs.size(),
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       {
         auto &pair = pairs.eePairs[i];
@@ -389,11 +383,10 @@ void computeSelfHessian(
   double dhat2 = dhat * dhat;
 
   // PT pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, nPT),
-    [&](const tbb::blocked_range<int> &range) {
+  pgo::parallel::parallelForChunks(0, nPT,
+    [&](int rangeBegin, int rangeEnd) {
       std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
-      for (int i = range.begin(); i < range.end(); ++i) {
+      for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.ptPairs[i];
         auto k = barrier_kernels::pointTriangle(
           vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
@@ -406,11 +399,10 @@ void computeSelfHessian(
     });
 
   // EE pairs
-  tbb::parallel_for(
-    tbb::blocked_range<int>(0, nEE),
-    [&](const tbb::blocked_range<int> &range) {
+  pgo::parallel::parallelForChunks(0, nEE,
+    [&](int rangeBegin, int rangeEnd) {
       std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
-      for (int i = range.begin(); i < range.end(); ++i) {
+      for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.eePairs[i];
         auto k = barrier_kernels::edgeEdge(
           vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
@@ -462,11 +454,10 @@ void computeSelfAll(
   double ptEnergy = 0.0;
   {
     Profiling::ScopedProfileSection ptProfile(SurfaceIPCProfileSections::kActiveSetSelfPTCombined);
-    ptEnergy = tbb::parallel_reduce(
-      tbb::blocked_range<int>(0, nPT), 0.0,
-      [&](const tbb::blocked_range<int> &range, double localE) {
+    ptEnergy = pgo::parallel::parallelReduce(0, nPT, 0.0,
+      [&](int rangeBegin, int rangeEnd, double localE) {
         std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
-        for (int i = range.begin(); i < range.end(); ++i) {
+        for (int i = rangeBegin; i < rangeEnd; ++i) {
           auto &pair = pairs.ptPairs[i];
           auto k = barrier_kernels::pointTriangle(
             vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
@@ -487,11 +478,10 @@ void computeSelfAll(
   double eeEnergy = 0.0;
   {
     Profiling::ScopedProfileSection eeProfile(SurfaceIPCProfileSections::kActiveSetSelfEECombined);
-    eeEnergy = tbb::parallel_reduce(
-      tbb::blocked_range<int>(0, nEE), 0.0,
-      [&](const tbb::blocked_range<int> &range, double localE) {
+    eeEnergy = pgo::parallel::parallelReduce(0, nEE, 0.0,
+      [&](int rangeBegin, int rangeEnd, double localE) {
         std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
-        for (int i = range.begin(); i < range.end(); ++i) {
+        for (int i = rangeBegin; i < rangeEnd; ++i) {
           auto &pair = pairs.eePairs[i];
           auto k = barrier_kernels::edgeEdge(
             vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),

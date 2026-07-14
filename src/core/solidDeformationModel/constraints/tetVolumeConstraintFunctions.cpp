@@ -12,7 +12,7 @@ copyright to USC,MIT,NUS
 #include "tetMesh.h"
 #include "pgoLogging.h"
 #include "EigenSupport.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
@@ -127,9 +127,6 @@ void TetVolumeConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) con
 {
   // for (int ei = 0; ei < nele; ei++) {
   pgo::parallel::parallelFor(0, nele,
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int ei) {
       if (elementFlags[ei] == 0) {
         g[ei] = 1;
@@ -162,9 +159,6 @@ void TetVolumeConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) con
 void TetVolumeConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac) const
 {
   pgo::parallel::parallelFor(0, nele,
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int ei) {
       if (elementFlags[ei] == 0) {
         for (int i = 0; i < 4; i++) {
@@ -219,9 +213,6 @@ void TetVolumeConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::Const
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
   pgo::parallel::parallelFor(0, nele,
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int ei) {
       if (elementFlags[ei] == 0)
         return;

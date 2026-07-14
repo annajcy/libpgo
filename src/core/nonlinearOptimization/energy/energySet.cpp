@@ -1,7 +1,7 @@
 #include "energy/energySet.h"
 #include "EigenSupport.h"
 #include "scopedProfileSection.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,12 +9,11 @@
 #include <cstring>
 #include <iostream>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <tbb/blocked_range.h>
-#include <tbb/parallel_for.h>
 
 namespace pgo::NonlinearOptimization
 {
@@ -112,10 +111,10 @@ void zeroSparseValues(ES::SpMatD &mat)
   }
 
   double *values = mat.valuePtr();
-  tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, nnz, 8192),
-    [values](const tbb::blocked_range<Eigen::Index> &range) {
-      std::fill(values + range.begin(), values + range.end(), 0.0);
-    });
+  pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, nnz,
+    [values](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+      std::fill(values + rangeBegin, values + rangeEnd, 0.0);
+    }, std::optional<int>{ 8192 });
 }
 
 Eigen::Index findRequiredSparseOffset(const ES::SpMatD &mat, Eigen::Index row, Eigen::Index col)
@@ -149,7 +148,7 @@ void buildSmallToBigMappingFast(const ES::SpMatD &Asmall, const ES::SpMatD &Abig
   mapping.finalize();
   mapping.makeCompressed();
 
-  tbb::parallel_for(Eigen::Index(0), Asmall.outerSize(), [&](Eigen::Index outeri) {
+  pgo::parallel::parallelFor(Eigen::Index(0), Asmall.outerSize(), [&](Eigen::Index outeri) {
     for (Eigen::Index k = Asmall.outerIndexPtr()[outeri]; k < Asmall.outerIndexPtr()[outeri + 1]; ++k) {
       const Eigen::Index smallRow = outeri;
       const Eigen::Index smallCol = Asmall.innerIndexPtr()[k];
@@ -164,7 +163,7 @@ void buildSmallToBigMappingFast(const ES::SpMatD &Asmall, const ES::SpMatD &Abig
 void composeSmallToTemplateMapping(const ES::SpMatI &smallToAll, const ES::SpMatI &allToTemplate, ES::SpMatI &smallToTemplate)
 {
   smallToTemplate = smallToAll;
-  tbb::parallel_for(Eigen::Index(0), smallToAll.nonZeros(), [&](Eigen::Index k) {
+  pgo::parallel::parallelFor(Eigen::Index(0), smallToAll.nonZeros(), [&](Eigen::Index k) {
     const Eigen::Index oldOffset = smallToAll.valuePtr()[k];
     if (oldOffset < 0 || oldOffset >= allToTemplate.nonZeros())
       throw std::domain_error("Different sparse matrix topology");
@@ -202,13 +201,13 @@ void buildEnergySetHessianTemplateRowWise(
 
     // Count fixed entries per row (parallel over columns with grain size).
     std::vector<std::atomic<Eigen::Index>> rowCounts(nRows);
-    tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, hessianAll.outerSize(), 256),
-      [&](const tbb::blocked_range<Eigen::Index> &range) {
-        for (Eigen::Index outeri = range.begin(); outeri < range.end(); ++outeri) {
+    pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, hessianAll.outerSize(),
+      [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+        for (Eigen::Index outeri = rangeBegin; outeri < rangeEnd; ++outeri) {
           for (ES::SpMatD::InnerIterator it(hessianAll, outeri); it; ++it)
             rowCounts[static_cast<std::size_t>(it.row())].fetch_add(1, std::memory_order_relaxed);
         }
-      });
+      }, std::optional<int>{ 256 });
 
     // Prefix-sum counts → offsets.
     std::vector<Eigen::Index> offsets(nRows + 1u, 0);
@@ -222,16 +221,16 @@ void buildEnergySetHessianTemplateRowWise(
       for (std::size_t r = 0; r < nRows; ++r)
         writePos[r].store(offsets[r], std::memory_order_relaxed);
 
-      tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, hessianAll.outerSize(), 256),
-        [&](const tbb::blocked_range<Eigen::Index> &range) {
-          for (Eigen::Index outeri = range.begin(); outeri < range.end(); ++outeri) {
+      pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, hessianAll.outerSize(),
+        [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+          for (Eigen::Index outeri = rangeBegin; outeri < rangeEnd; ++outeri) {
             for (ES::SpMatD::InnerIterator it(hessianAll, outeri); it; ++it) {
               const std::size_t r = static_cast<std::size_t>(it.row());
               const Eigen::Index pos = writePos[r].fetch_add(1, std::memory_order_relaxed);
               flatEntries[static_cast<std::size_t>(pos)] = static_cast<StorageIndex>(it.col());
             }
           }
-        });
+        }, std::optional<int>{ 256 });
     }
 
     // Append flat slices into rowColumns.
@@ -259,7 +258,7 @@ void buildEnergySetHessianTemplateRowWise(
         continue;
       const ES::SpMatD &Ki = dynamicHessianMatrices[i];
       const std::vector<int> &dofs = energyDOFs[i];
-      tbb::parallel_for(Eigen::Index(0), Ki.outerSize(), [&](Eigen::Index outeri) {
+      pgo::parallel::parallelFor(Eigen::Index(0), Ki.outerSize(), [&](Eigen::Index outeri) {
         for (ES::SpMatD::InnerIterator it(Ki, outeri); it; ++it)
           dynRowCounts[static_cast<std::size_t>(dofs[it.row()])].fetch_add(1, std::memory_order_relaxed);
       });
@@ -285,7 +284,7 @@ void buildEnergySetHessianTemplateRowWise(
           continue;
         const ES::SpMatD &Ki = dynamicHessianMatrices[i];
         const std::vector<int> &dofs = energyDOFs[i];
-        tbb::parallel_for(Eigen::Index(0), Ki.outerSize(), [&](Eigen::Index outeri) {
+        pgo::parallel::parallelFor(Eigen::Index(0), Ki.outerSize(), [&](Eigen::Index outeri) {
           for (ES::SpMatD::InnerIterator it(Ki, outeri); it; ++it) {
             const std::size_t r = static_cast<std::size_t>(dofs[it.row()]);
             const Eigen::Index pos = dynWritePos[r].fetch_add(1, std::memory_order_relaxed);
@@ -306,7 +305,7 @@ void buildEnergySetHessianTemplateRowWise(
   std::vector<Eigen::Index> rowNonZeros(rowColumns.size(), 0);
   {
     Profiling::ScopedProfileSection sortProfile("energy_set.fgh.cache.rebuild_template.row_sort_unique");
-    tbb::parallel_for(std::size_t(0), rowColumns.size(), [&](std::size_t row) {
+    pgo::parallel::parallelFor(std::size_t(0), rowColumns.size(), [&](std::size_t row) {
       auto &columns = rowColumns[row];
       std::sort(columns.begin(), columns.end());
       columns.erase(std::unique(columns.begin(), columns.end()), columns.end());
@@ -339,9 +338,6 @@ void buildEnergySetHessianTemplateRowWise(
       std::copy(outerOffsets.begin(), outerOffsets.end(), hessianTemplate.outerIndexPtr());
 
       pgo::parallel::parallelFor(0, nAll,
-        pgo::parallel::Options{
-          .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-        },
         [&](int row) {
           const auto &columns = rowColumns[static_cast<std::size_t>(row)];
           StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];

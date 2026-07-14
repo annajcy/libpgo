@@ -36,9 +36,8 @@
 #include "basicAlgorithms.h"
 #include "containerHelper.h"
 #include "pgoLogging.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/parallel_for.h>
 
 #include <limits>
 
@@ -82,9 +81,6 @@ int TriMeshPseudoNormal::buildPseudoNormals(TriMeshRef triMesh, const TriMeshNei
     memcpy(triNormals[0].data(), extTriNormals, sizeof(Vec3d) * triMesh.numTriangles());
   else {
     pgo::parallel::parallelFor(0, triMesh.numTriangles(),
-      pgo::parallel::Options{
-        .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-      },
       [&](int triID) {
         triNormals[triID] = triMesh.computeTriangleNormal(triID);
         if (triNormals[triID].hasNaN()) {
@@ -98,9 +94,6 @@ int TriMeshPseudoNormal::buildPseudoNormals(TriMeshRef triMesh, const TriMeshNei
   // compute each vertex normal and edge normal
 
   pgo::parallel::parallelFor(0, triMesh.numVertices(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int vtxID) {
       auto &vtxNormal = vtxNormals[vtxID];
       vtxNormal.setZero();
@@ -159,11 +152,11 @@ int TriMeshPseudoNormal::buildPseudoNormals(TriMeshRef triMesh, const Vec3d *ext
   if (extTriNormals)
     memcpy(triNormals[0].data(), extTriNormals, sizeof(Vec3d) * triMesh.numTriangles());
   else {
-    tbb::parallel_for(
-      0, triMesh.numTriangles(), [&](int triID) {
+    pgo::parallel::parallelFor(
+      0, triMesh.numTriangles(),
+ tbb::static_partitioner{}, [&](int triID) {
         triNormals[triID] = triMesh.computeTriangleNormal(triID);
-      },
-      tbb::static_partitioner());
+      });
   }
 
   // compute each vertex normal and edge normal
@@ -187,9 +180,6 @@ int TriMeshPseudoNormal::buildPseudoNormals(TriMeshRef triMesh, const Vec3d *ext
 
   // normalize each vertex normal and edge normal
   pgo::parallel::parallelFor(0, triMesh.numVertices(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int vtxID) {
       if (vtxNormals[vtxID].squaredNorm() > 0) {
         vtxNormals[vtxID].normalize();

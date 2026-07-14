@@ -26,13 +26,13 @@
 #include "geometryQuery.h"
 #include "triMeshPseudoNormal.h"
 #include "meshLinearAlgebra.h"
+#include "parallel/parallelFor.h"
 
 #include <cfloat>
 #include <climits>
 #include <cstring>
 #include <memory>
 
-#include <tbb/parallel_for.h>
 
 using namespace pgo;
 using namespace pgo::InterpolationCoordinates;
@@ -71,8 +71,10 @@ GreenCoordinates::GreenCoordinates(int numLocations, const double *locations, co
   Mesh::TriMeshPseudoNormal meshNormal;
   meshNormal.buildPseudoNormals(cage);
 
-  tbb::parallel_for(tbb::blocked_range<int>(0, numLocations), [&](const tbb::blocked_range<int> &rng) {
-    for (int i = rng.begin(); i != rng.end(); ++i) {
+  pgo::parallel::parallelForChunks(0, numLocations,
+    tbb::static_partitioner{},
+    [&](int rngBegin, int rngEnd) {
+    for (int i = rngBegin; i != rngEnd; ++i) {
       int globalFaceCount = 0;
       Vec3d n = asVec3d(locations + 3 * i);
 
@@ -115,13 +117,15 @@ GreenCoordinates::GreenCoordinates(int numLocations, const double *locations, co
 
           globalFaceCount++;
       }
-    } }, tbb::static_partitioner());
+    } });
 }
 
 void GreenCoordinates::deform(const double *verticesDisp, double *locationDisp) const
 {
-  tbb::parallel_for(tbb::blocked_range<int>(0, numLocations), [&](const tbb::blocked_range<int> &rng) {
-    for (int i = rng.begin(); i != rng.end(); ++i) {
+  pgo::parallel::parallelForChunks(0, numLocations,
+    tbb::static_partitioner{},
+    [&](int rngBegin, int rngEnd) {
+    for (int i = rngBegin; i != rngEnd; ++i) {
       Vec3d newDisp = asVec3d(0.);
 
       // add vtx weights
@@ -153,7 +157,7 @@ void GreenCoordinates::deform(const double *verticesDisp, double *locationDisp) 
         newDisp += newNormal * s * nmlWeights[i * numTriangles + j];
       }
       memcpy(locationDisp + 3 * i, &newDisp[0], sizeof(double) * 3);
-    } }, tbb::static_partitioner());  // end for locations
+    } });  // end for locations
 }
 
 double GreenCoordinates::GCTriInt(Vec3d &p, Vec3d &v1, Vec3d &v2, Vec3d &n)

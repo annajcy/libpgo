@@ -18,10 +18,6 @@ include(CMakeModules/third-party/tbb.cmake)
 include(CMakeModules/third-party/mkl.cmake)
 include(CMakeModules/third-party/backward.cmake)
 
-if(PGO_ENABLE_PYTHON OR PGO_ENABLE_FULL)
-  include(CMakeModules/third-party/suitesparse.cmake)
-endif()
-
 include(CMakeModules/third-party/eigen.cmake)
 include(CMakeModules/third-party/fmt.cmake)
 include(CMakeModules/third-party/nlohmann_json.cmake)

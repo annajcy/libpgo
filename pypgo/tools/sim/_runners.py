@@ -481,7 +481,6 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
                         _solver_diagnostics(stage)
                         for stage in frame.stage_results
                     ],
-                    "runtime": asdict(_parallel.runtime_info()),
                     "sections": _profiling.snapshot(),
                     "counters": _profiling.snapshot_counters(),
                 }

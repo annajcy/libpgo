@@ -1,7 +1,9 @@
 #include "core/ImplicitField.h"
 
 #include "fields/GridField.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
+
+#include <cstdint>
 
 namespace pgo::ImplicitSurface {
 
@@ -21,12 +23,17 @@ GridField ImplicitField::sampleToGrid(const GridSpec &spec) const
   GridField grid(spec);
   const int resolution = spec.resolution;
   const V3d delta = (spec.bmax - spec.bmin) / static_cast<double>(resolution - 1);
+  const std::int64_t rowCount =
+    static_cast<std::int64_t>(resolution) * static_cast<std::int64_t>(resolution);
 
-  pgo::parallel::parallelFor3D(resolution, resolution, resolution,
-    {},
-    [&](int x, int y, int z) {
-      const V3d p = spec.bmin + delta.cwiseProduct(V3d(x, y, z).cast<double>());
-      grid.at(x, y, z) = eval(p);
+  pgo::parallel::parallelFor(std::int64_t{ 0 }, rowCount,
+    [&](std::int64_t row) {
+      const int y = static_cast<int>(row % resolution);
+      const int z = static_cast<int>(row / resolution);
+      for (int x = 0; x < resolution; ++x) {
+        const V3d p = spec.bmin + delta.cwiseProduct(V3d(x, y, z).cast<double>());
+        grid.at(x, y, z) = eval(p);
+      }
     });
 
   return grid;

@@ -35,7 +35,7 @@
 #include "volumetricMesh.h"
 #include "boundingVolumeTree.h"
 #include "EigenSupport.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 #include <cassert>
 #include <iostream>
@@ -82,9 +82,6 @@ void BarycentricCoordinates::initializeInterpolationWeights(int numLocations_, c
   bvTree.buildByInertiaPartition(elementBBs);
 
   pgo::parallel::parallelFor(0, numLocations,
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int i) {
       ES::V3d pos = ES::Mp<const ES::V3d>(locations + 3 * i);
       thread_local std::vector<int> closestBBIDs;

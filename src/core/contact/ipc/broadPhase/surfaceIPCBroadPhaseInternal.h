@@ -3,11 +3,9 @@
 #include "EigenDef.h"
 #include "ipc/broadPhase/spatialHashGrid.h"
 #include "scopedProfileSection.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/blocked_range.h>
 #include <tbb/enumerable_thread_specific.h>
-#include <tbb/parallel_for.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -30,7 +28,6 @@ void buildVertexAABBs(
   GetV &&getV, double inflate)
 {
   pgo::parallel::parallelFor(0, n,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       boxes[i].init(getV(i), inflate);
     });
@@ -42,7 +39,6 @@ void buildTriangleAABBs(
   const Triangles &triangles, GetV &&getV, double inflate)
 {
   pgo::parallel::parallelFor(0, n,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int fi) {
       auto &tri = triangles[fi];
       boxes[fi].init(getV(tri[0]), inflate);
@@ -57,7 +53,6 @@ void buildEdgeAABBs(
   const Edges &edges, GetV &&getV, double inflate)
 {
   pgo::parallel::parallelFor(0, n,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int ei) {
       boxes[ei].init(getV(edges[ei][0]), inflate);
       boxes[ei].expand(getV(edges[ei][1]), inflate);
@@ -70,7 +65,6 @@ void buildSweptVertexAABBs(
   GetV &&getV, GetDV &&getDV, double inflate)
 {
   pgo::parallel::parallelFor(0, n,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int i) {
       const EigenSupport::V3d v0 = getV(i);
       boxes[i].init(v0, inflate);
@@ -84,7 +78,6 @@ void buildSweptTriangleAABBs(
   const Triangles &triangles, GetV &&getV, GetDV &&getDV, double inflate)
 {
   pgo::parallel::parallelFor(0, n,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int fi) {
       auto &tri = triangles[fi];
       const EigenSupport::V3d v0 = getV(tri[0]);
@@ -105,7 +98,6 @@ void buildSweptEdgeAABBs(
   const Edges &edges, GetV &&getV, GetDV &&getDV, double inflate)
 {
   pgo::parallel::parallelFor(0, n,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int ei) {
       const EigenSupport::V3d v0 = getV(edges[ei][0]);
       const EigenSupport::V3d v1 = getV(edges[ei][1]);
@@ -189,13 +181,13 @@ PairQueryCounts collectPairsParallel(
   tbb::enumerable_thread_specific<std::vector<PairType>> tls_pairs;
   tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-  tbb::parallel_for(tbb::blocked_range<int>(queryBegin, queryEnd),
-    [&](const tbb::blocked_range<int> &range) {
+  pgo::parallel::parallelForChunks(queryBegin, queryEnd,
+    [&](int rangeBegin, int rangeEnd) {
       auto &visited = tls_visited.local();
       auto &candidates = tls_candidates.local();
       auto &localPairs = tls_pairs.local();
       auto &localCounts = tls_counts.local();
-      body(range, visited, candidates, localPairs, localCounts);
+      body(rangeBegin, rangeEnd, visited, candidates, localPairs, localCounts);
     });
 
   for (auto &lp : tls_pairs)

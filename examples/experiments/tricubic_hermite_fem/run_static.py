@@ -36,11 +36,8 @@ def _initialize_parallelism() -> None:
     max_concurrency = SETTINGS["num_threads"]
     if not max_concurrency:
         return
-    info = pp.initialize(max_concurrency=max_concurrency)
-    print(
-        f"[parallel] max_concurrency={info.max_concurrency} "
-        f"effective_tbb={info.effective_tbb_max_allowed_parallelism}"
-    )
+    effective_concurrency = pp.initialize(max_concurrency=max_concurrency)
+    print(f"[parallel] effective_concurrency={effective_concurrency}")
 
 
 def _surface_volume(surface) -> float:

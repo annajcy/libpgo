@@ -7,7 +7,7 @@ copyright to USC, MIT
 
 #include "polarDecompositionDerivatives.h"
 #include "pgoLogging.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 #include <numeric>
 
@@ -340,9 +340,6 @@ void MultipleVertexConstrainedRigidMotion::hessianInPlace(ES::ConstRefVecXd u, E
   // dtbar2 = I
   // for (ES::IDX rowi = 0; rowi < ZTZ.rows(); rowi++) {
   pgo::parallel::parallelFor(0, (int)ZTZ.rows(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int rowi) {
       for (ES::SpMatD::InnerIterator it(ZTZ, rowi); it; ++it) {
         auto iter = entryMap.find(std::pair<int, int>((int)it.row(), (int)it.col()));
@@ -436,15 +433,9 @@ void MultipleVertexConstrainedRigidMotion::hessianInPlace(ES::ConstRefVecXd u, E
 
     // for (int vi = 0; vi < (int)vertexIndices.size(); vi++) {
     pgo::parallel::parallelFor(0, (int)vertexIndices.size(),
-      pgo::parallel::Options{
-        .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-      },
       [&](int vi) {
         // for (int vj = 0; vj < (int)vertexIndices.size(); vj++) {
         pgo::parallel::parallelFor(0, (int)vertexIndices.size(),
-          pgo::parallel::Options{
-            .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-          },
           [&](int vj) {
             for (int dofi = 0; dofi < 3; dofi++) {
               for (int dofj = 0; dofj < 3; dofj++) {
@@ -478,9 +469,6 @@ void MultipleVertexConstrainedRigidMotion::hessianInPlace(ES::ConstRefVecXd u, E
       // dxi dRbar = -dRbar/dRbar : dR/dxi
       // for (int vi = 0; vi < (int)vertexIndices.size(); vi++) {
       pgo::parallel::parallelFor(0, (int)vertexIndices.size(),
-        pgo::parallel::Options{
-          .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-        },
         [&](int vi) {
           for (int dofi = 0; dofi < 3; dofi++) {
             for (int dofj = 0; dofj < 9; dofj++) {

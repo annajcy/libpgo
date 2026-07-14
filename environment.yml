@@ -9,8 +9,8 @@ dependencies:
   - gmp
   - mpfr
   - imath
-  # BLAS/LAPACK is installed per platform after environment creation:
-  # Linux/Windows use MKL; macOS uses Accelerate.
+  # NumPy's BLAS/LAPACK is installed per platform after environment creation.
+  # Native libpgo uses oneMKL-TBB on Linux/Windows and no BLAS on macOS.
   - zlib
 
   # --- C++ dependencies ---

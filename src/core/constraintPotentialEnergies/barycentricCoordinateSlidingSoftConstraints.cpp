@@ -4,11 +4,11 @@ copyright to USC, MIT
 */
 
 #include "barycentricCoordinateSlidingSoftConstraints.h"
+#include "parallel/parallelFor.h"
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/enumerable_thread_specific.h>
 #include <tbb/spin_mutex.h>
 
@@ -87,8 +87,9 @@ double BarycentricCoordinateSliding::func(ES::ConstRefVecXd q) const
     val = 0.0;
   }
 
-  tbb::parallel_for(
-    0, (int)coeffs.size(), [&](int ci) {
+  pgo::parallel::parallelFor(
+    0, (int)coeffs.size(),
+ tbb::static_partitioner{}, [&](int ci) {
       if (std::abs(coeffs[ci]) < 1e-10)
         return;
 
@@ -122,8 +123,7 @@ double BarycentricCoordinateSliding::func(ES::ConstRefVecXd q) const
       else {
         energyLocal += (p - p0).squaredNorm() * 0.5 * coeffs[ci];
       }
-    },
-    tbb::static_partitioner());
+    });
 
   double energyAll = std::accumulate(buf->energyTLS.begin(), buf->energyTLS.end(), 0.0) * coeffAll;
 
@@ -136,8 +136,9 @@ void BarycentricCoordinateSliding::gradient(ES::ConstRefVecXd q, ES::RefVecXd gr
 {
   grad.setZero();
 
-  tbb::parallel_for(
-    0, (int)coeffs.size(), [&](int ci) {
+  pgo::parallel::parallelFor(
+    0, (int)coeffs.size(),
+ tbb::static_partitioner{}, [&](int ci) {
       if (std::abs(coeffs[ci]) < 1e-10)
         return;
 
@@ -187,8 +188,7 @@ void BarycentricCoordinateSliding::gradient(ES::ConstRefVecXd q, ES::RefVecXd gr
           buf->locks[vid].unlock();
         }
       }
-    },
-    tbb::static_partitioner());
+    });
 }
 // use n
 // E = (n^T (sum w_i (restp + u) - tgtp)) ((n^T (sum w_i (restp + u) - tgtp)))
@@ -204,8 +204,9 @@ void BarycentricCoordinateSliding::computeHessian()
 {
   memset(hessianConstant.valuePtr(), 0, sizeof(double) * hessianConstant.nonZeros());
 
-  tbb::parallel_for(
-    0, (int)coeffs.size(), [&](int ci) {
+  pgo::parallel::parallelFor(
+    0, (int)coeffs.size(),
+ tbb::static_partitioner{}, [&](int ci) {
       if (std::abs(coeffs[ci]) < 1e-10)
         return;
 
@@ -239,8 +240,7 @@ void BarycentricCoordinateSliding::computeHessian()
           }
         }
       }
-    },
-    tbb::static_partitioner());
+    });
 }
 
 void BarycentricCoordinateSliding::hessianInPlace(ES::ConstRefVecXd q, ES::SpMatD &hess) const
@@ -248,8 +248,9 @@ void BarycentricCoordinateSliding::hessianInPlace(ES::ConstRefVecXd q, ES::SpMat
   if (checkPenetration) {
     memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-    tbb::parallel_for(
-      0, (int)coeffs.size(), [&](int ci) {
+    pgo::parallel::parallelFor(
+      0, (int)coeffs.size(),
+ tbb::static_partitioner{}, [&](int ci) {
         if (std::abs(coeffs[ci]) < 1e-10)
           return;
 
@@ -304,8 +305,7 @@ void BarycentricCoordinateSliding::hessianInPlace(ES::ConstRefVecXd q, ES::SpMat
             }
           }
         }
-      },
-      tbb::static_partitioner());
+      });
   }
   else {
     memcpy(hess.valuePtr(), hessianConstant.valuePtr(), sizeof(double) * hess.nonZeros());
@@ -335,8 +335,9 @@ void BarycentricCoordinateSliding::printErrorInfo(ES::ConstRefVecXd q) const
   ES::VXd dist(coeffs.size());
   ES::VXd dist2(coeffs.size());
 
-  tbb::parallel_for(
-    0, (int)coeffs.size(), [&](int ci) {
+  pgo::parallel::parallelFor(
+    0, (int)coeffs.size(),
+ tbb::static_partitioner{}, [&](int ci) {
       ES::V3d n = normals.segment<3>(ci * 3);
       ES::V3d p0 = tgtp.segment<3>(ci * 3);
       ES::V3d p;
@@ -356,8 +357,7 @@ void BarycentricCoordinateSliding::printErrorInfo(ES::ConstRefVecXd q) const
       ES::V3d diff = p - p0;
       dist[ci] = std::abs(diff.dot(n));
       dist2[ci] = diff.norm();
-    },
-    tbb::static_partitioner());
+    });
 
   double mind = 1e100, maxd = 0, avgd = 0;
   for (ES::IDX i = 0; i < dist.size(); i++) {

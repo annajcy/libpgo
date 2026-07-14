@@ -33,7 +33,7 @@
 #include "labelOuterTets.h"
 
 #include "pgoLogging.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 std::vector<bool> pgo::Mesh::labelOuterTets(const TetMeshRef &tetMesh, const TetNeighbor &tetNeighbor,
   std::function<bool(int tetID)> isTetBoundary, std::function<bool(int tetID)> istetOuter)
@@ -52,9 +52,6 @@ std::vector<bool> pgo::Mesh::labelOuterTets(const TetMeshRef &tetMesh, const Tet
 
   //  airProfiler.startTimer("initialAirTetLabel");
   pgo::parallel::parallelFor(0, tetMesh.numTets(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int tetID) {
       if (isTetBoundary(tetID)) {
         tetLabel[tetID] = TetLabel::TL_IN;

@@ -1,5 +1,10 @@
 -- Unreleased
-  - make pypgo.parallel thread limits process-wide across TBB, Eigen, OpenMP, and supported BLAS runtimes
+  - make pgo::parallel the sole first-party CPU scheduling surface, with default multi and bounded(N)
+  - migrate first-party TBB scheduling calls to typed pgo loops, reductions, and sorting
+  - delegate pgo::parallelSort to oneTBB while preserving pgo executor semantics
+  - remove the redundant parallelFor3D wrapper in favor of call-site-owned row/block decomposition
+  - remove vendor thread setters and the SuiteSparse/OpenMP/BLAS dependency stack from libpgo
+  - keep macOS native outputs free of Accelerate while allowing NumPy to choose its own BLAS
 
 -- v0.0.3
   - fix various bug in cmake

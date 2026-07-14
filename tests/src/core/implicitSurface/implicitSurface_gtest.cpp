@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "field/gridSpec.h"
-#include "parallelism/parallelOptions.h"
 #include "core/ImplicitField.h"
 #include "fields/GridField.h"
 #include "fields/SphereField.h"

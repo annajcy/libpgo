@@ -35,16 +35,13 @@
 #include "predicates.h"
 
 #include "basicAlgorithms.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 std::vector<std::vector<int>> pgo::Mesh::computeTrianglesIntersectingEachTetExact(const TetMeshRef tetMesh, const TriMeshRef triMesh, const TriMeshBVTree &triMeshBVTree)
 {
   std::vector<std::vector<int>> tetEmbedTri(tetMesh.numTets());
 
   pgo::parallel::parallelFor(0, tetMesh.numTets(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int tetID) {
       std::array<Vec3d, 4> tet;
       for (int j = 0; j < 4; j++)

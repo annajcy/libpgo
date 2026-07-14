@@ -5,7 +5,6 @@
 #include "ipc/profiling/surfaceIPCProfiling.h"
 #include "scopedProfileSection.h"
 
-#include <tbb/blocked_range.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -123,12 +122,12 @@ void buildExternalPairs(
 
       const std::size_t acceptedBefore = pairs.ptPairs.size();
       const PairQueryCounts counts = collectHashPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<ExternalPTPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int vi = range.begin(); vi < range.end(); ++vi) {
+          for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               obsTriHash.queryOverlapping(dynVertBox[vi], obsTriBox, -1, visited, vi + 1, candidates);
@@ -165,12 +164,12 @@ void buildExternalPairs(
 
       const std::size_t acceptedBefore = pairs.tpPairs.size();
       const PairQueryCounts counts = collectHashPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<ExternalTPPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int ovi = range.begin(); ovi < range.end(); ++ovi) {
+          for (int ovi = rangeBegin; ovi < rangeEnd; ++ovi) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               dynTriHash.queryOverlapping(obsVertBox[ovi], dynTriBox, -1, visited, ovi + 1, candidates);
@@ -205,12 +204,12 @@ void buildExternalPairs(
 
       const std::size_t acceptedBefore = pairs.eePairs.size();
       const PairQueryCounts counts = collectHashPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<ExternalEEPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int ei = range.begin(); ei < range.end(); ++ei) {
+          for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               obsEdgeHash.queryOverlapping(dynEdgeBox[ei], obsEdgeBox, -1, visited, ei + 1, candidates);
@@ -342,12 +341,12 @@ void buildExternalPairsLineSearchSuperset(
 
       const std::size_t acceptedBefore = pairs.ptPairs.size();
       const PairQueryCounts counts = collectHashPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<ExternalPTPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int vi = range.begin(); vi < range.end(); ++vi) {
+          for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               obsTriHash.queryOverlapping(dynVertBox[vi], obsTriBox, -1, visited, vi + 1, candidates);
@@ -374,12 +373,12 @@ void buildExternalPairsLineSearchSuperset(
 
       const std::size_t acceptedBefore = pairs.tpPairs.size();
       const PairQueryCounts counts = collectHashPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<ExternalTPPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int ovi = range.begin(); ovi < range.end(); ++ovi) {
+          for (int ovi = rangeBegin; ovi < rangeEnd; ++ovi) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               dynTriHash.queryOverlapping(obsVertBox[ovi], dynTriBox, -1, visited, ovi + 1, candidates);
@@ -404,12 +403,12 @@ void buildExternalPairsLineSearchSuperset(
 
       const std::size_t acceptedBefore = pairs.eePairs.size();
       const PairQueryCounts counts = collectHashPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<ExternalEEPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int ei = range.begin(); ei < range.end(); ++ei) {
+          for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               obsEdgeHash.queryOverlapping(dynEdgeBox[ei], obsEdgeBox, -1, visited, ei + 1, candidates);

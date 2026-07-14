@@ -48,7 +48,7 @@
 #  include "cgalInterface.h"
 #endif
 
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 #include <fmt/format.h>
 
@@ -557,9 +557,6 @@ void pgo_trimesh_closest_distances(pgoTriMeshGeoStructHandle trimesh, int n, dou
   bvTree.buildByInertiaPartition(*mesh);
 
   pgo::parallel::parallelFor(0, n,
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int i) {
       pgo::Vec3d pt(queryPos + i * 3);
       auto ret = bvTree.closestTriangleQuery(*mesh, pt);
@@ -580,9 +577,6 @@ void pgo_tetmesh_barycentric_weights(pgoTetMeshGeoStructHandle tetmesh, int n, d
   bvTree.buildByInertiaPartition(*mesh);
 
   pgo::parallel::parallelFor(0, n,
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int i) {
       pgo::Vec3d pt(queryPos + i * 3);
       int ele = bvTree.getClosestTet(*mesh, pt);

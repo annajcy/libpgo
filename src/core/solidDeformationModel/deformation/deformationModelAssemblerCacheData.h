@@ -5,7 +5,6 @@
 #include "EigenSupport.h"
 
 #include <tbb/enumerable_thread_specific.h>
-#include <tbb/partitioner.h>
 
 #include <memory>
 #include <vector>
@@ -56,7 +55,6 @@ public:
   tbb::enumerable_thread_specific<ThreadScratch> &threadScratch() { return *threadScratch_; }
   const tbb::enumerable_thread_specific<ThreadScratch> &threadScratch() const { return *threadScratch_; }
 
-  tbb::affinity_partitioner partitioners[5];
 
 private:
   std::unique_ptr<tbb::enumerable_thread_specific<ThreadScratch>> threadScratch_;

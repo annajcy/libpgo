@@ -4,12 +4,11 @@ copyright to USC, MIT
 */
 
 #include "smoothRSEnergy.h"
+#include "parallel/parallelFor.h"
 
 #include "polarDecompositionDerivatives.h"
 #include "pgoLogging.h"
 
-#include <tbb/parallel_for.h>
-#include <tbb/partitioner.h>
 #include <tbb/enumerable_thread_specific.h>
 
 #include <mkl.h>
@@ -425,8 +424,9 @@ void SmoothRSEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVe
   ES::VXd &dEdF = buf.dEdF;
 
   // for (int ele = 0; ele < tetMesh.numTets(); ele++) {
-  tbb::parallel_for(
-    0, nele, [&](int ele) {
+  pgo::parallel::parallelFor(
+    0, nele,
+ tbb::static_partitioner{}, [&](int ele) {
       ES::M3d Flocal = getMat(F, ele);
       ES::M3d Slocal = getMat(S, ele);
       ES::M3d Rlocal = getMat(R, ele);
@@ -450,8 +450,7 @@ void SmoothRSEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVe
 
       // (ds/df)^T * LTL S + (dr/df)^T * LTL R
       dEdF.segment<9>(ele * 9) = dSdFT * LTLS.segment<9>(ele * 9) * coeffS + dRdFT * LTLR.segment<9>(ele * 9) * coeffR;
-    },
-    tbb::static_partitioner());
+    });
 
   opt = SPARSE_OPERATION_TRANSPOSE;
   ret = mkl_sparse_d_mv(opt, 1.0, evaluationBuf->G, evaluationBuf->desc, dEdF.data(), 0.0, grad.data());
@@ -494,8 +493,9 @@ void SmoothRSEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport:
   // compute d2EdF2
   // ds/df dr/df and second term
   // for (int ele = 0; ele < tetMesh.numTets(); ele++) {
-  tbb::parallel_for(
-    0, nele, [&](int ele) {
+  pgo::parallel::parallelFor(
+    0, nele,
+ tbb::static_partitioner{}, [&](int ele) {
       ES::M3d Flocal = getMat(F, ele);
       ES::M3d Slocal = getMat(S, ele);
       ES::M3d Rlocal = getMat(R, ele);
@@ -544,8 +544,7 @@ void SmoothRSEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport:
           d2EdF2_2nd.valuePtr()[offset] = d2EdF2(i, j);
         }
       }
-    },
-    tbb::static_partitioner());
+    });
 
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
@@ -818,8 +817,9 @@ void SmoothRSEnergy::computeFSR(const ES::VXd &u, ES::VXd &F, ES::VXd &S, ES::VX
   ES::mv(G, u, F);
 
   // for (int ele = 0; ele < tetMesh.numTets(); ele++) {
-  tbb::parallel_for(
-    0, nele, [&](int ele) {
+  pgo::parallel::parallelFor(
+    0, nele,
+ tbb::static_partitioner{}, [&](int ele) {
       Eigen::Map<ES::M3d>(F.data() + ele * 9) += ES::M3d::Identity();
 
       ES::M3d Flocal = getMat(F, ele);
@@ -830,8 +830,7 @@ void SmoothRSEnergy::computeFSR(const ES::VXd &u, ES::VXd &F, ES::VXd &S, ES::VX
 
       S.segment<9>(ele * 9) = packMat(Slocal);
       R.segment<9>(ele * 9) = packMat(Rlocal);
-    },
-    tbb::static_partitioner());
+    });
 }
 
 void SmoothRSEnergy::convertRowMajorFG(const ES::SpMatD &GRowMajor, ES::SpMatD &GColMajor)

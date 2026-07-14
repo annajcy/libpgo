@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "parallelism/parallelRuntime.h"
+#include "parallel/parallelControl.h"
 #include "pgo_c.h"
 
 #include <array>
@@ -16,7 +16,7 @@ namespace
 
 TEST(PgoCParallelMigrationTest, ClosestTriangleQueriesMatchAnalyticDistances)
 {
-  pgo::parallel::initializeRuntime({ .maxTbbConcurrency = PGO_TEST_MAX_CONCURRENCY });
+  pgo::parallel::setMaxConcurrency(PGO_TEST_MAX_CONCURRENCY);
 
   std::array<double, 9> vertices = {
     0.0, 0.0, 0.0,
@@ -56,7 +56,7 @@ TEST(PgoCParallelMigrationTest, ClosestTriangleQueriesMatchAnalyticDistances)
 
 TEST(PgoCParallelMigrationTest, TetBarycentricQueriesReconstructInput)
 {
-  pgo::parallel::initializeRuntime({ .maxTbbConcurrency = PGO_TEST_MAX_CONCURRENCY });
+  pgo::parallel::setMaxConcurrency(PGO_TEST_MAX_CONCURRENCY);
 
   std::array<double, 12> vertices = {
     0.0, 0.0, 0.0,

@@ -11,7 +11,7 @@ copyright to USC,MIT,NUS
 #include "formulations/formulation/formulation.h"
 #include "material/fields/parameterField.h"
 #include "EigenDef.h"
-#include "parallelism/parallelOptions.h"
+#include "parallel/parallelFor.h"
 
 #include <cstddef>
 #include <functional>
@@ -41,15 +41,10 @@ public:
   virtual ~DeformationModelAssembler();
 
   double computeEnergy(const double *x) const;
-  double computeEnergy(const double *x, const pgo::parallel::Options &options) const;
   MaterialMaxStepObservation computeMaxStepObservation(const double *x, const double *dx) const;
   double computeMaxStepSize(const double *x, const double *dx) const;
   void computeGradient(const double *x, double *grad) const;
-  void computeGradient(
-    const double *x, double *grad, const pgo::parallel::Options &options) const;
   void computeHessian(const double *x, EigenSupport::SpMatD &hess) const;
-  void computeHessian(const double *x, EigenSupport::SpMatD &hess,
-    const pgo::parallel::Options &options) const;
 
   void compute_df_da(const double *x, EigenSupport::SpMatD &hess) const;
   void compute_df_db(const double *x, EigenSupport::SpMatD &hess) const;

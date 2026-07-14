@@ -1,8 +1,7 @@
 #include "obstaclePoseCache.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelReduce.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/blocked_range.h>
-#include <tbb/parallel_reduce.h>
 
 #include <algorithm>
 #include <functional>
@@ -43,14 +42,12 @@ void buildObstaclePoseCache(
 
   // Per-vertex degenerate point AABBs.
   pgo::parallel::parallelFor(0, nVerts,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int vi) {
       cache.vertBoxes[vi].init(positions.segment<3>(3 * vi), 0.0);
     });
 
   // Triangle AABBs + cached areas.
   pgo::parallel::parallelFor(0, nTri,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int fi) {
       const EigenSupport::V3d v0 = positions.segment<3>(3 * triangles(fi, 0));
       const EigenSupport::V3d v1 = positions.segment<3>(3 * triangles(fi, 1));
@@ -63,7 +60,6 @@ void buildObstaclePoseCache(
 
   // Edge AABBs + cached lengths.
   pgo::parallel::parallelFor(0, nEdge,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int ei) {
       const EigenSupport::V3d e0 = positions.segment<3>(3 * contactEdges(ei, 0));
       const EigenSupport::V3d e1 = positions.segment<3>(3 * contactEdges(ei, 1));
@@ -73,10 +69,9 @@ void buildObstaclePoseCache(
     });
 
   // Average tri AABB diagonal → spatial hash cell size.
-  const double diagSum = tbb::parallel_reduce(
-    tbb::blocked_range<int>(0, nTri), 0.0,
-    [&](const tbb::blocked_range<int> &r, double sum) {
-      for (int fi = r.begin(); fi < r.end(); ++fi)
+  const double diagSum = pgo::parallel::parallelReduce(0, nTri, 0.0,
+    [&](int rBegin, int rEnd, double sum) {
+      for (int fi = rBegin; fi < rEnd; ++fi)
         sum += (cache.triBoxes[fi].hi - cache.triBoxes[fi].lo).norm();
       return sum;
     },

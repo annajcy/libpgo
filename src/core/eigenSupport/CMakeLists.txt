@@ -27,12 +27,12 @@ endif()
 
 set(EIGENSUPPORT_DEPS Eigen3::Eigen TBB::tbb nlohmann_json::nlohmann_json)
 
-pgo_require_targets(eigenSupport TARGETS ${EIGENSUPPORT_DEPS} parallelism)
+pgo_require_targets(eigenSupport TARGETS ${EIGENSUPPORT_DEPS} parallel)
 
 add_libpgo_lib(eigenSupport "${EIGENSUPPORT_SOURCES}" "${EIGENSUPPORT_HEADERS}")
 
 target_link_libraries(eigenSupport PUBLIC ${EIGENSUPPORT_DEPS})
-target_link_libraries(eigenSupport PRIVATE parallelism)
+target_link_libraries(eigenSupport PRIVATE parallel)
 
 # if(PGO_HAS_ARPACK)
 #   target_link_libraries(eigenSupport PUBLIC arpack ${GFORTRAN_LIBRARY} ${QUADMATH_LIBRARY})

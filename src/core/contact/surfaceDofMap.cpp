@@ -1,11 +1,10 @@
 #include "surfaceDofMap.h"
+#include "parallel/parallelFor.h"
 
 #include "ipc/profiling/surfaceIPCProfiling.h"
 #include "scopedProfileSection.h"
 
-#include <tbb/blocked_range.h>
 #include <tbb/enumerable_thread_specific.h>
-#include <tbb/parallel_for.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -88,9 +87,9 @@ void fillSparseRowsDirect(
   matrix.resizeNonZeros(totalNnz);
   std::copy(outerOffsets.begin(), outerOffsets.end(), matrix.outerIndexPtr());
 
-  tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, numRows),
-    [&](const tbb::blocked_range<Eigen::Index> &range) {
-      for (Eigen::Index row = range.begin(); row < range.end(); ++row) {
+  pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numRows,
+    [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
         const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
         StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
         for (std::size_t entryIndex = 0; entryIndex < rowBuffer.size(); ++entryIndex) {
@@ -149,9 +148,9 @@ void fillSimulationHessianDirect(
   {
     Profiling::ScopedProfileSection profile(
       SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillValues);
-    tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, numOutputRows),
-      [&](const tbb::blocked_range<Eigen::Index> &range) {
-        for (Eigen::Index row = range.begin(); row < range.end(); ++row) {
+    pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numOutputRows,
+      [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+        for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
           const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
           StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
           for (std::size_t entryIndex = 0; entryIndex < rowBuffer.size(); ++entryIndex) {
@@ -255,9 +254,9 @@ void SurfaceDofMap::parallelSurfaceHessianMapMultiply(
 
   {
     Profiling::ScopedProfileSection profile("row_build");
-    tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, numRows),
-      [&](const tbb::blocked_range<Eigen::Index> &range) {
-        for (Eigen::Index row = range.begin(); row < range.end(); ++row) {
+    pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numRows,
+      [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+        for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
           std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
 
           std::uint64_t contributionCount = 0;
@@ -364,9 +363,9 @@ void SurfaceDofMap::parallelTransposeMapMultiply(
 
     {
       Profiling::ScopedProfileSection mergeProfile(SurfaceIPCProfileSections::kAdapterPullbackHessianRowMerge);
-      tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, numOutputRows),
-        [&](const tbb::blocked_range<Eigen::Index> &range) {
-          for (Eigen::Index outputRow = range.begin(); outputRow < range.end(); ++outputRow) {
+      pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numOutputRows,
+        [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+          for (Eigen::Index outputRow = rangeBegin; outputRow < rangeEnd; ++outputRow) {
             const std::vector<SimulationMapRowEntry> &adjacentSurfaceRows =
               simulationToSurfaceDispMapRows_[static_cast<std::size_t>(outputRow)];
             std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(outputRow)];
@@ -493,9 +492,9 @@ void SurfaceDofMap::parallelSurfaceMapVectorMultiply(
   if (surfaceDisplacements.size() != numRows)
     throw std::invalid_argument("Surface displacement output size does not match SurfaceDofMap row count.");
 
-  tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, numRows),
-    [&](const tbb::blocked_range<Eigen::Index> &range) {
-      for (Eigen::Index row = range.begin(); row < range.end(); ++row) {
+  pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numRows,
+    [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
         double value = 0.0;
         for (const SurfaceMapRowEntry &entry : surfaceFromSimulationDispMapRows_[static_cast<std::size_t>(row)])
           value += entry.weight * simulationDisplacements[entry.simulationCol];
@@ -512,9 +511,9 @@ void SurfaceDofMap::parallelTransposeMapVectorMultiply(
   if (simulationVector.size() != numRows)
     throw std::invalid_argument("Simulation vector output size does not match SurfaceDofMap column count.");
 
-  tbb::parallel_for(tbb::blocked_range<Eigen::Index>(0, numRows),
-    [&](const tbb::blocked_range<Eigen::Index> &range) {
-      for (Eigen::Index row = range.begin(); row < range.end(); ++row) {
+  pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numRows,
+    [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
         double value = 0.0;
         for (const SimulationMapRowEntry &entry : simulationToSurfaceDispMapRows_[static_cast<std::size_t>(row)])
           value += entry.weight * surfaceVector[entry.surfaceRow];

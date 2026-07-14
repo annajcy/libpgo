@@ -91,18 +91,10 @@ target_link_libraries(pypgo_core PRIVATE
   tetgenInterface
   volumetricMeshMeshing
   implicitSurface
-  parallelism
+  parallel
   # Ensures core.cpp (build_info) sees PGO_HAS_MKL / PGO_HAS_ORIG_PARDISO.
   compilation_flag
 )
-
-if(TARGET LAPACK::LAPACK)
-  target_link_libraries(pypgo_core PRIVATE LAPACK::LAPACK)
-endif()
-
-if(TARGET BLAS::BLAS)
-  target_link_libraries(pypgo_core PRIVATE BLAS::BLAS)
-endif()
 
 if(TARGET cgalInterface)
   target_link_libraries(pypgo_core PRIVATE cgalInterface)
@@ -135,7 +127,7 @@ target_include_directories(pypgo_core
     ${CMAKE_SOURCE_DIR}/src/core/tetgenInterface
     ${CMAKE_SOURCE_DIR}/src/core/volumetricMeshMeshing
     ${CMAKE_SOURCE_DIR}/src/core/implicitSurface
-    ${CMAKE_SOURCE_DIR}/src/core/parallelism
+    ${CMAKE_SOURCE_DIR}/src/core/parallel
 )
 
 set_target_properties(pypgo_core PROPERTIES

@@ -1,10 +1,10 @@
 if(NOT TARGET benchmark::benchmark)
-  message(STATUS "parallelism benchmarks are skipped. Missing: benchmark::benchmark")
+  message(STATUS "parallel benchmarks are skipped. Missing: benchmark::benchmark")
   return()
 endif()
 
 if(NOT TARGET TBB::tbb)
-  message(STATUS "parallelism benchmarks are skipped. Missing: TBB::tbb")
+  message(STATUS "parallel benchmarks are skipped. Missing: TBB::tbb")
   return()
 endif()
 
@@ -21,7 +21,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(parallelism_mkl_nested_benchmark
       PRIVATE
         benchmark::benchmark
-        parallelism
+        parallel
         TBB::tbb
         MKL::MKL
     )
@@ -35,27 +35,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   endif()
 endif()
 
-if(APPLE)
-  add_executable(parallelism_accelerate_nested_benchmark
-    parallelism_accelerate_nested_benchmark.cpp
-  )
-
-  target_link_libraries(parallelism_accelerate_nested_benchmark
-    PRIVATE
-      benchmark::benchmark
-      parallelism
-      TBB::tbb
-      "-framework Accelerate"
-  )
-
-  target_compile_definitions(parallelism_accelerate_nested_benchmark
-    PRIVATE
-      PGO_PARALLELISM_HAS_TBB
-      PGO_PARALLELISM_HAS_ACCELERATE_THREADING
-  )
-endif()
-
-if(APPLE OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET MKL::MKL AND PGO_MKL_THREADING STREQUAL "tbb_thread"))
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET MKL::MKL AND PGO_MKL_THREADING STREQUAL "tbb_thread")
   add_executable(parallelism_real_fem_nested_benchmark
     parallelism_real_fem_nested_benchmark.cpp
   )
@@ -64,7 +44,7 @@ if(APPLE OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET MKL::MKL AND PGO_MKL_
     PRIVATE
       benchmark::benchmark
       solidDeformationModel
-      parallelism
+      parallel
       TBB::tbb
   )
 
@@ -73,11 +53,6 @@ if(APPLE OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET MKL::MKL AND PGO_MKL_
       PGO_PARALLELISM_HAS_TBB
   )
 
-  if(APPLE)
-    target_link_libraries(parallelism_real_fem_nested_benchmark PRIVATE "-framework Accelerate")
-    target_compile_definitions(parallelism_real_fem_nested_benchmark PRIVATE PGO_FEM_BENCHMARK_ACCELERATE)
-  else()
-    target_link_libraries(parallelism_real_fem_nested_benchmark PRIVATE MKL::MKL)
-    target_compile_definitions(parallelism_real_fem_nested_benchmark PRIVATE PGO_FEM_BENCHMARK_MKL)
-  endif()
+  target_link_libraries(parallelism_real_fem_nested_benchmark PRIVATE MKL::MKL)
+  target_compile_definitions(parallelism_real_fem_nested_benchmark PRIVATE PGO_FEM_BENCHMARK_MKL)
 endif()

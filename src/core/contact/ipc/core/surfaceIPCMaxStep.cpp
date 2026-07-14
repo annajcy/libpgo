@@ -1,14 +1,13 @@
 #include "ipc/core/surfaceIPCMaxStep.h"
+#include "parallel/parallelReduce.h"
 
 #include "ipc/broadPhase/spatialHashGrid.h"
 #include "ipc/geometry/ipcCCD.h"
 #include "scopedProfileSection.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/blocked_range.h>
 #include <tbb/enumerable_thread_specific.h>
-#include <tbb/parallel_reduce.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -112,7 +111,6 @@ double computeSelfMaxStep(
     // Inflate swept AABBs by `thickness` on every side so the broad-phase
     // prune stays sound for min-separation CCD (contact at distance == thickness).
     pgo::parallel::parallelFor(0, topology.numVerts,
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int vi) {
         V3d p0 = getV(vi), p1 = p0 + getdV(vi);
         vertBox[vi].init(p0, thickness);
@@ -120,7 +118,6 @@ double computeSelfMaxStep(
       });
 
     pgo::parallel::parallelFor(0, nTri,
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int fi) {
         auto &tri = topology.triangles[fi];
         V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
@@ -134,7 +131,6 @@ double computeSelfMaxStep(
       });
 
     pgo::parallel::parallelFor(0, nEdge,
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int ei) {
         V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
         V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
@@ -144,10 +140,9 @@ double computeSelfMaxStep(
         edgeBox[ei].expand(a1 + da1, thickness);
       });
 
-    double avgBoxDiag = tbb::parallel_reduce(
-      tbb::blocked_range<int>(0, nTri), 0.0,
-      [&](const tbb::blocked_range<int> &r, double sum) {
-        for (int fi = r.begin(); fi < r.end(); ++fi)
+    double avgBoxDiag = pgo::parallel::parallelReduce(0, nTri, 0.0,
+      [&](int rBegin, int rEnd, double sum) {
+        for (int fi = rBegin; fi < rEnd; ++fi)
           sum += (triBox[fi].hi - triBox[fi].lo).norm();
         return sum;
       },
@@ -170,14 +165,13 @@ double computeSelfMaxStep(
     tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
     tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-    alpha = tbb::parallel_reduce(
-      tbb::blocked_range<int>(0, topology.numVerts), 1.0,
-      [&](const tbb::blocked_range<int> &range, double localAlpha) {
+    alpha = pgo::parallel::parallelReduce(0, topology.numVerts, 1.0,
+      [&](int rangeBegin, int rangeEnd, double localAlpha) {
         auto &visited = tls_visited.local();
         auto &candidates = tls_candidates.local();
         auto &localCounts = tls_counts.local();
 
-        for (int vi = range.begin(); vi < range.end(); ++vi) {
+        for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
           candidates.clear();
           triHash.query(vertBox[vi], -1, visited, vi + 1, candidates);
           if (profilingEnabled)
@@ -227,14 +221,13 @@ double computeSelfMaxStep(
     tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
     tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-    alpha = tbb::parallel_reduce(
-      tbb::blocked_range<int>(0, nEdge), alpha,
-      [&](const tbb::blocked_range<int> &range, double localAlpha) {
+    alpha = pgo::parallel::parallelReduce(0, nEdge, alpha,
+      [&](int rangeBegin, int rangeEnd, double localAlpha) {
         auto &visited = tls_visited.local();
         auto &candidates = tls_candidates.local();
         auto &localCounts = tls_counts.local();
 
-        for (int ei = range.begin(); ei < range.end(); ++ei) {
+        for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
           candidates.clear();
           edgeHash.queryAfter(edgeBox[ei], ei, visited, ei + 1, candidates);
           if (profilingEnabled)
@@ -310,7 +303,6 @@ double computeExternalMaxStep(
   // heavier dynamic triangle/edge AABBs and hashes.
   std::vector<SpatialHashGrid::AABB> dynVertBox(topology.numVerts);
   pgo::parallel::parallelFor(0, topology.numVerts,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int vi) {
       V3d p0 = getV(vi), p1 = p0 + getdV(vi);
       dynVertBox[vi].init(p0, thickness);
@@ -355,7 +347,6 @@ double computeExternalMaxStep(
   std::vector<SpatialHashGrid::AABB> dynEdgeBox(nDynEdge);
 
   pgo::parallel::parallelFor(0, nDynTri,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int fi) {
       auto &tri = topology.triangles[fi];
       V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
@@ -369,7 +360,6 @@ double computeExternalMaxStep(
     });
 
   pgo::parallel::parallelFor(0, nDynEdge,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int ei) {
       V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
       V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
@@ -415,14 +405,13 @@ double computeExternalMaxStep(
       tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
       tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-      alpha = tbb::parallel_reduce(
-        tbb::blocked_range<int>(0, topology.numVerts), alpha,
-        [&](const tbb::blocked_range<int> &range, double localAlpha) {
+      alpha = pgo::parallel::parallelReduce(0, topology.numVerts, alpha,
+        [&](int rangeBegin, int rangeEnd, double localAlpha) {
           auto &visited = tls_visited.local();
           auto &candidates = tls_candidates.local();
           auto &localCounts = tls_counts.local();
 
-          for (int vi = range.begin(); vi < range.end(); ++vi) {
+          for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
             candidates.clear();
             obsTriHash.query(dynVertBox[vi], -1, visited, vi + 1, candidates);
             if (profilingEnabled)
@@ -469,14 +458,13 @@ double computeExternalMaxStep(
       tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
       tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-      alpha = tbb::parallel_reduce(
-        tbb::blocked_range<int>(0, nObsVert), alpha,
-        [&](const tbb::blocked_range<int> &range, double localAlpha) {
+      alpha = pgo::parallel::parallelReduce(0, nObsVert, alpha,
+        [&](int rangeBegin, int rangeEnd, double localAlpha) {
           auto &visited = tls_visited.local();
           auto &candidates = tls_candidates.local();
           auto &localCounts = tls_counts.local();
 
-          for (int ovi = range.begin(); ovi < range.end(); ++ovi) {
+          for (int ovi = rangeBegin; ovi < rangeEnd; ++ovi) {
             candidates.clear();
             dynTriHash.query(obsVertBox[ovi], -1, visited, ovi + 1, candidates);
             if (profilingEnabled)
@@ -522,14 +510,13 @@ double computeExternalMaxStep(
       tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
       tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-      alpha = tbb::parallel_reduce(
-        tbb::blocked_range<int>(0, nDynEdge), alpha,
-        [&](const tbb::blocked_range<int> &range, double localAlpha) {
+      alpha = pgo::parallel::parallelReduce(0, nDynEdge, alpha,
+        [&](int rangeBegin, int rangeEnd, double localAlpha) {
           auto &visited = tls_visited.local();
           auto &candidates = tls_candidates.local();
           auto &localCounts = tls_counts.local();
 
-          for (int ei = range.begin(); ei < range.end(); ++ei) {
+          for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
             candidates.clear();
             obsEdgeHash.query(dynEdgeBox[ei], -1, visited, ei + 1, candidates);
             if (profilingEnabled)

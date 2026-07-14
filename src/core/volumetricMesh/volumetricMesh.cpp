@@ -41,7 +41,7 @@
 #include "range.h"
 #include "stringHelper.h"
 #include "pgoLogging.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 #include <cfloat>
 #include <cstring>
@@ -2169,9 +2169,6 @@ int VolumetricMesh::saveInterpolationWeightsBinary(FILE *fout, int numTargetLoca
 void VolumetricMesh::interpolate(const double *u, double *uTarget, int numTargetLocations, int numElementVertices_, const int *vertices_, const double *weights)
 {
   pgo::parallel::parallelFor(0, numTargetLocations,
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int i) {
       Vec3d defo(0, 0, 0);
       for (int j = 0; j < numElementVertices_; j++) {

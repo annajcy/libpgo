@@ -112,8 +112,21 @@ jobs:
               for name in vendored:
                   print(f"  {name}")
               raise SystemExit(1)
-          print("OK: pypgo wheel relies on the platform BLAS/LAPACK runtime.")
+          print("OK: pypgo wheel does not vendor BLAS/LAPACK runtimes.")
           PY
+
+      - name: Verify native extension does not link Accelerate
+        run: |
+          shopt -s nullglob
+          core=(pypgo/_core*.so)
+          if (( ${#core[@]} != 1 )); then
+            printf 'Expected exactly one native pypgo extension, found %s.\n' "${#core[@]}"
+            exit 1
+          fi
+          if otool -L "${core[0]}" | grep -F Accelerate.framework; then
+            echo "Native pypgo extension unexpectedly links Accelerate."
+            exit 1
+          fi
 
       - name: Upload Python wheel artifact
         uses: actions/upload-artifact@v4

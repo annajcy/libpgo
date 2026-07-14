@@ -1,38 +1,15 @@
-"""One-time process parallel runtime configuration and diagnostics.
+"""Process-wide TBB concurrency configuration.
 
-Participant counters cover pgo TBB arenas, not CPU utilization or work from
-OpenMP and other native runtimes. Avoid nesting OpenMP-backed APIs inside pgo
-parallel work because the runtimes do not coordinate their worker limits.
+The configured ceiling applies to pgo's TBB scheduling facade and oneMKL only when oneMKL uses
+the TBB threading layer. Configure at an application quiescence boundary: changing the value does
+not preempt work that is already running.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import operator
-from typing import Any
 
 import pypgo._core as _core
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeInfo:
-    """Immutable snapshot of pgo runtime configuration and arena participation."""
-
-    initialized: bool
-    using_default_concurrency: bool
-    max_concurrency: int | None
-    default_concurrency: int
-    effective_tbb_max_allowed_parallelism: int
-    tbb_worker_ceiling: int
-    current_worker_participants: int
-    current_external_participants: int
-    current_total_participants: int
-    peak_total_participants: int
-    participant_pressure_observed: bool
-
-
-def _runtime_info(raw: dict[str, Any]) -> RuntimeInfo:
-    return RuntimeInfo(**raw)
 
 
 def _normalize_max_concurrency(max_concurrency: int | None) -> int | None:
@@ -49,28 +26,15 @@ def _normalize_max_concurrency(max_concurrency: int | None) -> int | None:
     return value
 
 
-def default_concurrency() -> int:
-    """Return the current oneTBB default without initializing the pgo runtime."""
+def initialize(*, max_concurrency: int | None = None) -> int:
+    """Set the process TBB ceiling and return the effective active concurrency.
 
-    return int(_core._parallel_default_concurrency())
+    Passing ``None`` restores oneTBB's default concurrency. This function is intentionally
+    repeatable; concurrent external TBB controls may make the returned effective value smaller
+    than the requested value.
+    """
 
-
-def initialize(*, max_concurrency: int | None = None) -> RuntimeInfo:
-    """Initialize the process runtime once and return its current snapshot."""
-
-    value = _normalize_max_concurrency(max_concurrency)
-    return _runtime_info(dict(_core._parallel_initialize(value)))
+    return int(_core._parallel_initialize(_normalize_max_concurrency(max_concurrency)))
 
 
-def runtime_info() -> RuntimeInfo:
-    """Return a snapshot without initializing the pgo runtime."""
-
-    return _runtime_info(dict(_core._parallel_runtime_info()))
-
-
-__all__ = [
-    "RuntimeInfo",
-    "default_concurrency",
-    "initialize",
-    "runtime_info",
-]
+__all__ = ["initialize"]

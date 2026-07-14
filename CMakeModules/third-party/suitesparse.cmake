@@ -1,3 +1,7 @@
+# Retained as an inactive dependency recipe for possible future reuse.
+# Supported libpgo builds do not include this module: Ceres keeps SuiteSparse,
+# LAPACK, and external sparse backends disabled in third-party/ceres.cmake.
+
 if(TARGET SuiteSparse::SuiteSparse_config)
   return()
 endif()

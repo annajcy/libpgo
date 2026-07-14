@@ -31,7 +31,7 @@
  *************************************************************************/
 
 #include "generateMassMatrix.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 #include <tbb/spin_mutex.h>
 
@@ -61,9 +61,6 @@ void GenerateMassMatrix::computeMassMatrix(const VolumetricMesh *volumetricMesh,
   }
 
   pgo::parallel::parallelFor(0, volumetricMesh->getNumElements(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int el) {
       thread_local ES::MXd elementMass;
 
@@ -104,9 +101,6 @@ void GenerateMassMatrix::computeVertexMasses(const VolumetricMesh *volumetricMes
 
   std::vector<tbb::spin_mutex> vtxLocks(n);
   pgo::parallel::parallelFor(0, volumetricMesh->getNumElements(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int el) {
       thread_local ES::MXd elementMass;
 
@@ -143,9 +137,6 @@ void GenerateMassMatrix::computeVertexMassesByAveragingNeighboringElements(const
   memset(masses, 0, sizeof(double) * n * (inflate3Dim ? 3 : 1));
   std::vector<tbb::spin_mutex> vtxLocks(n);
   pgo::parallel::parallelFor(0, volumetricMesh->getNumElements(),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int el) {
       double vtxMass = volumetricMesh->getElementVolume(el) * volumetricMesh->getElementDensity(el) * invNumEleVtx;
       for (int i = 0; i < numElementVertices; i++) {

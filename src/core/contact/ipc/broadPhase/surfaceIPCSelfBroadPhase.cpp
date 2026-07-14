@@ -5,7 +5,6 @@
 #include "ipc/profiling/surfaceIPCProfiling.h"
 #include "scopedProfileSection.h"
 
-#include <tbb/blocked_range.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -83,12 +82,12 @@ void buildSelfPairs(
     {
       Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfPTQuery);
       const PairQueryCounts counts = collectHashPairsParallel<PTPair>(nTri, 0, topology.numVerts,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<PTPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int vi = range.begin(); vi < range.end(); ++vi) {
+          for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               triHash.queryOverlapping(vertBox[vi], triBox, -1, visited, vi + 1, candidates);
@@ -128,12 +127,12 @@ void buildSelfPairs(
     {
       Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfEEQuery);
       const PairQueryCounts counts = collectHashPairsParallel<EEPair>(nEdge, 0, nEdge,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<EEPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int ei = range.begin(); ei < range.end(); ++ei) {
+          for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               edgeHash.queryOverlappingAfter(edgeBox[ei], edgeBox, ei, visited, ei + 1, candidates);
@@ -223,12 +222,12 @@ void buildSelfPairsLineSearchSuperset(
     {
       Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfPTQuery);
       const PairQueryCounts counts = collectHashPairsParallel<PTPair>(nTri, 0, topology.numVerts,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<PTPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int vi = range.begin(); vi < range.end(); ++vi) {
+          for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               triHash.queryOverlapping(vertBox[vi], triBox, -1, visited, vi + 1, candidates);
@@ -260,12 +259,12 @@ void buildSelfPairsLineSearchSuperset(
     {
       Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfEEQuery);
       const PairQueryCounts counts = collectHashPairsParallel<EEPair>(nEdge, 0, nEdge,
-        [&](const tbb::blocked_range<int> &range,
+        [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
           std::vector<EEPair> &localPairs,
           PairQueryCounts &localCounts) {
-          for (int ei = range.begin(); ei < range.end(); ++ei) {
+          for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
             candidates.clear();
             const std::uint64_t hashCandidates =
               edgeHash.queryOverlappingAfter(edgeBox[ei], edgeBox, ei, visited, ei + 1, candidates);

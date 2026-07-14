@@ -39,9 +39,8 @@
 #include "basicAlgorithms.h"
 #include "containerHelper.h"
 #include "pgoLogging.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/enumerable_thread_specific.h>
 
 #include <iostream>
@@ -553,9 +552,6 @@ void TriMeshBVTree::selfIntersectionExact(const TriMeshRef triMesh, std::vector<
   std::vector<char> intersected(candidatePairs.size(), 0);
 
   pgo::parallel::parallelFor(0, sizei(candidatePairs),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int i) {
       // for (size_t i = 0; i < candidatePairs.size(); ++i) {
 
@@ -591,12 +587,12 @@ void TriMeshBVTree::intersectionExact(const TriMeshRef triMesh, const TriMeshRef
   };
 
   tbb::enumerable_thread_specific<ThreadLocalData> threadLocalData;
-  tbb::parallel_for(tbb::blocked_range<int>(0, otherMesh.numTriangles()), [&](const tbb::blocked_range<int> &rng) {
+  pgo::parallel::parallelForChunks(0, otherMesh.numTriangles(), [&](int rngBegin, int rngEnd) {
     //  for(int oID = 0; oID < otherMesh.numTriangles(); oID++)
     auto &local = threadLocalData.local();
     auto &IDlist = local.IDlist;
     auto &pairList = local.pairList;
-    for (int oID = rng.begin(); oID != rng.end(); oID++) {
+    for (int oID = rngBegin; oID != rngEnd; oID++) {
       IDlist.clear();
       triangleIntersectionExact(triMesh, otherMesh.pos(oID, 0), otherMesh.pos(oID, 1), otherMesh.pos(oID, 2), IDlist);
       sortAndDeduplicate(IDlist);
@@ -634,9 +630,6 @@ void TriMeshBVTree::intersectionExact(const TriMeshRef triMesh, const TriMeshBVT
 
   std::vector<char> intersected(candidatePairs.size(), 0);
   pgo::parallel::parallelFor(0, sizei(candidatePairs),
-    pgo::parallel::Options{
-      .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit,
-    },
     [&](int i) {
       int triIDA = candidatePairs[i].first, triIDB = candidatePairs[i].second;
       PGO_ALOG(triIDA >= 0 && triIDA < numTriangles);

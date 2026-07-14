@@ -12,6 +12,9 @@ pgo_dep_option(BUILD_BENCHMARKS BOOL OFF "Build Ceres benchmarking suite")
 pgo_dep_option(BUILD_SHARED_LIBS BOOL OFF "Build Ceres as a shared library.")
 pgo_dep_option(PROVIDE_UNINSTALL_TARGET BOOL OFF "Add a custom target to ease removal of installed targets")
 pgo_dep_option(LAPACK BOOL OFF "Use LAPACK")
+pgo_dep_option(SUITESPARSE BOOL OFF "Use SuiteSparse")
+pgo_dep_option(ACCELERATESPARSE BOOL OFF "Use Apple Accelerate sparse solvers")
+pgo_dep_option(EIGENSPARSE BOOL OFF "Use Eigen sparse solvers")
 
 pgo_add_third_party(ceres
   TARGETS Ceres::Ceres

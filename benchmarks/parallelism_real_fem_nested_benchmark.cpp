@@ -2,24 +2,25 @@
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
 #include "material/fields/materialParameterFieldInit.h"
-#include "parallelism/parallelOptions.h"
-#include "parallelism/parallelRuntime.h"
+#include "parallel/parallelFor.h"
+#include "parallel/parallelControl.h"
 #include "parallelism_benchmark_helpers.h"
 #include "pgoLogging.h"
 #include "simulation/simulationMesh.h"
 
 #include <benchmark/benchmark.h>
 
-#if defined(PGO_FEM_BENCHMARK_ACCELERATE)
-#  include <Accelerate/Accelerate.h>
-#elif defined(PGO_FEM_BENCHMARK_MKL)
-#  include <mkl.h>
-#endif
+#include <tbb/parallel_for.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
+#include <set>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -30,13 +31,14 @@ namespace P = pgo::parallel;
 namespace SDM = pgo::SolidDeformationModel;
 
 using pgo::benchmark_helpers::ThreadSampler;
+using pgo::benchmark_helpers::CurrentArenaThreadObserver;
 using pgo::benchmark_helpers::adjustedExtraThreads;
 using pgo::benchmark_helpers::currentProcessThreadCount;
 
 enum class Policy
 {
-  Suppress,
-  Inherit,
+  Bounded1,
+  Multi,
 };
 
 enum class FormulationKind
@@ -53,20 +55,34 @@ enum class EvaluationKind
   Full,
 };
 
-#if defined(PGO_FEM_BENCHMARK_MKL)
 constexpr int kRuntimeConcurrency = 16;
-#else
-constexpr int kRuntimeConcurrency = 8;
-#endif
 
-P::ParallelRuntime &benchmarkRuntime()
+int benchmarkRuntime()
 {
-  return P::initializeRuntime({ .maxTbbConcurrency = kRuntimeConcurrency });
+  const char *configured = std::getenv("PGO_BENCHMARK_RUNTIME_CONCURRENCY");
+  if (configured == nullptr)
+    return P::setMaxConcurrency(kRuntimeConcurrency);
+
+  const int parsed = std::atoi(configured);
+  if (parsed <= 0)
+    throw std::invalid_argument("PGO_BENCHMARK_RUNTIME_CONCURRENCY must be positive.");
+  return P::setMaxConcurrency(parsed);
 }
 
 const char *policyName(Policy policy)
 {
-  return policy == Policy::Suppress ? "Suppress" : "Inherit";
+  switch (policy) {
+  case Policy::Bounded1:
+    return "Bounded1";
+  case Policy::Multi:
+    return "Multi";
+  }
+  return "Unknown";
+}
+
+int policyCode(Policy policy)
+{
+  return static_cast<int>(policy);
 }
 
 const char *formulationName(FormulationKind formulation)
@@ -89,19 +105,20 @@ const char *evaluationName(EvaluationKind evaluation)
   return "Unknown";
 }
 
-P::Options optionsForPolicy(Policy policy)
+template<class Fn>
+decltype(auto) runWithPolicy(Policy policy, Fn &&fn)
 {
-  P::Options options;
-  options.grainSize = 1;
-  options.nestedKernelPolicy =
-    policy == Policy::Suppress ? P::NestedKernelPolicy::Suppress : P::NestedKernelPolicy::Inherit;
-  return options;
+  if (policy == Policy::Bounded1)
+    return P::withSingleThreadedTbb(std::forward<Fn>(fn));
+  return fn();
 }
 
 std::shared_ptr<const SDM::SimulationMesh> makeCubicChainMesh(int numElements)
 {
   std::vector<double> vertices(static_cast<std::size_t>(numElements + 1) * 4 * 3);
-  auto vertexIndex = [](int x, int y, int z) { return x * 4 + z * 2 + y; };
+  auto vertexIndex = [](int x, int y, int z) {
+    return x * 4 + z * 2 + y;
+  };
   for (int x = 0; x <= numElements; ++x) {
     for (int z = 0; z < 2; ++z) {
       for (int y = 0; y < 2; ++y) {
@@ -117,10 +134,14 @@ std::shared_ptr<const SDM::SimulationMesh> makeCubicChainMesh(int numElements)
   std::vector<int> materialIndices(static_cast<std::size_t>(numElements), 0);
   for (int e = 0; e < numElements; ++e) {
     const int corners[] = {
-      vertexIndex(e, 0, 0), vertexIndex(e + 1, 0, 0),
-      vertexIndex(e + 1, 1, 0), vertexIndex(e, 1, 0),
-      vertexIndex(e, 0, 1), vertexIndex(e + 1, 0, 1),
-      vertexIndex(e + 1, 1, 1), vertexIndex(e, 1, 1),
+      vertexIndex(e, 0, 0),
+      vertexIndex(e + 1, 0, 0),
+      vertexIndex(e + 1, 1, 0),
+      vertexIndex(e, 1, 0),
+      vertexIndex(e, 0, 1),
+      vertexIndex(e + 1, 0, 1),
+      vertexIndex(e + 1, 1, 1),
+      vertexIndex(e, 1, 1),
     };
     std::copy(std::begin(corners), std::end(corners), elements.begin() + e * 8);
   }
@@ -164,15 +185,15 @@ public:
     hessian_ = assembler_->getHessianTemplate();
   }
 
-  double evaluate(EvaluationKind evaluation, const P::Options &options)
+  double evaluate(EvaluationKind evaluation)
   {
     double energy = 0.0;
     if (evaluation == EvaluationKind::Energy || evaluation == EvaluationKind::Full)
-      energy = assembler_->computeEnergy(absolutePosition_.data(), options);
+      energy = assembler_->computeEnergy(absolutePosition_.data());
     if (evaluation == EvaluationKind::Gradient || evaluation == EvaluationKind::Full)
-      assembler_->computeGradient(absolutePosition_.data(), gradient_.data(), options);
+      assembler_->computeGradient(absolutePosition_.data(), gradient_.data());
     if (evaluation == EvaluationKind::Hessian || evaluation == EvaluationKind::Full)
-      assembler_->computeHessian(absolutePosition_.data(), hessian_, options);
+      assembler_->computeHessian(absolutePosition_.data(), hessian_);
     return energy;
   }
 
@@ -223,23 +244,29 @@ private:
   ES::SpMatD hessian_;
 };
 
-void recordBackendCounters(benchmark::State &state)
-{
-#if defined(PGO_FEM_BENCHMARK_ACCELERATE)
-  state.counters["accelerate_threading"] = static_cast<int>(BLASGetThreading());
-#elif defined(PGO_FEM_BENCHMARK_MKL)
-  state.counters["mkl_max_threads"] = mkl_get_max_threads();
-  state.counters["mkl_dynamic"] = mkl_get_dynamic();
-#endif
-}
-
 void benchmarkRealFem(benchmark::State &state, FormulationKind formulation,
-  EvaluationKind evaluation, Policy policy, int numElements)
+  EvaluationKind evaluation, Policy policy, int numElements, int expectedRuntimeConcurrency)
 {
-  benchmarkRuntime();
+  const int effectiveRuntimeConcurrency = benchmarkRuntime();
+  if (effectiveRuntimeConcurrency != expectedRuntimeConcurrency) {
+    throw std::logic_error("Benchmark name/runtime concurrency environment mismatch.");
+  }
   pgo::Logging::init();
   FemCase fem(formulation, numElements);
-  const P::Options options = optionsForPolicy(policy);
+  std::atomic<int> observedArenaConcurrency = -1;
+  std::atomic<int> observedPeakArenaThreads = 1;
+  P::parallelFor(0, 1, [&](int) {
+    runWithPolicy(policy, [&] {
+      CurrentArenaThreadObserver observer;
+      observedArenaConcurrency.store(
+        tbb::this_task_arena::max_concurrency(), std::memory_order_relaxed);
+      tbb::parallel_for(0, std::max(64, expectedRuntimeConcurrency * 64), [](int i) {
+        benchmark::DoNotOptimize(i);
+        std::this_thread::yield();
+      });
+      observedPeakArenaThreads.store(observer.peak(), std::memory_order_relaxed);
+    });
+  });
 
   const int baselineThreads = currentProcessThreadCount();
   int peakThreads = baselineThreads;
@@ -250,7 +277,9 @@ void benchmarkRealFem(benchmark::State &state, FormulationKind formulation,
     sampler.start();
     state.ResumeTiming();
 
-    energy = fem.evaluate(evaluation, options);
+    energy = runWithPolicy(policy, [&] {
+      return fem.evaluate(evaluation);
+    });
     benchmark::ClobberMemory();
 
     state.PauseTiming();
@@ -260,9 +289,8 @@ void benchmarkRealFem(benchmark::State &state, FormulationKind formulation,
 
   const double checksum = fem.checksum(evaluation, energy);
   benchmark::DoNotOptimize(&checksum);
-  const P::RuntimeInfo runtime = P::runtimeInfo();
-  state.counters["runtime_concurrency"] = *runtime.maxConcurrency;
-  state.counters["tbb_max_allowed_parallelism"] = runtime.effectiveTbbMaxAllowedParallelism;
+  state.counters["runtime_concurrency"] = effectiveRuntimeConcurrency;
+  state.counters["tbb_max_allowed_parallelism"] = effectiveRuntimeConcurrency;
   state.counters["elements"] = fem.numElements();
   state.counters["local_dofs"] = fem.localDofs();
   state.counters["global_dofs"] = fem.numDofs();
@@ -271,14 +299,15 @@ void benchmarkRealFem(benchmark::State &state, FormulationKind formulation,
   state.counters["baseline_threads"] = baselineThreads;
   state.counters["peak_threads"] = peakThreads;
   state.counters["extra_threads"] = adjustedExtraThreads(baselineThreads, peakThreads);
-  state.counters["policy"] = policy == Policy::Suppress ? 0 : 1;
+  state.counters["policy"] = policyCode(policy);
   state.counters["checksum"] = checksum;
-  recordBackendCounters(state);
+  state.counters["worker_arena_concurrency"] = observedArenaConcurrency.load(std::memory_order_relaxed);
+  state.counters["observed_peak_arena_threads"] = observedPeakArenaThreads.load(std::memory_order_relaxed);
 }
 
 void registerRealFemBenchmarks()
 {
-  constexpr Policy policies[] = { Policy::Suppress, Policy::Inherit };
+  constexpr Policy policies[] = { Policy::Bounded1, Policy::Multi };
   constexpr EvaluationKind evaluations[] = {
     EvaluationKind::Energy,
     EvaluationKind::Gradient,
@@ -302,7 +331,8 @@ void registerRealFemBenchmarks()
             formulationName(formulation) + "/" + evaluationName(evaluation) + "/" +
             policyName(policy) + "/elements_" + std::to_string(numElements);
           benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
-            benchmarkRealFem(state, formulation, evaluation, policy, numElements);
+            benchmarkRealFem(
+              state, formulation, evaluation, policy, numElements, kRuntimeConcurrency);
           })->UseRealTime()
             ->Unit(benchmark::kMillisecond);
         }
@@ -311,8 +341,49 @@ void registerRealFemBenchmarks()
   }
 }
 
+void registerMklTbbBoundRealFemDecisionBenchmarks()
+{
+  constexpr Policy policies[] = { Policy::Bounded1, Policy::Multi };
+  constexpr EvaluationKind evaluations[] = {
+    EvaluationKind::Hessian,
+    EvaluationKind::Full,
+  };
+  constexpr FormulationKind formulations[] = {
+    FormulationKind::CubicLinear,
+    FormulationKind::CubicTricubicHermite,
+  };
+  constexpr int runtimeConcurrencies[] = { 1, 4, 8, 16 };
+
+  for (int runtimeConcurrency : runtimeConcurrencies) {
+    const std::set<int> elementCounts = {
+      1,
+      std::max(1, runtimeConcurrency / 2),
+      runtimeConcurrency,
+      runtimeConcurrency * 4,
+    };
+    for (FormulationKind formulation : formulations) {
+      for (EvaluationKind evaluation : evaluations) {
+        for (Policy policy : policies) {
+          for (int numElements : elementCounts) {
+            const std::string name = std::string("MklTbbBoundRealFemDecision/") +
+              formulationName(formulation) + "/" + evaluationName(evaluation) + "/" +
+              policyName(policy) + "/runtime_workers_" + std::to_string(runtimeConcurrency) +
+              "/elements_" + std::to_string(numElements);
+            benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
+              benchmarkRealFem(
+                state, formulation, evaluation, policy, numElements, runtimeConcurrency);
+            })->UseRealTime()
+              ->Unit(benchmark::kMillisecond);
+          }
+        }
+      }
+    }
+  }
+}
+
 const bool registered = [] {
   registerRealFemBenchmarks();
+  registerMklTbbBoundRealFemDecisionBenchmarks();
   return true;
 }();
 

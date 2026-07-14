@@ -1,35 +1,14 @@
-pgo_add_gtest(parallelism_gtest
-  SOURCES parallelism_gtest.cpp
-  DEPS parallelism
+pgo_add_gtest(parallel_gtest
+  SOURCES parallel_gtest.cpp
+  DEPS parallel
 )
 
-pgo_add_gtest(parallelism_runtime_gtest
-  SOURCES parallelism_runtime_gtest.cpp
-  DEPS parallelism
+set(PARALLEL_TEST_TARGETS
+  parallel_gtest
 )
 
-pgo_add_gtest(parallelism_observer_gtest
-  SOURCES parallelism_observer_gtest.cpp
-  DEPS parallelism
-)
-
-pgo_add_gtest(parallelism_pressure_gtest
-  SOURCES parallelism_pressure_gtest.cpp
-  DEPS parallelism
-)
-
-set(PARALLELISM_TEST_TARGETS
-  parallelism_gtest
-  parallelism_runtime_gtest
-  parallelism_observer_gtest
-  parallelism_pressure_gtest
-)
-
-foreach(target IN LISTS PARALLELISM_TEST_TARGETS)
-  if(TARGET TBB::tbb)
-    target_link_libraries(${target} PRIVATE TBB::tbb)
-    target_compile_definitions(${target} PRIVATE PGO_PARALLELISM_HAS_TBB)
-  endif()
+foreach(target IN LISTS PARALLEL_TEST_TARGETS)
+  target_link_libraries(${target} PRIVATE TBB::tbb)
   if(TARGET Eigen3::Eigen)
     target_link_libraries(${target} PRIVATE Eigen3::Eigen)
     target_compile_definitions(${target} PRIVATE PGO_PARALLELISM_HAS_EIGEN)
@@ -41,11 +20,15 @@ foreach(target IN LISTS PARALLELISM_TEST_TARGETS)
       target_compile_definitions(${target} PRIVATE PGO_PARALLELISM_MKL_TBB_THREADING)
     endif()
   endif()
-  if(APPLE)
-    target_link_libraries(${target} PRIVATE "-framework Accelerate")
-    target_compile_definitions(${target} PRIVATE PGO_PARALLELISM_HAS_ACCELERATE_THREADING)
-  endif()
 endforeach()
+
+if(TARGET cgalInterface)
+  pgo_add_gtest(cgalInterface_gtest
+    SOURCES cgalInterface_gtest.cpp
+    DEPS cgalInterface
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/core/cgalInterface ${CMAKE_SOURCE_DIR}/src/core/mesh
+  )
+endif()
 
 if (TARGET animationIO)
   pgo_add_gtest(animationLoader_gtest

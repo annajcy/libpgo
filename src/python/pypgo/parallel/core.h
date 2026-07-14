@@ -7,8 +7,6 @@
 namespace pgo
 {
 
-int parallelDefaultConcurrency();
-nanobind::dict parallelInitialize(std::optional<int> maxConcurrency);
-nanobind::dict parallelRuntimeInfo();
+int parallelInitialize(std::optional<int> maxConcurrency);
 
 }  // namespace pgo

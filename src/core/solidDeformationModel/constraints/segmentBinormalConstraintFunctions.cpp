@@ -4,12 +4,10 @@ copyright to USC,MIT,NUS
 */
 
 #include "constraints/segmentBinormalConstraintFunctions.h"
+#include "parallel/parallelFor.h"
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
-
-#include <tbb/parallel_for.h>
-#include <tbb/partitioner.h>
 
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
@@ -169,8 +167,9 @@ SegmentBinormalConstraintFunctions::~SegmentBinormalConstraintFunctions()
 // C_i1 = (x1-x0).dir = 0
 void SegmentBinormalConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) const
 {
-  tbb::parallel_for(
-    0, nSeg, [&](int si) {
+  pgo::parallel::parallelFor(
+    0, nSeg,
+ tbb::static_partitioner{}, [&](int si) {
       if (restPositions.size() == 0) {
         ES::V3d v1 = x.segment<3>(positionDOFStart + (si + 1) * 3);
         ES::V3d v0 = x.segment<3>(positionDOFStart + si * 3);
@@ -187,8 +186,7 @@ void SegmentBinormalConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd 
         g[si * 2] = d0.dot(d0) - 1;
         g[si * 2 + 1] = d0.dot(v1 - v0);
       }
-    },
-    tbb::static_partitioner());
+    });
 }
 
 // d C_i0 / d dir= 2 * dir
@@ -197,8 +195,9 @@ void SegmentBinormalConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd 
 // d C_i1 / d dir= x1 - x0
 void SegmentBinormalConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac) const
 {
-  tbb::parallel_for(
-    0, nSeg, [&](int si) {
+  pgo::parallel::parallelFor(
+    0, nSeg,
+ tbb::static_partitioner{}, [&](int si) {
       if (restPositions.size() == 0) {
         ES::V3d v1 = x.segment<3>(positionDOFStart + (si + 1) * 3);
         ES::V3d v0 = x.segment<3>(positionDOFStart + si * 3);
@@ -237,16 +236,16 @@ void SegmentBinormalConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMat
           jac.valuePtr()[jacobianIndices[si][2] + dof] = ddir[dof];
         }
       }
-    },
-    tbb::static_partitioner());
+    });
 }
 
 void SegmentBinormalConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-  tbb::parallel_for(
-    0, nSeg, [&](int si) {
+  pgo::parallel::parallelFor(
+    0, nSeg,
+ tbb::static_partitioner{}, [&](int si) {
       if (restPositions.size() == 0) {
         ES::M9d h1, h2;
         h1.setZero();
@@ -305,6 +304,5 @@ void SegmentBinormalConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES:
           }
         }
       }
-    },
-    tbb::static_partitioner());
+    });
 }

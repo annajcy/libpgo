@@ -9,16 +9,73 @@
 #include <vector>
 
 #include <tbb/task_arena.h>
+#include <tbb/task_scheduler_observer.h>
 
 #ifdef __linux__
-#include <dirent.h>
+#  include <dirent.h>
 #endif
 
 #ifdef __APPLE__
-#include <mach/mach.h>
+#  include <mach/mach.h>
 #endif
 
-namespace pgo::benchmark_helpers {
+namespace pgo::benchmark_helpers
+{
+
+inline void updateMaximum(std::atomic<int> &target, int value) noexcept
+{
+  int observed = target.load(std::memory_order_relaxed);
+  while (value > observed &&
+    !target.compare_exchange_weak(observed, value, std::memory_order_relaxed)) {
+  }
+}
+
+class CurrentArenaThreadObserver final
+{
+public:
+  CurrentArenaThreadObserver():
+    arena_(tbb::attach{}), observer_(arena_, current_, peak_)
+  {
+    observer_.observe(true);
+  }
+
+  ~CurrentArenaThreadObserver()
+  {
+    observer_.observe(false);
+  }
+
+  int peak() const noexcept { return peak_.load(std::memory_order_relaxed); }
+
+private:
+  class Observer final : public tbb::task_scheduler_observer
+  {
+  public:
+    Observer(tbb::task_arena &arena, std::atomic<int> &current, std::atomic<int> &peak):
+      tbb::task_scheduler_observer(arena), current_(current), peak_(peak)
+    {
+    }
+
+  private:
+    void on_scheduler_entry(bool) override
+    {
+      const int current = current_.fetch_add(1, std::memory_order_relaxed) + 1;
+      updateMaximum(peak_, current);
+    }
+
+    void on_scheduler_exit(bool) override
+    {
+      current_.fetch_sub(1, std::memory_order_relaxed);
+    }
+
+    std::atomic<int> &current_;
+    std::atomic<int> &peak_;
+  };
+
+  tbb::task_arena arena_;
+  std::atomic<int> current_{ 0 };
+  std::atomic<int> peak_{ 0 };
+  Observer observer_;
+};
 
 inline int currentProcessThreadCount()
 {

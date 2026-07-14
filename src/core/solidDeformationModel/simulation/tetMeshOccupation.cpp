@@ -4,13 +4,13 @@ copyright to USC,MIT,NUS
 */
 
 #include "simulation/tetMeshOccupation.h"
+#include "parallel/parallelFor.h"
 
 #include "windingNumberTree.h"
 #include "pgoLogging.h"
 #include "triMeshPseudoNormal.h"
 #include "boundingVolumeTree.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/enumerable_thread_specific.h>
 #include <tbb/cache_aligned_allocator.h>
 
@@ -39,7 +39,7 @@ void pgo::SolidDeformationModel::computeTetMeshOccupation(int numTetVertices, co
 
   SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "#tets: {}", numTets);
 
-  tbb::parallel_for(0, numTets, [&](int ei) {
+  pgo::parallel::parallelFor(0, numTets, [&](int ei) {
     int insideCounter = 0;
     for (int si = 0; si < sampleCount; si++) {
       double w[4];
@@ -117,7 +117,7 @@ void pgo::SolidDeformationModel::computeTetMeshOccupation(int numTetVertices, co
   Mesh::BoundingBox bb(bbIn[0], bbIn[1]);
   SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "#tets: {}", numTets);
 
-  tbb::parallel_for(0, numTets, [&](int ei) {
+  pgo::parallel::parallelFor(0, numTets, [&](int ei) {
     int insideCounter = 0;
     for (int si = 0; si < sampleCount; si++) {
       double w[4];

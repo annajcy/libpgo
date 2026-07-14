@@ -4,12 +4,12 @@ copyright to USC,MIT,NUS
 */
 
 #include "simulation/generateTetMeshMatrix.h"
+#include "parallel/parallelFor.h"
 
 #include "tetMeshGeo.h"
 #include "pgoLogging.h"
 #include "geometryQuery.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/concurrent_vector.h>
 #include <tbb/enumerable_thread_specific.h>
 #include <tbb/cache_aligned_allocator.h>
@@ -80,8 +80,9 @@ void TetMeshMatrix::generateGradientMatrix(const Mesh::TetMeshRef &tetMesh, ES::
   tbb::concurrent_vector<ES::TripletD> entries;
 
   // for (int tetID = 0; tetID < tetMesh.getNumElements(); tetID++) {
-  tbb::parallel_for(
-    0, tetMesh.numTets(), [&](int tetID) {
+  pgo::parallel::parallelFor(
+    0, tetMesh.numTets(),
+ tbb::static_partitioner{}, [&](int tetID) {
       // auto &entriesBuf = entriesTLS.local();
 
       double m[12];
@@ -100,8 +101,7 @@ void TetMeshMatrix::generateGradientMatrix(const Mesh::TetMeshRef &tetMesh, ES::
             entries.emplace_back(row, column, entry);
           }
         }
-    },
-    tbb::static_partitioner());
+    });
 
   // for (auto it = entriesTLS.begin(); it != entriesTLS.end(); ++it) {
   //   entries.insert(entries.end(), it->begin(), it->end());
@@ -126,19 +126,19 @@ void TetMeshMatrix::generateBasicElementLaplacianMatrix(const Mesh::TetMeshRef &
     }
   }
 
-  tbb::parallel_for((size_t)0, vertexNeighbors.size(), [&](size_t vi) {
+  pgo::parallel::parallelFor((size_t)0, vertexNeighbors.size(),
+ tbb::static_partitioner{}, [&](size_t vi) {
     std::sort(vertexNeighbors[vi].begin(), vertexNeighbors[vi].end());
     auto itt = std::unique(vertexNeighbors[vi].begin(), vertexNeighbors[vi].end());
     vertexNeighbors[vi].erase(itt, vertexNeighbors[vi].end());
-  },
-    tbb::static_partitioner());
+  });
 
   // build elements that neighbor each element, and assemble L
   tbb::enumerable_thread_specific<std::vector<int, tbb::cache_aligned_allocator<int>>> elementNeighborsTLS;
   tbb::concurrent_vector<ES::TripletD> entries;
 
   // for (int el = 0; el < numElements; el++)
-  tbb::parallel_for(
+  pgo::parallel::parallelFor(
     0, numElements, [&](int el) {
       auto &elementNeighbors = elementNeighborsTLS.local();
 

@@ -20,7 +20,7 @@ copyright to USC, MIT, NUS
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 #include <fmt/format.h>
 
@@ -252,7 +252,7 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
 
   // Per-element FEM creation (all elements in parallel).
   pgo::parallel::parallelFor(
-    0, nele, pgo::parallel::Options{}, [&](int ele) {
+    0, nele, [&](int ele) {
       const double *fiberDir = nullptr;
       if (data->fiberAxesRest.size() > 0) {
         fiberDir = data->fiberAxesRest.block<3, 3>(0, ele * 3).row(0).data();
@@ -298,7 +298,7 @@ void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
 {
   data->globalRotation = Eigen::Map<const ES::M3d>(R);
   auto rotateAxes = [this](ES::M3Xd &axes, const ES::M3Xd &axesRest) {
-    pgo::parallel::parallelFor(0, (int)axes.cols() / 3, pgo::parallel::Options{}, [&](int i) {
+    pgo::parallel::parallelFor(0, (int)axes.cols() / 3, [&](int i) {
       axes.block<3, 3>(0, i * 3) = axesRest.block<3, 3>(0, i * 3) * data->globalRotation.transpose();
     });
   };
@@ -307,7 +307,7 @@ void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
 
   if (!data->elementFEMs.empty() && data->fiberAxes.cols() > 0) {
     pgo::parallel::parallelFor(
-      0, data->nele, pgo::parallel::Options{}, [this](int ele) {
+      0, data->nele, [this](int ele) {
         data->elementFEMs[ele]->setPlasticFiberAxes(data->fiberAxes.data() + ele * 9);
       });
   }

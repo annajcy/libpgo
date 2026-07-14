@@ -7,7 +7,7 @@ copyright to USC,MIT,NUS
 
 #include "energy/potentialEnergy.h"
 
-#include <tbb/task_arena.h>
+#include <tbb/enumerable_thread_specific.h>
 
 #include <memory>
 #include <vector>
@@ -47,8 +47,8 @@ protected:
   std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
   std::vector<int> allDOFs;
   std::unique_ptr<EigenSupport::VXd> restPosition;
-  mutable std::vector<EigenSupport::VXd> absolutePositionScratch_;
-  mutable std::vector<EigenSupport::VXd> directionScratch_;
+  mutable tbb::enumerable_thread_specific<EigenSupport::VXd> absolutePositionScratch_;
+  mutable tbb::enumerable_thread_specific<EigenSupport::VXd> directionScratch_;
   bool enableMaterialMaxStep_ = true;
 
 private:

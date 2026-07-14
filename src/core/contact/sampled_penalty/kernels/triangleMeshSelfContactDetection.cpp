@@ -4,13 +4,13 @@ copyright to USC
 */
 
 #include "sampled_penalty/kernels/triangleMeshSelfContactDetection.h"
+#include "parallel/parallelFor.h"
+#include "parallel/parallelSort.h"
 
-#include <tbb/parallel_for.h>
-#include <tbb/parallel_sort.h>
-
-#include <vector>
+#include <algorithm>
 #include <cmath>
 #include <cfloat>
+#include <vector>
 
 using namespace pgo;
 using namespace pgo::Contact;
@@ -81,7 +81,7 @@ void TriangleMeshSelfContactDetection::execute(const double *positions0, const d
     }    // end single thread
     else {
       size_t count = (lastFrontier->size() + parallel_threshold - 1) / parallel_threshold;
-      tbb::parallel_for((size_t)0, count, [&](size_t ci) {
+      pgo::parallel::parallelFor((size_t)0, count, [&](size_t ci) {
         size_t start = ci * parallel_threshold;
         size_t end = std::min(start + parallel_threshold, lastFrontier->size());
         for (size_t ni = start; ni < end; ni++)
@@ -106,26 +106,18 @@ void TriangleMeshSelfContactDetection::execute(const double *positions0, const d
   }
 
   // address triangle pair ccd
-  tbb::parallel_for((size_t)0, potentialCollidingTrianglePairs.size(), [&](size_t ti) {
-    if (potentialCollidingTrianglePairs[ti].first > potentialCollidingTrianglePairs[ti].second)
-      std::swap(potentialCollidingTrianglePairs[ti].first, potentialCollidingTrianglePairs[ti].second);
-  },
-    tbb::static_partitioner());
+  pgo::parallel::parallelFor((size_t)0, potentialCollidingTrianglePairs.size(),
+    tbb::static_partitioner{},
+    [&](size_t ti) {
+      if (potentialCollidingTrianglePairs[ti].first > potentialCollidingTrianglePairs[ti].second)
+        std::swap(potentialCollidingTrianglePairs[ti].first, potentialCollidingTrianglePairs[ti].second);
+    });
 
-  auto cmpFunc = [](const std::pair<int, int> &pa, const std::pair<int, int> &pb) -> bool {
-    return std::less<std::pair<int, int>>()(pa, pb);
-  };
+  pgo::parallel::parallelSort(
+    potentialCollidingTrianglePairs.begin(), potentialCollidingTrianglePairs.end());
 
-  auto equalFunc = [](const std::pair<int, int> &pa, const std::pair<int, int> &pb) -> bool {
-    return std::equal_to<std::pair<int, int>>()(pa, pb);
-  };
-
-  if (potentialCollidingTrianglePairs.size() > 1e5)
-    tbb::parallel_sort(potentialCollidingTrianglePairs.begin(), potentialCollidingTrianglePairs.end(), cmpFunc);
-  else
-    std::sort(potentialCollidingTrianglePairs.begin(), potentialCollidingTrianglePairs.end(), cmpFunc);
-
-  auto cdTriIt = std::unique(potentialCollidingTrianglePairs.begin(), potentialCollidingTrianglePairs.end(), equalFunc);
+  auto cdTriIt =
+    std::unique(potentialCollidingTrianglePairs.begin(), potentialCollidingTrianglePairs.end());
   potentialCollidingTrianglePairs.erase(cdTriIt, potentialCollidingTrianglePairs.end());
 
   // std::cout << potentialCollidingTrianglePairs.size() << std::endl;

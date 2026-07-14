@@ -25,13 +25,12 @@
 #include "basicAlgorithms.h"
 #include "EigenSupport.h"
 #include "meshLinearAlgebra.h"
+#include "parallel/parallelFor.h"
 
 #include <cfloat>
 #include <climits>
 #include <memory>
 #include <cstring>
-
-#include <tbb/parallel_for.h>
 
 using namespace pgo;
 using namespace pgo::InterpolationCoordinates;
@@ -49,10 +48,12 @@ MeanValueCoordinates::MeanValueCoordinates(int numLocations_, const double *loca
   double epsilon = 1e-10;
   weights.resize(numCageVertices_ * numLocations_);
 
-  tbb::parallel_for(tbb::blocked_range<int>(0, numLocations), [&](const tbb::blocked_range<int> &rng) {
+  pgo::parallel::parallelForChunks(0, numLocations,
+    tbb::static_partitioner{},
+    [&](int rngBegin, int rngEnd) {
     std::vector<ES::V3d> u(numCageVertices);
     std::vector<double> d(numCageVertices);
-    for (int i = rng.begin(); i != rng.end(); ++i) {
+    for (int i = rngBegin; i != rngEnd; ++i) {
       bool lieInTriangle = false;
       ES::V3d x = asVec3d(locations_ + 3 * i);
       bool closeToVertex = false;
@@ -133,20 +134,22 @@ MeanValueCoordinates::MeanValueCoordinates(int numLocations_, const double *loca
       for (int j = 0; j < numCageVertices; j++) {
         weights[i * numCageVertices + j] /= W;
       }
-    } }, tbb::static_partitioner());  // end for locations
+    } });  // end for locations
 }
 
 void MeanValueCoordinates::deform(const double *cageDisp, double *locationDisp) const
 {
   memset(locationDisp, 0, sizeof(double) * 3 * numLocations);
 
-  tbb::parallel_for(tbb::blocked_range<int>(0, numLocations), [&](const tbb::blocked_range<int> &rng) {
-    for (int i = rng.begin(); i != rng.end(); ++i) {
+  pgo::parallel::parallelForChunks(0, numLocations,
+    tbb::static_partitioner{},
+    [&](int rngBegin, int rngEnd) {
+    for (int i = rngBegin; i != rngEnd; ++i) {
       double *l = locationDisp + 3 * i;
       for (int j = 0; j < numCageVertices; j++) {
         double w = weights[i * numCageVertices + j];
         for (int k = 0; k < 3; k++)
           l[k] += w * cageDisp[3 * j + k];
       }
-    } }, tbb::static_partitioner());
+    } });
 }

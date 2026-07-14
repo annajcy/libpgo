@@ -4,12 +4,10 @@ copyright to USC,MIT,NUS
 */
 
 #include "constraints/segmentChainConstraintFunctions.h"
+#include "parallel/parallelFor.h"
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
-
-#include <tbb/parallel_for.h>
-#include <tbb/partitioner.h>
 
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
@@ -105,21 +103,22 @@ SegmentChainConstraintFunctions::~SegmentChainConstraintFunctions()
 // C_i = (x1 - x0)^2 - l^2
 void SegmentChainConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) const
 {
-  tbb::parallel_for(
-    0, nele, [&](int ei) {
+  pgo::parallel::parallelFor(
+    0, nele,
+ tbb::static_partitioner{}, [&](int ei) {
       ES::V3d v1 = x.segment<3>((ei + 1) % n * 3);
       ES::V3d v0 = x.segment<3>(ei * 3);
       g[ei] = (v1 - v0).squaredNorm() - restLengths[ei] * restLengths[ei];
-    },
-    tbb::static_partitioner());
+    });
 }
 
 // d C_i = (x1 - x0)d(x1 - x0)
 // be careful about the order
 void SegmentChainConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac) const
 {
-  tbb::parallel_for(
-    0, nele, [&](int ei) {
+  pgo::parallel::parallelFor(
+    0, nele,
+ tbb::static_partitioner{}, [&](int ei) {
       ES::V3d v1 = x.segment<3>((ei + 1) % n * 3);
       ES::V3d v0 = x.segment<3>(ei * 3);
       ES::V3d diff = v1 - v0;
@@ -128,8 +127,7 @@ void SegmentChainConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &
         jac.valuePtr()[jacobianIndices[ei][0] + dof] = -diff[dof];  // x0
         jac.valuePtr()[jacobianIndices[ei][1] + dof] = diff[dof];   // x1
       }
-    },
-    tbb::static_partitioner());
+    });
 }
 
 // d^2 C_i = d(x1 - x0)d(x1 - x0)
@@ -137,8 +135,9 @@ void SegmentChainConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::Co
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-  tbb::parallel_for(
-    0, nele, [&](int ei) {
+  pgo::parallel::parallelFor(
+    0, nele,
+ tbb::static_partitioner{}, [&](int ei) {
       Eigen::Matrix<double, 6, 6> h;
       h.block<3, 3>(0, 0) = ES::M3d::Identity();   // d^2 C_i / dx0^2
       h.block<3, 3>(3, 3) = ES::M3d::Identity();   // d^2 C_i / dx1^2
@@ -166,6 +165,5 @@ void SegmentChainConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::Co
           }
         }
       }
-    },
-    tbb::static_partitioner());
+    });
 }

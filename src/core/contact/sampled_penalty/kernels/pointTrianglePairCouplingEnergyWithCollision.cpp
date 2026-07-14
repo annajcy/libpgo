@@ -9,7 +9,7 @@
 #include "triMeshPseudoNormal.h"
 #include "EigenSupport.h"
 #include "automaticDifferentiation_autodiff.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
 #include <tbb/cache_aligned_allocator.h>
 #include <tbb/enumerable_thread_specific.h>
@@ -91,7 +91,6 @@ PointTrianglePairCouplingEnergyWithCollision::PointTrianglePairCouplingEnergyWit
 
   // for (int pi = 0; pi < numPairs; pi++) {
   pgo::parallel::parallelFor(0, numPairs,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int pi) {
 #if 0
     auto &localBuf = entriesTLS.local();
@@ -458,10 +457,8 @@ double PointTrianglePairCouplingEnergyWithCollision::func(ES::ConstRefVecXd x) c
     *it = 0;
 
   pgo::parallel::parallelFor(0, numObjects,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int mi) {
       pgo::parallel::parallelFor(0, buf->surfaceMeshesRuntime[mi].numVertices(),
-        pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
         [&](int vi) {
           int sampleID = vertexIDToSampleIDs[mi][vi];
           ES::V3d p = computePosition(x, mi, sampleID);
@@ -553,7 +550,6 @@ double PointTrianglePairCouplingEnergyWithCollision::func(ES::ConstRefVecXd x) c
 
   // for (int pi = 0; pi < numPairs; pi++) {
   pgo::parallel::parallelFor(0, numPairs,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int pi) {
       localEnergy(pi);
     });
@@ -579,10 +575,8 @@ void PointTrianglePairCouplingEnergyWithCollision::gradient(ES::ConstRefVecXd x,
   ff.setZero(grad.size());
 
   pgo::parallel::parallelFor(0, numObjects,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int mi) {
       pgo::parallel::parallelFor(0, buf->surfaceMeshesRuntime[mi].numVertices(),
-        pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
         [&](int vi) {
           int sampleID = vertexIDToSampleIDs[mi][vi];
           ES::V3d p = computePosition(x, mi, sampleID);
@@ -668,7 +662,6 @@ void PointTrianglePairCouplingEnergyWithCollision::gradient(ES::ConstRefVecXd x,
   };
 
   pgo::parallel::parallelFor(0, numPairs,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int pi) {
       // for (int pi = 0; pi < numPairs; pi++) {
       localGradFunc(pi);
@@ -771,7 +764,6 @@ void PointTrianglePairCouplingEnergyWithCollision::hessianInPlace(ES::ConstRefVe
 
   // for (int pi = 0; pi < numPairs; pi++) {
   pgo::parallel::parallelFor(0, numPairs,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int pi) {
       localHessian(pi);
     });
@@ -872,7 +864,6 @@ void PointTrianglePairCouplingEnergyWithCollision::computeClosestPosition(const 
 
   // for (int pi = 0; pi < numPairs; pi++) {
   pgo::parallel::parallelFor(0, numPairs,
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int pi) {
       ES::V12d xlocal;
       bool inContact = true;

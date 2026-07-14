@@ -3,11 +3,11 @@ author: Minghao Guo
 */
 
 #include "centerOfMassMatchingEnergy.h"
+#include "parallel/parallelFor.h"
 
 #include <autodiff/reverse/var/eigen.hpp>
 #include <autodiff/reverse/var.hpp>
 
-#include <tbb/parallel_for.h>
 #include <tbb/combinable.h>
 
 #include <numeric>
@@ -96,8 +96,8 @@ double CenterOfMassMatchingEnergy::func(EigenSupport::ConstRefVecXd x) const
   tbb::combinable<ES::V3d> combNumerator([]() { return ES::V3d::Zero(); });
   tbb::combinable<double> combDenominator([]() { return 0.0; });
 
-  tbb::parallel_for(tbb::blocked_range<int>(0, m_tet.rows()), [&](const tbb::blocked_range<int> &range) {
-    for (int ele = range.begin(); ele < range.end(); ++ele) {
+  pgo::parallel::parallelForChunks(0, static_cast<int>(m_tet.rows()), [&](int rangeBegin, int rangeEnd) {
+    for (int ele = rangeBegin; ele < rangeEnd; ++ele) {
       ES::V3d a = x.segment<3>(m_tet(ele, 0) * 3);
       ES::V3d b = x.segment<3>(m_tet(ele, 1) * 3);
       ES::V3d c = x.segment<3>(m_tet(ele, 2) * 3);
@@ -132,8 +132,8 @@ void CenterOfMassMatchingEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSu
   tbb::combinable<ES::MXd> combDNdxAll([&]() { return ES::MXd::Zero(3, x.size()); });
   tbb::combinable<ES::VXd> combDDdxAll([&]() { return ES::VXd::Zero(x.size()); });
 
-  tbb::parallel_for(tbb::blocked_range<int>(0, m_tet.rows()), [&](const tbb::blocked_range<int> &range) {
-    for (int ele = range.begin(); ele < range.end(); ++ele) {
+  pgo::parallel::parallelForChunks(0, static_cast<int>(m_tet.rows()), [&](int rangeBegin, int rangeEnd) {
+    for (int ele = rangeBegin; ele < rangeEnd; ++ele) {
       ES::V3d a = x.segment<3>(m_tet(ele, 0) * 3);
       ES::V3d b = x.segment<3>(m_tet(ele, 1) * 3);
       ES::V3d c = x.segment<3>(m_tet(ele, 2) * 3);
@@ -257,8 +257,8 @@ void CenterOfMassMatchingEnergy::compute_com_and_energy_and_grad(ES::ConstRefVec
     tbb::combinable<ES::MXd> combDNdxAll([&]() { return ES::MXd::Zero(3, x.size()); });
     tbb::combinable<ES::VXd> combDDdxAll([&]() { return ES::VXd::Zero(x.size()); });
 
-    tbb::parallel_for(tbb::blocked_range<int>(0, m_tet.rows()), [&](const tbb::blocked_range<int> &range) {
-      for (int ele = range.begin(); ele < range.end(); ++ele) {
+    pgo::parallel::parallelForChunks(0, static_cast<int>(m_tet.rows()), [&](int rangeBegin, int rangeEnd) {
+      for (int ele = rangeBegin; ele < rangeEnd; ++ele) {
         ES::V3d a = x.segment<3>(m_tet(ele, 0) * 3);
         ES::V3d b = x.segment<3>(m_tet(ele, 1) * 3);
         ES::V3d c = x.segment<3>(m_tet(ele, 2) * 3);

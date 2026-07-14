@@ -9,7 +9,6 @@ copyright to USC
 #include "boundingVolumeTree.h"
 #include "triMeshNeighbor.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/enumerable_thread_specific.h>
 
 #include <vector>

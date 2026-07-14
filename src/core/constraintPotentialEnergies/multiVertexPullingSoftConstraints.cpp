@@ -6,9 +6,9 @@ copyright to USC, MIT
 #include "multiVertexPullingSoftConstraints.h"
 
 #include "pgoLogging.h"
+#include "parallel/parallelFor.h"
+#include "parallel/parallelReduce.h"
 
-#include <tbb/parallel_for.h>
-#include <tbb/parallel_reduce.h>
 
 #include <iostream>
 
@@ -69,9 +69,9 @@ double MultipleVertexPulling::func(ES::ConstRefVecXd u) const
     return diff.dot(diff) * 0.5 * coeffs_[i];
   };
 
-  double eng = tbb::parallel_reduce(tbb::blocked_range<size_t>(0, vertexIndices_.size()), 0.0,  //
-    [&](const tbb::blocked_range<size_t> &r, double init) -> double {
-      for (size_t i = r.begin(); i != r.end(); ++i) {
+  double eng = pgo::parallel::parallelReduce(size_t{ 0 }, vertexIndices_.size(), 0.0,  //
+    [&](size_t rangeBegin, size_t rangeEnd, double init) -> double {
+      for (size_t i = rangeBegin; i != rangeEnd; ++i) {
         init += computeEnergyForVertex(i);
       }
       return init; }, std::plus<double>());
@@ -101,9 +101,9 @@ void MultipleVertexPulling::gradient(ES::ConstRefVecXd u, ES::RefVecXd grad) con
     grad.segment<3>(vtx * 3) *= coeffs_[i];
   };
 
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexIndices_.size()),
-    [&](const tbb::blocked_range<size_t> &r) {
-      for (size_t i = r.begin(); i != r.end(); ++i) {
+  pgo::parallel::parallelForChunks(size_t{ 0 }, vertexIndices_.size(),
+    [&](size_t rangeBegin, size_t rangeEnd) {
+      for (size_t i = rangeBegin; i != rangeEnd; ++i) {
         computeGradientForVertex(i);
       }
     });
@@ -123,9 +123,9 @@ void MultipleVertexPulling::hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) 
     }
   };
 
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, vertexIndices_.size()),
-    [&](const tbb::blocked_range<size_t> &r) {
-      for (size_t vi = r.begin(); vi != r.end(); ++vi) {
+  pgo::parallel::parallelForChunks(size_t{ 0 }, vertexIndices_.size(),
+    [&](size_t rangeBegin, size_t rangeEnd) {
+      for (size_t vi = rangeBegin; vi != rangeEnd; ++vi) {
         computeHessianForVertex(vi);
       }
     });

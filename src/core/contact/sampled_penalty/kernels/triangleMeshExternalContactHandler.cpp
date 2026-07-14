@@ -5,9 +5,8 @@
 #include "geometryQuery.h"
 #include "triangleSampler.h"
 #include "basicAlgorithms.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/enumerable_thread_specific.h>
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/spin_mutex.h>
@@ -75,8 +74,9 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Computing triangle area...");
 
   std::vector<double> triangleAreas(triangles.size(), 0);
-  tbb::parallel_for(
-    0, (int)triangles.size(), [&](int trii) {
+  pgo::parallel::parallelFor(
+    0, (int)triangles.size(),
+ tbb::static_partitioner{}, [&](int trii) {
       ES::V3i tri = triangles[trii];
       ES::V3d vtx[3] = {
         vertices[tri[0]],
@@ -85,8 +85,7 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
       };
 
       triangleAreas[trii] = getTriangleArea(vtx[0], vtx[1], vtx[2]);
-    },
-    tbb::static_partitioner());
+    });
 
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Sampling surface mesh...");
 
@@ -109,8 +108,9 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
   };
 
   // Sample surface
-  tbb::parallel_for(
-    0, (int)triangles.size(), [&](int trii) {
+  pgo::parallel::parallelFor(
+    0, (int)triangles.size(),
+ tbb::static_partitioner{}, [&](int trii) {
       // for (int trii = 0; trii < (int)triangles.size(); trii++) {
       ES::V3i tri = triangles[trii];
       ES::V3d vtx[3] = {
@@ -136,8 +136,7 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
           sampleInfo.triangleID = trii;
           triangleSamples[trii].push_back(sampleInfo);
         });
-    },
-    tbb::static_partitioner());
+    });
 
   // std::size_t count = 0;
   // sampleIDQueryTable.reserve(triangles.size());
@@ -153,7 +152,6 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
     // }
 
     pgo::parallel::parallelFor((int)0, (int)triangleSamples.size(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int trii) {
         count.fetch_add((int)triangleSamples[trii].size());
 
@@ -196,7 +194,6 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
 
   sampleTriangleIDs.assign(sampleIDQueryTable.size(), std::vector<int>());
   pgo::parallel::parallelFor(0, (int)triangleSamples.size(),
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int tri) {
       for (const auto &sinfo : triangleSamples[tri]) {
         int sid = sampleIDQueryTable[sinfo];
@@ -251,7 +248,6 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
 
     // for (auto it = sampleIDQueryTable.begin(); it != sampleIDQueryTable.end(); ++it) {
     pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int si) {
         int triID = sampleInfoAndIDs[si].triangleID;
 
@@ -278,7 +274,6 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
     interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
 
     pgo::parallel::parallelFor(0, (int)interpolationMatrix.rows(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int rowi) {
         double wAll = 0;
         for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
@@ -296,7 +291,6 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
 
     // for (auto it = sampleInfoAndID.begin(); it != sampleInfoAndID.end(); ++it) {
     pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int si) {
         int triID = sampleInfoAndIDs[si].triangleID;
 
@@ -434,7 +428,7 @@ void TriangleMeshExternalContactHandler::execute()
   }
 
   // for each vertices
-  tbb::parallel_for(0, (int)sampleInfoAndIDs.size(), [&](int si) {
+  pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(), [&](int si) {
     // for (int vi = 0; vi < (int)vertices.size(); vi++) {
     // for (int si = 0; si < (int)sampleInfoAndIDs.size(); si++) {
     ES::V3d srcPos = asVec3d(sampleCurP.data() + si * 3);
@@ -625,8 +619,9 @@ void TriangleMeshExternalContactHandler::setExcludedVertices(const std::vector<i
 
 void TriangleMeshExternalContactHandler::computeSamplePosition(const ES::VXd &P, ES::VXd &SP) const
 {
-  tbb::parallel_for(
-    0, (int)sampleInfoAndIDs.size(), [&](int si) {
+  pgo::parallel::parallelFor(
+    0, (int)sampleInfoAndIDs.size(),
+ tbb::static_partitioner{}, [&](int si) {
       int tri = sampleInfoAndIDs[si].triangleID;
 
       ES::V3d vtx[3] = {
@@ -639,6 +634,5 @@ void TriangleMeshExternalContactHandler::computeSamplePosition(const ES::VXd &P,
       const auto &sinfo = sampleInfoAndIDs[si];
       ES::V3d sampleP = vtx[0] * sinfo.w[0] + vtx[1] * sinfo.w[1] + vtx[2] * sinfo.w[2];
       SP.segment<3>(si * 3) = sampleP;
-    },
-    tbb::static_partitioner());
+    });
 }

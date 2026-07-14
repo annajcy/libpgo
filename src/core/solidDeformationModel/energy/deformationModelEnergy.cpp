@@ -37,10 +37,8 @@ DeformationModelEnergy::DeformationModelEnergy(std::unique_ptr<DeformationModelA
   int offset, bool enableMaterialMaxStep):
   forceModelAssembler(std::move(fma)),
   restPosition(std::make_unique<ES::VXd>(forceModelAssembler->getRestPosition())),
-  absolutePositionScratch_(std::max(1, tbb::this_task_arena::max_concurrency()),
-    ES::VXd(forceModelAssembler->getNumDOFs())),
-  directionScratch_(std::max(1, tbb::this_task_arena::max_concurrency()),
-    ES::VXd(forceModelAssembler->getNumDOFs())),
+  absolutePositionScratch_([this]() { return ES::VXd(forceModelAssembler->getNumDOFs()); }),
+  directionScratch_([this]() { return ES::VXd(forceModelAssembler->getNumDOFs()); }),
   enableMaterialMaxStep_(enableMaterialMaxStep)
 {
   allDOFs.resize(forceModelAssembler->getNumDOFs());
@@ -53,22 +51,12 @@ DeformationModelEnergy::~DeformationModelEnergy()
 
 ES::VXd &DeformationModelEnergy::absolutePositionScratch() const
 {
-  int threadIndex = tbb::this_task_arena::current_thread_index();
-  if (threadIndex < 0)
-    threadIndex = 0;
-  if (threadIndex >= static_cast<int>(absolutePositionScratch_.size()))
-    threadIndex = static_cast<int>(absolutePositionScratch_.size()) - 1;
-  return absolutePositionScratch_[threadIndex];
+  return absolutePositionScratch_.local();
 }
 
 ES::VXd &DeformationModelEnergy::directionScratch() const
 {
-  int threadIndex = tbb::this_task_arena::current_thread_index();
-  if (threadIndex < 0)
-    threadIndex = 0;
-  if (threadIndex >= static_cast<int>(directionScratch_.size()))
-    threadIndex = static_cast<int>(directionScratch_.size()) - 1;
-  return directionScratch_[threadIndex];
+  return directionScratch_.local();
 }
 
 double DeformationModelEnergy::func(EigenSupport::ConstRefVecXd x) const

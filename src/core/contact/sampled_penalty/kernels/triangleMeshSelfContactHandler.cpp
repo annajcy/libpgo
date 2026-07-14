@@ -12,9 +12,8 @@ copyright to USC
 #include "triangleSampler.h"
 #include "basicAlgorithms.h"
 #include "predicates.h"
-#include "parallelism/parallelFor.h"
+#include "parallel/parallelFor.h"
 
-#include <tbb/parallel_for.h>
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/concurrent_vector.h>
 #include <tbb/spin_mutex.h>
@@ -112,8 +111,9 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Computing triangle area...");
 
   std::vector<double> triangleAreas(triangles.size(), 0);
-  tbb::parallel_for(
-    0, (int)triangles.size(), [&](int trii) {
+  pgo::parallel::parallelFor(
+    0, (int)triangles.size(),
+ tbb::static_partitioner{}, [&](int trii) {
       Vec3i tri = triangles[trii];
       ES::V3d vtx[3] = {
         vertices[tri[0]],
@@ -122,8 +122,7 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
       };
 
       triangleAreas[trii] = getTriangleArea(vtx[0], vtx[1], vtx[2]);
-    },
-    tbb::static_partitioner());
+    });
 
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Sampling surface mesh...");
 
@@ -146,8 +145,9 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
   };
 
   // Sample surface
-  tbb::parallel_for(
-    0, (int)triangles.size(), [&](int trii) {
+  pgo::parallel::parallelFor(
+    0, (int)triangles.size(),
+ tbb::static_partitioner{}, [&](int trii) {
       ES::V3i tri = triangles[trii];
       ES::V3d vtx[3] = {
         vertices[tri[0]],
@@ -172,8 +172,7 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
           sampleInfo.triangleID = trii;
           triangleSamples[trii].push_back(sampleInfo);
         });
-    },
-    tbb::static_partitioner());
+    });
 
   // std::size_t count = 0;
   // sampleIDQueryTable.reserve(triangles.size());
@@ -182,7 +181,6 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
 
   if (subdivideTriangle > 1) {
     pgo::parallel::parallelFor((int)0, (int)triangleSamples.size(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int trii) {
         count.fetch_add((int)triangleSamples[trii].size());
 
@@ -225,7 +223,6 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
 
   sampleTriangleIDs.assign(sampleIDQueryTable.size(), std::vector<int>());
   pgo::parallel::parallelFor(0, (int)triangleSamples.size(),
-    pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
     [&](int tri) {
       for (const auto &sinfo : triangleSamples[tri]) {
         int sid = sampleIDQueryTable[sinfo];
@@ -280,7 +277,6 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
 
     // for (auto it = sampleIDQueryTable.begin(); it != sampleIDQueryTable.end(); ++it) {
     pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int si) {
         int triID = sampleInfoAndIDs[si].triangleID;
 
@@ -307,7 +303,6 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
     interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
 
     pgo::parallel::parallelFor(0, (int)interpolationMatrix.rows(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int rowi) {
         double wAll = 0;
         for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
@@ -325,7 +320,6 @@ TriangleMeshSelfContactHandler::TriangleMeshSelfContactHandler(const std::vector
 
     // for (auto it = sampleInfoAndID.begin(); it != sampleInfoAndID.end(); ++it) {
     pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int si) {
         int triID = sampleInfoAndIDs[si].triangleID;
 
@@ -395,7 +389,6 @@ void TriangleMeshSelfContactHandler::handleContactDCD(double distThreshold, int 
 
     // for (size_t ci = 0; ci < collidingTrianglePairs.size(); ci++) {
     pgo::parallel::parallelFor(0, (int)collidingTrianglePairs.size(),
-      pgo::parallel::Options{ .nestedKernelPolicy = pgo::parallel::NestedKernelPolicy::Inherit },
       [&](int ci) {
         int triA = collidingTrianglePairs[ci].triA;
         int triB = collidingTrianglePairs[ci].triB;
@@ -520,7 +513,7 @@ void TriangleMeshSelfContactHandler::handleContactDCD(double distThreshold, int 
     rd->contactedPointTrianglePairsMask.assign(rd->sampleTriDepthActive.size(), 0);
 
     std::atomic<int> counter(0);
-    tbb::parallel_for(0, (int)rd->sampleTriDepthActive.size(), [&](int si) {
+    pgo::parallel::parallelFor(0, (int)rd->sampleTriDepthActive.size(), [&](int si) {
       // for (int si = 0; si < (int)rd->sampleTriDepthActive.size(); si++) {
       int sampleIdx = std::get<0>(rd->sampleTriDepthActive[si]);
       int triIdx = std::get<1>(rd->sampleTriDepthActive[si]);
@@ -795,7 +788,8 @@ void TriangleMeshSelfContactHandler::executeCCD()
     it->clear();
 
   // for (const auto &triPair : potentialColliingTrianglePairs) {
-  tbb::parallel_for((size_t)0, potentialColliingTrianglePairsPtr->size(), [&](size_t tritriID) {
+  pgo::parallel::parallelFor((size_t)0, potentialColliingTrianglePairsPtr->size(),
+ tbb::static_partitioner{}, [&](size_t tritriID) {
     const auto &triPair = potentialColliingTrianglePairsPtr->at(tritriID);
 
     CCDKernel::TriangleCCD::CCDData ccdData;
@@ -806,8 +800,7 @@ void TriangleMeshSelfContactHandler::executeCCD()
     if (ret) {
       rd->colliingTrianglePairsTLS.local().push_back(ccdData);
     }
-  },
-    tbb::static_partitioner());
+  });
 
   if (keepPrevious == 0) {
     collidingTrianglePairs.clear();
@@ -858,7 +851,8 @@ void TriangleMeshSelfContactHandler::executeDCD()
   for (auto it = rd->colliingTrianglePairsTLS.begin(); it != rd->colliingTrianglePairsTLS.end(); ++it)
     it->clear();
 
-  tbb::parallel_for((size_t)0, potentialColliingTrianglePairsPtr->size(), [&](size_t tritriID) {
+  pgo::parallel::parallelFor((size_t)0, potentialColliingTrianglePairsPtr->size(),
+ tbb::static_partitioner{}, [&](size_t tritriID) {
     const auto &triPair = potentialColliingTrianglePairsPtr->at(tritriID);
     Vec3i triA = triangles[triPair.first];
     Vec3i triB = triangles[triPair.second];
@@ -875,8 +869,7 @@ void TriangleMeshSelfContactHandler::executeDCD()
 
       rd->colliingTrianglePairsTLS.local().push_back(ccdData);
     }
-  },
-    tbb::static_partitioner());
+  });
 
   collidingTrianglePairs.clear();
   for (auto it = rd->colliingTrianglePairsTLS.begin(); it != rd->colliingTrianglePairsTLS.end(); ++it)
@@ -914,8 +907,9 @@ void TriangleMeshSelfContactHandler::setExcludedVertices(const std::vector<int> 
 
 void TriangleMeshSelfContactHandler::computeSamplePosition(const ES::VXd &P, ES::VXd &SP) const
 {
-  tbb::parallel_for(
-    0, (int)sampleInfoAndIDs.size(), [&](int si) {
+  pgo::parallel::parallelFor(
+    0, (int)sampleInfoAndIDs.size(),
+ tbb::static_partitioner{}, [&](int si) {
       int tri = sampleInfoAndIDs[si].triangleID;
 
       ES::V3d vtx[3] = {
@@ -928,8 +922,7 @@ void TriangleMeshSelfContactHandler::computeSamplePosition(const ES::VXd &P, ES:
       const auto &sinfo = sampleInfoAndIDs[si];
       ES::V3d sampleP = vtx[0] * sinfo.w[0] + vtx[1] * sinfo.w[1] + vtx[2] * sinfo.w[2];
       SP.segment<3>(si * 3) = sampleP;
-    },
-    tbb::static_partitioner());
+    });
 }
 
 std::shared_ptr<PointTrianglePairCouplingEnergyWithCollision> TriangleMeshSelfContactHandler::buildContactEnergy(int checkingNeighboringContact, int changingTriangle)

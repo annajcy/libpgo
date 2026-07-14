@@ -31,7 +31,7 @@ def test_implicit_api_demo_uses_vis_helpers_and_parallel_controls():
     assert "from pypgo import implicit" in source
     assert "from pypgo.mesh import visualize as vis" in source
     assert source.count("vis.plot_surface") >= 5
-    assert "pgo.parallel.default_concurrency" in source
+    assert "effective_concurrency = pgo.parallel.initialize(max_concurrency=4)" in source
     assert "pgo.parallel.initialize(max_concurrency=4)" in source
 
 

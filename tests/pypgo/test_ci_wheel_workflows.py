@@ -67,7 +67,7 @@ def test_linux_wheel_uses_mkl_and_allows_openmp_runtime():
     assert "-X faulthandler" in workflow
 
 
-def test_macos_wheel_uses_accelerate_and_allows_openmp_runtime():
+def test_macos_numpy_uses_accelerate_but_native_extension_does_not():
     workflow = read_workflow("macos-ci.yml")
 
     assert '"libblas=*=*accelerate" "liblapack=*=*accelerate"' in workflow
@@ -77,6 +77,8 @@ def test_macos_wheel_uses_accelerate_and_allows_openmp_runtime():
     assert 'python -m venv "${clean_env}"' not in workflow
     assert '"openblas"' in workflow
     assert '"libomp"' not in workflow
+    assert "otool -L" in workflow
+    assert "unexpectedly links Accelerate" in workflow
 
 
 def test_windows_wheel_uses_mkl_and_allows_openmp_runtime():
