@@ -1,5 +1,7 @@
 #include "../eigen_mkl_nested/eigen_mkl_nested_kernel.h"
 
+#include "no_blas_workload.h"
+
 #include "../parallelism_benchmark_helpers.h"
 #include "parallel/parallelControl.h"
 #include "parallel/parallelFor.h"
@@ -23,7 +25,30 @@ namespace
 namespace P = pgo::parallel;
 using pgo::benchmark_helpers::adjustedExtraThreads;
 using pgo::benchmark_helpers::NestedEigenMklWorkload;
+using pgo::benchmark_helpers::NoBlasWorkload;
 using pgo::benchmark_helpers::ThreadSampler;
+
+enum class WorkloadKind
+{
+  EigenMklGemm = 0,
+  NoBlas = 1,
+};
+
+const char *workloadName(WorkloadKind workload) noexcept
+{
+  switch (workload) {
+  case WorkloadKind::EigenMklGemm:
+    return "EigenMklGemm";
+  case WorkloadKind::NoBlas:
+    return "NoBlas";
+  }
+  return "Unknown";
+}
+
+bool usesBlas(WorkloadKind workload) noexcept
+{
+  return workload == WorkloadKind::EigenMklGemm;
+}
 
 enum class Policy
 {
@@ -163,8 +188,8 @@ void runWithMklApiSetting(Policy policy, RunTelemetry &telemetry, Fn &&fn)
     telemetry.restorationMismatches.fetch_add(1, std::memory_order_relaxed);
 }
 
-void runOuterLoop(
-  Policy policy, int outerTasks, NestedEigenMklWorkload &workload, RunTelemetry &telemetry)
+template<class Workload>
+void runOuterLoop(Policy policy, int outerTasks, Workload &workload, RunTelemetry &telemetry)
 {
   const auto body = [&](int taskIndex) {
     ActiveOuterCallback active(telemetry);
@@ -191,7 +216,8 @@ void runOuterLoop(
     std::optional<int>{ 1 }, tbb::auto_partitioner{});
 }
 
-void runBenchmark(benchmark::State &state,
+template<class Workload>
+void runWorkloadBenchmark(benchmark::State &state, WorkloadKind workloadKind,
   Policy policy, int configuredConcurrency, int outerTasks, int matrixN)
 {
   const int effectiveConcurrency = P::initialize(configuredConcurrency);
@@ -222,6 +248,8 @@ void runBenchmark(benchmark::State &state,
     2.0 * static_cast<double>(matrixN) * static_cast<double>(matrixN) *
     static_cast<double>(matrixN) * static_cast<double>(outerTasks);
   state.counters["policy"] = static_cast<int>(policy);
+  state.counters["workload"] = static_cast<int>(workloadKind);
+  state.counters["uses_blas"] = usesBlas(workloadKind) ? 1 : 0;
   state.counters["configured_concurrency"] = configuredConcurrency;
   state.counters["effective_concurrency"] = effectiveConcurrency;
   state.counters["outer_tasks"] = outerTasks;
@@ -251,6 +279,22 @@ void runBenchmark(benchmark::State &state,
     benchmark::Counter::kIsRate);
 }
 
+void runBenchmark(benchmark::State &state, WorkloadKind workloadKind,
+  Policy policy, int configuredConcurrency, int outerTasks, int matrixN)
+{
+  switch (workloadKind) {
+  case WorkloadKind::EigenMklGemm:
+    runWorkloadBenchmark<NestedEigenMklWorkload>(state, workloadKind, policy,
+      configuredConcurrency, outerTasks, matrixN);
+    return;
+  case WorkloadKind::NoBlas:
+    runWorkloadBenchmark<NoBlasWorkload>(state, workloadKind, policy,
+      configuredConcurrency, outerTasks, matrixN);
+    return;
+  }
+  state.SkipWithError("Unknown control-matrix workload.");
+}
+
 void registerBenchmarks()
 {
   constexpr Policy policies[] = {
@@ -260,21 +304,27 @@ void registerBenchmarks()
     Policy::Local1Arena1,
   };
   constexpr int concurrencyValues[] = { 4, 8 };
+  constexpr WorkloadKind workloads[] = {
+    WorkloadKind::EigenMklGemm,
+    WorkloadKind::NoBlas,
+  };
   constexpr int matrixN = 1024;
 
   for (int concurrency : concurrencyValues) {
     constexpr int taskMultipliers[] = { 1, 4 };
     for (int taskMultiplier : taskMultipliers) {
       const int outerTasks = concurrency * taskMultiplier;
-      for (Policy policy : policies) {
-        const std::string name = std::string("EigenMklControlMatrix/") +
-          policyName(policy) + "/c_" + std::to_string(concurrency) +
-          "/tasks_" + std::to_string(outerTasks) + "/n_" +
-          std::to_string(matrixN);
-        benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
-          runBenchmark(state, policy, concurrency, outerTasks, matrixN);
-        })->UseRealTime()
-          ->Unit(benchmark::kMillisecond);
+      for (WorkloadKind workload : workloads) {
+        for (Policy policy : policies) {
+          const std::string name = std::string("EigenMklControlMatrix/") +
+            workloadName(workload) + "/" + policyName(policy) + "/c_" +
+            std::to_string(concurrency) + "/tasks_" +
+            std::to_string(outerTasks) + "/n_" + std::to_string(matrixN);
+          benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
+            runBenchmark(state, workload, policy, concurrency, outerTasks, matrixN);
+          })->UseRealTime()
+            ->Unit(benchmark::kMillisecond);
+        }
       }
     }
   }

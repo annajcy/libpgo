@@ -23,6 +23,7 @@ POLICIES = (
     "DefaultArena1",
     "Local1Arena1",
 )
+WORKLOADS = ("EigenMklGemm", "NoBlas")
 POLICY_FACTORS = {
     "DefaultArenaGlobal": (0, 0),
     "Local1ArenaGlobal": (1, 0),
@@ -32,6 +33,7 @@ POLICY_FACTORS = {
 TIME_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 CASE_PATTERN = re.compile(
     r"^EigenMklControlMatrix/"
+    r"(EigenMklGemm|NoBlas)/"
     r"(DefaultArenaGlobal|Local1ArenaGlobal|DefaultArena1|Local1Arena1)"
     r"/c_(\d+)/tasks_(\d+)/n_(\d+)(?:/real_time)?$"
 )
@@ -48,6 +50,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bootstrap-samples", type=int, default=2000)
     parser.add_argument("--checksum-relative-tolerance", type=float, default=1e-10)
     parser.add_argument("--case-limit", type=int, default=0)
+    parser.add_argument(
+        "--probe",
+        type=Path,
+        help="Untimed MKL_VERBOSE probe executable (default: sibling probe target).",
+    )
+    parser.add_argument("--skip-mkl-verbose-probe", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -107,16 +115,16 @@ def verify_linkage(executable: Path) -> dict[str, str]:
 
 def discover_cases(
     executable: Path, environment: dict[str, str]
-) -> dict[tuple[int, int, int], dict[str, str]]:
+) -> dict[tuple[str, int, int, int], dict[str, str]]:
     output = checked_output([str(executable), "--benchmark_list_tests"], environment)
-    discovered: dict[tuple[int, int, int], dict[str, str]] = {}
+    discovered: dict[tuple[str, int, int, int], dict[str, str]] = {}
     for line in output.splitlines():
         name = line.strip()
         match = CASE_PATTERN.fullmatch(name)
         if not match:
             continue
-        policy, concurrency, outer_tasks, matrix_n = match.groups()
-        key = (int(concurrency), int(outer_tasks), int(matrix_n))
+        workload, policy, concurrency, outer_tasks, matrix_n = match.groups()
+        key = (workload, int(concurrency), int(outer_tasks), int(matrix_n))
         discovered.setdefault(key, {})[policy] = name
 
     return {
@@ -175,11 +183,11 @@ def integer_counter(row: dict[str, Any], name: str) -> int:
 
 
 def validate_block(
-    key: tuple[int, int, int],
+    key: tuple[str, int, int, int],
     measurements: dict[str, dict[str, Any]],
     checksum_relative_tolerance: float,
 ) -> None:
-    concurrency, outer_tasks, matrix_n = key
+    workload, concurrency, outer_tasks, matrix_n = key
     checksums = [
         float(measurements[policy].get("checksum", math.nan)) for policy in POLICIES
     ]
@@ -201,6 +209,8 @@ def validate_block(
         expected_calls = int(row["iterations"]) * outer_tasks
         expected_inner_concurrency = 1 if expected_arena_one else concurrency
         expected = {
+            "workload": WORKLOADS.index(workload),
+            "uses_blas": 1 if workload == "EigenMklGemm" else 0,
             "configured_concurrency": concurrency,
             "effective_concurrency": concurrency,
             "outer_tasks": outer_tasks,
@@ -266,14 +276,19 @@ def ratios(measurements: dict[str, dict[str, Any]]) -> dict[str, float]:
 def summarize(
     records: list[dict[str, Any]], seed: int, bootstrap_samples: int
 ) -> list[dict[str, Any]]:
-    grouped: dict[tuple[int, int, int], list[dict[str, Any]]] = {}
+    grouped: dict[tuple[str, int, int, int], list[dict[str, Any]]] = {}
     for record in records:
-        key = (record["concurrency"], record["outer_tasks"], record["matrix_n"])
+        key = (
+            record["workload"],
+            record["concurrency"],
+            record["outer_tasks"],
+            record["matrix_n"],
+        )
         grouped.setdefault(key, []).append(record)
 
     randomizer = random.Random(seed ^ 0x2B2B)
     summary: list[dict[str, Any]] = []
-    for (concurrency, outer_tasks, matrix_n), blocks in sorted(grouped.items()):
+    for (workload, concurrency, outer_tasks, matrix_n), blocks in sorted(grouped.items()):
         ratio_names = tuple(blocks[0]["ratios"])
         ratio_values = {
             name: [float(block["ratios"][name]) for block in blocks]
@@ -281,6 +296,7 @@ def summarize(
         }
         summary.append(
             {
+                "workload": workload,
                 "concurrency": concurrency,
                 "outer_tasks": outer_tasks,
                 "matrix_n": matrix_n,
@@ -325,6 +341,52 @@ def summarize(
     return summary
 
 
+def run_mkl_verbose_probe(
+    executable: Path,
+    cases: dict[tuple[str, int, int, int], dict[str, str]],
+    environment: dict[str, str],
+) -> list[dict[str, Any]]:
+    probe_environment = environment.copy()
+    probe_environment["MKL_VERBOSE"] = "1"
+    probe_cases = sorted(
+        key for key in cases if key[0] == "EigenMklGemm" and key[1] == key[2]
+    )
+    records: list[dict[str, Any]] = []
+    for _, concurrency, outer_tasks, matrix_n in probe_cases:
+        for policy in POLICIES:
+            output = checked_output(
+                [
+                    str(executable),
+                    f"--policy={policy}",
+                    f"--concurrency={concurrency}",
+                    f"--outer-tasks={outer_tasks}",
+                    f"--matrix-n={matrix_n}",
+                ],
+                probe_environment,
+            )
+            dgemm_lines = [
+                line for line in output.splitlines() if "dgemm" in line.lower()
+            ]
+            if not dgemm_lines:
+                raise RuntimeError(
+                    f"MKL_VERBOSE probe emitted no DGEMM line for {policy}, c={concurrency}."
+                )
+            if "PGO_MKL_VERBOSE_PROBE_BEGIN" not in output or (
+                "PGO_MKL_VERBOSE_PROBE_END" not in output
+            ):
+                raise RuntimeError(f"Probe markers are missing for {policy}, c={concurrency}.")
+            records.append(
+                {
+                    "policy": policy,
+                    "concurrency": concurrency,
+                    "outer_tasks": outer_tasks,
+                    "matrix_n": matrix_n,
+                    "dgemm_lines": dgemm_lines,
+                }
+            )
+    return records
+
+
 def main() -> int:
     args = parse_args()
     if args.repetitions < 1 or args.bootstrap_samples < 1:
@@ -344,9 +406,16 @@ def main() -> int:
     if not cases:
         raise SystemExit("No complete four-policy control-matrix cases were found.")
 
+    probe: Path | None = None
+    if not args.skip_mkl_verbose_probe:
+        probe = (args.probe or executable.with_name("eigen_mkl_control_matrix_probe")).resolve()
+        if not probe.exists():
+            raise SystemExit(f"MKL_VERBOSE probe executable does not exist: {probe}")
+        verify_linkage(probe)
+
     print(f"Verified MKL-TBB linkage; matched {len(cases)} four-policy case(s).")
-    for concurrency, outer_tasks, matrix_n in cases:
-        print(f"c={concurrency} tasks={outer_tasks} n={matrix_n}")
+    for workload, concurrency, outer_tasks, matrix_n in cases:
+        print(f"{workload}: c={concurrency} tasks={outer_tasks} n={matrix_n}")
     if args.dry_run:
         return 0
 
@@ -366,10 +435,10 @@ def main() -> int:
         for block_index, (repetition, key) in enumerate(schedule, start=1):
             policies = list(POLICIES)
             randomizer.shuffle(policies)
-            concurrency, outer_tasks, matrix_n = key
+            workload, concurrency, outer_tasks, matrix_n = key
             print(
                 f"[{block_index}/{len(schedule)}] repetition={repetition} "
-                f"c={concurrency} tasks={outer_tasks} n={matrix_n} "
+                f"{workload}: c={concurrency} tasks={outer_tasks} n={matrix_n} "
                 f"order={','.join(policies)}",
                 flush=True,
             )
@@ -388,6 +457,7 @@ def main() -> int:
             records.append(
                 {
                     "repetition": repetition,
+                    "workload": workload,
                     "concurrency": concurrency,
                     "outer_tasks": outer_tasks,
                     "matrix_n": matrix_n,
@@ -397,6 +467,9 @@ def main() -> int:
                 }
             )
 
+    verbose_probe = (
+        [] if probe is None else run_mkl_verbose_probe(probe, cases, environment)
+    )
     summary = summarize(records, args.seed, args.bootstrap_samples)
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -407,6 +480,7 @@ def main() -> int:
         "warmup_time": args.warmup_time,
         "bootstrap_samples": args.bootstrap_samples,
         "thread_telemetry_source": "untimed_policy_warmup",
+        "mkl_verbose_probe": verbose_probe,
         "environment": {"MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"]},
         "diagnostic_warning": (
             "mkl_set_num_threads_local is documented as ineffective under the "
@@ -427,13 +501,13 @@ def main() -> int:
     args.out.write_text(json.dumps(payload, indent=2) + "\n")
 
     print(
-        "\nc tasks    n      A_ms      B_ms      C_ms      D_ms      B/A      C/A      D/C      D/B  interaction"
+        "\nworkload       c tasks    n      A_ms      B_ms      C_ms      D_ms      B/A      C/A      D/C      D/B  interaction"
     )
     for row in summary:
         times = row["median_wall_seconds"]
         row_ratios = row["median_ratios"]
         print(
-            f"{row['concurrency']:2d} {row['outer_tasks']:5d} {row['matrix_n']:4d}  "
+            f"{row['workload']:<12} {row['concurrency']:2d} {row['outer_tasks']:5d} {row['matrix_n']:4d}  "
             f"{times['DefaultArenaGlobal'] * 1e3:8.3f}  "
             f"{times['Local1ArenaGlobal'] * 1e3:8.3f}  "
             f"{times['DefaultArena1'] * 1e3:8.3f}  "
