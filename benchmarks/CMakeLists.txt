@@ -20,4 +20,5 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
   add_subdirectory(eigen_mkl_crossover)
   add_subdirectory(eigen_mkl_control_matrix)
   add_subdirectory(eigen_mkl_nested)
+  add_subdirectory(eigen_mkl_task_profile)
 endif()
