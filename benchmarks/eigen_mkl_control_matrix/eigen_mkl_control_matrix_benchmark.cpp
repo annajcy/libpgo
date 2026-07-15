@@ -1,6 +1,10 @@
-#include "../eigen_mkl_nested/eigen_mkl_nested_kernel.h"
+#if !defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
+#  include "../eigen_mkl_nested/eigen_mkl_nested_kernel.h"
+#endif
 
-#include "no_blas_workload.h"
+#if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
+#  include "no_blas_workload.h"
+#endif
 
 #include "../parallelism_benchmark_helpers.h"
 #include "parallel/parallelControl.h"
@@ -24,8 +28,12 @@ namespace
 
 namespace P = pgo::parallel;
 using pgo::benchmark_helpers::adjustedExtraThreads;
+#if !defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
 using pgo::benchmark_helpers::NestedEigenMklWorkload;
+#endif
+#if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
 using pgo::benchmark_helpers::NoBlasWorkload;
+#endif
 using pgo::benchmark_helpers::ThreadSampler;
 
 enum class WorkloadKind
@@ -283,14 +291,18 @@ void runBenchmark(benchmark::State &state, WorkloadKind workloadKind,
   Policy policy, int configuredConcurrency, int outerTasks, int matrixN)
 {
   switch (workloadKind) {
+#if !defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
   case WorkloadKind::EigenMklGemm:
     runWorkloadBenchmark<NestedEigenMklWorkload>(state, workloadKind, policy,
       configuredConcurrency, outerTasks, matrixN);
     return;
+#endif
+#if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
   case WorkloadKind::NoBlas:
     runWorkloadBenchmark<NoBlasWorkload>(state, workloadKind, policy,
       configuredConcurrency, outerTasks, matrixN);
     return;
+#endif
   }
   state.SkipWithError("Unknown control-matrix workload.");
 }
@@ -304,10 +316,11 @@ void registerBenchmarks()
     Policy::Local1Arena1,
   };
   constexpr int concurrencyValues[] = { 4, 8 };
-  constexpr WorkloadKind workloads[] = {
-    WorkloadKind::EigenMklGemm,
-    WorkloadKind::NoBlas,
-  };
+#if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
+  constexpr WorkloadKind workloads[] = { WorkloadKind::NoBlas };
+#else
+  constexpr WorkloadKind workloads[] = { WorkloadKind::EigenMklGemm };
+#endif
   constexpr int matrixN = 1024;
 
   for (int concurrency : concurrencyValues) {

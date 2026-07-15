@@ -1,17 +1,9 @@
 #include "no_blas_workload.h"
 
-#if defined(EIGEN_USE_MKL_ALL)
-#  undef EIGEN_USE_MKL_ALL
-#endif
-
-#if defined(EIGEN_USE_BLAS)
-#  undef EIGEN_USE_BLAS
-#endif
-
 #include <Eigen/Dense>
 
 #if defined(EIGEN_USE_MKL_ALL) || defined(EIGEN_USE_BLAS)
-#  error "The NoBlas control must compile Eigen without a BLAS backend."
+#  error "The NoBlas control target must compile Eigen without a BLAS backend."
 #endif
 
 #if !defined(EIGEN_DONT_PARALLELIZE)

@@ -42,6 +42,11 @@ CASE_PATTERN = re.compile(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("benchmark", type=Path)
+    parser.add_argument(
+        "--no-blas-benchmark",
+        type=Path,
+        help="Eigen-internal-GEMM executable (default: sibling no-BLAS target).",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--repetitions", type=int, default=10)
     parser.add_argument("--min-time", default="0.05s")
@@ -82,7 +87,7 @@ def benchmark_environment() -> dict[str, str]:
     return environment
 
 
-def verify_linkage(executable: Path) -> dict[str, str]:
+def verify_linkage(executable: Path, require_dgemm: bool) -> dict[str, str]:
     dependencies = checked_output(["ldd", str(executable)])
     undefined_symbols = checked_output(["nm", "-D", "-u", str(executable)])
     dependencies_lower = dependencies.lower()
@@ -104,7 +109,7 @@ def verify_linkage(executable: Path) -> dict[str, str]:
         )
 
     dgemm = re.compile(r"(?:^|\s)_?(?:cblas_)?dgemm_?(?:@\S+)?(?:\s|$)", re.I | re.M)
-    if not dgemm.search(undefined_symbols):
+    if require_dgemm and not dgemm.search(undefined_symbols):
         raise RuntimeError("Benchmark does not expose a dynamic DGEMM reference.")
 
     return {
@@ -114,7 +119,7 @@ def verify_linkage(executable: Path) -> dict[str, str]:
 
 
 def discover_cases(
-    executable: Path, environment: dict[str, str]
+    executable: Path, environment: dict[str, str], expected_workload: str
 ) -> dict[tuple[str, int, int, int], dict[str, str]]:
     output = checked_output([str(executable), "--benchmark_list_tests"], environment)
     discovered: dict[tuple[str, int, int, int], dict[str, str]] = {}
@@ -127,11 +132,17 @@ def discover_cases(
         key = (workload, int(concurrency), int(outer_tasks), int(matrix_n))
         discovered.setdefault(key, {})[policy] = name
 
-    return {
+    complete = {
         key: cases
         for key, cases in sorted(discovered.items())
         if set(cases) == set(POLICIES)
     }
+    invalid = [key for key in complete if key[0] != expected_workload]
+    if invalid:
+        raise RuntimeError(
+            f"{executable} exposed unexpected control-matrix workload(s): {invalid}."
+        )
+    return complete
 
 
 def exact_filter(name: str) -> str:
@@ -397,10 +408,24 @@ def main() -> int:
     executable = args.benchmark.resolve()
     if not executable.exists():
         raise SystemExit(f"Benchmark executable does not exist: {executable}")
+    no_blas_executable = (
+        args.no_blas_benchmark
+        or executable.with_name("eigen_mkl_control_matrix_no_blas_benchmark")
+    ).resolve()
+    if not no_blas_executable.exists():
+        raise SystemExit(
+            f"No-BLAS benchmark executable does not exist: {no_blas_executable}"
+        )
 
     environment = benchmark_environment()
-    linkage = verify_linkage(executable)
-    cases = discover_cases(executable, environment)
+    linkage = {
+        "eigen_mkl_gemm": verify_linkage(executable, require_dgemm=True),
+        "eigen_internal_gemm": verify_linkage(
+            no_blas_executable, require_dgemm=False
+        ),
+    }
+    cases = discover_cases(executable, environment, "EigenMklGemm")
+    cases.update(discover_cases(no_blas_executable, environment, "NoBlas"))
     if args.case_limit:
         cases = dict(list(cases.items())[: args.case_limit])
     if not cases:
@@ -411,7 +436,7 @@ def main() -> int:
         probe = (args.probe or executable.with_name("eigen_mkl_control_matrix_probe")).resolve()
         if not probe.exists():
             raise SystemExit(f"MKL_VERBOSE probe executable does not exist: {probe}")
-        verify_linkage(probe)
+        verify_linkage(probe, require_dgemm=True)
 
     print(f"Verified MKL-TBB linkage; matched {len(cases)} four-policy case(s).")
     for workload, concurrency, outer_tasks, matrix_n in cases:
@@ -445,7 +470,7 @@ def main() -> int:
             measurements: dict[str, dict[str, Any]] = {}
             for policy in policies:
                 measurements[policy] = run_one(
-                    executable,
+                    executable if workload == "EigenMklGemm" else no_blas_executable,
                     cases[key][policy],
                     temporary / f"{block_index}-{policy}.json",
                     args.min_time,
@@ -474,6 +499,7 @@ def main() -> int:
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "benchmark": str(executable),
+        "no_blas_benchmark": str(no_blas_executable),
         "seed": args.seed,
         "repetitions": args.repetitions,
         "min_time": args.min_time,
