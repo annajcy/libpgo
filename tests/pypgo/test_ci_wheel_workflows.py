@@ -59,11 +59,14 @@ def test_ci_reuses_one_portable_full_build_for_tests_and_wheel():
 def test_ci_has_one_job_per_platform_and_cancels_stale_runs():
     for name in ("linux-ci.yml", "macos-ci.yml", "windows-ci.yml"):
         workflow = read_workflow(name)
+        workflow_header = workflow.split("\njobs:\n", maxsplit=1)[0]
         assert workflow.count("\n  build-test-wheel:") == 1
         assert "matrix." not in workflow
         assert "strategy:" not in workflow
         assert "cancel-in-progress: true" in workflow
         assert workflow.count("python -m pytest -q tests/pypgo") == 1
+        assert "CMAKE_BUILD_PARALLEL_LEVEL" not in workflow_header
+        assert "PYPGO_CMAKE_PRESET" not in workflow_header
 
     windows = read_workflow("windows-ci.yml")
     assert "Free up disk space" not in windows

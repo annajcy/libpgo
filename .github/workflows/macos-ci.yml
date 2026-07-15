@@ -14,8 +14,6 @@ permissions:
   contents: read
 
 env:
-  CMAKE_BUILD_PARALLEL_LEVEL: "3"
-  PYPGO_CMAKE_PRESET: base-ci
   PYPGO_WHEEL_DIST: pypgo
 
 jobs:
@@ -55,6 +53,8 @@ jobs:
           python tests/check_accelerate_runtime.py
 
       - name: Configure and build
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "3"
         run: |
           cmake --preset base-ci
           cmake --build --preset base-ci
@@ -74,6 +74,9 @@ jobs:
           --ignore=tests/pypgo/test_notebook.py
 
       - name: Build wheel from the tested build tree
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "3"
+          PYPGO_CMAKE_PRESET: base-ci
         run: |
           rm -rf dist
           python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
@@ -81,7 +84,7 @@ jobs:
 
       - name: Repair and audit wheel
         run: |
-          export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+          export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/base-ci/lib:${CONDA_PREFIX}/lib${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
           python -m pip install delocate
           rm -rf wheelhouse
           delocate-wheel -v -w wheelhouse \

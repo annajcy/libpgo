@@ -15,8 +15,6 @@ permissions:
 
 env:
   MKL_THREADING_LAYER: TBB
-  CMAKE_BUILD_PARALLEL_LEVEL: "3"
-  PYPGO_CMAKE_PRESET: base-ci
   PYPGO_WHEEL_DIST: pypgo
 
 jobs:
@@ -61,6 +59,8 @@ jobs:
           python tests/check_mkl_tbb_runtime.py
 
       - name: Configure and build
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "3"
         run: |
           cmake --preset base-ci -G Ninja
           cmake --build --preset base-ci
@@ -82,6 +82,9 @@ jobs:
           --ignore=tests/pypgo/test_notebook.py
 
       - name: Build wheel from the tested build tree
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "3"
+          PYPGO_CMAKE_PRESET: base-ci
         run: |
           Remove-Item -Path dist -Recurse -Force -ErrorAction SilentlyContinue
           python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
@@ -91,7 +94,7 @@ jobs:
           python -m pip install delvewheel
           Remove-Item -Path wheelhouse -Recurse -Force -ErrorAction SilentlyContinue
 
-          $buildRoot = Join-Path $env:GITHUB_WORKSPACE "build\$env:PYPGO_CMAKE_PRESET"
+          $buildRoot = Join-Path $env:GITHUB_WORKSPACE "build\base-ci"
           $buildDllDirs = @(Get-ChildItem -Path $buildRoot -Recurse -Filter '*.dll' |
             ForEach-Object { $_.DirectoryName } | Sort-Object -Unique)
           if ($buildDllDirs.Count -gt 0) {

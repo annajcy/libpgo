@@ -7,6 +7,8 @@ modeling, and optimization. It extends
 `pypgo`, the Python package built on top of libpgo, is the recommended entry
 point for most users.
 
+Start with [Getting Started](./docs/index.md) for the documentation overview.
+
 ## How to Build
 
 Choose the guide that matches how you want to use the project:
@@ -17,12 +19,6 @@ Choose the guide that matches how you want to use the project:
 Use the wheel guide when you only need the Python package. Use the source guide
 when editing C++ kernels or Python bindings, running native tests, or profiling
 the library.
-
-## Documentation
-
-Start with [Getting Started](./docs/index.md) for the documentation overview and
-reading paths. For repository structure and component boundaries, see the
-[Architecture Overview](./docs/architecture/overview.md).
 
 ## Examples
 

@@ -415,6 +415,10 @@ def test_dynamic_all_rejects_resumed_wall_time(monkeypatch, tmp_path):
     ]) == 2
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="run_experiments.sh is a POSIX shell entrypoint",
+)
 def test_run_experiments_help_does_not_start_the_pipeline():
     result = subprocess.run(
         [str(RUN_EXPERIMENTS), "--help"],

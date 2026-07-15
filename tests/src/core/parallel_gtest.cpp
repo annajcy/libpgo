@@ -18,7 +18,7 @@
 
 namespace P = pgo::parallel;
 
-TEST(ParallelControlTest, ConfigurationIsRepeatableAndGlobalArenaIsAligned)
+TEST(ParallelControlTest, ConfigurationIsRepeatableAndGlobalBoundRespectsAmbientArena)
 {
   const int first = P::initialize(2);
   EXPECT_GE(first, 1);
@@ -27,9 +27,10 @@ TEST(ParallelControlTest, ConfigurationIsRepeatableAndGlobalArenaIsAligned)
   const int second = P::initialize(4);
   EXPECT_GE(second, 1);
   EXPECT_LE(second, 4);
+  const int ambient = std::max(1, tbb::this_task_arena::max_concurrency());
   EXPECT_EQ(P::withGlobalTbbConcurrency(
               [] { return tbb::this_task_arena::max_concurrency(); }),
-    second);
+    std::min(ambient, second));
 
   const int restored = P::initialize();
   EXPECT_GE(restored, 1);

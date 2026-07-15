@@ -247,6 +247,8 @@ def percentile(values: list[float], probability: float) -> float:
     position = probability * (len(ordered) - 1)
     lower = math.floor(position)
     upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
     return ordered[lower] * (upper - position) + ordered[upper] * (position - lower)
 
 

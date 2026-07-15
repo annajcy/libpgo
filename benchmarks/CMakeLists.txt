@@ -17,5 +17,7 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
    TARGET MKL::MKL AND
    PGO_MKL_THREADING STREQUAL "tbb_thread")
+  add_subdirectory(eigen_mkl_crossover)
+  add_subdirectory(eigen_mkl_control_matrix)
   add_subdirectory(eigen_mkl_nested)
 endif()
