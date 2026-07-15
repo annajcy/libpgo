@@ -1,5 +1,7 @@
 #include "parallel/parallelControl.h"
 
+#include "parallel/accelerateThreading.h"
+
 #include <algorithm>
 #include <limits>
 #include <memory>
@@ -71,9 +73,16 @@ GlobalControlState &globalControlState()
 
 }  // namespace
 
+int initialize(std::optional<int> maxConcurrency)
+{
+  const int effectiveConcurrency = globalControlState().set(maxConcurrency);
+  detail::setAccelerateSingleThreading();
+  return effectiveConcurrency;
+}
+
 int setMaxConcurrency(std::optional<int> maxConcurrency)
 {
-  return globalControlState().set(maxConcurrency);
+  return initialize(maxConcurrency);
 }
 
 namespace detail

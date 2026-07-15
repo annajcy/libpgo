@@ -10,7 +10,8 @@ dependencies:
   - mpfr
   - imath
   # NumPy's BLAS/LAPACK is installed per platform after environment creation.
-  # Native libpgo uses oneMKL-TBB on Linux/Windows and no BLAS on macOS.
+  # Use oneMKL-TBB on Linux/Windows and conda-forge newaccelerate on macOS;
+  # native Apple targets link the same system Accelerate implementation directly.
   - zlib
 
   # --- C++ dependencies ---

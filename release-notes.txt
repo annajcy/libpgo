@@ -3,8 +3,9 @@
   - migrate first-party TBB scheduling calls to typed pgo loops, reductions, and sorting
   - delegate pgo::parallelSort to oneTBB while preserving pgo executor semantics
   - remove the redundant parallelFor3D wrapper in favor of call-site-owned row/block decomposition
-  - remove vendor thread setters and the SuiteSparse/OpenMP/BLAS dependency stack from libpgo
-  - keep macOS native outputs free of Accelerate while allowing NumPy to choose its own BLAS
+  - remove SuiteSparse/OpenMP and non-Accelerate BLAS dependency stacks from libpgo
+  - route supported Eigen dense operations to system Accelerate BLAS and keep other Eigen kernels serial on macOS
+  - leave Accelerate single-threaded on initialized and pgo-managed threads; provide scoped multi-threading as an experimental C++ escape hatch
 
 -- v0.0.3
   - fix various bug in cmake

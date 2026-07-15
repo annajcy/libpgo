@@ -11,9 +11,13 @@
 namespace pgo::parallel
 {
 
-// Sets the pgo-owned process-wide TBB ceiling and returns the currently effective ceiling. Passing
-// std::nullopt restores the oneTBB default concurrency value. Calls are safe to repeat, but callers
-// should reconfigure at application quiescence boundaries because active work is not preempted.
+// Initializes pgo's CPU concurrency policy and returns the effective TBB ceiling. On Apple, this
+// also leaves Accelerate BLAS/LAPACK single-threaded on the calling OS thread. Passing std::nullopt
+// restores the oneTBB default concurrency value. Calls are safe to repeat, but callers should
+// reconfigure at application quiescence boundaries because active work is not preempted.
+int initialize(std::optional<int> maxConcurrency = std::nullopt);
+
+// Backward-compatible spelling of initialize().
 int setMaxConcurrency(std::optional<int> maxConcurrency = std::nullopt);
 
 namespace detail

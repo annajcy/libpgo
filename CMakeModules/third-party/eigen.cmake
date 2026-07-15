@@ -35,4 +35,11 @@ if(TARGET MKL::MKL)
   target_compile_definitions(${REAL_TGT} INTERFACE EIGEN_MKL_NO_DIRECT_CALL)
 endif()
 
+if(APPLE)
+  target_link_libraries(${REAL_TGT} INTERFACE PGO::AccelerateBLAS)
+  target_compile_definitions(${REAL_TGT} INTERFACE
+    EIGEN_USE_BLAS
+    EIGEN_DONT_PARALLELIZE)
+endif()
+
 target_compile_definitions(${REAL_TGT} INTERFACE EIGEN_MAX_ALIGN_BYTES=32)

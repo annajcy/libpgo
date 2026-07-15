@@ -28,6 +28,19 @@
             }
         },
         {
+            "name": "base-ci",
+            "hidden": false,
+            "inherits": [
+                "base"
+            ],
+            "binaryDir": "${sourceDir}/build/base-ci",
+            "cacheVariables": {
+                "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
+                "PGO_NATIVE_OPTIMIZATION": "OFF",
+                "Python_FIND_VIRTUALENV": "FIRST"
+            }
+        },
+        {
             "name": "debug",
             "hidden": true,
             "cacheVariables": {
@@ -192,6 +205,10 @@
         {
             "name": "base",
             "configurePreset": "base"
+        },
+        {
+            "name": "base-ci",
+            "configurePreset": "base-ci"
         },
         {
             "name": "pypgo",

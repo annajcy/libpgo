@@ -2,13 +2,13 @@ name: Linux CI
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - original/*
-      - codex/*
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -16,25 +16,15 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   MKL_THREADING_LAYER: TBB
+  CMAKE_BUILD_PARALLEL_LEVEL: "3"
+  PYPGO_CMAKE_PRESET: base-ci
+  PYPGO_WHEEL_DIST: pypgo
 
 jobs:
-  python-build-and-test:
-    name: Python Build and Test
+  build-test-wheel:
+    name: Build, Test, and Package
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        include:
-          - variant: mkl
-            environment_file: environment.yml
-            conda_env: libpgo
-            cmake_preset: pypgo-ci
-            cmake_parallel: "3"
-            wheel_package: pypgo
-            wheel_dist: pypgo
-
     defaults:
       run:
         shell: bash -l {0}
@@ -53,214 +43,78 @@ jobs:
         with:
           miniforge-variant: Miniforge3
           miniforge-version: latest
-          environment-file: ${{ matrix.environment_file }}
-          activate-environment: ${{ matrix.conda_env }}
+          environment-file: environment.yml
+          activate-environment: libpgo
           auto-activate-base: false
           channels: conda-forge
           channel-priority: strict
           conda-remove-defaults: true
 
-      - name: Install MKL BLAS stack
+      - name: Install and verify MKL-TBB
         run: |
-          conda install -y \
-            "libblas=*=*mkl" \
-            "liblapack=*=*mkl" \
-            mkl-devel
+          conda install -y "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
+          python tests/check_mkl_tbb_runtime.py
 
-      - name: Verify NumPy uses MKL-TBB
-        run: python tests/check_mkl_tbb_runtime.py
-
-      - name: Build Python wheel
-        env:
-          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
-          # Build the wheel with the portable CI preset (native
-          # opt off) instead of the default `pypgo` preset (-march=native).
-          PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
-          PYPGO_PACKAGE_NAME: ${{ matrix.wheel_package }}
-          PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
+      - name: Configure and build
         run: |
-          shopt -s nullglob
-          rm -rf dist
-          python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
-          wheel=(dist/${PYPGO_WHEEL_DIST}-*.whl)
-          if (( ${#wheel[@]} != 1 )); then
-            printf 'Expected exactly one %s wheel, found %s.\n' "${PYPGO_WHEEL_DIST}" "${#wheel[@]}"
-            printf '%s\n' "${wheel[@]}"
-            exit 1
-          fi
+          cmake --preset base-ci
+          cmake --build --preset base-ci
 
-      - name: Repair Python wheel
-        env:
-          PYPGO_CMAKE_PRESET: ${{ matrix.cmake_preset }}
-          PYPGO_WHEEL_PACKAGE: ${{ matrix.wheel_package }}
-          PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
-        run: |
-          shopt -s nullglob
-          export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-          python -m pip install auditwheel
-          rm -rf wheelhouse
-          repair_args=(
-            -w wheelhouse
-            --exclude 'libblas*.so*'
-            --exclude 'liblapack*.so*'
-            --exclude 'libmkl*.so*'
-          )
-          python -m auditwheel repair "${repair_args[@]}" dist/${PYPGO_WHEEL_DIST}-*.whl
-          python -m auditwheel show wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
-          wheel=(wheelhouse/${PYPGO_WHEEL_DIST}-*.whl)
-          if (( ${#wheel[@]} != 1 )); then
-            printf 'Expected exactly one repaired %s wheel, found %s.\n' "${PYPGO_WHEEL_DIST}" "${#wheel[@]}"
-            printf '%s\n' "${wheel[@]}"
-            exit 1
-          fi
-          python - "${wheel[0]}" "${PYPGO_WHEEL_PACKAGE}" <<'PY'
-          import sys
-          import zipfile
-
-          wheel_package = sys.argv[2]
-          with zipfile.ZipFile(sys.argv[1]) as archive:
-              names = [name.lower() for name in archive.namelist() if ".libs/" in name]
-          print("Vendored shared libraries:")
-          for name in names:
-              print(f"  {name}")
-          forbidden = (
-              "openblas",
-              "libblas",
-              "liblapack",
-              "libmkl",
-          )
-          vendored = [
-              name
-              for name in names
-              if any(token in name for token in forbidden)
-          ]
-          if vendored:
-              print(f"Repaired {wheel_package} wheel unexpectedly vendors disallowed native runtime libraries:")
-              for name in vendored:
-                  print(f"  {name}")
-              raise SystemExit(1)
-          print(f"OK: {wheel_package} wheel relies on the conda-provided BLAS/LAPACK/MKL runtime.")
-          PY
-
-      - name: Upload Python wheel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pypgo-wheel-linux-${{ matrix.variant }}
-          path: wheelhouse/${{ matrix.wheel_dist }}-*.whl
-          if-no-files-found: error
-
-      - name: Verify repaired wheel in minimal environment
-        env:
-          PYPGO_WHEEL_DIST: ${{ matrix.wheel_dist }}
-          PYPGO_WHEEL_PACKAGE: ${{ matrix.wheel_package }}
-        run: |
-          shopt -s nullglob
-          clean_env="${RUNNER_TEMP}/pypgo-wheel-${{ matrix.variant }}"
-          conda create -y -p "${clean_env}" python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
-          conda run -p "${clean_env}" python -m pip install --no-deps "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
-          run_python=(conda run -p "${clean_env}" python)
-          "${run_python[@]}" "${GITHUB_WORKSPACE}/tests/check_mkl_tbb_runtime.py" --import-pypgo
-          tmpdir="$(mktemp -d)"
-          cd "${tmpdir}"
-          "${run_python[@]}" -X faulthandler - <<'PY'
-          from pathlib import Path
-          import importlib
-          import os
-          import numpy as np
-          print(f"numpy {np.__version__} from {Path(np.__file__).resolve()}", flush=True)
-
-          for module_name in (
-              "pypgo",
-              "pypgo._core",
-              "pypgo.energy",
-              "pypgo.mesh",
-              "pypgo.solver",
-          ):
-              print(f"import {module_name}", flush=True)
-              importlib.import_module(module_name)
-
-          import pypgo
-          import pypgo._core as core
-          package_file = Path(pypgo.__file__).resolve()
-          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
-          assert workspace not in package_file.parents, package_file
-          info = core.build_info()
-          assert info["module"] == "pypgo._core"
-          print(f"pypgo wheel import OK from {package_file}")
-          PY
-          "${run_python[@]}" -X faulthandler "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
-
-  cmake-build:
-    name: CMake Preset Build and Test
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        include:
-          - label: MKL
-            environment_file: environment.yml
-            conda_env: libpgo
-            cmake_parallel: "3"
-            cmake_configure_args: ""
-
-    defaults:
-      run:
-        shell: bash -l {0}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install system build tools and headless rendering support
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libegl1 libgl1
-
-      - name: Set up Miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-variant: Miniforge3
-          miniforge-version: latest
-          environment-file: ${{ matrix.environment_file }}
-          activate-environment: ${{ matrix.conda_env }}
-          auto-activate-base: false
-          channels: conda-forge
-          channel-priority: strict
-          conda-remove-defaults: true
-
-      - name: Install MKL BLAS stack
-        run: conda install -y "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
-
-      - name: Verify NumPy uses MKL-TBB
-        run: python tests/check_mkl_tbb_runtime.py
-
-      - name: Configure with preset base
-        run: cmake --preset base ${{ matrix.cmake_configure_args }}
-
-      - name: Build with preset base
-        env:
-          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.cmake_parallel }}
-        run: cmake --build --preset base
-
-      - name: Run CTest
-        run: ctest --test-dir build/base --output-on-failure
+      - name: Run native tests
+        run: ctest --test-dir build/base-ci --output-on-failure
 
       - name: Install Python test dependencies
         run: |
           python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify
           python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Run Python API pytest suite
+      - name: Run Python API tests
         env:
           PYVISTA_OFF_SCREEN: "True"
+        run: >-
+          python -m pytest -q tests/pypgo
+          --ignore=tests/pypgo/test_example_notebooks.py
+          --ignore=tests/pypgo/test_notebook.py
+
+      - name: Build wheel from the tested build tree
         run: |
-          while IFS= read -r -d '' test_file; do
-            case "$(basename "${test_file}")" in
-              test_example_notebooks.py|test_notebook.py)
-                continue
-                ;;
-            esac
-            python -m pytest -q "${test_file}"
-          done < <(find tests/pypgo -maxdepth 1 -name 'test_*.py' -print0 | sort -z)
+          rm -rf dist
+          python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
+
+      - name: Repair and audit wheel
+        run: |
+          export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/${PYPGO_CMAKE_PRESET}/lib:${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+          python -m pip install auditwheel
+          rm -rf wheelhouse
+          python -m auditwheel repair \
+            -w wheelhouse \
+            --exclude 'libblas*.so*' \
+            --exclude 'liblapack*.so*' \
+            --exclude 'libmkl*.so*' \
+            dist/${PYPGO_WHEEL_DIST}-*.whl
+          python -m auditwheel show wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+          python tests/check_wheel_vendoring.py \
+            --provider mkl wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+
+      - name: Verify wheel in a clean environment
+        run: |
+          clean_env="${RUNNER_TEMP}/pypgo-wheel-mkl"
+          conda create -y -p "${clean_env}" -c conda-forge --strict-channel-priority \
+            python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
+          conda run -p "${clean_env}" python -m pip install --no-deps \
+            "${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
+          conda run -p "${clean_env}" python \
+            "${GITHUB_WORKSPACE}/tests/check_mkl_tbb_runtime.py" --import-pypgo
+          tmpdir="$(mktemp -d)"
+          cd "${tmpdir}"
+          conda run -p "${clean_env}" python -X faulthandler \
+            "${GITHUB_WORKSPACE}/tests/check_installed_wheel.py"
+          conda run -p "${clean_env}" python -X faulthandler \
+            "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypgo-wheel-linux-mkl
+          path: wheelhouse/pypgo-*.whl
+          if-no-files-found: error

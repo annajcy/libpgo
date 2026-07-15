@@ -18,6 +18,10 @@ include(CMakeModules/third-party/tbb.cmake)
 include(CMakeModules/third-party/mkl.cmake)
 include(CMakeModules/third-party/backward.cmake)
 
+if(APPLE)
+  include(CMakeModules/third-party/accelerate.cmake)
+endif()
+
 include(CMakeModules/third-party/eigen.cmake)
 include(CMakeModules/third-party/fmt.cmake)
 include(CMakeModules/third-party/nlohmann_json.cmake)

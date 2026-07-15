@@ -6,7 +6,7 @@ namespace pgo
 {
 int parallelInitialize(std::optional<int> maxConcurrency)
 {
-  return parallel::setMaxConcurrency(maxConcurrency);
+  return parallel::initialize(maxConcurrency);
 }
 
 }  // namespace pgo

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "accelerateThreading.h"
 #include "parallelControl.h"
 
 #include <cstddef>
@@ -38,7 +39,13 @@ void parallelForChunks(Index begin, Index end, Fn &&fn,
     return;
 
   withGlobalTbbConcurrency([&] {
-    tbb::parallel_for(tbb::blocked_range<Index>(begin, end, resolvedGrainSize), [&](const tbb::blocked_range<Index> &range) { fn(range.begin(), range.end()); }, partitioner);
+    tbb::parallel_for(
+      tbb::blocked_range<Index>(begin, end, resolvedGrainSize),
+      [&](const tbb::blocked_range<Index> &range) {
+        detail::setAccelerateSingleThreading();
+        fn(range.begin(), range.end());
+      },
+      partitioner);
   });
 }
 

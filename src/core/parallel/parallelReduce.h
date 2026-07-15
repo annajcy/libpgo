@@ -22,9 +22,11 @@ Value reduce(Index begin, Index end, std::size_t grainSize, Value identity, Rang
     return tbb::parallel_reduce(
       tbb::blocked_range<Index>(begin, end, grainSize), identity,
       [&](const tbb::blocked_range<Index> &chunk, Value local) {
+        setAccelerateSingleThreading();
         return rangeFn(chunk.begin(), chunk.end(), std::move(local));
       },
       [&](Value left, Value right) {
+        setAccelerateSingleThreading();
         return joinFn(std::move(left), std::move(right));
       },
       partitioner);
