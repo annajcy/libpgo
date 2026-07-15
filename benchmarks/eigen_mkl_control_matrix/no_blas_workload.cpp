@@ -1,7 +1,23 @@
 #include "no_blas_workload.h"
 
-#include <cstddef>
-#include <numeric>
+#if defined(EIGEN_USE_MKL_ALL)
+#  undef EIGEN_USE_MKL_ALL
+#endif
+
+#if defined(EIGEN_USE_BLAS)
+#  undef EIGEN_USE_BLAS
+#endif
+
+#include <Eigen/Dense>
+
+#if defined(EIGEN_USE_MKL_ALL) || defined(EIGEN_USE_BLAS)
+#  error "The NoBlas control must compile Eigen without a BLAS backend."
+#endif
+
+#if !defined(EIGEN_DONT_PARALLELIZE)
+#  error "The NoBlas control must keep Eigen's internal parallel layer disabled."
+#endif
+
 #include <vector>
 
 namespace pgo::benchmark_helpers
@@ -10,43 +26,45 @@ namespace pgo::benchmark_helpers
 class NoBlasWorkload::Impl
 {
 public:
-  Impl(int outerTasks, int matrixN): input_(elementCount(matrixN))
+  Impl(int outerTasks, int matrixN): left_(matrixN, matrixN), right_(matrixN, matrixN)
   {
-    for (std::size_t i = 0; i < input_.size(); ++i) {
-      const auto value = static_cast<unsigned int>((i * 17 + 43) % 257);
-      input_[i] = (static_cast<double>(value) - 128.0) / 257.0;
-    }
+    initialize(left_, 1);
+    initialize(right_, 2);
 
-    outputs_.resize(static_cast<std::size_t>(outerTasks));
-    for (auto &output : outputs_)
-      output.assign(input_.size(), 0.0);
+    outputs_.reserve(static_cast<std::size_t>(outerTasks));
+    for (int task = 0; task < outerTasks; ++task)
+      outputs_.emplace_back(Eigen::MatrixXd::Zero(matrixN, matrixN));
   }
 
   void run(int taskIndex)
   {
     auto &output = outputs_[static_cast<std::size_t>(taskIndex)];
-    const double offset = static_cast<double>(taskIndex + 1) * 1e-4;
-    for (std::size_t i = 0; i < output.size(); ++i)
-      output[i] = 0.625 * input_[i] + offset;
+    output.noalias() = left_ * right_;
   }
 
   double checksum() const
   {
     double result = 0.0;
     for (const auto &output : outputs_)
-      result += std::accumulate(output.begin(), output.end(), 0.0);
+      result += output.sum();
     return result;
   }
 
 private:
-  static std::size_t elementCount(int matrixN)
+  static void initialize(Eigen::MatrixXd &matrix, int seed)
   {
-    const auto size = static_cast<std::size_t>(matrixN);
-    return size * size;
+    for (Eigen::Index column = 0; column < matrix.cols(); ++column) {
+      for (Eigen::Index row = 0; row < matrix.rows(); ++row) {
+        const auto value = static_cast<unsigned int>(
+          (row * 17 + column * 29 + seed * 43) % 257);
+        matrix(row, column) = (static_cast<double>(value) - 128.0) / 257.0;
+      }
+    }
   }
 
-  std::vector<double> input_;
-  std::vector<std::vector<double>> outputs_;
+  Eigen::MatrixXd left_;
+  Eigen::MatrixXd right_;
+  std::vector<Eigen::MatrixXd> outputs_;
 };
 
 NoBlasWorkload::NoBlasWorkload(int outerTasks, int matrixN):

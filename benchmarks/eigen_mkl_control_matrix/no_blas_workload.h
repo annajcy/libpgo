@@ -5,8 +5,8 @@
 namespace pgo::benchmark_helpers
 {
 
-// A deterministic scalar-only control. It deliberately avoids Eigen and every
-// BLAS/LAPACK entry point, while retaining per-outer-task independent output.
+// A deterministic Eigen-only GEMM control. It deliberately avoids every
+// BLAS/LAPACK entry point while retaining the same matrix-multiply expression.
 class NoBlasWorkload
 {
 public:
