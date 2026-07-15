@@ -27,6 +27,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--matrix-n", type=int, default=1024)
     parser.add_argument("--warmup-iterations", type=int, default=3)
     parser.add_argument("--profile-iterations", type=int, default=50)
+    parser.add_argument(
+        "--sudo",
+        action="store_true",
+        help="Run the VTune collector through sudo when ptrace_scope blocks collection.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -114,6 +119,7 @@ def main() -> int:
     for mode in args.modes:
         result_directory = output / f"vtune-{mode.lower()}"
         command = [
+            *(["sudo", "env", "MKL_THREADING_LAYER=TBB"] if args.sudo else []),
             str(vtune),
             "-collect",
             "threading",
@@ -147,6 +153,7 @@ def main() -> int:
             "matrix_n": args.matrix_n,
             "warmup_iterations": args.warmup_iterations,
             "profile_iterations": args.profile_iterations,
+            "sudo": args.sudo,
         },
         "environment": {"MKL_THREADING_LAYER": "TBB"},
         "linkage": linkage,
@@ -163,6 +170,17 @@ def main() -> int:
             check=False,
             env=environment,
         )
+        if args.sudo and result_directory.exists():
+            checked_output(
+                [
+                    "sudo",
+                    "chown",
+                    "-R",
+                    f"{os.getuid()}:{os.getgid()}",
+                    str(result_directory),
+                ],
+                environment,
+            )
         log_path = output / f"{entry['mode'].lower()}.log"
         log_path.write_text(result.stdout)
         run = {
@@ -176,6 +194,33 @@ def main() -> int:
             raise RuntimeError(
                 f"VTune failed for {entry['mode']}; see {log_path}."
             )
+
+        reports = {
+            "summary": [
+                str(vtune),
+                "-report",
+                "summary",
+                "-result-dir",
+                str(result_directory),
+                "-report-knob",
+                "show-issues=false",
+            ],
+            "hotspots.csv": [
+                str(vtune),
+                "-report",
+                "hotspots",
+                "-result-dir",
+                str(result_directory),
+                "-format=csv",
+                "-csv-delimiter=comma",
+            ],
+        }
+        run["reports"] = {}
+        for suffix, report_command in reports.items():
+            report_path = output / f"{entry['mode'].lower()}.{suffix}"
+            report_path.write_text(checked_output(report_command, environment))
+            run["reports"][suffix] = str(report_path)
+        (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     print(f"Profiles written to {output}")
     return 0
