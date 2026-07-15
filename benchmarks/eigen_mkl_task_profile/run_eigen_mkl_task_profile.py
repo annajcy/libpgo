@@ -161,6 +161,7 @@ def main() -> int:
     }
 
     for entry in commands:
+        result_directory = Path(entry["result_directory"])
         print(f"Running {entry['mode']}...", flush=True)
         result = subprocess.run(
             entry["command"],
