@@ -229,7 +229,7 @@ void runWorkloadBenchmark(benchmark::State &state, WorkloadKind workloadKind,
   Policy policy, int configuredConcurrency, int outerTasks, int matrixN)
 {
   const int effectiveConcurrency = P::initialize(configuredConcurrency);
-  NestedEigenMklWorkload workload(outerTasks, matrixN);
+  Workload workload(outerTasks, matrixN);
   RunTelemetry telemetry;
 
   ThreadSampler sampler;
