@@ -70,6 +70,22 @@ def checked_output(command: list[str], environment: dict[str, str]) -> str:
     return result.stdout
 
 
+def report_output(command: list[str], environment: dict[str, str]) -> str:
+    result = subprocess.run(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+        env=environment,
+    )
+    if result.returncode == 0:
+        return result.stdout
+    if "Empty request output." in result.stdout:
+        return ""
+    raise RuntimeError(f"{' '.join(command)}\n{result.stdout}")
+
+
 def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
     dependencies = checked_output(["ldd", str(probe)], environment)
     lowered = dependencies.lower()
@@ -199,6 +215,7 @@ def main() -> int:
         reports = {
             "summary": [
                 str(vtune),
+                "-quiet",
                 "-report",
                 "summary",
                 "-result-dir",
@@ -208,6 +225,7 @@ def main() -> int:
             ],
             "hotspots.csv": [
                 str(vtune),
+                "-quiet",
                 "-report",
                 "hotspots",
                 "-result-dir",
@@ -215,11 +233,23 @@ def main() -> int:
                 "-format=csv",
                 "-csv-delimiter=comma",
             ],
+            "tasks.csv": [
+                str(vtune),
+                "-quiet",
+                "-report",
+                "hotspots",
+                "-result-dir",
+                str(result_directory),
+                "-group-by",
+                "task",
+                "-format=csv",
+                "-csv-delimiter=comma",
+            ],
         }
         run["reports"] = {}
         for suffix, report_command in reports.items():
             report_path = output / f"{entry['mode'].lower()}.{suffix}"
-            report_path.write_text(checked_output(report_command, environment))
+            report_path.write_text(report_output(report_command, environment))
             run["reports"][suffix] = str(report_path)
         (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
