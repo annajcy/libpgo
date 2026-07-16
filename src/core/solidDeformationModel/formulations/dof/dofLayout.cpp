@@ -4,13 +4,13 @@ copyright to USC,MIT,NUS
 */
 
 #include "formulations/dof/dofLayout.h"
-#include "parallel/parallelFor.h"
 #include "EigenSupport.h"
 
 #include <algorithm>
 #include <numeric>
 #include <stdexcept>
-
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 namespace pgo
 {
@@ -75,7 +75,7 @@ void buildCompressedHessianTemplate(int numDOFs,
   }
 
   std::vector<Eigen::Index> rowNonZeros(rowColumns.size(), 0);
-  pgo::parallel::parallelFor(std::size_t(0), rowColumns.size(), [&](std::size_t row) {
+  tbb::parallel_for(std::size_t(0), rowColumns.size(), [&](std::size_t row) {
     auto &columns = rowColumns[row];
     std::sort(columns.begin(), columns.end());
     columns.erase(std::unique(columns.begin(), columns.end()), columns.end());

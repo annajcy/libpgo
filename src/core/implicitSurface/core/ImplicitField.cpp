@@ -1,11 +1,13 @@
 #include "core/ImplicitField.h"
 
 #include "fields/GridField.h"
-#include "parallel/parallelFor.h"
 
 #include <cstdint>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
-namespace pgo::ImplicitSurface {
+namespace pgo::ImplicitSurface
+{
 
 Mesh::LightBoundingBox ImplicitField::bounds() const
 {
@@ -26,15 +28,14 @@ GridField ImplicitField::sampleToGrid(const GridSpec &spec) const
   const std::int64_t rowCount =
     static_cast<std::int64_t>(resolution) * static_cast<std::int64_t>(resolution);
 
-  pgo::parallel::parallelFor(std::int64_t{ 0 }, rowCount,
-    [&](std::int64_t row) {
-      const int y = static_cast<int>(row % resolution);
-      const int z = static_cast<int>(row / resolution);
-      for (int x = 0; x < resolution; ++x) {
-        const V3d p = spec.bmin + delta.cwiseProduct(V3d(x, y, z).cast<double>());
-        grid.at(x, y, z) = eval(p);
-      }
-    });
+  tbb::parallel_for(std::int64_t{ 0 }, rowCount, [&](std::int64_t row) {
+    const int y = static_cast<int>(row % resolution);
+    const int z = static_cast<int>(row / resolution);
+    for (int x = 0; x < resolution; ++x) {
+      const V3d p = spec.bmin + delta.cwiseProduct(V3d(x, y, z).cast<double>());
+      grid.at(x, y, z) = eval(p);
+    }
+  });
 
   return grid;
 }

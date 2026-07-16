@@ -3,7 +3,6 @@ author: Minghao Guo
 */
 
 #include "centerOfMassMatchingEnergy.h"
-#include "parallel/parallelFor.h"
 
 #include <autodiff/reverse/var/eigen.hpp>
 #include <autodiff/reverse/var.hpp>
@@ -11,6 +10,8 @@ author: Minghao Guo
 #include <tbb/combinable.h>
 
 #include <numeric>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 using namespace pgo;
 namespace ES = pgo::EigenSupport;
@@ -89,14 +90,13 @@ CenterOfMassMatchingEnergy::~CenterOfMassMatchingEnergy()
 {
 }
 
-
 double CenterOfMassMatchingEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
   // Assuming ES::V3d and ES::MXd support reduction by using tbb::combinable
   tbb::combinable<ES::V3d> combNumerator([]() { return ES::V3d::Zero(); });
   tbb::combinable<double> combDenominator([]() { return 0.0; });
 
-  pgo::parallel::parallelForChunks(0, static_cast<int>(m_tet.rows()), [&](int rangeBegin, int rangeEnd) {
+  tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, static_cast<int>(m_tet.rows()), 1), [pgoBody = [&](int rangeBegin, int rangeEnd) {
     for (int ele = rangeBegin; ele < rangeEnd; ++ele) {
       ES::V3d a = x.segment<3>(m_tet(ele, 0) * 3);
       ES::V3d b = x.segment<3>(m_tet(ele, 1) * 3);
@@ -114,7 +114,7 @@ double CenterOfMassMatchingEnergy::func(EigenSupport::ConstRefVecXd x) const
       combNumerator.local() += ES::V3d(autodiff::val(valNumerator(0)), autodiff::val(valNumerator(1)), autodiff::val(valNumerator(2)));
       combDenominator.local() += autodiff::val(valDenominator);
     }
-  });
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 
   // Combine results from all threads
   ES::V3d numerator = combNumerator.combine(std::plus<>());
@@ -132,7 +132,7 @@ void CenterOfMassMatchingEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSu
   tbb::combinable<ES::MXd> combDNdxAll([&]() { return ES::MXd::Zero(3, x.size()); });
   tbb::combinable<ES::VXd> combDDdxAll([&]() { return ES::VXd::Zero(x.size()); });
 
-  pgo::parallel::parallelForChunks(0, static_cast<int>(m_tet.rows()), [&](int rangeBegin, int rangeEnd) {
+  tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, static_cast<int>(m_tet.rows()), 1), [pgoBody = [&](int rangeBegin, int rangeEnd) {
     for (int ele = rangeBegin; ele < rangeEnd; ++ele) {
       ES::V3d a = x.segment<3>(m_tet(ele, 0) * 3);
       ES::V3d b = x.segment<3>(m_tet(ele, 1) * 3);
@@ -175,7 +175,7 @@ void CenterOfMassMatchingEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSu
       combDDdxAll.local().segment<3>(m_tet(ele, 2) * 3) += dDdc;
       combDDdxAll.local().segment<3>(m_tet(ele, 3) * 3) += dDdd;
     }
-  });
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
   // Combine results from all threads
   ES::V3d numerator = combNumerator.combine(std::plus<>());
   double denominator = combDenominator.combine(std::plus<>());
@@ -257,7 +257,7 @@ void CenterOfMassMatchingEnergy::compute_com_and_energy_and_grad(ES::ConstRefVec
     tbb::combinable<ES::MXd> combDNdxAll([&]() { return ES::MXd::Zero(3, x.size()); });
     tbb::combinable<ES::VXd> combDDdxAll([&]() { return ES::VXd::Zero(x.size()); });
 
-    pgo::parallel::parallelForChunks(0, static_cast<int>(m_tet.rows()), [&](int rangeBegin, int rangeEnd) {
+    tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, static_cast<int>(m_tet.rows()), 1), [pgoBody = [&](int rangeBegin, int rangeEnd) {
       for (int ele = rangeBegin; ele < rangeEnd; ++ele) {
         ES::V3d a = x.segment<3>(m_tet(ele, 0) * 3);
         ES::V3d b = x.segment<3>(m_tet(ele, 1) * 3);
@@ -300,7 +300,7 @@ void CenterOfMassMatchingEnergy::compute_com_and_energy_and_grad(ES::ConstRefVec
         combDDdxAll.local().segment<3>(m_tet(ele, 2) * 3) += dDdc;
         combDDdxAll.local().segment<3>(m_tet(ele, 3) * 3) += dDdd;
       }
-    });
+    }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
     // Combine results from all threads
     numerator = combNumerator.combine(std::plus<>());
     denominator = combDenominator.combine(std::plus<>());

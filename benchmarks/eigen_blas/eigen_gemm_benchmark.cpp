@@ -70,7 +70,6 @@ void runGemmBenchmark(benchmark::State &state, EigenBlasBackend backend, int mat
   state.counters["extra_threads"] = adjustedExtraThreads(baselineThreads, peakThreads);
   state.counters["configured_concurrency"] = telemetry.configuredConcurrency;
   state.counters["arena_concurrency"] = telemetry.arenaConcurrency;
-  state.counters["vendor_max_threads"] = telemetry.vendorMaxThreads;
   state.counters["flops"] = benchmark::Counter(
     flopsPerIteration * static_cast<double>(state.iterations()),
     benchmark::Counter::kIsRate);

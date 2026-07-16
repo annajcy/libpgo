@@ -4,7 +4,6 @@ copyright to USC,MIT,NUS
 */
 
 #include "simulation/generateTetMeshMatrix.h"
-#include "parallel/parallelFor.h"
 
 #include "tetMeshGeo.h"
 #include "pgoLogging.h"
@@ -13,6 +12,9 @@ copyright to USC,MIT,NUS
 #include <tbb/concurrent_vector.h>
 #include <tbb/enumerable_thread_specific.h>
 #include <tbb/cache_aligned_allocator.h>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/partitioner.h>
 
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
@@ -80,9 +82,7 @@ void TetMeshMatrix::generateGradientMatrix(const Mesh::TetMeshRef &tetMesh, ES::
   tbb::concurrent_vector<ES::TripletD> entries;
 
   // for (int tetID = 0; tetID < tetMesh.getNumElements(); tetID++) {
-  pgo::parallel::parallelFor(
-    0, tetMesh.numTets(),
- tbb::static_partitioner{}, [&](int tetID) {
+  tbb::parallel_for(0, tetMesh.numTets(), [&](int tetID) {
       // auto &entriesBuf = entriesTLS.local();
 
       double m[12];
@@ -100,8 +100,7 @@ void TetMeshMatrix::generateGradientMatrix(const Mesh::TetMeshRef &tetMesh, ES::
             double entry = m[3 * vtx + j];
             entries.emplace_back(row, column, entry);
           }
-        }
-    });
+        } }, tbb::static_partitioner{});
 
   // for (auto it = entriesTLS.begin(); it != entriesTLS.end(); ++it) {
   //   entries.insert(entries.end(), it->begin(), it->end());
@@ -126,86 +125,85 @@ void TetMeshMatrix::generateBasicElementLaplacianMatrix(const Mesh::TetMeshRef &
     }
   }
 
-  pgo::parallel::parallelFor((size_t)0, vertexNeighbors.size(),
- tbb::static_partitioner{}, [&](size_t vi) {
+  tbb::parallel_for((size_t)0, vertexNeighbors.size(), [&](size_t vi) {
     std::sort(vertexNeighbors[vi].begin(), vertexNeighbors[vi].end());
     auto itt = std::unique(vertexNeighbors[vi].begin(), vertexNeighbors[vi].end());
     vertexNeighbors[vi].erase(itt, vertexNeighbors[vi].end());
-  });
+  },
+    tbb::static_partitioner{});
 
   // build elements that neighbor each element, and assemble L
   tbb::enumerable_thread_specific<std::vector<int, tbb::cache_aligned_allocator<int>>> elementNeighborsTLS;
   tbb::concurrent_vector<ES::TripletD> entries;
 
   // for (int el = 0; el < numElements; el++)
-  pgo::parallel::parallelFor(
-    0, numElements, [&](int el) {
-      auto &elementNeighbors = elementNeighborsTLS.local();
+  tbb::parallel_for(0, numElements, [&](int el) {
+    auto &elementNeighbors = elementNeighborsTLS.local();
 
-      elementNeighbors.clear();
+    elementNeighbors.clear();
+    for (int vtxIdx = 0; vtxIdx < numElementVertices; vtxIdx++) {
+      int vertexIndex = tetMesh.tetVtxID(el, vtxIdx);
+      elementNeighbors.insert(elementNeighbors.end(), vertexNeighbors[vertexIndex].begin(), vertexNeighbors[vertexIndex].end());
+    }
+
+    std::sort(elementNeighbors.begin(), elementNeighbors.end());
+    auto itt = std::unique(elementNeighbors.begin(), elementNeighbors.end());
+    elementNeighbors.erase(itt, elementNeighbors.end());
+
+    itt = std::find(elementNeighbors.begin(), elementNeighbors.end(), el);
+    if (itt != elementNeighbors.end()) {
+      elementNeighbors.erase(itt);
+    }
+
+    if (faceNeighbor) {
+      int eleVtxIDs[4];
       for (int vtxIdx = 0; vtxIdx < numElementVertices; vtxIdx++) {
-        int vertexIndex = tetMesh.tetVtxID(el, vtxIdx);
-        elementNeighbors.insert(elementNeighbors.end(), vertexNeighbors[vertexIndex].begin(), vertexNeighbors[vertexIndex].end());
+        eleVtxIDs[vtxIdx] = tetMesh.tetVtxID(el, vtxIdx);
       }
 
-      std::sort(elementNeighbors.begin(), elementNeighbors.end());
-      auto itt = std::unique(elementNeighbors.begin(), elementNeighbors.end());
-      elementNeighbors.erase(itt, elementNeighbors.end());
+      int inc = 0;
+      std::array<int, 8> eleNeighbor;
+      for (int i = 0; i < (int)elementNeighbors.size(); i++) {
+        if (elementNeighbors[i] == el)
+          continue;
 
-      itt = std::find(elementNeighbors.begin(), elementNeighbors.end(), el);
-      if (itt != elementNeighbors.end()) {
-        elementNeighbors.erase(itt);
-      }
-
-      if (faceNeighbor) {
-        int eleVtxIDs[4];
+        int eleVtxIDs2[4];
         for (int vtxIdx = 0; vtxIdx < numElementVertices; vtxIdx++) {
-          eleVtxIDs[vtxIdx] = tetMesh.tetVtxID(el, vtxIdx);
+          eleVtxIDs2[vtxIdx] = tetMesh.tetVtxID(elementNeighbors[i], vtxIdx);
         }
 
-        int inc = 0;
-        std::array<int, 8> eleNeighbor;
-        for (int i = 0; i < (int)elementNeighbors.size(); i++) {
-          if (elementNeighbors[i] == el)
-            continue;
-
-          int eleVtxIDs2[4];
-          for (int vtxIdx = 0; vtxIdx < numElementVertices; vtxIdx++) {
-            eleVtxIDs2[vtxIdx] = tetMesh.tetVtxID(elementNeighbors[i], vtxIdx);
-          }
-
-          int count = 0;
-          for (int j = 0; j < 4; j++) {
-            for (int k = 0; k < 4; k++) {
-              if (eleVtxIDs[j] == eleVtxIDs2[k]) {
-                count++;
-                break;
-              }
+        int count = 0;
+        for (int j = 0; j < 4; j++) {
+          for (int k = 0; k < 4; k++) {
+            if (eleVtxIDs[j] == eleVtxIDs2[k]) {
+              count++;
+              break;
             }
           }
-
-          if (count == 3) {
-            eleNeighbor[inc++] = elementNeighbors[i];
-            if (inc >= 8)
-              break;
-          }
         }
-        PGO_ALOG(inc <= 4);
 
-        elementNeighbors.clear();
-        elementNeighbors.assign(eleNeighbor.data(), eleNeighbor.data() + inc);
-      }
-
-      int c = 0;
-      for (int otherEl : elementNeighbors) {
-        if (otherEl != el) {
-          entries.emplace_back(el, otherEl, -1.0);
-          c++;
+        if (count == 3) {
+          eleNeighbor[inc++] = elementNeighbors[i];
+          if (inc >= 8)
+            break;
         }
       }
+      PGO_ALOG(inc <= 4);
 
-      entries.emplace_back(el, el, (double)c);
-    });
+      elementNeighbors.clear();
+      elementNeighbors.assign(eleNeighbor.data(), eleNeighbor.data() + inc);
+    }
+
+    int c = 0;
+    for (int otherEl : elementNeighbors) {
+      if (otherEl != el) {
+        entries.emplace_back(el, otherEl, -1.0);
+        c++;
+      }
+    }
+
+    entries.emplace_back(el, el, (double)c);
+  });
 
   L.resize(numElements, numElements);
   L.setFromTriplets(entries.begin(), entries.end());

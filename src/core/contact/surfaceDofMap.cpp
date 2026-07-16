@@ -1,5 +1,4 @@
 #include "surfaceDofMap.h"
-#include "parallel/parallelFor.h"
 
 #include "ipc/profiling/surfaceIPCProfiling.h"
 #include "scopedProfileSection.h"
@@ -13,6 +12,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 namespace pgo
 {
@@ -87,19 +88,18 @@ void fillSparseRowsDirect(
   matrix.resizeNonZeros(totalNnz);
   std::copy(outerOffsets.begin(), outerOffsets.end(), matrix.outerIndexPtr());
 
-  pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numRows,
-    [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
-      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
-        const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
-        StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
-        for (std::size_t entryIndex = 0; entryIndex < rowBuffer.size(); ++entryIndex) {
-          const RowValue &entry = rowBuffer[entryIndex];
-          const StorageIndex storageIndex = offset + static_cast<StorageIndex>(entryIndex);
-          matrix.innerIndexPtr()[storageIndex] = static_cast<StorageIndex>(entry.col);
-          matrix.valuePtr()[storageIndex] = entry.value;
-        }
+  tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, numRows, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+    for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
+      const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
+      StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
+      for (std::size_t entryIndex = 0; entryIndex < rowBuffer.size(); ++entryIndex) {
+        const RowValue &entry = rowBuffer[entryIndex];
+        const StorageIndex storageIndex = offset + static_cast<StorageIndex>(entryIndex);
+        matrix.innerIndexPtr()[storageIndex] = static_cast<StorageIndex>(entry.col);
+        matrix.valuePtr()[storageIndex] = entry.value;
       }
-    });
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 
   if (!matrix.isCompressed())
     matrix.makeCompressed();
@@ -148,19 +148,18 @@ void fillSimulationHessianDirect(
   {
     Profiling::ScopedProfileSection profile(
       SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillValues);
-    pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numOutputRows,
-      [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
-        for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
-          const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
-          StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
-          for (std::size_t entryIndex = 0; entryIndex < rowBuffer.size(); ++entryIndex) {
-            const RowValue &entry = rowBuffer[entryIndex];
-            const StorageIndex storageIndex = offset + static_cast<StorageIndex>(entryIndex);
-            simulationHessian.innerIndexPtr()[storageIndex] = static_cast<StorageIndex>(entry.col);
-            simulationHessian.valuePtr()[storageIndex] = entry.value;
-          }
+    tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, numOutputRows, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
+        const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
+        StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
+        for (std::size_t entryIndex = 0; entryIndex < rowBuffer.size(); ++entryIndex) {
+          const RowValue &entry = rowBuffer[entryIndex];
+          const StorageIndex storageIndex = offset + static_cast<StorageIndex>(entryIndex);
+          simulationHessian.innerIndexPtr()[storageIndex] = static_cast<StorageIndex>(entry.col);
+          simulationHessian.valuePtr()[storageIndex] = entry.value;
         }
-      });
+      }
+    }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
   }
 
   if (!simulationHessian.isCompressed())
@@ -254,50 +253,49 @@ void SurfaceDofMap::parallelSurfaceHessianMapMultiply(
 
   {
     Profiling::ScopedProfileSection profile("row_build");
-    pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numRows,
-      [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
-        for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
-          std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
+    tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, numRows, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
+        std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
 
-          std::uint64_t contributionCount = 0;
-          for (EigenSupport::SpMatD::InnerIterator it(surfaceHessian, row); it; ++it) {
-            contributionCount +=
-              static_cast<std::uint64_t>(surfaceFromSimulationDispMapRows_[static_cast<std::size_t>(it.col())].size());
-          }
-
-          rowContributionCounts[static_cast<std::size_t>(row)] = contributionCount;
-          rowBuffer.clear();
-          if (contributionCount == 0)
-            continue;
-
-          rowBuffer.reserve(std::max(rowBuffer.capacity(), static_cast<std::size_t>(contributionCount)));
-          for (EigenSupport::SpMatD::InnerIterator it(surfaceHessian, row); it; ++it) {
-            const double hessianValue = it.value();
-            const std::vector<SurfaceMapRowEntry> &mapRow =
-              surfaceFromSimulationDispMapRows_[static_cast<std::size_t>(it.col())];
-            for (const SurfaceMapRowEntry &entry : mapRow)
-              rowBuffer.push_back(RowValue{ entry.simulationCol, hessianValue * entry.weight });
-          }
-
-          std::sort(rowBuffer.begin(), rowBuffer.end(),
-            [](const RowValue &lhs, const RowValue &rhs) {
-              return lhs.col < rhs.col;
-            });
-
-          std::size_t writeIndex = 0;
-          for (std::size_t readIndex = 0; readIndex < rowBuffer.size();) {
-            const Eigen::Index col = rowBuffer[readIndex].col;
-            double value = 0.0;
-            do {
-              value += rowBuffer[readIndex].value;
-              ++readIndex;
-            } while (readIndex < rowBuffer.size() && rowBuffer[readIndex].col == col);
-
-            rowBuffer[writeIndex++] = RowValue{ col, value };
-          }
-          rowBuffer.resize(writeIndex);
+        std::uint64_t contributionCount = 0;
+        for (EigenSupport::SpMatD::InnerIterator it(surfaceHessian, row); it; ++it) {
+          contributionCount +=
+            static_cast<std::uint64_t>(surfaceFromSimulationDispMapRows_[static_cast<std::size_t>(it.col())].size());
         }
-      });
+
+        rowContributionCounts[static_cast<std::size_t>(row)] = contributionCount;
+        rowBuffer.clear();
+        if (contributionCount == 0)
+          continue;
+
+        rowBuffer.reserve(std::max(rowBuffer.capacity(), static_cast<std::size_t>(contributionCount)));
+        for (EigenSupport::SpMatD::InnerIterator it(surfaceHessian, row); it; ++it) {
+          const double hessianValue = it.value();
+          const std::vector<SurfaceMapRowEntry> &mapRow =
+            surfaceFromSimulationDispMapRows_[static_cast<std::size_t>(it.col())];
+          for (const SurfaceMapRowEntry &entry : mapRow)
+            rowBuffer.push_back(RowValue{ entry.simulationCol, hessianValue * entry.weight });
+        }
+
+        std::sort(rowBuffer.begin(), rowBuffer.end(),
+          [](const RowValue &lhs, const RowValue &rhs) {
+            return lhs.col < rhs.col;
+          });
+
+        std::size_t writeIndex = 0;
+        for (std::size_t readIndex = 0; readIndex < rowBuffer.size();) {
+          const Eigen::Index col = rowBuffer[readIndex].col;
+          double value = 0.0;
+          do {
+            value += rowBuffer[readIndex].value;
+            ++readIndex;
+          } while (readIndex < rowBuffer.size() && rowBuffer[readIndex].col == col);
+
+          rowBuffer[writeIndex++] = RowValue{ col, value };
+        }
+        rowBuffer.resize(writeIndex);
+      }
+    }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
   }
 
   std::uint64_t outputNnz = 0;
@@ -363,80 +361,79 @@ void SurfaceDofMap::parallelTransposeMapMultiply(
 
     {
       Profiling::ScopedProfileSection mergeProfile(SurfaceIPCProfileSections::kAdapterPullbackHessianRowMerge);
-      pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numOutputRows,
-        [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
-          for (Eigen::Index outputRow = rangeBegin; outputRow < rangeEnd; ++outputRow) {
-            const std::vector<SimulationMapRowEntry> &adjacentSurfaceRows =
-              simulationToSurfaceDispMapRows_[static_cast<std::size_t>(outputRow)];
-            std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(outputRow)];
-            ThreadScratch &scratch = threadScratch.local();
-            const std::size_t previousStreamCapacity = scratch.streams.capacity();
-            scratch.streams.clear();
+      tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, numOutputRows, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+        for (Eigen::Index outputRow = rangeBegin; outputRow < rangeEnd; ++outputRow) {
+          const std::vector<SimulationMapRowEntry> &adjacentSurfaceRows =
+            simulationToSurfaceDispMapRows_[static_cast<std::size_t>(outputRow)];
+          std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(outputRow)];
+          ThreadScratch &scratch = threadScratch.local();
+          const std::size_t previousStreamCapacity = scratch.streams.capacity();
+          scratch.streams.clear();
 
-            std::uint64_t contributionCount = 0;
-            std::size_t maxStreamNnz = 0;
-            for (const SimulationMapRowEntry &adjacent : adjacentSurfaceRows) {
-              const Eigen::Index begin = tmp.outerIndexPtr()[adjacent.surfaceRow];
-              const Eigen::Index end = tmp.outerIndexPtr()[adjacent.surfaceRow + 1];
-              const Eigen::Index streamNnz = end - begin;
-              contributionCount += asCounter(streamNnz);
-              if (streamNnz <= 0)
-                continue;
-
-              maxStreamNnz = std::max(maxStreamNnz, static_cast<std::size_t>(streamNnz));
-              scratch.streams.push_back(
-                MergeStream{ tmp.innerIndexPtr()[begin], begin, end, adjacent.weight });
-            }
-
-            rowBuffer.clear();
-            const std::size_t streamCount = scratch.streams.size();
-            rowContributionCounts[static_cast<std::size_t>(outputRow)] = contributionCount;
-            rowMergeStreamCounts[static_cast<std::size_t>(outputRow)] = static_cast<std::uint64_t>(streamCount);
-            rowWorkspaceReused[static_cast<std::size_t>(outputRow)] =
-              (streamCount > 0 && previousStreamCapacity >= streamCount) ? 1u : 0u;
-            if (streamCount == 0)
+          std::uint64_t contributionCount = 0;
+          std::size_t maxStreamNnz = 0;
+          for (const SimulationMapRowEntry &adjacent : adjacentSurfaceRows) {
+            const Eigen::Index begin = tmp.outerIndexPtr()[adjacent.surfaceRow];
+            const Eigen::Index end = tmp.outerIndexPtr()[adjacent.surfaceRow + 1];
+            const Eigen::Index streamNnz = end - begin;
+            contributionCount += asCounter(streamNnz);
+            if (streamNnz <= 0)
               continue;
 
-            if (streamCount == 1) {
-              const MergeStream &stream = scratch.streams.front();
-              rowBuffer.reserve(std::max(rowBuffer.capacity(), static_cast<std::size_t>(stream.end - stream.index)));
-              for (Eigen::Index index = stream.index; index < stream.end; ++index)
-                rowBuffer.push_back(
-                  RowValue{ tmp.innerIndexPtr()[index], stream.weight * tmp.valuePtr()[index] });
-              continue;
-            }
+            maxStreamNnz = std::max(maxStreamNnz, static_cast<std::size_t>(streamNnz));
+            scratch.streams.push_back(
+              MergeStream{ tmp.innerIndexPtr()[begin], begin, end, adjacent.weight });
+          }
 
-            rowBuffer.reserve(std::max(rowBuffer.capacity(), maxStreamNnz));
-            std::make_heap(scratch.streams.begin(), scratch.streams.end(), heapCompare);
+          rowBuffer.clear();
+          const std::size_t streamCount = scratch.streams.size();
+          rowContributionCounts[static_cast<std::size_t>(outputRow)] = contributionCount;
+          rowMergeStreamCounts[static_cast<std::size_t>(outputRow)] = static_cast<std::uint64_t>(streamCount);
+          rowWorkspaceReused[static_cast<std::size_t>(outputRow)] =
+            (streamCount > 0 && previousStreamCapacity >= streamCount) ? 1u : 0u;
+          if (streamCount == 0)
+            continue;
 
-            while (!scratch.streams.empty()) {
-              std::pop_heap(scratch.streams.begin(), scratch.streams.end(), heapCompare);
-              MergeStream stream = scratch.streams.back();
-              scratch.streams.pop_back();
+          if (streamCount == 1) {
+            const MergeStream &stream = scratch.streams.front();
+            rowBuffer.reserve(std::max(rowBuffer.capacity(), static_cast<std::size_t>(stream.end - stream.index)));
+            for (Eigen::Index index = stream.index; index < stream.end; ++index)
+              rowBuffer.push_back(
+                RowValue{ tmp.innerIndexPtr()[index], stream.weight * tmp.valuePtr()[index] });
+            continue;
+          }
 
-              const Eigen::Index col = stream.col;
-              double value = 0.0;
-              for (;;) {
-                value += stream.weight * tmp.valuePtr()[stream.index];
-                ++stream.index;
-                if (stream.index < stream.end) {
-                  stream.col = tmp.innerIndexPtr()[stream.index];
-                  scratch.streams.push_back(stream);
-                  std::push_heap(scratch.streams.begin(), scratch.streams.end(), heapCompare);
-                }
+          rowBuffer.reserve(std::max(rowBuffer.capacity(), maxStreamNnz));
+          std::make_heap(scratch.streams.begin(), scratch.streams.end(), heapCompare);
 
-                if (scratch.streams.empty() || scratch.streams.front().col != col)
-                  break;
+          while (!scratch.streams.empty()) {
+            std::pop_heap(scratch.streams.begin(), scratch.streams.end(), heapCompare);
+            MergeStream stream = scratch.streams.back();
+            scratch.streams.pop_back();
 
-                std::pop_heap(scratch.streams.begin(), scratch.streams.end(), heapCompare);
-                stream = scratch.streams.back();
-                scratch.streams.pop_back();
+            const Eigen::Index col = stream.col;
+            double value = 0.0;
+            for (;;) {
+              value += stream.weight * tmp.valuePtr()[stream.index];
+              ++stream.index;
+              if (stream.index < stream.end) {
+                stream.col = tmp.innerIndexPtr()[stream.index];
+                scratch.streams.push_back(stream);
+                std::push_heap(scratch.streams.begin(), scratch.streams.end(), heapCompare);
               }
 
-              rowBuffer.push_back(RowValue{ col, value });
+              if (scratch.streams.empty() || scratch.streams.front().col != col)
+                break;
+
+              std::pop_heap(scratch.streams.begin(), scratch.streams.end(), heapCompare);
+              stream = scratch.streams.back();
+              scratch.streams.pop_back();
             }
+
+            rowBuffer.push_back(RowValue{ col, value });
           }
-        });
+        }
+      }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
     }
   }
 
@@ -492,15 +489,14 @@ void SurfaceDofMap::parallelSurfaceMapVectorMultiply(
   if (surfaceDisplacements.size() != numRows)
     throw std::invalid_argument("Surface displacement output size does not match SurfaceDofMap row count.");
 
-  pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numRows,
-    [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
-      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
-        double value = 0.0;
-        for (const SurfaceMapRowEntry &entry : surfaceFromSimulationDispMapRows_[static_cast<std::size_t>(row)])
-          value += entry.weight * simulationDisplacements[entry.simulationCol];
-        surfaceDisplacements[row] = value;
-      }
-    });
+  tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, numRows, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+    for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
+      double value = 0.0;
+      for (const SurfaceMapRowEntry &entry : surfaceFromSimulationDispMapRows_[static_cast<std::size_t>(row)])
+        value += entry.weight * simulationDisplacements[entry.simulationCol];
+      surfaceDisplacements[row] = value;
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 }
 
 void SurfaceDofMap::parallelTransposeMapVectorMultiply(
@@ -511,15 +507,14 @@ void SurfaceDofMap::parallelTransposeMapVectorMultiply(
   if (simulationVector.size() != numRows)
     throw std::invalid_argument("Simulation vector output size does not match SurfaceDofMap column count.");
 
-  pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, numRows,
-    [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
-      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
-        double value = 0.0;
-        for (const SimulationMapRowEntry &entry : simulationToSurfaceDispMapRows_[static_cast<std::size_t>(row)])
-          value += entry.weight * surfaceVector[entry.surfaceRow];
-        simulationVector[row] = value;
-      }
-    });
+  tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, numRows, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+    for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
+      double value = 0.0;
+      for (const SimulationMapRowEntry &entry : simulationToSurfaceDispMapRows_[static_cast<std::size_t>(row)])
+        value += entry.weight * surfaceVector[entry.surfaceRow];
+      simulationVector[row] = value;
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 }
 
 EigenSupport::VXd SurfaceDofMap::surfaceDisplacements(EigenSupport::ConstRefVecXd simulationDisplacements) const

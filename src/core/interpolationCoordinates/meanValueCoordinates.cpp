@@ -25,12 +25,14 @@
 #include "basicAlgorithms.h"
 #include "EigenSupport.h"
 #include "meshLinearAlgebra.h"
-#include "parallel/parallelFor.h"
 
 #include <cfloat>
 #include <climits>
 #include <memory>
 #include <cstring>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/partitioner.h>
 
 using namespace pgo;
 using namespace pgo::InterpolationCoordinates;
@@ -48,9 +50,7 @@ MeanValueCoordinates::MeanValueCoordinates(int numLocations_, const double *loca
   double epsilon = 1e-10;
   weights.resize(numCageVertices_ * numLocations_);
 
-  pgo::parallel::parallelForChunks(0, numLocations,
-    tbb::static_partitioner{},
-    [&](int rngBegin, int rngEnd) {
+  tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, numLocations, 1), [pgoBody = [&](int rngBegin, int rngEnd) {
     std::vector<ES::V3d> u(numCageVertices);
     std::vector<double> d(numCageVertices);
     for (int i = rngBegin; i != rngEnd; ++i) {
@@ -134,16 +134,16 @@ MeanValueCoordinates::MeanValueCoordinates(int numLocations_, const double *loca
       for (int j = 0; j < numCageVertices; j++) {
         weights[i * numCageVertices + j] /= W;
       }
-    } });  // end for locations
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); },
+    tbb::static_partitioner{});  // end for locations
 }
 
 void MeanValueCoordinates::deform(const double *cageDisp, double *locationDisp) const
 {
   memset(locationDisp, 0, sizeof(double) * 3 * numLocations);
 
-  pgo::parallel::parallelForChunks(0, numLocations,
-    tbb::static_partitioner{},
-    [&](int rngBegin, int rngEnd) {
+  tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, numLocations, 1), [pgoBody = [&](int rngBegin, int rngEnd) {
     for (int i = rngBegin; i != rngEnd; ++i) {
       double *l = locationDisp + 3 * i;
       for (int j = 0; j < numCageVertices; j++) {
@@ -151,5 +151,7 @@ void MeanValueCoordinates::deform(const double *cageDisp, double *locationDisp) 
         for (int k = 0; k < 3; k++)
           l[k] += w * cageDisp[3 * j + k];
       }
-    } });
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); },
+    tbb::static_partitioner{});
 }

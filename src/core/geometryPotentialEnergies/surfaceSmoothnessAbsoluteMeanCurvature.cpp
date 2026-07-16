@@ -1,14 +1,16 @@
 #include "surfaceSmoothnessAbsoluteMeanCurvature.h"
-#include "parallel/parallelReduce.h"
 #include "pgoLogging.h"
 #include "triMeshNeighbor.h"
 #include "basicAlgorithms.h"
 #include "EigenSupport.h"
-#include "parallel/parallelFor.h"
 
 #include <tbb/spin_mutex.h>
 
 #include <numeric>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/parallel_reduce.h>
+#include <utility>
 
 using namespace pgo::PredefinedPotentialEnergies;
 namespace ES = pgo::EigenSupport;
@@ -35,16 +37,15 @@ SurfaceSmoothnessAbsoluteMeanCurvature::SurfaceSmoothnessAbsoluteMeanCurvature(c
     Mesh::TriMeshNeighbor neighbor(mesh);
 
     // for (int vi = 0; vi < surfaceIn.numVertices(); vi++) {
-    pgo::parallel::parallelFor(0, mesh.numVertices(),
-      [&](int vi) {
-        vertexNeigboringTriangles[vi] = neighbor.getVtxNearbyTriangles(vi);
-        vertexNeigboringVertices[vi] = neighbor.getVtxNearbyVertices(vi, mesh);
-        BasicAlgorithms::sortAndDeduplicate(vertexNeigboringVertices[vi]);
-        auto it = std::lower_bound(vertexNeigboringVertices[vi].begin(), vertexNeigboringVertices[vi].end(), vi);
-        if (it != vertexNeigboringVertices[vi].end() && *it == vi) {
-          vertexNeigboringVertices[vi].erase(it);
-        }
-      });
+    tbb::parallel_for(0, mesh.numVertices(), [&](int vi) {
+      vertexNeigboringTriangles[vi] = neighbor.getVtxNearbyTriangles(vi);
+      vertexNeigboringVertices[vi] = neighbor.getVtxNearbyVertices(vi, mesh);
+      BasicAlgorithms::sortAndDeduplicate(vertexNeigboringVertices[vi]);
+      auto it = std::lower_bound(vertexNeigboringVertices[vi].begin(), vertexNeigboringVertices[vi].end(), vi);
+      if (it != vertexNeigboringVertices[vi].end() && *it == vi) {
+        vertexNeigboringVertices[vi].erase(it);
+      }
+    });
   }
   catch (std::exception &) {
     SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Input mesh is not manifold.");
@@ -195,60 +196,58 @@ void SurfaceSmoothnessAbsoluteMeanCurvature::setDOFs(const std::vector<int> &dof
 
 void SurfaceSmoothnessAbsoluteMeanCurvature::updateRestInfo()
 {
-  pgo::parallel::parallelFor(0, (int)surfaceQuads.size(),
-    [&](int ei) {
-      Eigen::Matrix<double, 3, 4> p;
-      for (int i = 0; i < 4; ++i) {
-        p.col(i) = restPositions.segment<3>(surfaceQuads[ei][i] * 3);
-      }
+  tbb::parallel_for(0, (int)surfaceQuads.size(), [&](int ei) {
+    Eigen::Matrix<double, 3, 4> p;
+    for (int i = 0; i < 4; ++i) {
+      p.col(i) = restPositions.segment<3>(surfaceQuads[ei][i] * 3);
+    }
 
-      double l01 = (p.col(0) - p.col(1)).norm();
-      double l02 = (p.col(0) - p.col(2)).norm();
-      double l12 = (p.col(1) - p.col(2)).norm();
-      double r0 = 0.5 * (l01 + l02 + l12);
-      double A0 = std::sqrt(r0 * (r0 - l01) * (r0 - l02) * (r0 - l12));
-      double l03 = (p.col(0) - p.col(3)).norm();
-      double l13 = (p.col(1) - p.col(3)).norm();
-      double r1 = 0.5 * (l01 + l03 + l13);
-      double A1 = std::sqrt(r1 * (r1 - l01) * (r1 - l03) * (r1 - l13));
+    double l01 = (p.col(0) - p.col(1)).norm();
+    double l02 = (p.col(0) - p.col(2)).norm();
+    double l12 = (p.col(1) - p.col(2)).norm();
+    double r0 = 0.5 * (l01 + l02 + l12);
+    double A0 = std::sqrt(r0 * (r0 - l01) * (r0 - l02) * (r0 - l12));
+    double l03 = (p.col(0) - p.col(3)).norm();
+    double l13 = (p.col(1) - p.col(3)).norm();
+    double r1 = 0.5 * (l01 + l03 + l13);
+    double A1 = std::sqrt(r1 * (r1 - l01) * (r1 - l03) * (r1 - l13));
 
-      elementWeights[ei] = std::sqrt(3.0 / (A0 + A1));
+    elementWeights[ei] = std::sqrt(3.0 / (A0 + A1));
 
-      double cot02 = ((l01 * l01) - (l02 * l02) + (l12 * l12)) / (4.0 * A0);
-      double cot12 = ((l01 * l01) + (l02 * l02) - (l12 * l12)) / (4.0 * A0);
-      double cot03 = ((l01 * l01) - (l03 * l03) + (l13 * l13)) / (4.0 * A1);
-      double cot13 = ((l01 * l01) + (l03 * l03) - (l13 * l13)) / (4.0 * A1);
+    double cot02 = ((l01 * l01) - (l02 * l02) + (l12 * l12)) / (4.0 * A0);
+    double cot12 = ((l01 * l01) + (l02 * l02) - (l12 * l12)) / (4.0 * A0);
+    double cot03 = ((l01 * l01) - (l03 * l03) + (l13 * l13)) / (4.0 * A1);
+    double cot13 = ((l01 * l01) + (l03 * l03) - (l13 * l13)) / (4.0 * A1);
 
-      elementVertexWeights[ei].block<3, 3>(0, 0) = ES::M3d::Identity() * (cot02 + cot03);
-      elementVertexWeights[ei].block<3, 3>(0, 3) = ES::M3d::Identity() * (cot12 + cot13);
-      elementVertexWeights[ei].block<3, 3>(0, 6) = ES::M3d::Identity() * -(cot02 + cot12);
-      elementVertexWeights[ei].block<3, 3>(0, 9) = ES::M3d::Identity() * -(cot03 + cot13);
+    elementVertexWeights[ei].block<3, 3>(0, 0) = ES::M3d::Identity() * (cot02 + cot03);
+    elementVertexWeights[ei].block<3, 3>(0, 3) = ES::M3d::Identity() * (cot12 + cot13);
+    elementVertexWeights[ei].block<3, 3>(0, 6) = ES::M3d::Identity() * -(cot02 + cot12);
+    elementVertexWeights[ei].block<3, 3>(0, 9) = ES::M3d::Identity() * -(cot03 + cot13);
 
-      restValues[ei] = (elementVertexWeights[ei] * ES::Mp<ES::V12d>(p.data())).norm();
-    });
+    restValues[ei] = (elementVertexWeights[ei] * ES::Mp<ES::V12d>(p.data())).norm();
+  });
 }
 
 // ||norm(x) - norm_rest ||^2
 double SurfaceSmoothnessAbsoluteMeanCurvature::func(EigenSupport::ConstRefVecXd x) const
 {
-  double energyAll = pgo::parallel::parallelReduce(0, (int)surfaceQuads.size(), 0.0,
-    [&](int rBegin, int rEnd, double init) -> double {
-      for (int ei = rBegin; ei != rEnd; ++ei) {
-        ES::V12d p;
-        for (int i = 0; i < 4; ++i) {
-          p.segment<3>(i * 3) = x.segment<3>(surfaceQuads[ei][i] * 3);
-        }
-
-        ES::V3d Hi = elementVertexWeights[ei] * p;
-        double v_norm = Hi.norm();
-        init += (v_norm - restValues[ei]) * (v_norm - restValues[ei]) * elementWeights[ei];
+  double energyAll = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, (int)surfaceQuads.size(), 1), 0.0, [pgoRangeFn = [&](int rBegin, int rEnd, double init) -> double {
+    for (int ei = rBegin; ei != rEnd; ++ei) {
+      ES::V12d p;
+      for (int i = 0; i < 4; ++i) {
+        p.segment<3>(i * 3) = x.segment<3>(surfaceQuads[ei][i] * 3);
       }
 
-      return init;
-    },
-    [](double x, double y) -> double {
+      ES::V3d Hi = elementVertexWeights[ei] * p;
+      double v_norm = Hi.norm();
+      init += (v_norm - restValues[ei]) * (v_norm - restValues[ei]) * elementWeights[ei];
+    }
+
+    return init;
+  }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+    [pgoJoinFn = [](double x, double y) -> double {
       return x + y;
-    });
+    }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
   return energyAll * 0.5;
 }
@@ -261,25 +260,24 @@ void SurfaceSmoothnessAbsoluteMeanCurvature::gradient(EigenSupport::ConstRefVecX
   grad.setZero();
 
   // for (int ei = 0; ei < (int)surfaceQuads.size(); ei++) {
-  pgo::parallel::parallelFor(0, (int)surfaceQuads.size(),
-    [&](int ei) {
-      ES::V12d p;
-      for (int i = 0; i < 4; ++i) {
-        p.segment<3>(i * 3) = x.segment<3>(surfaceQuads[ei][i] * 3);
-      }
+  tbb::parallel_for(0, (int)surfaceQuads.size(), [&](int ei) {
+    ES::V12d p;
+    for (int i = 0; i < 4; ++i) {
+      p.segment<3>(i * 3) = x.segment<3>(surfaceQuads[ei][i] * 3);
+    }
 
-      ES::V3d Hi = elementVertexWeights[ei] * p;
-      double curHNorm = std::max(Hi.norm(), eps);
-      ES::V3d dEdHi = elementWeights[ei] * (curHNorm - restValues[ei]) / curHNorm * Hi;
-      ES::V12d dEdx = elementVertexWeights[ei].transpose() * dEdHi;
-      for (int i = 0; i < 4; i++) {
-        buf->locks[surfaceQuads[ei][i]].lock();
+    ES::V3d Hi = elementVertexWeights[ei] * p;
+    double curHNorm = std::max(Hi.norm(), eps);
+    ES::V3d dEdHi = elementWeights[ei] * (curHNorm - restValues[ei]) / curHNorm * Hi;
+    ES::V12d dEdx = elementVertexWeights[ei].transpose() * dEdHi;
+    for (int i = 0; i < 4; i++) {
+      buf->locks[surfaceQuads[ei][i]].lock();
 
-        grad.segment<3>(surfaceQuads[ei][i] * 3) += dEdx.segment<3>(i * 3);
+      grad.segment<3>(surfaceQuads[ei][i] * 3) += dEdx.segment<3>(i * 3);
 
-        buf->locks[surfaceQuads[ei][i]].unlock();
-      }
-    });
+      buf->locks[surfaceQuads[ei][i]].unlock();
+    }
+  });
 }
 
 // E = 1/2 \sum mi || |Hi(x)| - |Hi_0| ||^2
@@ -292,50 +290,49 @@ void SurfaceSmoothnessAbsoluteMeanCurvature::hessianInPlace(EigenSupport::ConstR
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
   // for (int ei = 0; ei < (int)surfaceQuads.size(); ei++) {
-  pgo::parallel::parallelFor(0, (int)surfaceQuads.size(),
-    [&](int ei) {
-      ES::V12d p;
-      for (int i = 0; i < 4; ++i) {
-        p.segment<3>(i * 3) = x.segment<3>(surfaceQuads[ei][i] * 3);
-      }
+  tbb::parallel_for(0, (int)surfaceQuads.size(), [&](int ei) {
+    ES::V12d p;
+    for (int i = 0; i < 4; ++i) {
+      p.segment<3>(i * 3) = x.segment<3>(surfaceQuads[ei][i] * 3);
+    }
 
-      ES::V3d Hi = elementVertexWeights[ei] * p;
-      double curHNorm = std::max(Hi.norm(), eps);
+    ES::V3d Hi = elementVertexWeights[ei] * p;
+    double curHNorm = std::max(Hi.norm(), eps);
 
-      ES::V3d dzdH;
-      ES::M3d d2zdH2;
+    ES::V3d dzdH;
+    ES::M3d d2zdH2;
 
-      // dz/dH = 0.5 * (H^T H)^-0.5 * 2 H  = H / (HT H)^0.5
-      // d2z/dH2 = 0.5 * (-0.5) (H^T H)^(-1.5) 2H * 2H + 0.5 * (H^T H)^(-0.5) * 2.0
-      //         = - HHT / (HTH)^1.5 + 1 / (HTH)^0.5
-      dzdH = Hi / curHNorm;
-      d2zdH2 = ES::tensorProduct(Hi, Hi) / (-curHNorm * curHNorm * curHNorm) + ES::M3d::Identity() / curHNorm;
+    // dz/dH = 0.5 * (H^T H)^-0.5 * 2 H  = H / (HT H)^0.5
+    // d2z/dH2 = 0.5 * (-0.5) (H^T H)^(-1.5) 2H * 2H + 0.5 * (H^T H)^(-0.5) * 2.0
+    //         = - HHT / (HTH)^1.5 + 1 / (HTH)^0.5
+    dzdH = Hi / curHNorm;
+    d2zdH2 = ES::tensorProduct(Hi, Hi) / (-curHNorm * curHNorm * curHNorm) + ES::M3d::Identity() / curHNorm;
 
-      ES::M3d d2EdH2;
-      // dE/dz = mi (z - c0) * dz/dH
-      // d2E/dz2 = mi (dz/dH * dz/dH + (z - c0) * d2z/dH2)
-      d2EdH2 = (ES::tensorProduct(dzdH, dzdH) + d2zdH2 * (curHNorm - restValues[ei])) * elementWeights[ei];
+    ES::M3d d2EdH2;
+    // dE/dz = mi (z - c0) * dz/dH
+    // d2E/dz2 = mi (dz/dH * dz/dH + (z - c0) * d2z/dH2)
+    d2EdH2 = (ES::tensorProduct(dzdH, dzdH) + d2zdH2 * (curHNorm - restValues[ei])) * elementWeights[ei];
 
-      ES::M12d hessLocal;
-      hessLocal = elementVertexWeights[ei].transpose() * d2EdH2 * elementVertexWeights[ei];
+    ES::M12d hessLocal;
+    hessLocal = elementVertexWeights[ei].transpose() * d2EdH2 * elementVertexWeights[ei];
 
-      for (int vi = 0; vi < 4; vi++) {
-        int vidx_i = surfaceQuads[ei][vi];
+    for (int vi = 0; vi < 4; vi++) {
+      int vidx_i = surfaceQuads[ei][vi];
 
-        for (int vj = 0; vj < 4; vj++) {
-          int vidx_j = surfaceQuads[ei][vj];
+      for (int vj = 0; vj < 4; vj++) {
+        int vidx_j = surfaceQuads[ei][vj];
 
-          buf->locks[vidx_i].lock();
+        buf->locks[vidx_i].lock();
 
-          for (int r = 0; r < 3; r++) {
-            for (int c = 0; c < 3; c++) {
-              std::ptrdiff_t offset = elementOffsets[ei](vi * 3 + r, vj * 3 + c);
-              hess.valuePtr()[offset] += hessLocal(vi * 3 + r, vj * 3 + c);
-            }
+        for (int r = 0; r < 3; r++) {
+          for (int c = 0; c < 3; c++) {
+            std::ptrdiff_t offset = elementOffsets[ei](vi * 3 + r, vj * 3 + c);
+            hess.valuePtr()[offset] += hessLocal(vi * 3 + r, vj * 3 + c);
           }
-
-          buf->locks[vidx_i].unlock();
         }
+
+        buf->locks[vidx_i].unlock();
       }
-    });
+    }
+  });
 }

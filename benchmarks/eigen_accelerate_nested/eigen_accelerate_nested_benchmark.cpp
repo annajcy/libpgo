@@ -28,17 +28,17 @@ using pgo::benchmark_helpers::ThreadSampler;
 
 enum class Policy
 {
-  PgoDefaultSingle = 0,
-  TbbExperimentalMulti = 1,
+  ExecutorSingle = 0,
+  ExecutorMulti = 1,
 };
 
 const char *policyName(Policy policy)
 {
   switch (policy) {
-  case Policy::PgoDefaultSingle:
-    return "PgoDefaultSingle";
-  case Policy::TbbExperimentalMulti:
-    return "TbbExperimentalMulti";
+  case Policy::ExecutorSingle:
+    return "ExecutorSingle";
+  case Policy::ExecutorMulti:
+    return "ExecutorMulti";
   }
   return "Unknown";
 }
@@ -59,10 +59,6 @@ struct RunTelemetry
   std::atomic<int> singleModeCalls{ 0 };
   std::atomic<int> multiModeCalls{ 0 };
   std::atomic<int> otherModeCalls{ 0 };
-  std::atomic<int> ambientSingleCalls{ 0 };
-  std::atomic<int> ambientMultiCalls{ 0 };
-  std::atomic<int> ambientOtherCalls{ 0 };
-  std::atomic<int> restorationMismatches{ 0 };
   std::atomic<int> bodyCalls{ 0 };
 
   void reset() noexcept
@@ -73,10 +69,6 @@ struct RunTelemetry
     singleModeCalls.store(0, std::memory_order_relaxed);
     multiModeCalls.store(0, std::memory_order_relaxed);
     otherModeCalls.store(0, std::memory_order_relaxed);
-    ambientSingleCalls.store(0, std::memory_order_relaxed);
-    ambientMultiCalls.store(0, std::memory_order_relaxed);
-    ambientOtherCalls.store(0, std::memory_order_relaxed);
-    restorationMismatches.store(0, std::memory_order_relaxed);
     bodyCalls.store(0, std::memory_order_relaxed);
   }
 };
@@ -116,7 +108,9 @@ void recordAccelerateMode(RunTelemetry &telemetry, BLAS_THREADING mode)
 }
 
 void runOuterLoop(Policy policy, int outerTasks,
-  NestedEigenAccelerateWorkload &workload, RunTelemetry &telemetry)
+  NestedEigenAccelerateWorkload &workload, RunTelemetry &telemetry,
+  P::ArenaThreadingExecutor &singleExecutor,
+  P::ArenaThreadingExecutor &multiExecutor)
 {
   const auto body = [&](int taskIndex) {
     ActiveCallback active(telemetry);
@@ -127,36 +121,13 @@ void runOuterLoop(Policy policy, int outerTasks,
     telemetry.bodyCalls.fetch_add(1, std::memory_order_relaxed);
   };
 
-  if (policy == Policy::PgoDefaultSingle) {
-    P::parallelFor(0, outerTasks, body,
-      std::optional<int>{ 1 }, tbb::auto_partitioner{});
-    return;
-  }
-
-  P::withGlobalTbbConcurrency([&] {
+  auto &executor = policy == Policy::ExecutorSingle ? singleExecutor : multiExecutor;
+  executor.execute([&] {
     tbb::parallel_for(
       tbb::blocked_range<int>(0, outerTasks, 1),
       [&](const tbb::blocked_range<int> &range) {
-        for (int taskIndex = range.begin(); taskIndex < range.end(); ++taskIndex) {
-          const BLAS_THREADING ambient = BLASGetThreading();
-          switch (ambient) {
-          case BLAS_THREADING_SINGLE_THREADED:
-            telemetry.ambientSingleCalls.fetch_add(1, std::memory_order_relaxed);
-            break;
-          case BLAS_THREADING_MULTI_THREADED:
-            telemetry.ambientMultiCalls.fetch_add(1, std::memory_order_relaxed);
-            break;
-          default:
-            telemetry.ambientOtherCalls.fetch_add(1, std::memory_order_relaxed);
-            break;
-          }
-
-          P::experimental::withMultiThreadedAccelerate([&] {
-            body(taskIndex);
-          });
-          if (BLASGetThreading() != ambient)
-            telemetry.restorationMismatches.fetch_add(1, std::memory_order_relaxed);
-        }
+        for (int taskIndex = range.begin(); taskIndex < range.end(); ++taskIndex)
+          body(taskIndex);
       },
       tbb::auto_partitioner{});
   });
@@ -165,19 +136,25 @@ void runOuterLoop(Policy policy, int outerTasks,
 void runBenchmark(benchmark::State &state,
   Policy policy, int configuredConcurrency, int outerTasks, int matrixN)
 {
-  const int effectiveConcurrency = P::initialize(configuredConcurrency);
+  P::GlobalTbbControl control(configuredConcurrency);
+  const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
+    tbb::global_control::max_allowed_parallelism));
+  P::ArenaThreadingExecutor singleExecutor(configuredConcurrency,
+    { .accelerate = P::AccelerateThreading::single });
+  P::ArenaThreadingExecutor multiExecutor(configuredConcurrency,
+    { .accelerate = P::AccelerateThreading::multi });
   NestedEigenAccelerateWorkload workload(outerTasks, matrixN);
   RunTelemetry telemetry;
 
   ThreadSampler sampler;
   sampler.start();
-  runOuterLoop(policy, outerTasks, workload, telemetry);
+  runOuterLoop(policy, outerTasks, workload, telemetry, singleExecutor, multiExecutor);
   const int peakThreads = sampler.stop();
   const int baselineThreads = sampler.baseline();
 
   telemetry.reset();
   for (auto _ : state) {
-    runOuterLoop(policy, outerTasks, workload, telemetry);
+    runOuterLoop(policy, outerTasks, workload, telemetry, singleExecutor, multiExecutor);
     benchmark::DoNotOptimize(&workload);
     benchmark::ClobberMemory();
   }
@@ -206,14 +183,6 @@ void runBenchmark(benchmark::State &state,
     telemetry.multiModeCalls.load(std::memory_order_relaxed);
   state.counters["other_mode_calls"] =
     telemetry.otherModeCalls.load(std::memory_order_relaxed);
-  state.counters["ambient_single_calls"] =
-    telemetry.ambientSingleCalls.load(std::memory_order_relaxed);
-  state.counters["ambient_multi_calls"] =
-    telemetry.ambientMultiCalls.load(std::memory_order_relaxed);
-  state.counters["ambient_other_calls"] =
-    telemetry.ambientOtherCalls.load(std::memory_order_relaxed);
-  state.counters["restoration_mismatches"] =
-    telemetry.restorationMismatches.load(std::memory_order_relaxed);
   state.counters["body_calls"] = telemetry.bodyCalls.load(std::memory_order_relaxed);
   state.counters["baseline_threads"] = baselineThreads;
   state.counters["peak_threads"] = peakThreads;
@@ -228,8 +197,8 @@ void runBenchmark(benchmark::State &state,
 void registerBenchmarks()
 {
   constexpr Policy policies[] = {
-    Policy::PgoDefaultSingle,
-    Policy::TbbExperimentalMulti,
+    Policy::ExecutorSingle,
+    Policy::ExecutorMulti,
   };
   constexpr int concurrencyValues[] = { 1, 2, 4, 8, 16 };
   constexpr struct

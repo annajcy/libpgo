@@ -1,5 +1,4 @@
 #include "triMeshSampler.h"
-#include "parallel/parallelFor.h"
 #include "triangleSampler.h"
 #include "geometryQuery.h"
 
@@ -8,6 +7,9 @@
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/partitioner.h>
 
 namespace pgo
 {
@@ -87,17 +89,14 @@ int sampleTriangle(const TriMeshGeo &mesh, int subdivideTriangle,
 
   int ntri = mesh.numTriangles();
   std::vector<double> triangleAreas(ntri, 0);
-  pgo::parallel::parallelFor(
-    0, ntri,
- tbb::static_partitioner{}, [&](int trii) {
+  tbb::parallel_for(0, ntri, [&](int trii) {
       Vec3d vtx[3] = {
         mesh.pos(trii, 0),
         mesh.pos(trii, 1),
         mesh.pos(trii, 2),
       };
 
-      triangleAreas[trii] = getTriangleArea(vtx[0], vtx[1], vtx[2]);
-    });
+      triangleAreas[trii] = getTriangleArea(vtx[0], vtx[1], vtx[2]); }, tbb::static_partitioner{});
 
   std::cout << "Sampling surface mesh..." << std::endl;
 
@@ -105,9 +104,7 @@ int sampleTriangle(const TriMeshGeo &mesh, int subdivideTriangle,
   std::vector<std::vector<SampleInfo>> triangleSamples(ntri, std::vector<SampleInfo>());
 
   // Sample surface
-  pgo::parallel::parallelFor(
-    0, ntri,
- tbb::static_partitioner{}, [&](int trii) {
+  tbb::parallel_for(0, ntri, [&](int trii) {
       triangleSamples[trii].reserve(100);
 
       Vec3d vtx[3] = {
@@ -132,24 +129,22 @@ int sampleTriangle(const TriMeshGeo &mesh, int subdivideTriangle,
           sampleInfo.coord = Vec2i(i, j);
           sampleInfo.triangleID = trii;
           triangleSamples[trii].emplace_back(sampleInfo);
-        });
-    });
+        }); }, tbb::static_partitioner{});
 
   std::atomic<int> count(0);
   tbb::concurrent_unordered_map<SampleInfo, int, SampleInfoHash, SampleInfoEqual> sampleIDQueryTableCC;
 
   if (subdivideTriangle > 1) {
-    pgo::parallel::parallelFor((int)0, (int)triangleSamples.size(),
-      [&](int trii) {
-        count.fetch_add((int)triangleSamples[trii].size());
+    tbb::parallel_for((int)0, (int)triangleSamples.size(), [&](int trii) {
+      count.fetch_add((int)triangleSamples[trii].size());
 
-        for (const auto &sample : triangleSamples[trii]) {
-          sampleIDQueryTableCC.emplace(sample, 0);
-        }
+      for (const auto &sample : triangleSamples[trii]) {
+        sampleIDQueryTableCC.emplace(sample, 0);
+      }
 
-        if (trii % 1000 == 0)
-          std::cout << trii << ' ' << std::flush;
-      });
+      if (trii % 1000 == 0)
+        std::cout << trii << ' ' << std::flush;
+    });
     std::cout << std::endl;
 
     int inc = 0;

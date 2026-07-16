@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare default pgo SINGLE and experimental aligned-TBB MULTI Accelerate GEMM."""
+"""Compare SINGLE and MULTI Accelerate GEMM in identical executor arenas."""
 
 from __future__ import annotations
 
@@ -16,10 +16,10 @@ from pathlib import Path
 from typing import Any
 
 
-POLICIES = ("PgoDefaultSingle", "TbbExperimentalMulti")
+POLICIES = ("ExecutorSingle", "ExecutorMulti")
 TIME_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 CASE_PATTERN = re.compile(
-    r"^NestedEigenAccelerate/(PgoDefaultSingle|TbbExperimentalMulti)"
+    r"^NestedEigenAccelerate/(ExecutorSingle|ExecutorMulti)"
     r"/c_(\d+)/tasks_(\d+)/n_(\d+)(?:/real_time)?$"
 )
 
@@ -163,41 +163,23 @@ def validate_block(
         if counter(row, "effective_concurrency") != concurrency:
             raise RuntimeError(f"{policy} did not establish concurrency={concurrency}.")
         if counter(row, "arena_concurrency") != concurrency:
-            raise RuntimeError(f"{policy} did not execute in the global-aligned arena.")
+            raise RuntimeError(f"{policy} did not execute in its configured executor arena.")
         expected_calls = int(row["iterations"]) * outer_tasks
         if counter(row, "body_calls") != expected_calls:
             raise RuntimeError(f"{policy} executed an unexpected number of bodies.")
         if counter(row, "other_mode_calls") != 0:
             raise RuntimeError(f"{policy} observed an unknown Accelerate threading mode.")
 
-    pgo = measurements["PgoDefaultSingle"]
-    tbb = measurements["TbbExperimentalMulti"]
-    if counter(pgo, "single_mode_calls") != counter(pgo, "body_calls"):
-        raise RuntimeError("PgoDefaultSingle did not observe SINGLE in every body.")
-    if counter(pgo, "multi_mode_calls") != 0:
-        raise RuntimeError("PgoDefaultSingle unexpectedly observed MULTI.")
-    if counter(tbb, "multi_mode_calls") != counter(tbb, "body_calls"):
-        raise RuntimeError(
-            "TbbExperimentalMulti did not observe MULTI in every body."
-        )
-    if counter(tbb, "single_mode_calls") != 0:
-        raise RuntimeError("TbbExperimentalMulti unexpectedly observed SINGLE.")
-    if counter(tbb, "restoration_mismatches") != 0:
-        raise RuntimeError(
-            "TbbExperimentalMulti did not restore a callback's prior thread-local mode."
-        )
-    ambient_calls = sum(
-        counter(tbb, name)
-        for name in (
-            "ambient_single_calls",
-            "ambient_multi_calls",
-            "ambient_other_calls",
-        )
-    )
-    if ambient_calls != counter(tbb, "body_calls"):
-        raise RuntimeError(
-            "TbbExperimentalMulti did not record one ambient mode per body."
-        )
+    single = measurements["ExecutorSingle"]
+    multi = measurements["ExecutorMulti"]
+    if counter(single, "single_mode_calls") != counter(single, "body_calls"):
+        raise RuntimeError("ExecutorSingle did not observe SINGLE in every body.")
+    if counter(single, "multi_mode_calls") != 0:
+        raise RuntimeError("ExecutorSingle unexpectedly observed MULTI.")
+    if counter(multi, "multi_mode_calls") != counter(multi, "body_calls"):
+        raise RuntimeError("ExecutorMulti did not observe MULTI in every body.")
+    if counter(multi, "single_mode_calls") != 0:
+        raise RuntimeError("ExecutorMulti unexpectedly observed SINGLE.")
 
 
 def summarize(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -228,15 +210,15 @@ def summarize(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     )
                     for policy in POLICIES
                 },
-                "median_experimental_multi_over_default_single": statistics.median(
-                    float(block["experimental_multi_over_default_single"])
+                "median_multi_over_single": statistics.median(
+                    float(block["multi_over_single"])
                     for block in blocks
                 ),
                 "median_extra_thread_delta": statistics.median(
                     float(block["extra_thread_delta"]) for block in blocks
                 ),
-                "median_cold_experimental_multi_over_default_single": statistics.median(
-                    float(block["cold_experimental_multi_over_default_single"])
+                "median_cold_multi_over_single": statistics.median(
+                    float(block["cold_multi_over_single"])
                     for block in blocks
                 ),
             }
@@ -305,15 +287,15 @@ def main() -> int:
 
             validate_block(key, cold_probes, args.checksum_relative_tolerance)
             validate_block(key, measurements, args.checksum_relative_tolerance)
-            pgo_time = float(measurements["PgoDefaultSingle"]["wall_seconds"])
-            tbb_time = float(
-                measurements["TbbExperimentalMulti"]["wall_seconds"]
+            single_time = float(measurements["ExecutorSingle"]["wall_seconds"])
+            multi_time = float(
+                measurements["ExecutorMulti"]["wall_seconds"]
             )
-            cold_pgo_time = float(
-                cold_probes["PgoDefaultSingle"]["wall_seconds"]
+            cold_single_time = float(
+                cold_probes["ExecutorSingle"]["wall_seconds"]
             )
-            cold_tbb_time = float(
-                cold_probes["TbbExperimentalMulti"]["wall_seconds"]
+            cold_multi_time = float(
+                cold_probes["ExecutorMulti"]["wall_seconds"]
             )
             records.append(
                 {
@@ -324,12 +306,12 @@ def main() -> int:
                     "order": policies,
                     "measurements": measurements,
                     "cold_probes": cold_probes,
-                    "experimental_multi_over_default_single": tbb_time / pgo_time,
-                    "cold_experimental_multi_over_default_single":
-                        cold_tbb_time / cold_pgo_time,
+                    "multi_over_single": multi_time / single_time,
+                    "cold_multi_over_single":
+                        cold_multi_time / cold_single_time,
                     "extra_thread_delta":
-                        counter(cold_probes["TbbExperimentalMulti"], "extra_threads")
-                        - counter(cold_probes["PgoDefaultSingle"], "extra_threads"),
+                        counter(cold_probes["ExecutorMulti"], "extra_threads")
+                        - counter(cold_probes["ExecutorSingle"], "extra_threads"),
                 }
             )
 
@@ -350,14 +332,14 @@ def main() -> int:
     args.out.write_text(json.dumps(payload, indent=2) + "\n")
 
     print(
-        "\nc tasks    n  steady experimental/default  "
-        "cold experimental/default  extra-thread delta"
+        "\nc tasks    n  steady multi/single  "
+        "cold multi/single  extra-thread delta"
     )
     for row in summary:
         print(
             f"{row['concurrency']:2d} {row['outer_tasks']:5d} {row['matrix_n']:4d}  "
-            f"{row['median_experimental_multi_over_default_single']:27.4f}  "
-            f"{row['median_cold_experimental_multi_over_default_single']:25.4f}  "
+            f"{row['median_multi_over_single']:19.4f}  "
+            f"{row['median_cold_multi_over_single']:17.4f}  "
             f"{row['median_extra_thread_delta']:18.1f}"
         )
     print(f"\nWrote {args.out}")

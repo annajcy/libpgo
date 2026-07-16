@@ -35,7 +35,7 @@ class Provider:
 
 PROVIDERS = {
     "accelerate": Provider(
-        "accelerate", "AccelerateDefaultSingle", "AccelerateExperimentalMulti"
+        "accelerate", "AccelerateSingle", "AccelerateMulti"
     ),
     "mkl": Provider("mkl", "MklTbbSingle", "MklTbbGlobal"),
 }

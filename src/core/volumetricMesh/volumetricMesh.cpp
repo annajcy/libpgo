@@ -41,7 +41,6 @@
 #include "range.h"
 #include "stringHelper.h"
 #include "pgoLogging.h"
-#include "parallel/parallelFor.h"
 
 #include <cfloat>
 #include <cstring>
@@ -49,6 +48,8 @@
 #include <iostream>
 #include <map>
 #include <numeric>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 namespace pgo
 {
@@ -441,7 +442,7 @@ void VolumetricMesh::loadFromAscii(const char *filename, elementType *elementTyp
         double density = 0.0, E1 = 0.0, E2 = 0.0, E3 = 0.0, nu12 = 0.0, nu23 = 0.0, nu31 = 0.0, G12 = 0.0, G23 = 0.0, G31 = 0.0;
         double nu = 0.0, G = 1.0;
         bool useNuAndG = false;
-        double R[9];               // rotation matrix, stored in row-major format
+        double R[9];  // rotation matrix, stored in row-major format
         memset(R, 0, sizeof(R));
         R[0] = R[4] = R[8] = 1.0;  // default to identity
 
@@ -2168,15 +2169,14 @@ int VolumetricMesh::saveInterpolationWeightsBinary(FILE *fout, int numTargetLoca
 
 void VolumetricMesh::interpolate(const double *u, double *uTarget, int numTargetLocations, int numElementVertices_, const int *vertices_, const double *weights)
 {
-  pgo::parallel::parallelFor(0, numTargetLocations,
-    [&](int i) {
-      Vec3d defo(0, 0, 0);
-      for (int j = 0; j < numElementVertices_; j++) {
-        int volumetricMeshVertexIndex = vertices_[numElementVertices_ * i + j];
-        defo += weights[numElementVertices_ * i + j] * asVec3d(u + 3 * volumetricMeshVertexIndex);
-      }
-      (Eigen::Map<Vec3d>(uTarget + 3 * i)) = defo;
-    });
+  tbb::parallel_for(0, numTargetLocations, [&](int i) {
+    Vec3d defo(0, 0, 0);
+    for (int j = 0; j < numElementVertices_; j++) {
+      int volumetricMeshVertexIndex = vertices_[numElementVertices_ * i + j];
+      defo += weights[numElementVertices_ * i + j] * asVec3d(u + 3 * volumetricMeshVertexIndex);
+    }
+    (Eigen::Map<Vec3d>(uTarget + 3 * i)) = defo;
+  });
 }
 
 int VolumetricMesh::interpolateGradient(const double *U, int numFields, Vec3d pos, double *grad) const
@@ -2780,7 +2780,8 @@ VegMaterialPayload extractMaterialPayload(const VM::Material *material)
   }
   if (auto *mr = downcastMooneyRivlinMaterial(const_cast<VM::Material *>(material))) {
     return VegMooneyRivlinMaterialPayload{
-      mr->getName(), mr->getDensity(), mr->getmu01(), mr->getmu10(), mr->getv1() };
+      mr->getName(), mr->getDensity(), mr->getmu01(), mr->getmu10(), mr->getv1()
+    };
   }
   if (auto *ortho = downcastOrthotropicMaterial(const_cast<VM::Material *>(material))) {
     VegOrthotropicMaterialPayload payload;
@@ -2820,7 +2821,8 @@ std::unique_ptr<VM::Material> makeMaterial(const VegMaterialPayload &payload)
         material.G12, material.G23, material.G31,
         const_cast<double *>(material.R.data()));
     }
-  }, payload);
+  },
+    payload);
 }
 
 std::vector<VM::Set> makeSets(const std::vector<VegSetPayload> &payloads)
@@ -2915,7 +2917,8 @@ std::unique_ptr<VolumetricMesh> VolumetricMesh::fromVegFilePayload(const VegFile
         static_cast<int>(sets.size()), sets.data(),
         static_cast<int>(regions.size()), regions.data());
     }
-  }, payload.meshData);
+  },
+    payload.meshData);
 }
 
 }  // namespace VolumetricMeshes

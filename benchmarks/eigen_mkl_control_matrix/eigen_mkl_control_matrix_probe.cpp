@@ -1,7 +1,7 @@
 #include "../eigen_mkl_nested/eigen_mkl_nested_kernel.h"
 
+#include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
-#include "parallel/parallelFor.h"
 
 #include <mkl.h>
 
@@ -14,6 +14,9 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/task_arena.h>
 
 namespace
 {
@@ -127,7 +130,12 @@ void withMklApiSetting(Policy policy, Fn &&fn)
 
 void run(const Arguments &arguments)
 {
-  const int effectiveConcurrency = P::initialize(arguments.concurrency);
+  P::GlobalTbbControl control(arguments.concurrency);
+  const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
+    tbb::global_control::max_allowed_parallelism));
+  P::ArenaThreadingExecutor outerExecutor(arguments.concurrency,
+    { .mklLocalThreadBudget = 0 });
+  tbb::task_arena singleArena(1, 1);
   NestedEigenMklWorkload workload(arguments.outerTasks, arguments.matrixN);
 
   std::cout << "PGO_MKL_VERBOSE_PROBE_BEGIN policy=" << policyName(arguments.policy)
@@ -136,14 +144,22 @@ void run(const Arguments &arguments)
             << " outer_tasks=" << arguments.outerTasks
             << " matrix_n=" << arguments.matrixN << '\n';
 
-  P::parallelFor(0, arguments.outerTasks, [&](int taskIndex) {
-      const auto runKernel = [&] {
-        withMklApiSetting(arguments.policy, [&] { workload.run(taskIndex); });
-      };
-      if (usesSingleParticipantArena(arguments.policy))
-        P::withSingleThreadedTbb(runKernel);
-      else
-        runKernel(); }, std::optional<int>{ 1 }, tbb::auto_partitioner{});
+  outerExecutor.execute([&] {
+    tbb::parallel_for(
+      tbb::blocked_range<int>(0, arguments.outerTasks, 1),
+      [&](const tbb::blocked_range<int> &range) {
+        for (int taskIndex = range.begin(); taskIndex < range.end(); ++taskIndex) {
+          const auto runKernel = [&] {
+            withMklApiSetting(arguments.policy, [&] { workload.run(taskIndex); });
+          };
+          if (usesSingleParticipantArena(arguments.policy))
+            singleArena.execute(runKernel);
+          else
+            runKernel();
+        }
+      },
+      tbb::auto_partitioner{});
+  });
 
   std::cout << "PGO_MKL_VERBOSE_PROBE_END policy=" << policyName(arguments.policy)
             << " checksum=" << workload.checksum() << '\n';

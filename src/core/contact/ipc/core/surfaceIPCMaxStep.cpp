@@ -1,11 +1,9 @@
 #include "ipc/core/surfaceIPCMaxStep.h"
-#include "parallel/parallelReduce.h"
 
 #include "ipc/broadPhase/spatialHashGrid.h"
 #include "ipc/geometry/ipcCCD.h"
 #include "scopedProfileSection.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
-#include "parallel/parallelFor.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
@@ -14,6 +12,10 @@
 #include <functional>
 #include <string_view>
 #include <vector>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/parallel_reduce.h>
+#include <utility>
 
 namespace pgo
 {
@@ -110,43 +112,39 @@ double computeSelfMaxStep(
 
     // Inflate swept AABBs by `thickness` on every side so the broad-phase
     // prune stays sound for min-separation CCD (contact at distance == thickness).
-    pgo::parallel::parallelFor(0, topology.numVerts,
-      [&](int vi) {
-        V3d p0 = getV(vi), p1 = p0 + getdV(vi);
-        vertBox[vi].init(p0, thickness);
-        vertBox[vi].expand(p1, thickness);
-      });
+    tbb::parallel_for(0, topology.numVerts, [&](int vi) {
+      V3d p0 = getV(vi), p1 = p0 + getdV(vi);
+      vertBox[vi].init(p0, thickness);
+      vertBox[vi].expand(p1, thickness);
+    });
 
-    pgo::parallel::parallelFor(0, nTri,
-      [&](int fi) {
-        auto &tri = topology.triangles[fi];
-        V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
-        V3d d0 = getdV(tri[0]), d1 = getdV(tri[1]), d2 = getdV(tri[2]);
-        triBox[fi].init(v0, thickness);
-        triBox[fi].expand(v1, thickness);
-        triBox[fi].expand(v2, thickness);
-        triBox[fi].expand(v0 + d0, thickness);
-        triBox[fi].expand(v1 + d1, thickness);
-        triBox[fi].expand(v2 + d2, thickness);
-      });
+    tbb::parallel_for(0, nTri, [&](int fi) {
+      auto &tri = topology.triangles[fi];
+      V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
+      V3d d0 = getdV(tri[0]), d1 = getdV(tri[1]), d2 = getdV(tri[2]);
+      triBox[fi].init(v0, thickness);
+      triBox[fi].expand(v1, thickness);
+      triBox[fi].expand(v2, thickness);
+      triBox[fi].expand(v0 + d0, thickness);
+      triBox[fi].expand(v1 + d1, thickness);
+      triBox[fi].expand(v2 + d2, thickness);
+    });
 
-    pgo::parallel::parallelFor(0, nEdge,
-      [&](int ei) {
-        V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
-        V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
-        edgeBox[ei].init(a0, thickness);
-        edgeBox[ei].expand(a1, thickness);
-        edgeBox[ei].expand(a0 + da0, thickness);
-        edgeBox[ei].expand(a1 + da1, thickness);
-      });
+    tbb::parallel_for(0, nEdge, [&](int ei) {
+      V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
+      V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
+      edgeBox[ei].init(a0, thickness);
+      edgeBox[ei].expand(a1, thickness);
+      edgeBox[ei].expand(a0 + da0, thickness);
+      edgeBox[ei].expand(a1 + da1, thickness);
+    });
 
-    double avgBoxDiag = pgo::parallel::parallelReduce(0, nTri, 0.0,
-      [&](int rBegin, int rEnd, double sum) {
-        for (int fi = rBegin; fi < rEnd; ++fi)
-          sum += (triBox[fi].hi - triBox[fi].lo).norm();
-        return sum;
-      },
-      std::plus<double>());
+    double avgBoxDiag = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nTri, 1), 0.0, [pgoRangeFn = [&](int rBegin, int rEnd, double sum) {
+      for (int fi = rBegin; fi < rEnd; ++fi)
+        sum += (triBox[fi].hi - triBox[fi].lo).norm();
+      return sum;
+    }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+      [pgoJoinFn = std::plus<double>()](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
     cellSize = nTri > 0 ? std::max(avgBoxDiag / nTri, 1e-6) : std::max(1e-6, dhat);
   }
 
@@ -165,42 +163,43 @@ double computeSelfMaxStep(
     tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
     tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-    alpha = pgo::parallel::parallelReduce(0, topology.numVerts, 1.0,
-      [&](int rangeBegin, int rangeEnd, double localAlpha) {
-        auto &visited = tls_visited.local();
-        auto &candidates = tls_candidates.local();
-        auto &localCounts = tls_counts.local();
+    alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, topology.numVerts, 1), 1.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
+      auto &visited = tls_visited.local();
+      auto &candidates = tls_candidates.local();
+      auto &localCounts = tls_counts.local();
 
-        for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
-          candidates.clear();
-          triHash.query(vertBox[vi], -1, visited, vi + 1, candidates);
+      for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
+        candidates.clear();
+        triHash.query(vertBox[vi], -1, visited, vi + 1, candidates);
+        if (profilingEnabled)
+          localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+
+        V3d p = getV(vi), dp = getdV(vi);
+        for (int fi : candidates) {
+          auto &tri = topology.triangles[fi];
+          if (vi == tri[0] || vi == tri[1] || vi == tri[2])
+            continue;
+          if (!vertBox[vi].overlaps(triBox[fi]))
+            continue;
+
           if (profilingEnabled)
-            localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+            localCounts.exactTests += 1;
+          V3d t0 = getV(tri[0]), dt0 = getdV(tri[0]);
+          V3d t1 = getV(tri[1]), dt1 = getdV(tri[1]);
+          V3d t2 = getV(tri[2]), dt2 = getdV(tri[2]);
 
-          V3d p = getV(vi), dp = getdV(vi);
-          for (int fi : candidates) {
-            auto &tri = topology.triangles[fi];
-            if (vi == tri[0] || vi == tri[1] || vi == tri[2])
-              continue;
-            if (!vertBox[vi].overlaps(triBox[fi]))
-              continue;
-
-            if (profilingEnabled)
-              localCounts.exactTests += 1;
-            V3d t0 = getV(tri[0]), dt0 = getdV(tri[0]);
-            V3d t1 = getV(tri[1]), dt1 = getdV(tri[1]);
-            V3d t2 = getV(tri[2]), dt2 = getdV(tri[2]);
-
-            double toi = ccd::pointTriangleCCD(p, t0, t1, t2,
-              dp, dt0, dt1, dt2,
-              thickness, localAlpha);
-            if (toi < localAlpha)
-              localAlpha = toi * slackness;
-          }
+          double toi = ccd::pointTriangleCCD(p, t0, t1, t2,
+            dp, dt0, dt1, dt2,
+            thickness, localAlpha);
+          if (toi < localAlpha)
+            localAlpha = toi * slackness;
         }
-        return localAlpha;
-      },
-      [](double a, double b) { return std::min(a, b); });
+      }
+      return localAlpha;
+    }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+      [pgoJoinFn = [](double a, double b) {
+        return std::min(a, b);
+      }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
     recordQueryCounters(
       SurfaceIPCProfileSections::kMaxStepSelfPTHashCandidates,
@@ -221,43 +220,44 @@ double computeSelfMaxStep(
     tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
     tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-    alpha = pgo::parallel::parallelReduce(0, nEdge, alpha,
-      [&](int rangeBegin, int rangeEnd, double localAlpha) {
-        auto &visited = tls_visited.local();
-        auto &candidates = tls_candidates.local();
-        auto &localCounts = tls_counts.local();
+    alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nEdge, 1), alpha, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
+      auto &visited = tls_visited.local();
+      auto &candidates = tls_candidates.local();
+      auto &localCounts = tls_counts.local();
 
-        for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
-          candidates.clear();
-          edgeHash.queryAfter(edgeBox[ei], ei, visited, ei + 1, candidates);
+      for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
+        candidates.clear();
+        edgeHash.queryAfter(edgeBox[ei], ei, visited, ei + 1, candidates);
+        if (profilingEnabled)
+          localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+
+        int a0 = topology.edges[ei][0], a1 = topology.edges[ei][1];
+        V3d va0 = getV(a0), va1 = getV(a1);
+        V3d da0 = getdV(a0), da1 = getdV(a1);
+        for (int ej : candidates) {
+          int b0 = topology.edges[ej][0], b1 = topology.edges[ej][1];
+          if (a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1)
+            continue;
+          if (!edgeBox[ei].overlaps(edgeBox[ej]))
+            continue;
+
           if (profilingEnabled)
-            localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+            localCounts.exactTests += 1;
+          V3d vb0 = getV(b0), vb1 = getV(b1);
+          V3d db0 = getdV(b0), db1 = getdV(b1);
 
-          int a0 = topology.edges[ei][0], a1 = topology.edges[ei][1];
-          V3d va0 = getV(a0), va1 = getV(a1);
-          V3d da0 = getdV(a0), da1 = getdV(a1);
-          for (int ej : candidates) {
-            int b0 = topology.edges[ej][0], b1 = topology.edges[ej][1];
-            if (a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1)
-              continue;
-            if (!edgeBox[ei].overlaps(edgeBox[ej]))
-              continue;
-
-            if (profilingEnabled)
-              localCounts.exactTests += 1;
-            V3d vb0 = getV(b0), vb1 = getV(b1);
-            V3d db0 = getdV(b0), db1 = getdV(b1);
-
-            double toi = ccd::edgeEdgeCCD(va0, va1, vb0, vb1,
-              da0, da1, db0, db1,
-              thickness, localAlpha);
-            if (toi < localAlpha)
-              localAlpha = toi * slackness;
-          }
+          double toi = ccd::edgeEdgeCCD(va0, va1, vb0, vb1,
+            da0, da1, db0, db1,
+            thickness, localAlpha);
+          if (toi < localAlpha)
+            localAlpha = toi * slackness;
         }
-        return localAlpha;
-      },
-      [](double a, double b) { return std::min(a, b); });
+      }
+      return localAlpha;
+    }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+      [pgoJoinFn = [](double a, double b) {
+        return std::min(a, b);
+      }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
     recordQueryCounters(
       SurfaceIPCProfileSections::kMaxStepSelfEEHashCandidates,
@@ -302,12 +302,11 @@ double computeExternalMaxStep(
   // this swept surface box, external CCD can return before constructing the
   // heavier dynamic triangle/edge AABBs and hashes.
   std::vector<SpatialHashGrid::AABB> dynVertBox(topology.numVerts);
-  pgo::parallel::parallelFor(0, topology.numVerts,
-    [&](int vi) {
-      V3d p0 = getV(vi), p1 = p0 + getdV(vi);
-      dynVertBox[vi].init(p0, thickness);
-      dynVertBox[vi].expand(p1, thickness);
-    });
+  tbb::parallel_for(0, topology.numVerts, [&](int vi) {
+    V3d p0 = getV(vi), p1 = p0 + getdV(vi);
+    dynVertBox[vi].init(p0, thickness);
+    dynVertBox[vi].expand(p1, thickness);
+  });
 
   SpatialHashGrid::AABB dynSurfaceBox;
   const bool hasDynSurfaceBox = computeUnionAABB(dynVertBox, dynSurfaceBox);
@@ -346,28 +345,26 @@ double computeExternalMaxStep(
   std::vector<SpatialHashGrid::AABB> dynTriBox(nDynTri);
   std::vector<SpatialHashGrid::AABB> dynEdgeBox(nDynEdge);
 
-  pgo::parallel::parallelFor(0, nDynTri,
-    [&](int fi) {
-      auto &tri = topology.triangles[fi];
-      V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
-      V3d d0 = getdV(tri[0]), d1 = getdV(tri[1]), d2 = getdV(tri[2]);
-      dynTriBox[fi].init(v0, thickness);
-      dynTriBox[fi].expand(v1, thickness);
-      dynTriBox[fi].expand(v2, thickness);
-      dynTriBox[fi].expand(v0 + d0, thickness);
-      dynTriBox[fi].expand(v1 + d1, thickness);
-      dynTriBox[fi].expand(v2 + d2, thickness);
-    });
+  tbb::parallel_for(0, nDynTri, [&](int fi) {
+    auto &tri = topology.triangles[fi];
+    V3d v0 = getV(tri[0]), v1 = getV(tri[1]), v2 = getV(tri[2]);
+    V3d d0 = getdV(tri[0]), d1 = getdV(tri[1]), d2 = getdV(tri[2]);
+    dynTriBox[fi].init(v0, thickness);
+    dynTriBox[fi].expand(v1, thickness);
+    dynTriBox[fi].expand(v2, thickness);
+    dynTriBox[fi].expand(v0 + d0, thickness);
+    dynTriBox[fi].expand(v1 + d1, thickness);
+    dynTriBox[fi].expand(v2 + d2, thickness);
+  });
 
-  pgo::parallel::parallelFor(0, nDynEdge,
-    [&](int ei) {
-      V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
-      V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
-      dynEdgeBox[ei].init(a0, thickness);
-      dynEdgeBox[ei].expand(a1, thickness);
-      dynEdgeBox[ei].expand(a0 + da0, thickness);
-      dynEdgeBox[ei].expand(a1 + da1, thickness);
-    });
+  tbb::parallel_for(0, nDynEdge, [&](int ei) {
+    V3d a0 = getV(topology.edges[ei][0]), a1 = getV(topology.edges[ei][1]);
+    V3d da0 = getdV(topology.edges[ei][0]), da1 = getdV(topology.edges[ei][1]);
+    dynEdgeBox[ei].init(a0, thickness);
+    dynEdgeBox[ei].expand(a1, thickness);
+    dynEdgeBox[ei].expand(a0 + da0, thickness);
+    dynEdgeBox[ei].expand(a1 + da1, thickness);
+  });
 
   for (const ObstacleSurfaceView *obsPtr : overlappingObstacles) {
     const ObstacleSurfaceView &obs = *obsPtr;
@@ -405,41 +402,42 @@ double computeExternalMaxStep(
       tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
       tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-      alpha = pgo::parallel::parallelReduce(0, topology.numVerts, alpha,
-        [&](int rangeBegin, int rangeEnd, double localAlpha) {
-          auto &visited = tls_visited.local();
-          auto &candidates = tls_candidates.local();
-          auto &localCounts = tls_counts.local();
+      alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, topology.numVerts, 1), alpha, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
+        auto &visited = tls_visited.local();
+        auto &candidates = tls_candidates.local();
+        auto &localCounts = tls_counts.local();
 
-          for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
-            candidates.clear();
-            obsTriHash.query(dynVertBox[vi], -1, visited, vi + 1, candidates);
+        for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
+          candidates.clear();
+          obsTriHash.query(dynVertBox[vi], -1, visited, vi + 1, candidates);
+          if (profilingEnabled)
+            localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+
+          V3d p = getV(vi), dp = getdV(vi);
+          for (int fi : candidates) {
+            if (!dynVertBox[vi].overlaps(obsTriBox[fi]))
+              continue;
+
             if (profilingEnabled)
-              localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+              localCounts.exactTests += 1;
+            V3d t0 = obsV(obs.triangles()(fi, 0));
+            V3d t1 = obsV(obs.triangles()(fi, 1));
+            V3d t2 = obsV(obs.triangles()(fi, 2));
+            V3d dt0 = obsDisp(obs.triangles()(fi, 0));
+            V3d dt1 = obsDisp(obs.triangles()(fi, 1));
+            V3d dt2 = obsDisp(obs.triangles()(fi, 2));
 
-            V3d p = getV(vi), dp = getdV(vi);
-            for (int fi : candidates) {
-              if (!dynVertBox[vi].overlaps(obsTriBox[fi]))
-                continue;
-
-              if (profilingEnabled)
-                localCounts.exactTests += 1;
-              V3d t0 = obsV(obs.triangles()(fi, 0));
-              V3d t1 = obsV(obs.triangles()(fi, 1));
-              V3d t2 = obsV(obs.triangles()(fi, 2));
-              V3d dt0 = obsDisp(obs.triangles()(fi, 0));
-              V3d dt1 = obsDisp(obs.triangles()(fi, 1));
-              V3d dt2 = obsDisp(obs.triangles()(fi, 2));
-
-              double toi = ccd::pointTriangleCCD(p, t0, t1, t2,
-                dp, dt0, dt1, dt2, thickness, localAlpha);
-              if (toi < localAlpha)
-                localAlpha = toi * slackness;
-            }
+            double toi = ccd::pointTriangleCCD(p, t0, t1, t2,
+              dp, dt0, dt1, dt2, thickness, localAlpha);
+            if (toi < localAlpha)
+              localAlpha = toi * slackness;
           }
-          return localAlpha;
-        },
-        [](double a, double b) { return std::min(a, b); });
+        }
+        return localAlpha;
+      }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+        [pgoJoinFn = [](double a, double b) {
+          return std::min(a, b);
+        }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
       recordQueryCounters(
         SurfaceIPCProfileSections::kMaxStepExternalPTHashCandidates,
@@ -458,42 +456,43 @@ double computeExternalMaxStep(
       tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
       tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-      alpha = pgo::parallel::parallelReduce(0, nObsVert, alpha,
-        [&](int rangeBegin, int rangeEnd, double localAlpha) {
-          auto &visited = tls_visited.local();
-          auto &candidates = tls_candidates.local();
-          auto &localCounts = tls_counts.local();
+      alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nObsVert, 1), alpha, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
+        auto &visited = tls_visited.local();
+        auto &candidates = tls_candidates.local();
+        auto &localCounts = tls_counts.local();
 
-          for (int ovi = rangeBegin; ovi < rangeEnd; ++ovi) {
-            candidates.clear();
-            dynTriHash.query(obsVertBox[ovi], -1, visited, ovi + 1, candidates);
+        for (int ovi = rangeBegin; ovi < rangeEnd; ++ovi) {
+          candidates.clear();
+          dynTriHash.query(obsVertBox[ovi], -1, visited, ovi + 1, candidates);
+          if (profilingEnabled)
+            localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+
+          V3d p = obsV(ovi), dp = obsDisp(ovi);
+          for (int fi : candidates) {
+            if (!obsVertBox[ovi].overlaps(dynTriBox[fi]))
+              continue;
+
             if (profilingEnabled)
-              localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+              localCounts.exactTests += 1;
+            auto &tri = topology.triangles[fi];
+            V3d t0 = getV(tri[0]);
+            V3d t1 = getV(tri[1]);
+            V3d t2 = getV(tri[2]);
+            V3d dt0 = getdV(tri[0]);
+            V3d dt1 = getdV(tri[1]);
+            V3d dt2 = getdV(tri[2]);
 
-            V3d p = obsV(ovi), dp = obsDisp(ovi);
-            for (int fi : candidates) {
-              if (!obsVertBox[ovi].overlaps(dynTriBox[fi]))
-                continue;
-
-              if (profilingEnabled)
-                localCounts.exactTests += 1;
-              auto &tri = topology.triangles[fi];
-              V3d t0 = getV(tri[0]);
-              V3d t1 = getV(tri[1]);
-              V3d t2 = getV(tri[2]);
-              V3d dt0 = getdV(tri[0]);
-              V3d dt1 = getdV(tri[1]);
-              V3d dt2 = getdV(tri[2]);
-
-              double toi = ccd::pointTriangleCCD(p, t0, t1, t2,
-                dp, dt0, dt1, dt2, thickness, localAlpha);
-              if (toi < localAlpha)
-                localAlpha = toi * slackness;
-            }
+            double toi = ccd::pointTriangleCCD(p, t0, t1, t2,
+              dp, dt0, dt1, dt2, thickness, localAlpha);
+            if (toi < localAlpha)
+              localAlpha = toi * slackness;
           }
-          return localAlpha;
-        },
-        [](double a, double b) { return std::min(a, b); });
+        }
+        return localAlpha;
+      }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+        [pgoJoinFn = [](double a, double b) {
+          return std::min(a, b);
+        }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
       recordQueryCounters(
         SurfaceIPCProfileSections::kMaxStepExternalTPHashCandidates,
@@ -510,41 +509,42 @@ double computeExternalMaxStep(
       tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
       tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-      alpha = pgo::parallel::parallelReduce(0, nDynEdge, alpha,
-        [&](int rangeBegin, int rangeEnd, double localAlpha) {
-          auto &visited = tls_visited.local();
-          auto &candidates = tls_candidates.local();
-          auto &localCounts = tls_counts.local();
+      alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nDynEdge, 1), alpha, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
+        auto &visited = tls_visited.local();
+        auto &candidates = tls_candidates.local();
+        auto &localCounts = tls_counts.local();
 
-          for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
-            candidates.clear();
-            obsEdgeHash.query(dynEdgeBox[ei], -1, visited, ei + 1, candidates);
+        for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
+          candidates.clear();
+          obsEdgeHash.query(dynEdgeBox[ei], -1, visited, ei + 1, candidates);
+          if (profilingEnabled)
+            localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+
+          int a0 = topology.edges[ei][0], a1 = topology.edges[ei][1];
+          V3d va0 = getV(a0), va1 = getV(a1);
+          V3d da0 = getdV(a0), da1 = getdV(a1);
+          for (int ej : candidates) {
+            if (!dynEdgeBox[ei].overlaps(obsEdgeBox[ej]))
+              continue;
+
             if (profilingEnabled)
-              localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
+              localCounts.exactTests += 1;
+            int b0 = obsContactEdges(ej, 0);
+            int b1 = obsContactEdges(ej, 1);
+            V3d vb0 = obsV(b0), vb1 = obsV(b1);
+            V3d db0 = obsDisp(b0), db1 = obsDisp(b1);
 
-            int a0 = topology.edges[ei][0], a1 = topology.edges[ei][1];
-            V3d va0 = getV(a0), va1 = getV(a1);
-            V3d da0 = getdV(a0), da1 = getdV(a1);
-            for (int ej : candidates) {
-              if (!dynEdgeBox[ei].overlaps(obsEdgeBox[ej]))
-                continue;
-
-              if (profilingEnabled)
-                localCounts.exactTests += 1;
-              int b0 = obsContactEdges(ej, 0);
-              int b1 = obsContactEdges(ej, 1);
-              V3d vb0 = obsV(b0), vb1 = obsV(b1);
-              V3d db0 = obsDisp(b0), db1 = obsDisp(b1);
-
-              double toi = ccd::edgeEdgeCCD(va0, va1, vb0, vb1,
-                da0, da1, db0, db1, thickness, localAlpha);
-              if (toi < localAlpha)
-                localAlpha = toi * slackness;
-            }
+            double toi = ccd::edgeEdgeCCD(va0, va1, vb0, vb1,
+              da0, da1, db0, db1, thickness, localAlpha);
+            if (toi < localAlpha)
+              localAlpha = toi * slackness;
           }
-          return localAlpha;
-        },
-        [](double a, double b) { return std::min(a, b); });
+        }
+        return localAlpha;
+      }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+        [pgoJoinFn = [](double a, double b) {
+          return std::min(a, b);
+        }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
       recordQueryCounters(
         SurfaceIPCProfileSections::kMaxStepExternalEEHashCandidates,

@@ -1,19 +1,6 @@
 include(FetchContent)
 include(GoogleTest)
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-
-add_test(
-  NAME tbb_scheduling_inventory
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_tbb_scheduling_inventory.py
-          --repo-root ${CMAKE_SOURCE_DIR}
-)
-add_test(
-  NAME tbb_scheduling_inventory_self_test
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_tbb_scheduling_inventory.py
-          --self-test
-)
-
 enable_testing()
 
 set(INSTALL_GTEST OFF CACHE BOOL "Disable GoogleTest installation" FORCE)

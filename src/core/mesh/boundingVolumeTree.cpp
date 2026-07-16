@@ -39,7 +39,6 @@
 #include "basicAlgorithms.h"
 #include "containerHelper.h"
 #include "pgoLogging.h"
-#include "parallel/parallelFor.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
@@ -52,6 +51,8 @@
 #include <numeric>
 #include <queue>
 #include <fstream>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 constexpr double eps = 1e-6;
 
@@ -338,7 +339,7 @@ void BoundingBoxBVTree::getClosestBoundingBoxes(const ArrayRef<BoundingBox> boun
   auto toElement = [&](int bbID, double minDistance) -> double {
     double dist2 = boundingBoxes[bbID].distanceToPoint2(queryPosition);
 
-    if (dist2 < minDistance)             // if has smaller value
+    if (dist2 < minDistance)  // if has smaller value
     {
       bbIDList.resize(bbIDListLastEnd);  // clear previous stored values
       bbIDList.push_back(bbID);
@@ -551,16 +552,15 @@ void TriMeshBVTree::selfIntersectionExact(const TriMeshRef triMesh, std::vector<
   std::vector<UEdgeKey> candidatePairs(candidateSet.begin(), candidateSet.end());  // store all those candidate triangle pairs for parallel evaluations
   std::vector<char> intersected(candidatePairs.size(), 0);
 
-  pgo::parallel::parallelFor(0, sizei(candidatePairs),
-    [&](int i) {
-      // for (size_t i = 0; i < candidatePairs.size(); ++i) {
+  tbb::parallel_for(0, sizei(candidatePairs), [&](int i) {
+    // for (size_t i = 0; i < candidatePairs.size(); ++i) {
 
-      int triIDA = candidatePairs[i][0], triIDB = candidatePairs[i][1];
-      if (intersectTriTri(triMesh.pos(triIDA, 0).data(), triMesh.pos(triIDA, 1).data(), triMesh.pos(triIDA, 2).data(),
-            triMesh.pos(triIDB, 0).data(), triMesh.pos(triIDB, 1).data(), triMesh.pos(triIDB, 2).data())) {
-        intersected[i] = 1;
-      }
-    });  // end for locations
+    int triIDA = candidatePairs[i][0], triIDB = candidatePairs[i][1];
+    if (intersectTriTri(triMesh.pos(triIDA, 0).data(), triMesh.pos(triIDA, 1).data(), triMesh.pos(triIDA, 2).data(),
+          triMesh.pos(triIDB, 0).data(), triMesh.pos(triIDB, 1).data(), triMesh.pos(triIDB, 2).data())) {
+      intersected[i] = 1;
+    }
+  });  // end for locations
 
   for (size_t i = 0; i < candidatePairs.size(); i++) {
     if (intersected[i]) {
@@ -587,7 +587,7 @@ void TriMeshBVTree::intersectionExact(const TriMeshRef triMesh, const TriMeshRef
   };
 
   tbb::enumerable_thread_specific<ThreadLocalData> threadLocalData;
-  pgo::parallel::parallelForChunks(0, otherMesh.numTriangles(), [&](int rngBegin, int rngEnd) {
+  tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, otherMesh.numTriangles(), 1), [pgoBody = [&](int rngBegin, int rngEnd) {
     //  for(int oID = 0; oID < otherMesh.numTriangles(); oID++)
     auto &local = threadLocalData.local();
     auto &IDlist = local.IDlist;
@@ -599,7 +599,7 @@ void TriMeshBVTree::intersectionExact(const TriMeshRef triMesh, const TriMeshRef
       for (int triID : IDlist)
         pairList.emplace_back(triID, oID);
     }
-  });
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
   for (const auto &local : threadLocalData)
     vectorInsertRangeBack(allPairList, local.pairList);
 
@@ -629,16 +629,15 @@ void TriMeshBVTree::intersectionExact(const TriMeshRef triMesh, const TriMeshBVT
   sortAndDeduplicate(candidatePairs);
 
   std::vector<char> intersected(candidatePairs.size(), 0);
-  pgo::parallel::parallelFor(0, sizei(candidatePairs),
-    [&](int i) {
-      int triIDA = candidatePairs[i].first, triIDB = candidatePairs[i].second;
-      PGO_ALOG(triIDA >= 0 && triIDA < numTriangles);
-      PGO_ALOG(triIDB >= 0 && triIDB < otherMesh.numTriangles());
-      if (intersectTriTri(triMesh.pos(triIDA, 0).data(), triMesh.pos(triIDA, 1).data(), triMesh.pos(triIDA, 2).data(),
-            otherMesh.pos(triIDB, 0).data(), otherMesh.pos(triIDB, 1).data(), otherMesh.pos(triIDB, 2).data())) {
-        intersected[i] = 1;
-      }
-    });  // end for locations
+  tbb::parallel_for(0, sizei(candidatePairs), [&](int i) {
+    int triIDA = candidatePairs[i].first, triIDB = candidatePairs[i].second;
+    PGO_ALOG(triIDA >= 0 && triIDA < numTriangles);
+    PGO_ALOG(triIDB >= 0 && triIDB < otherMesh.numTriangles());
+    if (intersectTriTri(triMesh.pos(triIDA, 0).data(), triMesh.pos(triIDA, 1).data(), triMesh.pos(triIDA, 2).data(),
+          otherMesh.pos(triIDB, 0).data(), otherMesh.pos(triIDB, 1).data(), otherMesh.pos(triIDB, 2).data())) {
+      intersected[i] = 1;
+    }
+  });  // end for locations
 
   for (size_t i = 0; i < candidatePairs.size(); i++) {
     if (intersected[i])

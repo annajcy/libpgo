@@ -4,13 +4,15 @@ copyright to USC
 */
 
 #include "sampled_penalty/kernels/triangleMeshSelfContactDetection.h"
-#include "parallel/parallelFor.h"
-#include "parallel/parallelSort.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cfloat>
 #include <vector>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/parallel_sort.h>
+#include <tbb/partitioner.h>
 
 using namespace pgo;
 using namespace pgo::Contact;
@@ -78,10 +80,10 @@ void TriangleMeshSelfContactDetection::execute(const double *positions0, const d
       for (const auto &node : *lastFrontier) {
         addressSingleNode(node, isCCD);
       }  // end for each node in last frontier
-    }    // end single thread
+    }  // end single thread
     else {
       size_t count = (lastFrontier->size() + parallel_threshold - 1) / parallel_threshold;
-      pgo::parallel::parallelFor((size_t)0, count, [&](size_t ci) {
+      tbb::parallel_for((size_t)0, count, [&](size_t ci) {
         size_t start = ci * parallel_threshold;
         size_t end = std::min(start + parallel_threshold, lastFrontier->size());
         for (size_t ni = start; ni < end; ni++)
@@ -106,15 +108,13 @@ void TriangleMeshSelfContactDetection::execute(const double *positions0, const d
   }
 
   // address triangle pair ccd
-  pgo::parallel::parallelFor((size_t)0, potentialCollidingTrianglePairs.size(),
-    tbb::static_partitioner{},
-    [&](size_t ti) {
-      if (potentialCollidingTrianglePairs[ti].first > potentialCollidingTrianglePairs[ti].second)
-        std::swap(potentialCollidingTrianglePairs[ti].first, potentialCollidingTrianglePairs[ti].second);
-    });
+  tbb::parallel_for((size_t)0, potentialCollidingTrianglePairs.size(), [&](size_t ti) {
+    if (potentialCollidingTrianglePairs[ti].first > potentialCollidingTrianglePairs[ti].second)
+      std::swap(potentialCollidingTrianglePairs[ti].first, potentialCollidingTrianglePairs[ti].second);
+  },
+    tbb::static_partitioner{});
 
-  pgo::parallel::parallelSort(
-    potentialCollidingTrianglePairs.begin(), potentialCollidingTrianglePairs.end());
+  tbb::parallel_sort(potentialCollidingTrianglePairs.begin(), potentialCollidingTrianglePairs.end());
 
   auto cdTriIt =
     std::unique(potentialCollidingTrianglePairs.begin(), potentialCollidingTrianglePairs.end());

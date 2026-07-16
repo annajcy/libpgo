@@ -48,11 +48,11 @@
 #  include "cgalInterface.h"
 #endif
 
-#include "parallel/parallelFor.h"
-
 #include <fmt/format.h>
 
 #include <filesystem>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 pgoTetMeshGeoStructHandle pgo_create_tetmeshgeo(int nv, double *vertices, int ntet, int *tets)
 {
@@ -556,16 +556,15 @@ void pgo_trimesh_closest_distances(pgoTriMeshGeoStructHandle trimesh, int n, dou
   pgo::Mesh::TriMeshBVTree bvTree;
   bvTree.buildByInertiaPartition(*mesh);
 
-  pgo::parallel::parallelFor(0, n,
-    [&](int i) {
-      pgo::Vec3d pt(queryPos + i * 3);
-      auto ret = bvTree.closestTriangleQuery(*mesh, pt);
-      queryDistance[i] = ret.dist2;
+  tbb::parallel_for(0, n, [&](int i) {
+    pgo::Vec3d pt(queryPos + i * 3);
+    auto ret = bvTree.closestTriangleQuery(*mesh, pt);
+    queryDistance[i] = ret.dist2;
 
-      if (queryTri) {
-        queryTri[i] = ret.triID;
-      }
-    });
+    if (queryTri) {
+      queryTri[i] = ret.triID;
+    }
+  });
 }
 
 void pgo_tetmesh_barycentric_weights(pgoTetMeshGeoStructHandle tetmesh, int n, double *queryPos, double *queryW, int *queryEle)
@@ -576,13 +575,12 @@ void pgo_tetmesh_barycentric_weights(pgoTetMeshGeoStructHandle tetmesh, int n, d
   pgo::Mesh::TetMeshBVTree bvTree;
   bvTree.buildByInertiaPartition(*mesh);
 
-  pgo::parallel::parallelFor(0, n,
-    [&](int i) {
-      pgo::Vec3d pt(queryPos + i * 3);
-      int ele = bvTree.getClosestTet(*mesh, pt);
-      queryEle[i] = ele;
-      pgo::Mesh::getTetBarycentricWeights(pt, mesh->pos(ele, 0), mesh->pos(ele, 1), mesh->pos(ele, 2), mesh->pos(ele, 3), queryW + i * 4);
-    });
+  tbb::parallel_for(0, n, [&](int i) {
+    pgo::Vec3d pt(queryPos + i * 3);
+    int ele = bvTree.getClosestTet(*mesh, pt);
+    queryEle[i] = ele;
+    pgo::Mesh::getTetBarycentricWeights(pt, mesh->pos(ele, 0), mesh->pos(ele, 1), mesh->pos(ele, 2), mesh->pos(ele, 3), queryW + i * 4);
+  });
 }
 
 int pgo_run_sim_from_config(const char *configFileName)
@@ -833,9 +831,9 @@ int pgo_run_sim_from_config(const char *configFileName)
       optimizerOptions.verbose = 0;
       NonlinearOptimization::Optimization::NewtonOptimizer optimizer(optimizerOptions);
 
-      problem.persistentTerms.push_back({elasticEnergy, 0.0, 0.0});
+      problem.persistentTerms.push_back({ elasticEnergy, 0.0, 0.0 });
       for (auto &pe : pullingEnergies)
-        problem.persistentTerms.push_back({pe, 0.0, 0.0});
+        problem.persistentTerms.push_back({ pe, 0.0, 0.0 });
 
       // ── Contact ──────────────────────────────────────────────────
       std::shared_ptr<Contact::PointPenetrationEnergy> extContactEnergy;
@@ -858,7 +856,7 @@ int pgo_run_sim_from_config(const char *configFileName)
           extContactEnergy->setComputeLastPosFunction(lastPosFunc);
           extContactEnergy->setVelEps(velEps);
           extContactEnergy->setTimestep(timestep);
-          problem.persistentTerms.push_back({extContactEnergy, 0.0, 0.0});
+          problem.persistentTerms.push_back({ extContactEnergy, 0.0, 0.0 });
         }
       }
 
@@ -882,7 +880,7 @@ int pgo_run_sim_from_config(const char *configFileName)
           selfContactEnergy->setFrictionCoeff(fricCoeff);
           selfContactEnergy->setTimestep(timestep);
           selfContactEnergy->setVelEps(velEps);
-          problem.persistentTerms.push_back({selfContactEnergy, 0.0, 0.0});
+          problem.persistentTerms.push_back({ selfContactEnergy, 0.0, 0.0 });
         }
       }
 
@@ -920,10 +918,10 @@ int pgo_run_sim_from_config(const char *configFileName)
     std::shared_ptr<PredefinedPotentialEnergies::LinearPotentialEnergy> externalForcesEnergy = std::make_shared<PredefinedPotentialEnergies::LinearPotentialEnergy>(fext);
 
     std::vector<NonlinearOptimization::EnergySet::Term> terms;
-    terms.push_back({elasticEnergy, 1.0});
+    terms.push_back({ elasticEnergy, 1.0 });
     for (auto eng : pullingEnergies)
-      terms.push_back({eng, 1.0});
-    terms.push_back({externalForcesEnergy, -1.0});
+      terms.push_back({ eng, 1.0 });
+    terms.push_back({ externalForcesEnergy, -1.0 });
     auto energyAll = std::make_shared<NonlinearOptimization::EnergySet>(n3, std::move(terms));
 
     NonlinearOptimization::NewtonSolver::SolverParam solverParam;

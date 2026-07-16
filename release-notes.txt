@@ -1,11 +1,10 @@
 -- Unreleased
-  - make pgo::parallel the sole first-party CPU scheduling surface, with default multi and bounded(N)
-  - migrate first-party TBB scheduling calls to typed pgo loops, reductions, and sorting
-  - delegate pgo::parallelSort to oneTBB while preserving pgo executor semantics
+  - replace the pgo scheduling facade with explicit GlobalTbbControl, ThreadingPolicy, and ArenaThreadingExecutor primitives
+  - migrate first-party loops, reductions, and sorting to native oneTBB algorithms
   - remove the redundant parallelFor3D wrapper in favor of call-site-owned row/block decomposition
   - remove SuiteSparse/OpenMP and non-Accelerate BLAS dependency stacks from libpgo
   - route supported Eigen dense operations to system Accelerate BLAS and keep other Eigen kernels serial on macOS
-  - leave Accelerate single-threaded on initialized and pgo-managed threads; provide scoped multi-threading as an experimental C++ escape hatch
+  - apply persistent per-thread MKL or Accelerate policies on controlled arena entry without scoped restoration
 
 -- v0.0.3
   - fix various bug in cmake

@@ -5,7 +5,6 @@
 #include "geometryQuery.h"
 #include "triangleSampler.h"
 #include "basicAlgorithms.h"
-#include "parallel/parallelFor.h"
 
 #include <tbb/enumerable_thread_specific.h>
 #include <tbb/concurrent_unordered_map.h>
@@ -15,6 +14,9 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/partitioner.h>
 
 using namespace pgo;
 using namespace pgo::Contact;
@@ -74,9 +76,7 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Computing triangle area...");
 
   std::vector<double> triangleAreas(triangles.size(), 0);
-  pgo::parallel::parallelFor(
-    0, (int)triangles.size(),
- tbb::static_partitioner{}, [&](int trii) {
+  tbb::parallel_for(0, (int)triangles.size(), [&](int trii) {
       ES::V3i tri = triangles[trii];
       ES::V3d vtx[3] = {
         vertices[tri[0]],
@@ -84,8 +84,7 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
         vertices[tri[2]],
       };
 
-      triangleAreas[trii] = getTriangleArea(vtx[0], vtx[1], vtx[2]);
-    });
+      triangleAreas[trii] = getTriangleArea(vtx[0], vtx[1], vtx[2]); }, tbb::static_partitioner{});
 
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Sampling surface mesh...");
 
@@ -108,9 +107,7 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
   };
 
   // Sample surface
-  pgo::parallel::parallelFor(
-    0, (int)triangles.size(),
- tbb::static_partitioner{}, [&](int trii) {
+  tbb::parallel_for(0, (int)triangles.size(), [&](int trii) {
       // for (int trii = 0; trii < (int)triangles.size(); trii++) {
       ES::V3i tri = triangles[trii];
       ES::V3d vtx[3] = {
@@ -135,8 +132,7 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
           sampleInfo.coord = ES::V2i(i, j);
           sampleInfo.triangleID = trii;
           triangleSamples[trii].push_back(sampleInfo);
-        });
-    });
+        }); }, tbb::static_partitioner{});
 
   // std::size_t count = 0;
   // sampleIDQueryTable.reserve(triangles.size());
@@ -151,17 +147,16 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
     //   }
     // }
 
-    pgo::parallel::parallelFor((int)0, (int)triangleSamples.size(),
-      [&](int trii) {
-        count.fetch_add((int)triangleSamples[trii].size());
+    tbb::parallel_for((int)0, (int)triangleSamples.size(), [&](int trii) {
+      count.fetch_add((int)triangleSamples[trii].size());
 
-        for (const auto &sample : triangleSamples[trii]) {
-          sampleIDQueryTableCC.emplace(sample, 0);
-        }
+      for (const auto &sample : triangleSamples[trii]) {
+        sampleIDQueryTableCC.emplace(sample, 0);
+      }
 
-        if (trii % 1000 == 0)
-          std::cout << trii << ' ' << std::flush;
-      });
+      if (trii % 1000 == 0)
+        std::cout << trii << ' ' << std::flush;
+    });
     std::cout << std::endl;
 
     int inc = 0;
@@ -193,15 +188,14 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
   std::vector<tbb::spin_mutex> sampleLocks(sampleIDQueryTable.size());
 
   sampleTriangleIDs.assign(sampleIDQueryTable.size(), std::vector<int>());
-  pgo::parallel::parallelFor(0, (int)triangleSamples.size(),
-    [&](int tri) {
-      for (const auto &sinfo : triangleSamples[tri]) {
-        int sid = sampleIDQueryTable[sinfo];
-        sampleLocks[sid].lock();
-        sampleTriangleIDs[sid].push_back(tri);
-        sampleLocks[sid].unlock();
-      }
-    });
+  tbb::parallel_for(0, (int)triangleSamples.size(), [&](int tri) {
+    for (const auto &sinfo : triangleSamples[tri]) {
+      int sid = sampleIDQueryTable[sinfo];
+      sampleLocks[sid].lock();
+      sampleTriangleIDs[sid].push_back(tri);
+      sampleLocks[sid].unlock();
+    }
+  });
 
   sampleInfoAndIDs.resize(sampleIDQueryTable.size());
   for (const auto &pr : sampleIDQueryTable) {
@@ -247,60 +241,57 @@ TriangleMeshExternalContactHandler::TriangleMeshExternalContactHandler(const std
     tbb::concurrent_vector<ES::TripletD> entries;
 
     // for (auto it = sampleIDQueryTable.begin(); it != sampleIDQueryTable.end(); ++it) {
-    pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(),
-      [&](int si) {
-        int triID = sampleInfoAndIDs[si].triangleID;
+    tbb::parallel_for(0, (int)sampleInfoAndIDs.size(), [&](int si) {
+      int triID = sampleInfoAndIDs[si].triangleID;
 
-        for (int vj = 0; vj < 3; vj++) {
-          int vid = triangles[triID][vj];
-          const std::size_t embeddingOffset = static_cast<std::size_t>(vid) * static_cast<std::size_t>(embeddingArity);
+      for (int vj = 0; vj < 3; vj++) {
+        int vid = triangles[triID][vj];
+        const std::size_t embeddingOffset = static_cast<std::size_t>(vid) * static_cast<std::size_t>(embeddingArity);
 
-          for (int j = 0; j < embeddingArity; j++) {
-            int embeddedVid = vertexEmbeddingIndices->at(embeddingOffset + static_cast<std::size_t>(j));
-            double embeddedWeight = vertexEmbeddingWeights->at(embeddingOffset + static_cast<std::size_t>(j));
+        for (int j = 0; j < embeddingArity; j++) {
+          int embeddedVid = vertexEmbeddingIndices->at(embeddingOffset + static_cast<std::size_t>(j));
+          double embeddedWeight = vertexEmbeddingWeights->at(embeddingOffset + static_cast<std::size_t>(j));
 
-            double wfinal = sampleInfoAndIDs[si].w[vj] * embeddedWeight;
-            if (std::abs(wfinal) < 1e-16)
-              continue;
+          double wfinal = sampleInfoAndIDs[si].w[vj] * embeddedWeight;
+          if (std::abs(wfinal) < 1e-16)
+            continue;
 
-            for (int dofi = 0; dofi < 3; dofi++) {
-              entries.emplace_back(si * 3 + dofi, embeddedVid * 3 + dofi, wfinal);
-            }
+          for (int dofi = 0; dofi < 3; dofi++) {
+            entries.emplace_back(si * 3 + dofi, embeddedVid * 3 + dofi, wfinal);
           }
         }
-      });
+      }
+    });
 
     interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, nDOFs);
     interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
 
-    pgo::parallel::parallelFor(0, (int)interpolationMatrix.rows(),
-      [&](int rowi) {
-        double wAll = 0;
-        for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
-          wAll += it.value();
-        }
+    tbb::parallel_for(0, (int)interpolationMatrix.rows(), [&](int rowi) {
+      double wAll = 0;
+      for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
+        wAll += it.value();
+      }
 
-        for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
-          it.valueRef() /= wAll;
-        }
-      });
+      for (ES::SpMatD::InnerIterator it(interpolationMatrix, rowi); it; ++it) {
+        it.valueRef() /= wAll;
+      }
+    });
   }
   // if there is not embedding given, but there is still more samples than just vertices
   else if (subdivideTriangle > 1) {
     tbb::concurrent_vector<ES::TripletD> entries;
 
     // for (auto it = sampleInfoAndID.begin(); it != sampleInfoAndID.end(); ++it) {
-    pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(),
-      [&](int si) {
-        int triID = sampleInfoAndIDs[si].triangleID;
+    tbb::parallel_for(0, (int)sampleInfoAndIDs.size(), [&](int si) {
+      int triID = sampleInfoAndIDs[si].triangleID;
 
-        ES::V3i tri = triangles[triID];
-        for (int j = 0; j < 3; j++) {
-          entries.emplace_back(si * 3, tri[j] * 3, sampleInfoAndIDs[si].w[j]);
-          entries.emplace_back(si * 3 + 1, tri[j] * 3 + 1, sampleInfoAndIDs[si].w[j]);
-          entries.emplace_back(si * 3 + 2, tri[j] * 3 + 2, sampleInfoAndIDs[si].w[j]);
-        }
-      });
+      ES::V3i tri = triangles[triID];
+      for (int j = 0; j < 3; j++) {
+        entries.emplace_back(si * 3, tri[j] * 3, sampleInfoAndIDs[si].w[j]);
+        entries.emplace_back(si * 3 + 1, tri[j] * 3 + 1, sampleInfoAndIDs[si].w[j]);
+        entries.emplace_back(si * 3 + 2, tri[j] * 3 + 2, sampleInfoAndIDs[si].w[j]);
+      }
+    });
 
     interpolationMatrix.resize(sampleInfoAndIDs.size() * 3, vertices.size() * 3);
     interpolationMatrix.setFromTriplets(entries.begin(), entries.end());
@@ -396,11 +387,11 @@ void TriangleMeshExternalContactHandler::execute(const double *u0)
 
   computeSamplePosition(curP, sampleCurP);
 
-  //Mesh::TriMeshGeo z;
-  //for (int i = 0; i < (int)sampleCurP.size() / 3; i++) {
-  //  z.addPos(sampleCurP.segment<3>(i * 3));
-  //}
-  //z.save("k.obj");
+  // Mesh::TriMeshGeo z;
+  // for (int i = 0; i < (int)sampleCurP.size() / 3; i++) {
+  //   z.addPos(sampleCurP.segment<3>(i * 3));
+  // }
+  // z.save("k.obj");
 
   execute();
 }
@@ -428,7 +419,7 @@ void TriangleMeshExternalContactHandler::execute()
   }
 
   // for each vertices
-  pgo::parallel::parallelFor(0, (int)sampleInfoAndIDs.size(), [&](int si) {
+  tbb::parallel_for(0, (int)sampleInfoAndIDs.size(), [&](int si) {
     // for (int vi = 0; vi < (int)vertices.size(); vi++) {
     // for (int si = 0; si < (int)sampleInfoAndIDs.size(); si++) {
     ES::V3d srcPos = asVec3d(sampleCurP.data() + si * 3);
@@ -619,9 +610,7 @@ void TriangleMeshExternalContactHandler::setExcludedVertices(const std::vector<i
 
 void TriangleMeshExternalContactHandler::computeSamplePosition(const ES::VXd &P, ES::VXd &SP) const
 {
-  pgo::parallel::parallelFor(
-    0, (int)sampleInfoAndIDs.size(),
- tbb::static_partitioner{}, [&](int si) {
+  tbb::parallel_for(0, (int)sampleInfoAndIDs.size(), [&](int si) {
       int tri = sampleInfoAndIDs[si].triangleID;
 
       ES::V3d vtx[3] = {
@@ -633,6 +622,5 @@ void TriangleMeshExternalContactHandler::computeSamplePosition(const ES::VXd &P,
       // compute sample position
       const auto &sinfo = sampleInfoAndIDs[si];
       ES::V3d sampleP = vtx[0] * sinfo.w[0] + vtx[1] * sinfo.w[1] + vtx[2] * sinfo.w[2];
-      SP.segment<3>(si * 3) = sampleP;
-    });
+      SP.segment<3>(si * 3) = sampleP; }, tbb::static_partitioner{});
 }

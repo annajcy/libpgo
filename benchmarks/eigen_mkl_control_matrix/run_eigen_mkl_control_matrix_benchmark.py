@@ -508,10 +508,9 @@ def main() -> int:
         "thread_telemetry_source": "untimed_policy_warmup",
         "mkl_verbose_probe": verbose_probe,
         "environment": {"MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"]},
-        "diagnostic_warning": (
-            "mkl_set_num_threads_local is documented as ineffective under the "
-            "oneMKL TBB threading layer; Local1 policies test an old benchmark "
-            "intervention, not a supported production control."
+        "mkl_local_budget_note": (
+            "Local1 isolates the per-OS-thread mkl_set_num_threads_local(1) "
+            "budget from the independent one-participant task_arena factor."
         ),
         "factor_mapping": {
             "A": "DefaultArenaGlobal",

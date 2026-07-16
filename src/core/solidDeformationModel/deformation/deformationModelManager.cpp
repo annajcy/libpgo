@@ -20,12 +20,13 @@ copyright to USC, MIT, NUS
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
-#include "parallel/parallelFor.h"
 
 #include <fmt/format.h>
 
 #include <memory>
 #include <string>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 namespace ES = pgo::EigenSupport;
 
@@ -251,25 +252,23 @@ void DeformationModelManager::initImpl(DeformationModelPlasticMaterial plasticMo
   data->elementFEMs.resize(nele);
 
   // Per-element FEM creation (all elements in parallel).
-  pgo::parallel::parallelFor(
-    0, nele, [&](int ele) {
-      const double *fiberDir = nullptr;
-      if (data->fiberAxesRest.size() > 0) {
-        fiberDir = data->fiberAxesRest.block<3, 3>(0, ele * 3).row(0).data();
-      }
+  tbb::parallel_for(0, nele, [&](int ele) {
+    const double *fiberDir = nullptr;
+    if (data->fiberAxesRest.size() > 0) {
+      fiberDir = data->fiberAxesRest.block<3, 3>(0, ele * 3).row(0).data();
+    }
 
-      auto em = ElasticModelFactory::create(
-        *data->mesh, ele, elasticMaterialType, fiberDir);
+    auto em = ElasticModelFactory::create(
+      *data->mesh, ele, elasticMaterialType, fiberDir);
 
-      const double *fiberAxesRest = (data->fiberAxesRest.size() > 0)
-        ? data->fiberAxesRest.data() + ele * 9 : nullptr;
+    const double *fiberAxesRest = (data->fiberAxesRest.size() > 0) ? data->fiberAxesRest.data() + ele * 9 : nullptr;
 
-      auto pm = PlasticModelFactory::create(plasticModelType, fiberAxesRest);
+    auto pm = PlasticModelFactory::create(plasticModelType, fiberAxesRest);
 
-      data->elementFEMs[ele] = formulation.createElement(
-        *data->mesh, ele,
-        std::move(em), std::move(pm));
-    });
+    data->elementFEMs[ele] = formulation.createElement(
+      *data->mesh, ele,
+      std::move(em), std::move(pm));
+  });
 
   // Parameter values are owned by the assembler.
 }
@@ -298,7 +297,7 @@ void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
 {
   data->globalRotation = Eigen::Map<const ES::M3d>(R);
   auto rotateAxes = [this](ES::M3Xd &axes, const ES::M3Xd &axesRest) {
-    pgo::parallel::parallelFor(0, (int)axes.cols() / 3, [&](int i) {
+    tbb::parallel_for(0, (int)axes.cols() / 3, [&](int i) {
       axes.block<3, 3>(0, i * 3) = axesRest.block<3, 3>(0, i * 3) * data->globalRotation.transpose();
     });
   };
@@ -306,10 +305,9 @@ void DeformationModelManager::updateMeshRigidTransformation(const double R[9])
   rotateAxes(data->vertexFiberAxes, data->vertexFiberAxesRest);
 
   if (!data->elementFEMs.empty() && data->fiberAxes.cols() > 0) {
-    pgo::parallel::parallelFor(
-      0, data->nele, [this](int ele) {
-        data->elementFEMs[ele]->setPlasticFiberAxes(data->fiberAxes.data() + ele * 9);
-      });
+    tbb::parallel_for(0, data->nele, [this](int ele) {
+      data->elementFEMs[ele]->setPlasticFiberAxes(data->fiberAxes.data() + ele * 9);
+    });
   }
 }
 

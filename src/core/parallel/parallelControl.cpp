@@ -1,111 +1,35 @@
 #include "parallel/parallelControl.h"
 
-#include "parallel/accelerateThreading.h"
-
 #include <algorithm>
-#include <limits>
-#include <memory>
-#include <mutex>
-#include <unordered_map>
+#include <stdexcept>
 
-#include <tbb/global_control.h>
-#include <tbb/info.h>
+#include <tbb/task_arena.h>
 
 namespace pgo::parallel
 {
 namespace
 {
 
-int clampConcurrency(std::size_t value) noexcept
+std::size_t validateGlobalConcurrency(int value)
 {
-  return static_cast<int>(std::min(value, static_cast<std::size_t>(std::numeric_limits<int>::max())));
-}
-
-int activeConcurrency() noexcept
-{
-  return std::max(1, clampConcurrency(tbb::global_control::active_value(tbb::global_control::max_allowed_parallelism)));
-}
-
-class GlobalControlState
-{
-public:
-  int set(std::optional<int> maxConcurrency)
-  {
-    const int requested = requestedOrDefault(maxConcurrency);
-    auto replacement = std::make_unique<tbb::global_control>(
-      tbb::global_control::max_allowed_parallelism, static_cast<std::size_t>(requested));
-
-    std::lock_guard<std::mutex> lock(mutex_);
-    control_ = std::move(replacement);
-    return activeConcurrency();
-  }
-
-  std::shared_ptr<tbb::task_arena> arena()
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    const int active = activeConcurrency();
-    if (!arena_ || arenaConcurrency_ != active) {
-      arena_ = std::make_shared<tbb::task_arena>(active, 1);
-      arenaConcurrency_ = active;
-    }
-    return arena_;
-  }
-
-private:
-  static int requestedOrDefault(std::optional<int> value)
-  {
-    if (value.has_value() && *value <= 0)
-      throw std::invalid_argument("maxConcurrency must be positive or unset.");
-    return value.value_or(std::max(1, tbb::info::default_concurrency()));
-  }
-
-  std::mutex mutex_;
-  std::unique_ptr<tbb::global_control> control_;
-  std::shared_ptr<tbb::task_arena> arena_;
-  int arenaConcurrency_ = 0;
-};
-
-GlobalControlState &globalControlState()
-{
-  static GlobalControlState state;
-  return state;
+  if (value <= 0)
+    throw std::invalid_argument("Global TBB concurrency must be positive.");
+  return static_cast<std::size_t>(value);
 }
 
 }  // namespace
 
-int initialize(std::optional<int> maxConcurrency)
+GlobalTbbControl::GlobalTbbControl(int maxAllowedParallelism): control_(tbb::global_control::max_allowed_parallelism,
+                                                                 validateGlobalConcurrency(maxAllowedParallelism))
 {
-  const int effectiveConcurrency = globalControlState().set(maxConcurrency);
-  detail::setAccelerateSingleThreading();
-  return effectiveConcurrency;
 }
 
-int setMaxConcurrency(std::optional<int> maxConcurrency)
+int resolveNonExpandingTbbConcurrency(int requestedConcurrency)
 {
-  return initialize(maxConcurrency);
+  if (requestedConcurrency <= 0)
+    throw std::invalid_argument("Requested TBB concurrency must be positive.");
+  return std::min(requestedConcurrency,
+    tbb::this_task_arena::max_concurrency());
 }
 
-namespace detail
-{
-
-int activeTbbConcurrency() noexcept
-{
-  return activeConcurrency();
-}
-
-std::shared_ptr<tbb::task_arena> globalAlignedArena()
-{
-  return globalControlState().arena();
-}
-
-std::shared_ptr<tbb::task_arena> localBoundedArena(int maxConcurrency)
-{
-  thread_local std::unordered_map<int, std::shared_ptr<tbb::task_arena>> arenas;
-  auto [it, inserted] = arenas.try_emplace(maxConcurrency);
-  if (inserted)
-    it->second = std::make_shared<tbb::task_arena>(maxConcurrency, 1);
-  return it->second;
-}
-
-}  // namespace detail
 }  // namespace pgo::parallel

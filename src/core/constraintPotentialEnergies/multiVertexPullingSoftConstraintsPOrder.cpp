@@ -4,7 +4,6 @@ copyright to USC, MIT
 */
 
 #include "multiVertexPullingSoftConstraintsPOrder.h"
-#include "parallel/parallelFor.h"
 #include "pgoLogging.h"
 
 #include <tbb/enumerable_thread_specific.h>
@@ -12,6 +11,9 @@ copyright to USC, MIT
 
 #include <numeric>
 #include <iostream>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/partitioner.h>
 
 namespace pgo::ConstraintPotentialEnergies
 {
@@ -122,9 +124,7 @@ void MultipleVertexPullingSoftConstraintsPOrder::gradient(ES::ConstRefVecXd u, E
 {
   grad.setZero();
 
-  pgo::parallel::parallelFor(
-    0, (int)coeffs.size(),
- tbb::static_partitioner{}, [&](int ci) {
+  tbb::parallel_for(0, (int)coeffs.size(), [&](int ci) {
       if (std::abs(coeffs[ci]) < 1e-10)
         return;
 
@@ -178,8 +178,7 @@ void MultipleVertexPullingSoftConstraintsPOrder::gradient(ES::ConstRefVecXd u, E
 
       grad.segment<3>(vid * 3) += gradLocal;
 
-      buf->locks[vid].unlock();
-    });
+      buf->locks[vid].unlock(); }, tbb::static_partitioner{});
 
   grad *= coeffAll;
 }
@@ -188,9 +187,7 @@ void MultipleVertexPullingSoftConstraintsPOrder::hessianInPlace(ES::ConstRefVecX
 {
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-  pgo::parallel::parallelFor(
-    0, (int)coeffs.size(),
- tbb::static_partitioner{}, [&](int ci) {
+  tbb::parallel_for(0, (int)coeffs.size(), [&](int ci) {
       if (std::abs(coeffs[ci]) < 1e-9)
         return;
 
@@ -257,8 +254,7 @@ void MultipleVertexPullingSoftConstraintsPOrder::hessianInPlace(ES::ConstRefVecX
 
           buf->locks[vid].unlock();
         }
-      }
-    });
+      } }, tbb::static_partitioner{});
 
   // cblas_dscal((int)hess.nonZeros(), coeffAll, hess.valuePtr(), 1);
   (ES::Mp<ES::VXd>(hess.valuePtr(), hess.nonZeros())) *= coeffAll;
@@ -284,9 +280,7 @@ void MultipleVertexPullingSoftConstraintsPOrder::printErrorInfo(ES::ConstRefVecX
   ES::VXd dist(coeffs.size());
   ES::VXd dist2(coeffs.size());
 
-  pgo::parallel::parallelFor(
-    0, (int)coeffs.size(),
- tbb::static_partitioner{}, [&](int ci) {
+  tbb::parallel_for(0, (int)coeffs.size(), [&](int ci) {
       int vid = vertexIndices[ci];
       ES::V3d n = normals.segment<3>(ci * 3);
       ES::V3d p0 = tgtp.segment<3>(ci * 3);
@@ -300,8 +294,7 @@ void MultipleVertexPullingSoftConstraintsPOrder::printErrorInfo(ES::ConstRefVecX
 
       ES::V3d diff = p - p0;
       dist[ci] = std::abs(diff.dot(n));
-      dist2[ci] = diff.norm();
-    });
+      dist2[ci] = diff.norm(); }, tbb::static_partitioner{});
 
   double mind = 1e100, maxd = 0, avgd = 0;
   for (ES::IDX i = 0; i < dist.size(); i++) {

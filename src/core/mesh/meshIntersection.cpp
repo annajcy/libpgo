@@ -35,29 +35,29 @@
 #include "predicates.h"
 
 #include "basicAlgorithms.h"
-#include "parallel/parallelFor.h"
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 std::vector<std::vector<int>> pgo::Mesh::computeTrianglesIntersectingEachTetExact(const TetMeshRef tetMesh, const TriMeshRef triMesh, const TriMeshBVTree &triMeshBVTree)
 {
   std::vector<std::vector<int>> tetEmbedTri(tetMesh.numTets());
 
-  pgo::parallel::parallelFor(0, tetMesh.numTets(),
-    [&](int tetID) {
-      std::array<Vec3d, 4> tet;
-      for (int j = 0; j < 4; j++)
-        tet[j] = tetMesh.pos(tetID, j);
-      BoundingBox tetbb(tet);
+  tbb::parallel_for(0, tetMesh.numTets(), [&](int tetID) {
+    std::array<Vec3d, 4> tet;
+    for (int j = 0; j < 4; j++)
+      tet[j] = tetMesh.pos(tetID, j);
+    BoundingBox tetbb(tet);
 
-      auto toBB = [&](const BoundingBox &bb) {
-        return (tetbb.intersect(bb));
-      };
-      auto toTri = [&](int tri) {
-        return intersectTriTet(triMesh.pos(tri, 0).data(), triMesh.pos(tri, 1).data(), triMesh.pos(tri, 2).data(),
-          tet[0].data(), tet[1].data(), tet[2].data(), tet[3].data());
-      };
-      triMeshBVTree.rangeQuery(toBB, toTri, tetEmbedTri[tetID]);
-      BasicAlgorithms::sortAndDeduplicate(tetEmbedTri[tetID]);
-    });
+    auto toBB = [&](const BoundingBox &bb) {
+      return (tetbb.intersect(bb));
+    };
+    auto toTri = [&](int tri) {
+      return intersectTriTet(triMesh.pos(tri, 0).data(), triMesh.pos(tri, 1).data(), triMesh.pos(tri, 2).data(),
+        tet[0].data(), tet[1].data(), tet[2].data(), tet[3].data());
+    };
+    triMeshBVTree.rangeQuery(toBB, toTri, tetEmbedTri[tetID]);
+    BasicAlgorithms::sortAndDeduplicate(tetEmbedTri[tetID]);
+  });
   return tetEmbedTri;
 }
 

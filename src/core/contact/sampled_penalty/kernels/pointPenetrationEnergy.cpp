@@ -1,5 +1,4 @@
 #include "sampled_penalty/kernels/pointPenetrationEnergy.h"
-#include "parallel/parallelFor.h"
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
@@ -12,6 +11,9 @@
 #include <numeric>
 #include <atomic>
 #include <iomanip>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/partitioner.h>
 
 using namespace pgo;
 using namespace pgo::Contact;
@@ -190,9 +192,7 @@ double PointPenetrationEnergy::func(ES::ConstRefVecXd u) const
 
   int deepPenetration = 0;
 
-  pgo::parallel::parallelFor(
-    0, numPoints,
- tbb::static_partitioner{}, [&](int ci) {
+  tbb::parallel_for(0, numPoints, [&](int ci) {
       if (std::abs(constraintCoeffs[ci]) < 1e-9)
         return;
 
@@ -241,7 +241,7 @@ double PointPenetrationEnergy::func(ES::ConstRefVecXd u) const
       }
       else {
         energyLocal += (p - p0).squaredNorm() * 0.5 * constraintCoeffs[ci];
-      } });
+      } }, tbb::static_partitioner{});
 
   double energyAll = std::accumulate(buf->energyTLS.begin(), buf->energyTLS.end(), 0.0) * coeffAll;
 
@@ -259,9 +259,7 @@ void PointPenetrationEnergy::gradient(ES::ConstRefVecXd u, ES::RefVecXd grad) co
 
   tbb::concurrent_vector<ES::V6d> ffrics;
 
-  pgo::parallel::parallelFor(
-    0, numPoints,
- tbb::static_partitioner{}, [&](int ci) {
+  tbb::parallel_for(0, numPoints, [&](int ci) {
       if (std::abs(constraintCoeffs[ci]) < 1e-9)
         return;
 
@@ -341,7 +339,7 @@ void PointPenetrationEnergy::gradient(ES::ConstRefVecXd u, ES::RefVecXd grad) co
 
           buf->entryLocks[vid].unlock();
         }
-      } });
+      } }, tbb::static_partitioner{});
 
   grad *= coeffAll;
 
@@ -370,9 +368,7 @@ void PointPenetrationEnergy::computeHessian()
 {
   memset(hessianConstant.valuePtr(), 0, sizeof(double) * hessianConstant.nonZeros());
 
-  pgo::parallel::parallelFor(
-    0, numPoints,
- tbb::static_partitioner{}, [&](int ci) {
+  tbb::parallel_for(0, numPoints, [&](int ci) {
       if (std::abs(constraintCoeffs[ci]) < 1e-9)
         return;
 
@@ -409,7 +405,7 @@ void PointPenetrationEnergy::computeHessian()
             }
           }
         }
-      } });
+      } }, tbb::static_partitioner{});
 }
 
 void PointPenetrationEnergy::hessianInPlace(ES::ConstRefVecXd u, ES::SpMatD &hess) const
@@ -417,9 +413,7 @@ void PointPenetrationEnergy::hessianInPlace(ES::ConstRefVecXd u, ES::SpMatD &hes
   if (checkPenetration) {
     std::memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
-    pgo::parallel::parallelFor(
-      0, numPoints,
- tbb::static_partitioner{}, [&](int ci) {
+    tbb::parallel_for(0, numPoints, [&](int ci) {
         // for (int ci = 0; ci < numPoints; ci ++) {
         if (std::abs(constraintCoeffs[ci]) < 1e-9)
           return;
@@ -507,7 +501,7 @@ void PointPenetrationEnergy::hessianInPlace(ES::ConstRefVecXd u, ES::SpMatD &hes
               }
             }
           }
-        } });
+        } }, tbb::static_partitioner{});
   }
   else {
     memcpy(hess.valuePtr(), hessianConstant.valuePtr(), sizeof(double) * hess.nonZeros());

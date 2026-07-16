@@ -1,10 +1,8 @@
 #include "surfaceIPCSelfBarrierAssembler.h"
-#include "parallel/parallelReduce.h"
 #include "surfaceIPCBarrierKernels.h"
 
 #include "scopedProfileSection.h"
 #include "ipc/profiling/surfaceIPCProfiling.h"
-#include "parallel/parallelFor.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
@@ -17,10 +15,17 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/parallel_reduce.h>
+#include <utility>
 
-namespace pgo {
-namespace Contact {
-namespace IPC {
+namespace pgo
+{
+namespace Contact
+{
+namespace IPC
+{
 using namespace pgo::EigenSupport;
 
 static V3d vtx(ConstRefVecXd x, int i)
@@ -48,8 +53,7 @@ struct SelfHessianThreadRows
 {
   std::vector<std::vector<RowValue>> rows;
 
-  explicit SelfHessianThreadRows(Eigen::Index n)
-    : rows(static_cast<std::size_t>(n))
+  explicit SelfHessianThreadRows(Eigen::Index n): rows(static_cast<std::size_t>(n))
   {
   }
 };
@@ -136,19 +140,18 @@ static void fillSparseRowsDirect(
   hess.resizeNonZeros(totalNnz);
   std::copy(outerOffsets.begin(), outerOffsets.end(), hess.outerIndexPtr());
 
-  pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, n,
-    [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
-      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
-        const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
-        const StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
-        for (std::size_t entryIndex = 0; entryIndex < rowBuffer.size(); ++entryIndex) {
-          const RowValue &entry = rowBuffer[entryIndex];
-          const StorageIndex storageIndex = offset + static_cast<StorageIndex>(entryIndex);
-          hess.innerIndexPtr()[storageIndex] = static_cast<StorageIndex>(entry.col);
-          hess.valuePtr()[storageIndex] = entry.value;
-        }
+  tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, n, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+    for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
+      const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
+      const StorageIndex offset = outerOffsets[static_cast<std::size_t>(row)];
+      for (std::size_t entryIndex = 0; entryIndex < rowBuffer.size(); ++entryIndex) {
+        const RowValue &entry = rowBuffer[entryIndex];
+        const StorageIndex storageIndex = offset + static_cast<StorageIndex>(entryIndex);
+        hess.innerIndexPtr()[storageIndex] = static_cast<StorageIndex>(entry.col);
+        hess.valuePtr()[storageIndex] = entry.value;
       }
-    });
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 
   if (!hess.isCompressed())
     hess.makeCompressed();
@@ -174,8 +177,7 @@ static void buildSelfHessianFromThreadRows(
       SurfaceIPCProfileSections::kActiveSetSelfThreadRowMerge);
 
     const RowMergeStats mergeStats =
-      pgo::parallel::parallelReduce(Eigen::Index{ 0 }, n, RowMergeStats{},
-      [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd, RowMergeStats localStats) {
+      tbb::parallel_reduce(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, n, 1), RowMergeStats{}, [pgoRangeFn = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd, RowMergeStats localStats) {
         for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
           const std::size_t rowIndex = static_cast<std::size_t>(row);
           std::size_t rowSize = 0;
@@ -196,13 +198,13 @@ static void buildSelfHessianFromThreadRows(
           }
         }
         return localStats;
-      },
-      [](const RowMergeStats &lhs, const RowMergeStats &rhs) {
-        return RowMergeStats{
-          lhs.contributions + rhs.contributions,
-          lhs.activeRows + rhs.activeRows
-        };
-      });
+      }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+        [pgoJoinFn = [](const RowMergeStats &lhs, const RowMergeStats &rhs) {
+          return RowMergeStats{
+            lhs.contributions + rhs.contributions,
+            lhs.activeRows + rhs.activeRows
+          };
+        }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
     contributionCount = mergeStats.contributions;
     activeRows = mergeStats.activeRows;
   }
@@ -210,34 +212,33 @@ static void buildSelfHessianFromThreadRows(
   {
     Profiling::ScopedProfileSection reduceProfile(
       SurfaceIPCProfileSections::kActiveSetSelfRowSortReduce);
-    pgo::parallel::parallelForChunks(Eigen::Index{ 0 }, n,
-      [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
-        for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
-          std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
-          if (rowBuffer.empty())
-            continue;
+    tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, n, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
+      for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
+        std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
+        if (rowBuffer.empty())
+          continue;
 
-          std::sort(rowBuffer.begin(), rowBuffer.end(),
-            [](const RowValue &lhs, const RowValue &rhs) {
-              return lhs.col < rhs.col;
-            });
+        std::sort(rowBuffer.begin(), rowBuffer.end(),
+          [](const RowValue &lhs, const RowValue &rhs) {
+            return lhs.col < rhs.col;
+          });
 
-          std::size_t writeIndex = 0;
-          for (std::size_t readIndex = 0; readIndex < rowBuffer.size();) {
-            const RowValue &first = rowBuffer[readIndex];
-            const Eigen::Index col = first.col;
-            double value = first.value;
+        std::size_t writeIndex = 0;
+        for (std::size_t readIndex = 0; readIndex < rowBuffer.size();) {
+          const RowValue &first = rowBuffer[readIndex];
+          const Eigen::Index col = first.col;
+          double value = first.value;
+          ++readIndex;
+          while (readIndex < rowBuffer.size() && rowBuffer[readIndex].col == col) {
+            value += rowBuffer[readIndex].value;
             ++readIndex;
-            while (readIndex < rowBuffer.size() && rowBuffer[readIndex].col == col) {
-              value += rowBuffer[readIndex].value;
-              ++readIndex;
-            }
-
-            rowBuffer[writeIndex++] = RowValue{ col, value };
           }
-          rowBuffer.resize(writeIndex);
+
+          rowBuffer[writeIndex++] = RowValue{ col, value };
         }
-      });
+        rowBuffer.resize(writeIndex);
+      }
+    }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
   }
 
   std::uint64_t outputNnz = 0;
@@ -274,34 +275,32 @@ double computeSelfEnergy(
   double dhat2 = dhat * dhat;
 
   // PT pairs
-  double ptEnergy = pgo::parallel::parallelReduce(0, (int)pairs.ptPairs.size(), 0.0,
-    [&](int rangeBegin, int rangeEnd, double localE) {
-      for (int i = rangeBegin; i < rangeEnd; ++i) {
-        auto &pair = pairs.ptPairs[i];
-        auto k = barrier_kernels::pointTriangle(
-          vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
-          pair.weight, dhat2, kappa, false, false);
-        if (k.active)
-          localE += k.energy;
-      }
-      return localE;
-    },
-    std::plus<double>());
+  double ptEnergy = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, (int)pairs.ptPairs.size(), 1), 0.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localE) {
+    for (int i = rangeBegin; i < rangeEnd; ++i) {
+      auto &pair = pairs.ptPairs[i];
+      auto k = barrier_kernels::pointTriangle(
+        vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
+        pair.weight, dhat2, kappa, false, false);
+      if (k.active)
+        localE += k.energy;
+    }
+    return localE;
+  }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+    [pgoJoinFn = std::plus<double>()](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
   // EE pairs
-  double eeEnergy = pgo::parallel::parallelReduce(0, (int)pairs.eePairs.size(), 0.0,
-    [&](int rangeBegin, int rangeEnd, double localE) {
-      for (int i = rangeBegin; i < rangeEnd; ++i) {
-        auto &pair = pairs.eePairs[i];
-        auto k = barrier_kernels::edgeEdge(
-          vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
-          pair.weight, dhat2, kappa, eps_ee, false, false);
-        if (k.active)
-          localE += k.energy;
-      }
-      return localE;
-    },
-    std::plus<double>());
+  double eeEnergy = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, (int)pairs.eePairs.size(), 1), 0.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localE) {
+    for (int i = rangeBegin; i < rangeEnd; ++i) {
+      auto &pair = pairs.eePairs[i];
+      auto k = barrier_kernels::edgeEdge(
+        vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
+        pair.weight, dhat2, kappa, eps_ee, false, false);
+      if (k.active)
+        localE += k.energy;
+    }
+    return localE;
+  }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+    [pgoJoinFn = std::plus<double>()](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
   return ptEnergy + eeEnergy;
 }
@@ -328,34 +327,32 @@ void computeSelfGradient(
   double dhat2 = dhat * dhat;
 
   // PT pairs
-  pgo::parallel::parallelFor(0, (int)pairs.ptPairs.size(),
-    [&](int i) {
-      {
-        auto &pair = pairs.ptPairs[i];
-        auto k = barrier_kernels::pointTriangle(
-          vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
-          pair.weight, dhat2, kappa, true, false);
-        if (!k.active)
-          return;
-        int idx[4] = { pair.p, pair.t0, pair.t1, pair.t2 };
-        scatterSelfGrad(k.gradient, idx, grad);
-      }
-    });
+  tbb::parallel_for(0, (int)pairs.ptPairs.size(), [&](int i) {
+    {
+      auto &pair = pairs.ptPairs[i];
+      auto k = barrier_kernels::pointTriangle(
+        vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
+        pair.weight, dhat2, kappa, true, false);
+      if (!k.active)
+        return;
+      int idx[4] = { pair.p, pair.t0, pair.t1, pair.t2 };
+      scatterSelfGrad(k.gradient, idx, grad);
+    }
+  });
 
   // EE pairs
-  pgo::parallel::parallelFor(0, (int)pairs.eePairs.size(),
-    [&](int i) {
-      {
-        auto &pair = pairs.eePairs[i];
-        auto k = barrier_kernels::edgeEdge(
-          vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
-          pair.weight, dhat2, kappa, eps_ee, true, false);
-        if (!k.active)
-          return;
-        int idx[4] = { pair.ea0, pair.ea1, pair.eb0, pair.eb1 };
-        scatterSelfGrad(k.gradient, idx, grad);
-      }
-    });
+  tbb::parallel_for(0, (int)pairs.eePairs.size(), [&](int i) {
+    {
+      auto &pair = pairs.eePairs[i];
+      auto k = barrier_kernels::edgeEdge(
+        vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
+        pair.weight, dhat2, kappa, eps_ee, true, false);
+      if (!k.active)
+        return;
+      int idx[4] = { pair.ea0, pair.ea1, pair.eb0, pair.eb1 };
+      scatterSelfGrad(k.gradient, idx, grad);
+    }
+  });
 }
 
 // =========================================================================
@@ -383,36 +380,34 @@ void computeSelfHessian(
   double dhat2 = dhat * dhat;
 
   // PT pairs
-  pgo::parallel::parallelForChunks(0, nPT,
-    [&](int rangeBegin, int rangeEnd) {
-      std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
-      for (int i = rangeBegin; i < rangeEnd; ++i) {
-        auto &pair = pairs.ptPairs[i];
-        auto k = barrier_kernels::pointTriangle(
-          vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
-          pair.weight, dhat2, kappa, false, true);
-        if (!k.active)
-          continue;
-        int idx[4] = { pair.p, pair.t0, pair.t1, pair.t2 };
-        appendSelfHessianRows(k.hessian, idx, rows);
-      }
-    });
+  tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, nPT, 1), [pgoBody = [&](int rangeBegin, int rangeEnd) {
+    std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
+    for (int i = rangeBegin; i < rangeEnd; ++i) {
+      auto &pair = pairs.ptPairs[i];
+      auto k = barrier_kernels::pointTriangle(
+        vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
+        pair.weight, dhat2, kappa, false, true);
+      if (!k.active)
+        continue;
+      int idx[4] = { pair.p, pair.t0, pair.t1, pair.t2 };
+      appendSelfHessianRows(k.hessian, idx, rows);
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 
   // EE pairs
-  pgo::parallel::parallelForChunks(0, nEE,
-    [&](int rangeBegin, int rangeEnd) {
-      std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
-      for (int i = rangeBegin; i < rangeEnd; ++i) {
-        auto &pair = pairs.eePairs[i];
-        auto k = barrier_kernels::edgeEdge(
-          vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
-          pair.weight, dhat2, kappa, eps_ee, false, true);
-        if (!k.active)
-          continue;
-        int idx[4] = { pair.ea0, pair.ea1, pair.eb0, pair.eb1 };
-        appendSelfHessianRows(k.hessian, idx, rows);
-      }
-    });
+  tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, nEE, 1), [pgoBody = [&](int rangeBegin, int rangeEnd) {
+    std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
+    for (int i = rangeBegin; i < rangeEnd; ++i) {
+      auto &pair = pairs.eePairs[i];
+      auto k = barrier_kernels::edgeEdge(
+        vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
+        pair.weight, dhat2, kappa, eps_ee, false, true);
+      if (!k.active)
+        continue;
+      int idx[4] = { pair.ea0, pair.ea1, pair.eb0, pair.eb1 };
+      appendSelfHessianRows(k.hessian, idx, rows);
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 
   buildSelfHessianFromThreadRows(threadRows, n, hess);
 }
@@ -454,48 +449,46 @@ void computeSelfAll(
   double ptEnergy = 0.0;
   {
     Profiling::ScopedProfileSection ptProfile(SurfaceIPCProfileSections::kActiveSetSelfPTCombined);
-    ptEnergy = pgo::parallel::parallelReduce(0, nPT, 0.0,
-      [&](int rangeBegin, int rangeEnd, double localE) {
-        std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
-        for (int i = rangeBegin; i < rangeEnd; ++i) {
-          auto &pair = pairs.ptPairs[i];
-          auto k = barrier_kernels::pointTriangle(
-            vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
-            pair.weight, dhat2, kappa, true, true);
-          if (!k.active)
-            continue;
-          localE += k.energy;
-          int idx[4] = { pair.p, pair.t0, pair.t1, pair.t2 };
-          scatterSelfGrad(k.gradient, idx, grad);
-          appendSelfHessianRows(k.hessian, idx, rows);
-        }
-        return localE;
-      },
-      std::plus<double>());
+    ptEnergy = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nPT, 1), 0.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localE) {
+      std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
+      for (int i = rangeBegin; i < rangeEnd; ++i) {
+        auto &pair = pairs.ptPairs[i];
+        auto k = barrier_kernels::pointTriangle(
+          vtx(dynPos, pair.p), vtx(dynPos, pair.t0), vtx(dynPos, pair.t1), vtx(dynPos, pair.t2),
+          pair.weight, dhat2, kappa, true, true);
+        if (!k.active)
+          continue;
+        localE += k.energy;
+        int idx[4] = { pair.p, pair.t0, pair.t1, pair.t2 };
+        scatterSelfGrad(k.gradient, idx, grad);
+        appendSelfHessianRows(k.hessian, idx, rows);
+      }
+      return localE;
+    }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+      [pgoJoinFn = std::plus<double>()](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
   }
 
   // ---- EE pairs ----
   double eeEnergy = 0.0;
   {
     Profiling::ScopedProfileSection eeProfile(SurfaceIPCProfileSections::kActiveSetSelfEECombined);
-    eeEnergy = pgo::parallel::parallelReduce(0, nEE, 0.0,
-      [&](int rangeBegin, int rangeEnd, double localE) {
-        std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
-        for (int i = rangeBegin; i < rangeEnd; ++i) {
-          auto &pair = pairs.eePairs[i];
-          auto k = barrier_kernels::edgeEdge(
-            vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
-            pair.weight, dhat2, kappa, eps_ee, true, true);
-          if (!k.active)
-            continue;
-          localE += k.energy;
-          int idx[4] = { pair.ea0, pair.ea1, pair.eb0, pair.eb1 };
-          scatterSelfGrad(k.gradient, idx, grad);
-          appendSelfHessianRows(k.hessian, idx, rows);
-        }
-        return localE;
-      },
-      std::plus<double>());
+    eeEnergy = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nEE, 1), 0.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localE) {
+      std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
+      for (int i = rangeBegin; i < rangeEnd; ++i) {
+        auto &pair = pairs.eePairs[i];
+        auto k = barrier_kernels::edgeEdge(
+          vtx(dynPos, pair.ea0), vtx(dynPos, pair.ea1), vtx(dynPos, pair.eb0), vtx(dynPos, pair.eb1),
+          pair.weight, dhat2, kappa, eps_ee, true, true);
+        if (!k.active)
+          continue;
+        localE += k.energy;
+        int idx[4] = { pair.ea0, pair.ea1, pair.eb0, pair.eb1 };
+        scatterSelfGrad(k.gradient, idx, grad);
+        appendSelfHessianRows(k.hessian, idx, rows);
+      }
+      return localE;
+    }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+      [pgoJoinFn = std::plus<double>()](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
   }
 
   energy = ptEnergy + eeEnergy;

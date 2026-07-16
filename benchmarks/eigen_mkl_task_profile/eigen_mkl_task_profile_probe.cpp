@@ -3,6 +3,7 @@
 #include "parallel/parallelControl.h"
 
 #include <mkl.h>
+#include <tbb/task_arena.h>
 
 #include <chrono>
 #include <climits>
@@ -154,10 +155,13 @@ void runIterations(NestedEigenMklWorkload &workload, int iterations)
 
 void run(const Arguments &arguments)
 {
-  const int effectiveConcurrency = P::initialize(arguments.concurrency);
+  P::GlobalTbbControl control(arguments.concurrency);
+  const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
+    tbb::global_control::max_allowed_parallelism));
+  tbb::task_arena arena(arguments.concurrency, 1);
   NestedEigenMklWorkload workload(1, arguments.matrixN);
 
-  P::withGlobalTbbConcurrency([&] {
+  arena.execute([&] {
     ScopedMklLocalThreads localThreads(localThreadLimit(arguments.mode));
     runIterations(workload, arguments.warmupIterations);
   });
@@ -172,7 +176,7 @@ void run(const Arguments &arguments)
             << " matrix_n=" << arguments.matrixN
             << " iterations=" << arguments.profileIterations << std::endl;
 
-  P::withGlobalTbbConcurrency([&] {
+  arena.execute([&] {
     ScopedMklLocalThreads localThreads(localThreadLimit(arguments.mode));
     runIterations(workload, arguments.profileIterations);
   });

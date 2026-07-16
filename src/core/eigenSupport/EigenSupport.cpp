@@ -9,7 +9,6 @@ copyright to USC, MIT
 #endif
 
 #include "EigenSupport.h"
-#include "parallel/parallelFor.h"
 
 #if defined(PGO_HAS_MKL)
 #  include <mkl.h>
@@ -21,6 +20,9 @@ copyright to USC, MIT
 #include <vector>
 #include <iostream>
 #include <numeric>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/partitioner.h>
 
 #ifndef EIGEN_SUPPORT_INLINE
 #  define EIGEN_SUPPORT_INLINE
@@ -402,8 +404,7 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::mm(const SpMatD &A, ConstRefMatXd B
     using Buf = std::vector<const int*, tbb::cache_aligned_allocator<const int*>>;
     tbb::enumerable_thread_specific<Buf> tls(Buf(A.rows()));
 
-    pgo::parallel::parallelFor((IDX)0, B.cols(),
-      [&](int coli) {
+    tbb::parallel_for((IDX)0, B.cols(), [&](int coli) {
         auto &colStartPtr = tls.local();
 
         for (IDX row = 0; row < A.rows(); row++) {
@@ -816,10 +817,9 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::transposeTransfer(const SpMatD &A, 
 {
   Eigen::Index nnz = AT.nonZeros();
   if (parallel) {
-    pgo::parallel::parallelFor((Eigen::Index)0, nnz,
- tbb::static_partitioner{}, [&](Eigen::Index i) {
+    tbb::parallel_for((Eigen::Index)0, nnz, [&](Eigen::Index i) {
       Eigen::Index newOffset = mapping.valuePtr()[i];
-      AT.valuePtr()[i] = A.valuePtr()[newOffset]; });
+      AT.valuePtr()[i] = A.valuePtr()[newOffset]; }, tbb::static_partitioner{});
   }
   else {
     for (Eigen::Index i = 0; i < nnz; i++) {
@@ -1176,10 +1176,9 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::addSmallToBig(double coeff, const S
 {
   Eigen::Index nnz = Asmall.nonZeros();
   if (parallel) {
-    pgo::parallel::parallelFor((Eigen::Index)0, nnz,
- tbb::static_partitioner{}, [&](Eigen::Index i) {
+    tbb::parallel_for((Eigen::Index)0, nnz, [&](Eigen::Index i) {
       Eigen::Index newOffset = mapping.valuePtr()[i];
-      Abig.valuePtr()[newOffset] = Abig.valuePtr()[newOffset] * beta + coeff * Asmall.valuePtr()[i]; });
+      Abig.valuePtr()[newOffset] = Abig.valuePtr()[newOffset] * beta + coeff * Asmall.valuePtr()[i]; }, tbb::static_partitioner{});
   }
   else {
     for (Eigen::Index i = 0; i < nnz; i++) {
@@ -1193,12 +1192,11 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::addBigToSmall(double coeff, const S
 {
   Eigen::Index nnz = Abig.nonZeros();
   if (parallel) {
-    pgo::parallel::parallelFor((Eigen::Index)0, nnz,
- tbb::static_partitioner{}, [&](Eigen::Index i) {
+    tbb::parallel_for((Eigen::Index)0, nnz, [&](Eigen::Index i) {
       Eigen::Index newOffset = mapping.valuePtr()[i];
       if (newOffset >= 0) {
         Asmall.valuePtr()[newOffset] = Asmall.valuePtr()[newOffset] * beta + coeff * Abig.valuePtr()[i];
-      } });
+      } }, tbb::static_partitioner{});
   }
   else {
     for (Eigen::Index i = 0; i < nnz; i++) {
@@ -1214,10 +1212,9 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::transferSmallToBig(const SpMatD &As
 {
   Eigen::Index nnz = Asmall.nonZeros();
   if (parallel) {
-    pgo::parallel::parallelFor((Eigen::Index)0, nnz,
- tbb::static_partitioner{}, [&](Eigen::Index i) {
+    tbb::parallel_for((Eigen::Index)0, nnz, [&](Eigen::Index i) {
       Eigen::Index newOffset = mapping.valuePtr()[i];
-      Abig.valuePtr()[newOffset] = Asmall.valuePtr()[i]; });
+      Abig.valuePtr()[newOffset] = Asmall.valuePtr()[i]; }, tbb::static_partitioner{});
   }
   else {
     for (Eigen::Index i = 0; i < nnz; i++) {
@@ -1230,7 +1227,7 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::transferSmallToBig(const SpMatD &As
 EIGEN_SUPPORT_INLINE void pgo::EigenSupport::transferSmallToBig(ConstRefVecXd Asmall, RefVecXd Abig, const std::vector<int> &mapping, int parallel)
 {
   if (parallel) {
-    pgo::parallel::parallelFor((IDX)0, Asmall.size(), [&](IDX i) {
+    tbb::parallel_for((IDX)0, Asmall.size(), [&](IDX i) {
       Eigen::Index newOffset = mapping[i];
       Abig[newOffset] = Asmall[i]; });
   }
@@ -1246,12 +1243,11 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::transferBigToSmall(const SpMatD &Ab
 {
   Eigen::Index nnz = Abig.nonZeros();
   if (parallel) {
-    pgo::parallel::parallelFor((Eigen::Index)0, nnz,
- tbb::static_partitioner{}, [&](Eigen::Index i) {
+    tbb::parallel_for((Eigen::Index)0, nnz, [&](Eigen::Index i) {
       Eigen::Index newOffset = mapping.valuePtr()[i];
       if (newOffset >= 0) {
         Asmall.valuePtr()[newOffset] = Abig.valuePtr()[i];
-      } });
+      } }, tbb::static_partitioner{});
   }
   else {
     for (Eigen::Index i = 0; i < nnz; i++) {
@@ -1266,7 +1262,7 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::transferBigToSmall(const SpMatD &Ab
 EIGEN_SUPPORT_INLINE void pgo::EigenSupport::transferBigToSmall(ConstRefVecXd Abig, RefVecXd Asmall, const std::vector<int> &mapping, int parallel)
 {
   if (parallel) {
-    pgo::parallel::parallelFor((IDX)0, Abig.size(), [&](IDX i) {
+    tbb::parallel_for((IDX)0, Abig.size(), [&](IDX i) {
       Eigen::Index newOffset = mapping[i];
       if (newOffset >= 0) {
         Asmall[newOffset] = Abig[i];
@@ -1648,8 +1644,7 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::symbolicMm(const SpMatD &A, const S
     AT.makeCompressed();
   }
 
-  pgo::parallel::parallelFor(0, (int)C.nonZeros(),
-    [&](int entryi) {
+  tbb::parallel_for(0, (int)C.nonZeros(), [&](int entryi) {
     auto iter = std::upper_bound(C.outerIndexPtr(), C.outerIndexPtr() + C.outerSize() + 1, entryi);
     if (*iter <= entryi || iter == C.outerIndexPtr())
       abort();
@@ -1709,8 +1704,7 @@ EIGEN_SUPPORT_INLINE void pgo::EigenSupport::mm(const SpMatD &A, const SpMatD &B
     }
   }
 
-  pgo::parallel::parallelFor(0, (int)C.nonZeros(),
-    [&](int entryi) {
+  tbb::parallel_for(0, (int)C.nonZeros(), [&](int entryi) {
     C.valuePtr()[entryi] = 0;
 
     for (size_t pri = 0; pri < dat->mulPairs[entryi].size(); pri++) {

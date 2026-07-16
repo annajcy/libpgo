@@ -1,8 +1,8 @@
 #include "eigen_mkl_nested_kernel.h"
 
 #include "../parallelism_benchmark_helpers.h"
+#include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
-#include "parallel/parallelFor.h"
 
 #include <benchmark/benchmark.h>
 
@@ -105,7 +105,8 @@ private:
 };
 
 void runOuterLoop(
-  Policy policy, int outerTasks, NestedEigenMklWorkload &workload, RunTelemetry &telemetry)
+  Policy policy, int outerTasks, NestedEigenMklWorkload &workload, RunTelemetry &telemetry,
+  P::ArenaThreadingExecutor &pgoExecutor, tbb::task_arena &singleArena)
 {
   const auto body = [&](int taskIndex) {
     ActiveOuterCallback active(telemetry);
@@ -122,7 +123,7 @@ void runOuterLoop(
     // policies only place that call in a one-participant TBB arena, so oneMKL
     // keeps using its TBB threading layer but cannot recruit another worker.
     if (usesSingleParticipantInnerArena(policy))
-      P::withSingleThreadedTbb(runInnerKernel);
+      singleArena.execute(runInnerKernel);
     else
       runInnerKernel();
 
@@ -130,8 +131,15 @@ void runOuterLoop(
   };
 
   if (usesPgoOuterLoop(policy)) {
-    P::parallelFor(0, outerTasks, body,
-      std::optional<int>{ 1 }, tbb::auto_partitioner{});
+    pgoExecutor.execute([&] {
+      tbb::parallel_for(
+        tbb::blocked_range<int>(0, outerTasks, 1),
+        [&](const tbb::blocked_range<int> &range) {
+          for (int taskIndex = range.begin(); taskIndex < range.end(); ++taskIndex)
+            body(taskIndex);
+        },
+        tbb::auto_partitioner{});
+    });
     return;
   }
 
@@ -147,19 +155,24 @@ void runOuterLoop(
 void runBenchmark(benchmark::State &state,
   Policy policy, int configuredConcurrency, int outerTasks, int matrixN)
 {
-  const int effectiveConcurrency = P::setMaxConcurrency(configuredConcurrency);
+  P::GlobalTbbControl control(configuredConcurrency);
+  const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
+    tbb::global_control::max_allowed_parallelism));
+  P::ArenaThreadingExecutor pgoExecutor(configuredConcurrency,
+    { .mklLocalThreadBudget = 0 });
+  tbb::task_arena singleArena(1, 1);
   NestedEigenMklWorkload workload(outerTasks, matrixN);
   RunTelemetry telemetry;
 
   ThreadSampler sampler;
   sampler.start();
-  runOuterLoop(policy, outerTasks, workload, telemetry);
+  runOuterLoop(policy, outerTasks, workload, telemetry, pgoExecutor, singleArena);
   const int peakThreads = sampler.stop();
   const int baselineThreads = sampler.baseline();
 
   telemetry.reset();
   for (auto _ : state) {
-    runOuterLoop(policy, outerTasks, workload, telemetry);
+    runOuterLoop(policy, outerTasks, workload, telemetry, pgoExecutor, singleArena);
     benchmark::DoNotOptimize(&workload);
     benchmark::ClobberMemory();
   }

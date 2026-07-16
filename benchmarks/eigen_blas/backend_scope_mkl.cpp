@@ -3,6 +3,7 @@
 #include "parallel/parallelControl.h"
 
 #include <mkl.h>
+#include <tbb/info.h>
 #include <tbb/task_arena.h>
 
 #include <array>
@@ -39,7 +40,6 @@ std::optional<int> requestedConcurrency()
 void observeMkl(EigenBlasBackendTelemetry &telemetry)
 {
   telemetry.arenaConcurrency = tbb::this_task_arena::max_concurrency();
-  telemetry.vendorMaxThreads = mkl_get_max_threads();
 }
 
 }  // namespace
@@ -73,7 +73,13 @@ bool runInEigenBlasBackendScope(
 {
   try {
     telemetry = {};
-    telemetry.configuredConcurrency = pgo::parallel::setMaxConcurrency(requestedConcurrency());
+    const int configuredConcurrency = requestedConcurrency().value_or(
+      tbb::info::default_concurrency());
+    pgo::parallel::GlobalTbbControl control(configuredConcurrency);
+    telemetry.configuredConcurrency = static_cast<int>(tbb::global_control::active_value(
+      tbb::global_control::max_allowed_parallelism));
+    tbb::task_arena arena(configuredConcurrency, 1);
+    tbb::task_arena singleArena(1, 1);
 
     const auto invoke = [&] {
       observeMkl(telemetry);
@@ -82,10 +88,10 @@ bool runInEigenBlasBackendScope(
 
     switch (backend) {
     case EigenBlasBackend::MklTbbSingle:
-      pgo::parallel::withSingleThreadedTbb(invoke);
+      singleArena.execute(invoke);
       return true;
     case EigenBlasBackend::MklTbbGlobal:
-      pgo::parallel::withGlobalTbbConcurrency(invoke);
+      arena.execute(invoke);
       return true;
     default:
       error = "The MKL executable received a non-MKL backend.";

@@ -7,8 +7,8 @@
 #endif
 
 #include "../parallelism_benchmark_helpers.h"
+#include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
-#include "parallel/parallelFor.h"
 
 #include <benchmark/benchmark.h>
 #include <mkl.h>
@@ -22,6 +22,8 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 namespace
 {
@@ -186,9 +188,9 @@ void runWithMklApiSetting(Policy policy, RunTelemetry &telemetry, Fn &&fn)
 
   const int before = mkl_get_max_threads();
   {
-    // Intel documents this as an OpenMP control with no supported effect under
-    // the TBB threading layer. It is included only to reproduce the old
-    // benchmark intervention and must not be treated as a production policy.
+    // Apply the same per-OS-thread local budget used by ThreadingPolicy. This
+    // benchmark calls the native API directly so the MKL-budget factor remains
+    // independent from the task_arena-width factor.
     ScopedMklLocalOne localOne;
     observeAndRun();
   }
@@ -197,7 +199,8 @@ void runWithMklApiSetting(Policy policy, RunTelemetry &telemetry, Fn &&fn)
 }
 
 template<class Workload>
-void runOuterLoop(Policy policy, int outerTasks, Workload &workload, RunTelemetry &telemetry)
+void runOuterLoop(Policy policy, int outerTasks, Workload &workload, RunTelemetry &telemetry,
+  P::ArenaThreadingExecutor &outerExecutor, tbb::task_arena &singleArena)
 {
   const auto body = [&](int taskIndex) {
     ActiveOuterCallback active(telemetry);
@@ -213,34 +216,46 @@ void runOuterLoop(Policy policy, int outerTasks, Workload &workload, RunTelemetr
     };
 
     if (usesSingleParticipantArena(policy))
-      P::withSingleThreadedTbb(runInnerKernel);
+      singleArena.execute(runInnerKernel);
     else
       runInnerKernel();
 
     telemetry.bodyCalls.fetch_add(1, std::memory_order_relaxed);
   };
 
-  P::parallelFor(0, outerTasks, body,
-    std::optional<int>{ 1 }, tbb::auto_partitioner{});
+  outerExecutor.execute([&] {
+    tbb::parallel_for(
+      tbb::blocked_range<int>(0, outerTasks, 1),
+      [&](const tbb::blocked_range<int> &range) {
+        for (int taskIndex = range.begin(); taskIndex < range.end(); ++taskIndex)
+          body(taskIndex);
+      },
+      tbb::auto_partitioner{});
+  });
 }
 
 template<class Workload>
 void runWorkloadBenchmark(benchmark::State &state, WorkloadKind workloadKind,
   Policy policy, int configuredConcurrency, int outerTasks, int matrixN)
 {
-  const int effectiveConcurrency = P::initialize(configuredConcurrency);
+  P::GlobalTbbControl control(configuredConcurrency);
+  const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
+    tbb::global_control::max_allowed_parallelism));
+  P::ArenaThreadingExecutor outerExecutor(configuredConcurrency,
+    { .mklLocalThreadBudget = 0 });
+  tbb::task_arena singleArena(1, 1);
   Workload workload(outerTasks, matrixN);
   RunTelemetry telemetry;
 
   ThreadSampler sampler;
   sampler.start();
-  runOuterLoop(policy, outerTasks, workload, telemetry);
+  runOuterLoop(policy, outerTasks, workload, telemetry, outerExecutor, singleArena);
   const int peakThreads = sampler.stop();
   const int baselineThreads = sampler.baseline();
 
   telemetry.reset();
   for (auto _ : state) {
-    runOuterLoop(policy, outerTasks, workload, telemetry);
+    runOuterLoop(policy, outerTasks, workload, telemetry, outerExecutor, singleArena);
     benchmark::DoNotOptimize(&workload);
     benchmark::ClobberMemory();
   }

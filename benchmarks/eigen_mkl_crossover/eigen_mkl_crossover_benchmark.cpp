@@ -4,6 +4,7 @@
 
 #include <benchmark/benchmark.h>
 
+#include <tbb/info.h>
 #include <tbb/task_arena.h>
 
 #include <charconv>
@@ -60,7 +61,12 @@ std::optional<int> requestedConcurrency()
 void runBenchmark(benchmark::State &state, Policy policy, int matrixN)
 {
   const std::optional<int> requested = requestedConcurrency();
-  const int effectiveConcurrency = P::initialize(requested);
+  const int configuredConcurrency = requested.value_or(tbb::info::default_concurrency());
+  P::GlobalTbbControl control(configuredConcurrency);
+  const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
+    tbb::global_control::max_allowed_parallelism));
+  tbb::task_arena arena(configuredConcurrency, 1);
+  tbb::task_arena singleArena(1, 1);
   EigenGemmWorkspace workspace(matrixN);
   int arenaConcurrency = 0;
 
@@ -77,9 +83,9 @@ void runBenchmark(benchmark::State &state, Policy policy, int matrixN)
   };
 
   if (policy == Policy::MklTbbSingle)
-    P::withSingleThreadedTbb(measure);
+    singleArena.execute(measure);
   else
-    P::withGlobalTbbConcurrency(measure);
+    arena.execute(measure);
 
   const double checksum = workspace.checksum();
   if (!std::isfinite(checksum)) {

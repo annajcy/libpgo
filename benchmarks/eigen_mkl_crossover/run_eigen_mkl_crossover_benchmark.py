@@ -218,7 +218,7 @@ def validate_block(
         integer_counter(measurements["MklTbbGlobal"], "arena_concurrency")
         != effective_concurrency
     ):
-        raise RuntimeError("MklTbbGlobal did not use the global-aligned arena.")
+        raise RuntimeError("MklTbbGlobal did not use the configured arena.")
 
     return effective_concurrency
 

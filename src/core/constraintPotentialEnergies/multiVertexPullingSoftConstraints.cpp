@@ -6,11 +6,12 @@ copyright to USC, MIT
 #include "multiVertexPullingSoftConstraints.h"
 
 #include "pgoLogging.h"
-#include "parallel/parallelFor.h"
-#include "parallel/parallelReduce.h"
-
 
 #include <iostream>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/parallel_reduce.h>
+#include <utility>
 
 using namespace pgo::ConstraintPotentialEnergies;
 
@@ -69,12 +70,14 @@ double MultipleVertexPulling::func(ES::ConstRefVecXd u) const
     return diff.dot(diff) * 0.5 * coeffs_[i];
   };
 
-  double eng = pgo::parallel::parallelReduce(size_t{ 0 }, vertexIndices_.size(), 0.0,  //
-    [&](size_t rangeBegin, size_t rangeEnd, double init) -> double {
-      for (size_t i = rangeBegin; i != rangeEnd; ++i) {
-        init += computeEnergyForVertex(i);
-      }
-      return init; }, std::plus<double>());
+  double eng = tbb::parallel_reduce(tbb::blocked_range<decltype(size_t{ 0 })>(size_t{ 0 }, vertexIndices_.size(), 1), 0.0, [pgoRangeFn =  //
+                                                                                                                             [&](size_t rangeBegin, size_t rangeEnd, double init) -> double {
+    for (size_t i = rangeBegin; i != rangeEnd; ++i) {
+      init += computeEnergyForVertex(i);
+    }
+    return init;
+  }](const auto &pgoRange, auto pgoLocal) { return pgoRangeFn(pgoRange.begin(), pgoRange.end(), std::move(pgoLocal)); },
+    [pgoJoinFn = std::plus<double>()](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
   return eng * coeffAll_;
 }
@@ -101,12 +104,11 @@ void MultipleVertexPulling::gradient(ES::ConstRefVecXd u, ES::RefVecXd grad) con
     grad.segment<3>(vtx * 3) *= coeffs_[i];
   };
 
-  pgo::parallel::parallelForChunks(size_t{ 0 }, vertexIndices_.size(),
-    [&](size_t rangeBegin, size_t rangeEnd) {
-      for (size_t i = rangeBegin; i != rangeEnd; ++i) {
-        computeGradientForVertex(i);
-      }
-    });
+  tbb::parallel_for(tbb::blocked_range<decltype(size_t{ 0 })>(size_t{ 0 }, vertexIndices_.size(), 1), [pgoBody = [&](size_t rangeBegin, size_t rangeEnd) {
+    for (size_t i = rangeBegin; i != rangeEnd; ++i) {
+      computeGradientForVertex(i);
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 
   grad *= coeffAll_;
 }
@@ -123,12 +125,11 @@ void MultipleVertexPulling::hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) 
     }
   };
 
-  pgo::parallel::parallelForChunks(size_t{ 0 }, vertexIndices_.size(),
-    [&](size_t rangeBegin, size_t rangeEnd) {
-      for (size_t vi = rangeBegin; vi != rangeEnd; ++vi) {
-        computeHessianForVertex(vi);
-      }
-    });
+  tbb::parallel_for(tbb::blocked_range<decltype(size_t{ 0 })>(size_t{ 0 }, vertexIndices_.size(), 1), [pgoBody = [&](size_t rangeBegin, size_t rangeEnd) {
+    for (size_t vi = rangeBegin; vi != rangeEnd; ++vi) {
+      computeHessianForVertex(vi);
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 }
 
 void MultipleVertexPulling::printErrorInfo(ES::ConstRefVecXd u) const

@@ -145,7 +145,9 @@ def test_dynamic_compare_cases_use_shared_study_assets():
 def test_experiment_entrypoints_use_one_shot_parallel_runtime_api(entrypoint):
     source = entrypoint.read_text()
 
-    assert "pp.initialize(max_concurrency=max_concurrency)" in source
+    assert "pp.GlobalTbbControl(max_concurrency)" in source
+    assert "with _parallelism_scope():" in source
+    assert "parallel_control =" not in source
     assert "set_worker_limit" not in source
 
 
@@ -194,7 +196,7 @@ def test_dynamic_compare_writes_abc_by_default(monkeypatch, tmp_path):
 
     monkeypatch.setattr(module, "run_case", fake_run_case)
     monkeypatch.setattr(module, "summarize_dynamic", lambda *args, **kwargs: None)
-    monkeypatch.setattr(module, "_initialize_parallelism", lambda: None)
+    monkeypatch.setattr(module, "_parallelism_scope", module.nullcontext)
 
     assert module.main(["--cases", "tet_ref", "--output-root", str(tmp_path)]) == 0
     assert calls == [True]

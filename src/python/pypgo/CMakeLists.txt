@@ -55,7 +55,6 @@ set(PYPGO_BINDING_SOURCES
   profiling/bindings.cpp
   implicit/core.cpp
   implicit/bindings.cpp
-  parallel/core.cpp
   parallel/bindings.cpp
 )
 

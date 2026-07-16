@@ -16,12 +16,18 @@ namespace
 
 TEST(PgoCParallelMigrationTest, ClosestTriangleQueriesMatchAnalyticDistances)
 {
-  pgo::parallel::setMaxConcurrency(PGO_TEST_MAX_CONCURRENCY);
+  pgo::parallel::GlobalTbbControl control(PGO_TEST_MAX_CONCURRENCY);
 
   std::array<double, 9> vertices = {
-    0.0, 0.0, 0.0,
-    1.0, 0.0, 0.0,
-    0.0, 1.0, 0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
   };
   std::array<int, 3> triangles = { 0, 1, 2 };
   pgoTriMeshGeoStructHandle mesh =
@@ -56,13 +62,21 @@ TEST(PgoCParallelMigrationTest, ClosestTriangleQueriesMatchAnalyticDistances)
 
 TEST(PgoCParallelMigrationTest, TetBarycentricQueriesReconstructInput)
 {
-  pgo::parallel::setMaxConcurrency(PGO_TEST_MAX_CONCURRENCY);
+  pgo::parallel::GlobalTbbControl control(PGO_TEST_MAX_CONCURRENCY);
 
   std::array<double, 12> vertices = {
-    0.0, 0.0, 0.0,
-    1.0, 0.0, 0.0,
-    0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
   };
   std::array<int, 4> tets = { 0, 1, 2, 3 };
   pgoTetMeshGeoStructHandle mesh = pgo_create_tetmeshgeo(4, vertices.data(), 1, tets.data());

@@ -7,9 +7,10 @@ copyright to USC, MIT
 
 #include "polarDecompositionDerivatives.h"
 #include "pgoLogging.h"
-#include "parallel/parallelFor.h"
 
 #include <numeric>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 using namespace pgo::NonlinearOptimization;
 using namespace pgo::ConstraintPotentialEnergies;
@@ -339,15 +340,14 @@ void MultipleVertexConstrainedRigidMotion::hessianInPlace(ES::ConstRefVecXd u, E
   // dx dtbar = -Z
   // dtbar2 = I
   // for (ES::IDX rowi = 0; rowi < ZTZ.rows(); rowi++) {
-  pgo::parallel::parallelFor(0, (int)ZTZ.rows(),
-    [&](int rowi) {
-      for (ES::SpMatD::InnerIterator it(ZTZ, rowi); it; ++it) {
-        auto iter = entryMap.find(std::pair<int, int>((int)it.row(), (int)it.col()));
-        PGO_ALOG(iter != entryMap.end());
+  tbb::parallel_for(0, (int)ZTZ.rows(), [&](int rowi) {
+    for (ES::SpMatD::InnerIterator it(ZTZ, rowi); it; ++it) {
+      auto iter = entryMap.find(std::pair<int, int>((int)it.row(), (int)it.col()));
+      PGO_ALOG(iter != entryMap.end());
 
-        hess.valuePtr()[iter->second] = it.value() * coeff[1];
-      }
-    });
+      hess.valuePtr()[iter->second] = it.value() * coeff[1];
+    }
+  });
 
   if (flexibleRigidMotion) {
     for (ES::IDX rowi = 0; rowi < Z.rows(); rowi++) {
@@ -432,60 +432,57 @@ void MultipleVertexConstrainedRigidMotion::hessianInPlace(ES::ConstRefVecXd u, E
     }
 
     // for (int vi = 0; vi < (int)vertexIndices.size(); vi++) {
-    pgo::parallel::parallelFor(0, (int)vertexIndices.size(),
-      [&](int vi) {
-        // for (int vj = 0; vj < (int)vertexIndices.size(); vj++) {
-        pgo::parallel::parallelFor(0, (int)vertexIndices.size(),
-          [&](int vj) {
-            for (int dofi = 0; dofi < 3; dofi++) {
-              for (int dofj = 0; dofj < 3; dofj++) {
-                double val = dRdxi[vi * 3 + dofi].cwiseProduct(dRdxi[vj * 3 + dofj]).sum();
+    tbb::parallel_for(0, (int)vertexIndices.size(), [&](int vi) {
+      // for (int vj = 0; vj < (int)vertexIndices.size(); vj++) {
+      tbb::parallel_for(0, (int)vertexIndices.size(), [&](int vj) {
+        for (int dofi = 0; dofi < 3; dofi++) {
+          for (int dofj = 0; dofj < 3; dofj++) {
+            double val = dRdxi[vi * 3 + dofi].cwiseProduct(dRdxi[vj * 3 + dofj]).sum();
 
-                // (d2R / dF2 dFdxj): dF/dxi
-                ES::M3d d2Rdxidxj;
-                d2Rdxidxj.setZero();
+            // (d2R / dF2 dFdxj): dF/dxi
+            ES::M3d d2Rdxidxj;
+            d2Rdxidxj.setZero();
 
-                for (int k = 0; k < 9; k++) {
-                  for (int l = 0; l < 9; l++) {
-                    d2Rdxidxj += d2RdF2[k][l] * dFdxi[vj * 3 + dofj].data()[k] * dFdxi[vi * 3 + dofi].data()[l];
-                  }
-                }
-
-                val += Rdiff.cwiseProduct(d2Rdxidxj).sum();
-
-                int globalRow = vertexIndices[vi] * 3 + dofi;
-                int globalCol = vertexIndices[vj] * 3 + dofj;
-
-                auto iter = entryMap.find(std::pair<int, int>(globalRow, globalCol));
-                PGO_ALOG(iter != entryMap.end());
-
-                hess.valuePtr()[iter->second] += val * coeff[0];
+            for (int k = 0; k < 9; k++) {
+              for (int l = 0; l < 9; l++) {
+                d2Rdxidxj += d2RdF2[k][l] * dFdxi[vj * 3 + dofj].data()[k] * dFdxi[vi * 3 + dofi].data()[l];
               }
             }
-          });
+
+            val += Rdiff.cwiseProduct(d2Rdxidxj).sum();
+
+            int globalRow = vertexIndices[vi] * 3 + dofi;
+            int globalCol = vertexIndices[vj] * 3 + dofj;
+
+            auto iter = entryMap.find(std::pair<int, int>(globalRow, globalCol));
+            PGO_ALOG(iter != entryMap.end());
+
+            hess.valuePtr()[iter->second] += val * coeff[0];
+          }
+        }
       });
+    });
 
     if (flexibleRigidMotion) {
       // dxi dRbar = -dRbar/dRbar : dR/dxi
       // for (int vi = 0; vi < (int)vertexIndices.size(); vi++) {
-      pgo::parallel::parallelFor(0, (int)vertexIndices.size(),
-        [&](int vi) {
-          for (int dofi = 0; dofi < 3; dofi++) {
-            for (int dofj = 0; dofj < 9; dofj++) {
-              int globalRow = vertexIndices[vi] * 3 + dofi;
-              int globalCol = int(restPositions.size()) + 3 + dofj;
-              double v = -dRdxi[vi * 3 + dofi].data()[dofj];
+      tbb::parallel_for(0, (int)vertexIndices.size(), [&](int vi) {
+        for (int dofi = 0; dofi < 3; dofi++) {
+          for (int dofj = 0; dofj < 9; dofj++) {
+            int globalRow = vertexIndices[vi] * 3 + dofi;
+            int globalCol = int(restPositions.size()) + 3 + dofj;
+            double v = -dRdxi[vi * 3 + dofi].data()[dofj];
 
-              auto iter = entryMap.find(std::pair<int, int>(globalRow, globalCol));
-              PGO_ALOG(iter != entryMap.end());
-              hess.valuePtr()[iter->second] += v * coeff[0];
+            auto iter = entryMap.find(std::pair<int, int>(globalRow, globalCol));
+            PGO_ALOG(iter != entryMap.end());
+            hess.valuePtr()[iter->second] += v * coeff[0];
 
-              iter = entryMap.find(std::pair<int, int>(globalCol, globalRow));
-              PGO_ALOG(iter != entryMap.end());
-              hess.valuePtr()[iter->second] += v * coeff[0];
-            }
+            iter = entryMap.find(std::pair<int, int>(globalCol, globalRow));
+            PGO_ALOG(iter != entryMap.end());
+            hess.valuePtr()[iter->second] += v * coeff[0];
           }
-        });
+        }
+      });
       // dRbar dRbar = I
       for (int i = 0; i < 9; i++) {
         auto iter = entryMap.find(std::pair<int, int>(i + (int)restPositions.size() + 3, i + (int)restPositions.size() + 3));

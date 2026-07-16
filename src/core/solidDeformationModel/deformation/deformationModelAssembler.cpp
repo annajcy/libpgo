@@ -17,13 +17,14 @@ copyright to USC,MIT,NUS
 #include "EigenSupport.h"
 #include "fmtEigen.h"
 #include "processMemory.h"
-#include "parallel/parallelFor.h"
 
 #include <algorithm>
 #include <atomic>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 using namespace pgo::SolidDeformationModel;
 
@@ -152,11 +153,9 @@ DeformationModelAssemblerCacheData::ThreadScratch::ThreadScratch(
   localMixedMatrix.resize(localDofs, maxLocalParams);
   paramDerivativeData.resize(static_cast<size_t>(maxMaterialParams) * maxLocalParams);
   paramDerivativeData2.resize(static_cast<size_t>(maxMaterialParams) * maxLocalParams);
-  localMatrixData.resize(static_cast<size_t>(std::max({
-    localDofs * localDofs,
+  localMatrixData.resize(static_cast<size_t>(std::max({ localDofs * localDofs,
     localDofs * maxMaterialParams,
-    maxMaterialParams * maxMaterialParams
-  })));
+    maxMaterialParams * maxMaterialParams })));
   materialLocationValues.resize(std::max(16, maxMaterialLocations));
   globalDofIndices.resize(localDofs);
 }
@@ -219,7 +218,8 @@ DeformationModelAssembler::DeformationModelAssembler(
 
   if (elementWeights_) {
     elementWeights.assign(elementWeights_, elementWeights_ + nele);
-  } else {
+  }
+  else {
     elementWeights.assign(nele, 1);
   }
 
@@ -260,7 +260,8 @@ DeformationModelAssembler::DeformationModelAssembler(
       numElasticLocalParams_, numElasticGlobalParams,
       [elasticParamLayout](int ele, int ep) { return elasticParamLayout->globalDof(ele, ep); },
       dfdbTemplate, element_dfdb_InverseIndices, entries);
-  } else {
+  }
+  else {
     dfdbTemplate.resize(numDOFs, 0);
   }
 
@@ -271,7 +272,8 @@ DeformationModelAssembler::DeformationModelAssembler(
       numPlasticLocalParams_, numPlasticGlobalParams,
       [plasticParamLayout](int ele, int pp) { return plasticParamLayout->globalDof(ele, pp); },
       dfdaTemplate, element_dfda_InverseIndices, entries);
-  } else {
+  }
+  else {
     dfdaTemplate.resize(numDOFs, 0);
   }
 
@@ -429,7 +431,7 @@ double DeformationModelAssembler::computeEnergy(const double *x) const
     scratch.energy += energy * elementWeights[ele];
   };
 
-  pgo::parallel::parallelFor(0, nele, localEnergyFunc);
+  tbb::parallel_for(0, nele, localEnergyFunc);
 
   double energyAll = 0;
   for (auto it = data->threadScratch().begin(); it != data->threadScratch().end(); ++it)
@@ -503,7 +505,7 @@ void DeformationModelAssembler::computeGradient(const double *x, double *grad) c
     dofLayout->scatterAddGradient(ele, scratch.localGradient.data(), grad, scratch.groups);
   };
 
-  pgo::parallel::parallelFor(0, nele, localGradFunc);
+  tbb::parallel_for(0, nele, localGradFunc);
 
   if (enableSanityCheck)
     sanityCheckValues(grad, numDOFs, "gradient");
@@ -539,7 +541,7 @@ void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::Sp
     }
   };
 
-  pgo::parallel::parallelFor(0, nele, localHessFunc);
+  tbb::parallel_for(0, nele, localHessFunc);
 
   if (enableSanityCheck)
     sanityCheckValues(hess.valuePtr(), hess.nonZeros(), "Hessian");
@@ -613,7 +615,7 @@ void DeformationModelAssembler::computePlasticGradient(const double *x, double *
     }
   };
 
-  pgo::parallel::parallelFor(0, nele, localGradFunc);
+  tbb::parallel_for(0, nele, localGradFunc);
 
   if (enableSanityCheck)
     sanityCheckValues(grad, numPlasticGlobalParams, "plastic gradient");
@@ -664,7 +666,7 @@ void DeformationModelAssembler::computePlasticHessian(const double *x, EigenSupp
     }
   };
 
-  pgo::parallel::parallelFor(0, nele, localHessFunc);
+  tbb::parallel_for(0, nele, localHessFunc);
 
   if (enableSanityCheck)
     sanityCheckValues(hess.valuePtr(), hess.nonZeros(), "plastic Hessian");
@@ -706,7 +708,7 @@ void DeformationModelAssembler::computeElasticGradient(const double *x, double *
     }
   };
 
-  pgo::parallel::parallelFor(0, nele, localGradFunc);
+  tbb::parallel_for(0, nele, localGradFunc);
 
   if (enableSanityCheck)
     sanityCheckValues(grad, numElasticGlobalParams, "elastic gradient");
@@ -757,7 +759,7 @@ void DeformationModelAssembler::computeElasticHessian(const double *x, EigenSupp
     }
   };
 
-  pgo::parallel::parallelFor(0, nele, localHessFunc);
+  tbb::parallel_for(0, nele, localHessFunc);
 
   if (enableSanityCheck)
     sanityCheckValues(hess.valuePtr(), hess.nonZeros(), "elastic Hessian");
@@ -815,7 +817,7 @@ void DeformationModelAssembler::computePlasticElasticHessian(const double *x, Ei
     }
   };
 
-  pgo::parallel::parallelFor(0, nele, localHessFunc);
+  tbb::parallel_for(0, nele, localHessFunc);
 
   if (enableSanityCheck)
     sanityCheckValues(hess.valuePtr(), hess.nonZeros(), "plastic-elastic Hessian");
@@ -826,8 +828,8 @@ void DeformationModelAssembler::compute_df_da(const double *x, EigenSupport::SpM
   if (numPlasticParams_ == 0)
     return;
   assembleDfDparam(x, numPlasticParams_, numPlasticLocalParams_, plasticParamField_.get(),
-                   element_dfda_InverseIndices,
-                   &DeformationModel::compute_d2E_dxda, hess, "df/da");
+    element_dfda_InverseIndices,
+    &DeformationModel::compute_d2E_dxda, hess, "df/da");
 }
 
 void DeformationModelAssembler::compute_df_db(const double *x, EigenSupport::SpMatD &hess) const
@@ -835,8 +837,8 @@ void DeformationModelAssembler::compute_df_db(const double *x, EigenSupport::SpM
   if (numElasticParams_ == 0)
     return;
   assembleDfDparam(x, numElasticParams_, numElasticLocalParams_, elasticParamField_.get(),
-                   element_dfdb_InverseIndices,
-                   &DeformationModel::compute_d2E_dxdb, hess, "df/db");
+    element_dfdb_InverseIndices,
+    &DeformationModel::compute_d2E_dxdb, hess, "df/db");
 }
 
 void DeformationModelAssembler::computeVonMisesStresses(const double *x, double *elementStresses) const
@@ -863,7 +865,7 @@ void DeformationModelAssembler::computeVonMisesStresses(const double *x, double 
       scratch.materialLocationValues.begin(), scratch.materialLocationValues.begin() + stressCount);
   };
 
-  pgo::parallel::parallelFor(0, nele, localStressFunc);
+  tbb::parallel_for(0, nele, localStressFunc);
 }
 
 void DeformationModelAssembler::computeMaxStrains(const double *x, double *elementStrain) const
@@ -890,7 +892,7 @@ void DeformationModelAssembler::computeMaxStrains(const double *x, double *eleme
       scratch.materialLocationValues.begin(), scratch.materialLocationValues.begin() + strainCount);
   };
 
-  pgo::parallel::parallelFor(0, nele, localStrainFunc);
+  tbb::parallel_for(0, nele, localStrainFunc);
 }
 
 // ── Private helpers ──────────────────────────────────────────────────────────

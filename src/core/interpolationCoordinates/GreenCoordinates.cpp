@@ -26,13 +26,14 @@
 #include "geometryQuery.h"
 #include "triMeshPseudoNormal.h"
 #include "meshLinearAlgebra.h"
-#include "parallel/parallelFor.h"
 
 #include <cfloat>
 #include <climits>
 #include <cstring>
 #include <memory>
-
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
+#include <tbb/partitioner.h>
 
 using namespace pgo;
 using namespace pgo::InterpolationCoordinates;
@@ -71,9 +72,7 @@ GreenCoordinates::GreenCoordinates(int numLocations, const double *locations, co
   Mesh::TriMeshPseudoNormal meshNormal;
   meshNormal.buildPseudoNormals(cage);
 
-  pgo::parallel::parallelForChunks(0, numLocations,
-    tbb::static_partitioner{},
-    [&](int rngBegin, int rngEnd) {
+  tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, numLocations, 1), [pgoBody = [&](int rngBegin, int rngEnd) {
     for (int i = rngBegin; i != rngEnd; ++i) {
       int globalFaceCount = 0;
       Vec3d n = asVec3d(locations + 3 * i);
@@ -81,50 +80,50 @@ GreenCoordinates::GreenCoordinates(int numLocations, const double *locations, co
       for (int fi = 0; fi < cage.numTriangles(); fi++) {
         Vec3d normal = meshNormal.triNormal(fi);
         Vec3d v[3];
-          int s[3] = { 1, 1, 1 };
-          double I[3], II[3];
-          Vec3d q[3];
-          Vec3d N[3];
-          
-          for (int k = 0; k < 3; k++) {
-            v[k] = cage.pos(fi, k);
-            v[k] = v[k] - n;
-          }
-          Vec3d p = v[0].dot(normal) * normal;
+        int s[3] = { 1, 1, 1 };
+        double I[3], II[3];
+        Vec3d q[3];
+        Vec3d N[3];
 
+        for (int k = 0; k < 3; k++) {
+          v[k] = cage.pos(fi, k);
+          v[k] = v[k] - n;
+        }
+        Vec3d p = v[0].dot(normal) * normal;
+
+        for (int k = 0; k < 3; k++) {
+          int next = ((k == 2) ? 0 : (k + 1));
+
+          s[k] = sign((v[k] - p).cross(v[next] - p).dot(normal));
+          I[k] = GCTriInt(p, v[k], v[next], zero);
+          II[k] = GCTriInt(zero, v[next], v[k], zero);
+          q[k] = v[next].cross(v[k]);
+          N[k] = ((q[k].squaredNorm() < std::numeric_limits<double>::epsilon()) ? zero : q[k].normalized());
+        }
+
+        double Iall = (-1) * std::abs(s[0] * I[0] + s[1] * I[1] + s[2] * I[2]);
+        nmlWeights[i * numTriangles + globalFaceCount] = (-1) * Iall;
+        Vec3d w = normal * Iall + N[0] * II[0] + N[1] * II[1] + N[2] * II[2];
+
+        if ((w).squaredNorm() > std::numeric_limits<double>::epsilon()) {
           for (int k = 0; k < 3; k++) {
             int next = ((k == 2) ? 0 : (k + 1));
-            
-            s[k] = sign((v[k] - p).cross(v[next] - p).dot(normal));
-            I[k] = GCTriInt(p, v[k], v[next], zero);
-            II[k] = GCTriInt(zero, v[next], v[k], zero);
-            q[k] = v[next].cross(v[k]);
-            N[k] = ((q[k].squaredNorm() < std::numeric_limits<double>::epsilon()) ? zero : q[k].normalized());
+
+            int pidx = cage.triVtxID(fi, k);
+            vtxWeights[i * numVertices + pidx] += ((N[next].dot(v[k]) == 0) ? 0 : N[next].dot(w) / N[next].dot(v[k]));
           }
+        }
 
-          double Iall = (-1) * std::abs(s[0] * I[0] + s[1] * I[1] + s[2] * I[2]);
-          nmlWeights[i * numTriangles + globalFaceCount] = (-1) * Iall;
-          Vec3d w = normal * Iall + N[0] * II[0] + N[1] * II[1] + N[2] * II[2];
-
-          if ((w).squaredNorm() > std::numeric_limits<double>::epsilon()) {
-            for (int k = 0; k < 3; k++) {
-              int next = ((k == 2) ? 0 : (k + 1));
-
-              int pidx = cage.triVtxID(fi, k);
-              vtxWeights[i * numVertices + pidx] += ((N[next].dot( v[k]) == 0) ? 0 : N[next].dot( w) / N[next].dot( v[k]));
-            }
-          }
-
-          globalFaceCount++;
+        globalFaceCount++;
       }
-    } });
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); },
+    tbb::static_partitioner{});
 }
 
 void GreenCoordinates::deform(const double *verticesDisp, double *locationDisp) const
 {
-  pgo::parallel::parallelForChunks(0, numLocations,
-    tbb::static_partitioner{},
-    [&](int rngBegin, int rngEnd) {
+  tbb::parallel_for(tbb::blocked_range<decltype(0)>(0, numLocations, 1), [pgoBody = [&](int rngBegin, int rngEnd) {
     for (int i = rngBegin; i != rngEnd; ++i) {
       Vec3d newDisp = asVec3d(0.);
 
@@ -152,12 +151,14 @@ void GreenCoordinates::deform(const double *verticesDisp, double *locationDisp) 
         if (newNormal.squaredNorm() > 0)
           newNormal.normalize();
 
-        double s = sqrt(newVec[0].squaredNorm() * oldVec[1].squaredNorm() - 2 * newVec[0].dot(newVec[1]) *oldVec[0].dot( oldVec[1]) + newVec[1].squaredNorm() * oldVec[0].squaredNorm()) / (sqrt(8) * triangleArea[j]);
+        double s = sqrt(newVec[0].squaredNorm() * oldVec[1].squaredNorm() - 2 * newVec[0].dot(newVec[1]) * oldVec[0].dot(oldVec[1]) + newVec[1].squaredNorm() * oldVec[0].squaredNorm()) / (sqrt(8) * triangleArea[j]);
 
         newDisp += newNormal * s * nmlWeights[i * numTriangles + j];
       }
       memcpy(locationDisp + 3 * i, &newDisp[0], sizeof(double) * 3);
-    } });  // end for locations
+    }
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); },
+    tbb::static_partitioner{});  // end for locations
 }
 
 double GreenCoordinates::GCTriInt(Vec3d &p, Vec3d &v1, Vec3d &v2, Vec3d &n)

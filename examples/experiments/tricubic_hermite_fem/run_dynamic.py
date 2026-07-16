@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -32,12 +33,12 @@ from common import (
 from summarize import summarize_dynamic
 
 
-def _initialize_parallelism() -> None:
+def _parallelism_scope():
     max_concurrency = SETTINGS["num_threads"]
     if not max_concurrency:
-        return
-    effective_concurrency = pp.initialize(max_concurrency=max_concurrency)
-    print(f"[parallel] effective_concurrency={effective_concurrency}")
+        return nullcontext()
+    print(f"[parallel] max_allowed_parallelism={max_concurrency}")
+    return pp.GlobalTbbControl(max_concurrency)
 
 
 def _surface_volume(surface) -> float:
@@ -181,42 +182,47 @@ def main(argv=None) -> int:
     parser.set_defaults(write_abc=True)
     args = parser.parse_args(argv)
 
-    _initialize_parallelism()
+    with _parallelism_scope():
+        study = STUDIES[args.study]
+        cases = build_cases(study)
+        output = args.output_root or output_root(args.study, "dynamic")
+        output.mkdir(parents=True, exist_ok=True)
 
-    study = STUDIES[args.study]
-    cases = build_cases(study)
-    output = args.output_root or output_root(args.study, "dynamic")
-    output.mkdir(parents=True, exist_ok=True)
+        summaries = []
+        for name in args.cases:
+            try:
+                summaries.append(
+                    run_case(name, study, cases, output, args.force, args.write_abc)
+                )
+            except Exception as exc:
+                case = cases[name]
+                failure = {
+                    **_signature(name, study, cases, args.write_abc),
+                    "mode": "dynamic",
+                    "mesh_type": case["mesh_type"],
+                    "status": "exception",
+                    "error": str(exc),
+                    "num_frames": 0,
+                    "final_timestep_id": 0,
+                    "target_timestep_id": SETTINGS["num_steps"],
+                }
+                output_dir = output / name
+                output_dir.mkdir(parents=True, exist_ok=True)
+                (output_dir / "summary.json").write_text(
+                    json.dumps(failure, indent=2) + "\n"
+                )
+                summaries.append(failure)
+                print(f"[{study['name']}/{name}] failed: {exc}", file=sys.stderr)
 
-    summaries = []
-    for name in args.cases:
-        try:
-            summaries.append(
-                run_case(name, study, cases, output, args.force, args.write_abc)
+        summarize_dynamic(args.study, output)
+        return (
+            2
+            if any(
+                summary.get("final_timestep_id") != SETTINGS["num_steps"]
+                for summary in summaries
             )
-        except Exception as exc:
-            case = cases[name]
-            failure = {
-                **_signature(name, study, cases, args.write_abc),
-                "mode": "dynamic",
-                "mesh_type": case["mesh_type"],
-                "status": "exception",
-                "error": str(exc),
-                "num_frames": 0,
-                "final_timestep_id": 0,
-                "target_timestep_id": SETTINGS["num_steps"],
-            }
-            output_dir = output / name
-            output_dir.mkdir(parents=True, exist_ok=True)
-            (output_dir / "summary.json").write_text(json.dumps(failure, indent=2) + "\n")
-            summaries.append(failure)
-            print(f"[{study['name']}/{name}] failed: {exc}", file=sys.stderr)
-
-    summarize_dynamic(args.study, output)
-    return 2 if any(
-        summary.get("final_timestep_id") != SETTINGS["num_steps"]
-        for summary in summaries
-    ) else 0
+            else 0
+        )
 
 
 if __name__ == "__main__":

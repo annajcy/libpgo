@@ -3,7 +3,6 @@
 #include "EigenDef.h"
 #include "ipc/broadPhase/spatialHashGrid.h"
 #include "scopedProfileSection.h"
-#include "parallel/parallelFor.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
@@ -12,6 +11,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 namespace pgo
 {
@@ -27,10 +28,9 @@ void buildVertexAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   GetV &&getV, double inflate)
 {
-  pgo::parallel::parallelFor(0, n,
-    [&](int i) {
-      boxes[i].init(getV(i), inflate);
-    });
+  tbb::parallel_for(0, n, [&](int i) {
+    boxes[i].init(getV(i), inflate);
+  });
 }
 
 template<typename GetV, typename Triangles>
@@ -38,13 +38,12 @@ void buildTriangleAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   const Triangles &triangles, GetV &&getV, double inflate)
 {
-  pgo::parallel::parallelFor(0, n,
-    [&](int fi) {
-      auto &tri = triangles[fi];
-      boxes[fi].init(getV(tri[0]), inflate);
-      boxes[fi].expand(getV(tri[1]), inflate);
-      boxes[fi].expand(getV(tri[2]), inflate);
-    });
+  tbb::parallel_for(0, n, [&](int fi) {
+    auto &tri = triangles[fi];
+    boxes[fi].init(getV(tri[0]), inflate);
+    boxes[fi].expand(getV(tri[1]), inflate);
+    boxes[fi].expand(getV(tri[2]), inflate);
+  });
 }
 
 template<typename GetV, typename Edges>
@@ -52,11 +51,10 @@ void buildEdgeAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   const Edges &edges, GetV &&getV, double inflate)
 {
-  pgo::parallel::parallelFor(0, n,
-    [&](int ei) {
-      boxes[ei].init(getV(edges[ei][0]), inflate);
-      boxes[ei].expand(getV(edges[ei][1]), inflate);
-    });
+  tbb::parallel_for(0, n, [&](int ei) {
+    boxes[ei].init(getV(edges[ei][0]), inflate);
+    boxes[ei].expand(getV(edges[ei][1]), inflate);
+  });
 }
 
 template<typename GetV, typename GetDV>
@@ -64,12 +62,11 @@ void buildSweptVertexAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   GetV &&getV, GetDV &&getDV, double inflate)
 {
-  pgo::parallel::parallelFor(0, n,
-    [&](int i) {
-      const EigenSupport::V3d v0 = getV(i);
-      boxes[i].init(v0, inflate);
-      boxes[i].expand(v0 + getDV(i), inflate);
-    });
+  tbb::parallel_for(0, n, [&](int i) {
+    const EigenSupport::V3d v0 = getV(i);
+    boxes[i].init(v0, inflate);
+    boxes[i].expand(v0 + getDV(i), inflate);
+  });
 }
 
 template<typename GetV, typename GetDV, typename Triangles>
@@ -77,19 +74,18 @@ void buildSweptTriangleAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   const Triangles &triangles, GetV &&getV, GetDV &&getDV, double inflate)
 {
-  pgo::parallel::parallelFor(0, n,
-    [&](int fi) {
-      auto &tri = triangles[fi];
-      const EigenSupport::V3d v0 = getV(tri[0]);
-      const EigenSupport::V3d v1 = getV(tri[1]);
-      const EigenSupport::V3d v2 = getV(tri[2]);
-      boxes[fi].init(v0, inflate);
-      boxes[fi].expand(v1, inflate);
-      boxes[fi].expand(v2, inflate);
-      boxes[fi].expand(v0 + getDV(tri[0]), inflate);
-      boxes[fi].expand(v1 + getDV(tri[1]), inflate);
-      boxes[fi].expand(v2 + getDV(tri[2]), inflate);
-    });
+  tbb::parallel_for(0, n, [&](int fi) {
+    auto &tri = triangles[fi];
+    const EigenSupport::V3d v0 = getV(tri[0]);
+    const EigenSupport::V3d v1 = getV(tri[1]);
+    const EigenSupport::V3d v2 = getV(tri[2]);
+    boxes[fi].init(v0, inflate);
+    boxes[fi].expand(v1, inflate);
+    boxes[fi].expand(v2, inflate);
+    boxes[fi].expand(v0 + getDV(tri[0]), inflate);
+    boxes[fi].expand(v1 + getDV(tri[1]), inflate);
+    boxes[fi].expand(v2 + getDV(tri[2]), inflate);
+  });
 }
 
 template<typename GetV, typename GetDV, typename Edges>
@@ -97,15 +93,14 @@ void buildSweptEdgeAABBs(
   std::vector<SpatialHashGrid::AABB> &boxes, int n,
   const Edges &edges, GetV &&getV, GetDV &&getDV, double inflate)
 {
-  pgo::parallel::parallelFor(0, n,
-    [&](int ei) {
-      const EigenSupport::V3d v0 = getV(edges[ei][0]);
-      const EigenSupport::V3d v1 = getV(edges[ei][1]);
-      boxes[ei].init(v0, inflate);
-      boxes[ei].expand(v1, inflate);
-      boxes[ei].expand(v0 + getDV(edges[ei][0]), inflate);
-      boxes[ei].expand(v1 + getDV(edges[ei][1]), inflate);
-    });
+  tbb::parallel_for(0, n, [&](int ei) {
+    const EigenSupport::V3d v0 = getV(edges[ei][0]);
+    const EigenSupport::V3d v1 = getV(edges[ei][1]);
+    boxes[ei].init(v0, inflate);
+    boxes[ei].expand(v1, inflate);
+    boxes[ei].expand(v0 + getDV(edges[ei][0]), inflate);
+    boxes[ei].expand(v1 + getDV(edges[ei][1]), inflate);
+  });
 }
 
 inline bool computeUnionAABB(
@@ -181,14 +176,13 @@ PairQueryCounts collectPairsParallel(
   tbb::enumerable_thread_specific<std::vector<PairType>> tls_pairs;
   tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
-  pgo::parallel::parallelForChunks(queryBegin, queryEnd,
-    [&](int rangeBegin, int rangeEnd) {
-      auto &visited = tls_visited.local();
-      auto &candidates = tls_candidates.local();
-      auto &localPairs = tls_pairs.local();
-      auto &localCounts = tls_counts.local();
-      body(rangeBegin, rangeEnd, visited, candidates, localPairs, localCounts);
-    });
+  tbb::parallel_for(tbb::blocked_range<decltype(queryBegin)>(queryBegin, queryEnd, 1), [pgoBody = [&](int rangeBegin, int rangeEnd) {
+    auto &visited = tls_visited.local();
+    auto &candidates = tls_candidates.local();
+    auto &localPairs = tls_pairs.local();
+    auto &localCounts = tls_counts.local();
+    body(rangeBegin, rangeEnd, visited, candidates, localPairs, localCounts);
+  }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 
   for (auto &lp : tls_pairs)
     outputPairs.insert(outputPairs.end(), lp.begin(), lp.end());

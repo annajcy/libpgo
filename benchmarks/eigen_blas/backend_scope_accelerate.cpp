@@ -13,8 +13,8 @@ namespace pgo::benchmark_helpers
 std::span<const EigenBlasBackend> availableEigenBlasBackends() noexcept
 {
   static constexpr std::array backends = {
-    EigenBlasBackend::AccelerateDefaultSingle,
-    EigenBlasBackend::AccelerateExperimentalMulti,
+    EigenBlasBackend::AccelerateSingle,
+    EigenBlasBackend::AccelerateMulti,
   };
   return backends;
 }
@@ -22,10 +22,10 @@ std::span<const EigenBlasBackend> availableEigenBlasBackends() noexcept
 const char *eigenBlasBackendName(EigenBlasBackend backend) noexcept
 {
   switch (backend) {
-  case EigenBlasBackend::AccelerateDefaultSingle:
-    return "AccelerateDefaultSingle";
-  case EigenBlasBackend::AccelerateExperimentalMulti:
-    return "AccelerateExperimentalMulti";
+  case EigenBlasBackend::AccelerateSingle:
+    return "AccelerateSingle";
+  case EigenBlasBackend::AccelerateMulti:
+    return "AccelerateMulti";
   default:
     return "Unknown";
   }
@@ -37,8 +37,8 @@ bool runInEigenBlasBackendScope(
   EigenBlasBackendTelemetry &telemetry,
   std::string &error)
 {
-  if (backend != EigenBlasBackend::AccelerateDefaultSingle &&
-    backend != EigenBlasBackend::AccelerateExperimentalMulti) {
+  if (backend != EigenBlasBackend::AccelerateSingle &&
+    backend != EigenBlasBackend::AccelerateMulti) {
     error = "The Accelerate executable received a non-Accelerate backend.";
     return false;
   }
@@ -46,23 +46,23 @@ bool runInEigenBlasBackendScope(
   telemetry = {};
 
   try {
-    telemetry.configuredConcurrency = pgo::parallel::initialize();
-    if (backend == EigenBlasBackend::AccelerateDefaultSingle) {
+    telemetry.configuredConcurrency = static_cast<int>(tbb::global_control::active_value(
+      tbb::global_control::max_allowed_parallelism));
+    if (backend == EigenBlasBackend::AccelerateSingle) {
+      pgo::parallel::setThreadingPolicy({
+        .accelerate = pgo::parallel::AccelerateThreading::single,
+      });
       if (BLASGetThreading() != BLAS_THREADING_SINGLE_THREADED)
-        throw std::runtime_error("initialize() did not establish Accelerate SINGLE mode.");
+        throw std::runtime_error("The threading policy did not establish Accelerate SINGLE mode.");
       fn();
     }
     else {
-      pgo::parallel::experimental::withMultiThreadedAccelerate([&] {
-        if (BLASGetThreading() != BLAS_THREADING_MULTI_THREADED)
-          throw std::runtime_error("The experimental scope did not establish Accelerate MULTI mode.");
-        fn();
+      pgo::parallel::setThreadingPolicy({
+        .accelerate = pgo::parallel::AccelerateThreading::multi,
       });
-    }
-
-    if (BLASGetThreading() != BLAS_THREADING_SINGLE_THREADED) {
-      error = "The Accelerate benchmark did not restore the initialized SINGLE mode.";
-      return false;
+      if (BLASGetThreading() != BLAS_THREADING_MULTI_THREADED)
+        throw std::runtime_error("The threading policy did not establish Accelerate MULTI mode.");
+      fn();
     }
     return true;
   }

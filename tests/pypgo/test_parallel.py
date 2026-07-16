@@ -32,36 +32,21 @@ def assert_scenario(source: str) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_initialize_is_repeatable_and_returns_effective_concurrency():
-    assert_scenario(
-        """
-        from pypgo import parallel
-
-        first = parallel.initialize(max_concurrency=2)
-        second = parallel.initialize(max_concurrency=4)
-        restored = parallel.initialize()
-        assert isinstance(first, int) and 1 <= first <= 2
-        assert isinstance(second, int) and 1 <= second <= 4
-        assert isinstance(restored, int) and restored >= 1
-        """
-    )
-
-
-def test_invalid_max_concurrency_is_rejected():
+def test_invalid_global_control_concurrency_is_rejected():
     assert_scenario(
         """
         from pypgo import parallel
 
         for value in (0, -1):
             try:
-                parallel.initialize(max_concurrency=value)
+                parallel.GlobalTbbControl(value)
             except ValueError:
                 pass
             else:
                 raise AssertionError("non-positive concurrency must fail")
         for value in (True, 1.5, "2"):
             try:
-                parallel.initialize(max_concurrency=value)
+                parallel.GlobalTbbControl(value)
             except TypeError:
                 pass
             else:
@@ -71,6 +56,68 @@ def test_invalid_max_concurrency_is_rejected():
 
 
 def test_runtime_diagnostics_are_removed():
-    assert "initialize" in dir(pgo.parallel)
+    assert "GlobalTbbControl" in dir(pgo.parallel)
+    assert "initialize" not in dir(pgo.parallel)
     assert {"RuntimeInfo", "runtime_info", "default_concurrency"}.isdisjoint(dir(pgo.parallel))
     assert {"_parallel_runtime_info", "_parallel_default_concurrency"}.isdisjoint(dir(pgo._core))
+
+
+def test_global_tbb_control_has_explicit_python_lifetime():
+    assert_scenario(
+        """
+        from pypgo import parallel
+
+        with parallel.GlobalTbbControl(2) as control:
+            assert control is not None
+        control.close()
+        for value in (0, -1):
+            try:
+                parallel.GlobalTbbControl(value)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("non-positive concurrency must fail")
+        """
+    )
+
+
+def test_set_threading_policy_accepts_mkl_reset_value():
+    assert_scenario(
+        """
+        from pypgo import parallel
+
+        parallel.set_threading_policy(mkl_local_thread_budget=0)
+        parallel.set_threading_policy(
+            accelerate=parallel.AccelerateThreading.SINGLE
+        )
+        for value in (-1, -4):
+            try:
+                parallel.set_threading_policy(mkl_local_thread_budget=value)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("negative MKL budget must fail")
+        """
+    )
+
+
+def test_arena_threading_executor_runs_callable_and_propagates_errors():
+    assert_scenario(
+        """
+        from pypgo import parallel
+
+        executor = parallel.ArenaThreadingExecutor(2)
+        assert executor.execute(lambda: 42) == 42
+
+        marker = []
+        assert executor.execute(lambda: marker.append("ran")) is None
+        assert marker == ["ran"]
+
+        try:
+            executor.execute(lambda: 1 / 0)
+        except ZeroDivisionError:
+            pass
+        else:
+            raise AssertionError("Python exceptions must cross execute()")
+        """
+    )

@@ -4,7 +4,6 @@ copyright to USC,MIT,NUS
 */
 
 #include "simulation/tetMeshOccupation.h"
-#include "parallel/parallelFor.h"
 
 #include "windingNumberTree.h"
 #include "pgoLogging.h"
@@ -17,6 +16,8 @@ copyright to USC,MIT,NUS
 #include <random>
 #include <vector>
 #include <atomic>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_for.h>
 
 void pgo::SolidDeformationModel::computeTetMeshOccupation(int numTetVertices, const Vec3d *tetVertices, int numTets, const Vec4i *tets,
   int numSurfaceVertices, const Vec3d *surfaceVertices, int numTriangles, const Vec3i *triangles,
@@ -39,7 +40,7 @@ void pgo::SolidDeformationModel::computeTetMeshOccupation(int numTetVertices, co
 
   SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "#tets: {}", numTets);
 
-  pgo::parallel::parallelFor(0, numTets, [&](int ei) {
+  tbb::parallel_for(0, numTets, [&](int ei) {
     int insideCounter = 0;
     for (int si = 0; si < sampleCount; si++) {
       double w[4];
@@ -117,7 +118,7 @@ void pgo::SolidDeformationModel::computeTetMeshOccupation(int numTetVertices, co
   Mesh::BoundingBox bb(bbIn[0], bbIn[1]);
   SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "#tets: {}", numTets);
 
-  pgo::parallel::parallelFor(0, numTets, [&](int ei) {
+  tbb::parallel_for(0, numTets, [&](int ei) {
     int insideCounter = 0;
     for (int si = 0; si < sampleCount; si++) {
       double w[4];

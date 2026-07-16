@@ -15,6 +15,7 @@
 #include "triMeshGeo.h"
 
 #include <tbb/global_control.h>
+#include <tbb/task_arena.h>
 
 #include <algorithm>
 #include <cmath>
@@ -101,14 +102,30 @@ void expectAllFinite(const ES::SpMatD &m)
 std::unique_ptr<SimulationMesh> makeSingleElementCubicSimulationMesh()
 {
   const double vertices[] = {
-    0.0, 0.0, 0.0,
-    1.0, 0.0, 0.0,
-    1.0, 1.0, 0.0,
-    0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0,
-    1.0, 0.0, 1.0,
-    1.0, 1.0, 1.0,
-    0.0, 1.0, 1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
   };
   const int elementVertices[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
   const int elementMaterialIndices[] = { 0 };
@@ -415,7 +432,8 @@ void expectExplicitNestedTbbPoliciesAgree(const FormulationT &formulation)
   for (Eigen::Index i = 0; i < x.size(); ++i)
     x[i] += 1e-4 * std::sin(0.37 * static_cast<double>(i) + 0.2);
 
-  const double boundedOneEnergy = pgo::parallel::withSingleThreadedTbb(
+  tbb::task_arena singleArena(1, 1);
+  const double boundedOneEnergy = singleArena.execute(
     [&] { return assembler->computeEnergy(x.data()); });
   const double multiEnergy = assembler->computeEnergy(x.data());
   EXPECT_NEAR(boundedOneEnergy, multiEnergy,
@@ -423,7 +441,7 @@ void expectExplicitNestedTbbPoliciesAgree(const FormulationT &formulation)
 
   ES::VXd boundedOneGradient = ES::VXd::Zero(assembler->getNumDOFs());
   ES::VXd multiGradient = ES::VXd::Zero(assembler->getNumDOFs());
-  pgo::parallel::withSingleThreadedTbb(
+  singleArena.execute(
     [&] { assembler->computeGradient(x.data(), boundedOneGradient.data()); });
   assembler->computeGradient(x.data(), multiGradient.data());
   EXPECT_LE((boundedOneGradient - multiGradient).norm(),
@@ -431,7 +449,7 @@ void expectExplicitNestedTbbPoliciesAgree(const FormulationT &formulation)
 
   ES::SpMatD boundedOneHessian = assembler->getHessianTemplate();
   ES::SpMatD multiHessian = assembler->getHessianTemplate();
-  pgo::parallel::withSingleThreadedTbb(
+  singleArena.execute(
     [&] { assembler->computeHessian(x.data(), boundedOneHessian); });
   assembler->computeHessian(x.data(), multiHessian);
   EXPECT_LE((boundedOneHessian - multiHessian).norm(),

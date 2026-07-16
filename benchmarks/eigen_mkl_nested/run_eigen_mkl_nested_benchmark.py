@@ -178,9 +178,9 @@ def validate_block(
             raise RuntimeError(f"{policy} executed an unexpected number of outer bodies.")
 
     if counter(measurements["PgoMulti"], "outer_arena_concurrency") != concurrency:
-        raise RuntimeError("PgoMulti did not use the global-aligned arena.")
+        raise RuntimeError("PgoMulti did not use the configured executor arena.")
     if counter(measurements["PgoSingle"], "outer_arena_concurrency") != concurrency:
-        raise RuntimeError("PgoSingle did not use the global-aligned arena.")
+        raise RuntimeError("PgoSingle did not use the configured executor arena.")
     if counter(measurements["PgoMulti"], "inner_arena_concurrency") != concurrency:
         raise RuntimeError("PgoMulti unexpectedly bounded the Eigen/MKL call.")
     if counter(measurements["TbbMulti"], "inner_arena_concurrency") != counter(

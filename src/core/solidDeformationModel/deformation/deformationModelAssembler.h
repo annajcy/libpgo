@@ -11,8 +11,6 @@ copyright to USC,MIT,NUS
 #include "formulations/formulation/formulation.h"
 #include "material/fields/parameterField.h"
 #include "EigenDef.h"
-#include "parallel/parallelFor.h"
-
 #include <cstddef>
 #include <functional>
 #include <memory>

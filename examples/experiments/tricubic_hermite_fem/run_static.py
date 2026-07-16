@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -32,12 +33,12 @@ from common import (
 from summarize import summarize_static
 
 
-def _initialize_parallelism() -> None:
+def _parallelism_scope():
     max_concurrency = SETTINGS["num_threads"]
     if not max_concurrency:
-        return
-    effective_concurrency = pp.initialize(max_concurrency=max_concurrency)
-    print(f"[parallel] effective_concurrency={effective_concurrency}")
+        return nullcontext()
+    print(f"[parallel] max_allowed_parallelism={max_concurrency}")
+    return pp.GlobalTbbControl(max_concurrency)
 
 
 def _surface_volume(surface) -> float:
@@ -146,36 +147,42 @@ def main(argv=None) -> int:
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
 
-    _initialize_parallelism()
+    with _parallelism_scope():
+        study = STUDIES[args.study]
+        cases = build_cases(study)
+        output = args.output_root or output_root(args.study, "static")
+        output.mkdir(parents=True, exist_ok=True)
 
-    study = STUDIES[args.study]
-    cases = build_cases(study)
-    output = args.output_root or output_root(args.study, "static")
-    output.mkdir(parents=True, exist_ok=True)
+        summaries = []
+        for name in args.cases:
+            try:
+                summaries.append(run_case(name, study, cases, output, args.force))
+            except Exception as exc:
+                failure = {
+                    **_signature(name, study, cases),
+                    "converged": False,
+                    "status": "exception",
+                    "error": str(exc),
+                }
+                output_dir = output / name
+                output_dir.mkdir(parents=True, exist_ok=True)
+                (output_dir / "summary.json").write_text(
+                    json.dumps(failure, indent=2) + "\n"
+                )
+                summaries.append(failure)
+                print(f"[{study['name']}/{name}] failed: {exc}", file=sys.stderr)
 
-    summaries = []
-    for name in args.cases:
-        try:
-            summaries.append(run_case(name, study, cases, output, args.force))
-        except Exception as exc:
-            failure = {
-                **_signature(name, study, cases),
-                "converged": False,
-                "status": "exception",
-                "error": str(exc),
-            }
-            output_dir = output / name
-            output_dir.mkdir(parents=True, exist_ok=True)
-            (output_dir / "summary.json").write_text(json.dumps(failure, indent=2) + "\n")
-            summaries.append(failure)
-            print(f"[{study['name']}/{name}] failed: {exc}", file=sys.stderr)
-
-    comparison = summarize_static(args.study, output)
-    pin_failed = comparison is not None and any(
-        row.get("pin_residual_max", 0.0) > SETTINGS["pin_residual_limit"]
-        for row in comparison["cases"]
-    )
-    return 2 if pin_failed or any(not summary.get("converged") for summary in summaries) else 0
+        comparison = summarize_static(args.study, output)
+        pin_failed = comparison is not None and any(
+            row.get("pin_residual_max", 0.0) > SETTINGS["pin_residual_limit"]
+            for row in comparison["cases"]
+        )
+        return (
+            2
+            if pin_failed
+            or any(not summary.get("converged") for summary in summaries)
+            else 0
+        )
 
 
 if __name__ == "__main__":
