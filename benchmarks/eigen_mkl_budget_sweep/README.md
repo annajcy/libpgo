@@ -29,7 +29,7 @@ cmake --build build/base --target eigen_mkl_budget_sweep_probe
 ```
 
 Then run the default sweep over local budgets
-`0, 2, 4, 8, 16`, with arena width 8 and outer-task counts `1, 8, 32`:
+`0, 1, 2, 4, 8, 16`, with arena width 8 and outer-task counts `1, 8, 32`:
 
 ```bash
 python benchmarks/eigen_mkl_budget_sweep/run_eigen_mkl_budget_sweep.py \

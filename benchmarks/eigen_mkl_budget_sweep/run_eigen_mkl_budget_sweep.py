@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
         "--mkl-local-thread-budgets",
         type=int,
         nargs="+",
-        default=[0, 2, 4, 8, 16],
+        default=[0, 1, 2, 4, 8, 16],
     )
     parser.add_argument(
         "--outer-tasks",
