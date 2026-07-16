@@ -1,0 +1,669 @@
+#!/usr/bin/env python3
+"""Sweep oneMKL local thread budgets inside a fixed oneTBB arena."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import random
+import re
+import shlex
+import shutil
+import statistics
+import subprocess
+from collections.abc import Mapping
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+RESULT_PREFIX = "PGO_MKL_BUDGET_SWEEP_RESULT"
+INTEGER_FIELDS = {
+    "configured_global_concurrency",
+    "effective_global_concurrency",
+    "configured_arena_concurrency",
+    "configured_mkl_local_budget",
+    "observed_arena_concurrency",
+    "observed_mkl_max_threads_min",
+    "observed_mkl_max_threads_max",
+    "outer_tasks",
+    "matrix_n",
+    "warmup_iterations",
+    "profile_iterations",
+    "measured_gemm_calls",
+    "process_gemm_calls",
+}
+FLOAT_FIELDS = {"wall_seconds", "process_cpu_seconds", "checksum"}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("probe", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--concurrency", type=int, default=8)
+    parser.add_argument(
+        "--arena-concurrency",
+        type=int,
+        help="Private arena width; defaults to --concurrency.",
+    )
+    parser.add_argument(
+        "--mkl-local-thread-budgets",
+        type=int,
+        nargs="+",
+        default=[0, 2, 4, 8, 16],
+    )
+    parser.add_argument(
+        "--outer-tasks",
+        type=int,
+        nargs="+",
+        default=[1, 8, 32],
+        help="Outer-task counts used for unprofiled timing runs.",
+    )
+    parser.add_argument(
+        "--profile-outer-tasks",
+        type=int,
+        nargs="+",
+        default=[1, 8],
+        help="Outer-task counts collected with VTune when --collect-vtune is set.",
+    )
+    parser.add_argument("--matrix-n", type=int, default=1024)
+    parser.add_argument("--warmup-iterations", type=int, default=3)
+    parser.add_argument("--profile-iterations", type=int, default=50)
+    parser.add_argument("--timing-repetitions", type=int, default=7)
+    parser.add_argument("--profile-repetitions", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=20260716)
+    parser.add_argument("--collect-vtune", action="store_true")
+    parser.add_argument("--vtune", type=Path)
+    parser.add_argument(
+        "--sudo",
+        action="store_true",
+        help="Run VTune through sudo and restore ownership of its result directories.",
+    )
+    parser.add_argument("--dry-run", action="store_true")
+    return parser.parse_args()
+
+
+def require_positive(value: int, option: str) -> None:
+    if value <= 0:
+        raise ValueError(f"{option} must be positive.")
+
+
+def require_nonnegative(value: int, option: str) -> None:
+    if value < 0:
+        raise ValueError(f"{option} must be nonnegative.")
+
+
+def validate_args(args: argparse.Namespace) -> None:
+    require_positive(args.concurrency, "--concurrency")
+    if args.arena_concurrency is None:
+        args.arena_concurrency = args.concurrency
+    require_positive(args.arena_concurrency, "--arena-concurrency")
+    require_positive(args.matrix_n, "--matrix-n")
+    require_nonnegative(args.warmup_iterations, "--warmup-iterations")
+    require_positive(args.profile_iterations, "--profile-iterations")
+    require_positive(args.timing_repetitions, "--timing-repetitions")
+    require_positive(args.profile_repetitions, "--profile-repetitions")
+    for budget in args.mkl_local_thread_budgets:
+        require_nonnegative(budget, "--mkl-local-thread-budgets")
+    for outer_tasks in args.outer_tasks:
+        require_positive(outer_tasks, "--outer-tasks")
+    for outer_tasks in args.profile_outer_tasks:
+        require_positive(outer_tasks, "--profile-outer-tasks")
+    if len(set(args.mkl_local_thread_budgets)) != len(args.mkl_local_thread_budgets):
+        raise ValueError("--mkl-local-thread-budgets must not contain duplicates.")
+    if len(set(args.outer_tasks)) != len(args.outer_tasks):
+        raise ValueError("--outer-tasks must not contain duplicates.")
+    if len(set(args.profile_outer_tasks)) != len(args.profile_outer_tasks):
+        raise ValueError("--profile-outer-tasks must not contain duplicates.")
+
+
+def resolve_executable(path: Path, label: str) -> Path:
+    candidate = path.expanduser().resolve()
+    if not candidate.is_file():
+        raise FileNotFoundError(f"{label} does not exist: {candidate}")
+    return candidate
+
+
+def resolve_vtune(explicit: Path | None) -> Path:
+    if explicit is not None:
+        return resolve_executable(explicit, "VTune executable")
+    discovered = shutil.which("vtune")
+    if discovered is None:
+        raise FileNotFoundError(
+            "VTune CLI was not found. Pass --vtune or omit --collect-vtune."
+        )
+    return Path(discovered).resolve()
+
+
+def checked_output(command: list[str], environment: dict[str, str]) -> str:
+    result = subprocess.run(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+        env=environment,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"{shlex.join(command)}\n{result.stdout}")
+    return result.stdout
+
+
+def report_output(command: list[str], environment: dict[str, str]) -> str:
+    result = subprocess.run(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+        env=environment,
+    )
+    if result.returncode == 0:
+        return result.stdout
+    if "Empty request output." in result.stdout:
+        return ""
+    raise RuntimeError(f"{shlex.join(command)}\n{result.stdout}")
+
+
+def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
+    dependencies = checked_output(["ldd", str(probe)], environment)
+    lowered = dependencies.lower()
+    required = ("libmkl_core", "libmkl_tbb_thread", "libtbb")
+    missing = [library for library in required if library not in lowered]
+    if missing:
+        raise RuntimeError(f"Probe is missing required libraries: {missing}")
+    forbidden = ("libiomp5", "libgomp", "libomp.so")
+    present = [library for library in forbidden if library in lowered]
+    if present:
+        raise RuntimeError(f"Probe unexpectedly links OpenMP runtimes: {present}")
+    return dependencies
+
+
+def probe_command(
+    probe: Path,
+    args: argparse.Namespace,
+    budget: int,
+    outer_tasks: int,
+) -> list[str]:
+    return [
+        str(probe),
+        f"--concurrency={args.concurrency}",
+        f"--arena-concurrency={args.arena_concurrency}",
+        f"--mkl-local-thread-budget={budget}",
+        f"--outer-tasks={outer_tasks}",
+        f"--matrix-n={args.matrix_n}",
+        f"--warmup-iterations={args.warmup_iterations}",
+        f"--profile-iterations={args.profile_iterations}",
+    ]
+
+
+def sudo_environment_prefix(
+    use_sudo: bool, environment: Mapping[str, str]
+) -> list[str]:
+    if not use_sudo:
+        return []
+    assignments = ["MKL_THREADING_LAYER=TBB"]
+    for name in ("MKL_NUM_THREADS", "MKL_DYNAMIC"):
+        value = environment.get(name)
+        if value is not None:
+            assignments.append(f"{name}={value}")
+    return ["sudo", "env", *assignments]
+
+
+def case_name(arena: int, budget: int, outer_tasks: int, repetition: int) -> str:
+    return f"arena{arena}-budget{budget}-tasks{outer_tasks}-r{repetition}"
+
+
+def make_jobs(
+    args: argparse.Namespace, outer_tasks_values: list[int], repetitions: int
+) -> list[dict[str, int]]:
+    jobs = [
+        {
+            "budget": budget,
+            "outer_tasks": outer_tasks,
+            "repetition": repetition,
+        }
+        for repetition in range(1, repetitions + 1)
+        for outer_tasks in outer_tasks_values
+        for budget in args.mkl_local_thread_budgets
+    ]
+    return jobs
+
+
+def parse_result_marker(output: str) -> dict[str, int | float]:
+    marker_lines = [
+        line.strip() for line in output.splitlines() if line.startswith(RESULT_PREFIX)
+    ]
+    if len(marker_lines) != 1:
+        raise RuntimeError(
+            f"Expected exactly one {RESULT_PREFIX} line, found {len(marker_lines)}."
+        )
+    values: dict[str, int | float] = {}
+    for item in marker_lines[0][len(RESULT_PREFIX) :].strip().split():
+        key, separator, raw_value = item.partition("=")
+        if not separator:
+            raise RuntimeError(f"Malformed result marker item: {item}")
+        if key in INTEGER_FIELDS:
+            values[key] = int(raw_value)
+        elif key in FLOAT_FIELDS:
+            values[key] = float(raw_value)
+        else:
+            raise RuntimeError(f"Unknown result marker field: {key}")
+    missing = (INTEGER_FIELDS | FLOAT_FIELDS) - values.keys()
+    if missing:
+        raise RuntimeError(f"Result marker is missing fields: {sorted(missing)}")
+    return values
+
+
+def median_and_mad(values: list[float]) -> tuple[float, float]:
+    median = statistics.median(values)
+    return median, statistics.median(abs(value - median) for value in values)
+
+
+def summarize_timing(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    for record in records:
+        result = record["result"]
+        key = (
+            int(result["configured_mkl_local_budget"]),
+            int(result["outer_tasks"]),
+        )
+        groups.setdefault(key, []).append(record)
+
+    summary = []
+    for (budget, outer_tasks), group in sorted(groups.items()):
+        wall_values = [float(record["result"]["wall_seconds"]) for record in group]
+        cpu_values = [
+            float(record["result"]["process_cpu_seconds"]) for record in group
+        ]
+        wall_median, wall_mad = median_and_mad(wall_values)
+        cpu_median, cpu_mad = median_and_mad(cpu_values)
+        summary.append(
+            {
+                "configured_mkl_local_budget": budget,
+                "outer_tasks": outer_tasks,
+                "repetitions": len(group),
+                "median_wall_seconds": wall_median,
+                "wall_seconds_mad": wall_mad,
+                "median_process_cpu_seconds": cpu_median,
+                "process_cpu_seconds_mad": cpu_mad,
+                "observed_mkl_max_threads_min": min(
+                    int(record["result"]["observed_mkl_max_threads_min"])
+                    for record in group
+                ),
+                "observed_mkl_max_threads_max": max(
+                    int(record["result"]["observed_mkl_max_threads_max"])
+                    for record in group
+                ),
+            }
+        )
+    return summary
+
+
+def optional_median(values: list[int | float | None]) -> float | None:
+    present = [float(value) for value in values if value is not None]
+    return statistics.median(present) if present else None
+
+
+def summarize_profiles(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    complete = [record for record in records if "task_metrics" in record]
+    groups: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    for record in complete:
+        result = record["result"]
+        key = (
+            int(result["configured_mkl_local_budget"]),
+            int(result["outer_tasks"]),
+        )
+        groups.setdefault(key, []).append(record)
+
+    summary = []
+    for (budget, outer_tasks), group in sorted(groups.items()):
+        summary.append(
+            {
+                "configured_mkl_local_budget": budget,
+                "outer_tasks": outer_tasks,
+                "repetitions": len(group),
+                "median_probe_wall_seconds": optional_median(
+                    [record["result"]["wall_seconds"] for record in group]
+                ),
+                "median_probe_process_cpu_seconds": optional_median(
+                    [record["result"]["process_cpu_seconds"] for record in group]
+                ),
+                "median_total_thread_count": optional_median(
+                    [record["vtune_summary"]["total_thread_count"] for record in group]
+                ),
+                "median_effective_cpu_count": optional_median(
+                    [record["vtune_summary"]["effective_cpu_count"] for record in group]
+                ),
+                "median_spin_and_overhead_seconds": optional_median(
+                    [
+                        record["vtune_summary"]["spin_and_overhead_seconds"]
+                        for record in group
+                    ]
+                ),
+                "median_poor_utilization_wait_seconds": optional_median(
+                    [
+                        record["vtune_summary"]["poor_utilization_wait_seconds"]
+                        for record in group
+                    ]
+                ),
+                "median_tbb_parallel_for_task_count": optional_median(
+                    [
+                        record["task_metrics"]["tbb_parallel_for_task_count"]
+                        for record in group
+                    ]
+                ),
+                "median_tbb_tasks_per_process_gemm": optional_median(
+                    [
+                        record["task_metrics"]["tbb_tasks_per_process_gemm"]
+                        for record in group
+                    ]
+                ),
+            }
+        )
+    return summary
+
+
+def parse_vtune_summary(text: str) -> dict[str, int | float | None]:
+    patterns: dict[str, tuple[str, type[int] | type[float]]] = {
+        "elapsed_seconds": (r"^Elapsed Time:\s+([0-9.]+)s", float),
+        "effective_cpu_count": (
+            r"^Effective CPU Utilization:.*\(([0-9.]+) out of",
+            float,
+        ),
+        "total_thread_count": (r"^\s+Total Thread Count:\s+([0-9]+)", int),
+        "poor_utilization_wait_seconds": (
+            r"^\s+Wait Time with poor CPU Utilization:\s+([0-9.]+)s",
+            float,
+        ),
+        "spin_and_overhead_seconds": (
+            r"^\s+Spin and Overhead Time:\s+([0-9.]+)s",
+            float,
+        ),
+    }
+    parsed: dict[str, int | float | None] = {}
+    for key, (pattern, conversion) in patterns.items():
+        match = re.search(pattern, text, flags=re.MULTILINE)
+        parsed[key] = conversion(match.group(1)) if match else None
+    return parsed
+
+
+def parse_task_report(path: Path) -> dict[str, int | float | None]:
+    if not path.stat().st_size:
+        return {
+            "tbb_parallel_for_task_count": 0,
+            "tbb_parallel_for_average_task_seconds": None,
+            "tbb_parallel_for_task_seconds": None,
+        }
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("Task Type") != "tbb_parallel_for":
+                continue
+            return {
+                "tbb_parallel_for_task_count": int(float(row["Task Count"])),
+                "tbb_parallel_for_average_task_seconds": float(
+                    row["Average Task Time"]
+                ),
+                "tbb_parallel_for_task_seconds": float(row["Task Time"]),
+            }
+    return {
+        "tbb_parallel_for_task_count": 0,
+        "tbb_parallel_for_average_task_seconds": None,
+        "tbb_parallel_for_task_seconds": None,
+    }
+
+
+def write_results(path: Path, results: dict[str, Any]) -> None:
+    path.write_text(json.dumps(results, indent=2) + "\n")
+
+
+def main() -> int:
+    args = parse_args()
+    validate_args(args)
+    probe = resolve_executable(args.probe, "Probe executable")
+    output = args.out.expanduser().resolve()
+    if output.exists() and not args.dry_run:
+        raise FileExistsError(f"Output path already exists: {output}")
+
+    timing_jobs = make_jobs(args, args.outer_tasks, args.timing_repetitions)
+    profile_jobs = (
+        make_jobs(args, args.profile_outer_tasks, args.profile_repetitions)
+        if args.collect_vtune
+        else []
+    )
+    random.Random(args.seed).shuffle(timing_jobs)
+    random.Random(args.seed + 1).shuffle(profile_jobs)
+    vtune = resolve_vtune(args.vtune) if args.collect_vtune else None
+
+    if args.dry_run:
+        for job in timing_jobs:
+            print(
+                shlex.join(
+                    probe_command(probe, args, job["budget"], job["outer_tasks"])
+                )
+            )
+        if vtune is not None:
+            for job in profile_jobs:
+                name = case_name(
+                    args.arena_concurrency,
+                    job["budget"],
+                    job["outer_tasks"],
+                    job["repetition"],
+                )
+                command = [
+                    *sudo_environment_prefix(args.sudo, os.environ),
+                    str(vtune),
+                    "-collect",
+                    "threading",
+                    "-result-dir",
+                    str(output / "profiles" / f"vtune-{name}"),
+                    "--",
+                    *probe_command(probe, args, job["budget"], job["outer_tasks"]),
+                ]
+                print(shlex.join(command))
+        return 0
+
+    environment = os.environ.copy()
+    environment["MKL_THREADING_LAYER"] = "TBB"
+    linkage = verify_linkage(probe, environment)
+    output.mkdir(parents=True)
+    timing_log_directory = output / "timing-logs"
+    timing_log_directory.mkdir()
+
+    results: dict[str, Any] = {
+        "schema_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "probe": str(probe),
+        "vtune": str(vtune) if vtune is not None else None,
+        "configuration": {
+            "concurrency": args.concurrency,
+            "arena_concurrency": args.arena_concurrency,
+            "mkl_local_thread_budgets": args.mkl_local_thread_budgets,
+            "outer_tasks": args.outer_tasks,
+            "profile_outer_tasks": args.profile_outer_tasks,
+            "matrix_n": args.matrix_n,
+            "warmup_iterations": args.warmup_iterations,
+            "profile_iterations": args.profile_iterations,
+            "timing_repetitions": args.timing_repetitions,
+            "profile_repetitions": args.profile_repetitions,
+            "seed": args.seed,
+            "collect_vtune": args.collect_vtune,
+            "sudo": args.sudo,
+        },
+        "environment": {
+            "MKL_THREADING_LAYER": "TBB",
+            "MKL_NUM_THREADS": environment.get("MKL_NUM_THREADS"),
+            "MKL_DYNAMIC": environment.get("MKL_DYNAMIC"),
+        },
+        "linkage": linkage,
+        "timing_records": [],
+        "timing_summary": [],
+        "profile_records": [],
+        "profile_summary": [],
+    }
+    results_path = output / "budget-sweep.json"
+
+    for index, job in enumerate(timing_jobs, start=1):
+        name = case_name(
+            args.arena_concurrency,
+            job["budget"],
+            job["outer_tasks"],
+            job["repetition"],
+        )
+        command = probe_command(probe, args, job["budget"], job["outer_tasks"])
+        print(f"[timing {index}/{len(timing_jobs)}] {name}", flush=True)
+        completed = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            env=environment,
+        )
+        log_path = timing_log_directory / f"{name}.log"
+        log_path.write_text(completed.stdout)
+        record: dict[str, Any] = {
+            "case": name,
+            "order_index": index,
+            "repetition": job["repetition"],
+            "command": command,
+            "returncode": completed.returncode,
+            "log": str(log_path),
+        }
+        results["timing_records"].append(record)
+        if completed.returncode != 0:
+            write_results(results_path, results)
+            raise RuntimeError(f"Timing run failed for {name}; see {log_path}.")
+        record["result"] = parse_result_marker(completed.stdout)
+        results["timing_summary"] = summarize_timing(results["timing_records"])
+        write_results(results_path, results)
+
+    if vtune is None:
+        print(f"Results written to {results_path}")
+        return 0
+
+    profiles_directory = output / "profiles"
+    profiles_directory.mkdir()
+    for index, job in enumerate(profile_jobs, start=1):
+        name = case_name(
+            args.arena_concurrency,
+            job["budget"],
+            job["outer_tasks"],
+            job["repetition"],
+        )
+        result_directory = profiles_directory / f"vtune-{name}"
+        probe_args = probe_command(probe, args, job["budget"], job["outer_tasks"])
+        command = [
+            *sudo_environment_prefix(args.sudo, environment),
+            str(vtune),
+            "-collect",
+            "threading",
+            "-result-dir",
+            str(result_directory),
+            "--",
+            *probe_args,
+        ]
+        print(f"[profile {index}/{len(profile_jobs)}] {name}", flush=True)
+        completed = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            env=environment,
+        )
+        if args.sudo and result_directory.exists():
+            checked_output(
+                [
+                    "sudo",
+                    "chown",
+                    "-R",
+                    f"{os.getuid()}:{os.getgid()}",
+                    str(result_directory),
+                ],
+                environment,
+            )
+        log_path = profiles_directory / f"{name}.log"
+        log_path.write_text(completed.stdout)
+        profile_record: dict[str, Any] = {
+            "case": name,
+            "order_index": index,
+            "repetition": job["repetition"],
+            "command": command,
+            "result_directory": str(result_directory),
+            "returncode": completed.returncode,
+            "log": str(log_path),
+        }
+        results["profile_records"].append(profile_record)
+        if completed.returncode != 0:
+            write_results(results_path, results)
+            raise RuntimeError(f"VTune failed for {name}; see {log_path}.")
+
+        reports = {
+            "summary": [
+                str(vtune),
+                "-quiet",
+                "-report",
+                "summary",
+                "-result-dir",
+                str(result_directory),
+                "-report-knob",
+                "show-issues=false",
+            ],
+            "hotspots.csv": [
+                str(vtune),
+                "-quiet",
+                "-report",
+                "hotspots",
+                "-result-dir",
+                str(result_directory),
+                "-format=csv",
+                "-csv-delimiter=comma",
+            ],
+            "tasks.csv": [
+                str(vtune),
+                "-quiet",
+                "-report",
+                "hotspots",
+                "-result-dir",
+                str(result_directory),
+                "-group-by",
+                "task",
+                "-format=csv",
+                "-csv-delimiter=comma",
+            ],
+        }
+        report_paths: dict[str, str] = {}
+        for suffix, report_command in reports.items():
+            report_path = profiles_directory / f"{name}.{suffix}"
+            report_path.write_text(report_output(report_command, environment))
+            report_paths[suffix] = str(report_path)
+        profile_record["reports"] = report_paths
+        profile_record["result"] = parse_result_marker(completed.stdout)
+        summary_text = Path(report_paths["summary"]).read_text()
+        profile_record["vtune_summary"] = parse_vtune_summary(summary_text)
+        task_metrics = parse_task_report(Path(report_paths["tasks.csv"]))
+        profile_record["task_metrics"] = task_metrics
+        if job["outer_tasks"] == 1:
+            task_count = int(task_metrics["tbb_parallel_for_task_count"] or 0)
+            process_calls = int(profile_record["result"]["process_gemm_calls"])
+            profile_record["task_metrics"]["tbb_tasks_per_process_gemm"] = (
+                task_count / process_calls
+            )
+        else:
+            profile_record["task_metrics"]["tbb_tasks_per_process_gemm"] = None
+            profile_record["task_metrics"]["task_count_note"] = (
+                "Includes outer and oneMKL TBB tasks; do not interpret as internal "
+                "oneMKL decomposition."
+            )
+        results["profile_summary"] = summarize_profiles(results["profile_records"])
+        write_results(results_path, results)
+
+    print(f"Results and profiles written to {output}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
