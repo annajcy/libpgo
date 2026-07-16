@@ -5,6 +5,7 @@
   - remove SuiteSparse/OpenMP and non-Accelerate BLAS dependency stacks from libpgo
   - route supported Eigen dense operations to system Accelerate BLAS and keep other Eigen kernels serial on macOS
   - apply persistent per-thread MKL or Accelerate policies on controlled arena entry without scoped restoration
+  - align direct, crossover, control-matrix, and VTune MKL benchmarks on executor-owned arena and TLS-budget policies
 
 -- v0.0.3
   - fix various bug in cmake

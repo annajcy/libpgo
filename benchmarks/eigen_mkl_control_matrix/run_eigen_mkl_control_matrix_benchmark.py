@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the diagnostic 2x2 oneMKL-local-setting/TBB-arena experiment."""
+"""Run the diagnostic 2x3 oneMKL-budget/executor-arena experiment."""
 
 from __future__ import annotations
 
@@ -18,25 +18,38 @@ from typing import Any
 
 
 POLICIES = (
-    "DefaultArenaGlobal",
-    "Local1ArenaGlobal",
-    "DefaultArena1",
-    "Local1Arena1",
+    "ExecutorDefault",
+    "ExecutorLocal1",
+    "ExecutorDefaultArena1",
+    "ExecutorLocal1Arena1",
+    "ExecutorMKLC",
+    "ExecutorMKLCArena1",
 )
 WORKLOADS = ("EigenMklGemm", "NoBlas")
-POLICY_FACTORS = {
-    "DefaultArenaGlobal": (0, 0),
-    "Local1ArenaGlobal": (1, 0),
-    "DefaultArena1": (0, 1),
-    "Local1Arena1": (1, 1),
-}
 TIME_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
+POLICY_PATTERN = "|".join(POLICIES)
 CASE_PATTERN = re.compile(
     r"^EigenMklControlMatrix/"
     r"(EigenMklGemm|NoBlas)/"
-    r"(DefaultArenaGlobal|Local1ArenaGlobal|DefaultArena1|Local1Arena1)"
+    rf"({POLICY_PATTERN})"
     r"/c_(\d+)/tasks_(\d+)/n_(\d+)(?:/real_time)?$"
 )
+
+
+def executor_spec(policy: str, concurrency: int) -> tuple[int, int]:
+    if policy == "ExecutorDefault":
+        return concurrency, 0
+    if policy == "ExecutorLocal1":
+        return concurrency, 1
+    if policy == "ExecutorDefaultArena1":
+        return 1, 0
+    if policy == "ExecutorLocal1Arena1":
+        return 1, 1
+    if policy == "ExecutorMKLC":
+        return concurrency, concurrency
+    if policy == "ExecutorMKLCArena1":
+        return 1, concurrency
+    raise ValueError(f"Unknown policy: {policy}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -216,22 +229,22 @@ def validate_block(
         )
 
     for policy, row in measurements.items():
-        expected_local_one, expected_arena_one = POLICY_FACTORS[policy]
+        expected_arena_concurrency, expected_mkl_budget = executor_spec(
+            policy, concurrency
+        )
         expected_calls = int(row["iterations"]) * outer_tasks
-        expected_inner_concurrency = 1 if expected_arena_one else concurrency
         expected = {
+            "policy": POLICIES.index(policy),
             "workload": WORKLOADS.index(workload),
             "uses_blas": 1 if workload == "EigenMklGemm" else 0,
-            "configured_concurrency": concurrency,
-            "effective_concurrency": concurrency,
+            "configured_global_concurrency": concurrency,
+            "effective_global_concurrency": concurrency,
+            "configured_arena_concurrency": expected_arena_concurrency,
+            "configured_mkl_local_budget": expected_mkl_budget,
             "outer_tasks": outer_tasks,
             "matrix_n": matrix_n,
-            "uses_mkl_local_one": expected_local_one,
-            "uses_arena_one": expected_arena_one,
-            "outer_arena_concurrency": concurrency,
-            "inner_arena_concurrency": expected_inner_concurrency,
+            "observed_arena_concurrency": expected_arena_concurrency,
             "body_calls": expected_calls,
-            "restoration_mismatches": 0,
         }
         for counter_name, expected_value in expected.items():
             observed = integer_counter(row, counter_name)
@@ -240,10 +253,6 @@ def validate_block(
                     f"{policy} reported {counter_name}={observed}; "
                     f"expected {expected_value}."
                 )
-        reported_min = integer_counter(row, "mkl_api_reported_min")
-        reported_max = integer_counter(row, "mkl_api_reported_max")
-        if reported_min <= 0 or reported_max < reported_min:
-            raise RuntimeError(f"{policy} reported invalid MKL service-API state.")
 
 
 def percentile(values: list[float], probability: float) -> float:
@@ -270,17 +279,28 @@ def bootstrap_median_ci(
 
 def ratios(measurements: dict[str, dict[str, Any]]) -> dict[str, float]:
     times = {policy: float(measurements[policy]["wall_seconds"]) for policy in POLICIES}
-    api_global = times["Local1ArenaGlobal"] / times["DefaultArenaGlobal"]
-    arena_default = times["DefaultArena1"] / times["DefaultArenaGlobal"]
-    api_arena_one = times["Local1Arena1"] / times["DefaultArena1"]
-    arena_local_one = times["Local1Arena1"] / times["Local1ArenaGlobal"]
     return {
-        "B_over_A_api_at_global_arena": api_global,
-        "C_over_A_arena_at_default_api": arena_default,
-        "D_over_C_api_at_arena_one": api_arena_one,
-        "D_over_B_arena_at_local_one": arena_local_one,
-        "D_over_A_combined": times["Local1Arena1"] / times["DefaultArenaGlobal"],
-        "interaction_D_over_C_div_B_over_A": api_arena_one / api_global,
+        "local1_over_default_at_arena_c": (
+            times["ExecutorLocal1"] / times["ExecutorDefault"]
+        ),
+        "mkl_c_over_default_at_arena_c": (
+            times["ExecutorMKLC"] / times["ExecutorDefault"]
+        ),
+        "local1_over_default_at_arena_1": (
+            times["ExecutorLocal1Arena1"] / times["ExecutorDefaultArena1"]
+        ),
+        "mkl_c_over_default_at_arena_1": (
+            times["ExecutorMKLCArena1"] / times["ExecutorDefaultArena1"]
+        ),
+        "arena_1_over_c_at_budget_0": (
+            times["ExecutorDefaultArena1"] / times["ExecutorDefault"]
+        ),
+        "arena_1_over_c_at_budget_1": (
+            times["ExecutorLocal1Arena1"] / times["ExecutorLocal1"]
+        ),
+        "arena_1_over_c_at_budget_c": (
+            times["ExecutorMKLCArena1"] / times["ExecutorMKLC"]
+        ),
     }
 
 
@@ -299,7 +319,9 @@ def summarize(
 
     randomizer = random.Random(seed ^ 0x2B2B)
     summary: list[dict[str, Any]] = []
-    for (workload, concurrency, outer_tasks, matrix_n), blocks in sorted(grouped.items()):
+    for (workload, concurrency, outer_tasks, matrix_n), blocks in sorted(
+        grouped.items()
+    ):
         ratio_names = tuple(blocks[0]["ratios"])
         ratio_values = {
             name: [float(block["ratios"][name]) for block in blocks]
@@ -332,19 +354,6 @@ def summarize(
                         float(block["measurements"][policy]["extra_threads"])
                         for block in blocks
                     )
-                    for policy in POLICIES
-                },
-                "median_mkl_api_reported_range": {
-                    policy: {
-                        "min": statistics.median(
-                            float(block["measurements"][policy]["mkl_api_reported_min"])
-                            for block in blocks
-                        ),
-                        "max": statistics.median(
-                            float(block["measurements"][policy]["mkl_api_reported_max"])
-                            for block in blocks
-                        ),
-                    }
                     for policy in POLICIES
                 },
             }
@@ -385,7 +394,9 @@ def run_mkl_verbose_probe(
             if "PGO_MKL_VERBOSE_PROBE_BEGIN" not in output or (
                 "PGO_MKL_VERBOSE_PROBE_END" not in output
             ):
-                raise RuntimeError(f"Probe markers are missing for {policy}, c={concurrency}.")
+                raise RuntimeError(
+                    f"Probe markers are missing for {policy}, c={concurrency}."
+                )
             records.append(
                 {
                     "policy": policy,
@@ -420,25 +431,25 @@ def main() -> int:
     environment = benchmark_environment()
     linkage = {
         "eigen_mkl_gemm": verify_linkage(executable, require_dgemm=True),
-        "eigen_internal_gemm": verify_linkage(
-            no_blas_executable, require_dgemm=False
-        ),
+        "eigen_internal_gemm": verify_linkage(no_blas_executable, require_dgemm=False),
     }
     cases = discover_cases(executable, environment, "EigenMklGemm")
     cases.update(discover_cases(no_blas_executable, environment, "NoBlas"))
     if args.case_limit:
         cases = dict(list(cases.items())[: args.case_limit])
     if not cases:
-        raise SystemExit("No complete four-policy control-matrix cases were found.")
+        raise SystemExit("No complete six-policy control-matrix cases were found.")
 
     probe: Path | None = None
     if not args.skip_mkl_verbose_probe:
-        probe = (args.probe or executable.with_name("eigen_mkl_control_matrix_probe")).resolve()
+        probe = (
+            args.probe or executable.with_name("eigen_mkl_control_matrix_probe")
+        ).resolve()
         if not probe.exists():
             raise SystemExit(f"MKL_VERBOSE probe executable does not exist: {probe}")
         verify_linkage(probe, require_dgemm=True)
 
-    print(f"Verified MKL-TBB linkage; matched {len(cases)} four-policy case(s).")
+    print(f"Verified MKL-TBB linkage; matched {len(cases)} six-policy case(s).")
     for workload, concurrency, outer_tasks, matrix_n in cases:
         print(f"{workload}: c={concurrency} tasks={outer_tasks} n={matrix_n}")
     if args.dry_run:
@@ -497,6 +508,7 @@ def main() -> int:
     )
     summary = summarize(records, args.seed, args.bootstrap_samples)
     payload = {
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "benchmark": str(executable),
         "no_blas_benchmark": str(no_blas_executable),
@@ -508,15 +520,36 @@ def main() -> int:
         "thread_telemetry_source": "untimed_policy_warmup",
         "mkl_verbose_probe": verbose_probe,
         "environment": {"MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"]},
-        "mkl_local_budget_note": (
-            "Local1 isolates the per-OS-thread mkl_set_num_threads_local(1) "
-            "budget from the independent one-participant task_arena factor."
+        "executor_case_note": (
+            "Every case applies its MKL TLS budget only through "
+            "ArenaThreadingExecutor; the benchmark never calls an MKL "
+            "threading-control API directly."
         ),
         "factor_mapping": {
-            "A": "DefaultArenaGlobal",
-            "B": "Local1ArenaGlobal",
-            "C": "DefaultArena1",
-            "D": "Local1Arena1",
+            "ExecutorDefault": {
+                "arena_concurrency": "C",
+                "mkl_local_thread_budget": 0,
+            },
+            "ExecutorLocal1": {
+                "arena_concurrency": "C",
+                "mkl_local_thread_budget": 1,
+            },
+            "ExecutorDefaultArena1": {
+                "arena_concurrency": 1,
+                "mkl_local_thread_budget": 0,
+            },
+            "ExecutorLocal1Arena1": {
+                "arena_concurrency": 1,
+                "mkl_local_thread_budget": 1,
+            },
+            "ExecutorMKLC": {
+                "arena_concurrency": "C",
+                "mkl_local_thread_budget": "C",
+            },
+            "ExecutorMKLCArena1": {
+                "arena_concurrency": 1,
+                "mkl_local_thread_budget": "C",
+            },
         },
         "linkage": linkage,
         "records": records,
@@ -526,22 +559,22 @@ def main() -> int:
     args.out.write_text(json.dumps(payload, indent=2) + "\n")
 
     print(
-        "\nworkload       c tasks    n      A_ms      B_ms      C_ms      D_ms      B/A      C/A      D/C      D/B  interaction"
+        "\nworkload       c tasks    n  default_c   local1_c     mklc_c  "
+        "default_a1  local1_a1    mklc_a1  local1/default(c)  local1/default(1)"
     )
     for row in summary:
         times = row["median_wall_seconds"]
         row_ratios = row["median_ratios"]
         print(
             f"{row['workload']:<12} {row['concurrency']:2d} {row['outer_tasks']:5d} {row['matrix_n']:4d}  "
-            f"{times['DefaultArenaGlobal'] * 1e3:8.3f}  "
-            f"{times['Local1ArenaGlobal'] * 1e3:8.3f}  "
-            f"{times['DefaultArena1'] * 1e3:8.3f}  "
-            f"{times['Local1Arena1'] * 1e3:8.3f}  "
-            f"{row_ratios['B_over_A_api_at_global_arena']:7.3f}  "
-            f"{row_ratios['C_over_A_arena_at_default_api']:7.3f}  "
-            f"{row_ratios['D_over_C_api_at_arena_one']:7.3f}  "
-            f"{row_ratios['D_over_B_arena_at_local_one']:7.3f}  "
-            f"{row_ratios['interaction_D_over_C_div_B_over_A']:11.3f}"
+            f"{times['ExecutorDefault'] * 1e3:9.3f}  "
+            f"{times['ExecutorLocal1'] * 1e3:9.3f}  "
+            f"{times['ExecutorMKLC'] * 1e3:9.3f}  "
+            f"{times['ExecutorDefaultArena1'] * 1e3:10.3f}  "
+            f"{times['ExecutorLocal1Arena1'] * 1e3:9.3f}  "
+            f"{times['ExecutorMKLCArena1'] * 1e3:9.3f}  "
+            f"{row_ratios['local1_over_default_at_arena_c']:17.3f}  "
+            f"{row_ratios['local1_over_default_at_arena_1']:17.3f}"
         )
     print(f"\nWrote {args.out}")
     return 0

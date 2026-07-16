@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the direct Eigen/oneMKL single-to-global TBB crossover."""
+"""Measure the Eigen/oneMKL local-budget-1 to budget-C crossover."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import Any
 
 
-POLICIES = ("MklTbbSingle", "MklTbbGlobal")
+POLICIES = ("ExecutorLocal1", "ExecutorMKLC")
 TIME_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 CASE_PATTERN = re.compile(
-    r"^EigenMklCrossover/(MklTbbSingle|MklTbbGlobal)"
+    r"^EigenMklCrossover/(ExecutorLocal1|ExecutorMKLC)"
     r"/n_(\d+)(?:/real_time)?$"
 )
 CONCURRENCY_ENVIRONMENT = "PGO_EIGEN_MKL_CROSSOVER_MAX_CONCURRENCY"
@@ -192,7 +192,8 @@ def validate_block(
             raise RuntimeError(f"{policy} reported the wrong matrix size.")
 
     effective_values = {
-        integer_counter(row, "effective_concurrency") for row in measurements.values()
+        integer_counter(row, "effective_global_concurrency")
+        for row in measurements.values()
     }
     if len(effective_values) != 1:
         raise RuntimeError(
@@ -212,13 +213,20 @@ def validate_block(
                 f"but oneTBB established {effective_concurrency}."
             )
 
-    if integer_counter(measurements["MklTbbSingle"], "arena_concurrency") != 1:
-        raise RuntimeError("MklTbbSingle did not use a one-participant arena.")
-    if (
-        integer_counter(measurements["MklTbbGlobal"], "arena_concurrency")
-        != effective_concurrency
+    for policy, expected_budget in (
+        ("ExecutorLocal1", 1),
+        ("ExecutorMKLC", effective_concurrency),
     ):
-        raise RuntimeError("MklTbbGlobal did not use the configured arena.")
+        row = measurements[policy]
+        if (
+            integer_counter(row, "configured_arena_concurrency")
+            != effective_concurrency
+        ):
+            raise RuntimeError(f"{policy} did not use the configured arena.")
+        if integer_counter(row, "observed_arena_concurrency") != effective_concurrency:
+            raise RuntimeError(f"{policy} observed the wrong arena concurrency.")
+        if integer_counter(row, "configured_mkl_local_budget") != expected_budget:
+            raise RuntimeError(f"{policy} used the wrong MKL local budget.")
 
     return effective_concurrency
 
@@ -258,13 +266,13 @@ def summarize(
     randomizer = random.Random(seed ^ 0xC20550)
     summary: list[dict[str, Any]] = []
     for matrix_n, blocks in sorted(grouped.items()):
-        ratios = [float(block["global_over_single"]) for block in blocks]
+        ratios = [float(block["mkl_c_over_local1"]) for block in blocks]
         confidence_interval = bootstrap_median_ci(ratios, randomizer, bootstrap_samples)
         median_ratio = statistics.median(ratios)
         if confidence_interval[1] < 1.0:
-            evidence = "global_faster"
+            evidence = "mkl_c_faster"
         elif confidence_interval[0] > 1.0:
-            evidence = "single_faster"
+            evidence = "local1_faster"
         else:
             evidence = "indistinguishable"
 
@@ -280,10 +288,10 @@ def summarize(
                     )
                     for policy in POLICIES
                 },
-                "median_global_over_single": median_ratio,
+                "median_mkl_c_over_local1": median_ratio,
                 "bootstrap_95pct_ci": confidence_interval,
                 "evidence": evidence,
-                "practical_global_win": (
+                "practical_mkl_c_win": (
                     median_ratio <= 1.0 - practical_speedup
                     and confidence_interval[1] < 1.0
                 ),
@@ -296,9 +304,9 @@ def stable_crossover(summary: list[dict[str, Any]], stable_points: int) -> int |
     run: list[int] = []
     for row in summary:
         matrix_n = int(row["matrix_n"])
-        if row["practical_global_win"] and (not run or matrix_n == run[-1] + 4):
+        if row["practical_mkl_c_win"] and (not run or matrix_n == run[-1] + 4):
             run.append(matrix_n)
-        elif row["practical_global_win"]:
+        elif row["practical_mkl_c_win"]:
             run = [matrix_n]
         else:
             run = []
@@ -373,8 +381,8 @@ def main() -> int:
                 args.max_concurrency,
                 args.checksum_relative_tolerance,
             )
-            single_time = float(measurements["MklTbbSingle"]["wall_seconds"])
-            global_time = float(measurements["MklTbbGlobal"]["wall_seconds"])
+            local1_time = float(measurements["ExecutorLocal1"]["wall_seconds"])
+            mkl_c_time = float(measurements["ExecutorMKLC"]["wall_seconds"])
             records.append(
                 {
                     "repetition": repetition,
@@ -382,7 +390,7 @@ def main() -> int:
                     "order": policies,
                     "effective_concurrency": effective_concurrency,
                     "measurements": measurements,
-                    "global_over_single": global_time / single_time,
+                    "mkl_c_over_local1": mkl_c_time / local1_time,
                 }
             )
 
@@ -419,22 +427,22 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=2) + "\n")
 
-    print("\n   n   single_us   global_us  global/single          95% CI  evidence")
+    print("\n   n   local1_us     mkl_c_us  mkl_c/local1          95% CI  evidence")
     for row in summary:
         times = row["median_wall_seconds"]
         confidence_interval = row["bootstrap_95pct_ci"]
         print(
             f"{row['matrix_n']:4d}  "
-            f"{times['MklTbbSingle'] * 1e6:10.3f}  "
-            f"{times['MklTbbGlobal'] * 1e6:10.3f}  "
-            f"{row['median_global_over_single']:13.4f}  "
+            f"{times['ExecutorLocal1'] * 1e6:10.3f}  "
+            f"{times['ExecutorMKLC'] * 1e6:10.3f}  "
+            f"{row['median_mkl_c_over_local1']:13.4f}  "
             f"[{confidence_interval[0]:.4f}, {confidence_interval[1]:.4f}]  "
             f"{row['evidence']}"
         )
     if crossover is None:
         print("\nNo stable crossover satisfied the configured decision rule.")
     else:
-        print(f"\nStable global-parallel crossover starts at n={crossover}.")
+        print(f"\nStable MKL-budget-C crossover starts at n={crossover}.")
     print(f"Wrote {args.out}")
     return 0
 

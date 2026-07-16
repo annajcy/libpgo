@@ -47,6 +47,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     eigen_mkl_gemm_benchmark
     backend_scope_mkl.cpp
     PGO_EIGEN_BLAS_MKL)
+  target_sources(eigen_mkl_gemm_benchmark PRIVATE
+    ../eigen_mkl_common/eigen_mkl_executor_cases.h)
   target_link_libraries(eigen_mkl_gemm_benchmark
     PRIVATE
       Eigen3::Eigen

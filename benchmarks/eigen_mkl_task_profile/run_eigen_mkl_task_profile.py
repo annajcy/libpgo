@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect isolated VTune threading profiles for Eigen-to-oneMKL GEMM modes."""
+"""Collect isolated VTune profiles for Eigen/oneMKL executor policies."""
 
 from __future__ import annotations
 
@@ -14,7 +14,14 @@ from pathlib import Path
 from typing import Any
 
 
-ALL_MODES = ("Default", "Local1", "Local2", "Local4")
+ALL_POLICIES = (
+    "ExecutorDefault",
+    "ExecutorLocal1",
+    "ExecutorDefaultArena1",
+    "ExecutorLocal1Arena1",
+    "ExecutorMKLC",
+    "ExecutorMKLCArena1",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,7 +29,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("probe", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--vtune", type=Path)
-    parser.add_argument("--modes", nargs="+", choices=ALL_MODES, default=ALL_MODES)
+    parser.add_argument(
+        "--policies", nargs="+", choices=ALL_POLICIES, default=ALL_POLICIES
+    )
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--matrix-n", type=int, default=1024)
     parser.add_argument("--warmup-iterations", type=int, default=3)
@@ -100,10 +109,10 @@ def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
     return dependencies
 
 
-def probe_command(probe: Path, args: argparse.Namespace, mode: str) -> list[str]:
+def probe_command(probe: Path, args: argparse.Namespace, policy: str) -> list[str]:
     return [
         str(probe),
-        f"--mode={mode}",
+        f"--policy={policy}",
         f"--concurrency={args.concurrency}",
         f"--matrix-n={args.matrix_n}",
         f"--warmup-iterations={args.warmup_iterations}",
@@ -132,8 +141,8 @@ def main() -> int:
     linkage = verify_linkage(probe, environment)
 
     commands: list[dict[str, Any]] = []
-    for mode in args.modes:
-        result_directory = output / f"vtune-{mode.lower()}"
+    for policy in args.policies:
+        result_directory = output / f"vtune-{policy.lower()}"
         command = [
             *(["sudo", "env", "MKL_THREADING_LAYER=TBB"] if args.sudo else []),
             str(vtune),
@@ -142,11 +151,11 @@ def main() -> int:
             "-result-dir",
             str(result_directory),
             "--",
-            *probe_command(probe, args, mode),
+            *probe_command(probe, args, policy),
         ]
         commands.append(
             {
-                "mode": mode,
+                "policy": policy,
                 "command": command,
                 "result_directory": str(result_directory),
             }
@@ -159,12 +168,12 @@ def main() -> int:
 
     output.mkdir(parents=True)
     manifest: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "probe": str(probe),
         "vtune": str(vtune),
         "configuration": {
-            "modes": args.modes,
+            "policies": args.policies,
             "concurrency": args.concurrency,
             "matrix_n": args.matrix_n,
             "warmup_iterations": args.warmup_iterations,
@@ -178,7 +187,7 @@ def main() -> int:
 
     for entry in commands:
         result_directory = Path(entry["result_directory"])
-        print(f"Running {entry['mode']}...", flush=True)
+        print(f"Running {entry['policy']}...", flush=True)
         result = subprocess.run(
             entry["command"],
             text=True,
@@ -198,7 +207,7 @@ def main() -> int:
                 ],
                 environment,
             )
-        log_path = output / f"{entry['mode'].lower()}.log"
+        log_path = output / f"{entry['policy'].lower()}.log"
         log_path.write_text(result.stdout)
         run = {
             **entry,
@@ -208,9 +217,7 @@ def main() -> int:
         manifest["runs"].append(run)
         (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         if result.returncode != 0:
-            raise RuntimeError(
-                f"VTune failed for {entry['mode']}; see {log_path}."
-            )
+            raise RuntimeError(f"VTune failed for {entry['policy']}; see {log_path}.")
 
         reports = {
             "summary": [
@@ -248,7 +255,7 @@ def main() -> int:
         }
         run["reports"] = {}
         for suffix, report_command in reports.items():
-            report_path = output / f"{entry['mode'].lower()}.{suffix}"
+            report_path = output / f"{entry['policy'].lower()}.{suffix}"
             report_path.write_text(report_output(report_command, environment))
             run["reports"][suffix] = str(report_path)
         (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

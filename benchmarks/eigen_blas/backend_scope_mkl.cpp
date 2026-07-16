@@ -1,8 +1,9 @@
 #include "backend_scope.h"
 
+#include "../eigen_mkl_common/eigen_mkl_executor_cases.h"
+#include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
 
-#include <mkl.h>
 #include <tbb/info.h>
 #include <tbb/task_arena.h>
 
@@ -37,9 +38,16 @@ std::optional<int> requestedConcurrency()
   return parsed;
 }
 
-void observeMkl(EigenBlasBackendTelemetry &telemetry)
+MklExecutorCase executorCase(EigenBlasBackend backend)
 {
-  telemetry.arenaConcurrency = tbb::this_task_arena::max_concurrency();
+  switch (backend) {
+  case EigenBlasBackend::MklLocal1:
+    return MklExecutorCase::ExecutorLocal1;
+  case EigenBlasBackend::MklC:
+    return MklExecutorCase::ExecutorMKLC;
+  default:
+    throw std::invalid_argument("The MKL executable received a non-MKL backend.");
+  }
 }
 
 }  // namespace
@@ -47,8 +55,8 @@ void observeMkl(EigenBlasBackendTelemetry &telemetry)
 std::span<const EigenBlasBackend> availableEigenBlasBackends() noexcept
 {
   static constexpr std::array backends = {
-    EigenBlasBackend::MklTbbSingle,
-    EigenBlasBackend::MklTbbGlobal,
+    EigenBlasBackend::MklLocal1,
+    EigenBlasBackend::MklC,
   };
   return backends;
 }
@@ -56,10 +64,10 @@ std::span<const EigenBlasBackend> availableEigenBlasBackends() noexcept
 const char *eigenBlasBackendName(EigenBlasBackend backend) noexcept
 {
   switch (backend) {
-  case EigenBlasBackend::MklTbbSingle:
-    return "MklTbbSingle";
-  case EigenBlasBackend::MklTbbGlobal:
-    return "MklTbbGlobal";
+  case EigenBlasBackend::MklLocal1:
+    return "MklLocal1";
+  case EigenBlasBackend::MklC:
+    return "MklC";
   default:
     return "Unknown";
   }
@@ -78,25 +86,16 @@ bool runInEigenBlasBackendScope(
     pgo::parallel::GlobalTbbControl control(configuredConcurrency);
     telemetry.configuredConcurrency = static_cast<int>(tbb::global_control::active_value(
       tbb::global_control::max_allowed_parallelism));
-    tbb::task_arena arena(configuredConcurrency, 1);
-    tbb::task_arena singleArena(1, 1);
+    const auto spec = mklExecutorSpec(executorCase(backend), configuredConcurrency);
+    telemetry.mklLocalThreadBudget = spec.mklLocalThreadBudget;
+    pgo::parallel::ArenaThreadingExecutor executor(spec.arenaConcurrency,
+      { .mklLocalThreadBudget = spec.mklLocalThreadBudget });
 
-    const auto invoke = [&] {
-      observeMkl(telemetry);
+    executor.execute([&] {
+      telemetry.arenaConcurrency = tbb::this_task_arena::max_concurrency();
       fn();
-    };
-
-    switch (backend) {
-    case EigenBlasBackend::MklTbbSingle:
-      singleArena.execute(invoke);
-      return true;
-    case EigenBlasBackend::MklTbbGlobal:
-      arena.execute(invoke);
-      return true;
-    default:
-      error = "The MKL executable received a non-MKL backend.";
-      return false;
-    }
+    });
+    return true;
   }
   catch (const std::exception &exception) {
     error = exception.what();

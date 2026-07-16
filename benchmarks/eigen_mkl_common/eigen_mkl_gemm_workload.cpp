@@ -1,4 +1,4 @@
-#include "eigen_mkl_nested_kernel.h"
+#include "eigen_mkl_gemm_workload.h"
 
 #include <Eigen/Dense>
 
@@ -6,21 +6,21 @@
 #include <vector>
 
 #if !defined(EIGEN_USE_MKL_ALL)
-#  error "The nested MKL benchmark must inherit EIGEN_USE_MKL_ALL from Eigen3::Eigen."
+#  error "The MKL benchmark must inherit EIGEN_USE_MKL_ALL from Eigen3::Eigen."
 #endif
 
 #if !defined(EIGEN_MKL_NO_DIRECT_CALL)
-#  error "The nested MKL benchmark requires EIGEN_MKL_NO_DIRECT_CALL."
+#  error "The MKL benchmark requires EIGEN_MKL_NO_DIRECT_CALL."
 #endif
 
 #if !defined(EIGEN_DONT_PARALLELIZE)
-#  error "Eigen's own parallel layer must remain disabled; oneMKL-TBB owns the inner kernel."
+#  error "Eigen's own parallel layer must remain disabled; oneMKL-TBB owns the kernel."
 #endif
 
 namespace pgo::benchmark_helpers
 {
 
-class NestedEigenMklWorkload::Impl
+class EigenMklGemmWorkload::Impl
 {
 public:
   Impl(int outerTasks, int matrixN):
@@ -65,19 +65,19 @@ private:
   std::vector<Eigen::MatrixXd> outputs_;
 };
 
-NestedEigenMklWorkload::NestedEigenMklWorkload(int outerTasks, int matrixN):
+EigenMklGemmWorkload::EigenMklGemmWorkload(int outerTasks, int matrixN):
   impl_(std::make_unique<Impl>(outerTasks, matrixN))
 {
 }
 
-NestedEigenMklWorkload::~NestedEigenMklWorkload() = default;
+EigenMklGemmWorkload::~EigenMklGemmWorkload() = default;
 
-void NestedEigenMklWorkload::run(int taskIndex)
+void EigenMklGemmWorkload::run(int taskIndex)
 {
   impl_->run(taskIndex);
 }
 
-double NestedEigenMklWorkload::checksum() const
+double EigenMklGemmWorkload::checksum() const
 {
   return impl_->checksum();
 }

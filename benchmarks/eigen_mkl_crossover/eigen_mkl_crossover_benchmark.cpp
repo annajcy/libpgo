@@ -1,5 +1,7 @@
 #include "../eigen_blas/eigen_gemm_kernel.h"
+#include "../eigen_mkl_common/eigen_mkl_executor_cases.h"
 
+#include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
 
 #include <benchmark/benchmark.h>
@@ -7,6 +9,7 @@
 #include <tbb/info.h>
 #include <tbb/task_arena.h>
 
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
@@ -20,26 +23,12 @@ namespace
 
 namespace P = pgo::parallel;
 using pgo::benchmark_helpers::EigenGemmWorkspace;
+using pgo::benchmark_helpers::MklExecutorCase;
+using pgo::benchmark_helpers::mklExecutorCaseName;
+using pgo::benchmark_helpers::mklExecutorSpec;
 
 constexpr std::string_view concurrencyEnvironment =
   "PGO_EIGEN_MKL_CROSSOVER_MAX_CONCURRENCY";
-
-enum class Policy
-{
-  MklTbbSingle = 0,
-  MklTbbGlobal = 1,
-};
-
-const char *policyName(Policy policy) noexcept
-{
-  switch (policy) {
-  case Policy::MklTbbSingle:
-    return "MklTbbSingle";
-  case Policy::MklTbbGlobal:
-    return "MklTbbGlobal";
-  }
-  return "Unknown";
-}
 
 std::optional<int> requestedConcurrency()
 {
@@ -58,34 +47,30 @@ std::optional<int> requestedConcurrency()
   return parsed;
 }
 
-void runBenchmark(benchmark::State &state, Policy policy, int matrixN)
+void runBenchmark(
+  benchmark::State &state, MklExecutorCase policy, int matrixN)
 {
   const std::optional<int> requested = requestedConcurrency();
-  const int configuredConcurrency = requested.value_or(tbb::info::default_concurrency());
+  const int configuredConcurrency =
+    requested.value_or(tbb::info::default_concurrency());
   P::GlobalTbbControl control(configuredConcurrency);
   const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
     tbb::global_control::max_allowed_parallelism));
-  tbb::task_arena arena(configuredConcurrency, 1);
-  tbb::task_arena singleArena(1, 1);
+  const auto spec = mklExecutorSpec(policy, configuredConcurrency);
+  P::ArenaThreadingExecutor executor(spec.arenaConcurrency,
+    { .mklLocalThreadBudget = spec.mklLocalThreadBudget });
   EigenGemmWorkspace workspace(matrixN);
-  int arenaConcurrency = 0;
+  int observedArenaConcurrency = 0;
 
-  const auto measure = [&] {
-    arenaConcurrency = tbb::this_task_arena::max_concurrency();
-
-    // Prime the selected MKL-TBB policy before Google Benchmark starts timing.
+  executor.execute([&] {
+    observedArenaConcurrency = tbb::this_task_arena::max_concurrency();
     workspace.run();
     for (auto _ : state) {
       workspace.run();
       benchmark::DoNotOptimize(&workspace);
       benchmark::ClobberMemory();
     }
-  };
-
-  if (policy == Policy::MklTbbSingle)
-    singleArena.execute(measure);
-  else
-    arena.execute(measure);
+  });
 
   const double checksum = workspace.checksum();
   if (!std::isfinite(checksum)) {
@@ -99,8 +84,10 @@ void runBenchmark(benchmark::State &state, Policy policy, int matrixN)
   state.counters["policy"] = static_cast<int>(policy);
   state.counters["matrix_n"] = matrixN;
   state.counters["requested_concurrency"] = requested.value_or(0);
-  state.counters["effective_concurrency"] = effectiveConcurrency;
-  state.counters["arena_concurrency"] = arenaConcurrency;
+  state.counters["effective_global_concurrency"] = effectiveConcurrency;
+  state.counters["configured_arena_concurrency"] = spec.arenaConcurrency;
+  state.counters["configured_mkl_local_budget"] = spec.mklLocalThreadBudget;
+  state.counters["observed_arena_concurrency"] = observedArenaConcurrency;
   state.counters["checksum"] = checksum;
   state.counters["flops"] = benchmark::Counter(
     flopsPerIteration * static_cast<double>(state.iterations()),
@@ -109,15 +96,15 @@ void runBenchmark(benchmark::State &state, Policy policy, int matrixN)
 
 void registerBenchmarks()
 {
-  constexpr Policy policies[] = {
-    Policy::MklTbbSingle,
-    Policy::MklTbbGlobal,
+  constexpr std::array policies = {
+    MklExecutorCase::ExecutorLocal1,
+    MklExecutorCase::ExecutorMKLC,
   };
 
   for (int matrixN = 64; matrixN <= 128; matrixN += 4) {
-    for (Policy policy : policies) {
+    for (MklExecutorCase policy : policies) {
       const std::string name = std::string("EigenMklCrossover/") +
-        policyName(policy) + "/n_" + std::to_string(matrixN);
+        mklExecutorCaseName(policy) + "/n_" + std::to_string(matrixN);
       benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
         runBenchmark(state, policy, matrixN);
       })->UseRealTime()

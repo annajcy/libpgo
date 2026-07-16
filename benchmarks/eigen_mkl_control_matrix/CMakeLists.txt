@@ -1,7 +1,8 @@
 add_executable(eigen_mkl_control_matrix_benchmark
   eigen_mkl_control_matrix_benchmark.cpp
-  ../eigen_mkl_nested/eigen_mkl_nested_kernel.cpp
-  ../eigen_mkl_nested/eigen_mkl_nested_kernel.h
+  ../eigen_mkl_common/eigen_mkl_executor_cases.h
+  ../eigen_mkl_common/eigen_mkl_gemm_workload.cpp
+  ../eigen_mkl_common/eigen_mkl_gemm_workload.h
 )
 
 get_target_property(eigen_include_directories Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
@@ -11,6 +12,7 @@ endif()
 
 add_executable(eigen_mkl_control_matrix_no_blas_benchmark
   eigen_mkl_control_matrix_benchmark.cpp
+  ../eigen_mkl_common/eigen_mkl_executor_cases.h
   no_blas_workload.cpp
   no_blas_workload.h
 )
@@ -37,8 +39,9 @@ target_link_libraries(eigen_mkl_control_matrix_no_blas_benchmark
 
 add_executable(eigen_mkl_control_matrix_probe
   eigen_mkl_control_matrix_probe.cpp
-  ../eigen_mkl_nested/eigen_mkl_nested_kernel.cpp
-  ../eigen_mkl_nested/eigen_mkl_nested_kernel.h
+  ../eigen_mkl_common/eigen_mkl_executor_cases.h
+  ../eigen_mkl_common/eigen_mkl_gemm_workload.cpp
+  ../eigen_mkl_common/eigen_mkl_gemm_workload.h
 )
 
 target_link_libraries(eigen_mkl_control_matrix_probe

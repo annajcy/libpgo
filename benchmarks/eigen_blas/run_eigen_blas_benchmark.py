@@ -34,10 +34,8 @@ class Provider:
 
 
 PROVIDERS = {
-    "accelerate": Provider(
-        "accelerate", "AccelerateSingle", "AccelerateMulti"
-    ),
-    "mkl": Provider("mkl", "MklTbbSingle", "MklTbbGlobal"),
+    "accelerate": Provider("accelerate", "AccelerateSingle", "AccelerateMulti"),
+    "mkl": Provider("mkl", "MklLocal1", "MklC"),
 }
 
 
@@ -95,9 +93,7 @@ def undefined_symbols(executable: Path, provider: str) -> str:
     return checked_output(command)
 
 
-def verify_linkage(
-    provider: Provider, internal: Path, vendor: Path
-) -> dict[str, str]:
+def verify_linkage(provider: Provider, internal: Path, vendor: Path) -> dict[str, str]:
     if provider.name == "accelerate":
         dependency_command = ["otool", "-L"]
     else:
@@ -107,7 +103,9 @@ def verify_linkage(
     vendor_dependencies = checked_output([*dependency_command, str(vendor)])
     internal_symbols = undefined_symbols(internal, provider.name)
     vendor_symbols = undefined_symbols(vendor, provider.name)
-    gemm_symbol = re.compile(r"(?:^|\s)_?(?:cblas_)?dgemm_?(?:@\S+)?(?:\s|$)", re.I | re.M)
+    gemm_symbol = re.compile(
+        r"(?:^|\s)_?(?:cblas_)?dgemm_?(?:@\S+)?(?:\s|$)", re.I | re.M
+    )
 
     if gemm_symbol.search(internal_symbols):
         raise RuntimeError("The Eigen-internal control unexpectedly references DGEMM.")
@@ -119,9 +117,13 @@ def verify_linkage(
             "vecLib.framework/Versions/A/libBLAS.dylib"
         )
         if system_accelerate in internal_dependencies:
-            raise RuntimeError("The Eigen-internal control unexpectedly links Accelerate.")
+            raise RuntimeError(
+                "The Eigen-internal control unexpectedly links Accelerate."
+            )
         if system_accelerate not in vendor_dependencies:
-            raise RuntimeError("The Accelerate benchmark does not link system Accelerate.")
+            raise RuntimeError(
+                "The Accelerate benchmark does not link system Accelerate."
+            )
         if system_blas not in vendor_dependencies:
             raise RuntimeError(
                 "The Accelerate benchmark does not link system Accelerate libBLAS."
@@ -139,7 +141,9 @@ def verify_linkage(
         }
         for label, pattern in required.items():
             if not re.search(pattern, vendor_lower):
-                raise RuntimeError(f"The MKL benchmark is missing {label} in ldd output.")
+                raise RuntimeError(
+                    f"The MKL benchmark is missing {label} in ldd output."
+                )
         forbidden = ("libiomp5", "libgomp", "libomp.so")
         if any(library in vendor_lower for library in forbidden):
             raise RuntimeError(
@@ -240,6 +244,34 @@ def validate_checksums(
             )
 
 
+def validate_provider_configuration(
+    measurements: dict[str, dict[str, Any]],
+    provider: Provider,
+    matrix_n: int,
+) -> None:
+    if provider.name != "mkl":
+        return
+
+    configured = round(
+        float(measurements[provider.single].get("configured_concurrency", math.nan))
+    )
+    if configured <= 0:
+        raise RuntimeError(f"Missing configured MKL concurrency for n={matrix_n}")
+    expected_budgets = {provider.single: 1, provider.wide: configured}
+    for variant, expected_budget in expected_budgets.items():
+        row = measurements[variant]
+        arena = round(float(row.get("arena_concurrency", math.nan)))
+        budget = round(float(row.get("mkl_local_thread_budget", math.nan)))
+        if arena != configured:
+            raise RuntimeError(
+                f"{variant} used arena concurrency {arena}; expected {configured}"
+            )
+        if budget != expected_budget:
+            raise RuntimeError(
+                f"{variant} used MKL local budget {budget}; expected {expected_budget}"
+            )
+
+
 def percentile(values: list[float], probability: float) -> float:
     ordered = sorted(values)
     if len(ordered) == 1:
@@ -281,8 +313,7 @@ def summarize(
             f"{provider.wide}/{provider.single}",
         )
         ratios = {
-            name: [block["ratios"][name] for block in blocks]
-            for name in ratio_names
+            name: [block["ratios"][name] for block in blocks] for name in ratio_names
         }
         summary.append(
             {
@@ -336,7 +367,9 @@ def main() -> int:
     if args.case_limit:
         cases = dict(list(cases.items())[: args.case_limit])
     if not cases:
-        raise SystemExit(f"No complete Eigen/{provider.name} benchmark cases were found")
+        raise SystemExit(
+            f"No complete Eigen/{provider.name} benchmark cases were found"
+        )
 
     print(f"Verified {provider.name} linkage; matched {len(cases)} matrix size(s).")
     for matrix_n in cases:
@@ -384,12 +417,10 @@ def main() -> int:
                     environment,
                 )
 
-            validate_checksums(
-                cold_probes, matrix_n, args.checksum_relative_tolerance
-            )
-            validate_checksums(
-                measurements, matrix_n, args.checksum_relative_tolerance
-            )
+            validate_checksums(cold_probes, matrix_n, args.checksum_relative_tolerance)
+            validate_checksums(measurements, matrix_n, args.checksum_relative_tolerance)
+            validate_provider_configuration(cold_probes, provider, matrix_n)
+            validate_provider_configuration(measurements, provider, matrix_n)
             internal_time = measurements["EigenInternal"]["wall_seconds"]
             single_time = measurements[provider.single]["wall_seconds"]
             wide_time = measurements[provider.wide]["wall_seconds"]

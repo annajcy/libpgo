@@ -1,10 +1,11 @@
 # Eigen/oneMKL task profiling probe
 
 This diagnostic executable isolates one Eigen-to-oneMKL DGEMM path so that
-Intel VTune can compare the oneMKL TBB threading layer under `Default`,
-`Local1`, `Local2`, and `Local4` service-API states. Each mode must run in a
-fresh process; the runner enforces this by launching one VTune collection per
-mode.
+Intel VTune compares the oneMKL TBB threading layer under the six shared
+`ArenaThreadingExecutor` cases: arena width `C` or `1`, crossed with an MKL
+local thread budget of `0`, `1`, or `C`. Each policy runs in a fresh process;
+the runner enforces this by launching one VTune collection per policy. The
+probe never calls an MKL threading-control API directly.
 
 Build the probe on Linux with the oneMKL TBB threading layer enabled, then run:
 
@@ -25,14 +26,14 @@ python benchmarks/eigen_mkl_task_profile/run_eigen_mkl_task_profile.py \
   --sudo
 ```
 
-The default workload uses an aligned TBB arena with concurrency 8, three warm-up
-DGEMMs, and 50 profiled 1024-by-1024 DGEMMs. Use VTune's Threading timeline to
+The default workload uses global concurrency 8, three warm-up DGEMMs, and 50
+profiled 1024-by-1024 DGEMMs. Use VTune's Threading timeline to
 compare task activity, active workers, scheduler overhead, process CPU time, and
-wall time between modes.
+wall time between policies.
 
 The runner exports a VTune summary, hotspots CSV, and task-grouped CSV for every
-mode in addition to preserving the complete VTune result directories. An empty
-task CSV means VTune observed no instrumented TBB task instances in that mode.
+policy in addition to preserving the complete VTune result directories. An empty
+task CSV means VTune observed no instrumented TBB task instances in that policy.
 
 VTune may not expose stable symbols or every internal task identity for
 proprietary oneMKL dense kernels. Its `Task Count` is the number of instrumented

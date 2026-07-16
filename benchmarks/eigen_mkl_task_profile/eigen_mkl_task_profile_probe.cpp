@@ -1,9 +1,8 @@
-#include "../eigen_mkl_nested/eigen_mkl_nested_kernel.h"
+#include "../eigen_mkl_common/eigen_mkl_executor_cases.h"
+#include "../eigen_mkl_common/eigen_mkl_gemm_workload.h"
 
+#include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
-
-#include <mkl.h>
-#include <tbb/task_arena.h>
 
 #include <chrono>
 #include <climits>
@@ -12,7 +11,6 @@
 #include <ctime>
 #include <iomanip>
 #include <iostream>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -21,68 +19,20 @@ namespace
 {
 
 namespace P = pgo::parallel;
-using pgo::benchmark_helpers::NestedEigenMklWorkload;
-
-enum class Mode
-{
-  Default,
-  Local1,
-  Local2,
-  Local4,
-};
+using pgo::benchmark_helpers::EigenMklGemmWorkload;
+using pgo::benchmark_helpers::MklExecutorCase;
+using pgo::benchmark_helpers::mklExecutorCaseName;
+using pgo::benchmark_helpers::mklExecutorSpec;
+using pgo::benchmark_helpers::parseMklExecutorCase;
 
 struct Arguments
 {
-  Mode mode;
+  MklExecutorCase policy;
   int concurrency;
   int matrixN;
   int warmupIterations;
   int profileIterations;
 };
-
-const char *modeName(Mode mode) noexcept
-{
-  switch (mode) {
-  case Mode::Default:
-    return "Default";
-  case Mode::Local1:
-    return "Local1";
-  case Mode::Local2:
-    return "Local2";
-  case Mode::Local4:
-    return "Local4";
-  }
-  return "Unknown";
-}
-
-std::optional<int> localThreadLimit(Mode mode) noexcept
-{
-  switch (mode) {
-  case Mode::Default:
-    return std::nullopt;
-  case Mode::Local1:
-    return 1;
-  case Mode::Local2:
-    return 2;
-  case Mode::Local4:
-    return 4;
-  }
-  return std::nullopt;
-}
-
-Mode parseMode(std::string_view value)
-{
-  if (value == "Default")
-    return Mode::Default;
-  if (value == "Local1")
-    return Mode::Local1;
-  if (value == "Local2")
-    return Mode::Local2;
-  if (value == "Local4")
-    return Mode::Local4;
-  throw std::invalid_argument(
-    "--mode must be Default, Local1, Local2, or Local4.");
-}
 
 int parseNonnegativeInteger(std::string_view value, std::string_view option)
 {
@@ -114,7 +64,7 @@ std::string_view requireValue(int argc, char **argv, std::string_view prefix)
 Arguments parseArguments(int argc, char **argv)
 {
   return {
-    parseMode(requireValue(argc, argv, "--mode=")),
+    parseMklExecutorCase(requireValue(argc, argv, "--policy=")),
     parsePositiveInteger(
       requireValue(argc, argv, "--concurrency="), "--concurrency"),
     parsePositiveInteger(requireValue(argc, argv, "--matrix-n="), "--matrix-n"),
@@ -125,29 +75,7 @@ Arguments parseArguments(int argc, char **argv)
   };
 }
 
-class ScopedMklLocalThreads
-{
-public:
-  explicit ScopedMklLocalThreads(std::optional<int> limit)
-  {
-    if (limit.has_value())
-      previous_ = mkl_set_num_threads_local(*limit);
-  }
-
-  ~ScopedMklLocalThreads()
-  {
-    if (previous_.has_value())
-      mkl_set_num_threads_local(*previous_);
-  }
-
-  ScopedMklLocalThreads(const ScopedMklLocalThreads &) = delete;
-  ScopedMklLocalThreads &operator=(const ScopedMklLocalThreads &) = delete;
-
-private:
-  std::optional<int> previous_;
-};
-
-void runIterations(NestedEigenMklWorkload &workload, int iterations)
+void runIterations(EigenMklGemmWorkload &workload, int iterations)
 {
   for (int iteration = 0; iteration < iterations; ++iteration)
     workload.run(0);
@@ -158,28 +86,26 @@ void run(const Arguments &arguments)
   P::GlobalTbbControl control(arguments.concurrency);
   const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
     tbb::global_control::max_allowed_parallelism));
-  tbb::task_arena arena(arguments.concurrency, 1);
-  NestedEigenMklWorkload workload(1, arguments.matrixN);
+  const auto spec = mklExecutorSpec(arguments.policy, arguments.concurrency);
+  P::ArenaThreadingExecutor executor(spec.arenaConcurrency,
+    { .mklLocalThreadBudget = spec.mklLocalThreadBudget });
+  EigenMklGemmWorkload workload(1, arguments.matrixN);
 
-  arena.execute([&] {
-    ScopedMklLocalThreads localThreads(localThreadLimit(arguments.mode));
-    runIterations(workload, arguments.warmupIterations);
-  });
+  executor.execute([&] { runIterations(workload, arguments.warmupIterations); });
 
   const std::clock_t cpuStart = std::clock();
   const auto wallStart = std::chrono::steady_clock::now();
 
   std::cout << "PGO_MKL_TASK_PROFILE_BEGIN"
-            << " mode=" << modeName(arguments.mode)
-            << " configured_concurrency=" << arguments.concurrency
-            << " effective_concurrency=" << effectiveConcurrency
+            << " policy=" << mklExecutorCaseName(arguments.policy)
+            << " configured_global_concurrency=" << arguments.concurrency
+            << " effective_global_concurrency=" << effectiveConcurrency
+            << " configured_arena_concurrency=" << spec.arenaConcurrency
+            << " configured_mkl_local_budget=" << spec.mklLocalThreadBudget
             << " matrix_n=" << arguments.matrixN
             << " iterations=" << arguments.profileIterations << std::endl;
 
-  arena.execute([&] {
-    ScopedMklLocalThreads localThreads(localThreadLimit(arguments.mode));
-    runIterations(workload, arguments.profileIterations);
-  });
+  executor.execute([&] { runIterations(workload, arguments.profileIterations); });
 
   const auto wallEnd = std::chrono::steady_clock::now();
   const std::clock_t cpuEnd = std::clock();
@@ -193,7 +119,7 @@ void run(const Arguments &arguments)
     static_cast<double>(cpuEnd - cpuStart) / static_cast<double>(CLOCKS_PER_SEC);
   std::cout << std::setprecision(17)
             << "PGO_MKL_TASK_PROFILE_END"
-            << " mode=" << modeName(arguments.mode)
+            << " policy=" << mklExecutorCaseName(arguments.policy)
             << " wall_seconds=" << wallSeconds
             << " process_cpu_seconds=" << cpuSeconds
             << " checksum=" << checksum << std::endl;
