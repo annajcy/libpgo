@@ -73,6 +73,43 @@ void applyThreadingPolicyNoexcept(const ThreadingPolicy &policy) noexcept
   }
 }
 
+ThreadingPolicySnapshot exchangeThreadingPolicyNoexcept(const ThreadingPolicy &policy) noexcept
+{
+  ThreadingPolicySnapshot snapshot;
+
+#if defined(PGO_HAS_MKL)
+  if (policy.mklLocalThreadBudget.has_value()) {
+    snapshot.activeBackendValue = mkl_set_num_threads_local(*policy.mklLocalThreadBudget);
+    snapshot.hasActiveBackendValue = true;
+  }
+#elif defined(__APPLE__)
+  if (policy.accelerate.has_value()) {
+    snapshot.activeBackendValue = static_cast<int>(BLASGetThreading());
+    snapshot.hasActiveBackendValue = true;
+    applyThreadingPolicyNoexcept(policy);
+  }
+#else
+  (void)policy;
+#endif
+
+  return snapshot;
+}
+
+void restoreThreadingPolicyNoexcept(const ThreadingPolicySnapshot &snapshot) noexcept
+{
+  if (!snapshot.hasActiveBackendValue)
+    return;
+
+#if defined(PGO_HAS_MKL)
+  (void)mkl_set_num_threads_local(snapshot.activeBackendValue);
+#elif defined(__APPLE__)
+  if (BLASSetThreading(static_cast<BLAS_THREADING>(snapshot.activeBackendValue)) != 0)
+    std::terminate();
+#else
+  (void)snapshot;
+#endif
+}
+
 }  // namespace detail
 
 void setThreadingPolicy(const ThreadingPolicy &policy)
