@@ -53,13 +53,25 @@ All executors use the same arena concurrency and reserved-slot setting.
 `phase_single_single` versus `uniform_single` estimates the cost of the phase
 dispatch abstraction while holding the effective thread budgets fixed.
 
-`uniform_multi` (evaluation=C, linear=C) and `phase_reversed`
-(evaluation=C, linear=1) remain available as explicit mechanism-negative
-controls. They are not in the default policy set: nested multi-threaded MKL
-inside the outer TBB FEM evaluation can produce policy-dependent result vectors
-on these workloads. Run each negative control separately to diagnose that
-behavior. Do not mix a numerically invalid negative control into performance
-summaries or relax the cross-policy correctness gate to accept it.
+Three evaluation=C policies remain available as explicit mechanism-negative
+controls:
+
+| policy | evaluation MKL budget | linear-solver MKL budget | execution form |
+| --- | ---: | ---: | --- |
+| `phase_reversed` | C | 1 | two independent phase executors |
+| `phase_multi_multi` | C | C | two independent phase executors |
+| `uniform_multi` | C | C | one outer executor around the whole solve |
+
+Together with `phase_single_single` and `phase_aware`, the two phase-executor
+controls complete the 2x2 evaluation/linear budget matrix. `uniform_multi`
+separately tests whether one all-multi outer arena behaves differently from
+phase-separated all-multi execution. These controls are not in the default
+policy set: nested multi-threaded MKL inside the outer TBB FEM evaluation can
+produce policy-dependent result vectors on these workloads. Run a six-policy
+smoke first, then keep a failing control separate so it cannot truncate valid
+phase-matrix measurements. Do not mix a numerically invalid negative control
+into performance summaries or relax the cross-policy correctness gate to
+accept it.
 
 ## Run
 
@@ -92,6 +104,17 @@ Quick scheduling check without loading `pypgo`:
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
   --dry-run --workloads cubic_tricubic_hermite --repetitions 1
+```
+
+Six-policy diagnostic smoke:
+
+```bash
+python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
+  --out /tmp/python-solver-phase-six-policy-smoke \
+  --workloads cubic_tricubic_hermite \
+  --policies uniform_single uniform_multi phase_single_single phase_aware \
+    phase_reversed phase_multi_multi \
+  --repetitions 1 --bootstrap-samples 100
 ```
 
 A small end-to-end smoke run after rebuilding:
@@ -160,7 +183,7 @@ A primary result supports the mechanism when:
 4. `phase_single_single` shows no material phase-dispatch penalty relative to
    `uniform_single`.
 
-The two opt-in evaluation=C controls answer a separate diagnostic question. If
+The three opt-in evaluation=C controls answer separate diagnostic questions. If
 their result signatures fail, that supports keeping nested FEM evaluation at
 budget 1, but their wall times are not valid speed comparisons.
 

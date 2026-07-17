@@ -32,6 +32,7 @@ POLICIES = (
     "phase_aware",
     "phase_reversed",
     "phase_single_single",
+    "phase_multi_multi",
 )
 DEFAULT_POLICIES = (
     "uniform_single",
@@ -160,6 +161,12 @@ def _executor_parameters(policy: str, concurrency: int) -> dict[str, Any]:
         return {"kind": "phase", "evaluation_budget": concurrency, "linear_budget": 1}
     if policy == "phase_single_single":
         return {"kind": "phase", "evaluation_budget": 1, "linear_budget": 1}
+    if policy == "phase_multi_multi":
+        return {
+            "kind": "phase",
+            "evaluation_budget": concurrency,
+            "linear_budget": concurrency,
+        }
     raise ValueError(f"unknown policy: {policy}")
 
 
