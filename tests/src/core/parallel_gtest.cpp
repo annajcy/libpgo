@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "parallel/parallel.h"
+#include "parallel/arenaThreadingExecutorInternal.h"
 
 #include <algorithm>
 #include <atomic>
@@ -394,7 +395,7 @@ TEST(ArenaThreadingExecutorTest, RetiredObserverCoversAttachedArenaUntilFinalDet
   }
 
   ASSERT_NE(attached, nullptr);
-  EXPECT_EQ(P::retiredArenaThreadingExecutorStateCount(), 1U);
+  EXPECT_EQ(P::detail::retiredArenaThreadingExecutorStateCount(), 1U);
   EXPECT_FALSE(P::drainRetiredArenaThreadingExecutorStates(
     std::chrono::milliseconds(0)));
   attached->execute([&] {
@@ -408,7 +409,7 @@ TEST(ArenaThreadingExecutorTest, RetiredObserverCoversAttachedArenaUntilFinalDet
   attached.reset();
   EXPECT_TRUE(P::drainRetiredArenaThreadingExecutorStates(
     std::chrono::seconds(5)));
-  EXPECT_EQ(P::retiredArenaThreadingExecutorStateCount(), 0U);
+  EXPECT_EQ(P::detail::retiredArenaThreadingExecutorStateCount(), 0U);
 }
 
 TEST(ArenaThreadingExecutorTest, DestructionDefersObserverUntilActiveParticipantExits)
@@ -452,7 +453,7 @@ TEST(ArenaThreadingExecutorTest, DestructionDefersObserverUntilActiveParticipant
 
   attached.reset();
   executor.reset();
-  EXPECT_EQ(P::retiredArenaThreadingExecutorStateCount(), 1U);
+  EXPECT_EQ(P::detail::retiredArenaThreadingExecutorStateCount(), 1U);
   EXPECT_FALSE(P::drainRetiredArenaThreadingExecutorStates(
     std::chrono::milliseconds(0)));
 
@@ -461,7 +462,7 @@ TEST(ArenaThreadingExecutorTest, DestructionDefersObserverUntilActiveParticipant
   EXPECT_FALSE(mismatch.load(std::memory_order_relaxed));
   EXPECT_TRUE(P::drainRetiredArenaThreadingExecutorStates(
     std::chrono::seconds(5)));
-  EXPECT_EQ(P::retiredArenaThreadingExecutorStateCount(), 0U);
+  EXPECT_EQ(P::detail::retiredArenaThreadingExecutorStateCount(), 0U);
   EXPECT_EQ(currentBackendThreadingValue(), baseline);
 }
 
@@ -481,7 +482,7 @@ TEST(ArenaThreadingExecutorTest, RepeatedRetirementEventuallyDrainsWithoutBacklo
 
   EXPECT_TRUE(P::drainRetiredArenaThreadingExecutorStates(
     std::chrono::seconds(5)));
-  EXPECT_EQ(P::retiredArenaThreadingExecutorStateCount(), 0U);
+  EXPECT_EQ(P::detail::retiredArenaThreadingExecutorStateCount(), 0U);
 }
 
 #if defined(__APPLE__)

@@ -1,4 +1,5 @@
 #include "parallel/threadingPolicy.h"
+#include "parallel/threadingPolicyInternal.h"
 
 #include <exception>
 #include <stdexcept>

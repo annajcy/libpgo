@@ -1,4 +1,6 @@
 #include "parallel/arenaThreadingExecutor.h"
+#include "parallel/arenaThreadingExecutorInternal.h"
+#include "parallel/threadingPolicyInternal.h"
 
 #include <chrono>
 #include <exception>
@@ -114,6 +116,8 @@ class ArenaThreadingExecutorRetirementRegistry
 public:
   static ArenaThreadingExecutorRetirementRegistry &instance()
   {
+    // Intentionally process-lifetime: retirement may outlive ordinary static objects, and avoiding
+    // static destruction prevents shutdown-order races with oneTBB worker detachment.
     static auto *registry = new ArenaThreadingExecutorRetirementRegistry;
     return *registry;
   }
@@ -227,15 +231,20 @@ const ThreadingPolicy &ArenaThreadingExecutor::threadingPolicy() const noexcept
   return state_->policy_;
 }
 
+namespace detail
+{
+
 std::size_t collectRetiredArenaThreadingExecutorStates() noexcept
 {
-  return detail::ArenaThreadingExecutorRetirementRegistry::instance().collect();
+  return ArenaThreadingExecutorRetirementRegistry::instance().collect();
 }
 
 std::size_t retiredArenaThreadingExecutorStateCount() noexcept
 {
-  return detail::ArenaThreadingExecutorRetirementRegistry::instance().count();
+  return ArenaThreadingExecutorRetirementRegistry::instance().count();
 }
+
+}  // namespace detail
 
 bool drainRetiredArenaThreadingExecutorStates(std::chrono::milliseconds timeout) noexcept
 {

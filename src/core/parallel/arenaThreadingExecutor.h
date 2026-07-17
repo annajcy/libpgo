@@ -3,7 +3,6 @@
 #include "parallel/threadingPolicy.h"
 
 #include <chrono>
-#include <cstddef>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -75,12 +74,9 @@ private:
   std::unique_ptr<State> state_;
 };
 
-// Reclaims retired executor states whose observers have been detached by oneTBB. Retirement also
-// performs an opportunistic collection pass. These functions never force observation off while an
-// internal arena may still have participants. drain...() may block its caller for up to timeout; the
-// executor destructor itself never performs that wait.
-std::size_t collectRetiredArenaThreadingExecutorStates() noexcept;
-std::size_t retiredArenaThreadingExecutorStateCount() noexcept;
+// Reclaims retired executor states after their observers have detached from oneTBB. This never
+// forces observation off while an internal arena may still have participants. The call may block
+// for up to timeout; the executor destructor itself never performs that wait.
 bool drainRetiredArenaThreadingExecutorStates(std::chrono::milliseconds timeout) noexcept;
 
 }  // namespace pgo::parallel
