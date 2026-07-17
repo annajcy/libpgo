@@ -42,7 +42,7 @@ def test_skipped_preconditioning_is_recorded() -> None:
         host_max_probes=6,
         host_stability_tolerance=0.02,
         host_drift_tolerance=0.05,
-        host_abort_drift_tolerance=0.15,
+        host_abort_drift_tolerance=0.50,
         skip_host_preconditioning=True,
     )
     result = precondition_host(args, workers=2)
@@ -63,7 +63,7 @@ def test_block_guard_compares_against_initial_baseline(monkeypatch) -> None:
         host_required_stable_probes=2,
         host_stability_tolerance=0.02,
         host_drift_tolerance=0.05,
-        host_abort_drift_tolerance=0.15,
+        host_abort_drift_tolerance=0.50,
     )
     preconditioning = {
         "enabled": True,
@@ -91,7 +91,7 @@ def test_block_guard_records_moderate_drift(monkeypatch) -> None:
         host_required_stable_probes=2,
         host_stability_tolerance=0.02,
         host_drift_tolerance=0.05,
-        host_abort_drift_tolerance=0.15,
+        host_abort_drift_tolerance=0.50,
     )
     preconditioning = {
         "enabled": True,

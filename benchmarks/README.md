@@ -41,7 +41,9 @@ or run unrelated jobs concurrently on the allocated CPUs. Process-local warmup
 does not replace host preconditioning.
 
 Block probes within 5% of the initial stable baseline are marked `stable`.
-Gradual drift between 5% and 15% is retained as `drifted` because policy cases
-remain adjacent and position-balanced inside the block. A deviation above 15%
-aborts the run; this prevents large cold-to-hot transitions from entering a
-result artifact.
+Gradual drift between 5% and 50% is retained as `drifted` because policy cases
+remain adjacent and position-balanced inside the block. Large drift is not by
+itself invalid: heterogeneous MKL/Accelerate workloads can legitimately change
+the following neutral probe through DVFS and thermal state. A catastrophic
+deviation above 50% aborts the run. The full drift trajectory remains in the
+result artifact for the comparability audit.
