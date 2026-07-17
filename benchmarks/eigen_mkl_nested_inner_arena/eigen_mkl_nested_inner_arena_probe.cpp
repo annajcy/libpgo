@@ -1,0 +1,384 @@
+#include "../eigen_mkl_common/eigen_mkl_gemm_workload.h"
+#include "../parallelism_benchmark_helpers.h"
+
+#include "parallel/arenaThreadingExecutor.h"
+#include "parallel/parallelControl.h"
+
+#include <mkl.h>
+
+#include <tbb/blocked_range.h>
+#include <tbb/global_control.h>
+#include <tbb/parallel_for.h>
+#include <tbb/partitioner.h>
+#include <tbb/task_arena.h>
+
+#include <atomic>
+#include <chrono>
+#include <climits>
+#include <cmath>
+#include <cstdlib>
+#include <ctime>
+#include <iomanip>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace
+{
+
+namespace P = pgo::parallel;
+using pgo::benchmark_helpers::adjustedExtraThreads;
+using pgo::benchmark_helpers::EigenMklGemmWorkload;
+using pgo::benchmark_helpers::ThreadSampler;
+
+enum class Policy
+{
+  OuterDefault = 0,
+  OuterLocal1 = 1,
+  InnerArena1Default = 2,
+  InnerArena1Local1 = 3,
+};
+
+struct PolicySpec
+{
+  int outerMklLocalThreadBudget;
+  bool usesInnerArena;
+  int innerMklLocalThreadBudget;
+};
+
+const char *policyName(Policy policy) noexcept
+{
+  switch (policy) {
+  case Policy::OuterDefault:
+    return "OuterDefault";
+  case Policy::OuterLocal1:
+    return "OuterLocal1";
+  case Policy::InnerArena1Default:
+    return "InnerArena1Default";
+  case Policy::InnerArena1Local1:
+    return "InnerArena1Local1";
+  }
+  return "Unknown";
+}
+
+Policy parsePolicy(std::string_view value)
+{
+  constexpr Policy policies[] = {
+    Policy::OuterDefault,
+    Policy::OuterLocal1,
+    Policy::InnerArena1Default,
+    Policy::InnerArena1Local1,
+  };
+  for (Policy policy : policies) {
+    if (value == policyName(policy))
+      return policy;
+  }
+  throw std::invalid_argument("Unknown nested-inner-arena policy.");
+}
+
+PolicySpec policySpec(Policy policy)
+{
+  switch (policy) {
+  case Policy::OuterDefault:
+    return { 0, false, -1 };
+  case Policy::OuterLocal1:
+    return { 1, false, -1 };
+  case Policy::InnerArena1Default:
+    return { 0, true, 0 };
+  case Policy::InnerArena1Local1:
+    return { 0, true, 1 };
+  }
+  throw std::invalid_argument("Invalid nested-inner-arena policy.");
+}
+
+struct Arguments
+{
+  Policy policy;
+  int concurrency;
+  int outerTasks;
+  int matrixN;
+  int warmupIterations;
+  int profileIterations;
+};
+
+int parseNonnegativeInteger(std::string_view value, std::string_view option)
+{
+  char *end = nullptr;
+  const long parsed = std::strtol(value.data(), &end, 10);
+  if (end == value.data() || *end != '\0' || parsed < 0 || parsed > INT_MAX)
+    throw std::invalid_argument(std::string(option) + " must be a nonnegative integer.");
+  return static_cast<int>(parsed);
+}
+
+int parsePositiveInteger(std::string_view value, std::string_view option)
+{
+  const int parsed = parseNonnegativeInteger(value, option);
+  if (parsed == 0)
+    throw std::invalid_argument(std::string(option) + " must be positive.");
+  return parsed;
+}
+
+std::string_view requireValue(int argc, char **argv, std::string_view prefix)
+{
+  for (int index = 1; index < argc; ++index) {
+    const std::string_view argument(argv[index]);
+    if (argument.starts_with(prefix))
+      return argument.substr(prefix.size());
+  }
+  throw std::invalid_argument("Missing required option " + std::string(prefix));
+}
+
+Arguments parseArguments(int argc, char **argv)
+{
+  return {
+    parsePolicy(requireValue(argc, argv, "--policy=")),
+    parsePositiveInteger(
+      requireValue(argc, argv, "--concurrency="), "--concurrency"),
+    parsePositiveInteger(
+      requireValue(argc, argv, "--outer-tasks="), "--outer-tasks"),
+    parsePositiveInteger(requireValue(argc, argv, "--matrix-n="), "--matrix-n"),
+    parseNonnegativeInteger(requireValue(argc, argv, "--warmup-iterations="),
+      "--warmup-iterations"),
+    parsePositiveInteger(requireValue(argc, argv, "--profile-iterations="),
+      "--profile-iterations"),
+  };
+}
+
+void updateMaximum(std::atomic<int> &target, int value) noexcept
+{
+  int observed = target.load(std::memory_order_relaxed);
+  while (value > observed &&
+    !target.compare_exchange_weak(observed, value, std::memory_order_relaxed)) {
+  }
+}
+
+void updateMinimum(std::atomic<int> &target, int value) noexcept
+{
+  int observed = target.load(std::memory_order_relaxed);
+  while (value < observed &&
+    !target.compare_exchange_weak(observed, value, std::memory_order_relaxed)) {
+  }
+}
+
+int observedMinimum(const std::atomic<int> &value) noexcept
+{
+  const int observed = value.load(std::memory_order_relaxed);
+  return observed == INT_MAX ? 0 : observed;
+}
+
+struct RunTelemetry
+{
+  std::atomic<int> activeOuterCallbacks{ 0 };
+  std::atomic<int> peakOuterCallbacks{ 0 };
+  std::atomic<int> outerArenaConcurrencyMinimum{ INT_MAX };
+  std::atomic<int> outerArenaConcurrencyMaximum{ 0 };
+  std::atomic<int> innerArenaConcurrencyMinimum{ INT_MAX };
+  std::atomic<int> innerArenaConcurrencyMaximum{ 0 };
+  std::atomic<int> mklMaxThreadsMinimum{ INT_MAX };
+  std::atomic<int> mklMaxThreadsMaximum{ 0 };
+  std::atomic<int> bodyCalls{ 0 };
+
+  void observeOuterArena() noexcept
+  {
+    const int concurrency = tbb::this_task_arena::max_concurrency();
+    updateMinimum(outerArenaConcurrencyMinimum, concurrency);
+    updateMaximum(outerArenaConcurrencyMaximum, concurrency);
+  }
+
+  void observeMklCall(bool insideInnerArena) noexcept
+  {
+    if (insideInnerArena) {
+      const int concurrency = tbb::this_task_arena::max_concurrency();
+      updateMinimum(innerArenaConcurrencyMinimum, concurrency);
+      updateMaximum(innerArenaConcurrencyMaximum, concurrency);
+    }
+
+    const int mklMaxThreads = mkl_get_max_threads();
+    updateMinimum(mklMaxThreadsMinimum, mklMaxThreads);
+    updateMaximum(mklMaxThreadsMaximum, mklMaxThreads);
+  }
+};
+
+class ActiveOuterCallback
+{
+public:
+  explicit ActiveOuterCallback(RunTelemetry &telemetry): telemetry_(telemetry)
+  {
+    const int active =
+      telemetry_.activeOuterCallbacks.fetch_add(1, std::memory_order_relaxed) + 1;
+    updateMaximum(telemetry_.peakOuterCallbacks, active);
+  }
+
+  ~ActiveOuterCallback()
+  {
+    telemetry_.activeOuterCallbacks.fetch_sub(1, std::memory_order_relaxed);
+  }
+
+private:
+  RunTelemetry &telemetry_;
+};
+
+using ExecutorList = std::vector<std::unique_ptr<P::ArenaThreadingExecutor>>;
+
+ExecutorList makeInnerExecutors(int outerTasks, const PolicySpec &spec)
+{
+  ExecutorList executors;
+  if (!spec.usesInnerArena)
+    return executors;
+
+  executors.reserve(static_cast<std::size_t>(outerTasks));
+  for (int taskIndex = 0; taskIndex < outerTasks; ++taskIndex) {
+    executors.emplace_back(std::make_unique<P::ArenaThreadingExecutor>(1,
+      P::ThreadingPolicy{
+        .mklLocalThreadBudget = spec.innerMklLocalThreadBudget,
+      }));
+  }
+  return executors;
+}
+
+void runBatch(P::ArenaThreadingExecutor &outerExecutor,
+  const PolicySpec &spec, ExecutorList &innerExecutors, int outerTasks,
+  EigenMklGemmWorkload &workload, RunTelemetry &telemetry)
+{
+  outerExecutor.execute([&] {
+    tbb::parallel_for(
+      tbb::blocked_range<int>(0, outerTasks, 1),
+      [&](const tbb::blocked_range<int> &range) {
+        for (int taskIndex = range.begin(); taskIndex < range.end(); ++taskIndex) {
+          ActiveOuterCallback active(telemetry);
+          telemetry.observeOuterArena();
+
+          const auto invokeMkl = [&] {
+            telemetry.observeMklCall(spec.usesInnerArena);
+            workload.run(taskIndex);
+          };
+          if (spec.usesInnerArena)
+            innerExecutors[static_cast<std::size_t>(taskIndex)]->execute(invokeMkl);
+          else
+            invokeMkl();
+
+          telemetry.bodyCalls.fetch_add(1, std::memory_order_relaxed);
+        }
+      },
+      tbb::auto_partitioner{});
+  });
+}
+
+void runIterations(P::ArenaThreadingExecutor &outerExecutor,
+  const PolicySpec &spec, ExecutorList &innerExecutors, int outerTasks,
+  EigenMklGemmWorkload &workload, int iterations, RunTelemetry &telemetry)
+{
+  for (int iteration = 0; iteration < iterations; ++iteration) {
+    runBatch(outerExecutor, spec, innerExecutors, outerTasks, workload,
+      telemetry);
+  }
+}
+
+void run(const Arguments &arguments)
+{
+  // Budget 0 means "fall back to the global oneMKL setting". Pin that setting
+  // to C so the experiment changes only the local budget and arena topology.
+  mkl_set_dynamic(0);
+  mkl_set_num_threads(arguments.concurrency);
+  const int configuredMklGlobalThreads = mkl_get_max_threads();
+
+  P::GlobalTbbControl control(arguments.concurrency);
+  const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
+    tbb::global_control::max_allowed_parallelism));
+  const PolicySpec spec = policySpec(arguments.policy);
+  P::ArenaThreadingExecutor outerExecutor(arguments.concurrency,
+    { .mklLocalThreadBudget = spec.outerMklLocalThreadBudget });
+  ExecutorList innerExecutors = makeInnerExecutors(arguments.outerTasks, spec);
+  EigenMklGemmWorkload workload(arguments.outerTasks, arguments.matrixN);
+
+  RunTelemetry warmupTelemetry;
+  runIterations(outerExecutor, spec, innerExecutors, arguments.outerTasks,
+    workload, arguments.warmupIterations, warmupTelemetry);
+
+  ThreadSampler sampler;
+  sampler.start();
+  RunTelemetry profileTelemetry;
+  const std::clock_t cpuStart = std::clock();
+  const auto wallStart = std::chrono::steady_clock::now();
+
+  runIterations(outerExecutor, spec, innerExecutors, arguments.outerTasks,
+    workload, arguments.profileIterations, profileTelemetry);
+
+  const auto wallEnd = std::chrono::steady_clock::now();
+  const std::clock_t cpuEnd = std::clock();
+  const int peakThreads = sampler.stop();
+  const int baselineThreads = sampler.baseline();
+  const double checksum = workload.checksum();
+  if (!std::isfinite(checksum))
+    throw std::runtime_error("Eigen/oneMKL GEMM produced a non-finite checksum.");
+
+  const double wallSeconds =
+    std::chrono::duration<double>(wallEnd - wallStart).count();
+  const double cpuSeconds =
+    static_cast<double>(cpuEnd - cpuStart) / static_cast<double>(CLOCKS_PER_SEC);
+
+  std::cout << std::setprecision(17)
+            << "PGO_MKL_NESTED_INNER_ARENA_RESULT"
+            << " policy=" << policyName(arguments.policy)
+            << " configured_global_concurrency=" << arguments.concurrency
+            << " effective_global_concurrency=" << effectiveConcurrency
+            << " configured_mkl_global_threads=" << configuredMklGlobalThreads
+            << " configured_outer_arena_concurrency=" << arguments.concurrency
+            << " configured_outer_mkl_local_budget="
+            << spec.outerMklLocalThreadBudget
+            << " uses_inner_arena=" << (spec.usesInnerArena ? 1 : 0)
+            << " configured_inner_arena_concurrency="
+            << (spec.usesInnerArena ? 1 : 0)
+            << " configured_inner_mkl_local_budget="
+            << spec.innerMklLocalThreadBudget
+            << " observed_outer_arena_concurrency_min="
+            << observedMinimum(profileTelemetry.outerArenaConcurrencyMinimum)
+            << " observed_outer_arena_concurrency_max="
+            << profileTelemetry.outerArenaConcurrencyMaximum.load(
+                 std::memory_order_relaxed)
+            << " observed_inner_arena_concurrency_min="
+            << observedMinimum(profileTelemetry.innerArenaConcurrencyMinimum)
+            << " observed_inner_arena_concurrency_max="
+            << profileTelemetry.innerArenaConcurrencyMaximum.load(
+                 std::memory_order_relaxed)
+            << " observed_mkl_max_threads_min="
+            << observedMinimum(profileTelemetry.mklMaxThreadsMinimum)
+            << " observed_mkl_max_threads_max="
+            << profileTelemetry.mklMaxThreadsMaximum.load(
+                 std::memory_order_relaxed)
+            << " outer_active_peak="
+            << profileTelemetry.peakOuterCallbacks.load(std::memory_order_relaxed)
+            << " outer_tasks=" << arguments.outerTasks
+            << " matrix_n=" << arguments.matrixN
+            << " warmup_iterations=" << arguments.warmupIterations
+            << " profile_iterations=" << arguments.profileIterations
+            << " measured_gemm_calls="
+            << profileTelemetry.bodyCalls.load(std::memory_order_relaxed)
+            << " process_gemm_calls="
+            << (arguments.warmupIterations + arguments.profileIterations) *
+      arguments.outerTasks
+            << " baseline_threads=" << baselineThreads
+            << " peak_threads=" << peakThreads
+            << " extra_threads="
+            << adjustedExtraThreads(baselineThreads, peakThreads)
+            << " wall_seconds=" << wallSeconds
+            << " process_cpu_seconds=" << cpuSeconds
+            << " checksum=" << checksum << '\n';
+}
+
+}  // namespace
+
+int main(int argc, char **argv)
+{
+  try {
+    run(parseArguments(argc, argv));
+    return 0;
+  }
+  catch (const std::exception &error) {
+    std::cerr << "eigen_mkl_nested_inner_arena_probe: " << error.what() << '\n';
+    return 1;
+  }
+}
