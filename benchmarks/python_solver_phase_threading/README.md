@@ -29,11 +29,15 @@ impractically large.
 | `cubic_linear` | `cubic/dragon-center-r16.veg` | 4080 | 2456 | 12240 |
 | `cubic_tricubic_hermite` | `cubic/box.veg` | 125 | 64 | 3000 |
 
-The builder fixes every formulation DOF belonging to vertices in the top 1%
-of the mesh's y extent. It verifies that at least three non-collinear vertices
-were selected. Fixed values are zero (the rest displacement); deterministic
-Gaussian noise is added only to free DOFs. The result records the selected DOF
-count and a SHA-256 digest of their indices.
+The builder computes connected components from the volume elements and fixes
+every formulation DOF belonging to the top 1% slab of each component. If a
+component's slab contains fewer than three non-collinear vertices, it expands
+downward by the minimum number of height-sorted vertices needed to remove that
+component's rigid modes. This matters for the default tet mesh, whose box and
+sphere are disconnected. Fixed values are zero (the rest displacement), and
+deterministic Gaussian noise is added only to free DOFs. The result records the
+component sizes, expansion decisions, selected DOF count, and a SHA-256 digest
+of the fixed indices.
 
 ## Policies
 

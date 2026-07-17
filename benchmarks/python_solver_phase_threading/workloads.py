@@ -43,6 +43,99 @@ class SolverWorkload:
     metadata: dict[str, Any]
 
 
+def _component_top_anchors(
+    np: Any,
+    vertices: Any,
+    elements: Any,
+    slab_fraction: float,
+) -> tuple[Any, list[dict[str, Any]]]:
+    """Select a top support for every connected component.
+
+    The default tet workload contains two disconnected bodies. A single global
+    top slab anchors only the upper body and leaves exact rigid modes in the
+    other one, making the Newton system singular. Keep the whole requested top
+    slab for each component; only expand it when fewer than three non-collinear
+    vertices were selected.
+    """
+
+    num_vertices = int(vertices.shape[0])
+    parent = list(range(num_vertices))
+    component_size = [1] * num_vertices
+
+    def find(vertex: int) -> int:
+        while parent[vertex] != vertex:
+            parent[vertex] = parent[parent[vertex]]
+            vertex = parent[vertex]
+        return vertex
+
+    def unite(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        if component_size[left_root] < component_size[right_root]:
+            left_root, right_root = right_root, left_root
+        parent[right_root] = left_root
+        component_size[left_root] += component_size[right_root]
+
+    for element in np.asarray(elements, dtype=np.int64):
+        first = int(element[0])
+        for vertex in element[1:]:
+            unite(first, int(vertex))
+
+    grouped: dict[int, list[int]] = {}
+    for vertex in range(num_vertices):
+        grouped.setdefault(find(vertex), []).append(vertex)
+    components = sorted(grouped.values(), key=lambda indices: indices[0])
+
+    fixed_components = []
+    component_metadata = []
+    for component_index, indices in enumerate(components):
+        component = np.asarray(indices, dtype=np.int64)
+        positions = vertices[component]
+        y = positions[:, 1]
+        y_range = float(np.max(y) - np.min(y))
+        threshold = float(np.max(y) - slab_fraction * y_range)
+        selected = component[y >= threshold]
+        initial_count = int(selected.size)
+
+        def is_anchored(candidate: Any) -> bool:
+            if candidate.size < 3:
+                return False
+            centered = vertices[candidate] - np.mean(vertices[candidate], axis=0)
+            return bool(np.linalg.matrix_rank(centered) >= 2)
+
+        expanded = False
+        if not is_anchored(selected):
+            order = component[np.lexsort((component, -y))]
+            start = max(3, initial_count + 1)
+            for count in range(start, int(order.size) + 1):
+                candidate = order[:count]
+                if is_anchored(candidate):
+                    selected = candidate
+                    expanded = True
+                    break
+            else:
+                raise RuntimeError(
+                    f"component {component_index} has no three non-collinear "
+                    "vertices and cannot be rigidly anchored"
+                )
+
+        selected = np.sort(selected)
+        fixed_components.append(selected)
+        component_metadata.append(
+            {
+                "component": component_index,
+                "num_vertices": int(component.size),
+                "initial_slab_vertices": initial_count,
+                "fixed_vertices": int(selected.size),
+                "expanded_to_anchor": expanded,
+            }
+        )
+
+    return np.unique(np.concatenate(fixed_components)), component_metadata
+
+
 def _elastic_model(pf: Any, name: str) -> Any:
     factories = {
         "stable_neo": pf.StableNeo,
@@ -106,22 +199,12 @@ def build_workload(
     )
 
     vertices = np.asarray(volume_mesh.mesh_data.vertices, dtype=np.float64)
-    y = vertices[:, 1]
-    y_range = float(np.max(y) - np.min(y))
-    if not y_range > 0.0:
-        raise RuntimeError(f"mesh has zero y extent: {mesh_path}")
-    fixed_vertices = np.flatnonzero(y >= np.max(y) - fixed_slab_fraction * y_range)
-    if fixed_vertices.size < 3:
-        raise RuntimeError(
-            f"top slab selected only {fixed_vertices.size} vertices in {mesh_path}; "
-            "increase --fixed-slab-fraction"
-        )
-    centered_xz = vertices[fixed_vertices][:, (0, 2)]
-    centered_xz = centered_xz - np.mean(centered_xz, axis=0)
-    if np.linalg.matrix_rank(centered_xz) < 2:
-        raise RuntimeError(
-            f"top slab vertices are collinear in {mesh_path}; cannot remove rigid modes"
-        )
+    fixed_vertices, component_anchors = _component_top_anchors(
+        np,
+        vertices,
+        volume_mesh.mesh_data.elements,
+        fixed_slab_fraction,
+    )
 
     num_vertices = int(volume_mesh.num_vertices)
     if int(energy.num_dofs) % num_vertices != 0:
@@ -173,6 +256,8 @@ def build_workload(
             "axis": "y",
             "side": "max",
             "slab_fraction": fixed_slab_fraction,
+            "num_components": len(component_anchors),
+            "components": component_anchors,
             "num_vertices": int(fixed_vertices.size),
             "num_dofs": int(fixed_dofs.size),
             "dof_sha256": hashlib.sha256(fixed_bytes).hexdigest(),
