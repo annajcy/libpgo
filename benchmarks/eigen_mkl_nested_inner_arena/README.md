@@ -19,9 +19,12 @@ index owns one executor and one output matrix. Therefore the timed comparison
 does not include executor construction or retirement and has no concurrent
 reuse of an inner arena.
 
-The probe explicitly sets the process-global oneMKL thread count to `C` and
-disables MKL dynamic thread adjustment. Consequently, local budget 0 has a
-controlled meaning: clear the local override and fall back to `C`.
+With oneMKL's TBB threading layer, process-global OpenMP thread setters do not
+control parallelism. The probe therefore fixes TBB global concurrency to `C`
+and records `process_default_mkl_max_threads` instead of claiming that the
+oneMKL process default equals `C`. Local budget 0 clears the local override and
+falls back to that recorded process default; the TBB controls still bound task
+execution concurrency.
 
 ## Build and run
 
@@ -58,7 +61,8 @@ restores result-directory ownership before exporting reports.
 
 `outer_active_peak` verifies that distinct inner arenas preserve outer
 parallelism. `observed_mkl_max_threads_*` distinguishes the configured oneMKL
-path: `InnerArena1Default` should still observe `C`, whereas
+path: `InnerArena1Default` should still observe the recorded process default,
+whereas
 `InnerArena1Local1` should observe 1. `observed_inner_arena_concurrency_*`
 verifies that both nested policies actually execute inside width-1 arenas.
 

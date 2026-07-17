@@ -30,7 +30,7 @@ STRING_FIELDS = {"policy"}
 INTEGER_FIELDS = {
     "configured_global_concurrency",
     "effective_global_concurrency",
-    "configured_mkl_global_threads",
+    "process_default_mkl_max_threads",
     "configured_outer_arena_concurrency",
     "configured_outer_mkl_local_budget",
     "uses_inner_arena",
@@ -404,11 +404,6 @@ def validate_results(
             raise RuntimeError(f"Outer-task mismatch in {record['log']}.")
         if int(result["measured_gemm_calls"]) != expected_measured_calls:
             raise RuntimeError(f"Measured GEMM count mismatch in {record['log']}.")
-        if int(result["configured_mkl_global_threads"]) != args.concurrency:
-            raise RuntimeError(
-                f"Global oneMKL thread count mismatch in {record['log']}."
-            )
-
         checksum = float(result["checksum"])
         if not math.isfinite(checksum):
             raise RuntimeError(f"Non-finite checksum in {record['log']}.")

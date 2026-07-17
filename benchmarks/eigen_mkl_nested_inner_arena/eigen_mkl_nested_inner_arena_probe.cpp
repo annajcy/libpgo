@@ -279,11 +279,10 @@ void runIterations(P::ArenaThreadingExecutor &outerExecutor,
 
 void run(const Arguments &arguments)
 {
-  // Budget 0 means "fall back to the global oneMKL setting". Pin that setting
-  // to C so the experiment changes only the local budget and arena topology.
-  mkl_set_dynamic(0);
-  mkl_set_num_threads(arguments.concurrency);
-  const int configuredMklGlobalThreads = mkl_get_max_threads();
+  // With the TBB threading layer, oneMKL's process-global OpenMP thread
+  // setters do not control parallelism. Record the process-default value so
+  // budget 0 can be interpreted without pretending it equals TBB concurrency.
+  const int processDefaultMklMaxThreads = mkl_get_max_threads();
 
   P::GlobalTbbControl control(arguments.concurrency);
   const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
@@ -325,7 +324,8 @@ void run(const Arguments &arguments)
             << " policy=" << policyName(arguments.policy)
             << " configured_global_concurrency=" << arguments.concurrency
             << " effective_global_concurrency=" << effectiveConcurrency
-            << " configured_mkl_global_threads=" << configuredMklGlobalThreads
+            << " process_default_mkl_max_threads="
+            << processDefaultMklMaxThreads
             << " configured_outer_arena_concurrency=" << arguments.concurrency
             << " configured_outer_mkl_local_budget="
             << spec.outerMklLocalThreadBudget
