@@ -485,6 +485,10 @@ def worker_main(args: argparse.Namespace) -> int:
         args.signature_absolute_tolerance,
     )
     signature = timed_signatures[-1]
+    persisted_timed_signatures = [
+        {key: value for key, value in item.items() if key != "x_values"}
+        for item in timed_signatures
+    ]
 
     summed_timing_fields = (
         "optimizer_preparation_seconds",
@@ -563,7 +567,7 @@ def worker_main(args: argparse.Namespace) -> int:
         "completed_iterations_per_solve": completed_iterations,
         "phase_totals": phase_totals,
         "timed_diagnostics": timed_diagnostics,
-        "timed_signatures": timed_signatures,
+        "timed_signatures": persisted_timed_signatures,
         "signature": signature,
         "workload_metadata": workload.metadata,
         "runtime": {
@@ -1260,6 +1264,10 @@ def controller_main(args: argparse.Namespace) -> int:
                 raise
             for block_record in block_records:
                 block_record["validation_status"] = "valid"
+                # The full vector has served its only correctness purpose. Keep
+                # it on failed blocks for diagnosis, but avoid repeatedly
+                # serializing large validated vectors into every checkpoint.
+                block_record["signature"].pop("x_values", None)
             run_status["validated_blocks"] += 1
             write_checkpoint(output, manifest, records, 0, run_status)
         else:

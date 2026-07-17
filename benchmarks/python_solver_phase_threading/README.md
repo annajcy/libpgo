@@ -183,6 +183,10 @@ The scalar vector checksums remain useful provenance diagnostics but are not
 independent correctness gates: summing tens of thousands of tolerated DOF-wise
 roundoff differences can make a checksum fail a tolerance that every actual
 DOF passes. The authoritative vector check is the element-wise comparison.
+Full vectors are retained until their policy block passes that comparison, then
+removed from subsequent checkpoints to keep controller serialization bounded;
+their SHA-256 and aggregate diagnostics remain in the final artifact. A failed
+block retains its full vectors for diagnosis.
 
 Check `run_status` before analyzing a checkpoint. A usable final result has
 `state="complete"`, `complete=true`, `valid_so_far=true`, all scheduled blocks
