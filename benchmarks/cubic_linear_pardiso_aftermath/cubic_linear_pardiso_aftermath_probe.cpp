@@ -18,6 +18,7 @@
 #include <chrono>
 #include <climits>
 #include <cmath>
+#include <ctime>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -82,6 +83,7 @@ struct Signature
 struct Measurement
 {
   double preludeSeconds = 0.0;
+  double preludeProcessCpuSeconds = 0.0;
   double evaluationExecuteSeconds = 0.0;
   double evaluationKernelSeconds = 0.0;
   double solveSquaredNorm = 0.0;
@@ -199,6 +201,7 @@ void requireFinite(const Measurement &measurement)
 {
   const double values[] = {
     measurement.preludeSeconds,
+    measurement.preludeProcessCpuSeconds,
     measurement.evaluationExecuteSeconds,
     measurement.evaluationKernelSeconds,
     measurement.solveSquaredNorm,
@@ -294,6 +297,7 @@ try {
     Measurement measurement;
 
     const auto preludeBegin = Clock::now();
+    const std::clock_t preludeCpuBegin = std::clock();
     auto runPrelude = [&](P::ArenaThreadingExecutor &executor) {
       executor.execute([&] {
         measurement.observedLinearMklBudget = mkl_get_max_threads();
@@ -312,7 +316,10 @@ try {
         runPrelude(linearExecutor8);
     }
     const auto preludeEnd = Clock::now();
+    const std::clock_t preludeCpuEnd = std::clock();
     measurement.preludeSeconds = secondsBetween(preludeBegin, preludeEnd);
+    measurement.preludeProcessCpuSeconds =
+      static_cast<double>(preludeCpuEnd - preludeCpuBegin) / CLOCKS_PER_SEC;
 
     const auto evaluationExecuteBegin = Clock::now();
     evaluationExecutor.execute([&] {
@@ -360,6 +367,7 @@ try {
               << " reduced_rows=" << reducedHessian.rows()
               << " reduced_nnz=" << reducedHessian.nonZeros()
               << " prelude_seconds=" << measurement.preludeSeconds
+              << " prelude_process_cpu_seconds=" << measurement.preludeProcessCpuSeconds
               << " evaluation_execute_seconds=" << measurement.evaluationExecuteSeconds
               << " evaluation_kernel_seconds=" << measurement.evaluationKernelSeconds
               << " energy=" << measurement.signature.energy

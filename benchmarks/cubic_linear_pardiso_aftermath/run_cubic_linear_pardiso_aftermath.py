@@ -39,6 +39,7 @@ INTEGER_FIELDS = {
 }
 FLOAT_FIELDS = {
     "prelude_seconds",
+    "prelude_process_cpu_seconds",
     "evaluation_execute_seconds",
     "evaluation_kernel_seconds",
     "energy",
@@ -70,6 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--measured-iterations", type=int, default=5)
     parser.add_argument("--repetitions", type=int, default=15)
     parser.add_argument("--seed", type=int, default=20260717)
+    parser.add_argument("--bootstrap-samples", type=int, default=20000)
     parser.add_argument("--cpu-list", help="Optional taskset CPU list, e.g. 21-28")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--dry-run", action="store_true")
@@ -85,6 +87,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--warmup-iterations must be nonnegative")
     if args.measured_iterations <= 0 or args.repetitions <= 0:
         raise ValueError("--measured-iterations and --repetitions must be positive")
+    if args.bootstrap_samples <= 0:
+        raise ValueError("--bootstrap-samples must be positive")
     if len(set(args.cases)) != len(args.cases):
         raise ValueError("--cases must not contain duplicates")
 
@@ -163,6 +167,13 @@ def median_record(records: list[dict[str, Any]], repetition: int) -> dict[str, A
         "prelude": first["prelude"],
         "repetition": repetition,
         "prelude_seconds": statistics.median(r["prelude_seconds"] for r in records),
+        "prelude_process_cpu_seconds": statistics.median(
+            r["prelude_process_cpu_seconds"] for r in records
+        ),
+        "prelude_cpu_over_wall": statistics.median(
+            r["prelude_process_cpu_seconds"] / r["prelude_seconds"]
+            for r in records if r["prelude_seconds"] > 0.0
+        ),
         "evaluation_execute_seconds": statistics.median(
             r["evaluation_execute_seconds"] for r in records
         ),
@@ -221,7 +232,8 @@ def summarize(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         row: dict[str, Any] = {"case": case, "samples": len(selected)}
         for metric in (
-            "prelude_seconds", "evaluation_execute_seconds", "evaluation_kernel_seconds"
+            "prelude_seconds", "prelude_process_cpu_seconds", "prelude_cpu_over_wall",
+            "evaluation_execute_seconds", "evaluation_kernel_seconds"
         ):
             values = [sample[metric] for sample in selected]
             row[f"median_{metric}"] = statistics.median(values)
@@ -240,6 +252,69 @@ def summarize(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     row[f"median_{metric}"] / reference[f"median_{metric}"]
                 )
     return result
+
+
+def paired_contrasts(
+    samples: list[dict[str, Any]], bootstrap_samples: int, seed: int
+) -> list[dict[str, Any]]:
+    by_key = {
+        (sample["repetition"], sample["case"]): sample for sample in samples
+    }
+    repetitions = sorted({sample["repetition"] for sample in samples})
+    requested = (
+        ("none_over_noop1", "none", "noop1"),
+        ("noop8_over_noop1", "noop8", "noop1"),
+        ("pardiso8_over_pardiso1", "pardiso8", "pardiso1"),
+    )
+    rng = random.Random(seed)
+    rows: list[dict[str, Any]] = []
+    for contrast, numerator, denominator in requested:
+        paired_repetitions = [
+            repetition for repetition in repetitions
+            if (repetition, numerator) in by_key and (repetition, denominator) in by_key
+        ]
+        if not paired_repetitions:
+            continue
+        for metric in ("evaluation_execute_seconds", "evaluation_kernel_seconds"):
+            ratios = [
+                by_key[repetition, numerator][metric]
+                / by_key[repetition, denominator][metric]
+                for repetition in paired_repetitions
+            ]
+            differences = [
+                by_key[repetition, numerator][metric]
+                - by_key[repetition, denominator][metric]
+                for repetition in paired_repetitions
+            ]
+            boot_ratios: list[float] = []
+            boot_differences: list[float] = []
+            for _ in range(bootstrap_samples):
+                indices = [
+                    rng.randrange(len(paired_repetitions))
+                    for _ in paired_repetitions
+                ]
+                boot_ratios.append(statistics.median(ratios[index] for index in indices))
+                boot_differences.append(
+                    statistics.median(differences[index] for index in indices)
+                )
+            boot_ratios.sort()
+            boot_differences.sort()
+            lower = max(0, int(0.025 * bootstrap_samples) - 1)
+            upper = min(bootstrap_samples - 1, int(0.975 * bootstrap_samples))
+            rows.append({
+                "contrast": contrast,
+                "numerator": numerator,
+                "denominator": denominator,
+                "metric": metric,
+                "paired_samples": len(paired_repetitions),
+                "median_paired_ratio": statistics.median(ratios),
+                "paired_ratio_ci95_low": boot_ratios[lower],
+                "paired_ratio_ci95_high": boot_ratios[upper],
+                "median_paired_difference_seconds": statistics.median(differences),
+                "paired_difference_ci95_low_seconds": boot_differences[lower],
+                "paired_difference_ci95_high_seconds": boot_differences[upper],
+            })
+    return rows
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -324,6 +399,7 @@ def main() -> int:
             )
 
     summaries = summarize(samples)
+    contrasts = paired_contrasts(samples, args.bootstrap_samples, args.seed)
     manifest = {
         "schema_version": 1,
         "benchmark": "cubic_linear_pardiso_aftermath",
@@ -346,6 +422,7 @@ def main() -> int:
         "raw_measurements": raw,
         "worker_samples": samples,
         "summary": summaries,
+        "paired_contrasts": contrasts,
     }
     (out / "cubic-linear-pardiso-aftermath.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
@@ -353,7 +430,9 @@ def main() -> int:
     write_csv(out / "raw_measurements.csv", raw)
     write_csv(out / "worker_samples.csv", samples)
     write_csv(out / "summary.csv", summaries)
+    write_csv(out / "paired_contrasts.csv", contrasts)
     print(json.dumps(summaries, indent=2))
+    print(json.dumps(contrasts, indent=2))
     return 0
 
 

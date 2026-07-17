@@ -21,7 +21,9 @@ The backend is constructed and symbolically analyzed once under budget 1 for
 all cases. Sparse reduction for the next iteration occurs after the measured
 FGH, so no preparation work sits between the prelude and evaluation. The probe
 records both the complete evaluation-executor call and a clock strictly around
-`func_grad_hessian` inside its lambda.
+`func_grad_hessian` inside its lambda. It also records process CPU time around
+the prelude: `prelude_process_cpu_seconds / prelude_seconds` materially above
+one verifies that the budget-8 PARDISO case really performed concurrent work.
 
 The primary discriminators are:
 
@@ -47,4 +49,7 @@ python benchmarks/cubic_linear_pardiso_aftermath/run_cubic_linear_pardiso_afterm
 The controller randomizes the case order inside every repetition, runs each
 sample in a fresh process, verifies MKL TBB linkage and observed budgets, and
 rejects a repetition if FGH dimensions or numerical signatures differ. It
-writes raw iteration data, one median sample per worker, and summary CSV/JSON.
+writes raw iteration data, one median sample per worker, summary CSV/JSON, and
+paired bootstrap 95% intervals for the three diagnostic contrasts. The 15
+fresh worker processes—not the five inner iterations—are the independent
+statistical units.
