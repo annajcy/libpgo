@@ -11,11 +11,24 @@ import random
 import re
 import statistics
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
 
 
 TIME_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
@@ -54,6 +67,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checksum-relative-tolerance", type=float, default=1e-10)
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
     return parser.parse_args()
 
 
@@ -374,6 +388,9 @@ def main() -> int:
     print(f"Verified {provider.name} linkage; matched {len(cases)} matrix size(s).")
     for matrix_n in cases:
         print(f"n={matrix_n}")
+    host_preconditioning = precondition_host(
+        args, workers=args.max_concurrency or 8, dry_run=args.dry_run
+    )
     if args.dry_run:
         return 0
 
@@ -389,8 +406,17 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix=f"pgo-eigen-{provider.name}-") as temp_dir:
         temporary = Path(temp_dir)
         for block_index, (repetition, matrix_n) in enumerate(schedule, start=1):
-            variants = list(provider.variants)
-            randomizer.shuffle(variants)
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"r={repetition}:n={matrix_n}",
+            )
+            variants = balanced_order(
+                provider.variants,
+                repetition=repetition - 1,
+                seed=args.seed,
+                block_key=f"{provider.name}:n={matrix_n}",
+            )
             print(
                 f"[{block_index}/{len(schedule)}] repetition={repetition} n={matrix_n} "
                 f"order={','.join(variants)}",
@@ -451,6 +477,7 @@ def main() -> int:
         "min_time": args.min_time,
         "warmup_time": args.warmup_time,
         "thread_telemetry_source": "cold_probes",
+        "host_preconditioning": host_preconditioning,
         "linkage": linkage,
         "records": records,
         "summary": summary,

@@ -13,10 +13,23 @@ import shlex
 import shutil
 import statistics
 import subprocess
+import sys
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
 
 
 RESULT_PREFIX = "PGO_MKL_BUDGET_SWEEP_RESULT"
@@ -82,6 +95,7 @@ def parse_args() -> argparse.Namespace:
         help="Run VTune through sudo and restore ownership of its result directories.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
     return parser.parse_args()
 
 
@@ -217,18 +231,33 @@ def case_name(arena: int, budget: int, outer_tasks: int, repetition: int) -> str
 
 
 def make_jobs(
-    args: argparse.Namespace, outer_tasks_values: list[int], repetitions: int
+    args: argparse.Namespace,
+    outer_tasks_values: list[int],
+    repetitions: int,
+    seed: int,
 ) -> list[dict[str, int]]:
-    jobs = [
-        {
-            "budget": budget,
-            "outer_tasks": outer_tasks,
-            "repetition": repetition,
-        }
+    blocks = [
+        (repetition, outer_tasks)
         for repetition in range(1, repetitions + 1)
         for outer_tasks in outer_tasks_values
-        for budget in args.mkl_local_thread_budgets
     ]
+    random.Random(seed).shuffle(blocks)
+    jobs: list[dict[str, int]] = []
+    for repetition, outer_tasks in blocks:
+        budgets = balanced_order(
+            args.mkl_local_thread_budgets,
+            repetition=repetition - 1,
+            seed=seed,
+            block_key=f"outer_tasks={outer_tasks}",
+        )
+        jobs.extend(
+            {
+                "budget": budget,
+                "outer_tasks": outer_tasks,
+                "repetition": repetition,
+            }
+            for budget in budgets
+        )
     return jobs
 
 
@@ -427,14 +456,17 @@ def main() -> int:
     if output.exists() and not args.dry_run:
         raise FileExistsError(f"Output path already exists: {output}")
 
-    timing_jobs = make_jobs(args, args.outer_tasks, args.timing_repetitions)
+    timing_jobs = make_jobs(args, args.outer_tasks, args.timing_repetitions, args.seed)
     profile_jobs = (
-        make_jobs(args, args.profile_outer_tasks, args.profile_repetitions)
+        make_jobs(
+            args,
+            args.profile_outer_tasks,
+            args.profile_repetitions,
+            args.seed + 1,
+        )
         if args.collect_vtune
         else []
     )
-    random.Random(args.seed).shuffle(timing_jobs)
-    random.Random(args.seed + 1).shuffle(profile_jobs)
     vtune = resolve_vtune(args.vtune) if args.collect_vtune else None
 
     if args.dry_run:
@@ -469,6 +501,7 @@ def main() -> int:
     environment["MKL_THREADING_LAYER"] = "TBB"
     linkage = verify_linkage(probe, environment)
     output.mkdir(parents=True)
+    host_preconditioning = precondition_host(args, workers=args.concurrency)
     timing_log_directory = output / "timing-logs"
     timing_log_directory.mkdir()
 
@@ -498,6 +531,7 @@ def main() -> int:
             "MKL_DYNAMIC": environment.get("MKL_DYNAMIC"),
         },
         "linkage": linkage,
+        "host_preconditioning": host_preconditioning,
         "timing_records": [],
         "timing_summary": [],
         "profile_records": [],
@@ -505,7 +539,16 @@ def main() -> int:
     }
     results_path = output / "budget-sweep.json"
 
+    previous_block: tuple[int, int] | None = None
     for index, job in enumerate(timing_jobs, start=1):
+        block = (job["repetition"], job["outer_tasks"])
+        if block != previous_block:
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"timing:r={block[0]}:outer_tasks={block[1]}",
+            )
+            previous_block = block
         name = case_name(
             args.arena_concurrency,
             job["budget"],

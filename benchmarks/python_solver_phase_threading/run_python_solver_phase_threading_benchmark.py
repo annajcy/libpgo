@@ -19,7 +19,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from workloads import DEFAULT_MESHES, WORKLOADS, build_workload
+BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
+from workloads import DEFAULT_MESHES, WORKLOADS, build_workload  # noqa: E402
 
 
 SCRIPT = Path(__file__).resolve()
@@ -91,6 +101,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
 
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--workload", choices=WORKLOADS, help=argparse.SUPPRESS)
@@ -1138,8 +1149,12 @@ def controller_main(args: argparse.Namespace) -> int:
     rng.shuffle(blocks)
     scheduled: list[tuple[list[str], tuple[int, str]]] = []
     for repetition, workload in blocks:
-        policies = list(args.policies)
-        rng.shuffle(policies)
+        policies = balanced_order(
+            args.policies,
+            repetition=repetition,
+            seed=args.seed,
+            block_key=f"{args.mode}:{workload}",
+        )
         for policy in policies:
             scheduled.append(
                 (
@@ -1158,6 +1173,7 @@ def controller_main(args: argparse.Namespace) -> int:
 
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    host_preconditioning = precondition_host(args, workers=args.concurrency)
     _, environment_overrides = worker_environment(args.concurrency)
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -1200,6 +1216,7 @@ def controller_main(args: argparse.Namespace) -> int:
             for command, block_key in scheduled
         ],
         "environment_overrides": environment_overrides,
+        "host_preconditioning": host_preconditioning,
     }
 
     records: list[dict[str, Any]] = []
@@ -1220,7 +1237,15 @@ def controller_main(args: argparse.Namespace) -> int:
     }
 
     total = len(scheduled)
+    previous_block: tuple[int, str] | None = None
     for index, (command, block_key) in enumerate(scheduled, start=1):
+        if block_key != previous_block:
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"r={block_key[0]}:workload={block_key[1]}",
+            )
+            previous_block = block_key
         print(f"[{index}/{total}] {' '.join(command)}", flush=True)
         try:
             record = run_worker(command, args.concurrency)

@@ -10,10 +10,23 @@ import random
 import re
 import statistics
 import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
 
 
 POLICIES = ("ExecutorSingle", "ExecutorMulti")
@@ -38,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--outer-tasks", type=int, action="append")
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
     return parser.parse_args()
 
 
@@ -152,23 +166,35 @@ def validate_block(
     checksum_relative_tolerance: float,
 ) -> None:
     concurrency, outer_tasks, matrix_n = key
-    checksums = [float(measurements[policy].get("checksum", math.nan)) for policy in POLICIES]
+    checksums = [
+        float(measurements[policy].get("checksum", math.nan)) for policy in POLICIES
+    ]
     if not all(math.isfinite(value) for value in checksums):
-        raise RuntimeError(f"Missing checksum for c={concurrency}, tasks={outer_tasks}, n={matrix_n}.")
-    tolerance = max(1e-12, checksum_relative_tolerance * max(abs(value) for value in checksums))
+        raise RuntimeError(
+            f"Missing checksum for c={concurrency}, tasks={outer_tasks}, n={matrix_n}."
+        )
+    tolerance = max(
+        1e-12, checksum_relative_tolerance * max(abs(value) for value in checksums)
+    )
     if max(checksums) - min(checksums) > tolerance:
-        raise RuntimeError(f"Checksum mismatch for c={concurrency}, tasks={outer_tasks}, n={matrix_n}.")
+        raise RuntimeError(
+            f"Checksum mismatch for c={concurrency}, tasks={outer_tasks}, n={matrix_n}."
+        )
 
     for policy, row in measurements.items():
         if counter(row, "effective_concurrency") != concurrency:
             raise RuntimeError(f"{policy} did not establish concurrency={concurrency}.")
         if counter(row, "arena_concurrency") != concurrency:
-            raise RuntimeError(f"{policy} did not execute in its configured executor arena.")
+            raise RuntimeError(
+                f"{policy} did not execute in its configured executor arena."
+            )
         expected_calls = int(row["iterations"]) * outer_tasks
         if counter(row, "body_calls") != expected_calls:
             raise RuntimeError(f"{policy} executed an unexpected number of bodies.")
         if counter(row, "other_mode_calls") != 0:
-            raise RuntimeError(f"{policy} observed an unknown Accelerate threading mode.")
+            raise RuntimeError(
+                f"{policy} observed an unknown Accelerate threading mode."
+            )
 
     single = measurements["ExecutorSingle"]
     multi = measurements["ExecutorMulti"]
@@ -211,15 +237,13 @@ def summarize(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     for policy in POLICIES
                 },
                 "median_multi_over_single": statistics.median(
-                    float(block["multi_over_single"])
-                    for block in blocks
+                    float(block["multi_over_single"]) for block in blocks
                 ),
                 "median_extra_thread_delta": statistics.median(
                     float(block["extra_thread_delta"]) for block in blocks
                 ),
                 "median_cold_multi_over_single": statistics.median(
-                    float(block["cold_multi_over_single"])
-                    for block in blocks
+                    float(block["cold_multi_over_single"]) for block in blocks
                 ),
             }
         )
@@ -243,6 +267,11 @@ def main() -> int:
     print(f"Verified Accelerate linkage; matched {len(cases)} two-policy block(s).")
     for concurrency, outer_tasks, matrix_n in cases:
         print(f"c={concurrency} tasks={outer_tasks} n={matrix_n}")
+    host_preconditioning = precondition_host(
+        args,
+        workers=max(key[0] for key in cases),
+        dry_run=args.dry_run,
+    )
     if args.dry_run:
         return 0
 
@@ -258,9 +287,18 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="pgo-eigen-accelerate-nested-") as temp_dir:
         temporary = Path(temp_dir)
         for block_index, (repetition, key) in enumerate(schedule, start=1):
-            policies = list(POLICIES)
-            randomizer.shuffle(policies)
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"r={repetition}:key={key}",
+            )
             concurrency, outer_tasks, matrix_n = key
+            policies = balanced_order(
+                POLICIES,
+                repetition=repetition - 1,
+                seed=args.seed,
+                block_key=f"c={concurrency}:tasks={outer_tasks}:n={matrix_n}",
+            )
             print(
                 f"[{block_index}/{len(schedule)}] repetition={repetition} "
                 f"c={concurrency} tasks={outer_tasks} n={matrix_n} "
@@ -288,15 +326,9 @@ def main() -> int:
             validate_block(key, cold_probes, args.checksum_relative_tolerance)
             validate_block(key, measurements, args.checksum_relative_tolerance)
             single_time = float(measurements["ExecutorSingle"]["wall_seconds"])
-            multi_time = float(
-                measurements["ExecutorMulti"]["wall_seconds"]
-            )
-            cold_single_time = float(
-                cold_probes["ExecutorSingle"]["wall_seconds"]
-            )
-            cold_multi_time = float(
-                cold_probes["ExecutorMulti"]["wall_seconds"]
-            )
+            multi_time = float(measurements["ExecutorMulti"]["wall_seconds"])
+            cold_single_time = float(cold_probes["ExecutorSingle"]["wall_seconds"])
+            cold_multi_time = float(cold_probes["ExecutorMulti"]["wall_seconds"])
             records.append(
                 {
                     "repetition": repetition,
@@ -307,11 +339,11 @@ def main() -> int:
                     "measurements": measurements,
                     "cold_probes": cold_probes,
                     "multi_over_single": multi_time / single_time,
-                    "cold_multi_over_single":
-                        cold_multi_time / cold_single_time,
-                    "extra_thread_delta":
-                        counter(cold_probes["ExecutorMulti"], "extra_threads")
-                        - counter(cold_probes["ExecutorSingle"], "extra_threads"),
+                    "cold_multi_over_single": cold_multi_time / cold_single_time,
+                    "extra_thread_delta": counter(
+                        cold_probes["ExecutorMulti"], "extra_threads"
+                    )
+                    - counter(cold_probes["ExecutorSingle"], "extra_threads"),
                 }
             )
 
@@ -324,6 +356,7 @@ def main() -> int:
         "min_time": args.min_time,
         "warmup_time": args.warmup_time,
         "thread_telemetry_source": "cold_probes",
+        "host_preconditioning": host_preconditioning,
         "linkage": linkage,
         "records": records,
         "summary": summary,
@@ -331,10 +364,7 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=2) + "\n")
 
-    print(
-        "\nc tasks    n  steady multi/single  "
-        "cold multi/single  extra-thread delta"
-    )
+    print("\nc tasks    n  steady multi/single  cold multi/single  extra-thread delta")
     for row in summary:
         print(
             f"{row['concurrency']:2d} {row['outer_tasks']:5d} {row['matrix_n']:4d}  "

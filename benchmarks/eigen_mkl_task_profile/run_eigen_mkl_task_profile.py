@@ -9,9 +9,21 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    guard_host_condition,
+    precondition_host,
+)
 
 
 ALL_POLICIES = (
@@ -42,6 +54,7 @@ def parse_args() -> argparse.Namespace:
         help="Run the VTune collector through sudo when ptrace_scope blocks collection.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
     return parser.parse_args()
 
 
@@ -167,6 +180,7 @@ def main() -> int:
         return 0
 
     output.mkdir(parents=True)
+    host_preconditioning = precondition_host(args, workers=args.concurrency)
     manifest: dict[str, Any] = {
         "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -182,10 +196,16 @@ def main() -> int:
         },
         "environment": {"MKL_THREADING_LAYER": "TBB"},
         "linkage": linkage,
+        "host_preconditioning": host_preconditioning,
         "runs": [],
     }
 
     for entry in commands:
+        guard_host_condition(
+            args,
+            host_preconditioning,
+            label=f"vtune:{entry['policy']}",
+        )
         result_directory = Path(entry["result_directory"])
         print(f"Running {entry['policy']}...", flush=True)
         result = subprocess.run(

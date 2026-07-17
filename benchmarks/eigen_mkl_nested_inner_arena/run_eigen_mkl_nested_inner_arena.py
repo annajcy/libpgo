@@ -13,10 +13,23 @@ import shlex
 import shutil
 import statistics
 import subprocess
+import sys
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
 
 
 POLICIES = (
@@ -89,6 +102,7 @@ def parse_args() -> argparse.Namespace:
         help="Run VTune through sudo and restore result-directory ownership.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
     return parser.parse_args()
 
 
@@ -240,19 +254,28 @@ def make_timing_jobs(args: argparse.Namespace) -> list[dict[str, Any]]:
     # Keep each repetition as a temporal block so ratios paired by repetition
     # remain meaningful, while randomizing policy and task order within it.
     randomizer = random.Random(args.seed)
+    blocks = [
+        (repetition, outer_tasks)
+        for repetition in range(1, args.timing_repetitions + 1)
+        for outer_tasks in args.outer_tasks
+    ]
+    randomizer.shuffle(blocks)
     jobs: list[dict[str, Any]] = []
-    for repetition in range(1, args.timing_repetitions + 1):
-        block = [
+    for repetition, outer_tasks in blocks:
+        policies = balanced_order(
+            POLICIES,
+            repetition=repetition - 1,
+            seed=args.seed,
+            block_key=f"outer_tasks={outer_tasks}",
+        )
+        jobs.extend(
             {
                 "policy": policy,
                 "outer_tasks": outer_tasks,
                 "repetition": repetition,
             }
-            for outer_tasks in args.outer_tasks
-            for policy in POLICIES
-        ]
-        randomizer.shuffle(block)
-        jobs.extend(block)
+            for policy in policies
+        )
     return jobs
 
 
@@ -635,6 +658,7 @@ def main() -> int:
 
     linkage = verify_linkage(probe, environment)
     output.mkdir(parents=True)
+    host_preconditioning = precondition_host(args, workers=args.concurrency)
     logs = output / "logs"
     logs.mkdir()
     manifest: dict[str, Any] = {
@@ -660,13 +684,23 @@ def main() -> int:
             "inherited_MKL_DYNAMIC": os.environ.get("MKL_DYNAMIC"),
         },
         "linkage": linkage,
+        "host_preconditioning": host_preconditioning,
         "timing_runs": [],
     }
 
+    previous_block: tuple[int, int] | None = None
     for index, job in enumerate(timing_jobs, start=1):
         policy = str(job["policy"])
         outer_tasks = int(job["outer_tasks"])
         repetition = int(job["repetition"])
+        block = (repetition, outer_tasks)
+        if block != previous_block:
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"timing:r={repetition}:outer_tasks={outer_tasks}",
+            )
+            previous_block = block
         command = probe_command(probe, args, policy, outer_tasks)
         print(
             f"[{index}/{len(timing_jobs)}] {policy}, "

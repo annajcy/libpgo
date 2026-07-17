@@ -11,10 +11,23 @@ import random
 import re
 import statistics
 import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
 
 
 POLICIES = (
@@ -75,6 +88,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--skip-mkl-verbose-probe", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
     return parser.parse_args()
 
 
@@ -452,6 +466,11 @@ def main() -> int:
     print(f"Verified MKL-TBB linkage; matched {len(cases)} six-policy case(s).")
     for workload, concurrency, outer_tasks, matrix_n in cases:
         print(f"{workload}: c={concurrency} tasks={outer_tasks} n={matrix_n}")
+    host_preconditioning = precondition_host(
+        args,
+        workers=max(key[1] for key in cases),
+        dry_run=args.dry_run,
+    )
     if args.dry_run:
         return 0
 
@@ -469,9 +488,20 @@ def main() -> int:
     ) as temp_dir:
         temporary = Path(temp_dir)
         for block_index, (repetition, key) in enumerate(schedule, start=1):
-            policies = list(POLICIES)
-            randomizer.shuffle(policies)
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"r={repetition}:key={key}",
+            )
             workload, concurrency, outer_tasks, matrix_n = key
+            policies = balanced_order(
+                POLICIES,
+                repetition=repetition - 1,
+                seed=args.seed,
+                block_key=(
+                    f"{workload}:c={concurrency}:tasks={outer_tasks}:n={matrix_n}"
+                ),
+            )
             print(
                 f"[{block_index}/{len(schedule)}] repetition={repetition} "
                 f"{workload}: c={concurrency} tasks={outer_tasks} n={matrix_n} "
@@ -518,6 +548,7 @@ def main() -> int:
         "warmup_time": args.warmup_time,
         "bootstrap_samples": args.bootstrap_samples,
         "thread_telemetry_source": "untimed_policy_warmup",
+        "host_preconditioning": host_preconditioning,
         "mkl_verbose_probe": verbose_probe,
         "environment": {"MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"]},
         "executor_case_note": (

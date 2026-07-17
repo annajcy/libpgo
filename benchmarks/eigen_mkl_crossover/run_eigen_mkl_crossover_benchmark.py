@@ -11,10 +11,23 @@ import random
 import re
 import statistics
 import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
 
 
 POLICIES = ("ExecutorLocal1", "ExecutorMKLC")
@@ -41,6 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stable-points", type=int, default=3)
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
     return parser.parse_args()
 
 
@@ -342,6 +356,9 @@ def main() -> int:
 
     print(f"Verified MKL-TBB linkage; matched {len(cases)} matrix size(s).")
     print("matrix sizes:", ", ".join(str(matrix_n) for matrix_n in cases))
+    host_preconditioning = precondition_host(
+        args, workers=args.max_concurrency or 8, dry_run=args.dry_run
+    )
     if args.dry_run:
         return 0
 
@@ -357,8 +374,17 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="pgo-eigen-mkl-crossover-") as temp_dir:
         temporary = Path(temp_dir)
         for block_index, (repetition, matrix_n) in enumerate(schedule, start=1):
-            policies = list(POLICIES)
-            randomizer.shuffle(policies)
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"r={repetition}:n={matrix_n}",
+            )
+            policies = balanced_order(
+                POLICIES,
+                repetition=repetition - 1,
+                seed=args.seed,
+                block_key=f"n={matrix_n}",
+            )
             print(
                 f"[{block_index}/{len(schedule)}] repetition={repetition} "
                 f"n={matrix_n} order={','.join(policies)}",
@@ -410,6 +436,7 @@ def main() -> int:
         "min_time": args.min_time,
         "warmup_time": args.warmup_time,
         "bootstrap_samples": args.bootstrap_samples,
+        "host_preconditioning": host_preconditioning,
         "decision_rule": {
             "practical_speedup": args.practical_speedup,
             "stable_adjacent_points": args.stable_points,

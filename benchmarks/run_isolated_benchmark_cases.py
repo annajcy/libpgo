@@ -5,21 +5,37 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+from host_preconditioning import (
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run each matching Google Benchmark case in a fresh process."
     )
-    parser.add_argument("benchmark", type=Path, help="Path to the benchmark executable.")
-    parser.add_argument("--filter", default=".*", help="Regex applied to benchmark case names.")
-    parser.add_argument("--out", type=Path, required=True, help="Merged CSV output path.")
-    parser.add_argument("--min-time", default="0.1s", help="Forwarded --benchmark_min_time value.")
+    parser.add_argument(
+        "benchmark", type=Path, help="Path to the benchmark executable."
+    )
+    parser.add_argument(
+        "--filter", default=".*", help="Regex applied to benchmark case names."
+    )
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Merged CSV output path."
+    )
+    parser.add_argument(
+        "--min-time", default="0.1s", help="Forwarded --benchmark_min_time value."
+    )
     parser.add_argument(
         "--repetitions",
         type=int,
@@ -53,10 +69,14 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Additional argument forwarded to every benchmark invocation. Repeatable.",
     )
+    parser.add_argument("--seed", type=int, default=20260717)
+    add_host_preconditioning_arguments(parser)
     return parser.parse_args()
 
 
-def run_command(command: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def run_command(
+    command: list[str], *, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
         cwd=cwd,
@@ -70,8 +90,8 @@ def run_command(command: list[str], *, cwd: Path | None = None) -> subprocess.Co
 def list_cases(benchmark: Path, pattern: str) -> list[str]:
     result = run_command([str(benchmark), "--benchmark_list_tests"])
     if result.returncode != 0:
-      print(result.stdout, file=sys.stderr)
-      raise SystemExit(result.returncode)
+        print(result.stdout, file=sys.stderr)
+        raise SystemExit(result.returncode)
 
     regex = re.compile(pattern)
     cases: list[str] = []
@@ -149,56 +169,74 @@ def main() -> int:
     if not cases:
         return 1
 
+    host_preconditioning = precondition_host(args, workers=8)
+
     merged_rows: list[dict[str, str]] = []
     process_index = 0
     fresh_repetitions = args.fresh_repetitions if args.fresh_repetitions > 0 else 1
     benchmark_min_time = "1x" if args.fresh_repetitions > 0 else args.min_time
     benchmark_repetitions = 1 if args.fresh_repetitions > 0 else args.repetitions
 
+    jobs: list[tuple[int, str]] = []
+    for fresh_index in range(1, fresh_repetitions + 1):
+        jobs.extend(
+            (fresh_index, case)
+            for case in balanced_order(
+                cases,
+                repetition=fresh_index - 1,
+                seed=args.seed,
+                block_key="isolated-cases",
+            )
+        )
+
     with tempfile.TemporaryDirectory(prefix="pgo-isolated-bench-") as tmp:
         tmpdir = Path(tmp)
-        for index, case in enumerate(cases, start=1):
-            for fresh_index in range(1, fresh_repetitions + 1):
-                process_index += 1
-                case_csv = tmpdir / f"case-{index:04d}-fresh-{fresh_index:04d}.csv"
-                command = [
-                    str(benchmark),
-                    f"--benchmark_filter={benchmark_filter_for_exact_case(case)}",
-                    f"--benchmark_min_time={benchmark_min_time}",
-                    f"--benchmark_repetitions={benchmark_repetitions}",
-                    f"--benchmark_out={case_csv}",
-                    "--benchmark_out_format=csv",
-                    *args.extra_arg,
-                ]
+        for job_index, (fresh_index, case) in enumerate(jobs, start=1):
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"fresh={fresh_index}:case={case}",
+            )
+            process_index += 1
+            case_index = cases.index(case) + 1
+            case_csv = tmpdir / f"job-{job_index:04d}-fresh-{fresh_index:04d}.csv"
+            command = [
+                str(benchmark),
+                f"--benchmark_filter={benchmark_filter_for_exact_case(case)}",
+                f"--benchmark_min_time={benchmark_min_time}",
+                f"--benchmark_repetitions={benchmark_repetitions}",
+                f"--benchmark_out={case_csv}",
+                "--benchmark_out_format=csv",
+                *args.extra_arg,
+            ]
 
+            print(
+                f"[{job_index}/{len(jobs)} fresh {fresh_index}/{fresh_repetitions}] "
+                f"{case}",
+                flush=True,
+            )
+            result = run_command(command)
+            if result.returncode != 0:
+                print(result.stdout, file=sys.stderr)
+                return result.returncode
+            if not case_csv.exists():
+                print(f"Benchmark did not produce CSV: {case_csv}", file=sys.stderr)
+                print(result.stdout, file=sys.stderr)
+                return 1
+
+            rows = read_csv(case_csv)
+            for row in rows:
+                row["isolated_case_index"] = str(case_index)
+                row["isolated_case_name"] = case
+                row["isolated_process_index"] = str(process_index)
                 if args.fresh_repetitions > 0:
-                    print(
-                        f"[{index}/{len(cases)} fresh {fresh_index}/{fresh_repetitions}] {case}",
-                        flush=True,
-                    )
-                else:
-                    print(f"[{index}/{len(cases)}] {case}", flush=True)
-
-                result = run_command(command)
-                if result.returncode != 0:
-                    print(result.stdout, file=sys.stderr)
-                    return result.returncode
-                if not case_csv.exists():
-                    print(f"Benchmark did not produce CSV: {case_csv}", file=sys.stderr)
-                    print(result.stdout, file=sys.stderr)
-                    return 1
-
-                rows = read_csv(case_csv)
-                for row in rows:
-                    row["isolated_case_index"] = str(index)
-                    row["isolated_case_name"] = case
-                    row["isolated_process_index"] = str(process_index)
-                    if args.fresh_repetitions > 0:
-                        row["fresh_repetition_index"] = str(fresh_index)
-                        row["fresh_repetitions"] = str(fresh_repetitions)
-                merged_rows.extend(rows)
+                    row["fresh_repetition_index"] = str(fresh_index)
+                    row["fresh_repetitions"] = str(fresh_repetitions)
+            merged_rows.extend(rows)
 
     write_csv(args.out, merged_rows)
+    host_path = args.out.with_suffix(args.out.suffix + ".host.json")
+    host_path.write_text(json.dumps(host_preconditioning, indent=2) + "\n")
     print(f"Wrote {len(merged_rows)} row(s) to {args.out}")
     return 0
 

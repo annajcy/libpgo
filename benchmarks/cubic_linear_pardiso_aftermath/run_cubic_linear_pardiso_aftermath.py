@@ -13,9 +13,22 @@ import random
 import shlex
 import statistics
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
 
 
 RESULT_PREFIX = "PGO_CUBIC_LINEAR_PARDISO_AFTERMATH_RESULT"
@@ -77,6 +90,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cpu-list", help="Optional taskset CPU list, e.g. 21-28")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
     return parser.parse_args()
 
 
@@ -132,8 +146,12 @@ def parse_record(line: str) -> dict[str, Any] | None:
 
 def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
     result = subprocess.run(
-        ["ldd", str(probe)], text=True, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, env=environment, check=False
+        ["ldd", str(probe)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=environment,
+        check=False,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stdout)
@@ -149,7 +167,9 @@ def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
     return result.stdout
 
 
-def command_for(args: argparse.Namespace, probe: Path, mesh: Path, case: str) -> list[str]:
+def command_for(
+    args: argparse.Namespace, probe: Path, mesh: Path, case: str
+) -> list[str]:
     command = [
         str(probe),
         f"--case={case}",
@@ -174,7 +194,8 @@ def median_record(records: list[dict[str, Any]], repetition: int) -> dict[str, A
         ),
         "prelude_cpu_over_wall": statistics.median(
             r["prelude_process_cpu_seconds"] / r["prelude_seconds"]
-            for r in records if r["prelude_seconds"] > 0.0
+            for r in records
+            if r["prelude_seconds"] > 0.0
         ),
         "prelude_worker_entries": statistics.median(
             r["prelude_worker_entries"] for r in records
@@ -223,8 +244,13 @@ def validate_block(raw_by_case: dict[str, list[dict[str, Any]]]) -> None:
                         f"{case}: correctness signature {field} differs: "
                         f"{record[field]} versus {reference[field]}"
                     )
-            expected_linear = {"none": -1, "noop1": 1, "noop8": 8,
-                               "pardiso1": 1, "pardiso8": 8}[case]
+            expected_linear = {
+                "none": -1,
+                "noop1": 1,
+                "noop8": 8,
+                "pardiso1": 1,
+                "pardiso8": 8,
+            }[case]
             if record["observed_linear_mkl_budget"] != expected_linear:
                 raise RuntimeError(
                     f"{case}: observed linear budget "
@@ -240,9 +266,13 @@ def summarize(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         row: dict[str, Any] = {"case": case, "samples": len(selected)}
         for metric in (
-            "prelude_seconds", "prelude_process_cpu_seconds", "prelude_cpu_over_wall",
-            "prelude_worker_entries", "prelude_peak_workers",
-            "evaluation_execute_seconds", "evaluation_kernel_seconds"
+            "prelude_seconds",
+            "prelude_process_cpu_seconds",
+            "prelude_cpu_over_wall",
+            "prelude_worker_entries",
+            "prelude_peak_workers",
+            "evaluation_execute_seconds",
+            "evaluation_kernel_seconds",
         ):
             values = [sample[metric] for sample in selected]
             row[f"median_{metric}"] = statistics.median(values)
@@ -266,9 +296,7 @@ def summarize(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def paired_contrasts(
     samples: list[dict[str, Any]], bootstrap_samples: int, seed: int
 ) -> list[dict[str, Any]]:
-    by_key = {
-        (sample["repetition"], sample["case"]): sample for sample in samples
-    }
+    by_key = {(sample["repetition"], sample["case"]): sample for sample in samples}
     repetitions = sorted({sample["repetition"] for sample in samples})
     requested = (
         ("none_over_noop1", "none", "noop1"),
@@ -281,7 +309,8 @@ def paired_contrasts(
     rows: list[dict[str, Any]] = []
     for contrast, numerator, denominator in requested:
         paired_repetitions = [
-            repetition for repetition in repetitions
+            repetition
+            for repetition in repetitions
             if (repetition, numerator) in by_key and (repetition, denominator) in by_key
         ]
         if not paired_repetitions:
@@ -301,10 +330,11 @@ def paired_contrasts(
             boot_differences: list[float] = []
             for _ in range(bootstrap_samples):
                 indices = [
-                    rng.randrange(len(paired_repetitions))
-                    for _ in paired_repetitions
+                    rng.randrange(len(paired_repetitions)) for _ in paired_repetitions
                 ]
-                boot_ratios.append(statistics.median(ratios[index] for index in indices))
+                boot_ratios.append(
+                    statistics.median(ratios[index] for index in indices)
+                )
                 boot_differences.append(
                     statistics.median(differences[index] for index in indices)
                 )
@@ -312,19 +342,21 @@ def paired_contrasts(
             boot_differences.sort()
             lower = max(0, int(0.025 * bootstrap_samples) - 1)
             upper = min(bootstrap_samples - 1, int(0.975 * bootstrap_samples))
-            rows.append({
-                "contrast": contrast,
-                "numerator": numerator,
-                "denominator": denominator,
-                "metric": metric,
-                "paired_samples": len(paired_repetitions),
-                "median_paired_ratio": statistics.median(ratios),
-                "paired_ratio_ci95_low": boot_ratios[lower],
-                "paired_ratio_ci95_high": boot_ratios[upper],
-                "median_paired_difference_seconds": statistics.median(differences),
-                "paired_difference_ci95_low_seconds": boot_differences[lower],
-                "paired_difference_ci95_high_seconds": boot_differences[upper],
-            })
+            rows.append(
+                {
+                    "contrast": contrast,
+                    "numerator": numerator,
+                    "denominator": denominator,
+                    "metric": metric,
+                    "paired_samples": len(paired_repetitions),
+                    "median_paired_ratio": statistics.median(ratios),
+                    "paired_ratio_ci95_low": boot_ratios[lower],
+                    "paired_ratio_ci95_high": boot_ratios[upper],
+                    "median_paired_difference_seconds": statistics.median(differences),
+                    "paired_difference_ci95_low_seconds": boot_differences[lower],
+                    "paired_difference_ci95_high_seconds": boot_differences[upper],
+                }
+            )
     return rows
 
 
@@ -349,19 +381,28 @@ def main() -> int:
     mesh = resolve_file(args.mesh, "mesh")
     out = args.out.expanduser().resolve()
     environment = os.environ.copy()
-    environment.update({
-        "MKL_THREADING_LAYER": "TBB",
-        "MKL_NUM_THREADS": str(args.concurrency),
-        "MKL_DYNAMIC": "FALSE",
-        "OMP_NUM_THREADS": str(args.concurrency),
-        "OMP_DYNAMIC": "FALSE",
-    })
+    environment.update(
+        {
+            "MKL_THREADING_LAYER": "TBB",
+            "MKL_NUM_THREADS": str(args.concurrency),
+            "MKL_DYNAMIC": "FALSE",
+            "OMP_NUM_THREADS": str(args.concurrency),
+            "OMP_DYNAMIC": "FALSE",
+        }
+    )
 
     rng = random.Random(args.seed)
     blocks: list[list[tuple[int, str]]] = []
     for repetition in range(args.repetitions):
-        block = [(repetition, case) for case in args.cases]
-        rng.shuffle(block)
+        block = [
+            (repetition, case)
+            for case in balanced_order(
+                args.cases,
+                repetition=repetition,
+                seed=args.seed,
+                block_key="cubic_linear_pardiso_aftermath",
+            )
+        ]
         blocks.append(block)
     # Shuffle complete repetition blocks while retaining one sample per case per block.
     rng.shuffle(blocks)
@@ -374,23 +415,37 @@ def main() -> int:
 
     out.mkdir(parents=True, exist_ok=False)
     linkage = verify_linkage(probe, environment)
+    host_preconditioning = precondition_host(args, workers=args.concurrency)
     raw: list[dict[str, Any]] = []
     samples: list[dict[str, Any]] = []
     pending: dict[int, dict[str, list[dict[str, Any]]]] = {}
 
+    previous_repetition: int | None = None
     for job_index, (repetition, case) in enumerate(jobs, start=1):
+        if repetition != previous_repetition:
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"repetition={repetition}",
+            )
+            previous_repetition = repetition
         command = command_for(args, probe, mesh, case)
         print(f"[{job_index}/{len(jobs)}] r={repetition} case={case}", flush=True)
         completed = subprocess.run(
-            command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            env=environment, check=False
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=environment,
+            check=False,
         )
         log_path = out / f"r{repetition:02d}-{case}.log"
         log_path.write_text(completed.stdout, encoding="utf-8")
         if completed.returncode != 0:
             raise RuntimeError(f"{shlex.join(command)}\n{completed.stdout}")
         records = [
-            record for line in completed.stdout.splitlines()
+            record
+            for line in completed.stdout.splitlines()
             if (record := parse_record(line)) is not None
         ]
         if len(records) != args.measured_iterations:
@@ -422,14 +477,22 @@ def main() -> int:
             "evaluation=1, actual multi-threaded PARDISO aftermath—not executor/TLS "
             "switching alone—causes the slowdown."
         ),
-        "arguments": vars(args) | {"probe": str(probe), "mesh": str(mesh), "out": str(out)},
+        "arguments": vars(args)
+        | {"probe": str(probe), "mesh": str(mesh), "out": str(out)},
         "mesh_sha256": sha256(mesh),
         "probe_sha256": sha256(probe),
-        "environment": {key: environment[key] for key in (
-            "MKL_THREADING_LAYER", "MKL_NUM_THREADS", "MKL_DYNAMIC",
-            "OMP_NUM_THREADS", "OMP_DYNAMIC"
-        )},
+        "environment": {
+            key: environment[key]
+            for key in (
+                "MKL_THREADING_LAYER",
+                "MKL_NUM_THREADS",
+                "MKL_DYNAMIC",
+                "OMP_NUM_THREADS",
+                "OMP_DYNAMIC",
+            )
+        },
         "linkage": linkage,
+        "host_preconditioning": host_preconditioning,
         "raw_measurements": raw,
         "worker_samples": samples,
         "summary": summaries,

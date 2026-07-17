@@ -19,6 +19,18 @@ from typing import Any
 
 SCRIPT = Path(__file__).resolve()
 ROOT = SCRIPT.parents[2]
+BENCHMARKS_ROOT = SCRIPT.parents[1]
+if str(BENCHMARKS_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_ROOT))
+
+from host_preconditioning import (  # noqa: E402
+    add_host_preconditioning_arguments,
+    balanced_order,
+    guard_host_condition,
+    precondition_host,
+)
+
+
 RESULT_MARKER = "PYPGO_FEM_THREADING_RESULT="
 
 FORMULATIONS = (
@@ -57,7 +69,9 @@ FORMULATION_METADATA = {
 
 def parse_args(default_backend: str = "mkl") -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=tuple(BACKEND_POLICIES), default=default_backend)
+    parser.add_argument(
+        "--backend", choices=tuple(BACKEND_POLICIES), default=default_backend
+    )
     parser.add_argument("--out", type=Path)
     parser.add_argument(
         "--tet-mesh",
@@ -69,8 +83,12 @@ def parse_args(default_backend: str = "mkl") -> argparse.Namespace:
         type=Path,
         default=ROOT / "examples/assets/veg/cubic/box.veg",
     )
-    parser.add_argument("--formulations", nargs="+", choices=FORMULATIONS, default=FORMULATIONS)
-    parser.add_argument("--operations", nargs="+", choices=OPERATIONS, default=OPERATIONS)
+    parser.add_argument(
+        "--formulations", nargs="+", choices=FORMULATIONS, default=FORMULATIONS
+    )
+    parser.add_argument(
+        "--operations", nargs="+", choices=OPERATIONS, default=OPERATIONS
+    )
     parser.add_argument("--policies", nargs="+", choices=POLICIES)
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--repetitions", type=int, default=7)
@@ -79,12 +97,17 @@ def parse_args(default_backend: str = "mkl") -> argparse.Namespace:
     parser.add_argument("--warmup-iterations", type=int, default=2)
     parser.add_argument("--seed", type=int, default=20260716)
     parser.add_argument("--displacement-scale", type=float, default=1e-4)
-    parser.add_argument("--elastic-model", choices=("stable_neo", "stvk", "linear"), default="stable_neo")
+    parser.add_argument(
+        "--elastic-model",
+        choices=("stable_neo", "stvk", "linear"),
+        default="stable_neo",
+    )
     parser.add_argument("--plastic-dofs", type=int, choices=(0, 3, 6), default=6)
     parser.add_argument("--signature-relative-tolerance", type=float, default=1e-9)
     parser.add_argument("--native-profile", action="store_true")
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    add_host_preconditioning_arguments(parser)
 
     # The controller starts one fresh worker process for every timed sample.
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
@@ -129,7 +152,9 @@ def validate_args(args: argparse.Namespace) -> None:
 
     if args.worker:
         if args.formulation is None or args.operation is None or args.policy is None:
-            raise SystemExit("worker mode requires --formulation, --operation, and --policy")
+            raise SystemExit(
+                "worker mode requires --formulation, --operation, and --policy"
+            )
     elif args.out is None and not args.dry_run:
         raise SystemExit("controller mode requires --out")
 
@@ -292,7 +317,9 @@ def worker_main(args: argparse.Namespace) -> int:
         "scale": args.displacement_scale,
         "size": int(displacement.size),
         "nonzero_count": int(np.count_nonzero(displacement)),
-        "l2_norm": float(np.sqrt(np.sum(displacement * displacement, dtype=np.float64))),
+        "l2_norm": float(
+            np.sqrt(np.sum(displacement * displacement, dtype=np.float64))
+        ),
         "max_abs": float(np.max(np.abs(displacement), initial=0.0)),
     }
 
@@ -364,14 +391,18 @@ def worker_main(args: argparse.Namespace) -> int:
         "repetition": args.repetition,
         "concurrency": args.concurrency,
         "arena_concurrency": (
-            None if policy_parameters is None else policy_parameters["arena_concurrency"]
+            None
+            if policy_parameters is None
+            else policy_parameters["arena_concurrency"]
         ),
         "mkl_local_thread_budget": (
             None
             if policy_parameters is None
             else policy_parameters["mkl_local_thread_budget"]
         ),
-        "accelerate": None if policy_parameters is None else policy_parameters["accelerate"],
+        "accelerate": None
+        if policy_parameters is None
+        else policy_parameters["accelerate"],
         "mesh": {
             "path": str(mesh_path.resolve()),
             "kind": metadata["mesh_kind"],
@@ -477,7 +508,9 @@ def parse_worker_result(stdout: str, command: list[str]) -> dict[str, Any]:
     return json.loads(payloads[0])
 
 
-def worker_environment(backend: str, concurrency: int) -> tuple[dict[str, str], dict[str, str]]:
+def worker_environment(
+    backend: str, concurrency: int
+) -> tuple[dict[str, str], dict[str, str]]:
     env = os.environ.copy()
     overrides: dict[str, str] = {}
     if backend == "mkl":
@@ -487,9 +520,9 @@ def worker_environment(backend: str, concurrency: int) -> tuple[dict[str, str], 
             "MKL_DYNAMIC": "FALSE",
         }
         env.update(overrides)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(ROOT), env.get("PYTHONPATH", "")]
-    ).rstrip(os.pathsep)
+    env["PYTHONPATH"] = os.pathsep.join([str(ROOT), env.get("PYTHONPATH", "")]).rstrip(
+        os.pathsep
+    )
     return env, overrides
 
 
@@ -522,7 +555,9 @@ def _close_numeric(
     return abs(left - right) <= relative_tolerance * scale
 
 
-def validate_signatures(records: list[dict[str, Any]], relative_tolerance: float) -> None:
+def validate_signatures(
+    records: list[dict[str, Any]], relative_tolerance: float
+) -> None:
     if len(records) < 2:
         return
     reference = records[0]
@@ -551,7 +586,9 @@ def validate_signatures(records: list[dict[str, Any]], relative_tolerance: float
     for record in records[1:]:
         signature = record["signature"]
         if signature["kind"] != reference_signature["kind"]:
-            raise RuntimeError("result signature kinds differ across threading policies")
+            raise RuntimeError(
+                "result signature kinds differ across threading policies"
+            )
         for field in exact_fields:
             if signature[field] != reference_signature[field]:
                 raise RuntimeError(
@@ -587,7 +624,9 @@ def summarize(
 ) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for record in records:
-        grouped.setdefault((record["formulation"], record["operation"]), []).append(record)
+        grouped.setdefault((record["formulation"], record["operation"]), []).append(
+            record
+        )
 
     summaries: list[dict[str, Any]] = []
     for (formulation, operation), group in sorted(grouped.items()):
@@ -596,7 +635,9 @@ def summarize(
         for record in group:
             by_policy.setdefault(record["policy"], []).append(record)
         for policy, policy_records in sorted(by_policy.items()):
-            values = [float(record["seconds_per_evaluation"]) for record in policy_records]
+            values = [
+                float(record["seconds_per_evaluation"]) for record in policy_records
+            ]
             policy_rows[policy] = {
                 "samples": len(values),
                 "median_seconds_per_evaluation": statistics.median(values),
@@ -673,8 +714,12 @@ def controller_main(args: argparse.Namespace) -> int:
 
     scheduled: list[tuple[list[str], tuple[int, str, str]]] = []
     for repetition, formulation, operation in blocks:
-        policies = list(args.policies)
-        rng.shuffle(policies)
+        policies = balanced_order(
+            args.policies,
+            repetition=repetition,
+            seed=args.seed,
+            block_key=f"{args.backend}:{formulation}:{operation}",
+        )
         for policy in policies:
             scheduled.append(
                 (
@@ -692,6 +737,7 @@ def controller_main(args: argparse.Namespace) -> int:
 
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    host_preconditioning = precondition_host(args, workers=args.concurrency)
     _, environment_overrides = worker_environment(args.backend, args.concurrency)
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -713,6 +759,7 @@ def controller_main(args: argparse.Namespace) -> int:
         "elastic_model": args.elastic_model,
         "plastic_dofs": args.plastic_dofs,
         "native_profile": args.native_profile,
+        "host_preconditioning": host_preconditioning,
         "environment_overrides": environment_overrides,
         "tet_mesh": str(args.tet_mesh.resolve()),
         "cubic_mesh": str(args.cubic_mesh.resolve()),
@@ -721,7 +768,18 @@ def controller_main(args: argparse.Namespace) -> int:
     records: list[dict[str, Any]] = []
     completed_blocks: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
     total = len(scheduled)
+    previous_block: tuple[int, str, str] | None = None
     for index, (command, block_key) in enumerate(scheduled, start=1):
+        if block_key != previous_block:
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=(
+                    f"r={block_key[0]}:formulation={block_key[1]}:"
+                    f"operation={block_key[2]}"
+                ),
+            )
+            previous_block = block_key
         print(f"[{index}/{total}] {' '.join(command)}", flush=True)
         record = run_worker(command, args.backend, args.concurrency)
         records.append(record)
