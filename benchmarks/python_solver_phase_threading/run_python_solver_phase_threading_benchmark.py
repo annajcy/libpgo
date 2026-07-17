@@ -739,10 +739,6 @@ def validate_signatures(
     )
     numeric_fields = (
         ("final_objective", None),
-        ("x_sum", "x_absolute_sum"),
-        ("x_absolute_sum", None),
-        ("x_squared_norm", None),
-        ("x_max_abs", None),
         ("fixed_dof_max_abs", None),
         ("accepted_alpha", None),
     )

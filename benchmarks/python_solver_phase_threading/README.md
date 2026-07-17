@@ -179,6 +179,10 @@ exact SHA-256 of canonical little-endian float64 result bytes; this hash is
 provenance evidence and is not used in place of the tolerant DOF-wise
 comparison. When `--timed-solves` is greater than one, every solve is first
 checked against its siblings inside the worker, before cross-policy validation.
+The scalar vector checksums remain useful provenance diagnostics but are not
+independent correctness gates: summing tens of thousands of tolerated DOF-wise
+roundoff differences can make a checksum fail a tolerance that every actual
+DOF passes. The authoritative vector check is the element-wise comparison.
 
 Check `run_status` before analyzing a checkpoint. A usable final result has
 `state="complete"`, `complete=true`, `valid_so_far=true`, all scheduled blocks
