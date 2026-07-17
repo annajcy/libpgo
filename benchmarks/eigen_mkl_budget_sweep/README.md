@@ -1,10 +1,9 @@
-# Eigen/oneMKL local-budget sweep
+# Eigen/oneMKL threading surface
 
-This benchmark tests whether oneMKL's TBB task decomposition follows its
-thread-local budget or the concurrency available in the enclosing private TBB
-arena. It also separates finer task decomposition from harmful
-over-decomposition by measuring both an isolated GEMM and outer-parallel GEMM
-batches.
+This benchmark maps oneMKL's TBB behavior over the Cartesian product of the
+thread-local budget and enclosing private TBB arena concurrency. It separates
+finer task decomposition from harmful over-decomposition by measuring both an
+isolated GEMM and outer-parallel GEMM batches.
 
 The benchmark is Linux-only and requires `MKL::MKL` configured with the
 `tbb_thread` threading layer. It consists of:
@@ -28,8 +27,9 @@ Build the probe:
 cmake --build build/base --target eigen_mkl_budget_sweep_probe
 ```
 
-Then run the default sweep over local budgets
-`0, 1, 2, 4, 8, 16`, with arena width 8 and outer-task counts `1, 8, 32`:
+The default surface uses arena widths `1, 2, 4, 8`, local budgets
+`0, 1, 2, 4, 8, 16`, and outer-task counts `1, 8, 32` (for a global
+concurrency of 8):
 
 ```bash
 python benchmarks/eigen_mkl_budget_sweep/run_eigen_mkl_budget_sweep.py \
@@ -44,7 +44,10 @@ the median and median absolute deviation rather than selecting a best run.
 
 ## VTune decomposition profiles
 
-Add `--collect-vtune` to profile outer-task counts 1 and 8:
+Add `--collect-vtune` to profile the isolated `outer_tasks=1` surface. This is
+the only default profile mode where `task/GEMM` is attributable solely to
+oneMKL; the timing surface still covers outer-task counts 8 and 32. The default
+collects three VTune repetitions for each arena/budget cell.
 
 ```bash
 python benchmarks/eigen_mkl_budget_sweep/run_eigen_mkl_budget_sweep.py \
@@ -72,13 +75,13 @@ time, spin, or wait behavior under outer parallel load.
 
 ## Focused variants
 
-Use a smaller sweep or change outer pressure explicitly:
+Use a smaller surface or change outer pressure explicitly:
 
 ```bash
 python benchmarks/eigen_mkl_budget_sweep/run_eigen_mkl_budget_sweep.py \
   build/base/benchmarks/eigen_mkl_budget_sweep/eigen_mkl_budget_sweep_probe \
   --out benchmark-results/eigen-mkl-budget-sweep-focused \
-  --arena-concurrency 8 \
+  --arena-concurrencies 1 4 8 \
   --mkl-local-thread-budgets 0 8 16 \
   --outer-tasks 1 8 \
   --profile-outer-tasks 1 \

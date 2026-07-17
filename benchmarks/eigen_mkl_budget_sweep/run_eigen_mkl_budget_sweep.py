@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sweep oneMKL local thread budgets inside a fixed oneTBB arena."""
+"""Measure oneMKL task decomposition and timing over arena and budget settings."""
 
 from __future__ import annotations
 
@@ -59,7 +59,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--arena-concurrency",
         type=int,
-        help="Private arena width; defaults to --concurrency.",
+        help=(
+            "Deprecated compatibility alias for one private arena width. "
+            "Use --arena-concurrencies for the threading surface."
+        ),
+    )
+    parser.add_argument(
+        "--arena-concurrencies",
+        type=int,
+        nargs="+",
+        help=(
+            "Private arena widths to sweep. Defaults to powers of two up to "
+            "--concurrency, plus --concurrency when needed."
+        ),
     )
     parser.add_argument(
         "--mkl-local-thread-budgets",
@@ -78,14 +90,17 @@ def parse_args() -> argparse.Namespace:
         "--profile-outer-tasks",
         type=int,
         nargs="+",
-        default=[1, 8],
-        help="Outer-task counts collected with VTune when --collect-vtune is set.",
+        default=[1],
+        help=(
+            "Outer-task counts collected with VTune when --collect-vtune is set. "
+            "Only 1 yields a clean internal-oneMKL task/GEMM measurement."
+        ),
     )
     parser.add_argument("--matrix-n", type=int, default=1024)
     parser.add_argument("--warmup-iterations", type=int, default=3)
     parser.add_argument("--profile-iterations", type=int, default=50)
     parser.add_argument("--timing-repetitions", type=int, default=7)
-    parser.add_argument("--profile-repetitions", type=int, default=1)
+    parser.add_argument("--profile-repetitions", type=int, default=3)
     parser.add_argument("--seed", type=int, default=20260716)
     parser.add_argument("--collect-vtune", action="store_true")
     parser.add_argument("--vtune", type=Path)
@@ -109,11 +124,34 @@ def require_nonnegative(value: int, option: str) -> None:
         raise ValueError(f"{option} must be nonnegative.")
 
 
+def default_arena_concurrencies(concurrency: int) -> list[int]:
+    values: list[int] = []
+    value = 1
+    while value <= concurrency:
+        values.append(value)
+        value *= 2
+    if values[-1] != concurrency:
+        values.append(concurrency)
+    return values
+
+
 def validate_args(args: argparse.Namespace) -> None:
     require_positive(args.concurrency, "--concurrency")
-    if args.arena_concurrency is None:
-        args.arena_concurrency = args.concurrency
-    require_positive(args.arena_concurrency, "--arena-concurrency")
+    if args.arena_concurrency is not None and args.arena_concurrencies is not None:
+        raise ValueError(
+            "Pass either --arena-concurrency or --arena-concurrencies, not both."
+        )
+    if args.arena_concurrency is not None:
+        args.arena_concurrencies = [args.arena_concurrency]
+    elif args.arena_concurrencies is None:
+        args.arena_concurrencies = default_arena_concurrencies(args.concurrency)
+    for arena in args.arena_concurrencies:
+        require_positive(arena, "--arena-concurrencies")
+        if arena > args.concurrency:
+            raise ValueError(
+                "--arena-concurrencies cannot exceed --concurrency; use a larger "
+                "global control explicitly if that is the intended experiment."
+            )
     require_positive(args.matrix_n, "--matrix-n")
     require_nonnegative(args.warmup_iterations, "--warmup-iterations")
     require_positive(args.profile_iterations, "--profile-iterations")
@@ -127,6 +165,8 @@ def validate_args(args: argparse.Namespace) -> None:
         require_positive(outer_tasks, "--profile-outer-tasks")
     if len(set(args.mkl_local_thread_budgets)) != len(args.mkl_local_thread_budgets):
         raise ValueError("--mkl-local-thread-budgets must not contain duplicates.")
+    if len(set(args.arena_concurrencies)) != len(args.arena_concurrencies):
+        raise ValueError("--arena-concurrencies must not contain duplicates.")
     if len(set(args.outer_tasks)) != len(args.outer_tasks):
         raise ValueError("--outer-tasks must not contain duplicates.")
     if len(set(args.profile_outer_tasks)) != len(args.profile_outer_tasks):
@@ -198,13 +238,14 @@ def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
 def probe_command(
     probe: Path,
     args: argparse.Namespace,
+    arena: int,
     budget: int,
     outer_tasks: int,
 ) -> list[str]:
     return [
         str(probe),
         f"--concurrency={args.concurrency}",
-        f"--arena-concurrency={args.arena_concurrency}",
+        f"--arena-concurrency={arena}",
         f"--mkl-local-thread-budget={budget}",
         f"--outer-tasks={outer_tasks}",
         f"--matrix-n={args.matrix_n}",
@@ -236,28 +277,36 @@ def make_jobs(
     repetitions: int,
     seed: int,
 ) -> list[dict[str, int]]:
-    blocks = [
+    repetition_blocks = [
         (repetition, outer_tasks)
         for repetition in range(1, repetitions + 1)
         for outer_tasks in outer_tasks_values
     ]
-    random.Random(seed).shuffle(blocks)
+    random.Random(seed).shuffle(repetition_blocks)
     jobs: list[dict[str, int]] = []
-    for repetition, outer_tasks in blocks:
-        budgets = balanced_order(
-            args.mkl_local_thread_budgets,
+    for repetition, outer_tasks in repetition_blocks:
+        arenas = balanced_order(
+            args.arena_concurrencies,
             repetition=repetition - 1,
             seed=seed,
-            block_key=f"outer_tasks={outer_tasks}",
+            block_key=f"outer_tasks={outer_tasks}:arenas",
         )
-        jobs.extend(
-            {
-                "budget": budget,
-                "outer_tasks": outer_tasks,
-                "repetition": repetition,
-            }
-            for budget in budgets
-        )
+        for arena in arenas:
+            budgets = balanced_order(
+                args.mkl_local_thread_budgets,
+                repetition=repetition - 1,
+                seed=seed,
+                block_key=f"outer_tasks={outer_tasks}:arena={arena}",
+            )
+            jobs.extend(
+                {
+                    "arena": arena,
+                    "budget": budget,
+                    "outer_tasks": outer_tasks,
+                    "repetition": repetition,
+                }
+                for budget in budgets
+            )
     return jobs
 
 
@@ -292,17 +341,18 @@ def median_and_mad(values: list[float]) -> tuple[float, float]:
 
 
 def summarize_timing(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    groups: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    groups: dict[tuple[int, int, int], list[dict[str, Any]]] = {}
     for record in records:
         result = record["result"]
         key = (
+            int(result["configured_arena_concurrency"]),
             int(result["configured_mkl_local_budget"]),
             int(result["outer_tasks"]),
         )
         groups.setdefault(key, []).append(record)
 
     summary = []
-    for (budget, outer_tasks), group in sorted(groups.items()):
+    for (arena, budget, outer_tasks), group in sorted(groups.items()):
         wall_values = [float(record["result"]["wall_seconds"]) for record in group]
         cpu_values = [
             float(record["result"]["process_cpu_seconds"]) for record in group
@@ -311,6 +361,7 @@ def summarize_timing(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         cpu_median, cpu_mad = median_and_mad(cpu_values)
         summary.append(
             {
+                "configured_arena_concurrency": arena,
                 "configured_mkl_local_budget": budget,
                 "outer_tasks": outer_tasks,
                 "repetitions": len(group),
@@ -338,19 +389,21 @@ def optional_median(values: list[int | float | None]) -> float | None:
 
 def summarize_profiles(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     complete = [record for record in records if "task_metrics" in record]
-    groups: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    groups: dict[tuple[int, int, int], list[dict[str, Any]]] = {}
     for record in complete:
         result = record["result"]
         key = (
+            int(result["configured_arena_concurrency"]),
             int(result["configured_mkl_local_budget"]),
             int(result["outer_tasks"]),
         )
         groups.setdefault(key, []).append(record)
 
     summary = []
-    for (budget, outer_tasks), group in sorted(groups.items()):
+    for (arena, budget, outer_tasks), group in sorted(groups.items()):
         summary.append(
             {
+                "configured_arena_concurrency": arena,
                 "configured_mkl_local_budget": budget,
                 "outer_tasks": outer_tasks,
                 "repetitions": len(group),
@@ -473,13 +526,19 @@ def main() -> int:
         for job in timing_jobs:
             print(
                 shlex.join(
-                    probe_command(probe, args, job["budget"], job["outer_tasks"])
+                    probe_command(
+                        probe,
+                        args,
+                        job["arena"],
+                        job["budget"],
+                        job["outer_tasks"],
+                    )
                 )
             )
         if vtune is not None:
             for job in profile_jobs:
                 name = case_name(
-                    args.arena_concurrency,
+                    job["arena"],
                     job["budget"],
                     job["outer_tasks"],
                     job["repetition"],
@@ -492,7 +551,13 @@ def main() -> int:
                     "-result-dir",
                     str(output / "profiles" / f"vtune-{name}"),
                     "--",
-                    *probe_command(probe, args, job["budget"], job["outer_tasks"]),
+                    *probe_command(
+                        probe,
+                        args,
+                        job["arena"],
+                        job["budget"],
+                        job["outer_tasks"],
+                    ),
                 ]
                 print(shlex.join(command))
         return 0
@@ -506,13 +571,18 @@ def main() -> int:
     timing_log_directory.mkdir()
 
     results: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "probe": str(probe),
         "vtune": str(vtune) if vtune is not None else None,
         "configuration": {
             "concurrency": args.concurrency,
-            "arena_concurrency": args.arena_concurrency,
+            "arena_concurrency": (
+                args.arena_concurrencies[0]
+                if len(args.arena_concurrencies) == 1
+                else None
+            ),
+            "arena_concurrencies": args.arena_concurrencies,
             "mkl_local_thread_budgets": args.mkl_local_thread_budgets,
             "outer_tasks": args.outer_tasks,
             "profile_outer_tasks": args.profile_outer_tasks,
@@ -539,23 +609,29 @@ def main() -> int:
     }
     results_path = output / "budget-sweep.json"
 
-    previous_block: tuple[int, int] | None = None
+    previous_block: tuple[int, int, int] | None = None
     for index, job in enumerate(timing_jobs, start=1):
-        block = (job["repetition"], job["outer_tasks"])
+        block = (job["repetition"], job["outer_tasks"], job["arena"])
         if block != previous_block:
             guard_host_condition(
                 args,
                 host_preconditioning,
-                label=f"timing:r={block[0]}:outer_tasks={block[1]}",
+                label=(f"timing:r={block[0]}:outer_tasks={block[1]}:arena={block[2]}"),
             )
             previous_block = block
         name = case_name(
-            args.arena_concurrency,
+            job["arena"],
             job["budget"],
             job["outer_tasks"],
             job["repetition"],
         )
-        command = probe_command(probe, args, job["budget"], job["outer_tasks"])
+        command = probe_command(
+            probe,
+            args,
+            job["arena"],
+            job["budget"],
+            job["outer_tasks"],
+        )
         print(f"[timing {index}/{len(timing_jobs)}] {name}", flush=True)
         completed = subprocess.run(
             command,
@@ -589,15 +665,34 @@ def main() -> int:
 
     profiles_directory = output / "profiles"
     profiles_directory.mkdir()
+    previous_profile_block: tuple[int, int, int] | None = None
     for index, job in enumerate(profile_jobs, start=1):
+        profile_block = (job["repetition"], job["outer_tasks"], job["arena"])
+        if profile_block != previous_profile_block:
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=(
+                    "profile:"
+                    f"r={profile_block[0]}:outer_tasks={profile_block[1]}:"
+                    f"arena={profile_block[2]}"
+                ),
+            )
+            previous_profile_block = profile_block
         name = case_name(
-            args.arena_concurrency,
+            job["arena"],
             job["budget"],
             job["outer_tasks"],
             job["repetition"],
         )
         result_directory = profiles_directory / f"vtune-{name}"
-        probe_args = probe_command(probe, args, job["budget"], job["outer_tasks"])
+        probe_args = probe_command(
+            probe,
+            args,
+            job["arena"],
+            job["budget"],
+            job["outer_tasks"],
+        )
         command = [
             *sudo_environment_prefix(args.sudo, environment),
             str(vtune),
