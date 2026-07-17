@@ -4,7 +4,8 @@ All top-level benchmark runners use the shared
 `benchmarks/host_preconditioning.py` helper before starting measured cases.
 The policy has three distinct layers:
 
-1. a policy-neutral all-core host preheat (10 seconds by default);
+1. a policy-neutral all-core host preheat (60 seconds by default, long enough
+   to reach the sustained package power/thermal state on the benchmark host);
 2. policy-neutral throughput probes until the trailing three probes have at
    most 2% relative median absolute deviation (and no greater than 10% total
    spread); and
