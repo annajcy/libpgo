@@ -30,6 +30,8 @@ INTEGER_FIELDS = {
     "observed_linear_mkl_budget",
     "observed_evaluation_mkl_budget",
     "observed_evaluation_arena_concurrency",
+    "prelude_worker_entries",
+    "prelude_peak_workers",
     "mesh_vertices",
     "mesh_elements",
     "dofs",
@@ -174,6 +176,12 @@ def median_record(records: list[dict[str, Any]], repetition: int) -> dict[str, A
             r["prelude_process_cpu_seconds"] / r["prelude_seconds"]
             for r in records if r["prelude_seconds"] > 0.0
         ),
+        "prelude_worker_entries": statistics.median(
+            r["prelude_worker_entries"] for r in records
+        ),
+        "prelude_peak_workers": statistics.median(
+            r["prelude_peak_workers"] for r in records
+        ),
         "evaluation_execute_seconds": statistics.median(
             r["evaluation_execute_seconds"] for r in records
         ),
@@ -233,6 +241,7 @@ def summarize(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row: dict[str, Any] = {"case": case, "samples": len(selected)}
         for metric in (
             "prelude_seconds", "prelude_process_cpu_seconds", "prelude_cpu_over_wall",
+            "prelude_worker_entries", "prelude_peak_workers",
             "evaluation_execute_seconds", "evaluation_kernel_seconds"
         ):
             values = [sample[metric] for sample in selected]

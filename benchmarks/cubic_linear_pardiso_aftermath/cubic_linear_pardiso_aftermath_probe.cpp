@@ -13,8 +13,10 @@
 #include <mkl.h>
 #include <tbb/global_control.h>
 #include <tbb/task_arena.h>
+#include <tbb/task_scheduler_observer.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <climits>
 #include <cmath>
@@ -90,7 +92,39 @@ struct Measurement
   int observedLinearMklBudget = -1;
   int observedEvaluationMklBudget = -1;
   int observedEvaluationArenaConcurrency = -1;
+  int preludeWorkerEntries = 0;
+  int preludePeakWorkers = 0;
   Signature signature;
+};
+
+class PreludeObserver final : public tbb::task_scheduler_observer
+{
+public:
+  int workerEntries() const noexcept { return workerEntries_.load(std::memory_order_relaxed); }
+  int peakWorkers() const noexcept { return peakWorkers_.load(std::memory_order_relaxed); }
+
+private:
+  void on_scheduler_entry(bool isWorker) override
+  {
+    if (!isWorker)
+      return;
+    workerEntries_.fetch_add(1, std::memory_order_relaxed);
+    const int active = activeWorkers_.fetch_add(1, std::memory_order_relaxed) + 1;
+    int observed = peakWorkers_.load(std::memory_order_relaxed);
+    while (active > observed &&
+      !peakWorkers_.compare_exchange_weak(observed, active, std::memory_order_relaxed)) {
+    }
+  }
+
+  void on_scheduler_exit(bool isWorker) override
+  {
+    if (isWorker)
+      activeWorkers_.fetch_sub(1, std::memory_order_relaxed);
+  }
+
+  std::atomic<int> workerEntries_{ 0 };
+  std::atomic<int> activeWorkers_{ 0 };
+  std::atomic<int> peakWorkers_{ 0 };
 };
 
 int parseInteger(std::string_view text, std::string_view option, bool allowZero)
@@ -300,6 +334,8 @@ try {
     const std::clock_t preludeCpuBegin = std::clock();
     auto runPrelude = [&](P::ArenaThreadingExecutor &executor) {
       executor.execute([&] {
+        PreludeObserver observer;
+        observer.observe(true);
         measurement.observedLinearMklBudget = mkl_get_max_threads();
         if (arguments.caseSpec.prelude == PreludeKind::Pardiso) {
           if (!pardiso->factorize(reducedHessian))
@@ -307,6 +343,9 @@ try {
           if (!pardiso->solve(reducedHessian, solution.data(), rhs.data()))
             throw std::runtime_error("MKL PARDISO solve failed");
         }
+        observer.observe(false);
+        measurement.preludeWorkerEntries = observer.workerEntries();
+        measurement.preludePeakWorkers = observer.peakWorkers();
       });
     };
     if (arguments.caseSpec.prelude != PreludeKind::None) {
@@ -360,6 +399,8 @@ try {
               << " observed_linear_mkl_budget=" << measurement.observedLinearMklBudget
               << " observed_evaluation_mkl_budget=" << measurement.observedEvaluationMklBudget
               << " observed_evaluation_arena_concurrency=" << measurement.observedEvaluationArenaConcurrency
+              << " prelude_worker_entries=" << measurement.preludeWorkerEntries
+              << " prelude_peak_workers=" << measurement.preludePeakWorkers
               << " mesh_vertices=" << mesh->getNumVertices()
               << " mesh_elements=" << mesh->getNumElements()
               << " dofs=" << energy->getNumDOFs()

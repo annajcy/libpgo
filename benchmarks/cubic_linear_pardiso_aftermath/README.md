@@ -23,7 +23,11 @@ FGH, so no preparation work sits between the prelude and evaluation. The probe
 records both the complete evaluation-executor call and a clock strictly around
 `func_grad_hessian` inside its lambda. It also records process CPU time around
 the prelude: `prelude_process_cpu_seconds / prelude_seconds` materially above
-one verifies that the budget-8 PARDISO case really performed concurrent work.
+one is supporting evidence of concurrent activity. A local oneTBB observer is
+enabled only across each prelude and records worker entries and peak workers in
+the linear arena; this is the primary check that PARDISO actually recruited
+workers rather than merely observing an MKL budget of 8. The process-CPU ratio
+alone is not treated as proof because idle oneTBB workers may spin briefly.
 
 The primary discriminators are:
 
