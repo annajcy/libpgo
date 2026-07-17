@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""Distinguish executor switching from real multi-threaded PARDISO aftermath."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import json
+import math
+import os
+import random
+import shlex
+import statistics
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+RESULT_PREFIX = "PGO_CUBIC_LINEAR_PARDISO_AFTERMATH_RESULT"
+CASES = ("none", "noop1", "noop8", "pardiso1", "pardiso8")
+INTEGER_FIELDS = {
+    "iteration",
+    "configured_global_concurrency",
+    "effective_global_concurrency",
+    "configured_arena_concurrency",
+    "configured_linear_mkl_budget",
+    "configured_evaluation_mkl_budget",
+    "observed_linear_mkl_budget",
+    "observed_evaluation_mkl_budget",
+    "observed_evaluation_arena_concurrency",
+    "mesh_vertices",
+    "mesh_elements",
+    "dofs",
+    "fixed_dofs",
+    "reduced_rows",
+    "reduced_nnz",
+}
+FLOAT_FIELDS = {
+    "prelude_seconds",
+    "evaluation_execute_seconds",
+    "evaluation_kernel_seconds",
+    "energy",
+    "gradient_squared_norm",
+    "gradient_max_abs",
+    "hessian_abs_sum",
+    "hessian_squared_norm",
+    "hessian_max_abs",
+    "solve_squared_norm",
+}
+SIGNATURE_FIELDS = (
+    "energy",
+    "gradient_squared_norm",
+    "gradient_max_abs",
+    "hessian_abs_sum",
+    "hessian_squared_norm",
+    "hessian_max_abs",
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("probe", type=Path)
+    parser.add_argument("--mesh", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--concurrency", type=int, default=8)
+    parser.add_argument("--reserved-slots", type=int, default=1)
+    parser.add_argument("--warmup-iterations", type=int, default=2)
+    parser.add_argument("--measured-iterations", type=int, default=5)
+    parser.add_argument("--repetitions", type=int, default=15)
+    parser.add_argument("--seed", type=int, default=20260717)
+    parser.add_argument("--cpu-list", help="Optional taskset CPU list, e.g. 21-28")
+    parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
+    parser.add_argument("--dry-run", action="store_true")
+    return parser.parse_args()
+
+
+def validate_args(args: argparse.Namespace) -> None:
+    if args.concurrency <= 0:
+        raise ValueError("--concurrency must be positive")
+    if args.reserved_slots < 0 or args.reserved_slots >= args.concurrency:
+        raise ValueError("--reserved-slots must be in [0, concurrency)")
+    if args.warmup_iterations < 0:
+        raise ValueError("--warmup-iterations must be nonnegative")
+    if args.measured_iterations <= 0 or args.repetitions <= 0:
+        raise ValueError("--measured-iterations and --repetitions must be positive")
+    if len(set(args.cases)) != len(args.cases):
+        raise ValueError("--cases must not contain duplicates")
+
+
+def resolve_file(path: Path, label: str, *, executable: bool = False) -> Path:
+    candidate = path.expanduser().resolve()
+    if not candidate.is_file():
+        raise FileNotFoundError(f"{label} does not exist: {candidate}")
+    if executable and not os.access(candidate, os.X_OK):
+        raise PermissionError(f"{label} is not executable: {candidate}")
+    return candidate
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def parse_record(line: str) -> dict[str, Any] | None:
+    if not line.startswith(RESULT_PREFIX + " "):
+        return None
+    record: dict[str, Any] = {}
+    for token in shlex.split(line[len(RESULT_PREFIX) + 1 :]):
+        key, value = token.split("=", 1)
+        if key in INTEGER_FIELDS:
+            record[key] = int(value)
+        elif key in FLOAT_FIELDS:
+            record[key] = float(value)
+        else:
+            record[key] = value
+    missing = (INTEGER_FIELDS | FLOAT_FIELDS | {"case", "prelude"}) - record.keys()
+    if missing:
+        raise RuntimeError(f"Probe record is missing fields: {sorted(missing)}")
+    return record
+
+
+def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
+    result = subprocess.run(
+        ["ldd", str(probe)], text=True, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, env=environment, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stdout)
+    lowered = result.stdout.lower()
+    required = ("libmkl_core", "libmkl_tbb_thread", "libtbb")
+    missing = [name for name in required if name not in lowered]
+    if missing:
+        raise RuntimeError(f"Probe is missing required libraries: {missing}")
+    forbidden = ("libiomp5", "libgomp", "libomp.so")
+    present = [name for name in forbidden if name in lowered]
+    if present:
+        raise RuntimeError(f"Probe unexpectedly links OpenMP runtimes: {present}")
+    return result.stdout
+
+
+def command_for(args: argparse.Namespace, probe: Path, mesh: Path, case: str) -> list[str]:
+    command = [
+        str(probe),
+        f"--case={case}",
+        f"--mesh={mesh}",
+        f"--concurrency={args.concurrency}",
+        f"--reserved-slots={args.reserved_slots}",
+        f"--warmup-iterations={args.warmup_iterations}",
+        f"--measured-iterations={args.measured_iterations}",
+    ]
+    return ["taskset", "-c", args.cpu_list, *command] if args.cpu_list else command
+
+
+def median_record(records: list[dict[str, Any]], repetition: int) -> dict[str, Any]:
+    first = records[0]
+    return {
+        "case": first["case"],
+        "prelude": first["prelude"],
+        "repetition": repetition,
+        "prelude_seconds": statistics.median(r["prelude_seconds"] for r in records),
+        "evaluation_execute_seconds": statistics.median(
+            r["evaluation_execute_seconds"] for r in records
+        ),
+        "evaluation_kernel_seconds": statistics.median(
+            r["evaluation_kernel_seconds"] for r in records
+        ),
+    }
+
+
+def close(a: float, b: float) -> bool:
+    return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-11)
+
+
+def validate_block(raw_by_case: dict[str, list[dict[str, Any]]]) -> None:
+    reference = next(iter(raw_by_case.values()))[0]
+    exact_fields = (
+        "configured_evaluation_mkl_budget",
+        "observed_evaluation_mkl_budget",
+        "observed_evaluation_arena_concurrency",
+        "mesh_vertices",
+        "mesh_elements",
+        "dofs",
+        "fixed_dofs",
+        "reduced_rows",
+        "reduced_nnz",
+    )
+    for case, records in raw_by_case.items():
+        if len(records) == 0:
+            raise RuntimeError(f"No records for {case}")
+        for record in records:
+            for field in exact_fields:
+                if record[field] != reference[field]:
+                    raise RuntimeError(f"{case}: mismatched {field}")
+            if record["observed_evaluation_mkl_budget"] != 1:
+                raise RuntimeError(f"{case}: evaluation did not observe MKL budget 1")
+            for field in SIGNATURE_FIELDS:
+                if not close(record[field], reference[field]):
+                    raise RuntimeError(
+                        f"{case}: correctness signature {field} differs: "
+                        f"{record[field]} versus {reference[field]}"
+                    )
+            expected_linear = {"none": -1, "noop1": 1, "noop8": 8,
+                               "pardiso1": 1, "pardiso8": 8}[case]
+            if record["observed_linear_mkl_budget"] != expected_linear:
+                raise RuntimeError(
+                    f"{case}: observed linear budget "
+                    f"{record['observed_linear_mkl_budget']} != {expected_linear}"
+                )
+
+
+def summarize(samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for case in CASES:
+        selected = [sample for sample in samples if sample["case"] == case]
+        if not selected:
+            continue
+        row: dict[str, Any] = {"case": case, "samples": len(selected)}
+        for metric in (
+            "prelude_seconds", "evaluation_execute_seconds", "evaluation_kernel_seconds"
+        ):
+            values = [sample[metric] for sample in selected]
+            row[f"median_{metric}"] = statistics.median(values)
+            row[f"mad_{metric}"] = statistics.median(
+                abs(value - row[f"median_{metric}"]) for value in values
+            )
+        result.append(row)
+
+    by_case = {row["case"]: row for row in result}
+    for row in result:
+        reference_name = "pardiso1" if row["case"] == "pardiso8" else "noop1"
+        reference = by_case.get(reference_name)
+        if reference is not None:
+            for metric in ("evaluation_execute_seconds", "evaluation_kernel_seconds"):
+                row[f"ratio_{metric}_to_{reference_name}"] = (
+                    row[f"median_{metric}"] / reference[f"median_{metric}"]
+                )
+    return result
+
+
+def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    fields: list[str] = []
+    for row in rows:
+        for field in row:
+            if field not in fields:
+                fields.append(field)
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def main() -> int:
+    args = parse_args()
+    validate_args(args)
+    probe = resolve_file(args.probe, "probe", executable=True)
+    mesh = resolve_file(args.mesh, "mesh")
+    out = args.out.expanduser().resolve()
+    environment = os.environ.copy()
+    environment.update({
+        "MKL_THREADING_LAYER": "TBB",
+        "MKL_NUM_THREADS": str(args.concurrency),
+        "MKL_DYNAMIC": "FALSE",
+        "OMP_NUM_THREADS": str(args.concurrency),
+        "OMP_DYNAMIC": "FALSE",
+    })
+
+    rng = random.Random(args.seed)
+    blocks: list[list[tuple[int, str]]] = []
+    for repetition in range(args.repetitions):
+        block = [(repetition, case) for case in args.cases]
+        rng.shuffle(block)
+        blocks.append(block)
+    # Shuffle complete repetition blocks while retaining one sample per case per block.
+    rng.shuffle(blocks)
+    jobs = [job for block in blocks for job in block]
+
+    if args.dry_run:
+        for repetition, case in jobs:
+            print(f"r={repetition} {shlex.join(command_for(args, probe, mesh, case))}")
+        return 0
+
+    out.mkdir(parents=True, exist_ok=False)
+    linkage = verify_linkage(probe, environment)
+    raw: list[dict[str, Any]] = []
+    samples: list[dict[str, Any]] = []
+    pending: dict[int, dict[str, list[dict[str, Any]]]] = {}
+
+    for job_index, (repetition, case) in enumerate(jobs, start=1):
+        command = command_for(args, probe, mesh, case)
+        print(f"[{job_index}/{len(jobs)}] r={repetition} case={case}", flush=True)
+        completed = subprocess.run(
+            command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            env=environment, check=False
+        )
+        log_path = out / f"r{repetition:02d}-{case}.log"
+        log_path.write_text(completed.stdout, encoding="utf-8")
+        if completed.returncode != 0:
+            raise RuntimeError(f"{shlex.join(command)}\n{completed.stdout}")
+        records = [
+            record for line in completed.stdout.splitlines()
+            if (record := parse_record(line)) is not None
+        ]
+        if len(records) != args.measured_iterations:
+            raise RuntimeError(
+                f"Expected {args.measured_iterations} records, got {len(records)} "
+                f"for r={repetition}, case={case}"
+            )
+        for record in records:
+            record["repetition"] = repetition
+            raw.append(record)
+        pending.setdefault(repetition, {})[case] = records
+        if len(pending[repetition]) == len(args.cases):
+            validate_block(pending[repetition])
+            samples.extend(
+                median_record(pending[repetition][candidate], repetition)
+                for candidate in args.cases
+            )
+
+    summaries = summarize(samples)
+    manifest = {
+        "schema_version": 1,
+        "benchmark": "cubic_linear_pardiso_aftermath",
+        "completed": True,
+        "valid": True,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "hypothesis": (
+            "If noop8/noop1 is flat but pardiso8/pardiso1 slows the following "
+            "evaluation=1, actual multi-threaded PARDISO aftermath—not executor/TLS "
+            "switching alone—causes the slowdown."
+        ),
+        "arguments": vars(args) | {"probe": str(probe), "mesh": str(mesh), "out": str(out)},
+        "mesh_sha256": sha256(mesh),
+        "probe_sha256": sha256(probe),
+        "environment": {key: environment[key] for key in (
+            "MKL_THREADING_LAYER", "MKL_NUM_THREADS", "MKL_DYNAMIC",
+            "OMP_NUM_THREADS", "OMP_DYNAMIC"
+        )},
+        "linkage": linkage,
+        "raw_measurements": raw,
+        "worker_samples": samples,
+        "summary": summaries,
+    }
+    (out / "cubic-linear-pardiso-aftermath.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    write_csv(out / "raw_measurements.csv", raw)
+    write_csv(out / "worker_samples.csv", samples)
+    write_csv(out / "summary.csv", summaries)
+    print(json.dumps(summaries, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
