@@ -20,9 +20,9 @@ WORKLOADS = (
 )
 
 DEFAULT_MESHES = {
-    "tet_linear": "examples/assets/veg/tet/box-with-sphere-big.veg",
+    "tet_linear": "examples/assets/veg/tet/dragon_big.veg",
     "cubic_linear": "examples/assets/veg/cubic/dragon-center-r16.veg",
-    "cubic_tricubic_hermite": "examples/assets/veg/cubic/box.veg",
+    "cubic_tricubic_hermite": "examples/assets/veg/cubic/bunny.veg",
 }
 
 LOCAL_DOFS = {
@@ -51,11 +51,9 @@ def _component_top_anchors(
 ) -> tuple[Any, list[dict[str, Any]]]:
     """Select a top support for every connected component.
 
-    The default tet workload contains two disconnected bodies. A single global
-    top slab anchors only the upper body and leaves exact rigid modes in the
-    other one, making the Newton system singular. Keep the whole requested top
-    slab for each component; only expand it when fewer than three non-collinear
-    vertices were selected.
+    Keep the whole requested top slab for each component so custom disconnected
+    meshes cannot leave rigid modes in an unanchored body. Only expand a slab
+    when fewer than three non-collinear vertices were selected.
     """
 
     num_vertices = int(vertices.shape[0])

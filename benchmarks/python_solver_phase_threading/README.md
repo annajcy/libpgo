@@ -25,19 +25,19 @@ impractically large.
 
 | workload | default mesh | vertices | elements | DOFs |
 | --- | --- | ---: | ---: | ---: |
-| `tet_linear` | `tet/box-with-sphere-big.veg` | 5266 | 21570 | 15798 |
+| `tet_linear` | `tet/dragon_big.veg` | 39979 | 186736 | 119937 |
 | `cubic_linear` | `cubic/dragon-center-r16.veg` | 4080 | 2456 | 12240 |
-| `cubic_tricubic_hermite` | `cubic/box.veg` | 125 | 64 | 3000 |
+| `cubic_tricubic_hermite` | `cubic/bunny.veg` | 711 | 436 | 17064 |
 
 The builder computes connected components from the volume elements and fixes
 every formulation DOF belonging to the top 1% slab of each component. If a
 component's slab contains fewer than three non-collinear vertices, it expands
 downward by the minimum number of height-sorted vertices needed to remove that
-component's rigid modes. This matters for the default tet mesh, whose box and
-sphere are disconnected. Fixed values are zero (the rest displacement), and
+component's rigid modes. Fixed values are zero (the rest displacement), and
 deterministic Gaussian noise is added only to free DOFs. The result records the
 component sizes, expansion decisions, selected DOF count, and a SHA-256 digest
-of the fixed indices.
+of the fixed indices. Component-aware anchoring is retained for custom meshes,
+even though the three default workloads are intended to be connected bodies.
 
 ## Policies
 
