@@ -19,6 +19,7 @@ set(NONLINEAROPTIMIZATION_HEADERS
   solver/newton/newtonTerminationPolicy.h
   solver/newton/newtonDampingPolicy.h
   solver/newton/newtonSparseSolverBackend.h
+  solver/newton/newtonThreadingPolicy.h
   solver/newton/NewtonOptimizer.h
   solver/ipopt/IpoptOptimizer.h
   solver/knitro/KnitroOptimizer.h
@@ -48,6 +49,7 @@ set(NONLINEAROPTIMIZATION_SOURCES
   solver/newton/newtonTerminationPolicy.cpp
   solver/newton/newtonDampingPolicy.cpp
   solver/newton/newtonSparseSolverBackend.cpp
+  solver/newton/newtonThreadingPolicy.cpp
   solver/newton/NewtonOptimizer.cpp
   solver/ipopt/IpoptOptimizer.cpp
   solver/knitro/KnitroOptimizer.cpp

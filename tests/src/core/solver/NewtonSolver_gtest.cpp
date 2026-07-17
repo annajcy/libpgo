@@ -6,7 +6,14 @@
 #include "energy/lineSearchAwareEnergy.h"
 #include "pgoLogging.h"
 #include "solver/common/solveDiagnostics.h"
+#include "parallel/arenaThreadingExecutor.h"
+#include "parallel/parallelControl.h"
+#include "solver/newton/newtonThreadingPolicy.h"
+#include "solver/newton/newtonSparseSolverBackend.h"
 
+#include <tbb/task_arena.h>
+
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -37,7 +44,13 @@ using pgo::NonlinearOptimization::FixedDampingPolicy;
 using pgo::NonlinearOptimization::StepSource;
 using pgo::NonlinearOptimization::StepConstraint;
 using pgo::NonlinearOptimization::lineSearchEnergyFpTolerance;
-constexpr int src(StepSource s) { return static_cast<int>(s); }
+using pgo::NonlinearOptimization::NewtonSparseSolverBackend;
+using pgo::NonlinearOptimization::NewtonSparseSolverSelector;
+using pgo::NonlinearOptimization::NewtonThreadingPolicy;
+constexpr int src(StepSource s)
+{
+  return static_cast<int>(s);
+}
 using pgo::NonlinearOptimization::SolveStatus;
 using pgo::NonlinearOptimization::acceptsDynamicSolveStatus;
 using pgo::NonlinearOptimization::acceptsStrictSolveStatus;
@@ -90,7 +103,12 @@ public:
   }
 
   int getNumDOFs() const override { return n; }
-  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override { if (sink) sink->report(maxStep); return maxStep; }
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override
+  {
+    if (sink)
+      sink->report(maxStep);
+    return maxStep;
+  }
   void beginLineSearch(ES::ConstRefVecXd, ES::ConstRefVecXd) const override { beginLineSearchCalls++; }
   void endLineSearch() const override { endLineSearchCalls++; }
 
@@ -252,8 +270,9 @@ public:
   StepConstraint computeMaxStepLimit(ES::ConstRefVecXd x, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override
   {
     if (std::abs(x[0]) < 2e-4) {
-      StepConstraint c{StepSource::Contact, 0.0};
-      if (sink) sink->report(c);
+      StepConstraint c{ StepSource::Contact, 0.0 };
+      if (sink)
+        sink->report(c);
       return c;
     }
     return {};
@@ -377,14 +396,228 @@ public:
   int rhsSize() const { return static_cast<int>(rhs.size()); }
   int reducedStepSize() const { return static_cast<int>(deltaxSmall.size()); }
 };
+
+struct PhaseArenaObservations
+{
+  std::vector<int> evaluation;
+  std::vector<int> linearBuild;
+  std::vector<int> linearAnalyze;
+  std::vector<int> linearFactorize;
+  std::vector<int> linearSolve;
+  int linearDestroyConcurrency = -1;
+  bool factorizeSucceeds = true;
+};
+
+class PhaseRecordingEnergy final : public PotentialEnergy
+{
+public:
+  explicit PhaseRecordingEnergy(std::shared_ptr<PhaseArenaObservations> observations):
+    observations_(std::move(observations))
+  {
+  }
+
+  double func(ES::ConstRefVecXd x) const override
+  {
+    record();
+    return 0.5 * x.squaredNorm();
+  }
+
+  void gradient(ES::ConstRefVecXd x, ES::RefVecXd grad) const override
+  {
+    record();
+    grad = x;
+  }
+
+  void hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) const override
+  {
+    record();
+    hess.resize(1, 1);
+    hess.setIdentity();
+  }
+
+  void hessianAlloc(ES::SpMatD &hess) const override
+  {
+    record();
+    hess.resize(1, 1);
+    hess.setIdentity();
+  }
+
+  void getDOFs(std::vector<int> &dofs) const override { dofs = { 0 }; }
+  int getNumDOFs() const override { return 1; }
+
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd,
+    pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override
+  {
+    record();
+    const StepConstraint result{};
+    if (sink)
+      sink->report(result);
+    return result;
+  }
+
+private:
+  void record() const
+  {
+    observations_->evaluation.push_back(tbb::this_task_arena::max_concurrency());
+  }
+
+  std::shared_ptr<PhaseArenaObservations> observations_;
+};
+
+class PhaseRecordingBackend final : public NewtonSparseSolverBackend
+{
+public:
+  explicit PhaseRecordingBackend(std::shared_ptr<PhaseArenaObservations> observations):
+    observations_(std::move(observations))
+  {
+  }
+
+  ~PhaseRecordingBackend() override
+  {
+    observations_->linearDestroyConcurrency = tbb::this_task_arena::max_concurrency();
+  }
+
+  void analyze(const ES::SpMatD &) override
+  {
+    observations_->linearAnalyze.push_back(tbb::this_task_arena::max_concurrency());
+  }
+
+  bool factorize(const ES::SpMatD &) override
+  {
+    observations_->linearFactorize.push_back(tbb::this_task_arena::max_concurrency());
+    return observations_->factorizeSucceeds;
+  }
+
+  bool solve(const ES::SpMatD &, double *x, double *rhs) override
+  {
+    observations_->linearSolve.push_back(tbb::this_task_arena::max_concurrency());
+    x[0] = rhs[0];
+    return true;
+  }
+
+  const char *name() const override { return "PhaseRecording"; }
+
+private:
+  std::shared_ptr<PhaseArenaObservations> observations_;
+};
+
+class PhaseRecordingSelector final : public NewtonSparseSolverSelector
+{
+public:
+  explicit PhaseRecordingSelector(std::shared_ptr<PhaseArenaObservations> observations):
+    observations_(std::move(observations))
+  {
+  }
+
+  std::unique_ptr<NewtonSparseSolverBackend> build(const ES::SpMatD &A) const override
+  {
+    observations_->linearBuild.push_back(tbb::this_task_arena::max_concurrency());
+    auto backend = std::make_unique<PhaseRecordingBackend>(observations_);
+    backend->analyze(A);
+    return backend;
+  }
+
+private:
+  std::shared_ptr<PhaseArenaObservations> observations_;
+};
 }  // namespace
+
+TEST(NewtonSolverGTest, RoutesSemanticPhasesThroughConfiguredArenas)
+{
+  initializeLogging();
+  pgo::parallel::GlobalTbbControl globalControl(4);
+  auto observations = std::make_shared<PhaseArenaObservations>();
+  auto evaluationExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
+    2, pgo::parallel::ThreadingPolicy{
+         .mklLocalThreadBudget = 1,
+         .accelerate = pgo::parallel::AccelerateThreading::single,
+       });
+  auto linearExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
+    3, pgo::parallel::ThreadingPolicy{
+         .mklLocalThreadBudget = 3,
+         .accelerate = pgo::parallel::AccelerateThreading::multi,
+       });
+
+  NewtonSolver::SolverParam params;
+  params.sparseSolver = std::make_shared<PhaseRecordingSelector>(observations);
+  params.threading = std::make_shared<NewtonThreadingPolicy>(
+    evaluationExecutor, linearExecutor);
+
+  double x = 1.0;
+  SolveDiagnostics diagnostics;
+  {
+    auto energy = std::make_shared<PhaseRecordingEnergy>(observations);
+    NewtonSolver solver(&x, params, energy, {});
+    const SolverResult result = solver.solve(&x, 1, 0.0, 0);
+    diagnostics = result.diagnostics;
+  }
+
+  ASSERT_FALSE(observations->evaluation.empty());
+  EXPECT_TRUE(std::all_of(observations->evaluation.begin(), observations->evaluation.end(),
+    [](int concurrency) { return concurrency == 2; }));
+  EXPECT_EQ(observations->linearBuild, std::vector<int>({ 3 }));
+  EXPECT_EQ(observations->linearAnalyze, std::vector<int>({ 3 }));
+  EXPECT_EQ(observations->linearFactorize, std::vector<int>({ 3 }));
+  EXPECT_EQ(observations->linearSolve, std::vector<int>({ 3 }));
+  EXPECT_EQ(observations->linearDestroyConcurrency, 3);
+  EXPECT_GT(diagnostics.threadingEvaluationPhaseCalls, 0);
+  EXPECT_GT(diagnostics.threadingLinearSolverPhaseCalls, 0);
+  EXPECT_GE(diagnostics.threadingEvaluationPhaseSeconds, 0.0);
+  EXPECT_GE(diagnostics.threadingLinearSolverPhaseSeconds, 0.0);
+}
+
+TEST(NewtonThreadingPolicyGTest, RejectsNullPhaseExecutors)
+{
+  auto executor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
+    1, pgo::parallel::ThreadingPolicy{
+         .mklLocalThreadBudget = 1,
+         .accelerate = pgo::parallel::AccelerateThreading::single,
+       });
+  EXPECT_THROW(
+    NewtonThreadingPolicy(nullptr, executor), std::invalid_argument);
+  EXPECT_THROW(
+    NewtonThreadingPolicy(executor, nullptr), std::invalid_argument);
+}
+
+TEST(NewtonSolverGTest, ReleasesFailedLinearBackendInsideConfiguredArena)
+{
+  initializeLogging();
+  pgo::parallel::GlobalTbbControl globalControl(4);
+  auto observations = std::make_shared<PhaseArenaObservations>();
+  observations->factorizeSucceeds = false;
+  auto evaluationExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
+    2, pgo::parallel::ThreadingPolicy{
+         .mklLocalThreadBudget = 1,
+         .accelerate = pgo::parallel::AccelerateThreading::single,
+       });
+  auto linearExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
+    3, pgo::parallel::ThreadingPolicy{
+         .mklLocalThreadBudget = 3,
+         .accelerate = pgo::parallel::AccelerateThreading::multi,
+       });
+
+  NewtonSolver::SolverParam params;
+  params.sparseSolver = std::make_shared<PhaseRecordingSelector>(observations);
+  params.threading = std::make_shared<NewtonThreadingPolicy>(
+    evaluationExecutor, linearExecutor);
+
+  double x = 1.0;
+  auto energy = std::make_shared<PhaseRecordingEnergy>(observations);
+  NewtonSolver solver(&x, params, energy, {});
+  const SolverResult result = solver.solve(&x, 1, 0.0, 0);
+
+  EXPECT_FALSE(result.converged());
+  EXPECT_EQ(observations->linearFactorize, std::vector<int>({ 3 }));
+  EXPECT_TRUE(observations->linearSolve.empty());
+  EXPECT_EQ(observations->linearDestroyConcurrency, 3);
+}
 
 TEST(SolveDiagnosticsGTest, RecordsAndResetsMaxStepAndLineSearch)
 {
   SolveDiagnostics diagnostics;
 
-  diagnostics.report(StepConstraint{StepSource::Material, 0.4});
-  diagnostics.report(StepConstraint{StepSource::Contact, 0.25});
+  diagnostics.report(StepConstraint{ StepSource::Material, 0.4 });
+  diagnostics.report(StepConstraint{ StepSource::Contact, 0.25 });
   diagnostics.recordLineSearch(0.25, 0.5, 0.125);
   diagnostics.recordFinalGradientStats(2.0, 1.5);
   NewtonIterationTrace trace;
@@ -461,9 +694,9 @@ TEST(SolveDiagnosticsGTest, RecordsAndResetsMaxStepAndLineSearch)
 TEST(SolveDiagnosticsGTest, SameSourceTracksTightestAlpha)
 {
   SolveDiagnostics diagnostics;
-  diagnostics.report(StepConstraint{StepSource::Material, 0.4});
-  diagnostics.report(StepConstraint{StepSource::Material, 0.3});
-  diagnostics.report(StepConstraint{StepSource::Material, 0.5});
+  diagnostics.report(StepConstraint{ StepSource::Material, 0.4 });
+  diagnostics.report(StepConstraint{ StepSource::Material, 0.3 });
+  diagnostics.report(StepConstraint{ StepSource::Material, 0.5 });
 
   EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 3);
   EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], 0.3);
@@ -486,12 +719,22 @@ public:
   double func(ES::ConstRefVecXd) const override { return 0.0; }
   void gradient(ES::ConstRefVecXd, ES::RefVecXd) const override {}
   void hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &) const override {}
-  void hessianAlloc(ES::SpMatD &h) const override { h.resize(n_, n_); h.setIdentity(); }
-  void getDOFs(std::vector<int> &dofs) const override { dofs.resize(n_); std::iota(dofs.begin(), dofs.end(), 0); }
+  void hessianAlloc(ES::SpMatD &h) const override
+  {
+    h.resize(n_, n_);
+    h.setIdentity();
+  }
+  void getDOFs(std::vector<int> &dofs) const override
+  {
+    dofs.resize(n_);
+    std::iota(dofs.begin(), dofs.end(), 0);
+  }
   int getNumDOFs() const override { return n_; }
   StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override
   {
-    if (sink) sink->report(c_); return c_;
+    if (sink)
+      sink->report(c_);
+    return c_;
   }
 
 private:
@@ -503,7 +746,7 @@ private:
 TEST(SolveDiagnosticsGTest, SinkReportsThroughTraversal)
 {
   SolveDiagnostics diagnostics;
-  SinkTestEnergy energy(4, StepConstraint{StepSource::Material, 0.3});
+  SinkTestEnergy energy(4, StepConstraint{ StepSource::Material, 0.3 });
   ES::VXd x = ES::VXd::Zero(4);
   ES::VXd dx = ES::VXd::Ones(4);
 
@@ -524,8 +767,8 @@ TEST(SolveDiagnosticsGTest, CrossSourceRecognizesBoth)
   SolveDiagnostics diagnostics;
 
   // Simulate a Newton step with both material (0.3) and contact (0.5) constraints.
-  diagnostics.report(StepConstraint{StepSource::Material, 0.3});
-  diagnostics.report(StepConstraint{StepSource::Contact, 0.5});
+  diagnostics.report(StepConstraint{ StepSource::Material, 0.3 });
+  diagnostics.report(StepConstraint{ StepSource::Contact, 0.5 });
 
   EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Material)], 1);
   EXPECT_EQ(diagnostics.clampCounts[src(StepSource::Contact)], 1);
@@ -603,7 +846,7 @@ TEST(NewtonSolverGTest, ZeroFeasibleStepWithLargeResidualReturnsStepTooSmall)
 {
   initializeLogging();
 
-  auto energy = std::make_shared<TestQuadraticEnergy>(2, StepConstraint{StepSource::Contact, 0.0});
+  auto energy = std::make_shared<TestQuadraticEnergy>(2, StepConstraint{ StepSource::Contact, 0.0 });
   ES::VXd x(2);
   x[0] = 2.0;
   x[1] = 0.0;
@@ -626,7 +869,7 @@ TEST(NewtonSolverGTest, SolveDiagnosticsRecordsMaxStepBreakdown)
 {
   initializeLogging();
 
-  auto energy = std::make_shared<TestQuadraticEnergy>(2, StepConstraint{StepSource::Material, 0.25});
+  auto energy = std::make_shared<TestQuadraticEnergy>(2, StepConstraint{ StepSource::Material, 0.25 });
   ES::VXd x(2);
   x[0] = 2.0;
   x[1] = 0.0;
@@ -899,7 +1142,7 @@ TEST(NewtonSolverGTest, DampingPolicyConvergesOnQuadratic)
 
   NewtonSolver::SolverParam solverParam;
   solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(BacktrackingLineSearchPolicy::Params{});
-  solverParam.damping = std::make_shared<FixedDampingPolicy>(FixedDampingPolicy::Params{1.0});
+  solverParam.damping = std::make_shared<FixedDampingPolicy>(FixedDampingPolicy::Params{ 1.0 });
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
@@ -920,7 +1163,7 @@ TEST(NewtonSolverGTest, ZeroFixedFastPathAvoidsReducedStateAndSurvivesFixedDofMo
 
   NewtonSolver::SolverParam solverParam;
   solverParam.sst = NewtonSolver::SST_SUBITERATION_ONE;
-  solverParam.damping = std::make_shared<FixedDampingPolicy>(FixedDampingPolicy::Params{1.0});
+  solverParam.damping = std::make_shared<FixedDampingPolicy>(FixedDampingPolicy::Params{ 1.0 });
   const std::vector<int> noFixedDOFs;
   InspectableNewtonSolver solver(x.data(), solverParam, energy, noFixedDOFs);
 
@@ -1136,7 +1379,7 @@ TEST(NewtonDampingPolicyGTest, NoDamping_AlwaysReturnsZero)
 TEST(NewtonDampingPolicyGTest, FixedDamping_ComputesCorrectValue)
 {
   initializeLogging();
-  FixedDampingPolicy policy(FixedDampingPolicy::Params{2.0});
+  FixedDampingPolicy policy(FixedDampingPolicy::Params{ 2.0 });
   NewtonIterationContext ctx;
   ctx.lambdaScale = 0.5;
   ctx.lambda0 = 10.0;
@@ -1156,7 +1399,7 @@ TEST(NewtonSolverGTest, DampingPolicyConvergesOnQuadraticBackwardCompat)
   NewtonSolver::SolverParam solverParam;
   solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(
     BacktrackingLineSearchPolicy::Params{});
-  solverParam.damping = std::make_shared<FixedDampingPolicy>(FixedDampingPolicy::Params{1.0});
+  solverParam.damping = std::make_shared<FixedDampingPolicy>(FixedDampingPolicy::Params{ 1.0 });
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
   const SolverResult result = solver.solve(x.data(), 200, 1e-6, 0);
@@ -1194,8 +1437,8 @@ TEST(NewtonSolverGTest, DefaultTerminationReproducesOldConvergence)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
-  const std::vector<int> fixedDOFs = {1};
-  const double fixedValues[1] = {0.0};
+  const std::vector<int> fixedDOFs = { 1 };
+  const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
   const SolverResult result = solver.solve(x.data(), 8, 1e-10, 0);
 

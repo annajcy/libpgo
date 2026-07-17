@@ -46,7 +46,7 @@ class GlobalTbbControl:
 
 
 class ArenaThreadingExecutor:
-    """Private oneTBB arena with an entry-applied, non-restoring BLAS TLS policy."""
+    """Private oneTBB arena with a scoped BLAS TLS policy per participant."""
 
     __slots__ = ("_executor",)
 

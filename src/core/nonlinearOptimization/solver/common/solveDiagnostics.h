@@ -15,8 +15,8 @@ namespace pgo::NonlinearOptimization
 enum class StepSource : int
 {
   Material = 0,
-  Contact  = 1,
-  kCount   = 2,
+  Contact = 1,
+  kCount = 2,
 };
 
 enum class NewtonConvergenceReason : int
@@ -150,6 +150,10 @@ struct SolveDiagnostics : StepConstraintSink
   double newtonWorstProgressRatio = 0.0;
   double newtonTotalFactorizeSeconds = 0.0;
   double newtonTotalSolveSeconds = 0.0;
+  std::int64_t threadingEvaluationPhaseCalls = 0;
+  std::int64_t threadingLinearSolverPhaseCalls = 0;
+  double threadingEvaluationPhaseSeconds = 0.0;
+  double threadingLinearSolverPhaseSeconds = 0.0;
 
   SolveDiagnostics()
   {
@@ -184,9 +188,9 @@ struct SolveDiagnostics : StepConstraintSink
   void recordLineSearch(double feasibleAlpha, double lineSearchAlpha, double effectiveAlpha,
     int iterations, double currentEnergy, double acceptedEnergy, double acceptedStepMaxNorm)
   {
-    minFeasibleAlpha   = std::min(minFeasibleAlpha,   feasibleAlpha);
+    minFeasibleAlpha = std::min(minFeasibleAlpha, feasibleAlpha);
     minLineSearchAlpha = std::min(minLineSearchAlpha, lineSearchAlpha);
-    minEffectiveAlpha  = std::min(minEffectiveAlpha,  effectiveAlpha);
+    minEffectiveAlpha = std::min(minEffectiveAlpha, effectiveAlpha);
     lastLineSearchIterations = iterations;
     maxLineSearchIterations = std::max(maxLineSearchIterations, iterations);
     totalLineSearchIterations += iterations;
@@ -224,8 +228,8 @@ struct SolveDiagnostics : StepConstraintSink
   void recordFinalGradientStats(double gradientNorm, double gradientMaxNorm)
   {
     hasFinalGradientStats = true;
-    finalGradientNorm     = gradientNorm;
-    finalGradientMaxNorm  = gradientMaxNorm;
+    finalGradientNorm = gradientNorm;
+    finalGradientMaxNorm = gradientMaxNorm;
   }
 
   void recordNewtonConvergence(NewtonConvergenceReason reason, double threshold)

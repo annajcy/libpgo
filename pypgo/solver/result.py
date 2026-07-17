@@ -71,6 +71,10 @@ class SolveDiagnostics:
     newton_worst_progress_ratio: float | None = None
     newton_total_factorize_seconds: float | None = None
     newton_total_solve_seconds: float | None = None
+    threading_evaluation_phase_calls: int | None = None
+    threading_linear_solver_phase_calls: int | None = None
+    threading_evaluation_phase_seconds: float | None = None
+    threading_linear_solver_phase_seconds: float | None = None
     newton_iterations: list[dict] | None = None
 
     @classmethod

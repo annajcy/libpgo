@@ -4,57 +4,9 @@
 #include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
 #include "parallel/threadingPolicy.h"
-
-#include <exception>
-#include <utility>
+#include "parallel/core.h"
 
 namespace nb = nanobind;
-
-namespace
-{
-
-class PyArenaThreadingExecutor
-{
-public:
-  PyArenaThreadingExecutor(int maxConcurrency, int reservedSlots,
-    std::optional<int> mklLocalThreadBudget,
-    std::optional<pgo::parallel::AccelerateThreading> accelerate): executor_(maxConcurrency,
-                                                                     {
-                                                                       .mklLocalThreadBudget = mklLocalThreadBudget,
-                                                                       .accelerate = accelerate,
-                                                                     },
-                                                                     reservedSlots)
-  {
-  }
-
-  nb::object execute(const nb::callable &fn)
-  {
-    PyObject *result = nullptr;
-    std::exception_ptr error;
-    {
-      nb::gil_scoped_release release;
-      executor_.execute([&] {
-        nb::gil_scoped_acquire acquire;
-        try {
-          nb::object value = fn();
-          result = value.release().ptr();
-        }
-        catch (...) {
-          error = std::current_exception();
-        }
-      });
-    }
-
-    if (error)
-      std::rethrow_exception(error);
-    return nb::steal<nb::object>(result);
-  }
-
-private:
-  pgo::parallel::ArenaThreadingExecutor executor_;
-};
-
-}  // namespace
 
 void init_parallel_bindings(nb::module_ &m)
 {

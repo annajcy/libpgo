@@ -5,11 +5,22 @@
 #include "solver/service/optimizerUtils.h"
 
 #include <cmath>
+#include <chrono>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
 namespace pgo::NonlinearOptimization::Optimization
 {
+namespace
+{
+using hclock = std::chrono::high_resolution_clock;
+
+double secondsBetween(const hclock::time_point &start, const hclock::time_point &end)
+{
+  return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1e6;
+}
+}  // namespace
 
 NewtonOptimizer::NewtonOptimizer():
   NewtonOptimizer(Options())
@@ -62,6 +73,7 @@ OptimizationResult NewtonOptimizer::solve(
   sp.damping = options_.damping;
   sp.termination = options_.termination;
   sp.sparseSolver = options_.sparseSolver;
+  sp.threading = options_.threading;
 
   const double *fixedValues = fixed.values.size() > 0 ? fixed.values.data() : nullptr;
   NewtonSolver solver(x.data(), sp, problem.objective, fixed.dofs, fixedValues);
@@ -75,10 +87,21 @@ OptimizationResult NewtonOptimizer::solve(
   result.solver = std::move(solverResult);
   result.x = std::move(x);
 
-  if (const auto *aware = dynamic_cast<const EvaluationStateAwareEnergy *>(problem.objective.get()))
-    aware->prepareEvaluationState(result.x);
+  double finalObjective = std::numeric_limits<double>::quiet_NaN();
+  const hclock::time_point finalEvaluationStart = hclock::now();
+  auto evaluateFinalObjective = [&] {
+    if (const auto *aware = dynamic_cast<const EvaluationStateAwareEnergy *>(problem.objective.get()))
+      aware->prepareEvaluationState(result.x);
+    finalObjective = problem.objective->func(result.x);
+  };
+  if (options_.threading)
+    options_.threading->executeEvaluation(evaluateFinalObjective);
+  else
+    evaluateFinalObjective();
+  result.solver.diagnostics.threadingEvaluationPhaseCalls += 1;
+  result.solver.diagnostics.threadingEvaluationPhaseSeconds +=
+    secondsBetween(finalEvaluationStart, hclock::now());
 
-  const double finalObjective = problem.objective->func(result.x);
   if (std::isfinite(finalObjective)) {
     result.finalObjective = finalObjective;
   }

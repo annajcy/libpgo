@@ -4,11 +4,13 @@
 #include "solver/newton/newtonTerminationPolicy.h"
 #include "solver/newton/newtonDampingPolicy.h"
 #include "solver/newton/newtonSparseSolverBackend.h"
+#include "solver/newton/newtonThreadingPolicy.h"
 #include "energy/potentialEnergy.h"
 #include "solver/common/solverResult.h"
 
 #include <cfloat>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -39,10 +41,13 @@ public:
     int stopAfterIncrease = 1;
     std::shared_ptr<const NewtonTerminationPolicy> termination;
     std::shared_ptr<const NewtonDampingPolicy> damping;
+    // Null preserves the caller's current execution context for every phase.
+    std::shared_ptr<const NewtonThreadingPolicy> threading;
   };
 
   NewtonSolver(const double *x, SolverParam sp, PotentialEnergy_const_p energy_,
     const std::vector<int> &fixedDOFs, const double *fixedValues_ = nullptr);
+  ~NewtonSolver() noexcept;
 
   void setFixedDOFs(const std::vector<int> &fixedDOFs, const double *fixedValues);
   SolverResult solve(double *x, int numIter, double epsilon, int verbose);
@@ -126,6 +131,14 @@ protected:
     double solveSeconds = 0.0;
   };
 
+  struct PhaseMetrics
+  {
+    std::int64_t evaluationCalls = 0;
+    std::int64_t linearSolverCalls = 0;
+    double evaluationSeconds = 0.0;
+    double linearSolverSeconds = 0.0;
+  };
+
   // Mutable per-solve state shared between solve() and the step strategy.
   struct SolveContext
   {
@@ -186,6 +199,10 @@ protected:
   void invalidateLinearSolverPatternCache();
   bool activeSystemPatternMatches(const EigenSupport::SpMatD &A) const;
   void updateLinearSolverPatternCache(const EigenSupport::SpMatD &A);
+  void executeEvaluationPhase(const std::function<void()> &fn);
+  void executeLinearSolverPhase(const std::function<void()> &fn);
+  void resetLinearSolver();
+  void recordSolvePhaseMetrics();
 
   PotentialEnergy_const_p energy;
   SolverParam solverParam;
@@ -214,6 +231,8 @@ protected:
   EigenSupport::VXd historyx;
   double historyGradNormMin;
   SolveDiagnostics solveDiagnostics;
+  PhaseMetrics cumulativePhaseMetrics;
+  PhaseMetrics reportedPhaseMetrics;
   bool lineSearchEvaluationStateFrozen = false;
 
   std::unique_ptr<StepStrategy> stepStrategy;

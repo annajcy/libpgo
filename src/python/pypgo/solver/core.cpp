@@ -17,7 +17,8 @@ namespace NOO = NonlinearOptimization::Optimization;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-namespace {
+namespace
+{
 
 nb::object finiteOrNone(double value)
 {
@@ -101,6 +102,10 @@ nb::dict diagnosticsToDict(const NonlinearOptimization::SolveDiagnostics &diagno
   out["newton_worst_progress_ratio"] = diagnostics.newtonWorstProgressRatio;
   out["newton_total_factorize_seconds"] = diagnostics.newtonTotalFactorizeSeconds;
   out["newton_total_solve_seconds"] = diagnostics.newtonTotalSolveSeconds;
+  out["threading_evaluation_phase_calls"] = diagnostics.threadingEvaluationPhaseCalls;
+  out["threading_linear_solver_phase_calls"] = diagnostics.threadingLinearSolverPhaseCalls;
+  out["threading_evaluation_phase_seconds"] = diagnostics.threadingEvaluationPhaseSeconds;
+  out["threading_linear_solver_phase_seconds"] = diagnostics.threadingLinearSolverPhaseSeconds;
   nb::list iterations;
   for (const NonlinearOptimization::NewtonIterationTrace &trace : diagnostics.newtonIterations)
     iterations.append(newtonIterationTraceToDict(trace));
@@ -142,12 +147,14 @@ void PyOptimizationProblem::setVariableBounds(
 {
   if (hasLower) {
     problem_.variableBounds.lower = python::ndarrayToVectorXd(lower);
-  } else {
+  }
+  else {
     problem_.variableBounds.lower.reset();
   }
   if (hasUpper) {
     problem_.variableBounds.upper = python::ndarrayToVectorXd(upper);
-  } else {
+  }
+  else {
     problem_.variableBounds.upper.reset();
   }
 }
@@ -178,6 +185,7 @@ NOO::NewtonOptimizer::Options makeNewtonOptions(const PyNewtonOptimizerOptions &
     opts.termination = options.termination->handle();
   if (options.sparseSolver)
     opts.sparseSolver = options.sparseSolver->handle();
+  opts.threading = options.threading;
   return opts;
 }
 
@@ -198,8 +206,7 @@ nb::dict PyOptimizer::solve(
 
 // ── PyNewtonOptimizer ─────────────────────────────────────────────────────
 
-PyNewtonOptimizer::PyNewtonOptimizer(PyNewtonOptimizerOptions options)
-  : optimizer_(makeNewtonOptions(options))
+PyNewtonOptimizer::PyNewtonOptimizer(PyNewtonOptimizerOptions options): optimizer_(makeNewtonOptions(options))
 {
 }
 

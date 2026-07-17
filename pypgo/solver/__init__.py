@@ -39,6 +39,7 @@ from pypgo.solver.termination import (
     FixedTermination,
     Termination,
 )
+from pypgo.solver.threading import NewtonThreadingPolicy
 from pypgo.solver.optimizer import NewtonOptimizer
 
 __all__ = [
@@ -54,6 +55,7 @@ __all__ = [
     "LineSearch",
     "MKLPardiso",
     "NewtonOptimizer",
+    "NewtonThreadingPolicy",
     "NoDamping",
     "OptimizationProblem",
     "Optimizer",
