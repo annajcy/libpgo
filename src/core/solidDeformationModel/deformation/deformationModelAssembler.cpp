@@ -136,9 +136,14 @@ namespace pgo
 {
 namespace SolidDeformationModel
 {
-DeformationModelAssemblerCacheData::ThreadScratch::ThreadScratch(
-  int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams)
+DeformationModelAssemblerCacheData::ElementScratch::ElementScratch(
+  int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams,
+  const DeformationModel &model):
+  cacheData_(model.allocateCacheData())
 {
+  if (!cacheData_)
+    throw std::runtime_error("Element model returned null cache data.");
+
   localPosition.resize(localDofs);
   localDirection.resize(localDofs);
   localGradient.resize(localDofs);
@@ -157,34 +162,19 @@ DeformationModelAssemblerCacheData::ThreadScratch::ThreadScratch(
     localDofs * maxMaterialParams,
     maxMaterialParams * maxMaterialParams })));
   materialLocationValues.resize(std::max(16, maxMaterialLocations));
-  globalDofIndices.resize(localDofs);
-}
-
-DeformationModel::CacheData *
-DeformationModelAssemblerCacheData::ThreadScratch::cacheFor(const DeformationModel &model)
-{
-  for (auto &cacheData : reusableCacheData) {
-    if (model.isCacheDataCompatible(*cacheData)) {
-      cacheData->markUnprepared();
-      return cacheData.get();
-    }
-  }
-
-  reusableCacheData.push_back(model.allocateCacheData());
-  return reusableCacheData.back().get();
 }
 
 DeformationModelAssemblerCacheData::DeformationModelAssemblerCacheData(
-  int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams)
+  int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams,
+  const std::vector<const DeformationModel *> &models)
 {
-  threadScratch_ = std::make_unique<tbb::enumerable_thread_specific<ThreadScratch>>(
-    [=] { return ThreadScratch(localDofs, maxMaterialLocations, maxMaterialParams, maxLocalParams); });
-}
-
-DeformationModelAssemblerCacheData::ThreadScratch &
-DeformationModelAssemblerCacheData::scratchForCurrentThread()
-{
-  return threadScratch_->local();
+  elementScratch_.reserve(models.size());
+  for (const DeformationModel *model : models) {
+    if (model == nullptr)
+      throw std::invalid_argument("DeformationModelAssemblerCacheData requires non-null element models.");
+    elementScratch_.emplace_back(
+      localDofs, maxMaterialLocations, maxMaterialParams, maxLocalParams, *model);
+  }
 }
 }  // namespace SolidDeformationModel
 }  // namespace pgo
@@ -232,8 +222,10 @@ DeformationModelAssembler::DeformationModelAssembler(
   const int maxMaterialParams = std::max(numElasticParams_, numPlasticParams_);
   const int maxLocalParams = std::max(numElasticLocalParams_, numPlasticLocalParams_);
   data = std::make_unique<DeformationModelAssemblerCacheData>(
-    localDOFs, maxMaterialLocations, maxMaterialParams, maxLocalParams);
-  logMemoryCheckpoint("assembler.after_thread_cache_setup");
+    localDOFs, maxMaterialLocations, maxMaterialParams, maxLocalParams, femModels);
+  for (int ele = 0; ele < nele; ele++)
+    dofLayout->getDofGroups(ele, data->elementScratch(ele).groups);
+  logMemoryCheckpoint("assembler.after_element_cache_setup");
 
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Assembler parameter channels:{},{} local:{},{}",
     numElasticParams_, numPlasticParams_, numElasticLocalParams_, numPlasticLocalParams_);
@@ -397,11 +389,16 @@ DeformationModelAssembler::DeformationModelAssembler(
 DeformationModelAssembler::~DeformationModelAssembler() = default;
 
 DeformationModelAssembler::PreparedElement DeformationModelAssembler::gatherAndPrepare(
-  int ele, const double *x, DeformationModelAssemblerCacheData::ThreadScratch &scratch) const
+  int ele, const double *x, DeformationModelAssemblerCacheData::ElementScratch &scratch) const
 {
-  dofLayout->gather(ele, x, scratch.localPosition.data(), scratch.groups);
+  std::fill(scratch.localPosition.data(), scratch.localPosition.data() + localDOFs, 0.0);
+  for (const DofGroup &group : scratch.groups) {
+    for (int i = 0; i < group.size; i++)
+      scratch.localPosition[group.localStart + i] = x[group.globalDof(i)];
+  }
   const DeformationModel *fem = femModels[ele];
-  DeformationModel::CacheData *cache = scratch.cacheFor(*fem);
+  DeformationModel::CacheData *cache = scratch.cacheData();
+  cache->markUnprepared();
   const int numMaterialLocations = fem->getNumMaterialLocations();
   fillElementParamValues(
     elasticParamField_.get(), ele, numMaterialLocations, numElasticParams_, scratch.elasticParamValues.data());
@@ -417,25 +414,23 @@ DeformationModelAssembler::PreparedElement DeformationModelAssembler::gatherAndP
 
 double DeformationModelAssembler::computeEnergy(const double *x) const
 {
-  for (auto it = data->threadScratch().begin(); it != data->threadScratch().end(); ++it)
-    it->energy = 0.0;
-
   auto localEnergyFunc = [this, x](int ele) {
+    auto &scratch = data->elementScratch(ele);
+    scratch.energy = 0.0;
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
     double energy = prepared.model->computeEnergy(prepared.cache);
 
-    scratch.energy += energy * elementWeights[ele];
+    scratch.energy = energy * elementWeights[ele];
   };
 
   tbb::parallel_for(0, nele, localEnergyFunc);
 
   double energyAll = 0;
-  for (auto it = data->threadScratch().begin(); it != data->threadScratch().end(); ++it)
-    energyAll += it->energy;
+  for (int ele = 0; ele < nele; ele++)
+    energyAll += data->elementScratch(ele).energy;
 
   return energyAll;
 }
@@ -450,9 +445,15 @@ DeformationModelAssembler::MaterialMaxStepObservation DeformationModelAssembler:
       continue;
     }
 
-    auto &scratch = data->scratchForCurrentThread();
-    dofLayout->gather(ele, x, scratch.localPosition.data(), scratch.groups);
-    dofLayout->gather(ele, dx, scratch.localDirection.data(), scratch.groups);
+    auto &scratch = data->elementScratch(ele);
+    std::fill(scratch.localPosition.data(), scratch.localPosition.data() + localDOFs, 0.0);
+    std::fill(scratch.localDirection.data(), scratch.localDirection.data() + localDOFs, 0.0);
+    for (const DofGroup &group : scratch.groups) {
+      for (int i = 0; i < group.size; i++) {
+        scratch.localPosition[group.localStart + i] = x[group.globalDof(i)];
+        scratch.localDirection[group.localStart + i] = dx[group.globalDof(i)];
+      }
+    }
 
     const DeformationModel::LocalMaxStepResult localResult =
       femModels[ele]->computeLocalMaxStepSize(scratch.localPosition.data(), scratch.localDirection.data());
@@ -486,7 +487,7 @@ void DeformationModelAssembler::computeGradient(const double *x, double *grad) c
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     prepared.model->compute_dE_dx(prepared.cache, scratch.localGradient.data());
@@ -502,7 +503,12 @@ void DeformationModelAssembler::computeGradient(const double *x, double *grad) c
       }
     }
 
-    dofLayout->scatterAddGradient(ele, scratch.localGradient.data(), grad, scratch.groups);
+    for (const DofGroup &group : scratch.groups) {
+      for (int i = 0; i < group.size; i++) {
+        std::atomic_ref<double> atomicGrad(grad[group.globalDof(i)]);
+        atomicGrad.fetch_add(scratch.localGradient[group.localStart + i]);
+      }
+    }
   };
 
   tbb::parallel_for(0, nele, localGradFunc);
@@ -519,7 +525,7 @@ void DeformationModelAssembler::computeHessian(const double *x, EigenSupport::Sp
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     prepared.model->compute_d2E_dx2(prepared.cache, scratch.localMatrixData.data());
@@ -595,7 +601,7 @@ void DeformationModelAssembler::computePlasticGradient(const double *x, double *
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     Eigen::Map<ES::VXd> rawGrad(scratch.rawParamGradient.data(), numPlasticParams_);
@@ -638,7 +644,7 @@ void DeformationModelAssembler::computePlasticHessian(const double *x, EigenSupp
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     prepared.model->compute_d2E_da2(prepared.cache, scratch.localMatrixData.data());
@@ -688,7 +694,7 @@ void DeformationModelAssembler::computeElasticGradient(const double *x, double *
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     Eigen::Map<ES::VXd> rawGrad(scratch.rawParamGradient.data(), numElasticParams_);
@@ -731,7 +737,7 @@ void DeformationModelAssembler::computeElasticHessian(const double *x, EigenSupp
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     prepared.model->compute_d2E_db2(prepared.cache, scratch.localMatrixData.data());
@@ -784,7 +790,7 @@ void DeformationModelAssembler::computePlasticElasticHessian(const double *x, Ei
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     prepared.model->compute_d2E_dadb(prepared.cache, scratch.localMatrixData.data());
@@ -849,7 +855,7 @@ void DeformationModelAssembler::computeVonMisesStresses(const double *x, double 
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     int nPt = 0;
@@ -876,7 +882,7 @@ void DeformationModelAssembler::computeMaxStrains(const double *x, double *eleme
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     int nPt = 0;
@@ -960,7 +966,7 @@ void DeformationModelAssembler::assembleDfDparam(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->scratchForCurrentThread();
+    auto &scratch = data->elementScratch(ele);
     PreparedElement prepared = gatherAndPrepare(ele, x, scratch);
 
     (prepared.model->*computeLocal)(prepared.cache, scratch.localMatrixData.data());

@@ -275,6 +275,7 @@ public:
 
   std::unique_ptr<CacheData> allocateCacheData() const override
   {
+    allocationCount++;
     return std::make_unique<FakeCacheData>(layout);
   }
 
@@ -294,9 +295,11 @@ public:
   int getNumPlasticParameters() const override { return 0; }
   int getNumVertices() const override { return 0; }
   int getNumDOFs() const override { return 0; }
+  int numCacheAllocations() const { return allocationCount; }
 
 private:
   int layout = 0;
+  mutable int allocationCount = 0;
 };
 
 // An assembler built with enforceSPD = 0 so finite differences measure the true
@@ -367,22 +370,34 @@ ES::VXd fdGradientColumn(DeformationModelAssembler &assembler, SetParams setPara
 }
 }  // namespace
 
-TEST(DeformationModelAssemblerGTest, ThreadScratchReusesCompatibleCacheData)
+TEST(DeformationModelAssemblerGTest, ElementScratchEagerlyOwnsStableModelCacheData)
 {
-  DeformationModelAssemblerCacheData::ThreadScratch scratch(3, 1, 0, 0);
   FakeCacheModel layoutA(7);
   FakeCacheModel compatibleA(7);
   FakeCacheModel layoutB(11);
+  const std::vector<const DeformationModel *> models = { &layoutA, &compatibleA, &layoutB };
 
-  DeformationModel::CacheData *first = scratch.cacheFor(layoutA);
-  first->markPrepared();
-  DeformationModel::CacheData *second = scratch.cacheFor(compatibleA);
-  DeformationModel::CacheData *third = scratch.cacheFor(layoutB);
+  DeformationModelAssemblerCacheData cacheData(3, 1, 0, 0, models);
 
-  EXPECT_EQ(first, second);
-  EXPECT_FALSE(second->isPrepared());
+  ASSERT_EQ(cacheData.numElementScratch(), models.size());
+  EXPECT_EQ(layoutA.numCacheAllocations(), 1);
+  EXPECT_EQ(compatibleA.numCacheAllocations(), 1);
+  EXPECT_EQ(layoutB.numCacheAllocations(), 1);
+
+  DeformationModel::CacheData *first = cacheData.elementScratch(0).cacheData();
+  DeformationModel::CacheData *second = cacheData.elementScratch(1).cacheData();
+  DeformationModel::CacheData *third = cacheData.elementScratch(2).cacheData();
+  ASSERT_NE(first, nullptr);
+  ASSERT_NE(second, nullptr);
+  ASSERT_NE(third, nullptr);
+  EXPECT_NE(first, second);
   EXPECT_NE(first, third);
-  EXPECT_EQ(scratch.numReusableCaches(), 2);
+  EXPECT_NE(second, third);
+
+  first->markPrepared();
+  EXPECT_EQ(cacheData.elementScratch(0).cacheData(), first);
+  EXPECT_TRUE(first->isPrepared());
+  EXPECT_EQ(layoutA.numCacheAllocations(), 1);
 }
 
 TEST(DeformationModelAssemblerGTest, TetLinearHessianTemplateTopologyMatchesTripletReference)

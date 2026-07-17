@@ -4,8 +4,7 @@
 #include "formulations/dof/dofLayout.h"
 #include "EigenSupport.h"
 
-#include <tbb/enumerable_thread_specific.h>
-
+#include <cstddef>
 #include <memory>
 #include <vector>
 
@@ -17,7 +16,10 @@ namespace SolidDeformationModel
 class DeformationModelAssemblerCacheData
 {
 public:
-  struct ThreadScratch
+  // One eagerly allocated workspace per element. An outer element task may be
+  // suspended while nested parallel work runs, so this storage must follow the
+  // element rather than the worker thread executing it.
+  struct ElementScratch
   {
     EigenSupport::VXd localPosition;
     EigenSupport::VXd localDirection;
@@ -34,30 +36,28 @@ public:
     std::vector<double> localMatrixData;
     std::vector<double> materialLocationValues;
     std::vector<DofGroup> groups;
-    std::vector<int> globalDofIndices;
     double energy = 0.0;
 
-    ThreadScratch() = default;
-    ThreadScratch(int localDofs, int maxMaterialLocations,
-      int maxMaterialParams, int maxLocalParams);
+    ElementScratch(int localDofs, int maxMaterialLocations,
+      int maxMaterialParams, int maxLocalParams, const DeformationModel &model);
 
-    DeformationModel::CacheData *cacheFor(const DeformationModel &model);
-    size_t numReusableCaches() const { return reusableCacheData.size(); }
+    DeformationModel::CacheData *cacheData() { return cacheData_.get(); }
+    const DeformationModel::CacheData *cacheData() const { return cacheData_.get(); }
 
   private:
-    std::vector<std::unique_ptr<DeformationModel::CacheData>> reusableCacheData;
+    std::unique_ptr<DeformationModel::CacheData> cacheData_;
   };
 
   DeformationModelAssemblerCacheData(int localDofs, int maxMaterialLocations,
-    int maxMaterialParams, int maxLocalParams);
+    int maxMaterialParams, int maxLocalParams,
+    const std::vector<const DeformationModel *> &models);
 
-  ThreadScratch &scratchForCurrentThread();
-  tbb::enumerable_thread_specific<ThreadScratch> &threadScratch() { return *threadScratch_; }
-  const tbb::enumerable_thread_specific<ThreadScratch> &threadScratch() const { return *threadScratch_; }
-
+  ElementScratch &elementScratch(int ele) { return elementScratch_[ele]; }
+  const ElementScratch &elementScratch(int ele) const { return elementScratch_[ele]; }
+  std::size_t numElementScratch() const { return elementScratch_.size(); }
 
 private:
-  std::unique_ptr<tbb::enumerable_thread_specific<ThreadScratch>> threadScratch_;
+  std::vector<ElementScratch> elementScratch_;
 };
 
 }  // namespace SolidDeformationModel

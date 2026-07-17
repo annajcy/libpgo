@@ -140,7 +140,7 @@ private:
   // then prepare the element cache.
   PreparedElement gatherAndPrepare(
     int ele, const double *x,
-    DeformationModelAssemblerCacheData::ThreadScratch &scratch) const;
+    DeformationModelAssemblerCacheData::ElementScratch &scratch) const;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo
