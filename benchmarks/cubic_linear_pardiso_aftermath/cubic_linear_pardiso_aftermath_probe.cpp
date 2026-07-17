@@ -26,6 +26,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -279,13 +280,13 @@ try {
     tbb::global_control::max_allowed_parallelism));
 
   P::ArenaThreadingExecutor setupExecutor(arguments.concurrency,
-    P::ThreadingPolicy{ .mklLocalThreadBudget = 1 }, arguments.reservedSlots);
+    P::ThreadingPolicy{ .mklLocalThreadBudget = 1, .accelerate = std::nullopt }, arguments.reservedSlots);
   P::ArenaThreadingExecutor evaluationExecutor(arguments.concurrency,
-    P::ThreadingPolicy{ .mklLocalThreadBudget = 1 }, arguments.reservedSlots);
+    P::ThreadingPolicy{ .mklLocalThreadBudget = 1, .accelerate = std::nullopt }, arguments.reservedSlots);
   P::ArenaThreadingExecutor linearExecutor1(arguments.concurrency,
-    P::ThreadingPolicy{ .mklLocalThreadBudget = 1 }, arguments.reservedSlots);
+    P::ThreadingPolicy{ .mklLocalThreadBudget = 1, .accelerate = std::nullopt }, arguments.reservedSlots);
   P::ArenaThreadingExecutor linearExecutor8(arguments.concurrency,
-    P::ThreadingPolicy{ .mklLocalThreadBudget = 8 }, arguments.reservedSlots);
+    P::ThreadingPolicy{ .mklLocalThreadBudget = 8, .accelerate = std::nullopt }, arguments.reservedSlots);
 
   std::shared_ptr<const SDM::SimulationMesh> mesh;
   std::shared_ptr<SDM::DeformationModelEnergy> energy;

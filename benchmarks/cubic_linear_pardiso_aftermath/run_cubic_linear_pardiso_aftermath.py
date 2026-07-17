@@ -273,6 +273,8 @@ def paired_contrasts(
     requested = (
         ("none_over_noop1", "none", "noop1"),
         ("noop8_over_noop1", "noop8", "noop1"),
+        ("pardiso1_over_noop1", "pardiso1", "noop1"),
+        ("pardiso8_over_noop8", "pardiso8", "noop8"),
         ("pardiso8_over_pardiso1", "pardiso8", "pardiso1"),
     )
     rng = random.Random(seed)
