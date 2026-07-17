@@ -33,13 +33,20 @@ POLICIES = (
     "phase_reversed",
     "phase_single_single",
 )
+DEFAULT_POLICIES = (
+    "uniform_single",
+    "phase_aware",
+    "phase_single_single",
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--workloads", nargs="+", choices=WORKLOADS, default=WORKLOADS)
-    parser.add_argument("--policies", nargs="+", choices=POLICIES, default=POLICIES)
+    parser.add_argument(
+        "--policies", nargs="+", choices=POLICIES, default=DEFAULT_POLICIES
+    )
     parser.add_argument(
         "--tet-mesh", type=Path, default=ROOT / DEFAULT_MESHES["tet_linear"]
     )

@@ -41,19 +41,25 @@ of the fixed indices.
 
 ## Policies
 
-With the default concurrency `C=8`, the benchmark compares:
+With the default concurrency `C=8`, the primary benchmark compares:
 
 | policy | evaluation MKL budget | linear-solver MKL budget | execution form |
 | --- | ---: | ---: | --- |
 | `uniform_single` | 1 | 1 | one outer executor around the whole solve |
-| `uniform_multi` | C | C | one outer executor around the whole solve |
 | `phase_aware` | 1 | C | `NewtonThreadingPolicy` |
-| `phase_reversed` | C | 1 | mechanism-negative control |
 | `phase_single_single` | 1 | 1 | two independent phase executors |
 
 All executors use the same arena concurrency and reserved-slot setting.
 `phase_single_single` versus `uniform_single` estimates the cost of the phase
 dispatch abstraction while holding the effective thread budgets fixed.
+
+`uniform_multi` (evaluation=C, linear=C) and `phase_reversed`
+(evaluation=C, linear=1) remain available as explicit mechanism-negative
+controls. They are not in the default policy set: nested multi-threaded MKL
+inside the outer TBB FEM evaluation can produce policy-dependent result vectors
+on these workloads. Run each negative control separately to diagnose that
+behavior. Do not mix a numerically invalid negative control into performance
+summaries or relax the cross-policy correctness gate to accept it.
 
 ## Run
 
@@ -143,14 +149,20 @@ synchronization, input conversion, and result conversion. Do not assume phase
 times must add exactly to wall time unless the build documents that final
 objective evaluation and backend release are included in the counters.
 
-A result supports the mechanism when:
+A primary result supports the mechanism when:
 
-1. numerical and solver-path signatures match across all five policies;
-2. `phase_aware` beats both uniform policies by more than run-to-run variation;
-3. its evaluation phase approaches `uniform_single` while its linear phase
-   approaches `uniform_multi`;
-4. `phase_single_single` remains close to `uniform_single`;
-5. `phase_reversed` exhibits the predicted unfavorable phase behavior.
+1. numerical and solver-path signatures match across the three default
+   policies;
+2. `phase_aware` beats `uniform_single` and `phase_single_single` by more than
+   run-to-run variation;
+3. PARDISO factorization and solve improve when the linear phase changes from
+   budget 1 to budget C;
+4. `phase_single_single` shows no material phase-dispatch penalty relative to
+   `uniform_single`.
+
+The two opt-in evaluation=C controls answer a separate diagnostic question. If
+their result signatures fail, that supports keeping nested FEM evaluation at
+budget 1, but their wall times are not valid speed comparisons.
 
 The benchmark establishes this claim only for the recorded machine, build,
 meshes, concurrency, and runtime environment. The JSON records the Git revision
