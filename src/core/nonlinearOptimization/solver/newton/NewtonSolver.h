@@ -49,8 +49,16 @@ public:
     const std::vector<int> &fixedDOFs, const double *fixedValues_ = nullptr);
   ~NewtonSolver() noexcept;
 
+  struct CleanupMetrics
+  {
+    std::int64_t linearSolverPhaseCalls = 0;
+    double linearSolverPhaseSeconds = 0.0;
+    double wallSeconds = 0.0;
+  };
+
   void setFixedDOFs(const std::vector<int> &fixedDOFs, const double *fixedValues);
   SolverResult solve(double *x, int numIter, double epsilon, int verbose);
+  CleanupMetrics closeLinearSolver();
 
   using StepFunc = std::function<void(const EigenSupport::VXd &, int)>;
   void setStepFunc(StepFunc func) { stepFunc = func; }
@@ -71,6 +79,7 @@ protected:
     bool relConverged = false;
     bool nonFiniteEnergy = false;
     bool nonFiniteGradient = false;
+    double evaluateCurrentStateSeconds = 0.0;
     double funcGradHessianSeconds = 0.0;
   };
 
@@ -137,6 +146,15 @@ protected:
     std::int64_t linearSolverCalls = 0;
     double evaluationSeconds = 0.0;
     double linearSolverSeconds = 0.0;
+  };
+
+  struct PendingSetupMetrics
+  {
+    double initialHessianSeconds = 0.0;
+    double initialReducedSystemSeconds = 0.0;
+    double initialSymbolicAnalyzeSeconds = 0.0;
+
+    void reset() { *this = PendingSetupMetrics{}; }
   };
 
   // Mutable per-solve state shared between solve() and the step strategy.
@@ -233,6 +251,7 @@ protected:
   SolveDiagnostics solveDiagnostics;
   PhaseMetrics cumulativePhaseMetrics;
   PhaseMetrics reportedPhaseMetrics;
+  PendingSetupMetrics pendingSetupMetrics;
   bool lineSearchEvaluationStateFrozen = false;
 
   std::unique_ptr<StepStrategy> stepStrategy;

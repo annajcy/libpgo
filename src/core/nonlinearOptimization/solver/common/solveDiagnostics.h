@@ -102,10 +102,14 @@ struct NewtonIterationTrace
   std::int64_t hessianNnz = 0;
   bool symbolicRebuilt = false;
 
+  double evaluateCurrentStateSeconds = 0.0;
   double funcGradHessianSeconds = 0.0;
+  double prepareReducedSystemSeconds = 0.0;
+  double ensureLinearSolverSeconds = 0.0;
   double symbolicAnalyzeSeconds = 0.0;
   double factorizeSeconds = 0.0;
   double solveSeconds = 0.0;
+  double expandReducedStepSeconds = 0.0;
   double lineSearchSeconds = 0.0;
   double iterationWallSeconds = 0.0;
 
@@ -148,8 +152,25 @@ struct SolveDiagnostics : StepConstraintSink
   std::int64_t newtonSymbolicRebuildCount = 0;
   int newtonWorstProgressIteration = -1;
   double newtonWorstProgressRatio = 0.0;
+  double optimizerPreparationSeconds = 0.0;
+  double newtonSolverSetupSeconds = 0.0;
+  double initialHessianSeconds = 0.0;
+  double initialReducedSystemSeconds = 0.0;
+  double initialSymbolicAnalyzeSeconds = 0.0;
+  double newtonSolveSeconds = 0.0;
+  double newtonTotalIterationSeconds = 0.0;
+  double newtonTotalEvaluateCurrentStateSeconds = 0.0;
+  double newtonTotalFuncGradHessianSeconds = 0.0;
+  double newtonTotalPrepareReducedSystemSeconds = 0.0;
+  double newtonTotalEnsureLinearSolverSeconds = 0.0;
+  double newtonTotalSymbolicAnalyzeSeconds = 0.0;
   double newtonTotalFactorizeSeconds = 0.0;
   double newtonTotalSolveSeconds = 0.0;
+  double newtonTotalExpandReducedStepSeconds = 0.0;
+  double newtonTotalLineSearchSeconds = 0.0;
+  double finalObjectiveSeconds = 0.0;
+  double linearSolverCleanupSeconds = 0.0;
+  double optimizerTotalSeconds = 0.0;
   std::int64_t threadingEvaluationPhaseCalls = 0;
   std::int64_t threadingLinearSolverPhaseCalls = 0;
   double threadingEvaluationPhaseSeconds = 0.0;
@@ -252,8 +273,14 @@ struct SolveDiagnostics : StepConstraintSink
     if (trace.symbolicRebuilt)
       newtonSymbolicRebuildCount += 1;
 
+    newtonTotalIterationSeconds += trace.iterationWallSeconds;
+    newtonTotalPrepareReducedSystemSeconds += trace.prepareReducedSystemSeconds;
+    newtonTotalEnsureLinearSolverSeconds += trace.ensureLinearSolverSeconds;
+    newtonTotalSymbolicAnalyzeSeconds += trace.symbolicAnalyzeSeconds;
     newtonTotalFactorizeSeconds += trace.factorizeSeconds;
     newtonTotalSolveSeconds += trace.solveSeconds;
+    newtonTotalExpandReducedStepSeconds += trace.expandReducedStepSeconds;
+    newtonTotalLineSearchSeconds += trace.lineSearchSeconds;
 
     if (std::isfinite(trace.gradReductionRatio) &&
       (newtonWorstProgressIteration < 0 || trace.gradReductionRatio > newtonWorstProgressRatio)) {

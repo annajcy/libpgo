@@ -4,18 +4,33 @@ This benchmark tests whether semantic phase-aware threading improves a real
 Newton solve driven entirely through the public Python API. It does not call a
 benchmark-only C++ kernel or expose Newton's internal state machine to Python.
 
-Every timed solve performs exactly one Newton iteration with:
+Every timed solve uses:
 
 - a real Vega volumetric mesh loaded by `pypgo.mesh.volume.read_veg`;
 - a real `pypgo.fem.deformation_energy` using `StableNeo` by default;
 - a deterministic nonzero perturbation of the deformation DOFs;
 - a fixed top boundary that removes rigid-body null modes;
 - `NewtonOptimizer`, `Backtrack`, `NoDamping`, and `MKLPardiso`;
-- `max_iterations=1` and `gradient_tolerance=0.0`.
+- `gradient_tolerance=0.0` and `FixedTermination`.
 
-The public `optimizer.solve()` path therefore includes the fixed-topology
-initial Hessian and symbolic analysis, the iteration's energy/gradient/Hessian,
-PARDISO factorization and solve, line search, and final objective evaluation.
+There are two explicit modes:
+
+| mode | default policies | repetitions | timed solves per worker | maximum Newton iterations |
+| --- | --- | ---: | ---: | ---: |
+| `cold_start` | `uniform_single`, `phase_aware`, `phase_single_single` | 7 | 1 | 1 |
+| `steady_state` | the full phase-policy 2x2 matrix | 15 | 3 | 8 |
+
+`cold_start` preserves the original exactly-one-iteration experiment.
+`steady_state` is the primary end-to-end experiment: it requires at least two
+completed Newton iterations, but does not change the public solver semantics to
+force exactly eight. The existing convergence and failure exits remain active.
+Every policy in one `(repetition, workload)` block must nevertheless follow the
+same iteration count and complete line-search/symbolic-system path.
+
+The public `optimizer.solve()` path includes fixed-topology initialization,
+initial Hessian and symbolic analysis, every iteration's
+energy/gradient/Hessian, PARDISO factorization and solve, line search, final
+objective evaluation, and explicit sparse-backend cleanup.
 
 ## Workloads
 
@@ -41,7 +56,7 @@ even though the three default workloads are intended to be connected bodies.
 
 ## Policies
 
-With the default concurrency `C=8`, the primary benchmark compares:
+With the default concurrency `C=8`, cold-start mode compares:
 
 | policy | evaluation MKL budget | linear-solver MKL budget | execution form |
 | --- | ---: | ---: | --- |
@@ -53,25 +68,23 @@ All executors use the same arena concurrency and reserved-slot setting.
 `phase_single_single` versus `uniform_single` estimates the cost of the phase
 dispatch abstraction while holding the effective thread budgets fixed.
 
-Three evaluation=C policies remain available as explicit mechanism-negative
-controls:
+Steady-state mode instead uses the complete phase-policy 2x2 matrix:
 
 | policy | evaluation MKL budget | linear-solver MKL budget | execution form |
 | --- | ---: | ---: | --- |
+| `phase_single_single` | 1 | 1 | two independent phase executors |
+| `phase_aware` | 1 | C | two independent phase executors |
 | `phase_reversed` | C | 1 | two independent phase executors |
 | `phase_multi_multi` | C | C | two independent phase executors |
-| `uniform_multi` | C | C | one outer executor around the whole solve |
 
-Together with `phase_single_single` and `phase_aware`, the two phase-executor
-controls complete the 2x2 evaluation/linear budget matrix. `uniform_multi`
-separately tests whether one all-multi outer arena behaves differently from
-phase-separated all-multi execution. These controls are not in the default
-policy set: nested multi-threaded MKL inside the outer TBB FEM evaluation can
-produce policy-dependent result vectors on these workloads. Run a six-policy
-smoke first, then keep a failing control separate so it cannot truncate valid
-phase-matrix measurements. Do not mix a numerically invalid negative control
-into performance summaries or relax the cross-policy correctness gate to
-accept it.
+`phase_single_single` is the all-single baseline, `phase_aware` is the proposed
+policy, `phase_reversed` is the mechanism-negative control, and
+`phase_multi_multi` exposes both phases to multi-threaded MKL. `uniform_single`
+and `uniform_multi` remain opt-in controls for measuring phase-dispatch versus
+one outer executor. The per-element cache fix is expected to make the
+evaluation=C controls numerically valid; the benchmark still rejects the whole
+block if their result or solver path differs. It never weakens correctness
+tolerances to obtain a timing comparison.
 
 ## Run
 
@@ -80,6 +93,7 @@ idle machine:
 
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
+  --mode steady_state \
   --out benchmarks/results/python-solver-phase-threading \
   --concurrency 8
 ```
@@ -95,42 +109,48 @@ OMP_DYNAMIC=FALSE
 ```
 
 The worker creates `GlobalTbbControl(C)` before constructing its mesh,
-material, energy, or optimizer. It performs one full warmup solve and one timed
-solve by default. Policy order is randomized within each
+material, energy, or optimizer. In steady-state mode it performs one full
+warmup solve and three timed solves; the worker's sample is their median wall
+time. Each timed solve restarts from the same deterministic perturbed DOF
+vector and is independently validated. Policy order is randomized within each
 `(repetition, workload)` block, and blocks are also randomized.
 
 Quick scheduling check without loading `pypgo`:
 
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
-  --dry-run --workloads cubic_tricubic_hermite --repetitions 1
+  --mode steady_state --dry-run \
+  --workloads cubic_tricubic_hermite --repetitions 1
 ```
 
 Six-policy diagnostic smoke:
 
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
+  --mode steady_state \
   --out /tmp/python-solver-phase-six-policy-smoke \
   --workloads cubic_tricubic_hermite \
   --policies uniform_single uniform_multi phase_single_single phase_aware \
     phase_reversed phase_multi_multi \
-  --repetitions 1 --bootstrap-samples 100
+  --repetitions 1 --timed-solves 1 --bootstrap-samples 100
 ```
 
 A small end-to-end smoke run after rebuilding:
 
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
+  --mode steady_state \
   --out /tmp/python-solver-phase-smoke \
   --workloads cubic_tricubic_hermite \
   --policies uniform_single phase_aware \
-  --repetitions 1 --bootstrap-samples 100
+  --repetitions 1 --timed-solves 1 --bootstrap-samples 100
 ```
 
-`--timed-solves` is available for unusually fast custom meshes, but the
-defaults intentionally use one fixed timed solve per fresh process. This avoids
-an adaptive minimum-time loop in which a faster policy might execute more
-warm-cache solves than a slower policy.
+The fixed three-solve inner sample reduces one-off process noise without an
+adaptive minimum-time loop in which a faster policy might execute more
+warm-cache solves than a slower policy. The 15 independently randomized worker
+samples, rather than the three solves inside one process, remain the units used
+for paired uncertainty estimates.
 
 ## Outputs and interpretation
 
@@ -140,20 +160,25 @@ The output directory contains:
   status, every raw measurement, correctness signatures, phase diagnostics,
   and summaries;
 - `runs.csv`: one row per fresh worker sample;
-- `phase_breakdown.csv`: one row per timed solve with phase and Newton timing;
+- `phase_breakdown.csv`: one row per timed solve with lifecycle and aggregate
+  Newton timing;
+- `iteration_breakdown.csv`: one row per completed Newton iteration with
+  evaluation, reduced-system preparation, symbolic analyze, factorize, solve,
+  step expansion, line-search, and iteration-wall timing;
 - `summary.csv`: median, MAD, range, paired ratio to `phase_aware`, and a paired
-  bootstrap 95% interval.
+  bootstrap 95% interval for total solve time and per-completed-iteration time.
 
 For `paired_ratio_over_phase_aware_*`, a value greater than 1 means
 `phase_aware` was faster. Comparisons are paired by workload and repetition.
 The controller validates before accepting a completed block that all policies
-have the same solver status, iteration and line-search path, sparse-system
-shape, phase call counts, final objective, and result vector. Every DOF is
-compared with configurable absolute and relative tolerances. The JSON also
-records an exact SHA-256 of canonical little-endian float64 result bytes; this
-hash is provenance evidence and is not used in place of the tolerant DOF-wise
-comparison. When `--timed-solves` is greater than one, every solve is checked
-inside its worker before cross-policy validation.
+have the same solver status, iteration count, per-iteration line-search status
+and iteration count, accepted-alpha path, symbolic-rebuild path, Hessian shape,
+phase call counts, final objective, and result vector. Every DOF is compared
+with configurable absolute and relative tolerances. The JSON also records an
+exact SHA-256 of canonical little-endian float64 result bytes; this hash is
+provenance evidence and is not used in place of the tolerant DOF-wise
+comparison. When `--timed-solves` is greater than one, every solve is first
+checked against its siblings inside the worker, before cross-policy validation.
 
 Check `run_status` before analyzing a checkpoint. A usable final result has
 `state="complete"`, `complete=true`, `valid_so_far=true`, all scheduled blocks
@@ -164,28 +189,28 @@ summary. `--case-limit` is recorded together with requested and actual schedule
 counts, so a deliberately truncated smoke run is distinguishable from a full
 run.
 
-The primary metric is public `optimizer.solve()` wall time. The phase counters
-are mechanism diagnostics: they show whether evaluation follows the
-single-thread-budget behavior and PARDISO follows the multi-thread-budget
-behavior. Wall time also includes small common Python API costs such as bounds
-synchronization, input conversion, and result conversion. Do not assume phase
-times must add exactly to wall time unless the build documents that final
-objective evaluation and backend release are included in the counters.
+The primary metric is the median public `optimizer.solve()` wall time. The
+per-completed-iteration metrics are secondary normalization checks; they do not
+replace total time. Structured timings separate optimizer preparation,
+NewtonSolver setup, initialization, Newton solve, final objective, and explicit
+linear-solver cleanup. Within Newton, nested phase timings explain where a
+policy helps. Because nested timers overlap, do not add every timing column
+together. `optimizer_accounting_residual_seconds` only closes the non-overlap
+top-level lifecycle equation.
 
 A primary result supports the mechanism when:
 
-1. numerical and solver-path signatures match across the three default
-   policies;
-2. `phase_aware` beats `uniform_single` and `phase_single_single` by more than
-   run-to-run variation;
+1. numerical and full per-iteration solver-path signatures match across the
+   four phase policies;
+2. `phase_aware` beats `phase_single_single` by more than run-to-run variation;
 3. PARDISO factorization and solve improve when the linear phase changes from
    budget 1 to budget C;
-4. `phase_single_single` shows no material phase-dispatch penalty relative to
-   `uniform_single`.
+4. `phase_reversed` and `phase_multi_multi` show that giving evaluation budget
+   C does not account for the proposed policy's gain.
 
-The three opt-in evaluation=C controls answer separate diagnostic questions. If
-their result signatures fail, that supports keeping nested FEM evaluation at
-budget 1, but their wall times are not valid speed comparisons.
+If either evaluation=C control still fails its signature after the per-element
+cache fix, treat that as an implementation defect or an invalid experimental
+block, not as performance evidence.
 
 The benchmark establishes this claim only for the recorded machine, build,
 meshes, concurrency, and runtime environment. The JSON records the Git revision

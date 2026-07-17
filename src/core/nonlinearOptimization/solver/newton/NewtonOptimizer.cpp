@@ -14,11 +14,11 @@ namespace pgo::NonlinearOptimization::Optimization
 {
 namespace
 {
-using hclock = std::chrono::high_resolution_clock;
+using hclock = std::chrono::steady_clock;
 
 double secondsBetween(const hclock::time_point &start, const hclock::time_point &end)
 {
-  return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1e6;
+  return std::chrono::duration<double>(end - start).count();
 }
 }  // namespace
 
@@ -36,6 +36,7 @@ OptimizationResult NewtonOptimizer::solve(
   const OptimizationProblem &problem,
   EigenSupport::ConstRefVecXd x0)
 {
+  const hclock::time_point optimizerStart = hclock::now();
   if (!problem.objective) {
     throw std::invalid_argument("OptimizationProblem objective must not be null");
   }
@@ -76,7 +77,9 @@ OptimizationResult NewtonOptimizer::solve(
   sp.threading = options_.threading;
 
   const double *fixedValues = fixed.values.size() > 0 ? fixed.values.data() : nullptr;
+  const hclock::time_point setupStart = hclock::now();
   NewtonSolver solver(x.data(), sp, problem.objective, fixed.dofs, fixedValues);
+  const hclock::time_point setupEnd = hclock::now();
   SolverResult solverResult = solver.solve(
     x.data(),
     options_.maxIterations,
@@ -98,13 +101,27 @@ OptimizationResult NewtonOptimizer::solve(
     options_.threading->executeEvaluation(evaluateFinalObjective);
   else
     evaluateFinalObjective();
+  const hclock::time_point finalEvaluationEnd = hclock::now();
   result.solver.diagnostics.threadingEvaluationPhaseCalls += 1;
   result.solver.diagnostics.threadingEvaluationPhaseSeconds +=
-    secondsBetween(finalEvaluationStart, hclock::now());
+    secondsBetween(finalEvaluationStart, finalEvaluationEnd);
+  result.solver.diagnostics.finalObjectiveSeconds =
+    secondsBetween(finalEvaluationStart, finalEvaluationEnd);
 
   if (std::isfinite(finalObjective)) {
     result.finalObjective = finalObjective;
   }
+
+  const NewtonSolver::CleanupMetrics cleanup = solver.closeLinearSolver();
+  result.solver.diagnostics.linearSolverCleanupSeconds = cleanup.wallSeconds;
+  result.solver.diagnostics.threadingLinearSolverPhaseCalls += cleanup.linearSolverPhaseCalls;
+  result.solver.diagnostics.threadingLinearSolverPhaseSeconds += cleanup.linearSolverPhaseSeconds;
+  result.solver.diagnostics.optimizerPreparationSeconds =
+    secondsBetween(optimizerStart, setupStart);
+  result.solver.diagnostics.newtonSolverSetupSeconds =
+    secondsBetween(setupStart, setupEnd);
+  result.solver.diagnostics.optimizerTotalSeconds =
+    secondsBetween(optimizerStart, hclock::now());
 
   return result;
 }

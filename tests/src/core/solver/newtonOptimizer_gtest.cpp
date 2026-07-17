@@ -197,8 +197,8 @@ SimpleLineSearchRun runSimpleLineSearch(double gradientDotDirection, double curr
     return 0;
   };
   LineSearch helper(1, evaluate);
-  NO::NewtonLineSearchContext ctx{x, direction, gradient, currentEnergy, energyForAlpha(1.0),
-    ctxMaxIterations, helper, evaluate};
+  NO::NewtonLineSearchContext ctx{ x, direction, gradient, currentEnergy, energyForAlpha(1.0),
+    ctxMaxIterations, helper, evaluate };
   run.result = NO::SimpleLineSearchPolicy(params).search(ctx);
   return run;
 }
@@ -224,6 +224,29 @@ TEST(NewtonOptimizer, SolveOwnsResultAndDoesNotMutateInitialState)
   ES::VXd expected(3);
   expected << 1.0, -2.0, 4.0;
   EXPECT_TRUE(result.x.isApprox(expected, 1e-8)) << result.x.transpose();
+}
+
+TEST(NewtonOptimizer, RecordsStructuredLifecycleTimings)
+{
+  initializeLogging();
+  auto energy = makeQuadraticEnergy();
+  OPT::OptimizationProblem problem = makeProblem(energy);
+  ES::VXd x0(3);
+  x0 << 10.0, -3.0, 5.0;
+
+  const OPT::OptimizationResult result = makeOptimizer().solve(problem, x0);
+  const NO::SolveDiagnostics &diagnostics = result.solver.diagnostics;
+
+  EXPECT_GE(diagnostics.optimizerPreparationSeconds, 0.0);
+  EXPECT_GE(diagnostics.newtonSolverSetupSeconds, 0.0);
+  EXPECT_GE(diagnostics.initialHessianSeconds, 0.0);
+  EXPECT_GE(diagnostics.initialReducedSystemSeconds, 0.0);
+  EXPECT_GE(diagnostics.initialSymbolicAnalyzeSeconds, 0.0);
+  EXPECT_GE(diagnostics.newtonSolveSeconds, 0.0);
+  EXPECT_GE(diagnostics.finalObjectiveSeconds, 0.0);
+  EXPECT_GE(diagnostics.linearSolverCleanupSeconds, 0.0);
+  EXPECT_GE(diagnostics.optimizerTotalSeconds, diagnostics.newtonSolveSeconds);
+  EXPECT_GE(diagnostics.threadingLinearSolverPhaseCalls, 3);
 }
 
 TEST(NewtonOptimizer, SolvesWithFixedVariablesAsEqualityBounds)
@@ -338,7 +361,7 @@ TEST(SimpleLineSearchPolicy, DescentDirectionAcceptsEqualEnergyAtAlphaOne)
 {
   const double currentEnergy = 10.0;
   auto run = runSimpleLineSearch(-1.0, currentEnergy, 3,
-    NO::SimpleLineSearchPolicy::Params{0.5, 100},
+    NO::SimpleLineSearchPolicy::Params{ 0.5, 100 },
     [currentEnergy](double) { return currentEnergy; });
 
   EXPECT_EQ(run.result.iterations, 1);
@@ -355,7 +378,7 @@ TEST(SimpleLineSearchPolicy, NonDescentDirectionDoesNotAcceptEqualEnergyByTolera
 {
   const double currentEnergy = 10.0;
   auto run = runSimpleLineSearch(1.0, currentEnergy, 3,
-    NO::SimpleLineSearchPolicy::Params{0.5, 100},
+    NO::SimpleLineSearchPolicy::Params{ 0.5, 100 },
     [currentEnergy](double) { return currentEnergy; });
 
   EXPECT_EQ(run.result.iterations, 3);
@@ -374,7 +397,7 @@ TEST(SimpleLineSearchPolicy, FailureReturnsLastEvaluatedAlphaAndEnergy)
 {
   const double currentEnergy = 10.0;
   auto run = runSimpleLineSearch(1.0, currentEnergy, 3,
-    NO::SimpleLineSearchPolicy::Params{0.5, 100},
+    NO::SimpleLineSearchPolicy::Params{ 0.5, 100 },
     [currentEnergy](double alpha) { return currentEnergy + alpha; });
 
   EXPECT_EQ(run.result.iterations, 3);
@@ -391,7 +414,7 @@ TEST(SimpleLineSearchPolicy, NonFiniteTrialReturnsNonFiniteEnergyStatus)
 {
   const double currentEnergy = 10.0;
   auto run = runSimpleLineSearch(-1.0, currentEnergy, 3,
-    NO::SimpleLineSearchPolicy::Params{0.5, 100},
+    NO::SimpleLineSearchPolicy::Params{ 0.5, 100 },
     [](double) { return std::numeric_limits<double>::quiet_NaN(); });
 
   EXPECT_EQ(run.result.iterations, 1);

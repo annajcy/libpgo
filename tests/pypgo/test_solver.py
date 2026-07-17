@@ -37,7 +37,10 @@ def test_newton_optimizer_solves_quadratic():
     assert result.iterations >= 0
     assert np.allclose(result.x, [1.0, -2.0, 4.0])
     assert result.final_objective is not None
-    assert result.diagnostics.newton_convergence_reason == NewtonConvergenceReason.ABSOLUTE_GRADIENT
+    assert (
+        result.diagnostics.newton_convergence_reason
+        == NewtonConvergenceReason.ABSOLUTE_GRADIENT
+    )
     assert result.diagnostics.newton_convergence_reason_name == "AbsoluteGradient"
     assert result.diagnostics.newton_convergence_threshold == pytest.approx(1e-6)
 
@@ -82,8 +85,15 @@ def test_line_search_keywords():
     problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    for line_search in (solver.Golden(), solver.Brents(), solver.Backtrack(), solver.Simple()):
-        result = solver.NewtonOptimizer(line_search=line_search, damping=solver.NoDamping()).solve(problem, x0)
+    for line_search in (
+        solver.Golden(),
+        solver.Brents(),
+        solver.Backtrack(),
+        solver.Simple(),
+    ):
+        result = solver.NewtonOptimizer(
+            line_search=line_search, damping=solver.NoDamping()
+        ).solve(problem, x0)
         assert result.converged
 
 
@@ -114,36 +124,32 @@ def test_newton_threading_policy_routes_phases_and_owns_executors():
     del threading, evaluation, linear_solver
     gc.collect()
 
-    result = optimizer.solve(
-        problem, np.array([10.0, -3.0, 5.0], dtype=np.float64)
-    )
-    again = optimizer.solve(
-        problem, np.array([10.0, -3.0, 5.0], dtype=np.float64)
-    )
+    result = optimizer.solve(problem, np.array([10.0, -3.0, 5.0], dtype=np.float64))
+    again = optimizer.solve(problem, np.array([10.0, -3.0, 5.0], dtype=np.float64))
 
     assert result.converged
     assert again.converged
     assert result.diagnostics.threading_evaluation_phase_calls == 5
-    assert result.diagnostics.threading_linear_solver_phase_calls == 2
+    assert result.diagnostics.threading_linear_solver_phase_calls == 3
     assert result.diagnostics.threading_evaluation_phase_seconds >= 0.0
     assert result.diagnostics.threading_linear_solver_phase_seconds >= 0.0
+    assert result.diagnostics.newton_solver_setup_seconds is not None
+    assert result.diagnostics.initial_symbolic_analyze_seconds is not None
+    assert result.diagnostics.newton_solve_seconds is not None
+    assert result.diagnostics.final_objective_seconds is not None
+    assert result.diagnostics.linear_solver_cleanup_seconds is not None
+    assert result.diagnostics.optimizer_total_seconds is not None
 
 
 def test_newton_threading_policy_validates_executors_and_optimizer_argument():
     executor = ArenaThreadingExecutor(1)
     with pytest.raises(TypeError, match="evaluation"):
-        solver.NewtonThreadingPolicy(
-            evaluation=object(), linear_solver=executor
-        )
+        solver.NewtonThreadingPolicy(evaluation=object(), linear_solver=executor)
     with pytest.raises(TypeError, match="linear_solver"):
-        solver.NewtonThreadingPolicy(
-            evaluation=executor, linear_solver=object()
-        )
+        solver.NewtonThreadingPolicy(evaluation=executor, linear_solver=object())
     with pytest.raises(TypeError, match="threading"):
         make_optimizer(threading=object())
-    policy = solver.NewtonThreadingPolicy(
-        evaluation=executor, linear_solver=executor
-    )
+    policy = solver.NewtonThreadingPolicy(evaluation=executor, linear_solver=executor)
     with pytest.raises(AttributeError):
         policy.evaluation = executor
 
@@ -197,7 +203,9 @@ def test_status_roundtrip_for_all_values():
         "EXTERNAL_SOLVER_FAILURE": 100,
         "UNSUPPORTED_BACKEND": 101,
     }
-    assert {name: int(getattr(solver.SolveStatus, name)) for name in expected} == expected
+    assert {
+        name: int(getattr(solver.SolveStatus, name)) for name in expected
+    } == expected
 
 
 def test_final_gradient_stats_are_optional():
@@ -205,7 +213,9 @@ def test_final_gradient_stats_are_optional():
     problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.NewtonOptimizer(max_iterations=0, damping=solver.NoDamping()).solve(problem, x0)
+    result = solver.NewtonOptimizer(max_iterations=0, damping=solver.NoDamping()).solve(
+        problem, x0
+    )
 
     assert result.status == solver.SolveStatus.MAX_ITERATIONS
     assert result.final_gradient_norm is None
@@ -247,7 +257,9 @@ def test_verbose_does_not_crash():
     problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.NewtonOptimizer(verbose=1, damping=solver.NoDamping()).solve(problem, x0)
+    result = solver.NewtonOptimizer(verbose=1, damping=solver.NoDamping()).solve(
+        problem, x0
+    )
 
     assert result.status in {
         solver.SolveStatus.CONVERGED,
@@ -260,9 +272,13 @@ def test_verbose_does_not_crash():
 def test_optimizer_problem_peers_and_newton_solve():
     import pypgo._core as _core
 
-    objective = pgo.energy.QuadraticEnergy(np.eye(2, dtype=np.float64), b=np.array([-4.0, 0.0]))
+    objective = pgo.energy.QuadraticEnergy(
+        np.eye(2, dtype=np.float64), b=np.array([-4.0, 0.0])
+    )
     problem = solver.OptimizationProblem(objective=objective)
-    optimizer = solver.NewtonOptimizer(max_iterations=10, gradient_tolerance=1e-10, damping=solver.NoDamping())
+    optimizer = solver.NewtonOptimizer(
+        max_iterations=10, gradient_tolerance=1e-10, damping=solver.NoDamping()
+    )
 
     assert isinstance(problem._handle, _core.PyOptimizationProblem)
     assert isinstance(optimizer, solver.Optimizer)

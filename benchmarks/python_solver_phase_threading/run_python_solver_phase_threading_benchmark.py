@@ -39,15 +39,25 @@ DEFAULT_POLICIES = (
     "phase_aware",
     "phase_single_single",
 )
+STEADY_STATE_POLICIES = (
+    "phase_single_single",
+    "phase_aware",
+    "phase_reversed",
+    "phase_multi_multi",
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path)
-    parser.add_argument("--workloads", nargs="+", choices=WORKLOADS, default=WORKLOADS)
     parser.add_argument(
-        "--policies", nargs="+", choices=POLICIES, default=DEFAULT_POLICIES
+        "--mode",
+        choices=("cold_start", "steady_state"),
+        default="cold_start",
+        help="cold_start preserves the original one-step benchmark; steady_state runs a multi-iteration solve",
     )
+    parser.add_argument("--workloads", nargs="+", choices=WORKLOADS, default=WORKLOADS)
+    parser.add_argument("--policies", nargs="+", choices=POLICIES)
     parser.add_argument(
         "--tet-mesh", type=Path, default=ROOT / DEFAULT_MESHES["tet_linear"]
     )
@@ -63,9 +73,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--reserved-slots", type=int, default=1)
-    parser.add_argument("--repetitions", type=int, default=7)
+    parser.add_argument("--repetitions", type=int)
     parser.add_argument("--warmup-solves", type=int, default=1)
-    parser.add_argument("--timed-solves", type=int, default=1)
+    parser.add_argument("--timed-solves", type=int)
+    parser.add_argument("--newton-iterations", type=int)
     parser.add_argument("--seed", type=int, default=20260716)
     parser.add_argument("--displacement-scale", type=float, default=1e-4)
     parser.add_argument("--fixed-slab-fraction", type=float, default=0.01)
@@ -86,7 +97,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--policy", choices=POLICIES, help=argparse.SUPPRESS)
     parser.add_argument("--mesh", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--repetition", type=int, default=0, help=argparse.SUPPRESS)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.policies is None:
+        args.policies = (
+            STEADY_STATE_POLICIES if args.mode == "steady_state" else DEFAULT_POLICIES
+        )
+    if args.repetitions is None:
+        args.repetitions = 15 if args.mode == "steady_state" else 7
+    if args.timed_solves is None:
+        args.timed_solves = 3 if args.mode == "steady_state" else 1
+    if args.newton_iterations is None:
+        args.newton_iterations = 8 if args.mode == "steady_state" else 1
+    return args
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -104,6 +126,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--warmup-solves must be non-negative")
     if args.timed_solves <= 0:
         raise SystemExit("--timed-solves must be positive")
+    if args.newton_iterations <= 0:
+        raise SystemExit("--newton-iterations must be positive")
+    if args.mode == "cold_start" and args.newton_iterations != 1:
+        raise SystemExit("cold_start mode requires --newton-iterations=1")
     if not math.isfinite(args.displacement_scale) or args.displacement_scale <= 0.0:
         raise SystemExit("--displacement-scale must be positive")
     if (
@@ -191,8 +217,25 @@ def _diagnostic_record(result: Any) -> dict[str, Any]:
         "threading_linear_solver_phase_calls": diagnostics.threading_linear_solver_phase_calls,
         "threading_evaluation_phase_seconds": diagnostics.threading_evaluation_phase_seconds,
         "threading_linear_solver_phase_seconds": diagnostics.threading_linear_solver_phase_seconds,
+        "optimizer_preparation_seconds": diagnostics.optimizer_preparation_seconds,
+        "newton_solver_setup_seconds": diagnostics.newton_solver_setup_seconds,
+        "initial_hessian_seconds": diagnostics.initial_hessian_seconds,
+        "initial_reduced_system_seconds": diagnostics.initial_reduced_system_seconds,
+        "initial_symbolic_analyze_seconds": diagnostics.initial_symbolic_analyze_seconds,
+        "newton_solve_seconds": diagnostics.newton_solve_seconds,
+        "newton_total_iteration_seconds": diagnostics.newton_total_iteration_seconds,
+        "newton_total_evaluate_current_state_seconds": diagnostics.newton_total_evaluate_current_state_seconds,
+        "newton_total_func_grad_hessian_seconds": diagnostics.newton_total_func_grad_hessian_seconds,
+        "newton_total_prepare_reduced_system_seconds": diagnostics.newton_total_prepare_reduced_system_seconds,
+        "newton_total_ensure_linear_solver_seconds": diagnostics.newton_total_ensure_linear_solver_seconds,
+        "newton_total_symbolic_analyze_seconds": diagnostics.newton_total_symbolic_analyze_seconds,
         "newton_total_factorize_seconds": diagnostics.newton_total_factorize_seconds,
         "newton_total_solve_seconds": diagnostics.newton_total_solve_seconds,
+        "newton_total_expand_reduced_step_seconds": diagnostics.newton_total_expand_reduced_step_seconds,
+        "newton_total_line_search_seconds": diagnostics.newton_total_line_search_seconds,
+        "final_objective_seconds": diagnostics.final_objective_seconds,
+        "linear_solver_cleanup_seconds": diagnostics.linear_solver_cleanup_seconds,
+        "optimizer_total_seconds": diagnostics.optimizer_total_seconds,
         "linear_solver_symbolic_rebuild_count": diagnostics.linear_solver_symbolic_rebuild_count,
         "linear_solver_symbolic_reuse_count": diagnostics.linear_solver_symbolic_reuse_count,
         "last_active_system_rows": diagnostics.last_active_system_rows,
@@ -202,24 +245,44 @@ def _diagnostic_record(result: Any) -> dict[str, Any]:
         "total_line_search_iterations": diagnostics.total_line_search_iterations,
         "accepted_alpha": _iteration_value(last_iteration, "accepted_alpha"),
         "line_search_status": _iteration_value(last_iteration, "line_search_status"),
+        "evaluate_current_state_seconds": _iteration_value(
+            last_iteration, "evaluate_current_state_seconds"
+        ),
         "func_grad_hessian_seconds": _iteration_value(
             last_iteration, "func_grad_hessian_seconds"
+        ),
+        "prepare_reduced_system_seconds": _iteration_value(
+            last_iteration, "prepare_reduced_system_seconds"
+        ),
+        "ensure_linear_solver_seconds": _iteration_value(
+            last_iteration, "ensure_linear_solver_seconds"
         ),
         "symbolic_analyze_seconds": _iteration_value(
             last_iteration, "symbolic_analyze_seconds"
         ),
         "factorize_seconds": _iteration_value(last_iteration, "factorize_seconds"),
         "solve_seconds": _iteration_value(last_iteration, "solve_seconds"),
+        "expand_reduced_step_seconds": _iteration_value(
+            last_iteration, "expand_reduced_step_seconds"
+        ),
         "line_search_seconds": _iteration_value(last_iteration, "line_search_seconds"),
         "iteration_wall_seconds": _iteration_value(
             last_iteration, "iteration_wall_seconds"
         ),
+        "newton_iterations": iterations,
     }
     required_phase_fields = (
         "threading_evaluation_phase_calls",
         "threading_linear_solver_phase_calls",
         "threading_evaluation_phase_seconds",
         "threading_linear_solver_phase_seconds",
+        "newton_solver_setup_seconds",
+        "initial_symbolic_analyze_seconds",
+        "newton_solve_seconds",
+        "newton_total_iteration_seconds",
+        "final_objective_seconds",
+        "linear_solver_cleanup_seconds",
+        "optimizer_total_seconds",
     )
     missing = [field for field in required_phase_fields if record[field] is None]
     if missing:
@@ -236,6 +299,19 @@ def _diagnostic_record(result: Any) -> dict[str, Any]:
         raise RuntimeError(
             "solver produced non-finite diagnostics: " + ", ".join(non_finite)
         )
+    accounted = sum(
+        float(record[name] or 0.0)
+        for name in (
+            "optimizer_preparation_seconds",
+            "newton_solver_setup_seconds",
+            "newton_solve_seconds",
+            "final_objective_seconds",
+            "linear_solver_cleanup_seconds",
+        )
+    )
+    record["optimizer_accounting_residual_seconds"] = (
+        float(record["optimizer_total_seconds"] or 0.0) - accounted
+    )
     return record
 
 
@@ -248,6 +324,7 @@ def _result_signature(result: Any, fixed_dofs: Any) -> dict[str, Any]:
     if result.final_objective is not None and not math.isfinite(result.final_objective):
         raise RuntimeError("solver produced a non-finite final objective")
     diagnostics = _diagnostic_record(result)
+    iteration_records = diagnostics["newton_iterations"]
     fixed_error = np.abs(x[fixed_dofs])
     canonical_x = np.asarray(x, dtype="<f8").tobytes()
     return {
@@ -284,6 +361,26 @@ def _result_signature(result: Any, fixed_dofs: Any) -> dict[str, Any]:
         ],
         "threading_linear_solver_phase_calls": diagnostics[
             "threading_linear_solver_phase_calls"
+        ],
+        "iteration_line_search_iterations": [
+            int(record["line_search_iterations"]) for record in iteration_records
+        ],
+        "iteration_line_search_statuses": [
+            int(record["line_search_status"]) for record in iteration_records
+        ],
+        "iteration_symbolic_rebuilt": [
+            bool(record["symbolic_rebuilt"]) for record in iteration_records
+        ],
+        "iteration_hessian_shapes": [
+            [
+                int(record["hessian_rows"]),
+                int(record["hessian_cols"]),
+                int(record["hessian_nnz"]),
+            ]
+            for record in iteration_records
+        ],
+        "iteration_accepted_alphas": [
+            record["accepted_alpha"] for record in iteration_records
         ],
     }
 
@@ -333,10 +430,11 @@ def worker_main(args: argparse.Namespace) -> int:
         )
 
     optimizer = ps.NewtonOptimizer(
-        max_iterations=1,
+        max_iterations=args.newton_iterations,
         gradient_tolerance=0.0,
         line_search=ps.Backtrack(),
         damping=ps.NoDamping(),
+        termination=ps.FixedTermination(),
         sparse_solver=ps.MKLPardiso(),
         threading=threading,
     )
@@ -362,10 +460,15 @@ def worker_main(args: argparse.Namespace) -> int:
         solve_wall_seconds.append(time.perf_counter() - started)
         timed_diagnostics.append(_diagnostic_record(last_result))
         signature = _result_signature(last_result, workload.fixed_dofs)
-        if signature["iterations"] != 1:
+        if args.mode == "cold_start" and signature["iterations"] != 1:
             raise RuntimeError(
                 f"timed solve {solve_index} expected exactly one Newton iteration, "
                 f"got {signature['iterations']}"
+            )
+        if args.mode == "steady_state" and signature["iterations"] < 2:
+            raise RuntimeError(
+                f"timed steady-state solve {solve_index} needs at least two completed "
+                f"Newton iterations, got {signature['iterations']}"
             )
         if signature["fixed_dof_max_abs"] != 0.0:
             raise RuntimeError(f"fixed DOFs changed during timed solve {solve_index}")
@@ -383,6 +486,28 @@ def worker_main(args: argparse.Namespace) -> int:
     )
     signature = timed_signatures[-1]
 
+    summed_timing_fields = (
+        "optimizer_preparation_seconds",
+        "newton_solver_setup_seconds",
+        "initial_hessian_seconds",
+        "initial_reduced_system_seconds",
+        "initial_symbolic_analyze_seconds",
+        "newton_solve_seconds",
+        "newton_total_iteration_seconds",
+        "newton_total_evaluate_current_state_seconds",
+        "newton_total_func_grad_hessian_seconds",
+        "newton_total_prepare_reduced_system_seconds",
+        "newton_total_ensure_linear_solver_seconds",
+        "newton_total_symbolic_analyze_seconds",
+        "newton_total_factorize_seconds",
+        "newton_total_solve_seconds",
+        "newton_total_expand_reduced_step_seconds",
+        "newton_total_line_search_seconds",
+        "final_objective_seconds",
+        "linear_solver_cleanup_seconds",
+        "optimizer_total_seconds",
+        "optimizer_accounting_residual_seconds",
+    )
     phase_totals = {
         "threading_evaluation_phase_calls": sum(
             int(record["threading_evaluation_phase_calls"] or 0)
@@ -400,16 +525,24 @@ def worker_main(args: argparse.Namespace) -> int:
             float(record["threading_linear_solver_phase_seconds"] or 0.0)
             for record in timed_diagnostics
         ),
-        "newton_total_factorize_seconds": sum(
-            float(record["newton_total_factorize_seconds"] or 0.0)
-            for record in timed_diagnostics
-        ),
-        "newton_total_solve_seconds": sum(
-            float(record["newton_total_solve_seconds"] or 0.0)
-            for record in timed_diagnostics
-        ),
     }
+    phase_totals.update(
+        {
+            field: sum(float(record[field] or 0.0) for record in timed_diagnostics)
+            for field in summed_timing_fields
+        }
+    )
+    completed_iterations = [int(item["iterations"]) for item in timed_signatures]
+    wall_seconds_per_iteration = [
+        wall / iterations
+        for wall, iterations in zip(solve_wall_seconds, completed_iterations)
+    ]
+    newton_seconds_per_iteration = [
+        float(diagnostics["newton_total_iteration_seconds"] or 0.0) / iterations
+        for diagnostics, iterations in zip(timed_diagnostics, completed_iterations)
+    ]
     result = {
+        "mode": args.mode,
         "workload": args.workload,
         "policy": args.policy,
         "policy_parameters": parameters,
@@ -420,7 +553,14 @@ def worker_main(args: argparse.Namespace) -> int:
         "timed_solves": args.timed_solves,
         "solve_wall_seconds": solve_wall_seconds,
         "total_wall_seconds": float(sum(solve_wall_seconds)),
-        "seconds_per_solve": float(sum(solve_wall_seconds) / len(solve_wall_seconds)),
+        "seconds_per_solve": float(statistics.median(solve_wall_seconds)),
+        "wall_seconds_per_completed_iteration": float(
+            statistics.median(wall_seconds_per_iteration)
+        ),
+        "newton_seconds_per_completed_iteration": float(
+            statistics.median(newton_seconds_per_iteration)
+        ),
+        "completed_iterations_per_solve": completed_iterations,
         "phase_totals": phase_totals,
         "timed_diagnostics": timed_diagnostics,
         "timed_signatures": timed_signatures,
@@ -492,6 +632,8 @@ def worker_command(
         str(repetition),
         "--mesh",
         str(mesh.resolve()),
+        "--mode",
+        args.mode,
         "--concurrency",
         str(args.concurrency),
         "--reserved-slots",
@@ -500,6 +642,8 @@ def worker_command(
         str(args.warmup_solves),
         "--timed-solves",
         str(args.timed_solves),
+        "--newton-iterations",
+        str(args.newton_iterations),
         "--seed",
         str(args.seed),
         "--displacement-scale",
@@ -588,6 +732,10 @@ def validate_signatures(
         "last_active_system_nnz",
         "threading_evaluation_phase_calls",
         "threading_linear_solver_phase_calls",
+        "iteration_line_search_iterations",
+        "iteration_line_search_statuses",
+        "iteration_symbolic_rebuilt",
+        "iteration_hessian_shapes",
     )
     numeric_fields = (
         ("final_objective", None),
@@ -625,6 +773,26 @@ def validate_signatures(
                     f"signature field {field} differs between "
                     f"{reference['policy']} and {record['policy']}: "
                     f"{reference_signature[field]} vs {signature[field]}"
+                )
+        reference_alphas = reference_signature["iteration_accepted_alphas"]
+        candidate_alphas = signature["iteration_accepted_alphas"]
+        if len(reference_alphas) != len(candidate_alphas):
+            raise RuntimeError(
+                f"iteration accepted-alpha path length differs between "
+                f"{reference['policy']} and {record['policy']}"
+            )
+        for iteration, (left, right) in enumerate(
+            zip(reference_alphas, candidate_alphas)
+        ):
+            if not _close_numeric(
+                left,
+                right,
+                relative_tolerance,
+                absolute_tolerance,
+            ):
+                raise RuntimeError(
+                    f"accepted alpha at iteration {iteration} differs between "
+                    f"{reference['policy']} and {record['policy']}: {left} vs {right}"
                 )
         left_values = reference_signature["x_values"]
         right_values = signature["x_values"]
@@ -694,7 +862,17 @@ def summarize(
         }
         for policy, policy_records in sorted(by_policy.items()):
             values = [float(record["seconds_per_solve"]) for record in policy_records]
+            wall_iteration_values = [
+                float(record["wall_seconds_per_completed_iteration"])
+                for record in policy_records
+            ]
+            newton_iteration_values = [
+                float(record["newton_seconds_per_completed_iteration"])
+                for record in policy_records
+            ]
             ratios = []
+            wall_iteration_ratios = []
+            newton_iteration_ratios = []
             for record in policy_records:
                 reference = reference_by_repetition.get(int(record["repetition"]))
                 if reference is not None:
@@ -702,8 +880,26 @@ def summarize(
                         float(record["seconds_per_solve"])
                         / float(reference["seconds_per_solve"])
                     )
+                    wall_iteration_ratios.append(
+                        float(record["wall_seconds_per_completed_iteration"])
+                        / float(reference["wall_seconds_per_completed_iteration"])
+                    )
+                    newton_iteration_ratios.append(
+                        float(record["newton_seconds_per_completed_iteration"])
+                        / float(reference["newton_seconds_per_completed_iteration"])
+                    )
             ratio_ci_low, ratio_ci_high = _bootstrap_median_ci(
                 ratios, bootstrap_samples, f"{workload}:{policy}:{REFERENCE_POLICY}"
+            )
+            wall_iteration_ci_low, wall_iteration_ci_high = _bootstrap_median_ci(
+                wall_iteration_ratios,
+                bootstrap_samples,
+                f"{workload}:{policy}:{REFERENCE_POLICY}:wall-iteration",
+            )
+            newton_iteration_ci_low, newton_iteration_ci_high = _bootstrap_median_ci(
+                newton_iteration_ratios,
+                bootstrap_samples,
+                f"{workload}:{policy}:{REFERENCE_POLICY}:newton-iteration",
             )
             summaries.append(
                 {
@@ -714,11 +910,37 @@ def summarize(
                     "mad_seconds_per_solve": median_absolute_deviation(values),
                     "min_seconds_per_solve": min(values),
                     "max_seconds_per_solve": max(values),
+                    "median_wall_seconds_per_completed_iteration": statistics.median(
+                        wall_iteration_values
+                    ),
+                    "mad_wall_seconds_per_completed_iteration": median_absolute_deviation(
+                        wall_iteration_values
+                    ),
+                    "median_newton_seconds_per_completed_iteration": statistics.median(
+                        newton_iteration_values
+                    ),
+                    "mad_newton_seconds_per_completed_iteration": median_absolute_deviation(
+                        newton_iteration_values
+                    ),
                     "paired_ratio_over_phase_aware_median": (
                         statistics.median(ratios) if ratios else None
                     ),
                     "paired_ratio_over_phase_aware_ci95_low": ratio_ci_low,
                     "paired_ratio_over_phase_aware_ci95_high": ratio_ci_high,
+                    "paired_wall_iteration_ratio_over_phase_aware_median": (
+                        statistics.median(wall_iteration_ratios)
+                        if wall_iteration_ratios
+                        else None
+                    ),
+                    "paired_wall_iteration_ratio_over_phase_aware_ci95_low": wall_iteration_ci_low,
+                    "paired_wall_iteration_ratio_over_phase_aware_ci95_high": wall_iteration_ci_high,
+                    "paired_newton_iteration_ratio_over_phase_aware_median": (
+                        statistics.median(newton_iteration_ratios)
+                        if newton_iteration_ratios
+                        else None
+                    ),
+                    "paired_newton_iteration_ratio_over_phase_aware_ci95_low": newton_iteration_ci_low,
+                    "paired_newton_iteration_ratio_over_phase_aware_ci95_high": newton_iteration_ci_high,
                 }
             )
     return summaries
@@ -731,12 +953,22 @@ def _raw_csv_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         metadata = record["workload_metadata"]
         rows.append(
             {
+                "mode": record["mode"],
                 "workload": record["workload"],
                 "policy": record["policy"],
                 "repetition": record["repetition"],
                 "seconds_per_solve": record["seconds_per_solve"],
                 "total_wall_seconds": record["total_wall_seconds"],
                 "timed_solves": record["timed_solves"],
+                "completed_iterations_per_solve": ";".join(
+                    str(value) for value in record["completed_iterations_per_solve"]
+                ),
+                "wall_seconds_per_completed_iteration": record[
+                    "wall_seconds_per_completed_iteration"
+                ],
+                "newton_seconds_per_completed_iteration": record[
+                    "newton_seconds_per_completed_iteration"
+                ],
                 "evaluation_phase_calls": totals["threading_evaluation_phase_calls"],
                 "linear_solver_phase_calls": totals[
                     "threading_linear_solver_phase_calls"
@@ -747,8 +979,42 @@ def _raw_csv_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "linear_solver_phase_seconds": totals[
                     "threading_linear_solver_phase_seconds"
                 ],
+                "optimizer_preparation_seconds": totals[
+                    "optimizer_preparation_seconds"
+                ],
+                "newton_solver_setup_seconds": totals["newton_solver_setup_seconds"],
+                "initial_hessian_seconds": totals["initial_hessian_seconds"],
+                "initial_reduced_system_seconds": totals[
+                    "initial_reduced_system_seconds"
+                ],
+                "initial_symbolic_analyze_seconds": totals[
+                    "initial_symbolic_analyze_seconds"
+                ],
+                "newton_solve_seconds": totals["newton_solve_seconds"],
+                "newton_iteration_seconds": totals["newton_total_iteration_seconds"],
+                "func_grad_hessian_seconds": totals[
+                    "newton_total_func_grad_hessian_seconds"
+                ],
+                "prepare_reduced_system_seconds": totals[
+                    "newton_total_prepare_reduced_system_seconds"
+                ],
+                "ensure_linear_solver_seconds": totals[
+                    "newton_total_ensure_linear_solver_seconds"
+                ],
+                "symbolic_analyze_seconds": totals[
+                    "newton_total_symbolic_analyze_seconds"
+                ],
                 "factorize_seconds": totals["newton_total_factorize_seconds"],
                 "solve_seconds": totals["newton_total_solve_seconds"],
+                "line_search_seconds": totals["newton_total_line_search_seconds"],
+                "final_objective_seconds": totals["final_objective_seconds"],
+                "linear_solver_cleanup_seconds": totals[
+                    "linear_solver_cleanup_seconds"
+                ],
+                "optimizer_total_seconds": totals["optimizer_total_seconds"],
+                "optimizer_accounting_residual_seconds": totals[
+                    "optimizer_accounting_residual_seconds"
+                ],
                 "num_dofs": metadata["num_dofs"],
                 "num_elements": metadata["mesh"]["num_elements"],
                 "active_system_nnz": record["signature"]["last_active_system_nnz"],
@@ -766,16 +1032,40 @@ def _phase_csv_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for record in records:
         for solve_index, diagnostics in enumerate(record["timed_diagnostics"]):
+            flat_diagnostics = {
+                key: value
+                for key, value in diagnostics.items()
+                if key != "newton_iterations"
+            }
             rows.append(
                 {
+                    "mode": record["mode"],
                     "workload": record["workload"],
                     "policy": record["policy"],
                     "repetition": record["repetition"],
                     "solve_index": solve_index,
                     "solve_wall_seconds": record["solve_wall_seconds"][solve_index],
-                    **diagnostics,
+                    **flat_diagnostics,
                 }
             )
+    return rows
+
+
+def _iteration_csv_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for record in records:
+        for solve_index, diagnostics in enumerate(record["timed_diagnostics"]):
+            for iteration in diagnostics["newton_iterations"]:
+                rows.append(
+                    {
+                        "mode": record["mode"],
+                        "workload": record["workload"],
+                        "policy": record["policy"],
+                        "repetition": record["repetition"],
+                        "solve_index": solve_index,
+                        **iteration,
+                    }
+                )
     return rows
 
 
@@ -814,6 +1104,7 @@ def write_checkpoint(
     temporary.replace(final)
     _write_csv(output / "runs.csv", _raw_csv_rows(records))
     _write_csv(output / "phase_breakdown.csv", _phase_csv_rows(records))
+    _write_csv(output / "iteration_breakdown.csv", _iteration_csv_rows(records))
     _write_csv(output / "summary.csv", summary)
 
 
@@ -878,6 +1169,7 @@ def controller_main(args: argparse.Namespace) -> int:
         "fresh_process_per_sample": True,
         "serial_execution": True,
         "reference_policy": REFERENCE_POLICY,
+        "mode": args.mode,
         "workloads": list(args.workloads),
         "policies": list(args.policies),
         "mesh_paths": {name: str(path.resolve()) for name, path in paths.items()},
@@ -886,6 +1178,7 @@ def controller_main(args: argparse.Namespace) -> int:
         "repetitions": args.repetitions,
         "warmup_solves": args.warmup_solves,
         "timed_solves": args.timed_solves,
+        "newton_iterations": args.newton_iterations,
         "seed": args.seed,
         "displacement_scale": args.displacement_scale,
         "fixed_slab_fraction": args.fixed_slab_fraction,
@@ -977,6 +1270,7 @@ def controller_main(args: argparse.Namespace) -> int:
             write_checkpoint(output, manifest, records, 0, run_status)
         print(
             f"  {record['seconds_per_solve'] * 1e3:.3f} ms/solve; "
+            f"iterations={record['completed_iterations_per_solve']}; "
             f"eval={record['phase_totals']['threading_evaluation_phase_seconds'] * 1e3:.3f} ms; "
             f"linear={record['phase_totals']['threading_linear_solver_phase_seconds'] * 1e3:.3f} ms",
             flush=True,

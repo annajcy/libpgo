@@ -20,7 +20,7 @@
 using namespace pgo;
 using namespace pgo::NonlinearOptimization;
 namespace ES = pgo::EigenSupport;
-using hclock = std::chrono::high_resolution_clock;
+using hclock = std::chrono::steady_clock;
 
 namespace
 {
@@ -102,7 +102,7 @@ private:
 
 inline double dura(const hclock::time_point &t1, const hclock::time_point &t2)
 {
-  return std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1e6;
+  return std::chrono::duration<double>(t2 - t1).count();
 }
 
 void NewtonSolver::executeEvaluationPhase(const std::function<void()> &fn)
@@ -386,7 +386,24 @@ NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_con
 
 NewtonSolver::~NewtonSolver() noexcept
 {
+  closeLinearSolver();
+}
+
+NewtonSolver::CleanupMetrics NewtonSolver::closeLinearSolver()
+{
+  const hclock::time_point cleanupStart = hclock::now();
+  const PhaseMetrics before = cumulativePhaseMetrics;
   resetLinearSolver();
+  const CleanupMetrics metrics{
+    cumulativePhaseMetrics.linearSolverCalls - before.linearSolverCalls,
+    cumulativePhaseMetrics.linearSolverSeconds - before.linearSolverSeconds,
+    dura(cleanupStart, hclock::now()),
+  };
+  // A later solve must not attribute this explicit lifecycle cleanup to its
+  // own phase metrics. The normal NewtonOptimizer path treats close as
+  // terminal, but keeping the direct NewtonSolver API composable costs little.
+  reportedPhaseMetrics = cumulativePhaseMetrics;
+  return metrics;
 }
 
 void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double *fixedValues_)
@@ -417,26 +434,32 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
 
     if (energy->isHessianTopologyFixed()) {
       // sparse matrix
+      const hclock::time_point hessianStart = hclock::now();
       executeEvaluationPhase([&] {
         dispatchPrepareEvaluationState(x);
         energy->hessianAlloc(sysFull);
         energy->hessianInPlace(x, sysFull);
       });
+      pendingSetupMetrics.initialHessianSeconds += dura(hessianStart, hclock::now());
       logMemoryCheckpoint("newton.after_full_hessian");
 
+      const hclock::time_point reducedSystemStart = hclock::now();
       if (fixedDOFs.empty()) {
         ensureDiagonalEntries(sysFull);
-        logMemoryCheckpoint("newton.after_no_fixed_fast_path");
       }
       else {
         ES::removeRowsCols(sysFull, fixedDOFs, A11);
         ES::removeRowsCols(sysFull, A11, fixedDOFs, A11Mapping);
-        logMemoryCheckpoint("newton.after_reduced_system_setup");
       }
 
       ES::SpMatD &A = activeSystemMatrix();
       A.makeCompressed();
-      makeLinearSolver(A);
+      pendingSetupMetrics.initialReducedSystemSeconds += dura(reducedSystemStart, hclock::now());
+      if (fixedDOFs.empty())
+        logMemoryCheckpoint("newton.after_no_fixed_fast_path");
+      else
+        logMemoryCheckpoint("newton.after_reduced_system_setup");
+      pendingSetupMetrics.initialSymbolicAnalyzeSeconds += makeLinearSolver(A);
     }
   }
 
@@ -445,9 +468,9 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
 
 double NewtonSolver::makeLinearSolver(const ES::SpMatD &A)
 {
-  const hclock::time_point start = hclock::now();
   Profiling::ScopedProfileSection scopedProfile("newton.solver.symbolic_analyze");
   Profiling::ScopedThreadRuntimePhase threadProfile("newton.solver.symbolic_analyze");
+  const hclock::time_point symbolicAnalyzeStart = hclock::now();
   executeLinearSolverPhase([&] {
     solver.reset();
     auto newSolver = sparseSolverSelector->build(A);
@@ -455,10 +478,11 @@ double NewtonSolver::makeLinearSolver(const ES::SpMatD &A)
       throw std::runtime_error("Newton sparse solver selector returned a null backend");
     solver = std::move(newSolver);
   });
+  const double symbolicAnalyzeSeconds = dura(symbolicAnalyzeStart, hclock::now());
   invalidateLinearSolverPatternCache();
   updateLinearSolverPatternCache(A);
   logMemoryCheckpoint("newton.after_sparse_symbolic_analysis");
-  return dura(start, hclock::now());
+  return symbolicAnalyzeSeconds;
 }
 
 void NewtonSolver::invalidateLinearSolverPatternCache()
@@ -518,6 +542,11 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
 {
   hclock::time_point t1 = hclock::now();
   solveDiagnostics.reset();
+  solveDiagnostics.initialHessianSeconds = pendingSetupMetrics.initialHessianSeconds;
+  solveDiagnostics.initialReducedSystemSeconds = pendingSetupMetrics.initialReducedSystemSeconds;
+  solveDiagnostics.initialSymbolicAnalyzeSeconds = pendingSetupMetrics.initialSymbolicAnalyzeSeconds;
+  solveDiagnostics.newtonTotalSymbolicAnalyzeSeconds = pendingSetupMetrics.initialSymbolicAnalyzeSeconds;
+  pendingSetupMetrics.reset();
 
   x.noalias() = Eigen::Map<ES::VXd>(x_, energy->getNumDOFs());
 
@@ -537,6 +566,8 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
 
     // we solve f(x_i) + K(x_i) deltax = 0
     ctx.state = evaluateCurrentState(ctx.iter, epsilon, ctx.lambda0, ctx.hasInitialGradNorm);
+    solveDiagnostics.newtonTotalEvaluateCurrentStateSeconds += ctx.state.evaluateCurrentStateSeconds;
+    solveDiagnostics.newtonTotalFuncGradHessianSeconds += ctx.state.funcGradHessianSeconds;
     if (ctx.state.nonFiniteEnergy) {
       ctx.status = SolveStatus::NonFinite;
       if (verbose >= 1)
@@ -628,6 +659,7 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
     trace.energyBefore = ctx.state.energy;
     trace.gradNormBefore = ctx.state.gradNorm;
     trace.gradMaxBefore = ctx.state.gradMaxNorm;
+    trace.evaluateCurrentStateSeconds = ctx.state.evaluateCurrentStateSeconds;
     trace.funcGradHessianSeconds = ctx.state.funcGradHessianSeconds;
     ctx.currentTrace = &trace;
 
@@ -646,10 +678,14 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
     }
     ctx.gradMaxNormLast = gradMaxNorm;
 
+    const hclock::time_point prepareReducedSystemStart = hclock::now();
     const bool fixedHessianTopology = prepareReducedSystem(ctx.lambdaScale, ctx.lambda0);
+    trace.prepareReducedSystemSeconds = dura(prepareReducedSystemStart, hclock::now());
     trace.dampingValue = solveDiagnostics.lastDampingValue;
 
+    const hclock::time_point ensureLinearSolverStart = hclock::now();
     const EnsureLinearSolverResult symbolicResult = ensureLinearSolver(fixedHessianTopology);
+    trace.ensureLinearSolverSeconds = dura(ensureLinearSolverStart, hclock::now());
     trace.symbolicRebuilt = symbolicResult.symbolicRebuilt;
     trace.symbolicAnalyzeSeconds = symbolicResult.symbolicAnalyzeSeconds;
     trace.hessianRows = solveDiagnostics.lastActiveSystemRows;
@@ -675,7 +711,10 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
 
     restoreSysFullDamping();
 
-    if (!expandReducedStep()) {
+    const hclock::time_point expandReducedStepStart = hclock::now();
+    const bool expandedStep = expandReducedStep();
+    trace.expandReducedStepSeconds = dura(expandReducedStepStart, hclock::now());
+    if (!expandedStep) {
       ctx.status = SolveStatus::NonFinite;
       ctx.completedIterations = ctx.iter + 1;
       trace.iterationWallSeconds = dura(iterationStart, hclock::now());
@@ -751,6 +790,7 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
   hclock::time_point t2 = hclock::now();
 
   double timeCost = dura(t1, t2);
+  solveDiagnostics.newtonSolveSeconds = timeCost;
 
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Newton solve time: {}", timeCost);
   SolverResult result;
@@ -781,6 +821,7 @@ void NewtonSolver::applyFixedValues()
 
 NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double epsilon, double lambda0, bool hasInitialGradNorm)
 {
+  const hclock::time_point evaluationStart = hclock::now();
   Profiling::ScopedProfileSection scopedProfile("newton.evaluate_current_state");
   Profiling::ScopedThreadRuntimePhase threadProfile("newton.evaluate_current_state");
   IterationState state;
@@ -802,6 +843,7 @@ NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double
     logMemoryCheckpoint("newton.after_full_hessian");
   if (!std::isfinite(state.energy)) {
     state.nonFiniteEnergy = true;
+    state.evaluateCurrentStateSeconds = dura(evaluationStart, hclock::now());
     return state;
   }
 
@@ -815,6 +857,7 @@ NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double
   }
   if (!grad.allFinite() || !std::isfinite(state.gradMaxNorm)) {
     state.nonFiniteGradient = true;
+    state.evaluateCurrentStateSeconds = dura(evaluationStart, hclock::now());
     return state;
   }
 
@@ -822,6 +865,7 @@ NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double
   state.relThreshold = state.lambda0 * kRelTolFactor;
   state.absConverged = state.gradMaxNorm < epsilon;
   state.relConverged = state.gradMaxNorm < state.relThreshold;
+  state.evaluateCurrentStateSeconds = dura(evaluationStart, hclock::now());
   return state;
 }
 

@@ -405,6 +405,7 @@ struct PhaseArenaObservations
   std::vector<int> linearFactorize;
   std::vector<int> linearSolve;
   int linearDestroyConcurrency = -1;
+  int linearDestroyCount = 0;
   bool factorizeSucceeds = true;
 };
 
@@ -475,6 +476,7 @@ public:
   ~PhaseRecordingBackend() override
   {
     observations_->linearDestroyConcurrency = tbb::this_task_arena::max_concurrency();
+    observations_->linearDestroyCount += 1;
   }
 
   void analyze(const ES::SpMatD &) override
@@ -577,6 +579,45 @@ TEST(NewtonThreadingPolicyGTest, RejectsNullPhaseExecutors)
     NewtonThreadingPolicy(nullptr, executor), std::invalid_argument);
   EXPECT_THROW(
     NewtonThreadingPolicy(executor, nullptr), std::invalid_argument);
+}
+
+TEST(NewtonSolverGTest, ExplicitLinearSolverCleanupIsIdempotentAndUsesConfiguredArena)
+{
+  initializeLogging();
+  pgo::parallel::GlobalTbbControl globalControl(4);
+  auto observations = std::make_shared<PhaseArenaObservations>();
+  auto evaluationExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
+    2, pgo::parallel::ThreadingPolicy{
+         .mklLocalThreadBudget = 1,
+         .accelerate = pgo::parallel::AccelerateThreading::single,
+       });
+  auto linearExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
+    3, pgo::parallel::ThreadingPolicy{
+         .mklLocalThreadBudget = 3,
+         .accelerate = pgo::parallel::AccelerateThreading::multi,
+       });
+
+  NewtonSolver::SolverParam params;
+  params.sparseSolver = std::make_shared<PhaseRecordingSelector>(observations);
+  params.threading = std::make_shared<NewtonThreadingPolicy>(
+    evaluationExecutor, linearExecutor);
+
+  double x = 1.0;
+  {
+    auto energy = std::make_shared<PhaseRecordingEnergy>(observations);
+    NewtonSolver solver(&x, params, energy, {});
+    const NewtonSolver::CleanupMetrics first = solver.closeLinearSolver();
+    const NewtonSolver::CleanupMetrics second = solver.closeLinearSolver();
+
+    EXPECT_EQ(first.linearSolverPhaseCalls, 1);
+    EXPECT_GE(first.linearSolverPhaseSeconds, 0.0);
+    EXPECT_GE(first.wallSeconds, first.linearSolverPhaseSeconds);
+    EXPECT_EQ(second.linearSolverPhaseCalls, 0);
+    EXPECT_DOUBLE_EQ(second.linearSolverPhaseSeconds, 0.0);
+    EXPECT_EQ(observations->linearDestroyCount, 1);
+    EXPECT_EQ(observations->linearDestroyConcurrency, 3);
+  }
+  EXPECT_EQ(observations->linearDestroyCount, 1);
 }
 
 TEST(NewtonSolverGTest, ReleasesFailedLinearBackendInsideConfiguredArena)
@@ -832,14 +873,21 @@ TEST(NewtonSolverGTest, QuadraticSolveRecordsNewtonIterationTrace)
   EXPECT_EQ(trace.hessianRows, 2);
   EXPECT_EQ(trace.hessianCols, 2);
   EXPECT_GT(trace.hessianNnz, 0);
+  EXPECT_GE(trace.evaluateCurrentStateSeconds, 0.0);
   EXPECT_GE(trace.funcGradHessianSeconds, 0.0);
+  EXPECT_GE(trace.prepareReducedSystemSeconds, 0.0);
+  EXPECT_GE(trace.ensureLinearSolverSeconds, 0.0);
   EXPECT_GE(trace.symbolicAnalyzeSeconds, 0.0);
   EXPECT_GE(trace.factorizeSeconds, 0.0);
   EXPECT_GE(trace.solveSeconds, 0.0);
+  EXPECT_GE(trace.expandReducedStepSeconds, 0.0);
   EXPECT_GE(trace.lineSearchSeconds, 0.0);
   EXPECT_GE(trace.iterationWallSeconds, 0.0);
   EXPECT_GE(diagnostics.newtonTotalFactorizeSeconds, trace.factorizeSeconds);
   EXPECT_GE(diagnostics.newtonTotalSolveSeconds, trace.solveSeconds);
+  EXPECT_GE(diagnostics.newtonTotalIterationSeconds, trace.iterationWallSeconds);
+  EXPECT_GE(diagnostics.newtonTotalEvaluateCurrentStateSeconds,
+    trace.evaluateCurrentStateSeconds);
 }
 
 TEST(NewtonSolverGTest, ZeroFeasibleStepWithLargeResidualReturnsStepTooSmall)
