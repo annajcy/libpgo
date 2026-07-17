@@ -41,6 +41,7 @@ def test_skipped_preconditioning_is_recorded() -> None:
         host_required_stable_probes=3,
         host_max_probes=6,
         host_stability_tolerance=0.02,
+        host_drift_tolerance=0.05,
         skip_host_preconditioning=True,
     )
     result = precondition_host(args, workers=2)
@@ -60,6 +61,7 @@ def test_block_guard_compares_against_initial_baseline(monkeypatch) -> None:
         host_probe_seconds=1.0,
         host_required_stable_probes=2,
         host_stability_tolerance=0.02,
+        host_drift_tolerance=0.05,
     )
     preconditioning = {
         "enabled": True,

@@ -21,6 +21,7 @@ DEFAULT_PROBE_SECONDS = 1.0
 DEFAULT_REQUIRED_STABLE_PROBES = 3
 DEFAULT_MAX_PROBES = 6
 DEFAULT_STABILITY_TOLERANCE = 0.02
+DEFAULT_DRIFT_TOLERANCE = 0.05
 _BURN_BATCH_SIZE = 4096
 _T = TypeVar("_T")
 
@@ -63,6 +64,12 @@ def add_host_preconditioning_arguments(parser: argparse.ArgumentParser) -> None:
         help="Maximum relative spread of trailing probe throughput.",
     )
     group.add_argument(
+        "--host-drift-tolerance",
+        type=float,
+        default=DEFAULT_DRIFT_TOLERANCE,
+        help="Maximum block-probe deviation from the initial stable baseline.",
+    )
+    group.add_argument(
         "--skip-host-preconditioning",
         action="store_true",
         help="Explicitly skip host preconditioning and record that choice.",
@@ -84,6 +91,11 @@ def validate_host_preconditioning_arguments(args: argparse.Namespace) -> None:
         )
     if not 0 < args.host_stability_tolerance < 1:
         raise ValueError("--host-stability-tolerance must be between zero and one")
+    if not args.host_stability_tolerance <= args.host_drift_tolerance < 1:
+        raise ValueError(
+            "--host-drift-tolerance must be at least the stability tolerance "
+            "and less than one"
+        )
 
 
 def _available_cpu_ids() -> list[int] | None:
@@ -221,6 +233,7 @@ def precondition_host(
         "required_stable_probes": args.host_required_stable_probes,
         "max_probes": args.host_max_probes,
         "stability_tolerance": args.host_stability_tolerance,
+        "drift_tolerance": args.host_drift_tolerance,
         "state_before": host_state_snapshot(cpu_ids),
     }
     if dry_run or args.skip_host_preconditioning:
@@ -243,8 +256,15 @@ def precondition_host(
         ]
         center = statistics.median(trailing)
         relative_spread = (max(trailing) - min(trailing)) / center
+        relative_mad = (
+            statistics.median(abs(value - center) for value in trailing) / center
+        )
         probes[-1]["trailing_relative_spread"] = relative_spread
-        if relative_spread <= args.host_stability_tolerance:
+        probes[-1]["trailing_relative_mad"] = relative_mad
+        if (
+            relative_mad <= args.host_stability_tolerance
+            and relative_spread <= 5.0 * args.host_stability_tolerance
+        ):
             stable = True
             break
     result["probes"] = probes
@@ -254,8 +274,8 @@ def precondition_host(
     if not stable:
         raise RuntimeError(
             "host performance did not stabilize: trailing probe throughput spread "
-            f"exceeded {args.host_stability_tolerance:.2%} after "
-            f"{args.host_max_probes} probes"
+            f"or MAD exceeded the allowed bounds after {args.host_max_probes} probes; "
+            f"last probes={trailing}"
         )
     return result
 
@@ -305,14 +325,15 @@ def guard_host_condition(
     }
     check["status"] = (
         "stable"
-        if check["relative_deviation"] <= args.host_stability_tolerance
+        if check["relative_deviation"] <= args.host_drift_tolerance
         else "unstable"
     )
     preconditioning.setdefault("block_checks", []).append(check)
     if check["status"] == "unstable":
         raise RuntimeError(
             f"host performance changed before {label}: policy-neutral probe "
-            f"deviated {check['relative_deviation']:.2%} from the initial baseline"
+            f"deviated {check['relative_deviation']:.2%} from the initial baseline "
+            f"(limit {args.host_drift_tolerance:.2%})"
         )
     return check
 

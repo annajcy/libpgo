@@ -5,8 +5,9 @@ All top-level benchmark runners use the shared
 The policy has three distinct layers:
 
 1. a policy-neutral all-core host preheat (10 seconds by default);
-2. policy-neutral throughput probes until the trailing three probes agree
-   within 2%; and
+2. policy-neutral throughput probes until the trailing three probes have at
+   most 2% relative median absolute deviation (and no greater than 10% total
+   spread); and
 3. each benchmark's existing process-local or kernel-local warm-up.
 
 Measured policy order uses deterministic Latin-style rotations within each
@@ -23,6 +24,7 @@ Common options are available on every runner:
 --host-required-stable-probes
 --host-max-probes
 --host-stability-tolerance
+--host-drift-tolerance
 --skip-host-preconditioning
 ```
 
