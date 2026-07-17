@@ -22,6 +22,7 @@ DEFAULT_REQUIRED_STABLE_PROBES = 3
 DEFAULT_MAX_PROBES = 6
 DEFAULT_STABILITY_TOLERANCE = 0.02
 DEFAULT_DRIFT_TOLERANCE = 0.05
+DEFAULT_ABORT_DRIFT_TOLERANCE = 0.15
 _BURN_BATCH_SIZE = 4096
 _T = TypeVar("_T")
 
@@ -70,6 +71,12 @@ def add_host_preconditioning_arguments(parser: argparse.ArgumentParser) -> None:
         help="Maximum block-probe deviation from the initial stable baseline.",
     )
     group.add_argument(
+        "--host-abort-drift-tolerance",
+        type=float,
+        default=DEFAULT_ABORT_DRIFT_TOLERANCE,
+        help="Abort when a block probe drifts this far from the initial baseline.",
+    )
+    group.add_argument(
         "--skip-host-preconditioning",
         action="store_true",
         help="Explicitly skip host preconditioning and record that choice.",
@@ -94,6 +101,11 @@ def validate_host_preconditioning_arguments(args: argparse.Namespace) -> None:
     if not args.host_stability_tolerance <= args.host_drift_tolerance < 1:
         raise ValueError(
             "--host-drift-tolerance must be at least the stability tolerance "
+            "and less than one"
+        )
+    if not args.host_drift_tolerance <= args.host_abort_drift_tolerance < 1:
+        raise ValueError(
+            "--host-abort-drift-tolerance must be at least the drift tolerance "
             "and less than one"
         )
 
@@ -234,6 +246,7 @@ def precondition_host(
         "max_probes": args.host_max_probes,
         "stability_tolerance": args.host_stability_tolerance,
         "drift_tolerance": args.host_drift_tolerance,
+        "abort_drift_tolerance": args.host_abort_drift_tolerance,
         "state_before": host_state_snapshot(cpu_ids),
     }
     if dry_run or args.skip_host_preconditioning:
@@ -323,17 +336,18 @@ def guard_host_condition(
         "probes": probes,
         "relative_deviation": deviation(),
     }
-    check["status"] = (
-        "stable"
-        if check["relative_deviation"] <= args.host_drift_tolerance
-        else "unstable"
-    )
+    if check["relative_deviation"] <= args.host_drift_tolerance:
+        check["status"] = "stable"
+    elif check["relative_deviation"] <= args.host_abort_drift_tolerance:
+        check["status"] = "drifted"
+    else:
+        check["status"] = "unstable"
     preconditioning.setdefault("block_checks", []).append(check)
     if check["status"] == "unstable":
         raise RuntimeError(
             f"host performance changed before {label}: policy-neutral probe "
             f"deviated {check['relative_deviation']:.2%} from the initial baseline "
-            f"(limit {args.host_drift_tolerance:.2%})"
+            f"(abort limit {args.host_abort_drift_tolerance:.2%})"
         )
     return check
 

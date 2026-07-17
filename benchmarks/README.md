@@ -25,6 +25,7 @@ Common options are available on every runner:
 --host-max-probes
 --host-stability-tolerance
 --host-drift-tolerance
+--host-abort-drift-tolerance
 --skip-host-preconditioning
 ```
 
@@ -37,3 +38,9 @@ For strict server runs, apply CPU affinity to the controller process; all
 preheat workers and benchmark subprocesses inherit it. Do not compile, profile,
 or run unrelated jobs concurrently on the allocated CPUs. Process-local warmup
 does not replace host preconditioning.
+
+Block probes within 5% of the initial stable baseline are marked `stable`.
+Gradual drift between 5% and 15% is retained as `drifted` because policy cases
+remain adjacent and position-balanced inside the block. A deviation above 15%
+aborts the run; this prevents large cold-to-hot transitions from entering a
+result artifact.

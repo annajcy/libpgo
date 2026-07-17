@@ -42,6 +42,7 @@ def test_skipped_preconditioning_is_recorded() -> None:
         host_max_probes=6,
         host_stability_tolerance=0.02,
         host_drift_tolerance=0.05,
+        host_abort_drift_tolerance=0.15,
         skip_host_preconditioning=True,
     )
     result = precondition_host(args, workers=2)
@@ -62,6 +63,7 @@ def test_block_guard_compares_against_initial_baseline(monkeypatch) -> None:
         host_required_stable_probes=2,
         host_stability_tolerance=0.02,
         host_drift_tolerance=0.05,
+        host_abort_drift_tolerance=0.15,
     )
     preconditioning = {
         "enabled": True,
@@ -81,3 +83,30 @@ def test_block_guard_compares_against_initial_baseline(monkeypatch) -> None:
     assert check["status"] == "stable"
     assert check["relative_deviation"] < 0.011
     assert preconditioning["block_checks"] == [check]
+
+
+def test_block_guard_records_moderate_drift(monkeypatch) -> None:
+    args = argparse.Namespace(
+        host_probe_seconds=1.0,
+        host_required_stable_probes=2,
+        host_stability_tolerance=0.02,
+        host_drift_tolerance=0.05,
+        host_abort_drift_tolerance=0.15,
+    )
+    preconditioning = {
+        "enabled": True,
+        "dry_run": False,
+        "workers": 2,
+        "probes": [
+            {"iterations_per_second": 100.0},
+            {"iterations_per_second": 100.0},
+        ],
+    }
+    monkeypatch.setattr(
+        host_preconditioning,
+        "_run_burn_round",
+        lambda duration, workers: {"iterations_per_second": 110.0},
+    )
+    check = guard_host_condition(args, preconditioning, label="block")
+    assert check["status"] == "drifted"
+    assert len(check["probes"]) == 2
