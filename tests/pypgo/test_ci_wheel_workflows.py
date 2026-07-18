@@ -56,17 +56,30 @@ def test_ci_reuses_one_portable_full_build_for_tests_and_wheel():
     assert workflows.count("Build wheel from the tested build tree") == 3
 
 
-def test_ci_has_one_job_per_platform_and_cancels_stale_runs():
+def test_ci_has_bounded_jobs_and_cancels_stale_runs():
     for name in ("linux-ci.yml", "macos-ci.yml", "windows-ci.yml"):
         workflow = read_workflow(name)
         workflow_header = workflow.split("\njobs:\n", maxsplit=1)[0]
         assert workflow.count("\n  build-test-wheel:") == 1
-        assert "matrix." not in workflow
-        assert "strategy:" not in workflow
         assert "cancel-in-progress: true" in workflow
         assert workflow.count("python -m pytest -q tests/pypgo") == 1
         assert "CMAKE_BUILD_PARALLEL_LEVEL" not in workflow_header
         assert "PYPGO_CMAKE_PRESET" not in workflow_header
+
+    linux = read_workflow("linux-ci.yml")
+    assert "strategy:" in linux
+    assert "fail-fast: false" in linux
+    assert linux.count("runner: ubuntu-24.04") == 1
+    assert linux.count("mode: full") == 1
+    assert linux.count("runner: ubuntu-22.04") == 1
+    assert linux.count("mode: ubuntu-22.04-build") == 1
+    assert "if: matrix.mode == 'full'" in linux
+    assert "if: matrix.mode == 'ubuntu-22.04-build'" in linux
+
+    for name in ("macos-ci.yml", "windows-ci.yml"):
+        workflow = read_workflow(name)
+        assert "matrix." not in workflow
+        assert "strategy:" not in workflow
 
     windows = read_workflow("windows-ci.yml")
     assert "Free up disk space" not in windows

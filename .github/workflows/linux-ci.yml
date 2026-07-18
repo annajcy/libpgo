@@ -126,6 +126,8 @@ jobs:
 
       - name: Verify Ubuntu 22.04 build
         if: matrix.mode == 'ubuntu-22.04-build'
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           python -c "import pypgo; print(pypgo._core.build_info())"
           python tests/check_mkl_tbb_runtime.py --import-pypgo
