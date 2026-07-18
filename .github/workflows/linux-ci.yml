@@ -20,9 +20,19 @@ env:
 
 jobs:
   build-test-wheel:
-    name: Build, Test, and Package
-    runs-on: ubuntu-24.04
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04 - Build, Test, and Package
+            runner: ubuntu-24.04
+            mode: full
+          - name: Ubuntu 22.04 - Build
+            runner: ubuntu-22.04
+            mode: ubuntu-22.04-build
     defaults:
       run:
         shell: bash -l {0}
@@ -32,9 +42,52 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system build tools and headless rendering support
+        if: matrix.mode == 'full'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config libegl1 libgl1 patchelf
+
+      - name: Install Ubuntu 22.04 build toolchain
+        if: matrix.mode == 'ubuntu-22.04-build'
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y \
+            ca-certificates gpg wget software-properties-common \
+            build-essential ninja-build pkg-config
+
+          test -f /usr/share/doc/kitware-archive-keyring/copyright || \
+          wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | \
+          gpg --dearmor - | \
+          sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
+
+          echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' | \
+          sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
+
+          sudo apt-get update
+          test -f /usr/share/doc/kitware-archive-keyring/copyright || \
+          sudo rm /usr/share/keyrings/kitware-archive-keyring.gpg
+          sudo apt-get install -y kitware-archive-keyring cmake
+
+          sudo install -d -m 0755 /etc/apt/keyrings
+          wget -O /tmp/ubuntu-toolchain-r-test.asc \
+            'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x1E9377A2BA9EF27F'
+          sudo gpg --batch --yes --dearmor \
+            -o /etc/apt/keyrings/ubuntu-toolchain-r-test.gpg \
+            /tmp/ubuntu-toolchain-r-test.asc
+          echo "deb [signed-by=/etc/apt/keyrings/ubuntu-toolchain-r-test.gpg] https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu jammy main" | \
+            sudo tee /etc/apt/sources.list.d/ubuntu-toolchain-r-test.list >/dev/null
+
+          sudo apt-get update
+          apt-cache policy gcc-13 g++-13
+          sudo apt-get install -y gcc-13 g++-13
+
+          /usr/bin/cmake --version
+          /usr/bin/ctest --version
+          /usr/bin/cpack --version
+          /usr/bin/gcc-13 --version
+          /usr/bin/g++-13 --version
 
       - name: Set up Miniforge
         uses: conda-incubator/setup-miniconda@v3
@@ -53,22 +106,42 @@ jobs:
           conda install -y "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
           python tests/check_mkl_tbb_runtime.py
 
-      - name: Configure and build
+      - name: Configure and build full CI tree
+        if: matrix.mode == 'full'
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: "3"
         run: |
           cmake --preset base-ci
           cmake --build --preset base-ci
 
+      - name: Configure and build Ubuntu 22.04 target
+        if: matrix.mode == 'ubuntu-22.04-build'
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "3"
+        run: |
+          /usr/bin/cmake --preset base \
+            -DCMAKE_C_COMPILER=/usr/bin/gcc-13 \
+            -DCMAKE_CXX_COMPILER=/usr/bin/g++-13
+          /usr/bin/cmake --build --preset base --target pypgo_core
+
+      - name: Verify Ubuntu 22.04 build
+        if: matrix.mode == 'ubuntu-22.04-build'
+        run: |
+          python -c "import pypgo; print(pypgo._core.build_info())"
+          python tests/check_mkl_tbb_runtime.py --import-pypgo
+
       - name: Run native tests
+        if: matrix.mode == 'full'
         run: ctest --test-dir build/base-ci --output-on-failure
 
       - name: Install Python test dependencies
+        if: matrix.mode == 'full'
         run: |
           python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify
           python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
       - name: Run Python API tests
+        if: matrix.mode == 'full'
         env:
           PYVISTA_OFF_SCREEN: "True"
         run: >-
@@ -77,6 +150,7 @@ jobs:
           --ignore=tests/pypgo/test_notebook.py
 
       - name: Build wheel from the tested build tree
+        if: matrix.mode == 'full'
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: "3"
           PYPGO_CMAKE_PRESET: base-ci
@@ -85,6 +159,7 @@ jobs:
           python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
 
       - name: Repair and audit wheel
+        if: matrix.mode == 'full'
         run: |
           export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/build/base-ci/lib:${CONDA_PREFIX}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
           python -m pip install auditwheel
@@ -100,6 +175,7 @@ jobs:
             --provider mkl wheelhouse/${PYPGO_WHEEL_DIST}-*.whl
 
       - name: Verify wheel in a clean environment
+        if: matrix.mode == 'full'
         run: |
           clean_env="${RUNNER_TEMP}/pypgo-wheel-mkl"
           conda create -y -p "${clean_env}" -c conda-forge --strict-channel-priority \
@@ -116,6 +192,7 @@ jobs:
             "${GITHUB_WORKSPACE}/tests/conda_smoke_test.py"
 
       - name: Upload wheel artifact
+        if: matrix.mode == 'full'
         uses: actions/upload-artifact@v4
         with:
           name: pypgo-wheel-linux-mkl
