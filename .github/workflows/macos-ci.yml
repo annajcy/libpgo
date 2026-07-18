@@ -18,7 +18,7 @@ env:
 
 jobs:
   build-test-wheel:
-    name: Build, Test, and Package
+    name: MacOS Build, Test, and Package
     runs-on: macos-15
     timeout-minutes: 120
     defaults:
