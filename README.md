@@ -3,9 +3,9 @@
 [![Linux CI](https://github.com/annajcy/libpgo/actions/workflows/linux-ci.yml/badge.svg?branch=main)](https://github.com/annajcy/libpgo/actions/workflows/linux-ci.yml)
 [![Windows CI](https://github.com/annajcy/libpgo/actions/workflows/windows-ci.yml/badge.svg?branch=main)](https://github.com/annajcy/libpgo/actions/workflows/windows-ci.yml)
 [![macOS CI](https://github.com/annajcy/libpgo/actions/workflows/macos-ci.yml/badge.svg?branch=main)](https://github.com/annajcy/libpgo/actions/workflows/macos-ci.yml)
-[![Documentation](https://github.com/annajcy/libpgo-doc/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/annajcy/libpgo-doc/actions/workflows/pages.yml)
+[![Docs](https://img.shields.io/badge/docs-online-blue)](https://annajcy.github.io/libpgo-doc/)
 
-libpgo is a Python-first C++ library for physically based simulation,
+`libpgo` is a Python-first C++ library for physically based simulation,
 geometric shape modeling, and optimization. Its `pypgo` package is the
 recommended interface for most workflows: Python composes models and
 experiments, while the C++ core owns performance-sensitive geometry, numerical
@@ -28,9 +28,8 @@ Most users begin with `pypgo`. Choose a prebuilt wheel when you only need the
 Python package; choose a source build when you want to edit C++ code or Python
 bindings, run native tests, or profile the library.
 
-- [Choose a build path](docs/guide/build/index.md)
-- [Use a prebuilt pypgo wheel](docs/guide/build/build-from-wheel.md)
-- [Build from source](docs/guide/build/build-from-source.md)
+- [Use a prebuilt pypgo wheel](https://annajcy.github.io/libpgo-doc/guide/build/build-from-wheel)
+- [Build from source](https://annajcy.github.io/libpgo-doc/guide/build/build-from-source)
 
 After installing `pypgo`, this small optimization problem shows the basic workflow:
 
@@ -59,7 +58,7 @@ example.
 
 ## Documentation
 
-You can view the documentation at [getting started](https://annajcy.github.io/libpgo-doc). Visit the [guide](docs/guide/index.md) for setup, development, and repository navigation.
+You can view the documentation at [getting started](https://annajcy.github.io/libpgo-doc). 
 
 ## License
 
