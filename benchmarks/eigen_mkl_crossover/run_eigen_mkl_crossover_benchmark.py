@@ -10,7 +10,6 @@ import os
 import random
 import re
 import statistics
-import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -28,10 +27,19 @@ from host_preconditioning import (  # noqa: E402
     guard_host_condition,
     precondition_host,
 )
+from benchmark_support.google_benchmark import (  # noqa: E402
+    integer_counter,
+    list_cases,
+    run_case,
+)
+from benchmark_support.mkl import (  # noqa: E402
+    mkl_tbb_environment,
+    verify_mkl_tbb_benchmark_linkage,
+)
+from benchmark_support.statistics import bootstrap_median_ci  # noqa: E402
 
 
 POLICIES = ("ExecutorLocal1", "ExecutorMKLC")
-TIME_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 CASE_PATTERN = re.compile(
     r"^EigenMklCrossover/(ExecutorLocal1|ExecutorMKLC)"
     r"/n_(\d+)(?:/real_time)?$"
@@ -58,70 +66,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def checked_output(
-    command: list[str], environment: dict[str, str] | None = None
-) -> str:
-    result = subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        env=environment,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"{' '.join(command)}\n{result.stdout}")
-    return result.stdout
-
-
 def benchmark_environment(max_concurrency: int | None) -> dict[str, str]:
-    environment = os.environ.copy()
-    environment["MKL_THREADING_LAYER"] = "TBB"
+    overrides: dict[str, str] = {}
     if max_concurrency is not None:
-        environment[CONCURRENCY_ENVIRONMENT] = str(max_concurrency)
+        overrides[CONCURRENCY_ENVIRONMENT] = str(max_concurrency)
     else:
+        overrides[CONCURRENCY_ENVIRONMENT] = os.environ.get(
+            CONCURRENCY_ENVIRONMENT, ""
+        )
+    environment = mkl_tbb_environment(overrides)
+    if max_concurrency is None:
         environment.pop(CONCURRENCY_ENVIRONMENT, None)
     return environment
-
-
-def verify_linkage(executable: Path) -> dict[str, str]:
-    dependencies = checked_output(["ldd", str(executable)])
-    undefined_symbols = checked_output(["nm", "-D", "-u", str(executable)])
-    dependencies_lower = dependencies.lower()
-
-    required = {
-        "MKL core": r"libmkl_core",
-        "MKL LP64 interface": r"libmkl_(?:intel|gf)_lp64",
-        "MKL TBB threading layer": r"libmkl_tbb_thread",
-        "oneTBB": r"libtbb",
-    }
-    for label, pattern in required.items():
-        if not re.search(pattern, dependencies_lower):
-            raise RuntimeError(f"Benchmark is missing {label} in ldd output.")
-
-    forbidden = ("libiomp5", "libgomp", "libomp.so")
-    if any(library in dependencies_lower for library in forbidden):
-        raise RuntimeError(
-            "Benchmark links an OpenMP runtime instead of a pure MKL-TBB stack."
-        )
-
-    dgemm = re.compile(r"(?:^|\s)_?(?:cblas_)?dgemm_?(?:@\S+)?(?:\s|$)", re.I | re.M)
-    if not dgemm.search(undefined_symbols):
-        raise RuntimeError("Benchmark does not expose a dynamic DGEMM reference.")
-
-    return {
-        "dependencies": dependencies,
-        "undefined_symbols": undefined_symbols,
-    }
 
 
 def discover_cases(
     executable: Path, environment: dict[str, str]
 ) -> dict[int, dict[str, str]]:
-    output = checked_output([str(executable), "--benchmark_list_tests"], environment)
     discovered: dict[int, dict[str, str]] = {}
-    for line in output.splitlines():
-        name = line.strip()
+    for name in list_cases(executable, environment):
         match = CASE_PATTERN.fullmatch(name)
         if not match:
             continue
@@ -133,54 +96,6 @@ def discover_cases(
         for matrix_n, cases in sorted(discovered.items())
         if set(cases) == set(POLICIES)
     }
-
-
-def exact_filter(name: str) -> str:
-    return f"^{re.escape(name)}$"
-
-
-def run_one(
-    executable: Path,
-    name: str,
-    output: Path,
-    min_time: str,
-    warmup_time: float,
-    environment: dict[str, str],
-) -> dict[str, Any]:
-    checked_output(
-        [
-            str(executable),
-            f"--benchmark_filter={exact_filter(name)}",
-            f"--benchmark_min_time={min_time}",
-            f"--benchmark_min_warmup_time={warmup_time:g}",
-            "--benchmark_repetitions=1",
-            f"--benchmark_out={output}",
-            "--benchmark_out_format=json",
-        ],
-        environment,
-    )
-    payload = json.loads(output.read_text())
-    rows = [
-        row
-        for row in payload.get("benchmarks", [])
-        if row.get("run_type") != "aggregate"
-    ]
-    if len(rows) != 1:
-        raise RuntimeError(f"Expected one result for {name}, found {len(rows)}.")
-
-    row = rows[0]
-    scale = TIME_SCALE.get(row.get("time_unit"))
-    if scale is None:
-        raise RuntimeError(f"Unsupported time unit for {name}: {row.get('time_unit')}")
-    row["wall_seconds"] = float(row["real_time"]) * scale
-    return row
-
-
-def integer_counter(row: dict[str, Any], name: str) -> int:
-    value = float(row.get(name, math.nan))
-    if not math.isfinite(value):
-        raise RuntimeError(f"Missing finite counter {name} in {row.get('name')}.")
-    return round(value)
 
 
 def validate_block(
@@ -243,28 +158,6 @@ def validate_block(
             raise RuntimeError(f"{policy} used the wrong MKL local budget.")
 
     return effective_concurrency
-
-
-def percentile(values: list[float], probability: float) -> float:
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return ordered[0]
-    position = probability * (len(ordered) - 1)
-    lower = math.floor(position)
-    upper = math.ceil(position)
-    if lower == upper:
-        return ordered[lower]
-    return ordered[lower] * (upper - position) + ordered[upper] * (position - lower)
-
-
-def bootstrap_median_ci(
-    values: list[float], randomizer: random.Random, samples: int
-) -> list[float]:
-    medians = [
-        statistics.median(values[randomizer.randrange(len(values))] for _ in values)
-        for _ in range(samples)
-    ]
-    return [percentile(medians, 0.025), percentile(medians, 0.975)]
 
 
 def summarize(
@@ -347,7 +240,7 @@ def main() -> int:
         raise SystemExit(f"Benchmark executable does not exist: {executable}")
 
     environment = benchmark_environment(args.max_concurrency)
-    linkage = verify_linkage(executable)
+    linkage = verify_mkl_tbb_benchmark_linkage(executable, environment)
     cases = discover_cases(executable, environment)
     if args.case_limit:
         cases = dict(list(cases.items())[: args.case_limit])
@@ -392,7 +285,7 @@ def main() -> int:
             )
             measurements: dict[str, dict[str, Any]] = {}
             for policy in policies:
-                measurements[policy] = run_one(
+                measurements[policy] = run_case(
                     executable,
                     cases[matrix_n][policy],
                     temporary / f"{block_index}-{policy}.json",

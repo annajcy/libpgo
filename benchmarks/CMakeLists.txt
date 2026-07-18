@@ -3,6 +3,17 @@ if(NOT TARGET benchmark::benchmark)
   return()
 endif()
 
+function(pgo_add_mkl_tbb_probe target)
+  add_executable(${target} ${ARGN})
+  target_link_libraries(${target}
+    PRIVATE
+      Eigen3::Eigen
+      MKL::MKL
+      parallel
+      TBB::tbb
+  )
+endfunction()
+
 if(APPLE OR
    (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     TARGET MKL::MKL AND

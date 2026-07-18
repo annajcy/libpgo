@@ -30,6 +30,11 @@ from host_preconditioning import (  # noqa: E402
     precondition_host,
 )
 from workloads import DEFAULT_MESHES, WORKLOADS, build_workload  # noqa: E402
+from benchmark_support.python_worker import (  # noqa: E402
+    run_json_worker,
+    worker_environment as isolated_worker_environment,
+)
+from benchmark_support.statistics import median_absolute_deviation  # noqa: E402
 
 
 SCRIPT = Path(__file__).resolve()
@@ -620,12 +625,7 @@ def worker_environment(concurrency: int) -> tuple[dict[str, str], dict[str, str]
         "MKL_DYNAMIC": "FALSE",
         "OMP_DYNAMIC": "FALSE",
     }
-    env = os.environ.copy()
-    env.update(overrides)
-    env["PYTHONPATH"] = os.pathsep.join([str(ROOT), env.get("PYTHONPATH", "")]).rstrip(
-        os.pathsep
-    )
-    return env, overrides
+    return isolated_worker_environment(ROOT, overrides), overrides
 
 
 def worker_command(
@@ -677,36 +677,14 @@ def worker_command(
     return command
 
 
-def parse_worker_result(stdout: str, command: list[str]) -> dict[str, Any]:
-    payloads = [
-        line[len(RESULT_MARKER) :]
-        for line in stdout.splitlines()
-        if line.startswith(RESULT_MARKER)
-    ]
-    if len(payloads) != 1:
-        raise RuntimeError(
-            f"worker emitted {len(payloads)} result payloads: {' '.join(command)}\n{stdout}"
-        )
-    return json.loads(payloads[0])
-
-
 def run_worker(command: list[str], concurrency: int) -> dict[str, Any]:
     env, _ = worker_environment(concurrency)
-    completed = subprocess.run(
+    return run_json_worker(
         command,
+        marker=RESULT_MARKER,
         cwd=ROOT,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
+        environment=env,
     )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            f"worker failed with exit code {completed.returncode}: {' '.join(command)}\n"
-            f"{completed.stdout}"
-        )
-    return parse_worker_result(completed.stdout, command)
 
 
 def _close_numeric(
@@ -823,11 +801,6 @@ def validate_signatures(
                     f"result x differs at DOF {dof} between {reference['policy']} "
                     f"and {record['policy']}: {left} vs {right}"
                 )
-
-
-def median_absolute_deviation(values: list[float]) -> float:
-    center = statistics.median(values)
-    return statistics.median(abs(value - center) for value in values)
 
 
 def _percentile(sorted_values: list[float], probability: float) -> float:

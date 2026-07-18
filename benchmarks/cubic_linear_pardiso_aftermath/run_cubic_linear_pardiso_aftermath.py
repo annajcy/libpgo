@@ -8,7 +8,6 @@ import csv
 import hashlib
 import json
 import math
-import os
 import random
 import shlex
 import statistics
@@ -29,6 +28,11 @@ from host_preconditioning import (  # noqa: E402
     guard_host_condition,
     precondition_host,
 )
+from benchmark_support.mkl import (  # noqa: E402
+    mkl_tbb_environment,
+    verify_mkl_tbb_probe_linkage,
+)
+from benchmark_support.process import resolve_file  # noqa: E402
 
 
 RESULT_PREFIX = "PGO_CUBIC_LINEAR_PARDISO_AFTERMATH_RESULT"
@@ -109,15 +113,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--cases must not contain duplicates")
 
 
-def resolve_file(path: Path, label: str, *, executable: bool = False) -> Path:
-    candidate = path.expanduser().resolve()
-    if not candidate.is_file():
-        raise FileNotFoundError(f"{label} does not exist: {candidate}")
-    if executable and not os.access(candidate, os.X_OK):
-        raise PermissionError(f"{label} is not executable: {candidate}")
-    return candidate
-
-
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -142,29 +137,6 @@ def parse_record(line: str) -> dict[str, Any] | None:
     if missing:
         raise RuntimeError(f"Probe record is missing fields: {sorted(missing)}")
     return record
-
-
-def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
-    result = subprocess.run(
-        ["ldd", str(probe)],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env=environment,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stdout)
-    lowered = result.stdout.lower()
-    required = ("libmkl_core", "libmkl_tbb_thread", "libtbb")
-    missing = [name for name in required if name not in lowered]
-    if missing:
-        raise RuntimeError(f"Probe is missing required libraries: {missing}")
-    forbidden = ("libiomp5", "libgomp", "libomp.so")
-    present = [name for name in forbidden if name in lowered]
-    if present:
-        raise RuntimeError(f"Probe unexpectedly links OpenMP runtimes: {present}")
-    return result.stdout
 
 
 def command_for(
@@ -380,10 +352,8 @@ def main() -> int:
     probe = resolve_file(args.probe, "probe", executable=True)
     mesh = resolve_file(args.mesh, "mesh")
     out = args.out.expanduser().resolve()
-    environment = os.environ.copy()
-    environment.update(
+    environment = mkl_tbb_environment(
         {
-            "MKL_THREADING_LAYER": "TBB",
             "MKL_NUM_THREADS": str(args.concurrency),
             "MKL_DYNAMIC": "FALSE",
             "OMP_NUM_THREADS": str(args.concurrency),
@@ -414,7 +384,7 @@ def main() -> int:
         return 0
 
     out.mkdir(parents=True, exist_ok=False)
-    linkage = verify_linkage(probe, environment)
+    linkage = verify_mkl_tbb_probe_linkage(probe, environment)
     host_preconditioning = precondition_host(args, workers=args.concurrency)
     raw: list[dict[str, Any]] = []
     samples: list[dict[str, Any]] = []

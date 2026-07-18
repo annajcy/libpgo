@@ -10,7 +10,6 @@ import math
 import os
 import random
 import shlex
-import shutil
 import statistics
 import subprocess
 import sys
@@ -30,6 +29,19 @@ from host_preconditioning import (  # noqa: E402
     guard_host_condition,
     precondition_host,
 )
+from benchmark_support.mkl import (  # noqa: E402
+    mkl_tbb_environment,
+    verify_mkl_tbb_probe_linkage,
+)
+from benchmark_support.process import (  # noqa: E402
+    checked_output,
+    parse_key_value_marker,
+    report_output,
+    resolve_file,
+    resolve_vtune,
+)
+from benchmark_support.statistics import median_and_mad  # noqa: E402
+from benchmark_support.validation import require_positive  # noqa: E402
 
 
 POLICIES = (
@@ -39,8 +51,8 @@ POLICIES = (
     "InnerArena1Local1",
 )
 RESULT_PREFIX = "PGO_MKL_NESTED_INNER_ARENA_RESULT"
-STRING_FIELDS = {"policy"}
-INTEGER_FIELDS = {
+STRING_FIELDS = frozenset({"policy"})
+INTEGER_FIELDS = frozenset({
     "configured_global_concurrency",
     "effective_global_concurrency",
     "process_default_mkl_max_threads",
@@ -65,8 +77,8 @@ INTEGER_FIELDS = {
     "baseline_threads",
     "peak_threads",
     "extra_threads",
-}
-FLOAT_FIELDS = {"wall_seconds", "process_cpu_seconds", "checksum"}
+})
+FLOAT_FIELDS = frozenset({"wall_seconds", "process_cpu_seconds", "checksum"})
 
 
 def parse_args() -> argparse.Namespace:
@@ -106,11 +118,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def require_positive(value: int, option: str) -> None:
-    if value <= 0:
-        raise ValueError(f"{option} must be positive.")
-
-
 def validate_args(args: argparse.Namespace) -> None:
     require_positive(args.concurrency, "--concurrency")
     require_positive(args.matrix_n, "--matrix-n")
@@ -128,74 +135,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--outer-tasks must not contain duplicates.")
     if len(set(args.profile_outer_tasks)) != len(args.profile_outer_tasks):
         raise ValueError("--profile-outer-tasks must not contain duplicates.")
-
-
-def resolve_executable(path: Path, label: str) -> Path:
-    candidate = path.expanduser().resolve()
-    if not candidate.is_file():
-        raise FileNotFoundError(f"{label} does not exist: {candidate}")
-    return candidate
-
-
-def resolve_vtune(explicit: Path | None) -> Path:
-    if explicit is not None:
-        return resolve_executable(explicit, "VTune executable")
-    discovered = shutil.which("vtune")
-    if discovered is None:
-        raise FileNotFoundError(
-            "VTune CLI was not found. Pass --vtune or omit --collect-vtune."
-        )
-    return Path(discovered).resolve()
-
-
-def benchmark_environment() -> dict[str, str]:
-    environment = os.environ.copy()
-    environment["MKL_THREADING_LAYER"] = "TBB"
-    return environment
-
-
-def checked_output(command: list[str], environment: dict[str, str]) -> str:
-    result = subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        env=environment,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"{shlex.join(command)}\n{result.stdout}")
-    return result.stdout
-
-
-def report_output(command: list[str], environment: dict[str, str]) -> str:
-    result = subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        env=environment,
-    )
-    if result.returncode == 0:
-        return result.stdout
-    if "Empty request output." in result.stdout:
-        return ""
-    raise RuntimeError(f"{shlex.join(command)}\n{result.stdout}")
-
-
-def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
-    dependencies = checked_output(["ldd", str(probe)], environment)
-    lowered = dependencies.lower()
-    required = ("libmkl_core", "libmkl_tbb_thread", "libtbb")
-    missing = [library for library in required if library not in lowered]
-    if missing:
-        raise RuntimeError(f"Probe is missing required libraries: {missing}")
-    forbidden = ("libiomp5", "libgomp", "libomp.so")
-    present = [library for library in forbidden if library in lowered]
-    if present:
-        raise RuntimeError(f"Probe unexpectedly links OpenMP runtimes: {present}")
-    return dependencies
 
 
 def probe_command(
@@ -218,36 +157,6 @@ def probe_command(
         "--profile-iterations="
         f"{args.profile_iterations if profile_iterations is None else profile_iterations}",
     ]
-
-
-def parse_result_marker(output: str) -> dict[str, str | int | float]:
-    marker_lines = [
-        line.strip() for line in output.splitlines() if line.startswith(RESULT_PREFIX)
-    ]
-    if len(marker_lines) != 1:
-        raise RuntimeError(
-            f"Expected exactly one {RESULT_PREFIX} line, found {len(marker_lines)}."
-        )
-
-    values: dict[str, str | int | float] = {}
-    for item in marker_lines[0][len(RESULT_PREFIX) :].strip().split():
-        key, separator, raw_value = item.partition("=")
-        if not separator:
-            raise RuntimeError(f"Malformed result marker item: {item}")
-        if key in STRING_FIELDS:
-            values[key] = raw_value
-        elif key in INTEGER_FIELDS:
-            values[key] = int(raw_value)
-        elif key in FLOAT_FIELDS:
-            values[key] = float(raw_value)
-        else:
-            raise RuntimeError(f"Unknown result marker field: {key}")
-
-    expected = STRING_FIELDS | INTEGER_FIELDS | FLOAT_FIELDS
-    missing = expected - values.keys()
-    if missing:
-        raise RuntimeError(f"Result marker is missing fields: {sorted(missing)}")
-    return values
 
 
 def make_timing_jobs(args: argparse.Namespace) -> list[dict[str, Any]]:
@@ -281,12 +190,6 @@ def make_timing_jobs(args: argparse.Namespace) -> list[dict[str, Any]]:
 
 def case_name(policy: str, outer_tasks: int, repetition: int) -> str:
     return f"{policy.lower()}-tasks{outer_tasks}-r{repetition}"
-
-
-def median_and_mad(values: list[float]) -> tuple[float, float]:
-    median = statistics.median(values)
-    mad = statistics.median(abs(value - median) for value in values)
-    return median, mad
 
 
 def paired_ratios(
@@ -562,7 +465,13 @@ def collect_vtune_profiles(
                 "returncode": result.returncode,
                 "result_directory": str(result_directory),
                 "log": str(log_path),
-                "result": parse_result_marker(result.stdout),
+                "result": parse_key_value_marker(
+                    result.stdout,
+                    RESULT_PREFIX,
+                    string_fields=STRING_FIELDS,
+                    integer_fields=INTEGER_FIELDS,
+                    float_fields=FLOAT_FIELDS,
+                ),
                 "reports": {},
             }
             manifest["vtune_runs"].append(run)
@@ -612,11 +521,11 @@ def collect_vtune_profiles(
 def main() -> int:
     args = parse_args()
     validate_args(args)
-    probe = resolve_executable(args.probe, "Probe executable")
+    probe = resolve_file(args.probe, "Probe executable")
     output = args.out.expanduser().resolve()
     if output.exists():
         raise FileExistsError(f"Output path already exists: {output}")
-    environment = benchmark_environment()
+    environment = mkl_tbb_environment()
     timing_jobs = make_timing_jobs(args)
     vtune = resolve_vtune(args.vtune) if args.collect_vtune else None
 
@@ -656,7 +565,7 @@ def main() -> int:
                     )
         return 0
 
-    linkage = verify_linkage(probe, environment)
+    linkage = verify_mkl_tbb_probe_linkage(probe, environment)
     output.mkdir(parents=True)
     host_preconditioning = precondition_host(args, workers=args.concurrency)
     logs = output / "logs"
@@ -715,7 +624,13 @@ def main() -> int:
                 **job,
                 "command": command,
                 "log": str(log_path),
-                "result": parse_result_marker(stdout),
+                "result": parse_key_value_marker(
+                    stdout,
+                    RESULT_PREFIX,
+                    string_fields=STRING_FIELDS,
+                    integer_fields=INTEGER_FIELDS,
+                    float_fields=FLOAT_FIELDS,
+                ),
             }
         )
         (output / "manifest.partial.json").write_text(

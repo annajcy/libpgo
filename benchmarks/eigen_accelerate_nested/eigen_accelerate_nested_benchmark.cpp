@@ -25,6 +25,7 @@ namespace P = pgo::parallel;
 using pgo::benchmark_helpers::adjustedExtraThreads;
 using pgo::benchmark_helpers::NestedEigenAccelerateWorkload;
 using pgo::benchmark_helpers::ThreadSampler;
+using pgo::benchmark_helpers::updateMaximum;
 
 enum class Policy
 {
@@ -41,14 +42,6 @@ const char *policyName(Policy policy)
     return "ExecutorMulti";
   }
   return "Unknown";
-}
-
-void updateMaximum(std::atomic<int> &target, int value) noexcept
-{
-  int observed = target.load(std::memory_order_relaxed);
-  while (value > observed &&
-    !target.compare_exchange_weak(observed, value, std::memory_order_relaxed)) {
-  }
 }
 
 struct RunTelemetry

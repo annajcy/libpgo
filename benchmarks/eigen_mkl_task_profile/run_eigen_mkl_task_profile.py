@@ -7,7 +7,6 @@ import argparse
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -24,6 +23,17 @@ from host_preconditioning import (  # noqa: E402
     guard_host_condition,
     precondition_host,
 )
+from benchmark_support.mkl import (  # noqa: E402
+    mkl_tbb_environment,
+    verify_mkl_tbb_probe_linkage,
+)
+from benchmark_support.process import (  # noqa: E402
+    checked_output,
+    report_output,
+    resolve_file,
+    resolve_vtune,
+)
+from benchmark_support.validation import require_positive  # noqa: E402
 
 
 ALL_POLICIES = (
@@ -58,70 +68,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def require_positive(value: int, option: str) -> None:
-    if value <= 0:
-        raise ValueError(f"{option} must be positive.")
-
-
-def resolve_vtune(explicit: Path | None) -> Path:
-    if explicit is not None:
-        candidate = explicit.expanduser().resolve()
-        if not candidate.is_file():
-            raise FileNotFoundError(f"VTune executable does not exist: {candidate}")
-        return candidate
-
-    discovered = shutil.which("vtune")
-    if discovered is None:
-        raise FileNotFoundError(
-            "VTune CLI was not found. Install Intel VTune Profiler or pass --vtune."
-        )
-    return Path(discovered).resolve()
-
-
-def checked_output(command: list[str], environment: dict[str, str]) -> str:
-    result = subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        env=environment,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"{' '.join(command)}\n{result.stdout}")
-    return result.stdout
-
-
-def report_output(command: list[str], environment: dict[str, str]) -> str:
-    result = subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        env=environment,
-    )
-    if result.returncode == 0:
-        return result.stdout
-    if "Empty request output." in result.stdout:
-        return ""
-    raise RuntimeError(f"{' '.join(command)}\n{result.stdout}")
-
-
-def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
-    dependencies = checked_output(["ldd", str(probe)], environment)
-    lowered = dependencies.lower()
-    required = ("libmkl_core", "libmkl_tbb_thread", "libtbb")
-    missing = [library for library in required if library not in lowered]
-    if missing:
-        raise RuntimeError(f"Probe is missing required libraries: {missing}")
-    forbidden = ("libiomp5", "libgomp", "libomp.so")
-    present = [library for library in forbidden if library in lowered]
-    if present:
-        raise RuntimeError(f"Probe unexpectedly links OpenMP runtimes: {present}")
-    return dependencies
-
-
 def probe_command(probe: Path, args: argparse.Namespace, policy: str) -> list[str]:
     return [
         str(probe),
@@ -141,17 +87,14 @@ def main() -> int:
     if args.warmup_iterations < 0:
         raise ValueError("--warmup-iterations must be nonnegative.")
 
-    probe = args.probe.expanduser().resolve()
-    if not probe.is_file():
-        raise FileNotFoundError(f"Probe executable does not exist: {probe}")
+    probe = resolve_file(args.probe, "Probe executable")
     vtune = resolve_vtune(args.vtune)
     output = args.out.expanduser().resolve()
     if output.exists():
         raise FileExistsError(f"Output path already exists: {output}")
 
-    environment = os.environ.copy()
-    environment["MKL_THREADING_LAYER"] = "TBB"
-    linkage = verify_linkage(probe, environment)
+    environment = mkl_tbb_environment()
+    linkage = verify_mkl_tbb_probe_linkage(probe, environment)
 
     commands: list[dict[str, Any]] = []
     for policy in args.policies:

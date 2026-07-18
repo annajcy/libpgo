@@ -1,5 +1,6 @@
 #include "../eigen_mkl_common/eigen_mkl_executor_cases.h"
 #include "../eigen_mkl_common/eigen_mkl_gemm_workload.h"
+#include "../benchmark_argument_parser.h"
 
 #include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
@@ -24,6 +25,8 @@ using pgo::benchmark_helpers::MklExecutorCase;
 using pgo::benchmark_helpers::mklExecutorCaseName;
 using pgo::benchmark_helpers::mklExecutorSpec;
 using pgo::benchmark_helpers::parseMklExecutorCase;
+using pgo::benchmark_helpers::parsePositiveInteger;
+using pgo::benchmark_helpers::requireValue;
 
 struct Arguments
 {
@@ -32,25 +35,6 @@ struct Arguments
   int outerTasks;
   int matrixN;
 };
-
-int parsePositiveInteger(std::string_view value, std::string_view option)
-{
-  char *end = nullptr;
-  const long parsed = std::strtol(value.data(), &end, 10);
-  if (end == value.data() || *end != '\0' || parsed <= 0 || parsed > INT_MAX)
-    throw std::invalid_argument(std::string(option) + " must be a positive integer.");
-  return static_cast<int>(parsed);
-}
-
-std::string_view requireValue(int argc, char **argv, std::string_view prefix)
-{
-  for (int i = 1; i < argc; ++i) {
-    const std::string_view argument(argv[i]);
-    if (argument.starts_with(prefix))
-      return argument.substr(prefix.size());
-  }
-  throw std::invalid_argument("Missing required option " + std::string(prefix));
-}
 
 Arguments parseArguments(int argc, char **argv)
 {

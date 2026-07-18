@@ -47,3 +47,23 @@ itself invalid: heterogeneous MKL/Accelerate workloads can legitimately change
 the following neutral probe through DVFS and thermal state. A catastrophic
 deviation above 50% aborts the run. The full drift trajectory remains in the
 result artifact for the comparability audit.
+
+## Runner support boundaries
+
+`benchmark_support/` owns reusable execution mechanics only:
+
+- `google_benchmark.py` lists and runs one JSON-producing Google Benchmark case;
+- `mkl.py` configures and verifies the Linux oneMKL + oneTBB stack;
+- `process.py` handles subprocess diagnostics, result markers, and executable
+  discovery;
+- `python_worker.py` runs one fresh Python worker per measured sample; and
+- `statistics.py` and `validation.py` contain deterministic summary and CLI
+  primitives.
+
+Individual runners continue to own their case patterns, policy definitions,
+correctness checks, summary schema, and decision rules.  Do not introduce a
+runner base class: experiments deliberately differ at those semantic seams.
+
+For C++ probes, `benchmark_argument_parser.h` contains the common option
+parsing primitives, `parallelism_benchmark_helpers.h` owns shared atomic
+telemetry, and `pgo_add_mkl_tbb_probe` is the common CMake target fixture.

@@ -10,7 +10,6 @@ import os
 import random
 import re
 import shlex
-import shutil
 import statistics
 import subprocess
 import sys
@@ -30,10 +29,26 @@ from host_preconditioning import (  # noqa: E402
     guard_host_condition,
     precondition_host,
 )
+from benchmark_support.mkl import (  # noqa: E402
+    mkl_tbb_environment,
+    verify_mkl_tbb_probe_linkage,
+)
+from benchmark_support.process import (  # noqa: E402
+    checked_output,
+    parse_key_value_marker,
+    report_output,
+    resolve_file,
+    resolve_vtune,
+)
+from benchmark_support.statistics import median_and_mad  # noqa: E402
+from benchmark_support.validation import (  # noqa: E402
+    require_nonnegative,
+    require_positive,
+)
 
 
 RESULT_PREFIX = "PGO_MKL_BUDGET_SWEEP_RESULT"
-INTEGER_FIELDS = {
+INTEGER_FIELDS = frozenset({
     "configured_global_concurrency",
     "effective_global_concurrency",
     "configured_arena_concurrency",
@@ -47,8 +62,8 @@ INTEGER_FIELDS = {
     "profile_iterations",
     "measured_gemm_calls",
     "process_gemm_calls",
-}
-FLOAT_FIELDS = {"wall_seconds", "process_cpu_seconds", "checksum"}
+})
+FLOAT_FIELDS = frozenset({"wall_seconds", "process_cpu_seconds", "checksum"})
 
 
 def parse_args() -> argparse.Namespace:
@@ -114,16 +129,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def require_positive(value: int, option: str) -> None:
-    if value <= 0:
-        raise ValueError(f"{option} must be positive.")
-
-
-def require_nonnegative(value: int, option: str) -> None:
-    if value < 0:
-        raise ValueError(f"{option} must be nonnegative.")
-
-
 def default_arena_concurrencies(concurrency: int) -> list[int]:
     values: list[int] = []
     value = 1
@@ -171,68 +176,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--outer-tasks must not contain duplicates.")
     if len(set(args.profile_outer_tasks)) != len(args.profile_outer_tasks):
         raise ValueError("--profile-outer-tasks must not contain duplicates.")
-
-
-def resolve_executable(path: Path, label: str) -> Path:
-    candidate = path.expanduser().resolve()
-    if not candidate.is_file():
-        raise FileNotFoundError(f"{label} does not exist: {candidate}")
-    return candidate
-
-
-def resolve_vtune(explicit: Path | None) -> Path:
-    if explicit is not None:
-        return resolve_executable(explicit, "VTune executable")
-    discovered = shutil.which("vtune")
-    if discovered is None:
-        raise FileNotFoundError(
-            "VTune CLI was not found. Pass --vtune or omit --collect-vtune."
-        )
-    return Path(discovered).resolve()
-
-
-def checked_output(command: list[str], environment: dict[str, str]) -> str:
-    result = subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        env=environment,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"{shlex.join(command)}\n{result.stdout}")
-    return result.stdout
-
-
-def report_output(command: list[str], environment: dict[str, str]) -> str:
-    result = subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        env=environment,
-    )
-    if result.returncode == 0:
-        return result.stdout
-    if "Empty request output." in result.stdout:
-        return ""
-    raise RuntimeError(f"{shlex.join(command)}\n{result.stdout}")
-
-
-def verify_linkage(probe: Path, environment: dict[str, str]) -> str:
-    dependencies = checked_output(["ldd", str(probe)], environment)
-    lowered = dependencies.lower()
-    required = ("libmkl_core", "libmkl_tbb_thread", "libtbb")
-    missing = [library for library in required if library not in lowered]
-    if missing:
-        raise RuntimeError(f"Probe is missing required libraries: {missing}")
-    forbidden = ("libiomp5", "libgomp", "libomp.so")
-    present = [library for library in forbidden if library in lowered]
-    if present:
-        raise RuntimeError(f"Probe unexpectedly links OpenMP runtimes: {present}")
-    return dependencies
 
 
 def probe_command(
@@ -308,36 +251,6 @@ def make_jobs(
                 for budget in budgets
             )
     return jobs
-
-
-def parse_result_marker(output: str) -> dict[str, int | float]:
-    marker_lines = [
-        line.strip() for line in output.splitlines() if line.startswith(RESULT_PREFIX)
-    ]
-    if len(marker_lines) != 1:
-        raise RuntimeError(
-            f"Expected exactly one {RESULT_PREFIX} line, found {len(marker_lines)}."
-        )
-    values: dict[str, int | float] = {}
-    for item in marker_lines[0][len(RESULT_PREFIX) :].strip().split():
-        key, separator, raw_value = item.partition("=")
-        if not separator:
-            raise RuntimeError(f"Malformed result marker item: {item}")
-        if key in INTEGER_FIELDS:
-            values[key] = int(raw_value)
-        elif key in FLOAT_FIELDS:
-            values[key] = float(raw_value)
-        else:
-            raise RuntimeError(f"Unknown result marker field: {key}")
-    missing = (INTEGER_FIELDS | FLOAT_FIELDS) - values.keys()
-    if missing:
-        raise RuntimeError(f"Result marker is missing fields: {sorted(missing)}")
-    return values
-
-
-def median_and_mad(values: list[float]) -> tuple[float, float]:
-    median = statistics.median(values)
-    return median, statistics.median(abs(value - median) for value in values)
 
 
 def summarize_timing(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -504,7 +417,7 @@ def write_results(path: Path, results: dict[str, Any]) -> None:
 def main() -> int:
     args = parse_args()
     validate_args(args)
-    probe = resolve_executable(args.probe, "Probe executable")
+    probe = resolve_file(args.probe, "Probe executable")
     output = args.out.expanduser().resolve()
     if output.exists() and not args.dry_run:
         raise FileExistsError(f"Output path already exists: {output}")
@@ -562,9 +475,8 @@ def main() -> int:
                 print(shlex.join(command))
         return 0
 
-    environment = os.environ.copy()
-    environment["MKL_THREADING_LAYER"] = "TBB"
-    linkage = verify_linkage(probe, environment)
+    environment = mkl_tbb_environment()
+    linkage = verify_mkl_tbb_probe_linkage(probe, environment)
     output.mkdir(parents=True)
     host_preconditioning = precondition_host(args, workers=args.concurrency)
     timing_log_directory = output / "timing-logs"
@@ -655,7 +567,12 @@ def main() -> int:
         if completed.returncode != 0:
             write_results(results_path, results)
             raise RuntimeError(f"Timing run failed for {name}; see {log_path}.")
-        record["result"] = parse_result_marker(completed.stdout)
+        record["result"] = parse_key_value_marker(
+            completed.stdout,
+            RESULT_PREFIX,
+            integer_fields=INTEGER_FIELDS,
+            float_fields=FLOAT_FIELDS,
+        )
         results["timing_summary"] = summarize_timing(results["timing_records"])
         write_results(results_path, results)
 
@@ -779,7 +696,12 @@ def main() -> int:
             report_path.write_text(report_output(report_command, environment))
             report_paths[suffix] = str(report_path)
         profile_record["reports"] = report_paths
-        profile_record["result"] = parse_result_marker(completed.stdout)
+        profile_record["result"] = parse_key_value_marker(
+            completed.stdout,
+            RESULT_PREFIX,
+            integer_fields=INTEGER_FIELDS,
+            float_fields=FLOAT_FIELDS,
+        )
         summary_text = Path(report_paths["summary"]).read_text()
         profile_record["vtune_summary"] = parse_vtune_summary(summary_text)
         task_metrics = parse_task_report(Path(report_paths["tasks.csv"]))

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <climits>
 #include <thread>
 
 #ifdef __linux__
@@ -15,6 +16,28 @@
 
 namespace pgo::benchmark_helpers
 {
+
+inline void updateMaximum(std::atomic<int> &target, int value) noexcept
+{
+  int observed = target.load(std::memory_order_relaxed);
+  while (value > observed &&
+    !target.compare_exchange_weak(observed, value, std::memory_order_relaxed)) {
+  }
+}
+
+inline void updateMinimum(std::atomic<int> &target, int value) noexcept
+{
+  int observed = target.load(std::memory_order_relaxed);
+  while (value < observed &&
+    !target.compare_exchange_weak(observed, value, std::memory_order_relaxed)) {
+  }
+}
+
+inline int observedMinimum(const std::atomic<int> &value) noexcept
+{
+  const int observed = value.load(std::memory_order_relaxed);
+  return observed == INT_MAX ? 0 : observed;
+}
 
 inline int currentProcessThreadCount()
 {

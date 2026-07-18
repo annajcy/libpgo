@@ -10,7 +10,6 @@ import os
 import random
 import re
 import statistics
-import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -29,9 +28,11 @@ from host_preconditioning import (  # noqa: E402
     guard_host_condition,
     precondition_host,
 )
+from benchmark_support.google_benchmark import list_cases, run_case  # noqa: E402
+from benchmark_support.process import checked_output  # noqa: E402
+from benchmark_support.statistics import bootstrap_median_ci  # noqa: E402
 
 
-TIME_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 CASE_PATTERN = re.compile(r"^EigenBlas/Gemm/([^/]+)/n_(\d+)(?:/real_time)?$")
 
 
@@ -69,28 +70,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     add_host_preconditioning_arguments(parser)
     return parser.parse_args()
-
-
-def run(
-    command: list[str], environment: dict[str, str] | None = None
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        env=environment,
-    )
-
-
-def checked_output(
-    command: list[str], environment: dict[str, str] | None = None
-) -> str:
-    result = run(command, environment)
-    if result.returncode != 0:
-        raise RuntimeError(f"{' '.join(command)}\n{result.stdout}")
-    return result.stdout
 
 
 def benchmark_environment(args: argparse.Namespace) -> dict[str, str]:
@@ -183,11 +162,7 @@ def discover_cases(
 ) -> dict[int, dict[str, tuple[Path, str]]]:
     cases: dict[int, dict[str, tuple[Path, str]]] = {}
     for executable in (internal, vendor):
-        output = checked_output(
-            [str(executable), "--benchmark_list_tests"], environment
-        )
-        for line in output.splitlines():
-            name = line.strip()
+        for name in list_cases(executable, environment):
             match = CASE_PATTERN.fullmatch(name)
             if not match:
                 continue
@@ -200,44 +175,6 @@ def discover_cases(
         for matrix_n, variants in sorted(cases.items())
         if set(variants) == set(provider.variants)
     }
-
-
-def exact_filter(name: str) -> str:
-    return f"^{re.escape(name)}$"
-
-
-def run_one(
-    executable: Path,
-    name: str,
-    min_time: str,
-    warmup_time: float,
-    output: Path,
-    environment: dict[str, str],
-) -> dict[str, Any]:
-    command = [
-        str(executable),
-        f"--benchmark_filter={exact_filter(name)}",
-        f"--benchmark_min_time={min_time}",
-        f"--benchmark_min_warmup_time={warmup_time:g}",
-        "--benchmark_repetitions=1",
-        f"--benchmark_out={output}",
-        "--benchmark_out_format=json",
-    ]
-    checked_output(command, environment)
-    payload = json.loads(output.read_text())
-    rows = [
-        row
-        for row in payload.get("benchmarks", [])
-        if row.get("run_type") != "aggregate"
-    ]
-    if len(rows) != 1:
-        raise RuntimeError(f"Expected one result for {name}, found {len(rows)}")
-    row = rows[0]
-    scale = TIME_SCALE.get(row["time_unit"])
-    if scale is None:
-        raise RuntimeError(f"Unsupported time unit {row['time_unit']} for {name}")
-    row["wall_seconds"] = row["real_time"] * scale
-    return row
 
 
 def validate_checksums(
@@ -284,28 +221,6 @@ def validate_provider_configuration(
             raise RuntimeError(
                 f"{variant} used MKL local budget {budget}; expected {expected_budget}"
             )
-
-
-def percentile(values: list[float], probability: float) -> float:
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return ordered[0]
-    position = probability * (len(ordered) - 1)
-    lower = math.floor(position)
-    upper = math.ceil(position)
-    if lower == upper:
-        return ordered[lower]
-    return ordered[lower] * (upper - position) + ordered[upper] * (position - lower)
-
-
-def bootstrap_median_ci(
-    values: list[float], rng: random.Random, samples: int
-) -> list[float]:
-    medians = [
-        statistics.median(values[rng.randrange(len(values))] for _ in values)
-        for _ in range(samples)
-    ]
-    return [percentile(medians, 0.025), percentile(medians, 0.975)]
 
 
 def summarize(
@@ -426,20 +341,20 @@ def main() -> int:
             cold_probes: dict[str, dict[str, Any]] = {}
             for variant in variants:
                 executable, name = cases[matrix_n][variant]
-                cold_probes[variant] = run_one(
+                cold_probes[variant] = run_case(
                     executable,
                     name,
+                    temporary / f"{block_index}-{variant}-cold.json",
                     "1x",
                     0.0,
-                    temporary / f"{block_index}-{variant}-cold.json",
                     environment,
                 )
-                measurements[variant] = run_one(
+                measurements[variant] = run_case(
                     executable,
                     name,
+                    temporary / f"{block_index}-{variant}-steady.json",
                     args.min_time,
                     args.warmup_time,
-                    temporary / f"{block_index}-{variant}-steady.json",
                     environment,
                 )
 

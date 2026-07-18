@@ -18,6 +18,10 @@ from host_preconditioning import (
     guard_host_condition,
     precondition_host,
 )
+from benchmark_support.google_benchmark import (  # noqa: E402
+    exact_filter,
+    list_cases as list_google_benchmark_cases,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -87,21 +91,11 @@ def run_command(
     )
 
 
-def list_cases(benchmark: Path, pattern: str) -> list[str]:
-    result = run_command([str(benchmark), "--benchmark_list_tests"])
-    if result.returncode != 0:
-        print(result.stdout, file=sys.stderr)
-        raise SystemExit(result.returncode)
-
+def matching_cases(benchmark: Path, pattern: str) -> list[str]:
     regex = re.compile(pattern)
-    cases: list[str] = []
-    for line in result.stdout.splitlines():
-        name = line.strip()
-        if not name:
-            continue
-        if regex.search(name):
-            cases.append(name)
-    return cases
+    return [
+        name for name in list_google_benchmark_cases(benchmark) if regex.search(name)
+    ]
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -136,10 +130,6 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
         writer.writerows(rows)
 
 
-def benchmark_filter_for_exact_case(case_name: str) -> str:
-    return f"^{re.escape(case_name)}$"
-
-
 def main() -> int:
     args = parse_args()
     if args.fresh_repetitions < 0:
@@ -151,7 +141,7 @@ def main() -> int:
         print(f"Benchmark executable does not exist: {benchmark}", file=sys.stderr)
         return 2
 
-    cases = list_cases(benchmark, args.filter)
+    cases = matching_cases(benchmark, args.filter)
     if args.case_limit > 0:
         cases = cases[: args.case_limit]
 
@@ -202,7 +192,7 @@ def main() -> int:
             case_csv = tmpdir / f"job-{job_index:04d}-fresh-{fresh_index:04d}.csv"
             command = [
                 str(benchmark),
-                f"--benchmark_filter={benchmark_filter_for_exact_case(case)}",
+                f"--benchmark_filter={exact_filter(case)}",
                 f"--benchmark_min_time={benchmark_min_time}",
                 f"--benchmark_repetitions={benchmark_repetitions}",
                 f"--benchmark_out={case_csv}",

@@ -38,6 +38,7 @@ using pgo::benchmark_helpers::mklExecutorSpec;
 using pgo::benchmark_helpers::NoBlasWorkload;
 #endif
 using pgo::benchmark_helpers::ThreadSampler;
+using pgo::benchmark_helpers::updateMaximum;
 
 enum class WorkloadKind
 {
@@ -59,14 +60,6 @@ const char *workloadName(WorkloadKind workload) noexcept
 bool usesBlas(WorkloadKind workload) noexcept
 {
   return workload == WorkloadKind::EigenMklGemm;
-}
-
-void updateMaximum(std::atomic<int> &target, int value) noexcept
-{
-  int observed = target.load(std::memory_order_relaxed);
-  while (value > observed &&
-    !target.compare_exchange_weak(observed, value, std::memory_order_relaxed)) {
-  }
 }
 
 struct RunTelemetry

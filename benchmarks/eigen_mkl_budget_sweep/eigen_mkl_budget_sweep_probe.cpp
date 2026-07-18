@@ -1,4 +1,6 @@
 #include "../eigen_mkl_common/eigen_mkl_gemm_workload.h"
+#include "../benchmark_argument_parser.h"
+#include "../parallelism_benchmark_helpers.h"
 
 #include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
@@ -27,6 +29,11 @@ namespace
 
 namespace P = pgo::parallel;
 using pgo::benchmark_helpers::EigenMklGemmWorkload;
+using pgo::benchmark_helpers::parseNonnegativeInteger;
+using pgo::benchmark_helpers::parsePositiveInteger;
+using pgo::benchmark_helpers::requireValue;
+using pgo::benchmark_helpers::updateMaximum;
+using pgo::benchmark_helpers::updateMinimum;
 
 struct Arguments
 {
@@ -38,33 +45,6 @@ struct Arguments
   int warmupIterations;
   int profileIterations;
 };
-
-int parseNonnegativeInteger(std::string_view value, std::string_view option)
-{
-  char *end = nullptr;
-  const long parsed = std::strtol(value.data(), &end, 10);
-  if (end == value.data() || *end != '\0' || parsed < 0 || parsed > INT_MAX)
-    throw std::invalid_argument(std::string(option) + " must be a nonnegative integer.");
-  return static_cast<int>(parsed);
-}
-
-int parsePositiveInteger(std::string_view value, std::string_view option)
-{
-  const int parsed = parseNonnegativeInteger(value, option);
-  if (parsed == 0)
-    throw std::invalid_argument(std::string(option) + " must be positive.");
-  return parsed;
-}
-
-std::string_view requireValue(int argc, char **argv, std::string_view prefix)
-{
-  for (int index = 1; index < argc; ++index) {
-    const std::string_view argument(argv[index]);
-    if (argument.starts_with(prefix))
-      return argument.substr(prefix.size());
-  }
-  throw std::invalid_argument("Missing required option " + std::string(prefix));
-}
 
 Arguments parseArguments(int argc, char **argv)
 {
@@ -85,22 +65,6 @@ Arguments parseArguments(int argc, char **argv)
     parsePositiveInteger(requireValue(argc, argv, "--profile-iterations="),
       "--profile-iterations"),
   };
-}
-
-void updateMaximum(std::atomic<int> &target, int value) noexcept
-{
-  int observed = target.load(std::memory_order_relaxed);
-  while (value > observed &&
-    !target.compare_exchange_weak(observed, value, std::memory_order_relaxed)) {
-  }
-}
-
-void updateMinimum(std::atomic<int> &target, int value) noexcept
-{
-  int observed = target.load(std::memory_order_relaxed);
-  while (value < observed &&
-    !target.compare_exchange_weak(observed, value, std::memory_order_relaxed)) {
-  }
 }
 
 struct RunTelemetry

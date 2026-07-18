@@ -9,7 +9,6 @@ import math
 import random
 import re
 import statistics
-import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -27,10 +26,15 @@ from host_preconditioning import (  # noqa: E402
     guard_host_condition,
     precondition_host,
 )
+from benchmark_support.google_benchmark import (  # noqa: E402
+    integer_counter,
+    list_cases,
+    run_case,
+)
+from benchmark_support.process import checked_output  # noqa: E402
 
 
 POLICIES = ("ExecutorSingle", "ExecutorMulti")
-TIME_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 CASE_PATTERN = re.compile(
     r"^NestedEigenAccelerate/(ExecutorSingle|ExecutorMulti)"
     r"/c_(\d+)/tasks_(\d+)/n_(\d+)(?:/real_time)?$"
@@ -55,19 +59,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def checked_output(command: list[str]) -> str:
-    result = subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"{' '.join(command)}\n{result.stdout}")
-    return result.stdout
-
-
 def verify_linkage(executable: Path) -> dict[str, str]:
     dependencies = checked_output(["otool", "-L", str(executable)])
     undefined_symbols = checked_output(["nm", "-u", str(executable)])
@@ -83,10 +74,8 @@ def verify_linkage(executable: Path) -> dict[str, str]:
 
 
 def discover_cases(executable: Path) -> dict[tuple[int, int, int], dict[str, str]]:
-    output = checked_output([str(executable), "--benchmark_list_tests"])
     discovered: dict[tuple[int, int, int], dict[str, str]] = {}
-    for line in output.splitlines():
-        name = line.strip()
+    for name in list_cases(executable):
         match = CASE_PATTERN.fullmatch(name)
         if not match:
             continue
@@ -118,48 +107,6 @@ def filter_cases(
     return selected
 
 
-def run_one(
-    executable: Path,
-    name: str,
-    output: Path,
-    min_time: str,
-    warmup_time: float,
-) -> dict[str, Any]:
-    exact_filter = f"^{re.escape(name)}$"
-    checked_output(
-        [
-            str(executable),
-            f"--benchmark_filter={exact_filter}",
-            f"--benchmark_min_time={min_time}",
-            f"--benchmark_min_warmup_time={warmup_time:g}",
-            "--benchmark_repetitions=1",
-            f"--benchmark_out={output}",
-            "--benchmark_out_format=json",
-        ]
-    )
-    payload = json.loads(output.read_text())
-    rows = [
-        row
-        for row in payload.get("benchmarks", [])
-        if row.get("run_type") != "aggregate"
-    ]
-    if len(rows) != 1:
-        raise RuntimeError(f"Expected one result for {name}, found {len(rows)}.")
-    row = rows[0]
-    scale = TIME_SCALE.get(row.get("time_unit"))
-    if scale is None:
-        raise RuntimeError(f"Unsupported time unit for {name}: {row.get('time_unit')}")
-    row["wall_seconds"] = float(row["real_time"]) * scale
-    return row
-
-
-def counter(row: dict[str, Any], name: str) -> int:
-    value = float(row.get(name, math.nan))
-    if not math.isfinite(value):
-        raise RuntimeError(f"Missing finite counter {name} in {row.get('name')}.")
-    return round(value)
-
-
 def validate_block(
     key: tuple[int, int, int],
     measurements: dict[str, dict[str, Any]],
@@ -182,29 +129,29 @@ def validate_block(
         )
 
     for policy, row in measurements.items():
-        if counter(row, "effective_concurrency") != concurrency:
+        if integer_counter(row, "effective_concurrency") != concurrency:
             raise RuntimeError(f"{policy} did not establish concurrency={concurrency}.")
-        if counter(row, "arena_concurrency") != concurrency:
+        if integer_counter(row, "arena_concurrency") != concurrency:
             raise RuntimeError(
                 f"{policy} did not execute in its configured executor arena."
             )
         expected_calls = int(row["iterations"]) * outer_tasks
-        if counter(row, "body_calls") != expected_calls:
+        if integer_counter(row, "body_calls") != expected_calls:
             raise RuntimeError(f"{policy} executed an unexpected number of bodies.")
-        if counter(row, "other_mode_calls") != 0:
+        if integer_counter(row, "other_mode_calls") != 0:
             raise RuntimeError(
                 f"{policy} observed an unknown Accelerate threading mode."
             )
 
     single = measurements["ExecutorSingle"]
     multi = measurements["ExecutorMulti"]
-    if counter(single, "single_mode_calls") != counter(single, "body_calls"):
+    if integer_counter(single, "single_mode_calls") != integer_counter(single, "body_calls"):
         raise RuntimeError("ExecutorSingle did not observe SINGLE in every body.")
-    if counter(single, "multi_mode_calls") != 0:
+    if integer_counter(single, "multi_mode_calls") != 0:
         raise RuntimeError("ExecutorSingle unexpectedly observed MULTI.")
-    if counter(multi, "multi_mode_calls") != counter(multi, "body_calls"):
+    if integer_counter(multi, "multi_mode_calls") != integer_counter(multi, "body_calls"):
         raise RuntimeError("ExecutorMulti did not observe MULTI in every body.")
-    if counter(multi, "single_mode_calls") != 0:
+    if integer_counter(multi, "single_mode_calls") != 0:
         raise RuntimeError("ExecutorMulti unexpectedly observed SINGLE.")
 
 
@@ -308,14 +255,14 @@ def main() -> int:
             measurements: dict[str, dict[str, Any]] = {}
             cold_probes: dict[str, dict[str, Any]] = {}
             for policy in policies:
-                cold_probes[policy] = run_one(
+                cold_probes[policy] = run_case(
                     executable,
                     cases[key][policy],
                     temporary / f"{block_index}-{policy}-cold.json",
                     "1x",
                     0.0,
                 )
-                measurements[policy] = run_one(
+                measurements[policy] = run_case(
                     executable,
                     cases[key][policy],
                     temporary / f"{block_index}-{policy}-steady.json",
@@ -340,10 +287,10 @@ def main() -> int:
                     "cold_probes": cold_probes,
                     "multi_over_single": multi_time / single_time,
                     "cold_multi_over_single": cold_multi_time / cold_single_time,
-                    "extra_thread_delta": counter(
+                    "extra_thread_delta": integer_counter(
                         cold_probes["ExecutorMulti"], "extra_threads"
                     )
-                    - counter(cold_probes["ExecutorSingle"], "extra_threads"),
+                    - integer_counter(cold_probes["ExecutorSingle"], "extra_threads"),
                 }
             )
 
