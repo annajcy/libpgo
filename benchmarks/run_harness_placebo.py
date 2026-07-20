@@ -242,60 +242,95 @@ def main() -> int:
         )
         return 0
 
+    semantic_command = {
+        "executable": str(executable),
+        "case": args.case,
+        "min_time": args.min_time,
+        "warmup_time": args.warmup_time,
+        "environment": {
+            "MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"],
+            CONCURRENCY_ENVIRONMENT: environment[CONCURRENCY_ENVIRONMENT],
+        },
+    }
     records: list[dict[str, Any]] = []
-    with tempfile.TemporaryDirectory(prefix="pgo-harness-placebo-") as temp_dir:
-        temporary = Path(temp_dir)
-        for repetition in range(1, args.repetitions + 1):
-            labels = balanced_order(
-                LABELS,
-                repetition=repetition - 1,
-                seed=args.seed,
-                block_key=f"case={args.case}",
-            )
-            print(
-                f"[{repetition}/{args.repetitions}] order={','.join(labels)}",
-                flush=True,
-            )
-            measurements: dict[str, dict[str, Any]] = {}
-            guards: dict[str, dict[str, Any]] = {}
-            for position, label in enumerate(labels, start=1):
-                guards[label] = guard_host_condition(
-                    args,
-                    host_preconditioning,
-                    label=f"r={repetition}:position={position}:label={label}",
+    active_record: dict[str, Any] | None = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="pgo-harness-placebo-") as temp_dir:
+            temporary = Path(temp_dir)
+            for repetition in range(1, args.repetitions + 1):
+                labels = balanced_order(
+                    LABELS,
+                    repetition=repetition - 1,
+                    seed=args.seed,
+                    block_key=f"case={args.case}",
                 )
-                measurements[label] = run_case(
-                    executable,
-                    args.case,
-                    temporary / f"r{repetition}-{label}.json",
-                    args.min_time,
-                    args.warmup_time,
-                    environment,
+                print(
+                    f"[{repetition}/{args.repetitions}] order={','.join(labels)}",
+                    flush=True,
                 )
-            validate_identical_results(
-                measurements,
-                checksum_relative_tolerance=args.checksum_relative_tolerance,
-            )
-            records.append(
-                {
+                active_record = {
                     "repetition": repetition,
                     "order": labels,
-                    "semantic_command": {
-                        "executable": str(executable),
-                        "case": args.case,
-                        "min_time": args.min_time,
-                        "warmup_time": args.warmup_time,
-                        "environment": {
-                            "MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"],
-                            CONCURRENCY_ENVIRONMENT: environment[
-                                CONCURRENCY_ENVIRONMENT
-                            ],
-                        },
-                    },
-                    "guards": guards,
-                    "measurements": measurements,
+                    "semantic_command": semantic_command,
+                    "guards": {},
+                    "measurements": {},
                 }
-            )
+                measurements = active_record["measurements"]
+                guards = active_record["guards"]
+                for position, label in enumerate(labels, start=1):
+                    try:
+                        guards[label] = guard_host_condition(
+                            args,
+                            host_preconditioning,
+                            label=(
+                                f"r={repetition}:position={position}:label={label}"
+                            ),
+                        )
+                    except Exception:
+                        block_checks = host_preconditioning.get("block_checks", [])
+                        if block_checks:
+                            guards[label] = block_checks[-1]
+                        raise
+                    measurements[label] = run_case(
+                        executable,
+                        args.case,
+                        temporary / f"r{repetition}-{label}.json",
+                        args.min_time,
+                        args.warmup_time,
+                        environment,
+                    )
+                validate_identical_results(
+                    measurements,
+                    checksum_relative_tolerance=args.checksum_relative_tolerance,
+                )
+                records.append(active_record)
+                active_record = None
+    except Exception as error:
+        payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "benchmark": str(executable),
+            "case": args.case,
+            "concurrency": args.concurrency,
+            "repetitions": args.repetitions,
+            "min_time": args.min_time,
+            "warmup_time": args.warmup_time,
+            "seed": args.seed,
+            "bootstrap_samples": args.bootstrap_samples,
+            "order": order,
+            "acceptance_criteria": acceptance_criteria,
+            "status": "aborted",
+            "failures": [f"{type(error).__name__}: {error}"],
+            "completed_repetitions": len(records),
+            "active_record": active_record,
+            "host_preconditioning": host_preconditioning,
+            "linkage": linkage,
+            "records": records,
+        }
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(payload, indent=2) + "\n")
+        print(f"Placebo gate aborted; wrote partial evidence to {args.out}")
+        print(payload["failures"][0], file=sys.stderr)
+        return 1
 
     summaries = analyze_records(
         records, seed=args.seed, bootstrap_samples=args.bootstrap_samples
