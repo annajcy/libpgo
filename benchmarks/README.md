@@ -1,7 +1,7 @@
 # Benchmark execution policy
 
-All top-level benchmark runners use the shared
-`benchmarks/host_preconditioning.py` helper before starting measured cases.
+All top-level benchmark runners use the responsibility-specific modules under
+`benchmarks/benchmark_support/` before starting measured cases.
 The policy has three distinct layers:
 
 1. a policy-neutral all-core host preheat (60 seconds by default, long enough
@@ -95,6 +95,14 @@ python3 benchmarks/run_harness_placebo.py \
 
 `benchmark_support/` owns reusable execution mechanics only:
 
+- `host.py` applies and verifies affinity/NUMA placement and records topology,
+  cgroup, CPU-pressure, and CPU-frequency provenance;
+- `conditioning.py` owns the policy-neutral preheat, stability probes, and
+  per-case guards, and exposes the common harness CLI arguments;
+- `schedule.py` owns Williams ordering and complete-cycle validation;
+- `artifact.py` atomically checkpoints JSON and records a uniform
+  `artifact_state` with running/complete/failed state, active unit, progress,
+  and failure details;
 - `google_benchmark.py` lists and runs one JSON-producing Google Benchmark case;
 - `mkl.py` configures and verifies the Linux oneMKL + oneTBB stack;
 - `process.py` handles subprocess diagnostics, result markers, and executable
@@ -102,6 +110,12 @@ python3 benchmarks/run_harness_placebo.py \
 - `python_worker.py` runs one fresh Python worker per measured sample; and
 - `statistics.py` and `validation.py` contain deterministic summary and CLI
   primitives.
+
+`host_preconditioning.py` remains only as a compatibility CLI and import
+facade. Top-level runners import the responsibility-specific modules directly.
+Every runner checkpoints after a completed unit and writes a failed artifact
+when a guard, worker, profiler, parser, or correctness validation raises. The
+shared artifact layer does not define case semantics or summary schemas.
 
 Individual runners continue to own their case patterns, policy definitions,
 correctness checks, summary schema, and decision rules.  Do not introduce a

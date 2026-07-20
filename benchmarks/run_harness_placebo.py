@@ -24,18 +24,18 @@ from benchmark_support.google_benchmark import (  # noqa: E402
     list_cases,
     run_case,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.mkl import (  # noqa: E402
     mkl_tbb_environment,
     verify_mkl_tbb_benchmark_linkage,
 )
 from benchmark_support.statistics import bootstrap_median_ci  # noqa: E402
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 
 
 LABELS = ("placebo_a", "placebo_b")
@@ -69,7 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ci-tolerance", type=float, default=DEFAULT_CI_TOLERANCE)
     parser.add_argument("--checksum-relative-tolerance", type=float, default=1e-10)
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -225,6 +225,7 @@ def main() -> int:
         "requires_every_guard_stable": True,
         "requires_identical_commands_counters_and_checksums": True,
     }
+    runner = runner_manifest(Path(__file__))
     host_preconditioning = precondition_host(
         args, workers=args.concurrency, dry_run=args.dry_run
     )
@@ -232,6 +233,7 @@ def main() -> int:
         print(
             json.dumps(
                 {
+                    "runner": runner,
                     "case": args.case,
                     "order": order,
                     "acceptance_criteria": acceptance_criteria,
@@ -254,6 +256,7 @@ def main() -> int:
     }
     records: list[dict[str, Any]] = []
     active_record: dict[str, Any] | None = None
+    artifact = JsonArtifact(args.out, scheduled_units=args.repetitions)
     try:
         with tempfile.TemporaryDirectory(prefix="pgo-harness-placebo-") as temp_dir:
             temporary = Path(temp_dir)
@@ -275,6 +278,7 @@ def main() -> int:
                     "guards": {},
                     "measurements": {},
                 }
+                artifact.set_active(f"repetition={repetition}")
                 measurements = active_record["measurements"]
                 guards = active_record["guards"]
                 for position, label in enumerate(labels, start=1):
@@ -305,8 +309,20 @@ def main() -> int:
                 )
                 records.append(active_record)
                 active_record = None
+                artifact.checkpoint(
+                    {
+                        "runner": runner,
+                        "benchmark": str(executable),
+                        "case": args.case,
+                        "acceptance_criteria": acceptance_criteria,
+                        "host_preconditioning": host_preconditioning,
+                        "records": records,
+                    },
+                    completed_units=len(records),
+                )
     except Exception as error:
         payload = {
+            "runner": runner,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "benchmark": str(executable),
             "case": args.case,
@@ -326,8 +342,7 @@ def main() -> int:
             "linkage": linkage,
             "records": records,
         }
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(payload, indent=2) + "\n")
+        artifact.fail(payload, error)
         print(f"Placebo gate aborted; wrote partial evidence to {args.out}")
         print(payload["failures"][0], file=sys.stderr)
         return 1
@@ -351,6 +366,7 @@ def main() -> int:
         failures.append("strict_timing_comparability is false")
 
     payload = {
+        "runner": runner,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "benchmark": str(executable),
         "case": args.case,
@@ -369,8 +385,7 @@ def main() -> int:
         "linkage": linkage,
         "records": records,
     }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(payload, indent=2) + "\n")
+    artifact.complete(payload)
 
     for name, summary in summaries.items():
         lower, upper = summary["bootstrap_95pct_ci"]

@@ -12,7 +12,6 @@ import os
 import platform
 import random
 import statistics
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -23,13 +22,13 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from workloads import DEFAULT_MESHES, WORKLOADS, build_workload  # noqa: E402
 from benchmark_support.python_worker import (  # noqa: E402
     run_json_worker,
@@ -107,7 +106,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
 
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--workload", choices=WORKLOADS, help=argparse.SUPPRESS)
@@ -1068,11 +1067,14 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def write_checkpoint(
+    artifact: JsonArtifact,
     output: Path,
     manifest: dict[str, Any],
     records: list[dict[str, Any]],
     bootstrap_samples: int,
     run_status: dict[str, Any],
+    *,
+    complete: bool = False,
 ) -> None:
     summary = summarize(records, bootstrap_samples)
     payload = {
@@ -1081,35 +1083,14 @@ def write_checkpoint(
         "measurements": records,
         "summary": summary,
     }
-    temporary = output / "python-solver-phase-threading.json.tmp"
-    final = output / "python-solver-phase-threading.json"
-    temporary.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n"
-    )
-    temporary.replace(final)
+    if complete:
+        artifact.complete(payload)
+    else:
+        artifact.checkpoint(payload, completed_units=len(records))
     _write_csv(output / "runs.csv", _raw_csv_rows(records))
     _write_csv(output / "phase_breakdown.csv", _phase_csv_rows(records))
     _write_csv(output / "iteration_breakdown.csv", _iteration_csv_rows(records))
     _write_csv(output / "summary.csv", summary)
-
-
-def _git_revision() -> dict[str, Any]:
-    def run(*command: str) -> str | None:
-        completed = subprocess.run(
-            command,
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        return completed.stdout.strip() if completed.returncode == 0 else None
-
-    return {
-        "commit": run("git", "rev-parse", "HEAD"),
-        "branch": run("git", "branch", "--show-current"),
-        "dirty": bool(run("git", "status", "--short")),
-    }
 
 
 def controller_main(args: argparse.Namespace) -> int:
@@ -1157,11 +1138,9 @@ def controller_main(args: argparse.Namespace) -> int:
     host_preconditioning = precondition_host(args, workers=args.concurrency)
     _, environment_overrides = worker_environment(args.concurrency)
     manifest = {
+        "runner": runner_manifest(SCRIPT),
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "script": str(SCRIPT),
-        "script_sha256": _file_sha256(SCRIPT),
         "workloads_script_sha256": _file_sha256(SCRIPT.with_name("workloads.py")),
-        "git": _git_revision(),
         "pure_public_python_workload": True,
         "fresh_process_per_sample": True,
         "serial_execution": True,
@@ -1217,17 +1196,27 @@ def controller_main(args: argparse.Namespace) -> int:
         "validated_blocks": 0,
         "scheduled_blocks": len(expected_per_block),
     }
+    artifact = JsonArtifact(
+        output / "python-solver-phase-threading.json",
+        scheduled_units=len(scheduled),
+        sort_keys=True,
+        allow_nan=False,
+    )
 
     total = len(scheduled)
     for index, (command, block_key) in enumerate(scheduled, start=1):
         policy = command[command.index("--policy") + 1]
-        guard_host_condition(
-            args,
-            host_preconditioning,
-            label=(
-                f"r={block_key[0]}:workload={block_key[1]}:policy={policy}"
-            ),
-        )
+        label = f"r={block_key[0]}:workload={block_key[1]}:policy={policy}"
+        artifact.set_active(label)
+        with artifact.capture_failures(
+            lambda: {
+                "manifest": manifest,
+                "run_status": run_status,
+                "measurements": records,
+                "summary": [],
+            }
+        ):
+            guard_host_condition(args, host_preconditioning, label=label)
         print(f"[{index}/{total}] {' '.join(command)}", flush=True)
         try:
             record = run_worker(command, args.concurrency)
@@ -1239,7 +1228,15 @@ def controller_main(args: argparse.Namespace) -> int:
                     "validation_error": f"worker failure: {error}",
                 }
             )
-            write_checkpoint(output, manifest, records, 0, run_status)
+            artifact.fail(
+                {
+                    "manifest": manifest,
+                    "run_status": run_status,
+                    "measurements": records,
+                    "summary": [],
+                },
+                error,
+            )
             raise
         record["validation_status"] = "pending"
         records.append(record)
@@ -1267,7 +1264,15 @@ def controller_main(args: argparse.Namespace) -> int:
                         "validation_error": f"signature validation failure: {error}",
                     }
                 )
-                write_checkpoint(output, manifest, records, 0, run_status)
+                artifact.fail(
+                    {
+                        "manifest": manifest,
+                        "run_status": run_status,
+                        "measurements": records,
+                        "summary": [],
+                    },
+                    error,
+                )
                 raise
             for block_record in block_records:
                 block_record["validation_status"] = "valid"
@@ -1276,9 +1281,9 @@ def controller_main(args: argparse.Namespace) -> int:
                 # serializing large validated vectors into every checkpoint.
                 block_record["signature"].pop("x_values", None)
             run_status["validated_blocks"] += 1
-            write_checkpoint(output, manifest, records, 0, run_status)
+            write_checkpoint(artifact, output, manifest, records, 0, run_status)
         else:
-            write_checkpoint(output, manifest, records, 0, run_status)
+            write_checkpoint(artifact, output, manifest, records, 0, run_status)
         print(
             f"  {record['seconds_per_solve'] * 1e3:.3f} ms/solve; "
             f"iterations={record['completed_iterations_per_solve']}; "
@@ -1288,7 +1293,15 @@ def controller_main(args: argparse.Namespace) -> int:
         )
 
     run_status.update({"state": "complete", "complete": True})
-    write_checkpoint(output, manifest, records, args.bootstrap_samples, run_status)
+    write_checkpoint(
+        artifact,
+        output,
+        manifest,
+        records,
+        args.bootstrap_samples,
+        run_status,
+        complete=True,
+    )
     print(f"Wrote {output / 'python-solver-phase-threading.json'}")
     return 0
 

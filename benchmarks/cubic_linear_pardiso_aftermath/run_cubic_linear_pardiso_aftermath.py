@@ -22,13 +22,13 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from benchmark_support.mkl import (  # noqa: E402
     mkl_tbb_environment,
     verify_mkl_tbb_probe_linkage,
@@ -94,7 +94,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bootstrap-samples", type=int, default=20000)
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -394,54 +394,11 @@ def main() -> int:
     raw: list[dict[str, Any]] = []
     samples: list[dict[str, Any]] = []
     pending: dict[int, dict[str, list[dict[str, Any]]]] = {}
-
-    for job_index, (repetition, case) in enumerate(jobs, start=1):
-        guard_host_condition(
-            args,
-            host_preconditioning,
-            label=f"repetition={repetition}:case={case}",
-        )
-        command = command_for(args, probe, mesh, case)
-        print(f"[{job_index}/{len(jobs)}] r={repetition} case={case}", flush=True)
-        completed = subprocess.run(
-            command,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=environment,
-            check=False,
-        )
-        log_path = out / f"r{repetition:02d}-{case}.log"
-        log_path.write_text(completed.stdout, encoding="utf-8")
-        if completed.returncode != 0:
-            raise RuntimeError(f"{shlex.join(command)}\n{completed.stdout}")
-        records = [
-            record
-            for line in completed.stdout.splitlines()
-            if (record := parse_record(line)) is not None
-        ]
-        if len(records) != args.measured_iterations:
-            raise RuntimeError(
-                f"Expected {args.measured_iterations} records, got {len(records)} "
-                f"for r={repetition}, case={case}"
-            )
-        for record in records:
-            record["repetition"] = repetition
-            raw.append(record)
-        pending.setdefault(repetition, {})[case] = records
-        if len(pending[repetition]) == len(args.cases):
-            validate_block(pending[repetition])
-            samples.extend(
-                median_record(pending[repetition][candidate], repetition)
-                for candidate in args.cases
-            )
-
-    summaries = summarize(samples)
-    contrasts = paired_contrasts(samples, args.bootstrap_samples, args.seed)
     manifest = {
+        "runner": runner_manifest(Path(__file__)),
         "schema_version": 1,
         "benchmark": "cubic_linear_pardiso_aftermath",
-        "completed": True,
+        "completed": False,
         "valid": True,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "hypothesis": (
@@ -468,12 +425,70 @@ def main() -> int:
         "order": order,
         "raw_measurements": raw,
         "worker_samples": samples,
-        "summary": summaries,
-        "paired_contrasts": contrasts,
+        "summary": [],
+        "paired_contrasts": [],
     }
-    (out / "cubic-linear-pardiso-aftermath.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+    artifact = JsonArtifact(
+        out / "cubic-linear-pardiso-aftermath.json",
+        scheduled_units=len(jobs),
+        sort_keys=True,
     )
+
+    for job_index, (repetition, case) in enumerate(jobs, start=1):
+        label = f"repetition={repetition}:case={case}"
+        artifact.set_active(label)
+        with artifact.capture_failures(lambda: manifest):
+            guard_host_condition(args, host_preconditioning, label=label)
+            command = command_for(args, probe, mesh, case)
+            print(
+                f"[{job_index}/{len(jobs)}] r={repetition} case={case}",
+                flush=True,
+            )
+            completed = subprocess.run(
+                command,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=environment,
+                check=False,
+            )
+            log_path = out / f"r{repetition:02d}-{case}.log"
+            log_path.write_text(completed.stdout, encoding="utf-8")
+            if completed.returncode != 0:
+                raise RuntimeError(f"{shlex.join(command)}\n{completed.stdout}")
+            records = [
+                record
+                for line in completed.stdout.splitlines()
+                if (record := parse_record(line)) is not None
+            ]
+            if len(records) != args.measured_iterations:
+                raise RuntimeError(
+                    f"Expected {args.measured_iterations} records, got {len(records)} "
+                    f"for r={repetition}, case={case}"
+                )
+            for record in records:
+                record["repetition"] = repetition
+                raw.append(record)
+            pending.setdefault(repetition, {})[case] = records
+            if len(pending[repetition]) == len(args.cases):
+                validate_block(pending[repetition])
+                samples.extend(
+                    median_record(pending[repetition][candidate], repetition)
+                    for candidate in args.cases
+                )
+        artifact.checkpoint(manifest, completed_units=job_index)
+
+    with artifact.capture_failures(lambda: manifest):
+        summaries = summarize(samples)
+        contrasts = paired_contrasts(samples, args.bootstrap_samples, args.seed)
+        manifest.update(
+            {
+                "completed": True,
+                "summary": summaries,
+                "paired_contrasts": contrasts,
+            }
+        )
+        artifact.complete(manifest)
     write_csv(out / "raw_measurements.csv", raw)
     write_csv(out / "worker_samples.csv", samples)
     write_csv(out / "summary.csv", summaries)

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import random
 import re
@@ -20,13 +19,13 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from benchmark_support.google_benchmark import (  # noqa: E402
     integer_counter,
     list_cases,
@@ -56,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--outer-tasks", type=int, action="append")
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -236,6 +235,22 @@ def main() -> int:
     randomizer = random.Random(args.seed)
     randomizer.shuffle(schedule)
     records: list[dict[str, Any]] = []
+    payload = {
+        "runner": runner_manifest(Path(__file__)),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "benchmark": str(executable),
+        "seed": args.seed,
+        "repetitions": args.repetitions,
+        "order": order,
+        "min_time": args.min_time,
+        "warmup_time": args.warmup_time,
+        "thread_telemetry_source": "cold_probes",
+        "host_preconditioning": host_preconditioning,
+        "linkage": linkage,
+        "records": records,
+        "summary": [],
+    }
+    artifact = JsonArtifact(args.out, scheduled_units=len(schedule))
 
     with tempfile.TemporaryDirectory(prefix="pgo-eigen-accelerate-nested-") as temp_dir:
         temporary = Path(temp_dir)
@@ -256,31 +271,33 @@ def main() -> int:
             measurements: dict[str, dict[str, Any]] = {}
             cold_probes: dict[str, dict[str, Any]] = {}
             for policy in policies:
-                guard_host_condition(
-                    args,
-                    host_preconditioning,
-                    label=(
-                        f"r={repetition}:c={concurrency}:tasks={outer_tasks}:"
-                        f"n={matrix_n}:policy={policy}"
-                    ),
+                label = (
+                    f"r={repetition}:c={concurrency}:tasks={outer_tasks}:"
+                    f"n={matrix_n}:policy={policy}"
                 )
-                cold_probes[policy] = run_case(
-                    executable,
-                    cases[key][policy],
-                    temporary / f"{block_index}-{policy}-cold.json",
-                    "1x",
-                    0.0,
-                )
-                measurements[policy] = run_case(
-                    executable,
-                    cases[key][policy],
-                    temporary / f"{block_index}-{policy}-steady.json",
-                    args.min_time,
-                    args.warmup_time,
-                )
+                artifact.set_active(label)
+                with artifact.capture_failures(lambda: payload):
+                    guard_host_condition(
+                        args, host_preconditioning, label=label
+                    )
+                    cold_probes[policy] = run_case(
+                        executable,
+                        cases[key][policy],
+                        temporary / f"{block_index}-{policy}-cold.json",
+                        "1x",
+                        0.0,
+                    )
+                    measurements[policy] = run_case(
+                        executable,
+                        cases[key][policy],
+                        temporary / f"{block_index}-{policy}-steady.json",
+                        args.min_time,
+                        args.warmup_time,
+                    )
 
-            validate_block(key, cold_probes, args.checksum_relative_tolerance)
-            validate_block(key, measurements, args.checksum_relative_tolerance)
+            with artifact.capture_failures(lambda: payload):
+                validate_block(key, cold_probes, args.checksum_relative_tolerance)
+                validate_block(key, measurements, args.checksum_relative_tolerance)
             single_time = float(measurements["ExecutorSingle"]["wall_seconds"])
             multi_time = float(measurements["ExecutorMulti"]["wall_seconds"])
             cold_single_time = float(cold_probes["ExecutorSingle"]["wall_seconds"])
@@ -302,24 +319,12 @@ def main() -> int:
                     - integer_counter(cold_probes["ExecutorSingle"], "extra_threads"),
                 }
             )
+            artifact.checkpoint(payload, completed_units=len(records))
 
-    summary = summarize(records)
-    payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "benchmark": str(executable),
-        "seed": args.seed,
-        "repetitions": args.repetitions,
-        "order": order,
-        "min_time": args.min_time,
-        "warmup_time": args.warmup_time,
-        "thread_telemetry_source": "cold_probes",
-        "host_preconditioning": host_preconditioning,
-        "linkage": linkage,
-        "records": records,
-        "summary": summary,
-    }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(payload, indent=2) + "\n")
+    with artifact.capture_failures(lambda: payload):
+        summary = summarize(records)
+        payload["summary"] = summary
+        artifact.complete(payload)
 
     print("\nc tasks    n  steady multi/single  cold multi/single  extra-thread delta")
     for row in summary:

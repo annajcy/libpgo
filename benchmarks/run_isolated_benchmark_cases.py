@@ -5,20 +5,19 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from host_preconditioning import (
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest
+from benchmark_support.schedule import balanced_order, order_configuration
 from benchmark_support.google_benchmark import (  # noqa: E402
     exact_filter,
     list_cases as list_google_benchmark_cases,
@@ -75,7 +74,7 @@ def parse_args() -> argparse.Namespace:
         help="Additional argument forwarded to every benchmark invocation. Repeatable.",
     )
     parser.add_argument("--seed", type=int, default=20260717)
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -174,6 +173,9 @@ def main() -> int:
         if args.fresh_repetitions > 0
         else None
     )
+    host_path = args.out.with_suffix(args.out.suffix + ".host.json")
+    host_preconditioning["measurement_order"] = order
+    host_preconditioning["runner"] = runner_manifest(Path(__file__))
     benchmark_min_time = "1x" if args.fresh_repetitions > 0 else args.min_time
     benchmark_repetitions = 1 if args.fresh_repetitions > 0 else args.repetitions
 
@@ -188,15 +190,15 @@ def main() -> int:
                 block_key="isolated-cases",
             )
         )
+    artifact = JsonArtifact(host_path, scheduled_units=len(jobs))
 
     with tempfile.TemporaryDirectory(prefix="pgo-isolated-bench-") as tmp:
         tmpdir = Path(tmp)
         for job_index, (fresh_index, case) in enumerate(jobs, start=1):
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=f"fresh={fresh_index}:case={case}",
-            )
+            label = f"fresh={fresh_index}:case={case}"
+            artifact.set_active(label)
+            with artifact.capture_failures(lambda: host_preconditioning):
+                guard_host_condition(args, host_preconditioning, label=label)
             process_index += 1
             case_index = cases.index(case) + 1
             case_csv = tmpdir / f"job-{job_index:04d}-fresh-{fresh_index:04d}.csv"
@@ -217,9 +219,17 @@ def main() -> int:
             )
             result = run_command(command)
             if result.returncode != 0:
+                artifact.fail(
+                    host_preconditioning,
+                    RuntimeError(f"benchmark subprocess exited {result.returncode}"),
+                )
                 print(result.stdout, file=sys.stderr)
                 return result.returncode
             if not case_csv.exists():
+                artifact.fail(
+                    host_preconditioning,
+                    RuntimeError(f"benchmark did not produce CSV: {case_csv}"),
+                )
                 print(f"Benchmark did not produce CSV: {case_csv}", file=sys.stderr)
                 print(result.stdout, file=sys.stderr)
                 return 1
@@ -233,11 +243,12 @@ def main() -> int:
                     row["fresh_repetition_index"] = str(fresh_index)
                     row["fresh_repetitions"] = str(fresh_repetitions)
             merged_rows.extend(rows)
+            artifact.checkpoint(
+                host_preconditioning, completed_units=job_index
+            )
 
     write_csv(args.out, merged_rows)
-    host_path = args.out.with_suffix(args.out.suffix + ".host.json")
-    host_preconditioning["measurement_order"] = order
-    host_path.write_text(json.dumps(host_preconditioning, indent=2) + "\n")
+    artifact.complete(host_preconditioning)
     print(f"Wrote {len(merged_rows)} row(s) to {args.out}")
     return 0
 

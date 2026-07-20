@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import random
 import re
@@ -20,13 +19,13 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from benchmark_support.google_benchmark import (  # noqa: E402
     integer_counter,
     list_cases,
@@ -97,7 +96,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--skip-mkl-verbose-probe", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -379,6 +378,24 @@ def main() -> int:
     randomizer = random.Random(args.seed)
     randomizer.shuffle(schedule)
     records: list[dict[str, Any]] = []
+    runner = runner_manifest(Path(__file__))
+    checkpoint_payload = {
+        "runner": runner,
+        "schema_version": 2,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "benchmark": str(executable),
+        "no_blas_benchmark": str(no_blas_executable),
+        "seed": args.seed,
+        "repetitions": args.repetitions,
+        "min_time": args.min_time,
+        "warmup_time": args.warmup_time,
+        "bootstrap_samples": args.bootstrap_samples,
+        "host_preconditioning": host_preconditioning,
+        "order": order,
+        "linkage": linkage,
+        "records": records,
+    }
+    artifact = JsonArtifact(args.out, scheduled_units=len(schedule))
 
     with tempfile.TemporaryDirectory(
         prefix="pgo-eigen-mkl-control-matrix-"
@@ -402,24 +419,28 @@ def main() -> int:
             )
             measurements: dict[str, dict[str, Any]] = {}
             for policy in policies:
-                guard_host_condition(
-                    args,
-                    host_preconditioning,
-                    label=(
-                        f"r={repetition}:workload={workload}:c={concurrency}:"
-                        f"tasks={outer_tasks}:n={matrix_n}:policy={policy}"
-                    ),
+                label = (
+                    f"r={repetition}:workload={workload}:c={concurrency}:"
+                    f"tasks={outer_tasks}:n={matrix_n}:policy={policy}"
                 )
-                measurements[policy] = run_case(
-                    executable if workload == "EigenMklGemm" else no_blas_executable,
-                    cases[key][policy],
-                    temporary / f"{block_index}-{policy}.json",
-                    args.min_time,
-                    args.warmup_time,
-                    environment,
-                )
+                artifact.set_active(label)
+                with artifact.capture_failures(lambda: checkpoint_payload):
+                    guard_host_condition(
+                        args, host_preconditioning, label=label
+                    )
+                    measurements[policy] = run_case(
+                        executable
+                        if workload == "EigenMklGemm"
+                        else no_blas_executable,
+                        cases[key][policy],
+                        temporary / f"{block_index}-{policy}.json",
+                        args.min_time,
+                        args.warmup_time,
+                        environment,
+                    )
 
-            validate_block(key, measurements, args.checksum_relative_tolerance)
+            with artifact.capture_failures(lambda: checkpoint_payload):
+                validate_block(key, measurements, args.checksum_relative_tolerance)
             records.append(
                 {
                     "repetition": repetition,
@@ -432,12 +453,15 @@ def main() -> int:
                     "ratios": ratios(measurements),
                 }
             )
+            artifact.checkpoint(checkpoint_payload, completed_units=len(records))
 
-    verbose_probe = (
-        [] if probe is None else run_mkl_verbose_probe(probe, cases, environment)
-    )
-    summary = summarize(records, args.seed, args.bootstrap_samples)
+    with artifact.capture_failures(lambda: checkpoint_payload):
+        verbose_probe = (
+            [] if probe is None else run_mkl_verbose_probe(probe, cases, environment)
+        )
+        summary = summarize(records, args.seed, args.bootstrap_samples)
     payload = {
+        "runner": runner,
         "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "benchmark": str(executable),
@@ -487,8 +511,7 @@ def main() -> int:
         "records": records,
         "summary": summary,
     }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(payload, indent=2) + "\n")
+    artifact.complete(payload)
 
     print(
         "\nworkload       c tasks    n  default_c   local1_c     mklc_c  "

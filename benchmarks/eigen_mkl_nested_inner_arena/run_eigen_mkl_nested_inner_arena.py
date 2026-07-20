@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import math
 import os
 import random
@@ -22,13 +21,13 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from benchmark_support.mkl import (  # noqa: E402
     mkl_tbb_environment,
     verify_mkl_tbb_probe_linkage,
@@ -114,7 +113,7 @@ def parse_args() -> argparse.Namespace:
         help="Run VTune through sudo and restore result-directory ownership.",
     )
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -412,14 +411,20 @@ def collect_vtune_profiles(
     args: argparse.Namespace,
     environment: dict[str, str],
     manifest: dict[str, Any],
+    artifact: JsonArtifact,
+    completed_offset: int,
 ) -> None:
     profile_root = output / "vtune"
     profile_root.mkdir()
     manifest["vtune_runs"] = []
 
+    profile_index = 0
     for outer_tasks in args.profile_outer_tasks:
         for policy in POLICIES:
+            profile_index += 1
             case = f"{policy.lower()}-tasks{outer_tasks}"
+            label = f"profile:outer_tasks={outer_tasks}:policy={policy}"
+            artifact.set_active(label)
             result_directory = profile_root / f"result-{case}"
             command = [
                 *sudo_environment_prefix(args.sudo, environment),
@@ -436,49 +441,51 @@ def collect_vtune_profiles(
                     outer_tasks,
                 ),
             ]
-            print(f"Profiling {policy}, outer_tasks={outer_tasks}...", flush=True)
-            result = subprocess.run(
-                command,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                check=False,
-                env=environment,
-            )
-            if args.sudo and result_directory.exists():
-                checked_output(
-                    [
-                        "sudo",
-                        "chown",
-                        "-R",
-                        f"{os.getuid()}:{os.getgid()}",
-                        str(result_directory),
-                    ],
-                    environment,
+            with artifact.capture_failures(lambda: manifest):
+                guard_host_condition(args, manifest["host_preconditioning"], label=label)
+                print(f"Profiling {policy}, outer_tasks={outer_tasks}...", flush=True)
+                result = subprocess.run(
+                    command,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                    env=environment,
                 )
-            log_path = profile_root / f"{case}.log"
-            log_path.write_text(result.stdout)
-            run: dict[str, Any] = {
-                "policy": policy,
-                "outer_tasks": outer_tasks,
-                "command": command,
-                "returncode": result.returncode,
-                "result_directory": str(result_directory),
-                "log": str(log_path),
-                "result": parse_key_value_marker(
+                if args.sudo and result_directory.exists():
+                    checked_output(
+                        [
+                            "sudo",
+                            "chown",
+                            "-R",
+                            f"{os.getuid()}:{os.getgid()}",
+                            str(result_directory),
+                        ],
+                        environment,
+                    )
+                log_path = profile_root / f"{case}.log"
+                log_path.write_text(result.stdout)
+                run: dict[str, Any] = {
+                    "policy": policy,
+                    "outer_tasks": outer_tasks,
+                    "command": command,
+                    "returncode": result.returncode,
+                    "result_directory": str(result_directory),
+                    "log": str(log_path),
+                    "reports": {},
+                }
+                manifest["vtune_runs"].append(run)
+                if result.returncode != 0:
+                    raise RuntimeError(f"VTune failed for {case}; see {log_path}.")
+                run["result"] = parse_key_value_marker(
                     result.stdout,
                     RESULT_PREFIX,
                     string_fields=STRING_FIELDS,
                     integer_fields=INTEGER_FIELDS,
                     float_fields=FLOAT_FIELDS,
-                ),
-                "reports": {},
-            }
-            manifest["vtune_runs"].append(run)
-            if result.returncode != 0:
-                raise RuntimeError(f"VTune failed for {case}; see {log_path}.")
+                )
 
-            reports = {
+                reports = {
                 "summary.txt": [
                     str(vtune),
                     "-quiet",
@@ -512,10 +519,13 @@ def collect_vtune_profiles(
                     "-csv-delimiter=comma",
                 ],
             }
-            for suffix, report_command in reports.items():
-                report_path = profile_root / f"{case}.{suffix}"
-                report_path.write_text(report_output(report_command, environment))
-                run["reports"][suffix] = str(report_path)
+                for suffix, report_command in reports.items():
+                    report_path = profile_root / f"{case}.{suffix}"
+                    report_path.write_text(report_output(report_command, environment))
+                    run["reports"][suffix] = str(report_path)
+            artifact.checkpoint(
+                manifest, completed_units=completed_offset + profile_index
+            )
 
 
 def main() -> int:
@@ -576,6 +586,7 @@ def main() -> int:
     logs = output / "logs"
     logs.mkdir()
     manifest: dict[str, Any] = {
+        "runner": runner_manifest(Path(__file__)),
         "schema_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "probe": str(probe),
@@ -602,59 +613,68 @@ def main() -> int:
         "host_preconditioning": host_preconditioning,
         "timing_runs": [],
     }
+    profile_count = (
+        len(args.profile_outer_tasks) * len(POLICIES) if vtune is not None else 0
+    )
+    artifact = JsonArtifact(
+        output / "nested-inner-arena.json",
+        scheduled_units=len(timing_jobs) + profile_count,
+    )
 
     for index, job in enumerate(timing_jobs, start=1):
         policy = str(job["policy"])
         outer_tasks = int(job["outer_tasks"])
         repetition = int(job["repetition"])
-        guard_host_condition(
-            args,
-            host_preconditioning,
-            label=(
-                f"timing:r={repetition}:outer_tasks={outer_tasks}:policy={policy}"
-            ),
-        )
+        label = f"timing:r={repetition}:outer_tasks={outer_tasks}:policy={policy}"
+        artifact.set_active(label)
         command = probe_command(probe, args, policy, outer_tasks)
         print(
             f"[{index}/{len(timing_jobs)}] {policy}, "
             f"outer_tasks={outer_tasks}, repetition={repetition}",
             flush=True,
         )
-        stdout = checked_output(command, environment)
-        log_path = logs / f"{case_name(policy, outer_tasks, repetition)}.log"
-        log_path.write_text(stdout)
-        manifest["timing_runs"].append(
-            {
-                **job,
-                "command": command,
-                "log": str(log_path),
-                "result": parse_key_value_marker(
-                    stdout,
-                    RESULT_PREFIX,
-                    string_fields=STRING_FIELDS,
-                    integer_fields=INTEGER_FIELDS,
-                    float_fields=FLOAT_FIELDS,
-                ),
-            }
-        )
-        (output / "manifest.partial.json").write_text(
-            json.dumps(manifest, indent=2) + "\n"
-        )
+        with artifact.capture_failures(lambda: manifest):
+            guard_host_condition(args, host_preconditioning, label=label)
+            stdout = checked_output(command, environment)
+            log_path = logs / f"{case_name(policy, outer_tasks, repetition)}.log"
+            log_path.write_text(stdout)
+            manifest["timing_runs"].append(
+                {
+                    **job,
+                    "command": command,
+                    "log": str(log_path),
+                    "result": parse_key_value_marker(
+                        stdout,
+                        RESULT_PREFIX,
+                        string_fields=STRING_FIELDS,
+                        integer_fields=INTEGER_FIELDS,
+                        float_fields=FLOAT_FIELDS,
+                    ),
+                }
+            )
+        artifact.checkpoint(manifest, completed_units=index)
 
-    validation = validate_results(manifest["timing_runs"], args)
-    manifest["validation"] = validation
-    manifest["timing_summary"] = summarize_timing(manifest["timing_runs"])
-    manifest["comparisons"] = build_comparisons(manifest["timing_runs"])
-    write_timing_csv(output / "timing.csv", manifest["timing_runs"])
+    with artifact.capture_failures(lambda: manifest):
+        validation = validate_results(manifest["timing_runs"], args)
+        manifest["validation"] = validation
+        manifest["timing_summary"] = summarize_timing(manifest["timing_runs"])
+        manifest["comparisons"] = build_comparisons(manifest["timing_runs"])
+        write_timing_csv(output / "timing.csv", manifest["timing_runs"])
 
     if vtune is not None:
         manifest["vtune"] = str(vtune)
-        collect_vtune_profiles(probe, vtune, output, args, environment, manifest)
+        collect_vtune_profiles(
+            probe,
+            vtune,
+            output,
+            args,
+            environment,
+            manifest,
+            artifact,
+            len(timing_jobs),
+        )
 
-    (output / "nested-inner-arena.json").write_text(
-        json.dumps(manifest, indent=2) + "\n"
-    )
-    (output / "manifest.partial.json").unlink()
+    artifact.complete(manifest)
     print(f"Results written to {output}")
     return 0
 

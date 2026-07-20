@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import os
 import random
 import re
@@ -23,13 +22,13 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from benchmark_support.mkl import (  # noqa: E402
     mkl_tbb_environment,
     verify_mkl_tbb_probe_linkage,
@@ -126,7 +125,7 @@ def parse_args() -> argparse.Namespace:
         help="Run VTune through sudo and restore ownership of its result directories.",
     )
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -411,10 +410,6 @@ def parse_task_report(path: Path) -> dict[str, int | float | None]:
     }
 
 
-def write_results(path: Path, results: dict[str, Any]) -> None:
-    path.write_text(json.dumps(results, indent=2) + "\n")
-
-
 def main() -> int:
     args = parse_args()
     validate_args(args)
@@ -503,6 +498,7 @@ def main() -> int:
     timing_log_directory.mkdir()
 
     results: dict[str, Any] = {
+        "runner": runner_manifest(Path(__file__)),
         "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "probe": str(probe),
@@ -542,17 +538,17 @@ def main() -> int:
         "profile_summary": [],
     }
     results_path = output / "budget-sweep.json"
+    artifact = JsonArtifact(
+        results_path, scheduled_units=len(timing_jobs) + len(profile_jobs)
+    )
 
     for index, job in enumerate(timing_jobs, start=1):
         block = (job["repetition"], job["outer_tasks"], job["arena"])
-        guard_host_condition(
-            args,
-            host_preconditioning,
-            label=(
-                f"timing:r={block[0]}:outer_tasks={block[1]}:arena={block[2]}:"
-                f"budget={job['budget']}"
-            ),
+        label = (
+            f"timing:r={block[0]}:outer_tasks={block[1]}:arena={block[2]}:"
+            f"budget={job['budget']}"
         )
+        artifact.set_active(label)
         name = case_name(
             job["arena"],
             job["budget"],
@@ -567,14 +563,16 @@ def main() -> int:
             job["outer_tasks"],
         )
         print(f"[timing {index}/{len(timing_jobs)}] {name}", flush=True)
-        completed = subprocess.run(
-            command,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-            env=environment,
-        )
+        with artifact.capture_failures(lambda: results):
+            guard_host_condition(args, host_preconditioning, label=label)
+            completed = subprocess.run(
+                command,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+                env=environment,
+            )
         log_path = timing_log_directory / f"{name}.log"
         log_path.write_text(completed.stdout)
         record: dict[str, Any] = {
@@ -586,19 +584,20 @@ def main() -> int:
             "log": str(log_path),
         }
         results["timing_records"].append(record)
-        if completed.returncode != 0:
-            write_results(results_path, results)
-            raise RuntimeError(f"Timing run failed for {name}; see {log_path}.")
-        record["result"] = parse_key_value_marker(
-            completed.stdout,
-            RESULT_PREFIX,
-            integer_fields=INTEGER_FIELDS,
-            float_fields=FLOAT_FIELDS,
-        )
-        results["timing_summary"] = summarize_timing(results["timing_records"])
-        write_results(results_path, results)
+        with artifact.capture_failures(lambda: results):
+            if completed.returncode != 0:
+                raise RuntimeError(f"Timing run failed for {name}; see {log_path}.")
+            record["result"] = parse_key_value_marker(
+                completed.stdout,
+                RESULT_PREFIX,
+                integer_fields=INTEGER_FIELDS,
+                float_fields=FLOAT_FIELDS,
+            )
+            results["timing_summary"] = summarize_timing(results["timing_records"])
+        artifact.checkpoint(results, completed_units=index)
 
     if vtune is None:
+        artifact.complete(results)
         print(f"Results written to {results_path}")
         return 0
 
@@ -606,15 +605,12 @@ def main() -> int:
     profiles_directory.mkdir()
     for index, job in enumerate(profile_jobs, start=1):
         profile_block = (job["repetition"], job["outer_tasks"], job["arena"])
-        guard_host_condition(
-            args,
-            host_preconditioning,
-            label=(
-                "profile:"
-                f"r={profile_block[0]}:outer_tasks={profile_block[1]}:"
-                f"arena={profile_block[2]}:budget={job['budget']}"
-            ),
+        label = (
+            "profile:"
+            f"r={profile_block[0]}:outer_tasks={profile_block[1]}:"
+            f"arena={profile_block[2]}:budget={job['budget']}"
         )
+        artifact.set_active(label)
         name = case_name(
             job["arena"],
             job["budget"],
@@ -640,14 +636,16 @@ def main() -> int:
             *probe_args,
         ]
         print(f"[profile {index}/{len(profile_jobs)}] {name}", flush=True)
-        completed = subprocess.run(
-            command,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-            env=environment,
-        )
+        with artifact.capture_failures(lambda: results):
+            guard_host_condition(args, host_preconditioning, label=label)
+            completed = subprocess.run(
+                command,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+                env=environment,
+            )
         if args.sudo and result_directory.exists():
             checked_output(
                 [
@@ -671,75 +669,80 @@ def main() -> int:
             "log": str(log_path),
         }
         results["profile_records"].append(profile_record)
-        if completed.returncode != 0:
-            write_results(results_path, results)
-            raise RuntimeError(f"VTune failed for {name}; see {log_path}.")
+        with artifact.capture_failures(lambda: results):
+            if completed.returncode != 0:
+                raise RuntimeError(f"VTune failed for {name}; see {log_path}.")
 
-        reports = {
-            "summary": [
-                str(vtune),
-                "-quiet",
-                "-report",
-                "summary",
-                "-result-dir",
-                str(result_directory),
-                "-report-knob",
-                "show-issues=false",
-            ],
-            "hotspots.csv": [
-                str(vtune),
-                "-quiet",
-                "-report",
-                "hotspots",
-                "-result-dir",
-                str(result_directory),
-                "-format=csv",
-                "-csv-delimiter=comma",
-            ],
-            "tasks.csv": [
-                str(vtune),
-                "-quiet",
-                "-report",
-                "hotspots",
-                "-result-dir",
-                str(result_directory),
-                "-group-by",
-                "task",
-                "-format=csv",
-                "-csv-delimiter=comma",
-            ],
-        }
-        report_paths: dict[str, str] = {}
-        for suffix, report_command in reports.items():
-            report_path = profiles_directory / f"{name}.{suffix}"
-            report_path.write_text(report_output(report_command, environment))
-            report_paths[suffix] = str(report_path)
-        profile_record["reports"] = report_paths
-        profile_record["result"] = parse_key_value_marker(
-            completed.stdout,
-            RESULT_PREFIX,
-            integer_fields=INTEGER_FIELDS,
-            float_fields=FLOAT_FIELDS,
+            reports = {
+                "summary": [
+                    str(vtune),
+                    "-quiet",
+                    "-report",
+                    "summary",
+                    "-result-dir",
+                    str(result_directory),
+                    "-report-knob",
+                    "show-issues=false",
+                ],
+                "hotspots.csv": [
+                    str(vtune),
+                    "-quiet",
+                    "-report",
+                    "hotspots",
+                    "-result-dir",
+                    str(result_directory),
+                    "-format=csv",
+                    "-csv-delimiter=comma",
+                ],
+                "tasks.csv": [
+                    str(vtune),
+                    "-quiet",
+                    "-report",
+                    "hotspots",
+                    "-result-dir",
+                    str(result_directory),
+                    "-group-by",
+                    "task",
+                    "-format=csv",
+                    "-csv-delimiter=comma",
+                ],
+            }
+            report_paths: dict[str, str] = {}
+            for suffix, report_command in reports.items():
+                report_path = profiles_directory / f"{name}.{suffix}"
+                report_path.write_text(report_output(report_command, environment))
+                report_paths[suffix] = str(report_path)
+            profile_record["reports"] = report_paths
+            profile_record["result"] = parse_key_value_marker(
+                completed.stdout,
+                RESULT_PREFIX,
+                integer_fields=INTEGER_FIELDS,
+                float_fields=FLOAT_FIELDS,
+            )
+            summary_text = Path(report_paths["summary"]).read_text()
+            profile_record["vtune_summary"] = parse_vtune_summary(summary_text)
+            task_metrics = parse_task_report(Path(report_paths["tasks.csv"]))
+            profile_record["task_metrics"] = task_metrics
+            if job["outer_tasks"] == 1:
+                task_count = int(task_metrics["tbb_parallel_for_task_count"] or 0)
+                process_calls = int(profile_record["result"]["process_gemm_calls"])
+                profile_record["task_metrics"]["tbb_tasks_per_process_gemm"] = (
+                    task_count / process_calls
+                )
+            else:
+                profile_record["task_metrics"]["tbb_tasks_per_process_gemm"] = None
+                profile_record["task_metrics"]["task_count_note"] = (
+                    "Includes outer and oneMKL TBB tasks; do not interpret as internal "
+                    "oneMKL decomposition."
+                )
+            results["profile_summary"] = summarize_profiles(
+                results["profile_records"]
+            )
+        artifact.checkpoint(
+            results, completed_units=len(timing_jobs) + index
         )
-        summary_text = Path(report_paths["summary"]).read_text()
-        profile_record["vtune_summary"] = parse_vtune_summary(summary_text)
-        task_metrics = parse_task_report(Path(report_paths["tasks.csv"]))
-        profile_record["task_metrics"] = task_metrics
-        if job["outer_tasks"] == 1:
-            task_count = int(task_metrics["tbb_parallel_for_task_count"] or 0)
-            process_calls = int(profile_record["result"]["process_gemm_calls"])
-            profile_record["task_metrics"]["tbb_tasks_per_process_gemm"] = (
-                task_count / process_calls
-            )
-        else:
-            profile_record["task_metrics"]["tbb_tasks_per_process_gemm"] = None
-            profile_record["task_metrics"]["task_count_note"] = (
-                "Includes outer and oneMKL TBB tasks; do not interpret as internal "
-                "oneMKL decomposition."
-            )
-        results["profile_summary"] = summarize_profiles(results["profile_records"])
-        write_results(results_path, results)
 
+    artifact.complete(results)
     print(f"Results and profiles written to {output}")
     return 0
 

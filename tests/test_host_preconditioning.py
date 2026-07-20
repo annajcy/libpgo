@@ -11,16 +11,17 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1] / "benchmarks"
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-import host_preconditioning  # noqa: E402
-from host_preconditioning import (  # noqa: E402
-    _configure_cpu_placement,
-    _run_burn_round,
-    balanced_order,
+from benchmark_support import conditioning, host  # noqa: E402
+from benchmark_support.conditioning import (  # noqa: E402
     guard_host_condition,
+    precondition_host,
+    run_burn_round,
+)
+from benchmark_support.host import configure_cpu_placement, parse_cpu_list  # noqa: E402
+from benchmark_support.schedule import (  # noqa: E402
+    balanced_order,
     order_configuration,
     order_cycle_length,
-    parse_cpu_list,
-    precondition_host,
 )
 
 
@@ -105,10 +106,10 @@ def test_incomplete_order_cycle_requires_explicit_diagnostic_override() -> None:
 
 
 def test_skipped_preconditioning_is_recorded(monkeypatch) -> None:
-    monkeypatch.setattr(host_preconditioning, "_available_cpu_ids", lambda: [0, 1])
+    monkeypatch.setattr(host, "available_cpu_ids", lambda: [0, 1])
     monkeypatch.setattr(
-        host_preconditioning,
-        "_cpu_topology",
+        host,
+        "cpu_topology",
         lambda cpu: {"cpu": cpu, "core": cpu, "socket": 0, "numa_node": 0},
     )
     args = argparse.Namespace(
@@ -137,24 +138,24 @@ def test_parse_cpu_list_expands_ranges_and_removes_duplicates() -> None:
 def test_explicit_cpu_list_is_applied_and_verified(monkeypatch) -> None:
     applied: list[set[int]] = []
     monkeypatch.setattr(
-        host_preconditioning.os,
+        host.os,
         "sched_setaffinity",
         lambda pid, cpus: applied.append(set(cpus)),
         raising=False,
     )
     monkeypatch.setattr(
-        host_preconditioning, "_available_cpu_ids", lambda: [21, 22]
+        host, "available_cpu_ids", lambda: [21, 22]
     )
     monkeypatch.setattr(
-        host_preconditioning,
-        "_cpu_topology",
+        host,
+        "cpu_topology",
         lambda cpu: {"cpu": cpu, "core": cpu, "socket": 0, "numa_node": 0},
     )
     args = argparse.Namespace(
         cpu_list=[21, 22], numa_node=0, allow_cross_numa=False
     )
 
-    placement = _configure_cpu_placement(
+    placement = configure_cpu_placement(
         args, expected_cpu_count=2, dry_run=False
     )
 
@@ -166,21 +167,21 @@ def test_explicit_cpu_list_is_applied_and_verified(monkeypatch) -> None:
 
 def test_inherited_affinity_must_match_benchmark_concurrency(monkeypatch) -> None:
     monkeypatch.setattr(
-        host_preconditioning, "_available_cpu_ids", lambda: [21, 22, 23]
+        host, "available_cpu_ids", lambda: [21, 22, 23]
     )
     args = argparse.Namespace(cpu_list=None, numa_node=None, allow_cross_numa=False)
 
     with pytest.raises(RuntimeError, match="requires exactly 2 affinity CPUs"):
-        _configure_cpu_placement(args, expected_cpu_count=2, dry_run=False)
+        configure_cpu_placement(args, expected_cpu_count=2, dry_run=False)
 
 
 def test_cross_numa_affinity_is_rejected_by_default(monkeypatch) -> None:
     monkeypatch.setattr(
-        host_preconditioning, "_available_cpu_ids", lambda: [21, 22]
+        host, "available_cpu_ids", lambda: [21, 22]
     )
     monkeypatch.setattr(
-        host_preconditioning,
-        "_cpu_topology",
+        host,
+        "cpu_topology",
         lambda cpu: {
             "cpu": cpu,
             "core": cpu,
@@ -191,11 +192,11 @@ def test_cross_numa_affinity_is_rejected_by_default(monkeypatch) -> None:
     args = argparse.Namespace(cpu_list=None, numa_node=None, allow_cross_numa=False)
 
     with pytest.raises(RuntimeError, match="span NUMA nodes"):
-        _configure_cpu_placement(args, expected_cpu_count=2, dry_run=False)
+        configure_cpu_placement(args, expected_cpu_count=2, dry_run=False)
 
 
 def test_burn_round_runs_requested_workers() -> None:
-    result = _run_burn_round(0.02, 2)
+    result = run_burn_round(0.02, 2)
     assert result["workers"] == 2
     assert result["iterations"] > 0
     assert result["iterations_per_second"] > 0
@@ -219,8 +220,8 @@ def test_block_guard_compares_against_initial_baseline(monkeypatch) -> None:
         ],
     }
     monkeypatch.setattr(
-        host_preconditioning,
-        "_run_burn_round",
+        conditioning,
+        "run_burn_round",
         lambda duration, workers: {"iterations_per_second": 101.0},
     )
     check = guard_host_condition(args, preconditioning, label="block")
@@ -247,8 +248,8 @@ def test_block_guard_rejects_moderate_drift_by_default(monkeypatch) -> None:
         ],
     }
     monkeypatch.setattr(
-        host_preconditioning,
-        "_run_burn_round",
+        conditioning,
+        "run_burn_round",
         lambda duration, workers: {"iterations_per_second": 110.0},
     )
     with pytest.raises(RuntimeError, match="allowed limit 5.00%"):
@@ -276,8 +277,8 @@ def test_block_guard_can_explicitly_record_moderate_drift(monkeypatch) -> None:
         ],
     }
     monkeypatch.setattr(
-        host_preconditioning,
-        "_run_burn_round",
+        conditioning,
+        "run_burn_round",
         lambda duration, workers: {"iterations_per_second": 110.0},
     )
     check = guard_host_condition(args, preconditioning, label="block")

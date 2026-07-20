@@ -22,13 +22,13 @@ BENCHMARKS_ROOT = SCRIPT.parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from benchmark_support.python_worker import (  # noqa: E402
     run_json_worker,
     worker_environment as isolated_worker_environment,
@@ -112,7 +112,7 @@ def parse_args(default_backend: str = "mkl") -> argparse.Namespace:
     parser.add_argument("--native-profile", action="store_true")
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
 
     # The controller starts one fresh worker process for every timed sample.
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
@@ -657,21 +657,16 @@ def summarize(
     return summaries
 
 
-def write_checkpoint(
-    output: Path,
+def checkpoint_payload(
     manifest: dict[str, Any],
     records: list[dict[str, Any]],
     reference_policy: str,
-) -> None:
-    payload = {
+) -> dict[str, Any]:
+    return {
         "manifest": manifest,
         "measurements": records,
         "summary": summarize(records, reference_policy),
     }
-    temporary = output / "python-fem-threading.json.tmp"
-    final = output / "python-fem-threading.json"
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    temporary.replace(final)
 
 
 def controller_main(args: argparse.Namespace) -> int:
@@ -721,6 +716,7 @@ def controller_main(args: argparse.Namespace) -> int:
     host_preconditioning = precondition_host(args, workers=args.concurrency)
     _, environment_overrides = worker_environment(args.backend, args.concurrency)
     manifest = {
+        "runner": runner_manifest(SCRIPT),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "script": str(SCRIPT),
         "backend": args.backend,
@@ -748,34 +744,44 @@ def controller_main(args: argparse.Namespace) -> int:
     }
 
     records: list[dict[str, Any]] = []
+    artifact = JsonArtifact(
+        output / "python-fem-threading.json",
+        scheduled_units=len(scheduled),
+        sort_keys=True,
+    )
     completed_blocks: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
     total = len(scheduled)
     for index, (command, block_key) in enumerate(scheduled, start=1):
         policy = command[command.index("--policy") + 1]
-        guard_host_condition(
-            args,
-            host_preconditioning,
-            label=(
-                f"r={block_key[0]}:formulation={block_key[1]}:"
-                f"operation={block_key[2]}:policy={policy}"
-            ),
+        label = (
+            f"r={block_key[0]}:formulation={block_key[1]}:"
+            f"operation={block_key[2]}:policy={policy}"
         )
-        print(f"[{index}/{total}] {' '.join(command)}", flush=True)
-        record = run_worker(command, args.backend, args.concurrency)
-        records.append(record)
-        completed_blocks.setdefault(block_key, []).append(record)
-        block_records = completed_blocks[block_key]
-        expected_in_block = sum(1 for _, key in scheduled if key == block_key)
-        if len(block_records) == expected_in_block:
-            validate_signatures(block_records, args.signature_relative_tolerance)
-        write_checkpoint(output, manifest, records, reference_policy)
+        artifact.set_active(label)
+        with artifact.capture_failures(
+            lambda: checkpoint_payload(manifest, records, reference_policy)
+        ):
+            guard_host_condition(args, host_preconditioning, label=label)
+            print(f"[{index}/{total}] {' '.join(command)}", flush=True)
+            record = run_worker(command, args.backend, args.concurrency)
+            records.append(record)
+            completed_blocks.setdefault(block_key, []).append(record)
+            block_records = completed_blocks[block_key]
+            expected_in_block = sum(1 for _, key in scheduled if key == block_key)
+            if len(block_records) == expected_in_block:
+                validate_signatures(block_records, args.signature_relative_tolerance)
+        artifact.checkpoint(
+            checkpoint_payload(manifest, records, reference_policy),
+            completed_units=len(records),
+        )
         print(
             f"  {record['seconds_per_evaluation'] * 1e3:.3f} ms/eval "
             f"({record['iterations']} iterations)",
             flush=True,
         )
 
-    print(f"Wrote {output / 'python-fem-threading.json'}")
+    artifact.complete(checkpoint_payload(manifest, records, reference_policy))
+    print(f"Wrote {artifact.path}")
     return 0
 
 

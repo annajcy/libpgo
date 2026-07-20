@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import os
 import random
@@ -22,13 +21,13 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.google_benchmark import list_cases, run_case  # noqa: E402
 from benchmark_support.process import checked_output  # noqa: E402
 from benchmark_support.statistics import bootstrap_median_ci  # noqa: E402
@@ -69,7 +68,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checksum-relative-tolerance", type=float, default=1e-10)
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -323,6 +322,25 @@ def main() -> int:
     randomizer = random.Random(args.seed)
     randomizer.shuffle(schedule)
     records: list[dict[str, Any]] = []
+    payload = {
+        "runner": runner_manifest(Path(__file__)),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "provider": provider.name,
+        "internal_benchmark": str(internal),
+        "vendor_benchmark": str(vendor),
+        "max_concurrency": args.max_concurrency,
+        "seed": args.seed,
+        "repetitions": args.repetitions,
+        "order": order,
+        "min_time": args.min_time,
+        "warmup_time": args.warmup_time,
+        "thread_telemetry_source": "cold_probes",
+        "host_preconditioning": host_preconditioning,
+        "linkage": linkage,
+        "records": records,
+        "summary": [],
+    }
+    artifact = JsonArtifact(args.out, scheduled_units=len(schedule))
 
     with tempfile.TemporaryDirectory(prefix=f"pgo-eigen-{provider.name}-") as temp_dir:
         temporary = Path(temp_dir)
@@ -341,33 +359,39 @@ def main() -> int:
             measurements: dict[str, dict[str, Any]] = {}
             cold_probes: dict[str, dict[str, Any]] = {}
             for variant in variants:
-                guard_host_condition(
-                    args,
-                    host_preconditioning,
-                    label=f"r={repetition}:n={matrix_n}:variant={variant}",
-                )
-                executable, name = cases[matrix_n][variant]
-                cold_probes[variant] = run_case(
-                    executable,
-                    name,
-                    temporary / f"{block_index}-{variant}-cold.json",
-                    "1x",
-                    0.0,
-                    environment,
-                )
-                measurements[variant] = run_case(
-                    executable,
-                    name,
-                    temporary / f"{block_index}-{variant}-steady.json",
-                    args.min_time,
-                    args.warmup_time,
-                    environment,
-                )
+                label = f"r={repetition}:n={matrix_n}:variant={variant}"
+                artifact.set_active(label)
+                with artifact.capture_failures(lambda: payload):
+                    guard_host_condition(
+                        args, host_preconditioning, label=label
+                    )
+                    executable, name = cases[matrix_n][variant]
+                    cold_probes[variant] = run_case(
+                        executable,
+                        name,
+                        temporary / f"{block_index}-{variant}-cold.json",
+                        "1x",
+                        0.0,
+                        environment,
+                    )
+                    measurements[variant] = run_case(
+                        executable,
+                        name,
+                        temporary / f"{block_index}-{variant}-steady.json",
+                        args.min_time,
+                        args.warmup_time,
+                        environment,
+                    )
 
-            validate_checksums(cold_probes, matrix_n, args.checksum_relative_tolerance)
-            validate_checksums(measurements, matrix_n, args.checksum_relative_tolerance)
-            validate_provider_configuration(cold_probes, provider, matrix_n)
-            validate_provider_configuration(measurements, provider, matrix_n)
+            with artifact.capture_failures(lambda: payload):
+                validate_checksums(
+                    cold_probes, matrix_n, args.checksum_relative_tolerance
+                )
+                validate_checksums(
+                    measurements, matrix_n, args.checksum_relative_tolerance
+                )
+                validate_provider_configuration(cold_probes, provider, matrix_n)
+                validate_provider_configuration(measurements, provider, matrix_n)
             internal_time = measurements["EigenInternal"]["wall_seconds"]
             single_time = measurements[provider.single]["wall_seconds"]
             wide_time = measurements[provider.wide]["wall_seconds"]
@@ -385,27 +409,12 @@ def main() -> int:
                     },
                 }
             )
+            artifact.checkpoint(payload, completed_units=len(records))
 
-    summary = summarize(records, provider, args.seed, args.bootstrap_samples)
-    payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "provider": provider.name,
-        "internal_benchmark": str(internal),
-        "vendor_benchmark": str(vendor),
-        "max_concurrency": args.max_concurrency,
-        "seed": args.seed,
-        "repetitions": args.repetitions,
-        "order": order,
-        "min_time": args.min_time,
-        "warmup_time": args.warmup_time,
-        "thread_telemetry_source": "cold_probes",
-        "host_preconditioning": host_preconditioning,
-        "linkage": linkage,
-        "records": records,
-        "summary": summary,
-    }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(payload, indent=2) + "\n")
+    with artifact.capture_failures(lambda: payload):
+        summary = summarize(records, provider, args.seed, args.bootstrap_samples)
+        payload["summary"] = summary
+        artifact.complete(payload)
 
     ratio_names = (
         f"{provider.single}/EigenInternal",

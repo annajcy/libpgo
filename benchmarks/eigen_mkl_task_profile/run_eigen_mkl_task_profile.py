@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shlex
 import subprocess
@@ -18,11 +17,12 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.mkl import (  # noqa: E402
     mkl_tbb_environment,
     verify_mkl_tbb_probe_linkage,
@@ -64,7 +64,7 @@ def parse_args() -> argparse.Namespace:
         help="Run the VTune collector through sudo when ptrace_scope blocks collection.",
     )
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -125,6 +125,7 @@ def main() -> int:
     output.mkdir(parents=True)
     host_preconditioning = precondition_host(args, workers=args.concurrency)
     manifest: dict[str, Any] = {
+        "runner": runner_manifest(Path(__file__)),
         "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "probe": str(probe),
@@ -142,47 +143,51 @@ def main() -> int:
         "host_preconditioning": host_preconditioning,
         "runs": [],
     }
+    artifact = JsonArtifact(output / "manifest.json", scheduled_units=len(commands))
 
-    for entry in commands:
-        guard_host_condition(
-            args,
-            host_preconditioning,
-            label=f"vtune:{entry['policy']}",
-        )
-        result_directory = Path(entry["result_directory"])
-        print(f"Running {entry['policy']}...", flush=True)
-        result = subprocess.run(
-            entry["command"],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-            env=environment,
-        )
-        if args.sudo and result_directory.exists():
-            checked_output(
-                [
-                    "sudo",
-                    "chown",
-                    "-R",
-                    f"{os.getuid()}:{os.getgid()}",
-                    str(result_directory),
-                ],
-                environment,
+    for index, entry in enumerate(commands, start=1):
+        artifact.set_active(f"vtune:{entry['policy']}")
+        with artifact.capture_failures(lambda: manifest):
+            guard_host_condition(
+                args,
+                host_preconditioning,
+                label=f"vtune:{entry['policy']}",
             )
-        log_path = output / f"{entry['policy'].lower()}.log"
-        log_path.write_text(result.stdout)
-        run = {
-            **entry,
-            "returncode": result.returncode,
-            "log": str(log_path),
-        }
-        manifest["runs"].append(run)
-        (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-        if result.returncode != 0:
-            raise RuntimeError(f"VTune failed for {entry['policy']}; see {log_path}.")
+            result_directory = Path(entry["result_directory"])
+            print(f"Running {entry['policy']}...", flush=True)
+            result = subprocess.run(
+                entry["command"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+                env=environment,
+            )
+            if args.sudo and result_directory.exists():
+                checked_output(
+                    [
+                        "sudo",
+                        "chown",
+                        "-R",
+                        f"{os.getuid()}:{os.getgid()}",
+                        str(result_directory),
+                    ],
+                    environment,
+                )
+            log_path = output / f"{entry['policy'].lower()}.log"
+            log_path.write_text(result.stdout)
+            run = {
+                **entry,
+                "returncode": result.returncode,
+                "log": str(log_path),
+            }
+            manifest["runs"].append(run)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"VTune failed for {entry['policy']}; see {log_path}."
+                )
 
-        reports = {
+            reports = {
             "summary": [
                 str(vtune),
                 "-quiet",
@@ -216,13 +221,14 @@ def main() -> int:
                 "-csv-delimiter=comma",
             ],
         }
-        run["reports"] = {}
-        for suffix, report_command in reports.items():
-            report_path = output / f"{entry['policy'].lower()}.{suffix}"
-            report_path.write_text(report_output(report_command, environment))
-            run["reports"][suffix] = str(report_path)
-        (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+            run["reports"] = {}
+            for suffix, report_command in reports.items():
+                report_path = output / f"{entry['policy'].lower()}.{suffix}"
+                report_path.write_text(report_output(report_command, environment))
+                run["reports"][suffix] = str(report_path)
+        artifact.checkpoint(manifest, completed_units=index)
 
+    artifact.complete(manifest)
     print(f"Profiles written to {output}")
     return 0
 

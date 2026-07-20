@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import os
 import random
@@ -21,13 +20,13 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from host_preconditioning import (  # noqa: E402
-    add_host_preconditioning_arguments,
-    balanced_order,
+from benchmark_support.conditioning import (  # noqa: E402
+    add_benchmark_harness_arguments,
     guard_host_condition,
-    order_configuration,
     precondition_host,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
+from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from benchmark_support.google_benchmark import (  # noqa: E402
     integer_counter,
     list_cases,
@@ -63,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stable-points", type=int, default=3)
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
-    add_host_preconditioning_arguments(parser)
+    add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
 
@@ -269,6 +268,33 @@ def main() -> int:
     randomizer = random.Random(args.seed)
     randomizer.shuffle(schedule)
     records: list[dict[str, Any]] = []
+    payload = {
+        "runner": runner_manifest(Path(__file__)),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "benchmark": str(executable),
+        "max_concurrency": args.max_concurrency,
+        "seed": args.seed,
+        "repetitions": args.repetitions,
+        "min_time": args.min_time,
+        "warmup_time": args.warmup_time,
+        "bootstrap_samples": args.bootstrap_samples,
+        "host_preconditioning": host_preconditioning,
+        "order": order,
+        "decision_rule": {
+            "practical_speedup": args.practical_speedup,
+            "stable_adjacent_points": args.stable_points,
+            "requires_bootstrap_ci_below_one": True,
+        },
+        "stable_crossover_n": None,
+        "environment": {
+            "MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"],
+            CONCURRENCY_ENVIRONMENT: environment.get(CONCURRENCY_ENVIRONMENT),
+        },
+        "linkage": linkage,
+        "records": records,
+        "summary": [],
+    }
+    artifact = JsonArtifact(args.out, scheduled_units=len(schedule))
 
     with tempfile.TemporaryDirectory(prefix="pgo-eigen-mkl-crossover-") as temp_dir:
         temporary = Path(temp_dir)
@@ -286,26 +312,28 @@ def main() -> int:
             )
             measurements: dict[str, dict[str, Any]] = {}
             for policy in policies:
-                guard_host_condition(
-                    args,
-                    host_preconditioning,
-                    label=f"r={repetition}:n={matrix_n}:policy={policy}",
-                )
-                measurements[policy] = run_case(
-                    executable,
-                    cases[matrix_n][policy],
-                    temporary / f"{block_index}-{policy}.json",
-                    args.min_time,
-                    args.warmup_time,
-                    environment,
-                )
+                label = f"r={repetition}:n={matrix_n}:policy={policy}"
+                artifact.set_active(label)
+                with artifact.capture_failures(lambda: payload):
+                    guard_host_condition(
+                        args, host_preconditioning, label=label
+                    )
+                    measurements[policy] = run_case(
+                        executable,
+                        cases[matrix_n][policy],
+                        temporary / f"{block_index}-{policy}.json",
+                        args.min_time,
+                        args.warmup_time,
+                        environment,
+                    )
 
-            effective_concurrency = validate_block(
-                matrix_n,
-                measurements,
-                args.max_concurrency,
-                args.checksum_relative_tolerance,
-            )
+            with artifact.capture_failures(lambda: payload):
+                effective_concurrency = validate_block(
+                    matrix_n,
+                    measurements,
+                    args.max_concurrency,
+                    args.checksum_relative_tolerance,
+                )
             local1_time = float(measurements["ExecutorLocal1"]["wall_seconds"])
             mkl_c_time = float(measurements["ExecutorMKLC"]["wall_seconds"])
             records.append(
@@ -318,41 +346,19 @@ def main() -> int:
                     "mkl_c_over_local1": mkl_c_time / local1_time,
                 }
             )
+            artifact.checkpoint(payload, completed_units=len(records))
 
-    summary = summarize(
-        records,
-        args.seed,
-        args.bootstrap_samples,
-        args.practical_speedup,
-    )
-    crossover = stable_crossover(summary, args.stable_points)
-    payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "benchmark": str(executable),
-        "max_concurrency": args.max_concurrency,
-        "seed": args.seed,
-        "repetitions": args.repetitions,
-        "min_time": args.min_time,
-        "warmup_time": args.warmup_time,
-        "bootstrap_samples": args.bootstrap_samples,
-        "host_preconditioning": host_preconditioning,
-        "order": order,
-        "decision_rule": {
-            "practical_speedup": args.practical_speedup,
-            "stable_adjacent_points": args.stable_points,
-            "requires_bootstrap_ci_below_one": True,
-        },
-        "stable_crossover_n": crossover,
-        "environment": {
-            "MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"],
-            CONCURRENCY_ENVIRONMENT: environment.get(CONCURRENCY_ENVIRONMENT),
-        },
-        "linkage": linkage,
-        "records": records,
-        "summary": summary,
-    }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(payload, indent=2) + "\n")
+    with artifact.capture_failures(lambda: payload):
+        summary = summarize(
+            records,
+            args.seed,
+            args.bootstrap_samples,
+            args.practical_speedup,
+        )
+        crossover = stable_crossover(summary, args.stable_points)
+        payload["summary"] = summary
+        payload["stable_crossover_n"] = crossover
+        artifact.complete(payload)
 
     print("\n   n   local1_us     mkl_c_us  mkl_c/local1          95% CI  evidence")
     for row in summary:

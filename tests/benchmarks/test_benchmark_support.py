@@ -14,6 +14,7 @@ from benchmark_support.google_benchmark import (  # noqa: E402
     list_cases,
     run_case,
 )
+from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.statistics import (  # noqa: E402
     bootstrap_median_ci,
     median_absolute_deviation,
@@ -99,3 +100,52 @@ def test_integer_argument_validation() -> None:
         require_positive(0, "--value")
     with pytest.raises(ValueError, match="--value must be nonnegative"):
         require_nonnegative(-1, "--value")
+
+
+def test_json_artifact_checkpoints_completion_and_failure(tmp_path: Path) -> None:
+    import json
+
+    import pytest
+
+    completed_path = tmp_path / "completed.json"
+    completed = JsonArtifact(completed_path, scheduled_units=2)
+    completed.set_active("case-a")
+    completed.checkpoint({"records": [{"case": "a"}]}, completed_units=1)
+    checkpoint = json.loads(completed_path.read_text())
+    assert checkpoint["artifact_state"]["state"] == "running"
+    assert checkpoint["artifact_state"]["active_unit"] == "case-a"
+    assert checkpoint["artifact_state"]["completed_units"] == 1
+
+    completed.complete({"records": [{"case": "a"}, {"case": "b"}]})
+    final = json.loads(completed_path.read_text())
+    assert final["artifact_state"]["state"] == "complete"
+    assert final["artifact_state"]["complete"] is True
+    assert final["artifact_state"]["completed_units"] == 2
+
+    failed_path = tmp_path / "failed.json"
+    failed = JsonArtifact(failed_path, scheduled_units=2)
+    payload = {"records": []}
+    failed.set_active("case-b")
+    with pytest.raises(RuntimeError, match="worker failed"):
+        with failed.capture_failures(lambda: payload):
+            raise RuntimeError("worker failed")
+    failure = json.loads(failed_path.read_text())
+    assert failure["artifact_state"]["state"] == "failed"
+    assert failure["artifact_state"]["active_unit"] == "case-b"
+    assert failure["artifact_state"]["failure"]["type"] == "RuntimeError"
+    assert list(tmp_path.glob(".*.tmp")) == []
+
+
+def test_runner_manifest_records_reproducibility_fields(tmp_path: Path) -> None:
+    import hashlib
+
+    script = tmp_path / "runner.py"
+    script.write_text("print('benchmark')\n")
+
+    manifest = runner_manifest(script)
+
+    assert manifest["script"] == str(script.resolve())
+    assert manifest["script_sha256"] == hashlib.sha256(script.read_bytes()).hexdigest()
+    assert manifest["command"][0] == sys.executable
+    assert manifest["python"]["executable"] == sys.executable
+    assert manifest["git"] is None
