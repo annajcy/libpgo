@@ -26,6 +26,7 @@ from host_preconditioning import (  # noqa: E402
     add_host_preconditioning_arguments,
     balanced_order,
     guard_host_condition,
+    order_configuration,
     precondition_host,
 )
 from benchmark_support.python_worker import (  # noqa: E402
@@ -95,7 +96,7 @@ def parse_args(default_backend: str = "mkl") -> argparse.Namespace:
     )
     parser.add_argument("--policies", nargs="+", choices=POLICIES)
     parser.add_argument("--concurrency", type=int, default=8)
-    parser.add_argument("--repetitions", type=int, default=7)
+    parser.add_argument("--repetitions", type=int, default=10)
     parser.add_argument("--min-time", type=float, default=0.5)
     parser.add_argument("--min-iterations", type=int, default=1)
     parser.add_argument("--warmup-iterations", type=int, default=2)
@@ -699,8 +700,16 @@ def controller_main(args: argparse.Namespace) -> int:
                     (repetition, formulation, operation),
                 )
             )
+    requested_case_count = len(scheduled)
     if args.case_limit:
         scheduled = scheduled[: args.case_limit]
+
+    order = order_configuration(
+        args.repetitions,
+        [("policies", args.policies)],
+        allow_incomplete=args.allow_incomplete_order_cycle,
+        schedule_truncated=len(scheduled) != requested_case_count,
+    )
 
     if args.dry_run:
         for command, _ in scheduled:
@@ -723,6 +732,7 @@ def controller_main(args: argparse.Namespace) -> int:
         "policies": list(args.policies),
         "concurrency": args.concurrency,
         "repetitions": args.repetitions,
+        "order": order,
         "min_time": args.min_time,
         "min_iterations": args.min_iterations,
         "warmup_iterations": args.warmup_iterations,
@@ -740,18 +750,16 @@ def controller_main(args: argparse.Namespace) -> int:
     records: list[dict[str, Any]] = []
     completed_blocks: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
     total = len(scheduled)
-    previous_block: tuple[int, str, str] | None = None
     for index, (command, block_key) in enumerate(scheduled, start=1):
-        if block_key != previous_block:
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=(
-                    f"r={block_key[0]}:formulation={block_key[1]}:"
-                    f"operation={block_key[2]}"
-                ),
-            )
-            previous_block = block_key
+        policy = command[command.index("--policy") + 1]
+        guard_host_condition(
+            args,
+            host_preconditioning,
+            label=(
+                f"r={block_key[0]}:formulation={block_key[1]}:"
+                f"operation={block_key[2]}:policy={policy}"
+            ),
+        )
         print(f"[{index}/{total}] {' '.join(command)}", flush=True)
         record = run_worker(command, args.backend, args.concurrency)
         records.append(record)

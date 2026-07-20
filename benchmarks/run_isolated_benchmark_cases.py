@@ -16,6 +16,7 @@ from host_preconditioning import (
     add_host_preconditioning_arguments,
     balanced_order,
     guard_host_condition,
+    order_configuration,
     precondition_host,
 )
 from benchmark_support.google_benchmark import (  # noqa: E402
@@ -164,6 +165,15 @@ def main() -> int:
     merged_rows: list[dict[str, str]] = []
     process_index = 0
     fresh_repetitions = args.fresh_repetitions if args.fresh_repetitions > 0 else 1
+    order = (
+        order_configuration(
+            fresh_repetitions,
+            [("cases", cases)],
+            allow_incomplete=args.allow_incomplete_order_cycle,
+        )
+        if args.fresh_repetitions > 0
+        else None
+    )
     benchmark_min_time = "1x" if args.fresh_repetitions > 0 else args.min_time
     benchmark_repetitions = 1 if args.fresh_repetitions > 0 else args.repetitions
 
@@ -226,6 +236,7 @@ def main() -> int:
 
     write_csv(args.out, merged_rows)
     host_path = args.out.with_suffix(args.out.suffix + ".host.json")
+    host_preconditioning["measurement_order"] = order
     host_path.write_text(json.dumps(host_preconditioning, indent=2) + "\n")
     print(f"Wrote {len(merged_rows)} row(s) to {args.out}")
     return 0

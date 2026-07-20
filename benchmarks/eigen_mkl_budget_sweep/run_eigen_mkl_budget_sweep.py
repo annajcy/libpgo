@@ -27,6 +27,7 @@ from host_preconditioning import (  # noqa: E402
     add_host_preconditioning_arguments,
     balanced_order,
     guard_host_condition,
+    order_configuration,
     precondition_host,
 )
 from benchmark_support.mkl import (  # noqa: E402
@@ -114,8 +115,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--matrix-n", type=int, default=1024)
     parser.add_argument("--warmup-iterations", type=int, default=3)
     parser.add_argument("--profile-iterations", type=int, default=50)
-    parser.add_argument("--timing-repetitions", type=int, default=7)
-    parser.add_argument("--profile-repetitions", type=int, default=3)
+    parser.add_argument("--timing-repetitions", type=int, default=12)
+    parser.add_argument("--profile-repetitions", type=int, default=12)
     parser.add_argument("--seed", type=int, default=20260716)
     parser.add_argument("--collect-vtune", action="store_true")
     parser.add_argument("--vtune", type=Path)
@@ -422,6 +423,25 @@ def main() -> int:
     if output.exists() and not args.dry_run:
         raise FileExistsError(f"Output path already exists: {output}")
 
+    order_groups = [
+        ("arenas", args.arena_concurrencies),
+        ("mkl_local_thread_budgets", args.mkl_local_thread_budgets),
+    ]
+    timing_order = order_configuration(
+        args.timing_repetitions,
+        order_groups,
+        allow_incomplete=args.allow_incomplete_order_cycle,
+    )
+    profile_order = (
+        order_configuration(
+            args.profile_repetitions,
+            order_groups,
+            allow_incomplete=args.allow_incomplete_order_cycle,
+        )
+        if args.collect_vtune
+        else None
+    )
+
     timing_jobs = make_jobs(args, args.outer_tasks, args.timing_repetitions, args.seed)
     profile_jobs = (
         make_jobs(
@@ -503,6 +523,8 @@ def main() -> int:
             "profile_iterations": args.profile_iterations,
             "timing_repetitions": args.timing_repetitions,
             "profile_repetitions": args.profile_repetitions,
+            "timing_order": timing_order,
+            "profile_order": profile_order,
             "seed": args.seed,
             "collect_vtune": args.collect_vtune,
             "sudo": args.sudo,
@@ -521,16 +543,16 @@ def main() -> int:
     }
     results_path = output / "budget-sweep.json"
 
-    previous_block: tuple[int, int, int] | None = None
     for index, job in enumerate(timing_jobs, start=1):
         block = (job["repetition"], job["outer_tasks"], job["arena"])
-        if block != previous_block:
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=(f"timing:r={block[0]}:outer_tasks={block[1]}:arena={block[2]}"),
-            )
-            previous_block = block
+        guard_host_condition(
+            args,
+            host_preconditioning,
+            label=(
+                f"timing:r={block[0]}:outer_tasks={block[1]}:arena={block[2]}:"
+                f"budget={job['budget']}"
+            ),
+        )
         name = case_name(
             job["arena"],
             job["budget"],
@@ -582,20 +604,17 @@ def main() -> int:
 
     profiles_directory = output / "profiles"
     profiles_directory.mkdir()
-    previous_profile_block: tuple[int, int, int] | None = None
     for index, job in enumerate(profile_jobs, start=1):
         profile_block = (job["repetition"], job["outer_tasks"], job["arena"])
-        if profile_block != previous_profile_block:
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=(
-                    "profile:"
-                    f"r={profile_block[0]}:outer_tasks={profile_block[1]}:"
-                    f"arena={profile_block[2]}"
-                ),
-            )
-            previous_profile_block = profile_block
+        guard_host_condition(
+            args,
+            host_preconditioning,
+            label=(
+                "profile:"
+                f"r={profile_block[0]}:outer_tasks={profile_block[1]}:"
+                f"arena={profile_block[2]}:budget={job['budget']}"
+            ),
+        )
         name = case_name(
             job["arena"],
             job["budget"],

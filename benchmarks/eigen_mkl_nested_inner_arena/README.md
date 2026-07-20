@@ -39,7 +39,7 @@ python benchmarks/eigen_mkl_nested_inner_arena/run_eigen_mkl_nested_inner_arena.
 ```
 
 Defaults are `C=8`, 1024-by-1024 DGEMMs, outer-task counts 8 and 32, three
-warm-up batches, 50 timed batches, and seven randomized fresh-process
+warm-up batches, 50 timed batches, and eight counterbalanced fresh-process
 repetitions. The runner writes every raw probe log, `timing.csv`, and
 `nested-inner-arena.json`. Summary ratios are paired by repetition and use
 `OuterLocal1` as the baseline.

@@ -25,6 +25,7 @@ from host_preconditioning import (  # noqa: E402
     add_host_preconditioning_arguments,
     balanced_order,
     guard_host_condition,
+    order_configuration,
     precondition_host,
 )
 from benchmark_support.google_benchmark import (  # noqa: E402
@@ -52,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("benchmark", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--max-concurrency", type=int)
-    parser.add_argument("--repetitions", type=int, default=7)
+    parser.add_argument("--repetitions", type=int, default=8)
     parser.add_argument("--min-time", default="0.05s")
     parser.add_argument("--warmup-time", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20260715)
@@ -249,6 +250,11 @@ def main() -> int:
 
     print(f"Verified MKL-TBB linkage; matched {len(cases)} matrix size(s).")
     print("matrix sizes:", ", ".join(str(matrix_n) for matrix_n in cases))
+    order = order_configuration(
+        args.repetitions,
+        [("policies", POLICIES)],
+        allow_incomplete=args.allow_incomplete_order_cycle,
+    )
     host_preconditioning = precondition_host(
         args, workers=args.max_concurrency or 8, dry_run=args.dry_run
     )
@@ -267,11 +273,6 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="pgo-eigen-mkl-crossover-") as temp_dir:
         temporary = Path(temp_dir)
         for block_index, (repetition, matrix_n) in enumerate(schedule, start=1):
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=f"r={repetition}:n={matrix_n}",
-            )
             policies = balanced_order(
                 POLICIES,
                 repetition=repetition - 1,
@@ -285,6 +286,11 @@ def main() -> int:
             )
             measurements: dict[str, dict[str, Any]] = {}
             for policy in policies:
+                guard_host_condition(
+                    args,
+                    host_preconditioning,
+                    label=f"r={repetition}:n={matrix_n}:policy={policy}",
+                )
                 measurements[policy] = run_case(
                     executable,
                     cases[matrix_n][policy],
@@ -330,6 +336,7 @@ def main() -> int:
         "warmup_time": args.warmup_time,
         "bootstrap_samples": args.bootstrap_samples,
         "host_preconditioning": host_preconditioning,
+        "order": order,
         "decision_rule": {
             "practical_speedup": args.practical_speedup,
             "stable_adjacent_points": args.stable_points,

@@ -17,8 +17,8 @@ There are two explicit modes:
 
 | mode | default policies | repetitions | timed solves per worker | maximum Newton iterations |
 | --- | --- | ---: | ---: | ---: |
-| `cold_start` | `uniform_single`, `phase_aware`, `phase_single_single` | 7 | 1 | 1 |
-| `steady_state` | the full phase-policy 2x2 matrix | 15 | 3 | 8 |
+| `cold_start` | `uniform_single`, `phase_aware`, `phase_single_single` | 12 | 1 | 1 |
+| `steady_state` | the full phase-policy 2x2 matrix | 16 | 3 | 8 |
 
 `cold_start` preserves the original exactly-one-iteration experiment.
 `steady_state` is the primary end-to-end experiment: it requires at least two
@@ -112,15 +112,17 @@ The worker creates `GlobalTbbControl(C)` before constructing its mesh,
 material, energy, or optimizer. In steady-state mode it performs one full
 warmup solve and three timed solves; the worker's sample is their median wall
 time. Each timed solve restarts from the same deterministic perturbed DOF
-vector and is independently validated. Policy order is randomized within each
-`(repetition, workload)` block, and blocks are also randomized.
+vector and is independently validated. Policy order is counterbalanced within
+each `(repetition, workload)` block by the shared deterministic Williams
+design, and blocks are randomized independently.
 
 Quick scheduling check without loading `pypgo`:
 
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
   --mode steady_state --dry-run \
-  --workloads cubic_tricubic_hermite --repetitions 1
+  --workloads cubic_tricubic_hermite --repetitions 1 \
+  --allow-incomplete-order-cycle
 ```
 
 Six-policy diagnostic smoke:
@@ -132,7 +134,8 @@ python benchmarks/python_solver_phase_threading/run_python_solver_phase_threadin
   --workloads cubic_tricubic_hermite \
   --policies uniform_single uniform_multi phase_single_single phase_aware \
     phase_reversed phase_multi_multi \
-  --repetitions 1 --timed-solves 1 --bootstrap-samples 100
+  --repetitions 1 --timed-solves 1 --bootstrap-samples 100 \
+  --allow-incomplete-order-cycle
 ```
 
 A small end-to-end smoke run after rebuilding:
@@ -143,14 +146,15 @@ python benchmarks/python_solver_phase_threading/run_python_solver_phase_threadin
   --out /tmp/python-solver-phase-smoke \
   --workloads cubic_tricubic_hermite \
   --policies uniform_single phase_aware \
-  --repetitions 1 --timed-solves 1 --bootstrap-samples 100
+  --repetitions 1 --timed-solves 1 --bootstrap-samples 100 \
+  --allow-incomplete-order-cycle
 ```
 
 The fixed three-solve inner sample reduces one-off process noise without an
 adaptive minimum-time loop in which a faster policy might execute more
-warm-cache solves than a slower policy. The 15 independently randomized worker
-samples, rather than the three solves inside one process, remain the units used
-for paired uncertainty estimates.
+warm-cache solves than a slower policy. The 16 independently measured,
+counterbalanced worker samples, rather than the three solves inside one
+process, remain the units used for paired uncertainty estimates.
 
 ## Outputs and interpretation
 
@@ -228,8 +232,11 @@ thread variables. Match these fields before combining runs.
 
 The runner records inherited `MKL_THREADING_LAYER`, `KMP_AFFINITY`,
 `OMP_PROC_BIND`, `OMP_PLACES`, and the worker's Linux CPU-affinity mask when
-available, but it does not impose a placement policy. Pin the benchmark using
-the server's normal affinity tooling when strict placement control is needed.
-Policy order is randomized within adjacent repetition/workload blocks, not
-formally counterbalanced; interpret small effects near the observed drift as
-conditionally valid and replicate them with more blocks.
+available. On Linux, pass placement explicitly with, for example,
+`--cpu-list 21-28 --numa-node 0`; the shared controller applies and verifies
+the affinity before preconditioning, and every worker inherits it. An existing
+affinity is accepted only when its CPU count matches `--concurrency`.
+Policy order uses the shared deterministic Williams design within adjacent
+repetition/workload blocks, balancing temporal position and first-order
+carry-over. A policy-neutral host guard runs before every measured worker; the
+run aborts by default if the guard exceeds the configured drift tolerance.

@@ -24,6 +24,7 @@ from host_preconditioning import (  # noqa: E402
     add_host_preconditioning_arguments,
     balanced_order,
     guard_host_condition,
+    order_configuration,
     precondition_host,
 )
 from benchmark_support.google_benchmark import (  # noqa: E402
@@ -45,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("benchmark", type=Path)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--repetitions", type=int, default=5)
+    parser.add_argument("--repetitions", type=int, default=6)
     parser.add_argument("--min-time", default="0.05s")
     parser.add_argument("--warmup-time", type=float, default=0.02)
     parser.add_argument("--seed", type=int, default=20260714)
@@ -214,6 +215,11 @@ def main() -> int:
     print(f"Verified Accelerate linkage; matched {len(cases)} two-policy block(s).")
     for concurrency, outer_tasks, matrix_n in cases:
         print(f"c={concurrency} tasks={outer_tasks} n={matrix_n}")
+    order = order_configuration(
+        args.repetitions,
+        [("policies", POLICIES)],
+        allow_incomplete=args.allow_incomplete_order_cycle,
+    )
     host_preconditioning = precondition_host(
         args,
         workers=max(key[0] for key in cases),
@@ -234,11 +240,6 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="pgo-eigen-accelerate-nested-") as temp_dir:
         temporary = Path(temp_dir)
         for block_index, (repetition, key) in enumerate(schedule, start=1):
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=f"r={repetition}:key={key}",
-            )
             concurrency, outer_tasks, matrix_n = key
             policies = balanced_order(
                 POLICIES,
@@ -255,6 +256,14 @@ def main() -> int:
             measurements: dict[str, dict[str, Any]] = {}
             cold_probes: dict[str, dict[str, Any]] = {}
             for policy in policies:
+                guard_host_condition(
+                    args,
+                    host_preconditioning,
+                    label=(
+                        f"r={repetition}:c={concurrency}:tasks={outer_tasks}:"
+                        f"n={matrix_n}:policy={policy}"
+                    ),
+                )
                 cold_probes[policy] = run_case(
                     executable,
                     cases[key][policy],
@@ -300,6 +309,7 @@ def main() -> int:
         "benchmark": str(executable),
         "seed": args.seed,
         "repetitions": args.repetitions,
+        "order": order,
         "min_time": args.min_time,
         "warmup_time": args.warmup_time,
         "thread_telemetry_source": "cold_probes",

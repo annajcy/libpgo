@@ -38,7 +38,7 @@ python benchmarks/eigen_mkl_budget_sweep/run_eigen_mkl_budget_sweep.py \
 ```
 
 The default workload uses 1024-by-1024 DGEMMs, three warm-up batches, 50 timed
-batches, and seven randomized fresh-process repetitions per case. Use
+batches, and twelve counterbalanced fresh-process repetitions per case. Use
 `timing_summary` in `budget-sweep.json` for wall-time comparisons. It reports
 the median and median absolute deviation rather than selecting a best run.
 
@@ -47,7 +47,8 @@ the median and median absolute deviation rather than selecting a best run.
 Add `--collect-vtune` to profile the isolated `outer_tasks=1` surface. This is
 the only default profile mode where `task/GEMM` is attributable solely to
 oneMKL; the timing surface still covers outer-task counts 8 and 32. The default
-collects three VTune repetitions for each arena/budget cell.
+collects twelve VTune repetitions for each arena/budget cell so the arena and
+budget order cycles are both complete.
 
 ```bash
 python benchmarks/eigen_mkl_budget_sweep/run_eigen_mkl_budget_sweep.py \
@@ -87,6 +88,7 @@ python benchmarks/eigen_mkl_budget_sweep/run_eigen_mkl_budget_sweep.py \
   --profile-outer-tasks 1 \
   --timing-repetitions 3 \
   --profile-repetitions 1 \
+  --allow-incomplete-order-cycle \
   --collect-vtune
 ```
 

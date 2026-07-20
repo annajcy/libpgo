@@ -27,7 +27,7 @@ python benchmarks/python_fem_threading/run_python_fem_accelerate_benchmark.py \
   --concurrency 8
 ```
 
-The default sweep is 3 formulations x 3 operations x 2 policies x 7
+The default sweep is 3 formulations x 3 operations x 2 policies x 10
 fresh-process repetitions. For a quick smoke test:
 
 ```bash
@@ -36,6 +36,7 @@ python benchmarks/python_fem_threading/run_python_fem_accelerate_benchmark.py \
   --formulations cubic_tricubic_hermite \
   --operations hessian \
   --repetitions 1 \
+  --allow-incomplete-order-cycle \
   --min-time 0
 ```
 

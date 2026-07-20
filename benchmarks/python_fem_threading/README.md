@@ -66,7 +66,7 @@ python benchmarks/python_fem_threading/run_python_fem_threading_benchmark.py \
   --concurrency 8
 ```
 
-The full default sweep is 3 formulations x 3 operations x 5 policies x 7
+The full default sweep is 3 formulations x 3 operations x 5 policies x 10
 fresh-process repetitions. For a quick smoke test:
 
 ```bash
@@ -76,6 +76,7 @@ python benchmarks/python_fem_threading/run_python_fem_threading_benchmark.py \
   --operations value \
   --policies no_executor budget_1 \
   --repetitions 1 \
+  --allow-incomplete-order-cycle \
   --min-time 0.01
 ```
 

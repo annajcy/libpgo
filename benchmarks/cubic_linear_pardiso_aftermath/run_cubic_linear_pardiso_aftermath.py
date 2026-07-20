@@ -26,6 +26,7 @@ from host_preconditioning import (  # noqa: E402
     add_host_preconditioning_arguments,
     balanced_order,
     guard_host_condition,
+    order_configuration,
     precondition_host,
 )
 from benchmark_support.mkl import (  # noqa: E402
@@ -88,10 +89,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reserved-slots", type=int, default=1)
     parser.add_argument("--warmup-iterations", type=int, default=2)
     parser.add_argument("--measured-iterations", type=int, default=5)
-    parser.add_argument("--repetitions", type=int, default=15)
+    parser.add_argument("--repetitions", type=int, default=20)
     parser.add_argument("--seed", type=int, default=20260717)
     parser.add_argument("--bootstrap-samples", type=int, default=20000)
-    parser.add_argument("--cpu-list", help="Optional taskset CPU list, e.g. 21-28")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--dry-run", action="store_true")
     add_host_preconditioning_arguments(parser)
@@ -151,7 +151,7 @@ def command_for(
         f"--warmup-iterations={args.warmup_iterations}",
         f"--measured-iterations={args.measured_iterations}",
     ]
-    return ["taskset", "-c", args.cpu_list, *command] if args.cpu_list else command
+    return command
 
 
 def median_record(records: list[dict[str, Any]], repetition: int) -> dict[str, Any]:
@@ -377,6 +377,11 @@ def main() -> int:
     # Shuffle complete repetition blocks while retaining one sample per case per block.
     rng.shuffle(blocks)
     jobs = [job for block in blocks for job in block]
+    order = order_configuration(
+        args.repetitions,
+        [("cases", args.cases)],
+        allow_incomplete=args.allow_incomplete_order_cycle,
+    )
 
     if args.dry_run:
         for repetition, case in jobs:
@@ -390,15 +395,12 @@ def main() -> int:
     samples: list[dict[str, Any]] = []
     pending: dict[int, dict[str, list[dict[str, Any]]]] = {}
 
-    previous_repetition: int | None = None
     for job_index, (repetition, case) in enumerate(jobs, start=1):
-        if repetition != previous_repetition:
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=f"repetition={repetition}",
-            )
-            previous_repetition = repetition
+        guard_host_condition(
+            args,
+            host_preconditioning,
+            label=f"repetition={repetition}:case={case}",
+        )
         command = command_for(args, probe, mesh, case)
         print(f"[{job_index}/{len(jobs)}] r={repetition} case={case}", flush=True)
         completed = subprocess.run(
@@ -463,6 +465,7 @@ def main() -> int:
         },
         "linkage": linkage,
         "host_preconditioning": host_preconditioning,
+        "order": order,
         "raw_measurements": raw,
         "worker_samples": samples,
         "summary": summaries,

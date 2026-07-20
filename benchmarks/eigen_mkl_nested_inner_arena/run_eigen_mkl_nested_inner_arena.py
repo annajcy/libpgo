@@ -10,7 +10,6 @@ import math
 import os
 import random
 import shlex
-import statistics
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -27,6 +26,7 @@ from host_preconditioning import (  # noqa: E402
     add_host_preconditioning_arguments,
     balanced_order,
     guard_host_condition,
+    order_configuration,
     precondition_host,
 )
 from benchmark_support.mkl import (  # noqa: E402
@@ -103,7 +103,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--matrix-n", type=int, default=1024)
     parser.add_argument("--warmup-iterations", type=int, default=3)
     parser.add_argument("--profile-iterations", type=int, default=50)
-    parser.add_argument("--timing-repetitions", type=int, default=7)
+    parser.add_argument("--timing-repetitions", type=int, default=8)
     parser.add_argument("--seed", type=int, default=20260717)
     parser.add_argument("--checksum-relative-tolerance", type=float, default=1e-10)
     parser.add_argument("--collect-vtune", action="store_true")
@@ -527,6 +527,11 @@ def main() -> int:
         raise FileExistsError(f"Output path already exists: {output}")
     environment = mkl_tbb_environment()
     timing_jobs = make_timing_jobs(args)
+    timing_order = order_configuration(
+        args.timing_repetitions,
+        [("policies", POLICIES)],
+        allow_incomplete=args.allow_incomplete_order_cycle,
+    )
     vtune = resolve_vtune(args.vtune) if args.collect_vtune else None
 
     if args.dry_run:
@@ -583,6 +588,7 @@ def main() -> int:
             "warmup_iterations": args.warmup_iterations,
             "profile_iterations": args.profile_iterations,
             "timing_repetitions": args.timing_repetitions,
+            "timing_order": timing_order,
             "seed": args.seed,
             "collect_vtune": args.collect_vtune,
             "sudo": args.sudo,
@@ -597,19 +603,17 @@ def main() -> int:
         "timing_runs": [],
     }
 
-    previous_block: tuple[int, int] | None = None
     for index, job in enumerate(timing_jobs, start=1):
         policy = str(job["policy"])
         outer_tasks = int(job["outer_tasks"])
         repetition = int(job["repetition"])
-        block = (repetition, outer_tasks)
-        if block != previous_block:
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=f"timing:r={repetition}:outer_tasks={outer_tasks}",
-            )
-            previous_block = block
+        guard_host_condition(
+            args,
+            host_preconditioning,
+            label=(
+                f"timing:r={repetition}:outer_tasks={outer_tasks}:policy={policy}"
+            ),
+        )
         command = probe_command(probe, args, policy, outer_tasks)
         print(
             f"[{index}/{len(timing_jobs)}] {policy}, "

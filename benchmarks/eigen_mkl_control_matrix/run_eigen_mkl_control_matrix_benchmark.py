@@ -24,6 +24,7 @@ from host_preconditioning import (  # noqa: E402
     add_host_preconditioning_arguments,
     balanced_order,
     guard_host_condition,
+    order_configuration,
     precondition_host,
 )
 from benchmark_support.google_benchmark import (  # noqa: E402
@@ -82,7 +83,7 @@ def parse_args() -> argparse.Namespace:
         help="Eigen-internal-GEMM executable (default: sibling no-BLAS target).",
     )
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--repetitions", type=int, default=10)
+    parser.add_argument("--repetitions", type=int, default=12)
     parser.add_argument("--min-time", default="0.05s")
     parser.add_argument("--warmup-time", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20260715)
@@ -357,6 +358,11 @@ def main() -> int:
     print(f"Verified MKL-TBB linkage; matched {len(cases)} six-policy case(s).")
     for workload, concurrency, outer_tasks, matrix_n in cases:
         print(f"{workload}: c={concurrency} tasks={outer_tasks} n={matrix_n}")
+    order = order_configuration(
+        args.repetitions,
+        [("policies", POLICIES)],
+        allow_incomplete=args.allow_incomplete_order_cycle,
+    )
     host_preconditioning = precondition_host(
         args,
         workers=max(key[1] for key in cases),
@@ -379,11 +385,6 @@ def main() -> int:
     ) as temp_dir:
         temporary = Path(temp_dir)
         for block_index, (repetition, key) in enumerate(schedule, start=1):
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=f"r={repetition}:key={key}",
-            )
             workload, concurrency, outer_tasks, matrix_n = key
             policies = balanced_order(
                 POLICIES,
@@ -401,6 +402,14 @@ def main() -> int:
             )
             measurements: dict[str, dict[str, Any]] = {}
             for policy in policies:
+                guard_host_condition(
+                    args,
+                    host_preconditioning,
+                    label=(
+                        f"r={repetition}:workload={workload}:c={concurrency}:"
+                        f"tasks={outer_tasks}:n={matrix_n}:policy={policy}"
+                    ),
+                )
                 measurements[policy] = run_case(
                     executable if workload == "EigenMklGemm" else no_blas_executable,
                     cases[key][policy],
@@ -440,6 +449,7 @@ def main() -> int:
         "bootstrap_samples": args.bootstrap_samples,
         "thread_telemetry_source": "untimed_policy_warmup",
         "host_preconditioning": host_preconditioning,
+        "order": order,
         "mkl_verbose_probe": verbose_probe,
         "environment": {"MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"]},
         "executor_case_note": (

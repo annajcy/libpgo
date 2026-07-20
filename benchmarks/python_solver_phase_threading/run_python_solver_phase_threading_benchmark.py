@@ -27,6 +27,7 @@ from host_preconditioning import (  # noqa: E402
     add_host_preconditioning_arguments,
     balanced_order,
     guard_host_condition,
+    order_configuration,
     precondition_host,
 )
 from workloads import DEFAULT_MESHES, WORKLOADS, build_workload  # noqa: E402
@@ -119,7 +120,7 @@ def parse_args() -> argparse.Namespace:
             STEADY_STATE_POLICIES if args.mode == "steady_state" else DEFAULT_POLICIES
         )
     if args.repetitions is None:
-        args.repetitions = 15 if args.mode == "steady_state" else 7
+        args.repetitions = 16 if args.mode == "steady_state" else 12
     if args.timed_solves is None:
         args.timed_solves = 3 if args.mode == "steady_state" else 1
     if args.newton_iterations is None:
@@ -1139,6 +1140,13 @@ def controller_main(args: argparse.Namespace) -> int:
     if args.case_limit:
         scheduled = scheduled[: args.case_limit]
 
+    order = order_configuration(
+        args.repetitions,
+        [("policies", args.policies)],
+        allow_incomplete=args.allow_incomplete_order_cycle,
+        schedule_truncated=len(scheduled) != requested_case_count,
+    )
+
     if args.dry_run:
         for command, _ in scheduled:
             print(" ".join(command))
@@ -1165,6 +1173,7 @@ def controller_main(args: argparse.Namespace) -> int:
         "concurrency": args.concurrency,
         "reserved_slots": args.reserved_slots,
         "repetitions": args.repetitions,
+        "order": order,
         "warmup_solves": args.warmup_solves,
         "timed_solves": args.timed_solves,
         "newton_iterations": args.newton_iterations,
@@ -1210,15 +1219,15 @@ def controller_main(args: argparse.Namespace) -> int:
     }
 
     total = len(scheduled)
-    previous_block: tuple[int, str] | None = None
     for index, (command, block_key) in enumerate(scheduled, start=1):
-        if block_key != previous_block:
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=f"r={block_key[0]}:workload={block_key[1]}",
-            )
-            previous_block = block_key
+        policy = command[command.index("--policy") + 1]
+        guard_host_condition(
+            args,
+            host_preconditioning,
+            label=(
+                f"r={block_key[0]}:workload={block_key[1]}:policy={policy}"
+            ),
+        )
         print(f"[{index}/{total}] {' '.join(command)}", flush=True)
         try:
             record = run_worker(command, args.concurrency)

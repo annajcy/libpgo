@@ -52,13 +52,13 @@ python benchmarks/cubic_linear_pardiso_aftermath/run_cubic_linear_pardiso_afterm
   build/base/benchmarks/cubic_linear_pardiso_aftermath/cubic_linear_pardiso_aftermath_probe \
   --mesh examples/assets/veg/cubic/dragon-center-r16.veg \
   --out benchmarks/results/cubic-linear-pardiso-aftermath \
-  --concurrency 8 --cpu-list 21-28
+  --concurrency 8 --cpu-list 21-28 --numa-node 0
 ```
 
 The controller randomizes the case order inside every repetition, runs each
 sample in a fresh process, verifies MKL TBB linkage and observed budgets, and
 rejects a repetition if FGH dimensions or numerical signatures differ. It
 writes raw iteration data, one median sample per worker, summary CSV/JSON, and
-paired bootstrap 95% intervals for the diagnostic contrasts. The 15
-fresh worker processes—not the five inner iterations—are the independent
-statistical units.
+paired bootstrap 95% intervals for the diagnostic contrasts. The 20 fresh
+worker samples per case—not the five inner iterations—are the independent
+statistical units; the full five-case run starts 100 worker processes.
