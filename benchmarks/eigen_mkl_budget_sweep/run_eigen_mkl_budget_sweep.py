@@ -22,10 +22,9 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from benchmark_support.conditioning import (  # noqa: E402
+from benchmark_support.harness import (  # noqa: E402
     add_benchmark_harness_arguments,
-    guard_host_condition,
-    precondition_host,
+    prepare_benchmark_host,
 )
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
@@ -41,6 +40,11 @@ from benchmark_support.process import (  # noqa: E402
     resolve_vtune,
 )
 from benchmark_support.statistics import median_and_mad  # noqa: E402
+from benchmark_support.warmup import (  # noqa: E402
+    add_workload_warmup_arguments,
+    validate_workload_warmup_arguments,
+    workload_warmup_configuration,
+)
 from benchmark_support.validation import (  # noqa: E402
     require_nonnegative,
     require_positive,
@@ -58,12 +62,21 @@ INTEGER_FIELDS = frozenset({
     "observed_mkl_max_threads_max",
     "outer_tasks",
     "matrix_n",
-    "warmup_iterations",
+    "configured_warmup_min_operations",
+    "actual_warmup_operations",
     "profile_iterations",
     "measured_gemm_calls",
     "process_gemm_calls",
 })
-FLOAT_FIELDS = frozenset({"wall_seconds", "process_cpu_seconds", "checksum"})
+FLOAT_FIELDS = frozenset(
+    {
+        "configured_warmup_seconds",
+        "actual_warmup_seconds",
+        "wall_seconds",
+        "process_cpu_seconds",
+        "checksum",
+    }
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -112,7 +125,6 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--matrix-n", type=int, default=1024)
-    parser.add_argument("--warmup-iterations", type=int, default=3)
     parser.add_argument("--profile-iterations", type=int, default=50)
     parser.add_argument("--timing-repetitions", type=int, default=12)
     parser.add_argument("--profile-repetitions", type=int, default=12)
@@ -125,6 +137,9 @@ def parse_args() -> argparse.Namespace:
         help="Run VTune through sudo and restore ownership of its result directories.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    add_workload_warmup_arguments(
+        parser, default_seconds=1.0, default_min_operations=3
+    )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
@@ -158,7 +173,7 @@ def validate_args(args: argparse.Namespace) -> None:
                 "global control explicitly if that is the intended experiment."
             )
     require_positive(args.matrix_n, "--matrix-n")
-    require_nonnegative(args.warmup_iterations, "--warmup-iterations")
+    validate_workload_warmup_arguments(args)
     require_positive(args.profile_iterations, "--profile-iterations")
     require_positive(args.timing_repetitions, "--timing-repetitions")
     require_positive(args.profile_repetitions, "--profile-repetitions")
@@ -192,7 +207,8 @@ def probe_command(
         f"--mkl-local-thread-budget={budget}",
         f"--outer-tasks={outer_tasks}",
         f"--matrix-n={args.matrix_n}",
-        f"--warmup-iterations={args.warmup_iterations}",
+        f"--warmup-seconds={args.warmup_seconds}",
+        f"--warmup-min-operations={args.warmup_min_operations}",
         f"--profile-iterations={args.profile_iterations}",
     ]
 
@@ -493,7 +509,7 @@ def main() -> int:
     environment = mkl_tbb_environment()
     linkage = verify_mkl_tbb_probe_linkage(probe, environment)
     output.mkdir(parents=True)
-    host_preconditioning = precondition_host(args, workers=args.concurrency)
+    host_environment = prepare_benchmark_host(args, workers=args.concurrency)
     timing_log_directory = output / "timing-logs"
     timing_log_directory.mkdir()
 
@@ -515,7 +531,7 @@ def main() -> int:
             "outer_tasks": args.outer_tasks,
             "profile_outer_tasks": args.profile_outer_tasks,
             "matrix_n": args.matrix_n,
-            "warmup_iterations": args.warmup_iterations,
+            "warmup": workload_warmup_configuration(args),
             "profile_iterations": args.profile_iterations,
             "timing_repetitions": args.timing_repetitions,
             "profile_repetitions": args.profile_repetitions,
@@ -531,7 +547,7 @@ def main() -> int:
             "MKL_DYNAMIC": environment.get("MKL_DYNAMIC"),
         },
         "linkage": linkage,
-        "host_preconditioning": host_preconditioning,
+        "host_environment": host_environment,
         "timing_records": [],
         "timing_summary": [],
         "profile_records": [],
@@ -564,7 +580,6 @@ def main() -> int:
         )
         print(f"[timing {index}/{len(timing_jobs)}] {name}", flush=True)
         with artifact.capture_failures(lambda: results):
-            guard_host_condition(args, host_preconditioning, label=label)
             completed = subprocess.run(
                 command,
                 text=True,
@@ -637,7 +652,6 @@ def main() -> int:
         ]
         print(f"[profile {index}/{len(profile_jobs)}] {name}", flush=True)
         with artifact.capture_failures(lambda: results):
-            guard_host_condition(args, host_preconditioning, label=label)
             completed = subprocess.run(
                 command,
                 text=True,

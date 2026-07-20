@@ -30,10 +30,6 @@ def benchmark_row(seconds: float) -> dict[str, float]:
     }
 
 
-def guard(throughput: float) -> dict[str, object]:
-    return {"status": "stable", "probes": [{"iterations_per_second": throughput}]}
-
-
 def test_identical_placebo_records_pass_equivalence_gate() -> None:
     records = []
     for repetition in range(16):
@@ -46,10 +42,6 @@ def test_identical_placebo_records_pass_equivalence_gate() -> None:
                 "measurements": {
                     "placebo_a": benchmark_row(1.0),
                     "placebo_b": benchmark_row(1.0),
-                },
-                "guards": {
-                    "placebo_a": guard(100.0),
-                    "placebo_b": guard(100.0),
                 },
             }
         )
@@ -68,10 +60,6 @@ def test_placebo_gate_detects_label_and_position_bias() -> None:
                 "placebo_a": benchmark_row(1.0),
                 "placebo_b": benchmark_row(1.1),
             },
-            "guards": {
-                "placebo_a": guard(100.0),
-                "placebo_b": guard(110.0),
-            },
         }
         for _ in range(8)
     ]
@@ -80,7 +68,7 @@ def test_placebo_gate_detects_label_and_position_bias() -> None:
         summaries, median_tolerance=0.02, ci_tolerance=0.05
     )
     assert any("workload_placebo_b_over_a median" in failure for failure in failures)
-    assert any("guard_second_over_first median" in failure for failure in failures)
+    assert any("workload_second_over_first median" in failure for failure in failures)
 
 
 def test_placebo_correctness_validation_rejects_counter_mismatch() -> None:

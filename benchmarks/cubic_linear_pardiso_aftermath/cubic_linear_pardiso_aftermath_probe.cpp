@@ -9,6 +9,7 @@
 #include "parallel/parallelControl.h"
 #include "pgoLogging.h"
 #include "solver/newton/newtonSparseSolverBackend.h"
+#include "../workload_warmup.h"
 
 #include <mkl.h>
 #include <tbb/global_control.h>
@@ -69,7 +70,8 @@ struct Arguments
   std::string meshPath;
   int concurrency;
   int reservedSlots;
-  int warmupIterations;
+  double warmupSeconds;
+  int warmupMinOperations;
   int measuredIterations;
 };
 
@@ -140,6 +142,16 @@ int parseInteger(std::string_view text, std::string_view option, bool allowZero)
   return static_cast<int>(parsed);
 }
 
+double parseNonnegativeDouble(std::string_view text, std::string_view option)
+{
+  const std::string value(text);
+  char *end = nullptr;
+  const double parsed = std::strtod(value.c_str(), &end);
+  if (end == value.c_str() || *end != '\0' || !std::isfinite(parsed) || parsed < 0.0)
+    throw std::invalid_argument(std::string(option) + " has an invalid number value");
+  return parsed;
+}
+
 std::string_view requireValue(int argc, char **argv, std::string_view prefix)
 {
   for (int index = 1; index < argc; ++index) {
@@ -166,7 +178,10 @@ Arguments parseArguments(int argc, char **argv)
     std::string(requireValue(argc, argv, "--mesh=")),
     parseInteger(requireValue(argc, argv, "--concurrency="), "--concurrency", false),
     parseInteger(requireValue(argc, argv, "--reserved-slots="), "--reserved-slots", true),
-    parseInteger(requireValue(argc, argv, "--warmup-iterations="), "--warmup-iterations", true),
+    parseNonnegativeDouble(
+      requireValue(argc, argv, "--warmup-seconds="), "--warmup-seconds"),
+    parseInteger(requireValue(argc, argv, "--warmup-min-operations="),
+      "--warmup-min-operations", true),
     parseInteger(requireValue(argc, argv, "--measured-iterations="), "--measured-iterations", false),
   };
 }
@@ -322,11 +337,10 @@ try {
     pardiso = selector.build(reducedHessian);
   });
 
-  const int totalIterations = arguments.warmupIterations + arguments.measuredIterations;
   std::vector<Measurement> measurements;
   measurements.reserve(static_cast<std::size_t>(arguments.measuredIterations));
 
-  for (int iteration = 0; iteration < totalIterations; ++iteration) {
+  const auto runIteration = [&] {
     rhs.setOnes();
     solution.setZero();
     Measurement measurement;
@@ -380,10 +394,14 @@ try {
     // This untimed reduction prepares the next PARDISO prelude. It is deliberately
     // after evaluation so nothing intervenes between the measured prelude and FGH.
     ES::removeRowsCols(hessian, fixedDofs, reducedHessian);
+    return measurement;
+  };
 
-    if (iteration >= arguments.warmupIterations)
-      measurements.push_back(measurement);
-  }
+  const auto warmup = pgo::benchmark_helpers::runWorkloadWarmup(
+    [&] { (void)runIteration(); }, arguments.warmupSeconds,
+    arguments.warmupMinOperations);
+  for (int iteration = 0; iteration < arguments.measuredIterations; ++iteration)
+    measurements.push_back(runIteration());
 
   std::cout << std::setprecision(17);
   for (std::size_t index = 0; index < measurements.size(); ++index) {
@@ -408,6 +426,11 @@ try {
               << " fixed_dofs=" << fixedDofs.size()
               << " reduced_rows=" << reducedHessian.rows()
               << " reduced_nnz=" << reducedHessian.nonZeros()
+              << " configured_warmup_seconds=" << arguments.warmupSeconds
+              << " configured_warmup_min_operations="
+              << arguments.warmupMinOperations
+              << " actual_warmup_seconds=" << warmup.elapsedSeconds
+              << " actual_warmup_operations=" << warmup.completedOperations
               << " prelude_seconds=" << measurement.preludeSeconds
               << " prelude_process_cpu_seconds=" << measurement.preludeProcessCpuSeconds
               << " evaluation_execute_seconds=" << measurement.evaluationExecuteSeconds

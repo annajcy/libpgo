@@ -19,13 +19,17 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from benchmark_support.conditioning import (  # noqa: E402
+from benchmark_support.harness import (  # noqa: E402
     add_benchmark_harness_arguments,
-    guard_host_condition,
-    precondition_host,
+    prepare_benchmark_host,
 )
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
+from benchmark_support.warmup import (  # noqa: E402
+    add_workload_warmup_arguments,
+    validate_workload_warmup_arguments,
+    workload_warmup_configuration,
+)
 from benchmark_support.google_benchmark import (  # noqa: E402
     integer_counter,
     list_cases,
@@ -47,7 +51,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--repetitions", type=int, default=6)
     parser.add_argument("--min-time", default="0.05s")
-    parser.add_argument("--warmup-time", type=float, default=0.02)
     parser.add_argument("--seed", type=int, default=20260714)
     parser.add_argument("--checksum-relative-tolerance", type=float, default=1e-10)
     parser.add_argument("--concurrency", type=int, action="append")
@@ -55,6 +58,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--outer-tasks", type=int, action="append")
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    add_workload_warmup_arguments(
+        parser, default_seconds=1.0, default_min_operations=10
+    )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
@@ -199,8 +205,12 @@ def summarize(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def main() -> int:
     args = parse_args()
-    if args.repetitions < 1 or args.warmup_time < 0 or args.case_limit < 0:
+    if args.repetitions < 1 or args.case_limit < 0:
         raise SystemExit("Invalid repetitions, warm-up, or case-limit value.")
+    try:
+        validate_workload_warmup_arguments(args)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
 
     executable = args.benchmark.resolve()
     if not executable.exists():
@@ -219,7 +229,7 @@ def main() -> int:
         [("policies", POLICIES)],
         allow_incomplete=args.allow_incomplete_order_cycle,
     )
-    host_preconditioning = precondition_host(
+    host_environment = prepare_benchmark_host(
         args,
         workers=max(key[0] for key in cases),
         dry_run=args.dry_run,
@@ -243,9 +253,9 @@ def main() -> int:
         "repetitions": args.repetitions,
         "order": order,
         "min_time": args.min_time,
-        "warmup_time": args.warmup_time,
+        "warmup": workload_warmup_configuration(args),
         "thread_telemetry_source": "cold_probes",
-        "host_preconditioning": host_preconditioning,
+        "host_environment": host_environment,
         "linkage": linkage,
         "records": records,
         "summary": [],
@@ -277,9 +287,6 @@ def main() -> int:
                 )
                 artifact.set_active(label)
                 with artifact.capture_failures(lambda: payload):
-                    guard_host_condition(
-                        args, host_preconditioning, label=label
-                    )
                     cold_probes[policy] = run_case(
                         executable,
                         cases[key][policy],
@@ -292,7 +299,7 @@ def main() -> int:
                         cases[key][policy],
                         temporary / f"{block_index}-{policy}-steady.json",
                         args.min_time,
-                        args.warmup_time,
+                        args.warmup_seconds,
                     )
 
             with artifact.capture_failures(lambda: payload):

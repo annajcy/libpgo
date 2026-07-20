@@ -1,6 +1,7 @@
 #pragma once
 
 #include <climits>
+#include <cmath>
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
@@ -23,6 +24,15 @@ inline int parsePositiveInteger(std::string_view value, std::string_view option)
   const int parsed = parseNonnegativeInteger(value, option);
   if (parsed == 0)
     throw std::invalid_argument(std::string(option) + " must be positive.");
+  return parsed;
+}
+
+inline double parseNonnegativeDouble(std::string_view value, std::string_view option)
+{
+  char *end = nullptr;
+  const double parsed = std::strtod(value.data(), &end);
+  if (end == value.data() || *end != '\0' || !std::isfinite(parsed) || parsed < 0.0)
+    throw std::invalid_argument(std::string(option) + " must be a finite nonnegative number.");
   return parsed;
 }
 

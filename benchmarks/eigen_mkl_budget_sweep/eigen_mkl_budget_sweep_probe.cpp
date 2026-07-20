@@ -1,6 +1,7 @@
 #include "../eigen_mkl_common/eigen_mkl_gemm_workload.h"
 #include "../benchmark_argument_parser.h"
 #include "../parallelism_benchmark_helpers.h"
+#include "../workload_warmup.h"
 
 #include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
@@ -30,6 +31,7 @@ namespace
 namespace P = pgo::parallel;
 using pgo::benchmark_helpers::EigenMklGemmWorkload;
 using pgo::benchmark_helpers::parseNonnegativeInteger;
+using pgo::benchmark_helpers::parseNonnegativeDouble;
 using pgo::benchmark_helpers::parsePositiveInteger;
 using pgo::benchmark_helpers::requireValue;
 using pgo::benchmark_helpers::updateMaximum;
@@ -42,7 +44,8 @@ struct Arguments
   int mklLocalThreadBudget;
   int outerTasks;
   int matrixN;
-  int warmupIterations;
+  double warmupSeconds;
+  int warmupMinOperations;
   int profileIterations;
 };
 
@@ -60,8 +63,11 @@ Arguments parseArguments(int argc, char **argv)
       requireValue(argc, argv, "--outer-tasks="), "--outer-tasks"),
     parsePositiveInteger(
       requireValue(argc, argv, "--matrix-n="), "--matrix-n"),
-    parseNonnegativeInteger(requireValue(argc, argv, "--warmup-iterations="),
-      "--warmup-iterations"),
+    parseNonnegativeDouble(requireValue(argc, argv, "--warmup-seconds="),
+      "--warmup-seconds"),
+    parseNonnegativeInteger(
+      requireValue(argc, argv, "--warmup-min-operations="),
+      "--warmup-min-operations"),
     parsePositiveInteger(requireValue(argc, argv, "--profile-iterations="),
       "--profile-iterations"),
   };
@@ -125,8 +131,9 @@ void run(const Arguments &arguments)
   EigenMklGemmWorkload workload(arguments.outerTasks, arguments.matrixN);
 
   RunTelemetry warmupTelemetry;
-  runIterations(executor, arguments.outerTasks, workload,
-    arguments.warmupIterations, warmupTelemetry);
+  const auto warmup = pgo::benchmark_helpers::runWorkloadWarmup(
+    [&] { runBatch(executor, arguments.outerTasks, workload, warmupTelemetry); },
+    arguments.warmupSeconds, arguments.warmupMinOperations);
 
   RunTelemetry profileTelemetry;
   const std::clock_t cpuStart = std::clock();
@@ -163,12 +170,16 @@ void run(const Arguments &arguments)
                  std::memory_order_relaxed)
             << " outer_tasks=" << arguments.outerTasks
             << " matrix_n=" << arguments.matrixN
-            << " warmup_iterations=" << arguments.warmupIterations
+            << " configured_warmup_seconds=" << arguments.warmupSeconds
+            << " configured_warmup_min_operations="
+            << arguments.warmupMinOperations
+            << " actual_warmup_seconds=" << warmup.elapsedSeconds
+            << " actual_warmup_operations=" << warmup.completedOperations
             << " profile_iterations=" << arguments.profileIterations
             << " measured_gemm_calls="
             << profileTelemetry.bodyCalls.load(std::memory_order_relaxed)
             << " process_gemm_calls="
-            << (arguments.warmupIterations + arguments.profileIterations) *
+            << (warmup.completedOperations + arguments.profileIterations) *
       arguments.outerTasks
             << " wall_seconds=" << wallSeconds
             << " process_cpu_seconds=" << cpuSeconds

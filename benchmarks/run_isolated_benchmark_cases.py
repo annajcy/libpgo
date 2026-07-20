@@ -11,16 +11,20 @@ import sys
 import tempfile
 from pathlib import Path
 
-from benchmark_support.conditioning import (
+from benchmark_support.harness import (
     add_benchmark_harness_arguments,
-    guard_host_condition,
-    precondition_host,
+    prepare_benchmark_host,
 )
 from benchmark_support.artifact import JsonArtifact, runner_manifest
 from benchmark_support.schedule import balanced_order, order_configuration
 from benchmark_support.google_benchmark import (  # noqa: E402
     exact_filter,
     list_cases as list_google_benchmark_cases,
+)
+from benchmark_support.warmup import (  # noqa: E402
+    add_workload_warmup_arguments,
+    validate_workload_warmup_arguments,
+    workload_warmup_configuration,
 )
 
 
@@ -74,6 +78,9 @@ def parse_args() -> argparse.Namespace:
         help="Additional argument forwarded to every benchmark invocation. Repeatable.",
     )
     parser.add_argument("--seed", type=int, default=20260717)
+    add_workload_warmup_arguments(
+        parser, default_seconds=1.0, default_min_operations=10
+    )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
@@ -135,6 +142,11 @@ def main() -> int:
     if args.fresh_repetitions < 0:
         print("--fresh-repetitions must be non-negative.", file=sys.stderr)
         return 2
+    try:
+        validate_workload_warmup_arguments(args)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
 
     benchmark = args.benchmark.resolve()
     if not benchmark.exists():
@@ -159,7 +171,7 @@ def main() -> int:
     if not cases:
         return 1
 
-    host_preconditioning = precondition_host(args, workers=8)
+    host_environment = prepare_benchmark_host(args, workers=8)
 
     merged_rows: list[dict[str, str]] = []
     process_index = 0
@@ -174,8 +186,9 @@ def main() -> int:
         else None
     )
     host_path = args.out.with_suffix(args.out.suffix + ".host.json")
-    host_preconditioning["measurement_order"] = order
-    host_preconditioning["runner"] = runner_manifest(Path(__file__))
+    host_environment["measurement_order"] = order
+    host_environment["runner"] = runner_manifest(Path(__file__))
+    host_environment["warmup"] = workload_warmup_configuration(args)
     benchmark_min_time = "1x" if args.fresh_repetitions > 0 else args.min_time
     benchmark_repetitions = 1 if args.fresh_repetitions > 0 else args.repetitions
 
@@ -197,8 +210,6 @@ def main() -> int:
         for job_index, (fresh_index, case) in enumerate(jobs, start=1):
             label = f"fresh={fresh_index}:case={case}"
             artifact.set_active(label)
-            with artifact.capture_failures(lambda: host_preconditioning):
-                guard_host_condition(args, host_preconditioning, label=label)
             process_index += 1
             case_index = cases.index(case) + 1
             case_csv = tmpdir / f"job-{job_index:04d}-fresh-{fresh_index:04d}.csv"
@@ -207,6 +218,7 @@ def main() -> int:
                 f"--benchmark_filter={exact_filter(case)}",
                 f"--benchmark_min_time={benchmark_min_time}",
                 f"--benchmark_repetitions={benchmark_repetitions}",
+                f"--benchmark_min_warmup_time={args.warmup_seconds:g}",
                 f"--benchmark_out={case_csv}",
                 "--benchmark_out_format=csv",
                 *args.extra_arg,
@@ -220,14 +232,14 @@ def main() -> int:
             result = run_command(command)
             if result.returncode != 0:
                 artifact.fail(
-                    host_preconditioning,
+                    host_environment,
                     RuntimeError(f"benchmark subprocess exited {result.returncode}"),
                 )
                 print(result.stdout, file=sys.stderr)
                 return result.returncode
             if not case_csv.exists():
                 artifact.fail(
-                    host_preconditioning,
+                    host_environment,
                     RuntimeError(f"benchmark did not produce CSV: {case_csv}"),
                 )
                 print(f"Benchmark did not produce CSV: {case_csv}", file=sys.stderr)
@@ -244,11 +256,11 @@ def main() -> int:
                     row["fresh_repetitions"] = str(fresh_repetitions)
             merged_rows.extend(rows)
             artifact.checkpoint(
-                host_preconditioning, completed_units=job_index
+                host_environment, completed_units=job_index
             )
 
     write_csv(args.out, merged_rows)
-    artifact.complete(host_preconditioning)
+    artifact.complete(host_environment)
     print(f"Wrote {len(merged_rows)} row(s) to {args.out}")
     return 0
 

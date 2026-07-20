@@ -21,16 +21,20 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from benchmark_support.conditioning import (  # noqa: E402
+from benchmark_support.harness import (  # noqa: E402
     add_benchmark_harness_arguments,
-    guard_host_condition,
-    precondition_host,
+    prepare_benchmark_host,
 )
 from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.google_benchmark import list_cases, run_case  # noqa: E402
 from benchmark_support.process import checked_output  # noqa: E402
 from benchmark_support.statistics import bootstrap_median_ci  # noqa: E402
+from benchmark_support.warmup import (  # noqa: E402
+    add_workload_warmup_arguments,
+    validate_workload_warmup_arguments,
+    workload_warmup_configuration,
+)
 
 
 CASE_PATTERN = re.compile(r"^EigenBlas/Gemm/([^/]+)/n_(\d+)(?:/real_time)?$")
@@ -62,12 +66,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-concurrency", type=int)
     parser.add_argument("--repetitions", type=int, default=12)
     parser.add_argument("--min-time", default="0.05s")
-    parser.add_argument("--warmup-time", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20260714)
     parser.add_argument("--bootstrap-samples", type=int, default=2000)
     parser.add_argument("--checksum-relative-tolerance", type=float, default=1e-10)
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    add_workload_warmup_arguments(
+        parser, default_seconds=1.0, default_min_operations=10
+    )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
@@ -277,8 +283,12 @@ def summarize(
 def main() -> int:
     args = parse_args()
     provider = PROVIDERS[args.provider]
-    if args.repetitions < 1 or args.bootstrap_samples < 1 or args.warmup_time < 0:
+    if args.repetitions < 1 or args.bootstrap_samples < 1:
         raise SystemExit("repetitions, bootstrap samples, and warm-up must be valid")
+    try:
+        validate_workload_warmup_arguments(args)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if args.max_concurrency is not None and args.max_concurrency <= 0:
         raise SystemExit("--max-concurrency must be positive")
     if args.provider != "mkl" and args.max_concurrency is not None:
@@ -308,7 +318,7 @@ def main() -> int:
         [("variants", provider.variants)],
         allow_incomplete=args.allow_incomplete_order_cycle,
     )
-    host_preconditioning = precondition_host(
+    host_environment = prepare_benchmark_host(
         args, workers=args.max_concurrency or 8, dry_run=args.dry_run
     )
     if args.dry_run:
@@ -333,9 +343,9 @@ def main() -> int:
         "repetitions": args.repetitions,
         "order": order,
         "min_time": args.min_time,
-        "warmup_time": args.warmup_time,
+        "warmup": workload_warmup_configuration(args),
         "thread_telemetry_source": "cold_probes",
-        "host_preconditioning": host_preconditioning,
+        "host_environment": host_environment,
         "linkage": linkage,
         "records": records,
         "summary": [],
@@ -362,9 +372,6 @@ def main() -> int:
                 label = f"r={repetition}:n={matrix_n}:variant={variant}"
                 artifact.set_active(label)
                 with artifact.capture_failures(lambda: payload):
-                    guard_host_condition(
-                        args, host_preconditioning, label=label
-                    )
                     executable, name = cases[matrix_n][variant]
                     cold_probes[variant] = run_case(
                         executable,
@@ -379,7 +386,7 @@ def main() -> int:
                         name,
                         temporary / f"{block_index}-{variant}-steady.json",
                         args.min_time,
-                        args.warmup_time,
+                        args.warmup_seconds,
                         environment,
                     )
 

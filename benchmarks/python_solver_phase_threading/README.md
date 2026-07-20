@@ -234,9 +234,10 @@ The runner records inherited `MKL_THREADING_LAYER`, `KMP_AFFINITY`,
 `OMP_PROC_BIND`, `OMP_PLACES`, and the worker's Linux CPU-affinity mask when
 available. On Linux, pass placement explicitly with, for example,
 `--cpu-list 21-28 --numa-node 0`; the shared controller applies and verifies
-the affinity before preconditioning, and every worker inherits it. An existing
+the affinity before workload-specific warmup, and every worker inherits it. An existing
 affinity is accepted only when its CPU count matches `--concurrency`.
 Policy order uses the shared deterministic Williams design within adjacent
 repetition/workload blocks, balancing temporal position and first-order
-carry-over. A policy-neutral host guard runs before every measured worker; the
-run aborts by default if the guard exceeds the configured drift tolerance.
+carry-over. Every fresh worker warms the same solve and policy until both the
+fixed time and complete-solve lower bounds are satisfied; no proxy workload or
+online timing gate runs between measured workers.

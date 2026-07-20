@@ -30,12 +30,16 @@ from benchmark_support.mkl import (  # noqa: E402
     verify_mkl_tbb_benchmark_linkage,
 )
 from benchmark_support.statistics import bootstrap_median_ci  # noqa: E402
-from benchmark_support.conditioning import (  # noqa: E402
+from benchmark_support.harness import (  # noqa: E402
     add_benchmark_harness_arguments,
-    guard_host_condition,
-    precondition_host,
+    prepare_benchmark_host,
 )
 from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
+from benchmark_support.warmup import (  # noqa: E402
+    add_workload_warmup_arguments,
+    validate_workload_warmup_arguments,
+    workload_warmup_configuration,
+)
 
 
 LABELS = ("placebo_a", "placebo_b")
@@ -60,7 +64,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--repetitions", type=int, default=16)
     parser.add_argument("--min-time", default="0.25s")
-    parser.add_argument("--warmup-time", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20260720)
     parser.add_argument("--bootstrap-samples", type=int, default=5000)
     parser.add_argument(
@@ -69,6 +72,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ci-tolerance", type=float, default=DEFAULT_CI_TOLERANCE)
     parser.add_argument("--checksum-relative-tolerance", type=float, default=1e-10)
     parser.add_argument("--dry-run", action="store_true")
+    add_workload_warmup_arguments(
+        parser, default_seconds=1.0, default_min_operations=10
+    )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
@@ -134,43 +140,26 @@ def validate_identical_results(
         raise RuntimeError("Placebo labels produced different checksums.")
 
 
-def guard_throughput(check: dict[str, Any]) -> float:
-    values = [float(probe["iterations_per_second"]) for probe in check["probes"]]
-    return statistics.median(values)
-
-
 def analyze_records(
     records: list[dict[str, Any]], *, seed: int, bootstrap_samples: int
 ) -> dict[str, dict[str, Any]]:
     workload_label_ratios: list[float] = []
-    guard_label_ratios: list[float] = []
     workload_position_ratios: list[float] = []
-    guard_position_ratios: list[float] = []
     for record in records:
         measurements = record["measurements"]
-        guards = record["guards"]
         order = record["order"]
         workload_label_ratios.append(
             float(measurements[LABELS[1]]["wall_seconds"])
             / float(measurements[LABELS[0]]["wall_seconds"])
         )
-        guard_label_ratios.append(
-            guard_throughput(guards[LABELS[1]])
-            / guard_throughput(guards[LABELS[0]])
-        )
         workload_position_ratios.append(
             float(measurements[order[1]]["wall_seconds"])
             / float(measurements[order[0]]["wall_seconds"])
         )
-        guard_position_ratios.append(
-            guard_throughput(guards[order[1]]) / guard_throughput(guards[order[0]])
-        )
 
     ratio_groups = {
         "workload_placebo_b_over_a": workload_label_ratios,
-        "guard_placebo_b_over_a": guard_label_ratios,
         "workload_second_over_first": workload_position_ratios,
-        "guard_second_over_first": guard_position_ratios,
     }
     return {
         name: ratio_summary(
@@ -186,8 +175,12 @@ def main() -> int:
     args = parse_args()
     if args.concurrency <= 0 or args.repetitions <= 0:
         raise SystemExit("--concurrency and --repetitions must be positive.")
-    if args.warmup_time < 0 or args.bootstrap_samples <= 0:
-        raise SystemExit("--warmup-time must be nonnegative and samples positive.")
+    try:
+        validate_workload_warmup_arguments(args)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    if args.bootstrap_samples <= 0:
+        raise SystemExit("--bootstrap-samples must be positive.")
     if not 0 < args.median_tolerance <= args.ci_tolerance < 1:
         raise SystemExit("Require 0 < --median-tolerance <= --ci-tolerance < 1.")
 
@@ -217,16 +210,12 @@ def main() -> int:
         ],
         "ratios_checked": [
             "workload_placebo_b_over_a",
-            "guard_placebo_b_over_a",
             "workload_second_over_first",
-            "guard_second_over_first",
         ],
-        "requires_strict_timing_comparability": True,
-        "requires_every_guard_stable": True,
         "requires_identical_commands_counters_and_checksums": True,
     }
     runner = runner_manifest(Path(__file__))
-    host_preconditioning = precondition_host(
+    host_environment = prepare_benchmark_host(
         args, workers=args.concurrency, dry_run=args.dry_run
     )
     if args.dry_run:
@@ -237,7 +226,7 @@ def main() -> int:
                     "case": args.case,
                     "order": order,
                     "acceptance_criteria": acceptance_criteria,
-                    "host_preconditioning": host_preconditioning,
+                    "host_environment": host_environment,
                 },
                 indent=2,
             )
@@ -248,7 +237,7 @@ def main() -> int:
         "executable": str(executable),
         "case": args.case,
         "min_time": args.min_time,
-        "warmup_time": args.warmup_time,
+        "warmup": workload_warmup_configuration(args),
         "environment": {
             "MKL_THREADING_LAYER": environment["MKL_THREADING_LAYER"],
             CONCURRENCY_ENVIRONMENT: environment[CONCURRENCY_ENVIRONMENT],
@@ -275,32 +264,17 @@ def main() -> int:
                     "repetition": repetition,
                     "order": labels,
                     "semantic_command": semantic_command,
-                    "guards": {},
                     "measurements": {},
                 }
                 artifact.set_active(f"repetition={repetition}")
                 measurements = active_record["measurements"]
-                guards = active_record["guards"]
-                for position, label in enumerate(labels, start=1):
-                    try:
-                        guards[label] = guard_host_condition(
-                            args,
-                            host_preconditioning,
-                            label=(
-                                f"r={repetition}:position={position}:label={label}"
-                            ),
-                        )
-                    except Exception:
-                        block_checks = host_preconditioning.get("block_checks", [])
-                        if block_checks:
-                            guards[label] = block_checks[-1]
-                        raise
+                for label in labels:
                     measurements[label] = run_case(
                         executable,
                         args.case,
                         temporary / f"r{repetition}-{label}.json",
                         args.min_time,
-                        args.warmup_time,
+                        args.warmup_seconds,
                         environment,
                     )
                 validate_identical_results(
@@ -315,7 +289,7 @@ def main() -> int:
                         "benchmark": str(executable),
                         "case": args.case,
                         "acceptance_criteria": acceptance_criteria,
-                        "host_preconditioning": host_preconditioning,
+                        "host_environment": host_environment,
                         "records": records,
                     },
                     completed_units=len(records),
@@ -329,7 +303,7 @@ def main() -> int:
             "concurrency": args.concurrency,
             "repetitions": args.repetitions,
             "min_time": args.min_time,
-            "warmup_time": args.warmup_time,
+            "warmup": workload_warmup_configuration(args),
             "seed": args.seed,
             "bootstrap_samples": args.bootstrap_samples,
             "order": order,
@@ -338,7 +312,7 @@ def main() -> int:
             "failures": [f"{type(error).__name__}: {error}"],
             "completed_repetitions": len(records),
             "active_record": active_record,
-            "host_preconditioning": host_preconditioning,
+            "host_environment": host_environment,
             "linkage": linkage,
             "records": records,
         }
@@ -355,16 +329,6 @@ def main() -> int:
         median_tolerance=args.median_tolerance,
         ci_tolerance=args.ci_tolerance,
     )
-    guard_statuses = [
-        check["status"]
-        for record in records
-        for check in record["guards"].values()
-    ]
-    if any(status != "stable" for status in guard_statuses):
-        failures.append("not every policy-neutral guard was stable")
-    if not host_preconditioning.get("strict_timing_comparability", False):
-        failures.append("strict_timing_comparability is false")
-
     payload = {
         "runner": runner,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -373,7 +337,7 @@ def main() -> int:
         "concurrency": args.concurrency,
         "repetitions": args.repetitions,
         "min_time": args.min_time,
-        "warmup_time": args.warmup_time,
+        "warmup": workload_warmup_configuration(args),
         "seed": args.seed,
         "bootstrap_samples": args.bootstrap_samples,
         "order": order,
@@ -381,7 +345,7 @@ def main() -> int:
         "status": "passed" if not failures else "failed",
         "failures": failures,
         "summaries": summaries,
-        "host_preconditioning": host_preconditioning,
+        "host_environment": host_environment,
         "linkage": linkage,
         "records": records,
     }

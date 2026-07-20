@@ -22,10 +22,9 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from benchmark_support.conditioning import (  # noqa: E402
+from benchmark_support.harness import (  # noqa: E402
     add_benchmark_harness_arguments,
-    guard_host_condition,
-    precondition_host,
+    prepare_benchmark_host,
 )
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
@@ -34,6 +33,10 @@ from benchmark_support.mkl import (  # noqa: E402
     verify_mkl_tbb_probe_linkage,
 )
 from benchmark_support.process import resolve_file  # noqa: E402
+from benchmark_support.warmup import (  # noqa: E402
+    add_workload_warmup_arguments,
+    validate_workload_warmup_arguments,
+)
 
 
 RESULT_PREFIX = "PGO_CUBIC_LINEAR_PARDISO_AFTERMATH_RESULT"
@@ -56,6 +59,8 @@ INTEGER_FIELDS = {
     "fixed_dofs",
     "reduced_rows",
     "reduced_nnz",
+    "configured_warmup_min_operations",
+    "actual_warmup_operations",
 }
 FLOAT_FIELDS = {
     "prelude_seconds",
@@ -69,6 +74,8 @@ FLOAT_FIELDS = {
     "hessian_squared_norm",
     "hessian_max_abs",
     "solve_squared_norm",
+    "configured_warmup_seconds",
+    "actual_warmup_seconds",
 }
 SIGNATURE_FIELDS = (
     "energy",
@@ -87,13 +94,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--reserved-slots", type=int, default=1)
-    parser.add_argument("--warmup-iterations", type=int, default=2)
     parser.add_argument("--measured-iterations", type=int, default=5)
     parser.add_argument("--repetitions", type=int, default=20)
     parser.add_argument("--seed", type=int, default=20260717)
     parser.add_argument("--bootstrap-samples", type=int, default=20000)
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--dry-run", action="store_true")
+    add_workload_warmup_arguments(
+        parser, default_seconds=0.0, default_min_operations=2
+    )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
@@ -103,8 +112,7 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--concurrency must be positive")
     if args.reserved_slots < 0 or args.reserved_slots >= args.concurrency:
         raise ValueError("--reserved-slots must be in [0, concurrency)")
-    if args.warmup_iterations < 0:
-        raise ValueError("--warmup-iterations must be nonnegative")
+    validate_workload_warmup_arguments(args)
     if args.measured_iterations <= 0 or args.repetitions <= 0:
         raise ValueError("--measured-iterations and --repetitions must be positive")
     if args.bootstrap_samples <= 0:
@@ -148,7 +156,8 @@ def command_for(
         f"--mesh={mesh}",
         f"--concurrency={args.concurrency}",
         f"--reserved-slots={args.reserved_slots}",
-        f"--warmup-iterations={args.warmup_iterations}",
+        f"--warmup-seconds={args.warmup_seconds}",
+        f"--warmup-min-operations={args.warmup_min_operations}",
         f"--measured-iterations={args.measured_iterations}",
     ]
     return command
@@ -390,7 +399,7 @@ def main() -> int:
 
     out.mkdir(parents=True, exist_ok=False)
     linkage = verify_mkl_tbb_probe_linkage(probe, environment)
-    host_preconditioning = precondition_host(args, workers=args.concurrency)
+    host_environment = prepare_benchmark_host(args, workers=args.concurrency)
     raw: list[dict[str, Any]] = []
     samples: list[dict[str, Any]] = []
     pending: dict[int, dict[str, list[dict[str, Any]]]] = {}
@@ -421,7 +430,7 @@ def main() -> int:
             )
         },
         "linkage": linkage,
-        "host_preconditioning": host_preconditioning,
+        "host_environment": host_environment,
         "order": order,
         "raw_measurements": raw,
         "worker_samples": samples,
@@ -438,7 +447,6 @@ def main() -> int:
         label = f"repetition={repetition}:case={case}"
         artifact.set_active(label)
         with artifact.capture_failures(lambda: manifest):
-            guard_host_condition(args, host_preconditioning, label=label)
             command = command_for(args, probe, mesh, case)
             print(
                 f"[{job_index}/{len(jobs)}] r={repetition} case={case}",

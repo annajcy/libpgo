@@ -22,10 +22,9 @@ BENCHMARKS_ROOT = SCRIPT.parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from benchmark_support.conditioning import (  # noqa: E402
+from benchmark_support.harness import (  # noqa: E402
     add_benchmark_harness_arguments,
-    guard_host_condition,
-    precondition_host,
+    prepare_benchmark_host,
 )
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
@@ -34,6 +33,12 @@ from benchmark_support.python_worker import (  # noqa: E402
     worker_environment as isolated_worker_environment,
 )
 from benchmark_support.statistics import median_absolute_deviation  # noqa: E402
+from benchmark_support.warmup import (  # noqa: E402
+    add_workload_warmup_arguments,
+    run_workload_warmup,
+    validate_workload_warmup_arguments,
+    workload_warmup_configuration,
+)
 
 
 RESULT_MARKER = "PYPGO_FEM_THREADING_RESULT="
@@ -99,7 +104,6 @@ def parse_args(default_backend: str = "mkl") -> argparse.Namespace:
     parser.add_argument("--repetitions", type=int, default=10)
     parser.add_argument("--min-time", type=float, default=0.5)
     parser.add_argument("--min-iterations", type=int, default=1)
-    parser.add_argument("--warmup-iterations", type=int, default=2)
     parser.add_argument("--seed", type=int, default=20260716)
     parser.add_argument("--displacement-scale", type=float, default=1e-4)
     parser.add_argument(
@@ -112,6 +116,9 @@ def parse_args(default_backend: str = "mkl") -> argparse.Namespace:
     parser.add_argument("--native-profile", action="store_true")
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    add_workload_warmup_arguments(
+        parser, default_seconds=1.0, default_min_operations=3
+    )
     add_benchmark_harness_arguments(parser)
 
     # The controller starts one fresh worker process for every timed sample.
@@ -142,8 +149,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--min-time must be non-negative")
     if args.min_iterations <= 0:
         raise SystemExit("--min-iterations must be positive")
-    if args.warmup_iterations < 0:
-        raise SystemExit("--warmup-iterations must be non-negative")
+    try:
+        validate_workload_warmup_arguments(args)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if args.displacement_scale < 0:
         raise SystemExit("--displacement-scale must be non-negative")
     if args.signature_relative_tolerance < 0:
@@ -356,12 +365,6 @@ def worker_main(args: argparse.Namespace) -> int:
             return fn()
         return executor.execute(fn)
 
-    def warmup():
-        last = None
-        for _ in range(args.warmup_iterations):
-            last = evaluate()
-        return last
-
     def timed_loop():
         started = time.perf_counter()
         elapsed = 0.0
@@ -373,7 +376,13 @@ def worker_main(args: argparse.Namespace) -> int:
             elapsed = time.perf_counter() - started
         return elapsed, iterations, last
 
-    invoke(warmup)
+    _, warmup_result = invoke(
+        lambda: run_workload_warmup(
+            evaluate,
+            minimum_seconds=args.warmup_seconds,
+            minimum_operations=args.warmup_min_operations,
+        )
+    )
     gc.collect()
     if args.native_profile:
         profiling.set_enabled(True)
@@ -423,7 +432,11 @@ def worker_main(args: argparse.Namespace) -> int:
         "num_dofs": energy.num_dofs,
         "displacement_scale": args.displacement_scale,
         "displacement": displacement_signature,
-        "warmup_iterations": args.warmup_iterations,
+        "warmup": workload_warmup_configuration(args)
+        | {
+            "actual_seconds": warmup_result.elapsed_seconds,
+            "actual_operations": warmup_result.completed_operations,
+        },
         "iterations": iterations,
         "wall_seconds": elapsed,
         "execute_wall_seconds": execute_wall_seconds,
@@ -484,8 +497,10 @@ def worker_command(
         str(args.min_time),
         "--min-iterations",
         str(args.min_iterations),
-        "--warmup-iterations",
-        str(args.warmup_iterations),
+        "--warmup-seconds",
+        str(args.warmup_seconds),
+        "--warmup-min-operations",
+        str(args.warmup_min_operations),
         "--seed",
         str(args.seed),
         "--displacement-scale",
@@ -713,7 +728,7 @@ def controller_main(args: argparse.Namespace) -> int:
 
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    host_preconditioning = precondition_host(args, workers=args.concurrency)
+    host_environment = prepare_benchmark_host(args, workers=args.concurrency)
     _, environment_overrides = worker_environment(args.backend, args.concurrency)
     manifest = {
         "runner": runner_manifest(SCRIPT),
@@ -731,13 +746,13 @@ def controller_main(args: argparse.Namespace) -> int:
         "order": order,
         "min_time": args.min_time,
         "min_iterations": args.min_iterations,
-        "warmup_iterations": args.warmup_iterations,
+        "warmup": workload_warmup_configuration(args),
         "seed": args.seed,
         "displacement_scale": args.displacement_scale,
         "elastic_model": args.elastic_model,
         "plastic_dofs": args.plastic_dofs,
         "native_profile": args.native_profile,
-        "host_preconditioning": host_preconditioning,
+        "host_environment": host_environment,
         "environment_overrides": environment_overrides,
         "tet_mesh": str(args.tet_mesh.resolve()),
         "cubic_mesh": str(args.cubic_mesh.resolve()),
@@ -761,7 +776,6 @@ def controller_main(args: argparse.Namespace) -> int:
         with artifact.capture_failures(
             lambda: checkpoint_payload(manifest, records, reference_policy)
         ):
-            guard_host_condition(args, host_preconditioning, label=label)
             print(f"[{index}/{total}] {' '.join(command)}", flush=True)
             record = run_worker(command, args.backend, args.concurrency)
             records.append(record)

@@ -1,15 +1,18 @@
 # Benchmark execution policy
 
-All top-level benchmark runners use the responsibility-specific modules under
-`benchmarks/benchmark_support/` before starting measured cases.
-The policy has three distinct layers:
+Top-level runners use workload-specific warmup.  The exact case, problem size,
+backend, and threading policy that will be measured first execute in the same
+fresh process until both fixed lower bounds are satisfied:
 
-1. a policy-neutral all-core host preheat (60 seconds by default, long enough
-   to reach the sustained package power/thermal state on the benchmark host);
-2. policy-neutral throughput probes until the trailing three probes have at
-   most 2% relative median absolute deviation (and no greater than 10% total
-   spread); and
-3. each benchmark's existing process-local or kernel-local warm-up.
+```text
+elapsed >= warmup_seconds AND completed_operations >= warmup_min_operations
+```
+
+Warmup timing does not adapt either bound.  Runners reset measurement counters
+afterward without destroying the warmed executor, backend, or thread pools.
+Stateful workloads restore the same semantic input before every timed solve.
+The default bounds are provisional until the calibration described below is
+complete; formal runs must record the selected values in their manifests.
 
 Measured policy order uses a deterministic Williams design within each
 repetition/workload block. This balances temporal positions and first-order
@@ -27,59 +30,41 @@ Common options are available on every runner:
 --numa-node
 --allow-cross-numa
 --allow-incomplete-order-cycle
---host-preheat-seconds
---host-preheat-workers
---host-probe-seconds
---host-required-stable-probes
---host-max-probes
---host-stability-tolerance
---host-drift-tolerance
---host-abort-drift-tolerance
---allow-host-drift
---skip-host-preconditioning
 ```
+
+Workload runners additionally expose `--warmup-seconds` and
+`--warmup-min-operations`.  Google Benchmark-backed runners pass the time bound
+to `--benchmark_min_warmup_time`; its calibrated iteration loop supplies many
+more than the minimum operation count for the microbenchmarks used here.
 
 `--allow-incomplete-order-cycle` is an explicit diagnostic escape hatch. Such
 a run records `strictly_balanced = false` and must not be mixed into strict
 timing comparisons.
 
-Use `--skip-host-preconditioning` only for dry runs or diagnostics. The choice
-is explicit in the output manifest. On Linux, the manifest also records
-requested and effective CPU affinity, CPU/core/socket/NUMA topology, cpufreq
-driver/governor/frequency bounds, load average, and CPU pressure before and
-after preconditioning.
+On Linux, the manifest records requested and effective CPU affinity,
+CPU/core/socket/NUMA topology, cgroup CPU placement and quota, cpufreq
+driver/governor/frequency bounds, load average, and CPU pressure.  These are
+read-only provenance checks; the harness does not run a proxy workload.
 
 For strict server runs, pass affinity as a benchmark parameter, for example
-`--cpu-list 21-28 --numa-node 0`. The controller applies it before
-preconditioning, verifies that its size equals benchmark concurrency, and all
-preheat workers and benchmark subprocesses inherit it. An affinity inherited
-from `taskset` is also accepted when its size already matches concurrency.
+`--cpu-list 21-28 --numa-node 0`. The controller applies it before workload
+warmup, verifies that its size equals benchmark concurrency, and all benchmark
+subprocesses inherit it. An affinity inherited from `taskset` is also accepted
+when its size already matches concurrency.
 Cross-NUMA placement is rejected unless `--allow-cross-numa` is explicit. Do
 not compile, profile, or run unrelated jobs concurrently on the allocated
-CPUs. Process-local warmup does not replace host preconditioning.
-
-Every measured case is preceded by a policy-neutral guard probe. Probes within
-5% of the initial stable baseline are marked `stable`; larger deviations abort
-the run by default, before the affected case is measured. This both rejects
-host drift and gives every policy the same immediate predecessor instead of
-allowing a long-running policy to thermally condition the next one.
-
-`--allow-host-drift` explicitly permits deviations between the drift and abort
-thresholds and records them as `drifted`. Results produced with that override
-are diagnostic rather than strict policy comparisons. A deviation above the
-abort threshold always stops the run. The complete guard trajectory remains in
-the result artifact for audit, and `strict_timing_comparability` is set to
-`false` whenever a guard is skipped or accepted as drifted.
+CPUs.  Complete Williams cycles and paired analysis, rather than online timing
+rejection, control smooth temporal drift and first-order carry-over.
 
 Before a formal server campaign, run `run_harness_placebo.py` against one
 representative oneMKL Google Benchmark case. Its `placebo_a` and `placebo_b`
 labels execute the same case, command parameters, environment, and fresh-process
 path in a complete AB/BA cycle. The gate rejects material label bias, temporal
-position bias, or guard-throughput bias before any real policy contrast is
+position bias, or warmup-path bias before any real policy contrast is
 interpreted. The default fixed acceptance region requires every median ratio
 to remain within 2% of one and every bootstrap 95% interval to fit inside a 5%
-equivalence band, in addition to strict affinity, stable guards, and identical
-correctness counters.
+equivalence band, in addition to strict affinity and identical correctness
+counters.
 
 For example, on the eight-core Linux allocation:
 
@@ -91,14 +76,31 @@ python3 benchmarks/run_harness_placebo.py \
   --concurrency 8 --cpu-list 21-28 --numa-node 0
 ```
 
+## Warmup calibration API
+
+`run_warmup_calibration.py` runs one subject over the counterbalanced candidate
+set `0,0.25,0.5,1,2,4` seconds in fresh processes.  Commands are templates with
+`{warmup_seconds}`, `{warmup_min_operations}`, `{result_path}`, and
+`{repetition}` fields.  Google Benchmark JSON, key-value result markers, and
+JSON result markers are supported.
+
+The predeclared rule selects the smallest positive `T` for which paired timing
+at `T` is equivalent to both `2T` and `4T`: the median ratio must be within 1%
+of one and its bootstrap 95% interval must fit within a 2% equivalence band.
+If no candidate qualifies, the artifact returns `extend_candidates` and names
+the next duration to test.  Calibration output uses the same atomic progress,
+runner provenance, host placement, and Williams-order metadata as formal runs.
+
 ## Runner support boundaries
 
 `benchmark_support/` owns reusable execution mechanics only:
 
 - `host.py` applies and verifies affinity/NUMA placement and records topology,
   cgroup, CPU-pressure, and CPU-frequency provenance;
-- `conditioning.py` owns the policy-neutral preheat, stability probes, and
-  per-case guards, and exposes the common harness CLI arguments;
+- `harness.py` composes the common CLI and records the host without executing a
+  proxy workload;
+- `warmup.py` owns exact-workload warmup, calibration scheduling, and the
+  predeclared plateau decision;
 - `schedule.py` owns Williams ordering and complete-cycle validation;
 - `artifact.py` atomically checkpoints JSON and records a uniform
   `artifact_state` with running/complete/failed state, active unit, progress,
@@ -111,10 +113,8 @@ python3 benchmarks/run_harness_placebo.py \
 - `statistics.py` and `validation.py` contain deterministic summary and CLI
   primitives.
 
-`host_preconditioning.py` remains only as a compatibility CLI and import
-facade. Top-level runners import the responsibility-specific modules directly.
 Every runner checkpoints after a completed unit and writes a failed artifact
-when a guard, worker, profiler, parser, or correctness validation raises. The
+when a worker, profiler, parser, or correctness validation raises. The
 shared artifact layer does not define case semantics or summary schemas.
 
 Individual runners continue to own their case patterns, policy definitions,

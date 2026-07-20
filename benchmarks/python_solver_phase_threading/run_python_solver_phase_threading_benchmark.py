@@ -22,10 +22,9 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from benchmark_support.conditioning import (  # noqa: E402
+from benchmark_support.harness import (  # noqa: E402
     add_benchmark_harness_arguments,
-    guard_host_condition,
-    precondition_host,
+    prepare_benchmark_host,
 )
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
@@ -35,6 +34,12 @@ from benchmark_support.python_worker import (  # noqa: E402
     worker_environment as isolated_worker_environment,
 )
 from benchmark_support.statistics import median_absolute_deviation  # noqa: E402
+from benchmark_support.warmup import (  # noqa: E402
+    add_workload_warmup_arguments,
+    run_workload_warmup,
+    validate_workload_warmup_arguments,
+    workload_warmup_configuration,
+)
 
 
 SCRIPT = Path(__file__).resolve()
@@ -89,7 +94,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--reserved-slots", type=int, default=1)
     parser.add_argument("--repetitions", type=int)
-    parser.add_argument("--warmup-solves", type=int, default=1)
     parser.add_argument("--timed-solves", type=int)
     parser.add_argument("--newton-iterations", type=int)
     parser.add_argument("--seed", type=int, default=20260716)
@@ -106,6 +110,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    add_workload_warmup_arguments(
+        parser, default_seconds=0.0, default_min_operations=2
+    )
     add_benchmark_harness_arguments(parser)
 
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
@@ -138,8 +145,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--reserved-slots must be between zero and concurrency")
     if args.repetitions <= 0:
         raise SystemExit("--repetitions must be positive")
-    if args.warmup_solves < 0:
-        raise SystemExit("--warmup-solves must be non-negative")
+    try:
+        validate_workload_warmup_arguments(args)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if args.timed_solves <= 0:
         raise SystemExit("--timed-solves must be positive")
     if args.newton_iterations <= 0:
@@ -462,8 +471,11 @@ def worker_main(args: argparse.Namespace) -> int:
             lambda: optimizer.solve(workload.problem, workload.x0)
         )
 
-    for _ in range(args.warmup_solves):
-        solve_once()
+    _, warmup_result = run_workload_warmup(
+        solve_once,
+        minimum_seconds=args.warmup_seconds,
+        minimum_operations=args.warmup_min_operations,
+    )
     gc.collect()
 
     solve_wall_seconds: list[float] = []
@@ -569,7 +581,11 @@ def worker_main(args: argparse.Namespace) -> int:
         "repetition": args.repetition,
         "concurrency": args.concurrency,
         "reserved_slots": args.reserved_slots,
-        "warmup_solves": args.warmup_solves,
+        "warmup": workload_warmup_configuration(args)
+        | {
+            "actual_seconds": warmup_result.elapsed_seconds,
+            "actual_operations": warmup_result.completed_operations,
+        },
         "timed_solves": args.timed_solves,
         "solve_wall_seconds": solve_wall_seconds,
         "total_wall_seconds": float(sum(solve_wall_seconds)),
@@ -653,8 +669,10 @@ def worker_command(
         str(args.concurrency),
         "--reserved-slots",
         str(args.reserved_slots),
-        "--warmup-solves",
-        str(args.warmup_solves),
+        "--warmup-seconds",
+        str(args.warmup_seconds),
+        "--warmup-min-operations",
+        str(args.warmup_min_operations),
         "--timed-solves",
         str(args.timed_solves),
         "--newton-iterations",
@@ -1135,7 +1153,7 @@ def controller_main(args: argparse.Namespace) -> int:
 
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    host_preconditioning = precondition_host(args, workers=args.concurrency)
+    host_environment = prepare_benchmark_host(args, workers=args.concurrency)
     _, environment_overrides = worker_environment(args.concurrency)
     manifest = {
         "runner": runner_manifest(SCRIPT),
@@ -1153,7 +1171,7 @@ def controller_main(args: argparse.Namespace) -> int:
         "reserved_slots": args.reserved_slots,
         "repetitions": args.repetitions,
         "order": order,
-        "warmup_solves": args.warmup_solves,
+        "warmup": workload_warmup_configuration(args),
         "timed_solves": args.timed_solves,
         "newton_iterations": args.newton_iterations,
         "seed": args.seed,
@@ -1177,7 +1195,7 @@ def controller_main(args: argparse.Namespace) -> int:
             for command, block_key in scheduled
         ],
         "environment_overrides": environment_overrides,
-        "host_preconditioning": host_preconditioning,
+        "host_environment": host_environment,
     }
 
     records: list[dict[str, Any]] = []
@@ -1208,15 +1226,6 @@ def controller_main(args: argparse.Namespace) -> int:
         policy = command[command.index("--policy") + 1]
         label = f"r={block_key[0]}:workload={block_key[1]}:policy={policy}"
         artifact.set_active(label)
-        with artifact.capture_failures(
-            lambda: {
-                "manifest": manifest,
-                "run_status": run_status,
-                "measurements": records,
-                "summary": [],
-            }
-        ):
-            guard_host_condition(args, host_preconditioning, label=label)
         print(f"[{index}/{total}] {' '.join(command)}", flush=True)
         try:
             record = run_worker(command, args.concurrency)

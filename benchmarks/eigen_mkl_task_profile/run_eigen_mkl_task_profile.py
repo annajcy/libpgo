@@ -17,10 +17,9 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[1]
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from benchmark_support.conditioning import (  # noqa: E402
+from benchmark_support.harness import (  # noqa: E402
     add_benchmark_harness_arguments,
-    guard_host_condition,
-    precondition_host,
+    prepare_benchmark_host,
 )
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.mkl import (  # noqa: E402
@@ -34,6 +33,11 @@ from benchmark_support.process import (  # noqa: E402
     resolve_vtune,
 )
 from benchmark_support.validation import require_positive  # noqa: E402
+from benchmark_support.warmup import (  # noqa: E402
+    add_workload_warmup_arguments,
+    validate_workload_warmup_arguments,
+    workload_warmup_configuration,
+)
 
 
 ALL_POLICIES = (
@@ -56,7 +60,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--matrix-n", type=int, default=1024)
-    parser.add_argument("--warmup-iterations", type=int, default=3)
     parser.add_argument("--profile-iterations", type=int, default=50)
     parser.add_argument(
         "--sudo",
@@ -64,6 +67,9 @@ def parse_args() -> argparse.Namespace:
         help="Run the VTune collector through sudo when ptrace_scope blocks collection.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    add_workload_warmup_arguments(
+        parser, default_seconds=1.0, default_min_operations=3
+    )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
 
@@ -74,7 +80,8 @@ def probe_command(probe: Path, args: argparse.Namespace, policy: str) -> list[st
         f"--policy={policy}",
         f"--concurrency={args.concurrency}",
         f"--matrix-n={args.matrix_n}",
-        f"--warmup-iterations={args.warmup_iterations}",
+        f"--warmup-seconds={args.warmup_seconds}",
+        f"--warmup-min-operations={args.warmup_min_operations}",
         f"--profile-iterations={args.profile_iterations}",
     ]
 
@@ -84,8 +91,7 @@ def main() -> int:
     require_positive(args.concurrency, "--concurrency")
     require_positive(args.matrix_n, "--matrix-n")
     require_positive(args.profile_iterations, "--profile-iterations")
-    if args.warmup_iterations < 0:
-        raise ValueError("--warmup-iterations must be nonnegative.")
+    validate_workload_warmup_arguments(args)
 
     probe = resolve_file(args.probe, "Probe executable")
     vtune = resolve_vtune(args.vtune)
@@ -123,7 +129,7 @@ def main() -> int:
         return 0
 
     output.mkdir(parents=True)
-    host_preconditioning = precondition_host(args, workers=args.concurrency)
+    host_environment = prepare_benchmark_host(args, workers=args.concurrency)
     manifest: dict[str, Any] = {
         "runner": runner_manifest(Path(__file__)),
         "schema_version": 2,
@@ -134,13 +140,13 @@ def main() -> int:
             "policies": args.policies,
             "concurrency": args.concurrency,
             "matrix_n": args.matrix_n,
-            "warmup_iterations": args.warmup_iterations,
+            "warmup": workload_warmup_configuration(args),
             "profile_iterations": args.profile_iterations,
             "sudo": args.sudo,
         },
         "environment": {"MKL_THREADING_LAYER": "TBB"},
         "linkage": linkage,
-        "host_preconditioning": host_preconditioning,
+        "host_environment": host_environment,
         "runs": [],
     }
     artifact = JsonArtifact(output / "manifest.json", scheduled_units=len(commands))
@@ -148,11 +154,6 @@ def main() -> int:
     for index, entry in enumerate(commands, start=1):
         artifact.set_active(f"vtune:{entry['policy']}")
         with artifact.capture_failures(lambda: manifest):
-            guard_host_condition(
-                args,
-                host_preconditioning,
-                label=f"vtune:{entry['policy']}",
-            )
             result_directory = Path(entry["result_directory"])
             print(f"Running {entry['policy']}...", flush=True)
             result = subprocess.run(

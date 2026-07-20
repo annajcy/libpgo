@@ -1,6 +1,7 @@
 #include "../eigen_mkl_common/eigen_mkl_executor_cases.h"
 #include "../eigen_mkl_common/eigen_mkl_gemm_workload.h"
 #include "../benchmark_argument_parser.h"
+#include "../workload_warmup.h"
 
 #include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
@@ -26,6 +27,7 @@ using pgo::benchmark_helpers::mklExecutorCaseName;
 using pgo::benchmark_helpers::mklExecutorSpec;
 using pgo::benchmark_helpers::parseMklExecutorCase;
 using pgo::benchmark_helpers::parseNonnegativeInteger;
+using pgo::benchmark_helpers::parseNonnegativeDouble;
 using pgo::benchmark_helpers::parsePositiveInteger;
 using pgo::benchmark_helpers::requireValue;
 
@@ -34,7 +36,8 @@ struct Arguments
   MklExecutorCase policy;
   int concurrency;
   int matrixN;
-  int warmupIterations;
+  double warmupSeconds;
+  int warmupMinOperations;
   int profileIterations;
 };
 
@@ -45,8 +48,11 @@ Arguments parseArguments(int argc, char **argv)
     parsePositiveInteger(
       requireValue(argc, argv, "--concurrency="), "--concurrency"),
     parsePositiveInteger(requireValue(argc, argv, "--matrix-n="), "--matrix-n"),
+    parseNonnegativeDouble(
+      requireValue(argc, argv, "--warmup-seconds="), "--warmup-seconds"),
     parseNonnegativeInteger(
-      requireValue(argc, argv, "--warmup-iterations="), "--warmup-iterations"),
+      requireValue(argc, argv, "--warmup-min-operations="),
+      "--warmup-min-operations"),
     parsePositiveInteger(
       requireValue(argc, argv, "--profile-iterations="), "--profile-iterations"),
   };
@@ -68,7 +74,11 @@ void run(const Arguments &arguments)
     { .mklLocalThreadBudget = spec.mklLocalThreadBudget });
   EigenMklGemmWorkload workload(1, arguments.matrixN);
 
-  executor.execute([&] { runIterations(workload, arguments.warmupIterations); });
+  const auto warmup = executor.execute([&] {
+    return pgo::benchmark_helpers::runWorkloadWarmup(
+      [&] { workload.run(0); }, arguments.warmupSeconds,
+      arguments.warmupMinOperations);
+  });
 
   const std::clock_t cpuStart = std::clock();
   const auto wallStart = std::chrono::steady_clock::now();
@@ -80,6 +90,11 @@ void run(const Arguments &arguments)
             << " configured_arena_concurrency=" << spec.arenaConcurrency
             << " configured_mkl_local_budget=" << spec.mklLocalThreadBudget
             << " matrix_n=" << arguments.matrixN
+            << " configured_warmup_seconds=" << arguments.warmupSeconds
+            << " configured_warmup_min_operations="
+            << arguments.warmupMinOperations
+            << " actual_warmup_seconds=" << warmup.elapsedSeconds
+            << " actual_warmup_operations=" << warmup.completedOperations
             << " iterations=" << arguments.profileIterations << std::endl;
 
   executor.execute([&] { runIterations(workload, arguments.profileIterations); });
