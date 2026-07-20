@@ -86,7 +86,7 @@ For example, on the eight-core Linux allocation:
 ```bash
 python3 benchmarks/run_harness_placebo.py \
   build/base/benchmarks/eigen_mkl_crossover/eigen_mkl_crossover_benchmark \
-  --case EigenMklCrossover/ExecutorLocal1/n_128 \
+  --case EigenMklCrossover/ExecutorLocal1/n_128/real_time \
   --out benchmark-results/harness-placebo.json \
   --concurrency 8 --cpu-list 21-28 --numa-node 0
 ```
