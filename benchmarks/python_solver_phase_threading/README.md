@@ -13,19 +13,20 @@ Every timed solve uses:
 - `NewtonOptimizer`, `Backtrack`, `NoDamping`, and `MKLPardiso`;
 - `gradient_tolerance=0.0` and `FixedTermination`.
 
-There are two explicit modes:
+The formal benchmark uses one steady-state configuration:
 
-| mode | default policies | repetitions | timed solves per worker | maximum Newton iterations |
-| --- | --- | ---: | ---: | ---: |
-| `cold_start` | `uniform_single`, `phase_aware`, `phase_single_single` | 12 | 1 | 1 |
-| `steady_state` | the full phase-policy 2x2 matrix | 16 | 3 | 8 |
+| default policies | repetitions | timed solves per worker | maximum Newton iterations |
+| --- | ---: | ---: | ---: |
+| `phase_single_single`, `phase_aware` | 16 | 3 | 8 |
 
-`cold_start` preserves the original exactly-one-iteration experiment.
-`steady_state` is the primary end-to-end experiment: it requires at least two
-completed Newton iterations, but does not change the public solver semantics to
-force exactly eight. The existing convergence and failure exits remain active.
-Every policy in one `(repetition, workload)` block must nevertheless follow the
-same iteration count and complete line-search/symbolic-system path.
+It holds the evaluation
+budget at one and changes only the linear-solver budget, directly testing
+whether isolated sparse linear algebra benefits from backend parallelism. It
+requires at least two completed Newton iterations, but does not change the
+public solver semantics to force exactly eight. The existing convergence and
+failure exits remain active. Every policy in one `(repetition, workload)` block
+must nevertheless follow the same iteration count and complete
+line-search/symbolic-system path.
 
 The public `optimizer.solve()` path includes fixed-topology initialization,
 initial Hessian and symbolic analysis, every iteration's
@@ -56,35 +57,33 @@ even though the three default workloads are intended to be connected bodies.
 
 ## Policies
 
-With the default concurrency `C=8`, cold-start mode compares:
-
-| policy | evaluation MKL budget | linear-solver MKL budget | execution form |
-| --- | ---: | ---: | --- |
-| `uniform_single` | 1 | 1 | one outer executor around the whole solve |
-| `phase_aware` | 1 | C | `NewtonThreadingPolicy` |
-| `phase_single_single` | 1 | 1 | two independent phase executors |
-
-All executors use the same arena concurrency and reserved-slot setting.
-`phase_single_single` versus `uniform_single` estimates the cost of the phase
-dispatch abstraction while holding the effective thread budgets fixed.
-
-Steady-state mode instead uses the complete phase-policy 2x2 matrix:
+The benchmark defaults to the causal contrast used by the primary claim:
 
 | policy | evaluation MKL budget | linear-solver MKL budget | execution form |
 | --- | ---: | ---: | --- |
 | `phase_single_single` | 1 | 1 | two independent phase executors |
 | `phase_aware` | 1 | C | two independent phase executors |
+
+The two policies differ only in the linear-solver budget. The separate Python
+FEM benchmark tests the evaluation-side choice, so the primary solver
+benchmark does not repeat that factor.
+
+The remaining cells of the phase-policy 2x2 matrix are available as explicit
+diagnostic controls through `--policies`:
+
+| policy | evaluation MKL budget | linear-solver MKL budget | execution form |
+| --- | ---: | ---: | --- |
 | `phase_reversed` | C | 1 | two independent phase executors |
 | `phase_multi_multi` | C | C | two independent phase executors |
 
 `phase_single_single` is the all-single baseline, `phase_aware` is the proposed
-policy, `phase_reversed` is the mechanism-negative control, and
-`phase_multi_multi` exposes both phases to multi-threaded MKL. `uniform_single`
-and `uniform_multi` remain opt-in controls for measuring phase-dispatch versus
-one outer executor. The per-element cache fix is expected to make the
-evaluation=C controls numerically valid; the benchmark still rejects the whole
-block if their result or solver path differs. It never weakens correctness
-tolerances to obtain a timing comparison.
+policy, `phase_reversed` is a mechanism-negative control, and
+`phase_multi_multi` exposes both phases to multi-threaded MKL. The latter two
+are not required for the primary linear-solver claim. `uniform_single` and
+`uniform_multi` also remain opt-in controls for measuring phase dispatch versus
+one outer executor. When selected, every control must pass the same numerical
+and solver-path validation as the default policies. The benchmark never
+weakens correctness tolerances to obtain a timing comparison.
 
 ## Run
 
@@ -93,7 +92,6 @@ idle machine:
 
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
-  --mode steady_state \
   --out benchmarks/results/python-solver-phase-threading \
   --concurrency 8
 ```
@@ -120,16 +118,14 @@ Quick scheduling check without loading `pypgo`:
 
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
-  --mode steady_state --dry-run \
-  --workloads cubic_tricubic_hermite --repetitions 1 \
-  --allow-incomplete-order-cycle
+  --dry-run \
+  --workloads cubic_tricubic_hermite --repetitions 2
 ```
 
 Six-policy diagnostic smoke:
 
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
-  --mode steady_state \
   --out /tmp/python-solver-phase-six-policy-smoke \
   --workloads cubic_tricubic_hermite \
   --policies uniform_single uniform_multi phase_single_single phase_aware \
@@ -142,7 +138,6 @@ A small end-to-end smoke run after rebuilding:
 
 ```bash
 python benchmarks/python_solver_phase_threading/run_python_solver_phase_threading_benchmark.py \
-  --mode steady_state \
   --out /tmp/python-solver-phase-smoke \
   --workloads cubic_tricubic_hermite \
   --policies uniform_single phase_aware \
@@ -212,17 +207,16 @@ top-level lifecycle equation.
 
 A primary result supports the mechanism when:
 
-1. numerical and full per-iteration solver-path signatures match across the
-   four phase policies;
+1. numerical and full per-iteration solver-path signatures match between
+   `phase_single_single` and `phase_aware`;
 2. `phase_aware` beats `phase_single_single` by more than run-to-run variation;
 3. PARDISO factorization and solve improve when the linear phase changes from
-   budget 1 to budget C;
-4. `phase_reversed` and `phase_multi_multi` show that giving evaluation budget
-   C does not account for the proposed policy's gain.
+   budget 1 to budget C.
 
-If either evaluation=C control still fails its signature after the per-element
-cache fix, treat that as an implementation defect or an invalid experimental
-block, not as performance evidence.
+`phase_reversed` and `phase_multi_multi` may be added as exploratory controls,
+but they are not part of this primary acceptance criterion. If any selected
+evaluation=C control fails its signature, treat that as an implementation
+defect or an invalid experimental block, not as performance evidence.
 
 The benchmark establishes this claim only for the recorded machine, build,
 meshes, concurrency, and runtime environment. The JSON records the Git revision

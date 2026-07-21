@@ -37,7 +37,7 @@ python benchmarks/eigen_mkl_budget_sweep/run_eigen_mkl_budget_sweep.py \
   --out benchmark-results/eigen-mkl-budget-sweep
 ```
 
-The default workload uses 1024-by-1024 DGEMMs, three warm-up batches, 50 timed
+The default workload uses 1024-by-1024 DGEMMs, ten warm-up batches, 50 timed
 batches, and twelve counterbalanced fresh-process repetitions per case. Use
 `timing_summary` in `budget-sweep.json` for wall-time comparisons. It reports
 the median and median absolute deviation rather than selecting a best run.

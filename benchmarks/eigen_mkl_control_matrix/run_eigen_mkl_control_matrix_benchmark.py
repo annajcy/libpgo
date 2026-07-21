@@ -48,7 +48,7 @@ POLICIES = (
     "ExecutorMKLC",
     "ExecutorMKLCArena1",
 )
-WORKLOADS = ("EigenMklGemm", "NoBlas")
+WORKLOADS = ("EigenMklGemm",)
 RESULT_MARKER = "PGO_EIGEN_MKL_CONTROL_MATRIX_RESULT"
 RESULT_INTEGER_FIELDS = frozenset(
     {
@@ -89,11 +89,6 @@ def executor_spec(policy: str, concurrency: int) -> tuple[int, int]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("benchmark", type=Path)
-    parser.add_argument(
-        "--no-blas-benchmark",
-        type=Path,
-        help="Eigen-internal-GEMM executable (default: sibling no-BLAS target).",
-    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--repetitions", type=int, default=12)
     parser.add_argument("--min-time", default="0.05s")
@@ -158,7 +153,7 @@ def validate_block(
             raise RuntimeError(f"{policy} reported the wrong policy or workload.")
         expected_calls = integer_counter(row, "measurement_operations") * outer_tasks
         expected = {
-            "uses_blas": 1 if workload == "EigenMklGemm" else 0,
+            "uses_blas": 1,
             "configured_global_concurrency": concurrency,
             "effective_global_concurrency": concurrency,
             "configured_arena_concurrency": expected_arena_concurrency,
@@ -323,22 +318,10 @@ def main() -> int:
     executable = args.benchmark.resolve()
     if not executable.exists():
         raise SystemExit(f"Benchmark executable does not exist: {executable}")
-    no_blas_executable = (
-        args.no_blas_benchmark
-        or executable.with_name("eigen_mkl_control_matrix_no_blas_benchmark")
-    ).resolve()
-    if not no_blas_executable.exists():
-        raise SystemExit(
-            f"No-BLAS benchmark executable does not exist: {no_blas_executable}"
-        )
-
     environment = benchmark_environment()
     linkage = {
         "eigen_mkl_gemm": verify_mkl_tbb_benchmark_linkage(
             executable, environment, require_dgemm=True
-        ),
-        "eigen_internal_gemm": verify_mkl_tbb_benchmark_linkage(
-            no_blas_executable, environment, require_dgemm=False
         ),
     }
     cases = control_matrix_cases()
@@ -384,7 +367,6 @@ def main() -> int:
         "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "benchmark": str(executable),
-        "no_blas_benchmark": str(no_blas_executable),
         "seed": args.seed,
         "repetitions": args.repetitions,
         "min_time": args.min_time,
@@ -420,7 +402,7 @@ def main() -> int:
             artifact.set_active(label)
             with artifact.capture_failures(lambda: checkpoint_payload):
                 measurements[policy] = run_cpp_probe(
-                    executable if workload == "EigenMklGemm" else no_blas_executable,
+                    executable,
                     [
                         f"--policy={policy}",
                         f"--concurrency={concurrency}",
@@ -463,7 +445,6 @@ def main() -> int:
         "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "benchmark": str(executable),
-        "no_blas_benchmark": str(no_blas_executable),
         "seed": args.seed,
         "repetitions": args.repetitions,
         "min_time": args.min_time,

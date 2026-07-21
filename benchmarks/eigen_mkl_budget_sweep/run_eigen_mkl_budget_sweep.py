@@ -87,14 +87,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument(
-        "--arena-concurrency",
-        type=int,
-        help=(
-            "Deprecated compatibility alias for one private arena width. "
-            "Use --arena-concurrencies for the threading surface."
-        ),
-    )
-    parser.add_argument(
         "--arena-concurrencies",
         type=int,
         nargs="+",
@@ -159,13 +151,7 @@ def default_arena_concurrencies(concurrency: int) -> list[int]:
 
 def validate_args(args: argparse.Namespace) -> None:
     require_positive(args.concurrency, "--concurrency")
-    if args.arena_concurrency is not None and args.arena_concurrencies is not None:
-        raise ValueError(
-            "Pass either --arena-concurrency or --arena-concurrencies, not both."
-        )
-    if args.arena_concurrency is not None:
-        args.arena_concurrencies = [args.arena_concurrency]
-    elif args.arena_concurrencies is None:
+    if args.arena_concurrencies is None:
         args.arena_concurrencies = default_arena_concurrencies(args.concurrency)
     for arena in args.arena_concurrencies:
         require_positive(arena, "--arena-concurrencies")

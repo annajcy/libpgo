@@ -148,18 +148,6 @@ TEST(GlobalTbbControlTest, ValidatesAndUsesOneTbbRaiiSemantics)
     4U);
 }
 
-TEST(ParallelControlTest, NonExpandingResolutionUsesCurrentArenaOnly)
-{
-  EXPECT_THROW(P::resolveNonExpandingTbbConcurrency(0), std::invalid_argument);
-  EXPECT_THROW(P::resolveNonExpandingTbbConcurrency(-1), std::invalid_argument);
-
-  tbb::task_arena arena(2, 1);
-  arena.execute([] {
-    EXPECT_EQ(P::resolveNonExpandingTbbConcurrency(1), 1);
-    EXPECT_EQ(P::resolveNonExpandingTbbConcurrency(8), 2);
-  });
-}
-
 TEST(ThreadingPolicyTest, RejectsNegativeMklBudget)
 {
   EXPECT_THROW(P::setThreadingPolicy({ .mklLocalThreadBudget = -1 }),
@@ -304,6 +292,78 @@ TEST(ArenaThreadingExecutorTest, NestedExecutorsRestorePoliciesInLifoOrder)
     });
   }
 
+  EXPECT_EQ(currentBackendThreadingValue(), baseline);
+  EXPECT_TRUE(P::drainRetiredArenaThreadingExecutorStates(
+    std::chrono::seconds(5)));
+}
+
+TEST(ArenaThreadingExecutorTest, IndependentNestedTaskArenaDoesNotPropagateOuterPolicy)
+{
+  RestoreBackendThreadingValue restore;
+  const int baseline = baselineBackendThreadingValue();
+  const int outerValue = outerBackendThreadingValue();
+  setBackendThreadingValue(baseline);
+
+  std::atomic<bool> workerReady{ false };
+  std::atomic<bool> sampleRequested{ false };
+  std::atomic<bool> sampleFinished{ false };
+  std::atomic<bool> releaseWorker{ false };
+  std::atomic<bool> workerFinished{ false };
+  std::atomic<int> workerValue{ -1 };
+
+  tbb::task_arena independent(2, 1);
+  independent.enqueue([&] {
+    const int previous = currentBackendThreadingValue();
+    setBackendThreadingValue(baseline);
+    workerReady.store(true, std::memory_order_release);
+
+    while (!sampleRequested.load(std::memory_order_acquire) &&
+      !releaseWorker.load(std::memory_order_acquire))
+      std::this_thread::yield();
+
+    if (sampleRequested.load(std::memory_order_acquire)) {
+      workerValue.store(
+        currentBackendThreadingValue(), std::memory_order_release);
+      sampleFinished.store(true, std::memory_order_release);
+    }
+
+    while (!releaseWorker.load(std::memory_order_acquire))
+      std::this_thread::yield();
+
+    setBackendThreadingValue(previous);
+    workerFinished.store(true, std::memory_order_release);
+  });
+
+  if (!waitUntilTrue(workerReady, std::chrono::seconds(5))) {
+    releaseWorker.store(true, std::memory_order_release);
+    EXPECT_TRUE(waitUntilTrue(workerFinished, std::chrono::seconds(5)));
+    FAIL() << "The independent-arena worker did not start.";
+  }
+
+  {
+    P::ArenaThreadingExecutor outer(2, backendPolicy(outerValue));
+    EXPECT_EQ(currentBackendThreadingValue(), baseline);
+
+    outer.execute([&] {
+      EXPECT_EQ(currentBackendThreadingValue(), outerValue);
+
+      independent.execute([&] {
+        EXPECT_EQ(tbb::this_task_arena::max_concurrency(), 2);
+        EXPECT_EQ(currentBackendThreadingValue(), outerValue);
+        sampleRequested.store(true, std::memory_order_release);
+        EXPECT_TRUE(waitUntilTrue(sampleFinished, std::chrono::seconds(5)));
+        EXPECT_EQ(workerValue.load(std::memory_order_acquire), baseline);
+        EXPECT_EQ(currentBackendThreadingValue(), outerValue);
+      });
+
+      EXPECT_EQ(currentBackendThreadingValue(), outerValue);
+    });
+
+    EXPECT_EQ(currentBackendThreadingValue(), baseline);
+  }
+
+  releaseWorker.store(true, std::memory_order_release);
+  EXPECT_TRUE(waitUntilTrue(workerFinished, std::chrono::seconds(5)));
   EXPECT_EQ(currentBackendThreadingValue(), baseline);
   EXPECT_TRUE(P::drainRetiredArenaThreadingExecutorStates(
     std::chrono::seconds(5)));

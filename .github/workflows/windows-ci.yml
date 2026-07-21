@@ -19,7 +19,7 @@ env:
 
 jobs:
   build-test-wheel:
-    name: Windows Build, Test, and Package
+    name: Windows - Build, Test, and Package
     runs-on: windows-2022
     timeout-minutes: 120
     defaults:

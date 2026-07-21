@@ -20,6 +20,4 @@ private:
   tbb::global_control control_;
 };
 
-int resolveNonExpandingTbbConcurrency(int requestedConcurrency);
-
 }  // namespace pgo::parallel

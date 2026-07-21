@@ -28,5 +28,4 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
   add_subdirectory(eigen_mkl_control_matrix)
   add_subdirectory(eigen_mkl_nested_inner_arena)
   add_subdirectory(eigen_mkl_task_profile)
-  add_subdirectory(cubic_linear_pardiso_aftermath)
 endif()

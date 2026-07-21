@@ -45,6 +45,7 @@ from benchmark_support.warmup import (  # noqa: E402
 SCRIPT = Path(__file__).resolve()
 ROOT = SCRIPT.parents[2]
 RESULT_MARKER = "PYPGO_SOLVER_PHASE_THREADING_RESULT="
+BENCHMARK_MODE = "steady_state"
 REFERENCE_POLICY = "phase_aware"
 POLICIES = (
     "uniform_single",
@@ -55,27 +56,14 @@ POLICIES = (
     "phase_multi_multi",
 )
 DEFAULT_POLICIES = (
-    "uniform_single",
-    "phase_aware",
-    "phase_single_single",
-)
-STEADY_STATE_POLICIES = (
     "phase_single_single",
     "phase_aware",
-    "phase_reversed",
-    "phase_multi_multi",
 )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path)
-    parser.add_argument(
-        "--mode",
-        choices=("cold_start", "steady_state"),
-        default="cold_start",
-        help="cold_start preserves the original one-step benchmark; steady_state runs a multi-iteration solve",
-    )
     parser.add_argument("--workloads", nargs="+", choices=WORKLOADS, default=WORKLOADS)
     parser.add_argument("--policies", nargs="+", choices=POLICIES)
     parser.add_argument(
@@ -122,15 +110,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repetition", type=int, default=0, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.policies is None:
-        args.policies = (
-            STEADY_STATE_POLICIES if args.mode == "steady_state" else DEFAULT_POLICIES
-        )
+        args.policies = DEFAULT_POLICIES
     if args.repetitions is None:
-        args.repetitions = 16 if args.mode == "steady_state" else 12
+        args.repetitions = 16
     if args.timed_solves is None:
-        args.timed_solves = 3 if args.mode == "steady_state" else 1
+        args.timed_solves = 3
     if args.newton_iterations is None:
-        args.newton_iterations = 8 if args.mode == "steady_state" else 1
+        args.newton_iterations = 8
     return args
 
 
@@ -153,8 +139,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--timed-solves must be positive")
     if args.newton_iterations <= 0:
         raise SystemExit("--newton-iterations must be positive")
-    if args.mode == "cold_start" and args.newton_iterations != 1:
-        raise SystemExit("cold_start mode requires --newton-iterations=1")
     if not math.isfinite(args.displacement_scale) or args.displacement_scale <= 0.0:
         raise SystemExit("--displacement-scale must be positive")
     if (
@@ -488,12 +472,7 @@ def worker_main(args: argparse.Namespace) -> int:
         solve_wall_seconds.append(time.perf_counter() - started)
         timed_diagnostics.append(_diagnostic_record(last_result))
         signature = _result_signature(last_result, workload.fixed_dofs)
-        if args.mode == "cold_start" and signature["iterations"] != 1:
-            raise RuntimeError(
-                f"timed solve {solve_index} expected exactly one Newton iteration, "
-                f"got {signature['iterations']}"
-            )
-        if args.mode == "steady_state" and signature["iterations"] < 2:
+        if signature["iterations"] < 2:
             raise RuntimeError(
                 f"timed steady-state solve {solve_index} needs at least two completed "
                 f"Newton iterations, got {signature['iterations']}"
@@ -574,7 +553,7 @@ def worker_main(args: argparse.Namespace) -> int:
         for diagnostics, iterations in zip(timed_diagnostics, completed_iterations)
     ]
     result = {
-        "mode": args.mode,
+        "mode": BENCHMARK_MODE,
         "workload": args.workload,
         "policy": args.policy,
         "policy_parameters": parameters,
@@ -663,8 +642,6 @@ def worker_command(
         str(repetition),
         "--mesh",
         str(mesh.resolve()),
-        "--mode",
-        args.mode,
         "--concurrency",
         str(args.concurrency),
         "--reserved-slots",
@@ -1126,7 +1103,7 @@ def controller_main(args: argparse.Namespace) -> int:
             args.policies,
             repetition=repetition,
             seed=args.seed,
-            block_key=f"{args.mode}:{workload}",
+            block_key=f"{BENCHMARK_MODE}:{workload}",
         )
         for policy in policies:
             scheduled.append(
@@ -1163,7 +1140,7 @@ def controller_main(args: argparse.Namespace) -> int:
         "fresh_process_per_sample": True,
         "serial_execution": True,
         "reference_policy": REFERENCE_POLICY,
-        "mode": args.mode,
+        "mode": BENCHMARK_MODE,
         "workloads": list(args.workloads),
         "policies": list(args.policies),
         "mesh_paths": {name: str(path.resolve()) for name, path in paths.items()},

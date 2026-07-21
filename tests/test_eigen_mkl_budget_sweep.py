@@ -24,13 +24,13 @@ def test_default_arena_concurrencies_cover_powers_of_two_and_limit() -> None:
     assert budget_sweep.default_arena_concurrencies(6) == [1, 2, 4, 6]
 
 
-def test_legacy_single_arena_option_remains_supported() -> None:
+def test_default_configuration_expands_to_full_arena_surface() -> None:
     args = argparse.Namespace(
         concurrency=8,
-        arena_concurrency=4,
         arena_concurrencies=None,
         matrix_n=1024,
-        warmup_iterations=3,
+        warmup_seconds=0.0,
+        warmup_min_operations=10,
         profile_iterations=50,
         timing_repetitions=1,
         profile_repetitions=1,
@@ -39,7 +39,7 @@ def test_legacy_single_arena_option_remains_supported() -> None:
         profile_outer_tasks=[1],
     )
     budget_sweep.validate_args(args)
-    assert args.arena_concurrencies == [4]
+    assert args.arena_concurrencies == [1, 2, 4, 8]
 
 
 def test_surface_jobs_cover_every_arena_budget_pair() -> None:
@@ -84,10 +84,10 @@ def test_timing_summary_keeps_arena_as_a_surface_dimension() -> None:
 def test_arena_surface_rejects_width_larger_than_global_control() -> None:
     args = argparse.Namespace(
         concurrency=4,
-        arena_concurrency=None,
         arena_concurrencies=[8],
         matrix_n=1024,
-        warmup_iterations=3,
+        warmup_seconds=0.0,
+        warmup_min_operations=10,
         profile_iterations=50,
         timing_repetitions=1,
         profile_repetitions=1,

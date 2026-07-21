@@ -1,10 +1,4 @@
-#if !defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
-#  include "../eigen_mkl_common/eigen_mkl_gemm_workload.h"
-#endif
-
-#if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
-#  include "no_blas_workload.h"
-#endif
+#include "../eigen_mkl_common/eigen_mkl_gemm_workload.h"
 
 #include "../benchmark_argument_parser.h"
 #include "../eigen_mkl_common/eigen_mkl_executor_cases.h"
@@ -31,9 +25,7 @@ namespace
 namespace P = pgo::parallel;
 using pgo::benchmark_helpers::adjustedExtraThreads;
 using pgo::benchmark_helpers::allMklExecutorCases;
-#if !defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
 using pgo::benchmark_helpers::EigenMklGemmWorkload;
-#endif
 using pgo::benchmark_helpers::MklExecutorCase;
 using pgo::benchmark_helpers::mklExecutorCaseName;
 using pgo::benchmark_helpers::mklExecutorSpec;
@@ -45,9 +37,6 @@ using pgo::benchmark_helpers::parseTimedMeasurementArguments;
 using pgo::benchmark_helpers::requireValue;
 using pgo::benchmark_helpers::runTimedMeasurement;
 using pgo::benchmark_helpers::runWorkloadWarmup;
-#if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
-using pgo::benchmark_helpers::NoBlasWorkload;
-#endif
 using pgo::benchmark_helpers::ThreadSampler;
 using pgo::benchmark_helpers::updateMaximum;
 using pgo::benchmark_helpers::TimedMeasurementArguments;
@@ -55,7 +44,6 @@ using pgo::benchmark_helpers::TimedMeasurementArguments;
 enum class WorkloadKind
 {
   EigenMklGemm = 0,
-  NoBlas = 1,
 };
 
 const char *workloadName(WorkloadKind workload) noexcept
@@ -63,15 +51,8 @@ const char *workloadName(WorkloadKind workload) noexcept
   switch (workload) {
   case WorkloadKind::EigenMklGemm:
     return "EigenMklGemm";
-  case WorkloadKind::NoBlas:
-    return "NoBlas";
   }
   return "Unknown";
-}
-
-bool usesBlas(WorkloadKind workload) noexcept
-{
-  return workload == WorkloadKind::EigenMklGemm;
 }
 
 struct RunTelemetry
@@ -199,7 +180,7 @@ void runWorkloadBenchmark(
             << "PGO_EIGEN_MKL_CONTROL_MATRIX_RESULT"
             << " policy=" << mklExecutorCaseName(arguments.policy)
             << " workload=" << workloadName(workloadKind)
-            << " uses_blas=" << (usesBlas(workloadKind) ? 1 : 0)
+            << " uses_blas=1"
             << " configured_global_concurrency=" << arguments.concurrency
             << " effective_global_concurrency=" << effectiveConcurrency
             << " configured_arena_concurrency=" << spec.arenaConcurrency
@@ -231,13 +212,8 @@ void runWorkloadBenchmark(
 
 void runBenchmark(const Arguments &arguments)
 {
-#if !defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
   runWorkloadBenchmark<EigenMklGemmWorkload>(
     WorkloadKind::EigenMklGemm, arguments);
-#endif
-#if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
-  runWorkloadBenchmark<NoBlasWorkload>(WorkloadKind::NoBlas, arguments);
-#endif
 }
 
 }  // namespace
