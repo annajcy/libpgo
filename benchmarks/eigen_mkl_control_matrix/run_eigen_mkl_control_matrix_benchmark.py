@@ -6,10 +6,8 @@ from __future__ import annotations
 import argparse
 import math
 import random
-import re
 import statistics
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,10 +28,9 @@ from benchmark_support.warmup import (  # noqa: E402
     validate_workload_warmup_arguments,
     workload_warmup_configuration,
 )
-from benchmark_support.google_benchmark import (  # noqa: E402
+from benchmark_support.cpp_probe import (  # noqa: E402
     integer_counter,
-    list_cases,
-    run_case,
+    run_cpp_probe,
 )
 from benchmark_support.mkl import (  # noqa: E402
     mkl_tbb_environment,
@@ -52,13 +49,25 @@ POLICIES = (
     "ExecutorMKLCArena1",
 )
 WORKLOADS = ("EigenMklGemm", "NoBlas")
-POLICY_PATTERN = "|".join(POLICIES)
-CASE_PATTERN = re.compile(
-    r"^EigenMklControlMatrix/"
-    r"(EigenMklGemm|NoBlas)/"
-    rf"({POLICY_PATTERN})"
-    r"/c_(\d+)/tasks_(\d+)/n_(\d+)(?:/real_time)?$"
+RESULT_MARKER = "PGO_EIGEN_MKL_CONTROL_MATRIX_RESULT"
+RESULT_INTEGER_FIELDS = frozenset(
+    {
+        "uses_blas",
+        "configured_global_concurrency",
+        "effective_global_concurrency",
+        "configured_arena_concurrency",
+        "configured_mkl_local_budget",
+        "outer_tasks",
+        "matrix_n",
+        "observed_arena_concurrency",
+        "outer_active_peak",
+        "body_calls",
+        "baseline_threads",
+        "peak_threads",
+        "extra_threads",
+    }
 )
+RESULT_FLOAT_FIELDS = frozenset({"checksum", "flops_per_operation"})
 
 
 def executor_spec(policy: str, concurrency: int) -> tuple[int, int]:
@@ -100,7 +109,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-mkl-verbose-probe", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     add_workload_warmup_arguments(
-        parser, default_seconds=1.0, default_min_operations=10
+        parser, default_seconds=0.0, default_min_operations=10
     )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
@@ -110,29 +119,13 @@ def benchmark_environment() -> dict[str, str]:
     return mkl_tbb_environment()
 
 
-def discover_cases(
-    executable: Path, environment: dict[str, str], expected_workload: str
-) -> dict[tuple[str, int, int, int], dict[str, str]]:
-    discovered: dict[tuple[str, int, int, int], dict[str, str]] = {}
-    for name in list_cases(executable, environment):
-        match = CASE_PATTERN.fullmatch(name)
-        if not match:
-            continue
-        workload, policy, concurrency, outer_tasks, matrix_n = match.groups()
-        key = (workload, int(concurrency), int(outer_tasks), int(matrix_n))
-        discovered.setdefault(key, {})[policy] = name
-
-    complete = {
-        key: cases
-        for key, cases in sorted(discovered.items())
-        if set(cases) == set(POLICIES)
-    }
-    invalid = [key for key in complete if key[0] != expected_workload]
-    if invalid:
-        raise RuntimeError(
-            f"{executable} exposed unexpected control-matrix workload(s): {invalid}."
-        )
-    return complete
+def control_matrix_cases() -> list[tuple[str, int, int, int]]:
+    return [
+        (workload, concurrency, concurrency * task_multiplier, 1024)
+        for workload in WORKLOADS
+        for concurrency in (4, 8)
+        for task_multiplier in (1, 4)
+    ]
 
 
 def validate_block(
@@ -161,10 +154,10 @@ def validate_block(
         expected_arena_concurrency, expected_mkl_budget = executor_spec(
             policy, concurrency
         )
-        expected_calls = int(row["iterations"]) * outer_tasks
+        if row["policy"] != policy or row["workload"] != workload:
+            raise RuntimeError(f"{policy} reported the wrong policy or workload.")
+        expected_calls = integer_counter(row, "measurement_operations") * outer_tasks
         expected = {
-            "policy": POLICIES.index(policy),
-            "workload": WORKLOADS.index(workload),
             "uses_blas": 1 if workload == "EigenMklGemm" else 0,
             "configured_global_concurrency": concurrency,
             "effective_global_concurrency": concurrency,
@@ -270,7 +263,7 @@ def summarize(
 
 def run_mkl_verbose_probe(
     executable: Path,
-    cases: dict[tuple[str, int, int, int], dict[str, str]],
+    cases: list[tuple[str, int, int, int]],
     environment: dict[str, str],
 ) -> list[dict[str, Any]]:
     probe_environment = environment.copy()
@@ -348,12 +341,9 @@ def main() -> int:
             no_blas_executable, environment, require_dgemm=False
         ),
     }
-    cases = discover_cases(executable, environment, "EigenMklGemm")
-    cases.update(discover_cases(no_blas_executable, environment, "NoBlas"))
+    cases = control_matrix_cases()
     if args.case_limit:
-        cases = dict(list(cases.items())[: args.case_limit])
-    if not cases:
-        raise SystemExit("No complete six-policy control-matrix cases were found.")
+        cases = cases[: args.case_limit]
 
     probe: Path | None = None
     if not args.skip_mkl_verbose_probe:
@@ -407,60 +397,61 @@ def main() -> int:
     }
     artifact = JsonArtifact(args.out, scheduled_units=len(schedule))
 
-    with tempfile.TemporaryDirectory(
-        prefix="pgo-eigen-mkl-control-matrix-"
-    ) as temp_dir:
-        temporary = Path(temp_dir)
-        for block_index, (repetition, key) in enumerate(schedule, start=1):
-            workload, concurrency, outer_tasks, matrix_n = key
-            policies = balanced_order(
-                POLICIES,
-                repetition=repetition - 1,
-                seed=args.seed,
-                block_key=(
-                    f"{workload}:c={concurrency}:tasks={outer_tasks}:n={matrix_n}"
-                ),
+    for block_index, (repetition, key) in enumerate(schedule, start=1):
+        workload, concurrency, outer_tasks, matrix_n = key
+        policies = balanced_order(
+            POLICIES,
+            repetition=repetition - 1,
+            seed=args.seed,
+            block_key=(f"{workload}:c={concurrency}:tasks={outer_tasks}:n={matrix_n}"),
+        )
+        print(
+            f"[{block_index}/{len(schedule)}] repetition={repetition} "
+            f"{workload}: c={concurrency} tasks={outer_tasks} n={matrix_n} "
+            f"order={','.join(policies)}",
+            flush=True,
+        )
+        measurements: dict[str, dict[str, Any]] = {}
+        for policy in policies:
+            label = (
+                f"r={repetition}:workload={workload}:c={concurrency}:"
+                f"tasks={outer_tasks}:n={matrix_n}:policy={policy}"
             )
-            print(
-                f"[{block_index}/{len(schedule)}] repetition={repetition} "
-                f"{workload}: c={concurrency} tasks={outer_tasks} n={matrix_n} "
-                f"order={','.join(policies)}",
-                flush=True,
-            )
-            measurements: dict[str, dict[str, Any]] = {}
-            for policy in policies:
-                label = (
-                    f"r={repetition}:workload={workload}:c={concurrency}:"
-                    f"tasks={outer_tasks}:n={matrix_n}:policy={policy}"
-                )
-                artifact.set_active(label)
-                with artifact.capture_failures(lambda: checkpoint_payload):
-                    measurements[policy] = run_case(
-                        executable
-                        if workload == "EigenMklGemm"
-                        else no_blas_executable,
-                        cases[key][policy],
-                        temporary / f"{block_index}-{policy}.json",
-                        args.min_time,
-                        args.warmup_seconds,
-                        environment,
-                    )
-
+            artifact.set_active(label)
             with artifact.capture_failures(lambda: checkpoint_payload):
-                validate_block(key, measurements, args.checksum_relative_tolerance)
-            records.append(
-                {
-                    "repetition": repetition,
-                    "workload": workload,
-                    "concurrency": concurrency,
-                    "outer_tasks": outer_tasks,
-                    "matrix_n": matrix_n,
-                    "order": policies,
-                    "measurements": measurements,
-                    "ratios": ratios(measurements),
-                }
-            )
-            artifact.checkpoint(checkpoint_payload, completed_units=len(records))
+                measurements[policy] = run_cpp_probe(
+                    executable if workload == "EigenMklGemm" else no_blas_executable,
+                    [
+                        f"--policy={policy}",
+                        f"--concurrency={concurrency}",
+                        f"--outer-tasks={outer_tasks}",
+                        f"--matrix-n={matrix_n}",
+                    ],
+                    marker=RESULT_MARKER,
+                    min_time=args.min_time,
+                    warmup_seconds=args.warmup_seconds,
+                    warmup_min_operations=args.warmup_min_operations,
+                    string_fields=frozenset({"policy", "workload"}),
+                    integer_fields=RESULT_INTEGER_FIELDS,
+                    float_fields=RESULT_FLOAT_FIELDS,
+                    environment=environment,
+                )
+
+        with artifact.capture_failures(lambda: checkpoint_payload):
+            validate_block(key, measurements, args.checksum_relative_tolerance)
+        records.append(
+            {
+                "repetition": repetition,
+                "workload": workload,
+                "concurrency": concurrency,
+                "outer_tasks": outer_tasks,
+                "matrix_n": matrix_n,
+                "order": policies,
+                "measurements": measurements,
+                "ratios": ratios(measurements),
+            }
+        )
+        artifact.checkpoint(checkpoint_payload, completed_units=len(records))
 
     with artifact.capture_failures(lambda: checkpoint_payload):
         verbose_probe = (

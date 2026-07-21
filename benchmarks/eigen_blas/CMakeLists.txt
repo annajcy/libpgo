@@ -16,7 +16,6 @@ function(pgo_add_eigen_blas_benchmark target backend_source backend_definition)
     ${PGO_EIGEN_BLAS_COMMON_SOURCES}
     ${backend_source}
   )
-  target_link_libraries(${target} PRIVATE benchmark::benchmark)
   target_compile_definitions(${target} PRIVATE ${backend_definition})
 endfunction()
 

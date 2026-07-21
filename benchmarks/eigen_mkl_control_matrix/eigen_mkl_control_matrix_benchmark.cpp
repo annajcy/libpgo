@@ -6,12 +6,13 @@
 #  include "no_blas_workload.h"
 #endif
 
+#include "../benchmark_argument_parser.h"
 #include "../eigen_mkl_common/eigen_mkl_executor_cases.h"
 #include "../parallelism_benchmark_helpers.h"
+#include "../timed_workload.h"
+#include "../workload_warmup.h"
 #include "parallel/arenaThreadingExecutor.h"
 #include "parallel/parallelControl.h"
-
-#include <benchmark/benchmark.h>
 
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
@@ -20,7 +21,9 @@
 
 #include <atomic>
 #include <cmath>
-#include <string>
+#include <iomanip>
+#include <iostream>
+#include <stdexcept>
 
 namespace
 {
@@ -34,11 +37,20 @@ using pgo::benchmark_helpers::EigenMklGemmWorkload;
 using pgo::benchmark_helpers::MklExecutorCase;
 using pgo::benchmark_helpers::mklExecutorCaseName;
 using pgo::benchmark_helpers::mklExecutorSpec;
+using pgo::benchmark_helpers::parseMklExecutorCase;
+using pgo::benchmark_helpers::parseNonnegativeDouble;
+using pgo::benchmark_helpers::parseNonnegativeInteger;
+using pgo::benchmark_helpers::parsePositiveInteger;
+using pgo::benchmark_helpers::parseTimedMeasurementArguments;
+using pgo::benchmark_helpers::requireValue;
+using pgo::benchmark_helpers::runTimedMeasurement;
+using pgo::benchmark_helpers::runWorkloadWarmup;
 #if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
 using pgo::benchmark_helpers::NoBlasWorkload;
 #endif
 using pgo::benchmark_helpers::ThreadSampler;
 using pgo::benchmark_helpers::updateMaximum;
+using pgo::benchmark_helpers::TimedMeasurementArguments;
 
 enum class WorkloadKind
 {
@@ -117,121 +129,127 @@ void runOuterLoop(P::ArenaThreadingExecutor &executor, int outerTasks,
   });
 }
 
-template<class Workload>
-void runWorkloadBenchmark(benchmark::State &state, WorkloadKind workloadKind,
-  MklExecutorCase policy, int configuredConcurrency, int outerTasks, int matrixN)
+struct Arguments
 {
-  P::GlobalTbbControl control(configuredConcurrency);
+  MklExecutorCase policy;
+  int concurrency;
+  int outerTasks;
+  int matrixN;
+  double warmupSeconds;
+  int warmupMinOperations;
+  TimedMeasurementArguments measurement;
+};
+
+Arguments parseArguments(int argc, char **argv)
+{
+  return {
+    parseMklExecutorCase(requireValue(argc, argv, "--policy=")),
+    parsePositiveInteger(requireValue(argc, argv, "--concurrency="),
+      "--concurrency"),
+    parsePositiveInteger(
+      requireValue(argc, argv, "--outer-tasks="), "--outer-tasks"),
+    parsePositiveInteger(requireValue(argc, argv, "--matrix-n="), "--matrix-n"),
+    parseNonnegativeDouble(
+      requireValue(argc, argv, "--warmup-seconds="), "--warmup-seconds"),
+    parseNonnegativeInteger(requireValue(argc, argv, "--warmup-min-operations="),
+      "--warmup-min-operations"),
+    parseTimedMeasurementArguments(argc, argv),
+  };
+}
+
+template<class Workload>
+void runWorkloadBenchmark(
+  WorkloadKind workloadKind, const Arguments &arguments)
+{
+  P::GlobalTbbControl control(arguments.concurrency);
   const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
     tbb::global_control::max_allowed_parallelism));
-  const auto spec = mklExecutorSpec(policy, configuredConcurrency);
+  const auto spec = mklExecutorSpec(arguments.policy, arguments.concurrency);
   P::ArenaThreadingExecutor executor(spec.arenaConcurrency,
     { .mklLocalThreadBudget = spec.mklLocalThreadBudget });
-  Workload workload(outerTasks, matrixN);
+  Workload workload(arguments.outerTasks, arguments.matrixN);
   RunTelemetry telemetry;
 
   ThreadSampler sampler;
   sampler.start();
-  runOuterLoop(executor, outerTasks, workload, telemetry);
+  const auto warmup = runWorkloadWarmup(
+    [&] {
+      runOuterLoop(executor, arguments.outerTasks, workload, telemetry);
+    },
+    arguments.warmupSeconds, arguments.warmupMinOperations);
   const int peakThreads = sampler.stop();
   const int baselineThreads = sampler.baseline();
 
   telemetry.reset();
-  for (auto _ : state) {
-    runOuterLoop(executor, outerTasks, workload, telemetry);
-    benchmark::DoNotOptimize(&workload);
-    benchmark::ClobberMemory();
-  }
+  const auto measurement = runTimedMeasurement(
+    [&] {
+      runOuterLoop(executor, arguments.outerTasks, workload, telemetry);
+    },
+    arguments.measurement);
 
   const double checksum = workload.checksum();
-  if (!std::isfinite(checksum)) {
-    state.SkipWithError("MKL/TBB control-matrix workload produced a non-finite checksum.");
-    return;
-  }
+  if (!std::isfinite(checksum))
+    throw std::runtime_error(
+      "MKL/TBB control-matrix workload produced a non-finite checksum.");
 
+  const double matrixN = static_cast<double>(arguments.matrixN);
   const double flopsPerIteration =
-    2.0 * static_cast<double>(matrixN) * static_cast<double>(matrixN) *
-    static_cast<double>(matrixN) * static_cast<double>(outerTasks);
-  state.counters["policy"] = static_cast<int>(policy);
-  state.counters["workload"] = static_cast<int>(workloadKind);
-  state.counters["uses_blas"] = usesBlas(workloadKind) ? 1 : 0;
-  state.counters["configured_global_concurrency"] = configuredConcurrency;
-  state.counters["effective_global_concurrency"] = effectiveConcurrency;
-  state.counters["configured_arena_concurrency"] = spec.arenaConcurrency;
-  state.counters["configured_mkl_local_budget"] = spec.mklLocalThreadBudget;
-  state.counters["outer_tasks"] = outerTasks;
-  state.counters["matrix_n"] = matrixN;
-  state.counters["observed_arena_concurrency"] =
-    telemetry.observedArenaConcurrency.load(std::memory_order_relaxed);
-  state.counters["outer_active_peak"] =
-    telemetry.peakOuterCallbacks.load(std::memory_order_relaxed);
-  state.counters["body_calls"] =
-    telemetry.bodyCalls.load(std::memory_order_relaxed);
-  state.counters["baseline_threads"] = baselineThreads;
-  state.counters["peak_threads"] = peakThreads;
-  state.counters["extra_threads"] =
-    adjustedExtraThreads(baselineThreads, peakThreads);
-  state.counters["checksum"] = checksum;
-  state.counters["flops"] = benchmark::Counter(
-    flopsPerIteration * static_cast<double>(state.iterations()),
-    benchmark::Counter::kIsRate);
+    2.0 * matrixN * matrixN * matrixN * static_cast<double>(arguments.outerTasks);
+  std::cout << std::setprecision(17)
+            << "PGO_EIGEN_MKL_CONTROL_MATRIX_RESULT"
+            << " policy=" << mklExecutorCaseName(arguments.policy)
+            << " workload=" << workloadName(workloadKind)
+            << " uses_blas=" << (usesBlas(workloadKind) ? 1 : 0)
+            << " configured_global_concurrency=" << arguments.concurrency
+            << " effective_global_concurrency=" << effectiveConcurrency
+            << " configured_arena_concurrency=" << spec.arenaConcurrency
+            << " configured_mkl_local_budget=" << spec.mklLocalThreadBudget
+            << " outer_tasks=" << arguments.outerTasks
+            << " matrix_n=" << arguments.matrixN
+            << " observed_arena_concurrency="
+            << telemetry.observedArenaConcurrency.load(std::memory_order_relaxed)
+            << " outer_active_peak="
+            << telemetry.peakOuterCallbacks.load(std::memory_order_relaxed)
+            << " body_calls="
+            << telemetry.bodyCalls.load(std::memory_order_relaxed)
+            << " baseline_threads=" << baselineThreads
+            << " peak_threads=" << peakThreads
+            << " extra_threads="
+            << adjustedExtraThreads(baselineThreads, peakThreads)
+            << " configured_warmup_seconds=" << arguments.warmupSeconds
+            << " configured_warmup_min_operations="
+            << arguments.warmupMinOperations
+            << " actual_warmup_seconds=" << warmup.elapsedSeconds
+            << " actual_warmup_operations=" << warmup.completedOperations
+            << " configured_measurement_min_seconds="
+            << arguments.measurement.minimumSeconds
+            << " measurement_operations=" << measurement.completedOperations
+            << " measurement_wall_seconds=" << measurement.elapsedSeconds
+            << " checksum=" << checksum
+            << " flops_per_operation=" << flopsPerIteration << '\n';
 }
 
-void runBenchmark(benchmark::State &state, WorkloadKind workloadKind,
-  MklExecutorCase policy, int configuredConcurrency, int outerTasks, int matrixN)
+void runBenchmark(const Arguments &arguments)
 {
-  switch (workloadKind) {
 #if !defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
-  case WorkloadKind::EigenMklGemm:
-    runWorkloadBenchmark<EigenMklGemmWorkload>(state, workloadKind, policy,
-      configuredConcurrency, outerTasks, matrixN);
-    return;
+  runWorkloadBenchmark<EigenMklGemmWorkload>(
+    WorkloadKind::EigenMklGemm, arguments);
 #endif
 #if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
-  case WorkloadKind::NoBlas:
-    runWorkloadBenchmark<NoBlasWorkload>(state, workloadKind, policy,
-      configuredConcurrency, outerTasks, matrixN);
-    return;
+  runWorkloadBenchmark<NoBlasWorkload>(WorkloadKind::NoBlas, arguments);
 #endif
-  }
-  state.SkipWithError("Unknown control-matrix workload.");
 }
-
-void registerBenchmarks()
-{
-  constexpr int concurrencyValues[] = { 4, 8 };
-#if defined(PGO_EIGEN_MKL_CONTROL_NO_BLAS)
-  constexpr WorkloadKind workloads[] = { WorkloadKind::NoBlas };
-#else
-  constexpr WorkloadKind workloads[] = { WorkloadKind::EigenMklGemm };
-#endif
-  constexpr int matrixN = 1024;
-
-  for (int concurrency : concurrencyValues) {
-    constexpr int taskMultipliers[] = { 1, 4 };
-    for (int taskMultiplier : taskMultipliers) {
-      const int outerTasks = concurrency * taskMultiplier;
-      for (WorkloadKind workload : workloads) {
-        for (MklExecutorCase policy : allMklExecutorCases) {
-          const std::string name = std::string("EigenMklControlMatrix/") +
-            workloadName(workload) + "/" + mklExecutorCaseName(policy) + "/c_" +
-            std::to_string(concurrency) + "/tasks_" +
-            std::to_string(outerTasks) + "/n_" + std::to_string(matrixN);
-          benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
-            runBenchmark(state, workload, policy, concurrency, outerTasks, matrixN);
-          })->UseRealTime()
-            ->Unit(benchmark::kMillisecond);
-        }
-      }
-    }
-  }
-}
-
-const bool registered = [] {
-  registerBenchmarks();
-  return true;
-}();
 
 }  // namespace
 
-BENCHMARK_MAIN();
+int main(int argc, char **argv)
+{
+  try {
+    runBenchmark(parseArguments(argc, argv));
+    return 0;
+  }
+  catch (const std::exception &error) {
+    std::cerr << "eigen_mkl_control_matrix_benchmark: " << error.what() << '\n';
+    return 1;
+  }
+}

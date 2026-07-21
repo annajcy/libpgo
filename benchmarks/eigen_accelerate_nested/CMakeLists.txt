@@ -6,7 +6,6 @@ add_executable(eigen_accelerate_nested_benchmark
 
 target_link_libraries(eigen_accelerate_nested_benchmark
   PRIVATE
-    benchmark::benchmark
     Eigen3::Eigen
     parallel
     TBB::tbb

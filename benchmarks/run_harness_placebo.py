@@ -9,7 +9,6 @@ import math
 import random
 import statistics
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,10 +18,9 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parent
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from benchmark_support.google_benchmark import (  # noqa: E402
+from benchmark_support.cpp_probe import (  # noqa: E402
     integer_counter,
-    list_cases,
-    run_case,
+    run_cpp_probe,
 )
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.mkl import (  # noqa: E402
@@ -52,14 +50,21 @@ INVARIANT_COUNTERS = (
     "configured_arena_concurrency",
     "configured_mkl_local_budget",
     "observed_arena_concurrency",
+    "configured_warmup_min_operations",
+    "actual_warmup_operations",
 )
 CONCURRENCY_ENVIRONMENT = "PGO_EIGEN_MKL_CROSSOVER_MAX_CONCURRENCY"
+POLICIES = ("ExecutorLocal1", "ExecutorMKLC")
+RESULT_MARKER = "PGO_EIGEN_MKL_CROSSOVER_RESULT"
+RESULT_INTEGER_FIELDS = frozenset(INVARIANT_COUNTERS)
+RESULT_FLOAT_FIELDS = frozenset({"checksum", "flops_per_operation"})
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("benchmark", type=Path)
-    parser.add_argument("--case", required=True)
+    parser.add_argument("--policy", choices=POLICIES, default="ExecutorLocal1")
+    parser.add_argument("--matrix-n", type=int, default=128)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--repetitions", type=int, default=16)
@@ -73,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checksum-relative-tolerance", type=float, default=1e-10)
     parser.add_argument("--dry-run", action="store_true")
     add_workload_warmup_arguments(
-        parser, default_seconds=1.0, default_min_operations=10
+        parser, default_seconds=0.0, default_min_operations=10
     )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
@@ -173,8 +178,10 @@ def analyze_records(
 
 def main() -> int:
     args = parse_args()
-    if args.concurrency <= 0 or args.repetitions <= 0:
-        raise SystemExit("--concurrency and --repetitions must be positive.")
+    if args.concurrency <= 0 or args.repetitions <= 0 or args.matrix_n <= 0:
+        raise SystemExit(
+            "--concurrency, --repetitions, and --matrix-n must be positive."
+        )
     try:
         validate_workload_warmup_arguments(args)
     except ValueError as error:
@@ -187,12 +194,9 @@ def main() -> int:
     executable = args.benchmark.resolve()
     if not executable.exists():
         raise SystemExit(f"Benchmark executable does not exist: {executable}")
-    environment = mkl_tbb_environment(
-        {CONCURRENCY_ENVIRONMENT: str(args.concurrency)}
-    )
+    environment = mkl_tbb_environment({CONCURRENCY_ENVIRONMENT: str(args.concurrency)})
     linkage = verify_mkl_tbb_benchmark_linkage(executable, environment)
-    if args.case not in list_cases(executable, environment):
-        raise SystemExit(f"Benchmark does not advertise exact case: {args.case}")
+    case = f"{args.policy}/n_{args.matrix_n}"
 
     order = order_configuration(
         args.repetitions,
@@ -223,7 +227,7 @@ def main() -> int:
             json.dumps(
                 {
                     "runner": runner,
-                    "case": args.case,
+                    "case": case,
                     "order": order,
                     "acceptance_criteria": acceptance_criteria,
                     "host_environment": host_environment,
@@ -235,7 +239,7 @@ def main() -> int:
 
     semantic_command = {
         "executable": str(executable),
-        "case": args.case,
+        "case": case,
         "min_time": args.min_time,
         "warmup": workload_warmup_configuration(args),
         "environment": {
@@ -247,59 +251,61 @@ def main() -> int:
     active_record: dict[str, Any] | None = None
     artifact = JsonArtifact(args.out, scheduled_units=args.repetitions)
     try:
-        with tempfile.TemporaryDirectory(prefix="pgo-harness-placebo-") as temp_dir:
-            temporary = Path(temp_dir)
-            for repetition in range(1, args.repetitions + 1):
-                labels = balanced_order(
-                    LABELS,
-                    repetition=repetition - 1,
-                    seed=args.seed,
-                    block_key=f"case={args.case}",
+        for repetition in range(1, args.repetitions + 1):
+            labels = balanced_order(
+                LABELS,
+                repetition=repetition - 1,
+                seed=args.seed,
+                block_key=f"case={case}",
+            )
+            print(
+                f"[{repetition}/{args.repetitions}] order={','.join(labels)}",
+                flush=True,
+            )
+            active_record = {
+                "repetition": repetition,
+                "order": labels,
+                "semantic_command": semantic_command,
+                "measurements": {},
+            }
+            artifact.set_active(f"repetition={repetition}")
+            measurements = active_record["measurements"]
+            for label in labels:
+                measurements[label] = run_cpp_probe(
+                    executable,
+                    [f"--policy={args.policy}", f"--matrix-n={args.matrix_n}"],
+                    marker=RESULT_MARKER,
+                    min_time=args.min_time,
+                    warmup_seconds=args.warmup_seconds,
+                    warmup_min_operations=args.warmup_min_operations,
+                    string_fields=frozenset({"policy"}),
+                    integer_fields=RESULT_INTEGER_FIELDS,
+                    float_fields=RESULT_FLOAT_FIELDS,
+                    environment=environment,
                 )
-                print(
-                    f"[{repetition}/{args.repetitions}] order={','.join(labels)}",
-                    flush=True,
-                )
-                active_record = {
-                    "repetition": repetition,
-                    "order": labels,
-                    "semantic_command": semantic_command,
-                    "measurements": {},
-                }
-                artifact.set_active(f"repetition={repetition}")
-                measurements = active_record["measurements"]
-                for label in labels:
-                    measurements[label] = run_case(
-                        executable,
-                        args.case,
-                        temporary / f"r{repetition}-{label}.json",
-                        args.min_time,
-                        args.warmup_seconds,
-                        environment,
-                    )
-                validate_identical_results(
-                    measurements,
-                    checksum_relative_tolerance=args.checksum_relative_tolerance,
-                )
-                records.append(active_record)
-                active_record = None
-                artifact.checkpoint(
-                    {
-                        "runner": runner,
-                        "benchmark": str(executable),
-                        "case": args.case,
-                        "acceptance_criteria": acceptance_criteria,
-                        "host_environment": host_environment,
-                        "records": records,
-                    },
-                    completed_units=len(records),
-                )
+            validate_identical_results(
+                measurements,
+                checksum_relative_tolerance=args.checksum_relative_tolerance,
+            )
+            records.append(active_record)
+            active_record = None
+            artifact.checkpoint(
+                {
+                    "runner": runner,
+                    "benchmark": str(executable),
+                    "case": case,
+                    "acceptance_criteria": acceptance_criteria,
+                    "host_environment": host_environment,
+                    "records": records,
+                },
+                completed_units=len(records),
+            )
     except Exception as error:
         payload = {
             "runner": runner,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "benchmark": str(executable),
-            "case": args.case,
+            "case": case,
             "concurrency": args.concurrency,
             "repetitions": args.repetitions,
             "min_time": args.min_time,
@@ -333,7 +339,7 @@ def main() -> int:
         "runner": runner,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "benchmark": str(executable),
-        "case": args.case,
+        "case": case,
         "concurrency": args.concurrency,
         "repetitions": args.repetitions,
         "min_time": args.min_time,
@@ -354,8 +360,7 @@ def main() -> int:
     for name, summary in summaries.items():
         lower, upper = summary["bootstrap_95pct_ci"]
         print(
-            f"{name}: median={summary['median']:.6f}, "
-            f"95% CI=[{lower:.6f}, {upper:.6f}]"
+            f"{name}: median={summary['median']:.6f}, 95% CI=[{lower:.6f}, {upper:.6f}]"
         )
     print(f"Placebo gate {payload['status']}; wrote {args.out}")
     for failure in failures:

@@ -1,10 +1,12 @@
 #include "eigen_accelerate_nested_kernel.h"
 
+#include "../benchmark_argument_parser.h"
 #include "../parallelism_benchmark_helpers.h"
+#include "../timed_workload.h"
+#include "../workload_warmup.h"
 #include "parallel/parallel.h"
 
 #include <Accelerate/Accelerate.h>
-#include <benchmark/benchmark.h>
 
 #include <tbb/blocked_range.h>
 #include <tbb/info.h>
@@ -15,8 +17,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
-#include <optional>
-#include <string>
+#include <iomanip>
+#include <iostream>
+#include <stdexcept>
+#include <string_view>
 
 namespace
 {
@@ -24,7 +28,15 @@ namespace
 namespace P = pgo::parallel;
 using pgo::benchmark_helpers::adjustedExtraThreads;
 using pgo::benchmark_helpers::NestedEigenAccelerateWorkload;
+using pgo::benchmark_helpers::parseNonnegativeDouble;
+using pgo::benchmark_helpers::parseNonnegativeInteger;
+using pgo::benchmark_helpers::parsePositiveInteger;
+using pgo::benchmark_helpers::parseTimedMeasurementArguments;
+using pgo::benchmark_helpers::requireValue;
+using pgo::benchmark_helpers::runTimedMeasurement;
+using pgo::benchmark_helpers::runWorkloadWarmup;
 using pgo::benchmark_helpers::ThreadSampler;
+using pgo::benchmark_helpers::TimedMeasurementArguments;
 using pgo::benchmark_helpers::updateMaximum;
 
 enum class Policy
@@ -42,6 +54,15 @@ const char *policyName(Policy policy)
     return "ExecutorMulti";
   }
   return "Unknown";
+}
+
+Policy parsePolicy(std::string_view value)
+{
+  if (value == "ExecutorSingle")
+    return Policy::ExecutorSingle;
+  if (value == "ExecutorMulti")
+    return Policy::ExecutorMulti;
+  throw std::invalid_argument("Unsupported --policy value: " + std::string(value));
 }
 
 struct RunTelemetry
@@ -126,110 +147,119 @@ void runOuterLoop(Policy policy, int outerTasks,
   });
 }
 
-void runBenchmark(benchmark::State &state,
-  Policy policy, int configuredConcurrency, int outerTasks, int matrixN)
+struct Arguments
 {
-  P::GlobalTbbControl control(configuredConcurrency);
+  Policy policy;
+  int concurrency;
+  int outerTasks;
+  int matrixN;
+  double warmupSeconds;
+  int warmupMinOperations;
+  TimedMeasurementArguments measurement;
+};
+
+Arguments parseArguments(int argc, char **argv)
+{
+  return {
+    parsePolicy(requireValue(argc, argv, "--policy=")),
+    parsePositiveInteger(requireValue(argc, argv, "--concurrency="),
+      "--concurrency"),
+    parsePositiveInteger(
+      requireValue(argc, argv, "--outer-tasks="), "--outer-tasks"),
+    parsePositiveInteger(requireValue(argc, argv, "--matrix-n="), "--matrix-n"),
+    parseNonnegativeDouble(
+      requireValue(argc, argv, "--warmup-seconds="), "--warmup-seconds"),
+    parseNonnegativeInteger(requireValue(argc, argv, "--warmup-min-operations="),
+      "--warmup-min-operations"),
+    parseTimedMeasurementArguments(argc, argv),
+  };
+}
+
+void runBenchmark(const Arguments &arguments)
+{
+  P::GlobalTbbControl control(arguments.concurrency);
   const int effectiveConcurrency = static_cast<int>(tbb::global_control::active_value(
     tbb::global_control::max_allowed_parallelism));
-  P::ArenaThreadingExecutor singleExecutor(configuredConcurrency,
+  P::ArenaThreadingExecutor singleExecutor(arguments.concurrency,
     { .accelerate = P::AccelerateThreading::single });
-  P::ArenaThreadingExecutor multiExecutor(configuredConcurrency,
+  P::ArenaThreadingExecutor multiExecutor(arguments.concurrency,
     { .accelerate = P::AccelerateThreading::multi });
-  NestedEigenAccelerateWorkload workload(outerTasks, matrixN);
+  NestedEigenAccelerateWorkload workload(arguments.outerTasks, arguments.matrixN);
   RunTelemetry telemetry;
 
   ThreadSampler sampler;
   sampler.start();
-  runOuterLoop(policy, outerTasks, workload, telemetry, singleExecutor, multiExecutor);
+  const auto warmup = runWorkloadWarmup(
+    [&] {
+      runOuterLoop(arguments.policy, arguments.outerTasks, workload, telemetry,
+        singleExecutor, multiExecutor);
+    },
+    arguments.warmupSeconds, arguments.warmupMinOperations);
   const int peakThreads = sampler.stop();
   const int baselineThreads = sampler.baseline();
 
   telemetry.reset();
-  for (auto _ : state) {
-    runOuterLoop(policy, outerTasks, workload, telemetry, singleExecutor, multiExecutor);
-    benchmark::DoNotOptimize(&workload);
-    benchmark::ClobberMemory();
-  }
+  const auto measurement = runTimedMeasurement(
+    [&] {
+      runOuterLoop(arguments.policy, arguments.outerTasks, workload, telemetry,
+        singleExecutor, multiExecutor);
+    },
+    arguments.measurement);
 
   const double checksum = workload.checksum();
-  if (!std::isfinite(checksum)) {
-    state.SkipWithError("Nested Eigen/Accelerate GEMM produced a non-finite checksum.");
-    return;
-  }
+  if (!std::isfinite(checksum))
+    throw std::runtime_error(
+      "Nested Eigen/Accelerate GEMM produced a non-finite checksum.");
 
+  const double matrixN = static_cast<double>(arguments.matrixN);
   const double flopsPerIteration =
-    2.0 * static_cast<double>(matrixN) * static_cast<double>(matrixN) *
-    static_cast<double>(matrixN) * static_cast<double>(outerTasks);
-  state.counters["policy"] = static_cast<int>(policy);
-  state.counters["configured_concurrency"] = configuredConcurrency;
-  state.counters["effective_concurrency"] = effectiveConcurrency;
-  state.counters["outer_tasks"] = outerTasks;
-  state.counters["matrix_n"] = matrixN;
-  state.counters["arena_concurrency"] =
-    telemetry.arenaConcurrency.load(std::memory_order_relaxed);
-  state.counters["outer_active_peak"] =
-    telemetry.peakCallbacks.load(std::memory_order_relaxed);
-  state.counters["single_mode_calls"] =
-    telemetry.singleModeCalls.load(std::memory_order_relaxed);
-  state.counters["multi_mode_calls"] =
-    telemetry.multiModeCalls.load(std::memory_order_relaxed);
-  state.counters["other_mode_calls"] =
-    telemetry.otherModeCalls.load(std::memory_order_relaxed);
-  state.counters["body_calls"] = telemetry.bodyCalls.load(std::memory_order_relaxed);
-  state.counters["baseline_threads"] = baselineThreads;
-  state.counters["peak_threads"] = peakThreads;
-  state.counters["extra_threads"] =
-    adjustedExtraThreads(baselineThreads, peakThreads);
-  state.counters["checksum"] = checksum;
-  state.counters["flops"] = benchmark::Counter(
-    flopsPerIteration * static_cast<double>(state.iterations()),
-    benchmark::Counter::kIsRate);
+    2.0 * matrixN * matrixN * matrixN * static_cast<double>(arguments.outerTasks);
+  std::cout << std::setprecision(17)
+            << "PGO_EIGEN_ACCELERATE_NESTED_RESULT"
+            << " policy=" << policyName(arguments.policy)
+            << " configured_concurrency=" << arguments.concurrency
+            << " effective_concurrency=" << effectiveConcurrency
+            << " outer_tasks=" << arguments.outerTasks
+            << " matrix_n=" << arguments.matrixN
+            << " arena_concurrency="
+            << telemetry.arenaConcurrency.load(std::memory_order_relaxed)
+            << " outer_active_peak="
+            << telemetry.peakCallbacks.load(std::memory_order_relaxed)
+            << " single_mode_calls="
+            << telemetry.singleModeCalls.load(std::memory_order_relaxed)
+            << " multi_mode_calls="
+            << telemetry.multiModeCalls.load(std::memory_order_relaxed)
+            << " other_mode_calls="
+            << telemetry.otherModeCalls.load(std::memory_order_relaxed)
+            << " body_calls="
+            << telemetry.bodyCalls.load(std::memory_order_relaxed)
+            << " baseline_threads=" << baselineThreads
+            << " peak_threads=" << peakThreads
+            << " extra_threads="
+            << adjustedExtraThreads(baselineThreads, peakThreads)
+            << " configured_warmup_seconds=" << arguments.warmupSeconds
+            << " configured_warmup_min_operations="
+            << arguments.warmupMinOperations
+            << " actual_warmup_seconds=" << warmup.elapsedSeconds
+            << " actual_warmup_operations=" << warmup.completedOperations
+            << " configured_measurement_min_seconds="
+            << arguments.measurement.minimumSeconds
+            << " measurement_operations=" << measurement.completedOperations
+            << " measurement_wall_seconds=" << measurement.elapsedSeconds
+            << " checksum=" << checksum
+            << " flops_per_operation=" << flopsPerIteration << '\n';
 }
-
-void registerBenchmarks()
-{
-  constexpr Policy policies[] = {
-    Policy::ExecutorSingle,
-    Policy::ExecutorMulti,
-  };
-  constexpr int concurrencyValues[] = { 1, 2, 4, 8, 16 };
-  constexpr struct
-  {
-    int matrixN;
-    int taskMultiplier;
-  } loads[] = {
-    { 128, 4 },
-    { 256, 4 },
-    { 512, 2 },
-    { 1024, 1 },
-  };
-
-  const int defaultConcurrency = std::max(1, tbb::info::default_concurrency());
-  for (int concurrency : concurrencyValues) {
-    if (concurrency > defaultConcurrency)
-      continue;
-    for (const auto &load : loads) {
-      const int outerTasks = concurrency * load.taskMultiplier;
-      for (Policy policy : policies) {
-        const std::string name = std::string("NestedEigenAccelerate/") +
-          policyName(policy) + "/c_" + std::to_string(concurrency) +
-          "/tasks_" + std::to_string(outerTasks) +
-          "/n_" + std::to_string(load.matrixN);
-        benchmark::RegisterBenchmark(name.c_str(), [=](benchmark::State &state) {
-          runBenchmark(state, policy, concurrency, outerTasks, load.matrixN);
-        })->UseRealTime()
-          ->Unit(benchmark::kMillisecond);
-      }
-    }
-  }
-}
-
-const bool registered = [] {
-  registerBenchmarks();
-  return true;
-}();
 
 }  // namespace
 
-BENCHMARK_MAIN();
+int main(int argc, char **argv)
+{
+  try {
+    runBenchmark(parseArguments(argc, argv));
+    return 0;
+  }
+  catch (const std::exception &error) {
+    std::cerr << "eigen_accelerate_nested_benchmark: " << error.what() << '\n';
+    return 1;
+  }
+}

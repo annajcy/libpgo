@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import random
 import re
 import statistics
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,19 +30,33 @@ from benchmark_support.warmup import (  # noqa: E402
     validate_workload_warmup_arguments,
     workload_warmup_configuration,
 )
-from benchmark_support.google_benchmark import (  # noqa: E402
+from benchmark_support.cpp_probe import (  # noqa: E402
     integer_counter,
-    list_cases,
-    run_case,
+    run_cpp_probe,
 )
 from benchmark_support.process import checked_output  # noqa: E402
 
 
 POLICIES = ("ExecutorSingle", "ExecutorMulti")
-CASE_PATTERN = re.compile(
-    r"^NestedEigenAccelerate/(ExecutorSingle|ExecutorMulti)"
-    r"/c_(\d+)/tasks_(\d+)/n_(\d+)(?:/real_time)?$"
+RESULT_MARKER = "PGO_EIGEN_ACCELERATE_NESTED_RESULT"
+RESULT_INTEGER_FIELDS = frozenset(
+    {
+        "configured_concurrency",
+        "effective_concurrency",
+        "outer_tasks",
+        "matrix_n",
+        "arena_concurrency",
+        "outer_active_peak",
+        "single_mode_calls",
+        "multi_mode_calls",
+        "other_mode_calls",
+        "body_calls",
+        "baseline_threads",
+        "peak_threads",
+        "extra_threads",
+    }
 )
+RESULT_FLOAT_FIELDS = frozenset({"checksum", "flops_per_operation"})
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,7 +73,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     add_workload_warmup_arguments(
-        parser, default_seconds=1.0, default_min_operations=10
+        parser, default_seconds=0.0, default_min_operations=10
     )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
@@ -79,37 +93,32 @@ def verify_linkage(executable: Path) -> dict[str, str]:
     }
 
 
-def discover_cases(executable: Path) -> dict[tuple[int, int, int], dict[str, str]]:
-    discovered: dict[tuple[int, int, int], dict[str, str]] = {}
-    for name in list_cases(executable):
-        match = CASE_PATTERN.fullmatch(name)
-        if not match:
-            continue
-        policy, concurrency, outer_tasks, matrix_n = match.groups()
-        key = (int(concurrency), int(outer_tasks), int(matrix_n))
-        discovered.setdefault(key, {})[policy] = name
-    return {
-        key: variants
-        for key, variants in sorted(discovered.items())
-        if set(variants) == set(POLICIES)
-    }
+def default_cases() -> list[tuple[int, int, int]]:
+    available = max(1, os.cpu_count() or 1)
+    loads = ((128, 4), (256, 4), (512, 2), (1024, 1))
+    return [
+        (concurrency, concurrency * multiplier, matrix_n)
+        for concurrency in (1, 2, 4, 8, 16)
+        if concurrency <= available
+        for matrix_n, multiplier in loads
+    ]
 
 
 def filter_cases(
-    cases: dict[tuple[int, int, int], dict[str, str]], args: argparse.Namespace
-) -> dict[tuple[int, int, int], dict[str, str]]:
+    cases: list[tuple[int, int, int]], args: argparse.Namespace
+) -> list[tuple[int, int, int]]:
     concurrency = set(args.concurrency or [])
     matrix_n = set(args.matrix_n or [])
     outer_tasks = set(args.outer_tasks or [])
-    selected = {
-        key: variants
-        for key, variants in cases.items()
+    selected = [
+        key
+        for key in cases
         if (not concurrency or key[0] in concurrency)
         and (not outer_tasks or key[1] in outer_tasks)
         and (not matrix_n or key[2] in matrix_n)
-    }
+    ]
     if args.case_limit:
-        selected = dict(list(selected.items())[: args.case_limit])
+        selected = selected[: args.case_limit]
     return selected
 
 
@@ -135,13 +144,15 @@ def validate_block(
         )
 
     for policy, row in measurements.items():
+        if row["policy"] != policy:
+            raise RuntimeError(f"{policy} reported the wrong policy.")
         if integer_counter(row, "effective_concurrency") != concurrency:
             raise RuntimeError(f"{policy} did not establish concurrency={concurrency}.")
         if integer_counter(row, "arena_concurrency") != concurrency:
             raise RuntimeError(
                 f"{policy} did not execute in its configured executor arena."
             )
-        expected_calls = int(row["iterations"]) * outer_tasks
+        expected_calls = integer_counter(row, "measurement_operations") * outer_tasks
         if integer_counter(row, "body_calls") != expected_calls:
             raise RuntimeError(f"{policy} executed an unexpected number of bodies.")
         if integer_counter(row, "other_mode_calls") != 0:
@@ -151,11 +162,15 @@ def validate_block(
 
     single = measurements["ExecutorSingle"]
     multi = measurements["ExecutorMulti"]
-    if integer_counter(single, "single_mode_calls") != integer_counter(single, "body_calls"):
+    if integer_counter(single, "single_mode_calls") != integer_counter(
+        single, "body_calls"
+    ):
         raise RuntimeError("ExecutorSingle did not observe SINGLE in every body.")
     if integer_counter(single, "multi_mode_calls") != 0:
         raise RuntimeError("ExecutorSingle unexpectedly observed MULTI.")
-    if integer_counter(multi, "multi_mode_calls") != integer_counter(multi, "body_calls"):
+    if integer_counter(multi, "multi_mode_calls") != integer_counter(
+        multi, "body_calls"
+    ):
         raise RuntimeError("ExecutorMulti did not observe MULTI in every body.")
     if integer_counter(multi, "single_mode_calls") != 0:
         raise RuntimeError("ExecutorMulti unexpectedly observed SINGLE.")
@@ -184,7 +199,7 @@ def summarize(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 },
                 "median_extra_threads": {
                     policy: statistics.median(
-                        float(block["cold_probes"][policy]["extra_threads"])
+                        float(block["measurements"][policy]["extra_threads"])
                         for block in blocks
                     )
                     for policy in POLICIES
@@ -194,9 +209,6 @@ def summarize(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 ),
                 "median_extra_thread_delta": statistics.median(
                     float(block["extra_thread_delta"]) for block in blocks
-                ),
-                "median_cold_multi_over_single": statistics.median(
-                    float(block["cold_multi_over_single"]) for block in blocks
                 ),
             }
         )
@@ -217,7 +229,7 @@ def main() -> int:
         raise SystemExit(f"Benchmark executable does not exist: {executable}")
 
     linkage = verify_linkage(executable)
-    cases = filter_cases(discover_cases(executable), args)
+    cases = filter_cases(default_cases(), args)
     if not cases:
         raise SystemExit("No complete two-policy benchmark blocks matched the filters.")
 
@@ -254,7 +266,7 @@ def main() -> int:
         "order": order,
         "min_time": args.min_time,
         "warmup": workload_warmup_configuration(args),
-        "thread_telemetry_source": "cold_probes",
+        "thread_telemetry_source": "workload_specific_warmup",
         "host_environment": host_environment,
         "linkage": linkage,
         "records": records,
@@ -262,83 +274,76 @@ def main() -> int:
     }
     artifact = JsonArtifact(args.out, scheduled_units=len(schedule))
 
-    with tempfile.TemporaryDirectory(prefix="pgo-eigen-accelerate-nested-") as temp_dir:
-        temporary = Path(temp_dir)
-        for block_index, (repetition, key) in enumerate(schedule, start=1):
-            concurrency, outer_tasks, matrix_n = key
-            policies = balanced_order(
-                POLICIES,
-                repetition=repetition - 1,
-                seed=args.seed,
-                block_key=f"c={concurrency}:tasks={outer_tasks}:n={matrix_n}",
+    for block_index, (repetition, key) in enumerate(schedule, start=1):
+        concurrency, outer_tasks, matrix_n = key
+        policies = balanced_order(
+            POLICIES,
+            repetition=repetition - 1,
+            seed=args.seed,
+            block_key=f"c={concurrency}:tasks={outer_tasks}:n={matrix_n}",
+        )
+        print(
+            f"[{block_index}/{len(schedule)}] repetition={repetition} "
+            f"c={concurrency} tasks={outer_tasks} n={matrix_n} "
+            f"order={','.join(policies)}",
+            flush=True,
+        )
+        measurements: dict[str, dict[str, Any]] = {}
+        for policy in policies:
+            label = (
+                f"r={repetition}:c={concurrency}:tasks={outer_tasks}:"
+                f"n={matrix_n}:policy={policy}"
             )
-            print(
-                f"[{block_index}/{len(schedule)}] repetition={repetition} "
-                f"c={concurrency} tasks={outer_tasks} n={matrix_n} "
-                f"order={','.join(policies)}",
-                flush=True,
-            )
-            measurements: dict[str, dict[str, Any]] = {}
-            cold_probes: dict[str, dict[str, Any]] = {}
-            for policy in policies:
-                label = (
-                    f"r={repetition}:c={concurrency}:tasks={outer_tasks}:"
-                    f"n={matrix_n}:policy={policy}"
-                )
-                artifact.set_active(label)
-                with artifact.capture_failures(lambda: payload):
-                    cold_probes[policy] = run_case(
-                        executable,
-                        cases[key][policy],
-                        temporary / f"{block_index}-{policy}-cold.json",
-                        "1x",
-                        0.0,
-                    )
-                    measurements[policy] = run_case(
-                        executable,
-                        cases[key][policy],
-                        temporary / f"{block_index}-{policy}-steady.json",
-                        args.min_time,
-                        args.warmup_seconds,
-                    )
-
+            artifact.set_active(label)
             with artifact.capture_failures(lambda: payload):
-                validate_block(key, cold_probes, args.checksum_relative_tolerance)
-                validate_block(key, measurements, args.checksum_relative_tolerance)
-            single_time = float(measurements["ExecutorSingle"]["wall_seconds"])
-            multi_time = float(measurements["ExecutorMulti"]["wall_seconds"])
-            cold_single_time = float(cold_probes["ExecutorSingle"]["wall_seconds"])
-            cold_multi_time = float(cold_probes["ExecutorMulti"]["wall_seconds"])
-            records.append(
-                {
-                    "repetition": repetition,
-                    "concurrency": concurrency,
-                    "outer_tasks": outer_tasks,
-                    "matrix_n": matrix_n,
-                    "order": policies,
-                    "measurements": measurements,
-                    "cold_probes": cold_probes,
-                    "multi_over_single": multi_time / single_time,
-                    "cold_multi_over_single": cold_multi_time / cold_single_time,
-                    "extra_thread_delta": integer_counter(
-                        cold_probes["ExecutorMulti"], "extra_threads"
-                    )
-                    - integer_counter(cold_probes["ExecutorSingle"], "extra_threads"),
-                }
-            )
-            artifact.checkpoint(payload, completed_units=len(records))
+                measurements[policy] = run_cpp_probe(
+                    executable,
+                    [
+                        f"--policy={policy}",
+                        f"--concurrency={concurrency}",
+                        f"--outer-tasks={outer_tasks}",
+                        f"--matrix-n={matrix_n}",
+                    ],
+                    marker=RESULT_MARKER,
+                    min_time=args.min_time,
+                    warmup_seconds=args.warmup_seconds,
+                    warmup_min_operations=args.warmup_min_operations,
+                    string_fields=frozenset({"policy"}),
+                    integer_fields=RESULT_INTEGER_FIELDS,
+                    float_fields=RESULT_FLOAT_FIELDS,
+                )
+
+        with artifact.capture_failures(lambda: payload):
+            validate_block(key, measurements, args.checksum_relative_tolerance)
+        single_time = float(measurements["ExecutorSingle"]["wall_seconds"])
+        multi_time = float(measurements["ExecutorMulti"]["wall_seconds"])
+        records.append(
+            {
+                "repetition": repetition,
+                "concurrency": concurrency,
+                "outer_tasks": outer_tasks,
+                "matrix_n": matrix_n,
+                "order": policies,
+                "measurements": measurements,
+                "multi_over_single": multi_time / single_time,
+                "extra_thread_delta": integer_counter(
+                    measurements["ExecutorMulti"], "extra_threads"
+                )
+                - integer_counter(measurements["ExecutorSingle"], "extra_threads"),
+            }
+        )
+        artifact.checkpoint(payload, completed_units=len(records))
 
     with artifact.capture_failures(lambda: payload):
         summary = summarize(records)
         payload["summary"] = summary
         artifact.complete(payload)
 
-    print("\nc tasks    n  steady multi/single  cold multi/single  extra-thread delta")
+    print("\nc tasks    n  multi/single  extra-thread delta")
     for row in summary:
         print(
             f"{row['concurrency']:2d} {row['outer_tasks']:5d} {row['matrix_n']:4d}  "
-            f"{row['median_multi_over_single']:19.4f}  "
-            f"{row['median_cold_multi_over_single']:17.4f}  "
+            f"{row['median_multi_over_single']:12.4f}  "
             f"{row['median_extra_thread_delta']:18.1f}"
         )
     print(f"\nWrote {args.out}")

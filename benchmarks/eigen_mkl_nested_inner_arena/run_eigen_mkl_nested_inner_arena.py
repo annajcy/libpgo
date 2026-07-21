@@ -55,33 +55,35 @@ POLICIES = (
 )
 RESULT_PREFIX = "PGO_MKL_NESTED_INNER_ARENA_RESULT"
 STRING_FIELDS = frozenset({"policy"})
-INTEGER_FIELDS = frozenset({
-    "configured_global_concurrency",
-    "effective_global_concurrency",
-    "process_default_mkl_max_threads",
-    "configured_outer_arena_concurrency",
-    "configured_outer_mkl_local_budget",
-    "uses_inner_arena",
-    "configured_inner_arena_concurrency",
-    "configured_inner_mkl_local_budget",
-    "observed_outer_arena_concurrency_min",
-    "observed_outer_arena_concurrency_max",
-    "observed_inner_arena_concurrency_min",
-    "observed_inner_arena_concurrency_max",
-    "observed_mkl_max_threads_min",
-    "observed_mkl_max_threads_max",
-    "outer_active_peak",
-    "outer_tasks",
-    "matrix_n",
-    "configured_warmup_min_operations",
-    "actual_warmup_operations",
-    "profile_iterations",
-    "measured_gemm_calls",
-    "process_gemm_calls",
-    "baseline_threads",
-    "peak_threads",
-    "extra_threads",
-})
+INTEGER_FIELDS = frozenset(
+    {
+        "configured_global_concurrency",
+        "effective_global_concurrency",
+        "process_default_mkl_max_threads",
+        "configured_outer_arena_concurrency",
+        "configured_outer_mkl_local_budget",
+        "uses_inner_arena",
+        "configured_inner_arena_concurrency",
+        "configured_inner_mkl_local_budget",
+        "observed_outer_arena_concurrency_min",
+        "observed_outer_arena_concurrency_max",
+        "observed_inner_arena_concurrency_min",
+        "observed_inner_arena_concurrency_max",
+        "observed_mkl_max_threads_min",
+        "observed_mkl_max_threads_max",
+        "outer_active_peak",
+        "outer_tasks",
+        "matrix_n",
+        "configured_warmup_min_operations",
+        "actual_warmup_operations",
+        "profile_iterations",
+        "measured_gemm_calls",
+        "process_gemm_calls",
+        "baseline_threads",
+        "peak_threads",
+        "extra_threads",
+    }
+)
 FLOAT_FIELDS = frozenset(
     {
         "configured_warmup_seconds",
@@ -126,7 +128,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true")
     add_workload_warmup_arguments(
-        parser, default_seconds=1.0, default_min_operations=3
+        parser, default_seconds=0.0, default_min_operations=10
     )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
@@ -498,39 +500,39 @@ def collect_vtune_profiles(
                 )
 
                 reports = {
-                "summary.txt": [
-                    str(vtune),
-                    "-quiet",
-                    "-report",
-                    "summary",
-                    "-result-dir",
-                    str(result_directory),
-                    "-report-knob",
-                    "show-issues=false",
-                ],
-                "hotspots.csv": [
-                    str(vtune),
-                    "-quiet",
-                    "-report",
-                    "hotspots",
-                    "-result-dir",
-                    str(result_directory),
-                    "-format=csv",
-                    "-csv-delimiter=comma",
-                ],
-                "tasks.csv": [
-                    str(vtune),
-                    "-quiet",
-                    "-report",
-                    "hotspots",
-                    "-result-dir",
-                    str(result_directory),
-                    "-group-by",
-                    "task",
-                    "-format=csv",
-                    "-csv-delimiter=comma",
-                ],
-            }
+                    "summary.txt": [
+                        str(vtune),
+                        "-quiet",
+                        "-report",
+                        "summary",
+                        "-result-dir",
+                        str(result_directory),
+                        "-report-knob",
+                        "show-issues=false",
+                    ],
+                    "hotspots.csv": [
+                        str(vtune),
+                        "-quiet",
+                        "-report",
+                        "hotspots",
+                        "-result-dir",
+                        str(result_directory),
+                        "-format=csv",
+                        "-csv-delimiter=comma",
+                    ],
+                    "tasks.csv": [
+                        str(vtune),
+                        "-quiet",
+                        "-report",
+                        "hotspots",
+                        "-result-dir",
+                        str(result_directory),
+                        "-group-by",
+                        "task",
+                        "-format=csv",
+                        "-csv-delimiter=comma",
+                    ],
+                }
                 for suffix, report_command in reports.items():
                     report_path = profile_root / f"{case}.{suffix}"
                     report_path.write_text(report_output(report_command, environment))

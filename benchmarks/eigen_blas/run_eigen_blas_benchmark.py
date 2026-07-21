@@ -10,7 +10,6 @@ import random
 import re
 import statistics
 import sys
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,7 +26,7 @@ from benchmark_support.harness import (  # noqa: E402
 )
 from benchmark_support.schedule import balanced_order, order_configuration  # noqa: E402
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
-from benchmark_support.google_benchmark import list_cases, run_case  # noqa: E402
+from benchmark_support.cpp_probe import run_cpp_probe  # noqa: E402
 from benchmark_support.process import checked_output  # noqa: E402
 from benchmark_support.statistics import bootstrap_median_ci  # noqa: E402
 from benchmark_support.warmup import (  # noqa: E402
@@ -37,7 +36,20 @@ from benchmark_support.warmup import (  # noqa: E402
 )
 
 
-CASE_PATTERN = re.compile(r"^EigenBlas/Gemm/([^/]+)/n_(\d+)(?:/real_time)?$")
+MATRIX_SIZES = (32, 64, 128, 256, 512, 1024)
+RESULT_MARKER = "PGO_EIGEN_BLAS_RESULT"
+RESULT_INTEGER_FIELDS = frozenset(
+    {
+        "matrix_n",
+        "baseline_threads",
+        "peak_threads",
+        "extra_threads",
+        "configured_concurrency",
+        "arena_concurrency",
+        "mkl_local_thread_budget",
+    }
+)
+RESULT_FLOAT_FIELDS = frozenset({"checksum", "flops_per_operation"})
 
 
 @dataclass(frozen=True)
@@ -72,7 +84,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     add_workload_warmup_arguments(
-        parser, default_seconds=1.0, default_min_operations=10
+        parser, default_seconds=0.0, default_min_operations=10
     )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
@@ -160,27 +172,14 @@ def verify_linkage(provider: Provider, internal: Path, vendor: Path) -> dict[str
     }
 
 
-def discover_cases(
-    provider: Provider,
-    internal: Path,
-    vendor: Path,
-    environment: dict[str, str],
-) -> dict[int, dict[str, tuple[Path, str]]]:
-    cases: dict[int, dict[str, tuple[Path, str]]] = {}
-    for executable in (internal, vendor):
-        for name in list_cases(executable, environment):
-            match = CASE_PATTERN.fullmatch(name)
-            if not match:
-                continue
-            variant, matrix_n = match.groups()
-            if variant in provider.variants:
-                cases.setdefault(int(matrix_n), {})[variant] = (executable, name)
-
-    return {
-        matrix_n: variants
-        for matrix_n, variants in sorted(cases.items())
-        if set(variants) == set(provider.variants)
-    }
+def executable_for_variant(
+    provider: Provider, internal: Path, vendor: Path, variant: str
+) -> Path:
+    if variant == "EigenInternal":
+        return internal
+    if variant in (provider.single, provider.wide):
+        return vendor
+    raise ValueError(f"Unknown {provider.name} variant: {variant}")
 
 
 def validate_checksums(
@@ -270,7 +269,7 @@ def summarize(
                 },
                 "median_extra_threads": {
                     variant: statistics.median(
-                        float(block["cold_probes"][variant].get("extra_threads", 0))
+                        float(block["measurements"][variant].get("extra_threads", 0))
                         for block in blocks
                     )
                     for variant in provider.variants
@@ -302,13 +301,9 @@ def main() -> int:
 
     environment = benchmark_environment(args)
     linkage = verify_linkage(provider, internal, vendor)
-    cases = discover_cases(provider, internal, vendor, environment)
+    cases = list(MATRIX_SIZES)
     if args.case_limit:
-        cases = dict(list(cases.items())[: args.case_limit])
-    if not cases:
-        raise SystemExit(
-            f"No complete Eigen/{provider.name} benchmark cases were found"
-        )
+        cases = cases[: args.case_limit]
 
     print(f"Verified {provider.name} linkage; matched {len(cases)} matrix size(s).")
     for matrix_n in cases:
@@ -344,7 +339,7 @@ def main() -> int:
         "order": order,
         "min_time": args.min_time,
         "warmup": workload_warmup_configuration(args),
-        "thread_telemetry_source": "cold_probes",
+        "thread_telemetry_source": "workload_specific_warmup",
         "host_environment": host_environment,
         "linkage": linkage,
         "records": records,
@@ -352,71 +347,57 @@ def main() -> int:
     }
     artifact = JsonArtifact(args.out, scheduled_units=len(schedule))
 
-    with tempfile.TemporaryDirectory(prefix=f"pgo-eigen-{provider.name}-") as temp_dir:
-        temporary = Path(temp_dir)
-        for block_index, (repetition, matrix_n) in enumerate(schedule, start=1):
-            variants = balanced_order(
-                provider.variants,
-                repetition=repetition - 1,
-                seed=args.seed,
-                block_key=f"{provider.name}:n={matrix_n}",
-            )
-            print(
-                f"[{block_index}/{len(schedule)}] repetition={repetition} n={matrix_n} "
-                f"order={','.join(variants)}",
-                flush=True,
-            )
-            measurements: dict[str, dict[str, Any]] = {}
-            cold_probes: dict[str, dict[str, Any]] = {}
-            for variant in variants:
-                label = f"r={repetition}:n={matrix_n}:variant={variant}"
-                artifact.set_active(label)
-                with artifact.capture_failures(lambda: payload):
-                    executable, name = cases[matrix_n][variant]
-                    cold_probes[variant] = run_case(
-                        executable,
-                        name,
-                        temporary / f"{block_index}-{variant}-cold.json",
-                        "1x",
-                        0.0,
-                        environment,
-                    )
-                    measurements[variant] = run_case(
-                        executable,
-                        name,
-                        temporary / f"{block_index}-{variant}-steady.json",
-                        args.min_time,
-                        args.warmup_seconds,
-                        environment,
-                    )
-
+    for block_index, (repetition, matrix_n) in enumerate(schedule, start=1):
+        variants = balanced_order(
+            provider.variants,
+            repetition=repetition - 1,
+            seed=args.seed,
+            block_key=f"{provider.name}:n={matrix_n}",
+        )
+        print(
+            f"[{block_index}/{len(schedule)}] repetition={repetition} n={matrix_n} "
+            f"order={','.join(variants)}",
+            flush=True,
+        )
+        measurements: dict[str, dict[str, Any]] = {}
+        for variant in variants:
+            label = f"r={repetition}:n={matrix_n}:variant={variant}"
+            artifact.set_active(label)
             with artifact.capture_failures(lambda: payload):
-                validate_checksums(
-                    cold_probes, matrix_n, args.checksum_relative_tolerance
+                executable = executable_for_variant(provider, internal, vendor, variant)
+                measurements[variant] = run_cpp_probe(
+                    executable,
+                    [f"--backend={variant}", f"--matrix-n={matrix_n}"],
+                    marker=RESULT_MARKER,
+                    min_time=args.min_time,
+                    warmup_seconds=args.warmup_seconds,
+                    warmup_min_operations=args.warmup_min_operations,
+                    string_fields=frozenset({"backend"}),
+                    integer_fields=RESULT_INTEGER_FIELDS,
+                    float_fields=RESULT_FLOAT_FIELDS,
+                    environment=environment,
                 )
-                validate_checksums(
-                    measurements, matrix_n, args.checksum_relative_tolerance
-                )
-                validate_provider_configuration(cold_probes, provider, matrix_n)
-                validate_provider_configuration(measurements, provider, matrix_n)
-            internal_time = measurements["EigenInternal"]["wall_seconds"]
-            single_time = measurements[provider.single]["wall_seconds"]
-            wide_time = measurements[provider.wide]["wall_seconds"]
-            records.append(
-                {
-                    "repetition": repetition,
-                    "matrix_n": matrix_n,
-                    "order": variants,
-                    "measurements": measurements,
-                    "cold_probes": cold_probes,
-                    "ratios": {
-                        f"{provider.single}/EigenInternal": single_time / internal_time,
-                        f"{provider.wide}/EigenInternal": wide_time / internal_time,
-                        f"{provider.wide}/{provider.single}": wide_time / single_time,
-                    },
-                }
-            )
-            artifact.checkpoint(payload, completed_units=len(records))
+
+        with artifact.capture_failures(lambda: payload):
+            validate_checksums(measurements, matrix_n, args.checksum_relative_tolerance)
+            validate_provider_configuration(measurements, provider, matrix_n)
+        internal_time = measurements["EigenInternal"]["wall_seconds"]
+        single_time = measurements[provider.single]["wall_seconds"]
+        wide_time = measurements[provider.wide]["wall_seconds"]
+        records.append(
+            {
+                "repetition": repetition,
+                "matrix_n": matrix_n,
+                "order": variants,
+                "measurements": measurements,
+                "ratios": {
+                    f"{provider.single}/EigenInternal": single_time / internal_time,
+                    f"{provider.wide}/EigenInternal": wide_time / internal_time,
+                    f"{provider.wide}/{provider.single}": wide_time / single_time,
+                },
+            }
+        )
+        artifact.checkpoint(payload, completed_units=len(records))
 
     with artifact.capture_failures(lambda: payload):
         summary = summarize(records, provider, args.seed, args.bootstrap_samples)

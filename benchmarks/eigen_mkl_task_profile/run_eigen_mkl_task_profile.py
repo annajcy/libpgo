@@ -68,7 +68,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true")
     add_workload_warmup_arguments(
-        parser, default_seconds=1.0, default_min_operations=3
+        parser, default_seconds=0.0, default_min_operations=10
     )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
@@ -189,39 +189,39 @@ def main() -> int:
                 )
 
             reports = {
-            "summary": [
-                str(vtune),
-                "-quiet",
-                "-report",
-                "summary",
-                "-result-dir",
-                str(result_directory),
-                "-report-knob",
-                "show-issues=false",
-            ],
-            "hotspots.csv": [
-                str(vtune),
-                "-quiet",
-                "-report",
-                "hotspots",
-                "-result-dir",
-                str(result_directory),
-                "-format=csv",
-                "-csv-delimiter=comma",
-            ],
-            "tasks.csv": [
-                str(vtune),
-                "-quiet",
-                "-report",
-                "hotspots",
-                "-result-dir",
-                str(result_directory),
-                "-group-by",
-                "task",
-                "-format=csv",
-                "-csv-delimiter=comma",
-            ],
-        }
+                "summary": [
+                    str(vtune),
+                    "-quiet",
+                    "-report",
+                    "summary",
+                    "-result-dir",
+                    str(result_directory),
+                    "-report-knob",
+                    "show-issues=false",
+                ],
+                "hotspots.csv": [
+                    str(vtune),
+                    "-quiet",
+                    "-report",
+                    "hotspots",
+                    "-result-dir",
+                    str(result_directory),
+                    "-format=csv",
+                    "-csv-delimiter=comma",
+                ],
+                "tasks.csv": [
+                    str(vtune),
+                    "-quiet",
+                    "-report",
+                    "hotspots",
+                    "-result-dir",
+                    str(result_directory),
+                    "-group-by",
+                    "task",
+                    "-format=csv",
+                    "-csv-delimiter=comma",
+                ],
+            }
             run["reports"] = {}
             for suffix, report_command in reports.items():
                 report_path = output / f"{entry['policy'].lower()}.{suffix}"

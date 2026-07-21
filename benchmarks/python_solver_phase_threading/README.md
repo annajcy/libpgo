@@ -109,12 +109,12 @@ OMP_DYNAMIC=FALSE
 ```
 
 The worker creates `GlobalTbbControl(C)` before constructing its mesh,
-material, energy, or optimizer. In steady-state mode it performs one full
-warmup solve and three timed solves; the worker's sample is their median wall
-time. Each timed solve restarts from the same deterministic perturbed DOF
-vector and is independently validated. Policy order is counterbalanced within
-each `(repetition, workload)` block by the shared deterministic Williams
-design, and blocks are randomized independently.
+material, energy, or optimizer. In steady-state mode it performs ten full
+warmup solves and three timed solves; the worker's sample is their median wall
+time. Each warmup and timed solve restarts from the same deterministic perturbed
+DOF vector, and every timed solve is independently validated. Policy order is
+counterbalanced within each `(repetition, workload)` block by the shared
+deterministic Williams design, and blocks are randomized independently.
 
 Quick scheduling check without loading `pypgo`:
 

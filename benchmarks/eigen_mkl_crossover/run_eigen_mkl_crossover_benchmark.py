@@ -7,10 +7,8 @@ import argparse
 import math
 import os
 import random
-import re
 import statistics
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,10 +29,9 @@ from benchmark_support.warmup import (  # noqa: E402
     validate_workload_warmup_arguments,
     workload_warmup_configuration,
 )
-from benchmark_support.google_benchmark import (  # noqa: E402
+from benchmark_support.cpp_probe import (  # noqa: E402
     integer_counter,
-    list_cases,
-    run_case,
+    run_cpp_probe,
 )
 from benchmark_support.mkl import (  # noqa: E402
     mkl_tbb_environment,
@@ -44,10 +41,19 @@ from benchmark_support.statistics import bootstrap_median_ci  # noqa: E402
 
 
 POLICIES = ("ExecutorLocal1", "ExecutorMKLC")
-CASE_PATTERN = re.compile(
-    r"^EigenMklCrossover/(ExecutorLocal1|ExecutorMKLC)"
-    r"/n_(\d+)(?:/real_time)?$"
+MATRIX_SIZES = tuple(range(64, 129, 4))
+RESULT_MARKER = "PGO_EIGEN_MKL_CROSSOVER_RESULT"
+RESULT_INTEGER_FIELDS = frozenset(
+    {
+        "matrix_n",
+        "requested_concurrency",
+        "effective_global_concurrency",
+        "configured_arena_concurrency",
+        "configured_mkl_local_budget",
+        "observed_arena_concurrency",
+    }
 )
+RESULT_FLOAT_FIELDS = frozenset({"checksum", "flops_per_operation"})
 CONCURRENCY_ENVIRONMENT = "PGO_EIGEN_MKL_CROSSOVER_MAX_CONCURRENCY"
 
 
@@ -66,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     add_workload_warmup_arguments(
-        parser, default_seconds=1.0, default_min_operations=10
+        parser, default_seconds=0.0, default_min_operations=10
     )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
@@ -77,31 +83,11 @@ def benchmark_environment(max_concurrency: int | None) -> dict[str, str]:
     if max_concurrency is not None:
         overrides[CONCURRENCY_ENVIRONMENT] = str(max_concurrency)
     else:
-        overrides[CONCURRENCY_ENVIRONMENT] = os.environ.get(
-            CONCURRENCY_ENVIRONMENT, ""
-        )
+        overrides[CONCURRENCY_ENVIRONMENT] = os.environ.get(CONCURRENCY_ENVIRONMENT, "")
     environment = mkl_tbb_environment(overrides)
     if max_concurrency is None:
         environment.pop(CONCURRENCY_ENVIRONMENT, None)
     return environment
-
-
-def discover_cases(
-    executable: Path, environment: dict[str, str]
-) -> dict[int, dict[str, str]]:
-    discovered: dict[int, dict[str, str]] = {}
-    for name in list_cases(executable, environment):
-        match = CASE_PATTERN.fullmatch(name)
-        if not match:
-            continue
-        policy, matrix_n = match.groups()
-        discovered.setdefault(int(matrix_n), {})[policy] = name
-
-    return {
-        matrix_n: cases
-        for matrix_n, cases in sorted(discovered.items())
-        if set(cases) == set(POLICIES)
-    }
 
 
 def validate_block(
@@ -251,11 +237,9 @@ def main() -> int:
 
     environment = benchmark_environment(args.max_concurrency)
     linkage = verify_mkl_tbb_benchmark_linkage(executable, environment)
-    cases = discover_cases(executable, environment)
+    cases = list(MATRIX_SIZES)
     if args.case_limit:
-        cases = dict(list(cases.items())[: args.case_limit])
-    if not cases:
-        raise SystemExit("No complete MKL crossover cases were found.")
+        cases = cases[: args.case_limit]
 
     print(f"Verified MKL-TBB linkage; matched {len(cases)} matrix size(s).")
     print("matrix sizes:", ", ".join(str(matrix_n) for matrix_n in cases))
@@ -306,54 +290,56 @@ def main() -> int:
     }
     artifact = JsonArtifact(args.out, scheduled_units=len(schedule))
 
-    with tempfile.TemporaryDirectory(prefix="pgo-eigen-mkl-crossover-") as temp_dir:
-        temporary = Path(temp_dir)
-        for block_index, (repetition, matrix_n) in enumerate(schedule, start=1):
-            policies = balanced_order(
-                POLICIES,
-                repetition=repetition - 1,
-                seed=args.seed,
-                block_key=f"n={matrix_n}",
-            )
-            print(
-                f"[{block_index}/{len(schedule)}] repetition={repetition} "
-                f"n={matrix_n} order={','.join(policies)}",
-                flush=True,
-            )
-            measurements: dict[str, dict[str, Any]] = {}
-            for policy in policies:
-                label = f"r={repetition}:n={matrix_n}:policy={policy}"
-                artifact.set_active(label)
-                with artifact.capture_failures(lambda: payload):
-                    measurements[policy] = run_case(
-                        executable,
-                        cases[matrix_n][policy],
-                        temporary / f"{block_index}-{policy}.json",
-                        args.min_time,
-                        args.warmup_seconds,
-                        environment,
-                    )
-
+    for block_index, (repetition, matrix_n) in enumerate(schedule, start=1):
+        policies = balanced_order(
+            POLICIES,
+            repetition=repetition - 1,
+            seed=args.seed,
+            block_key=f"n={matrix_n}",
+        )
+        print(
+            f"[{block_index}/{len(schedule)}] repetition={repetition} "
+            f"n={matrix_n} order={','.join(policies)}",
+            flush=True,
+        )
+        measurements: dict[str, dict[str, Any]] = {}
+        for policy in policies:
+            label = f"r={repetition}:n={matrix_n}:policy={policy}"
+            artifact.set_active(label)
             with artifact.capture_failures(lambda: payload):
-                effective_concurrency = validate_block(
-                    matrix_n,
-                    measurements,
-                    args.max_concurrency,
-                    args.checksum_relative_tolerance,
+                measurements[policy] = run_cpp_probe(
+                    executable,
+                    [f"--policy={policy}", f"--matrix-n={matrix_n}"],
+                    marker=RESULT_MARKER,
+                    min_time=args.min_time,
+                    warmup_seconds=args.warmup_seconds,
+                    warmup_min_operations=args.warmup_min_operations,
+                    string_fields=frozenset({"policy"}),
+                    integer_fields=RESULT_INTEGER_FIELDS,
+                    float_fields=RESULT_FLOAT_FIELDS,
+                    environment=environment,
                 )
-            local1_time = float(measurements["ExecutorLocal1"]["wall_seconds"])
-            mkl_c_time = float(measurements["ExecutorMKLC"]["wall_seconds"])
-            records.append(
-                {
-                    "repetition": repetition,
-                    "matrix_n": matrix_n,
-                    "order": policies,
-                    "effective_concurrency": effective_concurrency,
-                    "measurements": measurements,
-                    "mkl_c_over_local1": mkl_c_time / local1_time,
-                }
+
+        with artifact.capture_failures(lambda: payload):
+            effective_concurrency = validate_block(
+                matrix_n,
+                measurements,
+                args.max_concurrency,
+                args.checksum_relative_tolerance,
             )
-            artifact.checkpoint(payload, completed_units=len(records))
+        local1_time = float(measurements["ExecutorLocal1"]["wall_seconds"])
+        mkl_c_time = float(measurements["ExecutorMKLC"]["wall_seconds"])
+        records.append(
+            {
+                "repetition": repetition,
+                "matrix_n": matrix_n,
+                "order": policies,
+                "effective_concurrency": effective_concurrency,
+                "measurements": measurements,
+                "mkl_c_over_local1": mkl_c_time / local1_time,
+            }
+        )
+        artifact.checkpoint(payload, completed_units=len(records))
 
     with artifact.capture_failures(lambda: payload):
         summary = summarize(

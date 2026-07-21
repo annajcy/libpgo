@@ -1,8 +1,3 @@
-if(NOT TARGET benchmark::benchmark)
-  message(STATUS "parallel benchmarks are skipped. Missing: benchmark::benchmark")
-  return()
-endif()
-
 function(pgo_add_mkl_tbb_probe target)
   add_executable(${target} ${ARGN})
   target_link_libraries(${target}

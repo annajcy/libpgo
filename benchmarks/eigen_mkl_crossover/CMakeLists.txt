@@ -11,7 +11,6 @@ target_compile_definitions(eigen_mkl_crossover_benchmark
 
 target_link_libraries(eigen_mkl_crossover_benchmark
   PRIVATE
-    benchmark::benchmark
     Eigen3::Eigen
     MKL::MKL
     parallel

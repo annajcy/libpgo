@@ -1,8 +1,8 @@
 # Benchmark execution policy
 
-Top-level runners use workload-specific warmup.  The exact case, problem size,
+Top-level runners use workload-specific warmup. The exact case, problem size,
 backend, and threading policy that will be measured first execute in the same
-fresh process until both fixed lower bounds are satisfied:
+fresh process until both configured lower bounds are satisfied:
 
 ```text
 elapsed >= warmup_seconds AND completed_operations >= warmup_min_operations
@@ -11,8 +11,10 @@ elapsed >= warmup_seconds AND completed_operations >= warmup_min_operations
 Warmup timing does not adapt either bound.  Runners reset measurement counters
 afterward without destroying the warmed executor, backend, or thread pools.
 Stateful workloads restore the same semantic input before every timed solve.
-The default bounds are provisional until the calibration described below is
-complete; formal runs must record the selected values in their manifests.
+The formal default is `warmup_seconds = 0` and
+`warmup_min_operations = 10`, so every sample executes exactly ten untimed
+instances of its own workload and policy before measurement. Formal runs record
+both bounds and the observed operation count in their artifacts.
 
 Measured policy order uses a deterministic Williams design within each
 repetition/workload block. This balances temporal positions and first-order
@@ -33,9 +35,11 @@ Common options are available on every runner:
 ```
 
 Workload runners additionally expose `--warmup-seconds` and
-`--warmup-min-operations`.  Google Benchmark-backed runners pass the time bound
-to `--benchmark_min_warmup_time`; its calibrated iteration loop supplies many
-more than the minimum operation count for the microbenchmarks used here.
+`--warmup-min-operations`. Python runners launch one fresh worker process per
+sample. C++ workers execute the requested exact-workload warmup, then time only
+the workload loop until `--min-time` is satisfied. They report configured and
+actual warmup counts, total measured time, and measured operation count; the
+Python harness validates those fields and normalizes time per operation.
 
 `--allow-incomplete-order-cycle` is an explicit diagnostic escape hatch. Such
 a run records `strictly_balanced = false` and must not be mixed into strict
@@ -57,7 +61,7 @@ CPUs.  Complete Williams cycles and paired analysis, rather than online timing
 rejection, control smooth temporal drift and first-order carry-over.
 
 Before a formal server campaign, run `run_harness_placebo.py` against one
-representative oneMKL Google Benchmark case. Its `placebo_a` and `placebo_b`
+representative self-timed oneMKL C++ probe. Its `placebo_a` and `placebo_b`
 labels execute the same case, command parameters, environment, and fresh-process
 path in a complete AB/BA cycle. The gate rejects material label bias, temporal
 position bias, or warmup-path bias before any real policy contrast is
@@ -71,18 +75,18 @@ For example, on the eight-core Linux allocation:
 ```bash
 python3 benchmarks/run_harness_placebo.py \
   build/base/benchmarks/eigen_mkl_crossover/eigen_mkl_crossover_benchmark \
-  --case EigenMklCrossover/ExecutorLocal1/n_128/real_time \
+  --policy ExecutorLocal1 --matrix-n 128 \
   --out benchmark-results/harness-placebo.json \
   --concurrency 8 --cpu-list 21-28 --numa-node 0
 ```
 
-## Warmup calibration API
+## Optional warmup calibration API
 
-`run_warmup_calibration.py` runs one subject over the counterbalanced candidate
+`run_warmup_calibration.py` is an offline diagnostic, not a prerequisite for a
+formal run. It runs one subject over the counterbalanced candidate
 set `0,0.25,0.5,1,2,4` seconds in fresh processes.  Commands are templates with
 `{warmup_seconds}`, `{warmup_min_operations}`, `{result_path}`, and
-`{repetition}` fields.  Google Benchmark JSON, key-value result markers, and
-JSON result markers are supported.
+`{repetition}` fields. Key-value and JSON result markers are supported.
 
 The predeclared rule selects the smallest positive `T` for which paired timing
 at `T` is equivalent to both `2T` and `4T`: the median ratio must be within 1%
@@ -105,7 +109,8 @@ runner provenance, host placement, and Williams-order metadata as formal runs.
 - `artifact.py` atomically checkpoints JSON and records a uniform
   `artifact_state` with running/complete/failed state, active unit, progress,
   and failure details;
-- `google_benchmark.py` lists and runs one JSON-producing Google Benchmark case;
+- `cpp_probe.py` runs one self-timed C++ probe and validates its warmup and
+  measurement counters;
 - `mkl.py` configures and verifies the Linux oneMKL + oneTBB stack;
 - `process.py` handles subprocess diagnostics, result markers, and executable
   discovery;
@@ -122,5 +127,6 @@ correctness checks, summary schema, and decision rules.  Do not introduce a
 runner base class: experiments deliberately differ at those semantic seams.
 
 For C++ probes, `benchmark_argument_parser.h` contains the common option
-parsing primitives, `parallelism_benchmark_helpers.h` owns shared atomic
-telemetry, and `pgo_add_mkl_tbb_probe` is the common CMake target fixture.
+parsing primitives, `timed_workload.h` defines the internal timed loop,
+`parallelism_benchmark_helpers.h` owns shared atomic telemetry, and
+`pgo_add_mkl_tbb_probe` is the common CMake target fixture.

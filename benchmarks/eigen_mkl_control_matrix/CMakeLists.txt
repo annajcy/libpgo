@@ -31,7 +31,6 @@ target_compile_definitions(eigen_mkl_control_matrix_no_blas_benchmark
 
 target_link_libraries(eigen_mkl_control_matrix_no_blas_benchmark
   PRIVATE
-    benchmark::benchmark
     MKL::MKL
     parallel
     TBB::tbb
@@ -46,7 +45,6 @@ pgo_add_mkl_tbb_probe(eigen_mkl_control_matrix_probe
 
 target_link_libraries(eigen_mkl_control_matrix_benchmark
   PRIVATE
-    benchmark::benchmark
     Eigen3::Eigen
     MKL::MKL
     parallel

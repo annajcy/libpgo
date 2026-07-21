@@ -34,9 +34,6 @@ from benchmark_support.warmup import (  # noqa: E402
 )
 
 
-TIME_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--subject", required=True)
@@ -55,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ci-tolerance", type=float, default=0.02)
     parser.add_argument(
         "--result-format",
-        choices=("google-json", "key-value", "json-marker"),
+        choices=("key-value", "json-marker"),
         required=True,
     )
     parser.add_argument(
@@ -65,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--metric",
         default="wall_seconds",
-        help="Seconds-valued result field; google-json also accepts real_time.",
+        help="Seconds-valued result field.",
     )
     parser.add_argument("--env", action="append", default=[])
     parser.add_argument("--cwd", type=Path, default=Path.cwd())
@@ -96,8 +93,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("require 0 < --median-tolerance <= --ci-tolerance < 1")
     if not args.command:
         raise ValueError("a command template must follow --")
-    if args.result_format != "google-json" and not args.result_marker:
-        raise ValueError("--result-marker is required for marker result formats")
+    if not args.result_marker:
+        raise ValueError("--result-marker is required")
     for assignment in args.env:
         name, separator, _ = assignment.partition("=")
         if not separator or not name:
@@ -125,7 +122,11 @@ def render_command(
 
 
 def _marker_lines(stdout: str, marker: str) -> list[str]:
-    return [line[len(marker) :].strip() for line in stdout.splitlines() if line.startswith(marker)]
+    return [
+        line[len(marker) :].strip()
+        for line in stdout.splitlines()
+        if line.startswith(marker)
+    ]
 
 
 def parse_measurement(
@@ -134,23 +135,6 @@ def parse_measurement(
     stdout: str,
     result_path: Path,
 ) -> tuple[float, dict[str, Any]]:
-    if args.result_format == "google-json":
-        payload = json.loads(result_path.read_text())
-        rows = [
-            row
-            for row in payload.get("benchmarks", [])
-            if row.get("run_type") != "aggregate"
-        ]
-        if len(rows) != 1:
-            raise RuntimeError(f"expected one Google Benchmark row, found {len(rows)}")
-        row = rows[0]
-        if args.metric == "real_time":
-            scale = TIME_SCALE.get(row.get("time_unit"))
-            if scale is None:
-                raise RuntimeError(f"unknown Google Benchmark time unit: {row.get('time_unit')}")
-            return float(row["real_time"]) * scale, row
-        return float(row[args.metric]), row
-
     lines = _marker_lines(stdout, args.result_marker)
     if not lines:
         raise RuntimeError(f"command emitted no {args.result_marker} result line")

@@ -8,11 +8,10 @@ BENCHMARKS_ROOT = Path(__file__).resolve().parents[2] / "benchmarks"
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
 
-from benchmark_support.google_benchmark import (  # noqa: E402
-    exact_filter,
+from benchmark_support.cpp_probe import (  # noqa: E402
+    duration_seconds,
     integer_counter,
-    list_cases,
-    run_case,
+    run_cpp_probe,
 )
 from benchmark_support.artifact import JsonArtifact, runner_manifest  # noqa: E402
 from benchmark_support.statistics import (  # noqa: E402
@@ -29,34 +28,51 @@ from benchmark_support.validation import (  # noqa: E402
     require_nonnegative,
     require_positive,
 )
+from benchmark_support.warmup import run_workload_warmup  # noqa: E402
 
 
-def test_google_benchmark_fixture_lists_and_runs_one_case(tmp_path: Path) -> None:
-    executable = tmp_path / "fake_google_benchmark.py"
+def test_cpp_probe_fixture_runs_and_normalizes_one_case(tmp_path: Path) -> None:
+    executable = tmp_path / "fake_cpp_probe.py"
     executable.write_text(
         "#!/usr/bin/env python3\n"
-        "import json\n"
         "import sys\n"
-        "if '--benchmark_list_tests' in sys.argv:\n"
-        "    print('Fake/Case')\n"
-        "    raise SystemExit(0)\n"
-        "output = next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--benchmark_out='))\n"
-        "with open(output, 'w') as stream:\n"
-        "    json.dump({'benchmarks': [{'name': 'Fake/Case', 'real_time': 2500, 'time_unit': 'us'}]}, stream)\n"
+        "value = lambda prefix: next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith(prefix))\n"
+        "print('FAKE_RESULT label=case count=7 score=2.5 '"
+        "+ 'configured_warmup_seconds=' + value('--warmup-seconds=') + ' '"
+        "+ 'configured_warmup_min_operations=' + value('--warmup-min-operations=') + ' '"
+        "+ 'actual_warmup_seconds=0.001 actual_warmup_operations=10 '"
+        "+ 'configured_measurement_min_seconds=' + value('--measurement-min-seconds=') + ' '"
+        "+ 'measurement_operations=2 measurement_wall_seconds=0.02')\n"
     )
     executable.chmod(0o755)
 
-    assert list_cases(executable) == ["Fake/Case"]
-    assert run_case(executable, "Fake/Case", tmp_path / "result.json", "1x", 0.0) == {
-        "name": "Fake/Case",
-        "real_time": 2500,
-        "time_unit": "us",
-        "wall_seconds": 0.0025,
+    assert run_cpp_probe(
+        executable,
+        ["--case=fixture"],
+        marker="FAKE_RESULT",
+        min_time="10ms",
+        warmup_seconds=0.0,
+        warmup_min_operations=10,
+        string_fields=frozenset({"label"}),
+        integer_fields=frozenset({"count"}),
+        float_fields=frozenset({"score"}),
+    ) == {
+        "label": "case",
+        "count": 7,
+        "score": 2.5,
+        "configured_warmup_seconds": 0.0,
+        "configured_warmup_min_operations": 10,
+        "actual_warmup_seconds": 0.001,
+        "actual_warmup_operations": 10,
+        "configured_measurement_min_seconds": 0.01,
+        "measurement_operations": 2,
+        "measurement_wall_seconds": 0.02,
+        "wall_seconds": 0.01,
     }
 
 
-def test_google_benchmark_counter_and_statistics_helpers() -> None:
-    assert exact_filter("prefix+suffix") == r"^prefix\+suffix$"
+def test_cpp_probe_counter_duration_and_statistics_helpers() -> None:
+    assert duration_seconds("250ms") == 0.25
     assert integer_counter({"work": 4.0}, "work") == 4
     assert percentile([1.0, 3.0], 0.5) == 2.0
     assert median_absolute_deviation([1.0, 2.0, 3.0]) == 1.0
@@ -65,6 +81,23 @@ def test_google_benchmark_counter_and_statistics_helpers() -> None:
 
     interval = bootstrap_median_ci([1.0, 2.0, 3.0], random.Random(17), 20)
     assert interval[0] <= interval[1]
+
+
+def test_workload_warmup_runs_exact_fixed_operation_count() -> None:
+    completed = 0
+
+    def operation() -> int:
+        nonlocal completed
+        completed += 1
+        return completed
+
+    last, result = run_workload_warmup(
+        operation, minimum_seconds=0.0, minimum_operations=10
+    )
+
+    assert last == 10
+    assert completed == 10
+    assert result.completed_operations == 10
 
 
 def test_marker_and_isolated_python_worker_fixtures(tmp_path: Path) -> None:

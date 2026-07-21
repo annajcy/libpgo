@@ -32,12 +32,16 @@ def parse_warmup_candidates(value: str) -> tuple[float, ...]:
         raise argparse.ArgumentTypeError(
             "warmup candidates must be comma-separated seconds"
         ) from error
-    if not candidates or any(not math.isfinite(item) or item < 0 for item in candidates):
+    if not candidates or any(
+        not math.isfinite(item) or item < 0 for item in candidates
+    ):
         raise argparse.ArgumentTypeError(
             "warmup candidates must be finite nonnegative seconds"
         )
     if len(set(candidates)) != len(candidates):
-        raise argparse.ArgumentTypeError("warmup candidates must not contain duplicates")
+        raise argparse.ArgumentTypeError(
+            "warmup candidates must not contain duplicates"
+        )
     return tuple(sorted(candidates))
 
 
@@ -52,7 +56,10 @@ def add_workload_warmup_arguments(
         "--warmup-seconds",
         type=float,
         default=default_seconds,
-        help="Minimum time spent running the exact workload before measurement.",
+        help=(
+            "Minimum time spent running the exact workload before measurement; "
+            "zero makes the operation count the only stopping condition."
+        ),
     )
     group.add_argument(
         "--warmup-min-operations",
@@ -178,13 +185,15 @@ def analyze_warmup_calibration(
         selected = None
         comparisons = []
         for candidate in candidates:
-            if candidate <= 0 or 2 * candidate not in candidate_set or 4 * candidate not in candidate_set:
+            if (
+                candidate <= 0
+                or 2 * candidate not in candidate_set
+                or 4 * candidate not in candidate_set
+            ):
                 continue
             candidate_passes = True
             for reference in (2 * candidate, 4 * candidate):
-                repetitions = sorted(
-                    set(samples[candidate]) & set(samples[reference])
-                )
+                repetitions = sorted(set(samples[candidate]) & set(samples[reference]))
                 ratios = [
                     samples[candidate][repetition] / samples[reference][repetition]
                     for repetition in repetitions
@@ -217,8 +226,12 @@ def analyze_warmup_calibration(
             {
                 "subject": subject,
                 "selected_warmup_seconds": selected,
-                "status": "plateau_found" if selected is not None else "extend_candidates",
-                "next_candidate_seconds": None if selected is not None else 2 * max(candidates),
+                "status": "plateau_found"
+                if selected is not None
+                else "extend_candidates",
+                "next_candidate_seconds": None
+                if selected is not None
+                else 2 * max(candidates),
                 "candidate_summaries": candidate_summaries,
                 "comparisons": comparisons,
             }

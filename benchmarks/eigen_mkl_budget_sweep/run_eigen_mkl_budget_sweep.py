@@ -52,22 +52,24 @@ from benchmark_support.validation import (  # noqa: E402
 
 
 RESULT_PREFIX = "PGO_MKL_BUDGET_SWEEP_RESULT"
-INTEGER_FIELDS = frozenset({
-    "configured_global_concurrency",
-    "effective_global_concurrency",
-    "configured_arena_concurrency",
-    "configured_mkl_local_budget",
-    "observed_arena_concurrency",
-    "observed_mkl_max_threads_min",
-    "observed_mkl_max_threads_max",
-    "outer_tasks",
-    "matrix_n",
-    "configured_warmup_min_operations",
-    "actual_warmup_operations",
-    "profile_iterations",
-    "measured_gemm_calls",
-    "process_gemm_calls",
-})
+INTEGER_FIELDS = frozenset(
+    {
+        "configured_global_concurrency",
+        "effective_global_concurrency",
+        "configured_arena_concurrency",
+        "configured_mkl_local_budget",
+        "observed_arena_concurrency",
+        "observed_mkl_max_threads_min",
+        "observed_mkl_max_threads_max",
+        "outer_tasks",
+        "matrix_n",
+        "configured_warmup_min_operations",
+        "actual_warmup_operations",
+        "profile_iterations",
+        "measured_gemm_calls",
+        "process_gemm_calls",
+    }
+)
 FLOAT_FIELDS = frozenset(
     {
         "configured_warmup_seconds",
@@ -138,7 +140,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true")
     add_workload_warmup_arguments(
-        parser, default_seconds=1.0, default_min_operations=3
+        parser, default_seconds=0.0, default_min_operations=10
     )
     add_benchmark_harness_arguments(parser)
     return parser.parse_args()
@@ -749,12 +751,8 @@ def main() -> int:
                     "Includes outer and oneMKL TBB tasks; do not interpret as internal "
                     "oneMKL decomposition."
                 )
-            results["profile_summary"] = summarize_profiles(
-                results["profile_records"]
-            )
-        artifact.checkpoint(
-            results, completed_units=len(timing_jobs) + index
-        )
+            results["profile_summary"] = summarize_profiles(results["profile_records"])
+        artifact.checkpoint(results, completed_units=len(timing_jobs) + index)
 
     artifact.complete(results)
     print(f"Results and profiles written to {output}")
