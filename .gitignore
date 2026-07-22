@@ -107,4 +107,8 @@ examples/experiments/tricubic_hermite_fem/assets/veg/tet/*-tet-reference.json
 examples/experiments/tricubic_hermite_fem/assets/veg/tet/*.meta.json
 
 benchmarks/results/*
+!benchmarks/results/archive/
+benchmarks/results/archive/*
+!benchmarks/results/archive/README.md
 benchmark-results
+slides

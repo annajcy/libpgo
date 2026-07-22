@@ -8,7 +8,6 @@
 #include "../energy/peer.h"
 #include "eigen_numpy.h"
 #include "solver/newton/NewtonOptimizer.h"
-#include "../parallel/core.h"
 #include "solver/service/optimizationProblem.h"
 #include "solver/service/optimizerUtils.h"
 #include "solver/service/optimizationResult.h"
@@ -229,16 +228,7 @@ struct PyNewtonOptimizerOptions
   std::shared_ptr<PyDampingPolicy> damping;
   std::shared_ptr<PyTerminationPolicy> termination;
   std::shared_ptr<PySparseSolver> sparseSolver;
-  std::shared_ptr<const pgo::NonlinearOptimization::NewtonThreadingPolicy> threading;
   int verbose = 0;
-
-  void setThreading(
-    const PyArenaThreadingExecutor &evaluation,
-    const PyArenaThreadingExecutor &linearSolver)
-  {
-    threading = std::make_shared<pgo::NonlinearOptimization::NewtonThreadingPolicy>(
-      evaluation.handle(), linearSolver.handle());
-  }
 };
 
 class PyOptimizer

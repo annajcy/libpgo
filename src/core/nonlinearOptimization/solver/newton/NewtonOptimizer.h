@@ -3,7 +3,6 @@
 #include "solver/newton/newtonDampingPolicy.h"
 #include "solver/newton/newtonLineSearchPolicy.h"
 #include "solver/newton/newtonSparseSolverBackend.h"
-#include "solver/newton/newtonThreadingPolicy.h"
 #include "solver/newton/newtonTerminationPolicy.h"
 #include "solver/service/optimizer.h"
 
@@ -28,9 +27,6 @@ public:
     std::shared_ptr<const NewtonTerminationPolicy> termination;
     // Sparse linear-solver selector; null picks Auto (best available backend).
     std::shared_ptr<const NewtonSparseSolverSelector> sparseSolver;
-    // Optional semantic phase-to-executor mapping. Null preserves the caller's
-    // current arena and backend TLS for the complete solve.
-    std::shared_ptr<const NewtonThreadingPolicy> threading;
   };
 
   NewtonOptimizer();

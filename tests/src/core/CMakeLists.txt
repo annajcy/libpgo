@@ -40,7 +40,7 @@ endif()
 if(TARGET nonlinearOptimization)
   pgo_add_gtest(NewtonSolver_gtest
     SOURCES solver/NewtonSolver_gtest.cpp
-    DEPS nonlinearOptimization parallel
+    DEPS nonlinearOptimization
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/core
   )
   pgo_add_gtest(optimizationProblem_gtest

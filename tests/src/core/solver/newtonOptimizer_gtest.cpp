@@ -246,7 +246,6 @@ TEST(NewtonOptimizer, RecordsStructuredLifecycleTimings)
   EXPECT_GE(diagnostics.finalObjectiveSeconds, 0.0);
   EXPECT_GE(diagnostics.linearSolverCleanupSeconds, 0.0);
   EXPECT_GE(diagnostics.optimizerTotalSeconds, diagnostics.newtonSolveSeconds);
-  EXPECT_GE(diagnostics.threadingLinearSolverPhaseCalls, 3);
 }
 
 TEST(NewtonOptimizer, SolvesWithFixedVariablesAsEqualityBounds)

@@ -10,10 +10,6 @@ import pytest
 BENCHMARKS_ROOT = Path(__file__).resolve().parents[1] / "benchmarks"
 if str(BENCHMARKS_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCHMARKS_ROOT))
-SOLVER_BENCHMARK_ROOT = BENCHMARKS_ROOT / "python_solver_phase_threading"
-if str(SOLVER_BENCHMARK_ROOT) not in sys.path:
-    sys.path.insert(0, str(SOLVER_BENCHMARK_ROOT))
-
 from benchmark_support import harness, host  # noqa: E402
 from benchmark_support.harness import prepare_benchmark_host  # noqa: E402
 from benchmark_support.host import configure_cpu_placement, parse_cpu_list  # noqa: E402
@@ -28,7 +24,6 @@ from benchmark_support.warmup import (  # noqa: E402
     parse_warmup_candidates,
     run_workload_warmup,
 )
-import run_python_solver_phase_threading_benchmark as solver_benchmark  # noqa: E402
 
 
 def test_balanced_order_covers_every_policy_position() -> None:
@@ -107,20 +102,6 @@ def test_incomplete_order_cycle_requires_explicit_diagnostic_override() -> None:
     )
     assert configuration["order_cycle_length"] == 6
     assert configuration["strictly_balanced"] is False
-
-
-def test_solver_steady_state_defaults_to_linear_budget_contrast(monkeypatch) -> None:
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["solver-benchmark", "--dry-run"],
-    )
-    args = solver_benchmark.parse_args()
-    assert args.policies == ("phase_single_single", "phase_aware")
-    assert order_configuration(
-        args.repetitions,
-        [("policies", args.policies)],
-    )["strictly_balanced"] is True
 
 
 def test_prepare_host_records_provenance_without_proxy_workload(monkeypatch) -> None:

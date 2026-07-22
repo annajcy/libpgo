@@ -18,7 +18,7 @@ set(IMPLICIT_SURFACE_SOURCES
   operations/booleanOps.cpp
   extraction/marchingCubesExtractor.cpp)
 
-set(IMPLICIT_SURFACE_DEPS pgoLogging eigenSupport mesh libiglInterface parallel)
+set(IMPLICIT_SURFACE_DEPS pgoLogging eigenSupport mesh libiglInterface TBB::tbb)
 
 pgo_require_targets(implicitSurface TARGETS ${IMPLICIT_SURFACE_DEPS})
 

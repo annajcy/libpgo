@@ -32,6 +32,8 @@ def test_implicit_api_demo_uses_vis_helpers_and_parallel_controls():
     assert "from pypgo.mesh import visualize as vis" in source
     assert source.count("vis.plot_surface") >= 5
     assert "parallel_control = pgo.parallel.GlobalTbbControl(4)" in source
+    assert "ArenaThreadingExecutor" not in source
+    assert "set_threading_policy" not in source
     assert "pgo.parallel.initialize" not in source
 
 

@@ -4,7 +4,6 @@
 #include "solver/newton/newtonTerminationPolicy.h"
 #include "solver/newton/newtonDampingPolicy.h"
 #include "solver/newton/newtonSparseSolverBackend.h"
-#include "solver/newton/newtonThreadingPolicy.h"
 #include "energy/potentialEnergy.h"
 #include "solver/common/solverResult.h"
 
@@ -41,8 +40,6 @@ public:
     int stopAfterIncrease = 1;
     std::shared_ptr<const NewtonTerminationPolicy> termination;
     std::shared_ptr<const NewtonDampingPolicy> damping;
-    // Null preserves the caller's current execution context for every phase.
-    std::shared_ptr<const NewtonThreadingPolicy> threading;
   };
 
   NewtonSolver(const double *x, SolverParam sp, PotentialEnergy_const_p energy_,
@@ -51,8 +48,6 @@ public:
 
   struct CleanupMetrics
   {
-    std::int64_t linearSolverPhaseCalls = 0;
-    double linearSolverPhaseSeconds = 0.0;
     double wallSeconds = 0.0;
   };
 
@@ -140,14 +135,6 @@ protected:
     double solveSeconds = 0.0;
   };
 
-  struct PhaseMetrics
-  {
-    std::int64_t evaluationCalls = 0;
-    std::int64_t linearSolverCalls = 0;
-    double evaluationSeconds = 0.0;
-    double linearSolverSeconds = 0.0;
-  };
-
   struct PendingSetupMetrics
   {
     double initialHessianSeconds = 0.0;
@@ -217,10 +204,7 @@ protected:
   void invalidateLinearSolverPatternCache();
   bool activeSystemPatternMatches(const EigenSupport::SpMatD &A) const;
   void updateLinearSolverPatternCache(const EigenSupport::SpMatD &A);
-  void executeEvaluationPhase(const std::function<void()> &fn);
-  void executeLinearSolverPhase(const std::function<void()> &fn);
   void resetLinearSolver();
-  void recordSolvePhaseMetrics();
 
   PotentialEnergy_const_p energy;
   SolverParam solverParam;
@@ -249,8 +233,6 @@ protected:
   EigenSupport::VXd historyx;
   double historyGradNormMin;
   SolveDiagnostics solveDiagnostics;
-  PhaseMetrics cumulativePhaseMetrics;
-  PhaseMetrics reportedPhaseMetrics;
   PendingSetupMetrics pendingSetupMetrics;
   bool lineSearchEvaluationStateFrozen = false;
 

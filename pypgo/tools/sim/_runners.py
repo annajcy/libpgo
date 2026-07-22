@@ -12,7 +12,6 @@ from pathlib import Path
 import numpy as np
 
 import pypgo.energy as _energy
-import pypgo.parallel as _parallel
 import pypgo.profiling as _profiling
 import pypgo.solver as _solver
 from pypgo.animation import AbcWriter, has_animation_io, write_u_file

@@ -123,10 +123,6 @@ nb::dict diagnosticsToDict(const NonlinearOptimization::SolveDiagnostics &diagno
   out["final_objective_seconds"] = diagnostics.finalObjectiveSeconds;
   out["linear_solver_cleanup_seconds"] = diagnostics.linearSolverCleanupSeconds;
   out["optimizer_total_seconds"] = diagnostics.optimizerTotalSeconds;
-  out["threading_evaluation_phase_calls"] = diagnostics.threadingEvaluationPhaseCalls;
-  out["threading_linear_solver_phase_calls"] = diagnostics.threadingLinearSolverPhaseCalls;
-  out["threading_evaluation_phase_seconds"] = diagnostics.threadingEvaluationPhaseSeconds;
-  out["threading_linear_solver_phase_seconds"] = diagnostics.threadingLinearSolverPhaseSeconds;
   nb::list iterations;
   for (const NonlinearOptimization::NewtonIterationTrace &trace : diagnostics.newtonIterations)
     iterations.append(newtonIterationTraceToDict(trace));
@@ -206,7 +202,6 @@ NOO::NewtonOptimizer::Options makeNewtonOptions(const PyNewtonOptimizerOptions &
     opts.termination = options.termination->handle();
   if (options.sparseSolver)
     opts.sparseSolver = options.sparseSolver->handle();
-  opts.threading = options.threading;
   return opts;
 }
 

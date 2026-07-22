@@ -88,10 +88,6 @@ class SolveDiagnostics:
     final_objective_seconds: float | None = None
     linear_solver_cleanup_seconds: float | None = None
     optimizer_total_seconds: float | None = None
-    threading_evaluation_phase_calls: int | None = None
-    threading_linear_solver_phase_calls: int | None = None
-    threading_evaluation_phase_seconds: float | None = None
-    threading_linear_solver_phase_seconds: float | None = None
     newton_iterations: list[dict] | None = None
 
     @classmethod

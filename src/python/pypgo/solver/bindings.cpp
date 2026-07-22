@@ -70,8 +70,6 @@ void init_solver_bindings(nb::module_ &m)
     .def_rw("damping", &PyNewtonOptimizerOptions::damping)
     .def_rw("termination", &PyNewtonOptimizerOptions::termination)
     .def_rw("sparse_solver", &PyNewtonOptimizerOptions::sparseSolver)
-    .def("set_threading", &PyNewtonOptimizerOptions::setThreading,
-      nb::arg("evaluation"), nb::arg("linear_solver"))
     .def_rw("verbose", &PyNewtonOptimizerOptions::verbose);
 
   // ── PyOptimizationProblem ─────────────────────────────────────────────

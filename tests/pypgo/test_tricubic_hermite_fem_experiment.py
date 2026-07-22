@@ -148,6 +148,8 @@ def test_experiment_entrypoints_use_one_shot_parallel_runtime_api(entrypoint):
     assert "pp.GlobalTbbControl(max_concurrency)" in source
     assert "with _parallelism_scope():" in source
     assert "parallel_control =" not in source
+    assert "ArenaThreadingExecutor" not in source
+    assert "set_threading_policy" not in source
     assert "set_worker_limit" not in source
 
 

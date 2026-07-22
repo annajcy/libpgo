@@ -55,8 +55,11 @@ Python subprocess so NumPy and libpgo share the TBB runtime. The timed static
 and dynamic entrypoints construct
 `pypgo.parallel.GlobalTbbControl(max_allowed_parallelism)` from `num_threads`
 in `common.py` and keep it alive for the complete run. The requested limit is
-printed at startup. Set the same conda environment variable described in the main build
-guide when invoking `run_static.py` or `run_dynamic.py` directly.
+printed at startup. The entrypoints do not install a backend threading policy
+or create an `ArenaThreadingExecutor`; those controls remain explicit tools for
+dedicated callers and benchmarks. Set the same conda environment variable
+described in the main build guide when invoking `run_static.py` or
+`run_dynamic.py` directly.
 
 This is an expensive server command. It should not be used as a local smoke
 test.

@@ -21,7 +21,7 @@ public:
 
   virtual void evalBatch(const V3d *pts, double *out, std::size_t n) const;
 
-  // Uses the process-wide pgo default parallel executor.
+  // Uses the current oneTBB execution context.
   virtual GridField sampleToGrid(const GridSpec &spec) const;
 
   virtual ~ImplicitField() = default;

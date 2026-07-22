@@ -74,7 +74,6 @@ OptimizationResult NewtonOptimizer::solve(
   sp.damping = options_.damping;
   sp.termination = options_.termination;
   sp.sparseSolver = options_.sparseSolver;
-  sp.threading = options_.threading;
 
   const double *fixedValues = fixed.values.size() > 0 ? fixed.values.data() : nullptr;
   const hclock::time_point setupStart = hclock::now();
@@ -92,19 +91,10 @@ OptimizationResult NewtonOptimizer::solve(
 
   double finalObjective = std::numeric_limits<double>::quiet_NaN();
   const hclock::time_point finalEvaluationStart = hclock::now();
-  auto evaluateFinalObjective = [&] {
-    if (const auto *aware = dynamic_cast<const EvaluationStateAwareEnergy *>(problem.objective.get()))
-      aware->prepareEvaluationState(result.x);
-    finalObjective = problem.objective->func(result.x);
-  };
-  if (options_.threading)
-    options_.threading->executeEvaluation(evaluateFinalObjective);
-  else
-    evaluateFinalObjective();
+  if (const auto *aware = dynamic_cast<const EvaluationStateAwareEnergy *>(problem.objective.get()))
+    aware->prepareEvaluationState(result.x);
+  finalObjective = problem.objective->func(result.x);
   const hclock::time_point finalEvaluationEnd = hclock::now();
-  result.solver.diagnostics.threadingEvaluationPhaseCalls += 1;
-  result.solver.diagnostics.threadingEvaluationPhaseSeconds +=
-    secondsBetween(finalEvaluationStart, finalEvaluationEnd);
   result.solver.diagnostics.finalObjectiveSeconds =
     secondsBetween(finalEvaluationStart, finalEvaluationEnd);
 
@@ -114,8 +104,6 @@ OptimizationResult NewtonOptimizer::solve(
 
   const NewtonSolver::CleanupMetrics cleanup = solver.closeLinearSolver();
   result.solver.diagnostics.linearSolverCleanupSeconds = cleanup.wallSeconds;
-  result.solver.diagnostics.threadingLinearSolverPhaseCalls += cleanup.linearSolverPhaseCalls;
-  result.solver.diagnostics.threadingLinearSolverPhaseSeconds += cleanup.linearSolverPhaseSeconds;
   result.solver.diagnostics.optimizerPreparationSeconds =
     secondsBetween(optimizerStart, setupStart);
   result.solver.diagnostics.newtonSolverSetupSeconds =

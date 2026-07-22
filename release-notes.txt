@@ -6,7 +6,7 @@
   - route supported Eigen dense operations to system Accelerate BLAS and keep other Eigen kernels serial on macOS
   - scope and restore per-thread MKL or Accelerate policies for every controlled arena participant
   - align direct, crossover, control-matrix, and VTune MKL benchmarks on executor-owned arena and TLS-budget policies
-  - add phase-aware Newton threading policies for separate evaluation and sparse-linear-solver executors
+  - keep parallel controls opt-in: Newton executes directly while applications and benchmarks may use explicit executors
 
 -- v0.0.3
   - fix various bug in cmake

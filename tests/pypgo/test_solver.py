@@ -1,10 +1,8 @@
 import numpy as np
 import pytest
-import gc
 
 import pypgo as pgo
 import pypgo.solver as solver
-from pypgo.parallel import ArenaThreadingExecutor
 from pypgo.solver.result import NewtonConvergenceReason
 
 
@@ -108,50 +106,6 @@ def test_newton_optimizer_sparse_solver_is_forwarded():
     assert isinstance(optimizer._handle, _core.PyNewtonOptimizer)
     result = optimizer.solve(problem, np.zeros(3, dtype=np.float64))
     assert result.converged
-
-
-def test_newton_threading_policy_routes_phases_and_owns_executors():
-    energy = make_quadratic()
-    problem = make_problem(energy)
-    evaluation = ArenaThreadingExecutor(2, mkl_local_thread_budget=1)
-    linear_solver = ArenaThreadingExecutor(3, mkl_local_thread_budget=3)
-    threading = solver.NewtonThreadingPolicy(
-        evaluation=evaluation,
-        linear_solver=linear_solver,
-    )
-    optimizer = make_optimizer(threading=threading)
-
-    del threading, evaluation, linear_solver
-    gc.collect()
-
-    result = optimizer.solve(problem, np.array([10.0, -3.0, 5.0], dtype=np.float64))
-    again = optimizer.solve(problem, np.array([10.0, -3.0, 5.0], dtype=np.float64))
-
-    assert result.converged
-    assert again.converged
-    assert result.diagnostics.threading_evaluation_phase_calls == 5
-    assert result.diagnostics.threading_linear_solver_phase_calls == 3
-    assert result.diagnostics.threading_evaluation_phase_seconds >= 0.0
-    assert result.diagnostics.threading_linear_solver_phase_seconds >= 0.0
-    assert result.diagnostics.newton_solver_setup_seconds is not None
-    assert result.diagnostics.initial_symbolic_analyze_seconds is not None
-    assert result.diagnostics.newton_solve_seconds is not None
-    assert result.diagnostics.final_objective_seconds is not None
-    assert result.diagnostics.linear_solver_cleanup_seconds is not None
-    assert result.diagnostics.optimizer_total_seconds is not None
-
-
-def test_newton_threading_policy_validates_executors_and_optimizer_argument():
-    executor = ArenaThreadingExecutor(1)
-    with pytest.raises(TypeError, match="evaluation"):
-        solver.NewtonThreadingPolicy(evaluation=object(), linear_solver=executor)
-    with pytest.raises(TypeError, match="linear_solver"):
-        solver.NewtonThreadingPolicy(evaluation=executor, linear_solver=object())
-    with pytest.raises(TypeError, match="threading"):
-        make_optimizer(threading=object())
-    policy = solver.NewtonThreadingPolicy(evaluation=executor, linear_solver=executor)
-    with pytest.raises(AttributeError):
-        policy.evaluation = executor
 
 
 def test_optimization_problem_rejects_non_energy_objective():

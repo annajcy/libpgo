@@ -6,12 +6,7 @@
 #include "energy/lineSearchAwareEnergy.h"
 #include "pgoLogging.h"
 #include "solver/common/solveDiagnostics.h"
-#include "parallel/arenaThreadingExecutor.h"
-#include "parallel/parallelControl.h"
-#include "solver/newton/newtonThreadingPolicy.h"
 #include "solver/newton/newtonSparseSolverBackend.h"
-
-#include <tbb/task_arena.h>
 
 #include <algorithm>
 #include <cmath>
@@ -46,7 +41,6 @@ using pgo::NonlinearOptimization::StepConstraint;
 using pgo::NonlinearOptimization::lineSearchEnergyFpTolerance;
 using pgo::NonlinearOptimization::NewtonSparseSolverBackend;
 using pgo::NonlinearOptimization::NewtonSparseSolverSelector;
-using pgo::NonlinearOptimization::NewtonThreadingPolicy;
 constexpr int src(StepSource s)
 {
   return static_cast<int>(s);
@@ -397,48 +391,35 @@ public:
   int reducedStepSize() const { return static_cast<int>(deltaxSmall.size()); }
 };
 
-struct PhaseArenaObservations
+struct LinearBackendObservations
 {
-  std::vector<int> evaluation;
-  std::vector<int> linearBuild;
-  std::vector<int> linearAnalyze;
-  std::vector<int> linearFactorize;
-  std::vector<int> linearSolve;
-  int linearDestroyConcurrency = -1;
-  int linearDestroyCount = 0;
+  int factorizeCalls = 0;
+  int solveCalls = 0;
+  int destroyCount = 0;
   bool factorizeSucceeds = true;
 };
 
-class PhaseRecordingEnergy final : public PotentialEnergy
+class LinearBackendLifecycleEnergy final : public PotentialEnergy
 {
 public:
-  explicit PhaseRecordingEnergy(std::shared_ptr<PhaseArenaObservations> observations):
-    observations_(std::move(observations))
-  {
-  }
-
   double func(ES::ConstRefVecXd x) const override
   {
-    record();
     return 0.5 * x.squaredNorm();
   }
 
   void gradient(ES::ConstRefVecXd x, ES::RefVecXd grad) const override
   {
-    record();
     grad = x;
   }
 
   void hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &hess) const override
   {
-    record();
     hess.resize(1, 1);
     hess.setIdentity();
   }
 
   void hessianAlloc(ES::SpMatD &hess) const override
   {
-    record();
     hess.resize(1, 1);
     hess.setIdentity();
   }
@@ -449,208 +430,107 @@ public:
   StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd,
     pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override
   {
-    record();
     const StepConstraint result{};
     if (sink)
       sink->report(result);
     return result;
   }
-
-private:
-  void record() const
-  {
-    observations_->evaluation.push_back(tbb::this_task_arena::max_concurrency());
-  }
-
-  std::shared_ptr<PhaseArenaObservations> observations_;
 };
 
-class PhaseRecordingBackend final : public NewtonSparseSolverBackend
+class LifecycleRecordingBackend final : public NewtonSparseSolverBackend
 {
 public:
-  explicit PhaseRecordingBackend(std::shared_ptr<PhaseArenaObservations> observations):
+  explicit LifecycleRecordingBackend(std::shared_ptr<LinearBackendObservations> observations):
     observations_(std::move(observations))
   {
   }
 
-  ~PhaseRecordingBackend() override
+  ~LifecycleRecordingBackend() override
   {
-    observations_->linearDestroyConcurrency = tbb::this_task_arena::max_concurrency();
-    observations_->linearDestroyCount += 1;
+    observations_->destroyCount += 1;
   }
 
-  void analyze(const ES::SpMatD &) override
-  {
-    observations_->linearAnalyze.push_back(tbb::this_task_arena::max_concurrency());
-  }
+  void analyze(const ES::SpMatD &) override {}
 
   bool factorize(const ES::SpMatD &) override
   {
-    observations_->linearFactorize.push_back(tbb::this_task_arena::max_concurrency());
+    observations_->factorizeCalls += 1;
     return observations_->factorizeSucceeds;
   }
 
   bool solve(const ES::SpMatD &, double *x, double *rhs) override
   {
-    observations_->linearSolve.push_back(tbb::this_task_arena::max_concurrency());
+    observations_->solveCalls += 1;
     x[0] = rhs[0];
     return true;
   }
 
-  const char *name() const override { return "PhaseRecording"; }
+  const char *name() const override { return "LifecycleRecording"; }
 
 private:
-  std::shared_ptr<PhaseArenaObservations> observations_;
+  std::shared_ptr<LinearBackendObservations> observations_;
 };
 
-class PhaseRecordingSelector final : public NewtonSparseSolverSelector
+class LifecycleRecordingSelector final : public NewtonSparseSolverSelector
 {
 public:
-  explicit PhaseRecordingSelector(std::shared_ptr<PhaseArenaObservations> observations):
+  explicit LifecycleRecordingSelector(std::shared_ptr<LinearBackendObservations> observations):
     observations_(std::move(observations))
   {
   }
 
   std::unique_ptr<NewtonSparseSolverBackend> build(const ES::SpMatD &A) const override
   {
-    observations_->linearBuild.push_back(tbb::this_task_arena::max_concurrency());
-    auto backend = std::make_unique<PhaseRecordingBackend>(observations_);
+    auto backend = std::make_unique<LifecycleRecordingBackend>(observations_);
     backend->analyze(A);
     return backend;
   }
 
 private:
-  std::shared_ptr<PhaseArenaObservations> observations_;
+  std::shared_ptr<LinearBackendObservations> observations_;
 };
 }  // namespace
 
-TEST(NewtonSolverGTest, RoutesSemanticPhasesThroughConfiguredArenas)
+TEST(NewtonSolverGTest, ExplicitLinearSolverCleanupIsIdempotent)
 {
   initializeLogging();
-  pgo::parallel::GlobalTbbControl globalControl(4);
-  auto observations = std::make_shared<PhaseArenaObservations>();
-  auto evaluationExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
-    2, pgo::parallel::ThreadingPolicy{
-         .mklLocalThreadBudget = 1,
-         .accelerate = pgo::parallel::AccelerateThreading::single,
-       });
-  auto linearExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
-    3, pgo::parallel::ThreadingPolicy{
-         .mklLocalThreadBudget = 3,
-         .accelerate = pgo::parallel::AccelerateThreading::multi,
-       });
+  auto observations = std::make_shared<LinearBackendObservations>();
 
   NewtonSolver::SolverParam params;
-  params.sparseSolver = std::make_shared<PhaseRecordingSelector>(observations);
-  params.threading = std::make_shared<NewtonThreadingPolicy>(
-    evaluationExecutor, linearExecutor);
-
-  double x = 1.0;
-  SolveDiagnostics diagnostics;
-  {
-    auto energy = std::make_shared<PhaseRecordingEnergy>(observations);
-    NewtonSolver solver(&x, params, energy, {});
-    const SolverResult result = solver.solve(&x, 1, 0.0, 0);
-    diagnostics = result.diagnostics;
-  }
-
-  ASSERT_FALSE(observations->evaluation.empty());
-  EXPECT_TRUE(std::all_of(observations->evaluation.begin(), observations->evaluation.end(),
-    [](int concurrency) { return concurrency == 2; }));
-  EXPECT_EQ(observations->linearBuild, std::vector<int>({ 3 }));
-  EXPECT_EQ(observations->linearAnalyze, std::vector<int>({ 3 }));
-  EXPECT_EQ(observations->linearFactorize, std::vector<int>({ 3 }));
-  EXPECT_EQ(observations->linearSolve, std::vector<int>({ 3 }));
-  EXPECT_EQ(observations->linearDestroyConcurrency, 3);
-  EXPECT_GT(diagnostics.threadingEvaluationPhaseCalls, 0);
-  EXPECT_GT(diagnostics.threadingLinearSolverPhaseCalls, 0);
-  EXPECT_GE(diagnostics.threadingEvaluationPhaseSeconds, 0.0);
-  EXPECT_GE(diagnostics.threadingLinearSolverPhaseSeconds, 0.0);
-}
-
-TEST(NewtonThreadingPolicyGTest, RejectsNullPhaseExecutors)
-{
-  auto executor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
-    1, pgo::parallel::ThreadingPolicy{
-         .mklLocalThreadBudget = 1,
-         .accelerate = pgo::parallel::AccelerateThreading::single,
-       });
-  EXPECT_THROW(
-    NewtonThreadingPolicy(nullptr, executor), std::invalid_argument);
-  EXPECT_THROW(
-    NewtonThreadingPolicy(executor, nullptr), std::invalid_argument);
-}
-
-TEST(NewtonSolverGTest, ExplicitLinearSolverCleanupIsIdempotentAndUsesConfiguredArena)
-{
-  initializeLogging();
-  pgo::parallel::GlobalTbbControl globalControl(4);
-  auto observations = std::make_shared<PhaseArenaObservations>();
-  auto evaluationExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
-    2, pgo::parallel::ThreadingPolicy{
-         .mklLocalThreadBudget = 1,
-         .accelerate = pgo::parallel::AccelerateThreading::single,
-       });
-  auto linearExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
-    3, pgo::parallel::ThreadingPolicy{
-         .mklLocalThreadBudget = 3,
-         .accelerate = pgo::parallel::AccelerateThreading::multi,
-       });
-
-  NewtonSolver::SolverParam params;
-  params.sparseSolver = std::make_shared<PhaseRecordingSelector>(observations);
-  params.threading = std::make_shared<NewtonThreadingPolicy>(
-    evaluationExecutor, linearExecutor);
+  params.sparseSolver = std::make_shared<LifecycleRecordingSelector>(observations);
 
   double x = 1.0;
   {
-    auto energy = std::make_shared<PhaseRecordingEnergy>(observations);
+    auto energy = std::make_shared<LinearBackendLifecycleEnergy>();
     NewtonSolver solver(&x, params, energy, {});
     const NewtonSolver::CleanupMetrics first = solver.closeLinearSolver();
     const NewtonSolver::CleanupMetrics second = solver.closeLinearSolver();
 
-    EXPECT_EQ(first.linearSolverPhaseCalls, 1);
-    EXPECT_GE(first.linearSolverPhaseSeconds, 0.0);
-    EXPECT_GE(first.wallSeconds, first.linearSolverPhaseSeconds);
-    EXPECT_EQ(second.linearSolverPhaseCalls, 0);
-    EXPECT_DOUBLE_EQ(second.linearSolverPhaseSeconds, 0.0);
-    EXPECT_EQ(observations->linearDestroyCount, 1);
-    EXPECT_EQ(observations->linearDestroyConcurrency, 3);
+    EXPECT_GE(first.wallSeconds, 0.0);
+    EXPECT_GE(second.wallSeconds, 0.0);
+    EXPECT_EQ(observations->destroyCount, 1);
   }
-  EXPECT_EQ(observations->linearDestroyCount, 1);
+  EXPECT_EQ(observations->destroyCount, 1);
 }
 
-TEST(NewtonSolverGTest, ReleasesFailedLinearBackendInsideConfiguredArena)
+TEST(NewtonSolverGTest, ReleasesFailedLinearBackend)
 {
   initializeLogging();
-  pgo::parallel::GlobalTbbControl globalControl(4);
-  auto observations = std::make_shared<PhaseArenaObservations>();
+  auto observations = std::make_shared<LinearBackendObservations>();
   observations->factorizeSucceeds = false;
-  auto evaluationExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
-    2, pgo::parallel::ThreadingPolicy{
-         .mklLocalThreadBudget = 1,
-         .accelerate = pgo::parallel::AccelerateThreading::single,
-       });
-  auto linearExecutor = std::make_shared<pgo::parallel::ArenaThreadingExecutor>(
-    3, pgo::parallel::ThreadingPolicy{
-         .mklLocalThreadBudget = 3,
-         .accelerate = pgo::parallel::AccelerateThreading::multi,
-       });
 
   NewtonSolver::SolverParam params;
-  params.sparseSolver = std::make_shared<PhaseRecordingSelector>(observations);
-  params.threading = std::make_shared<NewtonThreadingPolicy>(
-    evaluationExecutor, linearExecutor);
+  params.sparseSolver = std::make_shared<LifecycleRecordingSelector>(observations);
 
   double x = 1.0;
-  auto energy = std::make_shared<PhaseRecordingEnergy>(observations);
+  auto energy = std::make_shared<LinearBackendLifecycleEnergy>();
   NewtonSolver solver(&x, params, energy, {});
   const SolverResult result = solver.solve(&x, 1, 0.0, 0);
 
   EXPECT_FALSE(result.converged());
-  EXPECT_EQ(observations->linearFactorize, std::vector<int>({ 3 }));
-  EXPECT_TRUE(observations->linearSolve.empty());
-  EXPECT_EQ(observations->linearDestroyConcurrency, 3);
+  EXPECT_EQ(observations->factorizeCalls, 1);
+  EXPECT_EQ(observations->solveCalls, 0);
+  EXPECT_EQ(observations->destroyCount, 1);
 }
 
 TEST(SolveDiagnosticsGTest, RecordsAndResetsMaxStepAndLineSearch)

@@ -19,7 +19,6 @@ set(NONLINEAROPTIMIZATION_HEADERS
   solver/newton/newtonTerminationPolicy.h
   solver/newton/newtonDampingPolicy.h
   solver/newton/newtonSparseSolverBackend.h
-  solver/newton/newtonThreadingPolicy.h
   solver/newton/NewtonOptimizer.h
   solver/ipopt/IpoptOptimizer.h
   solver/knitro/KnitroOptimizer.h
@@ -49,7 +48,6 @@ set(NONLINEAROPTIMIZATION_SOURCES
   solver/newton/newtonTerminationPolicy.cpp
   solver/newton/newtonDampingPolicy.cpp
   solver/newton/newtonSparseSolverBackend.cpp
-  solver/newton/newtonThreadingPolicy.cpp
   solver/newton/NewtonOptimizer.cpp
   solver/ipopt/IpoptOptimizer.cpp
   solver/knitro/KnitroOptimizer.cpp
@@ -80,14 +78,14 @@ endif()
 
 set(NONLINEAROPTIMIZATION_DEPS eigenSupport pgoLogging autodiff::autodiff profiling)
 
-pgo_require_targets(nonlinearOptimization TARGETS ${NONLINEAROPTIMIZATION_DEPS} parallel TBB::tbb)
+pgo_require_targets(nonlinearOptimization TARGETS ${NONLINEAROPTIMIZATION_DEPS} TBB::tbb)
 
 add_libpgo_lib(nonlinearOptimization "${NONLINEAROPTIMIZATION_SOURCES}" "${NONLINEAROPTIMIZATION_HEADERS}")
 
 foreach(lib ${NONLINEAROPTIMIZATION_DEPS})
   target_link_libraries(nonlinearOptimization PUBLIC ${lib})
 endforeach()
-target_link_libraries(nonlinearOptimization PRIVATE parallel TBB::tbb)
+target_link_libraries(nonlinearOptimization PRIVATE TBB::tbb)
 
 if(TARGET Knitro::Knitro)
   target_link_libraries(nonlinearOptimization PRIVATE Knitro::Knitro)

@@ -76,7 +76,7 @@ set(CONTACT_SOURCES
 )
 
 set(CONTACT_PUBLIC_DEPS mesh nonlinearOptimization profiling TBB::tbb)
-set(CONTACT_PRIVATE_DEPS CCD::SafeCCD CCD::Exact parallel)
+set(CONTACT_PRIVATE_DEPS CCD::SafeCCD CCD::Exact)
 
 pgo_require_targets(selfContact TARGETS ${CONTACT_PUBLIC_DEPS} ${CONTACT_PRIVATE_DEPS})
 

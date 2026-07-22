@@ -15,7 +15,6 @@ from pypgo.solver.damping import Damping, NoDamping
 from pypgo.solver.line_search import Backtrack, LineSearch
 from pypgo.solver.sparse_solver import Auto, SparseSolver
 from pypgo.solver.termination import FixedTermination, Termination
-from pypgo.solver.threading import NewtonThreadingPolicy
 
 
 class NewtonOptimizer(Optimizer):
@@ -42,15 +41,11 @@ class NewtonOptimizer(Optimizer):
     ``ps.OrigPardiso()`` — selecting the Newton step's linear solver.
     Defaults to ``Auto()``.
 
-    ``threading`` optionally maps semantic evaluation and linear-solver phases
-    to persistent :class:`pypgo.parallel.ArenaThreadingExecutor` instances via
-    :class:`pypgo.solver.NewtonThreadingPolicy`.  ``None`` preserves the
-    caller's current arena and backend thread-local settings.
     """
 
     def __init__(self, *, max_iterations=50, gradient_tolerance=1e-6,
                  line_search=None, damping=None, termination=None,
-                 verbose=0, sparse_solver=None, threading=None):
+                 verbose=0, sparse_solver=None):
         if line_search is None:
             line_search = Backtrack()
         if not isinstance(line_search, LineSearch):
@@ -79,15 +74,6 @@ class NewtonOptimizer(Optimizer):
                 "sparse_solver must be a pypgo.solver.SparseSolver "
                 "(e.g. ps.Auto(), ps.EigenLDLT(), ps.MKLPardiso(), ps.OrigPardiso()), "
                 f"got {type(sparse_solver).__name__}")
-        if threading is not None and not isinstance(
-            threading, NewtonThreadingPolicy
-        ):
-            raise TypeError(
-                "threading must be a pypgo.solver.NewtonThreadingPolicy "
-                "or None, "
-                f"got {type(threading).__name__}"
-            )
-
         options = _core.PyNewtonOptimizerOptions()
         options.max_iterations = int(max_iterations)
         options.gradient_tolerance = float(gradient_tolerance)
@@ -95,10 +81,5 @@ class NewtonOptimizer(Optimizer):
         options.damping = damping
         options.termination = termination
         options.sparse_solver = sparse_solver
-        if threading is not None:
-            options.set_threading(
-                threading.evaluation._executor,
-                threading.linear_solver._executor,
-            )
         options.verbose = int(verbose)
         super().__init__(_core.PyNewtonOptimizer(options))

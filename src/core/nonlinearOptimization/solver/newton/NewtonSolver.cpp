@@ -105,47 +105,12 @@ inline double dura(const hclock::time_point &t1, const hclock::time_point &t2)
   return std::chrono::duration<double>(t2 - t1).count();
 }
 
-void NewtonSolver::executeEvaluationPhase(const std::function<void()> &fn)
-{
-  const hclock::time_point start = hclock::now();
-  if (solverParam.threading)
-    solverParam.threading->executeEvaluation(fn);
-  else
-    fn();
-  cumulativePhaseMetrics.evaluationCalls += 1;
-  cumulativePhaseMetrics.evaluationSeconds += dura(start, hclock::now());
-}
-
-void NewtonSolver::executeLinearSolverPhase(const std::function<void()> &fn)
-{
-  const hclock::time_point start = hclock::now();
-  if (solverParam.threading)
-    solverParam.threading->executeLinearSolver(fn);
-  else
-    fn();
-  cumulativePhaseMetrics.linearSolverCalls += 1;
-  cumulativePhaseMetrics.linearSolverSeconds += dura(start, hclock::now());
-}
-
 void NewtonSolver::resetLinearSolver()
 {
   if (!solver)
     return;
-  executeLinearSolverPhase([&] { solver.reset(); });
+  solver.reset();
   invalidateLinearSolverPatternCache();
-}
-
-void NewtonSolver::recordSolvePhaseMetrics()
-{
-  solveDiagnostics.threadingEvaluationPhaseCalls =
-    cumulativePhaseMetrics.evaluationCalls - reportedPhaseMetrics.evaluationCalls;
-  solveDiagnostics.threadingLinearSolverPhaseCalls =
-    cumulativePhaseMetrics.linearSolverCalls - reportedPhaseMetrics.linearSolverCalls;
-  solveDiagnostics.threadingEvaluationPhaseSeconds =
-    cumulativePhaseMetrics.evaluationSeconds - reportedPhaseMetrics.evaluationSeconds;
-  solveDiagnostics.threadingLinearSolverPhaseSeconds =
-    cumulativePhaseMetrics.linearSolverSeconds - reportedPhaseMetrics.linearSolverSeconds;
-  reportedPhaseMetrics = cumulativePhaseMetrics;
 }
 
 void NewtonSolver::StepStrategy::finalize(SolveContext &ctx)
@@ -164,10 +129,7 @@ public:
     const double eng = ctx.state.energy;
     const double gradMaxNorm = ctx.state.gradMaxNorm;
 
-    StepAcceptance accepted;
-    s.executeEvaluationPhase([&] {
-      accepted = s.runLineSearchStep(eng, ctx.verbose, ctx.printGap, ctx.iter);
-    });
+    StepAcceptance accepted = s.runLineSearchStep(eng, ctx.verbose, ctx.printGap, ctx.iter);
     if (ctx.currentTrace) {
       ctx.currentTrace->acceptedAlpha = accepted.effectiveAlpha;
       ctx.currentTrace->acceptedStepNorm = accepted.acceptedStepNorm;
@@ -278,18 +240,15 @@ public:
       ctx.currentTrace->lineSearchStatus = static_cast<int>(NewtonLineSearchStatus::Accepted);
     }
     s.historyx.noalias() = s.x;
-    s.executeEvaluationPhase([&] {
-      s.dispatchPrepareEvaluationState(s.x);
-      memset(s.grad.data(), 0, sizeof(double) * s.grad.size());
-      s.energy->gradient(s.x, s.grad);
-      s.filterVector(s.grad);
-    });
+    s.dispatchPrepareEvaluationState(s.x);
+    memset(s.grad.data(), 0, sizeof(double) * s.grad.size());
+    s.energy->gradient(s.x, s.grad);
+    s.filterVector(s.grad);
 
     s.historyGradNormMin = s.grad.norm();
 
     if (ctx.verbose >= 2 && ctx.iter % ctx.printGap == 0) {
-      double value = 0.0;
-      s.executeEvaluationPhase([&] { value = s.energy->func(s.x); });
+      const double value = s.energy->func(s.x);
       std::cout << "    f=" << value << std::endl;
     }
     return false;
@@ -392,18 +351,8 @@ NewtonSolver::~NewtonSolver() noexcept
 NewtonSolver::CleanupMetrics NewtonSolver::closeLinearSolver()
 {
   const hclock::time_point cleanupStart = hclock::now();
-  const PhaseMetrics before = cumulativePhaseMetrics;
   resetLinearSolver();
-  const CleanupMetrics metrics{
-    cumulativePhaseMetrics.linearSolverCalls - before.linearSolverCalls,
-    cumulativePhaseMetrics.linearSolverSeconds - before.linearSolverSeconds,
-    dura(cleanupStart, hclock::now()),
-  };
-  // A later solve must not attribute this explicit lifecycle cleanup to its
-  // own phase metrics. The normal NewtonOptimizer path treats close as
-  // terminal, but keeping the direct NewtonSolver API composable costs little.
-  reportedPhaseMetrics = cumulativePhaseMetrics;
-  return metrics;
+  return CleanupMetrics{ dura(cleanupStart, hclock::now()) };
 }
 
 void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double *fixedValues_)
@@ -435,11 +384,9 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
     if (energy->isHessianTopologyFixed()) {
       // sparse matrix
       const hclock::time_point hessianStart = hclock::now();
-      executeEvaluationPhase([&] {
-        dispatchPrepareEvaluationState(x);
-        energy->hessianAlloc(sysFull);
-        energy->hessianInPlace(x, sysFull);
-      });
+      dispatchPrepareEvaluationState(x);
+      energy->hessianAlloc(sysFull);
+      energy->hessianInPlace(x, sysFull);
       pendingSetupMetrics.initialHessianSeconds += dura(hessianStart, hclock::now());
       logMemoryCheckpoint("newton.after_full_hessian");
 
@@ -471,13 +418,11 @@ double NewtonSolver::makeLinearSolver(const ES::SpMatD &A)
   Profiling::ScopedProfileSection scopedProfile("newton.solver.symbolic_analyze");
   Profiling::ScopedThreadRuntimePhase threadProfile("newton.solver.symbolic_analyze");
   const hclock::time_point symbolicAnalyzeStart = hclock::now();
-  executeLinearSolverPhase([&] {
-    solver.reset();
-    auto newSolver = sparseSolverSelector->build(A);
-    if (newSolver == nullptr)
-      throw std::runtime_error("Newton sparse solver selector returned a null backend");
-    solver = std::move(newSolver);
-  });
+  solver.reset();
+  auto newSolver = sparseSolverSelector->build(A);
+  if (newSolver == nullptr)
+    throw std::runtime_error("Newton sparse solver selector returned a null backend");
+  solver = std::move(newSolver);
   const double symbolicAnalyzeSeconds = dura(symbolicAnalyzeStart, hclock::now());
   invalidateLinearSolverPatternCache();
   updateLinearSolverPatternCache(A);
@@ -785,8 +730,6 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
 
   stepStrategy->finalize(ctx);
 
-  recordSolvePhaseMetrics();
-
   hclock::time_point t2 = hclock::now();
 
   double timeCost = dura(t1, t2);
@@ -828,17 +771,17 @@ NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double
   state.iter = iter;
 
   memset(grad.data(), 0, sizeof(double) * grad.size());
-  executeEvaluationPhase([&] {
-    {
-      Profiling::ScopedProfileSection prepareProfile("newton.prepare_evaluation_state");
-      dispatchPrepareEvaluationState(x);
-    }
+  {
+    Profiling::ScopedProfileSection prepareProfile("newton.prepare_evaluation_state");
+    dispatchPrepareEvaluationState(x);
+  }
+  {
     const hclock::time_point start = hclock::now();
     Profiling::ScopedProfileSection energyProfile("newton.func_grad_hessian");
     Profiling::ScopedThreadRuntimePhase energyThreadProfile("newton.func_grad_hessian");
     state.energy = energy->func_grad_hessian(x, grad, sysFull);
     state.funcGradHessianSeconds = dura(start, hclock::now());
-  });
+  }
   if (!energy->isHessianTopologyFixed())
     logMemoryCheckpoint("newton.after_full_hessian");
   if (!std::isfinite(state.energy)) {
@@ -975,7 +918,7 @@ NewtonSolver::EnsureLinearSolverResult NewtonSolver::ensureLinearSolver(bool fix
 NewtonSolver::LinearSolveResult NewtonSolver::solveReducedNewtonDirection(bool fixedHessianTopology)
 {
   LinearSolveResult result;
-  executeLinearSolverPhase([&] {
+  {
     Profiling::ScopedProfileSection scopedProfile("solver.linear_solve");
     Profiling::ScopedThreadRuntimePhase threadProfile("solver.linear_solve");
     ES::SpMatD &A = activeSystemMatrix();
@@ -996,7 +939,7 @@ NewtonSolver::LinearSolveResult NewtonSolver::solveReducedNewtonDirection(bool f
     }
     if (!result.success)
       solver.reset();
-  });
+  }
   if (!result.success) {
     restoreSysFullDamping();
     invalidateLinearSolverPatternCache();

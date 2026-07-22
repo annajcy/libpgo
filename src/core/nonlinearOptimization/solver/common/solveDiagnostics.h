@@ -171,11 +171,6 @@ struct SolveDiagnostics : StepConstraintSink
   double finalObjectiveSeconds = 0.0;
   double linearSolverCleanupSeconds = 0.0;
   double optimizerTotalSeconds = 0.0;
-  std::int64_t threadingEvaluationPhaseCalls = 0;
-  std::int64_t threadingLinearSolverPhaseCalls = 0;
-  double threadingEvaluationPhaseSeconds = 0.0;
-  double threadingLinearSolverPhaseSeconds = 0.0;
-
   SolveDiagnostics()
   {
     clampCounts.fill(0);
