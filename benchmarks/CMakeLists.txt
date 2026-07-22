@@ -9,6 +9,8 @@ function(pgo_add_mkl_tbb_probe target)
   )
 endfunction()
 
+add_subdirectory(arena_executor_lifecycle)
+
 if(APPLE OR
    (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     TARGET MKL::MKL AND
