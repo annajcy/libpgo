@@ -2,9 +2,9 @@
 
 Reads a batch JSON, validates it, then runs the specified cases sequentially
 via each entry module's ``main(argv)``.  A per-case PASS/FAIL table is printed
-at the end.  When ``--output-root`` is given a ``batch_summary.json`` is
-written there and each case's ``--output-dir`` is set to
-``<output-root>/<case_name>``.
+at the end.  Each case writes below ``<output-root>/<case_name>`` and a
+``batch_summary.json`` is written to ``<output-root>``.  The output root
+defaults to ``./output``.
 
 Exit codes:
   0   all selected cases passed
@@ -146,7 +146,7 @@ def _print_list(payload: dict) -> None:
 def _run_case(
     case_name: str,
     case: dict[str, Any],
-    output_root: Path | None,
+    output_root: Path,
 ) -> tuple[int, str]:
     """Run a single case and return (exit_code, command).
 
@@ -154,8 +154,7 @@ def _run_case(
     """
     mod = importlib.import_module(_COMMANDS[case["command"]])
     argv: list[str] = ["--config", str(case["config"])] + case["args"]
-    if output_root is not None:
-        argv += ["--output-dir", str(output_root / case_name)]
+    argv += ["--output-dir", str(output_root / case_name)]
 
     try:
         code = mod.main(argv)
@@ -184,8 +183,8 @@ def main(argv=None) -> int:
                         help="Job name to run (default: 'all')")
     parser.add_argument("--list", action="store_true",
                         help="List cases and jobs then exit")
-    parser.add_argument("--output-root", type=Path, default=None,
-                        help="Root directory; each case writes to <root>/<case_name>")
+    parser.add_argument("--output-root", type=Path, default=Path("output"),
+                        help="Root directory (default: ./output); each case writes below it")
 
     args = parser.parse_args(argv)
 
@@ -234,19 +233,17 @@ def main(argv=None) -> int:
     num_failed = len(results) - num_passed
     print(f"\n{num_passed}/{len(results)} passed.")
 
-    # Write batch_summary.json when --output-root given
-    if args.output_root is not None:
-        args.output_root.mkdir(parents=True, exist_ok=True)
-        summary = {
-            "cases": results,
-            "num_passed": num_passed,
-            "num_failed": num_failed,
-        }
-        summary_path = args.output_root / "batch_summary.json"
-        with open(summary_path, "w") as f:
-            json.dump(summary, f, indent=2)
-            f.write("\n")
-        print(f"Wrote {summary_path}")
+    args.output_root.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "cases": results,
+        "num_passed": num_passed,
+        "num_failed": num_failed,
+    }
+    summary_path = args.output_root / "batch_summary.json"
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+        f.write("\n")
+    print(f"Wrote {summary_path}")
 
     return 0 if num_failed == 0 else 1
 

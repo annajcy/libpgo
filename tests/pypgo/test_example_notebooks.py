@@ -1,57 +1,69 @@
-import json
+import ast
+import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLES = ROOT / "examples"
+API_DOCS = ROOT / "docs" / "pypgo"
 
 
-def notebook_source(name: str) -> str:
-    with open(EXAMPLES / name) as fh:
-        nb = json.load(fh)
-    return "\n".join("".join(cell["source"]) for cell in nb["cells"])
+def guide_source(name: str) -> str:
+    return (API_DOCS / f"{name}.md").read_text()
 
 
-def test_mesh_api_demo_includes_pyvista_helpers_and_real_assets():
-    source = notebook_source("mesh_api_demo.ipynb")
+API_GUIDES = (
+    "animation",
+    "contact",
+    "energy",
+    "fem",
+    "implicit",
+    "mesh",
+    "numpy",
+    "simulation",
+    "solver",
+)
 
-    assert "ASSET_DIR = REPO_ROOT / \"examples\" / \"assets\" / \"obj\"" in source
-    assert "pip install -e .[examples]" in source
-    assert "from pypgo.mesh.visualize import plot_surface, plot_volume_surface" in source
 
-    assert "box.obj" in source
-    assert "bunny.obj" in source
-    assert "box-with-sphere.obj" in source
-    assert "dragon.obj" in source
+def test_api_guides_have_valid_python_blocks():
+    for name in API_GUIDES:
+        source = guide_source(name)
+        assert "_api_demo" not in source
+        assert "API Demo" not in source
+        blocks = re.findall(r"```python\n(.*?)\n```", source, re.DOTALL)
+        assert blocks, f"{name}.md has no Python examples"
+        for index, block in enumerate(blocks):
+            try:
+                ast.parse(block)
+            except SyntaxError as exc:
+                raise AssertionError(
+                    f"{name}.md Python block #{index} is invalid: {exc}"
+                ) from exc
 
 
-def test_implicit_api_demo_uses_vis_helpers_and_parallel_controls():
-    source = notebook_source("implicit_api_demo.ipynb")
+def test_tricubic_hermite_is_integrated_into_fem_guide():
+    source = guide_source("fem")
+
+    assert "pf.CubicTricubicHermite()" in source
+    assert "num_vertices * 24" in source
+    assert "surface_embedding_matrix" in source
+    assert not (API_DOCS / "tricubic-hermite.md").exists()
+
+
+def test_mesh_guide_uses_small_asset_independent_examples():
+    source = guide_source("mesh")
+
+    assert "TriMeshData" in source
+    assert "VolumeMesh" in source
+    assert "TemporaryDirectory" in source
+    assert "ASSET_DIR" not in source
+    assert "examples/assets" not in source
+
+
+def test_implicit_guide_explains_lazy_field_pipeline():
+    source = guide_source("implicit")
 
     assert "from pypgo import implicit" in source
-    assert "from pypgo.mesh import visualize as vis" in source
-    assert source.count("vis.plot_surface") >= 5
-    assert "parallel_control = pgo.parallel.GlobalTbbControl(4)" in source
-    assert "ArenaThreadingExecutor" not in source
-    assert "set_threading_policy" not in source
-    assert "pgo.parallel.initialize" not in source
-
-
-def test_static_solve_dragon_gravity_demo_uses_soft_surface_attachment():
-    source = notebook_source("static_solve_dragon_gravity_demo.ipynb")
-
-    assert '"dragon.obj"' in source
-    assert '"dragon_big.veg"' in source
-    assert '"dragon-surface-fixed.txt"' in source
-    assert "fixed_vertices = np.loadtxt" in source
-    assert "formulation = pf.TetLinear()" in source
-    assert "pf.VolumetricPlasticity(dofs=0)" in source
-    assert "gravity_energy = pe.LinearEnergy(-gravity_force)" in source
-    assert "attachment_coeff = 1e5" in source
-    assert "surface_attachment = pe.EmbeddedVertexAttachment" in source
-    assert "formulation.surface_embedding_matrix" in source
-    assert "vertex_indices=fixed_vertices" in source
-    assert "vis.write_points_obj" in source
-    assert "vis.plot_points_on_mesh(" in source
-    assert "tet_data,\n    fixed_positions" in source
-    assert "problem.fix_variables" not in source
+    assert "ImplicitField → GridField → TriMeshData" in source
+    assert "sample_to_grid" in source
+    assert "extract_marching_cubes" in source
+    assert "vis.plot_surface" not in source

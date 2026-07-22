@@ -45,7 +45,7 @@
     "num_steps": 500
   },
   "output": {
-    "directory": "../outputs/sim/cubic-dynamic-dragon-ipc-hermite",
+    "directory": "output/cubic-dynamic-dragon-ipc-hermite",
     "write_surfaces": true,
     "dump_interval": 10,
     "write_abc": true

@@ -37,7 +37,7 @@
     "num_steps": 2000
   },
   "output": {
-    "directory": "../outputs/sim/cubic-dynamic-box-sphere-ipc",
+    "directory": "output/cubic-dynamic-box-sphere-ipc",
     "write_surfaces": true,
     "dump_interval": 10,
     "write_abc": true

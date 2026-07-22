@@ -15,7 +15,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("config", help="JSON config file path")
     parser.add_argument(
         "-o", "--output-folder", default=None,
-        help="output directory (default: config file's output-folder field or its directory)",
+        help="output directory (default: config output-folder or ./output)",
     )
     return parser
 

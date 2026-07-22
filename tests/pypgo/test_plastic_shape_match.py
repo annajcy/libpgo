@@ -1,6 +1,4 @@
 import numpy as np
-import os
-import pytest
 import torch
 from pathlib import Path
 
@@ -41,7 +39,9 @@ def make_cubic_case():
         plastic=fem.VolumetricPlasticity(dofs=6),
         plastic_field=fem.ConstantField(),
         formulation=fem.CubicLinear(),
-        options=fem.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+        options=fem.DeformationOptions(
+            enforce_spd=False, enable_material_max_step=False
+        ),
     )
     return sim, energy
 
@@ -68,11 +68,17 @@ def make_shell_elastic_case():
     energy = fem.deformation_energy(
         sim,
         elastic=fem.KoiterStVK(),
-        elastic_field=fem.ConstantField(values=np.array([[2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3]], dtype=np.float64)),
+        elastic_field=fem.ConstantField(
+            values=np.array([[2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3]], dtype=np.float64)
+        ),
         plastic=fem.ShellPlasticity(dofs=1),
-        plastic_field=fem.ElementwiseField(values=np.array([[1.03], [1.02]], dtype=np.float64)),
+        plastic_field=fem.ElementwiseField(
+            values=np.array([[1.03], [1.02]], dtype=np.float64)
+        ),
         formulation=fem.KoiterShell(),
-        options=fem.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+        options=fem.DeformationOptions(
+            enforce_spd=False, enable_material_max_step=False
+        ),
     )
     return sim, energy
 
@@ -132,7 +138,9 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
         fixed_values=fixed_values,
         surface_vertices=surface_vertices,
         surface_vertex_ids=surface_vertex_ids,
-        inner_optimizer=solver.NewtonOptimizer(max_iterations=5, damping=solver.NoDamping()),
+        inner_optimizer=solver.NewtonOptimizer(
+            max_iterations=5, damping=solver.NoDamping()
+        ),
     )
 
     a0 = energy.plastic_field.values.ravel()
@@ -149,7 +157,9 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
 
     free = np.setdiff1d(np.arange(energy.num_dofs), fixed_dofs)
     hessian = energy.hessian(layer.last_equilibrium_displacement).to_dense()
-    plastic_jacobian = energy.plastic_jacobian(layer.last_equilibrium_displacement).to_dense()
+    plastic_jacobian = energy.plastic_jacobian(
+        layer.last_equilibrium_displacement
+    ).to_dense()
     adjoint = np.zeros(energy.num_dofs, dtype=np.float64)
     adjoint[free] = np.linalg.solve(hessian[np.ix_(free, free)], grad_u[free])
     expected_grad = -(plastic_jacobian.T @ adjoint)
@@ -177,7 +187,9 @@ def test_static_equilibrium_torch_layer_elastic_backward_matches_direct_adjoint(
         fixed_values=fixed_values,
         surface_vertices=surface_vertices,
         surface_vertex_ids=surface_vertex_ids,
-        inner_optimizer=solver.NewtonOptimizer(max_iterations=5, damping=solver.NoDamping()),
+        inner_optimizer=solver.NewtonOptimizer(
+            max_iterations=5, damping=solver.NoDamping()
+        ),
     )
 
     b0 = energy.elastic_field.values.ravel()
@@ -194,7 +206,9 @@ def test_static_equilibrium_torch_layer_elastic_backward_matches_direct_adjoint(
 
     free = np.setdiff1d(np.arange(energy.num_dofs), fixed_dofs)
     hessian = energy.hessian(layer.last_equilibrium_displacement).to_dense()
-    elastic_jacobian = energy.elastic_jacobian(layer.last_equilibrium_displacement).to_dense()
+    elastic_jacobian = energy.elastic_jacobian(
+        layer.last_equilibrium_displacement
+    ).to_dense()
     adjoint = np.zeros(energy.num_dofs, dtype=np.float64)
     adjoint[free] = np.linalg.solve(hessian[np.ix_(free, free)], grad_u[free])
     expected_grad = -(elastic_jacobian.T @ adjoint)
@@ -228,7 +242,9 @@ def test_elastic_static_equilibrium_layer_uses_objective_energy_for_adjoint_hess
         fixed_values=fixed_values,
         surface_vertices=surface_vertices,
         surface_vertex_ids=surface_vertex_ids,
-        inner_optimizer=solver.NewtonOptimizer(max_iterations=5, damping=solver.NoDamping()),
+        inner_optimizer=solver.NewtonOptimizer(
+            max_iterations=5, damping=solver.NoDamping()
+        ),
     )
 
     b0 = energy.elastic_field.values.ravel()
@@ -245,7 +261,9 @@ def test_elastic_static_equilibrium_layer_uses_objective_energy_for_adjoint_hess
 
     free = np.setdiff1d(np.arange(energy.num_dofs), fixed_dofs)
     hessian = objective.hessian(layer.last_equilibrium_displacement).to_dense()
-    elastic_jacobian = energy.elastic_jacobian(layer.last_equilibrium_displacement).to_dense()
+    elastic_jacobian = energy.elastic_jacobian(
+        layer.last_equilibrium_displacement
+    ).to_dense()
     adjoint = np.zeros(energy.num_dofs, dtype=np.float64)
     adjoint[free] = np.linalg.solve(hessian[np.ix_(free, free)], grad_u[free])
     expected_grad = -(elastic_jacobian.T @ adjoint)
@@ -255,13 +273,11 @@ def test_elastic_static_equilibrium_layer_uses_objective_energy_for_adjoint_hess
     assert np.allclose(elastic_param.grad.detach().numpy(), expected_grad)
 
 
-@pytest.mark.skipif(
-    os.environ.get("PYPGO_RUN_NOTEBOOK_TESTS") != "1",
-    reason="example notebook checks are opt-in",
-)
-def test_plastic_shape_match_demo_notebook_covers_inverse_design_path():
-    notebook = ROOT / "examples" / "plastic_shape_match_demo.ipynb"
-    source = notebook.read_text()
+def test_plastic_shape_match_demo_script_covers_inverse_design_path():
+    script = (
+        ROOT / "examples" / "demo" / "optimization" / "plastic_shape_match" / "main.py"
+    )
+    source = script.read_text()
 
     assert "PlasticStaticEquilibriumLayer" in source
     assert "torch.optim.Adam" in source

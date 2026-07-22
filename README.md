@@ -52,9 +52,10 @@ assert result.converged
 assert np.allclose(result.x, target)
 ```
 
-For finite-element and contact workflows, start from the runnable notebooks in
-[`examples/`](examples/) rather than adapting this deliberately small solver
-example.
+For finite-element, contact, mesh, and solver workflows, start with the
+[pypgo guides](https://annajcy.github.io/libpgo-doc/pypgo/) rather than adapting
+this deliberately small solver example. Complete runnable scenes live under
+[`examples/`](examples/).
 
 ## Documentation
 

@@ -17,12 +17,12 @@
 \newcommand{\case}[1]{\texttt{\detokenize{#1}}}
 \newcommand{\pct}[1]{#1\%}
 \newcommand{\good}[1]{\textcolor{pgoGreen}{#1}}
-\newcommand{\cost}[1]{\textcolor{pgoOrange}{#1}}
+\newcommand{\warn}[1]{\textcolor{pgoOrange}{#1}}
 
 \title[Dragon and Bunny Static FEM]{Static FEM Comparison on Conservative Cubic Domains}
-\subtitle{Dragon and Bunny: Cubic-Linear vs. Tricubic Hermite}
+\subtitle{Tet L2 Numerical References and Independent Refinement Checks}
 \author{libpgo experiments}
-\date{\today}
+\date{Linux server runs completed 2026-07-23}
 
 \begin{document}
 
@@ -30,49 +30,33 @@
   \titlepage
 \end{frame}
 
-\begin{frame}{Question}
+\begin{frame}{Question and Reference Policy}
   \begin{block}{Main question}
-    On the same conservative cubic domain, does tricubic Hermite produce a visible-surface static displacement closer to a same-domain tet-linear numerical reference than cubic-linear FEM?
+    Relative to the finest available same-domain tet-linear discretization,
+    how do tricubic Hermite and successive cubic-linear refinements compare in
+    visible-surface displacement accuracy and global DOF count?
   \end{block}
 
-  \vspace{0.4em}
+  \vspace{0.5em}
   \begin{itemize}
-    \item Compare original cubic-linear, refined cubic-linear, and cubic-tricubic-Hermite.
-    \item Use an x5-scale tet solve as the numerical reference.
-    \item Add a 2x2x2 refined cubic-linear case as a stronger low-order baseline.
+    \item Designate independently remeshed \case{tet_L2} as \case{tet_ref} for both models.
+    \item Retain the earlier x5-scale tet solve as \case{tet_L0}; add \case{tet_L1} and a tight-tolerance L0 control.
+    \item Compare x8 at near-Hermite DOFs, x27 at higher resolution, and the new x64 low-order point.
+    \item Treat all L2-relative metrics as numerical comparisons, not certified continuous-solution errors.
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Asset Pipeline}
-  \small
-  \begin{enumerate}
-    \item Start from the original visible surface mesh: \texttt{dragon.obj} or \texttt{bunny.obj}.
-    \item Build an r15 conservative cubic domain with the cubic mesher.
-    \item Extract the boundary surface of that cubic domain.
-    \item Generate a tet mesh from the extracted cubic-domain boundary.
-    \item Split every cubic element into 2x2x2 sub-cubes for \case{cubic_linear_x8}.
-    \item Apply the same material, gravity, surface attachment, Newton settings, and surface-error evaluation across cases.
-  \end{enumerate}
-
-  \vspace{0.7em}
-  \begin{block}{Meaning of ``conservative''}
-    The surface is voxelized on a cubic grid. A cube is kept if its center is
-    inside the input surface, or if the cube intersects the input surface.
-    This keeps the surface embedded inside the volume mesh. Otherwise surface
-    embedding can fall outside the simulated domain and require extrapolation.
-    The tradeoff is extra volume outside the original surface.
-  \end{block}
-\end{frame}
-
-\begin{frame}{Same-Domain Design}
+\begin{frame}{Controlled Same-Domain Design}
   \small
   \begin{itemize}
-    \item The tet reference is generated from the cubic domain boundary, not directly from the original surface.
-    \item Therefore tet, cubic-linear, refined cubic-linear, and Hermite use the same physical volume domain.
-    \item The original surface mesh is still used for attachment and for visible-surface error measurement.
+    \item Build an R15 conservative cubic domain from each visible surface.
+    \item Generate every tet mesh from that cubic-domain boundary, not directly from the original surface.
+    \item Use the original surface for attachment and visible-surface evaluation.
+    \item Keep material, gravity, attachment, evaluation surface, code commit, and stopping rules controlled.
+    \item L1 and L2 are independent TetGen remeshes, not nested refinements of L0.
   \end{itemize}
 
-  \vspace{0.6em}
+  \vspace{0.5em}
   \begin{table}
     \centering
     \begin{tabular}{lcc}
@@ -86,286 +70,340 @@
   \end{table}
 \end{frame}
 
-\begin{frame}{Cases}
+\begin{frame}{Run Provenance}
   \small
   \begin{table}
     \centering
-    \begin{tabular}{llp{0.45\linewidth}}
+    \begin{tabular}{lll}
       \toprule
-      \normalfont case & formulation & role \\
+      item & canonical formulation matrix & convergence matrix \\
       \midrule
-      \case{tet_ref} & tet-linear & same-domain numerical reference \\
-      \case{cubic_linear} & cubic-linear & original r15 low-order cubic baseline \\
-      \case{cubic_linear_x8} & cubic-linear & same domain; each cube split 2x2x2 \\
-      \case{cubic_hermite} & cubic-tricubic-Hermite & high-order method under test \\
+      commit & \multicolumn{2}{c}{\texttt{916be0e8ae37e88f62c9532392fe85947a89eff4}} \\
+      cases & linear, x8, Hermite, x27 & tet L0/L0-tight/L1/L2, x64 \\
+      TBB limit & 12 & 21 \\
+      execution & sequential, fresh & sequential tmux, fresh \\
+      dates & 2026-07-22 & 2026-07-22 to 2026-07-23 \\
       \bottomrule
     \end{tabular}
   \end{table}
 
-  \vspace{0.5em}
-  \begin{block}{Why include \case{cubic_linear_x8}?}
-    It checks whether the Hermite gain is only a DOF-count effect. The x8 mesh is not exactly equal-DOF, but it is a comparable-DOF low-order baseline.
-  \end{block}
+  \vspace{0.7em}
+  \begin{alertblock}{Timing comparability}
+    Accuracy comparisons share the same physics and outputs. Wall times may be
+    compared within a matrix, but not across the 12-thread and 21-thread matrices.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Cases and Roles}
+  \scriptsize
+  \begin{table}
+    \centering
+    \begin{tabular}{llp{0.46\linewidth}}
+      \toprule
+      case & formulation & role \\
+      \midrule
+      \case{tet_ref} (\case{tet_L2}) & tet-linear & finest numerical reference; about 20x Hermite DOFs \\
+      \case{tet_L1} & tet-linear & independent intermediate tet convergence point \\
+      \case{tet_L0} & tet-linear & earlier x5-scale reference \\
+      \case{tet_L0_tight} & tet-linear & same L0 mesh at $10^{-6}$ gradient tolerance \\
+      \case{cubic_linear} & cubic-linear & original R15 low-order baseline \\
+      \case{cubic_linear_x8} & cubic-linear & 2x2x2 split; comparable-DOF baseline \\
+      \case{cubic_hermite} & tricubic Hermite & high-order method under test \\
+      \case{cubic_linear_x27} & cubic-linear & 3x3x3 split; higher-resolution linear point \\
+      \case{cubic_linear_x64} & cubic-linear & 4x4x4 split; independent linear convergence point \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
 \end{frame}
 
 \begin{frame}{DOF Scale}
-  \small
+  \scriptsize
+  \begin{table}
+    \centering
+    \begin{tabular}{lrrrrrrrr}
+      \toprule
+      model & linear & x8 & Hermite & x27 & tet L0 & x64 & tet L1 & tet L2 \\
+      \midrule
+      dragon & 15,768 & 105,027 & 126,144 & 331,710 & 631,650 & 759,771 & 1,236,597 & 2,522,595 \\
+      bunny & 9,102 & 62,355 & 72,816 & 199,326 & 365,184 & 459,579 & 717,012 & 1,458,978 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.8em}
   \begin{table}
     \centering
     \begin{tabular}{lrrrr}
       \toprule
-      model & tet ref & cubic-linear & cubic-linear x8 & Hermite \\
+      model & Hermite/x8 & x27/Hermite & x64/Hermite & tet L2/Hermite \\
       \midrule
-      dragon & 631,650 & 15,768 & 105,027 & 126,144 \\
-      bunny & 365,184 & 9,102 & 62,355 & 72,816 \\
-      \bottomrule
-    \end{tabular}
-  \end{table}
-
-  \vspace{0.6em}
-  \begin{table}
-    \centering
-    \begin{tabular}{lcc}
-      \toprule
-      model & tet/Hermite DOF ratio & x8-linear/Hermite DOF ratio \\
-      \midrule
-      dragon & 5.01x & 0.83x \\
-      bunny & 5.02x & 0.86x \\
+      dragon & 1.20x & 2.63x & 6.02x & 20.00x \\
+      bunny & 1.17x & 2.74x & 6.31x & 20.04x \\
       \bottomrule
     \end{tabular}
   \end{table}
 \end{frame}
 
-\begin{frame}{Solver and Metrics}
+\begin{frame}{Primary Metric and Solver Controls}
   \small
+  Let $F$ be non-attached original-surface vertices, $A_i$ their lumped areas,
+  and $u_{\mathrm{ref}}=u_{\mathrm{tet\_L2}}$.
+
+  \[
+    E_{A,\mathrm{rel}} =
+    \sqrt{\frac{\sum_{i\in F} A_i\|u_i-u_{\mathrm{ref},i}\|_2^2}
+                 {\sum_{i\in F} A_i\|u_{\mathrm{ref},i}\|_2^2}}
+  \]
+
   \begin{columns}[T]
-    \begin{column}{0.42\linewidth}
-      \textbf{Shared solver setup}
+    \begin{column}{0.49\linewidth}
+      \textbf{Shared setup}
       \begin{itemize}
-        \item Stable Neo-Hookean material
-        \item Gravity: $(0, -9.81, 0)$
-        \item Surface attachment coefficient: $10^5$
-        \item Max Newton iterations: 300
-        \item Gradient tolerance: $10^{-5}$
+        \item Stable Neo-Hookean, $E=10^6$, $\nu=0.45$
+        \item Gravity $(0,-9.81,0)$; attachment $10^5$
+        \item 300 Newton iterations; standard tolerance $10^{-5}$
       \end{itemize}
     \end{column}
-    \begin{column}{0.56\linewidth}
-      \textbf{Reported metrics}
-      \[
-        E_{\mathrm{rel}} =
-        \frac{\|u - u_{\mathrm{ref}}\|_{2,F}}
-             {\|u_{\mathrm{ref}}\|_{2,F}}
-      \]
-      \[
-        E_y =
-        \frac{\|u_y - u_{\mathrm{ref},y}\|_{2,F}}
-             {\|u_{\mathrm{ref},y}\|_{2,F}}
-      \]
-      \[
-        E_{95} = \operatorname{P95}_{i \in F}
-        \|u_i - u_{\mathrm{ref},i}\|_2
-      \]
+    \begin{column}{0.49\linewidth}
+      \textbf{Validity controls}
+      \begin{itemize}
+        \item L0 repeated at $10^{-6}$ tolerance
+        \item Pin residual limit $1.5\times10^{-3}$
+        \item RMS reported only as deformation scale, not error
+      \end{itemize}
     \end{column}
   \end{columns}
 \end{frame}
 
-\begin{frame}{Scale and Constraint Metrics}
-  \small
-  Let $S$ be all original surface vertices, $P$ attached vertices, and
-  $F = S \setminus P$ free surface vertices.
-
-  \vspace{0.6em}
-  \[
-    \mathrm{RMS}(u) =
-    \sqrt{\frac{1}{|F|}\sum_{i \in F}\|u_i\|_2^2}
-  \]
-
-  \[
-    \Delta_{\mathrm{RMS}} =
-    \frac{\mathrm{RMS}(u) - \mathrm{RMS}(u_{\mathrm{ref}})}
-         {\mathrm{RMS}(u_{\mathrm{ref}})}
-  \]
-
-  \[
-    E_{\mathrm{pin}} = \max_{i \in P}\|u_i\|_2
-  \]
-
-  \vspace{0.6em}
-  Wall time is reported as an implementation cost metric.
-\end{frame}
-
-\begin{frame}{Dragon: Accuracy}
-  \small
+\begin{frame}{Dragon: Accuracy Relative to Tet L2}
+  \scriptsize
   \begin{table}
     \centering
     \begin{tabular}{lrrrr}
       \toprule
-      case & DOFs & free rel L2 & y rel L2 & p95 error \\
+      case & DOFs & area rel L2 & vertex rel L2 & p95 point error \\
       \midrule
-      \case{cubic_linear} & 15,768 & \pct{13.67} & \pct{13.19} & 0.02632 \\
-      \case{cubic_linear_x8} & 105,027 & \pct{2.68} & \pct{2.63} & 0.00522 \\
-      \case{cubic_hermite} & 126,144 & \good{\pct{0.77}} & \good{\pct{0.40}} & \good{0.00157} \\
+      \case{cubic_linear} & 15,768 & \pct{16.002} & \pct{15.855} & 0.031187 \\
+      \case{cubic_linear_x8} & 105,027 & \pct{5.162} & \pct{5.106} & 0.009985 \\
+      \case{cubic_hermite} & 126,144 & \pct{2.890} & \pct{2.863} & 0.005519 \\
+      \case{cubic_linear_x27} & 331,710 & \pct{1.977} & \pct{1.958} & 0.003801 \\
+      \case{cubic_linear_x64} & 759,771 & \good{\pct{0.691}} & \good{\pct{0.687}} & \good{0.001385} \\
       \bottomrule
     \end{tabular}
   \end{table}
 
-  \vspace{0.8em}
+  \vspace{0.7em}
   \begin{itemize}
-    \item Refined cubic-linear removes most of the original low-order error.
-    \item Hermite still lowers free-surface relative L2 by about 3.5x versus x8 cubic-linear.
+    \item At comparable DOFs, x8 discrepancy is 1.79x Hermite's; Hermite uses 1.20x the DOFs.
+    \item x27 is 31.6\% closer to L2 than Hermite, but uses 2.63x the DOFs.
+    \item x64 is the closest cubic method and continues a coherent linear refinement trend.
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Dragon: Cost}
+\begin{frame}{Dragon: Tet Sequence and Eligibility}
   \small
   \begin{table}
     \centering
     \begin{tabular}{lrrr}
       \toprule
-      case & iterations & wall time & pin residual \\
+      tet level & DOFs & area discrepancy to L2 & displacement RMS \\
       \midrule
-      \case{tet_ref} & 31 & 451.8 s & 0.000581 \\
-      \case{cubic_linear} & 32 & 12.1 s & 0.000925 \\
-      \case{cubic_linear_x8} & 32 & 45.0 s & 0.001002 \\
-      \case{cubic_hermite} & 32 & \cost{242.7 s} & 0.000548 \\
+      L0 & 631,650 & \pct{2.614} & 0.138239 \\
+      L1 & 1,236,597 & \pct{1.294} & 0.140121 \\
+      L2 & 2,522,595 & 0 & 0.141808 \\
       \bottomrule
     \end{tabular}
   \end{table}
 
-  \vspace{0.8em}
-  \begin{itemize}
-    \item Hermite is more accurate but 5.4x slower than x8 cubic-linear.
-    \item The cost grows faster than DOF count because the Hermite Hessian has denser coupling.
-  \end{itemize}
+  \vspace{0.6em}
+  \begin{columns}[T]
+    \begin{column}{0.48\linewidth}
+      \begin{block}{Checks that pass}
+        Direction cosine $0.903>0.9$; solver-noise fraction $0.000736<0.1$;
+        all pin residuals pass.
+      \end{block}
+    \end{column}
+    \begin{column}{0.48\linewidth}
+      \begin{alertblock}{Failed contraction check}
+        $\rho=0.935>0.8$. The L1--L2 correction barely shrinks relative to
+        L0--L1, so no unresolved-tail interval is certified.
+      \end{alertblock}
+    \end{column}
+  \end{columns}
 \end{frame}
 
-\begin{frame}{Bunny: Accuracy}
-  \small
+\begin{frame}{Dragon: Cost Within Each Threading Matrix}
+  \scriptsize
+  \begin{columns}[T]
+    \begin{column}{0.48\linewidth}
+      \textbf{Canonical matrix: 12 threads}
+      \begin{table}
+        \centering
+        \begin{tabular}{lrr}
+          \toprule
+          case & iterations & wall time \\
+          \midrule
+          linear & 32 & 2.9 s \\
+          x8 & 32 & 24.8 s \\
+          Hermite & 32 & 134.5 s \\
+          x27 & 31 & 109.0 s \\
+          \bottomrule
+        \end{tabular}
+      \end{table}
+    \end{column}
+    \begin{column}{0.50\linewidth}
+      \textbf{Convergence matrix: 21 threads}
+      \begin{table}
+        \centering
+        \begin{tabular}{lrr}
+          \toprule
+          case & iterations & wall time \\
+          \midrule
+          tet L0 & 31 & 230.7 s \\
+          x64 & 31 & 298.3 s \\
+          tet L1 & 31 & 676.3 s \\
+          tet L2 & 33 & 2,827.8 s \\
+          \bottomrule
+        \end{tabular}
+      \end{table}
+    \end{column}
+  \end{columns}
+
+  \vspace{0.5em}
+  x27 is faster than Hermite in the controlled 12-thread matrix. x64 uses
+  61.4\% of tet L1's DOFs and is closer to L2 in the 21-thread matrix.
+\end{frame}
+
+\begin{frame}{Bunny: Accuracy Relative to Tet L2}
+  \scriptsize
   \begin{table}
     \centering
     \begin{tabular}{lrrrr}
       \toprule
-      case & DOFs & free rel L2 & y rel L2 & p95 error \\
+      case & DOFs & area rel L2 & vertex rel L2 & p95 point error \\
       \midrule
-      \case{cubic_linear} & 9,102 & \pct{19.72} & \pct{19.84} & 0.00547 \\
-      \case{cubic_linear_x8} & 62,355 & \pct{7.19} & \pct{6.27} & 0.00209 \\
-      \case{cubic_hermite} & 72,816 & \good{\pct{0.83}} & \good{\pct{0.72}} & \good{0.00024} \\
+      \case{cubic_linear} & 9,102 & \pct{24.926} & \pct{25.177} & 0.007274 \\
+      \case{cubic_linear_x8} & 62,355 & \pct{12.923} & \pct{13.131} & 0.003831 \\
+      \case{cubic_hermite} & 72,816 & \pct{6.744} & \pct{6.819} & 0.001921 \\
+      \case{cubic_linear_x27} & 199,326 & \pct{5.914} & \pct{6.028} & 0.001780 \\
+      \case{cubic_linear_x64} & 459,579 & \good{\pct{2.794}} & \good{\pct{2.808}} & \good{0.000859} \\
       \bottomrule
     \end{tabular}
   \end{table}
 
-  \vspace{0.8em}
+  \vspace{0.7em}
   \begin{itemize}
-    \item Bunny uses the same r15 conservative-domain idea and an ear-tip attachment patch.
-    \item Hermite lowers free-surface relative L2 by about 8.7x versus x8 cubic-linear.
+    \item At comparable DOFs, x8 discrepancy is 1.92x Hermite's; Hermite uses 1.17x the DOFs.
+    \item x27 is 12.3\% closer to L2 than Hermite, but uses 2.74x the DOFs.
+    \item x64 nearly matches tet L1: \pct{2.794} versus \pct{2.844}, with fewer DOFs.
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Bunny: Cost}
+\begin{frame}{Bunny: Tet Sequence and Eligibility}
   \small
   \begin{table}
     \centering
     \begin{tabular}{lrrr}
       \toprule
-      case & iterations & wall time & pin residual \\
+      tet level & DOFs & area discrepancy to L2 & displacement RMS \\
       \midrule
-      \case{tet_ref} & 26 & 369.5 s & 0.000030 \\
-      \case{cubic_linear} & 26 & 5.2 s & 0.000068 \\
-      \case{cubic_linear_x8} & 24 & 37.0 s & 0.000048 \\
-      \case{cubic_hermite} & 30 & \cost{179.1 s} & 0.000034 \\
+      L0 & 365,184 & \pct{6.415} & 0.021180 \\
+      L1 & 717,012 & \pct{2.844} & 0.021666 \\
+      L2 & 1,458,978 & 0 & 0.022177 \\
       \bottomrule
     \end{tabular}
   \end{table}
 
-  \vspace{0.8em}
-  \begin{itemize}
-    \item Hermite is 4.8x slower than x8 cubic-linear in the local run.
-    \item The attached-patch residuals are all well below $10^{-3}$.
-  \end{itemize}
+  \vspace{0.6em}
+  \begin{columns}[T]
+    \begin{column}{0.48\linewidth}
+      \begin{block}{Checks that pass}
+        Contraction $\rho=0.743<0.8$; solver-noise fraction $0.0091<0.1$;
+        all pin residuals pass.
+      \end{block}
+    \end{column}
+    \begin{column}{0.48\linewidth}
+      \begin{alertblock}{Failed direction check}
+        Correction direction cosine $0.847<0.9$. The sequence does not support
+        a reliable unresolved-tail interval.
+      \end{alertblock}
+    \end{column}
+  \end{columns}
 \end{frame}
 
-\begin{frame}{Displacement Scale}
-  \small
+\begin{frame}{Cross-Model Comparison}
+  \scriptsize
   \begin{table}
     \centering
-    \begin{tabular}{lrrrr}
+    \begin{tabular}{lrr}
       \toprule
-      model & tet ref RMS & cubic-linear $\Delta$ & cubic-linear x8 $\Delta$ & Hermite $\Delta$ \\
+      L2-relative comparison & dragon & bunny \\
       \midrule
-      dragon & 0.138239 & -13.23\% & -2.40\% & \good{-0.12\%} \\
-      bunny & 0.021180 & -14.54\% & -4.39\% & \good{-0.13\%} \\
+      Hermite area discrepancy & \pct{2.890} & \pct{6.744} \\
+      x8 area discrepancy & \pct{5.162} & \pct{12.923} \\
+      x8 discrepancy / Hermite discrepancy & 1.79x & 1.92x \\
+      Hermite DOFs / x8 DOFs & 1.20x & 1.17x \\
+      x27 area discrepancy & \pct{1.977} & \pct{5.914} \\
+      x27 improvement over Hermite & 31.6\% & 12.3\% \\
+      x27 DOFs / Hermite DOFs & 2.63x & 2.74x \\
+      x64 area discrepancy & \pct{0.691} & \pct{2.794} \\
+      tet L1 area discrepancy & \pct{1.294} & \pct{2.844} \\
       \bottomrule
     \end{tabular}
   \end{table}
 
-  \vspace{0.8em}
-  \begin{itemize}
-    \item $\Delta$ is relative free-surface RMS difference from the x5 tet reference.
-    \item The original cubic-linear runs under-deform on both models.
-    \item Hermite is within about 0.13\% of the x5 tet reference in displacement scale.
-  \end{itemize}
+  \vspace{0.6em}
+  The stable formulation result is Hermite versus comparable-DOF x8. The old
+  claim that Hermite is closer than x27 does not survive the L2 reference on
+  either model.
 \end{frame}
 
-\begin{frame}{Cross-Case Summary}
+\begin{frame}{What the Evidence Supports}
   \small
-  \begin{table}
-    \centering
-    \begin{tabular}{lccc}
-      \toprule
-      model & cubic-linear & cubic-linear x8 & Hermite \\
-      \midrule
-      dragon free rel L2 & \pct{13.67} & \pct{2.68} & \good{\pct{0.77}} \\
-      bunny free rel L2 & \pct{19.72} & \pct{7.19} & \good{\pct{0.83}} \\
-      \bottomrule
-    \end{tabular}
-  \end{table}
+  \begin{block}{Supported}
+    On both models, Hermite is substantially closer to the designated tet L2
+    reference than the near-DOF x8 cubic-linear baseline.
+  \end{block}
 
-  \vspace{0.8em}
-  \begin{table}
-    \centering
-    \begin{tabular}{lcc}
-      \toprule
-      model & Hermite error reduction vs x8 & Hermite wall-time multiplier vs x8 \\
-      \midrule
-      dragon & 3.5x lower error & 5.4x slower \\
-      bunny & 8.7x lower error & 4.8x slower \\
-      \bottomrule
-    \end{tabular}
-  \end{table}
-\end{frame}
-
-\begin{frame}{Interpretation}
-  \small
   \begin{itemize}
-    \item The x8 cubic-linear case is important: refinement alone explains much of the gap from the original cubic-linear mesh.
-    \item Hermite still wins against the comparable-DOF low-order baseline on both geometries.
-    \item The result is consistent across these two static cases.
-    \item The practical tradeoff is clear: Hermite buys accuracy with substantially higher factorization time.
+    \item Aggressive cubic-linear refinement is monotone toward L2 from base to x8, x27, and x64.
+    \item x27 is closer to L2 than Hermite on both models, at about 2.6--2.7x the DOFs.
+    \item x64 is the closest cubic method and is competitive with tet L1 at fewer DOFs.
   \end{itemize}
+
+  \begin{alertblock}{Not established}
+    Neither tet sequence passes every pre-registered eligibility criterion.
+    L2 is the reporting reference, but the experiment does not prove that L2
+    is the continuous solution or provide a certified error bound.
+  \end{alertblock}
 \end{frame}
 
 \begin{frame}{Limitations}
   \small
   \begin{itemize}
-    \item The tet reference is a high-resolution numerical reference.
-    \item Only two static load cases are reported.
-    \item The conservative domains are larger than the original surfaces: 1.733817x for dragon and 1.479166x for bunny.
-    \item \case{cubic_linear_x8} is comparable-DOF, not exactly equal-DOF, relative to Hermite.
-    \item Wall times are local measurements and include implementation-specific sparse solver behavior.
+    \item Only two geometries and one static load/attachment case per geometry are reported.
+    \item L1 and L2 are independent remeshes rather than nested refinements.
+    \item L2 has not been repeated at the tighter $10^{-6}$ solver tolerance.
+    \item Metrics are original-surface displacement norms; no volume L2 or energy norm is reported.
+    \item L2 was designated after observing the convergence runs, so comparisons are descriptive.
+    \item Canonical timings use 12 threads; convergence timings use 21 threads.
+    \item Each wall time is a single observation without run-to-run dispersion.
   \end{itemize}
 \end{frame}
 
 \begin{frame}{Conclusion}
   \small
   \begin{block}{Main result}
-    On both dragon and bunny, tricubic Hermite is closer to the same-domain tet-linear numerical reference than both original cubic-linear and 2x2x2 refined cubic-linear.
+    Relative to tet L2, tricubic Hermite improves substantially over the base
+    and comparable-DOF x8 cubic-linear discretizations on both dragon and bunny.
   \end{block}
 
-  \vspace{0.7em}
+  \vspace{0.6em}
   \begin{itemize}
-    \item Dragon: free rel L2 drops from \pct{13.67} to \pct{2.68} to \good{\pct{0.77}}.
-    \item Bunny: free rel L2 drops from \pct{19.72} to \pct{7.19} to \good{\pct{0.83}}.
-    \item The refined cubic-linear case makes the comparison stricter and the Hermite advantage more meaningful.
+    \item Dragon: Hermite \pct{2.890} versus x8 \pct{5.162}; x27 reaches \pct{1.977} at 2.63x Hermite DOFs.
+    \item Bunny: Hermite \pct{6.744} versus x8 \pct{12.923}; x27 reaches \pct{5.914} at 2.74x Hermite DOFs.
+    \item The earlier claim that Hermite is more accurate than x27 is withdrawn for both L2-reference comparisons.
+    \item The defensible claim is a Hermite advantage over comparable-DOF x8, not unconditional dominance over refined low-order FEM.
   \end{itemize}
 \end{frame}
 
@@ -374,10 +412,10 @@
   \begin{itemize}
     \item Dragon report: \texttt{examples/experiments/tricubic\_hermite\_fem/reports/static/dragon\_static\_compare\_conservative\_r15.md}
     \item Bunny report: \texttt{examples/experiments/tricubic\_hermite\_fem/reports/static/bunny\_static\_compare\_conservative\_r15\_ear\_tip.md}
-    \item Static compare runner: \texttt{examples/experiments/tricubic\_hermite\_fem/run\_static.py}
-    \item Cubic asset generator: \texttt{examples/experiments/tricubic\_hermite\_fem/mesh/generate\_cubic\_mesh.py}
-    \item Cubic subdivision script: \texttt{examples/experiments/tricubic\_hermite\_fem/mesh/subdivide\_cubic\_mesh.py}
-    \item Tet reference tuning script: \texttt{examples/experiments/tricubic\_hermite\_fem/mesh/tune\_tet\_reference.py}
+    \item Convergence mesh generator: \texttt{examples/experiments/tricubic\_hermite\_fem/tet\_convergence/generate\_meshes.py}
+    \item Convergence runner: \texttt{examples/experiments/tricubic\_hermite\_fem/tet\_convergence/run\_static.py}
+    \item L2-relative analysis: \texttt{examples/experiments/tricubic\_hermite\_fem/tet\_convergence/analyze.py}
+    \item Machine-readable outputs: \texttt{examples/outputs/tricubic\_hermite\_fem/<study>/tet\_convergence/}
   \end{itemize}
 \end{frame}
 

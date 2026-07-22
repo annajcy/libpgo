@@ -61,6 +61,30 @@ def test_batch_two_cases_pass(tmp_path):
     assert bs["cases"]["tet_static_dragon"]["passed"] is True
 
 
+def test_batch_defaults_to_cwd_output(tmp_path, monkeypatch):
+    from pypgo.tools.sim import batch
+
+    cases = {
+        "tet_static_dragon": {
+            "command": "tet-static",
+            "config": str(CONFIG_DIR / "tet_static_dragon.json"),
+        }
+    }
+    batch_path = _write_tmp_batch(tmp_path, cases)
+    seen_roots = []
+
+    def fake_run_case(case_name, case, output_root):
+        seen_roots.append(output_root)
+        return 0, case["command"]
+
+    monkeypatch.setattr(batch, "_run_case", fake_run_case)
+    monkeypatch.chdir(tmp_path)
+
+    assert batch.main(["--config", str(batch_path)]) == 0
+    assert seen_roots == [Path("output")]
+    assert (tmp_path / "output" / "batch_summary.json").exists()
+
+
 # ---------------------------------------------------------------------------
 # (b) Failure path: nonexistent scene config → exit 2 at validation
 # ---------------------------------------------------------------------------

@@ -38,7 +38,7 @@
     "num_steps": 500
   },
   "output": {
-    "directory": "../outputs/sim/cubic-dynamic-bunny-ipc-hermite",
+    "directory": "output/cubic-dynamic-bunny-ipc-hermite",
     "write_surfaces": true,
     "write_abc": true,
     "dump_interval": 10

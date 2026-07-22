@@ -45,7 +45,7 @@
     ]
   },
   "output": {
-    "directory": "../outputs/sim/cubic-dynamic-box-sphere-sampled-penalty",
+    "directory": "output/cubic-dynamic-box-sphere-sampled-penalty",
     "write_surfaces": true,
     "dump_interval": 10,
     "write_abc": true

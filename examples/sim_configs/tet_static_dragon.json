@@ -15,5 +15,5 @@
   },
   "loads": { "gravity": [0.0, -9.81, 0.0] },
   "solver": { "max_iterations": 200, "gradient_tolerance": 0.0001 },
-  "output": { "directory": "../outputs/sim/tet-static-dragon-big", "write_surfaces": true }
+  "output": { "directory": "output/tet-static-dragon-big", "write_surfaces": true }
 }

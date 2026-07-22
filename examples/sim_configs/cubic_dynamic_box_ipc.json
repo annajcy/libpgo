@@ -43,7 +43,7 @@
     "num_steps": 2000
   },
   "output": {
-    "directory": "../outputs/sim/cubic-dynamic-box-ipc",
+    "directory": "output/cubic-dynamic-box-ipc",
     "write_surfaces": true,
     "write_abc": true,
     "dump_interval": 10

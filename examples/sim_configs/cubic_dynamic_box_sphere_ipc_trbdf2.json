@@ -39,7 +39,7 @@
     "integrator": "trbdf2"
   },
   "output": {
-    "directory": "../outputs/sim/cubic-dynamic-box-sphere-ipc-trbdf2",
+    "directory": "output/cubic-dynamic-box-sphere-ipc-trbdf2",
     "write_surfaces": true,
     "dump_interval": 10,
     "write_abc": true

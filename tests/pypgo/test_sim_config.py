@@ -8,7 +8,6 @@ import pytest
 from pypgo.tools.sim._config import (
     ConfigError,
     RegionSelector,
-    SimConfig,
     VertexSelector,
     load_config,
 )
@@ -254,10 +253,11 @@ def test_floor_obstacles_rejected(tmp_path):
         load_config(mesh_type="tet", mode="static", json_path=cfg_path)
 
 
-def test_output_directory_required():
-    with pytest.raises(ConfigError, match="output"):
-        load_config(mesh_type="tet", mode="static",
-                    overrides={"mesh.volume": "/m.veg", "mesh.surface": "/m.obj"})
+def test_output_directory_defaults_to_relative_output():
+    cfg = load_config(
+        mesh_type="tet", mode="static",
+        overrides={"mesh.volume": "/m.veg", "mesh.surface": "/m.obj"})
+    assert cfg.output.directory == Path("output")
 
 
 def test_hermite_formulation_only_for_cubic(tmp_path):

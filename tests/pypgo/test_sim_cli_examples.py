@@ -50,6 +50,14 @@ def test_all_example_configs_are_covered():
     assert covered == on_disk
 
 
+def test_all_example_configs_write_below_local_output():
+    for config_path in CONFIG_DIR.glob("*.json"):
+        if config_path.name == "batch.json":
+            continue
+        output_dir = json.loads(config_path.read_text())["output"]["directory"]
+        assert Path(output_dir).parts[0] == "output"
+
+
 @pytest.mark.parametrize("module,config", DYNAMIC_CASES,
                          ids=[c for _, c in DYNAMIC_CASES])
 @pytest.mark.skipif(

@@ -100,6 +100,7 @@ dist/
 
 pypgo/examples/outputs
 examples/outputs
+**/output/
 examples/experiments/tricubic_hermite_fem/assets/obj/*-conservative-r15-surface.obj
 examples/experiments/tricubic_hermite_fem/assets/veg/cubic/*.veg
 examples/experiments/tricubic_hermite_fem/assets/veg/tet/*.veg

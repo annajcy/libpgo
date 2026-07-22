@@ -1,10 +1,9 @@
-"""Validate and optionally execute all example notebooks.
+"""Validate API guides and optimization demo scripts.
 
 Tests are split into two tiers:
-- **Tier 1 – static** (always run): check nbformat compliance,
-  verify all cells are well-formed, parse code for syntax errors.
+- **Tier 1 – static** (always run): inspect guide and demo source.
 - **Tier 2 – live execution** (opt-in via ``--run-notebooks`` / ``RUN_NOTEBOOKS=1``):
-  actually execute every notebook against the installed pypgo package.
+  execute API guide code against the installed pypgo package.
   Useful in CI with a full conda environment.
 
 Usage::
@@ -22,13 +21,12 @@ Usage::
 from __future__ import annotations
 
 import ast
-import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
-import nbformat
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -36,10 +34,38 @@ import pytest
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT_DIR = ROOT / "examples"
-NOTEBOOKS: dict[str, Path] = {
-    path.stem: path for path in sorted(OUTPUT_DIR.glob("*.ipynb"))
-}
+API_DOC_DIR = ROOT / "docs" / "pypgo"
+OPTIMIZATION_DEMO_DIR = ROOT / "examples" / "demo" / "optimization"
+API_GUIDES = (
+    "animation",
+    "contact",
+    "energy",
+    "fem",
+    "implicit",
+    "mesh",
+    "numpy",
+    "simulation",
+    "solver",
+)
+
+
+def _api_guide_source(name: str) -> str:
+    return (API_DOC_DIR / f"{name}.md").read_text()
+
+
+def _api_guide_python(name: str) -> str:
+    return "\n\n".join(
+        re.findall(r"```python\n(.*?)\n```", _api_guide_source(name), re.DOTALL)
+    )
+
+
+def _optimization_demo_source(name: str) -> str:
+    return (OPTIMIZATION_DEMO_DIR / name / "main.py").read_text()
+
+
+def _optimization_demo_readme(name: str) -> str:
+    return (OPTIMIZATION_DEMO_DIR / name / "README.md").read_text()
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -58,312 +84,103 @@ def _run_notebook_flag(request: pytest.FixtureRequest) -> bool:
 # =========================================================================
 
 
-class TestNotebookFiles:
-    """Verify that every checked-in example notebook is valid."""
-
-    @pytest.mark.parametrize("stem", list(NOTEBOOKS))
-    def test_notebook_is_valid_nbformat(self, stem):
-        """Checked-in file passes nbformat validation."""
-        path = NOTEBOOKS[stem]
-        with open(path) as fh:
-            nb = nbformat.reader.read(fh)
-        nbformat.validate(nb)
-        assert nb["nbformat"] >= 4
-
-    @pytest.mark.parametrize("stem", list(NOTEBOOKS))
-    def test_notebook_has_cells(self, stem):
-        """Notebook contains at least one cell."""
-        path = NOTEBOOKS[stem]
-        with open(path) as fh:
-            nb = json.load(fh)
-        assert len(nb["cells"]) > 0, f"{stem} has zero cells"
-
-    @pytest.mark.parametrize("stem", list(NOTEBOOKS))
-    def test_notebook_has_kernel_metadata(self, stem):
-        """Kernelspec metadata is present (required for execution)."""
-        path = NOTEBOOKS[stem]
-        with open(path) as fh:
-            nb = json.load(fh)
-        ks = nb["metadata"]["kernelspec"]
-        assert ks["display_name"] == "libpgo"
-        assert ks["language"] == "python"
-
-    @pytest.mark.parametrize("stem", list(NOTEBOOKS))
-    def test_markdown_cells_have_content(self, stem):
-        """Every markdown cell has non-whitespace source."""
-        path = NOTEBOOKS[stem]
-        with open(path) as fh:
-            nb = json.load(fh)
-        for idx, cell in enumerate(nb["cells"]):
-            if cell["cell_type"] == "markdown":
-                src = "".join(cell["source"]).strip()
-                assert src, f"{stem} cell #{idx} markdown cell is empty"
-
-    @pytest.mark.parametrize("stem", list(NOTEBOOKS))
-    def test_code_cells_have_unique_ids(self, stem):
-        """Every cell has a unique non-empty id."""
-        path = NOTEBOOKS[stem]
-        with open(path) as fh:
-            nb = json.load(fh)
-        ids = [c["id"] for c in nb["cells"]]
-        assert len(ids) == len(set(ids)), f"{stem} has duplicate cell ids"
-        assert all(ids), f"{stem} has empty cell ids"
-
-
-class TestNotebookSyntax:
-    """Every code cell in every example notebook is syntactically valid Python."""
-
-    @pytest.mark.parametrize("stem", list(NOTEBOOKS))
-    def test_all_code_cells_parse(self, stem):
-        path = NOTEBOOKS[stem]
-        with open(path) as fh:
-            nb = json.load(fh)
-        errors: list[str] = []
-        for idx, cell in enumerate(nb["cells"]):
-            if cell["cell_type"] != "code":
-                continue
-            src = "".join(cell["source"])
-            try:
-                ast.parse(src)
-            except SyntaxError as exc:
-                errors.append(
-                    f"{stem} cell #{idx} (id={cell['id']}): {exc}"
-                )
-        assert not errors, "\n".join(errors)
-
-
-class TestNotebookSources:
-    """Content-level smoke checks for each notebook."""
+class TestExampleSources:
+    """Content-level smoke checks for API guides and optimization demos."""
 
     def test_energy_demo_covers_all_energy_types(self):
-        with open(NOTEBOOKS["energy_api_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+        source = _api_guide_source("energy")
         assert "LinearEnergy" in source
         assert "QuadraticEnergy" in source
         assert "VertexAttachment" in source
         assert "EnergySet" in source
         assert "max_step" in source
 
-    def test_contact_demo_rebuilds_box_ipc_scene_in_python(self):
-        with open(NOTEBOOKS["contact_api_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"])
-        assert 'SCENE = {' in source
-        assert '"cubic_mesh": "box.veg"' in source
-        assert '"surface_mesh": "box.obj"' in source
-        assert '"filename": "bottom.obj"' in source
-        assert 'CUBIC_BOX = ASSET_DIR / "veg" / "cubic" / IPC_SCENE["cubic_mesh"]' in source
-        assert 'BOX_SURFACE = ASSET_DIR / "obj" / IPC_SCENE["surface_mesh"]' in source
-        assert 'BOTTOM_SURFACE = ASSET_DIR / "obj" / IPC_SCENE["external_objects"][0]["filename"]' in source
+    def test_contact_guide_explains_the_shared_contact_contract(self):
+        source = _api_guide_source("contact")
+        assert "ContactSurface.identity" in source
         assert "ContactSurface.from_surface_embedding" in source
+        assert "FloorEnergy" in source
         assert "pc.IPCEnergy" in source
         assert "pc.IPCParameters" in source
-        assert "pf.StableNeo()" in source
-        assert "pf.CubicLinear()" in source
-        assert "DynamicSimulation" in source
-        assert "AbcWriter" in source
-        assert "json.load" not in source
+        assert "pc.SampledPenaltyEnergy" in source
+        assert "pc.FrictionParameters" in source
+        assert "begin_step" in source
+        assert "SCENE = {" not in source
+        assert "ASSET_DIR" not in source
 
-    def test_mesh_demo_loads_assets(self):
-        with open(NOTEBOOKS["mesh_api_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+    def test_mesh_guide_explains_object_layers_without_repo_assets(self):
+        source = _api_guide_source("mesh")
+        assert "TriMeshData" in source
+        assert "TriMeshGeo" in source
         assert "VolumeMesh" in source
         assert "SimulationMesh.create_volumetric" in source
-        assert "SimulationMesh.create_shell" in source
+        assert "SurfaceEmbedding" in source
+        assert "ASSET_DIR" not in source
 
     def test_deformation_fem_picks_up_formulation(self):
-        with open(NOTEBOOKS["deformation_fem_api_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+        source = _api_guide_source("fem")
         assert "TetLinear" in source
         assert "CubicLinear" in source
         assert "KoiterShell" in source
+        assert "CubicTricubicHermite" in source
+        assert "num_vertices * 24" in source
+        assert "surface_embedding_matrix" in source
         assert "deformation_energy" in source
 
     def test_solver_demo_covers_newton_api(self):
-        with open(NOTEBOOKS["solver_api_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+        source = _api_guide_source("solver")
         assert "OptimizationProblem" in source
         assert "NewtonOptimizer" in source
         assert "fix_variables" in source
         assert "line_search" in source
-        assert "EnergySet" in source
-        assert "constraints.Linear" in source
-        assert "constraints.Bounded" in source
         assert "ConstraintPenalty" in source
         assert "ConstraintViolationPenalty" in source
 
-    def test_animation_demo_uses_animation_io(self):
-        with open(NOTEBOOKS["animation_api_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
-        assert "AnimationReader" in source or "animation" in source.lower()
+    def test_animation_guide_uses_in_memory_data_and_capability_checks(self):
+        source = _api_guide_source("animation")
+        assert "AbcWriter" in source
+        assert "has_animation_io" in source
+        assert "has_stress_vdb_export" in source
+        assert "write_u_file" in source
+        assert "compute_stress_field_stats" in source
+        assert "ASSET_DIR" not in source
 
     def test_numpy_demo_demonstrates_interop(self):
-        with open(NOTEBOOKS["numpy_interoperate"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+        source = _api_guide_source("numpy")
         assert "ndarray" in source or "numpy" in source
 
-    def test_static_solve_demo_covers_box_hang_path(self):
-        with open(NOTEBOOKS["static_solve_box_hang_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"])
-        assert 'Path(pgo.__file__).resolve().parent' in source
-        assert 'ASSET_DIR / "veg" / "cubic" / "box.veg"' in source
-        assert 'ASSET_DIR / "obj" / "box.obj"' in source
-        assert "embedded_surface = pgo.mesh.read_obj(str(BOX_SURFACE))" in source
-        assert "make_box_surface" not in source
-        assert "bbox_min, bbox_max = cubic_data.bbox" in source
-        assert "corner_patch_mask" in source
-        assert "fixed_vertices = np.flatnonzero(corner_patch_mask)" in source
-        assert "pf.CubicLinear()" in source
-        assert "pf.StableNeo()" in source
-        assert "pe.LinearEnergy(-gravity_force)" in source
-        assert "ps.OptimizationProblem" in source
-        assert "ps.NewtonOptimizer" in source
-        assert "problem.fix_variables" in source
-        assert "surface_embedding = pgo.mesh.SurfaceEmbedding(embedded_surface, volume)" in source
-        assert "surface_embedding.deform(result.x)" in source
-        assert "surface_embedding.deform(result_with_soft_pin.x)" in source
-        assert "pgo.mesh.write_obj" in source
-        assert "static_solve_box_hang_deformed.obj" in source
-        assert "static_solve_box_hang_soft_pin_deformed.obj" in source
-        assert "deformation = pf.deformation_energy" in source
-        assert "deformation = pf.deformation_energy" in source
-        assert "plastic_values" in source
-        assert "deformation_plastic = pf.deformation_energy" in source
-        assert "pf.ElementwiseField(values=plastic_values)" in source
-        assert "deformation_plastic = pf.deformation_energy" in source
-        assert "DeformationEnergy.plastic_params" not in source
-        assert "plastic_params=" not in source
-        assert "plastic_deformed_surface = surface_embedding.deform(result_plastic.x)" in source
-        assert "static_solve_box_hang_plastic_deformed.obj" in source
-        assert "given plastic params static solve" in source
-        assert "vis.plot_volume_surface" in source
-        assert "vis.plot_surface" in source
-        assert "surface_to_volume_interpolation_matrix" not in source
-        assert "surface_from_volume @ result.x" not in source
-        assert "surface_from_volume @ result_with_soft_pin.x" not in source
-        assert "deformed_volume.extract_surface_mesh()" not in source
-        assert "deformed_volume_with_soft_pin.extract_surface_mesh()" not in source
-
     def test_plastic_shape_match_demo_covers_inverse_design_path(self):
-        with open(NOTEBOOKS["plastic_shape_match_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"])
-        assert "pf.ElementwiseField()" in source
-        assert "target_vertices" in source
+        source = _optimization_demo_source("plastic_shape_match")
+        ast.parse(source)
         assert "pgo.fem.PlasticStaticEquilibriumLayer" in source
-        assert "energy.num_plastic_dofs" in source
-        assert "pgo.mesh.plot_volume_surface" in source
-        assert "pgo.mesh.plot_surface" in source
-        assert "optimized_surface" in source
-        assert "optimized_plastic" in source
-        assert "plastic_delta" in source
-        assert "plastic_delta_norm" in source
-        assert "plastic_shape_match_weights.npz" in source
-        assert "np.savez" in source
-        assert "scalars=[" in source
-        assert "scalar_bar_titles" in source
+        assert "pf.ElementwiseField()" in source
+        assert "volume.extract_surface_mesh()" in source
         assert "torch.optim.Adam" in source
         assert "loss.backward()" in source
-        assert "equilibrium_layer(plastic_param)" in source
-        assert "equilibrium_layer.reset_warm_start()" in source
-        assert "optimized_plastic_tensor" in source
-        assert "optimized_vertices =" in source
-        assert "num_outer_steps" in source
-        assert "learning_rate" in source
-        assert "nx = ny = nz" in source
-        assert "surface_vertex_ids" in source
-        assert "shear_strength" in source
-        assert "sheared cubic target" in source
-        assert "vertex_error_stats" in source
-        assert "mean_vertex_error" in source
-        assert "max_vertex_error" in source
-        assert "per_vertex_rms" in source
-        assert "PyTorch" in source
-        assert "sphere target" not in source
-        assert "one-hex" not in source
-        assert "SciPy" not in source
-        assert "PlasticEquilibriumShapeMatcher" not in source
-        assert "pp.solve_static_equilibrium" not in source
-        assert "solve_static_equilibrium" not in source
-        assert "import pypgo.plastic" not in source
-        assert "value_and_gradient" not in source
-        assert "plastic_param.grad =" not in source
-        assert "best_surface_vertices" not in source
+        assert "plastic_shape_match_weights.npz" in source
+        assert "np.savez" in source
+        readme = _optimization_demo_readme("plastic_shape_match")
+        assert "PlasticStaticEquilibriumLayer" in readme
+        assert "elementwise field" in readme
 
     def test_elastic_material_optimization_demo_covers_inverse_design_path(self):
-        with open(NOTEBOOKS["elastic_material_optimization_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"])
-        assert "pf.ElementwiseField(values=" in source
-        assert "target_vertices" in source
+        source = _optimization_demo_source("elastic_material_optimization")
+        ast.parse(source)
         assert "pgo.fem.ElasticStaticEquilibriumLayer" in source
-        assert "objective_energy=_objective_at_current_b()" in source
-        assert "pe.LinearEnergy(" in source
-        assert "pe.EnergySet" in source
-        assert "gravity_force" in source
-        assert "gravity_accel" in source
+        assert "objective_energy=energy" in source
         assert "external_load=" in source
         assert "ShellDensityElasticThickness" in source
         assert "SelfWeightGravity" in source
-        assert "_objective_at_current_b" in source
-        assert "energy.num_elastic_dofs" in source
-        assert "energy.elastic_jacobian" in source
-        assert "pgo.mesh.plot_surface" in source
-        assert "optimized_surface" in source
-        assert "optimized_elastic" in source
-        assert "elastic_delta" in source
-        assert "E_membrane_delta" in source
-        assert "E_membrane recovery" in source
-        assert "correlation r" in source
-        assert "elastic_shape_match_weights.npz" in source
-        assert "np.savez" in source
-        assert "tripcolor" in source
+        assert "pe.LinearEnergy(" in source
+        assert "torch.nn.Sequential" in source
+        assert "elastic[0::5] = membrane" in source
         assert "torch.optim.Adam" in source
         assert "loss.backward()" in source
-        assert "equilibrium_layer(elastic_param)" in source
-        assert "equilibrium_layer.reset_warm_start(best_displacement)" in source
-        assert "optimized_elastic_tensor" in source
-        assert "optimized_vertices =" in source
-        assert "num_outer_steps" in source
-        assert "EmNet" in source
-        assert "build_param" in source
-        assert "em_net" in source
-        assert "best_state" in source
-        assert "nx = ny" in source
-        assert "surface_vertex_ids" in source
-        assert "shear_strength" in source
-        assert "sag_strength" in source
-        assert "Koiter shell grid" in source
-        assert "ShellPlasticity" in source
-        assert "vertex_error_stats" in source
-        assert "mean_vertex_error" in source
-        assert "max_vertex_error" in source
-        assert "per_vertex_rms" in source
-        assert "PyTorch" in source
-        assert "plastic_material_energy" not in source
-        assert "sphere target" not in source
-        assert "one-hex" not in source
-        assert "SciPy" not in source
-
-    def test_tricubic_hermite_box_drop_demo_uses_dynamic_mapped_contact_helpers(self):
-        with open(NOTEBOOKS["tricubic_hermite_box_drop_ipc_demo"]) as fh:
-            nb = json.load(fh)
-        source = "\n".join("".join(c["source"]) for c in nb["cells"])
-        assert "pf.CubicTricubicHermite()" in source
-        assert ".mass_matrix" in source
-        assert ".body_force" in source
-        assert ".surface_embedding_matrix" in source
-        assert "pc.ContactSurface.embedded" in source
-        assert "pc.FloorEnergy" in source
-        assert "pc.IPCEnergy" in source
-        assert "DynamicSimulation" in source
+        assert "elastic_shape_match_weights.npz" in source
+        assert "np.savez" in source
+        readme = _optimization_demo_readme("elastic_material_optimization")
+        assert "ElasticStaticEquilibriumLayer" in readme
+        assert "added exactly once" in readme
 
 
 # =========================================================================
@@ -371,80 +188,23 @@ class TestNotebookSources:
 # =========================================================================
 
 
-def _module_exists(name: str) -> bool:
-    try:
-        importlib.import_module(name)
-        return True
-    except ImportError:
-        return False
+class TestApiGuideExecution:
+    """Execute each API guide's Python blocks in document order."""
 
-
-def _exec_notebook(path: Path) -> tuple[int, str]:
-    """Run a notebook with ``jupyter nbconvert --execute``.
-
-    Returns (returncode, combined stdout+stderr).
-    """
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "jupyter",
-            "nbconvert",
-            "--to",
-            "notebook",
-            "--execute",
-            "--ExecutePreprocessor.timeout=300",
-            "--output",
-            path.name,  # write to same temp dir
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=360,
-        cwd=path.parent,
-    )
-    return result.returncode, result.stdout + "\n" + result.stderr
-
-
-class TestNotebookExecution:
-    """Execute every generated notebook end-to-end.
-
-    These tests require a complete pypgo installation and all example
-    assets (meshes, textures, etc.) to be present.  Skip when any
-    prerequisite is missing or the user has not opted in.
-    """
-
-    def test_pypgo_is_installed(self):
-        """Sanity: pypgo (at minimum 'energy' sub-package) imports."""
-        try:
-            import pypgo.energy  # noqa: F401
-        except ImportError as exc:
-            pytest.skip(f"pypgo.energy not importable: {exc}")
-
-    @pytest.mark.parametrize(
-        "stem",
-        [
-            p
-            for p in NOTEBOOKS
-            if p != "animation_api_demo"  # animation needs precomputed simulation output
-        ],
-    )
-    def test_notebook_executes_cleanly(
-        self, stem, request
-    ):
-        """Execute the notebook and assert zero exit code."""
+    @pytest.mark.parametrize("name", API_GUIDES)
+    def test_api_guide_executes_cleanly(self, name, request):
         if not _run_notebook_flag(request):
             pytest.skip("opt-in via --run-notebooks or RUN_NOTEBOOKS=1")
-
-        # Check pyvista where needed (mesh / deformation fem).
-        if stem in ("mesh_api_demo", "deformation_fem_api_demo") and not _module_exists("pyvista"):
-            pytest.skip("pyvista not installed – rendering cells may fail")
-
-        path = NOTEBOOKS[stem]
-        rc, output = _exec_notebook(path)
-        if rc != 0:
-            # Print tail of output for debugging.
+        result = subprocess.run(
+            [sys.executable, "-c", _api_guide_python(name)],
+            capture_output=True,
+            text=True,
+            timeout=360,
+            cwd=ROOT,
+        )
+        if result.returncode != 0:
+            output = result.stdout + "\n" + result.stderr
             tail = output[-2000:] if len(output) > 2000 else output
             pytest.fail(
-                f"{stem} execution failed (exit {rc}):\n{tail}"
+                f"{name}.md execution failed (exit {result.returncode}):\n{tail}"
             )

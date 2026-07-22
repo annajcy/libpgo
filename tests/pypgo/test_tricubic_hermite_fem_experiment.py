@@ -36,22 +36,27 @@ def write_box_assets(tmp_path):
     tet_path = tmp_path / "tet.veg"
     cubic_path = tmp_path / "cube.veg"
     material = ENuMaterial(E=1e6, nu=0.45, density=1000.0)
-    pgo.mesh.write_obj(str(surface_path), pgo.mesh.create_box(bmin=(0, 0, 0), bmax=(1, 1, 1)))
+    pgo.mesh.write_obj(
+        str(surface_path), pgo.mesh.create_box(bmin=(0, 0, 0), bmax=(1, 1, 1))
+    )
     tet = pgo.mesh.TetMeshData(
         np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=float),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
     cube = pgo.mesh.CubicMeshData(
-        np.array([
-            [0, 0, 0],
-            [1, 0, 0],
-            [1, 1, 0],
-            [0, 1, 0],
-            [0, 0, 1],
-            [1, 0, 1],
-            [1, 1, 1],
-            [0, 1, 1],
-        ], dtype=float),
+        np.array(
+            [
+                [0, 0, 0],
+                [1, 0, 0],
+                [1, 1, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [1, 0, 1],
+                [1, 1, 1],
+                [0, 1, 1],
+            ],
+            dtype=float,
+        ),
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
     write_veg(str(tet_path), VegFile.from_single_material(tet, material))
@@ -67,10 +72,14 @@ def test_mesh_quality_script_reports_surface_and_volume_ratios(tmp_path):
         [
             sys.executable,
             str(MESH_QUALITY),
-            "--surface", str(surface_path),
-            "--tet", str(tet_path),
-            "--cubic", str(cubic_path),
-            "--json", str(out),
+            "--surface",
+            str(surface_path),
+            "--tet",
+            str(tet_path),
+            "--cubic",
+            str(cubic_path),
+            "--json",
+            str(out),
         ],
         cwd=ROOT,
         check=True,
@@ -89,17 +98,24 @@ def test_cubic_mesh_generator_writes_boundary_surface(tmp_path):
     surface_path = tmp_path / "box.obj"
     cubic_path = tmp_path / "box-conservative.veg"
     boundary_path = tmp_path / "box-conservative-surface.obj"
-    pgo.mesh.write_obj(str(surface_path), pgo.mesh.create_box(bmin=(0, 0, 0), bmax=(1, 1, 1)))
+    pgo.mesh.write_obj(
+        str(surface_path), pgo.mesh.create_box(bmin=(0, 0, 0), bmax=(1, 1, 1))
+    )
 
     subprocess.run(
         [
             sys.executable,
             str(GENERATOR),
-            "--surface", str(surface_path),
-            "--study", "dragon",
-            "--resolution", "3",
-            "--output", str(cubic_path),
-            "--boundary-output", str(boundary_path),
+            "--surface",
+            str(surface_path),
+            "--study",
+            "dragon",
+            "--resolution",
+            "3",
+            "--output",
+            str(cubic_path),
+            "--boundary-output",
+            str(boundary_path),
         ],
         cwd=ROOT,
         check=True,
@@ -109,7 +125,10 @@ def test_cubic_mesh_generator_writes_boundary_surface(tmp_path):
     boundary = pgo.mesh.read_obj(str(boundary_path))
     assert veg.mesh_data.num_elements > 0
     assert boundary.num_elements > 0
-    assert pgo.mesh.filter_mesh_components(veg.mesh_data, keep_largest=1).num_elements == veg.mesh_data.num_elements
+    assert (
+        pgo.mesh.filter_mesh_components(veg.mesh_data, keep_largest=1).num_elements
+        == veg.mesh_data.num_elements
+    )
 
 
 def test_static_compare_cases_are_case_based():
@@ -121,8 +140,12 @@ def test_static_compare_cases_are_case_based():
     assert dragon["tet_ref"]["volume"] is None
     assert bunny["tet_ref"]["volume"] is None
     assert dragon["cubic_linear"]["volume"] == dragon["cubic_hermite"]["volume"]
-    assert bunny["cubic_linear_x8"]["volume"].name == "bunny-conservative-r15-subdiv2.veg"
-    assert bunny["cubic_linear_x27"]["volume"].name == "bunny-conservative-r15-subdiv3.veg"
+    assert (
+        bunny["cubic_linear_x8"]["volume"].name == "bunny-conservative-r15-subdiv2.veg"
+    )
+    assert (
+        bunny["cubic_linear_x27"]["volume"].name == "bunny-conservative-r15-subdiv3.veg"
+    )
 
 
 def test_dynamic_compare_cases_use_shared_study_assets():
@@ -136,8 +159,12 @@ def test_dynamic_compare_cases_use_shared_study_assets():
     assert study["obstacle"].is_relative_to(EXPERIMENT)
     assert cases["tet_ref"]["volume"] is None
     assert cases["cubic_linear"]["volume"] == cases["cubic_hermite"]["volume"]
-    assert cases["cubic_linear_x8"]["volume"].name == "bunny-conservative-r15-subdiv2.veg"
-    assert cases["cubic_linear_x27"]["volume"].name == "bunny-conservative-r15-subdiv3.veg"
+    assert (
+        cases["cubic_linear_x8"]["volume"].name == "bunny-conservative-r15-subdiv2.veg"
+    )
+    assert (
+        cases["cubic_linear_x27"]["volume"].name == "bunny-conservative-r15-subdiv3.veg"
+    )
     assert module.SETTINGS["num_steps"] >= 800
 
 
@@ -179,7 +206,9 @@ def test_dynamic_compare_trajectory_metrics_reports_impact_and_error():
         20: rest + np.array([[0.0, -0.10, 0.0], [0.0, -0.20, 0.0]]),
     }
 
-    metrics = module.trajectory_metrics(positions, reference_positions, rest, obstacle_top_y=0.0)
+    metrics = module.trajectory_metrics(
+        positions, reference_positions, rest, obstacle_top_y=0.0
+    )
 
     assert metrics["matched_frames"] == 2
     assert metrics["impact_frame"] == 10
@@ -258,7 +287,10 @@ def test_static_summary_writes_json_csv_and_markdown(monkeypatch, tmp_path):
         displacement = np.zeros_like(rest)
         displacement[:, 1] = -0.01 * scale
         displacement[0] = 0.0
-        pgo.mesh.write_obj(str(output / "final_surface.obj"), pgo.mesh.TriMeshData(rest + displacement, surface.elements))
+        pgo.mesh.write_obj(
+            str(output / "final_surface.obj"),
+            pgo.mesh.TriMeshData(rest + displacement, surface.elements),
+        )
 
     comparison = module.summarize_static("bunny", tmp_path)
     rows = {row["case"]: row for row in comparison["cases"]}
@@ -338,16 +370,18 @@ def test_tet_candidate_cache_requires_matching_input_signature(monkeypatch, tmp_
 def test_subdivide_cubic_mesh_splits_one_cube_into_eight():
     module = load_module(SUBDIVIDE_CUBIC, "subdivide_cubic_mesh")
     cube = pgo.mesh.CubicMeshData(
-        np.array([
-            [0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 1.0],
-            [0.0, 1.0, 1.0],
-        ]),
+        np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0],
+            ]
+        ),
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]]),
     )
 
@@ -368,11 +402,15 @@ def test_subdivide_cubic_mesh_splits_one_cube_into_eight():
 def test_common_output_layout_and_stable_asset_ids():
     module = load_module(COMMON, "tricubic_common")
 
-    assert module.output_root("bunny", "static").as_posix().endswith(
-        "examples/outputs/tricubic_hermite_fem/bunny/static"
+    assert (
+        module.output_root("bunny", "static")
+        .as_posix()
+        .endswith("examples/experiments/tricubic_hermite_fem/output/bunny/static")
     )
-    assert module.output_root("dragon", "dynamic").as_posix().endswith(
-        "examples/outputs/tricubic_hermite_fem/dragon/dynamic"
+    assert (
+        module.output_root("dragon", "dynamic")
+        .as_posix()
+        .endswith("examples/experiments/tricubic_hermite_fem/output/dragon/dynamic")
     )
     assert module.asset_id(module.STUDIES["bunny"]["surface"]) == "assets/obj/bunny.obj"
     assert "tet_a" not in module.STUDIES["bunny"]
@@ -392,12 +430,18 @@ def test_common_resolves_tet_candidate_from_selection_manifest(monkeypatch, tmp_
     input_signature = {"schema_version": 1, "input": "fingerprint"}
     candidate_metadata.write_text(json.dumps({"input_signature": input_signature}))
     selection_path = tet_dir / "bunny-conservative-r15-tet-reference.json"
-    selection_path.write_text(json.dumps({
-        "study": "bunny",
-        "candidate_mesh": candidate.relative_to(tmp_path).as_posix(),
-        "candidate_metadata": candidate_metadata.relative_to(tmp_path).as_posix(),
-        "input_signature": input_signature,
-    }))
+    selection_path.write_text(
+        json.dumps(
+            {
+                "study": "bunny",
+                "candidate_mesh": candidate.relative_to(tmp_path).as_posix(),
+                "candidate_metadata": candidate_metadata.relative_to(
+                    tmp_path
+                ).as_posix(),
+                "input_signature": input_signature,
+            }
+        )
+    )
     monkeypatch.setattr(module, "EXPERIMENT_DIR", tmp_path)
     monkeypatch.setattr(module, "ASSETS", assets)
 
@@ -414,9 +458,12 @@ def test_dynamic_all_rejects_resumed_wall_time(monkeypatch, tmp_path):
         lambda *args, **kwargs: {"complete": True, "wall_time_comparable": False},
     )
 
-    assert module.main([
-        "--study", "bunny", "--mode", "dynamic", "--output-root", str(tmp_path)
-    ]) == 2
+    assert (
+        module.main(
+            ["--study", "bunny", "--mode", "dynamic", "--output-root", str(tmp_path)]
+        )
+        == 2
+    )
 
 
 @pytest.mark.skipif(

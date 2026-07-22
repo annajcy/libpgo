@@ -210,7 +210,7 @@ class DynamicConfig:
 
 @dataclass(frozen=True)
 class OutputConfig:
-    directory: Path | None = None
+    directory: Path = Path("output")
     write_surfaces: bool = False
     write_states: bool = False
     write_checkpoints: bool = False
@@ -560,7 +560,7 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
     write_stress = bool(out_payload.get("write_stress", False))
     output = OutputConfig(
         directory=Path(out_payload["directory"])
-        if out_payload.get("directory") else None,
+        if out_payload.get("directory") else Path("output"),
         write_surfaces=bool(out_payload.get("write_surfaces", False)),
         write_states=bool(out_payload.get("write_states", False)),
         write_checkpoints=bool(out_payload.get("write_checkpoints", False)),
@@ -568,9 +568,6 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
         write_abc=bool(out_payload.get("write_abc", False)),
         dump_interval=dump_interval,
     )
-    if output.directory is None:
-        raise ConfigError("output.directory is required (JSON or --output-dir)")
-
     return SimConfig(
         mesh_type=mesh_type, mode=mode, mesh=mesh, material=material,
         constraints=constraints, loads=loads, contact=contact,

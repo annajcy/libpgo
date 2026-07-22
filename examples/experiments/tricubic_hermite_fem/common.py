@@ -7,9 +7,8 @@ from pathlib import Path
 
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
-ROOT = EXPERIMENT_DIR.parents[2]
 ASSETS = EXPERIMENT_DIR / "assets"
-OUTPUT_ROOT = ROOT / "examples" / "outputs" / "tricubic_hermite_fem"
+OUTPUT_ROOT = EXPERIMENT_DIR / "output"
 
 FORMULATION_CASES = (
     "tet_ref",
@@ -85,16 +84,24 @@ def tet_reference_selection(study: dict) -> dict | None:
     candidate = _selection_asset_path(selection["candidate_mesh"])
     metadata_path = _selection_asset_path(selection["candidate_metadata"])
     if not candidate.exists() or not metadata_path.exists():
-        raise FileNotFoundError(f"tet selection points to missing candidate assets: {selection_path}")
+        raise FileNotFoundError(
+            f"tet selection points to missing candidate assets: {selection_path}"
+        )
     candidate_metadata = json.loads(metadata_path.read_text())
     if candidate_metadata.get("input_signature") != selection.get("input_signature"):
-        raise ValueError(f"tet selection metadata does not match its candidate: {selection_path}")
+        raise ValueError(
+            f"tet selection metadata does not match its candidate: {selection_path}"
+        )
     return selection
 
 
 def tet_reference_mesh(selection: dict | None) -> Path | None:
     """Resolve the selected candidate mesh from its manifest."""
-    return None if selection is None else _selection_asset_path(selection["candidate_mesh"])
+    return (
+        None
+        if selection is None
+        else _selection_asset_path(selection["candidate_mesh"])
+    )
 
 
 def build_cases(study: dict) -> dict:

@@ -250,7 +250,7 @@ def dump_animation(
     config_path : Path to a JSON config file.
     output_folder :
         Destination directory. Defaults to the config's ``output-folder``
-        field, or the config file's parent directory.
+        field, or ``./output``.
     """
     import json
 
@@ -259,12 +259,13 @@ def dump_animation(
     if output_folder is None:
         with open(config_path) as f:
             cfg = json.load(f)
-        output_folder = cfg.get("output-folder", str(config_path.parent))
-        output_folder = (
-            config_path.parent / output_folder
-            if not Path(output_folder).is_absolute()
-            else Path(output_folder)
-        )
+        configured_output = cfg.get("output-folder")
+        if configured_output is None:
+            output_folder = Path("output")
+        else:
+            output_folder = Path(configured_output)
+            if not output_folder.is_absolute():
+                output_folder = config_path.parent / output_folder
 
     loader = AnimationLoader()
     loader.load(config_path)

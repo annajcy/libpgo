@@ -32,7 +32,9 @@ def build_parser(*, prog: str, mesh_type: str, mode: str) -> argparse.ArgumentPa
                             help="embedded/contact OBJ surface")
         parser.add_argument("--formulation", choices=VOLUME_FORMULATIONS,
                             default=None)
-    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument(
+        "--output-dir", type=Path, default=None,
+        help="output directory (default: ./output)")
     parser.add_argument("--write-surfaces", action="store_true", default=None,
                         help="write deformed surface OBJ output")
     parser.add_argument("--write-checkpoints", action="store_true", default=None,

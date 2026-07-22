@@ -44,7 +44,7 @@
     "num_steps": 4000
   },
   "output": {
-    "directory": "../outputs/sim/cubic-dynamic-dragon-ipc",
+    "directory": "output/cubic-dynamic-dragon-ipc",
     "write_surfaces": true,
     "dump_interval": 10,
     "write_abc": true

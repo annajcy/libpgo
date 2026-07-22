@@ -44,7 +44,7 @@
     "num_steps": 4000
   },
   "output": {
-    "directory": "../outputs/sim/tet-dynamic-dragon-ipc",
+    "directory": "output/tet-dynamic-dragon-ipc",
     "write_surfaces": true,
     "dump_interval": 10,
     "write_abc": true

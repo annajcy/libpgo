@@ -23,6 +23,9 @@ pypgo-sim-shell-dynamic  --config examples/sim_configs/shell_dynamic_ipc_drop.js
 
 CLI flags override JSON values (defaults < JSON < CLI), e.g. append
 `--num-steps 5 --output-dir /tmp/run` for a quick look.
+Without an output path in either place, a sim CLI writes to `./output` in
+the current working directory. The configs in this directory explicitly use
+`output/<case>/`, resolved relative to this directory.
 Every config is listed by `tests/pypgo/test_sim_cli_examples.py`; full
 end-to-end example runs are opt-in with `PYPGO_RUN_SIM_CLI_EXAMPLES=1`.
 
@@ -88,16 +91,17 @@ to run a subset or all of them in one command:
 # List all cases and jobs without running anything
 pypgo-sim-batch --config examples/sim_configs/batch.json --list
 
-# Run the "drops" job (all 9 dynamic IPC cases) and save output under /tmp/sim-batch
-pypgo-sim-batch --config examples/sim_configs/batch.json --job drops --output-root /tmp/sim-batch
+# Run the "drops" job; output defaults to ./output/<case_name>
+pypgo-sim-batch --config examples/sim_configs/batch.json --job drops
 
-# Run all 12 cases
+# Run all cases with an explicit output root
 pypgo-sim-batch --config examples/sim_configs/batch.json --output-root /tmp/sim-batch-all
 ```
 
-After a run with `--output-root`, each case writes its `summary.json` to
+Each case writes its `summary.json` to
 `<output-root>/<case_name>/` and an overall `batch_summary.json` is written to
-`<output-root>/`.
+`<output-root>/`. `<output-root>` defaults to `./output` in the directory where
+the batch CLI is launched.
 
 Jobs defined in `batch.json`:
 

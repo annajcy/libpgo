@@ -1,60 +1,76 @@
-# Dragon Static FEM Comparison on a Conservative R15 Domain
+# Dragon Static FEM Comparison with a Tet L2 Numerical Reference
 
-This report summarizes a static dragon deformation experiment comparing
-cubic-linear FEM and cubic-tricubic-Hermite FEM on a conservative cubic domain.
-A same-domain tet-linear solve is used as a numerical baseline.
+This report compares cubic-linear and cubic-tricubic-Hermite FEM on the same
+conservative R15 dragon domain under static gravity and a fixed surface patch.
+The finest available same-domain tet-linear discretization, `tet_L2`, is the
+designated numerical reference for all reference-relative accuracy metrics.
 
 The main question is:
 
-> On the same conservative cubic domain, does tricubic Hermite produce a more
-> accurate visible-surface static displacement than cubic-linear, including a
-> refined cubic-linear run with comparable DOFs?
+> Relative to the designated tet L2 numerical reference, how do tricubic
+> Hermite and successive cubic-linear refinements compare in visible-surface
+> displacement accuracy and global DOF count?
 
-The short answer is yes for this test: relative surface displacement error
-against the tet baseline drops from `13.67%` for the original cubic-linear mesh
-to `2.68%` for a 2x2x2-refined cubic-linear mesh, and to `0.77%` for tricubic
-Hermite. The refined cubic-linear run shows that most of the low-order error is
-removed by adding DOFs, but Hermite is still about `3.5x` lower in relative
-surface error at comparable DOF count.
+At comparable global DOF count, Hermite remains more accurate than
+`cubic_linear_x8`: their area-weighted surface discrepancies are `2.89%` and
+`5.16%`, respectively. The more highly refined `cubic_linear_x27` case is
+closer to tet L2 than Hermite (`1.98%` versus `2.89%`) while using `2.63x` as
+many DOFs. The new `cubic_linear_x64` case is closest among the cubic methods
+at `0.69%`, below tet L1's `1.29%` discrepancy while using fewer DOFs.
+
+Tet L2 is the reporting reference, not a mathematically certified continuous
+solution. The earlier L0 tet reference is retained below as `tet_L0` so that
+the effect of reference refinement remains explicit.
+
+## Run Provenance
+
+| item | canonical formulation matrix | tet-convergence matrix |
+|---|---|---|
+| run date | 2026-07-22 | 2026-07-22 to 2026-07-23 |
+| code commit | `916be0e8ae37e88f62c9532392fe85947a89eff4` | same |
+| platform | Linux server | same |
+| TBB concurrency limit | 12 | 21 |
+| MKL threading layer | TBB | TBB |
+| execution | fresh sequential `--force` run | fresh sequential tmux run |
+| output | `examples/outputs/tricubic_hermite_fem/dragon/static/` | `examples/outputs/tricubic_hermite_fem/dragon/tet_convergence/` |
+
+The canonical matrix supplies `cubic_linear`, `cubic_linear_x8`,
+`cubic_hermite`, and `cubic_linear_x27`. The convergence matrix supplies
+`tet_L0`, `tet_L0_tight`, `tet_L1`, `tet_L2`, and `cubic_linear_x64`.
+Reference-relative displacement comparisons remain valid because the geometry,
+physics, evaluation surface, code commit, and stopping rule are controlled.
+Wall times must not be compared across the 12-thread and 21-thread matrices.
+
+The decision to designate L2 as the reporting reference was made after the tet
+convergence run. Results against L2 are therefore descriptive numerical
+comparisons rather than a confirmatory error certification.
 
 ## Experimental Design
 
 ### Cases
 
-| case | mesh | formulation | role |
-|---|---|---|---|
-| `tet_ref` | same-domain tetrahedral mesh | tet-linear | numerical baseline |
-| `cubic_linear` | conservative r15 cubic mesh | cubic-linear | low-order cubic baseline |
-| `cubic_linear_x8` | same conservative r15 domain, each cube split 2x2x2 | cubic-linear | comparable-DOF low-order baseline |
-| `cubic_hermite` | conservative r15 cubic mesh | cubic-tricubic-Hermite | high-order method under test |
+| case | mesh/formulation | DOFs | role |
+|---|---|---:|---|
+| `tet_ref` (`tet_L2`) | independently remeshed tet-linear L2 | 2,522,595 | designated numerical reference |
+| `tet_L1` | independently remeshed tet-linear L1 | 1,236,597 | tet convergence point |
+| `tet_L0` | original canonical tet-linear reference mesh | 631,650 | earlier numerical reference |
+| `tet_L0_tight` | same L0 mesh, `1e-6` gradient tolerance | 631,650 | solver-tolerance control |
+| `cubic_linear` | original R15 cubic mesh, cubic-linear | 15,768 | low-order baseline |
+| `cubic_linear_x8` | each base cube split `2x2x2` | 105,027 | comparable-DOF linear baseline |
+| `cubic_hermite` | original R15 cubic mesh, tricubic Hermite | 126,144 | high-order method under test |
+| `cubic_linear_x27` | each base cube split `3x3x3` | 331,710 | over-resolved linear point |
+| `cubic_linear_x64` | each base cube split `4x4x4` | 759,771 | independent linear convergence point |
 
-The original cubic-linear and Hermite cases use exactly the same volumetric
-mesh:
+The tet hierarchy has the following realized sizes:
 
-```text
-examples/experiments/tricubic_hermite_fem/assets/veg/cubic/dragon-conservative-r15.veg
-```
+| level | tet vertices | tetrahedra | DOFs | DOFs / Hermite |
+|---|---:|---:|---:|---:|
+| L0 | 210,550 | 1,162,507 | 631,650 | 5.01x |
+| L1 | 412,199 | 2,329,584 | 1,236,597 | 9.80x |
+| L2 | 840,865 | 4,847,517 | 2,522,595 | 20.00x |
 
-The refined cubic-linear case subdivides each conservative r15 cube into
-`2x2x2` smaller cubes without changing the domain:
-
-```text
-examples/experiments/tricubic_hermite_fem/assets/veg/cubic/dragon-conservative-r15-subdiv2.veg
-```
-
-This archived report used a tetrahedral mesh generated from the same extracted
-conservative cubic boundary:
-
-```text
-examples/experiments/tricubic_hermite_fem/assets/veg/tet/dragon-conservative-r15-tet-a2.5e-7.veg
-```
-
-It is a high-resolution, same-domain numerical baseline for measuring whether
-the cubic formulations are moving toward the same static solution. The current
-local pipeline uses x5 tet references by default; rerunning the case today with
-`run_static.py --study dragon` will use
-`dragon-conservative-r15-tet-a1.45885e-7.veg`, not the archived `a2.5e-7`
-baseline reported below.
+L1 and L2 are independent TetGen remeshes of the same polyhedral domain; they
+are not nested refinements of L0.
 
 ### Geometry and Boundary Data
 
@@ -62,295 +78,274 @@ baseline reported below.
 |---|---|
 | original surface | `examples/experiments/tricubic_hermite_fem/assets/obj/dragon.obj` |
 | attached surface patch | `examples/experiments/tricubic_hermite_fem/assets/fixed/dragon-surface-fixed.txt` |
-| cubic volume mesh | `examples/experiments/tricubic_hermite_fem/assets/veg/cubic/dragon-conservative-r15.veg` |
-| cubic boundary surface | `examples/experiments/tricubic_hermite_fem/assets/obj/dragon-conservative-r15-surface.obj` |
-| tet baseline mesh | `examples/experiments/tricubic_hermite_fem/assets/veg/tet/dragon-conservative-r15-tet-a1.45885e-7.veg` |
+| base cubic volume mesh | `examples/experiments/tricubic_hermite_fem/assets/veg/cubic/dragon-conservative-r15.veg` |
+| common-domain boundary | `examples/experiments/tricubic_hermite_fem/assets/obj/dragon-conservative-r15-surface.obj` |
+| x8 cubic-linear mesh | `examples/experiments/tricubic_hermite_fem/assets/veg/cubic/dragon-conservative-r15-subdiv2.veg` |
+| x27 cubic-linear mesh | `examples/experiments/tricubic_hermite_fem/assets/veg/cubic/dragon-conservative-r15-subdiv3.veg` |
+| original tet L0 mesh | `examples/experiments/tricubic_hermite_fem/assets/veg/tet/dragon-conservative-r15-tet-a1.45885e-7.veg` |
+| designated tet L2 reference | `examples/outputs/tricubic_hermite_fem/dragon/tet_convergence/meshes/dragon-conservative-r15-tet_L2-a3.48853e-8.veg` |
+| x64 cubic-linear mesh | `examples/outputs/tricubic_hermite_fem/dragon/tet_convergence/meshes/dragon-conservative-r15-subdiv4.veg` |
 
-The conservative cubic mesh encloses the original dragon surface. Its volume is
-larger than the original surface volume:
-
-| case | volume ratio |
-|---|---:|
-| `tet_ref` | `1.7338170739141918` |
-| `cubic_linear` | `1.7338170739141912` |
-| `cubic_linear_x8` | `1.7338170739149301` |
-| `cubic_hermite` | `1.7338170739141912` |
+All volume meshes represent the same conservative domain. Its volume is
+approximately `1.733817x` the enclosed volume of the original dragon surface.
 
 ### Mesh Generation
 
-The `r15` tag is the cubic mesher resolution parameter: the dragon bounding box
-is voxelized on a regular cubic grid whose longest-axis resolution is 15 cells.
-The retained connected component of that voxelization becomes the cubic
-volumetric mesh. For tricubic Hermite, each cubic mesh vertex contributes 24
-global DOFs; for cubic-linear, each vertex contributes 3 global DOFs.
-
-The conservative r15 cubic mesh and its boundary OBJ are generated by:
+The conservative cubic mesh and common-domain boundary are generated at cubic
+mesher resolution 15:
 
 ```bash
 conda run -n libpgo python examples/experiments/tricubic_hermite_fem/mesh/generate_cubic_mesh.py \
   --study dragon --resolution 15
 ```
 
-That script performs the cubic asset pipeline:
-
-1. Load the original triangle surface `examples/experiments/tricubic_hermite_fem/assets/obj/dragon.obj`.
-2. Run `pypgo.mesh.cubic_mesher(..., resolution=15, occupancy="conservative")`.
-   Conservative occupancy keeps every cube needed to enclose the surface.
-3. Run `pypgo.mesh.filter_mesh_components(..., keep_largest=1)` to remove
-   disconnected voxel components.
-4. Write the cubic VEG mesh as
-   `examples/experiments/tricubic_hermite_fem/assets/veg/cubic/dragon-conservative-r15.veg`.
-5. Extract the boundary surface of that cubic domain and write
-   `examples/experiments/tricubic_hermite_fem/assets/obj/dragon-conservative-r15-surface.obj`.
-6. Write the generated assets under
-   `examples/experiments/tricubic_hermite_fem/assets/`.
-
-The tet reference is tuned separately from that generated boundary and cubic
-domain:
+The convergence utility reads the original L0 selection, tunes independent L1
+and L2 TetGen meshes to approximately `2x` and `4x` its actual DOF count, and
+generates the factor-four cubic subdivision:
 
 ```bash
-conda run -n libpgo python examples/experiments/tricubic_hermite_fem/mesh/tune_tet_reference.py \
-  --study dragon --target-ratio 5
+MKL_THREADING_LAYER=TBB conda run -n libpgo python -u \
+  examples/experiments/tricubic_hermite_fem/tet_convergence/generate_meshes.py \
+  --study dragon
 ```
 
-That script tetrahedralizes the extracted boundary with TetGen, checks that the
-tet mesh has positive tetrahedra, and checks that its volume matches the cubic
-domain within the script tolerance.
-
-This is why the tet baseline and cubic cases have the same volume ratio. The
-tet mesh is generated from the cubic domain boundary, not directly from the
-original dragon surface.
-
-The comparable-DOF cubic-linear mesh was generated by splitting each cube in the
-conservative r15 domain into eight smaller cubes:
-
-```bash
-conda run -n libpgo python examples/experiments/tricubic_hermite_fem/mesh/subdivide_cubic_mesh.py \
-  --input examples/experiments/tricubic_hermite_fem/assets/veg/cubic/dragon-conservative-r15.veg \
-  --output examples/experiments/tricubic_hermite_fem/assets/veg/cubic/dragon-conservative-r15-subdiv2.veg
-```
-
-This preserves the cubic domain and volume while increasing cubic-linear DOFs
-from `15,768` to `105,027`, close to the Hermite case's `126,144` DOFs.
+Tet L2 uses TetGen command `pq1.414a3.488528385435315e-08`. Its volume ratio
+agrees with the other same-domain cases to the reported precision.
 
 ## Solver Settings
 
-All cases use the same static setup:
-
 | setting | value |
 |---|---:|
-| elastic material | Stable Neo-Hookean |
+| elastic material | Stable Neo-Hookean, `E=1e6`, `nu=0.45` |
 | gravity | `(0, -9.81, 0)` |
 | surface attachment coefficient | `1e5` |
-| attached surface vertices | `289` |
-| max Newton iterations | `300` |
-| gradient tolerance | `1e-5` |
+| attached original-surface vertices | 289 |
+| max Newton iterations | 300 |
+| standard gradient tolerance | `1e-5` |
+| L0-tight gradient tolerance | `1e-6` |
+| pin residual acceptance limit | `1.5e-3` |
 
-The surface attachment is defined on the original dragon surface through the
-formulation-specific surface embedding. This keeps the external constraint
-surface consistent across tet, cubic-linear, and tricubic-Hermite cases.
-
-For static solves, the scene builder skips mass matrix construction and
-assembles gravity directly as a body-force linear energy. This is mathematically
-equivalent for the static objective and avoids allocating the Hermite mass
-matrix, which is only needed for dynamic time integration.
+The attachment is the same embedded original-surface patch in every
+formulation. Accuracy metrics exclude the attached vertices.
 
 ## Metrics
 
-All displacement errors are computed on the original dragon surface mesh. Let
-$u_{ref}$ be the tet baseline surface displacement and $u_{case}$ be the case
-surface displacement.
+Let `u_ref` be the designated tet L2 displacement and `u_case` another case's
+displacement, both evaluated at the identical original-surface vertices.
 
-| metric | definition |
+| metric | meaning |
 |---|---|
-| `free_surface_rel_l2` | $\|u_{case} - u_{ref}\|_2 / \|u_{ref}\|_2$ over non-attached surface vertices |
-| `free_surface_y_rel_l2` | same relative L2 metric, using only the y displacement component |
-| `free_surface_error_mean` | mean pointwise Euclidean displacement error over non-attached vertices |
-| `free_surface_error_p95` | 95th percentile pointwise Euclidean displacement error |
-| `free_surface_error_max` | max pointwise Euclidean displacement error |
-| `surface_displacement_rms` | $\sqrt{\frac{1}{\|F\|}\sum_{i \in F}\|u_{case,i}\|_2^2}$, where $F$ is the non-attached surface vertex set |
-| `pin_residual_max` | max displacement magnitude on attached surface vertices |
+| `area_rel_l2_to_L2` | lumped-area-weighted relative displacement L2 on non-attached vertices; primary metric |
+| `vertex_rel_l2_to_L2` | unweighted vertex relative displacement L2 on non-attached vertices |
+| point error mean/p95/max | distribution of Euclidean displacement differences from L2 |
+| `surface_displacement_rms` | deformation-scale diagnostic, not an error metric |
+| `pin_residual_max` | maximum displacement magnitude on attached vertices |
 
-Reported process peak memory is parsed from memory checkpoints in available run
-logs. Older tet and original cubic-linear runs were completed before the memory
-telemetry was added, so their peak memory is not reported here.
+The area-weighted metric is primary because it approximates a surface integral
+and reduces sensitivity to nonuniform vertex sampling.
 
 ## Results
 
-For a fresh current run, summary tables are generated by:
-
-```bash
-conda run -n libpgo python examples/experiments/tricubic_hermite_fem/summarize.py \
-  --study dragon --mode static
-```
-
-Archived machine-readable outputs for the table below:
-
-```text
-examples/outputs/dragon-static-compare-conservative-r15/comparison_with_hermite_p0p1.json
-examples/outputs/dragon-static-compare-conservative-r15/comparison_with_hermite_p0p1.csv
-examples/outputs/dragon-static-compare-conservative-r15/comparison_with_hermite_p0p1.md
-```
-
 ### Solve Summary
 
-| case | formulation | DOFs | converged | iterations | final grad max | wall time |
-|---|---|---:|---|---:|---:|---:|
-| `tet_ref` | tet-linear | 631,650 | yes | 31 | `9.978e-06` | 451.8 s |
-| `cubic_linear` | cubic-linear | 15,768 | yes | 32 | `7.858e-06` | 12.1 s |
-| `cubic_linear_x8` | cubic-linear | 105,027 | yes | 32 | `8.277e-06` | 45.0 s |
-| `cubic_hermite` | cubic-tricubic-Hermite | 126,144 | yes | 32 | `7.342e-06` | 242.7 s |
+| case | formulation | DOFs | converged | iterations | final grad max | wall time | threads |
+|---|---|---:|---|---:|---:|---:|---:|
+| `cubic_linear` | cubic-linear | 15,768 | yes | 32 | `7.858e-06` | 2.910 s | 12 |
+| `cubic_linear_x8` | cubic-linear | 105,027 | yes | 32 | `8.277e-06` | 24.799 s | 12 |
+| `cubic_hermite` | cubic-tricubic-Hermite | 126,144 | yes | 32 | `7.342e-06` | 134.457 s | 12 |
+| `cubic_linear_x27` | cubic-linear | 331,710 | yes | 31 | `9.406e-06` | 108.967 s | 12 |
+| `tet_L0` | tet-linear | 631,650 | yes | 31 | `9.978e-06` | 230.689 s | 21 |
+| `tet_L0_tight` | tet-linear | 631,650 | yes | 38 | `9.938e-07` | 270.703 s | 21 |
+| `cubic_linear_x64` | cubic-linear | 759,771 | yes | 31 | `9.005e-06` | 298.347 s | 21 |
+| `tet_L1` | tet-linear | 1,236,597 | yes | 31 | `9.973e-06` | 676.317 s | 21 |
+| `tet_ref` (`tet_L2`) | tet-linear | 2,522,595 | yes | 33 | `9.657e-06` | 2,827.785 s | 21 |
 
-### Surface Error Against Tet Baseline
+Every case reached its configured nonlinear solver tolerance. L2's final
+gradient is close to the `1e-5` threshold and L2 has not been repeated at
+`1e-6`; this is tracked as a limitation rather than hidden by the reference
+designation.
 
-| case | free rel L2 | y rel L2 | mean err | p95 err | max err | pin max |
+### Surface Discrepancy Against Tet L2
+
+| case | area rel L2 | vertex rel L2 | mean err | p95 err | max err | pin max |
 |---|---:|---:|---:|---:|---:|---:|
-| `tet_ref` | 0 | 0 | 0 | 0 | 0 | 0.000581 |
-| `cubic_linear` | 0.136651 | 0.131913 | 0.018073 | 0.026324 | 0.030321 | 0.000925 |
-| `cubic_linear_x8` | 0.026750 | 0.026261 | 0.003559 | 0.005223 | 0.006245 | 0.001002 |
-| `cubic_hermite` | 0.007684 | 0.003961 | 0.000986 | 0.001574 | 0.001738 | 0.000548 |
+| `tet_ref` (`tet_L2`) | 0 | 0 | 0 | 0 | 0 | 0.000362 |
+| `cubic_linear_x64` | 0.006911 | 0.006872 | 0.000933 | 0.001385 | 0.001680 | 0.000421 |
+| `tet_L1` | 0.012945 | 0.012832 | 0.001757 | 0.002473 | 0.002881 | 0.000459 |
+| `cubic_linear_x27` | 0.019769 | 0.019584 | 0.002685 | 0.003801 | 0.004445 | 0.000640 |
+| `tet_L0` | 0.026138 | 0.025876 | 0.003528 | 0.005052 | 0.005448 | 0.000581 |
+| `cubic_hermite` | 0.028896 | 0.028634 | 0.003922 | 0.005519 | 0.006448 | 0.000548 |
+| `cubic_linear_x8` | 0.051618 | 0.051064 | 0.006970 | 0.009985 | 0.011546 | 0.001002 |
+| `cubic_linear` | 0.160020 | 0.158554 | 0.021528 | 0.031187 | 0.035684 | 0.000925 |
 
 ### Displacement Scale
 
 | case | surface displacement RMS |
 |---|---:|
-| `tet_ref` | 0.138239 |
 | `cubic_linear` | 0.119944 |
 | `cubic_linear_x8` | 0.134916 |
 | `cubic_hermite` | 0.138067 |
-
-Surface displacement RMS is included only as a deformation-scale sanity check.
-It is not an error metric.
+| `tet_L0` | 0.138239 |
+| `cubic_linear_x27` | 0.139259 |
+| `tet_L1` | 0.140121 |
+| `cubic_linear_x64` | 0.141130 |
+| `tet_ref` (`tet_L2`) | 0.141808 |
 
 ## Analysis
 
-### Accuracy
+### Tet Reference Refinement
 
-Both added DOFs and the Hermite formulation improve accuracy on the original
-surface:
+The original tet L0 reference changes materially under refinement:
 
-| metric | cubic-linear | cubic-linear x8 | tricubic Hermite |
-|---|---:|---:|---:|
-| free-surface relative L2 | 13.67% | 2.68% | 0.77% |
-| y-only relative L2 | 13.19% | 2.63% | 0.40% |
-| p95 point error | 0.02632 | 0.00522 | 0.00157 |
-| max point error | 0.03032 | 0.00624 | 0.00174 |
+- L0-to-L2 area-weighted surface discrepancy is `2.61%`;
+- surface RMS increases from `0.138239` at L0 to `0.140121` at L1 and
+  `0.141808` at L2;
+- the RMS increments are `1.36%` from L0 to L1 and `1.20%` from L1 to L2.
 
-The refined cubic-linear case removes most of the original cubic-linear error,
-dropping free-surface relative L2 from `13.67%` to `2.68%`. Hermite still lowers
-that error further to `0.77%`, about `3.5x` lower than the comparable-DOF
-cubic-linear run.
+The L0-tight displacement change is only `0.074%` of the L1-to-L2 update, so
+the observed refinement trend is not explained by the standard nonlinear
+solver tolerance.
 
-The visible deformation scale is also consistent with the tet baseline:
+The pre-registered tet-sequence checks are mixed. The correction direction
+passes (`0.903>0.9`), but the contraction ratio is `rho=0.935`, above the
+required `0.8`. Thus L2 is suitable as the designated finite-resolution
+reporting reference, but the available sequence does not certify it as the
+continuous limit or support a reliable unresolved-tail interval.
 
-- tet baseline surface RMS: `0.138239`;
-- Hermite surface RMS: `0.138067`;
-- cubic-linear x8 surface RMS: `0.134916`;
-- cubic-linear surface RMS: `0.119944`.
+### Accuracy at Comparable DOF Count
 
-This indicates that cubic-linear is systematically under-deforming this r15
-conservative dragon under gravity. Refinement corrects most of that scale
-error, and Hermite remains closest to the tet baseline in the surface error
-metrics.
+Hermite and x8 have similar global DOF counts (`126,144` versus `105,027`).
+Relative to tet L2:
+
+- Hermite area-weighted discrepancy is `2.89%`, versus `5.16%` for x8;
+- x8's discrepancy is `1.79x` Hermite's;
+- Hermite p95 point error is `0.005519`, versus `0.009985` for x8;
+- Hermite has `1.20x` as many DOFs as x8.
+
+This retains evidence for a Hermite accuracy-per-global-DOF advantage over the
+comparable-DOF x8 linear baseline. The effect is smaller than the `3.48x` error
+ratio obtained when the under-resolved L0 tet was used as the reference.
+
+### Hermite Versus x27
+
+Relative to tet L2, x27 reverses the earlier L0-reference ordering:
+
+- x27 area-weighted discrepancy is `1.98%`, versus `2.89%` for Hermite;
+- x27 is `31.6%` lower in this reference-relative metric;
+- x27 uses `2.63x` as many global DOFs as Hermite;
+- in the original 12-thread matrix, x27 took `108.967 s` and Hermite took
+  `134.457 s`.
+
+The report therefore no longer supports a claim that Hermite is more accurate
+than x27 with respect to the designated reference. It supports a tradeoff:
+Hermite is much smaller in global DOF count, while x27 is closer to tet L2 and
+faster in this implementation.
+
+### x64 and Tet L1
+
+The independent low-order x64 point is closer to L2 than tet L1:
+
+- area-weighted discrepancies are `0.691%` for x64 and `1.294%` for tet L1;
+- x64 uses `61.4%` of tet L1's global DOFs;
+- both convergence cases used 21 threads, with wall times of `298.347 s` and
+  `676.317 s`, respectively.
+
+The cubic refinement corrections from x8 to x27 and x27 to x64 have direction
+cosine `0.980`, providing a coherent low-order refinement trend toward the L2
+reference.
 
 ### Constraint Behavior
 
-The attached-patch residuals are all below the configured `1e-3` acceptance
-threshold:
+All pin residuals are at or below `0.001002`, below the configured `1.5e-3`
+acceptance limit. Constraint residual does not explain the accuracy ordering.
 
-- tet baseline: `0.000581`;
-- cubic-linear: `0.000925`;
-- cubic-linear x8: `0.001002`;
-- Hermite: `0.000548`.
-
-Hermite has the smallest pin residual in this run. The refined cubic-linear
-case is slightly above the nominal `1e-3` threshold by `2.3e-6`, which is small
-relative to the displacement scale but should be noted when interpreting its
-surface error.
-
-### Cost
-
-Hermite is far more expensive than the original cubic-linear case and still
-more expensive than the comparable-DOF cubic-linear refinement:
+### Cost and Comparability
 
 | comparison | value |
 |---|---:|
-| Hermite DOF multiplier vs cubic-linear | 8.0x |
-| cubic-linear x8 DOF multiplier vs cubic-linear | 6.7x |
-| Hermite DOF multiplier vs cubic-linear x8 | 1.2x |
-| Hermite wall-time multiplier vs cubic-linear | 20.0x |
-| Hermite wall-time multiplier vs cubic-linear x8 | 5.4x |
-| Hermite wall time | 242.7 s |
-| cubic-linear x8 wall time | 45.0 s |
+| Hermite DOFs / x8 DOFs | 1.20x |
+| x8 discrepancy / Hermite discrepancy | 1.79x |
+| x27 DOFs / Hermite DOFs | 2.63x |
+| Hermite discrepancy / x27 discrepancy | 1.46x |
+| x64 DOFs / Hermite DOFs | 6.02x |
+| Hermite discrepancy / x64 discrepancy | 4.18x |
+| tet L2 DOFs / Hermite DOFs | 20.00x |
 
-The wall-time multiplier is much larger than the DOF multiplier because Hermite
-has a much denser Hessian structure. Each cubic Hermite element couples many
-more local modes than cubic-linear, so sparse factorization cost grows faster
-than the global DOF count alone suggests.
-
-The tet baseline has 5.01x the Hermite DOFs (631,650 vs 126,144) and takes
-451.8 s. In this experiment, Hermite gives a surface solution close to the tet
-baseline at lower wall time than the tet baseline, but still with a large
-factorization cost compared with either cubic-linear case.
-
-### Memory Notes
-
-Per-case memory was not isolated in this run due to process-level RSS
-measurement contamination across consecutive solves. Memory checkpoints at
-each Newton iteration are available in the run log for the Hermite case but
-are not reported as per-case allocations.
+Timing comparisons are valid within the canonical 12-thread matrix or within
+the convergence 21-thread matrix, not across those two matrices.
 
 ## Conclusions
 
-For the static dragon case on the conservative r15 cubic mesh:
+For this static dragon case:
 
-1. Tricubic Hermite is substantially more accurate than cubic-linear on the
-   visible surface when compared against the same-domain tet-linear baseline.
-2. A same-domain 2x2x2 cubic-linear refinement removes most of the low-order
-   error, dropping relative surface error from `13.67%` to `2.68%`.
-3. Hermite remains more accurate than the comparable-DOF refined cubic-linear
-   case, dropping relative surface error further to `0.77%`.
-4. The cost is high but now computationally feasible: the run converges in 32
-   Newton iterations.
-5. The tet baseline should be described as a numerical baseline, not ground
-   truth. The experiment supports "Hermite is closer to this tet baseline than
-   both the original and comparable-DOF cubic-linear runs," not a universal
-   convergence claim.
+1. All original formulation cases and all five convergence-study cases reach
+   their configured nonlinear solver tolerances. The L0-tight control shows
+   that standard solver tolerance is not the primary cause of the observed
+   L0-to-L2 refinement trend.
+2. Tet L2 is adopted as the designated numerical reference for this report.
+   The original tet L0 is not spatially converged relative to that reference:
+   its area-weighted surface discrepancy is `2.61%`.
+3. At comparable global DOF count, Hermite remains closer to tet L2 than x8
+   (`2.89%` versus `5.16%`): x8's discrepancy is `1.79x` Hermite's while
+   Hermite uses `1.20x` as many DOFs.
+4. x27 is closer to tet L2 than Hermite (`1.98%` versus `2.89%`) but uses
+   `2.63x` as many global DOFs. The earlier claim that Hermite is more accurate
+   than x27 is therefore withdrawn for the L2-reference comparison.
+5. x64 is the closest cubic-linear case at `0.69%` and is closer to L2 than
+   tet L1's `1.29%` discrepancy while using fewer global DOFs.
+6. L2 is the finest available same-domain numerical reference, not a certified
+   continuous solution. The failed tet contraction criterion means that the
+   experiment does not establish an error bound between L2 and the continuous
+   limit.
+
+The supported formulation claim is therefore narrower than in the original
+L0-reference report: Hermite improves substantially over the base and
+comparable-DOF x8 cubic-linear discretizations, while x27 provides better
+L2-relative accuracy at substantially higher global DOF count.
 
 ## Limitations
 
-- Only one geometry, load case, material, and base cubic resolution are reported.
-- The conservative domain is much larger than the original dragon volume
-  (`1.733817x`). This avoids embedding extrapolation but changes the physical
-  domain relative to the original surface.
-- The tet baseline is high-resolution but not a certified converged solution.
-- Peak memory is not recorded for this run; memory telemetry was not enabled.
-- Wall times are from local runs and include implementation-specific sparse
-  solver behavior.
+- Only one dragon geometry, load case, material, and attachment patch are used.
+- The conservative domain is `1.733817x` the original surface volume.
+- L1 and L2 are independent TetGen remeshes rather than nested refinements.
+- Tet L2 has not been repeated at the tighter `1e-6` solver tolerance.
+- Tet L2 is the designated numerical reference, not certified ground truth.
+- The convergence study evaluates surface displacement norms and does not yet
+  include volume L2 or energy-norm error estimates.
+- The reference designation was selected after observing the convergence run;
+  L2-relative results are descriptive rather than confirmatory certification.
+- Canonical formulation timings used 12 threads, while convergence timings
+  used 21 threads; wall times cannot be compared across the two matrices.
+- Each wall time is a single observation without run-to-run dispersion.
 
 ## Reproduction
 
-The current output directory for this run:
+Generate the independent L1/L2 tet meshes and x64 cubic mesh:
+
+```bash
+MKL_THREADING_LAYER=TBB conda run -n libpgo python -u \
+  examples/experiments/tricubic_hermite_fem/tet_convergence/generate_meshes.py \
+  --study dragon
+```
+
+Run the convergence cases with the server configuration used here:
+
+```bash
+MKL_THREADING_LAYER=TBB conda run -n libpgo python -u \
+  examples/experiments/tricubic_hermite_fem/tet_convergence/run_static.py \
+  --study dragon --num-threads 21 --force
+```
+
+Regenerate the L2-relative convergence artifacts:
+
+```bash
+conda run -n libpgo python \
+  examples/experiments/tricubic_hermite_fem/tet_convergence/analyze.py \
+  --study dragon
+```
+
+The reference-relative machine-readable artifacts are written under:
 
 ```text
-examples/outputs/dragon-static-compare-conservative-r15-x5/
-```
-
-To rerun all cases:
-
-```bash
-conda run -n libpgo python -u \
-  examples/experiments/tricubic_hermite_fem/run_static.py \
-  --study dragon \
-  --output-root examples/outputs/dragon-static-compare-conservative-r15-x5 \
-  --force
-```
-
-To regenerate the summary tables:
-
-```bash
-conda run -n libpgo python examples/experiments/tricubic_hermite_fem/summarize.py \
-  --study dragon \
-  --mode static \
-  --output-root examples/outputs/dragon-static-compare-conservative-r15-x5
+examples/outputs/tricubic_hermite_fem/dragon/tet_convergence/
 ```

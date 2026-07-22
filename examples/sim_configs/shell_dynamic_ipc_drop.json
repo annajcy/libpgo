@@ -11,5 +11,5 @@
   ],
   "solver": { "max_iterations": 200, "gradient_tolerance": 0.0001 },
   "dynamic": { "timestep": 0.0005, "num_steps": 80 },
-  "output": { "directory": "../outputs/sim/shell-dynamic-ipc-drop", "write_surfaces": true, "dump_interval": 10 }
+  "output": { "directory": "output/shell-dynamic-ipc-drop", "write_surfaces": true, "dump_interval": 10 }
 }
