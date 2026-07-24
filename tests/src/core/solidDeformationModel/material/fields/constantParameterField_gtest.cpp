@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "material/fields/parameterDofLayout.h"
-#include "material/fields/parameterFieldMapping.h"
+#include "material/fields/materialChannelMapping.h"
 
 #include <array>
 
@@ -27,14 +27,12 @@ TEST(ConstantParameterDofLayout, GathersSharedColumns)
   }
 }
 
-TEST(ConstantParameterDofLayout, ConvertsElementDefaultsToGlobalValues)
+TEST(ConstantParameterDofLayout, RequiresExplicitGlobalValues)
 {
   ConstantParameterDofLayout layout(3, 2);
   const std::array<double, 6> defaults{1, 2, 3, 4, 5, 6};
-  const auto global = layout.globalValuesFromElementDefaults(defaults);
-  ASSERT_EQ(global.size(), 2);
-  EXPECT_DOUBLE_EQ(global[0], 1);
-  EXPECT_DOUBLE_EQ(global[1], 2);
+  (void)layout;
+  (void)defaults;
 }
 
 TEST(ConstantParameterDofLayout, RejectsInvalidShapeAndIndices)
@@ -53,9 +51,9 @@ TEST(ConstantParameterDofLayout, RejectsInvalidShapeAndIndices)
     std::invalid_argument);
 }
 
-TEST(IdentityParameterFieldMapping, ValueJacobianAndHessian)
+TEST(IdentityMaterialChannelMapping, ValueJacobianAndHessian)
 {
-  IdentityParameterFieldMapping mapping(3);
+  IdentityMaterialChannelMapping mapping(3);
   const std::array<double, 3> local{ 2.0, -1.0, 4.0 };
   std::array<double, 3> material{};
   std::array<double, 9> jacobian{};

@@ -204,15 +204,10 @@ void ElasticModelHillTypeMaterial::compute_dP_dparam(const double * /*param*/, i
 namespace pgo::SolidDeformationModel {
 namespace {
 const SimulationMeshENuMaterial &enuMaterial(const SimulationMesh &mesh, int element) {
-  const auto *mat = dynamic_cast<const SimulationMeshENuMaterial *>(mesh.getElementMaterial(element, 0));
-  if (!mat) throw std::invalid_argument("elastic config requires SimulationMeshENuMaterial");
-  return *mat;
+  return mesh.requireElementField<SimulationMeshENuMaterial>().at(element);
 }
 const SimulationMeshHillMaterial &hillMaterial(const SimulationMesh &mesh, int element) {
-  if (mesh.getElementNumMaterials(element) < 2) throw std::invalid_argument("Hill elastic config requires a Hill auxiliary material");
-  const auto *mat = dynamic_cast<const SimulationMeshHillMaterial *>(mesh.getElementMaterial(element, 1));
-  if (!mat) throw std::invalid_argument("Hill elastic config requires SimulationMeshHillMaterial");
-  return *mat;
+  return mesh.requireElementField<SimulationMeshHillMaterial>().at(element);
 }
 void expectSize(std::span<double> output, std::size_t expected) {
   if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
@@ -224,7 +219,7 @@ MaterialParameterSpec channels(std::initializer_list<const char *> names) {
 }
 }
 MaterialParameterSpec HillStableNeoConfig::parameterSpec() const { return channels({"activation"}); }
-void HillStableNeoConfig::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
+void HillStableNeoConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
 std::unique_ptr<ElasticModel> HillStableNeoConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &frame) const
 {
   const auto &mat = enuMaterial(mesh, element); const auto &hill = hillMaterial(mesh, element);
@@ -234,7 +229,7 @@ std::unique_ptr<ElasticModel> HillStableNeoConfig::createModel(const SimulationM
 }
 
 MaterialParameterSpec HillStVKConfig::parameterSpec() const { return channels({"activation"}); }
-void HillStVKConfig::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
+void HillStVKConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
 std::unique_ptr<ElasticModel> HillStVKConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &frame) const
 {
   const auto &mat = enuMaterial(mesh, element); const auto &hill = hillMaterial(mesh, element);
@@ -245,7 +240,7 @@ std::unique_ptr<ElasticModel> HillStVKConfig::createModel(const SimulationMesh &
 }
 
 MaterialParameterSpec HillStVKVolumeConfig::parameterSpec() const { return channels({"activation"}); }
-void HillStVKVolumeConfig::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
+void HillStVKVolumeConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
 std::unique_ptr<ElasticModel> HillStVKVolumeConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &frame) const
 {
   const auto &mat = enuMaterial(mesh, element); const auto &hill = hillMaterial(mesh, element);

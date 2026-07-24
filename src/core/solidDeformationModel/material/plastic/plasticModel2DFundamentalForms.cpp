@@ -16,7 +16,7 @@ MaterialParameterSpec channels(std::initializer_list<const char *> names) {
 }
 
 MaterialParameterSpec ShellPlasticity0Config::parameterSpec() const { return {}; }
-void ShellPlasticity0Config::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
+void ShellPlasticity0Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
 std::unique_ptr<PlasticModel> ShellPlasticity0Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
 {
   return std::make_unique<PlasticModel2DFundamentalForms>();

@@ -10,7 +10,7 @@ namespace
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-class SquareMapping final : public ParameterFieldMapping
+class SquareMapping final : public MaterialChannelMapping
 {
 public:
   explicit SquareMapping(std::array<double, 2> scales): scales_(scales) {}
@@ -64,7 +64,7 @@ TEST(ElementwiseParameterDofLayout, GathersPerElementColumns)
   EXPECT_EQ(layout.numValueRows(), 3);
 }
 
-TEST(NonlinearParameterFieldMapping, ValueJacobianHessiansAndFiniteDifference)
+TEST(NonlinearMaterialChannelMapping, ValueJacobianHessiansAndFiniteDifference)
 {
   SquareMapping mapping({ 2.0, -3.0 });
   std::array<double, 2> z{ 1.5, -0.7 };
@@ -123,28 +123,28 @@ TEST(MaterialParameterBlock, RejectsInvalidSchema)
     MaterialParameterBlock(
       { "same", "same" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 2),
-      std::make_shared<IdentityParameterFieldMapping>(2)),
+      std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
     MaterialParameterBlock(
       { "valid", "" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 2),
-      std::make_shared<IdentityParameterFieldMapping>(2)),
+      std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
     MaterialParameterBlock(
       { "first", "second" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 1),
-      std::make_shared<IdentityParameterFieldMapping>(2)),
+      std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
     MaterialParameterBlock(
       { "only_one_name" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 2),
-      std::make_shared<IdentityParameterFieldMapping>(2)),
+      std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 }
 
@@ -155,11 +155,11 @@ TEST(MaterialParameterSpace, RejectsMismatchedElementCounts)
       MaterialParameterBlock(
         std::vector<std::string>{},
         std::make_shared<ElementwiseParameterDofLayout>(2, 0),
-        std::make_shared<IdentityParameterFieldMapping>(0)),
+        std::make_shared<IdentityMaterialChannelMapping>(0)),
       MaterialParameterBlock(
         std::vector<std::string>{},
         std::make_shared<ElementwiseParameterDofLayout>(3, 0),
-        std::make_shared<IdentityParameterFieldMapping>(0))),
+        std::make_shared<IdentityMaterialChannelMapping>(0))),
     std::invalid_argument);
 }
 
@@ -172,7 +172,7 @@ TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
   MaterialParameterBlock plastic(
     { "stretch" },
     std::make_shared<ConstantParameterDofLayout>(2, 1),
-    std::make_shared<IdentityParameterFieldMapping>(1));
+    std::make_shared<IdentityMaterialChannelMapping>(1));
   auto space = std::make_shared<MaterialParameterSpace>(
     std::move(elastic), std::move(plastic));
 
@@ -200,11 +200,11 @@ TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
     MaterialParameterBlock(
       std::vector<std::string>{ "first", "thickness" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 2),
-      std::make_shared<IdentityParameterFieldMapping>(2)),
+    std::make_shared<IdentityMaterialChannelMapping>(2)),
     MaterialParameterBlock(
       std::vector<std::string>{ "stretch" },
       std::make_shared<ConstantParameterDofLayout>(2, 1),
-      std::make_shared<IdentityParameterFieldMapping>(1)));
+    std::make_shared<IdentityMaterialChannelMapping>(1)));
   EXPECT_THROW(
     thickness.value(
       0, 0,

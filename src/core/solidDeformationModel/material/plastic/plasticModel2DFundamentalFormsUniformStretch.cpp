@@ -154,7 +154,7 @@ MaterialParameterSpec channels(std::initializer_list<const char *> names) {
 }
 }
 MaterialParameterSpec ShellPlasticity1Config::parameterSpec() const { return channels({"stretch"}); }
-void ShellPlasticity1Config::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
+void ShellPlasticity1Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
 std::unique_ptr<PlasticModel> ShellPlasticity1Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
 {
   return std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();

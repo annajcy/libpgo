@@ -4,7 +4,7 @@
 
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
-#include "material/fields/materialParameterFactory.h"
+#include "material/fields/materialParameterBuilder.h"
 #include "../fem/elastic/core.h"
 #include "../fem/plastic/core.h"
 #include "energy/energySet.h"
@@ -39,12 +39,12 @@ private:
   Creator creator_;
 };
 
-class PyParameterFieldMapping
+class PyMaterialChannelMapping
 {
 public:
-  using Creator = std::function<std::shared_ptr<const pgo::SolidDeformationModel::ParameterFieldMapping>(int)>;
-  explicit PyParameterFieldMapping(Creator creator): creator_(std::move(creator)) {}
-  std::shared_ptr<const pgo::SolidDeformationModel::ParameterFieldMapping> create(int channels) const
+  using Creator = std::function<std::shared_ptr<const pgo::SolidDeformationModel::MaterialChannelMapping>(int)>;
+  explicit PyMaterialChannelMapping(Creator creator): creator_(std::move(creator)) {}
+  std::shared_ptr<const pgo::SolidDeformationModel::MaterialChannelMapping> create(int channels) const
   { return creator_(channels); }
 
 private:
@@ -84,7 +84,7 @@ public:
   {
     return *block_;
   }
-  int numChannels() const { return block().mapping().numChannels(); }
+  int numChannels() const { return block().channelMapping().numChannels(); }
   int numLocalDofs() const { return block().dofLayout().numLocalDofs(); }
   int numGlobalDofs() const { return block().dofLayout().numGlobalDofs(); }
   int numValueRows() const { return block().dofLayout().numValueRows(); }
@@ -290,16 +290,30 @@ std::shared_ptr<PyVertexAttachmentEnergy> createVertexAttachment(
 
 std::shared_ptr<PyEnergySet> createEnergySet(nb::list terms);
 
-std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
+std::shared_ptr<PyMaterialParameterSpace> createMaterialParameterSpace(
   std::shared_ptr<pgo::PySimulationMesh> meshCore,
   const pgo::PyElasticModelConfig &elasticModel,
-  nb::object elasticValues,
-  const pgo::PyPlasticModelConfig &plasticModel,
-  nb::object plasticValues,
   const PyParameterDofLayout &elasticLayout,
-  const PyParameterFieldMapping &elasticMapping,
+  const PyMaterialChannelMapping &elasticMapping,
+  const pgo::PyPlasticModelConfig &plasticModel,
   const PyParameterDofLayout &plasticLayout,
-  const PyParameterFieldMapping &plasticMapping,
+  const PyMaterialChannelMapping &plasticMapping);
+
+std::shared_ptr<PyMaterialParameters> createDefaultMaterialParameters(
+  std::shared_ptr<pgo::PySimulationMesh> meshCore,
+  const pgo::PyElasticModelConfig &elasticModel,
+  const pgo::PyPlasticModelConfig &plasticModel);
+
+std::shared_ptr<PyMaterialParameters> createMaterialParameters(
+  std::shared_ptr<PyMaterialParameterSpace> space,
+  nb::ndarray<nb::numpy, const double> elasticValues,
+  nb::ndarray<nb::numpy, const double> plasticValues);
+
+std::shared_ptr<PyDeformationEnergy> createDeformationEnergyWithParameters(
+  std::shared_ptr<pgo::PySimulationMesh> meshCore,
+  const pgo::PyElasticModelConfig &elasticModel,
+  const pgo::PyPlasticModelConfig &plasticModel,
+  const PyMaterialParameters &materialParameters,
   const pgo::PyFormulation &formulation,
   nb::object elementWeights,
   bool enforceSPD,
@@ -307,7 +321,7 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
 
 std::shared_ptr<PyParameterDofLayout> makeElementwiseParameterDofLayout();
 std::shared_ptr<PyParameterDofLayout> makeConstantParameterDofLayout();
-std::shared_ptr<PyParameterFieldMapping> makeIdentityParameterFieldMapping();
+std::shared_ptr<PyMaterialChannelMapping> makeIdentityMaterialChannelMapping();
 
 std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(
   std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,

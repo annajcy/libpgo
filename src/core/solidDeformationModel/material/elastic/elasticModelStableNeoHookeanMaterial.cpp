@@ -255,9 +255,7 @@ void ElasticModelStableNeoHookeanMaterial::setMaterial(double mu_, double lambda
 namespace pgo::SolidDeformationModel {
 namespace {
 const SimulationMeshENuMaterial &enuMaterial(const SimulationMesh &mesh, int element) {
-  const auto *mat = dynamic_cast<const SimulationMeshENuMaterial *>(mesh.getElementMaterial(element, 0));
-  if (!mat) throw std::invalid_argument("elastic config requires SimulationMeshENuMaterial");
-  return *mat;
+  return mesh.requireElementField<SimulationMeshENuMaterial>().at(element);
 }
 void expectSize(std::span<double> output, std::size_t expected) {
   if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
@@ -269,7 +267,7 @@ MaterialParameterSpec numberedChannels(int count) {
 }
 }
 MaterialParameterSpec StableNeoConfig::parameterSpec() const { return numberedChannels(0); }
-void StableNeoConfig::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
+void StableNeoConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
 std::unique_ptr<ElasticModel> StableNeoConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &) const
 {
   const auto &mat = enuMaterial(mesh, element);

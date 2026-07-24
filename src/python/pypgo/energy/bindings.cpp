@@ -65,7 +65,7 @@ void init_energy_bindings(nb::module_ &m)
     .def("d2E_dudp", &PyDeformationEnergy::d2E_dudp, nb::arg("displacement"));
 
   nb::class_<PyParameterDofLayout>(m, "PyParameterDofLayout");
-  nb::class_<PyParameterFieldMapping>(m, "PyParameterFieldMapping");
+  nb::class_<PyMaterialChannelMapping>(m, "PyMaterialChannelMapping");
 
   nb::class_<PyMaterialParameterRef>(m, "PyMaterialParameterRef")
     .def_prop_ro("name", &PyMaterialParameterRef::name)
@@ -99,23 +99,21 @@ void init_energy_bindings(nb::module_ &m)
     &makeElementwiseParameterDofLayout);
   m.def("_make_constant_parameter_dof_layout",
     &makeConstantParameterDofLayout);
-  m.def("_make_identity_parameter_field_mapping",
-    &makeIdentityParameterFieldMapping);
+  m.def("_make_identity_material_channel_mapping",
+    &makeIdentityMaterialChannelMapping);
 
-  // Unified deformation energy factory (public API entry point).
-  m.def("_create_deformation_energy", &createDeformationEnergy,
-    nb::arg("mesh_core"),
-    nb::arg("elastic_model"),
-    nb::arg("elastic_values").none(),
-    nb::arg("plastic_model"),
-    nb::arg("plastic_values").none(),
-    nb::arg("elastic_layout"),
-    nb::arg("elastic_mapping"),
-    nb::arg("plastic_layout"),
-    nb::arg("plastic_mapping"),
-    nb::arg("formulation"),
-    nb::arg("element_weights").none() = nb::none(),
-    nb::arg("enforce_spd") = true,
+  m.def("_create_material_parameter_space", &createMaterialParameterSpace,
+    nb::arg("mesh_core"), nb::arg("elastic_model"), nb::arg("elastic_layout"),
+    nb::arg("elastic_mapping"), nb::arg("plastic_model"), nb::arg("plastic_layout"),
+    nb::arg("plastic_mapping"));
+  m.def("_create_default_material_parameters", &createDefaultMaterialParameters,
+    nb::arg("mesh_core"), nb::arg("elastic_model"), nb::arg("plastic_model"));
+  m.def("_create_material_parameters", &createMaterialParameters,
+    nb::arg("space"), nb::arg("elastic_values"), nb::arg("plastic_values"));
+  m.def("_create_deformation_energy_with_parameters", &createDeformationEnergyWithParameters,
+    nb::arg("mesh_core"), nb::arg("elastic_model"), nb::arg("plastic_model"),
+    nb::arg("material_parameters"), nb::arg("formulation"),
+    nb::arg("element_weights").none() = nb::none(), nb::arg("enforce_spd") = true,
     nb::arg("enable_material_max_step") = true);
 
   m.def("_create_plastic_material_energy", &createPlasticMaterialEnergy,

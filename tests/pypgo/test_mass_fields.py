@@ -181,14 +181,24 @@ def _shell_energy(sim, triangles):
     base_row = np.array([2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3], dtype=np.float64)
     elastic = np.tile(base_row, (triangles.shape[0], 1))
     plastic = np.ones((triangles.shape[0], 1), dtype=np.float64)
+    elastic_config = pf.KoiterStVK()
+    plastic_config = pf.ShellPlasticity(dofs=1)
+    space = pf.MaterialParameterSpace(
+        sim,
+        elastic=elastic_config,
+        plastic=plastic_config,
+        elastic_field=pf.ParameterFieldDefinition(
+            pf.ElementwiseDofLayout(), pf.IdentityMaterialChannelMapping()),
+        plastic_field=pf.ParameterFieldDefinition(
+            pf.ElementwiseDofLayout(), pf.IdentityMaterialChannelMapping()),
+    )
+    parameters = pf.MaterialParameters(
+        space, elastic_values=elastic, plastic_values=plastic)
     return pf.deformation_energy(
         sim,
-        elastic=pf.KoiterStVK(),
-        elastic_layout=pf.ElementwiseDofLayout(),
-        elastic_values=elastic,
-        plastic=pf.ShellPlasticity(dofs=1),
-        plastic_layout=pf.ElementwiseDofLayout(),
-        plastic_values=plastic,
+        elastic=elastic_config,
+        plastic=plastic_config,
+        material_parameters=parameters,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
     )

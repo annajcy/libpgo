@@ -7,10 +7,10 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-class ParameterFieldMapping
+class MaterialChannelMapping
 {
 public:
-  virtual ~ParameterFieldMapping() = default;
+  virtual ~MaterialChannelMapping() = default;
 
   virtual int numInputDofs() const = 0;
   virtual int numChannels() const = 0;
@@ -35,10 +35,10 @@ public:
     double *output) const = 0;
 };
 
-class IdentityParameterFieldMapping final : public ParameterFieldMapping
+class IdentityMaterialChannelMapping final : public MaterialChannelMapping
 {
 public:
-  explicit IdentityParameterFieldMapping(int numChannels);
+  explicit IdentityMaterialChannelMapping(int numChannels);
 
   int numInputDofs() const override { return numChannels_; }
   int numChannels() const override { return numChannels_; }

@@ -24,8 +24,6 @@ public:
     int element,
     std::span<const double> globalValues,
     std::span<double> localDofValues) const = 0;
-  virtual EigenSupport::VXd globalValuesFromElementDefaults(
-    std::span<const double> elementValues) const = 0;
 };
 
 class ConstantParameterDofLayout final : public ParameterDofLayout
@@ -43,8 +41,6 @@ public:
     int element,
     std::span<const double> globalValues,
     std::span<double> localDofValues) const override;
-  EigenSupport::VXd globalValuesFromElementDefaults(
-    std::span<const double> elementValues) const override;
 
 private:
   int numElements_ = 0;
@@ -66,8 +62,6 @@ public:
     int element,
     std::span<const double> globalValues,
     std::span<double> localDofValues) const override;
-  EigenSupport::VXd globalValuesFromElementDefaults(
-    std::span<const double> elementValues) const override;
 
 private:
   int numElements_ = 0;

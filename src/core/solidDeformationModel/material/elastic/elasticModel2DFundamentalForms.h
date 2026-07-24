@@ -190,7 +190,7 @@ public:
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_dbbar2 is not implemented");
   }
 
-  int getNumParameters() const override { return 0; };
+  int getNumParameters() const override = 0;
 };
 
 }  // namespace SolidDeformationModel

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "parameterDofLayout.h"
-#include "parameterFieldMapping.h"
+#include "materialChannelMapping.h"
 #include "EigenSupport.h"
 
 #include <memory>
@@ -30,12 +30,12 @@ public:
   MaterialParameterBlock(
     std::vector<std::string> channelNames,
     std::shared_ptr<const ParameterDofLayout> dofLayout,
-    std::shared_ptr<const ParameterFieldMapping> mapping);
+    std::shared_ptr<const MaterialChannelMapping> mapping);
 
   std::span<const std::string> channelNames() const { return channelNames_; }
 
   const ParameterDofLayout &dofLayout() const { return *dofLayout_; }
-  const ParameterFieldMapping &mapping() const { return *mapping_; }
+  const MaterialChannelMapping &channelMapping() const { return *mapping_; }
 
   MaterialParameterRef parameter(std::string_view name) const;
 
@@ -45,7 +45,7 @@ private:
 
   std::vector<std::string> channelNames_;
   std::shared_ptr<const ParameterDofLayout> dofLayout_;
-  std::shared_ptr<const ParameterFieldMapping> mapping_;
+  std::shared_ptr<const MaterialChannelMapping> mapping_;
   const MaterialParameterSpace *space_ = nullptr;
 };
 

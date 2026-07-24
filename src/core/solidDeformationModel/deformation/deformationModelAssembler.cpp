@@ -79,7 +79,7 @@ void fillLocalParamDerivative(
   double *derivOut)
 {
   const auto &layout = block.dofLayout();
-  const auto &mapping = block.mapping();
+  const auto &mapping = block.channelMapping();
   const int numChannels = mapping.numChannels();
   const int numLocalDofs = layout.numLocalDofs();
   if (numLocalDofs > 0) {
@@ -104,7 +104,7 @@ void fillElementParamValues(
   double *values)
 {
   const auto &layout = block.dofLayout();
-  const auto &mapping = block.mapping();
+  const auto &mapping = block.channelMapping();
   const int numChannels = mapping.numChannels();
   const int numLocalDofs = layout.numLocalDofs();
   if (numChannels == 0 || numMaterialLocations == 0) {
@@ -196,9 +196,9 @@ DeformationModelAssembler::DeformationModelAssembler(
   numPlasticParams_ = deformationModelManager->getDeformationModel(0)->getNumPlasticParameters();
   const auto &elasticBlock = materialParameterSpace_->elastic();
   const auto &plasticBlock = materialParameterSpace_->plastic();
-  if (elasticBlock.mapping().numChannels() != numElasticParams_)
+  if (elasticBlock.channelMapping().numChannels() != numElasticParams_)
     throw std::invalid_argument("DeformationModelAssembler elastic channel count does not match the material model.");
-  if (plasticBlock.mapping().numChannels() != numPlasticParams_)
+  if (plasticBlock.channelMapping().numChannels() != numPlasticParams_)
     throw std::invalid_argument("DeformationModelAssembler plastic channel count does not match the material model.");
   if (elasticBlock.dofLayout().numElements() != nele ||
     plasticBlock.dofLayout().numElements() != nele)
@@ -684,13 +684,13 @@ void DeformationModelAssembler::compute_d2E_dp2(
         scratch.paramDerivativeData.data());
       paramWork.noalias() = rawH * dParamDLocal;
       localH.noalias() += dParamDLocal.transpose() * paramWork;
-      if (!plasticBlock.mapping().isAffine()) {
+      if (!plasticBlock.channelMapping().isAffine()) {
         Eigen::Map<ES::VXd> rawGrad(
           scratch.rawParamGradient.data(), numPlasticParams_);
         rawGrad.setZero();
         prepared.model->compute_dE_dp(
           prepared.cache, rawGrad.data(), q);
-        plasticBlock.mapping().evaluateHessians(
+        plasticBlock.channelMapping().evaluateHessians(
           ele, q,
           std::span<const double>(
             scratch.localParamValues.data(), numPlasticLocalParams_),
@@ -817,13 +817,13 @@ void DeformationModelAssembler::compute_d2E_de2(
         scratch.paramDerivativeData.data());
       paramWork.noalias() = rawH * dParamDLocal;
       localH.noalias() += dParamDLocal.transpose() * paramWork;
-      if (!elasticBlock.mapping().isAffine()) {
+      if (!elasticBlock.channelMapping().isAffine()) {
         Eigen::Map<ES::VXd> rawGrad(
           scratch.rawParamGradient.data(), numElasticParams_);
         rawGrad.setZero();
         prepared.model->compute_dE_de(
           prepared.cache, rawGrad.data(), q);
-        elasticBlock.mapping().evaluateHessians(
+        elasticBlock.channelMapping().evaluateHessians(
           ele, q,
           std::span<const double>(
             scratch.localParamValues.data(), numElasticLocalParams_),

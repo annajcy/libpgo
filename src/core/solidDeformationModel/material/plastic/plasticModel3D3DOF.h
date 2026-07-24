@@ -69,7 +69,7 @@ public:
   std::string_view id() const override { return "volumetric_dof3"; }
   MaterialParameterSpec parameterSpec() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::FullFrame; }
-  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:
   std::unique_ptr<PlasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };

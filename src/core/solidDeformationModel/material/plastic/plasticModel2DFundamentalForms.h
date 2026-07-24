@@ -21,7 +21,12 @@ public:
   void set_qbar(const EigenSupport::M3d &qbar_) { qbar = qbar_; }
   void setArea(double a) { areaRest = a; }
 
-  virtual int getNumParameters() const { return 0; }
+  int getNumParameters() const override { return 0; }
+
+  // ShellPlasticity0 has no parameter coordinates, so its identity state is
+  // intentionally a no-op.  Keeping this override here makes the contract
+  // explicit while leaving PlasticModel's defaultParams pure virtual.
+  void defaultParams(double *param) const override { (void)param; }
 
   virtual void compute_abar(const double *params, double *a) const { (Eigen::Map<EigenSupport::M2d>(a)) = abar; }
   virtual void compute_bbar(const double *params, double *b) const { (Eigen::Map<EigenSupport::M2d>(b)) = bbar; }
@@ -119,7 +124,7 @@ public:
   std::string_view id() const override { return "shell_ff_dof0"; }
   MaterialParameterSpec parameterSpec() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:
   std::unique_ptr<PlasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };

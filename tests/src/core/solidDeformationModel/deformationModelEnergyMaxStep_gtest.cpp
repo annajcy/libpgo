@@ -10,7 +10,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
-#include "material/fields/materialParameterFactory.h"
+#include "material/fields/materialParameterBuilder.h"
 #include "backwardEuler/backwardEulerStepper.h"
 #include "trbdf2/trbdf2Stepper.h"
 #include "dynamicStepper.h"
@@ -49,7 +49,6 @@ using pgo::SolidDeformationModel::PlasticModelConfig;
 using pgo::SolidDeformationModel::SimulationMesh;
 using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
-using pgo::SolidDeformationModel::SimulationMeshMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::SolidDeformationModel::tetLinearComputeDs;
 using CubicFEM = pgo::SolidDeformationModel::VolumetricDeformationModel;
@@ -97,15 +96,14 @@ EnergyFixture makeTetFixture(
 {
   initializeLogging();
 
-  std::vector<int> elementMaterialIndices(elementVertices.size() / 4, 0);
   SimulationMeshENuMaterial baseMaterial(1200.0, 0.45);
-  const SimulationMeshMaterial *materials[] = { &baseMaterial };
 
   EnergyFixture fixture;
   fixture.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     static_cast<int>(vertices.size() / 3), vertices.data(),
     static_cast<int>(elementVertices.size() / 4), 4, elementVertices.data(),
-    elementMaterialIndices.data(), 1, materials,
+    makeUniformSimulationMeshElementFieldStore(
+      static_cast<int>(elementVertices.size() / 4), baseMaterial),
     SimulationMeshType::TET));
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
@@ -141,15 +139,14 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 {
   initializeLogging();
 
-  std::vector<int> elementMaterialIndices(elementVertices.size() / 8, 0);
   SimulationMeshENuMaterial baseMaterial(1200.0, 0.45);
-  const SimulationMeshMaterial *materials[] = { &baseMaterial };
 
   EnergyFixture fixture;
   fixture.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     static_cast<int>(vertices.size() / 3), vertices.data(),
     static_cast<int>(elementVertices.size() / 8), 8, elementVertices.data(),
-    elementMaterialIndices.data(), 1, materials,
+    makeUniformSimulationMeshElementFieldStore(
+      static_cast<int>(elementVertices.size() / 8), baseMaterial),
     SimulationMeshType::CUBIC));
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);

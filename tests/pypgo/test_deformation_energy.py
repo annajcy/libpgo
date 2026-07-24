@@ -61,22 +61,63 @@ def _make_energy(
     formulation=pf.TetLinear(),
     elastic=None,
     plastic=None,
-    elastic_layout=None,
-    plastic_layout=None,
+    elastic_dof_layout=None,
+    plastic_dof_layout=None,
     elastic_values=None,
     plastic_values=None,
     options=None,
 ):
     elastic = elastic or pf.StableNeo()
     plastic = plastic or pf.VolumetricPlasticity(dofs=6)
+    # Build the new explicit parameter-state objects.  The helper retains the
+    # old test convenience arguments so numerical tests can focus on energy
+    # behavior; production ``deformation_energy`` no longer accepts them.
+    if all(value is None for value in (elastic_dof_layout, plastic_dof_layout, elastic_values, plastic_values)):
+        return pf.deformation_energy(
+            sim,
+            elastic=elastic,
+            plastic=plastic,
+            formulation=formulation,
+            options=options,
+        )
+
+    elastic_dof_layout = elastic_dof_layout or pf.ElementwiseDofLayout()
+    plastic_dof_layout = plastic_dof_layout or pf.ElementwiseDofLayout()
+    definition = lambda layout: pf.ParameterFieldDefinition(
+            layout=layout,
+        channel_mapping=pf.IdentityMaterialChannelMapping(),
+    )
+    space = pf.MaterialParameterSpace(
+        sim,
+        elastic=elastic,
+        plastic=plastic,
+        elastic_field=definition(elastic_dof_layout),
+        plastic_field=definition(plastic_dof_layout),
+    )
+
+    defaults = pf.MaterialParameters.elementwise_defaults(
+        sim, elastic=elastic, plastic=plastic)
+
+    def state_values(name, supplied, block, default_values):
+        if supplied is not None:
+            return supplied
+        default = default_values
+        if block.num_value_rows == 1 and default.shape[0] > 0:
+            return default[:1]
+        return default
+
+    params = pf.MaterialParameters(
+        space,
+        elastic_values=state_values(
+            "elastic", elastic_values, space.elastic, defaults.elastic_values),
+        plastic_values=state_values(
+            "plastic", plastic_values, space.plastic, defaults.plastic_values),
+    )
     return pf.deformation_energy(
         sim,
         elastic=elastic,
-        elastic_layout=elastic_layout or pf.ElementwiseDofLayout(),
-        elastic_values=elastic_values,
         plastic=plastic,
-        plastic_layout=plastic_layout or pf.ElementwiseDofLayout(),
-        plastic_values=plastic_values,
+        material_parameters=params,
         formulation=formulation,
         options=options,
     )
@@ -153,10 +194,7 @@ class TestDeformationEnergyParameters:
             pf.deformation_energy(
                 sim,
                 elastic=type("KoiterFabric", (), {"_to_string": lambda self: "koiter_fabric"})(),
-                elastic_layout=pf.ElementwiseDofLayout(),
-                elastic_values=params,
                 plastic=pf.ShellPlasticity(dofs=1),
-                plastic_layout=pf.ElementwiseDofLayout(),
                 formulation=pf.KoiterShell(),
             )
 
@@ -164,13 +202,27 @@ class TestDeformationEnergyParameters:
         sim = _make_tet_sim_mesh()
         params = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
 
+        elastic = pf.StableNeo()
+        plastic = pf.VolumetricPlasticity(dofs=6)
+        space = pf.MaterialParameterSpace(
+            sim,
+            elastic=elastic,
+            plastic=plastic,
+            elastic_field=pf.ParameterFieldDefinition(
+                pf.ElementwiseDofLayout(), pf.IdentityMaterialChannelMapping()),
+            plastic_field=pf.ParameterFieldDefinition(
+                pf.ConstantDofLayout(), pf.IdentityMaterialChannelMapping()),
+        )
+        material_parameters = pf.MaterialParameters(
+            space,
+            elastic_values=np.empty((0, 0), dtype=np.float64),
+            plastic_values=params,
+        )
         energy = pf.deformation_energy(
             sim,
-            elastic=pf.StableNeo(),
-            elastic_layout=pf.ElementwiseDofLayout(),
-            plastic=pf.VolumetricPlasticity(dofs=6),
-            plastic_layout=pf.ConstantDofLayout(),
-            plastic_values=params,
+            elastic=elastic,
+            plastic=plastic,
+            material_parameters=material_parameters,
             formulation=pf.TetLinear(),
         )
 
@@ -318,10 +370,10 @@ class TestDeformationEnergy:
             sim,
             formulation=pf.KoiterShell(),
             elastic=pf.KoiterStVK(),
-            elastic_layout=pf.ConstantDofLayout(),
+            elastic_dof_layout=pf.ConstantDofLayout(),
             elastic_values=elastic,
             plastic=pf.ShellPlasticity(dofs=1),
-            plastic_layout=pf.ElementwiseDofLayout(),
+            plastic_dof_layout=pf.ElementwiseDofLayout(),
             options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
         )
         u = energy.zero_state()
@@ -446,12 +498,12 @@ class TestLifetimeAndErrors:
                 formulation=pf.TetLinear(),
                 options={},
             )
-        with pytest.raises(TypeError, match="ParameterDofLayout"):
+        with pytest.raises(TypeError, match="MaterialParameters"):
             pf.deformation_energy(
                 sim,
                 elastic=pf.StableNeo(),
-                elastic_layout=object(),
                 plastic=pf.VolumetricPlasticity(dofs=6),
+                material_parameters=object(),
                 formulation=pf.TetLinear(),
             )
 

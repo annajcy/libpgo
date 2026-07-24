@@ -7,34 +7,24 @@ copyright to USC,MIT,NUS
 
 #include <memory>
 
-#include "simulation/simulationMeshMaterial.h"
+#include "simulation/elementField.h"
 
 namespace pgo
 {
-
 namespace Mesh
 {
 class TriMeshGeo;
 class TetMeshGeo;
-}  // namespace Mesh
-
+}
 namespace VolumetricMeshes
 {
 class CubicMesh;
 class TetMesh;
 }
-
 namespace SolidDeformationModel
 {
 
-enum class SimulationMeshType
-{
-  TET,
-  CUBIC,
-  TRIANGLE,
-  EDGE_QUAD,
-  SHELL,
-};
+enum class SimulationMeshType { TET, CUBIC, TRIANGLE, EDGE_QUAD, SHELL };
 
 class SimulationMeshImpl;
 
@@ -43,8 +33,8 @@ class SimulationMesh
 public:
   SimulationMesh(int numVertices, const double *vertexPositions,
     int numElements, int numElementVertices, const int *elementVertexIndices,
-    const int *elementMaterialIndices, int numMaterials, const SimulationMeshMaterial *const *materials,
-    SimulationMeshType meshType);
+    ElementFieldStore elementFields, SimulationMeshType meshType);
+
   ~SimulationMesh();
 
   int getNumElements() const;
@@ -52,39 +42,49 @@ public:
   int getNumElementVertices() const;
   int getVertexIndex(int ele, int j) const;
   const int *getVertexIndices(int ele) const;
-
   void getVertex(int vi, double pos[3]) const;
   void getVertex(int ele, int j, double pos[3]) const;
-
   void assignElementUVs(const double *uvs);
   bool hasElementUV() const;
   void getElementUV(int ele, int j, double uv[2]) const;
-
   SimulationMeshType getElementType() const;
 
-  const SimulationMeshMaterial *getElementMaterial(int ele, int j) const;
-  SimulationMeshMaterial *getElementMaterial(int ele, int j);
-  int getElementNumMaterials(int ele) const;
+  template<class T>
+  const ElementField<T> &requireElementField() const
+  {
+    return implElementFields().require<T>();
+  }
 
-  void setMaterial(int matID, const SimulationMeshMaterial *mat);
-  void appendMaterialToAllElements(const SimulationMeshMaterial *mat);
-
-protected:
+private:
+  const ElementFieldStore &implElementFields() const;
   std::unique_ptr<SimulationMeshImpl> impl;
 };
 
 std::unique_ptr<SimulationMesh> loadTetMesh(const VolumetricMeshes::TetMesh *tetmesh);
 std::unique_ptr<SimulationMesh> loadCubicMesh(const VolumetricMeshes::CubicMesh *cubicMesh);
 
-std::unique_ptr<SimulationMesh> loadTriMesh(const Mesh::TriMeshGeo &triMeshGeo, const SimulationMeshMaterial *mat, int toTriangle);
-std::unique_ptr<SimulationMesh> loadTriMesh(const Mesh::TriMeshGeo &triMeshGeo, int numMaterials, const SimulationMeshMaterial *const *const mat, const int *materialIndices, int toTriangle);
+std::unique_ptr<SimulationMesh> loadTriMesh(
+  const Mesh::TriMeshGeo &triMeshGeo, const SimulationMeshENuMaterial *mat, int toTriangle);
+std::unique_ptr<SimulationMesh> loadTriMesh(
+  const Mesh::TriMeshGeo &triMeshGeo, int numMaterials,
+  const SimulationMeshENuhMaterial *const *mat, const int *materialIndices, int toTriangle);
 
-std::unique_ptr<SimulationMesh> loadShellMesh(const Mesh::TriMeshGeo &triMeshGeo, const SimulationMeshMaterial *mat);
-std::unique_ptr<SimulationMesh> loadShellMesh(const Mesh::TriMeshGeo &triMeshGeo, const int *elementMaterialIndices, const SimulationMeshMaterial *const *mat);
+std::unique_ptr<SimulationMesh> loadShellMesh(
+  const Mesh::TriMeshGeo &triMeshGeo, const SimulationMeshENuhMaterial *mat);
+std::unique_ptr<SimulationMesh> loadShellMesh(
+  const Mesh::TriMeshGeo &triMeshGeo, const int *elementMaterialIndices,
+  const SimulationMeshENuhMaterial *const *mat);
 
 void computeTriangleUV(SimulationMesh *mesh, double scaleFactor);
-
 const char *meshTypeName(SimulationMeshType meshType);
+
+template<class T>
+ElementFieldStore makeUniformSimulationMeshElementFieldStore(int numElements, const T &value)
+{
+  ElementFieldStore store;
+  store.add(ElementField<T>::uniform(numElements, value));
+  return store;
+}
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo

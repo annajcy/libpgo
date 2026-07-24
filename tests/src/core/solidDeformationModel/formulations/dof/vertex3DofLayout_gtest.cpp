@@ -14,7 +14,6 @@ using pgo::SolidDeformationModel::DofGroup;
 using pgo::SolidDeformationModel::SimulationMesh;
 using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
-using pgo::SolidDeformationModel::SimulationMeshMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::SolidDeformationModel::PerVertexDofLayout;
 using pgo::SolidDeformationModel::Vertex3DofLayout;
@@ -45,12 +44,10 @@ std::unique_ptr<SimulationMesh> makeSingleTetMesh()
     0.0, 0.0, 1.0,
   };
   const int elementVertices[] = { 0, 1, 2, 3 };
-  const int elementMaterialIndices[] = { 0 };
   SimulationMeshENuMaterial mat(1000.0, 0.45);
-  const SimulationMeshMaterial *materials[] = { &mat };
   return std::unique_ptr<SimulationMesh>(new SimulationMesh(
     4, vertices, 1, 4, elementVertices,
-    elementMaterialIndices, 1, materials,
+    makeUniformSimulationMeshElementFieldStore(1, mat),
     SimulationMeshType::TET));
 }
 
@@ -63,12 +60,10 @@ std::unique_ptr<SimulationMesh> makeSingleCubicMesh()
     1.0, 1.0, 1.0,  0.0, 1.0, 1.0,
   };
   const int elementVertices[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
-  const int elementMaterialIndices[] = { 0 };
   SimulationMeshENuMaterial mat(1000.0, 0.45);
-  const SimulationMeshMaterial *materials[] = { &mat };
   return std::unique_ptr<SimulationMesh>(new SimulationMesh(
     8, vertices, 1, 8, elementVertices,
-    elementMaterialIndices, 1, materials,
+    makeUniformSimulationMeshElementFieldStore(1, mat),
     SimulationMeshType::CUBIC));
 }
 }

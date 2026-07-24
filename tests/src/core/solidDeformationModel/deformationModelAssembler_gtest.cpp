@@ -24,7 +24,7 @@ namespace
 namespace ES = pgo::EigenSupport;
 using namespace pgo::SolidDeformationModel;
 
-class SquareMapping final : public ParameterFieldMapping
+class SquareMapping final : public MaterialChannelMapping
 {
 public:
   explicit SquareMapping(int size): size_(size) {}
@@ -66,7 +66,7 @@ private:
   int size_;
 };
 
-class ThresholdThrowingSquareMapping final : public ParameterFieldMapping
+class ThresholdThrowingSquareMapping final : public MaterialChannelMapping
 {
 public:
   ThresholdThrowingSquareMapping(int size, double threshold):
@@ -123,7 +123,7 @@ struct Fixture
 };
 
 Fixture makeFixture(
-  std::shared_ptr<const ParameterFieldMapping> plasticMapping = nullptr)
+  std::shared_ptr<const MaterialChannelMapping> plasticMapping = nullptr)
 {
   const double vertices[] = {
     0, 0, 0,
@@ -136,13 +136,12 @@ Fixture makeFixture(
     0, 1, 1,
   };
   const int elementVertices[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
-  const int materialIndices[] = { 0 };
   SimulationMeshENuMaterial material(1200.0, 0.45);
-  const SimulationMeshMaterial *materials[] = { &material };
 
   Fixture fixture;
   fixture.mesh = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
-    8, vertices, 1, 8, elementVertices, materialIndices, 1, materials,
+    8, vertices, 1, 8, elementVertices,
+    makeUniformSimulationMeshElementFieldStore(1, material),
     SimulationMeshType::CUBIC));
 
   ES::VXd z(6);
@@ -151,7 +150,7 @@ Fixture makeFixture(
   MaterialParameterBlock elasticBlock(
     {},
     std::make_shared<ElementwiseParameterDofLayout>(1, 0),
-    std::make_shared<IdentityParameterFieldMapping>(0));
+    std::make_shared<IdentityMaterialChannelMapping>(0));
   MaterialParameterBlock plasticBlock(
     { "Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz" },
     std::make_shared<ElementwiseParameterDofLayout>(1, 6),

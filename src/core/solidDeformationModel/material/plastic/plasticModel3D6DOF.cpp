@@ -175,7 +175,7 @@ MaterialParameterSpec channels(std::initializer_list<const char *> names) {
 }
 }
 MaterialParameterSpec VolumetricPlasticity6Config::parameterSpec() const { return channels({"Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz"}); }
-void VolumetricPlasticity6Config::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const
+void VolumetricPlasticity6Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const
 {
   expectSize(output, 6); output[0] = 1; output[1] = 0; output[2] = 0; output[3] = 1; output[4] = 0; output[5] = 1;
 }

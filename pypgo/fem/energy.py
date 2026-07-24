@@ -10,45 +10,9 @@ import pypgo._core as _core
 from pypgo._utils import float_vector
 from pypgo.energy import PotentialEnergy
 from pypgo.fem.fields import (
-    ConstantDofLayout,
-    ElementwiseDofLayout,
-    IdentityParameterMapping,
     MaterialParameters,
-    ParameterDofLayout,
-    ParameterMapping,
 )
 from pypgo.sparse import SparseMatrix
-
-
-def _parameter_values_array(name, values, num_rows, num_local_dofs):
-    arr = np.asarray(values, dtype=np.float64, order="C")
-    if arr.ndim == 1:
-        expected = num_rows * num_local_dofs
-        if arr.size != expected:
-            raise ValueError(f"{name} flat size must be {expected}, got {arr.size}")
-        arr = arr.reshape((num_rows, num_local_dofs))
-    if arr.ndim != 2:
-        raise ValueError(f"{name} must be 1-D or 2-D, got shape {arr.shape}")
-    if arr.shape != (num_rows, num_local_dofs):
-        raise ValueError(f"{name} shape must be {(num_rows, num_local_dofs)}, got {arr.shape}")
-    return np.ascontiguousarray(arr, dtype=np.float64)
-
-
-def _layout_rows(name, layout, num_elements):
-    if isinstance(layout, ElementwiseDofLayout):
-        return num_elements
-    if isinstance(layout, ConstantDofLayout):
-        return 1
-    raise TypeError(
-        f"{name} must be ElementwiseDofLayout or ConstantDofLayout, got {type(layout).__name__}"
-    )
-
-
-def _parameter_init_values(name, values, layout, num_elements, num_local_dofs):
-    if values is None:
-        return None
-    rows = _layout_rows(f"{name.removesuffix('_values')}_layout", layout, num_elements)
-    return _parameter_values_array(name, values, rows, num_local_dofs).ravel()
 
 
 def _require_sim_mesh(sim_mesh):
@@ -59,14 +23,6 @@ def _require_sim_mesh(sim_mesh):
             f"sim_mesh must be a SimulationMesh, got {type(sim_mesh).__name__}"
         )
     return sim_mesh
-
-
-def _elastic_value_channels(sim_mesh, elastic):
-    from pypgo.fem.elastic import ElasticModelConfig
-
-    if isinstance(elastic, ElasticModelConfig):
-        return elastic._handle.num_channels(sim_mesh._handle)
-    raise TypeError(f"elastic must be an ElasticModelConfig, got {type(elastic).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +39,7 @@ class DeformationEnergy(PotentialEnergy):
     Parameters
     ----------
     core : PyDeformationEnergy
-        C++ deformation energy wrapper (from ``_core._create_deformation_energy``).
+        C++ deformation energy wrapper backed by a complete ``MaterialParameters`` handle.
 
     Properties
     ----------
@@ -98,7 +54,7 @@ class DeformationEnergy(PotentialEnergy):
     DOFs, and ``e`` for elastic-field DOFs.
     """
 
-    def __init__(self, core, *, elastic_model=None, plastic_model=None):
+    def __init__(self, core, *, elastic_model=None, plastic_model=None, material_parameters=None):
         if not isinstance(core, _core.PyDeformationEnergy):
             raise TypeError(
                 f"core must be a PyDeformationEnergy, got {type(core).__name__}"
@@ -106,6 +62,7 @@ class DeformationEnergy(PotentialEnergy):
         object.__setattr__(self, "_handle", core)
         object.__setattr__(self, "_elastic_model", elastic_model)
         object.__setattr__(self, "_plastic_model", plastic_model)
+        object.__setattr__(self, "_material_parameters", material_parameters)
         super().__init__(core)
 
     @property
@@ -152,7 +109,9 @@ class DeformationEnergy(PotentialEnergy):
 
     @property
     def parameters(self) -> MaterialParameters:
-        return MaterialParameters(self._handle.parameters)
+        if self._material_parameters is None:
+            self._material_parameters = MaterialParameters._from_handle(self._handle.parameters)
+        return self._material_parameters
 
     def dE_de(self, displacement: np.ndarray) -> np.ndarray:
         """Return ``∂E/∂e`` with shape ``(num_elastic_dofs,)``."""
@@ -317,13 +276,8 @@ def deformation_energy(
     sim_mesh,
     *,
     elastic,
-    elastic_layout=None,
-    elastic_mapping=None,
-    elastic_values=None,
     plastic,
-    plastic_layout=None,
-    plastic_mapping=None,
-    plastic_values=None,
+    material_parameters=None,
     formulation=None,
     options=None,
 ) -> DeformationEnergy:
@@ -338,47 +292,13 @@ def deformation_energy(
     if not isinstance(plastic, PlasticModelConfig):
         raise TypeError(f"plastic must be a PlasticModelConfig, got {type(plastic).__name__}")
 
-    if elastic_layout is None:
-        elastic_layout = ElementwiseDofLayout()
-    if plastic_layout is None:
-        plastic_layout = ElementwiseDofLayout()
-    if elastic_mapping is None:
-        elastic_mapping = IdentityParameterMapping()
-    if plastic_mapping is None:
-        plastic_mapping = IdentityParameterMapping()
-    if not isinstance(elastic_layout, ParameterDofLayout):
+    if material_parameters is None:
+        material_parameters = MaterialParameters.elementwise_defaults(
+            sim_mesh, elastic=elastic, plastic=plastic)
+    if not isinstance(material_parameters, MaterialParameters):
         raise TypeError(
-            f"elastic_layout must be a ParameterDofLayout, got {type(elastic_layout).__name__}"
+            "material_parameters must be a MaterialParameters instance or None"
         )
-    if not isinstance(plastic_layout, ParameterDofLayout):
-        raise TypeError(
-            f"plastic_layout must be a ParameterDofLayout, got {type(plastic_layout).__name__}"
-        )
-    if not isinstance(elastic_mapping, ParameterMapping):
-        raise TypeError(
-            f"elastic_mapping must be a ParameterMapping, got {type(elastic_mapping).__name__}"
-        )
-    if not isinstance(plastic_mapping, ParameterMapping):
-        raise TypeError(
-            f"plastic_mapping must be a ParameterMapping, got {type(plastic_mapping).__name__}"
-        )
-
-    num_elastic_channels = _elastic_value_channels(sim_mesh, elastic)
-    num_plastic_channels = plastic.dofs
-    elastic_values = _parameter_init_values(
-        "elastic_values",
-        elastic_values,
-        elastic_layout,
-        sim_mesh.num_elements,
-        num_elastic_channels,
-    )
-    plastic_values = _parameter_init_values(
-        "plastic_values",
-        plastic_values,
-        plastic_layout,
-        sim_mesh.num_elements,
-        num_plastic_channels,
-    )
 
     if options is None:
         options = DeformationOptions()
@@ -399,22 +319,18 @@ def deformation_energy(
             )
         element_weights = np.ascontiguousarray(element_weights, dtype=np.float64)
 
-    core = _core._create_deformation_energy(
+    core = _core._create_deformation_energy_with_parameters(
         sim_mesh._handle,
         elastic._handle,
-        elastic_values,
         plastic._handle,
-        plastic_values,
-        elastic_layout._handle,
-        elastic_mapping._handle,
-        plastic_layout._handle,
-        plastic_mapping._handle,
+        material_parameters._handle,
         formulation._handle,
         element_weights,
         bool(options.enforce_spd),
         bool(options.enable_material_max_step),
     )
-    return DeformationEnergy(core, elastic_model=elastic, plastic_model=plastic)
+    return DeformationEnergy(core, elastic_model=elastic, plastic_model=plastic,
+                             material_parameters=material_parameters)
 
 
 def plastic_material_energy(

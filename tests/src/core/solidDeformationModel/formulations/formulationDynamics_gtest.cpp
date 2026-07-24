@@ -43,7 +43,7 @@ double sparseCoeff(const EigenSupport::SpMatD &M, int r, int c)
   return M.coeff(r, c);
 }
 
-class SquareParameterMapping final : public ParameterFieldMapping
+class SquareParameterMapping final : public MaterialChannelMapping
 {
 public:
   explicit SquareParameterMapping(int size): size_(size) {}
@@ -114,11 +114,11 @@ std::shared_ptr<MaterialParameters> makeShellMassParameters(
       numElements, numElasticChannels);
   }
 
-  std::shared_ptr<const ParameterFieldMapping> elasticMapping;
+  std::shared_ptr<const MaterialChannelMapping> elasticMapping;
   if (nonlinear)
     elasticMapping = std::make_shared<SquareParameterMapping>(numElasticChannels);
   else
-    elasticMapping = std::make_shared<IdentityParameterFieldMapping>(numElasticChannels);
+    elasticMapping = std::make_shared<IdentityMaterialChannelMapping>(numElasticChannels);
 
   MaterialParameterBlock elasticBlock(
     { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" },
@@ -126,7 +126,7 @@ std::shared_ptr<MaterialParameters> makeShellMassParameters(
   MaterialParameterBlock plasticBlock(
     {},
     std::make_shared<ElementwiseParameterDofLayout>(numElements, 0),
-    std::make_shared<IdentityParameterFieldMapping>(0));
+    std::make_shared<IdentityMaterialChannelMapping>(0));
   auto space = std::make_shared<MaterialParameterSpace>(
     std::move(elasticBlock), std::move(plasticBlock));
 

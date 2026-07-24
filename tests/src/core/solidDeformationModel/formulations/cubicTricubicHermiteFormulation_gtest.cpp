@@ -19,7 +19,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
-#include "material/fields/materialParameterFactory.h"
+#include "material/fields/materialParameterBuilder.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "simulation/simulationMesh.h"
 #include "formulations/formulation/formulations.h"
@@ -78,11 +78,11 @@ std::shared_ptr<const SimulationMesh> makeUnitCubeMesh()
     0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0
   };
   static const int elementVertices[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
-  static const int elementMaterialIndices[] = { 0 };
   static SimulationMeshENuMaterial baseMaterial(1200.0, 0.45);
-  static const SimulationMeshMaterial *materials[] = { &baseMaterial };
   return std::shared_ptr<const SimulationMesh>(new SimulationMesh(
-    8, vertices, 1, 8, elementVertices, elementMaterialIndices, 1, materials, SimulationMeshType::CUBIC));
+    8, vertices, 1, 8, elementVertices,
+    makeUniformSimulationMeshElementFieldStore(1, baseMaterial),
+    SimulationMeshType::CUBIC));
 }
 
 template<class FormulationT>
@@ -345,11 +345,11 @@ std::shared_ptr<const SimulationMesh> makeTwoCubeMesh()
     0, 1, 2, 3, 4, 5, 6, 7,     // cube 0
     1, 8, 9, 2, 5, 10, 11, 6,    // cube 1 (shared: v1,v2,v5,v6)
   };
-  static const int elementMaterialIndices[] = { 0, 0 };
   static SimulationMeshENuMaterial baseMaterial(1200.0, 0.45);
-  static const SimulationMeshMaterial *materials[] = { &baseMaterial };
   return std::shared_ptr<const SimulationMesh>(new SimulationMesh(
-    12, vertices, 2, 8, elementVertices, elementMaterialIndices, 1, materials, SimulationMeshType::CUBIC));
+    12, vertices, 2, 8, elementVertices,
+    makeUniformSimulationMeshElementFieldStore(2, baseMaterial),
+    SimulationMeshType::CUBIC));
 }
 
 template<class FormulationT>

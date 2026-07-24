@@ -149,7 +149,7 @@ inline double ElasticModelCombinedMaterial<count>::compute_dpsi_dparam(const dou
   }
 
   if (mi >= count)
-    return 0.0;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   return materials[mi]->compute_dpsi_dparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S);
 }
@@ -165,7 +165,7 @@ inline double ElasticModelCombinedMaterial<count>::compute_d2psi_dparam2(const d
   }
 
   if (mi >= count)
-    return 0.0;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   int mj = 0;
   for (; mj < count; mj++) {
@@ -174,10 +174,12 @@ inline double ElasticModelCombinedMaterial<count>::compute_d2psi_dparam2(const d
   }
 
   if (mj >= count)
-    return 0.0;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
+  // The combined energy is additive in its child parameter blocks, so the
+  // cross-block second derivative is a supported mathematical zero.
   if (mi != mj)
-    abort();
+    return 0.0;
 
   return materials[mi]->compute_d2psi_dparam2(param + parameterOffsets[mi], i - parameterOffsets[mi], j - parameterOffsets[mi],
     F, U, V, S);
@@ -193,12 +195,8 @@ inline void ElasticModelCombinedMaterial<count>::compute_dP_dparam(const double 
       break;
   }
 
-  if (mi >= count) {
-    for (int i = 0; i < 9; i++)
-      ret[i] = 0.0;
-
-    return;
-  }
+  if (mi >= count)
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   materials[mi]->compute_dP_dparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S, ret);
 }
@@ -235,7 +233,7 @@ inline void ElasticModelCombinedMaterial<count>::compute_d2Pdparam2(const double
     d2p_dparam2[i] = 0;
 
   if (mi >= count)
-    return;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   int mj = 0;
   for (; mj < count; mj++) {
@@ -244,7 +242,7 @@ inline void ElasticModelCombinedMaterial<count>::compute_d2Pdparam2(const double
   }
 
   if (mj >= count)
-    return;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   if (mi != mj)
     return;
@@ -263,12 +261,8 @@ inline void ElasticModelCombinedMaterial<count>::compute_d2PdFdparam(const doubl
       break;
   }
 
-  if (mi >= count) {
-    for (int i = 0; i < 81; i++)
-      d2P_dFdparam[i] = 0.0;
-
-    return;
-  }
+  if (mi >= count)
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   materials[mi]->compute_d2PdFdparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S, d2P_dFdparam);
 }
@@ -399,7 +393,7 @@ inline double ElasticModelCombinedMaterial<-1>::compute_dpsi_dparam(const double
   }
 
   if (mi >= count)
-    return 0.0;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   return materials[mi]->compute_dpsi_dparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S);
 }
@@ -414,7 +408,7 @@ inline double ElasticModelCombinedMaterial<-1>::compute_d2psi_dparam2(const doub
   }
 
   if (mi >= count)
-    return 0.0;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   int mj = 0;
   for (; mj < count; mj++) {
@@ -423,10 +417,12 @@ inline double ElasticModelCombinedMaterial<-1>::compute_d2psi_dparam2(const doub
   }
 
   if (mj >= count)
-    return 0.0;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
+  // The combined energy is additive in its child parameter blocks, so the
+  // cross-block second derivative is a supported mathematical zero.
   if (mi != mj)
-    throw std::runtime_error("mi should be equal to mj");
+    return 0.0;
 
   return materials[mi]->compute_d2psi_dparam2(param + parameterOffsets[mi], i - parameterOffsets[mi], j - parameterOffsets[mi],
     F, U, V, S);
@@ -441,12 +437,8 @@ inline void ElasticModelCombinedMaterial<-1>::compute_dP_dparam(const double *pa
       break;
   }
 
-  if (mi >= count) {
-    for (int i = 0; i < 9; i++)
-      ret[i] = 0.0;
-
-    return;
-  }
+  if (mi >= count)
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   materials[mi]->compute_dP_dparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S, ret);
 }
@@ -481,7 +473,7 @@ inline void ElasticModelCombinedMaterial<-1>::compute_d2Pdparam2(const double *p
     d2p_dparam2[i] = 0;
 
   if (mi >= count)
-    return;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   int mj = 0;
   for (; mj < count; mj++) {
@@ -490,7 +482,7 @@ inline void ElasticModelCombinedMaterial<-1>::compute_d2Pdparam2(const double *p
   }
 
   if (mj >= count)
-    return;
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   if (mi != mj)
     return;
@@ -508,12 +500,8 @@ inline void ElasticModelCombinedMaterial<-1>::compute_d2PdFdparam(const double *
       break;
   }
 
-  if (mi >= count) {
-    for (int i = 0; i < 81; i++)
-      d2P_dFdparam[i] = 0.0;
-
-    return;
-  }
+  if (mi >= count)
+    throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   materials[mi]->compute_d2PdFdparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S, d2P_dFdparam);
 }
@@ -524,7 +512,7 @@ public:
   std::string_view id() const override { return "stvk_vol"; }
   MaterialParameterSpec parameterSpec() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:
   std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };

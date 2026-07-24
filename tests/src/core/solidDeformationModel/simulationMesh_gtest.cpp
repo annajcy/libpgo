@@ -8,6 +8,7 @@
 #include "volumetricMeshOrthotropicMaterial.h"
 
 #include <memory>
+#include <stdexcept>
 
 namespace
 {
@@ -38,14 +39,13 @@ TEST(SimulationMeshGTest, LoadsCubicMeshFromExampleFile)
   EXPECT_DOUBLE_EQ(simPos[1], cubicPos[1]);
   EXPECT_DOUBLE_EQ(simPos[2], cubicPos[2]);
 
-  const auto *simMat = dynamic_cast<const pgo::SolidDeformationModel::SimulationMeshENuMaterial *>(
-    simMesh->getElementMaterial(0, 0));
-  ASSERT_NE(simMat, nullptr);
+  const auto &simMat = simMesh->requireElementField<
+    pgo::SolidDeformationModel::SimulationMeshENuMaterial>().at(0);
 
   const auto *cubicMat = pgo::VolumetricMeshes::downcastENuMaterial(cubicMesh.getElementMaterial(0));
   ASSERT_NE(cubicMat, nullptr);
-  EXPECT_DOUBLE_EQ(simMat->getE(), cubicMat->getE());
-  EXPECT_DOUBLE_EQ(simMat->getNu(), cubicMat->getNu());
+  EXPECT_DOUBLE_EQ(simMat.getE(), cubicMat->getE());
+  EXPECT_DOUBLE_EQ(simMat.getNu(), cubicMat->getNu());
 }
 
 // Characterization: current tet ENu load path produces
@@ -61,11 +61,10 @@ TEST(SimulationMeshGTest, TetLoadProducesENuMaterialPayloads)
 
   // Every element must carry an ENu material payload.
   for (int ei = 0; ei < simMesh->getNumElements(); ei++) {
-    const auto *simMat = dynamic_cast<const pgo::SolidDeformationModel::SimulationMeshENuMaterial *>(
-      simMesh->getElementMaterial(ei, 0));
-    ASSERT_NE(simMat, nullptr) << "Element " << ei << " does not have ENu material";
-    EXPECT_GT(simMat->getE(), 0.0);
-    EXPECT_GT(simMat->getNu(), 0.0);
+    const auto &simMat = simMesh->requireElementField<
+      pgo::SolidDeformationModel::SimulationMeshENuMaterial>().at(ei);
+    EXPECT_GT(simMat.getE(), 0.0);
+    EXPECT_GT(simMat.getNu(), 0.0);
   }
 }
 
@@ -154,18 +153,15 @@ TEST(SimulationMeshGTest, OrthotropicPayloadExistsAtVegaLevelButNoElasticModel)
     tetMesh.getElementMaterial(0));
   EXPECT_EQ(enuDowncast, nullptr);
 
-  // There is no ElasticModelConfig enum entry for
+  // There is no ElasticModelConfig implementation for
   // Orthotropic, and no ElasticModel3DOrthotropicStVK class exists yet.
   // This test documents that Orthotropic is payload-only at the Vega
   // level and has not yet reached the solver deformation energy path.
 }
 
-// Characterization: Hill active-fiber path requires an extra
-// SimulationMeshHillMaterial slot. Orientation is supplied separately by an
-// immutable MaterialFrameField.
-// This test creates a SimulationMesh with ENu + Hill materials and
-// verifies that both slots exist and have the expected types.
-TEST(SimulationMeshGTest, HillRequiresExtraMaterialSlot)
+// Hill and base material data are independent per-element fields. Orientation
+// is supplied separately by an immutable MaterialFrameField.
+TEST(SimulationMeshGTest, HillAndBaseMaterialFieldsAreIndependent)
 {
   using namespace pgo::SolidDeformationModel;
 
@@ -180,35 +176,70 @@ TEST(SimulationMeshGTest, HillRequiresExtraMaterialSlot)
     0.0, 1.0, 1.0,
   };
   const int elementVertices[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
-  const int elementMaterialIndices[] = { 0 };
-
   SimulationMeshENuMaterial baseMaterial(1200.0, 0.45);
-  const SimulationMeshMaterial *materials[] = { &baseMaterial };
 
+  ElementFieldStore fields;
+  fields.add(ElementField<SimulationMeshENuMaterial>::uniform(1, baseMaterial));
+  fields.add(ElementField<SimulationMeshHillMaterial>::uniform(
+    1, SimulationMeshHillMaterial(2500.0, 0.35, 1.0)));
   auto mesh = std::make_unique<SimulationMesh>(
-    8, vertices, 1, 8, elementVertices,
-    elementMaterialIndices, 1, materials,
-    SimulationMeshType::CUBIC);
+    8, vertices, 1, 8, elementVertices, std::move(fields), SimulationMeshType::CUBIC);
 
   ASSERT_NE(mesh, nullptr);
-  // Before adding Hill, there is only the base ENu material slot.
-  EXPECT_EQ(mesh->getElementNumMaterials(0), 1);
-
-  // Adding a Hill material creates a second material slot.
-  SimulationMeshHillMaterial hillMaterial(2500.0, 0.35, 1.0);
-  mesh->appendMaterialToAllElements(&hillMaterial);
-  EXPECT_EQ(mesh->getElementNumMaterials(0), 2);
-
-  const auto *hillSlot = dynamic_cast<const SimulationMeshHillMaterial *>(
-    mesh->getElementMaterial(0, 1));
-  ASSERT_NE(hillSlot, nullptr);
-  EXPECT_DOUBLE_EQ(hillSlot->getEact(), 2500.0);
-
-  // The base material is still at slot 0.
-  const auto *baseSlot = dynamic_cast<const SimulationMeshENuMaterial *>(
-    mesh->getElementMaterial(0, 0));
-  ASSERT_NE(baseSlot, nullptr);
+  EXPECT_DOUBLE_EQ(mesh->requireElementField<SimulationMeshHillMaterial>().at(0).getEact(), 2500.0);
+  EXPECT_DOUBLE_EQ(mesh->requireElementField<SimulationMeshENuMaterial>().at(0).getE(), 1200.0);
 
   // Orientation is not stored in SimulationMesh. The deformation builder
   // supplies a MaterialFrameField (GlobalAxes by default).
+}
+
+TEST(SimulationMeshGTest, HillFieldSupportsSpatiallyVaryingMaterialData)
+{
+  using namespace pgo::SolidDeformationModel;
+  auto hill0 = std::make_shared<const SimulationMeshHillMaterial>(1000.0, 0.2, 0.8);
+  auto hill1 = std::make_shared<const SimulationMeshHillMaterial>(2000.0, 0.4, 1.1);
+  auto field = ElementField<SimulationMeshHillMaterial>::fromShared(
+    4, std::vector<std::shared_ptr<const SimulationMeshHillMaterial>>{hill0, hill0, hill1, hill0});
+
+  ASSERT_EQ(field.size(), 4);
+  EXPECT_DOUBLE_EQ(field.at(0).getEact(), 1000.0);
+  EXPECT_DOUBLE_EQ(field.at(1).getEact(), 1000.0);
+  EXPECT_DOUBLE_EQ(field.at(2).getEact(), 2000.0);
+  EXPECT_DOUBLE_EQ(field.at(3).getEact(), 1000.0);
+}
+
+TEST(ElementFieldStoreGTest, UsesExactTypeAndValidatesShape)
+{
+  using namespace pgo::SolidDeformationModel;
+
+  ElementFieldStore store;
+  store.add(ElementField<SimulationMeshENuMaterial>::uniform(
+    2, SimulationMeshENuMaterial(1000.0, 0.4)));
+
+  EXPECT_TRUE(store.contains<SimulationMeshENuMaterial>());
+  EXPECT_FALSE(store.contains<SimulationMeshHillMaterial>());
+  EXPECT_THROW(store.require<SimulationMeshHillMaterial>(), std::invalid_argument);
+  EXPECT_THROW(
+    store.add(ElementField<SimulationMeshENuMaterial>::uniform(
+      2, SimulationMeshENuMaterial(2000.0, 0.3))),
+    std::invalid_argument);
+  EXPECT_THROW(
+    store.add(ElementField<SimulationMeshHillMaterial>::uniform(
+      3, SimulationMeshHillMaterial())),
+    std::invalid_argument);
+}
+
+TEST(ElementFieldStoreGTest, SharedHandlesPreserveSpatialValues)
+{
+  using namespace pgo::SolidDeformationModel;
+  auto first = std::make_shared<const SimulationMeshHillMaterial>(1000.0, 0.2, 0.8);
+  auto second = std::make_shared<const SimulationMeshHillMaterial>(2000.0, 0.4, 1.1);
+  auto field = ElementField<SimulationMeshHillMaterial>::fromShared(
+    3, { first, first, second });
+
+  ElementFieldStore store;
+  store.add(std::move(field));
+  EXPECT_DOUBLE_EQ(store.require<SimulationMeshHillMaterial>().at(0).getEact(), 1000.0);
+  EXPECT_DOUBLE_EQ(store.require<SimulationMeshHillMaterial>().at(1).getEact(), 1000.0);
+  EXPECT_DOUBLE_EQ(store.require<SimulationMeshHillMaterial>().at(2).getEact(), 2000.0);
 }

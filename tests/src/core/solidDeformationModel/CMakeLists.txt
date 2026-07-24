@@ -16,7 +16,7 @@ pgo_add_gtest(deformationModelAssembler_gtest
 )
 
 pgo_add_gtest(deformationModelBuilder_gtest
-  SOURCES deformationModelFactory_gtest.cpp
+  SOURCES deformationModelBuilder_gtest.cpp
   DEPS solidDeformationModel volumetricMesh mesh
   DEFINITIONS
   LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/tet/torus.veg"

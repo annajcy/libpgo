@@ -63,7 +63,7 @@ MaterialParameterSpec channels(std::initializer_list<const char *> names) {
 }
 }
 MaterialParameterSpec VolumetricPlasticity0Config::parameterSpec() const { return {}; }
-void VolumetricPlasticity0Config::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
+void VolumetricPlasticity0Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
 std::unique_ptr<PlasticModel> VolumetricPlasticity0Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
 {
   static constexpr double identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};

@@ -90,9 +90,9 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/dof/cubicTricubicHermiteDofLayout.h
 
   material/fields/parameterDofLayout.h
-  material/fields/parameterFieldMapping.h
+  material/fields/materialChannelMapping.h
   material/fields/materialParameters.h
-  material/fields/materialParameterFactory.h
+  material/fields/materialParameterBuilder.h
   material/fields/materialFrameField.h
 
   mass/massField.h
@@ -156,9 +156,9 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/shell/shellDeformationModel.cpp
 
   material/fields/parameterDofLayout.cpp
-  material/fields/parameterFieldMapping.cpp
+  material/fields/materialChannelMapping.cpp
   material/fields/materialParameters.cpp
-  material/fields/materialParameterFactory.cpp
+  material/fields/materialParameterBuilder.cpp
   material/fields/materialFrameField.cpp
 
 

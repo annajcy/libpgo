@@ -27,13 +27,14 @@ from pypgo.fem.plastic import (
 from pypgo.fem.fields import (
     ConstantDofLayout,
     ElementwiseDofLayout,
-    IdentityParameterMapping,
+    IdentityMaterialChannelMapping,
     MaterialParameterBlock,
     MaterialParameterRef,
     MaterialParameterSpace,
     MaterialParameters,
     ParameterDofLayout,
-    ParameterMapping,
+    MaterialChannelMapping,
+    ParameterFieldDefinition,
 )
 from pypgo.fem.energy import (
     DeformationEnergy,
@@ -89,13 +90,14 @@ __all__ = [
     # Fields
     "ConstantDofLayout",
     "ElementwiseDofLayout",
-    "IdentityParameterMapping",
+    "IdentityMaterialChannelMapping",
     "MaterialParameterBlock",
     "MaterialParameterRef",
     "MaterialParameterSpace",
     "MaterialParameters",
     "ParameterDofLayout",
-    "ParameterMapping",
+    "MaterialChannelMapping",
+    "ParameterFieldDefinition",
     # Energy
     "DeformationEnergy",
     "DeformationOptions",

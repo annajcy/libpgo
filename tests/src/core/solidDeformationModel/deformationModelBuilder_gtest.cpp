@@ -9,7 +9,7 @@
 #include "energy/deformationEnergyBuilder.h"
 #include "deformation/deformationModelAssembler.h"
 #include "formulations/formulation/formulations.h"
-#include "material/fields/materialParameterFactory.h"
+#include "material/fields/materialParameterBuilder.h"
 
 #include "energy/deformationModelEnergy.h"
 #include "simulation/simulationMesh.h"
@@ -42,7 +42,7 @@ std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
 
 // Baseline: tet deformation energy at zero displacement has near-zero energy
 // and finite gradient. State x is displacement from rest, NOT absolute position.
-TEST(DeformationModelFactoryGTest, TetZeroDisplacementBaseline)
+TEST(DeformationModelBuilderGTest, TetZeroDisplacementBaseline)
 {
   pgo::Logging::init();
 
@@ -73,7 +73,7 @@ TEST(DeformationModelFactoryGTest, TetZeroDisplacementBaseline)
 
 // The structured-input overload must preserve the caller-provided immutable
 // material frame field instead of silently replacing it with global axes.
-TEST(DeformationModelFactoryGTest, StructuredInputsCarryCustomMaterialFrames)
+TEST(DeformationModelBuilderGTest, StructuredInputsCarryCustomMaterialFrames)
 {
   pgo::Logging::init();
 
@@ -113,7 +113,7 @@ TEST(DeformationModelFactoryGTest, StructuredInputsCarryCustomMaterialFrames)
 
 // Baseline: cubic deformation energy at zero displacement.
 // State convention: func(x) computes energy at restPosition + x.
-TEST(DeformationModelFactoryGTest, CubicZeroDisplacementBaseline)
+TEST(DeformationModelBuilderGTest, CubicZeroDisplacementBaseline)
 {
   pgo::Logging::init();
 
@@ -143,7 +143,7 @@ TEST(DeformationModelFactoryGTest, CubicZeroDisplacementBaseline)
 }
 
 // MakeTetDeformationModel with SimulationMesh reference validates TET topology.
-TEST(DeformationModelFactoryGTest, TetSimulationMeshFactoryValidatesTopology)
+TEST(DeformationModelBuilderGTest, TetSimulationMeshBuilderValidatesTopology)
 {
   pgo::Logging::init();
 
@@ -158,7 +158,7 @@ TEST(DeformationModelFactoryGTest, TetSimulationMeshFactoryValidatesTopology)
 }
 
 // MakeCubicDeformationModel with SimulationMesh reference validates CUBIC topology.
-TEST(DeformationModelFactoryGTest, CubicSimulationMeshFactoryValidatesTopology)
+TEST(DeformationModelBuilderGTest, CubicSimulationMeshBuilderValidatesTopology)
 {
   pgo::Logging::init();
 
@@ -174,7 +174,7 @@ TEST(DeformationModelFactoryGTest, CubicSimulationMeshFactoryValidatesTopology)
 
 // MakeShellDeformationModel with SimulationMesh reference validates SHELL topology
 // and uses the existing Koiter shell path.
-TEST(DeformationModelFactoryGTest, ShellSimulationMeshFactoryValidatesTopology)
+TEST(DeformationModelBuilderGTest, ShellSimulationMeshBuilderValidatesTopology)
 {
   pgo::Logging::init();
 
@@ -196,7 +196,7 @@ TEST(DeformationModelFactoryGTest, ShellSimulationMeshFactoryValidatesTopology)
 }
 
 // Wrong topology/SimulationMesh type fails at runtime.
-TEST(DeformationModelFactoryGTest, TetFactoryRejectsCubicSimulationMesh)
+TEST(DeformationModelBuilderGTest, TetBuilderRejectsCubicSimulationMesh)
 {
   pgo::Logging::init();
 
@@ -211,7 +211,7 @@ TEST(DeformationModelFactoryGTest, TetFactoryRejectsCubicSimulationMesh)
 
 // One SimulationMesh owner can be used to construct two independent deformation
 // energies. Both must remain evaluable while the owner is alive.
-TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoTetEnergies)
+TEST(DeformationModelBuilderGTest, OneMeshOwnerTwoTetEnergies)
 {
   pgo::Logging::init();
 
@@ -256,7 +256,7 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoTetEnergies)
 
 // One SimulationMesh owner can be used to construct two independent cubic
 // deformation energies.
-TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoCubicEnergies)
+TEST(DeformationModelBuilderGTest, OneMeshOwnerTwoCubicEnergies)
 {
   pgo::Logging::init();
 

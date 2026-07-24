@@ -6,10 +6,12 @@ copyright to USC
 
 #include "simulation/simulationMesh.h"
 #include "deformation/deformationModelAssembler.h"
-#include "material/fields/materialParameterFactory.h"
+#include "material/fields/materialParameterBuilder.h"
 #include "pgoLogging.h"
 
 #include <utility>
+#include <algorithm>
+#include <string>
 
 namespace pgo::SolidDeformationModel
 {
@@ -37,6 +39,20 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   if (!materialFrames)
     throw std::invalid_argument(
       "makeDeformationEnergy: materialFrames must be non-null.");
+  if (!elastic || !plastic)
+    throw std::invalid_argument("makeDeformationEnergy: model configs must be non-null.");
+  const auto checkChannels = [](const auto &block, const auto &spec, const char *name) {
+    const auto names = block.channelNames();
+    if (names.size() != spec.channelNames.size() ||
+      !std::equal(names.begin(), names.end(), spec.channelNames.begin()))
+      throw std::invalid_argument(std::string("makeDeformationEnergy: ") + name +
+        " parameter space schema does not match the config.");
+  };
+  checkChannels(materialParameters->space()->elastic(), elastic->parameterSpec(), "elastic");
+  checkChannels(materialParameters->space()->plastic(), plastic->parameterSpec(), "plastic");
+  if (materialParameters->space()->elastic().dofLayout().numElements() != nele ||
+    materialParameters->space()->plastic().dofLayout().numElements() != nele)
+    throw std::invalid_argument("makeDeformationEnergy: parameter space element count does not match mesh.");
 
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, elastic, plastic, formulation,

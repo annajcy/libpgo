@@ -37,9 +37,10 @@ public:
     const double *elementWeights = nullptr);
   virtual ~DeformationModelAssembler();
 
-  double computeEnergy(const double *x, MaterialStateView state) const;
   MaterialMaxStepObservation computeMaxStepObservation(const double *x, const double *dx) const;
   double computeMaxStepSize(const double *x, const double *dx) const;
+
+  double computeEnergy(const double *x, MaterialStateView state) const;
   void computeGradient(const double *x, MaterialStateView state, double *grad) const;
   void computeHessian(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
 

@@ -74,7 +74,7 @@ public:
   std::string_view id() const override { return "koiter_stvk"; }
   MaterialParameterSpec parameterSpec() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:
   std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };

@@ -32,7 +32,7 @@ void validateStateSize(
 MaterialParameterBlock::MaterialParameterBlock(
   std::vector<std::string> channelNames,
   std::shared_ptr<const ParameterDofLayout> dofLayout,
-  std::shared_ptr<const ParameterFieldMapping> mapping):
+  std::shared_ptr<const MaterialChannelMapping> mapping):
   channelNames_(std::move(channelNames)),
   dofLayout_(std::move(dofLayout)),
   mapping_(std::move(mapping))
@@ -178,7 +178,7 @@ MaterialParameterRef::MaterialParameterRef(
   const MaterialParameterBlock &block, int channel):
   block_(&block), channel_(channel)
 {
-  if (channel < 0 || channel >= block.mapping().numChannels())
+  if (channel < 0 || channel >= block.channelMapping().numChannels())
     throw std::out_of_range("MaterialParameterRef channel is out of range.");
 }
 
@@ -202,7 +202,7 @@ double MaterialParameterRef::value(
 {
   const MaterialParameterBlock &b = block();
   const ParameterDofLayout &layout = b.dofLayout();
-  const ParameterFieldMapping &mapping = b.mapping();
+  const MaterialChannelMapping &mapping = b.channelMapping();
   std::vector<double> local(static_cast<std::size_t>(layout.numLocalDofs()));
   std::vector<double> material(static_cast<std::size_t>(mapping.numChannels()));
   layout.gather(element, state.values(b), local);
@@ -218,7 +218,7 @@ void MaterialParameterRef::localDerivative(
 {
   const MaterialParameterBlock &b = block();
   const ParameterDofLayout &layout = b.dofLayout();
-  const ParameterFieldMapping &mapping = b.mapping();
+  const MaterialChannelMapping &mapping = b.channelMapping();
   if (layout.numLocalDofs() > 0 && output == nullptr)
     throw std::invalid_argument("MaterialParameterRef requires a derivative output buffer.");
   std::vector<double> local(static_cast<std::size_t>(layout.numLocalDofs()));

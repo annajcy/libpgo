@@ -56,14 +56,31 @@ def main() -> None:
     base_material = np.array([2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3])
     initial_elastic = np.tile(base_material, (triangles.shape[0], 1))
     plastic_values = np.ones((triangles.shape[0], 1))
+    elastic_config = pf.KoiterStVK()
+    plastic_config = pf.ShellPlasticity(dofs=1)
+    parameter_space = pf.MaterialParameterSpace(
+        simulation_mesh,
+        elastic=elastic_config,
+        plastic=plastic_config,
+        elastic_field=pf.ParameterFieldDefinition(
+            layout=pf.ElementwiseDofLayout(),
+            channel_mapping=pf.IdentityMaterialChannelMapping(),
+        ),
+        plastic_field=pf.ParameterFieldDefinition(
+            layout=pf.ElementwiseDofLayout(),
+            channel_mapping=pf.IdentityMaterialChannelMapping(),
+        ),
+    )
+    material_parameters = pf.MaterialParameters(
+        parameter_space,
+        elastic_values=initial_elastic,
+        plastic_values=plastic_values,
+    )
     energy = pf.deformation_energy(
         simulation_mesh,
-        elastic=pf.KoiterStVK(),
-        elastic_layout=pf.ElementwiseDofLayout(),
-        elastic_values=initial_elastic,
-        plastic=pf.ShellPlasticity(dofs=1),
-        plastic_layout=pf.ElementwiseDofLayout(),
-        plastic_values=plastic_values,
+        elastic=elastic_config,
+        plastic=plastic_config,
+        material_parameters=material_parameters,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(
             enforce_spd=False,

@@ -11,6 +11,31 @@ import pypgo.solver as solver
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _material_parameters(sim, elastic, plastic, elastic_layout, plastic_layout,
+                         elastic_values=None, plastic_values=None):
+    space = fem.MaterialParameterSpace(
+        sim,
+        elastic=elastic,
+        plastic=plastic,
+        elastic_field=fem.ParameterFieldDefinition(
+            elastic_layout, fem.IdentityMaterialChannelMapping()),
+        plastic_field=fem.ParameterFieldDefinition(
+            plastic_layout, fem.IdentityMaterialChannelMapping()),
+    )
+    defaults = fem.MaterialParameters.elementwise_defaults(
+        sim, elastic=elastic, plastic=plastic)
+    if elastic_values is None:
+        elastic_values = defaults.elastic_values
+        if space.elastic.num_value_rows == 1:
+            elastic_values = elastic_values[:1]
+    if plastic_values is None:
+        plastic_values = defaults.plastic_values
+        if space.plastic.num_value_rows == 1:
+            plastic_values = plastic_values[:1]
+    return fem.MaterialParameters(
+        space, elastic_values=elastic_values, plastic_values=plastic_values)
+
+
 def make_cubic_case():
     cube = pgo.mesh.CubicMeshData(
         np.array(
@@ -32,12 +57,14 @@ def make_cubic_case():
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
     sim = pgo.fem.SimulationMesh.create_volumetric(volume)
+    elastic = fem.StVK()
+    plastic = fem.VolumetricPlasticity(dofs=6)
+    parameters = _material_parameters(
+        sim, elastic, plastic,
+        fem.ElementwiseDofLayout(), fem.ConstantDofLayout())
     energy = fem.deformation_energy(
-        sim,
-        elastic=fem.StVK(),
-        elastic_layout=fem.ElementwiseDofLayout(),
-        plastic=fem.VolumetricPlasticity(dofs=6),
-        plastic_layout=fem.ConstantDofLayout(),
+        sim, elastic=elastic, plastic=plastic,
+        material_parameters=parameters,
         formulation=fem.CubicLinear(),
         options=fem.DeformationOptions(
             enforce_spd=False, enable_material_max_step=False
@@ -65,16 +92,19 @@ def make_shell_elastic_case():
         nu_membrane=0.35,
     )
     sim = pgo.fem.SimulationMesh.create_shell(surface, material)
+    elastic = fem.KoiterStVK()
+    plastic = fem.ShellPlasticity(dofs=1)
+    elastic_values = np.array(
+        [[2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3]], dtype=np.float64
+    )
+    plastic_values = np.array([[1.03], [1.02]], dtype=np.float64)
+    parameters = _material_parameters(
+        sim, elastic, plastic,
+        fem.ConstantDofLayout(), fem.ElementwiseDofLayout(),
+        elastic_values, plastic_values)
     energy = fem.deformation_energy(
-        sim,
-        elastic=fem.KoiterStVK(),
-        elastic_layout=fem.ConstantDofLayout(),
-        elastic_values=np.array(
-            [[2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3]], dtype=np.float64
-        ),
-        plastic=fem.ShellPlasticity(dofs=1),
-        plastic_layout=fem.ElementwiseDofLayout(),
-        plastic_values=np.array([[1.03], [1.02]], dtype=np.float64),
+        sim, elastic=elastic, plastic=plastic,
+        material_parameters=parameters,
         formulation=fem.KoiterShell(),
         options=fem.DeformationOptions(
             enforce_spd=False, enable_material_max_step=False

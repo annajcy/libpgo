@@ -202,9 +202,7 @@ void ElasticModel3DSTVKMaterial::compute_dPdF(const double *param, const double 
 namespace pgo::SolidDeformationModel {
 namespace {
 const SimulationMeshENuMaterial &enuMaterial(const SimulationMesh &mesh, int element) {
-  const auto *mat = dynamic_cast<const SimulationMeshENuMaterial *>(mesh.getElementMaterial(element, 0));
-  if (!mat) throw std::invalid_argument("elastic config requires SimulationMeshENuMaterial");
-  return *mat;
+  return mesh.requireElementField<SimulationMeshENuMaterial>().at(element);
 }
 void expectSize(std::span<double> output, std::size_t expected) {
   if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
@@ -216,7 +214,7 @@ MaterialParameterSpec numberedChannels(int count) {
 }
 }
 MaterialParameterSpec StVKConfig::parameterSpec() const { return numberedChannels(0); }
-void StVKConfig::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
+void StVKConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
 std::unique_ptr<ElasticModel> StVKConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &) const
 {
   const auto &mat = enuMaterial(mesh, element);

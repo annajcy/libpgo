@@ -143,7 +143,7 @@ MaterialParameterSpec channels(std::initializer_list<const char *> names) {
 }
 }
 MaterialParameterSpec VolumetricPlasticity3Config::parameterSpec() const { return channels({"Fx", "Fy", "Fz"}); }
-void VolumetricPlasticity3Config::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 3); std::fill(output.begin(), output.end(), 1.0); }
+void VolumetricPlasticity3Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 3); std::fill(output.begin(), output.end(), 1.0); }
 std::unique_ptr<PlasticModel> VolumetricPlasticity3Config::createModel(const SimulationMesh &, int, const MaterialFrame &frame) const
 {
   return std::make_unique<PlasticModel3D3DOF>(frame.transpose());

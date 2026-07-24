@@ -785,12 +785,11 @@ MaterialParameterSpec KoiterStVKConfig::parameterSpec() const
 {
   return channels({"E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness"});
 }
-void KoiterStVKConfig::initializeDefaultParameters(const SimulationMesh &mesh, int element, std::span<double> output) const
+void KoiterStVKConfig::initializeDefaultElementChannels(const SimulationMesh &mesh, int element, std::span<double> output) const
 {
   expectSize(output, 5);
-  const auto *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(mesh.getElementMaterial(element, 0));
-  if (!mat) throw std::invalid_argument("KoiterStVKConfig requires SimulationMeshENuhMaterial");
-  output[0] = mat->getE(); output[1] = mat->getNu(); output[2] = mat->getE(); output[3] = mat->getNu(); output[4] = mat->geth();
+  const auto &mat = mesh.requireElementField<SimulationMeshENuhMaterial>().at(element);
+  output[0] = mat.getE(); output[1] = mat.getNu(); output[2] = mat.getE(); output[3] = mat.getNu(); output[4] = mat.geth();
 }
 std::unique_ptr<ElasticModel> KoiterStVKConfig::createModel(const SimulationMesh &, int, const MaterialFrame &) const
 {

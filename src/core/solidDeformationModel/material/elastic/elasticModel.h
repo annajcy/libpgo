@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 
 namespace pgo
@@ -20,7 +21,10 @@ public:
   ElasticModel() {}
 
   virtual ~ElasticModel() {}
-  virtual int getNumParameters() const { return 0; }
+  // Every evaluator must declare its parameter dimension.  A missing
+  // declaration must fail at compile time instead of silently creating a
+  // zero-dimensional parameter block.
+  virtual int getNumParameters() const = 0;
   virtual void enableSPD(int /*enable*/) {}
 };
 
@@ -33,8 +37,11 @@ public:
   virtual std::string_view id() const = 0;
   virtual MaterialParameterSpec parameterSpec() const = 0;
   virtual MaterialFrameRequirement frameRequirement() const = 0;
-  virtual void initializeDefaultParameters(
-    const SimulationMesh &, int, std::span<double>) const = 0;
+  virtual void initializeDefaultElementChannels(
+    const SimulationMesh &, int, std::span<double>) const
+  {
+    throw std::logic_error("elastic config does not provide default element channels");
+  }
 
 private:
   friend class DeformationModelManager;

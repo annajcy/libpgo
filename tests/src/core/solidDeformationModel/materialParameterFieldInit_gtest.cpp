@@ -6,7 +6,7 @@
 #include "material/plastic/plasticModel3D6DOF.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "material/fields/materialParameterFactory.h"
+#include "material/fields/materialParameterBuilder.h"
 #include "simulation/simulationMesh.h"
 #include "cubicMesh.h"
 
@@ -17,7 +17,7 @@ using namespace pgo::SolidDeformationModel;
 
 constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 
-TEST(MaterialParameterFactory, BuildsIndependentSpaceAndCommittedValues)
+TEST(MaterialParameterBuilder, BuildsIndependentSpaceAndCommittedValues)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
@@ -28,18 +28,17 @@ TEST(MaterialParameterFactory, BuildsIndependentSpaceAndCommittedValues)
   ES::VXd plasticValues(6);
   plasticValues << 1.0, 0.01, 0.02, 0.99, 0.03, 1.01;
 
-  auto parameters = makeMaterialParameters(
-    *mesh,
+  auto space = makeMaterialParameterSpace(
     *elastic,
     std::make_shared<ElementwiseParameterDofLayout>(
       mesh->getNumElements(), 0),
-    std::make_shared<IdentityParameterFieldMapping>(0),
-    std::nullopt,
+    std::make_shared<IdentityMaterialChannelMapping>(0),
     *plastic,
     std::make_shared<ConstantParameterDofLayout>(
       mesh->getNumElements(), 6),
-    std::make_shared<IdentityParameterFieldMapping>(6),
-    plasticValues);
+    std::make_shared<IdentityMaterialChannelMapping>(6));
+  auto parameters = makeMaterialParameters(
+    std::move(space), ES::VXd::Zero(0), plasticValues);
 
   EXPECT_EQ(
     parameters->space()->elastic().dofLayout().numGlobalDofs(), 0);
@@ -55,7 +54,7 @@ TEST(MaterialParameterFactory, BuildsIndependentSpaceAndCommittedValues)
     snapshot.view().plasticValues().size()).isApprox(plasticValues));
 }
 
-TEST(MaterialParameterFactory, DefaultsRespectLayoutOwnership)
+TEST(MaterialParameterBuilder, DefaultBuilderRequiresElementwiseLayout)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
@@ -68,41 +67,31 @@ TEST(MaterialParameterFactory, DefaultsRespectLayoutOwnership)
     elementwise->plasticSnapshot().size(),
     mesh->getNumElements() * 6);
 
-  auto constant = makeMaterialParameters(
-    *mesh,
+  auto constantSpace = makeMaterialParameterSpace(
     *std::make_shared<StableNeoConfig>(),
-    std::make_shared<ConstantParameterDofLayout>(
-      mesh->getNumElements(), 0),
-    std::make_shared<IdentityParameterFieldMapping>(0),
-    std::nullopt,
+    std::make_shared<ConstantParameterDofLayout>(mesh->getNumElements(), 0),
+    std::make_shared<IdentityMaterialChannelMapping>(0),
     *std::make_shared<VolumetricPlasticity6Config>(),
-    std::make_shared<ConstantParameterDofLayout>(
-      mesh->getNumElements(), 6),
-    std::make_shared<IdentityParameterFieldMapping>(6),
-    std::nullopt);
-  ASSERT_EQ(constant->plasticSnapshot().size(), 6);
-  EXPECT_TRUE(constant->plasticSnapshot().isApprox(
-    (ES::VXd(6) << 1, 0, 0, 1, 0, 1).finished()));
+    std::make_shared<ConstantParameterDofLayout>(mesh->getNumElements(), 6),
+    std::make_shared<IdentityMaterialChannelMapping>(6));
+  EXPECT_THROW(
+    makeMaterialParameters(std::move(constantSpace), ES::VXd::Zero(0), ES::VXd::Zero(5)),
+    std::invalid_argument);
 }
 
-TEST(MaterialParameterFactory, RejectsDimensionMismatch)
+TEST(MaterialParameterBuilder, RejectsDimensionMismatch)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
 
   EXPECT_THROW(
-    makeMaterialParameters(
-      *mesh,
+    makeMaterialParameterSpace(
       *std::make_shared<StableNeoConfig>(),
-      std::make_shared<ElementwiseParameterDofLayout>(
-        mesh->getNumElements(), 1),
-      std::make_shared<IdentityParameterFieldMapping>(1),
-      ES::VXd::Zero(mesh->getNumElements()),
+      std::make_shared<ElementwiseParameterDofLayout>(mesh->getNumElements(), 1),
+      std::make_shared<IdentityMaterialChannelMapping>(1),
       *std::make_shared<VolumetricPlasticity6Config>(),
-      std::make_shared<ElementwiseParameterDofLayout>(
-        mesh->getNumElements(), 6),
-      std::make_shared<IdentityParameterFieldMapping>(6),
-      std::nullopt),
+      std::make_shared<ElementwiseParameterDofLayout>(mesh->getNumElements(), 6),
+      std::make_shared<IdentityMaterialChannelMapping>(6)),
     std::invalid_argument);
 }
 

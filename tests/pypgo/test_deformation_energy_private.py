@@ -57,20 +57,37 @@ def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plast
         raise ValueError(f"Unknown formulation: {formulation}")
     elastic = elastic or pf.StableNeo()
     plastic = plastic or pf.VolumetricPlasticity(dofs=6)
-    elastic_layout = _core._make_elementwise_parameter_dof_layout()
-    plastic_layout = _core._make_elementwise_parameter_dof_layout()
-    identity = _core._make_identity_parameter_field_mapping
-    return _core._create_deformation_energy(
+    if plastic_values is None:
+        parameters = _core._create_default_material_parameters(
+            sim._handle, elastic._handle, plastic._handle)
+    else:
+        space = pf.MaterialParameterSpace(
+            sim,
+            elastic=elastic,
+            plastic=plastic,
+            elastic_field=pf.ParameterFieldDefinition(
+                layout=pf.ElementwiseDofLayout(),
+                channel_mapping=pf.IdentityMaterialChannelMapping(),
+            ),
+            plastic_field=pf.ParameterFieldDefinition(
+                layout=pf.ElementwiseDofLayout(),
+                channel_mapping=pf.IdentityMaterialChannelMapping(),
+            ),
+        )
+        parameters = _core._create_material_parameters(
+            space._handle,
+            np.zeros(0, dtype=np.float64),
+            np.asarray(plastic_values, dtype=np.float64),
+        )
+    return _core._create_deformation_energy_with_parameters(
         sim._handle,
         elastic._handle,
-        None,
         plastic._handle,
-        plastic_values,
-        elastic_layout,
-        identity(),
-        plastic_layout,
-        identity(),
+        parameters,
         formulation_handle._handle,
+        None,
+        True,
+        True,
     )
 
 

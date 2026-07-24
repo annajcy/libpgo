@@ -65,7 +65,7 @@ public:
   std::string_view id() const override { return "hill_stable_neo"; }
   MaterialParameterSpec parameterSpec() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::PrimaryAxis; }
-  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:
   std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };
@@ -75,7 +75,7 @@ public:
   std::string_view id() const override { return "hill_stvk"; }
   MaterialParameterSpec parameterSpec() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::PrimaryAxis; }
-  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:
   std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };
@@ -85,7 +85,7 @@ public:
   std::string_view id() const override { return "hill_stvk_vol"; }
   MaterialParameterSpec parameterSpec() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::PrimaryAxis; }
-  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:
   std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };

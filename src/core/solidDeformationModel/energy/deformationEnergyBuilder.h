@@ -6,7 +6,7 @@ copyright to USC
 #pragma once
 
 #include "deformation/deformationModelManager.h"
-#include "material/fields/materialParameterFactory.h"
+#include "material/fields/materialParameterBuilder.h"
 #include "material/fields/materialFrameField.h"
 #include "EigenSupport.h"
 

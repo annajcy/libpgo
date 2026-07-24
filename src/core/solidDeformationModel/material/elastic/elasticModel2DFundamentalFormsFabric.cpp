@@ -608,12 +608,11 @@ MaterialParameterSpec KoiterFabricConfig::parameterSpec() const
     "bend_warp", "bend_weft", "bend_shear", "warp_stretch", "weft_stretch",
     "shear_stretch", "fiber_coupling", "thickness"});
 }
-void KoiterFabricConfig::initializeDefaultParameters(const SimulationMesh &mesh, int element, std::span<double> output) const
+void KoiterFabricConfig::initializeDefaultElementChannels(const SimulationMesh &mesh, int element, std::span<double> output) const
 {
   expectSize(output, 12);
-  const auto *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(mesh.getElementMaterial(element, 0));
-  if (!mat) throw std::invalid_argument("KoiterFabricConfig requires SimulationMeshENuhMaterial");
-  const double values[] = {1, 1, 1, 1, 1, 1, 1, 1000, 1000, 1000, 1, mat->geth()};
+  const auto &mat = mesh.requireElementField<SimulationMeshENuhMaterial>().at(element);
+  const double values[] = {1, 1, 1, 1, 1, 1, 1, 1000, 1000, 1000, 1, mat.geth()};
   std::copy(values, values + 12, output.begin());
 }
 std::unique_ptr<ElasticModel> KoiterFabricConfig::createModel(const SimulationMesh &, int, const MaterialFrame &) const

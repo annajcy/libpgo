@@ -5,7 +5,6 @@
 #include "material/plastic/plasticModel.h"
 
 #include <memory>
-#include <optional>
 
 namespace pgo
 {
@@ -14,16 +13,18 @@ namespace SolidDeformationModel
 
 class SimulationMesh;
 
-std::shared_ptr<MaterialParameters> makeMaterialParameters(
-  const SimulationMesh &mesh,
+std::shared_ptr<const MaterialParameterSpace> makeMaterialParameterSpace(
   const ElasticModelConfig &elastic,
   std::shared_ptr<const ParameterDofLayout> elasticDofLayout,
-  std::shared_ptr<const ParameterFieldMapping> elasticMapping,
-  std::optional<EigenSupport::VXd> elasticValues,
+  std::shared_ptr<const MaterialChannelMapping> elasticMapping,
   const PlasticModelConfig &plastic,
   std::shared_ptr<const ParameterDofLayout> plasticDofLayout,
-  std::shared_ptr<const ParameterFieldMapping> plasticMapping,
-  std::optional<EigenSupport::VXd> plasticValues);
+  std::shared_ptr<const MaterialChannelMapping> plasticMapping);
+
+std::shared_ptr<MaterialParameters> makeMaterialParameters(
+  std::shared_ptr<const MaterialParameterSpace> space,
+  EigenSupport::VXd elasticValues,
+  EigenSupport::VXd plasticValues);
 
 std::shared_ptr<MaterialParameters> makeDefaultMaterialParameters(
   const SimulationMesh &mesh,
