@@ -112,7 +112,7 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(std::shared_ptr<co
     PlasticFieldInit{ pgo::SolidDeformationModel::PlasticMaterialFieldType::ELEMENTWISE, plasticBase });
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   return std::make_shared<DeformationModelEnergy>(std::move(assembler), 0, false);
@@ -158,7 +158,7 @@ std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd
       ES::VXd::Constant(mesh->getNumElements(), 1.0) });
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1,
-    formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   return std::make_shared<DeformationModelEnergy>(std::move(assembler), 0, false);

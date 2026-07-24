@@ -26,8 +26,10 @@ std::unique_ptr<ElasticModel> ElasticModelFactory::create(
   const SimulationMesh &mesh,
   int ele,
   DeformationModelElasticMaterial type,
-  const double *fiberDirection)
+  const MaterialFrame &materialToReference)
 {
+  validateMaterialFrame(materialToReference);
+  const ES::V3d primaryAxis = materialToReference.col(0);
   const auto *mat = mesh.getElementMaterial(ele, 0);
   const SimulationMeshMaterial *auxMat = nullptr;
   if (mesh.getElementNumMaterials(ele) > 1)
@@ -63,7 +65,7 @@ std::unique_ptr<ElasticModel> ElasticModelFactory::create(
       if (!hill) throw std::invalid_argument("HILL_STABLE_NEO requires auxMat of type SimulationMeshHillMaterial");
       return std::make_unique<ElasticModelCombinedMaterial<2>>(
         std::make_unique<ElasticModelStableNeoHookeanMaterial>(mu, lam),
-        std::make_unique<ElasticModelHillTypeMaterial>(hill->getGamma(), hill->getEact(), hill->getLo(), fiberDirection));
+        std::make_unique<ElasticModelHillTypeMaterial>(hill->getGamma(), hill->getEact(), hill->getLo(), primaryAxis));
     }
     case DeformationModelElasticMaterial::HILL_STVK: {
       const auto *hill = dynamic_cast<const SimulationMeshHillMaterial *>(auxMat);
@@ -71,7 +73,7 @@ std::unique_ptr<ElasticModel> ElasticModelFactory::create(
       return std::make_unique<ElasticModelCombinedMaterial<2>>(
         std::make_unique<ElasticModelInvariantBasedMaterial>(
           std::make_unique<InvariantBasedMaterialStVK>(E, nu, J)),
-        std::make_unique<ElasticModelHillTypeMaterial>(hill->getGamma(), hill->getEact(), hill->getLo(), fiberDirection));
+        std::make_unique<ElasticModelHillTypeMaterial>(hill->getGamma(), hill->getEact(), hill->getLo(), primaryAxis));
     }
     case DeformationModelElasticMaterial::HILL_STVK_VOL: {
       const auto *hill = dynamic_cast<const SimulationMeshHillMaterial *>(auxMat);
@@ -79,7 +81,7 @@ std::unique_ptr<ElasticModel> ElasticModelFactory::create(
       return std::make_unique<ElasticModelCombinedMaterial<3>>(
         std::make_unique<ElasticModelInvariantBasedMaterial>(
           std::make_unique<InvariantBasedMaterialStVK>(E, nu, J)),
-        std::make_unique<ElasticModelHillTypeMaterial>(hill->getGamma(), hill->getEact(), hill->getLo(), fiberDirection),
+        std::make_unique<ElasticModelHillTypeMaterial>(hill->getGamma(), hill->getEact(), hill->getLo(), primaryAxis),
         std::make_unique<ElasticModelVolumeMaterial>(J));
     }
     case DeformationModelElasticMaterial::KOITER_FABRIC: {
@@ -101,6 +103,19 @@ std::unique_ptr<ElasticModel> ElasticModelFactory::create(
 
   throw std::invalid_argument(
     "ElasticModelFactory::create: unsupported combination of material class and elastic model type");
+}
+
+MaterialFrameRequirement ElasticModelFactory::materialFrameRequirement(
+  DeformationModelElasticMaterial type)
+{
+  switch (type) {
+  case DeformationModelElasticMaterial::HILL_STABLE_NEO:
+  case DeformationModelElasticMaterial::HILL_STVK:
+  case DeformationModelElasticMaterial::HILL_STVK_VOL:
+    return MaterialFrameRequirement::PrimaryAxis;
+  default:
+    return MaterialFrameRequirement::None;
+  }
 }
 
 std::string ElasticModelFactory::modelId(DeformationModelElasticMaterial type)
@@ -159,8 +174,8 @@ ParameterFieldSpec ElasticModelFactory::parameterSpec(
   ParameterFieldSpec spec;
   spec.domain = ParameterDomain::ELASTIC;
   spec.modelId = modelId(type);
-  const double dummyFiber[3] = { 1.0, 0.0, 0.0 };
-  spec.numChannels = create(mesh, 0, type, dummyFiber)->getNumParameters();
+  spec.numChannels =
+    create(mesh, 0, type, MaterialFrame::Identity())->getNumParameters();
   if (type == DeformationModelElasticMaterial::KOITER_STVK && spec.numChannels == 5) {
     spec.channelNames = { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" };
   }

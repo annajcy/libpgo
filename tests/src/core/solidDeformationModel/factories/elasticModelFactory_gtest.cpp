@@ -9,6 +9,7 @@
 #include "material/elastic/elasticModel3DSTVKMaterial.h"
 #include "material/elastic/elasticModel3DMooneyRivlin.h"
 #include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModelHillTypeMaterial.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "pgoLogging.h"
@@ -75,7 +76,8 @@ TEST(ElasticModelFactoryGTest, CreateStableNeo)
 
   testing::internal::CaptureStdout();
   auto result = ElasticModelFactory::create(
-    *simMesh, 0, DeformationModelElasticMaterial::STABLE_NEO, nullptr);
+    *simMesh, 0, DeformationModelElasticMaterial::STABLE_NEO,
+    MaterialFrame::Identity());
   const std::string stdoutText = testing::internal::GetCapturedStdout();
 
   ASSERT_NE(result, nullptr);
@@ -91,7 +93,8 @@ TEST(ElasticModelFactoryGTest, CreateLinear)
   ASSERT_NE(simMesh, nullptr);
 
   auto result = ElasticModelFactory::create(
-    *simMesh, 0, DeformationModelElasticMaterial::LINEAR, nullptr);
+    *simMesh, 0, DeformationModelElasticMaterial::LINEAR,
+    MaterialFrame::Identity());
 
   ASSERT_NE(result, nullptr);
   EXPECT_NE(dynamic_cast<ElasticModelLinearMaterial *>(result.get()), nullptr);
@@ -105,7 +108,8 @@ TEST(ElasticModelFactoryGTest, CreateStVK)
   ASSERT_NE(simMesh, nullptr);
 
   auto result = ElasticModelFactory::create(
-    *simMesh, 0, DeformationModelElasticMaterial::STVK, nullptr);
+    *simMesh, 0, DeformationModelElasticMaterial::STVK,
+    MaterialFrame::Identity());
 
   ASSERT_NE(result, nullptr);
   EXPECT_NE(dynamic_cast<ElasticModel3DSTVKMaterial *>(result.get()), nullptr);
@@ -120,7 +124,8 @@ TEST(ElasticModelFactoryGTest, UnknownElasticModelThrows)
 
   auto invalidType = static_cast<DeformationModelElasticMaterial>(999);
   EXPECT_THROW(
-    ElasticModelFactory::create(*simMesh, 0, invalidType, nullptr),
+    ElasticModelFactory::create(
+      *simMesh, 0, invalidType, MaterialFrame::Identity()),
     std::logic_error);
 }
 
@@ -131,10 +136,21 @@ TEST(ElasticModelFactoryGTest, HillParameterSpecMatchesCreatedModelParameters)
   SimulationMeshHillMaterial hillMaterial(1e5, 1.2, 0.7);
   simMesh->appendMaterialToAllElements(&hillMaterial);
 
-  const double fiberDirection[3] = { 1.0, 0.0, 0.0 };
+  constexpr double kInvSqrt2 = 0.7071067811865475244;
+  MaterialFrame frame;
+  frame.col(0) << kInvSqrt2, kInvSqrt2, 0.0;
+  frame.col(1) << -kInvSqrt2, kInvSqrt2, 0.0;
+  frame.col(2) << 0.0, 0.0, 1.0;
   auto result = ElasticModelFactory::create(
-    *simMesh, 0, DeformationModelElasticMaterial::HILL_STABLE_NEO, fiberDirection);
+    *simMesh, 0, DeformationModelElasticMaterial::HILL_STABLE_NEO, frame);
   ASSERT_NE(result, nullptr);
+  auto *combined =
+    dynamic_cast<ElasticModelCombinedMaterial<2> *>(result.get());
+  ASSERT_NE(combined, nullptr);
+  const auto *hill = dynamic_cast<const ElasticModelHillTypeMaterial *>(
+    combined->getMaterial(1));
+  ASSERT_NE(hill, nullptr);
+  EXPECT_TRUE(hill->primaryAxis().isApprox(frame.col(0), 1e-12));
 
   const auto spec = ElasticModelFactory::parameterSpec(
     *simMesh, DeformationModelElasticMaterial::HILL_STABLE_NEO);
@@ -149,7 +165,8 @@ TEST(ElasticModelFactoryGTest, KoiterFabricParameterSpecMatchesCreatedModelParam
   auto simMesh = makeSingleShellSimulationMesh();
 
   auto result = ElasticModelFactory::create(
-    *simMesh, 0, DeformationModelElasticMaterial::KOITER_FABRIC, nullptr);
+    *simMesh, 0, DeformationModelElasticMaterial::KOITER_FABRIC,
+    MaterialFrame::Identity());
   ASSERT_NE(result, nullptr);
 
   const auto spec = ElasticModelFactory::parameterSpec(

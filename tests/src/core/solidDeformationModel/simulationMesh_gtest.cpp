@@ -161,10 +161,11 @@ TEST(SimulationMeshGTest, OrthotropicPayloadExistsAtVegaLevelButNoElasticModel)
 }
 
 // Characterization: Hill active-fiber path requires an extra
-// SimulationMeshHillMaterial slot and explicit fiber directions.
+// SimulationMeshHillMaterial slot. Orientation is supplied separately by an
+// immutable MaterialFrameField.
 // This test creates a SimulationMesh with ENu + Hill materials and
 // verifies that both slots exist and have the expected types.
-TEST(SimulationMeshGTest, HillRequiresExtraMaterialSlotAndFibers)
+TEST(SimulationMeshGTest, HillRequiresExtraMaterialSlot)
 {
   using namespace pgo::SolidDeformationModel;
 
@@ -208,8 +209,6 @@ TEST(SimulationMeshGTest, HillRequiresExtraMaterialSlotAndFibers)
     mesh->getElementMaterial(0, 0));
   ASSERT_NE(baseSlot, nullptr);
 
-  // Hill path also requires fiber directions (element or vertex),
-  // but those are passed to DeformationModelManager, not stored in
-  // SimulationMesh. See CubicAssemblerMaterialParamRegression for
-  // the full end-to-end Hill energy test.
+  // Orientation is not stored in SimulationMesh. The deformation builder
+  // supplies a MaterialFrameField (GlobalAxes by default).
 }

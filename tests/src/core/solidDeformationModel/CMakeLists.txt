@@ -119,6 +119,10 @@ pgo_add_gtest(elementwiseParameterField_gtest
   SOURCES material/fields/elementwiseParameterField_gtest.cpp
   DEPS solidDeformationModel
 )
+pgo_add_gtest(materialFrameField_gtest
+  SOURCES material/fields/materialFrameField_gtest.cpp
+  DEPS solidDeformationModel
+)
 
 pgo_add_gtest(elasticModelFactory_gtest
   SOURCES factories/elasticModelFactory_gtest.cpp

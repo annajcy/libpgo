@@ -8,19 +8,22 @@ copyright to USC,MIT,NUS
 #include "EigenSupport.h"
 
 #include <cmath>
-#include <cstring>
 #include <iostream>
+#include <stdexcept>
 
 namespace ES = pgo::EigenSupport;
 
 using namespace pgo::SolidDeformationModel;
 
 ElasticModelHillTypeMaterial::ElasticModelHillTypeMaterial(double shapeParam, double maximalContractionForce,
-  double optimalLengthRatio, const double fd[3]):
+  double optimalLengthRatio, const ES::V3d &fd):
   gamma(shapeParam),
   maxf(maximalContractionForce), lo(optimalLengthRatio)
 {
-  memcpy(fiberDirection, fd, sizeof(fiberDirection));
+  if (!fd.allFinite() || std::abs(fd.norm() - 1.0) > 1e-8)
+    throw std::invalid_argument(
+      "ElasticModelHillTypeMaterial: fiber direction must be finite and normalized.");
+  (Eigen::Map<ES::V3d>(fiberDirection)) = fd;
 
   sqrt_gamma = sqrt(gamma);
   sqrt_pi = sqrt(M_PI);

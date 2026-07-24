@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "energy/deformationEnergyBuilder.h"
+#include "deformation/deformationModelAssembler.h"
 #include "formulations/formulation/formulations.h"
 #include "material/fields/materialParameterFieldInit.h"
 
@@ -62,6 +63,48 @@ TEST(DeformationModelFactoryGTest, TetZeroDisplacementBaseline)
   energy->hessian(u0, h0);
   for (Eigen::Index i = 0; i < h0.nonZeros(); i++)
     EXPECT_TRUE(std::isfinite(h0.valuePtr()[i])) << "Non-finite Hessian entry at " << i;
+}
+
+// The structured-input overload must preserve the caller-provided immutable
+// material frame field instead of silently replacing it with global axes.
+TEST(DeformationModelFactoryGTest, StructuredInputsCarryCustomMaterialFrames)
+{
+  pgo::Logging::init();
+
+  pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
+  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
+  ASSERT_NE(simMesh, nullptr);
+
+  const double angle = 0.61;
+  MaterialFrame frame;
+  frame << std::cos(angle), -std::sin(angle), 0.0,
+    std::sin(angle), std::cos(angle), 0.0,
+    0.0, 0.0, 1.0;
+  auto materialFrames =
+    std::make_shared<const ConstantMaterialFrameField>(
+      simMesh->getNumElements(), frame);
+
+  DeformationModelInputs inputs{
+    createElasticParameterField(
+      *simMesh, DeformationModelElasticMaterial::STABLE_NEO, {}),
+    createPlasticParameterField(
+      *simMesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF3, {}),
+    materialFrames,
+  };
+
+  auto energy = makeDeformationEnergy(
+    simMesh,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF3,
+    std::move(inputs),
+    TetLinearFormulation{});
+  ASSERT_NE(energy, nullptr);
+
+  const auto &manager =
+    energy->assembler().getDeformationModelManager();
+  EXPECT_EQ(manager.materialFrameFieldPtr().get(), materialFrames.get());
+  EXPECT_TRUE(
+    manager.materialToReferenceFrame(0).isApprox(frame, 1e-12));
 }
 
 // Baseline: cubic deformation energy at zero displacement.

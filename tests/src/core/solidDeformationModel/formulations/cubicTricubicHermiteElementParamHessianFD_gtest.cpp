@@ -103,7 +103,6 @@ struct ElementCase
   std::unique_ptr<DeformationModelAssembler> assembler;
   const VolumetricDeformationModel *fem = nullptr;
   std::unique_ptr<DeformationModelCacheData> cache;
-  ES::VXd elementFiber, vertexFiber;
   ES::VXd positions;  // deformed, element-local (== global for a single element)
   ES::VXd aBase, bBase;
   int np = 0, ne = 0;
@@ -139,23 +138,14 @@ ElementCase makeCase(std::unique_ptr<SimulationMesh> meshMutable,
   }
   c.meshOwner = std::shared_ptr<const SimulationMesh>(std::move(meshMutable));
 
-  const int nele = c.meshOwner->getNumElements();
   const int nvtx = c.meshOwner->getNumVertices();
-  c.elementFiber = ES::VXd::Zero(nele * 3);
-  c.vertexFiber = ES::VXd::Zero(nvtx * 3);
-  for (int ei = 0; ei < nele; ei++)
-    c.elementFiber.segment<3>(ei * 3) << 1.0, 0.0, 0.0;
-  for (int vi = 0; vi < nvtx; vi++)
-    c.vertexFiber.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
 
   auto elasticField = createElasticParameterField(*c.meshOwner, elastic, ElasticFieldInit{});
   auto plasticField = createPlasticParameterField(*c.meshOwner, plastic, PlasticFieldInit{});
 
-  const double *ef = withHill ? c.elementFiber.data() : nullptr;
-  const double *vf = withHill ? c.vertexFiber.data() : nullptr;
   pgo::SolidDeformationModel::CubicTricubicHermiteFormulation formulation;
   auto manager = std::make_shared<DeformationModelManager>(
-    c.meshOwner, elastic, plastic, formulation, kExactDerivativeEnforceSpd, ef, vf);
+    c.meshOwner, elastic, plastic, formulation, kExactDerivativeEnforceSpd);
   c.assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
 

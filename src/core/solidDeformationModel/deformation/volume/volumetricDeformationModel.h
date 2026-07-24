@@ -50,8 +50,6 @@ public:
   int getNumElasticParameters() const override { return numElasticParams_; }
   int getNumPlasticParameters() const override { return numPlasticParams_; }
   void defaultPlasticParams(double *params) const override;
-  void setPlasticFiberAxes(const double *R) override;
-  bool isPlasticIdentityTransform() const override;
   int getNumVertices() const override { return numNodes_; }
   int getNumDOFs() const override { return localDofs_; }
   int getNumMaterialLocations() const override { return numQuadPts_; }

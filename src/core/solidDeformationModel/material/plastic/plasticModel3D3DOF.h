@@ -6,6 +6,7 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "material/plastic/plasticModel3DDeformationGradient.h"
+#include "EigenSupport.h"
 
 
 namespace pgo
@@ -15,10 +16,8 @@ namespace SolidDeformationModel
 class PlasticModel3D3DOF : public PlasticModel3DDeformationGradient
 {
 public:
-  PlasticModel3D3DOF(const double R[9]);
+  explicit PlasticModel3D3DOF(const EigenSupport::M3d &referenceToMaterial);
   ~PlasticModel3D3DOF() {}
-
-  void setR(const double R[9]);
 
   virtual int getNumParameters() const override { return 3; }
   virtual void computeA(const double *param, double A[9]) const override;
@@ -31,7 +30,6 @@ public:
   virtual void compute_d2AInv_da2(const double *param, int pi, int pj, double ret[9]) const override;
 
   virtual void defaultFp(double *Fp) const override { Fp[0] = Fp[1] = Fp[2] = 1.0; }
-  void setFiberAxes(const double *R) override { setR(R); }
   virtual void projectParam(double *param, double zeroThreshold) const override;
   virtual void toParam(const double *Fp, double *param) const override;
 
@@ -46,9 +44,13 @@ protected:
 
 inline void PlasticModel3D3DOF::toParam(const double *Fp, double *param) const
 {
-  param[0] = Fp[0];
-  param[1] = Fp[4];
-  param[2] = Fp[8];
+  const EigenSupport::M3d local =
+    Eigen::Map<const EigenSupport::M3d>(R) *
+    Eigen::Map<const EigenSupport::M3d>(Fp) *
+    Eigen::Map<const EigenSupport::M3d>(RT);
+  param[0] = local(0, 0);
+  param[1] = local(1, 1);
+  param[2] = local(2, 2);
 }
 
 inline void PlasticModel3D3DOF::computeR(const double *param, double R[9]) const

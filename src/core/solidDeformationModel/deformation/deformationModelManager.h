@@ -8,6 +8,7 @@ copyright to USC, MIT, NUS
 #include "EigenDef.h"
 #include "formulations/formulation/formulation.h"
 #include "material/materialTypes.h"
+#include "material/fields/materialFrameField.h"
 
 #include <memory>
 
@@ -26,21 +27,26 @@ public:
     DeformationModelElasticMaterial elasticMaterial,
     DeformationModelPlasticMaterial plasticModel,
     const Formulation &formulation,
-    int enforceSPD = 1,
-    const double *elementFiberDirections = nullptr,
-    const double *vertexFiberDirections = nullptr);
+    int enforceSPD = 1);
+
+  DeformationModelManager(std::shared_ptr<const SimulationMesh> mesh,
+    DeformationModelElasticMaterial elasticMaterial,
+    DeformationModelPlasticMaterial plasticModel,
+    const Formulation &formulation,
+    int enforceSPD,
+    std::shared_ptr<const MaterialFrameField> materialFrames);
 
   ~DeformationModelManager();
   void setEnforceSPD(int enable);
-  void updateMeshRigidTransformation(const double R[9]);
 
   int getNumPlasticParameters() const;
   int getNumElasticParameters() const;
   const SimulationMesh *getMesh() const;
 
-  void setElementAlignedMatrix(int id, double R[9]);
-  void getElementAlignedMatrix(int id, double R[9]) const;
-  void getVertexAlignedMatrix(int id, double R[9]) const;
+  const MaterialFrameField &materialFrameField() const;
+  std::shared_ptr<const MaterialFrameField> materialFrameFieldPtr() const;
+  MaterialFrame materialToReferenceFrame(
+    int elementId, int quadratureId = 0) const;
 
   const DeformationModel *getDeformationModel(int eleID) const;
 
@@ -48,9 +54,6 @@ protected:
   std::unique_ptr<DeformationModelManagerImpl> data;
 
 private:
-  void initFiber(const double *elementFiberDirections,
-    const double *vertexFiberDirections);
-
   void initImpl(DeformationModelPlasticMaterial plasticModelType,
     DeformationModelElasticMaterial elasticMaterialType,
     const Formulation &formulation);

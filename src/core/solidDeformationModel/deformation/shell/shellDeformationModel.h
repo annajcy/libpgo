@@ -71,7 +71,6 @@ public:
   int getNumElasticParameters() const override { return numElasticParams_; }
   int getNumPlasticParameters() const override { return numPlasticParams_; }
   void defaultPlasticParams(double *params) const override;
-  bool isPlasticIdentityTransform() const override;
 
   int getNumVertices() const override;
   int getNumDOFs() const override;

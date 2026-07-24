@@ -7,6 +7,7 @@ copyright to USC
 
 #include "deformation/deformationModelManager.h"
 #include "material/fields/materialParameterFieldInit.h"
+#include "material/fields/materialFrameField.h"
 #include "EigenSupport.h"
 
 #include "formulations/formulation/formulation.h"
@@ -28,6 +29,21 @@ struct DeformationModelOptions
   // Per-element assembler weights; empty means all ones.
   EigenSupport::VXd elementWeights;
 };
+
+struct DeformationModelInputs
+{
+  std::shared_ptr<OptimizableField> elasticParameters;
+  std::shared_ptr<OptimizableField> plasticParameters;
+  std::shared_ptr<const MaterialFrameField> materialFrames;
+};
+
+std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
+  std::shared_ptr<const SimulationMesh> mesh,
+  DeformationModelElasticMaterial elastic,
+  DeformationModelPlasticMaterial plastic,
+  DeformationModelInputs inputs,
+  const Formulation &formulation,
+  const DeformationModelOptions &opts = {});
 
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   std::shared_ptr<const SimulationMesh> mesh,

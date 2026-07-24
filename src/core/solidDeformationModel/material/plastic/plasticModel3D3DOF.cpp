@@ -7,8 +7,6 @@ copyright to USC,MIT,NUS
 
 #include "EigenSupport.h"
 
-#include <cstring>
-
 namespace ES = pgo::EigenSupport; 
 
 using Map3 = Eigen::Map<ES::M3d>;
@@ -16,16 +14,11 @@ using MapC3 = Eigen::Map<const ES::M3d>;
 
 using namespace pgo::SolidDeformationModel;
 
-PlasticModel3D3DOF::PlasticModel3D3DOF(const double R_[9]):
+PlasticModel3D3DOF::PlasticModel3D3DOF(
+  const ES::M3d &referenceToMaterial):
   PlasticModel3DDeformationGradient(3)
 {
-  std::memcpy(R, R_, sizeof(double) * 9);
-  (Map3(RT)) = Map3(R).transpose();
-}
-
-void PlasticModel3D3DOF::setR(const double R_[9])
-{
-  std::memcpy(R, R_, sizeof(double) * 9);
+  (Map3(R)) = referenceToMaterial;
   (Map3(RT)) = Map3(R).transpose();
 }
 

@@ -6,6 +6,7 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "material/elastic/elasticModel3DDeformationGradient.h"
+#include "EigenSupport.h"
 
 namespace pgo
 {
@@ -14,7 +15,8 @@ namespace SolidDeformationModel
 class ElasticModelHillTypeMaterial : public ElasticModel3DDeformationGradient
 {
 public:
-  ElasticModelHillTypeMaterial(double shapeParam, double maximalContractionForce, double optimalLengthRatio, const double fiberDirection[3]);
+  ElasticModelHillTypeMaterial(double shapeParam, double maximalContractionForce,
+    double optimalLengthRatio, const EigenSupport::V3d &fiberDirection);
   virtual ~ElasticModelHillTypeMaterial() {}
 
   void enableSPD(int enable) override { enforceSPD_ = enable ? 1 : 0; }
@@ -33,6 +35,11 @@ public:
     const double U[9], const double V[9], const double S[3]) const override;
   virtual void compute_dP_dparam(const double *param, int i, const double F[9],
     const double U[9], const double V[9], const double S[3], double *ret) const override;
+
+  EigenSupport::V3d primaryAxis() const
+  {
+    return Eigen::Map<const EigenSupport::V3d>(fiberDirection);
+  }
 
 protected:
   double compute_length(const double F[9], double Fd[] = nullptr) const;

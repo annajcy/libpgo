@@ -18,23 +18,24 @@ namespace ES = EigenSupport;
 
 int PlasticModelFactory::numParameters(DeformationModelPlasticMaterial type)
 {
-  // Single source of truth: the plastic model's differentiable parameter count.
-  // create() needs no mesh and the fiber axes do not affect the count, so a
-  // throwaway model with a null axis is sufficient.
-  return create(type, nullptr)->getNumParameters();
+  return create(type, MaterialFrame::Identity())->getNumParameters();
 }
 
 std::unique_ptr<PlasticModel> PlasticModelFactory::create(
   DeformationModelPlasticMaterial type,
-  const double *fiberAxesRestRow0)
+  const MaterialFrame &materialToReference)
 {
+  validateMaterialFrame(materialToReference);
   if (type == DeformationModelPlasticMaterial::VOLUMETRIC_DOF0) {
     static constexpr double kIdentity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
     return std::make_unique<PlasticModel3DConstant>(kIdentity);
   }
   else if (type == DeformationModelPlasticMaterial::VOLUMETRIC_DOF3) {
-    static constexpr double kIdentity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
-    return std::make_unique<PlasticModel3D3DOF>(fiberAxesRestRow0 ? fiberAxesRestRow0 : kIdentity);
+    // PlasticModel3D3DOF retains the legacy row-axis internal convention R.
+    // Keep that convention private at this boundary: R = Q^T.
+    const MaterialFrame referenceToMaterial =
+      materialToReference.transpose();
+    return std::make_unique<PlasticModel3D3DOF>(referenceToMaterial);
   }
   else if (type == DeformationModelPlasticMaterial::VOLUMETRIC_DOF6) {
     return std::make_unique<PlasticModel3D6DOF>();
@@ -48,6 +49,14 @@ std::unique_ptr<PlasticModel> PlasticModelFactory::create(
   else {
     throw std::runtime_error("PlasticModelFactory::create: unknown plastic model type");
   }
+}
+
+MaterialFrameRequirement PlasticModelFactory::materialFrameRequirement(
+  DeformationModelPlasticMaterial type)
+{
+  return type == DeformationModelPlasticMaterial::VOLUMETRIC_DOF3 ?
+    MaterialFrameRequirement::FullFrame :
+    MaterialFrameRequirement::None;
 }
 
 ES::VXd PlasticModelFactory::initializeDefaultPlasticParams(
@@ -123,7 +132,8 @@ std::shared_ptr<OptimizableField> PlasticModelFactory::createDefaultElementwiseF
   std::vector<std::unique_ptr<PlasticModel>> ownedPlasticModels(nele);
   std::vector<PlasticModel *> plasticModels(nele);
   for (int ei = 0; ei < nele; ei++) {
-    ownedPlasticModels[ei] = create(type, nullptr);
+    ownedPlasticModels[ei] =
+      create(type, MaterialFrame::Identity());
     plasticModels[ei] = ownedPlasticModels[ei].get();
   }
 
@@ -148,7 +158,8 @@ std::shared_ptr<OptimizableField> PlasticModelFactory::createDefaultConstantFiel
   ES::VXd values(np);
   values.setZero();
   if (np > 0) {
-    std::unique_ptr<PlasticModel> model = create(type, nullptr);
+    std::unique_ptr<PlasticModel> model =
+      create(type, MaterialFrame::Identity());
     model->defaultParams(values.data());
   }
   return std::make_shared<ConstantParameterField>(

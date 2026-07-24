@@ -90,7 +90,7 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
     *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
   auto manager = std::make_shared<DeformationModelManager>(
     c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), offset, false);
@@ -357,7 +357,7 @@ EnergyCase makeTwoCubeCase(const FormulationT &formulation)
     *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
   auto manager = std::make_shared<DeformationModelManager>(
     c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), 0, false);

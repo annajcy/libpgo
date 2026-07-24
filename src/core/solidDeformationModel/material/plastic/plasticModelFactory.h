@@ -1,6 +1,7 @@
 #pragma once
 
 #include "material/fields/parameterField.h"
+#include "material/fields/materialFrameField.h"
 #include "material/materialTypes.h"
 #include "EigenSupport.h"
 
@@ -46,12 +47,14 @@ public:
     DeformationModelPlasticMaterial type,
     EigenSupport::VXd values);
 
-  // Create the plastic model for one element.
-  // fiberAxesRestRow0: pointer to 9 doubles (3x3 row-major) for the element's
-  // fiber axes in rest configuration. Only used by VOLUMETRIC_DOF3.
+  static MaterialFrameRequirement materialFrameRequirement(
+    DeformationModelPlasticMaterial type);
+
+  // Create the plastic model for one element. Material axes are columns of
+  // materialToReference. VOLUMETRIC_DOF3 uses Q*S*Q^T; DOF6 ignores Q.
   static std::unique_ptr<PlasticModel> create(
     DeformationModelPlasticMaterial type,
-    const double *fiberAxesRestRow0);
+    const MaterialFrame &materialToReference);
 
   // Initialize default plastic parameter snapshot for the full mesh.
   // Calls PlasticModel::defaultParams() on each element.

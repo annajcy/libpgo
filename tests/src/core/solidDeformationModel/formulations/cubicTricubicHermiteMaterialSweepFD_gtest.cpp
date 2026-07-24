@@ -87,12 +87,11 @@ struct HermiteSweepCase
 {
   std::shared_ptr<const SimulationMesh> meshOwner;
   std::unique_ptr<DeformationModelEnergy> energy;
-  ES::VXd elementFiber, vertexFiber;
   int numDOFs = 0;
 };
 
 // Build a single-element tricubic-Hermite Energy for a given material.
-// withHill: appends Hill activation parameter + fiber directions.
+// withHill: appends the Hill activation material; GlobalAxes supplies its frame.
 HermiteSweepCase makeHermiteCase(DeformationModelElasticMaterial elastic, bool withHill)
 {
   HermiteSweepCase c;
@@ -115,25 +114,14 @@ HermiteSweepCase makeHermiteCase(DeformationModelElasticMaterial elastic, bool w
   }
   c.meshOwner = std::shared_ptr<const SimulationMesh>(std::move(meshMutable));
 
-  const int nele = c.meshOwner->getNumElements();
-  const int nvtx = c.meshOwner->getNumVertices();
-  c.elementFiber = ES::VXd::Zero(nele * 3);
-  c.vertexFiber = ES::VXd::Zero(nvtx * 3);
-  for (int ei = 0; ei < nele; ei++)
-    c.elementFiber.segment<3>(ei * 3) << 1.0, 0.0, 0.0;
-  for (int vi = 0; vi < nvtx; vi++)
-    c.vertexFiber.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
-
   auto elasticField = createElasticParameterField(*c.meshOwner, elastic, ElasticFieldInit{});
   auto plasticField = createPlasticParameterField(
     *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
 
-  const double *ef = withHill ? c.elementFiber.data() : nullptr;
-  const double *vf = withHill ? c.vertexFiber.data() : nullptr;
   CubicTricubicHermiteFormulation formulation;
   auto manager = std::make_shared<DeformationModelManager>(
     c.meshOwner, elastic, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    formulation, kExactDerivativeEnforceSpd, ef, vf);
+    formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), 0, false);
@@ -241,7 +229,7 @@ TEST(CubicTricubicHermiteMaterialSweepFDGTest, MooneyRivlin)
   auto manager = std::make_shared<DeformationModelManager>(
     c.meshOwner, DeformationModelElasticMaterial::MOONEY_RIVLIN,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), 0, false);

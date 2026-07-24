@@ -96,14 +96,13 @@ ES::VXd materialValuesForElement(
 }
 
 // A single-element volumetric model, its supporting assembler, and a deformed
-// local position vector. Fiber arrays are owned here so they outlive the manager.
+// local position vector.
 struct ElementCase
 {
   std::shared_ptr<const SimulationMesh> meshOwner;
   std::unique_ptr<DeformationModelAssembler> assembler;
   const VolumetricDeformationModel *fem = nullptr;
   std::unique_ptr<DeformationModelCacheData> cache;
-  ES::VXd elementFiber, vertexFiber;
   ES::VXd positions;  // deformed, element-local (== global for a single element)
   ES::VXd aBase, bBase;
   int np = 0, ne = 0;
@@ -151,7 +150,7 @@ ES::VXd deformedPositions(const SimulationMesh &mesh)
 }
 
 // Builds the element-local case. When `elastic` is HILL_STABLE_NEO an elastic
-// parameter (activation) is present and fiber directions are supplied.
+// activation parameter is present and GlobalAxes supplies the material frame.
 ElementCase makeCase(std::unique_ptr<SimulationMesh> meshMutable,
   SimulationMeshType type,
   DeformationModelElasticMaterial elastic,
@@ -167,31 +166,20 @@ ElementCase makeCase(std::unique_ptr<SimulationMesh> meshMutable,
   }
   c.meshOwner = std::shared_ptr<const SimulationMesh>(std::move(meshMutable));
 
-  const int nele = c.meshOwner->getNumElements();
-  const int nvtx = c.meshOwner->getNumVertices();
-  c.elementFiber = ES::VXd::Zero(nele * 3);
-  c.vertexFiber = ES::VXd::Zero(nvtx * 3);
-  for (int ei = 0; ei < nele; ei++)
-    c.elementFiber.segment<3>(ei * 3) << 1.0, 0.0, 0.0;
-  for (int vi = 0; vi < nvtx; vi++)
-    c.vertexFiber.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
-
   auto elasticField = createElasticParameterField(*c.meshOwner, elastic, ElasticFieldInit{});
   auto plasticField = createPlasticParameterField(*c.meshOwner, plastic, PlasticFieldInit{});
 
-  const double *ef = withHill ? c.elementFiber.data() : nullptr;
-  const double *vf = withHill ? c.vertexFiber.data() : nullptr;
   if (type == SimulationMeshType::TET) {
     pgo::SolidDeformationModel::TetLinearFormulation formulation;
     auto manager = std::make_shared<DeformationModelManager>(
-      c.meshOwner, elastic, plastic, formulation, kExactDerivativeEnforceSpd, ef, vf);
+      c.meshOwner, elastic, plastic, formulation, kExactDerivativeEnforceSpd);
     c.assembler = std::make_unique<DeformationModelAssembler>(
       std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   }
   else {
     pgo::SolidDeformationModel::CubicLinearFormulation formulation;
     auto manager = std::make_shared<DeformationModelManager>(
-      c.meshOwner, elastic, plastic, formulation, kExactDerivativeEnforceSpd, ef, vf);
+      c.meshOwner, elastic, plastic, formulation, kExactDerivativeEnforceSpd);
     c.assembler = std::make_unique<DeformationModelAssembler>(
       std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   }

@@ -92,6 +92,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/dof/cubicTricubicHermiteDofLayout.h
 
   material/fields/parameterField.h
+  material/fields/materialFrameField.h
   material/fields/materialParameterFieldInit.h
   material/fields/constantParameterField.h
   material/fields/elementwiseParameterField.h
@@ -160,6 +161,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   material/fields/constantParameterField.cpp
   material/fields/elementwiseParameterField.cpp
+  material/fields/materialFrameField.cpp
   material/fields/materialParameterFieldInit.cpp
 
 

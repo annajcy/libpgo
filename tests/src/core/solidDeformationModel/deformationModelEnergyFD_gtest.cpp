@@ -98,7 +98,7 @@ std::unique_ptr<DeformationModelEnergy> finalizeEnergy(
   auto elasticField = createElasticParameterField(*mesh, elastic, ElasticFieldInit{});
   auto plasticField = createPlasticParameterField(*mesh, plastic, PlasticFieldInit{});
   auto manager = std::make_shared<DeformationModelManager>(
-    mesh, elastic, plastic, formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    mesh, elastic, plastic, formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
   // enableMaterialMaxStep = false: the max-step clamp is irrelevant to derivative FD

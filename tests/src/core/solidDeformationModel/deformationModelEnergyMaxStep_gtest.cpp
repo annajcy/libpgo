@@ -115,7 +115,7 @@ EnergyFixture makeTetFixture(
     *fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
   auto manager = std::make_shared<DeformationModelManager>(
     fixture.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, formulation, 1, nullptr, nullptr);
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, formulation, 1);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
@@ -159,7 +159,7 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
     *fixture.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
   auto manager = std::make_shared<DeformationModelManager>(
     fixture.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, formulation, 1, nullptr, nullptr);
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, formulation, 1);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
@@ -206,7 +206,7 @@ EnergyFixture makeShellFixture()
     *fixture.meshOwner, DeformationModelPlasticMaterial::SHELL_FF_DOF1, PlasticFieldInit{});
   auto manager = std::make_shared<DeformationModelManager>(
     fixture.meshOwner, DeformationModelElasticMaterial::KOITER_STVK,
-    DeformationModelPlasticMaterial::SHELL_FF_DOF1, formulation, 1, nullptr, nullptr);
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1, formulation, 1);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);

@@ -80,7 +80,6 @@ struct Case
 {
   std::shared_ptr<const SimulationMesh> meshOwner;
   std::unique_ptr<DeformationModelAssembler> assembler;
-  ES::VXd elementFiber, vertexFiber;  // owned; outlive the manager
   ES::VXd x;
 };
 
@@ -94,7 +93,8 @@ std::unique_ptr<SimulationMesh> singleTet(const SimulationMeshMaterial &mat)
     4, vertices, 1, 4, elementVertices, elementMaterialIndices, 1, materials, SimulationMeshType::TET);
 }
 
-// Volumetric single-tet case. withHill appends a Hill activation material + fibers.
+// Volumetric single-tet case. withHill appends a Hill activation material;
+// GlobalAxes supplies its frame.
 Case makeVolCase(DeformationModelElasticMaterial elastic, std::unique_ptr<SimulationMesh> meshMutable, bool withHill)
 {
   pgo::Logging::init();
@@ -106,21 +106,14 @@ Case makeVolCase(DeformationModelElasticMaterial elastic, std::unique_ptr<Simula
   c.meshOwner = std::shared_ptr<const SimulationMesh>(std::move(meshMutable));
 
   const int nele = c.meshOwner->getNumElements();
-  const int nvtx = c.meshOwner->getNumVertices();
-  c.elementFiber = ES::VXd::Zero(nele * 3);
-  c.vertexFiber = ES::VXd::Zero(nvtx * 3);
-  for (int ei = 0; ei < nele; ei++) c.elementFiber.segment<3>(ei * 3) << 1.0, 0.0, 0.0;
-  for (int vi = 0; vi < nvtx; vi++) c.vertexFiber.segment<3>(vi * 3) << 1.0, 0.0, 0.0;
 
   auto elasticField = createElasticParameterField(*c.meshOwner, elastic, ElasticFieldInit{});
   auto plasticField = createPlasticParameterField(
     *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
-  const double *ef = withHill ? c.elementFiber.data() : nullptr;
-  const double *vf = withHill ? c.vertexFiber.data() : nullptr;
   TetLinearFormulation formulation;
   auto manager = std::make_shared<DeformationModelManager>(
     c.meshOwner, elastic, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    formulation, kExactDerivativeEnforceSpd, ef, vf);
+    formulation, kExactDerivativeEnforceSpd);
 
   // Plastic identity.
   const int np = manager->getNumPlasticParameters();
@@ -167,7 +160,7 @@ Case makeShellCase(DeformationModelElasticMaterial elastic, const ES::VXd &elast
   KoiterShellFormulation formulation;
   auto manager = std::make_shared<DeformationModelManager>(
     c.meshOwner, elastic, DeformationModelPlasticMaterial::SHELL_FF_DOF1,
-    formulation, kExactDerivativeEnforceSpd, nullptr, nullptr);
+    formulation, kExactDerivativeEnforceSpd);
   c.assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
 

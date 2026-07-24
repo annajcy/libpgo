@@ -81,9 +81,6 @@ public:
   virtual int getNumElasticParameters() const = 0;
   virtual int getNumPlasticParameters() const = 0;
   virtual void defaultPlasticParams(double *params) const { (void)params; }
-  virtual void setPlasticFiberAxes(const double *R) { (void)R; }
-  virtual bool isPlasticIdentityTransform() const { return false; }
-
   virtual int getNumVertices() const = 0;
   virtual int getNumDOFs() const = 0;
   virtual LocalMaxStepResult computeLocalMaxStepSize(const double *x_local, const double *dx_local) const

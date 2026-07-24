@@ -535,11 +535,6 @@ void ShellDeformationModel::defaultPlasticParams(double *params) const
   plastic2D_->defaultParams(params);
 }
 
-bool ShellDeformationModel::isPlasticIdentityTransform() const
-{
-  return plastic2D_->isIdentityTransform();
-}
-
 int ShellDeformationModel::getNumVertices() const
 {
   return elementMapping_->getNumNodes();

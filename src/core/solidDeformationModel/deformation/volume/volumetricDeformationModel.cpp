@@ -58,16 +58,6 @@ void VolumetricDeformationModel::defaultPlasticParams(double *params) const
   plasticModel_->defaultParams(params);
 }
 
-void VolumetricDeformationModel::setPlasticFiberAxes(const double *R)
-{
-  plasticModel_->setFiberAxes(R);
-}
-
-bool VolumetricDeformationModel::isPlasticIdentityTransform() const
-{
-  return plasticModel_->isIdentityTransform();
-}
-
 // ============================================================
 // allocateCacheData / elasticParamsPtr
 // ============================================================

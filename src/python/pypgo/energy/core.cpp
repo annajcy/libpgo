@@ -539,44 +539,37 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
   opts.enableMaterialMaxStep = enableMaterialMaxStep;
 
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
+  auto makeInputs = [&]() {
+    SolidDeformationModel::DeformationModelInputs modelInputs;
+    modelInputs.elasticParameters = inputs.elasticField;
+    modelInputs.plasticParameters = inputs.plasticField;
+    modelInputs.materialFrames =
+      SolidDeformationModel::makeGlobalAxesMaterialFrameField(
+        meshCore->mesh().getNumElements());
+    return modelInputs;
+  };
   {
     nb::gil_scoped_release release;
     if (formulationName == "tet_linear") {
       SolidDeformationModel::TetLinearFormulation formulation;
-      auto manager = std::make_shared<SolidDeformationModel::DeformationModelManager>(
+      energy = SolidDeformationModel::makeDeformationEnergy(
         meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
-        formulation, opts.enforceSPD ? 1 : 0, nullptr, nullptr);
-      auto assembler = std::make_unique<SolidDeformationModel::DeformationModelAssembler>(
-        std::move(manager), formulation, inputs.elasticField, inputs.plasticField, nullptr);
-      energy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
-        std::move(assembler), 0, opts.enableMaterialMaxStep);
+        makeInputs(), formulation, opts);
     } else if (formulationName == "cubic_linear") {
       SolidDeformationModel::CubicLinearFormulation formulation;
-      auto manager = std::make_shared<SolidDeformationModel::DeformationModelManager>(
+      energy = SolidDeformationModel::makeDeformationEnergy(
         meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
-        formulation, opts.enforceSPD ? 1 : 0, nullptr, nullptr);
-      auto assembler = std::make_unique<SolidDeformationModel::DeformationModelAssembler>(
-        std::move(manager), formulation, inputs.elasticField, inputs.plasticField, nullptr);
-      energy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
-        std::move(assembler), 0, opts.enableMaterialMaxStep);
+        makeInputs(), formulation, opts);
     } else if (formulationName == "cubic_tricubic_hermite") {
       SolidDeformationModel::CubicTricubicHermiteFormulation formulation;
-      auto manager = std::make_shared<SolidDeformationModel::DeformationModelManager>(
+      energy = SolidDeformationModel::makeDeformationEnergy(
         meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
-        formulation, opts.enforceSPD ? 1 : 0, nullptr, nullptr);
-      auto assembler = std::make_unique<SolidDeformationModel::DeformationModelAssembler>(
-        std::move(manager), formulation, inputs.elasticField, inputs.plasticField, nullptr);
-      energy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
-        std::move(assembler), 0, opts.enableMaterialMaxStep);
+        makeInputs(), formulation, opts);
     } else if (formulationName == "shell_koiter") {
       SolidDeformationModel::KoiterShellFormulation formulation;
-      auto manager = std::make_shared<SolidDeformationModel::DeformationModelManager>(
+      energy = SolidDeformationModel::makeDeformationEnergy(
         meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
-        formulation, opts.enforceSPD ? 1 : 0, nullptr, nullptr);
-      auto assembler = std::make_unique<SolidDeformationModel::DeformationModelAssembler>(
-        std::move(manager), formulation, inputs.elasticField, inputs.plasticField, nullptr);
-      energy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
-        std::move(assembler), 0, opts.enableMaterialMaxStep);
+        makeInputs(), formulation, opts);
     } else {
       throw std::invalid_argument(
         "Unknown formulation: '" + formulationName +
