@@ -518,5 +518,15 @@ inline void ElasticModelCombinedMaterial<-1>::compute_d2PdFdparam(const double *
   materials[mi]->compute_d2PdFdparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S, d2P_dFdparam);
 }
 
+class StVKVolumeConfig final : public ElasticModelConfig
+{
+public:
+  std::string_view id() const override { return "stvk_vol"; }
+  MaterialParameterSpec parameterSpec() const override;
+  MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
+  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+private:
+  std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
+};
 }  // namespace SolidDeformationModel
 }  // namespace pgo

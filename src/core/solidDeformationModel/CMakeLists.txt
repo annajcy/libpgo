@@ -30,8 +30,6 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/plastic/plasticModel2DFundamentalForms.h
   material/plastic/plasticModel2DFundamentalFormsUniformStretch.h
 
-  material/materialTypes.h
-
   deformation/deformationModel.h
   deformation/materialMaxStepPolynomialUtils.h
   deformation/deformationModelManager.h
@@ -97,9 +95,6 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/fields/materialParameterFactory.h
   material/fields/materialFrameField.h
 
-  material/elastic/elasticModelFactory.h
-  material/plastic/plasticModelFactory.h
-
   mass/massField.h
   mass/volumeMassField.h
   mass/shellMassField.h
@@ -115,6 +110,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   material/elastic/elasticModelVolumeMaterial.cpp
   material/elastic/elasticModel3DMooneyRivlin.cpp
   material/elastic/elasticModel3DSTVKMaterial.cpp
+  material/elastic/elasticModelCombinedMaterial.cpp
 
   material/elastic/elasticModel1DQuadratic.cpp
   material/elastic/elasticModel1DCubicSpline.cpp
@@ -175,8 +171,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   energy/plasticMaterialEnergy.cpp
   energy/deformationEnergyBuilder.cpp
 
-  material/elastic/elasticModelFactory.cpp
-  material/plastic/plasticModelFactory.cpp
+  material/plastic/plasticModel2DFundamentalForms.cpp
 
   mass/massField.cpp
   mass/volumeMassField.cpp

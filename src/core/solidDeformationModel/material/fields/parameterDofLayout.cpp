@@ -64,6 +64,19 @@ void ConstantParameterDofLayout::gather(
   std::copy(globalValues.begin(), globalValues.end(), localDofValues.begin());
 }
 
+EigenSupport::VXd ConstantParameterDofLayout::globalValuesFromElementDefaults(
+  std::span<const double> elementValues) const
+{
+  const std::size_t expected = static_cast<std::size_t>(numElements_) * numLocalDofs_;
+  if (elementValues.size() != expected)
+    throw std::invalid_argument("ConstantParameterDofLayout default value count does not match the layout.");
+  if (numLocalDofs_ == 0)
+    return EigenSupport::VXd();
+  EigenSupport::VXd result(numLocalDofs_);
+  std::copy_n(elementValues.begin(), numLocalDofs_, result.data());
+  return result;
+}
+
 ElementwiseParameterDofLayout::ElementwiseParameterDofLayout(
   int numElements, int numLocalDofs):
   numElements_(numElements), numLocalDofs_(numLocalDofs)
@@ -88,6 +101,18 @@ void ElementwiseParameterDofLayout::gather(
   const auto offset = static_cast<std::size_t>(element) * numLocalDofs_;
   std::copy_n(globalValues.begin() + static_cast<std::ptrdiff_t>(offset),
     numLocalDofs_, localDofValues.begin());
+}
+
+EigenSupport::VXd ElementwiseParameterDofLayout::globalValuesFromElementDefaults(
+  std::span<const double> elementValues) const
+{
+  const std::size_t expected = static_cast<std::size_t>(numElements_) * numLocalDofs_;
+  if (elementValues.size() != expected)
+    throw std::invalid_argument("ElementwiseParameterDofLayout default value count does not match the layout.");
+  EigenSupport::VXd result(static_cast<Eigen::Index>(elementValues.size()));
+  if (!elementValues.empty())
+    std::copy(elementValues.begin(), elementValues.end(), result.data());
+  return result;
 }
 
 }  // namespace pgo::SolidDeformationModel

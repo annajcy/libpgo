@@ -1,4 +1,10 @@
 #include <gtest/gtest.h>
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "material/plastic/plasticModel3D3DOF.h"
+#include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
@@ -23,11 +29,12 @@
 namespace
 {
 namespace ES = pgo::EigenSupport;
+using namespace pgo::SolidDeformationModel;
 using pgo::SolidDeformationModel::DeformationModelAssembler;
-using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
+using pgo::SolidDeformationModel::ElasticModelConfig;
 using pgo::SolidDeformationModel::DeformationModelEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
-using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
+using pgo::SolidDeformationModel::PlasticModelConfig;
 using pgo::SolidDeformationModel::ElasticMaterialEnergy;
 using pgo::SolidDeformationModel::PlasticMaterialEnergy;
 using pgo::SolidDeformationModel::SimulationMesh;
@@ -111,16 +118,16 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(std::shared_ptr<co
   pgo::SolidDeformationModel::CubicLinearFormulation formulation;
   auto parameters = pgo::SolidDeformationModel::makeMaterialParameters(
     *mesh,
-    DeformationModelElasticMaterial::STABLE_NEO,
-    std::make_unique<pgo::SolidDeformationModel::ElementwiseParameterDofLayout>(1, 0),
-    std::make_unique<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(0),
+    *std::make_shared<StableNeoConfig>(),
+    std::make_shared<pgo::SolidDeformationModel::ElementwiseParameterDofLayout>(1, 0),
+    std::make_shared<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(0),
     std::nullopt,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    std::make_unique<pgo::SolidDeformationModel::ElementwiseParameterDofLayout>(1, 6),
-    std::make_unique<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(6),
+    *std::make_shared<VolumetricPlasticity6Config>(),
+    std::make_shared<pgo::SolidDeformationModel::ElementwiseParameterDofLayout>(1, 6),
+    std::make_shared<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(6),
     plasticBase);
   auto manager = std::make_shared<DeformationModelManager>(
-    mesh, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    mesh, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>(),
     formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, parameters->space(), nullptr);
@@ -161,18 +168,18 @@ std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd
   pgo::SolidDeformationModel::KoiterShellFormulation formulation;
   auto parameters = pgo::SolidDeformationModel::makeMaterialParameters(
     *mesh,
-    DeformationModelElasticMaterial::KOITER_STVK,
-    std::make_unique<pgo::SolidDeformationModel::ConstantParameterDofLayout>(
+    *std::make_shared<KoiterStVKConfig>(),
+    std::make_shared<pgo::SolidDeformationModel::ConstantParameterDofLayout>(
       mesh->getNumElements(), 5),
-    std::make_unique<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(5),
+    std::make_shared<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(5),
     elasticBase,
-    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
-    std::make_unique<pgo::SolidDeformationModel::ElementwiseParameterDofLayout>(
+    *std::make_shared<ShellPlasticity1Config>(),
+    std::make_shared<pgo::SolidDeformationModel::ElementwiseParameterDofLayout>(
       mesh->getNumElements(), 1),
-    std::make_unique<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(1),
+    std::make_shared<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(1),
     ES::VXd::Constant(mesh->getNumElements(), 1.0));
   auto manager = std::make_shared<DeformationModelManager>(
-    mesh, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    mesh, std::make_shared<KoiterStVKConfig>(), std::make_shared<ShellPlasticity1Config>(),
     formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, parameters->space(), nullptr);

@@ -1,4 +1,10 @@
 #include <gtest/gtest.h>
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "material/plastic/plasticModel3D3DOF.h"
+#include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "energy/deformationEnergyBuilder.h"
 #include "deformation/deformationModelAssembler.h"
@@ -27,8 +33,8 @@ template<class FormulationT>
 std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
   std::shared_ptr<const SimulationMesh> mesh,
   const FormulationT &formulation,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic)
+  std::shared_ptr<const ElasticModelConfig> elastic,
+  std::shared_ptr<const PlasticModelConfig> plastic)
 {
   return makeDeformationEnergy(mesh, elastic, plastic, formulation);
 }
@@ -44,7 +50,7 @@ TEST(DeformationModelFactoryGTest, TetZeroDisplacementBaseline)
   std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
   auto energy = makeDefaultFieldEnergy(
-    simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -86,13 +92,13 @@ TEST(DeformationModelFactoryGTest, StructuredInputsCarryCustomMaterialFrames)
 
   auto parameters = makeDefaultMaterialParameters(
     *simMesh,
-    DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF3);
+    *std::make_shared<StableNeoConfig>(),
+    *std::make_shared<VolumetricPlasticity3Config>());
 
   auto energy = makeDeformationEnergy(
     simMesh,
-    DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF3,
+    std::make_shared<StableNeoConfig>(),
+    std::make_shared<VolumetricPlasticity3Config>(),
     std::move(parameters),
     materialFrames,
     TetLinearFormulation{});
@@ -115,7 +121,7 @@ TEST(DeformationModelFactoryGTest, CubicZeroDisplacementBaseline)
   std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
   auto energy = makeDefaultFieldEnergy(
-    simMesh, CubicLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, CubicLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -146,7 +152,7 @@ TEST(DeformationModelFactoryGTest, TetSimulationMeshFactoryValidatesTopology)
   ASSERT_NE(simMesh, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
 }
@@ -161,7 +167,7 @@ TEST(DeformationModelFactoryGTest, CubicSimulationMeshFactoryValidatesTopology)
   ASSERT_NE(simMesh, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    simMesh, CubicLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, CubicLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
 }
@@ -179,7 +185,7 @@ TEST(DeformationModelFactoryGTest, ShellSimulationMeshFactoryValidatesTopology)
   ASSERT_NE(simMesh, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    simMesh, KoiterShellFormulation{}, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1);
+    simMesh, KoiterShellFormulation{}, std::make_shared<KoiterStVKConfig>(), std::make_shared<ShellPlasticity1Config>());
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -199,7 +205,7 @@ TEST(DeformationModelFactoryGTest, TetFactoryRejectsCubicSimulationMesh)
   ASSERT_NE(simMesh, nullptr);
 
   EXPECT_THROW(
-    makeDefaultFieldEnergy(simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6),
+    makeDefaultFieldEnergy(simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>()),
     std::invalid_argument);
 }
 
@@ -214,9 +220,9 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoTetEnergies)
   ASSERT_NE(simMesh, nullptr);
 
   auto b1 = makeDefaultFieldEnergy(
-    simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
   auto b2 = makeDefaultFieldEnergy(
-    simMesh, TetLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
 
   ASSERT_NE(b1, nullptr);
   ASSERT_NE(b2, nullptr);
@@ -259,9 +265,9 @@ TEST(DeformationModelFactoryGTest, OneMeshOwnerTwoCubicEnergies)
   ASSERT_NE(simMesh, nullptr);
 
   auto b1 = makeDefaultFieldEnergy(
-    simMesh, CubicLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, CubicLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
   auto b2 = makeDefaultFieldEnergy(
-    simMesh, CubicLinearFormulation{}, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    simMesh, CubicLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
 
   ASSERT_NE(b1, nullptr);
   ASSERT_NE(b2, nullptr);

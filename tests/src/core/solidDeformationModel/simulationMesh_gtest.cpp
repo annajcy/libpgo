@@ -154,7 +154,7 @@ TEST(SimulationMeshGTest, OrthotropicPayloadExistsAtVegaLevelButNoElasticModel)
     tetMesh.getElementMaterial(0));
   EXPECT_EQ(enuDowncast, nullptr);
 
-  // There is no DeformationModelElasticMaterial enum entry for
+  // There is no ElasticModelConfig enum entry for
   // Orthotropic, and no ElasticModel3DOrthotropicStVK class exists yet.
   // This test documents that Orthotropic is payload-only at the Vega
   // level and has not yet reached the solver deformation energy path.

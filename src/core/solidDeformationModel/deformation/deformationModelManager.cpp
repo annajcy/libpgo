@@ -8,9 +8,7 @@ copyright to USC, MIT, NUS
 #include "deformation/deformationModel.h"
 #include "formulations/formulation/formulation.h"
 #include "simulation/simulationMesh.h"
-#include "material/elastic/elasticModelFactory.h"
 #include "material/elastic/elasticModel.h"
-#include "material/plastic/plasticModelFactory.h"
 #include "material/plastic/plasticModel.h"
 #include "pgoLogging.h"
 
@@ -27,8 +25,8 @@ class DeformationModelManagerImpl
 public:
   std::shared_ptr<const SimulationMesh> mesh;
   std::shared_ptr<const MaterialFrameField> materialFrames;
-  DeformationModelElasticMaterial elasticMaterial;
-  DeformationModelPlasticMaterial plasticMaterial;
+  std::shared_ptr<const ElasticModelConfig> elasticConfig;
+  std::shared_ptr<const PlasticModelConfig> plasticConfig;
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
   int numPlasticParams = 0;
   int nele = 0;
@@ -57,14 +55,14 @@ void validateFrameRequirement(
 
 DeformationModelManager::DeformationModelManager(
   std::shared_ptr<const SimulationMesh> mesh,
-  DeformationModelElasticMaterial elasticMaterial,
-  DeformationModelPlasticMaterial plasticModelType,
+  std::shared_ptr<const ElasticModelConfig> elasticConfig,
+  std::shared_ptr<const PlasticModelConfig> plasticConfig,
   const Formulation &formulation,
   int enforceSPD):
   DeformationModelManager(
     mesh,
-    elasticMaterial,
-    plasticModelType,
+    std::move(elasticConfig),
+    std::move(plasticConfig),
     formulation,
     enforceSPD,
     makeGlobalAxesMaterialFrameField(
@@ -74,8 +72,8 @@ DeformationModelManager::DeformationModelManager(
 
 DeformationModelManager::DeformationModelManager(
   std::shared_ptr<const SimulationMesh> mesh,
-  DeformationModelElasticMaterial elasticMaterial,
-  DeformationModelPlasticMaterial plasticModelType,
+  std::shared_ptr<const ElasticModelConfig> elasticConfig,
+  std::shared_ptr<const PlasticModelConfig> plasticConfig,
   const Formulation &formulation,
   int enforceSPD,
   std::shared_ptr<const MaterialFrameField> materialFrames)
@@ -86,6 +84,8 @@ DeformationModelManager::DeformationModelManager(
   if (!materialFrames)
     throw std::invalid_argument(
       "DeformationModelManager: materialFrames must be non-null.");
+  if (!elasticConfig || !plasticConfig)
+    throw std::invalid_argument("DeformationModelManager: model configs must be non-null.");
   if (mesh->getNumElements() <= 0)
     throw std::invalid_argument(
       "DeformationModelManager: mesh must contain at least one element.");
@@ -96,21 +96,21 @@ DeformationModelManager::DeformationModelManager(
   data = std::make_unique<DeformationModelManagerImpl>();
   data->mesh = std::move(mesh);
   data->materialFrames = std::move(materialFrames);
-  data->elasticMaterial = elasticMaterial;
-  data->plasticMaterial = plasticModelType;
+  data->elasticConfig = std::move(elasticConfig);
+  data->plasticConfig = std::move(plasticConfig);
   data->nele = data->mesh->getNumElements();
 
   validateFormulation(data->mesh->getElementType(), formulation);
   validateFrameRequirement(
     *data->materialFrames,
-    ElasticModelFactory::materialFrameRequirement(elasticMaterial),
+    data->elasticConfig->frameRequirement(),
     "elastic");
   validateFrameRequirement(
     *data->materialFrames,
-    PlasticModelFactory::materialFrameRequirement(plasticModelType),
+    data->plasticConfig->frameRequirement(),
     "plastic");
 
-  initImpl(plasticModelType, elasticMaterial, formulation);
+  initImpl(formulation);
 
   data->numPlasticParams =
     data->elementFEMs[0]->getNumPlasticParameters();
@@ -118,10 +118,7 @@ DeformationModelManager::DeformationModelManager(
     setEnforceSPD(enforceSPD);
 }
 
-void DeformationModelManager::initImpl(
-  DeformationModelPlasticMaterial plasticModelType,
-  DeformationModelElasticMaterial elasticMaterialType,
-  const Formulation &formulation)
+void DeformationModelManager::initImpl(const Formulation &formulation)
 {
   SPDLOG_LOGGER_INFO(
     pgo::Logging::lgr(), "Initializing element models (manager path)...");
@@ -130,10 +127,10 @@ void DeformationModelManager::initImpl(
   tbb::parallel_for(0, data->nele, [&](int ele) {
     const MaterialFrame materialToReference =
       data->materialFrames->materialToReferenceFrame(ele, 0);
-    auto em = ElasticModelFactory::create(
-      *data->mesh, ele, elasticMaterialType, materialToReference);
-    auto pm = PlasticModelFactory::create(
-      plasticModelType, materialToReference);
+    auto em = data->elasticConfig->createModel(
+      *data->mesh, ele, materialToReference);
+    auto pm = data->plasticConfig->createModel(
+      *data->mesh, ele, materialToReference);
     data->elementFEMs[ele] = formulation.createElement(
       *data->mesh, ele, std::move(em), std::move(pm));
   });
@@ -174,6 +171,18 @@ std::shared_ptr<const MaterialFrameField>
 DeformationModelManager::materialFrameFieldPtr() const
 {
   return data->materialFrames;
+}
+
+std::shared_ptr<const ElasticModelConfig>
+DeformationModelManager::elasticModelConfig() const
+{
+  return data->elasticConfig;
+}
+
+std::shared_ptr<const PlasticModelConfig>
+DeformationModelManager::plasticModelConfig() const
+{
+  return data->plasticConfig;
 }
 
 MaterialFrame DeformationModelManager::materialToReferenceFrame(

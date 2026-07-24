@@ -9,12 +9,12 @@ using namespace pgo;
 
 void init_plastic_model_bindings(nb::module_ &m)
 {
-    nb::class_<PyPlasticModel>(m, "PyPlasticModel")
-        .def_prop_ro("name", &PyPlasticModel::name)
-        .def_prop_ro("dofs", &PyPlasticModel::dofs);
-
-    m.def("make_volumetric_plasticity", &make_volumetric_plasticity,
-        nb::arg("dofs") = 6);
-    m.def("make_shell_plasticity", &make_shell_plasticity,
-        nb::arg("dofs") = 1);
+    nb::class_<PyPlasticModelConfig>(m, "PyPlasticModelConfig")
+        .def_prop_ro("name", &PyPlasticModelConfig::name)
+        .def_prop_ro("dofs", &PyPlasticModelConfig::dofs);
+    nb::class_<PyVolumetricPlasticity0Config, PyPlasticModelConfig>(m, "PyVolumetricPlasticity0Config").def(nb::init<>());
+    nb::class_<PyVolumetricPlasticity3Config, PyPlasticModelConfig>(m, "PyVolumetricPlasticity3Config").def(nb::init<>());
+    nb::class_<PyVolumetricPlasticity6Config, PyPlasticModelConfig>(m, "PyVolumetricPlasticity6Config").def(nb::init<>());
+    nb::class_<PyShellPlasticity0Config, PyPlasticModelConfig>(m, "PyShellPlasticity0Config").def(nb::init<>());
+    nb::class_<PyShellPlasticity1Config, PyPlasticModelConfig>(m, "PyShellPlasticity1Config").def(nb::init<>());
 }

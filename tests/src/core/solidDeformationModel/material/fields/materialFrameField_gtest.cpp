@@ -2,7 +2,7 @@
 
 #include "material/fields/materialFrameField.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
-#include "material/plastic/plasticModelFactory.h"
+#include "material/plastic/plasticModel3D3DOF.h"
 
 #include <limits>
 #include <stdexcept>
@@ -26,7 +26,6 @@ MaterialFrame obliqueFrame()
 TEST(MaterialFrameFieldGTest, GlobalAxesAndConstantSampleValidatedElements)
 {
   GlobalAxesMaterialFrameField globalAxes(2);
-  EXPECT_EQ(globalAxes.kind(), MaterialFrameFieldKind::GlobalAxes);
   EXPECT_TRUE(globalAxes.materialToReferenceFrame(0, 0).isIdentity());
   EXPECT_TRUE(globalAxes.materialToReferenceFrame(1, 3).isIdentity());
   EXPECT_THROW(globalAxes.materialToReferenceFrame(-1, 0), std::out_of_range);
@@ -35,7 +34,6 @@ TEST(MaterialFrameFieldGTest, GlobalAxesAndConstantSampleValidatedElements)
 
   const MaterialFrame frame = obliqueFrame();
   ConstantMaterialFrameField constant(3, frame);
-  EXPECT_EQ(constant.kind(), MaterialFrameFieldKind::Constant);
   EXPECT_EQ(constant.numElements(), 3);
   EXPECT_TRUE(
     constant.materialToReferenceFrame(2, 7).isApprox(frame, 1e-12));
@@ -47,7 +45,6 @@ TEST(MaterialFrameFieldGTest, ElementwiseSamplesPerElement)
   const MaterialFrame frame = obliqueFrame();
   ElementwiseMaterialFrameField field(
     { MaterialFrame::Identity(), frame });
-  EXPECT_EQ(field.kind(), MaterialFrameFieldKind::Elementwise);
   EXPECT_EQ(field.numElements(), 2);
   EXPECT_TRUE(field.materialToReferenceFrame(0, 0).isIdentity());
   EXPECT_TRUE(field.materialToReferenceFrame(1, 0).isApprox(frame, 1e-12));
@@ -129,15 +126,11 @@ TEST(MaterialFrameFieldGTest, PrimarySecondaryDirectionsRejectInvalidInput)
 TEST(MaterialFrameFieldGTest, Dof3UsesMaterialToReferenceColumnConvention)
 {
   const MaterialFrame frame = obliqueFrame();
-  auto model = PlasticModelFactory::create(
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF3, frame);
-  auto *deformationGradientModel =
-    dynamic_cast<PlasticModel3DDeformationGradient *>(model.get());
-  ASSERT_NE(deformationGradientModel, nullptr);
+  PlasticModel3D3DOF deformationGradientModel(frame.transpose());
 
   const ES::V3d parameters(0.8, 1.2, 1.5);
   double actualStorage[9];
-  deformationGradientModel->computeA(
+  deformationGradientModel.computeA(
     parameters.data(), actualStorage);
   const ES::M3d actual =
     Eigen::Map<const ES::M3d>(actualStorage);
@@ -147,7 +140,7 @@ TEST(MaterialFrameFieldGTest, Dof3UsesMaterialToReferenceColumnConvention)
   EXPECT_FALSE(actual.isDiagonal());
 
   ES::V3d roundTrip;
-  deformationGradientModel->toParam(
+  deformationGradientModel.toParam(
     actualStorage, roundTrip.data());
   EXPECT_TRUE(roundTrip.isApprox(parameters, 1e-12));
 }

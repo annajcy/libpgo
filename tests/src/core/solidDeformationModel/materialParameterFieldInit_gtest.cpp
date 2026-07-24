@@ -1,4 +1,10 @@
 #include <gtest/gtest.h>
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "material/plastic/plasticModel3D3DOF.h"
+#include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "material/fields/materialParameterFactory.h"
 #include "simulation/simulationMesh.h"
@@ -17,22 +23,22 @@ TEST(MaterialParameterFactory, BuildsIndependentSpaceAndCommittedValues)
   std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
   ASSERT_NE(mesh, nullptr);
 
-  constexpr auto elastic = DeformationModelElasticMaterial::STABLE_NEO;
-  constexpr auto plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
+  const auto elastic = std::make_shared<StableNeoConfig>();
+  const auto plastic = std::make_shared<VolumetricPlasticity6Config>();
   ES::VXd plasticValues(6);
   plasticValues << 1.0, 0.01, 0.02, 0.99, 0.03, 1.01;
 
   auto parameters = makeMaterialParameters(
     *mesh,
-    elastic,
-    std::make_unique<ElementwiseParameterDofLayout>(
+    *elastic,
+    std::make_shared<ElementwiseParameterDofLayout>(
       mesh->getNumElements(), 0),
-    std::make_unique<IdentityParameterFieldMapping>(0),
+    std::make_shared<IdentityParameterFieldMapping>(0),
     std::nullopt,
-    plastic,
-    std::make_unique<ConstantParameterDofLayout>(
+    *plastic,
+    std::make_shared<ConstantParameterDofLayout>(
       mesh->getNumElements(), 6),
-    std::make_unique<IdentityParameterFieldMapping>(6),
+    std::make_shared<IdentityParameterFieldMapping>(6),
     plasticValues);
 
   EXPECT_EQ(
@@ -56,23 +62,23 @@ TEST(MaterialParameterFactory, DefaultsRespectLayoutOwnership)
 
   auto elementwise = makeDefaultMaterialParameters(
     *mesh,
-    DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    *std::make_shared<StableNeoConfig>(),
+    *std::make_shared<VolumetricPlasticity6Config>());
   EXPECT_EQ(
     elementwise->plasticSnapshot().size(),
     mesh->getNumElements() * 6);
 
   auto constant = makeMaterialParameters(
     *mesh,
-    DeformationModelElasticMaterial::STABLE_NEO,
-    std::make_unique<ConstantParameterDofLayout>(
+    *std::make_shared<StableNeoConfig>(),
+    std::make_shared<ConstantParameterDofLayout>(
       mesh->getNumElements(), 0),
-    std::make_unique<IdentityParameterFieldMapping>(0),
+    std::make_shared<IdentityParameterFieldMapping>(0),
     std::nullopt,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    std::make_unique<ConstantParameterDofLayout>(
+    *std::make_shared<VolumetricPlasticity6Config>(),
+    std::make_shared<ConstantParameterDofLayout>(
       mesh->getNumElements(), 6),
-    std::make_unique<IdentityParameterFieldMapping>(6),
+    std::make_shared<IdentityParameterFieldMapping>(6),
     std::nullopt);
   ASSERT_EQ(constant->plasticSnapshot().size(), 6);
   EXPECT_TRUE(constant->plasticSnapshot().isApprox(
@@ -87,15 +93,15 @@ TEST(MaterialParameterFactory, RejectsDimensionMismatch)
   EXPECT_THROW(
     makeMaterialParameters(
       *mesh,
-      DeformationModelElasticMaterial::STABLE_NEO,
-      std::make_unique<ElementwiseParameterDofLayout>(
+      *std::make_shared<StableNeoConfig>(),
+      std::make_shared<ElementwiseParameterDofLayout>(
         mesh->getNumElements(), 1),
-      std::make_unique<IdentityParameterFieldMapping>(1),
+      std::make_shared<IdentityParameterFieldMapping>(1),
       ES::VXd::Zero(mesh->getNumElements()),
-      DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-      std::make_unique<ElementwiseParameterDofLayout>(
+      *std::make_shared<VolumetricPlasticity6Config>(),
+      std::make_shared<ElementwiseParameterDofLayout>(
         mesh->getNumElements(), 6),
-      std::make_unique<IdentityParameterFieldMapping>(6),
+      std::make_shared<IdentityParameterFieldMapping>(6),
       std::nullopt),
     std::invalid_argument);
 }

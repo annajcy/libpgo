@@ -90,15 +90,35 @@ public:
     int materialLocation = -1) const = 0;
 
   virtual void compute_dE_dp(
-    const CacheData *, double *, int = -1) const {}
+    const CacheData *, double *, int = -1) const
+  {
+    throw std::logic_error(
+      "DeformationModel::compute_dE_dp is not implemented by this model.");
+  }
   virtual void compute_d2E_dp2(
-    const CacheData *, double *, int = -1) const {}
+    const CacheData *, double *, int = -1) const
+  {
+    throw std::logic_error(
+      "DeformationModel::compute_d2E_dp2 is not implemented by this model.");
+  }
   virtual void compute_dE_de(
-    const CacheData *, double *, int = -1) const {}
+    const CacheData *, double *, int = -1) const
+  {
+    throw std::logic_error(
+      "DeformationModel::compute_dE_de is not implemented by this model.");
+  }
   virtual void compute_d2E_de2(
-    const CacheData *, double *, int = -1) const {}
+    const CacheData *, double *, int = -1) const
+  {
+    throw std::logic_error(
+      "DeformationModel::compute_d2E_de2 is not implemented by this model.");
+  }
   virtual void compute_d2E_dpde(
-    const CacheData *, double *, int = -1) const {}
+    const CacheData *, double *, int = -1) const
+  {
+    throw std::logic_error(
+      "DeformationModel::compute_d2E_dpde is not implemented by this model.");
+  }
 
   virtual void enableSPD(int enable) { (void)enable; }
 

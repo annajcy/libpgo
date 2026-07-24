@@ -5,6 +5,8 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "material/fields/materialParameterFactory.h"
+#include "../fem/elastic/core.h"
+#include "../fem/plastic/core.h"
 #include "energy/energySet.h"
 #include "../simulation/core.h"
 #include "constraints/core.h"
@@ -13,6 +15,7 @@
 #include <nanobind/ndarray.h>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -27,29 +30,25 @@ namespace pgo { class PyFormulation; }
 class PyParameterDofLayout
 {
 public:
-  explicit PyParameterDofLayout(
-    pgo::SolidDeformationModel::ParameterDofLayoutKind kind):
-    kind_(kind) {}
-
-  pgo::SolidDeformationModel::ParameterDofLayoutKind kind() const { return kind_; }
+  using Creator = std::function<std::shared_ptr<const pgo::SolidDeformationModel::ParameterDofLayout>(int, int)>;
+  explicit PyParameterDofLayout(Creator creator): creator_(std::move(creator)) {}
+  std::shared_ptr<const pgo::SolidDeformationModel::ParameterDofLayout> create(int elements, int localDofs) const
+  { return creator_(elements, localDofs); }
 
 private:
-  pgo::SolidDeformationModel::ParameterDofLayoutKind kind_;
+  Creator creator_;
 };
 
 class PyParameterFieldMapping
 {
 public:
-  enum class Kind
-  {
-    IDENTITY,
-  };
-
-  explicit PyParameterFieldMapping(Kind kind): kind_(kind) {}
-  Kind kind() const { return kind_; }
+  using Creator = std::function<std::shared_ptr<const pgo::SolidDeformationModel::ParameterFieldMapping>(int)>;
+  explicit PyParameterFieldMapping(Creator creator): creator_(std::move(creator)) {}
+  std::shared_ptr<const pgo::SolidDeformationModel::ParameterFieldMapping> create(int channels) const
+  { return creator_(channels); }
 
 private:
-  Kind kind_;
+  Creator creator_;
 };
 
 class PyMaterialParameterRef
@@ -78,20 +77,13 @@ class PyMaterialParameterBlock
 public:
   PyMaterialParameterBlock(
     std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterSpace> space,
-    pgo::SolidDeformationModel::MaterialParameterBlockKind kind):
-    space_(std::move(space)), kind_(kind) {}
+    const pgo::SolidDeformationModel::MaterialParameterBlock *block):
+    space_(std::move(space)), block_(block) {}
 
   const pgo::SolidDeformationModel::MaterialParameterBlock &block() const
   {
-    return kind_ == pgo::SolidDeformationModel::MaterialParameterBlockKind::ELASTIC ?
-      space_->elastic() : space_->plastic();
+    return *block_;
   }
-  std::string kind() const
-  {
-    return kind_ == pgo::SolidDeformationModel::MaterialParameterBlockKind::ELASTIC ?
-      "elastic" : "plastic";
-  }
-  std::string model() const { return std::string(block().modelId()); }
   int numChannels() const { return block().mapping().numChannels(); }
   int numLocalDofs() const { return block().dofLayout().numLocalDofs(); }
   int numGlobalDofs() const { return block().dofLayout().numGlobalDofs(); }
@@ -109,7 +101,7 @@ public:
 
 private:
   std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterSpace> space_;
-  pgo::SolidDeformationModel::MaterialParameterBlockKind kind_;
+  const pgo::SolidDeformationModel::MaterialParameterBlock *block_ = nullptr;
 };
 
 class PyMaterialParameterSpace
@@ -122,12 +114,12 @@ public:
   std::shared_ptr<PyMaterialParameterBlock> elastic() const
   {
     return std::make_shared<PyMaterialParameterBlock>(
-      space_, pgo::SolidDeformationModel::MaterialParameterBlockKind::ELASTIC);
+      space_, &space_->elastic());
   }
   std::shared_ptr<PyMaterialParameterBlock> plastic() const
   {
     return std::make_shared<PyMaterialParameterBlock>(
-      space_, pgo::SolidDeformationModel::MaterialParameterBlockKind::PLASTIC);
+      space_, &space_->plastic());
   }
   std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterSpace> space() const
   {
@@ -221,8 +213,17 @@ public:
   int numPlasticParams() const { return energy_->assembler().getNumPlasticParams(); }
   int numElasticDofs() const { return energy_->assembler().getNumElasticGlobalParams(); }
   int numPlasticDofs() const { return energy_->assembler().getNumPlasticGlobalParams(); }
-  std::string elasticModel() const { return std::string(energy_->materialParameters()->space()->elastic().modelId()); }
-  std::string plasticModel() const { return std::string(energy_->materialParameters()->space()->plastic().modelId()); }
+  std::shared_ptr<pgo::PyElasticModelConfig> elasticModel() const
+  {
+    return std::make_shared<pgo::PyElasticModelConfig>(
+      energy_->assembler().getDeformationModelManager().elasticModelConfig());
+  }
+  std::shared_ptr<pgo::PyPlasticModelConfig> plasticModel() const
+  {
+    return std::make_shared<pgo::PyPlasticModelConfig>(
+      energy_->assembler().getDeformationModelManager().plasticModelConfig(),
+      energy_->assembler().getNumPlasticParams());
+  }
   std::shared_ptr<PyMaterialParameters> parameters() const
   {
     return std::make_shared<PyMaterialParameters>(energy_->materialParameters());
@@ -289,15 +290,11 @@ std::shared_ptr<PyVertexAttachmentEnergy> createVertexAttachment(
 
 std::shared_ptr<PyEnergySet> createEnergySet(nb::list terms);
 
-int elasticNumChannels(
-  const std::shared_ptr<pgo::PySimulationMesh> &meshCore,
-  const std::string &elasticModel);
-
 std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
   std::shared_ptr<pgo::PySimulationMesh> meshCore,
-  const std::string &elasticModel,
+  const pgo::PyElasticModelConfig &elasticModel,
   nb::object elasticValues,
-  const std::string &plasticModel,
+  const pgo::PyPlasticModelConfig &plasticModel,
   nb::object plasticValues,
   const PyParameterDofLayout &elasticLayout,
   const PyParameterFieldMapping &elasticMapping,

@@ -30,13 +30,9 @@ void validateStateSize(
 }  // namespace
 
 MaterialParameterBlock::MaterialParameterBlock(
-  MaterialParameterBlockKind kind,
-  std::string modelId,
   std::vector<std::string> channelNames,
-  std::unique_ptr<const ParameterDofLayout> dofLayout,
-  std::unique_ptr<const ParameterFieldMapping> mapping):
-  kind_(kind),
-  modelId_(std::move(modelId)),
+  std::shared_ptr<const ParameterDofLayout> dofLayout,
+  std::shared_ptr<const ParameterFieldMapping> mapping):
   channelNames_(std::move(channelNames)),
   dofLayout_(std::move(dofLayout)),
   mapping_(std::move(mapping))
@@ -75,10 +71,6 @@ MaterialParameterSpace::MaterialParameterSpace(
   elastic_(std::move(elastic)),
   plastic_(std::move(plastic))
 {
-  if (elastic_.kind() != MaterialParameterBlockKind::ELASTIC)
-    throw std::invalid_argument("MaterialParameterSpace elastic block has the wrong kind.");
-  if (plastic_.kind() != MaterialParameterBlockKind::PLASTIC)
-    throw std::invalid_argument("MaterialParameterSpace plastic block has the wrong kind.");
   if (elastic_.dofLayout().numElements() != plastic_.dofLayout().numElements())
     throw std::invalid_argument("MaterialParameterSpace block element counts do not match.");
   elastic_.space_ = this;

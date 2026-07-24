@@ -16,7 +16,7 @@ using namespace pgo::SolidDeformationModel;
 
 PlasticModel3D3DOF::PlasticModel3D3DOF(
   const ES::M3d &referenceToMaterial):
-  PlasticModel3DDeformationGradient(3)
+  PlasticModel3DDeformationGradient()
 {
   (Map3(R)) = referenceToMaterial;
   (Map3(RT)) = Map3(R).transpose();
@@ -124,3 +124,28 @@ void PlasticModel3D3DOF::compute_d2paramfull_dparamsub2(const double *param, con
 {
   memset(d2a_dz2, 0, (3 * numHandles) * (3 * numHandles) * sizeof(double));
 }
+
+
+#include "simulation/simulationMesh.h"
+#include <algorithm>
+#include <initializer_list>
+#include <stdexcept>
+
+namespace pgo::SolidDeformationModel {
+namespace {
+void expectSize(std::span<double> output, std::size_t expected) {
+  if (output.size() != expected) throw std::invalid_argument("plastic config default parameter buffer has the wrong size");
+}
+MaterialParameterSpec channels(std::initializer_list<const char *> names) {
+  MaterialParameterSpec spec;
+  for (const char *name : names) spec.channelNames.emplace_back(name);
+  return spec;
+}
+}
+MaterialParameterSpec VolumetricPlasticity3Config::parameterSpec() const { return channels({"Fx", "Fy", "Fz"}); }
+void VolumetricPlasticity3Config::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 3); std::fill(output.begin(), output.end(), 1.0); }
+std::unique_ptr<PlasticModel> VolumetricPlasticity3Config::createModel(const SimulationMesh &, int, const MaterialFrame &frame) const
+{
+  return std::make_unique<PlasticModel3D3DOF>(frame.transpose());
+}
+}  // namespace pgo::SolidDeformationModel

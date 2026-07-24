@@ -15,15 +15,8 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-enum class MaterialParameterBlockKind
-{
-  ELASTIC,
-  PLASTIC,
-};
-
 struct MaterialParameterSpec
 {
-  std::string modelId;
   std::vector<std::string> channelNames;
 };
 
@@ -35,14 +28,10 @@ class MaterialParameterBlock
 {
 public:
   MaterialParameterBlock(
-    MaterialParameterBlockKind kind,
-    std::string modelId,
     std::vector<std::string> channelNames,
-    std::unique_ptr<const ParameterDofLayout> dofLayout,
-    std::unique_ptr<const ParameterFieldMapping> mapping);
+    std::shared_ptr<const ParameterDofLayout> dofLayout,
+    std::shared_ptr<const ParameterFieldMapping> mapping);
 
-  MaterialParameterBlockKind kind() const { return kind_; }
-  std::string_view modelId() const { return modelId_; }
   std::span<const std::string> channelNames() const { return channelNames_; }
 
   const ParameterDofLayout &dofLayout() const { return *dofLayout_; }
@@ -54,11 +43,9 @@ private:
   friend class MaterialParameterSpace;
   friend class MaterialStateView;
 
-  MaterialParameterBlockKind kind_;
-  std::string modelId_;
   std::vector<std::string> channelNames_;
-  std::unique_ptr<const ParameterDofLayout> dofLayout_;
-  std::unique_ptr<const ParameterFieldMapping> mapping_;
+  std::shared_ptr<const ParameterDofLayout> dofLayout_;
+  std::shared_ptr<const ParameterFieldMapping> mapping_;
   const MaterialParameterSpace *space_ = nullptr;
 };
 

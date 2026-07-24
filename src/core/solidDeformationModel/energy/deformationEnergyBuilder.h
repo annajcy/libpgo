@@ -32,8 +32,8 @@ struct DeformationModelOptions
 
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   std::shared_ptr<const SimulationMesh> mesh,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
+  std::shared_ptr<const ElasticModelConfig> elastic,
+  std::shared_ptr<const PlasticModelConfig> plastic,
   std::shared_ptr<MaterialParameters> materialParameters,
   std::shared_ptr<const MaterialFrameField> materialFrames,
   const Formulation &formulation,
@@ -41,8 +41,8 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
 
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   std::shared_ptr<const SimulationMesh> mesh,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
+  std::shared_ptr<const ElasticModelConfig> elastic,
+  std::shared_ptr<const PlasticModelConfig> plastic,
   const Formulation &formulation,
   const DeformationModelOptions &opts = {});
 

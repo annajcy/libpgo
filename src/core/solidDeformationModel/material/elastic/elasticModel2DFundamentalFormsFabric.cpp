@@ -584,3 +584,40 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_db_dparam(
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo
+
+
+#include "simulation/simulationMesh.h"
+#include <algorithm>
+#include <initializer_list>
+#include <stdexcept>
+
+namespace pgo::SolidDeformationModel {
+namespace {
+void expectSize(std::span<double> output, std::size_t expected) {
+  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
+}
+MaterialParameterSpec channels(std::initializer_list<const char *> names) {
+  MaterialParameterSpec spec;
+  for (const char *name : names) spec.channelNames.emplace_back(name);
+  return spec;
+}
+}
+MaterialParameterSpec KoiterFabricConfig::parameterSpec() const
+{
+  return channels({"membrane_warp", "membrane_weft", "membrane_shear", "membrane_cross",
+    "bend_warp", "bend_weft", "bend_shear", "warp_stretch", "weft_stretch",
+    "shear_stretch", "fiber_coupling", "thickness"});
+}
+void KoiterFabricConfig::initializeDefaultParameters(const SimulationMesh &mesh, int element, std::span<double> output) const
+{
+  expectSize(output, 12);
+  const auto *mat = dynamic_cast<const SimulationMeshENuhMaterial *>(mesh.getElementMaterial(element, 0));
+  if (!mat) throw std::invalid_argument("KoiterFabricConfig requires SimulationMeshENuhMaterial");
+  const double values[] = {1, 1, 1, 1, 1, 1, 1, 1000, 1000, 1000, 1, mat->geth()};
+  std::copy(values, values + 12, output.begin());
+}
+std::unique_ptr<ElasticModel> KoiterFabricConfig::createModel(const SimulationMesh &, int, const MaterialFrame &) const
+{
+  return std::make_unique<ElasticModel2DFundamentalFormsFabric>(EigenSupport::V2d(1, 0), EigenSupport::V2d(0, 1));
+}
+}  // namespace pgo::SolidDeformationModel

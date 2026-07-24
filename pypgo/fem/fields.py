@@ -80,14 +80,6 @@ class MaterialParameterBlock:
         self._handle = handle
 
     @property
-    def kind(self) -> str:
-        return self._handle.kind
-
-    @property
-    def model(self) -> str:
-        return self._handle.model
-
-    @property
     def channel_names(self) -> tuple[str, ...]:
         return tuple(self._handle.channel_names)
 

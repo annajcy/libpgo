@@ -27,10 +27,6 @@ class TetMesh;
 namespace SolidDeformationModel
 {
 
-// Forward declarations for enum types (definitions in deformationModelManager.h).
-enum class DeformationModelElasticMaterial : int;
-enum class DeformationModelPlasticMaterial : int;
-
 enum class SimulationMeshType
 {
   TET,

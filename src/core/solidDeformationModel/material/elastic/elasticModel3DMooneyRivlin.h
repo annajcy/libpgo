@@ -27,5 +27,15 @@ protected:
   EigenSupport::VXd D;
 };
 
+class MooneyRivlinConfig final : public ElasticModelConfig
+{
+public:
+  std::string_view id() const override { return "mooney_rivlin"; }
+  MaterialParameterSpec parameterSpec() const override;
+  MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
+  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+private:
+  std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
+};
 }  // namespace SolidDeformationModel
 }  // namespace pgo

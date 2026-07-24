@@ -113,5 +113,15 @@ protected:
   EigenSupport::M3d tbar = EigenSupport::M3d::Identity(), qbar = EigenSupport::M3d::Identity();
   double areaRest = 1.0;
 };
+class ShellPlasticity0Config final : public PlasticModelConfig
+{
+public:
+  std::string_view id() const override { return "shell_ff_dof0"; }
+  MaterialParameterSpec parameterSpec() const override;
+  MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
+  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+private:
+  std::unique_ptr<PlasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
+};
 }  // namespace SolidDeformationModel
 }  // namespace pgo

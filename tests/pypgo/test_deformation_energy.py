@@ -118,12 +118,12 @@ class TestDeformationEnergyParameters:
         energy = _make_energy(sim)
 
         assert isinstance(energy, pf.DeformationEnergy)
-        assert energy.elastic_model == "stable_neo"
-        assert energy.plastic_model == "volumetric_dof6"
-        assert energy.parameters.space.elastic.kind == "elastic"
+        assert energy.elastic_model.name == "stable_neo"
+        assert energy.plastic_model.name == "volumetric_dof6"
+        assert not hasattr(energy.parameters.space.elastic, "kind")
         assert energy.parameters.space.elastic.num_channels == 0
         assert energy.parameters.elastic_values.shape == (0, 0)
-        assert energy.parameters.space.plastic.kind == "plastic"
+        assert not hasattr(energy.parameters.space.plastic, "model")
         assert energy.parameters.plastic_values.shape == (sim.num_elements, 6)
         assert np.allclose(
             energy.parameters.plastic_values,
@@ -143,29 +143,22 @@ class TestDeformationEnergyParameters:
         assert np.allclose(energy.parameters.plastic_values, updated)
 
     def test_given_elastic_values_use_cpp_channel_count(self):
-        class KoiterFabric:
-            def _to_string(self):
-                return "koiter_fabric"
-
         sim = _make_shell_sim_mesh()
         params = np.array(
             [[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1000.0, 1000.0, 1000.0, 1.0, 0.01]],
             dtype=np.float64,
         )
 
-        energy = pf.deformation_energy(
-            sim,
-            elastic=KoiterFabric(),
-            elastic_layout=pf.ElementwiseDofLayout(),
-            elastic_values=params,
-            plastic=pf.ShellPlasticity(dofs=1),
-            plastic_layout=pf.ElementwiseDofLayout(),
-            formulation=pf.KoiterShell(),
-        )
-
-        assert energy.elastic_model == "koiter_fabric"
-        assert energy.parameters.elastic_values.shape == (sim.num_elements, 12)
-        assert np.allclose(energy.parameters.elastic_values, params)
+        with pytest.raises(TypeError, match="ElasticModelConfig"):
+            pf.deformation_energy(
+                sim,
+                elastic=type("KoiterFabric", (), {"_to_string": lambda self: "koiter_fabric"})(),
+                elastic_layout=pf.ElementwiseDofLayout(),
+                elastic_values=params,
+                plastic=pf.ShellPlasticity(dofs=1),
+                plastic_layout=pf.ElementwiseDofLayout(),
+                formulation=pf.KoiterShell(),
+            )
 
     def test_constant_field_reports_shared_value_row(self):
         sim = _make_tet_sim_mesh()

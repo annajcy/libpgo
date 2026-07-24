@@ -21,19 +21,11 @@ enum class MaterialFrameRequirement
   FullFrame,
 };
 
-enum class MaterialFrameFieldKind
-{
-  GlobalAxes,
-  Constant,
-  Elementwise,
-};
-
 class MaterialFrameField
 {
 public:
   virtual ~MaterialFrameField() = default;
 
-  virtual MaterialFrameFieldKind kind() const = 0;
   virtual int numElements() const = 0;
   virtual MaterialFrameRequirement capability() const
   {
@@ -51,10 +43,6 @@ class GlobalAxesMaterialFrameField final : public MaterialFrameField
 public:
   explicit GlobalAxesMaterialFrameField(int numElements);
 
-  MaterialFrameFieldKind kind() const override
-  {
-    return MaterialFrameFieldKind::GlobalAxes;
-  }
   int numElements() const override { return numElements_; }
   MaterialFrame materialToReferenceFrame(
     int elementId, int quadratureId) const override;
@@ -68,10 +56,6 @@ class ConstantMaterialFrameField final : public MaterialFrameField
 public:
   ConstantMaterialFrameField(int numElements, const MaterialFrame &frame);
 
-  MaterialFrameFieldKind kind() const override
-  {
-    return MaterialFrameFieldKind::Constant;
-  }
   int numElements() const override { return numElements_; }
   MaterialFrame materialToReferenceFrame(
     int elementId, int quadratureId) const override;
@@ -92,10 +76,6 @@ public:
     const EigenSupport::M3Xd &primaryDirections,
     const EigenSupport::M3Xd &secondaryDirections);
 
-  MaterialFrameFieldKind kind() const override
-  {
-    return MaterialFrameFieldKind::Elementwise;
-  }
   int numElements() const override
   {
     return static_cast<int>(frames_.size());

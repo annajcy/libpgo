@@ -1,4 +1,10 @@
 #include <gtest/gtest.h>
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "material/plastic/plasticModel3D3DOF.h"
+#include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "energy/deformationEnergyBuilder.h"
 #include "energy/deformationModelEnergy.h"
@@ -16,8 +22,9 @@
 namespace
 {
 namespace ES = pgo::EigenSupport;
-using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
-using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
+using namespace pgo::SolidDeformationModel;
+using pgo::SolidDeformationModel::ElasticModelConfig;
+using pgo::SolidDeformationModel::PlasticModelConfig;
 using pgo::SolidDeformationModel::KoiterShellFormulation;
 using pgo::SolidDeformationModel::CubicLinearFormulation;
 using pgo::SolidDeformationModel::TetLinearFormulation;
@@ -30,8 +37,8 @@ template<class FormulationT>
 std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> makeDefaultFieldEnergy(
   std::shared_ptr<const SimulationMesh> mesh,
   const FormulationT &formulation,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic)
+  std::shared_ptr<const ElasticModelConfig> elastic,
+  std::shared_ptr<const PlasticModelConfig> plastic)
 {
   return pgo::SolidDeformationModel::makeDeformationEnergy(
     mesh,
@@ -83,8 +90,8 @@ TEST(DeformationModelFormulationGTest, TetFormulationBuildsEnergy)
   auto bundle = makeDefaultFieldEnergy(
     simMesh,
     TetLinearFormulation{},
-    DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    std::make_shared<StableNeoConfig>(),
+    std::make_shared<VolumetricPlasticity6Config>());
 
   ASSERT_NE(bundle, nullptr);
   EXPECT_GT(bundle->getNumDOFs(), 0);
@@ -151,8 +158,8 @@ TEST(DeformationModelFormulationGTest, AssemblerSurfacesFormulationRestInvariant
   auto bundle = makeDefaultFieldEnergy(
     simMesh,
     CubicLinearFormulation{},
-    DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    std::make_shared<StableNeoConfig>(),
+    std::make_shared<VolumetricPlasticity6Config>());
   ASSERT_NE(bundle, nullptr);
 
   const auto &assembler = bundle->assembler();
@@ -171,8 +178,8 @@ TEST(DeformationModelFormulationGTest, CubicFormulationBuildsEnergy)
   auto bundle = makeDefaultFieldEnergy(
     simMesh,
     CubicLinearFormulation{},
-    DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    std::make_shared<StableNeoConfig>(),
+    std::make_shared<VolumetricPlasticity6Config>());
 
   ASSERT_NE(bundle, nullptr);
   EXPECT_GT(bundle->getNumDOFs(), 0);

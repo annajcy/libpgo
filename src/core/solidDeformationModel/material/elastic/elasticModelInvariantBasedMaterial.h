@@ -21,6 +21,8 @@ public:
   explicit ElasticModelInvariantBasedMaterial(std::unique_ptr<InvariantBasedMaterial> invMat);
   ~ElasticModelInvariantBasedMaterial() override = default;
 
+  int getNumParameters() const override { return 0; }
+
   void enableSPD(int enable) override { enforceSPD_ = enable ? 1 : 0; }
 
   virtual double compute_psi(const double *param, const double F[9],
@@ -37,5 +39,15 @@ protected:
   int enforceSPD_ = 0;
 };
 
+class InvariantStVKConfig final : public ElasticModelConfig
+{
+public:
+  std::string_view id() const override { return "inv_stvk"; }
+  MaterialParameterSpec parameterSpec() const override;
+  MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
+  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+private:
+  std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
+};
 }  // namespace SolidDeformationModel
 }  // namespace pgo

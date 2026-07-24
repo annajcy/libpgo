@@ -30,6 +30,10 @@ public:
   virtual void compute_d2AInv_da2(const double *param, int pi, int pj, double ret[9]) const override;
 
   virtual void defaultFp(double *Fp) const override { Fp[0] = Fp[1] = Fp[2] = 1.0; }
+  void defaultParams(double *param) const override
+  {
+    param[0] = param[1] = param[2] = 1.0;
+  }
   virtual void projectParam(double *param, double zeroThreshold) const override;
   virtual void toParam(const double *Fp, double *param) const override;
 
@@ -59,5 +63,15 @@ inline void PlasticModel3D3DOF::computeR(const double *param, double R[9]) const
     R[i] = this->RT[i];
 }
 
+class VolumetricPlasticity3Config final : public PlasticModelConfig
+{
+public:
+  std::string_view id() const override { return "volumetric_dof3"; }
+  MaterialParameterSpec parameterSpec() const override;
+  MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::FullFrame; }
+  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+private:
+  std::unique_ptr<PlasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
+};
 }  // namespace SolidDeformationModel
 }  // namespace pgo

@@ -62,12 +62,11 @@ def _require_sim_mesh(sim_mesh):
 
 
 def _elastic_value_channels(sim_mesh, elastic):
-    from pypgo.fem.elastic import ElasticModel
+    from pypgo.fem.elastic import ElasticModelConfig
 
-    if isinstance(elastic, ElasticModel):
+    if isinstance(elastic, ElasticModelConfig):
         return elastic._handle.num_channels(sim_mesh._handle)
-    name = getattr(elastic, "name", None) or elastic._to_string()
-    return _core._elastic_num_channels(sim_mesh._handle, name)
+    raise TypeError(f"elastic must be an ElasticModelConfig, got {type(elastic).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -99,12 +98,14 @@ class DeformationEnergy(PotentialEnergy):
     DOFs, and ``e`` for elastic-field DOFs.
     """
 
-    def __init__(self, core):
+    def __init__(self, core, *, elastic_model=None, plastic_model=None):
         if not isinstance(core, _core.PyDeformationEnergy):
             raise TypeError(
                 f"core must be a PyDeformationEnergy, got {type(core).__name__}"
             )
         object.__setattr__(self, "_handle", core)
+        object.__setattr__(self, "_elastic_model", elastic_model)
+        object.__setattr__(self, "_plastic_model", plastic_model)
         super().__init__(core)
 
     @property
@@ -142,12 +143,12 @@ class DeformationEnergy(PotentialEnergy):
         return self._handle.num_plastic_dofs
 
     @property
-    def elastic_model(self) -> str:
-        return self._handle.elastic_model
+    def elastic_model(self):
+        return self._elastic_model
 
     @property
-    def plastic_model(self) -> str:
-        return self._handle.plastic_model
+    def plastic_model(self):
+        return self._plastic_model
 
     @property
     def parameters(self) -> MaterialParameters:
@@ -329,13 +330,13 @@ def deformation_energy(
     sim_mesh = _require_sim_mesh(sim_mesh)
     formulation = _resolve_formulation(formulation)
 
-    from pypgo.fem.elastic import ElasticModel
-    from pypgo.fem.plastic import PlasticModel
+    from pypgo.fem.elastic import ElasticModelConfig
+    from pypgo.fem.plastic import PlasticModelConfig
 
-    if not isinstance(elastic, ElasticModel) and not hasattr(elastic, "name") and not hasattr(elastic, "_to_string"):
-        raise TypeError(f"elastic must be an ElasticModel or have 'name'/'_to_string()', got {type(elastic).__name__}")
-    if not isinstance(plastic, PlasticModel) and not hasattr(plastic, "name") and not hasattr(plastic, "_to_string"):
-        raise TypeError(f"plastic must be a PlasticModel or have 'name'/'_to_string()', got {type(plastic).__name__}")
+    if not isinstance(elastic, ElasticModelConfig):
+        raise TypeError(f"elastic must be an ElasticModelConfig, got {type(elastic).__name__}")
+    if not isinstance(plastic, PlasticModelConfig):
+        raise TypeError(f"plastic must be a PlasticModelConfig, got {type(plastic).__name__}")
 
     if elastic_layout is None:
         elastic_layout = ElementwiseDofLayout()
@@ -379,9 +380,6 @@ def deformation_energy(
         num_plastic_channels,
     )
 
-    elastic_name = elastic.name if isinstance(elastic, ElasticModel) else elastic._to_string()
-    plastic_name = plastic.name if isinstance(plastic, PlasticModel) else plastic._to_string()
-
     if options is None:
         options = DeformationOptions()
     if not isinstance(options, DeformationOptions):
@@ -403,9 +401,9 @@ def deformation_energy(
 
     core = _core._create_deformation_energy(
         sim_mesh._handle,
-        elastic_name,
+        elastic._handle,
         elastic_values,
-        plastic_name,
+        plastic._handle,
         plastic_values,
         elastic_layout._handle,
         elastic_mapping._handle,
@@ -416,7 +414,7 @@ def deformation_energy(
         bool(options.enforce_spd),
         bool(options.enable_material_max_step),
     )
-    return DeformationEnergy(core)
+    return DeformationEnergy(core, elastic_model=elastic, plastic_model=plastic)
 
 
 def plastic_material_energy(

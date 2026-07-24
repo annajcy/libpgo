@@ -7,9 +7,6 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-// Forward declaration for the elastic material enum (defined in deformationModelManager.h).
-enum class DeformationModelElasticMaterial : int;
-
 class SimulationMeshMaterial
 {
 public:

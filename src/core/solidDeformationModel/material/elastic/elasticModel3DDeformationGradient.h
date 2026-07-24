@@ -7,6 +7,8 @@ copyright to USC,MIT,NUS
 
 #include "material/elastic/elasticModel.h"
 
+#include <stdexcept>
+
 namespace pgo
 {
 namespace SolidDeformationModel
@@ -24,7 +26,9 @@ public:
   virtual void compute_dPdF(const double *param, const double F[9],
     const double U[9], const double V[9], const double S[3], double dPdF[81]) const = 0;
 
-  int getNumParameters() const override { return 0; }
+  // Every concrete 3D model must state its parameter dimension explicitly.
+  // Parameter derivative hooks below throw unless the model implements them.
+  int getNumParameters() const override = 0;
 
   // compute the 1st order derivative with respect to the i-th parameter
   virtual double compute_dpsi_dparam(const double *param, int i, const double F[9],
@@ -53,33 +57,43 @@ protected:
 inline double ElasticModel3DDeformationGradient::compute_dpsi_dparam(const double *, int,
   const double[9], const double[9], const double[9], const double[3]) const
 {
-  return 0;
+  throw std::logic_error(
+    "ElasticModel3DDeformationGradient::compute_dpsi_dparam is not implemented.");
 }
 
 inline double ElasticModel3DDeformationGradient::compute_d2psi_dparam2(const double *, int, int,
   const double[9], const double[9], const double[9], const double[3]) const
 {
-  return 0;
+  throw std::logic_error(
+    "ElasticModel3DDeformationGradient::compute_d2psi_dparam2 is not implemented.");
 }
 
 inline void ElasticModel3DDeformationGradient::compute_dP_dparam(const double *, int,
   const double[9], const double[9], const double[9], const double[3], double *) const
 {
+  throw std::logic_error(
+    "ElasticModel3DDeformationGradient::compute_dP_dparam is not implemented.");
 }
 
 inline void ElasticModel3DDeformationGradient::compute_d2PdF2(const double *, const double[9],
   const double[9], const double[9], const double[3], double[729]) const
 {
+  throw std::logic_error(
+    "ElasticModel3DDeformationGradient::compute_d2PdF2 is not implemented.");
 }
 
 inline void ElasticModel3DDeformationGradient::compute_d2Pdparam2(const double *, int, int, const double[9],
   const double[9], const double[9], const double[3], double[9]) const
 {
+  throw std::logic_error(
+    "ElasticModel3DDeformationGradient::compute_d2Pdparam2 is not implemented.");
 }
 
 inline void ElasticModel3DDeformationGradient::compute_d2PdFdparam(const double *, int, const double[9],
   const double[9], const double[9], const double[3], double[81]) const
 {
+  throw std::logic_error(
+    "ElasticModel3DDeformationGradient::compute_d2PdFdparam is not implemented.");
 }
 
 }  // namespace SolidDeformationModel

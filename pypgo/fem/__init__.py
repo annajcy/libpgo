@@ -11,7 +11,7 @@ from pypgo.fem.formulations import (
 )
 from pypgo.fem.mass import VolumeMassField, VolumeDensity, volume_density, ShellMassField, ShellArealDensity, ShellDensityThickness, ShellDensityElasticThickness, SelfWeightGravity
 from pypgo.fem.elastic import (
-    ElasticModel,
+    ElasticModelConfig,
     KoiterStVK,
     LinearElastic,
     MooneyRivlin,
@@ -20,7 +20,7 @@ from pypgo.fem.elastic import (
     StVKVolume,
 )
 from pypgo.fem.plastic import (
-    PlasticModel,
+    PlasticModelConfig,
     ShellPlasticity,
     VolumetricPlasticity,
 )
@@ -75,7 +75,7 @@ __all__ = [
     "ShellDensityElasticThickness",
     "SelfWeightGravity",
     # Elastic
-    "ElasticModel",
+    "ElasticModelConfig",
     "KoiterStVK",
     "LinearElastic",
     "MooneyRivlin",
@@ -83,7 +83,7 @@ __all__ = [
     "StVK",
     "StVKVolume",
     # Plastic
-    "PlasticModel",
+    "PlasticModelConfig",
     "ShellPlasticity",
     "VolumetricPlasticity",
     # Fields

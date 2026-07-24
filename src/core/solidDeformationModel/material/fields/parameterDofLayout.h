@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EigenSupport.h"
+
 #include <span>
 
 namespace pgo
@@ -7,18 +9,11 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-enum class ParameterDofLayoutKind
-{
-  CONSTANT,
-  ELEMENTWISE,
-};
-
 class ParameterDofLayout
 {
 public:
   virtual ~ParameterDofLayout() = default;
 
-  virtual ParameterDofLayoutKind kind() const = 0;
   virtual int numElements() const = 0;
   virtual int numLocalDofs() const = 0;
   virtual int numGlobalDofs() const = 0;
@@ -29,6 +24,8 @@ public:
     int element,
     std::span<const double> globalValues,
     std::span<double> localDofValues) const = 0;
+  virtual EigenSupport::VXd globalValuesFromElementDefaults(
+    std::span<const double> elementValues) const = 0;
 };
 
 class ConstantParameterDofLayout final : public ParameterDofLayout
@@ -36,7 +33,6 @@ class ConstantParameterDofLayout final : public ParameterDofLayout
 public:
   ConstantParameterDofLayout(int numElements, int numLocalDofs);
 
-  ParameterDofLayoutKind kind() const override { return ParameterDofLayoutKind::CONSTANT; }
   int numElements() const override { return numElements_; }
   int numLocalDofs() const override { return numLocalDofs_; }
   int numGlobalDofs() const override { return numLocalDofs_; }
@@ -47,6 +43,8 @@ public:
     int element,
     std::span<const double> globalValues,
     std::span<double> localDofValues) const override;
+  EigenSupport::VXd globalValuesFromElementDefaults(
+    std::span<const double> elementValues) const override;
 
 private:
   int numElements_ = 0;
@@ -58,7 +56,6 @@ class ElementwiseParameterDofLayout final : public ParameterDofLayout
 public:
   ElementwiseParameterDofLayout(int numElements, int numLocalDofs);
 
-  ParameterDofLayoutKind kind() const override { return ParameterDofLayoutKind::ELEMENTWISE; }
   int numElements() const override { return numElements_; }
   int numLocalDofs() const override { return numLocalDofs_; }
   int numGlobalDofs() const override { return numElements_ * numLocalDofs_; }
@@ -69,6 +66,8 @@ public:
     int element,
     std::span<const double> globalValues,
     std::span<double> localDofValues) const override;
+  EigenSupport::VXd globalValuesFromElementDefaults(
+    std::span<const double> elementValues) const override;
 
 private:
   int numElements_ = 0;

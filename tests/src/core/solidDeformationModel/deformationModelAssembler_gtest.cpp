@@ -1,4 +1,10 @@
 #include <gtest/gtest.h>
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "material/plastic/plasticModel3D3DOF.h"
+#include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
@@ -117,7 +123,7 @@ struct Fixture
 };
 
 Fixture makeFixture(
-  std::unique_ptr<const ParameterFieldMapping> plasticMapping = nullptr)
+  std::shared_ptr<const ParameterFieldMapping> plasticMapping = nullptr)
 {
   const double vertices[] = {
     0, 0, 0,
@@ -143,15 +149,14 @@ Fixture makeFixture(
   z << std::sqrt(1.01), std::sqrt(0.004), std::sqrt(0.003),
     std::sqrt(0.995), std::sqrt(0.005), std::sqrt(1.008);
   MaterialParameterBlock elasticBlock(
-    MaterialParameterBlockKind::ELASTIC, "stable_neo", {},
-    std::make_unique<ElementwiseParameterDofLayout>(1, 0),
-    std::make_unique<IdentityParameterFieldMapping>(0));
+    {},
+    std::make_shared<ElementwiseParameterDofLayout>(1, 0),
+    std::make_shared<IdentityParameterFieldMapping>(0));
   MaterialParameterBlock plasticBlock(
-    MaterialParameterBlockKind::PLASTIC, "volumetric_dof6",
     { "Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz" },
-    std::make_unique<ElementwiseParameterDofLayout>(1, 6),
+    std::make_shared<ElementwiseParameterDofLayout>(1, 6),
     plasticMapping ? std::move(plasticMapping) :
-                     std::make_unique<SquareMapping>(6));
+                     std::make_shared<SquareMapping>(6));
   auto space = std::make_shared<MaterialParameterSpace>(
     std::move(elasticBlock), std::move(plasticBlock));
   fixture.parameters = std::make_shared<MaterialParameters>(
@@ -160,8 +165,8 @@ Fixture makeFixture(
   CubicLinearFormulation formulation;
   auto manager = std::make_shared<DeformationModelManager>(
     fixture.mesh,
-    DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    std::make_shared<StableNeoConfig>(),
+    std::make_shared<VolumetricPlasticity6Config>(),
     formulation, 0);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(space));
@@ -192,15 +197,13 @@ Fixture makeNonlinearShellFixture()
   ES::VXd plastic(1);
   plastic << std::sqrt(1.01);
   MaterialParameterBlock elasticBlock(
-    MaterialParameterBlockKind::ELASTIC, "koiter_stvk",
     { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" },
-    std::make_unique<ConstantParameterDofLayout>(1, 5),
-    std::make_unique<SquareMapping>(5));
+    std::make_shared<ConstantParameterDofLayout>(1, 5),
+    std::make_shared<SquareMapping>(5));
   MaterialParameterBlock plasticBlock(
-    MaterialParameterBlockKind::PLASTIC, "shell_ff_dof1",
     { "scale" },
-    std::make_unique<ConstantParameterDofLayout>(1, 1),
-    std::make_unique<SquareMapping>(1));
+    std::make_shared<ConstantParameterDofLayout>(1, 1),
+    std::make_shared<SquareMapping>(1));
   auto space = std::make_shared<MaterialParameterSpace>(
     std::move(elasticBlock), std::move(plasticBlock));
   fixture.parameters = std::make_shared<MaterialParameters>(
@@ -209,8 +212,8 @@ Fixture makeNonlinearShellFixture()
   KoiterShellFormulation formulation;
   auto manager = std::make_shared<DeformationModelManager>(
     fixture.mesh,
-    DeformationModelElasticMaterial::KOITER_STVK,
-    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    std::make_shared<KoiterStVKConfig>(),
+    std::make_shared<ShellPlasticity1Config>(),
     formulation, 0);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(space));

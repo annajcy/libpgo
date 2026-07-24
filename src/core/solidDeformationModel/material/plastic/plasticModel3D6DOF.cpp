@@ -18,7 +18,7 @@ using namespace pgo::SolidDeformationModel;
 using namespace pgo::NonlinearOptimization;
 
 PlasticModel3D6DOF::PlasticModel3D6DOF(const double R_[9]):
-  PlasticModel3DDeformationGradient(6)
+  PlasticModel3DDeformationGradient()
 {
   if (R_) {
     std::memcpy(R, R_, sizeof(double) * 9);
@@ -156,3 +156,31 @@ void PlasticModel3D6DOF::computeR(const double *param, double ROut[9]) const
 
   (Eigen::Map<ES::M3d>(ROut)) = R;
 }
+
+
+#include "simulation/simulationMesh.h"
+#include <algorithm>
+#include <initializer_list>
+#include <stdexcept>
+
+namespace pgo::SolidDeformationModel {
+namespace {
+void expectSize(std::span<double> output, std::size_t expected) {
+  if (output.size() != expected) throw std::invalid_argument("plastic config default parameter buffer has the wrong size");
+}
+MaterialParameterSpec channels(std::initializer_list<const char *> names) {
+  MaterialParameterSpec spec;
+  for (const char *name : names) spec.channelNames.emplace_back(name);
+  return spec;
+}
+}
+MaterialParameterSpec VolumetricPlasticity6Config::parameterSpec() const { return channels({"Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz"}); }
+void VolumetricPlasticity6Config::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const
+{
+  expectSize(output, 6); output[0] = 1; output[1] = 0; output[2] = 0; output[3] = 1; output[4] = 0; output[5] = 1;
+}
+std::unique_ptr<PlasticModel> VolumetricPlasticity6Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
+{
+  return std::make_unique<PlasticModel3D6DOF>();
+}
+}  // namespace pgo::SolidDeformationModel

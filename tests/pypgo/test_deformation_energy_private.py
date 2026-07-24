@@ -46,7 +46,7 @@ def _make_cubic_sim_mesh():
     return pgo.fem.SimulationMesh.create_volumetric(volume)
 
 
-def _make_deformation_energy(sim, formulation, elastic="stable_neo", plastic="volumetric_dof6", plastic_values=None):
+def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plastic_values=None):
     formulation_handle = {
         "tet_linear": pf.TetLinear,
         "cubic_linear": pf.CubicLinear,
@@ -55,14 +55,16 @@ def _make_deformation_energy(sim, formulation, elastic="stable_neo", plastic="vo
     }.get(formulation, lambda: None)()
     if formulation_handle is None:
         raise ValueError(f"Unknown formulation: {formulation}")
+    elastic = elastic or pf.StableNeo()
+    plastic = plastic or pf.VolumetricPlasticity(dofs=6)
     elastic_layout = _core._make_elementwise_parameter_dof_layout()
     plastic_layout = _core._make_elementwise_parameter_dof_layout()
     identity = _core._make_identity_parameter_field_mapping
     return _core._create_deformation_energy(
         sim._handle,
-        elastic,
+        elastic._handle,
         None,
-        plastic,
+        plastic._handle,
         plastic_values,
         elastic_layout,
         identity(),
@@ -73,31 +75,12 @@ def _make_deformation_energy(sim, formulation, elastic="stable_neo", plastic="vo
 
 
 class TestCoreDeformationEnergy:
-    def test_elastic_num_channels_uses_cpp_parameter_spec(self):
-        tet_sim = _make_tet_sim_mesh()
-        assert _core._elastic_num_channels(tet_sim._handle, "stable_neo") == 0
-
-        shell_sim = pgo.fem.SimulationMesh.create_shell(
-            pgo.mesh.TriMeshData(
-                np.array(
-                    [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-                    dtype=np.float64,
-                ),
-                np.array([[0, 1, 2]], dtype=np.int64),
-            ),
-            pgo.fem.KoiterStVKShellMaterial(
-                thickness=0.01, E_membrane=2e6, nu_membrane=0.35
-            ),
-        )
-        assert _core._elastic_num_channels(shell_sim._handle, "koiter_stvk") == 5
-        assert _core._elastic_num_channels(shell_sim._handle, "koiter_fabric") == 12
-
     def test_energy_exposes_shared_parameters(self):
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_linear")
 
-        assert energy.elastic_model == "stable_neo"
-        assert energy.plastic_model == "volumetric_dof6"
+        assert energy.elastic_model.name == "stable_neo"
+        assert energy.plastic_model.name == "volumetric_dof6"
         assert energy.parameters.space.elastic.num_channels == 0
         assert energy.parameters.elastic_values.shape == (0, 0)
         assert energy.parameters.plastic_values.shape == (sim.num_elements, 6)
@@ -146,7 +129,7 @@ class TestCoreEnergy:
 
     def test_energy_observes_state_updates(self):
         sim = _make_tet_sim_mesh()
-        energy = _make_deformation_energy(sim, "tet_linear", elastic="stvk")
+        energy = _make_deformation_energy(sim, "tet_linear", elastic=pf.StVK())
         h = energy
         u = h.zero_state()
 

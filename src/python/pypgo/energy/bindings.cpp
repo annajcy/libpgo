@@ -72,8 +72,6 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("channel", &PyMaterialParameterRef::channel);
 
   nb::class_<PyMaterialParameterBlock>(m, "PyMaterialParameterBlock")
-    .def_prop_ro("kind", &PyMaterialParameterBlock::kind)
-    .def_prop_ro("model", &PyMaterialParameterBlock::model)
     .def_prop_ro("num_channels", &PyMaterialParameterBlock::numChannels)
     .def_prop_ro("num_local_dofs", &PyMaterialParameterBlock::numLocalDofs)
     .def_prop_ro("num_global_dofs", &PyMaterialParameterBlock::numGlobalDofs)
@@ -103,10 +101,6 @@ void init_energy_bindings(nb::module_ &m)
     &makeConstantParameterDofLayout);
   m.def("_make_identity_parameter_field_mapping",
     &makeIdentityParameterFieldMapping);
-
-  m.def("_elastic_num_channels", &elasticNumChannels,
-    nb::arg("mesh_core"),
-    nb::arg("elastic_model"));
 
   // Unified deformation energy factory (public API entry point).
   m.def("_create_deformation_energy", &createDeformationEnergy,

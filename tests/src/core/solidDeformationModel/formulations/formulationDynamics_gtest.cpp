@@ -104,30 +104,29 @@ std::shared_ptr<MaterialParameters> makeShellMassParameters(
   int numElements, bool constant, bool nonlinear)
 {
   constexpr int numElasticChannels = 5;
-  std::unique_ptr<const ParameterDofLayout> elasticLayout;
+  std::shared_ptr<const ParameterDofLayout> elasticLayout;
   if (constant) {
-    elasticLayout = std::make_unique<ConstantParameterDofLayout>(
+    elasticLayout = std::make_shared<ConstantParameterDofLayout>(
       numElements, numElasticChannels);
   }
   else {
-    elasticLayout = std::make_unique<ElementwiseParameterDofLayout>(
+    elasticLayout = std::make_shared<ElementwiseParameterDofLayout>(
       numElements, numElasticChannels);
   }
 
-  std::unique_ptr<const ParameterFieldMapping> elasticMapping;
+  std::shared_ptr<const ParameterFieldMapping> elasticMapping;
   if (nonlinear)
-    elasticMapping = std::make_unique<SquareParameterMapping>(numElasticChannels);
+    elasticMapping = std::make_shared<SquareParameterMapping>(numElasticChannels);
   else
-    elasticMapping = std::make_unique<IdentityParameterFieldMapping>(numElasticChannels);
+    elasticMapping = std::make_shared<IdentityParameterFieldMapping>(numElasticChannels);
 
   MaterialParameterBlock elasticBlock(
-    MaterialParameterBlockKind::ELASTIC, "koiter_stvk",
     { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" },
     std::move(elasticLayout), std::move(elasticMapping));
   MaterialParameterBlock plasticBlock(
-    MaterialParameterBlockKind::PLASTIC, "none", {},
-    std::make_unique<ElementwiseParameterDofLayout>(numElements, 0),
-    std::make_unique<IdentityParameterFieldMapping>(0));
+    {},
+    std::make_shared<ElementwiseParameterDofLayout>(numElements, 0),
+    std::make_shared<IdentityParameterFieldMapping>(0));
   auto space = std::make_shared<MaterialParameterSpace>(
     std::move(elasticBlock), std::move(plasticBlock));
 

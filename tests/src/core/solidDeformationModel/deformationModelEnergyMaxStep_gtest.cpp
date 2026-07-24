@@ -1,4 +1,10 @@
 #include <gtest/gtest.h>
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "material/plastic/plasticModel3D3DOF.h"
+#include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "EigenSupport.h"
 #include "deformation/deformationModelAssembler.h"
@@ -33,12 +39,13 @@
 namespace
 {
 namespace ES = pgo::EigenSupport;
+using namespace pgo::SolidDeformationModel;
 using pgo::NonlinearOptimization::PotentialEnergy;
 using pgo::SolidDeformationModel::DeformationModelAssembler;
-using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
+using pgo::SolidDeformationModel::ElasticModelConfig;
 using pgo::SolidDeformationModel::DeformationModelEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
-using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
+using pgo::SolidDeformationModel::PlasticModelConfig;
 using pgo::SolidDeformationModel::SimulationMesh;
 using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
@@ -105,11 +112,11 @@ EnergyFixture makeTetFixture(
 
   pgo::SolidDeformationModel::TetLinearFormulation formulation;
   auto parameters = pgo::SolidDeformationModel::makeDefaultMaterialParameters(
-    *fixture.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    *fixture.meshOwner, *std::make_shared<StableNeoConfig>(),
+    *std::make_shared<VolumetricPlasticity6Config>());
   auto manager = std::make_shared<DeformationModelManager>(
-    fixture.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, formulation, 1);
+    fixture.meshOwner, std::make_shared<StableNeoConfig>(),
+    std::make_shared<VolumetricPlasticity6Config>(), formulation, 1);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, parameters->space(), nullptr);
@@ -149,11 +156,11 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 
   pgo::SolidDeformationModel::CubicLinearFormulation formulation;
   auto parameters = pgo::SolidDeformationModel::makeDefaultMaterialParameters(
-    *fixture.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    *fixture.meshOwner, *std::make_shared<StableNeoConfig>(),
+    *std::make_shared<VolumetricPlasticity6Config>());
   auto manager = std::make_shared<DeformationModelManager>(
-    fixture.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, formulation, 1);
+    fixture.meshOwner, std::make_shared<StableNeoConfig>(),
+    std::make_shared<VolumetricPlasticity6Config>(), formulation, 1);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, parameters->space(), nullptr);
@@ -196,11 +203,11 @@ EnergyFixture makeShellFixture()
 
   pgo::SolidDeformationModel::KoiterShellFormulation formulation;
   auto parameters = pgo::SolidDeformationModel::makeDefaultMaterialParameters(
-    *fixture.meshOwner, DeformationModelElasticMaterial::KOITER_STVK,
-    DeformationModelPlasticMaterial::SHELL_FF_DOF1);
+    *fixture.meshOwner, *std::make_shared<KoiterStVKConfig>(),
+    *std::make_shared<ShellPlasticity1Config>());
   auto manager = std::make_shared<DeformationModelManager>(
-    fixture.meshOwner, DeformationModelElasticMaterial::KOITER_STVK,
-    DeformationModelPlasticMaterial::SHELL_FF_DOF1, formulation, 1);
+    fixture.meshOwner, std::make_shared<KoiterStVKConfig>(),
+    std::make_shared<ShellPlasticity1Config>(), formulation, 1);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, parameters->space(), nullptr);

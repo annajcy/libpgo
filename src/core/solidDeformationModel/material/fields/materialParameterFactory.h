@@ -1,7 +1,8 @@
 #pragma once
 
 #include "material/fields/materialParameters.h"
-#include "material/materialTypes.h"
+#include "material/elastic/elasticModel.h"
+#include "material/plastic/plasticModel.h"
 
 #include <memory>
 #include <optional>
@@ -15,19 +16,19 @@ class SimulationMesh;
 
 std::shared_ptr<MaterialParameters> makeMaterialParameters(
   const SimulationMesh &mesh,
-  DeformationModelElasticMaterial elastic,
-  std::unique_ptr<const ParameterDofLayout> elasticDofLayout,
-  std::unique_ptr<const ParameterFieldMapping> elasticMapping,
+  const ElasticModelConfig &elastic,
+  std::shared_ptr<const ParameterDofLayout> elasticDofLayout,
+  std::shared_ptr<const ParameterFieldMapping> elasticMapping,
   std::optional<EigenSupport::VXd> elasticValues,
-  DeformationModelPlasticMaterial plastic,
-  std::unique_ptr<const ParameterDofLayout> plasticDofLayout,
-  std::unique_ptr<const ParameterFieldMapping> plasticMapping,
+  const PlasticModelConfig &plastic,
+  std::shared_ptr<const ParameterDofLayout> plasticDofLayout,
+  std::shared_ptr<const ParameterFieldMapping> plasticMapping,
   std::optional<EigenSupport::VXd> plasticValues);
 
 std::shared_ptr<MaterialParameters> makeDefaultMaterialParameters(
   const SimulationMesh &mesh,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic);
+  const ElasticModelConfig &elastic,
+  const PlasticModelConfig &plastic);
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo

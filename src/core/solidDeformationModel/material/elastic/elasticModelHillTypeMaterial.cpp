@@ -4,6 +4,11 @@ copyright to USC,MIT,NUS
 */
 
 #include "material/elastic/elasticModelHillTypeMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelInvariantBasedMaterial.h"
+#include "material/elastic/invariantBasedMaterialStVK.h"
+#include "material/elastic/elasticModelVolumeMaterial.h"
 
 #include "EigenSupport.h"
 
@@ -190,3 +195,64 @@ void ElasticModelHillTypeMaterial::compute_dP_dparam(const double * /*param*/, i
 
   (Eigen::Map<ES::M3d>(ret)) = fh * dldF;
 }
+
+
+#include "simulation/simulationMesh.h"
+#include <initializer_list>
+#include <stdexcept>
+
+namespace pgo::SolidDeformationModel {
+namespace {
+const SimulationMeshENuMaterial &enuMaterial(const SimulationMesh &mesh, int element) {
+  const auto *mat = dynamic_cast<const SimulationMeshENuMaterial *>(mesh.getElementMaterial(element, 0));
+  if (!mat) throw std::invalid_argument("elastic config requires SimulationMeshENuMaterial");
+  return *mat;
+}
+const SimulationMeshHillMaterial &hillMaterial(const SimulationMesh &mesh, int element) {
+  if (mesh.getElementNumMaterials(element) < 2) throw std::invalid_argument("Hill elastic config requires a Hill auxiliary material");
+  const auto *mat = dynamic_cast<const SimulationMeshHillMaterial *>(mesh.getElementMaterial(element, 1));
+  if (!mat) throw std::invalid_argument("Hill elastic config requires SimulationMeshHillMaterial");
+  return *mat;
+}
+void expectSize(std::span<double> output, std::size_t expected) {
+  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
+}
+MaterialParameterSpec channels(std::initializer_list<const char *> names) {
+  MaterialParameterSpec spec;
+  for (const char *name : names) spec.channelNames.emplace_back(name);
+  return spec;
+}
+}
+MaterialParameterSpec HillStableNeoConfig::parameterSpec() const { return channels({"activation"}); }
+void HillStableNeoConfig::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
+std::unique_ptr<ElasticModel> HillStableNeoConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &frame) const
+{
+  const auto &mat = enuMaterial(mesh, element); const auto &hill = hillMaterial(mesh, element);
+  return std::make_unique<ElasticModelCombinedMaterial<2>>(
+    std::make_unique<ElasticModelStableNeoHookeanMaterial>(mat.getMuLame(), mat.getLambdaLame()),
+    std::make_unique<ElasticModelHillTypeMaterial>(hill.getGamma(), hill.getEact(), hill.getLo(), frame.col(0)));
+}
+
+MaterialParameterSpec HillStVKConfig::parameterSpec() const { return channels({"activation"}); }
+void HillStVKConfig::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
+std::unique_ptr<ElasticModel> HillStVKConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &frame) const
+{
+  const auto &mat = enuMaterial(mesh, element); const auto &hill = hillMaterial(mesh, element);
+  return std::make_unique<ElasticModelCombinedMaterial<2>>(
+    std::make_unique<ElasticModelInvariantBasedMaterial>(
+      std::make_unique<InvariantBasedMaterialStVK>(mat.getE(), mat.getNu(), mat.getCompressionRatio())),
+    std::make_unique<ElasticModelHillTypeMaterial>(hill.getGamma(), hill.getEact(), hill.getLo(), frame.col(0)));
+}
+
+MaterialParameterSpec HillStVKVolumeConfig::parameterSpec() const { return channels({"activation"}); }
+void HillStVKVolumeConfig::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
+std::unique_ptr<ElasticModel> HillStVKVolumeConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &frame) const
+{
+  const auto &mat = enuMaterial(mesh, element); const auto &hill = hillMaterial(mesh, element);
+  return std::make_unique<ElasticModelCombinedMaterial<3>>(
+    std::make_unique<ElasticModelInvariantBasedMaterial>(
+      std::make_unique<InvariantBasedMaterialStVK>(mat.getE(), mat.getNu(), mat.getCompressionRatio())),
+    std::make_unique<ElasticModelHillTypeMaterial>(hill.getGamma(), hill.getEact(), hill.getLo(), frame.col(0)),
+    std::make_unique<ElasticModelVolumeMaterial>(mat.getCompressionRatio()));
+}
+}  // namespace pgo::SolidDeformationModel

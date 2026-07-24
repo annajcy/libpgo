@@ -1,6 +1,12 @@
 #pragma once
 
-#include "deformation/deformationModelManager.h"
+#include "material/elastic/elasticModel.h"
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModel3DSTVKMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModelLinearMaterial.h"
+#include "material/elastic/elasticModel3DMooneyRivlin.h"
+#include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
 #include "simulation/simulationMesh.h"
 
 #include <memory>
@@ -11,32 +17,30 @@ namespace pgo
 
 class PySimulationMesh;
 
-// Python-facing elastic model wrapper.  Holds a DeformationModelElasticMaterial
-// enum (the C++ "elastic model" is just a factory discriminator, not a polymorphic
-// object), plus cached per-element parameter channel count.
-class PyElasticModel
+// Python-facing immutable elastic model configuration wrapper.
+class PyElasticModelConfig
 {
 public:
-  explicit PyElasticModel(SolidDeformationModel::DeformationModelElasticMaterial type);
+  explicit PyElasticModelConfig(
+    std::shared_ptr<const SolidDeformationModel::ElasticModelConfig> config):
+    config_(std::move(config)) {}
 
-  std::string name() const;
-  SolidDeformationModel::DeformationModelElasticMaterial type() const { return type_; }
+  std::string name() const { return std::string(config_->id()); }
 
   // Number of parameter channels per element for the given mesh.
   int numChannels(const SolidDeformationModel::SimulationMesh &mesh) const;
   int numChannels(const PySimulationMesh &mesh) const;
+  std::shared_ptr<const SolidDeformationModel::ElasticModelConfig> config() const { return config_; }
 
-private:
-  SolidDeformationModel::DeformationModelElasticMaterial type_;
+protected:
+  std::shared_ptr<const SolidDeformationModel::ElasticModelConfig> config_;
 };
 
-// --- factory functions ---
-
-std::shared_ptr<PyElasticModel> make_stable_neo();
-std::shared_ptr<PyElasticModel> make_stvk();
-std::shared_ptr<PyElasticModel> make_stvk_vol();
-std::shared_ptr<PyElasticModel> make_linear_elastic();
-std::shared_ptr<PyElasticModel> make_mooney_rivlin();
-std::shared_ptr<PyElasticModel> make_koiter_stvk();
+class PyStableNeoConfig final : public PyElasticModelConfig { public: PyStableNeoConfig(); };
+class PyStVKConfig final : public PyElasticModelConfig { public: PyStVKConfig(); };
+class PyStVKVolumeConfig final : public PyElasticModelConfig { public: PyStVKVolumeConfig(); };
+class PyLinearElasticConfig final : public PyElasticModelConfig { public: PyLinearElasticConfig(); };
+class PyMooneyRivlinConfig final : public PyElasticModelConfig { public: PyMooneyRivlinConfig(); };
+class PyKoiterStVKConfig final : public PyElasticModelConfig { public: PyKoiterStVKConfig(); };
 
 }  // namespace pgo

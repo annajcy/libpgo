@@ -12,7 +12,6 @@ using namespace pgo::SolidDeformationModel;
 TEST(ConstantParameterDofLayout, GathersSharedColumns)
 {
   ConstantParameterDofLayout layout(4, 3);
-  EXPECT_EQ(layout.kind(), ParameterDofLayoutKind::CONSTANT);
   EXPECT_EQ(layout.numElements(), 4);
   EXPECT_EQ(layout.numLocalDofs(), 3);
   EXPECT_EQ(layout.numGlobalDofs(), 3);
@@ -26,6 +25,16 @@ TEST(ConstantParameterDofLayout, GathersSharedColumns)
     for (int k = 0; k < 3; k++)
       EXPECT_EQ(layout.globalDof(ele, k), k);
   }
+}
+
+TEST(ConstantParameterDofLayout, ConvertsElementDefaultsToGlobalValues)
+{
+  ConstantParameterDofLayout layout(3, 2);
+  const std::array<double, 6> defaults{1, 2, 3, 4, 5, 6};
+  const auto global = layout.globalValuesFromElementDefaults(defaults);
+  ASSERT_EQ(global.size(), 2);
+  EXPECT_DOUBLE_EQ(global[0], 1);
+  EXPECT_DOUBLE_EQ(global[1], 2);
 }
 
 TEST(ConstantParameterDofLayout, RejectsInvalidShapeAndIndices)

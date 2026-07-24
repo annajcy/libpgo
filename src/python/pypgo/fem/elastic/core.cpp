@@ -1,61 +1,26 @@
 #include "core.h"
 
-#include "material/elastic/elasticModelFactory.h"
 #include "../../simulation/core.h"
 
 namespace pgo
 {
 namespace SD = SolidDeformationModel;
 
-PyElasticModel::PyElasticModel(SD::DeformationModelElasticMaterial type)
-  : type_(type)
+int PyElasticModelConfig::numChannels(const SD::SimulationMesh &) const
 {
+  return static_cast<int>(config_->parameterSpec().channelNames.size());
 }
 
-std::string PyElasticModel::name() const
-{
-  return SD::ElasticModelFactory::modelId(type_);
-}
-
-int PyElasticModel::numChannels(const SD::SimulationMesh &mesh) const
-{
-  return static_cast<int>(
-    SD::ElasticModelFactory::parameterSpec(mesh, type_).channelNames.size());
-}
-
-int PyElasticModel::numChannels(const PySimulationMesh &mesh) const
+int PyElasticModelConfig::numChannels(const PySimulationMesh &mesh) const
 {
   return numChannels(mesh.mesh());
 }
 
-std::shared_ptr<PyElasticModel> make_stable_neo()
-{
-  return std::make_shared<PyElasticModel>(SD::DeformationModelElasticMaterial::STABLE_NEO);
-}
-
-std::shared_ptr<PyElasticModel> make_stvk()
-{
-  return std::make_shared<PyElasticModel>(SD::DeformationModelElasticMaterial::STVK);
-}
-
-std::shared_ptr<PyElasticModel> make_stvk_vol()
-{
-  return std::make_shared<PyElasticModel>(SD::DeformationModelElasticMaterial::STVK_VOL);
-}
-
-std::shared_ptr<PyElasticModel> make_linear_elastic()
-{
-  return std::make_shared<PyElasticModel>(SD::DeformationModelElasticMaterial::LINEAR);
-}
-
-std::shared_ptr<PyElasticModel> make_mooney_rivlin()
-{
-  return std::make_shared<PyElasticModel>(SD::DeformationModelElasticMaterial::MOONEY_RIVLIN);
-}
-
-std::shared_ptr<PyElasticModel> make_koiter_stvk()
-{
-  return std::make_shared<PyElasticModel>(SD::DeformationModelElasticMaterial::KOITER_STVK);
-}
+PyStableNeoConfig::PyStableNeoConfig(): PyElasticModelConfig(std::make_shared<SD::StableNeoConfig>()) {}
+PyStVKConfig::PyStVKConfig(): PyElasticModelConfig(std::make_shared<SD::StVKConfig>()) {}
+PyStVKVolumeConfig::PyStVKVolumeConfig(): PyElasticModelConfig(std::make_shared<SD::StVKVolumeConfig>()) {}
+PyLinearElasticConfig::PyLinearElasticConfig(): PyElasticModelConfig(std::make_shared<SD::LinearElasticConfig>()) {}
+PyMooneyRivlinConfig::PyMooneyRivlinConfig(): PyElasticModelConfig(std::make_shared<SD::MooneyRivlinConfig>()) {}
+PyKoiterStVKConfig::PyKoiterStVKConfig(): PyElasticModelConfig(std::make_shared<SD::KoiterStVKConfig>()) {}
 
 }  // namespace pgo

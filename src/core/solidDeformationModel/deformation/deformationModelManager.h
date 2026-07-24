@@ -7,7 +7,8 @@ copyright to USC, MIT, NUS
 
 #include "EigenDef.h"
 #include "formulations/formulation/formulation.h"
-#include "material/materialTypes.h"
+#include "material/elastic/elasticModel.h"
+#include "material/plastic/plasticModel.h"
 #include "material/fields/materialFrameField.h"
 
 #include <memory>
@@ -24,14 +25,14 @@ class DeformationModelManager
 {
 public:
   DeformationModelManager(std::shared_ptr<const SimulationMesh> mesh,
-    DeformationModelElasticMaterial elasticMaterial,
-    DeformationModelPlasticMaterial plasticModel,
+    std::shared_ptr<const ElasticModelConfig> elasticConfig,
+    std::shared_ptr<const PlasticModelConfig> plasticConfig,
     const Formulation &formulation,
     int enforceSPD = 1);
 
   DeformationModelManager(std::shared_ptr<const SimulationMesh> mesh,
-    DeformationModelElasticMaterial elasticMaterial,
-    DeformationModelPlasticMaterial plasticModel,
+    std::shared_ptr<const ElasticModelConfig> elasticConfig,
+    std::shared_ptr<const PlasticModelConfig> plasticConfig,
     const Formulation &formulation,
     int enforceSPD,
     std::shared_ptr<const MaterialFrameField> materialFrames);
@@ -45,6 +46,8 @@ public:
 
   const MaterialFrameField &materialFrameField() const;
   std::shared_ptr<const MaterialFrameField> materialFrameFieldPtr() const;
+  std::shared_ptr<const ElasticModelConfig> elasticModelConfig() const;
+  std::shared_ptr<const PlasticModelConfig> plasticModelConfig() const;
   MaterialFrame materialToReferenceFrame(
     int elementId, int quadratureId = 0) const;
 
@@ -54,9 +57,7 @@ protected:
   std::unique_ptr<DeformationModelManagerImpl> data;
 
 private:
-  void initImpl(DeformationModelPlasticMaterial plasticModelType,
-    DeformationModelElasticMaterial elasticMaterialType,
-    const Formulation &formulation);
+  void initImpl(const Formulation &formulation);
 };
 
 }  // namespace SolidDeformationModel

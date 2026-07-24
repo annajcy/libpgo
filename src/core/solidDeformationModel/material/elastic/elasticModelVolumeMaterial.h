@@ -18,6 +18,8 @@ public:
     scale(coeff) {}
   virtual ~ElasticModelVolumeMaterial() {}
 
+  int getNumParameters() const override { return 0; }
+
   virtual double compute_psi(const double *param, const double F[9],
     const double U[9], const double V[9], const double S[3]) const override;
 
@@ -31,6 +33,16 @@ public:
 
 protected:
   double scale;
+};
+class VolumePenaltyConfig final : public ElasticModelConfig
+{
+public:
+  std::string_view id() const override { return "volume"; }
+  MaterialParameterSpec parameterSpec() const override;
+  MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
+  void initializeDefaultParameters(const SimulationMesh &, int, std::span<double>) const override;
+private:
+  std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

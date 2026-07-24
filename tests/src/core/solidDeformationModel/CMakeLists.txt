@@ -15,7 +15,7 @@ pgo_add_gtest(deformationModelAssembler_gtest
   LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/cubic/box.veg"
 )
 
-pgo_add_gtest(deformationModelFactory_gtest
+pgo_add_gtest(deformationModelBuilder_gtest
   SOURCES deformationModelFactory_gtest.cpp
   DEPS solidDeformationModel volumetricMesh mesh
   DEFINITIONS
@@ -104,8 +104,8 @@ pgo_add_gtest(materialFrameField_gtest
   DEPS solidDeformationModel
 )
 
-pgo_add_gtest(elasticModelFactory_gtest
-  SOURCES factories/elasticModelFactory_gtest.cpp
+pgo_add_gtest(elasticModelConfig_gtest
+  SOURCES elasticModelConfig_gtest.cpp
   DEPS solidDeformationModel volumetricMesh
   DEFINITIONS
   LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/tet/torus.veg"

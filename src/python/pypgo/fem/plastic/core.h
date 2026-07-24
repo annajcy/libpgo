@@ -1,6 +1,11 @@
 #pragma once
 
-#include "deformation/deformationModelManager.h"
+#include "material/plastic/plasticModel.h"
+#include "material/plastic/plasticModel3DConstant.h"
+#include "material/plastic/plasticModel3D3DOF.h"
+#include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel2DFundamentalForms.h"
+#include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include <memory>
 #include <string>
@@ -8,25 +13,27 @@
 namespace pgo
 {
 
-// Python-facing plastic model wrapper.  Holds a DeformationModelPlasticMaterial
-// enum plus the DOF count.
-class PyPlasticModel
+// Python-facing immutable plastic model configuration wrapper.
+class PyPlasticModelConfig
 {
 public:
-  PyPlasticModel(SolidDeformationModel::DeformationModelPlasticMaterial type, int dofs);
+  PyPlasticModelConfig(
+    std::shared_ptr<const SolidDeformationModel::PlasticModelConfig> config,
+    int dofs): config_(std::move(config)), dofs_(dofs) {}
 
-  std::string name() const;
-  SolidDeformationModel::DeformationModelPlasticMaterial type() const { return type_; }
+  std::string name() const { return std::string(config_->id()); }
   int dofs() const { return dofs_; }
+  std::shared_ptr<const SolidDeformationModel::PlasticModelConfig> config() const { return config_; }
 
-private:
-  SolidDeformationModel::DeformationModelPlasticMaterial type_;
+protected:
+  std::shared_ptr<const SolidDeformationModel::PlasticModelConfig> config_;
   int dofs_;
 };
 
-// --- factory functions ---
-
-std::shared_ptr<PyPlasticModel> make_volumetric_plasticity(int dofs = 6);
-std::shared_ptr<PyPlasticModel> make_shell_plasticity(int dofs = 1);
+class PyVolumetricPlasticity0Config final : public PyPlasticModelConfig { public: PyVolumetricPlasticity0Config(); };
+class PyVolumetricPlasticity3Config final : public PyPlasticModelConfig { public: PyVolumetricPlasticity3Config(); };
+class PyVolumetricPlasticity6Config final : public PyPlasticModelConfig { public: PyVolumetricPlasticity6Config(); };
+class PyShellPlasticity0Config final : public PyPlasticModelConfig { public: PyShellPlasticity0Config(); };
+class PyShellPlasticity1Config final : public PyPlasticModelConfig { public: PyShellPlasticity1Config(); };
 
 }  // namespace pgo

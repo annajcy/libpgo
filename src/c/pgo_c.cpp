@@ -1,4 +1,10 @@
 #include "energy/energySet.h"
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "material/plastic/plasticModel3D3DOF.h"
+#include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 #include "pgo_c.h"
 
 #include "basicIO.h"
@@ -630,12 +636,12 @@ int pgo_run_sim_from_config(const char *configFileName)
 
   // material
   std::string material = jconfig.getString("elastic-material");
-  pgo::SolidDeformationModel::DeformationModelElasticMaterial elasticMat;
+  std::shared_ptr<const pgo::SolidDeformationModel::ElasticModelConfig> elasticConfig;
   if (material == "stable-neo") {
-    elasticMat = pgo::SolidDeformationModel::DeformationModelElasticMaterial::STABLE_NEO;
+    elasticConfig = std::make_shared<pgo::SolidDeformationModel::StableNeoConfig>();
   }
   else if (material == "stvk-vol") {
-    elasticMat = pgo::SolidDeformationModel::DeformationModelElasticMaterial::STVK_VOL;
+    elasticConfig = std::make_shared<pgo::SolidDeformationModel::StVKVolumeConfig>();
   }
   else {
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported elastic material: {}", material);
@@ -686,14 +692,14 @@ int pgo_run_sim_from_config(const char *configFileName)
   switch (simMesh->getElementType()) {
   case SolidDeformationModel::SimulationMeshType::TET:
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      simMesh, elasticMat,
-      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+      simMesh, elasticConfig,
+      std::make_shared<SolidDeformationModel::VolumetricPlasticity6Config>(),
       SolidDeformationModel::TetLinearFormulation{});
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
     elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      simMesh, elasticMat,
-      SolidDeformationModel::DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+      simMesh, elasticConfig,
+      std::make_shared<SolidDeformationModel::VolumetricPlasticity6Config>(),
       SolidDeformationModel::CubicLinearFormulation{});
     break;
   default:

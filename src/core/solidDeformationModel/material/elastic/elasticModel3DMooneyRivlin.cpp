@@ -319,3 +319,33 @@ void ElasticModel3DMooneyRivlin::compute_dPdF(const double *param, const double 
 
   (ES::Mp<ES::M9d>(dPdF)) = d2W_dF2;
 }
+
+
+#include "simulation/simulationMesh.h"
+#include <stdexcept>
+#include <string>
+
+namespace pgo::SolidDeformationModel {
+namespace {
+const SimulationMeshMooneyRivlinMaterial &mooneyMaterial(const SimulationMesh &mesh, int element) {
+  const auto *mat = dynamic_cast<const SimulationMeshMooneyRivlinMaterial *>(mesh.getElementMaterial(element, 0));
+  if (!mat) throw std::invalid_argument("MooneyRivlinConfig requires SimulationMeshMooneyRivlinMaterial");
+  return *mat;
+}
+void expectSize(std::span<double> output, std::size_t expected) {
+  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
+}
+MaterialParameterSpec numberedChannels(int count) {
+  MaterialParameterSpec spec;
+  for (int i = 0; i < count; ++i) spec.channelNames.push_back("parameter_" + std::to_string(i));
+  return spec;
+}
+}
+MaterialParameterSpec MooneyRivlinConfig::parameterSpec() const { return numberedChannels(0); }
+void MooneyRivlinConfig::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
+std::unique_ptr<ElasticModel> MooneyRivlinConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &) const
+{
+  const auto &mat = mooneyMaterial(mesh, element);
+  return std::make_unique<ElasticModel3DMooneyRivlin>(mat.getN(), mat.getC(), mat.getM(), mat.getD());
+}
+}  // namespace pgo::SolidDeformationModel

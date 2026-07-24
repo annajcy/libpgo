@@ -10,15 +10,15 @@ using namespace pgo;
 
 void init_elastic_model_bindings(nb::module_ &m)
 {
-    nb::class_<PyElasticModel>(m, "PyElasticModel")
-        .def_prop_ro("name", &PyElasticModel::name)
+    nb::class_<PyElasticModelConfig>(m, "PyElasticModelConfig")
+        .def_prop_ro("name", &PyElasticModelConfig::name)
         .def("num_channels",
-            static_cast<int (PyElasticModel::*)(const PySimulationMesh &) const>(&PyElasticModel::numChannels));
+            static_cast<int (PyElasticModelConfig::*)(const PySimulationMesh &) const>(&PyElasticModelConfig::numChannels));
 
-    m.def("make_stable_neo", &make_stable_neo);
-    m.def("make_stvk", &make_stvk);
-    m.def("make_stvk_vol", &make_stvk_vol);
-    m.def("make_linear_elastic", &make_linear_elastic);
-    m.def("make_mooney_rivlin", &make_mooney_rivlin);
-    m.def("make_koiter_stvk", &make_koiter_stvk);
+    nb::class_<PyStableNeoConfig, PyElasticModelConfig>(m, "PyStableNeoConfig").def(nb::init<>());
+    nb::class_<PyStVKConfig, PyElasticModelConfig>(m, "PyStVKConfig").def(nb::init<>());
+    nb::class_<PyStVKVolumeConfig, PyElasticModelConfig>(m, "PyStVKVolumeConfig").def(nb::init<>());
+    nb::class_<PyLinearElasticConfig, PyElasticModelConfig>(m, "PyLinearElasticConfig").def(nb::init<>());
+    nb::class_<PyMooneyRivlinConfig, PyElasticModelConfig>(m, "PyMooneyRivlinConfig").def(nb::init<>());
+    nb::class_<PyKoiterStVKConfig, PyElasticModelConfig>(m, "PyKoiterStVKConfig").def(nb::init<>());
 }

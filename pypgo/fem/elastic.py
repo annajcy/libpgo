@@ -1,12 +1,12 @@
-"""Elastic law wrappers — each holds a persistent C++ PyElasticModel handle."""
+"""Elastic model configuration wrappers."""
 
 from __future__ import annotations
 
 import pypgo._core as _core
 
 
-class ElasticModel:
-    """Abstract base — owns a C++ PyElasticModel handle."""
+class ElasticModelConfig:
+    """Abstract model configuration backed by a shared C++ config object."""
 
     def __init__(self, core_obj) -> None:
         self._handle = core_obj
@@ -19,34 +19,34 @@ class ElasticModel:
         return f"{type(self).__name__}()"
 
 
-class StableNeo(ElasticModel):
+class StableNeo(ElasticModelConfig):
     def __init__(self) -> None:
-        super().__init__(_core.make_stable_neo())
+        super().__init__(_core.PyStableNeoConfig())
 
 
-class StVK(ElasticModel):
+class StVK(ElasticModelConfig):
     def __init__(self) -> None:
-        super().__init__(_core.make_stvk())
+        super().__init__(_core.PyStVKConfig())
 
 
-class StVKVolume(ElasticModel):
+class StVKVolume(ElasticModelConfig):
     def __init__(self) -> None:
-        super().__init__(_core.make_stvk_vol())
+        super().__init__(_core.PyStVKVolumeConfig())
 
 
-class LinearElastic(ElasticModel):
+class LinearElastic(ElasticModelConfig):
     def __init__(self) -> None:
-        super().__init__(_core.make_linear_elastic())
+        super().__init__(_core.PyLinearElasticConfig())
 
 
-class MooneyRivlin(ElasticModel):
+class MooneyRivlin(ElasticModelConfig):
     def __init__(self) -> None:
-        super().__init__(_core.make_mooney_rivlin())
+        super().__init__(_core.PyMooneyRivlinConfig())
 
 
-class KoiterStVK(ElasticModel):
+class KoiterStVK(ElasticModelConfig):
     def __init__(self) -> None:
-        super().__init__(_core.make_koiter_stvk())
+        super().__init__(_core.PyKoiterStVKConfig())
 
 
 from dataclasses import dataclass

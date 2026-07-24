@@ -9,6 +9,12 @@
 //   * gradient(u) == d func/du, hessian(u) == d gradient/du   (enforceSPD = 0 -> true derivative)
 
 #include <gtest/gtest.h>
+#include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
+#include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include "material/plastic/plasticModel3D3DOF.h"
+#include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
@@ -85,10 +91,10 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
   EnergyCase c;
   c.meshOwner = makeUnitCubeMesh();
   auto parameters = makeDefaultMaterialParameters(
-    *c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    *c.meshOwner, *std::make_shared<StableNeoConfig>(),
+    *std::make_shared<VolumetricPlasticity6Config>());
   auto manager = std::make_shared<DeformationModelManager>(
-    c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    c.meshOwner, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>(),
     formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, parameters->space(), nullptr);
@@ -352,10 +358,10 @@ EnergyCase makeTwoCubeCase(const FormulationT &formulation)
   EnergyCase c;
   c.meshOwner = makeTwoCubeMesh();
   auto parameters = makeDefaultMaterialParameters(
-    *c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+    *c.meshOwner, *std::make_shared<StableNeoConfig>(),
+    *std::make_shared<VolumetricPlasticity6Config>());
   auto manager = std::make_shared<DeformationModelManager>(
-    c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    c.meshOwner, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>(),
     formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, parameters->space(), nullptr);

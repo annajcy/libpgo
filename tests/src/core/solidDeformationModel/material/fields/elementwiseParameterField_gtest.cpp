@@ -121,94 +121,58 @@ TEST(MaterialParameterBlock, RejectsInvalidSchema)
 {
   EXPECT_THROW(
     MaterialParameterBlock(
-      MaterialParameterBlockKind::ELASTIC, "duplicate",
       { "same", "same" },
-      std::make_unique<ElementwiseParameterDofLayout>(2, 2),
-      std::make_unique<IdentityParameterFieldMapping>(2)),
+      std::make_shared<ElementwiseParameterDofLayout>(2, 2),
+      std::make_shared<IdentityParameterFieldMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
     MaterialParameterBlock(
-      MaterialParameterBlockKind::ELASTIC, "empty",
       { "valid", "" },
-      std::make_unique<ElementwiseParameterDofLayout>(2, 2),
-      std::make_unique<IdentityParameterFieldMapping>(2)),
+      std::make_shared<ElementwiseParameterDofLayout>(2, 2),
+      std::make_shared<IdentityParameterFieldMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
     MaterialParameterBlock(
-      MaterialParameterBlockKind::ELASTIC, "mapping-layout-mismatch",
       { "first", "second" },
-      std::make_unique<ElementwiseParameterDofLayout>(2, 1),
-      std::make_unique<IdentityParameterFieldMapping>(2)),
+      std::make_shared<ElementwiseParameterDofLayout>(2, 1),
+      std::make_shared<IdentityParameterFieldMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
     MaterialParameterBlock(
-      MaterialParameterBlockKind::ELASTIC, "mapping-channel-mismatch",
       { "only_one_name" },
-      std::make_unique<ElementwiseParameterDofLayout>(2, 2),
-      std::make_unique<IdentityParameterFieldMapping>(2)),
+      std::make_shared<ElementwiseParameterDofLayout>(2, 2),
+      std::make_shared<IdentityParameterFieldMapping>(2)),
     std::invalid_argument);
 }
 
-TEST(MaterialParameterSpace, RejectsInvalidBlockKindsAndElementCounts)
+TEST(MaterialParameterSpace, RejectsMismatchedElementCounts)
 {
   EXPECT_THROW(
     MaterialParameterSpace(
       MaterialParameterBlock(
-        MaterialParameterBlockKind::PLASTIC, "wrong-elastic-kind",
         std::vector<std::string>{},
-        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
-        std::make_unique<IdentityParameterFieldMapping>(0)),
+        std::make_shared<ElementwiseParameterDofLayout>(2, 0),
+        std::make_shared<IdentityParameterFieldMapping>(0)),
       MaterialParameterBlock(
-        MaterialParameterBlockKind::PLASTIC, "plastic",
         std::vector<std::string>{},
-        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
-        std::make_unique<IdentityParameterFieldMapping>(0))),
-    std::invalid_argument);
-
-  EXPECT_THROW(
-    MaterialParameterSpace(
-      MaterialParameterBlock(
-        MaterialParameterBlockKind::ELASTIC, "elastic",
-        std::vector<std::string>{},
-        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
-        std::make_unique<IdentityParameterFieldMapping>(0)),
-      MaterialParameterBlock(
-        MaterialParameterBlockKind::ELASTIC, "wrong-plastic-kind",
-        std::vector<std::string>{},
-        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
-        std::make_unique<IdentityParameterFieldMapping>(0))),
-    std::invalid_argument);
-
-  EXPECT_THROW(
-    MaterialParameterSpace(
-      MaterialParameterBlock(
-        MaterialParameterBlockKind::ELASTIC, "elastic",
-        std::vector<std::string>{},
-        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
-        std::make_unique<IdentityParameterFieldMapping>(0)),
-      MaterialParameterBlock(
-        MaterialParameterBlockKind::PLASTIC, "plastic",
-        std::vector<std::string>{},
-        std::make_unique<ElementwiseParameterDofLayout>(3, 0),
-        std::make_unique<IdentityParameterFieldMapping>(0))),
+        std::make_shared<ElementwiseParameterDofLayout>(3, 0),
+        std::make_shared<IdentityParameterFieldMapping>(0))),
     std::invalid_argument);
 }
 
 TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
 {
   MaterialParameterBlock elastic(
-    MaterialParameterBlockKind::ELASTIC, "test_elastic",
     { "first", "thickness" },
-    std::make_unique<ElementwiseParameterDofLayout>(2, 2),
-    std::make_unique<SquareMapping>(std::array<double, 2>{ 2.0, 3.0 }));
+    std::make_shared<ElementwiseParameterDofLayout>(2, 2),
+    std::make_shared<SquareMapping>(std::array<double, 2>{ 2.0, 3.0 }));
   MaterialParameterBlock plastic(
-    MaterialParameterBlockKind::PLASTIC, "test_plastic",
     { "stretch" },
-    std::make_unique<ConstantParameterDofLayout>(2, 1),
-    std::make_unique<IdentityParameterFieldMapping>(1));
+    std::make_shared<ConstantParameterDofLayout>(2, 1),
+    std::make_shared<IdentityParameterFieldMapping>(1));
   auto space = std::make_shared<MaterialParameterSpace>(
     std::move(elastic), std::move(plastic));
 
@@ -234,15 +198,13 @@ TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
 
   auto otherSpace = std::make_shared<MaterialParameterSpace>(
     MaterialParameterBlock(
-      MaterialParameterBlockKind::ELASTIC, "other",
       std::vector<std::string>{ "first", "thickness" },
-      std::make_unique<ElementwiseParameterDofLayout>(2, 2),
-      std::make_unique<IdentityParameterFieldMapping>(2)),
+      std::make_shared<ElementwiseParameterDofLayout>(2, 2),
+      std::make_shared<IdentityParameterFieldMapping>(2)),
     MaterialParameterBlock(
-      MaterialParameterBlockKind::PLASTIC, "other",
       std::vector<std::string>{ "stretch" },
-      std::make_unique<ConstantParameterDofLayout>(2, 1),
-      std::make_unique<IdentityParameterFieldMapping>(1)));
+      std::make_shared<ConstantParameterDofLayout>(2, 1),
+      std::make_shared<IdentityParameterFieldMapping>(1)));
   EXPECT_THROW(
     thickness.value(
       0, 0,

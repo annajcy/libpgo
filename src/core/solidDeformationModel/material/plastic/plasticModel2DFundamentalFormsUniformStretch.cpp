@@ -135,3 +135,28 @@ double pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch:
 {
   return (pi == 0 && pj == 0) ? 2.0 * areaRest : 0.0;
 }
+
+
+#include "simulation/simulationMesh.h"
+#include <algorithm>
+#include <initializer_list>
+#include <stdexcept>
+
+namespace pgo::SolidDeformationModel {
+namespace {
+void expectSize(std::span<double> output, std::size_t expected) {
+  if (output.size() != expected) throw std::invalid_argument("plastic config default parameter buffer has the wrong size");
+}
+MaterialParameterSpec channels(std::initializer_list<const char *> names) {
+  MaterialParameterSpec spec;
+  for (const char *name : names) spec.channelNames.emplace_back(name);
+  return spec;
+}
+}
+MaterialParameterSpec ShellPlasticity1Config::parameterSpec() const { return channels({"stretch"}); }
+void ShellPlasticity1Config::initializeDefaultParameters(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
+std::unique_ptr<PlasticModel> ShellPlasticity1Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
+{
+  return std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
+}
+}  // namespace pgo::SolidDeformationModel
