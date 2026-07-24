@@ -13,7 +13,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
-#include "material/fields/materialParameterFieldInit.h"
+#include "material/fields/materialParameterFactory.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "simulation/simulationMesh.h"
 #include "formulations/formulation/formulations.h"
@@ -60,7 +60,7 @@ void setVolumetricPlasticIdentity(DeformationModelEnergy &energy)
   ES::VXd plastic(static_cast<Eigen::Index>(npp) * nele);
   for (int ei = 0; ei < nele; ei++)
     manager.getDeformationModel(ei)->defaultPlasticParams(plastic.data() + ei * npp);
-  assembler.setPlasticValues(plastic);
+  energy.materialParameters()->setPlasticValues(plastic);
 }
 
 // Single axis-aligned unit cube (CUBIC element, 8 vertices in CubicLinearShapeFunction corner order).
@@ -84,16 +84,16 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
 {
   EnergyCase c;
   c.meshOwner = makeUnitCubeMesh();
-  auto elasticField = createElasticParameterField(
-    *c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{});
-  auto plasticField = createPlasticParameterField(
-    *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
+  auto parameters = makeDefaultMaterialParameters(
+    *c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   auto manager = std::make_shared<DeformationModelManager>(
     c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
     formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
-  c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), offset, false);
+    std::move(manager), formulation, parameters->space(), nullptr);
+  c.energy = std::make_unique<DeformationModelEnergy>(
+    std::move(assembler), std::move(parameters), offset, false);
   c.numDOFs = c.energy->getNumDOFs();
   setVolumetricPlasticIdentity(*c.energy);
   return c;
@@ -351,16 +351,16 @@ EnergyCase makeTwoCubeCase(const FormulationT &formulation)
 {
   EnergyCase c;
   c.meshOwner = makeTwoCubeMesh();
-  auto elasticField = createElasticParameterField(
-    *c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{});
-  auto plasticField = createPlasticParameterField(
-    *c.meshOwner, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
+  auto parameters = makeDefaultMaterialParameters(
+    *c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO,
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
   auto manager = std::make_shared<DeformationModelManager>(
     c.meshOwner, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
     formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
-  c.energy = std::make_unique<DeformationModelEnergy>(std::move(assembler), 0, false);
+    std::move(manager), formulation, parameters->space(), nullptr);
+  c.energy = std::make_unique<DeformationModelEnergy>(
+    std::move(assembler), std::move(parameters), 0, false);
   c.numDOFs = c.energy->getNumDOFs();
   setVolumetricPlasticIdentity(*c.energy);
   return c;

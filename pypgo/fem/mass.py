@@ -73,20 +73,17 @@ class ShellDensityThickness(ShellMassField):
 
 
 class ShellDensityElasticThickness(ShellMassField):
-    """rho * h with h read live from an elastic ParameterField channel.
+    """rho * h with h read from a semantic ``thickness`` parameter."""
 
-    Shares storage with the energy's elastic field: set_elastic_values()
-    updates the thickness seen here, no manual sync.
-    """
+    def __init__(self, *, density: float, parameter) -> None:
+        from pypgo.fem.fields import MaterialParameterRef
 
-    def __init__(self, *, density: float, parameter_field, channel: int = 4) -> None:
-        from pypgo.fem.fields import ParameterField
-
-        if not isinstance(parameter_field, ParameterField):
+        if not isinstance(parameter, MaterialParameterRef):
             raise TypeError(
-                f"parameter_field must be a ParameterField, got {type(parameter_field).__name__}")
+                f"parameter must be a MaterialParameterRef, got {type(parameter).__name__}")
+        self._parameter = parameter
         super().__init__(_core.make_shell_density_elastic_thickness(
-            float(density), parameter_field._handle, int(channel)))
+            float(density), parameter._handle))
 
 
 class SelfWeightGravity:
@@ -97,8 +94,11 @@ class SelfWeightGravity:
     field's current values.
     """
 
-    def __init__(self, *, formulation, sim_mesh, mass_field, acceleration) -> None:
+    def __init__(
+        self, *, formulation, sim_mesh, mass_field, material_parameters, acceleration
+    ) -> None:
         from pypgo.fem.formulations import ShellFormulation
+        from pypgo.fem.fields import MaterialParameters
 
         if not isinstance(formulation, ShellFormulation):
             raise TypeError(
@@ -106,14 +106,33 @@ class SelfWeightGravity:
         if not isinstance(mass_field, ShellMassField):
             raise TypeError(
                 f"mass_field must be a ShellMassField, got {type(mass_field).__name__}")
+        if not isinstance(material_parameters, MaterialParameters):
+            raise TypeError(
+                "material_parameters must be MaterialParameters, "
+                f"got {type(material_parameters).__name__}"
+            )
         self._formulation = formulation
         self._sim_mesh = sim_mesh
         self._mass_field = mass_field
+        self._material_parameters = material_parameters
         self._acceleration = np.asarray(acceleration, dtype=np.float64).reshape(3)
 
+    @property
+    def material_parameters(self):
+        return self._material_parameters
+
     def force(self) -> np.ndarray:
-        return self._formulation.body_force(self._sim_mesh, self._acceleration, self._mass_field)
+        return self._formulation.body_force(
+            self._sim_mesh,
+            self._acceleration,
+            self._mass_field,
+            material_parameters=self._material_parameters,
+        )
 
     def parameter_jacobian(self):
         return self._formulation.body_force_parameter_jacobian(
-            self._sim_mesh, self._acceleration, self._mass_field)
+            self._sim_mesh,
+            self._acceleration,
+            self._mass_field,
+            material_parameters=self._material_parameters,
+        )

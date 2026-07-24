@@ -7,8 +7,6 @@
 #include "material/plastic/plasticModel2DFundamentalForms.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 #include "simulation/simulationMesh.h"
-#include "material/fields/elementwiseParameterField.h"
-#include "material/fields/constantParameterField.h"
 
 #include <vector>
 
@@ -101,12 +99,11 @@ DeformationModelPlasticMaterial PlasticModelFactory::materialFromModelId(const s
   throw std::invalid_argument("PlasticModelFactory::materialFromModelId: unknown plastic model id: " + modelId);
 }
 
-ParameterFieldSpec PlasticModelFactory::parameterSpec(DeformationModelPlasticMaterial type)
+MaterialParameterSpec PlasticModelFactory::parameterSpec(DeformationModelPlasticMaterial type)
 {
-  ParameterFieldSpec spec;
-  spec.domain = ParameterDomain::PLASTIC;
+  MaterialParameterSpec spec;
   spec.modelId = modelId(type);
-  spec.numChannels = numParameters(type);
+  const int numChannels = numParameters(type);
   switch (type) {
   case DeformationModelPlasticMaterial::VOLUMETRIC_DOF6:
     spec.channelNames = { "Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz" };
@@ -118,61 +115,11 @@ ParameterFieldSpec PlasticModelFactory::parameterSpec(DeformationModelPlasticMat
     spec.channelNames = { "stretch" };
     break;
   default:
+    for (int i = 0; i < numChannels; i++)
+      spec.channelNames.push_back("parameter_" + std::to_string(i));
     break;
   }
   return spec;
-}
-
-std::shared_ptr<OptimizableField> PlasticModelFactory::createDefaultElementwiseField(
-  const SimulationMesh &mesh,
-  DeformationModelPlasticMaterial type)
-{
-  const int nele = mesh.getNumElements();
-  const int np = numParameters(type);
-  std::vector<std::unique_ptr<PlasticModel>> ownedPlasticModels(nele);
-  std::vector<PlasticModel *> plasticModels(nele);
-  for (int ei = 0; ei < nele; ei++) {
-    ownedPlasticModels[ei] =
-      create(type, MaterialFrame::Identity());
-    plasticModels[ei] = ownedPlasticModels[ei].get();
-  }
-
-  ES::VXd values = initializeDefaultPlasticParams(nele, np, plasticModels.data());
-  return std::make_shared<ElementwiseParameterField>(parameterSpec(type), nele, std::move(values));
-}
-
-std::shared_ptr<OptimizableField> PlasticModelFactory::createElementwiseField(
-  const SimulationMesh &mesh,
-  DeformationModelPlasticMaterial type,
-  ES::VXd values)
-{
-  return std::make_shared<ElementwiseParameterField>(
-    parameterSpec(type), mesh.getNumElements(), std::move(values));
-}
-
-std::shared_ptr<OptimizableField> PlasticModelFactory::createDefaultConstantField(
-  const SimulationMesh &mesh,
-  DeformationModelPlasticMaterial type)
-{
-  const int np = numParameters(type);
-  ES::VXd values(np);
-  values.setZero();
-  if (np > 0) {
-    std::unique_ptr<PlasticModel> model =
-      create(type, MaterialFrame::Identity());
-    model->defaultParams(values.data());
-  }
-  return std::make_shared<ConstantParameterField>(
-    parameterSpec(type), mesh.getNumElements(), std::move(values));
-}
-
-std::shared_ptr<OptimizableField> PlasticModelFactory::createConstantField(
-  const SimulationMesh &mesh,
-  DeformationModelPlasticMaterial type,
-  ES::VXd values)
-{
-  return std::make_shared<ConstantParameterField>(
-    parameterSpec(type), mesh.getNumElements(), std::move(values));
 }
 
 }  // namespace pgo::SolidDeformationModel

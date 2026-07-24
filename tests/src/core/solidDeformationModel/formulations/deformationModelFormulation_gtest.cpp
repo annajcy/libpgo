@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "energy/deformationEnergyBuilder.h"
-#include "material/fields/materialParameterFieldInit.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"

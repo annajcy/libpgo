@@ -15,14 +15,6 @@ pgo_add_gtest(deformationModelAssembler_gtest
   LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/cubic/box.veg"
 )
 
-pgo_add_gtest(deformationModelMaterialSweepFD_gtest
-  SOURCES deformationModelMaterialSweepFD_gtest.cpp
-  DEPS solidDeformationModel mesh
-)
-pgo_add_gtest(deformationModelEnergyFD_gtest
-  SOURCES deformationModelEnergyFD_gtest.cpp
-  DEPS solidDeformationModel volumetricMesh mesh
-)
 pgo_add_gtest(deformationModelFactory_gtest
   SOURCES deformationModelFactory_gtest.cpp
   DEPS solidDeformationModel volumetricMesh mesh
@@ -62,14 +54,6 @@ pgo_add_gtest(cubicTricubicHermiteFormulation_gtest
   SOURCES formulations/cubicTricubicHermiteFormulation_gtest.cpp
   DEPS solidDeformationModel mesh
 )
-pgo_add_gtest(cubicTricubicHermiteMaterialSweepFD_gtest
-  SOURCES formulations/cubicTricubicHermiteMaterialSweepFD_gtest.cpp
-  DEPS solidDeformationModel mesh
-)
-pgo_add_gtest(cubicTricubicHermiteElementParamHessianFD_gtest
-  SOURCES formulations/cubicTricubicHermiteElementParamHessianFD_gtest.cpp
-  DEPS solidDeformationModel
-)
 pgo_add_gtest(formulationDynamics_gtest
   SOURCES formulations/formulationDynamics_gtest.cpp
   DEPS solidDeformationModel volumetricMesh mesh
@@ -80,10 +64,6 @@ pgo_add_gtest(volumetricElementMapping_gtest
 )
 pgo_add_gtest(volumetricDeformationModel_gtest
   SOURCES deformation/volume/volumetricDeformationModel_gtest.cpp
-  DEPS solidDeformationModel
-)
-pgo_add_gtest(volumetricElementParamHessianFD_gtest
-  SOURCES deformation/volume/volumetricElementParamHessianFD_gtest.cpp
   DEPS solidDeformationModel
 )
 pgo_add_gtest(shellDeformationModel_gtest

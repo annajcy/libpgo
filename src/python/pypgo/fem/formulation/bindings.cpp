@@ -32,11 +32,14 @@ void init_formulation_bindings(nb::module_ &m)
         nb::arg("volume_mesh"), nb::arg("formulation"), nb::arg("surface_vertices_flat"));
 
     m.def("compute_shell_formulation_mass_matrix", &compute_shell_formulation_mass_matrix,
-        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("mass_field"));
+        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("mass_field"),
+        nb::arg("material_parameters").none() = nb::none());
     m.def("compute_shell_formulation_body_force", &compute_shell_formulation_body_force,
-        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("mass_field"));
+        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("mass_field"),
+        nb::arg("material_parameters").none() = nb::none());
 
     m.def("compute_shell_formulation_body_force_parameter_jacobian",
         &compute_shell_formulation_body_force_parameter_jacobian,
-        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("mass_field"));
+        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("mass_field"),
+        nb::arg("material_parameters").none() = nb::none());
 }

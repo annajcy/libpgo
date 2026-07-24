@@ -4,10 +4,15 @@
 #include "barycentricCoordinates.h"
 #include "cubicMesh.h"
 #include "generateMassMatrix.h"
+#include "mass/shellDensityElasticThickness.h"
 #include "mass/volumeMassField.h"
+#include "material/fields/materialParameters.h"
 #include "simulation/simulationMesh.h"
+#include "triMeshGeo.h"
 
+#include <cmath>
 #include <memory>
+#include <span>
 #include <vector>
 
 using namespace pgo;
@@ -36,6 +41,143 @@ std::unique_ptr<VolumetricMeshes::CubicMesh> makeSingleCube(double density)
 double sparseCoeff(const EigenSupport::SpMatD &M, int r, int c)
 {
   return M.coeff(r, c);
+}
+
+class SquareParameterMapping final : public ParameterFieldMapping
+{
+public:
+  explicit SquareParameterMapping(int size): size_(size) {}
+
+  int numInputDofs() const override { return size_; }
+  int numChannels() const override { return size_; }
+  bool isAffine() const override { return false; }
+
+  void evaluate(
+    int, int, std::span<const double> z,
+    std::span<double> p) const override
+  {
+    for (int i = 0; i < size_; i++)
+      p[i] = z[i] * z[i];
+  }
+
+  void evaluateJacobian(
+    int, int, std::span<const double> z,
+    double *output) const override
+  {
+    std::fill(output, output + size_ * size_, 0.0);
+    for (int i = 0; i < size_; i++)
+      output[i * size_ + i] = 2.0 * z[i];
+  }
+
+  void evaluateHessians(
+    int, int, std::span<const double>,
+    double *output) const override
+  {
+    std::fill(output, output + size_ * size_ * size_, 0.0);
+    for (int i = 0; i < size_; i++)
+      output[i * size_ * size_ + i * size_ + i] = 2.0;
+  }
+
+private:
+  int size_;
+};
+
+std::shared_ptr<const SimulationMesh> makeTwoTriangleShellMesh()
+{
+  const double vertices[] = {
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    1.0, 1.0, 0.0,
+    0.0, 1.0, 0.0,
+  };
+  const int triangles[] = {
+    0, 1, 2,
+    0, 2, 3,
+  };
+  Mesh::TriMeshGeo surface(4, vertices, 2, triangles);
+  SimulationMeshENuhMaterial material(1000.0, 0.35, 1e-3);
+  return std::shared_ptr<const SimulationMesh>(
+    loadShellMesh(surface, &material).release());
+}
+
+std::shared_ptr<MaterialParameters> makeShellMassParameters(
+  int numElements, bool constant, bool nonlinear)
+{
+  constexpr int numElasticChannels = 5;
+  std::unique_ptr<const ParameterDofLayout> elasticLayout;
+  if (constant) {
+    elasticLayout = std::make_unique<ConstantParameterDofLayout>(
+      numElements, numElasticChannels);
+  }
+  else {
+    elasticLayout = std::make_unique<ElementwiseParameterDofLayout>(
+      numElements, numElasticChannels);
+  }
+
+  std::unique_ptr<const ParameterFieldMapping> elasticMapping;
+  if (nonlinear)
+    elasticMapping = std::make_unique<SquareParameterMapping>(numElasticChannels);
+  else
+    elasticMapping = std::make_unique<IdentityParameterFieldMapping>(numElasticChannels);
+
+  MaterialParameterBlock elasticBlock(
+    MaterialParameterBlockKind::ELASTIC, "koiter_stvk",
+    { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" },
+    std::move(elasticLayout), std::move(elasticMapping));
+  MaterialParameterBlock plasticBlock(
+    MaterialParameterBlockKind::PLASTIC, "none", {},
+    std::make_unique<ElementwiseParameterDofLayout>(numElements, 0),
+    std::make_unique<IdentityParameterFieldMapping>(0));
+  auto space = std::make_shared<MaterialParameterSpace>(
+    std::move(elasticBlock), std::move(plasticBlock));
+
+  const int rows = constant ? 1 : numElements;
+  EigenSupport::VXd elastic(rows * numElasticChannels);
+  for (int row = 0; row < rows; row++) {
+    elastic.segment<5>(row * numElasticChannels) <<
+      2.0, 0.4, 1.5, 0.3, 0.025 + 0.004 * row;
+  }
+  return std::make_shared<MaterialParameters>(
+    std::move(space), std::move(elastic), EigenSupport::VXd());
+}
+
+void expectBodyForceParameterJacobianMatchesFD(
+  bool constant, bool nonlinear)
+{
+  auto mesh = makeTwoTriangleShellMesh();
+  auto parameters = makeShellMassParameters(
+    mesh->getNumElements(), constant, nonlinear);
+  auto space = parameters->space();
+  ShellDensityElasticThickness massField(
+    850.0, space, space->elastic().parameter("thickness"));
+  KoiterShellFormulation formulation;
+  const EigenSupport::V3d acceleration(0.7, -1.3, -9.81);
+  const EigenSupport::VXd z = parameters->elasticSnapshot();
+
+  const EigenSupport::SpMatD jacobian =
+    formulation.buildBodyForceParameterJacobian(
+      *mesh, acceleration, massField, parameters->committedView());
+  EigenSupport::MXd fd(jacobian.rows(), jacobian.cols());
+  constexpr double h = 1e-7;
+  for (int col = 0; col < z.size(); col++) {
+    EigenSupport::VXd zp = z;
+    EigenSupport::VXd zm = z;
+    zp[col] += h;
+    zm[col] -= h;
+    auto vp = space->makeStateView(
+      std::span<const double>(zp.data(), zp.size()), {});
+    auto vm = space->makeStateView(
+      std::span<const double>(zm.data(), zm.size()), {});
+    fd.col(col) = (
+      formulation.buildBodyForce(*mesh, acceleration, massField, vp) -
+      formulation.buildBodyForce(*mesh, acceleration, massField, vm)) /
+      (2.0 * h);
+  }
+
+  EXPECT_LT(
+    (EigenSupport::MXd(jacobian) - fd).norm() /
+      std::max(1.0, EigenSupport::MXd(jacobian).norm()),
+    2e-8);
 }
 
 }  // namespace
@@ -177,4 +319,14 @@ TEST(FormulationDynamicsGTest, CubicSurfaceEmbeddingClampsPointsToElementBoundar
 
   EXPECT_TRUE(linear.isApprox(expected, 1e-12)) << linear.transpose();
   EXPECT_TRUE(hermite.isApprox(expected, 1e-12)) << hermite.transpose();
+}
+
+TEST(FormulationDynamicsGTest, ConstantMappedThicknessBodyForceJacobianMatchesFD)
+{
+  expectBodyForceParameterJacobianMatchesFD(true, false);
+}
+
+TEST(FormulationDynamicsGTest, NonlinearElementwiseThicknessBodyForceJacobianMatchesFD)
+{
+  expectBodyForceParameterJacobianMatchesFD(false, true);
 }

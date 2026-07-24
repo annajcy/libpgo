@@ -212,9 +212,7 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
     deformation = _fem.deformation_energy(
         sim_mesh,
         elastic=_VOLUME_ELASTIC[cfg.material.model](),
-        elastic_field=_fem.ElementwiseField(),
         plastic=_fem.VolumetricPlasticity(dofs=0),
-        plastic_field=_fem.ElementwiseField(),
         formulation=fm,
         options=_fem.DeformationOptions(
             enable_material_max_step=cfg.material.enable_material_max_step),
@@ -298,9 +296,7 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
     deformation = _fem.deformation_energy(
         sim_mesh,
         elastic=_fem.KoiterStVK(),
-        elastic_field=_fem.ElementwiseField(),
         plastic=_fem.ShellPlasticity(dofs=0),
-        plastic_field=_fem.ElementwiseField(),
         formulation=fm,
         options=_fem.DeformationOptions(
             enable_material_max_step=cfg.material.enable_material_max_step),

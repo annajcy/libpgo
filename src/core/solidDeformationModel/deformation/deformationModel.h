@@ -60,14 +60,23 @@ public:
   virtual void compute_dE_dx(const CacheData *cacheData, double *grad) const = 0;
   virtual void compute_d2E_dx2(const CacheData *cacheData, double *hess) const = 0;
 
-  virtual void compute_d2E_dxda(const CacheData *cacheData, double *hess) const = 0;
-  virtual void compute_d2E_dxdb(const CacheData *cacheData, double *hess) const = 0;
+  virtual void compute_d2E_dxda(
+    const CacheData *cacheData, double *hess,
+    int materialLocation = -1) const = 0;
+  virtual void compute_d2E_dxdb(
+    const CacheData *cacheData, double *hess,
+    int materialLocation = -1) const = 0;
 
-  virtual void compute_dE_da(const CacheData *cacheData, double *grad) const {}
-  virtual void compute_d2E_da2(const CacheData *cacheData, double *hess) const {}
-  virtual void compute_dE_db(const CacheData *cacheData, double *grad) const {}
-  virtual void compute_d2E_db2(const CacheData *cacheData, double *hess) const {}
-  virtual void compute_d2E_dadb(const CacheData *cacheData, double *hess) const {}
+  virtual void compute_dE_da(
+    const CacheData *, double *, int = -1) const {}
+  virtual void compute_d2E_da2(
+    const CacheData *, double *, int = -1) const {}
+  virtual void compute_dE_db(
+    const CacheData *, double *, int = -1) const {}
+  virtual void compute_d2E_db2(
+    const CacheData *, double *, int = -1) const {}
+  virtual void compute_d2E_dadb(
+    const CacheData *, double *, int = -1) const {}
 
   virtual void enableSPD(int enable) { (void)enable; }
 

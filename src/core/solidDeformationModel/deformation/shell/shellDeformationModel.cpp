@@ -10,6 +10,15 @@ namespace pgo
 namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
+namespace
+{
+void validateMaterialLocation(int materialLocation)
+{
+  if (materialLocation > 0)
+    throw std::out_of_range("Shell material location is out of range.");
+}
+}  // namespace
+
 ShellDeformationModelCacheData::ShellDeformationModelCacheData(
   int numPlasticParams_, int numElasticParams_):
   numPlasticParams(numPlasticParams_),
@@ -210,8 +219,9 @@ void ShellDeformationModel::compute_d2E_dx2(const DeformationModelCacheData *cac
 }
 
 void ShellDeformationModel::compute_d2E_dxda(const DeformationModelCacheData *cacheDataBase,
-  double *hess) const
+  double *hess, int materialLocation) const
 {
+  validateMaterialLocation(materialLocation);
   const CacheData *cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0)
     return;
@@ -278,8 +288,9 @@ void ShellDeformationModel::compute_d2E_dxda(const DeformationModelCacheData *ca
 }
 
 void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *cacheDataBase,
-  double *hess) const
+  double *hess, int materialLocation) const
 {
+  validateMaterialLocation(materialLocation);
   const CacheData *cacheData = this->cacheData(cacheDataBase);
   if (numElasticParams_ == 0)
     return;
@@ -314,8 +325,9 @@ void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *ca
 }
 
 void ShellDeformationModel::compute_dE_da(const DeformationModelCacheData *cacheDataBase,
-  double *grad) const
+  double *grad, int materialLocation) const
 {
+  validateMaterialLocation(materialLocation);
   const CacheData *cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0)
     return;
@@ -351,8 +363,9 @@ void ShellDeformationModel::compute_dE_da(const DeformationModelCacheData *cache
 }
 
 void ShellDeformationModel::compute_d2E_da2(const DeformationModelCacheData *cacheDataBase,
-  double *hess) const
+  double *hess, int materialLocation) const
 {
+  validateMaterialLocation(materialLocation);
   const CacheData *cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0)
     return;
@@ -422,8 +435,9 @@ void ShellDeformationModel::compute_d2E_da2(const DeformationModelCacheData *cac
 }
 
 void ShellDeformationModel::compute_dE_db(const DeformationModelCacheData *cacheDataBase,
-  double *grad) const
+  double *grad, int materialLocation) const
 {
+  validateMaterialLocation(materialLocation);
   const CacheData *cacheData = this->cacheData(cacheDataBase);
   if (numElasticParams_ == 0)
     return;
@@ -439,8 +453,9 @@ void ShellDeformationModel::compute_dE_db(const DeformationModelCacheData *cache
 }
 
 void ShellDeformationModel::compute_d2E_db2(const DeformationModelCacheData *cacheDataBase,
-  double *hess) const
+  double *hess, int materialLocation) const
 {
+  validateMaterialLocation(materialLocation);
   const CacheData *cacheData = this->cacheData(cacheDataBase);
   if (numElasticParams_ == 0)
     return;
@@ -456,8 +471,9 @@ void ShellDeformationModel::compute_d2E_db2(const DeformationModelCacheData *cac
 }
 
 void ShellDeformationModel::compute_d2E_dadb(const DeformationModelCacheData *cacheDataBase,
-  double *hess) const
+  double *hess, int materialLocation) const
 {
+  validateMaterialLocation(materialLocation);
   const CacheData *cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0 || numElasticParams_ == 0)
     return;

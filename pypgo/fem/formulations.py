@@ -52,7 +52,7 @@ class Formulation:
 class VolumetricFormulation(Formulation):
     """Volumetric formulation with dynamics operators."""
 
-    def mass_matrix(self, sim_mesh, mass_field):
+    def mass_matrix(self, sim_mesh, mass_field, *, material_parameters=None):
         """Consistent mass matrix; density from a VolumeDensity (kg/m^3) field."""
         from pypgo.sparse import SparseMatrix
         from pypgo.fem.mass import VolumeMassField
@@ -106,16 +106,41 @@ class ShellFormulation(Formulation):
             raise TypeError(
                 f"shell formulation expects a ShellMassField (kg/m^2), got {type(mass_field).__name__}")
 
-    def mass_matrix(self, sim_mesh, mass_field):
+    @staticmethod
+    def _material_parameters_handle(material_parameters, *, required=False):
+        from pypgo.fem.fields import MaterialParameters
+
+        if material_parameters is None:
+            if required:
+                raise ValueError(
+                    "material_parameters is required for a parameter-dependent Jacobian"
+                )
+            return None
+        if not isinstance(material_parameters, MaterialParameters):
+            raise TypeError(
+                "material_parameters must be MaterialParameters, "
+                f"got {type(material_parameters).__name__}"
+            )
+        return material_parameters._handle
+
+    def mass_matrix(self, sim_mesh, mass_field, *, material_parameters=None):
         """Lumped shell mass matrix."""
         from pypgo.sparse import SparseMatrix
 
         _require_sim_mesh(sim_mesh)
         self._require_shell_mass_field(mass_field)
         return SparseMatrix(
-            _core.compute_shell_formulation_mass_matrix(sim_mesh._handle, self._handle, mass_field._handle))
+            _core.compute_shell_formulation_mass_matrix(
+                sim_mesh._handle,
+                self._handle,
+                mass_field._handle,
+                self._material_parameters_handle(material_parameters),
+            )
+        )
 
-    def body_force(self, sim_mesh, acceleration, mass_field) -> np.ndarray:
+    def body_force(
+        self, sim_mesh, acceleration, mass_field, *, material_parameters=None
+    ) -> np.ndarray:
         """Lumped shell body force for a constant 3-vector acceleration."""
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
@@ -124,11 +149,18 @@ class ShellFormulation(Formulation):
         self._require_shell_mass_field(mass_field)
         return np.asarray(
             _core.compute_shell_formulation_body_force(
-                sim_mesh._handle, self._handle, accel.tolist(), mass_field._handle),
+                sim_mesh._handle,
+                self._handle,
+                accel.tolist(),
+                mass_field._handle,
+                self._material_parameters_handle(material_parameters),
+            ),
             dtype=np.float64,
         )
 
-    def body_force_parameter_jacobian(self, sim_mesh, acceleration, mass_field):
+    def body_force_parameter_jacobian(
+        self, sim_mesh, acceleration, mass_field, *, material_parameters
+    ):
         """d(body force)/d(elastic parameters) for a parameter-dependent mass field."""
         from pypgo.sparse import SparseMatrix
 
@@ -139,7 +171,13 @@ class ShellFormulation(Formulation):
         self._require_shell_mass_field(mass_field)
         return SparseMatrix(
             _core.compute_shell_formulation_body_force_parameter_jacobian(
-                sim_mesh._handle, self._handle, accel.tolist(), mass_field._handle))
+                sim_mesh._handle,
+                self._handle,
+                accel.tolist(),
+                mass_field._handle,
+                self._material_parameters_handle(material_parameters, required=True),
+            )
+        )
 
 
 # ---------------------------------------------------------------------------

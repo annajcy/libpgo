@@ -1,74 +1,261 @@
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
-#include "material/fields/elementwiseParameterField.h"
-#include "EigenSupport.h"
+#include "material/fields/materialParameters.h"
 
+#include <array>
+#include <memory>
+
+namespace
+{
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-TEST(ElementwiseParameterField, OwnsValuesAndGathersPerElement)
+class SquareMapping final : public ParameterFieldMapping
 {
-  ParameterFieldSpec spec;
-  spec.domain = ParameterDomain::PLASTIC;
-  spec.modelId = "volumetric_dof6";
-  spec.numChannels = 6;
-  spec.channelNames = { "Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz" };
+public:
+  explicit SquareMapping(std::array<double, 2> scales): scales_(scales) {}
 
-  ES::VXd values(12);
-  values << 1.0, 0.0, 0.0, 1.0, 0.0, 1.0,
-            1.2, 0.0, 0.0, 0.9, 0.0, 1.0;
+  int numInputDofs() const override { return 2; }
+  int numChannels() const override { return 2; }
+  bool isAffine() const override { return false; }
 
-  ElementwiseParameterField field(spec, 2, values);
-  values.setConstant(9.0);
+  void evaluate(
+    int, int, std::span<const double> z,
+    std::span<double> p) const override
+  {
+    if (z.size() != 2 || p.size() != 2)
+      throw std::invalid_argument("SquareMapping shape mismatch.");
+    for (int c = 0; c < 2; c++)
+      p[c] = scales_[c] * z[c] * z[c];
+  }
 
-  EXPECT_EQ(field.spec().domain, ParameterDomain::PLASTIC);
-  EXPECT_EQ(field.spec().modelId, "volumetric_dof6");
-  EXPECT_EQ(field.kind(), ParameterFieldKind::ELEMENTWISE);
-  EXPECT_EQ(field.numElements(), 2);
-  EXPECT_EQ(field.numValueRows(), 2);
-  EXPECT_EQ(field.numChannels(), 6);
-  EXPECT_EQ(field.dofLayout()->numGlobalDofs(), 12);
-  EXPECT_TRUE(field.dofLayout()->matchesParameterShape(6, 2));
-  EXPECT_FALSE(field.dofLayout()->matchesParameterShape(6, 3));
-  EXPECT_FALSE(field.dofLayout()->matchesParameterShape(5, 2));
-  EXPECT_EQ(field.dofLayout()->globalDof(1, 3), 9);
+  void evaluateJacobian(
+    int, int, std::span<const double> z,
+    double *output) const override
+  {
+    std::fill(output, output + 4, 0.0);
+    for (int c = 0; c < 2; c++)
+      output[c * 2 + c] = 2.0 * scales_[c] * z[c];
+  }
 
-  double out[6] = {};
-  field.computeValue(1, 0, out);
-  EXPECT_DOUBLE_EQ(out[0], 1.2);
-  EXPECT_DOUBLE_EQ(out[3], 0.9);
-  EXPECT_DOUBLE_EQ(out[5], 1.0);
+  void evaluateHessians(
+    int, int, std::span<const double>,
+    double *output) const override
+  {
+    std::fill(output, output + 8, 0.0);
+    for (int c = 0; c < 2; c++)
+      output[c * 4 + c * 2 + c] = 2.0 * scales_[c];
+  }
+
+private:
+  std::array<double, 2> scales_;
+};
+
+TEST(ElementwiseParameterDofLayout, GathersPerElementColumns)
+{
+  ElementwiseParameterDofLayout layout(3, 2);
+  const std::array<double, 6> global{ 1, 2, 3, 4, 5, 6 };
+  std::array<double, 2> local{};
+  layout.gather(2, global, local);
+  EXPECT_EQ(local[0], 5);
+  EXPECT_EQ(local[1], 6);
+  EXPECT_EQ(layout.globalDof(2, 0), 4);
+  EXPECT_EQ(layout.globalDof(2, 1), 5);
+  EXPECT_EQ(layout.numValueRows(), 3);
 }
 
-TEST(ElementwiseParameterField, SetValuesCopiesReplacement)
+TEST(NonlinearParameterFieldMapping, ValueJacobianHessiansAndFiniteDifference)
 {
-  ParameterFieldSpec spec;
-  spec.domain = ParameterDomain::ELASTIC;
-  spec.modelId = "stable_neo";
-  spec.numChannels = 2;
+  SquareMapping mapping({ 2.0, -3.0 });
+  std::array<double, 2> z{ 1.5, -0.7 };
+  std::array<double, 2> p{};
+  std::array<double, 4> jacobian{};
+  std::array<double, 8> hessians{};
+  mapping.evaluate(0, 0, z, p);
+  mapping.evaluateJacobian(0, 0, z, jacobian.data());
+  mapping.evaluateHessians(0, 0, z, hessians.data());
 
-  ES::VXd values(4);
-  values << 1.0, 0.3, 2.0, 0.4;
-  ElementwiseParameterField field(spec, 2, values);
+  EXPECT_DOUBLE_EQ(p[0], 4.5);
+  EXPECT_DOUBLE_EQ(p[1], -1.47);
+  EXPECT_DOUBLE_EQ(jacobian[0], 6.0);
+  EXPECT_DOUBLE_EQ(jacobian[3], 4.2);
+  EXPECT_DOUBLE_EQ(hessians[0], 4.0);
+  EXPECT_DOUBLE_EQ(hessians[7], -6.0);
 
-  ES::VXd replacement(4);
-  replacement << 10.0, 0.1, 20.0, 0.2;
-  field.setValues(replacement);
-  replacement.setConstant(99.0);
+  constexpr double h = 1e-6;
+  for (int k = 0; k < 2; k++) {
+    auto zp = z;
+    auto zm = z;
+    zp[k] += h;
+    zm[k] -= h;
+    std::array<double, 2> pp{}, pm{};
+    mapping.evaluate(0, 0, zp, pp);
+    mapping.evaluate(0, 0, zm, pm);
+    for (int c = 0; c < 2; c++)
+      EXPECT_NEAR((pp[c] - pm[c]) / (2 * h), jacobian[k * 2 + c], 1e-8);
+  }
 
-  double out[2] = {};
-  field.computeValue(1, 0, out);
-  EXPECT_DOUBLE_EQ(out[0], 20.0);
-  EXPECT_DOUBLE_EQ(out[1], 0.2);
+  for (int derivativeDof = 0; derivativeDof < 2; derivativeDof++) {
+    auto zp = z;
+    auto zm = z;
+    zp[derivativeDof] += h;
+    zm[derivativeDof] -= h;
+    std::array<double, 4> jp{}, jm{};
+    mapping.evaluateJacobian(0, 0, zp, jp.data());
+    mapping.evaluateJacobian(0, 0, zm, jm.data());
+    for (int channel = 0; channel < 2; channel++) {
+      for (int jacobianDof = 0; jacobianDof < 2; jacobianDof++) {
+        const double fd =
+          (jp[jacobianDof * 2 + channel] -
+            jm[jacobianDof * 2 + channel]) /
+          (2 * h);
+        const double analytic =
+          hessians[channel * 4 + derivativeDof * 2 + jacobianDof];
+        EXPECT_NEAR(fd, analytic, 1e-8);
+      }
+    }
+  }
 }
 
-TEST(ElementwiseParameterField, RejectsWrongValueSize)
+TEST(MaterialParameterBlock, RejectsInvalidSchema)
 {
-  ParameterFieldSpec spec;
-  spec.domain = ParameterDomain::PLASTIC;
-  spec.modelId = "volumetric_dof3";
-  spec.numChannels = 3;
+  EXPECT_THROW(
+    MaterialParameterBlock(
+      MaterialParameterBlockKind::ELASTIC, "duplicate",
+      { "same", "same" },
+      std::make_unique<ElementwiseParameterDofLayout>(2, 2),
+      std::make_unique<IdentityParameterFieldMapping>(2)),
+    std::invalid_argument);
 
-  ES::VXd values(4);
-  EXPECT_THROW(ElementwiseParameterField(spec, 2, values), std::invalid_argument);
+  EXPECT_THROW(
+    MaterialParameterBlock(
+      MaterialParameterBlockKind::ELASTIC, "empty",
+      { "valid", "" },
+      std::make_unique<ElementwiseParameterDofLayout>(2, 2),
+      std::make_unique<IdentityParameterFieldMapping>(2)),
+    std::invalid_argument);
+
+  EXPECT_THROW(
+    MaterialParameterBlock(
+      MaterialParameterBlockKind::ELASTIC, "mapping-layout-mismatch",
+      { "first", "second" },
+      std::make_unique<ElementwiseParameterDofLayout>(2, 1),
+      std::make_unique<IdentityParameterFieldMapping>(2)),
+    std::invalid_argument);
+
+  EXPECT_THROW(
+    MaterialParameterBlock(
+      MaterialParameterBlockKind::ELASTIC, "mapping-channel-mismatch",
+      { "only_one_name" },
+      std::make_unique<ElementwiseParameterDofLayout>(2, 2),
+      std::make_unique<IdentityParameterFieldMapping>(2)),
+    std::invalid_argument);
 }
+
+TEST(MaterialParameterSpace, RejectsInvalidBlockKindsAndElementCounts)
+{
+  EXPECT_THROW(
+    MaterialParameterSpace(
+      MaterialParameterBlock(
+        MaterialParameterBlockKind::PLASTIC, "wrong-elastic-kind",
+        std::vector<std::string>{},
+        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
+        std::make_unique<IdentityParameterFieldMapping>(0)),
+      MaterialParameterBlock(
+        MaterialParameterBlockKind::PLASTIC, "plastic",
+        std::vector<std::string>{},
+        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
+        std::make_unique<IdentityParameterFieldMapping>(0))),
+    std::invalid_argument);
+
+  EXPECT_THROW(
+    MaterialParameterSpace(
+      MaterialParameterBlock(
+        MaterialParameterBlockKind::ELASTIC, "elastic",
+        std::vector<std::string>{},
+        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
+        std::make_unique<IdentityParameterFieldMapping>(0)),
+      MaterialParameterBlock(
+        MaterialParameterBlockKind::ELASTIC, "wrong-plastic-kind",
+        std::vector<std::string>{},
+        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
+        std::make_unique<IdentityParameterFieldMapping>(0))),
+    std::invalid_argument);
+
+  EXPECT_THROW(
+    MaterialParameterSpace(
+      MaterialParameterBlock(
+        MaterialParameterBlockKind::ELASTIC, "elastic",
+        std::vector<std::string>{},
+        std::make_unique<ElementwiseParameterDofLayout>(2, 0),
+        std::make_unique<IdentityParameterFieldMapping>(0)),
+      MaterialParameterBlock(
+        MaterialParameterBlockKind::PLASTIC, "plastic",
+        std::vector<std::string>{},
+        std::make_unique<ElementwiseParameterDofLayout>(3, 0),
+        std::make_unique<IdentityParameterFieldMapping>(0))),
+    std::invalid_argument);
+}
+
+TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
+{
+  MaterialParameterBlock elastic(
+    MaterialParameterBlockKind::ELASTIC, "test_elastic",
+    { "first", "thickness" },
+    std::make_unique<ElementwiseParameterDofLayout>(2, 2),
+    std::make_unique<SquareMapping>(std::array<double, 2>{ 2.0, 3.0 }));
+  MaterialParameterBlock plastic(
+    MaterialParameterBlockKind::PLASTIC, "test_plastic",
+    { "stretch" },
+    std::make_unique<ConstantParameterDofLayout>(2, 1),
+    std::make_unique<IdentityParameterFieldMapping>(1));
+  auto space = std::make_shared<MaterialParameterSpace>(
+    std::move(elastic), std::move(plastic));
+
+  ES::VXd elasticValues(4);
+  elasticValues << 1.0, 2.0, 3.0, 4.0;
+  ES::VXd plasticValues(1);
+  plasticValues << 1.1;
+  MaterialParameters parameters(space, elasticValues, plasticValues);
+  MaterialState snapshot = parameters.snapshot();
+
+  MaterialParameterRef thickness = space->elastic().parameter("thickness");
+  EXPECT_THROW(space->elastic().parameter("missing"), std::invalid_argument);
+  EXPECT_DOUBLE_EQ(thickness.value(1, 0, snapshot.view()), 48.0);
+  std::array<double, 2> derivative{};
+  thickness.localDerivative(1, 0, snapshot.view(), derivative.data());
+  EXPECT_DOUBLE_EQ(derivative[0], 0.0);
+  EXPECT_DOUBLE_EQ(derivative[1], 24.0);
+
+  ES::VXd changed = elasticValues;
+  changed.setZero();
+  parameters.setElasticValues(changed);
+  EXPECT_DOUBLE_EQ(thickness.value(1, 0, snapshot.view()), 48.0);
+
+  auto otherSpace = std::make_shared<MaterialParameterSpace>(
+    MaterialParameterBlock(
+      MaterialParameterBlockKind::ELASTIC, "other",
+      std::vector<std::string>{ "first", "thickness" },
+      std::make_unique<ElementwiseParameterDofLayout>(2, 2),
+      std::make_unique<IdentityParameterFieldMapping>(2)),
+    MaterialParameterBlock(
+      MaterialParameterBlockKind::PLASTIC, "other",
+      std::vector<std::string>{ "stretch" },
+      std::make_unique<ConstantParameterDofLayout>(2, 1),
+      std::make_unique<IdentityParameterFieldMapping>(1)));
+  EXPECT_THROW(
+    thickness.value(
+      0, 0,
+      otherSpace->makeStateView(
+        std::span<const double>(elasticValues.data(), elasticValues.size()),
+        std::span<const double>(plasticValues.data(), plasticValues.size()))),
+    std::invalid_argument);
+
+  EXPECT_THROW(
+    space->makeStateView(
+      std::span<const double>(elasticValues.data(), elasticValues.size() - 1),
+      std::span<const double>(plasticValues.data(), plasticValues.size())),
+    std::invalid_argument);
+}
+
+}  // namespace

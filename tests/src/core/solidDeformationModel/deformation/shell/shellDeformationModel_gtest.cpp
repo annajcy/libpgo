@@ -2,7 +2,6 @@
 
 #include "material/elastic/elasticModel2DFundamentalFormsFabric.h"
 #include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
-#include "material/fields/constantParameterField.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "deformation/shell/shellDeformationModelCacheData.h"
@@ -43,81 +42,6 @@ ES::VXd defaultShellElasticParams()
   params << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
   return params;
 }
-
-class ScaledConstantParameterField : public OptimizableField
-{
-public:
-  ScaledConstantParameterField(ParameterDomain domain, ES::VXd values, ES::VXd scales):
-    values_(std::move(values)),
-    scales_(std::move(scales)),
-    dofLayout_(static_cast<int>(values_.size()))
-  {
-    spec_.domain = domain;
-    spec_.numChannels = static_cast<int>(values_.size());
-  }
-
-  const ParameterFieldSpec &spec() const override { return spec_; }
-  ParameterFieldKind kind() const override { return ParameterFieldKind::EXTERNAL_PROCEDURAL; }
-  int numChannels() const override { return spec_.numChannels; }
-  int numLocalDofs() const override { return spec_.numChannels; }
-
-  void computeValue(int ele, int quadratureId, double *out) const override
-  {
-    (void)ele;
-    (void)quadratureId;
-    Eigen::Map<ES::VXd>(out, spec_.numChannels) = scales_.cwiseProduct(values_);
-  }
-
-  void setGlobalData(const double *data) override
-  {
-    values_ = Eigen::Map<const ES::VXd>(data, spec_.numChannels);
-  }
-
-  const ParameterDofLayout *dofLayout() const override { return &dofLayout_; }
-  const double *globalData() const override { return values_.data(); }
-  int numValueRows() const override { return spec_.numChannels == 0 ? 0 : 1; }
-
-  void computeDerivative(int ele, int quadratureId, double *derivOut) const override
-  {
-    (void)ele;
-    (void)quadratureId;
-    Eigen::Map<ES::MXd> deriv(derivOut, spec_.numChannels, spec_.numChannels);
-    deriv.setZero();
-    deriv.diagonal() = scales_;
-  }
-
-private:
-  class Layout : public OptimizableField::ParameterDofLayout
-  {
-  public:
-    explicit Layout(int n): n_(n) {}
-    int numGlobalDofs() const override { return n_; }
-    int numLocalDofs() const override { return n_; }
-    bool matchesParameterShape(int numChannels, int numElements) const override
-    {
-      (void)numElements;
-      return numChannels == n_;
-    }
-    int globalDof(int ele, int localDof) const override
-    {
-      (void)ele;
-      return localDof;
-    }
-    void gather(int ele, const double *global, double *local) const override
-    {
-      (void)ele;
-      std::copy(global, global + n_, local);
-    }
-
-  private:
-    int n_ = 0;
-  };
-
-  ParameterFieldSpec spec_;
-  ES::VXd values_;
-  ES::VXd scales_;
-  Layout dofLayout_;
-};
 
 }  // namespace
 
@@ -463,83 +387,6 @@ TEST(ShellDeformationModelTest, FabricParameterDerivativeRequiresAnalyticImpleme
 
   ES::VXd grad(elasticParams.size());
   EXPECT_THROW(model.compute_dE_db(cd.get(), grad.data()), std::logic_error);
-}
-
-TEST(ShellDeformationModelFDTest, ScaledParameterFieldLeavesModelDerivativeRaw)
-{
-  ES::VXd elasticScales(5);
-  elasticScales << 1.2, 0.75, 1.4, 0.6, 1.8;
-  ES::VXd elasticGlobal = defaultShellElasticParams().cwiseQuotient(elasticScales);
-  ScaledConstantParameterField elasticField(ParameterDomain::ELASTIC, elasticGlobal, elasticScales);
-
-  ES::VXd plasticScales(1);
-  plasticScales << 1.5;
-  ES::VXd plasticGlobal(1);
-  plasticGlobal << 0.8;
-  ScaledConstantParameterField plasticField(ParameterDomain::PLASTIC, plasticGlobal, plasticScales);
-
-  auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
-  auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
-
-  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
-  ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
-
-  double x[18] = {};
-  perturbedDisplacement(x, interiorRestX, 18, 0.1);
-
-  auto energyAt = [&](const ES::VXd &elasticValues, const ES::VXd &plasticValues) {
-    elasticField.setGlobalData(elasticValues.data());
-    plasticField.setGlobalData(plasticValues.data());
-    ES::VXd elasticMaterial(5);
-    ES::VXd plasticMaterial(1);
-    elasticField.computeValue(0, 0, elasticMaterial.data());
-    plasticField.computeValue(0, 0, plasticMaterial.data());
-    auto cd = model.allocateCacheData();
-    model.prepareData(x, elasticMaterial.data(), plasticMaterial.data(), cd.get());
-    return model.computeEnergy(cd.get());
-  };
-
-  ES::VXd elasticMaterial(5);
-  ES::VXd plasticMaterial(1);
-  elasticField.computeValue(0, 0, elasticMaterial.data());
-  plasticField.computeValue(0, 0, plasticMaterial.data());
-  auto cd = model.allocateCacheData();
-  model.prepareData(x, elasticMaterial.data(), plasticMaterial.data(), cd.get());
-
-  ES::VXd analyticPlastic(1);
-  model.compute_dE_da(cd.get(), analyticPlastic.data());
-  const double plasticStep = 1e-6 * std::max(1.0, std::abs(plasticGlobal[0]));
-  ES::VXd plasticPlus = plasticGlobal;
-  ES::VXd plasticMinus = plasticGlobal;
-  plasticPlus[0] += plasticStep;
-  plasticMinus[0] -= plasticStep;
-  const double plasticFD =
-    (energyAt(elasticGlobal, plasticPlus) - energyAt(elasticGlobal, plasticMinus)) / (2.0 * plasticStep);
-  EXPECT_NEAR(analyticPlastic[0], plasticFD / plasticScales[0],
-    1e-5 * std::max(1.0, std::abs(plasticFD / plasticScales[0])));
-
-  elasticField.setGlobalData(elasticGlobal.data());
-  plasticField.setGlobalData(plasticGlobal.data());
-  elasticField.computeValue(0, 0, elasticMaterial.data());
-  plasticField.computeValue(0, 0, plasticMaterial.data());
-  cd = model.allocateCacheData();
-  model.prepareData(x, elasticMaterial.data(), plasticMaterial.data(), cd.get());
-
-  ES::VXd analyticElastic(5);
-  model.compute_dE_db(cd.get(), analyticElastic.data());
-  for (int c = 0; c < elasticGlobal.size(); c++) {
-    const double step = 1e-6 * std::max(1.0, std::abs(elasticGlobal[c]));
-    ES::VXd elasticPlus = elasticGlobal;
-    ES::VXd elasticMinus = elasticGlobal;
-    elasticPlus[c] += step;
-    elasticMinus[c] -= step;
-    const double fd =
-      (energyAt(elasticPlus, plasticGlobal) - energyAt(elasticMinus, plasticGlobal)) / (2.0 * step);
-    EXPECT_NEAR(analyticElastic[c], fd / elasticScales[c],
-      1e-5 * std::max(1.0, std::abs(fd / elasticScales[c])))
-      << "scaled elastic parameter channel " << c;
-  }
 }
 
 // ============================================================

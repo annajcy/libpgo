@@ -59,9 +59,11 @@ def main() -> None:
     energy = pf.deformation_energy(
         simulation_mesh,
         elastic=pf.KoiterStVK(),
-        elastic_field=pf.ElementwiseField(values=initial_elastic),
+        elastic_layout=pf.ElementwiseDofLayout(),
+        elastic_values=initial_elastic,
         plastic=pf.ShellPlasticity(dofs=1),
-        plastic_field=pf.ElementwiseField(values=plastic_values),
+        plastic_layout=pf.ElementwiseDofLayout(),
+        plastic_values=plastic_values,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(
             enforce_spd=False,
@@ -72,13 +74,13 @@ def main() -> None:
     # Apply self-weight and clamp the top edge.
     mass_field = pf.ShellDensityElasticThickness(
         density=1000.0,
-        parameter_field=energy.elastic_field,
-        channel=4,
+        parameter=energy.parameters.space.elastic.parameter("thickness"),
     )
     external_load = pf.SelfWeightGravity(
         formulation=pf.KoiterShell(),
         sim_mesh=simulation_mesh,
         mass_field=mass_field,
+        material_parameters=energy.parameters,
         acceleration=np.array([0.0, 0.0, -20.0]),
     )
     fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 1.0))
@@ -97,7 +99,7 @@ def main() -> None:
     softness *= np.exp(-(((centers[:, 0] - 0.5) / 0.75) ** 2))
     target_elastic = initial_elastic.copy()
     target_elastic[:, 0] *= 1.0 - 0.98 * softness
-    energy.set_elastic_values(target_elastic)
+    energy.parameters.set_elastic_values(target_elastic)
 
     target_objective = pe.EnergySet(
         [(energy, 1.0), (pe.LinearEnergy(-external_load.force()), 1.0)]
@@ -113,7 +115,7 @@ def main() -> None:
     target_vertices[:, 2] += (
         0.08 * (1.0 - vertices[:, 1]) * np.sin(2.0 * np.pi * vertices[:, 0])
     )
-    energy.set_elastic_values(initial_elastic)
+    energy.parameters.set_elastic_values(initial_elastic)
 
     # Differentiate the observed surface through static equilibrium.
     layer = pgo.fem.ElasticStaticEquilibriumLayer(

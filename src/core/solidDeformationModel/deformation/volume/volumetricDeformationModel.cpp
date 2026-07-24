@@ -4,6 +4,7 @@
 #include "pgoLogging.h"
 
 #include <stdexcept>
+#include <utility>
 
 namespace ES = pgo::EigenSupport;
 
@@ -21,6 +22,15 @@ const VolumetricDeformationModelCacheData *checkedCacheData(
   PGO_ALOG(cacheData == nullptr || cacheData->isPrepared());
   PGO_ALOG(cacheData == nullptr || model.isCacheDataCompatible(*cacheData));
   return static_cast<const VolumetricDeformationModelCacheData *>(cacheData);
+}
+
+std::pair<int, int> materialLocationRange(int materialLocation, int count)
+{
+  if (materialLocation < 0)
+    return { 0, count };
+  if (materialLocation >= count)
+    throw std::out_of_range("Volumetric material location is out of range.");
+  return { materialLocation, materialLocation + 1 };
 }
 }  // namespace
 
@@ -391,7 +401,8 @@ void VolumetricDeformationModel::maxStrain(
 // ============================================================
 
 void VolumetricDeformationModel::compute_dE_da(
-  const DeformationModelCacheData *cacheDataBase, double *grad) const
+  const DeformationModelCacheData *cacheDataBase, double *grad,
+  int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
   const CD *cd = checkedCacheData(*this, cacheDataBase);
@@ -400,7 +411,9 @@ void VolumetricDeformationModel::compute_dE_da(
 
   Eigen::Map<ES::VXd> gradMap(grad, numPlasticParams_);
   gradMap.setZero();
-  for (int q = 0; q < numQuadPts_; q++) {
+  const auto [qBegin, qEnd] =
+    materialLocationRange(materialLocation, numQuadPts_);
+  for (int q = qBegin; q < qEnd; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
     double psi = elasticModel_->compute_psi(mp, cd->Fe[q].data(),
       cd->U[q].data(), cd->V[q].data(), cd->S[q].data());
@@ -418,7 +431,8 @@ void VolumetricDeformationModel::compute_dE_da(
 }
 
 void VolumetricDeformationModel::compute_d2E_da2(
-  const DeformationModelCacheData *cacheDataBase, double *hess) const
+  const DeformationModelCacheData *cacheDataBase, double *hess,
+  int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
   const CD *cd = checkedCacheData(*this, cacheDataBase);
@@ -427,7 +441,9 @@ void VolumetricDeformationModel::compute_d2E_da2(
 
   Eigen::Map<ES::MXd> hessMap(hess, numPlasticParams_, numPlasticParams_);
   hessMap.setZero();
-  for (int q = 0; q < numQuadPts_; q++) {
+  const auto [qBegin, qEnd] =
+    materialLocationRange(materialLocation, numQuadPts_);
+  for (int q = qBegin; q < qEnd; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
     const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
     double psi = elasticModel_->compute_psi(mp, cd->Fe[q].data(),
@@ -460,7 +476,8 @@ void VolumetricDeformationModel::compute_d2E_da2(
 }
 
 void VolumetricDeformationModel::compute_d2E_dxda(
-  const DeformationModelCacheData *cacheDataBase, double *hess) const
+  const DeformationModelCacheData *cacheDataBase, double *hess,
+  int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
   const CD *cd = checkedCacheData(*this, cacheDataBase);
@@ -469,7 +486,9 @@ void VolumetricDeformationModel::compute_d2E_dxda(
 
   Eigen::Map<ES::MXd> mixed(hess, localDofs_, numPlasticParams_);
   mixed.setZero();
-  for (int q = 0; q < numQuadPts_; q++) {
+  const auto [qBegin, qEnd] =
+    materialLocationRange(materialLocation, numQuadPts_);
+  for (int q = qBegin; q < qEnd; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
     ES::M3d P;
     elasticModel_->compute_P(mp, cd->Fe[q].data(),
@@ -508,7 +527,8 @@ void VolumetricDeformationModel::compute_d2E_dxda(
 // ============================================================
 
 void VolumetricDeformationModel::compute_dE_db(
-  const DeformationModelCacheData *cacheDataBase, double *grad) const
+  const DeformationModelCacheData *cacheDataBase, double *grad,
+  int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
   const CD *cd = checkedCacheData(*this, cacheDataBase);
@@ -517,7 +537,9 @@ void VolumetricDeformationModel::compute_dE_db(
 
   Eigen::Map<ES::VXd> gradMap(grad, numElasticParams_);
   gradMap.setZero();
-  for (int q = 0; q < numQuadPts_; q++) {
+  const auto [qBegin, qEnd] =
+    materialLocationRange(materialLocation, numQuadPts_);
+  for (int q = qBegin; q < qEnd; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
     const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
     for (int i = 0; i < numElasticParams_; i++) {
@@ -528,7 +550,8 @@ void VolumetricDeformationModel::compute_dE_db(
 }
 
 void VolumetricDeformationModel::compute_d2E_db2(
-  const DeformationModelCacheData *cacheDataBase, double *hess) const
+  const DeformationModelCacheData *cacheDataBase, double *hess,
+  int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
   const CD *cd = checkedCacheData(*this, cacheDataBase);
@@ -537,7 +560,9 @@ void VolumetricDeformationModel::compute_d2E_db2(
 
   Eigen::Map<ES::MXd> hessMap(hess, numElasticParams_, numElasticParams_);
   hessMap.setZero();
-  for (int q = 0; q < numQuadPts_; q++) {
+  const auto [qBegin, qEnd] =
+    materialLocationRange(materialLocation, numQuadPts_);
+  for (int q = qBegin; q < qEnd; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
     const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
     for (int i = 0; i < numElasticParams_; i++) {
@@ -550,7 +575,8 @@ void VolumetricDeformationModel::compute_d2E_db2(
 }
 
 void VolumetricDeformationModel::compute_d2E_dxdb(
-  const DeformationModelCacheData *cacheDataBase, double *hess) const
+  const DeformationModelCacheData *cacheDataBase, double *hess,
+  int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
   const CD *cd = checkedCacheData(*this, cacheDataBase);
@@ -559,7 +585,9 @@ void VolumetricDeformationModel::compute_d2E_dxdb(
 
   Eigen::Map<ES::MXd> mixed(hess, localDofs_, numElasticParams_);
   mixed.setZero();
-  for (int q = 0; q < numQuadPts_; q++) {
+  const auto [qBegin, qEnd] =
+    materialLocationRange(materialLocation, numQuadPts_);
+  for (int q = qBegin; q < qEnd; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
     const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
     for (int i = 0; i < numElasticParams_; i++) {
@@ -573,7 +601,8 @@ void VolumetricDeformationModel::compute_d2E_dxdb(
 }
 
 void VolumetricDeformationModel::compute_d2E_dadb(
-  const DeformationModelCacheData *cacheDataBase, double *hess) const
+  const DeformationModelCacheData *cacheDataBase, double *hess,
+  int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
   const CD *cd = checkedCacheData(*this, cacheDataBase);
@@ -583,7 +612,9 @@ void VolumetricDeformationModel::compute_d2E_dadb(
   Eigen::Map<ES::MXd> mixed(hess, numPlasticParams_, numElasticParams_);
   mixed.setZero();
 
-  for (int q = 0; q < numQuadPts_; q++) {
+  const auto [qBegin, qEnd] =
+    materialLocationRange(materialLocation, numQuadPts_);
+  for (int q = qBegin; q < qEnd; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
     const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
 

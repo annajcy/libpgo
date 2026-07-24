@@ -52,10 +52,7 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("num_plastic_dofs", &PyDeformationEnergy::numPlasticDofs)
     .def_prop_ro("elastic_model", &PyDeformationEnergy::elasticModel)
     .def_prop_ro("plastic_model", &PyDeformationEnergy::plasticModel)
-    .def_prop_ro("elastic_field", &PyDeformationEnergy::elasticField)
-    .def_prop_ro("plastic_field", &PyDeformationEnergy::plasticField)
-    .def("set_elastic_values", &PyDeformationEnergy::setElasticValues, nb::arg("values"))
-    .def("set_plastic_values", &PyDeformationEnergy::setPlasticValues, nb::arg("values"))
+    .def_prop_ro("parameters", &PyDeformationEnergy::parameters)
     .def("elastic_gradient", &PyDeformationEnergy::elasticGradient, nb::arg("displacement"))
     .def("element_von_mises_stresses", &PyDeformationEnergy::elementVonMisesStresses, nb::arg("displacement"))
     .def("elastic_hessian", &PyDeformationEnergy::elasticHessian, nb::arg("displacement"))
@@ -65,14 +62,45 @@ void init_energy_bindings(nb::module_ &m)
     .def("elastic_jacobian", &PyDeformationEnergy::elasticJacobian, nb::arg("displacement"))
     .def("plastic_jacobian", &PyDeformationEnergy::plasticJacobian, nb::arg("displacement"));
 
-  nb::class_<PyParameterField>(m, "PyParameterField")
-    .def_prop_ro("domain", &PyParameterField::domain)
-    .def_prop_ro("model", &PyParameterField::model)
-    .def_prop_ro("num_elements", &PyParameterField::numElements)
-    .def_prop_ro("num_value_rows", &PyParameterField::numValueRows)
-    .def_prop_ro("num_channels", &PyParameterField::numChannels)
-    .def("values", &PyParameterField::values)
-    .def("set_values", &PyParameterField::setValues, nb::arg("values"));
+  nb::class_<PyParameterDofLayout>(m, "PyParameterDofLayout");
+  nb::class_<PyParameterFieldMapping>(m, "PyParameterFieldMapping");
+
+  nb::class_<PyMaterialParameterRef>(m, "PyMaterialParameterRef")
+    .def_prop_ro("name", &PyMaterialParameterRef::name)
+    .def_prop_ro("channel", &PyMaterialParameterRef::channel);
+
+  nb::class_<PyMaterialParameterBlock>(m, "PyMaterialParameterBlock")
+    .def_prop_ro("kind", &PyMaterialParameterBlock::kind)
+    .def_prop_ro("model", &PyMaterialParameterBlock::model)
+    .def_prop_ro("num_channels", &PyMaterialParameterBlock::numChannels)
+    .def_prop_ro("num_local_dofs", &PyMaterialParameterBlock::numLocalDofs)
+    .def_prop_ro("num_global_dofs", &PyMaterialParameterBlock::numGlobalDofs)
+    .def_prop_ro("num_value_rows", &PyMaterialParameterBlock::numValueRows)
+    .def_prop_ro("channel_names", &PyMaterialParameterBlock::channelNames)
+    .def("parameter", &PyMaterialParameterBlock::parameter, nb::arg("name"));
+
+  nb::class_<PyMaterialParameterSpace>(m, "PyMaterialParameterSpace")
+    .def_prop_ro("elastic", &PyMaterialParameterSpace::elastic)
+    .def_prop_ro("plastic", &PyMaterialParameterSpace::plastic);
+
+  nb::class_<PyMaterialParameters>(m, "PyMaterialParameters")
+    .def_prop_ro("space", &PyMaterialParameters::space)
+    .def_prop_ro(
+      "elastic_values", &PyMaterialParameters::elasticValues,
+      nb::rv_policy::move)
+    .def_prop_ro(
+      "plastic_values", &PyMaterialParameters::plasticValues,
+      nb::rv_policy::move)
+    .def("set_elastic_values", &PyMaterialParameters::setElasticValues, nb::arg("values"))
+    .def("set_plastic_values", &PyMaterialParameters::setPlasticValues, nb::arg("values"))
+    .def("_same_space", &PyMaterialParameters::sameSpace, nb::arg("other"));
+
+  m.def("_make_elementwise_parameter_dof_layout",
+    &makeElementwiseParameterDofLayout);
+  m.def("_make_constant_parameter_dof_layout",
+    &makeConstantParameterDofLayout);
+  m.def("_make_identity_parameter_field_mapping",
+    &makeIdentityParameterFieldMapping);
 
   m.def("_elastic_num_channels", &elasticNumChannels,
     nb::arg("mesh_core"),
@@ -85,8 +113,10 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("elastic_values").none(),
     nb::arg("plastic_model"),
     nb::arg("plastic_values").none(),
-    nb::arg("elastic_field_type") = "elementwise",
-    nb::arg("plastic_field_type") = "elementwise",
+    nb::arg("elastic_layout"),
+    nb::arg("elastic_mapping"),
+    nb::arg("plastic_layout"),
+    nb::arg("plastic_mapping"),
     nb::arg("formulation"),
     nb::arg("enforce_spd") = true,
     nb::arg("enable_material_max_step") = true);

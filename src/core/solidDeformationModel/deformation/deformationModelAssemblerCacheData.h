@@ -26,6 +26,7 @@ public:
     EigenSupport::VXd localGradient;
     EigenSupport::VXd elasticParamValues;
     EigenSupport::VXd plasticParamValues;
+    EigenSupport::VXd localParamValues;
     EigenSupport::VXd rawParamGradient;
     EigenSupport::VXd localParamGradient;
     EigenSupport::MXd localParamHessian;
@@ -33,6 +34,7 @@ public:
     EigenSupport::MXd localMixedMatrix;
     std::vector<double> paramDerivativeData;
     std::vector<double> paramDerivativeData2;
+    std::vector<double> paramMappingHessianData;
     std::vector<double> localMatrixData;
     std::vector<double> materialLocationValues;
     std::vector<DofGroup> groups;

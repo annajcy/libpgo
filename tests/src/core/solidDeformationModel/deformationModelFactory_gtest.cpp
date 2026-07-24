@@ -3,7 +3,7 @@
 #include "energy/deformationEnergyBuilder.h"
 #include "deformation/deformationModelAssembler.h"
 #include "formulations/formulation/formulations.h"
-#include "material/fields/materialParameterFieldInit.h"
+#include "material/fields/materialParameterFactory.h"
 
 #include "energy/deformationModelEnergy.h"
 #include "simulation/simulationMesh.h"
@@ -84,19 +84,17 @@ TEST(DeformationModelFactoryGTest, StructuredInputsCarryCustomMaterialFrames)
     std::make_shared<const ConstantMaterialFrameField>(
       simMesh->getNumElements(), frame);
 
-  DeformationModelInputs inputs{
-    createElasticParameterField(
-      *simMesh, DeformationModelElasticMaterial::STABLE_NEO, {}),
-    createPlasticParameterField(
-      *simMesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF3, {}),
-    materialFrames,
-  };
+  auto parameters = makeDefaultMaterialParameters(
+    *simMesh,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF3);
 
   auto energy = makeDeformationEnergy(
     simMesh,
     DeformationModelElasticMaterial::STABLE_NEO,
     DeformationModelPlasticMaterial::VOLUMETRIC_DOF3,
-    std::move(inputs),
+    std::move(parameters),
+    materialFrames,
     TetLinearFormulation{});
   ASSERT_NE(energy, nullptr);
 

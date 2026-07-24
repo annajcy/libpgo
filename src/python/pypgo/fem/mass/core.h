@@ -43,6 +43,6 @@ std::shared_ptr<PyShellMassField> make_shell_density_thickness_elementwise(
   double density, const std::vector<double> &thickness);
 
 std::shared_ptr<PyShellMassField> make_shell_density_elastic_thickness(
-  double density, const PyParameterField &field, int thicknessChannel);
+  double density, const PyMaterialParameterRef &parameter);
 
 }  // namespace pgo

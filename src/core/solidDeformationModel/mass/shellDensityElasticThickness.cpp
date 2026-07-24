@@ -1,10 +1,9 @@
 #include "shellDensityElasticThickness.h"
 
-#include "material/fields/parameterField.h"
+#include "material/fields/materialParameters.h"
 #include "simulation/simulationMesh.h"
 
 #include <stdexcept>
-#include <vector>
 
 namespace pgo
 {
@@ -12,46 +11,50 @@ namespace SolidDeformationModel
 {
 
 ShellDensityElasticThickness::ShellDensityElasticThickness(double density,
-  std::shared_ptr<const OptimizableField> field, int thicknessChannel)
-  : density_(density), field_(std::move(field)), channel_(thicknessChannel)
+  std::shared_ptr<const MaterialParameterSpace> space,
+  MaterialParameterRef thickness):
+  density_(density),
+  space_(std::move(space)),
+  thickness_(thickness)
 {
   if (!(density > 0.0)) {
     throw std::invalid_argument("ShellDensityElasticThickness requires density > 0");
   }
-  if (!field_) {
-    throw std::invalid_argument("ShellDensityElasticThickness requires a parameter field");
+  if (!space_) {
+    throw std::invalid_argument("ShellDensityElasticThickness requires a parameter space");
   }
-  if (channel_ < 0 || channel_ >= field_->numChannels()) {
-    throw std::invalid_argument("ShellDensityElasticThickness thickness channel out of range");
+  if (&thickness_.block() != &space_->elastic()) {
+    throw std::invalid_argument(
+      "ShellDensityElasticThickness parameter must belong to the elastic block of its space");
+  }
+  if (thickness_.name() != "thickness") {
+    throw std::invalid_argument(
+      "ShellDensityElasticThickness parameter must be named 'thickness'");
   }
 }
 
 void ShellDensityElasticThickness::validate(const SimulationMesh &mesh) const
 {
   ShellMassField::validate(mesh);
-  if (!field_->dofLayout()->matchesParameterShape(field_->numChannels(), mesh.getNumElements())) {
+  if (thickness_.block().dofLayout().numElements() != mesh.getNumElements()) {
     throw std::invalid_argument(
       "ShellDensityElasticThickness parameter field shape does not match mesh element count");
   }
 }
 
-double ShellDensityElasticThickness::arealDensity(int ele) const
+double ShellDensityElasticThickness::arealDensity(
+  int ele, MaterialStateView state) const
 {
-  double value[64];  // far exceeds any current or foreseeable channel count
-  assert(field_->numChannels() <= 64);
-  field_->computeValue(ele, 0, value);
-  return density_ * value[channel_];
+  return density_ * thickness_.value(ele, 0, state);
 }
 
-void ShellDensityElasticThickness::arealDensityParameterDerivative(int ele, double *out) const
+void ShellDensityElasticThickness::arealDensityParameterDerivative(
+  int ele, MaterialStateView state, double *out) const
 {
-  const int numChannels = field_->numChannels();
-  const int numLocal = field_->dofLayout()->numLocalDofs();
-  std::vector<double> deriv(static_cast<size_t>(numChannels) * numLocal);
-  field_->computeDerivative(ele, 0, deriv.data());
-  // deriv is column-major numChannels x numLocal; take the thickness row.
+  thickness_.localDerivative(ele, 0, state, out);
+  const int numLocal = thickness_.block().dofLayout().numLocalDofs();
   for (int k = 0; k < numLocal; k++)
-    out[k] = density_ * deriv[static_cast<size_t>(k) * numChannels + channel_];
+    out[k] *= density_;
 }
 
 }  // namespace SolidDeformationModel

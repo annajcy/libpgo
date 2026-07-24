@@ -25,9 +25,15 @@ from pypgo.fem.plastic import (
     VolumetricPlasticity,
 )
 from pypgo.fem.fields import (
-    ConstantField,
-    ElementwiseField,
-    ParameterField,
+    ConstantDofLayout,
+    ElementwiseDofLayout,
+    IdentityParameterMapping,
+    MaterialParameterBlock,
+    MaterialParameterRef,
+    MaterialParameterSpace,
+    MaterialParameters,
+    ParameterDofLayout,
+    ParameterMapping,
 )
 from pypgo.fem.energy import (
     DeformationEnergy,
@@ -81,9 +87,15 @@ __all__ = [
     "ShellPlasticity",
     "VolumetricPlasticity",
     # Fields
-    "ConstantField",
-    "ElementwiseField",
-    "ParameterField",
+    "ConstantDofLayout",
+    "ElementwiseDofLayout",
+    "IdentityParameterMapping",
+    "MaterialParameterBlock",
+    "MaterialParameterRef",
+    "MaterialParameterSpace",
+    "MaterialParameters",
+    "ParameterDofLayout",
+    "ParameterMapping",
     # Energy
     "DeformationEnergy",
     "DeformationOptions",

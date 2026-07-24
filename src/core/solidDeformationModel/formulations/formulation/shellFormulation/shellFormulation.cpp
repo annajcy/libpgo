@@ -2,7 +2,7 @@
 
 #include "mass/shellMassField.h"
 #include "mass/elasticParameterDependentMassField.h"
-#include "material/fields/parameterField.h"
+#include "material/fields/materialParameters.h"
 #include "deformation/shell/shellDeformationModel.h"
 #include "simulation/simulationMesh.h"
 
@@ -75,7 +75,8 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
 }
 
 EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
-  const SimulationMesh &mesh, const ShellMassField &massField) const
+  const SimulationMesh &mesh, const ShellMassField &massField,
+  MaterialStateView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -85,7 +86,7 @@ EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
 
   std::vector<ES::TripletD> entries;
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    const double m = massField.arealDensity(ele) * triangleRestArea(mesh, ele) / 3.0;
+    const double m = massField.arealDensity(ele, state) * triangleRestArea(mesh, ele) / 3.0;
     for (int j = 0; j < 3; j++) {
       const int v = mesh.getVertexIndex(ele, j);
       for (int d = 0; d < 3; d++)
@@ -101,7 +102,7 @@ EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
 
 EigenSupport::VXd ShellFormulation::buildBodyForce(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellMassField &massField) const
+  const ShellMassField &massField, MaterialStateView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -111,7 +112,7 @@ EigenSupport::VXd ShellFormulation::buildBodyForce(
 
   ES::VXd f = ES::VXd::Zero(mesh.getNumVertices() * 3);
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    const double m = massField.arealDensity(ele) * triangleRestArea(mesh, ele) / 3.0;
+    const double m = massField.arealDensity(ele, state) * triangleRestArea(mesh, ele) / 3.0;
     for (int j = 0; j < 3; j++) {
       const int v = mesh.getVertexIndex(ele, j);
       f.segment<3>(v * 3) += m * acceleration;
@@ -122,7 +123,7 @@ EigenSupport::VXd ShellFormulation::buildBodyForce(
 
 EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellMassField &massField) const
+  const ShellMassField &massField, MaterialStateView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -134,20 +135,20 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
       "buildBodyForceParameterJacobian requires a mass field that depends on elastic parameters");
   }
 
-  const OptimizableField &field = dependent->parameterField();
-  const auto *layout = field.dofLayout();
-  const int numLocal = layout->numLocalDofs();
+  const MaterialParameterRef &parameter = dependent->parameter();
+  const auto &layout = parameter.block().dofLayout();
+  const int numLocal = layout.numLocalDofs();
   std::vector<double> dRho(numLocal);
   std::vector<ES::TripletD> entries;
   entries.reserve(static_cast<size_t>(mesh.getNumElements()) * numLocal * 9);
 
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    dependent->arealDensityParameterDerivative(ele, dRho.data());
+    dependent->arealDensityParameterDerivative(ele, state, dRho.data());
     const double areaThird = triangleRestArea(mesh, ele) / 3.0;
     for (int k = 0; k < numLocal; k++) {
       if (dRho[k] == 0.0)
         continue;
-      const int col = layout->globalDof(ele, k);
+      const int col = layout.globalDof(ele, k);
       const double s = dRho[k] * areaThird;
       for (int j = 0; j < 3; j++) {
         const int v = mesh.getVertexIndex(ele, j);
@@ -157,7 +158,7 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
     }
   }
 
-  ES::SpMatD J(mesh.getNumVertices() * 3, layout->numGlobalDofs());
+  ES::SpMatD J(mesh.getNumVertices() * 3, layout.numGlobalDofs());
   J.setFromTriplets(entries.begin(), entries.end());
   return J;
 }

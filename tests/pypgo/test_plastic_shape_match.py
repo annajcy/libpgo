@@ -35,9 +35,9 @@ def make_cubic_case():
     energy = fem.deformation_energy(
         sim,
         elastic=fem.StVK(),
-        elastic_field=fem.ElementwiseField(),
+        elastic_layout=fem.ElementwiseDofLayout(),
         plastic=fem.VolumetricPlasticity(dofs=6),
-        plastic_field=fem.ConstantField(),
+        plastic_layout=fem.ConstantDofLayout(),
         formulation=fem.CubicLinear(),
         options=fem.DeformationOptions(
             enforce_spd=False, enable_material_max_step=False
@@ -68,13 +68,13 @@ def make_shell_elastic_case():
     energy = fem.deformation_energy(
         sim,
         elastic=fem.KoiterStVK(),
-        elastic_field=fem.ConstantField(
-            values=np.array([[2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3]], dtype=np.float64)
+        elastic_layout=fem.ConstantDofLayout(),
+        elastic_values=np.array(
+            [[2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3]], dtype=np.float64
         ),
         plastic=fem.ShellPlasticity(dofs=1),
-        plastic_field=fem.ElementwiseField(
-            values=np.array([[1.03], [1.02]], dtype=np.float64)
-        ),
+        plastic_layout=fem.ElementwiseDofLayout(),
+        plastic_values=np.array([[1.03], [1.02]], dtype=np.float64),
         formulation=fem.KoiterShell(),
         options=fem.DeformationOptions(
             enforce_spd=False, enable_material_max_step=False
@@ -93,8 +93,10 @@ def test_adjoint_plastic_gradient_can_be_assembled_directly():
     target = surface.vertices.copy()
     target[:, 0] *= 1.02
 
-    a0 = energy.plastic_field.values.ravel()
-    energy.set_plastic_values(a0.reshape(energy.plastic_field.values.shape))
+    a0 = energy.parameters.plastic_values.ravel()
+    energy.parameters.set_plastic_values(
+        a0.reshape(energy.parameters.plastic_values.shape)
+    )
     fixed_dofs = np.arange(0, 9, dtype=np.int64)
     fixed_values = np.zeros(9, dtype=np.float64)
     problem = solver.OptimizationProblem(objective=energy)
@@ -143,7 +145,7 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
         ),
     )
 
-    a0 = energy.plastic_field.values.ravel()
+    a0 = energy.parameters.plastic_values.ravel()
     plastic_param = torch.tensor(a0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 
@@ -192,7 +194,7 @@ def test_static_equilibrium_torch_layer_elastic_backward_matches_direct_adjoint(
         ),
     )
 
-    b0 = energy.elastic_field.values.ravel()
+    b0 = energy.parameters.elastic_values.ravel()
     elastic_param = torch.tensor(b0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 
@@ -247,7 +249,7 @@ def test_elastic_static_equilibrium_layer_uses_objective_energy_for_adjoint_hess
         ),
     )
 
-    b0 = energy.elastic_field.values.ravel()
+    b0 = energy.parameters.elastic_values.ravel()
     elastic_param = torch.tensor(b0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 

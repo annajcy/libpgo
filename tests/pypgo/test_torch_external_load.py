@@ -25,9 +25,16 @@ class _ThicknessPointLoad:
         self.parameter_dof = parameter_dof
         self.scale = scale
 
+    @property
+    def material_parameters(self):
+        return self.energy.parameters
+
     def force(self):
         force = np.zeros(self.energy.num_dofs, dtype=np.float64)
-        force[self.target_dof] = self.scale * self.energy.elastic_field.values.ravel()[self.parameter_dof]
+        force[self.target_dof] = (
+            self.scale
+            * self.energy.parameters.elastic_values.ravel()[self.parameter_dof]
+        )
         return force
 
     def parameter_jacobian(self):
@@ -60,9 +67,11 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
     energy = pf.deformation_energy(
         sim,
         elastic=pf.KoiterStVK(),
-        elastic_field=pf.ElementwiseField(values=elastic),
+        elastic_layout=pf.ElementwiseDofLayout(),
+        elastic_values=elastic,
         plastic=pf.ShellPlasticity(dofs=1),
-        plastic_field=pf.ElementwiseField(values=plastic),
+        plastic_layout=pf.ElementwiseDofLayout(),
+        plastic_values=plastic,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
     )
@@ -71,9 +80,12 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
         load = _ThicknessPointLoad(energy, target_dof=2, parameter_dof=4, scale=1e6)
     else:
         mass_field = pf.ShellDensityElasticThickness(
-            density=1000.0, parameter_field=energy.elastic_field, channel=4)
+            density=1000.0,
+            parameter=energy.parameters.space.elastic.parameter("thickness"),
+        )
         load = pf.SelfWeightGravity(
             formulation=pf.KoiterShell(), sim_mesh=sim, mass_field=mass_field,
+            material_parameters=energy.parameters,
             acceleration=[0.0, 0.0, -20.0])
 
     fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 1.0)).astype(np.int64)
@@ -137,4 +149,22 @@ def test_external_load_rejected_on_plastic_layer():
             surface_vertices=layer.surface_vertices,
             surface_vertex_ids=layer.surface_vertex_ids,
             external_load=layer.external_load,
+        )
+
+
+def test_external_load_rejects_material_parameters_from_another_space():
+    layer, _elastic, _vertices = _setup(external_load="point")
+    other, _other_elastic, _other_vertices = _setup(external_load="point")
+    foreign_load = _ThicknessPointLoad(
+        other.energy, target_dof=2, parameter_dof=4, scale=1e6
+    )
+
+    with pytest.raises(ValueError, match="same material parameter space"):
+        pgo.fem.ElasticStaticEquilibriumLayer(
+            energy=layer.energy,
+            fixed_dofs=layer.fixed_dofs,
+            fixed_values=layer.fixed_values,
+            surface_vertices=layer.surface_vertices,
+            surface_vertex_ids=layer.surface_vertex_ids,
+            external_load=foreign_load,
         )

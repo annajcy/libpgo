@@ -6,7 +6,7 @@ copyright to USC
 
 #include "simulation/simulationMesh.h"
 #include "deformation/deformationModelAssembler.h"
-#include "material/fields/materialParameterFieldInit.h"
+#include "material/fields/materialParameterFactory.h"
 #include "pgoLogging.h"
 
 #include <utility>
@@ -19,7 +19,8 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   std::shared_ptr<const SimulationMesh> mesh,
   DeformationModelElasticMaterial elastic,
   DeformationModelPlasticMaterial plastic,
-  DeformationModelInputs inputs,
+  std::shared_ptr<MaterialParameters> materialParameters,
+  std::shared_ptr<const MaterialFrameField> materialFrames,
   const Formulation &formulation,
   const DeformationModelOptions &opts)
 {
@@ -30,20 +31,17 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {}",
     formulation.getName());
 
-  if (!inputs.elasticParameters)
+  if (!materialParameters)
     throw std::invalid_argument(
-      "makeDeformationEnergy: elasticParameters must be non-null.");
-  if (!inputs.plasticParameters)
-    throw std::invalid_argument(
-      "makeDeformationEnergy: plasticParameters must be non-null.");
-  if (!inputs.materialFrames)
+      "makeDeformationEnergy: materialParameters must be non-null.");
+  if (!materialFrames)
     throw std::invalid_argument(
       "makeDeformationEnergy: materialFrames must be non-null.");
 
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, elastic, plastic, formulation,
     opts.enforceSPD ? 1 : 0,
-    inputs.materialFrames);
+    materialFrames);
 
   ES::VXd elementWeights = opts.elementWeights;
   if (elementWeights.size() == 0)
@@ -53,12 +51,12 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation,
-    std::move(inputs.elasticParameters),
-    std::move(inputs.plasticParameters),
+    materialParameters->space(),
     elementWeights.data());
 
   auto energy = std::make_shared<DeformationModelEnergy>(
-    std::move(assembler), 0, opts.enableMaterialMaxStep);
+    std::move(assembler), std::move(materialParameters),
+    0, opts.enableMaterialMaxStep);
 
   return energy;
 }
@@ -66,35 +64,20 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   std::shared_ptr<const SimulationMesh> mesh,
   DeformationModelElasticMaterial elastic,
-  ElasticFieldInit elasticField,
   DeformationModelPlasticMaterial plastic,
-  PlasticFieldInit plasticField,
   const Formulation &formulation,
   const DeformationModelOptions &opts)
 {
   if (!mesh)
     throw std::invalid_argument("makeDeformationEnergy: mesh must be non-null.");
-  DeformationModelInputs inputs;
-  inputs.elasticParameters =
-    createElasticParameterField(*mesh, elastic, std::move(elasticField));
-  inputs.plasticParameters =
-    createPlasticParameterField(*mesh, plastic, std::move(plasticField));
-  inputs.materialFrames =
+  auto materialParameters =
+    makeDefaultMaterialParameters(*mesh, elastic, plastic);
+  auto materialFrames =
     makeGlobalAxesMaterialFrameField(mesh->getNumElements());
   return makeDeformationEnergy(
     std::move(mesh), elastic, plastic,
-    std::move(inputs), formulation, opts);
-}
-
-std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
-  std::shared_ptr<const SimulationMesh> mesh,
-  DeformationModelElasticMaterial elastic,
-  DeformationModelPlasticMaterial plastic,
-  const Formulation &formulation,
-  const DeformationModelOptions &opts)
-{
-  return makeDeformationEnergy(
-    std::move(mesh), elastic, ElasticFieldInit{}, plastic, PlasticFieldInit{}, formulation, opts);
+    std::move(materialParameters), std::move(materialFrames),
+    formulation, opts);
 }
 
 }  // namespace pgo::SolidDeformationModel

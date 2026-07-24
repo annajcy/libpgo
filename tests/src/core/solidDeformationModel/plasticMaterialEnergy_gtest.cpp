@@ -4,7 +4,7 @@
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
-#include "material/fields/materialParameterFieldInit.h"
+#include "material/fields/materialParameterFactory.h"
 #include "energy/elasticMaterialEnergy.h"
 #include "energy/plasticMaterialEnergy.h"
 #include "simulation/simulationMesh.h"
@@ -28,16 +28,12 @@ using pgo::SolidDeformationModel::DeformationModelElasticMaterial;
 using pgo::SolidDeformationModel::DeformationModelEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::DeformationModelPlasticMaterial;
-using pgo::SolidDeformationModel::ElasticFieldInit;
 using pgo::SolidDeformationModel::ElasticMaterialEnergy;
-using pgo::SolidDeformationModel::PlasticFieldInit;
 using pgo::SolidDeformationModel::PlasticMaterialEnergy;
 using pgo::SolidDeformationModel::SimulationMesh;
 using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
-using pgo::SolidDeformationModel::createElasticParameterField;
-using pgo::SolidDeformationModel::createPlasticParameterField;
 
 constexpr double kFiniteDifferenceStep = 1e-6;
 constexpr int kExactDerivativeEnforceSpd = 0;
@@ -102,20 +98,34 @@ ES::VXd makeFixedDisplacement(int numVertices)
   return u;
 }
 
+void expectExactlyEqual(const ES::VXd &actual, const ES::VXd &expected)
+{
+  ASSERT_EQ(actual.size(), expected.size());
+  EXPECT_TRUE((actual.array() == expected.array()).all())
+    << "actual:   " << actual.transpose() << '\n'
+    << "expected: " << expected.transpose();
+}
+
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(std::shared_ptr<const SimulationMesh> mesh, const ES::VXd &plasticBase)
 {
   pgo::SolidDeformationModel::CubicLinearFormulation formulation;
-  auto elasticField = createElasticParameterField(
-    *mesh, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{});
-  auto plasticField = createPlasticParameterField(
-    *mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    PlasticFieldInit{ pgo::SolidDeformationModel::PlasticMaterialFieldType::ELEMENTWISE, plasticBase });
+  auto parameters = pgo::SolidDeformationModel::makeMaterialParameters(
+    *mesh,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    std::make_unique<pgo::SolidDeformationModel::ElementwiseParameterDofLayout>(1, 0),
+    std::make_unique<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(0),
+    std::nullopt,
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    std::make_unique<pgo::SolidDeformationModel::ElementwiseParameterDofLayout>(1, 6),
+    std::make_unique<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(6),
+    plasticBase);
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, DeformationModelElasticMaterial::STABLE_NEO, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
     formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
-  return std::make_shared<DeformationModelEnergy>(std::move(assembler), 0, false);
+    std::move(manager), formulation, parameters->space(), nullptr);
+  return std::make_shared<DeformationModelEnergy>(
+    std::move(assembler), std::move(parameters), 0, false);
 }
 
 std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd &elasticBase)
@@ -149,19 +159,25 @@ std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd
     pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
 
   pgo::SolidDeformationModel::KoiterShellFormulation formulation;
-  auto elasticField = createElasticParameterField(
-    *mesh, DeformationModelElasticMaterial::KOITER_STVK,
-    ElasticFieldInit{ pgo::SolidDeformationModel::ElasticMaterialFieldType::CONSTANT, elasticBase });
-  auto plasticField = createPlasticParameterField(
-    *mesh, DeformationModelPlasticMaterial::SHELL_FF_DOF1,
-    PlasticFieldInit{ pgo::SolidDeformationModel::PlasticMaterialFieldType::ELEMENTWISE,
-      ES::VXd::Constant(mesh->getNumElements(), 1.0) });
+  auto parameters = pgo::SolidDeformationModel::makeMaterialParameters(
+    *mesh,
+    DeformationModelElasticMaterial::KOITER_STVK,
+    std::make_unique<pgo::SolidDeformationModel::ConstantParameterDofLayout>(
+      mesh->getNumElements(), 5),
+    std::make_unique<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(5),
+    elasticBase,
+    DeformationModelPlasticMaterial::SHELL_FF_DOF1,
+    std::make_unique<pgo::SolidDeformationModel::ElementwiseParameterDofLayout>(
+      mesh->getNumElements(), 1),
+    std::make_unique<pgo::SolidDeformationModel::IdentityParameterFieldMapping>(1),
+    ES::VXd::Constant(mesh->getNumElements(), 1.0));
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, DeformationModelElasticMaterial::KOITER_STVK, DeformationModelPlasticMaterial::SHELL_FF_DOF1,
     formulation, kExactDerivativeEnforceSpd);
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
-  return std::make_shared<DeformationModelEnergy>(std::move(assembler), 0, false);
+    std::move(manager), formulation, parameters->space(), nullptr);
+  return std::make_shared<DeformationModelEnergy>(
+    std::move(assembler), std::move(parameters), 0, false);
 }
 }  // namespace
 
@@ -186,9 +202,85 @@ TEST(PlasticMaterialEnergyGTest, ValueMatchesDeformationEnergyAtFixedDisplacemen
   for (int i = 0; i < 6; i++)
     EXPECT_EQ(dofs[i], i);
 
-  deformationEnergy->assembler().setPlasticValues(plasticBase);
+  deformationEnergy->materialParameters()->setPlasticValues(plasticBase);
   const double expected = deformationEnergy->func(fixedDisplacement);
   const double actual = plasticEnergy.func(plasticBase);
+  EXPECT_NEAR(actual, expected, 1e-12 * std::max(1.0, std::abs(expected)));
+}
+
+TEST(PlasticMaterialEnergyGTest, EvaluationDoesNotModifyParentPlasticState)
+{
+  pgo::Logging::init();
+
+  auto mesh = makeSingleHexMesh();
+  ES::VXd committed(6);
+  committed << 1.01, 0.004, -0.003, 0.994, 0.005, 1.008;
+
+  ES::VXd trial = committed;
+  trial[0] += 0.02;
+  trial[3] -= 0.01;
+  trial[5] += 0.015;
+
+  auto deformationEnergy = makeDeformationEnergy(mesh, committed);
+  ES::VXd fixedDisplacement = makeFixedDisplacement(mesh->getNumVertices());
+  PlasticMaterialEnergy plasticEnergy(deformationEnergy, fixedDisplacement);
+
+  auto parameters = deformationEnergy->materialParameters();
+  ES::VXd grad(plasticEnergy.getNumDOFs());
+  ES::SpMatD hess;
+  plasticEnergy.hessianAlloc(hess);
+
+  auto expectPreserved = [&](const char *operation, auto &&evaluate) {
+    SCOPED_TRACE(operation);
+
+    parameters->setPlasticValues(committed);
+    const ES::VXd before = parameters->plasticSnapshot();
+
+    evaluate();
+
+    const ES::VXd after = parameters->plasticSnapshot();
+    expectExactlyEqual(after, before);
+  };
+
+  expectPreserved("func", [&] {
+    (void)plasticEnergy.func(trial);
+  });
+
+  expectPreserved("gradient", [&] {
+    plasticEnergy.gradient(trial, grad);
+  });
+
+  expectPreserved("hessian", [&] {
+    plasticEnergy.hessianInPlace(trial, hess);
+  });
+}
+
+TEST(PlasticMaterialEnergyGTest, UsesElasticSnapshotCapturedAtConstruction)
+{
+  pgo::Logging::init();
+
+  ES::VXd elastic(5);
+  elastic << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
+
+  auto deformationEnergy = makeShellDeformationEnergy(elastic);
+  ES::VXd fixedDisplacement = makeFixedDisplacement(
+    deformationEnergy->assembler().getDeformationModelManager().getMesh()->getNumVertices());
+  auto parameters = deformationEnergy->materialParameters();
+
+  const ES::VXd originalElastic = parameters->elasticSnapshot();
+  const ES::VXd plastic = parameters->plasticSnapshot();
+  ASSERT_GT(originalElastic.size(), 0);
+  ASSERT_GT(plastic.size(), 0);
+
+  PlasticMaterialEnergy plasticEnergy(deformationEnergy, fixedDisplacement);
+  const double expected = plasticEnergy.func(plastic);
+
+  ES::VXd changedElastic = originalElastic;
+  changedElastic[0] *= 1.5;
+  parameters->setElasticValues(changedElastic);
+
+  const double actual = plasticEnergy.func(plastic);
+
   EXPECT_NEAR(actual, expected, 1e-12 * std::max(1.0, std::abs(expected)));
 }
 
@@ -245,6 +337,80 @@ TEST(PlasticMaterialEnergyGTest, GradientAndHessianMatchFiniteDifference)
   EXPECT_EQ(pgo::NonlinearOptimization::evaluateHessian(plasticEnergy, plasticBase).rows(), 6);
 }
 
+TEST(ElasticMaterialEnergyGTest, EvaluationDoesNotModifyParentElasticState)
+{
+  pgo::Logging::init();
+
+  ES::VXd committed(5);
+  committed << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
+
+  ES::VXd trial = committed;
+  trial[0] *= 1.1;
+  trial[2] *= 0.9;
+  trial[4] *= 1.2;
+
+  auto deformationEnergy = makeShellDeformationEnergy(committed);
+  ES::VXd fixedDisplacement = makeFixedDisplacement(
+    deformationEnergy->assembler().getDeformationModelManager().getMesh()->getNumVertices());
+  ElasticMaterialEnergy elasticEnergy(deformationEnergy, fixedDisplacement);
+
+  auto parameters = deformationEnergy->materialParameters();
+  ES::VXd grad(elasticEnergy.getNumDOFs());
+  ES::SpMatD hess;
+  elasticEnergy.hessianAlloc(hess);
+
+  auto expectPreserved = [&](const char *operation, auto &&evaluate) {
+    SCOPED_TRACE(operation);
+
+    parameters->setElasticValues(committed);
+    const ES::VXd before = parameters->elasticSnapshot();
+
+    evaluate();
+
+    const ES::VXd after = parameters->elasticSnapshot();
+    expectExactlyEqual(after, before);
+  };
+
+  expectPreserved("func", [&] {
+    (void)elasticEnergy.func(trial);
+  });
+
+  expectPreserved("gradient", [&] {
+    elasticEnergy.gradient(trial, grad);
+  });
+
+  expectPreserved("hessian", [&] {
+    elasticEnergy.hessianInPlace(trial, hess);
+  });
+}
+
+TEST(ElasticMaterialEnergyGTest, UsesPlasticSnapshotCapturedAtConstruction)
+{
+  pgo::Logging::init();
+
+  ES::VXd elastic(5);
+  elastic << 20000.0, 0.45, 10000.0, 0.3, 1e-3;
+
+  auto deformationEnergy = makeShellDeformationEnergy(elastic);
+  ES::VXd fixedDisplacement = makeFixedDisplacement(
+    deformationEnergy->assembler().getDeformationModelManager().getMesh()->getNumVertices());
+  auto parameters = deformationEnergy->materialParameters();
+
+  const ES::VXd originalPlastic = parameters->plasticSnapshot();
+  ElasticMaterialEnergy elasticEnergy(deformationEnergy, fixedDisplacement);
+
+  const double expected = elasticEnergy.func(elastic);
+
+  ES::VXd changedPlastic = originalPlastic;
+  ASSERT_GT(changedPlastic.size(), 0);
+  changedPlastic.array() *= 1.05;
+  parameters->setPlasticValues(changedPlastic);
+
+  const double actual = elasticEnergy.func(elastic);
+
+  EXPECT_NEAR(actual, expected, 1e-12 * std::max(1.0, std::abs(expected)));
+}
+
 TEST(ElasticMaterialEnergyGTest, ValueGradientAndHessianMatchFiniteDifference)
 {
   pgo::Logging::init();
@@ -266,7 +432,7 @@ TEST(ElasticMaterialEnergyGTest, ValueGradientAndHessianMatchFiniteDifference)
   for (int i = 0; i < 5; i++)
     EXPECT_EQ(dofs[i], i);
 
-  deformationEnergy->assembler().setElasticValues(elasticBase);
+  deformationEnergy->materialParameters()->setElasticValues(elasticBase);
   const double expected = deformationEnergy->func(fixedDisplacement);
   const double actual = elasticEnergy.func(elasticBase);
   EXPECT_NEAR(actual, expected, 1e-12 * std::max(1.0, std::abs(expected)));

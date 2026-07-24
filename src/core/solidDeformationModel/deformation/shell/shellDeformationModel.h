@@ -44,25 +44,25 @@ public:
     double *hess) const override;
 
   void compute_d2E_dxda(const DeformationModelCacheData *cacheDataBase,
-    double *hess) const override;
+    double *hess, int materialLocation = -1) const override;
 
   void compute_d2E_dxdb(const DeformationModelCacheData *cacheDataBase,
-    double *hess) const override;
+    double *hess, int materialLocation = -1) const override;
 
   void compute_dE_da(const DeformationModelCacheData *cacheDataBase,
-    double *grad) const override;
+    double *grad, int materialLocation = -1) const override;
 
   void compute_d2E_da2(const DeformationModelCacheData *cacheDataBase,
-    double *hess) const override;
+    double *hess, int materialLocation = -1) const override;
 
   void compute_dE_db(const DeformationModelCacheData *cacheDataBase,
-    double *grad) const override;
+    double *grad, int materialLocation = -1) const override;
 
   void compute_d2E_db2(const DeformationModelCacheData *cacheDataBase,
-    double *hess) const override;
+    double *hess, int materialLocation = -1) const override;
 
   void compute_d2E_dadb(const DeformationModelCacheData *cacheDataBase,
-    double *hess) const override;
+    double *hess, int materialLocation = -1) const override;
 
   void vonMisesStress(const DeformationModelCacheData *cacheData,
     int &nPt, double *stresses) const override;

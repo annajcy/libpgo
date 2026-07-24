@@ -91,11 +91,11 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/dof/vertex3DofLayout.h
   formulations/dof/cubicTricubicHermiteDofLayout.h
 
-  material/fields/parameterField.h
+  material/fields/parameterDofLayout.h
+  material/fields/parameterFieldMapping.h
+  material/fields/materialParameters.h
+  material/fields/materialParameterFactory.h
   material/fields/materialFrameField.h
-  material/fields/materialParameterFieldInit.h
-  material/fields/constantParameterField.h
-  material/fields/elementwiseParameterField.h
 
   material/elastic/elasticModelFactory.h
   material/plastic/plasticModelFactory.h
@@ -159,10 +159,11 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/volume/volumetricDeformationModelCacheData.cpp
   deformation/shell/shellDeformationModel.cpp
 
-  material/fields/constantParameterField.cpp
-  material/fields/elementwiseParameterField.cpp
+  material/fields/parameterDofLayout.cpp
+  material/fields/parameterFieldMapping.cpp
+  material/fields/materialParameters.cpp
+  material/fields/materialParameterFactory.cpp
   material/fields/materialFrameField.cpp
-  material/fields/materialParameterFieldInit.cpp
 
 
   deformation/deformationModelManager.cpp

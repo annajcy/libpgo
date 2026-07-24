@@ -37,14 +37,28 @@ public:
   double computeEnergy(const DeformationModelCacheData *cacheData) const override;
   void compute_dE_dx(const DeformationModelCacheData *cacheData, double *grad) const override;
   void compute_d2E_dx2(const DeformationModelCacheData *cacheData, double *hess) const override;
-  void compute_d2E_dxda(const DeformationModelCacheData *cacheData, double *hess) const override;
-  void compute_d2E_dxdb(const DeformationModelCacheData *cacheData, double *hess) const override;
+  void compute_d2E_dxda(
+    const DeformationModelCacheData *cacheData, double *hess,
+    int materialLocation = -1) const override;
+  void compute_d2E_dxdb(
+    const DeformationModelCacheData *cacheData, double *hess,
+    int materialLocation = -1) const override;
 
-  void compute_dE_da(const DeformationModelCacheData *cacheData, double *grad) const override;
-  void compute_d2E_da2(const DeformationModelCacheData *cacheData, double *hess) const override;
-  void compute_dE_db(const DeformationModelCacheData *cacheData, double *grad) const override;
-  void compute_d2E_db2(const DeformationModelCacheData *cacheData, double *hess) const override;
-  void compute_d2E_dadb(const DeformationModelCacheData *cacheData, double *hess) const override;
+  void compute_dE_da(
+    const DeformationModelCacheData *cacheData, double *grad,
+    int materialLocation = -1) const override;
+  void compute_d2E_da2(
+    const DeformationModelCacheData *cacheData, double *hess,
+    int materialLocation = -1) const override;
+  void compute_dE_db(
+    const DeformationModelCacheData *cacheData, double *grad,
+    int materialLocation = -1) const override;
+  void compute_d2E_db2(
+    const DeformationModelCacheData *cacheData, double *hess,
+    int materialLocation = -1) const override;
+  void compute_d2E_dadb(
+    const DeformationModelCacheData *cacheData, double *hess,
+    int materialLocation = -1) const override;
 
   void enableSPD(int enable) override;
   int getNumElasticParameters() const override { return numElasticParams_; }

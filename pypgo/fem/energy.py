@@ -9,52 +9,46 @@ import numpy as np
 import pypgo._core as _core
 from pypgo._utils import float_vector
 from pypgo.energy import PotentialEnergy
-from pypgo.fem.fields import ConstantField, ElementwiseField, ParameterField
+from pypgo.fem.fields import (
+    ConstantDofLayout,
+    ElementwiseDofLayout,
+    IdentityParameterMapping,
+    MaterialParameters,
+    ParameterDofLayout,
+    ParameterMapping,
+)
 from pypgo.sparse import SparseMatrix
 
 
-def _field_values_array(name, values, num_elements, num_channels=None):
+def _parameter_values_array(name, values, num_rows, num_local_dofs):
     arr = np.asarray(values, dtype=np.float64, order="C")
     if arr.ndim == 1:
-        if num_channels is not None:
-            expected = num_elements * num_channels
-            if arr.size != expected:
-                raise ValueError(f"{name} flat size must be {expected}, got {arr.size}")
-            arr = arr.reshape((num_elements, num_channels))
-        return np.ascontiguousarray(arr, dtype=np.float64)
+        expected = num_rows * num_local_dofs
+        if arr.size != expected:
+            raise ValueError(f"{name} flat size must be {expected}, got {arr.size}")
+        arr = arr.reshape((num_rows, num_local_dofs))
     if arr.ndim != 2:
         raise ValueError(f"{name} must be 1-D or 2-D, got shape {arr.shape}")
-    if arr.shape[0] != num_elements:
-        raise ValueError(f"{name} first dimension must be {num_elements}, got {arr.shape[0]}")
-    if num_channels is not None and arr.shape[1] != num_channels:
-        raise ValueError(
-            f"{name} shape must be {(num_elements, num_channels)}, got {arr.shape}"
-        )
+    if arr.shape != (num_rows, num_local_dofs):
+        raise ValueError(f"{name} shape must be {(num_rows, num_local_dofs)}, got {arr.shape}")
     return np.ascontiguousarray(arr, dtype=np.float64)
 
 
-def _field_type_string(name, field):
-    if isinstance(field, ElementwiseField):
-        return "elementwise"
-    if isinstance(field, ConstantField):
-        return "constant"
+def _layout_rows(name, layout, num_elements):
+    if isinstance(layout, ElementwiseDofLayout):
+        return num_elements
+    if isinstance(layout, ConstantDofLayout):
+        return 1
     raise TypeError(
-        f"{name} must be ElementwiseField or ConstantField, got {type(field).__name__}"
+        f"{name} must be ElementwiseDofLayout or ConstantDofLayout, got {type(layout).__name__}"
     )
 
 
-def _field_init_values(name, field, num_elements, num_channels=None):
-    if isinstance(field, ConstantField):
-        if field.values is None:
-            return None
-        return _field_values_array(name, field.values, 1, num_channels).ravel()
-    if isinstance(field, ElementwiseField):
-        if field.values is None:
-            return None
-        return _field_values_array(name, field.values, num_elements, num_channels).ravel()
-    raise TypeError(
-        f"{name} must be ElementwiseField or ConstantField, got {type(field).__name__}"
-    )
+def _parameter_init_values(name, values, layout, num_elements, num_local_dofs):
+    if values is None:
+        return None
+    rows = _layout_rows(f"{name.removesuffix('_values')}_layout", layout, num_elements)
+    return _parameter_values_array(name, values, rows, num_local_dofs).ravel()
 
 
 def _require_sim_mesh(sim_mesh):
@@ -143,22 +137,8 @@ class DeformationEnergy(PotentialEnergy):
         return self._handle.plastic_model
 
     @property
-    def elastic_field(self) -> ParameterField:
-        return ParameterField(self._handle.elastic_field)
-
-    @property
-    def plastic_field(self) -> ParameterField:
-        return ParameterField(self._handle.plastic_field)
-
-    def set_elastic_values(self, values) -> None:
-        field = self.elastic_field
-        arr = _field_values_array("values", values, field.num_elements, field.num_channels)
-        self._handle.set_elastic_values(arr.ravel())
-
-    def set_plastic_values(self, values) -> None:
-        field = self.plastic_field
-        arr = _field_values_array("values", values, field.num_elements, field.num_channels)
-        self._handle.set_plastic_values(arr.ravel())
+    def parameters(self) -> MaterialParameters:
+        return MaterialParameters(self._handle.parameters)
 
     def elastic_gradient(self, displacement: np.ndarray) -> np.ndarray:
         u = float_vector("displacement", displacement)
@@ -303,9 +283,13 @@ def deformation_energy(
     sim_mesh,
     *,
     elastic,
-    elastic_field,
+    elastic_layout=None,
+    elastic_mapping=None,
+    elastic_values=None,
     plastic,
-    plastic_field,
+    plastic_layout=None,
+    plastic_mapping=None,
+    plastic_values=None,
     formulation=None,
     options=None,
 ) -> DeformationEnergy:
@@ -320,17 +304,46 @@ def deformation_energy(
     if not isinstance(plastic, PlasticModel) and not hasattr(plastic, "name") and not hasattr(plastic, "_to_string"):
         raise TypeError(f"plastic must be a PlasticModel or have 'name'/'_to_string()', got {type(plastic).__name__}")
 
-    elastic_values = _field_init_values(
-        "elastic_field.values",
-        elastic_field,
+    if elastic_layout is None:
+        elastic_layout = ElementwiseDofLayout()
+    if plastic_layout is None:
+        plastic_layout = ElementwiseDofLayout()
+    if elastic_mapping is None:
+        elastic_mapping = IdentityParameterMapping()
+    if plastic_mapping is None:
+        plastic_mapping = IdentityParameterMapping()
+    if not isinstance(elastic_layout, ParameterDofLayout):
+        raise TypeError(
+            f"elastic_layout must be a ParameterDofLayout, got {type(elastic_layout).__name__}"
+        )
+    if not isinstance(plastic_layout, ParameterDofLayout):
+        raise TypeError(
+            f"plastic_layout must be a ParameterDofLayout, got {type(plastic_layout).__name__}"
+        )
+    if not isinstance(elastic_mapping, ParameterMapping):
+        raise TypeError(
+            f"elastic_mapping must be a ParameterMapping, got {type(elastic_mapping).__name__}"
+        )
+    if not isinstance(plastic_mapping, ParameterMapping):
+        raise TypeError(
+            f"plastic_mapping must be a ParameterMapping, got {type(plastic_mapping).__name__}"
+        )
+
+    num_elastic_channels = _elastic_value_channels(sim_mesh, elastic)
+    num_plastic_channels = plastic.dofs
+    elastic_values = _parameter_init_values(
+        "elastic_values",
+        elastic_values,
+        elastic_layout,
         sim_mesh.num_elements,
-        _elastic_value_channels(sim_mesh, elastic),
+        num_elastic_channels,
     )
-    plastic_values = _field_init_values(
-        "plastic_field.values",
-        plastic_field,
+    plastic_values = _parameter_init_values(
+        "plastic_values",
+        plastic_values,
+        plastic_layout,
         sim_mesh.num_elements,
-        plastic.dofs,
+        num_plastic_channels,
     )
 
     elastic_name = elastic.name if isinstance(elastic, ElasticModel) else elastic._to_string()
@@ -347,8 +360,10 @@ def deformation_energy(
         elastic_values,
         plastic_name,
         plastic_values,
-        _field_type_string("elastic_field", elastic_field),
-        _field_type_string("plastic_field", plastic_field),
+        elastic_layout._handle,
+        elastic_mapping._handle,
+        plastic_layout._handle,
+        plastic_mapping._handle,
         formulation.name,
         bool(options.enforce_spd),
         bool(options.enable_material_max_step),

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "material/elastic/elasticModelFactory.h"
+#include "material/fields/materialParameterFactory.h"
 
 #include "simulation/simulationMesh.h"
 #include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
@@ -14,6 +15,8 @@
 #include "tetMesh.h"
 #include "pgoLogging.h"
 
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -154,7 +157,7 @@ TEST(ElasticModelFactoryGTest, HillParameterSpecMatchesCreatedModelParameters)
 
   const auto spec = ElasticModelFactory::parameterSpec(
     *simMesh, DeformationModelElasticMaterial::HILL_STABLE_NEO);
-  EXPECT_EQ(spec.numChannels, result->getNumParameters());
+  EXPECT_EQ(spec.channelNames.size(), result->getNumParameters());
   ASSERT_EQ(spec.channelNames.size(), 1);
   EXPECT_EQ(spec.channelNames[0], "activation");
 }
@@ -171,58 +174,64 @@ TEST(ElasticModelFactoryGTest, KoiterFabricParameterSpecMatchesCreatedModelParam
 
   const auto spec = ElasticModelFactory::parameterSpec(
     *simMesh, DeformationModelElasticMaterial::KOITER_FABRIC);
-  EXPECT_EQ(spec.numChannels, result->getNumParameters());
+  EXPECT_EQ(spec.channelNames.size(), result->getNumParameters());
   EXPECT_EQ(spec.channelNames.size(), static_cast<size_t>(result->getNumParameters()));
 }
 
-TEST(ElasticModelFactoryGTest, HillDefaultFieldsUseSingleActivationChannel)
+TEST(ElasticModelFactoryGTest, HillDefaultParametersUseSingleActivationChannel)
 {
   pgo::Logging::init();
   auto simMesh = makeSingleTetSimulationMesh();
   SimulationMeshHillMaterial hillMaterial(1e5, 1.2, 0.7);
   simMesh->appendMaterialToAllElements(&hillMaterial);
 
-  auto elementwiseField = ElasticModelFactory::createDefaultElementwiseField(
-    *simMesh, DeformationModelElasticMaterial::HILL_STABLE_NEO);
-  ASSERT_NE(elementwiseField, nullptr);
-  ASSERT_NE(elementwiseField->dofLayout(), nullptr);
-  EXPECT_EQ(elementwiseField->numChannels(), 1);
-  EXPECT_EQ(elementwiseField->dofLayout()->numGlobalDofs(), simMesh->getNumElements());
-  ASSERT_NE(elementwiseField->globalData(), nullptr);
-  EXPECT_DOUBLE_EQ(elementwiseField->globalData()[0], 1.0);
+  auto elementwise = makeDefaultMaterialParameters(
+    *simMesh, DeformationModelElasticMaterial::HILL_STABLE_NEO,
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF0);
+  EXPECT_EQ(elementwise->space()->elastic().mapping().numChannels(), 1);
+  EXPECT_EQ(
+    elementwise->space()->elastic().dofLayout().numGlobalDofs(),
+    simMesh->getNumElements());
+  EXPECT_DOUBLE_EQ(elementwise->elasticSnapshot()[0], 1.0);
 
-  auto constantField = ElasticModelFactory::createDefaultConstantField(
-    *simMesh, DeformationModelElasticMaterial::HILL_STABLE_NEO);
-  ASSERT_NE(constantField, nullptr);
-  ASSERT_NE(constantField->dofLayout(), nullptr);
-  EXPECT_EQ(constantField->numChannels(), 1);
-  EXPECT_EQ(constantField->dofLayout()->numGlobalDofs(), 1);
-  ASSERT_NE(constantField->globalData(), nullptr);
-  EXPECT_DOUBLE_EQ(constantField->globalData()[0], 1.0);
+  auto constant = makeMaterialParameters(
+    *simMesh, DeformationModelElasticMaterial::HILL_STABLE_NEO,
+    std::make_unique<ConstantParameterDofLayout>(
+      simMesh->getNumElements(), 1),
+    std::make_unique<IdentityParameterFieldMapping>(1), std::nullopt,
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF0,
+    std::make_unique<ElementwiseParameterDofLayout>(
+      simMesh->getNumElements(), 0),
+    std::make_unique<IdentityParameterFieldMapping>(0), std::nullopt);
+  EXPECT_EQ(constant->space()->elastic().dofLayout().numGlobalDofs(), 1);
+  EXPECT_DOUBLE_EQ(constant->elasticSnapshot()[0], 1.0);
 }
 
-TEST(ElasticModelFactoryGTest, KoiterFabricDefaultFieldsUseModelParameterChannels)
+TEST(ElasticModelFactoryGTest, KoiterFabricDefaultParametersUseModelChannels)
 {
   pgo::Logging::init();
   auto simMesh = makeSingleShellSimulationMesh();
 
-  auto elementwiseField = ElasticModelFactory::createDefaultElementwiseField(
-    *simMesh, DeformationModelElasticMaterial::KOITER_FABRIC);
-  ASSERT_NE(elementwiseField, nullptr);
-  ASSERT_NE(elementwiseField->dofLayout(), nullptr);
-  EXPECT_EQ(elementwiseField->numChannels(), 12);
-  EXPECT_EQ(elementwiseField->dofLayout()->numGlobalDofs(), 12 * simMesh->getNumElements());
-  ASSERT_NE(elementwiseField->globalData(), nullptr);
-  EXPECT_DOUBLE_EQ(elementwiseField->globalData()[0], 1.0);
-  EXPECT_DOUBLE_EQ(elementwiseField->globalData()[11], 1e-3);
+  auto elementwise = makeDefaultMaterialParameters(
+    *simMesh, DeformationModelElasticMaterial::KOITER_FABRIC,
+    DeformationModelPlasticMaterial::SHELL_FF_DOF0);
+  EXPECT_EQ(elementwise->space()->elastic().mapping().numChannels(), 12);
+  EXPECT_EQ(
+    elementwise->space()->elastic().dofLayout().numGlobalDofs(),
+    12 * simMesh->getNumElements());
+  EXPECT_DOUBLE_EQ(elementwise->elasticSnapshot()[0], 1.0);
+  EXPECT_DOUBLE_EQ(elementwise->elasticSnapshot()[11], 1e-3);
 
-  auto constantField = ElasticModelFactory::createDefaultConstantField(
-    *simMesh, DeformationModelElasticMaterial::KOITER_FABRIC);
-  ASSERT_NE(constantField, nullptr);
-  ASSERT_NE(constantField->dofLayout(), nullptr);
-  EXPECT_EQ(constantField->numChannels(), 12);
-  EXPECT_EQ(constantField->dofLayout()->numGlobalDofs(), 12);
-  ASSERT_NE(constantField->globalData(), nullptr);
-  EXPECT_DOUBLE_EQ(constantField->globalData()[0], 1.0);
-  EXPECT_DOUBLE_EQ(constantField->globalData()[11], 1e-3);
+  auto constant = makeMaterialParameters(
+    *simMesh, DeformationModelElasticMaterial::KOITER_FABRIC,
+    std::make_unique<ConstantParameterDofLayout>(
+      simMesh->getNumElements(), 12),
+    std::make_unique<IdentityParameterFieldMapping>(12), std::nullopt,
+    DeformationModelPlasticMaterial::SHELL_FF_DOF0,
+    std::make_unique<ElementwiseParameterDofLayout>(
+      simMesh->getNumElements(), 0),
+    std::make_unique<IdentityParameterFieldMapping>(0), std::nullopt);
+  EXPECT_EQ(constant->space()->elastic().dofLayout().numGlobalDofs(), 12);
+  EXPECT_DOUBLE_EQ(constant->elasticSnapshot()[0], 1.0);
+  EXPECT_DOUBLE_EQ(constant->elasticSnapshot()[11], 1e-3);
 }

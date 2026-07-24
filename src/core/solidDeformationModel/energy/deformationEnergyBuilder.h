@@ -6,7 +6,7 @@ copyright to USC
 #pragma once
 
 #include "deformation/deformationModelManager.h"
-#include "material/fields/materialParameterFieldInit.h"
+#include "material/fields/materialParameterFactory.h"
 #include "material/fields/materialFrameField.h"
 #include "EigenSupport.h"
 
@@ -30,27 +30,12 @@ struct DeformationModelOptions
   EigenSupport::VXd elementWeights;
 };
 
-struct DeformationModelInputs
-{
-  std::shared_ptr<OptimizableField> elasticParameters;
-  std::shared_ptr<OptimizableField> plasticParameters;
-  std::shared_ptr<const MaterialFrameField> materialFrames;
-};
-
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   std::shared_ptr<const SimulationMesh> mesh,
   DeformationModelElasticMaterial elastic,
   DeformationModelPlasticMaterial plastic,
-  DeformationModelInputs inputs,
-  const Formulation &formulation,
-  const DeformationModelOptions &opts = {});
-
-std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
-  std::shared_ptr<const SimulationMesh> mesh,
-  DeformationModelElasticMaterial elastic,
-  ElasticFieldInit elasticField,
-  DeformationModelPlasticMaterial plastic,
-  PlasticFieldInit plasticField,
+  std::shared_ptr<MaterialParameters> materialParameters,
+  std::shared_ptr<const MaterialFrameField> materialFrames,
   const Formulation &formulation,
   const DeformationModelOptions &opts = {});
 

@@ -153,7 +153,7 @@ class TestExampleSources:
         source = _optimization_demo_source("plastic_shape_match")
         ast.parse(source)
         assert "pgo.fem.PlasticStaticEquilibriumLayer" in source
-        assert "pf.ElementwiseField()" in source
+        assert "energy.parameters.plastic_values" in source
         assert "volume.extract_surface_mesh()" in source
         assert "torch.optim.Adam" in source
         assert "loss.backward()" in source

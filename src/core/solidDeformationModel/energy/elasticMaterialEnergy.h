@@ -20,7 +20,7 @@ class ElasticMaterialEnergy : public NonlinearOptimization::PotentialEnergy
 {
 public:
   ElasticMaterialEnergy(
-    std::shared_ptr<DeformationModelEnergy> deformationEnergy,
+    std::shared_ptr<const DeformationModelEnergy> deformationEnergy,
     EigenSupport::ConstRefVecXd fixedDisplacement);
   virtual ~ElasticMaterialEnergy();
 
@@ -34,14 +34,14 @@ public:
   virtual NonlinearOptimization::EnergyStateKind stateKind() const override { return NonlinearOptimization::EnergyStateKind::Generic; }
 
   const EigenSupport::VXd &fixedDisplacement() const { return fixedDisplacement_; }
-  std::shared_ptr<DeformationModelEnergy> deformationEnergy() const { return deformationEnergy_; }
+  std::shared_ptr<const DeformationModelEnergy> deformationEnergy() const { return deformationEnergy_; }
 
 private:
-  void setElasticState(EigenSupport::ConstRefVecXd x) const;
   EigenSupport::VXd absolutePositions() const;
 
-  std::shared_ptr<DeformationModelEnergy> deformationEnergy_;
+  std::shared_ptr<const DeformationModelEnergy> deformationEnergy_;
   EigenSupport::VXd fixedDisplacement_;
+  EigenSupport::VXd fixedPlasticParameters_;
   std::vector<int> allDOFs_;
 };
 

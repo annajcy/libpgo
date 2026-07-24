@@ -310,9 +310,7 @@ def worker_main(args: argparse.Namespace) -> int:
     energy = pf.deformation_energy(
         simulation_mesh,
         elastic=_elastic_model(pf, args.elastic_model),
-        elastic_field=pf.ElementwiseField(),
         plastic=pf.VolumetricPlasticity(dofs=args.plastic_dofs),
-        plastic_field=pf.ElementwiseField(),
         formulation=formulation,
         options=pf.DeformationOptions(
             enforce_spd=True,

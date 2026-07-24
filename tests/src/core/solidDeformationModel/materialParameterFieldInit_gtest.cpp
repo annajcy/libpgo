@@ -1,12 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "material/fields/materialParameterFieldInit.h"
-#include "material/fields/parameterField.h"
+#include "material/fields/materialParameterFactory.h"
 #include "simulation/simulationMesh.h"
 #include "cubicMesh.h"
-#include "pgoLogging.h"
-
-#include <memory>
 
 namespace
 {
@@ -15,138 +11,93 @@ using namespace pgo::SolidDeformationModel;
 
 constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 
-std::shared_ptr<const SimulationMesh> makeCubicSimulationMesh()
+TEST(MaterialParameterFactory, BuildsIndependentSpaceAndCommittedValues)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  return std::shared_ptr<const SimulationMesh>(loadCubicMesh(&cubicMesh).release());
-}
+  std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
+  ASSERT_NE(mesh, nullptr);
 
-ES::VXd snapshot(const OptimizableField &field)
-{
-  const int n = field.dofLayout()->numGlobalDofs();
-  ES::VXd values(n);
-  if (n > 0)
-    values = Eigen::Map<const ES::VXd>(field.globalData(), n);
-  return values;
-}
-}  // namespace
+  constexpr auto elastic = DeformationModelElasticMaterial::STABLE_NEO;
+  constexpr auto plastic = DeformationModelPlasticMaterial::VOLUMETRIC_DOF6;
+  ES::VXd plasticValues(6);
+  plasticValues << 1.0, 0.01, 0.02, 0.99, 0.03, 1.01;
 
-TEST(MaterialParameterFieldInitGTest, CreatesDefaultElementwiseFieldsFromOneMesh)
-{
-  pgo::Logging::init();
-
-  auto mesh = makeCubicSimulationMesh();
-
-  auto elasticField = createElasticParameterField(*mesh, DeformationModelElasticMaterial::STABLE_NEO, ElasticFieldInit{});
-  auto plasticField = createPlasticParameterField(*mesh, DeformationModelPlasticMaterial::VOLUMETRIC_DOF6, PlasticFieldInit{});
-
-  ASSERT_NE(elasticField, nullptr);
-  ASSERT_NE(plasticField, nullptr);
-  EXPECT_EQ(elasticField->spec().domain, ParameterDomain::ELASTIC);
-  EXPECT_EQ(plasticField->spec().domain, ParameterDomain::PLASTIC);
-  // STABLE_NEO exposes no differentiable elastic parameters, so its elastic field
-  // has 0 channels (matches getNumParameters()); the plastic DOF6 field has 6.
-  EXPECT_EQ(elasticField->dofLayout()->numGlobalDofs(), 0);
-  EXPECT_EQ(plasticField->dofLayout()->numGlobalDofs(), mesh->getNumElements() * 6);
-}
-
-TEST(MaterialParameterFieldInitGTest, OwnsAndUpdatesElementwisePlasticValues)
-{
-  pgo::Logging::init();
-
-  auto mesh = makeCubicSimulationMesh();
-  ES::VXd plasticValues = ES::VXd::Zero(mesh->getNumElements() * 6);
-  for (int ei = 0; ei < mesh->getNumElements(); ei++) {
-    plasticValues.segment<6>(ei * 6) << 1.05, 0.0, 0.0, 1.0, 0.0, 1.0;
-  }
-
-  auto plasticField = createPlasticParameterField(
+  auto parameters = makeMaterialParameters(
     *mesh,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, plasticValues });
+    elastic,
+    std::make_unique<ElementwiseParameterDofLayout>(
+      mesh->getNumElements(), 0),
+    std::make_unique<IdentityParameterFieldMapping>(0),
+    std::nullopt,
+    plastic,
+    std::make_unique<ConstantParameterDofLayout>(
+      mesh->getNumElements(), 6),
+    std::make_unique<IdentityParameterFieldMapping>(6),
+    plasticValues);
 
-  EXPECT_TRUE(snapshot(*plasticField).isApprox(plasticValues));
+  EXPECT_EQ(
+    parameters->space()->elastic().dofLayout().numGlobalDofs(), 0);
+  EXPECT_EQ(
+    parameters->space()->plastic().dofLayout().numGlobalDofs(), 6);
+  EXPECT_TRUE(parameters->plasticSnapshot().isApprox(plasticValues));
 
-  ES::VXd updated = plasticValues;
-  updated[0] = 0.95;
-  plasticField->setGlobalData(updated.data());
-  EXPECT_TRUE(snapshot(*plasticField).isApprox(updated));
+  MaterialState snapshot = parameters->snapshot();
+  ES::VXd changed = plasticValues * 1.1;
+  parameters->setPlasticValues(changed);
+  EXPECT_TRUE(Eigen::Map<const ES::VXd>(
+    snapshot.view().plasticValues().data(),
+    snapshot.view().plasticValues().size()).isApprox(plasticValues));
 }
 
-TEST(MaterialParameterFieldInitGTest, CreatesConstantFieldsSharedAcrossMesh)
+TEST(MaterialParameterFactory, DefaultsRespectLayoutOwnership)
 {
-  pgo::Logging::init();
+  pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
+  std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
 
-  auto mesh = makeCubicSimulationMesh();
-
-  auto elasticField = createElasticParameterField(
+  auto elementwise = makeDefaultMaterialParameters(
     *mesh,
     DeformationModelElasticMaterial::STABLE_NEO,
-    ElasticFieldInit{ ElasticMaterialFieldType::CONSTANT, std::nullopt });
-  auto plasticField = createPlasticParameterField(
-    *mesh,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, std::nullopt });
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6);
+  EXPECT_EQ(
+    elementwise->plasticSnapshot().size(),
+    mesh->getNumElements() * 6);
 
-  ASSERT_NE(elasticField, nullptr);
-  ASSERT_NE(plasticField, nullptr);
-  // A constant (mesh-wide shared) field has numChannels global dofs, not
-  // numChannels * numElements. STABLE_NEO has 0 elastic channels; the constant
-  // sharing semantics are exercised by the plastic DOF6 field (6 shared dofs).
-  EXPECT_EQ(elasticField->dofLayout()->numGlobalDofs(), 0);
-  EXPECT_EQ(plasticField->dofLayout()->numGlobalDofs(), 6);
-  EXPECT_EQ(elasticField->kind(), ParameterFieldKind::CONSTANT);
-  EXPECT_EQ(plasticField->kind(), ParameterFieldKind::CONSTANT);
+  auto constant = makeMaterialParameters(
+    *mesh,
+    DeformationModelElasticMaterial::STABLE_NEO,
+    std::make_unique<ConstantParameterDofLayout>(
+      mesh->getNumElements(), 0),
+    std::make_unique<IdentityParameterFieldMapping>(0),
+    std::nullopt,
+    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
+    std::make_unique<ConstantParameterDofLayout>(
+      mesh->getNumElements(), 6),
+    std::make_unique<IdentityParameterFieldMapping>(6),
+    std::nullopt);
+  ASSERT_EQ(constant->plasticSnapshot().size(), 6);
+  EXPECT_TRUE(constant->plasticSnapshot().isApprox(
+    (ES::VXd(6) << 1, 0, 0, 1, 0, 1).finished()));
 }
 
-TEST(MaterialParameterFieldInitGTest, OwnsAndUpdatesConstantPlasticValues)
+TEST(MaterialParameterFactory, RejectsDimensionMismatch)
 {
-  pgo::Logging::init();
-
-  auto mesh = makeCubicSimulationMesh();
-  ES::VXd plasticValues(6);
-  plasticValues << 1.05, 0.0, 0.0, 1.0, 0.0, 1.0;
-
-  auto plasticField = createPlasticParameterField(
-    *mesh,
-    DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-    PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, plasticValues });
-
-  EXPECT_EQ(snapshot(*plasticField).size(), 6);
-  EXPECT_TRUE(snapshot(*plasticField).isApprox(plasticValues));
-
-  ES::VXd updated = plasticValues;
-  updated[0] = 0.95;
-  plasticField->setGlobalData(updated.data());
-  EXPECT_TRUE(snapshot(*plasticField).isApprox(updated));
-}
-
-TEST(MaterialParameterFieldInitGTest, RejectsWrongConstantValueSize)
-{
-  pgo::Logging::init();
-
-  auto mesh = makeCubicSimulationMesh();
-  ES::VXd wrongPlastic = ES::VXd::Zero(mesh->getNumElements() * 6);
+  pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
+  std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
 
   EXPECT_THROW(
-    createPlasticParameterField(
+    makeMaterialParameters(
       *mesh,
+      DeformationModelElasticMaterial::STABLE_NEO,
+      std::make_unique<ElementwiseParameterDofLayout>(
+        mesh->getNumElements(), 1),
+      std::make_unique<IdentityParameterFieldMapping>(1),
+      ES::VXd::Zero(mesh->getNumElements()),
       DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-      PlasticFieldInit{ PlasticMaterialFieldType::CONSTANT, wrongPlastic }),
+      std::make_unique<ElementwiseParameterDofLayout>(
+        mesh->getNumElements(), 6),
+      std::make_unique<IdentityParameterFieldMapping>(6),
+      std::nullopt),
     std::invalid_argument);
 }
 
-TEST(MaterialParameterFieldInitGTest, RejectsWrongElementwiseValueSize)
-{
-  pgo::Logging::init();
-
-  auto mesh = makeCubicSimulationMesh();
-  ES::VXd wrongPlastic = ES::VXd::Zero(5);
-
-  EXPECT_THROW(
-    createPlasticParameterField(
-      *mesh,
-      DeformationModelPlasticMaterial::VOLUMETRIC_DOF6,
-      PlasticFieldInit{ PlasticMaterialFieldType::ELEMENTWISE, wrongPlastic }),
-    std::invalid_argument);
-}
+}  // namespace

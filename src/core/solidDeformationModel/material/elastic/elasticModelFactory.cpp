@@ -13,8 +13,6 @@
 #include "material/elastic/elasticModel2DFundamentalFormsFabric.h"
 #include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
 #include "material/elastic/elasticModel3DMooneyRivlin.h"
-#include "material/fields/elementwiseParameterField.h"
-#include "material/fields/constantParameterField.h"
 
 #include <stdexcept>
 
@@ -167,19 +165,18 @@ DeformationModelElasticMaterial ElasticModelFactory::materialFromModelId(const s
   throw std::invalid_argument("ElasticModelFactory::materialFromModelId: unknown elastic model id: " + modelId);
 }
 
-ParameterFieldSpec ElasticModelFactory::parameterSpec(
+MaterialParameterSpec ElasticModelFactory::parameterSpec(
   const SimulationMesh &mesh,
   DeformationModelElasticMaterial type)
 {
-  ParameterFieldSpec spec;
-  spec.domain = ParameterDomain::ELASTIC;
+  MaterialParameterSpec spec;
   spec.modelId = modelId(type);
-  spec.numChannels =
+  const int numChannels =
     create(mesh, 0, type, MaterialFrame::Identity())->getNumParameters();
-  if (type == DeformationModelElasticMaterial::KOITER_STVK && spec.numChannels == 5) {
+  if (type == DeformationModelElasticMaterial::KOITER_STVK && numChannels == 5) {
     spec.channelNames = { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" };
   }
-  else if (type == DeformationModelElasticMaterial::KOITER_FABRIC && spec.numChannels == 12) {
+  else if (type == DeformationModelElasticMaterial::KOITER_FABRIC && numChannels == 12) {
     spec.channelNames = {
       "membrane_warp", "membrane_weft", "membrane_shear", "membrane_cross",
       "bend_warp", "bend_weft", "bend_shear",
@@ -190,47 +187,14 @@ ParameterFieldSpec ElasticModelFactory::parameterSpec(
   else if ((type == DeformationModelElasticMaterial::HILL_STABLE_NEO ||
             type == DeformationModelElasticMaterial::HILL_STVK ||
             type == DeformationModelElasticMaterial::HILL_STVK_VOL) &&
-      spec.numChannels == 1) {
+      numChannels == 1) {
     spec.channelNames = { "activation" };
   }
+  else {
+    for (int i = 0; i < numChannels; i++)
+      spec.channelNames.push_back("parameter_" + std::to_string(i));
+  }
   return spec;
-}
-
-std::shared_ptr<OptimizableField> ElasticModelFactory::createDefaultElementwiseField(
-  const SimulationMesh &mesh,
-  DeformationModelElasticMaterial type)
-{
-  const auto spec = parameterSpec(mesh, type);
-  auto values = initializeDefaultElasticParams(mesh, type, spec.numChannels);
-  return std::make_shared<ElementwiseParameterField>(spec, mesh.getNumElements(), std::move(values));
-}
-
-std::shared_ptr<OptimizableField> ElasticModelFactory::createElementwiseField(
-  const SimulationMesh &mesh,
-  DeformationModelElasticMaterial type,
-  ES::VXd values)
-{
-  return std::make_shared<ElementwiseParameterField>(
-    parameterSpec(mesh, type), mesh.getNumElements(), std::move(values));
-}
-
-std::shared_ptr<OptimizableField> ElasticModelFactory::createDefaultConstantField(
-  const SimulationMesh &mesh,
-  DeformationModelElasticMaterial type)
-{
-  const auto spec = parameterSpec(mesh, type);
-  ES::VXd perElement = initializeDefaultElasticParams(mesh, type, spec.numChannels);
-  ES::VXd values = spec.numChannels > 0 ? ES::VXd(perElement.head(spec.numChannels)) : ES::VXd();
-  return std::make_shared<ConstantParameterField>(spec, mesh.getNumElements(), std::move(values));
-}
-
-std::shared_ptr<OptimizableField> ElasticModelFactory::createConstantField(
-  const SimulationMesh &mesh,
-  DeformationModelElasticMaterial type,
-  ES::VXd values)
-{
-  return std::make_shared<ConstantParameterField>(
-    parameterSpec(mesh, type), mesh.getNumElements(), std::move(values));
 }
 
 ES::VXd ElasticModelFactory::initializeDefaultElasticParams(

@@ -19,7 +19,8 @@ std::string PyElasticModel::name() const
 
 int PyElasticModel::numChannels(const SD::SimulationMesh &mesh) const
 {
-  return SD::ElasticModelFactory::parameterSpec(mesh, type_).numChannels;
+  return static_cast<int>(
+    SD::ElasticModelFactory::parameterSpec(mesh, type_).channelNames.size());
 }
 
 int PyElasticModel::numChannels(const PySimulationMesh &mesh) const

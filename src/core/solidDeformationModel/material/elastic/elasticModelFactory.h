@@ -1,6 +1,6 @@
 #pragma once
 
-#include "material/fields/parameterField.h"
+#include "material/fields/materialParameters.h"
 #include "material/fields/materialFrameField.h"
 #include "material/materialTypes.h"
 #include "EigenDef.h"
@@ -15,7 +15,6 @@ namespace SolidDeformationModel
 
 class SimulationMesh;
 class ElasticModel;
-class OptimizableField;
 
 class ElasticModelFactory
 {
@@ -33,30 +32,9 @@ public:
 
   static std::string modelId(DeformationModelElasticMaterial type);
   static DeformationModelElasticMaterial materialFromModelId(const std::string &modelId);
-  static ParameterFieldSpec parameterSpec(
+  static MaterialParameterSpec parameterSpec(
     const SimulationMesh &mesh,
     DeformationModelElasticMaterial type);
-
-  static std::shared_ptr<OptimizableField> createDefaultElementwiseField(
-    const SimulationMesh &mesh,
-    DeformationModelElasticMaterial type);
-
-  static std::shared_ptr<OptimizableField> createElementwiseField(
-    const SimulationMesh &mesh,
-    DeformationModelElasticMaterial type,
-    EigenSupport::VXd values);
-
-  // Constant (mesh-wide shared) elastic parameter field: a single set of
-  // numChannels parameters used by every element. The default variant seeds the
-  // shared values from element 0's material.
-  static std::shared_ptr<OptimizableField> createDefaultConstantField(
-    const SimulationMesh &mesh,
-    DeformationModelElasticMaterial type);
-
-  static std::shared_ptr<OptimizableField> createConstantField(
-    const SimulationMesh &mesh,
-    DeformationModelElasticMaterial type,
-    EigenSupport::VXd values);
 
   // Initialize default elastic parameter-field values for the full mesh.
   // Returns per-element values (flattened, size nele * paramsPerElement).

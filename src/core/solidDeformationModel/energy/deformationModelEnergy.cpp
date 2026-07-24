@@ -33,14 +33,25 @@ void fillAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restPosition, ES:
 
 }  // namespace
 
-DeformationModelEnergy::DeformationModelEnergy(std::unique_ptr<DeformationModelAssembler> fma,
-  int offset, bool enableMaterialMaxStep):
+DeformationModelEnergy::DeformationModelEnergy(
+  std::unique_ptr<DeformationModelAssembler> fma,
+  std::shared_ptr<MaterialParameters> materialParameters,
+  int offset,
+  bool enableMaterialMaxStep):
   forceModelAssembler(std::move(fma)),
+  materialParameters_(std::move(materialParameters)),
   restPosition(std::make_unique<ES::VXd>(forceModelAssembler->getRestPosition())),
   absolutePositionScratch_([this]() { return ES::VXd(forceModelAssembler->getNumDOFs()); }),
   directionScratch_([this]() { return ES::VXd(forceModelAssembler->getNumDOFs()); }),
   enableMaterialMaxStep_(enableMaterialMaxStep)
 {
+  if (!materialParameters_)
+    throw std::invalid_argument("DeformationModelEnergy requires material parameters.");
+  if (materialParameters_->space().get() !=
+    forceModelAssembler->materialParameterSpace().get()) {
+    throw std::invalid_argument(
+      "DeformationModelEnergy material parameters and assembler use different parameter spaces.");
+  }
   allDOFs.resize(forceModelAssembler->getNumDOFs());
   std::iota(allDOFs.begin(), allDOFs.end(), offset);
 }
@@ -61,26 +72,172 @@ ES::VXd &DeformationModelEnergy::directionScratch() const
 
 double DeformationModelEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
+  return func(x, materialParameters_->committedView());
+}
+
+double DeformationModelEnergy::func(
+  EigenSupport::ConstRefVecXd x, MaterialStateView state) const
+{
   Profiling::ScopedProfileSection scopedProfile("material.energy");
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(x, *restPosition, p);
-  return forceModelAssembler->computeEnergy(p.data());
+  return forceModelAssembler->computeEnergy(p.data(), state);
+}
+
+void DeformationModelEnergy::computePlasticGradient(
+  ES::ConstRefVecXd displacement, ES::RefVecXd grad) const
+{
+  computePlasticGradient(displacement, materialParameters_->committedView(), grad);
+}
+
+void DeformationModelEnergy::computePlasticGradient(
+  ES::ConstRefVecXd displacement, MaterialStateView state, ES::RefVecXd grad) const
+{
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(displacement, *restPosition, p);
+  forceModelAssembler->computePlasticGradient(
+    p.data(), state, grad.data());
+}
+
+void DeformationModelEnergy::computeElasticGradient(
+  ES::ConstRefVecXd displacement, ES::RefVecXd grad) const
+{
+  computeElasticGradient(displacement, materialParameters_->committedView(), grad);
+}
+
+void DeformationModelEnergy::computeElasticGradient(
+  ES::ConstRefVecXd displacement, MaterialStateView state, ES::RefVecXd grad) const
+{
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(displacement, *restPosition, p);
+  forceModelAssembler->computeElasticGradient(
+    p.data(), state, grad.data());
+}
+
+void DeformationModelEnergy::computePlasticHessian(
+  ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
+{
+  computePlasticHessian(displacement, materialParameters_->committedView(), hess);
+}
+
+void DeformationModelEnergy::computePlasticHessian(
+  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &hess) const
+{
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(displacement, *restPosition, p);
+  forceModelAssembler->computePlasticHessian(
+    p.data(), state, hess);
+}
+
+void DeformationModelEnergy::computeElasticHessian(
+  ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
+{
+  computeElasticHessian(displacement, materialParameters_->committedView(), hess);
+}
+
+void DeformationModelEnergy::computeElasticHessian(
+  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &hess) const
+{
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(displacement, *restPosition, p);
+  forceModelAssembler->computeElasticHessian(
+    p.data(), state, hess);
+}
+
+void DeformationModelEnergy::computePlasticElasticHessian(
+  ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
+{
+  computePlasticElasticHessian(
+    displacement, materialParameters_->committedView(), hess);
+}
+
+void DeformationModelEnergy::computePlasticElasticHessian(
+  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &hess) const
+{
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(displacement, *restPosition, p);
+  forceModelAssembler->computePlasticElasticHessian(
+    p.data(), state, hess);
+}
+
+void DeformationModelEnergy::computeDfDa(
+  ES::ConstRefVecXd displacement, ES::SpMatD &jacobian) const
+{
+  computeDfDa(displacement, materialParameters_->committedView(), jacobian);
+}
+
+void DeformationModelEnergy::computeDfDa(
+  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &jacobian) const
+{
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(displacement, *restPosition, p);
+  forceModelAssembler->compute_df_da(
+    p.data(), state, jacobian);
+}
+
+void DeformationModelEnergy::computeDfDb(
+  ES::ConstRefVecXd displacement, ES::SpMatD &jacobian) const
+{
+  computeDfDb(displacement, materialParameters_->committedView(), jacobian);
+}
+
+void DeformationModelEnergy::computeDfDb(
+  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &jacobian) const
+{
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(displacement, *restPosition, p);
+  forceModelAssembler->compute_df_db(
+    p.data(), state, jacobian);
+}
+
+void DeformationModelEnergy::computeVonMisesStresses(
+  ES::ConstRefVecXd displacement, ES::RefVecXd elementStresses) const
+{
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(displacement, *restPosition, p);
+  forceModelAssembler->computeVonMisesStresses(
+    p.data(), materialParameters_->committedView(), elementStresses.data());
+}
+
+void DeformationModelEnergy::computeMaxStrains(
+  ES::ConstRefVecXd displacement, ES::RefVecXd elementStrains) const
+{
+  ES::VXd &p = absolutePositionScratch();
+  fillAbsolutePositions(displacement, *restPosition, p);
+  forceModelAssembler->computeMaxStrains(
+    p.data(), materialParameters_->committedView(), elementStrains.data());
 }
 
 void DeformationModelEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const
 {
+  gradient(x, materialParameters_->committedView(), grad);
+}
+
+void DeformationModelEnergy::gradient(
+  EigenSupport::ConstRefVecXd x,
+  MaterialStateView state,
+  EigenSupport::RefVecXd grad) const
+{
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(x, *restPosition, p);
-  forceModelAssembler->computeGradient(p.data(), grad.data());
+  forceModelAssembler->computeGradient(p.data(), state, grad.data());
 }
 
 void DeformationModelEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
+  hessianInPlace(x, materialParameters_->committedView(), hess);
+}
+
+void DeformationModelEnergy::hessianInPlace(
+  EigenSupport::ConstRefVecXd x,
+  MaterialStateView state,
+  EigenSupport::SpMatD &hess) const
+{
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(x, *restPosition, p);
-  forceModelAssembler->computeHessian(p.data(), hess);
+  forceModelAssembler->computeHessian(p.data(), state, hess);
 }
 
 void DeformationModelEnergy::hessianAlloc(EigenSupport::SpMatD &hess) const

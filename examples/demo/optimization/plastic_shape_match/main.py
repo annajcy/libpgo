@@ -77,9 +77,7 @@ def main() -> None:
     energy = pf.deformation_energy(
         simulation_mesh,
         elastic=pf.StVK(),
-        elastic_field=pf.ElementwiseField(),
         plastic=pf.VolumetricPlasticity(dofs=6),
-        plastic_field=pf.ElementwiseField(),
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
             enforce_spd=False,
@@ -103,7 +101,7 @@ def main() -> None:
     )
 
     # Fit the plastic field through the differentiable equilibrium solve.
-    initial_plastic = energy.plastic_field.values.copy()
+    initial_plastic = energy.parameters.plastic_values.copy()
     initial_tensor = torch.as_tensor(initial_plastic.ravel())
     target_tensor = torch.as_tensor(target_vertices)
     plastic = torch.tensor(initial_plastic.ravel(), requires_grad=True)

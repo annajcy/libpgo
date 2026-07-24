@@ -46,14 +46,19 @@ def _make_cubic_sim_mesh():
 
 
 def _make_deformation_energy(sim, formulation, elastic="stable_neo", plastic="volumetric_dof6", plastic_values=None):
+    elastic_layout = _core._make_elementwise_parameter_dof_layout()
+    plastic_layout = _core._make_elementwise_parameter_dof_layout()
+    identity = _core._make_identity_parameter_field_mapping
     return _core._create_deformation_energy(
         sim._handle,
         elastic,
         None,
         plastic,
         plastic_values,
-        "elementwise",
-        "elementwise",
+        elastic_layout,
+        identity(),
+        plastic_layout,
+        identity(),
         formulation,
     )
 
@@ -78,22 +83,22 @@ class TestCoreDeformationEnergy:
         assert _core._elastic_num_channels(shell_sim._handle, "koiter_stvk") == 5
         assert _core._elastic_num_channels(shell_sim._handle, "koiter_fabric") == 12
 
-    def test_energy_exposes_shared_fields(self):
+    def test_energy_exposes_shared_parameters(self):
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_linear")
 
         assert energy.elastic_model == "stable_neo"
         assert energy.plastic_model == "volumetric_dof6"
-        assert energy.elastic_field.num_channels == 0
-        assert energy.elastic_field.values().shape == (0, 0)
-        assert energy.plastic_field.values().shape == (sim.num_elements, 6)
+        assert energy.parameters.space.elastic.num_channels == 0
+        assert energy.parameters.elastic_values.shape == (0, 0)
+        assert energy.parameters.plastic_values.shape == (sim.num_elements, 6)
 
-    def test_energy_setters_update_fields(self):
+    def test_parameter_owner_setters_update_committed_values(self):
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_linear")
         values = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
-        energy.set_plastic_values(values.ravel())
-        assert np.allclose(energy.plastic_field.values(), values)
+        energy.parameters.set_plastic_values(values.ravel())
+        assert np.allclose(energy.parameters.plastic_values, values)
 
     def test_wrong_size_rejected(self):
         sim = _make_tet_sim_mesh()
@@ -137,7 +142,7 @@ class TestCoreEnergy:
         u = h.zero_state()
 
         before = h.value(u)
-        energy.set_plastic_values(
+        energy.parameters.set_plastic_values(
             np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64).ravel()
         )
         after = h.value(u)

@@ -37,9 +37,7 @@ def main() -> None:
     deformation = pf.deformation_energy(
         simulation_mesh,
         elastic=pf.KoiterStVK(),
-        elastic_field=pf.ElementwiseField(),
         plastic=pf.ShellPlasticity(dofs=0),
-        plastic_field=pf.ElementwiseField(),
         formulation=formulation,
     )
     mass_field = pf.ShellDensityThickness(density=1000.0, thickness=1.0e-3)

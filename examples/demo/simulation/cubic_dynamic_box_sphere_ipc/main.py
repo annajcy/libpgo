@@ -37,9 +37,7 @@ def main() -> None:
     deformation = pf.deformation_energy(
         simulation_mesh,
         elastic=pf.StableNeo(),
-        elastic_field=pf.ElementwiseField(),
         plastic=pf.VolumetricPlasticity(dofs=0),
-        plastic_field=pf.ElementwiseField(),
         formulation=formulation,
         options=pf.DeformationOptions(enable_material_max_step=False),
     )

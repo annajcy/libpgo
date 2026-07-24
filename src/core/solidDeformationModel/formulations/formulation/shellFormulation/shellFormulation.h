@@ -3,6 +3,7 @@
 #include "formulations/formulation/formulation.h"
 
 #include "EigenDef.h"
+#include "material/fields/materialParameters.h"
 
 namespace pgo
 {
@@ -28,17 +29,20 @@ public:
   // each of the three corner vertices. The Koiter 6-vertex stencil only
   // affects bending energy; displacement DOFs are 3 per vertex.
   EigenSupport::SpMatD buildMassMatrix(
-    const SimulationMesh &mesh, const ShellMassField &massField) const;
+    const SimulationMesh &mesh, const ShellMassField &massField,
+    MaterialStateView state = {}) const;
   EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-    const ShellMassField &massField) const;
+    const ShellMassField &massField,
+    MaterialStateView state = {}) const;
 
   // d f_g / d b for a parameter-dependent shell mass field; throws
   // std::invalid_argument if the field does not implement
   // ElasticParameterDependentMassField. Shape: (numVertices*3) x numParameterDofs.
   EigenSupport::SpMatD buildBodyForceParameterJacobian(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-    const ShellMassField &massField) const;
+    const ShellMassField &massField,
+    MaterialStateView state) const;
 };
 
 }  // namespace SolidDeformationModel

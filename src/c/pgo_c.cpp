@@ -14,7 +14,6 @@
 #include "simulation/simulationMesh.h"
 #include "energy/deformationEnergyBuilder.h"
 #include "formulations/formulation/formulations.h"
-#include "material/fields/materialParameterFieldInit.h"
 #include "deformation/deformationModelManager.h"
 #include "basicIO.h"
 #include "deformation/deformationModelAssembler.h"
