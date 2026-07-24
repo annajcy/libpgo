@@ -12,6 +12,7 @@ copyright to USC,MIT,NUS
 
 #include <algorithm>
 #include <numeric>
+#include <stdexcept>
 
 using namespace pgo;
 using namespace pgo::NonlinearOptimization;
@@ -21,14 +22,13 @@ namespace ES = pgo::EigenSupport;
 namespace
 {
 
-void fillAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restPosition, int offset, ES::VXd &out)
+void fillAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restPosition, ES::VXd &out)
 {
-  out.noalias() = restPosition + x.segment(offset, restPosition.size());
-}
-
-void fillDirectionSlice(ES::ConstRefVecXd dx, int offset, int numDOFs, ES::VXd &out)
-{
-  out = Eigen::Map<const ES::VXd>(dx.data() + offset, numDOFs);
+  if (x.size() != restPosition.size()) {
+    throw std::invalid_argument(
+      "DeformationModelEnergy: local displacement size does not match the energy DOF count.");
+  }
+  out.noalias() = restPosition + x;
 }
 
 }  // namespace
@@ -63,7 +63,7 @@ double DeformationModelEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.energy");
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(x, *restPosition, allDOFs[0], p);
+  fillAbsolutePositions(x, *restPosition, p);
   return forceModelAssembler->computeEnergy(p.data());
 }
 
@@ -71,7 +71,7 @@ void DeformationModelEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSuppor
 {
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(x, *restPosition, allDOFs[0], p);
+  fillAbsolutePositions(x, *restPosition, p);
   forceModelAssembler->computeGradient(p.data(), grad.data());
 }
 
@@ -79,7 +79,7 @@ void DeformationModelEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, Eigen
 {
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(x, *restPosition, allDOFs[0], p);
+  fillAbsolutePositions(x, *restPosition, p);
   forceModelAssembler->computeHessian(p.data(), hess);
 }
 
@@ -95,17 +95,20 @@ NonlinearOptimization::StepConstraint DeformationModelEnergy::computeMaxStepLimi
     return NonlinearOptimization::StepConstraint{};
   }
 
-  const int offset = allDOFs.empty() ? 0 : allDOFs[0];
   const int numDOFs = getNumDOFs();
+  if (x.size() != numDOFs || dx.size() != numDOFs) {
+    throw std::invalid_argument(
+      "DeformationModelEnergy::computeMaxStepLimit: local state size does not match the energy DOF count.");
+  }
 
   ES::VXd &dxLocal = directionScratch();
-  fillDirectionSlice(dx, offset, numDOFs, dxLocal);
+  dxLocal = dx;
   if (dxLocal.size() == 0 || dxLocal.squaredNorm() == 0.0) {
     return NonlinearOptimization::StepConstraint{};
   }
 
   ES::VXd &absolutePositions = absolutePositionScratch();
-  fillAbsolutePositions(x, *restPosition, offset, absolutePositions);
+  fillAbsolutePositions(x, *restPosition, absolutePositions);
   const auto observation = forceModelAssembler->computeMaxStepObservation(absolutePositions.data(), dxLocal.data());
   const double maxStepSize = observation.alpha;
 

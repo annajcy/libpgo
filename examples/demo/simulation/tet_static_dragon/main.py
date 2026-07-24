@@ -1,5 +1,6 @@
 """Solve a tetrahedral dragon under gravity with soft surface pins."""
 
+from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
@@ -70,12 +71,15 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path = OUTPUT_DIR / "final_surface.obj"
     pgo.mesh.write_obj(str(output_path), deformed_surface)
-    pgo.mesh.plot_surface(
-        [surface, deformed_surface],
-        titles=["rest", "gravity equilibrium"],
-        colors=["lightgray", "salmon"],
-        show_edges=False,
-    )
+    if find_spec("pyvista") is None:
+        print("PyVista is not installed; skipping visualization.")
+    else:
+        pgo.mesh.plot_surface(
+            [surface, deformed_surface],
+            titles=["rest", "gravity equilibrium"],
+            colors=["lightgray", "salmon"],
+            show_edges=False,
+        )
 
     print(f"status: {result.status.name}, iterations: {result.iterations}")
     print("saved surface ->", output_path)

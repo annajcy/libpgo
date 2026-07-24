@@ -236,24 +236,26 @@ TEST(CubicTricubicHermiteFormulationGTest, GradientMatchesFiniteDifferenceWithOf
 {
   constexpr int kOffset = 12;
   auto c = makeCubeCase(CubicTricubicHermiteFormulation{}, kOffset);
-  // Build a displacement with kOffset leading zeros so the Energy reads the right segment.
-  ES::VXd uFull(kOffset + c.numDOFs);
-  uFull.setZero();
-  uFull.tail(c.numDOFs) = makeSmoothHermiteDisplacement(c.numDOFs);
+  std::vector<int> dofs;
+  c.energy->getDOFs(dofs);
+  ASSERT_EQ(dofs.size(), static_cast<std::size_t>(c.numDOFs));
+  EXPECT_EQ(dofs.front(), kOffset);
+  EXPECT_EQ(dofs.back(), kOffset + c.numDOFs - 1);
+
+  ES::VXd u = makeSmoothHermiteDisplacement(c.numDOFs);
 
   ES::VXd analytic(c.numDOFs);
-  c.energy->gradient(uFull, analytic);
+  c.energy->gradient(u, analytic);
 
   ScopedSerialTbb serial;
   ES::VXd fd(c.numDOFs);
   for (int i = 0; i < c.numDOFs; i++) {
-    const int globalIdx = kOffset + i;
     fd[i] = fivePointScalar([&](double delta) {
-      ES::VXd up = uFull;
-      up[globalIdx] += delta;
+      ES::VXd up = u;
+      up[i] += delta;
       return c.energy->func(up);
     },
-      fdStep(uFull[globalIdx]));
+      fdStep(u[i]));
   }
 
   const double err = (fd - analytic).norm() / std::max(1.0, analytic.norm());
@@ -293,27 +295,24 @@ TEST(CubicTricubicHermiteFormulationGTest, HessianMatchesFiniteDifferenceWithOff
 {
   constexpr int kOffset = 12;
   auto c = makeCubeCase(CubicTricubicHermiteFormulation{}, kOffset);
-  ES::VXd uFull(kOffset + c.numDOFs);
-  uFull.setZero();
-  uFull.tail(c.numDOFs) = makeSmoothHermiteDisplacement(c.numDOFs);
+  ES::VXd u = makeSmoothHermiteDisplacement(c.numDOFs);
 
   ES::SpMatD H;
   c.energy->hessianAlloc(H);
-  c.energy->hessianInPlace(uFull, H);
+  c.energy->hessianInPlace(u, H);
   ES::MXd analytic(H);
 
   ScopedSerialTbb serial;
   ES::MXd fd(c.numDOFs, c.numDOFs);
   for (int i = 0; i < c.numDOFs; i++) {
-    const int globalIdx = kOffset + i;
     fd.col(i) = fivePointVector([&](double delta) {
-      ES::VXd up = uFull;
-      up[globalIdx] += delta;
+      ES::VXd up = u;
+      up[i] += delta;
       ES::VXd g(c.numDOFs);
       c.energy->gradient(up, g);
       return g;
     },
-      fdStep(uFull[globalIdx]));
+      fdStep(u[i]));
   }
 
   const double err = (fd - analytic).norm() / std::max(1.0, analytic.norm());

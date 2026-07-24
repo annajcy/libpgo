@@ -21,6 +21,8 @@ class DeformationModelAssembler;
 class DeformationModelEnergy : public NonlinearOptimization::PotentialEnergy
 {
 public:
+  // offset only controls the local-to-global indices returned by getDOFs().
+  // Evaluation methods always consume local vectors of size getNumDOFs().
   DeformationModelEnergy(std::unique_ptr<DeformationModelAssembler> fma, int offset = 0, bool enableMaterialMaxStep = true);
   virtual ~DeformationModelEnergy();
 

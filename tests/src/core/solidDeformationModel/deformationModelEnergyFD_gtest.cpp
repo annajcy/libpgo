@@ -118,15 +118,15 @@ void setVolumetricPlasticIdentity(DeformationModelEnergy &energy)
   assembler.setPlasticValues(plastic);
 }
 
-// A smooth, element-valid displacement so the gradient/Hessian are nontrivially
-// nonzero. extraOffset leading entries (for the offset variant) are left at zero.
-ES::VXd makeSmoothDisplacement(int nvtx, int extraOffset)
+// A smooth, element-valid local displacement so the gradient/Hessian are
+// nontrivially nonzero.
+ES::VXd makeSmoothDisplacement(int nvtx)
 {
-  ES::VXd u = ES::VXd::Zero(extraOffset + static_cast<Eigen::Index>(nvtx) * 3);
+  ES::VXd u = ES::VXd::Zero(static_cast<Eigen::Index>(nvtx) * 3);
   for (int vi = 0; vi < nvtx; vi++) {
-    u[extraOffset + vi * 3 + 0] = 5e-3 * std::sin(0.9 * vi + 0.1);
-    u[extraOffset + vi * 3 + 1] = 4e-3 * std::cos(0.7 * vi + 0.3);
-    u[extraOffset + vi * 3 + 2] = 3e-3 * std::sin(1.3 * vi + 0.5);
+    u[vi * 3 + 0] = 5e-3 * std::sin(0.9 * vi + 0.1);
+    u[vi * 3 + 1] = 4e-3 * std::cos(0.7 * vi + 0.3);
+    u[vi * 3 + 2] = 3e-3 * std::sin(1.3 * vi + 0.5);
   }
   return u;
 }
@@ -230,11 +230,11 @@ EnergyCase makeShellPatchCase(int offset)
   return c;
 }
 
-// gradient(u) == d func / d u over the full chain (rest position + offset + scatter).
+// gradient(u) == d func / d u for the energy's local displacement state.
 void checkGradientVsFDFunc(EnergyCase &c, double tol)
 {
   const int n = c.numDOFs;
-  ES::VXd u = makeSmoothDisplacement(c.meshOwner->getNumVertices(), c.offset);
+  ES::VXd u = makeSmoothDisplacement(c.meshOwner->getNumVertices());
 
   ES::VXd analytic(n);
   c.energy->gradient(u, analytic);
@@ -244,7 +244,7 @@ void checkGradientVsFDFunc(EnergyCase &c, double tol)
   for (int i = 0; i < n; i++) {
     fd[i] = fivePointScalar([&](double delta) {
       ES::VXd up = u;
-      up[c.offset + i] += delta;
+      up[i] += delta;
       return c.energy->func(up);
     },
       kFiniteDifferenceStep);
@@ -259,7 +259,7 @@ void checkGradientVsFDFunc(EnergyCase &c, double tol)
 void checkHessianVsFDGradient(EnergyCase &c, double tol)
 {
   const int n = c.numDOFs;
-  ES::VXd u = makeSmoothDisplacement(c.meshOwner->getNumVertices(), c.offset);
+  ES::VXd u = makeSmoothDisplacement(c.meshOwner->getNumVertices());
 
   ES::SpMatD H;
   c.energy->hessianAlloc(H);
@@ -273,7 +273,7 @@ void checkHessianVsFDGradient(EnergyCase &c, double tol)
   for (int i = 0; i < n; i++) {
     ES::VXd col = fivePointVector([&](double delta) {
       ES::VXd up = u;
-      up[c.offset + i] += delta;
+      up[i] += delta;
       ES::VXd g(n);
       c.energy->gradient(up, g);
       return g;
@@ -296,8 +296,13 @@ TEST(DeformationModelEnergyFDGTest, TetGradientMatchesFiniteDifferenceOfFunc)
 
 TEST(DeformationModelEnergyFDGTest, TetGradientMatchesFiniteDifferenceWithOffset)
 {
-  // A nonzero DOF offset exercises the segment(offset, ...) read path in func/gradient.
+  // The offset controls global assembly DOFs; direct energy evaluation remains local.
   auto c = makeSingleTetCase(6);
+  std::vector<int> dofs;
+  c.energy->getDOFs(dofs);
+  ASSERT_EQ(dofs.size(), static_cast<std::size_t>(c.numDOFs));
+  EXPECT_EQ(dofs.front(), 6);
+  EXPECT_EQ(dofs.back(), 6 + c.numDOFs - 1);
   checkGradientVsFDFunc(c, 1e-6);
 }
 

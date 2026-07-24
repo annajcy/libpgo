@@ -1,5 +1,6 @@
 """Drop a Koiter shell onto an obstacle with IPC contact."""
 
+from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
@@ -94,13 +95,16 @@ def main() -> None:
             )
             print(f"step {step:3d}  iterations={frame.solver_result.iterations}")
 
-    pgo.mesh.plot_surface(
-        [surface, final_surface, obstacle],
-        titles=["rest", "final", "obstacle"],
-        colors=["lightgray", "salmon", "steelblue"],
-        show_edges=False,
-        window_size=(1200, 420),
-    )
+    if find_spec("pyvista") is None:
+        print("PyVista is not installed; skipping visualization.")
+    else:
+        pgo.mesh.plot_surface(
+            [surface, final_surface, obstacle],
+            titles=["rest", "final", "obstacle"],
+            colors=["lightgray", "salmon", "steelblue"],
+            show_edges=False,
+            window_size=(1200, 420),
+        )
     print("saved frames ->", OUTPUT_DIR)
 
 

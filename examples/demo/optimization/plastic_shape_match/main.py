@@ -1,5 +1,6 @@
 """Match a target shape by optimizing an elementwise plastic field."""
 
+from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
@@ -151,13 +152,16 @@ def main() -> None:
     )
 
     # Compare the target with the optimized equilibrium shape.
-    pgo.mesh.plot_surface(
-        [target_surface, optimized_surface],
-        titles=["target", "optimized"],
-        colors=["palegreen", "salmon"],
-        show_edges=True,
-        window_size=(900, 420),
-    )
+    if find_spec("pyvista") is None:
+        print("PyVista is not installed; skipping visualization.")
+    else:
+        pgo.mesh.plot_surface(
+            [target_surface, optimized_surface],
+            titles=["target", "optimized"],
+            colors=["palegreen", "salmon"],
+            show_edges=True,
+            window_size=(900, 420),
+        )
     final_error = np.linalg.norm(optimized_vertices - target_vertices)
     print(f"best loss: {best_loss:.6f}")
     print(f"final shape error: {final_error:.6f}")

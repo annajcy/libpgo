@@ -1,5 +1,6 @@
 """Recover a shell's membrane-stiffness field from a target shape."""
 
+from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
@@ -209,13 +210,16 @@ def main() -> None:
     # Compare the target with the optimized equilibrium shape.
     target_surface = pgo.mesh.TriMeshData(target_vertices, triangles)
     optimized_surface = pgo.mesh.TriMeshData(optimized_vertices, triangles)
-    pgo.mesh.plot_surface(
-        [target_surface, optimized_surface],
-        titles=["target", "optimized"],
-        colors=["palegreen", "salmon"],
-        show_edges=True,
-        window_size=(900, 420),
-    )
+    if find_spec("pyvista") is None:
+        print("PyVista is not installed; skipping visualization.")
+    else:
+        pgo.mesh.plot_surface(
+            [target_surface, optimized_surface],
+            titles=["target", "optimized"],
+            colors=["palegreen", "salmon"],
+            show_edges=True,
+            window_size=(900, 420),
+        )
 
     shape_error = np.linalg.norm(optimized_vertices - target_vertices)
     target_modulus = target_elastic[:, 0]

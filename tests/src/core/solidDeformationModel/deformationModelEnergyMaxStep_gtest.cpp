@@ -90,7 +90,8 @@ ES::VXd gatherRestPositions(const SimulationMesh &mesh)
   return rest;
 }
 
-EnergyFixture makeTetFixture(const std::vector<double> &vertices, const std::vector<int> &elementVertices)
+EnergyFixture makeTetFixture(
+  const std::vector<double> &vertices, const std::vector<int> &elementVertices, int offset = 0)
 {
   initializeLogging();
 
@@ -118,11 +119,11 @@ EnergyFixture makeTetFixture(const std::vector<double> &vertices, const std::vec
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(elasticField), std::move(plasticField), nullptr);
-  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), 0);
+  fixture.energy = std::make_shared<DeformationModelEnergy>(std::move(assembler), offset);
   return fixture;
 }
 
-EnergyFixture makeSingleTetFixture()
+EnergyFixture makeSingleTetFixture(int offset = 0)
 {
   const std::vector<double> vertices = {
     0.0, 0.0, 0.0,
@@ -131,7 +132,7 @@ EnergyFixture makeSingleTetFixture()
     0.0, 0.0, 1.0,
   };
   const std::vector<int> elementVertices = { 0, 1, 2, 3 };
-  return makeTetFixture(vertices, elementVertices);
+  return makeTetFixture(vertices, elementVertices, offset);
 }
 
 EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::vector<int> &elementVertices)
@@ -356,6 +357,67 @@ TEST(DeformationModelEnergyMaxStepGTest, TetShrinksBeforeInversion)
   const ES::VXd updatedPositions = fixture.restPositions + alpha * dx;
   EXPECT_LT(tetDeterminant(fixture.mesh(), 0, fixture.restPositions + dx), 0.0);
   EXPECT_GT(tetDeterminant(fixture.mesh(), 0, updatedPositions), 0.0);
+}
+
+TEST(DeformationModelEnergyMaxStepGTest, NonzeroOffsetEnergySetMapsLocalStateAndDirection)
+{
+  constexpr int kOffset = 6;
+  EnergyFixture fixture = makeSingleTetFixture(kOffset);
+  const int numLocalDOFs = fixture.energy->getNumDOFs();
+  const int numGlobalDOFs = kOffset + numLocalDOFs;
+
+  std::vector<int> dofs;
+  fixture.energy->getDOFs(dofs);
+  ASSERT_EQ(dofs.size(), static_cast<std::size_t>(numLocalDOFs));
+  EXPECT_EQ(dofs.front(), kOffset);
+  EXPECT_EQ(dofs.back(), numGlobalDOFs - 1);
+
+  pgo::NonlinearOptimization::EnergySet energySet(
+    numGlobalDOFs, { { fixture.energy, 1.0 } });
+
+  ES::VXd localX = ES::VXd::Zero(numLocalDOFs);
+  localX[0] = 1e-3;
+  ES::VXd globalX = ES::VXd::Constant(numGlobalDOFs, 17.0);
+  globalX.segment(kOffset, numLocalDOFs) = localX;
+
+  const double localValue = fixture.energy->func(localX);
+  EXPECT_DOUBLE_EQ(energySet.func(globalX), localValue);
+
+  ES::VXd localGradient(numLocalDOFs);
+  fixture.energy->gradient(localX, localGradient);
+  ES::VXd globalGradient(numGlobalDOFs);
+  energySet.gradient(globalX, globalGradient);
+  EXPECT_DOUBLE_EQ(globalGradient.head(kOffset).squaredNorm(), 0.0);
+  EXPECT_NEAR(
+    (globalGradient.segment(kOffset, numLocalDOFs) - localGradient).norm(), 0.0, 1e-12);
+
+  ES::SpMatD localHessian;
+  fixture.energy->hessian(localX, localHessian);
+  ES::SpMatD globalHessian;
+  energySet.hessian(globalX, globalHessian);
+  const ES::MXd globalHessianDense(globalHessian);
+  EXPECT_DOUBLE_EQ(globalHessianDense.topRows(kOffset).squaredNorm(), 0.0);
+  EXPECT_DOUBLE_EQ(globalHessianDense.leftCols(kOffset).squaredNorm(), 0.0);
+  EXPECT_NEAR(
+    (globalHessianDense.block(kOffset, kOffset, numLocalDOFs, numLocalDOFs) -
+      ES::MXd(localHessian))
+      .norm(),
+    0.0, 1e-12);
+
+  const ES::VXd localDx =
+    makeTetFlipDirection(fixture.mesh().getNumVertices(), 3, -2.0);
+  ES::VXd globalDx = ES::VXd::Constant(numGlobalDOFs, -23.0);
+  globalDx.segment(kOffset, numLocalDOFs) = localDx;
+  const StepConstraint localConstraint =
+    fixture.energy->computeMaxStepLimit(localX, localDx);
+  const StepConstraint globalConstraint =
+    energySet.computeMaxStepLimit(globalX, globalDx);
+  EXPECT_DOUBLE_EQ(globalConstraint.alpha, localConstraint.alpha);
+  EXPECT_EQ(globalConstraint.source, localConstraint.source);
+
+  EXPECT_THROW(fixture.energy->func(globalX), std::invalid_argument);
+  EXPECT_THROW(
+    fixture.energy->computeMaxStepLimit(globalX, globalDx), std::invalid_argument);
 }
 
 TEST(DeformationModelEnergyMaxStepGTest, DisabledMaterialMaxStepSkipsTetClamp)

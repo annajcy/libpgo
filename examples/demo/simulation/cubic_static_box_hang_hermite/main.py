@@ -1,5 +1,6 @@
 """Solve a hanging cubic box with the tricubic Hermite formulation."""
 
+from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
@@ -72,12 +73,15 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path = OUTPUT_DIR / "final_surface.obj"
     pgo.mesh.write_obj(str(output_path), deformed_surface)
-    pgo.mesh.plot_surface(
-        [surface, deformed_surface],
-        titles=["rest", "Hermite equilibrium"],
-        colors=["lightgray", "salmon"],
-        show_edges=True,
-    )
+    if find_spec("pyvista") is None:
+        print("PyVista is not installed; skipping visualization.")
+    else:
+        pgo.mesh.plot_surface(
+            [surface, deformed_surface],
+            titles=["rest", "Hermite equilibrium"],
+            colors=["lightgray", "salmon"],
+            show_edges=True,
+        )
 
     print(f"DOFs per vertex: {dofs_per_vertex}")
     print(f"status: {result.status.name}, iterations: {result.iterations}")

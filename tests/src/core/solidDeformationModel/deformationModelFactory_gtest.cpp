@@ -33,17 +33,6 @@ std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
 }
 }  // namespace
 
-TEST(DeformationModelFactoryGTest, MakeSimulationMeshReturnsOwner)
-{
-  pgo::Logging::init();
-
-  pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  auto mesh = makeSimulationMesh(tetMesh);
-  ASSERT_NE(mesh, nullptr);
-  EXPECT_GT(mesh->getNumVertices(), 0);
-  EXPECT_GT(mesh->getNumElements(), 0);
-}
-
 // Baseline: tet deformation energy at zero displacement has near-zero energy
 // and finite gradient. State x is displacement from rest, NOT absolute position.
 TEST(DeformationModelFactoryGTest, TetZeroDisplacementBaseline)

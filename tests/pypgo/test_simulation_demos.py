@@ -85,3 +85,10 @@ def test_demo_outputs_are_case_local_and_ignored():
 
     gitignore = (ROOT / ".gitignore").read_text().splitlines()
     assert "**/output/" in gitignore
+
+
+def test_demos_skip_visualization_when_pyvista_is_unavailable():
+    for script in (ROOT / "examples" / "demo").glob("**/main.py"):
+        source = script.read_text()
+        assert 'find_spec("pyvista") is None' in source
+        assert "PyVista is not installed; skipping visualization." in source

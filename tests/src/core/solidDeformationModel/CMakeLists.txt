@@ -23,6 +23,14 @@ pgo_add_gtest(deformationModelEnergyFD_gtest
   SOURCES deformationModelEnergyFD_gtest.cpp
   DEPS solidDeformationModel volumetricMesh mesh
 )
+pgo_add_gtest(deformationModelFactory_gtest
+  SOURCES deformationModelFactory_gtest.cpp
+  DEPS solidDeformationModel volumetricMesh mesh
+  DEFINITIONS
+  LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/tet/torus.veg"
+  LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/cubic/box.veg"
+  LIBPGO_TEST_SHELL_OBJ="${CMAKE_SOURCE_DIR}/examples/assets/obj/shell.obj"
+)
 pgo_add_gtest(plasticMaterialEnergy_gtest
   SOURCES plasticMaterialEnergy_gtest.cpp
   DEPS solidDeformationModel
