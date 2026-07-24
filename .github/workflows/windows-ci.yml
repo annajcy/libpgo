@@ -73,6 +73,16 @@ jobs:
           python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify
           python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
+      - name: Generate Python test volume assets
+        shell: pwsh
+        run: |
+          python examples/assets/generate_veg_assets.py `
+            --assets box `
+            --cubic-resolution 4 `
+            --tet-backend tetgen `
+            --tet-target-elements 100 `
+            --static-dragon-target-elements 0
+
       - name: Run Python API tests
         env:
           PYVISTA_OFF_SCREEN: "True"

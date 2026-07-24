@@ -107,6 +107,13 @@ examples/experiments/tricubic_hermite_fem/assets/veg/tet/*.veg
 examples/experiments/tricubic_hermite_fem/assets/veg/tet/*-tet-reference.json
 examples/experiments/tricubic_hermite_fem/assets/veg/tet/*.meta.json
 
+# Generated volume meshes. OBJ surfaces and the generation script are the
+# canonical assets; keep only meshes that do not have an OBJ source.
+examples/assets/veg/**/*.veg
+examples/assets/veg/generated/
+examples/assets/veg/manifest.json
+!examples/assets/veg/tet/torus.veg
+
 benchmarks/results/*
 !benchmarks/results/archive/
 benchmarks/results/archive/*
