@@ -83,9 +83,9 @@ def make_shell_elastic_case():
     return sim, energy
 
 
-def test_adjoint_plastic_gradient_can_be_assembled_directly():
+def test_adjoint_dE_dp_can_be_assembled_directly():
     _, energy = make_cubic_case()
-    rest = energy.rest_position
+    rest = energy.vertex_rest_positions
     surface = pgo.mesh.TriMeshData(
         rest[[0, 1, 2, 3]],
         np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int64),
@@ -114,10 +114,10 @@ def test_adjoint_plastic_gradient_can_be_assembled_directly():
 
     free = np.setdiff1d(np.arange(energy.num_dofs), fixed_dofs)
     hessian = energy.hessian(inner.x).to_dense()
-    plastic_jacobian = energy.plastic_jacobian(inner.x).to_dense()
+    d2E_dudp = energy.d2E_dudp(inner.x).to_dense()
     adjoint = np.zeros(energy.num_dofs, dtype=np.float64)
     adjoint[free] = np.linalg.solve(hessian[np.ix_(free, free)], grad_u[free])
-    grad_a = -(plastic_jacobian.T @ adjoint)
+    grad_a = -(d2E_dudp.T @ adjoint)
 
     assert np.isfinite(0.5 * np.dot(residual.ravel(), residual.ravel()))
     assert grad_a.shape == a0.shape
@@ -126,7 +126,7 @@ def test_adjoint_plastic_gradient_can_be_assembled_directly():
 
 def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
     _, energy = make_cubic_case()
-    rest = energy.rest_position
+    rest = energy.vertex_rest_positions
     surface_vertex_ids = np.array([0, 1, 2, 3], dtype=np.int64)
     surface_vertices = rest[surface_vertex_ids]
     target = surface_vertices.copy()
@@ -159,12 +159,12 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
 
     free = np.setdiff1d(np.arange(energy.num_dofs), fixed_dofs)
     hessian = energy.hessian(layer.last_equilibrium_displacement).to_dense()
-    plastic_jacobian = energy.plastic_jacobian(
+    d2E_dudp = energy.d2E_dudp(
         layer.last_equilibrium_displacement
     ).to_dense()
     adjoint = np.zeros(energy.num_dofs, dtype=np.float64)
     adjoint[free] = np.linalg.solve(hessian[np.ix_(free, free)], grad_u[free])
-    expected_grad = -(plastic_jacobian.T @ adjoint)
+    expected_grad = -(d2E_dudp.T @ adjoint)
 
     assert solved_surface.shape == target_torch.shape
     assert plastic_param.grad is not None
@@ -173,7 +173,7 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
 
 def test_static_equilibrium_torch_layer_elastic_backward_matches_direct_adjoint():
     _, energy = make_shell_elastic_case()
-    rest = energy.rest_position
+    rest = energy.vertex_rest_positions
     surface_vertex_ids = np.arange(rest.shape[0], dtype=np.int64)
     surface_vertices = rest[surface_vertex_ids]
     target = surface_vertices.copy()
@@ -208,22 +208,22 @@ def test_static_equilibrium_torch_layer_elastic_backward_matches_direct_adjoint(
 
     free = np.setdiff1d(np.arange(energy.num_dofs), fixed_dofs)
     hessian = energy.hessian(layer.last_equilibrium_displacement).to_dense()
-    elastic_jacobian = energy.elastic_jacobian(
+    d2E_dude = energy.d2E_dude(
         layer.last_equilibrium_displacement
     ).to_dense()
     adjoint = np.zeros(energy.num_dofs, dtype=np.float64)
     adjoint[free] = np.linalg.solve(hessian[np.ix_(free, free)], grad_u[free])
-    expected_grad = -(elastic_jacobian.T @ adjoint)
+    expected_grad = -(d2E_dude.T @ adjoint)
 
     assert solved_surface.shape == target_torch.shape
-    assert elastic_jacobian.shape == (energy.num_dofs, energy.num_elastic_dofs)
+    assert d2E_dude.shape == (energy.num_dofs, energy.num_elastic_dofs)
     assert elastic_param.grad is not None
     assert np.allclose(elastic_param.grad.detach().numpy(), expected_grad)
 
 
 def test_elastic_static_equilibrium_layer_uses_objective_energy_for_adjoint_hessian():
     _, energy = make_shell_elastic_case()
-    rest = energy.rest_position
+    rest = energy.vertex_rest_positions
     surface_vertex_ids = np.arange(rest.shape[0], dtype=np.int64)
     surface_vertices = rest[surface_vertex_ids]
     target = surface_vertices.copy()
@@ -263,12 +263,12 @@ def test_elastic_static_equilibrium_layer_uses_objective_energy_for_adjoint_hess
 
     free = np.setdiff1d(np.arange(energy.num_dofs), fixed_dofs)
     hessian = objective.hessian(layer.last_equilibrium_displacement).to_dense()
-    elastic_jacobian = energy.elastic_jacobian(
+    d2E_dude = energy.d2E_dude(
         layer.last_equilibrium_displacement
     ).to_dense()
     adjoint = np.zeros(energy.num_dofs, dtype=np.float64)
     adjoint[free] = np.linalg.solve(hessian[np.ix_(free, free)], grad_u[free])
-    expected_grad = -(elastic_jacobian.T @ adjoint)
+    expected_grad = -(d2E_dude.T @ adjoint)
 
     assert solved_surface.shape == target_torch.shape
     assert elastic_param.grad is not None

@@ -185,7 +185,7 @@ TEST(ShellDeformationModelFDTest, PlasticParameterGradientMatchesFiniteDifferenc
   model.prepareData(x, elasticParams.data(), plasticParams.data(), cd.get());
 
   double analytic[1] = {};
-  model.compute_dE_da(cd.get(), analytic);
+  model.compute_dE_dp(cd.get(), analytic);
 
   const double eps = 1e-6;
   const double fd = (energyAt(1.2 + eps) - energyAt(1.2 - eps)) / (2.0 * eps);
@@ -220,7 +220,7 @@ TEST(ShellDeformationModelFDTest, ElasticParameterGradientMatchesFiniteDifferenc
   model.prepareData(x, elasticParams.data(), plasticParams.data(), cd.get());
 
   ES::VXd analytic(5);
-  model.compute_dE_db(cd.get(), analytic.data());
+  model.compute_dE_de(cd.get(), analytic.data());
 
   for (int c = 0; c < 5; c++) {
     const double eps = 1e-6 * std::max(1.0, std::abs(elasticParams[c]));
@@ -299,19 +299,19 @@ TEST(ShellDeformationModelFDTest, ParameterHessiansMatchFiniteDifferenceOfParame
   double x[18] = {};
   perturbedDisplacement(x, interiorRestX, 18, 0.1);
 
-  auto plasticGradientAt = [&](const ES::VXd &elasticValues, const ES::VXd &plasticValues) {
+  auto dE_dp_at = [&](const ES::VXd &elasticValues, const ES::VXd &plasticValues) {
     auto cd = model.allocateCacheData();
     model.prepareData(x, elasticValues.data(), plasticValues.data(), cd.get());
     ES::VXd grad(1);
-    model.compute_dE_da(cd.get(), grad.data());
+    model.compute_dE_dp(cd.get(), grad.data());
     return grad;
   };
 
-  auto elasticGradientAt = [&](const ES::VXd &elasticValues, const ES::VXd &plasticValues) {
+  auto dE_de_at = [&](const ES::VXd &elasticValues, const ES::VXd &plasticValues) {
     auto cd = model.allocateCacheData();
     model.prepareData(x, elasticValues.data(), plasticValues.data(), cd.get());
     ES::VXd grad(5);
-    model.compute_dE_db(cd.get(), grad.data());
+    model.compute_dE_de(cd.get(), grad.data());
     return grad;
   };
 
@@ -319,28 +319,28 @@ TEST(ShellDeformationModelFDTest, ParameterHessiansMatchFiniteDifferenceOfParame
   model.prepareData(x, elasticParams.data(), plasticParams.data(), cd.get());
 
   ES::MXd d2daa(1, 1);
-  model.compute_d2E_da2(cd.get(), d2daa.data());
+  model.compute_d2E_dp2(cd.get(), d2daa.data());
   const double plasticStep = 1e-6 * std::max(1.0, std::abs(plasticParams[0]));
   ES::VXd plasticPlus = plasticParams;
   ES::VXd plasticMinus = plasticParams;
   plasticPlus[0] += plasticStep;
   plasticMinus[0] -= plasticStep;
-  const ES::VXd gPlasticPlus = plasticGradientAt(elasticParams, plasticPlus);
-  const ES::VXd gPlasticMinus = plasticGradientAt(elasticParams, plasticMinus);
+  const ES::VXd gPlasticPlus = dE_dp_at(elasticParams, plasticPlus);
+  const ES::VXd gPlasticMinus = dE_dp_at(elasticParams, plasticMinus);
   const double fdPlasticHessian = (gPlasticPlus[0] - gPlasticMinus[0]) / (2.0 * plasticStep);
   EXPECT_NEAR(d2daa(0, 0), fdPlasticHessian,
     2e-5 * std::max(1.0, std::abs(fdPlasticHessian)));
 
   ES::MXd d2dbb(5, 5);
-  model.compute_d2E_db2(cd.get(), d2dbb.data());
+  model.compute_d2E_de2(cd.get(), d2dbb.data());
   for (int col = 0; col < elasticParams.size(); col++) {
     const double step = 1e-6 * std::max(1.0, std::abs(elasticParams[col]));
     ES::VXd elasticPlus = elasticParams;
     ES::VXd elasticMinus = elasticParams;
     elasticPlus[col] += step;
     elasticMinus[col] -= step;
-    const ES::VXd gPlus = elasticGradientAt(elasticPlus, plasticParams);
-    const ES::VXd gMinus = elasticGradientAt(elasticMinus, plasticParams);
+    const ES::VXd gPlus = dE_de_at(elasticPlus, plasticParams);
+    const ES::VXd gMinus = dE_de_at(elasticMinus, plasticParams);
     const ES::VXd fdCol = (gPlus - gMinus) / (2.0 * step);
     for (int row = 0; row < elasticParams.size(); row++) {
       EXPECT_NEAR(d2dbb(row, col), fdCol[row],
@@ -350,15 +350,15 @@ TEST(ShellDeformationModelFDTest, ParameterHessiansMatchFiniteDifferenceOfParame
   }
 
   ES::MXd d2dadb(1, 5);
-  model.compute_d2E_dadb(cd.get(), d2dadb.data());
+  model.compute_d2E_dpde(cd.get(), d2dadb.data());
   for (int col = 0; col < elasticParams.size(); col++) {
     const double step = 1e-6 * std::max(1.0, std::abs(elasticParams[col]));
     ES::VXd elasticPlus = elasticParams;
     ES::VXd elasticMinus = elasticParams;
     elasticPlus[col] += step;
     elasticMinus[col] -= step;
-    const ES::VXd gPlus = plasticGradientAt(elasticPlus, plasticParams);
-    const ES::VXd gMinus = plasticGradientAt(elasticMinus, plasticParams);
+    const ES::VXd gPlus = dE_dp_at(elasticPlus, plasticParams);
+    const ES::VXd gMinus = dE_dp_at(elasticMinus, plasticParams);
     const double fd = (gPlus[0] - gMinus[0]) / (2.0 * step);
     EXPECT_NEAR(d2dadb(0, col), fd, 2e-5 * std::max(1.0, std::abs(fd)))
       << "mixed plastic-elastic Hessian column " << col;
@@ -386,7 +386,58 @@ TEST(ShellDeformationModelTest, FabricParameterDerivativeRequiresAnalyticImpleme
   model.prepareData(x, elasticParams.data(), plasticParams.data(), cd.get());
 
   ES::VXd grad(elasticParams.size());
-  EXPECT_THROW(model.compute_dE_db(cd.get(), grad.data()), std::logic_error);
+  EXPECT_THROW(model.compute_dE_de(cd.get(), grad.data()), std::logic_error);
+}
+
+TEST(ShellDeformationModelTest, UnsupportedDiagnosticsThrow)
+{
+  ES::VXd elasticParams(12);
+  elasticParams << 0.1, 8.0, 0.5, 7.0, 0.45, 0.2, 0.1,
+    0.02, 0.03, 0.01, 0.0, 1e-3;
+  ES::VXd plasticParams(1);
+  plasticParams << 1.0;
+
+  auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsFabric>(
+    ES::V2d(1.0, 0.0), ES::V2d(0.0, 1.0));
+  auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
+  const bool hasVtx[6] = { true, true, true, true, true, true };
+
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(
+    std::move(mapping), std::move(elasticModel), std::move(plasticModel));
+
+  auto cd = model.allocateCacheData();
+  model.prepareData(
+    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
+
+  double value = 0.0;
+  EXPECT_THROW(
+    model.computeVonMisesStress(cd.get(), &value, 1),
+    UnsupportedDeformationDiagnosticError);
+  EXPECT_THROW(
+    model.computeMaxStrain(cd.get(), &value, 1),
+    UnsupportedDeformationDiagnosticError);
+}
+
+TEST(ShellDeformationModelTest, VonMisesDiagnosticEnforcesOutputCapacity)
+{
+  auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
+  auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
+  const bool hasVtx[6] = { true, true, true, true, true, true };
+
+  auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(
+    std::move(mapping), std::move(elasticModel), std::move(plasticModel));
+
+  auto cd = model.allocateCacheData();
+  model.prepareData(interiorRestX, cd.get());
+
+  double stress = -1.0;
+  EXPECT_EQ(model.computeVonMisesStress(cd.get(), &stress, 1), 1);
+  EXPECT_TRUE(std::isfinite(stress));
+  EXPECT_THROW(
+    model.computeVonMisesStress(cd.get(), nullptr, 0),
+    std::length_error);
 }
 
 // ============================================================

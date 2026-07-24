@@ -88,8 +88,15 @@ class DeformationEnergy(PotentialEnergy):
 
     Properties
     ----------
-    rest_position : ndarray (num_vertices, 3) float64
-        Rest (undeformed) positions.
+    rest_state : ndarray (num_dofs,) float64
+        Full generalized rest state, including formulation-specific DOFs.
+    vertex_rest_positions : ndarray (num_vertices, 3) float64
+        Rest positions of the actual mesh vertices.
+
+    Notes
+    -----
+    Material derivatives use ``u`` for displacement, ``p`` for plastic-field
+    DOFs, and ``e`` for elastic-field DOFs.
     """
 
     def __init__(self, core):
@@ -101,8 +108,14 @@ class DeformationEnergy(PotentialEnergy):
         super().__init__(core)
 
     @property
-    def rest_position(self) -> np.ndarray:
-        return np.asarray(self._handle.rest_position(), dtype=np.float64)
+    def rest_state(self) -> np.ndarray:
+        """Full generalized rest state, with shape ``(num_dofs,)``."""
+        return np.asarray(self._handle.rest_state(), dtype=np.float64)
+
+    @property
+    def vertex_rest_positions(self) -> np.ndarray:
+        """Rest positions of the mesh vertices, with shape ``(num_vertices, 3)``."""
+        return np.asarray(self._handle.vertex_rest_positions(), dtype=np.float64)
 
     @property
     def num_vertices(self) -> int:
@@ -120,12 +133,12 @@ class DeformationEnergy(PotentialEnergy):
 
     @property
     def num_elastic_dofs(self) -> int:
-        """Total elastic parameter DOFs across all elements."""
+        """Number of unique/global DOFs in the elastic parameter field."""
         return self._handle.num_elastic_dofs
 
     @property
     def num_plastic_dofs(self) -> int:
-        """Total plastic parameter DOFs across all elements."""
+        """Number of unique/global DOFs in the plastic parameter field."""
         return self._handle.num_plastic_dofs
 
     @property
@@ -140,9 +153,10 @@ class DeformationEnergy(PotentialEnergy):
     def parameters(self) -> MaterialParameters:
         return MaterialParameters(self._handle.parameters)
 
-    def elastic_gradient(self, displacement: np.ndarray) -> np.ndarray:
+    def dE_de(self, displacement: np.ndarray) -> np.ndarray:
+        """Return ``∂E/∂e`` with shape ``(num_elastic_dofs,)``."""
         u = float_vector("displacement", displacement)
-        return np.asarray(self._handle.elastic_gradient(u), dtype=np.float64)
+        return np.asarray(self._handle.dE_de(u), dtype=np.float64)
 
     def element_von_mises(self, displacement: np.ndarray) -> np.ndarray:
         """Compute per-element von Mises stress.
@@ -156,33 +170,45 @@ class DeformationEnergy(PotentialEnergy):
         -------
         ndarray, shape (num_elements,)
             Per-element von Mises stress values.
+
+        Raises
+        ------
+        NotImplementedError
+            If the selected deformation or elastic model does not implement
+            von Mises stress recovery.
         """
         u = float_vector("displacement", displacement)
         return np.asarray(self._handle.element_von_mises_stresses(u), dtype=np.float64)
 
-    def elastic_hessian(self, displacement: np.ndarray):
+    def d2E_de2(self, displacement: np.ndarray) -> SparseMatrix:
+        """Return ``∂²E/∂e²`` with shape ``(num_elastic_dofs, num_elastic_dofs)``."""
         u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.elastic_hessian(u))
+        return SparseMatrix(self._handle.d2E_de2(u))
 
-    def plastic_elastic_hessian(self, displacement: np.ndarray):
+    def d2E_dpde(self, displacement: np.ndarray) -> SparseMatrix:
+        """Return ``∂²E/∂p∂e`` with shape ``(num_plastic_dofs, num_elastic_dofs)``."""
         u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.plastic_elastic_hessian(u))
+        return SparseMatrix(self._handle.d2E_dpde(u))
 
-    def plastic_gradient(self, displacement: np.ndarray) -> np.ndarray:
+    def dE_dp(self, displacement: np.ndarray) -> np.ndarray:
+        """Return ``∂E/∂p`` with shape ``(num_plastic_dofs,)``."""
         u = float_vector("displacement", displacement)
-        return np.asarray(self._handle.plastic_gradient(u), dtype=np.float64)
+        return np.asarray(self._handle.dE_dp(u), dtype=np.float64)
 
-    def plastic_hessian(self, displacement: np.ndarray):
+    def d2E_dp2(self, displacement: np.ndarray) -> SparseMatrix:
+        """Return ``∂²E/∂p²`` with shape ``(num_plastic_dofs, num_plastic_dofs)``."""
         u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.plastic_hessian(u))
+        return SparseMatrix(self._handle.d2E_dp2(u))
 
-    def elastic_jacobian(self, displacement: np.ndarray):
+    def d2E_dude(self, displacement: np.ndarray) -> SparseMatrix:
+        """Return ``∂²E/∂u∂e`` with shape ``(num_dofs, num_elastic_dofs)``."""
         u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.elastic_jacobian(u))
+        return SparseMatrix(self._handle.d2E_dude(u))
 
-    def plastic_jacobian(self, displacement: np.ndarray):
+    def d2E_dudp(self, displacement: np.ndarray) -> SparseMatrix:
+        """Return ``∂²E/∂u∂p`` with shape ``(num_dofs, num_plastic_dofs)``."""
         u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.plastic_jacobian(u))
+        return SparseMatrix(self._handle.d2E_dudp(u))
 
     def __repr__(self) -> str:
         return f"DeformationEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
@@ -251,8 +277,15 @@ class ElasticMaterialEnergy(PotentialEnergy):
 
 @dataclass
 class DeformationOptions:
+    """Options controlling deformation-energy assembly.
+
+    ``element_weights`` optionally supplies one scalar assembler weight per
+    simulation-mesh element; ``None`` uses unit weights.
+    """
+
     enforce_spd: bool = True
     enable_material_max_step: bool = True
+    element_weights: np.ndarray | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +387,20 @@ def deformation_energy(
     if not isinstance(options, DeformationOptions):
         raise TypeError(f"options must be DeformationOptions, got {type(options).__name__}")
 
+    element_weights = options.element_weights
+    if element_weights is not None:
+        element_weights = np.asarray(element_weights, dtype=np.float64, order="C")
+        if element_weights.ndim != 1:
+            raise ValueError(
+                f"options.element_weights must be 1-D, got shape {element_weights.shape}"
+            )
+        if element_weights.size != sim_mesh.num_elements:
+            raise ValueError(
+                "options.element_weights size must be "
+                f"{sim_mesh.num_elements}, got {element_weights.size}"
+            )
+        element_weights = np.ascontiguousarray(element_weights, dtype=np.float64)
+
     core = _core._create_deformation_energy(
         sim_mesh._handle,
         elastic_name,
@@ -364,7 +411,8 @@ def deformation_energy(
         elastic_mapping._handle,
         plastic_layout._handle,
         plastic_mapping._handle,
-        formulation.name,
+        formulation._handle,
+        element_weights,
         bool(options.enforce_spd),
         bool(options.enable_material_max_step),
     )

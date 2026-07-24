@@ -1,8 +1,9 @@
 #include "core.h"
 
 #include "energy/deformationEnergyBuilder.h"
+#include "deformation/deformationModel.h"
 #include "deformation/deformationModelManager.h"
-#include "formulations/formulation/formulations.h"
+#include "../fem/formulation/core.h"
 #include "material/elastic/elasticModelFactory.h"
 #include "material/plastic/plasticModelFactory.h"
 #include "energy/elasticMaterialEnergy.h"
@@ -174,47 +175,49 @@ void PyMaterialParameters::setPlasticValues(
 
 // ── PyDeformationEnergy out-of-line methods ───────────────────────────────
 
-nb::ndarray<nb::numpy, double> PyDeformationEnergy::restPosition() const
+nb::ndarray<nb::numpy, double> PyDeformationEnergy::restState() const
 {
-  const auto &rp = energy_->getRestPosition();
-  int n3 = static_cast<int>(rp.size());
-  int nv = n3 / 3;
-  auto data = new std::vector<double>(rp.data(), rp.data() + n3);
-  nb::capsule owner(data, [](void *p) noexcept {
-    delete static_cast<std::vector<double> *>(p);
-  });
-  return nb::ndarray<nb::numpy, double>(
-    data->data(), {static_cast<size_t>(nv), static_cast<size_t>(3)}, owner);
+  return python::vectorXdToNdarray(EigenSupport::VXd(energy_->getRestDofs()));
 }
 
-nb::ndarray<nb::numpy, double> PyDeformationEnergy::plasticGradient(
+nb::ndarray<nb::numpy, double> PyDeformationEnergy::vertexRestPositions() const
+{
+  const auto &positions = energy_->getVertexRestPositions();
+  const int nv = numVertices();
+  EigenSupport::MXd result(nv, 3);
+  for (int vi = 0; vi < nv; vi++)
+    result.row(vi) = positions.segment<3>(vi * 3).transpose();
+  return python::matrixXdToNdarray(std::move(result));
+}
+
+nb::ndarray<nb::numpy, double> PyDeformationEnergy::dE_dp(
   nb::ndarray<nb::numpy, const double> displacement) const
 {
   auto u = python::ndarrayToVectorMapXd(displacement);
-  if (u.size() != energy_->getRestPosition().size()) {
+  if (u.size() != energy_->getRestDofs().size()) {
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
   EigenSupport::VXd grad = EigenSupport::VXd::Zero(numPlasticDofs());
   {
     nb::gil_scoped_release release;
-    energy_->computePlasticGradient(u, grad);
+    energy_->compute_dE_dp(u, grad);
   }
   return python::vectorXdToNdarray(std::move(grad));
 }
 
-nb::ndarray<nb::numpy, double> PyDeformationEnergy::elasticGradient(
+nb::ndarray<nb::numpy, double> PyDeformationEnergy::dE_de(
   nb::ndarray<nb::numpy, const double> displacement) const
 {
   auto u = python::ndarrayToVectorMapXd(displacement);
-  if (u.size() != energy_->getRestPosition().size()) {
+  if (u.size() != energy_->getRestDofs().size()) {
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
   EigenSupport::VXd grad = EigenSupport::VXd::Zero(numElasticDofs());
   {
     nb::gil_scoped_release release;
-    energy_->computeElasticGradient(u, grad);
+    energy_->compute_dE_de(u, grad);
   }
   return python::vectorXdToNdarray(std::move(grad));
 }
@@ -223,97 +226,106 @@ nb::ndarray<nb::numpy, double> PyDeformationEnergy::elementVonMisesStresses(
   nb::ndarray<nb::numpy, const double> displacement) const
 {
   auto u = python::ndarrayToVectorMapXd(displacement);
-  if (u.size() != energy_->getRestPosition().size()) {
+  if (u.size() != energy_->getRestDofs().size()) {
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
   const int nele = energy_->assembler().getDeformationModelManager().getMesh()->getNumElements();
   EigenSupport::VXd out = EigenSupport::VXd::Zero(nele);
-  {
+  try {
     nb::gil_scoped_release release;
     energy_->computeVonMisesStresses(u, out);
+  }
+  catch (const SolidDeformationModel::UnsupportedDeformationDiagnosticError &e) {
+    PyErr_SetString(PyExc_NotImplementedError, e.what());
+    throw nb::python_error();
   }
   return python::vectorXdToNdarray(std::move(out));
 }
 
-PySparseMatrix PyDeformationEnergy::elasticHessian(
+PySparseMatrix PyDeformationEnergy::d2E_de2(
   nb::ndarray<nb::numpy, const double> displacement) const
 {
   auto u = python::ndarrayToVectorMapXd(displacement);
-  if (u.size() != energy_->getRestPosition().size()) {
+  if (u.size() != energy_->getRestDofs().size()) {
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
-  EigenSupport::SpMatD hess = energy_->assembler().getElasticHessianTemplate();
+  EigenSupport::SpMatD hess =
+    energy_->assembler().d2E_de2_template();
   {
     nb::gil_scoped_release release;
-    energy_->computeElasticHessian(u, hess);
+    energy_->compute_d2E_de2(u, hess);
   }
   return PySparseMatrix(std::move(hess));
 }
 
-PySparseMatrix PyDeformationEnergy::plasticElasticHessian(
+PySparseMatrix PyDeformationEnergy::d2E_dpde(
   nb::ndarray<nb::numpy, const double> displacement) const
 {
   auto u = python::ndarrayToVectorMapXd(displacement);
-  if (u.size() != energy_->getRestPosition().size()) {
+  if (u.size() != energy_->getRestDofs().size()) {
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
-  EigenSupport::SpMatD hess = energy_->assembler().getPlasticElasticHessianTemplate();
+  EigenSupport::SpMatD hess =
+    energy_->assembler().d2E_dpde_template();
   {
     nb::gil_scoped_release release;
-    energy_->computePlasticElasticHessian(u, hess);
+    energy_->compute_d2E_dpde(u, hess);
   }
   return PySparseMatrix(std::move(hess));
 }
 
-PySparseMatrix PyDeformationEnergy::plasticHessian(
+PySparseMatrix PyDeformationEnergy::d2E_dp2(
   nb::ndarray<nb::numpy, const double> displacement) const
 {
   auto u = python::ndarrayToVectorMapXd(displacement);
-  if (u.size() != energy_->getRestPosition().size()) {
+  if (u.size() != energy_->getRestDofs().size()) {
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
-  EigenSupport::SpMatD hess = energy_->assembler().getPlasticHessianTemplate();
+  EigenSupport::SpMatD hess =
+    energy_->assembler().d2E_dp2_template();
   {
     nb::gil_scoped_release release;
-    energy_->computePlasticHessian(u, hess);
+    energy_->compute_d2E_dp2(u, hess);
   }
   return PySparseMatrix(std::move(hess));
 }
 
-PySparseMatrix PyDeformationEnergy::elasticJacobian(
+PySparseMatrix PyDeformationEnergy::d2E_dude(
   nb::ndarray<nb::numpy, const double> displacement) const
 {
   auto u = python::ndarrayToVectorMapXd(displacement);
-  if (u.size() != energy_->getRestPosition().size()) {
+  if (u.size() != energy_->getRestDofs().size()) {
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
-  EigenSupport::SpMatD jac = energy_->assembler().get_dfdb_Template();
+  EigenSupport::SpMatD mixedHessian =
+    energy_->assembler().d2E_dude_template();
   {
     nb::gil_scoped_release release;
-    energy_->computeDfDb(u, jac);
+    energy_->compute_d2E_dude(u, mixedHessian);
   }
-  return PySparseMatrix(std::move(jac));
+  return PySparseMatrix(std::move(mixedHessian));
 }
 
-PySparseMatrix PyDeformationEnergy::plasticJacobian(
+PySparseMatrix PyDeformationEnergy::d2E_dudp(
   nb::ndarray<nb::numpy, const double> displacement) const
 {
   auto u = python::ndarrayToVectorMapXd(displacement);
-  if (u.size() != energy_->getRestPosition().size()) {
+  if (u.size() != energy_->getRestDofs().size()) {
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
-  EigenSupport::SpMatD jac = energy_->assembler().get_dfda_Template();
+  EigenSupport::SpMatD mixedHessian =
+    energy_->assembler().d2E_dudp_template();
   {
     nb::gil_scoped_release release;
-    energy_->computeDfDa(u, jac);
+    energy_->compute_d2E_dudp(u, mixedHessian);
   }
-  return PySparseMatrix(std::move(jac));
+  return PySparseMatrix(std::move(mixedHessian));
 }
 
 // ── Factories ─────────────────────────────────────────────────────────────
@@ -581,7 +593,8 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
   const PyParameterFieldMapping &elasticMapping,
   const PyParameterDofLayout &plasticLayout,
   const PyParameterFieldMapping &plasticMapping,
-  const std::string &formulationName,
+  const PyFormulation &formulation,
+  nb::object elementWeights,
   bool enforceSPD,
   bool enableMaterialMaxStep)
 {
@@ -599,38 +612,18 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
   SolidDeformationModel::DeformationModelOptions opts;
   opts.enforceSPD = enforceSPD;
   opts.enableMaterialMaxStep = enableMaterialMaxStep;
+  if (auto weights = optionalVectorFromObject(elementWeights))
+    opts.elementWeights = std::move(*weights);
 
-  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
   auto materialFrames =
     SolidDeformationModel::makeGlobalAxesMaterialFrameField(
       meshCore->mesh().getNumElements());
+  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> energy;
   {
     nb::gil_scoped_release release;
-    if (formulationName == "tet_linear") {
-      SolidDeformationModel::TetLinearFormulation formulation;
-      energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
-        inputs.materialParameters, materialFrames, formulation, opts);
-    } else if (formulationName == "cubic_linear") {
-      SolidDeformationModel::CubicLinearFormulation formulation;
-      energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
-        inputs.materialParameters, materialFrames, formulation, opts);
-    } else if (formulationName == "cubic_tricubic_hermite") {
-      SolidDeformationModel::CubicTricubicHermiteFormulation formulation;
-      energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
-        inputs.materialParameters, materialFrames, formulation, opts);
-    } else if (formulationName == "shell_koiter") {
-      SolidDeformationModel::KoiterShellFormulation formulation;
-      energy = SolidDeformationModel::makeDeformationEnergy(
-        meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
-        inputs.materialParameters, materialFrames, formulation, opts);
-    } else {
-      throw std::invalid_argument(
-        "Unknown formulation: '" + formulationName +
-        "'.  Expected 'tet_linear', 'cubic_linear', 'cubic_tricubic_hermite', or 'shell_koiter'.");
-    }
+    energy = SolidDeformationModel::makeDeformationEnergy(
+      meshCore->meshPtr(), inputs.elasticMaterial, inputs.plasticMaterial,
+      inputs.materialParameters, materialFrames, formulation.get(), opts);
   }
   return std::make_shared<PyDeformationEnergy>(std::move(energy));
 }

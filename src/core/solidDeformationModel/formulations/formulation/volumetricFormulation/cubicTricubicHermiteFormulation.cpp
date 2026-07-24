@@ -129,7 +129,7 @@ CubicTricubicHermiteFormulation::CubicTricubicHermiteFormulation()
 }
 
 std::string_view CubicTricubicHermiteFormulation::getName() const { return "cubic_tricubic_hermite"; }
-int CubicTricubicHermiteFormulation::getNodesPerElement() const { return 64; }
+int CubicTricubicHermiteFormulation::numBasisFunctionsPerElement() const { return 64; }
 int CubicTricubicHermiteFormulation::getLocalDofs() const { return 192; }
 
 EigenSupport::SpMatD CubicTricubicHermiteFormulation::buildSurfaceEmbeddingMatrix(

@@ -218,7 +218,7 @@ void ShellDeformationModel::compute_d2E_dx2(const DeformationModelCacheData *cac
   }
 }
 
-void ShellDeformationModel::compute_d2E_dxda(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_d2E_dudp(const DeformationModelCacheData *cacheDataBase,
   double *hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -287,7 +287,7 @@ void ShellDeformationModel::compute_d2E_dxda(const DeformationModelCacheData *ca
   ES::Mp<ES::MXd>(hess, 18, np) = mixed.block(0, 0, 18, np);
 }
 
-void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_d2E_dude(const DeformationModelCacheData *cacheDataBase,
   double *hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -324,7 +324,7 @@ void ShellDeformationModel::compute_d2E_dxdb(const DeformationModelCacheData *ca
   ES::Mp<ES::MXd>(hess, 18, np) = mixed.block(0, 0, 18, np);
 }
 
-void ShellDeformationModel::compute_dE_da(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_dE_dp(const DeformationModelCacheData *cacheDataBase,
   double *grad, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -362,7 +362,7 @@ void ShellDeformationModel::compute_dE_da(const DeformationModelCacheData *cache
   }
 }
 
-void ShellDeformationModel::compute_d2E_da2(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_d2E_dp2(const DeformationModelCacheData *cacheDataBase,
   double *hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -434,7 +434,7 @@ void ShellDeformationModel::compute_d2E_da2(const DeformationModelCacheData *cac
   }
 }
 
-void ShellDeformationModel::compute_dE_db(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_dE_de(const DeformationModelCacheData *cacheDataBase,
   double *grad, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -452,7 +452,7 @@ void ShellDeformationModel::compute_dE_db(const DeformationModelCacheData *cache
   gradMap *= cacheData->area;
 }
 
-void ShellDeformationModel::compute_d2E_db2(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_d2E_de2(const DeformationModelCacheData *cacheDataBase,
   double *hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -470,7 +470,7 @@ void ShellDeformationModel::compute_d2E_db2(const DeformationModelCacheData *cac
   hessMap *= cacheData->area;
 }
 
-void ShellDeformationModel::compute_d2E_dadb(const DeformationModelCacheData *cacheDataBase,
+void ShellDeformationModel::compute_d2E_dpde(const DeformationModelCacheData *cacheDataBase,
   double *hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -518,12 +518,19 @@ void ShellDeformationModel::compute_d2E_dadb(const DeformationModelCacheData *ca
   }
 }
 
-void ShellDeformationModel::vonMisesStress(
-  const DeformationModelCacheData *cacheDataBase, int &nPt, double *stresses) const
+int ShellDeformationModel::computeVonMisesStress(
+  const DeformationModelCacheData *cacheDataBase,
+  double *stresses, int capacity) const
 {
-  nPt = 0;
+  if (capacity < 1)
+    throw std::length_error(
+      "Shell von Mises stress output capacity is too small.");
+  if (stresses == nullptr)
+    throw std::invalid_argument(
+      "Shell von Mises stress output must not be null.");
   if (numElasticParams_ == 0)
-    return;
+    throw UnsupportedDeformationDiagnosticError(
+      "Von Mises stress requires shell elastic parameters.");
 
   const CacheData *cd = cacheData(cacheDataBase);
   double value = 0.0;
@@ -533,11 +540,13 @@ void ShellDeformationModel::vonMisesStress(
     cd->abar.data(), cd->bbar.data(),
     value);
 
-  if (!ok)
-    return;
+  if (!ok) {
+    throw UnsupportedDeformationDiagnosticError(
+      "Von Mises stress is not implemented by this shell elastic model.");
+  }
 
-  nPt = 1;
   stresses[0] = value;
+  return 1;
 }
 
 void ShellDeformationModel::enableSPD(int enable)

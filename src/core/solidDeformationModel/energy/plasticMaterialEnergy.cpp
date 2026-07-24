@@ -25,7 +25,7 @@ PlasticMaterialEnergy::PlasticMaterialEnergy(
   if (!deformationEnergy_) {
     throw std::invalid_argument("PlasticMaterialEnergy requires a non-null deformation energy.");
   }
-  if (fixedDisplacement_.size() != deformationEnergy_->getRestPosition().size()) {
+  if (fixedDisplacement_.size() != deformationEnergy_->getRestDofs().size()) {
     throw std::invalid_argument("PlasticMaterialEnergy fixed displacement size must match the deformation energy rest position size.");
   }
 
@@ -40,7 +40,7 @@ PlasticMaterialEnergy::~PlasticMaterialEnergy() = default;
 
 ES::VXd PlasticMaterialEnergy::absolutePositions() const
 {
-  return deformationEnergy_->getRestPosition() + fixedDisplacement_;
+  return deformationEnergy_->getRestDofs() + fixedDisplacement_;
 }
 
 double PlasticMaterialEnergy::func(EigenSupport::ConstRefVecXd x) const
@@ -60,7 +60,8 @@ void PlasticMaterialEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport
     deformationEnergy_->materialParameters()->space()->makeStateView(
     std::span<const double>(fixedElasticParameters_.data(), static_cast<std::size_t>(fixedElasticParameters_.size())),
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
-  deformationEnergy_->assembler().computePlasticGradient(p.data(), state, grad.data());
+  deformationEnergy_->assembler().compute_dE_dp(
+    p.data(), state, grad.data());
 }
 
 void PlasticMaterialEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
@@ -70,10 +71,11 @@ void PlasticMaterialEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenS
     deformationEnergy_->materialParameters()->space()->makeStateView(
     std::span<const double>(fixedElasticParameters_.data(), static_cast<std::size_t>(fixedElasticParameters_.size())),
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
-  deformationEnergy_->assembler().computePlasticHessian(p.data(), state, hess);
+  deformationEnergy_->assembler().compute_d2E_dp2(
+    p.data(), state, hess);
 }
 
 void PlasticMaterialEnergy::hessianAlloc(EigenSupport::SpMatD &hess) const
 {
-  hess = deformationEnergy_->assembler().getPlasticHessianTemplate();
+  hess = deformationEnergy_->assembler().d2E_dp2_template();
 }

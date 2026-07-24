@@ -5,6 +5,7 @@
 #include <nanobind/stl/shared_ptr.h>
 
 #include "core.h"
+#include "../fem/formulation/core.h"
 #include "energy/evaluation.h"
 
 namespace nb = nanobind;
@@ -44,7 +45,8 @@ void init_energy_bindings(nb::module_ &m)
   // ── PyDeformationEnergy ────────────────────────────────────────
 
   nb::class_<PyDeformationEnergy, PyPotentialEnergy>(m, "PyDeformationEnergy")
-    .def("rest_position", &PyDeformationEnergy::restPosition)
+    .def("rest_state", &PyDeformationEnergy::restState)
+    .def("vertex_rest_positions", &PyDeformationEnergy::vertexRestPositions)
     .def_prop_ro("num_vertices", &PyDeformationEnergy::numVertices)
     .def_prop_ro("num_elastic_params", &PyDeformationEnergy::numElasticParams)
     .def_prop_ro("num_plastic_params", &PyDeformationEnergy::numPlasticParams)
@@ -53,14 +55,14 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("elastic_model", &PyDeformationEnergy::elasticModel)
     .def_prop_ro("plastic_model", &PyDeformationEnergy::plasticModel)
     .def_prop_ro("parameters", &PyDeformationEnergy::parameters)
-    .def("elastic_gradient", &PyDeformationEnergy::elasticGradient, nb::arg("displacement"))
+    .def("dE_de", &PyDeformationEnergy::dE_de, nb::arg("displacement"))
     .def("element_von_mises_stresses", &PyDeformationEnergy::elementVonMisesStresses, nb::arg("displacement"))
-    .def("elastic_hessian", &PyDeformationEnergy::elasticHessian, nb::arg("displacement"))
-    .def("plastic_elastic_hessian", &PyDeformationEnergy::plasticElasticHessian, nb::arg("displacement"))
-    .def("plastic_gradient", &PyDeformationEnergy::plasticGradient, nb::arg("displacement"))
-    .def("plastic_hessian", &PyDeformationEnergy::plasticHessian, nb::arg("displacement"))
-    .def("elastic_jacobian", &PyDeformationEnergy::elasticJacobian, nb::arg("displacement"))
-    .def("plastic_jacobian", &PyDeformationEnergy::plasticJacobian, nb::arg("displacement"));
+    .def("d2E_de2", &PyDeformationEnergy::d2E_de2, nb::arg("displacement"))
+    .def("d2E_dpde", &PyDeformationEnergy::d2E_dpde, nb::arg("displacement"))
+    .def("dE_dp", &PyDeformationEnergy::dE_dp, nb::arg("displacement"))
+    .def("d2E_dp2", &PyDeformationEnergy::d2E_dp2, nb::arg("displacement"))
+    .def("d2E_dude", &PyDeformationEnergy::d2E_dude, nb::arg("displacement"))
+    .def("d2E_dudp", &PyDeformationEnergy::d2E_dudp, nb::arg("displacement"));
 
   nb::class_<PyParameterDofLayout>(m, "PyParameterDofLayout");
   nb::class_<PyParameterFieldMapping>(m, "PyParameterFieldMapping");
@@ -118,6 +120,7 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("plastic_layout"),
     nb::arg("plastic_mapping"),
     nb::arg("formulation"),
+    nb::arg("element_weights").none() = nb::none(),
     nb::arg("enforce_spd") = true,
     nb::arg("enable_material_max_step") = true);
 

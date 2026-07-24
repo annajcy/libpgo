@@ -49,7 +49,7 @@ TEST(DeformationModelFormulationGTest, TetLinearFormulationProvidesCorrectMetada
 {
   TetLinearFormulation f;
   EXPECT_EQ(f.getName(), "tet_linear");
-  EXPECT_EQ(f.getNodesPerElement(), 4);
+  EXPECT_EQ(f.numBasisFunctionsPerElement(), 4);
   EXPECT_EQ(f.getLocalDofs(), 12);
 }
 
@@ -57,7 +57,7 @@ TEST(DeformationModelFormulationGTest, CubicLinearFormulationProvidesCorrectMeta
 {
   CubicLinearFormulation f;
   EXPECT_EQ(f.getName(), "cubic_linear");
-  EXPECT_EQ(f.getNodesPerElement(), 8);
+  EXPECT_EQ(f.numBasisFunctionsPerElement(), 8);
   EXPECT_EQ(f.getLocalDofs(), 24);
 }
 
@@ -65,7 +65,7 @@ TEST(DeformationModelFormulationGTest, KoiterShellFormulationProvidesCorrectMeta
 {
   KoiterShellFormulation f;
   EXPECT_EQ(f.getName(), "shell_koiter");
-  EXPECT_EQ(f.getNodesPerElement(), 6);
+  EXPECT_EQ(f.numBasisFunctionsPerElement(), 6);
   EXPECT_EQ(f.getLocalDofs(), 18);
 }
 
@@ -157,7 +157,7 @@ TEST(DeformationModelFormulationGTest, AssemblerSurfacesFormulationRestInvariant
 
   const auto &assembler = bundle->assembler();
   EXPECT_EQ(assembler.getDofLayout().numGlobalDofs(), simMesh->getNumVertices() * 3);
-  EXPECT_EQ(assembler.getRestPosition().size(),
+  EXPECT_EQ(assembler.getRestDofs().size(),
     static_cast<Eigen::Index>(assembler.getDofLayout().numGlobalDofs()));
 }
 

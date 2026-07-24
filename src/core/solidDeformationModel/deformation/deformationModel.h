@@ -7,6 +7,7 @@ copyright to USC,MIT,NUS
 
 #include <limits>
 #include <memory>
+#include <stdexcept>
 
 namespace pgo
 {
@@ -25,6 +26,12 @@ public:
 
 private:
   bool prepared_ = false;
+};
+
+class UnsupportedDeformationDiagnosticError : public std::logic_error
+{
+public:
+  using std::logic_error::logic_error;
 };
 
 class DeformationModel
@@ -53,29 +60,44 @@ public:
   virtual void prepareData(const double *x, const double *elasticParams,
     const double *plasticParams, CacheData *cacheData) const = 0;
 
-  virtual void vonMisesStress(const CacheData *, int &, double *) const {};
-  virtual void maxStrain(const CacheData *, int &, double *) const {};
+  // Optional diagnostics return the number of samples written to output.
+  // Implementations must return a value in [1, capacity].
+  virtual int computeVonMisesStress(
+    const CacheData *, double *, int) const
+  {
+    throw UnsupportedDeformationDiagnosticError(
+      "Von Mises stress is not implemented by this deformation model.");
+  }
+  virtual int computeMaxStrain(
+    const CacheData *, double *, int) const
+  {
+    throw UnsupportedDeformationDiagnosticError(
+      "Maximum strain is not implemented by this deformation model.");
+  }
 
   virtual double computeEnergy(const CacheData *cacheData) const = 0;
   virtual void compute_dE_dx(const CacheData *cacheData, double *grad) const = 0;
   virtual void compute_d2E_dx2(const CacheData *cacheData, double *hess) const = 0;
 
-  virtual void compute_d2E_dxda(
+  // Parameter-derivative notation: p = plastic DOFs, e = elastic DOFs.
+  // The local position coordinate has dx/du = I, so mixed x-parameter and
+  // displacement-parameter derivatives are identical.
+  virtual void compute_d2E_dudp(
     const CacheData *cacheData, double *hess,
     int materialLocation = -1) const = 0;
-  virtual void compute_d2E_dxdb(
+  virtual void compute_d2E_dude(
     const CacheData *cacheData, double *hess,
     int materialLocation = -1) const = 0;
 
-  virtual void compute_dE_da(
+  virtual void compute_dE_dp(
     const CacheData *, double *, int = -1) const {}
-  virtual void compute_d2E_da2(
+  virtual void compute_d2E_dp2(
     const CacheData *, double *, int = -1) const {}
-  virtual void compute_dE_db(
+  virtual void compute_dE_de(
     const CacheData *, double *, int = -1) const {}
-  virtual void compute_d2E_db2(
+  virtual void compute_d2E_de2(
     const CacheData *, double *, int = -1) const {}
-  virtual void compute_d2E_dadb(
+  virtual void compute_d2E_dpde(
     const CacheData *, double *, int = -1) const {}
 
   virtual void enableSPD(int enable) { (void)enable; }

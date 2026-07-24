@@ -165,7 +165,7 @@ Fixture makeFixture(
     formulation, 0);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(space));
-  fixture.absolutePositions = fixture.assembler->getRestPosition();
+  fixture.absolutePositions = fixture.assembler->getRestDofs();
   for (int i = 0; i < fixture.absolutePositions.size(); i++)
     fixture.absolutePositions[i] += 0.004 * std::sin(0.7 * i + 0.2);
   return fixture;
@@ -214,7 +214,7 @@ Fixture makeNonlinearShellFixture()
     formulation, 0);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, std::move(space));
-  fixture.absolutePositions = fixture.assembler->getRestPosition();
+  fixture.absolutePositions = fixture.assembler->getRestDofs();
   for (int i = 0; i < fixture.absolutePositions.size(); i++)
     fixture.absolutePositions[i] += 0.003 * std::sin(0.9 * i + 0.4);
   return fixture;
@@ -233,10 +233,10 @@ TEST(DeformationModelAssembler, NonlinearMappingGradientAndHessianMatchFD)
   };
 
   ES::VXd gradient(6);
-  assembler.computePlasticGradient(
+  assembler.compute_dE_dp(
     fixture.absolutePositions.data(), view(z), gradient.data());
-  ES::SpMatD hessian = assembler.getPlasticHessianTemplate();
-  assembler.computePlasticHessian(
+  ES::SpMatD hessian = assembler.d2E_dp2_template();
+  assembler.compute_d2E_dp2(
     fixture.absolutePositions.data(), view(z), hessian);
 
   constexpr double h = 1e-6;
@@ -253,9 +253,9 @@ TEST(DeformationModelAssembler, NonlinearMappingGradientAndHessianMatchFD)
       (2.0 * h);
 
     ES::VXd gp(6), gm(6);
-    assembler.computePlasticGradient(
+    assembler.compute_dE_dp(
       fixture.absolutePositions.data(), view(zp), gp.data());
-    assembler.computePlasticGradient(
+    assembler.compute_dE_dp(
       fixture.absolutePositions.data(), view(zm), gm.data());
     fdHessian.col(col) = (gp - gm) / (2.0 * h);
   }
@@ -281,8 +281,8 @@ TEST(DeformationModelAssembler, NonlinearMixedDisplacementDerivativeMatchesFD)
       std::span<const double>(trial.data(), trial.size()));
   };
 
-  ES::SpMatD mixed = assembler.get_dfda_Template();
-  assembler.compute_df_da(
+  ES::SpMatD mixed = assembler.d2E_dudp_template();
+  assembler.compute_d2E_dudp(
     fixture.absolutePositions.data(), view(z), mixed);
   ES::MXd fd(mixed.rows(), mixed.cols());
   constexpr double h = 1e-6;
@@ -317,8 +317,8 @@ TEST(DeformationModelAssembler, NonlinearElasticPlasticMixedHessianMatchesFD)
       std::span<const double>(plastic.data(), plastic.size()));
   };
 
-  ES::SpMatD mixed = assembler.getPlasticElasticHessianTemplate();
-  assembler.computePlasticElasticHessian(
+  ES::SpMatD mixed = assembler.d2E_dpde_template();
+  assembler.compute_d2E_dpde(
     fixture.absolutePositions.data(), view(elastic), mixed);
 
   constexpr double h = 1e-6;
@@ -329,9 +329,9 @@ TEST(DeformationModelAssembler, NonlinearElasticPlasticMixedHessianMatchesFD)
     ep[col] += h;
     em[col] -= h;
     ES::VXd gp(plastic.size()), gm(plastic.size());
-    assembler.computePlasticGradient(
+    assembler.compute_dE_dp(
       fixture.absolutePositions.data(), view(ep), gp.data());
-    assembler.computePlasticGradient(
+    assembler.compute_dE_dp(
       fixture.absolutePositions.data(), view(em), gm.data());
     fd.col(col) = (gp - gm) / (2.0 * h);
   }
@@ -375,6 +375,40 @@ TEST(DeformationModelAssembler, MappingExceptionDoesNotModifyCommittedState)
       fixture.absolutePositions.data(), fixture.parameters->committedView());
     EXPECT_TRUE(std::isfinite(committedEnergy));
   });
+}
+
+TEST(DeformationModelAssembler, UnsupportedMaximumStrainThrowsWithElementContext)
+{
+  Fixture fixture = makeNonlinearShellFixture();
+  ES::VXd strains = ES::VXd::Zero(1);
+
+  try {
+    fixture.assembler->computeMaxStrains(
+      fixture.absolutePositions.data(),
+      fixture.parameters->committedView(), strains.data());
+    FAIL() << "Expected unsupported maximum strain to throw.";
+  }
+  catch (const UnsupportedDeformationDiagnosticError &e) {
+    EXPECT_NE(std::string(e.what()).find("Element 0"), std::string::npos);
+    EXPECT_NE(std::string(e.what()).find("Maximum strain"), std::string::npos);
+  }
+}
+
+TEST(DeformationModelAssembler, VolumetricDiagnosticsProduceFiniteValues)
+{
+  Fixture fixture = makeFixture();
+  ES::VXd stresses = ES::VXd::Zero(1);
+  ES::VXd strains = ES::VXd::Zero(1);
+
+  fixture.assembler->computeVonMisesStresses(
+    fixture.absolutePositions.data(),
+    fixture.parameters->committedView(), stresses.data());
+  fixture.assembler->computeMaxStrains(
+    fixture.absolutePositions.data(),
+    fixture.parameters->committedView(), strains.data());
+
+  EXPECT_TRUE(std::isfinite(stresses[0]));
+  EXPECT_TRUE(std::isfinite(strains[0]));
 }
 
 TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInterference)

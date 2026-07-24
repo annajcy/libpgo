@@ -123,8 +123,8 @@ def test_external_load_jacobian_contributes_to_backward_mixed_derivative():
     del elastic, vertices
     u = layer.energy.zero_state()
 
-    mixed = layer._parameter_jacobian(u)
-    energy_mixed = layer.energy.elastic_jacobian(u).to_dense()
+    mixed = layer._d2E_dudq(u)
+    energy_mixed = layer.energy.d2E_dude(u).to_dense()
 
     assert mixed[2, 4] == pytest.approx(energy_mixed[2, 4] - 1e6)
 

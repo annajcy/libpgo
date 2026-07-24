@@ -17,7 +17,7 @@ TetLinearFormulation::TetLinearFormulation()
 }
 
 std::string_view TetLinearFormulation::getName() const { return "tet_linear"; }
-int TetLinearFormulation::getNodesPerElement() const { return 4; }
+int TetLinearFormulation::numBasisFunctionsPerElement() const { return 4; }
 int TetLinearFormulation::getLocalDofs() const { return 12; }
 
 const Quadrature &TetLinearFormulation::massQuadrature() const

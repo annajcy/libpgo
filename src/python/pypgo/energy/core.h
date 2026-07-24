@@ -22,6 +22,8 @@
 // shared PyPotentialEnergy protocol.  Generic energies use PyOwnedPotentialEnergy
 // (declared in peer.h); these are the typed peers.
 
+namespace pgo { class PyFormulation; }
+
 class PyParameterDofLayout
 {
 public:
@@ -199,8 +201,8 @@ public:
 };
 
 // Deformation energy peer.  Inherits PyPotentialEnergy directly so _handle is
-// the concrete peer; adds deformation-specific metadata (rest_position,
-// plastic_gradient, parameter fields, etc.).
+// the concrete peer; adds deformation-specific metadata
+// (rest_state, vertex_rest_positions, dE_dp, parameter fields, etc.).
 class PyDeformationEnergy : public PyPotentialEnergy
 {
 public:
@@ -212,7 +214,8 @@ public:
   std::shared_ptr<const NO::PotentialEnergy> potentialEnergyHandle() const override { return energy_; }
   std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> energy() const { return energy_; }
 
-  nb::ndarray<nb::numpy, double> restPosition() const;
+  nb::ndarray<nb::numpy, double> restState() const;
+  nb::ndarray<nb::numpy, double> vertexRestPositions() const;
   int numVertices() const { return energy_->assembler().getDeformationModelManager().getMesh()->getNumVertices(); }
   int numElasticParams() const { return energy_->assembler().getNumElasticParams(); }
   int numPlasticParams() const { return energy_->assembler().getNumPlasticParams(); }
@@ -224,14 +227,14 @@ public:
   {
     return std::make_shared<PyMaterialParameters>(energy_->materialParameters());
   }
-  nb::ndarray<nb::numpy, double> elasticGradient(nb::ndarray<nb::numpy, const double> displacement) const;
+  nb::ndarray<nb::numpy, double> dE_de(nb::ndarray<nb::numpy, const double> displacement) const;
   nb::ndarray<nb::numpy, double> elementVonMisesStresses(nb::ndarray<nb::numpy, const double> displacement) const;
-  PySparseMatrix elasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;
-  PySparseMatrix plasticElasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;
-  nb::ndarray<nb::numpy, double> plasticGradient(nb::ndarray<nb::numpy, const double> displacement) const;
-  PySparseMatrix plasticHessian(nb::ndarray<nb::numpy, const double> displacement) const;
-  PySparseMatrix elasticJacobian(nb::ndarray<nb::numpy, const double> displacement) const;
-  PySparseMatrix plasticJacobian(nb::ndarray<nb::numpy, const double> displacement) const;
+  PySparseMatrix d2E_de2(nb::ndarray<nb::numpy, const double> displacement) const;
+  PySparseMatrix d2E_dpde(nb::ndarray<nb::numpy, const double> displacement) const;
+  nb::ndarray<nb::numpy, double> dE_dp(nb::ndarray<nb::numpy, const double> displacement) const;
+  PySparseMatrix d2E_dp2(nb::ndarray<nb::numpy, const double> displacement) const;
+  PySparseMatrix d2E_dude(nb::ndarray<nb::numpy, const double> displacement) const;
+  PySparseMatrix d2E_dudp(nb::ndarray<nb::numpy, const double> displacement) const;
 
 private:
   std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> energy_;
@@ -300,7 +303,8 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
   const PyParameterFieldMapping &elasticMapping,
   const PyParameterDofLayout &plasticLayout,
   const PyParameterFieldMapping &plasticMapping,
-  const std::string &formulationName,
+  const pgo::PyFormulation &formulation,
+  nb::object elementWeights,
   bool enforceSPD,
   bool enableMaterialMaxStep);
 

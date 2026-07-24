@@ -5,6 +5,7 @@ import gc
 import numpy as np
 import pypgo as pgo
 import pypgo._core as _core
+import pypgo.fem as pf
 import pytest
 
 
@@ -46,6 +47,14 @@ def _make_cubic_sim_mesh():
 
 
 def _make_deformation_energy(sim, formulation, elastic="stable_neo", plastic="volumetric_dof6", plastic_values=None):
+    formulation_handle = {
+        "tet_linear": pf.TetLinear,
+        "cubic_linear": pf.CubicLinear,
+        "cubic_tricubic_hermite": pf.CubicTricubicHermite,
+        "shell_koiter": pf.KoiterShell,
+    }.get(formulation, lambda: None)()
+    if formulation_handle is None:
+        raise ValueError(f"Unknown formulation: {formulation}")
     elastic_layout = _core._make_elementwise_parameter_dof_layout()
     plastic_layout = _core._make_elementwise_parameter_dof_layout()
     identity = _core._make_identity_parameter_field_mapping
@@ -59,7 +68,7 @@ def _make_deformation_energy(sim, formulation, elastic="stable_neo", plastic="vo
         identity(),
         plastic_layout,
         identity(),
-        formulation,
+        formulation_handle._handle,
     )
 
 

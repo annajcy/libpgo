@@ -27,7 +27,10 @@ public:
   const SolidDeformationModel::Formulation &get() const { return *formulation_; }
 
   std::string name() const { return std::string(formulation_->getName()); }
-  int nodesPerElement() const { return formulation_->getNodesPerElement(); }
+  int numBasisFunctionsPerElement() const
+  {
+    return formulation_->numBasisFunctionsPerElement();
+  }
   int localDofs() const { return formulation_->getLocalDofs(); }
 
 protected:

@@ -169,7 +169,7 @@ TEST(CubicTricubicHermiteFormulationGTest, RigidTranslationHasZeroEnergy)
 {
   auto c = makeCubeCase(CubicTricubicHermiteFormulation{});
   ES::VXd u = hermiteAffineDisplacement(
-    c.energy->getRestPosition(), ES::M3d::Identity(), ES::V3d(0.3, -0.7, 1.1));
+    c.energy->getRestDofs(), ES::M3d::Identity(), ES::V3d(0.3, -0.7, 1.1));
   EXPECT_NEAR(c.energy->func(u), 0.0, 1e-9);
   ES::VXd g(c.numDOFs);
   c.energy->gradient(u, g);
@@ -180,7 +180,7 @@ TEST(CubicTricubicHermiteFormulationGTest, RigidRotationHasZeroEnergy)
 {
   auto c = makeCubeCase(CubicTricubicHermiteFormulation{});
   ES::M3d R = Eigen::AngleAxisd(0.4, ES::V3d(0.3, 0.8, 0.5).normalized()).toRotationMatrix();
-  ES::VXd u = hermiteAffineDisplacement(c.energy->getRestPosition(), R, ES::V3d::Zero());
+  ES::VXd u = hermiteAffineDisplacement(c.energy->getRestDofs(), R, ES::V3d::Zero());
   EXPECT_NEAR(c.energy->func(u), 0.0, 1e-6);
   ES::VXd g(c.numDOFs);
   c.energy->gradient(u, g);
@@ -199,8 +199,8 @@ TEST(CubicTricubicHermiteFormulationGTest, AffineEnergyMatchesTrilinear)
        0.01, 0.0, 1.03;
   ES::V3d t(0.05, -0.02, 0.01);
 
-  ES::VXd uH = hermiteAffineDisplacement(hermite.energy->getRestPosition(), A, t);
-  ES::VXd uT = trilinearAffineDisplacement(trilinear.energy->getRestPosition(), A, t);
+  ES::VXd uH = hermiteAffineDisplacement(hermite.energy->getRestDofs(), A, t);
+  ES::VXd uT = trilinearAffineDisplacement(trilinear.energy->getRestDofs(), A, t);
 
   double eH = hermite.energy->func(uH);
   double eT = trilinear.energy->func(uT);

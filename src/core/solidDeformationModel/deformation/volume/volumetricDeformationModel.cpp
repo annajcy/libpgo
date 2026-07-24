@@ -354,15 +354,22 @@ void VolumetricDeformationModel::computeForceFromP(
 }
 
 // ============================================================
-// vonMisesStress / maxStrain
+// Von Mises stress / maximum strain
 // ============================================================
 
-void VolumetricDeformationModel::vonMisesStress(
-  const DeformationModelCacheData *cacheDataBase, int &nPt, double *stresses) const
+int VolumetricDeformationModel::computeVonMisesStress(
+  const DeformationModelCacheData *cacheDataBase,
+  double *stresses, int capacity) const
 {
+  if (capacity < numQuadPts_)
+    throw std::length_error(
+      "Volumetric von Mises stress output capacity is too small.");
+  if (stresses == nullptr && numQuadPts_ > 0)
+    throw std::invalid_argument(
+      "Volumetric von Mises stress output must not be null.");
+
   using CD = VolumetricDeformationModelCacheData;
   const CD *cd = checkedCacheData(*this, cacheDataBase);
-  nPt = numQuadPts_;
 
   for (int q = 0; q < numQuadPts_; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
@@ -380,27 +387,38 @@ void VolumetricDeformationModel::vonMisesStress(
                              std::pow(cauchyStress(0, 1), 2.0));
     stresses[q] = std::sqrt((t1 + t2 + t3 + t4) * 0.5);
   }
+
+  return numQuadPts_;
 }
 
-void VolumetricDeformationModel::maxStrain(
-  const DeformationModelCacheData *cacheDataBase, int &nPt, double *stresses) const
+int VolumetricDeformationModel::computeMaxStrain(
+  const DeformationModelCacheData *cacheDataBase,
+  double *strains, int capacity) const
 {
+  if (capacity < numQuadPts_)
+    throw std::length_error(
+      "Volumetric maximum strain output capacity is too small.");
+  if (strains == nullptr && numQuadPts_ > 0)
+    throw std::invalid_argument(
+      "Volumetric maximum strain output must not be null.");
+
   using CD = VolumetricDeformationModelCacheData;
   const CD *cd = checkedCacheData(*this, cacheDataBase);
-  nPt = numQuadPts_;
 
   for (int q = 0; q < numQuadPts_; q++) {
     ES::M3d E = 0.5 * (cd->Fe[q].transpose() * cd->Fe[q] - ES::M3d::Identity());
     Eigen::SelfAdjointEigenSolver<ES::M3d> eigSolver(E);
-    stresses[q] = eigSolver.eigenvalues().maxCoeff();
+    strains[q] = eigSolver.eigenvalues().maxCoeff();
   }
+
+  return numQuadPts_;
 }
 
 // ============================================================
 // Plastic material-parameter derivatives.
 // ============================================================
 
-void VolumetricDeformationModel::compute_dE_da(
+void VolumetricDeformationModel::compute_dE_dp(
   const DeformationModelCacheData *cacheDataBase, double *grad,
   int materialLocation) const
 {
@@ -430,7 +448,7 @@ void VolumetricDeformationModel::compute_dE_da(
   }
 }
 
-void VolumetricDeformationModel::compute_d2E_da2(
+void VolumetricDeformationModel::compute_d2E_dp2(
   const DeformationModelCacheData *cacheDataBase, double *hess,
   int materialLocation) const
 {
@@ -475,7 +493,7 @@ void VolumetricDeformationModel::compute_d2E_da2(
   }
 }
 
-void VolumetricDeformationModel::compute_d2E_dxda(
+void VolumetricDeformationModel::compute_d2E_dudp(
   const DeformationModelCacheData *cacheDataBase, double *hess,
   int materialLocation) const
 {
@@ -526,7 +544,7 @@ void VolumetricDeformationModel::compute_d2E_dxda(
 // Elastic material-parameter derivatives.
 // ============================================================
 
-void VolumetricDeformationModel::compute_dE_db(
+void VolumetricDeformationModel::compute_dE_de(
   const DeformationModelCacheData *cacheDataBase, double *grad,
   int materialLocation) const
 {
@@ -549,7 +567,7 @@ void VolumetricDeformationModel::compute_dE_db(
   }
 }
 
-void VolumetricDeformationModel::compute_d2E_db2(
+void VolumetricDeformationModel::compute_d2E_de2(
   const DeformationModelCacheData *cacheDataBase, double *hess,
   int materialLocation) const
 {
@@ -574,7 +592,7 @@ void VolumetricDeformationModel::compute_d2E_db2(
   }
 }
 
-void VolumetricDeformationModel::compute_d2E_dxdb(
+void VolumetricDeformationModel::compute_d2E_dude(
   const DeformationModelCacheData *cacheDataBase, double *hess,
   int materialLocation) const
 {
@@ -600,7 +618,7 @@ void VolumetricDeformationModel::compute_d2E_dxdb(
   }
 }
 
-void VolumetricDeformationModel::compute_d2E_dadb(
+void VolumetricDeformationModel::compute_d2E_dpde(
   const DeformationModelCacheData *cacheDataBase, double *hess,
   int materialLocation) const
 {

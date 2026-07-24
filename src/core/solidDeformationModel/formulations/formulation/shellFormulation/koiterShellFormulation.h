@@ -11,7 +11,7 @@ class KoiterShellFormulation : public ShellFormulation
 {
 public:
   std::string_view getName() const override;
-  int getNodesPerElement() const override;
+  int numBasisFunctionsPerElement() const override;
   int getLocalDofs() const override;
 
   std::unique_ptr<ShellElementMapping> createElementMapping(

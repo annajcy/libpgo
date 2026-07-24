@@ -12,7 +12,7 @@ void init_formulation_bindings(nb::module_ &m)
 {
     nb::class_<PyFormulation>(m, "PyFormulation")
         .def_prop_ro("name", &PyFormulation::name)
-        .def("nodes_per_element", &PyFormulation::nodesPerElement)
+        .def("num_basis_functions_per_element", &PyFormulation::numBasisFunctionsPerElement)
         .def("local_dofs", &PyFormulation::localDofs);
 
     nb::class_<PyVolumetricFormulation, PyFormulation>(m, "PyVolumetricFormulation");

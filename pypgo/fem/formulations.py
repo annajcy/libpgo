@@ -45,6 +45,10 @@ class Formulation:
     def name(self) -> str:
         return self._handle.name
 
+    def num_basis_functions_per_element(self) -> int:
+        """Return the number of interpolation basis functions per element."""
+        return self._handle.num_basis_functions_per_element()
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 

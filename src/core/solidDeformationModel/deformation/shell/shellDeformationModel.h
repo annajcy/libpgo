@@ -43,29 +43,30 @@ public:
   void compute_d2E_dx2(const DeformationModelCacheData *cacheDataBase,
     double *hess) const override;
 
-  void compute_d2E_dxda(const DeformationModelCacheData *cacheDataBase,
+  void compute_d2E_dudp(const DeformationModelCacheData *cacheDataBase,
     double *hess, int materialLocation = -1) const override;
 
-  void compute_d2E_dxdb(const DeformationModelCacheData *cacheDataBase,
+  void compute_d2E_dude(const DeformationModelCacheData *cacheDataBase,
     double *hess, int materialLocation = -1) const override;
 
-  void compute_dE_da(const DeformationModelCacheData *cacheDataBase,
+  void compute_dE_dp(const DeformationModelCacheData *cacheDataBase,
     double *grad, int materialLocation = -1) const override;
 
-  void compute_d2E_da2(const DeformationModelCacheData *cacheDataBase,
+  void compute_d2E_dp2(const DeformationModelCacheData *cacheDataBase,
     double *hess, int materialLocation = -1) const override;
 
-  void compute_dE_db(const DeformationModelCacheData *cacheDataBase,
+  void compute_dE_de(const DeformationModelCacheData *cacheDataBase,
     double *grad, int materialLocation = -1) const override;
 
-  void compute_d2E_db2(const DeformationModelCacheData *cacheDataBase,
+  void compute_d2E_de2(const DeformationModelCacheData *cacheDataBase,
     double *hess, int materialLocation = -1) const override;
 
-  void compute_d2E_dadb(const DeformationModelCacheData *cacheDataBase,
+  void compute_d2E_dpde(const DeformationModelCacheData *cacheDataBase,
     double *hess, int materialLocation = -1) const override;
 
-  void vonMisesStress(const DeformationModelCacheData *cacheData,
-    int &nPt, double *stresses) const override;
+  int computeVonMisesStress(
+    const DeformationModelCacheData *cacheData,
+    double *stresses, int capacity) const override;
 
   void enableSPD(int enable) override;
   int getNumElasticParameters() const override { return numElasticParams_; }

@@ -74,13 +74,13 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
         grad_parameter = np.zeros(layer.num_parameter_dofs, dtype=np.float64)
         if layer.free_dofs.size:
             hessian = layer.objective_energy.hessian(ctx.displacement).to_dense()
-            parameter_jacobian = layer._parameter_jacobian(ctx.displacement)
+            d2E_dudq = layer._d2E_dudq(ctx.displacement)
             adjoint = np.zeros(layer.energy.num_dofs, dtype=np.float64)
             adjoint[layer.free_dofs] = np.linalg.solve(
                 hessian[np.ix_(layer.free_dofs, layer.free_dofs)],
                 grad_u[layer.free_dofs],
             )
-            grad_parameter = -(parameter_jacobian.T @ adjoint)
+            grad_parameter = -(d2E_dudq.T @ adjoint)
 
         return _torch.as_tensor(grad_parameter, dtype=grad_surface.dtype), None
 
@@ -217,9 +217,9 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
 class PlasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     """Implicitly differentiable equilibrium layer with plastic field input.
 
-    The forward pass solves ``argmin_u E(u, a)`` for the given plastic field
-    ``a`` and returns observed surface vertices. The backward pass uses
-    ``energy.plastic_jacobian(u)`` in the adjoint contraction.
+    The forward pass solves ``argmin_u E(u, p)`` for the given plastic field
+    ``p`` and returns observed surface vertices. The backward pass uses
+    ``energy.d2E_dudp(u)`` in the adjoint contraction.
     """
 
     _layer_name = "PlasticStaticEquilibriumLayer"
@@ -236,16 +236,16 @@ class PlasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     def _set_parameter_values(self, values) -> None:
         self.energy.parameters.set_plastic_values(values.reshape(self.plastic_shape))
 
-    def _parameter_jacobian(self, displacement) -> np.ndarray:
-        return self.energy.plastic_jacobian(displacement).to_dense()
+    def _d2E_dudq(self, displacement) -> np.ndarray:
+        return self.energy.d2E_dudp(displacement).to_dense()
 
 
 class ElasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     """Implicitly differentiable equilibrium layer with elastic field input.
 
-    The forward pass solves ``argmin_u E(u, b)`` for the given elastic field
-    ``b`` and returns observed surface vertices. The backward pass uses
-    ``energy.elastic_jacobian(u)`` in the adjoint contraction.
+    The forward pass solves ``argmin_u E(u, e)`` for the given elastic field
+    ``e`` and returns observed surface vertices. The backward pass uses
+    ``energy.d2E_dude(u)`` in the adjoint contraction.
     """
 
     _layer_name = "ElasticStaticEquilibriumLayer"
@@ -262,13 +262,15 @@ class ElasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     def _set_parameter_values(self, values) -> None:
         self.energy.parameters.set_elastic_values(values.reshape(self.elastic_shape))
 
-    def _parameter_jacobian(self, displacement) -> np.ndarray:
-        jac = self.energy.elastic_jacobian(displacement).to_dense()
+    def _d2E_dudq(self, displacement) -> np.ndarray:
+        d2E_dude = self.energy.d2E_dude(displacement).to_dense()
         if self.external_load is not None:
-            # Inner gradient is ∇E(u,b) - f_g(b); its mixed b-derivative
-            # therefore subtracts d f_g / d b.
-            jac = jac - self.external_load.parameter_jacobian().to_dense()
-        return jac
+            # Inner gradient is ∇E(u,e) - f_g(e), so its mixed e derivative
+            # subtracts d f_g / d e.
+            d2E_dude = (
+                d2E_dude - self.external_load.parameter_jacobian().to_dense()
+            )
+        return d2E_dude
 
 
 __all__ = [

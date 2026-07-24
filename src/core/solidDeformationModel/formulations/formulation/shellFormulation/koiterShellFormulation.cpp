@@ -8,7 +8,7 @@ namespace SolidDeformationModel
 {
 
 std::string_view KoiterShellFormulation::getName() const { return "shell_koiter"; }
-int KoiterShellFormulation::getNodesPerElement() const { return 6; }
+int KoiterShellFormulation::numBasisFunctionsPerElement() const { return 6; }
 int KoiterShellFormulation::getLocalDofs() const { return 18; }
 
 std::unique_ptr<ShellElementMapping> KoiterShellFormulation::createElementMapping(

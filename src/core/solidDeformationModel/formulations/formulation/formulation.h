@@ -23,7 +23,10 @@ public:
   virtual ~Formulation() = default;
 
   virtual std::string_view getName() const = 0;
-  virtual int getNodesPerElement() const = 0;
+  // Number of interpolation/basis functions on one element. This is not
+  // necessarily the number of geometric vertices in the source mesh (e.g.
+  // tricubic Hermite has 64 basis functions over an 8-vertex hexahedron).
+  virtual int numBasisFunctionsPerElement() const = 0;
   virtual int getLocalDofs() const = 0;
 
   virtual std::unique_ptr<DeformationModel> createElement(

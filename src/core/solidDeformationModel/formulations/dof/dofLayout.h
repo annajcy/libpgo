@@ -21,9 +21,12 @@ namespace SolidDeformationModel
 //   x_e = G_e x          (gather: global → local)
 //   ∇_x E += G_e^T ∇_x_e E_e   (scatter: local → global, atomic)
 //
-// G_e is not stored as a matrix.  It is implemented by partitioning each
-// element's local DOFs into vertex-aligned DofGroup blocks that map to
-// contiguous global ranges by a simple offset.
+// This interface deliberately supports identity-only gather/scatter maps:
+// each local DOF maps to exactly one global DOF with unit coefficient. G_e is
+// therefore not stored as a matrix; it is represented by partitioning each
+// element's local DOFs into DofGroup blocks that map to contiguous global
+// ranges by a simple offset. Rotated or otherwise dense element transforms
+// (G_e entries with non-unit coefficients) are not supported by this API.
 
 // Note: DynamicIndexMatrix is defined here (instead of the assembler header)
 // so DofLayout can declare it without a circular dependency.
@@ -121,19 +124,18 @@ public:
 
   virtual void getDofGroups(int ele, std::vector<DofGroup> &groups) const = 0;
 
-  // === gather / scatterAddGradient (non-virtual) ===
+  // === gather / scatterAddGradient (identity-only) ===
   //
   // Built on top of getDofGroups() — the single mapping definition.  They
-  // are non-virtual because their semantics are fully determined by the
-  // DofGroup layout.  A subclass that needs a different local↔global
-  // mapping (e.g. a transformation T_e for rotated element axes) should
-  // override getDofGroups, not these.
+  // are non-virtual because this interface intentionally supports only the
+  // identity index mapping represented by DofGroup. A transformation T_e
+  // for rotated element axes requires a separate transform-aware layout API;
+  // it cannot be expressed by overriding getDofGroups().
   //
   // Identity-mapping convention: the default implementations assume
   // local[k] = global[globalStart + k] within each DofGroup.  This is
-  // sufficient for regular-grid meshes where local axes align with global
-  // axes.  A general unstructured mesh with rotated local axes would need a
-  // new subclass that overrides getDofGroups to apply T_e.
+  // sufficient for meshes where local axes align with global axes. Rotated
+  // local axes are intentionally outside this layout contract.
 
   void gather(int ele, const double *global, double *local,
     std::vector<DofGroup> &groups) const

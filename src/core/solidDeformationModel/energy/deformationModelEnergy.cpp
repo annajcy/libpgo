@@ -22,13 +22,24 @@ namespace ES = pgo::EigenSupport;
 namespace
 {
 
-void fillAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restPosition, ES::VXd &out)
+EigenSupport::VXd buildVertexRestPositions(const SimulationMesh &mesh)
 {
-  if (x.size() != restPosition.size()) {
+  EigenSupport::VXd positions(mesh.getNumVertices() * 3);
+  for (int vi = 0; vi < mesh.getNumVertices(); vi++) {
+    double p[3];
+    mesh.getVertex(vi, p);
+    positions.segment<3>(vi * 3) = EigenSupport::V3d(p[0], p[1], p[2]);
+  }
+  return positions;
+}
+
+void fillAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restDofs, ES::VXd &out)
+{
+  if (x.size() != restDofs.size()) {
     throw std::invalid_argument(
       "DeformationModelEnergy: local displacement size does not match the energy DOF count.");
   }
-  out.noalias() = restPosition + x;
+  out.noalias() = restDofs + x;
 }
 
 }  // namespace
@@ -40,9 +51,10 @@ DeformationModelEnergy::DeformationModelEnergy(
   bool enableMaterialMaxStep):
   forceModelAssembler(std::move(fma)),
   materialParameters_(std::move(materialParameters)),
-  restPosition(std::make_unique<ES::VXd>(forceModelAssembler->getRestPosition())),
+  restDofs(std::make_unique<ES::VXd>(forceModelAssembler->getRestDofs())),
+  vertexRestPositions(buildVertexRestPositions(
+    *forceModelAssembler->getDeformationModelManager().getMesh())),
   absolutePositionScratch_([this]() { return ES::VXd(forceModelAssembler->getNumDOFs()); }),
-  directionScratch_([this]() { return ES::VXd(forceModelAssembler->getNumDOFs()); }),
   enableMaterialMaxStep_(enableMaterialMaxStep)
 {
   if (!materialParameters_)
@@ -65,11 +77,6 @@ ES::VXd &DeformationModelEnergy::absolutePositionScratch() const
   return absolutePositionScratch_.local();
 }
 
-ES::VXd &DeformationModelEnergy::directionScratch() const
-{
-  return directionScratch_.local();
-}
-
 double DeformationModelEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
   return func(x, materialParameters_->committedView());
@@ -80,121 +87,125 @@ double DeformationModelEnergy::func(
 {
   Profiling::ScopedProfileSection scopedProfile("material.energy");
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(x, *restPosition, p);
+  fillAbsolutePositions(x, *restDofs, p);
   return forceModelAssembler->computeEnergy(p.data(), state);
 }
 
-void DeformationModelEnergy::computePlasticGradient(
+void DeformationModelEnergy::compute_dE_dp(
   ES::ConstRefVecXd displacement, ES::RefVecXd grad) const
 {
-  computePlasticGradient(displacement, materialParameters_->committedView(), grad);
+  compute_dE_dp(displacement, materialParameters_->committedView(), grad);
 }
 
-void DeformationModelEnergy::computePlasticGradient(
+void DeformationModelEnergy::compute_dE_dp(
   ES::ConstRefVecXd displacement, MaterialStateView state, ES::RefVecXd grad) const
 {
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(displacement, *restPosition, p);
-  forceModelAssembler->computePlasticGradient(
+  fillAbsolutePositions(displacement, *restDofs, p);
+  forceModelAssembler->compute_dE_dp(
     p.data(), state, grad.data());
 }
 
-void DeformationModelEnergy::computeElasticGradient(
+void DeformationModelEnergy::compute_dE_de(
   ES::ConstRefVecXd displacement, ES::RefVecXd grad) const
 {
-  computeElasticGradient(displacement, materialParameters_->committedView(), grad);
+  compute_dE_de(displacement, materialParameters_->committedView(), grad);
 }
 
-void DeformationModelEnergy::computeElasticGradient(
+void DeformationModelEnergy::compute_dE_de(
   ES::ConstRefVecXd displacement, MaterialStateView state, ES::RefVecXd grad) const
 {
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(displacement, *restPosition, p);
-  forceModelAssembler->computeElasticGradient(
+  fillAbsolutePositions(displacement, *restDofs, p);
+  forceModelAssembler->compute_dE_de(
     p.data(), state, grad.data());
 }
 
-void DeformationModelEnergy::computePlasticHessian(
+void DeformationModelEnergy::compute_d2E_dp2(
   ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
 {
-  computePlasticHessian(displacement, materialParameters_->committedView(), hess);
+  compute_d2E_dp2(displacement, materialParameters_->committedView(), hess);
 }
 
-void DeformationModelEnergy::computePlasticHessian(
+void DeformationModelEnergy::compute_d2E_dp2(
   ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &hess) const
 {
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(displacement, *restPosition, p);
-  forceModelAssembler->computePlasticHessian(
+  fillAbsolutePositions(displacement, *restDofs, p);
+  forceModelAssembler->compute_d2E_dp2(
     p.data(), state, hess);
 }
 
-void DeformationModelEnergy::computeElasticHessian(
+void DeformationModelEnergy::compute_d2E_de2(
   ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
 {
-  computeElasticHessian(displacement, materialParameters_->committedView(), hess);
+  compute_d2E_de2(displacement, materialParameters_->committedView(), hess);
 }
 
-void DeformationModelEnergy::computeElasticHessian(
+void DeformationModelEnergy::compute_d2E_de2(
   ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &hess) const
 {
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(displacement, *restPosition, p);
-  forceModelAssembler->computeElasticHessian(
+  fillAbsolutePositions(displacement, *restDofs, p);
+  forceModelAssembler->compute_d2E_de2(
     p.data(), state, hess);
 }
 
-void DeformationModelEnergy::computePlasticElasticHessian(
+void DeformationModelEnergy::compute_d2E_dpde(
   ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
 {
-  computePlasticElasticHessian(
+  compute_d2E_dpde(
     displacement, materialParameters_->committedView(), hess);
 }
 
-void DeformationModelEnergy::computePlasticElasticHessian(
+void DeformationModelEnergy::compute_d2E_dpde(
   ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &hess) const
 {
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(displacement, *restPosition, p);
-  forceModelAssembler->computePlasticElasticHessian(
+  fillAbsolutePositions(displacement, *restDofs, p);
+  forceModelAssembler->compute_d2E_dpde(
     p.data(), state, hess);
 }
 
-void DeformationModelEnergy::computeDfDa(
-  ES::ConstRefVecXd displacement, ES::SpMatD &jacobian) const
+void DeformationModelEnergy::compute_d2E_dudp(
+  ES::ConstRefVecXd displacement, ES::SpMatD &mixedHessian) const
 {
-  computeDfDa(displacement, materialParameters_->committedView(), jacobian);
+  compute_d2E_dudp(
+    displacement, materialParameters_->committedView(), mixedHessian);
 }
 
-void DeformationModelEnergy::computeDfDa(
-  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &jacobian) const
+void DeformationModelEnergy::compute_d2E_dudp(
+  ES::ConstRefVecXd displacement, MaterialStateView state,
+  ES::SpMatD &mixedHessian) const
 {
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(displacement, *restPosition, p);
-  forceModelAssembler->compute_df_da(
-    p.data(), state, jacobian);
+  fillAbsolutePositions(displacement, *restDofs, p);
+  forceModelAssembler->compute_d2E_dudp(
+    p.data(), state, mixedHessian);
 }
 
-void DeformationModelEnergy::computeDfDb(
-  ES::ConstRefVecXd displacement, ES::SpMatD &jacobian) const
+void DeformationModelEnergy::compute_d2E_dude(
+  ES::ConstRefVecXd displacement, ES::SpMatD &mixedHessian) const
 {
-  computeDfDb(displacement, materialParameters_->committedView(), jacobian);
+  compute_d2E_dude(
+    displacement, materialParameters_->committedView(), mixedHessian);
 }
 
-void DeformationModelEnergy::computeDfDb(
-  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &jacobian) const
+void DeformationModelEnergy::compute_d2E_dude(
+  ES::ConstRefVecXd displacement, MaterialStateView state,
+  ES::SpMatD &mixedHessian) const
 {
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(displacement, *restPosition, p);
-  forceModelAssembler->compute_df_db(
-    p.data(), state, jacobian);
+  fillAbsolutePositions(displacement, *restDofs, p);
+  forceModelAssembler->compute_d2E_dude(
+    p.data(), state, mixedHessian);
 }
 
 void DeformationModelEnergy::computeVonMisesStresses(
   ES::ConstRefVecXd displacement, ES::RefVecXd elementStresses) const
 {
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(displacement, *restPosition, p);
+  fillAbsolutePositions(displacement, *restDofs, p);
   forceModelAssembler->computeVonMisesStresses(
     p.data(), materialParameters_->committedView(), elementStresses.data());
 }
@@ -203,7 +214,7 @@ void DeformationModelEnergy::computeMaxStrains(
   ES::ConstRefVecXd displacement, ES::RefVecXd elementStrains) const
 {
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(displacement, *restPosition, p);
+  fillAbsolutePositions(displacement, *restDofs, p);
   forceModelAssembler->computeMaxStrains(
     p.data(), materialParameters_->committedView(), elementStrains.data());
 }
@@ -220,7 +231,7 @@ void DeformationModelEnergy::gradient(
 {
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(x, *restPosition, p);
+  fillAbsolutePositions(x, *restDofs, p);
   forceModelAssembler->computeGradient(p.data(), state, grad.data());
 }
 
@@ -236,7 +247,7 @@ void DeformationModelEnergy::hessianInPlace(
 {
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
   ES::VXd &p = absolutePositionScratch();
-  fillAbsolutePositions(x, *restPosition, p);
+  fillAbsolutePositions(x, *restDofs, p);
   forceModelAssembler->computeHessian(p.data(), state, hess);
 }
 
@@ -258,15 +269,13 @@ NonlinearOptimization::StepConstraint DeformationModelEnergy::computeMaxStepLimi
       "DeformationModelEnergy::computeMaxStepLimit: local state size does not match the energy DOF count.");
   }
 
-  ES::VXd &dxLocal = directionScratch();
-  dxLocal = dx;
-  if (dxLocal.size() == 0 || dxLocal.squaredNorm() == 0.0) {
+  if (dx.size() == 0 || dx.squaredNorm() == 0.0) {
     return NonlinearOptimization::StepConstraint{};
   }
 
   ES::VXd &absolutePositions = absolutePositionScratch();
-  fillAbsolutePositions(x, *restPosition, absolutePositions);
-  const auto observation = forceModelAssembler->computeMaxStepObservation(absolutePositions.data(), dxLocal.data());
+  fillAbsolutePositions(x, *restDofs, absolutePositions);
+  const auto observation = forceModelAssembler->computeMaxStepObservation(absolutePositions.data(), dx.data());
   const double maxStepSize = observation.alpha;
 
   if (maxStepSize < 1.0) {

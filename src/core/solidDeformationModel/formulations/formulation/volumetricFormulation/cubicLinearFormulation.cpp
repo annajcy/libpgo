@@ -16,7 +16,7 @@ CubicLinearFormulation::CubicLinearFormulation()
 }
 
 std::string_view CubicLinearFormulation::getName() const { return "cubic_linear"; }
-int CubicLinearFormulation::getNodesPerElement() const { return 8; }
+int CubicLinearFormulation::numBasisFunctionsPerElement() const { return 8; }
 int CubicLinearFormulation::getLocalDofs() const { return 24; }
 
 }  // namespace SolidDeformationModel

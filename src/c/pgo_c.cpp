@@ -701,7 +701,7 @@ int pgo_run_sim_from_config(const char *configFileName)
     return 1;
   }
 
-  ES::VXd restPosition = elasticEnergy->getRestPosition();
+  ES::VXd restPosition = elasticEnergy->getRestDofs();
 
   ES::VXd zero(n3);
   zero.setZero();

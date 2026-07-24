@@ -43,22 +43,36 @@ public:
   void computeGradient(const double *x, MaterialStateView state, double *grad) const;
   void computeHessian(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
 
-  void compute_df_da(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
-  void compute_df_db(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
+  // E(u, p, e): u = displacement, p = plastic DOFs, e = elastic DOFs.
+  // absolutePositions is rest + u, whose derivative with respect to u is I.
+  void compute_d2E_dudp(
+    const double *absolutePositions, MaterialStateView state,
+    EigenSupport::SpMatD &mixedHessian) const;
+  void compute_d2E_dude(
+    const double *absolutePositions, MaterialStateView state,
+    EigenSupport::SpMatD &mixedHessian) const;
   int getNumElasticGlobalParams() const;
   int getNumPlasticGlobalParams() const;
   std::shared_ptr<const MaterialParameterSpace> materialParameterSpace() const
   {
     return materialParameterSpace_;
   }
-  const EigenSupport::SpMatD &getPlasticHessianTemplate() const { return d2Eda2Template; }
-  const EigenSupport::SpMatD &getElasticHessianTemplate() const { return d2Edb2Template; }
-  const EigenSupport::SpMatD &getPlasticElasticHessianTemplate() const { return d2EdadbTemplate; }
-  void computePlasticGradient(const double *x, MaterialStateView state, double *grad) const;
-  void computePlasticHessian(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
-  void computeElasticGradient(const double *x, MaterialStateView state, double *grad) const;
-  void computeElasticHessian(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
-  void computePlasticElasticHessian(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
+  const EigenSupport::SpMatD &d2E_dp2_template() const { return d2E_dp2Template; }
+  const EigenSupport::SpMatD &d2E_de2_template() const { return d2E_de2Template; }
+  const EigenSupport::SpMatD &d2E_dpde_template() const { return d2E_dpdeTemplate; }
+  const EigenSupport::SpMatD &d2E_dudp_template() const
+  {
+    return d2E_dudpTemplate;
+  }
+  const EigenSupport::SpMatD &d2E_dude_template() const
+  {
+    return d2E_dudeTemplate;
+  }
+  void compute_dE_dp(const double *x, MaterialStateView state, double *grad) const;
+  void compute_d2E_dp2(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
+  void compute_dE_de(const double *x, MaterialStateView state, double *grad) const;
+  void compute_d2E_de2(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dpde(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
 
   void computeVonMisesStresses(const double *x, MaterialStateView state, double *elementStresses) const;
   void computeMaxStrains(const double *x, MaterialStateView state, double *elementStrain) const;
@@ -68,11 +82,11 @@ public:
   const DeformationModelManager &getDeformationModelManager() const { return *deformationModelManager; }
   DeformationModelManager &getDeformationModelManager() { return *deformationModelManager; }
   const DofLayout &getDofLayout() const { return *dofLayout; }
-  const EigenSupport::VXd &getRestPosition() const { return restDofs_; }
+  // The formulation rest state contains every global DOF.  For Hermite
+  // formulations this includes derivative DOFs in addition to vertex
+  // positions, so it must not be interpreted as a (numVertices x 3) array.
+  const EigenSupport::VXd &getRestDofs() const { return restDofs_; }
   const EigenSupport::SpMatD &getHessianTemplate() const { return KTemplate; }
-  const EigenSupport::SpMatD &get_dfda_Template() const { return dfdaTemplate; }
-  const EigenSupport::SpMatD &get_dfdb_Template() const { return dfdbTemplate; }
-
   int getNumElasticParams() const { return numElasticParams_; }
   int getNumPlasticParams() const { return numPlasticParams_; }
 
@@ -90,11 +104,19 @@ protected:
   int numElasticLocalParams_ = 0;
   int numPlasticLocalParams_ = 0;
 
-  EigenSupport::SpMatD KTemplate, dfdaTemplate, dfdbTemplate, d2Eda2Template, d2Edb2Template, d2EdadbTemplate;
+  EigenSupport::SpMatD KTemplate;
+  EigenSupport::SpMatD d2E_dudpTemplate;
+  EigenSupport::SpMatD d2E_dudeTemplate;
+  EigenSupport::SpMatD d2E_dp2Template;
+  EigenSupport::SpMatD d2E_de2Template;
+  EigenSupport::SpMatD d2E_dpdeTemplate;
 
   std::vector<std::vector<HessianBlockOffset>> elementKBlockOffsets;
-  std::vector<DynamicIndexMatrix> element_dfda_InverseIndices, element_dfdb_InverseIndices;
-  std::vector<DynamicIndexMatrix> element_d2Eda2_InverseIndices, element_d2Edb2_InverseIndices, element_d2Edadb_InverseIndices;
+  std::vector<DynamicIndexMatrix> element_d2E_dudp_InverseIndices;
+  std::vector<DynamicIndexMatrix> element_d2E_dude_InverseIndices;
+  std::vector<DynamicIndexMatrix> element_d2E_dp2_InverseIndices;
+  std::vector<DynamicIndexMatrix> element_d2E_de2_InverseIndices;
+  std::vector<DynamicIndexMatrix> element_d2E_dpde_InverseIndices;
 
   std::vector<double> elementWeights;
   std::vector<const DeformationModel *> femModels;
@@ -108,8 +130,8 @@ private:
     DeformationModel::CacheData *cache = nullptr;
   };
 
-  // Build a mixed sparsity template + inverse-index map for d²E/dx dp (df/dp).
-  // Shared by the dfdb and dfda template construction in the constructor.
+  // Build a mixed sparsity template + inverse-index map for d²E/dx dp.
+  // Shared by the displacement-elastic and displacement-plastic templates.
   void buildMixedSparsityTemplate(
     int numLocalParams,
     int numGlobalParams,
@@ -118,10 +140,9 @@ private:
     std::vector<DynamicIndexMatrix> &inverseIndices,
     std::vector<EigenSupport::TripletD> &entries);
 
-  // Generic df/dparam assembly loop — shared by compute_df_da and compute_df_db.
-  // computeLocal is a pointer to DeformationModel::compute_d2E_dxda (or _dxdb).
-  void assembleDfDparam(
-    const double *x,
+  // Generic d²E/(du dq) assembly loop, where q is p or e.
+  void assemble_d2E_dudq(
+    const double *absolutePositions,
     MaterialStateView state,
     int numMaterialParams,
     int numLocalParams,
@@ -129,7 +150,7 @@ private:
     const std::vector<DynamicIndexMatrix> &inverseIndices,
     void (DeformationModel::*computeLocal)(
       const DeformationModel::CacheData *, double *, int) const,
-    EigenSupport::SpMatD &hess,
+    EigenSupport::SpMatD &mixedHessian,
     const char *label) const;
 
   // Gather local displacement DOFs and externally computed material parameter values,

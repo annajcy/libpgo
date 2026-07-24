@@ -87,6 +87,10 @@ class TestWrappers:
         assert pf.TetLinear().name == "tet_linear"
         assert pf.CubicLinear().name == "cubic_linear"
         assert pf.KoiterShell().name == "shell_koiter"
+        assert pf.TetLinear().num_basis_functions_per_element() == 4
+        assert pf.CubicLinear().num_basis_functions_per_element() == 8
+        assert pf.CubicTricubicHermite().num_basis_functions_per_element() == 64
+        assert pf.KoiterShell().num_basis_functions_per_element() == 6
 
     def test_material_ids(self):
         assert pf.StableNeo().name == "stable_neo"
@@ -178,6 +182,8 @@ class TestDeformationEnergyParameters:
         )
 
         assert energy.parameters.space.plastic.num_value_rows == 1
+        assert energy.parameters.space.plastic.num_global_dofs == 6
+        assert energy.num_plastic_dofs == 6
         assert energy.parameters.plastic_values.shape == (1, 6)
         assert np.allclose(energy.parameters.plastic_values, params)
 
@@ -199,6 +205,49 @@ class TestDeformationEnergyParameters:
 
 
 class TestDeformationEnergy:
+    def test_legacy_parameter_derivative_names_are_not_exposed(self):
+        energy = _make_energy(_make_tet_sim_mesh())
+        legacy_names = (
+            "elastic_gradient",
+            "plastic_gradient",
+            "elastic_hessian",
+            "plastic_hessian",
+            "plastic_elastic_hessian",
+            "elastic_jacobian",
+            "plastic_jacobian",
+        )
+        assert all(not hasattr(energy, name) for name in legacy_names)
+
+    def test_factory_uses_formulation_handle_not_name(self):
+        class MisleadingTetLinear(pf.TetLinear):
+            @property
+            def name(self):
+                return "not_a_formulation"
+
+        sim = _make_tet_sim_mesh()
+        energy = _make_energy(sim, formulation=MisleadingTetLinear())
+        assert energy.num_dofs == 3 * sim.num_vertices
+
+    def test_element_weights_are_forwarded_to_builder(self):
+        sim = _make_tet_sim_mesh()
+        energy = _make_energy(
+            sim,
+            options=pf.DeformationOptions(element_weights=np.array([0.0])),
+        )
+        u = energy.zero_state()
+        u[0] = 0.1
+
+        assert energy.value(u) == pytest.approx(0.0)
+        assert np.allclose(energy.gradient(u), 0.0)
+
+    def test_element_weights_require_one_value_per_element(self):
+        sim = _make_tet_sim_mesh()
+        with pytest.raises(ValueError, match="element_weights size"):
+            _make_energy(
+                sim,
+                options=pf.DeformationOptions(element_weights=np.array([1.0, 1.0])),
+            )
+
     def test_tet_energy_evaluates(self):
         sim = _make_tet_sim_mesh()
         energy = _make_energy(sim)
@@ -215,7 +264,7 @@ class TestDeformationEnergy:
         H = energy.hessian(u)
         assert H.shape == (energy.num_dofs, energy.num_dofs)
         assert H.nnz > 0
-        assert energy.rest_position.shape == (sim.num_vertices, 3)
+        assert energy.vertex_rest_positions.shape == (sim.num_vertices, 3)
         assert energy.num_vertices == sim.num_vertices
 
     def test_cubic_energy_evaluates(self):
@@ -224,6 +273,14 @@ class TestDeformationEnergy:
         u = energy.zero_state()
         assert np.isfinite(energy.value(u))
         assert energy.hessian(u).nnz > 0
+
+    def test_hermite_rest_state_and_vertex_positions_are_distinct(self):
+        sim = _make_cubic_sim_mesh()
+        energy = _make_energy(sim, formulation=pf.CubicTricubicHermite())
+
+        assert energy.rest_state.shape == (energy.num_dofs,)
+        assert energy.rest_state.shape == (sim.num_vertices * 24,)
+        assert energy.vertex_rest_positions.shape == (sim.num_vertices, 3)
 
     def test_cubic_energy_exposes_plastic_derivatives_and_material_energy(self):
         sim = _make_cubic_sim_mesh()
@@ -240,23 +297,26 @@ class TestDeformationEnergy:
             u[3 * vi + 1] = 4e-3 * np.cos(0.7 * vi + 0.3)
             u[3 * vi + 2] = 3e-3 * np.sin(1.3 * vi + 0.5)
 
-        grad = energy.plastic_gradient(u)
-        hess = energy.plastic_hessian(u)
-        jac = energy.plastic_jacobian(u)
-        assert grad.shape == (6,)
-        assert hess.shape == (6, 6)
-        assert jac.shape == (energy.num_dofs, 6)
-        assert np.linalg.norm(grad) > 0.0
-        assert hess.nnz > 0
-        assert jac.nnz > 0
+        dE_dp = energy.dE_dp(u)
+        d2E_dp2 = energy.d2E_dp2(u)
+        d2E_dudp = energy.d2E_dudp(u)
+        assert dE_dp.shape == (6,)
+        assert d2E_dp2.shape == (6, 6)
+        assert d2E_dudp.shape == (energy.num_dofs, 6)
+        assert np.linalg.norm(dE_dp) > 0.0
+        assert d2E_dp2.nnz > 0
+        assert d2E_dudp.nnz > 0
 
         material_energy = pf.plastic_material_energy(energy, fixed_displacement=u)
         assert isinstance(material_energy, pe.PotentialEnergy)
         assert material_energy.num_dofs == 6
         assert material_energy.state_kind == "generic"
         assert np.isclose(material_energy.value(plastic.ravel()), energy.value(u))
-        assert np.allclose(material_energy.gradient(plastic.ravel()), grad)
-        assert np.allclose(material_energy.hessian(plastic.ravel()).to_dense(), hess.to_dense())
+        assert np.allclose(material_energy.gradient(plastic.ravel()), dE_dp)
+        assert np.allclose(
+            material_energy.hessian(plastic.ravel()).to_dense(),
+            d2E_dp2.to_dense(),
+        )
 
     def test_shell_energy_exposes_elastic_material_energy(self):
         sim = _make_shell_sim_mesh()
@@ -277,8 +337,8 @@ class TestDeformationEnergy:
             u[3 * vi + 1] = 4e-3 * np.cos(0.7 * vi + 0.3)
             u[3 * vi + 2] = 3e-3 * np.sin(1.3 * vi + 0.5)
 
-        grad = energy.elastic_gradient(u)
-        hess = energy.elastic_hessian(u)
+        dE_de = energy.dE_de(u)
+        d2E_de2 = energy.d2E_de2(u)
         material_energy = pf.elastic_material_energy(energy, fixed_displacement=u)
 
         assert isinstance(material_energy, pe.PotentialEnergy)
@@ -286,8 +346,11 @@ class TestDeformationEnergy:
         assert material_energy.num_dofs == 5
         assert material_energy.state_kind == "generic"
         assert np.isclose(material_energy.value(elastic.ravel()), energy.value(u))
-        assert np.allclose(material_energy.gradient(elastic.ravel()), grad)
-        assert np.allclose(material_energy.hessian(elastic.ravel()).to_dense(), hess.to_dense())
+        assert np.allclose(material_energy.gradient(elastic.ravel()), dE_de)
+        assert np.allclose(
+            material_energy.hessian(elastic.ravel()).to_dense(),
+            d2E_de2.to_dense(),
+        )
 
     def test_shell_energy_evaluates(self):
         sim = _make_shell_sim_mesh()
@@ -300,13 +363,17 @@ class TestDeformationEnergy:
         u = energy.zero_state()
         assert np.isfinite(energy.value(u))
         assert energy.hessian(u).nnz > 0
-        assert energy.elastic_gradient(u).shape == (energy.num_elastic_dofs,)
-        assert energy.elastic_hessian(u).shape == (
+        assert energy.dE_de(u).shape == (energy.num_elastic_dofs,)
+        assert energy.d2E_de2(u).shape == (
             energy.num_elastic_dofs,
             energy.num_elastic_dofs,
         )
-        assert energy.plastic_elastic_hessian(u).shape == (
+        assert energy.d2E_dpde(u).shape == (
             energy.num_plastic_dofs,
+            energy.num_elastic_dofs,
+        )
+        assert energy.d2E_dude(u).shape == (
+            energy.num_dofs,
             energy.num_elastic_dofs,
         )
 

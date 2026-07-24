@@ -37,26 +37,26 @@ public:
   double computeEnergy(const DeformationModelCacheData *cacheData) const override;
   void compute_dE_dx(const DeformationModelCacheData *cacheData, double *grad) const override;
   void compute_d2E_dx2(const DeformationModelCacheData *cacheData, double *hess) const override;
-  void compute_d2E_dxda(
+  void compute_d2E_dudp(
     const DeformationModelCacheData *cacheData, double *hess,
     int materialLocation = -1) const override;
-  void compute_d2E_dxdb(
+  void compute_d2E_dude(
     const DeformationModelCacheData *cacheData, double *hess,
     int materialLocation = -1) const override;
 
-  void compute_dE_da(
+  void compute_dE_dp(
     const DeformationModelCacheData *cacheData, double *grad,
     int materialLocation = -1) const override;
-  void compute_d2E_da2(
+  void compute_d2E_dp2(
     const DeformationModelCacheData *cacheData, double *hess,
     int materialLocation = -1) const override;
-  void compute_dE_db(
+  void compute_dE_de(
     const DeformationModelCacheData *cacheData, double *grad,
     int materialLocation = -1) const override;
-  void compute_d2E_db2(
+  void compute_d2E_de2(
     const DeformationModelCacheData *cacheData, double *hess,
     int materialLocation = -1) const override;
-  void compute_d2E_dadb(
+  void compute_d2E_dpde(
     const DeformationModelCacheData *cacheData, double *hess,
     int materialLocation = -1) const override;
 
@@ -78,10 +78,12 @@ public:
   void computeForceFromP(const DeformationModelCacheData *cacheData, int materialLocationID,
     const double P[9], double f[/*localDofs_*/]) const;
 
-  void vonMisesStress(const DeformationModelCacheData *cacheData,
-    int &nPt, double *stresses) const override;
-  void maxStrain(const DeformationModelCacheData *cacheData,
-    int &nPt, double *stresses) const override;
+  int computeVonMisesStress(
+    const DeformationModelCacheData *cacheData,
+    double *stresses, int capacity) const override;
+  int computeMaxStrain(
+    const DeformationModelCacheData *cacheData,
+    double *strains, int capacity) const override;
 
   const VolumetricElementMapping &mapping() const { return elementMapping_; }
 

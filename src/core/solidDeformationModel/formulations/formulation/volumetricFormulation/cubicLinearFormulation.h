@@ -12,7 +12,7 @@ class CubicLinearFormulation : public CubicFormulation
 public:
   CubicLinearFormulation();
   std::string_view getName() const override;
-  int getNodesPerElement() const override;
+  int numBasisFunctionsPerElement() const override;
   int getLocalDofs() const override;
 };
 

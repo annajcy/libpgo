@@ -195,7 +195,7 @@ std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
   const SimulationMesh &mesh, int ele,
   std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const
 {
-  const int numNodes = getNodesPerElement();
+  const int numNodes = shapeFunction_->numNodes();
   std::vector<double> restPosition(numNodes * 3);
   for (int j = 0; j < numNodes; j++)
     mesh.getVertex(ele, j, &restPosition[3 * j]);

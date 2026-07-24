@@ -25,7 +25,7 @@ ElasticMaterialEnergy::ElasticMaterialEnergy(
   if (!deformationEnergy_) {
     throw std::invalid_argument("ElasticMaterialEnergy requires a non-null deformation energy.");
   }
-  if (fixedDisplacement_.size() != deformationEnergy_->getRestPosition().size()) {
+  if (fixedDisplacement_.size() != deformationEnergy_->getRestDofs().size()) {
     throw std::invalid_argument("ElasticMaterialEnergy fixed displacement size must match the deformation energy rest position size.");
   }
 
@@ -40,7 +40,7 @@ ElasticMaterialEnergy::~ElasticMaterialEnergy() = default;
 
 ES::VXd ElasticMaterialEnergy::absolutePositions() const
 {
-  return deformationEnergy_->getRestPosition() + fixedDisplacement_;
+  return deformationEnergy_->getRestDofs() + fixedDisplacement_;
 }
 
 double ElasticMaterialEnergy::func(EigenSupport::ConstRefVecXd x) const
@@ -60,7 +60,8 @@ void ElasticMaterialEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport
     deformationEnergy_->materialParameters()->space()->makeStateView(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())),
     std::span<const double>(fixedPlasticParameters_.data(), static_cast<std::size_t>(fixedPlasticParameters_.size())));
-  deformationEnergy_->assembler().computeElasticGradient(p.data(), state, grad.data());
+  deformationEnergy_->assembler().compute_dE_de(
+    p.data(), state, grad.data());
 }
 
 void ElasticMaterialEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
@@ -70,10 +71,11 @@ void ElasticMaterialEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenS
     deformationEnergy_->materialParameters()->space()->makeStateView(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())),
     std::span<const double>(fixedPlasticParameters_.data(), static_cast<std::size_t>(fixedPlasticParameters_.size())));
-  deformationEnergy_->assembler().computeElasticHessian(p.data(), state, hess);
+  deformationEnergy_->assembler().compute_d2E_de2(
+    p.data(), state, hess);
 }
 
 void ElasticMaterialEnergy::hessianAlloc(EigenSupport::SpMatD &hess) const
 {
-  hess = deformationEnergy_->assembler().getElasticHessianTemplate();
+  hess = deformationEnergy_->assembler().d2E_de2_template();
 }
