@@ -59,13 +59,7 @@ jobs:
           cmake --preset base-ci
           cmake --build --preset base-ci
 
-      - name: Run native tests
-        run: ctest --test-dir build/base-ci --output-on-failure
-
-      - name: Install Python test dependencies
-        run: python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify torch
-
-      - name: Generate Python test volume assets
+      - name: Generate test volume assets
         run: |
           python examples/assets/generate_veg_assets.py \
             --assets box \
@@ -73,6 +67,12 @@ jobs:
             --tet-backend tetgen \
             --tet-target-elements 100 \
             --static-dragon-target-elements 0
+
+      - name: Run native tests
+        run: ctest --test-dir build/base-ci --output-on-failure
+
+      - name: Install Python test dependencies
+        run: python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify torch
 
       - name: Run Python API tests
         env:

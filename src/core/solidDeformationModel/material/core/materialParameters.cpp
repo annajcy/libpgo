@@ -59,6 +59,18 @@ std::shared_ptr<const MaterialParameterField> MaterialParameterField::create(
       std::move(channelNames), std::move(dofLayout), std::move(mapping)));
 }
 
+void MaterialParameterEvaluationScratch::prepare(
+  const MaterialParameterField &field)
+{
+  const std::size_t localDofs = static_cast<std::size_t>(
+    field.dofLayout().numLocalDofs());
+  const std::size_t channels = static_cast<std::size_t>(
+    field.channelMapping().numChannels());
+  local.resize(localDofs);
+  material.resize(channels);
+  jacobian.resize(localDofs * channels);
+}
+
 MaterialParameterRef MaterialParameterField::parameter(std::string_view name) const
 {
   for (int i = 0; i < static_cast<int>(channelNames_.size()); i++) {
@@ -256,22 +268,42 @@ std::string_view MaterialParameterRef::name() const
 double MaterialParameterRef::value(
   int element,
   int quadrature,
-  MaterialParameterEvaluationView state) const
+  const MaterialParameterEvaluationView &state) const
+{
+  MaterialParameterEvaluationScratch scratch;
+  return value(element, quadrature, state, scratch);
+}
+
+double MaterialParameterRef::value(
+  int element,
+  int quadrature,
+  const MaterialParameterEvaluationView &state,
+  MaterialParameterEvaluationScratch &scratch) const
 {
   const MaterialParameterField &f = field();
   const ParameterDofLayout &layout = f.dofLayout();
   const MaterialChannelMapping &mapping = f.channelMapping();
-  std::vector<double> local(static_cast<std::size_t>(layout.numLocalDofs()));
-  std::vector<double> material(static_cast<std::size_t>(mapping.numChannels()));
-  layout.gather(element, state.values(f), local);
-  mapping.evaluate(element, quadrature, local, material);
-  return material[static_cast<std::size_t>(channel_)];
+  scratch.prepare(f);
+  layout.gather(element, state.values(f), scratch.local);
+  mapping.evaluate(element, quadrature, scratch.local, scratch.material);
+  return scratch.material[static_cast<std::size_t>(channel_)];
 }
 
 void MaterialParameterRef::localDerivative(
   int element,
   int quadrature,
-  MaterialParameterEvaluationView state,
+  const MaterialParameterEvaluationView &state,
+  double *output) const
+{
+  MaterialParameterEvaluationScratch scratch;
+  localDerivative(element, quadrature, state, scratch, output);
+}
+
+void MaterialParameterRef::localDerivative(
+  int element,
+  int quadrature,
+  const MaterialParameterEvaluationView &state,
+  MaterialParameterEvaluationScratch &scratch,
   double *output) const
 {
   const MaterialParameterField &f = field();
@@ -279,13 +311,12 @@ void MaterialParameterRef::localDerivative(
   const MaterialChannelMapping &mapping = f.channelMapping();
   if (layout.numLocalDofs() > 0 && output == nullptr)
     throw std::invalid_argument("MaterialParameterRef requires a derivative output buffer.");
-  std::vector<double> local(static_cast<std::size_t>(layout.numLocalDofs()));
-  std::vector<double> jacobian(
-    static_cast<std::size_t>(mapping.numChannels()) * layout.numLocalDofs());
-  layout.gather(element, state.values(f), local);
-  mapping.evaluateJacobian(element, quadrature, local, jacobian.data());
+  scratch.prepare(f);
+  layout.gather(element, state.values(f), scratch.local);
+  mapping.evaluateJacobian(
+    element, quadrature, scratch.local, scratch.jacobian.data());
   for (int k = 0; k < layout.numLocalDofs(); k++)
-    output[k] = jacobian[
+    output[k] = scratch.jacobian[
       static_cast<std::size_t>(k) * mapping.numChannels() + channel_];
 }
 

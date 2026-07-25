@@ -3,7 +3,6 @@
 #include "material/core/materialParameters.h"
 
 #include <memory>
-#include <optional>
 #include <span>
 
 namespace pgo::SolidDeformationModel
@@ -22,11 +21,20 @@ public:
   virtual double value(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state) const = 0;
+    const MaterialParameterEvaluationView &state) const = 0;
 
-  // At most one parameter field is supported by this refactor. An empty
-  // result denotes a source independent of material parameters.
-  virtual std::optional<MaterialParameterRef> parameterDependency() const = 0;
+  // Batch callers can provide reusable storage. The default implementation
+  // preserves the behavior of custom sources that do not need it.
+  virtual double valueWithScratch(
+    int element,
+    int quadrature,
+    const MaterialParameterEvaluationView &state,
+    MaterialParameterEvaluationScratch &scratch) const;
+
+  // At most one parameter field is supported by this refactor. A null pointer
+  // denotes a source independent of material parameters. The returned pointer
+  // remains valid for the lifetime of this source.
+  virtual const MaterialParameterRef *parameterDependency() const = 0;
 
   // The output span has exactly
   // parameterDependency()->field().dofLayout().numLocalDofs() entries when
@@ -35,8 +43,15 @@ public:
   virtual void localParameterDerivative(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state,
+    const MaterialParameterEvaluationView &state,
     std::span<double> output) const = 0;
+
+  virtual void localParameterDerivativeWithScratch(
+    int element,
+    int quadrature,
+    const MaterialParameterEvaluationView &state,
+    MaterialParameterEvaluationScratch &scratch,
+    std::span<double> output) const;
 };
 
 class ConstantScalarFieldSource final : public ElementScalarFieldSource
@@ -48,12 +63,12 @@ public:
   double value(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state) const override;
-  std::optional<MaterialParameterRef> parameterDependency() const override;
+    const MaterialParameterEvaluationView &state) const override;
+  const MaterialParameterRef *parameterDependency() const override;
   void localParameterDerivative(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state,
+    const MaterialParameterEvaluationView &state,
     std::span<double> output) const override;
 
 private:
@@ -69,12 +84,12 @@ public:
   double value(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state) const override;
-  std::optional<MaterialParameterRef> parameterDependency() const override;
+    const MaterialParameterEvaluationView &state) const override;
+  const MaterialParameterRef *parameterDependency() const override;
   void localParameterDerivative(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state,
+    const MaterialParameterEvaluationView &state,
     std::span<double> output) const override;
 
 private:
@@ -92,12 +107,23 @@ public:
   double value(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state) const override;
-  std::optional<MaterialParameterRef> parameterDependency() const override;
+    const MaterialParameterEvaluationView &state) const override;
+  double valueWithScratch(
+    int element,
+    int quadrature,
+    const MaterialParameterEvaluationView &state,
+    MaterialParameterEvaluationScratch &scratch) const override;
+  const MaterialParameterRef *parameterDependency() const override;
   void localParameterDerivative(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state,
+    const MaterialParameterEvaluationView &state,
+    std::span<double> output) const override;
+  void localParameterDerivativeWithScratch(
+    int element,
+    int quadrature,
+    const MaterialParameterEvaluationView &state,
+    MaterialParameterEvaluationScratch &scratch,
     std::span<double> output) const override;
 
 private:

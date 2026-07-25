@@ -106,6 +106,13 @@ void VolumetricDeformationModel::prepareData(
   const double *x, const double *elasticParams, const double *plasticParams,
   DeformationModelCacheData *cacheDataBase) const
 {
+  if (numElasticParams_ > 0 && elasticParams == nullptr)
+    throw std::invalid_argument(
+      "Elastic parameters are required by this volumetric deformation model.");
+  if (numPlasticParams_ > 0 && plasticParams == nullptr)
+    throw std::invalid_argument(
+      "Plastic parameters are required by this volumetric deformation model.");
+
   using CD = VolumetricDeformationModelCacheData;
   PGO_ALOG(cacheDataBase != nullptr);
   PGO_ALOG(cacheDataBase == nullptr || isCacheDataCompatible(*cacheDataBase));
@@ -117,13 +124,10 @@ void VolumetricDeformationModel::prepareData(
 
   for (int q = 0; q < numQuadPts_; q++) {
     if (numPlasticParams_ > 0) {
-      if (plasticParams) {
-        cd->plasticParamsValue[q] =
-          Eigen::Map<const ES::VXd>(plasticParams + static_cast<std::ptrdiff_t>(q) * numPlasticParams_, numPlasticParams_);
-      }
-      else {
-        cd->plasticParamsValue[q].setZero();
-      }
+      cd->plasticParamsValue[q] =
+        Eigen::Map<const ES::VXd>(
+          plasticParams + static_cast<std::ptrdiff_t>(q) * numPlasticParams_,
+          numPlasticParams_);
     }
 
     const double *plasticParamsAtQ = numPlasticParams_ > 0 ? cd->plasticParamsValue[q].data() : nullptr;
@@ -145,13 +149,10 @@ void VolumetricDeformationModel::prepareData(
     }
 
     if (numElasticParams_ > 0) {
-      if (elasticParams) {
-        cd->elasticParamsValue[q] =
-          Eigen::Map<const ES::VXd>(elasticParams + static_cast<std::ptrdiff_t>(q) * numElasticParams_, numElasticParams_);
-      }
-      else {
-        cd->elasticParamsValue[q].setZero();
-      }
+      cd->elasticParamsValue[q] =
+        Eigen::Map<const ES::VXd>(
+          elasticParams + static_cast<std::ptrdiff_t>(q) * numElasticParams_,
+          numElasticParams_);
     }
 
     elementMapping_.computeFref(x, q, cd->Fref[q].data());

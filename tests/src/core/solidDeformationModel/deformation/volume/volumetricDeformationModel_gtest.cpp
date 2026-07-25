@@ -51,7 +51,7 @@ TEST(VolumetricDeformationModelGTest, TetEnergyFiniteAtRest)
 
   auto cd = model.allocateCacheData();
   EXPECT_FALSE(cd->isPrepared());
-  model.prepareData(xVec.data(), cd.get());
+  model.prepareData(xVec.data(), nullptr, nullptr, cd.get());
   EXPECT_TRUE(cd->isPrepared());
 
   double energy = model.computeEnergy(cd.get());
@@ -68,6 +68,32 @@ TEST(VolumetricDeformationModelGTest, TetEnergyFiniteAtRest)
     EXPECT_TRUE(std::isfinite(hess.data()[i]));
 
   
+}
+
+TEST(VolumetricDeformationModelGTest, ParameterizedModelRejectsMissingParameters)
+{
+  auto elasticModel =
+    std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
+  auto plasticModel =
+    std::make_unique<PlasticModel3D3DOF>(ES::M3d::Identity());
+  VolumetricElementMapping mapping(
+    restTet, TetLinearShapeFunction{}, TetLinearDefaultQuadrature{});
+  VolumetricDeformationModel model(
+    std::move(mapping), std::move(elasticModel), std::move(plasticModel));
+
+  ES::V12d xVec;
+  for (int i = 0; i < 12; i++)
+    xVec[i] = restTet[i];
+  auto cd = model.allocateCacheData();
+
+  EXPECT_THROW(
+    model.prepareData(xVec.data(), nullptr, nullptr, cd.get()),
+    std::invalid_argument);
+
+  const ES::V3d plasticParams = ES::V3d::Ones();
+  EXPECT_NO_THROW(
+    model.prepareData(
+      xVec.data(), nullptr, plasticParams.data(), cd.get()));
 }
 
 // ============================================================
@@ -87,7 +113,7 @@ TEST(VolumetricDeformationModelGTest, HexEnergyFiniteAtRest)
 
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), cd.get());
+  model.prepareData(xVec.data(), nullptr, nullptr, cd.get());
 
   double energy = model.computeEnergy(cd.get());
   EXPECT_TRUE(std::isfinite(energy));
@@ -122,7 +148,7 @@ TEST(VolumetricDeformationModelGTest, TetGradientMatchesFD)
 
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), cd.get());
+  model.prepareData(xVec.data(), nullptr, nullptr, cd.get());
 
   ES::V12d grad;
   model.compute_dE_dx(cd.get(), grad.data());
@@ -134,12 +160,12 @@ TEST(VolumetricDeformationModelGTest, TetGradientMatchesFD)
     xm[i] -= eps;
 
     auto cdp = model.allocateCacheData();
-    model.prepareData(xp.data(), cdp.get());
+    model.prepareData(xp.data(), nullptr, nullptr, cdp.get());
     double ep = model.computeEnergy(cdp.get());
     
 
     auto cdm = model.allocateCacheData();
-    model.prepareData(xm.data(), cdm.get());
+    model.prepareData(xm.data(), nullptr, nullptr, cdm.get());
     double em = model.computeEnergy(cdm.get());
     
 
@@ -167,7 +193,7 @@ TEST(VolumetricDeformationModelGTest, HexGradientMatchesFD)
 
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), cd.get());
+  model.prepareData(xVec.data(), nullptr, nullptr, cd.get());
 
   ES::V24d grad;
   model.compute_dE_dx(cd.get(), grad.data());
@@ -179,12 +205,12 @@ TEST(VolumetricDeformationModelGTest, HexGradientMatchesFD)
     xm[i] -= eps;
 
     auto cdp = model.allocateCacheData();
-    model.prepareData(xp.data(), cdp.get());
+    model.prepareData(xp.data(), nullptr, nullptr, cdp.get());
     double ep = model.computeEnergy(cdp.get());
     
 
     auto cdm = model.allocateCacheData();
-    model.prepareData(xm.data(), cdm.get());
+    model.prepareData(xm.data(), nullptr, nullptr, cdm.get());
     double em = model.computeEnergy(cdm.get());
     
 

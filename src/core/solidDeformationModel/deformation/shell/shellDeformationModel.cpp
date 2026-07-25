@@ -89,6 +89,13 @@ void ShellDeformationModel::prepareData(
   const double *x, const double *elasticParams, const double *plasticParams,
   DeformationModelCacheData *cacheDataBase) const
 {
+  if (numElasticParams_ > 0 && elasticParams == nullptr)
+    throw std::invalid_argument(
+      "Elastic parameters are required by this shell deformation model.");
+  if (numPlasticParams_ > 0 && plasticParams == nullptr)
+    throw std::invalid_argument(
+      "Plastic parameters are required by this shell deformation model.");
+
   CacheData *cacheData = this->cacheData(cacheDataBase);
   cacheData->x[0] = ES::V3d(x[0], x[1], x[2]);
   cacheData->x[1] = ES::V3d(x[3], x[4], x[5]);
@@ -98,21 +105,13 @@ void ShellDeformationModel::prepareData(
   cacheData->x[5] = ES::V3d(x[15], x[16], x[17]);
 
   if (numPlasticParams_ > 0) {
-    if (plasticParams) {
-      cacheData->plasticParamsValue =
-        Eigen::Map<const ES::VXd>(plasticParams, numPlasticParams_);
-    }
-    else {
-      plastic2D_->defaultParams(cacheData->plasticParamsValue.data());
-    }
+    cacheData->plasticParamsValue =
+      Eigen::Map<const ES::VXd>(plasticParams, numPlasticParams_);
   }
 
   if (numElasticParams_ > 0) {
-    cacheData->elasticParamsValue.setZero();
-    if (elasticParams) {
-      cacheData->elasticParamsValue =
-        Eigen::Map<const ES::VXd>(elasticParams, numElasticParams_);
-    }
+    cacheData->elasticParamsValue =
+      Eigen::Map<const ES::VXd>(elasticParams, numElasticParams_);
   }
 
   const double *plasticParamPtr = numPlasticParams_ > 0 ? cacheData->plasticParamsValue.data() : nullptr;

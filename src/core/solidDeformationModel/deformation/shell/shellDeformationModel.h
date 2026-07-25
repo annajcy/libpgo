@@ -22,7 +22,6 @@ class ShellDeformationModel : public DeformationModel
 {
 public:
   using CacheData = ShellDeformationModelCacheData;
-  using DeformationModel::prepareData;
 
   ShellDeformationModel(std::unique_ptr<ShellElementMapping> mapping,
     std::unique_ptr<ElasticModel2DFundamentalForms> elasticModel,

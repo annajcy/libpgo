@@ -3,6 +3,7 @@
 #include "elementScalarField.h"
 
 #include <memory>
+#include <span>
 
 namespace pgo::SolidDeformationModel
 {
@@ -10,6 +11,26 @@ namespace pgo::SolidDeformationModel
 class ShellArealDensityField final
 {
 public:
+  class Evaluator
+  {
+  public:
+    double value(int element, int quadrature = 0) const;
+    void localParameterDerivative(
+      int element, int quadrature, std::span<double> output) const;
+
+  private:
+    friend class ShellArealDensityField;
+
+    Evaluator(
+      std::shared_ptr<const ElementScalarFieldSource> source,
+      MaterialParameterEvaluationView state);
+
+    std::shared_ptr<const ElementScalarFieldSource> source_;
+    const MaterialParameterRef *dependency_ = nullptr;
+    MaterialParameterEvaluationView state_;
+    mutable MaterialParameterEvaluationScratch scratch_;
+  };
+
   explicit ShellArealDensityField(
     std::shared_ptr<const ElementScalarFieldSource> source);
 
@@ -26,13 +47,15 @@ public:
   double value(
     int element,
     int quadrature = 0,
-    MaterialParameterEvaluationView state = {}) const;
+    const MaterialParameterEvaluationView &state = {}) const;
 
-  std::optional<MaterialParameterRef> parameterDependency() const;
+  Evaluator evaluator(MaterialParameterEvaluationView state) const;
+
+  const MaterialParameterRef *parameterDependency() const;
   void localParameterDerivative(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state,
+    const MaterialParameterEvaluationView &state,
     std::span<double> output) const;
 
 private:

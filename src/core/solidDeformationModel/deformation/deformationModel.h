@@ -53,10 +53,6 @@ public:
 
   virtual std::unique_ptr<CacheData> allocateCacheData() const = 0;
   virtual bool isCacheDataCompatible(const CacheData &cacheData) const = 0;
-  void prepareData(const double *x, CacheData *cacheData) const
-  {
-    prepareData(x, nullptr, nullptr, cacheData);
-  }
   virtual void prepareData(const double *x, const double *elasticParams,
     const double *plasticParams, CacheData *cacheData) const = 0;
 

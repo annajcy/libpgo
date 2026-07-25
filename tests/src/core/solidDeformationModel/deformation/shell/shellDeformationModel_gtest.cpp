@@ -43,6 +43,13 @@ ES::VXd defaultShellElasticParams()
   return params;
 }
 
+ES::VXd defaultShellPlasticParams()
+{
+  ES::VXd params(1);
+  params << 1.0;
+  return params;
+}
+
 }  // namespace
 
 // ============================================================
@@ -59,7 +66,10 @@ TEST(ShellDeformationModelTest, InteriorEnergyFiniteAtRest)
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
-  model.prepareData(interiorRestX, cd.get());
+  const ES::VXd elasticParams = defaultShellElasticParams();
+  const ES::VXd plasticParams = defaultShellPlasticParams();
+  model.prepareData(
+    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
 
   double energy = model.computeEnergy(cd.get());
   EXPECT_TRUE(std::isfinite(energy));
@@ -70,7 +80,36 @@ TEST(ShellDeformationModelTest, InteriorEnergyFiniteAtRest)
     EXPECT_TRUE(std::isfinite(grad[i]));
 }
 
-TEST(ShellDeformationModelTest, DefaultPlasticParametersInitializeRestMetric)
+TEST(ShellDeformationModelTest, ParameterizedModelRejectsMissingParameters)
+{
+  auto elasticModel =
+    std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
+  auto plasticModel =
+    std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
+  const bool hasVtx[6] = { true, true, true, true, true, true };
+  auto mapping =
+    std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
+  ShellDeformationModel model(
+    std::move(mapping), std::move(elasticModel), std::move(plasticModel));
+
+  const ES::VXd elasticParams = defaultShellElasticParams();
+  const ES::VXd plasticParams = defaultShellPlasticParams();
+  auto cd = model.allocateCacheData();
+
+  EXPECT_THROW(
+    model.prepareData(
+      interiorRestX, nullptr, plasticParams.data(), cd.get()),
+    std::invalid_argument);
+  EXPECT_THROW(
+    model.prepareData(
+      interiorRestX, elasticParams.data(), nullptr, cd.get()),
+    std::invalid_argument);
+  EXPECT_NO_THROW(
+    model.prepareData(
+      interiorRestX, elasticParams.data(), plasticParams.data(), cd.get()));
+}
+
+TEST(ShellDeformationModelTest, ExplicitPlasticParametersInitializeRestMetric)
 {
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
@@ -83,7 +122,10 @@ TEST(ShellDeformationModelTest, DefaultPlasticParametersInitializeRestMetric)
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
-  model.prepareData(interiorRestX, cd.get());
+  const ES::VXd elasticParams = defaultShellElasticParams();
+  const ES::VXd plasticParams = defaultShellPlasticParams();
+  model.prepareData(
+    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
 
   const auto *shellCache = static_cast<const ShellDeformationModelCacheData *>(cd.get());
   ASSERT_EQ(shellCache->numPlasticParams, 1);
@@ -107,7 +149,10 @@ TEST(ShellDeformationModelTest, BoundaryMissingNode4EnergyFinite)
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
-  model.prepareData(interiorRestX, cd.get());
+  const ES::VXd elasticParams = defaultShellElasticParams();
+  const ES::VXd plasticParams = defaultShellPlasticParams();
+  model.prepareData(
+    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
 
   double energy = model.computeEnergy(cd.get());
   EXPECT_TRUE(std::isfinite(energy));
@@ -132,26 +177,36 @@ TEST(ShellDeformationModelFDTest, GradientMatchesFiniteDifference)
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
+  const ES::VXd elasticParams = defaultShellElasticParams();
+  const ES::VXd plasticParams = defaultShellPlasticParams();
 
   double x[18] = {};
   perturbedDisplacement(x, interiorRestX, 18, 0.1);
-  model.prepareData(x, cd.get());
-  double e0 = model.computeEnergy(cd.get());
+  model.prepareData(
+    x, elasticParams.data(), plasticParams.data(), cd.get());
 
   ES::V18d g;
   model.compute_dE_dx(cd.get(), g.data());
 
   const double eps = 1e-6;
   for (int i = 0; i < 18; i++) {
-    double xPlus[18];
+    double xPlus[18], xMinus[18];
     std::copy(x, x + 18, xPlus);
+    std::copy(x, x + 18, xMinus);
     xPlus[i] += eps;
+    xMinus[i] -= eps;
 
     auto cdP = model.allocateCacheData();
-    model.prepareData(xPlus, cdP.get());
+    model.prepareData(
+      xPlus, elasticParams.data(), plasticParams.data(), cdP.get());
     double ePlus = model.computeEnergy(cdP.get());
 
-    double fdGrad = (ePlus - e0) / eps;
+    auto cdM = model.allocateCacheData();
+    model.prepareData(
+      xMinus, elasticParams.data(), plasticParams.data(), cdM.get());
+    double eMinus = model.computeEnergy(cdM.get());
+
+    double fdGrad = (ePlus - eMinus) / (2.0 * eps);
     EXPECT_NEAR(fdGrad, g[i], 1e-5) << "FD gradient mismatch at index " << i;
   }
 }
@@ -430,7 +485,10 @@ TEST(ShellDeformationModelTest, VonMisesDiagnosticEnforcesOutputCapacity)
     std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
-  model.prepareData(interiorRestX, cd.get());
+  const ES::VXd elasticParams = defaultShellElasticParams();
+  const ES::VXd plasticParams = defaultShellPlasticParams();
+  model.prepareData(
+    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
 
   double stress = -1.0;
   EXPECT_EQ(model.computeVonMisesStress(cd.get(), &stress, 1), 1);
@@ -454,10 +512,13 @@ TEST(ShellDeformationModelTest, SPDEnableProducesSymmetricPSD)
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   auto cd = model.allocateCacheData();
+  const ES::VXd elasticParams = defaultShellElasticParams();
+  const ES::VXd plasticParams = defaultShellPlasticParams();
 
   double x[18] = {};
   perturbedDisplacement(x, interiorRestX, 18, 0.1);
-  model.prepareData(x, cd.get());
+  model.prepareData(
+    x, elasticParams.data(), plasticParams.data(), cd.get());
 
   model.setProjectHessianPSD(true);
   ES::M18d hess;

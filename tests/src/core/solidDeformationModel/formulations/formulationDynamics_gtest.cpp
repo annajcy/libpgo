@@ -89,18 +89,18 @@ class CustomConstantDensitySource final : public ElementScalarFieldSource
 public:
   void validate(int) const override {}
 
-  double value(int, int, MaterialParameterEvaluationView) const override
+  double value(int, int, const MaterialParameterEvaluationView &) const override
   {
     return 4.0;
   }
 
-  std::optional<MaterialParameterRef> parameterDependency() const override
+  const MaterialParameterRef *parameterDependency() const override
   {
-    return std::nullopt;
+    return nullptr;
   }
 
   void localParameterDerivative(
-    int, int, MaterialParameterEvaluationView, std::span<double> output) const override
+    int, int, const MaterialParameterEvaluationView &, std::span<double> output) const override
   {
     for (double &value : output)
       value = 0.0;
@@ -112,18 +112,18 @@ class NonFiniteDensitySource final : public ElementScalarFieldSource
 public:
   void validate(int) const override {}
 
-  double value(int, int, MaterialParameterEvaluationView) const override
+  double value(int, int, const MaterialParameterEvaluationView &) const override
   {
     return std::numeric_limits<double>::quiet_NaN();
   }
 
-  std::optional<MaterialParameterRef> parameterDependency() const override
+  const MaterialParameterRef *parameterDependency() const override
   {
-    return std::nullopt;
+    return nullptr;
   }
 
   void localParameterDerivative(
-    int, int, MaterialParameterEvaluationView, std::span<double> output) const override
+    int, int, const MaterialParameterEvaluationView &, std::span<double> output) const override
   {
     std::fill(output.begin(), output.end(), 0.0);
   }

@@ -12,7 +12,7 @@ VolumeDensityField::VolumeDensityField(
 {
   if (!source_)
     throw std::invalid_argument("VolumeDensityField requires a source");
-  if (source_->parameterDependency())
+  if (source_->parameterDependency() != nullptr)
     throw std::invalid_argument(
       "parameter-dependent volume density is not supported");
 }
@@ -35,7 +35,9 @@ void VolumeDensityField::validate(int numElements) const
 }
 
 double VolumeDensityField::value(
-  int element, int quadrature, MaterialParameterEvaluationView state) const
+  int element,
+  int quadrature,
+  const MaterialParameterEvaluationView &state) const
 {
   const double density = source_->value(element, quadrature, state);
   if (!std::isfinite(density) || !(density > 0.0))

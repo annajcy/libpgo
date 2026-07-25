@@ -41,7 +41,9 @@ public:
     double energy = 0.0;
 
     ElementScratch(int localDofs, int maxMaterialLocations,
-      int maxMaterialParams, int maxLocalParams, const DeformationModel &model);
+      int maxMaterialParams, int maxLocalParams,
+      std::size_t maxMappingHessianEntries,
+      const DeformationModel &model);
 
     DeformationModel::CacheData *cacheData() { return cacheData_.get(); }
     const DeformationModel::CacheData *cacheData() const { return cacheData_.get(); }
@@ -52,6 +54,7 @@ public:
 
   DeformationModelAssemblerCacheData(int localDofs, int maxMaterialLocations,
     int maxMaterialParams, int maxLocalParams,
+    std::size_t maxMappingHessianEntries,
     const std::vector<const DeformationModel *> &models);
 
   ElementScratch &elementScratch(int ele) { return elementScratch_[ele]; }

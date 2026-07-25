@@ -157,10 +157,11 @@ private:
   // Gather local displacement DOFs and externally computed material parameter values,
   // then prepare the element cache.
   PreparedElement gatherAndPrepare(
-    int ele, const double *x, MaterialParameterEvaluationView state,
+    int ele, const double *x, const MaterialParameterEvaluationView &state,
     DeformationModelAssemblerCacheData::ElementScratch &scratch) const;
 
-  void validateMaterialParameterSnapshot(MaterialParameterEvaluationView state) const;
+  void validateMaterialParameterSnapshot(
+    const MaterialParameterEvaluationView &state) const;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

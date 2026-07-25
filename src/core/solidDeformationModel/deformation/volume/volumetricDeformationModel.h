@@ -22,7 +22,6 @@ class VolumetricDeformationModel : public DeformationModel
 public:
   using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
-  using DeformationModel::prepareData;
 
   VolumetricDeformationModel(VolumetricElementMapping &&mapping,
     std::unique_ptr<ElasticModel3DDeformationGradient> elasticModel,

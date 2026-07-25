@@ -72,7 +72,7 @@ void warnIllegalInitialState(pgo::SolidDeformationModel::SimulationMeshType mesh
 
 void fillLocalParamDerivative(
   const MaterialParameterField &block,
-  MaterialParameterEvaluationView state,
+  const MaterialParameterEvaluationView &state,
   int ele,
   int quadratureId,
   double *localDofValues,
@@ -97,7 +97,7 @@ void fillLocalParamDerivative(
 
 void fillElementParamValues(
   const MaterialParameterField &block,
-  MaterialParameterEvaluationView state,
+  const MaterialParameterEvaluationView &state,
   int ele,
   int numMaterialLocations,
   double *localDofValues,
@@ -131,6 +131,7 @@ namespace SolidDeformationModel
 {
 DeformationModelAssemblerCacheData::ElementScratch::ElementScratch(
   int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams,
+  std::size_t maxMappingHessianEntries,
   const DeformationModel &model):
   cacheData_(model.allocateCacheData())
 {
@@ -152,8 +153,7 @@ DeformationModelAssemblerCacheData::ElementScratch::ElementScratch(
   localMixedMatrix.resize(localDofs, maxLocalParams);
   paramDerivativeData.resize(static_cast<size_t>(maxMaterialParams) * maxLocalParams);
   paramDerivativeData2.resize(static_cast<size_t>(maxMaterialParams) * maxLocalParams);
-  paramMappingHessianData.resize(
-    static_cast<size_t>(maxMaterialParams) * maxLocalParams * maxLocalParams);
+  paramMappingHessianData.resize(maxMappingHessianEntries);
   localMatrixData.resize(static_cast<size_t>(std::max({ localDofs * localDofs,
     localDofs * maxMaterialParams,
     maxMaterialParams * maxMaterialParams })));
@@ -162,6 +162,7 @@ DeformationModelAssemblerCacheData::ElementScratch::ElementScratch(
 
 DeformationModelAssemblerCacheData::DeformationModelAssemblerCacheData(
   int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams,
+  std::size_t maxMappingHessianEntries,
   const std::vector<const DeformationModel *> &models)
 {
   elementScratch_.reserve(models.size());
@@ -169,7 +170,8 @@ DeformationModelAssemblerCacheData::DeformationModelAssemblerCacheData(
     if (model == nullptr)
       throw std::invalid_argument("DeformationModelAssemblerCacheData requires non-null element models.");
     elementScratch_.emplace_back(
-      localDofs, maxMaterialLocations, maxMaterialParams, maxLocalParams, *model);
+      localDofs, maxMaterialLocations, maxMaterialParams, maxLocalParams,
+      maxMappingHessianEntries, *model);
   }
 }
 }  // namespace SolidDeformationModel
@@ -224,8 +226,20 @@ DeformationModelAssembler::DeformationModelAssembler(
 
   const int maxMaterialParams = std::max(numElasticParams_, numPlasticParams_);
   const int maxLocalParams = std::max(numElasticLocalParams_, numPlasticLocalParams_);
+  const auto mappingHessianEntries = [](const MaterialParameterField &block) {
+    if (block.channelMapping().isAffine())
+      return std::size_t(0);
+    const std::size_t channels = static_cast<std::size_t>(
+      block.channelMapping().numChannels());
+    const std::size_t localParams = static_cast<std::size_t>(
+      block.dofLayout().numLocalDofs());
+    return channels * localParams * localParams;
+  };
+  const std::size_t maxMappingHessianEntries = std::max(
+    mappingHessianEntries(elasticBlock), mappingHessianEntries(plasticBlock));
   data = std::make_unique<DeformationModelAssemblerCacheData>(
-    localDOFs, maxMaterialLocations, maxMaterialParams, maxLocalParams, femModels);
+    localDOFs, maxMaterialLocations, maxMaterialParams, maxLocalParams,
+    maxMappingHessianEntries, femModels);
   for (int ele = 0; ele < nele; ele++)
     dofLayout->getDofGroups(ele, data->elementScratch(ele).groups);
   logMemoryCheckpoint("assembler.after_element_cache_setup");
@@ -395,7 +409,7 @@ DeformationModelAssembler::DeformationModelAssembler(
 DeformationModelAssembler::~DeformationModelAssembler() = default;
 
 void DeformationModelAssembler::validateMaterialParameterSnapshot(
-  MaterialParameterEvaluationView state) const
+  const MaterialParameterEvaluationView &state) const
 {
   if (state.empty())
     throw std::invalid_argument("DeformationModelAssembler requires a non-empty material state.");
@@ -408,7 +422,7 @@ void DeformationModelAssembler::validateMaterialParameterSnapshot(
 }
 
 DeformationModelAssembler::PreparedElement DeformationModelAssembler::gatherAndPrepare(
-  int ele, const double *x, MaterialParameterEvaluationView state,
+  int ele, const double *x, const MaterialParameterEvaluationView &state,
   DeformationModelAssemblerCacheData::ElementScratch &scratch) const
 {
   std::fill(scratch.localPosition.data(), scratch.localPosition.data() + localDOFs, 0.0);
@@ -607,7 +621,7 @@ void DeformationModelAssembler::compute_dE_dp(
   const auto &plasticBlock = materialParameterSpace_->plastic();
   const auto *plasticParamLayout = &plasticBlock.dofLayout();
 
-  auto localGradFunc = [this, x, state, grad, plasticParamLayout, &plasticBlock](int ele) {
+  auto localGradFunc = [this, x, &state, grad, plasticParamLayout, &plasticBlock](int ele) {
     if (elementWeights[ele] == 0)
       return;
 
@@ -662,7 +676,7 @@ void DeformationModelAssembler::compute_d2E_dp2(
     return;
 
   const auto &plasticBlock = materialParameterSpace_->plastic();
-  auto localHessFunc = [this, x, state, &hess, &plasticBlock](int ele) {
+  auto localHessFunc = [this, x, &state, &hess, &plasticBlock](int ele) {
     if (elementWeights[ele] == 0)
       return;
 
@@ -740,7 +754,7 @@ void DeformationModelAssembler::compute_dE_de(
   const auto &elasticBlock = materialParameterSpace_->elastic();
   const auto *elasticParamLayout = &elasticBlock.dofLayout();
 
-  auto localGradFunc = [this, x, state, grad, elasticParamLayout, &elasticBlock](int ele) {
+  auto localGradFunc = [this, x, &state, grad, elasticParamLayout, &elasticBlock](int ele) {
     if (elementWeights[ele] == 0)
       return;
 
@@ -795,7 +809,7 @@ void DeformationModelAssembler::compute_d2E_de2(
     return;
 
   const auto &elasticBlock = materialParameterSpace_->elastic();
-  auto localHessFunc = [this, x, state, &hess, &elasticBlock](int ele) {
+  auto localHessFunc = [this, x, &state, &hess, &elasticBlock](int ele) {
     if (elementWeights[ele] == 0)
       return;
 
@@ -880,7 +894,7 @@ void DeformationModelAssembler::compute_d2E_dpde(
 
   const auto &plasticBlock = materialParameterSpace_->plastic();
   const auto &elasticBlock = materialParameterSpace_->elastic();
-  auto localHessFunc = [this, x, state, &hess, &plasticBlock, &elasticBlock](int ele) {
+  auto localHessFunc = [this, x, &state, &hess, &plasticBlock, &elasticBlock](int ele) {
     if (elementWeights[ele] == 0)
       return;
 
@@ -1116,7 +1130,7 @@ void DeformationModelAssembler::assemble_d2E_dudq(
     return;
 
   auto localFunc = [
-    this, absolutePositions, state, &mixedHessian,
+    this, absolutePositions, &state, &mixedHessian,
     numMaterialParams, numLocalParams, &paramBlock,
     &inverseIndices, computeLocal](int ele) {
     if (elementWeights[ele] == 0)

@@ -10,6 +10,7 @@
 #include <memory>
 #include <stdexcept>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace pgo
@@ -83,10 +84,11 @@ EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
   }
 
   arealDensity.validate(mesh.getNumElements());
+  auto evaluation = arealDensity.evaluator(std::move(state));
 
   std::vector<ES::TripletD> entries;
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    const double m = arealDensity.value(ele, 0, state) * triangleRestArea(mesh, ele) / 3.0;
+    const double m = evaluation.value(ele, 0) * triangleRestArea(mesh, ele) / 3.0;
     for (int j = 0; j < 3; j++) {
       const int v = mesh.getVertexIndex(ele, j);
       for (int d = 0; d < 3; d++)
@@ -109,10 +111,11 @@ EigenSupport::VXd ShellFormulation::buildBodyForce(
   }
 
   arealDensity.validate(mesh.getNumElements());
+  auto evaluation = arealDensity.evaluator(std::move(state));
 
   ES::VXd f = ES::VXd::Zero(mesh.getNumVertices() * 3);
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    const double m = arealDensity.value(ele, 0, state) * triangleRestArea(mesh, ele) / 3.0;
+    const double m = evaluation.value(ele, 0) * triangleRestArea(mesh, ele) / 3.0;
     for (int j = 0; j < 3; j++) {
       const int v = mesh.getVertexIndex(ele, j);
       f.segment<3>(v * 3) += m * acceleration;
@@ -129,8 +132,8 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
   arealDensity.validate(mesh.getNumElements());
-  const auto dependency = arealDensity.parameterDependency();
-  if (!dependency) {
+  const MaterialParameterRef *dependency = arealDensity.parameterDependency();
+  if (dependency == nullptr) {
     throw std::invalid_argument(
       "buildBodyForceParameterJacobian requires a parameter-dependent areal density field");
   }
@@ -144,6 +147,7 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
       "parameter-dependent areal density must depend on the evaluation space elastic field");
   }
 
+  auto evaluation = arealDensity.evaluator(std::move(state));
   const MaterialParameterRef &parameter = *dependency;
   const auto &layout = parameter.field().dofLayout();
   const int numLocal = layout.numLocalDofs();
@@ -152,8 +156,8 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
   entries.reserve(static_cast<size_t>(mesh.getNumElements()) * numLocal * 9);
 
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    arealDensity.localParameterDerivative(
-      ele, 0, state, std::span<double>(dRho.data(), dRho.size()));
+    evaluation.localParameterDerivative(
+      ele, 0, std::span<double>(dRho.data(), dRho.size()));
     const double areaThird = triangleRestArea(mesh, ele) / 3.0;
     for (int k = 0; k < numLocal; k++) {
       if (dRho[k] == 0.0)

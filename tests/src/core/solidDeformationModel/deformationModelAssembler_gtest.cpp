@@ -6,6 +6,7 @@
 #include "material/plastic/plasticModel3D6DOF.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
+#include "constraints/prescribedPrincipleStressConstraintFunctions.h"
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
@@ -451,6 +452,90 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
   EXPECT_NE(changedExpectedA, expectedA);
   EXPECT_DOUBLE_EQ(evalB.get(), expectedB);
   EXPECT_TRUE(b.parameters->plasticSnapshot().isApprox(bBefore, 0.0));
+}
+
+TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedMaterialParameters)
+{
+  const double vertices[] = {
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,
+  };
+  const int elementVertices[] = { 0, 1, 2, 3 };
+  SimulationMeshENuMaterial material(1200.0, 0.4);
+  auto mesh = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
+    4, vertices, 1, 4, elementVertices,
+    makeUniformSimulationMeshElementFieldStore(1, material),
+    SimulationMeshType::TET));
+
+  auto elasticField = MaterialParameterField::create(
+    {},
+    std::make_shared<ElementwiseParameterDofLayout>(1, 0),
+    std::make_shared<IdentityMaterialChannelMapping>(0));
+  auto plasticField = MaterialParameterField::create(
+    { "stretch_x", "stretch_y", "stretch_z" },
+    std::make_shared<ElementwiseParameterDofLayout>(1, 3),
+    std::make_shared<IdentityMaterialChannelMapping>(3));
+  auto space = std::make_shared<MaterialParameterSpace>(
+    std::move(elasticField), std::move(plasticField));
+  auto parameters = std::make_shared<MaterialParameters>(
+    space, ES::VXd(), ES::V3d::Ones());
+
+  TetLinearFormulation formulation;
+  auto manager = std::make_shared<DeformationModelManager>(
+    mesh,
+    std::make_shared<StableNeoConfig>(),
+    std::make_shared<VolumetricPlasticity3Config>(),
+    formulation, false);
+
+  const int elementID = 0;
+  PrescribedPrincipleStressConstraintFunctions constraints(
+    12, 0, 1, &elementID, manager.get(), parameters);
+  constraints.setXToPosFunc(
+    [](const ES::V3d &value, int, ES::V3d &position) {
+      position = value;
+    });
+  const ES::V3d targetStress(0.3, 0.2, 0.1);
+  constraints.setTargetPHat(targetStress.data());
+
+  ES::V12d x;
+  x << 0.0, 0.0, 0.0,
+       1.15, 0.0, 0.0,
+       0.0, 0.87, 0.0,
+       0.0, 0.0, 1.22;
+  ES::V3d initialConstraint;
+  constraints.func(x, initialConstraint);
+
+  ES::V3d changedPlastic(1.08, 0.94, 1.03);
+  parameters->setPlasticValues(changedPlastic);
+  ES::V3d changedConstraint;
+  constraints.func(x, changedConstraint);
+  EXPECT_FALSE(changedConstraint.isApprox(initialConstraint, 1e-12));
+  EXPECT_TRUE(changedConstraint.allFinite());
+
+  ES::V12d force;
+  constraints.computeForceFromTargetPHat(x, force);
+  EXPECT_TRUE(force.allFinite());
+
+  const double traction = constraints.computeSurfaceNormalTractionFromElement(
+    x, ES::V3d::UnitX(), elementID);
+  EXPECT_TRUE(std::isfinite(traction));
+
+  ES::SpMatD jacobian;
+  constraints.createJacobian(jacobian);
+  constraints.jacobian(x, jacobian);
+  EXPECT_TRUE(ES::MXd(jacobian).allFinite());
+
+  ES::SpMatD hessian;
+  constraints.hessianAlloc(hessian);
+  std::fill(
+    hessian.valuePtr(),
+    hessian.valuePtr() + hessian.nonZeros(),
+    0.0);
+  constraints.hessianInPlace(
+    x, ES::V3d(0.2, -0.1, 0.3), hessian);
+  EXPECT_TRUE(ES::MXd(hessian).allFinite());
 }
 
 }  // namespace

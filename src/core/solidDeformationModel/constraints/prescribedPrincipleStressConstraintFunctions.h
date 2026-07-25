@@ -20,12 +20,17 @@ namespace pgo
 namespace SolidDeformationModel
 {
 class DeformationModelManager;
+class MaterialParameters;
+class MaterialParameterEvaluationView;
 class VolumetricDeformationModel;
 
 class PrescribedPrincipleStressConstraintFunctions : public NonlinearOptimization::ConstraintFunctions
 {
 public:
-  PrescribedPrincipleStressConstraintFunctions(int nAll, int dofOffset, int numElements, const int *elementIDs, const DeformationModelManager *tetMeshDMM);
+  PrescribedPrincipleStressConstraintFunctions(
+    int nAll, int dofOffset, int numElements, const int *elementIDs,
+    const DeformationModelManager *tetMeshDMM,
+    std::shared_ptr<const MaterialParameters> materialParameters);
   virtual ~PrescribedPrincipleStressConstraintFunctions() {}
 
   using XToPosFunc = std::function<void(const EigenSupport::V3d &, int offset, EigenSupport::V3d &)>;
@@ -46,6 +51,7 @@ public:
 protected:
   int dofStart;
   const DeformationModelManager *tetMeshDMM;
+  std::shared_ptr<const MaterialParameters> materialParameters_;
   std::vector<int> elements;
   XToPosFunc xToPosFunc;
   EigenSupport::VXd targetPrincipleStress;
@@ -53,6 +59,10 @@ protected:
   struct ThreadScratch
   {
     EigenSupport::V18d localp;
+    std::vector<double> elasticLocalDofs;
+    std::vector<double> plasticLocalDofs;
+    std::vector<double> elasticParamValues;
+    std::vector<double> plasticParamValues;
     std::vector<std::unique_ptr<DeformationModel::CacheData>> reusableCacheData;
 
     DeformationModel::CacheData *cacheFor(const DeformationModel &model);
@@ -61,6 +71,10 @@ protected:
   mutable tbb::enumerable_thread_specific<ThreadScratch> threadScratch_;
 
   std::vector<const VolumetricDeformationModel *> elementFEMs_;
+
+  DeformationModel::CacheData *prepareElement(
+    int elementID, const VolumetricDeformationModel &model,
+    MaterialParameterEvaluationView state, ThreadScratch &scratch) const;
 
   EigenSupport::EntryMap jacEntries, hessEntries;
 

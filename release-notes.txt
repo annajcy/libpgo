@@ -3,6 +3,7 @@
   - replace Torch equilibrium layer objective_energy with additional_energy; the additional term must be independent of the optimized material field
   - validate density derivative buffer spans against the referenced parameter layout; parameter-independent sources now require an empty span
   - remove the obsolete Markdown/notebook example-test harness and notebook-only development dependency
+  - remove the parameter-omitting DeformationModel::prepareData overload; parameterized models now reject missing elastic or plastic parameter buffers
   - replace the pgo scheduling facade with explicit GlobalTbbControl, ThreadingPolicy, and ArenaThreadingExecutor primitives
   - migrate first-party loops, reductions, and sorting to native oneTBB algorithms
   - remove the redundant parallelFor3D wrapper in favor of call-site-owned row/block decomposition

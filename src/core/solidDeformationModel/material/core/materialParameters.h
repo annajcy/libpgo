@@ -21,6 +21,7 @@ class MaterialParameterRef;
 class MaterialParameterSpace;
 class MaterialParameterSnapshot;
 class MaterialParameterEvaluationView;
+struct MaterialParameterEvaluationScratch;
 
 /// Immutable schema for one elastic or plastic material parameter field.
 /// Instances are created through create() and shared by parameter references.
@@ -53,6 +54,18 @@ private:
   std::vector<std::string> channelNames_;
   std::shared_ptr<const ParameterDofLayout> dofLayout_;
   std::shared_ptr<const MaterialChannelMapping> mapping_;
+};
+
+/// Reusable storage for sampling one material parameter field.  The storage
+/// is intentionally owned by the caller so a batch of element evaluations can
+/// reuse the same allocations.
+struct MaterialParameterEvaluationScratch
+{
+  std::vector<double> local;
+  std::vector<double> material;
+  std::vector<double> jacobian;
+
+  void prepare(const MaterialParameterField &field);
 };
 
 /// Immutable pair of elastic and plastic parameter field schemas.
@@ -199,12 +212,25 @@ public:
   double value(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state) const;
+    const MaterialParameterEvaluationView &state) const;
+
+  double value(
+    int element,
+    int quadrature,
+    const MaterialParameterEvaluationView &state,
+    MaterialParameterEvaluationScratch &scratch) const;
 
   void localDerivative(
     int element,
     int quadrature,
-    MaterialParameterEvaluationView state,
+    const MaterialParameterEvaluationView &state,
+    double *output) const;
+
+  void localDerivative(
+    int element,
+    int quadrature,
+    const MaterialParameterEvaluationView &state,
+    MaterialParameterEvaluationScratch &scratch,
     double *output) const;
 
 private:
