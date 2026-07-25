@@ -43,7 +43,7 @@ using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 
 constexpr double kFiniteDifferenceStep = 1e-6;
-constexpr int kExactDerivativeEnforceSpd = 0;
+constexpr bool kExactDerivativeProjectHessianPSD = false;
 
 class ScopedSerialTbb
 {
@@ -125,7 +125,7 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(std::shared_ptr<co
     std::move(space), ES::VXd::Zero(0), plasticBase);
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>(),
-    formulation, kExactDerivativeEnforceSpd);
+    formulation, kExactDerivativeProjectHessianPSD);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, parameters->space(), nullptr);
   return std::make_shared<DeformationModelEnergy>(
@@ -177,7 +177,7 @@ std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd
     ES::VXd::Constant(mesh->getNumElements(), 1.0));
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, std::make_shared<KoiterStVKConfig>(), std::make_shared<ShellPlasticity1Config>(),
-    formulation, kExactDerivativeEnforceSpd);
+    formulation, kExactDerivativeProjectHessianPSD);
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation, parameters->space(), nullptr);
   return std::make_shared<DeformationModelEnergy>(

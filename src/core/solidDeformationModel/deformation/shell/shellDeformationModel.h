@@ -68,7 +68,7 @@ public:
     const DeformationModelCacheData *cacheData,
     double *stresses, int capacity) const override;
 
-  void enableSPD(int enable) override;
+  void setProjectHessianPSD(bool enable) override;
   int getNumElasticParameters() const override { return numElasticParams_; }
   int getNumPlasticParameters() const override { return numPlasticParams_; }
   void defaultPlasticParams(double *params) const override;
@@ -83,7 +83,7 @@ private:
   std::unique_ptr<ShellElementMapping> elementMapping_;
   std::unique_ptr<ElasticModel2DFundamentalForms> elastic2D_;
   std::unique_ptr<PlasticModel2DFundamentalForms> plastic2D_;
-  int enableSPD_ = 0;
+  bool projectHessianPSD_ = false;
 
   int numPlasticParams_ = 0;
   int numElasticParams_ = 0;

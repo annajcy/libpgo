@@ -221,7 +221,7 @@ static ES::M9d ComputeFJSecondDerivContribs(const double &lambda, const double &
   return FJ;
 }
 
-void ElasticModelStableNeoHookeanMaterial::compute_dPdF(const double * /*param*/, const double FIn[9], const double UIn[9], const double VIn[9], const double SIn[3], double dPdFOut[81]) const
+void ElasticModelStableNeoHookeanMaterial::compute_dPdF_impl(const double * /*param*/, const double FIn[9], const double UIn[9], const double VIn[9], const double SIn[3], double dPdFOut[81], bool project) const
 {
   ES::M3d F = Eigen::Map<const ES::M3d>(FIn);
   ES::M3d U = Eigen::Map<const ES::M3d>(UIn);
@@ -229,7 +229,7 @@ void ElasticModelStableNeoHookeanMaterial::compute_dPdF(const double * /*param*/
   ES::V3d S(SIn[0], SIn[1], SIn[2]);
 
   ES::M9d dPdF;
-  if (enforceSPD_ == 0) {
+  if (!project) {
     const ES::V9d pjpf = PartialJpartialFVec(F);
     dPdF = _mu * ES::M9d::Identity() + _lambda * pjpf * pjpf.transpose() + ComputeFJSecondDerivContribs(_lambda, _ratio, F);
   }
@@ -238,6 +238,20 @@ void ElasticModelStableNeoHookeanMaterial::compute_dPdF(const double * /*param*/
   }
 
   (Eigen::Map<Eigen::Matrix<double, 9, 9>>(dPdFOut)) = dPdF;
+}
+
+void ElasticModelStableNeoHookeanMaterial::compute_dPdF(
+  const double *param, const double FIn[9], const double UIn[9],
+  const double VIn[9], const double SIn[3], double dPdFOut[81]) const
+{
+  compute_dPdF_impl(param, FIn, UIn, VIn, SIn, dPdFOut, false);
+}
+
+void ElasticModelStableNeoHookeanMaterial::compute_dPdF_psd(
+  const double *param, const double FIn[9], const double UIn[9],
+  const double VIn[9], const double SIn[3], double dPdFOut[81]) const
+{
+  compute_dPdF_impl(param, FIn, UIn, VIn, SIn, dPdFOut, true);
 }
 
 void ElasticModelStableNeoHookeanMaterial::setMaterial(double mu_, double lambda_)

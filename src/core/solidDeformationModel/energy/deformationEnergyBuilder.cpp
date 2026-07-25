@@ -56,7 +56,7 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
 
   auto manager = std::make_shared<DeformationModelManager>(
     mesh, elastic, plastic, formulation,
-    opts.enforceSPD ? 1 : 0,
+    opts.projectHessianPSD,
     materialFrames);
 
   ES::VXd elementWeights = opts.elementWeights;

@@ -80,7 +80,7 @@ def main() -> None:
         plastic=pf.VolumetricPlasticity(dofs=6),
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
-            enforce_spd=False,
+            project_hessian_psd=False,
             enable_material_max_step=False,
         ),
     )

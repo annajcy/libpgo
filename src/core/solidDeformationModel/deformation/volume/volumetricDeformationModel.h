@@ -60,7 +60,7 @@ public:
     const DeformationModelCacheData *cacheData, double *hess,
     int materialLocation = -1) const override;
 
-  void enableSPD(int enable) override;
+  void setProjectHessianPSD(bool enable) override;
   int getNumElasticParameters() const override { return numElasticParams_; }
   int getNumPlasticParameters() const override { return numPlasticParams_; }
   void defaultPlasticParams(double *params) const override;
@@ -100,6 +100,7 @@ private:
 
   int numPlasticParams_ = 0;
   int numElasticParams_ = 0;
+  bool projectHessianPSD_ = false;
 
   const double *elasticParamsPtr(const DeformationModelCacheData *cacheData, int q) const;
 

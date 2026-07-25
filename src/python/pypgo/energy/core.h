@@ -316,7 +316,7 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergyWithParameters(
   const PyMaterialParameters &materialParameters,
   const pgo::PyFormulation &formulation,
   nb::object elementWeights,
-  bool enforceSPD,
+  bool projectHessianPSD,
   bool enableMaterialMaxStep);
 
 std::shared_ptr<PyParameterDofLayout> makeElementwiseParameterDofLayout();

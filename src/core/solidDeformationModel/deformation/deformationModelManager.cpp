@@ -58,13 +58,13 @@ DeformationModelManager::DeformationModelManager(
   std::shared_ptr<const ElasticModelConfig> elasticConfig,
   std::shared_ptr<const PlasticModelConfig> plasticConfig,
   const Formulation &formulation,
-  int enforceSPD):
+  bool projectHessianPSD):
   DeformationModelManager(
     mesh,
     std::move(elasticConfig),
     std::move(plasticConfig),
     formulation,
-    enforceSPD,
+    projectHessianPSD,
     makeGlobalAxesMaterialFrameField(
       mesh ? mesh->getNumElements() : 0))
 {
@@ -75,7 +75,7 @@ DeformationModelManager::DeformationModelManager(
   std::shared_ptr<const ElasticModelConfig> elasticConfig,
   std::shared_ptr<const PlasticModelConfig> plasticConfig,
   const Formulation &formulation,
-  int enforceSPD,
+  bool projectHessianPSD,
   std::shared_ptr<const MaterialFrameField> materialFrames)
 {
   if (!mesh)
@@ -114,8 +114,7 @@ DeformationModelManager::DeformationModelManager(
 
   data->numPlasticParams =
     data->elementFEMs[0]->getNumPlasticParameters();
-  if (enforceSPD)
-    setEnforceSPD(enforceSPD);
+  setProjectHessianPSD(projectHessianPSD);
 }
 
 void DeformationModelManager::initImpl(const Formulation &formulation)
@@ -138,11 +137,11 @@ void DeformationModelManager::initImpl(const Formulation &formulation)
 
 DeformationModelManager::~DeformationModelManager() = default;
 
-void DeformationModelManager::setEnforceSPD(int enable)
+void DeformationModelManager::setProjectHessianPSD(bool enable)
 {
   for (const auto &model : data->elementFEMs) {
     if (model)
-      model->enableSPD(enable);
+      model->setProjectHessianPSD(enable);
   }
 }
 

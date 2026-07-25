@@ -24,6 +24,21 @@ def _make_tet_sim_mesh():
     return pgo.fem.SimulationMesh.create_volumetric(volume)
 
 
+def _make_mooney_rivlin_tet_sim_mesh():
+    tet = pgo.mesh.TetMeshData(
+        np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        ),
+        np.array([[0, 1, 2, 3]], dtype=np.int64),
+    )
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+        tet,
+        pgo.mesh.volume.MooneyRivlinMaterial(mu01=0.5, mu10=0.3, v1=0.1),
+    )
+    return pgo.fem.SimulationMesh.create_volumetric(volume)
+
+
 def _make_cubic_sim_mesh():
     cube = pgo.mesh.CubicMeshData(
         np.array(
@@ -121,6 +136,20 @@ def _make_energy(
         formulation=formulation,
         options=options,
     )
+
+
+def test_mooney_rivlin_config_builds_deformation_energy():
+    sim = _make_mooney_rivlin_tet_sim_mesh()
+    energy = pf.deformation_energy(
+        sim,
+        elastic=pf.MooneyRivlin(),
+        plastic=pf.VolumetricPlasticity(dofs=0),
+        formulation=pf.TetLinear(),
+    )
+    u = energy.zero_state()
+    assert np.isclose(energy.value(u), 0.0)
+    assert np.all(np.isfinite(energy.gradient(u)))
+    assert energy.hessian(u).nnz > 0
 
 
 class TestWrappers:
@@ -333,7 +362,7 @@ class TestDeformationEnergy:
         energy = _make_energy(
             sim,
             formulation=pf.CubicLinear(),
-            options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+            options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
             plastic_values=plastic,
         )
         u = energy.zero_state()
@@ -374,7 +403,7 @@ class TestDeformationEnergy:
             elastic_values=elastic,
             plastic=pf.ShellPlasticity(dofs=1),
             plastic_dof_layout=pf.ElementwiseDofLayout(),
-            options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+            options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
         )
         u = energy.zero_state()
         for vi in range(sim.num_vertices):

@@ -58,7 +58,7 @@ mesh view. It writes
 contains the mesh, target, optimized parameters, optimized vertices, and
 optimization history.
 
-The example uses the true material Hessian (`enforce_spd=False`) so that the
+The example uses the true material Hessian (`project_hessian_psd=False`) so that the
 adjoint gradient corresponds to the modeled equilibrium problem. For larger or
 less well-conditioned cases, use a more robust inner solve and verify gradients
 with finite differences before relying on the recovered field.

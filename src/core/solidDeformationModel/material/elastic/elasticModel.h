@@ -25,7 +25,6 @@ public:
   // declaration must fail at compile time instead of silently creating a
   // zero-dimensional parameter block.
   virtual int getNumParameters() const = 0;
-  virtual void enableSPD(int /*enable*/) {}
 };
 
 // Immutable, shareable definition used to instantiate per-element ElasticModel

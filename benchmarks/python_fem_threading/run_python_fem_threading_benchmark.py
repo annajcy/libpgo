@@ -313,7 +313,7 @@ def worker_main(args: argparse.Namespace) -> int:
         plastic=pf.VolumetricPlasticity(dofs=args.plastic_dofs),
         formulation=formulation,
         options=pf.DeformationOptions(
-            enforce_spd=True,
+            project_hessian_psd=True,
             enable_material_max_step=False,
         ),
     )
@@ -424,7 +424,7 @@ def worker_main(args: argparse.Namespace) -> int:
         "material": {
             "elastic_model": args.elastic_model,
             "plastic_dofs": args.plastic_dofs,
-            "enforce_spd": True,
+            "project_hessian_psd": True,
         },
         "local_dofs": metadata["local_dofs"],
         "num_dofs": energy.num_dofs,

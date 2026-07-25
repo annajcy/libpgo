@@ -1,4 +1,5 @@
 #include "shellDeformationModel.h"
+#include "deformation/hessianProjection.h"
 
 #include "pgoLogging.h"
 
@@ -205,17 +206,8 @@ void ShellDeformationModel::compute_d2E_dx2(const DeformationModelCacheData *cac
     hessMap += dEdb.data()[j] * d2bdx2[j] * cacheData->area;
   }
 
-  if (enableSPD_) {
-    Eigen::SelfAdjointEigenSolver<ES::M18d> eigenSolver(
-      hessMap, Eigen::ComputeEigenvectors);
-    ES::V18d eigenvalues = eigenSolver.eigenvalues();
-    ES::M18d eigenvectors = eigenSolver.eigenvectors();
-
-    eigenvalues = eigenvalues.cwiseMax(0);
-    ES::M18d hessSPD =
-      eigenvectors * eigenvalues.asDiagonal() * eigenvectors.transpose();
-    hessMap = hessSPD;
-  }
+  if (projectHessianPSD_)
+    hessMap = projectSymmetricPSD(hessMap);
 }
 
 void ShellDeformationModel::compute_d2E_dudp(const DeformationModelCacheData *cacheDataBase,
@@ -549,10 +541,9 @@ int ShellDeformationModel::computeVonMisesStress(
   return 1;
 }
 
-void ShellDeformationModel::enableSPD(int enable)
+void ShellDeformationModel::setProjectHessianPSD(bool enable)
 {
-  enableSPD_ = enable;
-  elastic2D_->enableSPD(enable);
+  projectHessianPSD_ = enable;
 }
 
 void ShellDeformationModel::defaultPlasticParams(double *params) const

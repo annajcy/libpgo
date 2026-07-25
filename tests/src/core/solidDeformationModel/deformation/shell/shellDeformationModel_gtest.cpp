@@ -459,7 +459,7 @@ TEST(ShellDeformationModelTest, SPDEnableProducesSymmetricPSD)
   perturbedDisplacement(x, interiorRestX, 18, 0.1);
   model.prepareData(x, cd.get());
 
-  model.enableSPD(1);
+  model.setProjectHessianPSD(true);
   ES::M18d hess;
   model.compute_d2E_dx2(cd.get(), hess.data());
 

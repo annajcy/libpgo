@@ -67,7 +67,7 @@ def make_cubic_case():
         material_parameters=parameters,
         formulation=fem.CubicLinear(),
         options=fem.DeformationOptions(
-            enforce_spd=False, enable_material_max_step=False
+            project_hessian_psd=False, enable_material_max_step=False
         ),
     )
     return sim, energy
@@ -107,7 +107,7 @@ def make_shell_elastic_case():
         material_parameters=parameters,
         formulation=fem.KoiterShell(),
         options=fem.DeformationOptions(
-            enforce_spd=False, enable_material_max_step=False
+            project_hessian_psd=False, enable_material_max_step=False
         ),
     )
     return sim, energy

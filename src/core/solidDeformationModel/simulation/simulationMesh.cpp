@@ -22,6 +22,7 @@ copyright to USC,MIT,NUS
 #include "cubicMesh.h"
 #include "triMeshGeo.h"
 #include "volumetricMeshENuMaterial.h"
+#include "volumetricMeshMooneyRivlinMaterial.h"
 #include "pgoLogging.h"
 #include "EigenSupport.h"
 #include "triMeshNeighbor.h"
@@ -94,6 +95,68 @@ ElementFieldStore makeUniformElementFieldStore(int numElements, const T *value)
     throw std::invalid_argument("element field value cannot be null");
   ElementFieldStore store;
   store.add(ElementField<T>::uniform(numElements, *value));
+  return store;
+}
+
+template<class VolumeMesh>
+ElementFieldStore makeVolumeMaterialField(const VolumeMesh *volumeMesh, const char *meshName)
+{
+  using Material = pgo::VolumetricMeshes::VolumetricMesh::Material;
+  std::unordered_map<const Material *, int> paletteIndices;
+  std::vector<int> elementToPalette;
+  elementToPalette.reserve(volumeMesh->getNumElements());
+
+  const Material *firstMaterial = volumeMesh->getElementMaterial(0);
+  if (downcastENuMaterial(firstMaterial)) {
+    std::vector<std::shared_ptr<const SimulationMeshENuMaterial>> palette;
+    for (int element = 0; element < volumeMesh->getNumElements(); ++element) {
+      const Material *source = volumeMesh->getElementMaterial(element);
+      const auto *material = downcastENuMaterial(source);
+      if (!material)
+        throw std::invalid_argument(std::string(meshName) +
+          " mesh mixes volume material families at element " + std::to_string(element));
+
+      auto [it, inserted] = paletteIndices.emplace(source, static_cast<int>(palette.size()));
+      if (inserted)
+        palette.emplace_back(std::make_shared<const SimulationMeshENuMaterial>(
+          material->getE(), material->getNu()));
+      elementToPalette.push_back(it->second);
+    }
+    ElementFieldStore store;
+    store.add(ElementField<SimulationMeshENuMaterial>::fromPalette(
+      std::move(palette), std::move(elementToPalette)));
+    return store;
+  }
+
+  if (!downcastMooneyRivlinMaterial(const_cast<Material *>(firstMaterial)))
+    throw std::invalid_argument(std::string(meshName) +
+      " mesh has an unsupported volume material at element 0");
+
+  std::vector<std::shared_ptr<const SimulationMeshMooneyRivlinMaterial>> palette;
+  for (int element = 0; element < volumeMesh->getNumElements(); ++element) {
+    const Material *source = volumeMesh->getElementMaterial(element);
+    auto *material = downcastMooneyRivlinMaterial(const_cast<Material *>(source));
+    if (!material)
+      throw std::invalid_argument(std::string(meshName) +
+        " mesh mixes volume material families at element " + std::to_string(element));
+
+    auto [it, inserted] = paletteIndices.emplace(source, static_cast<int>(palette.size()));
+    if (inserted) {
+      try {
+        palette.emplace_back(std::make_shared<const SimulationMeshMooneyRivlinMaterial>(
+          material->getmu01(), material->getmu10(), material->getv1()));
+      }
+      catch (const std::invalid_argument &error) {
+        throw std::invalid_argument(std::string(meshName) +
+          " mesh has invalid Mooney-Rivlin material at element " +
+          std::to_string(element) + ": " + error.what());
+      }
+    }
+    elementToPalette.push_back(it->second);
+  }
+  ElementFieldStore store;
+  store.add(ElementField<SimulationMeshMooneyRivlinMaterial>::fromPalette(
+    std::move(palette), std::move(elementToPalette)));
   return store;
 }
 }
@@ -205,7 +268,6 @@ std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadTetMesh(const Vo
   }
 
   std::vector<int> elementVertices;
-  std::vector<SimulationMeshENuMaterial> materials;
 
   for (int ei = 0; ei < tetMesh->getNumElements(); ei++) {
     elementVertices.push_back(tetMesh->getVertexIndex(ei, 0));
@@ -213,15 +275,11 @@ std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadTetMesh(const Vo
     elementVertices.push_back(tetMesh->getVertexIndex(ei, 2));
     elementVertices.push_back(tetMesh->getVertexIndex(ei, 3));
 
-    const VolumetricMeshes::VolumetricMesh::ENuMaterial *mat = downcastENuMaterial(tetMesh->getElementMaterial(ei));
-    if (!mat)
-      throw std::invalid_argument("tet mesh requires ENu material inputs");
-    materials.emplace_back(mat->getE(), mat->getNu());
   }
 
   return std::make_unique<SimulationMesh>(tetMesh->getNumVertices(), vtx.data(),
     tetMesh->getNumElements(), 4, elementVertices.data(),
-    makeElementFieldStore(std::move(materials)),
+    makeVolumeMaterialField(tetMesh, "tet"),
     SimulationMeshType::TET);
 }
 
@@ -236,22 +294,17 @@ std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadCubicMesh(const 
   }
 
   std::vector<int> elementVertices;
-  std::vector<SimulationMeshENuMaterial> materials;
 
   for (int ei = 0; ei < cubicMesh->getNumElements(); ei++) {
     for (int j = 0; j < 8; j++) {
       elementVertices.push_back(cubicMesh->getVertexIndex(ei, j));
     }
 
-    const VolumetricMeshes::VolumetricMesh::ENuMaterial *mat = downcastENuMaterial(cubicMesh->getElementMaterial(ei));
-    if (!mat)
-      throw std::invalid_argument("cubic mesh requires ENu material inputs");
-    materials.emplace_back(mat->getE(), mat->getNu());
   }
 
   return std::make_unique<SimulationMesh>(cubicMesh->getNumVertices(), vtx.data(),
     cubicMesh->getNumElements(), 8, elementVertices.data(),
-    makeElementFieldStore(std::move(materials)),
+    makeVolumeMaterialField(cubicMesh, "cubic"),
     SimulationMeshType::CUBIC);
 }
 
@@ -278,7 +331,7 @@ std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadShellMesh(const 
       int e0 = triangle[j];
       int e1 = triangle[(j + 1) % 3];
 
-      if (neighborList[j] > 0) {
+      if (neighborList[j] >= 0) {
         Vec3i neighbor = triMeshGeo.tri(neighborList[j]);
         int neighborIdx = Mesh::getTriangleVertexOppositeEdge(neighbor, e0, e1);
         elementVertexIndices.emplace_back(neighborIdx);
@@ -319,7 +372,7 @@ std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadShellMesh(const 
       int e0 = triangle[j];
       int e1 = triangle[(j + 1) % 3];
 
-      if (neighborList[j] > 0) {
+      if (neighborList[j] >= 0) {
         Vec3i neighbor = triMeshGeo.tri(neighborList[j]);
         int neighborIdx = Mesh::getTriangleVertexOppositeEdge(neighbor, e0, e1);
         elementVertexIndices.emplace_back(neighborIdx);

@@ -31,6 +31,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/plastic/plasticModel2DFundamentalFormsUniformStretch.h
 
   deformation/deformationModel.h
+  deformation/hessianProjection.h
   deformation/materialMaxStepPolynomialUtils.h
   deformation/deformationModelManager.h
 

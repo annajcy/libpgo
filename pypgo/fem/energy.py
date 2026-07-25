@@ -243,7 +243,7 @@ class DeformationOptions:
     simulation-mesh element; ``None`` uses unit weights.
     """
 
-    enforce_spd: bool = True
+    project_hessian_psd: bool = True
     enable_material_max_step: bool = True
     element_weights: np.ndarray | None = None
 
@@ -326,7 +326,7 @@ def deformation_energy(
         material_parameters._handle,
         formulation._handle,
         element_weights,
-        bool(options.enforce_spd),
+        bool(options.project_hessian_psd),
         bool(options.enable_material_max_step),
     )
     return DeformationEnergy(core, elastic_model=elastic, plastic_model=plastic,

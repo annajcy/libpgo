@@ -28,17 +28,17 @@ public:
     std::shared_ptr<const ElasticModelConfig> elasticConfig,
     std::shared_ptr<const PlasticModelConfig> plasticConfig,
     const Formulation &formulation,
-    int enforceSPD = 1);
+    bool projectHessianPSD = true);
 
   DeformationModelManager(std::shared_ptr<const SimulationMesh> mesh,
     std::shared_ptr<const ElasticModelConfig> elasticConfig,
     std::shared_ptr<const PlasticModelConfig> plasticConfig,
     const Formulation &formulation,
-    int enforceSPD,
+    bool projectHessianPSD,
     std::shared_ptr<const MaterialFrameField> materialFrames);
 
   ~DeformationModelManager();
-  void setEnforceSPD(int enable);
+  void setProjectHessianPSD(bool enable);
 
   int getNumPlasticParameters() const;
   int getNumElasticParameters() const;

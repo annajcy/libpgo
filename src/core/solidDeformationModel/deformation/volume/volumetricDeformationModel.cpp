@@ -215,16 +215,22 @@ void VolumetricDeformationModel::compute_d2E_dx2(
   for (int q = 0; q < numQuadPts_; q++) {
     const double *mp = elasticParamsPtr(cacheDataBase, q);
     ES::M9d dPdF;
-    elasticModel_->compute_dPdF(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
+    if (projectHessianPSD_) {
+      elasticModel_->compute_dPdF_psd(mp, cd->Fe[q].data(),
+        cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
+    }
+    else {
+      elasticModel_->compute_dPdF(mp, cd->Fe[q].data(),
+        cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
+    }
     dPdF *= elementMapping_.weightDetJ(q) * cd->detFp[q];
     hessMap.noalias() += cd->dFdx[q].transpose() * dPdF * cd->dFdx[q];
   }
 }
 
-void VolumetricDeformationModel::enableSPD(int enable)
+void VolumetricDeformationModel::setProjectHessianPSD(bool enable)
 {
-  elasticModel_->enableSPD(enable);
+  projectHessianPSD_ = enable;
 }
 
 // ============================================================

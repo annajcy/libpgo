@@ -142,7 +142,8 @@ inline void fixPositiveIndefiniteness(double &B11, double &B12)
   }
 }
 
-// enforce SPD:
+// Project the material tangent to PSD when requested by the displacement
+// Hessian assembly path.
 // on the "A" matrix in Teran's paper, Section 8
 // Aij is the entry in row i and column j of 3x3 matrix A (which is symmetric)
 inline void fixPositiveIndefiniteness(double &A11, double &A12, double &A13, double &A22, double &A23, double &A33)
@@ -178,7 +179,7 @@ inline void fixPositiveIndefiniteness(double &A11, double &A12, double &A13, dou
 }  // namespace SolidDeformationModel
 }  // namespace pgo
 
-void ElasticModelInvariantBasedMaterial::compute_dPdF(const double * /*param*/, const double *, const double UIn[9], const double VIn[9], const double S[3], double dPdFOut[81]) const
+void ElasticModelInvariantBasedMaterial::compute_dPdF_impl(const double * /*param*/, const double *, const double UIn[9], const double VIn[9], const double S[3], double dPdFOut[81], bool project) const
 {
   double sigma1square = S[0] * S[0];
   double sigma2square = S[1] * S[1];
@@ -266,7 +267,7 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF(const double * /*param*/, 
   x3113 = beta13;
   x3223 = beta23;
 
-  if (enforceSPD_) {
+  if (project) {
     fixPositiveIndefiniteness(x1111, x2211, x3311, x2222, x3322, x3333);
     fixPositiveIndefiniteness(x2121, x2112);
     fixPositiveIndefiniteness(x3131, x3113);
@@ -396,6 +397,20 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF(const double * /*param*/, 
   perm.indices()[8] = 8;
 
   (Eigen::Map<Eigen::Matrix<double, 9, 9>>(dPdFOut)) = perm.transpose() * (Eigen::Map<const Eigen::Matrix<double, 9, 9>>(dPdF)) * perm;
+}
+
+void ElasticModelInvariantBasedMaterial::compute_dPdF(
+  const double *param, const double F[9], const double UIn[9],
+  const double VIn[9], const double S[3], double dPdFOut[81]) const
+{
+  compute_dPdF_impl(param, F, UIn, VIn, S, dPdFOut, false);
+}
+
+void ElasticModelInvariantBasedMaterial::compute_dPdF_psd(
+  const double *param, const double F[9], const double UIn[9],
+  const double VIn[9], const double S[3], double dPdFOut[81]) const
+{
+  compute_dPdF_impl(param, F, UIn, VIn, S, dPdFOut, true);
 }
 
 

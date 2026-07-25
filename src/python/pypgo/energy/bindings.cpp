@@ -113,7 +113,7 @@ void init_energy_bindings(nb::module_ &m)
   m.def("_create_deformation_energy_with_parameters", &createDeformationEnergyWithParameters,
     nb::arg("mesh_core"), nb::arg("elastic_model"), nb::arg("plastic_model"),
     nb::arg("material_parameters"), nb::arg("formulation"),
-    nb::arg("element_weights").none() = nb::none(), nb::arg("enforce_spd") = true,
+    nb::arg("element_weights").none() = nb::none(), nb::arg("project_hessian_psd") = true,
     nb::arg("enable_material_max_step") = true);
 
   m.def("_create_plastic_material_energy", &createPlasticMaterialEnergy,

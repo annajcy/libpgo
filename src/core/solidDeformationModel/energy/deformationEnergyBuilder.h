@@ -24,7 +24,7 @@ class SimulationMesh;
 
 struct DeformationModelOptions
 {
-  bool enforceSPD = true;
+  bool projectHessianPSD = true;
   bool enableMaterialMaxStep = true;
   // Per-element assembler weights; empty means all ones.
   EigenSupport::VXd elementWeights;

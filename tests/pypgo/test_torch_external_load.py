@@ -83,7 +83,7 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
         plastic=plastic_config,
         material_parameters=parameters,
         formulation=pf.KoiterShell(),
-        options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+        options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
     )
 
     if external_load == "point":

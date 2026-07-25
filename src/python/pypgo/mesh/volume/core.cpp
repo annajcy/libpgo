@@ -586,14 +586,6 @@ PyTriMeshData extract_surface_mesh(const PyVolumeMesh& vm, bool triangulate)
 std::shared_ptr<PySimulationMesh> create_simulation_mesh_from_volume(const PyVolumeMesh& vm)
 {
     const auto* volume = vm.getVM();
-    for (int element = 0; element < volume->getNumElements(); ++element) {
-        if (VolumetricMeshes::downcastENuMaterial(volume->getElementMaterial(element)) == nullptr) {
-            throw std::runtime_error(
-                "SimulationMesh.create_volumetric currently supports only ENuMaterial; element " +
-                std::to_string(element) + " uses a non-ENu volume material");
-        }
-    }
-
     std::unique_ptr<SolidDeformationModel::SimulationMesh> simMesh;
     {
         nb::gil_scoped_release release;

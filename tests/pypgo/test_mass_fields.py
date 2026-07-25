@@ -200,7 +200,7 @@ def _shell_energy(sim, triangles):
         plastic=plastic_config,
         material_parameters=parameters,
         formulation=pf.KoiterShell(),
-        options=pf.DeformationOptions(enforce_spd=False, enable_material_max_step=False),
+        options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
     )
 
 

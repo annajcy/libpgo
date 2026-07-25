@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 #include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/elasticModel3DMooneyRivlin.h"
 #include "material/elastic/elasticModelCombinedMaterial.h"
 #include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
 #include "material/plastic/plasticModel3D3DOF.h"
 #include "material/plastic/plasticModel3D6DOF.h"
+#include "material/plastic/plasticModel3DConstant.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "energy/deformationEnergyBuilder.h"
@@ -17,8 +19,10 @@
 #include "cubicMesh.h"
 #include "triMeshGeo.h"
 #include "pgoLogging.h"
+#include "volumetricMeshMooneyRivlinMaterial.h"
 
 #include <cmath>
+#include <set>
 
 namespace
 {
@@ -140,6 +144,39 @@ TEST(DeformationModelBuilderGTest, CubicZeroDisplacementBaseline)
   energy->hessian(u0, h0);
   for (Eigen::Index i = 0; i < h0.nonZeros(); i++)
     EXPECT_TRUE(std::isfinite(h0.valuePtr()[i])) << "Non-finite Hessian entry at " << i;
+}
+
+TEST(DeformationModelBuilderGTest, MooneyRivlinConfigBuildsTetEnergy)
+{
+  pgo::Logging::init();
+
+  const double vertices[] = {
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0};
+  const int elements[] = {0, 1, 2, 3};
+  pgo::VolumetricMeshes::VolumetricMesh::MooneyRivlinMaterial material(
+    "mr_test", 1000.0, 0.5, 0.3, 0.1);
+  const pgo::VolumetricMeshes::VolumetricMesh::Material *materials[] = {&material};
+  pgo::VolumetricMeshes::VolumetricMesh::Set set("all", std::set<int>{0});
+  pgo::VolumetricMeshes::VolumetricMesh::Region region(0, 0);
+  pgo::VolumetricMeshes::TetMesh tetMesh(
+    4, vertices, 1, elements, 1, materials, 1, &set, 1, &region);
+
+  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
+  ASSERT_NE(simMesh, nullptr);
+  auto energy = makeDefaultFieldEnergy(
+    simMesh, TetLinearFormulation{}, std::make_shared<MooneyRivlinConfig>(),
+    std::make_shared<VolumetricPlasticity0Config>());
+  ASSERT_NE(energy, nullptr);
+
+  ES::VXd u0 = ES::VXd::Zero(energy->getNumDOFs());
+  EXPECT_NEAR(energy->func(u0), 0.0, 1e-12);
+  ES::VXd gradient = ES::VXd::Zero(energy->getNumDOFs());
+  energy->gradient(u0, gradient);
+  for (Eigen::Index i = 0; i < gradient.size(); ++i)
+    EXPECT_TRUE(std::isfinite(gradient[i]));
 }
 
 // MakeTetDeformationModel with SimulationMesh reference validates TET topology.

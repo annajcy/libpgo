@@ -555,13 +555,13 @@ std::shared_ptr<PyDeformationEnergy> createDeformationEnergyWithParameters(
   const PyMaterialParameters &materialParameters,
   const pgo::PyFormulation &formulation,
   nb::object elementWeights,
-  bool enforceSPD,
+  bool projectHessianPSD,
   bool enableMaterialMaxStep)
 {
   if (!meshCore)
     throw nb::value_error("mesh_core must be non-null");
   SolidDeformationModel::DeformationModelOptions opts;
-  opts.enforceSPD = enforceSPD;
+  opts.projectHessianPSD = projectHessianPSD;
   opts.enableMaterialMaxStep = enableMaterialMaxStep;
   if (auto weights = optionalVectorFromObject(elementWeights))
     opts.elementWeights = std::move(*weights);

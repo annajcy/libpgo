@@ -48,7 +48,7 @@ def test_simulation_mesh_create_volumetric_for_tet_and_cubic():
     assert cubic_sim.num_element_vertices == 8
 
 
-def test_simulation_mesh_create_volumetric_rejects_non_enu_material():
+def test_simulation_mesh_create_volumetric_supports_mooney_rivlin_material():
     tet = pgo.mesh.TetMeshData(
         np.array(
             [
@@ -61,9 +61,13 @@ def test_simulation_mesh_create_volumetric_rejects_non_enu_material():
         ),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
-    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet, pgo.mesh.volume.MooneyRivlinMaterial(mu01=1.0))
-    with pytest.raises(RuntimeError, match="only ENuMaterial"):
-        pgo.fem.SimulationMesh.create_volumetric(volume)
+    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+        tet,
+        pgo.mesh.volume.MooneyRivlinMaterial(mu01=0.5, mu10=0.3, v1=0.1),
+    )
+    sim = pgo.fem.SimulationMesh.create_volumetric(volume)
+    assert sim.mesh_type == "tet"
+    assert sim.num_elements == 1
 
 
 def test_simulation_mesh_create_shell():
@@ -81,11 +85,7 @@ def test_simulation_mesh_create_shell():
 
 
 def test_volume_mesh_carries_multiple_material_types():
-    """VolumeMesh can carry ENu, MooneyRivlin, and Orthotropic materials
-    before simulation conversion. The simulation mesh factory currently
-    only accepts ENu (see test_simulation_mesh_create_volumetric_rejects_non_enu_material),
-    but the VolumeMesh layer preserves all material types for future
-    material/law refactoring."""
+    """VolumeMesh can carry ENu, MooneyRivlin, and Orthotropic materials."""
     tet = pgo.mesh.TetMeshData(
         np.array(
             [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],

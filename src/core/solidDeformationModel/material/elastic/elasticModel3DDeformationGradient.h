@@ -6,6 +6,8 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "material/elastic/elasticModel.h"
+#include "deformation/hessianProjection.h"
+#include "EigenSupport.h"
 
 #include <stdexcept>
 
@@ -25,6 +27,17 @@ public:
     const double U[9], const double V[9], const double S[3], double P[9]) const = 0;
   virtual void compute_dPdF(const double *param, const double F[9],
     const double U[9], const double V[9], const double S[3], double dPdF[81]) const = 0;
+
+  // Exact material tangent remains available through compute_dPdF().  This
+  // variant is used only when assembling a PSD displacement Hessian.
+  virtual void compute_dPdF_psd(const double *param, const double F[9],
+    const double U[9], const double V[9], const double S[3], double dPdF[81]) const
+  {
+    compute_dPdF(param, F, U, V, S, dPdF);
+    const EigenSupport::M9d tangent = EigenSupport::Mp<const EigenSupport::M9d>(dPdF);
+    auto output = EigenSupport::Mp<EigenSupport::M9d>(dPdF);
+    output = projectSymmetricPSD(tangent);
+  }
 
   // Every concrete 3D model must state its parameter dimension explicitly.
   // Parameter derivative hooks below throw unless the model implements them.

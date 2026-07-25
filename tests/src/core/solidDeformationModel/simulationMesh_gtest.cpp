@@ -3,6 +3,7 @@
 #include "simulation/simulationMesh.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
+#include "triMeshGeo.h"
 #include "volumetricMeshENuMaterial.h"
 #include "volumetricMeshMooneyRivlinMaterial.h"
 #include "volumetricMeshOrthotropicMaterial.h"
@@ -68,12 +69,40 @@ TEST(SimulationMeshGTest, TetLoadProducesENuMaterialPayloads)
   }
 }
 
-// Characterization: Mooney-Rivlin material exists at the Vega .veg /
-// VolumetricMesh level before deformation conversion. The current
-// loadTetMesh/loadCubicMesh only convert ENu materials; Mooney-Rivlin
-// payloads exist at the Vega layer but are not yet converted to
-// SimulationMeshMooneyRivlinMaterial during loading.
-TEST(SimulationMeshGTest, MooneyRivlinPayloadExistsAtVegaLevel)
+TEST(SimulationMeshGTest, ShellLoadPreservesTriangleZeroAsNeighbor)
+{
+  using namespace pgo;
+  using namespace pgo::SolidDeformationModel;
+
+  std::vector<Vec3d> vertices{
+    Vec3d(0.0, 0.0, 0.0),
+    Vec3d(1.0, 0.0, 0.0),
+    Vec3d(1.0, 1.0, 0.0),
+    Vec3d(0.0, 1.0, 0.0),
+  };
+  std::vector<Vec3i> triangles{
+    Vec3i(0, 1, 2),
+    Vec3i(0, 2, 3),
+  };
+  Mesh::TriMeshGeo surface(
+    std::move(vertices), std::move(triangles));
+  SimulationMeshENuhMaterial material(1000.0, 0.4, 0.01);
+
+  auto mesh = loadShellMesh(surface, &material);
+
+  ASSERT_NE(mesh, nullptr);
+  ASSERT_EQ(mesh->getNumElements(), 2);
+  ASSERT_EQ(mesh->getNumElementVertices(), 6);
+
+  // Triangle 0 sees triangle 1 across local edge (2, 0), whose opposite
+  // vertex is 3.
+  EXPECT_EQ(mesh->getVertexIndex(0, 5), 3);
+  // Triangle 1 sees triangle 0 across local edge (0, 2), whose opposite
+  // vertex is 1. Triangle index 0 is a valid neighbor, not a boundary.
+  EXPECT_EQ(mesh->getVertexIndex(1, 3), 1);
+}
+
+TEST(SimulationMeshGTest, LoadsMooneyRivlinElementField)
 {
   // Build a minimal tet mesh with one element and Mooney-Rivlin material.
   const double vertices[] = {
@@ -106,11 +135,33 @@ TEST(SimulationMeshGTest, MooneyRivlinPayloadExistsAtVegaLevel)
   EXPECT_DOUBLE_EQ(mrDowncast->getmu10(), 0.3);
   EXPECT_DOUBLE_EQ(mrDowncast->getv1(), 0.1);
 
-  // loadTetMesh only handles ENu; it will fail on Mooney-Rivlin.
-  // This documents the current limitation.
-  const auto *enuDowncast = pgo::VolumetricMeshes::downcastENuMaterial(
-    tetMesh.getElementMaterial(0));
-  EXPECT_EQ(enuDowncast, nullptr);
+  auto simMesh = pgo::SolidDeformationModel::loadTetMesh(&tetMesh);
+  ASSERT_NE(simMesh, nullptr);
+  const auto &simMaterial = simMesh->requireElementField<
+    pgo::SolidDeformationModel::SimulationMeshMooneyRivlinMaterial>().at(0);
+  EXPECT_DOUBLE_EQ(simMaterial.mu01(), 0.5);
+  EXPECT_DOUBLE_EQ(simMaterial.mu10(), 0.3);
+  EXPECT_DOUBLE_EQ(simMaterial.v1(), 0.1);
+}
+
+TEST(SimulationMeshGTest, RejectsInvalidMooneyRivlinParametersAtConversion)
+{
+  const double vertices[] = {
+    0.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0};
+  const int elements[] = {0, 1, 2, 3};
+  pgo::VolumetricMeshes::VolumetricMesh::MooneyRivlinMaterial invalidMaterial(
+    "invalid_mr", 1000.0, 0.0, 0.0, 0.1);
+  const pgo::VolumetricMeshes::VolumetricMesh::Material *materials[] = {
+    &invalidMaterial};
+  pgo::VolumetricMeshes::VolumetricMesh::Set set("all", std::set<int>{0});
+  pgo::VolumetricMeshes::VolumetricMesh::Region region(0, 0);
+  pgo::VolumetricMeshes::TetMesh tetMesh(
+    4, vertices, 1, elements, 1, materials, 1, &set, 1, &region);
+
+  EXPECT_THROW(pgo::SolidDeformationModel::loadTetMesh(&tetMesh), std::invalid_argument);
 }
 
 // Characterization: Orthotropic material payload can be read from Vega

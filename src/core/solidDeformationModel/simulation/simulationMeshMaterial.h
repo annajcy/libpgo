@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <cmath>
 #include <stdexcept>
 #include <typeindex>
 #include <type_traits>
@@ -201,45 +202,25 @@ private:
 class SimulationMeshMooneyRivlinMaterial
 {
 public:
-  SimulationMeshMooneyRivlinMaterial(int N, int M, const double *Cpq, const double *D_):
-    N(N), M(M), C((N + 1) * (N + 1)), D(M)
+  SimulationMeshMooneyRivlinMaterial(double mu01_, double mu10_, double v1_):
+    mu01Value(mu01_), mu10Value(mu10_), v1Value(v1_)
   {
-    for (int p = 0; p <= N; p++)
-      for (int q = 0; q <= N; q++)
-        C[q * (N + 1) + p] = Cpq[q * (N + 1) + p];
-    for (int i = 0; i < M; i++) D[i] = D_[i];
+    if (!std::isfinite(mu01Value) || !std::isfinite(mu10Value) || !std::isfinite(v1Value))
+      throw std::invalid_argument("Mooney-Rivlin parameters must be finite");
+    if (mu01Value + mu10Value <= 0.0)
+      throw std::invalid_argument("Mooney-Rivlin requires mu01 + mu10 > 0");
+    if (v1Value <= 0.0)
+      throw std::invalid_argument("Mooney-Rivlin requires v1 > 0");
   }
-  SimulationMeshMooneyRivlinMaterial(int N, int M, double E, double nu):
-    N(N), M(M), C((N + 1) * (N + 1), 0.0), D(M, 0.0)
-  {
-    const double bulkModulus = E / (3 * (1 - 2 * nu));
-    const double shearModulus = E / (2 * (1 + nu));
-    getC(1, 0) = shearModulus * 0.5;
-    getD(0) = 2.0 / bulkModulus;
-  }
-  double getC(int p, int q) const { return C[q * (N + 1) + p]; }
-  double getD(int i) const { return D[i]; }
-  const double *getC() const { return C.data(); }
-  const double *getD() const { return D.data(); }
-  int getM() const { return M; }
-  int getN() const { return N; }
-protected:
-  double &getC(int p, int q) { return C[q * (N + 1) + p]; }
-  double &getD(int i) { return D[i]; }
-  int N, M;
-  std::vector<double> C, D;
-};
 
-class SimulationMeshMooneyRivlinhMaterial : public SimulationMeshMooneyRivlinMaterial
-{
-public:
-  SimulationMeshMooneyRivlinhMaterial(int N_, int M_, const double *Cpq_, const double *D_, double h_):
-    SimulationMeshMooneyRivlinMaterial(N_, M_, Cpq_, D_), h(h_) {}
-  SimulationMeshMooneyRivlinhMaterial(int N_, int M_, double E_, double nu_, double h_):
-    SimulationMeshMooneyRivlinMaterial(N_, M_, E_, nu_), h(h_) {}
-  double geth() const { return h; }
+  double mu01() const { return mu01Value; }
+  double mu10() const { return mu10Value; }
+  double v1() const { return v1Value; }
+
 private:
-  double h = 1e-4;
+  double mu01Value;
+  double mu10Value;
+  double v1Value;
 };
 
 }  // namespace SolidDeformationModel

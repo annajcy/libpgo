@@ -19,8 +19,6 @@ public:
     double optimalLengthRatio, const EigenSupport::V3d &fiberDirection);
   virtual ~ElasticModelHillTypeMaterial() {}
 
-  void enableSPD(int enable) override { enforceSPD_ = enable ? 1 : 0; }
-
   virtual double compute_psi(const double *param, const double F[9],
     const double U[9], const double V[9], const double S[3]) const override;
   virtual void compute_P(const double *param, const double F[9],
@@ -56,7 +54,6 @@ protected:
   double sqrt_pi;
   double dFddT_dF[81];
 
-  int enforceSPD_ = 1;
 };
 
 class HillStableNeoConfig final : public ElasticModelConfig

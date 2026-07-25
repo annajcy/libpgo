@@ -36,7 +36,7 @@ inline ES::M3d H_I2_apply(const ES::M3d &F, const ES::M3d &C, double I1, const E
 }
 
 // Action of the Hessian of J (i.e., δ(J F^{-T})) on dF
-inline ES::M3d H_J_apply(const ES::M3d &Finv, const ES::M3d &FinvT, double J, const ES::M3d &dF)
+inline ES::M3d H_J_apply(const ES::M3d &FinvT, double J, const ES::M3d &dF)
 {
   const double trTerm = inner(FinvT, dF);                  // tr(F^{-1} δF) = F^{-T} : δF
   const double dJ = J * trTerm;                            // δJ
@@ -45,8 +45,8 @@ inline ES::M3d H_J_apply(const ES::M3d &Finv, const ES::M3d &FinvT, double J, co
 }
 
 // Action of the Hessian of I1bar and I2bar on dF
-inline ES::M3d H_I1bar_apply(const ES::M3d &F, const ES::M3d &Finv, const ES::M3d &FinvT,
-  double J, double Jm23, double I1, const ES::M3d &dF)
+inline ES::M3d H_I1bar_apply(const ES::M3d &F, const ES::M3d &FinvT,
+  double Jm23, double I1, const ES::M3d &dF)
 {
   // Precomputations
   const ES::M3d gradI1 = 2.0 * F;
@@ -64,8 +64,8 @@ inline ES::M3d H_I1bar_apply(const ES::M3d &F, const ES::M3d &Finv, const ES::M3
 }
 
 inline ES::M3d H_I2bar_apply(const ES::M3d &F, const ES::M3d &C,
-  const ES::M3d &Finv, const ES::M3d &FinvT,
-  double J, double Jm43, double I1, double I2, const ES::M3d &dF)
+  const ES::M3d &FinvT, double Jm43, double I1, double I2,
+  const ES::M3d &dF)
 {
   const ES::M3d gradI2 = 2.0 * (I1 * F - F * C);
   const double s = inner(FinvT, dF);             // tr(F^{-1} δF)
@@ -79,36 +79,10 @@ inline ES::M3d H_I2bar_apply(const ES::M3d &F, const ES::M3d &C,
 }
 }  // namespace pgo::SolidDeformationModel
 
-ElasticModel3DMooneyRivlin::ElasticModel3DMooneyRivlin(int N_, const double *Cpq_, int M_, const double *D_):
-  N(N_), M(M_), Cpq(N + 1, N + 1), D(M)
+ElasticModel3DMooneyRivlin::ElasticModel3DMooneyRivlin(
+  double mu01, double mu10, double v1):
+  mu01_(mu01), mu10_(mu10), v1_(v1)
 {
-  for (int p = 0; p <= N; ++p) {
-    for (int q = 0; q <= N; ++q) {
-      Cpq(p, q) = Cpq_[q * (N + 1) + p];
-    }
-  }
-
-  for (int m = 0; m < M; ++m) {
-    D(m) = D_[m];
-  }
-}
-
-void ElasticModel3DMooneyRivlin::updateParameters(int N_, const double *Cpq_, int M_, const double *D_)
-{
-  N = N_;
-  M = M_;
-  Cpq.resize(N + 1, N + 1);
-  D.resize(M);
-
-  for (int p = 0; p <= N; ++p) {
-    for (int q = 0; q <= N; ++q) {
-      Cpq(p, q) = Cpq_[q * (N + 1) + p];
-    }
-  }
-
-  for (int m = 0; m < M; ++m) {
-    D(m) = D_[m];
-  }
 }
 
 double ElasticModel3DMooneyRivlin::compute_psi(const double *param, const double _F[9],
@@ -121,37 +95,14 @@ double ElasticModel3DMooneyRivlin::compute_psi(const double *param, const double
   const double I1 = C.trace();
   const double I2 = 0.5 * (I1 * I1 - (C * C).trace());
   const double J = F.determinant();
-  const ES::M3d Finv = F.fullPivHouseholderQr().inverse();
-
   const double Jm23 = std::pow(J * J, -1.0 / 3.0);
   const double Jm43 = std::pow(J * J * J * J, -1.0 / 3.0);
   const double I1bar = Jm23 * I1;
   const double I2bar = Jm43 * I2;
-
-  double W = 0.0;
   const double f1 = I1bar - 3.0;
   const double f2 = I2bar - 3.0;
 
-  for (int p = 0; p <= N; ++p) {
-    for (int q = 0; q <= N; ++q) {
-      if (p == 0 && q == 0)
-        continue;
-
-      const double c = Cpq(p, q);
-
-      if (c == 0.0)
-        continue;
-
-      W += c * std::pow(f1, p) * std::pow(f2, q);
-    }
-  }
-
-  for (int m = 1; m <= M; ++m) {
-    const double invDm = 1.0 / D[m - 1];
-    W += invDm * std::pow(J - 1.0, 2 * m);
-  }
-
-  return W;
+  return mu10_ * f1 + mu01_ * f2 + v1_ * (J - 1.0) * (J - 1.0);
 }
 
 void ElasticModel3DMooneyRivlin::compute_P(const double *param, const double _F[9],
@@ -169,8 +120,6 @@ void ElasticModel3DMooneyRivlin::compute_P(const double *param, const double _F[
 
   const double Jm23 = std::pow(J * J, -1.0 / 3.0);
   const double Jm43 = std::pow(J * J * J * J, -1.0 / 3.0);
-  const double I1bar = Jm23 * I1;
-  const double I2bar = Jm43 * I2;
 
   // Gradient building blocks
   const ES::M3d gradI1 = 2.0 * F;
@@ -179,40 +128,8 @@ void ElasticModel3DMooneyRivlin::compute_P(const double *param, const double _F[
   const ES::M3d g1bar = Jm23 * gradI1 + I1 * (-2.0 / 3.0) * Jm23 * FinvT;
   const ES::M3d g2bar = Jm43 * gradI2 + I2 * (-4.0 / 3.0) * Jm43 * FinvT;
 
-  const double f1 = I1bar - 3.0;
-  const double f2 = I2bar - 3.0;
-
-  // (b) First derivative dW/dF ---------------------------------------------
-  ES::M3d dW_dF;
-  dW_dF.setZero();
-
-  for (int p = 0; p <= N; ++p) {
-    for (int q = 0; q <= N; ++q) {
-      if (p == 0 && q == 0)
-        continue;
-
-      const double c = Cpq(p, q);
-      if (c == 0.0)
-        continue;
-
-      const double pow1 = (p > 0) ? std::pow(f1, p - 1) : 0.0;
-      const double pow2 = (q > 0) ? std::pow(f2, q - 1) : 0.0;
-
-      const double alpha = (p > 0) ? c * p * pow1 * std::pow(f2, q) : 0.0;  // d/dF contribution via I1bar
-      const double beta = (q > 0) ? c * q * std::pow(f1, p) * pow2 : 0.0;   // via I2bar
-
-      dW_dF += alpha * g1bar + beta * g2bar;
-    }
-  }
-
-  // volumetric gradient: φ'(J) * ∇J
-  double phiPrime = 0.0;
-  for (int m = 1; m <= M; ++m) {
-    const double invDm = 1.0 / D[m - 1];
-    phiPrime += invDm * (2.0 * m) * std::pow(J - 1.0, 2 * m - 1);
-  }
-
-  dW_dF += phiPrime * gradJ;
+  ES::M3d dW_dF = mu10_ * g1bar + mu01_ * g2bar;
+  dW_dF += 2.0 * v1_ * (J - 1.0) * gradJ;
 
   (ES::Mp<ES::M3d>(P)) = dW_dF;
 }
@@ -232,9 +149,6 @@ void ElasticModel3DMooneyRivlin::compute_dPdF(const double *param, const double 
 
   const double Jm23 = std::pow(J * J, -1.0 / 3.0);
   const double Jm43 = std::pow(J * J * J * J, -1.0 / 3.0);
-  const double I1bar = Jm23 * I1;
-  const double I2bar = Jm43 * I2;
-
   // Gradient building blocks
   const ES::M3d gradI1 = 2.0 * F;
   const ES::M3d gradI2 = 2.0 * (I1 * F - F * C);
@@ -242,61 +156,13 @@ void ElasticModel3DMooneyRivlin::compute_dPdF(const double *param, const double 
   const ES::M3d g1bar = Jm23 * gradI1 + I1 * (-2.0 / 3.0) * Jm23 * FinvT;
   const ES::M3d g2bar = Jm43 * gradI2 + I2 * (-4.0 / 3.0) * Jm43 * FinvT;
 
-  const double f1 = I1bar - 3.0;
-  const double f2 = I2bar - 3.0;
-
-  // volumetric
-  double phiPrime = 0.0, phiDoublePrime = 0.0;
-  for (int m = 1; m <= M; ++m) {
-    const double invDm = 1.0 / D[m - 1];
-    phiPrime += invDm * (2.0 * m) * std::pow(J - 1.0, 2 * m - 1);
-    phiDoublePrime += invDm * (2.0 * m) * (2.0 * m - 1.0) * std::pow(J - 1.0, 2 * m - 2);
-  }
-
   auto H_apply = [&](const ES::M3d &dF) -> ES::M3d {
     ES::M3d out = ES::M3d::Zero();
 
-    // Distortional part
-    const double dI1bar = inner(g1bar, dF);
-    const double dI2bar = inner(g2bar, dF);
-
-    for (int p = 0; p <= N; ++p) {
-      for (int q = 0; q <= N; ++q) {
-        if (p == 0 && q == 0)
-          continue;
-
-        const double c = Cpq(p, q);
-        if (c == 0.0)
-          continue;
-
-        const double pow_f1_p = std::pow(f1, p);
-        const double pow_f2_q = std::pow(f2, q);
-        const double pow_f1_p1 = (p > 0) ? std::pow(f1, p - 1) : 0.0;
-        const double pow_f2_q1 = (q > 0) ? std::pow(f2, q - 1) : 0.0;
-        const double pow_f1_p2 = (p > 1) ? std::pow(f1, p - 2) : 0.0;
-        const double pow_f2_q2 = (q > 1) ? std::pow(f2, q - 2) : 0.0;
-
-        const double alpha = (p > 0) ? c * p * pow_f1_p1 * pow_f2_q : 0.0;
-        const double beta = (q > 0) ? c * q * pow_f1_p * pow_f2_q1 : 0.0;
-
-        // Derivatives of alpha and beta w.r.t. F through I1bar, I2bar
-        const double a11 = (p > 1) ? c * p * (p - 1) * pow_f1_p2 * pow_f2_q : 0.0;      // ∂α/∂I1bar
-        const double a12 = (p > 0 && q > 0) ? c * p * q * pow_f1_p1 * pow_f2_q1 : 0.0;  // ∂α/∂I2bar
-        const double b11 = a12;                                                         // ∂β/∂I1bar
-        const double b12 = (q > 1) ? c * q * (q - 1) * pow_f1_p * pow_f2_q2 : 0.0;      // ∂β/∂I2bar
-
-        // α * H(I1bar) + β * H(I2bar)
-        out += alpha * H_I1bar_apply(F, Finv, FinvT, J, Jm23, I1, dF);
-        out += beta * H_I2bar_apply(F, C, Finv, FinvT, J, Jm43, I1, I2, dF);
-
-        // (∂α/∂F) g1bar + (∂β/∂F) g2bar
-        out += (a11 * dI1bar + a12 * dI2bar) * g1bar;
-        out += (b11 * dI1bar + b12 * dI2bar) * g2bar;
-      }
-    }
-
-    // Volumetric part: φ''(J) (∇J:δF) ∇J + φ'(J) * H_J_apply[δF]
-    out += phiDoublePrime * inner(gradJ, dF) * gradJ + phiPrime * H_J_apply(Finv, FinvT, J, dF);
+    out += mu10_ * H_I1bar_apply(F, FinvT, Jm23, I1, dF);
+    out += mu01_ * H_I2bar_apply(F, C, FinvT, Jm43, I1, I2, dF);
+    out += 2.0 * v1_ * (
+      inner(gradJ, dF) * gradJ + (J - 1.0) * H_J_apply(FinvT, J, dF));
 
     return out;
   };
@@ -344,6 +210,6 @@ void MooneyRivlinConfig::initializeDefaultElementChannels(const SimulationMesh &
 std::unique_ptr<ElasticModel> MooneyRivlinConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &) const
 {
   const auto &mat = mooneyMaterial(mesh, element);
-  return std::make_unique<ElasticModel3DMooneyRivlin>(mat.getN(), mat.getC(), mat.getM(), mat.getD());
+  return std::make_unique<ElasticModel3DMooneyRivlin>(mat.mu01(), mat.mu10(), mat.v1());
 }
 }  // namespace pgo::SolidDeformationModel
