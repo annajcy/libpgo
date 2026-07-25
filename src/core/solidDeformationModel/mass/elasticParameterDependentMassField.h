@@ -6,7 +6,7 @@ namespace SolidDeformationModel
 {
 
 class MaterialParameterRef;
-class MaterialStateView;
+class MaterialParameterEvaluationView;
 
 // Capability interface for mass fields whose density depends on optimizable
 // elastic parameters. Implementations multiply-inherit their domain MassField
@@ -19,9 +19,9 @@ public:
   virtual const MaterialParameterRef &parameter() const = 0;
 
   // d(arealDensity(ele)) / d(local parameter dofs); out has length
-  // parameter().block().dofLayout().numLocalDofs().
+  // parameter().field().dofLayout().numLocalDofs().
   virtual void arealDensityParameterDerivative(
-    int ele, MaterialStateView state, double *out) const = 0;
+    int ele, MaterialParameterEvaluationView state, double *out) const = 0;
 };
 
 }  // namespace SolidDeformationModel

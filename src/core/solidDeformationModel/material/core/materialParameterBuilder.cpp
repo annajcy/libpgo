@@ -31,18 +31,26 @@ std::shared_ptr<const MaterialParameterSpace> makeMaterialParameterSpace(
 {
   if (!elasticDofLayout || !elasticMapping || !plasticDofLayout || !plasticMapping)
     throw std::invalid_argument("makeMaterialParameterSpace requires non-null layouts and channel mappings");
-  const int elasticChannels = static_cast<int>(elastic.parameterSpec().channelNames.size());
-  const int plasticChannels = static_cast<int>(plastic.parameterSpec().channelNames.size());
+  const auto elasticNames = elastic.parameterChannelNames();
+  const auto plasticNames = plastic.parameterChannelNames();
+  const int elasticChannels = static_cast<int>(elasticNames.size());
+  const int plasticChannels = static_cast<int>(plasticNames.size());
   if (elasticMapping->numChannels() != elasticChannels || elasticMapping->numInputDofs() != elasticDofLayout->numLocalDofs())
     throw std::invalid_argument("elastic parameter field definition does not match the config/layout");
   if (plasticMapping->numChannels() != plasticChannels || plasticMapping->numInputDofs() != plasticDofLayout->numLocalDofs())
     throw std::invalid_argument("plastic parameter field definition does not match the config/layout");
   if (elasticDofLayout->numElements() != plasticDofLayout->numElements())
     throw std::invalid_argument("elastic and plastic layouts must have the same element count");
+  std::vector<std::string> elasticChannelNames;
+  elasticChannelNames.reserve(elasticNames.size());
+  for (const auto name : elasticNames) elasticChannelNames.emplace_back(name);
+  std::vector<std::string> plasticChannelNames;
+  plasticChannelNames.reserve(plasticNames.size());
+  for (const auto name : plasticNames) plasticChannelNames.emplace_back(name);
   return std::make_shared<MaterialParameterSpace>(
-    MaterialParameterBlock(elastic.parameterSpec().channelNames,
+    MaterialParameterField::create(std::move(elasticChannelNames),
       std::move(elasticDofLayout), std::move(elasticMapping)),
-    MaterialParameterBlock(plastic.parameterSpec().channelNames,
+    MaterialParameterField::create(std::move(plasticChannelNames),
       std::move(plasticDofLayout), std::move(plasticMapping)));
 }
 
@@ -66,8 +74,8 @@ std::shared_ptr<MaterialParameters> makeDefaultMaterialParameters(
   const PlasticModelConfig &plastic)
 {
   const int numElements = mesh.getNumElements();
-  const int numElasticChannels = static_cast<int>(elastic.parameterSpec().channelNames.size());
-  const int numPlasticChannels = static_cast<int>(plastic.parameterSpec().channelNames.size());
+  const int numElasticChannels = static_cast<int>(elastic.parameterChannelNames().size());
+  const int numPlasticChannels = static_cast<int>(plastic.parameterChannelNames().size());
   auto space = makeMaterialParameterSpace(
     elastic,
     std::make_shared<ElementwiseParameterDofLayout>(numElements, numElasticChannels),

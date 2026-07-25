@@ -1,7 +1,7 @@
 #pragma once
 
 #include "massField.h"
-#include "material/fields/materialParameters.h"
+#include "material/core/materialParameters.h"
 
 #include "EigenSupport.h"
 
@@ -14,7 +14,7 @@ namespace SolidDeformationModel
 class ShellMassField : public MassField
 {
 public:
-  virtual double arealDensity(int ele, MaterialStateView state) const = 0;
+  virtual double arealDensity(int ele, MaterialParameterEvaluationView state) const = 0;
 
   bool compatibleWith(SimulationMeshType meshType) const override;
 };
@@ -24,7 +24,7 @@ class ConstantShellArealDensity : public ShellMassField
 public:
   explicit ConstantShellArealDensity(double arealDensity);
 
-  double arealDensity(int /*ele*/, MaterialStateView /*state*/) const override
+  double arealDensity(int /*ele*/, MaterialParameterEvaluationView /*state*/) const override
   {
     return arealDensity_;
   }
@@ -41,7 +41,7 @@ public:
   ShellDensityThickness(double density, EigenSupport::VXd thickness);
 
   void validate(const SimulationMesh &mesh) const override;
-  double arealDensity(int ele, MaterialStateView state) const override;
+  double arealDensity(int ele, MaterialParameterEvaluationView state) const override;
 
 private:
   double density_ = 0.0;

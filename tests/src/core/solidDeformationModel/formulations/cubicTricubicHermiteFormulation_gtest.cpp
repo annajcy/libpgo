@@ -19,7 +19,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
-#include "material/fields/materialParameterBuilder.h"
+#include "material/core/materialParameterBuilder.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "simulation/simulationMesh.h"
 #include "formulations/formulation/formulations.h"

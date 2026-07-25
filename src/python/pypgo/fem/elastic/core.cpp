@@ -8,7 +8,7 @@ namespace SD = SolidDeformationModel;
 
 int PyElasticModelConfig::numChannels(const SD::SimulationMesh &) const
 {
-  return static_cast<int>(config_->parameterSpec().channelNames.size());
+  return static_cast<int>(config_->parameterChannelNames().size());
 }
 
 int PyElasticModelConfig::numChannels(const PySimulationMesh &mesh) const

@@ -6,7 +6,7 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "energy/potentialEnergy.h"
-#include "material/fields/materialParameters.h"
+#include "material/core/materialParameters.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
@@ -48,33 +48,33 @@ public:
   virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
   virtual void hessianAlloc(EigenSupport::SpMatD &hess) const override;
 
-  double func(EigenSupport::ConstRefVecXd x, MaterialStateView state) const;
+  double func(EigenSupport::ConstRefVecXd x, MaterialParameterEvaluationView state) const;
   void gradient(
     EigenSupport::ConstRefVecXd x,
-    MaterialStateView state,
+    MaterialParameterEvaluationView state,
     EigenSupport::RefVecXd grad) const;
   void hessianInPlace(
     EigenSupport::ConstRefVecXd x,
-    MaterialStateView state,
+    MaterialParameterEvaluationView state,
     EigenSupport::SpMatD &hess) const;
 
   // Material derivatives of E(u, p, e), where u is displacement, p is the
   // plastic field, and e is the elastic field. Overloads without an explicit
-  // MaterialStateView use the currently committed parameter fields.
+  // MaterialParameterEvaluationView use the currently committed parameter fields.
   void compute_dE_dp(EigenSupport::ConstRefVecXd displacement, EigenSupport::RefVecXd grad) const;
-  void compute_dE_dp(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::RefVecXd grad) const;
+  void compute_dE_dp(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::RefVecXd grad) const;
   void compute_dE_de(EigenSupport::ConstRefVecXd displacement, EigenSupport::RefVecXd grad) const;
-  void compute_dE_de(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::RefVecXd grad) const;
+  void compute_dE_de(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::RefVecXd grad) const;
   void compute_d2E_dp2(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_dp2(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dp2(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
   void compute_d2E_de2(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_de2(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_de2(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
   void compute_d2E_dpde(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_dpde(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dpde(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
   void compute_d2E_dudp(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &mixedHessian) const;
-  void compute_d2E_dudp(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &mixedHessian) const;
+  void compute_d2E_dudp(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &mixedHessian) const;
   void compute_d2E_dude(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &mixedHessian) const;
-  void compute_d2E_dude(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &mixedHessian) const;
+  void compute_d2E_dude(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &mixedHessian) const;
   void computeVonMisesStresses(EigenSupport::ConstRefVecXd displacement, EigenSupport::RefVecXd elementStresses) const;
   void computeMaxStrains(EigenSupport::ConstRefVecXd displacement, EigenSupport::RefVecXd elementStrains) const;
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = this->allDOFs; }

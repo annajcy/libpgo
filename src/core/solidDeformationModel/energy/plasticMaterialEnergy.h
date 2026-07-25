@@ -41,7 +41,7 @@ private:
 
   std::shared_ptr<const DeformationModelEnergy> deformationEnergy_;
   EigenSupport::VXd fixedDisplacement_;
-  EigenSupport::VXd fixedElasticParameters_;
+  MaterialParameterSnapshot fixedState_;
   std::vector<int> allDOFs_;
 };
 

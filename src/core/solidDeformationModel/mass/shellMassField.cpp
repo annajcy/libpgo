@@ -50,7 +50,7 @@ void ShellDensityThickness::validate(const SimulationMesh &mesh) const
 }
 
 double ShellDensityThickness::arealDensity(
-  int ele, MaterialStateView) const
+  int ele, MaterialParameterEvaluationView) const
 {
   if (elementThickness_.size() != 0) {
     assert(ele >= 0 && ele < static_cast<int>(elementThickness_.size()));

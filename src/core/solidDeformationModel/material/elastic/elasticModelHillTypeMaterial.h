@@ -60,7 +60,7 @@ class HillStableNeoConfig final : public ElasticModelConfig
 {
 public:
   std::string_view id() const override { return "hill_stable_neo"; }
-  MaterialParameterSpec parameterSpec() const override;
+  std::span<const std::string_view> parameterChannelNames() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::PrimaryAxis; }
   void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:
@@ -70,7 +70,7 @@ class HillStVKConfig final : public ElasticModelConfig
 {
 public:
   std::string_view id() const override { return "hill_stvk"; }
-  MaterialParameterSpec parameterSpec() const override;
+  std::span<const std::string_view> parameterChannelNames() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::PrimaryAxis; }
   void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:
@@ -80,7 +80,7 @@ class HillStVKVolumeConfig final : public ElasticModelConfig
 {
 public:
   std::string_view id() const override { return "hill_stvk_vol"; }
-  MaterialParameterSpec parameterSpec() const override;
+  std::span<const std::string_view> parameterChannelNames() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::PrimaryAxis; }
   void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:

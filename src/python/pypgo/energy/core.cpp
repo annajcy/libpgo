@@ -514,8 +514,8 @@ std::shared_ptr<PyMaterialParameterSpace> createMaterialParameterSpace(
   const auto elasticConfig = elasticModel.config();
   const auto plasticConfig = plasticModel.config();
   const int ne = meshCore->mesh().getNumElements();
-  const int elasticChannels = static_cast<int>(elasticConfig->parameterSpec().channelNames.size());
-  const int plasticChannels = static_cast<int>(plasticConfig->parameterSpec().channelNames.size());
+  const int elasticChannels = static_cast<int>(elasticConfig->parameterChannelNames().size());
+  const int plasticChannels = static_cast<int>(plasticConfig->parameterChannelNames().size());
   auto space = SolidDeformationModel::makeMaterialParameterSpace(
     *elasticConfig, makeLayout(elasticLayout, ne, elasticChannels),
     makeMapping(elasticMapping, elasticChannels), *plasticConfig,

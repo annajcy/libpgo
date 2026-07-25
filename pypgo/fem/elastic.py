@@ -9,6 +9,10 @@ class ElasticModelConfig:
     """Abstract model configuration backed by a shared C++ config object."""
 
     def __init__(self, core_obj) -> None:
+        if type(self) is ElasticModelConfig:
+            raise TypeError("ElasticModelConfig is abstract; use a concrete config such as StableNeo()")
+        if not isinstance(core_obj, _core.PyElasticModelConfig):
+            raise TypeError("core_obj must be a PyElasticModelConfig")
         self._handle = core_obj
 
     @property

@@ -9,7 +9,7 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelAssemblerCacheData.h"
 #include "formulations/dof/dofLayout.h"
 #include "formulations/formulation/formulation.h"
-#include "material/fields/materialParameters.h"
+#include "material/core/materialParameters.h"
 #include "EigenDef.h"
 #include <cstddef>
 #include <functional>
@@ -40,17 +40,17 @@ public:
   MaterialMaxStepObservation computeMaxStepObservation(const double *x, const double *dx) const;
   double computeMaxStepSize(const double *x, const double *dx) const;
 
-  double computeEnergy(const double *x, MaterialStateView state) const;
-  void computeGradient(const double *x, MaterialStateView state, double *grad) const;
-  void computeHessian(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
+  double computeEnergy(const double *x, MaterialParameterEvaluationView state) const;
+  void computeGradient(const double *x, MaterialParameterEvaluationView state, double *grad) const;
+  void computeHessian(const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
 
   // E(u, p, e): u = displacement, p = plastic DOFs, e = elastic DOFs.
   // absolutePositions is rest + u, whose derivative with respect to u is I.
   void compute_d2E_dudp(
-    const double *absolutePositions, MaterialStateView state,
+    const double *absolutePositions, MaterialParameterEvaluationView state,
     EigenSupport::SpMatD &mixedHessian) const;
   void compute_d2E_dude(
-    const double *absolutePositions, MaterialStateView state,
+    const double *absolutePositions, MaterialParameterEvaluationView state,
     EigenSupport::SpMatD &mixedHessian) const;
   int getNumElasticGlobalParams() const;
   int getNumPlasticGlobalParams() const;
@@ -69,14 +69,14 @@ public:
   {
     return d2E_dudeTemplate;
   }
-  void compute_dE_dp(const double *x, MaterialStateView state, double *grad) const;
-  void compute_d2E_dp2(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
-  void compute_dE_de(const double *x, MaterialStateView state, double *grad) const;
-  void compute_d2E_de2(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_dpde(const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const;
+  void compute_dE_dp(const double *x, MaterialParameterEvaluationView state, double *grad) const;
+  void compute_d2E_dp2(const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_dE_de(const double *x, MaterialParameterEvaluationView state, double *grad) const;
+  void compute_d2E_de2(const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dpde(const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
 
-  void computeVonMisesStresses(const double *x, MaterialStateView state, double *elementStresses) const;
-  void computeMaxStrains(const double *x, MaterialStateView state, double *elementStrain) const;
+  void computeVonMisesStresses(const double *x, MaterialParameterEvaluationView state, double *elementStresses) const;
+  void computeMaxStrains(const double *x, MaterialParameterEvaluationView state, double *elementStrain) const;
 
   int getNumDOFs() const { return numDOFs; }
 
@@ -144,10 +144,10 @@ private:
   // Generic d²E/(du dq) assembly loop, where q is p or e.
   void assemble_d2E_dudq(
     const double *absolutePositions,
-    MaterialStateView state,
+    MaterialParameterEvaluationView state,
     int numMaterialParams,
     int numLocalParams,
-    const MaterialParameterBlock &paramBlock,
+    const MaterialParameterField &paramBlock,
     const std::vector<DynamicIndexMatrix> &inverseIndices,
     void (DeformationModel::*computeLocal)(
       const DeformationModel::CacheData *, double *, int) const,
@@ -157,10 +157,10 @@ private:
   // Gather local displacement DOFs and externally computed material parameter values,
   // then prepare the element cache.
   PreparedElement gatherAndPrepare(
-    int ele, const double *x, MaterialStateView state,
+    int ele, const double *x, MaterialParameterEvaluationView state,
     DeformationModelAssemblerCacheData::ElementScratch &scratch) const;
 
-  void validateMaterialState(MaterialStateView state) const;
+  void validateMaterialParameterSnapshot(MaterialParameterEvaluationView state) const;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

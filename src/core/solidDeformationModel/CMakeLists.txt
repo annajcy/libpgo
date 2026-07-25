@@ -45,6 +45,12 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   energy/deformationEnergyBuilder.h
 
   simulation/simulationMesh.h
+  simulation/simulationMeshBase.h
+  simulation/simulationMeshVolume.h
+  simulation/simulationMeshTriangle.h
+  simulation/simulationMeshEdgeQuad.h
+  simulation/simulationMeshShell.h
+  simulation/elementField.h
   simulation/simulationMeshMaterial.h
   constraints/tetVolumeConstraintFunctions.h
   simulation/tetMeshOccupation.h
@@ -90,11 +96,11 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/dof/vertex3DofLayout.h
   formulations/dof/cubicTricubicHermiteDofLayout.h
 
-  material/fields/parameterDofLayout.h
-  material/fields/materialChannelMapping.h
-  material/fields/materialParameters.h
-  material/fields/materialParameterBuilder.h
-  material/fields/materialFrameField.h
+  material/core/parameterDofLayout.h
+  material/core/materialChannelMapping.h
+  material/core/materialParameters.h
+  material/core/materialParameterBuilder.h
+  material/core/materialFrameField.h
 
   mass/massField.h
   mass/volumeMassField.h
@@ -156,11 +162,11 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/volume/volumetricDeformationModelCacheData.cpp
   deformation/shell/shellDeformationModel.cpp
 
-  material/fields/parameterDofLayout.cpp
-  material/fields/materialChannelMapping.cpp
-  material/fields/materialParameters.cpp
-  material/fields/materialParameterBuilder.cpp
-  material/fields/materialFrameField.cpp
+  material/core/parameterDofLayout.cpp
+  material/core/materialChannelMapping.cpp
+  material/core/materialParameters.cpp
+  material/core/materialParameterBuilder.cpp
+  material/core/materialFrameField.cpp
 
 
   deformation/deformationModelManager.cpp
@@ -179,7 +185,10 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   mass/shellMassField.cpp
   mass/shellDensityElasticThickness.cpp
 
-  simulation/simulationMesh.cpp
+  simulation/simulationMeshCore.cpp
+  simulation/simulationMeshVolume.cpp
+  simulation/simulationMeshTriangle.cpp
+  simulation/simulationMeshShell.cpp
   constraints/tetVolumeConstraintFunctions.cpp
   simulation/tetMeshOccupation.cpp
 

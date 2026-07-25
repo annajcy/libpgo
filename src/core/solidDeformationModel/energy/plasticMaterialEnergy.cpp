@@ -29,8 +29,7 @@ PlasticMaterialEnergy::PlasticMaterialEnergy(
     throw std::invalid_argument("PlasticMaterialEnergy fixed displacement size must match the deformation energy rest position size.");
   }
 
-  fixedElasticParameters_ =
-    deformationEnergy_->materialParameters()->elasticSnapshot();
+  fixedState_ = deformationEnergy_->materialParameters()->snapshot();
 
   allDOFs_.resize(deformationEnergy_->assembler().getNumPlasticGlobalParams());
   std::iota(allDOFs_.begin(), allDOFs_.end(), 0);
@@ -46,9 +45,7 @@ ES::VXd PlasticMaterialEnergy::absolutePositions() const
 double PlasticMaterialEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
   const ES::VXd p = absolutePositions();
-  const MaterialStateView state =
-    deformationEnergy_->materialParameters()->space()->makeStateView(
-    std::span<const double>(fixedElasticParameters_.data(), static_cast<std::size_t>(fixedElasticParameters_.size())),
+  const MaterialParameterEvaluationView state = fixedState_.withPlasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
   return deformationEnergy_->assembler().computeEnergy(p.data(), state);
 }
@@ -56,9 +53,7 @@ double PlasticMaterialEnergy::func(EigenSupport::ConstRefVecXd x) const
 void PlasticMaterialEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const
 {
   const ES::VXd p = absolutePositions();
-  const MaterialStateView state =
-    deformationEnergy_->materialParameters()->space()->makeStateView(
-    std::span<const double>(fixedElasticParameters_.data(), static_cast<std::size_t>(fixedElasticParameters_.size())),
+  const MaterialParameterEvaluationView state = fixedState_.withPlasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
   deformationEnergy_->assembler().compute_dE_dp(
     p.data(), state, grad.data());
@@ -67,9 +62,7 @@ void PlasticMaterialEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport
 void PlasticMaterialEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
   const ES::VXd p = absolutePositions();
-  const MaterialStateView state =
-    deformationEnergy_->materialParameters()->space()->makeStateView(
-    std::span<const double>(fixedElasticParameters_.data(), static_cast<std::size_t>(fixedElasticParameters_.size())),
+  const MaterialParameterEvaluationView state = fixedState_.withPlasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
   deformationEnergy_->assembler().compute_d2E_dp2(
     p.data(), state, hess);

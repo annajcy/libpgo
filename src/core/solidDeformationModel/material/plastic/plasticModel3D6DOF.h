@@ -71,7 +71,7 @@ class VolumetricPlasticity6Config final : public PlasticModelConfig
 {
 public:
   std::string_view id() const override { return "volumetric_dof6"; }
-  MaterialParameterSpec parameterSpec() const override;
+  std::span<const std::string_view> parameterChannelNames() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
   void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:

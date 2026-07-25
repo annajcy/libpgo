@@ -142,7 +142,7 @@ TEST(Vertex3DofLayoutGTest, ShellDofCounts)
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
 
   SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
-  auto mesh = pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat);
+  auto mesh = pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, mat);
   ASSERT_NE(mesh, nullptr);
 
   Vertex3DofLayout layout(*mesh);
@@ -224,7 +224,7 @@ TEST(Vertex3DofLayoutGTest, DofGroupsSkipShellSentinels)
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
 
   SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
-  auto mesh = pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat);
+  auto mesh = pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, mat);
   ASSERT_NE(mesh, nullptr);
 
   Vertex3DofLayout layout(*mesh);

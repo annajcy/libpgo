@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "material/fields/materialParameters.h"
+#include "material/core/materialParameters.h"
 
 #include <array>
 #include <memory>
@@ -117,31 +117,31 @@ TEST(NonlinearMaterialChannelMapping, ValueJacobianHessiansAndFiniteDifference)
   }
 }
 
-TEST(MaterialParameterBlock, RejectsInvalidSchema)
+TEST(MaterialParameterField, RejectsInvalidSchema)
 {
   EXPECT_THROW(
-    MaterialParameterBlock(
+    MaterialParameterField::create(
       { "same", "same" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 2),
       std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
-    MaterialParameterBlock(
+    MaterialParameterField::create(
       { "valid", "" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 2),
       std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
-    MaterialParameterBlock(
+    MaterialParameterField::create(
       { "first", "second" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 1),
       std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
-    MaterialParameterBlock(
+    MaterialParameterField::create(
       { "only_one_name" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 2),
       std::make_shared<IdentityMaterialChannelMapping>(2)),
@@ -152,11 +152,11 @@ TEST(MaterialParameterSpace, RejectsMismatchedElementCounts)
 {
   EXPECT_THROW(
     MaterialParameterSpace(
-      MaterialParameterBlock(
+      MaterialParameterField::create(
         std::vector<std::string>{},
         std::make_shared<ElementwiseParameterDofLayout>(2, 0),
         std::make_shared<IdentityMaterialChannelMapping>(0)),
-      MaterialParameterBlock(
+      MaterialParameterField::create(
         std::vector<std::string>{},
         std::make_shared<ElementwiseParameterDofLayout>(3, 0),
         std::make_shared<IdentityMaterialChannelMapping>(0))),
@@ -165,11 +165,11 @@ TEST(MaterialParameterSpace, RejectsMismatchedElementCounts)
 
 TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
 {
-  MaterialParameterBlock elastic(
+  auto elastic = MaterialParameterField::create(
     { "first", "thickness" },
     std::make_shared<ElementwiseParameterDofLayout>(2, 2),
     std::make_shared<SquareMapping>(std::array<double, 2>{ 2.0, 3.0 }));
-  MaterialParameterBlock plastic(
+  auto plastic = MaterialParameterField::create(
     { "stretch" },
     std::make_shared<ConstantParameterDofLayout>(2, 1),
     std::make_shared<IdentityMaterialChannelMapping>(1));
@@ -181,7 +181,7 @@ TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
   ES::VXd plasticValues(1);
   plasticValues << 1.1;
   MaterialParameters parameters(space, elasticValues, plasticValues);
-  MaterialState snapshot = parameters.snapshot();
+  MaterialParameterSnapshot snapshot = parameters.snapshot();
 
   MaterialParameterRef thickness = space->elastic().parameter("thickness");
   EXPECT_THROW(space->elastic().parameter("missing"), std::invalid_argument);
@@ -197,24 +197,22 @@ TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
   EXPECT_DOUBLE_EQ(thickness.value(1, 0, snapshot.view()), 48.0);
 
   auto otherSpace = std::make_shared<MaterialParameterSpace>(
-    MaterialParameterBlock(
+    MaterialParameterField::create(
       std::vector<std::string>{ "first", "thickness" },
       std::make_shared<ElementwiseParameterDofLayout>(2, 2),
-    std::make_shared<IdentityMaterialChannelMapping>(2)),
-    MaterialParameterBlock(
+      std::make_shared<IdentityMaterialChannelMapping>(2)),
+    MaterialParameterField::create(
       std::vector<std::string>{ "stretch" },
       std::make_shared<ConstantParameterDofLayout>(2, 1),
-    std::make_shared<IdentityMaterialChannelMapping>(1)));
+      std::make_shared<IdentityMaterialChannelMapping>(1)));
   EXPECT_THROW(
     thickness.value(
       0, 0,
-      otherSpace->makeStateView(
-        std::span<const double>(elasticValues.data(), elasticValues.size()),
-        std::span<const double>(plasticValues.data(), plasticValues.size()))),
+      MaterialParameters(otherSpace, elasticValues, plasticValues).snapshot().view()),
     std::invalid_argument);
 
   EXPECT_THROW(
-    space->makeStateView(
+    snapshot.withValues(
       std::span<const double>(elasticValues.data(), elasticValues.size() - 1),
       std::span<const double>(plasticValues.data(), plasticValues.size())),
     std::invalid_argument);

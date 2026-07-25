@@ -49,7 +49,7 @@ std::shared_ptr<PyShellMassField> make_shell_density_elastic_thickness(
 {
   return std::make_shared<PyShellMassField>(
     std::make_shared<SolidDeformationModel::ShellDensityElasticThickness>(
-      density, parameter.space(), parameter.ref()));
+      density, parameter.ref()));
 }
 
 }  // namespace pgo

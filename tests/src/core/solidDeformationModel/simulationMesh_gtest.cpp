@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 namespace
 {
@@ -88,7 +89,7 @@ TEST(SimulationMeshGTest, ShellLoadPreservesTriangleZeroAsNeighbor)
     std::move(vertices), std::move(triangles));
   SimulationMeshENuhMaterial material(1000.0, 0.4, 0.01);
 
-  auto mesh = loadShellMesh(surface, &material);
+  auto mesh = loadShellMesh(surface, material);
 
   ASSERT_NE(mesh, nullptr);
   ASSERT_EQ(mesh->getNumElements(), 2);
@@ -100,6 +101,138 @@ TEST(SimulationMeshGTest, ShellLoadPreservesTriangleZeroAsNeighbor)
   // Triangle 1 sees triangle 0 across local edge (0, 2), whose opposite
   // vertex is 1. Triangle index 0 is a valid neighbor, not a boundary.
   EXPECT_EQ(mesh->getVertexIndex(1, 3), 1);
+}
+
+TEST(SimulationMeshGTest, TriangleLoadUsesOneMaterialPerTriangle)
+{
+  using namespace pgo;
+  using namespace pgo::SolidDeformationModel;
+
+  std::vector<Vec3d> vertices{
+    Vec3d(0.0, 0.0, 0.0),
+    Vec3d(1.0, 0.0, 0.0),
+    Vec3d(1.0, 1.0, 0.0),
+    Vec3d(0.0, 1.0, 0.0),
+  };
+  std::vector<Vec3i> triangles{
+    Vec3i(0, 1, 2),
+    Vec3i(0, 2, 3),
+  };
+  Mesh::TriMeshGeo surface(std::move(vertices), std::move(triangles));
+
+  auto field = ElementField<SimulationMeshENuMaterial>::fromValues({
+    SimulationMeshENuMaterial(1000.0, 0.4),
+    SimulationMeshENuMaterial(2000.0, 0.35),
+  });
+  auto mesh = loadTriangleMesh(surface, std::move(field));
+
+  ASSERT_NE(mesh, nullptr);
+  EXPECT_EQ(mesh->getElementType(), SimulationMeshType::TRIANGLE);
+  EXPECT_EQ(mesh->getNumElements(), 2);
+  EXPECT_EQ(mesh->getNumElementVertices(), 3);
+  EXPECT_DOUBLE_EQ(
+    mesh->requireElementField<SimulationMeshENuMaterial>().at(1).getE(), 2000.0);
+  EXPECT_EQ(mesh->getVertexIndex(1, 0), 0);
+  EXPECT_EQ(mesh->getVertexIndex(1, 1), 2);
+  EXPECT_EQ(mesh->getVertexIndex(1, 2), 3);
+}
+
+TEST(SimulationMeshGTest, EdgeQuadLoadAveragesSourceTriangleMaterials)
+{
+  using namespace pgo;
+  using namespace pgo::SolidDeformationModel;
+
+  std::vector<Vec3d> vertices{
+    Vec3d(0.0, 0.0, 0.0),
+    Vec3d(1.0, 0.0, 0.0),
+    Vec3d(1.0, 1.0, 0.0),
+    Vec3d(0.0, 1.0, 0.0),
+  };
+  std::vector<Vec3i> triangles{
+    Vec3i(0, 1, 2),
+    Vec3i(0, 2, 3),
+  };
+  Mesh::TriMeshGeo surface(std::move(vertices), std::move(triangles));
+
+  auto field = ElementField<SimulationMeshENuhMaterial>::fromValues({
+    SimulationMeshENuhMaterial(1000.0, 0.4, 0.01),
+    SimulationMeshENuhMaterial(2000.0, 0.35, 0.03),
+  });
+  auto mesh = loadEdgeQuadMesh(surface, std::move(field));
+
+  ASSERT_NE(mesh, nullptr);
+  EXPECT_EQ(mesh->getElementType(), SimulationMeshType::EDGE_QUAD);
+  EXPECT_EQ(mesh->getNumElements(), 1);
+  EXPECT_EQ(mesh->getNumElementVertices(), 4);
+  EXPECT_EQ(mesh->getVertexIndex(0, 0), 1);
+  EXPECT_EQ(mesh->getVertexIndex(0, 1), 0);
+  EXPECT_EQ(mesh->getVertexIndex(0, 2), 2);
+  EXPECT_EQ(mesh->getVertexIndex(0, 3), 3);
+
+  const auto &material =
+    mesh->requireElementField<SimulationMeshENuhMaterial>().at(0);
+  EXPECT_DOUBLE_EQ(material.getE(), 1500.0);
+  EXPECT_DOUBLE_EQ(material.getNu(), 0.375);
+  EXPECT_DOUBLE_EQ(material.geth(), 0.02);
+}
+
+TEST(SimulationMeshGTest, ShellMaterialFieldRejectsInvalidPaletteAndSize)
+{
+  using namespace pgo::SolidDeformationModel;
+
+  std::vector<std::shared_ptr<const SimulationMeshENuhMaterial>> palette;
+  palette.emplace_back(std::make_shared<const SimulationMeshENuhMaterial>(
+    1000.0, 0.4, 0.01));
+  EXPECT_THROW(
+    ElementField<SimulationMeshENuhMaterial>::fromPalette(
+      palette, std::vector<int>{1}),
+    std::invalid_argument);
+
+  std::vector<pgo::Vec3d> vertices{
+    pgo::Vec3d(0.0, 0.0, 0.0),
+    pgo::Vec3d(1.0, 0.0, 0.0),
+    pgo::Vec3d(1.0, 1.0, 0.0),
+    pgo::Vec3d(0.0, 1.0, 0.0),
+  };
+  std::vector<pgo::Vec3i> triangles{
+    pgo::Vec3i(0, 1, 2),
+    pgo::Vec3i(0, 2, 3),
+  };
+  pgo::Mesh::TriMeshGeo surface(std::move(vertices), std::move(triangles));
+  auto field = ElementField<SimulationMeshENuhMaterial>::uniform(
+    1, SimulationMeshENuhMaterial(1000.0, 0.4, 0.01));
+  EXPECT_THROW(loadShellMesh(surface, std::move(field)), std::invalid_argument);
+}
+
+TEST(SimulationMeshGTest, ShellLoadAcceptsTypedMaterialPalette)
+{
+  using namespace pgo;
+  using namespace pgo::SolidDeformationModel;
+
+  std::vector<Vec3d> vertices{
+    Vec3d(0.0, 0.0, 0.0),
+    Vec3d(1.0, 0.0, 0.0),
+    Vec3d(1.0, 1.0, 0.0),
+    Vec3d(0.0, 1.0, 0.0),
+  };
+  std::vector<Vec3i> triangles{
+    Vec3i(0, 1, 2),
+    Vec3i(0, 2, 3),
+  };
+  Mesh::TriMeshGeo surface(std::move(vertices), std::move(triangles));
+  std::vector<std::shared_ptr<const SimulationMeshENuhMaterial>> palette{
+    std::make_shared<const SimulationMeshENuhMaterial>(1000.0, 0.4, 0.01),
+    std::make_shared<const SimulationMeshENuhMaterial>(2000.0, 0.35, 0.02),
+  };
+  auto field = ElementField<SimulationMeshENuhMaterial>::fromPalette(
+    std::move(palette), std::vector<int>{0, 1});
+
+  auto mesh = loadShellMesh(surface, std::move(field));
+  ASSERT_NE(mesh, nullptr);
+  EXPECT_DOUBLE_EQ(
+    mesh->requireElementField<SimulationMeshENuhMaterial>().at(0).getE(), 1000.0);
+  EXPECT_DOUBLE_EQ(
+    mesh->requireElementField<SimulationMeshENuhMaterial>().at(1).getE(), 2000.0);
 }
 
 TEST(SimulationMeshGTest, LoadsMooneyRivlinElementField)

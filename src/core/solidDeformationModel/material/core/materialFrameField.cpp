@@ -1,4 +1,4 @@
-#include "material/fields/materialFrameField.h"
+#include "material/core/materialFrameField.h"
 
 #include <cmath>
 #include <stdexcept>

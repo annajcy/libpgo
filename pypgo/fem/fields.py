@@ -84,13 +84,13 @@ class MaterialParameterRef:
         return self._handle.channel
 
 
-class MaterialParameterBlock:
-    """Immutable schema for the elastic or plastic parameter block."""
+class MaterialParameterField:
+    """Immutable schema for one elastic or plastic material parameter field."""
 
     def __init__(self, handle) -> None:
-        if not isinstance(handle, _core.PyMaterialParameterBlock):
+        if not isinstance(handle, _core.PyMaterialParameterField):
             raise TypeError(
-                f"handle must be PyMaterialParameterBlock, got {type(handle).__name__}"
+                f"handle must be PyMaterialParameterField, got {type(handle).__name__}"
             )
         self._handle = handle
 
@@ -125,6 +125,8 @@ class MaterialParameterSpace:
                  elastic_field=None, plastic_field=None) -> None:
         if isinstance(sim_mesh_or_handle, _core.PyMaterialParameterSpace):
             self._handle = sim_mesh_or_handle
+            self._elastic = None
+            self._plastic = None
             return
         if elastic is None or plastic is None or elastic_field is None or plastic_field is None:
             raise TypeError("MaterialParameterSpace requires sim_mesh, elastic/plastic configs, and field definitions")
@@ -142,28 +144,34 @@ class MaterialParameterSpace:
             elastic_field.layout._handle, elastic_field.channel_mapping._handle,
             plastic._handle, plastic_field.layout._handle,
             plastic_field.channel_mapping._handle)
+        self._elastic = None
+        self._plastic = None
 
     @classmethod
     def _from_handle(cls, handle):
         return cls(handle)
 
     @property
-    def elastic(self) -> MaterialParameterBlock:
-        return MaterialParameterBlock(self._handle.elastic)
+    def elastic(self) -> MaterialParameterField:
+        if self._elastic is None:
+            self._elastic = MaterialParameterField(self._handle.elastic)
+        return self._elastic
 
     @property
-    def plastic(self) -> MaterialParameterBlock:
-        return MaterialParameterBlock(self._handle.plastic)
+    def plastic(self) -> MaterialParameterField:
+        if self._plastic is None:
+            self._plastic = MaterialParameterField(self._handle.plastic)
+        return self._plastic
 
 
-def _coerce_global_values(name: str, values, block: MaterialParameterBlock) -> np.ndarray:
-    """Validate a global state vector against a block's row/column shape."""
+def _coerce_global_values(name: str, values, field: MaterialParameterField) -> np.ndarray:
+    """Validate a global state vector against a field's row/column shape."""
     arr = np.asarray(values, dtype=np.float64, order="C")
-    expected = (block.num_value_rows, block.num_local_dofs)
+    expected = (field.num_value_rows, field.num_local_dofs)
     if arr.ndim == 1:
-        if arr.size != block.num_global_dofs:
+        if arr.size != field.num_global_dofs:
             raise ValueError(
-                f"{name} must contain {block.num_global_dofs} values, got {arr.size}"
+                f"{name} must contain {field.num_global_dofs} values, got {arr.size}"
             )
         return np.ascontiguousarray(arr, dtype=np.float64)
     if arr.ndim != 2:
@@ -185,12 +193,12 @@ class MaterialParameters:
             raise TypeError("space must be a MaterialParameterSpace")
         if elastic_values is None or plastic_values is None:
             raise TypeError("elastic_values and plastic_values are required")
-        elastic_block = space_or_handle.elastic
-        plastic_block = space_or_handle.plastic
+        elastic_field = space_or_handle.elastic
+        plastic_field = space_or_handle.plastic
         self._handle = _core._create_material_parameters(
             space_or_handle._handle,
-            _coerce_global_values("elastic_values", elastic_values, elastic_block),
-            _coerce_global_values("plastic_values", plastic_values, plastic_block))
+            _coerce_global_values("elastic_values", elastic_values, elastic_field),
+            _coerce_global_values("plastic_values", plastic_values, plastic_field))
         self._space_wrapper = space_or_handle
 
     @classmethod
@@ -240,8 +248,8 @@ class MaterialParameters:
         return bool(self._handle._same_space(other._handle))
 
     def _set_values(self, kind: str, values) -> None:
-        block = getattr(self.space, kind)
-        flat = _coerce_global_values(f"{kind}_values", values, block)
+        field = getattr(self.space, kind)
+        flat = _coerce_global_values(f"{kind}_values", values, field)
         if kind == "elastic":
             self._handle.set_elastic_values(flat)
         else:
@@ -256,7 +264,7 @@ __all__ = [
     "IdentityMaterialChannelMapping",
     "ParameterFieldDefinition",
     "MaterialParameterRef",
-    "MaterialParameterBlock",
+    "MaterialParameterField",
     "MaterialParameterSpace",
     "MaterialParameters",
 ]

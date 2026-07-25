@@ -56,13 +56,8 @@ namespace {
 void expectSize(std::span<double> output, std::size_t expected) {
   if (output.size() != expected) throw std::invalid_argument("plastic config default parameter buffer has the wrong size");
 }
-MaterialParameterSpec channels(std::initializer_list<const char *> names) {
-  MaterialParameterSpec spec;
-  for (const char *name : names) spec.channelNames.emplace_back(name);
-  return spec;
 }
-}
-MaterialParameterSpec VolumetricPlasticity0Config::parameterSpec() const { return {}; }
+std::span<const std::string_view> VolumetricPlasticity0Config::parameterChannelNames() const { return {}; }
 void VolumetricPlasticity0Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
 std::unique_ptr<PlasticModel> VolumetricPlasticity0Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
 {

@@ -1,4 +1,5 @@
 #include "material/elastic/elasticModel2DFundamentalFormsFabric.h"
+#include <array>
 
 namespace pgo
 {
@@ -596,17 +597,13 @@ namespace {
 void expectSize(std::span<double> output, std::size_t expected) {
   if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
 }
-MaterialParameterSpec channels(std::initializer_list<const char *> names) {
-  MaterialParameterSpec spec;
-  for (const char *name : names) spec.channelNames.emplace_back(name);
-  return spec;
 }
-}
-MaterialParameterSpec KoiterFabricConfig::parameterSpec() const
+std::span<const std::string_view> KoiterFabricConfig::parameterChannelNames() const
 {
-  return channels({"membrane_warp", "membrane_weft", "membrane_shear", "membrane_cross",
+  static constexpr std::array<std::string_view, 12> names{"membrane_warp", "membrane_weft", "membrane_shear", "membrane_cross",
     "bend_warp", "bend_weft", "bend_shear", "warp_stretch", "weft_stretch",
-    "shear_stretch", "fiber_coupling", "thickness"});
+    "shear_stretch", "fiber_coupling", "thickness"};
+  return names;
 }
 void KoiterFabricConfig::initializeDefaultElementChannels(const SimulationMesh &mesh, int element, std::span<double> output) const
 {

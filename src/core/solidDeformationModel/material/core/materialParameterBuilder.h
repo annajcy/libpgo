@@ -1,6 +1,6 @@
 #pragma once
 
-#include "material/fields/materialParameters.h"
+#include "material/core/materialParameters.h"
 #include "material/elastic/elasticModel.h"
 #include "material/plastic/plasticModel.h"
 

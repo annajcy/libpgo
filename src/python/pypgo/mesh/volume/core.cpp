@@ -613,7 +613,7 @@ std::shared_ptr<PySimulationMesh> create_simulation_mesh_from_shell(
     std::unique_ptr<SolidDeformationModel::SimulationMesh> simMesh;
     {
         nb::gil_scoped_release release;
-        simMesh = SolidDeformationModel::loadShellMesh(surface, &material);
+        simMesh = SolidDeformationModel::loadShellMesh(surface, material);
     }
     return std::make_shared<PySimulationMesh>(std::move(simMesh));
 }

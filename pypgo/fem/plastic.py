@@ -9,6 +9,10 @@ class PlasticModelConfig:
     """Abstract plastic configuration backed by a shared C++ config object."""
 
     def __init__(self, core_obj) -> None:
+        if type(self) is PlasticModelConfig:
+            raise TypeError("PlasticModelConfig is abstract; use a concrete plastic config")
+        if not isinstance(core_obj, _core.PyPlasticModelConfig):
+            raise TypeError("core_obj must be a PyPlasticModelConfig")
         self._handle = core_obj
 
     @property

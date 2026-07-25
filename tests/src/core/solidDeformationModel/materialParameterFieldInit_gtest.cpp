@@ -6,7 +6,7 @@
 #include "material/plastic/plasticModel3D6DOF.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "material/fields/materialParameterBuilder.h"
+#include "material/core/materialParameterBuilder.h"
 #include "simulation/simulationMesh.h"
 #include "cubicMesh.h"
 
@@ -46,7 +46,7 @@ TEST(MaterialParameterBuilder, BuildsIndependentSpaceAndCommittedValues)
     parameters->space()->plastic().dofLayout().numGlobalDofs(), 6);
   EXPECT_TRUE(parameters->plasticSnapshot().isApprox(plasticValues));
 
-  MaterialState snapshot = parameters->snapshot();
+  MaterialParameterSnapshot snapshot = parameters->snapshot();
   ES::VXd changed = plasticValues * 1.1;
   parameters->setPlasticValues(changed);
   EXPECT_TRUE(Eigen::Map<const ES::VXd>(

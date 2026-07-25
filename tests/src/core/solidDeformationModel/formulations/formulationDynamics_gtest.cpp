@@ -6,7 +6,7 @@
 #include "generateMassMatrix.h"
 #include "mass/shellDensityElasticThickness.h"
 #include "mass/volumeMassField.h"
-#include "material/fields/materialParameters.h"
+#include "material/core/materialParameters.h"
 #include "simulation/simulationMesh.h"
 #include "triMeshGeo.h"
 
@@ -97,7 +97,7 @@ std::shared_ptr<const SimulationMesh> makeTwoTriangleShellMesh()
   Mesh::TriMeshGeo surface(4, vertices, 2, triangles);
   SimulationMeshENuhMaterial material(1000.0, 0.35, 1e-3);
   return std::shared_ptr<const SimulationMesh>(
-    loadShellMesh(surface, &material).release());
+    loadShellMesh(surface, material).release());
 }
 
 std::shared_ptr<MaterialParameters> makeShellMassParameters(
@@ -120,10 +120,10 @@ std::shared_ptr<MaterialParameters> makeShellMassParameters(
   else
     elasticMapping = std::make_shared<IdentityMaterialChannelMapping>(numElasticChannels);
 
-  MaterialParameterBlock elasticBlock(
+  auto elasticBlock = MaterialParameterField::create(
     { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" },
     std::move(elasticLayout), std::move(elasticMapping));
-  MaterialParameterBlock plasticBlock(
+  auto plasticBlock = MaterialParameterField::create(
     {},
     std::make_shared<ElementwiseParameterDofLayout>(numElements, 0),
     std::make_shared<IdentityMaterialChannelMapping>(0));
@@ -148,14 +148,14 @@ void expectBodyForceParameterJacobianMatchesFD(
     mesh->getNumElements(), constant, nonlinear);
   auto space = parameters->space();
   ShellDensityElasticThickness massField(
-    850.0, space, space->elastic().parameter("thickness"));
+    850.0, space->elastic().parameter("thickness"));
   KoiterShellFormulation formulation;
   const EigenSupport::V3d acceleration(0.7, -1.3, -9.81);
   const EigenSupport::VXd z = parameters->elasticSnapshot();
 
   const EigenSupport::SpMatD jacobian =
     formulation.buildBodyForceParameterJacobian(
-      *mesh, acceleration, massField, parameters->committedView());
+      *mesh, acceleration, massField, parameters->snapshot().view());
   EigenSupport::MXd fd(jacobian.rows(), jacobian.cols());
   constexpr double h = 1e-7;
   for (int col = 0; col < z.size(); col++) {
@@ -163,10 +163,10 @@ void expectBodyForceParameterJacobianMatchesFD(
     EigenSupport::VXd zm = z;
     zp[col] += h;
     zm[col] -= h;
-    auto vp = space->makeStateView(
-      std::span<const double>(zp.data(), zp.size()), {});
-    auto vm = space->makeStateView(
-      std::span<const double>(zm.data(), zm.size()), {});
+    auto vp = parameters->snapshot().withElasticValues(
+      std::span<const double>(zp.data(), zp.size()));
+    auto vm = parameters->snapshot().withElasticValues(
+      std::span<const double>(zm.data(), zm.size()));
     fd.col(col) = (
       formulation.buildBodyForce(*mesh, acceleration, massField, vp) -
       formulation.buildBodyForce(*mesh, acceleration, massField, vm)) /

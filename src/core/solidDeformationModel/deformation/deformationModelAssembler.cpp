@@ -11,7 +11,7 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModel.h"
 #include "material/elastic/elasticModel.h"
 #include "material/plastic/plasticModel.h"
-#include "material/fields/materialParameters.h"
+#include "material/core/materialParameters.h"
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
@@ -71,8 +71,8 @@ void warnIllegalInitialState(pgo::SolidDeformationModel::SimulationMeshType mesh
 }
 
 void fillLocalParamDerivative(
-  const MaterialParameterBlock &block,
-  MaterialStateView state,
+  const MaterialParameterField &block,
+  MaterialParameterEvaluationView state,
   int ele,
   int quadratureId,
   double *localDofValues,
@@ -96,8 +96,8 @@ void fillLocalParamDerivative(
 }
 
 void fillElementParamValues(
-  const MaterialParameterBlock &block,
-  MaterialStateView state,
+  const MaterialParameterField &block,
+  MaterialParameterEvaluationView state,
   int ele,
   int numMaterialLocations,
   double *localDofValues,
@@ -394,21 +394,21 @@ DeformationModelAssembler::DeformationModelAssembler(
 
 DeformationModelAssembler::~DeformationModelAssembler() = default;
 
-void DeformationModelAssembler::validateMaterialState(
-  MaterialStateView state) const
+void DeformationModelAssembler::validateMaterialParameterSnapshot(
+  MaterialParameterEvaluationView state) const
 {
   if (state.empty())
     throw std::invalid_argument("DeformationModelAssembler requires a non-empty material state.");
   if (&state.space() != materialParameterSpace_.get())
-    throw std::invalid_argument("MaterialStateView belongs to a different material parameter space.");
+    throw std::invalid_argument("MaterialParameterEvaluationView belongs to a different material parameter space.");
   if (state.elasticValues().size() != static_cast<std::size_t>(getNumElasticGlobalParams()))
-    throw std::invalid_argument("MaterialStateView elastic value count does not match the assembler.");
+    throw std::invalid_argument("MaterialParameterEvaluationView elastic value count does not match the assembler.");
   if (state.plasticValues().size() != static_cast<std::size_t>(getNumPlasticGlobalParams()))
-    throw std::invalid_argument("MaterialStateView plastic value count does not match the assembler.");
+    throw std::invalid_argument("MaterialParameterEvaluationView plastic value count does not match the assembler.");
 }
 
 DeformationModelAssembler::PreparedElement DeformationModelAssembler::gatherAndPrepare(
-  int ele, const double *x, MaterialStateView state,
+  int ele, const double *x, MaterialParameterEvaluationView state,
   DeformationModelAssemblerCacheData::ElementScratch &scratch) const
 {
   std::fill(scratch.localPosition.data(), scratch.localPosition.data() + localDOFs, 0.0);
@@ -437,9 +437,9 @@ DeformationModelAssembler::PreparedElement DeformationModelAssembler::gatherAndP
 }
 
 double DeformationModelAssembler::computeEnergy(
-  const double *x, MaterialStateView state) const
+  const double *x, MaterialParameterEvaluationView state) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
 
   auto localEnergyFunc = [this, x, &state](int ele) {
     auto &scratch = data->elementScratch(ele);
@@ -508,9 +508,9 @@ double DeformationModelAssembler::computeMaxStepSize(const double *x, const doub
 }
 
 void DeformationModelAssembler::computeGradient(
-  const double *x, MaterialStateView state, double *grad) const
+  const double *x, MaterialParameterEvaluationView state, double *grad) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   memset(grad, 0, sizeof(double) * numDOFs);
   auto localGradFunc = [this, x, &state, grad](int ele) {
     if (elementWeights[ele] == 0)
@@ -547,9 +547,9 @@ void DeformationModelAssembler::computeGradient(
 }
 
 void DeformationModelAssembler::computeHessian(
-  const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const
+  const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
 
   auto localHessFunc = [this, x, &state, &hess](int ele) {
@@ -595,9 +595,9 @@ int DeformationModelAssembler::getNumPlasticGlobalParams() const
 }
 
 void DeformationModelAssembler::compute_dE_dp(
-  const double *x, MaterialStateView state, double *grad) const
+  const double *x, MaterialParameterEvaluationView state, double *grad) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   const int numPlasticGlobalParams = getNumPlasticGlobalParams();
   std::fill(grad, grad + numPlasticGlobalParams, 0.0);
 
@@ -646,9 +646,9 @@ void DeformationModelAssembler::compute_dE_dp(
 }
 
 void DeformationModelAssembler::compute_d2E_dp2(
-  const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const
+  const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   if (hess.rows() != d2E_dp2Template.rows() ||
     hess.cols() != d2E_dp2Template.cols() ||
     hess.nonZeros() != d2E_dp2Template.nonZeros()) {
@@ -728,9 +728,9 @@ void DeformationModelAssembler::compute_d2E_dp2(
 }
 
 void DeformationModelAssembler::compute_dE_de(
-  const double *x, MaterialStateView state, double *grad) const
+  const double *x, MaterialParameterEvaluationView state, double *grad) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   const int numElasticGlobalParams = getNumElasticGlobalParams();
   std::fill(grad, grad + numElasticGlobalParams, 0.0);
 
@@ -779,9 +779,9 @@ void DeformationModelAssembler::compute_dE_de(
 }
 
 void DeformationModelAssembler::compute_d2E_de2(
-  const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const
+  const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   if (hess.rows() != d2E_de2Template.rows() ||
     hess.cols() != d2E_de2Template.cols() ||
     hess.nonZeros() != d2E_de2Template.nonZeros()) {
@@ -861,9 +861,9 @@ void DeformationModelAssembler::compute_d2E_de2(
 }
 
 void DeformationModelAssembler::compute_d2E_dpde(
-  const double *x, MaterialStateView state, EigenSupport::SpMatD &hess) const
+  const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   if (hess.rows() != d2E_dpdeTemplate.rows() ||
     hess.cols() != d2E_dpdeTemplate.cols() ||
     hess.nonZeros() != d2E_dpdeTemplate.nonZeros()) {
@@ -931,10 +931,10 @@ void DeformationModelAssembler::compute_d2E_dpde(
 }
 
 void DeformationModelAssembler::compute_d2E_dudp(
-  const double *absolutePositions, MaterialStateView state,
+  const double *absolutePositions, MaterialParameterEvaluationView state,
   EigenSupport::SpMatD &mixedHessian) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   if (numPlasticParams_ == 0)
     return;
   assemble_d2E_dudq(
@@ -946,10 +946,10 @@ void DeformationModelAssembler::compute_d2E_dudp(
 }
 
 void DeformationModelAssembler::compute_d2E_dude(
-  const double *absolutePositions, MaterialStateView state,
+  const double *absolutePositions, MaterialParameterEvaluationView state,
   EigenSupport::SpMatD &mixedHessian) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   if (numElasticParams_ == 0)
     return;
   assemble_d2E_dudq(
@@ -961,9 +961,9 @@ void DeformationModelAssembler::compute_d2E_dude(
 }
 
 void DeformationModelAssembler::computeVonMisesStresses(
-  const double *x, MaterialStateView state, double *elementStresses) const
+  const double *x, MaterialParameterEvaluationView state, double *elementStresses) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   if (nele == 0)
     return;
   if (elementStresses == nullptr)
@@ -1006,9 +1006,9 @@ void DeformationModelAssembler::computeVonMisesStresses(
 }
 
 void DeformationModelAssembler::computeMaxStrains(
-  const double *x, MaterialStateView state, double *elementStrain) const
+  const double *x, MaterialParameterEvaluationView state, double *elementStrain) const
 {
-  validateMaterialState(state);
+  validateMaterialParameterSnapshot(state);
   if (nele == 0)
     return;
   if (elementStrain == nullptr)
@@ -1098,10 +1098,10 @@ void DeformationModelAssembler::buildMixedSparsityTemplate(
 
 void DeformationModelAssembler::assemble_d2E_dudq(
   const double *absolutePositions,
-  MaterialStateView state,
+  MaterialParameterEvaluationView state,
   int numMaterialParams,
   int numLocalParams,
-  const MaterialParameterBlock &paramBlock,
+  const MaterialParameterField &paramBlock,
   const std::vector<DynamicIndexMatrix> &inverseIndices,
   void (DeformationModel::*computeLocal)(
     const DeformationModel::CacheData *, double *, int) const,

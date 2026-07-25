@@ -101,8 +101,8 @@ PySparseMatrix compute_shell_formulation_mass_matrix(
     M = formulation.shell().buildMassMatrix(
       simMesh.mesh(), massField.get(),
       materialParameters ?
-        materialParameters->parameters()->committedView() :
-        SolidDeformationModel::MaterialStateView{});
+        materialParameters->parameters()->snapshot().view() :
+        SolidDeformationModel::MaterialParameterEvaluationView{});
   }
   return PySparseMatrix(std::move(M));
 }
@@ -125,8 +125,8 @@ std::vector<double> compute_shell_formulation_body_force(
     f = formulation.shell().buildBodyForce(
       simMesh.mesh(), a, massField.get(),
       materialParameters ?
-        materialParameters->parameters()->committedView() :
-        SolidDeformationModel::MaterialStateView{});
+        materialParameters->parameters()->snapshot().view() :
+        SolidDeformationModel::MaterialParameterEvaluationView{});
   }
   return std::vector<double>(f.data(), f.data() + f.size());
 }
@@ -151,7 +151,7 @@ PySparseMatrix compute_shell_formulation_body_force_parameter_jacobian(
         "body_force_parameter_jacobian requires material_parameters");
     J = formulation.shell().buildBodyForceParameterJacobian(
       simMesh.mesh(), a, massField.get(),
-      materialParameters->parameters()->committedView());
+      materialParameters->parameters()->snapshot().view());
   }
   return PySparseMatrix(std::move(J));
 }

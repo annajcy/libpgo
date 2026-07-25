@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "material/fields/parameterDofLayout.h"
-#include "material/fields/materialChannelMapping.h"
+#include "material/core/parameterDofLayout.h"
+#include "material/core/materialChannelMapping.h"
 
 #include <array>
 

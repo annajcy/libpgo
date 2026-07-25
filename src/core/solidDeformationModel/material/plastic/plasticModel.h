@@ -1,7 +1,7 @@
 #pragma once
 
-#include "material/fields/materialParameters.h"
-#include "material/fields/materialFrameField.h"
+#include "material/core/materialParameters.h"
+#include "material/core/materialFrameField.h"
 
 #include <memory>
 #include <span>
@@ -38,13 +38,10 @@ class PlasticModelConfig
 public:
   virtual ~PlasticModelConfig() = default;
   virtual std::string_view id() const = 0;
-  virtual MaterialParameterSpec parameterSpec() const = 0;
+  virtual std::span<const std::string_view> parameterChannelNames() const = 0;
   virtual MaterialFrameRequirement frameRequirement() const = 0;
   virtual void initializeDefaultElementChannels(
-    const SimulationMesh &, int, std::span<double>) const
-  {
-    throw std::logic_error("plastic config does not provide default element channels");
-  }
+    const SimulationMesh &, int, std::span<double>) const = 0;
 
 private:
   friend class DeformationModelManager;

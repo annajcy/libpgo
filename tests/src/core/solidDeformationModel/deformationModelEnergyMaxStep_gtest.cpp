@@ -10,7 +10,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
-#include "material/fields/materialParameterBuilder.h"
+#include "material/core/materialParameterBuilder.h"
 #include "backwardEuler/backwardEulerStepper.h"
 #include "trbdf2/trbdf2Stepper.h"
 #include "dynamicStepper.h"
@@ -194,7 +194,7 @@ EnergyFixture makeShellFixture()
 
   EnergyFixture fixture;
   fixture.meshOwner = std::shared_ptr<const SimulationMesh>(
-    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &shellMaterial).release());
+    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, shellMaterial).release());
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 

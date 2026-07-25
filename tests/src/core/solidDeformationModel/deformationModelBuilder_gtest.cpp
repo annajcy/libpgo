@@ -11,7 +11,7 @@
 #include "energy/deformationEnergyBuilder.h"
 #include "deformation/deformationModelAssembler.h"
 #include "formulations/formulation/formulations.h"
-#include "material/fields/materialParameterBuilder.h"
+#include "material/core/materialParameterBuilder.h"
 
 #include "energy/deformationModelEnergy.h"
 #include "simulation/simulationMesh.h"
@@ -22,7 +22,9 @@
 #include "volumetricMeshMooneyRivlinMaterial.h"
 
 #include <cmath>
+#include <memory>
 #include <set>
+#include <stdexcept>
 
 namespace
 {
@@ -43,6 +45,27 @@ std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
   return makeDeformationEnergy(mesh, elastic, plastic, formulation);
 }
 }  // namespace
+
+TEST(DeformationModelBuilderGTest, RejectsNullConfigsBeforeDefaultInitialization)
+{
+  pgo::Logging::init();
+
+  pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
+  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(&tetMesh).release());
+  ASSERT_NE(simMesh, nullptr);
+
+  std::shared_ptr<const ElasticModelConfig> noElastic;
+  std::shared_ptr<const PlasticModelConfig> noPlastic;
+  auto plastic = std::make_shared<VolumetricPlasticity6Config>();
+  auto elastic = std::make_shared<StableNeoConfig>();
+
+  EXPECT_THROW(
+    makeDeformationEnergy(simMesh, noElastic, plastic, TetLinearFormulation{}),
+    std::invalid_argument);
+  EXPECT_THROW(
+    makeDeformationEnergy(simMesh, elastic, noPlastic, TetLinearFormulation{}),
+    std::invalid_argument);
+}
 
 // Baseline: tet deformation energy at zero displacement has near-zero energy
 // and finite gradient. State x is displacement from rest, NOT absolute position.
@@ -218,7 +241,7 @@ TEST(DeformationModelBuilderGTest, ShellSimulationMeshBuilderValidatesTopology)
   pgo::Mesh::TriMeshGeo surfaceMesh;
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
   SimulationMeshENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
-  std::shared_ptr<const SimulationMesh> simMesh(loadShellMesh(surfaceMesh, &shellMaterial).release());
+  std::shared_ptr<const SimulationMesh> simMesh(loadShellMesh(surfaceMesh, shellMaterial).release());
   ASSERT_NE(simMesh, nullptr);
 
   auto energy = makeDefaultFieldEnergy(

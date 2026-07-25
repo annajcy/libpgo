@@ -4,6 +4,7 @@ copyright to USC,MIT,NUS
 */
 
 #include "material/plastic/plasticModel3D3DOF.h"
+#include <array>
 
 #include "EigenSupport.h"
 
@@ -136,13 +137,8 @@ namespace {
 void expectSize(std::span<double> output, std::size_t expected) {
   if (output.size() != expected) throw std::invalid_argument("plastic config default parameter buffer has the wrong size");
 }
-MaterialParameterSpec channels(std::initializer_list<const char *> names) {
-  MaterialParameterSpec spec;
-  for (const char *name : names) spec.channelNames.emplace_back(name);
-  return spec;
 }
-}
-MaterialParameterSpec VolumetricPlasticity3Config::parameterSpec() const { return channels({"Fx", "Fy", "Fz"}); }
+std::span<const std::string_view> VolumetricPlasticity3Config::parameterChannelNames() const { static constexpr std::array<std::string_view, 3> names{"Fx", "Fy", "Fz"}; return names; }
 void VolumetricPlasticity3Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 3); std::fill(output.begin(), output.end(), 1.0); }
 std::unique_ptr<PlasticModel> VolumetricPlasticity3Config::createModel(const SimulationMesh &, int, const MaterialFrame &frame) const
 {

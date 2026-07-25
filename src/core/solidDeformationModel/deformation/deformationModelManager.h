@@ -9,7 +9,7 @@ copyright to USC, MIT, NUS
 #include "formulations/formulation/formulation.h"
 #include "material/elastic/elasticModel.h"
 #include "material/plastic/plasticModel.h"
-#include "material/fields/materialFrameField.h"
+#include "material/core/materialFrameField.h"
 
 #include <memory>
 

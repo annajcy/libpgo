@@ -14,14 +14,10 @@ const SimulationMeshENuMaterial &enuMaterial(const SimulationMesh &mesh, int ele
 void expectSize(std::span<double> output, std::size_t expected) {
   if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
 }
-MaterialParameterSpec numberedChannels(int count) {
-  MaterialParameterSpec spec;
-  for (int i = 0; i < count; ++i) spec.channelNames.push_back("parameter_" + std::to_string(i));
-  return spec;
-}
+// This model has no optimization channels.
 }
 
-MaterialParameterSpec StVKVolumeConfig::parameterSpec() const { return numberedChannels(0); }
+std::span<const std::string_view> StVKVolumeConfig::parameterChannelNames() const { return {}; }
 void StVKVolumeConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
 std::unique_ptr<ElasticModel> StVKVolumeConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &) const
 {

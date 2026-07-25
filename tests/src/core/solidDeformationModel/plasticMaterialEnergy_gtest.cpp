@@ -10,7 +10,7 @@
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
-#include "material/fields/materialParameterBuilder.h"
+#include "material/core/materialParameterBuilder.h"
 #include "energy/elasticMaterialEnergy.h"
 #include "energy/plasticMaterialEnergy.h"
 #include "simulation/simulationMesh.h"
@@ -160,7 +160,7 @@ std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd
     static_cast<int>(triangles.size() / 3), triangles.data());
   SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
   std::shared_ptr<const SimulationMesh> mesh(
-    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, &mat).release());
+    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, mat).release());
 
   pgo::SolidDeformationModel::KoiterShellFormulation formulation;
   auto space = pgo::SolidDeformationModel::makeMaterialParameterSpace(

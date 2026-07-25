@@ -1,4 +1,5 @@
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
+#include <array>
 
 #include "EigenSupport.h"
 
@@ -147,13 +148,8 @@ namespace {
 void expectSize(std::span<double> output, std::size_t expected) {
   if (output.size() != expected) throw std::invalid_argument("plastic config default parameter buffer has the wrong size");
 }
-MaterialParameterSpec channels(std::initializer_list<const char *> names) {
-  MaterialParameterSpec spec;
-  for (const char *name : names) spec.channelNames.emplace_back(name);
-  return spec;
 }
-}
-MaterialParameterSpec ShellPlasticity1Config::parameterSpec() const { return channels({"stretch"}); }
+std::span<const std::string_view> ShellPlasticity1Config::parameterChannelNames() const { static constexpr std::array<std::string_view, 1> names{"stretch"}; return names; }
 void ShellPlasticity1Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
 std::unique_ptr<PlasticModel> ShellPlasticity1Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
 {

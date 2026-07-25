@@ -6,16 +6,33 @@ copyright to USC
 
 #include "simulation/simulationMesh.h"
 #include "deformation/deformationModelAssembler.h"
-#include "material/fields/materialParameterBuilder.h"
+#include "material/core/materialParameterBuilder.h"
 #include "pgoLogging.h"
 
 #include <utility>
 #include <algorithm>
 #include <string>
+#include <stdexcept>
 
 namespace pgo::SolidDeformationModel
 {
 namespace ES = pgo::EigenSupport;
+
+namespace
+{
+void validateBuilderInputs(
+  const std::shared_ptr<const SimulationMesh> &mesh,
+  const std::shared_ptr<const ElasticModelConfig> &elastic,
+  const std::shared_ptr<const PlasticModelConfig> &plastic)
+{
+  if (!mesh)
+    throw std::invalid_argument("makeDeformationEnergy: mesh must be non-null.");
+  if (!elastic)
+    throw std::invalid_argument("makeDeformationEnergy: elastic config must be non-null.");
+  if (!plastic)
+    throw std::invalid_argument("makeDeformationEnergy: plastic config must be non-null.");
+}
+}  // namespace
 
 std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   std::shared_ptr<const SimulationMesh> mesh,
@@ -26,8 +43,7 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   const Formulation &formulation,
   const DeformationModelOptions &opts)
 {
-  if (!mesh)
-    throw std::invalid_argument("makeDeformationEnergy: mesh must be non-null.");
+  validateBuilderInputs(mesh, elastic, plastic);
   const int nele = mesh->getNumElements();
 
   SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Building deformation energy with formulation: {}",
@@ -39,17 +55,15 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   if (!materialFrames)
     throw std::invalid_argument(
       "makeDeformationEnergy: materialFrames must be non-null.");
-  if (!elastic || !plastic)
-    throw std::invalid_argument("makeDeformationEnergy: model configs must be non-null.");
-  const auto checkChannels = [](const auto &block, const auto &spec, const char *name) {
-    const auto names = block.channelNames();
-    if (names.size() != spec.channelNames.size() ||
-      !std::equal(names.begin(), names.end(), spec.channelNames.begin()))
+  const auto checkChannels = [](const auto &field, const auto &spec, const char *name) {
+    const auto names = field.channelNames();
+    if (names.size() != spec.size() ||
+      !std::equal(names.begin(), names.end(), spec.begin()))
       throw std::invalid_argument(std::string("makeDeformationEnergy: ") + name +
         " parameter space schema does not match the config.");
   };
-  checkChannels(materialParameters->space()->elastic(), elastic->parameterSpec(), "elastic");
-  checkChannels(materialParameters->space()->plastic(), plastic->parameterSpec(), "plastic");
+  checkChannels(materialParameters->space()->elastic(), elastic->parameterChannelNames(), "elastic");
+  checkChannels(materialParameters->space()->plastic(), plastic->parameterChannelNames(), "plastic");
   if (materialParameters->space()->elastic().dofLayout().numElements() != nele ||
     materialParameters->space()->plastic().dofLayout().numElements() != nele)
     throw std::invalid_argument("makeDeformationEnergy: parameter space element count does not match mesh.");
@@ -84,8 +98,7 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   const Formulation &formulation,
   const DeformationModelOptions &opts)
 {
-  if (!mesh)
-    throw std::invalid_argument("makeDeformationEnergy: mesh must be non-null.");
+  validateBuilderInputs(mesh, elastic, plastic);
   auto materialParameters =
     makeDefaultMaterialParameters(*mesh, *elastic, *plastic);
   auto materialFrames =

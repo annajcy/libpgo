@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "material/fields/materialFrameField.h"
+#include "material/core/materialFrameField.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "material/plastic/plasticModel3D3DOF.h"
 

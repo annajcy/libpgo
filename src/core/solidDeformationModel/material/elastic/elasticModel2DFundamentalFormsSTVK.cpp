@@ -1,4 +1,5 @@
 #include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
+#include <array>
 
 #include "EigenDef.h"
 
@@ -775,15 +776,11 @@ namespace {
 void expectSize(std::span<double> output, std::size_t expected) {
   if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
 }
-MaterialParameterSpec channels(std::initializer_list<const char *> names) {
-  MaterialParameterSpec spec;
-  for (const char *name : names) spec.channelNames.emplace_back(name);
-  return spec;
 }
-}
-MaterialParameterSpec KoiterStVKConfig::parameterSpec() const
+std::span<const std::string_view> KoiterStVKConfig::parameterChannelNames() const
 {
-  return channels({"E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness"});
+  static constexpr std::array<std::string_view, 5> names{"E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness"};
+  return names;
 }
 void KoiterStVKConfig::initializeDefaultElementChannels(const SimulationMesh &mesh, int element, std::span<double> output) const
 {

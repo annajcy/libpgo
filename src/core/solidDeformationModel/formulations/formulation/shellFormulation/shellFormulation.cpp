@@ -2,7 +2,7 @@
 
 #include "mass/shellMassField.h"
 #include "mass/elasticParameterDependentMassField.h"
-#include "material/fields/materialParameters.h"
+#include "material/core/materialParameters.h"
 #include "deformation/shell/shellDeformationModel.h"
 #include "simulation/simulationMesh.h"
 
@@ -76,7 +76,7 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
 
 EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
   const SimulationMesh &mesh, const ShellMassField &massField,
-  MaterialStateView state) const
+  MaterialParameterEvaluationView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -102,7 +102,7 @@ EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
 
 EigenSupport::VXd ShellFormulation::buildBodyForce(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellMassField &massField, MaterialStateView state) const
+  const ShellMassField &massField, MaterialParameterEvaluationView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -123,7 +123,7 @@ EigenSupport::VXd ShellFormulation::buildBodyForce(
 
 EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellMassField &massField, MaterialStateView state) const
+  const ShellMassField &massField, MaterialParameterEvaluationView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -136,7 +136,7 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
   }
 
   const MaterialParameterRef &parameter = dependent->parameter();
-  const auto &layout = parameter.block().dofLayout();
+  const auto &layout = parameter.field().dofLayout();
   const int numLocal = layout.numLocalDofs();
   std::vector<double> dRho(numLocal);
   std::vector<ES::TripletD> entries;

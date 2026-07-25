@@ -3,7 +3,7 @@
 #include "formulations/formulation/formulation.h"
 
 #include "EigenDef.h"
-#include "material/fields/materialParameters.h"
+#include "material/core/materialParameters.h"
 
 namespace pgo
 {
@@ -30,11 +30,11 @@ public:
   // affects bending energy; displacement DOFs are 3 per vertex.
   EigenSupport::SpMatD buildMassMatrix(
     const SimulationMesh &mesh, const ShellMassField &massField,
-    MaterialStateView state = {}) const;
+    MaterialParameterEvaluationView state = {}) const;
   EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
     const ShellMassField &massField,
-    MaterialStateView state = {}) const;
+    MaterialParameterEvaluationView state = {}) const;
 
   // d f_g / d b for a parameter-dependent shell mass field; throws
   // std::invalid_argument if the field does not implement
@@ -42,7 +42,7 @@ public:
   EigenSupport::SpMatD buildBodyForceParameterJacobian(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
     const ShellMassField &massField,
-    MaterialStateView state) const;
+    MaterialParameterEvaluationView state) const;
 };
 
 }  // namespace SolidDeformationModel

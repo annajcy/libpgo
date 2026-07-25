@@ -71,13 +71,13 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("name", &PyMaterialParameterRef::name)
     .def_prop_ro("channel", &PyMaterialParameterRef::channel);
 
-  nb::class_<PyMaterialParameterBlock>(m, "PyMaterialParameterBlock")
-    .def_prop_ro("num_channels", &PyMaterialParameterBlock::numChannels)
-    .def_prop_ro("num_local_dofs", &PyMaterialParameterBlock::numLocalDofs)
-    .def_prop_ro("num_global_dofs", &PyMaterialParameterBlock::numGlobalDofs)
-    .def_prop_ro("num_value_rows", &PyMaterialParameterBlock::numValueRows)
-    .def_prop_ro("channel_names", &PyMaterialParameterBlock::channelNames)
-    .def("parameter", &PyMaterialParameterBlock::parameter, nb::arg("name"));
+  nb::class_<PyMaterialParameterField>(m, "PyMaterialParameterField")
+    .def_prop_ro("num_channels", &PyMaterialParameterField::numChannels)
+    .def_prop_ro("num_local_dofs", &PyMaterialParameterField::numLocalDofs)
+    .def_prop_ro("num_global_dofs", &PyMaterialParameterField::numGlobalDofs)
+    .def_prop_ro("num_value_rows", &PyMaterialParameterField::numValueRows)
+    .def_prop_ro("channel_names", &PyMaterialParameterField::channelNames)
+    .def("parameter", &PyMaterialParameterField::parameter, nb::arg("name"));
 
   nb::class_<PyMaterialParameterSpace>(m, "PyMaterialParameterSpace")
     .def_prop_ro("elastic", &PyMaterialParameterSpace::elastic)

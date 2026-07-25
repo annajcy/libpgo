@@ -122,7 +122,7 @@ class ShellPlasticity0Config final : public PlasticModelConfig
 {
 public:
   std::string_view id() const override { return "shell_ff_dof0"; }
-  MaterialParameterSpec parameterSpec() const override;
+  std::span<const std::string_view> parameterChannelNames() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
   void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
 private:

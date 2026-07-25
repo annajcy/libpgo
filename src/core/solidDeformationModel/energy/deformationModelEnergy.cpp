@@ -79,11 +79,11 @@ ES::VXd &DeformationModelEnergy::absolutePositionScratch() const
 
 double DeformationModelEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
-  return func(x, materialParameters_->committedView());
+  return func(x, materialParameters_->snapshot().view());
 }
 
 double DeformationModelEnergy::func(
-  EigenSupport::ConstRefVecXd x, MaterialStateView state) const
+  EigenSupport::ConstRefVecXd x, MaterialParameterEvaluationView state) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.energy");
   ES::VXd &p = absolutePositionScratch();
@@ -94,11 +94,11 @@ double DeformationModelEnergy::func(
 void DeformationModelEnergy::compute_dE_dp(
   ES::ConstRefVecXd displacement, ES::RefVecXd grad) const
 {
-  compute_dE_dp(displacement, materialParameters_->committedView(), grad);
+  compute_dE_dp(displacement, materialParameters_->snapshot().view(), grad);
 }
 
 void DeformationModelEnergy::compute_dE_dp(
-  ES::ConstRefVecXd displacement, MaterialStateView state, ES::RefVecXd grad) const
+  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::RefVecXd grad) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -109,11 +109,11 @@ void DeformationModelEnergy::compute_dE_dp(
 void DeformationModelEnergy::compute_dE_de(
   ES::ConstRefVecXd displacement, ES::RefVecXd grad) const
 {
-  compute_dE_de(displacement, materialParameters_->committedView(), grad);
+  compute_dE_de(displacement, materialParameters_->snapshot().view(), grad);
 }
 
 void DeformationModelEnergy::compute_dE_de(
-  ES::ConstRefVecXd displacement, MaterialStateView state, ES::RefVecXd grad) const
+  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::RefVecXd grad) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -124,11 +124,11 @@ void DeformationModelEnergy::compute_dE_de(
 void DeformationModelEnergy::compute_d2E_dp2(
   ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
 {
-  compute_d2E_dp2(displacement, materialParameters_->committedView(), hess);
+  compute_d2E_dp2(displacement, materialParameters_->snapshot().view(), hess);
 }
 
 void DeformationModelEnergy::compute_d2E_dp2(
-  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &hess) const
+  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::SpMatD &hess) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -139,11 +139,11 @@ void DeformationModelEnergy::compute_d2E_dp2(
 void DeformationModelEnergy::compute_d2E_de2(
   ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
 {
-  compute_d2E_de2(displacement, materialParameters_->committedView(), hess);
+  compute_d2E_de2(displacement, materialParameters_->snapshot().view(), hess);
 }
 
 void DeformationModelEnergy::compute_d2E_de2(
-  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &hess) const
+  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::SpMatD &hess) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -155,11 +155,11 @@ void DeformationModelEnergy::compute_d2E_dpde(
   ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
 {
   compute_d2E_dpde(
-    displacement, materialParameters_->committedView(), hess);
+    displacement, materialParameters_->snapshot().view(), hess);
 }
 
 void DeformationModelEnergy::compute_d2E_dpde(
-  ES::ConstRefVecXd displacement, MaterialStateView state, ES::SpMatD &hess) const
+  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::SpMatD &hess) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -171,11 +171,11 @@ void DeformationModelEnergy::compute_d2E_dudp(
   ES::ConstRefVecXd displacement, ES::SpMatD &mixedHessian) const
 {
   compute_d2E_dudp(
-    displacement, materialParameters_->committedView(), mixedHessian);
+    displacement, materialParameters_->snapshot().view(), mixedHessian);
 }
 
 void DeformationModelEnergy::compute_d2E_dudp(
-  ES::ConstRefVecXd displacement, MaterialStateView state,
+  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state,
   ES::SpMatD &mixedHessian) const
 {
   ES::VXd &p = absolutePositionScratch();
@@ -188,11 +188,11 @@ void DeformationModelEnergy::compute_d2E_dude(
   ES::ConstRefVecXd displacement, ES::SpMatD &mixedHessian) const
 {
   compute_d2E_dude(
-    displacement, materialParameters_->committedView(), mixedHessian);
+    displacement, materialParameters_->snapshot().view(), mixedHessian);
 }
 
 void DeformationModelEnergy::compute_d2E_dude(
-  ES::ConstRefVecXd displacement, MaterialStateView state,
+  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state,
   ES::SpMatD &mixedHessian) const
 {
   ES::VXd &p = absolutePositionScratch();
@@ -207,7 +207,7 @@ void DeformationModelEnergy::computeVonMisesStresses(
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
   forceModelAssembler->computeVonMisesStresses(
-    p.data(), materialParameters_->committedView(), elementStresses.data());
+    p.data(), materialParameters_->snapshot().view(), elementStresses.data());
 }
 
 void DeformationModelEnergy::computeMaxStrains(
@@ -216,17 +216,17 @@ void DeformationModelEnergy::computeMaxStrains(
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
   forceModelAssembler->computeMaxStrains(
-    p.data(), materialParameters_->committedView(), elementStrains.data());
+    p.data(), materialParameters_->snapshot().view(), elementStrains.data());
 }
 
 void DeformationModelEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const
 {
-  gradient(x, materialParameters_->committedView(), grad);
+  gradient(x, materialParameters_->snapshot().view(), grad);
 }
 
 void DeformationModelEnergy::gradient(
   EigenSupport::ConstRefVecXd x,
-  MaterialStateView state,
+  MaterialParameterEvaluationView state,
   EigenSupport::RefVecXd grad) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
@@ -237,12 +237,12 @@ void DeformationModelEnergy::gradient(
 
 void DeformationModelEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
-  hessianInPlace(x, materialParameters_->committedView(), hess);
+  hessianInPlace(x, materialParameters_->snapshot().view(), hess);
 }
 
 void DeformationModelEnergy::hessianInPlace(
   EigenSupport::ConstRefVecXd x,
-  MaterialStateView state,
+  MaterialParameterEvaluationView state,
   EigenSupport::SpMatD &hess) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
