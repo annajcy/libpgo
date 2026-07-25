@@ -137,7 +137,6 @@ def main() -> None:
     # Differentiate the observed surface through static equilibrium.
     layer = pgo.fem.ElasticStaticEquilibriumLayer(
         energy=energy,
-        objective_energy=energy,
         external_load=external_load,
         fixed_dofs=fixed_dofs,
         fixed_values=fixed_values,

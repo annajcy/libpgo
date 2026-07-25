@@ -128,9 +128,9 @@ setup(
         # 3D visualization (pypgo.mesh.visualize) and interactive/web rendering.
         # pyvista pulls its own vtk wheel; trame provides the web backend.
         "viz": ["pyvista", "trame", "trame-vtk", "trame-vuetify"],
-        # Test / notebook / demo tooling (not needed at runtime).
+        # Test and demo tooling (not needed at runtime).
         # pytest-timeout enforces the per-test timeout in pyproject.toml so a hung
         # solve fails fast (with a traceback) instead of stalling the CI job.
-        "dev": ["pytest", "pytest-timeout", "notebook"],
+        "dev": ["pytest", "pytest-timeout"],
     },
 )

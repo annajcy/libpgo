@@ -251,7 +251,7 @@ def test_static_equilibrium_torch_layer_elastic_backward_matches_direct_adjoint(
     assert np.allclose(elastic_param.grad.detach().numpy(), expected_grad)
 
 
-def test_elastic_static_equilibrium_layer_uses_objective_energy_for_adjoint_hessian():
+def test_elastic_static_equilibrium_layer_uses_additional_energy_for_adjoint_hessian():
     _, energy = make_shell_elastic_case()
     rest = energy.vertex_rest_positions
     surface_vertex_ids = np.arange(rest.shape[0], dtype=np.int64)
@@ -259,17 +259,23 @@ def test_elastic_static_equilibrium_layer_uses_objective_energy_for_adjoint_hess
     target = surface_vertices.copy()
     target[:, 2] -= 0.03 * target[:, 1]
 
-    gravity_force = np.zeros(energy.num_dofs, dtype=np.float64)
-    gravity_force[2::3] = -0.02
-    gravity_energy = pe.LinearEnergy(-gravity_force)
-    objective = pe.EnergySet([(energy, 1.0), (gravity_energy, 1.0)])
+    extra_stiffness = pe.QuadraticEnergy(
+        (
+            energy.num_dofs,
+            energy.num_dofs,
+            np.arange(energy.num_dofs, dtype=np.int64),
+            np.arange(energy.num_dofs, dtype=np.int64),
+            np.full(energy.num_dofs, 0.01, dtype=np.float64),
+        )
+    )
+    objective = pe.EnergySet([(energy, 1.0), (extra_stiffness, 1.0)])
 
     fixed_vertices = np.array([0, 1], dtype=np.int64)
     fixed_dofs = (3 * fixed_vertices[:, None] + np.arange(3, dtype=np.int64)).ravel()
     fixed_values = np.zeros(fixed_dofs.size, dtype=np.float64)
     layer = pgo.fem.ElasticStaticEquilibriumLayer(
         energy=energy,
-        objective_energy=objective,
+        additional_energy=extra_stiffness,
         fixed_dofs=fixed_dofs,
         fixed_values=fixed_values,
         surface_vertices=surface_vertices,

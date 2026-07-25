@@ -28,9 +28,10 @@ public:
   // result denotes a source independent of material parameters.
   virtual std::optional<MaterialParameterRef> parameterDependency() const = 0;
 
-  // The output span has parameterDependency()->field().dofLayout().numLocalDofs()
-  // entries when the source is parameter-dependent. Independent sources fill
-  // it with zeroes.
+  // The output span has exactly
+  // parameterDependency()->field().dofLayout().numLocalDofs() entries when
+  // the source is parameter-dependent, and is empty otherwise. The semantic
+  // wrappers validate this contract before dispatching to the source.
   virtual void localParameterDerivative(
     int element,
     int quadrature,

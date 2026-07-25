@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <stdexcept>
+#include <string>
 
 namespace pgo::SolidDeformationModel
 {
@@ -106,6 +107,15 @@ void ShellArealDensityField::localParameterDerivative(
 {
   const auto dependency = source_->parameterDependency();
   validateEvaluationState(dependency, state);
+  const auto expected = dependency
+    ? static_cast<std::size_t>(
+        dependency->field().dofLayout().numLocalDofs())
+    : std::size_t(0);
+  if (output.size() != expected)
+    throw std::invalid_argument(
+      "areal density derivative buffer has size " +
+      std::to_string(output.size()) + ", expected " +
+      std::to_string(expected));
   source_->localParameterDerivative(element, quadrature, state, output);
 }
 

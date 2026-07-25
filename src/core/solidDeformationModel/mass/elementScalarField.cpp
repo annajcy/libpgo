@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <stdexcept>
+#include <string>
 
 namespace pgo::SolidDeformationModel
 {
@@ -103,6 +104,13 @@ void ScaledElasticParameterFieldSource::localParameterDerivative(
   MaterialParameterEvaluationView state,
   std::span<double> output) const
 {
+  const auto expected = static_cast<std::size_t>(
+    parameter_.field().dofLayout().numLocalDofs());
+  if (output.size() != expected)
+    throw std::invalid_argument(
+      "scaled elastic parameter field derivative buffer has size " +
+      std::to_string(output.size()) + ", expected " +
+      std::to_string(expected));
   parameter_.localDerivative(element, quadrature, state, output.data());
   for (double &value : output)
     value *= scale_;

@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import pypgo as pgo
+import pypgo.energy as pe
 import pypgo.fem as pf
 
 torch = pytest.importorskip("torch")
@@ -177,4 +178,44 @@ def test_external_load_rejects_material_parameters_from_another_space():
             surface_vertices=layer.surface_vertices,
             surface_vertex_ids=layer.surface_vertex_ids,
             external_load=foreign_load,
+        )
+
+
+def test_equilibrium_layer_rejects_legacy_objective_energy_argument():
+    layer, _elastic, _vertices = _setup()
+    with pytest.raises(TypeError, match="objective_energy"):
+        pgo.fem.ElasticStaticEquilibriumLayer(
+            energy=layer.energy,
+            fixed_dofs=layer.fixed_dofs,
+            fixed_values=layer.fixed_values,
+            surface_vertices=layer.surface_vertices,
+            surface_vertex_ids=layer.surface_vertex_ids,
+            objective_energy=layer.energy,
+        )
+
+
+def test_equilibrium_layer_validates_additional_energy_shape():
+    layer, _elastic, _vertices = _setup()
+    extra = pe.LinearEnergy(np.zeros(layer.energy.num_dofs - 1))
+    with pytest.raises(ValueError, match="additional_energy num_dofs"):
+        pgo.fem.ElasticStaticEquilibriumLayer(
+            energy=layer.energy,
+            additional_energy=extra,
+            fixed_dofs=layer.fixed_dofs,
+            fixed_values=layer.fixed_values,
+            surface_vertices=layer.surface_vertices,
+            surface_vertex_ids=layer.surface_vertex_ids,
+        )
+
+
+def test_equilibrium_layer_requires_deformation_energy():
+    layer, _elastic, _vertices = _setup()
+    generic_energy = pe.LinearEnergy(np.zeros(layer.energy.num_dofs))
+    with pytest.raises(TypeError, match="DeformationEnergy"):
+        pgo.fem.ElasticStaticEquilibriumLayer(
+            energy=generic_energy,
+            fixed_dofs=layer.fixed_dofs,
+            fixed_values=layer.fixed_values,
+            surface_vertices=layer.surface_vertices,
+            surface_vertex_ids=layer.surface_vertex_ids,
         )

@@ -269,6 +269,43 @@ TEST(FormulationDynamicsGTest, CustomScalarSourceCanBackVolumeDensityField)
   EXPECT_TRUE(force.segment<3>(21).isApprox(4.0 * acceleration / 8.0));
 }
 
+TEST(FormulationDynamicsGTest, DensityDerivativeBufferSizeIsValidated)
+{
+  auto mesh = makeTwoTriangleShellMesh();
+  auto parameters = makeShellMassParameters(mesh->getNumElements(), false, false);
+  auto space = parameters->space();
+  const auto parameter = space->elastic().parameter("thickness");
+  auto state = parameters->snapshot().view();
+  auto density = ShellArealDensityField::fromElasticParameter(850.0, parameter);
+
+  const auto expected = static_cast<std::size_t>(
+    parameter.field().dofLayout().numLocalDofs());
+  std::vector<double> correct(expected);
+  std::vector<double> tooSmall(expected - 1);
+  std::vector<double> tooLarge(expected + 1);
+
+  EXPECT_NO_THROW(density.localParameterDerivative(0, 0, state, correct));
+  EXPECT_THROW(
+    density.localParameterDerivative(0, 0, state, tooSmall),
+    std::invalid_argument);
+  EXPECT_THROW(
+    density.localParameterDerivative(0, 0, state, tooLarge),
+    std::invalid_argument);
+
+  auto constant = ShellArealDensityField::constant(4.0);
+  std::span<double> empty;
+  EXPECT_NO_THROW(constant.localParameterDerivative(0, 0, {}, empty));
+  std::vector<double> unexpected(1);
+  EXPECT_THROW(
+    constant.localParameterDerivative(0, 0, {}, unexpected),
+    std::invalid_argument);
+
+  ScaledElasticParameterFieldSource source(850.0, parameter);
+  EXPECT_THROW(
+    source.localParameterDerivative(0, 0, state, tooSmall),
+    std::invalid_argument);
+}
+
 TEST(FormulationDynamicsGTest, ElementwiseScalarSourceBacksVolumeDensityField)
 {
   auto mesh = makeSingleCube(4.0);

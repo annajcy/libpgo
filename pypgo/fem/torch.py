@@ -11,6 +11,7 @@ from pypgo import solver
 from pypgo import energy as _energy_mod
 from pypgo._utils import float_vector, int_vector, vertex_array
 from pypgo.energy import PotentialEnergy
+from pypgo.fem.energy import DeformationEnergy
 
 
 class _StaticEquilibriumFunction(_torch.autograd.Function):
@@ -73,7 +74,11 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
 
         grad_parameter = np.zeros(layer.num_parameter_dofs, dtype=np.float64)
         if layer.free_dofs.size:
-            hessian = layer.objective_energy.hessian(ctx.displacement).to_dense()
+            # The external load is linear in displacement, so the Hessian of
+            # the equilibrium objective is the Hessian of its conservative
+            # part.  Its parameter mixed derivative is supplied separately by
+            # ``_d2E_dudq`` below.
+            hessian = layer._conservative_energy.hessian(ctx.displacement).to_dense()
             d2E_dudq = layer._d2E_dudq(ctx.displacement)
             adjoint = np.zeros(layer.energy.num_dofs, dtype=np.float64)
             adjoint[layer.free_dofs] = np.linalg.solve(
@@ -100,21 +105,30 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
         surface_vertices,
         surface_vertex_ids: Sequence[int],
         inner_optimizer: solver.Optimizer | None = None,
-        objective_energy=None,
+        additional_energy=None,
         external_load=None,
     ) -> None:
         super().__init__()
-        if not isinstance(energy, PotentialEnergy):
-            raise TypeError("energy must be a pypgo.energy.PotentialEnergy")
-        if objective_energy is None:
-            objective_energy = energy
-        if not isinstance(objective_energy, PotentialEnergy):
-            raise TypeError("objective_energy must be a pypgo.energy.PotentialEnergy")
-        if objective_energy.num_dofs != energy.num_dofs:
-            raise ValueError("objective_energy num_dofs must match energy.num_dofs")
+        if not isinstance(energy, DeformationEnergy):
+            raise TypeError("energy must be a pypgo.fem.DeformationEnergy")
+        if additional_energy is not None:
+            if not isinstance(additional_energy, PotentialEnergy):
+                raise TypeError(
+                    "additional_energy must be a pypgo.energy.PotentialEnergy"
+                )
+            if additional_energy.num_dofs != energy.num_dofs:
+                raise ValueError(
+                    "additional_energy num_dofs must match energy.num_dofs"
+                )
 
         self.energy = energy
-        self.objective_energy = objective_energy
+        self.additional_energy = additional_energy
+        if additional_energy is None:
+            self._conservative_energy = energy
+        else:
+            self._conservative_energy = _energy_mod.EnergySet(
+                [(energy, 1.0), (additional_energy, 1.0)]
+            )
         self.fixed_dofs = int_vector("fixed_dofs", fixed_dofs)
         self.fixed_values = float_vector("fixed_values", fixed_values)
         if self.fixed_values.size != self.fixed_dofs.size:
@@ -180,15 +194,15 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
             raise ValueError("displacement size must match energy.num_dofs")
 
     def _build_objective(self):
-        """Objective for the inner solve; re-adds the parameter-dependent load at current b."""
+        """Build the objective, adding the current parameter-dependent load."""
         if self.external_load is None:
-            return self.objective_energy
+            return self._conservative_energy
         load = np.asarray(self.external_load.force(), dtype=np.float64)
         if load.shape != (self.energy.num_dofs,):
             raise ValueError(
                 f"external_load.force() must return shape ({self.energy.num_dofs},), got {load.shape}")
         return _energy_mod.EnergySet([
-            (self.objective_energy, 1.0),
+            (self._conservative_energy, 1.0),
             (_energy_mod.LinearEnergy(-load), 1.0),
         ])
 
@@ -217,9 +231,10 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
 class PlasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     """Implicitly differentiable equilibrium layer with plastic field input.
 
-    The forward pass solves ``argmin_u E(u, p)`` for the given plastic field
-    ``p`` and returns observed surface vertices. The backward pass uses
-    ``energy.d2E_dudp(u)`` in the adjoint contraction.
+    The forward pass solves the conservative objective ``E(u, p) + C(u)`` for
+    the given plastic field ``p`` and returns observed surface vertices.
+    ``additional_energy=C`` must be independent of the plastic field. The
+    backward pass uses ``energy.d2E_dudp(u)`` in the adjoint contraction.
     """
 
     _layer_name = "PlasticStaticEquilibriumLayer"
@@ -243,9 +258,11 @@ class PlasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
 class ElasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     """Implicitly differentiable equilibrium layer with elastic field input.
 
-    The forward pass solves ``argmin_u E(u, e)`` for the given elastic field
-    ``e`` and returns observed surface vertices. The backward pass uses
-    ``energy.d2E_dude(u)`` in the adjoint contraction.
+    The forward pass solves the conservative objective ``E(u, e) + C(u)``
+    (and, when supplied, the external load) for the given elastic field
+    ``e``. ``additional_energy=C`` must be independent of the elastic field.
+    The backward pass uses ``energy.d2E_dude(u)`` and the external-load
+    parameter Jacobian in the adjoint contraction.
     """
 
     _layer_name = "ElasticStaticEquilibriumLayer"
