@@ -158,7 +158,7 @@ class VolumeMesh:
     def _mass_matrix(self, *, inflate3dim: bool = True):
         """(Internal) Consistent mass matrix — use formulation-level API instead.
 
-        Prefer ``pypgo.fem.VolumeDensity`` + ``formulation.mass_matrix(sim_mesh, mass_field)``.
+        Prefer ``pypgo.fem.VolumeDensity`` + ``formulation.mass_matrix(sim_mesh, density)``.
         """
         from pypgo.sparse import SparseMatrix
         return SparseMatrix(_core.compute_mass_matrix(self._handle, bool(inflate3dim)))

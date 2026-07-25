@@ -1,7 +1,7 @@
 #pragma once
 
-#include "mass/volumeMassField.h"
-#include "mass/shellMassField.h"
+#include "mass/volumeDensityField.h"
+#include "mass/shellArealDensityField.h"
 #include "../../energy/core.h"
 
 #include <memory>
@@ -10,39 +10,46 @@
 namespace pgo
 {
 
-class PyVolumeMassField
+class PyVolumeDensity
 {
 public:
-  explicit PyVolumeMassField(std::shared_ptr<SolidDeformationModel::VolumeMassField> field)
+  explicit PyVolumeDensity(
+    std::shared_ptr<SolidDeformationModel::VolumeDensityField> field)
     : field_(std::move(field)) {}
 
-  const SolidDeformationModel::VolumeMassField &get() const { return *field_; }
+  const SolidDeformationModel::VolumeDensityField &get() const { return *field_; }
 
 private:
-  std::shared_ptr<SolidDeformationModel::VolumeMassField> field_;
+  std::shared_ptr<SolidDeformationModel::VolumeDensityField> field_;
 };
 
-std::shared_ptr<PyVolumeMassField> make_constant_volume_density(double density);
-std::shared_ptr<PyVolumeMassField> make_elementwise_volume_density(const std::vector<double> &densities);
+std::shared_ptr<PyVolumeDensity> make_constant_volume_density(double density);
+std::shared_ptr<PyVolumeDensity> make_elementwise_volume_density(
+  const std::vector<double> &densities);
 
-class PyShellMassField
+class PyShellArealDensity
 {
 public:
-  explicit PyShellMassField(std::shared_ptr<SolidDeformationModel::ShellMassField> field)
+  explicit PyShellArealDensity(
+    std::shared_ptr<SolidDeformationModel::ShellArealDensityField> field)
     : field_(std::move(field)) {}
 
-  const SolidDeformationModel::ShellMassField &get() const { return *field_; }
+  const SolidDeformationModel::ShellArealDensityField &get() const { return *field_; }
 
 protected:
-  std::shared_ptr<SolidDeformationModel::ShellMassField> field_;
+  std::shared_ptr<SolidDeformationModel::ShellArealDensityField> field_;
 };
 
-std::shared_ptr<PyShellMassField> make_constant_shell_areal_density(double arealDensity);
-std::shared_ptr<PyShellMassField> make_shell_density_thickness_constant(double density, double thickness);
-std::shared_ptr<PyShellMassField> make_shell_density_thickness_elementwise(
+std::shared_ptr<PyShellArealDensity> make_constant_shell_areal_density(
+  double arealDensity);
+std::shared_ptr<PyShellArealDensity> make_shell_areal_density_elementwise(
+  const std::vector<double> &arealDensities);
+std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_density_thickness(
+  double density, double thickness);
+std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_density_thickness(
   double density, const std::vector<double> &thickness);
 
-std::shared_ptr<PyShellMassField> make_shell_density_elastic_thickness(
-  double density, const PyMaterialParameterRef &parameter);
+std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_elastic_parameter(
+  double scale, const PyMaterialParameterRef &parameter);
 
 }  // namespace pgo

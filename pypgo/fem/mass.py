@@ -1,7 +1,7 @@
-"""Mass-property fields for formulation mass / body-force assembly.
+"""Density fields for formulation mass / body-force assembly.
 
-A mass field answers "how much mass per integration region" — separate from
-the constitutive material. Volume fields carry kg/m^3, shell fields kg/m^2.
+VolumeDensity carries kg/m^3 and ShellArealDensity carries kg/m^2.  They are
+physical-property wrappers; formulation objects own integration and assembly.
 """
 
 from __future__ import annotations
@@ -11,27 +11,31 @@ import numpy as np
 import pypgo._core as _core
 
 
-class VolumeMassField:
-    """Base for volumetric (kg/m^3) mass fields. Holds a C++ handle."""
+def _require_positive_finite(name: str, value: np.ndarray) -> None:
+    if (
+        value.size == 0
+        or not np.all(np.isfinite(value))
+        or not np.all(value > 0.0)
+    ):
+        raise ValueError(f"{name} must contain finite values > 0")
 
-    def __init__(self, handle) -> None:
-        self._handle = handle
+
+class VolumeDensity:
+    """Finite positive density: scalar or one value per volume element."""
+
+    def __init__(self, value) -> None:
+        arr = np.asarray(value, dtype=np.float64)
+        if arr.ndim == 0:
+            _require_positive_finite("density", arr)
+            self._handle = _core.make_constant_volume_density(float(arr))
+        elif arr.ndim == 1:
+            _require_positive_finite("density", arr)
+            self._handle = _core.make_elementwise_volume_density(arr.tolist())
+        else:
+            raise ValueError(f"density must be a scalar or 1-D array, got shape {arr.shape}")
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
-
-
-class VolumeDensity(VolumeMassField):
-    """Volumetric density: scalar (constant) or 1-D per-element array."""
-
-    def __init__(self, density) -> None:
-        arr = np.asarray(density, dtype=np.float64)
-        if arr.ndim == 0:
-            super().__init__(_core.make_constant_volume_density(float(arr)))
-        elif arr.ndim == 1:
-            super().__init__(_core.make_elementwise_volume_density(arr.tolist()))
-        else:
-            raise ValueError(f"density must be a scalar or 1-D array, got shape {arr.shape}")
 
 
 def volume_density(volume) -> VolumeDensity:
@@ -42,70 +46,91 @@ def volume_density(volume) -> VolumeDensity:
     return VolumeDensity(densities)
 
 
-class ShellMassField:
-    """Base for shell (kg/m^2) mass fields. Holds a C++ handle."""
+class ShellArealDensity:
+    """Finite positive areal density: scalar or one value per shell element."""
 
-    def __init__(self, handle) -> None:
-        self._handle = handle
+    def __init__(self, value) -> None:
+        arr = np.asarray(value, dtype=np.float64)
+        if arr.ndim == 0:
+            _require_positive_finite("areal density", arr)
+            self._handle = _core.make_constant_shell_areal_density(float(arr))
+        elif arr.ndim == 1:
+            _require_positive_finite("areal density", arr)
+            self._handle = _core.make_shell_areal_density_elementwise(arr.tolist())
+        else:
+            raise ValueError(
+                f"areal density must be a scalar or 1-D array, got shape {arr.shape}"
+            )
+
+    @classmethod
+    def from_density_thickness(cls, *, density: float, thickness) -> "ShellArealDensity":
+        density_arr = np.asarray(density, dtype=np.float64)
+        if density_arr.ndim != 0:
+            raise ValueError(
+                f"density must be a scalar, got shape {density_arr.shape}"
+            )
+        _require_positive_finite("density", density_arr)
+        arr = np.asarray(thickness, dtype=np.float64)
+        result = cls.__new__(cls)
+        if arr.ndim == 0:
+            _require_positive_finite("thickness", arr)
+            result._handle = _core.make_shell_areal_density_from_density_thickness(
+                float(density_arr), float(arr)
+            )
+        elif arr.ndim == 1:
+            _require_positive_finite("thickness", arr)
+            result._handle = _core.make_shell_areal_density_from_density_thickness(
+                float(density_arr), arr.tolist()
+            )
+        else:
+            raise ValueError(
+                f"thickness must be a scalar or 1-D array, got shape {arr.shape}"
+            )
+        return result
+
+    @classmethod
+    def from_elastic_parameter(
+        cls, *, scale: float, parameter
+    ) -> "ShellArealDensity":
+        from pypgo.fem.fields import MaterialParameterRef
+
+        if not isinstance(parameter, MaterialParameterRef):
+            raise TypeError(
+                f"parameter must be a MaterialParameterRef, got {type(parameter).__name__}"
+            )
+        scale_arr = np.asarray(scale, dtype=np.float64)
+        if scale_arr.ndim != 0:
+            raise ValueError(f"scale must be a scalar, got shape {scale_arr.shape}")
+        _require_positive_finite("scale", scale_arr)
+        result = cls.__new__(cls)
+        result._parameter = parameter
+        result._handle = _core.make_shell_areal_density_from_elastic_parameter(
+            float(scale_arr), parameter._handle
+        )
+        return result
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 
 
-class ShellArealDensity(ShellMassField):
-    """Constant areal density rho*h in kg/m^2."""
-
-    def __init__(self, areal_density: float) -> None:
-        super().__init__(_core.make_constant_shell_areal_density(float(areal_density)))
-
-
-class ShellDensityThickness(ShellMassField):
-    """rho * h with fixed thickness (scalar or per-element array)."""
-
-    def __init__(self, *, density: float, thickness) -> None:
-        arr = np.asarray(thickness, dtype=np.float64)
-        if arr.ndim == 0:
-            super().__init__(_core.make_shell_density_thickness_constant(float(density), float(arr)))
-        elif arr.ndim == 1:
-            super().__init__(_core.make_shell_density_thickness_elementwise(float(density), arr.tolist()))
-        else:
-            raise ValueError(f"thickness must be a scalar or 1-D array, got shape {arr.shape}")
-
-
-class ShellDensityElasticThickness(ShellMassField):
-    """rho * h with h read from a semantic ``thickness`` parameter."""
-
-    def __init__(self, *, density: float, parameter) -> None:
-        from pypgo.fem.fields import MaterialParameterRef
-
-        if not isinstance(parameter, MaterialParameterRef):
-            raise TypeError(
-                f"parameter must be a MaterialParameterRef, got {type(parameter).__name__}")
-        self._parameter = parameter
-        super().__init__(_core.make_shell_density_elastic_thickness(
-            float(density), parameter._handle))
-
-
 class SelfWeightGravity:
-    """External-load provider: shell self-weight from a parameter-coupled mass field.
-
-    Implements the ``ElasticStaticEquilibriumLayer`` external_load protocol:
-    ``force()`` and ``parameter_jacobian()`` evaluated at the parameter
-    field's current values.
-    """
+    """External load from a parameter-coupled shell areal density."""
 
     def __init__(
-        self, *, formulation, sim_mesh, mass_field, material_parameters, acceleration
+        self, *, formulation, sim_mesh, areal_density, material_parameters, acceleration
     ) -> None:
         from pypgo.fem.formulations import ShellFormulation
         from pypgo.fem.fields import MaterialParameters
 
         if not isinstance(formulation, ShellFormulation):
             raise TypeError(
-                f"formulation must be a ShellFormulation, got {type(formulation).__name__}")
-        if not isinstance(mass_field, ShellMassField):
+                f"formulation must be a ShellFormulation, got {type(formulation).__name__}"
+            )
+        if not isinstance(areal_density, ShellArealDensity):
             raise TypeError(
-                f"mass_field must be a ShellMassField, got {type(mass_field).__name__}")
+                "areal_density must be a ShellArealDensity, "
+                f"got {type(areal_density).__name__}"
+            )
         if not isinstance(material_parameters, MaterialParameters):
             raise TypeError(
                 "material_parameters must be MaterialParameters, "
@@ -113,7 +138,7 @@ class SelfWeightGravity:
             )
         self._formulation = formulation
         self._sim_mesh = sim_mesh
-        self._mass_field = mass_field
+        self._areal_density = areal_density
         self._material_parameters = material_parameters
         self._acceleration = np.asarray(acceleration, dtype=np.float64).reshape(3)
 
@@ -125,7 +150,7 @@ class SelfWeightGravity:
         return self._formulation.body_force(
             self._sim_mesh,
             self._acceleration,
-            self._mass_field,
+            self._areal_density,
             material_parameters=self._material_parameters,
         )
 
@@ -133,6 +158,6 @@ class SelfWeightGravity:
         return self._formulation.body_force_parameter_jacobian(
             self._sim_mesh,
             self._acceleration,
-            self._mass_field,
+            self._areal_density,
             material_parameters=self._material_parameters,
         )

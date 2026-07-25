@@ -102,11 +102,9 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/core/materialParameterBuilder.h
   material/core/materialFrameField.h
 
-  mass/massField.h
-  mass/volumeMassField.h
-  mass/shellMassField.h
-  mass/elasticParameterDependentMassField.h
-  mass/shellDensityElasticThickness.h
+  mass/elementScalarField.h
+  mass/volumeDensityField.h
+  mass/shellArealDensityField.h
 )
 
 set(SOLID_DEFORMATION_MODEL_SOURCES
@@ -180,10 +178,9 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   material/plastic/plasticModel2DFundamentalForms.cpp
 
-  mass/massField.cpp
-  mass/volumeMassField.cpp
-  mass/shellMassField.cpp
-  mass/shellDensityElasticThickness.cpp
+  mass/elementScalarField.cpp
+  mass/volumeDensityField.cpp
+  mass/shellArealDensityField.cpp
 
   simulation/simulationMeshCore.cpp
   simulation/simulationMeshVolume.cpp

@@ -1,4 +1,5 @@
 -- Unreleased
+  - replace the legacy MassField hierarchy with VolumeDensity and ShellArealDensity; migrate ShellDensityThickness to ShellArealDensity.from_density_thickness and ShellDensityElasticThickness to ShellArealDensity.from_elastic_parameter
   - replace the pgo scheduling facade with explicit GlobalTbbControl, ThreadingPolicy, and ArenaThreadingExecutor primitives
   - migrate first-party loops, reductions, and sorting to native oneTBB algorithms
   - remove the redundant parallelFor3D wrapper in favor of call-site-owned row/block decomposition

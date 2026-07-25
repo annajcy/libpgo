@@ -4,13 +4,15 @@
 #include "barycentricCoordinates.h"
 #include "cubicMesh.h"
 #include "generateMassMatrix.h"
-#include "mass/shellDensityElasticThickness.h"
-#include "mass/volumeMassField.h"
+#include "mass/shellArealDensityField.h"
+#include "mass/volumeDensityField.h"
 #include "material/core/materialParameters.h"
 #include "simulation/simulationMesh.h"
 #include "triMeshGeo.h"
 
 #include <cmath>
+#include <limits>
+#include <optional>
 #include <memory>
 #include <span>
 #include <vector>
@@ -82,6 +84,51 @@ private:
   int size_;
 };
 
+class CustomConstantDensitySource final : public ElementScalarFieldSource
+{
+public:
+  void validate(int) const override {}
+
+  double value(int, int, MaterialParameterEvaluationView) const override
+  {
+    return 4.0;
+  }
+
+  std::optional<MaterialParameterRef> parameterDependency() const override
+  {
+    return std::nullopt;
+  }
+
+  void localParameterDerivative(
+    int, int, MaterialParameterEvaluationView, std::span<double> output) const override
+  {
+    for (double &value : output)
+      value = 0.0;
+  }
+};
+
+class NonFiniteDensitySource final : public ElementScalarFieldSource
+{
+public:
+  void validate(int) const override {}
+
+  double value(int, int, MaterialParameterEvaluationView) const override
+  {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+
+  std::optional<MaterialParameterRef> parameterDependency() const override
+  {
+    return std::nullopt;
+  }
+
+  void localParameterDerivative(
+    int, int, MaterialParameterEvaluationView, std::span<double> output) const override
+  {
+    std::fill(output.begin(), output.end(), 0.0);
+  }
+};
+
 std::shared_ptr<const SimulationMesh> makeTwoTriangleShellMesh()
 {
   const double vertices[] = {
@@ -147,7 +194,7 @@ void expectBodyForceParameterJacobianMatchesFD(
   auto parameters = makeShellMassParameters(
     mesh->getNumElements(), constant, nonlinear);
   auto space = parameters->space();
-  ShellDensityElasticThickness massField(
+  ShellArealDensityField massField = ShellArealDensityField::fromElasticParameter(
     850.0, space->elastic().parameter("thickness"));
   KoiterShellFormulation formulation;
   const EigenSupport::V3d acceleration(0.7, -1.3, -9.81);
@@ -186,8 +233,8 @@ TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelo
   constexpr double density = 2.0;
   auto mesh = makeSingleCube(density);
   auto simMesh = loadCubicMesh(mesh.get());
-  ConstantVolumeDensity massField(density);
-  EigenSupport::SpMatD M = CubicTricubicHermiteFormulation{}.buildMassMatrix(*simMesh, massField);
+  auto densityField = VolumeDensityField::constant(density);
+  EigenSupport::SpMatD M = CubicTricubicHermiteFormulation{}.buildMassMatrix(*simMesh, densityField);
   ASSERT_EQ(M.rows(), 8 * 24);
   ASSERT_EQ(M.cols(), 8 * 24);
 
@@ -207,14 +254,70 @@ TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelo
   }
 }
 
+TEST(FormulationDynamicsGTest, CustomScalarSourceCanBackVolumeDensityField)
+{
+  auto mesh = makeSingleCube(4.0);
+  auto simMesh = loadCubicMesh(mesh.get());
+  auto source = std::make_shared<CustomConstantDensitySource>();
+  VolumeDensityField density(source);
+
+  const EigenSupport::V3d acceleration(0.0, -9.8, 0.0);
+  const EigenSupport::VXd force =
+    CubicLinearFormulation{}.buildBodyForce(*simMesh, acceleration, density);
+
+  EXPECT_TRUE(force.segment<3>(0).isApprox(4.0 * acceleration / 8.0));
+  EXPECT_TRUE(force.segment<3>(21).isApprox(4.0 * acceleration / 8.0));
+}
+
+TEST(FormulationDynamicsGTest, ElementwiseScalarSourceBacksVolumeDensityField)
+{
+  auto mesh = makeSingleCube(4.0);
+  auto simMesh = loadCubicMesh(mesh.get());
+  EigenSupport::VXd values(1);
+  values[0] = 4.0;
+  auto density = VolumeDensityField::elementwise(std::move(values));
+
+  const EigenSupport::V3d acceleration(0.0, -9.8, 0.0);
+  const EigenSupport::VXd force =
+    CubicLinearFormulation{}.buildBodyForce(*simMesh, acceleration, density);
+
+  EXPECT_TRUE(force.segment<3>(0).isApprox(4.0 * acceleration / 8.0));
+  EXPECT_TRUE(force.segment<3>(21).isApprox(4.0 * acceleration / 8.0));
+}
+
+TEST(FormulationDynamicsGTest, DensityFieldsRejectNonFiniteValues)
+{
+  const double infinity = std::numeric_limits<double>::infinity();
+  EXPECT_THROW(VolumeDensityField::constant(infinity), std::invalid_argument);
+  EXPECT_THROW(ShellArealDensityField::constant(infinity), std::invalid_argument);
+
+  EigenSupport::VXd values(1);
+  values[0] = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(
+    VolumeDensityField::elementwise(std::move(values)),
+    std::invalid_argument);
+
+  EXPECT_THROW(
+    ShellArealDensityField::fromDensityThickness(
+      std::numeric_limits<double>::max(),
+      std::numeric_limits<double>::max()),
+    std::invalid_argument);
+
+  auto invalidSource = std::make_shared<NonFiniteDensitySource>();
+  VolumeDensityField volumeDensity(invalidSource);
+  ShellArealDensityField shellDensity(invalidSource);
+  EXPECT_THROW(volumeDensity.value(0), std::invalid_argument);
+  EXPECT_THROW(shellDensity.value(0), std::invalid_argument);
+}
+
 TEST(FormulationDynamicsGTest, HermiteBodyForceHasCorrectTotalAndDerivativeEntries)
 {
   constexpr double density = 3.0;
   auto mesh = makeSingleCube(density);
   auto simMesh = loadCubicMesh(mesh.get());
-  ConstantVolumeDensity massField(density);
+  auto densityField = VolumeDensityField::constant(density);
   EigenSupport::V3d a(0.0, -9.8, 0.0);
-  EigenSupport::VXd f = CubicTricubicHermiteFormulation{}.buildBodyForce(*simMesh, a, massField);
+  EigenSupport::VXd f = CubicTricubicHermiteFormulation{}.buildBodyForce(*simMesh, a, densityField);
   ASSERT_EQ(f.size(), 8 * 24);
 
   EigenSupport::V3d valueForce = EigenSupport::V3d::Zero();
@@ -267,11 +370,11 @@ TEST(FormulationDynamicsGTest, TrilinearMassMatchesLegacyOperator)
   constexpr double density = 2.0;
   auto mesh = makeSingleCube(density);
   auto simMesh = loadCubicMesh(mesh.get());
-  ConstantVolumeDensity massField(density);
+  auto densityField = VolumeDensityField::constant(density);
   EigenSupport::SpMatD legacyMass;
   VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(mesh.get(), legacyMass, true);
 
-  EigenSupport::SpMatD mass = CubicLinearFormulation{}.buildMassMatrix(*simMesh, massField);
+  EigenSupport::SpMatD mass = CubicLinearFormulation{}.buildMassMatrix(*simMesh, densityField);
   EXPECT_TRUE(mass.isApprox(legacyMass, 1e-6));
 }
 

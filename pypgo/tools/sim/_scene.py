@@ -305,14 +305,14 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
     rest_vertices = np.asarray(surface.vertices, dtype=np.float64)
 
     if cfg.material.mass.areal_density is not None:
-        mass_field = _fem.ShellArealDensity(cfg.material.mass.areal_density)
+        areal_density = _fem.ShellArealDensity(cfg.material.mass.areal_density)
     else:
-        mass_field = _fem.ShellDensityThickness(
+        areal_density = _fem.ShellArealDensity.from_density_thickness(
             density=cfg.material.mass.density, thickness=cfg.material.thickness)
-    mass = fm.mass_matrix(sim_mesh, mass_field) if cfg.mode == "dynamic" else None
+    mass = fm.mass_matrix(sim_mesh, areal_density) if cfg.mode == "dynamic" else None
     gravity = np.asarray(cfg.loads.gravity, dtype=np.float64)
     gravity_force = (
-        fm.body_force(sim_mesh, gravity, mass_field)
+        fm.body_force(sim_mesh, gravity, areal_density)
         if float(np.linalg.norm(gravity)) > 0.0
         else np.zeros(num_dofs, dtype=np.float64)
     )

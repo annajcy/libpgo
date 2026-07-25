@@ -6,7 +6,7 @@
 #include "formulations/dof/dofLayout.h"
 #include "formulations/quadrature/quadrature.h"
 #include "formulations/shapeFunction/shapeFunction.h"
-#include "mass/volumeMassField.h"
+#include "mass/volumeDensityField.h"
 #include "simulation/simulationMesh.h"
 #include "volumetricMesh.h"
 
@@ -73,12 +73,12 @@ std::unique_ptr<VolumetricElementMapping> VolumetricFormulation::createElementMa
 }
 
 EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
-  const SimulationMesh &mesh, const VolumeMassField &massField) const
+  const SimulationMesh &mesh, const VolumeDensityField &density) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
-  massField.validate(mesh);
+  density.validate(mesh.getNumElements());
 
   const std::unique_ptr<DofLayout> dofLayout = createDofLayout(mesh);
   const ES::VXd restDofs = buildGlobalRestDofs(mesh);
@@ -97,7 +97,7 @@ EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
     dofLayout->gather(ele, restDofs.data(), localRest.data(), groups);
     const VolumetricElementMapping mapping(localRest.data(), sf, quad);
     localGlobalDofIndices(*dofLayout, ele, globalIdx);
-    const double rho = massField.volumeDensity(ele);
+    const double rho = density.value(ele);
 
     for (int q = 0; q < quad.numPoints(); q++) {
       double xi[3];
@@ -132,12 +132,12 @@ EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
 
 EigenSupport::VXd VolumetricFormulation::buildBodyForce(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const VolumeMassField &massField) const
+  const VolumeDensityField &density) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
-  massField.validate(mesh);
+  density.validate(mesh.getNumElements());
 
   const std::unique_ptr<DofLayout> dofLayout = createDofLayout(mesh);
   const ES::VXd restDofs = buildGlobalRestDofs(mesh);
@@ -156,7 +156,7 @@ EigenSupport::VXd VolumetricFormulation::buildBodyForce(
     dofLayout->gather(ele, restDofs.data(), localRest.data(), groups);
     const VolumetricElementMapping mapping(localRest.data(), sf, quad);
     localGlobalDofIndices(*dofLayout, ele, globalIdx);
-    const double rho = massField.volumeDensity(ele);
+    const double rho = density.value(ele);
 
     for (int q = 0; q < quad.numPoints(); q++) {
       double xi[3];

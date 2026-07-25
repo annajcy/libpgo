@@ -125,6 +125,34 @@ def test_volume_mass_field_type_errors():
         pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(np.array([1.0, 2.0])))
 
 
+@pytest.mark.parametrize("invalid", [np.nan, np.inf, -np.inf])
+def test_density_fields_reject_non_finite_values(invalid):
+    with pytest.raises(ValueError, match="finite"):
+        pf.VolumeDensity(invalid)
+    with pytest.raises(ValueError, match="finite"):
+        pf.VolumeDensity([1.0, invalid])
+    with pytest.raises(ValueError, match="finite"):
+        pf.ShellArealDensity(invalid)
+    with pytest.raises(ValueError, match="finite"):
+        pf.ShellArealDensity([1.0, invalid])
+    with pytest.raises(ValueError, match="finite"):
+        pf.ShellArealDensity.from_density_thickness(
+            density=invalid, thickness=1.0
+        )
+    with pytest.raises(ValueError, match="finite"):
+        pf.ShellArealDensity.from_density_thickness(
+            density=1.0, thickness=[1.0, invalid]
+        )
+
+
+def test_density_thickness_rejects_non_finite_product():
+    with pytest.raises(ValueError):
+        pf.ShellArealDensity.from_density_thickness(
+            density=np.finfo(np.float64).max,
+            thickness=np.finfo(np.float64).max,
+        )
+
+
 def _shell_grid(nx=2, ny=2):
     def vid(i, j):
         return i * (ny + 1) + j
@@ -161,7 +189,9 @@ def test_shell_body_force_matches_manual_lumped_formula():
 def test_shell_body_force_total_weight():
     _surface, _vertices, _triangles, sim = _shell_grid()
     g = np.array([0.0, 0.0, -9.81])
-    f = pf.KoiterShell().body_force(sim, g, pf.ShellDensityThickness(density=1000.0, thickness=1e-3))
+    f = pf.KoiterShell().body_force(
+        sim, g, pf.ShellArealDensity.from_density_thickness(
+            density=1000.0, thickness=1e-3))
     # Unit square shell: total area 1, rho*h = 1.
     np.testing.assert_allclose(f.reshape(-1, 3).sum(axis=0), 1.0 * g, rtol=1e-12)
 
@@ -207,8 +237,8 @@ def _shell_energy(sim, triangles):
 def test_shell_elastic_thickness_mass_field_reads_live_values():
     _surface, _vertices, triangles, sim = _shell_grid()
     energy = _shell_energy(sim, triangles)
-    field = pf.ShellDensityElasticThickness(
-        density=1000.0,
+    field = pf.ShellArealDensity.from_elastic_parameter(
+        scale=1000.0,
         parameter=energy.parameters.space.elastic.parameter("thickness"),
     )
     g = np.array([0.0, 0.0, -9.81])
@@ -229,8 +259,8 @@ def test_shell_elastic_thickness_mass_field_reads_live_values():
 def test_shell_body_force_parameter_jacobian_matches_differences():
     _surface, _vertices, triangles, sim = _shell_grid()
     energy = _shell_energy(sim, triangles)
-    field = pf.ShellDensityElasticThickness(
-        density=1000.0,
+    field = pf.ShellArealDensity.from_elastic_parameter(
+        scale=1000.0,
         parameter=energy.parameters.space.elastic.parameter("thickness"),
     )
     g = np.array([0.0, 0.0, -9.81])
@@ -267,8 +297,8 @@ def test_material_parameter_ref_keeps_its_space_alive():
 
     assert parameter.name == "thickness"
     assert parameter.channel == 4
-    field = pf.ShellDensityElasticThickness(
-        density=1000.0, parameter=parameter
+    field = pf.ShellArealDensity.from_elastic_parameter(
+        scale=1000.0, parameter=parameter
     )
     assert field is not None
 
@@ -277,8 +307,8 @@ def test_parameter_dependent_mass_rejects_parameters_from_another_space():
     _surface, _vertices, triangles, sim = _shell_grid()
     owner = _shell_energy(sim, triangles)
     other = _shell_energy(sim, triangles)
-    field = pf.ShellDensityElasticThickness(
-        density=1000.0,
+    field = pf.ShellArealDensity.from_elastic_parameter(
+        scale=1000.0,
         parameter=owner.parameters.space.elastic.parameter("thickness"),
     )
 

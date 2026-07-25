@@ -15,7 +15,7 @@ namespace SolidDeformationModel
 class Quadrature;
 class ShapeFunction;
 class VolumetricElementMapping;
-class VolumeMassField;
+class VolumeDensityField;
 
 class VolumetricFormulation : public Formulation
 {
@@ -39,12 +39,12 @@ public:
 
   // Consistent mass matrix / generalized body force, assembled with the
   // formulation's shape function over massQuadrature(), scattered through
-  // the formulation's DofLayout. Density comes from the mass field.
+  // the formulation's DofLayout. Density comes from the density field.
   virtual EigenSupport::SpMatD buildMassMatrix(
-    const SimulationMesh &mesh, const VolumeMassField &massField) const;
+    const SimulationMesh &mesh, const VolumeDensityField &density) const;
   virtual EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-    const VolumeMassField &massField) const;
+    const VolumeDensityField &density) const;
   virtual EigenSupport::SpMatD buildSurfaceEmbeddingMatrix(
     const VolumetricMeshes::VolumetricMesh &mesh,
     const EigenSupport::MXd &surfaceVertices) const;

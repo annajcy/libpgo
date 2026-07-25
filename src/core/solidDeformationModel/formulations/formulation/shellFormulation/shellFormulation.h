@@ -11,7 +11,7 @@ namespace SolidDeformationModel
 {
 
 class ShellElementMapping;
-class ShellMassField;
+class ShellArealDensityField;
 
 class ShellFormulation : public Formulation
 {
@@ -29,19 +29,18 @@ public:
   // each of the three corner vertices. The Koiter 6-vertex stencil only
   // affects bending energy; displacement DOFs are 3 per vertex.
   EigenSupport::SpMatD buildMassMatrix(
-    const SimulationMesh &mesh, const ShellMassField &massField,
+    const SimulationMesh &mesh, const ShellArealDensityField &arealDensity,
     MaterialParameterEvaluationView state = {}) const;
   EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-    const ShellMassField &massField,
+    const ShellArealDensityField &arealDensity,
     MaterialParameterEvaluationView state = {}) const;
 
-  // d f_g / d b for a parameter-dependent shell mass field; throws
-  // std::invalid_argument if the field does not implement
-  // ElasticParameterDependentMassField. Shape: (numVertices*3) x numParameterDofs.
+  // d f_g / d b for a parameter-dependent shell areal-density field. Shape:
+  // (numVertices*3) x numParameterDofs.
   EigenSupport::SpMatD buildBodyForceParameterJacobian(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-    const ShellMassField &massField,
+    const ShellArealDensityField &arealDensity,
     MaterialParameterEvaluationView state) const;
 };
 

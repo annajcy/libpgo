@@ -89,12 +89,12 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
     if external_load == "point":
         load = _ThicknessPointLoad(energy, target_dof=2, parameter_dof=4, scale=1e6)
     else:
-        mass_field = pf.ShellDensityElasticThickness(
-            density=1000.0,
+        areal_density = pf.ShellArealDensity.from_elastic_parameter(
+            scale=1000.0,
             parameter=energy.parameters.space.elastic.parameter("thickness"),
         )
         load = pf.SelfWeightGravity(
-            formulation=pf.KoiterShell(), sim_mesh=sim, mass_field=mass_field,
+            formulation=pf.KoiterShell(), sim_mesh=sim, areal_density=areal_density,
             material_parameters=energy.parameters,
             acceleration=[0.0, 0.0, -20.0])
 

@@ -9,21 +9,26 @@ using namespace pgo;
 
 void init_mass_bindings(nb::module_ &m)
 {
-    nb::class_<PyVolumeMassField>(m, "PyVolumeMassField");
+    nb::class_<PyVolumeDensity>(m, "PyVolumeDensity");
 
     m.def("make_constant_volume_density", &make_constant_volume_density,
         nb::arg("density"));
     m.def("make_elementwise_volume_density", &make_elementwise_volume_density,
         nb::arg("densities"));
 
-    nb::class_<PyShellMassField>(m, "PyShellMassField");
+    nb::class_<PyShellArealDensity>(m, "PyShellArealDensity");
     m.def("make_constant_shell_areal_density", &make_constant_shell_areal_density,
         nb::arg("areal_density"));
-    m.def("make_shell_density_thickness_constant", &make_shell_density_thickness_constant,
+    m.def("make_shell_areal_density_elementwise", &make_shell_areal_density_elementwise,
+        nb::arg("areal_densities"));
+    m.def("make_shell_areal_density_from_density_thickness",
+        nb::overload_cast<double, double>(&make_shell_areal_density_from_density_thickness),
         nb::arg("density"), nb::arg("thickness"));
-    m.def("make_shell_density_thickness_elementwise", &make_shell_density_thickness_elementwise,
+    m.def("make_shell_areal_density_from_density_thickness",
+        nb::overload_cast<double, const std::vector<double> &>(
+            &make_shell_areal_density_from_density_thickness),
         nb::arg("density"), nb::arg("thickness"));
-
-    m.def("make_shell_density_elastic_thickness", &make_shell_density_elastic_thickness,
-        nb::arg("density"), nb::arg("parameter"));
+    m.def("make_shell_areal_density_from_elastic_parameter",
+        &make_shell_areal_density_from_elastic_parameter,
+        nb::arg("scale"), nb::arg("parameter"));
 }

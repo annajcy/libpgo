@@ -56,32 +56,32 @@ class Formulation:
 class VolumetricFormulation(Formulation):
     """Volumetric formulation with dynamics operators."""
 
-    def mass_matrix(self, sim_mesh, mass_field, *, material_parameters=None):
+    def mass_matrix(self, sim_mesh, density):
         """Consistent mass matrix; density from a VolumeDensity (kg/m^3) field."""
         from pypgo.sparse import SparseMatrix
-        from pypgo.fem.mass import VolumeMassField
+        from pypgo.fem.mass import VolumeDensity
 
         _require_sim_mesh(sim_mesh)
-        if not isinstance(mass_field, VolumeMassField):
+        if not isinstance(density, VolumeDensity):
             raise TypeError(
-                f"volumetric mass_matrix expects a VolumeMassField (kg/m^3), got {type(mass_field).__name__}")
+                f"volumetric mass_matrix expects a VolumeDensity (kg/m^3), got {type(density).__name__}")
         return SparseMatrix(
-            _core.compute_formulation_mass_matrix(sim_mesh._handle, self._handle, mass_field._handle))
+            _core.compute_formulation_mass_matrix(sim_mesh._handle, self._handle, density._handle))
 
-    def body_force(self, sim_mesh, acceleration, mass_field) -> np.ndarray:
+    def body_force(self, sim_mesh, acceleration, density) -> np.ndarray:
         """Generalized body force for a constant 3-vector acceleration."""
-        from pypgo.fem.mass import VolumeMassField
+        from pypgo.fem.mass import VolumeDensity
 
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
             raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
         _require_sim_mesh(sim_mesh)
-        if not isinstance(mass_field, VolumeMassField):
+        if not isinstance(density, VolumeDensity):
             raise TypeError(
-                f"volumetric body_force expects a VolumeMassField (kg/m^3), got {type(mass_field).__name__}")
+                f"volumetric body_force expects a VolumeDensity (kg/m^3), got {type(density).__name__}")
         return np.asarray(
             _core.compute_formulation_body_force(
-                sim_mesh._handle, self._handle, accel.tolist(), mass_field._handle),
+                sim_mesh._handle, self._handle, accel.tolist(), density._handle),
             dtype=np.float64,
         )
 
@@ -103,12 +103,14 @@ class VolumetricFormulation(Formulation):
 class ShellFormulation(Formulation):
     """Shell formulation with lumped mass / body-force operators."""
 
-    def _require_shell_mass_field(self, mass_field):
-        from pypgo.fem.mass import ShellMassField
+    def _require_shell_areal_density(self, areal_density):
+        from pypgo.fem.mass import ShellArealDensity
 
-        if not isinstance(mass_field, ShellMassField):
+        if not isinstance(areal_density, ShellArealDensity):
             raise TypeError(
-                f"shell formulation expects a ShellMassField (kg/m^2), got {type(mass_field).__name__}")
+                "shell formulation expects a ShellArealDensity (kg/m^2), "
+                f"got {type(areal_density).__name__}"
+            )
 
     @staticmethod
     def _material_parameters_handle(material_parameters, *, required=False):
@@ -127,58 +129,58 @@ class ShellFormulation(Formulation):
             )
         return material_parameters._handle
 
-    def mass_matrix(self, sim_mesh, mass_field, *, material_parameters=None):
+    def mass_matrix(self, sim_mesh, areal_density, *, material_parameters=None):
         """Lumped shell mass matrix."""
         from pypgo.sparse import SparseMatrix
 
         _require_sim_mesh(sim_mesh)
-        self._require_shell_mass_field(mass_field)
+        self._require_shell_areal_density(areal_density)
         return SparseMatrix(
             _core.compute_shell_formulation_mass_matrix(
                 sim_mesh._handle,
                 self._handle,
-                mass_field._handle,
+                areal_density._handle,
                 self._material_parameters_handle(material_parameters),
             )
         )
 
     def body_force(
-        self, sim_mesh, acceleration, mass_field, *, material_parameters=None
+        self, sim_mesh, acceleration, areal_density, *, material_parameters=None
     ) -> np.ndarray:
         """Lumped shell body force for a constant 3-vector acceleration."""
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
             raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
         _require_sim_mesh(sim_mesh)
-        self._require_shell_mass_field(mass_field)
+        self._require_shell_areal_density(areal_density)
         return np.asarray(
             _core.compute_shell_formulation_body_force(
                 sim_mesh._handle,
                 self._handle,
                 accel.tolist(),
-                mass_field._handle,
+                areal_density._handle,
                 self._material_parameters_handle(material_parameters),
             ),
             dtype=np.float64,
         )
 
     def body_force_parameter_jacobian(
-        self, sim_mesh, acceleration, mass_field, *, material_parameters
+        self, sim_mesh, acceleration, areal_density, *, material_parameters
     ):
-        """d(body force)/d(elastic parameters) for a parameter-dependent mass field."""
+        """d(body force)/d(elastic parameters) for a parameter-dependent areal density."""
         from pypgo.sparse import SparseMatrix
 
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
             raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
         _require_sim_mesh(sim_mesh)
-        self._require_shell_mass_field(mass_field)
+        self._require_shell_areal_density(areal_density)
         return SparseMatrix(
             _core.compute_shell_formulation_body_force_parameter_jacobian(
                 sim_mesh._handle,
                 self._handle,
                 accel.tolist(),
-                mass_field._handle,
+                areal_density._handle,
                 self._material_parameters_handle(material_parameters, required=True),
             )
         )

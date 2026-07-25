@@ -34,12 +34,12 @@ std::shared_ptr<PyShellFormulation> make_koiter_shell()
 PySparseMatrix compute_formulation_mass_matrix(
   const PySimulationMesh &simMesh,
   const PyVolumetricFormulation &formulation,
-  const PyVolumeMassField &massField)
+  const PyVolumeDensity &density)
 {
   pgo::EigenSupport::SpMatD M;
   {
     nanobind::gil_scoped_release release;
-    M = formulation.volumetric().buildMassMatrix(simMesh.mesh(), massField.get());
+    M = formulation.volumetric().buildMassMatrix(simMesh.mesh(), density.get());
   }
   return PySparseMatrix(std::move(M));
 }
@@ -48,7 +48,7 @@ std::vector<double> compute_formulation_body_force(
   const PySimulationMesh &simMesh,
   const PyVolumetricFormulation &formulation,
   const std::vector<double> &acceleration,
-  const PyVolumeMassField &massField)
+  const PyVolumeDensity &density)
 {
   if (acceleration.size() != 3) {
     throw std::invalid_argument("acceleration must contain exactly 3 values");
@@ -58,7 +58,7 @@ std::vector<double> compute_formulation_body_force(
   pgo::EigenSupport::VXd f;
   {
     nanobind::gil_scoped_release release;
-    f = formulation.volumetric().buildBodyForce(simMesh.mesh(), a, massField.get());
+    f = formulation.volumetric().buildBodyForce(simMesh.mesh(), a, density.get());
   }
   return std::vector<double>(f.data(), f.data() + f.size());
 }
@@ -92,14 +92,14 @@ PySparseMatrix compute_formulation_surface_embedding_matrix(
 PySparseMatrix compute_shell_formulation_mass_matrix(
   const PySimulationMesh &simMesh,
   const PyShellFormulation &formulation,
-  const PyShellMassField &massField,
+  const PyShellArealDensity &arealDensity,
   std::shared_ptr<PyMaterialParameters> materialParameters)
 {
   pgo::EigenSupport::SpMatD M;
   {
     nanobind::gil_scoped_release release;
     M = formulation.shell().buildMassMatrix(
-      simMesh.mesh(), massField.get(),
+      simMesh.mesh(), arealDensity.get(),
       materialParameters ?
         materialParameters->parameters()->snapshot().view() :
         SolidDeformationModel::MaterialParameterEvaluationView{});
@@ -111,7 +111,7 @@ std::vector<double> compute_shell_formulation_body_force(
   const PySimulationMesh &simMesh,
   const PyShellFormulation &formulation,
   const std::vector<double> &acceleration,
-  const PyShellMassField &massField,
+  const PyShellArealDensity &arealDensity,
   std::shared_ptr<PyMaterialParameters> materialParameters)
 {
   if (acceleration.size() != 3) {
@@ -123,7 +123,7 @@ std::vector<double> compute_shell_formulation_body_force(
   {
     nanobind::gil_scoped_release release;
     f = formulation.shell().buildBodyForce(
-      simMesh.mesh(), a, massField.get(),
+      simMesh.mesh(), a, arealDensity.get(),
       materialParameters ?
         materialParameters->parameters()->snapshot().view() :
         SolidDeformationModel::MaterialParameterEvaluationView{});
@@ -135,7 +135,7 @@ PySparseMatrix compute_shell_formulation_body_force_parameter_jacobian(
   const PySimulationMesh &simMesh,
   const PyShellFormulation &formulation,
   const std::vector<double> &acceleration,
-  const PyShellMassField &massField,
+  const PyShellArealDensity &arealDensity,
   std::shared_ptr<PyMaterialParameters> materialParameters)
 {
   if (acceleration.size() != 3) {
@@ -150,7 +150,7 @@ PySparseMatrix compute_shell_formulation_body_force_parameter_jacobian(
       throw std::invalid_argument(
         "body_force_parameter_jacobian requires material_parameters");
     J = formulation.shell().buildBodyForceParameterJacobian(
-      simMesh.mesh(), a, massField.get(),
+      simMesh.mesh(), a, arealDensity.get(),
       materialParameters->parameters()->snapshot().view());
   }
   return PySparseMatrix(std::move(J));

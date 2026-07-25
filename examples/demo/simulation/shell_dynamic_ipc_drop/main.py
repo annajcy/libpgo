@@ -40,12 +40,14 @@ def main() -> None:
         plastic=pf.ShellPlasticity(dofs=0),
         formulation=formulation,
     )
-    mass_field = pf.ShellDensityThickness(density=1000.0, thickness=1.0e-3)
-    mass = formulation.mass_matrix(simulation_mesh, mass_field)
+    areal_density = pf.ShellArealDensity.from_density_thickness(
+        density=1000.0, thickness=1.0e-3
+    )
+    mass = formulation.mass_matrix(simulation_mesh, areal_density)
     gravity_force = formulation.body_force(
         simulation_mesh,
         np.array([0.0, -9.81, 0.0]),
-        mass_field,
+        areal_density,
     )
     contact_surface = pc.ContactSurface.identity(surface.vertices)
     ipc = pc.IPCEnergy(

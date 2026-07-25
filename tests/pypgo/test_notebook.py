@@ -169,7 +169,7 @@ class TestExampleSources:
         assert "pgo.fem.ElasticStaticEquilibriumLayer" in source
         assert "objective_energy=energy" in source
         assert "external_load=" in source
-        assert "ShellDensityElasticThickness" in source
+        assert "ShellArealDensity.from_elastic_parameter" in source
         assert "SelfWeightGravity" in source
         assert "pe.LinearEnergy(" in source
         assert "torch.nn.Sequential" in source

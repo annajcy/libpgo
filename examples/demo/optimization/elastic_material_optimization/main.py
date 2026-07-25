@@ -89,14 +89,14 @@ def main() -> None:
     )
 
     # Apply self-weight and clamp the top edge.
-    mass_field = pf.ShellDensityElasticThickness(
-        density=1000.0,
+    areal_density = pf.ShellArealDensity.from_elastic_parameter(
+        scale=1000.0,
         parameter=energy.parameters.space.elastic.parameter("thickness"),
     )
     external_load = pf.SelfWeightGravity(
         formulation=pf.KoiterShell(),
         sim_mesh=simulation_mesh,
-        mass_field=mass_field,
+        areal_density=areal_density,
         material_parameters=energy.parameters,
         acceleration=np.array([0.0, 0.0, -20.0]),
     )
