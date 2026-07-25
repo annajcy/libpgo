@@ -136,11 +136,11 @@ jobs:
         if: matrix.mode == 'full'
         run: |
           python examples/assets/generate_veg_assets.py \
-            --assets box \
+            --assets all \
             --cubic-resolution 4 \
             --tet-backend tetgen \
             --tet-target-elements 100 \
-            --static-dragon-target-elements 0
+            --static-dragon-target-elements 100
 
       - name: Run native tests
         if: matrix.mode == 'full'
