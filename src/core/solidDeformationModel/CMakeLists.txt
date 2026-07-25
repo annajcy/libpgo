@@ -159,6 +159,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/volume/volumetricDeformationModel.cpp
   deformation/volume/volumetricDeformationModelCacheData.cpp
   deformation/shell/shellDeformationModel.cpp
+  deformation/shell/shellDeformationModelCacheData.cpp
 
   material/core/parameterDofLayout.cpp
   material/core/materialChannelMapping.cpp
@@ -170,6 +171,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/deformationModelManager.cpp
 
   deformation/deformationModelAssembler.cpp
+  deformation/deformationModelAssemblerCacheData.cpp
 
   energy/deformationModelEnergy.cpp
   energy/elasticMaterialEnergy.cpp

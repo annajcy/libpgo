@@ -3,7 +3,6 @@
 
 #include "pgoLogging.h"
 
-#include <algorithm>
 #include <stdexcept>
 
 namespace pgo
@@ -19,30 +18,6 @@ void validateMaterialLocation(int materialLocation)
     throw std::out_of_range("Shell material location is out of range.");
 }
 }  // namespace
-
-ShellDeformationModelCacheData::ShellDeformationModelCacheData(
-  int numPlasticParams_, int numElasticParams_):
-  numPlasticParams(numPlasticParams_),
-  numElasticParams(numElasticParams_),
-  plasticParamsValue(numPlasticParams_),
-  elasticParamsValue(numElasticParams_)
-{
-  for (auto &xi : x)
-    xi.setZero();
-  plasticParamsValue.setZero();
-  elasticParamsValue.setZero();
-
-  const int maxParams = std::max(numPlasticParams, numElasticParams);
-  elasticDpsiDparamScratch.resize(numElasticParams);
-  plasticDAreaDparamScratch.resize(numPlasticParams);
-  plasticDAbarDparamScratch.resize(4, numPlasticParams);
-  plasticDBbarDparamScratch.resize(4, numPlasticParams);
-  elasticDpsiDaDparamScratch.resize(4, numElasticParams);
-  elasticDpsiDbDparamScratch.resize(4, numElasticParams);
-  elasticDpsiDabarDparamScratch.resize(4, numElasticParams);
-  elasticDpsiDbbarDparamScratch.resize(4, numElasticParams);
-  mixedDerivativeScratch.resize(18, maxParams);
-}
 
 ShellDeformationModel::ShellDeformationModel(
   std::unique_ptr<ShellElementMapping> mapping,
