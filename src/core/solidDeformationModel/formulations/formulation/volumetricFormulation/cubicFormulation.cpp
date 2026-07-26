@@ -18,7 +18,8 @@ SimulationMeshType CubicFormulation::compatibleMeshType() const
   return SimulationMeshType::CUBIC;
 }
 
-EigenSupport::V3d CubicFormulation::clampedParametricCoordinates(const double *w)
+EigenSupport::V3d CubicFormulation::clampedParametricCoordinates(
+  const EigenSupport::V8d &w)
 {
   return EigenSupport::V3d(
     std::clamp(w[1] + w[2] + w[5] + w[6], 0.0, 1.0),
@@ -45,14 +46,15 @@ EigenSupport::SpMatD CubicFormulation::buildSurfaceEmbeddingMatrix(
 
   for (int target = 0; target < surfaceVertices.rows(); target++) {
     const int *vertices = bc.getEmbeddingVertexIndices(target);
-    const EigenSupport::V3d q = clampedParametricCoordinates(bc.getEmbeddingWeights(target));
-    const double x[2] = { 1.0 - q[0], q[0] };
-    const double y[2] = { 1.0 - q[1], q[1] };
-    const double z[2] = { 1.0 - q[2], q[2] };
-    const double weights[8] = {
+    const EigenSupport::V8d paramWeights = Eigen::Map<const EigenSupport::V8d>(
+      bc.getEmbeddingWeights(target));
+    const EigenSupport::V3d q = clampedParametricCoordinates(paramWeights);
+    const EigenSupport::V2d x(1.0 - q[0], q[0]);
+    const EigenSupport::V2d y(1.0 - q[1], q[1]);
+    const EigenSupport::V2d z(1.0 - q[2], q[2]);
+    const EigenSupport::V8d weights = (EigenSupport::V8d() <<
       x[0] * y[0] * z[0], x[1] * y[0] * z[0], x[1] * y[1] * z[0], x[0] * y[1] * z[0],
-      x[0] * y[0] * z[1], x[1] * y[0] * z[1], x[1] * y[1] * z[1], x[0] * y[1] * z[1]
-    };
+      x[0] * y[0] * z[1], x[1] * y[0] * z[1], x[1] * y[1] * z[1], x[0] * y[1] * z[1]).finished();
     for (int corner = 0; corner < 8; corner++)
       for (int d = 0; d < 3; d++)
         entries.emplace_back(target * 3 + d, vertices[corner] * 3 + d, weights[corner]);

@@ -82,7 +82,7 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(
   auto assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation,
     materialParameters->space(),
-    elementWeights.data());
+    std::span<const double>(elementWeights.data(), static_cast<std::size_t>(elementWeights.size())));
 
   auto energy = std::make_shared<DeformationModelEnergy>(
     std::move(assembler), std::move(materialParameters),

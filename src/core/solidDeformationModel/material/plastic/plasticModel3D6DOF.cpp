@@ -9,29 +9,45 @@ copyright to USC,MIT,NUS
 #include "EigenSupport.h"
 #include "determinantDerivatives.h"
 
-#include <cstring>
-
 namespace ES = pgo::EigenSupport;
-using Map3 = Eigen::Map<ES::M3d>;
-using MapC3 = Eigen::Map<const ES::M3d>;
-
 using namespace pgo::SolidDeformationModel;
 using namespace pgo::NonlinearOptimization;
 
-PlasticModel3D6DOF::PlasticModel3D6DOF(const double R_[9]):
+namespace
+{
+const std::array<ES::M3d, 6> &symmetricBasis()
+{
+  static const std::array<ES::M3d, 6> basis = [] {
+    std::array<ES::M3d, 6> result;
+    for (ES::M3d &entry : result)
+      entry.setZero();
+    result[0](0, 0) = 1.0;
+    result[1](0, 1) = result[1](1, 0) = 1.0;
+    result[2](0, 2) = result[2](2, 0) = 1.0;
+    result[3](1, 1) = 1.0;
+    result[4](1, 2) = result[4](2, 1) = 1.0;
+    result[5](2, 2) = 1.0;
+    return result;
+  }();
+  return basis;
+}
+}  // namespace
+
+PlasticModel3D6DOF::PlasticModel3D6DOF():
   PlasticModel3DDeformationGradient()
 {
-  if (R_) {
-    std::memcpy(R, R_, sizeof(double) * 9);
-    (Map3(RT)) = Map3(R).transpose();
-  }
-  else {
-    (Map3(R)) = ES::M3d::Identity();
-    (Map3(RT)) = ES::M3d::Identity();
-  }
+  R = ES::M3d::Identity();
+  RT = R.transpose();
 }
 
-inline ES::M3d getS(const double *param)
+PlasticModel3D6DOF::PlasticModel3D6DOF(const ES::M3d &referenceToMaterial):
+  PlasticModel3DDeformationGradient(),
+  R(referenceToMaterial),
+  RT(referenceToMaterial.transpose())
+{
+}
+
+inline ES::M3d getS(std::span<const double> param)
 {
   ES::M3d S;
   S << param[0], param[1], param[2],
@@ -41,81 +57,68 @@ inline ES::M3d getS(const double *param)
   return S;
 }
 
-void PlasticModel3D6DOF::computeA(const double *param, double A[9]) const
+ES::M3d PlasticModel3D6DOF::computeA(std::span<const double> param) const
 {
   ES::M3d S = getS(param);
-  (Map3(A)) = (MapC3(RT)) * S * (MapC3(R));
+  return RT * S * R;
 }
 
-void PlasticModel3D6DOF::computeAInv(const double *param, double AInv[9]) const
+ES::M3d PlasticModel3D6DOF::computeAInv(std::span<const double> param) const
 {
   ES::M3d S = getS(param);
   ES::M3d SInv = S.fullPivLu().inverse();
-  (Map3(AInv)) = (MapC3(RT)) * SInv * (MapC3(R));
+  return RT * SInv * R;
 }
 
-double PlasticModel3D6DOF::compute_detA(const double *param) const
+double PlasticModel3D6DOF::compute_detA(std::span<const double> param) const
 {
   ES::M3d S = getS(param);
   return S.determinant();
 }
 
-void PlasticModel3D6DOF::compute_ddetA_da(const double *param, double *ddetA_da, int) const
+void PlasticModel3D6DOF::compute_ddetA_da(
+  std::span<const double> param, ES::RefVecXd ddetA_da) const
 {
-  Determinant::Dim3::ddetA_dA_sym(param, ddetA_da);
+  Determinant::Dim3::ddetA_dA_sym(param.data(), ddetA_da.data());
 }
 
-void PlasticModel3D6DOF::compute_d2detA_da2(const double *param, double *d2detA_da2, int leadingDim) const
+void PlasticModel3D6DOF::compute_d2detA_da2(
+  std::span<const double> param, ES::RefMatXd d2detA_da2) const
 {
-  double deriv[36];
-  Determinant::Dim3::d2detA_dA2_sym(param, deriv);
+  ES::M6d deriv;
+  Determinant::Dim3::d2detA_dA2_sym(param.data(), deriv.data());
 
-  (Eigen::Map<ES::MXd>(d2detA_da2, leadingDim, leadingDim)).block(0, 0, 6, 6) = Eigen::Map<Eigen::Matrix<double, 6, 6>>(deriv);
+  d2detA_da2 = deriv;
 }
 
-void PlasticModel3D6DOF::compute_dAInv_da(const double *param, int pi, double ret[9]) const
+ES::M3d PlasticModel3D6DOF::compute_dAInv_da(std::span<const double> param, int pi) const
 {
   ES::M3d S = getS(param);
 
-  const double ei[6][9] = {
-    { 1, 0, 0, 0, 0, 0, 0, 0, 0 },
-    { 0, 1, 0, 1, 0, 0, 0, 0, 0 },
-    { 0, 0, 1, 0, 0, 0, 1, 0, 0 },
-    { 0, 0, 0, 0, 1, 0, 0, 0, 0 },
-    { 0, 0, 0, 0, 0, 1, 0, 1, 0 },
-    { 0, 0, 0, 0, 0, 0, 0, 0, 1 }
-  };
+  const auto &ei = symmetricBasis();
 
   ES::M3d SInv = S.fullPivLu().inverse();
-  ES::M3d Z = -SInv * MapC3(ei[pi]) * SInv;
-  (Map3(ret)) = (MapC3(RT)) * Z * (MapC3(R));
+  ES::M3d Z = -SInv * ei[pi] * SInv;
+  return RT * Z * R;
 }
 
-void PlasticModel3D6DOF::compute_d2AInv_da2(const double *param, int pi, int pj, double ret[9]) const
+ES::M3d PlasticModel3D6DOF::compute_d2AInv_da2(std::span<const double> param, int pi, int pj) const
 {
   ES::M3d S = getS(param);
 
-  const double ei[6][9] = {
-    { 1, 0, 0, 0, 0, 0, 0, 0, 0 },
-    { 0, 1, 0, 1, 0, 0, 0, 0, 0 },
-    { 0, 0, 1, 0, 0, 0, 1, 0, 0 },
-    { 0, 0, 0, 0, 1, 0, 0, 0, 0 },
-    { 0, 0, 0, 0, 0, 1, 0, 1, 0 },
-    { 0, 0, 0, 0, 0, 0, 0, 0, 1 }
-  };
+  const auto &ei = symmetricBasis();
 
   ES::M3d SInv = S.fullPivLu().inverse();
 
-  ES::M3d Z = SInv * MapC3(ei[pi]) * SInv * MapC3(ei[pj]) * SInv +
-    SInv * MapC3(ei[pj]) * SInv * MapC3(ei[pi]) * SInv;
+  ES::M3d Z = SInv * ei[pi] * SInv * ei[pj] * SInv +
+    SInv * ei[pj] * SInv * ei[pi] * SInv;
 
-  (Map3(ret)) = (MapC3(RT)) * Z * (MapC3(R));
+  return RT * Z * R;
 }
 
-void PlasticModel3D6DOF::projectParam(double *param, double zeroThreshold) const
+void PlasticModel3D6DOF::projectParam(std::span<double> param, double zeroThreshold) const
 {
-  ES::M3d Fp;
-  computeA(param, Fp.data());
+  const ES::M3d Fp = computeA(param);
 
   Eigen::SelfAdjointEigenSolver<ES::M3d> eig(Fp);
   ES::M3d R = eig.eigenvectors();
@@ -134,28 +137,14 @@ void PlasticModel3D6DOF::projectParam(double *param, double zeroThreshold) const
   param[5] = FpPrime(2, 2);
 }
 
-void PlasticModel3D6DOF::compute_dparamfull_dparamsub(const double *, const double *basis, int numHandles, double *dpf_dps) const
+ES::M3d PlasticModel3D6DOF::computeR(std::span<const double> param) const
 {
-  Eigen::Map<ES::MXd> B(dpf_dps, 6, 6 * numHandles);
-  for (int i = 0; i < numHandles; i++) {
-    B.block<6, 6>(0, i * 6) = Eigen::Matrix<double, 6, 6>::Identity() * basis[i];
-  }
-}
-
-void PlasticModel3D6DOF::compute_d2paramfull_dparamsub2(const double *param, const double *basis, int numHandles, int pi, double *d2a_dz2) const
-{
-  memset(d2a_dz2, 0, (6 * numHandles) * (6 * numHandles) * sizeof(double));
-}
-
-void PlasticModel3D6DOF::computeR(const double *param, double ROut[9]) const
-{
-  ES::M3d Fp;
-  computeA(param, Fp.data());
+  const ES::M3d Fp = computeA(param);
 
   Eigen::SelfAdjointEigenSolver<ES::M3d> eig(Fp);
   ES::M3d R = eig.eigenvectors();
 
-  (Eigen::Map<ES::M3d>(ROut)) = R;
+  return R;
 }
 
 

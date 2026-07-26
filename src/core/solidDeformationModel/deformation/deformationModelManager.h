@@ -42,7 +42,7 @@ public:
 
   int getNumPlasticParameters() const;
   int getNumElasticParameters() const;
-  const SimulationMesh *getMesh() const;
+  const SimulationMesh &getMesh() const;
 
   const MaterialFrameField &materialFrameField() const;
   std::shared_ptr<const MaterialFrameField> materialFrameFieldPtr() const;
@@ -51,7 +51,7 @@ public:
   MaterialFrame materialToReferenceFrame(
     int elementId, int quadratureId = 0) const;
 
-  const DeformationModel *getDeformationModel(int eleID) const;
+  const DeformationModel &getDeformationModel(int eleID) const;
 
 protected:
   std::unique_ptr<DeformationModelManagerImpl> data;

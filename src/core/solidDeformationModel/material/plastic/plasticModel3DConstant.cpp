@@ -7,42 +7,35 @@ copyright to USC,MIT,NUS
 
 #include "EigenSupport.h"
 
-#include <cstring>
-
 namespace ES = pgo::EigenSupport;
 using namespace pgo::SolidDeformationModel;
 
-PlasticModel3DConstant::PlasticModel3DConstant(const double Fp_[9]):
-  PlasticModel3DDeformationGradient()
+PlasticModel3DConstant::PlasticModel3DConstant(const ES::M3d &Fp_):
+  PlasticModel3DDeformationGradient(),
+  Fp(Fp_),
+  FpInv(Fp_.fullPivLu().inverse()),
+  detFp(Fp_.determinant())
 {
-  std::memcpy(Fp, Fp_, sizeof(double) * 9);
-  (Eigen::Map<ES::M3d>(FpInv)) = (Eigen::Map<ES::M3d>(Fp)).fullPivLu().inverse();
-  detFp = (Eigen::Map<ES::M3d>(Fp)).determinant();
 }
 
-void PlasticModel3DConstant::computeA(const double *, double A[9]) const
+ES::M3d PlasticModel3DConstant::computeA(std::span<const double>) const
 {
-  std::memcpy(A, Fp, sizeof(double) * 9);
+  return Fp;
 }
 
-void PlasticModel3DConstant::computeAInv(const double *, double AInv[9]) const
+ES::M3d PlasticModel3DConstant::computeAInv(std::span<const double>) const
 {
-  std::memcpy(AInv, FpInv, sizeof(double) * 9);
+  return FpInv;
 }
 
-void PlasticModel3DConstant::defaultFp(double FpOut[9]) const
+ES::M3d PlasticModel3DConstant::defaultFp() const
 {
-  std::memcpy(FpOut, Fp, sizeof(double) * 9);
+  return Fp;
 }
 
-void PlasticModel3DConstant::computeR(const double *, double R[9]) const
+ES::M3d PlasticModel3DConstant::computeR(std::span<const double>) const
 {
-  static constexpr double kIdentity[9] = {
-    1.0, 0.0, 0.0,
-    0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0
-  };
-  std::memcpy(R, kIdentity, sizeof(kIdentity));
+  return ES::M3d::Identity();
 }
 
 
@@ -61,7 +54,6 @@ std::span<const std::string_view> VolumetricPlasticity0Config::parameterChannelN
 void VolumetricPlasticity0Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
 std::unique_ptr<PlasticModel> VolumetricPlasticity0Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
 {
-  static constexpr double identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-  return std::make_unique<PlasticModel3DConstant>(identity);
+  return std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
 }
 }  // namespace pgo::SolidDeformationModel

@@ -27,7 +27,7 @@ void ElasticModelStableNeoHookeanPrincipalStretch::setMaterial(
 }
 
 double ElasticModelStableNeoHookeanPrincipalStretch::compute_psi_s(
-  const double *,
+  std::span<const double>,
   const ES::V3d &s) const
 {
   const double Jminus1 = s.prod() - 1.0 - ratio_;
@@ -36,7 +36,7 @@ double ElasticModelStableNeoHookeanPrincipalStretch::compute_psi_s(
 }
 
 ES::V3d ElasticModelStableNeoHookeanPrincipalStretch::compute_dpsi_ds(
-  const double *,
+  std::span<const double>,
   const ES::V3d &s) const
 {
   const double Jminus1 = s.prod() - 1.0 - ratio_;
@@ -48,7 +48,7 @@ ES::V3d ElasticModelStableNeoHookeanPrincipalStretch::compute_dpsi_ds(
 }
 
 ES::M3d ElasticModelStableNeoHookeanPrincipalStretch::compute_d2psi_ds2(
-  const double *,
+  std::span<const double>,
   const ES::V3d &s) const
 {
   const double Jminus1 = s.prod() - 1.0 - ratio_;

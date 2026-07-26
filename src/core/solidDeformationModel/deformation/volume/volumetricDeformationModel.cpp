@@ -4,6 +4,7 @@
 #include "pgoLogging.h"
 
 #include <stdexcept>
+#include <span>
 #include <utility>
 
 namespace ES = pgo::EigenSupport;
@@ -14,14 +15,16 @@ namespace SolidDeformationModel
 {
 namespace
 {
-const VolumetricDeformationModelCacheData *checkedCacheData(
+const VolumetricDeformationModelCacheData &checkedCacheData(
   const VolumetricDeformationModel &model,
-  const DeformationModelCacheData *cacheData)
+  const DeformationModelCacheData &cacheData)
 {
-  PGO_ALOG(cacheData != nullptr);
-  PGO_ALOG(cacheData == nullptr || cacheData->isPrepared());
-  PGO_ALOG(cacheData == nullptr || model.isCacheDataCompatible(*cacheData));
-  return static_cast<const VolumetricDeformationModelCacheData *>(cacheData);
+  const auto *typed = dynamic_cast<const VolumetricDeformationModelCacheData *>(&cacheData);
+  if (typed == nullptr || !model.isCacheDataCompatible(cacheData))
+    throw std::invalid_argument("Volumetric deformation cache data is incompatible with this model.");
+  if (!cacheData.isPrepared())
+    throw std::logic_error("Volumetric deformation cache data has not been prepared.");
+  return *typed;
 }
 
 std::pair<int, int> materialLocationRange(int materialLocation, int count)
@@ -63,7 +66,7 @@ VolumetricDeformationModel::VolumetricDeformationModel(
   numElasticParams_ = elasticModel_->getNumParameters();
 }
 
-void VolumetricDeformationModel::defaultPlasticParams(double *params) const
+void VolumetricDeformationModel::defaultPlasticParams(std::span<double> params) const
 {
   plasticModel_->defaultParams(params);
 }
@@ -90,12 +93,18 @@ bool VolumetricDeformationModel::isCacheDataCompatible(
     cd->numElasticParams == numElasticParams_;
 }
 
-const double *VolumetricDeformationModel::elasticParamsPtr(
-  const DeformationModelCacheData *cacheData, int q) const
+std::span<const double> VolumetricDeformationModel::elasticParams(
+  const DeformationModelCacheData &cacheData, int q) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = static_cast<const CD *>(cacheData);
-  return cd->numElasticParams ? cd->elasticParamsValue[q].data() : nullptr;
+  const auto *cdPtr = dynamic_cast<const CD *>(&cacheData);
+  if (cdPtr == nullptr || !isCacheDataCompatible(cacheData))
+    throw std::invalid_argument("Volumetric deformation cache data is incompatible with this model.");
+  const CD &cd = *cdPtr;
+  if (cd.numElasticParams == 0)
+    return {};
+  return std::span<const double>(cd.elasticParamsValue[q].data(),
+    static_cast<std::size_t>(cd.numElasticParams));
 }
 
 // ============================================================
@@ -103,65 +112,70 @@ const double *VolumetricDeformationModel::elasticParamsPtr(
 // ============================================================
 
 void VolumetricDeformationModel::prepareData(
-  const double *x, const double *elasticParams, const double *plasticParams,
-  DeformationModelCacheData *cacheDataBase) const
+  std::span<const double> x, std::span<const double> elasticParams, std::span<const double> plasticParams,
+  DeformationModelCacheData &cacheDataBase) const
 {
-  if (numElasticParams_ > 0 && elasticParams == nullptr)
+  if (x.size() != static_cast<std::size_t>(localDofs_))
+    throw std::invalid_argument(
+      "Volumetric deformation local-position buffer has the wrong size.");
+  if (elasticParams.size() != static_cast<std::size_t>(numQuadPts_ * numElasticParams_))
     throw std::invalid_argument(
       "Elastic parameters are required by this volumetric deformation model.");
-  if (numPlasticParams_ > 0 && plasticParams == nullptr)
+  if (plasticParams.size() != static_cast<std::size_t>(numQuadPts_ * numPlasticParams_))
     throw std::invalid_argument(
       "Plastic parameters are required by this volumetric deformation model.");
 
   using CD = VolumetricDeformationModelCacheData;
-  PGO_ALOG(cacheDataBase != nullptr);
-  PGO_ALOG(cacheDataBase == nullptr || isCacheDataCompatible(*cacheDataBase));
-  CD *cd = static_cast<CD *>(cacheDataBase);
+  PGO_ALOG(isCacheDataCompatible(cacheDataBase));
+  auto *cdPtr = dynamic_cast<CD *>(&cacheDataBase);
+  if (cdPtr == nullptr || !isCacheDataCompatible(cacheDataBase))
+    throw std::invalid_argument("Volumetric deformation cache data is incompatible with this model.");
+  CD &cd = *cdPtr;
 
   for (int vi = 0; vi < numNodes_; vi++) {
-    cd->x.col(vi) = ES::V3d(x[vi * 3 + 0], x[vi * 3 + 1], x[vi * 3 + 2]);
+    cd.x.col(vi) = ES::V3d(x[vi * 3 + 0], x[vi * 3 + 1], x[vi * 3 + 2]);
   }
 
   for (int q = 0; q < numQuadPts_; q++) {
     if (numPlasticParams_ > 0) {
-      cd->plasticParamsValue[q] =
+      cd.plasticParamsValue[q] =
         Eigen::Map<const ES::VXd>(
-          plasticParams + static_cast<std::ptrdiff_t>(q) * numPlasticParams_,
+          plasticParams.data() + static_cast<std::ptrdiff_t>(q) * numPlasticParams_,
           numPlasticParams_);
     }
 
-    const double *plasticParamsAtQ = numPlasticParams_ > 0 ? cd->plasticParamsValue[q].data() : nullptr;
-    plasticModel_->computeA(plasticParamsAtQ, cd->Fp[q].data());
-    plasticModel_->computeAInv(plasticParamsAtQ, cd->FpInv[q].data());
-    cd->detFp[q] = plasticModel_->compute_detA(plasticParamsAtQ);
+    const std::span<const double> plasticParamsAtQ = numPlasticParams_ > 0 ?
+      std::span<const double>(cd.plasticParamsValue[q].data(), numPlasticParams_) : std::span<const double>{};
+    cd.Fp[q] = plasticModel_->computeA(plasticParamsAtQ);
+    cd.FpInv[q] = plasticModel_->computeAInv(plasticParamsAtQ);
+    cd.detFp[q] = plasticModel_->compute_detA(plasticParamsAtQ);
 
     if (numPlasticParams_ > 0) {
-      plasticModel_->compute_ddetA_da(plasticParamsAtQ, cd->ddetA_da[q].data(), numPlasticParams_);
-      plasticModel_->compute_d2detA_da2(plasticParamsAtQ, cd->d2detA_da2[q].data(), numPlasticParams_);
+      plasticModel_->compute_ddetA_da(plasticParamsAtQ, cd.ddetA_da[q]);
+      plasticModel_->compute_d2detA_da2(plasticParamsAtQ, cd.d2detA_da2[q]);
 
       for (int i = 0; i < numPlasticParams_; i++) {
-        plasticModel_->compute_dAInv_da(plasticParamsAtQ, i, cd->dAInv_dai[q][i].data());
+        cd.dAInv_dai[q][i] = plasticModel_->compute_dAInv_da(plasticParamsAtQ, i);
         for (int j = 0; j < numPlasticParams_; j++) {
-          plasticModel_->compute_d2AInv_da2(plasticParamsAtQ, i, j,
-            cd->d2AInv(q, i, j).data());
+          cd.d2AInv(q, i, j) =
+            plasticModel_->compute_d2AInv_da2(plasticParamsAtQ, i, j);
         }
       }
     }
 
     if (numElasticParams_ > 0) {
-      cd->elasticParamsValue[q] =
+      cd.elasticParamsValue[q] =
         Eigen::Map<const ES::VXd>(
-          elasticParams + static_cast<std::ptrdiff_t>(q) * numElasticParams_,
+          elasticParams.data() + static_cast<std::ptrdiff_t>(q) * numElasticParams_,
           numElasticParams_);
     }
 
-    elementMapping_.computeFref(x, q, cd->Fref[q].data());
-    cd->Fe[q] = cd->Fref[q] * cd->FpInv[q];
-    computeSVD(cd->Fe[q], cd->U[q], cd->V[q], cd->S[q]);
-    computeCurrent_dFdx(elementMapping_.rest_dFdx(q), cd->FpInv[q], cd->dFdx[q]);
-    cd->Bm[q] = cd->detFp[q] * cd->FpInv[q].transpose() * elementMapping_.restBm(q);
+    cd.Fref[q] = elementMapping_.computeFref(x, q);
+    cd.spectralState[q] = computeSpectralState(cd.Fref[q] * cd.FpInv[q]);
+    computeCurrent_dFdx(elementMapping_.rest_dFdx(q), cd.FpInv[q], cd.dFdx[q]);
+    cd.Bm[q] = cd.detFp[q] * cd.FpInv[q].transpose() * elementMapping_.restBm(q);
   }
-  cacheDataBase->markPrepared();
+  cacheDataBase.markPrepared();
 }
 
 // ============================================================
@@ -169,63 +183,62 @@ void VolumetricDeformationModel::prepareData(
 // ============================================================
 
 double VolumetricDeformationModel::computeEnergy(
-  const DeformationModelCacheData *cacheDataBase) const
+  const DeformationModelCacheData &cacheDataBase) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   double energy = 0.0;
   for (int q = 0; q < numQuadPts_; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    energy += elasticModel_->compute_psi(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data()) *
-      elementMapping_.weightDetJ(q) * cd->detFp[q];
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    energy += elasticModel_->compute_psi(mp, cd.spectralState[q]) *
+      elementMapping_.weightDetJ(q) * cd.detFp[q];
   }
   return energy;
 }
 
 void VolumetricDeformationModel::compute_dE_dx(
-  const DeformationModelCacheData *cacheDataBase, double *grad) const
+  const DeformationModelCacheData &cacheDataBase, ES::RefVecXd grad) const
 {
+  if (grad.size() != localDofs_)
+    throw std::invalid_argument("Volumetric deformation gradient has unexpected size.");
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
-  Eigen::Map<Eigen::VectorXd> gradMap(grad, localDofs_);
+  Eigen::Map<Eigen::VectorXd> gradMap(grad.data(), localDofs_);
   gradMap.setZero();
 
   for (int q = 0; q < numQuadPts_; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    ES::M3d P;
-    elasticModel_->compute_P(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), P.data());
-    const M3xN localForce = P * cd->Bm[q];
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    const ES::M3d P = elasticModel_->compute_P(mp, cd.spectralState[q]);
+    const M3xN localForce = P * cd.Bm[q];
     gradMap += Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 1>>(
       localForce.data(), localDofs_);
   }
 }
 
 void VolumetricDeformationModel::compute_d2E_dx2(
-  const DeformationModelCacheData *cacheDataBase, double *hess) const
+  const DeformationModelCacheData &cacheDataBase, ES::RefMatXd hess) const
 {
+  if (hess.rows() != localDofs_ || hess.cols() != localDofs_)
+    throw std::invalid_argument("Volumetric deformation Hessian has unexpected shape.");
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
-  Eigen::Map<Eigen::MatrixXd> hessMap(hess, localDofs_, localDofs_);
+  Eigen::Map<Eigen::MatrixXd> hessMap(hess.data(), localDofs_, localDofs_);
   hessMap.setZero();
 
   for (int q = 0; q < numQuadPts_; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
     ES::M9d dPdF;
     if (projectHessianPSD_) {
-      elasticModel_->compute_dPdF_psd(mp, cd->Fe[q].data(),
-        cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
+      dPdF = elasticModel_->compute_dPdF_psd(mp, cd.spectralState[q]);
     }
     else {
-      elasticModel_->compute_dPdF(mp, cd->Fe[q].data(),
-        cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
+      dPdF = elasticModel_->compute_dPdF(mp, cd.spectralState[q]);
     }
-    dPdF *= elementMapping_.weightDetJ(q) * cd->detFp[q];
-    hessMap.noalias() += cd->dFdx[q].transpose() * dPdF * cd->dFdx[q];
+    dPdF *= elementMapping_.weightDetJ(q) * cd.detFp[q];
+    hessMap.noalias() += cd.dFdx[q].transpose() * dPdF * cd.dFdx[q];
   }
 }
 
@@ -235,26 +248,29 @@ void VolumetricDeformationModel::setProjectHessianPSD(bool enable)
 }
 
 // ============================================================
-// computeSVD
+// computeSpectralState
 // ============================================================
 
-void VolumetricDeformationModel::computeSVD(
-  const ES::M3d &Fe, ES::M3d &U, ES::M3d &V, ES::V3d &S)
+SpectralState VolumetricDeformationModel::computeSpectralState(
+  const ES::M3d &Fe)
 {
   Eigen::JacobiSVD<ES::M3d, Eigen::NoQRPreconditioner> svd(
     Fe, Eigen::ComputeFullU | Eigen::ComputeFullV);
-  U = svd.matrixU();
-  V = svd.matrixV();
-  S = svd.singularValues();
+  SpectralState state;
+  state.F = Fe;
+  state.U = svd.matrixU();
+  state.V = svd.matrixV();
+  state.stretches = svd.singularValues();
 
-  if (U.determinant() < 0.0) {
-    U.col(2) *= -1.0;
-    S(2) *= -1.0;
+  if (state.U.determinant() < 0.0) {
+    state.U.col(2) *= -1.0;
+    state.stretches(2) *= -1.0;
   }
-  if (V.determinant() < 0.0) {
-    V.col(2) *= -1.0;
-    S(2) *= -1.0;
+  if (state.V.determinant() < 0.0) {
+    state.V.col(2) *= -1.0;
+    state.stretches(2) *= -1.0;
   }
+  return state;
 }
 
 // ============================================================
@@ -263,13 +279,16 @@ void VolumetricDeformationModel::computeSVD(
 
 DeformationModel::LocalMaxStepResult
 VolumetricDeformationModel::computeLocalMaxStepSize(
-  const double *x_local, const double *dx_local) const
+  std::span<const double> x_local, std::span<const double> dx_local) const
 {
+  if (x_local.size() != static_cast<std::size_t>(localDofs_) ||
+      dx_local.size() != static_cast<std::size_t>(localDofs_))
+    throw std::invalid_argument(
+      "Volumetric local max-step inputs have the wrong size.");
   LocalMaxStepResult result;
   for (int q = 0; q < numQuadPts_; q++) {
-    double F0[9], deltaF[9];
-    computeF(x_local, q, F0);
-    computeF(dx_local, q, deltaF);
+    const ES::M3d F0 = computeF(x_local, q);
+    const ES::M3d deltaF = computeF(dx_local, q);
 
     const auto poly = buildDeterminantCubicFromAffineMatrixPath(
       F0, deltaF, kCubicRelativeDetEps);
@@ -293,70 +312,63 @@ VolumetricDeformationModel::computeLocalMaxStepSize(
 // computeF / computeFe / computeP / computedPdF / computedFdx / computeForceFromP
 // ============================================================
 
-void VolumetricDeformationModel::computeF(
-  const double *x, int materialLocationID, double F[9]) const
+ES::M3d VolumetricDeformationModel::computeF(
+  std::span<const double> x, int materialLocationID) const
 {
-  elementMapping_.computeFref(x, materialLocationID, F);
+  if (x.size() != static_cast<std::size_t>(localDofs_))
+    throw std::invalid_argument(
+      "Volumetric deformation local-position buffer has the wrong size.");
+  return elementMapping_.computeFref(x, materialLocationID);
 }
 
-void VolumetricDeformationModel::computeFe(
-  const DeformationModelCacheData *cacheData, int materialLocationID, double F[9]) const
+ES::M3d VolumetricDeformationModel::computeFe(
+  const DeformationModelCacheData &cacheData, int materialLocationID) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheData);
-  Eigen::Map<ES::M3d> FMap(F);
-  FMap = cd->Fe[materialLocationID];
+  const CD &cd = checkedCacheData(*this, cacheData);
+  return cd.spectralState[materialLocationID].F;
 }
 
-void VolumetricDeformationModel::computeP(
-  const DeformationModelCacheData *cacheData, int materialLocationID, double POut[9]) const
+ES::M3d VolumetricDeformationModel::computeP(
+  const DeformationModelCacheData &cacheData, int materialLocationID) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheData);
-  const double *mp = elasticParamsPtr(cacheData, materialLocationID);
+  const CD &cd = checkedCacheData(*this, cacheData);
+  const std::span<const double> mp = elasticParams(cacheData, materialLocationID);
 
-  ES::M3d P;
-  elasticModel_->compute_P(mp, cd->Fe[materialLocationID].data(),
-    cd->U[materialLocationID].data(), cd->V[materialLocationID].data(),
-    cd->S[materialLocationID].data(), P.data());
-  Eigen::Map<ES::M3d> PMap(POut);
-  PMap = P;
+  return elasticModel_->compute_P(mp, cd.spectralState[materialLocationID]);
 }
 
-void VolumetricDeformationModel::computedPdF(
-  const DeformationModelCacheData *cacheData, int materialLocationID, double dPdFOut[81]) const
+ES::M9d VolumetricDeformationModel::computedPdF(
+  const DeformationModelCacheData &cacheData, int materialLocationID) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheData);
-  const double *mp = elasticParamsPtr(cacheData, materialLocationID);
+  const CD &cd = checkedCacheData(*this, cacheData);
+  const std::span<const double> mp = elasticParams(cacheData, materialLocationID);
 
-  ES::M9d dPdF;
-  elasticModel_->compute_dPdF(mp, cd->Fe[materialLocationID].data(),
-    cd->U[materialLocationID].data(), cd->V[materialLocationID].data(),
-    cd->S[materialLocationID].data(), dPdF.data());
-  Eigen::Map<ES::M9d> dPdFMap(dPdFOut);
-  dPdFMap = dPdF;
+  return elasticModel_->compute_dPdF(mp, cd.spectralState[materialLocationID]);
 }
 
 void VolumetricDeformationModel::computedFdx(
-  const DeformationModelCacheData *cacheData, int materialLocationID, double *dFdxOut) const
+  const DeformationModelCacheData &cacheData, int materialLocationID, ES::RefMatXd dFdxOut) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheData);
-  Eigen::Map<M9xNDOF> dFdxMap(dFdxOut, 9, localDofs_);
-  dFdxMap = cd->dFdx[materialLocationID];
+  const CD &cd = checkedCacheData(*this, cacheData);
+  if (dFdxOut.rows() != 9 || dFdxOut.cols() != localDofs_)
+    throw std::invalid_argument("Volumetric dFdx output has unexpected size.");
+  dFdxOut = cd.dFdx[materialLocationID];
 }
 
 void VolumetricDeformationModel::computeForceFromP(
-  const DeformationModelCacheData *cacheDataBase, int materialLocationID,
-  const double P[9], double f[]) const
+  const DeformationModelCacheData &cacheDataBase, int materialLocationID,
+  const ES::M3d &P, ES::RefVecXd f) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
-  const Eigen::Map<const ES::M3d> PMap(P);
-  const M3xN localForce = PMap * cd->Bm[materialLocationID];
-  Eigen::Map<Eigen::VectorXd> fMap(f, localDofs_);
-  fMap = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 1>>(
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
+  const M3xN localForce = P * cd.Bm[materialLocationID];
+  if (f.size() != localDofs_)
+    throw std::invalid_argument("Volumetric force output has unexpected size.");
+  f = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 1>>(
     localForce.data(), localDofs_);
 }
 
@@ -365,26 +377,25 @@ void VolumetricDeformationModel::computeForceFromP(
 // ============================================================
 
 int VolumetricDeformationModel::computeVonMisesStress(
-  const DeformationModelCacheData *cacheDataBase,
-  double *stresses, int capacity) const
+  const DeformationModelCacheData &cacheDataBase,
+  std::span<double> stresses, int capacity) const
 {
   if (capacity < numQuadPts_)
     throw std::length_error(
       "Volumetric von Mises stress output capacity is too small.");
-  if (stresses == nullptr && numQuadPts_ > 0)
+  if (stresses.size() < static_cast<std::size_t>(numQuadPts_))
     throw std::invalid_argument(
       "Volumetric von Mises stress output must not be null.");
 
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   for (int q = 0; q < numQuadPts_; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    ES::M3d P;
-    elasticModel_->compute_P(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), P.data());
-    const double detF = cd->Fe[q].determinant();
-    ES::M3d cauchyStress = P * cd->Fe[q].transpose() / detF;
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    const ES::M3d P = elasticModel_->compute_P(mp, cd.spectralState[q]);
+    const ES::M3d &Fe = cd.spectralState[q].F;
+    const double detF = Fe.determinant();
+    ES::M3d cauchyStress = P * Fe.transpose() / detF;
 
     const double t1 = std::pow(cauchyStress(0, 0) - cauchyStress(1, 1), 2.0);
     const double t2 = std::pow(cauchyStress(1, 1) - cauchyStress(2, 2), 2.0);
@@ -399,21 +410,22 @@ int VolumetricDeformationModel::computeVonMisesStress(
 }
 
 int VolumetricDeformationModel::computeMaxStrain(
-  const DeformationModelCacheData *cacheDataBase,
-  double *strains, int capacity) const
+  const DeformationModelCacheData &cacheDataBase,
+  std::span<double> strains, int capacity) const
 {
   if (capacity < numQuadPts_)
     throw std::length_error(
       "Volumetric maximum strain output capacity is too small.");
-  if (strains == nullptr && numQuadPts_ > 0)
+  if (strains.size() < static_cast<std::size_t>(numQuadPts_))
     throw std::invalid_argument(
       "Volumetric maximum strain output must not be null.");
 
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   for (int q = 0; q < numQuadPts_; q++) {
-    ES::M3d E = 0.5 * (cd->Fe[q].transpose() * cd->Fe[q] - ES::M3d::Identity());
+    const ES::M3d &Fe = cd.spectralState[q].F;
+    ES::M3d E = 0.5 * (Fe.transpose() * Fe - ES::M3d::Identity());
     Eigen::SelfAdjointEigenSolver<ES::M3d> eigSolver(E);
     strains[q] = eigSolver.eigenvalues().maxCoeff();
   }
@@ -426,73 +438,69 @@ int VolumetricDeformationModel::computeMaxStrain(
 // ============================================================
 
 void VolumetricDeformationModel::compute_dE_dp(
-  const DeformationModelCacheData *cacheDataBase, double *grad,
+  const DeformationModelCacheData &cacheDataBase, ES::RefVecXd grad,
   int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   if (numPlasticParams_ == 0) return;
 
-  Eigen::Map<ES::VXd> gradMap(grad, numPlasticParams_);
+  if (grad.size() != static_cast<std::size_t>(numPlasticParams_))
+    throw std::invalid_argument("Volumetric plastic gradient has unexpected size.");
+  Eigen::Map<ES::VXd> gradMap(grad.data(), numPlasticParams_);
   gradMap.setZero();
   const auto [qBegin, qEnd] =
     materialLocationRange(materialLocation, numQuadPts_);
   for (int q = qBegin; q < qEnd; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    double psi = elasticModel_->compute_psi(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data());
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    double psi = elasticModel_->compute_psi(mp, cd.spectralState[q]);
 
-    ES::M3d P;
-    elasticModel_->compute_P(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), P.data());
+    const ES::M3d P = elasticModel_->compute_P(mp, cd.spectralState[q]);
 
     for (int i = 0; i < numPlasticParams_; i++) {
-      double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][i]);
-      double dpsi_da = compute_dpsi_dai(cd->Fref[q], cd->dAInv_dai[q][i], P);
-      gradMap[i] += dVda * psi + elementMapping_.weightDetJ(q) * cd->detFp[q] * dpsi_da;
+      double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd.ddetA_da[q][i]);
+      double dpsi_da = compute_dpsi_dai(cd.Fref[q], cd.dAInv_dai[q][i], P);
+      gradMap[i] += dVda * psi + elementMapping_.weightDetJ(q) * cd.detFp[q] * dpsi_da;
     }
   }
 }
 
 void VolumetricDeformationModel::compute_d2E_dp2(
-  const DeformationModelCacheData *cacheDataBase, double *hess,
+  const DeformationModelCacheData &cacheDataBase, ES::RefMatXd hess,
   int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   if (numPlasticParams_ == 0) return;
 
-  Eigen::Map<ES::MXd> hessMap(hess, numPlasticParams_, numPlasticParams_);
+  if (hess.size() != static_cast<std::size_t>(numPlasticParams_ * numPlasticParams_))
+    throw std::invalid_argument("Volumetric plastic Hessian has unexpected size.");
+  Eigen::Map<ES::MXd> hessMap(hess.data(), numPlasticParams_, numPlasticParams_);
   hessMap.setZero();
   const auto [qBegin, qEnd] =
     materialLocationRange(materialLocation, numQuadPts_);
   for (int q = qBegin; q < qEnd; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
-    double psi = elasticModel_->compute_psi(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data());
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    const double vol = elementMapping_.weightDetJ(q) * cd.detFp[q];
+    double psi = elasticModel_->compute_psi(mp, cd.spectralState[q]);
 
-    ES::M3d P;
-    elasticModel_->compute_P(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), P.data());
+    const ES::M3d P = elasticModel_->compute_P(mp, cd.spectralState[q]);
 
-    ES::M9d dPdF;
-    elasticModel_->compute_dPdF(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
+    const ES::M9d dPdF = elasticModel_->compute_dPdF(mp, cd.spectralState[q]);
 
     for (int i = 0; i < numPlasticParams_; i++) {
-      double dVda_i = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][i]);
-      double dpsi_da_i = compute_dpsi_dai(cd->Fref[q], cd->dAInv_dai[q][i], P);
+      double dVda_i = compute_dV_dai(elementMapping_.weightDetJ(q), cd.ddetA_da[q][i]);
+      double dpsi_da_i = compute_dpsi_dai(cd.Fref[q], cd.dAInv_dai[q][i], P);
 
       for (int j = 0; j < numPlasticParams_; j++) {
-        double dVda_j = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][j]);
-        double d2V = compute_d2V_daidaj(elementMapping_.weightDetJ(q), cd->d2detA_da2[q](i, j));
-        double dpsi_da_j = compute_dpsi_dai(cd->Fref[q], cd->dAInv_dai[q][j], P);
-        double d2psi = compute_d2psi_dai_daj(cd->Fref[q],
-          cd->dAInv_dai[q][i], cd->dAInv_dai[q][j],
-          cd->d2AInv(q, i, j), P, dPdF);
+        double dVda_j = compute_dV_dai(elementMapping_.weightDetJ(q), cd.ddetA_da[q][j]);
+        double d2V = compute_d2V_daidaj(elementMapping_.weightDetJ(q), cd.d2detA_da2[q](i, j));
+        double dpsi_da_j = compute_dpsi_dai(cd.Fref[q], cd.dAInv_dai[q][j], P);
+        double d2psi = compute_d2psi_dai_daj(cd.Fref[q],
+          cd.dAInv_dai[q][i], cd.dAInv_dai[q][j],
+          cd.d2AInv(q, i, j), P, dPdF);
         hessMap(i, j) += d2V * psi + dVda_i * dpsi_da_j +
                          dVda_j * dpsi_da_i + vol * d2psi;
       }
@@ -501,48 +509,44 @@ void VolumetricDeformationModel::compute_d2E_dp2(
 }
 
 void VolumetricDeformationModel::compute_d2E_dudp(
-  const DeformationModelCacheData *cacheDataBase, double *hess,
+  const DeformationModelCacheData &cacheDataBase, ES::RefMatXd hess,
   int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   if (numPlasticParams_ == 0) return;
 
-  Eigen::Map<ES::MXd> mixed(hess, localDofs_, numPlasticParams_);
+  if (hess.size() != static_cast<std::size_t>(localDofs_ * numPlasticParams_))
+    throw std::invalid_argument("Volumetric displacement-plastic Hessian has unexpected size.");
+  Eigen::Map<ES::MXd> mixed(hess.data(), localDofs_, numPlasticParams_);
   mixed.setZero();
   const auto [qBegin, qEnd] =
     materialLocationRange(materialLocation, numQuadPts_);
   for (int q = qBegin; q < qEnd; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    ES::M3d P;
-    elasticModel_->compute_P(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), P.data());
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    const ES::M3d P = elasticModel_->compute_P(mp, cd.spectralState[q]);
 
-    cd->dpsiDxScratch.noalias() = cd->dFdx[q].transpose() *
+    cd.dpsiDxScratch.noalias() = cd.dFdx[q].transpose() *
       Eigen::Map<const ES::V9d>(P.data());
 
-    ES::M9d dPdF;
-    elasticModel_->compute_dPdF(mp, cd->Fe[q].data(),
-      cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdF.data());
+    const ES::M9d dPdF = elasticModel_->compute_dPdF(mp, cd.spectralState[q]);
 
-    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
+    const double vol = elementMapping_.weightDetJ(q) * cd.detFp[q];
     for (int i = 0; i < numPlasticParams_; i++) {
-      const double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][i]);
+      const double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd.ddetA_da[q][i]);
 
-      ES::M3d dFda;
-      compute_dFe_dai(cd->Fref[q], cd->dAInv_dai[q][i], dFda);
+      const ES::M3d dFda = compute_dFe_dai(
+        cd.Fref[q], cd.dAInv_dai[q][i]);
+      const ES::M3d dPda = compute_dP_dai(dPdF, dFda);
 
-      ES::M3d dPda;
-      compute_dP_dai(dPdF, dFda, dPda);
-
-      cd->localDofScratch.noalias() = cd->dFdx[q].transpose() *
+      cd.localDofScratch.noalias() = cd.dFdx[q].transpose() *
         Eigen::Map<const ES::V9d>(dPda.data());
 
-      compute_d2Fe_dx_dai(cd->dAInv_dai[q][i], elementMapping_.rest_dFdx(q), cd->d2FdxdaScratch);
+      compute_d2Fe_dx_dai(cd.dAInv_dai[q][i], elementMapping_.rest_dFdx(q), cd.d2FdxdaScratch);
 
-      mixed.col(i) += dVda * cd->dpsiDxScratch + vol *
-        (cd->localDofScratch + cd->d2FdxdaScratch.transpose() * Eigen::Map<const ES::V9d>(P.data()));
+      mixed.col(i) += dVda * cd.dpsiDxScratch + vol *
+        (cd.localDofScratch + cd.d2FdxdaScratch.transpose() * Eigen::Map<const ES::V9d>(P.data()));
     }
   }
 }
@@ -552,116 +556,123 @@ void VolumetricDeformationModel::compute_d2E_dudp(
 // ============================================================
 
 void VolumetricDeformationModel::compute_dE_de(
-  const DeformationModelCacheData *cacheDataBase, double *grad,
+  const DeformationModelCacheData &cacheDataBase, ES::RefVecXd grad,
   int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   if (numElasticParams_ == 0) return;
 
-  Eigen::Map<ES::VXd> gradMap(grad, numElasticParams_);
+  if (grad.size() != static_cast<std::size_t>(numElasticParams_))
+    throw std::invalid_argument("Volumetric elastic gradient has unexpected size.");
+  Eigen::Map<ES::VXd> gradMap(grad.data(), numElasticParams_);
   gradMap.setZero();
   const auto [qBegin, qEnd] =
     materialLocationRange(materialLocation, numQuadPts_);
   for (int q = qBegin; q < qEnd; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    const double vol = elementMapping_.weightDetJ(q) * cd.detFp[q];
     for (int i = 0; i < numElasticParams_; i++) {
       gradMap[i] += vol * elasticModel_->compute_dpsi_dparam(mp, i,
-        cd->Fe[q].data(), cd->U[q].data(), cd->V[q].data(), cd->S[q].data());
+        cd.spectralState[q]);
     }
   }
 }
 
 void VolumetricDeformationModel::compute_d2E_de2(
-  const DeformationModelCacheData *cacheDataBase, double *hess,
+  const DeformationModelCacheData &cacheDataBase, ES::RefMatXd hess,
   int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   if (numElasticParams_ == 0) return;
 
-  Eigen::Map<ES::MXd> hessMap(hess, numElasticParams_, numElasticParams_);
+  if (hess.size() != static_cast<std::size_t>(numElasticParams_ * numElasticParams_))
+    throw std::invalid_argument("Volumetric elastic Hessian has unexpected size.");
+  Eigen::Map<ES::MXd> hessMap(hess.data(), numElasticParams_, numElasticParams_);
   hessMap.setZero();
   const auto [qBegin, qEnd] =
     materialLocationRange(materialLocation, numQuadPts_);
   for (int q = qBegin; q < qEnd; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    const double vol = elementMapping_.weightDetJ(q) * cd.detFp[q];
     for (int i = 0; i < numElasticParams_; i++) {
       for (int j = 0; j < numElasticParams_; j++) {
         hessMap(i, j) += vol * elasticModel_->compute_d2psi_dparam2(mp, i, j,
-          cd->Fe[q].data(), cd->U[q].data(), cd->V[q].data(), cd->S[q].data());
+          cd.spectralState[q]);
       }
     }
   }
 }
 
 void VolumetricDeformationModel::compute_d2E_dude(
-  const DeformationModelCacheData *cacheDataBase, double *hess,
+  const DeformationModelCacheData &cacheDataBase, ES::RefMatXd hess,
   int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   if (numElasticParams_ == 0) return;
 
-  Eigen::Map<ES::MXd> mixed(hess, localDofs_, numElasticParams_);
+  if (hess.size() != static_cast<std::size_t>(localDofs_ * numElasticParams_))
+    throw std::invalid_argument("Volumetric displacement-elastic Hessian has unexpected size.");
+  Eigen::Map<ES::MXd> mixed(hess.data(), localDofs_, numElasticParams_);
   mixed.setZero();
   const auto [qBegin, qEnd] =
     materialLocationRange(materialLocation, numQuadPts_);
   for (int q = qBegin; q < qEnd; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    const double vol = elementMapping_.weightDetJ(q) * cd.detFp[q];
     for (int i = 0; i < numElasticParams_; i++) {
       ES::M3d dPdb;
-      elasticModel_->compute_dP_dparam(mp, i, cd->Fe[q].data(),
-        cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), dPdb.data());
-      mixed.col(i) += vol * (cd->dFdx[q].transpose() *
+      dPdb = elasticModel_->compute_dP_dparam(mp, i, cd.spectralState[q]);
+      mixed.col(i) += vol * (cd.dFdx[q].transpose() *
         Eigen::Map<const ES::V9d>(dPdb.data()));
     }
   }
 }
 
 void VolumetricDeformationModel::compute_d2E_dpde(
-  const DeformationModelCacheData *cacheDataBase, double *hess,
+  const DeformationModelCacheData &cacheDataBase, ES::RefMatXd hess,
   int materialLocation) const
 {
   using CD = VolumetricDeformationModelCacheData;
-  const CD *cd = checkedCacheData(*this, cacheDataBase);
+  const CD &cd = checkedCacheData(*this, cacheDataBase);
 
   if (numElasticParams_ == 0 || numPlasticParams_ == 0) return;
 
-  Eigen::Map<ES::MXd> mixed(hess, numPlasticParams_, numElasticParams_);
+  if (hess.size() != static_cast<std::size_t>(numPlasticParams_ * numElasticParams_))
+    throw std::invalid_argument("Volumetric plastic-elastic Hessian has unexpected size.");
+  Eigen::Map<ES::MXd> mixed(hess.data(), numPlasticParams_, numElasticParams_);
   mixed.setZero();
 
   const auto [qBegin, qEnd] =
     materialLocationRange(materialLocation, numQuadPts_);
   for (int q = qBegin; q < qEnd; q++) {
-    const double *mp = elasticParamsPtr(cacheDataBase, q);
-    const double vol = elementMapping_.weightDetJ(q) * cd->detFp[q];
+    const std::span<const double> mp = elasticParams(cacheDataBase, q);
+    const double vol = elementMapping_.weightDetJ(q) * cd.detFp[q];
 
     for (int i = 0; i < numElasticParams_; i++) {
-      elasticModel_->compute_dP_dparam(mp, i, cd->Fe[q].data(),
-        cd->U[q].data(), cd->V[q].data(), cd->S[q].data(), cd->dPdbScratch[i].data());
+      cd.dPdbScratch[i] = elasticModel_->compute_dP_dparam(mp, i, cd.spectralState[q]);
     }
 
     for (int i = 0; i < numPlasticParams_; i++) {
-      compute_dFe_dai(cd->Fref[q], cd->dAInv_dai[q][i], cd->dFdaScratch[i]);
-      double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd->ddetA_da[q][i]);
+      cd.dFdaScratch[i] = compute_dFe_dai(
+        cd.Fref[q], cd.dAInv_dai[q][i]);
+      double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd.ddetA_da[q][i]);
       for (int j = 0; j < numElasticParams_; j++) {
         double dpsi_db = elasticModel_->compute_dpsi_dparam(mp, j,
-          cd->Fe[q].data(), cd->U[q].data(), cd->V[q].data(), cd->S[q].data());
+          cd.spectralState[q]);
         mixed(i, j) += dVda * dpsi_db;
       }
     }
 
     for (int i = 0; i < numPlasticParams_; i++) {
       for (int j = 0; j < numElasticParams_; j++) {
-        mixed(i, j) += vol * Eigen::Map<const ES::V9d>(cd->dPdbScratch[j].data())
-          .dot(Eigen::Map<const ES::V9d>(cd->dFdaScratch[i].data()));
+        mixed(i, j) += vol * Eigen::Map<const ES::V9d>(cd.dPdbScratch[j].data())
+          .dot(Eigen::Map<const ES::V9d>(cd.dFdaScratch[i].data()));
       }
     }
   }
@@ -694,30 +705,31 @@ double VolumetricDeformationModel::compute_d2V_daidaj(
   return weightDetJ * d2detA_daidaj;
 }
 
-void VolumetricDeformationModel::compute_dFe_dai(
-  const ES::M3d &Fref, const ES::M3d &dAInvdai, ES::M3d &dFdai) const
+ES::M3d VolumetricDeformationModel::compute_dFe_dai(
+  const ES::M3d &Fref, const ES::M3d &dAInvdai) const
 {
-  dFdai = Fref * dAInvdai;
+  return Fref * dAInvdai;
 }
 
-void VolumetricDeformationModel::compute_d2Fe_dai_daj(
-  const ES::M3d &Fref, const ES::M3d &dAInvdaidaj, ES::M3d &d2Fdaidaj) const
+ES::M3d VolumetricDeformationModel::compute_d2Fe_dai_daj(
+  const ES::M3d &Fref, const ES::M3d &dAInvdaidaj) const
 {
-  d2Fdaidaj = Fref * dAInvdaidaj;
+  return Fref * dAInvdaidaj;
 }
 
-void VolumetricDeformationModel::compute_dP_dai(
-  const ES::M9d &dPdF, const ES::M3d &dFdai, ES::M3d &dPdai) const
+ES::M3d VolumetricDeformationModel::compute_dP_dai(
+  const ES::M9d &dPdF, const ES::M3d &dFdai) const
 {
+  ES::M3d dPdai;
   Eigen::Map<ES::V9d>(dPdai.data()) = dPdF *
     Eigen::Map<const ES::V9d>(dFdai.data());
+  return dPdai;
 }
 
 double VolumetricDeformationModel::compute_dpsi_dai(
   const ES::M3d &Fref, const ES::M3d &dAInv_dai, const ES::M3d &P) const
 {
-  ES::M3d dFe_dai;
-  compute_dFe_dai(Fref, dAInv_dai, dFe_dai);
+  const ES::M3d dFe_dai = compute_dFe_dai(Fref, dAInv_dai);
   return P.cwiseProduct(dFe_dai).sum();
 }
 
@@ -725,15 +737,13 @@ double VolumetricDeformationModel::compute_d2psi_dai_daj(
   const ES::M3d &Fref, const ES::M3d &dAInv_dai, const ES::M3d &dAInv_daj,
   const ES::M3d &d2AInv_dai_daj, const ES::M3d &P, const ES::M9d &dPdF) const
 {
-  ES::M3d dFe_dai, dFe_daj;
-  compute_dFe_dai(Fref, dAInv_dai, dFe_dai);
-  compute_dFe_dai(Fref, dAInv_daj, dFe_daj);
+  const ES::M3d dFe_dai = compute_dFe_dai(Fref, dAInv_dai);
+  const ES::M3d dFe_daj = compute_dFe_dai(Fref, dAInv_daj);
 
-  ES::M3d dP_daj;
-  compute_dP_dai(dPdF, dFe_daj, dP_daj);
+  const ES::M3d dP_daj = compute_dP_dai(dPdF, dFe_daj);
 
-  ES::M3d d2Fe_daidaj;
-  compute_d2Fe_dai_daj(Fref, d2AInv_dai_daj, d2Fe_daidaj);
+  const ES::M3d d2Fe_daidaj = compute_d2Fe_dai_daj(
+    Fref, d2AInv_dai_daj);
 
   return dP_daj.cwiseProduct(dFe_dai).sum() + P.cwiseProduct(d2Fe_daidaj).sum();
 }

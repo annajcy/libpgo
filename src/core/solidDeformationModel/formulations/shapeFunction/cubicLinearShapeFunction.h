@@ -30,9 +30,13 @@ public:
   int localDofs() const override { return kLocalDofs; }
   std::unique_ptr<ShapeFunction> clone() const override { return std::make_unique<CubicLinearShapeFunction>(*this); }
 
-  void N(double alpha, double beta, double gamma, double N_out[]) const override;
-  void dN_dxi(double alpha, double beta, double gamma, double dN_dxi[]) const override;
-  void nodeCoords(int node, double xi[3]) const override;
+  EigenSupport::V8d compute_N(double alpha, double beta, double gamma) const;
+  EigenSupport::M3x8d compute_dN_dxi(double alpha, double beta, double gamma) const;
+  void compute_N(double alpha, double beta, double gamma,
+    EigenSupport::RefVecXd N_out) const override;
+  void compute_dN_dxi(double alpha, double beta, double gamma,
+    EigenSupport::RefMatXd dN_dxi) const override;
+  EigenSupport::V3d nodeCoords(int node) const override;
 };
 
 }  // namespace SolidDeformationModel

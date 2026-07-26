@@ -28,7 +28,7 @@ public:
 
   // Write default (rest-configuration) plastic parameters into param.
   // Zero-parameter evaluator bases override this explicitly as a no-op.
-  virtual void defaultParams(double *param) const = 0;
+  virtual void defaultParams(std::span<double> param) const = 0;
 };
 
 // Immutable, shareable definition used to instantiate per-element PlasticModel

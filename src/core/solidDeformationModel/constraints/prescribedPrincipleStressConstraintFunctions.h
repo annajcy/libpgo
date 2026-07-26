@@ -12,6 +12,7 @@ copyright to USC,MIT,NUS
 #include <tbb/spin_mutex.h>
 
 #include <memory>
+#include <span>
 #include <vector>
 #include <functional>
 
@@ -28,14 +29,14 @@ class PrescribedPrincipleStressConstraintFunctions : public NonlinearOptimizatio
 {
 public:
   PrescribedPrincipleStressConstraintFunctions(
-    int nAll, int dofOffset, int numElements, const int *elementIDs,
-    const DeformationModelManager *tetMeshDMM,
+    int nAll, int dofOffset, std::span<const int> elementIDs,
+    const DeformationModelManager &tetMeshDMM,
     std::shared_ptr<const MaterialParameters> materialParameters);
   virtual ~PrescribedPrincipleStressConstraintFunctions() {}
 
   using XToPosFunc = std::function<void(const EigenSupport::V3d &, int offset, EigenSupport::V3d &)>;
   void setXToPosFunc(XToPosFunc func) { xToPosFunc = func; }
-  void setTargetPHat(const double *phat) { targetPrincipleStress = EigenSupport::Mp<const EigenSupport::VXd>(phat, elements.size() * 3); }
+  void setTargetPHat(std::span<const double> phat);
 
   void computeForceFromTargetPHat(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd fext) const;
   double computeSurfaceNormalTractionFromElement(EigenSupport::ConstRefVecXd x, const EigenSupport::V3d &n, int eleID) const;
@@ -50,7 +51,7 @@ public:
 
 protected:
   int dofStart;
-  const DeformationModelManager *tetMeshDMM;
+  const DeformationModelManager &tetMeshDMM;
   std::shared_ptr<const MaterialParameters> materialParameters_;
   std::vector<int> elements;
   XToPosFunc xToPosFunc;
@@ -65,14 +66,14 @@ protected:
     std::vector<double> plasticParamValues;
     std::vector<std::unique_ptr<DeformationModel::CacheData>> reusableCacheData;
 
-    DeformationModel::CacheData *cacheFor(const DeformationModel &model);
+    DeformationModel::CacheData &cacheFor(const DeformationModel &model);
   };
 
   mutable tbb::enumerable_thread_specific<ThreadScratch> threadScratch_;
 
-  std::vector<const VolumetricDeformationModel *> elementFEMs_;
+  std::vector<std::reference_wrapper<const VolumetricDeformationModel>> elementFEMs_;
 
-  DeformationModel::CacheData *prepareElement(
+  DeformationModel::CacheData &prepareElement(
     int elementID, const VolumetricDeformationModel &model,
     MaterialParameterEvaluationView state, ThreadScratch &scratch) const;
 

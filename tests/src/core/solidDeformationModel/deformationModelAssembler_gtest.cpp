@@ -15,8 +15,10 @@
 #include "triMeshGeo.h"
 
 #include <cmath>
+#include <algorithm>
 #include <future>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -24,6 +26,20 @@ namespace
 {
 namespace ES = pgo::EigenSupport;
 using namespace pgo::SolidDeformationModel;
+
+template <typename Derived>
+std::span<const double> constSpan(const Eigen::MatrixBase<Derived> &values)
+{
+  return std::span<const double>(values.derived().data(),
+                                static_cast<size_t>(values.size()));
+}
+
+template <typename Derived>
+std::span<double> mutableSpan(Eigen::MatrixBase<Derived> &values)
+{
+  return std::span<double>(values.derived().data(),
+                           static_cast<size_t>(values.size()));
+}
 
 class SquareMapping final : public MaterialChannelMapping
 {
@@ -45,22 +61,23 @@ public:
 
   void evaluateJacobian(
     int, int quadrature, std::span<const double> z,
-    double *output) const override
+    ES::RefMatXd output) const override
   {
     const double scale = 1.0 + 0.02 * quadrature;
-    std::fill(output, output + size_ * size_, 0.0);
+    output.setZero();
     for (int i = 0; i < size_; i++)
-      output[i * size_ + i] = 2.0 * scale * z[i];
+      output(i, i) = 2.0 * scale * z[i];
   }
 
   void evaluateHessians(
     int, int quadrature, std::span<const double>,
-    double *output) const override
+    std::span<ES::MXd> channelHessians) const override
   {
     const double scale = 1.0 + 0.02 * quadrature;
-    std::fill(output, output + size_ * size_ * size_, 0.0);
+    for (ES::MXd &hessian : channelHessians)
+      hessian.setZero();
     for (int i = 0; i < size_; i++)
-      output[i * size_ * size_ + i * size_ + i] = 2.0 * scale;
+      channelHessians[static_cast<std::size_t>(i)](i, i) = 2.0 * scale;
   }
 
 private:
@@ -92,22 +109,23 @@ public:
 
   void evaluateJacobian(
     int, int quadrature, std::span<const double> z,
-    double *output) const override
+    ES::RefMatXd output) const override
   {
     const double scale = 1.0 + 0.02 * quadrature;
-    std::fill(output, output + size_ * size_, 0.0);
+    output.setZero();
     for (int i = 0; i < size_; i++)
-      output[i * size_ + i] = 2.0 * scale * z[i];
+      output(i, i) = 2.0 * scale * z[i];
   }
 
   void evaluateHessians(
     int, int quadrature, std::span<const double>,
-    double *output) const override
+    std::span<ES::MXd> channelHessians) const override
   {
     const double scale = 1.0 + 0.02 * quadrature;
-    std::fill(output, output + size_ * size_ * size_, 0.0);
+    for (ES::MXd &hessian : channelHessians)
+      hessian.setZero();
     for (int i = 0; i < size_; i++)
-      output[i * size_ * size_ + i * size_ + i] = 2.0 * scale;
+      channelHessians[static_cast<std::size_t>(i)](i, i) = 2.0 * scale;
   }
 
 private:
@@ -237,10 +255,10 @@ TEST(DeformationModelAssembler, NonlinearMappingGradientAndHessianMatchFD)
 
   ES::VXd gradient(6);
   assembler.compute_dE_dp(
-    fixture.absolutePositions.data(), view(z), gradient.data());
+    constSpan(fixture.absolutePositions), view(z), gradient);
   ES::SpMatD hessian = assembler.d2E_dp2_template();
   assembler.compute_d2E_dp2(
-    fixture.absolutePositions.data(), view(z), hessian);
+    constSpan(fixture.absolutePositions), view(z), hessian);
 
   constexpr double h = 1e-6;
   ES::VXd fdGradient(6);
@@ -251,15 +269,15 @@ TEST(DeformationModelAssembler, NonlinearMappingGradientAndHessianMatchFD)
     zp[col] += h;
     zm[col] -= h;
     fdGradient[col] = (
-      assembler.computeEnergy(fixture.absolutePositions.data(), view(zp)) -
-      assembler.computeEnergy(fixture.absolutePositions.data(), view(zm))) /
+      assembler.computeEnergy(constSpan(fixture.absolutePositions), view(zp)) -
+      assembler.computeEnergy(constSpan(fixture.absolutePositions), view(zm))) /
       (2.0 * h);
 
     ES::VXd gp(6), gm(6);
     assembler.compute_dE_dp(
-      fixture.absolutePositions.data(), view(zp), gp.data());
+      constSpan(fixture.absolutePositions), view(zp), gp);
     assembler.compute_dE_dp(
-      fixture.absolutePositions.data(), view(zm), gm.data());
+      constSpan(fixture.absolutePositions), view(zm), gm);
     fdHessian.col(col) = (gp - gm) / (2.0 * h);
   }
 
@@ -286,7 +304,7 @@ TEST(DeformationModelAssembler, NonlinearMixedDisplacementDerivativeMatchesFD)
 
   ES::SpMatD mixed = assembler.d2E_dudp_template();
   assembler.compute_d2E_dudp(
-    fixture.absolutePositions.data(), view(z), mixed);
+    constSpan(fixture.absolutePositions), view(z), mixed);
   ES::MXd fd(mixed.rows(), mixed.cols());
   constexpr double h = 1e-6;
   for (int col = 0; col < z.size(); col++) {
@@ -297,9 +315,9 @@ TEST(DeformationModelAssembler, NonlinearMixedDisplacementDerivativeMatchesFD)
     ES::VXd gp = ES::VXd::Zero(assembler.getNumDOFs());
     ES::VXd gm = ES::VXd::Zero(assembler.getNumDOFs());
     assembler.computeGradient(
-      fixture.absolutePositions.data(), view(zp), gp.data());
+      constSpan(fixture.absolutePositions), view(zp), gp);
     assembler.computeGradient(
-      fixture.absolutePositions.data(), view(zm), gm.data());
+      constSpan(fixture.absolutePositions), view(zm), gm);
     fd.col(col) = (gp - gm) / (2.0 * h);
   }
   EXPECT_LT(
@@ -322,7 +340,7 @@ TEST(DeformationModelAssembler, NonlinearElasticPlasticMixedHessianMatchesFD)
 
   ES::SpMatD mixed = assembler.d2E_dpde_template();
   assembler.compute_d2E_dpde(
-    fixture.absolutePositions.data(), view(elastic), mixed);
+    constSpan(fixture.absolutePositions), view(elastic), mixed);
 
   constexpr double h = 1e-6;
   ES::MXd fd(mixed.rows(), mixed.cols());
@@ -333,9 +351,9 @@ TEST(DeformationModelAssembler, NonlinearElasticPlasticMixedHessianMatchesFD)
     em[col] -= h;
     ES::VXd gp(plastic.size()), gm(plastic.size());
     assembler.compute_dE_dp(
-      fixture.absolutePositions.data(), view(ep), gp.data());
+      constSpan(fixture.absolutePositions), view(ep), gp);
     assembler.compute_dE_dp(
-      fixture.absolutePositions.data(), view(em), gm.data());
+      constSpan(fixture.absolutePositions), view(em), gm);
     fd.col(col) = (gp - gm) / (2.0 * h);
   }
 
@@ -351,7 +369,7 @@ TEST(DeformationModelAssembler, RejectsStateFromDifferentSpace)
   Fixture b = makeFixture();
   EXPECT_THROW(
     a.assembler->computeEnergy(
-      a.absolutePositions.data(), b.parameters->snapshot().view()),
+      constSpan(a.absolutePositions), b.parameters->snapshot().view()),
     std::invalid_argument);
 }
 
@@ -370,12 +388,12 @@ TEST(DeformationModelAssembler, MappingExceptionDoesNotModifyCommittedState)
 
   EXPECT_THROW(
     fixture.assembler->computeEnergy(
-      fixture.absolutePositions.data(), trialView),
+      constSpan(fixture.absolutePositions), trialView),
     std::runtime_error);
   EXPECT_TRUE(fixture.parameters->plasticSnapshot().isApprox(before, 0.0));
   EXPECT_NO_THROW({
     const double committedEnergy = fixture.assembler->computeEnergy(
-      fixture.absolutePositions.data(), fixture.parameters->snapshot().view());
+      constSpan(fixture.absolutePositions), fixture.parameters->snapshot().view());
     EXPECT_TRUE(std::isfinite(committedEnergy));
   });
 }
@@ -387,8 +405,8 @@ TEST(DeformationModelAssembler, UnsupportedMaximumStrainThrowsWithElementContext
 
   try {
     fixture.assembler->computeMaxStrains(
-      fixture.absolutePositions.data(),
-      fixture.parameters->snapshot().view(), strains.data());
+      constSpan(fixture.absolutePositions),
+      fixture.parameters->snapshot().view(), mutableSpan(strains));
     FAIL() << "Expected unsupported maximum strain to throw.";
   }
   catch (const UnsupportedDeformationDiagnosticError &e) {
@@ -404,11 +422,11 @@ TEST(DeformationModelAssembler, VolumetricDiagnosticsProduceFiniteValues)
   ES::VXd strains = ES::VXd::Zero(1);
 
   fixture.assembler->computeVonMisesStresses(
-    fixture.absolutePositions.data(),
-    fixture.parameters->snapshot().view(), stresses.data());
+    constSpan(fixture.absolutePositions),
+    fixture.parameters->snapshot().view(), mutableSpan(stresses));
   fixture.assembler->computeMaxStrains(
-    fixture.absolutePositions.data(),
-    fixture.parameters->snapshot().view(), strains.data());
+    constSpan(fixture.absolutePositions),
+    fixture.parameters->snapshot().view(), mutableSpan(strains));
 
   EXPECT_TRUE(std::isfinite(stresses[0]));
   EXPECT_TRUE(std::isfinite(strains[0]));
@@ -420,22 +438,22 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
   Fixture b = makeFixture();
   const ES::VXd bBefore = b.parameters->plasticSnapshot();
   const double expectedA = a.assembler->computeEnergy(
-    a.absolutePositions.data(), a.parameters->snapshot().view());
+    constSpan(a.absolutePositions), a.parameters->snapshot().view());
   const double expectedB = b.assembler->computeEnergy(
-    b.absolutePositions.data(), b.parameters->snapshot().view());
+    constSpan(b.absolutePositions), b.parameters->snapshot().view());
 
   ES::VXd changedA = a.parameters->plasticSnapshot();
   changedA[0] += 0.01;
   a.parameters->setPlasticValues(changedA);
   EXPECT_TRUE(b.parameters->plasticSnapshot().isApprox(bBefore, 0.0));
   const double changedExpectedA = a.assembler->computeEnergy(
-    a.absolutePositions.data(), a.parameters->snapshot().view());
+    constSpan(a.absolutePositions), a.parameters->snapshot().view());
 
   auto evalA = std::async(std::launch::async, [&]() {
     double value = 0.0;
     for (int i = 0; i < 20; i++) {
       value = a.assembler->computeEnergy(
-        a.absolutePositions.data(), a.parameters->snapshot().view());
+        constSpan(a.absolutePositions), a.parameters->snapshot().view());
     }
     return value;
   });
@@ -443,7 +461,7 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
     double value = 0.0;
     for (int i = 0; i < 20; i++) {
       value = b.assembler->computeEnergy(
-        b.absolutePositions.data(), b.parameters->snapshot().view());
+        constSpan(b.absolutePositions), b.parameters->snapshot().view());
     }
     return value;
   });
@@ -491,13 +509,13 @@ TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedMaterialParamete
 
   const int elementID = 0;
   PrescribedPrincipleStressConstraintFunctions constraints(
-    12, 0, 1, &elementID, manager.get(), parameters);
+    12, 0, std::span<const int>(&elementID, 1), *manager, parameters);
   constraints.setXToPosFunc(
     [](const ES::V3d &value, int, ES::V3d &position) {
       position = value;
     });
   const ES::V3d targetStress(0.3, 0.2, 0.1);
-  constraints.setTargetPHat(targetStress.data());
+  constraints.setTargetPHat(std::span<const double>(targetStress.data(), 3));
 
   ES::V12d x;
   x << 0.0, 0.0, 0.0,

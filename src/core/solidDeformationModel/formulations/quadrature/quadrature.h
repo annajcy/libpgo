@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EigenSupport.h"
+
 #include <memory>
 
 namespace pgo
@@ -14,7 +16,7 @@ public:
 
   virtual int numPoints() const = 0;
   virtual std::unique_ptr<Quadrature> clone() const = 0;
-  virtual void point(int i, double xi[3]) const = 0;
+  virtual EigenSupport::V3d point(int i) const = 0;
   virtual double weight(int i) const = 0;
 };
 

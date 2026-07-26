@@ -47,7 +47,7 @@ double PlasticMaterialEnergy::func(EigenSupport::ConstRefVecXd x) const
   const ES::VXd p = absolutePositions();
   const MaterialParameterEvaluationView state = fixedState_.withPlasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
-  return deformationEnergy_->assembler().computeEnergy(p.data(), state);
+  return deformationEnergy_->assembler().computeEnergy(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state);
 }
 
 void PlasticMaterialEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const
@@ -56,7 +56,8 @@ void PlasticMaterialEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport
   const MaterialParameterEvaluationView state = fixedState_.withPlasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
   deformationEnergy_->assembler().compute_dE_dp(
-    p.data(), state, grad.data());
+    std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state,
+    grad);
 }
 
 void PlasticMaterialEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
@@ -65,7 +66,7 @@ void PlasticMaterialEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenS
   const MaterialParameterEvaluationView state = fixedState_.withPlasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
   deformationEnergy_->assembler().compute_d2E_dp2(
-    p.data(), state, hess);
+    std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state, hess);
 }
 
 void PlasticMaterialEnergy::hessianAlloc(EigenSupport::SpMatD &hess) const

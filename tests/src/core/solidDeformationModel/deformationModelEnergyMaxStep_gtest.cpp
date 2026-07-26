@@ -34,6 +34,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <span>
 #include <vector>
 
 namespace
@@ -75,7 +76,7 @@ struct EnergyFixture
   ES::VXd restPositions;
 
   // Borrow accessors through the unique_ptr spine (energy -> assembler -> manager -> mesh).
-  const SimulationMesh &mesh() const { return *energy->assembler().getDeformationModelManager().getMesh(); }
+  const SimulationMesh &mesh() const { return energy->assembler().getDeformationModelManager().getMesh(); }
   const DeformationModelManager &manager() const { return energy->assembler().getDeformationModelManager(); }
   const DeformationModelAssembler &assembler() const { return energy->assembler(); }
 };
@@ -84,9 +85,7 @@ ES::VXd gatherRestPositions(const SimulationMesh &mesh)
 {
   ES::VXd rest(mesh.getNumVertices() * 3);
   for (int vi = 0; vi < mesh.getNumVertices(); vi++) {
-    double p[3];
-    mesh.getVertex(vi, p);
-    rest.segment<3>(vi * 3) << p[0], p[1], p[2];
+    rest.segment<3>(vi * 3) = mesh.getVertex(vi);
   }
   return rest;
 }
@@ -100,8 +99,8 @@ EnergyFixture makeTetFixture(
 
   EnergyFixture fixture;
   fixture.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
-    static_cast<int>(vertices.size() / 3), vertices.data(),
-    static_cast<int>(elementVertices.size() / 4), 4, elementVertices.data(),
+    static_cast<int>(vertices.size() / 3), vertices,
+    static_cast<int>(elementVertices.size() / 4), 4, elementVertices,
     makeUniformSimulationMeshElementFieldStore(
       static_cast<int>(elementVertices.size() / 4), baseMaterial),
     SimulationMeshType::TET));
@@ -117,7 +116,8 @@ EnergyFixture makeTetFixture(
     std::make_shared<VolumetricPlasticity6Config>(), formulation, 1);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(), nullptr);
+    std::move(manager), formulation, parameters->space(),
+    std::span<const double>{});
   fixture.energy = std::make_shared<DeformationModelEnergy>(
     std::move(assembler), std::move(parameters), offset);
   return fixture;
@@ -143,8 +143,8 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 
   EnergyFixture fixture;
   fixture.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
-    static_cast<int>(vertices.size() / 3), vertices.data(),
-    static_cast<int>(elementVertices.size() / 8), 8, elementVertices.data(),
+    static_cast<int>(vertices.size() / 3), vertices,
+    static_cast<int>(elementVertices.size() / 8), 8, elementVertices,
     makeUniformSimulationMeshElementFieldStore(
       static_cast<int>(elementVertices.size() / 8), baseMaterial),
     SimulationMeshType::CUBIC));
@@ -160,7 +160,8 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
     std::make_shared<VolumetricPlasticity6Config>(), formulation, 1);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(), nullptr);
+    std::move(manager), formulation, parameters->space(),
+    std::span<const double>{});
   fixture.energy = std::make_shared<DeformationModelEnergy>(
     std::move(assembler), std::move(parameters), 0);
   return fixture;
@@ -207,7 +208,8 @@ EnergyFixture makeShellFixture()
     std::make_shared<ShellPlasticity1Config>(), formulation, 1);
 
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(), nullptr);
+    std::move(manager), formulation, parameters->space(),
+    std::span<const double>{});
   fixture.energy = std::make_shared<DeformationModelEnergy>(
     std::move(assembler), std::move(parameters), 0);
   return fixture;
@@ -240,23 +242,19 @@ ES::VXd makeCubicTopFaceDirection(int numVertices, int baseVertex, double dz)
 
 double tetDeterminant(const SimulationMesh &mesh, int ele, const ES::VXd &absolutePositions)
 {
-  std::array<double, 12> localPositions{};
+  ES::V12d localPositions = ES::V12d::Zero();
   for (int j = 0; j < 4; j++) {
     const int vi = mesh.getVertexIndex(ele, j);
-    localPositions[j * 3 + 0] = absolutePositions[vi * 3 + 0];
-    localPositions[j * 3 + 1] = absolutePositions[vi * 3 + 1];
-    localPositions[j * 3 + 2] = absolutePositions[vi * 3 + 2];
+    localPositions.segment<3>(j * 3) = absolutePositions.segment<3>(vi * 3);
   }
 
-  std::array<double, 9> Ds{};
-  tetLinearComputeDs(localPositions.data(), Ds.data());
-  return Eigen::Map<const ES::M3d>(Ds.data()).determinant();
+  return tetLinearComputeDs(localPositions).determinant();
 }
 
 double minCubicDeterminant(const SimulationMesh &mesh, const DeformationModelManager &manager,
   int ele, const ES::VXd &absolutePositions)
 {
-  const auto *model = dynamic_cast<const CubicFEM *>(manager.getDeformationModel(ele));
+  const auto *model = dynamic_cast<const CubicFEM *>(&manager.getDeformationModel(ele));
   if (model == nullptr)
     return -std::numeric_limits<double>::infinity();
 
@@ -270,9 +268,9 @@ double minCubicDeterminant(const SimulationMesh &mesh, const DeformationModelMan
 
   double minDet = std::numeric_limits<double>::infinity();
   for (int q = 0; q < model->getNumMaterialLocations(); q++) {
-    std::array<double, 9> F{};
-    model->computeF(localPositions.data(), q, F.data());
-    minDet = std::min(minDet, Eigen::Map<const ES::M3d>(F.data()).determinant());
+    const ES::M3d F = model->computeF(
+      std::span<const double>(localPositions.data(), localPositions.size()), q);
+    minDet = std::min(minDet, F.determinant());
   }
 
   return minDet;

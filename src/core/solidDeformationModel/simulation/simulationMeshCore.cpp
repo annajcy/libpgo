@@ -5,11 +5,8 @@ copyright to USC,MIT,NUS
 
 #include "simulation/simulationMeshBase.h"
 
-#include "EigenSupport.h"
-#include "meshLinearAlgebra.h"
-
-#include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace pgo
@@ -21,8 +18,8 @@ namespace SolidDeformationModel
 class SimulationMeshImpl
 {
 public:
-  SimulationMeshImpl(int numVertices, const double *vertexPositions,
-    int numElements, int numElementVertices, const int *elementVertexIndices,
+  SimulationMeshImpl(int numVertices, std::span<const double> vertexPositions,
+    int numElements, int numElementVertices, std::span<const int> elementVertexIndices,
     ElementFieldStore elementFields,
     SimulationMeshType meshType);
 
@@ -39,8 +36,8 @@ public:
 
 using namespace pgo::SolidDeformationModel;
 
-SimulationMesh::SimulationMesh(int numVertices, const double *vertexPositions,
-  int numElements, int numElementVertices, const int *elementVertexIndices,
+SimulationMesh::SimulationMesh(int numVertices, std::span<const double> vertexPositions,
+  int numElements, int numElementVertices, std::span<const int> elementVertexIndices,
   ElementFieldStore elementFields,
   SimulationMeshType meshType)
 {
@@ -58,7 +55,7 @@ int SimulationMesh::getNumElements() const
 
 int SimulationMesh::getNumElementVertices() const
 {
-  return static_cast<int>(impl->elements[0].size());
+  return impl->elements.empty() ? 0 : static_cast<int>(impl->elements[0].size());
 }
 
 int SimulationMesh::getNumVertices() const
@@ -71,19 +68,20 @@ int SimulationMesh::getVertexIndex(int ele, int j) const
   return impl->elements[ele][j];
 }
 
-const int *SimulationMesh::getVertexIndices(int ele) const
+std::span<const int> SimulationMesh::getVertexIndices(int ele) const
 {
-  return impl->elements[ele].data();
+  const std::vector<int> &indices = impl->elements[ele];
+  return std::span<const int>(indices.data(), indices.size());
 }
 
-void SimulationMesh::getVertex(int ele, int j, double pos[3]) const
+const pgo::EigenSupport::V3d &SimulationMesh::getVertex(int ele, int j) const
 {
-  (ES::Mp<ES::V3d>(pos)) = impl->vertices[impl->elements[ele][j]];
+  return impl->vertices[impl->elements[ele][j]];
 }
 
-void SimulationMesh::getVertex(int vi, double pos[3]) const
+const pgo::EigenSupport::V3d &SimulationMesh::getVertex(int vi) const
 {
-  (ES::Mp<ES::V3d>(pos)) = impl->vertices[vi];
+  return impl->vertices[vi];
 }
 
 SimulationMeshType SimulationMesh::getElementType() const
@@ -96,14 +94,19 @@ const ElementFieldStore &SimulationMesh::implElementFields() const
   return impl->elementFields;
 }
 
-void SimulationMesh::assignElementUVs(const double *uvs)
+void SimulationMesh::assignElementUVs(std::span<const double> uvs)
 {
+  const std::size_t expectedSize = static_cast<std::size_t>(
+    getNumElements()) * static_cast<std::size_t>(getNumElementVertices()) * 2;
+  if (uvs.size() < expectedSize)
+    throw std::invalid_argument("SimulationMesh UV data is smaller than the mesh topology.");
+
   impl->elementUVs.assign(
-    impl->elements.size(), std::vector<Vec2d>(getNumElementVertices()));
+    impl->elements.size(), std::vector<ES::V2d>(getNumElementVertices()));
   for (size_t ei = 0; ei < impl->elements.size(); ei++) {
     for (int j = 0; j < getNumElementVertices(); j++) {
-      const double *uv = uvs + ei * getNumElementVertices() * 2 + j * 2;
-      impl->elementUVs[ei][j] = Vec2d(uv[0], uv[1]);
+      const std::size_t offset = (ei * static_cast<std::size_t>(getNumElementVertices()) + j) * 2;
+      impl->elementUVs[ei][j] = ES::V2d(uvs[offset], uvs[offset + 1]);
     }
   }
 }
@@ -113,26 +116,39 @@ bool SimulationMesh::hasElementUV() const
   return !impl->elementUVs.empty();
 }
 
-void SimulationMesh::getElementUV(int ele, int j, double uv[2]) const
+const pgo::EigenSupport::V2d &SimulationMesh::getElementUV(int ele, int j) const
 {
-  uv[0] = impl->elementUVs[ele][j][0];
-  uv[1] = impl->elementUVs[ele][j][1];
+  return impl->elementUVs[ele][j];
 }
 
 SimulationMeshImpl::SimulationMeshImpl(
-  int numVertices, const double *vertexPositions,
-  int numElements, int numElementVertices, const int *elementVertexIndices,
+  int numVertices, std::span<const double> vertexPositions,
+  int numElements, int numElementVertices, std::span<const int> elementVertexIndices,
   ElementFieldStore elementFields_, SimulationMeshType mt)
 {
+  if (numVertices < 0 || numElements < 0 || numElementVertices < 0)
+    throw std::invalid_argument("SimulationMesh dimensions must be nonnegative.");
+  const std::size_t requiredVertexValues = static_cast<std::size_t>(numVertices) * 3;
+  const std::size_t requiredElementIndices = static_cast<std::size_t>(numElements) *
+    static_cast<std::size_t>(numElementVertices);
+  if (vertexPositions.size() < requiredVertexValues)
+    throw std::invalid_argument("SimulationMesh vertex data is smaller than numVertices * 3.");
+  if (elementVertexIndices.size() < requiredElementIndices)
+    throw std::invalid_argument("SimulationMesh connectivity is smaller than the topology.");
+
   vertices.assign(numVertices, ES::V3d::Zero());
   for (int vi = 0; vi < numVertices; vi++)
-    vertices[vi] = asVec3d(vertexPositions + vi * 3);
+    vertices[vi] = ES::V3d(
+      vertexPositions[static_cast<std::size_t>(vi) * 3 + 0],
+      vertexPositions[static_cast<std::size_t>(vi) * 3 + 1],
+      vertexPositions[static_cast<std::size_t>(vi) * 3 + 2]);
 
   elements.assign(numElements, std::vector<int>(numElementVertices, 0));
   for (int ei = 0; ei < numElements; ei++) {
-    memcpy(elements[ei].data(),
-      elementVertexIndices + ei * numElementVertices,
-      sizeof(int) * numElementVertices);
+    for (int j = 0; j < numElementVertices; j++) {
+      elements[ei][j] = elementVertexIndices[
+        static_cast<std::size_t>(ei) * numElementVertices + j];
+    }
   }
 
   elementFields_.validateSize(numElements);

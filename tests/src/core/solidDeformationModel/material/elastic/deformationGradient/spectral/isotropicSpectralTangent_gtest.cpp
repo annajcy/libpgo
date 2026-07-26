@@ -11,6 +11,7 @@
 #include <cmath>
 #include <limits>
 #include <random>
+#include <span>
 #include <stdexcept>
 
 namespace
@@ -36,12 +37,12 @@ public:
   int getNumParameters() const override { return 0; }
 
 protected:
-  double compute_psi_s(const double *, const ES::V3d &s) const override
+  double compute_psi_s(std::span<const double>, const ES::V3d &s) const override
   {
     return 0.5 * s.squaredNorm();
   }
 
-  ES::V3d compute_dpsi_ds(const double *, const ES::V3d &s) const override
+  ES::V3d compute_dpsi_ds(std::span<const double>, const ES::V3d &s) const override
   {
     ES::V3d gradient = s;
     if (derivative_ == NonFiniteDerivative::Gradient)
@@ -49,7 +50,7 @@ protected:
     return gradient;
   }
 
-  ES::M3d compute_d2psi_ds2(const double *, const ES::V3d &) const override
+  ES::M3d compute_d2psi_ds2(std::span<const double>, const ES::V3d &) const override
   {
     ES::M3d hessian = ES::M3d::Identity();
     if (derivative_ == NonFiniteDerivative::Hessian)
@@ -94,13 +95,22 @@ SpectralData decomposePositiveF(const ES::M3d &F)
   return data;
 }
 
+SpectralState toState(const SpectralData &data)
+{
+  SpectralState state;
+  state.F = data.F;
+  state.U = data.U;
+  state.V = data.V;
+  state.stretches = data.S;
+  return state;
+}
+
 double evaluatePsi(
   const ElasticModel3DIsotropicPrincipalStretch &model,
   const ES::M3d &F)
 {
   const SpectralData data = decomposePositiveF(F);
-  return model.compute_psi(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data());
+  return model.compute_psi({}, toState(data));
 }
 
 ES::M3d evaluateP(
@@ -108,10 +118,7 @@ ES::M3d evaluateP(
   const ES::M3d &F)
 {
   const SpectralData data = decomposePositiveF(F);
-  ES::M3d P;
-  model.compute_P(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), P.data());
-  return P;
+  return model.compute_P({}, toState(data));
 }
 
 ES::M9d evaluate_dPdF(
@@ -119,10 +126,7 @@ ES::M9d evaluate_dPdF(
   const ES::M3d &F)
 {
   const SpectralData data = decomposePositiveF(F);
-  ES::M9d dPdF;
-  model.compute_dPdF(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), dPdF.data());
-  return dPdF;
+  return model.compute_dPdF({}, toState(data));
 }
 
 void expectRelativeNear(const ES::M9d &a, const ES::M9d &b, double tolerance)
@@ -160,24 +164,29 @@ TEST(IsotropicSpectralTangent, StableNeoMatchesDirectFSpaceModel)
   ElasticModelStableNeoHookeanMaterial direct(mu, lambda);
   const auto data = makeSpectralData(ES::V3d(1.3, 0.9, 0.6));
 
-  std::array<double, 9> spectralP{};
-  std::array<double, 81> spectralH{};
-  std::array<double, 9> directP{};
-  std::array<double, 81> directH{};
-  spectral.compute_P(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), spectralP.data());
-  spectral.compute_dPdF(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), spectralH.data());
-  direct.compute_P(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), directP.data());
-  direct.compute_dPdF(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), directH.data());
+  const SpectralState state = toState(data);
+  const ES::M3d spectralP = spectral.compute_P({}, state);
+  const ES::M9d spectralH = spectral.compute_dPdF({}, state);
+  const ES::M3d directP = direct.compute_P({}, state);
+  const ES::M9d directH = direct.compute_dPdF({}, state);
 
-  EXPECT_TRUE(Eigen::Map<const ES::M3d>(spectralP.data()).isApprox(
-    Eigen::Map<const ES::M3d>(directP.data()), 1e-10));
-  expectRelativeNear(
-    Eigen::Map<const ES::M9d>(spectralH.data()),
-    Eigen::Map<const ES::M9d>(directH.data()), 1e-10);
+  EXPECT_TRUE(spectralP.isApprox(directP, 1e-10));
+  expectRelativeNear(spectralH, directH, 1e-10);
+}
+
+TEST(IsotropicSpectralTangent, EigenSpectralStateApiWorksThroughBase)
+{
+  ElasticModelStableNeoHookeanPrincipalStretch model(0.7, 1.2);
+  const auto data = makeSpectralData(ES::V3d(1.3, 0.9, 0.6));
+  SpectralState state;
+  state.F = data.F;
+  state.U = data.U;
+  state.V = data.V;
+  state.stretches = data.S;
+
+  const ElasticModel3DDeformationGradient &base = model;
+  EXPECT_TRUE(base.compute_P({}, state).isApprox(model.compute_P({}, state), 1e-12));
+  EXPECT_TRUE(base.compute_dPdF({}, state).isApprox(model.compute_dPdF({}, state), 1e-12));
 }
 
 TEST(IsotropicSpectralTangent, StableNeoMatchesDirectFSpaceAtRepeatedStretches)
@@ -191,31 +200,17 @@ TEST(IsotropicSpectralTangent, StableNeoMatchesDirectFSpaceAtRepeatedStretches)
     ES::V3d(1.2, 1.2, 0.7), ES::V3d(1.0, 1.0, 1.0)};
   for (const ES::V3d &s : stretchCases) {
     const auto data = makeSpectralData(s);
-    std::array<double, 9> spectralP{};
-    std::array<double, 81> spectralH{};
-    std::array<double, 9> directP{};
-    std::array<double, 81> directH{};
-
-    const double spectralPsi = spectral.compute_psi(nullptr, data.F.data(),
-      data.U.data(), data.V.data(), data.S.data());
-    const double directPsi = direct.compute_psi(nullptr, data.F.data(),
-      data.U.data(), data.V.data(), data.S.data());
-    spectral.compute_P(nullptr, data.F.data(), data.U.data(), data.V.data(),
-      data.S.data(), spectralP.data());
-    spectral.compute_dPdF(nullptr, data.F.data(), data.U.data(), data.V.data(),
-      data.S.data(), spectralH.data());
-    direct.compute_P(nullptr, data.F.data(), data.U.data(), data.V.data(),
-      data.S.data(), directP.data());
-    direct.compute_dPdF(nullptr, data.F.data(), data.U.data(), data.V.data(),
-      data.S.data(), directH.data());
+    const SpectralState state = toState(data);
+    const double spectralPsi = spectral.compute_psi({}, state);
+    const double directPsi = direct.compute_psi({}, state);
+    const ES::M3d spectralP = spectral.compute_P({}, state);
+    const ES::M9d spectralH = spectral.compute_dPdF({}, state);
+    const ES::M3d directP = direct.compute_P({}, state);
+    const ES::M9d directH = direct.compute_dPdF({}, state);
 
     EXPECT_NEAR(spectralPsi, directPsi, 1e-12);
-    const ES::M3d spectralPMatrix = Eigen::Map<const ES::M3d>(spectralP.data());
-    const ES::M3d directPMatrix = Eigen::Map<const ES::M3d>(directP.data());
-    EXPECT_LT((spectralPMatrix - directPMatrix).norm(), 1e-10);
-    expectRelativeNear(
-      Eigen::Map<const ES::M9d>(spectralH.data()),
-      Eigen::Map<const ES::M9d>(directH.data()), 1e-10);
+    EXPECT_LT((spectralP - directP).norm(), 1e-10);
+    expectRelativeNear(spectralH, directH, 1e-10);
   }
 }
 
@@ -230,16 +225,9 @@ TEST(IsotropicSpectralTangent, StableNeoMatchesDirectFSpaceNearRepeatedStretches
   for (double separation : separations) {
     const auto data =
       makeSpectralData(ES::V3d(1.2 + separation, 1.2, 0.7));
-    std::array<double, 81> spectralH{};
-    std::array<double, 81> directH{};
-    spectral.compute_dPdF(nullptr, data.F.data(), data.U.data(), data.V.data(),
-      data.S.data(), spectralH.data());
-    direct.compute_dPdF(nullptr, data.F.data(), data.U.data(), data.V.data(),
-      data.S.data(), directH.data());
-
-    expectRelativeNear(
-      Eigen::Map<const ES::M9d>(spectralH.data()),
-      Eigen::Map<const ES::M9d>(directH.data()), 2e-6);
+    const SpectralState state = toState(data);
+    expectRelativeNear(spectral.compute_dPdF({}, state),
+      direct.compute_dPdF({}, state), 2e-6);
   }
 }
 
@@ -300,22 +288,17 @@ TEST(IsotropicSpectralTangent, PairEqualIsIndependentOfDegenerateBasis)
   const ES::M3d U2 = data.U * R;
   const ES::M3d V2 = data.V * R;
 
-  std::array<double, 9> P1{}, P2{};
-  std::array<double, 81> H1{}, H2{};
-  model.compute_P(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), P1.data());
-  model.compute_P(nullptr, data.F.data(), U2.data(), V2.data(),
-    data.S.data(), P2.data());
-  model.compute_dPdF(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), H1.data());
-  model.compute_dPdF(nullptr, data.F.data(), U2.data(), V2.data(),
-    data.S.data(), H2.data());
+  SpectralState state1 = toState(data);
+  SpectralState state2 = state1;
+  state2.U = U2;
+  state2.V = V2;
+  const ES::M3d P1 = model.compute_P({}, state1);
+  const ES::M3d P2 = model.compute_P({}, state2);
+  const ES::M9d H1 = model.compute_dPdF({}, state1);
+  const ES::M9d H2 = model.compute_dPdF({}, state2);
 
-  EXPECT_TRUE(Eigen::Map<const ES::M3d>(P1.data()).isApprox(
-    Eigen::Map<const ES::M3d>(P2.data()), 1e-10));
-  expectRelativeNear(
-    Eigen::Map<const ES::M9d>(H1.data()),
-    Eigen::Map<const ES::M9d>(H2.data()), 1e-10);
+  EXPECT_TRUE(P1.isApprox(P2, 1e-10));
+  expectRelativeNear(H1, H2, 1e-10);
 }
 
 TEST(IsotropicSpectralTangent, AllEqualIsIndependentOfDegenerateBasis)
@@ -327,14 +310,12 @@ TEST(IsotropicSpectralTangent, AllEqualIsIndependentOfDegenerateBasis)
   const ES::M3d U2 = data.U * R;
   const ES::M3d V2 = data.V * R;
 
-  std::array<double, 81> H1{}, H2{};
-  model.compute_dPdF(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), H1.data());
-  model.compute_dPdF(nullptr, data.F.data(), U2.data(), V2.data(),
-    data.S.data(), H2.data());
-  expectRelativeNear(
-    Eigen::Map<const ES::M9d>(H1.data()),
-    Eigen::Map<const ES::M9d>(H2.data()), 1e-10);
+  SpectralState state1 = toState(data);
+  SpectralState state2 = state1;
+  state2.U = U2;
+  state2.V = V2;
+  expectRelativeNear(model.compute_dPdF({}, state1),
+    model.compute_dPdF({}, state2), 1e-10);
 }
 
 TEST(IsotropicSpectralTangent, PSDProjectionClampsSpectralBlocks)
@@ -358,11 +339,7 @@ TEST(IsotropicSpectralTangent, PrincipalStretchPSDPathProducesPSDMatrix)
 {
   ElasticModelStableNeoHookeanPrincipalStretch model(0.7, 1.2);
   const auto data = makeSpectralData(ES::V3d(1.3, 0.9, 0.6));
-  std::array<double, 81> tangent{};
-  model.compute_dPdF_psd(nullptr, data.F.data(), data.U.data(), data.V.data(),
-    data.S.data(), tangent.data());
-
-  const ES::M9d matrix = Eigen::Map<const ES::M9d>(tangent.data());
+  const ES::M9d matrix = model.compute_dPdF_psd({}, toState(data));
   const Eigen::SelfAdjointEigenSolver<ES::M9d> solver(matrix);
   ASSERT_EQ(solver.info(), Eigen::Success);
   EXPECT_GE(solver.eigenvalues().minCoeff(), -1e-10);
@@ -372,11 +349,10 @@ TEST(IsotropicSpectralTangent, RejectsNonPositiveStretches)
 {
   ElasticModelStableNeoHookeanPrincipalStretch model(0.7, 1.2);
   const auto data = makeSpectralData(ES::V3d(1.2, 0.9, 0.6));
-  const double invalidS[3] = {1.2, 0.9, 0.0};
-  double P[9]{};
+  SpectralState state = toState(data);
+  state.stretches(2) = 0.0;
   EXPECT_THROW(
-    model.compute_P(nullptr, data.F.data(), data.U.data(), data.V.data(),
-      invalidS, P),
+    model.compute_P({}, state),
     std::domain_error);
 }
 
@@ -385,16 +361,13 @@ TEST(IsotropicSpectralTangent, RejectsNonFiniteStretchDerivatives)
   const auto data = makeSpectralData(ES::V3d(1.2, 0.9, 0.6));
   NonFinitePrincipalStretchModel badGradient(NonFiniteDerivative::Gradient);
   NonFinitePrincipalStretchModel badHessian(NonFiniteDerivative::Hessian);
-  std::array<double, 9> P{};
-  std::array<double, 81> tangent{};
+  const SpectralState state = toState(data);
 
   EXPECT_THROW(
-    badGradient.compute_P(nullptr, data.F.data(), data.U.data(), data.V.data(),
-      data.S.data(), P.data()),
+    badGradient.compute_P({}, state),
     std::invalid_argument);
   EXPECT_THROW(
-    badHessian.compute_dPdF(nullptr, data.F.data(), data.U.data(),
-      data.V.data(), data.S.data(), tangent.data()),
+    badHessian.compute_dPdF({}, state),
     std::invalid_argument);
 }
 

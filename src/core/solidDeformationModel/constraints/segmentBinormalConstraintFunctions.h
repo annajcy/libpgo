@@ -10,6 +10,7 @@ copyright to USC,MIT,NUS
 #include <tbb/spin_mutex.h>
 
 #include <memory>
+#include <span>
 #include <vector>
 
 class TetMesh;
@@ -21,7 +22,9 @@ namespace SolidDeformationModel
 class SegmentBinormalConstraintFunctions : public NonlinearOptimization::ConstraintFunctions
 {
 public:
-  SegmentBinormalConstraintFunctions(int nAll, int positionDOFStart, int segmentDOFStart, int numSegments, const double *positions = nullptr);
+  SegmentBinormalConstraintFunctions(
+    int nAll, int positionDOFStart, int segmentDOFStart, int numSegments,
+    std::span<const double> positions = {});
   virtual ~SegmentBinormalConstraintFunctions();
 
   virtual void func(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd g) const override;

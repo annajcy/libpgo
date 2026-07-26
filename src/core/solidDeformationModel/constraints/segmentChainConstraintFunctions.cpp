@@ -10,15 +10,20 @@ copyright to USC,MIT,NUS
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 #include <tbb/partitioner.h>
+#include <stdexcept>
 
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-SegmentChainConstraintFunctions::SegmentChainConstraintFunctions(int nAll, int numPoints, const double *const points, int isCircle):
+SegmentChainConstraintFunctions::SegmentChainConstraintFunctions(
+  int nAll, int numPoints, std::span<const double> points, int isCircle):
   NonlinearOptimization::ConstraintFunctions(nAll)
 {
-  restPositions = Eigen::Map<const ES::VXd>(points, numPoints * 3);
+  if (numPoints < 0 || points.size() != static_cast<std::size_t>(numPoints) * 3)
+    throw std::invalid_argument("Segment chain rest positions have unexpected size.");
+
+  restPositions = Eigen::Map<const ES::VXd>(points.data(), numPoints * 3);
   if (isCircle)
     nele = numPoints;
   else

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EigenSupport.h"
+
 #include <span>
 
 namespace pgo
@@ -22,17 +24,21 @@ public:
     std::span<const double> localDofValues,
     std::span<double> materialValues) const = 0;
 
+  // jacobian(channel, localDof) = d materialValues[channel] /
+  //                                d localDofValues[localDof].
   virtual void evaluateJacobian(
     int element,
     int quadrature,
     std::span<const double> localDofValues,
-    double *output) const = 0;
+    EigenSupport::RefMatXd jacobian) const = 0;
 
+  // channelHessians[channel](i, j) is the second derivative of the
+  // corresponding material channel with respect to local DOFs i and j.
   virtual void evaluateHessians(
     int element,
     int quadrature,
     std::span<const double> localDofValues,
-    double *output) const = 0;
+    std::span<EigenSupport::MXd> channelHessians) const = 0;
 };
 
 class IdentityMaterialChannelMapping final : public MaterialChannelMapping
@@ -53,12 +59,12 @@ public:
     int element,
     int quadrature,
     std::span<const double> localDofValues,
-    double *output) const override;
+    EigenSupport::RefMatXd jacobian) const override;
   void evaluateHessians(
     int element,
     int quadrature,
     std::span<const double> localDofValues,
-    double *output) const override;
+    std::span<EigenSupport::MXd> channelHessians) const override;
 
 private:
   int numChannels_ = 0;

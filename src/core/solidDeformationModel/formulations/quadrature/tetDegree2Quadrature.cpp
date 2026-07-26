@@ -11,15 +11,14 @@ constexpr double kA = 0.5854101966249685;
 constexpr double kB = 0.1381966011250105;
 }  // namespace
 
-void TetDegree2Quadrature::point(int i, double xi[3]) const
+EigenSupport::V3d TetDegree2Quadrature::point(int i) const
 {
-  xi[0] = kB;
-  xi[1] = kB;
-  xi[2] = kB;
+  EigenSupport::V3d xi = EigenSupport::V3d::Constant(kB);
   if (i < 3) {
     xi[i] = kA;
   }
   // i == 3: (b, b, b); the implicit 4th barycentric coordinate is a.
+  return xi;
 }
 
 double TetDegree2Quadrature::weight(int /*i*/) const

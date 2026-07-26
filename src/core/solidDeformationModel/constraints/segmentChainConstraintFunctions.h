@@ -10,6 +10,7 @@ copyright to USC,MIT,NUS
 #include <tbb/spin_mutex.h>
 
 #include <memory>
+#include <span>
 #include <vector>
 
 class TetMesh;
@@ -21,7 +22,8 @@ namespace SolidDeformationModel
 class SegmentChainConstraintFunctions : public NonlinearOptimization::ConstraintFunctions
 {
 public:
-  SegmentChainConstraintFunctions(int nAll, int numPoints, const double *const points, int isCircle = 0);
+  SegmentChainConstraintFunctions(
+    int nAll, int numPoints, std::span<const double> points, int isCircle = 0);
   virtual ~SegmentChainConstraintFunctions();
 
   virtual void func(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd g) const override;

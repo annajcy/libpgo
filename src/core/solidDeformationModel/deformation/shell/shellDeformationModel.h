@@ -8,6 +8,7 @@
 #include "EigenSupport.h"
 
 #include <memory>
+#include <span>
 
 namespace pgo
 {
@@ -30,53 +31,53 @@ public:
   std::unique_ptr<DeformationModelCacheData> allocateCacheData() const override;
   bool isCacheDataCompatible(const DeformationModelCacheData &cacheData) const override;
 
-  void prepareData(const double *x, const double *elasticParams,
-    const double *plasticParams,
-    DeformationModelCacheData *cacheDataBase) const override;
+  void prepareData(std::span<const double> x, std::span<const double> elasticParams,
+    std::span<const double> plasticParams,
+    DeformationModelCacheData &cacheDataBase) const override;
 
-  double computeEnergy(const DeformationModelCacheData *cacheDataBase) const override;
+  double computeEnergy(const DeformationModelCacheData &cacheDataBase) const override;
 
-  void compute_dE_dx(const DeformationModelCacheData *cacheDataBase,
-    double *grad) const override;
+  void compute_dE_dx(const DeformationModelCacheData &cacheDataBase,
+    EigenSupport::RefVecXd grad) const override;
 
-  void compute_d2E_dx2(const DeformationModelCacheData *cacheDataBase,
-    double *hess) const override;
+  void compute_d2E_dx2(const DeformationModelCacheData &cacheDataBase,
+    EigenSupport::RefMatXd hess) const override;
 
-  void compute_d2E_dudp(const DeformationModelCacheData *cacheDataBase,
-    double *hess, int materialLocation = -1) const override;
+  void compute_d2E_dudp(const DeformationModelCacheData &cacheDataBase,
+    EigenSupport::RefMatXd hess, int materialLocation = -1) const override;
 
-  void compute_d2E_dude(const DeformationModelCacheData *cacheDataBase,
-    double *hess, int materialLocation = -1) const override;
+  void compute_d2E_dude(const DeformationModelCacheData &cacheDataBase,
+    EigenSupport::RefMatXd hess, int materialLocation = -1) const override;
 
-  void compute_dE_dp(const DeformationModelCacheData *cacheDataBase,
-    double *grad, int materialLocation = -1) const override;
+  void compute_dE_dp(const DeformationModelCacheData &cacheDataBase,
+    EigenSupport::RefVecXd grad, int materialLocation = -1) const override;
 
-  void compute_d2E_dp2(const DeformationModelCacheData *cacheDataBase,
-    double *hess, int materialLocation = -1) const override;
+  void compute_d2E_dp2(const DeformationModelCacheData &cacheDataBase,
+    EigenSupport::RefMatXd hess, int materialLocation = -1) const override;
 
-  void compute_dE_de(const DeformationModelCacheData *cacheDataBase,
-    double *grad, int materialLocation = -1) const override;
+  void compute_dE_de(const DeformationModelCacheData &cacheDataBase,
+    EigenSupport::RefVecXd grad, int materialLocation = -1) const override;
 
-  void compute_d2E_de2(const DeformationModelCacheData *cacheDataBase,
-    double *hess, int materialLocation = -1) const override;
+  void compute_d2E_de2(const DeformationModelCacheData &cacheDataBase,
+    EigenSupport::RefMatXd hess, int materialLocation = -1) const override;
 
-  void compute_d2E_dpde(const DeformationModelCacheData *cacheDataBase,
-    double *hess, int materialLocation = -1) const override;
+  void compute_d2E_dpde(const DeformationModelCacheData &cacheDataBase,
+    EigenSupport::RefMatXd hess, int materialLocation = -1) const override;
 
   int computeVonMisesStress(
-    const DeformationModelCacheData *cacheData,
-    double *stresses, int capacity) const override;
+    const DeformationModelCacheData &cacheData,
+    std::span<double> stresses, int capacity) const override;
 
   void setProjectHessianPSD(bool enable) override;
   int getNumElasticParameters() const override { return numElasticParams_; }
   int getNumPlasticParameters() const override { return numPlasticParams_; }
-  void defaultPlasticParams(double *params) const override;
+  void defaultPlasticParams(std::span<double> params) const override;
 
   int getNumVertices() const override;
   int getNumDOFs() const override;
 
   LocalMaxStepResult computeLocalMaxStepSize(
-    const double *x_local, const double *dx_local) const override;
+    std::span<const double> x_local, std::span<const double> dx_local) const override;
 
 private:
   std::unique_ptr<ShellElementMapping> elementMapping_;
@@ -87,10 +88,10 @@ private:
   int numPlasticParams_ = 0;
   int numElasticParams_ = 0;
 
-  const CacheData *cacheData(const DeformationModelCacheData *cacheDataBase) const;
-  CacheData *cacheData(DeformationModelCacheData *cacheDataBase) const;
+  const CacheData &cacheData(const DeformationModelCacheData &cacheDataBase) const;
+  CacheData &cacheData(DeformationModelCacheData &cacheDataBase) const;
   double computeEnergyWithParams(const CacheData &cacheData,
-    const double *plasticParams, const double *elasticParams) const;
+    std::span<const double> plasticParams, std::span<const double> elasticParams) const;
 };
 
 }  // namespace SolidDeformationModel

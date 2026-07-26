@@ -127,7 +127,8 @@ std::shared_ptr<DeformationModelEnergy> makeDeformationEnergy(std::shared_ptr<co
     mesh, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>(),
     formulation, kExactDerivativeProjectHessianPSD);
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(), nullptr);
+    std::move(manager), formulation, parameters->space(),
+    std::span<const double>{});
   return std::make_shared<DeformationModelEnergy>(
     std::move(assembler), std::move(parameters), 0, false);
 }
@@ -179,7 +180,8 @@ std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd
     mesh, std::make_shared<KoiterStVKConfig>(), std::make_shared<ShellPlasticity1Config>(),
     formulation, kExactDerivativeProjectHessianPSD);
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(), nullptr);
+    std::move(manager), formulation, parameters->space(),
+    std::span<const double>{});
   return std::make_shared<DeformationModelEnergy>(
     std::move(assembler), std::move(parameters), 0, false);
 }
@@ -268,7 +270,7 @@ TEST(PlasticMaterialEnergyGTest, UsesElasticSnapshotCapturedAtConstruction)
 
   auto deformationEnergy = makeShellDeformationEnergy(elastic);
   ES::VXd fixedDisplacement = makeFixedDisplacement(
-    deformationEnergy->assembler().getDeformationModelManager().getMesh()->getNumVertices());
+    deformationEnergy->assembler().getDeformationModelManager().getMesh().getNumVertices());
   auto parameters = deformationEnergy->materialParameters();
 
   const ES::VXd originalElastic = parameters->elasticSnapshot();
@@ -355,7 +357,7 @@ TEST(ElasticMaterialEnergyGTest, EvaluationDoesNotModifyParentElasticState)
 
   auto deformationEnergy = makeShellDeformationEnergy(committed);
   ES::VXd fixedDisplacement = makeFixedDisplacement(
-    deformationEnergy->assembler().getDeformationModelManager().getMesh()->getNumVertices());
+    deformationEnergy->assembler().getDeformationModelManager().getMesh().getNumVertices());
   ElasticMaterialEnergy elasticEnergy(deformationEnergy, fixedDisplacement);
 
   auto parameters = deformationEnergy->materialParameters();
@@ -397,7 +399,7 @@ TEST(ElasticMaterialEnergyGTest, UsesPlasticSnapshotCapturedAtConstruction)
 
   auto deformationEnergy = makeShellDeformationEnergy(elastic);
   ES::VXd fixedDisplacement = makeFixedDisplacement(
-    deformationEnergy->assembler().getDeformationModelManager().getMesh()->getNumVertices());
+    deformationEnergy->assembler().getDeformationModelManager().getMesh().getNumVertices());
   auto parameters = deformationEnergy->materialParameters();
 
   const ES::VXd originalPlastic = parameters->plasticSnapshot();
@@ -424,7 +426,7 @@ TEST(ElasticMaterialEnergyGTest, ValueGradientAndHessianMatchFiniteDifference)
 
   auto deformationEnergy = makeShellDeformationEnergy(elasticBase);
   ES::VXd fixedDisplacement = makeFixedDisplacement(
-    deformationEnergy->assembler().getDeformationModelManager().getMesh()->getNumVertices());
+    deformationEnergy->assembler().getDeformationModelManager().getMesh().getNumVertices());
   ElasticMaterialEnergy elasticEnergy(deformationEnergy, fixedDisplacement);
 
   EXPECT_EQ(elasticEnergy.stateKind(), pgo::NonlinearOptimization::EnergyStateKind::Generic);

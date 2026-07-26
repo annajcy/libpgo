@@ -15,7 +15,7 @@ public:
   int getLocalDofs() const override;
 
   std::unique_ptr<ShellElementMapping> createElementMapping(
-    const double restX[18], const bool hasVtx[6]) const override;
+    const EigenSupport::V18d &restX, const std::array<bool, 6> &hasVtx) const override;
 };
 
 }  // namespace SolidDeformationModel

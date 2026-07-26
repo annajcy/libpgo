@@ -38,34 +38,29 @@ void IdentityMaterialChannelMapping::evaluate(
 void IdentityMaterialChannelMapping::evaluateJacobian(
   int, int,
   std::span<const double> localDofValues,
-  double *output) const
+  EigenSupport::RefMatXd jacobian) const
 {
   if (localDofValues.size() != static_cast<std::size_t>(numChannels_))
     throw std::invalid_argument("IdentityMaterialChannelMapping local DOF count mismatch.");
-  if (numChannels_ > 0 && output == nullptr)
-    throw std::invalid_argument("IdentityMaterialChannelMapping requires a Jacobian output buffer.");
-  if (numChannels_ > 0)
-    std::fill(
-      output,
-      output + static_cast<std::ptrdiff_t>(numChannels_) * numChannels_,
-      0.0);
-  for (int i = 0; i < numChannels_; i++)
-    output[static_cast<std::size_t>(i) * numChannels_ + i] = 1.0;
+  if (jacobian.rows() != numChannels_ || jacobian.cols() != numChannels_)
+    throw std::invalid_argument("IdentityMaterialChannelMapping Jacobian size mismatch.");
+  jacobian.setIdentity();
 }
 
 void IdentityMaterialChannelMapping::evaluateHessians(
   int, int,
   std::span<const double> localDofValues,
-  double *output) const
+  std::span<EigenSupport::MXd> channelHessians) const
 {
   if (localDofValues.size() != static_cast<std::size_t>(numChannels_))
     throw std::invalid_argument("IdentityMaterialChannelMapping local DOF count mismatch.");
-  const std::size_t count =
-    static_cast<std::size_t>(numChannels_) * numChannels_ * numChannels_;
-  if (count > 0 && output == nullptr)
-    throw std::invalid_argument("IdentityMaterialChannelMapping requires a Hessian output buffer.");
-  if (count > 0)
-    std::fill(output, output + static_cast<std::ptrdiff_t>(count), 0.0);
+  if (channelHessians.size() != static_cast<std::size_t>(numChannels_))
+    throw std::invalid_argument("IdentityMaterialChannelMapping Hessian size mismatch.");
+  for (EigenSupport::MXd &hessian : channelHessians) {
+    if (hessian.rows() != numChannels_ || hessian.cols() != numChannels_)
+      throw std::invalid_argument("IdentityMaterialChannelMapping Hessian shape mismatch.");
+    hessian.setZero();
+  }
 }
 
 }  // namespace pgo::SolidDeformationModel

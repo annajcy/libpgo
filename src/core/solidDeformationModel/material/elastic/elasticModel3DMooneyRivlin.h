@@ -15,9 +15,12 @@ public:
 
   int getNumParameters() const override { return 0; }
 
-  virtual double compute_psi(const double *param, const double _F[9], const double _U[], const double _V[], const double _S[]) const override;
-  virtual void compute_P(const double *param, const double _F[9], const double _U[], const double _V[], const double _S[], double P[9]) const override;
-  virtual void compute_dPdF(const double *param, const double _F[9], const double _U[], const double _V[], const double _S[], double dPdF[81]) const override;  
+  double compute_psi(std::span<const double> param,
+    const SpectralState &state) const override;
+  EigenSupport::M3d compute_P(std::span<const double> param,
+    const SpectralState &state) const override;
+  EigenSupport::M9d compute_dPdF(std::span<const double> param,
+    const SpectralState &state) const override;
 
 protected:
   double mu01_;

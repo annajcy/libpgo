@@ -682,7 +682,7 @@ int pgo_run_sim_from_config(const char *configFileName)
   ES::SpMatD W = bc.generateInterpolationMatrix();
 
   std::shared_ptr<const SolidDeformationModel::SimulationMesh> simMesh(
-    SolidDeformationModel::loadTetMesh(&tetMesh).release());
+    SolidDeformationModel::loadTetMesh(tetMesh).release());
 
   int n = simMesh->getNumVertices();
   int n3 = n * 3;

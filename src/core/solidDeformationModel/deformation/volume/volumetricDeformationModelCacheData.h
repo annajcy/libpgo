@@ -2,6 +2,7 @@
 
 #include "deformation/deformationModel.h"
 #include "EigenSupport.h"
+#include "material/elastic/elasticModel3DDeformationGradient.h"
 
 #include <vector>
 
@@ -34,9 +35,7 @@ struct VolumetricDeformationModelCacheData : public DeformationModelCacheData
   std::vector<std::vector<ES::M3d>> d2AInv_dai_daj;
 
   std::vector<ES::M3d> Fref;
-  std::vector<ES::M3d> Fe;
-  std::vector<ES::M3d> U, V;
-  std::vector<ES::V3d> S;
+  std::vector<SpectralState> spectralState;
   std::vector<M9xNDOF> dFdx;
   std::vector<M3xN> Bm;
 

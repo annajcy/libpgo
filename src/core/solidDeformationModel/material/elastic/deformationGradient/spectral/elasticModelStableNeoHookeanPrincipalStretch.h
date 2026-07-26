@@ -2,6 +2,8 @@
 
 #include "material/elastic/deformationGradient/spectral/elasticModel3DIsotropicPrincipalStretch.h"
 
+#include <span>
+
 namespace pgo::SolidDeformationModel
 {
 
@@ -20,15 +22,15 @@ public:
 
 protected:
   double compute_psi_s(
-    const double *param,
+    std::span<const double> param,
     const EigenSupport::V3d &s) const override;
 
   EigenSupport::V3d compute_dpsi_ds(
-    const double *param,
+    std::span<const double> param,
     const EigenSupport::V3d &s) const override;
 
   EigenSupport::M3d compute_d2psi_ds2(
-    const double *param,
+    std::span<const double> param,
     const EigenSupport::V3d &s) const override;
 
 private:

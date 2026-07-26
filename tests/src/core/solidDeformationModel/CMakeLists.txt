@@ -116,3 +116,8 @@ pgo_add_gtest(isotropicSpectralTangent_gtest
   SOURCES material/elastic/deformationGradient/spectral/isotropicSpectralTangent_gtest.cpp
   DEPS solidDeformationModel
 )
+
+pgo_add_gtest(elasticModel1D_gtest
+  SOURCES material/elastic/elasticModel1D_gtest.cpp
+  DEPS solidDeformationModel
+)

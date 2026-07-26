@@ -3,7 +3,9 @@
 #include "material/core/materialParameters.h"
 
 #include <array>
+#include <algorithm>
 #include <memory>
+#include <vector>
 
 namespace
 {
@@ -31,20 +33,21 @@ public:
 
   void evaluateJacobian(
     int, int, std::span<const double> z,
-    double *output) const override
+    ES::RefMatXd output) const override
   {
-    std::fill(output, output + 4, 0.0);
+    output.setZero();
     for (int c = 0; c < 2; c++)
-      output[c * 2 + c] = 2.0 * scales_[c] * z[c];
+      output(c, c) = 2.0 * scales_[c] * z[c];
   }
 
   void evaluateHessians(
     int, int, std::span<const double>,
-    double *output) const override
+    std::span<ES::MXd> channelHessians) const override
   {
-    std::fill(output, output + 8, 0.0);
+    for (ES::MXd &hessian : channelHessians)
+      hessian.setZero();
     for (int c = 0; c < 2; c++)
-      output[c * 4 + c * 2 + c] = 2.0 * scales_[c];
+      channelHessians[static_cast<std::size_t>(c)](c, c) = 2.0 * scales_[c];
   }
 
 private:
@@ -69,18 +72,20 @@ TEST(NonlinearMaterialChannelMapping, ValueJacobianHessiansAndFiniteDifference)
   SquareMapping mapping({ 2.0, -3.0 });
   std::array<double, 2> z{ 1.5, -0.7 };
   std::array<double, 2> p{};
-  std::array<double, 4> jacobian{};
-  std::array<double, 8> hessians{};
+  ES::MXd jacobian(2, 2);
+  std::vector<ES::MXd> hessians(2);
+  for (ES::MXd &hessian : hessians)
+    hessian.resize(2, 2);
   mapping.evaluate(0, 0, z, p);
-  mapping.evaluateJacobian(0, 0, z, jacobian.data());
-  mapping.evaluateHessians(0, 0, z, hessians.data());
+  mapping.evaluateJacobian(0, 0, z, jacobian);
+  mapping.evaluateHessians(0, 0, z, hessians);
 
   EXPECT_DOUBLE_EQ(p[0], 4.5);
   EXPECT_DOUBLE_EQ(p[1], -1.47);
-  EXPECT_DOUBLE_EQ(jacobian[0], 6.0);
-  EXPECT_DOUBLE_EQ(jacobian[3], 4.2);
-  EXPECT_DOUBLE_EQ(hessians[0], 4.0);
-  EXPECT_DOUBLE_EQ(hessians[7], -6.0);
+  EXPECT_DOUBLE_EQ(jacobian(0, 0), 6.0);
+  EXPECT_DOUBLE_EQ(jacobian(1, 1), 4.2);
+  EXPECT_DOUBLE_EQ(hessians[0](0, 0), 4.0);
+  EXPECT_DOUBLE_EQ(hessians[1](1, 1), -6.0);
 
   constexpr double h = 1e-6;
   for (int k = 0; k < 2; k++) {
@@ -92,7 +97,7 @@ TEST(NonlinearMaterialChannelMapping, ValueJacobianHessiansAndFiniteDifference)
     mapping.evaluate(0, 0, zp, pp);
     mapping.evaluate(0, 0, zm, pm);
     for (int c = 0; c < 2; c++)
-      EXPECT_NEAR((pp[c] - pm[c]) / (2 * h), jacobian[k * 2 + c], 1e-8);
+      EXPECT_NEAR((pp[c] - pm[c]) / (2 * h), jacobian(c, k), 1e-8);
   }
 
   for (int derivativeDof = 0; derivativeDof < 2; derivativeDof++) {
@@ -100,17 +105,17 @@ TEST(NonlinearMaterialChannelMapping, ValueJacobianHessiansAndFiniteDifference)
     auto zm = z;
     zp[derivativeDof] += h;
     zm[derivativeDof] -= h;
-    std::array<double, 4> jp{}, jm{};
-    mapping.evaluateJacobian(0, 0, zp, jp.data());
-    mapping.evaluateJacobian(0, 0, zm, jm.data());
+    ES::MXd jp(2, 2), jm(2, 2);
+    mapping.evaluateJacobian(0, 0, zp, jp);
+    mapping.evaluateJacobian(0, 0, zm, jm);
     for (int channel = 0; channel < 2; channel++) {
       for (int jacobianDof = 0; jacobianDof < 2; jacobianDof++) {
         const double fd =
-          (jp[jacobianDof * 2 + channel] -
-            jm[jacobianDof * 2 + channel]) /
+            (jp(channel, jacobianDof) -
+            jm(channel, jacobianDof)) /
           (2 * h);
         const double analytic =
-          hessians[channel * 4 + derivativeDof * 2 + jacobianDof];
+          hessians[static_cast<std::size_t>(channel)](derivativeDof, jacobianDof);
         EXPECT_NEAR(fd, analytic, 1e-8);
       }
     }
@@ -186,8 +191,8 @@ TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
   MaterialParameterRef thickness = space->elastic().parameter("thickness");
   EXPECT_THROW(space->elastic().parameter("missing"), std::invalid_argument);
   EXPECT_DOUBLE_EQ(thickness.value(1, 0, snapshot.view()), 48.0);
-  std::array<double, 2> derivative{};
-  thickness.localDerivative(1, 0, snapshot.view(), derivative.data());
+  ES::VXd derivative(2);
+  thickness.localDerivative(1, 0, snapshot.view(), derivative);
   EXPECT_DOUBLE_EQ(derivative[0], 0.0);
   EXPECT_DOUBLE_EQ(derivative[1], 24.0);
 

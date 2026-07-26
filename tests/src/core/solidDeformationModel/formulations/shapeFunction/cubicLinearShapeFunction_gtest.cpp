@@ -4,6 +4,7 @@
 #include <cmath>
 
 using namespace pgo::SolidDeformationModel;
+namespace ES = pgo::EigenSupport;
 
 TEST(CubicLinearShapeFunctionGTest, PartitionOfUnity)
 {
@@ -15,10 +16,8 @@ TEST(CubicLinearShapeFunctionGTest, PartitionOfUnity)
     { 0.2113, 0.7887, 0.2113 },
   };
   for (const auto &pt : testPoints) {
-    double N[8];
-    basis.N(pt[0], pt[1], pt[2], N);
-    double sum = 0.0;
-    for (int i = 0; i < 8; i++) sum += N[i];
+    const ES::V8d N = basis.compute_N(pt[0], pt[1], pt[2]);
+    const double sum = N.sum();
     EXPECT_NEAR(sum, 1.0, 1e-15);
   }
 }
@@ -33,12 +32,11 @@ TEST(CubicLinearShapeFunctionGTest, DerivativeSumToZero)
     { 0.9, 0.8, 0.7 },
   };
   for (const auto &pt : testPoints) {
-    double dN[24];
-    basis.dN_dxi(pt[0], pt[1], pt[2], dN);
+    const ES::M3x8d dN = basis.compute_dN_dxi(pt[0], pt[1], pt[2]);
     for (int deriv = 0; deriv < 3; deriv++) {
       double sum = 0.0;
       for (int node = 0; node < 8; node++) {
-        sum += dN[deriv + 3 * node];
+        sum += dN(deriv, node);
       }
       EXPECT_NEAR(sum, 0.0, 1e-15);
     }
@@ -49,10 +47,8 @@ TEST(CubicLinearShapeFunctionGTest, NodalInterpolation)
 {
   CubicLinearShapeFunction basis;
   for (int j = 0; j < 8; j++) {
-    double xi[3];
-    basis.nodeCoords(j, xi);
-    double N[8];
-    basis.N(xi[0], xi[1], xi[2], N);
+    const ES::V3d xi = basis.nodeCoords(j);
+    const ES::V8d N = basis.compute_N(xi[0], xi[1], xi[2]);
     for (int i = 0; i < 8; i++) {
       EXPECT_NEAR(N[i], (i == j) ? 1.0 : 0.0, 1e-15);
     }
@@ -73,8 +69,7 @@ TEST(CubicLinearShapeFunctionGTest, NodeCoordsMatchLegacyConvention)
     { 0, 1, 1 },
   };
   for (int i = 0; i < 8; i++) {
-    double xi[3];
-    basis.nodeCoords(i, xi);
+    const ES::V3d xi = basis.nodeCoords(i);
     EXPECT_DOUBLE_EQ(xi[0], expected[i][0]);
     EXPECT_DOUBLE_EQ(xi[1], expected[i][1]);
     EXPECT_DOUBLE_EQ(xi[2], expected[i][2]);
@@ -90,13 +85,12 @@ TEST(CubicLinearShapeFunctionGTest, ShapeDerivativesMatchLegacyImplementation)
   for (int ia = 0; ia < 2; ia++) {
     for (int ib = 0; ib < 2; ib++) {
       for (int ig = 0; ig < 2; ig++) {
-        double dN[24];
-        basis.dN_dxi(gp[ia], gp[ib], gp[ig], dN);
+        const ES::M3x8d dN = basis.compute_dN_dxi(gp[ia], gp[ib], gp[ig]);
 
         for (int deriv = 0; deriv < 3; deriv++) {
           double sum = 0.0;
           for (int node = 0; node < 8; node++) {
-            sum += dN[deriv + 3 * node];
+            sum += dN(deriv, node);
           }
           EXPECT_NEAR(sum, 0.0, 1e-15);
         }

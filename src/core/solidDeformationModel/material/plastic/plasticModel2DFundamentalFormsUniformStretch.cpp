@@ -7,60 +7,60 @@ pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::Plasti
 {
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_abar(const double *params, double *a) const
+pgo::EigenSupport::M2d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_abar(std::span<const double> params) const
 {
   double s = params[0];
   EigenSupport::M2d S;
   S << s, 0, 0, s;
 
-  (EigenSupport::Mp<EigenSupport::M2d>(a)) = S * abar * S;
+  return S * abar * S;
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_Fp(const double *params, double *Fp) const
+pgo::EigenSupport::M2d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_Fp(std::span<const double> params) const
 {
-  Fp[0] = params[0];
-  Fp[1] = 0.0;
-  Fp[2] = 0.0;
-  Fp[3] = params[0];
+  return EigenSupport::M2d::Identity() * params[0];
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_bbar(const double *params, double *b) const
+pgo::EigenSupport::M2d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_bbar(std::span<const double> params) const
 {
-  (EigenSupport::Mp<EigenSupport::M2d>(b)) = bbar;
+  (void)params;
+  return bbar;
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_tbar(const double *params, double *t) const
+pgo::EigenSupport::M3d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_tbar(std::span<const double> params) const
 {
   double s = params[0];
   EigenSupport::M2d S;
   S << s, 0, 0, s;
 
-  (EigenSupport::Mp<EigenSupport::M3d>(t)) = tbar;
-  (EigenSupport::Mp<EigenSupport::M3d>(t)).leftCols<2>() *= S;
+  EigenSupport::M3d result = tbar;
+  result.leftCols<2>() *= S;
+  return result;
 }
 
-double pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::computeArea(const double *params) const
+double pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::computeArea(std::span<const double> params) const
 {
   return areaRest * params[0] * params[0];
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dtbar_inv_dparam(const double *params, int j, double *dtbar_da) const
+pgo::EigenSupport::M3d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dtbar_inv_dparam(std::span<const double> params, int j) const
 {
   EigenSupport::M3d S;
   S << 1, 0, 0,
     0, 1, 0,
     0, 0, 0;
 
-  (EigenSupport::Mp<EigenSupport::M3d>(dtbar_da)) = tbar * S;
+  (void)params; (void)j;
+  return tbar * S;
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dqbar_dparam(const double *params, int j, double *dqbar_da) const
+pgo::EigenSupport::M3d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dqbar_dparam(std::span<const double> params, int j) const
 {
-  EigenSupport::M3d zero = EigenSupport::M3d::Zero();
-  (EigenSupport::Mp<EigenSupport::M3d>(dqbar_da)) = zero;
+  (void)params; (void)j;
+  return EigenSupport::M3d::Zero();
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dK_dparam(const double *params, double *dK_da) const
+void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dK_dparam(std::span<const double> params, EigenSupport::RefVecXd dK_da) const
 {
   // K = det(L) = det(I_inv * II) = det(I_inv) * det(II) = det(S^-1 * Ibar^-1 * S^-1) * det(IIbar) = (1/s^4) * det(Ibar^-1) * det(IIbar)
   // H = trace(L) / 2
@@ -70,10 +70,10 @@ void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::c
   double s = params[0];
 
   double dK_ds = -4.0 * (1.0 / (s * s * s * s * s)) / detAbar * detBbar;
-  *(dK_da) = dK_ds;
+  dK_da[0] = dK_ds;
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dH_dparam(const double *params, double *dH_da) const
+void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dH_dparam(std::span<const double> params, EigenSupport::RefVecXd dH_da) const
 {
   // K = det(L) = det(I_inv * II) = det(I_inv) * det(II) = det(S^-1 * Ibar^-1 * S^-1) * det(IIbar) = (1/s^4) * det(Ibar^-1) * det(IIbar)
   // H = trace(L) / 2
@@ -83,17 +83,17 @@ void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::c
   EigenSupport::M2d II = bbar;
   EigenSupport::M2d L = I_inv * II;
   double dH_ds = -2.0 / (s * s * s) * L.trace() * 0.5;
-  *(dH_da) = dH_ds;
+  dH_da[0] = dH_ds;
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_darea_dparam(const double *params, double *darea_da) const
+void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_darea_dparam(std::span<const double> params, EigenSupport::RefVecXd darea_da) const
 {
   double s = params[0];
   double dA_ds = 2.0 * areaRest * s;
-  *(darea_da) = dA_ds;
+  darea_da[0] = dA_ds;
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dabar_dparam(const double *params, double *dabar_dparam) const
+void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dabar_dparam(std::span<const double> params, EigenSupport::RefMatXd dabar_dparam) const
 {
   double s = params[0];
   EigenSupport::M2d S;
@@ -104,36 +104,37 @@ void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::c
 
   EigenSupport::M2d dAbar_ds = dS_ds * abar * S + S * abar * dS_ds;
 
-  (EigenSupport::Mp<EigenSupport::M2d>(dabar_dparam)) = dAbar_ds;
+  dabar_dparam.setZero();
+  dabar_dparam.col(0) = Eigen::Map<const EigenSupport::V4d>(dAbar_ds.data());
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dbbar_dparam(const double *params, double *dbbar_dparam) const
+void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_dbbar_dparam(std::span<const double> params, EigenSupport::RefMatXd dbbar_dparam) const
 {
-  EigenSupport::M2d zero = EigenSupport::M2d::Zero();
-  (EigenSupport::Mp<EigenSupport::M2d>(dbbar_dparam)) = zero;
+  (void)params;
+  dbbar_dparam.setZero();
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2abar_dparam2(
-  const double *, int pi, int pj, double *d2abar_dparam2) const
+pgo::EigenSupport::M2d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2abar_dparam2(
+  std::span<const double> params, int pi, int pj) const
 {
-  EigenSupport::Mp<EigenSupport::M2d> d2abar(d2abar_dparam2);
+  (void)params;
   if (pi == 0 && pj == 0) {
-    d2abar = 2.0 * abar;
+    return 2.0 * abar;
   }
-  else {
-    d2abar.setZero();
-  }
+  return EigenSupport::M2d::Zero();
 }
 
-void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2dbbar_dparam2(
-  const double *, int, int, double *d2dbbar_dparam2) const
+pgo::EigenSupport::M2d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2dbbar_dparam2(
+  std::span<const double> params, int, int) const
 {
-  EigenSupport::Mp<EigenSupport::M2d>(d2dbbar_dparam2).setZero();
+  (void)params;
+  return EigenSupport::M2d::Zero();
 }
 
 double pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2area_dparam2(
-  const double *, int pi, int pj) const
+  std::span<const double> params, int pi, int pj) const
 {
+  (void)params;
   return (pi == 0 && pj == 0) ? 2.0 * areaRest : 0.0;
 }
 

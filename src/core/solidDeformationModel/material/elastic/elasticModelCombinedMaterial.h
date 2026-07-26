@@ -7,6 +7,7 @@ copyright to USC,MIT,NUS
 
 #include "material/elastic/elasticModel3DDeformationGradient.h"
 
+#include <array>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -24,34 +25,34 @@ public:
   explicit ElasticModelCombinedMaterial(T&&... mats);
   ~ElasticModelCombinedMaterial() override = default;
 
-  virtual double compute_psi(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual void compute_P(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double P[9]) const override;
-  virtual void compute_dPdF(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double dPdFOut[81]) const override;
+  virtual double compute_psi(std::span<const double> param,
+    const SpectralState &state) const override;
+  virtual EigenSupport::M3d compute_P(std::span<const double> param,
+    const SpectralState &state) const override;
+  virtual EigenSupport::M9d compute_dPdF(std::span<const double> param,
+    const SpectralState &state) const override;
 
   virtual int getNumParameters() const override { return numTotalParameters; }
-  virtual double compute_dpsi_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual double compute_d2psi_dparam2(const double *param, int i, int j, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual void compute_dP_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3], double *ret) const override;
+  virtual double compute_dpsi_dparam(std::span<const double> param, int i,
+    const SpectralState &state) const override;
+  virtual double compute_d2psi_dparam2(std::span<const double> param, int i, int j,
+    const SpectralState &state) const override;
+  virtual EigenSupport::M3d compute_dP_dparam(std::span<const double> param, int i,
+    const SpectralState &state) const override;
 
-  virtual void compute_d2PdF2(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double d3psi_dFiFjFk[729]) const override;
-  virtual void compute_d2Pdparam2(const double *param, int i, int j, const double F[9],
-    const double U[9], const double V[9], const double S[3], double d2p_dparam2[9]) const override;
-  virtual void compute_d2PdFdparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3], double d2P_dFdparam[81]) const override;
+  virtual void compute_d2PdF2(std::span<const double> param,
+    const SpectralState &state, EigenSupport::M81x9d &d2PdF2) const override;
+  virtual EigenSupport::M3d compute_d2Pdparam2(std::span<const double> param, int i, int j,
+    const SpectralState &state) const override;
+  virtual EigenSupport::M9d compute_d2PdFdparam(std::span<const double> param, int i,
+    const SpectralState &state) const override;
 
   const ElasticModel3DDeformationGradient *getMaterial(int id) const { return materials[id]; }
 
 protected:
-  std::unique_ptr<ElasticModel3DDeformationGradient> owned_[count];
-  const ElasticModel3DDeformationGradient *materials[count];
-  int parameterOffsets[count + 1];
+  std::array<std::unique_ptr<ElasticModel3DDeformationGradient>, count> owned_;
+  std::array<const ElasticModel3DDeformationGradient *, count> materials;
+  std::array<int, count + 1> parameterOffsets;
   int numTotalParameters;
 };
 
@@ -85,56 +86,42 @@ inline ElasticModelCombinedMaterial<count>::ElasticModelCombinedMaterial(T&&... 
 }
 
 template<int count>
-inline double ElasticModelCombinedMaterial<count>::compute_psi(const double *param,
-  const double F[9], const double U[9], const double V[9], const double S[3]) const
+inline double ElasticModelCombinedMaterial<count>::compute_psi(std::span<const double> param,
+  const SpectralState &state) const
 {
   double energy = 0;
   for (int i = 0; i < count; i++) {
-    energy += materials[i]->compute_psi(param + parameterOffsets[i], F, U, V, S);
+    energy += materials[i]->compute_psi(param.subspan(parameterOffsets[i], materials[i]->getNumParameters()), state);
   }
 
   return energy;
 }
 
 template<int count>
-inline void ElasticModelCombinedMaterial<count>::compute_P(const double *param,
-  const double F[9], const double U[9], const double V[9], const double S[3], double P[9]) const
+inline EigenSupport::M3d ElasticModelCombinedMaterial<count>::compute_P(std::span<const double> param,
+  const SpectralState &state) const
 {
-  for (int i = 0; i < 9; i++) {
-    P[i] = 0;
-  }
-
+  EigenSupport::M3d P = EigenSupport::M3d::Zero();
   for (int i = 0; i < count; i++) {
-    double tempP[9];
-    materials[i]->compute_P(param + parameterOffsets[i], F, U, V, S, tempP);
-
-    for (int j = 0; j < 9; j++) {
-      P[j] += tempP[j];
-    }
+    P += materials[i]->compute_P(param.subspan(parameterOffsets[i], materials[i]->getNumParameters()), state);
   }
+  return P;
 }
 
 template<int count>
-inline void ElasticModelCombinedMaterial<count>::compute_dPdF(const double *param,
-  const double F[9], const double U[9], const double V[9], const double S[3], double dPdFOut[81]) const
+inline EigenSupport::M9d ElasticModelCombinedMaterial<count>::compute_dPdF(std::span<const double> param,
+  const SpectralState &state) const
 {
-  for (int i = 0; i < 81; i++) {
-    dPdFOut[i] = 0;
-  }
-
+  EigenSupport::M9d dPdFOut = EigenSupport::M9d::Zero();
   for (int i = 0; i < count; i++) {
-    double tempdPdF[81];
-    materials[i]->compute_dPdF(param + parameterOffsets[i], F, U, V, S, tempdPdF);
-
-    for (int j = 0; j < 81; j++) {
-      dPdFOut[j] += tempdPdF[j];
-    }
+    dPdFOut += materials[i]->compute_dPdF(param.subspan(parameterOffsets[i], materials[i]->getNumParameters()), state);
   }
+  return dPdFOut;
 }
 
 template<int count>
-inline double ElasticModelCombinedMaterial<count>::compute_dpsi_dparam(const double *param, int i,
-  const double F[9], const double U[9], const double V[9], const double S[3]) const
+inline double ElasticModelCombinedMaterial<count>::compute_dpsi_dparam(std::span<const double> param, int i,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -145,12 +132,12 @@ inline double ElasticModelCombinedMaterial<count>::compute_dpsi_dparam(const dou
   if (mi >= count)
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
-  return materials[mi]->compute_dpsi_dparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S);
+  return materials[mi]->compute_dpsi_dparam(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], state);
 }
 
 template<int count>
-inline double ElasticModelCombinedMaterial<count>::compute_d2psi_dparam2(const double *param, int i, int j,
-  const double F[9], const double U[9], const double V[9], const double S[3]) const
+inline double ElasticModelCombinedMaterial<count>::compute_d2psi_dparam2(std::span<const double> param, int i, int j,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -175,13 +162,13 @@ inline double ElasticModelCombinedMaterial<count>::compute_d2psi_dparam2(const d
   if (mi != mj)
     return 0.0;
 
-  return materials[mi]->compute_d2psi_dparam2(param + parameterOffsets[mi], i - parameterOffsets[mi], j - parameterOffsets[mi],
-    F, U, V, S);
+  return materials[mi]->compute_d2psi_dparam2(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], j - parameterOffsets[mi],
+    state);
 }
 
 template<int count>
-inline void ElasticModelCombinedMaterial<count>::compute_dP_dparam(const double *param, int i,
-  const double F[9], const double U[9], const double V[9], const double S[3], double *ret) const
+inline EigenSupport::M3d ElasticModelCombinedMaterial<count>::compute_dP_dparam(std::span<const double> param, int i,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -192,30 +179,24 @@ inline void ElasticModelCombinedMaterial<count>::compute_dP_dparam(const double 
   if (mi >= count)
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
-  materials[mi]->compute_dP_dparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S, ret);
+  return materials[mi]->compute_dP_dparam(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], state);
 }
 
 template<int count>
-inline void ElasticModelCombinedMaterial<count>::compute_d2PdF2(const double *param, const double F[9],
-  const double U[9], const double V[9], const double S[3], double d3psi_dFiFjFk[729]) const
+inline void ElasticModelCombinedMaterial<count>::compute_d2PdF2(std::span<const double> param,
+  const SpectralState &state, EigenSupport::M81x9d &d2PdF2) const
 {
-  for (int i = 0; i < 729; i++) {
-    d3psi_dFiFjFk[i] = 0;
-  }
-
+  d2PdF2.setZero();
   for (int i = 0; i < count; i++) {
-    double temp[729];
-    materials[i]->compute_d2PdF2(param + parameterOffsets[i], F, U, V, S, temp);
-
-    for (int j = 0; j < 729; j++) {
-      d3psi_dFiFjFk[j] += temp[j];
-    }
+    EigenSupport::M81x9d temp;
+    materials[i]->compute_d2PdF2(param.subspan(parameterOffsets[i], materials[i]->getNumParameters()), state, temp);
+    d2PdF2 += temp;
   }
 }
 
 template<int count>
-inline void ElasticModelCombinedMaterial<count>::compute_d2Pdparam2(const double *param, int i, int j, const double F[9],
-  const double U[9], const double V[9], const double S[3], double d2p_dparam2[9]) const
+inline EigenSupport::M3d ElasticModelCombinedMaterial<count>::compute_d2Pdparam2(std::span<const double> param, int i, int j,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -223,8 +204,7 @@ inline void ElasticModelCombinedMaterial<count>::compute_d2Pdparam2(const double
       break;
   }
 
-  for (int i = 0; i < 9; i++)
-    d2p_dparam2[i] = 0;
+  EigenSupport::M3d d2p_dparam2 = EigenSupport::M3d::Zero();
 
   if (mi >= count)
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
@@ -239,15 +219,15 @@ inline void ElasticModelCombinedMaterial<count>::compute_d2Pdparam2(const double
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   if (mi != mj)
-    return;
+    return d2p_dparam2;
 
-  materials[mi]->compute_d2Pdparam2(param + parameterOffsets[mi], i - parameterOffsets[mi], j - parameterOffsets[mi],
-    F, U, V, S, d2p_dparam2);
+  return materials[mi]->compute_d2Pdparam2(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], j - parameterOffsets[mi],
+    state);
 }
 
 template<int count>
-inline void ElasticModelCombinedMaterial<count>::compute_d2PdFdparam(const double *param, int i, const double F[9],
-  const double U[9], const double V[9], const double S[3], double d2P_dFdparam[81]) const
+inline EigenSupport::M9d ElasticModelCombinedMaterial<count>::compute_d2PdFdparam(std::span<const double> param, int i,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -258,7 +238,7 @@ inline void ElasticModelCombinedMaterial<count>::compute_d2PdFdparam(const doubl
   if (mi >= count)
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
-  materials[mi]->compute_d2PdFdparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S, d2P_dFdparam);
+  return materials[mi]->compute_d2PdFdparam(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], state);
 }
 
 template<>
@@ -269,27 +249,27 @@ public:
     std::vector<std::unique_ptr<ElasticModel3DDeformationGradient>> mats);
   ~ElasticModelCombinedMaterial() override = default;
 
-  virtual double compute_psi(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual void compute_P(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double P[9]) const override;
-  virtual void compute_dPdF(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double dPdFOut[81]) const override;
+  virtual double compute_psi(std::span<const double> param,
+    const SpectralState &state) const override;
+  virtual EigenSupport::M3d compute_P(std::span<const double> param,
+    const SpectralState &state) const override;
+  virtual EigenSupport::M9d compute_dPdF(std::span<const double> param,
+    const SpectralState &state) const override;
 
   virtual int getNumParameters() const override { return numTotalParameters; }
-  virtual double compute_dpsi_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual double compute_d2psi_dparam2(const double *param, int i, int j, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual void compute_dP_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3], double *ret) const override;
+  virtual double compute_dpsi_dparam(std::span<const double> param, int i,
+    const SpectralState &state) const override;
+  virtual double compute_d2psi_dparam2(std::span<const double> param, int i, int j,
+    const SpectralState &state) const override;
+  virtual EigenSupport::M3d compute_dP_dparam(std::span<const double> param, int i,
+    const SpectralState &state) const override;
 
-  virtual void compute_d2PdF2(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double d3psi_dFiFjFk[729]) const override;
-  virtual void compute_d2Pdparam2(const double *param, int i, int j, const double F[9],
-    const double U[9], const double V[9], const double S[3], double d2p_dparam2[9]) const override;
-  virtual void compute_d2PdFdparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3], double d2P_dFdparam[81]) const override;
+  virtual void compute_d2PdF2(std::span<const double> param,
+    const SpectralState &state, EigenSupport::M81x9d &d2PdF2) const override;
+  virtual EigenSupport::M3d compute_d2Pdparam2(std::span<const double> param, int i, int j,
+    const SpectralState &state) const override;
+  virtual EigenSupport::M9d compute_d2PdFdparam(std::span<const double> param, int i,
+    const SpectralState &state) const override;
 
 protected:
   std::vector<std::unique_ptr<ElasticModel3DDeformationGradient>> owned_;
@@ -326,53 +306,39 @@ inline ElasticModelCombinedMaterial<-1>::ElasticModelCombinedMaterial(
   }
 }
 
-inline double ElasticModelCombinedMaterial<-1>::compute_psi(const double *param,
-  const double F[9], const double U[9], const double V[9], const double S[3]) const
+inline double ElasticModelCombinedMaterial<-1>::compute_psi(std::span<const double> param,
+  const SpectralState &state) const
 {
   double energy = 0;
   for (int i = 0; i < count; i++) {
-    energy += materials[i]->compute_psi(param + parameterOffsets[i], F, U, V, S);
+    energy += materials[i]->compute_psi(param.subspan(parameterOffsets[i], materials[i]->getNumParameters()), state);
   }
 
   return energy;
 }
 
-inline void ElasticModelCombinedMaterial<-1>::compute_P(const double *param,
-  const double F[9], const double U[9], const double V[9], const double S[3], double P[9]) const
+inline EigenSupport::M3d ElasticModelCombinedMaterial<-1>::compute_P(std::span<const double> param,
+  const SpectralState &state) const
 {
-  for (int i = 0; i < 9; i++) {
-    P[i] = 0;
-  }
-
+  EigenSupport::M3d P = EigenSupport::M3d::Zero();
   for (int i = 0; i < count; i++) {
-    double tempP[9];
-    materials[i]->compute_P(param + parameterOffsets[i], F, U, V, S, tempP);
-
-    for (int j = 0; j < 9; j++) {
-      P[j] += tempP[j];
-    }
+    P += materials[i]->compute_P(param.subspan(parameterOffsets[i], materials[i]->getNumParameters()), state);
   }
+  return P;
 }
 
-inline void ElasticModelCombinedMaterial<-1>::compute_dPdF(const double *param,
-  const double F[9], const double U[9], const double V[9], const double S[3], double dPdFOut[81]) const
+inline EigenSupport::M9d ElasticModelCombinedMaterial<-1>::compute_dPdF(std::span<const double> param,
+  const SpectralState &state) const
 {
-  for (int i = 0; i < 81; i++) {
-    dPdFOut[i] = 0;
-  }
-
+  EigenSupport::M9d dPdFOut = EigenSupport::M9d::Zero();
   for (int i = 0; i < count; i++) {
-    double tempdPdF[81];
-    materials[i]->compute_dPdF(param + parameterOffsets[i], F, U, V, S, tempdPdF);
-
-    for (int j = 0; j < 81; j++) {
-      dPdFOut[j] += tempdPdF[j];
-    }
+    dPdFOut += materials[i]->compute_dPdF(param.subspan(parameterOffsets[i], materials[i]->getNumParameters()), state);
   }
+  return dPdFOut;
 }
 
-inline double ElasticModelCombinedMaterial<-1>::compute_dpsi_dparam(const double *param, int i,
-  const double F[9], const double U[9], const double V[9], const double S[3]) const
+inline double ElasticModelCombinedMaterial<-1>::compute_dpsi_dparam(std::span<const double> param, int i,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -383,11 +349,11 @@ inline double ElasticModelCombinedMaterial<-1>::compute_dpsi_dparam(const double
   if (mi >= count)
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
-  return materials[mi]->compute_dpsi_dparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S);
+  return materials[mi]->compute_dpsi_dparam(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], state);
 }
 
-inline double ElasticModelCombinedMaterial<-1>::compute_d2psi_dparam2(const double *param, int i, int j,
-  const double F[9], const double U[9], const double V[9], const double S[3]) const
+inline double ElasticModelCombinedMaterial<-1>::compute_d2psi_dparam2(std::span<const double> param, int i, int j,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -412,12 +378,12 @@ inline double ElasticModelCombinedMaterial<-1>::compute_d2psi_dparam2(const doub
   if (mi != mj)
     return 0.0;
 
-  return materials[mi]->compute_d2psi_dparam2(param + parameterOffsets[mi], i - parameterOffsets[mi], j - parameterOffsets[mi],
-    F, U, V, S);
+  return materials[mi]->compute_d2psi_dparam2(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], j - parameterOffsets[mi],
+    state);
 }
 
-inline void ElasticModelCombinedMaterial<-1>::compute_dP_dparam(const double *param, int i,
-  const double F[9], const double U[9], const double V[9], const double S[3], double *ret) const
+inline EigenSupport::M3d ElasticModelCombinedMaterial<-1>::compute_dP_dparam(std::span<const double> param, int i,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -428,28 +394,22 @@ inline void ElasticModelCombinedMaterial<-1>::compute_dP_dparam(const double *pa
   if (mi >= count)
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
-  materials[mi]->compute_dP_dparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S, ret);
+  return materials[mi]->compute_dP_dparam(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], state);
 }
 
-inline void ElasticModelCombinedMaterial<-1>::compute_d2PdF2(const double *param, const double F[9],
-  const double U[9], const double V[9], const double S[3], double d3psi_dFiFjFk[729]) const
+inline void ElasticModelCombinedMaterial<-1>::compute_d2PdF2(std::span<const double> param,
+  const SpectralState &state, EigenSupport::M81x9d &d2PdF2) const
 {
-  for (int i = 0; i < 729; i++) {
-    d3psi_dFiFjFk[i] = 0;
-  }
-
+  d2PdF2.setZero();
   for (int i = 0; i < count; i++) {
-    double temp[729];
-    materials[i]->compute_d2PdF2(param + parameterOffsets[i], F, U, V, S, temp);
-
-    for (int j = 0; j < 729; j++) {
-      d3psi_dFiFjFk[j] += temp[j];
-    }
+    EigenSupport::M81x9d temp;
+    materials[i]->compute_d2PdF2(param.subspan(parameterOffsets[i], materials[i]->getNumParameters()), state, temp);
+    d2PdF2 += temp;
   }
 }
 
-inline void ElasticModelCombinedMaterial<-1>::compute_d2Pdparam2(const double *param, int i, int j, const double F[9],
-  const double U[9], const double V[9], const double S[3], double d2p_dparam2[9]) const
+inline EigenSupport::M3d ElasticModelCombinedMaterial<-1>::compute_d2Pdparam2(std::span<const double> param, int i, int j,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -457,8 +417,7 @@ inline void ElasticModelCombinedMaterial<-1>::compute_d2Pdparam2(const double *p
       break;
   }
 
-  for (int i = 0; i < 9; i++)
-    d2p_dparam2[i] = 0;
+  EigenSupport::M3d d2p_dparam2 = EigenSupport::M3d::Zero();
 
   if (mi >= count)
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
@@ -473,14 +432,14 @@ inline void ElasticModelCombinedMaterial<-1>::compute_d2Pdparam2(const double *p
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
   if (mi != mj)
-    return;
+    return d2p_dparam2;
 
-  materials[mi]->compute_d2Pdparam2(param + parameterOffsets[mi], i - parameterOffsets[mi], j - parameterOffsets[mi],
-    F, U, V, S, d2p_dparam2);
+  return materials[mi]->compute_d2Pdparam2(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], j - parameterOffsets[mi],
+    state);
 }
 
-inline void ElasticModelCombinedMaterial<-1>::compute_d2PdFdparam(const double *param, int i, const double F[9],
-  const double U[9], const double V[9], const double S[3], double d2P_dFdparam[81]) const
+inline EigenSupport::M9d ElasticModelCombinedMaterial<-1>::compute_d2PdFdparam(std::span<const double> param, int i,
+  const SpectralState &state) const
 {
   int mi = 0;
   for (; mi < count; mi++) {
@@ -491,7 +450,7 @@ inline void ElasticModelCombinedMaterial<-1>::compute_d2PdFdparam(const double *
   if (mi >= count)
     throw std::out_of_range("ElasticModelCombinedMaterial parameter index is out of range.");
 
-  materials[mi]->compute_d2PdFdparam(param + parameterOffsets[mi], i - parameterOffsets[mi], F, U, V, S, d2P_dFdparam);
+  return materials[mi]->compute_d2PdFdparam(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], state);
 }
 
 class StVKVolumeConfig final : public ElasticModelConfig

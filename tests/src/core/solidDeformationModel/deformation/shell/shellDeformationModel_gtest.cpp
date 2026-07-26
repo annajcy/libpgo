@@ -10,6 +10,8 @@
 
 #include <cmath>
 #include <algorithm>
+#include <functional>
+#include <span>
 #include <stdexcept>
 #include <utility>
 
@@ -19,15 +21,28 @@ using namespace pgo::SolidDeformationModel;
 namespace
 {
 
+template <typename Derived>
+std::span<const double> constSpan(const Eigen::MatrixBase<Derived> &values)
+{
+  return std::span<const double>(values.derived().data(),
+                                static_cast<size_t>(values.size()));
+}
+
+template <typename Derived>
+std::span<double> mutableSpan(Eigen::MatrixBase<Derived> &values)
+{
+  return std::span<double>(values.derived().data(),
+                           static_cast<size_t>(values.size()));
+}
+
 // Interior triangle: all 6 nodes present, slightly curved out of plane.
-const double interiorRestX[18] = {
+const ES::V18d interiorRestX = (ES::V18d() <<
   0.0, 0.0, 0.0,
   2.0, 0.0, 0.5,
   1.0, 1.5, -0.3,
-  -0.5, -0.2, 1.0,  // node 3
-  2.5, -0.1, 0.8,   // node 4
-  1.2, 2.0, 1.2,    // node 5
-};
+  -0.5, -0.2, 1.0,
+  2.5, -0.1, 0.8,
+  1.2, 2.0, 1.2).finished();
 
 void perturbedDisplacement(double *x, const double *rest, int n, double scale)
 {
@@ -60,7 +75,7 @@ TEST(ShellDeformationModelTest, InteriorEnergyFiniteAtRest)
 {
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
@@ -69,13 +84,13 @@ TEST(ShellDeformationModelTest, InteriorEnergyFiniteAtRest)
   const ES::VXd elasticParams = defaultShellElasticParams();
   const ES::VXd plasticParams = defaultShellPlasticParams();
   model.prepareData(
-    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
+    constSpan(interiorRestX), constSpan(elasticParams), constSpan(plasticParams), *cd);
 
-  double energy = model.computeEnergy(cd.get());
+  double energy = model.computeEnergy(*cd);
   EXPECT_TRUE(std::isfinite(energy));
 
   ES::V18d grad;
-  model.compute_dE_dx(cd.get(), grad.data());
+  model.compute_dE_dx(*cd, grad);
   for (int i = 0; i < 18; i++)
     EXPECT_TRUE(std::isfinite(grad[i]));
 }
@@ -86,7 +101,7 @@ TEST(ShellDeformationModelTest, ParameterizedModelRejectsMissingParameters)
     std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel =
     std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
   auto mapping =
     std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(
@@ -98,22 +113,22 @@ TEST(ShellDeformationModelTest, ParameterizedModelRejectsMissingParameters)
 
   EXPECT_THROW(
     model.prepareData(
-      interiorRestX, nullptr, plasticParams.data(), cd.get()),
+      constSpan(interiorRestX), std::span<const double>{}, constSpan(plasticParams), *cd),
     std::invalid_argument);
   EXPECT_THROW(
     model.prepareData(
-      interiorRestX, elasticParams.data(), nullptr, cd.get()),
+      constSpan(interiorRestX), constSpan(elasticParams), std::span<const double>{}, *cd),
     std::invalid_argument);
   EXPECT_NO_THROW(
     model.prepareData(
-      interiorRestX, elasticParams.data(), plasticParams.data(), cd.get()));
+      constSpan(interiorRestX), constSpan(elasticParams), constSpan(plasticParams), *cd));
 }
 
 TEST(ShellDeformationModelTest, ExplicitPlasticParametersInitializeRestMetric)
 {
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   const ES::M2d restI = mapping->restI();
@@ -125,7 +140,7 @@ TEST(ShellDeformationModelTest, ExplicitPlasticParametersInitializeRestMetric)
   const ES::VXd elasticParams = defaultShellElasticParams();
   const ES::VXd plasticParams = defaultShellPlasticParams();
   model.prepareData(
-    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
+    constSpan(interiorRestX), constSpan(elasticParams), constSpan(plasticParams), *cd);
 
   const auto *shellCache = static_cast<const ShellDeformationModelCacheData *>(cd.get());
   ASSERT_EQ(shellCache->numPlasticParams, 1);
@@ -143,7 +158,7 @@ TEST(ShellDeformationModelTest, BoundaryMissingNode4EnergyFinite)
 {
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, false, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, false, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
@@ -152,13 +167,13 @@ TEST(ShellDeformationModelTest, BoundaryMissingNode4EnergyFinite)
   const ES::VXd elasticParams = defaultShellElasticParams();
   const ES::VXd plasticParams = defaultShellPlasticParams();
   model.prepareData(
-    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
+    constSpan(interiorRestX), constSpan(elasticParams), constSpan(plasticParams), *cd);
 
-  double energy = model.computeEnergy(cd.get());
+  double energy = model.computeEnergy(*cd);
   EXPECT_TRUE(std::isfinite(energy));
 
   ES::V18d grad;
-  model.compute_dE_dx(cd.get(), grad.data());
+  model.compute_dE_dx(*cd, grad);
   for (int i = 0; i < 18; i++)
     EXPECT_TRUE(std::isfinite(grad[i]));
 }
@@ -171,7 +186,7 @@ TEST(ShellDeformationModelFDTest, GradientMatchesFiniteDifference)
 {
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
@@ -181,12 +196,12 @@ TEST(ShellDeformationModelFDTest, GradientMatchesFiniteDifference)
   const ES::VXd plasticParams = defaultShellPlasticParams();
 
   double x[18] = {};
-  perturbedDisplacement(x, interiorRestX, 18, 0.1);
+  perturbedDisplacement(x, interiorRestX.data(), 18, 0.1);
   model.prepareData(
-    x, elasticParams.data(), plasticParams.data(), cd.get());
+    x, constSpan(elasticParams), constSpan(plasticParams), *cd);
 
   ES::V18d g;
-  model.compute_dE_dx(cd.get(), g.data());
+  model.compute_dE_dx(*cd, g);
 
   const double eps = 1e-6;
   for (int i = 0; i < 18; i++) {
@@ -198,13 +213,13 @@ TEST(ShellDeformationModelFDTest, GradientMatchesFiniteDifference)
 
     auto cdP = model.allocateCacheData();
     model.prepareData(
-      xPlus, elasticParams.data(), plasticParams.data(), cdP.get());
-    double ePlus = model.computeEnergy(cdP.get());
+      xPlus, constSpan(elasticParams), constSpan(plasticParams), *cdP);
+    double ePlus = model.computeEnergy(*cdP);
 
     auto cdM = model.allocateCacheData();
     model.prepareData(
-      xMinus, elasticParams.data(), plasticParams.data(), cdM.get());
-    double eMinus = model.computeEnergy(cdM.get());
+      xMinus, constSpan(elasticParams), constSpan(plasticParams), *cdM);
+    double eMinus = model.computeEnergy(*cdM);
 
     double fdGrad = (ePlus - eMinus) / (2.0 * eps);
     EXPECT_NEAR(fdGrad, g[i], 1e-5) << "FD gradient mismatch at index " << i;
@@ -219,28 +234,28 @@ TEST(ShellDeformationModelFDTest, PlasticParameterGradientMatchesFiniteDifferenc
 
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   double x[18] = {};
-  perturbedDisplacement(x, interiorRestX, 18, 0.1);
+  perturbedDisplacement(x, interiorRestX.data(), 18, 0.1);
 
   auto energyAt = [&](double s) {
     ES::VXd params = plasticParams;
     params[0] = s;
     auto cd = model.allocateCacheData();
-    model.prepareData(x, elasticParams.data(), params.data(), cd.get());
-    return model.computeEnergy(cd.get());
+    model.prepareData(x, constSpan(elasticParams), constSpan(params), *cd);
+    return model.computeEnergy(*cd);
   };
 
   plasticParams[0] = 1.2;
   auto cd = model.allocateCacheData();
-  model.prepareData(x, elasticParams.data(), plasticParams.data(), cd.get());
+  model.prepareData(x, constSpan(elasticParams), constSpan(plasticParams), *cd);
 
-  double analytic[1] = {};
-  model.compute_dE_dp(cd.get(), analytic);
+  ES::VXd analytic(1);
+  model.compute_dE_dp(*cd, analytic);
 
   const double eps = 1e-6;
   const double fd = (energyAt(1.2 + eps) - energyAt(1.2 - eps)) / (2.0 * eps);
@@ -255,27 +270,27 @@ TEST(ShellDeformationModelFDTest, ElasticParameterGradientMatchesFiniteDifferenc
 
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   double x[18] = {};
-  perturbedDisplacement(x, interiorRestX, 18, 0.1);
+  perturbedDisplacement(x, interiorRestX.data(), 18, 0.1);
 
   auto energyAt = [&](int channel, double value) {
     ES::VXd params = elasticParams;
     params[channel] = value;
     auto cd = model.allocateCacheData();
-    model.prepareData(x, params.data(), plasticParams.data(), cd.get());
-    return model.computeEnergy(cd.get());
+    model.prepareData(x, constSpan(params), constSpan(plasticParams), *cd);
+    return model.computeEnergy(*cd);
   };
 
   auto cd = model.allocateCacheData();
-  model.prepareData(x, elasticParams.data(), plasticParams.data(), cd.get());
+  model.prepareData(x, constSpan(elasticParams), constSpan(plasticParams), *cd);
 
   ES::VXd analytic(5);
-  model.compute_dE_de(cd.get(), analytic.data());
+  model.compute_dE_de(*cd, analytic);
 
   for (int c = 0; c < 5; c++) {
     const double eps = 1e-6 * std::max(1.0, std::abs(elasticParams[c]));
@@ -299,16 +314,16 @@ TEST(ShellMaterialAnalyticDerivativeFDTest, STVKReferenceAndElasticParameterDeri
   bbar << 0.11, 0.03, 0.03, -0.08;
 
   auto psiAt = [&](const ES::VXd &p, const ES::M2d &A, const ES::M2d &B) {
-    return elastic.compute_psi_a(p.data(), a.data(), A.data()) +
-      elastic.compute_psi_b(p.data(), b.data(), A.data(), B.data());
+    return elastic.compute_psi_a(constSpan(p), a, A) +
+      elastic.compute_psi_b(constSpan(p), b, A, B);
   };
 
-  ES::V4d dpsiDabar;
-  ES::V4d dpsiDbbar;
+  const ES::M2d dpsiDabarMat = elastic.compute_dpsi_dabar(constSpan(params), a, b, abar, bbar);
+  const ES::M2d dpsiDbbarMat = elastic.compute_dpsi_dbbar(constSpan(params), a, b, abar, bbar);
+  const ES::V4d dpsiDabar = Eigen::Map<const ES::V4d>(dpsiDabarMat.data());
+  const ES::V4d dpsiDbbar = Eigen::Map<const ES::V4d>(dpsiDbbarMat.data());
   ES::VXd dpsiDparam(params.size());
-  elastic.compute_dpsi_dabar(params.data(), a.data(), b.data(), abar.data(), bbar.data(), dpsiDabar.data());
-  elastic.compute_dpsi_dbbar(params.data(), a.data(), b.data(), abar.data(), bbar.data(), dpsiDbbar.data());
-  elastic.compute_dpsi_dparam(params.data(), a.data(), b.data(), abar.data(), bbar.data(), dpsiDparam.data());
+  elastic.compute_dpsi_dparam(constSpan(params), a, b, abar, bbar, dpsiDparam);
 
   for (int i = 0; i < 4; i++) {
     const double h = 1e-6;
@@ -346,35 +361,35 @@ TEST(ShellDeformationModelFDTest, ParameterHessiansMatchFiniteDifferenceOfParame
 
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   double x[18] = {};
-  perturbedDisplacement(x, interiorRestX, 18, 0.1);
+  perturbedDisplacement(x, interiorRestX.data(), 18, 0.1);
 
   auto dE_dp_at = [&](const ES::VXd &elasticValues, const ES::VXd &plasticValues) {
     auto cd = model.allocateCacheData();
-    model.prepareData(x, elasticValues.data(), plasticValues.data(), cd.get());
+    model.prepareData(x, constSpan(elasticValues), constSpan(plasticValues), *cd);
     ES::VXd grad(1);
-    model.compute_dE_dp(cd.get(), grad.data());
+    model.compute_dE_dp(*cd, grad);
     return grad;
   };
 
   auto dE_de_at = [&](const ES::VXd &elasticValues, const ES::VXd &plasticValues) {
     auto cd = model.allocateCacheData();
-    model.prepareData(x, elasticValues.data(), plasticValues.data(), cd.get());
+    model.prepareData(x, constSpan(elasticValues), constSpan(plasticValues), *cd);
     ES::VXd grad(5);
-    model.compute_dE_de(cd.get(), grad.data());
+    model.compute_dE_de(*cd, grad);
     return grad;
   };
 
   auto cd = model.allocateCacheData();
-  model.prepareData(x, elasticParams.data(), plasticParams.data(), cd.get());
+  model.prepareData(x, constSpan(elasticParams), constSpan(plasticParams), *cd);
 
   ES::MXd d2daa(1, 1);
-  model.compute_d2E_dp2(cd.get(), d2daa.data());
+  model.compute_d2E_dp2(*cd, d2daa);
   const double plasticStep = 1e-6 * std::max(1.0, std::abs(plasticParams[0]));
   ES::VXd plasticPlus = plasticParams;
   ES::VXd plasticMinus = plasticParams;
@@ -387,7 +402,7 @@ TEST(ShellDeformationModelFDTest, ParameterHessiansMatchFiniteDifferenceOfParame
     2e-5 * std::max(1.0, std::abs(fdPlasticHessian)));
 
   ES::MXd d2dbb(5, 5);
-  model.compute_d2E_de2(cd.get(), d2dbb.data());
+  model.compute_d2E_de2(*cd, d2dbb);
   for (int col = 0; col < elasticParams.size(); col++) {
     const double step = 1e-6 * std::max(1.0, std::abs(elasticParams[col]));
     ES::VXd elasticPlus = elasticParams;
@@ -405,7 +420,7 @@ TEST(ShellDeformationModelFDTest, ParameterHessiansMatchFiniteDifferenceOfParame
   }
 
   ES::MXd d2dadb(1, 5);
-  model.compute_d2E_dpde(cd.get(), d2dadb.data());
+  model.compute_d2E_dpde(*cd, d2dadb);
   for (int col = 0; col < elasticParams.size(); col++) {
     const double step = 1e-6 * std::max(1.0, std::abs(elasticParams[col]));
     ES::VXd elasticPlus = elasticParams;
@@ -430,18 +445,18 @@ TEST(ShellDeformationModelTest, FabricParameterDerivativeRequiresAnalyticImpleme
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsFabric>(
     ES::V2d(1.0, 0.0), ES::V2d(0.0, 1.0));
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   double x[18] = {};
-  perturbedDisplacement(x, interiorRestX, 18, 0.1);
+  perturbedDisplacement(x, interiorRestX.data(), 18, 0.1);
   auto cd = model.allocateCacheData();
-  model.prepareData(x, elasticParams.data(), plasticParams.data(), cd.get());
+  model.prepareData(x, constSpan(elasticParams), constSpan(plasticParams), *cd);
 
   ES::VXd grad(elasticParams.size());
-  EXPECT_THROW(model.compute_dE_de(cd.get(), grad.data()), std::logic_error);
+  EXPECT_THROW(model.compute_dE_de(*cd, grad), std::logic_error);
 }
 
 TEST(ShellDeformationModelTest, UnsupportedDiagnosticsThrow)
@@ -455,7 +470,7 @@ TEST(ShellDeformationModelTest, UnsupportedDiagnosticsThrow)
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsFabric>(
     ES::V2d(1.0, 0.0), ES::V2d(0.0, 1.0));
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(
@@ -463,14 +478,14 @@ TEST(ShellDeformationModelTest, UnsupportedDiagnosticsThrow)
 
   auto cd = model.allocateCacheData();
   model.prepareData(
-    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
+    constSpan(interiorRestX), constSpan(elasticParams), constSpan(plasticParams), *cd);
 
   double value = 0.0;
   EXPECT_THROW(
-    model.computeVonMisesStress(cd.get(), &value, 1),
+    model.computeVonMisesStress(*cd, std::span<double>(&value, 1), 1),
     UnsupportedDeformationDiagnosticError);
   EXPECT_THROW(
-    model.computeMaxStrain(cd.get(), &value, 1),
+    model.computeMaxStrain(*cd, std::span<double>(&value, 1), 1),
     UnsupportedDeformationDiagnosticError);
 }
 
@@ -478,7 +493,7 @@ TEST(ShellDeformationModelTest, VonMisesDiagnosticEnforcesOutputCapacity)
 {
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(
@@ -488,13 +503,13 @@ TEST(ShellDeformationModelTest, VonMisesDiagnosticEnforcesOutputCapacity)
   const ES::VXd elasticParams = defaultShellElasticParams();
   const ES::VXd plasticParams = defaultShellPlasticParams();
   model.prepareData(
-    interiorRestX, elasticParams.data(), plasticParams.data(), cd.get());
+    constSpan(interiorRestX), constSpan(elasticParams), constSpan(plasticParams), *cd);
 
   double stress = -1.0;
-  EXPECT_EQ(model.computeVonMisesStress(cd.get(), &stress, 1), 1);
+  EXPECT_EQ(model.computeVonMisesStress(*cd, std::span<double>(&stress, 1), 1), 1);
   EXPECT_TRUE(std::isfinite(stress));
   EXPECT_THROW(
-    model.computeVonMisesStress(cd.get(), nullptr, 0),
+    model.computeVonMisesStress(*cd, std::span<double>{}, 0),
     std::length_error);
 }
 
@@ -506,7 +521,7 @@ TEST(ShellDeformationModelTest, SPDEnableProducesSymmetricPSD)
 {
   auto elasticModel = std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
   auto plasticModel = std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();
-  const bool hasVtx[6] = { true, true, true, true, true, true };
+  const std::array<bool, 6> hasVtx = {  true, true, true, true, true, true  };
 
   auto mapping = std::make_unique<KoiterShellElementMapping>(interiorRestX, hasVtx);
   ShellDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
@@ -516,17 +531,89 @@ TEST(ShellDeformationModelTest, SPDEnableProducesSymmetricPSD)
   const ES::VXd plasticParams = defaultShellPlasticParams();
 
   double x[18] = {};
-  perturbedDisplacement(x, interiorRestX, 18, 0.1);
+  perturbedDisplacement(x, interiorRestX.data(), 18, 0.1);
   model.prepareData(
-    x, elasticParams.data(), plasticParams.data(), cd.get());
+    x, constSpan(elasticParams), constSpan(plasticParams), *cd);
 
   model.setProjectHessianPSD(true);
   ES::M18d hess;
-  model.compute_d2E_dx2(cd.get(), hess.data());
+  model.compute_d2E_dx2(*cd, hess);
 
   // Check symmetry.
   for (int i = 0; i < 18; i++)
     for (int j = 0; j < i; j++)
       EXPECT_NEAR(hess(i, j), hess(j, i), 1e-10)
         << "SPD hessian asymmetry at (" << i << ", " << j << ")";
+}
+
+TEST(KoiterShellElementMappingTest, FundamentalFormJacobiansMatchFiniteDifference)
+{
+  const std::array<bool, 6> hasVtx = {true, true, true, true, true, true};
+  KoiterShellElementMapping mapping(interiorRestX, hasVtx);
+  ShellElementMapping::APositions triangle{
+    interiorRestX.segment<3>(0), interiorRestX.segment<3>(3), interiorRestX.segment<3>(6)};
+  ShellElementMapping::BPositions positions{
+    interiorRestX.segment<3>(0), interiorRestX.segment<3>(3), interiorRestX.segment<3>(6),
+    interiorRestX.segment<3>(9), interiorRestX.segment<3>(12), interiorRestX.segment<3>(15)};
+
+  const auto checkEntries = [](const ES::M4x9d &jacobian,
+    const std::array<ES::V3d, 3> &x, const std::function<ES::M2d(const std::array<ES::V3d, 3> &)> &evaluate) {
+    const double eps = 1e-7;
+    const std::array<int, 4> entryIndex = {0, 2, 1, 3};
+    for (int dof = 0; dof < 9; ++dof) {
+      auto plus = x;
+      auto minus = x;
+      plus[dof / 3][dof % 3] += eps;
+      minus[dof / 3][dof % 3] -= eps;
+      const ES::M2d fdForm = (evaluate(plus) - evaluate(minus)) / (2.0 * eps);
+      for (int row = 0; row < 4; ++row)
+        EXPECT_NEAR(fdForm.data()[entryIndex[row]], jacobian(row, dof), 1e-6);
+    }
+  };
+
+  const ES::M4x9d da = mapping.compute_da_dx(triangle);
+  checkEntries(da, triangle, [&mapping](const ShellElementMapping::APositions &x) {
+    return mapping.compute_a(x);
+  });
+  const ES::M9x36d d2a = mapping.compute_d2a_dx2(triangle);
+  for (int parameter = 0; parameter < 9; ++parameter) {
+    auto plus = triangle;
+    auto minus = triangle;
+    plus[parameter / 3][parameter % 3] += 1e-6;
+    minus[parameter / 3][parameter % 3] -= 1e-6;
+    const ES::M4x9d fdJacobian =
+      (mapping.compute_da_dx(plus) - mapping.compute_da_dx(minus)) / 2e-6;
+    for (int entry = 0; entry < 4; ++entry)
+      for (int dof = 0; dof < 9; ++dof) {
+        const double analytic = d2a.block<9, 9>(0, 9 * entry)(dof, parameter);
+        EXPECT_NEAR(fdJacobian(entry, dof), analytic, 1e-5);
+      }
+  }
+
+  const ES::M4x18d db = mapping.compute_db_dx(positions);
+  const ES::M18x72d d2b = mapping.compute_d2b_dx2(positions);
+  const double eps = 1e-7;
+  const std::array<int, 4> entryIndex = {0, 2, 1, 3};
+  for (int dof = 0; dof < 18; ++dof) {
+    auto plus = positions;
+    auto minus = positions;
+    plus[dof / 3][dof % 3] += eps;
+    minus[dof / 3][dof % 3] -= eps;
+    const ES::M2d fdForm = (mapping.compute_b(plus) - mapping.compute_b(minus)) / (2.0 * eps);
+    for (int row = 0; row < 4; ++row)
+      EXPECT_NEAR(fdForm.data()[entryIndex[row]], db(row, dof), 1e-5);
+  }
+  for (int parameter = 0; parameter < 18; ++parameter) {
+    auto plus = positions;
+    auto minus = positions;
+    plus[parameter / 3][parameter % 3] += 1e-6;
+    minus[parameter / 3][parameter % 3] -= 1e-6;
+    const ES::M4x18d fdJacobian =
+      (mapping.compute_db_dx(plus) - mapping.compute_db_dx(minus)) / 2e-6;
+    for (int entry = 0; entry < 4; ++entry)
+      for (int dof = 0; dof < 18; ++dof) {
+        const double analytic = d2b.block<18, 18>(0, 18 * entry)(dof, parameter);
+        EXPECT_NEAR(fdJacobian(entry, dof), analytic, 5e-4);
+      }
+  }
 }

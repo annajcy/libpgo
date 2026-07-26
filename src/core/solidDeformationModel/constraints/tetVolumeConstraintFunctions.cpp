@@ -14,19 +14,23 @@ copyright to USC,MIT,NUS
 #include "EigenSupport.h"
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
+#include <span>
+#include <stdexcept>
 
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(const SimulationMesh *tm, int nAll, const ES::VXd *rp, const ES::M3Xd *DmInvIn):
-  NonlinearOptimization::ConstraintFunctions(nAll)
+TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(
+  const SimulationMesh &tm, int nAll,
+  std::optional<std::reference_wrapper<const ES::VXd>> rp,
+  std::optional<std::reference_wrapper<const ES::M3Xd>> DmInvIn):
+  NonlinearOptimization::ConstraintFunctions(nAll), tetMesh(tm), restPosition(rp)
 {
-  tetMesh = tm;
-  nele = tetMesh->getNumElements();
+  nele = tetMesh.getNumElements();
 
   if (DmInvIn) {
-    setDmInv(*DmInvIn);
+    setDmInv(DmInvIn->get());
   }
   else {
     DmInv.resize(3, nele * 3);
@@ -38,24 +42,22 @@ TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(const SimulationMesh 
     for (int ei = 0; ei < nele; ei++) {
       ES::V12d xlocal;
       for (int i = 0; i < 4; i++) {
-        tetMesh->getVertex(ei, i, xlocal.data() + i * 3);
+        xlocal.segment<3>(i * 3) = tetMesh.getVertex(ei, i);
       }
-      VolumetricElementMapping mapping(xlocal.data(), tetBasis, tetQuad);
+      VolumetricElementMapping mapping(
+        std::span<const double>(xlocal.data(), static_cast<std::size_t>(xlocal.size())),
+        tetBasis, tetQuad);
       DmInv.block<3, 3>(0, ei * 3) = mapping.restDmInv(0);
       dFdx[ei] = mapping.rest_dFdx(0);
     }
   }
 
-  if (rp) {
-    restPosition = rp;
-  }
-
   std::vector<ES::TripletD> entries;
   for (int ei = 0; ei < nele; ei++) {
     for (int i = 0; i < 4; i++) {
-      entries.emplace_back(ei, tetMesh->getVertexIndex(ei, i) * 3, 1.0);
-      entries.emplace_back(ei, tetMesh->getVertexIndex(ei, i) * 3 + 1, 1.0);
-      entries.emplace_back(ei, tetMesh->getVertexIndex(ei, i) * 3 + 2, 1.0);
+      entries.emplace_back(ei, tetMesh.getVertexIndex(ei, i) * 3, 1.0);
+      entries.emplace_back(ei, tetMesh.getVertexIndex(ei, i) * 3 + 1, 1.0);
+      entries.emplace_back(ei, tetMesh.getVertexIndex(ei, i) * 3 + 2, 1.0);
     }
   }
   jacobianTemplate.resize(nele, nAll);
@@ -67,7 +69,7 @@ TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(const SimulationMesh 
       for (int j = 0; j < 4; j++) {
         for (int k = 0; k < 3; k++) {
           for (int l = 0; l < 3; l++) {
-            entries.emplace_back(tetMesh->getVertexIndex(ei, i) * 3 + k, tetMesh->getVertexIndex(ei, j) * 3 + l, 1.0);
+            entries.emplace_back(tetMesh.getVertexIndex(ei, i) * 3 + k, tetMesh.getVertexIndex(ei, j) * 3 + l, 1.0);
           }
         }
       }
@@ -80,7 +82,7 @@ TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(const SimulationMesh 
   for (int ei = 0; ei < nele; ei++) {
     JacIndex idx;
     for (int i = 0; i < 4; i++) {
-      idx[i] = ES::findEntryOffset(jacobianTemplate, ei, tetMesh->getVertexIndex(ei, i) * 3);
+      idx[i] = ES::findEntryOffset(jacobianTemplate, ei, tetMesh.getVertexIndex(ei, i) * 3);
       PGO_ALOG(idx[i] >= 0);
     }
     jacobianIndices[ei] = idx;
@@ -94,8 +96,8 @@ TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(const SimulationMesh 
       for (int j = 0; j < 4; j++) {
         for (int k = 0; k < 3; k++) {
           for (int l = 0; l < 3; l++) {
-            int row = tetMesh->getVertexIndex(ei, i) * 3 + k;
-            int col = tetMesh->getVertexIndex(ei, j) * 3 + l;
+            int row = tetMesh.getVertexIndex(ei, i) * 3 + k;
+            int col = tetMesh.getVertexIndex(ei, j) * 3 + l;
 
             int localRow = i * 3 + k;
             int localCol = j * 3 + l;
@@ -116,11 +118,18 @@ TetVolumeConstraintFunctions::~TetVolumeConstraintFunctions()
 {
 }
 
+void TetVolumeConstraintFunctions::setElementFlags(std::span<const int> flags)
+{
+  if (flags.size() != static_cast<std::size_t>(nele))
+    throw std::invalid_argument("Tet volume element flags have unexpected size.");
+  elementFlags.assign(flags.begin(), flags.end());
+}
+
 void TetVolumeConstraintFunctions::setDmInv(const ES::M3Xd &DmInv_)
 {
   DmInv = DmInv_;
   for (int ei = 0; ei < nele; ei++) {
-    tetLinearComputeDFDx(DmInv.data() + ei * 9, dFdx[ei].data());
+    dFdx[ei] = tetLinearComputeDFDx(DmInv.block<3, 3>(0, ei * 3));
   }
 }
 
@@ -133,11 +142,11 @@ void TetVolumeConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) con
       return;
     }
 
-    const int *vertexIndices = tetMesh->getVertexIndices(ei);
+    const std::span<const int> vertexIndices = tetMesh.getVertexIndices(ei);
     ES::V12d xlocal;
     if (restPosition) {
       for (int i = 0; i < 4; i++) {
-        xlocal.segment<3>(i * 3) = restPosition->segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
+        xlocal.segment<3>(i * 3) = restPosition->get().segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
       }
     }
     else {
@@ -146,8 +155,7 @@ void TetVolumeConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) con
       }
     }
 
-    ES::M3d Ds;
-    tetLinearComputeDs(xlocal.data(), Ds.data());
+    const ES::M3d Ds = tetLinearComputeDs(xlocal);
 
     ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
     ES::M3d F = Ds * DmInvLocal;
@@ -170,12 +178,12 @@ void TetVolumeConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac
       return;
     }
 
-    const int *vertexIndices = tetMesh->getVertexIndices(ei);
+    const std::span<const int> vertexIndices = tetMesh.getVertexIndices(ei);
 
     ES::V12d xlocal;
     if (restPosition) {
       for (int i = 0; i < 4; i++) {
-        xlocal.segment<3>(i * 3) = restPosition->segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
+        xlocal.segment<3>(i * 3) = restPosition->get().segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
       }
     }
     else {
@@ -184,8 +192,7 @@ void TetVolumeConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac
       }
     }
 
-    ES::M3d Ds;
-    tetLinearComputeDs(xlocal.data(), Ds.data());
+    const ES::M3d Ds = tetLinearComputeDs(xlocal);
 
     ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
 
@@ -215,12 +222,12 @@ void TetVolumeConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::Const
     if (elementFlags[ei] == 0)
       return;
 
-    const int *vertexIndices = tetMesh->getVertexIndices(ei);
+    const std::span<const int> vertexIndices = tetMesh.getVertexIndices(ei);
 
     ES::V12d xlocal;
     if (restPosition) {
       for (int i = 0; i < 4; i++) {
-        xlocal.segment<3>(i * 3) = restPosition->segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
+        xlocal.segment<3>(i * 3) = restPosition->get().segment<3>(vertexIndices[i] * 3) + x.segment<3>(vertexIndices[i] * 3);
       }
     }
     else {
@@ -229,8 +236,7 @@ void TetVolumeConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::Const
       }
     }
 
-    ES::M3d Ds;
-    tetLinearComputeDs(xlocal.data(), Ds.data());
+    const ES::M3d Ds = tetLinearComputeDs(xlocal);
 
     ES::M3d DmInvLocal = DmInv.block<3, 3>(0, ei * 3);
 

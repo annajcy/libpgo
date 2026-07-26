@@ -19,14 +19,14 @@ public:
 
   int getNumParameters() const override { return 0; }
 
-  virtual double compute_psi(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual void compute_P(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double P[9]) const override;
-  virtual void compute_dPdF(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double dPdFOut[81]) const override;
-  void compute_dPdF_psd(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double dPdFOut[81]) const override;
+  double compute_psi(std::span<const double> param,
+    const SpectralState &state) const override;
+  EigenSupport::M3d compute_P(std::span<const double> param,
+    const SpectralState &state) const override;
+  EigenSupport::M9d compute_dPdF(std::span<const double> param,
+    const SpectralState &state) const override;
+  EigenSupport::M9d compute_dPdF_psd(std::span<const double> param,
+    const SpectralState &state) const override;
 
   void setMaterial(double mu_, double lambda_);
 
@@ -34,9 +34,8 @@ protected:
   double _mu, _lambda, _ratio;
 
 private:
-  void compute_dPdF_impl(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3],
-    double dPdFOut[81], bool project) const;
+  EigenSupport::M9d compute_dPdF_impl(std::span<const double> param,
+    const SpectralState &state, bool project) const;
 };
 class StableNeoConfig final : public ElasticModelConfig
 {

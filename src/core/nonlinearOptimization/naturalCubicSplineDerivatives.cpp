@@ -7,18 +7,62 @@ copyright to USC
 
 #include "pgoLogging.h"
 
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+
 using namespace pgo::NonlinearOptimization;
+namespace ES = pgo::EigenSupport;
 
-NaturalCubicSpline2DWithParameterDerivatives::NaturalCubicSpline2DWithParameterDerivatives(int numPoints, const double *xValues, const double *yValues)
+NaturalCubicSpline2DWithParameterDerivatives::NaturalCubicSpline2DWithParameterDerivatives(
+  ES::ConstRefVecXd xValues)
 {
-  n = numPoints;
-  xNodeValue = ES::Mp<const ES::VXd>(xValues, n);
+  ES::VXd noYValues;
+  initialize(xValues, noYValues, false);
+  buildSystem();
+}
 
-  if (yValues)
-    yNodeValue = ES::Mp<const ES::VXd>(yValues, n);
-  else
+NaturalCubicSpline2DWithParameterDerivatives::NaturalCubicSpline2DWithParameterDerivatives(
+  ES::ConstRefVecXd xValues, ES::ConstRefVecXd yValues)
+{
+  initialize(xValues, yValues, true);
+  buildSystem();
+}
+
+void NaturalCubicSpline2DWithParameterDerivatives::initialize(
+  ES::ConstRefVecXd xValues, ES::ConstRefVecXd yValues, bool hasYValues)
+{
+  if (xValues.size() < 2)
+    throw std::invalid_argument("NaturalCubicSpline requires at least two x knots");
+  if (!xValues.allFinite())
+    throw std::invalid_argument("NaturalCubicSpline x knots must be finite");
+  for (Eigen::Index i = 1; i < xValues.size(); ++i) {
+    if (!(xValues[i] > xValues[i - 1]))
+      throw std::invalid_argument("NaturalCubicSpline x knots must be strictly increasing");
+  }
+
+  n = static_cast<int>(xValues.size());
+  xNodeValue = xValues;
+
+  if (hasYValues) {
+    validateYValues(yValues);
+    yNodeValue = yValues;
+  }
+  else {
     yNodeValue.setZero(n);
+  }
+}
 
+void NaturalCubicSpline2DWithParameterDerivatives::validateYValues(ES::ConstRefVecXd yValues) const
+{
+  if (yValues.size() != n)
+    throw std::invalid_argument("NaturalCubicSpline y values must match the x knot count");
+  if (!yValues.allFinite())
+    throw std::invalid_argument("NaturalCubicSpline y values must be finite");
+}
+
+void NaturalCubicSpline2DWithParameterDerivatives::buildSystem()
+{
   A.setZero(4 * n - 4, 4 * n - 4);
   rhs.setZero(4 * n - 4);
 
@@ -98,16 +142,33 @@ NaturalCubicSpline2DWithParameterDerivatives::NaturalCubicSpline2DWithParameterD
   AInv = A.fullPivHouseholderQr().inverse();
 }
 
-double NaturalCubicSpline2DWithParameterDerivatives::y(double x, const double *yValues) const
+namespace
 {
-  const double *yValuePtr = yNodeValue.data();
-  if (yValues) {
-    yValuePtr = yValues;
-  }
+inline void validateSplineQuery(double x)
+{
+  if (!std::isfinite(x))
+    throw std::invalid_argument("NaturalCubicSpline query must be finite");
+}
+
+inline ES::V4d splineCoefficients(const ES::MXd &AInv, int n, int interval, ES::ConstRefVecXd yValues)
+{
+  return AInv.middleRows<4>(interval * 4).leftCols(n) * yValues;
+}
+}  // namespace
+
+double NaturalCubicSpline2DWithParameterDerivatives::y(double x) const
+{
+  return y(x, yNodeValue);
+}
+
+double NaturalCubicSpline2DWithParameterDerivatives::y(double x, ES::ConstRefVecXd yValues) const
+{
+  validateSplineQuery(x);
+  validateYValues(yValues);
 
   // if x is left outside of the spline
   if (x < xNodeValue[0]) {
-    ES::V4d coeff = AInv.topRows<4>().leftCols(n) * ES::Mp<const ES::VXd>(yValuePtr, n);
+    ES::V4d coeff = splineCoefficients(AInv, n, 0, yValues);
 
     // (x - x0) / (x1 - x0) * (t1 - t0) = t
     // dt/dx = (t1 - t0) / (x1 - x0)
@@ -116,17 +177,17 @@ double NaturalCubicSpline2DWithParameterDerivatives::y(double x, const double *y
     double k = coeff[2] / (xNodeValue[1] - xNodeValue[0]);
 
     // k x0 + b = y0
-    double b = yValuePtr[0] - k * xNodeValue[0];
+    double b = yValues[0] - k * xNodeValue[0];
 
     return k * x + b;
   }
   else if (x > xNodeValue[n - 1]) {
-    ES::V4d coeff = AInv.bottomRows<4>().leftCols(n) * ES::Mp<const ES::VXd>(yValuePtr, n);
+    ES::V4d coeff = splineCoefficients(AInv, n, n - 2, yValues);
 
     double k = (3 * coeff[0] + 2 * coeff[1] + coeff[2]) / (xNodeValue[n - 1] - xNodeValue[n - 2]);
 
     // k x0 + b = y0
-    double b = yValuePtr[n - 1] - k * xNodeValue[n - 1];
+    double b = yValues[n - 1] - k * xNodeValue[n - 1];
 
     return k * x + b;
   }
@@ -137,7 +198,7 @@ double NaturalCubicSpline2DWithParameterDerivatives::y(double x, const double *y
     if (i == xNodeValue.size())
       i--;
 
-    ES::V4d coeff = AInv.middleRows<4>((i - 1) * 4).leftCols(n) * ES::Mp<const ES::VXd>(yValuePtr, n);
+    ES::V4d coeff = splineCoefficients(AInv, n, static_cast<int>(i - 1), yValues);
 
     double x0 = xNodeValue[i - 1];
     double x1 = xNodeValue[i];
@@ -147,16 +208,19 @@ double NaturalCubicSpline2DWithParameterDerivatives::y(double x, const double *y
   }
 }
 
-double NaturalCubicSpline2DWithParameterDerivatives::dy_dx(double x, const double *yValues) const
+double NaturalCubicSpline2DWithParameterDerivatives::dy_dx(double x) const
 {
-  const double *yValuePtr = yNodeValue.data();
-  if (yValues) {
-    yValuePtr = yValues;
-  }
+  return dy_dx(x, yNodeValue);
+}
+
+double NaturalCubicSpline2DWithParameterDerivatives::dy_dx(double x, ES::ConstRefVecXd yValues) const
+{
+  validateSplineQuery(x);
+  validateYValues(yValues);
 
   // if x is left outside of the spline
   if (x < xNodeValue[0]) {
-    ES::V4d coeff = AInv.topRows<4>().leftCols(n) * ES::Mp<const ES::VXd>(yValuePtr, n);
+    ES::V4d coeff = splineCoefficients(AInv, n, 0, yValues);
 
     // (x - x0) / (x1 - x0) * (t1 - t0) = t
     // dt/dx = (t1 - t0) / (x1 - x0)
@@ -166,7 +230,7 @@ double NaturalCubicSpline2DWithParameterDerivatives::dy_dx(double x, const doubl
     return k;
   }
   else if (x > xNodeValue[n - 1]) {
-    ES::V4d coeff = AInv.bottomRows<4>().leftCols(n) * ES::Mp<const ES::VXd>(yValuePtr, n);
+    ES::V4d coeff = splineCoefficients(AInv, n, n - 2, yValues);
 
     double k = (3 * coeff[0] + 2 * coeff[1] + coeff[2]) / (xNodeValue[n - 1] - xNodeValue[n - 2]);
     return k;
@@ -178,7 +242,7 @@ double NaturalCubicSpline2DWithParameterDerivatives::dy_dx(double x, const doubl
     if (i == xNodeValue.size())
       i--;
 
-    ES::V4d coeff = AInv.middleRows<4>((i - 1) * 4).leftCols(n) * ES::Mp<const ES::VXd>(yValuePtr, n);
+    ES::V4d coeff = splineCoefficients(AInv, n, static_cast<int>(i - 1), yValues);
 
     double x0 = xNodeValue[i - 1];
     double x1 = xNodeValue[i];
@@ -188,12 +252,15 @@ double NaturalCubicSpline2DWithParameterDerivatives::dy_dx(double x, const doubl
   }
 }
 
-double NaturalCubicSpline2DWithParameterDerivatives::d2y_dx2(double x, const double *yValues) const
+double NaturalCubicSpline2DWithParameterDerivatives::d2y_dx2(double x) const
 {
-  const double *yValuePtr = yNodeValue.data();
-  if (yValues) {
-    yValuePtr = yValues;
-  }
+  return d2y_dx2(x, yNodeValue);
+}
+
+double NaturalCubicSpline2DWithParameterDerivatives::d2y_dx2(double x, ES::ConstRefVecXd yValues) const
+{
+  validateSplineQuery(x);
+  validateYValues(yValues);
 
   // if x is left outside of the spline
   if (x < xNodeValue[0]) {
@@ -209,7 +276,7 @@ double NaturalCubicSpline2DWithParameterDerivatives::d2y_dx2(double x, const dou
     if (i == xNodeValue.size())
       i--;
 
-    ES::V4d coeff = AInv.middleRows<4>((i - 1) * 4).leftCols(n) * ES::Mp<const ES::VXd>(yValuePtr, n);
+    ES::V4d coeff = splineCoefficients(AInv, n, static_cast<int>(i - 1), yValues);
 
     double x0 = xNodeValue[i - 1];
     double x1 = xNodeValue[i];
@@ -219,16 +286,18 @@ double NaturalCubicSpline2DWithParameterDerivatives::d2y_dx2(double x, const dou
   }
 }
 
-void NaturalCubicSpline2DWithParameterDerivatives::dy_dparam(double x, const double *yValues, double *dparam) const
+void NaturalCubicSpline2DWithParameterDerivatives::dy_dparam(double x, ES::RefVecXd dparam) const
 {
-  (void)yValues;
+  validateSplineQuery(x);
+  if (dparam.size() != n)
+    throw std::invalid_argument("NaturalCubicSpline parameter gradient has the wrong size");
 
   // if x is left outside of the spline
   if (x < xNodeValue[0]) {
     ES::V4d dk_dabcd(0.0, 0.0, 1.0, 0.0);
     ES::V4d coeff = dk_dabcd * (x - xNodeValue[0]) / (xNodeValue[1] - xNodeValue[0]);
 
-    (ES::Mp<ES::VXd>(dparam, n)) = AInv.block(0, 0, 4, n).transpose() * coeff;
+    dparam = AInv.block(0, 0, 4, n).transpose() * coeff;
     dparam[0] += 1;
   }
   else if (x > xNodeValue[n - 1]) {
@@ -238,7 +307,7 @@ void NaturalCubicSpline2DWithParameterDerivatives::dy_dparam(double x, const dou
     ES::V4d dk_dabcd(3.0, 2.0, 1.0, 0.0);
     ES::V4d coeff = dk_dabcd * (x - x1) / (x1 - x0);
 
-    (ES::Mp<ES::VXd>(dparam, n)) = AInv.block((n - 2) * 4, 0, 4, n).transpose() * coeff;
+    dparam = AInv.block((n - 2) * 4, 0, 4, n).transpose() * coeff;
     dparam[n - 1] += 1;
 
     // k x0 + b = y0
@@ -257,28 +326,30 @@ void NaturalCubicSpline2DWithParameterDerivatives::dy_dparam(double x, const dou
 
     ES::V4d coeff(t * t * t, t * t, t, 1);
 
-    (ES::Mp<ES::VXd>(dparam, n)) = AInv.block((i - 1) * 4, 0, 4, n).transpose() * coeff;
+    dparam = AInv.block((i - 1) * 4, 0, 4, n).transpose() * coeff;
   }
 }
 
-void NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam2(double x, const double *yValues, double *dparam) const
+void NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam2(double x, ES::RefMatXd dparam) const
 {
   (void)x;
-  (void)yValues;
-
-  (ES::Mp<ES::MXd>(dparam, n, n)).setZero();
+  if (dparam.rows() != n || dparam.cols() != n)
+    throw std::invalid_argument("NaturalCubicSpline parameter Hessian has the wrong size");
+  dparam.setZero();
 }
 
-void NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam_dx(double x, const double *yValues, double *dparam) const
+void NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam_dx(double x, ES::RefVecXd dparam) const
 {
-  (void)yValues;
+  validateSplineQuery(x);
+  if (dparam.size() != n)
+    throw std::invalid_argument("NaturalCubicSpline mixed parameter derivative has the wrong size");
 
   // if x is left outside of the spline
   if (x < xNodeValue[0]) {
     ES::V4d dk_dabcd(0.0, 0.0, 1.0, 0.0);
     ES::V4d coeff = dk_dabcd / (xNodeValue[1] - xNodeValue[0]);
 
-    (ES::Mp<ES::VXd>(dparam, n)) = AInv.block(0, 0, 4, n).transpose() * coeff;
+    dparam = AInv.block(0, 0, 4, n).transpose() * coeff;
   }
   else if (x > xNodeValue[n - 1]) {
     double x0 = xNodeValue[n - 2];
@@ -287,7 +358,7 @@ void NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam_dx(double x, const
     ES::V4d dk_dabcd(3.0, 2.0, 1.0, 0.0);
     ES::V4d coeff = dk_dabcd / (x1 - x0);
 
-    (ES::Mp<ES::VXd>(dparam, n)) = AInv.block((n - 2) * 4, 0, 4, n).transpose() * coeff;
+    dparam = AInv.block((n - 2) * 4, 0, 4, n).transpose() * coeff;
   }
   else {
     auto iter = std::upper_bound(xNodeValue.data(), xNodeValue.data() + xNodeValue.size(), x);
@@ -303,12 +374,15 @@ void NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam_dx(double x, const
     ES::V4d coeff(3 * t * t, 2 * t, 1, 0);
     coeff /= (x1 - x0);
 
-    (ES::Mp<ES::VXd>(dparam, n)) = AInv.block((i - 1) * 4, 0, 4, n).transpose() * coeff;
+    dparam = AInv.block((i - 1) * 4, 0, 4, n).transpose() * coeff;
   }
 }
 
-double NaturalCubicSpline2DWithParameterDerivatives::dy_dparam(double x, const double *, int parami) const
+double NaturalCubicSpline2DWithParameterDerivatives::dy_dparam(double x, int parami) const
 {
+  validateSplineQuery(x);
+  if (parami < 0 || parami >= n)
+    throw std::out_of_range("NaturalCubicSpline parameter index is out of range");
   // if x is left outside of the spline
   if (x < xNodeValue[0]) {
     ES::V4d dk_dabcd(0.0, 0.0, 1.0, 0.0);
@@ -352,13 +426,19 @@ double NaturalCubicSpline2DWithParameterDerivatives::dy_dparam(double x, const d
   }
 }
 
-double NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam2(double, const double *, int, int) const
+double NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam2(double x, int parami, int paramj) const
 {
+  validateSplineQuery(x);
+  if (parami < 0 || parami >= n || paramj < 0 || paramj >= n)
+    throw std::out_of_range("NaturalCubicSpline parameter index is out of range");
   return 0;
 }
 
-double NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam_dx(double x, const double *, int parami) const
+double NaturalCubicSpline2DWithParameterDerivatives::d2y_dparam_dx(double x, int parami) const
 {
+  validateSplineQuery(x);
+  if (parami < 0 || parami >= n)
+    throw std::out_of_range("NaturalCubicSpline parameter index is out of range");
   // if x is left outside of the spline
   if (x < xNodeValue[0]) {
     ES::V4d dk_dabcd(0.0, 0.0, 1.0, 0.0);

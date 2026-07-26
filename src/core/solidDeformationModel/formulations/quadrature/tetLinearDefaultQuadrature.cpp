@@ -5,11 +5,9 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-void TetLinearDefaultQuadrature::point(int, double xi[3]) const
+EigenSupport::V3d TetLinearDefaultQuadrature::point(int) const
 {
-  xi[0] = 0.25;
-  xi[1] = 0.25;
-  xi[2] = 0.25;
+  return EigenSupport::V3d::Constant(0.25);
 }
 
 double TetLinearDefaultQuadrature::weight(int) const

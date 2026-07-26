@@ -19,40 +19,46 @@ public:
     double optimalLengthRatio, const EigenSupport::V3d &fiberDirection);
   virtual ~ElasticModelHillTypeMaterial() {}
 
-  virtual double compute_psi(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual void compute_P(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double P[9]) const override;
-  virtual void compute_dPdF(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double dPdFOut[81]) const override;
+  double compute_psi(std::span<const double> param,
+    const SpectralState &state) const override;
+  EigenSupport::M3d compute_P(std::span<const double> param,
+    const SpectralState &state) const override;
+  EigenSupport::M9d compute_dPdF(std::span<const double> param,
+    const SpectralState &state) const override;
 
   virtual int getNumParameters() const override { return 1; }
-  virtual double compute_dpsi_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual double compute_d2psi_dparam2(const double *param, int i, int j, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const override;
-  virtual void compute_dP_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3], double *ret) const override;
+  double compute_dpsi_dparam(std::span<const double> param, int i,
+    const SpectralState &state) const override;
+  double compute_d2psi_dparam2(std::span<const double> param, int i, int j,
+    const SpectralState &state) const override;
+  EigenSupport::M3d compute_dP_dparam(std::span<const double> param, int i,
+    const SpectralState &state) const override;
 
   EigenSupport::V3d primaryAxis() const
   {
-    return Eigen::Map<const EigenSupport::V3d>(fiberDirection);
+    return fiberDirection;
   }
 
 protected:
-  double compute_length(const double F[9], double Fd[] = nullptr) const;
-  void compute_dldF(const double F[9], const double Fd[], double dldF[9]) const;
-  void compute_d2ldF2(const double F[9], const double Fd[], double d2ldF2[81]) const;
+  struct LengthResult
+  {
+    double value = 0.0;
+    EigenSupport::V3d deformedFiber = EigenSupport::V3d::Zero();
+  };
+
+  LengthResult compute_length(const EigenSupport::M3d &F) const;
+  EigenSupport::M3d compute_dldF(const EigenSupport::V3d &Fd) const;
+  EigenSupport::M9d compute_d2ldF2(const EigenSupport::V3d &Fd) const;
 
   double gamma;
   double maxf;
   double lo;
-  double fiberDirection[3];
+  EigenSupport::V3d fiberDirection;
 
   double sqrt_gamma;
   double erf_sqrt_gamma;
   double sqrt_pi;
-  double dFddT_dF[81];
+  EigenSupport::M9d dFddT_dF;
 
 };
 

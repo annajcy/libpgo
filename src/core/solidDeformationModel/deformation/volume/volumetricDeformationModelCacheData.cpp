@@ -30,10 +30,7 @@ VolumetricDeformationModelCacheData::VolumetricDeformationModelCacheData(
   }
 
   Fref.resize(numQuadPts, ES::M3d::Zero());
-  Fe.resize(numQuadPts, ES::M3d::Zero());
-  U.resize(numQuadPts, ES::M3d::Zero());
-  V.resize(numQuadPts, ES::M3d::Zero());
-  S.resize(numQuadPts, ES::V3d::Zero());
+  spectralState.resize(numQuadPts);
 
   dFdx.resize(numQuadPts);
   Bm.resize(numQuadPts);

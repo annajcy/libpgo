@@ -160,7 +160,7 @@ nb::ndarray<nb::numpy, double> PyDeformationEnergy::elementVonMisesStresses(
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
-  const int nele = energy_->assembler().getDeformationModelManager().getMesh()->getNumElements();
+  const int nele = energy_->assembler().getDeformationModelManager().getMesh().getNumElements();
   EigenSupport::VXd out = EigenSupport::VXd::Zero(nele);
   try {
     nb::gil_scoped_release release;

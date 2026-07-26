@@ -14,17 +14,17 @@ public:
     warpDir(warpDir_), weftDir(weftDir_) {}
   virtual ~ElasticModel2DFundamentalFormsFabric() {}
 
-  double compute_psi_a(const double *param, const double a[4], const double abar[4]) const override;
-  double compute_psi_b(const double *param, const double b[4], const double abar[4], const double bbar[4]) const override;
+  double compute_psi_a(std::span<const double> param, const EigenSupport::M2d &a, const EigenSupport::M2d &abar) const override;
+  double compute_psi_b(std::span<const double> param, const EigenSupport::M2d &b, const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar) const override;
 
-  void compute_dpsi_da(const double *param, const double a[4], const double abar[4], double da[4]) const override;
-  void compute_dpsi_db(const double *param, const double b[4], const double abar[4], const double bbar[4], double db[4]) const override;
+  EigenSupport::M2d compute_dpsi_da(std::span<const double> param, const EigenSupport::M2d &a, const EigenSupport::M2d &abar) const override;
+  EigenSupport::M2d compute_dpsi_db(std::span<const double> param, const EigenSupport::M2d &b, const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar) const override;
 
-  void compute_d2psi_da2(const double *param, const double a[4], const double abar[4], double da2[16]) const override;
-  void compute_d2psi_db2(const double *param, const double b[4], const double abar[4], const double bbar[4], double db2[16]) const override;
+  EigenSupport::M4d compute_d2psi_da2(std::span<const double> param, const EigenSupport::M2d &a, const EigenSupport::M2d &abar) const override;
+  EigenSupport::M4d compute_d2psi_db2(std::span<const double> param, const EigenSupport::M2d &b, const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar) const override;
 
-  void compute_d2psi_da_dparam(const double *param, const double a[4], const double abar[4], double d2psi_dadparam[/*4 x numParams*/]) const override;
-  void compute_d2psi_db_dparam(const double *param, const double b[4], const double abar[4], const double bbar[4], double d2psi_dbdparam[/*4 x numParams*/]) const override;
+  void compute_d2psi_da_dparam(std::span<const double> param, const EigenSupport::M2d &a, const EigenSupport::M2d &abar, EigenSupport::RefMatXd d2psi_dadparam) const override;
+  void compute_d2psi_db_dparam(std::span<const double> param, const EigenSupport::M2d &b, const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar, EigenSupport::RefMatXd d2psi_dbdparam) const override;
 
   int getNumParameters() const override { return 12; };
 

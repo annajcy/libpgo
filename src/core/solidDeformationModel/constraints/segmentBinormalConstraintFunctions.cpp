@@ -10,16 +10,23 @@ copyright to USC,MIT,NUS
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 #include <tbb/partitioner.h>
+#include <stdexcept>
 
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-SegmentBinormalConstraintFunctions::SegmentBinormalConstraintFunctions(int nAll, int pStart, int sStart, int numSegments, const double *positions):
+SegmentBinormalConstraintFunctions::SegmentBinormalConstraintFunctions(
+  int nAll, int pStart, int sStart, int numSegments, std::span<const double> positions):
   NonlinearOptimization::ConstraintFunctions(nAll), nSeg(numSegments), positionDOFStart(pStart), segmentDOFStart(sStart)
 {
-  if (positions) {
-    restPositions = ES::Mp<const ES::VXd>(positions, numSegments * 3 + 3);
+  if (numSegments < 0)
+    throw std::invalid_argument("Segment binormal count must be nonnegative.");
+  if (!positions.empty()) {
+    const std::size_t expectedSize = static_cast<std::size_t>(numSegments + 1) * 3;
+    if (positions.size() != expectedSize)
+      throw std::invalid_argument("Segment binormal rest positions have unexpected size.");
+    restPositions = Eigen::Map<const ES::VXd>(positions.data(), static_cast<Eigen::Index>(expectedSize));
   }
 
   std::vector<ES::TripletD> entries;
@@ -77,11 +84,10 @@ SegmentBinormalConstraintFunctions::SegmentBinormalConstraintFunctions(int nAll,
   entries.clear();
   for (int ei = 0; ei < nSeg; ei++) {
     if (restPositions.size() == 0) {
-      int dofStart[3] = {
+      const ES::V3i dofStart(
         positionDOFStart + ei * 3,
         positionDOFStart + ei * 3 + 3,
-        segmentDOFStart + ei * 3
-      };
+        segmentDOFStart + ei * 3);
 
       for (int vi = 0; vi < 3; vi++) {
         for (int vj = 0; vj < 3; vj++) {
@@ -94,13 +100,11 @@ SegmentBinormalConstraintFunctions::SegmentBinormalConstraintFunctions(int nAll,
       }
     }
     else {
-      int dofStart[1] = {
-        segmentDOFStart + ei * 3
-      };
+      const int dofStart = segmentDOFStart + ei * 3;
 
       for (int dofi = 0; dofi < 3; dofi++) {
         for (int dofj = 0; dofj < 3; dofj++) {
-          entries.emplace_back(dofStart[0] + dofi, dofStart[0] + dofj, 1);
+          entries.emplace_back(dofStart + dofi, dofStart + dofj, 1);
         }
       }
     }
@@ -114,11 +118,10 @@ SegmentBinormalConstraintFunctions::SegmentBinormalConstraintFunctions(int nAll,
     HessIndex idx;
 
     if (restPositions.size() == 0) {
-      int dofStart[3] = {
+      const ES::V3i dofStart(
         positionDOFStart + ei * 3,
         positionDOFStart + ei * 3 + 3,
-        segmentDOFStart + ei * 3
-      };
+        segmentDOFStart + ei * 3);
 
       for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
@@ -138,14 +141,12 @@ SegmentBinormalConstraintFunctions::SegmentBinormalConstraintFunctions(int nAll,
       }
     }
     else {
-      int dofStart[1] = {
-        segmentDOFStart + ei * 3
-      };
+      const int dofStart = segmentDOFStart + ei * 3;
 
       for (int k = 0; k < 3; k++) {
         for (int l = 0; l < 3; l++) {
-          int row = dofStart[0] + k;
-          int col = dofStart[0] + l;
+          int row = dofStart + k;
+          int col = dofStart + l;
 
           int localRow = k;
           int localCol = l;

@@ -30,6 +30,7 @@
 
 #include <cmath>
 #include <memory>
+#include <span>
 
 namespace
 {
@@ -61,11 +62,12 @@ void setVolumetricPlasticIdentity(DeformationModelEnergy &energy)
 {
   auto &assembler = energy.assembler();
   const auto &manager = assembler.getDeformationModelManager();
-  const int nele = assembler.getDeformationModelManager().getMesh()->getNumElements();
+  const int nele = assembler.getDeformationModelManager().getMesh().getNumElements();
   const int npp = assembler.getNumPlasticParams();
   ES::VXd plastic(static_cast<Eigen::Index>(npp) * nele);
   for (int ei = 0; ei < nele; ei++)
-    manager.getDeformationModel(ei)->defaultPlasticParams(plastic.data() + ei * npp);
+    manager.getDeformationModel(ei).defaultPlasticParams(
+      std::span<double>(plastic.data() + ei * npp, npp));
   energy.materialParameters()->setPlasticValues(plastic);
 }
 
@@ -97,7 +99,8 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
     c.meshOwner, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>(),
     formulation, kExactDerivativeProjectHessianPSD);
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(), nullptr);
+    std::move(manager), formulation, parameters->space(),
+    std::span<const double>{});
   c.energy = std::make_unique<DeformationModelEnergy>(
     std::move(assembler), std::move(parameters), offset, false);
   c.numDOFs = c.energy->getNumDOFs();
@@ -364,7 +367,8 @@ EnergyCase makeTwoCubeCase(const FormulationT &formulation)
     c.meshOwner, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>(),
     formulation, kExactDerivativeProjectHessianPSD);
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(), nullptr);
+    std::move(manager), formulation, parameters->space(),
+    std::span<const double>{});
   c.energy = std::make_unique<DeformationModelEnergy>(
     std::move(assembler), std::move(parameters), 0, false);
   c.numDOFs = c.energy->getNumDOFs();

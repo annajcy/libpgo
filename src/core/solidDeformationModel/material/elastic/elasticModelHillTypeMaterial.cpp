@@ -29,7 +29,7 @@ ElasticModelHillTypeMaterial::ElasticModelHillTypeMaterial(double shapeParam, do
   if (!fd.allFinite() || std::abs(fd.norm() - 1.0) > 1e-8)
     throw std::invalid_argument(
       "ElasticModelHillTypeMaterial: fiber direction must be finite and normalized.");
-  (Eigen::Map<ES::V3d>(fiberDirection)) = fd;
+  fiberDirection = fd;
 
   sqrt_gamma = sqrt(gamma);
   sqrt_pi = sqrt(M_PI);
@@ -52,11 +52,11 @@ ElasticModelHillTypeMaterial::ElasticModelHillTypeMaterial(double shapeParam, do
 
   // std::cout << "dFddT_dFMat:\n" << dFddT_dFMat << std::endl;
 
-  (Eigen::Map<ES::M9d>(dFddT_dF)) = dFddT_dFMat;
+  dFddT_dF = dFddT_dFMat;
 }
 
-double ElasticModelHillTypeMaterial::compute_psi(const double *param,
-  const double F[9], const double * /*U[9]*/, const double * /*V[9]*/, const double * /*S[3]*/) const
+double ElasticModelHillTypeMaterial::compute_psi(std::span<const double> param,
+  const SpectralState &state) const
 {
   // std::cout << "F: ";
   // for (int i = 0; i < 9; i++) {
@@ -64,7 +64,7 @@ double ElasticModelHillTypeMaterial::compute_psi(const double *param,
   // }
   // std::cout << std::endl;
 
-  double l = compute_length(F);
+  double l = compute_length(state.F).value;
   // std::cout << "l: " << l << std::endl;
 
   double psi = 0.5 * param[0] * maxf * sqrt_gamma * sqrt_pi * lo * (erf((l / lo - 1) / sqrt_gamma) - erf_sqrt_gamma);
@@ -75,31 +75,29 @@ double ElasticModelHillTypeMaterial::compute_psi(const double *param,
   return psi;
 }
 
-void ElasticModelHillTypeMaterial::compute_P(const double *param,
-  const double F[9], const double * /*U[9]*/, const double * /*V[9]*/, const double * /*S[3]*/, double P[9]) const
+ES::M3d ElasticModelHillTypeMaterial::compute_P(std::span<const double> param,
+  const SpectralState &state) const
 {
-  ES::V3d Fd;
-  double l = compute_length(F, Fd.data());
+  const LengthResult length = compute_length(state.F);
+  double l = length.value;
+  const ES::V3d &Fd = length.deformedFiber;
 
-  ES::M3d dldF;
-  compute_dldF(F, Fd.data(), dldF.data());
+  const ES::M3d dldF = compute_dldF(Fd);
 
   double fh = param[0] * maxf * exp(-(l / lo - 1) * (l / lo - 1) / gamma);
 
-  (Eigen::Map<ES::M3d>(P)) = fh * dldF;
+  return fh * dldF;
 }
 
-void ElasticModelHillTypeMaterial::compute_dPdF(const double *param,
-  const double F[9], const double * /*U[9]*/, const double * /*V[9]*/, const double * /*S[3]*/, double dPdFOut[81]) const
+ES::M9d ElasticModelHillTypeMaterial::compute_dPdF(std::span<const double> param,
+  const SpectralState &state) const
 {
-  ES::V3d Fd;
-  double l = compute_length(F, Fd.data());
+  const LengthResult length = compute_length(state.F);
+  double l = length.value;
+  const ES::V3d &Fd = length.deformedFiber;
 
-  ES::M3d dldF;
-  compute_dldF(F, Fd.data(), dldF.data());
-
-  ES::M9d d2ldF2;
-  compute_d2ldF2(F, Fd.data(), d2ldF2.data());
+  const ES::M3d dldF = compute_dldF(Fd);
+  const ES::M9d d2ldF2 = compute_d2ldF2(Fd);
 
   double coeff1 = -2.0 / (gamma * lo) * param[0] * maxf * exp(-(l / lo - 1) * (l / lo - 1) / gamma) * (l / lo - 1);
   ES::V9d dldFVec = Eigen::Map<const ES::V9d>(dldF.data());
@@ -119,33 +117,31 @@ void ElasticModelHillTypeMaterial::compute_dPdF(const double *param,
     }
   }
 
-  (Eigen::Map<ES::M9d>(dPdFOut)) = dPdF;
+  return dPdF;
 }
 
-double ElasticModelHillTypeMaterial::compute_length(const double F[9], double FdOut[]) const
+ElasticModelHillTypeMaterial::LengthResult
+ElasticModelHillTypeMaterial::compute_length(const ES::M3d &F) const
 {
-  ES::V3d Fd = Eigen::Map<const ES::M3d>(F) * Eigen::Map<const ES::V3d>(fiberDirection);
-  if (FdOut)
-    (Eigen::Map<ES::V3d>(FdOut)) = Fd;
-
-  return Fd.norm();
+  LengthResult result;
+  result.deformedFiber = F * fiberDirection;
+  result.value = result.deformedFiber.norm();
+  return result;
 }
 
-void ElasticModelHillTypeMaterial::compute_dldF(const double * /*F[9]*/, const double FdIn[], double dldF[9]) const
+ES::M3d ElasticModelHillTypeMaterial::compute_dldF(const ES::V3d &Fd) const
 {
-  ES::V3d d = Eigen::Map<const ES::V3d>(fiberDirection);
-  ES::V3d Fd = Eigen::Map<const ES::V3d>(FdIn);
+  const ES::V3d &d = fiberDirection;
   ES::M3d FddT = ES::tensorProduct(Fd, d);
 
   double coeff = 0.5 / sqrt(Fd.squaredNorm());
 
-  (Eigen::Map<ES::M3d>(dldF)) = coeff * 2.0 * FddT;
+  return coeff * 2.0 * FddT;
 }
 
-void ElasticModelHillTypeMaterial::compute_d2ldF2(const double * /*F[9]*/, const double FdIn[], double d2ldF2Out[81]) const
+ES::M9d ElasticModelHillTypeMaterial::compute_d2ldF2(const ES::V3d &Fd) const
 {
-  ES::V3d d = Eigen::Map<const ES::V3d>(fiberDirection);
-  ES::V3d Fd = Eigen::Map<const ES::V3d>(FdIn);
+  const ES::V3d &d = fiberDirection;
   ES::M3d FddT = ES::tensorProduct(Fd, d);
 
   double coeff1 = -0.25 * pow(Fd.squaredNorm(), -1.5);
@@ -163,38 +159,38 @@ void ElasticModelHillTypeMaterial::compute_d2ldF2(const double * /*F[9]*/, const
 
   for (int j = 0; j < 9; j++) {
     for (int i = 0; i < 9; i++) {
-      d2ldF2(i, j) += 2.0 * dFddT_dF[j * 9 + i] * coeff2;
+      d2ldF2(i, j) += 2.0 * dFddT_dF(i, j) * coeff2;
     }
   }
 
-  (Eigen::Map<ES::M9d>(d2ldF2Out)) = d2ldF2;
+  return d2ldF2;
 }
 
-double ElasticModelHillTypeMaterial::compute_dpsi_dparam(const double * /*param*/, int /*i*/,
-  const double F[9], const double * /*U[9]*/, const double * /*V[9]*/, const double * /*S[3]*/) const
+double ElasticModelHillTypeMaterial::compute_dpsi_dparam(std::span<const double> /*param*/, int /*i*/,
+  const SpectralState &state) const
 {
-  double l = compute_length(F);
+  double l = compute_length(state.F).value;
   return 0.5 * maxf * sqrt_gamma * sqrt_pi * lo * (erf((l / lo - 1) / sqrt_gamma) - erf_sqrt_gamma);
 }
 
-double ElasticModelHillTypeMaterial::compute_d2psi_dparam2(const double * /*param*/, int /*i*/, int /*j*/,
-  const double * /*F[9]*/, const double * /*U[9]*/, const double * /*V[9]*/, const double * /*S[3]*/) const
+double ElasticModelHillTypeMaterial::compute_d2psi_dparam2(std::span<const double> /*param*/, int /*i*/, int /*j*/,
+  const SpectralState &) const
 {
   return 0;
 }
 
-void ElasticModelHillTypeMaterial::compute_dP_dparam(const double * /*param*/, int /*i*/,
-  const double F[9], const double * /*U[9]*/, const double * /*V[9]*/, const double * /*S[3]*/, double *ret) const
+ES::M3d ElasticModelHillTypeMaterial::compute_dP_dparam(std::span<const double> /*param*/, int /*i*/,
+  const SpectralState &state) const
 {
-  ES::V3d Fd;
-  double l = compute_length(F, Fd.data());
+  const LengthResult length = compute_length(state.F);
+  double l = length.value;
+  const ES::V3d &Fd = length.deformedFiber;
 
-  ES::M3d dldF;
-  compute_dldF(F, Fd.data(), dldF.data());
+  const ES::M3d dldF = compute_dldF(Fd);
 
   double fh = maxf * exp(-(l / lo - 1) * (l / lo - 1) / gamma);
 
-  (Eigen::Map<ES::M3d>(ret)) = fh * dldF;
+  return fh * dldF;
 }
 
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EigenSupport.h"
+
 #include <memory>
 
 namespace pgo
@@ -16,9 +18,14 @@ public:
   virtual int localDofs() const = 0;
   virtual std::unique_ptr<ShapeFunction> clone() const = 0;
 
-  virtual void N(double xi, double eta, double zeta, double N_out[]) const = 0;
-  virtual void dN_dxi(double xi, double eta, double zeta, double dN_out[]) const = 0;
-  virtual void nodeCoords(int node, double xi[3]) const = 0;
+  // Different concrete bases have different node counts. The polymorphic
+  // boundary therefore uses dynamic Eigen references; concrete classes also
+  // expose fixed-size value-returning overloads with the same names.
+  virtual void compute_N(double xi, double eta, double zeta,
+    EigenSupport::RefVecXd N_out) const = 0;
+  virtual void compute_dN_dxi(double xi, double eta, double zeta,
+    EigenSupport::RefMatXd dN_out) const = 0;
+  virtual EigenSupport::V3d nodeCoords(int node) const = 0;
 };
 
 }  // namespace SolidDeformationModel

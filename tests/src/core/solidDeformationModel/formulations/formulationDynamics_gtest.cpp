@@ -64,20 +64,21 @@ public:
 
   void evaluateJacobian(
     int, int, std::span<const double> z,
-    double *output) const override
+    EigenSupport::RefMatXd output) const override
   {
-    std::fill(output, output + size_ * size_, 0.0);
+    output.setZero();
     for (int i = 0; i < size_; i++)
-      output[i * size_ + i] = 2.0 * z[i];
+      output(i, i) = 2.0 * z[i];
   }
 
   void evaluateHessians(
     int, int, std::span<const double>,
-    double *output) const override
+    std::span<EigenSupport::MXd> channelHessians) const override
   {
-    std::fill(output, output + size_ * size_ * size_, 0.0);
+    for (EigenSupport::MXd &hessian : channelHessians)
+      hessian.setZero();
     for (int i = 0; i < size_; i++)
-      output[i * size_ * size_ + i * size_ + i] = 2.0;
+      channelHessians[static_cast<std::size_t>(i)](i, i) = 2.0;
   }
 
 private:
@@ -100,10 +101,9 @@ public:
   }
 
   void localParameterDerivative(
-    int, int, const MaterialParameterEvaluationView &, std::span<double> output) const override
+    int, int, const MaterialParameterEvaluationView &, EigenSupport::RefVecXd output) const override
   {
-    for (double &value : output)
-      value = 0.0;
+    output.setZero();
   }
 };
 
@@ -123,9 +123,9 @@ public:
   }
 
   void localParameterDerivative(
-    int, int, const MaterialParameterEvaluationView &, std::span<double> output) const override
+    int, int, const MaterialParameterEvaluationView &, EigenSupport::RefVecXd output) const override
   {
-    std::fill(output.begin(), output.end(), 0.0);
+    output.setZero();
   }
 };
 
@@ -232,7 +232,7 @@ TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelo
 {
   constexpr double density = 2.0;
   auto mesh = makeSingleCube(density);
-  auto simMesh = loadCubicMesh(mesh.get());
+  auto simMesh = loadCubicMesh(*mesh);
   auto densityField = VolumeDensityField::constant(density);
   EigenSupport::SpMatD M = CubicTricubicHermiteFormulation{}.buildMassMatrix(*simMesh, densityField);
   ASSERT_EQ(M.rows(), 8 * 24);
@@ -257,7 +257,7 @@ TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelo
 TEST(FormulationDynamicsGTest, CustomScalarSourceCanBackVolumeDensityField)
 {
   auto mesh = makeSingleCube(4.0);
-  auto simMesh = loadCubicMesh(mesh.get());
+  auto simMesh = loadCubicMesh(*mesh);
   auto source = std::make_shared<CustomConstantDensitySource>();
   VolumeDensityField density(source);
 
@@ -280,9 +280,9 @@ TEST(FormulationDynamicsGTest, DensityDerivativeBufferSizeIsValidated)
 
   const auto expected = static_cast<std::size_t>(
     parameter.field().dofLayout().numLocalDofs());
-  std::vector<double> correct(expected);
-  std::vector<double> tooSmall(expected - 1);
-  std::vector<double> tooLarge(expected + 1);
+  EigenSupport::VXd correct(static_cast<Eigen::Index>(expected));
+  EigenSupport::VXd tooSmall(static_cast<Eigen::Index>(expected - 1));
+  EigenSupport::VXd tooLarge(static_cast<Eigen::Index>(expected + 1));
 
   EXPECT_NO_THROW(density.localParameterDerivative(0, 0, state, correct));
   EXPECT_THROW(
@@ -293,9 +293,9 @@ TEST(FormulationDynamicsGTest, DensityDerivativeBufferSizeIsValidated)
     std::invalid_argument);
 
   auto constant = ShellArealDensityField::constant(4.0);
-  std::span<double> empty;
+  EigenSupport::VXd empty(0);
   EXPECT_NO_THROW(constant.localParameterDerivative(0, 0, {}, empty));
-  std::vector<double> unexpected(1);
+  EigenSupport::VXd unexpected(1);
   EXPECT_THROW(
     constant.localParameterDerivative(0, 0, {}, unexpected),
     std::invalid_argument);
@@ -309,7 +309,7 @@ TEST(FormulationDynamicsGTest, DensityDerivativeBufferSizeIsValidated)
 TEST(FormulationDynamicsGTest, ElementwiseScalarSourceBacksVolumeDensityField)
 {
   auto mesh = makeSingleCube(4.0);
-  auto simMesh = loadCubicMesh(mesh.get());
+  auto simMesh = loadCubicMesh(*mesh);
   EigenSupport::VXd values(1);
   values[0] = 4.0;
   auto density = VolumeDensityField::elementwise(std::move(values));
@@ -351,7 +351,7 @@ TEST(FormulationDynamicsGTest, HermiteBodyForceHasCorrectTotalAndDerivativeEntri
 {
   constexpr double density = 3.0;
   auto mesh = makeSingleCube(density);
-  auto simMesh = loadCubicMesh(mesh.get());
+  auto simMesh = loadCubicMesh(*mesh);
   auto densityField = VolumeDensityField::constant(density);
   EigenSupport::V3d a(0.0, -9.8, 0.0);
   EigenSupport::VXd f = CubicTricubicHermiteFormulation{}.buildBodyForce(*simMesh, a, densityField);
@@ -406,7 +406,7 @@ TEST(FormulationDynamicsGTest, TrilinearMassMatchesLegacyOperator)
 {
   constexpr double density = 2.0;
   auto mesh = makeSingleCube(density);
-  auto simMesh = loadCubicMesh(mesh.get());
+  auto simMesh = loadCubicMesh(*mesh);
   auto densityField = VolumeDensityField::constant(density);
   EigenSupport::SpMatD legacyMass;
   VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(mesh.get(), legacyMass, true);

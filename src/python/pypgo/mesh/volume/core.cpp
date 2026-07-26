@@ -590,10 +590,10 @@ std::shared_ptr<PySimulationMesh> create_simulation_mesh_from_volume(const PyVol
     {
         nb::gil_scoped_release release;
         if (auto* tetMesh = dynamic_cast<const VolumetricMeshes::TetMesh*>(volume)) {
-            simMesh = SolidDeformationModel::loadTetMesh(tetMesh);
+            simMesh = SolidDeformationModel::loadTetMesh(*tetMesh);
         }
         else if (auto* cubicMesh = dynamic_cast<const VolumetricMeshes::CubicMesh*>(volume)) {
-            simMesh = SolidDeformationModel::loadCubicMesh(cubicMesh);
+            simMesh = SolidDeformationModel::loadCubicMesh(*cubicMesh);
         }
         else {
             throw std::runtime_error("Unsupported volume mesh type for SimulationMesh.create_volumetric");

@@ -4,6 +4,7 @@
 #include <array>
 
 using namespace pgo::SolidDeformationModel;
+namespace ES = pgo::EigenSupport;
 
 namespace
 {
@@ -50,9 +51,9 @@ double fieldDzeta(double xi, double eta, double zeta)
 }
 
 // DOF for (corner, mode) consistent with the separable field's Hermite coefficients.
-std::array<double, 64> separableFieldDofs()
+ES::V64d separableFieldDofs()
 {
-  std::array<double, 64> dof{};
+  ES::V64d dof;
   for (int c = 0; c < 8; c++) {
     for (int m = 0; m < 8; m++) {
       double v = kP.D(kModeXi[m], kCornerXi[c]) * kQ.D(kModeEta[m], kCornerEta[c]) * kR.D(kModeZeta[m], kCornerZeta[c]);
@@ -78,11 +79,8 @@ TEST(CubicTricubicHermiteShapeFunctionGTest, ReproducesSeparableCubicValue)
   auto dof = separableFieldDofs();
 
   for (const auto &pt : kTestPoints) {
-    double N[64];
-    basis.N(pt[0], pt[1], pt[2], N);
-    double interp = 0.0;
-    for (int node = 0; node < 64; node++)
-      interp += dof[node] * N[node];
+    const ES::V64d N = basis.compute_N(pt[0], pt[1], pt[2]);
+    const double interp = dof.dot(N);
     EXPECT_NEAR(interp, fieldValue(pt[0], pt[1], pt[2]), 1e-12)
       << "at (" << pt[0] << "," << pt[1] << "," << pt[2] << ")";
   }
@@ -95,14 +93,9 @@ TEST(CubicTricubicHermiteShapeFunctionGTest, ReproducesSeparableCubicGradient)
   auto dof = separableFieldDofs();
 
   for (const auto &pt : kTestPoints) {
-    double dN[192];
-    basis.dN_dxi(pt[0], pt[1], pt[2], dN);
-    double gx = 0.0, gy = 0.0, gz = 0.0;
-    for (int node = 0; node < 64; node++) {
-      gx += dof[node] * dN[0 + 3 * node];
-      gy += dof[node] * dN[1 + 3 * node];
-      gz += dof[node] * dN[2 + 3 * node];
-    }
+    const ES::M3x64d dN = basis.compute_dN_dxi(pt[0], pt[1], pt[2]);
+    const ES::V3d gradient = dN * dof;
+    const double gx = gradient[0], gy = gradient[1], gz = gradient[2];
     EXPECT_NEAR(gx, fieldDxi(pt[0], pt[1], pt[2]), 1e-12);
     EXPECT_NEAR(gy, fieldDeta(pt[0], pt[1], pt[2]), 1e-12);
     EXPECT_NEAR(gz, fieldDzeta(pt[0], pt[1], pt[2]), 1e-12);
@@ -115,19 +108,17 @@ TEST(CubicTricubicHermiteShapeFunctionGTest, DerivativeMatchesFiniteDifference)
   CubicTricubicHermiteShapeFunction basis;
   const double h = 1e-6;
   for (const auto &pt : kTestPoints) {
-    double dN[192];
-    basis.dN_dxi(pt[0], pt[1], pt[2], dN);
+    const ES::M3x64d dN = basis.compute_dN_dxi(pt[0], pt[1], pt[2]);
     for (int axis = 0; axis < 3; axis++) {
-      double pp[3] = { pt[0], pt[1], pt[2] };
-      double pm[3] = { pt[0], pt[1], pt[2] };
+      ES::V3d pp(pt[0], pt[1], pt[2]);
+      ES::V3d pm(pt[0], pt[1], pt[2]);
       pp[axis] += h;
       pm[axis] -= h;
-      double Np[64], Nm[64];
-      basis.N(pp[0], pp[1], pp[2], Np);
-      basis.N(pm[0], pm[1], pm[2], Nm);
+      const ES::V64d Np = basis.compute_N(pp[0], pp[1], pp[2]);
+      const ES::V64d Nm = basis.compute_N(pm[0], pm[1], pm[2]);
       for (int node = 0; node < 64; node++) {
         double fd = (Np[node] - Nm[node]) / (2 * h);
-        EXPECT_NEAR(dN[axis + 3 * node], fd, 1e-5) << "node " << node << " axis " << axis;
+        EXPECT_NEAR(dN(axis, node), fd, 1e-5) << "node " << node << " axis " << axis;
       }
     }
   }
@@ -139,8 +130,7 @@ TEST(CubicTricubicHermiteShapeFunctionGTest, ValueModeNodalInterpolation)
 {
   CubicTricubicHermiteShapeFunction basis;
   for (int c = 0; c < 8; c++) {
-    double N[64];
-    basis.N(kCornerXi[c], kCornerEta[c], kCornerZeta[c], N);
+    const ES::V64d N = basis.compute_N(kCornerXi[c], kCornerEta[c], kCornerZeta[c]);
     for (int node = 0; node < 64; node++) {
       int nodeCorner = node / 8;
       int nodeMode = node % 8;

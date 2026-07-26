@@ -63,7 +63,7 @@ struct MaterialParameterEvaluationScratch
 {
   std::vector<double> local;
   std::vector<double> material;
-  std::vector<double> jacobian;
+  EigenSupport::MXd jacobian;
 
   void prepare(const MaterialParameterField &field);
 };
@@ -224,14 +224,14 @@ public:
     int element,
     int quadrature,
     const MaterialParameterEvaluationView &state,
-    double *output) const;
+    EigenSupport::RefVecXd output) const;
 
   void localDerivative(
     int element,
     int quadrature,
     const MaterialParameterEvaluationView &state,
     MaterialParameterEvaluationScratch &scratch,
-    double *output) const;
+    EigenSupport::RefVecXd output) const;
 
 private:
   std::shared_ptr<const MaterialParameterField> field_;

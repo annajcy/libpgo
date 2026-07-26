@@ -14,12 +14,27 @@
 
 #include <memory>
 #include <cmath>
+#include <span>
 
 namespace ES = pgo::EigenSupport;
 using namespace pgo::SolidDeformationModel;
 
 namespace
 {
+template <typename Derived>
+std::span<const double> constSpan(const Eigen::MatrixBase<Derived> &values)
+{
+  return std::span<const double>(values.derived().data(),
+                                static_cast<size_t>(values.size()));
+}
+
+template <typename Derived>
+std::span<double> mutableSpan(Eigen::MatrixBase<Derived> &values)
+{
+  return std::span<double>(values.derived().data(),
+                           static_cast<size_t>(values.size()));
+}
+
 const double restTet[12] = {
   0.0, 0.0, 0.0,
   2.0, 0.0, 0.0,
@@ -40,8 +55,7 @@ const double restHex[24] = {
 TEST(VolumetricDeformationModelGTest, TetEnergyFiniteAtRest)
 {
   auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
-  double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
-  auto plasticModel = std::make_unique<PlasticModel3DConstant>(identity);
+  auto plasticModel = std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
   VolumetricElementMapping mapping(restTet, TetLinearShapeFunction{}, TetLinearDefaultQuadrature{});
   VolumetricDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
@@ -51,19 +65,20 @@ TEST(VolumetricDeformationModelGTest, TetEnergyFiniteAtRest)
 
   auto cd = model.allocateCacheData();
   EXPECT_FALSE(cd->isPrepared());
-  model.prepareData(xVec.data(), nullptr, nullptr, cd.get());
+  model.prepareData(constSpan(xVec), std::span<const double>{},
+                    std::span<const double>{}, *cd);
   EXPECT_TRUE(cd->isPrepared());
 
-  double energy = model.computeEnergy(cd.get());
+  double energy = model.computeEnergy(*cd);
   EXPECT_TRUE(std::isfinite(energy));
 
   ES::V12d grad;
-  model.compute_dE_dx(cd.get(), grad.data());
+  model.compute_dE_dx(*cd, grad);
   for (int i = 0; i < 12; i++)
     EXPECT_TRUE(std::isfinite(grad[i]));
 
   ES::M12d hess;
-  model.compute_d2E_dx2(cd.get(), hess.data());
+  model.compute_d2E_dx2(*cd, hess);
   for (int i = 0; i < 144; i++)
     EXPECT_TRUE(std::isfinite(hess.data()[i]));
 
@@ -87,13 +102,14 @@ TEST(VolumetricDeformationModelGTest, ParameterizedModelRejectsMissingParameters
   auto cd = model.allocateCacheData();
 
   EXPECT_THROW(
-    model.prepareData(xVec.data(), nullptr, nullptr, cd.get()),
+    model.prepareData(constSpan(xVec), std::span<const double>{},
+                      std::span<const double>{}, *cd),
     std::invalid_argument);
 
   const ES::V3d plasticParams = ES::V3d::Ones();
   EXPECT_NO_THROW(
     model.prepareData(
-      xVec.data(), nullptr, plasticParams.data(), cd.get()));
+      constSpan(xVec), std::span<const double>{}, constSpan(plasticParams), *cd));
 }
 
 // ============================================================
@@ -103,8 +119,7 @@ TEST(VolumetricDeformationModelGTest, ParameterizedModelRejectsMissingParameters
 TEST(VolumetricDeformationModelGTest, HexEnergyFiniteAtRest)
 {
   auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
-  double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
-  auto plasticModel = std::make_unique<PlasticModel3DConstant>(identity);
+  auto plasticModel = std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
   VolumetricElementMapping mapping(restHex, CubicLinearShapeFunction{}, GaussLegendreHexQuadrature2{});
   VolumetricDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
@@ -113,18 +128,19 @@ TEST(VolumetricDeformationModelGTest, HexEnergyFiniteAtRest)
 
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), nullptr, nullptr, cd.get());
+  model.prepareData(constSpan(xVec), std::span<const double>{},
+                    std::span<const double>{}, *cd);
 
-  double energy = model.computeEnergy(cd.get());
+  double energy = model.computeEnergy(*cd);
   EXPECT_TRUE(std::isfinite(energy));
 
   ES::V24d grad;
-  model.compute_dE_dx(cd.get(), grad.data());
+  model.compute_dE_dx(*cd, grad);
   for (int i = 0; i < 24; i++)
     EXPECT_TRUE(std::isfinite(grad[i]));
 
   ES::M24d hess;
-  model.compute_d2E_dx2(cd.get(), hess.data());
+  model.compute_d2E_dx2(*cd, hess);
   for (int i = 0; i < 576; i++)
     EXPECT_TRUE(std::isfinite(hess.data()[i]));
 
@@ -138,8 +154,7 @@ TEST(VolumetricDeformationModelGTest, HexEnergyFiniteAtRest)
 TEST(VolumetricDeformationModelGTest, TetGradientMatchesFD)
 {
   auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
-  double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
-  auto plasticModel = std::make_unique<PlasticModel3DConstant>(identity);
+  auto plasticModel = std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
   VolumetricElementMapping mapping(restTet, TetLinearShapeFunction{}, TetLinearDefaultQuadrature{});
   VolumetricDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
@@ -148,10 +163,11 @@ TEST(VolumetricDeformationModelGTest, TetGradientMatchesFD)
 
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), nullptr, nullptr, cd.get());
+  model.prepareData(constSpan(xVec), std::span<const double>{},
+                    std::span<const double>{}, *cd);
 
   ES::V12d grad;
-  model.compute_dE_dx(cd.get(), grad.data());
+  model.compute_dE_dx(*cd, grad);
 
   const double eps = 1e-6;
   for (int i = 0; i < 12; i++) {
@@ -160,13 +176,15 @@ TEST(VolumetricDeformationModelGTest, TetGradientMatchesFD)
     xm[i] -= eps;
 
     auto cdp = model.allocateCacheData();
-    model.prepareData(xp.data(), nullptr, nullptr, cdp.get());
-    double ep = model.computeEnergy(cdp.get());
+    model.prepareData(constSpan(xp), std::span<const double>{},
+                      std::span<const double>{}, *cdp);
+    double ep = model.computeEnergy(*cdp);
     
 
     auto cdm = model.allocateCacheData();
-    model.prepareData(xm.data(), nullptr, nullptr, cdm.get());
-    double em = model.computeEnergy(cdm.get());
+    model.prepareData(constSpan(xm), std::span<const double>{},
+                      std::span<const double>{}, *cdm);
+    double em = model.computeEnergy(*cdm);
     
 
     double fd = (ep - em) / (2.0 * eps);
@@ -183,8 +201,7 @@ TEST(VolumetricDeformationModelGTest, TetGradientMatchesFD)
 TEST(VolumetricDeformationModelGTest, HexGradientMatchesFD)
 {
   auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
-  double identity[9] = { 1,0,0, 0,1,0, 0,0,1 };
-  auto plasticModel = std::make_unique<PlasticModel3DConstant>(identity);
+  auto plasticModel = std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
   VolumetricElementMapping mapping(restHex, CubicLinearShapeFunction{}, GaussLegendreHexQuadrature2{});
   VolumetricDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
@@ -193,10 +210,11 @@ TEST(VolumetricDeformationModelGTest, HexGradientMatchesFD)
 
 
   auto cd = model.allocateCacheData();
-  model.prepareData(xVec.data(), nullptr, nullptr, cd.get());
+  model.prepareData(constSpan(xVec), std::span<const double>{},
+                    std::span<const double>{}, *cd);
 
   ES::V24d grad;
-  model.compute_dE_dx(cd.get(), grad.data());
+  model.compute_dE_dx(*cd, grad);
 
   const double eps = 1e-6;
   for (int i = 0; i < 24; i++) {
@@ -205,13 +223,15 @@ TEST(VolumetricDeformationModelGTest, HexGradientMatchesFD)
     xm[i] -= eps;
 
     auto cdp = model.allocateCacheData();
-    model.prepareData(xp.data(), nullptr, nullptr, cdp.get());
-    double ep = model.computeEnergy(cdp.get());
+    model.prepareData(constSpan(xp), std::span<const double>{},
+                      std::span<const double>{}, *cdp);
+    double ep = model.computeEnergy(*cdp);
     
 
     auto cdm = model.allocateCacheData();
-    model.prepareData(xm.data(), nullptr, nullptr, cdm.get());
-    double em = model.computeEnergy(cdm.get());
+    model.prepareData(constSpan(xm), std::span<const double>{},
+                      std::span<const double>{}, *cdm);
+    double em = model.computeEnergy(*cdm);
     
 
     double fd = (ep - em) / (2.0 * eps);

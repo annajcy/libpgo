@@ -11,7 +11,7 @@ namespace SolidDeformationModel
 {
 
 VolumetricElementMapping::VolumetricElementMapping(
-  const double *restPositions,
+  std::span<const double> restPositions,
   const ShapeFunction &basis, const Quadrature &quadrature):
   VolumetricElementMapping(
     restPositions, basis.clone(), quadrature.clone())
@@ -19,7 +19,7 @@ VolumetricElementMapping::VolumetricElementMapping(
 }
 
 VolumetricElementMapping::VolumetricElementMapping(
-  const double *restPositions,
+  std::span<const double> restPositions,
   std::unique_ptr<ShapeFunction> basis, std::unique_ptr<Quadrature> quadrature):
   basis_(std::move(basis)),
   quadrature_(std::move(quadrature))
@@ -35,6 +35,10 @@ VolumetricElementMapping::VolumetricElementMapping(
   localDofs_ = basis_->localDofs();
   numQuadPts_ = quadrature_->numPoints();
 
+  if (restPositions.size() != static_cast<std::size_t>(3 * numNodes_)) {
+    throw std::invalid_argument("VolumetricElementMapping rest-position buffer has the wrong size.");
+  }
+
   M3xN restCoefficients(3, numNodes_);
   for (int node = 0; node < numNodes_; node++) {
     restCoefficients.col(node) = ES::V3d(restPositions[node * 3 + 0],
@@ -49,13 +53,11 @@ VolumetricElementMapping::VolumetricElementMapping(
   weightDetJ_.resize(numQuadPts_);
   restBm_.resize(numQuadPts_, M3xN(3, numNodes_));
 
-  std::vector<double> dN_flat(3 * numNodes_);
+  M3xN dN_dxiBuffer(3, numNodes_);
   for (int q = 0; q < numQuadPts_; q++) {
-    double xi[3];
-    quadrature_->point(q, xi);
-    basis_->dN_dxi(xi[0], xi[1], xi[2], dN_flat.data());
-    dN_dxi_[q] = Eigen::Map<const Eigen::Matrix<double, 3, Eigen::Dynamic, Eigen::ColMajor>>(
-      dN_flat.data(), 3, numNodes_);
+    const ES::V3d xi = quadrature_->point(q);
+    basis_->compute_dN_dxi(xi[0], xi[1], xi[2], dN_dxiBuffer);
+    dN_dxi_[q] = dN_dxiBuffer;
     const M3xN &dN_dxi = dN_dxi_[q];
 
     ES::M3d Dm = restCoefficients * dN_dxi.transpose();
@@ -81,9 +83,15 @@ VolumetricElementMapping::VolumetricElementMapping(
   }
 }
 
-void VolumetricElementMapping::computeFref(
-  const double *xLocal, int q, double F[9]) const
+ES::M3d VolumetricElementMapping::computeFref(
+  std::span<const double> xLocal, int q) const
 {
+  if (q < 0 || q >= numQuadPts_)
+    throw std::out_of_range("VolumetricElementMapping quadrature index is out of range.");
+  if (xLocal.size() != static_cast<std::size_t>(localDofs_)) {
+    throw std::invalid_argument("VolumetricElementMapping local-position buffer has the wrong size.");
+  }
+
   M3xN coefficients(3, numNodes_);
   for (int node = 0; node < numNodes_; node++) {
     coefficients.col(node) = ES::V3d(xLocal[node * 3 + 0],
@@ -91,15 +99,17 @@ void VolumetricElementMapping::computeFref(
       xLocal[node * 3 + 2]);
   }
 
-  Eigen::Map<ES::M3d> FMap(F);
-  FMap = coefficients * dN_dxi_[q].transpose() * restDmInv_[q];
+  return coefficients * dN_dxi_[q].transpose() * restDmInv_[q];
 }
 
 void VolumetricElementMapping::computedFrefdx(
-  int q, double *dFdx) const
+  int q, M9xNDOF &dFdx) const
 {
-  Eigen::Map<M9xNDOF> dFdxMap(dFdx, 9, localDofs_);
-  dFdxMap = rest_dFdx_[q];
+  if (q < 0 || q >= numQuadPts_)
+    throw std::out_of_range("VolumetricElementMapping quadrature index is out of range.");
+  if (dFdx.rows() != 9 || dFdx.cols() != localDofs_)
+    throw std::invalid_argument("VolumetricElementMapping dFrefdx output has the wrong shape.");
+  dFdx = rest_dFdx_[q];
 }
 
 }  // namespace SolidDeformationModel

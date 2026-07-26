@@ -5,6 +5,8 @@
 #include "EigenDef.h"
 #include "material/core/materialParameters.h"
 
+#include <array>
+
 namespace pgo
 {
 namespace SolidDeformationModel
@@ -17,7 +19,7 @@ class ShellFormulation : public Formulation
 {
 public:
   virtual std::unique_ptr<ShellElementMapping> createElementMapping(
-    const double restX[18], const bool hasVtx[6]) const = 0;
+    const EigenSupport::V18d &restX, const std::array<bool, 6> &hasVtx) const = 0;
 
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,

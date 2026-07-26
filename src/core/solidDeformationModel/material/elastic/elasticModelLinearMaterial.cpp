@@ -10,31 +10,31 @@ copyright to USC,MIT,NUS
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-double ElasticModelLinearMaterial::compute_psi(const double *, const double F[9], const double[9], const double[9], const double[3]) const
+double ElasticModelLinearMaterial::compute_psi(std::span<const double>, const SpectralState &state) const
 {
-  ES::Mp<const ES::M3d> FMap(F);
-  ES::M3d strain = (FMap.transpose() + FMap) * 0.5 - ES::M3d::Identity();
+  const ES::M3d &F = state.F;
+  ES::M3d strain = (F.transpose() + F) * 0.5 - ES::M3d::Identity();
 
   // E = mu eps : eps + lambda/2 trace^2(eps)
   double t = strain.trace();
   return strain.squaredNorm() * mu + t * t * lambda * 0.5;
 }
 
-void ElasticModelLinearMaterial::compute_P(const double *, const double F[9], const double[9], const double[9], const double[3], double P[9]) const
+ES::M3d ElasticModelLinearMaterial::compute_P(std::span<const double>, const SpectralState &state) const
 {
   // P = 2 mu eps + lambda trace(eps) I
-  ES::Mp<const ES::M3d> FMap(F);
-  ES::M3d strain = (FMap.transpose() + FMap) * 0.5 - ES::M3d::Identity();
+  const ES::M3d &F = state.F;
+  ES::M3d strain = (F.transpose() + F) * 0.5 - ES::M3d::Identity();
 
-  (ES::Mp<ES::M3d>(P)) = strain * 2 * mu + ES::M3d::Identity() * lambda * strain.trace();
+  return strain * 2 * mu + ES::M3d::Identity() * lambda * strain.trace();
 }
 
-void ElasticModelLinearMaterial::compute_dPdF(const double *, const double F[9], const double[9], const double[9], const double[3], double dPdFOut[81]) const
+ES::M9d ElasticModelLinearMaterial::compute_dPdF(std::span<const double>, const SpectralState &) const
 {
   // P = 2 mu eps + lambda trace(eps) I
   // P = mu (F + F^T) - 2mu I + lambda tr(F - I) I
 
-  ES::Mp<ES::M9d> dPdF(dPdFOut);
+  ES::M9d dPdF;
   dPdF = ES::M9d::Identity() * mu;
 
   for (int i = 0; i < 3; ++i) {
@@ -43,6 +43,7 @@ void ElasticModelLinearMaterial::compute_dPdF(const double *, const double F[9],
       dPdF(4 * i, 4 * j) += lambda;
     }
   }
+  return dPdF;
 }
 
 

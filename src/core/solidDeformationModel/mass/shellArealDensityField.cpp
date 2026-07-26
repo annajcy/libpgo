@@ -106,7 +106,7 @@ void ShellArealDensityField::localParameterDerivative(
   int element,
   int quadrature,
   const MaterialParameterEvaluationView &state,
-  std::span<double> output) const
+  EigenSupport::RefVecXd output) const
 {
   auto evaluation = evaluator(state);
   evaluation.localParameterDerivative(element, quadrature, output);
@@ -138,12 +138,11 @@ double ShellArealDensityField::Evaluator::value(
 void ShellArealDensityField::Evaluator::localParameterDerivative(
   int element,
   int quadrature,
-  std::span<double> output) const
+  EigenSupport::RefVecXd output) const
 {
   const auto expected = dependency_
-    ? static_cast<std::size_t>(
-        dependency_->field().dofLayout().numLocalDofs())
-    : std::size_t(0);
+    ? dependency_->field().dofLayout().numLocalDofs()
+    : 0;
   if (output.size() != expected)
     throw std::invalid_argument(
       "areal density derivative buffer has size " +

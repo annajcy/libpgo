@@ -85,7 +85,7 @@ TEST(DeformationModelFormulationGTest, TetFormulationBuildsEnergy)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadTetMesh(&tetMesh).release());
+  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadTetMesh(tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
   auto bundle = makeDefaultFieldEnergy(
     simMesh,
@@ -120,8 +120,7 @@ void checkVertex3DefaultPolicy(const SimulationMesh &mesh, const FormulationT &f
 
   // Default rest DOFs are exactly the vertex positions.
   for (int vi = 0; vi < mesh.getNumVertices(); vi++) {
-    double p[3];
-    mesh.getVertex(vi, p);
+    const auto &p = mesh.getVertex(vi);
     EXPECT_DOUBLE_EQ(rest[vi * 3 + 0], p[0]);
     EXPECT_DOUBLE_EQ(rest[vi * 3 + 1], p[1]);
     EXPECT_DOUBLE_EQ(rest[vi * 3 + 2], p[2]);
@@ -135,7 +134,7 @@ TEST(DeformationModelFormulationGTest, TetFormulationVertex3PolicyDefaults)
 {
   pgo::Logging::init();
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadTetMesh(&tetMesh).release());
+  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadTetMesh(tetMesh).release());
   ASSERT_NE(simMesh, nullptr);
   checkVertex3DefaultPolicy(*simMesh, TetLinearFormulation{});
 }
@@ -144,7 +143,7 @@ TEST(DeformationModelFormulationGTest, CubicFormulationVertex3PolicyDefaults)
 {
   pgo::Logging::init();
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh).release());
+  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadCubicMesh(cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
   checkVertex3DefaultPolicy(*simMesh, CubicLinearFormulation{});
 }
@@ -153,7 +152,7 @@ TEST(DeformationModelFormulationGTest, AssemblerSurfacesFormulationRestInvariant
 {
   pgo::Logging::init();
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh).release());
+  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadCubicMesh(cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
   auto bundle = makeDefaultFieldEnergy(
     simMesh,
@@ -173,7 +172,7 @@ TEST(DeformationModelFormulationGTest, CubicFormulationBuildsEnergy)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh).release());
+  std::shared_ptr<const SimulationMesh> simMesh(pgo::SolidDeformationModel::loadCubicMesh(cubicMesh).release());
   ASSERT_NE(simMesh, nullptr);
   auto bundle = makeDefaultFieldEnergy(
     simMesh,

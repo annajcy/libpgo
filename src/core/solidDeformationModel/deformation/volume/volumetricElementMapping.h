@@ -6,6 +6,7 @@
 #include "formulations/quadrature/quadrature.h"
 
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace ES = pgo::EigenSupport;
@@ -31,7 +32,7 @@ namespace SolidDeformationModel
 //   restBm[q]     - weightDetJ * dN_dX (3 x numNodes)
 //
 // Runtime API:
-//   computeFref(xLocal, q, F)   -> F = x * dN_dxi^T * DmInv
+//   computeFref(xLocal, q)      -> F = x * dN_dxi^T * DmInv
 //   F at quad point q from local positions
 
 class VolumetricElementMapping
@@ -40,9 +41,9 @@ public:
   using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
 
-  VolumetricElementMapping(const double *restPositions,
+  VolumetricElementMapping(std::span<const double> restPositions,
     const ShapeFunction &basis, const Quadrature &quadrature);
-  VolumetricElementMapping(const double *restPositions,
+  VolumetricElementMapping(std::span<const double> restPositions,
     std::unique_ptr<ShapeFunction> basis, std::unique_ptr<Quadrature> quadrature);
 
   int numQuadraturePoints() const { return numQuadPts_; }
@@ -51,8 +52,8 @@ public:
 
   double weightDetJ(int q) const { return weightDetJ_[q]; }
 
-  void computeFref(const double *xLocal, int q, double F[9]) const;
-  void computedFrefdx(int q, double *dFdx) const;
+  ES::M3d computeFref(std::span<const double> xLocal, int q) const;
+  void computedFrefdx(int q, M9xNDOF &dFdx) const;
 
   const ES::M3d &restDmInv(int q) const { return restDmInv_[q]; }
   const M3xN &restBm(int q) const { return restBm_[q]; }

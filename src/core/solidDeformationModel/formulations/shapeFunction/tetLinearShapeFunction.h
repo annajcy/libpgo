@@ -28,15 +28,19 @@ public:
   int localDofs() const override { return kLocalDofs; }
   std::unique_ptr<ShapeFunction> clone() const override { return std::make_unique<TetLinearShapeFunction>(*this); }
 
-  void N(double xi, double eta, double zeta, double N_out[]) const override;
-  void dN_dxi(double xi, double eta, double zeta, double dN_dxi[]) const override;
-  void nodeCoords(int node, double xi[3]) const override;
+  EigenSupport::V4d compute_N(double xi, double eta, double zeta) const;
+  EigenSupport::M3x4d compute_dN_dxi(double xi, double eta, double zeta) const;
+  void compute_N(double xi, double eta, double zeta,
+    EigenSupport::RefVecXd N_out) const override;
+  void compute_dN_dxi(double xi, double eta, double zeta,
+    EigenSupport::RefMatXd dN_dxi) const override;
+  EigenSupport::V3d nodeCoords(int node) const override;
 };
 
 // Tet-linear deformation geometry helpers for callers that do not have a
 // VolumetricElementMapping instance available.
-void tetLinearComputeDs(const double x[12], double Ds[9]);
-void tetLinearComputeDFDx(const double DmInv[9], double dFdx[9 * 12]);
+EigenSupport::M3d tetLinearComputeDs(const EigenSupport::V12d &x);
+EigenSupport::M9x12d tetLinearComputeDFDx(const EigenSupport::M3d &DmInv);
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo

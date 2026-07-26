@@ -5,7 +5,9 @@
 #include "EigenSupport.h"
 
 #include <cstddef>
+#include <functional>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace pgo
@@ -32,9 +34,10 @@ public:
     EigenSupport::MXd localParamHessian;
     EigenSupport::MXd paramWorkMatrix;
     EigenSupport::MXd localMixedMatrix;
-    std::vector<double> paramDerivativeData;
-    std::vector<double> paramDerivativeData2;
-    std::vector<double> paramMappingHessianData;
+    EigenSupport::MXd paramDerivativeData;
+    EigenSupport::MXd paramDerivativeData2;
+    std::vector<EigenSupport::MXd> plasticParamMappingHessians;
+    std::vector<EigenSupport::MXd> elasticParamMappingHessians;
     std::vector<double> localMatrixData;
     std::vector<double> materialLocationValues;
     std::vector<DofGroup> groups;
@@ -42,11 +45,15 @@ public:
 
     ElementScratch(int localDofs, int maxMaterialLocations,
       int maxMaterialParams, int maxLocalParams,
-      std::size_t maxMappingHessianEntries,
       const DeformationModel &model);
 
-    DeformationModel::CacheData *cacheData() { return cacheData_.get(); }
-    const DeformationModel::CacheData *cacheData() const { return cacheData_.get(); }
+    std::span<EigenSupport::MXd> preparePlasticParamMappingHessians(
+      int numChannels, int numLocalDofs);
+    std::span<EigenSupport::MXd> prepareElasticParamMappingHessians(
+      int numChannels, int numLocalDofs);
+
+    DeformationModel::CacheData &cacheData() { return *cacheData_; }
+    const DeformationModel::CacheData &cacheData() const { return *cacheData_; }
 
   private:
     std::unique_ptr<DeformationModel::CacheData> cacheData_;
@@ -54,8 +61,7 @@ public:
 
   DeformationModelAssemblerCacheData(int localDofs, int maxMaterialLocations,
     int maxMaterialParams, int maxLocalParams,
-    std::size_t maxMappingHessianEntries,
-    const std::vector<const DeformationModel *> &models);
+    std::span<const std::reference_wrapper<const DeformationModel>> models);
 
   ElementScratch &elementScratch(int ele) { return elementScratch_[ele]; }
   const ElementScratch &elementScratch(int ele) const { return elementScratch_[ele]; }

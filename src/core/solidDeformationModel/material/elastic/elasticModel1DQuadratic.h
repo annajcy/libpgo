@@ -1,42 +1,46 @@
 #pragma once
 
-#include "material/elastic/elasticModel.h"
+#include "material/elastic/elasticModel1D.h"
+
+#include <cmath>
+#include <span>
+#include <stdexcept>
 
 namespace pgo
 {
 namespace SolidDeformationModel
 {
 
-// 1D quadratic elastic energy: psi = c * (lambda - 1)^2, where lambda = F[0] / F[1].
-// Simplified deformation model that operates on a single stretch axis — used with
-// 1D / tet-occupation constraints.
-class ElasticModel1DQuadratic : public ElasticModel
+// One-dimensional quadratic energy:
+//   psi(x; p) = 1/2 * coeff * p[0] * x^2.
+class ElasticModel1DQuadratic : public ElasticModel1D
 {
 public:
-  explicit ElasticModel1DQuadratic(double c):
-    coeff(c)
+  explicit ElasticModel1DQuadratic(double coeff):
+    coeff_(coeff)
   {
+    if (!std::isfinite(coeff_))
+      throw std::invalid_argument("ElasticModel1DQuadratic coefficient must be finite");
   }
 
-  virtual ~ElasticModel1DQuadratic() {}
+  ~ElasticModel1DQuadratic() override = default;
 
-  double compute_psi(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const;
-  void compute_P(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double P[9]) const;
-  void compute_dPdF(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double dPdF[81]) const;
+  double compute_psi(std::span<const double> param, double x) const override;
+  double compute_dpsi_dx(std::span<const double> param, double x) const override;
+  double compute_d2psi_dx2(std::span<const double> param, double x) const override;
 
   int getNumParameters() const override { return 1; }
-  double compute_dpsi_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const;
-  double compute_d2psi_dparam2(const double *param, int i, int j,
-    const double F[9], const double U[9], const double V[9], const double S[3]) const;
-  void compute_dP_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3], double *ret) const;
+  double compute_dpsi_dparam(std::span<const double> param, int i, double x) const override;
+  double compute_d2psi_dx_dparam(std::span<const double> param, int i, double x) const override;
+  double compute_d2psi_dparam2(
+    std::span<const double> param, int i, int j, double x) const override;
 
-protected:
-  double coeff;
+private:
+  static void validateParameters(std::span<const double> param);
+  static void validateParameterIndex(int i);
+  static void validateX(double x);
+
+  double coeff_;
 };
 
 }  // namespace SolidDeformationModel

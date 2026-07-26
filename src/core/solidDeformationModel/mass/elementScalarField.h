@@ -3,7 +3,6 @@
 #include "material/core/materialParameters.h"
 
 #include <memory>
-#include <span>
 
 namespace pgo::SolidDeformationModel
 {
@@ -36,7 +35,7 @@ public:
   // remains valid for the lifetime of this source.
   virtual const MaterialParameterRef *parameterDependency() const = 0;
 
-  // The output span has exactly
+  // The output vector has exactly
   // parameterDependency()->field().dofLayout().numLocalDofs() entries when
   // the source is parameter-dependent, and is empty otherwise. The semantic
   // wrappers validate this contract before dispatching to the source.
@@ -44,14 +43,14 @@ public:
     int element,
     int quadrature,
     const MaterialParameterEvaluationView &state,
-    std::span<double> output) const = 0;
+    EigenSupport::RefVecXd output) const = 0;
 
   virtual void localParameterDerivativeWithScratch(
     int element,
     int quadrature,
     const MaterialParameterEvaluationView &state,
     MaterialParameterEvaluationScratch &scratch,
-    std::span<double> output) const;
+    EigenSupport::RefVecXd output) const;
 };
 
 class ConstantScalarFieldSource final : public ElementScalarFieldSource
@@ -69,7 +68,7 @@ public:
     int element,
     int quadrature,
     const MaterialParameterEvaluationView &state,
-    std::span<double> output) const override;
+    EigenSupport::RefVecXd output) const override;
 
 private:
   double value_ = 0.0;
@@ -90,7 +89,7 @@ public:
     int element,
     int quadrature,
     const MaterialParameterEvaluationView &state,
-    std::span<double> output) const override;
+    EigenSupport::RefVecXd output) const override;
 
 private:
   EigenSupport::VXd values_;
@@ -118,13 +117,13 @@ public:
     int element,
     int quadrature,
     const MaterialParameterEvaluationView &state,
-    std::span<double> output) const override;
+    EigenSupport::RefVecXd output) const override;
   void localParameterDerivativeWithScratch(
     int element,
     int quadrature,
     const MaterialParameterEvaluationView &state,
     MaterialParameterEvaluationScratch &scratch,
-    std::span<double> output) const override;
+    EigenSupport::RefVecXd output) const override;
 
 private:
   double scale_ = 0.0;

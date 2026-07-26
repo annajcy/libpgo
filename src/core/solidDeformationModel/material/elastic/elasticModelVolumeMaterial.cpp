@@ -9,47 +9,52 @@ copyright to USC,MIT,NUS
 
 using namespace pgo::SolidDeformationModel;
 using namespace pgo::NonlinearOptimization;
+namespace ES = pgo::EigenSupport;
 
-double ElasticModelVolumeMaterial::compute_psi(const double *, const double F[9], const double[9], const double[9], const double[3]) const
+double ElasticModelVolumeMaterial::compute_psi(std::span<const double>, const SpectralState &state) const
 {
   // energy = 0.5 * ( detF - 1)^2
-  double detF = Determinant::Dim3::det(F);
+  double detF = Determinant::Dim3::det(state.F.data());
   return (detF - 1) * (detF - 1) * 0.5 * scale;
 }
 
-void ElasticModelVolumeMaterial::compute_P(const double *, const double F[9], const double[9], const double[9], const double[3], double P[9]) const
+ES::M3d ElasticModelVolumeMaterial::compute_P(std::span<const double>, const SpectralState &state) const
 {
   // d psi / d F =  (detF - 1) d detF / dF
-  double detF = Determinant::Dim3::det(F);
-  Determinant::Dim3::ddetA_dA(F, P);
+  ES::V9d P;
+  double detF = Determinant::Dim3::det(state.F.data());
+  Determinant::Dim3::ddetA_dA(state.F.data(), P.data());
 
   for (int i = 0; i < 9; i++) {
     P[i] *= (detF - 1) * scale;
   }
+  return Eigen::Map<const ES::M3d>(P.data());
 }
 
-void ElasticModelVolumeMaterial::compute_dPdF(const double *, const double F[9], const double[9], const double[9], const double[3], double dPdFOut[81]) const
+ES::M9d ElasticModelVolumeMaterial::compute_dPdF(std::span<const double>, const SpectralState &state) const
 {
   // d^2 psi / dF dF
   // = d ((detF - 1) d detF / dF) /dF
   // = d detF / * dF d detF / dF + (detF - 1) * dP/dF
 
-  double detF = Determinant::Dim3::det(F);
-  double P[9];
-  Determinant::Dim3::ddetA_dA(F, P);
+  double detF = Determinant::Dim3::det(state.F.data());
+  ES::V9d P;
+  Determinant::Dim3::ddetA_dA(state.F.data(), P.data());
 
-  Determinant::Dim3::d2detA_dA2(F, dPdFOut);
+  ES::M9d dPdFOut;
+  Determinant::Dim3::d2detA_dA2(state.F.data(), dPdFOut.data());
   for (int i = 0; i < 81; i++)
-    dPdFOut[i] *= (detF - 1);
+    dPdFOut.data()[i] *= (detF - 1);
 
   for (int i = 0; i < 9; i++) {
     for (int j = 0; j < 9; j++) {
-      dPdFOut[i * 9 + j] += P[i] * P[j];
+      dPdFOut.data()[i * 9 + j] += P[i] * P[j];
     }
   }
 
   for (int i = 0; i < 81; i++)
-    dPdFOut[i] *= scale;
+    dPdFOut.data()[i] *= scale;
+  return dPdFOut;
 }
 
 

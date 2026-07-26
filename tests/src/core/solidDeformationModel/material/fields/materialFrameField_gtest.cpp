@@ -5,6 +5,7 @@
 #include "material/plastic/plasticModel3D3DOF.h"
 
 #include <limits>
+#include <span>
 #include <stdexcept>
 
 namespace
@@ -129,11 +130,8 @@ TEST(MaterialFrameFieldGTest, Dof3UsesMaterialToReferenceColumnConvention)
   PlasticModel3D3DOF deformationGradientModel(frame.transpose());
 
   const ES::V3d parameters(0.8, 1.2, 1.5);
-  double actualStorage[9];
-  deformationGradientModel.computeA(
-    parameters.data(), actualStorage);
-  const ES::M3d actual =
-    Eigen::Map<const ES::M3d>(actualStorage);
+  const ES::M3d actual = deformationGradientModel.computeA(
+    std::span<const double>(parameters.data(), 3));
   const ES::M3d expected =
     frame * parameters.asDiagonal() * frame.transpose();
   EXPECT_TRUE(actual.isApprox(expected, 1e-12));
@@ -141,7 +139,8 @@ TEST(MaterialFrameFieldGTest, Dof3UsesMaterialToReferenceColumnConvention)
 
   ES::V3d roundTrip;
   deformationGradientModel.toParam(
-    actualStorage, roundTrip.data());
+    actual,
+    std::span<double>(roundTrip.data(), 3));
   EXPECT_TRUE(roundTrip.isApprox(parameters, 1e-12));
 }
 

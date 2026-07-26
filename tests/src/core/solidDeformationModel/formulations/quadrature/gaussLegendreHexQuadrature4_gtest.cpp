@@ -4,6 +4,7 @@
 #include <cmath>
 
 using namespace pgo::SolidDeformationModel;
+namespace ES = pgo::EigenSupport;
 
 // 4-point-per-axis Gauss-Legendre on [0,1]^3 has 64 points and weights summing to the unit volume.
 TEST(GaussLegendreHexQuadrature4GTest, WeightsSumToUnitVolume)
@@ -27,8 +28,7 @@ TEST(GaussLegendreHexQuadrature4GTest, IntegratesPolynomialsExactlyToDegree7)
       for (int c : degrees) {
         double approx = 0.0;
         for (int i = 0; i < q.numPoints(); i++) {
-          double xi[3];
-          q.point(i, xi);
+          const ES::V3d xi = q.point(i);
           approx += q.weight(i) * std::pow(xi[0], a) * std::pow(xi[1], b) * std::pow(xi[2], c);
         }
         double exact = 1.0 / ((a + 1) * (b + 1) * (c + 1));
@@ -43,8 +43,7 @@ TEST(GaussLegendreHexQuadrature4GTest, PointsInsideUnitCube)
 {
   GaussLegendreHexQuadrature4 q;
   for (int i = 0; i < q.numPoints(); i++) {
-    double xi[3];
-    q.point(i, xi);
+    const ES::V3d xi = q.point(i);
     for (int d = 0; d < 3; d++) {
       EXPECT_GT(xi[d], 0.0);
       EXPECT_LT(xi[d], 1.0);

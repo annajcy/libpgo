@@ -16,6 +16,8 @@ copyright to USC,MIT,NUS
 #include <tbb/parallel_for.h>
 #include <tbb/partitioner.h>
 
+#include <array>
+
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 
@@ -23,10 +25,10 @@ namespace pgo
 {
 namespace SolidDeformationModel
 {
-void generateElementMatrixEntries(const Mesh::TetMeshRef &tetMesh, int tetID, double m[12])
+ES::V12d generateElementMatrixEntries(const Mesh::TetMeshRef &tetMesh, int tetID)
 {
   // grad is constant inside a tet
-  Vec3d vtx[4];
+  std::array<Vec3d, 4> vtx;
   for (int i = 0; i < 4; i++)
     vtx[i] = tetMesh.pos(tetID, i);
 
@@ -39,25 +41,26 @@ void generateElementMatrixEntries(const Mesh::TetMeshRef &tetMesh, int tetID, do
   Mat3d MInvT = M.inverse().transpose();
 
   // the 12x1 column vector m is seen as [m0, m1, m2, m3], where mi is a 3x1 column vector
+  ES::V12d m;
   Vec3d m0;
   m0.setZero();
 
   for (int i = 0; i < 3; i++) {
     Vec3d r = MInvT.row(i);
-    (Eigen::Map<Vec3d>(m + 3 * (i + 1))) = r;
+    m.segment<3>(3 * (i + 1)) = r;
 
     // MInvT[i].convertToArray(m + 3 * (i + 1));  // assign m{i+1} to m
     m0 -= r;
   }
-  (Eigen::Map<Vec3d>(m)) = m0;
+  m.segment<3>(0) = m0;
+  return m;
 }
 }  // namespace SolidDeformationModel
 }  // namespace pgo
 
 void TetMeshMatrix::generateElementGradientMatrix(const Mesh::TetMeshRef &tetMesh, int tetID, ES::M9x12d &G)
 {
-  double m[12];
-  generateElementMatrixEntries(tetMesh, tetID, m);
+  const ES::V12d m = generateElementMatrixEntries(tetMesh, tetID);
 
   // G is 9 x 12:
   //        [ m0       m1       m2       m3       ]
@@ -85,8 +88,7 @@ void TetMeshMatrix::generateGradientMatrix(const Mesh::TetMeshRef &tetMesh, ES::
   tbb::parallel_for(0, tetMesh.numTets(), [&](int tetID) {
       // auto &entriesBuf = entriesTLS.local();
 
-      double m[12];
-      generateElementMatrixEntries(tetMesh, tetID, m);
+      const ES::V12d m = generateElementMatrixEntries(tetMesh, tetID);
 
       //// write dFduPacked in place
       // write m in place
@@ -156,7 +158,7 @@ void TetMeshMatrix::generateBasicElementLaplacianMatrix(const Mesh::TetMeshRef &
     }
 
     if (faceNeighbor) {
-      int eleVtxIDs[4];
+      std::array<int, 4> eleVtxIDs;
       for (int vtxIdx = 0; vtxIdx < numElementVertices; vtxIdx++) {
         eleVtxIDs[vtxIdx] = tetMesh.tetVtxID(el, vtxIdx);
       }
@@ -167,7 +169,7 @@ void TetMeshMatrix::generateBasicElementLaplacianMatrix(const Mesh::TetMeshRef &
         if (elementNeighbors[i] == el)
           continue;
 
-        int eleVtxIDs2[4];
+        std::array<int, 4> eleVtxIDs2;
         for (int vtxIdx = 0; vtxIdx < numElementVertices; vtxIdx++) {
           eleVtxIDs2[vtxIdx] = tetMesh.tetVtxID(elementNeighbors[i], vtxIdx);
         }

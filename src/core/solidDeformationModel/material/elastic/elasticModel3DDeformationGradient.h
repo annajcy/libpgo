@@ -9,34 +9,44 @@ copyright to USC,MIT,NUS
 #include "deformation/hessianProjection.h"
 #include "EigenSupport.h"
 
+#include <span>
 #include <stdexcept>
 
 namespace pgo
 {
 namespace SolidDeformationModel
 {
+
+// Immutable spectral data for one deformation-gradient evaluation.  The
+// matrices use Eigen's normal column-major convention; `stretches(i)` is the
+// principal stretch associated with column i of U/V.
+struct SpectralState
+{
+  EigenSupport::M3d F = EigenSupport::M3d::Identity();
+  EigenSupport::M3d U = EigenSupport::M3d::Identity();
+  EigenSupport::M3d V = EigenSupport::M3d::Identity();
+  EigenSupport::V3d stretches = EigenSupport::V3d::Ones();
+};
+
 class ElasticModel3DDeformationGradient : public ElasticModel
 {
 public:
   ElasticModel3DDeformationGradient() {}
   virtual ~ElasticModel3DDeformationGradient() {}
 
-  virtual double compute_psi(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const = 0;
-  virtual void compute_P(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double P[9]) const = 0;
-  virtual void compute_dPdF(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double dPdF[81]) const = 0;
-
-  // Exact material tangent remains available through compute_dPdF().  This
-  // variant is used only when assembling a PSD displacement Hessian.
-  virtual void compute_dPdF_psd(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double dPdF[81]) const
+  // The deformation-gradient API is intentionally Eigen-native.  A single
+  // SpectralState keeps F, its SVD factors, and the principal stretches
+  // together, so callers cannot accidentally mix data from different SVDs.
+  virtual double compute_psi(std::span<const double> param,
+    const SpectralState &state) const = 0;
+  virtual EigenSupport::M3d compute_P(std::span<const double> param,
+    const SpectralState &state) const = 0;
+  virtual EigenSupport::M9d compute_dPdF(std::span<const double> param,
+    const SpectralState &state) const = 0;
+  virtual EigenSupport::M9d compute_dPdF_psd(std::span<const double> param,
+    const SpectralState &state) const
   {
-    compute_dPdF(param, F, U, V, S, dPdF);
-    const EigenSupport::M9d tangent = EigenSupport::Mp<const EigenSupport::M9d>(dPdF);
-    auto output = EigenSupport::Mp<EigenSupport::M9d>(dPdF);
-    output = projectSymmetricPSD(tangent);
+    return projectSymmetricPSD(compute_dPdF(param, state));
   }
 
   // Every concrete 3D model must state its parameter dimension explicitly.
@@ -44,22 +54,22 @@ public:
   int getNumParameters() const override = 0;
 
   // compute the 1st order derivative with respect to the i-th parameter
-  virtual double compute_dpsi_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const;
+  virtual double compute_dpsi_dparam(std::span<const double> param, int i,
+    const SpectralState &state) const;
   // compute the 2nd order derivative with respect to the (i-th, j-th) parameter
-  virtual double compute_d2psi_dparam2(const double *param, int i, int j,
-    const double F[9], const double U[9], const double V[9], const double S[3]) const;
+  virtual double compute_d2psi_dparam2(std::span<const double> param, int i, int j,
+    const SpectralState &state) const;
   // compute the 2nd order derivative with respect to the i-th parameter and F
-  virtual void compute_dP_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3], double *ret) const;
+  virtual EigenSupport::M3d compute_dP_dparam(std::span<const double> param, int i,
+    const SpectralState &state) const;
 
-  // tensor[k * 81 + j * 9 + i] should containt d3psi / (dFi dFj dFk)
-  virtual void compute_d2PdF2(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double d3psi_dFiFjFk[729]) const;
-  virtual void compute_d2Pdparam2(const double *param, int i, int j, const double F[9],
-    const double U[9], const double V[9], const double S[3], double d2p_dparam2[9]) const;
-  virtual void compute_d2PdFdparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3], double d2P_dFdparam[81]) const;
+  // M81x9d row (j * 9 + i), column k contains d3psi/(dFi dFj dFk).
+  virtual void compute_d2PdF2(std::span<const double> param,
+    const SpectralState &state, EigenSupport::M81x9d &d2PdF2) const;
+  virtual EigenSupport::M3d compute_d2Pdparam2(std::span<const double> param, int i, int j,
+    const SpectralState &state) const;
+  virtual EigenSupport::M9d compute_d2PdFdparam(std::span<const double> param, int i,
+    const SpectralState &state) const;
 
   bool Has3rdOrderDerivative() const { return has3rdOrderDerivative; }
 
@@ -67,43 +77,43 @@ protected:
   bool has3rdOrderDerivative = false;
 };
 
-inline double ElasticModel3DDeformationGradient::compute_dpsi_dparam(const double *, int,
-  const double[9], const double[9], const double[9], const double[3]) const
+inline double ElasticModel3DDeformationGradient::compute_dpsi_dparam(
+  std::span<const double>, int, const SpectralState &) const
 {
   throw std::logic_error(
     "ElasticModel3DDeformationGradient::compute_dpsi_dparam is not implemented.");
 }
 
-inline double ElasticModel3DDeformationGradient::compute_d2psi_dparam2(const double *, int, int,
-  const double[9], const double[9], const double[9], const double[3]) const
+inline double ElasticModel3DDeformationGradient::compute_d2psi_dparam2(
+  std::span<const double>, int, int, const SpectralState &) const
 {
   throw std::logic_error(
     "ElasticModel3DDeformationGradient::compute_d2psi_dparam2 is not implemented.");
 }
 
-inline void ElasticModel3DDeformationGradient::compute_dP_dparam(const double *, int,
-  const double[9], const double[9], const double[9], const double[3], double *) const
+inline EigenSupport::M3d ElasticModel3DDeformationGradient::compute_dP_dparam(
+  std::span<const double>, int, const SpectralState &) const
 {
   throw std::logic_error(
     "ElasticModel3DDeformationGradient::compute_dP_dparam is not implemented.");
 }
 
-inline void ElasticModel3DDeformationGradient::compute_d2PdF2(const double *, const double[9],
-  const double[9], const double[9], const double[3], double[729]) const
+inline void ElasticModel3DDeformationGradient::compute_d2PdF2(
+  std::span<const double>, const SpectralState &, EigenSupport::M81x9d &) const
 {
   throw std::logic_error(
     "ElasticModel3DDeformationGradient::compute_d2PdF2 is not implemented.");
 }
 
-inline void ElasticModel3DDeformationGradient::compute_d2Pdparam2(const double *, int, int, const double[9],
-  const double[9], const double[9], const double[3], double[9]) const
+inline EigenSupport::M3d ElasticModel3DDeformationGradient::compute_d2Pdparam2(
+  std::span<const double>, int, int, const SpectralState &) const
 {
   throw std::logic_error(
     "ElasticModel3DDeformationGradient::compute_d2Pdparam2 is not implemented.");
 }
 
-inline void ElasticModel3DDeformationGradient::compute_d2PdFdparam(const double *, int, const double[9],
-  const double[9], const double[9], const double[3], double[81]) const
+inline EigenSupport::M9d ElasticModel3DDeformationGradient::compute_d2PdFdparam(
+  std::span<const double>, int, const SpectralState &) const
 {
   throw std::logic_error(
     "ElasticModel3DDeformationGradient::compute_d2PdFdparam is not implemented.");

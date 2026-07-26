@@ -15,7 +15,6 @@ namespace SolidDeformationModel
 
 DeformationModelAssemblerCacheData::ElementScratch::ElementScratch(
   int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams,
-  std::size_t maxMappingHessianEntries,
   const DeformationModel &model):
   cacheData_(model.allocateCacheData())
 {
@@ -35,27 +34,55 @@ DeformationModelAssemblerCacheData::ElementScratch::ElementScratch(
   localParamHessian.resize(maxLocalParams, maxLocalParams);
   paramWorkMatrix.resize(maxMaterialParams, maxLocalParams);
   localMixedMatrix.resize(localDofs, maxLocalParams);
-  paramDerivativeData.resize(static_cast<std::size_t>(maxMaterialParams) * maxLocalParams);
-  paramDerivativeData2.resize(static_cast<std::size_t>(maxMaterialParams) * maxLocalParams);
-  paramMappingHessianData.resize(maxMappingHessianEntries);
+  paramDerivativeData.resize(maxMaterialParams, maxLocalParams);
+  paramDerivativeData2.resize(maxMaterialParams, maxLocalParams);
   localMatrixData.resize(static_cast<std::size_t>(std::max({ localDofs * localDofs,
     localDofs * maxMaterialParams,
     maxMaterialParams * maxMaterialParams })));
   materialLocationValues.resize(std::max(16, maxMaterialLocations));
 }
 
+namespace
+{
+std::span<EigenSupport::MXd> prepareMappingHessians(
+  std::vector<EigenSupport::MXd> &hessians,
+  int numChannels,
+  int numLocalDofs)
+{
+  hessians.resize(static_cast<std::size_t>(numChannels));
+  for (EigenSupport::MXd &hessian : hessians) {
+    if (hessian.rows() != numLocalDofs || hessian.cols() != numLocalDofs)
+      hessian.resize(numLocalDofs, numLocalDofs);
+  }
+  return std::span<EigenSupport::MXd>(hessians.data(), hessians.size());
+}
+}  // namespace
+
+std::span<EigenSupport::MXd>
+DeformationModelAssemblerCacheData::ElementScratch::preparePlasticParamMappingHessians(
+  int numChannels, int numLocalDofs)
+{
+  return prepareMappingHessians(
+    plasticParamMappingHessians, numChannels, numLocalDofs);
+}
+
+std::span<EigenSupport::MXd>
+DeformationModelAssemblerCacheData::ElementScratch::prepareElasticParamMappingHessians(
+  int numChannels, int numLocalDofs)
+{
+  return prepareMappingHessians(
+    elasticParamMappingHessians, numChannels, numLocalDofs);
+}
+
 DeformationModelAssemblerCacheData::DeformationModelAssemblerCacheData(
   int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams,
-  std::size_t maxMappingHessianEntries,
-  const std::vector<const DeformationModel *> &models)
+  std::span<const std::reference_wrapper<const DeformationModel>> models)
 {
   elementScratch_.reserve(models.size());
-  for (const DeformationModel *model : models) {
-    if (model == nullptr)
-      throw std::invalid_argument("DeformationModelAssemblerCacheData requires non-null element models.");
+  for (const auto &modelRef : models) {
     elementScratch_.emplace_back(
       localDofs, maxMaterialLocations, maxMaterialParams, maxLocalParams,
-      maxMappingHessianEntries, *model);
+      modelRef.get());
   }
 }
 

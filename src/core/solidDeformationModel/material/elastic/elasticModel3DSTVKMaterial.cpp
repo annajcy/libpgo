@@ -35,7 +35,8 @@ ElasticModel3DSTVKMaterial::~ElasticModel3DSTVKMaterial()
 {
 }
 
-ES::V3d ElasticModel3DSTVKMaterial::computeLowerInvariance(const ES::M3d &F, ES::M3d &R,EigenSupport::V3d *S_, EigenSupport::M3d *U_, EigenSupport::M3d *V_) const
+ElasticModel3DSTVKMaterial::LowerInvarianceResult
+ElasticModel3DSTVKMaterial::computeLowerInvariance(const ES::M3d &F) const
 {
   Eigen::JacobiSVD<ES::M3d, Eigen::NoQRPreconditioner> svd(F, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
@@ -52,31 +53,23 @@ ES::V3d ElasticModel3DSTVKMaterial::computeLowerInvariance(const ES::M3d &F, ES:
     S(2) *= -1.0;
   }
 
-  // U VT V S VT
-  R = U * V.transpose();
+  // U V^T and the signed stretch tensor V S V^T are the lower-invariance factors.
   ES::M3d SS = V * S.asDiagonal() * V.transpose();
 
-  ES::V3d i(SS.trace(), (SS * SS).trace(), SS.determinant());
-
-  if (U_ != nullptr) {
-    *U_ = U;
-  }
-  
-  if (V_ != nullptr) {
-    *V_ = V;
-  }
-
-  if (S_ != nullptr) {
-    *S_ = S;
-  }
-
-  return i;
+  LowerInvarianceResult result;
+  result.invariants = ES::V3d(SS.trace(), (SS * SS).trace(), SS.determinant());
+  result.rotation = U * V.transpose();
+  result.signedStretches = S;
+  result.U = U;
+  result.V = V;
+  return result;
 }
 
-double ElasticModel3DSTVKMaterial::compute_psi(const double *param, const double _F[9], const double _U[], const double _V[], const double _S[]) const
+double ElasticModel3DSTVKMaterial::compute_psi(std::span<const double>, const SpectralState &state) const
 {
-  ES::M3d F = Eigen::Map<const ES::M3d>(_F), R;
-  ES::V3d i = computeLowerInvariance(F, R);
+  ES::M3d F = state.F;
+  const LowerInvarianceResult invariance = computeLowerInvariance(F);
+  const ES::V3d &i = invariance.invariants;
 
   double I1 = i[0];
   double I2 = i[1];
@@ -87,10 +80,12 @@ double ElasticModel3DSTVKMaterial::compute_psi(const double *param, const double
   return energy;
 }
 
-void ElasticModel3DSTVKMaterial::compute_P(const double *param, const double _F[9], const double _U[], const double _V[], const double _S[], double P[9]) const
+ES::M3d ElasticModel3DSTVKMaterial::compute_P(std::span<const double>, const SpectralState &state) const
 {
-  ES::M3d F = Eigen::Map<const ES::M3d>(_F), R;
-  ES::V3d i = computeLowerInvariance(F, R);
+  ES::M3d F = state.F;
+  const LowerInvarianceResult invariance = computeLowerInvariance(F);
+  const ES::M3d &R = invariance.rotation;
+  const ES::V3d &i = invariance.invariants;
 
   double I1 = i[0];
   double I2 = i[1];
@@ -111,14 +106,18 @@ void ElasticModel3DSTVKMaterial::compute_P(const double *param, const double _F[
 
   ES::V9d g = dpsi_dI1 * dI1_dF + dpsi_dI2 * dI2_dF + dpsi_dI3 * dI3_dF;
 
-  (Eigen::Map<ES::V9d>(P)) = g;
+  return Eigen::Map<const ES::M3d>(g.data());
 }
 
-void ElasticModel3DSTVKMaterial::compute_dPdF(const double *param, const double _F[9], const double _U[], const double _V[], const double _S[], double dPdF[81]) const
+ES::M9d ElasticModel3DSTVKMaterial::compute_dPdF(std::span<const double>, const SpectralState &state) const
 {
-  ES::M3d F = Eigen::Map<const ES::M3d>(_F), R, U, V;
-  ES::V3d s;
-  ES::V3d i = computeLowerInvariance(F, R, &s, &U, &V);
+  ES::M3d F = state.F;
+  const LowerInvarianceResult invariance = computeLowerInvariance(F);
+  const ES::M3d &R = invariance.rotation;
+  const ES::M3d &U = invariance.U;
+  const ES::M3d &V = invariance.V;
+  const ES::V3d &s = invariance.signedStretches;
+  const ES::V3d &i = invariance.invariants;
 
   double I1 = i[0];
   double I2 = i[1];
@@ -137,17 +136,17 @@ void ElasticModel3DSTVKMaterial::compute_dPdF(const double *param, const double 
   dI3_dF.segment<3>(3) = F.col(2).cross(F.col(0));
   dI3_dF.segment<3>(6) = F.col(0).cross(F.col(1));
 
-  double eigv[3];
+  ES::V3d eigv;
   eigv[0] = 2.0 / (s(0) + s(1));
   eigv[1] = 2.0 / (s(1) + s(2));
   eigv[2] = 2.0 / (s(2) + s(0));
 
-  ES::M3d Q[3];
+  std::array<ES::M3d, 3> Q;
   Q[0] = 1.0 / sqrt(2) * U * C[0] * V.transpose();
   Q[1] = 1.0 / sqrt(2) * U * C[1] * V.transpose();
   Q[2] = 1.0 / sqrt(2) * U * C[2] * V.transpose();
 
-  ES::V9d q[3];
+  std::array<ES::V9d, 3> q;
   for (int i = 0; i < 3; i++) {
     for (int j = 0; j < 3; j++) {
       q[i].segment<3>(3 * j) = Q[i].col(j);
@@ -191,7 +190,7 @@ void ElasticModel3DSTVKMaterial::compute_dPdF(const double *param, const double 
   H += d2psi_dI1dI3 * (dI1_dF * dI3_dF.transpose() + dI3_dF * dI1_dF.transpose());
   H += d2psi_dI2dI2 * dI2_dF * dI2_dF.transpose();
 
-  (Eigen::Map<ES::M9d>(dPdF)) = H;
+  return H;
 }
 
 

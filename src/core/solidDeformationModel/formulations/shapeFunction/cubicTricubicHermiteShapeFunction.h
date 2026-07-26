@@ -34,13 +34,20 @@ namespace SolidDeformationModel
 class CubicTricubicHermiteShapeFunction : public ShapeFunction
 {
 public:
-  int numNodes() const override { return 64; }
-  int localDofs() const override { return 192; }
+  static constexpr int kNumNodes = 64;
+  static constexpr int kLocalDofs = 192;
+
+  int numNodes() const override { return kNumNodes; }
+  int localDofs() const override { return kLocalDofs; }
   std::unique_ptr<ShapeFunction> clone() const override { return std::make_unique<CubicTricubicHermiteShapeFunction>(*this); }
 
-  void N(double xi, double eta, double zeta, double N_out[]) const override;
-  void dN_dxi(double xi, double eta, double zeta, double dN_out[]) const override;
-  void nodeCoords(int node, double xi[3]) const override;
+  EigenSupport::V64d compute_N(double xi, double eta, double zeta) const;
+  EigenSupport::M3x64d compute_dN_dxi(double xi, double eta, double zeta) const;
+  void compute_N(double xi, double eta, double zeta,
+    EigenSupport::RefVecXd N_out) const override;
+  void compute_dN_dxi(double xi, double eta, double zeta,
+    EigenSupport::RefMatXd dN_out) const override;
+  EigenSupport::V3d nodeCoords(int node) const override;
 };
 
 }  // namespace SolidDeformationModel

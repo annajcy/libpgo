@@ -66,7 +66,7 @@ VolumetricFormulation::VolumetricFormulation(
 VolumetricFormulation::~VolumetricFormulation() = default;
 
 std::unique_ptr<VolumetricElementMapping> VolumetricFormulation::createElementMapping(
-  const double *restPositions) const
+  std::span<const double> restPositions) const
 {
   return std::make_unique<VolumetricElementMapping>(
     restPositions, shapeFunction_->clone(), quadrature_->clone());
@@ -86,7 +86,7 @@ EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
   const Quadrature &quad = massQuadrature();
   const int numNodes = sf.numNodes();
 
-  std::vector<double> N(numNodes);
+  ES::VXd N(numNodes);
   std::vector<double> localRest;
   std::vector<int> globalIdx;
   std::vector<ES::TripletD> entries;
@@ -94,15 +94,18 @@ EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
 
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
     localRest.resize(dofLayout->numLocalDofs(ele));
-    dofLayout->gather(ele, restDofs.data(), localRest.data(), groups);
-    const VolumetricElementMapping mapping(localRest.data(), sf, quad);
+    dofLayout->gather(
+      ele,
+      std::span<const double>(restDofs.data(), static_cast<std::size_t>(restDofs.size())),
+      localRest,
+      groups);
+    const VolumetricElementMapping mapping(localRest, sf, quad);
     localGlobalDofIndices(*dofLayout, ele, globalIdx);
     const double rho = density.value(ele);
 
     for (int q = 0; q < quad.numPoints(); q++) {
-      double xi[3];
-      quad.point(q, xi);
-      sf.N(xi[0], xi[1], xi[2], N.data());
+      const ES::V3d xi = quad.point(q);
+      sf.compute_N(xi[0], xi[1], xi[2], N);
       const double w = rho * mapping.weightDetJ(q);
 
       for (int a = 0; a < numNodes; a++) {
@@ -145,7 +148,7 @@ EigenSupport::VXd VolumetricFormulation::buildBodyForce(
   const Quadrature &quad = massQuadrature();
   const int numNodes = sf.numNodes();
 
-  std::vector<double> N(numNodes);
+  ES::VXd N(numNodes);
   std::vector<double> localRest;
   std::vector<int> globalIdx;
   std::vector<DofGroup> groups;
@@ -153,15 +156,18 @@ EigenSupport::VXd VolumetricFormulation::buildBodyForce(
 
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
     localRest.resize(dofLayout->numLocalDofs(ele));
-    dofLayout->gather(ele, restDofs.data(), localRest.data(), groups);
-    const VolumetricElementMapping mapping(localRest.data(), sf, quad);
+    dofLayout->gather(
+      ele,
+      std::span<const double>(restDofs.data(), static_cast<std::size_t>(restDofs.size())),
+      localRest,
+      groups);
+    const VolumetricElementMapping mapping(localRest, sf, quad);
     localGlobalDofIndices(*dofLayout, ele, globalIdx);
     const double rho = density.value(ele);
 
     for (int q = 0; q < quad.numPoints(); q++) {
-      double xi[3];
-      quad.point(q, xi);
-      sf.N(xi[0], xi[1], xi[2], N.data());
+      const ES::V3d xi = quad.point(q);
+      sf.compute_N(xi[0], xi[1], xi[2], N);
       const double w = rho * mapping.weightDetJ(q);
 
       for (int a = 0; a < numNodes; a++) {
@@ -197,10 +203,14 @@ std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
 {
   const int numNodes = shapeFunction_->numNodes();
   std::vector<double> restPosition(numNodes * 3);
-  for (int j = 0; j < numNodes; j++)
-    mesh.getVertex(ele, j, &restPosition[3 * j]);
+  for (int j = 0; j < numNodes; j++) {
+    const EigenSupport::V3d &vertex = mesh.getVertex(ele, j);
+    restPosition[3 * j + 0] = vertex[0];
+    restPosition[3 * j + 1] = vertex[1];
+    restPosition[3 * j + 2] = vertex[2];
+  }
 
-  auto mapping = createElementMapping(restPosition.data());
+  auto mapping = createElementMapping(restPosition);
   return std::make_unique<VolumetricDeformationModel>(
     std::move(*mapping),
     checkedMaterialCast<ElasticModel3DDeformationGradient>(

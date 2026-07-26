@@ -1,39 +1,35 @@
 #pragma once
 
-#include "material/elastic/elasticModel.h"
+#include "material/elastic/elasticModel1D.h"
 
 #include <memory>
+#include <span>
 
 namespace pgo
 {
 namespace SolidDeformationModel
 {
 
-// 1D cubic-spline elastic energy that interpolates a user-provided
-// stress-strain curve.  Used with 1D / tet-occupation constraints.
 class ElasticModel1DCubicSplineImpl;
 
-class ElasticModel1DCubicSpline : public ElasticModel
+// One-dimensional spline energy:
+//   psi(x; p) = coeff * spline(x; p).
+// The parameter vector contains the spline knot values.
+class ElasticModel1DCubicSpline : public ElasticModel1D
 {
 public:
   ElasticModel1DCubicSpline(double coeff, int nPoints, double xLeft, double xRight);
+  ~ElasticModel1DCubicSpline() override;
 
-  virtual ~ElasticModel1DCubicSpline();
-
-  double compute_psi(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const;
-  void compute_P(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double P[9]) const;
-  void compute_dPdF(const double *param, const double F[9],
-    const double U[9], const double V[9], const double S[3], double dPdF[81]) const;
+  double compute_psi(std::span<const double> param, double x) const override;
+  double compute_dpsi_dx(std::span<const double> param, double x) const override;
+  double compute_d2psi_dx2(std::span<const double> param, double x) const override;
 
   int getNumParameters() const override;
-  double compute_dpsi_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3]) const;
-  double compute_d2psi_dparam2(const double *param, int i, int j,
-    const double F[9], const double U[9], const double V[9], const double S[3]) const;
-  void compute_dP_dparam(const double *param, int i, const double F[9],
-    const double U[9], const double V[9], const double S[3], double *ret) const;
+  double compute_dpsi_dparam(std::span<const double> param, int i, double x) const override;
+  double compute_d2psi_dx_dparam(std::span<const double> param, int i, double x) const override;
+  double compute_d2psi_dparam2(
+    std::span<const double> param, int i, int j, double x) const override;
 
 private:
   std::unique_ptr<ElasticModel1DCubicSplineImpl> impl_;

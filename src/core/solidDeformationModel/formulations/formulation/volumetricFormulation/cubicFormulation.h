@@ -15,7 +15,8 @@ public:
   EigenSupport::SpMatD buildSurfaceEmbeddingMatrix(
     const VolumetricMeshes::VolumetricMesh &mesh,
     const EigenSupport::MXd &surfaceVertices) const override;
-  static EigenSupport::V3d clampedParametricCoordinates(const double *weights);
+  static EigenSupport::V3d clampedParametricCoordinates(
+    const EigenSupport::V8d &weights);
 };
 
 }  // namespace SolidDeformationModel

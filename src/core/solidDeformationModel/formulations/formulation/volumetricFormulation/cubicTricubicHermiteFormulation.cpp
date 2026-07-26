@@ -38,24 +38,21 @@ constexpr int kHermiteModes = 8;
 
 void elementHermiteRestDofs(const SimulationMesh &mesh, int ele, std::array<double, 192> &rest)
 {
-  double P[8][3];
+  std::array<ES::V3d, 8> P;
   for (int c = 0; c < 8; c++)
-    mesh.getVertex(ele, c, P[c]);
+    P[c] = mesh.getVertex(ele, c);
 
-  double dXi[3], dEta[3], dZeta[3];
-  for (int k = 0; k < 3; k++) {
-    dXi[k] = P[1][k] - P[0][k];
-    dEta[k] = P[3][k] - P[0][k];
-    dZeta[k] = P[4][k] - P[0][k];
-  }
+  const ES::V3d dXi = P[1] - P[0];
+  const ES::V3d dEta = P[3] - P[0];
+  const ES::V3d dZeta = P[4] - P[0];
 
   rest.fill(0.0);
   for (int c = 0; c < 8; c++) {
-    const double *mode[4] = { P[c], dXi, dEta, dZeta };
+    const ES::V3d *mode[4] = { &P[c], &dXi, &dEta, &dZeta };
     for (int m = 0; m < 4; m++) {
       const int node = c * 8 + m;
       for (int k = 0; k < 3; k++)
-        rest[node * 3 + k] = mode[m][k];
+        rest[node * 3 + k] = (*mode[m])[k];
     }
   }
 }
@@ -89,16 +86,16 @@ ES::SpMatD buildHermiteSurfaceEmbeddingMatrix(
   }
 
   CubicTricubicHermiteShapeFunction shapeFunction;
-  std::array<double, kHermiteNodes> H{};
   std::vector<ES::TripletD> entries;
   entries.reserve(static_cast<size_t>(numTargets) * kHermiteNodes * 3);
 
   for (int target = 0; target < numTargets; target++) {
-    const double *w = bc.getEmbeddingWeights(target);
+    const ES::V8d weights = Eigen::Map<const ES::V8d>(
+      bc.getEmbeddingWeights(target));
     const int *indices = bc.getEmbeddingVertexIndices(target);
 
-    const ES::V3d q = CubicFormulation::clampedParametricCoordinates(w);
-    shapeFunction.N(q[0], q[1], q[2], H.data());
+    const ES::V3d q = CubicFormulation::clampedParametricCoordinates(weights);
+    const ES::V64d H = shapeFunction.compute_N(q[0], q[1], q[2]);
 
     for (int node = 0; node < kHermiteNodes; node++) {
       const double value = H[node];
@@ -171,7 +168,7 @@ std::unique_ptr<DeformationModel> CubicTricubicHermiteFormulation::createElement
   std::array<double, 192> restPosition;
   elementHermiteRestDofs(mesh, ele, restPosition);
 
-  auto mapping = createElementMapping(restPosition.data());
+  auto mapping = createElementMapping(restPosition);
   return std::make_unique<VolumetricDeformationModel>(
     std::move(*mapping),
     checkedMaterialCast<ElasticModel3DDeformationGradient>(

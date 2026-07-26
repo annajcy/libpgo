@@ -157,9 +157,9 @@ std::unique_ptr<SimulationMesh> buildEdgeQuadSimulationMesh(
   ElementFieldStore fields;
   fields.add(averageEdgeQuadMaterials(topology, triangleMaterials));
   return std::make_unique<SimulationMesh>(
-    triMeshGeo.numVertices(), vertices.data(),
+    triMeshGeo.numVertices(), vertices,
     static_cast<int>(topology.sourceTriangles.size()), 4,
-    topology.elementVertexIndices.data(), std::move(fields),
+    topology.elementVertexIndices, std::move(fields),
     SimulationMeshType::EDGE_QUAD);
 }
 
@@ -195,8 +195,8 @@ std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadTriangleMesh(
   ElementFieldStore fields;
   fields.add(std::move(materials));
   return std::make_unique<SimulationMesh>(
-    triMeshGeo.numVertices(), vertices.data(),
-    triMeshGeo.numTriangles(), 3, triangles.data(), std::move(fields),
+    triMeshGeo.numVertices(), vertices,
+    triMeshGeo.numTriangles(), 3, triangles, std::move(fields),
     SimulationMeshType::TRIANGLE);
 }
 
@@ -235,17 +235,17 @@ std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadEdgeQuadMesh(
 }
 
 void pgo::SolidDeformationModel::computeTriangleUV(
-  SimulationMesh *mesh, double scaleFactor)
+  SimulationMesh &mesh, double scaleFactor)
 {
-  PGO_ALOG(mesh->getElementType() == SimulationMeshType::TRIANGLE);
+  PGO_ALOG(mesh.getElementType() == SimulationMeshType::TRIANGLE);
 
-  std::vector<double> uvs(mesh->getNumElements() * 3 * 2);
-  for (int trii = 0; trii < mesh->getNumElements(); trii++) {
-    EigenSupport::V3d restX[3];
+  std::vector<double> uvs(mesh.getNumElements() * 3 * 2);
+  for (int trii = 0; trii < mesh.getNumElements(); trii++) {
+    std::array<EigenSupport::V3d, 3> restX;
     for (int j = 0; j < 3; j++)
-      mesh->getVertex(trii, j, restX[j].data());
+      restX[j] = mesh.getVertex(trii, j);
 
-    EigenSupport::V2d restUV[3];
+    std::array<EigenSupport::V2d, 3> restUV;
     EigenSupport::V3d edge0 = restX[1] - restX[0];
     EigenSupport::V3d edge1 = restX[2] - restX[0];
     restUV[0] = EigenSupport::V2d(0, 0);
@@ -261,5 +261,5 @@ void pgo::SolidDeformationModel::computeTriangleUV(
       uvs[trii * 3 * 2 + j * 2 + 1] = restUV[j][1];
     }
   }
-  mesh->assignElementUVs(uvs.data());
+  mesh.assignElementUVs(uvs);
 }

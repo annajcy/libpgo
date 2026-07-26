@@ -4,10 +4,13 @@
 #include "material/core/materialChannelMapping.h"
 
 #include <array>
+#include <span>
+#include <vector>
 
 namespace
 {
 using namespace pgo::SolidDeformationModel;
+namespace ES = pgo::EigenSupport;
 
 TEST(ConstantParameterDofLayout, GathersSharedColumns)
 {
@@ -56,19 +59,21 @@ TEST(IdentityMaterialChannelMapping, ValueJacobianAndHessian)
   IdentityMaterialChannelMapping mapping(3);
   const std::array<double, 3> local{ 2.0, -1.0, 4.0 };
   std::array<double, 3> material{};
-  std::array<double, 9> jacobian{};
-  std::array<double, 27> hessians{};
+  ES::MXd jacobian(3, 3);
+  std::vector<ES::MXd> hessians(3);
+  for (ES::MXd &hessian : hessians)
+    hessian.resize(3, 3);
 
   mapping.evaluate(1, 2, local, material);
-  mapping.evaluateJacobian(1, 2, local, jacobian.data());
-  mapping.evaluateHessians(1, 2, local, hessians.data());
+  mapping.evaluateJacobian(1, 2, local, jacobian);
+  mapping.evaluateHessians(1, 2, local, hessians);
 
   EXPECT_EQ(material, local);
   for (int col = 0; col < 3; col++)
     for (int row = 0; row < 3; row++)
-      EXPECT_DOUBLE_EQ(jacobian[col * 3 + row], row == col ? 1.0 : 0.0);
-  for (double value : hessians)
-    EXPECT_DOUBLE_EQ(value, 0.0);
+      EXPECT_DOUBLE_EQ(jacobian(row, col), row == col ? 1.0 : 0.0);
+  for (const ES::MXd &hessian : hessians)
+    EXPECT_DOUBLE_EQ(hessian.norm(), 0.0);
   EXPECT_TRUE(mapping.isAffine());
 }
 

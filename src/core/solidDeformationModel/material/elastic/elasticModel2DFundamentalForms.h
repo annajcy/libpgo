@@ -5,8 +5,10 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
+#include "EigenSupport.h"
 #include "material/elastic/elasticModel.h"
 
+#include <span>
 #include <stdexcept>
 
 namespace pgo
@@ -19,174 +21,182 @@ public:
   ElasticModel2DFundamentalForms() {}
   virtual ~ElasticModel2DFundamentalForms() {}
 
-  virtual bool computeVonMisesStress(const double *param,
-    const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double &stress) const
+  virtual bool computeVonMisesStress(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar, double &stress) const
   {
     (void)param; (void)a; (void)b; (void)abar; (void)bbar; (void)stress;
     return false;
   }
 
-  virtual double compute_psi_a(const double *param, const double a[4], const double abar[4]) const = 0;
-  virtual double compute_psi_b(const double *param, const double b[4], const double abar[4], const double bbar[4]) const = 0;
+  virtual double compute_psi_a(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &abar) const = 0;
+  virtual double compute_psi_b(std::span<const double> param,
+    const EigenSupport::M2d &b, const EigenSupport::M2d &abar,
+    const EigenSupport::M2d &bbar) const = 0;
 
-  virtual void compute_dpsi_da(const double *param, const double a[4], const double abar[4], double da[4]) const = 0;
-  virtual void compute_dpsi_db(const double *param, const double b[4], const double abar[4], const double bbar[4], double db[4]) const = 0;
+  virtual EigenSupport::M2d compute_dpsi_da(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &abar) const = 0;
+  virtual EigenSupport::M2d compute_dpsi_db(std::span<const double> param,
+    const EigenSupport::M2d &b, const EigenSupport::M2d &abar,
+    const EigenSupport::M2d &bbar) const = 0;
 
-  virtual void compute_d2psi_da2(const double *param, const double a[4], const double abar[4], double da2[16]) const = 0;
-  virtual void compute_d2psi_db2(const double *param, const double b[4], const double abar[4], const double bbar[4], double db2[16]) const = 0;
+  virtual EigenSupport::M4d compute_d2psi_da2(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &abar) const = 0;
+  virtual EigenSupport::M4d compute_d2psi_db2(std::span<const double> param,
+    const EigenSupport::M2d &b, const EigenSupport::M2d &abar,
+    const EigenSupport::M2d &bbar) const = 0;
 
-  virtual void compute_d2psi_dadabar(const double *param, const double a[4], const double abar[4], double dadabar[16]) const
+  virtual EigenSupport::M4d compute_d2psi_dadabar(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &abar) const
   {
     (void)param;
     (void)a;
     (void)abar;
-    (void)dadabar;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_dadabar is not implemented");
   }
-  virtual void compute_d2psi_db_dabar(const double *param, const double b[4], const double abar[4], const double bbar[4], double dbdabar[16]) const
+  virtual EigenSupport::M4d compute_d2psi_db_dabar(std::span<const double> param,
+    const EigenSupport::M2d &b, const EigenSupport::M2d &abar,
+    const EigenSupport::M2d &bbar) const
   {
     (void)param;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)dbdabar;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_db_dabar is not implemented");
   }
-  virtual void compute_d2psi_db_dbbar(const double *param, const double b[4], const double abar[4], const double bbar[4], double dbdbbar[16]) const
+  virtual EigenSupport::M4d compute_d2psi_db_dbbar(std::span<const double> param,
+    const EigenSupport::M2d &b, const EigenSupport::M2d &abar,
+    const EigenSupport::M2d &bbar) const
   {
     (void)param;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)dbdbbar;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_db_dbbar is not implemented");
   }
 
-  virtual void compute_d2psi_da_dparam(const double *param, const double a[4], const double abar[4], double d2psi_dadparam[/*4 x numParams*/]) const
+  virtual void compute_d2psi_da_dparam(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &abar,
+    EigenSupport::RefMatXd d2psi_dadparam) const
   {
     (void)param;
     (void)a;
     (void)abar;
-    (void)d2psi_dadparam;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_da_dparam is not implemented");
   }
-  virtual void compute_d2psi_db_dparam(const double *param, const double b[4], const double abar[4], const double bbar[4], double d2psi_dbdparam[/*4 x numParams*/]) const
+  virtual void compute_d2psi_db_dparam(std::span<const double> param,
+    const EigenSupport::M2d &b, const EigenSupport::M2d &abar,
+    const EigenSupport::M2d &bbar, EigenSupport::RefMatXd d2psi_dbdparam) const
   {
     (void)param;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)d2psi_dbdparam;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_db_dparam is not implemented");
   }
 
-  virtual void compute_dpsi_dabar(
-    const double *param, const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double dpsi_dabar[4]) const
+  virtual EigenSupport::M2d compute_dpsi_dabar(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar) const
   {
     (void)param;
     (void)a;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)dpsi_dabar;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_dpsi_dabar is not implemented");
   }
-  virtual void compute_dpsi_dbbar(
-    const double *param, const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double dpsi_dbbar[4]) const
+  virtual EigenSupport::M2d compute_dpsi_dbbar(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar) const
   {
     (void)param;
     (void)a;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)dpsi_dbbar;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_dpsi_dbbar is not implemented");
   }
-  virtual void compute_dpsi_dparam(
-    const double *param, const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double dpsi_dparam[/*numParams*/]) const
+  virtual void compute_dpsi_dparam(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar,
+    EigenSupport::RefVecXd dpsi_dparam) const
   {
     (void)param;
     (void)a;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)dpsi_dparam;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_dpsi_dparam is not implemented");
   }
-  virtual void compute_d2psi_dparam2(
-    const double *param, const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double d2psi_dparam2[/*numParams x numParams*/]) const
+  virtual void compute_d2psi_dparam2(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar,
+    EigenSupport::RefMatXd d2psi_dparam2) const
   {
     (void)param;
     (void)a;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)d2psi_dparam2;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_dparam2 is not implemented");
   }
-  virtual void compute_d2psi_dabar_dparam(
-    const double *param, const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double d2psi_dabar_dparam[/*4 x numParams*/]) const
+  virtual void compute_d2psi_dabar_dparam(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar,
+    EigenSupport::RefMatXd d2psi_dabar_dparam) const
   {
     (void)param;
     (void)a;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)d2psi_dabar_dparam;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_dabar_dparam is not implemented");
   }
-  virtual void compute_d2psi_dbbar_dparam(
-    const double *param, const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double d2psi_dbbar_dparam[/*4 x numParams*/]) const
+  virtual void compute_d2psi_dbbar_dparam(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar,
+    EigenSupport::RefMatXd d2psi_dbbar_dparam) const
   {
     (void)param;
     (void)a;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)d2psi_dbbar_dparam;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_dbbar_dparam is not implemented");
   }
-  virtual void compute_d2psi_dabar2(
-    const double *param, const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double d2psi_dabar2[16]) const
+  virtual EigenSupport::M4d compute_d2psi_dabar2(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar) const
   {
     (void)param;
     (void)a;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)d2psi_dabar2;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_dabar2 is not implemented");
   }
-  virtual void compute_d2psi_dabar_dbbar(
-    const double *param, const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double d2psi_dabar_dbbar[16]) const
+  virtual EigenSupport::M4d compute_d2psi_dabar_dbbar(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar) const
   {
     (void)param;
     (void)a;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)d2psi_dabar_dbbar;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_dabar_dbbar is not implemented");
   }
-  virtual void compute_d2psi_dbbar2(
-    const double *param, const double a[4], const double b[4],
-    const double abar[4], const double bbar[4], double d2psi_dbbar2[16]) const
+  virtual EigenSupport::M4d compute_d2psi_dbbar2(std::span<const double> param,
+    const EigenSupport::M2d &a, const EigenSupport::M2d &b,
+    const EigenSupport::M2d &abar, const EigenSupport::M2d &bbar) const
   {
     (void)param;
     (void)a;
     (void)b;
     (void)abar;
     (void)bbar;
-    (void)d2psi_dbbar2;
     throw std::logic_error("ElasticModel2DFundamentalForms::compute_d2psi_dbbar2 is not implemented");
   }
 

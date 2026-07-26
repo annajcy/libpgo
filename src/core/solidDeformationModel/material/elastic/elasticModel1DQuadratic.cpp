@@ -1,44 +1,77 @@
-/*
-author: Bohan Wang
-copyright to USC,MIT,NUS
-*/
-
 #include "material/elastic/elasticModel1DQuadratic.h"
 
-using namespace pgo::SolidDeformationModel;
-
-double ElasticModel1DQuadratic::compute_psi(const double *param, const double F[9],
-  const double[9], const double[9], const double[3]) const
+namespace pgo::SolidDeformationModel
 {
-  return param[0] * coeff * (F[0] - F[1]) * (F[0] - F[1]) * 0.5;
-}
 
-void ElasticModel1DQuadratic::compute_P(const double *param, const double F[9],
-  const double[9], const double[9], const double[3], double P[9]) const
+void ElasticModel1DQuadratic::validateParameters(std::span<const double> param)
 {
-  P[0] = param[0] * coeff * (F[0] - F[1]);
+  if (param.size() != 1)
+    throw std::invalid_argument("ElasticModel1DQuadratic expects one material parameter");
+  if (!std::isfinite(param[0]))
+    throw std::invalid_argument("ElasticModel1DQuadratic parameter must be finite");
 }
 
-void ElasticModel1DQuadratic::compute_dPdF(const double *param, const double F[9],
-  const double[], const double[], const double[], double dPdF[81]) const
+void ElasticModel1DQuadratic::validateParameterIndex(int i)
 {
-  dPdF[0] = param[0] * coeff;
+  if (i != 0)
+    throw std::out_of_range("ElasticModel1DQuadratic parameter index is out of range");
 }
 
-double ElasticModel1DQuadratic::compute_dpsi_dparam(const double *, int, const double F[9],
-  const double[9], const double[9], const double[3]) const
+void ElasticModel1DQuadratic::validateX(double x)
 {
-  return coeff * (F[0] - F[1]) * (F[0] - F[1]) * 0.5;
+  if (!std::isfinite(x))
+    throw std::invalid_argument("ElasticModel1DQuadratic deformation variable must be finite");
 }
-// compute the 2nd order derivative with respect to the (i-th, j-th) parameter
-double ElasticModel1DQuadratic::compute_d2psi_dparam2(const double *, int, int,
-  const double[], const double[], const double[], const double[]) const
+
+double ElasticModel1DQuadratic::compute_psi(std::span<const double> param, double x) const
 {
-  return 0;
+  validateParameters(param);
+  validateX(x);
+  return 0.5 * coeff_ * param[0] * x * x;
 }
-// compute the 2nd order derivative with respect to the i-th parameter and F
-void ElasticModel1DQuadratic::compute_dP_dparam(const double *, int, const double F[9],
-  const double[], const double[], const double[], double *ret) const
+
+double ElasticModel1DQuadratic::compute_dpsi_dx(std::span<const double> param, double x) const
 {
-  ret[0] = coeff * (F[0] - F[1]);
+  validateParameters(param);
+  validateX(x);
+  return coeff_ * param[0] * x;
 }
+
+double ElasticModel1DQuadratic::compute_d2psi_dx2(std::span<const double> param, double x) const
+{
+  validateParameters(param);
+  validateX(x);
+  (void)x;
+  return coeff_ * param[0];
+}
+
+double ElasticModel1DQuadratic::compute_dpsi_dparam(
+  std::span<const double> param, int i, double x) const
+{
+  validateParameters(param);
+  validateParameterIndex(i);
+  validateX(x);
+  return 0.5 * coeff_ * x * x;
+}
+
+double ElasticModel1DQuadratic::compute_d2psi_dx_dparam(
+  std::span<const double> param, int i, double x) const
+{
+  validateParameters(param);
+  validateParameterIndex(i);
+  validateX(x);
+  return coeff_ * x;
+}
+
+double ElasticModel1DQuadratic::compute_d2psi_dparam2(
+  std::span<const double> param, int i, int j, double x) const
+{
+  validateParameters(param);
+  validateParameterIndex(i);
+  validateParameterIndex(j);
+  validateX(x);
+  (void)x;
+  return 0.0;
+}
+
+}  // namespace pgo::SolidDeformationModel

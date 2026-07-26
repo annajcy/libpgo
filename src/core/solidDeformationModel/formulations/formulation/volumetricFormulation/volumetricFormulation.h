@@ -2,6 +2,8 @@
 
 #include "formulations/formulation/formulation.h"
 
+#include <span>
+
 namespace pgo
 {
 namespace VolumetricMeshes
@@ -31,7 +33,8 @@ public:
   // (tet linear) override this.
   virtual const Quadrature &massQuadrature() const { return *quadrature_; }
 
-  std::unique_ptr<VolumetricElementMapping> createElementMapping(const double *restPositions) const;
+  std::unique_ptr<VolumetricElementMapping> createElementMapping(
+    std::span<const double> restPositions) const;
 
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,

@@ -64,9 +64,7 @@ TEST(VolumetricElementMappingGTest, TetElementMappingRestStateFrefIsIdentity)
   VolumetricElementMapping mapping(rest, basis, quad);
 
   // At rest (x = rest), Fref should be identity.
-  double F[9];
-  mapping.computeFref(rest, 0, F);
-  ES::M3d FMat = Eigen::Map<ES::M3d>(F);
+  const ES::M3d FMat = mapping.computeFref(rest, 0);
   EXPECT_TRUE(FMat.isApprox(ES::M3d::Identity(), 1e-12));
 }
 
@@ -87,13 +85,9 @@ TEST(VolumetricElementMappingGTest, TetElementMappingUniformTranslationLeavesFre
   TetLinearDefaultQuadrature quad;
   VolumetricElementMapping mapping(rest, basis, quad);
 
-  double Frest[9], Ftrans[9];
-  mapping.computeFref(rest, 0, Frest);
-  mapping.computeFref(x, 0, Ftrans);
-
-  for (int i = 0; i < 9; i++) {
-    EXPECT_NEAR(Frest[i], Ftrans[i], 1e-12);
-  }
+  const ES::M3d Frest = mapping.computeFref(rest, 0);
+  const ES::M3d Ftrans = mapping.computeFref(x, 0);
+  EXPECT_TRUE(Frest.isApprox(Ftrans, 1e-12));
 }
 
 TEST(VolumetricElementMappingGTest, TetElementMappingAffineDeformationGivesExactF)
@@ -123,9 +117,7 @@ TEST(VolumetricElementMappingGTest, TetElementMappingAffineDeformationGivesExact
   TetLinearShapeFunction basis;
   TetLinearDefaultQuadrature quad;
   VolumetricElementMapping mapping(rest, basis, quad);
-  double F[9];
-  mapping.computeFref(x, 0, F);
-  ES::M3d FMat = Eigen::Map<ES::M3d>(F);
+  const ES::M3d FMat = mapping.computeFref(x, 0);
 
   EXPECT_TRUE(FMat.isApprox(A, 1e-12));
 }
@@ -157,9 +149,8 @@ TEST(VolumetricElementMappingGTest, TetElementMappingComputedFrefdxMatchesFinite
   TetLinearDefaultQuadrature quad;
   VolumetricElementMapping mapping(rest, basis, quad);
 
-  double dFdx_flat[9 * 12];
-  mapping.computedFrefdx(0, dFdx_flat);
-  Eigen::Map<Eigen::Matrix<double, 9, Eigen::Dynamic>> dFdx_ana(dFdx_flat, 9, 12);
+  Eigen::Matrix<double, 9, Eigen::Dynamic> dFdx_ana(9, 12);
+  mapping.computedFrefdx(0, dFdx_ana);
 
   const double eps = 1e-7;
   for (int dof = 0; dof < 12; dof++) {
@@ -171,12 +162,11 @@ TEST(VolumetricElementMappingGTest, TetElementMappingComputedFrefdxMatchesFinite
     xPlus[dof] += eps;
     xMinus[dof] -= eps;
 
-    double Fplus[9], Fminus[9];
-    mapping.computeFref(xPlus, 0, Fplus);
-    mapping.computeFref(xMinus, 0, Fminus);
+    const ES::M3d Fplus = mapping.computeFref(xPlus, 0);
+    const ES::M3d Fminus = mapping.computeFref(xMinus, 0);
 
     for (int r = 0; r < 9; r++) {
-      double fd = (Fplus[r] - Fminus[r]) / (2.0 * eps);
+      double fd = (Fplus.data()[r] - Fminus.data()[r]) / (2.0 * eps);
       EXPECT_NEAR(dFdx_ana(r, dof), fd, 1e-4);
     }
   }
@@ -203,9 +193,7 @@ TEST(VolumetricElementMappingGTest, HexElementMappingRestStateFrefIsIdentity)
   VolumetricElementMapping mapping(rest, basis, quad);
 
   for (int q = 0; q < GaussLegendreHexQuadrature2::kNumPoints; q++) {
-    double F[9];
-    mapping.computeFref(rest, q, F);
-    ES::M3d FMat = Eigen::Map<ES::M3d>(F);
+    const ES::M3d FMat = mapping.computeFref(rest, q);
     EXPECT_TRUE(FMat.isApprox(ES::M3d::Identity(), 1e-12));
   }
 }
@@ -242,9 +230,7 @@ TEST(VolumetricElementMappingGTest, HexElementMappingAffineDeformationGivesExact
   GaussLegendreHexQuadrature2 quad;
   VolumetricElementMapping mapping(rest, basis, quad);
   for (int q = 0; q < GaussLegendreHexQuadrature2::kNumPoints; q++) {
-    double F[9];
-    mapping.computeFref(x, q, F);
-    ES::M3d FMat = Eigen::Map<ES::M3d>(F);
+    const ES::M3d FMat = mapping.computeFref(x, q);
     EXPECT_TRUE(FMat.isApprox(A, 1e-12));
   }
 }
@@ -278,9 +264,8 @@ TEST(VolumetricElementMappingGTest, HexElementMappingComputedFrefdxMatchesFinite
   VolumetricElementMapping mapping(rest, basis, quad);
 
   for (int q = 0; q < GaussLegendreHexQuadrature2::kNumPoints; q++) {
-    double dFdx_flat[9 * 24];
-    mapping.computedFrefdx(q, dFdx_flat);
-    Eigen::Map<Eigen::Matrix<double, 9, Eigen::Dynamic>> dFdx_ana(dFdx_flat, 9, 24);
+    Eigen::Matrix<double, 9, Eigen::Dynamic> dFdx_ana(9, 24);
+    mapping.computedFrefdx(q, dFdx_ana);
 
     const double eps = 1e-7;
     for (int dof = 0; dof < 24; dof++) {
@@ -292,12 +277,11 @@ TEST(VolumetricElementMappingGTest, HexElementMappingComputedFrefdxMatchesFinite
       xPlus[dof] += eps;
       xMinus[dof] -= eps;
 
-      double Fplus[9], Fminus[9];
-      mapping.computeFref(xPlus, q, Fplus);
-      mapping.computeFref(xMinus, q, Fminus);
+      const ES::M3d Fplus = mapping.computeFref(xPlus, q);
+      const ES::M3d Fminus = mapping.computeFref(xMinus, q);
 
       for (int r = 0; r < 9; r++) {
-        double fd = (Fplus[r] - Fminus[r]) / (2.0 * eps);
+        double fd = (Fplus.data()[r] - Fminus.data()[r]) / (2.0 * eps);
         EXPECT_NEAR(dFdx_ana(r, dof), fd, 1e-4);
       }
     }
@@ -316,7 +300,7 @@ TEST(VolumetricElementMappingGTest, CubicTricubicHermiteElementMappingUsesAll192
   const std::array<double, 192> rest = makeUnitCubeHermiteRestDofs();
   CubicTricubicHermiteShapeFunction basis;
   GaussLegendreHexQuadrature4 quad;
-  VolumetricElementMapping mapping(rest.data(), basis, quad);
+  VolumetricElementMapping mapping(rest, basis, quad);
 
   EXPECT_EQ(mapping.numNodes(), 64);
   EXPECT_EQ(mapping.localDofs(), 192);
@@ -329,7 +313,7 @@ TEST(VolumetricElementMappingGTest, CubicTricubicHermiteComputedFrefdxMatchesFin
   const std::array<double, 192> rest = makeUnitCubeHermiteRestDofs();
   CubicTricubicHermiteShapeFunction basis;
   GaussLegendreHexQuadrature4 quad;
-  VolumetricElementMapping mapping(rest.data(), basis, quad);
+  VolumetricElementMapping mapping(rest, basis, quad);
 
   const double eps = 1e-7;
   for (int q = 0; q < mapping.numQuadraturePoints(); q++) {
@@ -342,12 +326,11 @@ TEST(VolumetricElementMappingGTest, CubicTricubicHermiteComputedFrefdxMatchesFin
       xPlus[dof] += eps;
       xMinus[dof] -= eps;
 
-      double Fplus[9], Fminus[9];
-      mapping.computeFref(xPlus.data(), q, Fplus);
-      mapping.computeFref(xMinus.data(), q, Fminus);
+      const ES::M3d Fplus = mapping.computeFref(xPlus, q);
+      const ES::M3d Fminus = mapping.computeFref(xMinus, q);
 
       for (int r = 0; r < 9; r++) {
-        const double fd = (Fplus[r] - Fminus[r]) / (2.0 * eps);
+        const double fd = (Fplus.data()[r] - Fminus.data()[r]) / (2.0 * eps);
         EXPECT_NEAR(dFdxAna(r, dof), fd, 1e-4)
           << "q=" << q << " dof=" << dof << " F entry=" << r;
       }

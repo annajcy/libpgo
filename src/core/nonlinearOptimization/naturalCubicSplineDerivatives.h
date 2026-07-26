@@ -17,21 +17,33 @@ namespace NonlinearOptimization
 class NaturalCubicSpline2DWithParameterDerivatives
 {
 public:
-  NaturalCubicSpline2DWithParameterDerivatives(int numPoints, const double *xValues, const double *yValues = nullptr);
+  explicit NaturalCubicSpline2DWithParameterDerivatives(
+    EigenSupport::ConstRefVecXd xValues);
+  NaturalCubicSpline2DWithParameterDerivatives(
+    EigenSupport::ConstRefVecXd xValues,
+    EigenSupport::ConstRefVecXd yValues);
 
-  double y(double x, const double *yValues = nullptr) const;
-  double dy_dx(double x, const double *yValues = nullptr) const;
-  double d2y_dx2(double x, const double *yValues = nullptr) const;
+  double y(double x) const;
+  double y(double x, EigenSupport::ConstRefVecXd yValues) const;
+  double dy_dx(double x) const;
+  double dy_dx(double x, EigenSupport::ConstRefVecXd yValues) const;
+  double d2y_dx2(double x) const;
+  double d2y_dx2(double x, EigenSupport::ConstRefVecXd yValues) const;
 
-  void dy_dparam(double x, const double *yValues, double *dparam) const;
-  void d2y_dparam2(double x, const double *yValues, double *dparam) const;
-  void d2y_dparam_dx(double x, const double *yValues, double *dparam) const;
+  void dy_dparam(double x, EigenSupport::RefVecXd dparam) const;
+  void d2y_dparam2(double x, EigenSupport::RefMatXd dparam) const;
+  void d2y_dparam_dx(double x, EigenSupport::RefVecXd dparam) const;
 
-  double dy_dparam(double x, const double *yValues, int i) const;
-  double d2y_dparam2(double x, const double *yValues, int i, int j) const;
-  double d2y_dparam_dx(double x, const double *yValues, int i) const;
+  double dy_dparam(double x, int i) const;
+  double d2y_dparam2(double x, int i, int j) const;
+  double d2y_dparam_dx(double x, int i) const;
 
 protected:
+  void initialize(EigenSupport::ConstRefVecXd xValues,
+    EigenSupport::ConstRefVecXd yValues, bool hasYValues);
+  void buildSystem();
+  void validateYValues(EigenSupport::ConstRefVecXd yValues) const;
+
   int n;
   EigenSupport::VXd xNodeValue, yNodeValue;
   EigenSupport::MXd A, AInv;

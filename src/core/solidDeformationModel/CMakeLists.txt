@@ -12,8 +12,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/elastic/elasticModelCombinedMaterial.h
   material/elastic/elasticModel3DMooneyRivlin.h
   material/elastic/elasticModel3DSTVKMaterial.h
-
-
+  material/elastic/elasticModel1D.h
   material/elastic/elasticModel1DQuadratic.h
   material/elastic/elasticModel1DCubicSpline.h
 
@@ -122,10 +121,8 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   material/elastic/elasticModel3DMooneyRivlin.cpp
   material/elastic/elasticModel3DSTVKMaterial.cpp
   material/elastic/elasticModelCombinedMaterial.cpp
-
   material/elastic/elasticModel1DQuadratic.cpp
   material/elastic/elasticModel1DCubicSpline.cpp
-
   material/elastic/elasticModel2DFundamentalFormsFabric.cpp
   material/elastic/elasticModel2DFundamentalFormsSTVK.cpp
 

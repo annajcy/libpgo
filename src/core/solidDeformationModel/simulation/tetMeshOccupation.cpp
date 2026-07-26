@@ -16,18 +16,29 @@ copyright to USC,MIT,NUS
 #include <random>
 #include <vector>
 #include <atomic>
+#include <stdexcept>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 
-void pgo::SolidDeformationModel::computeTetMeshOccupation(int numTetVertices, const Vec3d *tetVertices, int numTets, const Vec4i *tets,
-  int numSurfaceVertices, const Vec3d *surfaceVertices, int numTriangles, const Vec3i *triangles,
-  double minThreshold, int sampleCount, double *weights)
+namespace ES = pgo::EigenSupport;
+
+void pgo::SolidDeformationModel::computeTetMeshOccupation(
+  std::span<const Vec3d> tetVertices, std::span<const Vec4i> tets,
+  std::span<const Vec3d> surfaceVertices, std::span<const Vec3i> triangles,
+  double minThreshold, int sampleCount, std::span<double> weights)
 {
+  if (weights.size() != tets.size())
+    throw std::invalid_argument("Tet occupation weights must match the number of tetrahedra.");
+  if (sampleCount <= 0)
+    throw std::invalid_argument("Tet occupation sampleCount must be positive.");
+
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_real_distribution<double> randomNumber(0.0, 1.0);
 
-  Mesh::TriMeshRef surfaceMeshRef(numSurfaceVertices, surfaceVertices, numTriangles, triangles);
+  Mesh::TriMeshRef surfaceMeshRef(
+    static_cast<int>(surfaceVertices.size()), surfaceVertices.data(),
+    static_cast<int>(triangles.size()), triangles.data());
   Mesh::TriMeshBVTree surfaceMeshBVTree;
   surfaceMeshBVTree.buildByInertiaPartition(surfaceMeshRef);
 
@@ -38,12 +49,12 @@ void pgo::SolidDeformationModel::computeTetMeshOccupation(int numTetVertices, co
 
   std::atomic<int> numFinished(0);
 
-  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "#tets: {}", numTets);
+  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "#tets: {}", tets.size());
 
-  tbb::parallel_for(0, numTets, [&](int ei) {
+  tbb::parallel_for(std::size_t(0), tets.size(), [&](std::size_t ei) {
     int insideCounter = 0;
     for (int si = 0; si < sampleCount; si++) {
-      double w[4];
+      ES::V4d w;
       /*
       w[0] = randomNumber(gen);
       w[1] = (1 - w[0]) * randomNumber(gen);
@@ -107,21 +118,27 @@ void pgo::SolidDeformationModel::computeTetMeshOccupation(int numTetVertices, co
   std::cout << std::endl;
 }
 
-void pgo::SolidDeformationModel::computeTetMeshOccupation(int numTetVertices, const Vec3d *tetVertices, int numTets, const Vec4i *tets,
-  const Vec3d bbIn[2], double minThreshold, int sampleCount, double *weights)
+void pgo::SolidDeformationModel::computeTetMeshOccupation(
+  std::span<const Vec3d> tetVertices, std::span<const Vec4i> tets,
+  const std::array<Vec3d, 2> &bbIn, double minThreshold, int sampleCount, std::span<double> weights)
 {
+  if (weights.size() != tets.size())
+    throw std::invalid_argument("Tet occupation weights must match the number of tetrahedra.");
+  if (sampleCount <= 0)
+    throw std::invalid_argument("Tet occupation sampleCount must be positive.");
+
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_real_distribution<double> randomNumber(0.0, 1.0);
   std::atomic<int> numFinished(0);
 
   Mesh::BoundingBox bb(bbIn[0], bbIn[1]);
-  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "#tets: {}", numTets);
+  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "#tets: {}", tets.size());
 
-  tbb::parallel_for(0, numTets, [&](int ei) {
+  tbb::parallel_for(std::size_t(0), tets.size(), [&](std::size_t ei) {
     int insideCounter = 0;
     for (int si = 0; si < sampleCount; si++) {
-      double w[4];
+      ES::V4d w;
       /*
       w[0] = randomNumber(gen);
       w[1] = (1 - w[0]) * randomNumber(gen);

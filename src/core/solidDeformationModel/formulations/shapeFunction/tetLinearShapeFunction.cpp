@@ -2,7 +2,7 @@
 
 #include "EigenSupport.h"
 
-#include <cstring>
+#include <stdexcept>
 
 namespace pgo
 {
@@ -11,63 +11,69 @@ namespace SolidDeformationModel
 
 namespace ES = pgo::EigenSupport;
 
-void TetLinearShapeFunction::N(double xi, double eta, double zeta, double N_out[]) const
+ES::V4d TetLinearShapeFunction::compute_N(double xi, double eta, double zeta) const
 {
-  N_out[0] = 1.0 - xi - eta - zeta;
-  N_out[1] = xi;
-  N_out[2] = eta;
-  N_out[3] = zeta;
+  ES::V4d N;
+  N << 1.0 - xi - eta - zeta, xi, eta, zeta;
+  return N;
 }
 
-void TetLinearShapeFunction::dN_dxi(double xi, double eta, double zeta, double dN_dxi[]) const
+ES::M3x4d TetLinearShapeFunction::compute_dN_dxi(double xi, double eta, double zeta) const
 {
   (void)xi;
   (void)eta;
   (void)zeta;
-  // Column-major 3x4: dN_dxi(deriv, node) = dN_dxi[deriv + 3 * node]
-  //
-  // Node 0: dN0/dxi = (-1, -1, -1)
-  dN_dxi[0] = -1.0;   // d/dxi
-  dN_dxi[1] = -1.0;   // d/deta
-  dN_dxi[2] = -1.0;   // d/dzeta
-  // Node 1: dN1/dxi = (1, 0, 0)
-  dN_dxi[3] = 1.0;
-  dN_dxi[4] = 0.0;
-  dN_dxi[5] = 0.0;
-  // Node 2: dN2/dxi = (0, 1, 0)
-  dN_dxi[6] = 0.0;
-  dN_dxi[7] = 1.0;
-  dN_dxi[8] = 0.0;
-  // Node 3: dN3/dxi = (0, 0, 1)
-  dN_dxi[9] = 0.0;
-  dN_dxi[10] = 0.0;
-  dN_dxi[11] = 1.0;
+  ES::M3x4d dN_dxi;
+  dN_dxi << -1.0, 1.0, 0.0, 0.0,
+    -1.0, 0.0, 1.0, 0.0,
+    -1.0, 0.0, 0.0, 1.0;
+  return dN_dxi;
 }
 
-void TetLinearShapeFunction::nodeCoords(int node, double xi[3]) const
+void TetLinearShapeFunction::compute_N(double xi, double eta, double zeta,
+  ES::RefVecXd N_out) const
 {
-  switch (node) {
-  case 0: xi[0] = 0.0; xi[1] = 0.0; xi[2] = 0.0; break;
-  case 1: xi[0] = 1.0; xi[1] = 0.0; xi[2] = 0.0; break;
-  case 2: xi[0] = 0.0; xi[1] = 1.0; xi[2] = 0.0; break;
-  case 3: xi[0] = 0.0; xi[1] = 0.0; xi[2] = 1.0; break;
-  default: xi[0] = xi[1] = xi[2] = 0.0; break;
-  }
+  if (N_out.size() != kNumNodes)
+    throw std::invalid_argument("TetLinearShapeFunction::compute_N output has the wrong size.");
+  N_out = compute_N(xi, eta, zeta);
 }
 
-void tetLinearComputeDs(const double x[12], double Ds[9])
+void TetLinearShapeFunction::compute_dN_dxi(double xi, double eta, double zeta,
+  ES::RefMatXd dN_dxi) const
+{
+  (void)xi;
+  (void)eta;
+  (void)zeta;
+  if (dN_dxi.rows() != 3 || dN_dxi.cols() != kNumNodes)
+    throw std::invalid_argument("TetLinearShapeFunction::compute_dN_dxi output has the wrong shape.");
+  dN_dxi = compute_dN_dxi(xi, eta, zeta);
+}
+
+ES::V3d TetLinearShapeFunction::nodeCoords(int node) const
+{
+  ES::V3d xi;
+  switch (node) {
+  case 0: xi << 0.0, 0.0, 0.0; break;
+  case 1: xi << 1.0, 0.0, 0.0; break;
+  case 2: xi << 0.0, 1.0, 0.0; break;
+  case 3: xi << 0.0, 0.0, 1.0; break;
+  default: xi.setZero(); break;
+  }
+  return xi;
+}
+
+ES::M3d tetLinearComputeDs(const ES::V12d &x)
 {
   ES::M3d D;
   D.col(0) = ES::V3d(x[3], x[4], x[5]) - ES::V3d(x[0], x[1], x[2]);
   D.col(1) = ES::V3d(x[6], x[7], x[8]) - ES::V3d(x[0], x[1], x[2]);
   D.col(2) = ES::V3d(x[9], x[10], x[11]) - ES::V3d(x[0], x[1], x[2]);
-  (Eigen::Map<ES::M3d>(Ds)) = D;
+  return D;
 }
 
-void tetLinearComputeDFDx(const double DmInv[9], double dFdx[9 * 12])
+ES::M9x12d tetLinearComputeDFDx(const ES::M3d &D)
 {
   ES::M9x12d dF = ES::M9x12d::Zero();
-  ES::M3d D = Eigen::Map<const ES::M3d>(DmInv);
 
   double v0 = -(D(0, 0) + D(1, 0) + D(2, 0));
   double v1 = -(D(0, 1) + D(1, 1) + D(2, 1));
@@ -89,7 +95,7 @@ void tetLinearComputeDFDx(const double DmInv[9], double dFdx[9 * 12])
   dF(1, 10) = D(2, 0); dF(4, 10) = D(2, 1); dF(7, 10) = D(2, 2);
   dF(2, 11) = D(2, 0); dF(5, 11) = D(2, 1); dF(8, 11) = D(2, 2);
 
-  std::memcpy(dFdx, dF.data(), sizeof(double) * 9 * 12);
+  return dF;
 }
 
 }  // namespace SolidDeformationModel

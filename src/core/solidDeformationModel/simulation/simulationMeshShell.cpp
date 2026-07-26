@@ -55,8 +55,8 @@ std::unique_ptr<SimulationMesh> buildShellSimulationMesh(
   ElementFieldStore fields;
   fields.add(std::move(materials));
   return std::make_unique<SimulationMesh>(
-    triMeshGeo.numVertices(), vertices.data(), numElements, 6,
-    elementVertexIndices.data(), std::move(fields), SimulationMeshType::SHELL);
+    triMeshGeo.numVertices(), vertices, numElements, 6,
+    elementVertexIndices, std::move(fields), SimulationMeshType::SHELL);
 }
 }
 

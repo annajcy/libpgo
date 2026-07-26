@@ -22,7 +22,7 @@ TEST(SimulationMeshGTest, LoadsCubicMeshFromExampleFile)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   std::shared_ptr<pgo::SolidDeformationModel::SimulationMesh> simMesh =
-    pgo::SolidDeformationModel::loadCubicMesh(&cubicMesh);
+    pgo::SolidDeformationModel::loadCubicMesh(cubicMesh);
 
   ASSERT_NE(simMesh, nullptr);
   EXPECT_EQ(simMesh->getElementType(), pgo::SolidDeformationModel::SimulationMeshType::CUBIC);
@@ -34,8 +34,7 @@ TEST(SimulationMeshGTest, LoadsCubicMeshFromExampleFile)
     EXPECT_EQ(simMesh->getVertexIndex(0, j), cubicMesh.getVertexIndex(0, j));
   }
 
-  double simPos[3];
-  simMesh->getVertex(0, simPos);
+  const auto &simPos = simMesh->getVertex(0);
   const pgo::Vec3d cubicPos = cubicMesh.getVertex(0);
   EXPECT_DOUBLE_EQ(simPos[0], cubicPos[0]);
   EXPECT_DOUBLE_EQ(simPos[1], cubicPos[1]);
@@ -56,7 +55,7 @@ TEST(SimulationMeshGTest, TetLoadProducesENuMaterialPayloads)
 {
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
   std::shared_ptr<pgo::SolidDeformationModel::SimulationMesh> simMesh =
-    pgo::SolidDeformationModel::loadTetMesh(&tetMesh);
+    pgo::SolidDeformationModel::loadTetMesh(tetMesh);
 
   ASSERT_NE(simMesh, nullptr);
   EXPECT_EQ(simMesh->getElementType(), pgo::SolidDeformationModel::SimulationMeshType::TET);
@@ -135,6 +134,18 @@ TEST(SimulationMeshGTest, TriangleLoadUsesOneMaterialPerTriangle)
   EXPECT_EQ(mesh->getVertexIndex(1, 0), 0);
   EXPECT_EQ(mesh->getVertexIndex(1, 1), 2);
   EXPECT_EQ(mesh->getVertexIndex(1, 2), 3);
+
+  const std::span<const int> indices = mesh->getVertexIndices(1);
+  ASSERT_EQ(indices.size(), 3u);
+  EXPECT_EQ(indices[0], 0);
+  EXPECT_EQ(indices[1], 2);
+  EXPECT_EQ(indices[2], 3);
+
+  computeTriangleUV(*mesh, 1.0);
+  ASSERT_TRUE(mesh->hasElementUV());
+  EXPECT_TRUE(mesh->getElementUV(0, 0).isApprox(EigenSupport::V2d::Zero()));
+  EXPECT_TRUE(mesh->getElementUV(0, 1).isApprox(EigenSupport::V2d(1.0, 0.0)));
+  EXPECT_TRUE(mesh->getElementUV(0, 2).isApprox(EigenSupport::V2d(1.0, 1.0)));
 }
 
 TEST(SimulationMeshGTest, EdgeQuadLoadAveragesSourceTriangleMaterials)
@@ -268,7 +279,7 @@ TEST(SimulationMeshGTest, LoadsMooneyRivlinElementField)
   EXPECT_DOUBLE_EQ(mrDowncast->getmu10(), 0.3);
   EXPECT_DOUBLE_EQ(mrDowncast->getv1(), 0.1);
 
-  auto simMesh = pgo::SolidDeformationModel::loadTetMesh(&tetMesh);
+  auto simMesh = pgo::SolidDeformationModel::loadTetMesh(tetMesh);
   ASSERT_NE(simMesh, nullptr);
   const auto &simMaterial = simMesh->requireElementField<
     pgo::SolidDeformationModel::SimulationMeshMooneyRivlinMaterial>().at(0);
@@ -294,7 +305,7 @@ TEST(SimulationMeshGTest, RejectsInvalidMooneyRivlinParametersAtConversion)
   pgo::VolumetricMeshes::TetMesh tetMesh(
     4, vertices, 1, elements, 1, materials, 1, &set, 1, &region);
 
-  EXPECT_THROW(pgo::SolidDeformationModel::loadTetMesh(&tetMesh), std::invalid_argument);
+  EXPECT_THROW(pgo::SolidDeformationModel::loadTetMesh(tetMesh), std::invalid_argument);
 }
 
 // Characterization: Orthotropic material payload can be read from Vega

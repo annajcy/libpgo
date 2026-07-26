@@ -155,9 +155,9 @@ int DeformationModelManager::getNumElasticParameters() const
   return data->elementFEMs[0]->getNumElasticParameters();
 }
 
-const SimulationMesh *DeformationModelManager::getMesh() const
+const SimulationMesh &DeformationModelManager::getMesh() const
 {
-  return data->mesh.get();
+  return *data->mesh;
 }
 
 const MaterialFrameField &
@@ -191,13 +191,13 @@ MaterialFrame DeformationModelManager::materialToReferenceFrame(
     elementId, quadratureId);
 }
 
-const DeformationModel *
+const DeformationModel &
 DeformationModelManager::getDeformationModel(int eleID) const
 {
   if (eleID < 0 || eleID >= data->nele)
     throw std::out_of_range(
       "DeformationModelManager: element index is out of range.");
-  return data->elementFEMs[eleID].get();
+  return *data->elementFEMs[eleID];
 }
 
 }  // namespace pgo::SolidDeformationModel

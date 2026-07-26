@@ -18,11 +18,7 @@ EigenSupport::VXd Formulation::buildGlobalRestDofs(const SimulationMesh &mesh) c
   const int nvtx = mesh.getNumVertices();
   EigenSupport::VXd rest(nvtx * 3);
   for (int vi = 0; vi < nvtx; vi++) {
-    double p[3];
-    mesh.getVertex(vi, p);
-    rest[vi * 3 + 0] = p[0];
-    rest[vi * 3 + 1] = p[1];
-    rest[vi * 3 + 2] = p[2];
+    rest.segment<3>(vi * 3) = mesh.getVertex(vi);
   }
   return rest;
 }

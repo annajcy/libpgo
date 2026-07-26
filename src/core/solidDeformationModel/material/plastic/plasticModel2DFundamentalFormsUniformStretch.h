@@ -17,27 +17,27 @@ public:
   PlasticModel2DFundamentalFormsUniformStretch();
   ~PlasticModel2DFundamentalFormsUniformStretch() {}
 
-  void compute_abar(const double *params, double *a) const override;
-  void compute_bbar(const double *params, double *b) const override;
+  EigenSupport::M2d compute_abar(std::span<const double> params) const override;
+  EigenSupport::M2d compute_bbar(std::span<const double> params) const override;
 
-  void compute_tbar(const double *params, double *t) const override;
-  double computeArea(const double *params) const override;
+  EigenSupport::M3d compute_tbar(std::span<const double> params) const override;
+  double computeArea(std::span<const double> params) const override;
 
-  void compute_Fp(const double *params, double *Fp) const override;
+  EigenSupport::M2d compute_Fp(std::span<const double> params) const override;
 
-  void compute_dtbar_inv_dparam(const double *params, int j, double *dtbar_da) const override;
-  void compute_dqbar_dparam(const double *params, int j, double *dqbar_da) const override;
-  void compute_dK_dparam(const double *params, double *dK_da) const override;
-  void compute_dH_dparam(const double *params, double *dH_da) const override;
-  void compute_darea_dparam(const double *params, double *darea_da) const override;
-  void compute_dabar_dparam(const double *params, double *dabar_dparam) const override;
-  void compute_dbbar_dparam(const double *params, double *dbbar_dparam) const override;
-  void compute_d2abar_dparam2(const double *params, int pi, int pj, double *d2abar_dparam2) const override;
-  void compute_d2dbbar_dparam2(const double *params, int pi, int pj, double *d2dbbar_dparam2) const override;
-  double compute_d2area_dparam2(const double *params, int pi, int pj) const override;
+  EigenSupport::M3d compute_dtbar_inv_dparam(std::span<const double> params, int j) const override;
+  EigenSupport::M3d compute_dqbar_dparam(std::span<const double> params, int j) const override;
+  void compute_dK_dparam(std::span<const double> params, EigenSupport::RefVecXd dK_da) const override;
+  void compute_dH_dparam(std::span<const double> params, EigenSupport::RefVecXd dH_da) const override;
+  void compute_darea_dparam(std::span<const double> params, EigenSupport::RefVecXd darea_da) const override;
+  void compute_dabar_dparam(std::span<const double> params, EigenSupport::RefMatXd dabar_dparam) const override;
+  void compute_dbbar_dparam(std::span<const double> params, EigenSupport::RefMatXd dbbar_dparam) const override;
+  EigenSupport::M2d compute_d2abar_dparam2(std::span<const double> params, int pi, int pj) const override;
+  EigenSupport::M2d compute_d2dbbar_dparam2(std::span<const double> params, int pi, int pj) const override;
+  double compute_d2area_dparam2(std::span<const double> params, int pi, int pj) const override;
 
   int getNumParameters() const override { return 1; }
-  void defaultParams(double *param) const override { param[0] = 1.0; }
+  void defaultParams(std::span<double> param) const override { param[0] = 1.0; }
 
 protected:
 };

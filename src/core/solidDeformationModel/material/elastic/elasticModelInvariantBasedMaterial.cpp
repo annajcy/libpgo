@@ -12,6 +12,7 @@ copyright to USC,MIT,NUS
 #include "EigenSupport.h"
 #include "meshLinearAlgebra.h"
 
+#include <array>
 #include <cstring>
 #include <iostream>
 
@@ -24,63 +25,50 @@ pgo::SolidDeformationModel::ElasticModelInvariantBasedMaterial::ElasticModelInva
 {
 }
 
-double ElasticModelInvariantBasedMaterial::compute_psi(const double * /*param*/, const double *, const double *, const double *, const double S[3]) const
+double ElasticModelInvariantBasedMaterial::compute_psi(std::span<const double>, const SpectralState &state) const
 {
-  double lambda2[3] = { S[0] * S[0], S[1] * S[1], S[2] * S[2] };
-  double IC = lambda2[0] + lambda2[1] + lambda2[2];
-  double IIC = lambda2[0] * lambda2[0] + lambda2[1] * lambda2[1] + lambda2[2] * lambda2[2];
-  double IIIC = lambda2[0] * lambda2[1] * lambda2[2];
-
-  double invariants[3];
-  invariants[0] = IC;
-  invariants[1] = IIC;
-  invariants[2] = IIIC;
+  const auto &S = state.stretches;
+  const ES::V3d lambda2 = S.cwiseProduct(S);
+  ES::V3d invariants;
+  invariants[0] = lambda2.sum();
+  invariants[1] = lambda2.squaredNorm();
+  invariants[2] = lambda2.prod();
 
   return invariantBasedMaterial_->compute_psi(invariants);
 }
 
-void ElasticModelInvariantBasedMaterial::compute_P(const double * /*param*/, const double *, const double U[9], const double V[9], const double S[3], double POut[9]) const
+ES::M3d ElasticModelInvariantBasedMaterial::compute_P(std::span<const double>, const SpectralState &state) const
 {
-  double lambda2[3] = { S[0] * S[0], S[1] * S[1], S[2] * S[2] };
+  const auto &S = state.stretches;
+  const ES::V3d lambda2 = S.cwiseProduct(S);
+  ES::V3d invariants;
+  invariants[0] = lambda2.sum();
+  invariants[1] = lambda2.squaredNorm();
+  invariants[2] = lambda2.prod();
 
-  double IC = lambda2[0] + lambda2[1] + lambda2[2];
-  double IIC = lambda2[0] * lambda2[0] + lambda2[1] * lambda2[1] + lambda2[2] * lambda2[2];
-  double IIIC = lambda2[0] * lambda2[1] * lambda2[2];
-
-  double invariants[3];
-  invariants[0] = IC;
-  invariants[1] = IIC;
-  invariants[2] = IIIC;
-
-  double dPsidI[3];
-
-  invariantBasedMaterial_->compute_dpsi_dI(invariants, dPsidI);
+  const ES::V3d dPsidI = invariantBasedMaterial_->compute_dpsi_dI(invariants);
 
   // PDiag = [ dI / dlambda ]^T * dPsidI
 
-  double mat[9];
-  mat[0] = 2.0 * S[0];
-  mat[1] = 2.0 * S[1];
-  mat[2] = 2.0 * S[2];
-  mat[3] = 4.0 * S[0] * S[0] * S[0];
-  mat[4] = 4.0 * S[1] * S[1] * S[1];
-  mat[5] = 4.0 * S[2] * S[2] * S[2];
-  mat[6] = 2.0 * S[0] * lambda2[1] * lambda2[2];
-  mat[7] = 2.0 * S[1] * lambda2[0] * lambda2[2];
-  mat[8] = 2.0 * S[2] * lambda2[0] * lambda2[1];
-
-  ES::M3d matM = asMat3d(mat);
-  ES::V3d dPsidIV(dPsidI[0], dPsidI[1], dPsidI[2]);
-  Eigen::Vector3d PDiag = matM.transpose() * dPsidIV;
+  ES::M3d matM;
+  matM <<
+    2.0 * S[0], 2.0 * S[1], 2.0 * S[2],
+    4.0 * S[0] * S[0] * S[0],
+    4.0 * S[1] * S[1] * S[1],
+    4.0 * S[2] * S[2] * S[2],
+    2.0 * S[0] * lambda2[1] * lambda2[2],
+    2.0 * S[1] * lambda2[0] * lambda2[2],
+    2.0 * S[2] * lambda2[0] * lambda2[1];
+  const ES::V3d PDiag = matM.transpose() * dPsidI;
 
   // This is the 1st equation in p3 section 5 of [Irving 04]
   // P = Us[el] * diag(pHat) * trans(Vs[el])
-  (Eigen::Map<Eigen::Matrix3d>(POut)) = Eigen::Map<const Eigen::Matrix3d>(U) * PDiag.asDiagonal() * Eigen::Map<const Eigen::Matrix3d>(V).transpose();
+  return state.U * PDiag.asDiagonal() * state.V.transpose();
 }
 
 // set the renumbering indices for conversion from Teran's order to row-major order
-constexpr int rowMajorMatrixToTeran[] = { 0, 3, 5, 4, 1, 7, 6, 8, 2 };
-constexpr int teranToRowMajorMatrix[] = { 0, 4, 8, 1, 3, 2, 6, 5, 7 };
+constexpr std::array<int, 9> rowMajorMatrixToTeran = { 0, 3, 5, 4, 1, 7, 6, 8, 2 };
+constexpr std::array<int, 9> teranToRowMajorMatrix = { 0, 4, 8, 1, 3, 2, 6, 5, 7 };
 
 // {i,j,m,n} goes from 0 to 2 inclusively
 // converts 3x3x3x3 tensor indices to 9x9 row-major matrix indices
@@ -91,28 +79,28 @@ inline int tensor9x9Index(int i, int j, int m, int n)
   return (9 * rowIndex_in9x9Matrix + columnIndex_in9x9Matrix);
 }
 
-inline double gammaValue(int i, int j, const double sigma[3], const double invariants[3], const double gradient[3], const double hessian[6])
+inline double gammaValue(
+  int i, int j,
+  const ES::V3d &sigma,
+  const ES::V3d &invariants,
+  const ES::V3d &gradient,
+  const ES::V6d &hessian)
 {
-  double tempGammaVec1[3];
-  tempGammaVec1[0] = 2.0 * sigma[i];
-  tempGammaVec1[1] = 4.0 * sigma[i] * sigma[i] * sigma[i];
-  tempGammaVec1[2] = 2.0 * invariants[2] / sigma[i];
+  const ES::V3d gammaI(
+    2.0 * sigma[i],
+    4.0 * sigma[i] * sigma[i] * sigma[i],
+    2.0 * invariants[2] / sigma[i]);
+  const ES::V3d gammaJ(
+    2.0 * sigma[j],
+    4.0 * sigma[j] * sigma[j] * sigma[j],
+    2.0 * invariants[2] / sigma[j]);
+  const ES::V3d product(
+    gammaJ[0] * hessian[0] + gammaJ[1] * hessian[1] + gammaJ[2] * hessian[2],
+    gammaJ[0] * hessian[1] + gammaJ[1] * hessian[3] + gammaJ[2] * hessian[4],
+    gammaJ[0] * hessian[2] + gammaJ[1] * hessian[4] + gammaJ[2] * hessian[5]);
 
-  double tempGammaVec2[3];
-  tempGammaVec2[0] = 2.0 * sigma[j];
-  tempGammaVec2[1] = 4.0 * sigma[j] * sigma[j] * sigma[j];
-  tempGammaVec2[2] = 2.0 * invariants[2] / sigma[j];
-
-  double productResult[3];
-  productResult[0] = (tempGammaVec2[0] * hessian[0] + tempGammaVec2[1] * hessian[1] +
-    tempGammaVec2[2] * hessian[2]);
-  productResult[1] = (tempGammaVec2[0] * hessian[1] + tempGammaVec2[1] * hessian[3] +
-    tempGammaVec2[2] * hessian[4]);
-  productResult[2] = (tempGammaVec2[0] * hessian[2] + tempGammaVec2[1] * hessian[4] +
-    tempGammaVec2[2] * hessian[5]);
-
-  return (tempGammaVec1[0] * productResult[0] + tempGammaVec1[1] * productResult[1] +
-    tempGammaVec1[2] * productResult[2] + 4.0 * invariants[2] * gradient[2] / (sigma[i] * sigma[j]));
+  return gammaI.dot(product) +
+    4.0 * invariants[2] * gradient[2] / (sigma[i] * sigma[j]);
 }
 
 namespace pgo
@@ -179,26 +167,25 @@ inline void fixPositiveIndefiniteness(double &A11, double &A12, double &A13, dou
 }  // namespace SolidDeformationModel
 }  // namespace pgo
 
-void ElasticModelInvariantBasedMaterial::compute_dPdF_impl(const double * /*param*/, const double *, const double UIn[9], const double VIn[9], const double S[3], double dPdFOut[81], bool project) const
+ES::M9d ElasticModelInvariantBasedMaterial::compute_dPdF_impl(std::span<const double>, const SpectralState &state, bool project) const
 {
-  double sigma1square = S[0] * S[0];
-  double sigma2square = S[1] * S[1];
-  double sigma3square = S[2] * S[2];
+  const auto &S = state.stretches;
+  const ES::V3d sigmaSquare = S.cwiseProduct(S);
+  const double sigma1square = sigmaSquare[0];
+  const double sigma2square = sigmaSquare[1];
+  const double sigma3square = sigmaSquare[2];
 
-  double invariants[3];
-  invariants[0] = sigma1square + sigma2square + sigma3square;
-  invariants[1] = (sigma1square * sigma1square +
-    sigma2square * sigma2square +
-    sigma3square * sigma3square);
-  invariants[2] = sigma1square * sigma2square * sigma3square;
+  ES::V3d invariants;
+  invariants[0] = sigmaSquare.sum();
+  invariants[1] = sigmaSquare.squaredNorm();
+  invariants[2] = sigmaSquare.prod();
 
   // double E[3];
   // E[0] = 0.5 * (Fhats[el][0] * Fhats[el][0] - 1);
   // E[1] = 0.5 * (Fhats[el][1] * Fhats[el][1] - 1);
   // E[2] = 0.5 * (Fhats[el][2] * Fhats[el][2] - 1);
 
-  double gradient[3];
-  invariantBasedMaterial_->compute_dpsi_dI(invariants, gradient);
+  const ES::V3d gradient = invariantBasedMaterial_->compute_dpsi_dI(invariants);
 
   /*
     in order (11,12,13,22,23,33)
@@ -206,8 +193,7 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF_impl(const double * /*para
     | 21 22 23 | = | 1 3 4 |
     | 31 32 33 |   | 2 4 5 |
   */
-  double hessian[6];
-  invariantBasedMaterial_->compute_d2psi_dI2(invariants, hessian);
+  const ES::V6d hessian = invariantBasedMaterial_->compute_d2psi_dI2(invariants);
 
   //// modify hessian to compute correct values if in the inversion handling regime
   // if (clamped & 1) // first S was clamped (in inversion handling)
@@ -274,37 +260,40 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF_impl(const double * /*para
     fixPositiveIndefiniteness(x3232, x3223);
   }
 
-  double dPdF_atFhat[81];
-  memset(dPdF_atFhat, 0, sizeof(double) * 81);
-  dPdF_atFhat[tensor9x9Index(0, 0, 0, 0)] = x1111;
-  dPdF_atFhat[tensor9x9Index(0, 0, 1, 1)] = x2211;
-  dPdF_atFhat[tensor9x9Index(0, 0, 2, 2)] = x3311;
+  ES::M9d dPdF_atFhat = ES::M9d::Zero();
+  auto setTeranEntry = [&](int i, int j, int m, int n, double value) {
+    const int index = tensor9x9Index(i, j, m, n);
+    dPdF_atFhat(index / 9, index % 9) = value;
+  };
+  setTeranEntry(0, 0, 0, 0, x1111);
+  setTeranEntry(0, 0, 1, 1, x2211);
+  setTeranEntry(0, 0, 2, 2, x3311);
 
-  dPdF_atFhat[tensor9x9Index(1, 1, 0, 0)] = x2211;
-  dPdF_atFhat[tensor9x9Index(1, 1, 1, 1)] = x2222;
-  dPdF_atFhat[tensor9x9Index(1, 1, 2, 2)] = x3322;
+  setTeranEntry(1, 1, 0, 0, x2211);
+  setTeranEntry(1, 1, 1, 1, x2222);
+  setTeranEntry(1, 1, 2, 2, x3322);
 
-  dPdF_atFhat[tensor9x9Index(2, 2, 0, 0)] = x3311;
-  dPdF_atFhat[tensor9x9Index(2, 2, 1, 1)] = x3322;
-  dPdF_atFhat[tensor9x9Index(2, 2, 2, 2)] = x3333;
+  setTeranEntry(2, 2, 0, 0, x3311);
+  setTeranEntry(2, 2, 1, 1, x3322);
+  setTeranEntry(2, 2, 2, 2, x3333);
 
-  dPdF_atFhat[tensor9x9Index(0, 1, 0, 1)] = x2121;
-  dPdF_atFhat[tensor9x9Index(0, 1, 1, 0)] = x2112;
+  setTeranEntry(0, 1, 0, 1, x2121);
+  setTeranEntry(0, 1, 1, 0, x2112);
 
-  dPdF_atFhat[tensor9x9Index(1, 0, 0, 1)] = x2112;
-  dPdF_atFhat[tensor9x9Index(1, 0, 1, 0)] = x2121;
+  setTeranEntry(1, 0, 0, 1, x2112);
+  setTeranEntry(1, 0, 1, 0, x2121);
 
-  dPdF_atFhat[tensor9x9Index(0, 2, 0, 2)] = x3131;
-  dPdF_atFhat[tensor9x9Index(0, 2, 2, 0)] = x3113;
+  setTeranEntry(0, 2, 0, 2, x3131);
+  setTeranEntry(0, 2, 2, 0, x3113);
 
-  dPdF_atFhat[tensor9x9Index(2, 0, 0, 2)] = x3113;
-  dPdF_atFhat[tensor9x9Index(2, 0, 2, 0)] = x3131;
+  setTeranEntry(2, 0, 0, 2, x3113);
+  setTeranEntry(2, 0, 2, 0, x3131);
 
-  dPdF_atFhat[tensor9x9Index(1, 2, 1, 2)] = x3232;
-  dPdF_atFhat[tensor9x9Index(1, 2, 2, 1)] = x3223;
+  setTeranEntry(1, 2, 1, 2, x3232);
+  setTeranEntry(1, 2, 2, 1, x3223);
 
-  dPdF_atFhat[tensor9x9Index(2, 1, 1, 2)] = x3223;
-  dPdF_atFhat[tensor9x9Index(2, 1, 2, 1)] = x3232;
+  setTeranEntry(2, 1, 1, 2, x3223);
+  setTeranEntry(2, 1, 2, 1, x3232);
 
   /*
           | P_00 P_01 P_02 |        | F_00 F_01 F_02 |
@@ -319,8 +308,8 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF_impl(const double * /*para
     | dP_22/dF_00  dP_22/dF_01 dP_22/dF_02 dP_22/dF_10 ... dP22/dF_22 |
    */
 
-  ES::M3d U = ES::Mp<const ES::M3d>(UIn);
-  ES::M3d V = ES::Mp<const ES::M3d>(VIn);
+  const ES::M3d &U = state.U;
+  const ES::M3d &V = state.V;
   ES::M3d UT = U.transpose();
   ES::M3d VT = V.transpose();
 
@@ -331,19 +320,17 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF_impl(const double * /*para
     VT.print();
   */
 
-  double dPdF[81];
-  memset(dPdF, 0, sizeof(double) * 81);
+  ES::M9d dPdF = ES::M9d::Zero();
 
-  double eiejVector[9];
-  memset(eiejVector, 0, sizeof(double) * 9);
+  ES::V9d eiejVector = ES::V9d::Zero();
 
   for (int column = 0; column < 9; column++) {
     eiejVector[column] = 1.0;
-    ES::M3d ei_ej = asMat3d(eiejVector);
+    ES::M3d ei_ej = asMat3d(eiejVector.data());
     ES::M3d ut_eiej_v = UT * ei_ej * V;
 
-    double ut_eiej_v_TeranVector[9];  // in Teran order
-    ut_eiej_v_TeranVector[rowMajorMatrixToTeran[0]] = ut_eiej_v(0, 0);
+    ES::V9d ut_eiej_v_TeranVector;  // in Teran order
+      ut_eiej_v_TeranVector[rowMajorMatrixToTeran[0]] = ut_eiej_v(0, 0);
     ut_eiej_v_TeranVector[rowMajorMatrixToTeran[1]] = ut_eiej_v(0, 1);
     ut_eiej_v_TeranVector[rowMajorMatrixToTeran[2]] = ut_eiej_v(0, 2);
     ut_eiej_v_TeranVector[rowMajorMatrixToTeran[3]] = ut_eiej_v(1, 0);
@@ -353,27 +340,27 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF_impl(const double * /*para
     ut_eiej_v_TeranVector[rowMajorMatrixToTeran[7]] = ut_eiej_v(2, 1);
     ut_eiej_v_TeranVector[rowMajorMatrixToTeran[8]] = ut_eiej_v(2, 2);
 
-    double dPdF_resultVector[9];  // not in Teran order
+    ES::V9d dPdF_resultVector;
     for (int innerRow = 0; innerRow < 9; innerRow++) {
       double tempResult = 0.0;
       for (int innerColumn = 0; innerColumn < 9; innerColumn++) {
-        tempResult += dPdF_atFhat[innerRow * 9 + innerColumn] *
+        tempResult += dPdF_atFhat(innerRow, innerColumn) *
           ut_eiej_v_TeranVector[innerColumn];
       }
       dPdF_resultVector[teranToRowMajorMatrix[innerRow]] = tempResult;
     }
-    ES::M3d dPdF_resultMatrix = asMat3d(dPdF_resultVector);
+    ES::M3d dPdF_resultMatrix = asMat3d(dPdF_resultVector.data());
     ES::M3d u_dpdf_vt = U * dPdF_resultMatrix * VT;
 
-    dPdF[column + 0] = u_dpdf_vt(0, 0);
-    dPdF[column + 9] = u_dpdf_vt(0, 1);
-    dPdF[column + 18] = u_dpdf_vt(0, 2);
-    dPdF[column + 27] = u_dpdf_vt(1, 0);
-    dPdF[column + 36] = u_dpdf_vt(1, 1);
-    dPdF[column + 45] = u_dpdf_vt(1, 2);
-    dPdF[column + 54] = u_dpdf_vt(2, 0);
-    dPdF[column + 63] = u_dpdf_vt(2, 1);
-    dPdF[column + 72] = u_dpdf_vt(2, 2);
+    dPdF.data()[column + 0] = u_dpdf_vt(0, 0);
+    dPdF.data()[column + 9] = u_dpdf_vt(0, 1);
+    dPdF.data()[column + 18] = u_dpdf_vt(0, 2);
+    dPdF.data()[column + 27] = u_dpdf_vt(1, 0);
+    dPdF.data()[column + 36] = u_dpdf_vt(1, 1);
+    dPdF.data()[column + 45] = u_dpdf_vt(1, 2);
+    dPdF.data()[column + 54] = u_dpdf_vt(2, 0);
+    dPdF.data()[column + 63] = u_dpdf_vt(2, 1);
+    dPdF.data()[column + 72] = u_dpdf_vt(2, 2);
     // reset
     eiejVector[column] = 0.0;
   }
@@ -396,21 +383,19 @@ void ElasticModelInvariantBasedMaterial::compute_dPdF_impl(const double * /*para
   perm.indices()[7] = 5;
   perm.indices()[8] = 8;
 
-  (Eigen::Map<Eigen::Matrix<double, 9, 9>>(dPdFOut)) = perm.transpose() * (Eigen::Map<const Eigen::Matrix<double, 9, 9>>(dPdF)) * perm;
+  return perm.transpose() * dPdF * perm;
 }
 
-void ElasticModelInvariantBasedMaterial::compute_dPdF(
-  const double *param, const double F[9], const double UIn[9],
-  const double VIn[9], const double S[3], double dPdFOut[81]) const
+ES::M9d ElasticModelInvariantBasedMaterial::compute_dPdF(
+  std::span<const double> param, const SpectralState &state) const
 {
-  compute_dPdF_impl(param, F, UIn, VIn, S, dPdFOut, false);
+  return compute_dPdF_impl(param, state, false);
 }
 
-void ElasticModelInvariantBasedMaterial::compute_dPdF_psd(
-  const double *param, const double F[9], const double UIn[9],
-  const double VIn[9], const double S[3], double dPdFOut[81]) const
+ES::M9d ElasticModelInvariantBasedMaterial::compute_dPdF_psd(
+  std::span<const double> param, const SpectralState &state) const
 {
-  compute_dPdF_impl(param, F, UIn, VIn, S, dPdFOut, true);
+  return compute_dPdF_impl(param, state, true);
 }
 
 

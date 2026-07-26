@@ -20,7 +20,7 @@ constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 TEST(MaterialParameterBuilder, BuildsIndependentSpaceAndCommittedValues)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
+  std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(cubicMesh).release());
   ASSERT_NE(mesh, nullptr);
 
   const auto elastic = std::make_shared<StableNeoConfig>();
@@ -57,7 +57,7 @@ TEST(MaterialParameterBuilder, BuildsIndependentSpaceAndCommittedValues)
 TEST(MaterialParameterBuilder, DefaultBuilderRequiresElementwiseLayout)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
+  std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(cubicMesh).release());
 
   auto elementwise = makeDefaultMaterialParameters(
     *mesh,
@@ -82,7 +82,7 @@ TEST(MaterialParameterBuilder, DefaultBuilderRequiresElementwiseLayout)
 TEST(MaterialParameterBuilder, RejectsDimensionMismatch)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(&cubicMesh).release());
+  std::shared_ptr<const SimulationMesh> mesh(loadCubicMesh(cubicMesh).release());
 
   EXPECT_THROW(
     makeMaterialParameterSpace(

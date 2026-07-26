@@ -6,7 +6,9 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include <memory>
+#include <span>
 
+#include "EigenSupport.h"
 #include "simulation/elementField.h"
 
 namespace pgo
@@ -21,8 +23,8 @@ class SimulationMeshImpl;
 class SimulationMesh
 {
 public:
-  SimulationMesh(int numVertices, const double *vertexPositions,
-    int numElements, int numElementVertices, const int *elementVertexIndices,
+  SimulationMesh(int numVertices, std::span<const double> vertexPositions,
+    int numElements, int numElementVertices, std::span<const int> elementVertexIndices,
     ElementFieldStore elementFields, SimulationMeshType meshType);
 
   ~SimulationMesh();
@@ -31,12 +33,12 @@ public:
   int getNumVertices() const;
   int getNumElementVertices() const;
   int getVertexIndex(int ele, int j) const;
-  const int *getVertexIndices(int ele) const;
-  void getVertex(int vi, double pos[3]) const;
-  void getVertex(int ele, int j, double pos[3]) const;
-  void assignElementUVs(const double *uvs);
+  std::span<const int> getVertexIndices(int ele) const;
+  const EigenSupport::V3d &getVertex(int vi) const;
+  const EigenSupport::V3d &getVertex(int ele, int j) const;
+  void assignElementUVs(std::span<const double> uvs);
   bool hasElementUV() const;
-  void getElementUV(int ele, int j, double uv[2]) const;
+  const EigenSupport::V2d &getElementUV(int ele, int j) const;
   SimulationMeshType getElementType() const;
 
   template<class T>

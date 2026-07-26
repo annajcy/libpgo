@@ -3,6 +3,8 @@
 #include "material/elastic/elasticModel3DDeformationGradient.h"
 #include "EigenDef.h"
 
+#include <array>
+
 namespace pgo
 {
 namespace SolidDeformationModel
@@ -16,16 +18,27 @@ public:
   int getNumParameters() const override { return 0; }
   void setMaterialParameters(double _mu, double _lambda)   {     mu = _mu;     lambda = _lambda;   }
 
-  virtual double compute_psi(const double *param, const double _F[9], const double _U[], const double _V[], const double _S[]) const override;
-  virtual void compute_P(const double *param, const double _F[9], const double _U[], const double _V[], const double _S[], double P[9]) const override;         // d||P||/dP  d||Q||/dQ
-  virtual void compute_dPdF(const double *param, const double _F[9], const double _U[], const double _V[], const double _S[], double dPdF[81]) const override;  // d2||P||/dP2  d2||Q||/dQ2
+  double compute_psi(std::span<const double> param,
+    const SpectralState &state) const override;
+  EigenSupport::M3d compute_P(std::span<const double> param,
+    const SpectralState &state) const override;         // d||P||/dP  d||Q||/dQ
+  EigenSupport::M9d compute_dPdF(std::span<const double> param,
+    const SpectralState &state) const override;  // d2||P||/dP2  d2||Q||/dQ2
 
 protected:
-  EigenSupport::V3d computeLowerInvariance(const EigenSupport::M3d &F, EigenSupport::M3d &R, 
-    EigenSupport::V3d *S = nullptr, EigenSupport::M3d *U = nullptr, EigenSupport::M3d *V = nullptr) const;
+  struct LowerInvarianceResult
+  {
+    EigenSupport::V3d invariants;
+    EigenSupport::M3d rotation;
+    EigenSupport::V3d signedStretches;
+    EigenSupport::M3d U;
+    EigenSupport::M3d V;
+  };
+
+  LowerInvarianceResult computeLowerInvariance(const EigenSupport::M3d &F) const;
 
   double mu, lambda;
-  EigenSupport::M3d C[3];
+  std::array<EigenSupport::M3d, 3> C;
 };
 
 class StVKConfig final : public ElasticModelConfig

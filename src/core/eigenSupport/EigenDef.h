@@ -57,6 +57,7 @@ typedef Eigen::Matrix<double, 18, 1> V18d;
 typedef Eigen::Matrix<int, 18, 1> V18i;
 
 typedef Eigen::Matrix<double, 24, 1> V24d;
+typedef Eigen::Matrix<double, 64, 1> V64d;
 
 typedef Eigen::Matrix2d M2d;
 typedef Eigen::Matrix2i M2i;
@@ -84,6 +85,7 @@ typedef Eigen::Matrix<double, 24, 24> M24d;
 typedef Eigen::Matrix<int, 18, 18> M18i;
 
 typedef Eigen::Matrix<double, 12, 12> M12d;
+typedef Eigen::Matrix<int, 12, 12> M12i;
 typedef Eigen::Matrix<double, 6, 9> M6x9d;
 
 typedef Eigen::Matrix<double, 6, 18> M6x18d;
@@ -97,24 +99,28 @@ typedef Eigen::Matrix<double, 3, 2> M3x2d;
 typedef Eigen::Matrix<double, 9, 12> M9x12d;
 typedef Eigen::Matrix<double, 12, 9> M12x9d;
 
-typedef Eigen::Matrix<double, 12, 12> M12d;
-typedef Eigen::Matrix<int, 12, 12> M12i;
-
-typedef Eigen::Matrix<double, 3, 2> M3x2d;
-typedef Eigen::Matrix<double, 2, 3> M2x3d;
-
 typedef Eigen::Matrix<double, 4, 3> M4x3d;
 typedef Eigen::Matrix<double, 4, 9> M4x9d;
 typedef Eigen::Matrix<double, 4, 18> M4x18d;
+typedef Eigen::Matrix<double, 3, 4> M3x4d;
+typedef Eigen::Matrix<double, 3, 8> M3x8d;
+typedef Eigen::Matrix<double, 3, 64> M3x64d;
 
-typedef Eigen::Matrix<double, 6, 9> M6x9d;
 typedef Eigen::Matrix<double, 9, 6> M9x6d;
 
-typedef Eigen::Matrix<double, 9, 12> M9x12d;
-typedef Eigen::Matrix<double, 12, 9> M12x9d;
+// Fixed-size dense blocks used by solid-deformation higher derivatives.
+// All dense Eigen matrices in this header use Eigen's default column-major
+// storage.  For M81x9d, row (j * 9 + i), column k corresponds to the
+// tensor entry (k, j, i) in the legacy flattened convention.
+typedef Eigen::Matrix<double, 81, 9> M81x9d;
+typedef Eigen::Matrix<double, 3, 6> M3x6d;
+typedef Eigen::Matrix<double, 9, 36> M9x36d;
+typedef Eigen::Matrix<double, 18, 72> M18x72d;
 
 typedef Eigen::Matrix<double, 9, 18> M9x18d;
 typedef Eigen::Matrix<double, 18, 9> M18x9d;
+typedef Eigen::Matrix<double, 3, 9> M3x9d;
+typedef Eigen::Matrix<double, 3, 81> M3x81d;
 
 typedef Eigen::Matrix<double, 3, 12> M3x12d;
 typedef Eigen::Matrix<double, 12, 3> M12x3d;

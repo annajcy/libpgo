@@ -96,7 +96,7 @@ inline double smoothRampHess(double x, double eps)
   return 0.5 * (e * e) / (srt * srt * srt);
 }
 
-double ElasticModel2DFundamentalFormsFabric::compute_psi_a(const double *param, const double a_[4], const double abar_[4]) const
+double ElasticModel2DFundamentalFormsFabric::compute_psi_a(std::span<const double> param, const ES::M2d &a_, const ES::M2d &abar_) const
 {
   // Unpack parameters
   // Tiny isotropic matrix term (optional)
@@ -123,8 +123,8 @@ double ElasticModel2DFundamentalFormsFabric::compute_psi_a(const double *param, 
 
   double h = param[11];  // shell thickness
 
-  ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &abar = abar_;
   ES::M2d abarInv = abar.inverse();
   ES::M2d C = abarInv * a;
 
@@ -167,7 +167,7 @@ double ElasticModel2DFundamentalFormsFabric::compute_psi_a(const double *param, 
   return h * psi_mem;
 }
 
-double ElasticModel2DFundamentalFormsFabric::compute_psi_b(const double *param, const double b_[4], const double abar_[4], const double bbar_[4]) const
+double ElasticModel2DFundamentalFormsFabric::compute_psi_b(std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   // Unpack parameters
   // Tiny isotropic matrix term (optional)
@@ -194,9 +194,9 @@ double ElasticModel2DFundamentalFormsFabric::compute_psi_b(const double *param, 
 
   double h = param[11];  // shell thickness
 
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
 
   ES::M2d abarInv = abar.inverse();
   ES::M2d b_eff = abarInv * (b - bbar);
@@ -211,7 +211,7 @@ double ElasticModel2DFundamentalFormsFabric::compute_psi_b(const double *param, 
   return h * h * h / 12 * psi_bend;
 }
 
-void ElasticModel2DFundamentalFormsFabric::compute_dpsi_da(const double *param, const double a_[4], const double abar_[4], double da_[4]) const
+ES::M2d ElasticModel2DFundamentalFormsFabric::compute_dpsi_da(std::span<const double> param, const ES::M2d &a_, const ES::M2d &abar_) const
 {
   // Unpack parameters
   // Tiny isotropic matrix term (optional)
@@ -238,8 +238,8 @@ void ElasticModel2DFundamentalFormsFabric::compute_dpsi_da(const double *param, 
 
   double h = param[11];  // shell thickness
 
-  ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &abar = abar_;
   ES::M2d abarInv = abar.inverse();
   ES::M2d C = abarInv * a;
 
@@ -286,10 +286,10 @@ void ElasticModel2DFundamentalFormsFabric::compute_dpsi_da(const double *param, 
 
   // -------- Gradient wrt 'a' (2x2), Hessian Haa (3x3 Mandel) --------
   ES::M2d grad_a_mat = dpsi_dI1 * dI1_da + dpsi_dI4 * dI4_da + dpsi_dI6 * dI6_da + dpsi_dI8 * dI8_da;
-  (ES::Mp<ES::M2d>(da_)) = grad_a_mat * h;
+  return grad_a_mat * h;
 }
 
-void ElasticModel2DFundamentalFormsFabric::compute_dpsi_db(const double *param, const double b_[4], const double abar_[4], const double bbar_[4], double db_[4]) const
+ES::M2d ElasticModel2DFundamentalFormsFabric::compute_dpsi_db(std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   // Unpack parameters
   // Tiny isotropic matrix term (optional)
@@ -316,9 +316,9 @@ void ElasticModel2DFundamentalFormsFabric::compute_dpsi_db(const double *param, 
 
   double h = param[11];  // shell thickness
 
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
+  const ES::M2d &b = b_;
 
   ES::M2d abarInv = abar.inverse();
   ES::M2d b_eff = abarInv * (b - bbar);
@@ -332,10 +332,10 @@ void ElasticModel2DFundamentalFormsFabric::compute_dpsi_db(const double *param, 
   grad_b_mat(0, 1) = grad_b_mat(1, 0) = kappa12 * b_eff(0, 1);  // NOTE: not 2*kappa12
 
   grad_b_mat *= h * h * h / 12;
-  (ES::Mp<ES::M2d>(db_)) = grad_b_mat;
+  return grad_b_mat;
 }
 
-void ElasticModel2DFundamentalFormsFabric::compute_d2psi_da2(const double *param, const double a_[4], const double abar_[4], double da2_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsFabric::compute_d2psi_da2(std::span<const double> param, const ES::M2d &a_, const ES::M2d &abar_) const
 {
   // Unpack parameters
   // Tiny isotropic matrix term (optional)
@@ -362,8 +362,8 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_da2(const double *param
 
   double h = param[11];  // shell thickness
 
-  ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &abar = abar_;
   ES::M2d abarInv = abar.inverse();
   ES::M2d C = abarInv * a;
 
@@ -428,10 +428,10 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_da2(const double *param
   ES::M4d Haa4;
   Haa4 = pack_Mandel3To4(Haa) * h;
 
-  (ES::Mp<ES::M4d>(da2_)) = Haa4;
+  return Haa4;
 }
 
-void ElasticModel2DFundamentalFormsFabric::compute_d2psi_db2(const double *param, const double b_[4], const double abar_[4], const double bbar_[4], double db2_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsFabric::compute_d2psi_db2(std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   // Unpack parameters
   // Tiny isotropic matrix term (optional)
@@ -458,9 +458,9 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_db2(const double *param
 
   double h = param[11];  // shell thickness
 
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
+  const ES::M2d &b = b_;
 
   ES::M2d abarInv = abar.inverse();
   ES::M2d b_eff = abarInv * (b - bbar);  ///???
@@ -476,12 +476,12 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_db2(const double *param
 
   Hbb4 *= h * h * h / 12;
 
-  (ES::Mp<ES::M4d>(db2_)) = Hbb4;
+  return Hbb4;
 }
 
 void ElasticModel2DFundamentalFormsFabric::compute_d2psi_da_dparam(
-  const double *param, const double a_[4], const double abar_[4],
-  double d2psi_dadparam_[/*4 x numParams*/]) const
+  std::span<const double> param, const ES::M2d &a_, const ES::M2d &abar_,
+  ES::RefMatXd d2psi_dadparam) const
 {
   double mu0 = param[0];
   double k1_4 = param[1];
@@ -493,8 +493,8 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_da_dparam(
   double I8_0 = param[10];
   double h = param[11];
 
-  ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &abar = abar_;
   ES::M2d abarInv = abar.inverse();
 
   ES::V2d e1 = normalizeWithMetric(warpDir, abar);
@@ -529,7 +529,6 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_da_dparam(
   const ES::M2d grad_a_mat =
     dpsi_dI1 * dI1_da + dpsi_dI4 * dI4_da + dpsi_dI6 * dI6_da + dpsi_dI8 * dI8_da;
 
-  Eigen::Map<ES::MXd> d2psi_dadparam(d2psi_dadparam_, 4, getNumParameters());
   d2psi_dadparam.setZero();
 
   d2psi_dadparam.col(0) = vecCM(dI1_da) * (0.5 * h);
@@ -544,22 +543,21 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_da_dparam(
 }
 
 void ElasticModel2DFundamentalFormsFabric::compute_d2psi_db_dparam(
-  const double *param, const double b_[4], const double abar_[4], const double bbar_[4],
-  double d2psi_dbdparam_[/*4 x numParams*/]) const
+  std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_,
+  ES::RefMatXd d2psi_dbdparam) const
 {
   double kappa11 = param[7];
   double kappa22 = param[8];
   double kappa12 = param[9];
   double h = param[11];
 
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
+  const ES::M2d &b = b_;
 
   ES::M2d abarInv = abar.inverse();
   ES::M2d b_eff = abarInv * (b - bbar);
 
-  Eigen::Map<ES::MXd> d2psi_dbdparam(d2psi_dbdparam_, 4, getNumParameters());
   d2psi_dbdparam.setZero();
 
   const double h3_over_12 = h * h * h / 12.0;

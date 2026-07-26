@@ -100,9 +100,9 @@ static inline double stvkCoreSecondDirectionalDerivative(
 }
 
 bool ElasticModel2DFundamentalFormsSTVK::computeVonMisesStress(
-  const double *param,
-  const double a_[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double &stress) const
+   std::span<const double> param,
+  const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_, double &stress) const
 {
   const double E_m = param[0];
   const double nu_m = param[1];
@@ -115,10 +115,10 @@ bool ElasticModel2DFundamentalFormsSTVK::computeVonMisesStress(
   const double alpha_b = E_b * nu_b / ((1.0 + nu_b) * (1.0 - 2.0 * nu_b));
   const double beta_b = E_b / (2.0 * (1.0 + nu_b));
 
-  const ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
 
   const ES::M2d abar_inv = abar.fullPivHouseholderQr().inverse();
 
@@ -152,7 +152,7 @@ bool ElasticModel2DFundamentalFormsSTVK::computeVonMisesStress(
   return true;
 }
 
-double ElasticModel2DFundamentalFormsSTVK::compute_psi_a(const double *param, const double a_[4], const double abar_[4]) const
+double ElasticModel2DFundamentalFormsSTVK::compute_psi_a( std::span<const double> param, const ES::M2d &a_, const ES::M2d &abar_) const
 {
   double Es = param[0];
   double nu_s = param[1];
@@ -161,8 +161,8 @@ double ElasticModel2DFundamentalFormsSTVK::compute_psi_a(const double *param, co
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &abar = abar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d M = a_bar_inv * a - ES::M2d::Identity();
 
@@ -172,7 +172,7 @@ double ElasticModel2DFundamentalFormsSTVK::compute_psi_a(const double *param, co
   return Wc * h;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_da(const double *param, const double a_[4], const double abar_[4], double da_[4]) const
+ES::M2d ElasticModel2DFundamentalFormsSTVK::compute_dpsi_da( std::span<const double> param, const ES::M2d &a_, const ES::M2d &abar_) const
 {
   double Es = param[0];
   double nu_s = param[1];
@@ -181,8 +181,8 @@ void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_da(const double *param, co
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &abar = abar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d M = a_bar_inv * a - ES::M2d::Identity();
 
@@ -190,10 +190,10 @@ void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_da(const double *param, co
   ES::M2d I = ES::M2d::Identity();
   ES::M2d S = (lameAlpha * trace_M * I + 2.0 * lameBeta * M) * a_bar_inv;
 
-  (ES::Mp<ES::M2d>(da_)) = S * h;
+  return S * h;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_da2(const double *param, const double a_[4], const double abar_[4], double da2_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_da2( std::span<const double> param, const ES::M2d &a_, const ES::M2d &abar_) const
 {
   double Es = param[0];
   double nu_s = param[1];
@@ -202,8 +202,8 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_da2(const double *param, 
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &abar = abar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d M = a_bar_inv * a - ES::M2d::Identity();
 
@@ -226,10 +226,10 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_da2(const double *param, 
   ES::M4d dMda = KroneckerProduct2(I, a_bar_inv);
   ES::M4d d2Eda2 = dMda.transpose() * d2EdM2 * dMda;
 
-  (ES::Mp<ES::M4d>(da2_)) = d2Eda2 * h;
+  return d2Eda2 * h;
 }
 
-double ElasticModel2DFundamentalFormsSTVK::compute_psi_b(const double *param, const double b_[4], const double abar_[4], const double bbar_[4]) const
+double ElasticModel2DFundamentalFormsSTVK::compute_psi_b( std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   double Es = param[2];
   double nu_s = param[3];
@@ -238,9 +238,9 @@ double ElasticModel2DFundamentalFormsSTVK::compute_psi_b(const double *param, co
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d M = a_bar_inv * (b - bbar);
 
@@ -250,7 +250,7 @@ double ElasticModel2DFundamentalFormsSTVK::compute_psi_b(const double *param, co
   return Wc * h * h * h / 12;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_db(const double *param, const double b_[4], const double abar_[4], const double bbar_[4], double db_[4]) const
+ES::M2d ElasticModel2DFundamentalFormsSTVK::compute_dpsi_db( std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   double Es = param[2];
   double nu_s = param[3];
@@ -259,18 +259,18 @@ void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_db(const double *param, co
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d M = a_bar_inv * (b - bbar);
 
   double trace_M = M.trace();
   ES::M2d S = lameAlpha * trace_M * a_bar_inv + 2.0 * lameBeta * M * a_bar_inv;
-  (ES::Mp<ES::M2d>(db_)) = S * h * h * h / 12;
+  return S * h * h * h / 12;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db2(const double *param, const double b_[4], const double abar_[4], const double bbar_[4], double db2_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db2( std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   double Es = param[2];
   double nu_s = param[3];
@@ -279,9 +279,9 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db2(const double *param, 
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d M = a_bar_inv * (b - bbar);
 
@@ -297,10 +297,10 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db2(const double *param, 
   ES::M4d dMdb = KroneckerProduct2(I, a_bar_inv);
   ES::M4d d2Edb2 = dMdb.transpose() * d2EdM2 * dMdb;
 
-  (ES::Mp<ES::M4d>(db2_)) = d2Edb2 * h * h * h / 12;
+  return d2Edb2 * h * h * h / 12;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dadabar(const double *param, const double a_[4], const double abar_[4], double dadabar_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dadabar( std::span<const double> param, const ES::M2d &a_, const ES::M2d &abar_) const
 {
   double Es = param[0];
   double nu_s = param[1];
@@ -323,8 +323,8 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dadabar(const double *par
   // dS/dabar = (c1 d trace(M)/dM * dM/dabar * I + c2 dM/dabar) * a_bar_inv + S * d(a_bar_inv)/dabar
   // dS/dabar = (c1 * I : dM/dabar + c2 dM/dabar) * a_bar_inv + S * d(a_bar_inv)/dabar
 
-  ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &abar = abar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d M = a_bar_inv * a - ES::M2d::Identity();
   ES::M2d I = ES::M2d::Identity();
@@ -344,10 +344,10 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dadabar(const double *par
     dadabar.col(i) = vecCM(dS_dabar_i);
   }
 
-  (ES::Mp<ES::M4d>(dadabar_)) = dadabar * h;
+  return dadabar * h;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dabar(const double *param, const double b_[4], const double abar_[4], const double bbar_[4], double dbdabar_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dabar( std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   double Es = param[2];
   double nu_s = param[3];
@@ -356,9 +356,9 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dabar(const double *pa
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d a_bar_inv_T = a_bar_inv.transpose();
   ES::M2d M = a_bar_inv * (b - bbar);
@@ -380,10 +380,10 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dabar(const double *pa
     dbdabar.col(i) = vecCM(dS_dabar_i);
   }
 
-  (ES::Mp<ES::M4d>(dbdabar_)) = dbdabar * h * h * h / 12;
+  return dbdabar * h * h * h / 12;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dbbar(const double *param, const double b_[4], const double abar_[4], const double bbar_[4], double dbdbbar_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dbbar( std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   double Es = param[2];
   double nu_s = param[3];
@@ -392,9 +392,9 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dbbar(const double *pa
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d a_bar_inv_T = a_bar_inv.transpose();
   ES::M2d M = a_bar_inv * (b - bbar);
@@ -413,11 +413,10 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dbbar(const double *pa
     dbdbbar.col(i) = vecCM(dS_dbbar_i);
   }
 
-  (ES::Mp<ES::M4d>(dbdbbar_)) = dbdbbar * h * h * h / 12;
-  // this route is not executed yet
+  return dbdbbar * h * h * h / 12;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_da_dparam(const double *param, const double a_[4], const double abar_[4], double d2psi_dadparam[/*4 x numParams*/]) const
+void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_da_dparam( std::span<const double> param, const ES::M2d &a_, const ES::M2d &abar_, ES::RefMatXd d2psi_dadparam) const
 {
   double Es = param[0];
   double nu_s = param[1];
@@ -426,8 +425,8 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_da_dparam(const double *p
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &abar = abar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d M = a_bar_inv * a - ES::M2d::Identity();
 
@@ -435,8 +434,7 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_da_dparam(const double *p
   ES::M2d I = ES::M2d::Identity();
   ES::M2d S = (lameAlpha * trace_M * I + 2.0 * lameBeta * M) * a_bar_inv;
 
-  Eigen::Map<ES::MXd> d2psi_dadparam_map(d2psi_dadparam, 4, 5);
-  d2psi_dadparam_map.setZero();
+  d2psi_dadparam.setZero();
 
   ES::M2d dS_dalpha = (trace_M * I) * a_bar_inv;
   ES::M2d dS_dbeta = (2.0 * M) * a_bar_inv;
@@ -445,14 +443,12 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_da_dparam(const double *p
   ES::M2d dS_dnu = dS_dalpha * (Es * (1 + 2 * nu_s * nu_s) / ((1 + nu_s) * (1 + nu_s) * (1 - 2 * nu_s) * (1 - 2 * nu_s)));
   dS_dnu += dS_dbeta * (-Es / (2 * (1 + nu_s) * (1 + nu_s)));
 
-  d2psi_dadparam_map.col(0) = vecCM(dS_dE) * h;
-  d2psi_dadparam_map.col(1) = vecCM(dS_dnu) * h;
-  d2psi_dadparam_map.col(2).setZero();
-  d2psi_dadparam_map.col(3).setZero();
-  d2psi_dadparam_map.col(4) = vecCM(S);
+  d2psi_dadparam.col(0) = vecCM(dS_dE) * h;
+  d2psi_dadparam.col(1) = vecCM(dS_dnu) * h;
+  d2psi_dadparam.col(4) = vecCM(S);
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dparam(const double *param, const double b_[4], const double abar_[4], const double bbar_[4], double d2psi_dbdparam[/*4 x numParams*/]) const
+void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dparam( std::span<const double> param, const ES::M2d &b_, const ES::M2d &abar_, const ES::M2d &bbar_, ES::RefMatXd d2psi_dbdparam) const
 {
   double Es = param[2];
   double nu_s = param[3];
@@ -461,9 +457,9 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dparam(const double *p
   double lameAlpha = Es * nu_s / ((1 + nu_s) * (1 - 2 * nu_s));
   double lameBeta = Es / (2 * (1 + nu_s));
 
-  ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   ES::M2d a_bar_inv = abar.fullPivHouseholderQr().inverse();
   ES::M2d M = a_bar_inv * (b - bbar);
 
@@ -471,8 +467,7 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dparam(const double *p
   ES::M2d I = ES::M2d::Identity();
   ES::M2d S = (lameAlpha * trace_M * I + 2.0 * lameBeta * M) * a_bar_inv;
 
-  Eigen::Map<ES::MXd> d2psi_dbdparam_map(d2psi_dbdparam, 4, 5);
-  d2psi_dbdparam_map.setZero();
+  d2psi_dbdparam.setZero();
 
   ES::M2d dS_dalpha = (trace_M * I) * a_bar_inv;
   ES::M2d dS_dbeta = (2.0 * M) * a_bar_inv;
@@ -481,22 +476,20 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_db_dparam(const double *p
   ES::M2d dS_dnu = dS_dalpha * (Es * (1 + 2 * nu_s * nu_s) / ((1 + nu_s) * (1 + nu_s) * (1 - 2 * nu_s) * (1 - 2 * nu_s)));
   dS_dnu += dS_dbeta * (-Es / (2 * (1 + nu_s) * (1 + nu_s)));
 
-  d2psi_dbdparam_map.col(0).setZero();
-  d2psi_dbdparam_map.col(1).setZero();
-  d2psi_dbdparam_map.col(2) = vecCM(dS_dE) * h * h * h / 12;
-  d2psi_dbdparam_map.col(3) = vecCM(dS_dnu) * h * h * h / 12;
-  d2psi_dbdparam_map.col(4) = vecCM(S) * 3 * h * h / 12;
+  d2psi_dbdparam.col(2) = vecCM(dS_dE) * h * h * h / 12;
+  d2psi_dbdparam.col(3) = vecCM(dS_dnu) * h * h * h / 12;
+  d2psi_dbdparam.col(4) = vecCM(S) * 3 * h * h / 12;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_dabar(
-  const double *param, const double a_[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double dpsi_dabar_[4]) const
+ES::M2d ElasticModel2DFundamentalFormsSTVK::compute_dpsi_dabar(
+   std::span<const double> param, const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   const double h = param[4];
-  const ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   const ES::M2d Z = abar.fullPivHouseholderQr().inverse();
 
   const Lame2D mem = computeLame2D(param[0], param[1]);
@@ -509,35 +502,34 @@ void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_dabar(
   grad += (h * h * h / 12.0) *
     stvkDpsiDabarCore(bend.alpha, bend.beta, Z, Xbend, Mbend);
 
-  Eigen::Map<ES::M2d> gradMap(dpsi_dabar_);
-  gradMap = grad;
+  return grad;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_dbbar(
-  const double *param, const double[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double dpsi_dbbar_[4]) const
+ES::M2d ElasticModel2DFundamentalFormsSTVK::compute_dpsi_dbbar(
+   std::span<const double> param, const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   const double h = param[4];
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   const ES::M2d Z = abar.fullPivHouseholderQr().inverse();
 
   const Lame2D bend = computeLame2D(param[2], param[3]);
   const ES::M2d Mbend = Z * (b - bbar);
-  Eigen::Map<ES::M2d> gradMap(dpsi_dbbar_);
-  gradMap = (h * h * h / 12.0) * stvkDpsiDbbarCore(bend.alpha, bend.beta, Z, Mbend);
+  (void)a_;
+  return (h * h * h / 12.0) * stvkDpsiDbbarCore(bend.alpha, bend.beta, Z, Mbend);
 }
 
 void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_dparam(
-  const double *param, const double a_[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double dpsi_dparam_[/*numParams*/]) const
+   std::span<const double> param, const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_, ES::RefVecXd dpsi_dparam_) const
 {
   const double h = param[4];
-  const ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   const ES::M2d Z = abar.fullPivHouseholderQr().inverse();
 
   const ES::M2d Mmem = Z * a - ES::M2d::Identity();
@@ -552,8 +544,8 @@ void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_dparam(
   const double Wmem = stvkCoreEnergy(mem.alpha, mem.beta, Mmem);
   const double Wbend = stvkCoreEnergy(bend.alpha, bend.beta, Mbend);
 
-  Eigen::Map<ES::VXd> out(dpsi_dparam_, getNumParameters());
-  out.setZero();
+  dpsi_dparam_.setZero();
+  auto &out = dpsi_dparam_;
   out[0] = h * (0.5 * mem.dalpha_dE * trMem2 + mem.dbeta_dE * memM2);
   out[1] = h * (0.5 * mem.dalpha_dnu * trMem2 + mem.dbeta_dnu * memM2);
   out[2] = (h * h * h / 12.0) * (0.5 * bend.dalpha_dE * trBend2 + bend.dbeta_dE * bendM2);
@@ -562,14 +554,14 @@ void ElasticModel2DFundamentalFormsSTVK::compute_dpsi_dparam(
 }
 
 void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dparam2(
-  const double *param, const double a_[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double d2psi_dparam2_[/*numParams x numParams*/]) const
+   std::span<const double> param, const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_, ES::RefMatXd d2psi_dparam2_) const
 {
   const double h = param[4];
-  const ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   const ES::M2d Z = abar.fullPivHouseholderQr().inverse();
 
   const ES::M2d Mmem = Z * a - ES::M2d::Identity();
@@ -583,8 +575,8 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dparam2(
   const Lame2D bend = computeLame2D(param[2], param[3]);
   const double Wbend = stvkCoreEnergy(bend.alpha, bend.beta, Mbend);
 
-  Eigen::Map<ES::MXd> H(d2psi_dparam2_, getNumParameters(), getNumParameters());
-  H.setZero();
+  d2psi_dparam2_.setZero();
+  auto &H = d2psi_dparam2_;
 
   const double dWmem_dE = 0.5 * mem.dalpha_dE * trMem2 + mem.dbeta_dE * memM2;
   const double dWmem_dnu = 0.5 * mem.dalpha_dnu * trMem2 + mem.dbeta_dnu * memM2;
@@ -604,14 +596,14 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dparam2(
 }
 
 void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar_dparam(
-  const double *param, const double a_[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double d2psi_dabar_dparam_[/*4 x numParams*/]) const
+   std::span<const double> param, const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_, ES::RefMatXd d2psi_dabar_dparam_) const
 {
   const double h = param[4];
-  const ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   const ES::M2d Z = abar.fullPivHouseholderQr().inverse();
 
   const ES::M2d Mmem = Z * a - ES::M2d::Identity();
@@ -620,8 +612,8 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar_dparam(
   const Lame2D mem = computeLame2D(param[0], param[1]);
   const Lame2D bend = computeLame2D(param[2], param[3]);
 
-  Eigen::Map<ES::MXd> out(d2psi_dabar_dparam_, 4, getNumParameters());
-  out.setZero();
+  d2psi_dabar_dparam_.setZero();
+  auto &out = d2psi_dabar_dparam_;
   out.col(0) = vecCM(h * stvkDpsiDabarCore(mem.dalpha_dE, mem.dbeta_dE, Z, a, Mmem));
   out.col(1) = vecCM(h * stvkDpsiDabarCore(mem.dalpha_dnu, mem.dbeta_dnu, Z, a, Mmem));
   out.col(2) = vecCM((h * h * h / 12.0) *
@@ -633,19 +625,20 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar_dparam(
 }
 
 void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dbbar_dparam(
-  const double *param, const double[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double d2psi_dbbar_dparam_[/*4 x numParams*/]) const
+   std::span<const double> param, const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_, ES::RefMatXd d2psi_dbbar_dparam_) const
 {
   const double h = param[4];
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   const ES::M2d Z = abar.fullPivHouseholderQr().inverse();
   const ES::M2d Mbend = Z * (b - bbar);
   const Lame2D bend = computeLame2D(param[2], param[3]);
 
-  Eigen::Map<ES::MXd> out(d2psi_dbbar_dparam_, 4, getNumParameters());
-  out.setZero();
+  d2psi_dbbar_dparam_.setZero();
+  auto &out = d2psi_dbbar_dparam_;
+  (void)a_;
   out.col(2) = vecCM((h * h * h / 12.0) *
     stvkDpsiDbbarCore(bend.dalpha_dE, bend.dbeta_dE, Z, Mbend));
   out.col(3) = vecCM((h * h * h / 12.0) *
@@ -654,15 +647,15 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dbbar_dparam(
     stvkDpsiDbbarCore(bend.alpha, bend.beta, Z, Mbend));
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar2(
-  const double *param, const double a_[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double d2psi_dabar2_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar2(
+   std::span<const double> param, const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   const double h = param[4];
-  const ES::M2d a = ES::Mp<const ES::M2d>(a_);
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &a = a_;
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   const ES::M2d Z = abar.fullPivHouseholderQr().inverse();
   const ES::M2d Xbend = b - bbar;
 
@@ -672,8 +665,7 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar2(
   const ES::M2d Mbend = Z * Xbend;
   const double bendScale = h * h * h / 12.0;
 
-  Eigen::Map<ES::M4d> H(d2psi_dabar2_);
-  H.setZero();
+  ES::M4d H = ES::M4d::Zero();
   for (int i = 0; i < 4; i++) {
     ES::M2d Di = ES::M2d::Zero();
     Di.data()[i] = 1.0;
@@ -696,16 +688,17 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar2(
               dMbendI, dMbendJ, d2Zij * Xbend);
     }
   }
+  return H;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar_dbbar(
-  const double *param, const double[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double d2psi_dabar_dbbar_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar_dbbar(
+   std::span<const double> param, const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   const double h = param[4];
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   const ES::M2d Z = abar.fullPivHouseholderQr().inverse();
   const ES::M2d Xbend = b - bbar;
 
@@ -713,8 +706,7 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar_dbbar(
   const ES::M2d Mbend = Z * Xbend;
   const double bendScale = h * h * h / 12.0;
 
-  Eigen::Map<ES::M4d> H(d2psi_dabar_dbbar_);
-  H.setZero();
+  ES::M4d H = ES::M4d::Zero();
   for (int i = 0; i < 4; i++) {
     ES::M2d Di = ES::M2d::Zero();
     Di.data()[i] = 1.0;
@@ -732,24 +724,25 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dabar_dbbar(
           dMbendI, dMbbarJ, d2Mij);
     }
   }
+  (void)a_;
+  return H;
 }
 
-void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dbbar2(
-  const double *param, const double[4], const double b_[4],
-  const double abar_[4], const double bbar_[4], double d2psi_dbbar2_[16]) const
+ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dbbar2(
+   std::span<const double> param, const ES::M2d &a_, const ES::M2d &b_,
+  const ES::M2d &abar_, const ES::M2d &bbar_) const
 {
   const double h = param[4];
-  const ES::M2d b = ES::Mp<const ES::M2d>(b_);
-  const ES::M2d abar = ES::Mp<const ES::M2d>(abar_);
-  const ES::M2d bbar = ES::Mp<const ES::M2d>(bbar_);
+  const ES::M2d &b = b_;
+  const ES::M2d &abar = abar_;
+  const ES::M2d &bbar = bbar_;
   const ES::M2d Z = abar.fullPivHouseholderQr().inverse();
 
   const Lame2D bend = computeLame2D(param[2], param[3]);
   const ES::M2d Mbend = Z * (b - bbar);
   const double bendScale = h * h * h / 12.0;
 
-  Eigen::Map<ES::M4d> H(d2psi_dbbar2_);
-  H.setZero();
+  ES::M4d H = ES::M4d::Zero();
   for (int i = 0; i < 4; i++) {
     ES::M2d Ei = ES::M2d::Zero();
     Ei.data()[i] = 1.0;
@@ -764,6 +757,8 @@ void ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dbbar2(
           dMi, dMj, ES::M2d::Zero());
     }
   }
+  (void)a_;
+  return H;
 }
 
 

@@ -57,11 +57,9 @@ double detFromColumns(const ES::V3d &c0, const ES::V3d &c1, const ES::V3d &c2)
   return M.determinant();
 }
 
-BasicAlgorithms::CubicPolynomial buildDeterminantCubicFromAffineMatrixPath(const double AData[9], const double BData[9], double eps)
+BasicAlgorithms::CubicPolynomial buildDeterminantCubicFromAffineMatrixPath(
+  const ES::M3d &A, const ES::M3d &B, double eps)
 {
-  const Eigen::Map<const ES::M3d> A(AData);
-  const Eigen::Map<const ES::M3d> B(BData);
-
   const ES::V3d a0 = A.col(0);
   const ES::V3d a1 = A.col(1);
   const ES::V3d a2 = A.col(2);

@@ -14,6 +14,7 @@ copyright to USC,MIT,NUS
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <span>
 
 namespace pgo
 {
@@ -34,23 +35,25 @@ public:
   DeformationModelAssembler(std::shared_ptr<DeformationModelManager> dm,
     const Formulation &formulation,
     std::shared_ptr<const MaterialParameterSpace> materialParameterSpace,
-    const double *elementWeights = nullptr);
+    std::span<const double> elementWeights = {});
   virtual ~DeformationModelAssembler();
 
-  MaterialMaxStepObservation computeMaxStepObservation(const double *x, const double *dx) const;
-  double computeMaxStepSize(const double *x, const double *dx) const;
+  MaterialMaxStepObservation computeMaxStepObservation(std::span<const double> x, std::span<const double> dx) const;
+  double computeMaxStepSize(std::span<const double> x, std::span<const double> dx) const;
 
-  double computeEnergy(const double *x, MaterialParameterEvaluationView state) const;
-  void computeGradient(const double *x, MaterialParameterEvaluationView state, double *grad) const;
-  void computeHessian(const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  double computeEnergy(std::span<const double> x, MaterialParameterEvaluationView state) const;
+  void computeGradient(
+    std::span<const double> x, MaterialParameterEvaluationView state,
+    EigenSupport::RefVecXd grad) const;
+  void computeHessian(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
 
   // E(u, p, e): u = displacement, p = plastic DOFs, e = elastic DOFs.
   // absolutePositions is rest + u, whose derivative with respect to u is I.
   void compute_d2E_dudp(
-    const double *absolutePositions, MaterialParameterEvaluationView state,
+    std::span<const double> absolutePositions, MaterialParameterEvaluationView state,
     EigenSupport::SpMatD &mixedHessian) const;
   void compute_d2E_dude(
-    const double *absolutePositions, MaterialParameterEvaluationView state,
+    std::span<const double> absolutePositions, MaterialParameterEvaluationView state,
     EigenSupport::SpMatD &mixedHessian) const;
   int getNumElasticGlobalParams() const;
   int getNumPlasticGlobalParams() const;
@@ -69,14 +72,18 @@ public:
   {
     return d2E_dudeTemplate;
   }
-  void compute_dE_dp(const double *x, MaterialParameterEvaluationView state, double *grad) const;
-  void compute_d2E_dp2(const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
-  void compute_dE_de(const double *x, MaterialParameterEvaluationView state, double *grad) const;
-  void compute_d2E_de2(const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_dpde(const double *x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_dE_dp(
+    std::span<const double> x, MaterialParameterEvaluationView state,
+    EigenSupport::RefVecXd grad) const;
+  void compute_d2E_dp2(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_dE_de(
+    std::span<const double> x, MaterialParameterEvaluationView state,
+    EigenSupport::RefVecXd grad) const;
+  void compute_d2E_de2(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dpde(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
 
-  void computeVonMisesStresses(const double *x, MaterialParameterEvaluationView state, double *elementStresses) const;
-  void computeMaxStrains(const double *x, MaterialParameterEvaluationView state, double *elementStrain) const;
+  void computeVonMisesStresses(std::span<const double> x, MaterialParameterEvaluationView state, std::span<double> elementStresses) const;
+  void computeMaxStrains(std::span<const double> x, MaterialParameterEvaluationView state, std::span<double> elementStrain) const;
 
   int getNumDOFs() const { return numDOFs; }
 
@@ -120,15 +127,15 @@ protected:
   std::vector<DynamicIndexMatrix> element_d2E_dpde_InverseIndices;
 
   std::vector<double> elementWeights;
-  std::vector<const DeformationModel *> femModels;
+  std::vector<std::reference_wrapper<const DeformationModel>> femModels;
 
   const int enableSanityCheck = 1;
 
 private:
   struct PreparedElement
   {
-    const DeformationModel *model = nullptr;
-    DeformationModel::CacheData *cache = nullptr;
+    const DeformationModel &model;
+    DeformationModel::CacheData &cache;
   };
 
   // Build a mixed sparsity template + inverse-index map for d²E/dx dp.
@@ -143,25 +150,26 @@ private:
 
   // Generic d²E/(du dq) assembly loop, where q is p or e.
   void assemble_d2E_dudq(
-    const double *absolutePositions,
+    std::span<const double> absolutePositions,
     MaterialParameterEvaluationView state,
     int numMaterialParams,
     int numLocalParams,
     const MaterialParameterField &paramBlock,
     const std::vector<DynamicIndexMatrix> &inverseIndices,
     void (DeformationModel::*computeLocal)(
-      const DeformationModel::CacheData *, double *, int) const,
+      const DeformationModel::CacheData &, EigenSupport::RefMatXd, int) const,
     EigenSupport::SpMatD &mixedHessian,
     const char *label) const;
 
   // Gather local displacement DOFs and externally computed material parameter values,
   // then prepare the element cache.
   PreparedElement gatherAndPrepare(
-    int ele, const double *x, const MaterialParameterEvaluationView &state,
+    int ele, std::span<const double> x, const MaterialParameterEvaluationView &state,
     DeformationModelAssemblerCacheData::ElementScratch &scratch) const;
 
   void validateMaterialParameterSnapshot(
     const MaterialParameterEvaluationView &state) const;
+  void validatePositionSpan(std::span<const double> x, const char *label) const;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

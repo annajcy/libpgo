@@ -40,11 +40,9 @@ ElasticModelStableNeoHookeanMaterial::~ElasticModelStableNeoHookeanMaterial()
 {
 }
 
-double ElasticModelStableNeoHookeanMaterial::compute_psi(const double * /*param*/, const double FIn[9], const double UIn[9], const double VIn[9], const double SIn[3]) const
+double ElasticModelStableNeoHookeanMaterial::compute_psi(std::span<const double>, const SpectralState &state) const
 {
-  ES::M3d F = Eigen::Map<const ES::M3d>(FIn);
-  ES::M3d U = Eigen::Map<const ES::M3d>(UIn);
-  ES::M3d V = Eigen::Map<const ES::M3d>(VIn);
+  const ES::M3d &F = state.F;
 
   const double Ic = F.squaredNorm();
   const double Jminus1 = F.determinant() - 1.0 - _ratio;
@@ -62,17 +60,14 @@ static ES::M3d PartialJpartialF(const ES::M3d &F)
   return pJpF;
 }
 
-void ElasticModelStableNeoHookeanMaterial::compute_P(const double * /*param*/, const double FIn[9], const double UIn[9], const double VIn[9], const double SIn[3], double Pout[9]) const
+ES::M3d ElasticModelStableNeoHookeanMaterial::compute_P(std::span<const double>, const SpectralState &state) const
 {
-  ES::M3d F = Eigen::Map<const ES::M3d>(FIn);
-  ES::M3d U = Eigen::Map<const ES::M3d>(UIn);
-  ES::M3d V = Eigen::Map<const ES::M3d>(VIn);
-  ES::V3d S(SIn[0], SIn[1], SIn[2]);
+  const ES::M3d &F = state.F;
 
   const ES::M3d pJpF = PartialJpartialF(F);
   const double Jminus1 = F.determinant() - 1.0 - _ratio;
 
-  (ES::Mp<ES::M3d>(Pout)) = _mu * F + _lambda * Jminus1 * pJpF;
+  return _mu * F + _lambda * Jminus1 * pJpF;
 }
 
 static void BuildTwistAndFlipEigenvectors(const ES::M3d &U, const ES::M3d &V, ES::M9d &Q)
@@ -221,12 +216,12 @@ static ES::M9d ComputeFJSecondDerivContribs(const double &lambda, const double &
   return FJ;
 }
 
-void ElasticModelStableNeoHookeanMaterial::compute_dPdF_impl(const double * /*param*/, const double FIn[9], const double UIn[9], const double VIn[9], const double SIn[3], double dPdFOut[81], bool project) const
+ES::M9d ElasticModelStableNeoHookeanMaterial::compute_dPdF_impl(std::span<const double>, const SpectralState &state, bool project) const
 {
-  ES::M3d F = Eigen::Map<const ES::M3d>(FIn);
-  ES::M3d U = Eigen::Map<const ES::M3d>(UIn);
-  ES::M3d V = Eigen::Map<const ES::M3d>(VIn);
-  ES::V3d S(SIn[0], SIn[1], SIn[2]);
+  const ES::M3d &F = state.F;
+  const ES::M3d &U = state.U;
+  const ES::M3d &V = state.V;
+  const ES::V3d &S = state.stretches;
 
   ES::M9d dPdF;
   if (!project) {
@@ -237,21 +232,19 @@ void ElasticModelStableNeoHookeanMaterial::compute_dPdF_impl(const double * /*pa
     dPdF = ProjectHessianWithAnalyticalFormulasNew(_mu, _lambda, F, U, V, S);
   }
 
-  (Eigen::Map<Eigen::Matrix<double, 9, 9>>(dPdFOut)) = dPdF;
+  return dPdF;
 }
 
-void ElasticModelStableNeoHookeanMaterial::compute_dPdF(
-  const double *param, const double FIn[9], const double UIn[9],
-  const double VIn[9], const double SIn[3], double dPdFOut[81]) const
+ES::M9d ElasticModelStableNeoHookeanMaterial::compute_dPdF(
+  std::span<const double> param, const SpectralState &state) const
 {
-  compute_dPdF_impl(param, FIn, UIn, VIn, SIn, dPdFOut, false);
+  return compute_dPdF_impl(param, state, false);
 }
 
-void ElasticModelStableNeoHookeanMaterial::compute_dPdF_psd(
-  const double *param, const double FIn[9], const double UIn[9],
-  const double VIn[9], const double SIn[3], double dPdFOut[81]) const
+ES::M9d ElasticModelStableNeoHookeanMaterial::compute_dPdF_psd(
+  std::span<const double> param, const SpectralState &state) const
 {
-  compute_dPdF_impl(param, FIn, UIn, VIn, SIn, dPdFOut, true);
+  return compute_dPdF_impl(param, state, true);
 }
 
 void ElasticModelStableNeoHookeanMaterial::setMaterial(double mu_, double lambda_)

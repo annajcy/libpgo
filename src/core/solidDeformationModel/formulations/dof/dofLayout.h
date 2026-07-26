@@ -6,6 +6,8 @@
 #include <atomic>
 #include <cstddef>
 #include <set>
+#include <span>
+#include <stdexcept>
 #include <vector>
 
 namespace pgo
@@ -137,19 +139,28 @@ public:
   // sufficient for meshes where local axes align with global axes. Rotated
   // local axes are intentionally outside this layout contract.
 
-  void gather(int ele, const double *global, double *local,
+  void gather(int ele, std::span<const double> global, std::span<double> local,
     std::vector<DofGroup> &groups) const
   {
-    std::fill(local, local + numLocalDofs(ele), 0.0);
+    const int expectedLocalDofs = numLocalDofs(ele);
+    if (global.size() != static_cast<std::size_t>(numGlobalDofs()))
+      throw std::invalid_argument("DofLayout::gather global buffer has unexpected size.");
+    if (local.size() != static_cast<std::size_t>(expectedLocalDofs))
+      throw std::invalid_argument("DofLayout::gather local buffer has unexpected size.");
+    std::fill(local.begin(), local.end(), 0.0);
     getDofGroups(ele, groups);
     for (const DofGroup &group : groups)
       for (int i = 0; i < group.size; i++)
         local[group.localStart + i] = global[group.globalDof(i)];
   }
 
-  void scatterAddGradient(int ele, const double *local, double *global,
+  void scatterAddGradient(int ele, std::span<const double> local, std::span<double> global,
     std::vector<DofGroup> &groups) const
   {
+    if (global.size() != static_cast<std::size_t>(numGlobalDofs()))
+      throw std::invalid_argument("DofLayout::scatterAddGradient global buffer has unexpected size.");
+    if (local.size() != static_cast<std::size_t>(numLocalDofs(ele)))
+      throw std::invalid_argument("DofLayout::scatterAddGradient local buffer has unexpected size.");
     getDofGroups(ele, groups);
     for (const DofGroup &group : groups) {
       for (int i = 0; i < group.size; i++) {

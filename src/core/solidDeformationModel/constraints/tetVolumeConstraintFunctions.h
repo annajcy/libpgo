@@ -11,6 +11,9 @@ copyright to USC,MIT,NUS
 #include <tbb/spin_mutex.h>
 
 #include <memory>
+#include <functional>
+#include <optional>
+#include <span>
 #include <vector>
 
 class TetMesh;
@@ -22,11 +25,13 @@ namespace SolidDeformationModel
 class TetVolumeConstraintFunctions : public NonlinearOptimization::ConstraintFunctions
 {
 public:
-  TetVolumeConstraintFunctions(const SimulationMesh *tetMesh, int nAll, const EigenSupport::VXd *restPosition = nullptr, const EigenSupport::M3Xd *DmInv = nullptr);
+  TetVolumeConstraintFunctions(const SimulationMesh &tetMesh, int nAll,
+    std::optional<std::reference_wrapper<const EigenSupport::VXd>> restPosition = std::nullopt,
+    std::optional<std::reference_wrapper<const EigenSupport::M3Xd>> DmInv = std::nullopt);
   virtual ~TetVolumeConstraintFunctions();
 
   void setDmInv(const EigenSupport::M3Xd &DmInv_);
-  void setElementFlags(const int *flags) { elementFlags.assign(flags, flags + nele); }
+  void setElementFlags(std::span<const int> flags);
 
   virtual void func(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd g) const override;
   virtual void jacobian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &jac) const override;
@@ -37,8 +42,8 @@ public:
   virtual bool hasHessianVector() const override { return false; }
 
 protected:
-  const SimulationMesh *tetMesh;
-  const EigenSupport::VXd *restPosition;
+  const SimulationMesh &tetMesh;
+  std::optional<std::reference_wrapper<const EigenSupport::VXd>> restPosition;
 
   EigenSupport::M3Xd DmInv;
   EigenSupport::EigenArray<EigenSupport::M9x12d> dFdx;

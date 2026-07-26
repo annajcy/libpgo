@@ -9,8 +9,10 @@
 #include "EigenSupport.h"
 
 #include <array>
+#include <span>
 
 using namespace pgo::SolidDeformationModel;
+namespace ES = pgo::EigenSupport;
 
 TEST(ElasticModelConfig, StableNeoHasStableIdentity)
 {
@@ -51,35 +53,45 @@ TEST(ElasticModelConfig, MooneyRivlinDerivativesMatchFiniteDifferences)
     1.10, 0.05, 0.00,
     0.02, 0.92, 0.03,
     0.00, 0.04, 1.15};
+  const std::array<double, 9> I = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+  const std::array<double, 3> S = {1.0, 1.0, 1.0};
   constexpr double h = 1e-6;
 
-  std::array<double, 9> P{};
-  model.compute_P(nullptr, F.data(), nullptr, nullptr, nullptr, P.data());
+  SpectralState state;
+  state.F = Eigen::Map<const ES::M3d>(F.data());
+  state.U = Eigen::Map<const ES::M3d>(I.data());
+  state.V = Eigen::Map<const ES::M3d>(I.data());
+  state.stretches = Eigen::Map<const ES::V3d>(S.data());
+  const ES::M3d P = model.compute_P({}, state);
 
   auto plusF = F;
   auto minusF = F;
   plusF[0] += h;
   minusF[0] -= h;
-  const double psiPlus = model.compute_psi(
-    nullptr, plusF.data(), nullptr, nullptr, nullptr);
-  const double psiMinus = model.compute_psi(
-    nullptr, minusF.data(), nullptr, nullptr, nullptr);
-  EXPECT_NEAR(P[0], (psiPlus - psiMinus) / (2.0 * h), 2e-7);
+  SpectralState plusState = state;
+  SpectralState minusState = state;
+  plusState.F = Eigen::Map<const ES::M3d>(plusF.data());
+  minusState.F = Eigen::Map<const ES::M3d>(minusF.data());
+  const double psiPlus = model.compute_psi({}, plusState);
+  const double psiMinus = model.compute_psi({}, minusState);
+  EXPECT_NEAR(P.data()[0], (psiPlus - psiMinus) / (2.0 * h), 2e-7);
 
-  std::array<double, 81> dPdF{};
-  model.compute_dPdF(nullptr, F.data(), nullptr, nullptr, nullptr, dPdF.data());
-  const Eigen::Map<const Eigen::Matrix<double, 9, 9>> tangent(dPdF.data());
+  const ES::M9d dPdF = model.compute_dPdF({}, state);
+  const ES::M9d &tangent = dPdF;
 
   for (int column = 0; column < 9; ++column) {
     auto plus = F;
     auto minus = F;
     plus[column] += h;
     minus[column] -= h;
-    std::array<double, 9> PPlus{}, PMinus{};
-    model.compute_P(nullptr, plus.data(), nullptr, nullptr, nullptr, PPlus.data());
-    model.compute_P(nullptr, minus.data(), nullptr, nullptr, nullptr, PMinus.data());
+    SpectralState plusState = state;
+    SpectralState minusState = state;
+    plusState.F = Eigen::Map<const ES::M3d>(plus.data());
+    minusState.F = Eigen::Map<const ES::M3d>(minus.data());
+    const ES::M3d PPlus = model.compute_P({}, plusState);
+    const ES::M3d PMinus = model.compute_P({}, minusState);
     for (int row = 0; row < 9; ++row) {
-      const double finiteDifference = (PPlus[row] - PMinus[row]) / (2.0 * h);
+      const double finiteDifference = (PPlus.data()[row] - PMinus.data()[row]) / (2.0 * h);
       EXPECT_NEAR(tangent(row, column), finiteDifference, 3e-5)
         << "row=" << row << ", column=" << column;
     }
@@ -93,10 +105,14 @@ TEST(ElasticModelConfig, MooneyRivlinPSDPathProjectsOnlyTangent)
     1.10, 0.05, 0.00,
     0.02, 0.92, 0.03,
     0.00, 0.04, 1.15};
-  std::array<double, 81> dPdF{};
-  model.compute_dPdF_psd(nullptr, F.data(), nullptr, nullptr, nullptr, dPdF.data());
-
-  const Eigen::Map<const Eigen::Matrix<double, 9, 9>> tangent(dPdF.data());
+  const std::array<double, 9> I = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+  const std::array<double, 3> S = {1.0, 1.0, 1.0};
+  SpectralState state;
+  state.F = Eigen::Map<const ES::M3d>(F.data());
+  state.U = Eigen::Map<const ES::M3d>(I.data());
+  state.V = Eigen::Map<const ES::M3d>(I.data());
+  state.stretches = Eigen::Map<const ES::V3d>(S.data());
+  const ES::M9d tangent = model.compute_dPdF_psd({}, state);
   EXPECT_TRUE(tangent.isApprox(tangent.transpose(), 1e-10));
   Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 9, 9>> solver(tangent);
   ASSERT_EQ(solver.info(), Eigen::Success);

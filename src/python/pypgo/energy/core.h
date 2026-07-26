@@ -208,7 +208,7 @@ public:
 
   nb::ndarray<nb::numpy, double> restState() const;
   nb::ndarray<nb::numpy, double> vertexRestPositions() const;
-  int numVertices() const { return energy_->assembler().getDeformationModelManager().getMesh()->getNumVertices(); }
+  int numVertices() const { return energy_->assembler().getDeformationModelManager().getMesh().getNumVertices(); }
   int numElasticParams() const { return energy_->assembler().getNumElasticParams(); }
   int numPlasticParams() const { return energy_->assembler().getNumPlasticParams(); }
   int numElasticDofs() const { return energy_->assembler().getNumElasticGlobalParams(); }

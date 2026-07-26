@@ -17,7 +17,7 @@ public:
 
   int numPoints() const override { return kNumPoints; }
   std::unique_ptr<Quadrature> clone() const override { return std::make_unique<TetLinearDefaultQuadrature>(*this); }
-  void point(int i, double xi[3]) const override;
+  EigenSupport::V3d point(int i) const override;
   double weight(int i) const override;
 };
 

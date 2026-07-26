@@ -22,7 +22,8 @@ struct ConservativeFeasibleAlphaResult
 };
 
 double detFromColumns(const EigenSupport::V3d &c0, const EigenSupport::V3d &c1, const EigenSupport::V3d &c2);
-BasicAlgorithms::CubicPolynomial buildDeterminantCubicFromAffineMatrixPath(const double A[9], const double B[9], double eps);
+BasicAlgorithms::CubicPolynomial buildDeterminantCubicFromAffineMatrixPath(
+  const EigenSupport::M3d &A, const EigenSupport::M3d &B, double eps);
 double applyMaterialMaxStepSafetyClamp(double alpha);
 ConservativeFeasibleAlphaResult findConservativeFeasibleAlpha(const BasicAlgorithms::CubicPolynomial &poly, double eps);
 }

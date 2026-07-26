@@ -68,7 +68,8 @@ void MaterialParameterEvaluationScratch::prepare(
     field.channelMapping().numChannels());
   local.resize(localDofs);
   material.resize(channels);
-  jacobian.resize(localDofs * channels);
+  jacobian.resize(static_cast<Eigen::Index>(channels),
+    static_cast<Eigen::Index>(localDofs));
 }
 
 MaterialParameterRef MaterialParameterField::parameter(std::string_view name) const
@@ -293,7 +294,7 @@ void MaterialParameterRef::localDerivative(
   int element,
   int quadrature,
   const MaterialParameterEvaluationView &state,
-  double *output) const
+  EigenSupport::RefVecXd output) const
 {
   MaterialParameterEvaluationScratch scratch;
   localDerivative(element, quadrature, state, scratch, output);
@@ -304,20 +305,20 @@ void MaterialParameterRef::localDerivative(
   int quadrature,
   const MaterialParameterEvaluationView &state,
   MaterialParameterEvaluationScratch &scratch,
-  double *output) const
+  EigenSupport::RefVecXd output) const
 {
   const MaterialParameterField &f = field();
   const ParameterDofLayout &layout = f.dofLayout();
   const MaterialChannelMapping &mapping = f.channelMapping();
-  if (layout.numLocalDofs() > 0 && output == nullptr)
-    throw std::invalid_argument("MaterialParameterRef requires a derivative output buffer.");
+  if (output.size() != layout.numLocalDofs())
+    throw std::invalid_argument("MaterialParameterRef derivative output has the wrong size.");
   scratch.prepare(f);
   layout.gather(element, state.values(f), scratch.local);
   mapping.evaluateJacobian(
-    element, quadrature, scratch.local, scratch.jacobian.data());
+    element, quadrature, scratch.local,
+    scratch.jacobian);
   for (int k = 0; k < layout.numLocalDofs(); k++)
-    output[k] = scratch.jacobian[
-      static_cast<std::size_t>(k) * mapping.numChannels() + channel_];
+    output[k] = scratch.jacobian(channel_, k);
 }
 
 }  // namespace pgo::SolidDeformationModel

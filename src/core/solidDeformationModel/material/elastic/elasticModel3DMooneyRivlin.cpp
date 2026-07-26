@@ -85,10 +85,9 @@ ElasticModel3DMooneyRivlin::ElasticModel3DMooneyRivlin(
 {
 }
 
-double ElasticModel3DMooneyRivlin::compute_psi(const double *param, const double _F[9],
-  const double U[9], const double V[9], const double S[3]) const
+double ElasticModel3DMooneyRivlin::compute_psi(std::span<const double>, const SpectralState &state) const
 {
-  const ES::M3d F = ES::Mp<const ES::M3d>(_F);
+  const ES::M3d &F = state.F;
 
   // Kinematics and invariants
   const ES::M3d C = F.transpose() * F;
@@ -105,10 +104,9 @@ double ElasticModel3DMooneyRivlin::compute_psi(const double *param, const double
   return mu10_ * f1 + mu01_ * f2 + v1_ * (J - 1.0) * (J - 1.0);
 }
 
-void ElasticModel3DMooneyRivlin::compute_P(const double *param, const double _F[9],
-  const double U[9], const double V[9], const double S[3], double P[9]) const
+ES::M3d ElasticModel3DMooneyRivlin::compute_P(std::span<const double>, const SpectralState &state) const
 {
-  const ES::M3d F = ES::Mp<const ES::M3d>(_F);
+  const ES::M3d &F = state.F;
 
   // Kinematics and invariants
   const ES::M3d C = F.transpose() * F;
@@ -131,13 +129,12 @@ void ElasticModel3DMooneyRivlin::compute_P(const double *param, const double _F[
   ES::M3d dW_dF = mu10_ * g1bar + mu01_ * g2bar;
   dW_dF += 2.0 * v1_ * (J - 1.0) * gradJ;
 
-  (ES::Mp<ES::M3d>(P)) = dW_dF;
+  return dW_dF;
 }
 
-void ElasticModel3DMooneyRivlin::compute_dPdF(const double *param, const double _F[9],
-  const double U[9], const double V[9], const double S[3], double dPdF[81]) const
+ES::M9d ElasticModel3DMooneyRivlin::compute_dPdF(std::span<const double>, const SpectralState &state) const
 {
-  const ES::M3d F = ES::Mp<const ES::M3d>(_F);
+  const ES::M3d &F = state.F;
 
   // Kinematics and invariants
   const ES::M3d C = F.transpose() * F;
@@ -183,7 +180,7 @@ void ElasticModel3DMooneyRivlin::compute_dPdF(const double *param, const double 
     }
   }
 
-  (ES::Mp<ES::M9d>(dPdF)) = d2W_dF2;
+  return d2W_dF2;
 }
 
 

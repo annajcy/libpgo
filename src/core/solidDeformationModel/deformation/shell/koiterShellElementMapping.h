@@ -28,43 +28,68 @@ public:
   static constexpr int localDofs = 18;
   static constexpr int numTriangleNodes = 3;
 
-  static constexpr int oppVtx[3] = { 4, 5, 3 };
+  static constexpr std::array<int, 3> oppVtx = { 4, 5, 3 };
 
-  KoiterShellElementMapping(const double restX[18], const bool hasVtx[6]);
+  KoiterShellElementMapping(const ES::V18d &restX, const std::array<bool, 6> &hasVtx);
 
   int getNumNodes() const override { return numNodes; }
   int getLocalDofs() const override { return localDofs; }
 
-  ES::M2d compute_a_and_derivatives(
-    const ES::V3d x[3],
-    Eigen::Matrix<double, 4, 9> *da_dx,
-    ES::M9d ahess[4]) const override;
+  ES::M2d compute_a(const APositions &x) const override;
+  ES::M4x9d compute_da_dx(const APositions &x) const override;
+  ES::M9x36d compute_d2a_dx2(const APositions &x) const override;
 
-  ES::M2d compute_b_and_derivatives(
-    const ES::V3d x[6],
-    Eigen::Matrix<double, 4, 18> *db_dx,
-    ES::M18d bhess[4]) const override;
+  ES::M2d compute_b(const BPositions &x) const override;
+  ES::M4x18d compute_db_dx(const BPositions &x) const override;
+  ES::M18x72d compute_d2b_dx2(const BPositions &x) const override;
 
-  const bool *hasVtx() const override { return hasVtx_; }
+  const std::array<bool, 6> &hasVtx() const override { return hasVtx_; }
   const ES::M2d &restI() const override { return restI_; }
   const ES::M2d &restII() const override { return restII_; }
   double restArea() const override { return restArea_; }
 
 private:
-  ES::V3d secondFundamentalFormEntries(
-    const ES::V3d x[6],
-    Eigen::Matrix<double, 3, 18> *derivative,
-    ES::M18d hessian[3]) const;
+  struct AResult
+  {
+    ES::M2d value = ES::M2d::Zero();
+    ES::M4x9d derivative = ES::M4x9d::Zero();
+    std::array<ES::M9d, 4> hessian{};
+  };
+
+  struct BResult
+  {
+    ES::M2d value = ES::M2d::Zero();
+    ES::M4x18d derivative = ES::M4x18d::Zero();
+    std::array<ES::M18d, 4> hessian{};
+  };
+
+  struct SecondFundamentalFormResult
+  {
+    ES::V3d value = ES::V3d::Zero();
+    ES::M3x18d derivative = ES::M3x18d::Zero();
+    std::array<ES::M18d, 3> hessian{};
+  };
+
+  struct FaceNormalResult
+  {
+    ES::V3d value = ES::V3d::Zero();
+    ES::M3x9d derivative = ES::M3x9d::Zero();
+    std::array<ES::M9d, 3> hessian{};
+  };
+
+  AResult compute_a_impl(const APositions &x, bool computeDerivative, bool computeHessian) const;
+  BResult compute_b_impl(const BPositions &x, bool computeDerivative, bool computeHessian) const;
+  SecondFundamentalFormResult secondFundamentalFormEntries(
+    const BPositions &x, bool computeDerivative, bool computeHessian) const;
 
   static ES::M3d crossMatrix(const Eigen::Vector3d &v);
 
-  ES::V3d faceNormal(
-    const ES::V3d x0, const ES::V3d x1, const ES::V3d x2,
-    Eigen::Matrix<double, 3, 9> *derivative,
-    ES::M9d hessian[3]) const;
+  FaceNormalResult faceNormal(
+    const ES::V3d &x0, const ES::V3d &x1, const ES::V3d &x2,
+    bool computeDerivative, bool computeHessian) const;
 
-  ES::V3d restX_[6];
-  bool hasVtx_[6];
+  std::array<ES::V3d, 6> restX_;
+  std::array<bool, 6> hasVtx_;
   ES::M2d restI_, restII_;
   double restArea_;
 };

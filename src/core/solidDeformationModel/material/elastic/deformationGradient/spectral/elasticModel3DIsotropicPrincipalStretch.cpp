@@ -9,11 +9,6 @@ namespace
 {
 namespace ES = EigenSupport;
 
-ES::V3d mapStretch(const double S[3])
-{
-  return ES::V3d(S[0], S[1], S[2]);
-}
-
 void validatePositiveStretch(const ES::V3d &s)
 {
   if (!s.allFinite())
@@ -27,13 +22,10 @@ void validatePositiveStretch(const ES::V3d &s)
 }  // namespace
 
 double ElasticModel3DIsotropicPrincipalStretch::compute_psi(
-  const double *param,
-  const double[9],
-  const double[9],
-  const double[9],
-  const double S[3]) const
+  std::span<const double> param,
+  const SpectralState &state) const
 {
-  const ES::V3d s = mapStretch(S);
+  const ES::V3d &s = state.stretches;
   validatePositiveStretch(s);
   const double energy = compute_psi_s(param, s);
   if (!std::isfinite(energy))
@@ -42,64 +34,43 @@ double ElasticModel3DIsotropicPrincipalStretch::compute_psi(
   return energy;
 }
 
-void ElasticModel3DIsotropicPrincipalStretch::compute_P(
-  const double *param,
-  const double[9],
-  const double UIn[9],
-  const double VIn[9],
-  const double S[3],
-  double POut[9]) const
+ES::M3d ElasticModel3DIsotropicPrincipalStretch::compute_P(
+  std::span<const double> param,
+  const SpectralState &state) const
 {
-  const ES::V3d s = mapStretch(S);
+  const ES::V3d &s = state.stretches;
   validatePositiveStretch(s);
-  const ES::M3d U = Eigen::Map<const ES::M3d>(UIn);
-  const ES::M3d V = Eigen::Map<const ES::M3d>(VIn);
   const ES::V3d p = compute_dpsi_ds(param, s);
   if (!p.allFinite())
     throw std::invalid_argument(
       "isotropic principal-stretch material returned non-finite stress");
-  Eigen::Map<ES::M3d> pOutMap(POut);
-  pOutMap = U * p.asDiagonal() * V.transpose();
+  return state.U * p.asDiagonal() * state.V.transpose();
 }
 
-void ElasticModel3DIsotropicPrincipalStretch::compute_dPdF(
-  const double *param,
-  const double[9],
-  const double UIn[9],
-  const double VIn[9],
-  const double S[3],
-  double dPdFOut[81]) const
+ES::M9d ElasticModel3DIsotropicPrincipalStretch::compute_dPdF(
+  std::span<const double> param,
+  const SpectralState &state) const
 {
-  const ES::V3d s = mapStretch(S);
+  const ES::V3d &s = state.stretches;
   validatePositiveStretch(s);
-  const ES::M3d U = Eigen::Map<const ES::M3d>(UIn);
-  const ES::M3d V = Eigen::Map<const ES::M3d>(VIn);
   const ES::V3d p = compute_dpsi_ds(param, s);
   const ES::M3d H = compute_d2psi_ds2(param, s);
   const auto blocks = IsotropicSpectralTangent::compute_dPdF_blocks(s, p, H);
-  Eigen::Map<ES::M9d> dPdFMap(dPdFOut);
-  dPdFMap = IsotropicSpectralTangent::assemble_dPdF(U, V, blocks);
+  return IsotropicSpectralTangent::assemble_dPdF(state.U, state.V, blocks);
 }
 
-void ElasticModel3DIsotropicPrincipalStretch::compute_dPdF_psd(
-  const double *param,
-  const double[9],
-  const double UIn[9],
-  const double VIn[9],
-  const double S[3],
-  double dPdFOut[81]) const
+ES::M9d ElasticModel3DIsotropicPrincipalStretch::compute_dPdF_psd(
+  std::span<const double> param,
+  const SpectralState &state) const
 {
-  const ES::V3d s = mapStretch(S);
+  const ES::V3d &s = state.stretches;
   validatePositiveStretch(s);
-  const ES::M3d U = Eigen::Map<const ES::M3d>(UIn);
-  const ES::M3d V = Eigen::Map<const ES::M3d>(VIn);
   const ES::V3d p = compute_dpsi_ds(param, s);
   const ES::M3d H = compute_d2psi_ds2(param, s);
   const auto exact = IsotropicSpectralTangent::compute_dPdF_blocks(s, p, H);
   const auto projected =
     IsotropicSpectralTangent::project_dPdF_blocks_psd(exact);
-  Eigen::Map<ES::M9d> dPdFMap(dPdFOut);
-  dPdFMap = IsotropicSpectralTangent::assemble_dPdF(U, V, projected);
+  return IsotropicSpectralTangent::assemble_dPdF(state.U, state.V, projected);
 }
 
 }  // namespace pgo::SolidDeformationModel

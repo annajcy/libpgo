@@ -24,7 +24,8 @@ InvariantBasedMaterialStVK::InvariantBasedMaterialStVK(double E, double nu, doub
   }
 }
 
-double InvariantBasedMaterialStVK::compute_psi(const double invariants[3]) const
+double InvariantBasedMaterialStVK::compute_psi(
+  const EigenSupport::V3d &invariants) const
 {
   double IC = invariants[0];
   double IIC = invariants[1];
@@ -48,11 +49,13 @@ double InvariantBasedMaterialStVK::compute_psi(const double invariants[3]) const
   return energy;
 }
 
-void InvariantBasedMaterialStVK::compute_dpsi_dI(const double invariants[3], double gradient[3]) const
+pgo::EigenSupport::V3d InvariantBasedMaterialStVK::compute_dpsi_dI(
+  const pgo::EigenSupport::V3d &invariants) const
 {
   //printf("Entered StVKIsotropicMaterial::ComputeEnergyGradient\n");
 
   double IC = invariants[0];
+  pgo::EigenSupport::V3d gradient;
   gradient[0] = 0.25 * lambda * (IC - 3.0) - 0.5 * mu;
   gradient[1] = 0.25 * mu;
   gradient[2] = 0.0;
@@ -65,9 +68,12 @@ void InvariantBasedMaterialStVK::compute_dpsi_dI(const double invariants[3], dou
       gradient[2] += -coeffJ * (J - 1.0) * (J - 1.0) / (1728.0 * J);
     }
   }
+  return gradient;
 }
-void InvariantBasedMaterialStVK::compute_d2psi_dI2(const double invariants[3], double hessian[6]) const
+pgo::EigenSupport::V6d InvariantBasedMaterialStVK::compute_d2psi_dI2(
+  const pgo::EigenSupport::V3d &invariants) const
 {
+  pgo::EigenSupport::V6d hessian;
   // 11
   hessian[0] = 0.25 * lambda;
   // 12
@@ -89,4 +95,5 @@ void InvariantBasedMaterialStVK::compute_d2psi_dI2(const double invariants[3], d
       hessian[5] += coeffJ * (1.0 - J) * (1.0 + J) / (3456.0 * J * J * J);
     }
   }
+  return hessian;
 }

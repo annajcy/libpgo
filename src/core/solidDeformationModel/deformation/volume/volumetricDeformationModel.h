@@ -11,6 +11,7 @@
 #include "EigenSupport.h"
 
 #include <memory>
+#include <span>
 
 namespace pgo
 {
@@ -30,63 +31,66 @@ public:
   // DeformationModel overrides.
   std::unique_ptr<DeformationModelCacheData> allocateCacheData() const override;
   bool isCacheDataCompatible(const DeformationModelCacheData &cacheData) const override;
-  void prepareData(const double *x, const double *elasticParams,
-    const double *plasticParams, DeformationModelCacheData *cacheData) const override;
+  void prepareData(std::span<const double> x, std::span<const double> elasticParams,
+    std::span<const double> plasticParams,
+    DeformationModelCacheData &cacheData) const override;
 
-  double computeEnergy(const DeformationModelCacheData *cacheData) const override;
-  void compute_dE_dx(const DeformationModelCacheData *cacheData, double *grad) const override;
-  void compute_d2E_dx2(const DeformationModelCacheData *cacheData, double *hess) const override;
+  double computeEnergy(const DeformationModelCacheData &cacheData) const override;
+  void compute_dE_dx(const DeformationModelCacheData &cacheData, EigenSupport::RefVecXd grad) const override;
+  void compute_d2E_dx2(const DeformationModelCacheData &cacheData, EigenSupport::RefMatXd hess) const override;
   void compute_d2E_dudp(
-    const DeformationModelCacheData *cacheData, double *hess,
+    const DeformationModelCacheData &cacheData, EigenSupport::RefMatXd hess,
     int materialLocation = -1) const override;
   void compute_d2E_dude(
-    const DeformationModelCacheData *cacheData, double *hess,
+    const DeformationModelCacheData &cacheData, EigenSupport::RefMatXd hess,
     int materialLocation = -1) const override;
 
   void compute_dE_dp(
-    const DeformationModelCacheData *cacheData, double *grad,
+    const DeformationModelCacheData &cacheData, EigenSupport::RefVecXd grad,
     int materialLocation = -1) const override;
   void compute_d2E_dp2(
-    const DeformationModelCacheData *cacheData, double *hess,
+    const DeformationModelCacheData &cacheData, EigenSupport::RefMatXd hess,
     int materialLocation = -1) const override;
   void compute_dE_de(
-    const DeformationModelCacheData *cacheData, double *grad,
+    const DeformationModelCacheData &cacheData, EigenSupport::RefVecXd grad,
     int materialLocation = -1) const override;
   void compute_d2E_de2(
-    const DeformationModelCacheData *cacheData, double *hess,
+    const DeformationModelCacheData &cacheData, EigenSupport::RefMatXd hess,
     int materialLocation = -1) const override;
   void compute_d2E_dpde(
-    const DeformationModelCacheData *cacheData, double *hess,
+    const DeformationModelCacheData &cacheData, EigenSupport::RefMatXd hess,
     int materialLocation = -1) const override;
 
   void setProjectHessianPSD(bool enable) override;
   int getNumElasticParameters() const override { return numElasticParams_; }
   int getNumPlasticParameters() const override { return numPlasticParams_; }
-  void defaultPlasticParams(double *params) const override;
+  void defaultPlasticParams(std::span<double> params) const override;
   int getNumVertices() const override { return numNodes_; }
   int getNumDOFs() const override { return localDofs_; }
   int getNumMaterialLocations() const override { return numQuadPts_; }
 
-  LocalMaxStepResult computeLocalMaxStepSize(const double *x_local, const double *dx_local) const override;
+  LocalMaxStepResult computeLocalMaxStepSize(std::span<const double> x_local,
+    std::span<const double> dx_local) const override;
 
-  void computeF(const double *x, int materialLocationID, double F[9]) const;
-  void computeFe(const DeformationModelCacheData *cacheData, int materialLocationID, double F[9]) const;
-  void computeP(const DeformationModelCacheData *cacheData, int materialLocationID, double POut[9]) const;
-  void computedPdF(const DeformationModelCacheData *cacheData, int materialLocationID, double dPdFOut[81]) const;
-  void computedFdx(const DeformationModelCacheData *cacheData, int materialLocationID, double *dFdxOut) const;
-  void computeForceFromP(const DeformationModelCacheData *cacheData, int materialLocationID,
-    const double P[9], double f[/*localDofs_*/]) const;
+  ES::M3d computeF(std::span<const double> x, int materialLocationID) const;
+  ES::M3d computeFe(const DeformationModelCacheData &cacheData, int materialLocationID) const;
+  ES::M3d computeP(const DeformationModelCacheData &cacheData, int materialLocationID) const;
+  ES::M9d computedPdF(const DeformationModelCacheData &cacheData, int materialLocationID) const;
+  void computedFdx(const DeformationModelCacheData &cacheData, int materialLocationID,
+    EigenSupport::RefMatXd dFdxOut) const;
+  void computeForceFromP(const DeformationModelCacheData &cacheData, int materialLocationID,
+    const ES::M3d &P, EigenSupport::RefVecXd f) const;
 
   int computeVonMisesStress(
-    const DeformationModelCacheData *cacheData,
-    double *stresses, int capacity) const override;
+    const DeformationModelCacheData &cacheData,
+    std::span<double> stresses, int capacity) const override;
   int computeMaxStrain(
-    const DeformationModelCacheData *cacheData,
-    double *strains, int capacity) const override;
+    const DeformationModelCacheData &cacheData,
+    std::span<double> strains, int capacity) const override;
 
   const VolumetricElementMapping &mapping() const { return elementMapping_; }
 
-  static void computeSVD(const ES::M3d &Fe, ES::M3d &U, ES::M3d &V, ES::V3d &S);
+  static SpectralState computeSpectralState(const ES::M3d &Fe);
 
 private:
   int numNodes_ = 0;
@@ -101,13 +105,16 @@ private:
   int numElasticParams_ = 0;
   bool projectHessianPSD_ = false;
 
-  const double *elasticParamsPtr(const DeformationModelCacheData *cacheData, int q) const;
+  std::span<const double> elasticParams(const DeformationModelCacheData &cacheData, int q) const;
 
   double compute_dV_dai(double weightDetJ, double ddetA_dai) const;
   double compute_d2V_daidaj(double weightDetJ, double d2detA_daidaj) const;
-  void compute_dFe_dai(const ES::M3d &Fref, const ES::M3d &dAInvdai, ES::M3d &dFdai) const;
-  void compute_d2Fe_dai_daj(const ES::M3d &Fref, const ES::M3d &dAInvdaidaj, ES::M3d &d2Fdaidaj) const;
-  void compute_dP_dai(const ES::M9d &dPdF, const ES::M3d &dFdai, ES::M3d &dPdai) const;
+  ES::M3d compute_dFe_dai(
+    const ES::M3d &Fref, const ES::M3d &dAInvdai) const;
+  ES::M3d compute_d2Fe_dai_daj(
+    const ES::M3d &Fref, const ES::M3d &dAInvdaidaj) const;
+  ES::M3d compute_dP_dai(
+    const ES::M9d &dPdF, const ES::M3d &dFdai) const;
   double compute_dpsi_dai(const ES::M3d &Fref, const ES::M3d &dAInv_dai, const ES::M3d &P) const;
   double compute_d2psi_dai_daj(const ES::M3d &Fref, const ES::M3d &dAInv_dai,
     const ES::M3d &dAInv_daj, const ES::M3d &d2AInv_dai_daj,

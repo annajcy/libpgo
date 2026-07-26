@@ -9,7 +9,6 @@
 
 #include <memory>
 #include <stdexcept>
-#include <span>
 #include <utility>
 #include <vector>
 
@@ -35,10 +34,9 @@ std::unique_ptr<Derived> checkedMaterialCast(
 
 double triangleRestArea(const SimulationMesh &mesh, int ele)
 {
-  double p[3][3];
-  for (int j = 0; j < 3; j++)
-    mesh.getVertex(ele, j, p[j]);
-  const ES::V3d a(p[0]), b(p[1]), c(p[2]);
+  const ES::V3d &a = mesh.getVertex(ele, 0);
+  const ES::V3d &b = mesh.getVertex(ele, 1);
+  const ES::V3d &c = mesh.getVertex(ele, 2);
   return 0.5 * ((b - a).cross(c - a)).norm();
 }
 }  // namespace
@@ -52,15 +50,15 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
   const SimulationMesh &mesh, int ele,
   std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const
 {
-  double restPosition[18] = {};
-  bool hasVtx[6];
+  ES::V18d restPosition = ES::V18d::Zero();
+  std::array<bool, 6> hasVtx;
   for (int j = 0; j < 6; j++) {
     if (mesh.getVertexIndex(ele, j) < 0) {
       hasVtx[j] = false;
     }
     else {
       hasVtx[j] = true;
-      mesh.getVertex(ele, j, restPosition + 3 * j);
+      restPosition.segment<3>(3 * j) = mesh.getVertex(ele, j);
     }
   }
 
@@ -151,13 +149,13 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
   const MaterialParameterRef &parameter = *dependency;
   const auto &layout = parameter.field().dofLayout();
   const int numLocal = layout.numLocalDofs();
-  std::vector<double> dRho(numLocal);
+  ES::VXd dRho(numLocal);
   std::vector<ES::TripletD> entries;
   entries.reserve(static_cast<size_t>(mesh.getNumElements()) * numLocal * 9);
 
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
     evaluation.localParameterDerivative(
-      ele, 0, std::span<double>(dRho.data(), dRho.size()));
+      ele, 0, dRho);
     const double areaThird = triangleRestArea(mesh, ele) / 3.0;
     for (int k = 0; k < numLocal; k++) {
       if (dRho[k] == 0.0)

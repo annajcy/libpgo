@@ -1,6 +1,5 @@
 #include "elementScalarField.h"
 
-#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <stdexcept>
@@ -23,7 +22,7 @@ void ElementScalarFieldSource::localParameterDerivativeWithScratch(
   int quadrature,
   const MaterialParameterEvaluationView &state,
   MaterialParameterEvaluationScratch &,
-  std::span<double> output) const
+  EigenSupport::RefVecXd output) const
 {
   localParameterDerivative(element, quadrature, state, output);
 }
@@ -51,9 +50,9 @@ const MaterialParameterRef *ConstantScalarFieldSource::parameterDependency() con
 }
 
 void ConstantScalarFieldSource::localParameterDerivative(
-  int, int, const MaterialParameterEvaluationView &, std::span<double> output) const
+  int, int, const MaterialParameterEvaluationView &, EigenSupport::RefVecXd output) const
 {
-  std::fill(output.begin(), output.end(), 0.0);
+  output.setZero();
 }
 
 ElementwiseScalarFieldSource::ElementwiseScalarFieldSource(EigenSupport::VXd values):
@@ -84,9 +83,9 @@ const MaterialParameterRef *ElementwiseScalarFieldSource::parameterDependency() 
 }
 
 void ElementwiseScalarFieldSource::localParameterDerivative(
-  int, int, const MaterialParameterEvaluationView &, std::span<double> output) const
+  int, int, const MaterialParameterEvaluationView &, EigenSupport::RefVecXd output) const
 {
-  std::fill(output.begin(), output.end(), 0.0);
+  output.setZero();
 }
 
 ScaledElasticParameterFieldSource::ScaledElasticParameterFieldSource(
@@ -133,18 +132,16 @@ void ScaledElasticParameterFieldSource::localParameterDerivative(
   int element,
   int quadrature,
   const MaterialParameterEvaluationView &state,
-  std::span<double> output) const
+  EigenSupport::RefVecXd output) const
 {
-  const auto expected = static_cast<std::size_t>(
-    parameter_.field().dofLayout().numLocalDofs());
+  const auto expected = parameter_.field().dofLayout().numLocalDofs();
   if (output.size() != expected)
     throw std::invalid_argument(
       "scaled elastic parameter field derivative buffer has size " +
       std::to_string(output.size()) + ", expected " +
       std::to_string(expected));
-  parameter_.localDerivative(element, quadrature, state, output.data());
-  for (double &value : output)
-    value *= scale_;
+  parameter_.localDerivative(element, quadrature, state, output);
+  output *= scale_;
 }
 
 void ScaledElasticParameterFieldSource::localParameterDerivativeWithScratch(
@@ -152,18 +149,16 @@ void ScaledElasticParameterFieldSource::localParameterDerivativeWithScratch(
   int quadrature,
   const MaterialParameterEvaluationView &state,
   MaterialParameterEvaluationScratch &scratch,
-  std::span<double> output) const
+  EigenSupport::RefVecXd output) const
 {
-  const auto expected = static_cast<std::size_t>(
-    parameter_.field().dofLayout().numLocalDofs());
+  const auto expected = parameter_.field().dofLayout().numLocalDofs();
   if (output.size() != expected)
     throw std::invalid_argument(
       "scaled elastic parameter field derivative buffer has size " +
       std::to_string(output.size()) + ", expected " +
       std::to_string(expected));
-  parameter_.localDerivative(element, quadrature, state, scratch, output.data());
-  for (double &value : output)
-    value *= scale_;
+  parameter_.localDerivative(element, quadrature, state, scratch, output);
+  output *= scale_;
 }
 
 }  // namespace pgo::SolidDeformationModel

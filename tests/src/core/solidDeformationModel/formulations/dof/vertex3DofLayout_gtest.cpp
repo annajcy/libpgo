@@ -75,7 +75,7 @@ TEST(DofLayoutGTest, DefaultGatherAndScatterUseGroups)
   std::vector<double> local(layout.numLocalDofs(0), -1.0);
   std::vector<DofGroup> groups;
 
-  layout.gather(0, global.data(), local.data(), groups);
+  layout.gather(0, global, local, groups);
 
   EXPECT_DOUBLE_EQ(local[0], 3.0);
   EXPECT_DOUBLE_EQ(local[1], 4.0);
@@ -85,7 +85,7 @@ TEST(DofLayoutGTest, DefaultGatherAndScatterUseGroups)
   EXPECT_DOUBLE_EQ(local[5], 8.0);
 
   std::vector<double> out(layout.numGlobalDofs(), 10.0);
-  layout.scatterAddGradient(0, local.data(), out.data(), groups);
+  layout.scatterAddGradient(0, local, out, groups);
 
   EXPECT_DOUBLE_EQ(out[0], 10.0);
   EXPECT_DOUBLE_EQ(out[1], 10.0);
@@ -169,13 +169,13 @@ TEST(Vertex3DofLayoutGTest, GatherAndScatterRoundTrip)
   // Gather into local
   std::vector<double> local(nLocal);
   std::vector<DofGroup> groups;
-  layout.gather(0, global.data(), local.data(), groups);
+  layout.gather(0, global, local, groups);
 
   // Scatter negative back
   std::vector<double> globalCopy = global;
   for (int i = 0; i < nLocal; i++)
     local[i] = -local[i];
-  layout.scatterAddGradient(0, local.data(), globalCopy.data(), groups);
+  layout.scatterAddGradient(0, local, globalCopy, groups);
 
   // After scatter-add of negative, the DOFs touched should be zero
   // and untouched DOFs should remain unchanged
@@ -269,7 +269,7 @@ TEST(Vertex3DofLayoutGTest, GatherPreservesValues)
 
   std::vector<double> local(nLocal);
   std::vector<DofGroup> groups;
-  layout.gather(0, global.data(), local.data(), groups);
+  layout.gather(0, global, local, groups);
 
   // Verify the gathered values match the global positions
   for (int j = 0; j < 4; j++) {
