@@ -1,7 +1,10 @@
 set(SOLID_DEFORMATION_MODEL_HEADERS
   material/elastic/elasticModel.h
   material/elastic/elasticModel3DDeformationGradient.h
+  material/elastic/elasticModel3DIsotropicPrincipalStretch.h
+  material/elastic/isotropicSpectralTangent.h
   material/elastic/elasticModelStableNeoHookeanMaterial.h
+  material/elastic/elasticModelStableNeoHookeanPrincipalStretch.h
   material/elastic/elasticModelInvariantBasedMaterial.h
   material/elastic/elasticModelLinearMaterial.h
   material/elastic/elasticModelHillTypeMaterial.h
@@ -108,8 +111,11 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 )
 
 set(SOLID_DEFORMATION_MODEL_SOURCES
+  material/elastic/elasticModel3DIsotropicPrincipalStretch.cpp
+  material/elastic/isotropicSpectralTangent.cpp
   material/elastic/elasticModelInvariantBasedMaterial.cpp
   material/elastic/elasticModelStableNeoHookeanMaterial.cpp
+  material/elastic/elasticModelStableNeoHookeanPrincipalStretch.cpp
   material/elastic/elasticModelLinearMaterial.cpp
   material/elastic/elasticModelHillTypeMaterial.cpp
   material/elastic/elasticModelVolumeMaterial.cpp

@@ -111,3 +111,8 @@ pgo_add_gtest(elasticModelConfig_gtest
   LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/tet/torus.veg"
   LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/cubic/box.veg"
 )
+
+pgo_add_gtest(isotropicSpectralTangent_gtest
+  SOURCES isotropicSpectralTangent_gtest.cpp
+  DEPS solidDeformationModel
+)
