@@ -1,4 +1,4 @@
-#include "material/elastic/elasticModelStableNeoHookeanPrincipalStretch.h"
+#include "material/elastic/deformationGradient/spectral/elasticModelStableNeoHookeanPrincipalStretch.h"
 
 namespace pgo::SolidDeformationModel
 {

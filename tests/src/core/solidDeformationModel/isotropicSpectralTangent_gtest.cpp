@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "material/elastic/elasticModel3DIsotropicPrincipalStretch.h"
+#include "material/elastic/deformationGradient/spectral/elasticModel3DIsotropicPrincipalStretch.h"
+#include "material/elastic/deformationGradient/spectral/elasticModelStableNeoHookeanPrincipalStretch.h"
 #include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
-#include "material/elastic/elasticModelStableNeoHookeanPrincipalStretch.h"
 
 #include <Eigen/Geometry>
 

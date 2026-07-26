@@ -1,4 +1,4 @@
-#include "material/elastic/elasticModel3DIsotropicPrincipalStretch.h"
+#include "material/elastic/deformationGradient/spectral/elasticModel3DIsotropicPrincipalStretch.h"
 
 #include <cmath>
 #include <stdexcept>

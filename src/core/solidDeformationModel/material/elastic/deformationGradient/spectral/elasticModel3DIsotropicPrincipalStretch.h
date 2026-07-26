@@ -1,7 +1,7 @@
 #pragma once
 
 #include "material/elastic/elasticModel3DDeformationGradient.h"
-#include "material/elastic/isotropicSpectralTangent.h"
+#include "material/elastic/deformationGradient/spectral/isotropicSpectralTangent.h"
 
 namespace pgo::SolidDeformationModel
 {
