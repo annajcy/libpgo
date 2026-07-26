@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
+#include "material/elastic/deformationGradient/spectral/elasticModelStableNeoHookeanPrincipalStretch.h"
 #include "material/elastic/elasticModelHillTypeMaterial.h"
 #include "material/elastic/elasticModel3DMooneyRivlin.h"
 #include "material/plastic/plasticModel3D3DOF.h"
@@ -15,6 +16,14 @@ TEST(ElasticModelConfig, StableNeoHasStableIdentity)
 {
   StableNeoConfig config;
   EXPECT_EQ(config.id(), "stable_neo");
+  EXPECT_TRUE(config.parameterChannelNames().empty());
+  EXPECT_EQ(config.frameRequirement(), MaterialFrameRequirement::None);
+}
+
+TEST(ElasticModelConfig, StableNeoPrincipalStretchHasDistinctIdentity)
+{
+  StableNeoPrincipalStretchConfig config;
+  EXPECT_EQ(config.id(), "stable_neo_principal_stretch");
   EXPECT_TRUE(config.parameterChannelNames().empty());
   EXPECT_EQ(config.frameRequirement(), MaterialFrameRequirement::None);
 }

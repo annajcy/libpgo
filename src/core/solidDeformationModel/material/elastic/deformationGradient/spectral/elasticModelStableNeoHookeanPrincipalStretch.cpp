@@ -1,5 +1,9 @@
 #include "material/elastic/deformationGradient/spectral/elasticModelStableNeoHookeanPrincipalStretch.h"
 
+#include "simulation/simulationMesh.h"
+
+#include <stdexcept>
+
 namespace pgo::SolidDeformationModel
 {
 namespace
@@ -62,6 +66,48 @@ ES::M3d ElasticModelStableNeoHookeanPrincipalStretch::compute_d2psi_ds2(
   hessian(1, 2) += lambda_ * Jminus1 * s(0);
   hessian(2, 1) = hessian(1, 2);
   return hessian;
+}
+
+namespace
+{
+const SimulationMeshENuMaterial &enuMaterial(
+  const SimulationMesh &mesh,
+  int element)
+{
+  return mesh.requireElementField<SimulationMeshENuMaterial>().at(element);
+}
+
+void expectSize(std::span<double> output, std::size_t expected)
+{
+  if (output.size() != expected)
+    throw std::invalid_argument(
+      "elastic config default parameter buffer has the wrong size");
+}
+}  // namespace
+
+std::span<const std::string_view>
+StableNeoPrincipalStretchConfig::parameterChannelNames() const
+{
+  return {};
+}
+
+void StableNeoPrincipalStretchConfig::initializeDefaultElementChannels(
+  const SimulationMesh &,
+  int,
+  std::span<double> output) const
+{
+  expectSize(output, 0);
+}
+
+std::unique_ptr<ElasticModel>
+StableNeoPrincipalStretchConfig::createModel(
+  const SimulationMesh &mesh,
+  int element,
+  const MaterialFrame &) const
+{
+  const auto &material = enuMaterial(mesh, element);
+  return std::make_unique<ElasticModelStableNeoHookeanPrincipalStretch>(
+    material.getMuLame(), material.getLambdaLame());
 }
 
 }  // namespace pgo::SolidDeformationModel
