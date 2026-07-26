@@ -86,7 +86,7 @@ double DeformationModelEnergy::func(
   Profiling::ScopedProfileSection scopedProfile("material.energy");
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(x, *restDofs, p);
-  return forceModelAssembler->computeEnergy(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state);
+  return forceModelAssembler->compute_E(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state);
 }
 
 void DeformationModelEnergy::compute_dE_dp(
@@ -234,7 +234,7 @@ void DeformationModelEnergy::gradient(
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(x, *restDofs, p);
-  forceModelAssembler->computeGradient(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state,
+  forceModelAssembler->compute_dE_dx(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state,
     grad);
 }
 
@@ -251,7 +251,7 @@ void DeformationModelEnergy::hessianInPlace(
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(x, *restDofs, p);
-  forceModelAssembler->computeHessian(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state, hess);
+  forceModelAssembler->compute_d2E_dx2(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state, hess);
 }
 
 void DeformationModelEnergy::hessianAlloc(EigenSupport::SpMatD &hess) const

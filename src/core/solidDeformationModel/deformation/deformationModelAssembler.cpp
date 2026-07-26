@@ -4,7 +4,6 @@ copyright to USC,MIT,NUS
 */
 
 #include "deformation/deformationModelAssembler.h"
-#include "deformation/deformationModelAssemblerCacheData.h"
 #include "deformation/materialMaxStepPolynomialUtils.h"
 #include "deformation/deformationModelManager.h"
 #include "simulation/simulationMesh.h"
@@ -97,37 +96,10 @@ void fillLocalParamDerivative(
   }
 }
 
-void fillElementParamValues(
-  const MaterialParameterField &block,
-  const MaterialParameterEvaluationView &state,
-  int ele,
-  int numMaterialLocations,
-  std::span<double> localDofValues,
-  std::span<double> values)
-{
-  const auto &layout = block.dofLayout();
-  const auto &mapping = block.channelMapping();
-  const int numChannels = mapping.numChannels();
-  const int numLocalDofs = layout.numLocalDofs();
-  if (numChannels == 0 || numMaterialLocations == 0) {
-    return;
-  }
-
-  layout.gather(
-    ele, state.values(block),
-    localDofValues.first(static_cast<std::size_t>(numLocalDofs)));
-  for (int q = 0; q < numMaterialLocations; q++) {
-    mapping.evaluate(
-      ele, q,
-      localDofValues.first(static_cast<std::size_t>(numLocalDofs)),
-      values.subspan(static_cast<std::size_t>(q) * numChannels,
-        static_cast<std::size_t>(numChannels)));
-  }
-}
 }  // namespace
 
 DeformationModelAssembler::DeformationModelAssembler(
-  std::shared_ptr<DeformationModelManager> dm,
+  std::shared_ptr<const DeformationModelManager> dm,
   const Formulation &formulation,
   std::shared_ptr<const MaterialParameterSpace> materialParameterSpace,
   std::span<const double> elementWeights_):
@@ -143,8 +115,8 @@ DeformationModelAssembler::DeformationModelAssembler(
   localDOFs = dofLayout->numLocalDofs(0);
   numDOFs = dofLayout->numGlobalDofs();
 
-  numElasticParams_ = deformationModelManager->getDeformationModel(0).getNumElasticParameters();
-  numPlasticParams_ = deformationModelManager->getDeformationModel(0).getNumPlasticParameters();
+  numElasticParams_ = deformationModelManager->getNumElasticParameters();
+  numPlasticParams_ = deformationModelManager->getNumPlasticParameters();
   const auto &elasticBlock = materialParameterSpace_->elastic();
   const auto &plasticBlock = materialParameterSpace_->plastic();
   if (elasticBlock.channelMapping().numChannels() != numElasticParams_)
@@ -177,11 +149,13 @@ DeformationModelAssembler::DeformationModelAssembler(
 
   const int maxMaterialParams = std::max(numElasticParams_, numPlasticParams_);
   const int maxLocalParams = std::max(numElasticLocalParams_, numPlasticLocalParams_);
-  data = std::make_unique<DeformationModelAssemblerCacheData>(
-    localDOFs, maxMaterialLocations, maxMaterialParams, maxLocalParams,
-    femModels);
+  elementWorkspaces_.reserve(femModels.size());
+  for (const auto &model : femModels)
+    elementWorkspaces_.emplace_back(
+      localDOFs, maxMaterialLocations, maxMaterialParams, maxLocalParams,
+      model.get());
   for (int ele = 0; ele < nele; ele++)
-    dofLayout->getDofGroups(ele, data->elementScratch(ele).groups);
+    dofLayout->getDofGroups(ele, elementWorkspaces_[ele].groups);
   logMemoryCheckpoint("assembler.after_element_cache_setup");
 
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Assembler parameter channels:{},{} local:{},{}",
@@ -369,9 +343,9 @@ void DeformationModelAssembler::validatePositionSpan(
       std::string("DeformationModelAssembler ") + label + " has unexpected size.");
 }
 
-DeformationModelAssembler::PreparedElement DeformationModelAssembler::gatherAndPrepare(
+DeformationModelEvaluator &DeformationModelAssembler::gatherAndPrepare(
   int ele, std::span<const double> x, const MaterialParameterEvaluationView &state,
-  DeformationModelAssemblerCacheData::ElementScratch &scratch) const
+  DeformationModelAssemblerElementWorkspace &scratch) const
 {
   std::fill(scratch.localPosition.data(), scratch.localPosition.data() + localDOFs, 0.0);
   for (const DofGroup &group : scratch.groups) {
@@ -379,43 +353,39 @@ DeformationModelAssembler::PreparedElement DeformationModelAssembler::gatherAndP
       scratch.localPosition[group.localStart + i] = x[group.globalDof(i)];
   }
   const DeformationModel &fem = femModels[ele].get();
-  DeformationModel::CacheData &cache = scratch.cacheData();
-  cache.markUnprepared();
+  DeformationModelEvaluator &evaluator = scratch.evaluator();
   const int numMaterialLocations = fem.getNumMaterialLocations();
-  fillElementParamValues(
-    materialParameterSpace_->elastic(), state, ele,
-    numMaterialLocations,
+  state.evaluateElement(
+    materialParameterSpace_->elastic(), ele, numMaterialLocations,
     std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
     std::span<double>(scratch.elasticParamValues.data(), scratch.elasticParamValues.size()));
-  fillElementParamValues(
-    materialParameterSpace_->plastic(), state, ele,
-    numMaterialLocations,
+  state.evaluateElement(
+    materialParameterSpace_->plastic(), ele, numMaterialLocations,
     std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
     std::span<double>(scratch.plasticParamValues.data(), scratch.plasticParamValues.size()));
 
-  fem.prepareData(std::span<const double>(scratch.localPosition.data(), localDOFs),
+  evaluator.prepare(std::span<const double>(scratch.localPosition.data(), localDOFs),
     std::span<const double>(scratch.elasticParamValues.data(),
       static_cast<std::size_t>(numMaterialLocations * numElasticParams_)),
     std::span<const double>(scratch.plasticParamValues.data(),
-      static_cast<std::size_t>(numMaterialLocations * numPlasticParams_)),
-    cache);
-  return { fem, cache };
+      static_cast<std::size_t>(numMaterialLocations * numPlasticParams_)));
+  return evaluator;
 }
 
-double DeformationModelAssembler::computeEnergy(
+double DeformationModelAssembler::compute_E(
   std::span<const double> x, MaterialParameterEvaluationView state) const
 {
   validatePositionSpan(x, "position vector");
   validateMaterialParameterSnapshot(state);
 
   auto localEnergyFunc = [this, x, &state](int ele) {
-    auto &scratch = data->elementScratch(ele);
+    auto &scratch = elementWorkspaces_[ele];
     scratch.energy = 0.0;
     if (elementWeights[ele] == 0)
       return;
 
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
-    double energy = prepared.model.computeEnergy(prepared.cache);
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
+    double energy = evaluator.compute_E();
 
     scratch.energy = energy * elementWeights[ele];
   };
@@ -424,7 +394,7 @@ double DeformationModelAssembler::computeEnergy(
 
   double energyAll = 0;
   for (int ele = 0; ele < nele; ele++)
-    energyAll += data->elementScratch(ele).energy;
+    energyAll += elementWorkspaces_[ele].energy;
 
   return energyAll;
 }
@@ -441,7 +411,7 @@ DeformationModelAssembler::MaterialMaxStepObservation DeformationModelAssembler:
       continue;
     }
 
-    auto &scratch = data->elementScratch(ele);
+    auto &scratch = elementWorkspaces_[ele];
     std::fill(scratch.localPosition.data(), scratch.localPosition.data() + localDOFs, 0.0);
     std::fill(scratch.localDirection.data(), scratch.localDirection.data() + localDOFs, 0.0);
     for (const DofGroup &group : scratch.groups) {
@@ -478,7 +448,7 @@ double DeformationModelAssembler::computeMaxStepSize(std::span<const double> x, 
   return computeMaxStepObservation(x, dx).alpha;
 }
 
-void DeformationModelAssembler::computeGradient(
+void DeformationModelAssembler::compute_dE_dx(
   std::span<const double> x, MaterialParameterEvaluationView state, ES::RefVecXd grad) const
 {
   validatePositionSpan(x, "position vector");
@@ -490,10 +460,10 @@ void DeformationModelAssembler::computeGradient(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
 
-    prepared.model.compute_dE_dx(prepared.cache, scratch.localGradient);
+    evaluator.compute_dE_dx(scratch.localGradient);
     scratch.localGradient *= elementWeights[ele];
 
     if (enableSanityCheck) {
@@ -521,7 +491,7 @@ void DeformationModelAssembler::computeGradient(
       numDOFs, "gradient");
 }
 
-void DeformationModelAssembler::computeHessian(
+void DeformationModelAssembler::compute_d2E_dx2(
   std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const
 {
   validatePositionSpan(x, "position vector");
@@ -532,11 +502,11 @@ void DeformationModelAssembler::computeHessian(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
 
     ES::Mp<ES::MXd> localK(scratch.localMatrixData.data(), localDOFs, localDOFs);
-    prepared.model.compute_d2E_dx2(prepared.cache, localK);
+    evaluator.compute_d2E_dx2(localK);
 
     localK *= elementWeights[ele];
 
@@ -590,8 +560,8 @@ void DeformationModelAssembler::compute_dE_dp(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
 
     Eigen::Map<ES::VXd> rawGrad(
       scratch.rawParamGradient.data(), numPlasticParams_);
@@ -600,9 +570,9 @@ void DeformationModelAssembler::compute_dE_dp(
     auto localGrad =
       scratch.localParamGradient.head(numPlasticLocalParams_);
     localGrad.setZero();
-    for (int q = 0; q < prepared.model.getNumMaterialLocations(); q++) {
+    for (int q = 0; q < femModels[ele].get().getNumMaterialLocations(); q++) {
       rawGrad.setZero();
-      prepared.model.compute_dE_dp(prepared.cache, rawGrad, q);
+      evaluator.compute_dE_dp(rawGrad, q);
       fillLocalParamDerivative(
         plasticBlock, state, ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
@@ -647,8 +617,8 @@ void DeformationModelAssembler::compute_d2E_dp2(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
 
     const ES::Mp<ES::MXd> rawH(scratch.localMatrixData.data(), numPlasticParams_, numPlasticParams_);
     auto dParamDLocal = scratch.paramDerivativeData.block(
@@ -656,9 +626,8 @@ void DeformationModelAssembler::compute_d2E_dp2(
     auto paramWork = scratch.paramWorkMatrix.block(0, 0, numPlasticParams_, numPlasticLocalParams_);
     auto localH = scratch.localParamHessian.block(0, 0, numPlasticLocalParams_, numPlasticLocalParams_);
     localH.setZero();
-    for (int q = 0; q < prepared.model.getNumMaterialLocations(); q++) {
-      prepared.model.compute_d2E_dp2(
-        prepared.cache, ES::Mp<ES::MXd>(scratch.localMatrixData.data(), numPlasticParams_, numPlasticParams_), q);
+    for (int q = 0; q < femModels[ele].get().getNumMaterialLocations(); q++) {
+      evaluator.compute_d2E_dp2(ES::Mp<ES::MXd>(scratch.localMatrixData.data(), numPlasticParams_, numPlasticParams_), q);
       fillLocalParamDerivative(
         plasticBlock, state, ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
@@ -669,8 +638,7 @@ void DeformationModelAssembler::compute_d2E_dp2(
         Eigen::Map<ES::VXd> rawGrad(
           scratch.rawParamGradient.data(), numPlasticParams_);
         rawGrad.setZero();
-        prepared.model.compute_dE_dp(
-          prepared.cache, rawGrad, q);
+        evaluator.compute_dE_dp(rawGrad, q);
         const std::span<EigenSupport::MXd> mappingHessians =
           scratch.preparePlasticParamMappingHessians(
             numPlasticParams_, numPlasticLocalParams_);
@@ -725,8 +693,8 @@ void DeformationModelAssembler::compute_dE_de(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
 
     Eigen::Map<ES::VXd> rawGrad(
       scratch.rawParamGradient.data(), numElasticParams_);
@@ -735,9 +703,9 @@ void DeformationModelAssembler::compute_dE_de(
     auto localGrad =
       scratch.localParamGradient.head(numElasticLocalParams_);
     localGrad.setZero();
-    for (int q = 0; q < prepared.model.getNumMaterialLocations(); q++) {
+    for (int q = 0; q < femModels[ele].get().getNumMaterialLocations(); q++) {
       rawGrad.setZero();
-      prepared.model.compute_dE_de(prepared.cache, rawGrad, q);
+      evaluator.compute_dE_de(rawGrad, q);
       fillLocalParamDerivative(
         elasticBlock, state, ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
@@ -782,8 +750,8 @@ void DeformationModelAssembler::compute_d2E_de2(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
 
     const ES::Mp<ES::MXd> rawH(scratch.localMatrixData.data(), numElasticParams_, numElasticParams_);
     auto dParamDLocal = scratch.paramDerivativeData.block(
@@ -791,9 +759,8 @@ void DeformationModelAssembler::compute_d2E_de2(
     auto paramWork = scratch.paramWorkMatrix.block(0, 0, numElasticParams_, numElasticLocalParams_);
     auto localH = scratch.localParamHessian.block(0, 0, numElasticLocalParams_, numElasticLocalParams_);
     localH.setZero();
-    for (int q = 0; q < prepared.model.getNumMaterialLocations(); q++) {
-      prepared.model.compute_d2E_de2(
-        prepared.cache, ES::Mp<ES::MXd>(scratch.localMatrixData.data(), numElasticParams_, numElasticParams_), q);
+    for (int q = 0; q < femModels[ele].get().getNumMaterialLocations(); q++) {
+      evaluator.compute_d2E_de2(ES::Mp<ES::MXd>(scratch.localMatrixData.data(), numElasticParams_, numElasticParams_), q);
       fillLocalParamDerivative(
         elasticBlock, state, ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
@@ -804,8 +771,7 @@ void DeformationModelAssembler::compute_d2E_de2(
         Eigen::Map<ES::VXd> rawGrad(
           scratch.rawParamGradient.data(), numElasticParams_);
         rawGrad.setZero();
-        prepared.model.compute_dE_de(
-          prepared.cache, rawGrad, q);
+        evaluator.compute_dE_de(rawGrad, q);
         const std::span<EigenSupport::MXd> mappingHessians =
           scratch.prepareElasticParamMappingHessians(
             numElasticParams_, numElasticLocalParams_);
@@ -865,8 +831,8 @@ void DeformationModelAssembler::compute_d2E_dpde(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
 
     const ES::Mp<ES::MXd> rawH(scratch.localMatrixData.data(), numPlasticParams_, numElasticParams_);
     auto dPlasticDLocal = scratch.paramDerivativeData.block(
@@ -877,9 +843,8 @@ void DeformationModelAssembler::compute_d2E_dpde(
     auto paramWork = scratch.paramWorkMatrix.block(0, 0, numPlasticParams_, numElasticLocalParams_);
     auto localH = scratch.localParamHessian.block(0, 0, numPlasticLocalParams_, numElasticLocalParams_);
     localH.setZero();
-    for (int q = 0; q < prepared.model.getNumMaterialLocations(); q++) {
-      prepared.model.compute_d2E_dpde(
-        prepared.cache, ES::Mp<ES::MXd>(scratch.localMatrixData.data(), numPlasticParams_, numElasticParams_), q);
+    for (int q = 0; q < femModels[ele].get().getNumMaterialLocations(); q++) {
+      evaluator.compute_d2E_dpde(ES::Mp<ES::MXd>(scratch.localMatrixData.data(), numPlasticParams_, numElasticParams_), q);
       fillLocalParamDerivative(
         plasticBlock, state, ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
@@ -922,7 +887,7 @@ void DeformationModelAssembler::compute_d2E_dudp(
     absolutePositions, state, numPlasticParams_, numPlasticLocalParams_,
     materialParameterSpace_->plastic(),
     element_d2E_dudp_InverseIndices,
-    &DeformationModel::compute_d2E_dudp,
+    &DeformationModelEvaluator::compute_d2E_dudp,
     mixedHessian, "d2E/dudp");
 }
 
@@ -937,7 +902,7 @@ void DeformationModelAssembler::compute_d2E_dude(
     absolutePositions, state, numElasticParams_, numElasticLocalParams_,
     materialParameterSpace_->elastic(),
     element_d2E_dude_InverseIndices,
-    &DeformationModel::compute_d2E_dude,
+    &DeformationModelEvaluator::compute_d2E_dude,
     mixedHessian, "d2E/dude");
 }
 
@@ -957,14 +922,13 @@ void DeformationModelAssembler::computeVonMisesStresses(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
 
     std::fill(scratch.materialLocationValues.begin(), scratch.materialLocationValues.end(), 0.0);
     int nPt = 0;
     try {
-      nPt = prepared.model.computeVonMisesStress(
-        prepared.cache, std::span<double>(scratch.materialLocationValues.data(), scratch.materialLocationValues.size()),
+      nPt = evaluator.computeVonMisesStress(std::span<double>(scratch.materialLocationValues.data(), scratch.materialLocationValues.size()),
         static_cast<int>(scratch.materialLocationValues.size()));
     }
     catch (const UnsupportedDeformationDiagnosticError &e) {
@@ -1003,14 +967,13 @@ void DeformationModelAssembler::computeMaxStrains(
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(ele, x, state, scratch);
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(ele, x, state, scratch);
 
     std::fill(scratch.materialLocationValues.begin(), scratch.materialLocationValues.end(), 0.0);
     int nPt = 0;
     try {
-      nPt = prepared.model.computeMaxStrain(
-        prepared.cache, std::span<double>(scratch.materialLocationValues.data(), scratch.materialLocationValues.size()),
+      nPt = evaluator.computeMaxStrain(std::span<double>(scratch.materialLocationValues.data(), scratch.materialLocationValues.size()),
         static_cast<int>(scratch.materialLocationValues.size()));
     }
     catch (const UnsupportedDeformationDiagnosticError &e) {
@@ -1086,8 +1049,8 @@ void DeformationModelAssembler::assemble_d2E_dudq(
   int numLocalParams,
   const MaterialParameterField &paramBlock,
   const std::vector<DynamicIndexMatrix> &inverseIndices,
-  void (DeformationModel::*computeLocal)(
-    const DeformationModel::CacheData &, EigenSupport::RefMatXd, int) const,
+  void (DeformationModelEvaluator::*computeLocal)(
+    EigenSupport::RefMatXd, int) const,
   EigenSupport::SpMatD &mixedHessian,
   const char *label) const
 {
@@ -1099,15 +1062,14 @@ void DeformationModelAssembler::assemble_d2E_dudq(
   if (numMaterialParams == 0 || numLocalParams == 0)
     return;
 
-  auto localFunc = [
-    this, absolutePositions, &state, &mixedHessian,
-    numMaterialParams, numLocalParams, &paramBlock,
-    &inverseIndices, computeLocal](int ele) {
+  auto localFunc = [this, absolutePositions, &state, &mixedHessian,
+                     numMaterialParams, numLocalParams, &paramBlock,
+                     &inverseIndices, computeLocal](int ele) {
     if (elementWeights[ele] == 0)
       return;
 
-    auto &scratch = data->elementScratch(ele);
-    PreparedElement prepared = gatherAndPrepare(
+    auto &scratch = elementWorkspaces_[ele];
+    DeformationModelEvaluator &evaluator = gatherAndPrepare(
       ele, absolutePositions, state, scratch);
 
     const ES::Mp<ES::MXd> rawK(scratch.localMatrixData.data(), localDOFs, numMaterialParams);
@@ -1115,9 +1077,9 @@ void DeformationModelAssembler::assemble_d2E_dudq(
       0, 0, numMaterialParams, numLocalParams);
     auto localK = scratch.localMixedMatrix.block(0, 0, localDOFs, numLocalParams);
     localK.setZero();
-    for (int q = 0; q < prepared.model.getNumMaterialLocations(); q++) {
-      (prepared.model.*computeLocal)(
-        prepared.cache, ES::Mp<ES::MXd>(scratch.localMatrixData.data(), localDOFs, numMaterialParams), q);
+    for (int q = 0; q < femModels[ele].get().getNumMaterialLocations(); q++) {
+      (evaluator.*computeLocal)(
+        ES::Mp<ES::MXd>(scratch.localMatrixData.data(), localDOFs, numMaterialParams), q);
       fillLocalParamDerivative(
         paramBlock, state, ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),

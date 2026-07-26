@@ -199,7 +199,8 @@ EigenSupport::SpMatD VolumetricFormulation::buildSurfaceEmbeddingMatrix(
 
 std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
   const SimulationMesh &mesh, int ele,
-  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+  DeformationModelConstructionOptions options) const
 {
   const int numNodes = shapeFunction_->numNodes();
   std::vector<double> restPosition(numNodes * 3);
@@ -218,7 +219,8 @@ std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
       "VolumetricFormulation requires ElasticModel3DDeformationGradient."),
     checkedMaterialCast<PlasticModel3DDeformationGradient>(
       std::move(plasticModel),
-      "VolumetricFormulation requires PlasticModel3DDeformationGradient."));
+      "VolumetricFormulation requires PlasticModel3DDeformationGradient."),
+    options);
 }
 
 }  // namespace SolidDeformationModel

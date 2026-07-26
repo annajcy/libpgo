@@ -6,9 +6,10 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "constraints/constraintFunctions.h"
-#include "deformation/deformationModel.h"
+#include "deformation/volume/volumetricDeformationModel.h"
+#include "deformation/volume/volumetricDeformationModelEvaluator.h"
+#include "material/core/materialParameters.h"
 
-#include <tbb/enumerable_thread_specific.h>
 #include <tbb/spin_mutex.h>
 
 #include <memory>
@@ -21,9 +22,6 @@ namespace pgo
 namespace SolidDeformationModel
 {
 class DeformationModelManager;
-class MaterialParameters;
-class MaterialParameterEvaluationView;
-class VolumetricDeformationModel;
 
 class PrescribedPrincipleStressConstraintFunctions : public NonlinearOptimization::ConstraintFunctions
 {
@@ -57,25 +55,27 @@ protected:
   XToPosFunc xToPosFunc;
   EigenSupport::VXd targetPrincipleStress;
 
-  struct ThreadScratch
+  struct ElementData
   {
+    const int numDOFs;
+    const int numMaterialLocations;
     EigenSupport::V18d localp;
-    std::vector<double> elasticLocalDofs;
-    std::vector<double> plasticLocalDofs;
-    std::vector<double> elasticParamValues;
-    std::vector<double> plasticParamValues;
-    std::vector<std::unique_ptr<DeformationModel::CacheData>> reusableCacheData;
+    MaterialParameterEvaluationScratch elasticParameters;
+    MaterialParameterEvaluationScratch plasticParameters;
+    std::unique_ptr<VolumetricDeformationModelEvaluator> evaluator;
 
-    DeformationModel::CacheData &cacheFor(const DeformationModel &model);
+    explicit ElementData(const VolumetricDeformationModel &model):
+      numDOFs(model.getNumDOFs()),
+      numMaterialLocations(model.getNumMaterialLocations()),
+      evaluator(
+        std::make_unique<VolumetricDeformationModelEvaluator>(model)) {}
   };
 
-  mutable tbb::enumerable_thread_specific<ThreadScratch> threadScratch_;
+  mutable std::vector<ElementData> elementData_;
 
-  std::vector<std::reference_wrapper<const VolumetricDeformationModel>> elementFEMs_;
-
-  DeformationModel::CacheData &prepareElement(
-    int elementID, const VolumetricDeformationModel &model,
-    MaterialParameterEvaluationView state, ThreadScratch &scratch) const;
+  VolumetricDeformationModelEvaluator &prepareElement(
+    int elementID, MaterialParameterEvaluationView state,
+    ElementData &data) const;
 
   EigenSupport::EntryMap jacEntries, hessEntries;
 

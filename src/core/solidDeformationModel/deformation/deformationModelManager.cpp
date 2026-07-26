@@ -28,6 +28,7 @@ public:
   std::shared_ptr<const ElasticModelConfig> elasticConfig;
   std::shared_ptr<const PlasticModelConfig> plasticConfig;
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
+  int numElasticParams = 0;
   int numPlasticParams = 0;
   int nele = 0;
 };
@@ -110,14 +111,11 @@ DeformationModelManager::DeformationModelManager(
     data->plasticConfig->frameRequirement(),
     "plastic");
 
-  initImpl(formulation);
-
-  data->numPlasticParams =
-    data->elementFEMs[0]->getNumPlasticParameters();
-  setProjectHessianPSD(projectHessianPSD);
+  initImpl(formulation, DeformationModelConstructionOptions{ projectHessianPSD });
 }
 
-void DeformationModelManager::initImpl(const Formulation &formulation)
+void DeformationModelManager::initImpl(
+  const Formulation &formulation, DeformationModelConstructionOptions options)
 {
   SPDLOG_LOGGER_INFO(
     pgo::Logging::lgr(), "Initializing element models (manager path)...");
@@ -131,19 +129,30 @@ void DeformationModelManager::initImpl(const Formulation &formulation)
     auto pm = data->plasticConfig->createModel(
       *data->mesh, ele, materialToReference);
     data->elementFEMs[ele] = formulation.createElement(
-      *data->mesh, ele, std::move(em), std::move(pm));
+      *data->mesh, ele, std::move(em), std::move(pm), options);
   });
+
+  if (!data->elementFEMs[0])
+    throw std::runtime_error(
+      "Formulation returned a null deformation model.");
+  data->numElasticParams =
+    data->elementFEMs[0]->getNumElasticParameters();
+  data->numPlasticParams =
+    data->elementFEMs[0]->getNumPlasticParameters();
+  for (int ele = 1; ele < data->nele; ele++) {
+    const auto &model = data->elementFEMs[ele];
+    if (!model)
+      throw std::runtime_error(
+        "Formulation returned a null deformation model.");
+    if (model->getNumElasticParameters() != data->numElasticParams ||
+      model->getNumPlasticParameters() != data->numPlasticParams) {
+      throw std::invalid_argument(
+        "Element deformation models have inconsistent material parameter channels.");
+    }
+  }
 }
 
 DeformationModelManager::~DeformationModelManager() = default;
-
-void DeformationModelManager::setProjectHessianPSD(bool enable)
-{
-  for (const auto &model : data->elementFEMs) {
-    if (model)
-      model->setProjectHessianPSD(enable);
-  }
-}
 
 int DeformationModelManager::getNumPlasticParameters() const
 {
@@ -152,7 +161,7 @@ int DeformationModelManager::getNumPlasticParameters() const
 
 int DeformationModelManager::getNumElasticParameters() const
 {
-  return data->elementFEMs[0]->getNumElasticParameters();
+  return data->numElasticParams;
 }
 
 const SimulationMesh &DeformationModelManager::getMesh() const

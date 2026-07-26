@@ -38,7 +38,8 @@ public:
 
   std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
-    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const override;
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+    DeformationModelConstructionOptions options = {}) const override;
 
   // Consistent mass matrix / generalized body force, assembled with the
   // formulation's shape function over massQuadrature(), scattered through

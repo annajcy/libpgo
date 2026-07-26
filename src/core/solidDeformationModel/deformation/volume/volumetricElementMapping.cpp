@@ -49,7 +49,7 @@ VolumetricElementMapping::VolumetricElementMapping(
   dN_dxi_.resize(numQuadPts_, M3xN(3, numNodes_));
   restDmInv_.resize(numQuadPts_);
   dN_dX_.resize(numQuadPts_, M3xN(3, numNodes_));
-  rest_dFdx_.resize(numQuadPts_, M9xNDOF(9, localDofs_));
+  rest_dF_dx_.resize(numQuadPts_, M9xNDOF(9, localDofs_));
   weightDetJ_.resize(numQuadPts_);
   restBm_.resize(numQuadPts_, M3xN(3, numNodes_));
 
@@ -71,19 +71,19 @@ VolumetricElementMapping::VolumetricElementMapping(
 
     restBm_[q] = weightDetJ_[q] * dN_dX_[q];
 
-    rest_dFdx_[q].setZero(9, localDofs_);
+    rest_dF_dx_[q].setZero(9, localDofs_);
     for (int node = 0; node < numNodes_; node++) {
       for (int coord = 0; coord < 3; coord++) {
         const int dof = node * 3 + coord;
         for (int deriv = 0; deriv < 3; deriv++) {
-          rest_dFdx_[q](deriv * 3 + coord, dof) = dN_dX_[q](deriv, node);
+          rest_dF_dx_[q](deriv * 3 + coord, dof) = dN_dX_[q](deriv, node);
         }
       }
     }
   }
 }
 
-ES::M3d VolumetricElementMapping::computeFref(
+ES::M3d VolumetricElementMapping::compute_F_ref(
   std::span<const double> xLocal, int q) const
 {
   if (q < 0 || q >= numQuadPts_)
@@ -102,14 +102,14 @@ ES::M3d VolumetricElementMapping::computeFref(
   return coefficients * dN_dxi_[q].transpose() * restDmInv_[q];
 }
 
-void VolumetricElementMapping::computedFrefdx(
+void VolumetricElementMapping::compute_dF_ref_dx(
   int q, M9xNDOF &dFdx) const
 {
   if (q < 0 || q >= numQuadPts_)
     throw std::out_of_range("VolumetricElementMapping quadrature index is out of range.");
   if (dFdx.rows() != 9 || dFdx.cols() != localDofs_)
     throw std::invalid_argument("VolumetricElementMapping dFrefdx output has the wrong shape.");
-  dFdx = rest_dFdx_[q];
+  dFdx = rest_dF_dx_[q];
 }
 
 }  // namespace SolidDeformationModel

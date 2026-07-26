@@ -25,7 +25,7 @@ struct MaterialParameterEvaluationScratch;
 
 /// Immutable schema for one elastic or plastic material parameter field.
 /// Instances are created through create() and shared by parameter references.
-class MaterialParameterField final:
+class MaterialParameterField final :
   public std::enable_shared_from_this<MaterialParameterField>
 {
 public:
@@ -65,7 +65,9 @@ struct MaterialParameterEvaluationScratch
   std::vector<double> material;
   EigenSupport::MXd jacobian;
 
-  void prepare(const MaterialParameterField &field);
+  void prepare(
+    const MaterialParameterField &field,
+    int numMaterialLocations = 1);
 };
 
 /// Immutable pair of elastic and plastic parameter field schemas.
@@ -139,6 +141,20 @@ public:
   std::span<const double> elasticValues() const { return elasticValues_; }
   std::span<const double> plasticValues() const { return plasticValues_; }
   std::span<const double> values(const MaterialParameterField &field) const;
+
+  /// Gather one field's element-local DOFs and evaluate all requested
+  /// material locations. Material values are flattened location-major.
+  void evaluateElement(
+    const MaterialParameterField &field,
+    int element,
+    int numMaterialLocations,
+    std::span<double> localDofScratch,
+    std::span<double> materialValues) const;
+  std::span<const double> evaluateElement(
+    const MaterialParameterField &field,
+    int element,
+    int numMaterialLocations,
+    MaterialParameterEvaluationScratch &scratch) const;
 
 private:
   friend class MaterialParameterSpace;

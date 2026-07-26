@@ -1,6 +1,5 @@
 #pragma once
 
-#include "deformation/deformationModel.h"
 #include "EigenSupport.h"
 
 #include <array>
@@ -11,7 +10,7 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-struct ShellDeformationModelCacheData : public DeformationModelCacheData
+struct ShellDeformationModelCacheData
 {
   int numPlasticParams = 0;
   int numElasticParams = 0;

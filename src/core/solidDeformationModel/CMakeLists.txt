@@ -33,12 +33,13 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/plastic/plasticModel2DFundamentalFormsUniformStretch.h
 
   deformation/deformationModel.h
+  deformation/deformationModelEvaluator.h
   deformation/hessianProjection.h
   deformation/materialMaxStepPolynomialUtils.h
   deformation/deformationModelManager.h
 
   deformation/deformationModelAssembler.h
-  deformation/deformationModelAssemblerCacheData.h
+  deformation/deformationModelAssemblerElementWorkspace.h
   deformation/hessianMatrixHandle.h
 
   energy/deformationModelEnergy.h
@@ -89,8 +90,10 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   deformation/shell/koiterShellElementMapping.h
 
   deformation/volume/volumetricDeformationModel.h
+  deformation/volume/volumetricDeformationModelEvaluator.h
   deformation/volume/volumetricDeformationModelCacheData.h
   deformation/shell/shellDeformationModel.h
+  deformation/shell/shellDeformationModelEvaluator.h
   deformation/shell/shellDeformationModelCacheData.h
 
   formulations/dof/dofLayout.h
@@ -160,8 +163,10 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/shell/koiterShellElementMapping.cpp
 
   deformation/volume/volumetricDeformationModel.cpp
+  deformation/volume/volumetricDeformationModelEvaluator.cpp
   deformation/volume/volumetricDeformationModelCacheData.cpp
   deformation/shell/shellDeformationModel.cpp
+  deformation/shell/shellDeformationModelEvaluator.cpp
   deformation/shell/shellDeformationModelCacheData.cpp
 
   material/core/parameterDofLayout.cpp
@@ -174,7 +179,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/deformationModelManager.cpp
 
   deformation/deformationModelAssembler.cpp
-  deformation/deformationModelAssemblerCacheData.cpp
+  deformation/deformationModelAssemblerElementWorkspace.cpp
 
   energy/deformationModelEnergy.cpp
   energy/elasticMaterialEnergy.cpp

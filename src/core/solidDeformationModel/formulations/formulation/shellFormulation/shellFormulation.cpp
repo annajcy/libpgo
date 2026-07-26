@@ -48,7 +48,8 @@ SimulationMeshType ShellFormulation::compatibleMeshType() const
 
 std::unique_ptr<DeformationModel> ShellFormulation::createElement(
   const SimulationMesh &mesh, int ele,
-  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+  DeformationModelConstructionOptions options) const
 {
   ES::V18d restPosition = ES::V18d::Zero();
   std::array<bool, 6> hasVtx;
@@ -70,7 +71,8 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
       "ShellFormulation requires ElasticModel2DFundamentalForms."),
     checkedMaterialCast<PlasticModel2DFundamentalForms>(
       std::move(plasticModel),
-      "ShellFormulation requires PlasticModel2DFundamentalForms."));
+      "ShellFormulation requires PlasticModel2DFundamentalForms."),
+    options);
 }
 
 EigenSupport::SpMatD ShellFormulation::buildMassMatrix(

@@ -3,7 +3,7 @@ author: Bohan Wang
 copyright to USC,MIT,NUS
 */
 
-#include "deformationModelAssemblerCacheData.h"
+#include "deformationModelAssemblerElementWorkspace.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -13,13 +13,13 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-DeformationModelAssemblerCacheData::ElementScratch::ElementScratch(
-  int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams,
-  const DeformationModel &model):
-  cacheData_(model.allocateCacheData())
+DeformationModelAssemblerElementWorkspace::DeformationModelAssemblerElementWorkspace(
+  int localDofs, int maxMaterialLocations, int maxMaterialParams,
+  int maxLocalParams, const DeformationModel &model):
+  evaluator_(model.createEvaluator())
 {
-  if (!cacheData_)
-    throw std::runtime_error("Element model returned null cache data.");
+  if (!evaluator_)
+    throw std::runtime_error("Element model returned null evaluator.");
 
   localPosition.resize(localDofs);
   localDirection.resize(localDofs);
@@ -46,8 +46,7 @@ namespace
 {
 std::span<EigenSupport::MXd> prepareMappingHessians(
   std::vector<EigenSupport::MXd> &hessians,
-  int numChannels,
-  int numLocalDofs)
+  int numChannels, int numLocalDofs)
 {
   hessians.resize(static_cast<std::size_t>(numChannels));
   for (EigenSupport::MXd &hessian : hessians) {
@@ -59,7 +58,7 @@ std::span<EigenSupport::MXd> prepareMappingHessians(
 }  // namespace
 
 std::span<EigenSupport::MXd>
-DeformationModelAssemblerCacheData::ElementScratch::preparePlasticParamMappingHessians(
+DeformationModelAssemblerElementWorkspace::preparePlasticParamMappingHessians(
   int numChannels, int numLocalDofs)
 {
   return prepareMappingHessians(
@@ -67,23 +66,11 @@ DeformationModelAssemblerCacheData::ElementScratch::preparePlasticParamMappingHe
 }
 
 std::span<EigenSupport::MXd>
-DeformationModelAssemblerCacheData::ElementScratch::prepareElasticParamMappingHessians(
+DeformationModelAssemblerElementWorkspace::prepareElasticParamMappingHessians(
   int numChannels, int numLocalDofs)
 {
   return prepareMappingHessians(
     elasticParamMappingHessians, numChannels, numLocalDofs);
-}
-
-DeformationModelAssemblerCacheData::DeformationModelAssemblerCacheData(
-  int localDofs, int maxMaterialLocations, int maxMaterialParams, int maxLocalParams,
-  std::span<const std::reference_wrapper<const DeformationModel>> models)
-{
-  elementScratch_.reserve(models.size());
-  for (const auto &modelRef : models) {
-    elementScratch_.emplace_back(
-      localDofs, maxMaterialLocations, maxMaterialParams, maxLocalParams,
-      modelRef.get());
-  }
 }
 
 }  // namespace SolidDeformationModel

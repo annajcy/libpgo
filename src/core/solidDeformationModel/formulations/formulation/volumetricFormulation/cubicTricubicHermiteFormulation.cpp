@@ -163,7 +163,8 @@ EigenSupport::VXd CubicTricubicHermiteFormulation::buildGlobalRestDofs(const Sim
 
 std::unique_ptr<DeformationModel> CubicTricubicHermiteFormulation::createElement(
   const SimulationMesh &mesh, int ele,
-  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const
+  std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+  DeformationModelConstructionOptions options) const
 {
   std::array<double, 192> restPosition;
   elementHermiteRestDofs(mesh, ele, restPosition);
@@ -176,7 +177,8 @@ std::unique_ptr<DeformationModel> CubicTricubicHermiteFormulation::createElement
       "CubicTricubicHermiteFormulation requires ElasticModel3DDeformationGradient."),
     checkedMaterialCast<PlasticModel3DDeformationGradient>(
       std::move(plasticModel),
-      "CubicTricubicHermiteFormulation requires PlasticModel3DDeformationGradient."));
+      "CubicTricubicHermiteFormulation requires PlasticModel3DDeformationGradient."),
+    options);
 }
 
 }  // namespace SolidDeformationModel

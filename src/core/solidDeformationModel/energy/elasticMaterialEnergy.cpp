@@ -47,7 +47,7 @@ double ElasticMaterialEnergy::func(EigenSupport::ConstRefVecXd x) const
   const ES::VXd p = absolutePositions();
   const MaterialParameterEvaluationView state = fixedState_.withElasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
-  return deformationEnergy_->assembler().computeEnergy(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state);
+  return deformationEnergy_->assembler().compute_E(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state);
 }
 
 void ElasticMaterialEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EigenDef.h"
+#include "deformation/deformationModel.h"
 
 #include <memory>
 #include <string_view>
@@ -10,7 +11,6 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-class DeformationModel;
 class DofLayout;
 class ElasticModel;
 class PlasticModel;
@@ -31,7 +31,8 @@ public:
 
   virtual std::unique_ptr<DeformationModel> createElement(
     const SimulationMesh &mesh, int ele,
-    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel) const = 0;
+    std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
+    DeformationModelConstructionOptions options = {}) const = 0;
 
   virtual SimulationMeshType compatibleMeshType() const = 0;
 

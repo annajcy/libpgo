@@ -1,6 +1,5 @@
 #pragma once
 
-#include "deformation/deformationModel.h"
 #include "EigenSupport.h"
 #include "material/elastic/elasticModel3DDeformationGradient.h"
 
@@ -12,7 +11,7 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-struct VolumetricDeformationModelCacheData : public DeformationModelCacheData
+struct VolumetricDeformationModelCacheData
 {
   using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;

@@ -1,7 +1,6 @@
 #include "shellDeformationModel.h"
+#include "shellDeformationModelEvaluator.h"
 #include "deformation/hessianProjection.h"
-
-#include "pgoLogging.h"
 
 #include <stdexcept>
 
@@ -20,23 +19,25 @@ void validateMaterialLocation(int materialLocation)
 
 std::span<const double> parameterView(const ES::VXd &parameters)
 {
-  return {parameters.data(), static_cast<std::size_t>(parameters.size())};
+  return { parameters.data(), static_cast<std::size_t>(parameters.size()) };
 }
 
 ShellElementMapping::APositions trianglePositions(const std::array<ES::V3d, 6> &x)
 {
-  return {x[0], x[1], x[2]};
+  return { x[0], x[1], x[2] };
 }
 }  // namespace
+
+std::unique_ptr<DeformationModelEvaluator> ShellDeformationModel::createEvaluator() const
+{
+  return std::make_unique<ShellDeformationModelEvaluator>(*this);
+}
 
 ShellDeformationModel::ShellDeformationModel(
   std::unique_ptr<ShellElementMapping> mapping,
   std::unique_ptr<ElasticModel2DFundamentalForms> elasticModel,
-  std::unique_ptr<PlasticModel2DFundamentalForms> plasticModel)
-  : DeformationModel()
-  , elementMapping_(std::move(mapping))
-  , elastic2D_(std::move(elasticModel))
-  , plastic2D_(std::move(plasticModel))
+  std::unique_ptr<PlasticModel2DFundamentalForms> plasticModel,
+  DeformationModelConstructionOptions options): DeformationModel(), elementMapping_(std::move(mapping)), elastic2D_(std::move(elasticModel)), plastic2D_(std::move(plasticModel)), projectHessianPSD_(options.projectHessianPSD)
 {
   if (!elementMapping_) {
     throw std::logic_error("ShellDeformationModel requires non-null shell mapping");
@@ -56,23 +57,9 @@ ShellDeformationModel::ShellDeformationModel(
   numElasticParams_ = elastic2D_->getNumParameters();
 }
 
-std::unique_ptr<DeformationModelCacheData> ShellDeformationModel::allocateCacheData() const
-{
-  return std::make_unique<CacheData>(numPlasticParams_, numElasticParams_);
-}
-
-bool ShellDeformationModel::isCacheDataCompatible(
-  const DeformationModelCacheData &cacheData) const
-{
-  const auto *cd = dynamic_cast<const CacheData *>(&cacheData);
-  return cd != nullptr &&
-    cd->numPlasticParams == numPlasticParams_ &&
-    cd->numElasticParams == numElasticParams_;
-}
-
 void ShellDeformationModel::prepareData(
   std::span<const double> x, std::span<const double> elasticParams, std::span<const double> plasticParams,
-  DeformationModelCacheData &cacheDataBase) const
+  ShellDeformationModelCacheData &cacheDataBase) const
 {
   if (x.size() != static_cast<std::size_t>(getNumDOFs()))
     throw std::invalid_argument(
@@ -84,7 +71,7 @@ void ShellDeformationModel::prepareData(
     throw std::invalid_argument(
       "Plastic parameters are required by this shell deformation model.");
 
-  CacheData &cacheData = this->cacheData(cacheDataBase);
+  ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
   cacheData.x[0] = ES::V3d(x[0], x[1], x[2]);
   cacheData.x[1] = ES::V3d(x[3], x[4], x[5]);
   cacheData.x[2] = ES::V3d(x[6], x[7], x[8]);
@@ -109,21 +96,20 @@ void ShellDeformationModel::prepareData(
 
   cacheData.a = elementMapping_->compute_a(trianglePositions(cacheData.x));
   cacheData.b = elementMapping_->compute_b(cacheData.x);
-  cacheDataBase.markPrepared();
 }
 
-double ShellDeformationModel::computeEnergy(const DeformationModelCacheData &cacheDataBase) const
+double ShellDeformationModel::compute_E(const ShellDeformationModelCacheData &cacheDataBase) const
 {
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
-  return computeEnergyWithParams(cacheData, parameterView(cacheData.plasticParamsValue), parameterView(cacheData.elasticParamsValue));
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
+  return compute_E(cacheData, parameterView(cacheData.plasticParamsValue), parameterView(cacheData.elasticParamsValue));
 }
 
-void ShellDeformationModel::compute_dE_dx(const DeformationModelCacheData &cacheDataBase,
+void ShellDeformationModel::compute_dE_dx(const ShellDeformationModelCacheData &cacheDataBase,
   ES::RefVecXd grad) const
 {
   if (grad.size() != getNumDOFs())
     throw std::invalid_argument("Shell deformation gradient has unexpected size.");
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
@@ -144,12 +130,12 @@ void ShellDeformationModel::compute_dE_dx(const DeformationModelCacheData &cache
     dbdx.transpose() * Eigen::Map<const ES::V4d>(dEdb.data()) * cacheData.area;
 }
 
-void ShellDeformationModel::compute_d2E_dx2(const DeformationModelCacheData &cacheDataBase,
+void ShellDeformationModel::compute_d2E_dx2(const ShellDeformationModelCacheData &cacheDataBase,
   ES::RefMatXd hess) const
 {
   if (hess.rows() != getNumDOFs() || hess.cols() != getNumDOFs())
     throw std::invalid_argument("Shell deformation Hessian has unexpected shape.");
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
@@ -192,11 +178,11 @@ void ShellDeformationModel::compute_d2E_dx2(const DeformationModelCacheData &cac
     hessMap = projectSymmetricPSD(hessMap);
 }
 
-void ShellDeformationModel::compute_d2E_dudp(const DeformationModelCacheData &cacheDataBase,
+void ShellDeformationModel::compute_d2E_dudp(const ShellDeformationModelCacheData &cacheDataBase,
   ES::RefMatXd hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0)
     return;
 
@@ -249,11 +235,11 @@ void ShellDeformationModel::compute_d2E_dudp(const DeformationModelCacheData &ca
   ES::Mp<ES::MXd>(hess.data(), 18, np) = mixed.block(0, 0, 18, np);
 }
 
-void ShellDeformationModel::compute_d2E_dude(const DeformationModelCacheData &cacheDataBase,
+void ShellDeformationModel::compute_d2E_dude(const ShellDeformationModelCacheData &cacheDataBase,
   ES::RefMatXd hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
   if (numElasticParams_ == 0)
     return;
 
@@ -284,11 +270,11 @@ void ShellDeformationModel::compute_d2E_dude(const DeformationModelCacheData &ca
   ES::Mp<ES::MXd>(hess.data(), 18, np) = mixed.block(0, 0, 18, np);
 }
 
-void ShellDeformationModel::compute_dE_dp(const DeformationModelCacheData &cacheDataBase,
+void ShellDeformationModel::compute_dE_dp(const ShellDeformationModelCacheData &cacheDataBase,
   ES::RefVecXd grad, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0)
     return;
 
@@ -298,7 +284,7 @@ void ShellDeformationModel::compute_dE_dp(const DeformationModelCacheData &cache
 
   const auto plasticParamView = parameterView(cacheData.plasticParamsValue);
   const auto elasticParamView = parameterView(cacheData.elasticParamsValue);
-  const double psi = computeEnergyWithParams(cacheData, plasticParamView, elasticParamView) / cacheData.area;
+  const double psi = compute_E(cacheData, plasticParamView, elasticParamView) / cacheData.area;
 
   const ES::M2d dpsiDabarMat = elastic2D_->compute_dpsi_dabar(
     elasticParamView, cacheData.a, cacheData.b, cacheData.abar, cacheData.bbar);
@@ -319,11 +305,11 @@ void ShellDeformationModel::compute_dE_dp(const DeformationModelCacheData &cache
   }
 }
 
-void ShellDeformationModel::compute_d2E_dp2(const DeformationModelCacheData &cacheDataBase,
+void ShellDeformationModel::compute_d2E_dp2(const ShellDeformationModelCacheData &cacheDataBase,
   ES::RefMatXd hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0)
     return;
 
@@ -332,7 +318,7 @@ void ShellDeformationModel::compute_d2E_dp2(const DeformationModelCacheData &cac
   hess.setZero();
   const auto elasticParamView = parameterView(cacheData.elasticParamsValue);
   const auto plasticParamView = parameterView(cacheData.plasticParamsValue);
-  const double psi = computeEnergyWithParams(cacheData, plasticParamView, elasticParamView) / cacheData.area;
+  const double psi = compute_E(cacheData, plasticParamView, elasticParamView) / cacheData.area;
 
   const ES::M2d dpsiDabarMat = elastic2D_->compute_dpsi_dabar(
     elasticParamView, cacheData.a, cacheData.b, cacheData.abar, cacheData.bbar);
@@ -369,22 +355,16 @@ void ShellDeformationModel::compute_d2E_dp2(const DeformationModelCacheData &cac
         d2area * psi +
         cacheData.plasticDAreaDparamScratch[i] * dpsiDpJ +
         cacheData.plasticDAreaDparamScratch[j] * dpsiDpI +
-        cacheData.area * (
-          dabarDp.col(i).dot(d2psiDabar2 * dabarDp.col(j)) +
-          dabarDp.col(i).dot(d2psiDabarDbbar * dbbarDp.col(j)) +
-          dbbarDp.col(i).dot(d2psiDabarDbbar.transpose() * dabarDp.col(j)) +
-          dbbarDp.col(i).dot(d2psiDbbar2 * dbbarDp.col(j)) +
-          dpsiDabar.dot(d2abarVec) +
-          dpsiDbbar.dot(d2bbarVec));
+        cacheData.area * (dabarDp.col(i).dot(d2psiDabar2 * dabarDp.col(j)) + dabarDp.col(i).dot(d2psiDabarDbbar * dbbarDp.col(j)) + dbbarDp.col(i).dot(d2psiDabarDbbar.transpose() * dabarDp.col(j)) + dbbarDp.col(i).dot(d2psiDbbar2 * dbbarDp.col(j)) + dpsiDabar.dot(d2abarVec) + dpsiDbbar.dot(d2bbarVec));
     }
   }
 }
 
-void ShellDeformationModel::compute_dE_de(const DeformationModelCacheData &cacheDataBase,
+void ShellDeformationModel::compute_dE_de(const ShellDeformationModelCacheData &cacheDataBase,
   ES::RefVecXd grad, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
   if (numElasticParams_ == 0)
     return;
 
@@ -398,11 +378,11 @@ void ShellDeformationModel::compute_dE_de(const DeformationModelCacheData &cache
   grad *= cacheData.area;
 }
 
-void ShellDeformationModel::compute_d2E_de2(const DeformationModelCacheData &cacheDataBase,
+void ShellDeformationModel::compute_d2E_de2(const ShellDeformationModelCacheData &cacheDataBase,
   ES::RefMatXd hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
   if (numElasticParams_ == 0)
     return;
 
@@ -416,11 +396,11 @@ void ShellDeformationModel::compute_d2E_de2(const DeformationModelCacheData &cac
   hess *= cacheData.area;
 }
 
-void ShellDeformationModel::compute_d2E_dpde(const DeformationModelCacheData &cacheDataBase,
+void ShellDeformationModel::compute_d2E_dpde(const ShellDeformationModelCacheData &cacheDataBase,
   ES::RefMatXd hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const CacheData &cacheData = this->cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0 || numElasticParams_ == 0)
     return;
 
@@ -454,15 +434,13 @@ void ShellDeformationModel::compute_d2E_dpde(const DeformationModelCacheData &ca
   for (int i = 0; i < numPlasticParams_; i++) {
     for (int j = 0; j < numElasticParams_; j++) {
       hess(i, j) = cacheData.plasticDAreaDparamScratch[i] * dpsiDparam[j] +
-        cacheData.area * (
-          dpsiDabarDparam.col(j).dot(dabarDp.col(i)) +
-          dpsiDbbarDparam.col(j).dot(dbbarDp.col(i)));
+        cacheData.area * (dpsiDabarDparam.col(j).dot(dabarDp.col(i)) + dpsiDbbarDparam.col(j).dot(dbbarDp.col(i)));
     }
   }
 }
 
 int ShellDeformationModel::computeVonMisesStress(
-  const DeformationModelCacheData &cacheDataBase,
+  const ShellDeformationModelCacheData &cacheDataBase,
   std::span<double> stresses, int capacity) const
 {
   if (capacity < 1)
@@ -475,7 +453,7 @@ int ShellDeformationModel::computeVonMisesStress(
     throw UnsupportedDeformationDiagnosticError(
       "Von Mises stress requires shell elastic parameters.");
 
-  const CacheData &cd = cacheData(cacheDataBase);
+  const ShellDeformationModelCacheData &cd = cacheData(cacheDataBase);
   double value = 0.0;
   const auto elasticParamView = parameterView(cd.elasticParamsValue);
   bool ok = elastic2D_->computeVonMisesStress(
@@ -489,11 +467,6 @@ int ShellDeformationModel::computeVonMisesStress(
 
   stresses[0] = value;
   return 1;
-}
-
-void ShellDeformationModel::setProjectHessianPSD(bool enable)
-{
-  projectHessianPSD_ = enable;
 }
 
 void ShellDeformationModel::defaultPlasticParams(std::span<double> params) const
@@ -519,28 +492,20 @@ DeformationModel::LocalMaxStepResult ShellDeformationModel::computeLocalMaxStepS
   return LocalMaxStepResult{};
 }
 
-const ShellDeformationModel::CacheData &ShellDeformationModel::cacheData(
-  const DeformationModelCacheData &cacheDataBase) const
+const ShellDeformationModelCacheData &ShellDeformationModel::cacheData(
+  const ShellDeformationModelCacheData &cacheDataBase) const
 {
-  const auto *cacheData = dynamic_cast<const CacheData *>(&cacheDataBase);
-  if (cacheData == nullptr || !isCacheDataCompatible(cacheDataBase))
-    throw std::invalid_argument("Shell deformation cache data is incompatible with this model.");
-  if (!cacheDataBase.isPrepared())
-    throw std::logic_error("Shell deformation cache data has not been prepared.");
-  return *cacheData;
+  return cacheDataBase;
 }
 
-ShellDeformationModel::CacheData &ShellDeformationModel::cacheData(
-  DeformationModelCacheData &cacheDataBase) const
+ShellDeformationModelCacheData &ShellDeformationModel::cacheData(
+  ShellDeformationModelCacheData &cacheDataBase) const
 {
-  auto *cacheData = dynamic_cast<CacheData *>(&cacheDataBase);
-  if (cacheData == nullptr || !isCacheDataCompatible(cacheDataBase))
-    throw std::invalid_argument("Shell deformation cache data is incompatible with this model.");
-  return *cacheData;
+  return cacheDataBase;
 }
 
-double ShellDeformationModel::computeEnergyWithParams(
-  const CacheData &cacheData, std::span<const double> plasticParams, std::span<const double> elasticParams) const
+double ShellDeformationModel::compute_E(
+  const ShellDeformationModelCacheData &cacheData, std::span<const double> plasticParams, std::span<const double> elasticParams) const
 {
   ES::M2d abar;
   ES::M2d bbar;

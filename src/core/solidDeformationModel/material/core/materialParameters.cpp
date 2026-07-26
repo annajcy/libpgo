@@ -60,14 +60,19 @@ std::shared_ptr<const MaterialParameterField> MaterialParameterField::create(
 }
 
 void MaterialParameterEvaluationScratch::prepare(
-  const MaterialParameterField &field)
+  const MaterialParameterField &field,
+  int numMaterialLocations)
 {
+  if (numMaterialLocations < 0)
+    throw std::invalid_argument(
+      "Material parameter location count must be non-negative.");
   const std::size_t localDofs = static_cast<std::size_t>(
     field.dofLayout().numLocalDofs());
   const std::size_t channels = static_cast<std::size_t>(
     field.channelMapping().numChannels());
   local.resize(localDofs);
-  material.resize(channels);
+  material.resize(
+    static_cast<std::size_t>(numMaterialLocations) * channels);
   jacobian.resize(static_cast<Eigen::Index>(channels),
     static_cast<Eigen::Index>(localDofs));
 }
@@ -179,6 +184,61 @@ std::span<const double> MaterialParameterEvaluationView::values(
     return plasticValues_;
   throw std::invalid_argument(
     "Material parameter field does not belong to the evaluation space.");
+}
+
+void MaterialParameterEvaluationView::evaluateElement(
+  const MaterialParameterField &field,
+  int element,
+  int numMaterialLocations,
+  std::span<double> localDofScratch,
+  std::span<double> materialValues) const
+{
+  const ParameterDofLayout &layout = field.dofLayout();
+  const MaterialChannelMapping &mapping = field.channelMapping();
+  if (element < 0 || element >= layout.numElements())
+    throw std::out_of_range("Material parameter element is out of range.");
+  if (numMaterialLocations < 0)
+    throw std::invalid_argument(
+      "Material parameter location count must be non-negative.");
+
+  const std::span<const double> globalValues = values(field);
+  const std::size_t numLocalDofs =
+    static_cast<std::size_t>(layout.numLocalDofs());
+  const std::size_t numChannels =
+    static_cast<std::size_t>(mapping.numChannels());
+  const std::size_t requiredMaterialValues =
+    static_cast<std::size_t>(numMaterialLocations) * numChannels;
+  if (localDofScratch.size() < numLocalDofs)
+    throw std::invalid_argument(
+      "Material parameter local-DOF scratch is too small.");
+  if (materialValues.size() < requiredMaterialValues)
+    throw std::invalid_argument(
+      "Material parameter output is too small.");
+  if (numMaterialLocations == 0 || numChannels == 0)
+    return;
+
+  const std::span<double> localDofs =
+    localDofScratch.first(numLocalDofs);
+  layout.gather(element, globalValues, localDofs);
+  for (int q = 0; q < numMaterialLocations; q++) {
+    mapping.evaluate(
+      element, q, localDofs,
+      materialValues.subspan(
+        static_cast<std::size_t>(q) * numChannels, numChannels));
+  }
+}
+
+std::span<const double> MaterialParameterEvaluationView::evaluateElement(
+  const MaterialParameterField &field,
+  int element,
+  int numMaterialLocations,
+  MaterialParameterEvaluationScratch &scratch) const
+{
+  scratch.prepare(field, numMaterialLocations);
+  evaluateElement(
+    field, element, numMaterialLocations,
+    scratch.local, scratch.material);
+  return scratch.material;
 }
 
 MaterialParameters::MaterialParameters(

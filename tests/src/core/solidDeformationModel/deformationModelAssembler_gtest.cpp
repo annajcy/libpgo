@@ -269,8 +269,8 @@ TEST(DeformationModelAssembler, NonlinearMappingGradientAndHessianMatchFD)
     zp[col] += h;
     zm[col] -= h;
     fdGradient[col] = (
-      assembler.computeEnergy(constSpan(fixture.absolutePositions), view(zp)) -
-      assembler.computeEnergy(constSpan(fixture.absolutePositions), view(zm))) /
+      assembler.compute_E(constSpan(fixture.absolutePositions), view(zp)) -
+      assembler.compute_E(constSpan(fixture.absolutePositions), view(zm))) /
       (2.0 * h);
 
     ES::VXd gp(6), gm(6);
@@ -314,9 +314,9 @@ TEST(DeformationModelAssembler, NonlinearMixedDisplacementDerivativeMatchesFD)
     zm[col] -= h;
     ES::VXd gp = ES::VXd::Zero(assembler.getNumDOFs());
     ES::VXd gm = ES::VXd::Zero(assembler.getNumDOFs());
-    assembler.computeGradient(
+    assembler.compute_dE_dx(
       constSpan(fixture.absolutePositions), view(zp), gp);
-    assembler.computeGradient(
+    assembler.compute_dE_dx(
       constSpan(fixture.absolutePositions), view(zm), gm);
     fd.col(col) = (gp - gm) / (2.0 * h);
   }
@@ -368,7 +368,7 @@ TEST(DeformationModelAssembler, RejectsStateFromDifferentSpace)
   Fixture a = makeFixture();
   Fixture b = makeFixture();
   EXPECT_THROW(
-    a.assembler->computeEnergy(
+    a.assembler->compute_E(
       constSpan(a.absolutePositions), b.parameters->snapshot().view()),
     std::invalid_argument);
 }
@@ -387,12 +387,12 @@ TEST(DeformationModelAssembler, MappingExceptionDoesNotModifyCommittedState)
       std::span<const double>(trial.data(), trial.size()));
 
   EXPECT_THROW(
-    fixture.assembler->computeEnergy(
+    fixture.assembler->compute_E(
       constSpan(fixture.absolutePositions), trialView),
     std::runtime_error);
   EXPECT_TRUE(fixture.parameters->plasticSnapshot().isApprox(before, 0.0));
   EXPECT_NO_THROW({
-    const double committedEnergy = fixture.assembler->computeEnergy(
+    const double committedEnergy = fixture.assembler->compute_E(
       constSpan(fixture.absolutePositions), fixture.parameters->snapshot().view());
     EXPECT_TRUE(std::isfinite(committedEnergy));
   });
@@ -437,22 +437,22 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
   Fixture a = makeFixture();
   Fixture b = makeFixture();
   const ES::VXd bBefore = b.parameters->plasticSnapshot();
-  const double expectedA = a.assembler->computeEnergy(
+  const double expectedA = a.assembler->compute_E(
     constSpan(a.absolutePositions), a.parameters->snapshot().view());
-  const double expectedB = b.assembler->computeEnergy(
+  const double expectedB = b.assembler->compute_E(
     constSpan(b.absolutePositions), b.parameters->snapshot().view());
 
   ES::VXd changedA = a.parameters->plasticSnapshot();
   changedA[0] += 0.01;
   a.parameters->setPlasticValues(changedA);
   EXPECT_TRUE(b.parameters->plasticSnapshot().isApprox(bBefore, 0.0));
-  const double changedExpectedA = a.assembler->computeEnergy(
+  const double changedExpectedA = a.assembler->compute_E(
     constSpan(a.absolutePositions), a.parameters->snapshot().view());
 
   auto evalA = std::async(std::launch::async, [&]() {
     double value = 0.0;
     for (int i = 0; i < 20; i++) {
-      value = a.assembler->computeEnergy(
+      value = a.assembler->compute_E(
         constSpan(a.absolutePositions), a.parameters->snapshot().view());
     }
     return value;
@@ -460,7 +460,7 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
   auto evalB = std::async(std::launch::async, [&]() {
     double value = 0.0;
     for (int i = 0; i < 20; i++) {
-      value = b.assembler->computeEnergy(
+      value = b.assembler->compute_E(
         constSpan(b.absolutePositions), b.parameters->snapshot().view());
     }
     return value;

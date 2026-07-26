@@ -38,7 +38,6 @@ public:
     std::shared_ptr<const MaterialFrameField> materialFrames);
 
   ~DeformationModelManager();
-  void setProjectHessianPSD(bool enable);
 
   int getNumPlasticParameters() const;
   int getNumElasticParameters() const;
@@ -57,7 +56,7 @@ protected:
   std::unique_ptr<DeformationModelManagerImpl> data;
 
 private:
-  void initImpl(const Formulation &formulation);
+  void initImpl(const Formulation &formulation, DeformationModelConstructionOptions options);
 };
 
 }  // namespace SolidDeformationModel

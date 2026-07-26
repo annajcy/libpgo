@@ -48,7 +48,7 @@ TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(
         std::span<const double>(xlocal.data(), static_cast<std::size_t>(xlocal.size())),
         tetBasis, tetQuad);
       DmInv.block<3, 3>(0, ei * 3) = mapping.restDmInv(0);
-      dFdx[ei] = mapping.rest_dFdx(0);
+      dFdx[ei] = mapping.rest_dF_dx(0);
     }
   }
 

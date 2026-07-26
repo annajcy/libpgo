@@ -21,30 +21,60 @@ using namespace pgo::SolidDeformationModel;
 
 namespace
 {
-template <typename Derived>
+template<typename Derived>
 std::span<const double> constSpan(const Eigen::MatrixBase<Derived> &values)
 {
   return std::span<const double>(values.derived().data(),
-                                static_cast<size_t>(values.size()));
+    static_cast<size_t>(values.size()));
 }
 
-template <typename Derived>
+template<typename Derived>
 std::span<double> mutableSpan(Eigen::MatrixBase<Derived> &values)
 {
   return std::span<double>(values.derived().data(),
-                           static_cast<size_t>(values.size()));
+    static_cast<size_t>(values.size()));
 }
 
 const double restTet[12] = {
-  0.0, 0.0, 0.0,
-  2.0, 0.0, 0.0,
-  0.0, 3.0, 0.0,
-  0.0, 0.0, 4.0,
+  0.0,
+  0.0,
+  0.0,
+  2.0,
+  0.0,
+  0.0,
+  0.0,
+  3.0,
+  0.0,
+  0.0,
+  0.0,
+  4.0,
 };
 
 const double restHex[24] = {
-  0.0, 0.0, 0.0,  1.5, 0.0, 0.0,  1.5, 2.0, 0.0,  0.0, 2.0, 0.0,
-  0.0, 0.0, 3.0,  1.5, 0.0, 3.0,  1.5, 2.0, 3.0,  0.0, 2.0, 3.0,
+  0.0,
+  0.0,
+  0.0,
+  1.5,
+  0.0,
+  0.0,
+  1.5,
+  2.0,
+  0.0,
+  0.0,
+  2.0,
+  0.0,
+  0.0,
+  0.0,
+  3.0,
+  1.5,
+  0.0,
+  3.0,
+  1.5,
+  2.0,
+  3.0,
+  0.0,
+  2.0,
+  3.0,
 };
 }  // namespace
 
@@ -60,29 +90,26 @@ TEST(VolumetricDeformationModelGTest, TetEnergyFiniteAtRest)
   VolumetricDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   ES::V12d xVec;
-  for (int i = 0; i < 12; i++) xVec[i] = restTet[i];
+  for (int i = 0; i < 12; i++)
+    xVec[i] = restTet[i];
 
+  auto evaluator = model.createEvaluator();
+  EXPECT_THROW(evaluator->compute_E(), std::logic_error);
+  evaluator->prepare(constSpan(xVec), std::span<const double>{},
+    std::span<const double>{});
 
-  auto cd = model.allocateCacheData();
-  EXPECT_FALSE(cd->isPrepared());
-  model.prepareData(constSpan(xVec), std::span<const double>{},
-                    std::span<const double>{}, *cd);
-  EXPECT_TRUE(cd->isPrepared());
-
-  double energy = model.computeEnergy(*cd);
+  double energy = evaluator->compute_E();
   EXPECT_TRUE(std::isfinite(energy));
 
   ES::V12d grad;
-  model.compute_dE_dx(*cd, grad);
+  evaluator->compute_dE_dx(grad);
   for (int i = 0; i < 12; i++)
     EXPECT_TRUE(std::isfinite(grad[i]));
 
   ES::M12d hess;
-  model.compute_d2E_dx2(*cd, hess);
+  evaluator->compute_d2E_dx2(hess);
   for (int i = 0; i < 144; i++)
     EXPECT_TRUE(std::isfinite(hess.data()[i]));
-
-  
 }
 
 TEST(VolumetricDeformationModelGTest, ParameterizedModelRejectsMissingParameters)
@@ -99,17 +126,17 @@ TEST(VolumetricDeformationModelGTest, ParameterizedModelRejectsMissingParameters
   ES::V12d xVec;
   for (int i = 0; i < 12; i++)
     xVec[i] = restTet[i];
-  auto cd = model.allocateCacheData();
+  auto evaluator = model.createEvaluator();
 
   EXPECT_THROW(
-    model.prepareData(constSpan(xVec), std::span<const double>{},
-                      std::span<const double>{}, *cd),
+    evaluator->prepare(constSpan(xVec), std::span<const double>{},
+      std::span<const double>{}),
     std::invalid_argument);
 
   const ES::V3d plasticParams = ES::V3d::Ones();
   EXPECT_NO_THROW(
-    model.prepareData(
-      constSpan(xVec), std::span<const double>{}, constSpan(plasticParams), *cd));
+    evaluator->prepare(
+      constSpan(xVec), std::span<const double>{}, constSpan(plasticParams)));
 }
 
 // ============================================================
@@ -124,27 +151,25 @@ TEST(VolumetricDeformationModelGTest, HexEnergyFiniteAtRest)
   VolumetricDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   ES::V24d xVec;
-  for (int i = 0; i < 24; i++) xVec[i] = restHex[i];
+  for (int i = 0; i < 24; i++)
+    xVec[i] = restHex[i];
 
+  auto evaluator = model.createEvaluator();
+  evaluator->prepare(constSpan(xVec), std::span<const double>{},
+    std::span<const double>{});
 
-  auto cd = model.allocateCacheData();
-  model.prepareData(constSpan(xVec), std::span<const double>{},
-                    std::span<const double>{}, *cd);
-
-  double energy = model.computeEnergy(*cd);
+  double energy = evaluator->compute_E();
   EXPECT_TRUE(std::isfinite(energy));
 
   ES::V24d grad;
-  model.compute_dE_dx(*cd, grad);
+  evaluator->compute_dE_dx(grad);
   for (int i = 0; i < 24; i++)
     EXPECT_TRUE(std::isfinite(grad[i]));
 
   ES::M24d hess;
-  model.compute_d2E_dx2(*cd, hess);
+  evaluator->compute_d2E_dx2(hess);
   for (int i = 0; i < 576; i++)
     EXPECT_TRUE(std::isfinite(hess.data()[i]));
-
-  
 }
 
 // ============================================================
@@ -159,15 +184,15 @@ TEST(VolumetricDeformationModelGTest, TetGradientMatchesFD)
   VolumetricDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   ES::V12d xVec;
-  for (int i = 0; i < 12; i++) xVec[i] = restTet[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));
+  for (int i = 0; i < 12; i++)
+    xVec[i] = restTet[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));
 
-
-  auto cd = model.allocateCacheData();
-  model.prepareData(constSpan(xVec), std::span<const double>{},
-                    std::span<const double>{}, *cd);
+  auto evaluator = model.createEvaluator();
+  evaluator->prepare(constSpan(xVec), std::span<const double>{},
+    std::span<const double>{});
 
   ES::V12d grad;
-  model.compute_dE_dx(*cd, grad);
+  evaluator->compute_dE_dx(grad);
 
   const double eps = 1e-6;
   for (int i = 0; i < 12; i++) {
@@ -175,23 +200,19 @@ TEST(VolumetricDeformationModelGTest, TetGradientMatchesFD)
     xp[i] += eps;
     xm[i] -= eps;
 
-    auto cdp = model.allocateCacheData();
-    model.prepareData(constSpan(xp), std::span<const double>{},
-                      std::span<const double>{}, *cdp);
-    double ep = model.computeEnergy(*cdp);
-    
+    auto evaluatorPlus = model.createEvaluator();
+    evaluatorPlus->prepare(constSpan(xp), std::span<const double>{},
+      std::span<const double>{});
+    double ep = evaluatorPlus->compute_E();
 
-    auto cdm = model.allocateCacheData();
-    model.prepareData(constSpan(xm), std::span<const double>{},
-                      std::span<const double>{}, *cdm);
-    double em = model.computeEnergy(*cdm);
-    
+    auto evaluatorMinus = model.createEvaluator();
+    evaluatorMinus->prepare(constSpan(xm), std::span<const double>{},
+      std::span<const double>{});
+    double em = evaluatorMinus->compute_E();
 
     double fd = (ep - em) / (2.0 * eps);
     EXPECT_NEAR(grad[i], fd, 1e-5) << "grad[" << i << "]";
   }
-
-  
 }
 
 // ============================================================
@@ -206,15 +227,15 @@ TEST(VolumetricDeformationModelGTest, HexGradientMatchesFD)
   VolumetricDeformationModel model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
 
   ES::V24d xVec;
-  for (int i = 0; i < 24; i++) xVec[i] = restHex[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));
+  for (int i = 0; i < 24; i++)
+    xVec[i] = restHex[i] + 0.01 * std::sin(0.7 * static_cast<double>(i));
 
-
-  auto cd = model.allocateCacheData();
-  model.prepareData(constSpan(xVec), std::span<const double>{},
-                    std::span<const double>{}, *cd);
+  auto evaluator = model.createEvaluator();
+  evaluator->prepare(constSpan(xVec), std::span<const double>{},
+    std::span<const double>{});
 
   ES::V24d grad;
-  model.compute_dE_dx(*cd, grad);
+  evaluator->compute_dE_dx(grad);
 
   const double eps = 1e-6;
   for (int i = 0; i < 24; i++) {
@@ -222,21 +243,17 @@ TEST(VolumetricDeformationModelGTest, HexGradientMatchesFD)
     xp[i] += eps;
     xm[i] -= eps;
 
-    auto cdp = model.allocateCacheData();
-    model.prepareData(constSpan(xp), std::span<const double>{},
-                      std::span<const double>{}, *cdp);
-    double ep = model.computeEnergy(*cdp);
-    
+    auto evaluatorPlus = model.createEvaluator();
+    evaluatorPlus->prepare(constSpan(xp), std::span<const double>{},
+      std::span<const double>{});
+    double ep = evaluatorPlus->compute_E();
 
-    auto cdm = model.allocateCacheData();
-    model.prepareData(constSpan(xm), std::span<const double>{},
-                      std::span<const double>{}, *cdm);
-    double em = model.computeEnergy(*cdm);
-    
+    auto evaluatorMinus = model.createEvaluator();
+    evaluatorMinus->prepare(constSpan(xm), std::span<const double>{},
+      std::span<const double>{});
+    double em = evaluatorMinus->compute_E();
 
     double fd = (ep - em) / (2.0 * eps);
     EXPECT_NEAR(grad[i], fd, 1e-5) << "grad[" << i << "]";
   }
-
-  
 }

@@ -13,6 +13,7 @@ copyright to USC,MIT,NUS
 #include "svdDerivatives.h"
 #include "pgoLogging.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <span>
 #include <stdexcept>
@@ -23,56 +24,7 @@ using namespace pgo::SolidDeformationModel;
 
 using TetFEM = VolumetricDeformationModel;
 
-namespace
-{
-void fillElementParameterValues(
-  const MaterialParameterField &field,
-  MaterialParameterEvaluationView state,
-  int elementID,
-  int numMaterialLocations,
-  std::vector<double> &localDofs,
-  std::vector<double> &parameterValues)
-{
-  const ParameterDofLayout &layout = field.dofLayout();
-  const MaterialChannelMapping &mapping = field.channelMapping();
-  const int numLocalDofs = layout.numLocalDofs();
-  const int numChannels = mapping.numChannels();
-
-  localDofs.resize(static_cast<std::size_t>(numLocalDofs));
-  parameterValues.resize(
-    static_cast<std::size_t>(numMaterialLocations) * numChannels);
-  if (numChannels == 0)
-    return;
-
-  layout.gather(elementID, state.values(field), localDofs);
-  for (int q = 0; q < numMaterialLocations; q++) {
-    mapping.evaluate(
-      elementID, q, localDofs,
-      std::span<double>(
-        parameterValues.data() +
-          static_cast<std::ptrdiff_t>(q) * numChannels,
-        static_cast<std::size_t>(numChannels)));
-  }
-}
-}  // namespace
-
-DeformationModel::CacheData &
-PrescribedPrincipleStressConstraintFunctions::ThreadScratch::cacheFor(const DeformationModel &model)
-{
-  for (auto &cacheData : reusableCacheData) {
-    if (model.isCacheDataCompatible(*cacheData)) {
-      cacheData->markUnprepared();
-      return *cacheData;
-    }
-  }
-
-  reusableCacheData.push_back(model.allocateCacheData());
-  if (!reusableCacheData.back())
-    throw std::runtime_error("Deformation model returned null cache data.");
-  return *reusableCacheData.back();
-}
-
-  PrescribedPrincipleStressConstraintFunctions::
+PrescribedPrincipleStressConstraintFunctions::
   PrescribedPrincipleStressConstraintFunctions(
     int nAll, int doff, std::span<const int> elementIDs,
     const DeformationModelManager &tmdmm,
@@ -88,22 +40,22 @@ PrescribedPrincipleStressConstraintFunctions::ThreadScratch::cacheFor(const Defo
   const auto &space = *materialParameters_->space();
   const SimulationMesh &mesh = tetMeshDMM.getMesh();
   if (space.elastic().channelMapping().numChannels() !=
-      tetMeshDMM.getNumElasticParameters())
+    tetMeshDMM.getNumElasticParameters())
     throw std::invalid_argument(
       "Constraint elastic parameter channels do not match the deformation model.");
   if (space.plastic().channelMapping().numChannels() !=
-      tetMeshDMM.getNumPlasticParameters())
+    tetMeshDMM.getNumPlasticParameters())
     throw std::invalid_argument(
       "Constraint plastic parameter channels do not match the deformation model.");
   if (space.elastic().dofLayout().numElements() != mesh.getNumElements() ||
-      space.plastic().dofLayout().numElements() != mesh.getNumElements())
+    space.plastic().dofLayout().numElements() != mesh.getNumElements())
     throw std::invalid_argument(
       "Constraint material parameter layouts do not match the mesh.");
 
   elements.assign(elementIDs.begin(), elementIDs.end());
   targetPrincipleStress.resize(static_cast<Eigen::Index>(elements.size()) * 3);
 
-  elementFEMs_.reserve(elements.size());
+  elementData_.reserve(elements.size());
   for (std::size_t ei = 0; ei < elements.size(); ei++) {
     if (elements[ei] < 0 || elements[ei] >= mesh.getNumElements())
       throw std::out_of_range(
@@ -113,13 +65,7 @@ PrescribedPrincipleStressConstraintFunctions::ThreadScratch::cacheFor(const Defo
     if (tetFEM == nullptr)
       throw std::invalid_argument(
         "Prescribed principal stress constraints require volumetric deformation models.");
-    if (tetFEM->getNumElasticParameters() !=
-          space.elastic().channelMapping().numChannels() ||
-        tetFEM->getNumPlasticParameters() !=
-          space.plastic().channelMapping().numChannels())
-      throw std::invalid_argument(
-        "Constraint material parameter channels do not match an element model.");
-    elementFEMs_.emplace_back(*tetFEM);
+    elementData_.emplace_back(*tetFEM);
   }
 
   std::vector<ES::TripletD> entries;
@@ -158,28 +104,26 @@ PrescribedPrincipleStressConstraintFunctions::ThreadScratch::cacheFor(const Defo
   hessLocks = std::vector<tbb::spin_mutex>(nAll);
 }
 
-DeformationModel::CacheData &
+VolumetricDeformationModelEvaluator &
 PrescribedPrincipleStressConstraintFunctions::prepareElement(
-  int elementID, const VolumetricDeformationModel &model,
-  MaterialParameterEvaluationView state, ThreadScratch &scratch) const
+  int elementID, MaterialParameterEvaluationView state,
+  ElementData &data) const
 {
-  DeformationModel::CacheData &cache = scratch.cacheFor(model);
-  const int numMaterialLocations = model.getNumMaterialLocations();
   const MaterialParameterSpace &space = state.space();
-  fillElementParameterValues(
-    space.elastic(), state, elementID, numMaterialLocations,
-    scratch.elasticLocalDofs, scratch.elasticParamValues);
-  fillElementParameterValues(
-    space.plastic(), state, elementID, numMaterialLocations,
-    scratch.plasticLocalDofs, scratch.plasticParamValues);
+  const std::span<const double> elasticParameters =
+    state.evaluateElement(
+      space.elastic(), elementID, data.numMaterialLocations,
+      data.elasticParameters);
+  const std::span<const double> plasticParameters =
+    state.evaluateElement(
+      space.plastic(), elementID, data.numMaterialLocations,
+      data.plasticParameters);
 
-  model.prepareData(
-    std::span<const double>(scratch.localp.data(),
-      static_cast<std::size_t>(model.getNumDOFs())),
-    std::span<const double>(scratch.elasticParamValues.data(), scratch.elasticParamValues.size()),
-    std::span<const double>(scratch.plasticParamValues.data(), scratch.plasticParamValues.size()),
-    cache);
-  return cache;
+  data.evaluator->prepare(
+    std::span<const double>(data.localp.data(),
+      static_cast<std::size_t>(data.numDOFs)),
+    elasticParameters, plasticParameters);
+  return *data.evaluator;
 }
 
 void PrescribedPrincipleStressConstraintFunctions::setTargetPHat(
@@ -199,7 +143,7 @@ void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES:
   const MaterialParameterSnapshot snapshot = materialParameters_->snapshot();
   const MaterialParameterEvaluationView state = snapshot.view();
   for (int i = 0; i < (int)elements.size(); i++) {
-    auto &scratch = threadScratch_.local();
+    auto &scratch = elementData_[i];
     ES::V18d &localp = scratch.localp;
     ES::V3d Phat = targetPrincipleStress.segment<3>(i * 3);
     int eleID = elements[i];
@@ -210,11 +154,10 @@ void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES:
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const auto &fem = elementFEMs_[i].get();
-    DeformationModel::CacheData &cache =
-      prepareElement(eleID, fem, state, scratch);
+    VolumetricDeformationModelEvaluator &evaluator =
+      prepareElement(eleID, state, scratch);
 
-    ES::M3d P = fem.computeP(cache, 0);
+    ES::M3d P = evaluator.compute_P(0);
 
     ES::V3d S;
     NonlinearOptimization::SVDDerivatives::unorderedSquareMatrixSVD3(P, S);
@@ -230,7 +173,7 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
   const MaterialParameterEvaluationView state = snapshot.view();
 
   for (int i = 0; i < (int)elements.size(); i++) {
-    auto &scratch = threadScratch_.local();
+    auto &scratch = elementData_[i];
     ES::V18d &localp = scratch.localp;
     ES::V3d Phat = targetPrincipleStress.segment<3>(i * 3);
     int eleID = elements[i];
@@ -241,11 +184,10 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const auto &fem = elementFEMs_[i].get();
-    DeformationModel::CacheData &cache =
-      prepareElement(eleID, fem, state, scratch);
+    VolumetricDeformationModelEvaluator &evaluator =
+      prepareElement(eleID, state, scratch);
 
-    ES::M3d P = fem.computeP(cache, 0);
+    ES::M3d P = evaluator.compute_P(0);
 
     ES::V3d S;
     ES::M3d U, V;
@@ -255,8 +197,8 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
     // ES::M3d P1 = Phat.asDiagonal();
     ES::V12d f;
     f.setZero();
-    
-    fem.computeForceFromP(cache, 0, P1, f);
+
+    evaluator.computeForceFromP(0, P1, f);
     for (int j = 0; j < tetMeshDMM.getMesh().getNumElementVertices(); j++) {
       int vid = tetMeshDMM.getMesh().getVertexIndex(eleID, j);
       fext.segment<3>(vid * 3) = f.segment<3>(j * 3);
@@ -266,10 +208,11 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
 
 double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractionFromElement(ES::ConstRefVecXd x, const ES::V3d &n, int eleID) const
 {
-  const auto *fem = dynamic_cast<const TetFEM *>(&tetMeshDMM.getDeformationModel(eleID));
-  if (fem == nullptr)
-    throw std::invalid_argument("Prescribed principal stress constraints require a volumetric deformation model.");
-  auto &scratch = threadScratch_.local();
+  const auto it = std::find(elements.begin(), elements.end(), eleID);
+  if (it == elements.end())
+    throw std::out_of_range("Element is not part of the principal stress constraint.");
+  const std::size_t elementIndex = static_cast<std::size_t>(std::distance(elements.begin(), it));
+  auto &scratch = elementData_[elementIndex];
   ES::V18d &localp = scratch.localp;
 
   for (int j = 0; j < tetMeshDMM.getMesh().getNumElementVertices(); j++) {
@@ -279,10 +222,10 @@ double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractio
     localp.segment<3>(j * 3) = vtxp;
   }
   const MaterialParameterSnapshot snapshot = materialParameters_->snapshot();
-  DeformationModel::CacheData &cache =
-    prepareElement(eleID, *fem, snapshot.view(), scratch);
+  VolumetricDeformationModelEvaluator &evaluator =
+    prepareElement(eleID, snapshot.view(), scratch);
 
-  ES::M3d P = fem->computeP(cache, 0);
+  ES::M3d P = evaluator.compute_P(0);
 
   return (P * n).dot(n);
 }
@@ -293,7 +236,7 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
   const MaterialParameterSnapshot snapshot = materialParameters_->snapshot();
   const MaterialParameterEvaluationView state = snapshot.view();
   for (int i = 0; i < (int)elements.size(); i++) {
-    auto &scratch = threadScratch_.local();
+    auto &scratch = elementData_[i];
     ES::V18d &localp = scratch.localp;
     ES::V3d Phat = targetPrincipleStress.segment<3>(i * 3);
     int eleID = elements[i];
@@ -304,11 +247,10 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const auto &fem = elementFEMs_[i].get();
-    DeformationModel::CacheData &cache =
-      prepareElement(eleID, fem, state, scratch);
+    VolumetricDeformationModelEvaluator &evaluator =
+      prepareElement(eleID, state, scratch);
 
-    ES::M3d P = fem.computeP(cache, 0);
+    ES::M3d P = evaluator.compute_P(0);
 
     ES::V3d S;
     ES::M3d U, V;
@@ -327,8 +269,8 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
 
     ES::M9d dPdF;
     ES::M9x12d dFdx;
-    dPdF = fem.computedPdF(cache, 0);
-    fem.computedFdx(cache, 0, dFdx);
+    dPdF = evaluator.compute_dP_dF(0);
+    evaluator.compute_dF_dx(0, dFdx);
 
     ES::M9x12d dPdx = dPdF * dFdx;
 
@@ -360,7 +302,7 @@ void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVe
   const MaterialParameterSnapshot snapshot = materialParameters_->snapshot();
   const MaterialParameterEvaluationView state = snapshot.view();
   for (int ei = 0; ei < (int)elements.size(); ei++) {
-    auto &scratch = threadScratch_.local();
+    auto &scratch = elementData_[ei];
     ES::V18d &localp = scratch.localp;
     int eleID = elements[ei];
     for (int j = 0; j < tetMeshDMM.getMesh().getNumElementVertices(); j++) {
@@ -370,11 +312,10 @@ void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVe
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    const auto &fem = elementFEMs_[ei].get();
-    DeformationModel::CacheData &cache =
-      prepareElement(eleID, fem, state, scratch);
+    VolumetricDeformationModelEvaluator &evaluator =
+      prepareElement(eleID, state, scratch);
 
-    ES::M3d P = fem.computeP(cache, 0);
+    ES::M3d P = evaluator.compute_P(0);
 
     ES::V3d S;
     ES::M3d U, V;
@@ -404,8 +345,8 @@ void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVe
 
     ES::M9d dPdF;
     ES::M9x12d dFdx;
-    dPdF = fem.computedPdF(cache, 0);
-    fem.computedFdx(cache, 0, dFdx);
+    dPdF = evaluator.compute_dP_dF(0);
+    evaluator.compute_dF_dx(0, dFdx);
     ES::M9x12d dPdx = dPdF * dFdx;
 
     ES::M12d hessLocal;

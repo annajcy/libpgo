@@ -268,7 +268,7 @@ double minCubicDeterminant(const SimulationMesh &mesh, const DeformationModelMan
 
   double minDet = std::numeric_limits<double>::infinity();
   for (int q = 0; q < model->getNumMaterialLocations(); q++) {
-    const ES::M3d F = model->computeF(
+    const ES::M3d F = model->compute_F(
       std::span<const double>(localPositions.data(), localPositions.size()), q);
     minDet = std::min(minDet, F.determinant());
   }

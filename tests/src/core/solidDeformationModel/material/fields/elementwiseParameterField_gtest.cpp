@@ -111,7 +111,7 @@ TEST(NonlinearMaterialChannelMapping, ValueJacobianHessiansAndFiniteDifference)
     for (int channel = 0; channel < 2; channel++) {
       for (int jacobianDof = 0; jacobianDof < 2; jacobianDof++) {
         const double fd =
-            (jp(channel, jacobianDof) -
+          (jp(channel, jacobianDof) -
             jm(channel, jacobianDof)) /
           (2 * h);
         const double analytic =
@@ -188,6 +188,28 @@ TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
   MaterialParameters parameters(space, elasticValues, plasticValues);
   MaterialParameterSnapshot snapshot = parameters.snapshot();
 
+  std::array<double, 2> localDofs{};
+  std::array<double, 4> materialValues{};
+  snapshot.view().evaluateElement(
+    space->elastic(), 1, 2, localDofs, materialValues);
+  EXPECT_DOUBLE_EQ(localDofs[0], 3.0);
+  EXPECT_DOUBLE_EQ(localDofs[1], 4.0);
+  EXPECT_EQ(
+    materialValues,
+    (std::array<double, 4>{ 18.0, 48.0, 18.0, 48.0 }));
+  EXPECT_THROW(
+    snapshot.view().evaluateElement(
+      space->elastic(), 1, 2, localDofs,
+      std::span<double>(materialValues.data(), materialValues.size() - 1)),
+    std::invalid_argument);
+  MaterialParameterEvaluationScratch evaluationScratch;
+  const std::span<const double> evaluatedValues =
+    snapshot.view().evaluateElement(
+      space->elastic(), 1, 2, evaluationScratch);
+  EXPECT_EQ(
+    std::vector<double>(evaluatedValues.begin(), evaluatedValues.end()),
+    (std::vector<double>{ 18.0, 48.0, 18.0, 48.0 }));
+
   MaterialParameterRef thickness = space->elastic().parameter("thickness");
   EXPECT_THROW(space->elastic().parameter("missing"), std::invalid_argument);
   EXPECT_DOUBLE_EQ(thickness.value(1, 0, snapshot.view()), 48.0);
@@ -214,6 +236,11 @@ TEST(MaterialParameterSpace, StateIdentitySnapshotAndSemanticReference)
     thickness.value(
       0, 0,
       MaterialParameters(otherSpace, elasticValues, plasticValues).snapshot().view()),
+    std::invalid_argument);
+  EXPECT_THROW(
+    snapshot.view().evaluateElement(
+      otherSpace->elastic(), 0, 1, localDofs,
+      std::span<double>(materialValues.data(), 2)),
     std::invalid_argument);
 
   EXPECT_THROW(

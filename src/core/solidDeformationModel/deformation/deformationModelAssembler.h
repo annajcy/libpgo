@@ -6,7 +6,7 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "deformation/deformationModelManager.h"
-#include "deformation/deformationModelAssemblerCacheData.h"
+#include "deformation/deformationModelAssemblerElementWorkspace.h"
 #include "formulations/dof/dofLayout.h"
 #include "formulations/formulation/formulation.h"
 #include "material/core/materialParameters.h"
@@ -32,7 +32,7 @@ public:
     int limitingLocationId = -1;
   };
 
-  DeformationModelAssembler(std::shared_ptr<DeformationModelManager> dm,
+  DeformationModelAssembler(std::shared_ptr<const DeformationModelManager> dm,
     const Formulation &formulation,
     std::shared_ptr<const MaterialParameterSpace> materialParameterSpace,
     std::span<const double> elementWeights = {});
@@ -41,11 +41,11 @@ public:
   MaterialMaxStepObservation computeMaxStepObservation(std::span<const double> x, std::span<const double> dx) const;
   double computeMaxStepSize(std::span<const double> x, std::span<const double> dx) const;
 
-  double computeEnergy(std::span<const double> x, MaterialParameterEvaluationView state) const;
-  void computeGradient(
+  double compute_E(std::span<const double> x, MaterialParameterEvaluationView state) const;
+  void compute_dE_dx(
     std::span<const double> x, MaterialParameterEvaluationView state,
     EigenSupport::RefVecXd grad) const;
-  void computeHessian(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dx2(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
 
   // E(u, p, e): u = displacement, p = plastic DOFs, e = elastic DOFs.
   // absolutePositions is rest + u, whose derivative with respect to u is I.
@@ -57,21 +57,12 @@ public:
     EigenSupport::SpMatD &mixedHessian) const;
   int getNumElasticGlobalParams() const;
   int getNumPlasticGlobalParams() const;
-  std::shared_ptr<const MaterialParameterSpace> materialParameterSpace() const
-  {
-    return materialParameterSpace_;
-  }
+  std::shared_ptr<const MaterialParameterSpace> materialParameterSpace() const { return materialParameterSpace_; }
   const EigenSupport::SpMatD &d2E_dp2_template() const { return d2E_dp2Template; }
   const EigenSupport::SpMatD &d2E_de2_template() const { return d2E_de2Template; }
   const EigenSupport::SpMatD &d2E_dpde_template() const { return d2E_dpdeTemplate; }
-  const EigenSupport::SpMatD &d2E_dudp_template() const
-  {
-    return d2E_dudpTemplate;
-  }
-  const EigenSupport::SpMatD &d2E_dude_template() const
-  {
-    return d2E_dudeTemplate;
-  }
+  const EigenSupport::SpMatD &d2E_dudp_template() const { return d2E_dudpTemplate; }
+  const EigenSupport::SpMatD &d2E_dude_template() const { return d2E_dudeTemplate; }
   void compute_dE_dp(
     std::span<const double> x, MaterialParameterEvaluationView state,
     EigenSupport::RefVecXd grad) const;
@@ -88,7 +79,6 @@ public:
   int getNumDOFs() const { return numDOFs; }
 
   const DeformationModelManager &getDeformationModelManager() const { return *deformationModelManager; }
-  DeformationModelManager &getDeformationModelManager() { return *deformationModelManager; }
   const DofLayout &getDofLayout() const { return *dofLayout; }
   // The formulation rest state contains every global DOF.  For Hermite
   // formulations this includes derivative DOFs in addition to vertex
@@ -99,10 +89,10 @@ public:
   int getNumPlasticParams() const { return numPlasticParams_; }
 
 protected:
-  std::shared_ptr<DeformationModelManager> deformationModelManager;
+  std::shared_ptr<const DeformationModelManager> deformationModelManager;
   std::shared_ptr<const DofLayout> dofLayout;
   EigenSupport::VXd restDofs_;
-  std::unique_ptr<DeformationModelAssemblerCacheData> data;
+  mutable std::vector<DeformationModelAssemblerElementWorkspace> elementWorkspaces_;
 
   std::shared_ptr<const MaterialParameterSpace> materialParameterSpace_;
 
@@ -132,12 +122,6 @@ protected:
   const int enableSanityCheck = 1;
 
 private:
-  struct PreparedElement
-  {
-    const DeformationModel &model;
-    DeformationModel::CacheData &cache;
-  };
-
   // Build a mixed sparsity template + inverse-index map for d²E/dx dp.
   // Shared by the displacement-elastic and displacement-plastic templates.
   void buildMixedSparsityTemplate(
@@ -156,16 +140,16 @@ private:
     int numLocalParams,
     const MaterialParameterField &paramBlock,
     const std::vector<DynamicIndexMatrix> &inverseIndices,
-    void (DeformationModel::*computeLocal)(
-      const DeformationModel::CacheData &, EigenSupport::RefMatXd, int) const,
+    void (DeformationModelEvaluator::*computeLocal)(
+      EigenSupport::RefMatXd, int) const,
     EigenSupport::SpMatD &mixedHessian,
     const char *label) const;
 
   // Gather local displacement DOFs and externally computed material parameter values,
-  // then prepare the element cache.
-  PreparedElement gatherAndPrepare(
+  // then prepare the element evaluator.
+  DeformationModelEvaluator &gatherAndPrepare(
     int ele, std::span<const double> x, const MaterialParameterEvaluationView &state,
-    DeformationModelAssemblerCacheData::ElementScratch &scratch) const;
+    DeformationModelAssemblerElementWorkspace &scratch) const;
 
   void validateMaterialParameterSnapshot(
     const MaterialParameterEvaluationView &state) const;
