@@ -10,9 +10,10 @@
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
-#include "material/core/materialParameters.h"
+#include "material/core/optimizableParameters.h"
 #include "simulation/simulationMesh.h"
 #include "triMeshGeo.h"
+#include "materialTestUtils.h"
 
 #include <cmath>
 #include <algorithm>
@@ -41,12 +42,12 @@ std::span<double> mutableSpan(Eigen::MatrixBase<Derived> &values)
                            static_cast<size_t>(values.size()));
 }
 
-class SquareMapping final : public MaterialChannelMapping
+class SquareEvaluator final : public DifferentiableMaterialEvaluator
 {
 public:
-  explicit SquareMapping(int size): size_(size) {}
+  explicit SquareEvaluator(int size): size_(size) {}
 
-  int numInputDofs() const override { return size_; }
+  int numParameters() const override { return size_; }
   int numChannels() const override { return size_; }
   bool isAffine() const override { return false; }
 
@@ -84,15 +85,15 @@ private:
   int size_;
 };
 
-class ThresholdThrowingSquareMapping final : public MaterialChannelMapping
+class ThresholdThrowingSquareEvaluator final : public DifferentiableMaterialEvaluator
 {
 public:
-  ThresholdThrowingSquareMapping(int size, double threshold):
+  ThresholdThrowingSquareEvaluator(int size, double threshold):
     size_(size), threshold_(threshold)
   {
   }
 
-  int numInputDofs() const override { return size_; }
+  int numParameters() const override { return size_; }
   int numChannels() const override { return size_; }
   bool isAffine() const override { return false; }
 
@@ -135,14 +136,15 @@ private:
 
 struct Fixture
 {
+  std::shared_ptr<const SimulationAsset> asset;
   std::shared_ptr<const SimulationMesh> mesh;
-  std::shared_ptr<MaterialParameters> parameters;
+  std::shared_ptr<OptimizableParameters> parameters;
   std::unique_ptr<DeformationModelAssembler> assembler;
   ES::VXd absolutePositions;
 };
 
 Fixture makeFixture(
-  std::shared_ptr<const MaterialChannelMapping> plasticMapping = nullptr)
+  std::shared_ptr<const DifferentiableMaterialEvaluator> plasticEvaluator = nullptr)
 {
   const double vertices[] = {
     0, 0, 0,
@@ -155,39 +157,39 @@ Fixture makeFixture(
     0, 1, 1,
   };
   const int elementVertices[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
-  SimulationMeshENuMaterial material(1200.0, 0.45);
-
   Fixture fixture;
   fixture.mesh = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     8, vertices, 1, 8, elementVertices,
-    makeUniformSimulationMeshElementFieldStore(1, material),
     SimulationMeshType::CUBIC));
+  fixture.asset = TestUtils::makeENuAsset(
+    fixture.mesh, 1200.0, 0.45);
 
   ES::VXd z(6);
   z << std::sqrt(1.01), std::sqrt(0.004), std::sqrt(0.003),
     std::sqrt(0.995), std::sqrt(0.005), std::sqrt(1.008);
-  auto elasticBlock = MaterialParameterField::create(
-    {},
-    std::make_shared<ElementwiseParameterDofLayout>(1, 0),
-    std::make_shared<IdentityMaterialChannelMapping>(0));
-  auto plasticBlock = MaterialParameterField::create(
-    { "Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz" },
-    std::make_shared<ElementwiseParameterDofLayout>(1, 6),
-    plasticMapping ? std::move(plasticMapping) :
-                     std::make_shared<SquareMapping>(6));
-  auto space = std::make_shared<MaterialParameterSpace>(
-    std::move(elasticBlock), std::move(plasticBlock));
-  fixture.parameters = std::make_shared<MaterialParameters>(
-    space, ES::VXd(), z);
+  auto elasticBlock = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema{},
+    std::make_shared<ElementwiseParameterLayout>(1, 0),
+    std::make_shared<IdentityMaterialEvaluator>(0));
+  auto plasticBlock = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema({ "Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz" }),
+    std::make_shared<ElementwiseParameterLayout>(1, 6),
+    plasticEvaluator ? std::move(plasticEvaluator) :
+                     std::make_shared<SquareEvaluator>(6));
+  fixture.parameters = std::make_shared<OptimizableParameters>(
+    elasticBlock, plasticBlock, ES::VXd(), z);
 
   CubicLinearFormulation formulation;
+  auto assignment = TestUtils::makeMaterialAssignment(
+    fixture.asset,
+    std::make_shared<StableNeoDefinition>(),
+    std::make_shared<VolumetricPlasticity6Definition>(),
+    fixture.parameters);
   auto manager = std::make_shared<DeformationModelManager>(
-    fixture.mesh,
-    std::make_shared<StableNeoConfig>(),
-    std::make_shared<VolumetricPlasticity6Config>(),
-    formulation, 0);
+    std::move(assignment), formulation, false);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, std::move(space));
+    std::move(manager), formulation,
+    std::move(elasticBlock), std::move(plasticBlock));
   fixture.absolutePositions = fixture.assembler->getRestDofs();
   for (int i = 0; i < fixture.absolutePositions.size(); i++)
     fixture.absolutePositions[i] += 0.004 * std::sin(0.7 * i + 0.2);
@@ -203,45 +205,48 @@ Fixture makeNonlinearShellFixture()
   };
   const int triangles[] = { 0, 1, 2 };
   pgo::Mesh::TriMeshGeo surfaceMesh(3, vertices, 1, triangles);
-  SimulationMeshENuhMaterial material(1000.0, 0.45, 1e-3);
+  ImportedENuhMaterial material(1000.0, 0.45, 1e-3);
 
   Fixture fixture;
-  fixture.mesh = std::shared_ptr<const SimulationMesh>(
-    loadShellMesh(surfaceMesh, material).release());
+  fixture.asset = TestUtils::shareAsset(
+    loadShellMesh(surfaceMesh, material));
+  fixture.mesh = fixture.asset->mesh();
 
   ES::VXd elastic(5);
   elastic << std::sqrt(2.0e4), std::sqrt(0.35),
     std::sqrt(1.0e4), std::sqrt(0.25), std::sqrt(1.0e-3);
   ES::VXd plastic(1);
   plastic << std::sqrt(1.01);
-  auto elasticBlock = MaterialParameterField::create(
-    { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" },
-    std::make_shared<ConstantParameterDofLayout>(1, 5),
-    std::make_shared<SquareMapping>(5));
-  auto plasticBlock = MaterialParameterField::create(
-    { "scale" },
-    std::make_shared<ConstantParameterDofLayout>(1, 1),
-    std::make_shared<SquareMapping>(1));
-  auto space = std::make_shared<MaterialParameterSpace>(
-    std::move(elasticBlock), std::move(plasticBlock));
-  fixture.parameters = std::make_shared<MaterialParameters>(
-    space, elastic, plastic);
+  auto elasticBlock = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema(
+      { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" }),
+    std::make_shared<ConstantParameterLayout>(1, 5),
+    std::make_shared<SquareEvaluator>(5));
+  auto plasticBlock = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema({ "stretch" }),
+    std::make_shared<ConstantParameterLayout>(1, 1),
+    std::make_shared<SquareEvaluator>(1));
+  fixture.parameters = std::make_shared<OptimizableParameters>(
+    elasticBlock, plasticBlock, elastic, plastic);
 
   KoiterShellFormulation formulation;
+  auto assignment = TestUtils::makeMaterialAssignment(
+    fixture.asset,
+    std::make_shared<KoiterStVKDefinition>(),
+    std::make_shared<ShellPlasticity1Definition>(),
+    fixture.parameters);
   auto manager = std::make_shared<DeformationModelManager>(
-    fixture.mesh,
-    std::make_shared<KoiterStVKConfig>(),
-    std::make_shared<ShellPlasticity1Config>(),
-    formulation, 0);
+    std::move(assignment), formulation, false);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, std::move(space));
+    std::move(manager), formulation,
+    std::move(elasticBlock), std::move(plasticBlock));
   fixture.absolutePositions = fixture.assembler->getRestDofs();
   for (int i = 0; i < fixture.absolutePositions.size(); i++)
     fixture.absolutePositions[i] += 0.003 * std::sin(0.9 * i + 0.4);
   return fixture;
 }
 
-TEST(DeformationModelAssembler, NonlinearMappingGradientAndHessianMatchFD)
+TEST(DeformationModelAssembler, NonlinearEvaluatorGradientAndHessianMatchFD)
 {
   Fixture fixture = makeFixture();
   auto &assembler = *fixture.assembler;
@@ -373,15 +378,15 @@ TEST(DeformationModelAssembler, RejectsStateFromDifferentSpace)
     std::invalid_argument);
 }
 
-TEST(DeformationModelAssembler, MappingExceptionDoesNotModifyCommittedState)
+TEST(DeformationModelAssembler, EvaluatorExceptionDoesNotModifyCommittedState)
 {
   Fixture fixture = makeFixture(
-    std::make_unique<ThresholdThrowingSquareMapping>(6, 1.1));
+    std::make_unique<ThresholdThrowingSquareEvaluator>(6, 1.1));
   const ES::VXd before = fixture.parameters->plasticSnapshot();
   ES::VXd trial = before;
   trial[0] = 1.2;
   const ES::VXd elastic = fixture.parameters->elasticSnapshot();
-  const MaterialParameterEvaluationView trialView =
+  const OptimizableParameterEvaluationView trialView =
     fixture.parameters->snapshot().withValues(
       std::span<const double>(elastic.data(), elastic.size()),
       std::span<const double>(trial.data(), trial.size()));
@@ -472,7 +477,7 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
   EXPECT_TRUE(b.parameters->plasticSnapshot().isApprox(bBefore, 0.0));
 }
 
-TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedMaterialParameters)
+TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedOptimizableParameters)
 {
   const double vertices[] = {
     0.0, 0.0, 0.0,
@@ -481,31 +486,31 @@ TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedMaterialParamete
     0.0, 0.0, 1.0,
   };
   const int elementVertices[] = { 0, 1, 2, 3 };
-  SimulationMeshENuMaterial material(1200.0, 0.4);
   auto mesh = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     4, vertices, 1, 4, elementVertices,
-    makeUniformSimulationMeshElementFieldStore(1, material),
     SimulationMeshType::TET));
+  auto asset = TestUtils::makeENuAsset(mesh, 1200.0, 0.4);
 
-  auto elasticField = MaterialParameterField::create(
-    {},
-    std::make_shared<ElementwiseParameterDofLayout>(1, 0),
-    std::make_shared<IdentityMaterialChannelMapping>(0));
-  auto plasticField = MaterialParameterField::create(
-    { "stretch_x", "stretch_y", "stretch_z" },
-    std::make_shared<ElementwiseParameterDofLayout>(1, 3),
-    std::make_shared<IdentityMaterialChannelMapping>(3));
-  auto space = std::make_shared<MaterialParameterSpace>(
-    std::move(elasticField), std::move(plasticField));
-  auto parameters = std::make_shared<MaterialParameters>(
-    space, ES::VXd(), ES::V3d::Ones());
+  auto elasticField = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema{},
+    std::make_shared<ElementwiseParameterLayout>(1, 0),
+    std::make_shared<IdentityMaterialEvaluator>(0));
+  auto plasticField = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema({ "Fx", "Fy", "Fz" }),
+    std::make_shared<ElementwiseParameterLayout>(1, 3),
+    std::make_shared<IdentityMaterialEvaluator>(3));
+  auto parameters = std::make_shared<OptimizableParameters>(
+    std::move(elasticField), std::move(plasticField),
+    ES::VXd(), ES::V3d::Ones());
 
   TetLinearFormulation formulation;
+  auto assignment = TestUtils::makeMaterialAssignment(
+    asset,
+    std::make_shared<StableNeoDefinition>(),
+    std::make_shared<VolumetricPlasticity3Definition>(),
+    parameters);
   auto manager = std::make_shared<DeformationModelManager>(
-    mesh,
-    std::make_shared<StableNeoConfig>(),
-    std::make_shared<VolumetricPlasticity3Config>(),
-    formulation, false);
+    std::move(assignment), formulation, false);
 
   const int elementID = 0;
   PrescribedPrincipleStressConstraintFunctions constraints(

@@ -9,31 +9,35 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace pgo
 {
 
-// Python-facing immutable plastic model configuration wrapper.
-class PyPlasticModelConfig
+// Python-facing immutable plastic model definition wrapper.
+class PyPlasticModelDefinition
 {
 public:
-  PyPlasticModelConfig(
-    std::shared_ptr<const SolidDeformationModel::PlasticModelConfig> config,
-    int dofs): config_(std::move(config)), dofs_(dofs) {}
+  PyPlasticModelDefinition(
+    std::shared_ptr<const SolidDeformationModel::PlasticModelDefinition> definition,
+    int dofs): definition_(std::move(definition)), dofs_(dofs) {}
 
-  std::string name() const { return std::string(config_->id()); }
+  std::string name() const { return std::string(definition_->id()); }
   int dofs() const { return dofs_; }
-  std::shared_ptr<const SolidDeformationModel::PlasticModelConfig> config() const { return config_; }
+  std::vector<std::string> fixedChannelNames() const;
+  std::vector<std::string> optimizableChannelNames() const;
+  std::string frameRequirement() const;
+  std::shared_ptr<const SolidDeformationModel::PlasticModelDefinition> definition() const { return definition_; }
 
 protected:
-  std::shared_ptr<const SolidDeformationModel::PlasticModelConfig> config_;
+  std::shared_ptr<const SolidDeformationModel::PlasticModelDefinition> definition_;
   int dofs_;
 };
 
-class PyVolumetricPlasticity0Config final : public PyPlasticModelConfig { public: PyVolumetricPlasticity0Config(); };
-class PyVolumetricPlasticity3Config final : public PyPlasticModelConfig { public: PyVolumetricPlasticity3Config(); };
-class PyVolumetricPlasticity6Config final : public PyPlasticModelConfig { public: PyVolumetricPlasticity6Config(); };
-class PyShellPlasticity0Config final : public PyPlasticModelConfig { public: PyShellPlasticity0Config(); };
-class PyShellPlasticity1Config final : public PyPlasticModelConfig { public: PyShellPlasticity1Config(); };
+class PyVolumetricPlasticity0Definition final : public PyPlasticModelDefinition { public: PyVolumetricPlasticity0Definition(); };
+class PyVolumetricPlasticity3Definition final : public PyPlasticModelDefinition { public: PyVolumetricPlasticity3Definition(); };
+class PyVolumetricPlasticity6Definition final : public PyPlasticModelDefinition { public: PyVolumetricPlasticity6Definition(); };
+class PyShellPlasticity0Definition final : public PyPlasticModelDefinition { public: PyShellPlasticity0Definition(); };
+class PyShellPlasticity1Definition final : public PyPlasticModelDefinition { public: PyShellPlasticity1Definition(); };
 
 }  // namespace pgo

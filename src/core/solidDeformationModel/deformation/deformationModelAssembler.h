@@ -9,7 +9,7 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelAssemblerElementWorkspace.h"
 #include "formulations/dof/dofLayout.h"
 #include "formulations/formulation/formulation.h"
-#include "material/core/materialParameters.h"
+#include "material/core/optimizableParameters.h"
 #include "EigenDef.h"
 #include <cstddef>
 #include <functional>
@@ -34,47 +34,55 @@ public:
 
   DeformationModelAssembler(std::shared_ptr<const DeformationModelManager> dm,
     const Formulation &formulation,
-    std::shared_ptr<const MaterialParameterSpace> materialParameterSpace,
+    std::shared_ptr<const OptimizableParameterField> elasticField,
+    std::shared_ptr<const OptimizableParameterField> plasticField,
     std::span<const double> elementWeights = {});
   virtual ~DeformationModelAssembler();
 
   MaterialMaxStepObservation computeMaxStepObservation(std::span<const double> x, std::span<const double> dx) const;
   double computeMaxStepSize(std::span<const double> x, std::span<const double> dx) const;
 
-  double compute_E(std::span<const double> x, MaterialParameterEvaluationView state) const;
+  double compute_E(std::span<const double> x, OptimizableParameterEvaluationView state) const;
   void compute_dE_dx(
-    std::span<const double> x, MaterialParameterEvaluationView state,
+    std::span<const double> x, OptimizableParameterEvaluationView state,
     EigenSupport::RefVecXd grad) const;
-  void compute_d2E_dx2(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dx2(std::span<const double> x, OptimizableParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
 
   // E(u, p, e): u = displacement, p = plastic DOFs, e = elastic DOFs.
   // absolutePositions is rest + u, whose derivative with respect to u is I.
   void compute_d2E_dudp(
-    std::span<const double> absolutePositions, MaterialParameterEvaluationView state,
+    std::span<const double> absolutePositions, OptimizableParameterEvaluationView state,
     EigenSupport::SpMatD &mixedHessian) const;
   void compute_d2E_dude(
-    std::span<const double> absolutePositions, MaterialParameterEvaluationView state,
+    std::span<const double> absolutePositions, OptimizableParameterEvaluationView state,
     EigenSupport::SpMatD &mixedHessian) const;
   int getNumElasticGlobalParams() const;
   int getNumPlasticGlobalParams() const;
-  std::shared_ptr<const MaterialParameterSpace> materialParameterSpace() const { return materialParameterSpace_; }
+  const std::shared_ptr<const OptimizableParameterField> &elasticField() const
+  {
+    return elasticField_;
+  }
+  const std::shared_ptr<const OptimizableParameterField> &plasticField() const
+  {
+    return plasticField_;
+  }
   const EigenSupport::SpMatD &d2E_dp2_template() const { return d2E_dp2Template; }
   const EigenSupport::SpMatD &d2E_de2_template() const { return d2E_de2Template; }
   const EigenSupport::SpMatD &d2E_dpde_template() const { return d2E_dpdeTemplate; }
   const EigenSupport::SpMatD &d2E_dudp_template() const { return d2E_dudpTemplate; }
   const EigenSupport::SpMatD &d2E_dude_template() const { return d2E_dudeTemplate; }
   void compute_dE_dp(
-    std::span<const double> x, MaterialParameterEvaluationView state,
+    std::span<const double> x, OptimizableParameterEvaluationView state,
     EigenSupport::RefVecXd grad) const;
-  void compute_d2E_dp2(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dp2(std::span<const double> x, OptimizableParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
   void compute_dE_de(
-    std::span<const double> x, MaterialParameterEvaluationView state,
+    std::span<const double> x, OptimizableParameterEvaluationView state,
     EigenSupport::RefVecXd grad) const;
-  void compute_d2E_de2(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_dpde(std::span<const double> x, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_de2(std::span<const double> x, OptimizableParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dpde(std::span<const double> x, OptimizableParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
 
-  void computeVonMisesStresses(std::span<const double> x, MaterialParameterEvaluationView state, std::span<double> elementStresses) const;
-  void computeMaxStrains(std::span<const double> x, MaterialParameterEvaluationView state, std::span<double> elementStrain) const;
+  void computeVonMisesStresses(std::span<const double> x, OptimizableParameterEvaluationView state, std::span<double> elementStresses) const;
+  void computeMaxStrains(std::span<const double> x, OptimizableParameterEvaluationView state, std::span<double> elementStrain) const;
 
   int getNumDOFs() const { return numDOFs; }
 
@@ -94,7 +102,8 @@ protected:
   EigenSupport::VXd restDofs_;
   mutable std::vector<DeformationModelAssemblerElementWorkspace> elementWorkspaces_;
 
-  std::shared_ptr<const MaterialParameterSpace> materialParameterSpace_;
+  std::shared_ptr<const OptimizableParameterField> elasticField_;
+  std::shared_ptr<const OptimizableParameterField> plasticField_;
 
   int numDOFs, nele, neleVtx, localDOFs;
   int numElasticParams_ = 0;
@@ -135,24 +144,24 @@ private:
   // Generic d²E/(du dq) assembly loop, where q is p or e.
   void assemble_d2E_dudq(
     std::span<const double> absolutePositions,
-    MaterialParameterEvaluationView state,
+    OptimizableParameterEvaluationView state,
     int numMaterialParams,
     int numLocalParams,
-    const MaterialParameterField &paramBlock,
+    const OptimizableParameterField &paramBlock,
     const std::vector<DynamicIndexMatrix> &inverseIndices,
     void (DeformationModelEvaluator::*computeLocal)(
       EigenSupport::RefMatXd, int) const,
     EigenSupport::SpMatD &mixedHessian,
     const char *label) const;
 
-  // Gather local displacement DOFs and externally computed material parameter values,
+  // Gather local displacement DOFs and externally computed optimizable parameter values,
   // then prepare the element evaluator.
   DeformationModelEvaluator &gatherAndPrepare(
-    int ele, std::span<const double> x, const MaterialParameterEvaluationView &state,
+    int ele, std::span<const double> x, const OptimizableParameterEvaluationView &state,
     DeformationModelAssemblerElementWorkspace &scratch) const;
 
-  void validateMaterialParameterSnapshot(
-    const MaterialParameterEvaluationView &state) const;
+  void validateOptimizableParameterSnapshot(
+    const OptimizableParameterEvaluationView &state) const;
   void validatePositionSpan(std::span<const double> x, const char *label) const;
 };
 }  // namespace SolidDeformationModel

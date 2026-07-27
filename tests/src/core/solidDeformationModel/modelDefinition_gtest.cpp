@@ -14,39 +14,41 @@
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-TEST(ElasticModelConfig, StableNeoHasStableIdentity)
+TEST(ElasticModelDefinition, StableNeoHasStableIdentity)
 {
-  StableNeoConfig config;
+  StableNeoDefinition config;
   EXPECT_EQ(config.id(), "stable_neo");
-  EXPECT_TRUE(config.parameterChannelNames().empty());
+  EXPECT_EQ(config.optimizableChannelSchema().numChannels(), 0);
   EXPECT_EQ(config.frameRequirement(), MaterialFrameRequirement::None);
 }
 
-TEST(ElasticModelConfig, StableNeoPrincipalStretchHasDistinctIdentity)
+TEST(ElasticModelDefinition, StableNeoPrincipalStretchHasDistinctIdentity)
 {
-  StableNeoPrincipalStretchConfig config;
+  StableNeoPrincipalStretchDefinition config;
   EXPECT_EQ(config.id(), "stable_neo_principal_stretch");
-  EXPECT_TRUE(config.parameterChannelNames().empty());
+  EXPECT_EQ(config.optimizableChannelSchema().numChannels(), 0);
   EXPECT_EQ(config.frameRequirement(), MaterialFrameRequirement::None);
 }
 
-TEST(ElasticModelConfig, HillRequiresActivationAndPrimaryAxis)
+TEST(ElasticModelDefinition, HillRequiresActivationAndPrimaryAxis)
 {
-  HillStableNeoConfig config;
-  EXPECT_EQ(config.parameterChannelNames().size(), 1);
-  EXPECT_EQ(config.parameterChannelNames().front(), "activation");
+  HillStableNeoDefinition config;
+  const MaterialChannelSchema schema = config.optimizableChannelSchema();
+  const auto channels = schema.channelNames();
+  ASSERT_EQ(channels.size(), 1);
+  EXPECT_EQ(channels.front(), "activation");
   EXPECT_EQ(config.frameRequirement(), MaterialFrameRequirement::PrimaryAxis);
 }
 
-TEST(PlasticModelConfig, DofVariantsExposeExplicitConfigs)
+TEST(PlasticModelDefinition, DofVariantsExposeExplicitConfigs)
 {
-  VolumetricPlasticity3Config config;
+  VolumetricPlasticity3Definition config;
   EXPECT_EQ(config.id(), "volumetric_dof3");
-  EXPECT_EQ(config.parameterChannelNames().size(), 3);
+  EXPECT_EQ(config.optimizableChannelSchema().numChannels(), 3);
   EXPECT_EQ(config.frameRequirement(), MaterialFrameRequirement::FullFrame);
 }
 
-TEST(ElasticModelConfig, MooneyRivlinDerivativesMatchFiniteDifferences)
+TEST(ElasticModelDefinition, MooneyRivlinDerivativesMatchFiniteDifferences)
 {
   ElasticModel3DMooneyRivlin model(0.7, 0.4, 2.0);
   const std::array<double, 9> F = {
@@ -98,7 +100,7 @@ TEST(ElasticModelConfig, MooneyRivlinDerivativesMatchFiniteDifferences)
   }
 }
 
-TEST(ElasticModelConfig, MooneyRivlinPSDPathProjectsOnlyTangent)
+TEST(ElasticModelDefinition, MooneyRivlinPSDPathProjectsOnlyTangent)
 {
   ElasticModel3DMooneyRivlin model(0.7, 0.4, 2.0);
   const std::array<double, 9> F = {

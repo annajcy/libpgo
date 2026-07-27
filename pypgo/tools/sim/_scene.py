@@ -26,11 +26,11 @@ def _load_mesh(loader, path, kind):
 
 
 _VOLUME_ELASTIC = {
-    "stable_neo": _fem.StableNeo,
-    "stvk": _fem.StVK,
-    "stvk_volume": _fem.StVKVolume,
-    "linear_elastic": _fem.LinearElastic,
-    "mooney_rivlin": _fem.MooneyRivlin,
+    "stable_neo": _fem.StableNeoDefinition,
+    "stvk": _fem.StVKDefinition,
+    "stvk_volume": _fem.StVKVolumeDefinition,
+    "linear_elastic": _fem.LinearElasticDefinition,
+    "mooney_rivlin": _fem.MooneyRivlinDefinition,
 }
 
 _AXIS = {"x": 0, "y": 1, "z": 2}
@@ -78,7 +78,7 @@ class MovingAttachment:
 class SceneBundle:
     """Everything a runner needs, independent of mesh type."""
 
-    sim_mesh: object
+    asset: object
     formulation: object
     deformation: object
     attachment_energies: list
@@ -130,7 +130,7 @@ def _surface_attachment_energy(att, surface_rest, surface_map, num_dofs):
 
     Defined through the surface embedding, so it works for any formulation
     (incl. tricubic Hermite) and pins the same physical points on every
-    simulation mesh.
+    simulation asset.
     """
     idx = resolve_vertex_selector(att.vertices, surface_rest)
     return _energy.EmbeddedVertexAttachment(
@@ -203,16 +203,112 @@ def _volume_formulation(cfg: SimConfig, volume: VolumeMesh):
     return _fem.CubicTricubicHermite()
 
 
+def _source_channel_values(asset, name):
+    """Resolve one scalar channel from neutral imported data."""
+    aliases = {
+        "E_membrane": "E", "E_bending": "E",
+        "nu_membrane": "nu", "nu_bending": "nu",
+        "thickness": "h",
+    }
+    source_name = aliases.get(name, name)
+    data = asset.material_data
+    for field in data.fields:
+        if source_name not in field.channel_names:
+            continue
+        channel = field.channel_names.index(source_name)
+        rows = field.value_rows
+        return np.asarray(
+            [rows[int(field.element_to_row[e]), channel] for e in range(data.num_elements)],
+            dtype=np.float64,
+        )
+    values = np.empty(data.num_elements, dtype=np.float64)
+    for e, material_index in enumerate(data.element_material_indices):
+        if material_index < 0:
+            raise ConfigError(f"asset has no material assignment for element {e}")
+        prop = data.materials[int(material_index)].properties
+        if source_name not in prop:
+            raise ConfigError(f"asset is missing imported material channel {name!r}")
+        value = np.asarray(prop[source_name], dtype=np.float64)
+        if value.size != 1:
+            raise ConfigError(f"imported channel {name!r} is not scalar")
+        values[e] = float(value.reshape(-1)[0])
+    return values
+
+
+def _build_material_state(asset, elastic, plastic, *, elastic_values=None, plastic_values=None,
+                          constant=False):
+    layout_type = _fem.ConstantParameterLayout if constant else _fem.ElementwiseParameterLayout
+
+    def identity_field(field_type, names, selected_layout_type):
+        count = len(names)
+        return field_type(
+            names,
+            selected_layout_type(asset.num_elements, count),
+            _fem.IdentityMaterialEvaluator(count),
+        )
+
+    elastic_fixed = _fem.FixedParameterField(
+        elastic.fixed_channel_names,
+        _fem.ElementwiseParameterLayout(
+            asset.num_elements, len(elastic.fixed_channel_names)),
+        _fem.IdentityMaterialEvaluator(len(elastic.fixed_channel_names)),
+    )
+    plastic_fixed = _fem.FixedParameterField(
+        plastic.fixed_channel_names,
+        _fem.ElementwiseParameterLayout(
+            asset.num_elements, len(plastic.fixed_channel_names)),
+        _fem.IdentityMaterialEvaluator(len(plastic.fixed_channel_names)),
+    )
+    elastic_optimizable = identity_field(
+        _fem.OptimizableParameterField,
+        elastic.optimizable_channel_names, layout_type)
+    plastic_optimizable = identity_field(
+        _fem.OptimizableParameterField,
+        plastic.optimizable_channel_names, layout_type)
+    parameterization = _fem.MaterialParameterization(
+        _fem.ElasticParameterization(elastic, elastic_fixed, elastic_optimizable),
+        _fem.PlasticParameterization(plastic, plastic_fixed, plastic_optimizable),
+    )
+
+    def fixed_values(definition, field):
+        values = np.empty(field.num_global_parameters, dtype=np.float64)
+        for channel, name in enumerate(definition.fixed_channel_names):
+            source = _source_channel_values(asset, name)
+            for element, value in enumerate(source):
+                values[element * len(definition.fixed_channel_names) + channel] = value
+        return values
+
+    def initial_values(values, field):
+        if values is None:
+            if field.num_global_parameters:
+                raise ConfigError(
+                    f"material model requires explicit {field.num_global_parameters} optimizer values")
+            return np.empty(0, dtype=np.float64)
+        array = np.asarray(values, dtype=np.float64)
+        return np.ascontiguousarray(array.reshape(-1))
+
+    data = _fem.MaterialParameterData(
+        elastic=(fixed_values(elastic, elastic_fixed),
+                 initial_values(elastic_values, elastic_optimizable)),
+        plastic=(fixed_values(plastic, plastic_fixed),
+                 initial_values(plastic_values, plastic_optimizable)),
+    )
+    return parameterization, data
+
+
 def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
     volume = VolumeMesh.from_veg_file(_load_mesh(read_veg, cfg.mesh.volume, "volume mesh"))
     surface = _load_mesh(read_obj, cfg.mesh.surface, "surface mesh")
     fm = _volume_formulation(cfg, volume)
 
-    sim_mesh = _fem.SimulationMesh.create_volumetric(volume)
-    deformation = _fem.deformation_energy(
-        sim_mesh,
-        elastic=_VOLUME_ELASTIC[cfg.material.model](),
-        plastic=_fem.VolumetricPlasticity(dofs=0),
+    asset = _fem.SimulationAsset.create_volumetric(volume)
+    elastic = _VOLUME_ELASTIC[cfg.material.model]()
+    plastic = _fem.VolumetricPlasticityDefinition(dofs=0)
+    parameterization, parameter_data = _build_material_state(
+        asset, elastic, plastic)
+    assignment = _fem.MaterialAssignment(asset, parameterization, parameter_data)
+    deformation = _fem.DeformationEnergy(
+        assignment,
         formulation=fm,
         options=_fem.DeformationOptions(
             enable_material_max_step=cfg.material.enable_material_max_step),
@@ -225,10 +321,10 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
         if cfg.material.density is not None
         else _fem.volume_density(volume)
     )
-    mass = fm.mass_matrix(sim_mesh, mass_field) if cfg.mode == "dynamic" else None
+    mass = fm.mass_matrix(asset, mass_field) if cfg.mode == "dynamic" else None
     gravity = np.asarray(cfg.loads.gravity, dtype=np.float64)
     gravity_force = (
-        fm.body_force(sim_mesh, gravity, mass_field)
+        fm.body_force(asset, gravity, mass_field)
         if float(np.linalg.norm(gravity)) > 0.0
         else np.zeros(num_dofs, dtype=np.float64)
     )
@@ -253,7 +349,7 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
                 "formulation (24 DOFs per vertex)")
         idx = resolve_vertex_selector(att.vertices, rest_vertices)
         energy = _energy.VertexAttachment(
-            sim_mesh=sim_mesh,
+            asset=asset,
             vertex_indices=idx,
             target_positions=np.zeros(3 * idx.size, dtype=np.float64),
             coeff=att.coeff,
@@ -273,7 +369,7 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
             satt, surface_rest_arr, surface_map, num_dofs))
 
     return SceneBundle(
-        sim_mesh=sim_mesh, formulation=fm, deformation=deformation,
+        asset=asset, formulation=fm, deformation=deformation,
         attachment_energies=attachments, contact_energies=contact_energies,
         stateful_contacts=stateful, moving_attachments=moving_attachments,
         mass=mass, gravity_force=np.asarray(gravity_force, dtype=np.float64),
@@ -291,12 +387,19 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
         E_membrane=cfg.material.E_membrane,
         nu_membrane=cfg.material.nu_membrane,
     )
-    sim_mesh = _fem.SimulationMesh.create_shell(surface, material)
+    asset = _fem.SimulationAsset.create_shell(surface, material)
     fm = _fem.KoiterShell()
-    deformation = _fem.deformation_energy(
-        sim_mesh,
-        elastic=_fem.KoiterStVK(),
-        plastic=_fem.ShellPlasticity(dofs=0),
+    elastic = _fem.KoiterStVKDefinition()
+    plastic = _fem.ShellPlasticityDefinition(dofs=0)
+    shell_values = np.array([
+        material.E_membrane, material.nu_membrane,
+        material.E_membrane, material.nu_membrane, material.thickness,
+    ], dtype=np.float64)
+    parameterization, parameter_data = _build_material_state(
+        asset, elastic, plastic, elastic_values=shell_values, constant=True)
+    assignment = _fem.MaterialAssignment(asset, parameterization, parameter_data)
+    deformation = _fem.DeformationEnergy(
+        assignment,
         formulation=fm,
         options=_fem.DeformationOptions(
             enable_material_max_step=cfg.material.enable_material_max_step),
@@ -309,10 +412,10 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
     else:
         areal_density = _fem.ShellArealDensity.from_density_thickness(
             density=cfg.material.mass.density, thickness=cfg.material.thickness)
-    mass = fm.mass_matrix(sim_mesh, areal_density) if cfg.mode == "dynamic" else None
+    mass = fm.mass_matrix(asset, areal_density) if cfg.mode == "dynamic" else None
     gravity = np.asarray(cfg.loads.gravity, dtype=np.float64)
     gravity_force = (
-        fm.body_force(sim_mesh, gravity, areal_density)
+        fm.body_force(asset, gravity, areal_density)
         if float(np.linalg.norm(gravity)) > 0.0
         else np.zeros(num_dofs, dtype=np.float64)
     )
@@ -331,7 +434,7 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
         # shell is always 3 DOFs/vertex; no Hermite guard needed here
         idx = resolve_vertex_selector(att.vertices, rest_vertices)
         energy = _energy.VertexAttachment(
-            sim_mesh=sim_mesh,
+            asset=asset,
             vertex_indices=idx,
             target_positions=np.zeros(3 * idx.size, dtype=np.float64),
             coeff=att.coeff,
@@ -350,7 +453,7 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
             satt, rest_vertices, None, num_dofs))
 
     return SceneBundle(
-        sim_mesh=sim_mesh, formulation=fm, deformation=deformation,
+        asset=asset, formulation=fm, deformation=deformation,
         attachment_energies=attachments, contact_energies=contact_energies,
         stateful_contacts=stateful, moving_attachments=moving_attachments,
         mass=mass, gravity_force=np.asarray(gravity_force, dtype=np.float64),

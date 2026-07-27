@@ -517,7 +517,7 @@ def test_run_dynamic_write_stress_two_steps(tmp_path):
     assert f0_path.exists(), "von_mises0000.json not written"
     assert f1_path.exists(), "von_mises0001.json not written"
 
-    num_elements = bundle.sim_mesh.num_elements
+    num_elements = bundle.asset.num_elements
 
     for idx, path in enumerate([f0_path, f1_path]):
         doc = _json.loads(path.read_text())
@@ -576,7 +576,7 @@ def test_run_dynamic_shell_write_stress_two_steps(tmp_path):
     assert f0_path.exists(), "von_mises0000.json not written for shell"
     assert f1_path.exists(), "von_mises0001.json not written for shell"
 
-    num_elements = bundle.sim_mesh.num_elements  # 2048 for shell.obj
+    num_elements = bundle.asset.num_elements  # 2048 for shell.obj
 
     for idx, path in enumerate([f0_path, f1_path]):
         doc = _json.loads(path.read_text())

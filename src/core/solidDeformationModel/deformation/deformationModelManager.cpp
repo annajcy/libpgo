@@ -14,6 +14,8 @@ copyright to USC, MIT, NUS
 
 #include <stdexcept>
 #include <string>
+#include <algorithm>
+#include <span>
 #include <tbb/parallel_for.h>
 #include <vector>
 
@@ -25,8 +27,13 @@ class DeformationModelManagerImpl
 public:
   std::shared_ptr<const SimulationMesh> mesh;
   std::shared_ptr<const MaterialFrameField> materialFrames;
-  std::shared_ptr<const ElasticModelConfig> elasticConfig;
-  std::shared_ptr<const PlasticModelConfig> plasticConfig;
+  std::shared_ptr<const ElasticModelDefinition> elasticDefinition;
+  std::shared_ptr<const PlasticModelDefinition> plasticDefinition;
+  std::shared_ptr<const FixedParameterField> elasticFixed;
+  std::shared_ptr<const FixedParameterField> plasticFixed;
+  std::shared_ptr<const MaterialParameterization> parameterization;
+  std::shared_ptr<const MaterialParameterData> parameterData;
+  std::shared_ptr<const MaterialAssignment> assignment;
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
   int numElasticParams = 0;
   int numPlasticParams = 0;
@@ -55,62 +62,31 @@ void validateFrameRequirement(
 }  // namespace
 
 DeformationModelManager::DeformationModelManager(
-  std::shared_ptr<const SimulationMesh> mesh,
-  std::shared_ptr<const ElasticModelConfig> elasticConfig,
-  std::shared_ptr<const PlasticModelConfig> plasticConfig,
+  std::shared_ptr<const MaterialAssignment> assignment,
   const Formulation &formulation,
-  bool projectHessianPSD):
-  DeformationModelManager(
-    mesh,
-    std::move(elasticConfig),
-    std::move(plasticConfig),
-    formulation,
-    projectHessianPSD,
-    makeGlobalAxesMaterialFrameField(
-      mesh ? mesh->getNumElements() : 0))
+  bool projectHessianPSD)
 {
-}
-
-DeformationModelManager::DeformationModelManager(
-  std::shared_ptr<const SimulationMesh> mesh,
-  std::shared_ptr<const ElasticModelConfig> elasticConfig,
-  std::shared_ptr<const PlasticModelConfig> plasticConfig,
-  const Formulation &formulation,
-  bool projectHessianPSD,
-  std::shared_ptr<const MaterialFrameField> materialFrames)
-{
-  if (!mesh)
-    throw std::invalid_argument(
-      "DeformationModelManager: mesh must be non-null.");
-  if (!materialFrames)
-    throw std::invalid_argument(
-      "DeformationModelManager: materialFrames must be non-null.");
-  if (!elasticConfig || !plasticConfig)
-    throw std::invalid_argument("DeformationModelManager: model configs must be non-null.");
-  if (mesh->getNumElements() <= 0)
-    throw std::invalid_argument(
-      "DeformationModelManager: mesh must contain at least one element.");
-  if (materialFrames->numElements() != mesh->getNumElements())
-    throw std::invalid_argument(
-      "DeformationModelManager: material frame element count does not match the mesh.");
-
+  if (!assignment)
+    throw std::invalid_argument("DeformationModelManager: assignment must be non-null.");
   data = std::make_unique<DeformationModelManagerImpl>();
-  data->mesh = std::move(mesh);
-  data->materialFrames = std::move(materialFrames);
-  data->elasticConfig = std::move(elasticConfig);
-  data->plasticConfig = std::move(plasticConfig);
+  data->assignment = std::move(assignment);
+  data->mesh = data->assignment->mesh();
+  data->materialFrames = data->assignment->materialFrames();
+  data->elasticDefinition = data->assignment->elasticDefinition();
+  data->plasticDefinition = data->assignment->plasticDefinition();
+  data->elasticFixed = data->assignment->elasticFixed();
+  data->plasticFixed = data->assignment->plasticFixed();
+  data->parameterization = data->assignment->parameterization();
+  data->parameterData = data->assignment->parameterData();
+  if (!data->parameterization || !data->parameterData)
+    throw std::invalid_argument(
+      "DeformationModelManager requires a structural parameterization and parameter data.");
   data->nele = data->mesh->getNumElements();
-
+  if (data->nele <= 0)
+    throw std::invalid_argument("DeformationModelManager: mesh must contain at least one element.");
   validateFormulation(data->mesh->getElementType(), formulation);
-  validateFrameRequirement(
-    *data->materialFrames,
-    data->elasticConfig->frameRequirement(),
-    "elastic");
-  validateFrameRequirement(
-    *data->materialFrames,
-    data->plasticConfig->frameRequirement(),
-    "plastic");
-
+  validateFrameRequirement(*data->materialFrames, data->elasticDefinition->frameRequirement(), "elastic");
+  validateFrameRequirement(*data->materialFrames, data->plasticDefinition->frameRequirement(), "plastic");
   initImpl(formulation, DeformationModelConstructionOptions{ projectHessianPSD });
 }
 
@@ -124,10 +100,26 @@ void DeformationModelManager::initImpl(
   tbb::parallel_for(0, data->nele, [&](int ele) {
     const MaterialFrame materialToReference =
       data->materialFrames->materialToReferenceFrame(ele, 0);
-    auto em = data->elasticConfig->createModel(
-      *data->mesh, ele, materialToReference);
-    auto pm = data->plasticConfig->createModel(
-      *data->mesh, ele, materialToReference);
+    std::vector<double> elasticValues(
+      static_cast<std::size_t>(data->elasticFixed->numMaterialChannels()));
+    std::vector<double> plasticValues(
+      static_cast<std::size_t>(data->plasticFixed->numMaterialChannels()));
+    data->elasticFixed->evaluate(
+      ele, 0,
+      std::span<const double>(
+        data->parameterData->elastic.fixedValues.data(),
+        static_cast<std::size_t>(data->parameterData->elastic.fixedValues.size())),
+      elasticValues);
+    data->plasticFixed->evaluate(
+      ele, 0,
+      std::span<const double>(
+        data->parameterData->plastic.fixedValues.data(),
+        static_cast<std::size_t>(data->parameterData->plastic.fixedValues.size())),
+      plasticValues);
+    auto em = data->elasticDefinition->createModelFromFixed(
+      elasticValues, materialToReference);
+    auto pm = data->plasticDefinition->createModelFromFixed(
+      plasticValues, materialToReference);
     data->elementFEMs[ele] = formulation.createElement(
       *data->mesh, ele, std::move(em), std::move(pm), options);
   });
@@ -147,7 +139,7 @@ void DeformationModelManager::initImpl(
     if (model->getNumElasticParameters() != data->numElasticParams ||
       model->getNumPlasticParameters() != data->numPlasticParams) {
       throw std::invalid_argument(
-        "Element deformation models have inconsistent material parameter channels.");
+        "Element deformation models have inconsistent optimizable parameter channels.");
     }
   }
 }
@@ -181,16 +173,22 @@ DeformationModelManager::materialFrameFieldPtr() const
   return data->materialFrames;
 }
 
-std::shared_ptr<const ElasticModelConfig>
-DeformationModelManager::elasticModelConfig() const
+std::shared_ptr<const ElasticModelDefinition>
+DeformationModelManager::elasticModelDefinition() const
 {
-  return data->elasticConfig;
+  return data->elasticDefinition;
 }
 
-std::shared_ptr<const PlasticModelConfig>
-DeformationModelManager::plasticModelConfig() const
+std::shared_ptr<const PlasticModelDefinition>
+DeformationModelManager::plasticModelDefinition() const
 {
-  return data->plasticConfig;
+  return data->plasticDefinition;
+}
+
+std::shared_ptr<const MaterialAssignment>
+DeformationModelManager::materialAssignment() const
+{
+  return data->assignment;
 }
 
 MaterialFrame DeformationModelManager::materialToReferenceFrame(

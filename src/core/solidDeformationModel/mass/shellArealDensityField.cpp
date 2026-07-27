@@ -12,17 +12,17 @@ namespace
 {
 
 void validateEvaluationState(
-  const MaterialParameterRef *dependency,
-  const MaterialParameterEvaluationView &state)
+  const OptimizableParameterRef *dependency,
+  const OptimizableParameterEvaluationView &state)
 {
   if (dependency == nullptr)
     return;
   if (state.empty())
     throw std::invalid_argument(
-      "parameter-dependent areal density requires material parameter state");
-  if (&dependency->field() != &state.space().elastic())
+      "parameter-dependent areal density requires optimizable parameter state");
+  if (!dependency->field().sharesStateWith(state.elasticField()))
     throw std::invalid_argument(
-      "parameter-dependent areal density must depend on the evaluation space elastic field");
+      "parameter-dependent areal density must depend on the evaluation elastic field");
 }
 
 }  // namespace
@@ -70,7 +70,7 @@ ShellArealDensityField ShellArealDensityField::fromDensityThickness(
 }
 
 ShellArealDensityField ShellArealDensityField::fromElasticParameter(
-  double scale, MaterialParameterRef parameter)
+  double scale, OptimizableParameterRef parameter)
 {
   return ShellArealDensityField(
     std::make_shared<ScaledElasticParameterFieldSource>(
@@ -85,19 +85,19 @@ void ShellArealDensityField::validate(int numElements) const
 double ShellArealDensityField::value(
   int element,
   int quadrature,
-  const MaterialParameterEvaluationView &state) const
+  const OptimizableParameterEvaluationView &state) const
 {
   auto evaluation = evaluator(state);
   return evaluation.value(element, quadrature);
 }
 
 ShellArealDensityField::Evaluator
-ShellArealDensityField::evaluator(MaterialParameterEvaluationView state) const
+ShellArealDensityField::evaluator(OptimizableParameterEvaluationView state) const
 {
   return Evaluator(source_, std::move(state));
 }
 
-const MaterialParameterRef *ShellArealDensityField::parameterDependency() const
+const OptimizableParameterRef *ShellArealDensityField::parameterDependency() const
 {
   return source_->parameterDependency();
 }
@@ -105,7 +105,7 @@ const MaterialParameterRef *ShellArealDensityField::parameterDependency() const
 void ShellArealDensityField::localParameterDerivative(
   int element,
   int quadrature,
-  const MaterialParameterEvaluationView &state,
+  const OptimizableParameterEvaluationView &state,
   EigenSupport::RefVecXd output) const
 {
   auto evaluation = evaluator(state);
@@ -114,7 +114,7 @@ void ShellArealDensityField::localParameterDerivative(
 
 ShellArealDensityField::Evaluator::Evaluator(
   std::shared_ptr<const ElementScalarFieldSource> source,
-  MaterialParameterEvaluationView state):
+  OptimizableParameterEvaluationView state):
   source_(std::move(source)),
   state_(std::move(state))
 {
@@ -141,7 +141,7 @@ void ShellArealDensityField::Evaluator::localParameterDerivative(
   EigenSupport::RefVecXd output) const
 {
   const auto expected = dependency_
-    ? dependency_->field().dofLayout().numLocalDofs()
+    ? dependency_->field().layout().numLocalParameters()
     : 0;
   if (output.size() != expected)
     throw std::invalid_argument(

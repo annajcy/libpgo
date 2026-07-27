@@ -65,7 +65,7 @@ std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_density_thick
 }
 
 std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_elastic_parameter(
-  double scale, const PyMaterialParameterRef &parameter)
+  double scale, const PyOptimizableParameterRef &parameter)
 {
   return std::make_shared<PyShellArealDensity>(
     std::make_shared<SolidDeformationModel::ShellArealDensityField>(

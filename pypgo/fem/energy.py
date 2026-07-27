@@ -1,4 +1,4 @@
-"""Deformation energy factory — direct construction from mesh, materials, and fields."""
+"""FEM deformation and material energies."""
 
 from __future__ import annotations
 
@@ -9,20 +9,8 @@ import numpy as np
 import pypgo._core as _core
 from pypgo._utils import float_vector
 from pypgo.energy import PotentialEnergy
-from pypgo.fem.fields import (
-    MaterialParameters,
-)
+from pypgo.fem.fields import MaterialAssignment, OptimizableParameters
 from pypgo.sparse import SparseMatrix
-
-
-def _require_sim_mesh(sim_mesh):
-    from pypgo.fem.mesh import SimulationMesh as _SimulationMesh
-
-    if not isinstance(sim_mesh, _SimulationMesh):
-        raise TypeError(
-            f"sim_mesh must be a SimulationMesh, got {type(sim_mesh).__name__}"
-        )
-    return sim_mesh
 
 
 # ---------------------------------------------------------------------------
@@ -33,13 +21,16 @@ def _require_sim_mesh(sim_mesh):
 class DeformationEnergy(PotentialEnergy):
     """Deformation energy for FEM simulations (tet, cubic, shell).
 
-    Created by ``pypgo.fem.deformation_energy()``, not directly by users.
     This is a **displacement**-kind energy: ``state_kind == "displacement"``.
 
     Parameters
     ----------
-    core : PyDeformationEnergy
-        C++ deformation energy wrapper backed by a complete ``MaterialParameters`` handle.
+    assignment : MaterialAssignment
+        Complete material binding for the simulation asset.
+    formulation : Formulation
+        Element formulation used to assemble the deformation energy.
+    options : DeformationOptions, optional
+        Assembly and material-step options.
 
     Properties
     ----------
@@ -54,15 +45,53 @@ class DeformationEnergy(PotentialEnergy):
     DOFs, and ``e`` for elastic-field DOFs.
     """
 
-    def __init__(self, core, *, elastic_model=None, plastic_model=None, material_parameters=None):
-        if not isinstance(core, _core.PyDeformationEnergy):
+    def __init__(self, assignment, *, formulation, options=None):
+        if not isinstance(assignment, MaterialAssignment):
             raise TypeError(
-                f"core must be a PyDeformationEnergy, got {type(core).__name__}"
+                "assignment must be a MaterialAssignment, "
+                f"got {type(assignment).__name__}"
             )
+        formulation = _resolve_formulation(formulation)
+        if options is None:
+            options = DeformationOptions()
+        if not isinstance(options, DeformationOptions):
+            raise TypeError(
+                f"options must be DeformationOptions, got {type(options).__name__}"
+            )
+
+        element_weights = options.element_weights
+        if element_weights is not None:
+            element_weights = np.asarray(
+                element_weights, dtype=np.float64, order="C"
+            )
+            if element_weights.ndim != 1:
+                raise ValueError(
+                    "options.element_weights must be 1-D, "
+                    f"got shape {element_weights.shape}"
+                )
+            if element_weights.size != assignment.asset.num_elements:
+                raise ValueError(
+                    "options.element_weights size must be "
+                    f"{assignment.asset.num_elements}, got {element_weights.size}"
+                )
+            element_weights = np.ascontiguousarray(
+                element_weights, dtype=np.float64
+            )
+
+        core = _core._create_deformation_energy(
+            assignment._handle,
+            formulation._handle,
+            element_weights,
+            bool(options.project_hessian_psd),
+            bool(options.enable_material_max_step),
+        )
         object.__setattr__(self, "_handle", core)
-        object.__setattr__(self, "_elastic_model", elastic_model)
-        object.__setattr__(self, "_plastic_model", plastic_model)
-        object.__setattr__(self, "_material_parameters", material_parameters)
+        object.__setattr__(self, "_elastic_definition", assignment.elastic)
+        object.__setattr__(self, "_plastic_definition", assignment.plastic)
+        object.__setattr__(
+            self, "_optimizable_parameters", assignment.optimizable_parameters
+        )
+        object.__setattr__(self, "_material_assignment", assignment)
         super().__init__(core)
 
     @property
@@ -100,18 +129,21 @@ class DeformationEnergy(PotentialEnergy):
         return self._handle.num_plastic_dofs
 
     @property
-    def elastic_model(self):
-        return self._elastic_model
+    def elastic_definition(self):
+        return self._elastic_definition
 
     @property
-    def plastic_model(self):
-        return self._plastic_model
+    def plastic_definition(self):
+        return self._plastic_definition
 
     @property
-    def parameters(self) -> MaterialParameters:
-        if self._material_parameters is None:
-            self._material_parameters = MaterialParameters._from_handle(self._handle.parameters)
-        return self._material_parameters
+    def optimizable_parameters(self) -> OptimizableParameters:
+        return self._optimizable_parameters
+
+    @property
+    def material_assignment(self) -> MaterialAssignment:
+        """Complete mesh-bound material assignment used to build this energy."""
+        return self._material_assignment
 
     def dE_de(self, displacement: np.ndarray) -> np.ndarray:
         """Return ``∂E/∂e`` with shape ``(num_elastic_dofs,)``."""
@@ -265,72 +297,6 @@ def _resolve_formulation(formulation):
             f"formulation must be a Formulation, got {type(formulation).__name__}"
         )
     return formulation
-
-
-# ---------------------------------------------------------------------------
-# Energy factories
-# ---------------------------------------------------------------------------
-
-
-def deformation_energy(
-    sim_mesh,
-    *,
-    elastic,
-    plastic,
-    material_parameters=None,
-    formulation=None,
-    options=None,
-) -> DeformationEnergy:
-    sim_mesh = _require_sim_mesh(sim_mesh)
-    formulation = _resolve_formulation(formulation)
-
-    from pypgo.fem.elastic import ElasticModelConfig
-    from pypgo.fem.plastic import PlasticModelConfig
-
-    if not isinstance(elastic, ElasticModelConfig):
-        raise TypeError(f"elastic must be an ElasticModelConfig, got {type(elastic).__name__}")
-    if not isinstance(plastic, PlasticModelConfig):
-        raise TypeError(f"plastic must be a PlasticModelConfig, got {type(plastic).__name__}")
-
-    if material_parameters is None:
-        material_parameters = MaterialParameters.elementwise_defaults(
-            sim_mesh, elastic=elastic, plastic=plastic)
-    if not isinstance(material_parameters, MaterialParameters):
-        raise TypeError(
-            "material_parameters must be a MaterialParameters instance or None"
-        )
-
-    if options is None:
-        options = DeformationOptions()
-    if not isinstance(options, DeformationOptions):
-        raise TypeError(f"options must be DeformationOptions, got {type(options).__name__}")
-
-    element_weights = options.element_weights
-    if element_weights is not None:
-        element_weights = np.asarray(element_weights, dtype=np.float64, order="C")
-        if element_weights.ndim != 1:
-            raise ValueError(
-                f"options.element_weights must be 1-D, got shape {element_weights.shape}"
-            )
-        if element_weights.size != sim_mesh.num_elements:
-            raise ValueError(
-                "options.element_weights size must be "
-                f"{sim_mesh.num_elements}, got {element_weights.size}"
-            )
-        element_weights = np.ascontiguousarray(element_weights, dtype=np.float64)
-
-    core = _core._create_deformation_energy_with_parameters(
-        sim_mesh._handle,
-        elastic._handle,
-        plastic._handle,
-        material_parameters._handle,
-        formulation._handle,
-        element_weights,
-        bool(options.project_hessian_psd),
-        bool(options.enable_material_max_step),
-    )
-    return DeformationEnergy(core, elastic_model=elastic, plastic_model=plastic,
-                             material_parameters=material_parameters)
 
 
 def plastic_material_energy(

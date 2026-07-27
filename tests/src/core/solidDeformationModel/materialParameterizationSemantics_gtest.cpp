@@ -1,0 +1,407 @@
+#include <gtest/gtest.h>
+
+#include "energy/deformationModelEnergy.h"
+#include "energy/elasticMaterialEnergy.h"
+#include "formulations/formulation/formulations.h"
+#include "material/core/materialEvaluator.h"
+#include "material/core/materialParameterDataProjection.h"
+#include "material/core/materialParameterization.h"
+#include "material/core/optimizableParameters.h"
+#include "material/elastic/elasticModel3DDeformationGradient.h"
+#include "material/plastic/plasticModel3DConstant.h"
+#include "materialTestUtils.h"
+#include "simulation/simulationMesh.h"
+
+#include <array>
+#include <cmath>
+#include <memory>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace
+{
+namespace ES = pgo::EigenSupport;
+using namespace pgo::SolidDeformationModel;
+
+/// Target semantic contract:
+///   input  z[0]     is named "logE" by OptimizableParameterField;
+///   output theta[0] is named "E" by ElasticModelDefinition.
+class LogYoungsModulusEvaluator final : public DifferentiableMaterialEvaluator
+{
+public:
+  int numParameters() const override { return 1; }
+  int numChannels() const override { return 1; }
+  bool isAffine() const override { return false; }
+
+  void evaluate(
+    int, int, std::span<const double> inputs,
+    std::span<double> channels) const override
+  {
+    if (inputs.size() != 1 || channels.size() != 1)
+      throw std::invalid_argument(
+        "LogYoungsModulusEvaluator expects one parameter and one channel.");
+    channels[0] = std::exp(inputs[0]);
+  }
+
+  void evaluateJacobian(
+    int, int, std::span<const double> inputs,
+    ES::RefMatXd jacobian) const override
+  {
+    if (inputs.size() != 1 || jacobian.rows() != 1 || jacobian.cols() != 1)
+      throw std::invalid_argument(
+        "LogYoungsModulusEvaluator Jacobian shape mismatch.");
+    jacobian(0, 0) = std::exp(inputs[0]);
+  }
+
+  void evaluateHessians(
+    int, int, std::span<const double> inputs,
+    std::span<ES::MXd> channelHessians) const override
+  {
+    if (inputs.size() != 1 || channelHessians.size() != 1 ||
+      channelHessians[0].rows() != 1 || channelHessians[0].cols() != 1)
+      throw std::invalid_argument(
+        "LogYoungsModulusEvaluator Hessian shape mismatch.");
+    channelHessians[0](0, 0) = std::exp(inputs[0]);
+  }
+};
+
+/// A deliberately small constitutive model whose sole physical parameter is
+/// Young's modulus E. It makes the material-parameter derivative chain easy to
+/// isolate while still exercising the real deformation assembler.
+class YoungsModulusTestModel final : public ElasticModel3DDeformationGradient
+{
+public:
+  int getNumParameters() const override { return 1; }
+
+  double compute_psi(
+    std::span<const double> parameters,
+    const SpectralState &state) const override
+  {
+    return 0.5 * parameters[0] *
+      (state.F - ES::M3d::Identity()).squaredNorm();
+  }
+
+  ES::M3d compute_P(
+    std::span<const double> parameters,
+    const SpectralState &state) const override
+  {
+    return parameters[0] * (state.F - ES::M3d::Identity());
+  }
+
+  ES::M9d compute_dPdF(
+    std::span<const double> parameters,
+    const SpectralState &) const override
+  {
+    return parameters[0] * ES::M9d::Identity();
+  }
+
+  double compute_dpsi_dparam(
+    std::span<const double>, int parameter,
+    const SpectralState &state) const override
+  {
+    if (parameter != 0)
+      throw std::out_of_range("YoungsModulusTestModel parameter index.");
+    return 0.5 * (state.F - ES::M3d::Identity()).squaredNorm();
+  }
+
+  double compute_d2psi_dparam2(
+    std::span<const double>, int parameter0, int parameter1,
+    const SpectralState &) const override
+  {
+    if (parameter0 != 0 || parameter1 != 0)
+      throw std::out_of_range("YoungsModulusTestModel parameter index.");
+    return 0.0;
+  }
+
+  ES::M3d compute_dP_dparam(
+    std::span<const double>, int parameter,
+    const SpectralState &state) const override
+  {
+    if (parameter != 0)
+      throw std::out_of_range("YoungsModulusTestModel parameter index.");
+    return state.F - ES::M3d::Identity();
+  }
+
+  void compute_d2PdF2(
+    std::span<const double>, const SpectralState &,
+    ES::M81x9d &derivative) const override
+  {
+    derivative.setZero();
+  }
+
+  ES::M3d compute_d2Pdparam2(
+    std::span<const double>, int parameter0, int parameter1,
+    const SpectralState &) const override
+  {
+    if (parameter0 != 0 || parameter1 != 0)
+      throw std::out_of_range("YoungsModulusTestModel parameter index.");
+    return ES::M3d::Zero();
+  }
+
+  ES::M9d compute_d2PdFdparam(
+    std::span<const double>, int parameter,
+    const SpectralState &) const override
+  {
+    if (parameter != 0)
+      throw std::out_of_range("YoungsModulusTestModel parameter index.");
+    return ES::M9d::Identity();
+  }
+};
+
+class YoungsModulusTestDefinition final : public ElasticModelDefinition
+{
+public:
+  std::string_view id() const override { return "test_youngs_modulus"; }
+
+  MaterialChannelSchema fixedChannelSchema() const override
+  {
+    return {};
+  }
+
+  MaterialChannelSchema optimizableChannelSchema() const override
+  {
+    static constexpr std::array<std::string_view, 1> names{ "E" };
+    return MaterialChannelSchema(names);
+  }
+
+  MaterialFrameRequirement frameRequirement() const override
+  {
+    return MaterialFrameRequirement::None;
+  }
+
+  std::unique_ptr<ElasticModel> createModelFromFixed(
+    std::span<const double> fixed,
+    const MaterialFrame &) const override
+  {
+    if (!fixed.empty())
+      throw std::invalid_argument(
+        "YoungsModulusTestDefinition has no fixed channels.");
+    return std::make_unique<YoungsModulusTestModel>();
+  }
+};
+
+std::shared_ptr<const SimulationMesh> makeOneElementMesh()
+{
+  static constexpr std::array<double, 24> vertices{
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1,
+    1,
+    0,
+    1,
+    1,
+    1,
+    1,
+    0,
+    1,
+    1,
+  };
+  static constexpr std::array<int, 8> elementVertices{
+    0, 1, 2, 3, 4, 5, 6, 7
+  };
+  return std::shared_ptr<const SimulationMesh>(new SimulationMesh(
+    8, std::span<const double>(vertices),
+    1, 8, std::span<const int>(elementVertices),
+    SimulationMeshType::CUBIC));
+}
+
+std::shared_ptr<const MaterialParameterization> makeLogEParameterization()
+{
+  constexpr int numElements = 1;
+  auto elasticDefinition =
+    std::make_shared<const YoungsModulusTestDefinition>();
+  auto plasticDefinition =
+    std::make_shared<const VolumetricPlasticity0Definition>();
+
+  auto elasticOptimizable = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema(std::vector<std::string>{ "logE" }),
+    std::make_shared<const ConstantParameterLayout>(numElements, 1),
+    std::make_shared<const LogYoungsModulusEvaluator>());
+  auto plasticOptimizable = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema{},
+    std::make_shared<const ElementwiseParameterLayout>(numElements, 0),
+    std::make_shared<const IdentityMaterialEvaluator>(0));
+
+  return std::make_shared<const MaterialParameterization>(
+    ElasticParameterization(
+      std::move(elasticDefinition),
+      TestUtils::emptyFixedField(numElements),
+      std::move(elasticOptimizable)),
+    PlasticParameterization(
+      std::move(plasticDefinition),
+      TestUtils::emptyFixedField(numElements),
+      std::move(plasticOptimizable)));
+}
+
+TEST(LogYoungsModulusEvaluator, ValueJacobianAndHessianMatchFiniteDifferences)
+{
+  LogYoungsModulusEvaluator evaluator;
+  const std::array<double, 1> input{ std::log(1200.0) };
+  std::array<double, 1> output{};
+  ES::MXd jacobian(1, 1);
+  std::vector<ES::MXd> outputHessians(1, ES::MXd(1, 1));
+
+  evaluator.evaluate(0, 0, input, output);
+  evaluator.evaluateJacobian(0, 0, input, jacobian);
+  evaluator.evaluateHessians(0, 0, input, outputHessians);
+
+  EXPECT_NEAR(output[0], 1200.0, 1e-12);
+
+  constexpr double step = 1e-5;
+  const std::array<double, 1> plusInput{ input[0] + step };
+  const std::array<double, 1> minusInput{ input[0] - step };
+  std::array<double, 1> plusOutput{}, minusOutput{};
+  ES::MXd plusJacobian(1, 1), minusJacobian(1, 1);
+  evaluator.evaluate(0, 0, plusInput, plusOutput);
+  evaluator.evaluate(0, 0, minusInput, minusOutput);
+  evaluator.evaluateJacobian(0, 0, plusInput, plusJacobian);
+  evaluator.evaluateJacobian(0, 0, minusInput, minusJacobian);
+
+  const double finiteDifferenceJacobian =
+    (plusOutput[0] - minusOutput[0]) / (2.0 * step);
+  const double finiteDifferenceHessian =
+    (plusJacobian(0, 0) - minusJacobian(0, 0)) / (2.0 * step);
+  EXPECT_NEAR(jacobian(0, 0), finiteDifferenceJacobian, 1e-7);
+  EXPECT_NEAR(
+    outputHessians[0](0, 0), finiteDifferenceHessian, 1e-7);
+}
+
+TEST(MaterialParameterizationSemanticContract, PhysicalChannelRefUsesEvaluatorDerivatives)
+{
+  const auto parameterization = makeLogEParameterization();
+  const double logE = std::log(1200.0);
+  OptimizableParameters parameters(
+    parameterization->elastic().optimizableField(),
+    parameterization->plastic().optimizableField(),
+    ES::VXd::Constant(1, logE), ES::VXd{});
+  const auto state = parameters.snapshot().view();
+  const auto channel = parameterization->elastic().optimizableChannel("E");
+
+  OptimizableParameterEvaluationScratch scratch;
+  EXPECT_NEAR(channel.value(0, 0, state, scratch), 1200.0, 1e-12);
+
+  ES::VXd derivative(1);
+  channel.localDerivative(0, 0, state, scratch, derivative);
+  EXPECT_NEAR(derivative[0], 1200.0, 1e-12);
+
+  ES::MXd hessian(1, 1);
+  channel.localHessian(0, 0, state, hessian);
+  EXPECT_NEAR(hessian(0, 0), 1200.0, 1e-12);
+}
+
+TEST(MaterialParameterizationSemanticContract, AllowsDistinctParametersAndChannels)
+{
+  const auto parameterization = makeLogEParameterization();
+  ASSERT_NE(parameterization, nullptr);
+
+  const auto inputNames =
+    parameterization->elastic().optimizableField()->parameterSchema().parameterNames();
+  const auto outputNames =
+    parameterization->elastic().optimizableChannelSchema().channelNames();
+  ASSERT_EQ(inputNames.size(), 1);
+  ASSERT_EQ(outputNames.size(), 1);
+  EXPECT_EQ(inputNames[0], "logE");
+  EXPECT_EQ(outputNames[0], "E");
+  const auto channel = parameterization->elastic().optimizableChannel("E");
+  EXPECT_EQ(channel.name(), "E");
+  EXPECT_EQ(channel.channelIndex(), 0);
+}
+
+TEST(MaterialParameterizationSemanticContract, NamedProjectionInitializesParametersNotChannels)
+{
+  const auto mesh = makeOneElementMesh();
+  const auto parameterization = makeLogEParameterization();
+  NamedChannelMaterialParameterDataProjection projection;
+
+  const auto physicalAsset = TestUtils::makeAsset(
+    mesh, { "E" }, { 1200.0 });
+  EXPECT_THROW(
+    projection.project(
+      physicalAsset->materialData(), *parameterization),
+    std::invalid_argument);
+
+  const double logE = std::log(1200.0);
+  const auto inputAsset = TestUtils::makeAsset(
+    mesh, { "logE" }, { logE });
+  const MaterialParameterData data = projection.project(
+    inputAsset->materialData(), *parameterization);
+  ASSERT_EQ(data.elastic.initialOptimizableValues.size(), 1);
+  EXPECT_NEAR(data.elastic.initialOptimizableValues[0], logE, 1e-12);
+}
+
+TEST(MaterialParameterizationSemanticContract, LogEGradientAndHessianMatchFiniteDifferences)
+{
+  const auto mesh = makeOneElementMesh();
+  const auto parameterization = makeLogEParameterization();
+  const double logE = std::log(1200.0);
+  const auto inputAsset = TestUtils::makeAsset(
+    mesh, { "logE" }, { logE });
+  NamedChannelMaterialParameterDataProjection projection;
+  auto data = std::make_shared<const MaterialParameterData>(
+    projection.project(inputAsset->materialData(), *parameterization));
+
+  auto assignment = std::make_shared<const MaterialAssignment>(
+    mesh, parameterization, std::move(data),
+    std::make_shared<const GlobalAxesMaterialFrameField>(1));
+  CubicLinearFormulation formulation;
+  DeformationModelOptions options;
+  options.projectHessianPSD = false;
+  options.enableMaterialMaxStep = false;
+  const auto deformationEnergy =
+    std::make_shared<DeformationModelEnergy>(
+      std::move(assignment), formulation, options);
+
+  ES::VXd displacement = ES::VXd::Zero(deformationEnergy->getNumDOFs());
+  for (int i = 0; i < displacement.size(); ++i)
+    displacement[i] = 0.01 * std::sin(0.7 * i + 0.2);
+  ElasticMaterialEnergy elasticEnergy(deformationEnergy, displacement);
+
+  ES::VXd input(1);
+  input[0] = logE;
+  ES::VXd gradient(1);
+  elasticEnergy.gradient(input, gradient);
+  ES::SpMatD hessian;
+  elasticEnergy.hessianAlloc(hessian);
+  elasticEnergy.hessianInPlace(input, hessian);
+  const ES::MXd denseHessian(hessian);
+
+  constexpr double step = 1e-5;
+  ES::VXd plus = input;
+  ES::VXd minus = input;
+  plus[0] += step;
+  minus[0] -= step;
+  const double finiteDifferenceGradient =
+    (elasticEnergy.func(plus) - elasticEnergy.func(minus)) /
+    (2.0 * step);
+
+  ES::VXd plusGradient(1), minusGradient(1);
+  elasticEnergy.gradient(plus, plusGradient);
+  elasticEnergy.gradient(minus, minusGradient);
+  const double finiteDifferenceHessian =
+    (plusGradient[0] - minusGradient[0]) / (2.0 * step);
+
+  EXPECT_NEAR(
+    gradient[0], finiteDifferenceGradient,
+    1e-7 * std::max(1.0, std::abs(finiteDifferenceGradient)));
+  ASSERT_EQ(denseHessian.rows(), 1);
+  ASSERT_EQ(denseHessian.cols(), 1);
+  EXPECT_NEAR(
+    denseHessian(0, 0), finiteDifferenceHessian,
+    1e-7 * std::max(1.0, std::abs(finiteDifferenceHessian)));
+}
+
+}  // namespace

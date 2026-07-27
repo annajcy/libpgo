@@ -184,25 +184,18 @@ ES::M9d ElasticModel3DMooneyRivlin::compute_dPdF(std::span<const double>, const 
 }
 
 
-#include "simulation/simulationMesh.h"
 #include <stdexcept>
 #include <string>
 
 namespace pgo::SolidDeformationModel {
 namespace {
-const SimulationMeshMooneyRivlinMaterial &mooneyMaterial(const SimulationMesh &mesh, int element) {
-  return mesh.requireElementField<SimulationMeshMooneyRivlinMaterial>().at(element);
-}
-void expectSize(std::span<double> output, std::size_t expected) {
-  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
-}
 // This model has no optimization channels.
 }
-std::span<const std::string_view> MooneyRivlinConfig::parameterChannelNames() const { return {}; }
-void MooneyRivlinConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
-std::unique_ptr<ElasticModel> MooneyRivlinConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &) const
+MaterialChannelSchema MooneyRivlinDefinition::optimizableChannelSchema() const { return {}; }
+MaterialChannelSchema MooneyRivlinDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 3> names{"mu01", "mu10", "v1"}; return MaterialChannelSchema(names); }
+std::unique_ptr<ElasticModel> MooneyRivlinDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
 {
-  const auto &mat = mooneyMaterial(mesh, element);
-  return std::make_unique<ElasticModel3DMooneyRivlin>(mat.mu01(), mat.mu10(), mat.v1());
+  if (values.size() != 3) throw std::invalid_argument("mooney_rivlin requires fixed channels mu01, mu10, v1");
+  return std::make_unique<ElasticModel3DMooneyRivlin>(values[0], values[1], values[2]);
 }
 }  // namespace pgo::SolidDeformationModel

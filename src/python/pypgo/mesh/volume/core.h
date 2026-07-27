@@ -134,8 +134,8 @@ void write_veg(
     const std::vector<std::pair<int, int>>& regionPayloads);
 
 PyTriMeshData extract_surface_mesh(const PyVolumeMesh& vm, bool triangulate);
-std::shared_ptr<PySimulationMesh> create_simulation_mesh_from_volume(const PyVolumeMesh& vm);
-std::shared_ptr<PySimulationMesh> create_simulation_mesh_from_shell(
+std::shared_ptr<PySimulationAsset> create_simulation_asset_from_volume(const PyVolumeMesh& vm);
+std::shared_ptr<PySimulationAsset> create_simulation_asset_from_shell(
     const PyTriMeshData& surfaceData,
     double thickness,
     double E,

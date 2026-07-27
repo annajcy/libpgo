@@ -453,15 +453,15 @@ inline EigenSupport::M9d ElasticModelCombinedMaterial<-1>::compute_d2PdFdparam(s
   return materials[mi]->compute_d2PdFdparam(param.subspan(parameterOffsets[mi], materials[mi]->getNumParameters()), i - parameterOffsets[mi], state);
 }
 
-class StVKVolumeConfig final : public ElasticModelConfig
+class StVKVolumeDefinition final : public ElasticModelDefinition
 {
 public:
   std::string_view id() const override { return "stvk_vol"; }
-  std::span<const std::string_view> parameterChannelNames() const override;
+  MaterialChannelSchema optimizableChannelSchema() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
+  MaterialChannelSchema fixedChannelSchema() const override;
+  std::unique_ptr<ElasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
 private:
-  std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

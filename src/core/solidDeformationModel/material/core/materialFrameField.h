@@ -1,8 +1,11 @@
 #pragma once
 
 #include "EigenSupport.h"
+#include "simulation/importedMaterial.h"
 
 #include <memory>
+#include <string_view>
+#include <string>
 #include <vector>
 
 namespace pgo
@@ -36,6 +39,31 @@ public:
 
   EigenSupport::V3d primaryAxis(int elementId, int quadratureId) const;
   bool satisfies(MaterialFrameRequirement requirement) const;
+};
+
+/// One-shot conversion of imported frame payloads.  This is intentionally
+/// independent from material parameter projection and model definitions.
+class MaterialFrameFieldProjection
+{
+public:
+  virtual ~MaterialFrameFieldProjection() = default;
+  virtual std::shared_ptr<const MaterialFrameField> project(
+    const ImportedMaterialData &source) const = 0;
+};
+
+class ImportedRotationMaterialFrameFieldProjection final :
+  public MaterialFrameFieldProjection
+{
+public:
+  explicit ImportedRotationMaterialFrameFieldProjection(
+    std::string property = "rotation"):
+    property_(std::move(property)) {}
+
+  std::shared_ptr<const MaterialFrameField> project(
+    const ImportedMaterialData &source) const override;
+
+private:
+  std::string property_;
 };
 
 class GlobalAxesMaterialFrameField final : public MaterialFrameField
@@ -86,9 +114,6 @@ public:
 private:
   std::vector<MaterialFrame> frames_;
 };
-
-std::shared_ptr<const MaterialFrameField>
-makeGlobalAxesMaterialFrameField(int numElements);
 
 // Return an immutable field with Q' = referenceRotation * Q for every element.
 // The input field is not modified.

@@ -1,4 +1,4 @@
-"""Private smoke tests for config-based deformation _core hooks."""
+"""Private smoke tests for assignment-based deformation _core hooks."""
 
 import gc
 
@@ -7,6 +7,7 @@ import pypgo as pgo
 import pypgo._core as _core
 import pypgo.fem as pf
 import pytest
+from tests.pypgo.material_helpers import direct_assignment
 
 
 def _make_tet_sim_mesh():
@@ -20,7 +21,7 @@ def _make_tet_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         tet, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.fem.SimulationMesh.create_volumetric(volume)
+    return pgo.fem.SimulationAsset.create_volumetric(volume)
 
 
 def _make_cubic_sim_mesh():
@@ -43,7 +44,7 @@ def _make_cubic_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.fem.SimulationMesh.create_volumetric(volume)
+    return pgo.fem.SimulationAsset.create_volumetric(volume)
 
 
 def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plastic_values=None):
@@ -55,35 +56,14 @@ def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plast
     }.get(formulation, lambda: None)()
     if formulation_handle is None:
         raise ValueError(f"Unknown formulation: {formulation}")
-    elastic = elastic or pf.StableNeo()
-    plastic = plastic or pf.VolumetricPlasticity(dofs=6)
-    if plastic_values is None:
-        parameters = _core._create_default_material_parameters(
-            sim._handle, elastic._handle, plastic._handle)
-    else:
-        space = pf.MaterialParameterSpace(
-            sim,
-            elastic=elastic,
-            plastic=plastic,
-            elastic_field=pf.ParameterFieldDefinition(
-                layout=pf.ElementwiseDofLayout(),
-                channel_mapping=pf.IdentityMaterialChannelMapping(),
-            ),
-            plastic_field=pf.ParameterFieldDefinition(
-                layout=pf.ElementwiseDofLayout(),
-                channel_mapping=pf.IdentityMaterialChannelMapping(),
-            ),
-        )
-        parameters = _core._create_material_parameters(
-            space._handle,
-            np.zeros(0, dtype=np.float64),
-            np.asarray(plastic_values, dtype=np.float64),
-        )
-    return _core._create_deformation_energy_with_parameters(
-        sim._handle,
-        elastic._handle,
-        plastic._handle,
-        parameters,
+    elastic = elastic or pf.StableNeoDefinition()
+    plastic = plastic or pf.VolumetricPlasticityDefinition(dofs=6)
+    assignment = direct_assignment(
+        sim, elastic, plastic,
+        pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout,
+        None, plastic_values)
+    return _core._create_deformation_energy(
+        assignment._handle,
         formulation_handle._handle,
         None,
         True,
@@ -96,18 +76,18 @@ class TestCoreDeformationEnergy:
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_linear")
 
-        assert energy.elastic_model.name == "stable_neo"
-        assert energy.plastic_model.name == "volumetric_dof6"
-        assert energy.parameters.space.elastic.num_channels == 0
-        assert energy.parameters.elastic_values.shape == (0, 0)
-        assert energy.parameters.plastic_values.shape == (sim.num_elements, 6)
+        assert energy.elastic_definition.name == "stable_neo"
+        assert energy.plastic_definition.name == "volumetric_dof6"
+        assert energy.optimizable_parameters.elastic_field.num_material_channels == 0
+        assert energy.optimizable_parameters.elastic_values.shape == (0, 0)
+        assert energy.optimizable_parameters.plastic_values.shape == (sim.num_elements, 6)
 
     def test_parameter_owner_setters_update_committed_values(self):
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_linear")
         values = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
-        energy.parameters.set_plastic_values(values.ravel())
-        assert np.allclose(energy.parameters.plastic_values, values)
+        energy.optimizable_parameters.set_plastic_values(values.ravel())
+        assert np.allclose(energy.optimizable_parameters.plastic_values, values)
 
     def test_wrong_size_rejected(self):
         sim = _make_tet_sim_mesh()
@@ -146,12 +126,12 @@ class TestCoreEnergy:
 
     def test_energy_observes_state_updates(self):
         sim = _make_tet_sim_mesh()
-        energy = _make_deformation_energy(sim, "tet_linear", elastic=pf.StVK())
+        energy = _make_deformation_energy(sim, "tet_linear", elastic=pf.StVKDefinition())
         h = energy
         u = h.zero_state()
 
         before = h.value(u)
-        energy.parameters.set_plastic_values(
+        energy.optimizable_parameters.set_plastic_values(
             np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64).ravel()
         )
         after = h.value(u)

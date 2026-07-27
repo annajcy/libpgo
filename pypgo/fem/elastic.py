@@ -1,56 +1,68 @@
-"""Elastic model configuration wrappers."""
+"""Elastic model definition wrappers."""
 
 from __future__ import annotations
 
 import pypgo._core as _core
 
 
-class ElasticModelConfig:
-    """Abstract model configuration backed by a shared C++ config object."""
+class ElasticModelDefinition:
+    """Abstract model definition backed by an immutable C++ definition."""
 
     def __init__(self, core_obj) -> None:
-        if type(self) is ElasticModelConfig:
-            raise TypeError("ElasticModelConfig is abstract; use a concrete config such as StableNeo()")
-        if not isinstance(core_obj, _core.PyElasticModelConfig):
-            raise TypeError("core_obj must be a PyElasticModelConfig")
+        if type(self) is ElasticModelDefinition:
+            raise TypeError("ElasticModelDefinition is abstract; use a concrete definition such as StableNeoDefinition()")
+        if not isinstance(core_obj, _core.PyElasticModelDefinition):
+            raise TypeError("core_obj must be a PyElasticModelDefinition")
         self._handle = core_obj
 
     @property
     def name(self) -> str:
         return self._handle.name
 
+    @property
+    def fixed_channel_names(self) -> tuple[str, ...]:
+        return tuple(self._handle.fixed_channel_names)
+
+    @property
+    def optimizable_channel_names(self) -> tuple[str, ...]:
+        return tuple(self._handle.optimizable_channel_names)
+
+    @property
+    def frame_requirement(self) -> str:
+        return self._handle.frame_requirement
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 
 
-class StableNeo(ElasticModelConfig):
+class StableNeoDefinition(ElasticModelDefinition):
     def __init__(self) -> None:
-        super().__init__(_core.PyStableNeoConfig())
+        super().__init__(_core.PyStableNeoDefinition())
 
 
-class StVK(ElasticModelConfig):
+class StVKDefinition(ElasticModelDefinition):
     def __init__(self) -> None:
-        super().__init__(_core.PyStVKConfig())
+        super().__init__(_core.PyStVKDefinition())
 
 
-class StVKVolume(ElasticModelConfig):
+class StVKVolumeDefinition(ElasticModelDefinition):
     def __init__(self) -> None:
-        super().__init__(_core.PyStVKVolumeConfig())
+        super().__init__(_core.PyStVKVolumeDefinition())
 
 
-class LinearElastic(ElasticModelConfig):
+class LinearElasticDefinition(ElasticModelDefinition):
     def __init__(self) -> None:
-        super().__init__(_core.PyLinearElasticConfig())
+        super().__init__(_core.PyLinearElasticDefinition())
 
 
-class MooneyRivlin(ElasticModelConfig):
+class MooneyRivlinDefinition(ElasticModelDefinition):
     def __init__(self) -> None:
-        super().__init__(_core.PyMooneyRivlinConfig())
+        super().__init__(_core.PyMooneyRivlinDefinition())
 
 
-class KoiterStVK(ElasticModelConfig):
+class KoiterStVKDefinition(ElasticModelDefinition):
     def __init__(self) -> None:
-        super().__init__(_core.PyKoiterStVKConfig())
+        super().__init__(_core.PyKoiterStVKDefinition())
 
 
 from dataclasses import dataclass
@@ -58,9 +70,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class KoiterStVKShellMaterial:
-    """Material parameters for the Koiter-St.Venant-Kirchhoff shell model.
+    """optimizable parameters for the Koiter-St.Venant-Kirchhoff shell model.
 
-    Used by ``SimulationMesh.create_shell`` and shell config I/O.
+    Used by ``SimulationAsset.create_shell`` and shell config I/O.
     """
 
     name: str = "shell"

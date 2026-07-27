@@ -5,6 +5,7 @@ import pytest
 
 import pypgo as pgo
 import pypgo.fem as pf
+from tests.pypgo.material_helpers import direct_assignment
 
 
 def _unit_tet_volume(*, density=2.0):
@@ -34,7 +35,7 @@ def _single_cube_volume(*, density=2.0):
 
 def test_tet_mass_matrix_matches_legacy_vega_consistent_mass():
     volume = _unit_tet_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     M_new = pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(2.0)).to_dense()
     M_legacy = volume._mass_matrix().to_dense()
     np.testing.assert_allclose(M_new, M_legacy, rtol=1e-12, atol=1e-14)
@@ -42,7 +43,7 @@ def test_tet_mass_matrix_matches_legacy_vega_consistent_mass():
 
 def test_cubic_mass_matrix_matches_legacy_vega_consistent_mass():
     volume = _single_cube_volume(density=3.0)
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     M_new = pf.CubicLinear().mass_matrix(sim_mesh, pf.VolumeDensity(3.0)).to_dense()
     # The legacy vega cubic mass uses hardcoded approximate constants (~1e-8 relative
     # error). Our Gauss-2^3 quadrature is analytically exact for the trilinear N^TN
@@ -60,7 +61,7 @@ def test_cubic_mass_matrix_matches_legacy_vega_consistent_mass():
 
 def test_tet_body_force_distributes_total_weight():
     volume = _unit_tet_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     g = np.array([0.0, -9.8, 0.0])
     f = pf.TetLinear().body_force(sim_mesh, g, pf.VolumeDensity(2.0))
     tet_volume = 1.0 / 6.0
@@ -72,7 +73,7 @@ def test_tet_body_force_distributes_total_weight():
 
 def test_volume_constant_velocity_kinetic_energy_is_exact():
     volume = _single_cube_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     M = pf.CubicLinear().mass_matrix(sim_mesh, pf.VolumeDensity(2.0)).to_dense()
     v = np.array([0.4, -0.2, 0.7])
     qdot = np.tile(v, 8)
@@ -83,7 +84,7 @@ def test_volume_constant_velocity_kinetic_energy_is_exact():
 def test_volume_density_reads_region_density():
     volume = _unit_tet_volume(density=7.5)
     field = pf.volume_density(volume)
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     f = pf.TetLinear().body_force(sim_mesh, [0.0, -1.0, 0.0], field)
     np.testing.assert_allclose(f.reshape(-1, 3).sum(axis=0), [0.0, -7.5 / 6.0, 0.0], rtol=1e-12)
 
@@ -104,7 +105,7 @@ def test_multi_element_tet_mass_matrix_accumulates_shared_dofs():
     rho = 2.0
     material = pgo.mesh.volume.ENuMaterial(density=rho, E=1e6, nu=0.45)
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(mesh, material)
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     M_new = pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(rho)).to_dense()
     M_legacy = volume._mass_matrix().to_dense()
     np.testing.assert_allclose(M_new, M_legacy, rtol=1e-12, atol=1e-14)
@@ -112,11 +113,11 @@ def test_multi_element_tet_mass_matrix_accumulates_shared_dofs():
 
 def test_volume_mass_field_type_errors():
     volume = _unit_tet_volume()
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     with pytest.raises(TypeError):
         pf.TetLinear().mass_matrix(sim_mesh, "not a mass field")
     with pytest.raises(TypeError):
-        # Old call style: VolumeMesh in place of SimulationMesh.
+        # Old call style: VolumeMesh in place of SimulationAsset.
         pf.TetLinear().mass_matrix(volume, pf.VolumeDensity(1.0))
     with pytest.raises(ValueError):
         pf.VolumeDensity(-1.0)
@@ -169,7 +170,7 @@ def _shell_grid(nx=2, ny=2):
     triangles = np.asarray(triangles, dtype=np.int64)
     surface = pgo.mesh.TriMeshData(vertices, triangles)
     material = pf.KoiterStVKShellMaterial(thickness=1e-3, E_membrane=2e4, nu_membrane=0.35)
-    return surface, vertices, triangles, pf.SimulationMesh.create_shell(surface, material)
+    return surface, vertices, triangles, pf.SimulationAsset.create_shell(surface, material)
 
 
 def test_shell_body_force_matches_manual_lumped_formula():
@@ -211,24 +212,13 @@ def _shell_energy(sim, triangles):
     base_row = np.array([2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3], dtype=np.float64)
     elastic = np.tile(base_row, (triangles.shape[0], 1))
     plastic = np.ones((triangles.shape[0], 1), dtype=np.float64)
-    elastic_config = pf.KoiterStVK()
-    plastic_config = pf.ShellPlasticity(dofs=1)
-    space = pf.MaterialParameterSpace(
-        sim,
-        elastic=elastic_config,
-        plastic=plastic_config,
-        elastic_field=pf.ParameterFieldDefinition(
-            pf.ElementwiseDofLayout(), pf.IdentityMaterialChannelMapping()),
-        plastic_field=pf.ParameterFieldDefinition(
-            pf.ElementwiseDofLayout(), pf.IdentityMaterialChannelMapping()),
-    )
-    parameters = pf.MaterialParameters(
-        space, elastic_values=elastic, plastic_values=plastic)
-    return pf.deformation_energy(
-        sim,
-        elastic=elastic_config,
-        plastic=plastic_config,
-        material_parameters=parameters,
+    elastic_config = pf.KoiterStVKDefinition()
+    plastic_config = pf.ShellPlasticityDefinition(dofs=1)
+    assignment = direct_assignment(
+        sim, elastic_config, plastic_config,
+        pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout, elastic, plastic)
+    return pf.DeformationEnergy(
+        assignment,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
     )
@@ -239,19 +229,19 @@ def test_shell_elastic_thickness_mass_field_reads_live_values():
     energy = _shell_energy(sim, triangles)
     field = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0,
-        parameter=energy.parameters.space.elastic.parameter("thickness"),
+        parameter=energy.optimizable_parameters.elastic_field.parameter("thickness"),
     )
     g = np.array([0.0, 0.0, -9.81])
     ks = pf.KoiterShell()
 
     f0 = ks.body_force(
-        sim, g, field, material_parameters=energy.parameters
+        sim, g, field, optimizable_parameters=energy.optimizable_parameters
     )
-    values = energy.parameters.elastic_values.copy()
+    values = energy.optimizable_parameters.elastic_values.copy()
     values[:, 4] *= 2.0  # double the thickness
-    energy.parameters.set_elastic_values(values)
+    energy.optimizable_parameters.set_elastic_values(values)
     f1 = ks.body_force(
-        sim, g, field, material_parameters=energy.parameters
+        sim, g, field, optimizable_parameters=energy.optimizable_parameters
     )
     np.testing.assert_allclose(f1, 2.0 * f0, rtol=1e-12)
 
@@ -261,42 +251,42 @@ def test_shell_body_force_parameter_jacobian_matches_differences():
     energy = _shell_energy(sim, triangles)
     field = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0,
-        parameter=energy.parameters.space.elastic.parameter("thickness"),
+        parameter=energy.optimizable_parameters.elastic_field.parameter("thickness"),
     )
     g = np.array([0.0, 0.0, -9.81])
     ks = pf.KoiterShell()
 
-    b0 = energy.parameters.elastic_values.copy()
+    b0 = energy.optimizable_parameters.elastic_values.copy()
     f0 = ks.body_force(
-        sim, g, field, material_parameters=energy.parameters
+        sim, g, field, optimizable_parameters=energy.optimizable_parameters
     )
     J = ks.body_force_parameter_jacobian(
-        sim, g, field, material_parameters=energy.parameters
+        sim, g, field, optimizable_parameters=energy.optimizable_parameters
     ).to_dense()
     assert J.shape == (sim.num_vertices * 3, b0.size)
 
     rng = np.random.default_rng(0)
     db = np.zeros_like(b0)
     db[:, 4] = rng.uniform(-0.5, 0.5, size=b0.shape[0]) * b0[:, 4]
-    energy.parameters.set_elastic_values(b0 + db)
+    energy.optimizable_parameters.set_elastic_values(b0 + db)
     f1 = ks.body_force(
-        sim, g, field, material_parameters=energy.parameters
+        sim, g, field, optimizable_parameters=energy.optimizable_parameters
     )
     # f_g is linear in h, so the Jacobian is exact even for finite steps.
     np.testing.assert_allclose(f1 - f0, J @ db.ravel(), rtol=1e-10, atol=1e-14)
-    energy.parameters.set_elastic_values(b0)
+    energy.optimizable_parameters.set_elastic_values(b0)
 
 
 def test_material_parameter_ref_keeps_its_space_alive():
     _surface, _vertices, triangles, sim = _shell_grid()
     energy = _shell_energy(sim, triangles)
-    parameter = energy.parameters.space.elastic.parameter("thickness")
+    parameter = energy.optimizable_parameters.elastic_field.parameter("thickness")
 
     del energy
     gc.collect()
 
     assert parameter.name == "thickness"
-    assert parameter.channel == 4
+    assert parameter.parameter_index == 4
     field = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0, parameter=parameter
     )
@@ -309,7 +299,7 @@ def test_parameter_dependent_mass_rejects_parameters_from_another_space():
     other = _shell_energy(sim, triangles)
     field = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0,
-        parameter=owner.parameters.space.elastic.parameter("thickness"),
+        parameter=owner.optimizable_parameters.elastic_field.parameter("thickness"),
     )
 
     with pytest.raises(ValueError):
@@ -317,7 +307,7 @@ def test_parameter_dependent_mass_rejects_parameters_from_another_space():
             sim,
             [0.0, 0.0, -9.81],
             field,
-            material_parameters=other.parameters,
+            optimizable_parameters=other.optimizable_parameters,
         )
 
 
@@ -328,7 +318,7 @@ def test_body_force_parameter_jacobian_rejects_fixed_mass_fields():
             sim,
             [0.0, 0.0, -9.81],
             pf.ShellArealDensity(1.0),
-            material_parameters=None,
+            optimizable_parameters=None,
         )
 
 
@@ -337,6 +327,6 @@ def test_shell_volume_mass_field_cross_domain_type_errors():
     with pytest.raises(TypeError):
         pf.KoiterShell().mass_matrix(sim, pf.VolumeDensity(1000.0))
     volume = _unit_tet_volume()
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     with pytest.raises(TypeError):
         pf.TetLinear().mass_matrix(sim_mesh, pf.ShellArealDensity(1.0))

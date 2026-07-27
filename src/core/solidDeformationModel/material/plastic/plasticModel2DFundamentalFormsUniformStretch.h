@@ -42,15 +42,15 @@ public:
 protected:
 };
 
-class ShellPlasticity1Config final : public PlasticModelConfig
+class ShellPlasticity1Definition final : public PlasticModelDefinition
 {
 public:
   std::string_view id() const override { return "shell_ff_dof1"; }
-  std::span<const std::string_view> parameterChannelNames() const override;
+  MaterialChannelSchema fixedChannelSchema() const override { return {}; }
+  MaterialChannelSchema optimizableChannelSchema() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
+  std::unique_ptr<PlasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
 private:
-  std::unique_ptr<PlasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

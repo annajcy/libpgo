@@ -175,9 +175,9 @@ def validate_args(args: argparse.Namespace) -> None:
 
 def _elastic_model(pf, name: str):
     factories = {
-        "stable_neo": pf.StableNeo,
-        "stvk": pf.StVK,
-        "linear": pf.LinearElastic,
+        "stable_neo": pf.StableNeoDefinition,
+        "stvk": pf.StVKDefinition,
+        "linear": pf.LinearElasticDefinition,
     }
     return factories[name]()
 
@@ -300,17 +300,66 @@ def worker_main(args: argparse.Namespace) -> int:
     import pypgo.fem as pf
     import pypgo.profiling as profiling
     from pypgo.mesh.volume import VolumeMesh, read_veg
+    from pypgo.tools.sim._scene import _source_channel_values
 
     metadata = FORMULATION_METADATA[args.formulation]
     mesh_path = args.tet_mesh if metadata["mesh_kind"] == "tet" else args.cubic_mesh
     veg = read_veg(str(mesh_path))
     volume_mesh = VolumeMesh.from_veg_file(veg)
-    simulation_mesh = pf.SimulationMesh.create_volumetric(volume_mesh)
+    asset = pf.SimulationAsset.create_volumetric(volume_mesh)
     formulation = _formulation(pf, args.formulation)
-    energy = pf.deformation_energy(
-        simulation_mesh,
-        elastic=_elastic_model(pf, args.elastic_model),
-        plastic=pf.VolumetricPlasticity(dofs=args.plastic_dofs),
+    elastic = _elastic_model(pf, args.elastic_model)
+    plastic = pf.VolumetricPlasticityDefinition(dofs=args.plastic_dofs)
+    def identity_field(field_type, names):
+        count = len(names)
+        return field_type(
+            names,
+            pf.ElementwiseParameterLayout(asset.num_elements, count),
+            pf.IdentityMaterialEvaluator(count))
+
+    elastic_fixed = identity_field(
+        pf.FixedParameterField, elastic.fixed_channel_names)
+    plastic_fixed = identity_field(
+        pf.FixedParameterField, plastic.fixed_channel_names)
+    elastic_optimizable = identity_field(
+        pf.OptimizableParameterField, elastic.optimizable_channel_names)
+    plastic_optimizable = identity_field(
+        pf.OptimizableParameterField, plastic.optimizable_channel_names)
+    parameterization = pf.MaterialParameterization(
+        pf.ElasticParameterization(elastic, elastic_fixed, elastic_optimizable),
+        pf.PlasticParameterization(plastic, plastic_fixed, plastic_optimizable),
+    )
+    if args.plastic_dofs == 6:
+        plastic_values = np.tile(
+            np.array([1.0, 0.0, 0.0, 1.0, 0.0, 1.0]),
+            (asset.num_elements, 1),
+        )
+    elif args.plastic_dofs == 3:
+        plastic_values = np.ones((asset.num_elements, 3), dtype=np.float64)
+    else:
+        plastic_values = np.empty(0)
+    def fixed_values(definition):
+        values = np.empty(
+            asset.num_elements * len(definition.fixed_channel_names),
+            dtype=np.float64,
+        )
+        for channel, name in enumerate(definition.fixed_channel_names):
+            source = _source_channel_values(asset, name)
+            for element, value in enumerate(source):
+                values[element * len(definition.fixed_channel_names) + channel] = value
+        return values
+
+    parameter_data = pf.MaterialParameterData(
+        elastic=(fixed_values(elastic), np.empty(0, dtype=np.float64)),
+        plastic=(fixed_values(plastic), np.ascontiguousarray(plastic_values.reshape(-1))),
+    )
+    assignment = pf.MaterialAssignment(
+        asset,
+        parameterization,
+        parameter_data,
+    )
+    energy = pf.DeformationEnergy(
+        assignment,
         formulation=formulation,
         options=pf.DeformationOptions(
             project_hessian_psd=True,
@@ -418,8 +467,8 @@ def worker_main(args: argparse.Namespace) -> int:
         "mesh": {
             "path": str(mesh_path.resolve()),
             "kind": metadata["mesh_kind"],
-            "num_vertices": simulation_mesh.num_vertices,
-            "num_elements": simulation_mesh.num_elements,
+            "num_vertices": asset.num_vertices,
+            "num_elements": asset.num_elements,
         },
         "material": {
             "elastic_model": args.elastic_model,

@@ -10,6 +10,7 @@ copyright to USC, MIT, NUS
 #include "material/elastic/elasticModel.h"
 #include "material/plastic/plasticModel.h"
 #include "material/core/materialFrameField.h"
+#include "material/core/materialAssignment.h"
 
 #include <memory>
 
@@ -24,18 +25,12 @@ class DeformationModelManagerImpl;
 class DeformationModelManager
 {
 public:
-  DeformationModelManager(std::shared_ptr<const SimulationMesh> mesh,
-    std::shared_ptr<const ElasticModelConfig> elasticConfig,
-    std::shared_ptr<const PlasticModelConfig> plasticConfig,
+  /// Preferred construction path: all material state is supplied by an
+  /// assignment and model definitions never inspect the mesh.
+  DeformationModelManager(
+    std::shared_ptr<const MaterialAssignment> assignment,
     const Formulation &formulation,
     bool projectHessianPSD = true);
-
-  DeformationModelManager(std::shared_ptr<const SimulationMesh> mesh,
-    std::shared_ptr<const ElasticModelConfig> elasticConfig,
-    std::shared_ptr<const PlasticModelConfig> plasticConfig,
-    const Formulation &formulation,
-    bool projectHessianPSD,
-    std::shared_ptr<const MaterialFrameField> materialFrames);
 
   ~DeformationModelManager();
 
@@ -45,8 +40,9 @@ public:
 
   const MaterialFrameField &materialFrameField() const;
   std::shared_ptr<const MaterialFrameField> materialFrameFieldPtr() const;
-  std::shared_ptr<const ElasticModelConfig> elasticModelConfig() const;
-  std::shared_ptr<const PlasticModelConfig> plasticModelConfig() const;
+  std::shared_ptr<const ElasticModelDefinition> elasticModelDefinition() const;
+  std::shared_ptr<const PlasticModelDefinition> plasticModelDefinition() const;
+  std::shared_ptr<const MaterialAssignment> materialAssignment() const;
   MaterialFrame materialToReferenceFrame(
     int elementId, int quadratureId = 0) const;
 

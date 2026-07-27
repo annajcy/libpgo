@@ -36,7 +36,8 @@ def test_simulation_demo_uses_public_python_api(case, expected):
     tree = ast.parse(source)
 
     assert [node.name for node in tree.body if isinstance(node, ast.FunctionDef)] == [
-        "main"
+        "_material_state",
+        "main",
     ]
     assert "pypgo.tools.sim" not in source
     assert "json" not in source

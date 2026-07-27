@@ -583,39 +583,41 @@ PyTriMeshData extract_surface_mesh(const PyVolumeMesh& vm, bool triangulate)
     return PyTriMeshData(Mesh::MeshData<3>::fromFlatElements(std::move(vertices), std::move(triangles)));
 }
 
-std::shared_ptr<PySimulationMesh> create_simulation_mesh_from_volume(const PyVolumeMesh& vm)
+std::shared_ptr<PySimulationAsset> create_simulation_asset_from_volume(const PyVolumeMesh& vm)
 {
     const auto* volume = vm.getVM();
-    std::unique_ptr<SolidDeformationModel::SimulationMesh> simMesh;
+    std::unique_ptr<SolidDeformationModel::SimulationAsset> simAsset;
     {
         nb::gil_scoped_release release;
         if (auto* tetMesh = dynamic_cast<const VolumetricMeshes::TetMesh*>(volume)) {
-            simMesh = SolidDeformationModel::loadTetMesh(*tetMesh);
+            simAsset = SolidDeformationModel::loadTetMesh(*tetMesh);
         }
         else if (auto* cubicMesh = dynamic_cast<const VolumetricMeshes::CubicMesh*>(volume)) {
-            simMesh = SolidDeformationModel::loadCubicMesh(*cubicMesh);
+            simAsset = SolidDeformationModel::loadCubicMesh(*cubicMesh);
         }
         else {
-            throw std::runtime_error("Unsupported volume mesh type for SimulationMesh.create_volumetric");
+            throw std::runtime_error("Unsupported volume mesh type for SimulationAsset.create_volumetric");
         }
     }
-    return std::make_shared<PySimulationMesh>(std::move(simMesh));
+    return std::make_shared<PySimulationAsset>(
+      std::shared_ptr<const SolidDeformationModel::SimulationAsset>(simAsset.release()));
 }
 
-std::shared_ptr<PySimulationMesh> create_simulation_mesh_from_shell(
+std::shared_ptr<PySimulationAsset> create_simulation_asset_from_shell(
     const PyTriMeshData& surfaceData,
     double thickness,
     double E,
     double nu)
 {
     Mesh::TriMeshGeo surface(surfaceData.core());
-    SolidDeformationModel::SimulationMeshENuhMaterial material(E, nu, thickness);
-    std::unique_ptr<SolidDeformationModel::SimulationMesh> simMesh;
+    SolidDeformationModel::ImportedENuhMaterial material(E, nu, thickness);
+    std::unique_ptr<SolidDeformationModel::SimulationAsset> simAsset;
     {
         nb::gil_scoped_release release;
-        simMesh = SolidDeformationModel::loadShellMesh(surface, material);
+        simAsset = SolidDeformationModel::loadShellMesh(surface, material);
     }
-    return std::make_shared<PySimulationMesh>(std::move(simMesh));
+    return std::make_shared<PySimulationAsset>(
+      std::shared_ptr<const SolidDeformationModel::SimulationAsset>(simAsset.release()));
 }
 
 PyVegENuMaterialPayload create_enu_material_payload(

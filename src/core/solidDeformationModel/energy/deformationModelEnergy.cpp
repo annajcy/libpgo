@@ -6,6 +6,9 @@ copyright to USC,MIT,NUS
 #include "energy/deformationModelEnergy.h"
 
 #include "deformation/deformationModelAssembler.h"
+#include "deformation/deformationModelManager.h"
+#include "formulations/formulation/formulation.h"
+#include "material/core/materialAssignment.h"
 #include "scopedProfileSection.h"
 #include "simulation/simulationMesh.h"
 #include "pgoLogging.h"
@@ -43,27 +46,70 @@ void fillAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restDofs, ES::VXd
 }  // namespace
 
 DeformationModelEnergy::DeformationModelEnergy(
-  std::unique_ptr<DeformationModelAssembler> fma,
-  std::shared_ptr<MaterialParameters> materialParameters,
-  int offset,
-  bool enableMaterialMaxStep):
-  forceModelAssembler(std::move(fma)),
-  materialParameters_(std::move(materialParameters)),
+  std::shared_ptr<const MaterialAssignment> assignment,
+  const Formulation &formulation,
+  const DeformationModelOptions &options):
+  DeformationModelEnergy(build(
+    std::move(assignment), formulation, options))
+{
+}
+
+DeformationModelEnergy::BuildComponents DeformationModelEnergy::build(
+  std::shared_ptr<const MaterialAssignment> assignment,
+  const Formulation &formulation,
+  const DeformationModelOptions &options)
+{
+  if (!assignment)
+    throw std::invalid_argument(
+      "DeformationModelEnergy requires a material assignment.");
+  const auto &parameters = assignment->optimizableParameters();
+  const int numElements = assignment->mesh()->getNumElements();
+  if (parameters->elasticField().numElements() != numElements ||
+    parameters->plasticField().numElements() != numElements)
+    throw std::invalid_argument(
+      "DeformationModelEnergy parameter field element count does not match the mesh.");
+
+  ES::VXd elementWeights = options.elementWeights;
+  if (elementWeights.size() == 0)
+    elementWeights = ES::VXd::Ones(numElements);
+  else if (elementWeights.size() != numElements)
+    throw std::invalid_argument(
+      "DeformationModelEnergy element weight count does not match the mesh.");
+
+  auto manager = std::make_shared<DeformationModelManager>(
+    std::move(assignment), formulation, options.projectHessianPSD);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation,
+    parameters->elasticFieldHandle(), parameters->plasticFieldHandle(),
+    std::span<const double>(
+      elementWeights.data(),
+      static_cast<std::size_t>(elementWeights.size())));
+  return BuildComponents{
+    std::move(assembler), parameters, options.enableMaterialMaxStep,
+    options.dofOffset};
+}
+
+DeformationModelEnergy::DeformationModelEnergy(
+  BuildComponents components):
+  forceModelAssembler(std::move(components.assembler)),
+  optimizableParameters_(std::move(components.optimizableParameters)),
   restDofs(std::make_unique<ES::VXd>(forceModelAssembler->getRestDofs())),
   vertexRestPositions(buildVertexRestPositions(
     forceModelAssembler->getDeformationModelManager().getMesh())),
   absolutePositionScratch_([this]() { return ES::VXd(forceModelAssembler->getNumDOFs()); }),
-  enableMaterialMaxStep_(enableMaterialMaxStep)
+  enableMaterialMaxStep_(components.enableMaterialMaxStep)
 {
-  if (!materialParameters_)
-    throw std::invalid_argument("DeformationModelEnergy requires material parameters.");
-  if (materialParameters_->space().get() !=
-    forceModelAssembler->materialParameterSpace().get()) {
+  if (!optimizableParameters_)
+    throw std::invalid_argument("DeformationModelEnergy requires optimizable parameters.");
+  if (!optimizableParameters_->elasticField().sharesStateWith(
+      *forceModelAssembler->elasticField()) ||
+    !optimizableParameters_->plasticField().sharesStateWith(
+      *forceModelAssembler->plasticField())) {
     throw std::invalid_argument(
-      "DeformationModelEnergy material parameters and assembler use different parameter spaces.");
+      "DeformationModelEnergy optimizable parameters and assembler use different fields.");
   }
   allDOFs.resize(forceModelAssembler->getNumDOFs());
-  std::iota(allDOFs.begin(), allDOFs.end(), offset);
+  std::iota(allDOFs.begin(), allDOFs.end(), components.dofOffset);
 }
 
 DeformationModelEnergy::~DeformationModelEnergy()
@@ -77,11 +123,11 @@ ES::VXd &DeformationModelEnergy::absolutePositionScratch() const
 
 double DeformationModelEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
-  return func(x, materialParameters_->snapshot().view());
+  return func(x, optimizableParameters_->snapshot().view());
 }
 
 double DeformationModelEnergy::func(
-  EigenSupport::ConstRefVecXd x, MaterialParameterEvaluationView state) const
+  EigenSupport::ConstRefVecXd x, OptimizableParameterEvaluationView state) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.energy");
   ES::VXd &p = absolutePositionScratch();
@@ -92,11 +138,11 @@ double DeformationModelEnergy::func(
 void DeformationModelEnergy::compute_dE_dp(
   ES::ConstRefVecXd displacement, ES::RefVecXd grad) const
 {
-  compute_dE_dp(displacement, materialParameters_->snapshot().view(), grad);
+  compute_dE_dp(displacement, optimizableParameters_->snapshot().view(), grad);
 }
 
 void DeformationModelEnergy::compute_dE_dp(
-  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::RefVecXd grad) const
+  ES::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, ES::RefVecXd grad) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -108,11 +154,11 @@ void DeformationModelEnergy::compute_dE_dp(
 void DeformationModelEnergy::compute_dE_de(
   ES::ConstRefVecXd displacement, ES::RefVecXd grad) const
 {
-  compute_dE_de(displacement, materialParameters_->snapshot().view(), grad);
+  compute_dE_de(displacement, optimizableParameters_->snapshot().view(), grad);
 }
 
 void DeformationModelEnergy::compute_dE_de(
-  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::RefVecXd grad) const
+  ES::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, ES::RefVecXd grad) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -124,11 +170,11 @@ void DeformationModelEnergy::compute_dE_de(
 void DeformationModelEnergy::compute_d2E_dp2(
   ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
 {
-  compute_d2E_dp2(displacement, materialParameters_->snapshot().view(), hess);
+  compute_d2E_dp2(displacement, optimizableParameters_->snapshot().view(), hess);
 }
 
 void DeformationModelEnergy::compute_d2E_dp2(
-  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::SpMatD &hess) const
+  ES::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, ES::SpMatD &hess) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -139,11 +185,11 @@ void DeformationModelEnergy::compute_d2E_dp2(
 void DeformationModelEnergy::compute_d2E_de2(
   ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
 {
-  compute_d2E_de2(displacement, materialParameters_->snapshot().view(), hess);
+  compute_d2E_de2(displacement, optimizableParameters_->snapshot().view(), hess);
 }
 
 void DeformationModelEnergy::compute_d2E_de2(
-  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::SpMatD &hess) const
+  ES::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, ES::SpMatD &hess) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -155,11 +201,11 @@ void DeformationModelEnergy::compute_d2E_dpde(
   ES::ConstRefVecXd displacement, ES::SpMatD &hess) const
 {
   compute_d2E_dpde(
-    displacement, materialParameters_->snapshot().view(), hess);
+    displacement, optimizableParameters_->snapshot().view(), hess);
 }
 
 void DeformationModelEnergy::compute_d2E_dpde(
-  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state, ES::SpMatD &hess) const
+  ES::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, ES::SpMatD &hess) const
 {
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
@@ -171,11 +217,11 @@ void DeformationModelEnergy::compute_d2E_dudp(
   ES::ConstRefVecXd displacement, ES::SpMatD &mixedHessian) const
 {
   compute_d2E_dudp(
-    displacement, materialParameters_->snapshot().view(), mixedHessian);
+    displacement, optimizableParameters_->snapshot().view(), mixedHessian);
 }
 
 void DeformationModelEnergy::compute_d2E_dudp(
-  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state,
+  ES::ConstRefVecXd displacement, OptimizableParameterEvaluationView state,
   ES::SpMatD &mixedHessian) const
 {
   ES::VXd &p = absolutePositionScratch();
@@ -188,11 +234,11 @@ void DeformationModelEnergy::compute_d2E_dude(
   ES::ConstRefVecXd displacement, ES::SpMatD &mixedHessian) const
 {
   compute_d2E_dude(
-    displacement, materialParameters_->snapshot().view(), mixedHessian);
+    displacement, optimizableParameters_->snapshot().view(), mixedHessian);
 }
 
 void DeformationModelEnergy::compute_d2E_dude(
-  ES::ConstRefVecXd displacement, MaterialParameterEvaluationView state,
+  ES::ConstRefVecXd displacement, OptimizableParameterEvaluationView state,
   ES::SpMatD &mixedHessian) const
 {
   ES::VXd &p = absolutePositionScratch();
@@ -207,7 +253,7 @@ void DeformationModelEnergy::computeVonMisesStresses(
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
   forceModelAssembler->computeVonMisesStresses(
-    std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), materialParameters_->snapshot().view(),
+    std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), optimizableParameters_->snapshot().view(),
     std::span<double>(elementStresses.data(), static_cast<std::size_t>(elementStresses.size())));
 }
 
@@ -217,18 +263,18 @@ void DeformationModelEnergy::computeMaxStrains(
   ES::VXd &p = absolutePositionScratch();
   fillAbsolutePositions(displacement, *restDofs, p);
   forceModelAssembler->computeMaxStrains(
-    std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), materialParameters_->snapshot().view(),
+    std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), optimizableParameters_->snapshot().view(),
     std::span<double>(elementStrains.data(), static_cast<std::size_t>(elementStrains.size())));
 }
 
 void DeformationModelEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const
 {
-  gradient(x, materialParameters_->snapshot().view(), grad);
+  gradient(x, optimizableParameters_->snapshot().view(), grad);
 }
 
 void DeformationModelEnergy::gradient(
   EigenSupport::ConstRefVecXd x,
-  MaterialParameterEvaluationView state,
+  OptimizableParameterEvaluationView state,
   EigenSupport::RefVecXd grad) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
@@ -240,12 +286,12 @@ void DeformationModelEnergy::gradient(
 
 void DeformationModelEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
-  hessianInPlace(x, materialParameters_->snapshot().view(), hess);
+  hessianInPlace(x, optimizableParameters_->snapshot().view(), hess);
 }
 
 void DeformationModelEnergy::hessianInPlace(
   EigenSupport::ConstRefVecXd x,
-  MaterialParameterEvaluationView state,
+  OptimizableParameterEvaluationView state,
   EigenSupport::SpMatD &hess) const
 {
   Profiling::ScopedProfileSection scopedProfile("material.hessian");

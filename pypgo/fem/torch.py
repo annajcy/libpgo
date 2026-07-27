@@ -154,18 +154,20 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
                 getattr(external_load, "parameter_jacobian", None)
             ):
                 raise TypeError("external_load must provide force() and parameter_jacobian()")
-            load_parameters = getattr(external_load, "material_parameters", None)
-            if load_parameters is None or not energy.parameters.same_space(load_parameters):
+            load_parameters = getattr(external_load, "optimizable_parameters", None)
+            if load_parameters is None or not energy.optimizable_parameters.same_fields(
+                load_parameters
+            ):
                 raise ValueError(
-                    "external_load and deformation energy must use the same material parameter space"
+                    "external_load and deformation energy must use the same optimizable fields"
                 )
         self.external_load = external_load
 
-        self.plastic_shape = tuple(energy.parameters.plastic_values.shape)
+        self.plastic_shape = tuple(energy.optimizable_parameters.plastic_values.shape)
         self.num_plastic_dofs = int(np.prod(self.plastic_shape))
         if self.num_plastic_dofs != energy.num_plastic_dofs:
             raise ValueError("plastic field size does not match energy.num_plastic_dofs")
-        self.elastic_shape = tuple(energy.parameters.elastic_values.shape)
+        self.elastic_shape = tuple(energy.optimizable_parameters.elastic_values.shape)
         self.num_elastic_dofs = int(np.prod(self.elastic_shape))
         if self.num_elastic_dofs != energy.num_elastic_dofs:
             raise ValueError("elastic field size does not match energy.num_elastic_dofs")
@@ -249,7 +251,7 @@ class PlasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
         return self.num_plastic_dofs
 
     def _set_parameter_values(self, values) -> None:
-        self.energy.parameters.set_plastic_values(values.reshape(self.plastic_shape))
+        self.energy.optimizable_parameters.set_plastic_values(values.reshape(self.plastic_shape))
 
     def _d2E_dudq(self, displacement) -> np.ndarray:
         return self.energy.d2E_dudp(displacement).to_dense()
@@ -277,7 +279,7 @@ class ElasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
         return self.num_elastic_dofs
 
     def _set_parameter_values(self, values) -> None:
-        self.energy.parameters.set_elastic_values(values.reshape(self.elastic_shape))
+        self.energy.optimizable_parameters.set_elastic_values(values.reshape(self.elastic_shape))
 
     def _d2E_dudq(self, displacement) -> np.ndarray:
         d2E_dude = self.energy.d2E_dude(displacement).to_dense()

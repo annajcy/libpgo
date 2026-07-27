@@ -6,34 +6,11 @@ import pypgo as pgo
 import pypgo.energy as pe
 import pypgo.fem as fem
 import pypgo.solver as solver
+from tests.pypgo.material_helpers import direct_assignment
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
-
-def _material_parameters(sim, elastic, plastic, elastic_layout, plastic_layout,
-                         elastic_values=None, plastic_values=None):
-    space = fem.MaterialParameterSpace(
-        sim,
-        elastic=elastic,
-        plastic=plastic,
-        elastic_field=fem.ParameterFieldDefinition(
-            elastic_layout, fem.IdentityMaterialChannelMapping()),
-        plastic_field=fem.ParameterFieldDefinition(
-            plastic_layout, fem.IdentityMaterialChannelMapping()),
-    )
-    defaults = fem.MaterialParameters.elementwise_defaults(
-        sim, elastic=elastic, plastic=plastic)
-    if elastic_values is None:
-        elastic_values = defaults.elastic_values
-        if space.elastic.num_value_rows == 1:
-            elastic_values = elastic_values[:1]
-    if plastic_values is None:
-        plastic_values = defaults.plastic_values
-        if space.plastic.num_value_rows == 1:
-            plastic_values = plastic_values[:1]
-    return fem.MaterialParameters(
-        space, elastic_values=elastic_values, plastic_values=plastic_values)
 
 
 def make_cubic_case():
@@ -56,15 +33,13 @@ def make_cubic_case():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    sim = pgo.fem.SimulationMesh.create_volumetric(volume)
-    elastic = fem.StVK()
-    plastic = fem.VolumetricPlasticity(dofs=6)
-    parameters = _material_parameters(
-        sim, elastic, plastic,
-        fem.ElementwiseDofLayout(), fem.ConstantDofLayout())
-    energy = fem.deformation_energy(
-        sim, elastic=elastic, plastic=plastic,
-        material_parameters=parameters,
+    sim = pgo.fem.SimulationAsset.create_volumetric(volume)
+    elastic = fem.StVKDefinition()
+    plastic = fem.VolumetricPlasticityDefinition(dofs=6)
+    assignment = direct_assignment(
+        sim, elastic, plastic, fem.ElementwiseParameterLayout, fem.ConstantParameterLayout)
+    energy = fem.DeformationEnergy(
+        assignment,
         formulation=fem.CubicLinear(),
         options=fem.DeformationOptions(
             project_hessian_psd=False, enable_material_max_step=False
@@ -91,20 +66,18 @@ def make_shell_elastic_case():
         E_membrane=2.0e4,
         nu_membrane=0.35,
     )
-    sim = pgo.fem.SimulationMesh.create_shell(surface, material)
-    elastic = fem.KoiterStVK()
-    plastic = fem.ShellPlasticity(dofs=1)
+    sim = pgo.fem.SimulationAsset.create_shell(surface, material)
+    elastic = fem.KoiterStVKDefinition()
+    plastic = fem.ShellPlasticityDefinition(dofs=1)
     elastic_values = np.array(
         [[2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3]], dtype=np.float64
     )
     plastic_values = np.array([[1.03], [1.02]], dtype=np.float64)
-    parameters = _material_parameters(
-        sim, elastic, plastic,
-        fem.ConstantDofLayout(), fem.ElementwiseDofLayout(),
+    assignment = direct_assignment(
+        sim, elastic, plastic, fem.ConstantParameterLayout, fem.ElementwiseParameterLayout,
         elastic_values, plastic_values)
-    energy = fem.deformation_energy(
-        sim, elastic=elastic, plastic=plastic,
-        material_parameters=parameters,
+    energy = fem.DeformationEnergy(
+        assignment,
         formulation=fem.KoiterShell(),
         options=fem.DeformationOptions(
             project_hessian_psd=False, enable_material_max_step=False
@@ -123,9 +96,9 @@ def test_adjoint_dE_dp_can_be_assembled_directly():
     target = surface.vertices.copy()
     target[:, 0] *= 1.02
 
-    a0 = energy.parameters.plastic_values.ravel()
-    energy.parameters.set_plastic_values(
-        a0.reshape(energy.parameters.plastic_values.shape)
+    a0 = energy.optimizable_parameters.plastic_values.ravel()
+    energy.optimizable_parameters.set_plastic_values(
+        a0.reshape(energy.optimizable_parameters.plastic_values.shape)
     )
     fixed_dofs = np.arange(0, 9, dtype=np.int64)
     fixed_values = np.zeros(9, dtype=np.float64)
@@ -175,7 +148,7 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
         ),
     )
 
-    a0 = energy.parameters.plastic_values.ravel()
+    a0 = energy.optimizable_parameters.plastic_values.ravel()
     plastic_param = torch.tensor(a0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 
@@ -224,7 +197,7 @@ def test_static_equilibrium_torch_layer_elastic_backward_matches_direct_adjoint(
         ),
     )
 
-    b0 = energy.parameters.elastic_values.ravel()
+    b0 = energy.optimizable_parameters.elastic_values.ravel()
     elastic_param = torch.tensor(b0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 
@@ -285,7 +258,7 @@ def test_elastic_static_equilibrium_layer_uses_additional_energy_for_adjoint_hes
         ),
     )
 
-    b0 = energy.parameters.elastic_values.ravel()
+    b0 = energy.optimizable_parameters.elastic_values.ravel()
     elastic_param = torch.tensor(b0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 

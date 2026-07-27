@@ -39,21 +39,13 @@ ES::M3d PlasticModel3DConstant::computeR(std::span<const double>) const
 }
 
 
-#include "simulation/simulationMesh.h"
-#include <algorithm>
-#include <initializer_list>
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-namespace {
-void expectSize(std::span<double> output, std::size_t expected) {
-  if (output.size() != expected) throw std::invalid_argument("plastic config default parameter buffer has the wrong size");
-}
-}
-std::span<const std::string_view> VolumetricPlasticity0Config::parameterChannelNames() const { return {}; }
-void VolumetricPlasticity0Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
-std::unique_ptr<PlasticModel> VolumetricPlasticity0Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
+MaterialChannelSchema VolumetricPlasticity0Definition::optimizableChannelSchema() const { return {}; }
+std::unique_ptr<PlasticModel> VolumetricPlasticity0Definition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
 {
+  if (!values.empty()) throw std::invalid_argument("volumetric_dof0 has no fixed channels");
   return std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
 }
 }  // namespace pgo::SolidDeformationModel

@@ -194,52 +194,39 @@ ES::M3d ElasticModelHillTypeMaterial::compute_dP_dparam(std::span<const double> 
 }
 
 
-#include "simulation/simulationMesh.h"
 #include <initializer_list>
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
 namespace {
-const SimulationMeshENuMaterial &enuMaterial(const SimulationMesh &mesh, int element) {
-  return mesh.requireElementField<SimulationMeshENuMaterial>().at(element);
 }
-const SimulationMeshHillMaterial &hillMaterial(const SimulationMesh &mesh, int element) {
-  return mesh.requireElementField<SimulationMeshHillMaterial>().at(element);
-}
-void expectSize(std::span<double> output, std::size_t expected) {
-  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
-}
-}
-std::span<const std::string_view> HillStableNeoConfig::parameterChannelNames() const { static constexpr std::array<std::string_view, 1> names{"activation"}; return names; }
-void HillStableNeoConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
-std::unique_ptr<ElasticModel> HillStableNeoConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &frame) const
+MaterialChannelSchema HillStableNeoDefinition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"activation"}; return MaterialChannelSchema(names); }
+MaterialChannelSchema HillStableNeoDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 5> names{"E", "nu", "Eact", "gamma", "lo"}; return MaterialChannelSchema(names); }
+std::unique_ptr<ElasticModel> HillStableNeoDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &frame) const
 {
-  const auto &mat = enuMaterial(mesh, element); const auto &hill = hillMaterial(mesh, element);
+  if (values.size() != 5) throw std::invalid_argument("hill_stable_neo requires fixed channels E, nu, Eact, gamma, lo");
+  const double E = values[0], nu = values[1];
   return std::make_unique<ElasticModelCombinedMaterial<2>>(
-    std::make_unique<ElasticModelStableNeoHookeanMaterial>(mat.getMuLame(), mat.getLambdaLame()),
-    std::make_unique<ElasticModelHillTypeMaterial>(hill.getGamma(), hill.getEact(), hill.getLo(), frame.col(0)));
+    std::make_unique<ElasticModelStableNeoHookeanMaterial>(E / (2 * (1 + nu)), (nu * E) / ((1 + nu) * (1 - 2 * nu))),
+    std::make_unique<ElasticModelHillTypeMaterial>(values[3], values[2], values[4], frame.col(0)));
 }
-
-std::span<const std::string_view> HillStVKConfig::parameterChannelNames() const { static constexpr std::array<std::string_view, 1> names{"activation"}; return names; }
-void HillStVKConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
-std::unique_ptr<ElasticModel> HillStVKConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &frame) const
+MaterialChannelSchema HillStVKDefinition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"activation"}; return MaterialChannelSchema(names); }
+MaterialChannelSchema HillStVKDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 6> names{"E", "nu", "J", "Eact", "gamma", "lo"}; return MaterialChannelSchema(names); }
+std::unique_ptr<ElasticModel> HillStVKDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &frame) const
 {
-  const auto &mat = enuMaterial(mesh, element); const auto &hill = hillMaterial(mesh, element);
+  if (values.size() != 6) throw std::invalid_argument("hill_stvk requires fixed channels E, nu, J, Eact, gamma, lo");
   return std::make_unique<ElasticModelCombinedMaterial<2>>(
-    std::make_unique<ElasticModelInvariantBasedMaterial>(
-      std::make_unique<InvariantBasedMaterialStVK>(mat.getE(), mat.getNu(), mat.getCompressionRatio())),
-    std::make_unique<ElasticModelHillTypeMaterial>(hill.getGamma(), hill.getEact(), hill.getLo(), frame.col(0)));
+    std::make_unique<ElasticModelInvariantBasedMaterial>(std::make_unique<InvariantBasedMaterialStVK>(values[0], values[1], values[2])),
+    std::make_unique<ElasticModelHillTypeMaterial>(values[4], values[3], values[5], frame.col(0)));
 }
-
-std::span<const std::string_view> HillStVKVolumeConfig::parameterChannelNames() const { static constexpr std::array<std::string_view, 1> names{"activation"}; return names; }
-void HillStVKVolumeConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 1); output[0] = 1.0; }
-std::unique_ptr<ElasticModel> HillStVKVolumeConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &frame) const
+MaterialChannelSchema HillStVKVolumeDefinition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"activation"}; return MaterialChannelSchema(names); }
+MaterialChannelSchema HillStVKVolumeDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 6> names{"E", "nu", "J", "Eact", "gamma", "lo"}; return MaterialChannelSchema(names); }
+std::unique_ptr<ElasticModel> HillStVKVolumeDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &frame) const
 {
-  const auto &mat = enuMaterial(mesh, element); const auto &hill = hillMaterial(mesh, element);
+  if (values.size() != 6) throw std::invalid_argument("hill_stvk_vol requires fixed channels E, nu, J, Eact, gamma, lo");
   return std::make_unique<ElasticModelCombinedMaterial<3>>(
-    std::make_unique<ElasticModelInvariantBasedMaterial>(
-      std::make_unique<InvariantBasedMaterialStVK>(mat.getE(), mat.getNu(), mat.getCompressionRatio())),
-    std::make_unique<ElasticModelHillTypeMaterial>(hill.getGamma(), hill.getEact(), hill.getLo(), frame.col(0)),
-    std::make_unique<ElasticModelVolumeMaterial>(mat.getCompressionRatio()));
+    std::make_unique<ElasticModelInvariantBasedMaterial>(std::make_unique<InvariantBasedMaterialStVK>(values[0], values[1], values[2])),
+    std::make_unique<ElasticModelHillTypeMaterial>(values[4], values[3], values[5], frame.col(0)),
+    std::make_unique<ElasticModelVolumeMaterial>(values[2]));
 }
 }  // namespace pgo::SolidDeformationModel

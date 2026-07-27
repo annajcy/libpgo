@@ -6,7 +6,7 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "energy/potentialEnergy.h"
-#include "material/core/materialParameters.h"
+#include "material/core/optimizableParameters.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
@@ -18,23 +18,30 @@ namespace pgo
 namespace SolidDeformationModel
 {
 class DeformationModelAssembler;
+class Formulation;
+class MaterialAssignment;
+
+struct DeformationModelOptions
+{
+  bool projectHessianPSD = true;
+  bool enableMaterialMaxStep = true;
+  int dofOffset = 0;
+  EigenSupport::VXd elementWeights;
+};
 
 class DeformationModelEnergy : public NonlinearOptimization::PotentialEnergy
 {
 public:
-  // offset only controls the local-to-global indices returned by getDOFs().
-  // Evaluation methods always consume local vectors of size getNumDOFs().
   DeformationModelEnergy(
-    std::unique_ptr<DeformationModelAssembler> fma,
-    std::shared_ptr<MaterialParameters> materialParameters,
-    int offset = 0,
-    bool enableMaterialMaxStep = true);
+    std::shared_ptr<const MaterialAssignment> assignment,
+    const Formulation &formulation,
+    const DeformationModelOptions &options = {});
   virtual ~DeformationModelEnergy();
 
   const DeformationModelAssembler &assembler() const { return *forceModelAssembler; }
   DeformationModelAssembler &assembler() { return *forceModelAssembler; }
-  std::shared_ptr<MaterialParameters> materialParameters() { return materialParameters_; }
-  std::shared_ptr<const MaterialParameters> materialParameters() const { return materialParameters_; }
+  std::shared_ptr<OptimizableParameters> optimizableParameters() { return optimizableParameters_; }
+  std::shared_ptr<const OptimizableParameters> optimizableParameters() const { return optimizableParameters_; }
 
   // Full generalized rest state. This is not necessarily one position per
   // mesh vertex (e.g. Hermite also stores derivative DOFs).
@@ -48,33 +55,33 @@ public:
   virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
   virtual void hessianAlloc(EigenSupport::SpMatD &hess) const override;
 
-  double func(EigenSupport::ConstRefVecXd x, MaterialParameterEvaluationView state) const;
+  double func(EigenSupport::ConstRefVecXd x, OptimizableParameterEvaluationView state) const;
   void gradient(
     EigenSupport::ConstRefVecXd x,
-    MaterialParameterEvaluationView state,
+    OptimizableParameterEvaluationView state,
     EigenSupport::RefVecXd grad) const;
   void hessianInPlace(
     EigenSupport::ConstRefVecXd x,
-    MaterialParameterEvaluationView state,
+    OptimizableParameterEvaluationView state,
     EigenSupport::SpMatD &hess) const;
 
   // Material derivatives of E(u, p, e), where u is displacement, p is the
   // plastic field, and e is the elastic field. Overloads without an explicit
-  // MaterialParameterEvaluationView use the currently committed parameter fields.
+  // OptimizableParameterEvaluationView use the currently committed parameter fields.
   void compute_dE_dp(EigenSupport::ConstRefVecXd displacement, EigenSupport::RefVecXd grad) const;
-  void compute_dE_dp(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::RefVecXd grad) const;
+  void compute_dE_dp(EigenSupport::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, EigenSupport::RefVecXd grad) const;
   void compute_dE_de(EigenSupport::ConstRefVecXd displacement, EigenSupport::RefVecXd grad) const;
-  void compute_dE_de(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::RefVecXd grad) const;
+  void compute_dE_de(EigenSupport::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, EigenSupport::RefVecXd grad) const;
   void compute_d2E_dp2(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_dp2(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dp2(EigenSupport::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
   void compute_d2E_de2(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_de2(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_de2(EigenSupport::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
   void compute_d2E_dpde(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_dpde(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
+  void compute_d2E_dpde(EigenSupport::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, EigenSupport::SpMatD &hess) const;
   void compute_d2E_dudp(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &mixedHessian) const;
-  void compute_d2E_dudp(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &mixedHessian) const;
+  void compute_d2E_dudp(EigenSupport::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, EigenSupport::SpMatD &mixedHessian) const;
   void compute_d2E_dude(EigenSupport::ConstRefVecXd displacement, EigenSupport::SpMatD &mixedHessian) const;
-  void compute_d2E_dude(EigenSupport::ConstRefVecXd displacement, MaterialParameterEvaluationView state, EigenSupport::SpMatD &mixedHessian) const;
+  void compute_d2E_dude(EigenSupport::ConstRefVecXd displacement, OptimizableParameterEvaluationView state, EigenSupport::SpMatD &mixedHessian) const;
   void computeVonMisesStresses(EigenSupport::ConstRefVecXd displacement, EigenSupport::RefVecXd elementStresses) const;
   void computeMaxStrains(EigenSupport::ConstRefVecXd displacement, EigenSupport::RefVecXd elementStrains) const;
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = this->allDOFs; }
@@ -89,7 +96,7 @@ public:
 
 protected:
   std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
-  std::shared_ptr<MaterialParameters> materialParameters_;
+  std::shared_ptr<OptimizableParameters> optimizableParameters_;
   std::vector<int> allDOFs;
   std::unique_ptr<EigenSupport::VXd> restDofs;
   EigenSupport::VXd vertexRestPositions;
@@ -97,6 +104,21 @@ protected:
   bool enableMaterialMaxStep_ = true;
 
 private:
+  struct BuildComponents
+  {
+    std::unique_ptr<DeformationModelAssembler> assembler;
+    std::shared_ptr<OptimizableParameters> optimizableParameters;
+    bool enableMaterialMaxStep = true;
+    int dofOffset = 0;
+  };
+
+  static BuildComponents build(
+    std::shared_ptr<const MaterialAssignment> assignment,
+    const Formulation &formulation,
+    const DeformationModelOptions &options);
+
+  explicit DeformationModelEnergy(BuildComponents components);
+
   EigenSupport::VXd &absolutePositionScratch() const;
 };
 }  // namespace SolidDeformationModel

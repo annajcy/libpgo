@@ -120,7 +120,7 @@ def _validate_and_split_regions(regions, num_elements: int):
 class VolumeMesh:
     """Vega FEM volumetric mesh wrapper.
 
-    Use pypgo.fem.SimulationMesh factory methods for solver-ready meshes.
+    Use pypgo.fem.SimulationAsset factory methods for solver-ready assets.
     """
 
     def __init__(self, mesh_data, regions):
@@ -158,7 +158,7 @@ class VolumeMesh:
     def _mass_matrix(self, *, inflate3dim: bool = True):
         """(Internal) Consistent mass matrix — use formulation-level API instead.
 
-        Prefer ``pypgo.fem.VolumeDensity`` + ``formulation.mass_matrix(sim_mesh, density)``.
+    Prefer ``pypgo.fem.VolumeDensity`` + ``formulation.mass_matrix(asset, density)``.
         """
         from pypgo.sparse import SparseMatrix
         return SparseMatrix(_core.compute_mass_matrix(self._handle, bool(inflate3dim)))

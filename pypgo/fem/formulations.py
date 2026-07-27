@@ -23,11 +23,11 @@ def _require_volume_mesh(volume):
         raise TypeError(f"volume must be a VolumeMesh, got {type(volume).__name__}")
 
 
-def _require_sim_mesh(sim_mesh):
-    from pypgo.fem.mesh import SimulationMesh
+def _require_asset(asset):
+    from pypgo.fem.mesh import SimulationAsset
 
-    if not isinstance(sim_mesh, SimulationMesh):
-        raise TypeError(f"sim_mesh must be a SimulationMesh, got {type(sim_mesh).__name__}")
+    if not isinstance(asset, SimulationAsset):
+        raise TypeError(f"asset must be a SimulationAsset, got {type(asset).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -56,32 +56,32 @@ class Formulation:
 class VolumetricFormulation(Formulation):
     """Volumetric formulation with dynamics operators."""
 
-    def mass_matrix(self, sim_mesh, density):
+    def mass_matrix(self, asset, density):
         """Consistent mass matrix; density from a VolumeDensity (kg/m^3) field."""
         from pypgo.sparse import SparseMatrix
         from pypgo.fem.mass import VolumeDensity
 
-        _require_sim_mesh(sim_mesh)
+        _require_asset(asset)
         if not isinstance(density, VolumeDensity):
             raise TypeError(
                 f"volumetric mass_matrix expects a VolumeDensity (kg/m^3), got {type(density).__name__}")
         return SparseMatrix(
-            _core.compute_formulation_mass_matrix(sim_mesh._handle, self._handle, density._handle))
+            _core.compute_formulation_mass_matrix(asset._handle, self._handle, density._handle))
 
-    def body_force(self, sim_mesh, acceleration, density) -> np.ndarray:
+    def body_force(self, asset, acceleration, density) -> np.ndarray:
         """Generalized body force for a constant 3-vector acceleration."""
         from pypgo.fem.mass import VolumeDensity
 
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
             raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
-        _require_sim_mesh(sim_mesh)
+        _require_asset(asset)
         if not isinstance(density, VolumeDensity):
             raise TypeError(
                 f"volumetric body_force expects a VolumeDensity (kg/m^3), got {type(density).__name__}")
         return np.asarray(
             _core.compute_formulation_body_force(
-                sim_mesh._handle, self._handle, accel.tolist(), density._handle),
+                asset._handle, self._handle, accel.tolist(), density._handle),
             dtype=np.float64,
         )
 
@@ -113,59 +113,59 @@ class ShellFormulation(Formulation):
             )
 
     @staticmethod
-    def _material_parameters_handle(material_parameters, *, required=False):
-        from pypgo.fem.fields import MaterialParameters
+    def _optimizable_parameters_handle(optimizable_parameters, *, required=False):
+        from pypgo.fem.fields import OptimizableParameters
 
-        if material_parameters is None:
+        if optimizable_parameters is None:
             if required:
                 raise ValueError(
-                    "material_parameters is required for a parameter-dependent Jacobian"
+                    "optimizable_parameters is required for a parameter-dependent Jacobian"
                 )
             return None
-        if not isinstance(material_parameters, MaterialParameters):
+        if not isinstance(optimizable_parameters, OptimizableParameters):
             raise TypeError(
-                "material_parameters must be MaterialParameters, "
-                f"got {type(material_parameters).__name__}"
+                "optimizable_parameters must be OptimizableParameters, "
+                f"got {type(optimizable_parameters).__name__}"
             )
-        return material_parameters._handle
+        return optimizable_parameters._handle
 
-    def mass_matrix(self, sim_mesh, areal_density, *, material_parameters=None):
+    def mass_matrix(self, asset, areal_density, *, optimizable_parameters=None):
         """Lumped shell mass matrix."""
         from pypgo.sparse import SparseMatrix
 
-        _require_sim_mesh(sim_mesh)
+        _require_asset(asset)
         self._require_shell_areal_density(areal_density)
         return SparseMatrix(
             _core.compute_shell_formulation_mass_matrix(
-                sim_mesh._handle,
+                asset._handle,
                 self._handle,
                 areal_density._handle,
-                self._material_parameters_handle(material_parameters),
+                self._optimizable_parameters_handle(optimizable_parameters),
             )
         )
 
     def body_force(
-        self, sim_mesh, acceleration, areal_density, *, material_parameters=None
+        self, asset, acceleration, areal_density, *, optimizable_parameters=None
     ) -> np.ndarray:
         """Lumped shell body force for a constant 3-vector acceleration."""
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
             raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
-        _require_sim_mesh(sim_mesh)
+        _require_asset(asset)
         self._require_shell_areal_density(areal_density)
         return np.asarray(
             _core.compute_shell_formulation_body_force(
-                sim_mesh._handle,
+                asset._handle,
                 self._handle,
                 accel.tolist(),
                 areal_density._handle,
-                self._material_parameters_handle(material_parameters),
+                self._optimizable_parameters_handle(optimizable_parameters),
             ),
             dtype=np.float64,
         )
 
     def body_force_parameter_jacobian(
-        self, sim_mesh, acceleration, areal_density, *, material_parameters
+        self, asset, acceleration, areal_density, *, optimizable_parameters
     ):
         """d(body force)/d(elastic parameters) for a parameter-dependent areal density."""
         from pypgo.sparse import SparseMatrix
@@ -173,15 +173,15 @@ class ShellFormulation(Formulation):
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
             raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
-        _require_sim_mesh(sim_mesh)
+        _require_asset(asset)
         self._require_shell_areal_density(areal_density)
         return SparseMatrix(
             _core.compute_shell_formulation_body_force_parameter_jacobian(
-                sim_mesh._handle,
+                asset._handle,
                 self._handle,
                 accel.tolist(),
                 areal_density._handle,
-                self._material_parameters_handle(material_parameters, required=True),
+                self._optimizable_parameters_handle(optimizable_parameters, required=True),
             )
         )
 

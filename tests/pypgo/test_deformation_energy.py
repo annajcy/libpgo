@@ -8,6 +8,7 @@ import pypgo.energy as pe
 import pypgo.fem as pf
 import pypgo.solver as ps
 import pytest
+from tests.pypgo.material_helpers import direct_assignment
 
 
 def _make_tet_sim_mesh():
@@ -21,7 +22,7 @@ def _make_tet_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         tet, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.fem.SimulationMesh.create_volumetric(volume)
+    return pgo.fem.SimulationAsset.create_volumetric(volume)
 
 
 def _make_mooney_rivlin_tet_sim_mesh():
@@ -36,7 +37,7 @@ def _make_mooney_rivlin_tet_sim_mesh():
         tet,
         pgo.mesh.volume.MooneyRivlinMaterial(mu01=0.5, mu10=0.3, v1=0.1),
     )
-    return pgo.fem.SimulationMesh.create_volumetric(volume)
+    return pgo.fem.SimulationAsset.create_volumetric(volume)
 
 
 def _make_cubic_sim_mesh():
@@ -59,7 +60,7 @@ def _make_cubic_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.fem.SimulationMesh.create_volumetric(volume)
+    return pgo.fem.SimulationAsset.create_volumetric(volume)
 
 
 def _make_shell_sim_mesh():
@@ -68,7 +69,80 @@ def _make_shell_sim_mesh():
         np.array([[0, 1, 2]], dtype=np.int64),
     )
     material = pgo.fem.KoiterStVKShellMaterial(thickness=0.01, E_membrane=2e6, nu_membrane=0.35)
-    return pgo.fem.SimulationMesh.create_shell(surface, material)
+    return pgo.fem.SimulationAsset.create_shell(surface, material)
+
+
+def test_material_field_uses_explicit_layout_and_evaluator():
+    layout = pf.ElementwiseParameterLayout(3, 2)
+    evaluator = pf.IdentityMaterialEvaluator(2)
+    field = pf.OptimizableParameterField(
+        ("logE", "nu"), layout, evaluator)
+
+    assert field.layout is layout
+    assert field.evaluator is evaluator
+    assert field.layout.num_elements == 3
+    assert field.num_local_parameters == 2
+    assert field.num_global_parameters == 6
+    assert field.evaluator.num_parameters == 2
+    assert field.evaluator.num_channels == 2
+    assert field.parameter("logE").parameter_index == 0
+
+
+def test_material_parameterization_exposes_formal_domain_objects():
+    elastic = pf.StableNeoDefinition()
+    plastic = pf.VolumetricPlasticityDefinition(dofs=3)
+
+    def make_field(names, optimizable):
+        field_type = pf.OptimizableParameterField if optimizable else pf.FixedParameterField
+        evaluator_type = pf.IdentityMaterialEvaluator
+        return field_type(
+            names,
+            pf.ElementwiseParameterLayout(1, len(names)),
+            evaluator_type(len(names)),
+        )
+
+    elastic_domain = pf.ElasticParameterization(
+        elastic,
+        make_field(elastic.fixed_channel_names, False),
+        make_field(elastic.optimizable_channel_names, True),
+    )
+    plastic_domain = pf.PlasticParameterization(
+        plastic,
+        make_field(plastic.fixed_channel_names, False),
+        make_field(plastic.optimizable_channel_names, True),
+    )
+    parameterization = pf.MaterialParameterization(elastic_domain, plastic_domain)
+
+    assert parameterization.elastic is elastic_domain
+    assert parameterization.plastic is plastic_domain
+    assert elastic_domain.definition is elastic
+    assert plastic_domain.definition is plastic
+    assert elastic_domain.num_elements == 1
+    assert plastic_domain.dofs == 3
+    plastic_channel = plastic_domain.optimizable_channel(
+        plastic.optimizable_channel_names[0])
+    assert plastic_channel.name == plastic.optimizable_channel_names[0]
+    assert plastic_channel.channel_index == 0
+    assert parameterization.num_elements == 1
+
+
+def test_projection_base_reuses_layout_packing_for_fixed_and_optimizable_fields():
+    projection = pf.MaterialParameterDataProjection()
+    fixed = pf.FixedParameterField(
+        ("E",), pf.ConstantParameterLayout(3, 1),
+        pf.IdentityMaterialEvaluator(1))
+    optimizable = pf.OptimizableParameterField(
+        ("logE",), pf.ElementwiseParameterLayout(3, 1),
+        pf.IdentityMaterialEvaluator(1))
+
+    np.testing.assert_allclose(
+        projection.pack_element_inputs(fixed, np.array([[1200.0], [1200.0], [1200.0]])),
+        np.array([1200.0]))
+    np.testing.assert_allclose(
+        projection.pack_element_inputs(optimizable, np.array([[1.0], [2.0], [3.0]])),
+        np.array([1.0, 2.0, 3.0]))
+    with pytest.raises(ValueError, match="differing elementwise values"):
+        projection.pack_element_inputs(fixed, np.array([[1200.0], [1300.0], [1200.0]]))
 
 
 def _make_energy(
@@ -82,57 +156,37 @@ def _make_energy(
     plastic_values=None,
     options=None,
 ):
-    elastic = elastic or pf.StableNeo()
-    plastic = plastic or pf.VolumetricPlasticity(dofs=6)
-    # Build the new explicit parameter-state objects.  The helper retains the
-    # old test convenience arguments so numerical tests can focus on energy
-    # behavior; production ``deformation_energy`` no longer accepts them.
-    if all(value is None for value in (elastic_dof_layout, plastic_dof_layout, elastic_values, plastic_values)):
-        return pf.deformation_energy(
-            sim,
-            elastic=elastic,
-            plastic=plastic,
-            formulation=formulation,
-            options=options,
-        )
+    elastic = elastic or pf.StableNeoDefinition()
+    plastic = plastic or pf.VolumetricPlasticityDefinition(dofs=6)
+    elastic_dof_layout = elastic_dof_layout or pf.ElementwiseParameterLayout
+    plastic_dof_layout = plastic_dof_layout or pf.ElementwiseParameterLayout
+    def default_channel(name):
+        if name in {"stretch", "Fx", "Fy", "Fz", "Fxx", "Fyy", "Fzz"}:
+            return 1.0
+        return {
+            "E_membrane": 2e6,
+            "nu_membrane": 0.35,
+            "E_bending": 2e6,
+            "nu_bending": 0.35,
+            "thickness": 0.01,
+        }.get(name, 0.0)
 
-    elastic_dof_layout = elastic_dof_layout or pf.ElementwiseDofLayout()
-    plastic_dof_layout = plastic_dof_layout or pf.ElementwiseDofLayout()
-    definition = lambda layout: pf.ParameterFieldDefinition(
-            layout=layout,
-        channel_mapping=pf.IdentityMaterialChannelMapping(),
-    )
-    space = pf.MaterialParameterSpace(
-        sim,
-        elastic=elastic,
-        plastic=plastic,
-        elastic_field=definition(elastic_dof_layout),
-        plastic_field=definition(plastic_dof_layout),
-    )
-
-    defaults = pf.MaterialParameters.elementwise_defaults(
-        sim, elastic=elastic, plastic=plastic)
-
-    def state_values(name, supplied, block, default_values):
+    def state_values(supplied, names, rows):
         if supplied is not None:
             return supplied
-        default = default_values
-        if block.num_value_rows == 1 and default.shape[0] > 0:
-            return default[:1]
-        return default
+        return np.array(
+            [[default_channel(name) for name in names] for _ in range(rows)],
+            dtype=np.float64).reshape(rows, len(names))
 
-    params = pf.MaterialParameters(
-        space,
-        elastic_values=state_values(
-            "elastic", elastic_values, space.elastic, defaults.elastic_values),
-        plastic_values=state_values(
-            "plastic", plastic_values, space.plastic, defaults.plastic_values),
-    )
-    return pf.deformation_energy(
-        sim,
-        elastic=elastic,
-        plastic=plastic,
-        material_parameters=params,
+    elastic_rows = 1 if elastic_dof_layout is pf.ConstantParameterLayout else sim.num_elements
+    plastic_rows = 1 if plastic_dof_layout is pf.ConstantParameterLayout else sim.num_elements
+    elastic_values = state_values(elastic_values, elastic.optimizable_channel_names, elastic_rows)
+    plastic_values = state_values(plastic_values, plastic.optimizable_channel_names, plastic_rows)
+    assignment = direct_assignment(
+        sim, elastic, plastic, elastic_dof_layout, plastic_dof_layout,
+        elastic_values, plastic_values)
+    return pf.DeformationEnergy(
+        assignment,
         formulation=formulation,
         options=options,
     )
@@ -140,10 +194,10 @@ def _make_energy(
 
 def test_mooney_rivlin_config_builds_deformation_energy():
     sim = _make_mooney_rivlin_tet_sim_mesh()
-    energy = pf.deformation_energy(
+    energy = _make_energy(
         sim,
-        elastic=pf.MooneyRivlin(),
-        plastic=pf.VolumetricPlasticity(dofs=0),
+        elastic=pf.MooneyRivlinDefinition(),
+        plastic=pf.VolumetricPlasticityDefinition(dofs=0),
         formulation=pf.TetLinear(),
     )
     u = energy.zero_state()
@@ -163,23 +217,23 @@ class TestWrappers:
         assert pf.KoiterShell().num_basis_functions_per_element() == 6
 
     def test_material_ids(self):
-        assert pf.StableNeo().name == "stable_neo"
-        assert pf.StVK().name == "stvk"
-        assert pf.StVKVolume().name == "stvk_vol"
-        assert pf.LinearElastic().name == "linear"
-        assert pf.MooneyRivlin().name == "mooney_rivlin"
-        assert pf.KoiterStVK().name == "koiter_stvk"
-        assert pf.VolumetricPlasticity(dofs=6).name == "volumetric_dof6"
-        assert pf.VolumetricPlasticity(dofs=3).name == "volumetric_dof3"
-        assert pf.VolumetricPlasticity(dofs=0).name == "volumetric_dof0"
-        assert pf.ShellPlasticity(dofs=1).name == "shell_ff_dof1"
-        assert pf.ShellPlasticity(dofs=0).name == "shell_ff_dof0"
+        assert pf.StableNeoDefinition().name == "stable_neo"
+        assert pf.StVKDefinition().name == "stvk"
+        assert pf.StVKVolumeDefinition().name == "stvk_vol"
+        assert pf.LinearElasticDefinition().name == "linear"
+        assert pf.MooneyRivlinDefinition().name == "mooney_rivlin"
+        assert pf.KoiterStVKDefinition().name == "koiter_stvk"
+        assert pf.VolumetricPlasticityDefinition(dofs=6).name == "volumetric_dof6"
+        assert pf.VolumetricPlasticityDefinition(dofs=3).name == "volumetric_dof3"
+        assert pf.VolumetricPlasticityDefinition(dofs=0).name == "volumetric_dof0"
+        assert pf.ShellPlasticityDefinition(dofs=1).name == "shell_ff_dof1"
+        assert pf.ShellPlasticityDefinition(dofs=0).name == "shell_ff_dof0"
 
     def test_invalid_plastic_dofs(self):
         with pytest.raises(ValueError):
-            pf.VolumetricPlasticity(dofs=1)
+            pf.VolumetricPlasticityDefinition(dofs=1)
         with pytest.raises(ValueError):
-            pf.ShellPlasticity(dofs=2)
+            pf.ShellPlasticityDefinition(dofs=2)
 
 
 class TestDeformationEnergyParameters:
@@ -188,15 +242,15 @@ class TestDeformationEnergyParameters:
         energy = _make_energy(sim)
 
         assert isinstance(energy, pf.DeformationEnergy)
-        assert energy.elastic_model.name == "stable_neo"
-        assert energy.plastic_model.name == "volumetric_dof6"
-        assert not hasattr(energy.parameters.space.elastic, "kind")
-        assert energy.parameters.space.elastic.num_channels == 0
-        assert energy.parameters.elastic_values.shape == (0, 0)
-        assert not hasattr(energy.parameters.space.plastic, "model")
-        assert energy.parameters.plastic_values.shape == (sim.num_elements, 6)
+        assert energy.elastic_definition.name == "stable_neo"
+        assert energy.plastic_definition.name == "volumetric_dof6"
+        assert not hasattr(energy.optimizable_parameters.elastic_field, "kind")
+        assert energy.optimizable_parameters.elastic_field.num_material_channels == 0
+        assert energy.optimizable_parameters.elastic_values.shape == (0, 0)
+        assert not hasattr(energy.optimizable_parameters.plastic_field, "model")
+        assert energy.optimizable_parameters.plastic_values.shape == (1, 6)
         assert np.allclose(
-            energy.parameters.plastic_values,
+            energy.optimizable_parameters.plastic_values,
             [[1.0, 0.0, 0.0, 1.0, 0.0, 1.0]],
         )
 
@@ -206,69 +260,51 @@ class TestDeformationEnergyParameters:
         energy = _make_energy(sim, plastic_values=params)
 
         params[0, 0] = 9.0
-        assert energy.parameters.plastic_values[0, 0] == pytest.approx(1.05)
+        assert energy.optimizable_parameters.plastic_values[0, 0] == pytest.approx(1.05)
 
         updated = np.array([[0.95, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
-        energy.parameters.set_plastic_values(updated)
-        assert np.allclose(energy.parameters.plastic_values, updated)
+        energy.optimizable_parameters.set_plastic_values(updated)
+        assert np.allclose(energy.optimizable_parameters.plastic_values, updated)
 
     def test_given_elastic_values_use_cpp_channel_count(self):
         sim = _make_shell_sim_mesh()
-        params = np.array(
-            [[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1000.0, 1000.0, 1000.0, 1.0, 0.01]],
-            dtype=np.float64,
+        valid = _make_energy(
+            sim,
+            elastic=pf.KoiterStVKDefinition(),
+            plastic=pf.ShellPlasticityDefinition(dofs=1),
+            formulation=pf.KoiterShell(),
         )
-
-        with pytest.raises(TypeError, match="ElasticModelConfig"):
-            pf.deformation_energy(
-                sim,
-                elastic=type("KoiterFabric", (), {"_to_string": lambda self: "koiter_fabric"})(),
-                plastic=pf.ShellPlasticity(dofs=1),
-                formulation=pf.KoiterShell(),
-            )
+        with pytest.raises(TypeError):
+            pf.MaterialAssignment(sim)
 
     def test_constant_field_reports_shared_value_row(self):
         sim = _make_tet_sim_mesh()
         params = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
 
-        elastic = pf.StableNeo()
-        plastic = pf.VolumetricPlasticity(dofs=6)
-        space = pf.MaterialParameterSpace(
-            sim,
-            elastic=elastic,
-            plastic=plastic,
-            elastic_field=pf.ParameterFieldDefinition(
-                pf.ElementwiseDofLayout(), pf.IdentityMaterialChannelMapping()),
-            plastic_field=pf.ParameterFieldDefinition(
-                pf.ConstantDofLayout(), pf.IdentityMaterialChannelMapping()),
-        )
-        material_parameters = pf.MaterialParameters(
-            space,
-            elastic_values=np.empty((0, 0), dtype=np.float64),
-            plastic_values=params,
-        )
-        energy = pf.deformation_energy(
-            sim,
-            elastic=elastic,
-            plastic=plastic,
-            material_parameters=material_parameters,
+        elastic = pf.StableNeoDefinition()
+        plastic = pf.VolumetricPlasticityDefinition(dofs=6)
+        assignment = direct_assignment(
+            sim, elastic, plastic, pf.ElementwiseParameterLayout, pf.ConstantParameterLayout,
+            np.empty(0, dtype=np.float64), params)
+        energy = pf.DeformationEnergy(
+            assignment,
             formulation=pf.TetLinear(),
         )
 
-        assert energy.parameters.space.plastic.num_value_rows == 1
-        assert energy.parameters.space.plastic.num_global_dofs == 6
+        assert energy.optimizable_parameters.plastic_field.num_value_rows == 1
+        assert energy.optimizable_parameters.plastic_field.num_global_parameters == 6
         assert energy.num_plastic_dofs == 6
-        assert energy.parameters.plastic_values.shape == (1, 6)
-        assert np.allclose(energy.parameters.plastic_values, params)
+        assert energy.optimizable_parameters.plastic_values.shape == (1, 6)
+        assert np.allclose(energy.optimizable_parameters.plastic_values, params)
 
     def test_rejects_wrong_field_shape(self):
         sim = _make_tet_sim_mesh()
-        with pytest.raises(ValueError, match="shape must be"):
+        with pytest.raises(ValueError, match="value count"):
             _make_energy(sim, plastic_values=np.ones((sim.num_elements, 3), dtype=np.float64))
 
     def test_legacy_material_wrappers_do_not_create_fields(self):
-        assert not hasattr(pf.StableNeo(), "default_field")
-        assert not hasattr(pf.VolumetricPlasticity(dofs=6), "elementwise_field")
+        assert not hasattr(pf.StableNeoDefinition(), "default_field")
+        assert not hasattr(pf.VolumetricPlasticityDefinition(dofs=6), "elementwise_field")
         assert not hasattr(pf, "ParameterField")
         assert not hasattr(pf, "ElementwiseField")
         assert not hasattr(pf, "ConstantField")
@@ -398,11 +434,11 @@ class TestDeformationEnergy:
         energy = _make_energy(
             sim,
             formulation=pf.KoiterShell(),
-            elastic=pf.KoiterStVK(),
-            elastic_dof_layout=pf.ConstantDofLayout(),
+            elastic=pf.KoiterStVKDefinition(),
+            elastic_dof_layout=pf.ConstantParameterLayout,
             elastic_values=elastic,
-            plastic=pf.ShellPlasticity(dofs=1),
-            plastic_dof_layout=pf.ElementwiseDofLayout(),
+            plastic=pf.ShellPlasticityDefinition(dofs=1),
+            plastic_dof_layout=pf.ElementwiseParameterLayout,
             options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
         )
         u = energy.zero_state()
@@ -431,8 +467,8 @@ class TestDeformationEnergy:
         energy = _make_energy(
             sim,
             formulation=pf.KoiterShell(),
-            elastic=pf.KoiterStVK(),
-            plastic=pf.ShellPlasticity(dofs=1),
+            elastic=pf.KoiterStVKDefinition(),
+            plastic=pf.ShellPlasticityDefinition(dofs=1),
         )
         u = energy.zero_state()
         assert np.isfinite(energy.value(u))
@@ -453,11 +489,11 @@ class TestDeformationEnergy:
 
     def test_energy_observes_committed_parameter_update(self):
         sim = _make_tet_sim_mesh()
-        energy = _make_energy(sim, elastic=pf.StVK())
+        energy = _make_energy(sim, elastic=pf.StVKDefinition())
 
         x0 = energy.zero_state()
         before = energy.value(x0)
-        energy.parameters.set_plastic_values(
+        energy.optimizable_parameters.set_plastic_values(
             np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
         )
         after = energy.value(x0)
@@ -467,7 +503,7 @@ class TestDeformationEnergy:
         sim = _make_tet_sim_mesh()
         energy = _make_energy(
             sim,
-            elastic=pf.StVK(),
+            elastic=pf.StVKDefinition(),
             plastic_values=np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64),
         )
 
@@ -503,48 +539,35 @@ class TestLifetimeAndErrors:
 
     def test_wrong_inputs_raise(self):
         sim = _make_tet_sim_mesh()
+        valid = _make_energy(sim)
+        assignment = valid.material_assignment
 
-        with pytest.raises(TypeError, match="elastic"):
-            pf.deformation_energy(sim, formulation=pf.TetLinear())
+        with pytest.raises(TypeError, match="assignment"):
+            pf.DeformationEnergy(sim, formulation=pf.TetLinear())
         with pytest.raises(ValueError, match="formulation is required"):
-            pf.deformation_energy(
-                sim,
-                elastic=pf.StableNeo(),
-                plastic=pf.VolumetricPlasticity(dofs=6),
-            )
+            pf.DeformationEnergy(assignment, formulation=None)
         with pytest.raises(TypeError, match="formulation must be"):
-            pf.deformation_energy(
-                sim,
-                elastic=pf.StableNeo(),
-                plastic=pf.VolumetricPlasticity(dofs=6),
+            pf.DeformationEnergy(
+                assignment,
                 formulation="tet_linear",
             )
         with pytest.raises(TypeError, match="options must be"):
-            pf.deformation_energy(
-                sim,
-                elastic=pf.StableNeo(),
-                plastic=pf.VolumetricPlasticity(dofs=6),
+            pf.DeformationEnergy(
+                assignment,
                 formulation=pf.TetLinear(),
                 options={},
             )
-        with pytest.raises(TypeError, match="MaterialParameters"):
-            pf.deformation_energy(
-                sim,
-                elastic=pf.StableNeo(),
-                plastic=pf.VolumetricPlasticity(dofs=6),
-                material_parameters=object(),
-                formulation=pf.TetLinear(),
-            )
+        with pytest.raises(TypeError):
+            pf.MaterialAssignment(sim, valid.material_assignment.parameterization, object())
 
     def test_no_legacy_energy_keywords(self):
         sim = _make_tet_sim_mesh()
+        assignment = _make_energy(sim).material_assignment
         with pytest.raises(TypeError):
-            pf.deformation_energy(
-                sim,
-                elastic=pf.StableNeo(),
-                plastic=pf.VolumetricPlasticity(dofs=6),
+            pf.DeformationEnergy(
+                assignment,
                 formulation=pf.TetLinear(),
-                elastic_field=object(),
+                elastic=pf.StableNeoDefinition(),
             )
 
 
@@ -554,12 +577,13 @@ class TestModuleSurface:
         assert hasattr(pgo, "energy")
         assert not hasattr(pe, "deformation_energy")
         assert not hasattr(pe, "TetLinear")
-        assert not hasattr(pe, "StableNeo")
+        assert not hasattr(pe, "StableNeoDefinition")
         assert hasattr(pe, "PotentialEnergy")
         # FEM energy classes live with their domain module (pypgo.fem),
         # not in the generic pypgo.energy namespace.
         assert not hasattr(pe, "DeformationEnergy")
         assert hasattr(pf, "DeformationEnergy")
+        assert not hasattr(pf, "deformation_energy")
         assert not hasattr(pf, "DeformationModelConfig")
         assert not hasattr(pf, "deformation_model_config")
 
@@ -648,21 +672,24 @@ SHELL_OBJ = (
 
 
 def _make_shell_energy_full():
-    """Shell energy on shell.obj with KoiterStVK for von Mises testing."""
+    """Shell energy on shell.obj with KoiterStVKDefinition for von Mises testing."""
     surface = pgo.mesh.read_obj(str(SHELL_OBJ))
     material = pf.KoiterStVKShellMaterial(thickness=0.01, E_membrane=1e6, nu_membrane=0.3)
-    sim = pf.SimulationMesh.create_shell(surface, material)
-    energy = pf.deformation_energy(
+    sim = pf.SimulationAsset.create_shell(surface, material)
+    energy = _make_energy(
         sim,
-        elastic=pf.KoiterStVK(),
-        plastic=pf.ShellPlasticity(dofs=0),
+        elastic=pf.KoiterStVKDefinition(),
+        plastic=pf.ShellPlasticityDefinition(dofs=0),
+        elastic_dof_layout=pf.ConstantParameterLayout,
+        elastic_values=np.array(
+            [[1e6, 0.3, 1e6, 0.3, 0.01]], dtype=np.float64),
         formulation=pf.KoiterShell(),
     )
     return sim, energy, surface.vertices
 
 
 class TestShellVonMisesStress:
-    """Task 12: shell von Mises stress recovery (KoiterStVK).
+    """Task 12: shell von Mises stress recovery (KoiterStVKDefinition).
 
     These tests FAIL before the C++ implementation and pass after rebuild.
     """
@@ -707,7 +734,7 @@ class TestShellVonMisesStress:
         """Pure bending u_z = 0.1 * x^2 -> max stress > 0.
 
         shell.obj lies in z=0; moving vertices out-of-plane quadratically
-        creates curvature (bending), which the StVK shell bending energy
+        creates curvature (bending), which the StVKDefinition shell bending energy
         should convert to nonzero von Mises stress.
         """
         sim, energy, verts = _make_shell_energy_full()

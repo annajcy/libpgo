@@ -1,7 +1,7 @@
 #include "shellFormulation.h"
 
 #include "mass/shellArealDensityField.h"
-#include "material/core/materialParameters.h"
+#include "material/core/optimizableParameters.h"
 #include "deformation/shell/shellDeformationModel.h"
 #include "simulation/simulationMesh.h"
 
@@ -77,7 +77,7 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
 
 EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
   const SimulationMesh &mesh, const ShellArealDensityField &arealDensity,
-  MaterialParameterEvaluationView state) const
+  OptimizableParameterEvaluationView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -104,7 +104,7 @@ EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
 
 EigenSupport::VXd ShellFormulation::buildBodyForce(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellArealDensityField &arealDensity, MaterialParameterEvaluationView state) const
+  const ShellArealDensityField &arealDensity, OptimizableParameterEvaluationView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -126,31 +126,31 @@ EigenSupport::VXd ShellFormulation::buildBodyForce(
 
 EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellArealDensityField &arealDensity, MaterialParameterEvaluationView state) const
+  const ShellArealDensityField &arealDensity, OptimizableParameterEvaluationView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
   arealDensity.validate(mesh.getNumElements());
-  const MaterialParameterRef *dependency = arealDensity.parameterDependency();
+  const OptimizableParameterRef *dependency = arealDensity.parameterDependency();
   if (dependency == nullptr) {
     throw std::invalid_argument(
       "buildBodyForceParameterJacobian requires a parameter-dependent areal density field");
   }
   if (state.empty()) {
     throw std::invalid_argument(
-      "parameter-dependent areal density requires material parameter state");
+      "parameter-dependent areal density requires optimizable parameter state");
   }
 
-  if (&dependency->field() != &state.space().elastic()) {
+  if (!dependency->field().sharesStateWith(state.elasticField())) {
     throw std::invalid_argument(
-      "parameter-dependent areal density must depend on the evaluation space elastic field");
+      "parameter-dependent areal density must depend on the evaluation elastic field");
   }
 
   auto evaluation = arealDensity.evaluator(std::move(state));
-  const MaterialParameterRef &parameter = *dependency;
-  const auto &layout = parameter.field().dofLayout();
-  const int numLocal = layout.numLocalDofs();
+  const OptimizableParameterRef &parameter = *dependency;
+  const auto &layout = parameter.field().layout();
+  const int numLocal = layout.numLocalParameters();
   ES::VXd dRho(numLocal);
   std::vector<ES::TripletD> entries;
   entries.reserve(static_cast<size_t>(mesh.getNumElements()) * numLocal * 9);
@@ -162,7 +162,7 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
     for (int k = 0; k < numLocal; k++) {
       if (dRho[k] == 0.0)
         continue;
-      const int col = layout.globalDof(ele, k);
+      const int col = layout.globalParameter(ele, k);
       const double s = dRho[k] * areaThird;
       for (int j = 0; j < 3; j++) {
         const int v = mesh.getVertexIndex(ele, j);
@@ -172,7 +172,7 @@ EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
     }
   }
 
-  ES::SpMatD J(mesh.getNumVertices() * 3, layout.numGlobalDofs());
+  ES::SpMatD J(mesh.getNumVertices() * 3, layout.numGlobalParameters());
   J.setFromTriplets(entries.begin(), entries.end());
   return J;
 }

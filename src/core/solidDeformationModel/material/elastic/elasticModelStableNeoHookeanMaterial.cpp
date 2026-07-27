@@ -255,25 +255,19 @@ void ElasticModelStableNeoHookeanMaterial::setMaterial(double mu_, double lambda
 }
 
 
-#include "simulation/simulationMesh.h"
 #include <stdexcept>
 #include <string>
 
 namespace pgo::SolidDeformationModel {
 namespace {
-const SimulationMeshENuMaterial &enuMaterial(const SimulationMesh &mesh, int element) {
-  return mesh.requireElementField<SimulationMeshENuMaterial>().at(element);
-}
-void expectSize(std::span<double> output, std::size_t expected) {
-  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
-}
 // This model has no optimization channels.
 }
-std::span<const std::string_view> StableNeoConfig::parameterChannelNames() const { return {}; }
-void StableNeoConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
-std::unique_ptr<ElasticModel> StableNeoConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &) const
+MaterialChannelSchema StableNeoDefinition::optimizableChannelSchema() const { return {}; }
+MaterialChannelSchema StableNeoDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 2> names{"E", "nu"}; return MaterialChannelSchema(names); }
+std::unique_ptr<ElasticModel> StableNeoDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
 {
-  const auto &mat = enuMaterial(mesh, element);
-  return std::make_unique<ElasticModelStableNeoHookeanMaterial>(mat.getMuLame(), mat.getLambdaLame());
+  if (values.size() != 2) throw std::invalid_argument("stable_neo requires fixed channels E, nu");
+  const double E = values[0], nu = values[1];
+  return std::make_unique<ElasticModelStableNeoHookeanMaterial>(E / (2 * (1 + nu)), (nu * E) / ((1 + nu) * (1 - 2 * nu)));
 }
 }  // namespace pgo::SolidDeformationModel

@@ -11,8 +11,8 @@ namespace pgo::SolidDeformationModel
 double ElementScalarFieldSource::valueWithScratch(
   int element,
   int quadrature,
-  const MaterialParameterEvaluationView &state,
-  MaterialParameterEvaluationScratch &) const
+  const OptimizableParameterEvaluationView &state,
+  OptimizableParameterEvaluationScratch &) const
 {
   return value(element, quadrature, state);
 }
@@ -20,8 +20,8 @@ double ElementScalarFieldSource::valueWithScratch(
 void ElementScalarFieldSource::localParameterDerivativeWithScratch(
   int element,
   int quadrature,
-  const MaterialParameterEvaluationView &state,
-  MaterialParameterEvaluationScratch &,
+  const OptimizableParameterEvaluationView &state,
+  OptimizableParameterEvaluationScratch &,
   EigenSupport::RefVecXd output) const
 {
   localParameterDerivative(element, quadrature, state, output);
@@ -39,18 +39,18 @@ void ConstantScalarFieldSource::validate(int) const
 }
 
 double ConstantScalarFieldSource::value(
-  int, int, const MaterialParameterEvaluationView &) const
+  int, int, const OptimizableParameterEvaluationView &) const
 {
   return value_;
 }
 
-const MaterialParameterRef *ConstantScalarFieldSource::parameterDependency() const
+const OptimizableParameterRef *ConstantScalarFieldSource::parameterDependency() const
 {
   return nullptr;
 }
 
 void ConstantScalarFieldSource::localParameterDerivative(
-  int, int, const MaterialParameterEvaluationView &, EigenSupport::RefVecXd output) const
+  int, int, const OptimizableParameterEvaluationView &, EigenSupport::RefVecXd output) const
 {
   output.setZero();
 }
@@ -71,25 +71,25 @@ void ElementwiseScalarFieldSource::validate(int numElements) const
 }
 
 double ElementwiseScalarFieldSource::value(
-  int element, int, const MaterialParameterEvaluationView &) const
+  int element, int, const OptimizableParameterEvaluationView &) const
 {
   assert(element >= 0 && element < values_.size());
   return values_[element];
 }
 
-const MaterialParameterRef *ElementwiseScalarFieldSource::parameterDependency() const
+const OptimizableParameterRef *ElementwiseScalarFieldSource::parameterDependency() const
 {
   return nullptr;
 }
 
 void ElementwiseScalarFieldSource::localParameterDerivative(
-  int, int, const MaterialParameterEvaluationView &, EigenSupport::RefVecXd output) const
+  int, int, const OptimizableParameterEvaluationView &, EigenSupport::RefVecXd output) const
 {
   output.setZero();
 }
 
 ScaledElasticParameterFieldSource::ScaledElasticParameterFieldSource(
-  double scale, MaterialParameterRef parameter):
+  double scale, OptimizableParameterRef parameter):
   scale_(scale),
   parameter_(std::move(parameter))
 {
@@ -100,7 +100,7 @@ ScaledElasticParameterFieldSource::ScaledElasticParameterFieldSource(
 
 void ScaledElasticParameterFieldSource::validate(int numElements) const
 {
-  if (parameter_.field().dofLayout().numElements() != numElements)
+  if (parameter_.field().layout().numElements() != numElements)
     throw std::invalid_argument(
       "scaled elastic parameter field shape does not match element count");
 }
@@ -108,7 +108,7 @@ void ScaledElasticParameterFieldSource::validate(int numElements) const
 double ScaledElasticParameterFieldSource::value(
   int element,
   int quadrature,
-  const MaterialParameterEvaluationView &state) const
+  const OptimizableParameterEvaluationView &state) const
 {
   return scale_ * parameter_.value(element, quadrature, state);
 }
@@ -116,13 +116,13 @@ double ScaledElasticParameterFieldSource::value(
 double ScaledElasticParameterFieldSource::valueWithScratch(
   int element,
   int quadrature,
-  const MaterialParameterEvaluationView &state,
-  MaterialParameterEvaluationScratch &scratch) const
+  const OptimizableParameterEvaluationView &state,
+  OptimizableParameterEvaluationScratch &scratch) const
 {
   return scale_ * parameter_.value(element, quadrature, state, scratch);
 }
 
-const MaterialParameterRef *
+const OptimizableParameterRef *
 ScaledElasticParameterFieldSource::parameterDependency() const
 {
   return &parameter_;
@@ -131,10 +131,10 @@ ScaledElasticParameterFieldSource::parameterDependency() const
 void ScaledElasticParameterFieldSource::localParameterDerivative(
   int element,
   int quadrature,
-  const MaterialParameterEvaluationView &state,
+  const OptimizableParameterEvaluationView &state,
   EigenSupport::RefVecXd output) const
 {
-  const auto expected = parameter_.field().dofLayout().numLocalDofs();
+  const auto expected = parameter_.field().layout().numLocalParameters();
   if (output.size() != expected)
     throw std::invalid_argument(
       "scaled elastic parameter field derivative buffer has size " +
@@ -147,11 +147,11 @@ void ScaledElasticParameterFieldSource::localParameterDerivative(
 void ScaledElasticParameterFieldSource::localParameterDerivativeWithScratch(
   int element,
   int quadrature,
-  const MaterialParameterEvaluationView &state,
-  MaterialParameterEvaluationScratch &scratch,
+  const OptimizableParameterEvaluationView &state,
+  OptimizableParameterEvaluationScratch &scratch,
   EigenSupport::RefVecXd output) const
 {
-  const auto expected = parameter_.field().dofLayout().numLocalDofs();
+  const auto expected = parameter_.field().layout().numLocalParameters();
   if (output.size() != expected)
     throw std::invalid_argument(
       "scaled elastic parameter field derivative buffer has size " +

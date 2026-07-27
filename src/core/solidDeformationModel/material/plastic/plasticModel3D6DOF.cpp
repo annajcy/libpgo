@@ -148,24 +148,13 @@ ES::M3d PlasticModel3D6DOF::computeR(std::span<const double> param) const
 }
 
 
-#include "simulation/simulationMesh.h"
-#include <algorithm>
-#include <initializer_list>
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-namespace {
-void expectSize(std::span<double> output, std::size_t expected) {
-  if (output.size() != expected) throw std::invalid_argument("plastic config default parameter buffer has the wrong size");
-}
-}
-std::span<const std::string_view> VolumetricPlasticity6Config::parameterChannelNames() const { static constexpr std::array<std::string_view, 6> names{"Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz"}; return names; }
-void VolumetricPlasticity6Config::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const
+MaterialChannelSchema VolumetricPlasticity6Definition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 6> names{"Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz"}; return MaterialChannelSchema(names); }
+std::unique_ptr<PlasticModel> VolumetricPlasticity6Definition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
 {
-  expectSize(output, 6); output[0] = 1; output[1] = 0; output[2] = 0; output[3] = 1; output[4] = 0; output[5] = 1;
-}
-std::unique_ptr<PlasticModel> VolumetricPlasticity6Config::createModel(const SimulationMesh &, int, const MaterialFrame &) const
-{
+  if (!values.empty()) throw std::invalid_argument("volumetric_dof6 has no fixed channels");
   return std::make_unique<PlasticModel3D6DOF>();
 }
 }  // namespace pgo::SolidDeformationModel

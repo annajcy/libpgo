@@ -6,8 +6,8 @@ sweep; see [README-macos.md](README-macos.md) for the Accelerate SINGLE/MULTI
 variant. The workload is deliberately pure Python:
 
 1. load a real Vega volumetric mesh with `pypgo.mesh.volume.read_veg`;
-2. build `VolumeMesh` and `pypgo.fem.SimulationMesh`;
-3. select a material model and construct `pypgo.fem.deformation_energy`;
+2. build `VolumeMesh` and `pypgo.fem.SimulationAsset`;
+3. construct a `pypgo.fem.MaterialAssignment` and `pypgo.fem.DeformationEnergy`;
 4. call the public `value`, `gradient`, or `hessian` API inside an executor.
 
 There is no benchmark-only C++ kernel, binding, or CMake target. The runner uses
@@ -28,9 +28,10 @@ Each formulation is measured separately for `value`, `gradient`, and
 `hessian`. Absolute times are not compared across formulations; the relevant
 quantity is each policy's speed ratio within one formulation and operation.
 
-The default elastic model is `StableNeo`, with an elementwise material field
+The default elastic model is `StableNeoDefinition`, with an elementwise
+optimizable/fixed field
 initialized from the `.veg` material payload. The default plastic model is
-`VolumetricPlasticity(dofs=6)`. A small deterministic nonzero displacement is
+`VolumetricPlasticityDefinition(dofs=6)`. A small deterministic nonzero displacement is
 used so correctness checks do not depend on a trivial rest-state result. Every
 measurement records the perturbation generator, seed, scale, nonzero count,
 L2 norm, and maximum absolute DOF value so the timed state can be audited from

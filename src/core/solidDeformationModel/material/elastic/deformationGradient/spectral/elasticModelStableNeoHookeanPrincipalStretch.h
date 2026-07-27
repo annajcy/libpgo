@@ -39,7 +39,7 @@ private:
   double ratio_ = 0.0;
 };
 
-class StableNeoPrincipalStretchConfig final : public ElasticModelConfig
+class StableNeoPrincipalStretchDefinition final : public ElasticModelDefinition
 {
 public:
   std::string_view id() const override
@@ -47,23 +47,15 @@ public:
     return "stable_neo_principal_stretch";
   }
 
-  std::span<const std::string_view> parameterChannelNames() const override;
+  MaterialChannelSchema optimizableChannelSchema() const override;
 
   MaterialFrameRequirement frameRequirement() const override
   {
     return MaterialFrameRequirement::None;
   }
+  MaterialChannelSchema fixedChannelSchema() const override;
+  std::unique_ptr<ElasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
 
-  void initializeDefaultElementChannels(
-    const SimulationMesh &,
-    int,
-    std::span<double>) const override;
-
-private:
-  std::unique_ptr<ElasticModel> createModel(
-    const SimulationMesh &,
-    int,
-    const MaterialFrame &) const override;
 };
 
 }  // namespace pgo::SolidDeformationModel

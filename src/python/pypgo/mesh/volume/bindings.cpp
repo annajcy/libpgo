@@ -41,6 +41,31 @@ void init_volume_mesh_bindings(nb::module_ &m)
         .def("num_vertices", &PySimulationMesh::numVertices)
         .def("num_elements", &PySimulationMesh::numElements)
         .def("num_element_vertices", &PySimulationMesh::numElementVertices);
+    nb::class_<PySimulationAsset, PySimulationMesh>(m, "PySimulationAsset")
+        .def_prop_ro("material_data", &PySimulationAsset::materialData);
+
+    nb::class_<PyImportedMaterialRecord>(m, "PyImportedMaterialRecord")
+        .def_prop_ro("name", &PyImportedMaterialRecord::name)
+        .def_prop_ro("family", &PyImportedMaterialRecord::family)
+        .def_prop_ro("properties", &PyImportedMaterialRecord::properties);
+    nb::class_<PyImportedElementSet>(m, "PyImportedElementSet")
+        .def_prop_ro("name", &PyImportedElementSet::name)
+        .def_prop_ro("elements", &PyImportedElementSet::elements);
+    nb::class_<PyImportedMaterialRegion>(m, "PyImportedMaterialRegion")
+        .def_prop_ro("material_index", &PyImportedMaterialRegion::materialIndex)
+        .def_prop_ro("set_index", &PyImportedMaterialRegion::setIndex);
+    nb::class_<PyImportedMaterialField>(m, "PyImportedMaterialField")
+        .def_prop_ro("name", &PyImportedMaterialField::name)
+        .def_prop_ro("channel_names", &PyImportedMaterialField::channelNames)
+        .def_prop_ro("value_rows", &PyImportedMaterialField::valueRows)
+        .def_prop_ro("element_to_row", &PyImportedMaterialField::elementToRow);
+    nb::class_<PyImportedMaterialData>(m, "PyImportedMaterialData")
+        .def_prop_ro("num_elements", &PyImportedMaterialData::numElements)
+        .def_prop_ro("materials", &PyImportedMaterialData::materials)
+        .def_prop_ro("sets", &PyImportedMaterialData::sets)
+        .def_prop_ro("regions", &PyImportedMaterialData::regions)
+        .def_prop_ro("fields", &PyImportedMaterialData::fields)
+        .def_prop_ro("element_material_indices", &PyImportedMaterialData::elementMaterialIndices);
 
     nb::class_<PyVegENuMaterialPayload>(m, "PyVegENuMaterialPayload")
         .def_rw("name", &PyVegENuMaterialPayload::name)
@@ -87,8 +112,8 @@ void init_volume_mesh_bindings(nb::module_ &m)
     m.def("write_veg", &write_veg);
     m.def("extract_surface_mesh", &extract_surface_mesh, nb::arg("volume_mesh"), nb::arg("triangulate") = true);
     m.def("extract_veg_payload_from_volume_mesh", &extract_veg_payload_from_volume_mesh, nb::arg("volume_mesh"));
-    m.def("create_simulation_mesh_from_volume", &create_simulation_mesh_from_volume);
-    m.def("create_simulation_mesh_from_shell", &create_simulation_mesh_from_shell,
+    m.def("create_simulation_asset_from_volume", &create_simulation_asset_from_volume);
+    m.def("create_simulation_asset_from_shell", &create_simulation_asset_from_shell,
         nb::arg("surface_data"), nb::arg("thickness"), nb::arg("E"), nb::arg("nu"));
     m.def("compute_mass_matrix", &compute_mass_matrix,
         nb::arg("volume_mesh"), nb::arg("inflate3dim") = true);

@@ -58,23 +58,17 @@ ES::M9d ElasticModelVolumeMaterial::compute_dPdF(std::span<const double>, const 
 }
 
 
-#include "simulation/simulationMesh.h"
 #include <stdexcept>
 #include <string>
 
 namespace pgo::SolidDeformationModel {
 namespace {
-const SimulationMeshENuMaterial &enuMaterial(const SimulationMesh &mesh, int element) {
-  return mesh.requireElementField<SimulationMeshENuMaterial>().at(element);
 }
-void expectSize(std::span<double> output, std::size_t expected) {
-  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
-}
-}
-std::span<const std::string_view> VolumePenaltyConfig::parameterChannelNames() const { return {}; }
-void VolumePenaltyConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
-std::unique_ptr<ElasticModel> VolumePenaltyConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &) const
+MaterialChannelSchema VolumePenaltyDefinition::optimizableChannelSchema() const { return {}; }
+MaterialChannelSchema VolumePenaltyDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"J"}; return MaterialChannelSchema(names); }
+std::unique_ptr<ElasticModel> VolumePenaltyDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
 {
-  return std::make_unique<ElasticModelVolumeMaterial>(enuMaterial(mesh, element).getCompressionRatio());
+  if (values.size() != 1) throw std::invalid_argument("volume requires fixed channel J");
+  return std::make_unique<ElasticModelVolumeMaterial>(values[0]);
 }
 }  // namespace pgo::SolidDeformationModel

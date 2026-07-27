@@ -19,7 +19,7 @@ public:
   double value(
     int element,
     int quadrature = 0,
-    const MaterialParameterEvaluationView &state = {}) const;
+    const OptimizableParameterEvaluationView &state = {}) const;
 
 private:
   std::shared_ptr<const ElementScalarFieldSource> source_;

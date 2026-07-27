@@ -585,33 +585,20 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_db_dparam(
 }  // namespace pgo
 
 
-#include "simulation/simulationMesh.h"
 #include <algorithm>
-#include <initializer_list>
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-namespace {
-void expectSize(std::span<double> output, std::size_t expected) {
-  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
-}
-}
-std::span<const std::string_view> KoiterFabricConfig::parameterChannelNames() const
+MaterialChannelSchema KoiterFabricDefinition::optimizableChannelSchema() const
 {
-  static constexpr std::array<std::string_view, 12> names{"membrane_warp", "membrane_weft", "membrane_shear", "membrane_cross",
-    "bend_warp", "bend_weft", "bend_shear", "warp_stretch", "weft_stretch",
-    "shear_stretch", "fiber_coupling", "thickness"};
-  return names;
+  static constexpr std::array<std::string_view, 12> names{
+    "mu0", "k1_4", "k2_4", "k1_6", "k2_6", "ks",
+    "alpha", "kappa11", "kappa22", "kappa12", "I8_0", "h"};
+  return MaterialChannelSchema(names);
 }
-void KoiterFabricConfig::initializeDefaultElementChannels(const SimulationMesh &mesh, int element, std::span<double> output) const
+std::unique_ptr<ElasticModel> KoiterFabricDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
 {
-  expectSize(output, 12);
-  const auto &mat = mesh.requireElementField<SimulationMeshENuhMaterial>().at(element);
-  const double values[] = {1, 1, 1, 1, 1, 1, 1, 1000, 1000, 1000, 1, mat.geth()};
-  std::copy(values, values + 12, output.begin());
-}
-std::unique_ptr<ElasticModel> KoiterFabricConfig::createModel(const SimulationMesh &, int, const MaterialFrame &) const
-{
+  if (!values.empty()) throw std::invalid_argument("koiter_fabric has no fixed channels");
   return std::make_unique<ElasticModel2DFundamentalFormsFabric>(EigenSupport::V2d(1, 0), EigenSupport::V2d(0, 1));
 }
 }  // namespace pgo::SolidDeformationModel

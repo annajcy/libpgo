@@ -67,12 +67,12 @@ std::shared_ptr<PyVolumetricFormulation> make_cubic_tricubic_hermite();
 std::shared_ptr<PyShellFormulation> make_koiter_shell();
 
 PySparseMatrix compute_formulation_mass_matrix(
-  const PySimulationMesh &simMesh,
+  const PySimulationMesh &asset,
   const PyVolumetricFormulation &formulation,
   const PyVolumeDensity &density);
 
 std::vector<double> compute_formulation_body_force(
-  const PySimulationMesh &simMesh,
+  const PySimulationMesh &asset,
   const PyVolumetricFormulation &formulation,
   const std::vector<double> &acceleration,
   const PyVolumeDensity &density);
@@ -83,23 +83,23 @@ PySparseMatrix compute_formulation_surface_embedding_matrix(
   const std::vector<double> &surfaceVerticesFlat);
 
 PySparseMatrix compute_shell_formulation_mass_matrix(
-  const PySimulationMesh &simMesh,
+  const PySimulationMesh &asset,
   const PyShellFormulation &formulation,
   const PyShellArealDensity &arealDensity,
-  std::shared_ptr<PyMaterialParameters> materialParameters);
+  std::shared_ptr<PyOptimizableParameters> optimizableParameters);
 
 std::vector<double> compute_shell_formulation_body_force(
-  const PySimulationMesh &simMesh,
+  const PySimulationMesh &asset,
   const PyShellFormulation &formulation,
   const std::vector<double> &acceleration,
   const PyShellArealDensity &arealDensity,
-  std::shared_ptr<PyMaterialParameters> materialParameters);
+  std::shared_ptr<PyOptimizableParameters> optimizableParameters);
 
 PySparseMatrix compute_shell_formulation_body_force_parameter_jacobian(
-  const PySimulationMesh &simMesh,
+  const PySimulationMesh &asset,
   const PyShellFormulation &formulation,
   const std::vector<double> &acceleration,
   const PyShellArealDensity &arealDensity,
-  std::shared_ptr<PyMaterialParameters> materialParameters);
+  std::shared_ptr<PyOptimizableParameters> optimizableParameters);
 
 }  // namespace pgo

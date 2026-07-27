@@ -37,7 +37,7 @@ void VolumeDensityField::validate(int numElements) const
 double VolumeDensityField::value(
   int element,
   int quadrature,
-  const MaterialParameterEvaluationView &state) const
+  const OptimizableParameterEvaluationView &state) const
 {
   const double density = source_->value(element, quadrature, state);
   if (!std::isfinite(density) || !(density > 0.0))

@@ -3,6 +3,7 @@ import pytest
 
 import pypgo as pgo
 import pypgo.fem as pf
+from tests.pypgo.material_helpers import direct_assignment
 from pypgo.mesh.geometry import BarycentricEmbedding
 
 
@@ -39,7 +40,7 @@ def test_barycentric_embedding_exposes_all_local_corners():
 
 def test_hermite_mass_matrix_has_correct_size_symmetry_and_constant_velocity_energy():
     volume = _single_cube_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     mass_field = pf.VolumeDensity(2.0)
     M = pf.CubicTricubicHermite().mass_matrix(sim_mesh, mass_field)
 
@@ -58,7 +59,7 @@ def test_hermite_mass_matrix_has_correct_size_symmetry_and_constant_velocity_ene
 
 def test_hermite_body_force_has_generalized_derivative_entries_and_correct_total_force():
     volume = _single_cube_volume(density=3.0)
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
     mass_field = pf.VolumeDensity(3.0)
     g = np.array([0.0, -9.8, 0.0], dtype=np.float64)
     f = pf.CubicTricubicHermite().body_force(sim_mesh, g, mass_field)
@@ -100,11 +101,15 @@ def test_hermite_surface_embedding_reproduces_affine_displacement():
 
 def test_hermite_dynamic_free_fall_uses_24_dofs():
     volume = _single_cube_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationMesh.create_volumetric(volume)
-    energy = pf.deformation_energy(
-        sim_mesh,
-        elastic=pf.StableNeo(),
-        plastic=pf.VolumetricPlasticity(dofs=0),
+    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
+    elastic = pf.StableNeoDefinition()
+    plastic = pf.VolumetricPlasticityDefinition(dofs=0)
+    assignment = direct_assignment(
+        sim_mesh, elastic, plastic,
+        pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout,
+        np.empty(0), np.empty(0))
+    energy = pf.DeformationEnergy(
+        assignment,
         formulation=pf.CubicTricubicHermite(),
     )
     mass_field = pf.VolumeDensity(2.0)

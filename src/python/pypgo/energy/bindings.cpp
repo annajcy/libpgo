@@ -52,9 +52,9 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("num_plastic_params", &PyDeformationEnergy::numPlasticParams)
     .def_prop_ro("num_elastic_dofs", &PyDeformationEnergy::numElasticDofs)
     .def_prop_ro("num_plastic_dofs", &PyDeformationEnergy::numPlasticDofs)
-    .def_prop_ro("elastic_model", &PyDeformationEnergy::elasticModel)
-    .def_prop_ro("plastic_model", &PyDeformationEnergy::plasticModel)
-    .def_prop_ro("parameters", &PyDeformationEnergy::parameters)
+    .def_prop_ro("elastic_definition", &PyDeformationEnergy::elasticDefinition)
+    .def_prop_ro("plastic_definition", &PyDeformationEnergy::plasticDefinition)
+    .def_prop_ro("optimizable_parameters", &PyDeformationEnergy::optimizableParameters)
     .def("dE_de", &PyDeformationEnergy::dE_de, nb::arg("displacement"))
     .def("element_von_mises_stresses", &PyDeformationEnergy::elementVonMisesStresses, nb::arg("displacement"))
     .def("d2E_de2", &PyDeformationEnergy::d2E_de2, nb::arg("displacement"))
@@ -64,55 +64,159 @@ void init_energy_bindings(nb::module_ &m)
     .def("d2E_dude", &PyDeformationEnergy::d2E_dude, nb::arg("displacement"))
     .def("d2E_dudp", &PyDeformationEnergy::d2E_dudp, nb::arg("displacement"));
 
-  nb::class_<PyParameterDofLayout>(m, "PyParameterDofLayout");
-  nb::class_<PyMaterialChannelMapping>(m, "PyMaterialChannelMapping");
-
-  nb::class_<PyMaterialParameterRef>(m, "PyMaterialParameterRef")
-    .def_prop_ro("name", &PyMaterialParameterRef::name)
-    .def_prop_ro("channel", &PyMaterialParameterRef::channel);
-
-  nb::class_<PyMaterialParameterField>(m, "PyMaterialParameterField")
-    .def_prop_ro("num_channels", &PyMaterialParameterField::numChannels)
-    .def_prop_ro("num_local_dofs", &PyMaterialParameterField::numLocalDofs)
-    .def_prop_ro("num_global_dofs", &PyMaterialParameterField::numGlobalDofs)
-    .def_prop_ro("num_value_rows", &PyMaterialParameterField::numValueRows)
-    .def_prop_ro("channel_names", &PyMaterialParameterField::channelNames)
-    .def("parameter", &PyMaterialParameterField::parameter, nb::arg("name"));
-
-  nb::class_<PyMaterialParameterSpace>(m, "PyMaterialParameterSpace")
-    .def_prop_ro("elastic", &PyMaterialParameterSpace::elastic)
-    .def_prop_ro("plastic", &PyMaterialParameterSpace::plastic);
-
-  nb::class_<PyMaterialParameters>(m, "PyMaterialParameters")
-    .def_prop_ro("space", &PyMaterialParameters::space)
+  nb::class_<PyParameterLayout>(m, "PyParameterLayout")
+    .def_prop_ro("num_elements", &PyParameterLayout::numElements)
     .def_prop_ro(
-      "elastic_values", &PyMaterialParameters::elasticValues,
+      "num_local_parameters", &PyParameterLayout::numLocalParameters)
+    .def_prop_ro(
+      "num_global_parameters", &PyParameterLayout::numGlobalParameters)
+    .def_prop_ro("num_value_rows", &PyParameterLayout::numValueRows);
+  nb::class_<PyMaterialEvaluator>(m, "PyMaterialEvaluator")
+    .def_prop_ro("num_parameters", &PyMaterialEvaluator::numParameters)
+    .def_prop_ro("num_channels", &PyMaterialEvaluator::numChannels);
+  nb::class_<
+    PyDifferentiableMaterialEvaluator,
+    PyMaterialEvaluator>(
+    m, "PyDifferentiableMaterialEvaluator");
+
+  nb::class_<PyOptimizableParameterRef>(m, "PyOptimizableParameterRef")
+    .def_prop_ro("name", &PyOptimizableParameterRef::name)
+    .def_prop_ro(
+      "parameter_index", &PyOptimizableParameterRef::parameterIndex);
+  nb::class_<PyOptimizableMaterialChannelRef>(
+    m, "PyOptimizableMaterialChannelRef")
+    .def_prop_ro("name", &PyOptimizableMaterialChannelRef::name)
+    .def_prop_ro(
+      "channel_index", &PyOptimizableMaterialChannelRef::channelIndex);
+
+  nb::class_<PyOptimizableParameterField>(m, "PyOptimizableParameterField")
+    .def_prop_ro(
+      "num_material_channels",
+      &PyOptimizableParameterField::numMaterialChannels)
+    .def_prop_ro(
+      "num_local_parameters",
+      &PyOptimizableParameterField::numLocalParameters)
+    .def_prop_ro(
+      "num_global_parameters",
+      &PyOptimizableParameterField::numGlobalParameters)
+    .def_prop_ro("num_value_rows", &PyOptimizableParameterField::numValueRows)
+    .def_prop_ro("parameter_names", &PyOptimizableParameterField::parameterNames)
+    .def_prop_ro("layout", &PyOptimizableParameterField::layout)
+    .def_prop_ro("evaluator", &PyOptimizableParameterField::evaluator)
+    .def("parameter", &PyOptimizableParameterField::parameter, nb::arg("name"));
+
+  nb::class_<PyOptimizableParameters>(m, "PyOptimizableParameters")
+    .def_prop_ro("elastic_field", &PyOptimizableParameters::elasticField)
+    .def_prop_ro("plastic_field", &PyOptimizableParameters::plasticField)
+    .def_prop_ro(
+      "elastic_values", &PyOptimizableParameters::elasticValues,
       nb::rv_policy::move)
     .def_prop_ro(
-      "plastic_values", &PyMaterialParameters::plasticValues,
+      "plastic_values", &PyOptimizableParameters::plasticValues,
       nb::rv_policy::move)
-    .def("set_elastic_values", &PyMaterialParameters::setElasticValues, nb::arg("values"))
-    .def("set_plastic_values", &PyMaterialParameters::setPlasticValues, nb::arg("values"))
-    .def("_same_space", &PyMaterialParameters::sameSpace, nb::arg("other"));
+    .def("set_elastic_values", &PyOptimizableParameters::setElasticValues, nb::arg("values"))
+    .def("set_plastic_values", &PyOptimizableParameters::setPlasticValues, nb::arg("values"))
+    .def("set_values", &PyOptimizableParameters::setValues,
+      nb::arg("elastic_values"), nb::arg("plastic_values"))
+    .def("_same_fields", &PyOptimizableParameters::sameFields, nb::arg("other"));
 
-  m.def("_make_elementwise_parameter_dof_layout",
-    &makeElementwiseParameterDofLayout);
-  m.def("_make_constant_parameter_dof_layout",
-    &makeConstantParameterDofLayout);
-  m.def("_make_identity_material_channel_mapping",
-    &makeIdentityMaterialChannelMapping);
+  nb::class_<PyFixedParameterField>(m, "PyFixedParameterField")
+    .def_prop_ro("parameter_names", &PyFixedParameterField::parameterNames)
+    .def_prop_ro("num_elements", &PyFixedParameterField::numElements)
+    .def_prop_ro(
+      "num_local_parameters", &PyFixedParameterField::numLocalParameters)
+    .def_prop_ro(
+      "num_global_parameters", &PyFixedParameterField::numGlobalParameters)
+    .def_prop_ro("num_value_rows", &PyFixedParameterField::numValueRows)
+    .def_prop_ro(
+      "num_material_channels",
+      &PyFixedParameterField::numMaterialChannels)
+    .def_prop_ro("layout", &PyFixedParameterField::layout)
+    .def_prop_ro("evaluator", &PyFixedParameterField::evaluator);
+  nb::class_<PyMaterialAssignment>(m, "PyMaterialAssignment")
+    .def_prop_ro("optimizable_parameters", &PyMaterialAssignment::optimizableParameters);
 
-  m.def("_create_material_parameter_space", &createMaterialParameterSpace,
-    nb::arg("mesh_core"), nb::arg("elastic_model"), nb::arg("elastic_layout"),
-    nb::arg("elastic_mapping"), nb::arg("plastic_model"), nb::arg("plastic_layout"),
-    nb::arg("plastic_mapping"));
-  m.def("_create_default_material_parameters", &createDefaultMaterialParameters,
-    nb::arg("mesh_core"), nb::arg("elastic_model"), nb::arg("plastic_model"));
-  m.def("_create_material_parameters", &createMaterialParameters,
-    nb::arg("space"), nb::arg("elastic_values"), nb::arg("plastic_values"));
-  m.def("_create_deformation_energy_with_parameters", &createDeformationEnergyWithParameters,
-    nb::arg("mesh_core"), nb::arg("elastic_model"), nb::arg("plastic_model"),
-    nb::arg("material_parameters"), nb::arg("formulation"),
+  nb::class_<PyElasticParameterization>(m, "PyElasticParameterization")
+    .def_prop_ro("definition", &PyElasticParameterization::definition)
+    .def_prop_ro("fixed_field", &PyElasticParameterization::fixedField)
+    .def_prop_ro(
+      "optimizable_field", &PyElasticParameterization::optimizableField)
+    .def_prop_ro("fixed_channel_names", &PyElasticParameterization::fixedChannelNames)
+    .def_prop_ro(
+      "optimizable_channel_names",
+      &PyElasticParameterization::optimizableChannelNames)
+    .def(
+      "optimizable_channel", &PyElasticParameterization::optimizableChannel,
+      nb::arg("name"))
+    .def_prop_ro("num_elements", &PyElasticParameterization::numElements);
+  nb::class_<PyPlasticParameterization>(m, "PyPlasticParameterization")
+    .def_prop_ro("definition", &PyPlasticParameterization::definition)
+    .def_prop_ro("fixed_field", &PyPlasticParameterization::fixedField)
+    .def_prop_ro(
+      "optimizable_field", &PyPlasticParameterization::optimizableField)
+    .def_prop_ro("fixed_channel_names", &PyPlasticParameterization::fixedChannelNames)
+    .def_prop_ro(
+      "optimizable_channel_names",
+      &PyPlasticParameterization::optimizableChannelNames)
+    .def(
+      "optimizable_channel", &PyPlasticParameterization::optimizableChannel,
+      nb::arg("name"))
+    .def_prop_ro("num_elements", &PyPlasticParameterization::numElements)
+    .def_prop_ro("dofs", &PyPlasticParameterization::dofs);
+  nb::class_<PyMaterialParameterization>(m, "PyMaterialParameterization")
+    .def_prop_ro("elastic", &PyMaterialParameterization::elastic)
+    .def_prop_ro("plastic", &PyMaterialParameterization::plastic)
+    .def_prop_ro("num_elements", &PyMaterialParameterization::numElements);
+  nb::class_<PyMaterialParameterData>(m, "PyMaterialParameterData")
+    .def_prop_ro("elastic_fixed_values", &PyMaterialParameterData::elasticFixedValues,
+      nb::rv_policy::move)
+    .def_prop_ro("elastic_initial_optimizable_values",
+      &PyMaterialParameterData::elasticInitialOptimizableValues, nb::rv_policy::move)
+    .def_prop_ro("plastic_fixed_values", &PyMaterialParameterData::plasticFixedValues,
+      nb::rv_policy::move)
+    .def_prop_ro("plastic_initial_optimizable_values",
+      &PyMaterialParameterData::plasticInitialOptimizableValues, nb::rv_policy::move);
+
+  m.def("_make_elementwise_parameter_layout",
+    &makeElementwiseParameterLayout,
+    nb::arg("num_elements"), nb::arg("num_local_parameters"));
+  m.def("_make_constant_parameter_layout",
+    &makeConstantParameterLayout,
+    nb::arg("num_elements"), nb::arg("num_local_parameters"));
+  m.def("_make_identity_material_evaluator",
+    &makeIdentityMaterialEvaluator, nb::arg("num_parameters"));
+
+  m.def("_create_optimizable_parameter_field", &createOptimizableParameterField,
+    nb::arg("parameter_names"), nb::arg("layout"), nb::arg("evaluator"));
+  m.def("_create_fixed_parameter_field", &createFixedParameterField,
+    nb::arg("parameter_names"), nb::arg("layout"), nb::arg("evaluator"));
+  m.def("_create_elastic_parameterization", &createElasticParameterization,
+    nb::arg("definition"), nb::arg("fixed_field"),
+    nb::arg("optimizable_field"));
+  m.def("_create_plastic_parameterization", &createPlasticParameterization,
+    nb::arg("definition"), nb::arg("fixed_field"),
+    nb::arg("optimizable_field"));
+  m.def("_create_material_parameterization", &createMaterialParameterization,
+    nb::arg("elastic"), nb::arg("plastic"));
+  m.def("_project_material_parameter_data", &projectMaterialParameterData,
+    nb::arg("asset"), nb::arg("parameterization"));
+  m.def("_create_material_parameter_data", &createMaterialParameterData,
+    nb::arg("elastic_fixed_values"), nb::arg("elastic_initial_optimizable_values"),
+    nb::arg("plastic_fixed_values"), nb::arg("plastic_initial_optimizable_values"));
+  m.def("_project_material_parameter_data_from_imported_data",
+    &projectMaterialParameterDataFromImportedData,
+    nb::arg("source"), nb::arg("parameterization"));
+  m.def("_resolve_material_input", &resolveMaterialInput,
+    nb::arg("source"), nb::arg("name"));
+  m.def("_pack_material_element_inputs", &packMaterialElementInputs,
+    nb::arg("layout"), nb::arg("element_local_values"));
+  m.def("_validate_material_parameter_data", &validateMaterialParameterData,
+    nb::arg("parameterization"), nb::arg("data"));
+  m.def("_create_material_assignment_from_parameterization",
+    &createMaterialAssignmentFromParameterization,
+    nb::arg("asset"), nb::arg("parameterization"), nb::arg("data"));
+  m.def("_create_deformation_energy", &createDeformationEnergy,
+    nb::arg("assignment"), nb::arg("formulation"),
     nb::arg("element_weights").none() = nb::none(), nb::arg("project_hessian_psd") = true,
     nb::arg("enable_material_max_step") = true);
 

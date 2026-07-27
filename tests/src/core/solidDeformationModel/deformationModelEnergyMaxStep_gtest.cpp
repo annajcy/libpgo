@@ -10,7 +10,6 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
-#include "material/core/materialParameterBuilder.h"
 #include "backwardEuler/backwardEulerStepper.h"
 #include "trbdf2/trbdf2Stepper.h"
 #include "dynamicStepper.h"
@@ -25,6 +24,7 @@
 #include "deformation/volume/volumetricElementMapping.h"
 #include "deformation/volume/volumetricDeformationModel.h"
 #include "triMeshGeo.h"
+#include "materialTestUtils.h"
 
 #include <algorithm>
 #include <array>
@@ -43,13 +43,13 @@ namespace ES = pgo::EigenSupport;
 using namespace pgo::SolidDeformationModel;
 using pgo::NonlinearOptimization::PotentialEnergy;
 using pgo::SolidDeformationModel::DeformationModelAssembler;
-using pgo::SolidDeformationModel::ElasticModelConfig;
+using pgo::SolidDeformationModel::ElasticModelDefinition;
 using pgo::SolidDeformationModel::DeformationModelEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
-using pgo::SolidDeformationModel::PlasticModelConfig;
+using pgo::SolidDeformationModel::PlasticModelDefinition;
 using pgo::SolidDeformationModel::SimulationMesh;
-using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
-using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
+using pgo::SolidDeformationModel::ImportedENuMaterial;
+using pgo::SolidDeformationModel::ImportedENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::SolidDeformationModel::tetLinearComputeDs;
 using CubicFEM = pgo::SolidDeformationModel::VolumetricDeformationModel;
@@ -71,6 +71,7 @@ void initializeLogging()
 
 struct EnergyFixture
 {
+  std::shared_ptr<const SimulationAsset> asset;
   std::shared_ptr<const SimulationMesh> meshOwner;
   std::shared_ptr<DeformationModelEnergy> energy;
   ES::VXd restPositions;
@@ -95,31 +96,27 @@ EnergyFixture makeTetFixture(
 {
   initializeLogging();
 
-  SimulationMeshENuMaterial baseMaterial(1200.0, 0.45);
-
   EnergyFixture fixture;
   fixture.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     static_cast<int>(vertices.size() / 3), vertices,
     static_cast<int>(elementVertices.size() / 4), 4, elementVertices,
-    makeUniformSimulationMeshElementFieldStore(
-      static_cast<int>(elementVertices.size() / 4), baseMaterial),
     SimulationMeshType::TET));
+  fixture.asset = TestUtils::makeENuAsset(
+    fixture.meshOwner, 1200.0, 0.45);
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
   pgo::SolidDeformationModel::TetLinearFormulation formulation;
-  auto parameters = pgo::SolidDeformationModel::makeDefaultMaterialParameters(
-    *fixture.meshOwner, *std::make_shared<StableNeoConfig>(),
-    *std::make_shared<VolumetricPlasticity6Config>());
-  auto manager = std::make_shared<DeformationModelManager>(
-    fixture.meshOwner, std::make_shared<StableNeoConfig>(),
-    std::make_shared<VolumetricPlasticity6Config>(), formulation, 1);
-
-  auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(),
-    std::span<const double>{});
+  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+    *fixture.asset, *std::make_shared<StableNeoDefinition>(),
+    *std::make_shared<VolumetricPlasticity6Definition>());
+  auto assignment = TestUtils::makeMaterialAssignment(
+    fixture.asset, std::make_shared<StableNeoDefinition>(),
+    std::make_shared<VolumetricPlasticity6Definition>(), parameters);
+  DeformationModelOptions options;
+  options.dofOffset = offset;
   fixture.energy = std::make_shared<DeformationModelEnergy>(
-    std::move(assembler), std::move(parameters), offset);
+    std::move(assignment), formulation, options);
   return fixture;
 }
 
@@ -139,31 +136,25 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 {
   initializeLogging();
 
-  SimulationMeshENuMaterial baseMaterial(1200.0, 0.45);
-
   EnergyFixture fixture;
   fixture.meshOwner = std::shared_ptr<const SimulationMesh>(new SimulationMesh(
     static_cast<int>(vertices.size() / 3), vertices,
     static_cast<int>(elementVertices.size() / 8), 8, elementVertices,
-    makeUniformSimulationMeshElementFieldStore(
-      static_cast<int>(elementVertices.size() / 8), baseMaterial),
     SimulationMeshType::CUBIC));
+  fixture.asset = TestUtils::makeENuAsset(
+    fixture.meshOwner, 1200.0, 0.45);
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
   pgo::SolidDeformationModel::CubicLinearFormulation formulation;
-  auto parameters = pgo::SolidDeformationModel::makeDefaultMaterialParameters(
-    *fixture.meshOwner, *std::make_shared<StableNeoConfig>(),
-    *std::make_shared<VolumetricPlasticity6Config>());
-  auto manager = std::make_shared<DeformationModelManager>(
-    fixture.meshOwner, std::make_shared<StableNeoConfig>(),
-    std::make_shared<VolumetricPlasticity6Config>(), formulation, 1);
-
-  auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(),
-    std::span<const double>{});
+  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+    *fixture.asset, *std::make_shared<StableNeoDefinition>(),
+    *std::make_shared<VolumetricPlasticity6Definition>());
+  auto assignment = TestUtils::makeMaterialAssignment(
+    fixture.asset, std::make_shared<StableNeoDefinition>(),
+    std::make_shared<VolumetricPlasticity6Definition>(), parameters);
   fixture.energy = std::make_shared<DeformationModelEnergy>(
-    std::move(assembler), std::move(parameters), 0);
+    std::move(assignment), formulation);
   return fixture;
 }
 
@@ -191,27 +182,25 @@ EnergyFixture makeShellFixture()
   if (!surfaceMesh.load(kShellObjPath))
     throw std::runtime_error("Failed to load shell regression mesh.");
 
-  SimulationMeshENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
+  ImportedENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
 
   EnergyFixture fixture;
-  fixture.meshOwner = std::shared_ptr<const SimulationMesh>(
-    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, shellMaterial).release());
+  fixture.asset = TestUtils::shareAsset(
+    pgo::SolidDeformationModel::loadShellMesh(
+      surfaceMesh, shellMaterial));
+  fixture.meshOwner = fixture.asset->mesh();
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
   pgo::SolidDeformationModel::KoiterShellFormulation formulation;
-  auto parameters = pgo::SolidDeformationModel::makeDefaultMaterialParameters(
-    *fixture.meshOwner, *std::make_shared<KoiterStVKConfig>(),
-    *std::make_shared<ShellPlasticity1Config>());
-  auto manager = std::make_shared<DeformationModelManager>(
-    fixture.meshOwner, std::make_shared<KoiterStVKConfig>(),
-    std::make_shared<ShellPlasticity1Config>(), formulation, 1);
-
-  auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation, parameters->space(),
-    std::span<const double>{});
+  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+    *fixture.asset, *std::make_shared<KoiterStVKDefinition>(),
+    *std::make_shared<ShellPlasticity1Definition>());
+  auto assignment = TestUtils::makeMaterialAssignment(
+    fixture.asset, std::make_shared<KoiterStVKDefinition>(),
+    std::make_shared<ShellPlasticity1Definition>(), parameters);
   fixture.energy = std::make_shared<DeformationModelEnergy>(
-    std::move(assembler), std::move(parameters), 0);
+    std::move(assignment), formulation);
   return fixture;
 }
 

@@ -1,26 +1,38 @@
 #include "core.h"
 
-#include "../../simulation/core.h"
-
 namespace pgo
 {
 namespace SD = SolidDeformationModel;
 
-int PyElasticModelConfig::numChannels(const SD::SimulationMesh &) const
+std::vector<std::string> PyElasticModelDefinition::fixedChannelNames() const
 {
-  return static_cast<int>(config_->parameterChannelNames().size());
+  const auto schema = definition_->fixedChannelSchema();
+  const auto names = schema.channelNames();
+  return std::vector<std::string>(names.begin(), names.end());
 }
 
-int PyElasticModelConfig::numChannels(const PySimulationMesh &mesh) const
+std::vector<std::string> PyElasticModelDefinition::optimizableChannelNames() const
 {
-  return numChannels(mesh.mesh());
+  const auto schema = definition_->optimizableChannelSchema();
+  const auto names = schema.channelNames();
+  return std::vector<std::string>(names.begin(), names.end());
 }
 
-PyStableNeoConfig::PyStableNeoConfig(): PyElasticModelConfig(std::make_shared<SD::StableNeoConfig>()) {}
-PyStVKConfig::PyStVKConfig(): PyElasticModelConfig(std::make_shared<SD::StVKConfig>()) {}
-PyStVKVolumeConfig::PyStVKVolumeConfig(): PyElasticModelConfig(std::make_shared<SD::StVKVolumeConfig>()) {}
-PyLinearElasticConfig::PyLinearElasticConfig(): PyElasticModelConfig(std::make_shared<SD::LinearElasticConfig>()) {}
-PyMooneyRivlinConfig::PyMooneyRivlinConfig(): PyElasticModelConfig(std::make_shared<SD::MooneyRivlinConfig>()) {}
-PyKoiterStVKConfig::PyKoiterStVKConfig(): PyElasticModelConfig(std::make_shared<SD::KoiterStVKConfig>()) {}
+std::string PyElasticModelDefinition::frameRequirement() const
+{
+  switch (definition_->frameRequirement()) {
+  case SD::MaterialFrameRequirement::None: return "none";
+  case SD::MaterialFrameRequirement::PrimaryAxis: return "primary_axis";
+  case SD::MaterialFrameRequirement::FullFrame: return "full_frame";
+  }
+  return "unknown";
+}
+
+PyStableNeoDefinition::PyStableNeoDefinition(): PyElasticModelDefinition(std::make_shared<SD::StableNeoDefinition>()) {}
+PyStVKDefinition::PyStVKDefinition(): PyElasticModelDefinition(std::make_shared<SD::StVKDefinition>()) {}
+PyStVKVolumeDefinition::PyStVKVolumeDefinition(): PyElasticModelDefinition(std::make_shared<SD::StVKVolumeDefinition>()) {}
+PyLinearElasticDefinition::PyLinearElasticDefinition(): PyElasticModelDefinition(std::make_shared<SD::LinearElasticDefinition>()) {}
+PyMooneyRivlinDefinition::PyMooneyRivlinDefinition(): PyElasticModelDefinition(std::make_shared<SD::MooneyRivlinDefinition>()) {}
+PyKoiterStVKDefinition::PyKoiterStVKDefinition(): PyElasticModelDefinition(std::make_shared<SD::KoiterStVKDefinition>()) {}
 
 }  // namespace pgo

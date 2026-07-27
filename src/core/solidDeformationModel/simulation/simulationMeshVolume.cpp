@@ -1,15 +1,15 @@
 #include "simulation/simulationMeshVolume.h"
-#include "simulation/simulationMeshMaterial.h"
+#include "simulation/importedMaterial.h"
 
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "volumetricMeshENuMaterial.h"
 #include "volumetricMeshMooneyRivlinMaterial.h"
+#include "volumetricMeshOrthotropicMaterial.h"
 
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 using namespace pgo::SolidDeformationModel;
@@ -17,72 +17,97 @@ using namespace pgo::SolidDeformationModel;
 namespace
 {
 template<class VolumeMesh>
-ElementFieldStore makeVolumeMaterialField(
-  const VolumeMesh &volumeMesh, const char *meshName)
+ImportedMaterialData makeVolumeMaterialData(const VolumeMesh &volumeMesh)
 {
-  using Material = pgo::VolumetricMeshes::VolumetricMesh::Material;
-  std::unordered_map<const Material *, int> paletteIndices;
-  std::vector<int> elementToPalette;
-  elementToPalette.reserve(volumeMesh.getNumElements());
+  using VM = pgo::VolumetricMeshes::VolumetricMesh;
+  using Record = ImportedMaterialRecord;
+  std::vector<Record> materials;
+  materials.reserve(static_cast<std::size_t>(volumeMesh.getNumMaterials()));
 
-  const Material *firstMaterial = volumeMesh.getElementMaterial(0);
-  if (downcastENuMaterial(firstMaterial)) {
-    std::vector<std::shared_ptr<const SimulationMeshENuMaterial>> palette;
-    for (int element = 0; element < volumeMesh.getNumElements(); ++element) {
-      const Material *source = volumeMesh.getElementMaterial(element);
-      const auto *material = downcastENuMaterial(source);
-      if (!material)
-        throw std::invalid_argument(std::string(meshName) +
-          " mesh mixes volume material families at element " + std::to_string(element));
+  for (int materialIndex = 0; materialIndex < volumeMesh.getNumMaterials(); ++materialIndex) {
+    const VM::Material *source = volumeMesh.getMaterial(materialIndex);
+    Record record;
+    record.name = source->getName();
+    record.properties.emplace("density", source->getDensity());
 
-      auto [it, inserted] = paletteIndices.emplace(
-        source, static_cast<int>(palette.size()));
-      if (inserted)
-        palette.emplace_back(std::make_shared<const SimulationMeshENuMaterial>(
-          material->getE(), material->getNu()));
-      elementToPalette.push_back(it->second);
+    if (const auto *enu = downcastENuMaterial(source)) {
+      record.family = "enu";
+      record.properties.emplace("E", enu->getE());
+      record.properties.emplace("nu", enu->getNu());
     }
-    ElementFieldStore store;
-    store.add(ElementField<SimulationMeshENuMaterial>::fromPalette(
-      std::move(palette), std::move(elementToPalette)));
-    return store;
+    else if (auto *mr = downcastMooneyRivlinMaterial(const_cast<VM::Material *>(source))) {
+      record.family = "mooney_rivlin";
+      record.properties.emplace("mu01", mr->getmu01());
+      record.properties.emplace("mu10", mr->getmu10());
+      record.properties.emplace("v1", mr->getv1());
+    }
+    else if (auto *orthotropic = downcastOrthotropicMaterial(const_cast<VM::Material *>(source))) {
+      record.family = "orthotropic";
+      record.properties.emplace("E1", orthotropic->getE1());
+      record.properties.emplace("E2", orthotropic->getE2());
+      record.properties.emplace("E3", orthotropic->getE3());
+      record.properties.emplace("nu12", orthotropic->getNu12());
+      record.properties.emplace("nu23", orthotropic->getNu23());
+      record.properties.emplace("nu31", orthotropic->getNu31());
+      record.properties.emplace("G12", orthotropic->getG12());
+      record.properties.emplace("G23", orthotropic->getG23());
+      record.properties.emplace("G31", orthotropic->getG31());
+      std::vector<double> rotation(9);
+      orthotropic->getR(rotation.data());
+      record.properties.emplace("rotation", std::move(rotation));
+    }
+    else {
+      throw std::invalid_argument(
+        "Volume mesh contains an unsupported material type at index " +
+        std::to_string(materialIndex));
+    }
+    materials.emplace_back(std::move(record));
   }
 
-  if (!downcastMooneyRivlinMaterial(const_cast<Material *>(firstMaterial)))
-    throw std::invalid_argument(std::string(meshName) +
-      " mesh has an unsupported volume material at element 0");
-
-  std::vector<std::shared_ptr<const SimulationMeshMooneyRivlinMaterial>> palette;
-  for (int element = 0; element < volumeMesh.getNumElements(); ++element) {
-    const Material *source = volumeMesh.getElementMaterial(element);
-    auto *material = downcastMooneyRivlinMaterial(const_cast<Material *>(source));
-    if (!material)
-      throw std::invalid_argument(std::string(meshName) +
-        " mesh mixes volume material families at element " + std::to_string(element));
-
-    auto [it, inserted] = paletteIndices.emplace(
-      source, static_cast<int>(palette.size()));
-    if (inserted) {
-      try {
-        palette.emplace_back(std::make_shared<const SimulationMeshMooneyRivlinMaterial>(
-          material->getmu01(), material->getmu10(), material->getv1()));
-      }
-      catch (const std::invalid_argument &error) {
-        throw std::invalid_argument(std::string(meshName) +
-          " mesh has invalid Mooney-Rivlin material at element " +
-          std::to_string(element) + ": " + error.what());
-      }
-    }
-    elementToPalette.push_back(it->second);
+  std::vector<ImportedElementSet> sets;
+  sets.reserve(static_cast<std::size_t>(volumeMesh.getNumSets()));
+  for (int setIndex = 0; setIndex < volumeMesh.getNumSets(); ++setIndex) {
+    const auto &source = volumeMesh.getSet(setIndex);
+    sets.push_back(ImportedElementSet{
+      source.getName(),
+      std::vector<int>(source.getElements().begin(), source.getElements().end())});
   }
-  ElementFieldStore store;
-  store.add(ElementField<SimulationMeshMooneyRivlinMaterial>::fromPalette(
-    std::move(palette), std::move(elementToPalette)));
-  return store;
-}
+
+  std::vector<ImportedMaterialRegion> regions;
+  regions.reserve(static_cast<std::size_t>(volumeMesh.getNumRegions()));
+  for (int regionIndex = 0; regionIndex < volumeMesh.getNumRegions(); ++regionIndex) {
+    const auto &source = volumeMesh.getRegion(regionIndex);
+    regions.push_back(ImportedMaterialRegion{
+      source.getMaterialIndex(), source.getSetIndex()});
+  }
+
+  // Programmatically-created volume meshes may expose direct element
+  // material pointers without explicit regions. Preserve that assignment as
+  // material-index element sets instead of dropping it during import.
+  if (regions.empty()) {
+    for (int materialIndex = 0; materialIndex < volumeMesh.getNumMaterials(); ++materialIndex) {
+      const auto *material = volumeMesh.getMaterial(materialIndex);
+      std::vector<int> elements;
+      for (int element = 0; element < volumeMesh.getNumElements(); ++element)
+        if (volumeMesh.getElementMaterial(element) == material)
+          elements.push_back(element);
+      if (elements.empty())
+        continue;
+      const int setIndex = static_cast<int>(sets.size());
+      sets.push_back(ImportedElementSet{
+        "material_" + std::to_string(materialIndex), std::move(elements)});
+      regions.push_back(ImportedMaterialRegion{materialIndex, setIndex});
+    }
+  }
+
+  return ImportedMaterialData(
+    volumeMesh.getNumElements(), std::move(materials),
+    std::move(sets), std::move(regions));
 }
 
-std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadTetMesh(
+}
+
+std::unique_ptr<SimulationAsset> pgo::SolidDeformationModel::loadTetMesh(
   const VolumetricMeshes::TetMesh &tetMesh)
 {
   std::vector<double> vertices;
@@ -101,13 +126,15 @@ std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadTetMesh(
       elementVertices.emplace_back(tetMesh.getVertexIndex(ei, j));
   }
 
-  return std::make_unique<SimulationMesh>(
+  auto mesh = std::make_shared<SimulationMesh>(
     tetMesh.getNumVertices(), vertices,
     tetMesh.getNumElements(), 4, elementVertices,
-    makeVolumeMaterialField(tetMesh, "tet"), SimulationMeshType::TET);
+    SimulationMeshType::TET);
+  return std::make_unique<SimulationAsset>(
+    std::move(mesh), makeVolumeMaterialData(tetMesh));
 }
 
-std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadCubicMesh(
+std::unique_ptr<SimulationAsset> pgo::SolidDeformationModel::loadCubicMesh(
   const VolumetricMeshes::CubicMesh &cubicMesh)
 {
   std::vector<double> vertices;
@@ -126,8 +153,10 @@ std::unique_ptr<SimulationMesh> pgo::SolidDeformationModel::loadCubicMesh(
       elementVertices.emplace_back(cubicMesh.getVertexIndex(ei, j));
   }
 
-  return std::make_unique<SimulationMesh>(
+  auto mesh = std::make_shared<SimulationMesh>(
     cubicMesh.getNumVertices(), vertices,
     cubicMesh.getNumElements(), 8, elementVertices,
-    makeVolumeMaterialField(cubicMesh, "cubic"), SimulationMeshType::CUBIC);
+    SimulationMeshType::CUBIC);
+  return std::make_unique<SimulationAsset>(
+    std::move(mesh), makeVolumeMaterialData(cubicMesh));
 }

@@ -72,15 +72,15 @@ public:
   int getNumParameters() const override { return 5; };
 };
 
-class KoiterStVKConfig final : public ElasticModelConfig
+class KoiterStVKDefinition final : public ElasticModelDefinition
 {
 public:
   std::string_view id() const override { return "koiter_stvk"; }
-  std::span<const std::string_view> parameterChannelNames() const override;
+  MaterialChannelSchema fixedChannelSchema() const override { return {}; }
+  MaterialChannelSchema optimizableChannelSchema() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
+  std::unique_ptr<ElasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
 private:
-  std::unique_ptr<ElasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

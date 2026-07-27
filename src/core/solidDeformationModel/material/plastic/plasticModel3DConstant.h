@@ -44,15 +44,15 @@ protected:
   double detFp = 0.0;
 };
 
-class VolumetricPlasticity0Config final : public PlasticModelConfig
+class VolumetricPlasticity0Definition final : public PlasticModelDefinition
 {
 public:
   std::string_view id() const override { return "volumetric_dof0"; }
-  std::span<const std::string_view> parameterChannelNames() const override;
+  MaterialChannelSchema fixedChannelSchema() const override { return {}; }
+  MaterialChannelSchema optimizableChannelSchema() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
+  std::unique_ptr<PlasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
 private:
-  std::unique_ptr<PlasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

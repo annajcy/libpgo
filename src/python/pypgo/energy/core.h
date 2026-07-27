@@ -4,7 +4,8 @@
 
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
-#include "material/core/materialParameterBuilder.h"
+#include "material/core/materialAssignment.h"
+#include "material/core/materialParameterDataProjection.h"
 #include "../fem/elastic/core.h"
 #include "../fem/plastic/core.h"
 #include "energy/energySet.h"
@@ -15,7 +16,6 @@
 #include <nanobind/ndarray.h>
 
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,137 +25,390 @@
 // shared PyPotentialEnergy protocol.  Generic energies use PyOwnedPotentialEnergy
 // (declared in peer.h); these are the typed peers.
 
-namespace pgo { class PyFormulation; }
+namespace pgo
+{
+class PyFormulation;
+}
 
-class PyParameterDofLayout
+class PyParameterLayout
 {
 public:
-  using Creator = std::function<std::shared_ptr<const pgo::SolidDeformationModel::ParameterDofLayout>(int, int)>;
-  explicit PyParameterDofLayout(Creator creator): creator_(std::move(creator)) {}
-  std::shared_ptr<const pgo::SolidDeformationModel::ParameterDofLayout> create(int elements, int localDofs) const
-  { return creator_(elements, localDofs); }
+  explicit PyParameterLayout(
+    std::shared_ptr<const pgo::SolidDeformationModel::ParameterLayout> layout):
+    layout_(std::move(layout))
+  {
+  }
+  const std::shared_ptr<const pgo::SolidDeformationModel::ParameterLayout> &
+  layout() const { return layout_; }
+  int numElements() const { return layout_->numElements(); }
+  int numLocalParameters() const { return layout_->numLocalParameters(); }
+  int numGlobalParameters() const { return layout_->numGlobalParameters(); }
+  int numValueRows() const { return layout_->numValueRows(); }
 
 private:
-  Creator creator_;
+  std::shared_ptr<const pgo::SolidDeformationModel::ParameterLayout> layout_;
 };
 
-class PyMaterialChannelMapping
+class PyMaterialEvaluator
 {
 public:
-  using Creator = std::function<std::shared_ptr<const pgo::SolidDeformationModel::MaterialChannelMapping>(int)>;
-  explicit PyMaterialChannelMapping(Creator creator): creator_(std::move(creator)) {}
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialChannelMapping> create(int channels) const
-  { return creator_(channels); }
+  explicit PyMaterialEvaluator(
+    std::shared_ptr<const pgo::SolidDeformationModel::MaterialEvaluator> evaluator):
+    evaluator_(std::move(evaluator))
+  {
+  }
+  const std::shared_ptr<const pgo::SolidDeformationModel::MaterialEvaluator> &
+  evaluator() const { return evaluator_; }
+  int numParameters() const { return evaluator_->numParameters(); }
+  int numChannels() const { return evaluator_->numChannels(); }
 
 private:
-  Creator creator_;
+  std::shared_ptr<const pgo::SolidDeformationModel::MaterialEvaluator> evaluator_;
 };
 
-class PyMaterialParameterRef
+class PyDifferentiableMaterialEvaluator : public PyMaterialEvaluator
 {
 public:
-  explicit PyMaterialParameterRef(pgo::SolidDeformationModel::MaterialParameterRef ref):
+  explicit PyDifferentiableMaterialEvaluator(
+    std::shared_ptr<
+      const pgo::SolidDeformationModel::DifferentiableMaterialEvaluator> evaluator):
+    PyMaterialEvaluator(evaluator),
+    evaluator_(std::move(evaluator))
+  {
+  }
+
+  const std::shared_ptr<
+    const pgo::SolidDeformationModel::DifferentiableMaterialEvaluator> &
+  differentiableEvaluator() const { return evaluator_; }
+
+private:
+  std::shared_ptr<
+    const pgo::SolidDeformationModel::DifferentiableMaterialEvaluator> evaluator_;
+};
+
+class PyOptimizableParameterRef
+{
+public:
+  explicit PyOptimizableParameterRef(pgo::SolidDeformationModel::OptimizableParameterRef ref):
     field_(ref.fieldHandle()), ref_(std::move(ref)) {}
 
   std::string name() const { return std::string(ref_.name()); }
-  int channel() const { return ref_.channel(); }
-  const pgo::SolidDeformationModel::MaterialParameterRef &ref() const { return ref_; }
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterField> fieldHandle() const { return field_; }
+  int parameterIndex() const { return ref_.parameterIndex(); }
+  const pgo::SolidDeformationModel::OptimizableParameterRef &ref() const { return ref_; }
+  std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField> fieldHandle() const { return field_; }
 
 private:
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterField> field_;
-  pgo::SolidDeformationModel::MaterialParameterRef ref_;
+  std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField> field_;
+  pgo::SolidDeformationModel::OptimizableParameterRef ref_;
 };
 
-class PyMaterialParameterField
+class PyOptimizableMaterialChannelRef
 {
 public:
-  explicit PyMaterialParameterField(
-    std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterField> field):
+  explicit PyOptimizableMaterialChannelRef(
+    pgo::SolidDeformationModel::OptimizableMaterialChannelRef ref):
+    field_(ref.fieldHandle()), ref_(std::move(ref)) {}
+
+  std::string name() const { return std::string(ref_.name()); }
+  int channelIndex() const { return ref_.channelIndex(); }
+  std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField>
+  fieldHandle() const { return field_; }
+
+private:
+  std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField>
+    field_;
+  pgo::SolidDeformationModel::OptimizableMaterialChannelRef ref_;
+};
+
+class PyOptimizableParameterField
+{
+public:
+  explicit PyOptimizableParameterField(
+    std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField> field):
     field_(std::move(field)) {}
 
-  const pgo::SolidDeformationModel::MaterialParameterField &field() const
+  const pgo::SolidDeformationModel::OptimizableParameterField &field() const
   {
     return *field_;
   }
-  int numChannels() const { return field().channelMapping().numChannels(); }
-  int numLocalDofs() const { return field().dofLayout().numLocalDofs(); }
-  int numGlobalDofs() const { return field().dofLayout().numGlobalDofs(); }
-  int numValueRows() const { return field().dofLayout().numValueRows(); }
-  std::vector<std::string> channelNames() const
+  int numMaterialChannels() const { return field().numMaterialChannels(); }
+  int numLocalParameters() const { return field().layout().numLocalParameters(); }
+  int numGlobalParameters() const { return field().layout().numGlobalParameters(); }
+  int numValueRows() const { return field().layout().numValueRows(); }
+  std::vector<std::string> parameterNames() const
   {
-    const auto names = field().channelNames();
+    const auto names = field().parameterSchema().parameterNames();
     return std::vector<std::string>(names.begin(), names.end());
   }
-  std::shared_ptr<PyMaterialParameterRef> parameter(const std::string &name) const
+  std::shared_ptr<PyOptimizableParameterRef> parameter(const std::string &name) const
   {
-    return std::make_shared<PyMaterialParameterRef>(
+    return std::make_shared<PyOptimizableParameterRef>(
       field().parameter(name));
   }
-
-private:
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterField> field_;
-};
-
-class PyMaterialParameterSpace
-{
-public:
-  explicit PyMaterialParameterSpace(
-    std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterSpace> space):
-    space_(std::move(space)),
-    elastic_(space_->elasticHandle()), plastic_(space_->plasticHandle()) {}
-
-  std::shared_ptr<PyMaterialParameterField> elastic() const
+  std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField> fieldHandle() const
   {
-    if (!elasticWrapper_) elasticWrapper_ = std::make_shared<PyMaterialParameterField>(elastic_);
-    return elasticWrapper_;
+    return field_;
   }
-  std::shared_ptr<PyMaterialParameterField> plastic() const
+  std::shared_ptr<PyParameterLayout> layout() const
   {
-    if (!plasticWrapper_) plasticWrapper_ = std::make_shared<PyMaterialParameterField>(plastic_);
-    return plasticWrapper_;
+    if (!layout_)
+      layout_ = std::make_shared<PyParameterLayout>(field().layoutHandle());
+    return layout_;
   }
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterSpace> space() const
+  std::shared_ptr<PyDifferentiableMaterialEvaluator> evaluator() const
   {
-    return space_;
+    if (!evaluator_)
+      evaluator_ = std::make_shared<PyDifferentiableMaterialEvaluator>(
+        field().evaluatorHandle());
+    return evaluator_;
   }
 
 private:
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterSpace> space_;
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterField> elastic_;
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterField> plastic_;
-  mutable std::shared_ptr<PyMaterialParameterField> elasticWrapper_;
-  mutable std::shared_ptr<PyMaterialParameterField> plasticWrapper_;
+  std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField> field_;
+  mutable std::shared_ptr<PyParameterLayout> layout_;
+  mutable std::shared_ptr<PyDifferentiableMaterialEvaluator> evaluator_;
 };
 
-class PyMaterialParameters
+class PyOptimizableParameters
 {
 public:
-  explicit PyMaterialParameters(
-    std::shared_ptr<pgo::SolidDeformationModel::MaterialParameters> parameters):
+  explicit PyOptimizableParameters(
+    std::shared_ptr<pgo::SolidDeformationModel::OptimizableParameters> parameters):
     parameters_(std::move(parameters)) {}
 
-  std::shared_ptr<PyMaterialParameterSpace> space() const
+  std::shared_ptr<PyOptimizableParameterField> elasticField() const
   {
-    if (!spaceWrapper_) spaceWrapper_ = std::make_shared<PyMaterialParameterSpace>(parameters_->space());
-    return spaceWrapper_;
+    if (!elasticFieldWrapper_)
+      elasticFieldWrapper_ = std::make_shared<PyOptimizableParameterField>(
+        parameters_->elasticFieldHandle());
+    return elasticFieldWrapper_;
+  }
+  std::shared_ptr<PyOptimizableParameterField> plasticField() const
+  {
+    if (!plasticFieldWrapper_)
+      plasticFieldWrapper_ = std::make_shared<PyOptimizableParameterField>(
+        parameters_->plasticFieldHandle());
+    return plasticFieldWrapper_;
   }
   nb::ndarray<nb::numpy, double> elasticValues() const;
   nb::ndarray<nb::numpy, double> plasticValues() const;
   void setElasticValues(nb::ndarray<nb::numpy, const double> values);
   void setPlasticValues(nb::ndarray<nb::numpy, const double> values);
-  bool sameSpace(const PyMaterialParameters &other) const
+  void setValues(
+    nb::ndarray<nb::numpy, const double> elasticValues,
+    nb::ndarray<nb::numpy, const double> plasticValues);
+  bool sameFields(const PyOptimizableParameters &other) const
   {
-    return parameters_->space().get() == other.parameters_->space().get();
+    return parameters_->elasticField().sharesStateWith(
+      other.parameters_->elasticField()) &&
+      parameters_->plasticField().sharesStateWith(
+        other.parameters_->plasticField());
   }
-  std::shared_ptr<pgo::SolidDeformationModel::MaterialParameters> parameters() const
+  std::shared_ptr<pgo::SolidDeformationModel::OptimizableParameters> parameters() const
   {
     return parameters_;
   }
 
 private:
-  std::shared_ptr<pgo::SolidDeformationModel::MaterialParameters> parameters_;
-  mutable std::shared_ptr<PyMaterialParameterSpace> spaceWrapper_;
+  std::shared_ptr<pgo::SolidDeformationModel::OptimizableParameters> parameters_;
+  mutable std::shared_ptr<PyOptimizableParameterField> elasticFieldWrapper_;
+  mutable std::shared_ptr<PyOptimizableParameterField> plasticFieldWrapper_;
+};
+
+class PyFixedParameterField
+{
+public:
+  explicit PyFixedParameterField(
+    std::shared_ptr<const pgo::SolidDeformationModel::FixedParameterField> field):
+    field_(std::move(field)) {}
+  std::vector<std::string> parameterNames() const
+  {
+    const auto names = field_->parameterSchema().parameterNames();
+    return std::vector<std::string>(names.begin(), names.end());
+  }
+  int numElements() const { return field_->numElements(); }
+  int numLocalParameters() const { return field_->layout().numLocalParameters(); }
+  int numGlobalParameters() const { return field_->layout().numGlobalParameters(); }
+  int numValueRows() const { return field_->layout().numValueRows(); }
+  int numMaterialChannels() const { return field_->numMaterialChannels(); }
+  std::shared_ptr<const pgo::SolidDeformationModel::FixedParameterField> field() const { return field_; }
+  std::shared_ptr<PyParameterLayout> layout() const
+  {
+    if (!layout_)
+      layout_ = std::make_shared<PyParameterLayout>(field_->layoutHandle());
+    return layout_;
+  }
+  std::shared_ptr<PyMaterialEvaluator> evaluator() const
+  {
+    if (!evaluator_)
+      evaluator_ = std::make_shared<PyMaterialEvaluator>(
+        field_->evaluatorHandle());
+    return evaluator_;
+  }
+
+private:
+  std::shared_ptr<const pgo::SolidDeformationModel::FixedParameterField> field_;
+  mutable std::shared_ptr<PyParameterLayout> layout_;
+  mutable std::shared_ptr<PyMaterialEvaluator> evaluator_;
+};
+
+class PyMaterialAssignment
+{
+public:
+  explicit PyMaterialAssignment(
+    std::shared_ptr<const pgo::SolidDeformationModel::MaterialAssignment> assignment):
+    assignment_(std::move(assignment)) {}
+  std::shared_ptr<const pgo::SolidDeformationModel::MaterialAssignment> assignment() const { return assignment_; }
+  std::shared_ptr<PyOptimizableParameters> optimizableParameters() const
+  {
+    return std::make_shared<PyOptimizableParameters>(assignment_->optimizableParameters());
+  }
+
+private:
+  std::shared_ptr<const pgo::SolidDeformationModel::MaterialAssignment> assignment_;
+};
+
+class PyElasticParameterization
+{
+public:
+  explicit PyElasticParameterization(
+    std::shared_ptr<const pgo::SolidDeformationModel::ElasticParameterization>
+      parameterization):
+    parameterization_(std::move(parameterization)) {}
+
+  std::shared_ptr<pgo::PyElasticModelDefinition> definition() const
+  {
+    return std::make_shared<pgo::PyElasticModelDefinition>(
+      parameterization_->definition());
+  }
+  std::shared_ptr<PyFixedParameterField> fixedField() const
+  {
+    return std::make_shared<PyFixedParameterField>(
+      parameterization_->fixedField());
+  }
+  std::shared_ptr<PyOptimizableParameterField> optimizableField() const
+  {
+    return std::make_shared<PyOptimizableParameterField>(
+      parameterization_->optimizableField());
+  }
+  std::vector<std::string> fixedChannelNames() const
+  {
+    const auto names = parameterization_->fixedChannelSchema().channelNames();
+    return std::vector<std::string>(names.begin(), names.end());
+  }
+  std::vector<std::string> optimizableChannelNames() const
+  {
+    const auto names = parameterization_->optimizableChannelSchema().channelNames();
+    return std::vector<std::string>(names.begin(), names.end());
+  }
+  std::shared_ptr<PyOptimizableMaterialChannelRef> optimizableChannel(
+    const std::string &name) const
+  {
+    return std::make_shared<PyOptimizableMaterialChannelRef>(
+      parameterization_->optimizableChannel(name));
+  }
+  int numElements() const { return parameterization_->fixedField()->numElements(); }
+  std::shared_ptr<const pgo::SolidDeformationModel::ElasticParameterization>
+  parameterization() const { return parameterization_; }
+
+private:
+  std::shared_ptr<const pgo::SolidDeformationModel::ElasticParameterization>
+    parameterization_;
+};
+
+class PyPlasticParameterization
+{
+public:
+  explicit PyPlasticParameterization(
+    std::shared_ptr<const pgo::SolidDeformationModel::PlasticParameterization>
+      parameterization,
+    int dofs):
+    parameterization_(std::move(parameterization)), dofs_(dofs) {}
+
+  std::shared_ptr<pgo::PyPlasticModelDefinition> definition() const
+  {
+    return std::make_shared<pgo::PyPlasticModelDefinition>(
+      parameterization_->definition(), dofs_);
+  }
+  std::shared_ptr<PyFixedParameterField> fixedField() const
+  {
+    return std::make_shared<PyFixedParameterField>(
+      parameterization_->fixedField());
+  }
+  std::shared_ptr<PyOptimizableParameterField> optimizableField() const
+  {
+    return std::make_shared<PyOptimizableParameterField>(
+      parameterization_->optimizableField());
+  }
+  std::vector<std::string> fixedChannelNames() const
+  {
+    const auto names = parameterization_->fixedChannelSchema().channelNames();
+    return std::vector<std::string>(names.begin(), names.end());
+  }
+  std::vector<std::string> optimizableChannelNames() const
+  {
+    const auto names = parameterization_->optimizableChannelSchema().channelNames();
+    return std::vector<std::string>(names.begin(), names.end());
+  }
+  std::shared_ptr<PyOptimizableMaterialChannelRef> optimizableChannel(
+    const std::string &name) const
+  {
+    return std::make_shared<PyOptimizableMaterialChannelRef>(
+      parameterization_->optimizableChannel(name));
+  }
+  int numElements() const { return parameterization_->fixedField()->numElements(); }
+  std::shared_ptr<const pgo::SolidDeformationModel::PlasticParameterization>
+  parameterization() const { return parameterization_; }
+  int dofs() const { return dofs_; }
+
+private:
+  std::shared_ptr<const pgo::SolidDeformationModel::PlasticParameterization>
+    parameterization_;
+  int dofs_;
+};
+
+class PyMaterialParameterization
+{
+public:
+  PyMaterialParameterization(
+    std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterization>
+      parameterization,
+    std::shared_ptr<PyElasticParameterization> elastic,
+    std::shared_ptr<PyPlasticParameterization> plastic):
+    parameterization_(std::move(parameterization)),
+    elastic_(std::move(elastic)), plastic_(std::move(plastic)) {}
+  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterization> parameterization() const
+  {
+    return parameterization_;
+  }
+  std::shared_ptr<PyElasticParameterization> elastic() const { return elastic_; }
+  std::shared_ptr<PyPlasticParameterization> plastic() const { return plastic_; }
+  int numElements() const { return parameterization_->numElements(); }
+
+private:
+  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterization> parameterization_;
+  std::shared_ptr<PyElasticParameterization> elastic_;
+  std::shared_ptr<PyPlasticParameterization> plastic_;
+};
+
+class PyMaterialParameterData
+{
+public:
+  PyMaterialParameterData() = default;
+  explicit PyMaterialParameterData(
+    std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterData> data):
+    data_(std::move(data)) {}
+  const std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterData> &data() const
+  {
+    return data_;
+  }
+  nb::ndarray<nb::numpy, double> elasticFixedValues() const;
+  nb::ndarray<nb::numpy, double> elasticInitialOptimizableValues() const;
+  nb::ndarray<nb::numpy, double> plasticFixedValues() const;
+  nb::ndarray<nb::numpy, double> plasticInitialOptimizableValues() const;
+
+private:
+  std::shared_ptr<const pgo::SolidDeformationModel::MaterialParameterData> data_;
 };
 
 // Weighted sum of energy terms.  Inherits PyPotentialEnergy directly so
@@ -163,8 +416,7 @@ private:
 class PyEnergySet final : public PyPotentialEnergy
 {
 public:
-  explicit PyEnergySet(std::shared_ptr<pgo::NonlinearOptimization::EnergySet> set)
-    : set_(std::move(set))
+  explicit PyEnergySet(std::shared_ptr<pgo::NonlinearOptimization::EnergySet> set): set_(std::move(set))
   {
   }
 
@@ -198,8 +450,7 @@ public:
 class PyDeformationEnergy : public PyPotentialEnergy
 {
 public:
-  explicit PyDeformationEnergy(std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> energy)
-    : energy_(std::move(energy))
+  explicit PyDeformationEnergy(std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> energy): energy_(std::move(energy))
   {
   }
 
@@ -213,20 +464,20 @@ public:
   int numPlasticParams() const { return energy_->assembler().getNumPlasticParams(); }
   int numElasticDofs() const { return energy_->assembler().getNumElasticGlobalParams(); }
   int numPlasticDofs() const { return energy_->assembler().getNumPlasticGlobalParams(); }
-  std::shared_ptr<pgo::PyElasticModelConfig> elasticModel() const
+  std::shared_ptr<pgo::PyElasticModelDefinition> elasticDefinition() const
   {
-    return std::make_shared<pgo::PyElasticModelConfig>(
-      energy_->assembler().getDeformationModelManager().elasticModelConfig());
+    return std::make_shared<pgo::PyElasticModelDefinition>(
+      energy_->assembler().getDeformationModelManager().elasticModelDefinition());
   }
-  std::shared_ptr<pgo::PyPlasticModelConfig> plasticModel() const
+  std::shared_ptr<pgo::PyPlasticModelDefinition> plasticDefinition() const
   {
-    return std::make_shared<pgo::PyPlasticModelConfig>(
-      energy_->assembler().getDeformationModelManager().plasticModelConfig(),
+    return std::make_shared<pgo::PyPlasticModelDefinition>(
+      energy_->assembler().getDeformationModelManager().plasticModelDefinition(),
       energy_->assembler().getNumPlasticParams());
   }
-  std::shared_ptr<PyMaterialParameters> parameters() const
+  std::shared_ptr<PyOptimizableParameters> optimizableParameters() const
   {
-    return std::make_shared<PyMaterialParameters>(energy_->materialParameters());
+    return std::make_shared<PyOptimizableParameters>(energy_->optimizableParameters());
   }
   nb::ndarray<nb::numpy, double> dE_de(nb::ndarray<nb::numpy, const double> displacement) const;
   nb::ndarray<nb::numpy, double> elementVonMisesStresses(nb::ndarray<nb::numpy, const double> displacement) const;
@@ -290,38 +541,70 @@ std::shared_ptr<PyVertexAttachmentEnergy> createVertexAttachment(
 
 std::shared_ptr<PyEnergySet> createEnergySet(nb::list terms);
 
-std::shared_ptr<PyMaterialParameterSpace> createMaterialParameterSpace(
-  std::shared_ptr<pgo::PySimulationMesh> meshCore,
-  const pgo::PyElasticModelConfig &elasticModel,
-  const PyParameterDofLayout &elasticLayout,
-  const PyMaterialChannelMapping &elasticMapping,
-  const pgo::PyPlasticModelConfig &plasticModel,
-  const PyParameterDofLayout &plasticLayout,
-  const PyMaterialChannelMapping &plasticMapping);
+std::shared_ptr<PyOptimizableParameterField> createOptimizableParameterField(
+  const std::vector<std::string> &parameterNames,
+  const PyParameterLayout &layout,
+  const PyDifferentiableMaterialEvaluator &evaluator);
 
-std::shared_ptr<PyMaterialParameters> createDefaultMaterialParameters(
-  std::shared_ptr<pgo::PySimulationMesh> meshCore,
-  const pgo::PyElasticModelConfig &elasticModel,
-  const pgo::PyPlasticModelConfig &plasticModel);
+std::shared_ptr<PyFixedParameterField> createFixedParameterField(
+  const std::vector<std::string> &parameterNames,
+  const PyParameterLayout &layout,
+  const PyMaterialEvaluator &evaluator);
 
-std::shared_ptr<PyMaterialParameters> createMaterialParameters(
-  std::shared_ptr<PyMaterialParameterSpace> space,
-  nb::ndarray<nb::numpy, const double> elasticValues,
-  nb::ndarray<nb::numpy, const double> plasticValues);
+std::shared_ptr<PyElasticParameterization> createElasticParameterization(
+  const pgo::PyElasticModelDefinition &elasticDefinition,
+  const PyFixedParameterField &elasticFixed,
+  const PyOptimizableParameterField &elasticOptimizable);
 
-std::shared_ptr<PyDeformationEnergy> createDeformationEnergyWithParameters(
-  std::shared_ptr<pgo::PySimulationMesh> meshCore,
-  const pgo::PyElasticModelConfig &elasticModel,
-  const pgo::PyPlasticModelConfig &plasticModel,
-  const PyMaterialParameters &materialParameters,
+std::shared_ptr<PyPlasticParameterization> createPlasticParameterization(
+  const pgo::PyPlasticModelDefinition &plasticDefinition,
+  const PyFixedParameterField &plasticFixed,
+  const PyOptimizableParameterField &plasticOptimizable);
+
+std::shared_ptr<PyMaterialParameterization> createMaterialParameterization(
+  const PyElasticParameterization &elastic,
+  const PyPlasticParameterization &plastic);
+
+std::shared_ptr<PyMaterialParameterData> projectMaterialParameterData(
+  std::shared_ptr<pgo::PySimulationAsset> asset,
+  const PyMaterialParameterization &parameterization);
+std::shared_ptr<PyMaterialParameterData> createMaterialParameterData(
+  nb::ndarray<nb::numpy, const double> elasticFixedValues,
+  nb::ndarray<nb::numpy, const double> elasticInitialOptimizableValues,
+  nb::ndarray<nb::numpy, const double> plasticFixedValues,
+  nb::ndarray<nb::numpy, const double> plasticInitialOptimizableValues);
+std::shared_ptr<PyMaterialParameterData> projectMaterialParameterDataFromImportedData(
+  const pgo::PyImportedMaterialData &source,
+  const PyMaterialParameterization &parameterization);
+
+std::vector<double> resolveMaterialInput(
+  const pgo::PyImportedMaterialData &source,
+  const std::string &name);
+nb::ndarray<nb::numpy, double> packMaterialElementInputs(
+  const PyParameterLayout &layout,
+  nb::ndarray<nb::numpy, const double> elementLocalValues);
+void validateMaterialParameterData(
+  const PyMaterialParameterization &parameterization,
+  const PyMaterialParameterData &data);
+
+std::shared_ptr<PyMaterialAssignment> createMaterialAssignmentFromParameterization(
+  std::shared_ptr<pgo::PySimulationAsset> asset,
+  const PyMaterialParameterization &parameterization,
+  const PyMaterialParameterData &data);
+
+std::shared_ptr<PyDeformationEnergy> createDeformationEnergy(
+  const PyMaterialAssignment &assignment,
   const pgo::PyFormulation &formulation,
   nb::object elementWeights,
   bool projectHessianPSD,
   bool enableMaterialMaxStep);
 
-std::shared_ptr<PyParameterDofLayout> makeElementwiseParameterDofLayout();
-std::shared_ptr<PyParameterDofLayout> makeConstantParameterDofLayout();
-std::shared_ptr<PyMaterialChannelMapping> makeIdentityMaterialChannelMapping();
+std::shared_ptr<PyParameterLayout> makeElementwiseParameterLayout(
+  int numElements, int numLocalParameters);
+std::shared_ptr<PyParameterLayout> makeConstantParameterLayout(
+  int numElements, int numLocalParameters);
+std::shared_ptr<PyDifferentiableMaterialEvaluator>
+makeIdentityMaterialEvaluator(int numParameters);
 
 std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(
   std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,

@@ -62,15 +62,15 @@ inline EigenSupport::M3d PlasticModel3D3DOF::computeR(std::span<const double>) c
   return RT;
 }
 
-class VolumetricPlasticity3Config final : public PlasticModelConfig
+class VolumetricPlasticity3Definition final : public PlasticModelDefinition
 {
 public:
   std::string_view id() const override { return "volumetric_dof3"; }
-  std::span<const std::string_view> parameterChannelNames() const override;
+  MaterialChannelSchema fixedChannelSchema() const override { return {}; }
+  MaterialChannelSchema optimizableChannelSchema() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::FullFrame; }
-  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
+  std::unique_ptr<PlasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
 private:
-  std::unique_ptr<PlasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

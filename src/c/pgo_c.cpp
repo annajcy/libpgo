@@ -18,7 +18,7 @@
 #include "initPredicates.h"
 #include "EigenSupport.h"
 #include "simulation/simulationMesh.h"
-#include "energy/deformationEnergyBuilder.h"
+#include "energy/deformationModelEnergy.h"
 #include "formulations/formulation/formulations.h"
 #include "deformation/deformationModelManager.h"
 #include "basicIO.h"
@@ -26,6 +26,7 @@
 #include "energy/deformationModelEnergy.h"
 #include "material/plastic/plasticModel.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
+#include "material/core/materialParameterDataProjection.h"
 #include "multiVertexPullingSoftConstraints.h"
 #include "backwardEuler/backwardEulerStepper.h"
 #include "dynamicStepper.h"
@@ -636,12 +637,12 @@ int pgo_run_sim_from_config(const char *configFileName)
 
   // material
   std::string material = jconfig.getString("elastic-material");
-  std::shared_ptr<const pgo::SolidDeformationModel::ElasticModelConfig> elasticConfig;
+  std::shared_ptr<const pgo::SolidDeformationModel::ElasticModelDefinition> elasticDefinition;
   if (material == "stable-neo") {
-    elasticConfig = std::make_shared<pgo::SolidDeformationModel::StableNeoConfig>();
+    elasticDefinition = std::make_shared<pgo::SolidDeformationModel::StableNeoDefinition>();
   }
   else if (material == "stvk-vol") {
-    elasticConfig = std::make_shared<pgo::SolidDeformationModel::StVKVolumeConfig>();
+    elasticDefinition = std::make_shared<pgo::SolidDeformationModel::StVKVolumeDefinition>();
   }
   else {
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported elastic material: {}", material);
@@ -681,26 +682,76 @@ int pgo_run_sim_from_config(const char *configFileName)
   InterpolationCoordinates::BarycentricCoordinates bc(surfaceMesh.numVertices(), surfaceRestPositions.data(), &tetMesh);
   ES::SpMatD W = bc.generateInterpolationMatrix();
 
-  std::shared_ptr<const SolidDeformationModel::SimulationMesh> simMesh(
-    SolidDeformationModel::loadTetMesh(tetMesh).release());
+  std::unique_ptr<SolidDeformationModel::SimulationAsset> loadedAsset =
+    SolidDeformationModel::loadTetMesh(tetMesh);
+  std::shared_ptr<const SolidDeformationModel::SimulationAsset> asset(loadedAsset.release());
+  std::shared_ptr<const SolidDeformationModel::SimulationMesh> simMesh = asset->mesh();
 
   int n = simMesh->getNumVertices();
   int n3 = n * 3;
 
   // Build deformation energy.
   std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy;
+  auto plastic = std::make_shared<SolidDeformationModel::VolumetricPlasticity6Definition>();
+  const int nele = simMesh->getNumElements();
+  const auto elasticFixedChannels = elasticDefinition->fixedChannelSchema();
+  std::vector<std::string> elasticFixedNames;
+  elasticFixedNames.reserve(elasticFixedChannels.channelNames().size());
+  for (const auto name : elasticFixedChannels.channelNames())
+    elasticFixedNames.emplace_back(name);
+  auto elasticFixed = std::make_shared<const SolidDeformationModel::FixedParameterField>(
+    SolidDeformationModel::ParameterSchema(std::move(elasticFixedNames)),
+    std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(
+      nele, elasticFixedChannels.numChannels()),
+    std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(
+      elasticFixedChannels.numChannels()));
+  auto plasticFixed = std::make_shared<const SolidDeformationModel::FixedParameterField>(
+    SolidDeformationModel::ParameterSchema{},
+    std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 0),
+    std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(0));
+  auto elasticOpt = std::make_shared<const SolidDeformationModel::OptimizableParameterField>(
+    SolidDeformationModel::ParameterSchema{},
+    std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 0),
+    std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(0));
+  auto plasticOpt = std::make_shared<const SolidDeformationModel::OptimizableParameterField>(
+    SolidDeformationModel::ParameterSchema(
+      {"Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz"}),
+    std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 6),
+    std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(6));
+  auto projectionParameterization = SolidDeformationModel::MaterialParameterization(
+    SolidDeformationModel::ElasticParameterization(
+      elasticDefinition, elasticFixed, elasticOpt),
+    SolidDeformationModel::PlasticParameterization(
+      plastic, plasticFixed,
+      std::make_shared<const SolidDeformationModel::OptimizableParameterField>(
+        SolidDeformationModel::ParameterSchema{},
+        std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 0),
+        std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(0))));
+  auto data = SolidDeformationModel::NamedChannelMaterialParameterDataProjection{}.project(
+    asset->materialData(), projectionParameterization);
+  data.plastic.initialOptimizableValues = ES::VXd::Zero(nele * 6);
+  for (int element = 0; element < nele; ++element)
+    data.plastic.initialOptimizableValues.segment<6>(element * 6)
+      << 1, 0, 0, 1, 0, 1;
+  auto parameterization = std::make_shared<const SolidDeformationModel::MaterialParameterization>(
+    SolidDeformationModel::ElasticParameterization(
+      elasticDefinition, std::move(elasticFixed), std::move(elasticOpt)),
+    SolidDeformationModel::PlasticParameterization(
+      plastic, std::move(plasticFixed), std::move(plasticOpt)));
+  auto parameterData = std::make_shared<const SolidDeformationModel::MaterialParameterData>(
+    std::move(data));
+  auto assignment = std::make_shared<SolidDeformationModel::MaterialAssignment>(
+    simMesh, parameterization, parameterData,
+    std::make_shared<const SolidDeformationModel::GlobalAxesMaterialFrameField>(
+      nele));
   switch (simMesh->getElementType()) {
   case SolidDeformationModel::SimulationMeshType::TET:
-    elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      simMesh, elasticConfig,
-      std::make_shared<SolidDeformationModel::VolumetricPlasticity6Config>(),
-      SolidDeformationModel::TetLinearFormulation{});
+    elasticEnergy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
+      assignment, SolidDeformationModel::TetLinearFormulation{});
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
-    elasticEnergy = SolidDeformationModel::makeDeformationEnergy(
-      simMesh, elasticConfig,
-      std::make_shared<SolidDeformationModel::VolumetricPlasticity6Config>(),
-      SolidDeformationModel::CubicLinearFormulation{});
+    elasticEnergy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
+      assignment, SolidDeformationModel::CubicLinearFormulation{});
     break;
   default:
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");

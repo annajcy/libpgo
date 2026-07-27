@@ -21,6 +21,29 @@ NUM_STEPS = 2000
 DUMP_INTERVAL = 10
 
 
+def _material_state(asset):
+    elastic = pf.StableNeoDefinition()
+    plastic = pf.VolumetricPlasticityDefinition(dofs=0)
+    def identity_field(field_type, names):
+        count = len(names)
+        return field_type(
+            names,
+            pf.ElementwiseParameterLayout(asset.num_elements, count),
+            pf.IdentityMaterialEvaluator(count))
+
+    elastic_fixed = identity_field(pf.FixedParameterField, elastic.fixed_channel_names)
+    plastic_fixed = identity_field(pf.FixedParameterField, plastic.fixed_channel_names)
+    elastic_opt = identity_field(
+        pf.OptimizableParameterField, elastic.optimizable_channel_names)
+    plastic_opt = identity_field(
+        pf.OptimizableParameterField, plastic.optimizable_channel_names)
+    parameterization = pf.MaterialParameterization(
+        pf.ElasticParameterization(elastic, elastic_fixed, elastic_opt),
+        pf.PlasticParameterization(plastic, plastic_fixed, plastic_opt))
+    return parameterization, pf.NamedChannelMaterialParameterDataProjection().project(
+        asset, parameterization)
+
+
 def main() -> None:
     # Load the cubic simulation mesh, render surface, and obstacle.
     volume = pgo.mesh.volume.VolumeMesh.from_veg_file(
@@ -32,19 +55,19 @@ def main() -> None:
     obstacle = pgo.mesh.read_obj(str(ASSET_DIR / "obj" / "bottom.obj"))
 
     # Build deformation, mass, gravity, and embedded IPC contact.
-    simulation_mesh = pf.SimulationMesh.create_volumetric(volume)
+    asset = pf.SimulationAsset.create_volumetric(volume)
     formulation = pf.CubicLinear()
-    deformation = pf.deformation_energy(
-        simulation_mesh,
-        elastic=pf.StableNeo(),
-        plastic=pf.VolumetricPlasticity(dofs=0),
+    parameterization, parameter_data = _material_state(asset)
+    assignment = pf.MaterialAssignment(asset, parameterization, parameter_data)
+    deformation = pf.DeformationEnergy(
+        assignment,
         formulation=formulation,
         options=pf.DeformationOptions(enable_material_max_step=False),
     )
     mass_field = pf.volume_density(volume)
-    mass = formulation.mass_matrix(simulation_mesh, mass_field)
+    mass = formulation.mass_matrix(asset, mass_field)
     gravity_force = formulation.body_force(
-        simulation_mesh,
+        asset,
         np.array([0.0, -9.81, 0.0]),
         mass_field,
     )

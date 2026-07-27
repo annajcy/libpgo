@@ -32,8 +32,8 @@ struct DeformationModelAssemblerElementWorkspace
   EigenSupport::MXd localMixedMatrix;
   EigenSupport::MXd paramDerivativeData;
   EigenSupport::MXd paramDerivativeData2;
-  std::vector<EigenSupport::MXd> plasticParamMappingHessians;
-  std::vector<EigenSupport::MXd> elasticParamMappingHessians;
+  std::vector<EigenSupport::MXd> plasticParamEvaluatorHessians;
+  std::vector<EigenSupport::MXd> elasticParamEvaluatorHessians;
   std::vector<double> localMatrixData;
   std::vector<double> materialLocationValues;
   std::vector<DofGroup> groups;
@@ -43,10 +43,10 @@ struct DeformationModelAssemblerElementWorkspace
     int maxMaterialLocations, int maxMaterialParams, int maxLocalParams,
     const DeformationModel &model);
 
-  std::span<EigenSupport::MXd> preparePlasticParamMappingHessians(
-    int numChannels, int numLocalDofs);
-  std::span<EigenSupport::MXd> prepareElasticParamMappingHessians(
-    int numChannels, int numLocalDofs);
+  std::span<EigenSupport::MXd> preparePlasticParamEvaluatorHessians(
+    int numChannels, int numLocalParameters);
+  std::span<EigenSupport::MXd> prepareElasticParamEvaluatorHessians(
+    int numChannels, int numLocalParameters);
 
   DeformationModelEvaluator &evaluator() { return *evaluator_; }
   const DeformationModelEvaluator &evaluator() const { return *evaluator_; }

@@ -194,24 +194,18 @@ ES::M9d ElasticModel3DSTVKMaterial::compute_dPdF(std::span<const double>, const 
 }
 
 
-#include "simulation/simulationMesh.h"
 #include <stdexcept>
 #include <string>
 
 namespace pgo::SolidDeformationModel {
 namespace {
-const SimulationMeshENuMaterial &enuMaterial(const SimulationMesh &mesh, int element) {
-  return mesh.requireElementField<SimulationMeshENuMaterial>().at(element);
 }
-void expectSize(std::span<double> output, std::size_t expected) {
-  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
-}
-}
-std::span<const std::string_view> StVKConfig::parameterChannelNames() const { return {}; }
-void StVKConfig::initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double> output) const { expectSize(output, 0); }
-std::unique_ptr<ElasticModel> StVKConfig::createModel(const SimulationMesh &mesh, int element, const MaterialFrame &) const
+MaterialChannelSchema StVKDefinition::optimizableChannelSchema() const { return {}; }
+MaterialChannelSchema StVKDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 2> names{"E", "nu"}; return MaterialChannelSchema(names); }
+std::unique_ptr<ElasticModel> StVKDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
 {
-  const auto &mat = enuMaterial(mesh, element);
-  return std::make_unique<ElasticModel3DSTVKMaterial>(mat.getMuLame(), mat.getLambdaLame());
+  if (values.size() != 2) throw std::invalid_argument("stvk requires fixed channels E, nu");
+  const double E = values[0], nu = values[1];
+  return std::make_unique<ElasticModel3DSTVKMaterial>(E / (2 * (1 + nu)), (nu * E) / ((1 + nu) * (1 - 2 * nu)));
 }
 }  // namespace pgo::SolidDeformationModel

@@ -5,7 +5,7 @@ copyright to USC,MIT,NUS
 
 #include "constraints/prescribedPrincipleStressConstraintFunctions.h"
 #include "deformation/deformationModelManager.h"
-#include "material/core/materialParameters.h"
+#include "material/core/optimizableParameters.h"
 #include "simulation/simulationMesh.h"
 
 #include "deformation/volume/volumetricDeformationModel.h"
@@ -28,29 +28,30 @@ PrescribedPrincipleStressConstraintFunctions::
   PrescribedPrincipleStressConstraintFunctions(
     int nAll, int doff, std::span<const int> elementIDs,
     const DeformationModelManager &tmdmm,
-    std::shared_ptr<const MaterialParameters> materialParameters):
+    std::shared_ptr<const OptimizableParameters> optimizableParameters):
   ConstraintFunctions(nAll),
   dofStart(doff),
   tetMeshDMM(tmdmm),
-  materialParameters_(std::move(materialParameters))
+  optimizableParameters_(std::move(optimizableParameters))
 {
-  if (!materialParameters_)
+  if (!optimizableParameters_)
     throw std::invalid_argument(
-      "PrescribedPrincipleStressConstraintFunctions requires material parameters.");
-  const auto &space = *materialParameters_->space();
+      "PrescribedPrincipleStressConstraintFunctions requires optimizable parameters.");
+  const auto &elasticField = optimizableParameters_->elasticField();
+  const auto &plasticField = optimizableParameters_->plasticField();
   const SimulationMesh &mesh = tetMeshDMM.getMesh();
-  if (space.elastic().channelMapping().numChannels() !=
+  if (elasticField.evaluator().numChannels() !=
     tetMeshDMM.getNumElasticParameters())
     throw std::invalid_argument(
       "Constraint elastic parameter channels do not match the deformation model.");
-  if (space.plastic().channelMapping().numChannels() !=
+  if (plasticField.evaluator().numChannels() !=
     tetMeshDMM.getNumPlasticParameters())
     throw std::invalid_argument(
       "Constraint plastic parameter channels do not match the deformation model.");
-  if (space.elastic().dofLayout().numElements() != mesh.getNumElements() ||
-    space.plastic().dofLayout().numElements() != mesh.getNumElements())
+  if (elasticField.layout().numElements() != mesh.getNumElements() ||
+    plasticField.layout().numElements() != mesh.getNumElements())
     throw std::invalid_argument(
-      "Constraint material parameter layouts do not match the mesh.");
+      "Constraint optimizable parameter layouts do not match the mesh.");
 
   elements.assign(elementIDs.begin(), elementIDs.end());
   targetPrincipleStress.resize(static_cast<Eigen::Index>(elements.size()) * 3);
@@ -106,17 +107,16 @@ PrescribedPrincipleStressConstraintFunctions::
 
 VolumetricDeformationModelEvaluator &
 PrescribedPrincipleStressConstraintFunctions::prepareElement(
-  int elementID, MaterialParameterEvaluationView state,
+  int elementID, OptimizableParameterEvaluationView state,
   ElementData &data) const
 {
-  const MaterialParameterSpace &space = state.space();
   const std::span<const double> elasticParameters =
     state.evaluateElement(
-      space.elastic(), elementID, data.numMaterialLocations,
+      state.elasticField(), elementID, data.numMaterialLocations,
       data.elasticParameters);
   const std::span<const double> plasticParameters =
     state.evaluateElement(
-      space.plastic(), elementID, data.numMaterialLocations,
+      state.plasticField(), elementID, data.numMaterialLocations,
       data.plasticParameters);
 
   data.evaluator->prepare(
@@ -140,8 +140,8 @@ void PrescribedPrincipleStressConstraintFunctions::setTargetPHat(
 // g = S(P) - Pbar
 void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) const
 {
-  const MaterialParameterSnapshot snapshot = materialParameters_->snapshot();
-  const MaterialParameterEvaluationView state = snapshot.view();
+  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
+  const OptimizableParameterEvaluationView state = snapshot.view();
   for (int i = 0; i < (int)elements.size(); i++) {
     auto &scratch = elementData_[i];
     ES::V18d &localp = scratch.localp;
@@ -169,8 +169,8 @@ void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES:
 void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES::ConstRefVecXd x, ES::RefVecXd fext) const
 {
   fext.setZero();
-  const MaterialParameterSnapshot snapshot = materialParameters_->snapshot();
-  const MaterialParameterEvaluationView state = snapshot.view();
+  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
+  const OptimizableParameterEvaluationView state = snapshot.view();
 
   for (int i = 0; i < (int)elements.size(); i++) {
     auto &scratch = elementData_[i];
@@ -221,7 +221,7 @@ double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractio
     xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
     localp.segment<3>(j * 3) = vtxp;
   }
-  const MaterialParameterSnapshot snapshot = materialParameters_->snapshot();
+  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
   VolumetricDeformationModelEvaluator &evaluator =
     prepareElement(eleID, snapshot.view(), scratch);
 
@@ -233,8 +233,8 @@ double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractio
 // dg/dx = dS/dP dP/dF dF/dx
 void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac) const
 {
-  const MaterialParameterSnapshot snapshot = materialParameters_->snapshot();
-  const MaterialParameterEvaluationView state = snapshot.view();
+  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
+  const OptimizableParameterEvaluationView state = snapshot.view();
   for (int i = 0; i < (int)elements.size(); i++) {
     auto &scratch = elementData_[i];
     ES::V18d &localp = scratch.localp;
@@ -299,8 +299,8 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
 // d2g/dx2 = dPdx d2SdP2 dPdx + dSdP d2Pdx2
 void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
-  const MaterialParameterSnapshot snapshot = materialParameters_->snapshot();
-  const MaterialParameterEvaluationView state = snapshot.view();
+  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
+  const OptimizableParameterEvaluationView state = snapshot.view();
   for (int ei = 0; ei < (int)elements.size(); ei++) {
     auto &scratch = elementData_[ei];
     ES::V18d &localp = scratch.localp;

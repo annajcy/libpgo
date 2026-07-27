@@ -20,14 +20,11 @@ class SimulationMeshImpl
 public:
   SimulationMeshImpl(int numVertices, std::span<const double> vertexPositions,
     int numElements, int numElementVertices, std::span<const int> elementVertexIndices,
-    ElementFieldStore elementFields,
     SimulationMeshType meshType);
 
   std::vector<ES::V3d> vertices;
   std::vector<std::vector<int>> elements;
   std::vector<std::vector<ES::V2d>> elementUVs;
-  ElementFieldStore elementFields;
-
   SimulationMeshType meshType;
 };
 
@@ -38,12 +35,11 @@ using namespace pgo::SolidDeformationModel;
 
 SimulationMesh::SimulationMesh(int numVertices, std::span<const double> vertexPositions,
   int numElements, int numElementVertices, std::span<const int> elementVertexIndices,
-  ElementFieldStore elementFields,
   SimulationMeshType meshType)
 {
   impl = std::make_unique<SimulationMeshImpl>(numVertices, vertexPositions,
     numElements, numElementVertices, elementVertexIndices,
-    std::move(elementFields), meshType);
+    meshType);
 }
 
 SimulationMesh::~SimulationMesh() = default;
@@ -89,11 +85,6 @@ SimulationMeshType SimulationMesh::getElementType() const
   return impl->meshType;
 }
 
-const ElementFieldStore &SimulationMesh::implElementFields() const
-{
-  return impl->elementFields;
-}
-
 void SimulationMesh::assignElementUVs(std::span<const double> uvs)
 {
   const std::size_t expectedSize = static_cast<std::size_t>(
@@ -124,7 +115,7 @@ const pgo::EigenSupport::V2d &SimulationMesh::getElementUV(int ele, int j) const
 SimulationMeshImpl::SimulationMeshImpl(
   int numVertices, std::span<const double> vertexPositions,
   int numElements, int numElementVertices, std::span<const int> elementVertexIndices,
-  ElementFieldStore elementFields_, SimulationMeshType mt)
+  SimulationMeshType mt)
 {
   if (numVertices < 0 || numElements < 0 || numElementVertices < 0)
     throw std::invalid_argument("SimulationMesh dimensions must be nonnegative.");
@@ -151,8 +142,6 @@ SimulationMeshImpl::SimulationMeshImpl(
     }
   }
 
-  elementFields_.validateSize(numElements);
-  elementFields = std::move(elementFields_);
   meshType = mt;
 }
 

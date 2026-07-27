@@ -762,29 +762,17 @@ ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dbbar2(
 }
 
 
-#include "simulation/simulationMesh.h"
-#include <initializer_list>
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-namespace {
-void expectSize(std::span<double> output, std::size_t expected) {
-  if (output.size() != expected) throw std::invalid_argument("elastic config default parameter buffer has the wrong size");
-}
-}
-std::span<const std::string_view> KoiterStVKConfig::parameterChannelNames() const
+MaterialChannelSchema KoiterStVKDefinition::optimizableChannelSchema() const
 {
   static constexpr std::array<std::string_view, 5> names{"E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness"};
-  return names;
+  return MaterialChannelSchema(names);
 }
-void KoiterStVKConfig::initializeDefaultElementChannels(const SimulationMesh &mesh, int element, std::span<double> output) const
+std::unique_ptr<ElasticModel> KoiterStVKDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
 {
-  expectSize(output, 5);
-  const auto &mat = mesh.requireElementField<SimulationMeshENuhMaterial>().at(element);
-  output[0] = mat.getE(); output[1] = mat.getNu(); output[2] = mat.getE(); output[3] = mat.getNu(); output[4] = mat.geth();
-}
-std::unique_ptr<ElasticModel> KoiterStVKConfig::createModel(const SimulationMesh &, int, const MaterialFrame &) const
-{
+  if (!values.empty()) throw std::invalid_argument("koiter_stvk has no fixed channels");
   return std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
 }
 }  // namespace pgo::SolidDeformationModel

@@ -92,11 +92,11 @@ class ShellArealDensity:
     def from_elastic_parameter(
         cls, *, scale: float, parameter
     ) -> "ShellArealDensity":
-        from pypgo.fem.fields import MaterialParameterRef
+        from pypgo.fem.fields import OptimizableParameterRef
 
-        if not isinstance(parameter, MaterialParameterRef):
+        if not isinstance(parameter, OptimizableParameterRef):
             raise TypeError(
-                f"parameter must be a MaterialParameterRef, got {type(parameter).__name__}"
+                f"parameter must be a OptimizableParameterRef, got {type(parameter).__name__}"
             )
         scale_arr = np.asarray(scale, dtype=np.float64)
         if scale_arr.ndim != 0:
@@ -117,10 +117,10 @@ class SelfWeightGravity:
     """External load from a parameter-coupled shell areal density."""
 
     def __init__(
-        self, *, formulation, sim_mesh, areal_density, material_parameters, acceleration
+        self, *, formulation, asset, areal_density, optimizable_parameters, acceleration
     ) -> None:
         from pypgo.fem.formulations import ShellFormulation
-        from pypgo.fem.fields import MaterialParameters
+        from pypgo.fem.fields import OptimizableParameters
 
         if not isinstance(formulation, ShellFormulation):
             raise TypeError(
@@ -131,33 +131,33 @@ class SelfWeightGravity:
                 "areal_density must be a ShellArealDensity, "
                 f"got {type(areal_density).__name__}"
             )
-        if not isinstance(material_parameters, MaterialParameters):
+        if not isinstance(optimizable_parameters, OptimizableParameters):
             raise TypeError(
-                "material_parameters must be MaterialParameters, "
-                f"got {type(material_parameters).__name__}"
+                "optimizable_parameters must be OptimizableParameters, "
+                f"got {type(optimizable_parameters).__name__}"
             )
         self._formulation = formulation
-        self._sim_mesh = sim_mesh
+        self._asset = asset
         self._areal_density = areal_density
-        self._material_parameters = material_parameters
+        self._optimizable_parameters = optimizable_parameters
         self._acceleration = np.asarray(acceleration, dtype=np.float64).reshape(3)
 
     @property
-    def material_parameters(self):
-        return self._material_parameters
+    def optimizable_parameters(self):
+        return self._optimizable_parameters
 
     def force(self) -> np.ndarray:
         return self._formulation.body_force(
-            self._sim_mesh,
+            self._asset,
             self._acceleration,
             self._areal_density,
-            material_parameters=self._material_parameters,
+            optimizable_parameters=self._optimizable_parameters,
         )
 
     def parameter_jacobian(self):
         return self._formulation.body_force_parameter_jacobian(
-            self._sim_mesh,
+            self._asset,
             self._acceleration,
             self._areal_density,
-            material_parameters=self._material_parameters,
+            optimizable_parameters=self._optimizable_parameters,
         )

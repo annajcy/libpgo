@@ -29,7 +29,7 @@ ElasticMaterialEnergy::ElasticMaterialEnergy(
     throw std::invalid_argument("ElasticMaterialEnergy fixed displacement size must match the deformation energy rest position size.");
   }
 
-  fixedState_ = deformationEnergy_->materialParameters()->snapshot();
+  fixedState_ = deformationEnergy_->optimizableParameters()->snapshot();
 
   allDOFs_.resize(deformationEnergy_->assembler().getNumElasticGlobalParams());
   std::iota(allDOFs_.begin(), allDOFs_.end(), 0);
@@ -45,7 +45,7 @@ ES::VXd ElasticMaterialEnergy::absolutePositions() const
 double ElasticMaterialEnergy::func(EigenSupport::ConstRefVecXd x) const
 {
   const ES::VXd p = absolutePositions();
-  const MaterialParameterEvaluationView state = fixedState_.withElasticValues(
+  const OptimizableParameterEvaluationView state = fixedState_.withElasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
   return deformationEnergy_->assembler().compute_E(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state);
 }
@@ -53,7 +53,7 @@ double ElasticMaterialEnergy::func(EigenSupport::ConstRefVecXd x) const
 void ElasticMaterialEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const
 {
   const ES::VXd p = absolutePositions();
-  const MaterialParameterEvaluationView state = fixedState_.withElasticValues(
+  const OptimizableParameterEvaluationView state = fixedState_.withElasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
   deformationEnergy_->assembler().compute_dE_de(
     std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state,
@@ -63,7 +63,7 @@ void ElasticMaterialEnergy::gradient(EigenSupport::ConstRefVecXd x, EigenSupport
 void ElasticMaterialEnergy::hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const
 {
   const ES::VXd p = absolutePositions();
-  const MaterialParameterEvaluationView state = fixedState_.withElasticValues(
+  const OptimizableParameterEvaluationView state = fixedState_.withElasticValues(
     std::span<const double>(x.data(), static_cast<std::size_t>(x.size())));
   deformationEnergy_->assembler().compute_d2E_de2(
     std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state, hess);

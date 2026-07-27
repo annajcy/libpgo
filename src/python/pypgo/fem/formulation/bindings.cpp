@@ -25,21 +25,21 @@ void init_formulation_bindings(nb::module_ &m)
     m.def("make_koiter_shell", &make_koiter_shell);
 
     m.def("compute_formulation_mass_matrix", &compute_formulation_mass_matrix,
-        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("density"));
+        nb::arg("asset"), nb::arg("formulation"), nb::arg("density"));
     m.def("compute_formulation_body_force", &compute_formulation_body_force,
-        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("density"));
+        nb::arg("asset"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("density"));
     m.def("compute_formulation_surface_embedding_matrix", &compute_formulation_surface_embedding_matrix,
         nb::arg("volume_mesh"), nb::arg("formulation"), nb::arg("surface_vertices_flat"));
 
     m.def("compute_shell_formulation_mass_matrix", &compute_shell_formulation_mass_matrix,
-        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("areal_density"),
-        nb::arg("material_parameters").none() = nb::none());
+        nb::arg("asset"), nb::arg("formulation"), nb::arg("areal_density"),
+        nb::arg("optimizable_parameters").none() = nb::none());
     m.def("compute_shell_formulation_body_force", &compute_shell_formulation_body_force,
-        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("areal_density"),
-        nb::arg("material_parameters").none() = nb::none());
+        nb::arg("asset"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("areal_density"),
+        nb::arg("optimizable_parameters").none() = nb::none());
 
     m.def("compute_shell_formulation_body_force_parameter_jacobian",
         &compute_shell_formulation_body_force_parameter_jacobian,
-        nb::arg("sim_mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("areal_density"),
-        nb::arg("material_parameters").none() = nb::none());
+        nb::arg("asset"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("areal_density"),
+        nb::arg("optimizable_parameters").none() = nb::none());
 }

@@ -21,6 +21,41 @@ NUM_STEPS = 80
 DUMP_INTERVAL = 10
 
 
+def _material_state(asset, material):
+    elastic = pf.KoiterStVKDefinition()
+    plastic = pf.ShellPlasticityDefinition(dofs=0)
+    def identity_field(field_type, names, layout_type):
+        count = len(names)
+        return field_type(
+            names,
+            layout_type(asset.num_elements, count),
+            pf.IdentityMaterialEvaluator(count))
+
+    elastic_fixed = identity_field(
+        pf.FixedParameterField, elastic.fixed_channel_names,
+        pf.ElementwiseParameterLayout)
+    plastic_fixed = identity_field(
+        pf.FixedParameterField, plastic.fixed_channel_names,
+        pf.ElementwiseParameterLayout)
+    elastic_opt = identity_field(
+        pf.OptimizableParameterField, elastic.optimizable_channel_names,
+        pf.ConstantParameterLayout)
+    plastic_opt = identity_field(
+        pf.OptimizableParameterField, plastic.optimizable_channel_names,
+        pf.ConstantParameterLayout)
+    parameterization = pf.MaterialParameterization(
+        pf.ElasticParameterization(elastic, elastic_fixed, elastic_opt),
+        pf.PlasticParameterization(plastic, plastic_fixed, plastic_opt))
+    parameter_data = pf.MaterialParameterData(
+        elastic=(np.empty(0), np.array([
+            material.E_membrane, material.nu_membrane,
+            material.E_membrane, material.nu_membrane, material.thickness,
+        ])),
+        plastic=(np.empty(0), np.empty(0)),
+    )
+    return parameterization, parameter_data
+
+
 def main() -> None:
     # Load the shell and its obstacle.
     surface = pgo.mesh.read_obj(str(ASSET_DIR / "obj" / "shell.obj"))
@@ -32,20 +67,20 @@ def main() -> None:
         E_membrane=1.0e6,
         nu_membrane=0.4,
     )
-    simulation_mesh = pf.SimulationMesh.create_shell(surface, material)
+    asset = pf.SimulationAsset.create_shell(surface, material)
     formulation = pf.KoiterShell()
-    deformation = pf.deformation_energy(
-        simulation_mesh,
-        elastic=pf.KoiterStVK(),
-        plastic=pf.ShellPlasticity(dofs=0),
+    parameterization, parameter_data = _material_state(asset, material)
+    assignment = pf.MaterialAssignment(asset, parameterization, parameter_data)
+    deformation = pf.DeformationEnergy(
+        assignment,
         formulation=formulation,
     )
     areal_density = pf.ShellArealDensity.from_density_thickness(
         density=1000.0, thickness=1.0e-3
     )
-    mass = formulation.mass_matrix(simulation_mesh, areal_density)
+    mass = formulation.mass_matrix(asset, areal_density)
     gravity_force = formulation.body_force(
-        simulation_mesh,
+        asset,
         np.array([0.0, -9.81, 0.0]),
         areal_density,
     )

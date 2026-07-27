@@ -73,11 +73,34 @@ def main() -> None:
     target_surface = pgo.mesh.TriMeshData(target_vertices, surface.elements)
 
     # Use one six-channel plastic tensor per element.
-    simulation_mesh = pf.SimulationMesh.create_volumetric(volume)
-    energy = pf.deformation_energy(
-        simulation_mesh,
-        elastic=pf.StVK(),
-        plastic=pf.VolumetricPlasticity(dofs=6),
+    asset = pf.SimulationAsset.create_volumetric(volume)
+    elastic = pf.StVKDefinition()
+    plastic = pf.VolumetricPlasticityDefinition(dofs=6)
+    def identity_field(field_type, names):
+        count = len(names)
+        return field_type(
+            names,
+            pf.ElementwiseParameterLayout(asset.num_elements, count),
+            pf.IdentityMaterialEvaluator(count))
+
+    elastic_fixed = identity_field(
+        pf.FixedParameterField, elastic.fixed_channel_names)
+    plastic_fixed = identity_field(
+        pf.FixedParameterField, plastic.fixed_channel_names)
+    elastic_opt = identity_field(
+        pf.OptimizableParameterField, elastic.optimizable_channel_names)
+    plastic_opt = identity_field(
+        pf.OptimizableParameterField, plastic.optimizable_channel_names)
+    parameterization = pf.MaterialParameterization(
+        pf.ElasticParameterization(elastic, elastic_fixed, elastic_opt),
+        pf.PlasticParameterization(plastic, plastic_fixed, plastic_opt))
+    parameter_data = pf.MaterialParameterData(
+        elastic=(np.tile(np.array([1.0e6, 0.45]), (elements.shape[0], 1)), np.empty(0)),
+        plastic=(np.empty(0), np.tile(
+            np.array([1.0, 0.0, 0.0, 1.0, 0.0, 1.0]), (elements.shape[0], 1))))
+    assignment = pf.MaterialAssignment(asset, parameterization, parameter_data)
+    energy = pf.DeformationEnergy(
+        assignment,
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
             project_hessian_psd=False,
@@ -101,7 +124,7 @@ def main() -> None:
     )
 
     # Fit the plastic field through the differentiable equilibrium solve.
-    initial_plastic = energy.parameters.plastic_values.copy()
+    initial_plastic = energy.optimizable_parameters.plastic_values.copy()
     initial_tensor = torch.as_tensor(initial_plastic.ravel())
     target_tensor = torch.as_tensor(target_vertices)
     plastic = torch.tensor(initial_plastic.ravel(), requires_grad=True)

@@ -6,7 +6,7 @@
 #include "generateMassMatrix.h"
 #include "mass/shellArealDensityField.h"
 #include "mass/volumeDensityField.h"
-#include "material/core/materialParameters.h"
+#include "material/core/optimizableParameters.h"
 #include "simulation/simulationMesh.h"
 #include "triMeshGeo.h"
 
@@ -45,12 +45,12 @@ double sparseCoeff(const EigenSupport::SpMatD &M, int r, int c)
   return M.coeff(r, c);
 }
 
-class SquareParameterMapping final : public MaterialChannelMapping
+class SquareParameterEvaluator final : public DifferentiableMaterialEvaluator
 {
 public:
-  explicit SquareParameterMapping(int size): size_(size) {}
+  explicit SquareParameterEvaluator(int size): size_(size) {}
 
-  int numInputDofs() const override { return size_; }
+  int numParameters() const override { return size_; }
   int numChannels() const override { return size_; }
   bool isAffine() const override { return false; }
 
@@ -90,18 +90,18 @@ class CustomConstantDensitySource final : public ElementScalarFieldSource
 public:
   void validate(int) const override {}
 
-  double value(int, int, const MaterialParameterEvaluationView &) const override
+  double value(int, int, const OptimizableParameterEvaluationView &) const override
   {
     return 4.0;
   }
 
-  const MaterialParameterRef *parameterDependency() const override
+  const OptimizableParameterRef *parameterDependency() const override
   {
     return nullptr;
   }
 
   void localParameterDerivative(
-    int, int, const MaterialParameterEvaluationView &, EigenSupport::RefVecXd output) const override
+    int, int, const OptimizableParameterEvaluationView &, EigenSupport::RefVecXd output) const override
   {
     output.setZero();
   }
@@ -112,18 +112,18 @@ class NonFiniteDensitySource final : public ElementScalarFieldSource
 public:
   void validate(int) const override {}
 
-  double value(int, int, const MaterialParameterEvaluationView &) const override
+  double value(int, int, const OptimizableParameterEvaluationView &) const override
   {
     return std::numeric_limits<double>::quiet_NaN();
   }
 
-  const MaterialParameterRef *parameterDependency() const override
+  const OptimizableParameterRef *parameterDependency() const override
   {
     return nullptr;
   }
 
   void localParameterDerivative(
-    int, int, const MaterialParameterEvaluationView &, EigenSupport::RefVecXd output) const override
+    int, int, const OptimizableParameterEvaluationView &, EigenSupport::RefVecXd output) const override
   {
     output.setZero();
   }
@@ -142,49 +142,47 @@ std::shared_ptr<const SimulationMesh> makeTwoTriangleShellMesh()
     0, 2, 3,
   };
   Mesh::TriMeshGeo surface(4, vertices, 2, triangles);
-  SimulationMeshENuhMaterial material(1000.0, 0.35, 1e-3);
-  return std::shared_ptr<const SimulationMesh>(
-    loadShellMesh(surface, material).release());
+  ImportedENuhMaterial material(1000.0, 0.35, 1e-3);
+  return loadShellMesh(surface, material)->mesh();
 }
 
-std::shared_ptr<MaterialParameters> makeShellMassParameters(
+std::shared_ptr<OptimizableParameters> makeShellMassParameters(
   int numElements, bool constant, bool nonlinear)
 {
   constexpr int numElasticChannels = 5;
-  std::shared_ptr<const ParameterDofLayout> elasticLayout;
+  std::shared_ptr<const ParameterLayout> elasticLayout;
   if (constant) {
-    elasticLayout = std::make_shared<ConstantParameterDofLayout>(
+    elasticLayout = std::make_shared<ConstantParameterLayout>(
       numElements, numElasticChannels);
   }
   else {
-    elasticLayout = std::make_shared<ElementwiseParameterDofLayout>(
+    elasticLayout = std::make_shared<ElementwiseParameterLayout>(
       numElements, numElasticChannels);
   }
 
-  std::shared_ptr<const MaterialChannelMapping> elasticMapping;
+  std::shared_ptr<const DifferentiableMaterialEvaluator> elasticEvaluator;
   if (nonlinear)
-    elasticMapping = std::make_shared<SquareParameterMapping>(numElasticChannels);
+    elasticEvaluator = std::make_shared<SquareParameterEvaluator>(numElasticChannels);
   else
-    elasticMapping = std::make_shared<IdentityMaterialChannelMapping>(numElasticChannels);
+    elasticEvaluator = std::make_shared<IdentityMaterialEvaluator>(numElasticChannels);
 
-  auto elasticBlock = MaterialParameterField::create(
-    { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" },
-    std::move(elasticLayout), std::move(elasticMapping));
-  auto plasticBlock = MaterialParameterField::create(
-    {},
-    std::make_shared<ElementwiseParameterDofLayout>(numElements, 0),
-    std::make_shared<IdentityMaterialChannelMapping>(0));
-  auto space = std::make_shared<MaterialParameterSpace>(
-    std::move(elasticBlock), std::move(plasticBlock));
-
+  auto elasticBlock = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema(
+      { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" }),
+    std::move(elasticLayout), std::move(elasticEvaluator));
+  auto plasticBlock = std::make_shared<const OptimizableParameterField>(
+    ParameterSchema{},
+    std::make_shared<ElementwiseParameterLayout>(numElements, 0),
+    std::make_shared<IdentityMaterialEvaluator>(0));
   const int rows = constant ? 1 : numElements;
   EigenSupport::VXd elastic(rows * numElasticChannels);
   for (int row = 0; row < rows; row++) {
     elastic.segment<5>(row * numElasticChannels) <<
       2.0, 0.4, 1.5, 0.3, 0.025 + 0.004 * row;
   }
-  return std::make_shared<MaterialParameters>(
-    std::move(space), std::move(elastic), EigenSupport::VXd());
+  return std::make_shared<OptimizableParameters>(
+    std::move(elasticBlock), std::move(plasticBlock),
+    std::move(elastic), EigenSupport::VXd());
 }
 
 void expectBodyForceParameterJacobianMatchesFD(
@@ -193,9 +191,8 @@ void expectBodyForceParameterJacobianMatchesFD(
   auto mesh = makeTwoTriangleShellMesh();
   auto parameters = makeShellMassParameters(
     mesh->getNumElements(), constant, nonlinear);
-  auto space = parameters->space();
   ShellArealDensityField massField = ShellArealDensityField::fromElasticParameter(
-    850.0, space->elastic().parameter("thickness"));
+    850.0, parameters->elasticField().parameter("thickness"));
   KoiterShellFormulation formulation;
   const EigenSupport::V3d acceleration(0.7, -1.3, -9.81);
   const EigenSupport::VXd z = parameters->elasticSnapshot();
@@ -232,7 +229,7 @@ TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelo
 {
   constexpr double density = 2.0;
   auto mesh = makeSingleCube(density);
-  auto simMesh = loadCubicMesh(*mesh);
+  auto simMesh = loadCubicMesh(*mesh)->mesh();
   auto densityField = VolumeDensityField::constant(density);
   EigenSupport::SpMatD M = CubicTricubicHermiteFormulation{}.buildMassMatrix(*simMesh, densityField);
   ASSERT_EQ(M.rows(), 8 * 24);
@@ -257,7 +254,7 @@ TEST(FormulationDynamicsGTest, HermiteMassHasCorrectShapeSymmetryAndConstantVelo
 TEST(FormulationDynamicsGTest, CustomScalarSourceCanBackVolumeDensityField)
 {
   auto mesh = makeSingleCube(4.0);
-  auto simMesh = loadCubicMesh(*mesh);
+  auto simMesh = loadCubicMesh(*mesh)->mesh();
   auto source = std::make_shared<CustomConstantDensitySource>();
   VolumeDensityField density(source);
 
@@ -273,13 +270,13 @@ TEST(FormulationDynamicsGTest, DensityDerivativeBufferSizeIsValidated)
 {
   auto mesh = makeTwoTriangleShellMesh();
   auto parameters = makeShellMassParameters(mesh->getNumElements(), false, false);
-  auto space = parameters->space();
-  const auto parameter = space->elastic().parameter("thickness");
+  const auto parameter =
+    parameters->elasticField().parameter("thickness");
   auto state = parameters->snapshot().view();
   auto density = ShellArealDensityField::fromElasticParameter(850.0, parameter);
 
   const auto expected = static_cast<std::size_t>(
-    parameter.field().dofLayout().numLocalDofs());
+    parameter.field().layout().numLocalParameters());
   EigenSupport::VXd correct(static_cast<Eigen::Index>(expected));
   EigenSupport::VXd tooSmall(static_cast<Eigen::Index>(expected - 1));
   EigenSupport::VXd tooLarge(static_cast<Eigen::Index>(expected + 1));
@@ -309,7 +306,7 @@ TEST(FormulationDynamicsGTest, DensityDerivativeBufferSizeIsValidated)
 TEST(FormulationDynamicsGTest, ElementwiseScalarSourceBacksVolumeDensityField)
 {
   auto mesh = makeSingleCube(4.0);
-  auto simMesh = loadCubicMesh(*mesh);
+  auto simMesh = loadCubicMesh(*mesh)->mesh();
   EigenSupport::VXd values(1);
   values[0] = 4.0;
   auto density = VolumeDensityField::elementwise(std::move(values));
@@ -351,7 +348,7 @@ TEST(FormulationDynamicsGTest, HermiteBodyForceHasCorrectTotalAndDerivativeEntri
 {
   constexpr double density = 3.0;
   auto mesh = makeSingleCube(density);
-  auto simMesh = loadCubicMesh(*mesh);
+  auto simMesh = loadCubicMesh(*mesh)->mesh();
   auto densityField = VolumeDensityField::constant(density);
   EigenSupport::V3d a(0.0, -9.8, 0.0);
   EigenSupport::VXd f = CubicTricubicHermiteFormulation{}.buildBodyForce(*simMesh, a, densityField);
@@ -406,7 +403,7 @@ TEST(FormulationDynamicsGTest, TrilinearMassMatchesLegacyOperator)
 {
   constexpr double density = 2.0;
   auto mesh = makeSingleCube(density);
-  auto simMesh = loadCubicMesh(*mesh);
+  auto simMesh = loadCubicMesh(*mesh)->mesh();
   auto densityField = VolumeDensityField::constant(density);
   EigenSupport::SpMatD legacyMass;
   VolumetricMeshes::GenerateMassMatrix::computeMassMatrix(mesh.get(), legacyMass, true);

@@ -4,6 +4,7 @@ import pytest
 import pypgo as pgo
 import pypgo.energy as pe
 import pypgo.fem as pf
+from tests.pypgo.material_helpers import direct_assignment
 
 torch = pytest.importorskip("torch")
 
@@ -27,14 +28,14 @@ class _ThicknessPointLoad:
         self.scale = scale
 
     @property
-    def material_parameters(self):
-        return self.energy.parameters
+    def optimizable_parameters(self):
+        return self.energy.optimizable_parameters
 
     def force(self):
         force = np.zeros(self.energy.num_dofs, dtype=np.float64)
         force[self.target_dof] = (
             self.scale
-            * self.energy.parameters.elastic_values.ravel()[self.parameter_dof]
+            * self.energy.optimizable_parameters.elastic_values.ravel()[self.parameter_dof]
         )
         return force
 
@@ -60,29 +61,18 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
     triangles = np.asarray(triangles, dtype=np.int64)
     surface = pgo.mesh.TriMeshData(vertices, triangles)
     material = pf.KoiterStVKShellMaterial(thickness=1e-3, E_membrane=2e4, nu_membrane=0.35)
-    sim = pf.SimulationMesh.create_shell(surface, material)
+    sim = pf.SimulationAsset.create_shell(surface, material)
 
     base_row = np.array([2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3], dtype=np.float64)
     elastic = np.tile(base_row, (triangles.shape[0], 1))
     plastic = np.ones((triangles.shape[0], 1), dtype=np.float64)
-    elastic_config = pf.KoiterStVK()
-    plastic_config = pf.ShellPlasticity(dofs=1)
-    space = pf.MaterialParameterSpace(
-        sim,
-        elastic=elastic_config,
-        plastic=plastic_config,
-        elastic_field=pf.ParameterFieldDefinition(
-            pf.ElementwiseDofLayout(), pf.IdentityMaterialChannelMapping()),
-        plastic_field=pf.ParameterFieldDefinition(
-            pf.ElementwiseDofLayout(), pf.IdentityMaterialChannelMapping()),
-    )
-    parameters = pf.MaterialParameters(
-        space, elastic_values=elastic, plastic_values=plastic)
-    energy = pf.deformation_energy(
-        sim,
-        elastic=elastic_config,
-        plastic=plastic_config,
-        material_parameters=parameters,
+    elastic_config = pf.KoiterStVKDefinition()
+    plastic_config = pf.ShellPlasticityDefinition(dofs=1)
+    assignment = direct_assignment(
+        sim, elastic_config, plastic_config,
+        pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout, elastic, plastic)
+    energy = pf.DeformationEnergy(
+        assignment,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
     )
@@ -92,11 +82,11 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
     else:
         areal_density = pf.ShellArealDensity.from_elastic_parameter(
             scale=1000.0,
-            parameter=energy.parameters.space.elastic.parameter("thickness"),
+            parameter=energy.optimizable_parameters.elastic_field.parameter("thickness"),
         )
         load = pf.SelfWeightGravity(
-            formulation=pf.KoiterShell(), sim_mesh=sim, areal_density=areal_density,
-            material_parameters=energy.parameters,
+            formulation=pf.KoiterShell(), asset=sim, areal_density=areal_density,
+            optimizable_parameters=energy.optimizable_parameters,
             acceleration=[0.0, 0.0, -20.0])
 
     fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 1.0)).astype(np.int64)
@@ -163,14 +153,14 @@ def test_external_load_rejected_on_plastic_layer():
         )
 
 
-def test_external_load_rejects_material_parameters_from_another_space():
+def test_external_load_rejects_optimizable_parameters_from_other_fields():
     layer, _elastic, _vertices = _setup(external_load="point")
     other, _other_elastic, _other_vertices = _setup(external_load="point")
     foreign_load = _ThicknessPointLoad(
         other.energy, target_dof=2, parameter_dof=4, scale=1e6
     )
 
-    with pytest.raises(ValueError, match="same material parameter space"):
+    with pytest.raises(ValueError, match="same optimizable fields"):
         pgo.fem.ElasticStaticEquilibriumLayer(
             energy=layer.energy,
             fixed_dofs=layer.fixed_dofs,

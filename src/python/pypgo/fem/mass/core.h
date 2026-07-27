@@ -50,6 +50,6 @@ std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_density_thick
   double density, const std::vector<double> &thickness);
 
 std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_elastic_parameter(
-  double scale, const PyMaterialParameterRef &parameter);
+  double scale, const PyOptimizableParameterRef &parameter);
 
 }  // namespace pgo

@@ -67,15 +67,15 @@ inline void PlasticModel3D6DOF::toParam(const EigenSupport::M3d &Fp, std::span<d
   param[5] = Fp(2, 2);
 }
 
-class VolumetricPlasticity6Config final : public PlasticModelConfig
+class VolumetricPlasticity6Definition final : public PlasticModelDefinition
 {
 public:
   std::string_view id() const override { return "volumetric_dof6"; }
-  std::span<const std::string_view> parameterChannelNames() const override;
+  MaterialChannelSchema fixedChannelSchema() const override { return {}; }
+  MaterialChannelSchema optimizableChannelSchema() const override;
   MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  void initializeDefaultElementChannels(const SimulationMesh &, int, std::span<double>) const override;
+  std::unique_ptr<PlasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
 private:
-  std::unique_ptr<PlasticModel> createModel(const SimulationMesh &, int, const MaterialFrame &) const override;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

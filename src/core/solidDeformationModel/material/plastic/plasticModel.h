@@ -1,6 +1,6 @@
 #pragma once
 
-#include "material/core/materialParameters.h"
+#include "material/core/materialSchema.h"
 #include "material/core/materialFrameField.h"
 
 #include <memory>
@@ -33,20 +33,19 @@ public:
 
 // Immutable, shareable definition used to instantiate per-element PlasticModel
 // evaluators. The private construction hook keeps evaluator data internal.
-class PlasticModelConfig
+class PlasticModelDefinition
 {
 public:
-  virtual ~PlasticModelConfig() = default;
+  virtual ~PlasticModelDefinition() = default;
   virtual std::string_view id() const = 0;
-  virtual std::span<const std::string_view> parameterChannelNames() const = 0;
+  virtual MaterialChannelSchema fixedChannelSchema() const = 0;
+  virtual MaterialChannelSchema optimizableChannelSchema() const = 0;
   virtual MaterialFrameRequirement frameRequirement() const = 0;
-  virtual void initializeDefaultElementChannels(
-    const SimulationMesh &, int, std::span<double>) const = 0;
 
 private:
   friend class DeformationModelManager;
-  virtual std::unique_ptr<PlasticModel> createModel(
-    const SimulationMesh &, int, const MaterialFrame &) const = 0;
+  virtual std::unique_ptr<PlasticModel> createModelFromFixed(
+    std::span<const double>, const MaterialFrame &) const = 0;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

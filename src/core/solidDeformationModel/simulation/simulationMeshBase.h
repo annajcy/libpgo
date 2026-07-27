@@ -9,7 +9,6 @@ copyright to USC,MIT,NUS
 #include <span>
 
 #include "EigenSupport.h"
-#include "simulation/elementField.h"
 
 namespace pgo
 {
@@ -25,7 +24,7 @@ class SimulationMesh
 public:
   SimulationMesh(int numVertices, std::span<const double> vertexPositions,
     int numElements, int numElementVertices, std::span<const int> elementVertexIndices,
-    ElementFieldStore elementFields, SimulationMeshType meshType);
+    SimulationMeshType meshType);
 
   ~SimulationMesh();
 
@@ -41,26 +40,11 @@ public:
   const EigenSupport::V2d &getElementUV(int ele, int j) const;
   SimulationMeshType getElementType() const;
 
-  template<class T>
-  const ElementField<T> &requireElementField() const
-  {
-    return implElementFields().require<T>();
-  }
-
 private:
-  const ElementFieldStore &implElementFields() const;
   std::unique_ptr<SimulationMeshImpl> impl;
 };
 
 const char *meshTypeName(SimulationMeshType meshType);
-
-template<class T>
-ElementFieldStore makeUniformSimulationMeshElementFieldStore(int numElements, const T &value)
-{
-  ElementFieldStore store;
-  store.add(ElementField<T>::uniform(numElements, value));
-  return store;
-}
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo

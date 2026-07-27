@@ -1,6 +1,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/shared_ptr.h>
+#include <nanobind/stl/vector.h>
 
 #include "core.h"
 
@@ -9,12 +10,15 @@ using namespace pgo;
 
 void init_plastic_model_bindings(nb::module_ &m)
 {
-    nb::class_<PyPlasticModelConfig>(m, "PyPlasticModelConfig")
-        .def_prop_ro("name", &PyPlasticModelConfig::name)
-        .def_prop_ro("dofs", &PyPlasticModelConfig::dofs);
-    nb::class_<PyVolumetricPlasticity0Config, PyPlasticModelConfig>(m, "PyVolumetricPlasticity0Config").def(nb::init<>());
-    nb::class_<PyVolumetricPlasticity3Config, PyPlasticModelConfig>(m, "PyVolumetricPlasticity3Config").def(nb::init<>());
-    nb::class_<PyVolumetricPlasticity6Config, PyPlasticModelConfig>(m, "PyVolumetricPlasticity6Config").def(nb::init<>());
-    nb::class_<PyShellPlasticity0Config, PyPlasticModelConfig>(m, "PyShellPlasticity0Config").def(nb::init<>());
-    nb::class_<PyShellPlasticity1Config, PyPlasticModelConfig>(m, "PyShellPlasticity1Config").def(nb::init<>());
+    nb::class_<PyPlasticModelDefinition>(m, "PyPlasticModelDefinition")
+        .def_prop_ro("name", &PyPlasticModelDefinition::name)
+        .def_prop_ro("dofs", &PyPlasticModelDefinition::dofs)
+        .def_prop_ro("fixed_channel_names", &PyPlasticModelDefinition::fixedChannelNames)
+        .def_prop_ro("optimizable_channel_names", &PyPlasticModelDefinition::optimizableChannelNames)
+        .def_prop_ro("frame_requirement", &PyPlasticModelDefinition::frameRequirement);
+    nb::class_<PyVolumetricPlasticity0Definition, PyPlasticModelDefinition>(m, "PyVolumetricPlasticity0Definition").def(nb::init<>());
+    nb::class_<PyVolumetricPlasticity3Definition, PyPlasticModelDefinition>(m, "PyVolumetricPlasticity3Definition").def(nb::init<>());
+    nb::class_<PyVolumetricPlasticity6Definition, PyPlasticModelDefinition>(m, "PyVolumetricPlasticity6Definition").def(nb::init<>());
+    nb::class_<PyShellPlasticity0Definition, PyPlasticModelDefinition>(m, "PyShellPlasticity0Definition").def(nb::init<>());
+    nb::class_<PyShellPlasticity1Definition, PyPlasticModelDefinition>(m, "PyShellPlasticity1Definition").def(nb::init<>());
 }

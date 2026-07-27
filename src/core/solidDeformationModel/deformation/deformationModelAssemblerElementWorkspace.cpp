@@ -44,33 +44,33 @@ DeformationModelAssemblerElementWorkspace::DeformationModelAssemblerElementWorks
 
 namespace
 {
-std::span<EigenSupport::MXd> prepareMappingHessians(
+std::span<EigenSupport::MXd> prepareEvaluatorHessians(
   std::vector<EigenSupport::MXd> &hessians,
-  int numChannels, int numLocalDofs)
+  int numChannels, int numLocalParameters)
 {
   hessians.resize(static_cast<std::size_t>(numChannels));
   for (EigenSupport::MXd &hessian : hessians) {
-    if (hessian.rows() != numLocalDofs || hessian.cols() != numLocalDofs)
-      hessian.resize(numLocalDofs, numLocalDofs);
+    if (hessian.rows() != numLocalParameters || hessian.cols() != numLocalParameters)
+      hessian.resize(numLocalParameters, numLocalParameters);
   }
   return std::span<EigenSupport::MXd>(hessians.data(), hessians.size());
 }
 }  // namespace
 
 std::span<EigenSupport::MXd>
-DeformationModelAssemblerElementWorkspace::preparePlasticParamMappingHessians(
-  int numChannels, int numLocalDofs)
+DeformationModelAssemblerElementWorkspace::preparePlasticParamEvaluatorHessians(
+  int numChannels, int numLocalParameters)
 {
-  return prepareMappingHessians(
-    plasticParamMappingHessians, numChannels, numLocalDofs);
+  return prepareEvaluatorHessians(
+    plasticParamEvaluatorHessians, numChannels, numLocalParameters);
 }
 
 std::span<EigenSupport::MXd>
-DeformationModelAssemblerElementWorkspace::prepareElasticParamMappingHessians(
-  int numChannels, int numLocalDofs)
+DeformationModelAssemblerElementWorkspace::prepareElasticParamEvaluatorHessians(
+  int numChannels, int numLocalParameters)
 {
-  return prepareMappingHessians(
-    elasticParamMappingHessians, numChannels, numLocalDofs);
+  return prepareEvaluatorHessians(
+    elasticParamEvaluatorHessians, numChannels, numLocalParameters);
 }
 
 }  // namespace SolidDeformationModel

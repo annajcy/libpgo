@@ -1,6 +1,6 @@
 #pragma once
 
-#include "material/core/materialParameters.h"
+#include "material/core/optimizableParameters.h"
 
 #include <memory>
 
@@ -20,36 +20,36 @@ public:
   virtual double value(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state) const = 0;
+    const OptimizableParameterEvaluationView &state) const = 0;
 
   // Batch callers can provide reusable storage. The default implementation
   // preserves the behavior of custom sources that do not need it.
   virtual double valueWithScratch(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state,
-    MaterialParameterEvaluationScratch &scratch) const;
+    const OptimizableParameterEvaluationView &state,
+    OptimizableParameterEvaluationScratch &scratch) const;
 
   // At most one parameter field is supported by this refactor. A null pointer
   // denotes a source independent of material parameters. The returned pointer
   // remains valid for the lifetime of this source.
-  virtual const MaterialParameterRef *parameterDependency() const = 0;
+  virtual const OptimizableParameterRef *parameterDependency() const = 0;
 
   // The output vector has exactly
-  // parameterDependency()->field().dofLayout().numLocalDofs() entries when
+  // parameterDependency()->field().layout().numLocalParameters() entries when
   // the source is parameter-dependent, and is empty otherwise. The semantic
   // wrappers validate this contract before dispatching to the source.
   virtual void localParameterDerivative(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state,
+    const OptimizableParameterEvaluationView &state,
     EigenSupport::RefVecXd output) const = 0;
 
   virtual void localParameterDerivativeWithScratch(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state,
-    MaterialParameterEvaluationScratch &scratch,
+    const OptimizableParameterEvaluationView &state,
+    OptimizableParameterEvaluationScratch &scratch,
     EigenSupport::RefVecXd output) const;
 };
 
@@ -62,12 +62,12 @@ public:
   double value(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state) const override;
-  const MaterialParameterRef *parameterDependency() const override;
+    const OptimizableParameterEvaluationView &state) const override;
+  const OptimizableParameterRef *parameterDependency() const override;
   void localParameterDerivative(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state,
+    const OptimizableParameterEvaluationView &state,
     EigenSupport::RefVecXd output) const override;
 
 private:
@@ -83,12 +83,12 @@ public:
   double value(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state) const override;
-  const MaterialParameterRef *parameterDependency() const override;
+    const OptimizableParameterEvaluationView &state) const override;
+  const OptimizableParameterRef *parameterDependency() const override;
   void localParameterDerivative(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state,
+    const OptimizableParameterEvaluationView &state,
     EigenSupport::RefVecXd output) const override;
 
 private:
@@ -100,34 +100,34 @@ private:
 class ScaledElasticParameterFieldSource final : public ElementScalarFieldSource
 {
 public:
-  ScaledElasticParameterFieldSource(double scale, MaterialParameterRef parameter);
+  ScaledElasticParameterFieldSource(double scale, OptimizableParameterRef parameter);
 
   void validate(int numElements) const override;
   double value(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state) const override;
+    const OptimizableParameterEvaluationView &state) const override;
   double valueWithScratch(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state,
-    MaterialParameterEvaluationScratch &scratch) const override;
-  const MaterialParameterRef *parameterDependency() const override;
+    const OptimizableParameterEvaluationView &state,
+    OptimizableParameterEvaluationScratch &scratch) const override;
+  const OptimizableParameterRef *parameterDependency() const override;
   void localParameterDerivative(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state,
+    const OptimizableParameterEvaluationView &state,
     EigenSupport::RefVecXd output) const override;
   void localParameterDerivativeWithScratch(
     int element,
     int quadrature,
-    const MaterialParameterEvaluationView &state,
-    MaterialParameterEvaluationScratch &scratch,
+    const OptimizableParameterEvaluationView &state,
+    OptimizableParameterEvaluationScratch &scratch,
     EigenSupport::RefVecXd output) const override;
 
 private:
   double scale_ = 0.0;
-  MaterialParameterRef parameter_;
+  OptimizableParameterRef parameter_;
 };
 
 }  // namespace pgo::SolidDeformationModel

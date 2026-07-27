@@ -43,7 +43,7 @@ def main() -> None:
     # Build a regular triangular shell grid.
     vertices, triangles = make_shell_grid(GRID_SIZE)
     surface = pgo.mesh.TriMeshData(vertices, triangles)
-    simulation_mesh = pf.SimulationMesh.create_shell(
+    asset = pf.SimulationAsset.create_shell(
         surface,
         pf.KoiterStVKShellMaterial(
             thickness=1.0e-3,
@@ -56,31 +56,34 @@ def main() -> None:
     base_material = np.array([2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3])
     initial_elastic = np.tile(base_material, (triangles.shape[0], 1))
     plastic_values = np.ones((triangles.shape[0], 1))
-    elastic_config = pf.KoiterStVK()
-    plastic_config = pf.ShellPlasticity(dofs=1)
-    parameter_space = pf.MaterialParameterSpace(
-        simulation_mesh,
-        elastic=elastic_config,
-        plastic=plastic_config,
-        elastic_field=pf.ParameterFieldDefinition(
-            layout=pf.ElementwiseDofLayout(),
-            channel_mapping=pf.IdentityMaterialChannelMapping(),
-        ),
-        plastic_field=pf.ParameterFieldDefinition(
-            layout=pf.ElementwiseDofLayout(),
-            channel_mapping=pf.IdentityMaterialChannelMapping(),
-        ),
-    )
-    material_parameters = pf.MaterialParameters(
-        parameter_space,
-        elastic_values=initial_elastic,
-        plastic_values=plastic_values,
-    )
-    energy = pf.deformation_energy(
-        simulation_mesh,
-        elastic=elastic_config,
-        plastic=plastic_config,
-        material_parameters=material_parameters,
+    elastic_definition = pf.KoiterStVKDefinition()
+    plastic_definition = pf.ShellPlasticityDefinition(dofs=1)
+    def identity_field(field_type, names):
+        count = len(names)
+        return field_type(
+            names,
+            pf.ElementwiseParameterLayout(asset.num_elements, count),
+            pf.IdentityMaterialEvaluator(count))
+
+    elastic_fixed = identity_field(
+        pf.FixedParameterField, elastic_definition.fixed_channel_names)
+    plastic_fixed = identity_field(
+        pf.FixedParameterField, plastic_definition.fixed_channel_names)
+    elastic_opt = identity_field(
+        pf.OptimizableParameterField,
+        elastic_definition.optimizable_channel_names)
+    plastic_opt = identity_field(
+        pf.OptimizableParameterField,
+        plastic_definition.optimizable_channel_names)
+    parameterization = pf.MaterialParameterization(
+        pf.ElasticParameterization(elastic_definition, elastic_fixed, elastic_opt),
+        pf.PlasticParameterization(plastic_definition, plastic_fixed, plastic_opt))
+    parameter_data = pf.MaterialParameterData(
+        elastic=(np.empty(0), initial_elastic),
+        plastic=(np.empty(0), plastic_values))
+    assignment = pf.MaterialAssignment(asset, parameterization, parameter_data)
+    energy = pf.DeformationEnergy(
+        assignment,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(
             project_hessian_psd=False,
@@ -91,13 +94,13 @@ def main() -> None:
     # Apply self-weight and clamp the top edge.
     areal_density = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0,
-        parameter=energy.parameters.space.elastic.parameter("thickness"),
+        parameter=energy.optimizable_parameters.elastic_field.parameter("thickness"),
     )
     external_load = pf.SelfWeightGravity(
         formulation=pf.KoiterShell(),
-        sim_mesh=simulation_mesh,
+        asset=asset,
         areal_density=areal_density,
-        material_parameters=energy.parameters,
+        optimizable_parameters=energy.optimizable_parameters,
         acceleration=np.array([0.0, 0.0, -20.0]),
     )
     fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 1.0))
@@ -116,7 +119,7 @@ def main() -> None:
     softness *= np.exp(-(((centers[:, 0] - 0.5) / 0.75) ** 2))
     target_elastic = initial_elastic.copy()
     target_elastic[:, 0] *= 1.0 - 0.98 * softness
-    energy.parameters.set_elastic_values(target_elastic)
+    energy.optimizable_parameters.set_elastic_values(target_elastic)
 
     target_objective = pe.EnergySet(
         [(energy, 1.0), (pe.LinearEnergy(-external_load.force()), 1.0)]
@@ -132,7 +135,7 @@ def main() -> None:
     target_vertices[:, 2] += (
         0.08 * (1.0 - vertices[:, 1]) * np.sin(2.0 * np.pi * vertices[:, 0])
     )
-    energy.parameters.set_elastic_values(initial_elastic)
+    energy.optimizable_parameters.set_elastic_values(initial_elastic)
 
     # Differentiate the observed surface through static equilibrium.
     layer = pgo.fem.ElasticStaticEquilibriumLayer(

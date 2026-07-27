@@ -8,10 +8,9 @@
 #include "material/plastic/plasticModel3DConstant.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "energy/deformationEnergyBuilder.h"
+#include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelAssembler.h"
 #include "formulations/formulation/formulations.h"
-#include "material/core/materialParameterBuilder.h"
 
 #include "energy/deformationModelEnergy.h"
 #include "simulation/simulationMesh.h"
@@ -20,6 +19,7 @@
 #include "triMeshGeo.h"
 #include "pgoLogging.h"
 #include "volumetricMeshMooneyRivlinMaterial.h"
+#include "materialTestUtils.h"
 
 #include <cmath>
 #include <memory>
@@ -37,12 +37,14 @@ constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
 
 template<class FormulationT>
 std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
-  std::shared_ptr<const SimulationMesh> mesh,
+  std::shared_ptr<const SimulationAsset> asset,
   const FormulationT &formulation,
-  std::shared_ptr<const ElasticModelConfig> elastic,
-  std::shared_ptr<const PlasticModelConfig> plastic)
+  std::shared_ptr<const ElasticModelDefinition> elastic,
+  std::shared_ptr<const PlasticModelDefinition> plastic)
 {
-  return makeDeformationEnergy(mesh, elastic, plastic, formulation);
+  return TestUtils::makeTestEnergy(
+    std::move(asset), formulation, std::move(elastic),
+    std::move(plastic));
 }
 }  // namespace
 
@@ -51,19 +53,19 @@ TEST(DeformationModelBuilderGTest, RejectsNullConfigsBeforeDefaultInitialization
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(tetMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadTetMesh(tetMesh));
+  ASSERT_NE(asset, nullptr);
 
-  std::shared_ptr<const ElasticModelConfig> noElastic;
-  std::shared_ptr<const PlasticModelConfig> noPlastic;
-  auto plastic = std::make_shared<VolumetricPlasticity6Config>();
-  auto elastic = std::make_shared<StableNeoConfig>();
+  std::shared_ptr<const ElasticModelDefinition> noElastic;
+  std::shared_ptr<const PlasticModelDefinition> noPlastic;
+  auto plastic = std::make_shared<VolumetricPlasticity6Definition>();
+  auto elastic = std::make_shared<StableNeoDefinition>();
 
   EXPECT_THROW(
-    makeDeformationEnergy(simMesh, noElastic, plastic, TetLinearFormulation{}),
+    TestUtils::makeMaterialAssignment(asset, noElastic, plastic),
     std::invalid_argument);
   EXPECT_THROW(
-    makeDeformationEnergy(simMesh, elastic, noPlastic, TetLinearFormulation{}),
+    TestUtils::makeMaterialAssignment(asset, elastic, noPlastic),
     std::invalid_argument);
 }
 
@@ -74,10 +76,10 @@ TEST(DeformationModelBuilderGTest, TetZeroDisplacementBaseline)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(tetMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadTetMesh(tetMesh));
+  ASSERT_NE(asset, nullptr);
   auto energy = makeDefaultFieldEnergy(
-    simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
+    asset, TetLinearFormulation{}, std::make_shared<StableNeoDefinition>(), std::make_shared<VolumetricPlasticity6Definition>());
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -105,8 +107,8 @@ TEST(DeformationModelBuilderGTest, StructuredInputsCarryCustomMaterialFrames)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(tetMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadTetMesh(tetMesh));
+  ASSERT_NE(asset, nullptr);
 
   const double angle = 0.61;
   MaterialFrame frame;
@@ -115,20 +117,20 @@ TEST(DeformationModelBuilderGTest, StructuredInputsCarryCustomMaterialFrames)
     0.0, 0.0, 1.0;
   auto materialFrames =
     std::make_shared<const ConstantMaterialFrameField>(
-      simMesh->getNumElements(), frame);
+      asset->mesh()->getNumElements(), frame);
 
-  auto parameters = makeDefaultMaterialParameters(
-    *simMesh,
-    *std::make_shared<StableNeoConfig>(),
-    *std::make_shared<VolumetricPlasticity3Config>());
+  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+    *asset,
+    *std::make_shared<StableNeoDefinition>(),
+    *std::make_shared<VolumetricPlasticity3Definition>());
 
-  auto energy = makeDeformationEnergy(
-    simMesh,
-    std::make_shared<StableNeoConfig>(),
-    std::make_shared<VolumetricPlasticity3Config>(),
+  auto energy = TestUtils::makeTestEnergy(
+    asset,
+    TetLinearFormulation{},
+    std::make_shared<StableNeoDefinition>(),
+    std::make_shared<VolumetricPlasticity3Definition>(),
     std::move(parameters),
-    materialFrames,
-    TetLinearFormulation{});
+    materialFrames);
   ASSERT_NE(energy, nullptr);
 
   const auto &manager =
@@ -145,10 +147,10 @@ TEST(DeformationModelBuilderGTest, CubicZeroDisplacementBaseline)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(cubicMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadCubicMesh(cubicMesh));
+  ASSERT_NE(asset, nullptr);
   auto energy = makeDefaultFieldEnergy(
-    simMesh, CubicLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
+    asset, CubicLinearFormulation{}, std::make_shared<StableNeoDefinition>(), std::make_shared<VolumetricPlasticity6Definition>());
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
@@ -169,7 +171,7 @@ TEST(DeformationModelBuilderGTest, CubicZeroDisplacementBaseline)
     EXPECT_TRUE(std::isfinite(h0.valuePtr()[i])) << "Non-finite Hessian entry at " << i;
 }
 
-TEST(DeformationModelBuilderGTest, MooneyRivlinConfigBuildsTetEnergy)
+TEST(DeformationModelBuilderGTest, MooneyRivlinDefinitionBuildsTetEnergy)
 {
   pgo::Logging::init();
 
@@ -187,11 +189,11 @@ TEST(DeformationModelBuilderGTest, MooneyRivlinConfigBuildsTetEnergy)
   pgo::VolumetricMeshes::TetMesh tetMesh(
     4, vertices, 1, elements, 1, materials, 1, &set, 1, &region);
 
-  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(tetMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadTetMesh(tetMesh));
+  ASSERT_NE(asset, nullptr);
   auto energy = makeDefaultFieldEnergy(
-    simMesh, TetLinearFormulation{}, std::make_shared<MooneyRivlinConfig>(),
-    std::make_shared<VolumetricPlasticity0Config>());
+    asset, TetLinearFormulation{}, std::make_shared<MooneyRivlinDefinition>(),
+    std::make_shared<VolumetricPlasticity0Definition>());
   ASSERT_NE(energy, nullptr);
 
   ES::VXd u0 = ES::VXd::Zero(energy->getNumDOFs());
@@ -208,11 +210,11 @@ TEST(DeformationModelBuilderGTest, TetSimulationMeshBuilderValidatesTopology)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(tetMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadTetMesh(tetMesh));
+  ASSERT_NE(asset, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
+    asset, TetLinearFormulation{}, std::make_shared<StableNeoDefinition>(), std::make_shared<VolumetricPlasticity6Definition>());
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
 }
@@ -223,11 +225,11 @@ TEST(DeformationModelBuilderGTest, CubicSimulationMeshBuilderValidatesTopology)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(cubicMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadCubicMesh(cubicMesh));
+  ASSERT_NE(asset, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    simMesh, CubicLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
+    asset, CubicLinearFormulation{}, std::make_shared<StableNeoDefinition>(), std::make_shared<VolumetricPlasticity6Definition>());
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
 }
@@ -240,16 +242,17 @@ TEST(DeformationModelBuilderGTest, ShellSimulationMeshBuilderValidatesTopology)
 
   pgo::Mesh::TriMeshGeo surfaceMesh;
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
-  SimulationMeshENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
-  std::shared_ptr<const SimulationMesh> simMesh(loadShellMesh(surfaceMesh, shellMaterial).release());
-  ASSERT_NE(simMesh, nullptr);
+  ImportedENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
+  auto asset = TestUtils::shareAsset(
+    loadShellMesh(surfaceMesh, shellMaterial));
+  ASSERT_NE(asset, nullptr);
 
   auto energy = makeDefaultFieldEnergy(
-    simMesh, KoiterShellFormulation{}, std::make_shared<KoiterStVKConfig>(), std::make_shared<ShellPlasticity1Config>());
+    asset, KoiterShellFormulation{}, std::make_shared<KoiterStVKDefinition>(), std::make_shared<ShellPlasticity1Definition>());
 
   ASSERT_NE(energy, nullptr);
   EXPECT_GT(energy->getNumDOFs(), 0);
-  EXPECT_EQ(energy->getNumDOFs(), simMesh->getNumVertices() * 3);
+  EXPECT_EQ(energy->getNumDOFs(), asset->mesh()->getNumVertices() * 3);
 
   ES::VXd u0 = ES::VXd::Zero(energy->getNumDOFs());
   EXPECT_TRUE(std::isfinite(energy->func(u0)));
@@ -261,11 +264,11 @@ TEST(DeformationModelBuilderGTest, TetBuilderRejectsCubicSimulationMesh)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(cubicMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadCubicMesh(cubicMesh));
+  ASSERT_NE(asset, nullptr);
 
   EXPECT_THROW(
-    makeDefaultFieldEnergy(simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>()),
+    makeDefaultFieldEnergy(asset, TetLinearFormulation{}, std::make_shared<StableNeoDefinition>(), std::make_shared<VolumetricPlasticity6Definition>()),
     std::invalid_argument);
 }
 
@@ -276,13 +279,13 @@ TEST(DeformationModelBuilderGTest, OneMeshOwnerTwoTetEnergies)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::TetMesh tetMesh(kTorusVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(loadTetMesh(tetMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadTetMesh(tetMesh));
+  ASSERT_NE(asset, nullptr);
 
   auto b1 = makeDefaultFieldEnergy(
-    simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
+    asset, TetLinearFormulation{}, std::make_shared<StableNeoDefinition>(), std::make_shared<VolumetricPlasticity6Definition>());
   auto b2 = makeDefaultFieldEnergy(
-    simMesh, TetLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
+    asset, TetLinearFormulation{}, std::make_shared<StableNeoDefinition>(), std::make_shared<VolumetricPlasticity6Definition>());
 
   ASSERT_NE(b1, nullptr);
   ASSERT_NE(b2, nullptr);
@@ -321,13 +324,13 @@ TEST(DeformationModelBuilderGTest, OneMeshOwnerTwoCubicEnergies)
   pgo::Logging::init();
 
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  std::shared_ptr<const SimulationMesh> simMesh(loadCubicMesh(cubicMesh).release());
-  ASSERT_NE(simMesh, nullptr);
+  auto asset = TestUtils::shareAsset(loadCubicMesh(cubicMesh));
+  ASSERT_NE(asset, nullptr);
 
   auto b1 = makeDefaultFieldEnergy(
-    simMesh, CubicLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
+    asset, CubicLinearFormulation{}, std::make_shared<StableNeoDefinition>(), std::make_shared<VolumetricPlasticity6Definition>());
   auto b2 = makeDefaultFieldEnergy(
-    simMesh, CubicLinearFormulation{}, std::make_shared<StableNeoConfig>(), std::make_shared<VolumetricPlasticity6Config>());
+    asset, CubicLinearFormulation{}, std::make_shared<StableNeoDefinition>(), std::make_shared<VolumetricPlasticity6Definition>());
 
   ASSERT_NE(b1, nullptr);
   ASSERT_NE(b2, nullptr);

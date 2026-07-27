@@ -12,8 +12,7 @@ namespace
 {
 using pgo::SolidDeformationModel::DofGroup;
 using pgo::SolidDeformationModel::SimulationMesh;
-using pgo::SolidDeformationModel::SimulationMeshENuMaterial;
-using pgo::SolidDeformationModel::SimulationMeshENuhMaterial;
+using pgo::SolidDeformationModel::ImportedENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::SolidDeformationModel::PerVertexDofLayout;
 using pgo::SolidDeformationModel::Vertex3DofLayout;
@@ -44,10 +43,8 @@ std::unique_ptr<SimulationMesh> makeSingleTetMesh()
     0.0, 0.0, 1.0,
   };
   const int elementVertices[] = { 0, 1, 2, 3 };
-  SimulationMeshENuMaterial mat(1000.0, 0.45);
   return std::unique_ptr<SimulationMesh>(new SimulationMesh(
     4, vertices, 1, 4, elementVertices,
-    makeUniformSimulationMeshElementFieldStore(1, mat),
     SimulationMeshType::TET));
 }
 
@@ -60,10 +57,8 @@ std::unique_ptr<SimulationMesh> makeSingleCubicMesh()
     1.0, 1.0, 1.0,  0.0, 1.0, 1.0,
   };
   const int elementVertices[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
-  SimulationMeshENuMaterial mat(1000.0, 0.45);
   return std::unique_ptr<SimulationMesh>(new SimulationMesh(
     8, vertices, 1, 8, elementVertices,
-    makeUniformSimulationMeshElementFieldStore(1, mat),
     SimulationMeshType::CUBIC));
 }
 }
@@ -141,13 +136,13 @@ TEST(Vertex3DofLayoutGTest, ShellDofCounts)
   pgo::Mesh::TriMeshGeo surfaceMesh;
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
 
-  SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
+  ImportedENuhMaterial mat(1000.0, 0.45, 1e-3);
   auto mesh = pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, mat);
   ASSERT_NE(mesh, nullptr);
 
-  Vertex3DofLayout layout(*mesh);
+  Vertex3DofLayout layout(*mesh->mesh());
 
-  const int nv = mesh->getNumVertices();
+  const int nv = mesh->mesh()->getNumVertices();
   EXPECT_EQ(layout.numGlobalDofs(), nv * 3);
   EXPECT_EQ(layout.numLocalDofs(0), 18);   // 6 shell nodes * 3
   EXPECT_GT(layout.numGlobalDofs(), layout.numLocalDofs(0));
@@ -223,19 +218,19 @@ TEST(Vertex3DofLayoutGTest, DofGroupsSkipShellSentinels)
   pgo::Mesh::TriMeshGeo surfaceMesh;
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
 
-  SimulationMeshENuhMaterial mat(1000.0, 0.45, 1e-3);
+  ImportedENuhMaterial mat(1000.0, 0.45, 1e-3);
   auto mesh = pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, mat);
   ASSERT_NE(mesh, nullptr);
 
-  Vertex3DofLayout layout(*mesh);
+  Vertex3DofLayout layout(*mesh->mesh());
 
   std::vector<DofGroup> groups;
   layout.getDofGroups(0, groups);
 
   int expectedGroup = 0;
   int sentinelCount = 0;
-  for (int v = 0; v < mesh->getNumElementVertices(); v++) {
-    const int vid = mesh->getVertexIndex(0, v);
+  for (int v = 0; v < mesh->mesh()->getNumElementVertices(); v++) {
+    const int vid = mesh->mesh()->getVertexIndex(0, v);
     if (vid < 0) {
       sentinelCount++;
       continue;

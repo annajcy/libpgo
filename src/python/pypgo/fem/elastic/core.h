@@ -7,40 +7,36 @@
 #include "material/elastic/elasticModelLinearMaterial.h"
 #include "material/elastic/elasticModel3DMooneyRivlin.h"
 #include "material/elastic/elasticModel2DFundamentalFormsSTVK.h"
-#include "simulation/simulationMesh.h"
-
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace pgo
 {
 
-class PySimulationMesh;
-
-// Python-facing immutable elastic model configuration wrapper.
-class PyElasticModelConfig
+// Python-facing immutable elastic model definition wrapper.
+class PyElasticModelDefinition
 {
 public:
-  explicit PyElasticModelConfig(
-    std::shared_ptr<const SolidDeformationModel::ElasticModelConfig> config):
-    config_(std::move(config)) {}
+  explicit PyElasticModelDefinition(
+    std::shared_ptr<const SolidDeformationModel::ElasticModelDefinition> definition):
+    definition_(std::move(definition)) {}
 
-  std::string name() const { return std::string(config_->id()); }
-
-  // Number of parameter channels per element for the given mesh.
-  int numChannels(const SolidDeformationModel::SimulationMesh &mesh) const;
-  int numChannels(const PySimulationMesh &mesh) const;
-  std::shared_ptr<const SolidDeformationModel::ElasticModelConfig> config() const { return config_; }
+  std::string name() const { return std::string(definition_->id()); }
+  std::vector<std::string> fixedChannelNames() const;
+  std::vector<std::string> optimizableChannelNames() const;
+  std::string frameRequirement() const;
+  std::shared_ptr<const SolidDeformationModel::ElasticModelDefinition> definition() const { return definition_; }
 
 protected:
-  std::shared_ptr<const SolidDeformationModel::ElasticModelConfig> config_;
+  std::shared_ptr<const SolidDeformationModel::ElasticModelDefinition> definition_;
 };
 
-class PyStableNeoConfig final : public PyElasticModelConfig { public: PyStableNeoConfig(); };
-class PyStVKConfig final : public PyElasticModelConfig { public: PyStVKConfig(); };
-class PyStVKVolumeConfig final : public PyElasticModelConfig { public: PyStVKVolumeConfig(); };
-class PyLinearElasticConfig final : public PyElasticModelConfig { public: PyLinearElasticConfig(); };
-class PyMooneyRivlinConfig final : public PyElasticModelConfig { public: PyMooneyRivlinConfig(); };
-class PyKoiterStVKConfig final : public PyElasticModelConfig { public: PyKoiterStVKConfig(); };
+class PyStableNeoDefinition final : public PyElasticModelDefinition { public: PyStableNeoDefinition(); };
+class PyStVKDefinition final : public PyElasticModelDefinition { public: PyStVKDefinition(); };
+class PyStVKVolumeDefinition final : public PyElasticModelDefinition { public: PyStVKVolumeDefinition(); };
+class PyLinearElasticDefinition final : public PyElasticModelDefinition { public: PyLinearElasticDefinition(); };
+class PyMooneyRivlinDefinition final : public PyElasticModelDefinition { public: PyMooneyRivlinDefinition(); };
+class PyKoiterStVKDefinition final : public PyElasticModelDefinition { public: PyKoiterStVKDefinition(); };
 
 }  // namespace pgo

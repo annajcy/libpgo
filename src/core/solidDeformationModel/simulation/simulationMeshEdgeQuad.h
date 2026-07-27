@@ -1,7 +1,9 @@
 #pragma once
 
 #include "simulation/simulationMeshBase.h"
-#include "simulation/simulationMeshMaterial.h"
+#include "simulation/simulationAsset.h"
+#include "simulation/elementField.h"
+#include "simulation/importedMaterial.h"
 
 namespace pgo
 {
@@ -14,18 +16,18 @@ namespace SolidDeformationModel
 
 // Material fields are indexed by the source triangles.  The two materials on
 // either side of each interior edge are averaged into the edge-quad material.
-std::unique_ptr<SimulationMesh> loadEdgeQuadMesh(
+std::unique_ptr<SimulationAsset> loadEdgeQuadMesh(
   const Mesh::TriMeshGeo &triMeshGeo,
-  const SimulationMeshENuMaterial &mat);
-std::unique_ptr<SimulationMesh> loadEdgeQuadMesh(
+  const ImportedENuMaterial &mat);
+std::unique_ptr<SimulationAsset> loadEdgeQuadMesh(
   const Mesh::TriMeshGeo &triMeshGeo,
-  ElementField<SimulationMeshENuMaterial> triangleMaterials);
-std::unique_ptr<SimulationMesh> loadEdgeQuadMesh(
+  ElementField<ImportedENuMaterial> triangleMaterials);
+std::unique_ptr<SimulationAsset> loadEdgeQuadMesh(
   const Mesh::TriMeshGeo &triMeshGeo,
-  const SimulationMeshENuhMaterial &mat);
-std::unique_ptr<SimulationMesh> loadEdgeQuadMesh(
+  const ImportedENuhMaterial &mat);
+std::unique_ptr<SimulationAsset> loadEdgeQuadMesh(
   const Mesh::TriMeshGeo &triMeshGeo,
-  ElementField<SimulationMeshENuhMaterial> triangleMaterials);
+  ElementField<ImportedENuhMaterial> triangleMaterials);
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo
