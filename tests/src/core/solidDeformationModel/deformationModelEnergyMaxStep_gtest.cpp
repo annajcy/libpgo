@@ -48,8 +48,6 @@ using pgo::SolidDeformationModel::DeformationModelEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::PlasticModelDefinition;
 using pgo::SolidDeformationModel::SimulationMesh;
-using pgo::SolidDeformationModel::ImportedENuMaterial;
-using pgo::SolidDeformationModel::ImportedENuhMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::SolidDeformationModel::tetLinearComputeDs;
 using CubicFEM = pgo::SolidDeformationModel::VolumetricDeformationModel;
@@ -71,7 +69,7 @@ void initializeLogging()
 
 struct EnergyFixture
 {
-  std::shared_ptr<const SimulationAsset> asset;
+  std::shared_ptr<const SimulationImportResult> asset;
   std::shared_ptr<const SimulationMesh> meshOwner;
   std::shared_ptr<DeformationModelEnergy> energy;
   ES::VXd restPositions;
@@ -182,12 +180,12 @@ EnergyFixture makeShellFixture()
   if (!surfaceMesh.load(kShellObjPath))
     throw std::runtime_error("Failed to load shell regression mesh.");
 
-  ImportedENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
-
   EnergyFixture fixture;
   fixture.asset = TestUtils::shareAsset(
-    pgo::SolidDeformationModel::loadShellMesh(
-      surfaceMesh, shellMaterial));
+    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh),
+    TestUtils::uniformImportedMaterialCatalog(
+      surfaceMesh.numTriangles(), {"E", "nu", "h", "J"},
+      {1000.0, 0.45, 1e-3, 10000.0}, "shell"));
   fixture.meshOwner = fixture.asset->mesh();
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);

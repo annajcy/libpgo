@@ -9,10 +9,7 @@
 #include <cmath>
 #include <map>
 #include <memory>
-#include <numeric>
 #include <stdexcept>
-#include <string_view>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -111,111 +108,23 @@ std::vector<double> copyTriMeshVertices(const pgo::Mesh::TriMeshGeo &triMeshGeo)
   return vertices;
 }
 
-ElementField<ImportedENuMaterial> averageEdgeQuadMaterials(
-  const EdgeQuadTopology &topology,
-  const ElementField<ImportedENuMaterial> &triangleMaterials)
+std::shared_ptr<SimulationMesh> buildEdgeQuadSimulationMesh(
+  const pgo::Mesh::TriMeshGeo &triMeshGeo)
 {
-  std::vector<ImportedENuMaterial> materials;
-  materials.reserve(topology.sourceTriangles.size());
-  for (const auto &source : topology.sourceTriangles) {
-    const auto &mat0 = triangleMaterials.at(source.first);
-    const auto &mat1 = triangleMaterials.at(source.second);
-    materials.emplace_back(
-      0.5 * (mat0.getE() + mat1.getE()),
-      0.5 * (mat0.getNu() + mat1.getNu()),
-      0.5 * (mat0.getCompressionRatio() + mat1.getCompressionRatio()));
-  }
-  return ElementField<ImportedENuMaterial>::fromValues(std::move(materials));
-}
-
-ElementField<ImportedENuhMaterial> averageEdgeQuadMaterials(
-  const EdgeQuadTopology &topology,
-  const ElementField<ImportedENuhMaterial> &triangleMaterials)
-{
-  std::vector<ImportedENuhMaterial> materials;
-  materials.reserve(topology.sourceTriangles.size());
-  for (const auto &source : topology.sourceTriangles) {
-    const auto &mat0 = triangleMaterials.at(source.first);
-    const auto &mat1 = triangleMaterials.at(source.second);
-    materials.emplace_back(
-      0.5 * (mat0.getE() + mat1.getE()),
-      0.5 * (mat0.getNu() + mat1.getNu()),
-      0.5 * (mat0.geth() + mat1.geth()),
-      0.5 * (mat0.getCompressionRatio() + mat1.getCompressionRatio()));
-  }
-  return ElementField<ImportedENuhMaterial>::fromValues(std::move(materials));
-}
-
-template<class Material>
-std::unique_ptr<SimulationAsset> buildEdgeQuadSimulationMesh(
-  const pgo::Mesh::TriMeshGeo &triMeshGeo,
-  ElementField<Material> triangleMaterials)
-{
-  if (triangleMaterials.size() != triMeshGeo.numTriangles())
-    throw std::invalid_argument(
-      "edge-quad material field size must match the triangle count");
-
   EdgeQuadTopology topology = buildEdgeQuadTopology(triMeshGeo);
   std::vector<double> vertices = copyTriMeshVertices(triMeshGeo);
-  auto averaged = averageEdgeQuadMaterials(topology, triangleMaterials);
-  std::vector<double> values;
-  values.reserve(static_cast<std::size_t>(averaged.size()) * (std::is_same_v<Material, ImportedENuhMaterial> ? 4 : 3));
-  for (int element = 0; element < static_cast<int>(averaged.size()); ++element) {
-    const auto &material = averaged.at(element);
-    values.push_back(material.getE());
-    values.push_back(material.getNu());
-    if constexpr (std::is_same_v<Material, ImportedENuhMaterial>)
-      values.push_back(material.geth());
-    values.push_back(material.getCompressionRatio());
-  }
-  static constexpr std::string_view enuNames[] = {"E", "nu", "J"};
-  static constexpr std::string_view enuhNames[] = {"E", "nu", "h", "J"};
-  auto mesh = std::make_shared<SimulationMesh>(
+  return std::make_shared<SimulationMesh>(
     triMeshGeo.numVertices(), vertices,
     static_cast<int>(topology.sourceTriangles.size()), 4,
     topology.elementVertexIndices,
     SimulationMeshType::EDGE_QUAD);
-  const int numElements = static_cast<int>(averaged.size());
-  const int numChannels = std::is_same_v<Material, ImportedENuhMaterial> ? 4 : 3;
-  pgo::EigenSupport::MXd rows(numElements, numChannels);
-  for (int element = 0; element < numElements; ++element)
-    for (int channel = 0; channel < numChannels; ++channel)
-      rows(element, channel) = values[static_cast<std::size_t>(element) * numChannels + channel];
-  const auto sourceNames = std::is_same_v<Material, ImportedENuhMaterial> ?
-    std::span<const std::string_view>(enuhNames, 4) :
-    std::span<const std::string_view>(enuNames, 3);
-  std::vector<std::string> channelNames;
-  channelNames.reserve(sourceNames.size());
-  for (const auto name : sourceNames)
-    channelNames.emplace_back(name);
-  std::vector<int> elementToRow(static_cast<std::size_t>(numElements));
-  std::iota(elementToRow.begin(), elementToRow.end(), 0);
-  auto materialData = ImportedMaterialData(
-    numElements, {}, {}, {},
-    {ImportedMaterialField(
-      std::move(channelNames), std::move(rows), std::move(elementToRow), "edge_quad")});
-  return std::make_unique<SimulationAsset>(std::move(mesh), std::move(materialData));
 }
 
 }
 
-std::unique_ptr<SimulationAsset> pgo::SolidDeformationModel::loadTriangleMesh(
-  const Mesh::TriMeshGeo &triMeshGeo,
-  const ImportedENuMaterial &mat)
+std::shared_ptr<SimulationMesh> pgo::SolidDeformationModel::loadTriangleMesh(
+  const Mesh::TriMeshGeo &triMeshGeo)
 {
-  return loadTriangleMesh(
-    triMeshGeo, ElementField<ImportedENuMaterial>::uniform(
-      triMeshGeo.numTriangles(), mat));
-}
-
-std::unique_ptr<SimulationAsset> pgo::SolidDeformationModel::loadTriangleMesh(
-  const Mesh::TriMeshGeo &triMeshGeo,
-  ElementField<ImportedENuMaterial> materials)
-{
-  if (materials.size() != triMeshGeo.numTriangles())
-    throw std::invalid_argument(
-      "triangle material field size must match the triangle count");
-
   std::vector<int> triangles;
   triangles.reserve(static_cast<std::size_t>(triMeshGeo.numTriangles()) * 3);
   for (int tri = 0; tri < triMeshGeo.numTriangles(); tri++) {
@@ -226,67 +135,16 @@ std::unique_ptr<SimulationAsset> pgo::SolidDeformationModel::loadTriangleMesh(
   }
 
   std::vector<double> vertices = copyTriMeshVertices(triMeshGeo);
-  std::vector<double> values;
-  values.reserve(static_cast<std::size_t>(materials.size()) * 3);
-  for (int element = 0; element < static_cast<int>(materials.size()); ++element) {
-    values.push_back(materials.at(element).getE());
-    values.push_back(materials.at(element).getNu());
-    values.push_back(materials.at(element).getCompressionRatio());
-  }
-  static constexpr std::string_view names[] = {"E", "nu", "J"};
-  auto mesh = std::make_shared<SimulationMesh>(
+  return std::make_shared<SimulationMesh>(
     triMeshGeo.numVertices(), vertices,
     triMeshGeo.numTriangles(), 3, triangles,
     SimulationMeshType::TRIANGLE);
-  const int numElements = static_cast<int>(materials.size());
-  pgo::EigenSupport::MXd rows(numElements, 3);
-  for (int element = 0; element < numElements; ++element)
-    for (int channel = 0; channel < 3; ++channel)
-      rows(element, channel) = values[static_cast<std::size_t>(element) * 3 + channel];
-  std::vector<std::string> channelNames;
-  for (const auto name : names)
-    channelNames.emplace_back(name);
-  std::vector<int> elementToRow(static_cast<std::size_t>(numElements));
-  std::iota(elementToRow.begin(), elementToRow.end(), 0);
-  auto materialData = ImportedMaterialData(
-    numElements, {}, {}, {},
-    {ImportedMaterialField(
-      std::move(channelNames), std::move(rows), std::move(elementToRow), "triangle")});
-  return std::make_unique<SimulationAsset>(std::move(mesh), std::move(materialData));
 }
 
-std::unique_ptr<SimulationAsset> pgo::SolidDeformationModel::loadEdgeQuadMesh(
-  const Mesh::TriMeshGeo &triMeshGeo,
-  const ImportedENuMaterial &mat)
+std::shared_ptr<SimulationMesh> pgo::SolidDeformationModel::loadEdgeQuadMesh(
+  const Mesh::TriMeshGeo &triMeshGeo)
 {
-  return loadEdgeQuadMesh(
-    triMeshGeo, ElementField<ImportedENuMaterial>::uniform(
-      triMeshGeo.numTriangles(), mat));
-}
-
-std::unique_ptr<SimulationAsset> pgo::SolidDeformationModel::loadEdgeQuadMesh(
-  const Mesh::TriMeshGeo &triMeshGeo,
-  ElementField<ImportedENuMaterial> triangleMaterials)
-{
-  return buildEdgeQuadSimulationMesh(
-    triMeshGeo, std::move(triangleMaterials));
-}
-
-std::unique_ptr<SimulationAsset> pgo::SolidDeformationModel::loadEdgeQuadMesh(
-  const Mesh::TriMeshGeo &triMeshGeo,
-  const ImportedENuhMaterial &mat)
-{
-  return loadEdgeQuadMesh(
-    triMeshGeo, ElementField<ImportedENuhMaterial>::uniform(
-      triMeshGeo.numTriangles(), mat));
-}
-
-std::unique_ptr<SimulationAsset> pgo::SolidDeformationModel::loadEdgeQuadMesh(
-  const Mesh::TriMeshGeo &triMeshGeo,
-  ElementField<ImportedENuhMaterial> triangleMaterials)
-{
-  return buildEdgeQuadSimulationMesh(
-    triMeshGeo, std::move(triangleMaterials));
+  return buildEdgeQuadSimulationMesh(triMeshGeo);
 }
 
 void pgo::SolidDeformationModel::computeTriangleUV(

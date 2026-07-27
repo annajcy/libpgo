@@ -596,7 +596,7 @@ MaterialChannelSchema KoiterFabricDefinition::optimizableChannelSchema() const
     "alpha", "kappa11", "kappa22", "kappa12", "I8_0", "h"};
   return MaterialChannelSchema(names);
 }
-std::unique_ptr<ElasticModel> KoiterFabricDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
+std::unique_ptr<ElasticModel> KoiterFabricDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (!values.empty()) throw std::invalid_argument("koiter_fabric has no fixed channels");
   return std::make_unique<ElasticModel2DFundamentalFormsFabric>(EigenSupport::V2d(1, 0), EigenSupport::V2d(0, 1));

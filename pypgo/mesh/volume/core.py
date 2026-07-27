@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
-
 import pypgo._core as _core
 from pypgo.mesh.data import CubicMeshData, TetMeshData, TriMeshData, _wrap_mesh_data_core
 from pypgo.mesh.volume.material import (
-    ENuMaterial,
     MaterialLike,
-    MooneyRivlinMaterial,
     _material_to_core_payload,
     _wrap_material_payload,
 )
@@ -60,56 +56,34 @@ class VegFile:
             raise ValueError(f"expected exactly one material, got {len(self.materials)}")
         return self.materials[0]
 
-    def to_volume_regions(self) -> list[tuple[str, MaterialLike, list[int]]]:
-        return [
-            (
-                self.sets[region.set_index].name,
-                self.materials[region.material_index],
-                list(self.sets[region.set_index].elements),
-            )
-            for region in self.regions
-        ]
+    def _to_core_payload(self):
+        return _core._create_veg_payload(
+            self.mesh_data._handle,
+            [_material_to_core_payload(material) for material in self.materials],
+            [(mesh_set.name, list(mesh_set.elements)) for mesh_set in self.sets],
+            [
+                (region.material_index, region.set_index)
+                for region in self.regions
+            ],
+        )
 
-
-# ---------------------------------------------------------------------------
-# Region validation helper
-# ---------------------------------------------------------------------------
-
-
-def _validate_and_split_regions(regions, num_elements: int):
-    names: set[str] = set()
-    assigned: dict[int, str] = {}
-    materials = []
-    sets = []
-    region_payloads = []
-
-    for region_id, item in enumerate(regions):
-        try:
-            name, material, elements = item
-        except (TypeError, ValueError) as exc:
-            raise TypeError("each region must be (name, material, elements)") from exc
-
-        if name in names:
-            raise ValueError(f"duplicate region name '{name}'")
-        names.add(name)
-
-        element_list = [int(e) for e in elements]
-        for element in element_list:
-            if element < 0 or element >= num_elements:
-                raise ValueError(f"region '{name}' references element {element} out of [0, {num_elements})")
-            if element in assigned:
-                raise ValueError(f"element {element} assigned to both '{assigned[element]}' and '{name}'")
-            assigned[element] = name
-
-        materials.append(_material_to_core_payload(material))
-        sets.append((str(name), sorted(set(element_list))))
-        region_payloads.append((region_id, region_id))
-
-    for element in range(num_elements):
-        if element not in assigned:
-            raise ValueError(f"element {element} not assigned to any region")
-
-    return materials, sets, region_payloads
+    @classmethod
+    def _from_core_payload(cls, payload) -> "VegFile":
+        return cls(
+            mesh_data=_wrap_mesh_data_core(payload.mesh_data),
+            materials=[
+                _wrap_material_payload(material)
+                for material in payload.materials
+            ],
+            sets=[
+                MeshSet(name, list(elements))
+                for name, elements in payload.sets
+            ],
+            regions=[
+                MeshRegion(material_index, set_index)
+                for material_index, set_index in payload.regions
+            ],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -118,39 +92,28 @@ def _validate_and_split_regions(regions, num_elements: int):
 
 
 class VolumeMesh:
-    """Vega FEM volumetric mesh wrapper.
+    """Native Vega volume mesh constructed from a lossless :class:`VegFile`."""
 
-    Use pypgo.fem.SimulationAsset factory methods for solver-ready assets.
-    """
+    def __init__(self, source, material: MaterialLike | None = None):
+        if isinstance(source, VegFile):
+            if material is not None:
+                raise TypeError("material must be omitted when source is a VegFile")
+            veg = source
+        elif isinstance(source, (TetMeshData, CubicMeshData)):
+            if material is None:
+                raise TypeError(
+                    "VolumeMesh(mesh_data, material) requires a material"
+                )
+            veg = VegFile.from_single_material(source, material)
+        else:
+            raise TypeError(
+                "source must be a VegFile or TetMeshData or CubicMeshData"
+            )
 
-    def __init__(self, mesh_data, regions):
-        if not isinstance(mesh_data, (TetMeshData, CubicMeshData)):
-            raise TypeError(f"mesh_data must be a TetMeshData or CubicMeshData, got {type(mesh_data).__name__}")
-
-        self._mesh_data = mesh_data
-        materials, sets, region_payloads = _validate_and_split_regions(regions, mesh_data.num_elements)
-        self._handle = _core.create_volume_mesh_multi(
-            mesh_data._handle, materials, sets, region_payloads)
-
-    @classmethod
-    def create_from_single_material(cls, mesh_data, material) -> "VolumeMesh":
-        if not isinstance(mesh_data, (TetMeshData, CubicMeshData)):
-            raise TypeError(f"mesh_data must be a TetMeshData or CubicMeshData, got {type(mesh_data).__name__}")
-        if not isinstance(material, (ENuMaterial, MooneyRivlinMaterial)):
-            raise TypeError(f"material must be a veg material type, got {type(material).__name__}")
-        obj = cls.__new__(cls)
-        obj._mesh_data = mesh_data
-        obj._handle = _core.create_volume_mesh_multi(
-            mesh_data._handle,
-            [_material_to_core_payload(material)],
-            [("allElements", list(range(mesh_data.num_elements)))],
-            [(0, 0)],
+        self._mesh_data = veg.mesh_data
+        self._handle = _core._create_volume_mesh_from_veg_payload(
+            veg._to_core_payload()
         )
-        return obj
-
-    @classmethod
-    def from_veg_file(cls, veg: VegFile) -> "VolumeMesh":
-        return cls(veg.mesh_data, veg.to_volume_regions())
 
     def extract_surface_mesh(self, *, triangulate: bool = True) -> TriMeshData:
         return TriMeshData(_core.extract_surface_mesh(self._handle, bool(triangulate)))
@@ -194,12 +157,8 @@ class VolumeMesh:
         return self.material
 
     def to_veg_file(self) -> VegFile:
-        payload = _core.extract_veg_payload_from_volume_mesh(self._handle)
-        return VegFile(
-            mesh_data=_wrap_mesh_data_core(payload.mesh_data),
-            materials=[_wrap_material_payload(m) for m in payload.materials],
-            sets=[MeshSet(name, list(elements)) for name, elements in payload.sets],
-            regions=[MeshRegion(mi, si) for mi, si in payload.regions],
+        return VegFile._from_core_payload(
+            _core.extract_veg_payload_from_volume_mesh(self._handle)
         )
 
     def __repr__(self) -> str:
@@ -219,44 +178,13 @@ def read_msh(path: str) -> TetMeshData:
     return _wrap_mesh_data_core(_core.read_msh(str(path)))
 
 
-def _mesh_data_from_veg_record(mesh_kind, vertices, elements):
-    vertex_array = np.asarray(vertices, dtype=np.float64).reshape(-1, 3)
-    if mesh_kind == "tet":
-        return TetMeshData(vertex_array, np.asarray(elements, dtype=np.int64).reshape(-1, 4))
-    if mesh_kind == "cubic":
-        return CubicMeshData(vertex_array, np.asarray(elements, dtype=np.int64).reshape(-1, 8))
-    raise RuntimeError(f"Unexpected veg mesh kind from _core: {mesh_kind!r}")
-
-
-def _material_from_veg_record(record):
-    kind = record[0]
-    if kind == "enu":
-        _, name, density, E, nu = record
-        return ENuMaterial(name, density=float(density), E=float(E), nu=float(nu))
-    if kind == "mooney_rivlin":
-        _, name, density, mu01, mu10, v1 = record
-        return MooneyRivlinMaterial(
-            name, density=float(density), mu01=float(mu01), mu10=float(mu10), v1=float(v1))
-    raise RuntimeError(f"Unexpected material payload from _core: {kind!r}")
-
-
 def read_veg(path: str) -> VegFile:
-    mesh_kind, vertices, elements, materials, sets, regions = _core.read_veg(str(path))
-    return VegFile(
-        mesh_data=_mesh_data_from_veg_record(mesh_kind, vertices, elements),
-        materials=[_material_from_veg_record(m) for m in materials],
-        sets=[MeshSet(name, list(elements)) for name, elements in sets],
-        regions=[MeshRegion(material_index, set_index) for material_index, set_index in regions],
+    return VegFile._from_core_payload(
+        _core._read_veg_payload(str(path))
     )
 
 
 def write_veg(path: str, veg: VegFile) -> None:
-    if not isinstance(veg.mesh_data, (TetMeshData, CubicMeshData)):
-        raise TypeError(f"mesh_data must be a TetMeshData or CubicMeshData, got {type(veg.mesh_data).__name__}")
-    _core.write_veg(
-        str(path),
-        veg.mesh_data._handle,
-        [_material_to_core_payload(m) for m in veg.materials],
-        [(s.name, list(s.elements)) for s in veg.sets],
-        [(r.material_index, r.set_index) for r in veg.regions],
-    )
+    if not isinstance(veg, VegFile):
+        raise TypeError(f"veg must be a VegFile, got {type(veg).__name__}")
+    _core._write_veg_payload(str(path), veg._to_core_payload())

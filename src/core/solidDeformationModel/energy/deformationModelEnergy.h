@@ -6,7 +6,7 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "energy/potentialEnergy.h"
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameters.h"
 
 #include <tbb/enumerable_thread_specific.h>
 

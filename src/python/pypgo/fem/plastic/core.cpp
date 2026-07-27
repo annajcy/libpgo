@@ -18,16 +18,6 @@ std::vector<std::string> PyPlasticModelDefinition::optimizableChannelNames() con
   return std::vector<std::string>(names.begin(), names.end());
 }
 
-std::string PyPlasticModelDefinition::frameRequirement() const
-{
-  switch (definition_->frameRequirement()) {
-  case SD::MaterialFrameRequirement::None: return "none";
-  case SD::MaterialFrameRequirement::PrimaryAxis: return "primary_axis";
-  case SD::MaterialFrameRequirement::FullFrame: return "full_frame";
-  }
-  return "unknown";
-}
-
 PyVolumetricPlasticity0Definition::PyVolumetricPlasticity0Definition(): PyPlasticModelDefinition(std::make_shared<SD::VolumetricPlasticity0Definition>(), 0) {}
 PyVolumetricPlasticity3Definition::PyVolumetricPlasticity3Definition(): PyPlasticModelDefinition(std::make_shared<SD::VolumetricPlasticity3Definition>(), 3) {}
 PyVolumetricPlasticity6Definition::PyVolumetricPlasticity6Definition(): PyPlasticModelDefinition(std::make_shared<SD::VolumetricPlasticity6Definition>(), 6) {}

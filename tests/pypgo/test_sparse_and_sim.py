@@ -1,5 +1,3 @@
-import json
-
 import numpy as np
 
 import pypgo as pgo
@@ -73,23 +71,7 @@ def test_sparse_matmul_rejects_shape_mismatch():
             matrix @ bad
 
 
-def test_shell_spec_io_roundtrip(tmp_path):
-    tri = pgo.mesh.TriMeshData(
-        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64),
-        np.array([[0, 1, 2]], dtype=np.int64),
-    )
-    mat = pgo.fem.KoiterStVKShellMaterial(
-        "cloth", thickness=0.01, E_membrane=1e6, nu_membrane=0.35
-    )
-
-    shell_path = tmp_path / "cloth.shell.json"
-    pgo.fem.write_shell_config(shell_path, tri, mat)
-    loaded_tri, loaded_mat = pgo.fem.read_shell_config(shell_path)
-
-    assert isinstance(loaded_tri, pgo.mesh.TriMeshData)
-    assert np.allclose(loaded_tri.vertices, tri.vertices)
-    assert np.array_equal(loaded_tri.elements, tri.elements)
-    assert loaded_mat == mat
-
-    payload = json.loads(shell_path.read_text())
-    assert payload["mesh_obj"] == "cloth.obj"
+def test_model_specific_shell_import_shortcuts_are_removed():
+    assert not hasattr(pgo.fem, "KoiterStVKShellMaterial")
+    assert not hasattr(pgo.fem, "read_shell_config")
+    assert not hasattr(pgo.fem, "write_shell_config")

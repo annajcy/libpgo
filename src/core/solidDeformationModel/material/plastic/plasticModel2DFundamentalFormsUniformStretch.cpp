@@ -143,7 +143,7 @@ double pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch:
 
 namespace pgo::SolidDeformationModel {
 MaterialChannelSchema ShellPlasticity1Definition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"stretch"}; return MaterialChannelSchema(names); }
-std::unique_ptr<PlasticModel> ShellPlasticity1Definition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
+std::unique_ptr<PlasticModel> ShellPlasticity1Definition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (!values.empty()) throw std::invalid_argument("shell_ff_dof1 has no fixed channels");
   return std::make_unique<PlasticModel2DFundamentalFormsUniformStretch>();

@@ -18,10 +18,10 @@ def _make_tet_sim_mesh():
         ),
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
-    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+    volume = pgo.mesh.volume.VolumeMesh(
         tet, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.fem.SimulationAsset.create_volumetric(volume)
+    return pgo.fem.SimulationImportResult(volume)
 
 
 def _make_cubic_sim_mesh():
@@ -41,10 +41,10 @@ def _make_cubic_sim_mesh():
         ),
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
-    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+    volume = pgo.mesh.volume.VolumeMesh(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.fem.SimulationAsset.create_volumetric(volume)
+    return pgo.fem.SimulationImportResult(volume)
 
 
 def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plastic_values=None):

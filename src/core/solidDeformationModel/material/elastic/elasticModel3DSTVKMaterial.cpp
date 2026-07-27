@@ -202,7 +202,7 @@ namespace {
 }
 MaterialChannelSchema StVKDefinition::optimizableChannelSchema() const { return {}; }
 MaterialChannelSchema StVKDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 2> names{"E", "nu"}; return MaterialChannelSchema(names); }
-std::unique_ptr<ElasticModel> StVKDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
+std::unique_ptr<ElasticModel> StVKDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (values.size() != 2) throw std::invalid_argument("stvk requires fixed channels E, nu");
   const double E = values[0], nu = values[1];

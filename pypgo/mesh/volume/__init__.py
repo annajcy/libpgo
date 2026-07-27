@@ -4,6 +4,7 @@ from pypgo.mesh.volume.material import (
     ENuMaterial,
     MaterialLike,
     MooneyRivlinMaterial,
+    OrthotropicMaterial,
 )
 from pypgo.mesh.volume.core import (
     MeshRegion,
@@ -21,6 +22,7 @@ __all__ = [
     "MeshRegion",
     "MeshSet",
     "MooneyRivlinMaterial",
+    "OrthotropicMaterial",
     "VegFile",
     "VolumeMesh",
     "read_msh",

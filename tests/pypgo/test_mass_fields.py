@@ -16,7 +16,7 @@ def _unit_tet_volume(*, density=2.0):
     elements = np.array([[0, 1, 2, 3]], dtype=np.int64)
     mesh = pgo.mesh.TetMeshData(vertices, elements)
     material = pgo.mesh.volume.ENuMaterial(density=density, E=1e6, nu=0.45)
-    return pgo.mesh.volume.VolumeMesh.create_from_single_material(mesh, material)
+    return pgo.mesh.volume.VolumeMesh(mesh, material)
 
 
 def _single_cube_volume(*, density=2.0):
@@ -30,21 +30,21 @@ def _single_cube_volume(*, density=2.0):
     elements = np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64)
     mesh = pgo.mesh.CubicMeshData(vertices, elements)
     material = pgo.mesh.volume.ENuMaterial(density=density, E=1e6, nu=0.45)
-    return pgo.mesh.volume.VolumeMesh.create_from_single_material(mesh, material)
+    return pgo.mesh.volume.VolumeMesh(mesh, material)
 
 
 def test_tet_mass_matrix_matches_legacy_vega_consistent_mass():
     volume = _unit_tet_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
-    M_new = pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(2.0)).to_dense()
+    sim_mesh = pgo.fem.SimulationImportResult(volume)
+    M_new = pf.TetLinear().mass_matrix(sim_mesh.mesh, pf.VolumeDensity(2.0)).to_dense()
     M_legacy = volume._mass_matrix().to_dense()
     np.testing.assert_allclose(M_new, M_legacy, rtol=1e-12, atol=1e-14)
 
 
 def test_cubic_mass_matrix_matches_legacy_vega_consistent_mass():
     volume = _single_cube_volume(density=3.0)
-    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
-    M_new = pf.CubicLinear().mass_matrix(sim_mesh, pf.VolumeDensity(3.0)).to_dense()
+    sim_mesh = pgo.fem.SimulationImportResult(volume)
+    M_new = pf.CubicLinear().mass_matrix(sim_mesh.mesh, pf.VolumeDensity(3.0)).to_dense()
     # The legacy vega cubic mass uses hardcoded approximate constants (~1e-8 relative
     # error). Our Gauss-2^3 quadrature is analytically exact for the trilinear N^TN
     # integrand. Compare against the analytically correct consistent-mass values:
@@ -61,9 +61,9 @@ def test_cubic_mass_matrix_matches_legacy_vega_consistent_mass():
 
 def test_tet_body_force_distributes_total_weight():
     volume = _unit_tet_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationImportResult(volume)
     g = np.array([0.0, -9.8, 0.0])
-    f = pf.TetLinear().body_force(sim_mesh, g, pf.VolumeDensity(2.0))
+    f = pf.TetLinear().body_force(sim_mesh.mesh, g, pf.VolumeDensity(2.0))
     tet_volume = 1.0 / 6.0
     total = f.reshape(-1, 3).sum(axis=0)
     np.testing.assert_allclose(total, 2.0 * tet_volume * g, rtol=1e-12)
@@ -73,8 +73,8 @@ def test_tet_body_force_distributes_total_weight():
 
 def test_volume_constant_velocity_kinetic_energy_is_exact():
     volume = _single_cube_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
-    M = pf.CubicLinear().mass_matrix(sim_mesh, pf.VolumeDensity(2.0)).to_dense()
+    sim_mesh = pgo.fem.SimulationImportResult(volume)
+    M = pf.CubicLinear().mass_matrix(sim_mesh.mesh, pf.VolumeDensity(2.0)).to_dense()
     v = np.array([0.4, -0.2, 0.7])
     qdot = np.tile(v, 8)
     kinetic = 0.5 * qdot @ (M @ qdot)
@@ -84,8 +84,8 @@ def test_volume_constant_velocity_kinetic_energy_is_exact():
 def test_volume_density_reads_region_density():
     volume = _unit_tet_volume(density=7.5)
     field = pf.volume_density(volume)
-    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
-    f = pf.TetLinear().body_force(sim_mesh, [0.0, -1.0, 0.0], field)
+    sim_mesh = pgo.fem.SimulationImportResult(volume)
+    f = pf.TetLinear().body_force(sim_mesh.mesh, [0.0, -1.0, 0.0], field)
     np.testing.assert_allclose(f.reshape(-1, 3).sum(axis=0), [0.0, -7.5 / 6.0, 0.0], rtol=1e-12)
 
 
@@ -104,26 +104,26 @@ def test_multi_element_tet_mass_matrix_accumulates_shared_dofs():
     mesh = pgo.mesh.TetMeshData(vertices, elements)
     rho = 2.0
     material = pgo.mesh.volume.ENuMaterial(density=rho, E=1e6, nu=0.45)
-    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(mesh, material)
-    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
-    M_new = pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(rho)).to_dense()
+    volume = pgo.mesh.volume.VolumeMesh(mesh, material)
+    sim_mesh = pgo.fem.SimulationImportResult(volume)
+    M_new = pf.TetLinear().mass_matrix(sim_mesh.mesh, pf.VolumeDensity(rho)).to_dense()
     M_legacy = volume._mass_matrix().to_dense()
     np.testing.assert_allclose(M_new, M_legacy, rtol=1e-12, atol=1e-14)
 
 
 def test_volume_mass_field_type_errors():
     volume = _unit_tet_volume()
-    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationImportResult(volume)
     with pytest.raises(TypeError):
-        pf.TetLinear().mass_matrix(sim_mesh, "not a mass field")
+        pf.TetLinear().mass_matrix(sim_mesh.mesh, "not a mass field")
     with pytest.raises(TypeError):
-        # Old call style: VolumeMesh in place of SimulationAsset.
+        # Old call style: VolumeMesh in place of SimulationImportResult.
         pf.TetLinear().mass_matrix(volume, pf.VolumeDensity(1.0))
     with pytest.raises(ValueError):
         pf.VolumeDensity(-1.0)
     with pytest.raises(ValueError):
         # Elementwise size mismatch surfaces as ValueError (C++ invalid_argument).
-        pf.TetLinear().mass_matrix(sim_mesh, pf.VolumeDensity(np.array([1.0, 2.0])))
+        pf.TetLinear().mass_matrix(sim_mesh.mesh, pf.VolumeDensity(np.array([1.0, 2.0])))
 
 
 @pytest.mark.parametrize("invalid", [np.nan, np.inf, -np.inf])
@@ -169,8 +169,7 @@ def _shell_grid(nx=2, ny=2):
             triangles.append([vid(i, j), vid(i + 1, j + 1), vid(i, j + 1)])
     triangles = np.asarray(triangles, dtype=np.int64)
     surface = pgo.mesh.TriMeshData(vertices, triangles)
-    material = pf.KoiterStVKShellMaterial(thickness=1e-3, E_membrane=2e4, nu_membrane=0.35)
-    return surface, vertices, triangles, pf.SimulationAsset.create_shell(surface, material)
+    return surface, vertices, triangles, pf.SimulationMesh(surface)
 
 
 def test_shell_body_force_matches_manual_lumped_formula():
@@ -327,6 +326,6 @@ def test_shell_volume_mass_field_cross_domain_type_errors():
     with pytest.raises(TypeError):
         pf.KoiterShell().mass_matrix(sim, pf.VolumeDensity(1000.0))
     volume = _unit_tet_volume()
-    sim_mesh = pgo.fem.SimulationAsset.create_volumetric(volume)
+    sim_mesh = pgo.fem.SimulationImportResult(volume)
     with pytest.raises(TypeError):
-        pf.TetLinear().mass_matrix(sim_mesh, pf.ShellArealDensity(1.0))
+        pf.TetLinear().mass_matrix(sim_mesh.mesh, pf.ShellArealDensity(1.0))

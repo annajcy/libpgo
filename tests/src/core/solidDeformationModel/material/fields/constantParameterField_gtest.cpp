@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "material/core/parameterLayout.h"
-#include "material/core/materialEvaluator.h"
-#include "material/core/optimizableParameters.h"
+#include "material/parameterization/parameterLayout.h"
+#include "material/parameterization/materialChannelMapping.h"
+#include "material/runtime/optimizableParameters.h"
 
 #include <array>
 #include <memory>
@@ -15,10 +15,10 @@ namespace
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-class SumEvaluator final : public MaterialEvaluator
+class SumMapping final : public MaterialChannelMapping
 {
 public:
-  int numParameters() const override { return 2; }
+  int numInputs() const override { return 2; }
   int numChannels() const override { return 1; }
 
   void evaluate(
@@ -27,16 +27,16 @@ public:
     std::span<double> channels) const override
   {
     if (parameters.size() != 2 || channels.size() != 1)
-      throw std::invalid_argument("SumEvaluator shape mismatch.");
+      throw std::invalid_argument("SumMapping shape mismatch.");
     channels[0] = parameters[0] + parameters[1];
   }
 };
 
 static_assert(
-  std::is_base_of_v<MaterialEvaluator,
-    DifferentiableMaterialEvaluator>);
+  std::is_base_of_v<MaterialChannelMapping,
+    DifferentiableMaterialChannelMapping>);
 static_assert(
-  !std::is_base_of_v<DifferentiableMaterialEvaluator, SumEvaluator>);
+  !std::is_base_of_v<DifferentiableMaterialChannelMapping, SumMapping>);
 
 TEST(ConstantParameterLayout, GathersSharedColumns)
 {
@@ -44,7 +44,6 @@ TEST(ConstantParameterLayout, GathersSharedColumns)
   EXPECT_EQ(layout.numElements(), 4);
   EXPECT_EQ(layout.numLocalParameters(), 3);
   EXPECT_EQ(layout.numGlobalParameters(), 3);
-  EXPECT_EQ(layout.numValueRows(), 1);
 
   const std::array<double, 3> global{ 2.0, 3.0, 5.0 };
   std::array<double, 3> local{};
@@ -80,9 +79,9 @@ TEST(ConstantParameterLayout, RejectsInvalidShapeAndIndices)
     std::invalid_argument);
 }
 
-TEST(IdentityMaterialEvaluator, ValueJacobianAndHessian)
+TEST(IdentityMaterialChannelMapping, ValueJacobianAndHessian)
 {
-  IdentityMaterialEvaluator evaluator(3);
+  IdentityMaterialChannelMapping mapping(3);
   const std::array<double, 3> local{ 2.0, -1.0, 4.0 };
   std::array<double, 3> material{};
   ES::MXd jacobian(3, 3);
@@ -90,9 +89,9 @@ TEST(IdentityMaterialEvaluator, ValueJacobianAndHessian)
   for (ES::MXd &hessian : hessians)
     hessian.resize(3, 3);
 
-  evaluator.evaluate(1, 2, local, material);
-  evaluator.evaluateJacobian(1, 2, local, jacobian);
-  evaluator.evaluateHessians(1, 2, local, hessians);
+  mapping.evaluate(1, 2, local, material);
+  mapping.evaluateJacobian(1, 2, local, jacobian);
+  mapping.evaluateHessians(1, 2, local, hessians);
 
   EXPECT_EQ(material, local);
   for (int col = 0; col < 3; col++)
@@ -100,15 +99,15 @@ TEST(IdentityMaterialEvaluator, ValueJacobianAndHessian)
       EXPECT_DOUBLE_EQ(jacobian(row, col), row == col ? 1.0 : 0.0);
   for (const ES::MXd &hessian : hessians)
     EXPECT_DOUBLE_EQ(hessian.norm(), 0.0);
-  EXPECT_TRUE(evaluator.isAffine());
+  EXPECT_TRUE(mapping.isAffine());
 }
 
-TEST(MaterialEvaluator, FixedFieldAcceptsForwardOnlyEvaluator)
+TEST(MaterialChannelMapping, FixedFieldAcceptsForwardOnlyMapping)
 {
   auto layout = std::make_shared<ConstantParameterLayout>(3, 2);
-  auto evaluator = std::make_shared<SumEvaluator>();
+  auto mapping = std::make_shared<SumMapping>();
   FixedParameterField field(
-    ParameterSchema({ "a", "b" }), layout, evaluator);
+    ParameterInputSchema({ "a", "b" }), layout, mapping);
 
   const std::array<double, 2> parameters{ 2.5, -0.75 };
   std::array<double, 1> channels{};

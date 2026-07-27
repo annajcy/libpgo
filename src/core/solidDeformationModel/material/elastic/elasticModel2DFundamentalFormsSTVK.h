@@ -5,6 +5,8 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
+#include "material/model/elasticModelDefinition.h"
+
 #include "material/elastic/elasticModel2DFundamentalForms.h"
 
 namespace pgo
@@ -78,8 +80,7 @@ public:
   std::string_view id() const override { return "koiter_stvk"; }
   MaterialChannelSchema fixedChannelSchema() const override { return {}; }
   MaterialChannelSchema optimizableChannelSchema() const override;
-  MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  std::unique_ptr<ElasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
+  std::unique_ptr<ElasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };
 }  // namespace SolidDeformationModel

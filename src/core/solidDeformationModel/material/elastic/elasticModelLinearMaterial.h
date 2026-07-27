@@ -5,6 +5,8 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
+#include "material/model/elasticModelDefinition.h"
+
 #include "material/elastic/elasticModel3DDeformationGradient.h"
 
 namespace pgo
@@ -37,9 +39,8 @@ class LinearElasticDefinition final : public ElasticModelDefinition
 public:
   std::string_view id() const override { return "linear"; }
   MaterialChannelSchema optimizableChannelSchema() const override;
-  MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
   MaterialChannelSchema fixedChannelSchema() const override;
-  std::unique_ptr<ElasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
+  std::unique_ptr<ElasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };
 }  // namespace SolidDeformationModel

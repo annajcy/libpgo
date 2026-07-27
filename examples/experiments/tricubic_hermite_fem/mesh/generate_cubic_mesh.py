@@ -61,7 +61,7 @@ def main(argv=None) -> int:
     if boundary_output is not None:
         boundary_output.parent.mkdir(parents=True, exist_ok=True)
         boundary_tmp = boundary_output.with_suffix(".tmp.obj")
-        boundary = VolumeMesh.create_from_single_material(mesh, MATERIAL).extract_surface_mesh()
+        boundary = VolumeMesh(mesh, MATERIAL).extract_surface_mesh()
         pgo.mesh.write_obj(str(boundary_tmp), boundary)
         boundary_tmp.replace(boundary_output)
 

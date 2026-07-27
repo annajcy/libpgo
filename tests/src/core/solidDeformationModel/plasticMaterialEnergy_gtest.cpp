@@ -10,7 +10,7 @@
 #include "energy/deformationModelEnergy.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameters.h"
 #include "energy/elasticMaterialEnergy.h"
 #include "energy/plasticMaterialEnergy.h"
 #include "simulation/simulationMesh.h"
@@ -39,8 +39,6 @@ using pgo::SolidDeformationModel::PlasticModelDefinition;
 using pgo::SolidDeformationModel::ElasticMaterialEnergy;
 using pgo::SolidDeformationModel::PlasticMaterialEnergy;
 using pgo::SolidDeformationModel::SimulationMesh;
-using pgo::SolidDeformationModel::ImportedENuhMaterial;
-using pgo::SolidDeformationModel::ImportedENuMaterial;
 using pgo::SolidDeformationModel::SimulationMeshType;
 
 constexpr double kFiniteDifferenceStep = 1e-6;
@@ -117,11 +115,11 @@ std::shared_ptr<DeformationModelEnergy> makePlasticTestEnergy(std::shared_ptr<co
   auto elasticField = std::make_shared<const OptimizableParameterField>(
     TestUtils::identityParameterSchema(elastic.optimizableChannelSchema()),
     std::make_shared<pgo::SolidDeformationModel::ElementwiseParameterLayout>(1, 0),
-    std::make_shared<pgo::SolidDeformationModel::IdentityMaterialEvaluator>(0));
+    std::make_shared<pgo::SolidDeformationModel::IdentityMaterialChannelMapping>(0));
   auto plasticField = std::make_shared<const OptimizableParameterField>(
     TestUtils::identityParameterSchema(plastic.optimizableChannelSchema()),
     std::make_shared<pgo::SolidDeformationModel::ElementwiseParameterLayout>(1, 6),
-    std::make_shared<pgo::SolidDeformationModel::IdentityMaterialEvaluator>(6));
+    std::make_shared<pgo::SolidDeformationModel::IdentityMaterialChannelMapping>(6));
   auto parameters = std::make_shared<OptimizableParameters>(
     std::move(elasticField), std::move(plasticField),
     ES::VXd::Zero(0), plasticBase);
@@ -160,9 +158,11 @@ std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd
 
   pgo::Mesh::TriMeshGeo surfaceMesh(N * N, vertices.data(),
     static_cast<int>(triangles.size() / 3), triangles.data());
-  ImportedENuhMaterial mat(1000.0, 0.45, 1e-3);
   auto asset = TestUtils::shareAsset(
-    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh, mat));
+    pgo::SolidDeformationModel::loadShellMesh(surfaceMesh),
+    TestUtils::uniformImportedMaterialCatalog(
+      surfaceMesh.numTriangles(), {"E", "nu", "h", "J"},
+      {1000.0, 0.45, 1e-3, 10000.0}, "shell"));
   const auto &mesh = asset->mesh();
 
   pgo::SolidDeformationModel::KoiterShellFormulation formulation;
@@ -172,12 +172,12 @@ std::shared_ptr<DeformationModelEnergy> makeShellDeformationEnergy(const ES::VXd
     TestUtils::identityParameterSchema(elastic.optimizableChannelSchema()),
     std::make_shared<pgo::SolidDeformationModel::ConstantParameterLayout>(
       mesh->getNumElements(), 5),
-    std::make_shared<pgo::SolidDeformationModel::IdentityMaterialEvaluator>(5));
+    std::make_shared<pgo::SolidDeformationModel::IdentityMaterialChannelMapping>(5));
   auto plasticField = std::make_shared<const OptimizableParameterField>(
     TestUtils::identityParameterSchema(plastic.optimizableChannelSchema()),
     std::make_shared<pgo::SolidDeformationModel::ElementwiseParameterLayout>(
       mesh->getNumElements(), 1),
-    std::make_shared<pgo::SolidDeformationModel::IdentityMaterialEvaluator>(1));
+    std::make_shared<pgo::SolidDeformationModel::IdentityMaterialChannelMapping>(1));
   auto parameters = std::make_shared<OptimizableParameters>(
     std::move(elasticField), std::move(plasticField), elasticBase,
     ES::VXd::Constant(mesh->getNumElements(), 1.0));

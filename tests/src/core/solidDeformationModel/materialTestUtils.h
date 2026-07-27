@@ -1,14 +1,15 @@
 #pragma once
 
 #include "energy/deformationModelEnergy.h"
-#include "material/core/materialAssignment.h"
-#include "material/core/materialEvaluator.h"
-#include "material/core/materialFrameField.h"
-#include "material/core/materialParameterData.h"
-#include "material/core/materialParameterization.h"
-#include "material/core/optimizableParameters.h"
-#include "material/core/parameterLayout.h"
-#include "simulation/simulationAsset.h"
+#include "material/runtime/materialAssignment.h"
+#include "material/parameterization/materialChannelMapping.h"
+#include "material/frame/materialFrameField.h"
+#include "material/data/materialParameterData.h"
+#include "material/data/namedMaterialInputData.h"
+#include "material/parameterization/materialParameterization.h"
+#include "material/runtime/optimizableParameters.h"
+#include "material/parameterization/parameterLayout.h"
+#include "simulation/import/simulationImportResult.h"
 #include "simulation/simulationMesh.h"
 
 #include <algorithm>
@@ -22,43 +23,86 @@
 namespace pgo::SolidDeformationModel::TestUtils
 {
 
-inline std::shared_ptr<const SimulationAsset> shareAsset(
-  std::unique_ptr<SimulationAsset> asset)
+inline std::shared_ptr<const SimulationImportResult> shareAsset(
+  std::unique_ptr<SimulationImportResult> asset)
 {
-  return std::shared_ptr<const SimulationAsset>(std::move(asset));
+  return std::shared_ptr<const SimulationImportResult>(std::move(asset));
+}
+
+inline std::shared_ptr<const SimulationImportResult> shareAsset(
+  std::shared_ptr<const SimulationMesh> mesh,
+  ImportedMaterialCatalog materialData)
+{
+  return std::make_shared<const SimulationImportResult>(
+    std::move(mesh), std::move(materialData));
+}
+
+inline ImportedMaterialCatalog uniformImportedMaterialCatalog(
+  int numElements,
+  std::vector<std::string> channelNames,
+  std::vector<double> channelValues,
+  std::string materialName = "test_uniform_material")
+{
+  ImportedMaterialRecord material;
+  material.name = std::move(materialName);
+  material.family = "test";
+  for (int channel = 0;
+       channel < static_cast<int>(channelValues.size());
+       ++channel)
+    material.properties.emplace(
+      std::move(channelNames[static_cast<std::size_t>(channel)]),
+      channelValues[static_cast<std::size_t>(channel)]);
+  std::vector<int> elements(static_cast<std::size_t>(numElements));
+  std::iota(elements.begin(), elements.end(), 0);
+  return ImportedMaterialCatalog(
+    numElements, {std::move(material)},
+    {ImportedElementSet{"all", std::move(elements)}},
+    {ImportedMaterialRegion{0, 0}});
 }
 
 inline std::shared_ptr<const FixedParameterField> emptyFixedField(int numElements)
 {
   return std::make_shared<const FixedParameterField>(
-    ParameterSchema{},
+    ParameterInputSchema{},
     std::make_shared<const ElementwiseParameterLayout>(numElements, 0),
-    std::make_shared<const IdentityMaterialEvaluator>(0));
+    std::make_shared<const IdentityMaterialChannelMapping>(0));
 }
 
-inline std::shared_ptr<const SimulationAsset> makeAsset(
+inline std::shared_ptr<const SimulationImportResult> makeAsset(
   std::shared_ptr<const SimulationMesh> mesh,
   std::vector<std::string> importedChannelNames,
   std::vector<double> importedValues)
 {
   const int numElements = mesh->getNumElements();
   const int numChannels = static_cast<int>(importedChannelNames.size());
-  EigenSupport::MXd rows(numElements, numChannels);
+  std::vector<ImportedMaterialRecord> materials;
+  std::vector<ImportedElementSet> sets;
+  std::vector<ImportedMaterialRegion> regions;
+  materials.reserve(static_cast<std::size_t>(numElements));
+  sets.reserve(static_cast<std::size_t>(numElements));
+  regions.reserve(static_cast<std::size_t>(numElements));
   for (int element = 0; element < numElements; ++element)
+  {
+    ImportedMaterialRecord material;
+    material.name = "test_" + std::to_string(element);
+    material.family = "test";
     for (int channel = 0; channel < numChannels; ++channel)
-      rows(element, channel) = importedValues[
-        static_cast<std::size_t>(element) * numChannels + channel];
-  std::vector<int> elementToRow(static_cast<std::size_t>(numElements));
-  std::iota(elementToRow.begin(), elementToRow.end(), 0);
-  return std::make_shared<const SimulationAsset>(
-    std::move(mesh), ImportedMaterialData(
-      numElements, {}, {}, {},
-      {ImportedMaterialField(
-        std::move(importedChannelNames), std::move(rows),
-        std::move(elementToRow), "test_field")}));
+      material.properties.emplace(
+        importedChannelNames[static_cast<std::size_t>(channel)],
+        importedValues[
+          static_cast<std::size_t>(element) * numChannels + channel]);
+    materials.push_back(std::move(material));
+    sets.push_back(ImportedElementSet{
+      "element_" + std::to_string(element), {element}});
+    regions.push_back(ImportedMaterialRegion{element, element});
+  }
+  return std::make_shared<const SimulationImportResult>(
+    std::move(mesh), ImportedMaterialCatalog(
+      numElements, std::move(materials), std::move(sets),
+      std::move(regions)));
 }
 
-inline std::shared_ptr<const SimulationAsset> makeENuAsset(
+inline std::shared_ptr<const SimulationImportResult> makeENuAsset(
   std::shared_ptr<const SimulationMesh> mesh,
   double E, double nu, double compressionRatio = 10000.0)
 {
@@ -73,7 +117,7 @@ inline std::shared_ptr<const SimulationAsset> makeENuAsset(
     std::move(mesh), {"E", "nu", "J"}, std::move(values));
 }
 
-inline std::shared_ptr<const SimulationAsset> makeENuhAsset(
+inline std::shared_ptr<const SimulationImportResult> makeENuhAsset(
   std::shared_ptr<const SimulationMesh> mesh,
   double E, double nu, double thickness,
   double compressionRatio = 10000.0)
@@ -91,19 +135,12 @@ inline std::shared_ptr<const SimulationAsset> makeENuhAsset(
 }
 
 inline double importedValue(
-  const SimulationAsset &asset, int element, std::string_view requested)
+  const SimulationImportResult &asset, int element, std::string_view requested)
 {
-  for (const auto &field : asset.materialData().fields()) {
-    const auto names = field.channelNames();
-    const int row = field.rowForElement(element);
-    for (int channel = 0; channel < static_cast<int>(names.size()); ++channel)
-      if (names[channel] == requested)
-        return field.valueRows()(row, channel);
-  }
-  const auto assignments = asset.materialData().elementMaterialIndices();
+  const auto assignments = asset.materialCatalog().elementMaterialIndices();
   if (element >= 0 && element < static_cast<int>(assignments.size()) &&
       assignments[static_cast<std::size_t>(element)] >= 0) {
-    const auto &material = asset.materialData().materials()[static_cast<std::size_t>(
+    const auto &material = asset.materialCatalog().materials()[static_cast<std::size_t>(
       assignments[static_cast<std::size_t>(element)])];
     const auto iter = material.properties.find(std::string(requested));
     if (iter != material.properties.end()) {
@@ -131,16 +168,16 @@ inline double defaultPlasticValue(std::string_view channel)
   return 0.0;
 }
 
-inline ParameterSchema identityParameterSchema(
+inline ParameterInputSchema identityParameterSchema(
   const MaterialChannelSchema &channelSchema)
 {
   const auto names = channelSchema.channelNames();
-  return ParameterSchema(
+  return ParameterInputSchema(
     std::vector<std::string>(names.begin(), names.end()));
 }
 
 inline std::shared_ptr<OptimizableParameters> makeDefaultOptimizableParameters(
-  const SimulationAsset &asset,
+  const SimulationImportResult &asset,
   const ElasticModelDefinition &elastic,
   const PlasticModelDefinition &plastic)
 {
@@ -155,11 +192,11 @@ inline std::shared_ptr<OptimizableParameters> makeDefaultOptimizableParameters(
   auto elasticField = std::make_shared<const OptimizableParameterField>(
     identityParameterSchema(elasticSchema),
     std::make_shared<ElementwiseParameterLayout>(numElements, numElastic),
-    std::make_shared<IdentityMaterialEvaluator>(numElastic));
+    std::make_shared<IdentityMaterialChannelMapping>(numElastic));
   auto plasticField = std::make_shared<const OptimizableParameterField>(
     identityParameterSchema(plasticSchema),
     std::make_shared<ElementwiseParameterLayout>(numElements, numPlastic),
-    std::make_shared<IdentityMaterialEvaluator>(numPlastic));
+    std::make_shared<IdentityMaterialChannelMapping>(numPlastic));
   EigenSupport::VXd elasticValues(numElements * numElastic);
   const auto elasticNames = elasticSchema.channelNames();
   for (int element = 0; element < numElements; ++element)
@@ -180,7 +217,7 @@ inline std::shared_ptr<OptimizableParameters> makeDefaultOptimizableParameters(
 }
 
 inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
-  std::shared_ptr<const SimulationAsset> asset,
+  std::shared_ptr<const SimulationImportResult> asset,
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic,
   std::shared_ptr<OptimizableParameters> parameters = {},
@@ -196,10 +233,10 @@ inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
     const auto names = schema.channelNames();
     std::vector<std::string> inputNames(names.begin(), names.end());
     return std::make_shared<const FixedParameterField>(
-      ParameterSchema(std::move(inputNames)),
+      ParameterInputSchema(std::move(inputNames)),
       std::make_shared<const ElementwiseParameterLayout>(
         numElements, schema.numChannels()),
-      std::make_shared<const IdentityMaterialEvaluator>(schema.numChannels()));
+      std::make_shared<const IdentityMaterialChannelMapping>(schema.numChannels()));
   };
   auto elasticFixed = makeField(*elastic);
   auto plasticFixed = makeField(*plastic);
@@ -218,7 +255,7 @@ inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
   MaterialParameterData data;
   const auto projectFixed = [&](const auto &field) {
     EigenSupport::VXd values(field->layout().numGlobalParameters());
-    const auto names = field->parameterSchema().parameterNames();
+    const auto names = field->inputSchema().parameterNames();
     for (int element = 0; element < numElements; ++element)
       for (int channel = 0; channel < static_cast<int>(names.size()); ++channel)
         values[field->layout().globalParameter(element, channel)] =
@@ -236,7 +273,7 @@ inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
 }
 
 inline std::shared_ptr<DeformationModelEnergy> makeTestEnergy(
-  std::shared_ptr<const SimulationAsset> asset,
+  std::shared_ptr<const SimulationImportResult> asset,
   const Formulation &formulation,
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic,

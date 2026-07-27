@@ -43,14 +43,7 @@ def main() -> None:
     # Build a regular triangular shell grid.
     vertices, triangles = make_shell_grid(GRID_SIZE)
     surface = pgo.mesh.TriMeshData(vertices, triangles)
-    asset = pf.SimulationAsset.create_shell(
-        surface,
-        pf.KoiterStVKShellMaterial(
-            thickness=1.0e-3,
-            E_membrane=2.0e4,
-            nu_membrane=0.35,
-        ),
-    )
+    mesh = pf.SimulationMesh(surface)
 
     # Create the elementwise shell material field.
     base_material = np.array([2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3])
@@ -62,8 +55,8 @@ def main() -> None:
         count = len(names)
         return field_type(
             names,
-            pf.ElementwiseParameterLayout(asset.num_elements, count),
-            pf.IdentityMaterialEvaluator(count))
+            pf.ElementwiseParameterLayout(mesh.num_elements, count),
+            pf.IdentityMaterialChannelMapping(count))
 
     elastic_fixed = identity_field(
         pf.FixedParameterField, elastic_definition.fixed_channel_names)
@@ -79,9 +72,17 @@ def main() -> None:
         pf.ElasticParameterization(elastic_definition, elastic_fixed, elastic_opt),
         pf.PlasticParameterization(plastic_definition, plastic_fixed, plastic_opt))
     parameter_data = pf.MaterialParameterData(
-        elastic=(np.empty(0), initial_elastic),
-        plastic=(np.empty(0), plastic_values))
-    assignment = pf.MaterialAssignment(asset, parameterization, parameter_data)
+        elastic=pf.MaterialParameterDataBlock(
+            fixed_values=np.empty(0),
+            initial_optimizable_values=initial_elastic),
+        plastic=pf.MaterialParameterDataBlock(
+            fixed_values=np.empty(0),
+            initial_optimizable_values=plastic_values))
+    assignment = pf.MaterialAssignment(
+        mesh=mesh,
+        parameterization=parameterization,
+        parameter_data=parameter_data,
+        material_frames=pf.GlobalAxesMaterialFrameField(mesh.num_elements))
     energy = pf.DeformationEnergy(
         assignment,
         formulation=pf.KoiterShell(),
@@ -98,7 +99,7 @@ def main() -> None:
     )
     external_load = pf.SelfWeightGravity(
         formulation=pf.KoiterShell(),
-        asset=asset,
+        mesh=mesh,
         areal_density=areal_density,
         optimizable_parameters=energy.optimizable_parameters,
         acceleration=np.array([0.0, 0.0, -20.0]),

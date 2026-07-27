@@ -53,7 +53,7 @@ def main() -> None:
     # Build the simulation mesh and its observed surface.
     vertices, elements = make_cubic_grid(GRID_SIZE)
     cubic = pgo.mesh.CubicMeshData(vertices, elements)
-    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+    volume = pgo.mesh.volume.VolumeMesh(
         cubic,
         pgo.mesh.volume.ENuMaterial(E=1.0e6, nu=0.45),
     )
@@ -73,7 +73,7 @@ def main() -> None:
     target_surface = pgo.mesh.TriMeshData(target_vertices, surface.elements)
 
     # Use one six-channel plastic tensor per element.
-    asset = pf.SimulationAsset.create_volumetric(volume)
+    asset = pf.SimulationImportResult(volume)
     elastic = pf.StVKDefinition()
     plastic = pf.VolumetricPlasticityDefinition(dofs=6)
     def identity_field(field_type, names):
@@ -81,7 +81,7 @@ def main() -> None:
         return field_type(
             names,
             pf.ElementwiseParameterLayout(asset.num_elements, count),
-            pf.IdentityMaterialEvaluator(count))
+            pf.IdentityMaterialChannelMapping(count))
 
     elastic_fixed = identity_field(
         pf.FixedParameterField, elastic.fixed_channel_names)
@@ -95,10 +95,18 @@ def main() -> None:
         pf.ElasticParameterization(elastic, elastic_fixed, elastic_opt),
         pf.PlasticParameterization(plastic, plastic_fixed, plastic_opt))
     parameter_data = pf.MaterialParameterData(
-        elastic=(np.tile(np.array([1.0e6, 0.45]), (elements.shape[0], 1)), np.empty(0)),
-        plastic=(np.empty(0), np.tile(
-            np.array([1.0, 0.0, 0.0, 1.0, 0.0, 1.0]), (elements.shape[0], 1))))
-    assignment = pf.MaterialAssignment(asset, parameterization, parameter_data)
+        elastic=pf.MaterialParameterDataBlock(
+            fixed_values=np.tile(np.array([1.0e6, 0.45]), (elements.shape[0], 1)),
+            initial_optimizable_values=np.empty(0)),
+        plastic=pf.MaterialParameterDataBlock(
+            fixed_values=np.empty(0),
+            initial_optimizable_values=np.tile(
+                np.array([1.0, 0.0, 0.0, 1.0, 0.0, 1.0]), (elements.shape[0], 1))))
+    assignment = pf.MaterialAssignment(
+        mesh=asset.mesh,
+        parameterization=parameterization,
+        parameter_data=parameter_data,
+        material_frames=pf.GlobalAxesMaterialFrameField(asset.num_elements))
     energy = pf.DeformationEnergy(
         assignment,
         formulation=pf.CubicLinear(),

@@ -1,7 +1,7 @@
 #include "shellFormulation.h"
 
 #include "mass/shellArealDensityField.h"
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameters.h"
 #include "deformation/shell/shellDeformationModel.h"
 #include "simulation/simulationMesh.h"
 

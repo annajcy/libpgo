@@ -52,9 +52,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   simulation/simulationMeshTriangle.h
   simulation/simulationMeshEdgeQuad.h
   simulation/simulationMeshShell.h
-  simulation/simulationAsset.h
-  simulation/elementField.h
-  simulation/importedMaterial.h
+  simulation/import/simulationImportResult.h
   constraints/tetVolumeConstraintFunctions.h
   simulation/tetMeshOccupation.h
 
@@ -101,17 +99,23 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/dof/vertex3DofLayout.h
   formulations/dof/cubicTricubicHermiteDofLayout.h
 
-  material/core/parameterLayout.h
-  material/core/materialSchema.h
-  material/core/materialEvaluator.h
-  material/core/materialParameterField.h
-  material/core/optimizableParameters.h
-  material/core/materialAssignment.h
-  material/core/materialFrameField.h
-  material/core/materialParameterData.h
-  material/core/materialParameterization.h
-  material/core/materialParameterDataProjection.h
-  material/core/materialParameterDataValidation.h
+  material/parameterization/parameterLayout.h
+  material/model/materialSchema.h
+  material/model/elasticModelDefinition.h
+  material/model/plasticModelDefinition.h
+  material/parameterization/materialChannelMapping.h
+  material/parameterization/materialParameterField.h
+  material/runtime/optimizableParameters.h
+  material/runtime/optimizableParameterRef.h
+  material/runtime/materialAssignment.h
+  material/frame/materialFrameField.h
+  material/data/materialParameterData.h
+  material/data/namedMaterialInputData.h
+  material/parameterization/materialParameterization.h
+  material/projection/materialInputProjection.h
+  material/projection/importedMaterialFrames.h
+  material/import/importedMaterialCatalog.h
+  material/import/volumeMaterialImporter.h
 
   mass/elementScalarField.h
   mass/volumeDensityField.h
@@ -143,7 +147,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   material/plastic/plasticModel2DFundamentalFormsUniformStretch.cpp
 
-  material/core/materialSchema.cpp
+  material/model/materialSchema.cpp
 
   deformation/materialMaxStepPolynomialUtils.cpp
 
@@ -177,14 +181,19 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/shell/shellDeformationModelEvaluator.cpp
   deformation/shell/shellDeformationModelCacheData.cpp
 
-  material/core/parameterLayout.cpp
-  material/core/materialEvaluator.cpp
-  material/core/materialParameterField.cpp
-  material/core/optimizableParameters.cpp
-  material/core/materialFrameField.cpp
-  material/core/materialParameterDataProjection.cpp
-  material/core/materialParameterDataValidation.cpp
-  material/core/materialAssignment.cpp
+  material/parameterization/parameterLayout.cpp
+  material/parameterization/materialChannelMapping.cpp
+  material/parameterization/materialParameterField.cpp
+  material/parameterization/materialParameterization.cpp
+  material/runtime/optimizableParameters.cpp
+  material/runtime/optimizableParameterRef.cpp
+  material/frame/materialFrameField.cpp
+  material/projection/materialInputProjection.cpp
+  material/projection/importedMaterialFrames.cpp
+  material/runtime/materialAssignment.cpp
+  material/import/importedMaterialCatalog.cpp
+  material/import/volumeMaterialImporter.cpp
+  material/data/namedMaterialInputData.cpp
 
 
   deformation/deformationModelManager.cpp
@@ -203,7 +212,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   mass/shellArealDensityField.cpp
 
   simulation/simulationMeshCore.cpp
-  simulation/simulationAsset.cpp
+  simulation/import/simulationImportResult.cpp
   simulation/simulationMeshVolume.cpp
   simulation/simulationMeshTriangle.cpp
   simulation/simulationMeshShell.cpp

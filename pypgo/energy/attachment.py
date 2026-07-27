@@ -13,15 +13,15 @@ from pypgo.energy.base import PotentialEnergy
 class VertexAttachment(PotentialEnergy):
     """Soft pin constraint on selected vertices: coef * ||u_i - target_i||^2.
 
-    The Hessian sparsity template is taken from the simulation asset.
+    The Hessian sparsity template is taken from the simulation mesh.
     A fallback sparse coo input is also accepted.
 
     Parameters
     ----------
-    asset : SimulationAsset, optional
+    mesh : SimulationMesh, optional
         Provides numDofs and Koff sparsity template.
     koff : PySparseMatrix or 5-tuple, optional
-        Fallback Hessian sparsity template if asset is not given.
+        Fallback Hessian sparsity template if mesh is not given.
     vertex_indices : ndarray (m,) int64
         Vertex indices to constrain.
     target_positions : ndarray (m*3,) float64
@@ -33,7 +33,7 @@ class VertexAttachment(PotentialEnergy):
     """
 
     def __init__(self, *,
-                 asset=None,
+                 mesh=None,
                  koff=None,
                  vertex_indices,
                  target_positions,
@@ -47,8 +47,8 @@ class VertexAttachment(PotentialEnergy):
                 f"len(vertex_indices) ({len(vtx) * 3})"
             )
 
-        if asset is not None:
-            nDofs = asset.num_vertices * 3
+        if mesh is not None:
+            nDofs = mesh.num_vertices * 3
             rows = nDofs
             cols = nDofs
             kri = list(range(nDofs))
@@ -60,7 +60,7 @@ class VertexAttachment(PotentialEnergy):
             nDofs = rows
             rest_positions = np.zeros(nDofs, dtype=np.float64)
         else:
-            raise ValueError("Either asset or koff must be provided")
+            raise ValueError("Either mesh or koff must be provided")
 
         handle = _core._create_vertex_attachment(
             nDofs, rows, cols, kri, kci, list(kvals),

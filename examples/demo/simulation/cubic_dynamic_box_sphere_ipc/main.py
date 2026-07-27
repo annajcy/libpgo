@@ -29,7 +29,7 @@ def _material_state(asset):
         return field_type(
             names,
             pf.ElementwiseParameterLayout(asset.num_elements, count),
-            pf.IdentityMaterialEvaluator(count))
+            pf.IdentityMaterialChannelMapping(count))
 
     elastic_fixed = identity_field(pf.FixedParameterField, elastic.fixed_channel_names)
     plastic_fixed = identity_field(pf.FixedParameterField, plastic.fixed_channel_names)
@@ -40,13 +40,29 @@ def _material_state(asset):
     parameterization = pf.MaterialParameterization(
         pf.ElasticParameterization(elastic, elastic_fixed, elastic_opt),
         pf.PlasticParameterization(plastic, plastic_fixed, plastic_opt))
-    return parameterization, pf.NamedChannelMaterialParameterDataProjection().project(
-        asset, parameterization)
+
+    def parameter_block(fixed_field, optimizable_field):
+        return pf.MaterialParameterDataBlock(
+            fixed_values=np.asarray(
+                pf.project_imported_material_inputs(
+                    asset.material_catalog, fixed_field),
+                dtype=np.float64,
+            ).reshape(-1),
+            initial_optimizable_values=np.zeros(
+                optimizable_field.num_global_parameters, dtype=np.float64),
+        )
+
+    parameter_data = pf.MaterialParameterData(
+        elastic=parameter_block(elastic_fixed, elastic_opt),
+        plastic=parameter_block(plastic_fixed, plastic_opt),
+    )
+    parameterization.validate(parameter_data)
+    return parameterization, parameter_data
 
 
 def main() -> None:
     # Load the cubic simulation mesh, render surface, and obstacle.
-    volume = pgo.mesh.volume.VolumeMesh.from_veg_file(
+    volume = pgo.mesh.volume.VolumeMesh(
         pgo.mesh.volume.read_veg(
             str(ASSET_DIR / "veg" / "cubic" / "box-with-sphere.veg")
         )
@@ -55,19 +71,23 @@ def main() -> None:
     obstacle = pgo.mesh.read_obj(str(ASSET_DIR / "obj" / "bottom.obj"))
 
     # Build deformation, mass, gravity, and embedded IPC contact.
-    asset = pf.SimulationAsset.create_volumetric(volume)
+    asset = pf.SimulationImportResult(volume)
     formulation = pf.CubicLinear()
     parameterization, parameter_data = _material_state(asset)
-    assignment = pf.MaterialAssignment(asset, parameterization, parameter_data)
+    assignment = pf.MaterialAssignment(
+        mesh=asset.mesh,
+        parameterization=parameterization,
+        parameter_data=parameter_data,
+        material_frames=pf.GlobalAxesMaterialFrameField(asset.num_elements))
     deformation = pf.DeformationEnergy(
         assignment,
         formulation=formulation,
         options=pf.DeformationOptions(enable_material_max_step=False),
     )
     mass_field = pf.volume_density(volume)
-    mass = formulation.mass_matrix(asset, mass_field)
+    mass = formulation.mass_matrix(asset.mesh, mass_field)
     gravity_force = formulation.body_force(
-        asset,
+        asset.mesh,
         np.array([0.0, -9.81, 0.0]),
         mass_field,
     )

@@ -193,7 +193,7 @@ namespace {
 }
 MaterialChannelSchema MooneyRivlinDefinition::optimizableChannelSchema() const { return {}; }
 MaterialChannelSchema MooneyRivlinDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 3> names{"mu01", "mu10", "v1"}; return MaterialChannelSchema(names); }
-std::unique_ptr<ElasticModel> MooneyRivlinDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
+std::unique_ptr<ElasticModel> MooneyRivlinDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (values.size() != 3) throw std::invalid_argument("mooney_rivlin requires fixed channels mu01, mu10, v1");
   return std::make_unique<ElasticModel3DMooneyRivlin>(values[0], values[1], values[2]);

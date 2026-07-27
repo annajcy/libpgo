@@ -55,7 +55,7 @@ namespace {
 }
 MaterialChannelSchema LinearElasticDefinition::optimizableChannelSchema() const { return {}; }
 MaterialChannelSchema LinearElasticDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 2> names{"E", "nu"}; return MaterialChannelSchema(names); }
-std::unique_ptr<ElasticModel> LinearElasticDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
+std::unique_ptr<ElasticModel> LinearElasticDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (values.size() != 2) throw std::invalid_argument("linear requires fixed channels E, nu");
   const double E = values[0], nu = values[1];

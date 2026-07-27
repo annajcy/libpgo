@@ -8,7 +8,7 @@ copyright to USC,MIT,NUS
 #include "constraints/constraintFunctions.h"
 #include "deformation/volume/volumetricDeformationModel.h"
 #include "deformation/volume/volumetricDeformationModelEvaluator.h"
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameters.h"
 
 #include <tbb/spin_mutex.h>
 

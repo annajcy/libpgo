@@ -10,7 +10,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameters.h"
 #include "simulation/simulationMesh.h"
 #include "triMeshGeo.h"
 #include "materialTestUtils.h"
@@ -42,12 +42,12 @@ std::span<double> mutableSpan(Eigen::MatrixBase<Derived> &values)
                            static_cast<size_t>(values.size()));
 }
 
-class SquareEvaluator final : public DifferentiableMaterialEvaluator
+class SquareEvaluator final : public DifferentiableMaterialChannelMapping
 {
 public:
   explicit SquareEvaluator(int size): size_(size) {}
 
-  int numParameters() const override { return size_; }
+  int numInputs() const override { return size_; }
   int numChannels() const override { return size_; }
   bool isAffine() const override { return false; }
 
@@ -85,7 +85,7 @@ private:
   int size_;
 };
 
-class ThresholdThrowingSquareEvaluator final : public DifferentiableMaterialEvaluator
+class ThresholdThrowingSquareEvaluator final : public DifferentiableMaterialChannelMapping
 {
 public:
   ThresholdThrowingSquareEvaluator(int size, double threshold):
@@ -93,7 +93,7 @@ public:
   {
   }
 
-  int numParameters() const override { return size_; }
+  int numInputs() const override { return size_; }
   int numChannels() const override { return size_; }
   bool isAffine() const override { return false; }
 
@@ -136,7 +136,7 @@ private:
 
 struct Fixture
 {
-  std::shared_ptr<const SimulationAsset> asset;
+  std::shared_ptr<const SimulationImportResult> asset;
   std::shared_ptr<const SimulationMesh> mesh;
   std::shared_ptr<OptimizableParameters> parameters;
   std::unique_ptr<DeformationModelAssembler> assembler;
@@ -144,7 +144,7 @@ struct Fixture
 };
 
 Fixture makeFixture(
-  std::shared_ptr<const DifferentiableMaterialEvaluator> plasticEvaluator = nullptr)
+  std::shared_ptr<const DifferentiableMaterialChannelMapping> plasticEvaluator = nullptr)
 {
   const double vertices[] = {
     0, 0, 0,
@@ -168,11 +168,11 @@ Fixture makeFixture(
   z << std::sqrt(1.01), std::sqrt(0.004), std::sqrt(0.003),
     std::sqrt(0.995), std::sqrt(0.005), std::sqrt(1.008);
   auto elasticBlock = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema{},
+    ParameterInputSchema{},
     std::make_shared<ElementwiseParameterLayout>(1, 0),
-    std::make_shared<IdentityMaterialEvaluator>(0));
+    std::make_shared<IdentityMaterialChannelMapping>(0));
   auto plasticBlock = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema({ "Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz" }),
+    ParameterInputSchema({ "Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz" }),
     std::make_shared<ElementwiseParameterLayout>(1, 6),
     plasticEvaluator ? std::move(plasticEvaluator) :
                      std::make_shared<SquareEvaluator>(6));
@@ -205,11 +205,12 @@ Fixture makeNonlinearShellFixture()
   };
   const int triangles[] = { 0, 1, 2 };
   pgo::Mesh::TriMeshGeo surfaceMesh(3, vertices, 1, triangles);
-  ImportedENuhMaterial material(1000.0, 0.45, 1e-3);
-
   Fixture fixture;
   fixture.asset = TestUtils::shareAsset(
-    loadShellMesh(surfaceMesh, material));
+    loadShellMesh(surfaceMesh),
+    TestUtils::uniformImportedMaterialCatalog(
+      surfaceMesh.numTriangles(), {"E", "nu", "h", "J"},
+      {1000.0, 0.45, 1e-3, 10000.0}, "shell"));
   fixture.mesh = fixture.asset->mesh();
 
   ES::VXd elastic(5);
@@ -218,12 +219,12 @@ Fixture makeNonlinearShellFixture()
   ES::VXd plastic(1);
   plastic << std::sqrt(1.01);
   auto elasticBlock = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema(
+    ParameterInputSchema(
       { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" }),
     std::make_shared<ConstantParameterLayout>(1, 5),
     std::make_shared<SquareEvaluator>(5));
   auto plasticBlock = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema({ "stretch" }),
+    ParameterInputSchema({ "stretch" }),
     std::make_shared<ConstantParameterLayout>(1, 1),
     std::make_shared<SquareEvaluator>(1));
   fixture.parameters = std::make_shared<OptimizableParameters>(
@@ -492,13 +493,13 @@ TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedOptimizableParam
   auto asset = TestUtils::makeENuAsset(mesh, 1200.0, 0.4);
 
   auto elasticField = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema{},
+    ParameterInputSchema{},
     std::make_shared<ElementwiseParameterLayout>(1, 0),
-    std::make_shared<IdentityMaterialEvaluator>(0));
+    std::make_shared<IdentityMaterialChannelMapping>(0));
   auto plasticField = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema({ "Fx", "Fy", "Fz" }),
+    ParameterInputSchema({ "Fx", "Fy", "Fz" }),
     std::make_shared<ElementwiseParameterLayout>(1, 3),
-    std::make_shared<IdentityMaterialEvaluator>(3));
+    std::make_shared<IdentityMaterialChannelMapping>(3));
   auto parameters = std::make_shared<OptimizableParameters>(
     std::move(elasticField), std::move(plasticField),
     ES::VXd(), ES::V3d::Ones());

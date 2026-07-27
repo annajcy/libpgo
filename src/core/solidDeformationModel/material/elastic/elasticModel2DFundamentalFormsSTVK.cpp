@@ -770,7 +770,7 @@ MaterialChannelSchema KoiterStVKDefinition::optimizableChannelSchema() const
   static constexpr std::array<std::string_view, 5> names{"E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness"};
   return MaterialChannelSchema(names);
 }
-std::unique_ptr<ElasticModel> KoiterStVKDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
+std::unique_ptr<ElasticModel> KoiterStVKDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (!values.empty()) throw std::invalid_argument("koiter_stvk has no fixed channels");
   return std::make_unique<ElasticModel2DFundamentalFormsSTVK>();

@@ -1,16 +1,20 @@
 #include <gtest/gtest.h>
 
 #include "simulation/simulationMesh.h"
-#include "simulation/simulationAsset.h"
-#include "material/core/materialEvaluator.h"
-#include "material/core/parameterLayout.h"
-#include "material/core/optimizableParameters.h"
+#include "simulation/import/simulationImportResult.h"
+#include "simulation/simulationMeshVolume.h"
+#include "material/import/volumeMaterialImporter.h"
+#include "material/data/namedMaterialInputData.h"
+#include "material/parameterization/materialChannelMapping.h"
+#include "material/parameterization/parameterLayout.h"
+#include "material/runtime/optimizableParameters.h"
 #include "cubicMesh.h"
 #include "tetMesh.h"
 #include "triMeshGeo.h"
 #include "volumetricMeshENuMaterial.h"
 #include "volumetricMeshMooneyRivlinMaterial.h"
 #include "volumetricMeshOrthotropicMaterial.h"
+#include "vegFile.h"
 
 #include <memory>
 #include <stdexcept>
@@ -24,20 +28,13 @@ constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 constexpr const char *kTorusVegPath = LIBPGO_TEST_TORUS_VEG;
 
 double importedValue(
-  const pgo::SolidDeformationModel::SimulationAsset &asset,
+  const pgo::SolidDeformationModel::SimulationImportResult &asset,
   int element, std::string_view name)
 {
-  for (const auto &field : asset.materialData().fields()) {
-    const auto names = field.channelNames();
-    const int row = field.rowForElement(element);
-    for (int channel = 0; channel < static_cast<int>(names.size()); ++channel)
-      if (names[channel] == name)
-        return field.valueRows()(row, channel);
-  }
-  const auto assignments = asset.materialData().elementMaterialIndices();
+  const auto assignments = asset.materialCatalog().elementMaterialIndices();
   if (element >= 0 && element < static_cast<int>(assignments.size()) &&
       assignments[static_cast<std::size_t>(element)] >= 0) {
-    const auto &material = asset.materialData().materials()[static_cast<std::size_t>(
+    const auto &material = asset.materialCatalog().materials()[static_cast<std::size_t>(
       assignments[static_cast<std::size_t>(element)])];
     const auto iter = material.properties.find(std::string(name));
     if (iter != material.properties.end()) {
@@ -47,6 +44,33 @@ double importedValue(
   }
   throw std::invalid_argument("missing imported channel");
 }
+
+pgo::SolidDeformationModel::NamedMaterialInputData fieldMaterialData(
+  int numElements,
+  std::vector<std::string> channelNames,
+  std::vector<std::vector<double>> rowValues,
+  std::vector<int> elementToRow,
+  std::string name)
+{
+  const int numChannels = static_cast<int>(channelNames.size());
+  pgo::EigenSupport::MXd rows(
+    static_cast<int>(rowValues.size()), numChannels);
+  for (int row = 0; row < static_cast<int>(rowValues.size()); ++row) {
+    if (static_cast<int>(rowValues[static_cast<std::size_t>(row)].size()) !=
+        numChannels)
+      throw std::invalid_argument("test material row has the wrong width");
+    for (int channel = 0; channel < numChannels; ++channel)
+      rows(row, channel) =
+        rowValues[static_cast<std::size_t>(row)]
+                 [static_cast<std::size_t>(channel)];
+  }
+  return pgo::SolidDeformationModel::NamedMaterialInputData(
+    numElements,
+    {pgo::SolidDeformationModel::NamedMaterialInputField(
+      std::move(channelNames), std::move(rows), std::move(elementToRow),
+      std::move(name))});
+}
+
 }
 
 TEST(SimulationMeshGTest, LoadsCubicMeshFromExampleFile)
@@ -95,6 +119,95 @@ TEST(SimulationMeshGTest, TetLoadProducesENuMaterialPayloads)
   }
 }
 
+TEST(SimulationMeshGTest, VolumePayloadImportPreservesLosslessRegionSemantics)
+{
+  using namespace pgo;
+  using namespace pgo::VolumetricMeshes;
+  using namespace pgo::SolidDeformationModel;
+
+  VegFilePayload payload;
+  payload.meshData = Mesh::TetMeshData::fromFlatElements(
+    std::vector<Vec3d>{
+      Vec3d(0.0, 0.0, 0.0),
+      Vec3d(1.0, 0.0, 0.0),
+      Vec3d(0.0, 1.0, 0.0),
+      Vec3d(0.0, 0.0, 1.0),
+      Vec3d(1.0, 1.0, 1.0),
+    },
+    std::vector<int>{0, 1, 2, 3, 1, 2, 3, 4});
+  payload.materials.push_back(VegENuMaterialPayload{
+    "unused", 900.0, 1e6, 0.3});
+  payload.materials.push_back(VegENuMaterialPayload{
+    "first", 1000.0, 2e6, 0.35});
+  VegOrthotropicMaterialPayload orthotropic;
+  orthotropic.name = "later";
+  orthotropic.density = 1100.0;
+  orthotropic.E1 = 3e6;
+  orthotropic.E2 = 2e6;
+  orthotropic.E3 = 1e6;
+  orthotropic.G12 = 0.7e6;
+  orthotropic.G23 = 0.6e6;
+  orthotropic.G31 = 0.5e6;
+  orthotropic.R = {
+    0.0, -1.0, 0.0,
+    1.0, 0.0, 0.0,
+    0.0, 0.0, 1.0};
+  payload.materials.push_back(orthotropic);
+  payload.sets = {
+    VegSetPayload{"unusedSet", {}},
+    VegSetPayload{"firstSet", {0, 1}},
+    VegSetPayload{"overlapSet", {1}},
+  };
+  payload.regions = {
+    VegRegionPayload{1, 1},
+    VegRegionPayload{2, 2},
+  };
+
+  auto volume = VolumetricMesh::fromVegFilePayload(payload);
+  ASSERT_NE(volume, nullptr);
+  const ImportedMaterialCatalog imported = importVolumeMaterialCatalog(*volume);
+
+  ASSERT_EQ(imported.materials().size(), 3u);
+  EXPECT_EQ(imported.materials()[0].name, "unused");
+  EXPECT_EQ(imported.materials()[2].family, "orthotropic");
+  ASSERT_EQ(imported.sets().size(), 3u);
+  EXPECT_EQ(imported.sets()[0].name, "unusedSet");
+  ASSERT_EQ(imported.regions().size(), 2u);
+  EXPECT_EQ(imported.regions()[0].materialIndex, 1);
+  EXPECT_EQ(imported.regions()[0].setIndex, 1);
+  EXPECT_EQ(imported.regions()[1].materialIndex, 2);
+  EXPECT_EQ(imported.regions()[1].setIndex, 2);
+
+  const std::vector<int> assignments = imported.elementMaterialIndices();
+  ASSERT_EQ(assignments.size(), 2u);
+  EXPECT_EQ(assignments[0], 1);
+  EXPECT_EQ(assignments[1], 2);
+
+  const auto rotationIter =
+    imported.materials()[2].properties.find("rotation");
+  ASSERT_NE(rotationIter, imported.materials()[2].properties.end());
+  const auto *rotation =
+    std::get_if<std::vector<double>>(&rotationIter->second);
+  ASSERT_NE(rotation, nullptr);
+  EXPECT_EQ(*rotation, std::vector<double>(orthotropic.R.begin(), orthotropic.R.end()));
+
+  VegFilePayload invalid = payload;
+  invalid.regions = {VegRegionPayload{3, 0}};
+  EXPECT_THROW(
+    VolumetricMesh::fromVegFilePayload(invalid),
+    std::invalid_argument);
+
+  VegFilePayload partial = payload;
+  partial.sets = {VegSetPayload{"onlyFirst", {0}}};
+  partial.regions = {VegRegionPayload{1, 0}};
+  auto partialVolume = VolumetricMesh::fromVegFilePayload(partial);
+  const std::vector<int> partialAssignments =
+    importVolumeMaterialCatalog(*partialVolume).elementMaterialIndices();
+  ASSERT_EQ(partialAssignments.size(), 2u);
+  EXPECT_EQ(partialAssignments[0], 1);
+  EXPECT_EQ(partialAssignments[1], -1);
+}
+
 TEST(SimulationMeshGTest, ShellLoadPreservesTriangleZeroAsNeighbor)
 {
   using namespace pgo;
@@ -112,23 +225,21 @@ TEST(SimulationMeshGTest, ShellLoadPreservesTriangleZeroAsNeighbor)
   };
   Mesh::TriMeshGeo surface(
     std::move(vertices), std::move(triangles));
-  ImportedENuhMaterial material(1000.0, 0.4, 0.01);
-
-  auto mesh = loadShellMesh(surface, material);
+  auto mesh = loadShellMesh(surface);
 
   ASSERT_NE(mesh, nullptr);
-  ASSERT_EQ(mesh->mesh()->getNumElements(), 2);
-  ASSERT_EQ(mesh->mesh()->getNumElementVertices(), 6);
+  ASSERT_EQ(mesh->getNumElements(), 2);
+  ASSERT_EQ(mesh->getNumElementVertices(), 6);
 
   // Triangle 0 sees triangle 1 across local edge (2, 0), whose opposite
   // vertex is 3.
-  EXPECT_EQ(mesh->mesh()->getVertexIndex(0, 5), 3);
+  EXPECT_EQ(mesh->getVertexIndex(0, 5), 3);
   // Triangle 1 sees triangle 0 across local edge (0, 2), whose opposite
   // vertex is 1. Triangle index 0 is a valid neighbor, not a boundary.
-  EXPECT_EQ(mesh->mesh()->getVertexIndex(1, 3), 1);
+  EXPECT_EQ(mesh->getVertexIndex(1, 3), 1);
 }
 
-TEST(SimulationMeshGTest, TriangleLoadUsesOneMaterialPerTriangle)
+TEST(SimulationMeshGTest, TriangleLoadBuildsStandaloneGeometry)
 {
   using namespace pgo;
   using namespace pgo::SolidDeformationModel;
@@ -145,37 +256,31 @@ TEST(SimulationMeshGTest, TriangleLoadUsesOneMaterialPerTriangle)
   };
   Mesh::TriMeshGeo surface(std::move(vertices), std::move(triangles));
 
-  auto field = ElementField<ImportedENuMaterial>::fromValues({
-    ImportedENuMaterial(1000.0, 0.4),
-    ImportedENuMaterial(2000.0, 0.35),
-  });
-  auto mesh = loadTriangleMesh(surface, std::move(field));
+  auto mesh = loadTriangleMesh(surface);
 
   ASSERT_NE(mesh, nullptr);
-  const auto &geometry = mesh->mesh();
-  EXPECT_EQ(geometry->getElementType(), SimulationMeshType::TRIANGLE);
-  EXPECT_EQ(geometry->getNumElements(), 2);
-  EXPECT_EQ(geometry->getNumElementVertices(), 3);
-  EXPECT_DOUBLE_EQ(importedValue(*mesh, 1, "E"), 2000.0);
-  EXPECT_EQ(geometry->getVertexIndex(1, 0), 0);
-  EXPECT_EQ(geometry->getVertexIndex(1, 1), 2);
-  EXPECT_EQ(geometry->getVertexIndex(1, 2), 3);
+  EXPECT_EQ(mesh->getElementType(), SimulationMeshType::TRIANGLE);
+  EXPECT_EQ(mesh->getNumElements(), 2);
+  EXPECT_EQ(mesh->getNumElementVertices(), 3);
+  EXPECT_EQ(mesh->getVertexIndex(1, 0), 0);
+  EXPECT_EQ(mesh->getVertexIndex(1, 1), 2);
+  EXPECT_EQ(mesh->getVertexIndex(1, 2), 3);
 
-  const std::span<const int> indices = geometry->getVertexIndices(1);
+  const std::span<const int> indices = mesh->getVertexIndices(1);
   ASSERT_EQ(indices.size(), 3u);
   EXPECT_EQ(indices[0], 0);
   EXPECT_EQ(indices[1], 2);
   EXPECT_EQ(indices[2], 3);
 
   computeTriangleUV(
-    const_cast<SimulationMesh &>(*geometry), 1.0);
-  ASSERT_TRUE(geometry->hasElementUV());
-  EXPECT_TRUE(geometry->getElementUV(0, 0).isApprox(EigenSupport::V2d::Zero()));
-  EXPECT_TRUE(geometry->getElementUV(0, 1).isApprox(EigenSupport::V2d(1.0, 0.0)));
-  EXPECT_TRUE(geometry->getElementUV(0, 2).isApprox(EigenSupport::V2d(1.0, 1.0)));
+    *mesh, 1.0);
+  ASSERT_TRUE(mesh->hasElementUV());
+  EXPECT_TRUE(mesh->getElementUV(0, 0).isApprox(EigenSupport::V2d::Zero()));
+  EXPECT_TRUE(mesh->getElementUV(0, 1).isApprox(EigenSupport::V2d(1.0, 0.0)));
+  EXPECT_TRUE(mesh->getElementUV(0, 2).isApprox(EigenSupport::V2d(1.0, 1.0)));
 }
 
-TEST(SimulationMeshGTest, EdgeQuadLoadAveragesSourceTriangleMaterials)
+TEST(SimulationMeshGTest, EdgeQuadLoadBuildsStandaloneGeometry)
 {
   using namespace pgo;
   using namespace pgo::SolidDeformationModel;
@@ -192,55 +297,31 @@ TEST(SimulationMeshGTest, EdgeQuadLoadAveragesSourceTriangleMaterials)
   };
   Mesh::TriMeshGeo surface(std::move(vertices), std::move(triangles));
 
-  auto field = ElementField<ImportedENuhMaterial>::fromValues({
-    ImportedENuhMaterial(1000.0, 0.4, 0.01),
-    ImportedENuhMaterial(2000.0, 0.35, 0.03),
-  });
-  auto mesh = loadEdgeQuadMesh(surface, std::move(field));
+  auto mesh = loadEdgeQuadMesh(surface);
 
   ASSERT_NE(mesh, nullptr);
-  const auto &geometry = mesh->mesh();
-  EXPECT_EQ(geometry->getElementType(), SimulationMeshType::EDGE_QUAD);
-  EXPECT_EQ(geometry->getNumElements(), 1);
-  EXPECT_EQ(geometry->getNumElementVertices(), 4);
-  EXPECT_EQ(geometry->getVertexIndex(0, 0), 1);
-  EXPECT_EQ(geometry->getVertexIndex(0, 1), 0);
-  EXPECT_EQ(geometry->getVertexIndex(0, 2), 2);
-  EXPECT_EQ(geometry->getVertexIndex(0, 3), 3);
-  EXPECT_DOUBLE_EQ(importedValue(*mesh, 0, "E"), 1500.0);
-  EXPECT_DOUBLE_EQ(importedValue(*mesh, 0, "nu"), 0.375);
-  EXPECT_DOUBLE_EQ(importedValue(*mesh, 0, "h"), 0.02);
+  EXPECT_EQ(mesh->getElementType(), SimulationMeshType::EDGE_QUAD);
+  EXPECT_EQ(mesh->getNumElements(), 1);
+  EXPECT_EQ(mesh->getNumElementVertices(), 4);
+  EXPECT_EQ(mesh->getVertexIndex(0, 0), 1);
+  EXPECT_EQ(mesh->getVertexIndex(0, 1), 0);
+  EXPECT_EQ(mesh->getVertexIndex(0, 2), 2);
+  EXPECT_EQ(mesh->getVertexIndex(0, 3), 3);
 }
 
-TEST(SimulationMeshGTest, ShellMaterialFieldRejectsInvalidPaletteAndSize)
+TEST(SimulationMeshGTest, NamedMaterialInputDataRejectsInvalidRows)
 {
   using namespace pgo::SolidDeformationModel;
 
-  std::vector<std::shared_ptr<const ImportedENuhMaterial>> palette;
-  palette.emplace_back(std::make_shared<const ImportedENuhMaterial>(
-    1000.0, 0.4, 0.01));
   EXPECT_THROW(
-    ElementField<ImportedENuhMaterial>::fromPalette(
-      palette, std::vector<int>{1}),
+    fieldMaterialData(
+      1, {"E", "nu", "h", "J"},
+      {{1000.0, 0.4, 0.01, 10000.0}}, {1}, "shell"),
     std::invalid_argument);
 
-  std::vector<pgo::Vec3d> vertices{
-    pgo::Vec3d(0.0, 0.0, 0.0),
-    pgo::Vec3d(1.0, 0.0, 0.0),
-    pgo::Vec3d(1.0, 1.0, 0.0),
-    pgo::Vec3d(0.0, 1.0, 0.0),
-  };
-  std::vector<pgo::Vec3i> triangles{
-    pgo::Vec3i(0, 1, 2),
-    pgo::Vec3i(0, 2, 3),
-  };
-  pgo::Mesh::TriMeshGeo surface(std::move(vertices), std::move(triangles));
-  auto field = ElementField<ImportedENuhMaterial>::uniform(
-    1, ImportedENuhMaterial(1000.0, 0.4, 0.01));
-  EXPECT_THROW(loadShellMesh(surface, std::move(field)), std::invalid_argument);
 }
 
-TEST(SimulationMeshGTest, ShellLoadAcceptsTypedMaterialPalette)
+TEST(SimulationMeshGTest, ImportResultChecksMeshAndPayloadElementCounts)
 {
   using namespace pgo;
   using namespace pgo::SolidDeformationModel;
@@ -256,17 +337,12 @@ TEST(SimulationMeshGTest, ShellLoadAcceptsTypedMaterialPalette)
     Vec3i(0, 2, 3),
   };
   Mesh::TriMeshGeo surface(std::move(vertices), std::move(triangles));
-  std::vector<std::shared_ptr<const ImportedENuhMaterial>> palette{
-    std::make_shared<const ImportedENuhMaterial>(1000.0, 0.4, 0.01),
-    std::make_shared<const ImportedENuhMaterial>(2000.0, 0.35, 0.02),
-  };
-  auto field = ElementField<ImportedENuhMaterial>::fromPalette(
-    std::move(palette), std::vector<int>{0, 1});
-
-  auto mesh = loadShellMesh(surface, std::move(field));
+  auto mesh = loadShellMesh(surface);
   ASSERT_NE(mesh, nullptr);
-  EXPECT_DOUBLE_EQ(importedValue(*mesh, 0, "E"), 1000.0);
-  EXPECT_DOUBLE_EQ(importedValue(*mesh, 1, "E"), 2000.0);
+  EXPECT_THROW(
+    SimulationImportResult(
+      mesh, ImportedMaterialCatalog(1, {}, {}, {})),
+    std::invalid_argument);
 }
 
 TEST(SimulationMeshGTest, LoadsMooneyRivlinElementField)
@@ -399,65 +475,11 @@ TEST(SimulationMeshGTest, FixedFieldsAreIndependentOfGeometry)
     8, vertices, 1, 8, elementVertices, SimulationMeshType::CUBIC);
 
   ASSERT_NE(mesh, nullptr);
-  static constexpr std::string_view names[] = {
-    "E", "nu", "Eact", "gamma", "lo"};
-  const double values[] = {1200.0, 0.45, 2500.0, 0.35, 1.0};
   auto fixed = std::make_shared<const FixedParameterField>(
-    ParameterSchema(std::vector<std::string>{"E", "nu", "Eact", "gamma", "lo"}),
+    ParameterInputSchema(std::vector<std::string>{"E", "nu", "Eact", "gamma", "lo"}),
     std::make_shared<const ConstantParameterLayout>(1, 5),
-    std::make_shared<const IdentityMaterialEvaluator>(5));
-  EXPECT_EQ(fixed->parameterSchema().numParameters(), 5);
+    std::make_shared<const IdentityMaterialChannelMapping>(5));
+  EXPECT_EQ(fixed->inputSchema().numParameters(), 5);
   EXPECT_EQ(fixed->layout().numGlobalParameters(), 5);
   EXPECT_EQ(mesh->getNumElements(), 1);
-}
-
-TEST(SimulationMeshGTest, HillFieldSupportsSpatiallyVaryingMaterialData)
-{
-  using namespace pgo::SolidDeformationModel;
-  auto hill0 = std::make_shared<const ImportedHillMaterial>(1000.0, 0.2, 0.8);
-  auto hill1 = std::make_shared<const ImportedHillMaterial>(2000.0, 0.4, 1.1);
-  auto field = ElementField<ImportedHillMaterial>::fromShared(
-    4, std::vector<std::shared_ptr<const ImportedHillMaterial>>{hill0, hill0, hill1, hill0});
-
-  ASSERT_EQ(field.size(), 4);
-  EXPECT_DOUBLE_EQ(field.at(0).getEact(), 1000.0);
-  EXPECT_DOUBLE_EQ(field.at(1).getEact(), 1000.0);
-  EXPECT_DOUBLE_EQ(field.at(2).getEact(), 2000.0);
-  EXPECT_DOUBLE_EQ(field.at(3).getEact(), 1000.0);
-}
-
-TEST(ElementFieldStoreGTest, UsesExactTypeAndValidatesShape)
-{
-  using namespace pgo::SolidDeformationModel;
-
-  ElementFieldStore store;
-  store.add(ElementField<ImportedENuMaterial>::uniform(
-    2, ImportedENuMaterial(1000.0, 0.4)));
-
-  EXPECT_TRUE(store.contains<ImportedENuMaterial>());
-  EXPECT_FALSE(store.contains<ImportedHillMaterial>());
-  EXPECT_THROW(store.require<ImportedHillMaterial>(), std::invalid_argument);
-  EXPECT_THROW(
-    store.add(ElementField<ImportedENuMaterial>::uniform(
-      2, ImportedENuMaterial(2000.0, 0.3))),
-    std::invalid_argument);
-  EXPECT_THROW(
-    store.add(ElementField<ImportedHillMaterial>::uniform(
-      3, ImportedHillMaterial())),
-    std::invalid_argument);
-}
-
-TEST(ElementFieldStoreGTest, SharedHandlesPreserveSpatialValues)
-{
-  using namespace pgo::SolidDeformationModel;
-  auto first = std::make_shared<const ImportedHillMaterial>(1000.0, 0.2, 0.8);
-  auto second = std::make_shared<const ImportedHillMaterial>(2000.0, 0.4, 1.1);
-  auto field = ElementField<ImportedHillMaterial>::fromShared(
-    3, { first, first, second });
-
-  ElementFieldStore store;
-  store.add(std::move(field));
-  EXPECT_DOUBLE_EQ(store.require<ImportedHillMaterial>().at(0).getEact(), 1000.0);
-  EXPECT_DOUBLE_EQ(store.require<ImportedHillMaterial>().at(1).getEact(), 1000.0);
-  EXPECT_DOUBLE_EQ(store.require<ImportedHillMaterial>().at(2).getEact(), 2000.0);
 }

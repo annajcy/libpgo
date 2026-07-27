@@ -66,7 +66,7 @@ namespace {
 }
 MaterialChannelSchema VolumePenaltyDefinition::optimizableChannelSchema() const { return {}; }
 MaterialChannelSchema VolumePenaltyDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"J"}; return MaterialChannelSchema(names); }
-std::unique_ptr<ElasticModel> VolumePenaltyDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &) const
+std::unique_ptr<ElasticModel> VolumePenaltyDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (values.size() != 1) throw std::invalid_argument("volume requires fixed channel J");
   return std::make_unique<ElasticModelVolumeMaterial>(values[0]);

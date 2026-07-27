@@ -76,6 +76,7 @@ struct VegFilePayload
   std::vector<VegRegionPayload> regions;
 };
 
+void validateVegFilePayload(const VegFilePayload &payload);
 VegFilePayload readVegFile(const std::filesystem::path &path);
 void writeVegFile(const std::filesystem::path &path, const VegFilePayload &payload);
 

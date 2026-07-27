@@ -80,7 +80,7 @@ StableNeoPrincipalStretchDefinition::fixedChannelSchema() const
 }
 
 std::unique_ptr<ElasticModel>
-StableNeoPrincipalStretchDefinition::createModelFromFixed(
+StableNeoPrincipalStretchDefinition::createModel(
   std::span<const double> values, const MaterialFrame &) const
 {
   if (values.size() != 2) throw std::invalid_argument("stable_neo_principal_stretch requires fixed channels E, nu");

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameterRef.h"
 
 #include <array>
 #include <algorithm>
@@ -12,12 +12,12 @@ namespace
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
-class SquareEvaluator final : public DifferentiableMaterialEvaluator
+class SquareMapping final : public DifferentiableMaterialChannelMapping
 {
 public:
-  explicit SquareEvaluator(std::array<double, 2> scales): scales_(scales) {}
+  explicit SquareMapping(std::array<double, 2> scales): scales_(scales) {}
 
-  int numParameters() const override { return 2; }
+  int numInputs() const override { return 2; }
   int numChannels() const override { return 2; }
   bool isAffine() const override { return false; }
 
@@ -26,7 +26,7 @@ public:
     std::span<double> p) const override
   {
     if (z.size() != 2 || p.size() != 2)
-      throw std::invalid_argument("SquareEvaluator shape mismatch.");
+      throw std::invalid_argument("SquareMapping shape mismatch.");
     for (int c = 0; c < 2; c++)
       p[c] = scales_[c] * z[c] * z[c];
   }
@@ -64,21 +64,21 @@ TEST(ElementwiseParameterLayout, GathersPerElementColumns)
   EXPECT_EQ(local[1], 6);
   EXPECT_EQ(layout.globalParameter(2, 0), 4);
   EXPECT_EQ(layout.globalParameter(2, 1), 5);
-  EXPECT_EQ(layout.numValueRows(), 3);
+  EXPECT_EQ(layout.numGlobalParameters(), 6);
 }
 
-TEST(DifferentiableMaterialEvaluator, ValueJacobianHessiansAndFiniteDifference)
+TEST(DifferentiableMaterialChannelMapping, ValueJacobianHessiansAndFiniteDifference)
 {
-  SquareEvaluator evaluator({ 2.0, -3.0 });
+  SquareMapping mapping({ 2.0, -3.0 });
   std::array<double, 2> z{ 1.5, -0.7 };
   std::array<double, 2> p{};
   ES::MXd jacobian(2, 2);
   std::vector<ES::MXd> hessians(2);
   for (ES::MXd &hessian : hessians)
     hessian.resize(2, 2);
-  evaluator.evaluate(0, 0, z, p);
-  evaluator.evaluateJacobian(0, 0, z, jacobian);
-  evaluator.evaluateHessians(0, 0, z, hessians);
+  mapping.evaluate(0, 0, z, p);
+  mapping.evaluateJacobian(0, 0, z, jacobian);
+  mapping.evaluateHessians(0, 0, z, hessians);
 
   EXPECT_DOUBLE_EQ(p[0], 4.5);
   EXPECT_DOUBLE_EQ(p[1], -1.47);
@@ -94,8 +94,8 @@ TEST(DifferentiableMaterialEvaluator, ValueJacobianHessiansAndFiniteDifference)
     zp[k] += h;
     zm[k] -= h;
     std::array<double, 2> pp{}, pm{};
-    evaluator.evaluate(0, 0, zp, pp);
-    evaluator.evaluate(0, 0, zm, pm);
+    mapping.evaluate(0, 0, zp, pp);
+    mapping.evaluate(0, 0, zm, pm);
     for (int c = 0; c < 2; c++)
       EXPECT_NEAR((pp[c] - pm[c]) / (2 * h), jacobian(c, k), 1e-8);
   }
@@ -107,8 +107,8 @@ TEST(DifferentiableMaterialEvaluator, ValueJacobianHessiansAndFiniteDifference)
     zp[derivativeParameter] += h;
     zm[derivativeParameter] -= h;
     ES::MXd jp(2, 2), jm(2, 2);
-    evaluator.evaluateJacobian(0, 0, zp, jp);
-    evaluator.evaluateJacobian(0, 0, zm, jm);
+    mapping.evaluateJacobian(0, 0, zp, jp);
+    mapping.evaluateJacobian(0, 0, zm, jm);
     for (int channel = 0; channel < 2; channel++) {
       for (int jacobianParameter = 0; jacobianParameter < 2;
            jacobianParameter++) {
@@ -129,43 +129,43 @@ TEST(OptimizableParameterField, RejectsInvalidSchema)
 {
   EXPECT_THROW(
     std::make_shared<const OptimizableParameterField>(
-      ParameterSchema({ "same", "same" }),
+      ParameterInputSchema({ "same", "same" }),
       std::make_shared<ElementwiseParameterLayout>(2, 2),
-      std::make_shared<IdentityMaterialEvaluator>(2)),
+      std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
     std::make_shared<const OptimizableParameterField>(
-      ParameterSchema({ "valid", "" }),
+      ParameterInputSchema({ "valid", "" }),
       std::make_shared<ElementwiseParameterLayout>(2, 2),
-      std::make_shared<IdentityMaterialEvaluator>(2)),
+      std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
     std::make_shared<const OptimizableParameterField>(
-      ParameterSchema({ "first", "second" }),
+      ParameterInputSchema({ "first", "second" }),
       std::make_shared<ElementwiseParameterLayout>(2, 1),
-      std::make_shared<IdentityMaterialEvaluator>(2)),
+      std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 
   EXPECT_THROW(
     std::make_shared<const OptimizableParameterField>(
-      ParameterSchema({ "only_one_name" }),
+      ParameterInputSchema({ "only_one_name" }),
       std::make_shared<ElementwiseParameterLayout>(2, 2),
-      std::make_shared<IdentityMaterialEvaluator>(2)),
+      std::make_shared<IdentityMaterialChannelMapping>(2)),
     std::invalid_argument);
 }
 
 TEST(OptimizableParameters, RejectsMismatchedFieldElementCounts)
 {
   auto elastic = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema{},
+    ParameterInputSchema{},
     std::make_shared<ElementwiseParameterLayout>(2, 0),
-    std::make_shared<IdentityMaterialEvaluator>(0));
+    std::make_shared<IdentityMaterialChannelMapping>(0));
   auto plastic = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema{},
+    ParameterInputSchema{},
     std::make_shared<ElementwiseParameterLayout>(3, 0),
-    std::make_shared<IdentityMaterialEvaluator>(0));
+    std::make_shared<IdentityMaterialChannelMapping>(0));
   EXPECT_THROW(
     OptimizableParameters(
       std::move(elastic), std::move(plastic),
@@ -176,13 +176,13 @@ TEST(OptimizableParameters, RejectsMismatchedFieldElementCounts)
 TEST(OptimizableParameters, FieldIdentitySnapshotAndSemanticReference)
 {
   auto elastic = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema({ "first", "thickness" }),
+    ParameterInputSchema({ "first", "thickness" }),
     std::make_shared<ElementwiseParameterLayout>(2, 2),
-    std::make_shared<SquareEvaluator>(std::array<double, 2>{ 2.0, 3.0 }));
+    std::make_shared<SquareMapping>(std::array<double, 2>{ 2.0, 3.0 }));
   auto plastic = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema({ "stretch" }),
+    ParameterInputSchema({ "stretch" }),
     std::make_shared<ConstantParameterLayout>(2, 1),
-    std::make_shared<IdentityMaterialEvaluator>(1));
+    std::make_shared<IdentityMaterialChannelMapping>(1));
   ES::VXd elasticValues(4);
   elasticValues << 1.0, 2.0, 3.0, 4.0;
   ES::VXd plasticValues(1);
@@ -213,8 +213,9 @@ TEST(OptimizableParameters, FieldIdentitySnapshotAndSemanticReference)
     std::vector<double>(evaluatedValues.begin(), evaluatedValues.end()),
     (std::vector<double>{ 18.0, 48.0, 18.0, 48.0 }));
 
-  OptimizableParameterRef thickness = elastic->parameter("thickness");
-  EXPECT_THROW(elastic->parameter("missing"), std::invalid_argument);
+  OptimizableParameterRef thickness(elastic, "thickness");
+  EXPECT_THROW(
+    OptimizableParameterRef(elastic, "missing"), std::invalid_argument);
   EXPECT_DOUBLE_EQ(thickness.value(1, 0, snapshot.view()), 4.0);
   ES::VXd derivative(2);
   thickness.localDerivative(1, 0, snapshot.view(), derivative);
@@ -227,13 +228,13 @@ TEST(OptimizableParameters, FieldIdentitySnapshotAndSemanticReference)
   EXPECT_DOUBLE_EQ(thickness.value(1, 0, snapshot.view()), 4.0);
 
   auto otherElastic = std::make_shared<const OptimizableParameterField>(
-      ParameterSchema({ "first", "thickness" }),
+      ParameterInputSchema({ "first", "thickness" }),
       std::make_shared<ElementwiseParameterLayout>(2, 2),
-      std::make_shared<IdentityMaterialEvaluator>(2));
+      std::make_shared<IdentityMaterialChannelMapping>(2));
   auto otherPlastic = std::make_shared<const OptimizableParameterField>(
-      ParameterSchema({ "stretch" }),
+      ParameterInputSchema({ "stretch" }),
       std::make_shared<ConstantParameterLayout>(2, 1),
-      std::make_shared<IdentityMaterialEvaluator>(1));
+      std::make_shared<IdentityMaterialChannelMapping>(1));
   EXPECT_THROW(
     thickness.value(
       0, 0,

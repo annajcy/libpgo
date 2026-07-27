@@ -26,7 +26,7 @@ class DeformationEnergy(PotentialEnergy):
     Parameters
     ----------
     assignment : MaterialAssignment
-        Complete material binding for the simulation asset.
+        Complete material binding for the simulation mesh.
     formulation : Formulation
         Element formulation used to assemble the deformation energy.
     options : DeformationOptions, optional
@@ -69,10 +69,10 @@ class DeformationEnergy(PotentialEnergy):
                     "options.element_weights must be 1-D, "
                     f"got shape {element_weights.shape}"
                 )
-            if element_weights.size != assignment.asset.num_elements:
+            if element_weights.size != assignment.mesh.num_elements:
                 raise ValueError(
                     "options.element_weights size must be "
-                    f"{assignment.asset.num_elements}, got {element_weights.size}"
+                    f"{assignment.mesh.num_elements}, got {element_weights.size}"
                 )
             element_weights = np.ascontiguousarray(
                 element_weights, dtype=np.float64
@@ -86,12 +86,14 @@ class DeformationEnergy(PotentialEnergy):
             bool(options.enable_material_max_step),
         )
         object.__setattr__(self, "_handle", core)
-        object.__setattr__(self, "_elastic_definition", assignment.elastic)
-        object.__setattr__(self, "_plastic_definition", assignment.plastic)
+        object.__setattr__(
+            self, "_elastic_definition", assignment.parameterization.elastic.definition)
+        object.__setattr__(
+            self, "_plastic_definition", assignment.parameterization.plastic.definition)
         object.__setattr__(
             self, "_optimizable_parameters", assignment.optimizable_parameters
         )
-        object.__setattr__(self, "_material_assignment", assignment)
+        object.__setattr__(self, "_assignment", assignment)
         super().__init__(core)
 
     @property
@@ -141,9 +143,9 @@ class DeformationEnergy(PotentialEnergy):
         return self._optimizable_parameters
 
     @property
-    def material_assignment(self) -> MaterialAssignment:
+    def assignment(self) -> MaterialAssignment:
         """Complete mesh-bound material assignment used to build this energy."""
-        return self._material_assignment
+        return self._assignment
 
     def dE_de(self, displacement: np.ndarray) -> np.ndarray:
         """Return ``∂E/∂e`` with shape ``(num_elastic_dofs,)``."""
@@ -209,16 +211,24 @@ class DeformationEnergy(PotentialEnergy):
 class PlasticMaterialEnergy(PotentialEnergy):
     """Material energy with the plastic field as the optimization variable.
 
-    Created by ``pypgo.fem.plastic_material_energy()``. The displacement is fixed;
+    Constructed from a :class:`DeformationEnergy`. The displacement is fixed;
     the input state vector is the plastic field's global DOF vector.
     """
 
-    def __init__(self, handle, *, deformation_energy, fixed_displacement):
+    def __init__(self, deformation_energy, *, fixed_displacement):
+        if not isinstance(deformation_energy, DeformationEnergy):
+            raise TypeError("deformation_energy must be a DeformationEnergy")
+        u = np.asarray(fixed_displacement, dtype=np.float64, order="C")
+        if u.ndim != 1 or u.size != deformation_energy.num_dofs:
+            raise ValueError(
+                "fixed_displacement must be a 1-D vector matching deformation_energy.num_dofs"
+            )
+        handle = _core._create_plastic_material_energy(deformation_energy._handle, u)
         object.__setattr__(self, "_deformation_energy", deformation_energy)
         object.__setattr__(
             self,
             "_fixed_displacement",
-            np.asarray(fixed_displacement, dtype=np.float64).copy(),
+            u.copy(),
         )
         super().__init__(handle)
 
@@ -237,16 +247,24 @@ class PlasticMaterialEnergy(PotentialEnergy):
 class ElasticMaterialEnergy(PotentialEnergy):
     """Material energy with the elastic field as the optimization variable.
 
-    Created by ``pypgo.fem.elastic_material_energy()``. The displacement is fixed;
+    Constructed from a :class:`DeformationEnergy`. The displacement is fixed;
     the input state vector is the elastic field's global DOF vector.
     """
 
-    def __init__(self, handle, *, deformation_energy, fixed_displacement):
+    def __init__(self, deformation_energy, *, fixed_displacement):
+        if not isinstance(deformation_energy, DeformationEnergy):
+            raise TypeError("deformation_energy must be a DeformationEnergy")
+        u = np.asarray(fixed_displacement, dtype=np.float64, order="C")
+        if u.ndim != 1 or u.size != deformation_energy.num_dofs:
+            raise ValueError(
+                "fixed_displacement must be a 1-D vector matching deformation_energy.num_dofs"
+            )
+        handle = _core._create_elastic_material_energy(deformation_energy._handle, u)
         object.__setattr__(self, "_deformation_energy", deformation_energy)
         object.__setattr__(
             self,
             "_fixed_displacement",
-            np.asarray(fixed_displacement, dtype=np.float64).copy(),
+            u.copy(),
         )
         super().__init__(handle)
 
@@ -297,63 +315,3 @@ def _resolve_formulation(formulation):
             f"formulation must be a Formulation, got {type(formulation).__name__}"
         )
     return formulation
-
-
-def plastic_material_energy(
-    deformation_energy,
-    *,
-    fixed_displacement,
-) -> PlasticMaterialEnergy:
-    """Create a material energy whose optimization variable is the plastic field."""
-    if not isinstance(deformation_energy, DeformationEnergy):
-        raise TypeError(
-            f"deformation_energy must be a DeformationEnergy, got {type(deformation_energy).__name__}"
-        )
-
-    u = np.asarray(fixed_displacement, dtype=np.float64, order="C")
-    if u.ndim != 1:
-        raise ValueError(f"fixed_displacement must be 1-D, got shape {u.shape}")
-    if u.size != deformation_energy.num_dofs:
-        raise ValueError(
-            f"fixed_displacement size must be {deformation_energy.num_dofs}, got {u.size}"
-        )
-
-    handle = _core._create_plastic_material_energy(
-        deformation_energy._handle,
-        u,
-    )
-    return PlasticMaterialEnergy(
-        handle,
-        deformation_energy=deformation_energy,
-        fixed_displacement=u,
-    )
-
-
-def elastic_material_energy(
-    deformation_energy,
-    *,
-    fixed_displacement,
-) -> ElasticMaterialEnergy:
-    """Create a material energy whose optimization variable is the elastic field."""
-    if not isinstance(deformation_energy, DeformationEnergy):
-        raise TypeError(
-            f"deformation_energy must be a DeformationEnergy, got {type(deformation_energy).__name__}"
-        )
-
-    u = np.asarray(fixed_displacement, dtype=np.float64, order="C")
-    if u.ndim != 1:
-        raise ValueError(f"fixed_displacement must be 1-D, got shape {u.shape}")
-    if u.size != deformation_energy.num_dofs:
-        raise ValueError(
-            f"fixed_displacement size must be {deformation_energy.num_dofs}, got {u.size}"
-        )
-
-    handle = _core._create_elastic_material_energy(
-        deformation_energy._handle,
-        u,
-    )
-    return ElasticMaterialEnergy(
-        handle,
-        deformation_energy=deformation_energy,
-        fixed_displacement=u,
-    )

@@ -37,7 +37,7 @@ constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
 
 template<class FormulationT>
 std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
-  std::shared_ptr<const SimulationAsset> asset,
+  std::shared_ptr<const SimulationImportResult> asset,
   const FormulationT &formulation,
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic)
@@ -242,9 +242,11 @@ TEST(DeformationModelBuilderGTest, ShellSimulationMeshBuilderValidatesTopology)
 
   pgo::Mesh::TriMeshGeo surfaceMesh;
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
-  ImportedENuhMaterial shellMaterial(1000.0, 0.45, 1e-3);
   auto asset = TestUtils::shareAsset(
-    loadShellMesh(surfaceMesh, shellMaterial));
+    loadShellMesh(surfaceMesh),
+    TestUtils::uniformImportedMaterialCatalog(
+      surfaceMesh.numTriangles(), {"E", "nu", "h", "J"},
+      {1000.0, 0.45, 1e-3, 10000.0}, "shell"));
   ASSERT_NE(asset, nullptr);
 
   auto energy = makeDefaultFieldEnergy(

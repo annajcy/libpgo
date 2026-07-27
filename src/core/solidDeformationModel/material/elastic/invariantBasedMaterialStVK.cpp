@@ -4,7 +4,6 @@ copyright to USC,MIT,NUS
 */
 
 #include "material/elastic/invariantBasedMaterialStVK.h"
-#include "simulation/importedMaterial.h"
 
 #include <cmath>
 
@@ -12,9 +11,8 @@ using namespace pgo::SolidDeformationModel;
 
 InvariantBasedMaterialStVK::InvariantBasedMaterialStVK(double E, double nu, double compressionRatio)
 {
-  ImportedENuMaterial mat(E, nu);
-  lambda = mat.getLambdaLame();
-  mu = mat.getMuLame();
+  lambda = (nu * E) / ((1.0 + nu) * (1.0 - 2.0 * nu));
+  mu = E / (2.0 * (1.0 + nu));
 
   if (compressionRatio > 0) {
     coeffJ = compressionRatio * E / (1.0 - 2.0 * nu);

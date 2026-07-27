@@ -27,10 +27,6 @@ class ElasticModelDefinition:
     def optimizable_channel_names(self) -> tuple[str, ...]:
         return tuple(self._handle.optimizable_channel_names)
 
-    @property
-    def frame_requirement(self) -> str:
-        return self._handle.frame_requirement
-
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 
@@ -63,22 +59,3 @@ class MooneyRivlinDefinition(ElasticModelDefinition):
 class KoiterStVKDefinition(ElasticModelDefinition):
     def __init__(self) -> None:
         super().__init__(_core.PyKoiterStVKDefinition())
-
-
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class KoiterStVKShellMaterial:
-    """optimizable parameters for the Koiter-St.Venant-Kirchhoff shell model.
-
-    Used by ``SimulationAsset.create_shell`` and shell config I/O.
-    """
-
-    name: str = "shell"
-    thickness: float = 0.001
-    E_membrane: float = 1e6
-    nu_membrane: float = 0.4
-
-
-ShellMaterialLike = KoiterStVKShellMaterial

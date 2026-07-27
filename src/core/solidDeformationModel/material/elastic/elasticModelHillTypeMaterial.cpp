@@ -202,7 +202,7 @@ namespace {
 }
 MaterialChannelSchema HillStableNeoDefinition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"activation"}; return MaterialChannelSchema(names); }
 MaterialChannelSchema HillStableNeoDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 5> names{"E", "nu", "Eact", "gamma", "lo"}; return MaterialChannelSchema(names); }
-std::unique_ptr<ElasticModel> HillStableNeoDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &frame) const
+std::unique_ptr<ElasticModel> HillStableNeoDefinition::createModel(std::span<const double> values, const MaterialFrame &frame) const
 {
   if (values.size() != 5) throw std::invalid_argument("hill_stable_neo requires fixed channels E, nu, Eact, gamma, lo");
   const double E = values[0], nu = values[1];
@@ -212,7 +212,7 @@ std::unique_ptr<ElasticModel> HillStableNeoDefinition::createModelFromFixed(std:
 }
 MaterialChannelSchema HillStVKDefinition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"activation"}; return MaterialChannelSchema(names); }
 MaterialChannelSchema HillStVKDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 6> names{"E", "nu", "J", "Eact", "gamma", "lo"}; return MaterialChannelSchema(names); }
-std::unique_ptr<ElasticModel> HillStVKDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &frame) const
+std::unique_ptr<ElasticModel> HillStVKDefinition::createModel(std::span<const double> values, const MaterialFrame &frame) const
 {
   if (values.size() != 6) throw std::invalid_argument("hill_stvk requires fixed channels E, nu, J, Eact, gamma, lo");
   return std::make_unique<ElasticModelCombinedMaterial<2>>(
@@ -221,7 +221,7 @@ std::unique_ptr<ElasticModel> HillStVKDefinition::createModelFromFixed(std::span
 }
 MaterialChannelSchema HillStVKVolumeDefinition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"activation"}; return MaterialChannelSchema(names); }
 MaterialChannelSchema HillStVKVolumeDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 6> names{"E", "nu", "J", "Eact", "gamma", "lo"}; return MaterialChannelSchema(names); }
-std::unique_ptr<ElasticModel> HillStVKVolumeDefinition::createModelFromFixed(std::span<const double> values, const MaterialFrame &frame) const
+std::unique_ptr<ElasticModel> HillStVKVolumeDefinition::createModel(std::span<const double> values, const MaterialFrame &frame) const
 {
   if (values.size() != 6) throw std::invalid_argument("hill_stvk_vol requires fixed channels E, nu, J, Eact, gamma, lo");
   return std::make_unique<ElasticModelCombinedMaterial<3>>(

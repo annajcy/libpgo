@@ -300,13 +300,12 @@ def worker_main(args: argparse.Namespace) -> int:
     import pypgo.fem as pf
     import pypgo.profiling as profiling
     from pypgo.mesh.volume import VolumeMesh, read_veg
-    from pypgo.tools.sim._scene import _source_channel_values
 
     metadata = FORMULATION_METADATA[args.formulation]
     mesh_path = args.tet_mesh if metadata["mesh_kind"] == "tet" else args.cubic_mesh
     veg = read_veg(str(mesh_path))
-    volume_mesh = VolumeMesh.from_veg_file(veg)
-    asset = pf.SimulationAsset.create_volumetric(volume_mesh)
+    volume_mesh = VolumeMesh(veg)
+    asset = pf.SimulationImportResult(volume_mesh)
     formulation = _formulation(pf, args.formulation)
     elastic = _elastic_model(pf, args.elastic_model)
     plastic = pf.VolumetricPlasticityDefinition(dofs=args.plastic_dofs)
@@ -315,7 +314,7 @@ def worker_main(args: argparse.Namespace) -> int:
         return field_type(
             names,
             pf.ElementwiseParameterLayout(asset.num_elements, count),
-            pf.IdentityMaterialEvaluator(count))
+            pf.IdentityMaterialChannelMapping(count))
 
     elastic_fixed = identity_field(
         pf.FixedParameterField, elastic.fixed_channel_names)
@@ -338,25 +337,26 @@ def worker_main(args: argparse.Namespace) -> int:
         plastic_values = np.ones((asset.num_elements, 3), dtype=np.float64)
     else:
         plastic_values = np.empty(0)
-    def fixed_values(definition):
-        values = np.empty(
-            asset.num_elements * len(definition.fixed_channel_names),
+    def fixed_values(field):
+        return np.asarray(
+            pf.project_imported_material_inputs(asset.material_catalog, field),
             dtype=np.float64,
-        )
-        for channel, name in enumerate(definition.fixed_channel_names):
-            source = _source_channel_values(asset, name)
-            for element, value in enumerate(source):
-                values[element * len(definition.fixed_channel_names) + channel] = value
-        return values
+        ).reshape(-1)
 
     parameter_data = pf.MaterialParameterData(
-        elastic=(fixed_values(elastic), np.empty(0, dtype=np.float64)),
-        plastic=(fixed_values(plastic), np.ascontiguousarray(plastic_values.reshape(-1))),
+        elastic=pf.MaterialParameterDataBlock(
+            fixed_values=fixed_values(elastic_fixed),
+            initial_optimizable_values=np.empty(0, dtype=np.float64)),
+        plastic=pf.MaterialParameterDataBlock(
+            fixed_values=fixed_values(plastic_fixed),
+            initial_optimizable_values=np.ascontiguousarray(plastic_values.reshape(-1))),
     )
+    parameterization.validate(parameter_data)
     assignment = pf.MaterialAssignment(
-        asset,
-        parameterization,
-        parameter_data,
+        mesh=asset.mesh,
+        parameterization=parameterization,
+        parameter_data=parameter_data,
+        material_frames=pf.GlobalAxesMaterialFrameField(asset.num_elements),
     )
     energy = pf.DeformationEnergy(
         assignment,

@@ -21,7 +21,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <set>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -34,16 +33,6 @@ namespace
 {
 using VM = VolumetricMeshes::VolumetricMesh;
 
-std::vector<double> flattenPositions(const std::vector<Vec3d>& positions) {
-    std::vector<double> flat(positions.size() * 3);
-    for (size_t i = 0; i < positions.size(); ++i) {
-        flat[i * 3 + 0] = positions[i][0];
-        flat[i * 3 + 1] = positions[i][1];
-        flat[i * 3 + 2] = positions[i][2];
-    }
-    return flat;
-}
-
 template<class T>
 nb::list makePythonList(const std::vector<T>& values)
 {
@@ -52,53 +41,6 @@ nb::list makePythonList(const std::vector<T>& values)
         result.append(value);
     }
     return result;
-}
-
-template<int K>
-std::pair<std::vector<double>, std::vector<int>> flattenMeshData(const Mesh::MeshData<K>& data) {
-    return { flattenPositions(data.positions()), data.elementsFlat() };
-}
-
-std::unique_ptr<VM::Material> makeMaterial(const nb::object& obj) {
-    if (nb::isinstance<PyVegENuMaterialPayload>(obj)) {
-        auto p = nb::cast<PyVegENuMaterialPayload>(obj);
-        return std::make_unique<VM::ENuMaterial>(p.name, p.density, p.E, p.nu);
-    }
-    if (nb::isinstance<PyVegMooneyRivlinMaterialPayload>(obj)) {
-        auto p = nb::cast<PyVegMooneyRivlinMaterialPayload>(obj);
-        return std::make_unique<VM::MooneyRivlinMaterial>(p.name, p.density, p.mu01, p.mu10, p.v1);
-    }
-    if (nb::isinstance<PyVegOrthotropicMaterialPayload>(obj)) {
-        auto p = nb::cast<PyVegOrthotropicMaterialPayload>(obj);
-        if (p.R.size() != 9) {
-            throw std::runtime_error("Orthotropic material R must contain 9 row-major values");
-        }
-        return std::make_unique<VM::OrthotropicMaterial>(
-            p.name, p.density,
-            p.E1, p.E2, p.E3,
-            p.nu12, p.nu23, p.nu31,
-            p.G12, p.G23, p.G31,
-            p.R.data());
-    }
-    throw std::runtime_error("unsupported material payload type");
-}
-
-std::vector<VM::Set> makeSets(const std::vector<std::pair<std::string, std::vector<int>>>& payloads) {
-    std::vector<VM::Set> sets;
-    sets.reserve(payloads.size());
-    for (const auto& [name, elements] : payloads) {
-        sets.emplace_back(name, std::set<int>(elements.begin(), elements.end()));
-    }
-    return sets;
-}
-
-std::vector<VM::Region> makeRegions(const std::vector<std::pair<int, int>>& payloads) {
-    std::vector<VM::Region> regions;
-    regions.reserve(payloads.size());
-    for (const auto& [materialIndex, setIndex] : payloads) {
-        regions.emplace_back(materialIndex, setIndex);
-    }
-    return regions;
 }
 
 nb::object materialPayloadFromMaterial(const VM::Material* material) {
@@ -207,67 +149,78 @@ std::shared_ptr<PyVegPayload> makePyVegPayload(VolumetricMeshes::VegFilePayload 
     return result;
 }
 
-nb::tuple makeVegPayloadTuple(const VolumetricMeshes::VegFilePayload& payload)
+VolumetricMeshes::VegFilePayload makeVegFilePayload(
+    const nb::object& meshDataObj,
+    const std::vector<nb::object>& materialPayloads,
+    const std::vector<std::pair<std::string, std::vector<int>>>& setPayloads,
+    const std::vector<std::pair<int, int>>& regionPayloads)
 {
-    const char* meshKind = nullptr;
-    std::vector<double> vertices;
-    std::vector<int> elements;
-    std::visit([&](const auto& data) {
-        using T = std::decay_t<decltype(data)>;
-        if constexpr (std::is_same_v<T, Mesh::MeshData<4>>) {
-            meshKind = "tet";
-        }
-        else {
-            meshKind = "cubic";
-        }
-        auto flat = flattenMeshData(data);
-        vertices = std::move(flat.first);
-        elements = std::move(flat.second);
-    }, payload.meshData);
-
-    nb::list materials;
-    for (const auto& material : payload.materials) {
-        std::visit([&](const auto& item) {
-            using T = std::decay_t<decltype(item)>;
-            if constexpr (std::is_same_v<T, VolumetricMeshes::VegENuMaterialPayload>) {
-                materials.append(nb::make_tuple("enu", item.name, item.density, item.E, item.nu));
-            }
-            else if constexpr (std::is_same_v<T, VolumetricMeshes::VegMooneyRivlinMaterialPayload>) {
-                materials.append(nb::make_tuple(
-                    "mooney_rivlin", item.name, item.density, item.mu01, item.mu10, item.v1));
-            }
-            else {
-                std::vector<double> R(item.R.begin(), item.R.end());
-                materials.append(nb::make_tuple(
-                    "orthotropic", item.name, item.density,
-                    item.E1, item.E2, item.E3,
-                    item.nu12, item.nu23, item.nu31,
-                    item.G12, item.G23, item.G31,
-                    makePythonList(R)));
-            }
-        }, material);
+    VolumetricMeshes::VegFilePayload payload;
+    if (nb::isinstance<PyTetMeshData>(meshDataObj)) {
+        payload.meshData = nb::cast<const PyTetMeshData&>(meshDataObj).core();
+    }
+    else if (nb::isinstance<PyCubicMeshData>(meshDataObj)) {
+        payload.meshData = nb::cast<const PyCubicMeshData&>(meshDataObj).core();
+    }
+    else {
+        throw nb::type_error("VegFile mesh_data must be TetMeshData or CubicMeshData");
     }
 
-    nb::list sets;
-    for (const auto& set : payload.sets) {
-        sets.append(nb::make_tuple(set.name, makePythonList(set.elements)));
-    }
+    payload.materials.reserve(materialPayloads.size());
+    for (const auto& material : materialPayloads)
+        payload.materials.push_back(vegPayloadFromMaterialObject(material));
+    payload.sets.reserve(setPayloads.size());
+    for (const auto& [name, elements] : setPayloads)
+        payload.sets.push_back(VolumetricMeshes::VegSetPayload{ name, elements });
+    payload.regions.reserve(regionPayloads.size());
+    for (const auto& [materialIndex, setIndex] : regionPayloads)
+        payload.regions.push_back(
+            VolumetricMeshes::VegRegionPayload{ materialIndex, setIndex });
+    return payload;
+}
 
-    nb::list regions;
-    for (const auto& region : payload.regions) {
-        regions.append(nb::make_tuple(region.materialIndex, region.setIndex));
-    }
-
-    return nb::make_tuple(
-        meshKind,
-        makePythonList(vertices),
-        makePythonList(elements),
-        materials,
-        sets,
-        regions);
+VolumetricMeshes::VegFilePayload makeVegFilePayload(const PyVegPayload& source)
+{
+    VolumetricMeshes::VegFilePayload payload;
+    payload.meshData = source.meshData;
+    payload.materials = source.materials;
+    payload.sets.reserve(source.sets.size());
+    for (const auto& [name, elements] : source.sets)
+        payload.sets.push_back(VolumetricMeshes::VegSetPayload{ name, elements });
+    payload.regions.reserve(source.regions.size());
+    for (const auto& [materialIndex, setIndex] : source.regions)
+        payload.regions.push_back(
+            VolumetricMeshes::VegRegionPayload{ materialIndex, setIndex });
+    return payload;
 }
 
 }  // namespace
+
+PyVolumeMesh::PyVolumeMesh(
+    std::unique_ptr<VolumetricMeshes::VolumetricMesh> volumeMesh):
+    type_(MeshType::Tet)
+{
+    if (!volumeMesh)
+        throw std::invalid_argument("PyVolumeMesh requires a non-null mesh.");
+    if (volumeMesh->getElementType() == VolumetricMeshes::VolumetricMesh::TET) {
+        auto* tet = dynamic_cast<VolumetricMeshes::TetMesh*>(volumeMesh.get());
+        if (!tet)
+            throw std::runtime_error("Tet volume mesh has an unexpected dynamic type.");
+        volumeMesh.release();
+        tetMesh_.reset(tet);
+        return;
+    }
+    if (volumeMesh->getElementType() == VolumetricMeshes::VolumetricMesh::CUBIC) {
+        type_ = MeshType::Cubic;
+        auto* cubic = dynamic_cast<VolumetricMeshes::CubicMesh*>(volumeMesh.get());
+        if (!cubic)
+            throw std::runtime_error("Cubic volume mesh has an unexpected dynamic type.");
+        volumeMesh.release();
+        cubicMesh_.reset(cubic);
+        return;
+    }
+    throw std::invalid_argument("PyVolumeMesh supports only tet and cubic meshes.");
+}
 
 PyBarycentricEmbedding::PyBarycentricEmbedding(const std::vector<double>& targetLocationsFlat, const PyVolumeMesh& volumeMesh)
     : numTargetLocations_(static_cast<int>(targetLocationsFlat.size() / 3)),
@@ -440,62 +393,30 @@ std::shared_ptr<PyVegPayload> extract_veg_payload_from_volume_mesh(const PyVolum
     return makePyVegPayload(std::move(payload));
 }
 
-std::shared_ptr<PyVolumeMesh> create_volume_mesh_multi(
+std::shared_ptr<PyVegPayload> create_veg_payload(
     const nb::object& meshDataObj,
     const std::vector<nb::object>& materialPayloads,
     const std::vector<std::pair<std::string, std::vector<int>>>& setPayloads,
     const std::vector<std::pair<int, int>>& regionPayloads)
 {
-    std::vector<std::unique_ptr<VM::Material>> materials;
-    materials.reserve(materialPayloads.size());
-    std::vector<const VM::Material*> materialPtrs;
-    materialPtrs.reserve(materialPayloads.size());
-    for (const auto& payload : materialPayloads) {
-        materials.push_back(makeMaterial(payload));
-        materialPtrs.push_back(materials.back().get());
-    }
-
-    auto sets = makeSets(setPayloads);
-    auto regions = makeRegions(regionPayloads);
-
-    if (nb::isinstance<PyTetMeshData>(meshDataObj)) {
-        const auto& data = nb::cast<const PyTetMeshData&>(meshDataObj);
-        auto [vertices, elements] = flattenMeshData(data.core());
-        std::unique_ptr<VolumetricMeshes::TetMesh> tetMesh;
-        {
-            nb::gil_scoped_release release;
-            tetMesh = std::make_unique<VolumetricMeshes::TetMesh>(
-                static_cast<int>(data.numVertices()), vertices.data(),
-                static_cast<int>(data.numElements()), elements.data(),
-                static_cast<int>(materials.size()), materialPtrs.data(),
-                static_cast<int>(sets.size()), sets.data(),
-                static_cast<int>(regions.size()), regions.data());
-        }
-        return std::make_shared<PyVolumeMesh>(std::move(tetMesh));
-    }
-
-    if (nb::isinstance<PyCubicMeshData>(meshDataObj)) {
-        const auto& data = nb::cast<const PyCubicMeshData&>(meshDataObj);
-        auto [vertices, elements] = flattenMeshData(data.core());
-        std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh;
-        {
-            nb::gil_scoped_release release;
-            cubicMesh = std::make_unique<VolumetricMeshes::CubicMesh>(
-                static_cast<int>(data.numVertices()), vertices.data(),
-                static_cast<int>(data.numElements()), elements.data(),
-                static_cast<int>(materials.size()), materialPtrs.data(),
-                static_cast<int>(sets.size()), sets.data(),
-                static_cast<int>(regions.size()), regions.data());
-        }
-        return std::make_shared<PyVolumeMesh>(std::move(cubicMesh));
-    }
-
-    throw std::runtime_error("Unsupported element mesh type for create_volume_mesh_multi");
+    return makePyVegPayload(makeVegFilePayload(
+        meshDataObj, materialPayloads, setPayloads, regionPayloads));
 }
 
-nb::tuple read_veg(const std::string& path) {
-    auto payload = VolumetricMeshes::readVegFile(path);
-    return makeVegPayloadTuple(payload);
+std::shared_ptr<PyVolumeMesh> create_volume_mesh_from_veg_payload(
+    const PyVegPayload& payload)
+{
+    std::unique_ptr<VolumetricMeshes::VolumetricMesh> mesh;
+    {
+        nb::gil_scoped_release release;
+        mesh = VolumetricMeshes::VolumetricMesh::fromVegFilePayload(
+            makeVegFilePayload(payload));
+    }
+    return std::make_shared<PyVolumeMesh>(std::move(mesh));
+}
+
+std::shared_ptr<PyVegPayload> read_veg(const std::string& path) {
+    return makePyVegPayload(VolumetricMeshes::readVegFile(path));
 }
 
 PyTetMeshData read_msh(const std::string& path) {
@@ -526,40 +447,11 @@ PyTetMeshData read_msh(const std::string& path) {
 #endif
 }
 
-void write_veg(
-    const std::string& path,
-    const nb::object& meshDataObj,
-    const std::vector<nb::object>& materialPayloads,
-    const std::vector<std::pair<std::string, std::vector<int>>>& setPayloads,
-    const std::vector<std::pair<int, int>>& regionPayloads)
+void write_veg(const std::string& path, const PyVegPayload& source)
 {
-    VolumetricMeshes::VegFilePayload payload;
-    if (nb::isinstance<PyTetMeshData>(meshDataObj)) {
-        payload.meshData = nb::cast<const PyTetMeshData&>(meshDataObj).core();
-    }
-    else if (nb::isinstance<PyCubicMeshData>(meshDataObj)) {
-        payload.meshData = nb::cast<const PyCubicMeshData&>(meshDataObj).core();
-    }
-    else {
-        throw std::runtime_error("Unsupported element mesh type for write_veg");
-    }
-
-    payload.materials.reserve(materialPayloads.size());
-    for (const auto& material : materialPayloads) {
-        payload.materials.push_back(vegPayloadFromMaterialObject(material));
-    }
-    payload.sets.reserve(setPayloads.size());
-    for (const auto& [name, elements] : setPayloads) {
-        payload.sets.push_back(VolumetricMeshes::VegSetPayload{ name, elements });
-    }
-    payload.regions.reserve(regionPayloads.size());
-    for (const auto& [materialIndex, setIndex] : regionPayloads) {
-        payload.regions.push_back(VolumetricMeshes::VegRegionPayload{ materialIndex, setIndex });
-    }
-
     {
         nb::gil_scoped_release release;
-        VolumetricMeshes::writeVegFile(path, payload);
+        VolumetricMeshes::writeVegFile(path, makeVegFilePayload(source));
     }
 }
 
@@ -583,41 +475,39 @@ PyTriMeshData extract_surface_mesh(const PyVolumeMesh& vm, bool triangulate)
     return PyTriMeshData(Mesh::MeshData<3>::fromFlatElements(std::move(vertices), std::move(triangles)));
 }
 
-std::shared_ptr<PySimulationAsset> create_simulation_asset_from_volume(const PyVolumeMesh& vm)
+std::shared_ptr<PySimulationImportResult> import_simulation_mesh_from_volume(
+    const PyVolumeMesh& vm)
 {
     const auto* volume = vm.getVM();
-    std::unique_ptr<SolidDeformationModel::SimulationAsset> simAsset;
+    std::unique_ptr<SolidDeformationModel::SimulationImportResult> result;
     {
         nb::gil_scoped_release release;
         if (auto* tetMesh = dynamic_cast<const VolumetricMeshes::TetMesh*>(volume)) {
-            simAsset = SolidDeformationModel::loadTetMesh(*tetMesh);
+            result = SolidDeformationModel::loadTetMesh(*tetMesh);
         }
         else if (auto* cubicMesh = dynamic_cast<const VolumetricMeshes::CubicMesh*>(volume)) {
-            simAsset = SolidDeformationModel::loadCubicMesh(*cubicMesh);
+            result = SolidDeformationModel::loadCubicMesh(*cubicMesh);
         }
         else {
-            throw std::runtime_error("Unsupported volume mesh type for SimulationAsset.create_volumetric");
+            throw std::runtime_error(
+                "Unsupported volume mesh type for simulation import");
         }
     }
-    return std::make_shared<PySimulationAsset>(
-      std::shared_ptr<const SolidDeformationModel::SimulationAsset>(simAsset.release()));
+    return std::make_shared<PySimulationImportResult>(
+      std::shared_ptr<const SolidDeformationModel::SimulationImportResult>(
+        result.release()));
 }
 
-std::shared_ptr<PySimulationAsset> create_simulation_asset_from_shell(
-    const PyTriMeshData& surfaceData,
-    double thickness,
-    double E,
-    double nu)
+std::shared_ptr<PySimulationMesh> create_shell_simulation_mesh(
+    const PyTriMeshData& surfaceData)
 {
     Mesh::TriMeshGeo surface(surfaceData.core());
-    SolidDeformationModel::ImportedENuhMaterial material(E, nu, thickness);
-    std::unique_ptr<SolidDeformationModel::SimulationAsset> simAsset;
+    std::shared_ptr<SolidDeformationModel::SimulationMesh> mesh;
     {
         nb::gil_scoped_release release;
-        simAsset = SolidDeformationModel::loadShellMesh(surface, material);
+        mesh = SolidDeformationModel::loadShellMesh(surface);
     }
-    return std::make_shared<PySimulationAsset>(
-      std::shared_ptr<const SolidDeformationModel::SimulationAsset>(simAsset.release()));
+    return std::make_shared<PySimulationMesh>(std::move(mesh));
 }
 
 PyVegENuMaterialPayload create_enu_material_payload(

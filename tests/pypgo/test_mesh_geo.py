@@ -140,14 +140,14 @@ def test_volumemesh_constructs_from_volume_mesh_data_only():
     cubic_data = pgo.mesh.CubicMeshData(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
     material = pgo.mesh.volume.ENuMaterial("rubber", E=1e6, nu=0.33, density=1200.0)
 
-    tet_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet_data, material)
+    tet_volume = pgo.mesh.volume.VolumeMesh(tet_data, material)
     assert tet_volume.num_vertices == 4
     assert tet_volume.num_elements == 1
     assert tet_volume.mesh_data is tet_data
     assert tet_volume.geometry is tet_data
     assert tet_volume.material == material
 
-    cubic_volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(cubic_data, material)
+    cubic_volume = pgo.mesh.volume.VolumeMesh(cubic_data, material)
     assert cubic_volume.num_vertices == 8
     assert cubic_volume.num_elements == 1
 
@@ -159,11 +159,11 @@ def test_volumemesh_rejects_geo_and_tri_data():
     cubic_geo = pgo.mesh.geometry.CubicMeshGeo(cubic_vertices(), np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64))
 
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.volume.VolumeMesh.create_from_single_material(tri_data, material)
+        pgo.mesh.volume.VolumeMesh(tri_data, material)
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.volume.VolumeMesh.create_from_single_material(tet_geo, material)
+        pgo.mesh.volume.VolumeMesh(tet_geo, material)
     with pytest.raises(TypeError, match="TetMeshData or CubicMeshData"):
-        pgo.mesh.volume.VolumeMesh.create_from_single_material(cubic_geo, material)
+        pgo.mesh.volume.VolumeMesh(cubic_geo, material)
 
 
 def test_volumemesh_to_veg_file_and_back_roundtrip(tmp_path):
@@ -171,14 +171,14 @@ def test_volumemesh_to_veg_file_and_back_roundtrip(tmp_path):
     elements = np.array([[0, 1, 2, 3]], dtype=np.int64)
     tet_data = pgo.mesh.TetMeshData(vertices, elements)
     material = pgo.mesh.volume.ENuMaterial("foam", E=2e9, nu=0.4, density=900.0)
-    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(tet_data, material)
+    volume = pgo.mesh.volume.VolumeMesh(tet_data, material)
 
     veg_file = str(tmp_path / "roundtrip.veg")
     veg = volume.to_veg_file()
     pgo.mesh.volume.write_veg(veg_file, veg)
 
     loaded_veg = pgo.mesh.volume.read_veg(veg_file)
-    loaded = pgo.mesh.volume.VolumeMesh.from_veg_file(loaded_veg)
+    loaded = pgo.mesh.volume.VolumeMesh(loaded_veg)
 
     assert loaded.num_vertices == 4
     assert loaded.num_elements == 1
@@ -188,7 +188,7 @@ def test_volumemesh_to_veg_file_and_back_roundtrip(tmp_path):
     assert loaded.material == material
 
     # Direct to_veg_file → from_veg_file roundtrip (no file I/O).
-    direct = pgo.mesh.volume.VolumeMesh.from_veg_file(volume.to_veg_file())
+    direct = pgo.mesh.volume.VolumeMesh(volume.to_veg_file())
     assert direct.num_vertices == 4
     assert direct.material == material
 
@@ -199,34 +199,43 @@ def test_old_public_names_are_removed():
     assert not hasattr(pgo, "io")
 
 
-def test_volume_mesh_regions_validate_partition():
+def test_volume_mesh_preserves_lossless_region_tables():
     vertices = np.vstack([tet_vertices(), [[1.0, 1.0, 1.0]]])
     elements = np.array([[0, 1, 2, 3], [1, 2, 3, 4]], dtype=np.int64)
     tet_data = pgo.mesh.TetMeshData(vertices, elements)
+    veg = pgo.mesh.volume.VegFile(
+        mesh_data=tet_data,
+        materials=[
+            pgo.mesh.volume.ENuMaterial("unused"),
+            pgo.mesh.volume.ENuMaterial("soft"),
+            pgo.mesh.volume.MooneyRivlinMaterial("stiff", mu01=1.0),
+        ],
+        sets=[
+            pgo.mesh.volume.MeshSet("unusedSet", []),
+            pgo.mesh.volume.MeshSet("first", [0, 1]),
+            pgo.mesh.volume.MeshSet("overlap", [1]),
+        ],
+        regions=[
+            pgo.mesh.volume.MeshRegion(1, 1),
+            pgo.mesh.volume.MeshRegion(2, 2),
+        ],
+    )
 
-    regions = [
-        ("soft", pgo.mesh.volume.ENuMaterial("soft"), [0]),
-        ("stiff", pgo.mesh.volume.MooneyRivlinMaterial("stiff", mu01=1.0), [1]),
+    volume = pgo.mesh.volume.VolumeMesh(veg)
+    roundtrip = volume.to_veg_file()
+    asset = pgo.fem.SimulationImportResult(volume)
+
+    assert [material.name for material in roundtrip.materials] == [
+        "unused", "soft", "stiff"
     ]
-    volume = pgo.mesh.volume.VolumeMesh(tet_data, regions)
-    assert volume.num_elements == 2
-
-    with pytest.raises(ValueError, match="assigned to both"):
-        pgo.mesh.volume.VolumeMesh(tet_data, regions=[
-            ("a", pgo.mesh.volume.ENuMaterial("a"), [0]),
-            ("b", pgo.mesh.volume.ENuMaterial("b"), [0, 1]),
-        ])
-
-    with pytest.raises(ValueError, match="not assigned"):
-        pgo.mesh.volume.VolumeMesh(tet_data, regions=[
-            ("a", pgo.mesh.volume.ENuMaterial("a"), [0]),
-        ])
-
-    with pytest.raises(ValueError, match="duplicate region name"):
-        pgo.mesh.volume.VolumeMesh(tet_data, regions=[
-            ("a", pgo.mesh.volume.ENuMaterial("a"), [0]),
-            ("a", pgo.mesh.volume.ENuMaterial("b"), [1]),
-        ])
+    assert [mesh_set.name for mesh_set in roundtrip.sets] == [
+        "unusedSet", "first", "overlap"
+    ]
+    assert [
+        (region.material_index, region.set_index)
+        for region in roundtrip.regions
+    ] == [(1, 1), (2, 2)]
+    assert asset.material_catalog.element_material_indices.tolist() == [1, 2]
 
 
 def test_material_dataclasses_are_python_payloads():

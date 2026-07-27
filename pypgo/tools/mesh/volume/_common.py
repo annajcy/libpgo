@@ -22,5 +22,5 @@ def write_volume_outputs(mesh_data, args) -> None:
     veg = VegFile.from_single_material(mesh_data, material_from_args(args))
     write_veg(args.output_veg, veg)
     if args.output_surface:
-        volume = VolumeMesh.from_veg_file(veg)
+        volume = VolumeMesh(veg)
         _mesh.write_obj(args.output_surface, volume.extract_surface_mesh())

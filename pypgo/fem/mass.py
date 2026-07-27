@@ -41,7 +41,10 @@ class VolumeDensity:
 def volume_density(volume) -> VolumeDensity:
     """Per-element densities from a VolumeMesh's .veg material regions."""
     densities = np.zeros(volume.num_elements, dtype=np.float64)
-    for _name, material, elements in volume.to_veg_file().to_volume_regions():
+    veg = volume.to_veg_file()
+    for region in veg.regions:
+        material = veg.materials[region.material_index]
+        elements = veg.sets[region.set_index].elements
         densities[np.asarray(elements, dtype=np.int64)] = float(material.density)
     return VolumeDensity(densities)
 
@@ -117,7 +120,7 @@ class SelfWeightGravity:
     """External load from a parameter-coupled shell areal density."""
 
     def __init__(
-        self, *, formulation, asset, areal_density, optimizable_parameters, acceleration
+        self, *, formulation, mesh, areal_density, optimizable_parameters, acceleration
     ) -> None:
         from pypgo.fem.formulations import ShellFormulation
         from pypgo.fem.fields import OptimizableParameters
@@ -137,7 +140,7 @@ class SelfWeightGravity:
                 f"got {type(optimizable_parameters).__name__}"
             )
         self._formulation = formulation
-        self._asset = asset
+        self._mesh = mesh
         self._areal_density = areal_density
         self._optimizable_parameters = optimizable_parameters
         self._acceleration = np.asarray(acceleration, dtype=np.float64).reshape(3)
@@ -148,7 +151,7 @@ class SelfWeightGravity:
 
     def force(self) -> np.ndarray:
         return self._formulation.body_force(
-            self._asset,
+            self._mesh,
             self._acceleration,
             self._areal_density,
             optimizable_parameters=self._optimizable_parameters,
@@ -156,7 +159,7 @@ class SelfWeightGravity:
 
     def parameter_jacobian(self):
         return self._formulation.body_force_parameter_jacobian(
-            self._asset,
+            self._mesh,
             self._acceleration,
             self._areal_density,
             optimizable_parameters=self._optimizable_parameters,

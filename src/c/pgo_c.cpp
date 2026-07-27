@@ -26,7 +26,7 @@
 #include "energy/deformationModelEnergy.h"
 #include "material/plastic/plasticModel.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
-#include "material/core/materialParameterDataProjection.h"
+#include "material/projection/materialInputProjection.h"
 #include "multiVertexPullingSoftConstraints.h"
 #include "backwardEuler/backwardEulerStepper.h"
 #include "dynamicStepper.h"
@@ -682,9 +682,9 @@ int pgo_run_sim_from_config(const char *configFileName)
   InterpolationCoordinates::BarycentricCoordinates bc(surfaceMesh.numVertices(), surfaceRestPositions.data(), &tetMesh);
   ES::SpMatD W = bc.generateInterpolationMatrix();
 
-  std::unique_ptr<SolidDeformationModel::SimulationAsset> loadedAsset =
+  std::unique_ptr<SolidDeformationModel::SimulationImportResult> loadedAsset =
     SolidDeformationModel::loadTetMesh(tetMesh);
-  std::shared_ptr<const SolidDeformationModel::SimulationAsset> asset(loadedAsset.release());
+  std::shared_ptr<const SolidDeformationModel::SimulationImportResult> asset(loadedAsset.release());
   std::shared_ptr<const SolidDeformationModel::SimulationMesh> simMesh = asset->mesh();
 
   int n = simMesh->getNumVertices();
@@ -700,35 +700,34 @@ int pgo_run_sim_from_config(const char *configFileName)
   for (const auto name : elasticFixedChannels.channelNames())
     elasticFixedNames.emplace_back(name);
   auto elasticFixed = std::make_shared<const SolidDeformationModel::FixedParameterField>(
-    SolidDeformationModel::ParameterSchema(std::move(elasticFixedNames)),
+    SolidDeformationModel::ParameterInputSchema(std::move(elasticFixedNames)),
     std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(
       nele, elasticFixedChannels.numChannels()),
-    std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(
+    std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(
       elasticFixedChannels.numChannels()));
   auto plasticFixed = std::make_shared<const SolidDeformationModel::FixedParameterField>(
-    SolidDeformationModel::ParameterSchema{},
+    SolidDeformationModel::ParameterInputSchema{},
     std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 0),
-    std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(0));
+    std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(0));
   auto elasticOpt = std::make_shared<const SolidDeformationModel::OptimizableParameterField>(
-    SolidDeformationModel::ParameterSchema{},
+    SolidDeformationModel::ParameterInputSchema{},
     std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 0),
-    std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(0));
+    std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(0));
   auto plasticOpt = std::make_shared<const SolidDeformationModel::OptimizableParameterField>(
-    SolidDeformationModel::ParameterSchema(
+    SolidDeformationModel::ParameterInputSchema(
       {"Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz"}),
     std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 6),
-    std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(6));
-  auto projectionParameterization = SolidDeformationModel::MaterialParameterization(
-    SolidDeformationModel::ElasticParameterization(
-      elasticDefinition, elasticFixed, elasticOpt),
-    SolidDeformationModel::PlasticParameterization(
-      plastic, plasticFixed,
-      std::make_shared<const SolidDeformationModel::OptimizableParameterField>(
-        SolidDeformationModel::ParameterSchema{},
-        std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 0),
-        std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(0))));
-  auto data = SolidDeformationModel::NamedChannelMaterialParameterDataProjection{}.project(
-    asset->materialData(), projectionParameterization);
+    std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(6));
+  SolidDeformationModel::MaterialParameterData data;
+  data.elastic.fixedValues =
+    SolidDeformationModel::projectImportedMaterialInputs(
+      asset->materialCatalog(), elasticFixed->inputSchema(),
+      elasticFixed->layout());
+  data.plastic.fixedValues =
+    SolidDeformationModel::projectImportedMaterialInputs(
+      asset->materialCatalog(), plasticFixed->inputSchema(),
+      plasticFixed->layout());
+  data.elastic.initialOptimizableValues = ES::VXd{};
   data.plastic.initialOptimizableValues = ES::VXd::Zero(nele * 6);
   for (int element = 0; element < nele; ++element)
     data.plastic.initialOptimizableValues.segment<6>(element * 6)

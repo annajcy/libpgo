@@ -43,11 +43,14 @@
 #include "pgoLogging.h"
 
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 #include <cassert>
 #include <iostream>
 #include <map>
 #include <numeric>
+#include <stdexcept>
+#include <type_traits>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 
@@ -2773,6 +2776,42 @@ using VM = VolumetricMesh;
 namespace
 {
 
+template<class Material>
+void validateFiniteMaterialValues(const Material &material)
+{
+  auto requireFinite = [](double value) {
+    if (!std::isfinite(value))
+      throw std::invalid_argument(
+        "VegFilePayload material properties must be finite.");
+  };
+  if (material.name.empty())
+    throw std::invalid_argument(
+      "VegFilePayload material names must be non-empty.");
+  requireFinite(material.density);
+  if constexpr (std::is_same_v<Material, VegENuMaterialPayload>) {
+    requireFinite(material.E);
+    requireFinite(material.nu);
+  }
+  else if constexpr (std::is_same_v<Material, VegMooneyRivlinMaterialPayload>) {
+    requireFinite(material.mu01);
+    requireFinite(material.mu10);
+    requireFinite(material.v1);
+  }
+  else {
+    requireFinite(material.E1);
+    requireFinite(material.E2);
+    requireFinite(material.E3);
+    requireFinite(material.nu12);
+    requireFinite(material.nu23);
+    requireFinite(material.nu31);
+    requireFinite(material.G12);
+    requireFinite(material.G23);
+    requireFinite(material.G31);
+    for (double value : material.R)
+      requireFinite(value);
+  }
+}
+
 VegMaterialPayload extractMaterialPayload(const VM::Material *material)
 {
   if (auto *enu = downcastENuMaterial(material)) {
@@ -2845,6 +2884,38 @@ std::vector<VM::Region> makeRegions(const std::vector<VegRegionPayload> &payload
 
 }  // namespace
 
+void validateVegFilePayload(const VegFilePayload &payload)
+{
+  const int numElements = std::visit(
+    [](const auto &meshData) {
+      return static_cast<int>(meshData.numElements());
+    },
+    payload.meshData);
+  for (const VegMaterialPayload &material : payload.materials)
+    std::visit(
+      [](const auto &value) {
+        validateFiniteMaterialValues(value);
+      },
+      material);
+  for (const VegSetPayload &set : payload.sets) {
+    if (set.name.empty())
+      throw std::invalid_argument(
+        "VegFilePayload set names must be non-empty.");
+    for (int element : set.elements)
+      if (element < 0 || element >= numElements)
+        throw std::invalid_argument(
+          "VegFilePayload set contains an out-of-range element.");
+  }
+  for (const VegRegionPayload &region : payload.regions) {
+    if (region.materialIndex < 0 ||
+        region.materialIndex >= static_cast<int>(payload.materials.size()) ||
+        region.setIndex < 0 ||
+        region.setIndex >= static_cast<int>(payload.sets.size()))
+      throw std::invalid_argument(
+        "VegFilePayload region references an out-of-range material or set.");
+  }
+}
+
 VegFilePayload VolumetricMesh::toVegFilePayload() const
 {
   VegFilePayload payload;
@@ -2879,6 +2950,7 @@ VegFilePayload VolumetricMesh::toVegFilePayload() const
 
 std::unique_ptr<VolumetricMesh> VolumetricMesh::fromVegFilePayload(const VegFilePayload &payload)
 {
+  validateVegFilePayload(payload);
   std::vector<std::unique_ptr<VM::Material>> materials;
   std::vector<const VM::Material *> materialPtrs;
   materials.reserve(payload.materials.size());

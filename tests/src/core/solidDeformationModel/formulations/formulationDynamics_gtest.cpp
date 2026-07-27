@@ -6,7 +6,8 @@
 #include "generateMassMatrix.h"
 #include "mass/shellArealDensityField.h"
 #include "mass/volumeDensityField.h"
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameterRef.h"
+#include "material/runtime/optimizableParameters.h"
 #include "simulation/simulationMesh.h"
 #include "triMeshGeo.h"
 
@@ -45,12 +46,12 @@ double sparseCoeff(const EigenSupport::SpMatD &M, int r, int c)
   return M.coeff(r, c);
 }
 
-class SquareParameterEvaluator final : public DifferentiableMaterialEvaluator
+class SquareParameterEvaluator final : public DifferentiableMaterialChannelMapping
 {
 public:
   explicit SquareParameterEvaluator(int size): size_(size) {}
 
-  int numParameters() const override { return size_; }
+  int numInputs() const override { return size_; }
   int numChannels() const override { return size_; }
   bool isAffine() const override { return false; }
 
@@ -142,8 +143,7 @@ std::shared_ptr<const SimulationMesh> makeTwoTriangleShellMesh()
     0, 2, 3,
   };
   Mesh::TriMeshGeo surface(4, vertices, 2, triangles);
-  ImportedENuhMaterial material(1000.0, 0.35, 1e-3);
-  return loadShellMesh(surface, material)->mesh();
+  return loadShellMesh(surface);
 }
 
 std::shared_ptr<OptimizableParameters> makeShellMassParameters(
@@ -160,20 +160,20 @@ std::shared_ptr<OptimizableParameters> makeShellMassParameters(
       numElements, numElasticChannels);
   }
 
-  std::shared_ptr<const DifferentiableMaterialEvaluator> elasticEvaluator;
+  std::shared_ptr<const DifferentiableMaterialChannelMapping> elasticEvaluator;
   if (nonlinear)
     elasticEvaluator = std::make_shared<SquareParameterEvaluator>(numElasticChannels);
   else
-    elasticEvaluator = std::make_shared<IdentityMaterialEvaluator>(numElasticChannels);
+    elasticEvaluator = std::make_shared<IdentityMaterialChannelMapping>(numElasticChannels);
 
   auto elasticBlock = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema(
+    ParameterInputSchema(
       { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" }),
     std::move(elasticLayout), std::move(elasticEvaluator));
   auto plasticBlock = std::make_shared<const OptimizableParameterField>(
-    ParameterSchema{},
+    ParameterInputSchema{},
     std::make_shared<ElementwiseParameterLayout>(numElements, 0),
-    std::make_shared<IdentityMaterialEvaluator>(0));
+    std::make_shared<IdentityMaterialChannelMapping>(0));
   const int rows = constant ? 1 : numElements;
   EigenSupport::VXd elastic(rows * numElasticChannels);
   for (int row = 0; row < rows; row++) {
@@ -192,7 +192,8 @@ void expectBodyForceParameterJacobianMatchesFD(
   auto parameters = makeShellMassParameters(
     mesh->getNumElements(), constant, nonlinear);
   ShellArealDensityField massField = ShellArealDensityField::fromElasticParameter(
-    850.0, parameters->elasticField().parameter("thickness"));
+    850.0, OptimizableParameterRef(
+      parameters->elasticFieldHandle(), "thickness"));
   KoiterShellFormulation formulation;
   const EigenSupport::V3d acceleration(0.7, -1.3, -9.81);
   const EigenSupport::VXd z = parameters->elasticSnapshot();
@@ -270,8 +271,8 @@ TEST(FormulationDynamicsGTest, DensityDerivativeBufferSizeIsValidated)
 {
   auto mesh = makeTwoTriangleShellMesh();
   auto parameters = makeShellMassParameters(mesh->getNumElements(), false, false);
-  const auto parameter =
-    parameters->elasticField().parameter("thickness");
+  const OptimizableParameterRef parameter(
+    parameters->elasticFieldHandle(), "thickness");
   auto state = parameters->snapshot().view();
   auto density = ShellArealDensityField::fromElasticParameter(850.0, parameter);
 

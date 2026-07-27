@@ -495,9 +495,12 @@ VegFilePayload readBinaryVegFile(const std::filesystem::path &path)
 VegFilePayload readVegFile(const std::filesystem::path &path)
 {
   const VM::fileFormatType fileType = VM::getFileFormatTypeByExt(path.string().c_str());
-  if (fileType == VM::BINARY)
-    return readBinaryVegFile(path);
-  return readAsciiVegFile(path);
+  VegFilePayload payload =
+    fileType == VM::BINARY ?
+    readBinaryVegFile(path) :
+    readAsciiVegFile(path);
+  validateVegFilePayload(payload);
+  return payload;
 }
 
 void writeVegFile(const std::filesystem::path &path, const VegFilePayload &payload)

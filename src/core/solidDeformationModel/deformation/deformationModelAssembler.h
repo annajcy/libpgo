@@ -9,7 +9,7 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelAssemblerElementWorkspace.h"
 #include "formulations/dof/dofLayout.h"
 #include "formulations/formulation/formulation.h"
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameters.h"
 #include "EigenDef.h"
 #include <cstddef>
 #include <functional>

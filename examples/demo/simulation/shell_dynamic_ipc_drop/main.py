@@ -21,15 +21,15 @@ NUM_STEPS = 80
 DUMP_INTERVAL = 10
 
 
-def _material_state(asset, material):
+def _material_state(mesh, E, nu, thickness):
     elastic = pf.KoiterStVKDefinition()
     plastic = pf.ShellPlasticityDefinition(dofs=0)
     def identity_field(field_type, names, layout_type):
         count = len(names)
         return field_type(
             names,
-            layout_type(asset.num_elements, count),
-            pf.IdentityMaterialEvaluator(count))
+            layout_type(mesh.num_elements, count),
+            pf.IdentityMaterialChannelMapping(count))
 
     elastic_fixed = identity_field(
         pf.FixedParameterField, elastic.fixed_channel_names,
@@ -47,11 +47,14 @@ def _material_state(asset, material):
         pf.ElasticParameterization(elastic, elastic_fixed, elastic_opt),
         pf.PlasticParameterization(plastic, plastic_fixed, plastic_opt))
     parameter_data = pf.MaterialParameterData(
-        elastic=(np.empty(0), np.array([
-            material.E_membrane, material.nu_membrane,
-            material.E_membrane, material.nu_membrane, material.thickness,
-        ])),
-        plastic=(np.empty(0), np.empty(0)),
+        elastic=pf.MaterialParameterDataBlock(
+            fixed_values=np.empty(0),
+            initial_optimizable_values=np.array([
+                E, nu, E, nu, thickness,
+            ])),
+        plastic=pf.MaterialParameterDataBlock(
+            fixed_values=np.empty(0),
+            initial_optimizable_values=np.empty(0)),
     )
     return parameterization, parameter_data
 
@@ -62,15 +65,15 @@ def main() -> None:
     obstacle = pgo.mesh.read_obj(str(ASSET_DIR / "obj" / "bottom.obj"))
 
     # Build Koiter shell deformation, mass, gravity, and IPC contact.
-    material = pf.KoiterStVKShellMaterial(
-        thickness=1.0e-3,
-        E_membrane=1.0e6,
-        nu_membrane=0.4,
-    )
-    asset = pf.SimulationAsset.create_shell(surface, material)
+    E, nu, thickness = 1.0e6, 0.4, 1.0e-3
+    mesh = pf.SimulationMesh(surface)
     formulation = pf.KoiterShell()
-    parameterization, parameter_data = _material_state(asset, material)
-    assignment = pf.MaterialAssignment(asset, parameterization, parameter_data)
+    parameterization, parameter_data = _material_state(mesh, E, nu, thickness)
+    assignment = pf.MaterialAssignment(
+        mesh=mesh,
+        parameterization=parameterization,
+        parameter_data=parameter_data,
+        material_frames=pf.GlobalAxesMaterialFrameField(mesh.num_elements))
     deformation = pf.DeformationEnergy(
         assignment,
         formulation=formulation,
@@ -78,9 +81,9 @@ def main() -> None:
     areal_density = pf.ShellArealDensity.from_density_thickness(
         density=1000.0, thickness=1.0e-3
     )
-    mass = formulation.mass_matrix(asset, areal_density)
+    mass = formulation.mass_matrix(mesh, areal_density)
     gravity_force = formulation.body_force(
-        asset,
+        mesh,
         np.array([0.0, -9.81, 0.0]),
         areal_density,
     )

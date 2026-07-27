@@ -6,7 +6,7 @@
 #include "material/plastic/plasticModel3D6DOF.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameters.h"
 #include "materialTestUtils.h"
 #include "cubicMesh.h"
 
@@ -33,12 +33,12 @@ TEST(OptimizableParameters, BuildsIndependentFieldsAndCommittedValues)
     TestUtils::identityParameterSchema(elastic->optimizableChannelSchema()),
     std::make_shared<ElementwiseParameterLayout>(
       mesh->getNumElements(), 0),
-    std::make_shared<IdentityMaterialEvaluator>(0));
+    std::make_shared<IdentityMaterialChannelMapping>(0));
   auto plasticField = std::make_shared<const OptimizableParameterField>(
     TestUtils::identityParameterSchema(plastic->optimizableChannelSchema()),
     std::make_shared<ConstantParameterLayout>(
       mesh->getNumElements(), 6),
-    std::make_shared<IdentityMaterialEvaluator>(6));
+    std::make_shared<IdentityMaterialChannelMapping>(6));
   auto parameters = std::make_shared<OptimizableParameters>(
     std::move(elasticField), std::move(plasticField),
     ES::VXd::Zero(0), plasticValues);
@@ -76,11 +76,11 @@ TEST(OptimizableParameters, ValidatesCommittedValueCountForAnyLayout)
   auto elasticField = std::make_shared<const OptimizableParameterField>(
     TestUtils::identityParameterSchema(elastic.optimizableChannelSchema()),
     std::make_shared<ConstantParameterLayout>(mesh->getNumElements(), 0),
-    std::make_shared<IdentityMaterialEvaluator>(0));
+    std::make_shared<IdentityMaterialChannelMapping>(0));
   auto plasticField = std::make_shared<const OptimizableParameterField>(
     TestUtils::identityParameterSchema(plastic.optimizableChannelSchema()),
     std::make_shared<ConstantParameterLayout>(mesh->getNumElements(), 6),
-    std::make_shared<IdentityMaterialEvaluator>(6));
+    std::make_shared<IdentityMaterialChannelMapping>(6));
   EXPECT_THROW(
     OptimizableParameters(
       std::move(elasticField), std::move(plasticField),
@@ -96,9 +96,9 @@ TEST(OptimizableParameterField, RejectsDimensionMismatch)
 
   EXPECT_THROW(
     OptimizableParameterField(
-      ParameterSchema{},
+      ParameterInputSchema{},
       std::make_shared<ElementwiseParameterLayout>(mesh->getNumElements(), 1),
-      std::make_shared<IdentityMaterialEvaluator>(1)),
+      std::make_shared<IdentityMaterialChannelMapping>(1)),
     std::invalid_argument);
 }
 

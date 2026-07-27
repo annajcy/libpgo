@@ -77,7 +77,7 @@ def test_veg_roundtrip_then_volume_mesh(tmp_path):
     pgo.mesh.volume.write_veg(veg_file, pgo.mesh.volume.VegFile.from_single_material(tet_data, material))
     veg = pgo.mesh.volume.read_veg(veg_file)
 
-    volume = pgo.mesh.volume.VolumeMesh(veg.mesh_data, regions=veg.to_volume_regions())
+    volume = pgo.mesh.volume.VolumeMesh(veg)
     assert volume.num_vertices == 4
     assert volume.num_elements == 1
 
@@ -100,6 +100,22 @@ def test_veg_roundtrip_preserves_multiple_material_payloads(tmp_path):
         materials=[
             pgo.mesh.volume.ENuMaterial("soft", density=1000.0, E=2e6, nu=0.35),
             pgo.mesh.volume.MooneyRivlinMaterial("insert", density=1200.0, mu01=3.0, mu10=4.0, v1=0.2),
+            pgo.mesh.volume.OrthotropicMaterial(
+                "unusedOrtho",
+                density=800.0,
+                E1=3e6,
+                E2=2e6,
+                E3=1e6,
+                nu12=0.2,
+                nu23=0.25,
+                nu31=0.3,
+                G12=0.7e6,
+                G23=0.6e6,
+                G31=0.5e6,
+                rotation=np.array(
+                    [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+                ),
+            ),
         ],
         sets=[
             pgo.mesh.volume.MeshSet("allElements", [0, 1]),
@@ -126,6 +142,12 @@ def test_veg_roundtrip_preserves_multiple_material_payloads(tmp_path):
     assert loaded.materials[0].E == pytest.approx(2e6)
     assert isinstance(loaded.materials[1], pgo.mesh.volume.MooneyRivlinMaterial)
     assert loaded.materials[1].mu10 == pytest.approx(4.0)
+    assert isinstance(loaded.materials[2], pgo.mesh.volume.OrthotropicMaterial)
+    assert loaded.materials[2].name == "unusedOrtho"
+    assert np.array_equal(
+        loaded.materials[2].rotation,
+        np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+    )
 
 
 def test_io_rejects_mesh_geo_facades(tmp_path):

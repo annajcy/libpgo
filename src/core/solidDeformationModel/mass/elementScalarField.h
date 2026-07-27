@@ -1,6 +1,6 @@
 #pragma once
 
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameterRef.h"
 
 #include <memory>
 

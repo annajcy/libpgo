@@ -60,8 +60,7 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
             triangles.append([vid(i, j), vid(i + 1, j + 1), vid(i, j + 1)])
     triangles = np.asarray(triangles, dtype=np.int64)
     surface = pgo.mesh.TriMeshData(vertices, triangles)
-    material = pf.KoiterStVKShellMaterial(thickness=1e-3, E_membrane=2e4, nu_membrane=0.35)
-    sim = pf.SimulationAsset.create_shell(surface, material)
+    sim = pf.SimulationMesh(surface)
 
     base_row = np.array([2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3], dtype=np.float64)
     elastic = np.tile(base_row, (triangles.shape[0], 1))
@@ -85,7 +84,7 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
             parameter=energy.optimizable_parameters.elastic_field.parameter("thickness"),
         )
         load = pf.SelfWeightGravity(
-            formulation=pf.KoiterShell(), asset=sim, areal_density=areal_density,
+            formulation=pf.KoiterShell(), mesh=sim, areal_density=areal_density,
             optimizable_parameters=energy.optimizable_parameters,
             acceleration=[0.0, 0.0, -20.0])
 

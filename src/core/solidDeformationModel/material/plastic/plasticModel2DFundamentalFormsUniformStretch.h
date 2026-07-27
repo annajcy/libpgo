@@ -5,6 +5,8 @@ copyright to USC,MIT, NUS
 
 #pragma once
 
+#include "material/model/plasticModelDefinition.h"
+
 #include "material/plastic/plasticModel2DFundamentalForms.h"
 
 namespace pgo
@@ -48,8 +50,7 @@ public:
   std::string_view id() const override { return "shell_ff_dof1"; }
   MaterialChannelSchema fixedChannelSchema() const override { return {}; }
   MaterialChannelSchema optimizableChannelSchema() const override;
-  MaterialFrameRequirement frameRequirement() const override { return MaterialFrameRequirement::None; }
-  std::unique_ptr<PlasticModel> createModelFromFixed(std::span<const double>, const MaterialFrame &) const override;
+  std::unique_ptr<PlasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };
 }  // namespace SolidDeformationModel

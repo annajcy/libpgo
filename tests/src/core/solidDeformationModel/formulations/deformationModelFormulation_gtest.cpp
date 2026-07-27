@@ -36,7 +36,7 @@ constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 
 template<class FormulationT>
 std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> makeDefaultFieldEnergy(
-  std::shared_ptr<const SimulationAsset> asset,
+  std::shared_ptr<const SimulationImportResult> asset,
   const FormulationT &formulation,
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic)

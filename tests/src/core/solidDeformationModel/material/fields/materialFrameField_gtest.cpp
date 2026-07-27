@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "material/core/materialFrameField.h"
+#include "material/frame/materialFrameField.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "material/plastic/plasticModel3D3DOF.h"
 
@@ -122,6 +122,35 @@ TEST(MaterialFrameFieldGTest, PrimarySecondaryDirectionsRejectInvalidInput)
     ElementwiseMaterialFrameField::fromPrimarySecondaryDirections(
       primary, secondary),
     std::invalid_argument);
+}
+
+TEST(MaterialFrameFieldGTest, PrimaryAxesProduceDeterministicFullFrames)
+{
+  ES::M3Xd primary(3, 3);
+  primary.col(0) << 1.0, 0.0, 0.0;
+  primary.col(1) << 1.0, 2.0, 3.0;
+  primary.col(2) << 0.0, 0.0, -2.0;
+
+  const auto first = materialFramesFromPrimaryAxes(primary);
+  const auto second = materialFramesFromPrimaryAxes(primary);
+  ASSERT_EQ(first->numElements(), 3);
+  for (int element = 0; element < 3; ++element) {
+    const MaterialFrame frame =
+      first->materialToReferenceFrame(element, 0);
+    EXPECT_TRUE(
+      frame.col(0).isApprox(primary.col(element).normalized(), 1e-12));
+    EXPECT_TRUE(
+      (frame.transpose() * frame).isApprox(
+        MaterialFrame::Identity(), 1e-12));
+    EXPECT_NEAR(frame.determinant(), 1.0, 1e-12);
+    EXPECT_TRUE(
+      frame.isApprox(
+        second->materialToReferenceFrame(element, 0), 1e-12));
+  }
+
+  ES::M3Xd invalid = ES::M3Xd::Zero(3, 1);
+  EXPECT_THROW(
+    materialFramesFromPrimaryAxes(invalid), std::invalid_argument);
 }
 
 TEST(MaterialFrameFieldGTest, Dof3UsesMaterialToReferenceColumnConvention)

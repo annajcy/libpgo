@@ -53,7 +53,7 @@ private:
 
 struct EnergyCase
 {
-  std::shared_ptr<const SimulationAsset> asset;
+  std::shared_ptr<const SimulationImportResult> asset;
   std::shared_ptr<const SimulationMesh> meshOwner;
   std::unique_ptr<DeformationModelEnergy> energy;
   int numDOFs = 0;

@@ -31,10 +31,6 @@ class PlasticModelDefinition:
     def optimizable_channel_names(self) -> tuple[str, ...]:
         return tuple(self._handle.optimizable_channel_names)
 
-    @property
-    def frame_requirement(self) -> str:
-        return self._handle.frame_requirement
-
     def __repr__(self) -> str:
         return f"{type(self).__name__}(dofs={self.dofs})"
 

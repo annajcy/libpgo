@@ -14,7 +14,7 @@
 #include "eigen_numpy.h"
 #include "EigenDef.h"
 #include "energy/potentialEnergy.h"
-#include "material/core/materialParameterDataValidation.h"
+#include "material/projection/importedMaterialFrames.h"
 #include "simulation/simulationMesh.h"
 #include "../sparse/core.h"
 
@@ -45,6 +45,12 @@ std::optional<EigenSupport::VXd> optionalVectorFromObject(const nb::object &valu
 
 namespace
 {
+int parameterValueRows(
+  const SolidDeformationModel::ParameterLayout &layout)
+{
+  return parameterLayoutValueRows(layout);
+}
+
 nb::ndarray<nb::numpy, double> materialValuesArray(
   EigenSupport::VXd values,
   const SolidDeformationModel::ParameterLayout &layout)
@@ -57,7 +63,7 @@ nb::ndarray<nb::numpy, double> materialValuesArray(
   });
   return nb::ndarray<nb::numpy, double>(
     data->data(),
-    { static_cast<std::size_t>(layout.numValueRows()),
+    { static_cast<std::size_t>(parameterValueRows(layout)),
       static_cast<std::size_t>(layout.numLocalParameters()) },
     owner);
 }
@@ -521,23 +527,23 @@ std::shared_ptr<PyEnergySet> createEnergySet(nb::list terms)
 std::shared_ptr<PyOptimizableParameterField> createOptimizableParameterField(
   const std::vector<std::string> &parameterNames,
   const PyParameterLayout &layout,
-  const PyDifferentiableMaterialEvaluator &evaluator)
+  const PyDifferentiableMaterialChannelMapping &mapping)
 {
   return std::make_shared<PyOptimizableParameterField>(
     std::make_shared<const SolidDeformationModel::OptimizableParameterField>(
-      SolidDeformationModel::ParameterSchema(parameterNames),
-      layout.layout(), evaluator.differentiableEvaluator()));
+      SolidDeformationModel::ParameterInputSchema(parameterNames),
+      layout.layout(), mapping.differentiableMapping()));
 }
 
 std::shared_ptr<PyFixedParameterField> createFixedParameterField(
   const std::vector<std::string> &parameterNames,
   const PyParameterLayout &layout,
-  const PyMaterialEvaluator &evaluator)
+  const PyMaterialChannelMapping &mapping)
 {
   return std::make_shared<PyFixedParameterField>(
     std::make_shared<const SolidDeformationModel::FixedParameterField>(
-      SolidDeformationModel::ParameterSchema(parameterNames),
-      layout.layout(), evaluator.evaluator()));
+      SolidDeformationModel::ParameterInputSchema(parameterNames),
+      layout.layout(), mapping.mapping()));
 }
 
 std::shared_ptr<PyElasticParameterization> createElasticParameterization(
@@ -578,24 +584,6 @@ std::shared_ptr<PyMaterialParameterization> createMaterialParameterization(
     std::make_shared<PyPlasticParameterization>(plastic));
 }
 
-std::shared_ptr<PyMaterialParameterData> projectMaterialParameterData(
-  std::shared_ptr<pgo::PySimulationAsset> asset,
-  const PyMaterialParameterization &parameterization)
-{
-  if (!asset)
-    throw nb::value_error("asset must be non-null");
-  try {
-    auto data = SolidDeformationModel::NamedChannelMaterialParameterDataProjection{}.project(
-      asset->asset()->materialData(), *parameterization.parameterization());
-    return std::make_shared<PyMaterialParameterData>(
-      std::make_shared<const SolidDeformationModel::MaterialParameterData>(
-        std::move(data)));
-  }
-  catch (const std::invalid_argument &error) {
-    throw nb::value_error(error.what());
-  }
-}
-
 std::shared_ptr<PyMaterialParameterData> createMaterialParameterData(
   nb::ndarray<nb::numpy, const double> elasticFixedValues,
   nb::ndarray<nb::numpy, const double> elasticInitialOptimizableValues,
@@ -613,49 +601,36 @@ std::shared_ptr<PyMaterialParameterData> createMaterialParameterData(
     std::shared_ptr<const SolidDeformationModel::MaterialParameterData>(std::move(data)));
 }
 
-std::shared_ptr<PyMaterialParameterData> projectMaterialParameterDataFromImportedData(
-  const pgo::PyImportedMaterialData &source,
-  const PyMaterialParameterization &parameterization)
+nb::ndarray<nb::numpy, double> projectImportedMaterialInputs(
+  const pgo::PyImportedMaterialCatalog &source,
+  const std::vector<std::string> &parameterNames,
+  const PyParameterLayout &layout)
 {
   try {
-    auto data = SolidDeformationModel::NamedChannelMaterialParameterDataProjection{}.project(
-      source.data(), *parameterization.parameterization());
-    return std::make_shared<PyMaterialParameterData>(
-      std::make_shared<const SolidDeformationModel::MaterialParameterData>(
-        std::move(data)));
+    const EigenSupport::VXd values =
+      SolidDeformationModel::projectImportedMaterialInputs(
+        source.data(),
+        SolidDeformationModel::ParameterInputSchema(parameterNames),
+        *layout.layout());
+    return materialValuesArray(values, *layout.layout());
   }
   catch (const std::invalid_argument &error) {
     throw nb::value_error(error.what());
   }
 }
 
-std::vector<double> resolveMaterialInput(
-  const pgo::PyImportedMaterialData &source,
-  const std::string &name)
+nb::ndarray<nb::numpy, double> projectNamedMaterialInputs(
+  const pgo::PyNamedMaterialInputData &source,
+  const std::vector<std::string> &parameterNames,
+  const PyParameterLayout &layout)
 {
   try {
-    return SolidDeformationModel::MaterialParameterDataProjection::resolveNamedInput(
-      source.data(), name);
-  }
-  catch (const std::invalid_argument &error) {
-    throw nb::value_error(error.what());
-  }
-}
-
-nb::ndarray<nb::numpy, double> packMaterialElementInputs(
-  const PyParameterLayout &layout,
-  nb::ndarray<nb::numpy, const double> elementLocalValues)
-{
-  try {
-    const auto values = python::ndarrayToMatrixXd(elementLocalValues);
-    if (values.cols() != layout.numLocalParameters())
-      throw std::invalid_argument(
-        "MaterialParameterDataProjection element input columns do not match the layout.");
-    const EigenSupport::VXd packed =
-      SolidDeformationModel::MaterialParameterDataProjection::packElementInputs(
-        *layout.layout(),
-        std::span<const double>(values.data(), static_cast<std::size_t>(values.size())));
-    return materialValuesArray(packed, *layout.layout());
+    const EigenSupport::VXd values =
+      SolidDeformationModel::projectNamedMaterialInputs(
+        source.data(),
+        SolidDeformationModel::ParameterInputSchema(parameterNames),
+        *layout.layout());
+    return materialValuesArray(values, *layout.layout());
   }
   catch (const std::invalid_argument &error) {
     throw nb::value_error(error.what());
@@ -667,8 +642,7 @@ void validateMaterialParameterData(
   const PyMaterialParameterData &data)
 {
   try {
-    SolidDeformationModel::validateMaterialParameterData(
-      *parameterization.parameterization(), *data.data());
+    parameterization.parameterization()->validate(*data.data());
   }
   catch (const std::invalid_argument &error) {
     throw nb::value_error(error.what());
@@ -676,17 +650,15 @@ void validateMaterialParameterData(
 }
 
 std::shared_ptr<PyMaterialAssignment> createMaterialAssignmentFromParameterization(
-  std::shared_ptr<pgo::PySimulationAsset> asset,
+  const pgo::PySimulationMesh &mesh,
   const PyMaterialParameterization &parameterization,
-  const PyMaterialParameterData &data)
+  const PyMaterialParameterData &data,
+  const PyMaterialFrameField &materialFrames)
 {
-  if (!asset)
-    throw nb::value_error("asset must be non-null");
   try {
     auto assignment = std::make_shared<const SolidDeformationModel::MaterialAssignment>(
-      asset->asset()->mesh(), parameterization.parameterization(), data.data(),
-      std::make_shared<const SolidDeformationModel::GlobalAxesMaterialFrameField>(
-        asset->mesh().getNumElements()));
+      mesh.meshPtr(), parameterization.parameterization(), data.data(),
+      materialFrames.field());
     return std::make_shared<PyMaterialAssignment>(std::move(assignment));
   }
   catch (const std::invalid_argument &error) {
@@ -731,12 +703,96 @@ std::shared_ptr<PyParameterLayout> makeConstantParameterLayout(
       numElements, numLocalParameters));
 }
 
-std::shared_ptr<PyDifferentiableMaterialEvaluator>
-makeIdentityMaterialEvaluator(int numParameters)
+std::shared_ptr<PyDifferentiableMaterialChannelMapping>
+makeIdentityMaterialChannelMapping(int numParameters)
 {
-  return std::make_shared<PyDifferentiableMaterialEvaluator>(
-    std::make_shared<SolidDeformationModel::IdentityMaterialEvaluator>(
+  return std::make_shared<PyDifferentiableMaterialChannelMapping>(
+    std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(
       numParameters));
+}
+
+std::shared_ptr<PyMaterialFrameField> makeGlobalAxesMaterialFrameField(
+  int numElements)
+{
+  return std::make_shared<PyMaterialFrameField>(
+    std::make_shared<const SolidDeformationModel::GlobalAxesMaterialFrameField>(
+      numElements));
+}
+
+namespace
+{
+SolidDeformationModel::MaterialFrame frameFromFlatValues(
+  const std::vector<double> &values,
+  std::size_t offset)
+{
+  SolidDeformationModel::MaterialFrame frame;
+  for (int row = 0; row < 3; ++row)
+    for (int col = 0; col < 3; ++col)
+      frame(row, col) = values[offset + static_cast<std::size_t>(row * 3 + col)];
+  return frame;
+}
+}
+
+std::shared_ptr<PyMaterialFrameField> makeConstantMaterialFrameField(
+  int numElements,
+  const std::vector<double> &frameValues)
+{
+  if (frameValues.size() != 9)
+    throw nb::value_error("frame must contain 9 values");
+  return std::make_shared<PyMaterialFrameField>(
+    std::make_shared<const SolidDeformationModel::ConstantMaterialFrameField>(
+      numElements, frameFromFlatValues(frameValues, 0)));
+}
+
+std::shared_ptr<PyMaterialFrameField> makeElementwiseMaterialFrameField(
+  const std::vector<double> &frameValues)
+{
+  if (frameValues.empty() || frameValues.size() % 9 != 0)
+    throw nb::value_error("elementwise frames must contain 9 values per element");
+  std::vector<SolidDeformationModel::MaterialFrame> frames;
+  frames.reserve(frameValues.size() / 9);
+  for (std::size_t offset = 0; offset < frameValues.size(); offset += 9)
+    frames.push_back(frameFromFlatValues(frameValues, offset));
+  return std::make_shared<PyMaterialFrameField>(
+    std::make_shared<const SolidDeformationModel::ElementwiseMaterialFrameField>(
+      std::move(frames)));
+}
+
+std::shared_ptr<PyMaterialFrameField> makeMaterialFramesFromPrimaryAxes(
+  const std::vector<double> &axisValues)
+{
+  if (axisValues.empty() || axisValues.size() % 3 != 0)
+    throw nb::value_error(
+      "primary axes must contain three values per element");
+  const Eigen::Index numElements =
+    static_cast<Eigen::Index>(axisValues.size() / 3);
+  EigenSupport::M3Xd axes(3, numElements);
+  for (Eigen::Index element = 0; element < numElements; ++element)
+    for (int component = 0; component < 3; ++component)
+      axes(component, element) =
+        axisValues[
+          static_cast<std::size_t>(element) * 3 + component];
+  try {
+    return std::make_shared<PyMaterialFrameField>(
+      SolidDeformationModel::materialFramesFromPrimaryAxes(axes));
+  }
+  catch (const std::invalid_argument &error) {
+    throw nb::value_error(error.what());
+  }
+}
+
+std::shared_ptr<PyMaterialFrameField> projectImportedMaterialFrameField(
+  const pgo::PyImportedMaterialCatalog &source,
+  const std::string &property)
+{
+  try {
+    auto field = SolidDeformationModel::projectImportedMaterialFrames(
+      source.data(), property);
+    return std::make_shared<PyMaterialFrameField>(std::move(field));
+  }
+  catch (const std::invalid_argument &error) {
+    throw nb::value_error(error.what());
+  }
 }
 
 std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(

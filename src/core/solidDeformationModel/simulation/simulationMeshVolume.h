@@ -1,7 +1,7 @@
 #pragma once
 
 #include "simulation/simulationMeshBase.h"
-#include "simulation/simulationAsset.h"
+#include "simulation/import/simulationImportResult.h"
 
 namespace pgo
 {
@@ -13,8 +13,8 @@ class TetMesh;
 namespace SolidDeformationModel
 {
 
-std::unique_ptr<SimulationAsset> loadTetMesh(const VolumetricMeshes::TetMesh &tetmesh);
-std::unique_ptr<SimulationAsset> loadCubicMesh(const VolumetricMeshes::CubicMesh &cubicMesh);
+std::unique_ptr<SimulationImportResult> loadTetMesh(const VolumetricMeshes::TetMesh &tetmesh);
+std::unique_ptr<SimulationImportResult> loadCubicMesh(const VolumetricMeshes::CubicMesh &cubicMesh);
 
 }  // namespace SolidDeformationModel
 }  // namespace pgo

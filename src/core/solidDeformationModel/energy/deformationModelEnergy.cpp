@@ -8,7 +8,7 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulation.h"
-#include "material/core/materialAssignment.h"
+#include "material/runtime/materialAssignment.h"
 #include "scopedProfileSection.h"
 #include "simulation/simulationMesh.h"
 #include "pgoLogging.h"

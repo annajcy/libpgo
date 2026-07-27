@@ -49,16 +49,6 @@ void validateFormulation(
     throw std::invalid_argument("formulation does not match mesh type");
 }
 
-void validateFrameRequirement(
-  const MaterialFrameField &field,
-  MaterialFrameRequirement requirement,
-  const char *modelDomain)
-{
-  if (!field.satisfies(requirement))
-    throw std::invalid_argument(
-      std::string(modelDomain) +
-      " material requires a material frame capability that the field does not provide.");
-}
 }  // namespace
 
 DeformationModelManager::DeformationModelManager(
@@ -85,8 +75,6 @@ DeformationModelManager::DeformationModelManager(
   if (data->nele <= 0)
     throw std::invalid_argument("DeformationModelManager: mesh must contain at least one element.");
   validateFormulation(data->mesh->getElementType(), formulation);
-  validateFrameRequirement(*data->materialFrames, data->elasticDefinition->frameRequirement(), "elastic");
-  validateFrameRequirement(*data->materialFrames, data->plasticDefinition->frameRequirement(), "plastic");
   initImpl(formulation, DeformationModelConstructionOptions{ projectHessianPSD });
 }
 
@@ -116,9 +104,9 @@ void DeformationModelManager::initImpl(
         data->parameterData->plastic.fixedValues.data(),
         static_cast<std::size_t>(data->parameterData->plastic.fixedValues.size())),
       plasticValues);
-    auto em = data->elasticDefinition->createModelFromFixed(
+    auto em = data->elasticDefinition->createModel(
       elasticValues, materialToReference);
-    auto pm = data->plasticDefinition->createModelFromFixed(
+    auto pm = data->plasticDefinition->createModel(
       plasticValues, materialToReference);
     data->elementFEMs[ele] = formulation.createElement(
       *data->mesh, ele, std::move(em), std::move(pm), options);

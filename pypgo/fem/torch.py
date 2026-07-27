@@ -155,7 +155,7 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
             ):
                 raise TypeError("external_load must provide force() and parameter_jacobian()")
             load_parameters = getattr(external_load, "optimizable_parameters", None)
-            if load_parameters is None or not energy.optimizable_parameters.same_fields(
+            if load_parameters is None or not energy.optimizable_parameters._uses_same_parameter_fields_as(
                 load_parameters
             ):
                 raise ValueError(

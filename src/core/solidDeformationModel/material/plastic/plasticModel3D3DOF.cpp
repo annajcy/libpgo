@@ -113,7 +113,7 @@ void PlasticModel3D3DOF::projectParam(std::span<double> param, double zeroThresh
 
 namespace pgo::SolidDeformationModel {
 MaterialChannelSchema VolumetricPlasticity3Definition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 3> names{"Fx", "Fy", "Fz"}; return MaterialChannelSchema(names); }
-std::unique_ptr<PlasticModel> VolumetricPlasticity3Definition::createModelFromFixed(std::span<const double> values, const MaterialFrame &frame) const
+std::unique_ptr<PlasticModel> VolumetricPlasticity3Definition::createModel(std::span<const double> values, const MaterialFrame &frame) const
 {
   if (!values.empty()) throw std::invalid_argument("volumetric_dof3 has no fixed channels");
   return std::make_unique<PlasticModel3D3DOF>(frame.transpose());

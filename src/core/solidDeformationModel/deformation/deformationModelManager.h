@@ -7,10 +7,10 @@ copyright to USC, MIT, NUS
 
 #include "EigenDef.h"
 #include "formulations/formulation/formulation.h"
-#include "material/elastic/elasticModel.h"
-#include "material/plastic/plasticModel.h"
-#include "material/core/materialFrameField.h"
-#include "material/core/materialAssignment.h"
+#include "material/frame/materialFrameField.h"
+#include "material/model/elasticModelDefinition.h"
+#include "material/model/plasticModelDefinition.h"
+#include "material/runtime/materialAssignment.h"
 
 #include <memory>
 

@@ -1,9 +1,8 @@
 #pragma once
 
 #include "simulation/simulationMeshBase.h"
-#include "simulation/simulationAsset.h"
-#include "simulation/elementField.h"
-#include "simulation/importedMaterial.h"
+
+#include <memory>
 
 namespace pgo
 {
@@ -14,12 +13,8 @@ class TriMeshGeo;
 namespace SolidDeformationModel
 {
 
-std::unique_ptr<SimulationAsset> loadTriangleMesh(
-  const Mesh::TriMeshGeo &triMeshGeo,
-  const ImportedENuMaterial &mat);
-std::unique_ptr<SimulationAsset> loadTriangleMesh(
-  const Mesh::TriMeshGeo &triMeshGeo,
-  ElementField<ImportedENuMaterial> materials);
+std::shared_ptr<SimulationMesh> loadTriangleMesh(
+  const Mesh::TriMeshGeo &triMeshGeo);
 
 void computeTriangleUV(SimulationMesh &mesh, double scaleFactor);
 

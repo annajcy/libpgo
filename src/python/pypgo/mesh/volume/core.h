@@ -33,6 +33,9 @@ public:
     PyVolumeMesh(std::unique_ptr<VolumetricMeshes::CubicMesh> cubicMesh)
         : type_(MeshType::Cubic), cubicMesh_(std::move(cubicMesh)) {}
 
+    explicit PyVolumeMesh(
+        std::unique_ptr<VolumetricMeshes::VolumetricMesh> volumeMesh);
+
     MeshType meshType() const { return type_; }
 
     int numVertices() const { return getVM()->getNumVertices(); }
@@ -116,30 +119,24 @@ nb::object export_geometry(const PyVolumeMesh& vm);
 PyMaterialSpec export_material(const PyVolumeMesh& vm);
 nb::object export_material_payload(const PyVolumeMesh& vm);
 std::shared_ptr<PyVegPayload> extract_veg_payload_from_volume_mesh(const PyVolumeMesh& vm);
-
-std::shared_ptr<PyVolumeMesh> create_volume_mesh_multi(
+std::shared_ptr<PyVegPayload> create_veg_payload(
     const nb::object& meshDataObj,
     const std::vector<nb::object>& materialPayloads,
     const std::vector<std::pair<std::string, std::vector<int>>>& setPayloads,
     const std::vector<std::pair<int, int>>& regionPayloads);
+std::shared_ptr<PyVolumeMesh> create_volume_mesh_from_veg_payload(
+    const PyVegPayload& payload);
 
-nb::tuple read_veg(const std::string& path);
+std::shared_ptr<PyVegPayload> read_veg(const std::string& path);
 PyTetMeshData read_msh(const std::string& path);
 
-void write_veg(
-    const std::string& path,
-    const nb::object& meshDataObj,
-    const std::vector<nb::object>& materialPayloads,
-    const std::vector<std::pair<std::string, std::vector<int>>>& setPayloads,
-    const std::vector<std::pair<int, int>>& regionPayloads);
+void write_veg(const std::string& path, const PyVegPayload& payload);
 
 PyTriMeshData extract_surface_mesh(const PyVolumeMesh& vm, bool triangulate);
-std::shared_ptr<PySimulationAsset> create_simulation_asset_from_volume(const PyVolumeMesh& vm);
-std::shared_ptr<PySimulationAsset> create_simulation_asset_from_shell(
-    const PyTriMeshData& surfaceData,
-    double thickness,
-    double E,
-    double nu);
+std::shared_ptr<PySimulationImportResult> import_simulation_mesh_from_volume(
+    const PyVolumeMesh& vm);
+std::shared_ptr<PySimulationMesh> create_shell_simulation_mesh(
+    const PyTriMeshData& surfaceData);
 
 PyVegENuMaterialPayload create_enu_material_payload(
     const std::string& name, double density, double E, double nu);

@@ -5,7 +5,7 @@ copyright to USC,MIT,NUS
 
 #include "constraints/prescribedPrincipleStressConstraintFunctions.h"
 #include "deformation/deformationModelManager.h"
-#include "material/core/optimizableParameters.h"
+#include "material/runtime/optimizableParameters.h"
 #include "simulation/simulationMesh.h"
 
 #include "deformation/volume/volumetricDeformationModel.h"
@@ -40,11 +40,11 @@ PrescribedPrincipleStressConstraintFunctions::
   const auto &elasticField = optimizableParameters_->elasticField();
   const auto &plasticField = optimizableParameters_->plasticField();
   const SimulationMesh &mesh = tetMeshDMM.getMesh();
-  if (elasticField.evaluator().numChannels() !=
+  if (elasticField.mapping().numChannels() !=
     tetMeshDMM.getNumElasticParameters())
     throw std::invalid_argument(
       "Constraint elastic parameter channels do not match the deformation model.");
-  if (plasticField.evaluator().numChannels() !=
+  if (plasticField.mapping().numChannels() !=
     tetMeshDMM.getNumPlasticParameters())
     throw std::invalid_argument(
       "Constraint plastic parameter channels do not match the deformation model.");

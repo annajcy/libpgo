@@ -30,10 +30,10 @@ def make_cubic_case():
         ),
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
-    volume = pgo.mesh.volume.VolumeMesh.create_from_single_material(
+    volume = pgo.mesh.volume.VolumeMesh(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    sim = pgo.fem.SimulationAsset.create_volumetric(volume)
+    sim = pgo.fem.SimulationImportResult(volume)
     elastic = fem.StVKDefinition()
     plastic = fem.VolumetricPlasticityDefinition(dofs=6)
     assignment = direct_assignment(
@@ -61,12 +61,7 @@ def make_shell_elastic_case():
         ),
         np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int64),
     )
-    material = pgo.fem.KoiterStVKShellMaterial(
-        thickness=1.0e-3,
-        E_membrane=2.0e4,
-        nu_membrane=0.35,
-    )
-    sim = pgo.fem.SimulationAsset.create_shell(surface, material)
+    sim = pgo.fem.SimulationMesh(surface)
     elastic = fem.KoiterStVKDefinition()
     plastic = fem.ShellPlasticityDefinition(dofs=1)
     elastic_values = np.array(

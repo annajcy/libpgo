@@ -1,13 +1,15 @@
 #pragma once
 
 #include "simulation/simulationMesh.h"
-#include "simulation/simulationAsset.h"
+#include "simulation/import/simulationImportResult.h"
+#include "material/data/namedMaterialInputData.h"
 
 #include <nanobind/nanobind.h>
 
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <vector>
 
 namespace pgo
 {
@@ -17,6 +19,18 @@ namespace nb = nanobind;
 class PyImportedMaterialRecord
 {
 public:
+  PyImportedMaterialRecord(std::string name, std::string family, nb::dict properties):
+    record_{std::move(name), std::move(family), {}}
+  {
+    for (const auto &item : properties) {
+      const std::string key = nb::cast<std::string>(item.first);
+      const nb::handle value = item.second;
+      if (nb::isinstance<nb::float_>(value) || nb::isinstance<nb::int_>(value))
+        record_.properties[key] = nb::cast<double>(value);
+      else
+        record_.properties[key] = nb::cast<std::vector<double>>(value);
+    }
+  }
   explicit PyImportedMaterialRecord(SolidDeformationModel::ImportedMaterialRecord record):
     record_(std::move(record)) {}
 
@@ -33,6 +47,7 @@ public:
     }
     return result;
   }
+  const SolidDeformationModel::ImportedMaterialRecord &record() const { return record_; }
 
 private:
   SolidDeformationModel::ImportedMaterialRecord record_;
@@ -41,11 +56,14 @@ private:
 class PyImportedElementSet
 {
 public:
+  PyImportedElementSet(std::string name, std::vector<int> elements):
+    set_{std::move(name), std::move(elements)} {}
   explicit PyImportedElementSet(SolidDeformationModel::ImportedElementSet set):
     set_(std::move(set)) {}
 
   const std::string &name() const { return set_.name; }
   const std::vector<int> &elements() const { return set_.elements; }
+  const SolidDeformationModel::ImportedElementSet &set() const { return set_; }
 
 private:
   SolidDeformationModel::ImportedElementSet set_;
@@ -54,20 +72,30 @@ private:
 class PyImportedMaterialRegion
 {
 public:
+  PyImportedMaterialRegion(int materialIndex, int setIndex):
+    region_{materialIndex, setIndex} {}
   explicit PyImportedMaterialRegion(SolidDeformationModel::ImportedMaterialRegion region):
     region_(region) {}
 
   int materialIndex() const { return region_.materialIndex; }
   int setIndex() const { return region_.setIndex; }
+  const SolidDeformationModel::ImportedMaterialRegion &region() const { return region_; }
 
 private:
   SolidDeformationModel::ImportedMaterialRegion region_;
 };
 
-class PyImportedMaterialField
+class PyNamedMaterialInputField
 {
 public:
-  explicit PyImportedMaterialField(SolidDeformationModel::ImportedMaterialField field):
+  PyNamedMaterialInputField(
+    std::string name,
+    std::vector<std::string> channelNames,
+    std::vector<std::vector<double>> valueRows,
+    std::vector<int> elementToRow):
+    field_(std::move(channelNames), toMatrix(std::move(valueRows)),
+      std::move(elementToRow), std::move(name)) {}
+  explicit PyNamedMaterialInputField(SolidDeformationModel::NamedMaterialInputField field):
     field_(std::move(field)) {}
 
   const std::string &name() const { return field_.name(); }
@@ -91,15 +119,38 @@ public:
     }
     return result;
   }
+  const SolidDeformationModel::NamedMaterialInputField &field() const { return field_; }
 
 private:
-  SolidDeformationModel::ImportedMaterialField field_;
+  static EigenSupport::MXd toMatrix(std::vector<std::vector<double>> rows)
+  {
+    const int numRows = static_cast<int>(rows.size());
+    const int numChannels = numRows == 0 ? 0 : static_cast<int>(rows.front().size());
+    EigenSupport::MXd result(numRows, numChannels);
+    for (int row = 0; row < numRows; ++row) {
+      if (static_cast<int>(rows[static_cast<std::size_t>(row)].size()) != numChannels)
+        throw std::invalid_argument("NamedMaterialInputField rows must have equal lengths.");
+      for (int col = 0; col < numChannels; ++col)
+        result(row, col) = rows[static_cast<std::size_t>(row)][static_cast<std::size_t>(col)];
+    }
+    return result;
+  }
+
+  SolidDeformationModel::NamedMaterialInputField field_;
 };
 
-class PyImportedMaterialData
+class PyImportedMaterialCatalog
 {
 public:
-  explicit PyImportedMaterialData(SolidDeformationModel::ImportedMaterialData data):
+  PyImportedMaterialCatalog(
+    int numElements,
+    const std::vector<PyImportedMaterialRecord> &materials,
+    const std::vector<PyImportedElementSet> &sets,
+    const std::vector<PyImportedMaterialRegion> &regions):
+    data_(
+      numElements, records(materials), elementSets(sets),
+      materialRegions(regions)) {}
+  explicit PyImportedMaterialCatalog(SolidDeformationModel::ImportedMaterialCatalog data):
     data_(std::move(data)) {}
 
   int numElements() const { return data_.numElements(); }
@@ -124,21 +175,80 @@ public:
       result.emplace_back(region);
     return result;
   }
-  std::vector<PyImportedMaterialField> fields() const
-  {
-    std::vector<PyImportedMaterialField> result;
-    for (const auto &field : data_.fields())
-      result.emplace_back(field);
-    return result;
-  }
   std::vector<int> elementMaterialIndices() const
   {
     return data_.elementMaterialIndices();
   }
-  const SolidDeformationModel::ImportedMaterialData &data() const { return data_; }
+  const SolidDeformationModel::ImportedMaterialCatalog &data() const { return data_; }
 
 private:
-  SolidDeformationModel::ImportedMaterialData data_;
+  static std::vector<SolidDeformationModel::ImportedMaterialRecord> records(
+    const std::vector<PyImportedMaterialRecord> &values)
+  {
+    std::vector<SolidDeformationModel::ImportedMaterialRecord> result;
+    result.reserve(values.size());
+    for (const auto &value : values) result.push_back(value.record());
+    return result;
+  }
+  static std::vector<SolidDeformationModel::ImportedElementSet> elementSets(
+    const std::vector<PyImportedElementSet> &values)
+  {
+    std::vector<SolidDeformationModel::ImportedElementSet> result;
+    result.reserve(values.size());
+    for (const auto &value : values) result.push_back(value.set());
+    return result;
+  }
+  static std::vector<SolidDeformationModel::ImportedMaterialRegion> materialRegions(
+    const std::vector<PyImportedMaterialRegion> &values)
+  {
+    std::vector<SolidDeformationModel::ImportedMaterialRegion> result;
+    result.reserve(values.size());
+    for (const auto &value : values) result.push_back(value.region());
+    return result;
+  }
+  SolidDeformationModel::ImportedMaterialCatalog data_;
+};
+
+class PyNamedMaterialInputData
+{
+public:
+  PyNamedMaterialInputData(
+    int numElements,
+    const std::vector<PyNamedMaterialInputField> &fields):
+    data_(numElements, materialFields(fields))
+  {
+  }
+  explicit PyNamedMaterialInputData(
+    SolidDeformationModel::NamedMaterialInputData data):
+    data_(std::move(data))
+  {
+  }
+
+  int numElements() const { return data_.numElements(); }
+  std::vector<PyNamedMaterialInputField> fields() const
+  {
+    std::vector<PyNamedMaterialInputField> result;
+    for (const auto &field : data_.fields())
+      result.emplace_back(field);
+    return result;
+  }
+  const SolidDeformationModel::NamedMaterialInputData &data() const
+  {
+    return data_;
+  }
+
+private:
+  static std::vector<SolidDeformationModel::NamedMaterialInputField>
+  materialFields(const std::vector<PyNamedMaterialInputField> &values)
+  {
+    std::vector<SolidDeformationModel::NamedMaterialInputField> result;
+    result.reserve(values.size());
+    for (const auto &value : values)
+      result.push_back(value.field());
+    return result;
+  }
+
+  SolidDeformationModel::NamedMaterialInputData data_;
 };
 
 // Python-facing SimulationMesh owner. Holds a shared SimulationMesh handle so
@@ -177,24 +287,33 @@ protected:
   std::shared_ptr<const SolidDeformationModel::SimulationMesh> mesh_;
 };
 
-class PySimulationAsset final : public PySimulationMesh
+class PySimulationImportResult final
 {
 public:
-  explicit PySimulationAsset(std::shared_ptr<const SolidDeformationModel::SimulationAsset> asset):
-    PySimulationMesh(asset ? asset->mesh() : nullptr), asset_(std::move(asset))
+  explicit PySimulationImportResult(
+    std::shared_ptr<const SolidDeformationModel::SimulationImportResult> result):
+    result_(std::move(result))
   {
-    if (!asset_ || !mesh_)
-      throw std::invalid_argument("PySimulationAsset requires a non-null asset and mesh.");
+    if (!result_ || !result_->mesh())
+      throw std::invalid_argument(
+        "PySimulationImportResult requires a non-null result and mesh.");
   }
 
-  std::shared_ptr<const SolidDeformationModel::SimulationAsset> asset() const { return asset_; }
-  PyImportedMaterialData materialData() const
+  std::shared_ptr<const SolidDeformationModel::SimulationImportResult> result() const
   {
-    return PyImportedMaterialData(asset_->materialData());
+    return result_;
+  }
+  std::shared_ptr<PySimulationMesh> mesh() const
+  {
+    return std::make_shared<PySimulationMesh>(result_->mesh());
+  }
+  PyImportedMaterialCatalog materialCatalog() const
+  {
+    return PyImportedMaterialCatalog(result_->materialCatalog());
   }
 
 private:
-  std::shared_ptr<const SolidDeformationModel::SimulationAsset> asset_;
+  std::shared_ptr<const SolidDeformationModel::SimulationImportResult> result_;
 };
 
 }  // namespace pgo
