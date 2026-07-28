@@ -26,6 +26,7 @@ def _load_mesh(loader, path, kind):
 
 
 _VOLUME_ELASTIC = {
+    "neo_hookean": _fem.NeoHookeanDefinition,
     "stable_neo": _fem.StableNeoDefinition,
     "stvk": _fem.StVKDefinition,
     "stvk_volume": _fem.StVKVolumeDefinition,

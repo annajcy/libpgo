@@ -62,6 +62,23 @@ def test_dynamic_demos_expose_short_run_controls():
         assert "if not frame.accepted:" in source
 
 
+@pytest.mark.parametrize("case", (
+    "cubic_dynamic_box_neo_hookean_drop",
+    "cubic_dynamic_box_systematic_poking_drop",
+))
+def test_box_drop_demos_write_full_rate_alembic_cache(case):
+    source = (DEMO_ROOT / case / "main.py").read_text()
+    readme = (DEMO_ROOT / case / "README.md").read_text()
+    assert "pypgo.animation as pa" in source
+    assert "pa.AbcWriter.dump(" in source
+    assert "fps=1.0 / TIMESTEP" in source
+    assert 'args.output_dir / "animation.abc"' in source
+    assert "abc_displacements.append(" in source
+    assert f"python examples/demo/simulation/{case}/main.py" in readme
+    assert "animation.abc" in readme
+    assert "--no-abc" in readme
+
+
 def test_simulation_demo_assets_exist():
     assets = ROOT / "examples" / "assets"
     expected = (

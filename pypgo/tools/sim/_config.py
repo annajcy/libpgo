@@ -15,7 +15,14 @@ from pathlib import Path
 
 MESH_TYPES = ("tet", "cubic", "shell")
 VOLUME_FORMULATIONS = ("auto", "tet-linear", "cubic-linear", "cubic-tricubic-hermite")
-VOLUME_ELASTIC_MODELS = ("stable_neo", "stvk", "stvk_volume", "linear_elastic", "mooney_rivlin")
+VOLUME_ELASTIC_MODELS = (
+    "neo_hookean",
+    "stable_neo",
+    "stvk",
+    "stvk_volume",
+    "linear_elastic",
+    "mooney_rivlin",
+)
 CONTACT_MODELS = ("ipc", "floor", "sampled_penalty")
 INTEGRATORS = ("implicit_euler", "trbdf2")
 LINE_SEARCH_METHODS = ("backtrack", "simple", "golden", "brents")

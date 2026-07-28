@@ -108,6 +108,17 @@ def test_build_volume_scene_tet_static(tet_box_cfg_payload):
     assert v[1] == -3.0 and v[0] == 0.0
 
 
+def test_build_volume_scene_neo_hookean(tet_box_cfg_payload):
+    cfg = load_config(mesh_type="tet", mode="static", overrides={
+        **tet_box_cfg_payload,
+        "material.model": "neo_hookean",
+    })
+    bundle = build_scene(cfg)
+    assert bundle.deformation.elastic_definition.name == "neo_hookean"
+    assert bundle.deformation.elastic_definition.fixed_channel_names == ("E", "nu")
+    assert bundle.deformation.elastic_definition.optimizable_channel_names == ()
+
+
 def test_build_volume_scene_with_contact_and_attachment(tet_box_cfg_payload):
     cfg = load_config(mesh_type="tet", mode="dynamic", overrides={
         **tet_box_cfg_payload,

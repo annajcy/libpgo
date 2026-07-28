@@ -71,6 +71,17 @@ makeSystematicPokingVolumeModel(
     std::move(fixedShape));
 }
 
+MaterialChannelSchema makeSystematicPokingOptimizableChannelSchema(
+  std::size_t stretchKnotCount)
+{
+  std::vector<std::string> names;
+  names.reserve(stretchKnotCount + 1);
+  for (std::size_t i = 0; i < stretchKnotCount; ++i)
+    names.emplace_back("f_dd_" + std::to_string(i));
+  names.emplace_back("lambda");
+  return MaterialChannelSchema(std::move(names));
+}
+
 }  // namespace
 
 std::vector<double> sampleLogSquaredVolumeCurvatures(
@@ -113,6 +124,55 @@ ElasticModel3DSystematicPoking::ElasticModel3DSystematicPoking(
     makeSystematicPokingVolumeModel(
       volumeKnots, volumeRestKnotIndex))
 {
+}
+
+SystematicPokingDefinition::SystematicPokingDefinition(
+  std::span<const double> stretchKnots,
+  int stretchRestKnotIndex,
+  std::span<const double> volumeKnots,
+  int volumeRestKnotIndex):
+  stretchKnots_(stretchKnots.begin(), stretchKnots.end()),
+  stretchRestKnotIndex_(stretchRestKnotIndex),
+  volumeKnots_(volumeKnots.begin(), volumeKnots.end()),
+  volumeRestKnotIndex_(volumeRestKnotIndex),
+  optimizableChannelSchema_(
+    makeSystematicPokingOptimizableChannelSchema(
+      stretchKnots_.size()))
+{
+  // Construct once so the definition and the evaluator share exactly the
+  // same knot, anchor, and positive-volume validation contract.
+  [[maybe_unused]] ElasticModel3DSystematicPoking validationModel(
+    stretchKnots_,
+    stretchRestKnotIndex_,
+    volumeKnots_,
+    volumeRestKnotIndex_);
+}
+
+MaterialChannelSchema
+SystematicPokingDefinition::fixedChannelSchema() const
+{
+  return {};
+}
+
+MaterialChannelSchema
+SystematicPokingDefinition::optimizableChannelSchema() const
+{
+  return optimizableChannelSchema_;
+}
+
+std::unique_ptr<ElasticModel>
+SystematicPokingDefinition::createModel(
+  std::span<const double> fixedChannels,
+  const MaterialFrame &) const
+{
+  if (!fixedChannels.empty())
+    throw std::invalid_argument(
+      "systematic_poking has no fixed material channels");
+  return std::make_unique<ElasticModel3DSystematicPoking>(
+    stretchKnots_,
+    stretchRestKnotIndex_,
+    volumeKnots_,
+    volumeRestKnotIndex_);
 }
 
 }  // namespace pgo::SolidDeformationModel

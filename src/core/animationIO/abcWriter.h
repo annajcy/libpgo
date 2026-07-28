@@ -11,6 +11,7 @@ void dumpABC(const char *filename, const char *name,
   const std::vector<float> &positions,
   const std::vector<std::vector<float>> &displacements,
   const std::vector<std::vector<int>> &triangles,
-  const std::vector<float> *uv = nullptr);
+  const std::vector<float> *uv = nullptr,
+  double fps = 24.0);
 }
 }  // namespace pgo

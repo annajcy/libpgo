@@ -11,6 +11,7 @@ void dump_abc_unavailable(const nanobind::object &filename,
   const nanobind::object &name,
   const nanobind::object &restPositions,
   const nanobind::object &displacements,
-  const nanobind::object &triangles);
+  const nanobind::object &triangles,
+  const nanobind::object &fps);
 
 }  // namespace pgo

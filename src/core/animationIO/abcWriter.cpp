@@ -4,14 +4,21 @@
 #include <Alembic/AbcCoreHDF5/All.h>
 #include <Alembic/AbcCoreOgawa/All.h>
 
+#include <cmath>
+#include <stdexcept>
+
 using namespace Alembic::AbcGeom;  // Contains Abc, AbcCoreAbstract
 
 void pgo::AnimationIO::dumpABC(const char *filename, const char *name,
   const std::vector<float> &positions,
   const std::vector<std::vector<float>> &displacements,
   const std::vector<std::vector<int>> &triangles,
-  const std::vector<float> *uv)
+  const std::vector<float> *uv,
+  double fps)
 {
+  if (!(fps > 0.0) || !std::isfinite(fps))
+    throw std::invalid_argument("Alembic frame rate must be finite and positive");
+
   OArchive archive(
     // The hard link to the implementation.
     Alembic::AbcCoreOgawa::WriteArchive(),
@@ -20,7 +27,7 @@ void pgo::AnimationIO::dumpABC(const char *filename, const char *name,
     // the archive with this filename.
     filename);
 
-  TimeSampling ts(1.0 / 24, 0.0);
+  TimeSampling ts(1.0 / fps, 0.0);
   Alembic::Util::uint32_t tsidx = archive.addTimeSampling(ts);
   Alembic::AbcGeom::OXform xfobj(archive.getTop(), name, tsidx);
 

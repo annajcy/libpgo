@@ -276,6 +276,73 @@ def test_mooney_rivlin_config_builds_deformation_energy():
     assert energy.hessian(u).nnz > 0
 
 
+def test_neo_hookean_config_builds_deformation_energy():
+    energy = _make_energy(
+        _make_tet_sim_mesh(),
+        elastic=pf.NeoHookeanDefinition(),
+        plastic=pf.VolumetricPlasticityDefinition(dofs=0),
+        formulation=pf.TetLinear(),
+    )
+    u = energy.zero_state()
+    assert np.isclose(energy.value(u), 0.0)
+    assert np.all(np.isfinite(energy.gradient(u)))
+    assert energy.hessian(u).nnz > 0
+
+
+def test_systematic_poking_definition_builds_parameterized_tet_energy():
+    stretch_knots = (0.4, 0.7, 1.0, 1.4, 2.0)
+    volume_knots = tuple(np.exp((-1.0, -0.5, 0.0, 0.5, 1.0)))
+    elastic = pf.SystematicPokingDefinition(
+        stretch_knots, 2, volume_knots, 2)
+    parameters = np.array(
+        [[800.0, 1200.0, 2100.0, 1900.0, 2800.0, 3700.0]],
+        dtype=np.float64,
+    )
+    energy = _make_energy(
+        _make_tet_sim_mesh(),
+        elastic=elastic,
+        plastic=pf.VolumetricPlasticityDefinition(dofs=0),
+        formulation=pf.TetLinear(),
+        elastic_dof_layout=pf.ConstantParameterLayout,
+        elastic_values=parameters,
+    )
+
+    assert energy.elastic_definition is elastic
+    assert energy.num_elastic_params == parameters.shape[1]
+    assert energy.num_elastic_dofs == parameters.shape[1]
+    np.testing.assert_allclose(
+        energy.optimizable_parameters.elastic_values,
+        parameters,
+    )
+
+    displacement = np.zeros(energy.num_dofs, dtype=np.float64)
+    displacement.reshape(-1, 3)[1] = (0.08, 0.01, -0.01)
+    displacement.reshape(-1, 3)[2] = (0.02, -0.04, 0.01)
+    displacement.reshape(-1, 3)[3] = (-0.01, 0.02, 0.06)
+    assert np.isfinite(energy.value(displacement))
+    assert np.all(np.isfinite(energy.gradient(displacement)))
+    assert energy.hessian(displacement).nnz > 0
+
+    analytic = energy.dE_de(displacement)
+    finite_difference = np.empty(parameters.shape[1], dtype=np.float64)
+    step = 1e-4
+    for parameter_index in range(parameters.shape[1]):
+        plus = parameters.copy()
+        minus = parameters.copy()
+        plus[0, parameter_index] += step
+        minus[0, parameter_index] -= step
+        energy.optimizable_parameters.set_elastic_values(plus)
+        plus_energy = energy.value(displacement)
+        energy.optimizable_parameters.set_elastic_values(minus)
+        minus_energy = energy.value(displacement)
+        finite_difference[parameter_index] = (
+            plus_energy - minus_energy) / (2.0 * step)
+    energy.optimizable_parameters.set_elastic_values(parameters)
+
+    np.testing.assert_allclose(
+        analytic, finite_difference, rtol=2e-7, atol=2e-10)
+
+
 class TestWrappers:
     def test_formulations(self):
         assert pf.TetLinear().name == "tet_linear"
@@ -288,6 +355,7 @@ class TestWrappers:
 
     def test_material_ids(self):
         assert pf.StableNeoDefinition().name == "stable_neo"
+        assert pf.NeoHookeanDefinition().name == "neo_hookean"
         assert pf.StVKDefinition().name == "stvk"
         assert pf.StVKVolumeDefinition().name == "stvk_vol"
         assert pf.LinearElasticDefinition().name == "linear"
@@ -298,6 +366,27 @@ class TestWrappers:
         assert pf.VolumetricPlasticityDefinition(dofs=0).name == "volumetric_dof0"
         assert pf.ShellPlasticityDefinition(dofs=1).name == "shell_ff_dof1"
         assert pf.ShellPlasticityDefinition(dofs=0).name == "shell_ff_dof0"
+
+    def test_systematic_poking_definition(self):
+        stretch_knots = (0.4, 0.7, 1.0, 1.4, 2.0)
+        volume_knots = tuple(np.exp((-1.0, -0.5, 0.0, 0.5, 1.0)))
+        definition = pf.SystematicPokingDefinition(
+            stretch_knots, 2, volume_knots, 2)
+
+        assert definition.name == "systematic_poking"
+        assert definition.fixed_channel_names == ()
+        assert definition.optimizable_channel_names == (
+            "f_dd_0", "f_dd_1", "f_dd_2",
+            "f_dd_3", "f_dd_4", "lambda",
+        )
+        assert definition.stretch_knots == stretch_knots
+        assert definition.stretch_rest_knot_index == 2
+        assert definition.volume_knots == volume_knots
+        assert definition.volume_rest_knot_index == 2
+
+        with pytest.raises(ValueError, match="rest knot must equal one"):
+            pf.SystematicPokingDefinition(
+                stretch_knots, 1, volume_knots, 2)
 
     def test_invalid_plastic_dofs(self):
         with pytest.raises(ValueError):

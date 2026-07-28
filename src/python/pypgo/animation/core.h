@@ -17,7 +17,8 @@ void dump_abc(const std::string &filename,
   const std::string &name,
   const std::vector<float> &restPositions,
   const std::vector<std::vector<float>> &displacements,
-  const std::vector<std::vector<int>> &triangles);
+  const std::vector<std::vector<int>> &triangles,
+  double fps);
 
 class PyAnimationLoader
 {

@@ -15,9 +15,11 @@ from pypgo.fem.elastic import (
     KoiterStVKDefinition,
     LinearElasticDefinition,
     MooneyRivlinDefinition,
+    NeoHookeanDefinition,
     StableNeoDefinition,
     StVKDefinition,
     StVKVolumeDefinition,
+    SystematicPokingDefinition,
 )
 from pypgo.fem.plastic import (
     PlasticModelDefinition,
@@ -92,9 +94,11 @@ __all__ = [
     "KoiterStVKDefinition",
     "LinearElasticDefinition",
     "MooneyRivlinDefinition",
+    "NeoHookeanDefinition",
     "StableNeoDefinition",
     "StVKDefinition",
     "StVKVolumeDefinition",
+    "SystematicPokingDefinition",
     # Plastic
     "PlasticModelDefinition",
     "ShellPlasticityDefinition",

@@ -643,4 +643,77 @@ TEST(ElasticModel3DSystematicPoking, RejectsInvalidConstructionAndParameters)
     std::overflow_error);
 }
 
+TEST(ElasticModel3DSystematicPoking, DefinitionCreatesMaterialFieldEvaluator)
+{
+  const std::array<double, 5> stretchKnots = {
+    0.4, 0.7, 1.0, 1.4, 2.0
+  };
+  const std::array<double, 5> volumeKnots = {
+    std::exp(-1.0), std::exp(-0.5), 1.0,
+    std::exp(0.5), std::exp(1.0)
+  };
+  const std::array<double, 6> parameters = {
+    0.8, 1.2, 2.1, 1.9, 2.8,
+    3.7
+  };
+  SDM::SystematicPokingDefinition definition(
+    stretchKnots, 2, volumeKnots, 2);
+
+  EXPECT_EQ(definition.id(), "systematic_poking");
+  EXPECT_EQ(
+    definition.fixedChannelSchema().numChannels(), 0);
+  const std::vector<std::string> expectedNames = {
+    "f_dd_0", "f_dd_1", "f_dd_2",
+    "f_dd_3", "f_dd_4", "lambda"
+  };
+  const SDM::MaterialChannelSchema schema =
+    definition.optimizableChannelSchema();
+  const auto names = schema.channelNames();
+  EXPECT_TRUE(std::equal(
+    names.begin(), names.end(),
+    expectedNames.begin(), expectedNames.end()));
+  EXPECT_TRUE(std::equal(
+    definition.stretchKnots().begin(),
+    definition.stretchKnots().end(),
+    stretchKnots.begin(), stretchKnots.end()));
+  EXPECT_EQ(definition.stretchRestKnotIndex(), 2);
+  EXPECT_TRUE(std::equal(
+    definition.volumeKnots().begin(),
+    definition.volumeKnots().end(),
+    volumeKnots.begin(), volumeKnots.end()));
+  EXPECT_EQ(definition.volumeRestKnotIndex(), 2);
+
+  std::unique_ptr<SDM::ElasticModel> created =
+    definition.createModel({}, SDM::MaterialFrame::Identity());
+  ASSERT_NE(created, nullptr);
+  EXPECT_EQ(created->getNumParameters(), 6);
+  auto *createdSystematic =
+    dynamic_cast<SDM::ElasticModel3DSystematicPoking *>(
+      created.get());
+  ASSERT_NE(createdSystematic, nullptr);
+
+  SDM::ElasticModel3DSystematicPoking direct(
+    stretchKnots, 2, volumeKnots, 2);
+  const SDM::SpectralState state =
+    toState(makeSpectralData(
+      ES::V3d(0.72, 1.08, 1.55)));
+  EXPECT_NEAR(
+    createdSystematic->compute_psi(parameters, state),
+    direct.compute_psi(parameters, state),
+    1e-14);
+  EXPECT_TRUE(
+    createdSystematic->compute_P(parameters, state).isApprox(
+      direct.compute_P(parameters, state), 1e-13));
+
+  EXPECT_THROW(
+    definition.createModel(
+      std::array<double, 1>{ 1.0 },
+      SDM::MaterialFrame::Identity()),
+    std::invalid_argument);
+  EXPECT_THROW(
+    SDM::SystematicPokingDefinition(
+      stretchKnots, 1, volumeKnots, 2),
+    std::invalid_argument);
+}
+
 }  // namespace

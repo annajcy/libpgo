@@ -1,8 +1,10 @@
 #pragma once
 
 #include "material/elastic/deformationGradient/spectral/elasticModel3DValanisLandel.h"
+#include "material/model/elasticModelDefinition.h"
 
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace pgo::SolidDeformationModel
@@ -32,6 +34,59 @@ public:
     int stretchRestKnotIndex,
     std::span<const double> volumeKnots,
     int volumeRestKnotIndex);
+};
+
+/// Immutable structural definition for the paper's Systematic Poking
+/// material.
+///
+/// Knot locations and rest-knot indices determine the constitutive basis and
+/// are therefore stored once in the definition. Per-element material fields
+/// contain only the optimizable physical channels
+///
+///   [f''(stretchKnots[0]), ..., f''(stretchKnots[n - 1]), lambda].
+class SystematicPokingDefinition final : public ElasticModelDefinition
+{
+public:
+  SystematicPokingDefinition(
+    std::span<const double> stretchKnots,
+    int stretchRestKnotIndex,
+    std::span<const double> volumeKnots,
+    int volumeRestKnotIndex);
+
+  std::string_view id() const override
+  {
+    return "systematic_poking";
+  }
+
+  MaterialChannelSchema fixedChannelSchema() const override;
+  MaterialChannelSchema optimizableChannelSchema() const override;
+  std::unique_ptr<ElasticModel> createModel(
+    std::span<const double> fixedChannels,
+    const MaterialFrame &materialFrame) const override;
+
+  std::span<const double> stretchKnots() const
+  {
+    return stretchKnots_;
+  }
+  int stretchRestKnotIndex() const
+  {
+    return stretchRestKnotIndex_;
+  }
+  std::span<const double> volumeKnots() const
+  {
+    return volumeKnots_;
+  }
+  int volumeRestKnotIndex() const
+  {
+    return volumeRestKnotIndex_;
+  }
+
+private:
+  std::vector<double> stretchKnots_;
+  int stretchRestKnotIndex_ = 0;
+  std::vector<double> volumeKnots_;
+  int volumeRestKnotIndex_ = 0;
+  MaterialChannelSchema optimizableChannelSchema_;
 };
 
 }  // namespace pgo::SolidDeformationModel

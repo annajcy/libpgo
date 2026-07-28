@@ -6,6 +6,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/elastic/deformationGradient/spectral/elasticModel3DSystematicPoking.h
   material/elastic/deformationGradient/spectral/isotropicSpectralTangent.h
   material/elastic/elasticModelStableNeoHookeanMaterial.h
+  material/elastic/elasticModel3DNeoHookean.h
   material/elastic/deformationGradient/spectral/elasticModelStableNeoHookeanPrincipalStretch.h
   material/elastic/elasticModelInvariantBasedMaterial.h
   material/elastic/elasticModelLinearMaterial.h
@@ -137,6 +138,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   material/elastic/deformationGradient/spectral/isotropicSpectralTangent.cpp
   material/elastic/elasticModelInvariantBasedMaterial.cpp
   material/elastic/elasticModelStableNeoHookeanMaterial.cpp
+  material/elastic/elasticModel3DNeoHookean.cpp
   material/elastic/deformationGradient/spectral/elasticModelStableNeoHookeanPrincipalStretch.cpp
   material/elastic/elasticModelLinearMaterial.cpp
   material/elastic/elasticModelHillTypeMaterial.cpp

@@ -132,6 +132,16 @@ pgo_add_gtest(elasticModel3DSystematicPoking_gtest
   DEPS solidDeformationModel
 )
 
+pgo_add_gtest(elasticModel3DSystematicPokingNeoHookeanComparison_gtest
+  SOURCES material/elastic/deformationGradient/spectral/elasticModel3DSystematicPokingNeoHookeanComparison_gtest.cpp
+  DEPS solidDeformationModel
+)
+
+pgo_add_gtest(elasticModel3DNeoHookean_gtest
+  SOURCES material/elastic/elasticModel3DNeoHookean_gtest.cpp
+  DEPS solidDeformationModel
+)
+
 pgo_add_gtest(elasticModel1D_gtest
   SOURCES material/elastic/elasticModel1D_gtest.cpp
   DEPS solidDeformationModel

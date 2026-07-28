@@ -137,6 +137,7 @@ class AbcWriter:
             self._rest.tolist(),
             [f.tolist() for f in self._frames],
             [self._tris[i * 3:(i + 1) * 3].tolist() for i in range(n_tris)],
+            self._fps,
         )
 
     # -- context manager ------------------------------------------------------

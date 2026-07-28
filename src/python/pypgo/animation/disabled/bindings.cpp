@@ -10,5 +10,6 @@ void init_animation_bindings(nb::module_ &m)
     m.def("has_stress_vdb_export", &pgo::has_stress_vdb_export);
     m.def("dump_abc", &pgo::dump_abc_unavailable,
         nb::arg("filename"), nb::arg("name"),
-        nb::arg("rest_positions"), nb::arg("displacements"), nb::arg("triangles"));
+        nb::arg("rest_positions"), nb::arg("displacements"),
+        nb::arg("triangles"), nb::arg("fps") = 24.0);
 }

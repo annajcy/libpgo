@@ -36,6 +36,13 @@ class StableNeoDefinition(ElasticModelDefinition):
         super().__init__(_core.PyStableNeoDefinition())
 
 
+class NeoHookeanDefinition(ElasticModelDefinition):
+    """Classical logarithmic compressible Neo-Hookean material."""
+
+    def __init__(self) -> None:
+        super().__init__(_core.PyNeoHookeanDefinition())
+
+
 class StVKDefinition(ElasticModelDefinition):
     def __init__(self) -> None:
         super().__init__(_core.PyStVKDefinition())
@@ -59,3 +66,59 @@ class MooneyRivlinDefinition(ElasticModelDefinition):
 class KoiterStVKDefinition(ElasticModelDefinition):
     def __init__(self) -> None:
         super().__init__(_core.PyKoiterStVKDefinition())
+
+
+class SystematicPokingDefinition(ElasticModelDefinition):
+    """Paper-final Systematic Poking principal-stretch material.
+
+    The definition owns the spline knot layouts. Its optimizable material
+    channels are ``f_dd_0, ..., f_dd_n, lambda``; there are no fixed material
+    channels.
+    """
+
+    def __init__(
+        self,
+        stretch_knots,
+        stretch_rest_knot_index: int,
+        volume_knots,
+        volume_rest_knot_index: int,
+    ) -> None:
+        stretch_knots = tuple(float(x) for x in stretch_knots)
+        volume_knots = tuple(float(x) for x in volume_knots)
+        stretch_rest_knot_index = int(stretch_rest_knot_index)
+        volume_rest_knot_index = int(volume_rest_knot_index)
+        super().__init__(_core.PySystematicPokingDefinition(
+            list(stretch_knots),
+            stretch_rest_knot_index,
+            list(volume_knots),
+            volume_rest_knot_index,
+        ))
+        self._stretch_knots = stretch_knots
+        self._stretch_rest_knot_index = stretch_rest_knot_index
+        self._volume_knots = volume_knots
+        self._volume_rest_knot_index = volume_rest_knot_index
+
+    @property
+    def stretch_knots(self) -> tuple[float, ...]:
+        return self._stretch_knots
+
+    @property
+    def stretch_rest_knot_index(self) -> int:
+        return self._stretch_rest_knot_index
+
+    @property
+    def volume_knots(self) -> tuple[float, ...]:
+        return self._volume_knots
+
+    @property
+    def volume_rest_knot_index(self) -> int:
+        return self._volume_rest_knot_index
+
+    def __repr__(self) -> str:
+        return (
+            "SystematicPokingDefinition("
+            f"stretch_knots={self.stretch_knots!r}, "
+            f"stretch_rest_knot_index={self.stretch_rest_knot_index}, "
+            f"volume_knots={self.volume_knots!r}, "
+            f"volume_rest_knot_index={self.volume_rest_knot_index})"
+        )

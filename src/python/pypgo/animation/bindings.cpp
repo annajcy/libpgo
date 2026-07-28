@@ -12,7 +12,8 @@ void init_animation_bindings(nb::module_ &m)
 
     m.def("dump_abc", &pgo::dump_abc,
         nb::arg("filename"), nb::arg("name"),
-        nb::arg("rest_positions"), nb::arg("displacements"), nb::arg("triangles"));
+        nb::arg("rest_positions"), nb::arg("displacements"),
+        nb::arg("triangles"), nb::arg("fps") = 24.0);
 
     nb::class_<pgo::PyAnimationLoader>(m, "PyAnimationLoader")
         .def(nb::init<>())

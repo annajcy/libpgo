@@ -16,10 +16,13 @@ void dump_abc(const std::string &filename,
   const std::string &name,
   const std::vector<float> &restPositions,
   const std::vector<std::vector<float>> &displacements,
-  const std::vector<std::vector<int>> &triangles)
+  const std::vector<std::vector<int>> &triangles,
+  double fps)
 {
   nanobind::gil_scoped_release release;
-  AnimationIO::dumpABC(filename.c_str(), name.c_str(), restPositions, displacements, triangles);
+  AnimationIO::dumpABC(
+    filename.c_str(), name.c_str(), restPositions, displacements,
+    triangles, nullptr, fps);
 }
 
 int PyAnimationLoader::load(const std::string &filename)

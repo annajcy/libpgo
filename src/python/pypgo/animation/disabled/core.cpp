@@ -19,6 +19,7 @@ void dump_abc_unavailable(const nanobind::object &,
   const nanobind::object &,
   const nanobind::object &,
   const nanobind::object &,
+  const nanobind::object &,
   const nanobind::object &)
 {
   throw std::runtime_error("Animation IO (Alembic) is not available in this build.");
