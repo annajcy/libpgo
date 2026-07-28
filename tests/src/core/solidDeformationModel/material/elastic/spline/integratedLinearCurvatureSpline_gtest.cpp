@@ -429,6 +429,94 @@ TEST(IntegratedLinearCurvatureSpline, IsLinearInCurvatureValuesForZeroAnchorCond
   }
 }
 
+TEST(IntegratedLinearCurvatureSpline, CurvatureSensitivitiesMatchFiniteDifferences)
+{
+  const std::array<double, 5> knots = { -1.3, -0.4, 0.2, 1.4, 2.5 };
+  const std::array<double, 5> curvature = { 0.7, 2.2, -0.8, 1.3, 3.1 };
+  const SDM::IntegratedLinearCurvatureSpline spline(
+    knots, 2, 0.6, -0.35);
+  const std::array<double, 7> queries = {
+    -2.0, -0.9, -0.1, 0.2, 0.8, 1.9, 3.0
+  };
+  constexpr double h = 1e-6;
+
+  for (int parameter = 0; parameter < spline.numKnots(); ++parameter) {
+    auto plus = curvature;
+    auto minus = curvature;
+    plus[static_cast<std::size_t>(parameter)] += h;
+    minus[static_cast<std::size_t>(parameter)] -= h;
+
+    for (double x : queries) {
+      EXPECT_NEAR(
+        spline.dy_dcurvature(parameter, x),
+        (spline.y(plus, x) - spline.y(minus, x)) /
+          (2.0 * h),
+        2e-9);
+      EXPECT_NEAR(
+        spline.d2y_dx_dcurvature(parameter, x),
+        (spline.dy_dx(plus, x) - spline.dy_dx(minus, x)) /
+          (2.0 * h),
+        2e-9);
+    }
+  }
+}
+
+TEST(IntegratedLinearCurvatureSpline, MixedSensitivitiesMatchSpatialFiniteDifferences)
+{
+  const std::array<double, 5> knots = { -1.1, -0.3, 0.4, 1.6, 2.2 };
+  const SDM::IntegratedLinearCurvatureSpline spline(
+    knots, 2, -0.4, 0.75);
+  const std::array<double, 7> queries = {
+    -1.8, -0.8, 0.0, 0.7, 1.2, 1.9, 2.8
+  };
+  constexpr double h = 1e-6;
+
+  for (int parameter = 0; parameter < spline.numKnots(); ++parameter) {
+    for (double x : queries) {
+      EXPECT_NEAR(
+        spline.d2y_dx_dcurvature(parameter, x),
+        (spline.dy_dcurvature(parameter, x + h) -
+          spline.dy_dcurvature(parameter, x - h)) /
+          (2.0 * h),
+        2e-10);
+    }
+  }
+}
+
+TEST(IntegratedLinearCurvatureSpline, CurvatureBasisReconstructsValueAndSlope)
+{
+  const std::array<double, 5> knots = { -1.4, -0.2, 0.5, 1.1, 2.7 };
+  const std::array<double, 5> curvature = { 1.8, -0.6, 2.5, 0.4, 3.2 };
+  constexpr int anchorIndex = 2;
+  constexpr double anchorValue = 0.9;
+  constexpr double anchorSlope = -0.45;
+  const SDM::IntegratedLinearCurvatureSpline spline(
+    knots, anchorIndex, anchorValue, anchorSlope);
+  const std::array<double, 8> queries = {
+    -2.2, -1.4, -0.7, 0.5, 0.9, 1.8, 2.7, 3.4
+  };
+
+  for (double x : queries) {
+    const double dx = x - knots[anchorIndex];
+    double reconstructedValue =
+      anchorValue + anchorSlope * dx;
+    double reconstructedSlope = anchorSlope;
+    for (int parameter = 0; parameter < spline.numKnots(); ++parameter) {
+      const double coefficient =
+        curvature[static_cast<std::size_t>(parameter)];
+      reconstructedValue += coefficient *
+        spline.dy_dcurvature(parameter, x);
+      reconstructedSlope += coefficient *
+        spline.d2y_dx_dcurvature(parameter, x);
+    }
+
+    EXPECT_NEAR(
+      spline.y(curvature, x), reconstructedValue, 2e-12);
+    EXPECT_NEAR(
+      spline.dy_dx(curvature, x), reconstructedSlope, 2e-12);
+  }
+}
+
 TEST(IntegratedLinearCurvatureSpline, OwnsACopyOfKnots)
 {
   std::vector<double> knots = { -0.5, 0.2, 1.4 };
@@ -502,6 +590,16 @@ TEST(IntegratedLinearCurvatureSpline, RejectsInvalidEvaluationInputs)
   EXPECT_THROW(
     spline.d2y_dx2(
       curvature, std::numeric_limits<double>::quiet_NaN()),
+    std::invalid_argument);
+  EXPECT_THROW(
+    spline.dy_dcurvature(-1, 0.5),
+    std::out_of_range);
+  EXPECT_THROW(
+    spline.d2y_dx_dcurvature(3, 0.5),
+    std::out_of_range);
+  EXPECT_THROW(
+    spline.dy_dcurvature(
+      1, std::numeric_limits<double>::infinity()),
     std::invalid_argument);
 }
 

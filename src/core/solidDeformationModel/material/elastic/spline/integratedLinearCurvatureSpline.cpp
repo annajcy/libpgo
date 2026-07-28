@@ -22,6 +22,81 @@ void advanceIntegratedState(
   slope += curvature * dx + 0.5 * curvatureSlope * dx2;
 }
 
+template<class CurvatureAt>
+void integrateLinearCurvatureTo(
+  std::span<const double> knots,
+  int anchorIndex,
+  double initialValue,
+  double initialSlope,
+  CurvatureAt curvatureAt,
+  double x,
+  double &value,
+  double &slope)
+{
+  value = initialValue;
+  slope = initialSlope;
+
+  double position = knots[static_cast<std::size_t>(anchorIndex)];
+  if (x > position) {
+    int interval = anchorIndex;
+    while (position < x &&
+      interval < static_cast<int>(knots.size()) - 1) {
+      const double intervalEnd =
+        knots[static_cast<std::size_t>(interval + 1)];
+      const double target = std::min(x, intervalEnd);
+      const double intervalWidth =
+        intervalEnd - knots[static_cast<std::size_t>(interval)];
+      const double curvature = curvatureAt(interval);
+      const double curvatureSlope =
+        (curvatureAt(interval + 1) - curvature) /
+        intervalWidth;
+      advanceIntegratedState(
+        curvature,
+        curvatureSlope,
+        target - position,
+        value,
+        slope);
+      position = target;
+      ++interval;
+    }
+    if (position < x) {
+      advanceIntegratedState(
+        curvatureAt(static_cast<int>(knots.size()) - 1),
+        0.0,
+        x - position,
+        value,
+        slope);
+    }
+  }
+  else if (x < position) {
+    int interval = anchorIndex - 1;
+    while (position > x && interval >= 0) {
+      const double intervalStart =
+        knots[static_cast<std::size_t>(interval)];
+      const double target = std::max(x, intervalStart);
+      const double intervalWidth =
+        knots[static_cast<std::size_t>(interval + 1)] -
+        intervalStart;
+      const double curvature = curvatureAt(interval + 1);
+      const double curvatureSlope =
+        (curvature - curvatureAt(interval)) /
+        intervalWidth;
+      advanceIntegratedState(
+        curvature,
+        curvatureSlope,
+        target - position,
+        value,
+        slope);
+      position = target;
+      --interval;
+    }
+    if (position > x) {
+      advanceIntegratedState(
+        curvatureAt(0), 0.0, x - position, value, slope);
+    }
+  }
+}
+
 }  // namespace
 
 IntegratedLinearCurvatureSpline::IntegratedLinearCurvatureSpline(
@@ -68,9 +143,23 @@ void IntegratedLinearCurvatureSpline::validateEvaluationInputs(
       throw std::invalid_argument(
         "IntegratedLinearCurvatureSpline curvatures must be finite.");
   }
+  validateQuery(x);
+}
+
+void IntegratedLinearCurvatureSpline::validateQuery(double x) const
+{
   if (!std::isfinite(x))
     throw std::invalid_argument(
       "IntegratedLinearCurvatureSpline query must be finite.");
+}
+
+void IntegratedLinearCurvatureSpline::validateCurvatureIndex(
+  int curvatureIndex) const
+{
+  if (curvatureIndex < 0 ||
+    curvatureIndex >= static_cast<int>(knots_.size()))
+    throw std::out_of_range(
+      "IntegratedLinearCurvatureSpline curvature index is out of range.");
 }
 
 void IntegratedLinearCurvatureSpline::integrateTo(
@@ -79,63 +168,17 @@ void IntegratedLinearCurvatureSpline::integrateTo(
   double &value,
   double &slope) const
 {
-  value = anchorValue_;
-  slope = anchorSlope_;
-
-  double position = knots_[static_cast<std::size_t>(anchorIndex_)];
-  if (x > position) {
-    int interval = anchorIndex_;
-    while (position < x &&
-      interval < static_cast<int>(knots_.size()) - 1) {
-      const double intervalEnd =
-        knots_[static_cast<std::size_t>(interval + 1)];
-      const double target = std::min(x, intervalEnd);
-      const double intervalWidth =
-        intervalEnd - knots_[static_cast<std::size_t>(interval)];
-      const double curvatureSlope =
-        (curvatureValues[static_cast<std::size_t>(interval + 1)] -
-          curvatureValues[static_cast<std::size_t>(interval)]) /
-        intervalWidth;
-      advanceIntegratedState(
-        curvatureValues[static_cast<std::size_t>(interval)],
-        curvatureSlope,
-        target - position,
-        value,
-        slope);
-      position = target;
-      ++interval;
-    }
-    if (position < x) {
-      advanceIntegratedState(
-        curvatureValues.back(), 0.0, x - position, value, slope);
-    }
-  }
-  else if (x < position) {
-    int interval = anchorIndex_ - 1;
-    while (position > x && interval >= 0) {
-      const double intervalStart =
-        knots_[static_cast<std::size_t>(interval)];
-      const double target = std::max(x, intervalStart);
-      const double intervalWidth =
-        knots_[static_cast<std::size_t>(interval + 1)] - intervalStart;
-      const double curvatureSlope =
-        (curvatureValues[static_cast<std::size_t>(interval + 1)] -
-          curvatureValues[static_cast<std::size_t>(interval)]) /
-        intervalWidth;
-      advanceIntegratedState(
-        curvatureValues[static_cast<std::size_t>(interval + 1)],
-        curvatureSlope,
-        target - position,
-        value,
-        slope);
-      position = target;
-      --interval;
-    }
-    if (position > x) {
-      advanceIntegratedState(
-        curvatureValues.front(), 0.0, x - position, value, slope);
-    }
-  }
+  integrateLinearCurvatureTo(
+    knots_,
+    anchorIndex_,
+    anchorValue_,
+    anchorSlope_,
+    [&](int index) {
+      return curvatureValues[static_cast<std::size_t>(index)];
+    },
+    x,
+    value,
+    slope);
 }
 
 double IntegratedLinearCurvatureSpline::y(
@@ -183,6 +226,52 @@ double IntegratedLinearCurvatureSpline::d2y_dx2(
     (x - knots_[left]) / (knots_[right] - knots_[left]);
   return (1.0 - t) * curvatureValues[left] +
     t * curvatureValues[right];
+}
+
+double IntegratedLinearCurvatureSpline::dy_dcurvature(
+  int curvatureIndex,
+  double x) const
+{
+  validateCurvatureIndex(curvatureIndex);
+  validateQuery(x);
+
+  double value = 0.0;
+  double slope = 0.0;
+  integrateLinearCurvatureTo(
+    knots_,
+    anchorIndex_,
+    0.0,
+    0.0,
+    [&](int index) {
+      return index == curvatureIndex ? 1.0 : 0.0;
+    },
+    x,
+    value,
+    slope);
+  return value;
+}
+
+double IntegratedLinearCurvatureSpline::d2y_dx_dcurvature(
+  int curvatureIndex,
+  double x) const
+{
+  validateCurvatureIndex(curvatureIndex);
+  validateQuery(x);
+
+  double value = 0.0;
+  double slope = 0.0;
+  integrateLinearCurvatureTo(
+    knots_,
+    anchorIndex_,
+    0.0,
+    0.0,
+    [&](int index) {
+      return index == curvatureIndex ? 1.0 : 0.0;
+    },
+    x,
+    value,
+    slope);
+  return slope;
 }
 
 }  // namespace pgo::SolidDeformationModel

@@ -36,7 +36,20 @@ public:
     std::span<const double> curvatureValues,
     double x) const;
 
+  /// Sensitivity of y(x) to curvatureValues[curvatureIndex].
+  double dy_dcurvature(
+    int curvatureIndex,
+    double x) const;
+
+  /// Sensitivity of y'(x) to curvatureValues[curvatureIndex].
+  double d2y_dx_dcurvature(
+    int curvatureIndex,
+    double x) const;
+
 private:
+  void validateQuery(double x) const;
+  void validateCurvatureIndex(int curvatureIndex) const;
+
   void validateEvaluationInputs(
     std::span<const double> curvatureValues,
     double x) const;
