@@ -29,12 +29,15 @@ public:
     const SpectralState &state) const override;
 
   virtual int getNumParameters() const override { return 1; }
-  double compute_dpsi_dparam(std::span<const double> param, int i,
-    const SpectralState &state) const override;
-  double compute_d2psi_dparam2(std::span<const double> param, int i, int j,
-    const SpectralState &state) const override;
-  EigenSupport::M3d compute_dP_dparam(std::span<const double> param, int i,
-    const SpectralState &state) const override;
+  void compute_dpsi_dparams(std::span<const double> param,
+    const SpectralState &state,
+    EigenSupport::RefVecXd dpsiDparam) const override;
+  void compute_d2psi_dparams2(std::span<const double> param,
+    const SpectralState &state,
+    EigenSupport::RefMatXd d2psiDparam2) const override;
+  void compute_dP_dparams(std::span<const double> param,
+    const SpectralState &state,
+    EigenSupport::RefMatXd dP_dparam) const override;
 
   EigenSupport::V3d primaryAxis() const
   {

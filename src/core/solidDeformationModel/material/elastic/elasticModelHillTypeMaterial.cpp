@@ -166,22 +166,46 @@ ES::M9d ElasticModelHillTypeMaterial::compute_d2ldF2(const ES::V3d &Fd) const
   return d2ldF2;
 }
 
-double ElasticModelHillTypeMaterial::compute_dpsi_dparam(std::span<const double> /*param*/, int /*i*/,
-  const SpectralState &state) const
+void ElasticModelHillTypeMaterial::compute_dpsi_dparams(
+  std::span<const double> param,
+  const SpectralState &state,
+  ES::RefVecXd dpsiDparam) const
 {
+  if (param.size() != 1 || dpsiDparam.size() != 1)
+    throw std::invalid_argument(
+      "ElasticModelHillTypeMaterial expects one parameter and a size-1 gradient.");
+
   double l = compute_length(state.F).value;
-  return 0.5 * maxf * sqrt_gamma * sqrt_pi * lo * (erf((l / lo - 1) / sqrt_gamma) - erf_sqrt_gamma);
+  dpsiDparam[0] =
+    0.5 * maxf * sqrt_gamma * sqrt_pi * lo *
+    (erf((l / lo - 1) / sqrt_gamma) - erf_sqrt_gamma);
 }
 
-double ElasticModelHillTypeMaterial::compute_d2psi_dparam2(std::span<const double> /*param*/, int /*i*/, int /*j*/,
-  const SpectralState &) const
+void ElasticModelHillTypeMaterial::compute_d2psi_dparams2(
+  std::span<const double> param,
+  const SpectralState &,
+  ES::RefMatXd d2psiDparam2) const
 {
-  return 0;
+  if (param.size() != 1 ||
+    d2psiDparam2.rows() != 1 ||
+    d2psiDparam2.cols() != 1)
+    throw std::invalid_argument(
+      "ElasticModelHillTypeMaterial expects one parameter and a 1x1 Hessian.");
+
+  d2psiDparam2.setZero();
 }
 
-ES::M3d ElasticModelHillTypeMaterial::compute_dP_dparam(std::span<const double> /*param*/, int /*i*/,
-  const SpectralState &state) const
+void ElasticModelHillTypeMaterial::compute_dP_dparams(
+  std::span<const double> param,
+  const SpectralState &state,
+  ES::RefMatXd dP_dparam) const
 {
+  if (param.size() != 1 ||
+    dP_dparam.rows() != 9 ||
+    dP_dparam.cols() != 1)
+    throw std::invalid_argument(
+      "ElasticModelHillTypeMaterial expects one parameter and a 9x1 P Jacobian.");
+
   const LengthResult length = compute_length(state.F);
   double l = length.value;
   const ES::V3d &Fd = length.deformedFiber;
@@ -190,7 +214,8 @@ ES::M3d ElasticModelHillTypeMaterial::compute_dP_dparam(std::span<const double> 
 
   double fh = maxf * exp(-(l / lo - 1) * (l / lo - 1) / gamma);
 
-  return fh * dldF;
+  const ES::M3d dP = fh * dldF;
+  dP_dparam.col(0) = Eigen::Map<const ES::V9d>(dP.data());
 }
 
 

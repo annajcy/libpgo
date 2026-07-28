@@ -5,11 +5,10 @@
 
 namespace pgo::SolidDeformationModel
 {
-namespace
-{
 namespace ES = EigenSupport;
 
-void validatePositiveStretch(const ES::V3d &s)
+void ElasticModel3DIsotropicPrincipalStretch::validatePositiveStretches(
+  const ES::V3d &s)
 {
   if (!s.allFinite())
     throw std::invalid_argument(
@@ -19,14 +18,12 @@ void validatePositiveStretch(const ES::V3d &s)
       "isotropic principal-stretch material requires positive stretches");
 }
 
-}  // namespace
-
 double ElasticModel3DIsotropicPrincipalStretch::compute_psi(
   std::span<const double> param,
   const SpectralState &state) const
 {
   const ES::V3d &s = state.stretches;
-  validatePositiveStretch(s);
+  validatePositiveStretches(s);
   const double energy = compute_psi_s(param, s);
   if (!std::isfinite(energy))
     throw std::invalid_argument(
@@ -39,7 +36,7 @@ ES::M3d ElasticModel3DIsotropicPrincipalStretch::compute_P(
   const SpectralState &state) const
 {
   const ES::V3d &s = state.stretches;
-  validatePositiveStretch(s);
+  validatePositiveStretches(s);
   const ES::V3d p = compute_dpsi_ds(param, s);
   if (!p.allFinite())
     throw std::invalid_argument(
@@ -52,7 +49,7 @@ ES::M9d ElasticModel3DIsotropicPrincipalStretch::compute_dPdF(
   const SpectralState &state) const
 {
   const ES::V3d &s = state.stretches;
-  validatePositiveStretch(s);
+  validatePositiveStretches(s);
   const ES::V3d p = compute_dpsi_ds(param, s);
   const ES::M3d H = compute_d2psi_ds2(param, s);
   const auto blocks = IsotropicSpectralTangent::compute_dPdF_blocks(s, p, H);
@@ -64,7 +61,7 @@ ES::M9d ElasticModel3DIsotropicPrincipalStretch::compute_dPdF_psd(
   const SpectralState &state) const
 {
   const ES::V3d &s = state.stretches;
-  validatePositiveStretch(s);
+  validatePositiveStretches(s);
   const ES::V3d p = compute_dpsi_ds(param, s);
   const ES::M3d H = compute_d2psi_ds2(param, s);
   const auto exact = IsotropicSpectralTangent::compute_dPdF_blocks(s, p, H);

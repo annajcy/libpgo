@@ -44,7 +44,9 @@ struct VolumetricDeformationModelCacheData
   mutable ES::VXd dpsiDxScratch;
   mutable ES::VXd localDofScratch;
   mutable M9xNDOF d2FdxdaScratch;
-  mutable std::vector<ES::M3d> dPdbScratch;
+  mutable ES::VXd dpsiDparamScratch;
+  mutable ES::MXd d2psiDparam2Scratch;
+  mutable ES::MXd dPdbScratch;
   mutable std::vector<ES::M3d> dFdaScratch;
 
   VolumetricDeformationModelCacheData(int numNodes, int numQuadPts,

@@ -2,6 +2,7 @@
 
 #include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
 #include "material/elastic/deformationGradient/spectral/elasticModelStableNeoHookeanPrincipalStretch.h"
+#include "material/elastic/elasticModelCombinedMaterial.h"
 #include "material/elastic/elasticModelHillTypeMaterial.h"
 #include "material/elastic/elasticModel3DMooneyRivlin.h"
 #include "material/plastic/plasticModel3D3DOF.h"
@@ -9,7 +10,9 @@
 #include "EigenSupport.h"
 
 #include <array>
+#include <memory>
 #include <span>
+#include <vector>
 
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
@@ -35,6 +38,136 @@ TEST(ElasticModelDefinition, HillRequiresActivation)
   const auto channels = schema.channelNames();
   ASSERT_EQ(channels.size(), 1);
   EXPECT_EQ(channels.front(), "activation");
+}
+
+TEST(ElasticModelDefinition, CombinedHillBatchParameterDerivativesMatchFiniteDifferences)
+{
+  ElasticModelCombinedMaterial<2> model(
+    std::make_unique<ElasticModelHillTypeMaterial>(
+      0.7, 2.4, 1.1, ES::V3d::UnitX()),
+    std::make_unique<ElasticModelHillTypeMaterial>(
+      1.2, 1.8, 0.9, ES::V3d::UnitY()));
+  std::array<double, 2> parameters = { 0.4, 0.8 };
+  SpectralState state;
+  state.F <<
+    1.1, 0.2, 0.0,
+    0.1, 0.9, 0.1,
+    0.0, 0.1, 1.2;
+
+  ES::VXd gradient(2);
+  ES::MXd hessian(2, 2);
+  ES::MXd pJacobian(9, 2);
+  model.compute_dpsi_dparams(
+    parameters, state, gradient);
+  model.compute_d2psi_dparams2(
+    parameters, state, hessian);
+  model.compute_dP_dparams(
+    parameters, state, pJacobian);
+
+  EXPECT_TRUE(hessian.isZero(0.0));
+  constexpr double step = 1e-6;
+  for (int parameter = 0; parameter < 2; ++parameter) {
+    std::array<double, 2> plus = parameters;
+    std::array<double, 2> minus = parameters;
+    plus[parameter] += step;
+    minus[parameter] -= step;
+
+    EXPECT_NEAR(
+      gradient(parameter),
+      (model.compute_psi(plus, state) -
+        model.compute_psi(minus, state)) /
+        (2.0 * step),
+      1e-9);
+
+    const ES::M3d finiteDifferenceP =
+      (model.compute_P(plus, state) -
+        model.compute_P(minus, state)) /
+      (2.0 * step);
+    EXPECT_TRUE(
+      pJacobian.col(parameter).isApprox(
+        Eigen::Map<const ES::V9d>(
+          finiteDifferenceP.data()),
+        1e-9));
+  }
+}
+
+TEST(ElasticModelDefinition, DynamicCombinedMaterialBatchDerivativesMatchFiniteDifferences)
+{
+  std::vector<
+    std::unique_ptr<ElasticModel3DDeformationGradient>>
+    materials;
+  materials.emplace_back(
+    std::make_unique<ElasticModelHillTypeMaterial>(
+      0.7, 2.4, 1.1, ES::V3d::UnitX()));
+  materials.emplace_back(
+    std::make_unique<ElasticModelStableNeoHookeanMaterial>(
+      1.3, 2.1));
+  materials.emplace_back(
+    std::make_unique<ElasticModelHillTypeMaterial>(
+      1.2, 1.8, 0.9, ES::V3d::UnitY()));
+  ElasticModelDynamicCombinedMaterial model(
+    std::move(materials));
+
+  std::array<double, 2> parameters = { 0.4, 0.8 };
+  SpectralState state;
+  state.F <<
+    1.1, 0.2, 0.0,
+    0.1, 0.9, 0.1,
+    0.0, 0.1, 1.2;
+
+  ASSERT_EQ(model.getNumParameters(), 2);
+  ES::VXd gradient(2);
+  ES::MXd hessian(2, 2);
+  ES::MXd pJacobian(9, 2);
+  model.compute_dpsi_dparams(
+    parameters, state, gradient);
+  model.compute_d2psi_dparams2(
+    parameters, state, hessian);
+  model.compute_dP_dparams(
+    parameters, state, pJacobian);
+
+  constexpr double step = 1e-6;
+  for (int parameter = 0; parameter < 2; ++parameter) {
+    std::array<double, 2> plus = parameters;
+    std::array<double, 2> minus = parameters;
+    plus[parameter] += step;
+    minus[parameter] -= step;
+
+    const double finiteDifferenceGradient =
+      (model.compute_psi(plus, state) -
+        model.compute_psi(minus, state)) /
+      (2.0 * step);
+    EXPECT_NEAR(
+      gradient(parameter),
+      finiteDifferenceGradient,
+      1e-9);
+
+    const ES::M3d finiteDifferenceP =
+      (model.compute_P(plus, state) -
+        model.compute_P(minus, state)) /
+      (2.0 * step);
+    EXPECT_TRUE(
+      pJacobian.col(parameter).isApprox(
+        Eigen::Map<const ES::V9d>(
+          finiteDifferenceP.data()),
+        1e-9));
+
+    ES::VXd plusGradient(2);
+    ES::VXd minusGradient(2);
+    model.compute_dpsi_dparams(
+      plus, state, plusGradient);
+    model.compute_dpsi_dparams(
+      minus, state, minusGradient);
+    const ES::VXd finiteDifferenceHessianColumn =
+      (plusGradient - minusGradient) /
+      (2.0 * step);
+    EXPECT_TRUE(
+      hessian.col(parameter).isApprox(
+        finiteDifferenceHessianColumn,
+        1e-10));
+  }
+
+  EXPECT_TRUE(hessian.isZero(0.0));
 }
 
 TEST(PlasticModelDefinition, DofVariantsExposeExplicitConfigs)

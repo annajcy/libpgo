@@ -2,9 +2,11 @@
 
 #include "material/elastic/elasticModel1D.h"
 #include "material/elastic/elasticModel1DCubicSpline.h"
+#include "material/elastic/elasticModel1DFixedParameters.h"
 #include "material/elastic/elasticModel1DIntegratedLinearCurvatureSpline.h"
 #include "material/elastic/elasticModel1DLogSquared.h"
 #include "material/elastic/elasticModel1DQuadratic.h"
+#include "material/elastic/elasticModel1DScaled.h"
 #include "material/elastic/elasticModel1DZero.h"
 #include "material/elastic/spline/integratedLinearCurvatureSpline.h"
 #include "naturalCubicSplineDerivatives.h"
@@ -342,6 +344,240 @@ TEST(ElasticModel1D, LogSquaredRejectsInvalidInputs)
   EXPECT_THROW(
     model.compute_d2psi_dparam2(parameters, 0, 1, 1.0),
     std::out_of_range);
+}
+
+TEST(ElasticModel1D, FixedParametersBindValuesAndPreserveSpatialDerivatives)
+{
+  auto logSquared =
+    std::make_shared<SDM::ElasticModel1DLogSquared>();
+  std::vector<double> fixedValues = { 2.7 };
+  SDM::ElasticModel1DFixedParameters fixed(
+    logSquared, fixedValues);
+  const std::array<double, 1> expectedParameters = { 2.7 };
+  fixedValues[0] = 9.0;
+
+  EXPECT_EQ(fixed.getNumParameters(), 0);
+  for (double x : { 0.2, 0.7, 1.0, 1.8, 4.0 }) {
+    EXPECT_DOUBLE_EQ(
+      fixed.compute_psi({}, x),
+      logSquared->compute_psi(expectedParameters, x));
+    EXPECT_DOUBLE_EQ(
+      fixed.compute_dpsi_dx({}, x),
+      logSquared->compute_dpsi_dx(expectedParameters, x));
+    EXPECT_DOUBLE_EQ(
+      fixed.compute_d2psi_dx2({}, x),
+      logSquared->compute_d2psi_dx2(expectedParameters, x));
+  }
+
+  constexpr double x = 1.6;
+  constexpr double step = 1e-6;
+  EXPECT_NEAR(
+    fixed.compute_dpsi_dx({}, x),
+    (fixed.compute_psi({}, x + step) -
+      fixed.compute_psi({}, x - step)) /
+      (2.0 * step),
+    1e-9);
+  EXPECT_NEAR(
+    fixed.compute_d2psi_dx2({}, x),
+    (fixed.compute_dpsi_dx({}, x + step) -
+      fixed.compute_dpsi_dx({}, x - step)) /
+      (2.0 * step),
+    1e-9);
+}
+
+TEST(ElasticModel1D, FixedParametersSupportSplineModels)
+{
+  const std::array<double, 4> knots = {
+    0.4, 0.8, 1.0, 1.6
+  };
+  auto spline = std::make_shared<
+    SDM::ElasticModel1DIntegratedLinearCurvatureSpline>(
+    knots, 2, 0.0, 0.0);
+  const std::array<double, 4> curvatures = {
+    2.1, 1.6, 1.2, 0.7
+  };
+  SDM::ElasticModel1DFixedParameters fixed(
+    spline,
+    std::span<const double>(curvatures));
+
+  for (double x : { 0.25, 0.6, 1.0, 1.3, 2.0 }) {
+    EXPECT_DOUBLE_EQ(
+      fixed.compute_psi({}, x),
+      spline->compute_psi(curvatures, x));
+    EXPECT_DOUBLE_EQ(
+      fixed.compute_dpsi_dx({}, x),
+      spline->compute_dpsi_dx(curvatures, x));
+    EXPECT_DOUBLE_EQ(
+      fixed.compute_d2psi_dx2({}, x),
+      spline->compute_d2psi_dx2(curvatures, x));
+  }
+}
+
+TEST(ElasticModel1D, FixedParametersRejectInvalidBindingsAndExternalParameters)
+{
+  auto logSquared =
+    std::make_shared<SDM::ElasticModel1DLogSquared>();
+  EXPECT_THROW(
+    SDM::ElasticModel1DFixedParameters(
+      std::shared_ptr<const SDM::ElasticModel1D>{},
+      std::vector<double>{}),
+    std::invalid_argument);
+  EXPECT_THROW(
+    SDM::ElasticModel1DFixedParameters(
+      logSquared, std::vector<double>{}),
+    std::invalid_argument);
+  EXPECT_THROW(
+    SDM::ElasticModel1DFixedParameters(
+      logSquared, std::vector<double>{ 1.0, 2.0 }),
+    std::invalid_argument);
+  EXPECT_THROW(
+    SDM::ElasticModel1DFixedParameters(
+      logSquared,
+      std::vector<double>{
+        std::numeric_limits<double>::quiet_NaN() }),
+    std::invalid_argument);
+
+  SDM::ElasticModel1DFixedParameters fixed(
+    logSquared, std::vector<double>{ 2.0 });
+  EXPECT_THROW(
+    fixed.compute_psi(
+      std::array<double, 1>{ 3.0 }, 1.0),
+    std::invalid_argument);
+  EXPECT_THROW(
+    fixed.compute_dpsi_dparam({}, 0, 1.0),
+    std::out_of_range);
+  EXPECT_THROW(
+    fixed.compute_d2psi_dx_dparam({}, -1, 1.0),
+    std::out_of_range);
+  EXPECT_THROW(
+    fixed.compute_d2psi_dparam2({}, 0, 0, 1.0),
+    std::out_of_range);
+}
+
+TEST(ElasticModel1D, ScaledExposesOneAmplitudeForAParameterFreeShape)
+{
+  auto quadratic =
+    std::make_shared<SDM::ElasticModel1DQuadratic>(1.3);
+  auto fixedShape =
+    std::make_shared<SDM::ElasticModel1DFixedParameters>(
+      quadratic,
+      std::vector<double>{ 2.4 });
+  SDM::ElasticModel1DScaled scaled(fixedShape);
+  const std::array<double, 1> scale = { 3.1 };
+
+  EXPECT_EQ(scaled.getNumParameters(), 1);
+  for (double x : { -1.7, -0.2, 0.0, 0.8, 2.3 }) {
+    EXPECT_DOUBLE_EQ(
+      scaled.compute_psi(scale, x),
+      scale[0] * fixedShape->compute_psi({}, x));
+    EXPECT_DOUBLE_EQ(
+      scaled.compute_dpsi_dx(scale, x),
+      scale[0] * fixedShape->compute_dpsi_dx({}, x));
+    EXPECT_DOUBLE_EQ(
+      scaled.compute_d2psi_dx2(scale, x),
+      scale[0] * fixedShape->compute_d2psi_dx2({}, x));
+    EXPECT_DOUBLE_EQ(
+      scaled.compute_dpsi_dparam(scale, 0, x),
+      fixedShape->compute_psi({}, x));
+    EXPECT_DOUBLE_EQ(
+      scaled.compute_d2psi_dx_dparam(scale, 0, x),
+      fixedShape->compute_dpsi_dx({}, x));
+    EXPECT_DOUBLE_EQ(
+      scaled.compute_d2psi_dparam2(scale, 0, 0, x),
+      0.0);
+  }
+}
+
+TEST(ElasticModel1D, ScaledDerivativesMatchFiniteDifferences)
+{
+  const std::array<double, 5> knots = {
+    0.4, 0.7, 1.0, 1.4, 2.0
+  };
+  auto spline = std::make_shared<
+    SDM::ElasticModel1DIntegratedLinearCurvatureSpline>(
+    knots, 2, 0.0, 0.0);
+  auto fixedShape =
+    std::make_shared<SDM::ElasticModel1DFixedParameters>(
+      spline,
+      std::vector<double>{ 2.8, 2.1, 1.4, 0.8, 0.3 });
+  SDM::ElasticModel1DScaled scaled(fixedShape);
+  const std::array<double, 1> scale = { 3.7 };
+  constexpr double x = 1.23;
+  constexpr double step = 1e-6;
+
+  EXPECT_NEAR(
+    scaled.compute_dpsi_dx(scale, x),
+    (scaled.compute_psi(scale, x + step) -
+      scaled.compute_psi(scale, x - step)) /
+      (2.0 * step),
+    1e-9);
+  EXPECT_NEAR(
+    scaled.compute_d2psi_dx2(scale, x),
+    (scaled.compute_dpsi_dx(scale, x + step) -
+      scaled.compute_dpsi_dx(scale, x - step)) /
+      (2.0 * step),
+    1e-9);
+
+  std::array<double, 1> plus = scale;
+  std::array<double, 1> minus = scale;
+  plus[0] += step;
+  minus[0] -= step;
+  EXPECT_NEAR(
+    scaled.compute_dpsi_dparam(scale, 0, x),
+    (scaled.compute_psi(plus, x) -
+      scaled.compute_psi(minus, x)) /
+      (2.0 * step),
+    1e-10);
+  EXPECT_NEAR(
+    scaled.compute_d2psi_dx_dparam(scale, 0, x),
+    (scaled.compute_dpsi_dx(plus, x) -
+      scaled.compute_dpsi_dx(minus, x)) /
+      (2.0 * step),
+    1e-10);
+}
+
+TEST(ElasticModel1D, ScaledRejectsInvalidShapesParametersAndIndices)
+{
+  EXPECT_THROW(
+    SDM::ElasticModel1DScaled(
+      std::shared_ptr<const SDM::ElasticModel1D>{}),
+    std::invalid_argument);
+  EXPECT_THROW(
+    SDM::ElasticModel1DScaled(
+      std::make_shared<SDM::ElasticModel1DQuadratic>(
+        1.0)),
+    std::invalid_argument);
+
+  SDM::ElasticModel1DScaled scaled(
+    std::make_shared<SDM::ElasticModel1DZero>());
+  EXPECT_THROW(
+    scaled.compute_psi({}, 1.0),
+    std::invalid_argument);
+  EXPECT_THROW(
+    scaled.compute_dpsi_dx(
+      std::array<double, 2>{ 1.0, 2.0 }, 1.0),
+    std::invalid_argument);
+  EXPECT_THROW(
+    scaled.compute_d2psi_dx2(
+      std::array<double, 1>{
+        std::numeric_limits<double>::quiet_NaN() },
+      1.0),
+    std::invalid_argument);
+  EXPECT_THROW(
+    scaled.compute_dpsi_dparam(
+      std::array<double, 1>{ 1.0 }, -1, 1.0),
+    std::out_of_range);
+  EXPECT_THROW(
+    scaled.compute_d2psi_dx_dparam(
+      std::array<double, 1>{ 1.0 }, 1, 1.0),
+    std::out_of_range);
+  EXPECT_THROW(
+    scaled.compute_d2psi_dparam2(
+      std::array<double, 1>{ 1.0 },
+      0,
+      0,
+      std::numeric_limits<double>::infinity()),
+    std::invalid_argument);
 }
 
 TEST(ElasticModel1D, IntegratedCurvatureSplineMatchesMathematicalPrimitive)

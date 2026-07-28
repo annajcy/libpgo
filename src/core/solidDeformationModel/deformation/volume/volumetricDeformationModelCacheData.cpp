@@ -47,7 +47,9 @@ VolumetricDeformationModelCacheData::VolumetricDeformationModelCacheData(
   dpsiDxScratch.resize(localDofs);
   localDofScratch.resize(localDofs);
   d2FdxdaScratch.resize(9, localDofs);
-  dPdbScratch.resize(ne, ES::M3d::Zero());
+  dpsiDparamScratch.resize(ne);
+  d2psiDparam2Scratch.resize(ne, ne);
+  dPdbScratch.resize(9, ne);
   dFdaScratch.resize(np, ES::M3d::Zero());
 }
 

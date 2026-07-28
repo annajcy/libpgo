@@ -50,18 +50,23 @@ public:
   }
 
   // Every concrete 3D model must state its parameter dimension explicitly.
-  // Parameter derivative hooks below throw unless the model implements them.
+  // Parameter derivatives are batch-only:
+  //   dpsiDparam has size m,
+  //   d2psiDparam2 has shape m x m,
+  //   dP_dparam has shape 9 x m, with column k equal to
+  //   vec(dP / dparam_k) in Eigen's column-major order.
+  // Implementations overwrite the complete output.
   int getNumParameters() const override = 0;
 
-  // compute the 1st order derivative with respect to the i-th parameter
-  virtual double compute_dpsi_dparam(std::span<const double> param, int i,
-    const SpectralState &state) const;
-  // compute the 2nd order derivative with respect to the (i-th, j-th) parameter
-  virtual double compute_d2psi_dparam2(std::span<const double> param, int i, int j,
-    const SpectralState &state) const;
-  // compute the 2nd order derivative with respect to the i-th parameter and F
-  virtual EigenSupport::M3d compute_dP_dparam(std::span<const double> param, int i,
-    const SpectralState &state) const;
+  virtual void compute_dpsi_dparams(std::span<const double> param,
+    const SpectralState &state,
+    EigenSupport::RefVecXd dpsiDparam) const;
+  virtual void compute_d2psi_dparams2(std::span<const double> param,
+    const SpectralState &state,
+    EigenSupport::RefMatXd d2psiDparam2) const;
+  virtual void compute_dP_dparams(std::span<const double> param,
+    const SpectralState &state,
+    EigenSupport::RefMatXd dP_dparam) const;
 
   // M81x9d row (j * 9 + i), column k contains d3psi/(dFi dFj dFk).
   virtual void compute_d2PdF2(std::span<const double> param,
@@ -77,25 +82,25 @@ protected:
   bool has3rdOrderDerivative = false;
 };
 
-inline double ElasticModel3DDeformationGradient::compute_dpsi_dparam(
-  std::span<const double>, int, const SpectralState &) const
+inline void ElasticModel3DDeformationGradient::compute_dpsi_dparams(
+  std::span<const double>, const SpectralState &, EigenSupport::RefVecXd) const
 {
   throw std::logic_error(
-    "ElasticModel3DDeformationGradient::compute_dpsi_dparam is not implemented.");
+    "ElasticModel3DDeformationGradient::compute_dpsi_dparams is not implemented.");
 }
 
-inline double ElasticModel3DDeformationGradient::compute_d2psi_dparam2(
-  std::span<const double>, int, int, const SpectralState &) const
+inline void ElasticModel3DDeformationGradient::compute_d2psi_dparams2(
+  std::span<const double>, const SpectralState &, EigenSupport::RefMatXd) const
 {
   throw std::logic_error(
-    "ElasticModel3DDeformationGradient::compute_d2psi_dparam2 is not implemented.");
+    "ElasticModel3DDeformationGradient::compute_d2psi_dparams2 is not implemented.");
 }
 
-inline EigenSupport::M3d ElasticModel3DDeformationGradient::compute_dP_dparam(
-  std::span<const double>, int, const SpectralState &) const
+inline void ElasticModel3DDeformationGradient::compute_dP_dparams(
+  std::span<const double>, const SpectralState &, EigenSupport::RefMatXd) const
 {
   throw std::logic_error(
-    "ElasticModel3DDeformationGradient::compute_dP_dparam is not implemented.");
+    "ElasticModel3DDeformationGradient::compute_dP_dparams is not implemented.");
 }
 
 inline void ElasticModel3DDeformationGradient::compute_d2PdF2(

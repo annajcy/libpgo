@@ -27,6 +27,9 @@ public:
     const SpectralState &state) const final;
 
 protected:
+  static void validatePositiveStretches(
+    const EigenSupport::V3d &s);
+
   virtual double compute_psi_s(
     std::span<const double> param,
     const EigenSupport::V3d &s) const = 0;

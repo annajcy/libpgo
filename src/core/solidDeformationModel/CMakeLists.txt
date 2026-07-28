@@ -2,6 +2,8 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/elastic/elasticModel.h
   material/elastic/elasticModel3DDeformationGradient.h
   material/elastic/deformationGradient/spectral/elasticModel3DIsotropicPrincipalStretch.h
+  material/elastic/deformationGradient/spectral/elasticModel3DValanisLandel.h
+  material/elastic/deformationGradient/spectral/elasticModel3DSystematicPoking.h
   material/elastic/deformationGradient/spectral/isotropicSpectralTangent.h
   material/elastic/elasticModelStableNeoHookeanMaterial.h
   material/elastic/deformationGradient/spectral/elasticModelStableNeoHookeanPrincipalStretch.h
@@ -14,6 +16,8 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/elastic/elasticModel3DSTVKMaterial.h
   material/elastic/elasticModel1D.h
   material/elastic/elasticModel1DZero.h
+  material/elastic/elasticModel1DFixedParameters.h
+  material/elastic/elasticModel1DScaled.h
   material/elastic/elasticModel1DLogSquared.h
   material/elastic/elasticModel1DIntegratedLinearCurvatureSpline.h
   material/elastic/elasticModel1DQuadratic.h
@@ -128,6 +132,8 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
 set(SOLID_DEFORMATION_MODEL_SOURCES
   material/elastic/deformationGradient/spectral/elasticModel3DIsotropicPrincipalStretch.cpp
+  material/elastic/deformationGradient/spectral/elasticModel3DValanisLandel.cpp
+  material/elastic/deformationGradient/spectral/elasticModel3DSystematicPoking.cpp
   material/elastic/deformationGradient/spectral/isotropicSpectralTangent.cpp
   material/elastic/elasticModelInvariantBasedMaterial.cpp
   material/elastic/elasticModelStableNeoHookeanMaterial.cpp
@@ -139,6 +145,8 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   material/elastic/elasticModel3DSTVKMaterial.cpp
   material/elastic/elasticModelCombinedMaterial.cpp
   material/elastic/elasticModel1DZero.cpp
+  material/elastic/elasticModel1DFixedParameters.cpp
+  material/elastic/elasticModel1DScaled.cpp
   material/elastic/elasticModel1DLogSquared.cpp
   material/elastic/elasticModel1DIntegratedLinearCurvatureSpline.cpp
   material/elastic/elasticModel1DQuadratic.cpp

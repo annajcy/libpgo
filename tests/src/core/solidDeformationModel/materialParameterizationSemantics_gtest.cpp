@@ -98,31 +98,41 @@ public:
     return parameters[0] * ES::M9d::Identity();
   }
 
-  double compute_dpsi_dparam(
-    std::span<const double>, int parameter,
-    const SpectralState &state) const override
+  void compute_dpsi_dparams(
+    std::span<const double> parameters,
+    const SpectralState &state,
+    ES::RefVecXd derivative) const override
   {
-    if (parameter != 0)
-      throw std::out_of_range("YoungsModulusTestModel parameter index.");
-    return 0.5 * (state.F - ES::M3d::Identity()).squaredNorm();
+    if (parameters.size() != 1 || derivative.size() != 1)
+      throw std::invalid_argument(
+        "YoungsModulusTestModel parameter-gradient dimensions.");
+    derivative[0] =
+      0.5 * (state.F - ES::M3d::Identity()).squaredNorm();
   }
 
-  double compute_d2psi_dparam2(
-    std::span<const double>, int parameter0, int parameter1,
-    const SpectralState &) const override
+  void compute_d2psi_dparams2(
+    std::span<const double> parameters,
+    const SpectralState &,
+    ES::RefMatXd derivative) const override
   {
-    if (parameter0 != 0 || parameter1 != 0)
-      throw std::out_of_range("YoungsModulusTestModel parameter index.");
-    return 0.0;
+    if (parameters.size() != 1 ||
+      derivative.rows() != 1 || derivative.cols() != 1)
+      throw std::invalid_argument(
+        "YoungsModulusTestModel parameter-Hessian dimensions.");
+    derivative.setZero();
   }
 
-  ES::M3d compute_dP_dparam(
-    std::span<const double>, int parameter,
-    const SpectralState &state) const override
+  void compute_dP_dparams(
+    std::span<const double> parameters,
+    const SpectralState &state,
+    ES::RefMatXd derivative) const override
   {
-    if (parameter != 0)
-      throw std::out_of_range("YoungsModulusTestModel parameter index.");
-    return state.F - ES::M3d::Identity();
+    if (parameters.size() != 1 ||
+      derivative.rows() != 9 || derivative.cols() != 1)
+      throw std::invalid_argument(
+        "YoungsModulusTestModel P-Jacobian dimensions.");
+    const ES::M3d dP = state.F - ES::M3d::Identity();
+    derivative.col(0) = Eigen::Map<const ES::V9d>(dP.data());
   }
 
   void compute_d2PdF2(
