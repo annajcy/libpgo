@@ -15,6 +15,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/elastic/elasticModel1D.h
   material/elastic/elasticModel1DQuadratic.h
   material/elastic/elasticModel1DCubicSpline.h
+  material/elastic/spline/integratedLinearCurvatureSpline.h
 
   material/elastic/elasticModel2DFundamentalForms.h
   material/elastic/elasticModel2DFundamentalFormsFabric.h
@@ -136,6 +137,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   material/elastic/elasticModelCombinedMaterial.cpp
   material/elastic/elasticModel1DQuadratic.cpp
   material/elastic/elasticModel1DCubicSpline.cpp
+  material/elastic/spline/integratedLinearCurvatureSpline.cpp
   material/elastic/elasticModel2DFundamentalFormsFabric.cpp
   material/elastic/elasticModel2DFundamentalFormsSTVK.cpp
 

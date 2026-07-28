@@ -126,3 +126,8 @@ pgo_add_gtest(elasticModel1D_gtest
   SOURCES material/elastic/elasticModel1D_gtest.cpp
   DEPS solidDeformationModel
 )
+
+pgo_add_gtest(integratedLinearCurvatureSpline_gtest
+  SOURCES material/elastic/spline/integratedLinearCurvatureSpline_gtest.cpp
+  DEPS solidDeformationModel
+)
