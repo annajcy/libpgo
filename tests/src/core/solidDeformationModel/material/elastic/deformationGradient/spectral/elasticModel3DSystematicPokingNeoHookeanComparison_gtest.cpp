@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
 
 #include "material/elastic/deformationGradient/spectral/elasticModel3DSystematicPoking.h"
+#include "material/elastic/deformationGradient/spectral/elasticModel3DValanisLandel.h"
+#include "material/elastic/elasticModel1DFixedParameters.h"
+#include "material/elastic/elasticModel1DIntegratedLinearCurvatureSpline.h"
+#include "material/elastic/elasticModel1DLogSquared.h"
+#include "material/elastic/elasticModel1DZero.h"
 #include "material/elastic/elasticModel3DNeoHookean.h"
 
 #include <Eigen/Geometry>
@@ -10,8 +15,10 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <memory>
 #include <random>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -85,9 +92,10 @@ struct ApproximationError
   std::string stressState;
   std::string tangentState;
 
+  template<class ApproximateModel>
   void include(
-    const SDM::ElasticModel3DSystematicPoking &systematic,
-    std::span<const double> systematicParameters,
+    const ApproximateModel &approximate,
+    std::span<const double> approximateParameters,
     const SDM::ElasticModel3DNeoHookean &neoHookean,
     const ES::M3d &F,
     const std::string &label)
@@ -95,16 +103,16 @@ struct ApproximationError
     const SDM::SpectralState state = stateFromF(F);
     const double psiError =
       std::abs(
-        systematic.compute_psi(systematicParameters, state) -
+        approximate.compute_psi(approximateParameters, state) -
         neoHookean.compute_psi({}, state)) /
       youngsModulus;
     const double stressError =
-      (systematic.compute_P(systematicParameters, state) -
+      (approximate.compute_P(approximateParameters, state) -
         neoHookean.compute_P({}, state))
         .norm() /
       youngsModulus;
     const double tangentError =
-      (systematic.compute_dPdF(systematicParameters, state) -
+      (approximate.compute_dPdF(approximateParameters, state) -
         neoHookean.compute_dPdF({}, state))
         .norm() /
       youngsModulus;
@@ -127,6 +135,139 @@ struct ApproximationError
 ES::M3d diagonal(double x, double y, double z)
 {
   return ES::V3d(x, y, z).asDiagonal();
+}
+
+std::vector<double> logarithmicKnots(
+  double minimum,
+  double maximum,
+  int count)
+{
+  std::vector<double> knots(static_cast<std::size_t>(count));
+  const double logMinimum = std::log(minimum);
+  const double logMaximum = std::log(maximum);
+  for (int i = 0; i < count; ++i) {
+    const double t =
+      static_cast<double>(i) /
+      static_cast<double>(count - 1);
+    knots[static_cast<std::size_t>(i)] =
+      std::exp((1.0 - t) * logMinimum + t * logMaximum);
+  }
+  return knots;
+}
+
+std::vector<double> stretchCurvatures(
+  std::span<const double> knots)
+{
+  std::vector<double> curvatures;
+  curvatures.reserve(knots.size());
+  for (double stretch : knots) {
+    curvatures.push_back(
+      mu * (1.0 + 1.0 / (stretch * stretch)));
+  }
+  return curvatures;
+}
+
+template<class ApproximateModel>
+ApproximationError fullDomainPathError(
+  const ApproximateModel &approximate,
+  std::span<const double> approximateParameters,
+  const SDM::ElasticModel3DNeoHookean &neoHookean)
+{
+  ApproximationError error;
+  constexpr int sampleCount = 81;
+  for (int sample = 0; sample < sampleCount; ++sample) {
+    const double t =
+      static_cast<double>(sample) /
+      static_cast<double>(sampleCount - 1);
+
+    const double uniaxialStretch =
+      0.52 + t * (1.95 - 0.52);
+    error.include(
+      approximate, approximateParameters, neoHookean,
+      diagonal(uniaxialStretch, 1.0, 1.0),
+      "uniaxial");
+
+    const double biaxialStretch =
+      std::exp(-0.45 + 0.9 * t);
+    error.include(
+      approximate, approximateParameters, neoHookean,
+      diagonal(biaxialStretch, biaxialStretch, 1.0),
+      "biaxial");
+
+    const double volumetricStretch =
+      std::exp(-0.3 + 0.6 * t);
+    error.include(
+      approximate, approximateParameters, neoHookean,
+      volumetricStretch * ES::M3d::Identity(),
+      "volumetric");
+
+    ES::M3d shear = ES::M3d::Identity();
+    shear(0, 1) = -1.0 + 2.0 * t;
+    error.include(
+      approximate, approximateParameters, neoHookean,
+      shear,
+      "simple shear");
+  }
+  return error;
+}
+
+class ExactNeoHookeanStretch final : public SDM::ElasticModel1D
+{
+public:
+  int getNumParameters() const override
+  {
+    return 0;
+  }
+
+  double compute_psi(
+    std::span<const double>, double stretch) const override
+  {
+    return 0.5 * mu * (stretch * stretch - 1.0) -
+      mu * std::log(stretch);
+  }
+
+  double compute_dpsi_dx(
+    std::span<const double>, double stretch) const override
+  {
+    return mu * (stretch - 1.0 / stretch);
+  }
+
+  double compute_d2psi_dx2(
+    std::span<const double>, double stretch) const override
+  {
+    return mu * (1.0 + 1.0 / (stretch * stretch));
+  }
+
+  double compute_dpsi_dparam(
+    std::span<const double>, int, double) const override
+  {
+    throw std::out_of_range(
+      "ExactNeoHookeanStretch has no parameters");
+  }
+
+  double compute_d2psi_dx_dparam(
+    std::span<const double>, int, double) const override
+  {
+    throw std::out_of_range(
+      "ExactNeoHookeanStretch has no parameters");
+  }
+
+  double compute_d2psi_dparam2(
+    std::span<const double>, int, int, double) const override
+  {
+    throw std::out_of_range(
+      "ExactNeoHookeanStretch has no parameters");
+  }
+};
+
+void expectStrictlyDecreasing(
+  std::span<const ApproximationError> errors)
+{
+  for (std::size_t i = 1; i < errors.size(); ++i) {
+    EXPECT_LT(errors[i].psi, errors[i - 1].psi);
+    EXPECT_LT(errors[i].stress, errors[i - 1].stress);
+    EXPECT_LT(errors[i].tangent, errors[i - 1].tangent);
+  }
 }
 
 TEST(
@@ -256,6 +397,123 @@ TEST(
   EXPECT_LT(fullDomainError.psi, 3.0e-2);
   EXPECT_LT(fullDomainError.stress, 1.2e-1);
   EXPECT_LT(fullDomainError.tangent, 6.5e-1);
+}
+
+TEST(
+  ElasticModel3DSystematicPokingNeoHookeanComparison,
+  IncreasingNestedKnotCountsReducesApproximationError)
+{
+  constexpr std::array<int, 5> knotCounts = {
+    5, 9, 17, 33, 65
+  };
+  SDM::ElasticModel3DNeoHookean neoHookean(mu, lambda);
+  std::vector<ApproximationError> combinedErrors;
+  std::vector<ApproximationError> stretchErrors;
+  std::vector<ApproximationError> volumeErrors;
+
+  std::cout
+    << "knot_count"
+    << " | combined psi/E P/E C/E"
+    << " | stretch-only psi/E P/E C/E"
+    << " | volume-only psi/E P/E C/E\n";
+
+  for (int count : knotCounts) {
+    const std::vector<double> currentStretchKnots =
+      logarithmicKnots(0.5, 2.0, count);
+    const std::vector<double> currentVolumeKnots =
+      logarithmicKnots(std::exp(-1.0), std::exp(1.0), count);
+    const std::vector<double> currentStretchCurvatures =
+      stretchCurvatures(currentStretchKnots);
+
+    std::vector<double> combinedParameters =
+      currentStretchCurvatures;
+    combinedParameters.push_back(lambda);
+    SDM::ElasticModel3DSystematicPoking combined(
+      currentStretchKnots,
+      count / 2,
+      currentVolumeKnots,
+      count / 2);
+    combinedErrors.push_back(
+      fullDomainPathError(
+        combined, combinedParameters, neoHookean));
+
+    auto stretchSpline = std::make_shared<
+      SDM::ElasticModel1DIntegratedLinearCurvatureSpline>(
+      currentStretchKnots, count / 2, 0.0, 0.0);
+    auto exactVolume =
+      std::make_shared<SDM::ElasticModel1DFixedParameters>(
+        std::make_shared<SDM::ElasticModel1DLogSquared>(),
+        std::array<double, 1>{ lambda });
+    SDM::ElasticModel3DValanisLandel stretchOnly(
+      stretchSpline,
+      std::make_shared<SDM::ElasticModel1DZero>(),
+      exactVolume);
+    stretchErrors.push_back(
+      fullDomainPathError(
+        stretchOnly, currentStretchCurvatures, neoHookean));
+
+    auto volumeSpline = std::make_shared<
+      SDM::ElasticModel1DIntegratedLinearCurvatureSpline>(
+      currentVolumeKnots, count / 2, 0.0, 0.0);
+    auto approximateVolume =
+      std::make_shared<SDM::ElasticModel1DFixedParameters>(
+        volumeSpline,
+        SDM::sampleLogSquaredVolumeCurvatures(
+          currentVolumeKnots, lambda));
+    SDM::ElasticModel3DValanisLandel volumeOnly(
+      std::make_shared<ExactNeoHookeanStretch>(),
+      std::make_shared<SDM::ElasticModel1DZero>(),
+      approximateVolume);
+    volumeErrors.push_back(
+      fullDomainPathError(
+        volumeOnly, std::span<const double>{}, neoHookean));
+
+    const ApproximationError &combinedError =
+      combinedErrors.back();
+    const ApproximationError &stretchError =
+      stretchErrors.back();
+    const ApproximationError &volumeError =
+      volumeErrors.back();
+    std::cout
+      << count
+      << " | "
+      << combinedError.psi << " "
+      << combinedError.stress << " "
+      << combinedError.tangent
+      << " | "
+      << stretchError.psi << " "
+      << stretchError.stress << " "
+      << stretchError.tangent
+      << " | "
+      << volumeError.psi << " "
+      << volumeError.stress << " "
+      << volumeError.tangent
+      << "\n";
+  }
+
+  expectStrictlyDecreasing(combinedErrors);
+  expectStrictlyDecreasing(stretchErrors);
+  expectStrictlyDecreasing(volumeErrors);
+
+  for (std::size_t i = 0; i < knotCounts.size(); ++i) {
+    EXPECT_GT(volumeErrors[i].psi, 10.0 * stretchErrors[i].psi);
+    EXPECT_GT(
+      volumeErrors[i].stress,
+      10.0 * stretchErrors[i].stress);
+    EXPECT_GT(
+      volumeErrors[i].tangent,
+      10.0 * stretchErrors[i].tangent);
+  }
+
+  EXPECT_LT(
+    combinedErrors.back().psi,
+    combinedErrors.front().psi / 100.0);
+  EXPECT_LT(
+    combinedErrors.back().stress,
+    combinedErrors.front().stress / 100.0);
+  EXPECT_LT(
+    combinedErrors.back().tangent,
+    combinedErrors.front().tangent / 100.0);
 }
 
 TEST(

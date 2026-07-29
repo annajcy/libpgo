@@ -79,6 +79,15 @@ def test_box_drop_demos_write_full_rate_alembic_cache(case):
     assert "--no-abc" in readme
 
 
+def test_systematic_poking_demo_uses_17_knots():
+    case = "cubic_dynamic_box_systematic_poking_drop"
+    source = (DEMO_ROOT / case / "main.py").read_text()
+    readme = (DEMO_ROOT / case / "README.md").read_text()
+    assert "np.linspace(np.log(0.5), np.log(2.0), 17)" in source
+    assert "np.linspace(-1.0, 1.0, 17)" in source
+    assert "17 log-uniform knots" in readme
+
+
 def test_simulation_demo_assets_exist():
     assets = ROOT / "examples" / "assets"
     expected = (
@@ -106,7 +115,7 @@ def test_demo_outputs_are_case_local_and_ignored():
 
 
 def test_demos_skip_visualization_when_pyvista_is_unavailable():
-    for script in (ROOT / "examples" / "demo").glob("**/main.py"):
+    for script in DEMO_ROOT.glob("**/main.py"):
         source = script.read_text()
         assert 'find_spec("pyvista") is None' in source
         assert "PyVista is not installed; skipping visualization." in source

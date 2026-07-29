@@ -25,8 +25,8 @@ DUMP_INTERVAL = 20
 
 def _material_state(asset, *, youngs_modulus=2.0e5, poisson_ratio=0.35):
     # Log-uniform paper-style knots. Both arrays contain the rest knot 1.
-    stretch_knots = np.exp(np.linspace(np.log(0.5), np.log(2.0), 9))
-    volume_knots = np.exp(np.linspace(-1.0, 1.0, 9))
+    stretch_knots = np.exp(np.linspace(np.log(0.5), np.log(2.0), 17))
+    volume_knots = np.exp(np.linspace(-1.0, 1.0, 17))
     stretch_rest_knot_index = len(stretch_knots) // 2
     volume_rest_knot_index = len(volume_knots) // 2
 

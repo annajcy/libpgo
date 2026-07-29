@@ -12,8 +12,8 @@ principal-stretch material from *Systematic Poking of 3D Objects*
 \]
 
 Both \(f\) and the fixed volumetric shape are represented by integrated
-linear-curvature splines. The stretch spline has nine log-uniform knots over
-\([0.5,2]\), and the volume spline has nine knots over
+linear-curvature splines. The stretch spline has 17 log-uniform knots over
+\([0.5,2]\), and the volume spline has 17 knots over
 \([\exp(-1),\exp(1)]\). Both knot arrays contain the rest coordinate \(1\).
 
 For this comparison demo, the optimizable parameters are initialized from the
@@ -73,4 +73,3 @@ with OBJ output and prints a warning.
 To compare against classical or stable Neo-Hookean under the same box-drop
 configuration, use
 `examples/demo/simulation/cubic_dynamic_box_neo_hookean_drop/main.py`.
-

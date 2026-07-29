@@ -1,0 +1,4 @@
+knot_count,num_parameters,data_jacobian_rank,data_jacobian_condition,train_rmse,validation_rmse
+5,6,6,4.691837e+01,4.91635245e-03,7.61397095e-03
+9,10,10,1.394789e+02,1.09022174e-03,1.25492188e-03
+17,18,18,3.342023e+02,2.10150350e-04,3.87824755e-04
