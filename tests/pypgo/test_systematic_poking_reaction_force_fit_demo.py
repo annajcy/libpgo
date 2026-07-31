@@ -44,7 +44,7 @@ def fitted_problem(demo):
     result = demo.fit_parameters(
         problem,
         max_iterations=15,
-        smoothness_weight=3.0e-3,
+        smoothness_weight=1.0e-3,
     )
     return problem, result
 
@@ -67,6 +67,60 @@ def test_load_protocols_leave_true_equilibrium_dofs(
     assert len(small_problem.train_cases) == 12
     assert len(small_problem.validation_cases) == 12
     assert len(small_problem.holdout_cases) == 24
+
+
+def test_free_uniaxial_uses_only_normal_constraints_and_rigid_pins(
+    demo,
+):
+    vertices, _ = demo.make_cubic_grid(2)
+    stretch = 0.75
+    case = demo._uniaxial_case(
+        vertices,
+        stretch,
+        confined=False,
+        split="test",
+    )
+    bottom = np.flatnonzero(np.isclose(vertices[:, 1], 0.0))
+    top = np.flatnonzero(np.isclose(vertices[:, 1], 1.0))
+
+    assert case.fixed_dofs.size == 21
+    assert case.free_dofs.size == 60
+    assert set(3 * bottom + 1) <= set(case.fixed_dofs)
+    assert set(3 * top + 1) <= set(case.fixed_dofs)
+    tangent_dofs = case.fixed_dofs[case.fixed_dofs % 3 != 1]
+    assert tangent_dofs.size == 3
+
+    anchor, _ = demo._free_uniaxial_rigid_pins(vertices, bottom)
+    lateral_stretch = 1.2
+    displacement = np.zeros_like(vertices)
+    displacement[:, 0] = (
+        (lateral_stretch - 1.0)
+        * (vertices[:, 0] - vertices[anchor, 0])
+    )
+    displacement[:, 1] = (stretch - 1.0) * vertices[:, 1]
+    displacement[:, 2] = (
+        (lateral_stretch - 1.0)
+        * (vertices[:, 2] - vertices[anchor, 2])
+    )
+    np.testing.assert_allclose(
+        displacement.ravel()[case.fixed_dofs],
+        case.fixed_values,
+    )
+
+
+def test_confined_uniaxial_fixes_every_lateral_dof(demo):
+    vertices, _ = demo.make_cubic_grid(2)
+    case = demo._uniaxial_case(
+        vertices,
+        0.75,
+        confined=True,
+        split="test",
+    )
+
+    assert case.fixed_dofs.size == 72
+    assert case.free_dofs.size == 9
+    assert set(3 * np.arange(len(vertices))) <= set(case.fixed_dofs)
+    assert set(3 * np.arange(len(vertices)) + 2) <= set(case.fixed_dofs)
 
 
 def test_equilibrium_reaction_jacobian_matches_full_resolve_fd(

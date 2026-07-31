@@ -12,7 +12,7 @@ The default configuration uses:
 - one volumetric coefficient \(\lambda\);
 - positive log parameters \(e_i=E_{\mathrm{ref}}\exp(\theta_i)\);
 - free-uniaxial, confined-uniaxial, and simple-shear reaction curves;
-- curvature smoothness weight \(3\times10^{-3}\).
+- validation-selected curvature smoothness weight \(10^{-3}\).
 
 ## Forward problem
 
@@ -87,7 +87,20 @@ is
 
 This complete derivative, including a fresh static solve for every finite
 difference perturbation, matches central finite differences with relative
-Frobenius error about \(5.2\times10^{-10}\).
+Frobenius error \(3.17\times10^{-10}\); the largest column-relative error is
+\(6.72\times10^{-10}\).
+
+## Uniaxial boundary conditions
+
+The free-uniaxial protocol prescribes \(u_y=0\) on the bottom face and
+\(u_y=a-1\) on the top face. It does **not** clamp all bottom-face
+coordinates. Three additional scalar constraints remove only rigid motion:
+one bottom vertex has \(u_x=u_z=0\), and a second bottom vertex has \(u_z=0\).
+These pins still admit a homogeneous lateral stretch about the first vertex,
+so the static solve can determine the material-dependent transverse stretch.
+
+The confined protocol uses the same axial conditions and additionally sets
+\(u_x=u_z=0\) at every vertex. It therefore enforces ideal uniaxial strain.
 
 ## Data splits
 
@@ -134,22 +147,64 @@ An exploratory validation sweep gave:
 
 | \(\alpha\) | train RMSE | validation RMSE |
 |---:|---:|---:|
-| \(0\) | \(2.10\times10^{-4}\) | \(3.88\times10^{-4}\) |
-| \(10^{-4}\) | \(2.45\times10^{-4}\) | \(2.90\times10^{-4}\) |
-| \(10^{-3}\) | \(2.89\times10^{-4}\) | \(2.56\times10^{-4}\) |
-| \(3\times10^{-3}\) | \(3.08\times10^{-4}\) | \(2.55\times10^{-4}\) |
-| \(10^{-2}\) | \(3.34\times10^{-4}\) | \(2.65\times10^{-4}\) |
+| \(0\) | \(2.25\times10^{-4}\) | \(4.01\times10^{-4}\) |
+| \(10^{-4}\) | \(2.36\times10^{-4}\) | \(2.62\times10^{-4}\) |
+| \(3\times10^{-4}\) | \(2.41\times10^{-4}\) | \(2.54\times10^{-4}\) |
+| \(10^{-3}\) | \(2.47\times10^{-4}\) | \(2.49\times10^{-4}\) |
+| \(3\times10^{-3}\) | \(2.54\times10^{-4}\) | \(2.50\times10^{-4}\) |
+| \(10^{-2}\) | \(2.66\times10^{-4}\) | \(2.57\times10^{-4}\) |
 
-The selected value is \(3\times10^{-3}\). The subsequently evaluated sealed
-holdout RMSE is \(2.50\times10^{-4}\).
+The selected value is \(10^{-3}\). The subsequently evaluated sealed
+holdout RMSE is \(2.35\times10^{-4}\).
 The unaggregated sweep values are retained in `regularization_sweep.csv`.
 
 A separate no-regularization resolution check is retained in
 `resolution_sweep.csv`. The 5-, 9-, and 17-knot designs are all full rank;
-their conditions are approximately 47, 139, and 334, respectively. Because
+their conditions are approximately 45, 123, and 461, respectively. Because
 the number of knot-aligned training observations grows with model resolution,
 this is a joint capacity-and-excitation check, not a controlled
 fixed-data model-capacity comparison.
+
+## Inspect the two uniaxial static states
+
+The companion exporter solves the target Neo-Hookean material under the free
+and confined uniaxial boundary conditions, then writes the deformed surfaces
+as OBJ files:
+
+```bash
+PYTHONPATH=build/base/lib:$PYTHONPATH \
+python examples/demo/optimization/systematic_poking_fit_reaction_force/dump_uniaxial_objs.py
+```
+
+The default stretch is \(a=2^{-1/2}\), which is an actual non-rest training
+knot in the 17-knot experiment. Outputs are written under
+`output/uniaxial_static_solve_obj/`:
+
+- `rest.obj`;
+- `free_uniaxial.obj`;
+- `confined_uniaxial.obj`;
+- `manifest.json`, including reaction, equilibrium residual, and bounding box;
+- `preview.png`, when Matplotlib is installed.
+
+Use `--stretch`, `--grid-size`, and `--output-dir` to generate another state.
+
+The simple-shear dataset has a matching exporter. The default \(\gamma=0.8\)
+is one of the training cases:
+
+```bash
+PYTHONPATH=build/base/lib:$PYTHONPATH \
+python examples/demo/optimization/systematic_poking_fit_reaction_force/dump_shear_objs.py
+```
+
+Outputs are written under `output/shear_static_solve_obj/`:
+
+- `rest.obj`;
+- `simple_shear_+0.800000.obj`;
+- `manifest.json`, including the top-face tangential reaction and equilibrium
+  residual;
+- `preview.png`, when Matplotlib is installed.
+
+Use `--shear -0.4` or `--output-dir ...` to inspect another dataset case.
 
 ## Run
 
@@ -166,7 +221,7 @@ Useful controls:
 python examples/demo/optimization/systematic_poking_fit_reaction_force/main.py \
   --knot-count 17 \
   --grid-size 2 \
-  --smoothness-weight 3e-3 \
+  --smoothness-weight 1e-3 \
   --max-iterations 40 \
   --output-dir /tmp/systematic-poking-reaction-fit \
   --no-plots
@@ -176,13 +231,13 @@ python examples/demo/optimization/systematic_poking_fit_reaction_force/main.py \
 
 The deterministic default run converges in seven outer Gauss-Newton
 iterations. Its data Jacobian has rank \(18/18\) and condition number about
-332.
+458.
 
 | split | initial RMSE | fitted RMSE |
 |---|---:|---:|
-| training | \(3.52\times10^{-1}\) | \(3.08\times10^{-4}\) |
-| validation | \(3.14\times10^{-1}\) | \(2.55\times10^{-4}\) |
-| holdout | \(3.15\times10^{-1}\) | \(2.50\times10^{-4}\) |
+| training | \(3.41\times10^{-1}\) | \(2.47\times10^{-4}\) |
+| validation | \(3.05\times10^{-1}\) | \(2.49\times10^{-4}\) |
+| holdout | \(3.06\times10^{-1}\) | \(2.35\times10^{-4}\) |
 
 Outputs under `output/` include:
 

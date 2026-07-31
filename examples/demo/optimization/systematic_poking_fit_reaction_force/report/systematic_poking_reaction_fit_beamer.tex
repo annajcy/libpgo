@@ -18,6 +18,28 @@
 \setbeamercolor{alerted text}{fg=pgoOrange}
 \setbeamertemplate{navigation symbols}{}
 \setbeamertemplate{caption}[numbered]
+\setbeamertemplate{footline}{%
+  \leavevmode%
+  \hbox{%
+    \begin{beamercolorbox}[
+      wd=0.32\paperwidth,ht=2.5ex,dp=1.1ex,center
+    ]{author in head/foot}%
+      \usebeamerfont{author in head/foot}\insertshortauthor
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[
+      wd=0.48\paperwidth,ht=2.5ex,dp=1.1ex,center
+    ]{title in head/foot}%
+      \usebeamerfont{title in head/foot}\insertsectionhead
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[
+      wd=0.20\paperwidth,ht=2.5ex,dp=1.1ex,center
+    ]{date in head/foot}%
+      \usebeamerfont{date in head/foot}%
+      \insertframenumber{} / \inserttotalframenumber
+    \end{beamercolorbox}%
+  }%
+  \vskip0pt%
+}
 
 \newcommand{\good}[1]{\textcolor{pgoGreen}{#1}}
 \newcommand{\warn}[1]{\textcolor{pgoOrange}{#1}}
@@ -32,11 +54,39 @@
 \author{libpgo material calibration experiment}
 \date{July 2026}
 
+\AtBeginSection[]{%
+  \begin{frame}[plain]
+    \centering
+    \vfill
+    {\usebeamercolor[fg]{structure}\Large
+      Section \insertsectionnumber\ of 7}
+
+    \vspace{1.2em}
+    \makebox[\linewidth][c]{%
+      \begin{beamercolorbox}[
+        wd=0.84\paperwidth,sep=1.5em,center
+      ]{title}
+        {\LARGE\bfseries\insertsectionhead}
+      \end{beamercolorbox}%
+    }
+
+    \vspace{1.4em}
+    {\large Systematic Poking Calibration through Static Reaction Forces}
+    \vfill
+  \end{frame}
+}
+
 \begin{document}
 
 \begin{frame}
   \titlepage
 \end{frame}
+
+\begin{frame}{Roadmap}
+  \tableofcontents[hideallsubsections]
+\end{frame}
+
+\section{Problem Setup and Notation}
 
 \begin{frame}{Question, Goal, and Scope}
   \begin{block}{Question}
@@ -66,6 +116,140 @@
       \end{itemize}
     \end{column}
   \end{columns}
+\end{frame}
+
+\begin{frame}{Notation I: Material Parameters}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lll}
+      \toprule
+      Symbol & Dimension / units & Meaning \\
+      \midrule
+      $q_k$ & scalar, stress &
+      sampled stretch curvature $f''(s_k)$ \\
+      $\lambda$ & scalar, stress &
+      scale multiplying the fixed volume spline $\widehat h$ \\
+      $p$ & $n_p\times1$, stress &
+      physical parameter vector $[q_0,\ldots,q_{16},\lambda]^T$ \\
+      $n_p$ & scalar integer &
+      number of fitted physical parameters; here $n_p=18$ \\
+      $\theta$ & $n_p\times1$, dimensionless &
+      unconstrained log parameters optimized numerically \\
+      $\eref$ & scalar, stress &
+      reference modulus used to scale $p$ and force residuals \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  The conversion between optimizer variables and physical parameters is
+  \[
+    \boxed{p=\eref\exp(\theta)}
+  \]
+  with the exponential applied componentwise.
+\end{frame}
+
+\begin{frame}{Notation II: FEM State, Energy, and Force}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lll}
+      \toprule
+      Symbol & Dimension & Meaning \\
+      \midrule
+      $n_u$ & scalar integer &
+      total displacement DOFs; here $n_u=81$ \\
+      $u$ & $n_u\times1$ &
+      complete nodal displacement vector \\
+      $u_f$ & $n_f\times1$ &
+      unknown displacement entries on free DOFs \\
+      $u_c$ & $n_c\times1$ &
+      prescribed displacement entries fixed by one load case \\
+      $u_f^\star(p)$ & $n_f\times1$ &
+      equilibrium free state obtained by the static solve \\
+      $E_h(u,p)$ & scalar &
+      assembled discrete hyperelastic energy \\
+      $g(u,p)$ & $n_u\times1$ &
+      energy gradient $\partial E_h/\partial u$; nodal internal forces \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  The superscript $\star$ on $u_f^\star$ means ``equilibrium solution,'' not
+  target data. The subscript $h$ in $E_h$ denotes the discrete hyperelastic
+  energy; it is not Young's modulus $E$.
+\end{frame}
+
+\begin{frame}{Notation III: Load Cases, Observations, and Residuals}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lll}
+      \toprule
+      Symbol & Dimension & Meaning \\
+      \midrule
+      $j$ & scalar integer &
+      load-case index; $j=1,\ldots,N$ within one data split \\
+      $c_j$ & $n_u\times1$ &
+      selector that sums the measured constrained-force entries \\
+      $y_j(p)$ & scalar force &
+      predicted reaction after solving equilibrium with parameters $p$ \\
+      $y_j^\star$ & scalar force &
+      synthetic target reaction for load case $j$ \\
+      $r_j(\theta)$ & scalar, normalized &
+      fitting error $(y_j(p(\theta))-y_j^\star)/\eref$ \\
+      $r(\theta)$ & $N\times1$ &
+      residual vector formed by stacking all $r_j$ \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \[
+    \boxed{
+      \theta\longrightarrow p
+      \longrightarrow u_f^\star(p)
+      \longrightarrow g
+      \longrightarrow y_j(p)
+      \longrightarrow r_j(\theta)
+    }
+  \]
+
+  Here $\star$ on $y_j^\star$ means ``target data.'' Later derivations often
+  suppress the case index $j$ to reduce clutter.
+
+  Because the reference top-face area is $A_0=1$, the physical force scale
+  $\eref A_0$ equals $\eref$ numerically in this unit-cube experiment.
+\end{frame}
+
+\begin{frame}{Notation IV: Derivatives and Indexing}
+  \small
+  Jacobians use \emph{output entries as rows} and \emph{input entries as
+  columns}. Let $n_f$ be the number of free DOFs and $n_p=18$.
+
+  \begin{table}
+    \centering
+    \begin{tabular}{lll}
+      \toprule
+      Symbol & Dimension & Meaning \\
+      \midrule
+      $\Kff$ & $n_f\times n_f$ &
+      tangent stiffness restricted to free DOFs \\
+      $\Eup$ & $n_u\times n_p$ &
+      mixed derivative $\partial g/\partial p
+      =\partial^2E_h/\partial u\,\partial p$ \\
+      $\Eupf$ & $n_f\times n_p$ &
+      free rows of $\Eup$ \\
+      $du_f^\star/dp$ & $n_f\times n_p$ &
+      equilibrium displacement sensitivity \\
+      $K_{:f}$ & $n_u\times n_f$ &
+      all force rows, free displacement columns \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  Subscript $f$ or $c$ selects free or constrained rows/columns; a colon
+  means ``all.'' Thus $E_{up,f}$ selects free force rows, while $K_{:f}$
+  keeps all force rows and selects free displacement columns.
 \end{frame}
 
 \begin{frame}{From Direct Stress Fitting to Static Fitting}
@@ -98,6 +282,8 @@
     material derivative and this induced state change.
   \end{alertblock}
 \end{frame}
+
+\section{Materials and Parameterization}
 
 \begin{frame}{Synthetic Target: Compressible Neo-Hookean}
   \small
@@ -187,6 +373,8 @@
   \end{block}
 \end{frame}
 
+\section{Load Cases and Observations}
+
 \begin{frame}{Discrete Boundary-Value Problem}
   \small
   The test specimen is a unit cube discretized by a $2\times2\times2$
@@ -217,99 +405,427 @@
   \end{alertblock}
 \end{frame}
 
-\begin{frame}{Load Protocol I: Uniaxial Tests}
+\begin{frame}{Load Case I: Free Uniaxial}
   \small
-  Let the prescribed axial stretch be $a>0$.
+  Let $a>0$ be the prescribed axial stretch and let
+  $\mathcal T=\{v:Y_v=1\}$ denote the top-face vertices.
+  \[
+    u_y(Y=0)=0,
+    \qquad
+    u_y(Y=1)=a-1.
+  \]
+  Tangential motion is free except for three scalar rigid-mode pins:
+  \[
+    u_x(v_0)=u_z(v_0)=0,
+    \qquad
+    u_z(v_1)=0,
+    \qquad v_0,v_1\in\{Y=0\}.
+  \]
+  They remove translation in $x,z$ and rotation about $y$ without fixing
+  the bottom face laterally.
 
-  \begin{columns}[T]
-    \begin{column}{0.48\linewidth}
-      \textbf{Free uniaxial}
-      \[
-        u(x,y=0,z)=0,\qquad
-        u_y(y=1)=a-1.
-      \]
-      The bottom face is clamped. Lateral motion away from that face remains
-      free.
+  The admissible homogeneous response is
+  \[
+    F_{\mathrm{free}}=
+    \operatorname{diag}(b,a,b),
+  \]
+  where the static solve selects $b$ from zero lateral traction. For a nearly
+  incompressible response, $b\approx a^{-1/2}$ and $J=b^2a\approx1$.
 
-      \vspace{0.4em}
-      This protocol probes the coupled axial and lateral response.
-    \end{column}
-    \begin{column}{0.48\linewidth}
-      \textbf{Confined uniaxial}
-      \[
-        u(x,y=0,z)=0,\qquad
-        u_y(y=1)=a-1,
-      \]
-      \[
-        u_x=0,\qquad u_z=0
-      \]
-      on the constrained lateral directions.
-
-      \vspace{0.4em}
-      This protocol creates stronger volume change and improves sensitivity
-      to $\lambda$.
-    \end{column}
-  \end{columns}
-
-  \vspace{0.65em}
-  The observation is the summed top-face axial reaction.
+  \begin{block}{Information supplied}
+    This case probes axial response together with material-dependent Poisson
+    contraction or expansion.
+  \end{block}
 \end{frame}
 
-\begin{frame}{Load Protocol II: Simple Shear}
+\begin{frame}{Free Uniaxial: Why Exactly Three Pins?}
   \small
-  For shear amount $\gamma$, the top face receives
+  After prescribing the top and bottom $y$ displacements, three tangential
+  rigid modes remain: $T_x$, $T_z$, and $\omega_y$. Choose bottom vertices
+  $v_0,v_1$ with $Z_1=Z_0$ and $X_1\neq X_0$, then impose
   \[
-    u_x(y=1)=\gamma,\qquad u_y(y=1)=0,
+    \boxed{u_x(v_0)=0,\quad u_z(v_0)=0,\quad u_z(v_1)=0.}
   \]
-  while the bottom face $y=0$ is clamped.
+  The first two constraints remove $T_x,T_z$. For a small rotation about
+  $y$ around $v_0$,
+  \[
+    u_x=\omega_y(Z-Z_0),\qquad
+    u_z=-\omega_y(X-X_0).
+  \]
+  Therefore $u_z(v_1)=0$ and $X_1\neq X_0$ imply $\omega_y=0$.
 
-  The ideal affine deformation is
+  \begin{block}{Why lateral relaxation is still free}
+    A homogeneous transverse stretch $b$ about $v_0$ has
+    \[
+      u_x=(b-1)(X-X_0),\qquad
+      u_z=(b-1)(Z-Z_0).
+    \]
+    It satisfies all three pins because $Z_1=Z_0$, for any value of $b$.
+    Thus the pins select position and orientation, while the static solve
+    still determines the Poisson contraction or expansion.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Fitting Target I: Free-Uniaxial Axial Reaction}
+  \small
+  Neo-Hookean and Systematic Poking are solved separately under the same
+  prescribed stretch $a$:
+  \[
+    u_{\mathrm{NH,free}}^\star(a)
+    =
+    \arg\min_{u_f}E_{\mathrm{NH}}(u_f,u_{c,\mathrm{free}}(a)),
+  \]
+  \[
+    u_{\mathrm{SP,free}}^\star(a;p)
+    =
+    \arg\min_{u_f}E_{\mathrm{SP}}
+      (u_f,u_{c,\mathrm{free}}(a);p).
+  \]
+
+  The target and prediction are the top-face axial resultants:
+  \[
+    \boxed{
+      y_{\mathrm{free}}^\star(a)
+      =
+      \sum_{v\in\mathcal T}
+      [g_{\mathrm{NH}}(u_{\mathrm{NH,free}}^\star(a))]_{v,y}
+    },
+  \]
+  \[
+    \boxed{
+      y_{\mathrm{free}}(a;p)
+      =
+      \sum_{v\in\mathcal T}
+      [g_{\mathrm{SP}}(u_{\mathrm{SP,free}}^\star(a;p),p)]_{v,y}
+    }.
+  \]
+  Bottom-face reactions are not included in this scalar observation.
+\end{frame}
+
+\begin{frame}{Load Case II: Confined Uniaxial}
+  \small
+  The axial displacement is prescribed as before:
+  \[
+    u(x,y=0,z)=0,
+    \qquad
+    u_y(y=1)=a-1.
+  \]
+  In addition, lateral displacement is fixed at every vertex:
+  \[
+    u_x=0,\qquad u_z=0.
+  \]
+  Thus this is an idealized uniaxial-strain test, stronger than a deformable
+  sleeve or penalty contact model. The deformation is approximately
+  \[
+    \boxed{
+      F_{\mathrm{confined}}
+      =
+      \operatorname{diag}(1,a,1),
+      \qquad
+      J=a
+    }.
+  \]
+
+  \begin{block}{Information supplied}
+    The material cannot relax laterally, so volume change is forced directly.
+    This case strongly excites the volumetric parameter $\lambda$.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Fitting Target II: Confined Axial Reaction}
+  \small
+  Separate static solves give
+  \[
+    u_{\mathrm{NH,conf}}^\star(a),
+    \qquad
+    u_{\mathrm{SP,conf}}^\star(a;p).
+  \]
+  The fitted scalar is still only the top-face axial resultant:
+  \[
+    \boxed{
+      y_{\mathrm{conf}}^\star(a)
+      =
+      \sum_{v\in\mathcal T}
+      [g_{\mathrm{NH}}(u_{\mathrm{NH,conf}}^\star(a))]_{v,y}
+    },
+  \]
+  \[
+    \boxed{
+      y_{\mathrm{conf}}(a;p)
+      =
+      \sum_{v\in\mathcal T}
+      [g_{\mathrm{SP}}(u_{\mathrm{SP,conf}}^\star(a;p),p)]_{v,y}
+    }.
+  \]
+
+  \begin{alertblock}{Not fitted}
+    Enforcing $u_x=u_z=0$ creates lateral constrained reactions, but their
+    $x$- and $z$-components are not included in the current loss. Bottom-face
+    reactions are also omitted.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Load Case III: Simple Shear}
+  \small
+  For shear amount $\gamma$, clamp the bottom face and prescribe
+  \[
+    u_x(y=1)=\gamma,
+    \qquad
+    u_y(y=1)=0
+  \]
+  on the top face. The ideal affine deformation is
   \[
     F_{\mathrm{shear}}(\gamma)
     =
-    I+\gamma\,e_xe_y^T
+    I+\gamma e_xe_y^T
     =
     \begin{bmatrix}
       1&\gamma&0\\
       0&1&0\\
       0&0&1
-    \end{bmatrix}.
+    \end{bmatrix},
+    \qquad J=1.
   \]
 
-  \begin{block}{Why include shear?}
-    Uniaxial cases strongly excite normal response. Shear adds a distinct
-    deformation path and reduces ambiguity among stretch-curvature
-    parameters.
+  \begin{block}{Information supplied}
+    This case excites a deformation path distinct from normal loading and
+    helps separate stretch-curvature parameter directions.
   \end{block}
-
-  The observation is the summed top-face horizontal reaction.
 \end{frame}
 
-\begin{frame}{Deformation Coverage and Data Splits}
+\begin{frame}{Fitting Target III: Simple-Shear Tangential Reaction}
   \small
-  The 17 stretch knots are uniformly spaced in $\log s$ and include $s=1$.
+  Interpret the top face as a rigid loading platen with a horizontal load
+  cell. The imposed input is its displacement $\gamma$; the measured output
+  is the total top-face force in the loading direction $x$.
 
+  For the same $\gamma$, solve two separate equilibrium problems:
+  \[
+    u_{\mathrm{NH,shear}}^\star(\gamma),
+    \qquad
+    u_{\mathrm{SP,shear}}^\star(\gamma;p).
+  \]
+  Their target and predicted measurements are
+  \[
+    \boxed{
+      y_{\mathrm{shear}}^\star(\gamma)
+      =
+      \sum_{v\in\mathcal T}
+      [g_{\mathrm{NH}}(u_{\mathrm{NH,shear}}^\star(\gamma))]_{v,x}
+    },
+  \]
+  \[
+    \boxed{
+      y_{\mathrm{shear}}(\gamma;p)
+      =
+      \sum_{v\in\mathcal T}
+      [g_{\mathrm{SP}}(u_{\mathrm{SP,shear}}^\star(\gamma;p),p)]_{v,x}
+    }.
+  \]
+  Thus one shear load case contributes the scalar residual
+  \[
+    \boxed{
+      r_{\mathrm{shear}}(\theta;\gamma)
+      =
+      \frac{
+        y_{\mathrm{shear}}(\gamma;p(\theta))
+        -y_{\mathrm{shear}}^\star(\gamma)
+      }{\eref}
+    }.
+  \]
+\end{frame}
+
+\begin{frame}{Shear Observation: Included and Excluded Forces}
+  \small
   \begin{table}
     \centering
-    \begin{tabular}{lrl}
+    \begin{tabular}{lll}
       \toprule
-      Split & Cases & Sampling rule \\
+      Quantity & In loss? & Reason \\
       \midrule
-      Training & 36 &
-      16 knot-aligned stretches $\times$ 2 protocols $+$ 4 shears \\
-      Validation & 36 &
-      16 log-midpoint stretches $\times$ 2 protocols $+$ 4 shears \\
-      Holdout & 72 &
-      32 quarter-point stretches $\times$ 2 protocols $+$ 8 shears \\
+      Top resultant $R_x$ & Yes &
+      horizontal load-cell measurement \\
+      Bottom resultant $R_x$ & No &
+      equal and opposite to top at equilibrium \\
+      Top normal resultant $R_y$ & No &
+      separate Poynting-effect measurement \\
+      Individual nodal reactions & No &
+      aggregate force avoids mesh-dependent weighting \\
       \bottomrule
     \end{tabular}
   \end{table}
 
-  \begin{block}{Protocol}
-    Training fits $\theta$. Validation selects the smoothness weight.
-    The sealed holdout is evaluated only after that choice.
+  Fixing $u_y=0$ on the top may create a nonzero normal reaction $R_y$ even
+  though the ideal affine shear has $J=1$. The present experiment deliberately
+  fits only the tangential force--displacement curve
+  \[
+    \gamma\longmapsto R_x(\gamma).
+  \]
+  Adding $R_y(\gamma)$ would define a second observation and would require an
+  explicit relative weight in the loss.
+
+  \begin{block}{Signed shear levels}
+    For an isotropic material,
+    $R_x(-\gamma)=-R_x(\gamma)$. Using both signs checks material and
+    implementation symmetry while balancing the sampled loading directions.
   \end{block}
 \end{frame}
+
+\section{Dataset and Objective}
+
+\begin{frame}{Assembling the 36 Training Residuals}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lclc}
+      \toprule
+      Protocol & Coordinate & Fitted scalar reaction & Train cases \\
+      \midrule
+      Free uniaxial & $a$ &
+      $\displaystyle\sum_{v\in\mathcal T}g_{v,y}$ & 16 \\
+      Confined uniaxial & $a$ &
+      $\displaystyle\sum_{v\in\mathcal T}g_{v,y}$ & 16 \\
+      Simple shear & $\gamma$ &
+      $\displaystyle\sum_{v\in\mathcal T}g_{v,x}$ & 4 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  For each case $j$,
+  \[
+    r_j(\theta)
+    =
+    \frac{y_j(p(\theta))-y_j^\star}{\eref}.
+  \]
+  The complete training objective is
+  \[
+    \boxed{
+      L(\theta)
+      =
+      \frac12\sum_{j=1}^{36}r_j(\theta)^2
+      +
+      \frac{\alpha}{2}\norm{D_2\theta_q}^2
+    }.
+  \]
+\end{frame}
+
+\begin{frame}{What Does One Dataset Record Contain?}
+  \small
+  One synthetic observation is
+  \[
+    \boxed{
+      \mathcal D_j
+      =
+      \bigl(
+        \text{protocol}_j,\,
+        \xi_j,\,
+        \text{boundary conditions}_j,\,
+        y_j^\star
+      \bigr)
+    },
+  \]
+  where $\xi_j=a$ for a uniaxial case and $\xi_j=\gamma$ for shear.
+  The target is generated by
+  \[
+    \text{Neo-Hookean}
+    \longrightarrow
+    \text{static solve}
+    \longrightarrow
+    u_j^\star
+    \longrightarrow
+    y_j^\star.
+  \]
+
+  \begin{table}
+    \centering
+    \begin{tabular}{llrr}
+      \toprule
+      Split & Protocol & Coordinate & $y_j^\star/\eref$ \\
+      \midrule
+      Train & Free uniaxial & $a=0.707107$ & $-0.399805$ \\
+      Train & Confined uniaxial & $a=0.707107$ & $-0.685460$ \\
+      Train & Simple shear & $\gamma=0.4$ & $0.126665$ \\
+      Validation & Free uniaxial & $a=0.738413$ & $-0.342510$ \\
+      Final test & Simple shear & $\gamma=0.5$ & $0.158874$ \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  The dataset does not prescribe a full deformation gradient for free
+  uniaxial loading; its equilibrium deformation is an output of the solve.
+\end{frame}
+
+\begin{frame}{Training Set: Exact Loading Coordinates}
+  \small
+  The 17 spline knots are
+  \[
+    s_k=2^{-1+k/8},
+    \qquad k=0,\ldots,16,
+  \]
+  so they are uniform in $\log s$, span $[0.5,2]$, and include $s_8=1$.
+  Training uses every non-rest knot:
+  \[
+    a\in\{s_k:k\neq8\}.
+  \]
+  Representative values are
+  \[
+    0.5,\ 0.5453,\ 0.5946,\ldots,\ 0.9170,\ 
+    1.0905,\ldots,\ 1.8340,\ 2.0.
+  \]
+
+  \begin{table}
+    \centering
+    \begin{tabular}{lclc}
+      \toprule
+      Protocol & Coordinates & Observation & Cases \\
+      \midrule
+      Free uniaxial & $a=s_k,\ k\neq8$ & top $R_y$ & 16 \\
+      Confined uniaxial & $a=s_k,\ k\neq8$ & top $R_y$ & 16 \\
+      Simple shear & $\gamma=\{-0.8,-0.4,0.4,0.8\}$ &
+      top $R_x$ & 4 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  Hence $N_{\mathrm{train}}=16+16+4=36$. Only these 36 observations enter
+  the optimization of the material parameters $\theta$.
+\end{frame}
+
+\begin{frame}{Validation and Final Test: Off-Knot Loading}
+  \small
+  Validation samples each log-knot interval at its midpoint:
+  \[
+    a_{k,1/2}=\sqrt{s_ks_{k+1}},
+    \qquad k=0,\ldots,15,
+  \]
+  for both uniaxial protocols, plus
+  $\gamma=\{-0.6,-0.2,0.2,0.6\}$. Thus
+  \[
+    N_{\mathrm{val}}=16\times2+4=36.
+  \]
+
+  Final test uses two new positions in every interval:
+  \[
+    \log a_{k,1/4}
+    =\tfrac34\log s_k+\tfrac14\log s_{k+1},
+    \qquad
+    \log a_{k,3/4}
+    =\tfrac14\log s_k+\tfrac34\log s_{k+1},
+  \]
+  plus
+  $\gamma=\{-0.7,-0.5,-0.3,-0.1,0.1,0.3,0.5,0.7\}$, giving
+  \[
+    N_{\mathrm{test}}=32\times2+8=72.
+  \]
+
+  \begin{block}{Different roles}
+    Train fits $\theta$; validation selects the smoothness weight $\alpha$;
+    final test reports performance after that choice. Off-knot coordinates
+    test interpolation rather than memorization at spline knots.
+  \end{block}
+\end{frame}
+
+\section{Equilibrium Sensitivity}
 
 \begin{frame}{Static Equilibrium}
   \small
@@ -375,9 +891,9 @@
 
 \begin{frame}{Reaction Observation}
   \small
-  Let
+  For one load case, suppress the index $j$ and write
   \[
-    c\in\mathbb R^{n_u}
+    c:=c_j\in\mathbb R^{n_u}.
   \]
   select and sum the constrained force entries associated with the measured
   top-face direction.
@@ -405,6 +921,7 @@
 
 \begin{frame}{Why the Partial Material Derivative Is Not Enough}
   \small
+  Continue to suppress the load-case index $j$.
   The reaction is the composite function
   \[
     y(p)=c^Tg(u^\star(p),p).
@@ -466,35 +983,46 @@
   \]
 \end{frame}
 
-\begin{frame}{Implicit Differentiation II: Symbols and Dimensions}
+\begin{frame}{Stiffness Block Structure: What Is $K_{:f}$?}
   \small
-  Let $n_f$ be the number of free displacement DOFs and $n_p=18$.
-
-  \begin{table}
-    \centering
-    \begin{tabular}{lll}
-      \toprule
-      Symbol & Dimension & Meaning \\
-      \midrule
-      $\Kff$ & $n_f\times n_f$ &
-      tangent stiffness restricted to free DOFs \\
-      $\Eup$ & $n_u\times n_p$ &
-      mixed energy derivative $\partial^2E_h/\partial u\,\partial p$ \\
-      $\Eupf$ & $n_f\times n_p$ &
-      free rows of $\Eup$ \\
-      $du_f^\star/dp$ & $n_f\times n_p$ &
-      equilibrium displacement sensitivity \\
-      $K_{:f}$ & $n_u\times n_f$ &
-      all force rows, free displacement columns \\
-      \bottomrule
-    \end{tabular}
-  \end{table}
-
-  One linear solve with 18 right-hand sides computes the complete state
-  sensitivity:
+  Order displacement and force entries by free and constrained DOFs:
   \[
-    \Kff X=-\Eupf,\qquad X=\frac{du_f^\star}{dp}.
+    u=
+    \begin{bmatrix}u_f\\u_c\end{bmatrix},
+    \qquad
+    g=
+    \begin{bmatrix}g_f\\g_c\end{bmatrix}.
   \]
+  The full tangent stiffness is
+  \[
+    K=\frac{\partial g}{\partial u}
+    =
+    \begin{bmatrix}
+      \dfrac{\partial g_f}{\partial u_f} &
+      \dfrac{\partial g_f}{\partial u_c}\\[0.7em]
+      \dfrac{\partial g_c}{\partial u_f} &
+      \dfrac{\partial g_c}{\partial u_c}
+    \end{bmatrix}
+    =
+    \begin{bmatrix}
+      K_{ff}&K_{fc}\\
+      K_{cf}&K_{cc}
+    \end{bmatrix}.
+  \]
+
+  Keeping all force rows but only free-displacement columns gives
+  \[
+    \boxed{
+      K_{:f}
+      :=
+      \frac{\partial g}{\partial u_f}
+      =
+      \begin{bmatrix}K_{ff}\\K_{cf}\end{bmatrix}
+      \in\mathbb R^{n_u\times n_f}
+    }.
+  \]
+  Thus $K_{:f}\delta u_f$ describes how \emph{all} nodal forces, including
+  constrained reactions, change when the free state relaxes.
 \end{frame}
 
 \begin{frame}{Reaction Jacobian I: Apply the Chain Rule}
@@ -529,29 +1057,24 @@
 
 \begin{frame}{Reaction Jacobian II: Final Formula}
   \small
-  The complete equilibrium-aware derivative is
-  \[
+  Substitute the equilibrium sensitivity one line at a time:
+  \begin{align*}
+    \frac{dy}{dp}
+    &=
+    c^T\left(
+      \Eup+K_{:f}\frac{du_f^\star}{dp}
+    \right)\\[0.3em]
+    &=
+    c^T\left(
+      \Eup+K_{:f}\left[-\Kff^{-1}\Eupf\right]
+    \right)\\[0.3em]
+    &=
     \boxed{
-      \frac{dy}{dp}
-      =
-      c^T
-      \left(
-        \Eup
-        K_{:f}\left[-\Kff^{-1}\Eupf\right]
-      \right)
-    }
-  \]
-  or equivalently
-  \[
-    \boxed{
-      \frac{dy}{dp}
-      =
-      c^T
-      \left(
+      c^T\left(
         \Eup-K_{:f}\Kff^{-1}\Eupf
       \right)
     }.
-  \]
+  \end{align*}
 
   \begin{block}{Implementation correspondence}
     \[
@@ -563,6 +1086,53 @@
       =\Eup+K_{:f}\,\texttt{free\_sensitivity}.
     \]
   \end{block}
+\end{frame}
+
+\begin{frame}{Reaction Jacobian III: Constrained-Reaction Form}
+  \small
+  In this experiment, $c$ selects only constrained reaction entries:
+  \[
+    c=
+    \begin{bmatrix}0\\c_c\end{bmatrix},
+    \qquad
+    y=c_c^Tg_c.
+  \]
+  Since
+  \[
+    c^T\Eup=c_c^TE_{up,c},
+    \qquad
+    c^TK_{:f}=c_c^TK_{cf},
+  \]
+  the same derivative becomes
+  \[
+    \boxed{
+      \frac{dy}{dp}
+      =
+      c_c^T
+      \left(
+        E_{up,c}
+        -
+        K_{cf}\Kff^{-1}\Eupf
+      \right)
+    }.
+  \]
+
+  \begin{columns}[T]
+    \begin{column}{0.48\linewidth}
+      \textbf{Direct material effect}
+      \[
+        c_c^TE_{up,c}
+      \]
+      Change material while temporarily holding the state fixed.
+    \end{column}
+    \begin{column}{0.48\linewidth}
+      \textbf{Equilibrium-relaxation effect}
+      \[
+        -c_c^TK_{cf}\Kff^{-1}\Eupf
+      \]
+      Restore free equilibrium, which also changes the measured reaction.
+    \end{column}
+  \end{columns}
 \end{frame}
 
 \begin{frame}{Residual and Log-Parameter Jacobian}
@@ -597,6 +1167,8 @@
     \longrightarrow y(p).
   \]
 \end{frame}
+
+\section{Optimization and Verification}
 
 \begin{frame}{Smoothness Regularization}
   \small
@@ -714,9 +1286,9 @@
     \frac{\norm{J^{\mathrm{analytic}}-J^{\mathrm{FD}}}_F}
          {\norm{J^{\mathrm{FD}}}_F}
     =
-    5.19\times10^{-10},
+    3.17\times10^{-10},
   \]
-  with maximum column-relative error $7.62\times10^{-10}$.
+  with maximum column-relative error $6.72\times10^{-10}$.
 
   \begin{block}{What this verifies}
     Constitutive parameter derivatives, FEM assembly, equilibrium
@@ -724,7 +1296,7 @@
   \end{block}
 \end{frame}
 
-\begin{frame}{Identifiability at the Initial Guess}
+\begin{frame}{Identifiability at the Fitted Solution}
   \small
   Let $J_{\mathrm{data}}\in\mathbb R^{36\times18}$ be the training reaction
   Jacobian before regularization.
@@ -733,14 +1305,14 @@
   \[
     \operatorname{rank}(J_{\mathrm{data}})=18,
     \qquad
-    \kappa_2(J_{\mathrm{data}})\approx332.
+    \kappa_2(J_{\mathrm{data}})\approx458.
   \]
 
   Its largest and smallest singular values are
   \[
-    \sigma_{\max}=2.091,
+    \sigma_{\max}=2.048,
     \qquad
-    \sigma_{\min}=6.30\times10^{-3}.
+    \sigma_{\min}=4.47\times10^{-3}.
   \]
 
   \begin{block}{Interpretation}
@@ -759,27 +1331,29 @@
       $\alpha$ & Train RMSE & Validation RMSE &
       $\norm{D_2\theta_q}^2$ \\
       \midrule
-      $0$ & $2.10{\times}10^{-4}$ & $3.88{\times}10^{-4}$ &
-      $5.91{\times}10^{-2}$ \\
-      $10^{-4}$ & $2.45{\times}10^{-4}$ & $2.90{\times}10^{-4}$ &
-      $4.22{\times}10^{-3}$ \\
-      $10^{-3}$ & $2.89{\times}10^{-4}$ & $2.56{\times}10^{-4}$ &
-      $1.03{\times}10^{-3}$ \\
-      $\mathbf{3{\times}10^{-3}}$ &
-      $\mathbf{3.08{\times}10^{-4}}$ &
-      $\mathbf{2.55{\times}10^{-4}}$ &
-      $\mathbf{7.80{\times}10^{-4}}$ \\
-      $10^{-2}$ & $3.34{\times}10^{-4}$ & $2.65{\times}10^{-4}$ &
-      $6.68{\times}10^{-4}$ \\
-      $10^{-1}$ & $4.89{\times}10^{-4}$ & $3.53{\times}10^{-4}$ &
-      $5.43{\times}10^{-4}$ \\
+      $0$ & $2.25{\times}10^{-4}$ & $4.01{\times}10^{-4}$ &
+      $7.24{\times}10^{-2}$ \\
+      $10^{-4}$ & $2.36{\times}10^{-4}$ & $2.62{\times}10^{-4}$ &
+      $1.38{\times}10^{-3}$ \\
+      $3{\times}10^{-4}$ & $2.41{\times}10^{-4}$ &
+      $2.54{\times}10^{-4}$ & $9.06{\times}10^{-4}$ \\
+      $\mathbf{10^{-3}}$ &
+      $\mathbf{2.47{\times}10^{-4}}$ &
+      $\mathbf{2.49{\times}10^{-4}}$ &
+      $\mathbf{6.98{\times}10^{-4}}$ \\
+      $3{\times}10^{-3}$ & $2.54{\times}10^{-4}$ &
+      $2.50{\times}10^{-4}$ & $6.26{\times}10^{-4}$ \\
+      $10^{-2}$ & $2.66{\times}10^{-4}$ & $2.57{\times}10^{-4}$ &
+      $5.85{\times}10^{-4}$ \\
       \bottomrule
     \end{tabular}
   \end{table}
 
-  Validation selects $\alpha=3\times10^{-3}$. The holdout remains sealed
-  during this sweep.
+  Validation selects $\alpha=10^{-3}$. Final-test error is not part of this
+  selection rule.
 \end{frame}
+
+\section{Results and Outlook}
 
 \begin{frame}{Quantitative Fit}
   \small
@@ -792,21 +1366,21 @@
       \toprule
       Split & Initial normalized RMSE & Fitted normalized RMSE \\
       \midrule
-      Training & $3.52\times10^{-1}$ & $3.08\times10^{-4}$ \\
-      Validation & $3.14\times10^{-1}$ & $2.55\times10^{-4}$ \\
-      Sealed holdout & $3.15\times10^{-1}$ & $2.50\times10^{-4}$ \\
+      Training & $3.41\times10^{-1}$ & $2.47\times10^{-4}$ \\
+      Validation & $3.05\times10^{-1}$ & $2.49\times10^{-4}$ \\
+      Sealed holdout & $3.06\times10^{-1}$ & $2.35\times10^{-4}$ \\
       \bottomrule
     \end{tabular}
   \end{table}
 
   \[
-    L_{\mathrm{final}}=2.88\times10^{-6},
+    L_{\mathrm{final}}=1.45\times10^{-6},
     \qquad
-    \min_i p_i=9.21\times10^4>0.
+    \min_i p_i=9.22\times10^4>0.
   \]
 
   The maximum final free-equilibrium residual over all splits is below
-  $9.55\times10^{-7}$.
+  $9.63\times10^{-7}$.
 \end{frame}
 
 \begin{frame}{Diagnostics}
@@ -816,7 +1390,7 @@
 
   \vspace{-0.2em}
   \small
-  Reaction curves agree on train, validation, and sealed holdout cases;
+  Reaction curves agree on train, validation, and final-test cases;
   the loss decreases monotonically under the accepted line-search steps.
 \end{frame}
 
@@ -829,9 +1403,9 @@
       \toprule
       Knots & Parameters & Rank & Condition & Validation RMSE \\
       \midrule
-      5 & 6 & 6 & 46.9 & $7.61\times10^{-3}$ \\
-      9 & 10 & 10 & 139.5 & $1.26\times10^{-3}$ \\
-      17 & 18 & 18 & 334.2 & $3.88\times10^{-4}$ \\
+      5 & 6 & 6 & 45.4 & $7.45\times10^{-3}$ \\
+      9 & 10 & 10 & 123.2 & $1.28\times10^{-3}$ \\
+      17 & 18 & 18 & 460.5 & $4.01\times10^{-4}$ \\
       \bottomrule
     \end{tabular}
   \end{table}
@@ -855,7 +1429,7 @@
         \item Full analytic Jacobian matches fresh-solve finite differences.
         \item Static residuals are tightly controlled.
         \item The selected data Jacobian is full column rank.
-        \item Prediction transfers to off-knot, sealed synthetic cases.
+        \item Prediction transfers to off-knot final-test cases.
         \item Positivity is maintained throughout optimization.
       \end{itemize}
     \end{column}
@@ -938,8 +1512,8 @@
       \]
     \item The full implementation matches finite differences to about
       $5\times10^{-10}$ relative error.
-    \item The 18-parameter fit reduces sealed synthetic holdout RMSE from
-      $3.15\times10^{-1}$ to $2.50\times10^{-4}$.
+    \item The 18-parameter fit reduces synthetic final-test RMSE from
+      $3.06\times10^{-1}$ to $2.35\times10^{-4}$.
   \end{enumerate}
 
   \vspace{0.3em}

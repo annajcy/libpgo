@@ -252,6 +252,34 @@ def _constraint_arrays(
     return fixed_dofs, fixed_values, free_dofs
 
 
+def _free_uniaxial_rigid_pins(
+    vertices: np.ndarray,
+    bottom: np.ndarray,
+) -> tuple[int, int]:
+    """Choose two bottom vertices for three minimal tangential rigid pins."""
+    if bottom.size < 2:
+        raise ValueError(
+            "free uniaxial loading requires at least two bottom vertices")
+    positions = vertices[bottom]
+    centroid = positions.mean(axis=0)
+    tangent_distance2 = (
+        (positions[:, 0] - centroid[0])**2
+        + (positions[:, 2] - centroid[2])**2
+    )
+    anchor = int(bottom[np.argmin(tangent_distance2)])
+    same_z = bottom[np.isclose(
+        vertices[bottom, 2],
+        vertices[anchor, 2],
+    )]
+    candidates = same_z[same_z != anchor]
+    if candidates.size == 0:
+        candidates = bottom[bottom != anchor]
+    x_distance = np.abs(
+        vertices[candidates, 0] - vertices[anchor, 0])
+    rotation_pin = int(candidates[np.argmax(x_distance)])
+    return anchor, rotation_pin
+
+
 def _uniaxial_case(
     vertices: np.ndarray,
     stretch: float,
@@ -267,14 +295,19 @@ def _uniaxial_case(
     constraints: dict[int, float] = {}
 
     for vertex in bottom:
-        for component in range(3):
-            constraints[3 * int(vertex) + component] = 0.0
+        constraints[3 * int(vertex) + 1] = 0.0
     for vertex in top:
         constraints[3 * int(vertex) + 1] = stretch - 1.0
     if confined:
         for vertex in range(len(vertices)):
             constraints[3 * vertex] = 0.0
             constraints[3 * vertex + 2] = 0.0
+    else:
+        anchor, rotation_pin = _free_uniaxial_rigid_pins(
+            vertices, bottom)
+        constraints[3 * anchor] = 0.0
+        constraints[3 * anchor + 2] = 0.0
+        constraints[3 * rotation_pin + 2] = 0.0
 
     fixed_dofs, fixed_values, free_dofs = _constraint_arrays(
         constraints, num_dofs)
@@ -638,7 +671,7 @@ def fit_parameters(
     *,
     max_iterations: int = 40,
     gradient_tolerance: float = 1.0e-9,
-    smoothness_weight: float = 3.0e-3,
+    smoothness_weight: float = 1.0e-3,
 ) -> CalibrationResult:
     if max_iterations <= 0:
         raise ValueError("max_iterations must be positive")
@@ -968,7 +1001,7 @@ def main(argv=None) -> int:
     parser.add_argument("--grid-size", type=int, default=2)
     parser.add_argument("--max-iterations", type=int, default=40)
     parser.add_argument(
-        "--smoothness-weight", type=float, default=3.0e-3)
+        "--smoothness-weight", type=float, default=1.0e-3)
     parser.add_argument(
         "--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--no-plots", action="store_true")

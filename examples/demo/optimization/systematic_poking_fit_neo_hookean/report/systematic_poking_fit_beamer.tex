@@ -20,6 +20,28 @@
 \setbeamercolor{alerted text}{fg=pgoOrange}
 \setbeamertemplate{navigation symbols}{}
 \setbeamertemplate{caption}[numbered]
+\setbeamertemplate{footline}{%
+  \leavevmode%
+  \hbox{%
+    \begin{beamercolorbox}[
+      wd=0.32\paperwidth,ht=2.5ex,dp=1.1ex,center
+    ]{author in head/foot}%
+      \usebeamerfont{author in head/foot}\insertshortauthor
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[
+      wd=0.48\paperwidth,ht=2.5ex,dp=1.1ex,center
+    ]{title in head/foot}%
+      \usebeamerfont{title in head/foot}\insertsectionhead
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[
+      wd=0.20\paperwidth,ht=2.5ex,dp=1.1ex,center
+    ]{date in head/foot}%
+      \usebeamerfont{date in head/foot}%
+      \insertframenumber{} / \inserttotalframenumber
+    \end{beamercolorbox}%
+  }%
+  \vskip0pt%
+}
 
 \newcommand{\good}[1]{\textcolor{pgoGreen}{#1}}
 \newcommand{\warn}[1]{\textcolor{pgoOrange}{#1}}
@@ -32,11 +54,39 @@
 \author{libpgo constitutive calibration experiment}
 \date{July 2026}
 
+\AtBeginSection[]{%
+  \begin{frame}[plain]
+    \centering
+    \vfill
+    {\usebeamercolor[fg]{structure}\Large
+      Section \insertsectionnumber\ of 7}
+
+    \vspace{1.2em}
+    \makebox[\linewidth][c]{%
+      \begin{beamercolorbox}[
+        wd=0.84\paperwidth,sep=1.5em,center
+      ]{title}
+        {\LARGE\bfseries\insertsectionhead}
+      \end{beamercolorbox}%
+    }
+
+    \vspace{1.4em}
+    {\large Systematic Poking Material Calibration}
+    \vfill
+  \end{frame}
+}
+
 \begin{document}
 
 \begin{frame}
   \titlepage
 \end{frame}
+
+\begin{frame}{Roadmap}
+  \tableofcontents[hideallsubsections]
+\end{frame}
+
+\section{Problem Setup and Notation}
 
 \begin{frame}{Question, Goal, and Scope}
   \begin{block}{Question}
@@ -71,6 +121,109 @@
     \end{column}
   \end{columns}
 \end{frame}
+
+\begin{frame}{Notation I: Material Parameters}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lll}
+      \toprule
+      Symbol & Dimension / units & Meaning \\
+      \midrule
+      $q_k$ & scalar, stress &
+      sampled stretch curvature $f''(s_k)$ \\
+      $\lambda$ & scalar, stress &
+      scale multiplying the fixed volume spline $\widehat h$ \\
+      $p$ & $n_p\times1$, stress &
+      physical parameter vector $[q_0,\ldots,q_{16},\lambda]^T$ \\
+      $n_p$ & scalar integer &
+      number of fitted parameters; here $n_p=18$ \\
+      $\theta$ & $n_p\times1$, dimensionless &
+      unconstrained log parameters optimized numerically \\
+      $\eref$ & scalar, stress &
+      reference modulus used to normalize parameters and stresses \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \[
+    \boxed{
+      p=\eref\exp(\theta)
+    }
+  \]
+  with the exponential applied componentwise.
+\end{frame}
+
+\begin{frame}{Notation II: Data, Kinematics, and Stress}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lll}
+      \toprule
+      Symbol & Dimension & Meaning \\
+      \midrule
+      $c,\ N$ & scalar integers &
+      deformation-case index $c=1,\ldots,N$ and number of cases \\
+      $F_c$ & $3\times3$ &
+      prescribed deformation gradient for case $c$ \\
+      $P_c^\star$ & $3\times3$ &
+      target first Piola stress for case $c$ \\
+      $X_a,\ u_a(F_c)$ & $3\times1$ &
+      rest position and prescribed affine displacement of vertex $a$ \\
+      $u(F_c)$ & $n_u\times1$ &
+      all affine nodal displacements stacked into one vector \\
+      $B$ & $n_u\times9$ &
+      kinematic map $\partial u/\partial\vect F$ \\
+      $V_0$ & scalar volume &
+      reference volume; $V_0=1$ for the unit cube \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  Here $c$ is a \emph{case index}, not the reaction selector used in the
+  separate static-fitting deck. The superscript $\star$ means target data.
+\end{frame}
+
+\begin{frame}{Notation III: Residuals, Jacobians, and Linear Oracle}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lll}
+      \toprule
+      Symbol & Dimension & Meaning \\
+      \midrule
+      $g(u,p)$ & $n_u\times1$ &
+      nodal energy gradient $\partial E_h/\partial u$ \\
+      $E_{up}$ & $n_u\times n_p$ &
+      mixed derivative $\partial g/\partial p$ \\
+      $r_c(\theta)$ & $9\times1$ &
+      normalized vectorized stress error for case $c$ \\
+      $r(\theta)$ & $9N\times1$ &
+      residual vector formed by stacking every $r_c$ \\
+      $J_c$ & $9\times n_p$ &
+      case Jacobian $\partial r_c/\partial\theta$ \\
+      $J$ & $9N\times n_p$ &
+      full optimization Jacobian formed by stacking every $J_c$ \\
+      $A$ & $9N\times n_p$ &
+      physical-parameter design matrix in $A(p/\eref)\approx b$ \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \[
+    \boxed{
+      (F_c,P_c^\star),\theta
+      \longrightarrow p
+      \longrightarrow P(F_c,p)
+      \longrightarrow r_c(\theta)
+      \longrightarrow \Phi(\theta)
+    }
+  \]
+  where $\Phi(\theta)=\tfrac12\norm{r(\theta)}_2^2$ and
+  $\kappa(A)=\sigma_{\max}(A)/\sigma_{\min}(A)$ measures conditioning.
+\end{frame}
+
+\section{Materials and Parameterization}
 
 \begin{frame}{Target: Compressible Neo-Hookean Material}
   \small
@@ -175,6 +328,8 @@
   \end{alertblock}
 \end{frame}
 
+\section{Deformation Dataset}
+
 \begin{frame}{Deformation Coverage I: Canonical Stretch Families}
   \small
   Let $a=e^t>0$. Negative $t$ gives compression and positive $t$ gives
@@ -258,6 +413,8 @@
   \centering
   \textbf{Complete dataset: 60 training states and 49 disjoint holdout states.}
 \end{frame}
+
+\section{Stress Extraction and Objective}
 
 \begin{frame}{Extracting $P(F)$ I: Affine Kinematics}
   \small
@@ -365,6 +522,8 @@
     $\mathcal O(10^5)$ material scale from degrading numerical conditioning.
   \end{block}
 \end{frame}
+
+\section{Analytic Parameter Derivatives}
 
 \begin{frame}{Analytic Parameter Jacobian I: The Mixed Derivative}
   \small
@@ -490,6 +649,8 @@
     =4.8\times10^{-10}.
   \]
 \end{frame}
+
+\section{Optimization and Verification}
 
 \begin{frame}{Damped Gauss--Newton with Line Search}
   \small
@@ -651,6 +812,8 @@
     Jacobian, the log-parameter chain rule, and the iterative optimizer.
   \end{alertblock}
 \end{frame}
+
+\section{Results and Static-Fitting Bridge}
 
 \begin{frame}{Optimization Convergence}
   \begin{columns}[T]
