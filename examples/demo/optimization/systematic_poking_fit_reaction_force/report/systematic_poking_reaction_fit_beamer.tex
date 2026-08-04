@@ -565,6 +565,34 @@
   \end{alertblock}
 \end{frame}
 
+\begin{frame}{Dataset Geometry: Free vs. Confined Uniaxial}
+  \centering
+  \includegraphics[
+    width=0.93\linewidth,
+    height=0.72\textheight,
+    keepaspectratio
+  ]{uniaxial_static_solve_obj/preview.png}
+
+  \vspace{-0.35em}
+  \small
+  Target Neo-Hookean static solves at
+  $a=2^{-1/2}\approx0.7071$ (a training coordinate).
+
+  \vspace{0.25em}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.48\linewidth}
+      \centering
+      \textbf{Free:} lateral faces expand as the solver determines the
+      transverse stretch $b$.
+    \end{column}
+    \begin{column}{0.48\linewidth}
+      \centering
+      \textbf{Confined:} $u_x=u_z=0$, so the $1\times1$ cross-section is
+      retained while the height is prescribed.
+    \end{column}
+  \end{columns}
+\end{frame}
+
 \begin{frame}{Load Case III: Simple Shear}
   \small
   For shear amount $\gamma$, clamp the bottom face and prescribe
@@ -669,6 +697,21 @@
     $R_x(-\gamma)=-R_x(\gamma)$. Using both signs checks material and
     implementation symmetry while balancing the sampled loading directions.
   \end{block}
+\end{frame}
+
+\begin{frame}{Dataset Geometry: Simple Shear}
+  \centering
+  \includegraphics[
+    width=0.93\linewidth,
+    height=0.72\textheight,
+    keepaspectratio
+  ]{shear_static_solve_obj/preview.png}
+
+  \vspace{-0.35em}
+  \small
+  Target Neo-Hookean static solve at $\gamma=0.8$ (a training coordinate).
+  The top face moves by $+0.8$ in $x$ while its $y$ displacement is fixed;
+  unconstrained interior and lateral DOFs relax through the static solve.
 \end{frame}
 
 \section{Dataset and Objective}

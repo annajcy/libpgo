@@ -1,0 +1,711 @@
+\documentclass[aspectratio=169,10pt]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\definecolor{pgoBlue}{RGB}{37,84,150}
+\definecolor{pgoGreen}{RGB}{54,130,91}
+\definecolor{pgoOrange}{RGB}{191,104,43}
+
+\setbeamercolor{structure}{fg=pgoBlue}
+\setbeamercolor{alerted text}{fg=pgoOrange}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}{%
+  \leavevmode%
+  \hbox{%
+    \begin{beamercolorbox}[
+      wd=0.32\paperwidth,ht=2.5ex,dp=1.1ex,center
+    ]{author in head/foot}%
+      \usebeamerfont{author in head/foot}\insertshortauthor
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[
+      wd=0.48\paperwidth,ht=2.5ex,dp=1.1ex,center
+    ]{title in head/foot}%
+      \usebeamerfont{title in head/foot}\insertsectionhead
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[
+      wd=0.20\paperwidth,ht=2.5ex,dp=1.1ex,center
+    ]{date in head/foot}%
+      \usebeamerfont{date in head/foot}%
+      \insertframenumber{} / \inserttotalframenumber
+    \end{beamercolorbox}%
+  }%
+  \vskip0pt%
+}
+
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\newcommand{\eref}{E_{\mathrm{ref}}}
+\newcommand{\Kff}{K_{\!ff}}
+\newcommand{\Eup}{E_{up}}
+\newcommand{\Eupf}{E_{up,f}}
+\newcommand{\good}[1]{\textcolor{pgoGreen}{#1}}
+\newcommand{\warn}[1]{\textcolor{pgoOrange}{#1}}
+
+\title[Systematic Poking Calibration]{Systematic Poking Material Calibration}
+\subtitle{From Direct Stress Data to Equilibrium Reaction Forces}
+\author{libpgo material calibration experiments}
+\date{August 2026}
+
+\AtBeginSection[]{%
+  \begin{frame}[plain]
+    \centering
+    \vfill
+    {\usebeamercolor[fg]{structure}\Large
+      Section \insertsectionnumber\ of 4}
+
+    \vspace{1.2em}
+    \makebox[\linewidth][c]{%
+      \begin{beamercolorbox}[
+        wd=0.84\paperwidth,sep=1.5em,center
+      ]{title}
+        {\LARGE\bfseries\insertsectionhead}
+      \end{beamercolorbox}%
+    }
+
+    \vspace{1.4em}
+    {\large From Direct Stress Data to Equilibrium Reaction Forces}
+    \vfill
+  \end{frame}
+}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{One Story, Two Calibration Experiments}
+  \small
+  Both experiments fit the same 18-parameter Systematic Poking material to
+  the same synthetic compressible Neo-Hookean target.
+
+  \vspace{0.6em}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.47\linewidth}
+      \begin{block}{Experiment I: direct constitutive data}
+        \[
+          (F,P^\star)
+          \longrightarrow
+          P(F;p)
+        \]
+        The deformation $F$ is observed. This isolates material
+        parameterization and stress sensitivities.
+      \end{block}
+    \end{column}
+    \begin{column}{0.47\linewidth}
+      \begin{block}{Experiment II: reaction-force data}
+        \[
+          (u_c,y^\star)
+          \longrightarrow
+          u^\star(p)
+          \longrightarrow
+          y(p)
+        \]
+        The interior state is unknown and must satisfy FEM equilibrium.
+      \end{block}
+    \end{column}
+  \end{columns}
+
+  \vspace{0.6em}
+  \begin{alertblock}{Main question}
+    Does the verified constitutive parameter pipeline remain correct and
+    identifiable after introducing nonlinear static equilibrium?
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Roadmap}
+  \tableofcontents[hideallsubsections]
+\end{frame}
+
+\section{Material Model and Shared Parameterization}
+
+\begin{frame}{Target and Fitted Material}
+  \small
+  For principal stretches $s_1,s_2,s_3>0$ and $J=s_1s_2s_3$, the target is
+  compressible Neo-Hookean:
+  \[
+    \psi_{\mathrm{NH}}
+    =
+    \sum_{i=1}^{3}
+    \left[
+      \frac{\mu}{2}(s_i^2-1)-\mu\log s_i
+    \right]
+    +\frac{\lambda_{\mathrm{NH}}}{2}(\log J)^2.
+  \]
+  The synthetic ground truth is
+  $E^\star=2\times10^5$ and $\nu^\star=0.35$.
+
+  \vspace{0.5em}
+  The fitted paper-style Systematic Poking model is
+  \[
+    \boxed{
+      \psi_{\mathrm{SP}}(s;p)
+      =\sum_{i=1}^{3}f(s_i;q)+\lambda\,\widehat h(J)
+    }.
+  \]
+  Its stretch curvature is a piecewise-linear spline,
+  \[
+    f''(s;q)=\sum_{k=0}^{16}q_k\phi_k(s),
+    \qquad f(1)=f'(1)=0,
+  \]
+  while $\widehat h$ is a fixed log-squared volume spline shape.
+\end{frame}
+
+\begin{frame}{The 18 Optimizable Parameters}
+  \small
+  The physical parameter vector is
+  \[
+    p=
+    \begin{bmatrix}q_0&\cdots&q_{16}&\lambda\end{bmatrix}^{T}
+    \in\mathbb R^{18},
+  \]
+  where each $q_k=f''(s_k)$ and $\lambda$ have stress units.
+
+  Positivity is enforced through unconstrained log parameters:
+  \[
+    \boxed{p_i=\eref\exp(\theta_i)},
+    \qquad
+    \frac{\partial p}{\partial\theta}=\operatorname{diag}(p).
+  \]
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.47\linewidth}
+      \begin{block}{Physical role}
+        $\exp(\theta_i)$ is dimensionless; multiplication by $\eref$ restores
+        stress units. Choosing $\eref$ near the material scale keeps
+        $\theta_i=\log(p_i/\eref)$ numerically moderate.
+      \end{block}
+    \end{column}
+    \begin{column}{0.47\linewidth}
+      \begin{block}{Optimization role}
+        Every line-search trial satisfies $q_k>0$ and $\lambda>0$ without
+        inequality-constrained optimization.
+      \end{block}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Shared FEM Derivative Building Block}
+  \small
+  Let $u\in\mathbb R^{n_u}$ be the nodal displacement and
+  \[
+    E_h(u,p)\in\mathbb R,
+    \qquad
+    g(u,p)=\frac{\partial E_h}{\partial u}\in\mathbb R^{n_u}.
+  \]
+  The common material-sensitivity matrix is
+  \[
+    \boxed{
+      \Eup
+      :=\frac{\partial g}{\partial p}
+      =\frac{\partial^2E_h}{\partial u\,\partial p}
+      \in\mathbb R^{n_u\times18}
+    }.
+  \]
+
+  Column $i$ is the change in the complete nodal internal-force vector caused
+  by a unit change in physical parameter $p_i$, with $u$ held fixed.
+
+  \begin{alertblock}{Why this matters}
+    Direct stress fitting and reaction-force fitting use the same $\Eup$.
+    The second experiment adds only the response of the equilibrium state to
+    a parameter change.
+  \end{alertblock}
+\end{frame}
+
+\section{Experiment I: Direct Stress Fitting}
+
+\begin{frame}{Constitutive Dataset: Prescribed Deformation Gradients}
+  \scriptsize
+  Each datum contains a known deformation gradient and target stress,
+  $\mathcal D_c=(F_c,P_c^\star)$.
+
+  \begin{table}
+    \centering
+    \renewcommand{\arraystretch}{1.25}
+    \begin{tabular}{llll}
+      \toprule
+      Family & $F$ & $J$ & Purpose \\
+      \midrule
+      Uniaxial & $\operatorname{diag}(a,1,1)$ & $a$ & axial and volume coupling \\
+      Biaxial & $\operatorname{diag}(a,a,1)$ & $a^2$ & different volume path \\
+      Volumetric & $aI$ & $a^3$ & direct volume excitation \\
+      Isochoric & $\operatorname{diag}(a,a^{-1},1)$ & $1$ & isolate stretch response \\
+      Simple shear & $I+\gamma e_1e_2^T$ & $1$ & off-diagonal response \\
+      Rotated distinct & $R_L\operatorname{diag}(e^{\ell_i})R_R^T$ &
+        $e^{\sum_i\ell_i}$ & general $F$ and isotropy \\
+      Knot-aligned & $\operatorname{diag}(s_k,1,1)$ & $s_k$ & excite every spline basis \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.4em}
+  \begin{block}{Coverage}
+    60 training states and 49 disjoint holdout states cover compression,
+    tension, volume change, isochoric distortion, shear, and general rotations.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Direct Objective and Key Jacobian}
+  \small
+  For each prescribed $F_c$, fit all nine first-Piola components:
+  \[
+    r_c(\theta)
+    =\frac{\operatorname{vec}\!\left[
+      P_{\mathrm{SP}}(F_c;p(\theta))-P_{\mathrm{NH}}(F_c)
+    \right]}{\eref},
+    \qquad
+    \Phi=\frac12\sum_c\norm{r_c}^2.
+  \]
+
+  Under affine FEM kinematics, let
+  $B=\partial u/\partial\operatorname{vec}F$ and let $V_0$ be the reference
+  volume. Virtual work gives
+  \[
+    \operatorname{vec}P=\frac1{V_0}B^Tg.
+  \]
+  Since $F_c$ is observed and independent of $p$,
+  \[
+    \boxed{
+      \frac{\partial r_c}{\partial\theta}
+      =\frac1{V_0\eref}
+      B^T\Eup\operatorname{diag}(p)
+    }.
+  \]
+
+  \begin{block}{No static solve}
+    All nodal displacements are prescribed by $F_c$; there are no unknown
+    free DOFs and no state sensitivity $du^\star/dp$.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Direct-Fit Diagnostics}
+  \centering
+  \includegraphics[
+    width=0.98\linewidth,
+    height=0.76\textheight,
+    keepaspectratio
+  ]{../../systematic_poking_fit_neo_hookean/output/fit_diagnostics.png}
+
+  \vspace{-0.35em}
+  \scriptsize
+  Fitted curvature follows the Neo-Hookean samples, Gauss--Newton converges
+  rapidly, and unseen stress components lie close to the identity line.
+\end{frame}
+
+\begin{frame}{Direct-Fit Result and Verification}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lrrr}
+      \toprule
+      Split & Initial RMSE & Fitted RMSE & Reduction \\
+      \midrule
+      Training & $1.84\times10^{-1}$ & $3.06\times10^{-4}$ & $599\times$ \\
+      Holdout & $1.47\times10^{-1}$ & $2.44\times10^{-4}$ & $603\times$ \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.5em}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.47\linewidth}
+      \textbf{Optimization}
+      \begin{itemize}
+        \item 6 Gauss--Newton iterations
+        \item rank $=18$; condition number $\approx800$
+        \item all fitted physical parameters positive
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.47\linewidth}
+      \textbf{Independent checks}
+      \begin{itemize}
+        \item Jacobian FD relative error: $4.8\times10^{-10}$
+        \item physical-parameter linear oracle agrees to
+          $5.7\times10^{-14}$ relative error
+        \item train and holdout errors have the same scale
+      \end{itemize}
+    \end{column}
+  \end{columns}
+
+  \begin{block}{Conclusion of Experiment I}
+    The material model, parameter derivatives, stress extraction, and outer
+    optimizer are correct before equilibrium is introduced.
+  \end{block}
+\end{frame}
+
+\section{Experiment II: Static Reaction-Force Fitting}
+
+\begin{frame}{What Changes When Only Boundary Data Are Observed?}
+  \small
+  Split displacement DOFs into unknown free entries and prescribed entries:
+  \[
+    u=\begin{bmatrix}u_f\\u_c\end{bmatrix},
+    \qquad
+    u_f^\star(p)=\arg\min_{u_f}E_h(u_f,u_c;p).
+  \]
+  The converged state satisfies
+  \[
+    \boxed{g_f(u_f^\star,u_c,p)=0}.
+  \]
+
+  The measured scalar reaction is extracted from the full force vector by
+  \[
+    \boxed{y(p)=c^Tg(u^\star(p),p)}.
+  \]
+  Here $c\in\mathbb R^{n_u}$ is a selector: it is $1$ on the measured
+  constrained DOFs and $0$ elsewhere. Therefore $c^Tg$ sums, for example,
+  all top-face $y$ reactions in an axial test.
+
+  \begin{alertblock}{New dependency}
+    Changing $p$ changes both the material force law and the relaxed state
+    $u_f^\star(p)$.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Static Load Cases and Fitting Targets}
+  \scriptsize
+  The unit cube uses 8 trilinear elements, 27 vertices, and 81 displacement
+  DOFs.
+
+  \begin{table}
+    \centering
+    \renewcommand{\arraystretch}{1.35}
+    \begin{tabular}{p{0.18\linewidth}p{0.45\linewidth}p{0.25\linewidth}}
+      \toprule
+      Protocol & Prescribed boundary motion & Fitted scalar $y$ \\
+      \midrule
+      Free uniaxial &
+        $u_y=0$ at the bottom, $u_y=a-1$ at the top; three scalar pins remove
+        tangential rigid modes &
+        top-face axial resultant $\sum g_{v,y}$ \\
+      Confined uniaxial &
+        same axial motion, with $u_x=u_z=0$ throughout &
+        top-face axial resultant $\sum g_{v,y}$ \\
+      Simple shear &
+        bottom clamped; top $u_x=\gamma$ and $u_y=0$ &
+        top $x$-resultant $\sum g_{v,x}$ \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \begin{block}{Why three protocols?}
+    Free uniaxial observes material-dependent lateral relaxation, confined
+    uniaxial strongly excites volume change, and shear adds an independent
+    distortion path.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Static Dataset Geometry: Uniaxial Cases}
+  \centering
+  \includegraphics[
+    width=0.93\linewidth,
+    height=0.72\textheight,
+    keepaspectratio
+  ]{../output/uniaxial_static_solve_obj/preview.png}
+
+  \vspace{-0.35em}
+  \small
+  Target Neo-Hookean static solves at $a=2^{-1/2}\approx0.7071$.
+  The free case expands laterally; the confined case retains its
+  $1\times1$ cross-section.
+\end{frame}
+
+\begin{frame}{Static Dataset Geometry: Simple Shear}
+  \centering
+  \includegraphics[
+    width=0.93\linewidth,
+    height=0.72\textheight,
+    keepaspectratio
+  ]{../output/shear_static_solve_obj/preview.png}
+
+  \vspace{-0.35em}
+  \small
+  Target Neo-Hookean static solve at $\gamma=0.8$.
+  Interior and unconstrained lateral DOFs relax while the top platen motion
+  is prescribed.
+\end{frame}
+
+\begin{frame}{Dataset Split and Objective}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lrrr}
+      \toprule
+      Protocol & Train & Validation & Final test \\
+      \midrule
+      Free uniaxial & 16 & 16 & 32 \\
+      Confined uniaxial & 16 & 16 & 32 \\
+      Simple shear & 4 & 4 & 8 \\
+      \midrule
+      Total & 36 & 36 & 72 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  Training uses non-rest spline knots; validation uses interval midpoints;
+  the sealed final test uses quarter points. The normalized residual is
+  \[
+    r_j(\theta)=\frac{y_j(p(\theta))-y_j^\star}{\eref}.
+  \]
+  The fitted objective includes log-curvature smoothness, with $\alpha$
+  selected by validation RMSE:
+  \[
+    \boxed{
+      L(\theta)
+      =\frac12\sum_{j\in\mathrm{train}}r_j^2
+      +\frac{\alpha}{2}\norm{D_2\theta_q}^2
+    },
+    \qquad \alpha=10^{-3}.
+  \]
+\end{frame}
+
+\begin{frame}{The Essential Implicit-Differentiation Result}
+  \small
+  Differentiate free equilibrium with respect to all physical parameters:
+  \[
+    g_f(u_f^\star,u_c,p)=0
+    \quad\Longrightarrow\quad
+    \boxed{
+      \frac{du_f^\star}{dp}=-\Kff^{-1}\Eupf
+    },
+  \]
+  where
+  \[
+    \Kff=\frac{\partial g_f}{\partial u_f},
+    \qquad
+    \Eupf=\frac{\partial g_f}{\partial p}.
+  \]
+
+  Apply the chain rule to $y(p)=c^Tg(u^\star(p),p)$:
+  \[
+    \boxed{
+      \frac{dy}{dp}
+      =c^T\left(
+        \Eup-K_{:f}\Kff^{-1}\Eupf
+      \right)
+    }.
+  \]
+  The first term is the direct material effect; the second is the induced
+  equilibrium-relaxation effect. Finally,
+  \[
+    \frac{\partial r}{\partial\theta}
+    =\frac1{\eref}\frac{dy}{dp}\operatorname{diag}(p).
+  \]
+\end{frame}
+
+\begin{frame}{Nested Optimization Pipeline}
+  \small
+  For every outer evaluation of $\theta$:
+  \begin{enumerate}
+    \item Convert to positive physical parameters
+      $p=\eref\exp(\theta)$.
+    \item For every load case, solve
+      $g_f(u_f^\star,u_c,p)=0$ with libpgo's Newton solver.
+    \item Assemble reactions, $\Kff$, and $\Eup$ at the converged state.
+    \item Apply the implicit reaction Jacobian and stack all residual rows.
+    \item Append the smoothness residual and take a damped Gauss--Newton step.
+  \end{enumerate}
+
+  \[
+    \left[J^TJ+\gamma\operatorname{diag}(J^TJ)\right]\Delta\theta
+    =-J^Tr.
+  \]
+
+  \begin{alertblock}{Important implementation choice}
+    The derivative is taken through the converged equilibrium equation, not
+    by backpropagating through the sequence of Newton iterations. Every
+    line-search trial nevertheless requires fresh static solves.
+  \end{alertblock}
+\end{frame}
+
+\section{Results, Verification, and Outlook}
+
+\begin{frame}{Reaction-Fit Diagnostics}
+  \centering
+  \includegraphics[
+    width=0.98\linewidth,
+    height=0.76\textheight,
+    keepaspectratio
+  ]{../output/fit_diagnostics.png}
+
+  \vspace{-0.35em}
+  \scriptsize
+  The recovered curvature tracks the target, the nested objective converges,
+  and reaction curves agree across uniaxial and shear protocols.
+\end{frame}
+
+\begin{frame}{Quantitative Results Across Both Experiments}
+  \scriptsize
+  All errors are normalized by $\eref$; the observables differ, so stress and
+  reaction RMSE should be read as separate experiment-level metrics.
+
+  \begin{table}
+    \centering
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabular}{llrr}
+      \toprule
+      Experiment & Split & Initial RMSE & Fitted RMSE \\
+      \midrule
+      Direct stress & Training & $1.84\times10^{-1}$ & $3.06\times10^{-4}$ \\
+      Direct stress & Holdout & $1.47\times10^{-1}$ & $2.44\times10^{-4}$ \\
+      \midrule
+      Static reaction & Training & $3.41\times10^{-1}$ & $2.47\times10^{-4}$ \\
+      Static reaction & Validation & $3.05\times10^{-1}$ & $2.49\times10^{-4}$ \\
+      Static reaction & Final test & $3.06\times10^{-1}$ & $2.35\times10^{-4}$ \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.47\linewidth}
+      \begin{block}{Direct stress}
+        6 iterations, full rank 18, condition $\approx800$.
+      \end{block}
+    \end{column}
+    \begin{column}{0.47\linewidth}
+      \begin{block}{Static reaction}
+        7 iterations, full rank 18, condition $\approx458$, and maximum free
+        equilibrium residual below $9.7\times10^{-7}$.
+      \end{block}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Verification Hierarchy}
+  \small
+  \begin{table}
+    \centering
+    \begin{tabular}{lll}
+      \toprule
+      Check & Direct stress & Static reaction \\
+      \midrule
+      Analytic vs. central FD Jacobian & $4.8\times10^{-10}$ &
+        $3.17\times10^{-10}$ \\
+      Data Jacobian rank & $18/18$ & $18/18$ \\
+      Held-out coordinates & 49 states & 72 load cases \\
+      Positivity & maintained & maintained \\
+      Extra independent check & linear oracle & equilibrium residual \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \vspace{0.7em}
+  \begin{block}{What the static finite difference actually checks}
+    Every perturbation performs fresh nonlinear solves. Agreement therefore
+    covers constitutive derivatives, FEM assembly, equilibrium sensitivity,
+    reaction selection by $c$, and the log-parameter chain rule together.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Knot Resolution: Accuracy vs. Conditioning}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.48\linewidth}
+      \centering
+      \textbf{Direct stress holdout}
+
+      \vspace{0.3em}
+      \begin{tabular}{rrr}
+        \toprule
+        Knots & Condition & RMSE \\
+        \midrule
+        5 & $70$ & $4.67\times10^{-3}$ \\
+        9 & $211$ & $1.00\times10^{-3}$ \\
+        17 & $800$ & $2.44\times10^{-4}$ \\
+        33 & $3800$ & $7.54\times10^{-5}$ \\
+        \bottomrule
+      \end{tabular}
+    \end{column}
+    \begin{column}{0.48\linewidth}
+      \centering
+      \textbf{Static reaction validation}
+
+      \vspace{0.3em}
+      \begin{tabular}{rrr}
+        \toprule
+        Knots & Condition & RMSE \\
+        \midrule
+        5 & $45$ & $7.45\times10^{-3}$ \\
+        9 & $123$ & $1.28\times10^{-3}$ \\
+        17 & $461$ & $4.01\times10^{-4}$ \\
+        \bottomrule
+      \end{tabular}
+    \end{column}
+  \end{columns}
+
+  \vspace{0.9em}
+  \begin{alertblock}{Tradeoff}
+    More knots reduce spline approximation error but weaken conditioning.
+    Noisy physical data will require smoothness regularization, controlled
+    model selection, or a lower-dimensional parameterization.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{What Is Established---and What Is Not}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.47\linewidth}
+      \textbf{\good{Established in these experiments}}
+      \begin{itemize}
+        \item complete 18-parameter optimization chain
+        \item positive-domain material parameterization
+        \item direct and equilibrium Jacobians verified by FD
+        \item full local rank for the selected datasets
+        \item transfer to off-knot held-out cases
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.47\linewidth}
+      \textbf{\warn{Still outside the evidence}}
+      \begin{itemize}
+        \item experimental noise and repeated trials
+        \item mesh or geometry mismatch
+        \item contact-set changes and indenter friction
+        \item extrapolation beyond $s\in[0.5,2]$
+        \item inversion and collapse behavior
+      \end{itemize}
+    \end{column}
+  \end{columns}
+
+  \vspace{0.6em}
+  \begin{block}{Interpretation}
+    Confidence is high in the implemented material and equilibrium derivative
+    pipeline, but these synthetic same-mesh experiments are not yet evidence
+    for robustness on real poking data.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Takeaways and Next Step}
+  \small
+  \begin{enumerate}
+    \item Direct stress fitting validates the Systematic Poking
+      parameterization and its analytic material Jacobian.
+    \item Static fitting introduces the implicit state map
+      $p\mapsto u_f^\star(p)$ and the correction
+      $-K_{:f}\Kff^{-1}\Eupf$.
+    \item Both 18-parameter fits reach held-out normalized RMSE near
+      $2.4\times10^{-4}$ with full local rank and FD-verified Jacobians.
+    \item The current error floor is primarily spline resolution; increasing
+      resolution improves accuracy while worsening conditioning.
+  \end{enumerate}
+
+  \vspace{0.5em}
+  \begin{alertblock}{Next highest-information experiment}
+    Replace the prescribed top face with an indenter, fit a force--depth
+    curve through contact equilibrium, and repeat the same residual, FD,
+    rank, holdout, mesh, and noise checks.
+  \end{alertblock}
+
+  \vfill
+  \scriptsize
+  Reference: Chen, Zhao, and Barbi\v{c},
+  \emph{Capturing Animation-Ready Isotropic Materials Using Systematic Poking},
+  ACM TOG 42(6), 2023.
+\end{frame}
+
+\end{document}
