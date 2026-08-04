@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "deformation/deformationModelAssembler.h"
 #include "energy/deformationModelEnergy.h"
-#include "energy/elasticMaterialEnergy.h"
 #include "formulations/formulation/formulations.h"
 #include "material/parameterization/materialChannelMapping.h"
 #include "material/projection/materialInputProjection.h"
@@ -381,19 +381,16 @@ TEST(MaterialParameterizationSemanticContract, LogEGradientAndHessianMatchFinite
   const auto mesh = makeOneElementMesh();
   const auto parameterization = makeLogEParameterization();
   const double logE = std::log(1200.0);
-  const auto inputAsset = TestUtils::makeAsset(
-    mesh, { "logE" }, { logE });
+  const auto inputAsset = TestUtils::makeAsset(mesh, { "logE" }, { logE });
   MaterialParameterData projected;
   const auto &field = *parameterization->elastic().optimizableField();
   projected.elastic.fixedValues = ES::VXd{};
-  projected.elastic.initialOptimizableValues =
-    projectImportedMaterialInputs(
-      inputAsset->materialCatalog(), field.inputSchema(), field.layout());
+  projected.elastic.initialOptimizableValues = projectImportedMaterialInputs(
+    inputAsset->materialCatalog(), field.inputSchema(), field.layout());
   projected.plastic.fixedValues = ES::VXd{};
   projected.plastic.initialOptimizableValues = ES::VXd{};
   parameterization->validate(projected);
-  auto data = std::make_shared<const MaterialParameterData>(
-    std::move(projected));
+  auto data = std::make_shared<const MaterialParameterData>(std::move(projected));
 
   auto assignment = std::make_shared<const MaterialAssignment>(
     mesh, parameterization, std::move(data),
@@ -402,22 +399,23 @@ TEST(MaterialParameterizationSemanticContract, LogEGradientAndHessianMatchFinite
   DeformationModelOptions options;
   options.projectHessianPSD = false;
   options.enableMaterialMaxStep = false;
-  const auto deformationEnergy =
-    std::make_shared<DeformationModelEnergy>(
-      std::move(assignment), formulation, options);
+  const auto deformationEnergy = std::make_shared<DeformationModelEnergy>(
+    std::move(assignment), formulation, options);
 
   ES::VXd displacement = ES::VXd::Zero(deformationEnergy->getNumDOFs());
   for (int i = 0; i < displacement.size(); ++i)
     displacement[i] = 0.01 * std::sin(0.7 * i + 0.2);
-  ElasticMaterialEnergy elasticEnergy(deformationEnergy, displacement);
 
-  ES::VXd input(1);
-  input[0] = logE;
+  const ES::VXd input = deformationEnergy->optimizableParameters()->elasticSnapshot();
+  auto view = [&](const ES::VXd &trial) {
+    return deformationEnergy->optimizableParameters()->snapshot().withElasticValues(
+      std::span<const double>(trial.data(), trial.size()));
+  };
+
   ES::VXd gradient(1);
-  elasticEnergy.gradient(input, gradient);
-  ES::SpMatD hessian;
-  elasticEnergy.hessianAlloc(hessian);
-  elasticEnergy.hessianInPlace(input, hessian);
+  deformationEnergy->compute_dE_de(displacement, view(input), gradient);
+  ES::SpMatD hessian = deformationEnergy->assembler().d2E_de2_template();
+  deformationEnergy->compute_d2E_de2(displacement, view(input), hessian);
   const ES::MXd denseHessian(hessian);
 
   constexpr double step = 1e-5;
@@ -426,12 +424,13 @@ TEST(MaterialParameterizationSemanticContract, LogEGradientAndHessianMatchFinite
   plus[0] += step;
   minus[0] -= step;
   const double finiteDifferenceGradient =
-    (elasticEnergy.func(plus) - elasticEnergy.func(minus)) /
+    (deformationEnergy->func(displacement, view(plus)) -
+      deformationEnergy->func(displacement, view(minus))) /
     (2.0 * step);
 
   ES::VXd plusGradient(1), minusGradient(1);
-  elasticEnergy.gradient(plus, plusGradient);
-  elasticEnergy.gradient(minus, minusGradient);
+  deformationEnergy->compute_dE_de(displacement, view(plus), plusGradient);
+  deformationEnergy->compute_dE_de(displacement, view(minus), minusGradient);
   const double finiteDifferenceHessian =
     (plusGradient[0] - minusGradient[0]) / (2.0 * step);
 

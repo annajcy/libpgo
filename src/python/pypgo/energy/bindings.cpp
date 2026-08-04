@@ -233,14 +233,6 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("element_weights").none() = nb::none(), nb::arg("project_hessian_psd") = true,
     nb::arg("enable_material_max_step") = true);
 
-  m.def("_create_plastic_material_energy", &createPlasticMaterialEnergy,
-    nb::arg("deformation_energy_core"),
-    nb::arg("fixed_displacement"));
-
-  m.def("_create_elastic_material_energy", &createElasticMaterialEnergy,
-    nb::arg("deformation_energy_core"),
-    nb::arg("fixed_displacement"));
-
   // Private/experimental — minimal QuadraticPotentialEnergy factory for
   // PotentialEnergy-handle tests.
   m.def("_create_quadratic_energy_for_test", &createQuadraticEnergyForTest,

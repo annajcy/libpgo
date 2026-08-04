@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 from pathlib import Path
 
@@ -167,6 +168,66 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
     assert solved_surface.shape == target_torch.shape
     assert plastic_param.grad is not None
     assert np.allclose(plastic_param.grad.detach().numpy(), expected_grad)
+
+
+def test_plastic_equilibrium_torch_backward_matches_full_resolve_directional_difference():
+    """Freeze the public equilibrium derivative independently of mixed assembly."""
+
+    _, energy = make_cubic_case()
+    rest = energy.vertex_rest_positions
+    surface_vertex_ids = np.arange(rest.shape[0], dtype=np.int64)
+    surface_vertices = rest.copy()
+    target = surface_vertices.copy()
+    fixed_dofs = np.arange(0, 9, dtype=np.int64)
+    layer = pgo.fem.PlasticStaticEquilibriumLayer(
+        energy=energy,
+        fixed_dofs=fixed_dofs,
+        fixed_values=np.zeros(fixed_dofs.size),
+        surface_vertices=surface_vertices,
+        surface_vertex_ids=surface_vertex_ids,
+        inner_optimizer=solver.NewtonOptimizer(
+            max_iterations=100,
+            gradient_tolerance=1.0e-10,
+            damping=solver.NoDamping(),
+            line_search=solver.Backtrack(),
+        ),
+    )
+
+    parameters = np.array(
+        [1.04, 0.01, -0.005, 0.98, 0.008, 1.02], dtype=np.float64
+    )
+    parameter_tensor = torch.tensor(
+        parameters, dtype=torch.float64, requires_grad=True
+    )
+    target_tensor = torch.as_tensor(target, dtype=torch.float64)
+    solved_surface = layer(parameter_tensor)
+    loss = 0.5 * torch.sum((solved_surface - target_tensor) ** 2)
+    loss.backward()
+
+    assert layer.last_inner_result.converged
+    assert parameter_tensor.grad is not None
+    analytic = parameter_tensor.grad.detach().numpy()
+    direction = np.array(
+        [0.31, -0.47, 0.23, 0.41, -0.19, 0.37], dtype=np.float64
+    )
+    direction /= np.linalg.norm(direction)
+
+    def resolved_loss(values):
+        layer.reset_warm_start()
+        solved = layer(torch.as_tensor(values, dtype=torch.float64))
+        residual = solved.detach().numpy() - target
+        assert layer.last_inner_result.converged
+        return 0.5 * np.dot(residual.ravel(), residual.ravel())
+
+    step = 1.0e-5
+    finite_difference = (
+        resolved_loss(parameters + step * direction)
+        - resolved_loss(parameters - step * direction)
+    ) / (2.0 * step)
+
+    assert np.dot(analytic, direction) == pytest.approx(
+        finite_difference, rel=1.0e-5, abs=1.0e-8
+    )
 
 
 def test_static_equilibrium_torch_layer_elastic_backward_matches_direct_adjoint():

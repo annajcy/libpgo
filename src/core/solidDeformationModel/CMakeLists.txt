@@ -52,8 +52,6 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   deformation/hessianMatrixHandle.h
 
   energy/deformationModelEnergy.h
-  energy/elasticMaterialEnergy.h
-  energy/plasticMaterialEnergy.h
 
   simulation/simulationMesh.h
   simulation/simulationMeshBase.h
@@ -220,8 +218,6 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/deformationModelAssemblerElementWorkspace.cpp
 
   energy/deformationModelEnergy.cpp
-  energy/elasticMaterialEnergy.cpp
-  energy/plasticMaterialEnergy.cpp
 
   material/plastic/plasticModel2DFundamentalForms.cpp
 

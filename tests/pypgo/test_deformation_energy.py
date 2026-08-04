@@ -555,7 +555,7 @@ class TestDeformationEnergy:
         assert energy.rest_state.shape == (sim.num_vertices * 24,)
         assert energy.vertex_rest_positions.shape == (sim.num_vertices, 3)
 
-    def test_cubic_energy_exposes_plastic_derivatives_and_material_energy(self):
+    def test_cubic_energy_exposes_plastic_derivatives(self):
         sim = _make_cubic_sim_mesh()
         plastic = np.array([[1.01, 0.004, -0.003, 0.994, 0.005, 1.008]], dtype=np.float64)
         energy = _make_energy(
@@ -580,18 +580,7 @@ class TestDeformationEnergy:
         assert d2E_dp2.nnz > 0
         assert d2E_dudp.nnz > 0
 
-        material_energy = pf.PlasticMaterialEnergy(energy, fixed_displacement=u)
-        assert isinstance(material_energy, pe.PotentialEnergy)
-        assert material_energy.num_dofs == 6
-        assert material_energy.state_kind == "generic"
-        assert np.isclose(material_energy.value(plastic.ravel()), energy.value(u))
-        assert np.allclose(material_energy.gradient(plastic.ravel()), dE_dp)
-        assert np.allclose(
-            material_energy.hessian(plastic.ravel()).to_dense(),
-            d2E_dp2.to_dense(),
-        )
-
-    def test_shell_energy_exposes_elastic_material_energy(self):
+    def test_shell_energy_exposes_elastic_derivatives(self):
         sim = _make_shell_sim_mesh()
         elastic = np.array([[20000.0, 0.45, 10000.0, 0.3, 1e-3]], dtype=np.float64)
         energy = _make_energy(
@@ -612,18 +601,10 @@ class TestDeformationEnergy:
 
         dE_de = energy.dE_de(u)
         d2E_de2 = energy.d2E_de2(u)
-        material_energy = pf.ElasticMaterialEnergy(energy, fixed_displacement=u)
-
-        assert isinstance(material_energy, pe.PotentialEnergy)
-        assert isinstance(material_energy, pf.ElasticMaterialEnergy)
-        assert material_energy.num_dofs == 5
-        assert material_energy.state_kind == "generic"
-        assert np.isclose(material_energy.value(elastic.ravel()), energy.value(u))
-        assert np.allclose(material_energy.gradient(elastic.ravel()), dE_de)
-        assert np.allclose(
-            material_energy.hessian(elastic.ravel()).to_dense(),
-            d2E_de2.to_dense(),
-        )
+        assert dE_de.shape == (5,)
+        assert d2E_de2.shape == (5, 5)
+        assert np.linalg.norm(dE_de) > 0.0
+        assert d2E_de2.nnz > 0
 
     def test_shell_energy_evaluates(self):
         sim = _make_shell_sim_mesh()

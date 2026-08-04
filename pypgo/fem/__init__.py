@@ -58,8 +58,6 @@ from pypgo.fem.fields import (
 from pypgo.fem.energy import (
     DeformationEnergy,
     DeformationOptions,
-    ElasticMaterialEnergy,
-    PlasticMaterialEnergy,
 )
 from pypgo.fem.mesh import (
     ImportedElementSet,
@@ -134,8 +132,6 @@ __all__ = [
     # Energy
     "DeformationEnergy",
     "DeformationOptions",
-    "ElasticMaterialEnergy",
-    "PlasticMaterialEnergy",
     # Mesh
     "SimulationMesh",
     "SimulationImportResult",

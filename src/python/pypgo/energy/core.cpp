@@ -4,8 +4,6 @@
 #include "deformation/deformationModel.h"
 #include "deformation/deformationModelManager.h"
 #include "../fem/formulation/core.h"
-#include "energy/elasticMaterialEnergy.h"
-#include "energy/plasticMaterialEnergy.h"
 #include "constraints/core.h"
 #include "constraints/potentialEnergyFromConstraintFunctions.h"
 #include "linearPotentialEnergy.h"
@@ -793,32 +791,4 @@ std::shared_ptr<PyMaterialFrameField> projectImportedMaterialFrameField(
   catch (const std::invalid_argument &error) {
     throw nb::value_error(error.what());
   }
-}
-
-std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(
-  std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,
-  nb::ndarray<nb::numpy, const double> fixedDisplacement)
-{
-  if (!deformationEnergyCore) {
-    throw nb::value_error("deformation_energy must be non-null");
-  }
-
-  auto fixed = python::ndarrayToVectorXd(fixedDisplacement);
-  auto energy = std::make_shared<SolidDeformationModel::PlasticMaterialEnergy>(
-    deformationEnergyCore->energy(), fixed);
-  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
-}
-
-std::shared_ptr<PyPotentialEnergy> createElasticMaterialEnergy(
-  std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,
-  nb::ndarray<nb::numpy, const double> fixedDisplacement)
-{
-  if (!deformationEnergyCore) {
-    throw nb::value_error("deformation_energy must be non-null");
-  }
-
-  auto fixed = python::ndarrayToVectorXd(fixedDisplacement);
-  auto energy = std::make_shared<SolidDeformationModel::ElasticMaterialEnergy>(
-    deformationEnergyCore->energy(), fixed);
-  return std::make_shared<PyOwnedPotentialEnergy>(std::move(energy));
 }

@@ -23,11 +23,6 @@ pgo_add_gtest(deformationModelBuilder_gtest
   LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/cubic/box.veg"
   LIBPGO_TEST_SHELL_OBJ="${CMAKE_SOURCE_DIR}/examples/assets/obj/shell.obj"
 )
-pgo_add_gtest(plasticMaterialEnergy_gtest
-  SOURCES plasticMaterialEnergy_gtest.cpp
-  DEPS solidDeformationModel
-)
-
 pgo_add_gtest(optimizableParameters_gtest
   SOURCES optimizableParameters_gtest.cpp
   DEPS solidDeformationModel volumetricMesh

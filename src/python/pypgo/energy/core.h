@@ -685,11 +685,3 @@ std::shared_ptr<PyMaterialFrameField> makeMaterialFramesFromPrimaryAxes(
 std::shared_ptr<PyMaterialFrameField> projectImportedMaterialFrameField(
   const pgo::PyImportedMaterialCatalog &source,
   const std::string &property);
-
-std::shared_ptr<PyPotentialEnergy> createPlasticMaterialEnergy(
-  std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,
-  nb::ndarray<nb::numpy, const double> fixedDisplacement);
-
-std::shared_ptr<PyPotentialEnergy> createElasticMaterialEnergy(
-  std::shared_ptr<PyDeformationEnergy> deformationEnergyCore,
-  nb::ndarray<nb::numpy, const double> fixedDisplacement);
