@@ -17,12 +17,10 @@ void validateEvaluationState(
 {
   if (dependency == nullptr)
     return;
-  if (state.empty())
+  if (state.elasticValues().size() != static_cast<std::size_t>(
+      dependency->field().layout().numGlobalParameters()))
     throw std::invalid_argument(
-      "parameter-dependent areal density requires optimizable parameter state");
-  if (!dependency->field().sharesStateWith(state.elasticField()))
-    throw std::invalid_argument(
-      "parameter-dependent areal density must depend on the evaluation elastic field");
+      "parameter-dependent areal density state size does not match its elastic field");
 }
 
 }  // namespace

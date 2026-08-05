@@ -34,22 +34,19 @@ PrescribedPrincipleStressConstraintFunctions::
   tetMeshDMM(tmdmm),
   materialState_(std::move(materialState))
 {
-  if (materialState_.empty())
-    throw std::invalid_argument(
-      "PrescribedPrincipleStressConstraintFunctions requires material state.");
-  const auto &elasticField = materialState_.elasticField();
-  const auto &plasticField = materialState_.plasticField();
+  const auto elasticField = tetMeshDMM.elasticOptimizableField();
+  const auto plasticField = tetMeshDMM.plasticOptimizableField();
   const SimulationMesh &mesh = tetMeshDMM.getMesh();
-  if (elasticField.mapping().numChannels() !=
+  if (elasticField->mapping().numChannels() !=
     tetMeshDMM.getNumElasticParameters())
     throw std::invalid_argument(
       "Constraint elastic parameter channels do not match the deformation model.");
-  if (plasticField.mapping().numChannels() !=
+  if (plasticField->mapping().numChannels() !=
     tetMeshDMM.getNumPlasticParameters())
     throw std::invalid_argument(
       "Constraint plastic parameter channels do not match the deformation model.");
-  if (elasticField.layout().numElements() != mesh.getNumElements() ||
-    plasticField.layout().numElements() != mesh.getNumElements())
+  if (elasticField->layout().numElements() != mesh.getNumElements() ||
+    plasticField->layout().numElements() != mesh.getNumElements())
     throw std::invalid_argument(
       "Constraint optimizable parameter layouts do not match the mesh.");
 
@@ -112,11 +109,13 @@ PrescribedPrincipleStressConstraintFunctions::prepareElement(
 {
   const std::span<const double> elasticParameters =
     state.evaluateElement(
-      state.elasticField(), elementID, data.numMaterialLocations,
+      *tetMeshDMM.elasticOptimizableField(), state.elasticValues(),
+      elementID, data.numMaterialLocations,
       data.elasticParameters);
   const std::span<const double> plasticParameters =
     state.evaluateElement(
-      state.plasticField(), elementID, data.numMaterialLocations,
+      *tetMeshDMM.plasticOptimizableField(), state.plasticValues(),
+      elementID, data.numMaterialLocations,
       data.plasticParameters);
 
   data.evaluator->prepare(

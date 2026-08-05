@@ -6,17 +6,18 @@ namespace pgo::SolidDeformationModel
 {
 namespace
 {
-void validateStateSize(const char *name, std::size_t actual, int expected)
-{
-  if (actual != static_cast<std::size_t>(expected))
-    throw std::invalid_argument(
-      std::string(name) + " value count does not match its parameter field.");
-}
-
 std::shared_ptr<const EigenSupport::VXd> makeValueOwner(
   EigenSupport::VXd values)
 {
+  if (!values.allFinite())
+    throw std::invalid_argument("MaterialState values must be finite.");
   return std::make_shared<const EigenSupport::VXd>(std::move(values));
+}
+
+EigenSupport::VXd copyValues(std::span<const double> values)
+{
+  return EigenSupport::VXd(
+    Eigen::Map<const EigenSupport::VXd>(values.data(), values.size()));
 }
 }  // namespace
 
@@ -38,51 +39,36 @@ void MaterialStateEvaluationScratch::prepare(
     static_cast<Eigen::Index>(localParameters));
 }
 
+MaterialState::MaterialState():
+  MaterialState(EigenSupport::VXd{}, EigenSupport::VXd{})
+{
+}
+
 MaterialState::MaterialState(
-  std::shared_ptr<const OptimizableParameterField> elasticField,
-  std::shared_ptr<const OptimizableParameterField> plasticField,
   EigenSupport::VXd elasticValues,
   EigenSupport::VXd plasticValues):
   MaterialState(
-    std::move(elasticField), std::move(plasticField),
     makeValueOwner(std::move(elasticValues)),
     makeValueOwner(std::move(plasticValues)))
 {
 }
 
 MaterialState::MaterialState(
-  std::shared_ptr<const OptimizableParameterField> elasticField,
-  std::shared_ptr<const OptimizableParameterField> plasticField,
   std::shared_ptr<const EigenSupport::VXd> elasticValues,
   std::shared_ptr<const EigenSupport::VXd> plasticValues):
-  elasticField_(std::move(elasticField)),
-  plasticField_(std::move(plasticField)),
   elasticValues_(std::move(elasticValues)),
   plasticValues_(std::move(plasticValues))
 {
-  if (!elasticField_ || !plasticField_ || !elasticValues_ || !plasticValues_)
+  if (!elasticValues_ || !plasticValues_)
     throw std::invalid_argument(
-      "MaterialState requires complete state handles.");
-  if (elasticField_->numElements() != plasticField_->numElements())
-    throw std::invalid_argument(
-      "MaterialState fields must share an element count.");
-  validateStateSize(
-    "elastic", elasticValues_->size(),
-    elasticField_->layout().numGlobalParameters());
-  validateStateSize(
-    "plastic", plasticValues_->size(),
-    plasticField_->layout().numGlobalParameters());
+      "MaterialState requires complete value storage.");
 }
 
 MaterialStateView MaterialState::view() const
 {
-  if (empty())
-    return {};
   return MaterialStateView(
-    elasticField_, plasticField_,
     std::span<const double>(elasticValues_->data(), elasticValues_->size()),
-    std::span<const double>(plasticValues_->data(), plasticValues_->size()),
-    elasticValues_, plasticValues_);
+    std::span<const double>(plasticValues_->data(), plasticValues_->size()));
 }
 
 MaterialState::operator MaterialStateView() const
@@ -90,93 +76,31 @@ MaterialState::operator MaterialStateView() const
   return view();
 }
 
-MaterialState
-MaterialState::withElasticValues(
+MaterialState MaterialState::withElasticValues(
   std::span<const double> elasticValues) const
 {
-  if (empty())
-    throw std::invalid_argument("MaterialState is empty.");
-  validateStateSize(
-    "elastic", elasticValues.size(),
-    elasticField_->layout().numGlobalParameters());
   return MaterialState(
-    elasticField_, plasticField_,
-    makeValueOwner(EigenSupport::VXd(
-      Eigen::Map<const EigenSupport::VXd>(
-        elasticValues.data(), elasticValues.size()))),
-    plasticValues_);
+    makeValueOwner(copyValues(elasticValues)), plasticValues_);
 }
 
-MaterialState
-MaterialState::withPlasticValues(
+MaterialState MaterialState::withPlasticValues(
   std::span<const double> plasticValues) const
 {
-  if (empty())
-    throw std::invalid_argument("MaterialState is empty.");
-  validateStateSize(
-    "plastic", plasticValues.size(),
-    plasticField_->layout().numGlobalParameters());
   return MaterialState(
-    elasticField_, plasticField_, elasticValues_,
-    makeValueOwner(EigenSupport::VXd(
-      Eigen::Map<const EigenSupport::VXd>(
-        plasticValues.data(), plasticValues.size()))));
+    elasticValues_, makeValueOwner(copyValues(plasticValues)));
 }
 
 MaterialState MaterialState::withValues(
   std::span<const double> elasticValues,
   std::span<const double> plasticValues) const
 {
-  if (empty())
-    throw std::invalid_argument("MaterialState is empty.");
-  validateStateSize(
-    "elastic", elasticValues.size(),
-    elasticField_->layout().numGlobalParameters());
-  validateStateSize(
-    "plastic", plasticValues.size(),
-    plasticField_->layout().numGlobalParameters());
   return MaterialState(
-    elasticField_, plasticField_,
-    EigenSupport::VXd(Eigen::Map<const EigenSupport::VXd>(
-      elasticValues.data(), elasticValues.size())),
-    EigenSupport::VXd(Eigen::Map<const EigenSupport::VXd>(
-      plasticValues.data(), plasticValues.size())));
-}
-
-const OptimizableParameterField &
-MaterialStateView::elasticField() const
-{
-  if (empty())
-    throw std::logic_error(
-      "An empty optimizable parameter evaluation view has no elastic field.");
-  return *elasticField_;
-}
-
-const OptimizableParameterField &
-MaterialStateView::plasticField() const
-{
-  if (empty())
-    throw std::logic_error(
-      "An empty optimizable parameter evaluation view has no plastic field.");
-  return *plasticField_;
-}
-
-std::span<const double> MaterialStateView::values(
-  const OptimizableParameterField &field) const
-{
-  if (empty())
-    throw std::invalid_argument(
-      "Optimizable parameter evaluation view is empty.");
-  if (field.sharesStateWith(*elasticField_))
-    return elasticValues_;
-  if (field.sharesStateWith(*plasticField_))
-    return plasticValues_;
-  throw std::invalid_argument(
-    "Optimizable parameter field does not belong to the evaluation view.");
+    copyValues(elasticValues), copyValues(plasticValues));
 }
 
 void MaterialStateView::evaluateElement(
   const OptimizableParameterField &field,
+  std::span<const double> globalValues,
   int element,
   int numMaterialLocations,
   std::span<double> localParameterScratch,
@@ -191,7 +115,6 @@ void MaterialStateView::evaluateElement(
     throw std::invalid_argument(
       "Optimizable parameter location count must be non-negative.");
 
-  const std::span<const double> globalValues = values(field);
   const std::size_t numLocalParameters =
     static_cast<std::size_t>(layout.numLocalParameters());
   const std::size_t numChannels =
@@ -220,13 +143,14 @@ void MaterialStateView::evaluateElement(
 
 std::span<const double> MaterialStateView::evaluateElement(
   const OptimizableParameterField &field,
+  std::span<const double> globalValues,
   int element,
   int numMaterialLocations,
   MaterialStateEvaluationScratch &scratch) const
 {
   scratch.prepare(field, numMaterialLocations);
   evaluateElement(
-    field, element, numMaterialLocations,
+    field, globalValues, element, numMaterialLocations,
     scratch.local, scratch.material);
   return scratch.material;
 }

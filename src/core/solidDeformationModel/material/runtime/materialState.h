@@ -24,34 +24,15 @@ struct MaterialStateEvaluationScratch
 
 class MaterialStateView;
 
-/// Immutable material values associated with one pair of parameter fields.
+/// Immutable elastic and plastic global optimizable parameter values.
 class MaterialState
 {
 public:
-  MaterialState() = default;
+  MaterialState();
   MaterialState(
-    std::shared_ptr<const OptimizableParameterField> elasticField,
-    std::shared_ptr<const OptimizableParameterField> plasticField,
     EigenSupport::VXd elasticValues,
     EigenSupport::VXd plasticValues);
 
-  bool empty() const { return !elasticField_ || !plasticField_; }
-  const OptimizableParameterField &elasticField() const
-  {
-    return *elasticField_;
-  }
-  const OptimizableParameterField &plasticField() const
-  {
-    return *plasticField_;
-  }
-  const std::shared_ptr<const OptimizableParameterField> &elasticFieldHandle() const
-  {
-    return elasticField_;
-  }
-  const std::shared_ptr<const OptimizableParameterField> &plasticFieldHandle() const
-  {
-    return plasticField_;
-  }
   const EigenSupport::VXd &elasticValues() const { return *elasticValues_; }
   const EigenSupport::VXd &plasticValues() const { return *plasticValues_; }
 
@@ -67,69 +48,45 @@ public:
 
 private:
   MaterialState(
-    std::shared_ptr<const OptimizableParameterField> elasticField,
-    std::shared_ptr<const OptimizableParameterField> plasticField,
     std::shared_ptr<const EigenSupport::VXd> elasticValues,
     std::shared_ptr<const EigenSupport::VXd> plasticValues);
 
-  std::shared_ptr<const OptimizableParameterField> elasticField_;
-  std::shared_ptr<const OptimizableParameterField> plasticField_;
   std::shared_ptr<const EigenSupport::VXd> elasticValues_;
   std::shared_ptr<const EigenSupport::VXd> plasticValues_;
 };
 
-/// Non-owning view used during one material evaluation.
+/// Non-owning values used during one material evaluation.
 class MaterialStateView
 {
 public:
   MaterialStateView() = default;
-
-  bool empty() const { return !elasticField_ || !plasticField_; }
-  const OptimizableParameterField &elasticField() const;
-  const OptimizableParameterField &plasticField() const;
+  MaterialStateView(
+    std::span<const double> elasticValues,
+    std::span<const double> plasticValues):
+    elasticValues_(elasticValues), plasticValues_(plasticValues)
+  {
+  }
 
   std::span<const double> elasticValues() const { return elasticValues_; }
   std::span<const double> plasticValues() const { return plasticValues_; }
-  std::span<const double> values(
-    const OptimizableParameterField &field) const;
 
   void evaluateElement(
     const OptimizableParameterField &field,
+    std::span<const double> globalValues,
     int element,
     int numMaterialLocations,
     std::span<double> localParameterScratch,
     std::span<double> materialValues) const;
   std::span<const double> evaluateElement(
     const OptimizableParameterField &field,
+    std::span<const double> globalValues,
     int element,
     int numMaterialLocations,
     MaterialStateEvaluationScratch &scratch) const;
 
 private:
-  friend class MaterialState;
-
-  MaterialStateView(
-    std::shared_ptr<const OptimizableParameterField> elasticField,
-    std::shared_ptr<const OptimizableParameterField> plasticField,
-    std::span<const double> elasticValues,
-    std::span<const double> plasticValues,
-    std::shared_ptr<const EigenSupport::VXd> elasticOwner = {},
-    std::shared_ptr<const EigenSupport::VXd> plasticOwner = {}):
-    elasticField_(std::move(elasticField)),
-    plasticField_(std::move(plasticField)),
-    elasticValues_(elasticValues),
-    plasticValues_(plasticValues),
-    elasticOwner_(std::move(elasticOwner)),
-    plasticOwner_(std::move(plasticOwner))
-  {
-  }
-
-  std::shared_ptr<const OptimizableParameterField> elasticField_;
-  std::shared_ptr<const OptimizableParameterField> plasticField_;
   std::span<const double> elasticValues_;
   std::span<const double> plasticValues_;
-  std::shared_ptr<const EigenSupport::VXd> elasticOwner_;
-  std::shared_ptr<const EigenSupport::VXd> plasticOwner_;
 };
 
 }  // namespace pgo::SolidDeformationModel

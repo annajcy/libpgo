@@ -13,15 +13,15 @@ DeformationPotentialEnergy::DeformationPotentialEnergy(
   energyOperator_(std::move(energyOperator)),
   materialState_(std::move(materialState))
 {
-  if (!energyOperator_ || materialState_.empty())
+  if (!energyOperator_)
     throw std::invalid_argument(
       "DeformationPotentialEnergy requires an operator and material state.");
-  if (!materialState_.elasticField().sharesStateWith(
-      *energyOperator_->assembler().elasticField()) ||
-    !materialState_.plasticField().sharesStateWith(
-      *energyOperator_->assembler().plasticField()))
+  if (materialState_.elasticValues().size() !=
+      energyOperator_->assembler().getNumElasticGlobalParams() ||
+    materialState_.plasticValues().size() !=
+      energyOperator_->assembler().getNumPlasticGlobalParams())
     throw std::invalid_argument(
-      "DeformationPotentialEnergy material state belongs to different fields.");
+      "DeformationPotentialEnergy material state size does not match the operator.");
 }
 
 double DeformationPotentialEnergy::func(EigenSupport::ConstRefVecXd x) const

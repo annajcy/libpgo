@@ -177,14 +177,14 @@ Fixture makeFixture(
     plasticEvaluator ? std::move(plasticEvaluator) :
                      std::make_shared<SquareEvaluator>(6));
   fixture.parameters = std::make_shared<MaterialState>(
-    elasticBlock, plasticBlock, ES::VXd(), z);
+    ES::VXd(), z);
 
   CubicLinearFormulation formulation;
   auto assignment = TestUtils::makeMaterialAssignment(
     fixture.asset,
     std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity6Definition>(),
-    fixture.parameters);
+    fixture.parameters, nullptr, elasticBlock, plasticBlock);
   auto manager = std::make_shared<DeformationModelManager>(
     std::move(assignment), formulation, false);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
@@ -228,14 +228,14 @@ Fixture makeNonlinearShellFixture()
     std::make_shared<ConstantParameterLayout>(1, 1),
     std::make_shared<SquareEvaluator>(1));
   fixture.parameters = std::make_shared<MaterialState>(
-    elasticBlock, plasticBlock, elastic, plastic);
+    elastic, plastic);
 
   KoiterShellFormulation formulation;
   auto assignment = TestUtils::makeMaterialAssignment(
     fixture.asset,
     std::make_shared<KoiterStVKDefinition>(),
     std::make_shared<ShellPlasticity1Definition>(),
-    fixture.parameters);
+    fixture.parameters, nullptr, elasticBlock, plasticBlock);
   auto manager = std::make_shared<DeformationModelManager>(
     std::move(assignment), formulation, false);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
@@ -398,13 +398,19 @@ TEST(DeformationModelAssembler, DirectElasticMaterialVJPMatchesMixedHessian)
   EXPECT_TRUE(directVJP.isApprox(mixed.transpose() * adjoint, 1e-11));
 }
 
-TEST(DeformationModelAssembler, RejectsStateFromDifferentSpace)
+TEST(DeformationModelAssembler, AcceptsAnyStateWithMatchingLengths)
 {
   Fixture a = makeFixture();
   Fixture b = makeFixture();
+  EXPECT_NO_THROW(
+    a.assembler->compute_E(
+      constSpan(a.absolutePositions), b.parameters->view()));
+
+  const MaterialState wrongLength(
+    a.parameters->elasticValues(), ES::VXd::Zero(5));
   EXPECT_THROW(
     a.assembler->compute_E(
-      constSpan(a.absolutePositions), b.parameters->view()),
+      constSpan(a.absolutePositions), wrongLength.view()),
     std::invalid_argument);
 }
 
@@ -416,14 +422,13 @@ TEST(DeformationModelAssembler, EvaluatorExceptionDoesNotModifyBaseState)
   ES::VXd trial = before;
   trial[0] = 1.2;
   const ES::VXd elastic = fixture.parameters->elasticValues();
-  const MaterialStateView trialView =
-    fixture.parameters->withValues(
-      std::span<const double>(elastic.data(), elastic.size()),
-      std::span<const double>(trial.data(), trial.size()));
+  const MaterialState trialState = fixture.parameters->withValues(
+    std::span<const double>(elastic.data(), elastic.size()),
+    std::span<const double>(trial.data(), trial.size()));
 
   EXPECT_THROW(
     fixture.assembler->compute_E(
-      constSpan(fixture.absolutePositions), trialView),
+      constSpan(fixture.absolutePositions), trialState.view()),
     std::runtime_error);
   EXPECT_TRUE(fixture.parameters->plasticValues().isApprox(before, 0.0));
   EXPECT_NO_THROW({
@@ -532,7 +537,6 @@ TEST(PrescribedPrincipleStressConstraintFunctions, BindsImmutableMaterialState)
     std::make_shared<ElementwiseParameterLayout>(1, 3),
     std::make_shared<IdentityMaterialChannelMapping>(3));
   auto parameters = std::make_shared<MaterialState>(
-    std::move(elasticField), std::move(plasticField),
     ES::VXd(), ES::V3d::Ones());
 
   TetLinearFormulation formulation;
@@ -540,7 +544,7 @@ TEST(PrescribedPrincipleStressConstraintFunctions, BindsImmutableMaterialState)
     asset,
     std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity3Definition>(),
-    parameters);
+    parameters, nullptr, elasticField, plasticField);
   auto manager = std::make_shared<DeformationModelManager>(
     std::move(assignment), formulation, false);
 

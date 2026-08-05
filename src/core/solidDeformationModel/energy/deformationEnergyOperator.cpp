@@ -108,10 +108,9 @@ DeformationEnergyOperator::BuildComponents DeformationEnergyOperator::build(
     throw std::invalid_argument(
       "DeformationEnergyOperator requires a material assignment.");
   const auto &parameterization = assignment->parameterization();
-  const auto &state = assignment->initialMaterialState();
   const int numElements = assignment->mesh()->getNumElements();
-  if (state.elasticField().numElements() != numElements ||
-    state.plasticField().numElements() != numElements)
+  if (parameterization->elastic().optimizableField()->numElements() != numElements ||
+    parameterization->plastic().optimizableField()->numElements() != numElements)
     throw std::invalid_argument(
       "DeformationEnergyOperator parameter field element count does not match the mesh.");
 

@@ -71,7 +71,7 @@ void warnIllegalInitialState(pgo::SolidDeformationModel::SimulationMeshType mesh
 
 void fillLocalParamDerivative(
   const OptimizableParameterField &block,
-  const MaterialStateView &state,
+  std::span<const double> globalValues,
   int ele,
   int quadratureId,
   std::span<double> localDofValues,
@@ -85,7 +85,7 @@ void fillLocalParamDerivative(
     throw std::invalid_argument("Material channel Jacobian output has unexpected shape.");
   if (numLocalParameters > 0) {
     layout.gather(
-      ele, state.values(block),
+      ele, globalValues,
       localDofValues.first(static_cast<std::size_t>(numLocalParameters)));
   }
   if (numChannels > 0 && numLocalParameters > 0) {
@@ -328,12 +328,6 @@ DeformationModelAssembler::~DeformationModelAssembler() = default;
 void DeformationModelAssembler::validateMaterialState(
   const MaterialStateView &state) const
 {
-  if (state.empty())
-    throw std::invalid_argument("DeformationModelAssembler requires a non-empty material state.");
-  if (!state.elasticField().sharesStateWith(*elasticField_) ||
-    !state.plasticField().sharesStateWith(*plasticField_))
-    throw std::invalid_argument(
-      "MaterialStateView belongs to different parameter fields.");
   if (state.elasticValues().size() != static_cast<std::size_t>(getNumElasticGlobalParams()))
     throw std::invalid_argument("MaterialStateView elastic value count does not match the assembler.");
   if (state.plasticValues().size() != static_cast<std::size_t>(getNumPlasticGlobalParams()))
@@ -361,11 +355,11 @@ DeformationModelEvaluator &DeformationModelAssembler::gatherAndPrepare(
   DeformationModelEvaluator &evaluator = scratch.evaluator();
   const int numMaterialLocations = fem.getNumMaterialLocations();
   state.evaluateElement(
-    *elasticField_, ele, numMaterialLocations,
+    *elasticField_, state.elasticValues(), ele, numMaterialLocations,
     std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
     std::span<double>(scratch.elasticParamValues.data(), scratch.elasticParamValues.size()));
   state.evaluateElement(
-    *plasticField_, ele, numMaterialLocations,
+    *plasticField_, state.plasticValues(), ele, numMaterialLocations,
     std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
     std::span<double>(scratch.plasticParamValues.data(), scratch.plasticParamValues.size()));
 
@@ -579,7 +573,7 @@ void DeformationModelAssembler::compute_dE_dp(
       rawGrad.setZero();
       evaluator.compute_dE_dp(rawGrad, q);
       fillLocalParamDerivative(
-        plasticBlock, state, ele, q,
+        plasticBlock, state.plasticValues(), ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
         dParamDLocal);
       localGrad.noalias() += dParamDLocal.transpose() * rawGrad;
@@ -634,7 +628,7 @@ void DeformationModelAssembler::compute_d2E_dp2(
     for (int q = 0; q < femModels[ele].get().getNumMaterialLocations(); q++) {
       evaluator.compute_d2E_dp2(ES::Mp<ES::MXd>(scratch.localMatrixData.data(), numPlasticParams_, numPlasticParams_), q);
       fillLocalParamDerivative(
-        plasticBlock, state, ele, q,
+        plasticBlock, state.plasticValues(), ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
         dParamDLocal);
       paramWork.noalias() = rawH * dParamDLocal;
@@ -712,7 +706,7 @@ void DeformationModelAssembler::compute_dE_de(
       rawGrad.setZero();
       evaluator.compute_dE_de(rawGrad, q);
       fillLocalParamDerivative(
-        elasticBlock, state, ele, q,
+        elasticBlock, state.elasticValues(), ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
         dParamDLocal);
       localGrad.noalias() += dParamDLocal.transpose() * rawGrad;
@@ -767,7 +761,7 @@ void DeformationModelAssembler::compute_d2E_de2(
     for (int q = 0; q < femModels[ele].get().getNumMaterialLocations(); q++) {
       evaluator.compute_d2E_de2(ES::Mp<ES::MXd>(scratch.localMatrixData.data(), numElasticParams_, numElasticParams_), q);
       fillLocalParamDerivative(
-        elasticBlock, state, ele, q,
+        elasticBlock, state.elasticValues(), ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
         dParamDLocal);
       paramWork.noalias() = rawH * dParamDLocal;
@@ -851,11 +845,11 @@ void DeformationModelAssembler::compute_d2E_dpde(
     for (int q = 0; q < femModels[ele].get().getNumMaterialLocations(); q++) {
       evaluator.compute_d2E_dpde(ES::Mp<ES::MXd>(scratch.localMatrixData.data(), numPlasticParams_, numElasticParams_), q);
       fillLocalParamDerivative(
-        plasticBlock, state, ele, q,
+        plasticBlock, state.plasticValues(), ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
         dPlasticDLocal);
       fillLocalParamDerivative(
-        elasticBlock, state, ele, q,
+        elasticBlock, state.elasticValues(), ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
         dElasticDLocal);
       paramWork.noalias() = rawH * dElasticDLocal;
@@ -889,7 +883,8 @@ void DeformationModelAssembler::compute_d2E_dudp(
   if (numPlasticParams_ == 0)
     return;
   assemble_d2E_dudq(
-    absolutePositions, state, numPlasticParams_, numPlasticLocalParams_,
+    absolutePositions, state, state.plasticValues(),
+    numPlasticParams_, numPlasticLocalParams_,
     *plasticField_,
     d2E_dudpCache_.elementInverseIndices,
     &DeformationModelEvaluator::compute_d2E_dudp,
@@ -904,7 +899,8 @@ void DeformationModelAssembler::compute_d2E_dude(
   if (numElasticParams_ == 0)
     return;
   assemble_d2E_dudq(
-    absolutePositions, state, numElasticParams_, numElasticLocalParams_,
+    absolutePositions, state, state.elasticValues(),
+    numElasticParams_, numElasticLocalParams_,
     *elasticField_,
     d2E_dudeCache_.elementInverseIndices,
     &DeformationModelEvaluator::compute_d2E_dude,
@@ -919,7 +915,7 @@ void DeformationModelAssembler::computePlasticMaterialVJP(
 {
   validateMaterialState(state);
   assembleMaterialVJP(
-    absolutePositions, adjoint, state,
+    absolutePositions, adjoint, state, state.plasticValues(),
     numPlasticParams_, numPlasticLocalParams_, *plasticField_,
     &DeformationModelEvaluator::compute_d2E_dudp,
     output, "plastic material VJP");
@@ -933,7 +929,7 @@ void DeformationModelAssembler::computeElasticMaterialVJP(
 {
   validateMaterialState(state);
   assembleMaterialVJP(
-    absolutePositions, adjoint, state,
+    absolutePositions, adjoint, state, state.elasticValues(),
     numElasticParams_, numElasticLocalParams_, *elasticField_,
     &DeformationModelEvaluator::compute_d2E_dude,
     output, "elastic material VJP");
@@ -1078,6 +1074,7 @@ void DeformationModelAssembler::buildMixedSparsityTemplate(
 void DeformationModelAssembler::assemble_d2E_dudq(
   std::span<const double> absolutePositions,
   MaterialStateView state,
+  std::span<const double> globalParameterValues,
   int numMaterialParams,
   int numLocalParams,
   const OptimizableParameterField &paramBlock,
@@ -1095,7 +1092,8 @@ void DeformationModelAssembler::assemble_d2E_dudq(
   if (numMaterialParams == 0 || numLocalParams == 0)
     return;
 
-  auto localFunc = [this, absolutePositions, &state, &mixedHessian,
+  auto localFunc = [this, absolutePositions, &state, globalParameterValues,
+                     &mixedHessian,
                      numMaterialParams, numLocalParams, &paramBlock,
                      &inverseIndices, computeLocal](int ele) {
     if (elementWeights[ele] == 0)
@@ -1114,7 +1112,7 @@ void DeformationModelAssembler::assemble_d2E_dudq(
       (evaluator.*computeLocal)(
         ES::Mp<ES::MXd>(scratch.localMatrixData.data(), localDOFs, numMaterialParams), q);
       fillLocalParamDerivative(
-        paramBlock, state, ele, q,
+        paramBlock, globalParameterValues, ele, q,
         std::span<double>(scratch.localParamValues.data(), scratch.localParamValues.size()),
         dParamDLocal);
       localK.noalias() += rawK * dParamDLocal;
@@ -1148,6 +1146,7 @@ void DeformationModelAssembler::assembleMaterialVJP(
   std::span<const double> absolutePositions,
   std::span<const double> adjoint,
   MaterialStateView state,
+  std::span<const double> globalParameterValues,
   int numMaterialParams,
   int numLocalParams,
   const OptimizableParameterField &paramBlock,
@@ -1167,7 +1166,8 @@ void DeformationModelAssembler::assembleMaterialVJP(
   if (numMaterialParams == 0 || numLocalParams == 0)
     return;
 
-  auto localFunc = [this, absolutePositions, adjoint, &state, output,
+  auto localFunc = [this, absolutePositions, adjoint, &state,
+                     globalParameterValues, output,
                      numMaterialParams, numLocalParams, &paramBlock,
                      computeLocal](int ele) {
     if (elementWeights[ele] == 0)
@@ -1196,7 +1196,7 @@ void DeformationModelAssembler::assembleMaterialVJP(
         ES::Mp<ES::MXd>(scratch.localMatrixData.data(),
           localDOFs, numMaterialParams), q);
       fillLocalParamDerivative(
-        paramBlock, state, ele, q,
+        paramBlock, globalParameterValues, ele, q,
         std::span<double>(scratch.localParamValues.data(),
           scratch.localParamValues.size()),
         dParamDLocal);

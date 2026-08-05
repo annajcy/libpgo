@@ -214,7 +214,6 @@ inline std::shared_ptr<MaterialState> makeDefaultMaterialState(
         defaultPlasticValue(plasticNames[channel]);
 
   return std::make_shared<MaterialState>(
-    std::move(elasticField), std::move(plasticField),
     std::move(elasticValues), std::move(plasticValues));
 }
 
@@ -229,7 +228,9 @@ inline MaterialBindingAndState makeMaterialBinding(
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic,
   std::shared_ptr<MaterialState> state = {},
-  std::shared_ptr<const MaterialFrameField> frames = {})
+  std::shared_ptr<const MaterialFrameField> frames = {},
+  std::shared_ptr<const OptimizableParameterField> elasticOptimizable = {},
+  std::shared_ptr<const OptimizableParameterField> plasticOptimizable = {})
 {
   if (!asset || !elastic || !plastic)
     throw std::invalid_argument(
@@ -260,6 +261,22 @@ inline MaterialBindingAndState makeMaterialBinding(
 
   auto elasticFixed = makeFixedField(*elastic);
   auto plasticFixed = makeFixedField(*plastic);
+  if (!elasticOptimizable) {
+    const auto schema = elastic->optimizableChannelSchema();
+    elasticOptimizable = std::make_shared<const OptimizableParameterField>(
+      identityParameterSchema(schema),
+      std::make_shared<ElementwiseParameterLayout>(
+        numElements, schema.numChannels()),
+      std::make_shared<IdentityMaterialChannelMapping>(schema.numChannels()));
+  }
+  if (!plasticOptimizable) {
+    const auto schema = plastic->optimizableChannelSchema();
+    plasticOptimizable = std::make_shared<const OptimizableParameterField>(
+      identityParameterSchema(schema),
+      std::make_shared<ElementwiseParameterLayout>(
+        numElements, schema.numChannels()),
+      std::make_shared<IdentityMaterialChannelMapping>(schema.numChannels()));
+  }
   if (!state)
     state = makeDefaultMaterialState(*asset, *elastic, *plastic);
   if (!frames)
@@ -270,12 +287,12 @@ inline MaterialBindingAndState makeMaterialBinding(
       std::move(elastic),
       FixedMaterialParameters(
         elasticFixed, projectFixed(elasticFixed)),
-      state->elasticFieldHandle()),
+      std::move(elasticOptimizable)),
     PlasticMaterialBinding(
       std::move(plastic),
       FixedMaterialParameters(
         plasticFixed, projectFixed(plasticFixed)),
-      state->plasticFieldHandle()),
+      std::move(plasticOptimizable)),
     std::move(frames));
   return { std::move(binding), std::move(state) };
 }
@@ -285,11 +302,14 @@ inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic,
   std::shared_ptr<MaterialState> parameters = {},
-  std::shared_ptr<const MaterialFrameField> frames = {})
+  std::shared_ptr<const MaterialFrameField> frames = {},
+  std::shared_ptr<const OptimizableParameterField> elasticOptimizable = {},
+  std::shared_ptr<const OptimizableParameterField> plasticOptimizable = {})
 {
   auto result = makeMaterialBinding(
     asset, std::move(elastic), std::move(plastic),
-    std::move(parameters), std::move(frames));
+    std::move(parameters), std::move(frames),
+    std::move(elasticOptimizable), std::move(plasticOptimizable));
   const auto &binding = *result.binding;
   auto parameterization = std::make_shared<const MaterialParameterization>(
     ElasticParameterization(

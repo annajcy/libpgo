@@ -291,22 +291,22 @@ TEST(MaterialParameterizationSemanticContract, PhysicalChannelRefUsesMappingDeri
   const auto parameterization = makeLogEParameterization();
   const double logE = std::log(1200.0);
   MaterialState parameters(
-    parameterization->elastic().optimizableField(),
-    parameterization->plastic().optimizableField(),
     ES::VXd::Constant(1, logE), ES::VXd{});
   const auto state = parameters.view();
   const OptimizableMaterialChannelRef channel(
     parameterization->elastic(), "E");
 
   MaterialStateEvaluationScratch scratch;
-  EXPECT_NEAR(channel.value(0, 0, state, scratch), 1200.0, 1e-12);
+  EXPECT_NEAR(
+    channel.value(0, 0, state.elasticValues(), scratch), 1200.0, 1e-12);
 
   ES::VXd derivative(1);
-  channel.localDerivative(0, 0, state, scratch, derivative);
+  channel.localDerivative(
+    0, 0, state.elasticValues(), scratch, derivative);
   EXPECT_NEAR(derivative[0], 1200.0, 1e-12);
 
   ES::MXd hessian(1, 1);
-  channel.localHessian(0, 0, state, hessian);
+  channel.localHessian(0, 0, state.elasticValues(), hessian);
   EXPECT_NEAR(hessian(0, 0), 1200.0, 1e-12);
 }
 

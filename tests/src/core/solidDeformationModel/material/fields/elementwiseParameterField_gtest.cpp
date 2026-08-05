@@ -156,24 +156,7 @@ TEST(OptimizableParameterField, RejectsInvalidSchema)
     std::invalid_argument);
 }
 
-TEST(MaterialState, RejectsMismatchedFieldElementCounts)
-{
-  auto elastic = std::make_shared<const OptimizableParameterField>(
-    ParameterInputSchema{},
-    std::make_shared<ElementwiseParameterLayout>(2, 0),
-    std::make_shared<IdentityMaterialChannelMapping>(0));
-  auto plastic = std::make_shared<const OptimizableParameterField>(
-    ParameterInputSchema{},
-    std::make_shared<ElementwiseParameterLayout>(3, 0),
-    std::make_shared<IdentityMaterialChannelMapping>(0));
-  EXPECT_THROW(
-    MaterialState(
-      std::move(elastic), std::move(plastic),
-      ES::VXd{}, ES::VXd{}),
-    std::invalid_argument);
-}
-
-TEST(MaterialState, FieldIdentitySnapshotAndSemanticReference)
+TEST(MaterialState, ValueSnapshotAndExplicitFieldEvaluation)
 {
   auto elastic = std::make_shared<const OptimizableParameterField>(
     ParameterInputSchema({ "first", "thickness" }),
@@ -187,14 +170,14 @@ TEST(MaterialState, FieldIdentitySnapshotAndSemanticReference)
   elasticValues << 1.0, 2.0, 3.0, 4.0;
   ES::VXd plasticValues(1);
   plasticValues << 1.1;
-  MaterialState parameters(
-    elastic, plastic, elasticValues, plasticValues);
+  MaterialState parameters(elasticValues, plasticValues);
   const MaterialState snapshot = parameters;
 
   std::array<double, 2> localParameters{};
   std::array<double, 4> materialValues{};
   snapshot.view().evaluateElement(
-    *elastic, 1, 2, localParameters, materialValues);
+    *elastic, snapshot.view().elasticValues(),
+    1, 2, localParameters, materialValues);
   EXPECT_DOUBLE_EQ(localParameters[0], 3.0);
   EXPECT_DOUBLE_EQ(localParameters[1], 4.0);
   EXPECT_EQ(
@@ -202,13 +185,15 @@ TEST(MaterialState, FieldIdentitySnapshotAndSemanticReference)
     (std::array<double, 4>{ 18.0, 48.0, 18.0, 48.0 }));
   EXPECT_THROW(
     snapshot.view().evaluateElement(
-      *elastic, 1, 2, localParameters,
+      *elastic, snapshot.view().elasticValues(),
+      1, 2, localParameters,
       std::span<double>(materialValues.data(), materialValues.size() - 1)),
     std::invalid_argument);
   MaterialStateEvaluationScratch evaluationScratch;
   const std::span<const double> evaluatedValues =
     snapshot.view().evaluateElement(
-      *elastic, 1, 2, evaluationScratch);
+      *elastic, snapshot.view().elasticValues(),
+      1, 2, evaluationScratch);
   EXPECT_EQ(
     std::vector<double>(evaluatedValues.begin(), evaluatedValues.end()),
     (std::vector<double>{ 18.0, 48.0, 18.0, 48.0 }));
@@ -216,9 +201,11 @@ TEST(MaterialState, FieldIdentitySnapshotAndSemanticReference)
   OptimizableParameterRef thickness(elastic, "thickness");
   EXPECT_THROW(
     OptimizableParameterRef(elastic, "missing"), std::invalid_argument);
-  EXPECT_DOUBLE_EQ(thickness.value(1, 0, snapshot.view()), 4.0);
+  EXPECT_DOUBLE_EQ(
+    thickness.value(1, 0, snapshot.view().elasticValues()), 4.0);
   ES::VXd derivative(2);
-  thickness.localDerivative(1, 0, snapshot.view(), derivative);
+  thickness.localDerivative(
+    1, 0, snapshot.view().elasticValues(), derivative);
   EXPECT_DOUBLE_EQ(derivative[0], 0.0);
   EXPECT_DOUBLE_EQ(derivative[1], 1.0);
 
@@ -226,35 +213,30 @@ TEST(MaterialState, FieldIdentitySnapshotAndSemanticReference)
   changed.setZero();
   const MaterialState changedState = parameters.withElasticValues(
     std::span<const double>(changed.data(), changed.size()));
-  EXPECT_DOUBLE_EQ(thickness.value(1, 0, snapshot.view()), 4.0);
-  EXPECT_DOUBLE_EQ(thickness.value(1, 0, changedState.view()), 0.0);
+  EXPECT_DOUBLE_EQ(
+    thickness.value(1, 0, snapshot.view().elasticValues()), 4.0);
+  EXPECT_DOUBLE_EQ(
+    thickness.value(1, 0, changedState.view().elasticValues()), 0.0);
 
   auto otherElastic = std::make_shared<const OptimizableParameterField>(
       ParameterInputSchema({ "first", "thickness" }),
       std::make_shared<ElementwiseParameterLayout>(2, 2),
       std::make_shared<IdentityMaterialChannelMapping>(2));
-  auto otherPlastic = std::make_shared<const OptimizableParameterField>(
-      ParameterInputSchema({ "stretch" }),
-      std::make_shared<ConstantParameterLayout>(2, 1),
-      std::make_shared<IdentityMaterialChannelMapping>(1));
-  EXPECT_THROW(
+  EXPECT_DOUBLE_EQ(
     thickness.value(
       0, 0,
-      MaterialState(
-        otherElastic, otherPlastic,
-        elasticValues, plasticValues).view()),
-    std::invalid_argument);
-  EXPECT_THROW(
+      std::span<const double>(elasticValues.data(), elasticValues.size())),
+    2.0);
+  EXPECT_NO_THROW(
     snapshot.view().evaluateElement(
-      *otherElastic, 0, 1, localParameters,
-      std::span<double>(materialValues.data(), 2)),
-    std::invalid_argument);
+      *otherElastic, snapshot.view().elasticValues(),
+      0, 1, localParameters,
+      std::span<double>(materialValues.data(), 2)));
 
-  EXPECT_THROW(
-    snapshot.withValues(
-      std::span<const double>(elasticValues.data(), elasticValues.size() - 1),
-      std::span<const double>(plasticValues.data(), plasticValues.size())),
-    std::invalid_argument);
+  const MaterialState shorter = snapshot.withValues(
+    std::span<const double>(elasticValues.data(), elasticValues.size() - 1),
+    std::span<const double>(plasticValues.data(), plasticValues.size()));
+  EXPECT_EQ(shorter.elasticValues().size(), elasticValues.size() - 1);
 }
 
 }  // namespace

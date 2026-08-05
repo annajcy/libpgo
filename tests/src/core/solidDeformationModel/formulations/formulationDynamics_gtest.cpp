@@ -146,7 +146,13 @@ std::shared_ptr<const SimulationMesh> makeTwoTriangleShellMesh()
   return loadShellMesh(surface);
 }
 
-std::shared_ptr<MaterialState> makeShellMassParameters(
+struct ShellMassParameters
+{
+  std::shared_ptr<MaterialState> state;
+  std::shared_ptr<const OptimizableParameterField> elasticField;
+};
+
+ShellMassParameters makeShellMassParameters(
   int numElements, bool constant, bool nonlinear)
 {
   constexpr int numElasticChannels = 5;
@@ -170,19 +176,17 @@ std::shared_ptr<MaterialState> makeShellMassParameters(
     ParameterInputSchema(
       { "E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness" }),
     std::move(elasticLayout), std::move(elasticEvaluator));
-  auto plasticBlock = std::make_shared<const OptimizableParameterField>(
-    ParameterInputSchema{},
-    std::make_shared<ElementwiseParameterLayout>(numElements, 0),
-    std::make_shared<IdentityMaterialChannelMapping>(0));
   const int rows = constant ? 1 : numElements;
   EigenSupport::VXd elastic(rows * numElasticChannels);
   for (int row = 0; row < rows; row++) {
     elastic.segment<5>(row * numElasticChannels) <<
       2.0, 0.4, 1.5, 0.3, 0.025 + 0.004 * row;
   }
-  return std::make_shared<MaterialState>(
-    std::move(elasticBlock), std::move(plasticBlock),
-    std::move(elastic), EigenSupport::VXd());
+  return {
+    std::make_shared<MaterialState>(
+      std::move(elastic), EigenSupport::VXd()),
+    std::move(elasticBlock)
+  };
 }
 
 void expectBodyForceParameterJacobianMatchesFD(
@@ -192,15 +196,14 @@ void expectBodyForceParameterJacobianMatchesFD(
   auto parameters = makeShellMassParameters(
     mesh->getNumElements(), constant, nonlinear);
   ShellArealDensityField massField = ShellArealDensityField::fromElasticParameter(
-    850.0, OptimizableParameterRef(
-      parameters->elasticFieldHandle(), "thickness"));
+    850.0, OptimizableParameterRef(parameters.elasticField, "thickness"));
   KoiterShellFormulation formulation;
   const EigenSupport::V3d acceleration(0.7, -1.3, -9.81);
-  const EigenSupport::VXd z = parameters->elasticValues();
+  const EigenSupport::VXd z = parameters.state->elasticValues();
 
   const EigenSupport::SpMatD jacobian =
     formulation.buildBodyForceParameterJacobian(
-      *mesh, acceleration, massField, parameters->view());
+      *mesh, acceleration, massField, parameters.state->view());
   EigenSupport::MXd fd(jacobian.rows(), jacobian.cols());
   constexpr double h = 1e-7;
   for (int col = 0; col < z.size(); col++) {
@@ -208,9 +211,9 @@ void expectBodyForceParameterJacobianMatchesFD(
     EigenSupport::VXd zm = z;
     zp[col] += h;
     zm[col] -= h;
-    auto vp = parameters->withElasticValues(
+    auto vp = parameters.state->withElasticValues(
       std::span<const double>(zp.data(), zp.size()));
-    auto vm = parameters->withElasticValues(
+    auto vm = parameters.state->withElasticValues(
       std::span<const double>(zm.data(), zm.size()));
     fd.col(col) = (
       formulation.buildBodyForce(*mesh, acceleration, massField, vp) -
@@ -272,8 +275,8 @@ TEST(FormulationDynamicsGTest, DensityDerivativeBufferSizeIsValidated)
   auto mesh = makeTwoTriangleShellMesh();
   auto parameters = makeShellMassParameters(mesh->getNumElements(), false, false);
   const OptimizableParameterRef parameter(
-    parameters->elasticFieldHandle(), "thickness");
-  auto state = parameters->view();
+    parameters.elasticField, "thickness");
+  auto state = parameters.state->view();
   auto density = ShellArealDensityField::fromElasticParameter(850.0, parameter);
 
   const auto expected = static_cast<std::size_t>(

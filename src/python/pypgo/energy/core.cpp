@@ -69,30 +69,28 @@ nb::ndarray<nb::numpy, double> materialValuesArray(
 
 nb::ndarray<nb::numpy, double> PyMaterialState::elasticValues() const
 {
-  return materialValuesArray(
-    state_.elasticValues(), state_.elasticField().layout());
+  return materialValuesArray(state_.elasticValues(), elasticField_->layout());
 }
 
 nb::ndarray<nb::numpy, double> PyMaterialState::plasticValues() const
 {
-  return materialValuesArray(
-    state_.plasticValues(), state_.plasticField().layout());
+  return materialValuesArray(state_.plasticValues(), plasticField_->layout());
 }
 
 std::shared_ptr<PyMaterialState> PyMaterialState::withElasticValues(
   nb::ndarray<nb::numpy, const double> values) const
 {
   return std::make_shared<PyMaterialState>(SolidDeformationModel::MaterialState(
-    state_.elasticFieldHandle(), state_.plasticFieldHandle(),
-    python::ndarrayToVectorXd(values), state_.plasticValues()));
+    python::ndarrayToVectorXd(values), state_.plasticValues()),
+    elasticField_, plasticField_);
 }
 
 std::shared_ptr<PyMaterialState> PyMaterialState::withPlasticValues(
   nb::ndarray<nb::numpy, const double> values) const
 {
   return std::make_shared<PyMaterialState>(SolidDeformationModel::MaterialState(
-    state_.elasticFieldHandle(), state_.plasticFieldHandle(),
-    state_.elasticValues(), python::ndarrayToVectorXd(values)));
+    state_.elasticValues(), python::ndarrayToVectorXd(values)),
+    elasticField_, plasticField_);
 }
 
 nb::ndarray<nb::numpy, double> PyMaterialParameterData::elasticFixedValues() const
@@ -778,12 +776,13 @@ std::shared_ptr<PyMaterialState> createMaterialState(
   nb::ndarray<nb::numpy, const double> elasticValues,
   nb::ndarray<nb::numpy, const double> plasticValues)
 {
-  const auto &initial = assignment.assignment()->initialMaterialState();
+  const auto &parameterization = assignment.assignment()->parameterization();
   try {
     return std::make_shared<PyMaterialState>(SolidDeformationModel::MaterialState(
-      initial.elasticFieldHandle(), initial.plasticFieldHandle(),
       python::ndarrayToVectorXd(elasticValues),
-      python::ndarrayToVectorXd(plasticValues)));
+      python::ndarrayToVectorXd(plasticValues)),
+      parameterization->elastic().optimizableField(),
+      parameterization->plastic().optimizableField());
   }
   catch (const std::invalid_argument &error) {
     throw nb::value_error(error.what());

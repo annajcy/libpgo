@@ -155,6 +155,7 @@ private:
   void assemble_d2E_dudq(
     std::span<const double> absolutePositions,
     MaterialStateView state,
+    std::span<const double> globalParameterValues,
     int numMaterialParams,
     int numLocalParams,
     const OptimizableParameterField &paramBlock,
@@ -170,6 +171,7 @@ private:
     std::span<const double> absolutePositions,
     std::span<const double> adjoint,
     MaterialStateView state,
+    std::span<const double> globalParameterValues,
     int numMaterialParams,
     int numLocalParams,
     const OptimizableParameterField &paramBlock,

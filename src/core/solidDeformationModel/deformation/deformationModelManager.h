@@ -49,6 +49,8 @@ public:
   std::shared_ptr<const MaterialFrameField> materialFrameFieldPtr() const;
   std::shared_ptr<const ElasticModelDefinition> elasticModelDefinition() const;
   std::shared_ptr<const PlasticModelDefinition> plasticModelDefinition() const;
+  std::shared_ptr<const OptimizableParameterField> elasticOptimizableField() const;
+  std::shared_ptr<const OptimizableParameterField> plasticOptimizableField() const;
   std::shared_ptr<const MaterialBinding> materialBinding() const;
   std::shared_ptr<const MaterialAssignment> materialAssignment() const;
   MaterialFrame materialToReferenceFrame(

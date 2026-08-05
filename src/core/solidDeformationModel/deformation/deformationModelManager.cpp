@@ -209,6 +209,20 @@ DeformationModelManager::plasticModelDefinition() const
   return data->plasticDefinition;
 }
 
+std::shared_ptr<const OptimizableParameterField>
+DeformationModelManager::elasticOptimizableField() const
+{
+  return data->binding ? data->binding->elastic().optimizableField() :
+                         data->parameterization->elastic().optimizableField();
+}
+
+std::shared_ptr<const OptimizableParameterField>
+DeformationModelManager::plasticOptimizableField() const
+{
+  return data->binding ? data->binding->plastic().optimizableField() :
+                         data->parameterization->plastic().optimizableField();
+}
+
 std::shared_ptr<const MaterialBinding>
 DeformationModelManager::materialBinding() const
 {

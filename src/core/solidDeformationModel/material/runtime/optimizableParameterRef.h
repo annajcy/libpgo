@@ -33,22 +33,22 @@ public:
   double value(
     int element,
     int quadrature,
-    const MaterialStateView &state) const;
+    std::span<const double> globalValues) const;
   double value(
     int element,
     int quadrature,
-    const MaterialStateView &state,
+    std::span<const double> globalValues,
     MaterialStateEvaluationScratch &scratch) const;
 
   void localDerivative(
     int element,
     int quadrature,
-    const MaterialStateView &state,
+    std::span<const double> globalValues,
     EigenSupport::RefVecXd output) const;
   void localDerivative(
     int element,
     int quadrature,
-    const MaterialStateView &state,
+    std::span<const double> globalValues,
     MaterialStateEvaluationScratch &scratch,
     EigenSupport::RefVecXd output) const;
 
@@ -85,23 +85,23 @@ public:
   double value(
     int element,
     int quadrature,
-    const MaterialStateView &state) const;
+    std::span<const double> globalValues) const;
   double value(
     int element,
     int quadrature,
-    const MaterialStateView &state,
+    std::span<const double> globalValues,
     MaterialStateEvaluationScratch &scratch) const;
 
   void localDerivative(
     int element,
     int quadrature,
-    const MaterialStateView &state,
+    std::span<const double> globalValues,
     MaterialStateEvaluationScratch &scratch,
     EigenSupport::RefVecXd output) const;
   void localHessian(
     int element,
     int quadrature,
-    const MaterialStateView &state,
+    std::span<const double> globalValues,
     EigenSupport::RefMatXd output) const;
 
 private:

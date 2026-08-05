@@ -217,21 +217,27 @@ class PyMaterialState
 {
 public:
   explicit PyMaterialState(
-    pgo::SolidDeformationModel::MaterialState state):
-    state_(std::move(state)) {}
+    pgo::SolidDeformationModel::MaterialState state,
+    std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField>
+      elasticField,
+    std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField>
+      plasticField):
+    state_(std::move(state)),
+    elasticField_(std::move(elasticField)),
+    plasticField_(std::move(plasticField)) {}
 
   std::shared_ptr<PyOptimizableParameterField> elasticField() const
   {
     if (!elasticFieldWrapper_)
       elasticFieldWrapper_ = std::make_shared<PyOptimizableParameterField>(
-        state_.elasticFieldHandle());
+        elasticField_);
     return elasticFieldWrapper_;
   }
   std::shared_ptr<PyOptimizableParameterField> plasticField() const
   {
     if (!plasticFieldWrapper_)
       plasticFieldWrapper_ = std::make_shared<PyOptimizableParameterField>(
-        state_.plasticFieldHandle());
+        plasticField_);
     return plasticFieldWrapper_;
   }
   nb::ndarray<nb::numpy, double> elasticValues() const;
@@ -242,13 +248,17 @@ public:
     nb::ndarray<nb::numpy, const double> values) const;
   bool sameParameterFields(const PyMaterialState &other) const
   {
-    return state_.elasticField().sharesStateWith(other.state_.elasticField()) &&
-      state_.plasticField().sharesStateWith(other.state_.plasticField());
+    return elasticField_->sharesStateWith(*other.elasticField_) &&
+      plasticField_->sharesStateWith(*other.plasticField_);
   }
   const pgo::SolidDeformationModel::MaterialState &state() const { return state_; }
 
 private:
   pgo::SolidDeformationModel::MaterialState state_;
+  std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField>
+    elasticField_;
+  std::shared_ptr<const pgo::SolidDeformationModel::OptimizableParameterField>
+    plasticField_;
   mutable std::shared_ptr<PyOptimizableParameterField> elasticFieldWrapper_;
   mutable std::shared_ptr<PyOptimizableParameterField> plasticFieldWrapper_;
 };
@@ -302,7 +312,10 @@ public:
   std::shared_ptr<const pgo::SolidDeformationModel::MaterialAssignment> assignment() const { return assignment_; }
   std::shared_ptr<PyMaterialState> initialMaterialState() const
   {
-    return std::make_shared<PyMaterialState>(assignment_->initialMaterialState());
+    return std::make_shared<PyMaterialState>(
+      assignment_->initialMaterialState(),
+      assignment_->parameterization()->elastic().optimizableField(),
+      assignment_->parameterization()->plastic().optimizableField());
   }
 
 private:

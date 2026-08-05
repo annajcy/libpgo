@@ -28,8 +28,6 @@ MaterialAssignment::MaterialAssignment(
       "MaterialAssignment material frame element count does not match mesh.");
 
   initialMaterialState_ = MaterialState(
-    parameterization_->elastic().optimizableField(),
-    parameterization_->plastic().optimizableField(),
     parameterData_->elastic.initialOptimizableValues,
     parameterData_->plastic.initialOptimizableValues);
 }

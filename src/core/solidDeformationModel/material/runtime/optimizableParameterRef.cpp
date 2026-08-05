@@ -44,40 +44,40 @@ std::string_view OptimizableParameterRef::name() const
 double OptimizableParameterRef::value(
   int element,
   int quadrature,
-  const MaterialStateView &state) const
+  std::span<const double> globalValues) const
 {
   MaterialStateEvaluationScratch scratch;
-  return value(element, quadrature, state, scratch);
+  return value(element, quadrature, globalValues, scratch);
 }
 
 double OptimizableParameterRef::value(
   int element,
   int quadrature,
-  const MaterialStateView &state,
+  std::span<const double> globalValues,
   MaterialStateEvaluationScratch &scratch) const
 {
   (void)quadrature;
   const OptimizableParameterField &f = field();
   const ParameterLayout &layout = f.layout();
   scratch.prepare(f);
-  layout.gather(element, state.values(f), scratch.local);
+  layout.gather(element, globalValues, scratch.local);
   return scratch.local[static_cast<std::size_t>(parameterIndex_)];
 }
 
 void OptimizableParameterRef::localDerivative(
   int element,
   int quadrature,
-  const MaterialStateView &state,
+  std::span<const double> globalValues,
   EigenSupport::RefVecXd output) const
 {
   MaterialStateEvaluationScratch scratch;
-  localDerivative(element, quadrature, state, scratch, output);
+  localDerivative(element, quadrature, globalValues, scratch, output);
 }
 
 void OptimizableParameterRef::localDerivative(
   int element,
   int quadrature,
-  const MaterialStateView &state,
+  std::span<const double> globalValues,
   MaterialStateEvaluationScratch &scratch,
   EigenSupport::RefVecXd output) const
 {
@@ -87,7 +87,10 @@ void OptimizableParameterRef::localDerivative(
   const ParameterLayout &layout = f.layout();
   if (element < 0 || element >= layout.numElements())
     throw std::out_of_range("Optimizable parameter element is out of range.");
-  (void)state.values(f);
+  if (globalValues.size() !=
+    static_cast<std::size_t>(layout.numGlobalParameters()))
+    throw std::invalid_argument(
+      "OptimizableParameterRef global value count does not match its field.");
   if (output.size() != layout.numLocalParameters())
     throw std::invalid_argument(
       "OptimizableParameterRef derivative output has the wrong size.");
@@ -126,21 +129,21 @@ std::string_view OptimizableMaterialChannelRef::name() const
 double OptimizableMaterialChannelRef::value(
   int element,
   int quadrature,
-  const MaterialStateView &state) const
+  std::span<const double> globalValues) const
 {
   MaterialStateEvaluationScratch scratch;
-  return value(element, quadrature, state, scratch);
+  return value(element, quadrature, globalValues, scratch);
 }
 
 double OptimizableMaterialChannelRef::value(
   int element,
   int quadrature,
-  const MaterialStateView &state,
+  std::span<const double> globalValues,
   MaterialStateEvaluationScratch &scratch) const
 {
   const OptimizableParameterField &f = field();
   scratch.prepare(f);
-  f.layout().gather(element, state.values(f), scratch.local);
+  f.layout().gather(element, globalValues, scratch.local);
   f.mapping().evaluate(element, quadrature, scratch.local, scratch.material);
   return scratch.material[static_cast<std::size_t>(channelIndex_)];
 }
@@ -148,7 +151,7 @@ double OptimizableMaterialChannelRef::value(
 void OptimizableMaterialChannelRef::localDerivative(
   int element,
   int quadrature,
-  const MaterialStateView &state,
+  std::span<const double> globalValues,
   MaterialStateEvaluationScratch &scratch,
   EigenSupport::RefVecXd output) const
 {
@@ -157,7 +160,7 @@ void OptimizableMaterialChannelRef::localDerivative(
     throw std::invalid_argument(
       "OptimizableMaterialChannelRef derivative output has the wrong size.");
   scratch.prepare(f);
-  f.layout().gather(element, state.values(f), scratch.local);
+  f.layout().gather(element, globalValues, scratch.local);
   f.mapping().evaluateJacobian(
     element, quadrature, scratch.local, scratch.jacobian);
   output = scratch.jacobian.row(channelIndex_).transpose();
@@ -166,7 +169,7 @@ void OptimizableMaterialChannelRef::localDerivative(
 void OptimizableMaterialChannelRef::localHessian(
   int element,
   int quadrature,
-  const MaterialStateView &state,
+  std::span<const double> globalValues,
   EigenSupport::RefMatXd output) const
 {
   const OptimizableParameterField &f = field();
@@ -177,7 +180,7 @@ void OptimizableMaterialChannelRef::localHessian(
 
   MaterialStateEvaluationScratch scratch;
   scratch.prepare(f);
-  f.layout().gather(element, state.values(f), scratch.local);
+  f.layout().gather(element, globalValues, scratch.local);
   std::vector<EigenSupport::MXd> channelHessians(
     static_cast<std::size_t>(f.mapping().numChannels()),
     EigenSupport::MXd(numParameters, numParameters));

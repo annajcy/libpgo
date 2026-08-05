@@ -110,7 +110,8 @@ double ScaledElasticParameterFieldSource::value(
   int quadrature,
   const MaterialStateView &state) const
 {
-  return scale_ * parameter_.value(element, quadrature, state);
+  return scale_ * parameter_.value(
+    element, quadrature, state.elasticValues());
 }
 
 double ScaledElasticParameterFieldSource::valueWithScratch(
@@ -119,7 +120,8 @@ double ScaledElasticParameterFieldSource::valueWithScratch(
   const MaterialStateView &state,
   MaterialStateEvaluationScratch &scratch) const
 {
-  return scale_ * parameter_.value(element, quadrature, state, scratch);
+  return scale_ * parameter_.value(
+    element, quadrature, state.elasticValues(), scratch);
 }
 
 const OptimizableParameterRef *
@@ -140,7 +142,8 @@ void ScaledElasticParameterFieldSource::localParameterDerivative(
       "scaled elastic parameter field derivative buffer has size " +
       std::to_string(output.size()) + ", expected " +
       std::to_string(expected));
-  parameter_.localDerivative(element, quadrature, state, output);
+  parameter_.localDerivative(
+    element, quadrature, state.elasticValues(), output);
   output *= scale_;
 }
 
@@ -157,7 +160,8 @@ void ScaledElasticParameterFieldSource::localParameterDerivativeWithScratch(
       "scaled elastic parameter field derivative buffer has size " +
       std::to_string(output.size()) + ", expected " +
       std::to_string(expected));
-  parameter_.localDerivative(element, quadrature, state, scratch, output);
+  parameter_.localDerivative(
+    element, quadrature, state.elasticValues(), scratch, output);
   output *= scale_;
 }
 
