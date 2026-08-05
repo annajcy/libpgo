@@ -7,7 +7,6 @@ copyright to USC,MIT,NUS
 
 #include "deformation/deformationElement.h"
 #include "formulations/dof/dofLayout.h"
-#include "material/frame/materialFrames.h"
 #include "material/runtime/materialState.h"
 #include "EigenDef.h"
 
@@ -20,11 +19,10 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-class ElasticModelDefinition;
 class Formulation;
 class MaterialBinding;
-class PlasticModelDefinition;
 class SimulationMesh;
+enum class SimulationMeshType;
 
 class DeformationModelAssembler
 {
@@ -38,8 +36,8 @@ public:
   };
 
   DeformationModelAssembler(
-    std::shared_ptr<const SimulationMesh> mesh,
-    std::shared_ptr<const MaterialBinding> materialBinding,
+    const SimulationMesh &mesh,
+    const MaterialBinding &materialBinding,
     const Formulation &formulation,
     bool projectHessianPSD = true,
     std::span<const double> elementWeights = {});
@@ -79,17 +77,15 @@ public:
   int getNumPlasticGlobalParams() const;
   int getNumElasticParams() const { return numElasticParams_; }
   int getNumPlasticParams() const { return numPlasticParams_; }
+  int getNumElements() const { return nele; }
+  int getNumVertices() const { return numVertices_; }
+  SimulationMeshType meshType() const { return meshType_; }
 
-  const SimulationMesh &mesh() const { return *mesh_; }
-  const MaterialBinding &materialBinding() const { return *binding_; }
-  std::shared_ptr<const ElasticModelDefinition> elasticModelDefinition() const;
-  std::shared_ptr<const PlasticModelDefinition> plasticModelDefinition() const;
-  const MaterialFrame &materialFrame(int elementId) const;
   const DeformationElement &element(int elementId) const;
 
-  const DofLayout &getDofLayout() const { return *dofLayout; }
+  const DofLayout &getDofLayout() const { return *dofLayout_; }
   const EigenSupport::VXd &getRestDofs() const { return restDofs_; }
-  const EigenSupport::SpMatD &getHessianTemplate() const { return KTemplate; }
+  const EigenSupport::SpMatD &getHessianTemplate() const { return hessianAssembly_.matrixTemplate; }
 
 private:
   struct Element
@@ -109,6 +105,8 @@ private:
   };
 
   void initializeElements(
+    const SimulationMesh &mesh,
+    const MaterialBinding &binding,
     const Formulation &formulation,
     DeformationElementConstructionOptions options);
   void gatherPosition(
@@ -126,20 +124,19 @@ private:
   void validatePositionSpan(
     std::span<const double> x, const char *label) const;
 
-  std::shared_ptr<const SimulationMesh> mesh_;
-  std::shared_ptr<const MaterialBinding> binding_;
-  std::shared_ptr<const DofLayout> dofLayout;
+  std::unique_ptr<const DofLayout> dofLayout_;
   EigenSupport::VXd restDofs_;
   mutable std::vector<Element> elements_;
 
+  SimulationMeshType meshType_;
+  int numVertices_ = 0;
   int numDOFs = 0;
   int nele = 0;
   int localDOFs = 0;
   int numElasticParams_ = 0;
   int numPlasticParams_ = 0;
 
-  EigenSupport::SpMatD KTemplate;
-  std::vector<std::vector<HessianBlockOffset>> elementKBlockOffsets;
+  SparseAssemblyCache hessianAssembly_;
   std::vector<double> elementWeights;
 };
 

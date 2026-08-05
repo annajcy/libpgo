@@ -17,7 +17,6 @@ public:
   static constexpr int kNumPoints = 4;
 
   int numPoints() const override { return kNumPoints; }
-  std::unique_ptr<Quadrature> clone() const override { return std::make_unique<TetDegree2Quadrature>(*this); }
   EigenSupport::V3d point(int i) const override;
   double weight(int i) const override;
 };

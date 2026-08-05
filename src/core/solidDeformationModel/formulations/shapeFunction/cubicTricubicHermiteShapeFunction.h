@@ -39,7 +39,6 @@ public:
 
   int numNodes() const override { return kNumNodes; }
   int localDofs() const override { return kLocalDofs; }
-  std::unique_ptr<ShapeFunction> clone() const override { return std::make_unique<CubicTricubicHermiteShapeFunction>(*this); }
 
   EigenSupport::V64d compute_N(double xi, double eta, double zeta) const;
   EigenSupport::M3x64d compute_dN_dxi(double xi, double eta, double zeta) const;

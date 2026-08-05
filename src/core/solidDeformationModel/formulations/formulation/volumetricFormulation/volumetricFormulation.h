@@ -16,7 +16,6 @@ namespace SolidDeformationModel
 
 class Quadrature;
 class ShapeFunction;
-class VolumetricElementMapping;
 
 class VolumetricFormulation : public Formulation
 {
@@ -31,9 +30,6 @@ public:
   // quadrature; formulations whose elastic rule under-integrates rho*N^T*N
   // (tet linear) override this.
   virtual const Quadrature &massQuadrature() const { return *quadrature_; }
-
-  std::unique_ptr<VolumetricElementMapping> createElementMapping(
-    std::span<const double> restPositions) const;
 
   std::unique_ptr<DeformationElement> createElement(
     const SimulationMesh &mesh, int ele,

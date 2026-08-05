@@ -1,28 +1,16 @@
-#include "koiterShellElementMapping.h"
+#include "koiterShellDeformationElement.h"
 
 namespace pgo
 {
 namespace SolidDeformationModel
 {
 
-KoiterShellElementMapping::KoiterShellElementMapping(const ES::V18d &restX, const std::array<bool, 6> &hasVtx)
-{
-  for (int i = 0; i < 6; i++) {
-    restX_[i] = restX.segment<3>(3 * i);
-    hasVtx_[i] = hasVtx[i];
-  }
-  APositions restTriangle{restX_[0], restX_[1], restX_[2]};
-  restI_ = compute_a(restTriangle);
-  restII_ = compute_b(restX_);
-  restArea_ = 0.5 * (restX_[1] - restX_[0]).cross(restX_[2] - restX_[0]).norm();
-}
-
-KoiterShellElementMapping::AResult KoiterShellElementMapping::compute_a_impl(
+KoiterShellDeformationElement::FirstFundamentalFormResult KoiterShellDeformationElement::computeFirstFundamentalFormImpl(
   const APositions &x, bool computeDerivative, bool computeHessian) const
 {
   ES::V3d e1 = x[1] - x[0];
   ES::V3d e2 = x[2] - x[0];
-  AResult result;
+  FirstFundamentalFormResult result;
   result.value(0, 0) = e1.squaredNorm();
   result.value(0, 1) = e1.dot(e2);
   result.value(1, 0) = result.value(0, 1);
@@ -71,10 +59,10 @@ KoiterShellElementMapping::AResult KoiterShellElementMapping::compute_a_impl(
   return result;
 }
 
-KoiterShellElementMapping::BResult KoiterShellElementMapping::compute_b_impl(
+KoiterShellDeformationElement::SecondFundamentalFormMatrixResult KoiterShellDeformationElement::computeSecondFundamentalFormImpl(
   const BPositions &x, bool computeDerivative, bool computeHessian) const
 {
-  BResult result;
+  SecondFundamentalFormMatrixResult result;
   if (computeDerivative) {
     result.derivative.setZero();
   }
@@ -84,7 +72,7 @@ KoiterShellElementMapping::BResult KoiterShellElementMapping::compute_b_impl(
     }
   }
 
-  const SecondFundamentalFormResult II = secondFundamentalFormEntries(
+  const SecondFundamentalFormEntriesResult II = secondFundamentalFormEntries(
     x, computeDerivative, computeHessian);
 
   result.value << II.value[0] + II.value[1], II.value[0], II.value[0], II.value[0] + II.value[2];
@@ -114,19 +102,19 @@ KoiterShellElementMapping::BResult KoiterShellElementMapping::compute_b_impl(
   return result;
 }
 
-ES::M2d KoiterShellElementMapping::compute_a(const APositions &x) const
+ES::M2d KoiterShellDeformationElement::computeFirstFundamentalForm(const APositions &x) const
 {
-  return compute_a_impl(x, false, false).value;
+  return computeFirstFundamentalFormImpl(x, false, false).value;
 }
 
-ES::M4x9d KoiterShellElementMapping::compute_da_dx(const APositions &x) const
+ES::M4x9d KoiterShellDeformationElement::computeFirstFundamentalFormDerivative(const APositions &x) const
 {
-  return compute_a_impl(x, true, false).derivative;
+  return computeFirstFundamentalFormImpl(x, true, false).derivative;
 }
 
-ES::M9x36d KoiterShellElementMapping::compute_d2a_dx2(const APositions &x) const
+ES::M9x36d KoiterShellDeformationElement::computeFirstFundamentalFormHessian(const APositions &x) const
 {
-  const AResult result = compute_a_impl(x, false, true);
+  const FirstFundamentalFormResult result = computeFirstFundamentalFormImpl(x, false, true);
   ES::M9x36d hessian;
   hessian.setZero();
   for (int i = 0; i < 4; ++i)
@@ -134,19 +122,19 @@ ES::M9x36d KoiterShellElementMapping::compute_d2a_dx2(const APositions &x) const
   return hessian;
 }
 
-ES::M2d KoiterShellElementMapping::compute_b(const BPositions &x) const
+ES::M2d KoiterShellDeformationElement::computeSecondFundamentalForm(const BPositions &x) const
 {
-  return compute_b_impl(x, false, false).value;
+  return computeSecondFundamentalFormImpl(x, false, false).value;
 }
 
-ES::M4x18d KoiterShellElementMapping::compute_db_dx(const BPositions &x) const
+ES::M4x18d KoiterShellDeformationElement::computeSecondFundamentalFormDerivative(const BPositions &x) const
 {
-  return compute_b_impl(x, true, false).derivative;
+  return computeSecondFundamentalFormImpl(x, true, false).derivative;
 }
 
-ES::M18x72d KoiterShellElementMapping::compute_d2b_dx2(const BPositions &x) const
+ES::M18x72d KoiterShellDeformationElement::computeSecondFundamentalFormHessian(const BPositions &x) const
 {
-  const BResult result = compute_b_impl(x, false, true);
+  const SecondFundamentalFormMatrixResult result = computeSecondFundamentalFormImpl(x, false, true);
   ES::M18x72d hessian;
   hessian.setZero();
   for (int i = 0; i < 4; ++i)
@@ -154,11 +142,11 @@ ES::M18x72d KoiterShellElementMapping::compute_d2b_dx2(const BPositions &x) cons
   return hessian;
 }
 
-KoiterShellElementMapping::SecondFundamentalFormResult
-KoiterShellElementMapping::secondFundamentalFormEntries(
+KoiterShellDeformationElement::SecondFundamentalFormEntriesResult
+KoiterShellDeformationElement::secondFundamentalFormEntries(
   const BPositions &x, bool computeDerivative, bool computeHessian) const
 {
-  SecondFundamentalFormResult result;
+  SecondFundamentalFormEntriesResult result;
   result.value.setZero();
   if (computeDerivative)
     result.derivative.setZero();
@@ -178,7 +166,7 @@ KoiterShellElementMapping::secondFundamentalFormEntries(
   const std::array<ES::M9d, 3> &hcn = centerNormal.hessian;
 
   for (int i = 0; i < 3; i++) {
-    if (hasVtx_[oppVtx[i]] == 0) {
+    if (hasVertex_[oppVtx[i]] == 0) {
       oppNormals[i].setZero();
       dn[i].setZero();
       for (int j = 0; j < 3; j++)
@@ -322,7 +310,7 @@ KoiterShellElementMapping::secondFundamentalFormEntries(
   return result;
 }
 
-ES::M3d KoiterShellElementMapping::crossMatrix(const Eigen::Vector3d &v)
+ES::M3d KoiterShellDeformationElement::crossMatrix(const Eigen::Vector3d &v)
 {
   ES::M3d ret;
   ret << 0, -v[2], v[1],
@@ -331,7 +319,7 @@ ES::M3d KoiterShellElementMapping::crossMatrix(const Eigen::Vector3d &v)
   return ret;
 }
 
-KoiterShellElementMapping::FaceNormalResult KoiterShellElementMapping::faceNormal(
+KoiterShellDeformationElement::FaceNormalResult KoiterShellDeformationElement::faceNormal(
   const ES::V3d &x0, const ES::V3d &x1, const ES::V3d &x2,
   bool computeDerivative, bool computeHessian) const
 {

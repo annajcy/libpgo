@@ -97,12 +97,6 @@ class DeformationEnergyOperator:
             bool(options.enable_material_max_step),
         )
         object.__setattr__(self, "_handle", core)
-        object.__setattr__(
-            self, "_elastic_definition", material_binding.elastic.definition)
-        object.__setattr__(
-            self, "_plastic_definition", material_binding.plastic.definition)
-        object.__setattr__(self, "_mesh", mesh)
-        object.__setattr__(self, "_material_binding", material_binding)
 
     @property
     def rest_state(self) -> np.ndarray:
@@ -117,6 +111,10 @@ class DeformationEnergyOperator:
     @property
     def num_vertices(self) -> int:
         return self._handle.num_vertices
+
+    @property
+    def num_elements(self) -> int:
+        return self._handle.num_elements
 
     @property
     def num_elastic_params(self) -> int:
@@ -139,24 +137,8 @@ class DeformationEnergyOperator:
         return self._handle.num_plastic_values
 
     @property
-    def elastic_definition(self):
-        return self._elastic_definition
-
-    @property
-    def plastic_definition(self):
-        return self._plastic_definition
-
-    @property
     def num_dofs(self) -> int:
         return self._handle.num_dofs
-
-    @property
-    def material_binding(self) -> MaterialBinding:
-        return self._material_binding
-
-    @property
-    def mesh(self) -> SimulationMesh:
-        return self._mesh
 
     def value(self, displacement: np.ndarray, material_state: MaterialState) -> float:
         u, state = self._inputs(displacement, material_state)
@@ -250,14 +232,8 @@ class DeformationEnergyOperator:
     def _inputs(self, displacement, material_state):
         if not isinstance(material_state, MaterialState):
             raise TypeError("material_state must be a MaterialState")
-        elastic_size = (
-            self.material_binding.num_elements *
-            self.material_binding.elastic.num_optimizable_channels
-        )
-        plastic_size = (
-            self.material_binding.num_elements *
-            self.material_binding.plastic.num_optimizable_channels
-        )
+        elastic_size = self.num_elastic_values
+        plastic_size = self.num_plastic_values
         if material_state.elastic_values.size != elastic_size:
             raise ValueError(
                 f"elastic material state must contain {elastic_size} values")
@@ -300,20 +276,8 @@ class DeformationPotentialEnergy(PotentialEnergy):
         return self.energy_operator.num_vertices
 
     @property
-    def material_binding(self):
-        return self.energy_operator.material_binding
-
-    @property
-    def mesh(self):
-        return self.energy_operator.mesh
-
-    @property
-    def elastic_definition(self):
-        return self.energy_operator.elastic_definition
-
-    @property
-    def plastic_definition(self):
-        return self.energy_operator.plastic_definition
+    def num_elements(self):
+        return self.energy_operator.num_elements
 
     @property
     def num_elastic_params(self):

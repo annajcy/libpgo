@@ -81,8 +81,8 @@ class TestCoreDeformationEnergyOperator:
 
         operator = energy.energy_operator
         state = energy.material_state
-        assert operator.elastic_definition.name == "stable_neo"
-        assert operator.plastic_definition.name == "volumetric_dof6"
+        assert not hasattr(operator, "elastic_definition")
+        assert not hasattr(operator, "plastic_definition")
         assert state.elastic_values.shape == (0,)
         assert state.plastic_values.shape == (6 * sim.num_elements,)
 
@@ -101,6 +101,7 @@ class TestCoreDeformationEnergyOperator:
     def test_old_field_factories_are_not_exposed(self):
         assert not hasattr(_core, "_create_elastic_default_field")
         assert not hasattr(_core, "_create_plastic_default_field")
+        assert not hasattr(_core, "PyShellFormulation")
 
 
 class TestCoreEnergy:

@@ -452,7 +452,7 @@ def _reaction_parameter_jacobian(
     displacement: np.ndarray,
 ) -> np.ndarray:
     stiffness = energy.hessian(displacement).to_dense()
-    channels = energy.material_binding.elastic.num_optimizable_channels
+    channels = energy.num_elastic_params
     direct = energy.elastic_material_vjp(
         displacement, case.reaction_selector)
     if case.free_dofs.size:
@@ -471,7 +471,7 @@ def _with_homogeneous_elastic_values(energy, values):
     values = np.asarray(values, dtype=np.float64).reshape(-1)
     elementwise = np.broadcast_to(
         values,
-        (energy.material_binding.num_elements, values.size),
+        (energy.num_elements, values.size),
     ).copy()
     return energy.material_state.with_elastic_values(elementwise)
 

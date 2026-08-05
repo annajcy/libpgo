@@ -2,8 +2,6 @@
 
 #include "EigenSupport.h"
 
-#include <memory>
-
 namespace pgo
 {
 namespace SolidDeformationModel
@@ -16,8 +14,6 @@ public:
 
   virtual int numNodes() const = 0;
   virtual int localDofs() const = 0;
-  virtual std::unique_ptr<ShapeFunction> clone() const = 0;
-
   // Different concrete bases have different node counts. The polymorphic
   // boundary therefore uses dynamic Eigen references; concrete classes also
   // expose fixed-size value-returning overloads with the same names.

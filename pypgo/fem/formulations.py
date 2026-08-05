@@ -116,8 +116,11 @@ class VolumetricFormulation(Formulation):
         )
 
 
-class ShellFormulation(Formulation):
-    """Shell formulation with lumped mass / body-force operators."""
+class KoiterShell(Formulation):
+    """Koiter shell formulation with lumped mass and body-force operators."""
+
+    def __init__(self) -> None:
+        super().__init__(_core.make_koiter_shell())
 
     def mass_matrix(self, mesh, areal_density):
         """Lumped shell mass matrix from scalar or per-element kg/m^2 values."""
@@ -175,8 +178,3 @@ class CubicTricubicHermite(VolumetricFormulation):
 
     def __init__(self) -> None:
         super().__init__(_core.make_cubic_tricubic_hermite())
-
-
-class KoiterShell(ShellFormulation):
-    def __init__(self) -> None:
-        super().__init__(_core.make_koiter_shell())

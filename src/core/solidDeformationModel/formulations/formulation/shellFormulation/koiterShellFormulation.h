@@ -1,21 +1,33 @@
 #pragma once
 
-#include "shellFormulation.h"
+#include "formulations/formulation/formulation.h"
 
 namespace pgo
 {
 namespace SolidDeformationModel
 {
 
-class KoiterShellFormulation : public ShellFormulation
+class KoiterShellFormulation final : public Formulation
 {
 public:
   std::string_view getName() const override;
   int numBasisFunctionsPerElement() const override;
   int getLocalDofs() const override;
+  SimulationMeshType compatibleMeshType() const override;
 
-  std::unique_ptr<ShellElementMapping> createElementMapping(
-    const EigenSupport::V18d &restX, const std::array<bool, 6> &hasVtx) const override;
+  std::unique_ptr<DeformationElement> createElement(
+    const SimulationMesh &mesh, int ele,
+    std::unique_ptr<ElasticModel> elasticModel,
+    std::unique_ptr<PlasticModel> plasticModel,
+    DeformationElementConstructionOptions options = {}) const override;
+
+  EigenSupport::SpMatD buildMassMatrix(
+    const SimulationMesh &mesh,
+    EigenSupport::ConstRefVecXd elementArealDensities) const;
+  EigenSupport::VXd buildBodyForce(
+    const SimulationMesh &mesh,
+    const EigenSupport::V3d &acceleration,
+    EigenSupport::ConstRefVecXd elementArealDensities) const;
 };
 
 }  // namespace SolidDeformationModel

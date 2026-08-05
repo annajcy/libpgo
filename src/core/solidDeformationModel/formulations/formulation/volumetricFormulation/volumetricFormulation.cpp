@@ -2,7 +2,6 @@
 
 #include "barycentricCoordinates.h"
 #include "deformation/volume/volumetricDeformationElement.h"
-#include "deformation/volume/volumetricElementMapping.h"
 #include "formulations/dof/dofLayout.h"
 #include "formulations/quadrature/quadrature.h"
 #include "formulations/shapeFunction/shapeFunction.h"
@@ -10,6 +9,7 @@
 #include "volumetricMesh.h"
 
 #include <memory>
+#include <cmath>
 #include <stdexcept>
 #include <vector>
 
@@ -65,6 +65,34 @@ std::vector<double> flattenSurfaceVertices(const ES::MXd &surfaceVertices)
       flat[static_cast<size_t>(i) * 3 + d] = surfaceVertices(i, d);
   return flat;
 }
+
+std::vector<double> elementIntegrationWeights(
+  std::span<const double> restPositions,
+  const ShapeFunction &shapeFunction, const Quadrature &quadrature)
+{
+  const int numNodes = shapeFunction.numNodes();
+  if (restPositions.size() != static_cast<std::size_t>(3 * numNodes))
+    throw std::invalid_argument(
+      "Element rest-position buffer has the wrong size.");
+
+  Eigen::Matrix<double, 3, Eigen::Dynamic> restCoefficients(3, numNodes);
+  for (int node = 0; node < numNodes; ++node) {
+    restCoefficients.col(node) = ES::V3d(
+      restPositions[node * 3], restPositions[node * 3 + 1],
+      restPositions[node * 3 + 2]);
+  }
+
+  Eigen::Matrix<double, 3, Eigen::Dynamic> dN_dxi(3, numNodes);
+  std::vector<double> result(quadrature.numPoints());
+  for (int q = 0; q < quadrature.numPoints(); ++q) {
+    const ES::V3d xi = quadrature.point(q);
+    shapeFunction.compute_dN_dxi(xi[0], xi[1], xi[2], dN_dxi);
+    result[q] = std::abs(
+      (restCoefficients * dN_dxi.transpose()).determinant()) *
+      quadrature.weight(q);
+  }
+  return result;
+}
 }  // namespace
 
 VolumetricFormulation::VolumetricFormulation(
@@ -73,13 +101,6 @@ VolumetricFormulation::VolumetricFormulation(
 }
 
 VolumetricFormulation::~VolumetricFormulation() = default;
-
-std::unique_ptr<VolumetricElementMapping> VolumetricFormulation::createElementMapping(
-  std::span<const double> restPositions) const
-{
-  return std::make_unique<VolumetricElementMapping>(
-    restPositions, shapeFunction_->clone(), quadrature_->clone());
-}
 
 EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
   const SimulationMesh &mesh,
@@ -109,14 +130,15 @@ EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
       std::span<const double>(restDofs.data(), static_cast<std::size_t>(restDofs.size())),
       localRest,
       groups);
-    const VolumetricElementMapping mapping(localRest, sf, quad);
+    const std::vector<double> integrationWeights =
+      elementIntegrationWeights(localRest, sf, quad);
     localGlobalDofIndices(*dofLayout, ele, globalIdx);
     const double rho = elementDensities[ele];
 
     for (int q = 0; q < quad.numPoints(); q++) {
       const ES::V3d xi = quad.point(q);
       sf.compute_N(xi[0], xi[1], xi[2], N);
-      const double w = rho * mapping.weightDetJ(q);
+      const double w = rho * integrationWeights[q];
 
       for (int a = 0; a < numNodes; a++) {
         const double wa = w * N[a];
@@ -171,14 +193,15 @@ EigenSupport::VXd VolumetricFormulation::buildBodyForce(
       std::span<const double>(restDofs.data(), static_cast<std::size_t>(restDofs.size())),
       localRest,
       groups);
-    const VolumetricElementMapping mapping(localRest, sf, quad);
+    const std::vector<double> integrationWeights =
+      elementIntegrationWeights(localRest, sf, quad);
     localGlobalDofIndices(*dofLayout, ele, globalIdx);
     const double rho = elementDensities[ele];
 
     for (int q = 0; q < quad.numPoints(); q++) {
       const ES::V3d xi = quad.point(q);
       sf.compute_N(xi[0], xi[1], xi[2], N);
-      const double w = rho * mapping.weightDetJ(q);
+      const double w = rho * integrationWeights[q];
 
       for (int a = 0; a < numNodes; a++) {
         const double fa = w * N[a];
@@ -221,9 +244,8 @@ std::unique_ptr<DeformationElement> VolumetricFormulation::createElement(
     restPosition[3 * j + 2] = vertex[2];
   }
 
-  auto mapping = createElementMapping(restPosition);
   return std::make_unique<VolumetricDeformationElement>(
-    std::move(*mapping),
+    restPosition, *shapeFunction_, *quadrature_,
     checkedMaterialCast<ElasticModel3DDeformationGradient>(
       std::move(elasticModel),
       "VolumetricFormulation requires ElasticModel3DDeformationGradient."),

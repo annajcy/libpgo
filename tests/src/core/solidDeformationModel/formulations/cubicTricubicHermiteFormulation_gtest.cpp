@@ -89,7 +89,7 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
   options.enableMaterialMaxStep = false;
   options.dofOffset = offset;
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    c.asset->mesh(), material.binding, formulation, options);
+    *c.asset->mesh(), *material.binding, formulation, options);
   c.energy = std::make_unique<DeformationPotentialEnergy>(
     std::move(energyOperator), *material.state);
   c.numDOFs = c.energy->getNumDOFs();
@@ -357,7 +357,7 @@ EnergyCase makeTwoCubeCase(const FormulationT &formulation)
   options.projectHessianPSD = kExactDerivativeProjectHessianPSD;
   options.enableMaterialMaxStep = false;
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    c.asset->mesh(), material.binding, formulation, options);
+    *c.asset->mesh(), *material.binding, formulation, options);
   c.energy = std::make_unique<DeformationPotentialEnergy>(
     std::move(energyOperator), *material.state);
   c.numDOFs = c.energy->getNumDOFs();

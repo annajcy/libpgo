@@ -28,7 +28,6 @@ public:
 
   int numNodes() const override { return kNumNodes; }
   int localDofs() const override { return kLocalDofs; }
-  std::unique_ptr<ShapeFunction> clone() const override { return std::make_unique<CubicLinearShapeFunction>(*this); }
 
   EigenSupport::V8d compute_N(double alpha, double beta, double gamma) const;
   EigenSupport::M3x8d compute_dN_dxi(double alpha, double beta, double gamma) const;

@@ -18,9 +18,9 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-void buildHessianBlockOffsetsForGroups(const EigenSupport::SpMatD &tmpl,
+void buildSparseBlockOffsetsForGroups(const EigenSupport::SpMatD &tmpl,
   int localDofs, int globalDofs, const std::vector<DofGroup> &groups,
-  std::vector<HessianBlockOffset> &blocks)
+  std::vector<SparseBlockOffset> &blocks)
 {
   blocks.clear();
   blocks.reserve(groups.size() * groups.size());
@@ -34,7 +34,7 @@ void buildHessianBlockOffsetsForGroups(const EigenSupport::SpMatD &tmpl,
 
   for (const auto &rowGroup : groups) {
     for (const auto &colGroup : groups) {
-      HessianBlockOffset block;
+      SparseBlockOffset block;
       block.rowLocalStart = rowGroup.localStart;
       block.colLocalStart = colGroup.localStart;
       block.rowSize = rowGroup.size;
@@ -63,8 +63,8 @@ void buildHessianBlockOffsetsForGroups(const EigenSupport::SpMatD &tmpl,
   }
 }
 
-void buildCompressedHessianTemplate(int numDOFs,
-  const std::set<HessianBlockKey> &blocks, EigenSupport::SpMatD &tmpl)
+void buildSparseMatrixTemplate(int numDOFs,
+  const std::set<SparseBlockKey> &blocks, EigenSupport::SpMatD &tmpl)
 {
   std::vector<std::vector<int>> rowColumns(numDOFs);
   for (const auto &block : blocks) {

@@ -249,7 +249,7 @@ inline std::shared_ptr<DeformationPotentialEnergy> makeTestEnergy(
     asset, std::move(elastic), std::move(plastic),
     std::move(parameters), std::move(frames));
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    asset->mesh(), result.binding, formulation, options);
+    *asset->mesh(), *result.binding, formulation, options);
   return std::make_shared<DeformationPotentialEnergy>(
     std::move(energyOperator), *result.state);
 }

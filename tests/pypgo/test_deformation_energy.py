@@ -184,7 +184,6 @@ def test_systematic_poking_definition_builds_parameterized_tet_energy():
             elastic_values=parameters,
     )
 
-    assert energy.elastic_definition is elastic
     assert energy.num_elastic_params == parameters.shape[1]
     assert energy.num_elastic_values == parameters.shape[1]
     np.testing.assert_allclose(
@@ -273,9 +272,9 @@ class TestDeformationEnergyParameters:
         energy = _make_energy(sim)
 
         assert isinstance(energy, pf.DeformationPotentialEnergy)
-        assert energy.elastic_definition.name == "stable_neo"
-        assert energy.plastic_definition.name == "volumetric_dof6"
-        assert energy.material_binding.elastic.num_optimizable_channels == 0
+        assert not hasattr(energy, "elastic_definition")
+        assert not hasattr(energy, "plastic_definition")
+        assert energy.num_elastic_params == 0
         assert energy.material_state.elastic_values.shape == (0,)
         assert energy.material_state.plastic_values.shape == (6,)
         assert np.allclose(
@@ -298,15 +297,19 @@ class TestDeformationEnergyParameters:
 
     def test_binding_defaults_to_identity_material_frames(self):
         sim = _make_shell_sim_mesh()
-        valid = _make_energy(
+        material = direct_material(
             sim,
-            elastic=pf.KoiterStVKDefinition(),
-            plastic=pf.ShellPlasticityDefinition(dofs=1),
-            formulation=pf.KoiterShell(),
+            pf.KoiterStVKDefinition(),
+            pf.ShellPlasticityDefinition(dofs=1),
+            None, None,
+            np.broadcast_to(
+                np.array([[2e6, 0.35, 2e6, 0.35, 0.01]]),
+                (sim.num_elements, 5)).copy(),
+            None,
         )
         binding = pf.MaterialBinding(
-            valid.material_binding.elastic,
-            valid.material_binding.plastic,
+            material.binding.elastic,
+            material.binding.plastic,
         )
         assert binding.material_frames is None
 
@@ -314,8 +317,8 @@ class TestDeformationEnergyParameters:
             np.repeat(np.eye(3)[None, :, :], 2, axis=0))
         with pytest.raises(ValueError, match="frame count"):
             pf.MaterialBinding(
-                valid.material_binding.elastic,
-                valid.material_binding.plastic,
+                material.binding.elastic,
+                material.binding.plastic,
                 mismatched,
             )
 
@@ -552,9 +555,11 @@ class TestLifetimeAndErrors:
 
     def test_wrong_inputs_raise(self):
         sim = _make_tet_sim_mesh()
-        valid = _make_energy(sim)
-        mesh = valid.mesh
-        binding = valid.material_binding
+        material = direct_material(
+            sim, pf.StableNeoDefinition(),
+            pf.VolumetricPlasticityDefinition(dofs=6))
+        mesh = material.mesh
+        binding = material.binding
 
         with pytest.raises(TypeError, match="material_binding"):
             pf.DeformationEnergyOperator(sim, formulation=pf.TetLinear())
@@ -576,10 +581,12 @@ class TestLifetimeAndErrors:
 
     def test_no_legacy_energy_keywords(self):
         sim = _make_tet_sim_mesh()
-        energy = _make_energy(sim)
+        material = direct_material(
+            sim, pf.StableNeoDefinition(),
+            pf.VolumetricPlasticityDefinition(dofs=6))
         with pytest.raises(TypeError):
             pf.DeformationEnergyOperator(
-                energy.mesh, energy.material_binding,
+                material.mesh, material.binding,
                 formulation=pf.TetLinear(),
                 elastic=pf.StableNeoDefinition(),
             )
@@ -589,6 +596,8 @@ class TestModuleSurface:
     def test_module_surface(self):
         assert hasattr(pgo, "fem")
         assert hasattr(pgo, "energy")
+        assert not hasattr(pf, "ShellFormulation")
+        assert isinstance(pf.KoiterShell(), pf.Formulation)
         assert not hasattr(pe, "deformation_energy")
         assert not hasattr(pe, "TetLinear")
         assert not hasattr(pe, "StableNeoDefinition")

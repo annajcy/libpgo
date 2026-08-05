@@ -2,7 +2,6 @@
 
 #include "deformation/deformationElement.h"
 #include "formulations/shapeFunction/shapeFunction.h"
-#include "deformation/volume/volumetricElementMapping.h"
 #include "formulations/quadrature/quadrature.h"
 #include "material/elastic/elasticModel3DDeformationGradient.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
@@ -24,7 +23,8 @@ public:
   using M3xN = Eigen::Matrix<double, 3, Eigen::Dynamic>;
   using M9xNDOF = Eigen::Matrix<double, 9, Eigen::Dynamic>;
 
-  VolumetricDeformationElement(VolumetricElementMapping &&mapping,
+  VolumetricDeformationElement(std::span<const double> restPositions,
+    const ShapeFunction &shapeFunction, const Quadrature &quadrature,
     std::unique_ptr<ElasticModel3DDeformationGradient> elasticModel,
     std::unique_ptr<PlasticModel3DDeformationGradient> plasticModel,
     DeformationElementConstructionOptions options = {});
@@ -139,16 +139,31 @@ public:
     int materialLocationID, const ES::M3d &P,
     EigenSupport::RefVecXd output) const;
 
-  const VolumetricElementMapping &mapping() const { return elementMapping_; }
-
   static SpectralState computeSpectralState(const ES::M3d &Fe);
 
 private:
+  struct RestGeometry
+  {
+    RestGeometry(std::span<const double> restPositions,
+      const ShapeFunction &shapeFunction, const Quadrature &quadrature);
+
+    ES::M3d computeDeformationGradient(
+      std::span<const double> localPositions, int q) const;
+
+    int numNodes = 0;
+    int numQuadraturePoints = 0;
+    int localDofs = 0;
+    std::vector<M3xN> dN_dxi;
+    std::vector<ES::M3d> restDmInv;
+    std::vector<M9xNDOF> rest_dF_dx;
+    std::vector<double> weightDetJ;
+    std::vector<M3xN> restBm;
+  };
+
+  RestGeometry geometry_;
   int numNodes_ = 0;
   int numQuadPts_ = 0;
   int localDofs_ = 0;
-
-  VolumetricElementMapping elementMapping_;
   std::unique_ptr<ElasticModel3DDeformationGradient> elasticModel_;
   std::unique_ptr<PlasticModel3DDeformationGradient> plasticModel_;
 

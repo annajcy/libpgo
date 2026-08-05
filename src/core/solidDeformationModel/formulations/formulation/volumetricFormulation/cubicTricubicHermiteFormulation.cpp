@@ -177,9 +177,8 @@ std::unique_ptr<DeformationElement> CubicTricubicHermiteFormulation::createEleme
   std::array<double, 192> restPosition;
   elementHermiteRestDofs(mesh, ele, restPosition);
 
-  auto mapping = createElementMapping(restPosition);
   return std::make_unique<VolumetricDeformationElement>(
-    std::move(*mapping),
+    restPosition, shapeFunction(), quadrature(),
     checkedMaterialCast<ElasticModel3DDeformationGradient>(
       std::move(elasticModel),
       "CubicTricubicHermiteFormulation requires ElasticModel3DDeformationGradient."),

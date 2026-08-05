@@ -114,9 +114,11 @@ def test_build_volume_scene_neo_hookean(tet_box_cfg_payload):
         "material.model": "neo_hookean",
     })
     bundle = build_scene(cfg)
-    assert bundle.deformation.elastic_definition.name == "neo_hookean"
-    assert bundle.deformation.elastic_definition.num_fixed_channels == 2
-    assert bundle.deformation.elastic_definition.num_optimizable_channels == 0
+    assert bundle.deformation.num_elastic_params == 0
+    assert not hasattr(bundle.deformation, "elastic_definition")
+    hessian_values = bundle.deformation.hessian(
+        bundle.deformation.zero_state()).to_coo()[2]
+    assert np.all(np.isfinite(hessian_values))
 
 
 def test_build_volume_scene_with_contact_and_attachment(tet_box_cfg_payload):

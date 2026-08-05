@@ -1,13 +1,13 @@
 #pragma once
 
 #include "deformation/deformationElement.h"
-#include "deformation/shell/shellElementMapping.h"
 #include "material/elastic/elasticModel2DFundamentalForms.h"
 #include "material/plastic/plasticModel2DFundamentalForms.h"
 #include "shellDeformationElementCache.h"
 #include "EigenSupport.h"
 
 #include <memory>
+#include <array>
 #include <span>
 
 namespace pgo
@@ -16,13 +16,18 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-// ShellDeformationElement — generic shell element facade.
-// Works with any ShellElementMapping implementation.
-
-class ShellDeformationElement : public DeformationElement
+class KoiterShellDeformationElement final : public DeformationElement
 {
 public:
-  ShellDeformationElement(std::unique_ptr<ShellElementMapping> mapping,
+  using APositions = std::array<ES::V3d, 3>;
+  using BPositions = std::array<ES::V3d, 6>;
+
+  static constexpr int numNodes = 6;
+  static constexpr int localDofs = 18;
+  static constexpr std::array<int, 3> oppVtx = { 4, 5, 3 };
+
+  KoiterShellDeformationElement(
+    const ES::V18d &restPositions, const std::array<bool, 6> &hasVertex,
     std::unique_ptr<ElasticModel2DFundamentalForms> elasticModel,
     std::unique_ptr<PlasticModel2DFundamentalForms> plasticModel,
     DeformationElementConstructionOptions options = {});
@@ -61,6 +66,17 @@ public:
     std::span<const double> plasticParams,
     std::span<double> stresses) const override;
 
+  ES::M2d computeFirstFundamentalForm(const APositions &x) const;
+  ES::M4x9d computeFirstFundamentalFormDerivative(
+    const APositions &x) const;
+  ES::M9x36d computeFirstFundamentalFormHessian(
+    const APositions &x) const;
+  ES::M2d computeSecondFundamentalForm(const BPositions &x) const;
+  ES::M4x18d computeSecondFundamentalFormDerivative(
+    const BPositions &x) const;
+  ES::M18x72d computeSecondFundamentalFormHessian(
+    const BPositions &x) const;
+
 private:
   void prepareData(std::span<const double> x, std::span<const double> elasticParams,
     std::span<const double> plasticParams,
@@ -94,14 +110,58 @@ public:
   int getNumElasticParameters() const override { return numElasticParams_; }
   int getNumPlasticParameters() const override { return numPlasticParams_; }
 
-  int getNumVertices() const override;
-  int getNumDOFs() const override;
+  int getNumVertices() const override { return numNodes; }
+  int getNumDOFs() const override { return localDofs; }
 
   LocalMaxStepResult computeLocalMaxStepSize(
     std::span<const double> x_local, std::span<const double> dx_local) const override;
 
 private:
-  std::unique_ptr<ShellElementMapping> elementMapping_;
+  struct FirstFundamentalFormResult
+  {
+    ES::M2d value = ES::M2d::Zero();
+    ES::M4x9d derivative = ES::M4x9d::Zero();
+    std::array<ES::M9d, 4> hessian{};
+  };
+
+  struct SecondFundamentalFormMatrixResult
+  {
+    ES::M2d value = ES::M2d::Zero();
+    ES::M4x18d derivative = ES::M4x18d::Zero();
+    std::array<ES::M18d, 4> hessian{};
+  };
+
+  struct SecondFundamentalFormEntriesResult
+  {
+    ES::V3d value = ES::V3d::Zero();
+    ES::M3x18d derivative = ES::M3x18d::Zero();
+    std::array<ES::M18d, 3> hessian{};
+  };
+
+  struct FaceNormalResult
+  {
+    ES::V3d value = ES::V3d::Zero();
+    ES::M3x9d derivative = ES::M3x9d::Zero();
+    std::array<ES::M9d, 3> hessian{};
+  };
+
+  FirstFundamentalFormResult computeFirstFundamentalFormImpl(
+    const APositions &x, bool computeDerivative, bool computeHessian) const;
+  SecondFundamentalFormMatrixResult computeSecondFundamentalFormImpl(
+    const BPositions &x, bool computeDerivative, bool computeHessian) const;
+  SecondFundamentalFormEntriesResult secondFundamentalFormEntries(
+    const BPositions &x, bool computeDerivative, bool computeHessian) const;
+  FaceNormalResult faceNormal(
+    const ES::V3d &x0, const ES::V3d &x1, const ES::V3d &x2,
+    bool computeDerivative, bool computeHessian) const;
+  static ES::M3d crossMatrix(const Eigen::Vector3d &v);
+
+  std::array<ES::V3d, 6> restPositions_;
+  std::array<bool, 6> hasVertex_;
+  ES::M2d restFirstFundamentalForm_;
+  ES::M2d restSecondFundamentalForm_;
+  double restArea_ = 0.0;
+
   std::unique_ptr<ElasticModel2DFundamentalForms> elastic2D_;
   std::unique_ptr<PlasticModel2DFundamentalForms> plastic2D_;
   bool projectHessianPSD_ = false;

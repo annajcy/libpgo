@@ -26,7 +26,6 @@ public:
 
   int numNodes() const override { return kNumNodes; }
   int localDofs() const override { return kLocalDofs; }
-  std::unique_ptr<ShapeFunction> clone() const override { return std::make_unique<TetLinearShapeFunction>(*this); }
 
   EigenSupport::V4d compute_N(double xi, double eta, double zeta) const;
   EigenSupport::M3x4d compute_dN_dxi(double xi, double eta, double zeta) const;
@@ -38,7 +37,7 @@ public:
 };
 
 // Tet-linear deformation geometry helpers for callers that do not have a
-// VolumetricElementMapping instance available.
+// a volumetric deformation element available.
 EigenSupport::M3d tetLinearComputeDs(const EigenSupport::V12d &x);
 EigenSupport::M9x12d tetLinearComputeDFDx(const EigenSupport::M3d &DmInv);
 

@@ -32,22 +32,23 @@ class DeformationEnergyOperator
 {
 public:
   DeformationEnergyOperator(
-    std::shared_ptr<const SimulationMesh> mesh,
-    std::shared_ptr<const MaterialBinding> materialBinding,
+    const SimulationMesh &mesh,
+    const MaterialBinding &materialBinding,
     const Formulation &formulation,
     const DeformationModelOptions &options = {});
 
   ~DeformationEnergyOperator();
 
   const DeformationModelAssembler &assembler() const { return *forceModelAssembler; }
-  DeformationModelAssembler &assembler() { return *forceModelAssembler; }
 
   // Full generalized rest state. This is not necessarily one position per
   // mesh vertex (e.g. Hermite also stores derivative DOFs).
-  const EigenSupport::VXd &getRestDofs() const { return *restDofs; }
+  const EigenSupport::VXd &getRestDofs() const;
   // Interleaved xyz positions of the actual mesh vertices, independent of
   // the formulation's generalized DOF layout.
   const EigenSupport::VXd &getVertexRestPositions() const { return vertexRestPositions; }
+  int getNumVertices() const;
+  int getNumElements() const;
 
   double func(EigenSupport::ConstRefVecXd x, MaterialStateView state) const;
   void gradient(
@@ -89,7 +90,6 @@ public:
 protected:
   std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
   std::vector<int> allDOFs;
-  std::unique_ptr<EigenSupport::VXd> restDofs;
   EigenSupport::VXd vertexRestPositions;
   // Mutable evaluation storage. One operator instance does not support
   // overlapping/concurrent evaluations.
@@ -100,13 +100,14 @@ private:
   struct BuildComponents
   {
     std::unique_ptr<DeformationModelAssembler> assembler;
+    EigenSupport::VXd vertexRestPositions;
     bool enableMaterialMaxStep = true;
     int dofOffset = 0;
   };
 
   static BuildComponents build(
-    std::shared_ptr<const SimulationMesh> mesh,
-    std::shared_ptr<const MaterialBinding> materialBinding,
+    const SimulationMesh &mesh,
+    const MaterialBinding &materialBinding,
     const Formulation &formulation,
     const DeformationModelOptions &options);
   explicit DeformationEnergyOperator(BuildComponents components);

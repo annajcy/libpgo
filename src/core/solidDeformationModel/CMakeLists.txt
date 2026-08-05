@@ -73,7 +73,6 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/formulation/volumetricFormulation/tetLinearFormulation.h
   formulations/formulation/volumetricFormulation/cubicLinearFormulation.h
   formulations/formulation/volumetricFormulation/cubicTricubicHermiteFormulation.h
-  formulations/formulation/shellFormulation/shellFormulation.h
   formulations/formulation/shellFormulation/koiterShellFormulation.h
   formulations/shapeFunction/shapeFunction.h
   formulations/shapeFunction/tetLinearShapeFunction.h
@@ -85,13 +84,10 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/quadrature/gaussLegendreHexQuadrature.h
   formulations/quadrature/tetDegree2Quadrature.h
 
-  deformation/volume/volumetricElementMapping.h
-  deformation/shell/shellElementMapping.h
-  deformation/shell/koiterShellElementMapping.h
 
   deformation/volume/volumetricDeformationElement.h
   deformation/volume/volumetricDeformationElementCache.h
-  deformation/shell/shellDeformationElement.h
+  deformation/shell/koiterShellDeformationElement.h
   deformation/shell/shellDeformationElementCache.h
 
   formulations/dof/dofLayout.h
@@ -151,7 +147,6 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   formulations/formulation/volumetricFormulation/tetLinearFormulation.cpp
   formulations/formulation/volumetricFormulation/cubicLinearFormulation.cpp
   formulations/formulation/volumetricFormulation/cubicTricubicHermiteFormulation.cpp
-  formulations/formulation/shellFormulation/shellFormulation.cpp
   formulations/formulation/shellFormulation/koiterShellFormulation.cpp
 
   formulations/shapeFunction/tetLinearShapeFunction.cpp
@@ -164,12 +159,11 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   formulations/quadrature/gaussLegendreHexQuadrature.cpp
   formulations/quadrature/tetDegree2Quadrature.cpp
 
-  deformation/volume/volumetricElementMapping.cpp
-  deformation/shell/koiterShellElementMapping.cpp
+  deformation/shell/koiterShellGeometry.cpp
 
   deformation/volume/volumetricDeformationElement.cpp
   deformation/volume/volumetricDeformationElementCache.cpp
-  deformation/shell/shellDeformationElement.cpp
+  deformation/shell/koiterShellDeformationElement.cpp
   deformation/shell/shellDeformationElementCache.cpp
 
   material/runtime/materialState.cpp

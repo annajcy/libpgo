@@ -30,10 +30,6 @@ namespace SolidDeformationModel
 // ranges by a simple offset. Rotated or otherwise dense element transforms
 // (G_e entries with non-unit coefficients) are not supported by this API.
 
-// Note: DynamicIndexMatrix is defined here (instead of the assembler header)
-// so DofLayout can declare it without a circular dependency.
-using DynamicIndexMatrix = Eigen::Matrix<std::ptrdiff_t, Eigen::Dynamic, Eigen::Dynamic>;
-
 struct DofGroup
 {
   int localStart = 0;
@@ -53,7 +49,7 @@ inline std::vector<int> globalDofs(const DofGroup &group)
 }
 
 // =========================================================================
-// Hessian sparsity pipeline
+// Sparse assembly pipeline
 // =========================================================================
 //
 // The global sparse Hessian ∇²_x E = Σ_e G_e^T H_e G_e is stored in Eigen's
@@ -63,17 +59,17 @@ inline std::vector<int> globalDofs(const DofGroup &group)
 // valuePtr[offsets[r] + c] += ... — block-aware flat-offset indexing
 // without per-entry column lookups.
 //
-// Pipeline:  collectHessianBlockPairs  →  buildCompressedHessianTemplate
-//          →  buildAllHessianBlockOffsets
+// Pipeline:  collectSparseBlockPairs  →  buildSparseMatrixTemplate
+//          →  buildAllSparseBlockOffsets
 
 // Identifies a unique (rowGroup, colGroup) pair of global DOF index sets
 // for Hessian sparsity deduplication.
-struct HessianBlockKey
+struct SparseBlockKey
 {
   std::vector<int> rows;
   std::vector<int> cols;
 
-  bool operator<(const HessianBlockKey &other) const
+  bool operator<(const SparseBlockKey &other) const
   {
     if (rows != other.rows)
       return rows < other.rows;
@@ -82,15 +78,15 @@ struct HessianBlockKey
 };
 
 // Build a compressed sparse Hessian template from a deduplicated set of
-// HessianBlockKey entries.  Each key contributes a dense block of columns to
+// SparseBlockKey entries.  Each key contributes a dense block of columns to
 // every row it references; duplicates within a row are merged.
-void buildCompressedHessianTemplate(int numDOFs,
-  const std::set<HessianBlockKey> &blocks, EigenSupport::SpMatD &tmpl);
+void buildSparseMatrixTemplate(int numDOFs,
+  const std::set<SparseBlockKey> &blocks, EigenSupport::SpMatD &tmpl);
 
 // Maps a (rowGroup, colGroup) pair of DofGroups to a contiguous block in
 // a compressed sparse Hessian matrix.  Precomputed at setup time and stored
 // per-element for fast atomic scatter of the local dense Hessian.
-struct HessianBlockOffset
+struct SparseBlockOffset
 {
   int rowLocalStart = 0;
   int colLocalStart = 0;
@@ -105,12 +101,18 @@ struct HessianBlockOffset
 };
 
 // Given a DofGroup list and a compressed sparse Hessian template, build a
-// vector of HessianBlockOffset entries (one per (rowGroup, colGroup) pair).
+// vector of SparseBlockOffset entries (one per (rowGroup, colGroup) pair).
 // Throws std::runtime_error if the template does not contain a contiguous
 // dense block for any (rowGroup, colGroup) pair.
-void buildHessianBlockOffsetsForGroups(const EigenSupport::SpMatD &tmpl,
+void buildSparseBlockOffsetsForGroups(const EigenSupport::SpMatD &tmpl,
   int localDofs, int globalDofs, const std::vector<DofGroup> &groups,
-  std::vector<HessianBlockOffset> &blocks);
+  std::vector<SparseBlockOffset> &blocks);
+
+struct SparseAssemblyCache
+{
+  EigenSupport::SpMatD matrixTemplate;
+  std::vector<std::vector<SparseBlockOffset>> elementBlockOffsets;
+};
 
 // =========================================================================
 // DofLayout — abstract interface for gather / scatter / Hessian setup
@@ -170,21 +172,21 @@ public:
     }
   }
 
-  // Build Hessian block offsets for element `ele` against the given compressed
+  // Build sparse block offsets for element `ele` against the given compressed
   // sparse template.  Uses getDofGroups() and numGlobalDofs() internally.
-  void buildHessianBlockOffsets(int ele, const EigenSupport::SpMatD &tmpl,
-    std::vector<HessianBlockOffset> &blocks) const
+  void buildSparseBlockOffsets(int ele, const EigenSupport::SpMatD &tmpl,
+    std::vector<SparseBlockOffset> &blocks) const
   {
     std::vector<DofGroup> groups;
     getDofGroups(ele, groups);
-    buildHessianBlockOffsetsForGroups(tmpl, numLocalDofs(ele), numGlobalDofs(), groups, blocks);
+    buildSparseBlockOffsetsForGroups(tmpl, numLocalDofs(ele), numGlobalDofs(), groups, blocks);
   }
 
   // Collect all unique (rowGroup, colGroup) global block pairs across elements
   // 0 .. nele-1.  Used by the assembler to build the compressed sparse Hessian
   // sparsity template.
-  void collectHessianBlockPairs(int nele,
-    std::set<HessianBlockKey> &blocks) const
+  void collectSparseBlockPairs(int nele,
+    std::set<SparseBlockKey> &blocks) const
   {
     std::vector<DofGroup> groups;
     for (int ele = 0; ele < nele; ele++) {
@@ -196,12 +198,12 @@ public:
   }
 
   // Build block offsets for all elements 0 .. nele-1 against the given template.
-  void buildAllHessianBlockOffsets(int nele, const EigenSupport::SpMatD &tmpl,
-    std::vector<std::vector<HessianBlockOffset>> &allBlocks) const
+  void buildAllSparseBlockOffsets(int nele, const EigenSupport::SpMatD &tmpl,
+    std::vector<std::vector<SparseBlockOffset>> &allBlocks) const
   {
     allBlocks.resize(nele);
     for (int ele = 0; ele < nele; ele++)
-      buildHessianBlockOffsets(ele, tmpl, allBlocks[ele]);
+      buildSparseBlockOffsets(ele, tmpl, allBlocks[ele]);
   }
 };
 

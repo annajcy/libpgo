@@ -34,13 +34,12 @@ PrescribedPrincipleStressConstraintFunctions::
   assembler_(assembler),
   materialState_(std::move(materialState))
 {
-  const SimulationMesh &mesh = assembler_.mesh();
   if (materialState_.elasticValues().size() !=
-    mesh.getNumElements() * assembler_.getNumElasticParams())
+    assembler_.getNumElements() * assembler_.getNumElasticParams())
     throw std::invalid_argument(
       "Constraint elastic material state has an unexpected size.");
   if (materialState_.plasticValues().size() !=
-    mesh.getNumElements() * assembler_.getNumPlasticParams())
+    assembler_.getNumElements() * assembler_.getNumPlasticParams())
     throw std::invalid_argument(
       "Constraint plastic material state has an unexpected size.");
 
@@ -49,7 +48,7 @@ PrescribedPrincipleStressConstraintFunctions::
 
   elementData_.reserve(elements.size());
   for (std::size_t ei = 0; ei < elements.size(); ei++) {
-    if (elements[ei] < 0 || elements[ei] >= mesh.getNumElements())
+    if (elements[ei] < 0 || elements[ei] >= assembler_.getNumElements())
       throw std::out_of_range(
         "Prescribed principal stress constraint element is out of range.");
     const auto &dm = assembler_.element(elements[ei]);
@@ -57,7 +56,25 @@ PrescribedPrincipleStressConstraintFunctions::
     if (tetFEM == nullptr)
       throw std::invalid_argument(
         "Prescribed principal stress constraints require volumetric deformation models.");
+    if (tetFEM->getNumVertices() != 4)
+      throw std::invalid_argument(
+        "Prescribed principal stress constraints require linear tetrahedral elements.");
     elementData_.emplace_back(*tetFEM);
+  }
+
+  elementGlobalDofs_.resize(assembler_.getNumElements());
+  for (int elementID : elements) {
+    auto &globalDofs = elementGlobalDofs_[elementID];
+    globalDofs.assign(12, -1);
+    std::vector<DofGroup> groups;
+    assembler_.getDofLayout().getDofGroups(elementID, groups);
+    for (const DofGroup &group : groups)
+      for (int i = 0; i < group.size; ++i)
+        if (group.localStart + i < 12)
+          globalDofs[group.localStart + i] = group.globalDof(i);
+    if (std::find(globalDofs.begin(), globalDofs.end(), -1) != globalDofs.end())
+      throw std::invalid_argument(
+        "Prescribed principal stress constraints require twelve mapped element DOFs.");
   }
 
   std::vector<ES::TripletD> entries;
@@ -65,7 +82,8 @@ PrescribedPrincipleStressConstraintFunctions::
     for (int r = 0; r < 3; r++) {
       for (int j = 0; j < 4; j++) {
         for (int dof = 0; dof < 3; dof++) {
-          entries.emplace_back(static_cast<int>(i) * 3 + r, dofStart + assembler_.mesh().getVertexIndex(elements[i], j) * 3 + dof, 1.0);
+          entries.emplace_back(static_cast<int>(i) * 3 + r,
+            dofStart + elementGlobalDof(elements[i], j * 3 + dof), 1.0);
         }
       }
     }
@@ -78,10 +96,10 @@ PrescribedPrincipleStressConstraintFunctions::
   for (std::size_t i = 0; i < elements.size(); i++) {
     for (int vi = 0; vi < 4; vi++) {
       for (int dofi = 0; dofi < 3; dofi++) {
-        int row = assembler_.mesh().getVertexIndex(elements[i], vi) * 3 + dofi;
+        int row = elementGlobalDof(elements[i], vi * 3 + dofi);
         for (int vj = 0; vj < 4; vj++) {
           for (int dofj = 0; dofj < 3; dofj++) {
-            int col = assembler_.mesh().getVertexIndex(elements[i], vj) * 3 + dofj;
+            int col = elementGlobalDof(elements[i], vj * 3 + dofj);
             entries.emplace_back(dofStart + row, dofStart + col, 1.0);
           }
         }
@@ -114,6 +132,12 @@ PrescribedPrincipleStressConstraintFunctions::plasticValues(
     static_cast<std::size_t>(elementID * numPlastic), numPlastic);
 }
 
+int PrescribedPrincipleStressConstraintFunctions::elementGlobalDof(
+  int elementID, int localDof) const
+{
+  return elementGlobalDofs_[elementID][localDof];
+}
+
 void PrescribedPrincipleStressConstraintFunctions::setTargetPHat(
   std::span<const double> phat)
 {
@@ -134,10 +158,11 @@ void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES:
     ES::V18d &localp = scratch.localp;
     ES::V3d Phat = targetPrincipleStress.segment<3>(i * 3);
     int eleID = elements[i];
-    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
-      int vid = assembler_.mesh().getVertexIndex(eleID, j);
+    for (int j = 0; j < 4; j++) {
+      const int globalStart = elementGlobalDof(eleID, j * 3);
       ES::V3d vtxp;
-      xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
+      xToPosFunc(x.segment<3>(dofStart + globalStart),
+        dofStart + globalStart, vtxp);
       localp.segment<3>(j * 3) = vtxp;
     }
 
@@ -162,10 +187,11 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
     ES::V18d &localp = scratch.localp;
     ES::V3d Phat = targetPrincipleStress.segment<3>(i * 3);
     int eleID = elements[i];
-    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
-      int vid = assembler_.mesh().getVertexIndex(eleID, j);
+    for (int j = 0; j < 4; j++) {
+      const int globalStart = elementGlobalDof(eleID, j * 3);
       ES::V3d vtxp;
-      xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
+      xToPosFunc(x.segment<3>(dofStart + globalStart),
+        dofStart + globalStart, vtxp);
       localp.segment<3>(j * 3) = vtxp;
     }
 
@@ -187,9 +213,9 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
     scratch.deformation->computeForceFromFirstPiola(
       localPosition, elasticValues(eleID, state),
       plasticValues(eleID, state), 0, P1, f);
-    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
-      int vid = assembler_.mesh().getVertexIndex(eleID, j);
-      fext.segment<3>(vid * 3) = f.segment<3>(j * 3);
+    for (int j = 0; j < 4; j++) {
+      const int globalStart = elementGlobalDof(eleID, j * 3);
+      fext.segment<3>(globalStart) = f.segment<3>(j * 3);
     }
   }
 }
@@ -203,10 +229,11 @@ double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractio
   auto &scratch = elementData_[elementIndex];
   ES::V18d &localp = scratch.localp;
 
-  for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
-    int vid = assembler_.mesh().getVertexIndex(eleID, j);
+  for (int j = 0; j < 4; j++) {
+    const int globalStart = elementGlobalDof(eleID, j * 3);
     ES::V3d vtxp;
-    xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
+    xToPosFunc(x.segment<3>(dofStart + globalStart),
+      dofStart + globalStart, vtxp);
     localp.segment<3>(j * 3) = vtxp;
   }
   const MaterialStateView state = materialState_.view();
@@ -226,10 +253,11 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
     ES::V18d &localp = scratch.localp;
     ES::V3d Phat = targetPrincipleStress.segment<3>(i * 3);
     int eleID = elements[i];
-    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
-      int vid = assembler_.mesh().getVertexIndex(eleID, j);
+    for (int j = 0; j < 4; j++) {
+      const int globalStart = elementGlobalDof(eleID, j * 3);
       ES::V3d vtxp;
-      xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
+      xToPosFunc(x.segment<3>(dofStart + globalStart),
+        dofStart + globalStart, vtxp);
       localp.segment<3>(j * 3) = vtxp;
     }
 
@@ -277,7 +305,8 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
         int vid = ci / 3;
         int dof = ci % 3;
 
-        auto it = jacEntries.find(std::make_pair(i * 3 + ri, assembler_.mesh().getVertexIndex(eleID, vid) * 3 + dof));
+        auto it = jacEntries.find(std::make_pair(
+          i * 3 + ri, elementGlobalDof(eleID, vid * 3 + dof)));
         PGO_ALOG(it != jacEntries.end());
 
         jac.valuePtr()[it->second] = dSdx(ri, ci);
@@ -295,10 +324,11 @@ void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVe
     auto &scratch = elementData_[ei];
     ES::V18d &localp = scratch.localp;
     int eleID = elements[ei];
-    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
-      int vid = assembler_.mesh().getVertexIndex(eleID, j);
+    for (int j = 0; j < 4; j++) {
+      const int globalStart = elementGlobalDof(eleID, j * 3);
       ES::V3d vtxp;
-      xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
+      xToPosFunc(x.segment<3>(dofStart + globalStart),
+        dofStart + globalStart, vtxp);
       localp.segment<3>(j * 3) = vtxp;
     }
 
@@ -373,8 +403,8 @@ void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVe
         int vj = ri / 3;
         int dofj = ri % 3;
 
-        int globalRow = assembler_.mesh().getVertexIndex(eleID, vj) * 3 + dofj;
-        int globalCol = assembler_.mesh().getVertexIndex(eleID, vi) * 3 + dofi;
+        int globalRow = elementGlobalDof(eleID, vj * 3 + dofj);
+        int globalCol = elementGlobalDof(eleID, vi * 3 + dofi);
 
         auto it = hessEntries.find(std::make_pair(globalRow, globalCol));
         PGO_ALOG(it != hessEntries.end());

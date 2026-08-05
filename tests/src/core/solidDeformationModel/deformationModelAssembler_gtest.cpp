@@ -98,7 +98,7 @@ Fixture makeFixture()
     std::make_shared<VolumetricPlasticity6Definition>(),
     fixture.parameters);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
-    fixture.asset->mesh(), material.binding, formulation, false);
+    *fixture.asset->mesh(), *material.binding, formulation, false);
   fixture.absolutePositions = fixture.assembler->getRestDofs();
   for (int i = 0; i < fixture.absolutePositions.size(); i++)
     fixture.absolutePositions[i] += 0.004 * std::sin(0.7 * i + 0.2);
@@ -139,7 +139,7 @@ Fixture makeNonlinearShellFixture()
     std::make_shared<ShellPlasticity1Definition>(),
     fixture.parameters);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
-    fixture.asset->mesh(), material.binding, formulation, false);
+    *fixture.asset->mesh(), *material.binding, formulation, false);
   fixture.absolutePositions = fixture.assembler->getRestDofs();
   for (int i = 0; i < fixture.absolutePositions.size(); i++)
     fixture.absolutePositions[i] += 0.003 * std::sin(0.9 * i + 0.4);
@@ -378,7 +378,7 @@ TEST(PrescribedPrincipleStressConstraintFunctions, BindsImmutableMaterialState)
     std::make_shared<VolumetricPlasticity3Definition>(),
     parameters);
   auto assembler = std::make_unique<DeformationModelAssembler>(
-    asset->mesh(), material.binding, formulation, false);
+    *asset->mesh(), *material.binding, formulation, false);
 
   const int elementID = 0;
   PrescribedPrincipleStressConstraintFunctions constraints(

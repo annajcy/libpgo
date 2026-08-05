@@ -171,7 +171,7 @@ nb::ndarray<nb::numpy, double> PyDeformationEnergyOperator::elementVonMisesStres
     throw nb::value_error("displacement size must match deformation energy num_dofs.");
   }
 
-  const int nele = energy_->assembler().mesh().getNumElements();
+  const int nele = energy_->getNumElements();
   EigenSupport::VXd out = EigenSupport::VXd::Zero(nele);
   try {
     nb::gil_scoped_release release;
@@ -547,7 +547,7 @@ std::shared_ptr<PyDeformationEnergyOperator> createDeformationEnergyOperator(
   {
     nb::gil_scoped_release release;
     energy = std::make_shared<SolidDeformationModel::DeformationEnergyOperator>(
-      mesh.meshPtr(), materialBinding.binding(), formulation.get(), opts);
+      mesh.mesh(), *materialBinding.binding(), formulation.get(), opts);
   }
   return std::make_shared<PyDeformationEnergyOperator>(std::move(energy));
 }

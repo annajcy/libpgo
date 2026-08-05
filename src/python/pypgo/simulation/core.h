@@ -13,7 +13,7 @@ namespace pgo
 namespace nb = nanobind;
 
 // Python-facing SimulationMesh owner. Holds a shared SimulationMesh handle so
-// deformation energies and parameter-field configs retain the exact same mesh instance.
+// parameter-field configs retain the exact same mesh instance.
 class PySimulationMesh
 {
 public:

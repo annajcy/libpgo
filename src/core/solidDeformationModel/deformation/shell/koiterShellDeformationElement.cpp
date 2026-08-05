@@ -1,4 +1,4 @@
-#include "shellDeformationElement.h"
+#include "koiterShellDeformationElement.h"
 #include "deformation/hessianProjection.h"
 
 #include <stdexcept>
@@ -21,38 +21,52 @@ std::span<const double> parameterView(const ES::VXd &parameters)
   return { parameters.data(), static_cast<std::size_t>(parameters.size()) };
 }
 
-ShellElementMapping::APositions trianglePositions(const std::array<ES::V3d, 6> &x)
+KoiterShellDeformationElement::APositions trianglePositions(
+  const std::array<ES::V3d, 6> &x)
 {
   return { x[0], x[1], x[2] };
 }
 }  // namespace
 
-ShellDeformationElement::ShellDeformationElement(
-  std::unique_ptr<ShellElementMapping> mapping,
+KoiterShellDeformationElement::KoiterShellDeformationElement(
+  const ES::V18d &restPositions, const std::array<bool, 6> &hasVertex,
   std::unique_ptr<ElasticModel2DFundamentalForms> elasticModel,
   std::unique_ptr<PlasticModel2DFundamentalForms> plasticModel,
-  DeformationElementConstructionOptions options): DeformationElement(), elementMapping_(std::move(mapping)), elastic2D_(std::move(elasticModel)), plastic2D_(std::move(plasticModel)), projectHessianPSD_(options.projectHessianPSD)
+  DeformationElementConstructionOptions options):
+  DeformationElement(), hasVertex_(hasVertex),
+  elastic2D_(std::move(elasticModel)), plastic2D_(std::move(plasticModel)),
+  projectHessianPSD_(options.projectHessianPSD)
 {
-  if (!elementMapping_) {
-    throw std::logic_error("ShellDeformationElement requires non-null shell mapping");
-  }
   if (!elastic2D_) {
-    throw std::logic_error("ShellDeformationElement requires non-null ElasticModel2DFundamentalForms");
+    throw std::logic_error("KoiterShellDeformationElement requires non-null ElasticModel2DFundamentalForms");
   }
   if (!plastic2D_) {
-    throw std::logic_error("ShellDeformationElement requires non-null PlasticModel2DFundamentalForms");
+    throw std::logic_error("KoiterShellDeformationElement requires non-null PlasticModel2DFundamentalForms");
   }
 
-  plastic2D_->set_abar(elementMapping_->restI());
-  plastic2D_->set_bbar(elementMapping_->restII());
-  plastic2D_->setArea(elementMapping_->restArea());
+  for (int i = 0; i < numNodes; ++i)
+    restPositions_[i] = restPositions.segment<3>(3 * i);
+  const APositions restTriangle{
+    restPositions_[0], restPositions_[1], restPositions_[2]
+  };
+  restFirstFundamentalForm_ =
+    computeFirstFundamentalForm(restTriangle);
+  restSecondFundamentalForm_ =
+    computeSecondFundamentalForm(restPositions_);
+  restArea_ = 0.5 *
+    (restPositions_[1] - restPositions_[0])
+      .cross(restPositions_[2] - restPositions_[0]).norm();
+
+  plastic2D_->set_abar(restFirstFundamentalForm_);
+  plastic2D_->set_bbar(restSecondFundamentalForm_);
+  plastic2D_->setArea(restArea_);
 
   numPlasticParams_ = plastic2D_->getNumParameters();
   numElasticParams_ = elastic2D_->getNumParameters();
   cache_ = ShellDeformationElementCache(numPlasticParams_, numElasticParams_);
 }
 
-double ShellDeformationElement::computeEnergy(
+double KoiterShellDeformationElement::computeEnergy(
   std::span<const double> x, std::span<const double> elasticParams,
   std::span<const double> plasticParams) const
 {
@@ -60,7 +74,7 @@ double ShellDeformationElement::computeEnergy(
   return compute_E(cache_);
 }
 
-void ShellDeformationElement::computeDisplacementGradient(
+void KoiterShellDeformationElement::computeDisplacementGradient(
   std::span<const double> x, std::span<const double> elasticParams,
   std::span<const double> plasticParams, ES::RefVecXd output) const
 {
@@ -68,7 +82,7 @@ void ShellDeformationElement::computeDisplacementGradient(
   compute_dE_dx(cache_, output);
 }
 
-void ShellDeformationElement::computeDisplacementHessian(
+void KoiterShellDeformationElement::computeDisplacementHessian(
   std::span<const double> x, std::span<const double> elasticParams,
   std::span<const double> plasticParams, ES::RefMatXd output) const
 {
@@ -76,7 +90,7 @@ void ShellDeformationElement::computeDisplacementHessian(
   compute_d2E_dx2(cache_, output);
 }
 
-void ShellDeformationElement::computeElasticGradient(
+void KoiterShellDeformationElement::computeElasticGradient(
   std::span<const double> x, std::span<const double> elasticParams,
   std::span<const double> plasticParams, ES::RefVecXd output) const
 {
@@ -85,7 +99,7 @@ void ShellDeformationElement::computeElasticGradient(
   compute_dE_de(cache_, output, 0);
 }
 
-void ShellDeformationElement::computePlasticGradient(
+void KoiterShellDeformationElement::computePlasticGradient(
   std::span<const double> x, std::span<const double> elasticParams,
   std::span<const double> plasticParams, ES::RefVecXd output) const
 {
@@ -94,7 +108,7 @@ void ShellDeformationElement::computePlasticGradient(
   compute_dE_dp(cache_, output, 0);
 }
 
-void ShellDeformationElement::computeElasticVJP(
+void KoiterShellDeformationElement::computeElasticVJP(
   std::span<const double> x, std::span<const double> elasticParams,
   std::span<const double> plasticParams,
   std::span<const double> displacementAdjoint, ES::RefVecXd output) const
@@ -106,7 +120,7 @@ void ShellDeformationElement::computeElasticVJP(
     Eigen::Map<const ES::VXd>(displacementAdjoint.data(), getNumDOFs());
 }
 
-void ShellDeformationElement::computePlasticVJP(
+void KoiterShellDeformationElement::computePlasticVJP(
   std::span<const double> x, std::span<const double> elasticParams,
   std::span<const double> plasticParams,
   std::span<const double> displacementAdjoint, ES::RefVecXd output) const
@@ -118,7 +132,7 @@ void ShellDeformationElement::computePlasticVJP(
     Eigen::Map<const ES::VXd>(displacementAdjoint.data(), getNumDOFs());
 }
 
-int ShellDeformationElement::computeVonMisesStress(
+int KoiterShellDeformationElement::computeVonMisesStress(
   std::span<const double> x, std::span<const double> elasticParams,
   std::span<const double> plasticParams, std::span<double> stresses) const
 {
@@ -127,7 +141,7 @@ int ShellDeformationElement::computeVonMisesStress(
     cache_, stresses, static_cast<int>(stresses.size()));
 }
 
-void ShellDeformationElement::prepareData(
+void KoiterShellDeformationElement::prepareData(
   std::span<const double> x, std::span<const double> elasticParams, std::span<const double> plasticParams,
   ShellDeformationElementCache &cacheDataBase) const
 {
@@ -164,17 +178,17 @@ void ShellDeformationElement::prepareData(
   cacheData.bbar = plastic2D_->compute_bbar(plasticParamView);
   cacheData.area = plastic2D_->computeArea(plasticParamView);
 
-  cacheData.a = elementMapping_->compute_a(trianglePositions(cacheData.x));
-  cacheData.b = elementMapping_->compute_b(cacheData.x);
+  cacheData.a = computeFirstFundamentalForm(trianglePositions(cacheData.x));
+  cacheData.b = computeSecondFundamentalForm(cacheData.x);
 }
 
-double ShellDeformationElement::compute_E(const ShellDeformationElementCache &cacheDataBase) const
+double KoiterShellDeformationElement::compute_E(const ShellDeformationElementCache &cacheDataBase) const
 {
   const ShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
   return compute_E(cacheData, parameterView(cacheData.plasticParamsValue), parameterView(cacheData.elasticParamsValue));
 }
 
-void ShellDeformationElement::compute_dE_dx(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::compute_dE_dx(const ShellDeformationElementCache &cacheDataBase,
   ES::RefVecXd grad) const
 {
   if (grad.size() != getNumDOFs())
@@ -184,8 +198,8 @@ void ShellDeformationElement::compute_dE_dx(const ShellDeformationElementCache &
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
 
-  dadx = elementMapping_->compute_da_dx(trianglePositions(cacheData.x));
-  dbdx = elementMapping_->compute_db_dx(cacheData.x);
+  dadx = computeFirstFundamentalFormDerivative(trianglePositions(cacheData.x));
+  dbdx = computeSecondFundamentalFormDerivative(cacheData.x);
 
   const auto elasticParamView = parameterView(cacheData.elasticParamsValue);
   const ES::M2d dEda = elastic2D_->compute_dpsi_da(
@@ -200,7 +214,7 @@ void ShellDeformationElement::compute_dE_dx(const ShellDeformationElementCache &
     dbdx.transpose() * Eigen::Map<const ES::V4d>(dEdb.data()) * cacheData.area;
 }
 
-void ShellDeformationElement::compute_d2E_dx2(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::compute_d2E_dx2(const ShellDeformationElementCache &cacheDataBase,
   ES::RefMatXd hess) const
 {
   if (hess.rows() != getNumDOFs() || hess.cols() != getNumDOFs())
@@ -213,10 +227,10 @@ void ShellDeformationElement::compute_d2E_dx2(const ShellDeformationElementCache
   ES::M9x36d d2adx2;
   ES::M18x72d d2bdx2;
 
-  dadx = elementMapping_->compute_da_dx(trianglePositions(cacheData.x));
-  dbdx = elementMapping_->compute_db_dx(cacheData.x);
-  d2adx2 = elementMapping_->compute_d2a_dx2(trianglePositions(cacheData.x));
-  d2bdx2 = elementMapping_->compute_d2b_dx2(cacheData.x);
+  dadx = computeFirstFundamentalFormDerivative(trianglePositions(cacheData.x));
+  dbdx = computeSecondFundamentalFormDerivative(cacheData.x);
+  d2adx2 = computeFirstFundamentalFormHessian(trianglePositions(cacheData.x));
+  d2bdx2 = computeSecondFundamentalFormHessian(cacheData.x);
 
   const auto elasticParamView = parameterView(cacheData.elasticParamsValue);
   const ES::M2d dEda = elastic2D_->compute_dpsi_da(
@@ -248,7 +262,7 @@ void ShellDeformationElement::compute_d2E_dx2(const ShellDeformationElementCache
     hessMap = projectSymmetricPSD(hessMap);
 }
 
-void ShellDeformationElement::compute_d2E_dudp(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::compute_d2E_dudp(const ShellDeformationElementCache &cacheDataBase,
   ES::RefMatXd hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -270,8 +284,8 @@ void ShellDeformationElement::compute_d2E_dudp(const ShellDeformationElementCach
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
-  dadx = elementMapping_->compute_da_dx(trianglePositions(cacheData.x));
-  dbdx = elementMapping_->compute_db_dx(cacheData.x);
+  dadx = computeFirstFundamentalFormDerivative(trianglePositions(cacheData.x));
+  dbdx = computeSecondFundamentalFormDerivative(cacheData.x);
 
   ES::MXd &dabar_dF = cacheData.plasticDAbarDparamScratch;
   ES::MXd &dbbar_dF = cacheData.plasticDBbarDparamScratch;
@@ -305,7 +319,7 @@ void ShellDeformationElement::compute_d2E_dudp(const ShellDeformationElementCach
   ES::Mp<ES::MXd>(hess.data(), 18, np) = mixed.block(0, 0, 18, np);
 }
 
-void ShellDeformationElement::compute_d2E_dude(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::compute_d2E_dude(const ShellDeformationElementCache &cacheDataBase,
   ES::RefMatXd hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -325,8 +339,8 @@ void ShellDeformationElement::compute_d2E_dude(const ShellDeformationElementCach
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
-  dadx = elementMapping_->compute_da_dx(trianglePositions(cacheData.x));
-  dbdx = elementMapping_->compute_db_dx(cacheData.x);
+  dadx = computeFirstFundamentalFormDerivative(trianglePositions(cacheData.x));
+  dbdx = computeSecondFundamentalFormDerivative(cacheData.x);
 
   int np = numElasticParams_;
   ES::MXd &mixed = cacheData.mixedDerivativeScratch;
@@ -340,7 +354,7 @@ void ShellDeformationElement::compute_d2E_dude(const ShellDeformationElementCach
   ES::Mp<ES::MXd>(hess.data(), 18, np) = mixed.block(0, 0, 18, np);
 }
 
-void ShellDeformationElement::compute_dE_dp(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::compute_dE_dp(const ShellDeformationElementCache &cacheDataBase,
   ES::RefVecXd grad, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -375,7 +389,7 @@ void ShellDeformationElement::compute_dE_dp(const ShellDeformationElementCache &
   }
 }
 
-void ShellDeformationElement::compute_dE_de(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::compute_dE_de(const ShellDeformationElementCache &cacheDataBase,
   ES::RefVecXd grad, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
@@ -393,7 +407,7 @@ void ShellDeformationElement::compute_dE_de(const ShellDeformationElementCache &
   grad *= cacheData.area;
 }
 
-int ShellDeformationElement::computeVonMisesStress(
+int KoiterShellDeformationElement::computeVonMisesStress(
   const ShellDeformationElementCache &cacheDataBase,
   std::span<double> stresses, int capacity) const
 {
@@ -423,17 +437,7 @@ int ShellDeformationElement::computeVonMisesStress(
   return 1;
 }
 
-int ShellDeformationElement::getNumVertices() const
-{
-  return elementMapping_->getNumNodes();
-}
-
-int ShellDeformationElement::getNumDOFs() const
-{
-  return elementMapping_->getLocalDofs();
-}
-
-DeformationElement::LocalMaxStepResult ShellDeformationElement::computeLocalMaxStepSize(
+DeformationElement::LocalMaxStepResult KoiterShellDeformationElement::computeLocalMaxStepSize(
   std::span<const double> x_local, std::span<const double> dx_local) const
 {
   (void)x_local;
@@ -441,19 +445,19 @@ DeformationElement::LocalMaxStepResult ShellDeformationElement::computeLocalMaxS
   return LocalMaxStepResult{};
 }
 
-const ShellDeformationElementCache &ShellDeformationElement::cacheData(
+const ShellDeformationElementCache &KoiterShellDeformationElement::cacheData(
   const ShellDeformationElementCache &cacheDataBase) const
 {
   return cacheDataBase;
 }
 
-ShellDeformationElementCache &ShellDeformationElement::cacheData(
+ShellDeformationElementCache &KoiterShellDeformationElement::cacheData(
   ShellDeformationElementCache &cacheDataBase) const
 {
   return cacheDataBase;
 }
 
-double ShellDeformationElement::compute_E(
+double KoiterShellDeformationElement::compute_E(
   const ShellDeformationElementCache &cacheData, std::span<const double> plasticParams, std::span<const double> elasticParams) const
 {
   ES::M2d abar;

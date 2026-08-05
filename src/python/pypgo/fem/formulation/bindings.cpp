@@ -17,7 +17,7 @@ void init_formulation_bindings(nb::module_ &m)
 
     nb::class_<PyVolumetricFormulation, PyFormulation>(m, "PyVolumetricFormulation");
 
-    nb::class_<PyShellFormulation, PyFormulation>(m, "PyShellFormulation");
+    nb::class_<PyKoiterShellFormulation, PyFormulation>(m, "PyKoiterShellFormulation");
 
     m.def("make_tet_linear", &make_tet_linear);
     m.def("make_cubic_linear", &make_cubic_linear);

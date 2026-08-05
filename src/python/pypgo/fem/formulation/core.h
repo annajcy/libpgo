@@ -47,14 +47,14 @@ public:
   }
 };
 
-class PyShellFormulation : public PyFormulation
+class PyKoiterShellFormulation : public PyFormulation
 {
 public:
   using PyFormulation::PyFormulation;
 
-  const SolidDeformationModel::ShellFormulation &shell() const
+  const SolidDeformationModel::KoiterShellFormulation &koiter() const
   {
-    return static_cast<const SolidDeformationModel::ShellFormulation &>(get());
+    return static_cast<const SolidDeformationModel::KoiterShellFormulation &>(get());
   }
 };
 
@@ -63,7 +63,7 @@ public:
 std::shared_ptr<PyVolumetricFormulation> make_tet_linear();
 std::shared_ptr<PyVolumetricFormulation> make_cubic_linear();
 std::shared_ptr<PyVolumetricFormulation> make_cubic_tricubic_hermite();
-std::shared_ptr<PyShellFormulation> make_koiter_shell();
+std::shared_ptr<PyKoiterShellFormulation> make_koiter_shell();
 
 PySparseMatrix compute_formulation_mass_matrix(
   const PySimulationMesh &mesh,
@@ -83,12 +83,12 @@ PySparseMatrix compute_formulation_surface_embedding_matrix(
 
 PySparseMatrix compute_shell_formulation_mass_matrix(
   const PySimulationMesh &mesh,
-  const PyShellFormulation &formulation,
+  const PyKoiterShellFormulation &formulation,
   const std::vector<double> &elementArealDensities);
 
 std::vector<double> compute_shell_formulation_body_force(
   const PySimulationMesh &mesh,
-  const PyShellFormulation &formulation,
+  const PyKoiterShellFormulation &formulation,
   const std::vector<double> &acceleration,
   const std::vector<double> &elementArealDensities);
 

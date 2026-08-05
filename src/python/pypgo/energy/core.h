@@ -129,22 +129,12 @@ public:
 
   nb::ndarray<nb::numpy, double> restState() const;
   nb::ndarray<nb::numpy, double> vertexRestPositions() const;
-  int numVertices() const { return energy_->assembler().mesh().getNumVertices(); }
+  int numVertices() const { return energy_->getNumVertices(); }
+  int numElements() const { return energy_->getNumElements(); }
   int numElasticParams() const { return energy_->assembler().getNumElasticParams(); }
   int numPlasticParams() const { return energy_->assembler().getNumPlasticParams(); }
   int numElasticValues() const { return energy_->assembler().getNumElasticGlobalParams(); }
   int numPlasticValues() const { return energy_->assembler().getNumPlasticGlobalParams(); }
-  std::shared_ptr<pgo::PyElasticModelDefinition> elasticDefinition() const
-  {
-    return std::make_shared<pgo::PyElasticModelDefinition>(
-      energy_->assembler().elasticModelDefinition());
-  }
-  std::shared_ptr<pgo::PyPlasticModelDefinition> plasticDefinition() const
-  {
-    return std::make_shared<pgo::PyPlasticModelDefinition>(
-      energy_->assembler().plasticModelDefinition(),
-      energy_->assembler().getNumPlasticParams());
-  }
   int numDofs() const { return energy_->getNumDOFs(); }
   double value(nb::ndarray<nb::numpy, const double> displacement, const PyMaterialState &state) const;
   nb::ndarray<nb::numpy, double> gradient(nb::ndarray<nb::numpy, const double> displacement, const PyMaterialState &state) const;

@@ -73,6 +73,9 @@ protected:
     int elementID, MaterialStateView state) const;
   std::span<const double> plasticValues(
     int elementID, MaterialStateView state) const;
+  int elementGlobalDof(int elementID, int localDof) const;
+
+  std::vector<std::vector<int>> elementGlobalDofs_;
 
   EigenSupport::EntryMap jacEntries, hessEntries;
 

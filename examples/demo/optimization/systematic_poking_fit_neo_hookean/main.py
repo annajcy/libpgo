@@ -240,7 +240,7 @@ def _stress_and_parameter_jacobian(energy, affine_basis, F):
         rest_positions @ (F - np.eye(3)).T
     ).ravel()
     stress = (affine_basis.T @ energy.gradient(displacement)).reshape((3, 3))
-    channels = energy.material_binding.elastic.num_optimizable_channels
+    channels = energy.num_elastic_params
     parameter_jacobian = np.empty((9, channels), dtype=np.float64)
     for output_index in range(9):
         elementwise_vjp = energy.elastic_material_vjp(
@@ -255,7 +255,7 @@ def _with_homogeneous_elastic_values(energy, values):
     values = np.asarray(values, dtype=np.float64).reshape(-1)
     elementwise = np.broadcast_to(
         values,
-        (energy.material_binding.num_elements, values.size),
+        (energy.num_elements, values.size),
     ).copy()
     return energy.material_state.with_elastic_values(elementwise)
 

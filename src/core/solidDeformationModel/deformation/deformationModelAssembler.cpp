@@ -101,32 +101,34 @@ DeformationModelAssembler::Element::Element(
 }
 
 DeformationModelAssembler::DeformationModelAssembler(
-  std::shared_ptr<const SimulationMesh> mesh,
-  std::shared_ptr<const MaterialBinding> materialBinding,
+  const SimulationMesh &mesh,
+  const MaterialBinding &materialBinding,
   const Formulation &formulation,
   bool projectHessianPSD,
   std::span<const double> elementWeights_):
-  mesh_(std::move(mesh)),
-  binding_(std::move(materialBinding))
+  meshType_(mesh.getElementType()),
+  numVertices_(mesh.getNumVertices())
 {
-  if (!mesh_ || !binding_)
-    throw std::invalid_argument(
-      "DeformationModelAssembler requires a mesh and material binding.");
-  if (binding_->numElements() != mesh_->getNumElements())
+  if (materialBinding.numElements() != mesh.getNumElements())
     throw std::invalid_argument(
       "DeformationModelAssembler material binding element count does not match mesh.");
-  if (mesh_->getNumElements() <= 0)
+  if (mesh.getNumElements() <= 0)
     throw std::invalid_argument(
       "DeformationModelAssembler mesh must contain at least one element.");
-  validateFormulation(mesh_->getElementType(), formulation);
+  validateFormulation(mesh.getElementType(), formulation);
 
-  dofLayout = formulation.createDofLayout(*mesh_);
-  restDofs_ = formulation.buildGlobalRestDofs(*mesh_);
-  nele = mesh_->getNumElements();
-  localDOFs = dofLayout->numLocalDofs(0);
-  numDOFs = dofLayout->numGlobalDofs();
-  numElasticParams_ = binding_->elastic().numOptimizableChannels();
-  numPlasticParams_ = binding_->plastic().numOptimizableChannels();
+  dofLayout_ = formulation.createDofLayout(mesh);
+  restDofs_ = formulation.buildGlobalRestDofs(mesh);
+  nele = mesh.getNumElements();
+  localDOFs = dofLayout_->numLocalDofs(0);
+  numDOFs = dofLayout_->numGlobalDofs();
+  numElasticParams_ = materialBinding.elastic().numOptimizableChannels();
+  numPlasticParams_ = materialBinding.plastic().numOptimizableChannels();
+  for (int ele = 1; ele < nele; ++ele) {
+    if (dofLayout_->numLocalDofs(ele) != localDOFs)
+      throw std::invalid_argument(
+        "A formulation must use a fixed local DOF count across all elements.");
+  }
 
   if (!elementWeights_.empty()) {
     if (elementWeights_.size() != static_cast<std::size_t>(nele))
@@ -137,36 +139,41 @@ DeformationModelAssembler::DeformationModelAssembler(
     elementWeights.assign(nele, 1);
   }
 
-  initializeElements(formulation,
+  initializeElements(mesh, materialBinding, formulation,
     DeformationElementConstructionOptions{ projectHessianPSD });
   for (int ele = 0; ele < nele; ele++)
-    dofLayout->getDofGroups(ele, elements_[ele].dofGroups);
+    dofLayout_->getDofGroups(ele, elements_[ele].dofGroups);
   logMemoryCheckpoint("assembler.after_element_cache_setup");
 
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Assembler elementwise parameter channels:{},{}",
     numElasticParams_, numPlasticParams_);
 
   // Hessian template.
-  std::set<HessianBlockKey> hessianBlocks;
-  dofLayout->collectHessianBlockPairs(nele, hessianBlocks);
+  std::set<SparseBlockKey> hessianBlocks;
+  dofLayout_->collectSparseBlockPairs(nele, hessianBlocks);
   logMemoryCheckpoint("assembler.after_unique_hessian_block_collection");
 
-  buildCompressedHessianTemplate(numDOFs, hessianBlocks, KTemplate);
+  buildSparseMatrixTemplate(
+    numDOFs, hessianBlocks, hessianAssembly_.matrixTemplate);
   logMemoryCheckpoint("assembler.after_compressed_hessian_template");
 
-  dofLayout->buildAllHessianBlockOffsets(nele, KTemplate, elementKBlockOffsets);
+  dofLayout_->buildAllSparseBlockOffsets(nele,
+    hessianAssembly_.matrixTemplate,
+    hessianAssembly_.elementBlockOffsets);
   logMemoryCheckpoint("assembler.after_element_block_offsets");
 }
 
 void DeformationModelAssembler::initializeElements(
+  const SimulationMesh &mesh,
+  const MaterialBinding &binding,
   const Formulation &formulation,
   DeformationElementConstructionOptions options)
 {
   SPDLOG_LOGGER_INFO(
     pgo::Logging::lgr(), "Initializing deformation elements...");
 
-  const auto &elastic = binding_->elastic();
-  const auto &plastic = binding_->plastic();
+  const auto &elastic = binding.elastic();
+  const auto &plastic = binding.plastic();
   const int numElasticFixed = elastic.numFixedChannels();
   const int numPlasticFixed = plastic.numFixedChannels();
   const auto &elasticFixed = elastic.fixedValues();
@@ -174,7 +181,7 @@ void DeformationModelAssembler::initializeElements(
 
   std::vector<std::unique_ptr<DeformationElement>> deformations(nele);
   tbb::parallel_for(0, nele, [&](int ele) {
-    const MaterialFrame &frame = binding_->materialFrames()[ele];
+    const MaterialFrame &frame = binding.materialFrames()[ele];
     const std::span<const double> elasticValues(
       numElasticFixed ? elasticFixed.data() + ele * numElasticFixed : nullptr,
       static_cast<std::size_t>(numElasticFixed));
@@ -184,7 +191,7 @@ void DeformationModelAssembler::initializeElements(
     auto elasticModel = elastic.definition()->createModel(elasticValues, frame);
     auto plasticModel = plastic.definition()->createModel(plasticValues, frame);
     deformations[ele] = formulation.createElement(
-      *mesh_, ele, std::move(elasticModel), std::move(plasticModel), options);
+      mesh, ele, std::move(elasticModel), std::move(plasticModel), options);
   });
 
   int maxMaterialLocations = 0;
@@ -208,26 +215,6 @@ void DeformationModelAssembler::initializeElements(
 }
 
 DeformationModelAssembler::~DeformationModelAssembler() = default;
-
-std::shared_ptr<const ElasticModelDefinition>
-DeformationModelAssembler::elasticModelDefinition() const
-{
-  return binding_->elastic().definition();
-}
-
-std::shared_ptr<const PlasticModelDefinition>
-DeformationModelAssembler::plasticModelDefinition() const
-{
-  return binding_->plastic().definition();
-}
-
-const MaterialFrame &DeformationModelAssembler::materialFrame(
-  int elementId) const
-{
-  if (elementId < 0 || elementId >= nele)
-    throw std::out_of_range("Deformation element index is out of range.");
-  return binding_->materialFrames()[elementId];
-}
 
 const DeformationElement &DeformationModelAssembler::element(
   int elementId) const
@@ -314,7 +301,7 @@ DeformationModelAssembler::MaterialMaxStepObservation DeformationModelAssembler:
   validatePositionSpan(x, "position vector");
   validatePositionSpan(dx, "direction vector");
   MaterialMaxStepObservation observation;
-  const SimulationMeshType meshType = (*mesh_).getElementType();
+  const SimulationMeshType meshType = meshType_;
 
   for (int ele = 0; ele < nele; ele++) {
     if (elementWeights[ele] == 0) {
@@ -418,7 +405,7 @@ void DeformationModelAssembler::compute_d2E_dx2(
 
     localK *= elementWeights[ele];
 
-    const auto &blocks = elementKBlockOffsets[ele];
+    const auto &blocks = hessianAssembly_.elementBlockOffsets[ele];
     for (const auto &block : blocks) {
       for (int localCol = 0; localCol < block.colSize; localCol++) {
         const int srcCol = block.colLocalStart + localCol;

@@ -8,7 +8,6 @@
 #include "formulations/shapeFunction/cubicLinearShapeFunction.h"
 #include "formulations/quadrature/tetLinearDefaultQuadrature.h"
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
-#include "deformation/volume/volumetricElementMapping.h"
 #include "deformation/volume/volumetricDeformationElement.h"
 #include "EigenSupport.h"
 
@@ -86,8 +85,9 @@ TEST(VolumetricDeformationElementGTest, TetEnergyFiniteAtRest)
 {
   auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
   auto plasticModel = std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
-  VolumetricElementMapping mapping(restTet, TetLinearShapeFunction{}, TetLinearDefaultQuadrature{});
-  VolumetricDeformationElement model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
+  VolumetricDeformationElement model(
+    restTet, TetLinearShapeFunction{}, TetLinearDefaultQuadrature{},
+    std::move(elasticModel), std::move(plasticModel));
 
   ES::V12d xVec;
   for (int i = 0; i < 12; i++)
@@ -116,10 +116,9 @@ TEST(VolumetricDeformationElementGTest, ParameterizedModelRejectsMissingParamete
     std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
   auto plasticModel =
     std::make_unique<PlasticModel3D3DOF>(ES::M3d::Identity());
-  VolumetricElementMapping mapping(
-    restTet, TetLinearShapeFunction{}, TetLinearDefaultQuadrature{});
   VolumetricDeformationElement model(
-    std::move(mapping), std::move(elasticModel), std::move(plasticModel));
+    restTet, TetLinearShapeFunction{}, TetLinearDefaultQuadrature{},
+    std::move(elasticModel), std::move(plasticModel));
 
   ES::V12d xVec;
   for (int i = 0; i < 12; i++)
@@ -141,8 +140,9 @@ TEST(VolumetricDeformationElementGTest, HexEnergyFiniteAtRest)
 {
   auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
   auto plasticModel = std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
-  VolumetricElementMapping mapping(restHex, CubicLinearShapeFunction{}, GaussLegendreHexQuadrature2{});
-  VolumetricDeformationElement model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
+  VolumetricDeformationElement model(
+    restHex, CubicLinearShapeFunction{}, GaussLegendreHexQuadrature2{},
+    std::move(elasticModel), std::move(plasticModel));
 
   ES::V24d xVec;
   for (int i = 0; i < 24; i++)
@@ -170,8 +170,9 @@ TEST(VolumetricDeformationElementGTest, TetGradientMatchesFD)
 {
   auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
   auto plasticModel = std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
-  VolumetricElementMapping mapping(restTet, TetLinearShapeFunction{}, TetLinearDefaultQuadrature{});
-  VolumetricDeformationElement model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
+  VolumetricDeformationElement model(
+    restTet, TetLinearShapeFunction{}, TetLinearDefaultQuadrature{},
+    std::move(elasticModel), std::move(plasticModel));
 
   ES::V12d xVec;
   for (int i = 0; i < 12; i++)
@@ -202,8 +203,9 @@ TEST(VolumetricDeformationElementGTest, HexGradientMatchesFD)
 {
   auto elasticModel = std::make_unique<ElasticModelStableNeoHookeanMaterial>(1200.0, 1800.0);
   auto plasticModel = std::make_unique<PlasticModel3DConstant>(ES::M3d::Identity());
-  VolumetricElementMapping mapping(restHex, CubicLinearShapeFunction{}, GaussLegendreHexQuadrature2{});
-  VolumetricDeformationElement model(std::move(mapping), std::move(elasticModel), std::move(plasticModel));
+  VolumetricDeformationElement model(
+    restHex, CubicLinearShapeFunction{}, GaussLegendreHexQuadrature2{},
+    std::move(elasticModel), std::move(plasticModel));
 
   ES::V24d xVec;
   for (int i = 0; i < 24; i++)

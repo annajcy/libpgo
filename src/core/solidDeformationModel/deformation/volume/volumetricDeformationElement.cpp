@@ -1,6 +1,9 @@
 #include "volumetricDeformationElement.h"
 
 #include "deformation/materialMaxStepPolynomialUtils.h"
+#include "formulations/quadrature/quadrature.h"
+#include "formulations/shapeFunction/shapeFunction.h"
+#include <cmath>
 #include <stdexcept>
 #include <span>
 #include <utility>
@@ -27,16 +30,88 @@ std::pair<int, int> materialLocationRange(int materialLocation, int count)
 // Constructors
 // ============================================================
 
+VolumetricDeformationElement::RestGeometry::RestGeometry(
+  std::span<const double> restPositions,
+  const ShapeFunction &shapeFunction, const Quadrature &quadrature):
+  numNodes(shapeFunction.numNodes()),
+  numQuadraturePoints(quadrature.numPoints()),
+  localDofs(shapeFunction.localDofs())
+{
+  if (restPositions.size() != static_cast<std::size_t>(3 * numNodes))
+    throw std::invalid_argument(
+      "Volumetric rest-position buffer has the wrong size.");
+
+  M3xN restCoefficients(3, numNodes);
+  for (int node = 0; node < numNodes; ++node) {
+    restCoefficients.col(node) = ES::V3d(
+      restPositions[node * 3], restPositions[node * 3 + 1],
+      restPositions[node * 3 + 2]);
+  }
+
+  dN_dxi.resize(numQuadraturePoints, M3xN(3, numNodes));
+  restDmInv.resize(numQuadraturePoints);
+  rest_dF_dx.resize(
+    numQuadraturePoints, M9xNDOF(9, localDofs));
+  weightDetJ.resize(numQuadraturePoints);
+  restBm.resize(numQuadraturePoints, M3xN(3, numNodes));
+
+  M3xN derivativeBuffer(3, numNodes);
+  for (int q = 0; q < numQuadraturePoints; ++q) {
+    const ES::V3d xi = quadrature.point(q);
+    shapeFunction.compute_dN_dxi(
+      xi[0], xi[1], xi[2], derivativeBuffer);
+    dN_dxi[q] = derivativeBuffer;
+
+    const ES::M3d restJacobian =
+      restCoefficients * dN_dxi[q].transpose();
+    restDmInv[q] = restJacobian.fullPivLu().inverse();
+    const M3xN dN_dX = restDmInv[q].transpose() * dN_dxi[q];
+    weightDetJ[q] =
+      std::abs(restJacobian.determinant()) * quadrature.weight(q);
+    restBm[q] = weightDetJ[q] * dN_dX;
+
+    rest_dF_dx[q].setZero();
+    for (int node = 0; node < numNodes; ++node) {
+      for (int coordinate = 0; coordinate < 3; ++coordinate) {
+        const int dof = node * 3 + coordinate;
+        for (int derivative = 0; derivative < 3; ++derivative) {
+          rest_dF_dx[q](derivative * 3 + coordinate, dof) =
+            dN_dX(derivative, node);
+        }
+      }
+    }
+  }
+}
+
+ES::M3d VolumetricDeformationElement::RestGeometry::computeDeformationGradient(
+  std::span<const double> localPositions, int q) const
+{
+  if (q < 0 || q >= numQuadraturePoints)
+    throw std::out_of_range("Volumetric quadrature index is out of range.");
+  if (localPositions.size() != static_cast<std::size_t>(localDofs))
+    throw std::invalid_argument(
+      "Volumetric local-position buffer has the wrong size.");
+
+  M3xN coefficients(3, numNodes);
+  for (int node = 0; node < numNodes; ++node) {
+    coefficients.col(node) = ES::V3d(
+      localPositions[node * 3], localPositions[node * 3 + 1],
+      localPositions[node * 3 + 2]);
+  }
+  return coefficients * dN_dxi[q].transpose() * restDmInv[q];
+}
+
 VolumetricDeformationElement::VolumetricDeformationElement(
-  VolumetricElementMapping &&mapping,
+  std::span<const double> restPositions,
+  const ShapeFunction &shapeFunction, const Quadrature &quadrature,
   std::unique_ptr<ElasticModel3DDeformationGradient> elasticModel,
   std::unique_ptr<PlasticModel3DDeformationGradient> plasticModel,
   DeformationElementConstructionOptions options):
   DeformationElement(),
-  numNodes_(mapping.numNodes()),
-  numQuadPts_(mapping.numQuadraturePoints()),
-  localDofs_(mapping.localDofs()),
-  elementMapping_(std::move(mapping)),
+  geometry_(restPositions, shapeFunction, quadrature),
+  numNodes_(geometry_.numNodes),
+  numQuadPts_(geometry_.numQuadraturePoints),
+  localDofs_(geometry_.localDofs),
   elasticModel_(std::move(elasticModel)),
   plasticModel_(std::move(plasticModel)),
   projectHessianPSD_(options.projectHessianPSD)
@@ -249,10 +324,10 @@ void VolumetricDeformationElement::prepareData(
         cd.dAInv_dai[q][i] = plasticModel_->compute_dAInv_da(plasticParamsForElement, i);
     }
 
-    cd.Fref[q] = elementMapping_.compute_F_ref(x, q);
+    cd.Fref[q] = geometry_.computeDeformationGradient(x, q);
     cd.spectralState[q] = computeSpectralState(cd.Fref[q] * cd.FpInv[q]);
-    computeCurrent_dF_dx(elementMapping_.rest_dF_dx(q), cd.FpInv[q], cd.dFdx[q]);
-    cd.Bm[q] = cd.detFp[q] * cd.FpInv[q].transpose() * elementMapping_.restBm(q);
+    computeCurrent_dF_dx(geometry_.rest_dF_dx[q], cd.FpInv[q], cd.dFdx[q]);
+    cd.Bm[q] = cd.detFp[q] * cd.FpInv[q].transpose() * geometry_.restBm[q];
   }
 }
 
@@ -270,7 +345,7 @@ double VolumetricDeformationElement::compute_E(
   for (int q = 0; q < numQuadPts_; q++) {
     const std::span<const double> mp = elasticParams(cacheDataBase);
     energy += elasticModel_->compute_psi(mp, cd.spectralState[q]) *
-      elementMapping_.weightDetJ(q) * cd.detFp[q];
+      geometry_.weightDetJ[q] * cd.detFp[q];
   }
   return energy;
 }
@@ -315,7 +390,7 @@ void VolumetricDeformationElement::compute_d2E_dx2(
     else {
       dPdF = elasticModel_->compute_dPdF(mp, cd.spectralState[q]);
     }
-    dPdF *= elementMapping_.weightDetJ(q) * cd.detFp[q];
+    dPdF *= geometry_.weightDetJ[q] * cd.detFp[q];
     hessMap.noalias() += cd.dFdx[q].transpose() * dPdF * cd.dFdx[q];
   }
 }
@@ -391,7 +466,7 @@ ES::M3d VolumetricDeformationElement::compute_F(
   if (x.size() != static_cast<std::size_t>(localDofs_))
     throw std::invalid_argument(
       "Volumetric deformation local-position buffer has the wrong size.");
-  return elementMapping_.compute_F_ref(x, materialLocationID);
+  return geometry_.computeDeformationGradient(x, materialLocationID);
 }
 
 ES::M3d VolumetricDeformationElement::compute_Fe(
@@ -531,9 +606,9 @@ void VolumetricDeformationElement::compute_dE_dp(
     const ES::M3d P = elasticModel_->compute_P(mp, cd.spectralState[q]);
 
     for (int i = 0; i < numPlasticParams_; i++) {
-      double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd.ddetA_da[q][i]);
+      double dVda = compute_dV_dai(geometry_.weightDetJ[q], cd.ddetA_da[q][i]);
       double dpsi_da = compute_dpsi_dai(cd.Fref[q], cd.dAInv_dai[q][i], P);
-      gradMap[i] += dVda * psi + elementMapping_.weightDetJ(q) * cd.detFp[q] * dpsi_da;
+      gradMap[i] += dVda * psi + geometry_.weightDetJ[q] * cd.detFp[q] * dpsi_da;
     }
   }
 }
@@ -563,9 +638,9 @@ void VolumetricDeformationElement::compute_d2E_dudp(
 
     const ES::M9d dPdF = elasticModel_->compute_dPdF(mp, cd.spectralState[q]);
 
-    const double vol = elementMapping_.weightDetJ(q) * cd.detFp[q];
+    const double vol = geometry_.weightDetJ[q] * cd.detFp[q];
     for (int i = 0; i < numPlasticParams_; i++) {
-      const double dVda = compute_dV_dai(elementMapping_.weightDetJ(q), cd.ddetA_da[q][i]);
+      const double dVda = compute_dV_dai(geometry_.weightDetJ[q], cd.ddetA_da[q][i]);
 
       const ES::M3d dFda = compute_dFe_dai(
         cd.Fref[q], cd.dAInv_dai[q][i]);
@@ -574,7 +649,7 @@ void VolumetricDeformationElement::compute_d2E_dudp(
       cd.localDofScratch.noalias() = cd.dFdx[q].transpose() *
         Eigen::Map<const ES::V9d>(dPda.data());
 
-      compute_d2Fe_dx_dai(cd.dAInv_dai[q][i], elementMapping_.rest_dF_dx(q), cd.d2FdxdaScratch);
+      compute_d2Fe_dx_dai(cd.dAInv_dai[q][i], geometry_.rest_dF_dx[q], cd.d2FdxdaScratch);
 
       mixed.col(i) += dVda * cd.dpsiDxScratch + vol * (cd.localDofScratch + cd.d2FdxdaScratch.transpose() * Eigen::Map<const ES::V9d>(P.data()));
     }
@@ -603,7 +678,7 @@ void VolumetricDeformationElement::compute_dE_de(
     materialLocationRange(materialLocation, numQuadPts_);
   for (int q = qBegin; q < qEnd; q++) {
     const std::span<const double> mp = elasticParams(cacheDataBase);
-    const double vol = elementMapping_.weightDetJ(q) * cd.detFp[q];
+    const double vol = geometry_.weightDetJ[q] * cd.detFp[q];
     elasticModel_->compute_dpsi_dparams(
       mp, cd.spectralState[q], cd.dpsiDparamScratch);
     gradMap.noalias() += vol * cd.dpsiDparamScratch;
@@ -628,7 +703,7 @@ void VolumetricDeformationElement::compute_d2E_dude(
     materialLocationRange(materialLocation, numQuadPts_);
   for (int q = qBegin; q < qEnd; q++) {
     const std::span<const double> mp = elasticParams(cacheDataBase);
-    const double vol = elementMapping_.weightDetJ(q) * cd.detFp[q];
+    const double vol = geometry_.weightDetJ[q] * cd.detFp[q];
     elasticModel_->compute_dP_dparams(
       mp, cd.spectralState[q], cd.dPdbScratch);
     mixed.noalias() +=

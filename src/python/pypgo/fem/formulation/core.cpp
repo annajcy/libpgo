@@ -35,9 +35,9 @@ std::shared_ptr<PyVolumetricFormulation> make_cubic_tricubic_hermite()
     std::make_shared<SolidDeformationModel::CubicTricubicHermiteFormulation>());
 }
 
-std::shared_ptr<PyShellFormulation> make_koiter_shell()
+std::shared_ptr<PyKoiterShellFormulation> make_koiter_shell()
 {
-  return std::make_shared<PyShellFormulation>(
+  return std::make_shared<PyKoiterShellFormulation>(
     std::make_shared<SolidDeformationModel::KoiterShellFormulation>());
 }
 
@@ -103,21 +103,21 @@ PySparseMatrix compute_formulation_surface_embedding_matrix(
 
 PySparseMatrix compute_shell_formulation_mass_matrix(
   const PySimulationMesh &mesh,
-  const PyShellFormulation &formulation,
+  const PyKoiterShellFormulation &formulation,
   const std::vector<double> &elementArealDensities)
 {
   const EigenSupport::VXd densities = toEigenVector(elementArealDensities);
   pgo::EigenSupport::SpMatD M;
   {
     nanobind::gil_scoped_release release;
-    M = formulation.shell().buildMassMatrix(mesh.mesh(), densities);
+    M = formulation.koiter().buildMassMatrix(mesh.mesh(), densities);
   }
   return PySparseMatrix(std::move(M));
 }
 
 std::vector<double> compute_shell_formulation_body_force(
   const PySimulationMesh &mesh,
-  const PyShellFormulation &formulation,
+  const PyKoiterShellFormulation &formulation,
   const std::vector<double> &acceleration,
   const std::vector<double> &elementArealDensities)
 {
@@ -130,7 +130,7 @@ std::vector<double> compute_shell_formulation_body_force(
   pgo::EigenSupport::VXd f;
   {
     nanobind::gil_scoped_release release;
-    f = formulation.shell().buildBodyForce(mesh.mesh(), a, densities);
+    f = formulation.koiter().buildBodyForce(mesh.mesh(), a, densities);
   }
   return std::vector<double>(f.data(), f.data() + f.size());
 }

@@ -20,7 +20,6 @@
 #include "formulations/shapeFunction/cubicLinearShapeFunction.h"
 #include "formulations/shapeFunction/tetLinearShapeFunction.h"
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
-#include "deformation/volume/volumetricElementMapping.h"
 #include "deformation/volume/volumetricDeformationElement.h"
 #include "triMeshGeo.h"
 #include "materialTestUtils.h"
@@ -76,7 +75,7 @@ struct EnergyFixture
   std::shared_ptr<DeformationPotentialEnergy> energy;
   ES::VXd restPositions;
 
-  const SimulationMesh &mesh() const { return energy->assembler().mesh(); }
+  const SimulationMesh &mesh() const { return *meshOwner; }
   const DeformationModelAssembler &assembler() const { return energy->assembler(); }
 };
 
@@ -114,7 +113,7 @@ EnergyFixture makeTetFixture(
   DeformationModelOptions options;
   options.dofOffset = offset;
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    fixture.asset->mesh(), material.binding, formulation, options);
+    *fixture.asset->mesh(), *material.binding, formulation, options);
   fixture.energy = std::make_shared<DeformationPotentialEnergy>(
     std::move(energyOperator), *material.state);
   return fixture;
@@ -162,7 +161,7 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
     fixture.asset, std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity6Definition>(), parameters);
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    fixture.asset->mesh(), material.binding, formulation);
+    *fixture.asset->mesh(), *material.binding, formulation);
   fixture.energy = std::make_shared<DeformationPotentialEnergy>(
     std::move(energyOperator), *material.state);
   return fixture;
@@ -224,7 +223,7 @@ EnergyFixture makeShellFixture()
     fixture.asset, std::make_shared<KoiterStVKDefinition>(),
     std::make_shared<ShellPlasticity1Definition>(), parameters);
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    fixture.asset->mesh(), material.binding, formulation);
+    *fixture.asset->mesh(), *material.binding, formulation);
   fixture.energy = std::make_shared<DeformationPotentialEnergy>(
     std::move(energyOperator), *material.state);
   return fixture;

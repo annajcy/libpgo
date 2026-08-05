@@ -17,7 +17,6 @@ public:
   static constexpr int kNumPoints = 8;
 
   int numPoints() const override { return kNumPoints; }
-  std::unique_ptr<Quadrature> clone() const override { return std::make_unique<GaussLegendreHexQuadrature2>(*this); }
   EigenSupport::V3d point(int i) const override;
   double weight(int i) const override;
 };
@@ -31,7 +30,6 @@ public:
   static constexpr int kNumPoints = 64;
 
   int numPoints() const override { return kNumPoints; }
-  std::unique_ptr<Quadrature> clone() const override { return std::make_unique<GaussLegendreHexQuadrature4>(*this); }
   EigenSupport::V3d point(int i) const override;
   double weight(int i) const override;
 };

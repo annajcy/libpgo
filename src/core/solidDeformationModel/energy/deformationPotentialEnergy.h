@@ -20,7 +20,6 @@ public:
   {
     return energyOperator_->assembler();
   }
-  DeformationModelAssembler &assembler() { return energyOperator_->assembler(); }
   const EigenSupport::VXd &getRestDofs() const
   {
     return energyOperator_->getRestDofs();

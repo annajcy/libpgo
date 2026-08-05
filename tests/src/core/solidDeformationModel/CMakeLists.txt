@@ -53,10 +53,6 @@ pgo_add_gtest(formulationDynamics_gtest
   SOURCES formulations/formulationDynamics_gtest.cpp
   DEPS solidDeformationModel volumetricMesh mesh
 )
-pgo_add_gtest(volumetricElementMapping_gtest
-  SOURCES deformation/volume/volumetricElementMapping_gtest.cpp
-  DEPS solidDeformationModel
-)
 pgo_add_gtest(volumetricDeformationElement_gtest
   SOURCES deformation/volume/volumetricDeformationElement_gtest.cpp
   DEPS solidDeformationModel

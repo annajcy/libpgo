@@ -726,11 +726,11 @@ int pgo_run_sim_from_config(const char *configFileName)
   switch (simMesh->getElementType()) {
   case SolidDeformationModel::SimulationMeshType::TET:
     elasticOperator = std::make_shared<SolidDeformationModel::DeformationEnergyOperator>(
-      simMesh, binding, SolidDeformationModel::TetLinearFormulation{});
+      *simMesh, *binding, SolidDeformationModel::TetLinearFormulation{});
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
     elasticOperator = std::make_shared<SolidDeformationModel::DeformationEnergyOperator>(
-      simMesh, binding, SolidDeformationModel::CubicLinearFormulation{});
+      *simMesh, *binding, SolidDeformationModel::CubicLinearFormulation{});
     break;
   default:
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");

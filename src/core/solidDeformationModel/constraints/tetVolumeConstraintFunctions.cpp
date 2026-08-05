@@ -5,8 +5,6 @@ copyright to USC,MIT,NUS
 
 #include "constraints/tetVolumeConstraintFunctions.h"
 #include "formulations/shapeFunction/tetLinearShapeFunction.h"
-#include "formulations/quadrature/tetLinearDefaultQuadrature.h"
-#include "deformation/volume/volumetricElementMapping.h"
 
 #include "determinantDerivatives.h"
 #include "tetMesh.h"
@@ -36,19 +34,14 @@ TetVolumeConstraintFunctions::TetVolumeConstraintFunctions(
     DmInv.resize(3, nele * 3);
     dFdx.assign(nele, ES::M9x12d::Zero());
 
-    TetLinearShapeFunction tetBasis;
-    TetLinearDefaultQuadrature tetQuad;
-
     for (int ei = 0; ei < nele; ei++) {
       ES::V12d xlocal;
       for (int i = 0; i < 4; i++) {
         xlocal.segment<3>(i * 3) = tetMesh.getVertex(ei, i);
       }
-      VolumetricElementMapping mapping(
-        std::span<const double>(xlocal.data(), static_cast<std::size_t>(xlocal.size())),
-        tetBasis, tetQuad);
-      DmInv.block<3, 3>(0, ei * 3) = mapping.restDmInv(0);
-      dFdx[ei] = mapping.rest_dF_dx(0);
+      const ES::M3d elementDmInv = tetLinearComputeDs(xlocal).inverse();
+      DmInv.block<3, 3>(0, ei * 3) = elementDmInv;
+      dFdx[ei] = tetLinearComputeDFDx(elementDmInv);
     }
   }
 
