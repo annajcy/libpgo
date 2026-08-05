@@ -12,9 +12,6 @@ VolumeDensityField::VolumeDensityField(
 {
   if (!source_)
     throw std::invalid_argument("VolumeDensityField requires a source");
-  if (source_->parameterDependency() != nullptr)
-    throw std::invalid_argument(
-      "parameter-dependent volume density is not supported");
 }
 
 VolumeDensityField VolumeDensityField::constant(double density)
@@ -34,12 +31,9 @@ void VolumeDensityField::validate(int numElements) const
   source_->validate(numElements);
 }
 
-double VolumeDensityField::value(
-  int element,
-  int quadrature,
-  const MaterialStateView &state) const
+double VolumeDensityField::value(int element, int quadrature) const
 {
-  const double density = source_->value(element, quadrature, state);
+  const double density = source_->value(element, quadrature);
   if (!std::isfinite(density) || !(density > 0.0))
     throw std::invalid_argument(
       "VolumeDensityField source returned a non-finite or non-positive density");

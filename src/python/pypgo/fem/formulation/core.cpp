@@ -92,17 +92,12 @@ PySparseMatrix compute_formulation_surface_embedding_matrix(
 PySparseMatrix compute_shell_formulation_mass_matrix(
   const PySimulationMesh &mesh,
   const PyShellFormulation &formulation,
-  const PyShellArealDensity &arealDensity,
-  std::shared_ptr<PyMaterialState> materialState)
+  const PyShellArealDensity &arealDensity)
 {
   pgo::EigenSupport::SpMatD M;
   {
     nanobind::gil_scoped_release release;
-    M = formulation.shell().buildMassMatrix(
-      mesh.mesh(), arealDensity.get(),
-      materialState ?
-        materialState->state().view() :
-        SolidDeformationModel::MaterialStateView{});
+    M = formulation.shell().buildMassMatrix(mesh.mesh(), arealDensity.get());
   }
   return PySparseMatrix(std::move(M));
 }
@@ -111,8 +106,7 @@ std::vector<double> compute_shell_formulation_body_force(
   const PySimulationMesh &mesh,
   const PyShellFormulation &formulation,
   const std::vector<double> &acceleration,
-  const PyShellArealDensity &arealDensity,
-  std::shared_ptr<PyMaterialState> materialState)
+  const PyShellArealDensity &arealDensity)
 {
   if (acceleration.size() != 3) {
     throw std::invalid_argument("acceleration must contain exactly 3 values");
@@ -123,37 +117,9 @@ std::vector<double> compute_shell_formulation_body_force(
   {
     nanobind::gil_scoped_release release;
     f = formulation.shell().buildBodyForce(
-      mesh.mesh(), a, arealDensity.get(),
-      materialState ?
-        materialState->state().view() :
-        SolidDeformationModel::MaterialStateView{});
+      mesh.mesh(), a, arealDensity.get());
   }
   return std::vector<double>(f.data(), f.data() + f.size());
-}
-
-PySparseMatrix compute_shell_formulation_body_force_parameter_jacobian(
-  const PySimulationMesh &mesh,
-  const PyShellFormulation &formulation,
-  const std::vector<double> &acceleration,
-  const PyShellArealDensity &arealDensity,
-  std::shared_ptr<PyMaterialState> materialState)
-{
-  if (acceleration.size() != 3) {
-    throw std::invalid_argument("acceleration must contain exactly 3 values");
-  }
-
-  pgo::EigenSupport::V3d a(acceleration[0], acceleration[1], acceleration[2]);
-  pgo::EigenSupport::SpMatD J;
-  {
-    nanobind::gil_scoped_release release;
-    if (!materialState)
-      throw std::invalid_argument(
-        "body_force_parameter_jacobian requires material_state");
-    J = formulation.shell().buildBodyForceParameterJacobian(
-      mesh.mesh(), a, arealDensity.get(),
-      materialState->state().view());
-  }
-  return PySparseMatrix(std::move(J));
 }
 
 }  // namespace pgo

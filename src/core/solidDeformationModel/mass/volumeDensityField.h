@@ -16,10 +16,7 @@ public:
   static VolumeDensityField elementwise(EigenSupport::VXd densities);
 
   void validate(int numElements) const;
-  double value(
-    int element,
-    int quadrature = 0,
-    const MaterialStateView &state = {}) const;
+  double value(int element, int quadrature = 0) const;
 
 private:
   std::shared_ptr<const ElementScalarFieldSource> source_;

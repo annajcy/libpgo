@@ -3,8 +3,6 @@
 #include "formulations/formulation/formulation.h"
 
 #include "EigenDef.h"
-#include "material/runtime/materialState.h"
-
 #include <array>
 
 namespace pgo
@@ -32,19 +30,11 @@ public:
   // each of the three corner vertices. The Koiter 6-vertex stencil only
   // affects bending energy; displacement DOFs are 3 per vertex.
   EigenSupport::SpMatD buildMassMatrix(
-    const SimulationMesh &mesh, const ShellArealDensityField &arealDensity,
-    MaterialStateView state = {}) const;
+    const SimulationMesh &mesh,
+    const ShellArealDensityField &arealDensity) const;
   EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-    const ShellArealDensityField &arealDensity,
-    MaterialStateView state = {}) const;
-
-  // d f_g / d b for a parameter-dependent shell areal-density field. Shape:
-  // (numVertices*3) x numParameterDofs.
-  EigenSupport::SpMatD buildBodyForceParameterJacobian(
-    const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-    const ShellArealDensityField &arealDensity,
-    MaterialStateView state) const;
+    const ShellArealDensityField &arealDensity) const;
 };
 
 }  // namespace SolidDeformationModel

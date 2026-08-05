@@ -32,14 +32,7 @@ void init_formulation_bindings(nb::module_ &m)
         nb::arg("volume_mesh"), nb::arg("formulation"), nb::arg("surface_vertices_flat"));
 
     m.def("compute_shell_formulation_mass_matrix", &compute_shell_formulation_mass_matrix,
-        nb::arg("mesh"), nb::arg("formulation"), nb::arg("areal_density"),
-        nb::arg("material_state").none() = nb::none());
+        nb::arg("mesh"), nb::arg("formulation"), nb::arg("areal_density"));
     m.def("compute_shell_formulation_body_force", &compute_shell_formulation_body_force,
-        nb::arg("mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("areal_density"),
-        nb::arg("material_state").none() = nb::none());
-
-    m.def("compute_shell_formulation_body_force_parameter_jacobian",
-        &compute_shell_formulation_body_force_parameter_jacobian,
-        nb::arg("mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("areal_density"),
-        nb::arg("material_state").none() = nb::none());
+        nb::arg("mesh"), nb::arg("formulation"), nb::arg("acceleration"), nb::arg("areal_density"));
 }

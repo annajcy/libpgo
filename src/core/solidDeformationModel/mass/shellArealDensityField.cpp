@@ -2,28 +2,10 @@
 
 #include <cmath>
 #include <stdexcept>
-#include <string>
 #include <utility>
 
 namespace pgo::SolidDeformationModel
 {
-
-namespace
-{
-
-void validateEvaluationState(
-  const OptimizableParameterRef *dependency,
-  const MaterialStateView &state)
-{
-  if (dependency == nullptr)
-    return;
-  if (state.elasticValues().size() != static_cast<std::size_t>(
-      dependency->field().layout().numGlobalParameters()))
-    throw std::invalid_argument(
-      "parameter-dependent areal density state size does not match its elastic field");
-}
-
-}  // namespace
 
 ShellArealDensityField::ShellArealDensityField(
   std::shared_ptr<const ElementScalarFieldSource> source):
@@ -67,87 +49,18 @@ ShellArealDensityField ShellArealDensityField::fromDensityThickness(
   return elementwise(density * thickness.array());
 }
 
-ShellArealDensityField ShellArealDensityField::fromElasticParameter(
-  double scale, OptimizableParameterRef parameter)
-{
-  return ShellArealDensityField(
-    std::make_shared<ScaledElasticParameterFieldSource>(
-      scale, std::move(parameter)));
-}
-
 void ShellArealDensityField::validate(int numElements) const
 {
   source_->validate(numElements);
 }
 
-double ShellArealDensityField::value(
-  int element,
-  int quadrature,
-  const MaterialStateView &state) const
+double ShellArealDensityField::value(int element, int quadrature) const
 {
-  auto evaluation = evaluator(state);
-  return evaluation.value(element, quadrature);
-}
-
-ShellArealDensityField::Evaluator
-ShellArealDensityField::evaluator(MaterialStateView state) const
-{
-  return Evaluator(source_, std::move(state));
-}
-
-const OptimizableParameterRef *ShellArealDensityField::parameterDependency() const
-{
-  return source_->parameterDependency();
-}
-
-void ShellArealDensityField::localParameterDerivative(
-  int element,
-  int quadrature,
-  const MaterialStateView &state,
-  EigenSupport::RefVecXd output) const
-{
-  auto evaluation = evaluator(state);
-  evaluation.localParameterDerivative(element, quadrature, output);
-}
-
-ShellArealDensityField::Evaluator::Evaluator(
-  std::shared_ptr<const ElementScalarFieldSource> source,
-  MaterialStateView state):
-  source_(std::move(source)),
-  state_(std::move(state))
-{
-  dependency_ = source_->parameterDependency();
-  validateEvaluationState(dependency_, state_);
-  if (dependency_ != nullptr)
-    scratch_.prepare(dependency_->field());
-}
-
-double ShellArealDensityField::Evaluator::value(
-  int element, int quadrature) const
-{
-  const double arealDensity = source_->valueWithScratch(
-    element, quadrature, state_, scratch_);
+  const double arealDensity = source_->value(element, quadrature);
   if (!std::isfinite(arealDensity) || !(arealDensity > 0.0))
     throw std::invalid_argument(
       "ShellArealDensityField source returned a non-finite or non-positive density");
   return arealDensity;
-}
-
-void ShellArealDensityField::Evaluator::localParameterDerivative(
-  int element,
-  int quadrature,
-  EigenSupport::RefVecXd output) const
-{
-  const auto expected = dependency_
-    ? dependency_->field().layout().numLocalParameters()
-    : 0;
-  if (output.size() != expected)
-    throw std::invalid_argument(
-      "areal density derivative buffer has size " +
-      std::to_string(output.size()) + ", expected " +
-      std::to_string(expected));
-  source_->localParameterDerivativeWithScratch(
-    element, quadrature, state_, scratch_, output);
 }
 
 }  // namespace pgo::SolidDeformationModel

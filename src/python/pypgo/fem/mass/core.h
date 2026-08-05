@@ -2,7 +2,6 @@
 
 #include "mass/volumeDensityField.h"
 #include "mass/shellArealDensityField.h"
-#include "../../energy/core.h"
 
 #include <memory>
 #include <vector>
@@ -48,8 +47,5 @@ std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_density_thick
   double density, double thickness);
 std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_density_thickness(
   double density, const std::vector<double> &thickness);
-
-std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_elastic_parameter(
-  double scale, const PyOptimizableParameterRef &parameter);
 
 }  // namespace pgo

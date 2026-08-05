@@ -1,7 +1,6 @@
 #include "shellFormulation.h"
 
 #include "mass/shellArealDensityField.h"
-#include "material/runtime/materialState.h"
 #include "deformation/shell/shellDeformationModel.h"
 #include "simulation/simulationMesh.h"
 
@@ -76,19 +75,18 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
 }
 
 EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
-  const SimulationMesh &mesh, const ShellArealDensityField &arealDensity,
-  MaterialStateView state) const
+  const SimulationMesh &mesh,
+  const ShellArealDensityField &arealDensity) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
 
   arealDensity.validate(mesh.getNumElements());
-  auto evaluation = arealDensity.evaluator(std::move(state));
 
   std::vector<ES::TripletD> entries;
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    const double m = evaluation.value(ele, 0) * triangleRestArea(mesh, ele) / 3.0;
+    const double m = arealDensity.value(ele, 0) * triangleRestArea(mesh, ele) / 3.0;
     for (int j = 0; j < 3; j++) {
       const int v = mesh.getVertexIndex(ele, j);
       for (int d = 0; d < 3; d++)
@@ -104,73 +102,23 @@ EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
 
 EigenSupport::VXd ShellFormulation::buildBodyForce(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellArealDensityField &arealDensity, MaterialStateView state) const
+  const ShellArealDensityField &arealDensity) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
 
   arealDensity.validate(mesh.getNumElements());
-  auto evaluation = arealDensity.evaluator(std::move(state));
 
   ES::VXd f = ES::VXd::Zero(mesh.getNumVertices() * 3);
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    const double m = evaluation.value(ele, 0) * triangleRestArea(mesh, ele) / 3.0;
+    const double m = arealDensity.value(ele, 0) * triangleRestArea(mesh, ele) / 3.0;
     for (int j = 0; j < 3; j++) {
       const int v = mesh.getVertexIndex(ele, j);
       f.segment<3>(v * 3) += m * acceleration;
     }
   }
   return f;
-}
-
-EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
-  const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellArealDensityField &arealDensity, MaterialStateView state) const
-{
-  if (mesh.getElementType() != compatibleMeshType()) {
-    throw std::invalid_argument("mesh type is incompatible with this formulation");
-  }
-  arealDensity.validate(mesh.getNumElements());
-  const OptimizableParameterRef *dependency = arealDensity.parameterDependency();
-  if (dependency == nullptr) {
-    throw std::invalid_argument(
-      "buildBodyForceParameterJacobian requires a parameter-dependent areal density field");
-  }
-  if (state.elasticValues().size() != static_cast<std::size_t>(
-      dependency->field().layout().numGlobalParameters())) {
-    throw std::invalid_argument(
-      "parameter-dependent areal density state size does not match its elastic field");
-  }
-
-  auto evaluation = arealDensity.evaluator(std::move(state));
-  const OptimizableParameterRef &parameter = *dependency;
-  const auto &layout = parameter.field().layout();
-  const int numLocal = layout.numLocalParameters();
-  ES::VXd dRho(numLocal);
-  std::vector<ES::TripletD> entries;
-  entries.reserve(static_cast<size_t>(mesh.getNumElements()) * numLocal * 9);
-
-  for (int ele = 0; ele < mesh.getNumElements(); ele++) {
-    evaluation.localParameterDerivative(
-      ele, 0, dRho);
-    const double areaThird = triangleRestArea(mesh, ele) / 3.0;
-    for (int k = 0; k < numLocal; k++) {
-      if (dRho[k] == 0.0)
-        continue;
-      const int col = layout.globalParameter(ele, k);
-      const double s = dRho[k] * areaThird;
-      for (int j = 0; j < 3; j++) {
-        const int v = mesh.getVertexIndex(ele, j);
-        for (int d = 0; d < 3; d++)
-          entries.emplace_back(v * 3 + d, col, s * acceleration[d]);
-      }
-    }
-  }
-
-  ES::SpMatD J(mesh.getNumVertices() * 3, layout.numGlobalParameters());
-  J.setFromTriplets(entries.begin(), entries.end());
-  return J;
 }
 
 }  // namespace SolidDeformationModel

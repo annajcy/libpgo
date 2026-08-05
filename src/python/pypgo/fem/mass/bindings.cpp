@@ -28,7 +28,4 @@ void init_mass_bindings(nb::module_ &m)
         nb::overload_cast<double, const std::vector<double> &>(
             &make_shell_areal_density_from_density_thickness),
         nb::arg("density"), nb::arg("thickness"));
-    m.def("make_shell_areal_density_from_elastic_parameter",
-        &make_shell_areal_density_from_elastic_parameter,
-        nb::arg("scale"), nb::arg("parameter"));
 }

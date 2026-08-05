@@ -1,11 +1,8 @@
-import gc
-
 import numpy as np
 import pytest
 
 import pypgo as pgo
 import pypgo.fem as pf
-from tests.pypgo.material_helpers import direct_material
 
 
 def _unit_tet_volume(*, density=2.0):
@@ -205,124 +202,6 @@ def test_shell_mass_matrix_row_sums_are_lumped_vertex_masses():
         vertex_area[tri] += 0.5 * np.linalg.norm(np.cross(b - a, c - a)) / 3.0
     np.testing.assert_allclose(np.diag(M).reshape(-1, 3), 2.0 * vertex_area[:, None] * np.ones(3), rtol=1e-12)
     np.testing.assert_allclose(M, np.diag(np.diag(M)), atol=1e-15)
-
-
-def _shell_energy(sim, triangles):
-    base_row = np.array([2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3], dtype=np.float64)
-    elastic = np.tile(base_row, (triangles.shape[0], 1))
-    plastic = np.ones((triangles.shape[0], 1), dtype=np.float64)
-    elastic_config = pf.KoiterStVKDefinition()
-    plastic_config = pf.ShellPlasticityDefinition(dofs=1)
-    material = direct_material(
-        sim, elastic_config, plastic_config,
-        pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout, elastic, plastic)
-    operator = pf.DeformationEnergyOperator(
-        material.mesh, material.binding,
-        formulation=pf.KoiterShell(),
-        options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
-    )
-    return pf.DeformationPotentialEnergy(
-        operator, material.state)
-
-
-def test_shell_elastic_thickness_mass_field_uses_explicit_state():
-    _surface, _vertices, triangles, sim = _shell_grid()
-    energy = _shell_energy(sim, triangles)
-    field = pf.ShellArealDensity.from_elastic_parameter(
-        scale=1000.0,
-        parameter=energy.material_binding.elastic.optimizable_field.parameter("thickness"),
-    )
-    g = np.array([0.0, 0.0, -9.81])
-    ks = pf.KoiterShell()
-
-    f0 = ks.body_force(
-        sim, g, field, material_state=energy.material_state
-    )
-    values = energy.material_state.elastic_values.copy()
-    values.reshape(-1, 5)[:, 4] *= 2.0  # double the thickness
-    changed_state = energy.material_state.with_elastic_values(values)
-    f1 = ks.body_force(
-        sim, g, field, material_state=changed_state
-    )
-    np.testing.assert_allclose(f1, 2.0 * f0, rtol=1e-12)
-
-
-def test_shell_body_force_parameter_jacobian_matches_differences():
-    _surface, _vertices, triangles, sim = _shell_grid()
-    energy = _shell_energy(sim, triangles)
-    field = pf.ShellArealDensity.from_elastic_parameter(
-        scale=1000.0,
-        parameter=energy.material_binding.elastic.optimizable_field.parameter("thickness"),
-    )
-    g = np.array([0.0, 0.0, -9.81])
-    ks = pf.KoiterShell()
-
-    b0 = energy.material_state.elastic_values.copy()
-    f0 = ks.body_force(
-        sim, g, field, material_state=energy.material_state
-    )
-    J = ks.body_force_parameter_jacobian(
-        sim, g, field, material_state=energy.material_state
-    ).to_dense()
-    assert J.shape == (sim.num_vertices * 3, b0.size)
-
-    rng = np.random.default_rng(0)
-    db = np.zeros_like(b0)
-    b0_rows = b0.reshape(-1, 5)
-    db_rows = db.reshape(-1, 5)
-    db_rows[:, 4] = rng.uniform(
-        -0.5, 0.5, size=b0_rows.shape[0]) * b0_rows[:, 4]
-    changed_state = energy.material_state.with_elastic_values(b0 + db)
-    f1 = ks.body_force(
-        sim, g, field, material_state=changed_state
-    )
-    # f_g is linear in h, so the Jacobian is exact even for finite steps.
-    np.testing.assert_allclose(f1 - f0, J @ db.ravel(), rtol=1e-10, atol=1e-14)
-
-
-def test_material_parameter_ref_keeps_its_space_alive():
-    _surface, _vertices, triangles, sim = _shell_grid()
-    energy = _shell_energy(sim, triangles)
-    parameter = energy.material_binding.elastic.optimizable_field.parameter("thickness")
-
-    del energy
-    gc.collect()
-
-    assert parameter.name == "thickness"
-    assert parameter.parameter_index == 4
-    field = pf.ShellArealDensity.from_elastic_parameter(
-        scale=1000.0, parameter=parameter
-    )
-    assert field is not None
-
-
-def test_parameter_dependent_mass_accepts_equal_length_state():
-    _surface, _vertices, triangles, sim = _shell_grid()
-    owner = _shell_energy(sim, triangles)
-    other = _shell_energy(sim, triangles)
-    field = pf.ShellArealDensity.from_elastic_parameter(
-        scale=1000.0,
-        parameter=owner.material_binding.elastic.optimizable_field.parameter("thickness"),
-    )
-
-    force = pf.KoiterShell().body_force(
-        sim,
-        [0.0, 0.0, -9.81],
-        field,
-        material_state=other.material_state,
-    )
-    assert force.shape == (3 * sim.num_vertices,)
-
-
-def test_body_force_parameter_jacobian_rejects_fixed_mass_fields():
-    _surface, _vertices, _triangles, sim = _shell_grid()
-    with pytest.raises(ValueError):
-        pf.KoiterShell().body_force_parameter_jacobian(
-            sim,
-            [0.0, 0.0, -9.81],
-            pf.ShellArealDensity(1.0),
-            material_state=None,
-        )
 
 
 def test_shell_volume_mass_field_cross_domain_type_errors():

@@ -1,7 +1,6 @@
 #include "core.h"
 
 #include "EigenSupport.h"
-#include "../../energy/core.h"
 
 namespace pgo
 {
@@ -62,15 +61,6 @@ std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_density_thick
     std::make_shared<SolidDeformationModel::ShellArealDensityField>(
       SolidDeformationModel::ShellArealDensityField::fromDensityThickness(
         density, std::move(values))));
-}
-
-std::shared_ptr<PyShellArealDensity> make_shell_areal_density_from_elastic_parameter(
-  double scale, const PyOptimizableParameterRef &parameter)
-{
-  return std::make_shared<PyShellArealDensity>(
-    std::make_shared<SolidDeformationModel::ShellArealDensityField>(
-      SolidDeformationModel::ShellArealDensityField::fromElasticParameter(
-        scale, parameter.ref())));
 }
 
 }  // namespace pgo

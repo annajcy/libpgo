@@ -112,24 +112,7 @@ class ShellFormulation(Formulation):
                 f"got {type(areal_density).__name__}"
             )
 
-    @staticmethod
-    def _material_state_handle(material_state, *, required=False):
-        from pypgo.fem.fields import MaterialState
-
-        if material_state is None:
-            if required:
-                raise ValueError(
-                    "material_state is required for a parameter-dependent Jacobian"
-                )
-            return None
-        if not isinstance(material_state, MaterialState):
-            raise TypeError(
-                "material_state must be MaterialState, "
-                f"got {type(material_state).__name__}"
-            )
-        return material_state._handle
-
-    def mass_matrix(self, mesh, areal_density, *, material_state=None):
+    def mass_matrix(self, mesh, areal_density):
         """Lumped shell mass matrix."""
         from pypgo.sparse import SparseMatrix
 
@@ -140,13 +123,10 @@ class ShellFormulation(Formulation):
                 mesh._handle,
                 self._handle,
                 areal_density._handle,
-                self._material_state_handle(material_state),
             )
         )
 
-    def body_force(
-        self, mesh, acceleration, areal_density, *, material_state=None
-    ) -> np.ndarray:
+    def body_force(self, mesh, acceleration, areal_density) -> np.ndarray:
         """Lumped shell body force for a constant 3-vector acceleration."""
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
@@ -159,30 +139,8 @@ class ShellFormulation(Formulation):
                 self._handle,
                 accel.tolist(),
                 areal_density._handle,
-                self._material_state_handle(material_state),
             ),
             dtype=np.float64,
-        )
-
-    def body_force_parameter_jacobian(
-        self, mesh, acceleration, areal_density, *, material_state
-    ):
-        """d(body force)/d(elastic parameters) for a parameter-dependent areal density."""
-        from pypgo.sparse import SparseMatrix
-
-        accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
-        if accel.size != 3:
-            raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
-        _require_mesh(mesh)
-        self._require_shell_areal_density(areal_density)
-        return SparseMatrix(
-            _core.compute_shell_formulation_body_force_parameter_jacobian(
-                mesh._handle,
-                self._handle,
-                accel.tolist(),
-                areal_density._handle,
-                self._material_state_handle(material_state, required=True),
-            )
         )
 
 
