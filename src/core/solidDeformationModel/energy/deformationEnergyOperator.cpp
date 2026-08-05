@@ -8,6 +8,7 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulation.h"
+#include "material/runtime/materialBinding.h"
 #include "material/runtime/materialAssignment.h"
 #include "scopedProfileSection.h"
 #include "simulation/simulationMesh.h"
@@ -44,6 +45,50 @@ void fillAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restDofs, ES::VXd
 }
 
 }  // namespace
+
+DeformationEnergyOperator::DeformationEnergyOperator(
+  std::shared_ptr<const SimulationMesh> mesh,
+  std::shared_ptr<const MaterialBinding> materialBinding,
+  const Formulation &formulation,
+  const DeformationModelOptions &options):
+  DeformationEnergyOperator(build(
+    std::move(mesh), std::move(materialBinding), formulation, options))
+{
+}
+
+DeformationEnergyOperator::BuildComponents DeformationEnergyOperator::build(
+  std::shared_ptr<const SimulationMesh> mesh,
+  std::shared_ptr<const MaterialBinding> materialBinding,
+  const Formulation &formulation,
+  const DeformationModelOptions &options)
+{
+  if (!mesh || !materialBinding)
+    throw std::invalid_argument(
+      "DeformationEnergyOperator requires a mesh and material binding.");
+  const int numElements = mesh->getNumElements();
+  if (materialBinding->numElements() != numElements)
+    throw std::invalid_argument(
+      "DeformationEnergyOperator material binding element count does not match mesh.");
+
+  ES::VXd elementWeights = options.elementWeights;
+  if (elementWeights.size() == 0)
+    elementWeights = ES::VXd::Ones(numElements);
+  else if (elementWeights.size() != numElements)
+    throw std::invalid_argument(
+      "DeformationEnergyOperator element weight count does not match the mesh.");
+
+  auto manager = std::make_shared<DeformationModelManager>(
+    std::move(mesh), materialBinding, formulation, options.projectHessianPSD);
+  auto assembler = std::make_unique<DeformationModelAssembler>(
+    std::move(manager), formulation,
+    materialBinding->elastic().optimizableField(),
+    materialBinding->plastic().optimizableField(),
+    std::span<const double>(
+      elementWeights.data(),
+      static_cast<std::size_t>(elementWeights.size())));
+  return BuildComponents{
+    std::move(assembler), options.enableMaterialMaxStep, options.dofOffset};
+}
 
 DeformationEnergyOperator::DeformationEnergyOperator(
   std::shared_ptr<const MaterialAssignment> assignment,

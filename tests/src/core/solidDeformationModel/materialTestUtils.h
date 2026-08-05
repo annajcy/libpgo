@@ -3,6 +3,7 @@
 #include "energy/deformationEnergyOperator.h"
 #include "energy/deformationPotentialEnergy.h"
 #include "material/runtime/materialAssignment.h"
+#include "material/runtime/materialBinding.h"
 #include "material/parameterization/materialChannelMapping.h"
 #include "material/frame/materialFrameField.h"
 #include "material/data/materialParameterData.h"
@@ -217,19 +218,25 @@ inline std::shared_ptr<MaterialState> makeDefaultMaterialState(
     std::move(elasticValues), std::move(plasticValues));
 }
 
-inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
+struct MaterialBindingAndState
+{
+  std::shared_ptr<const MaterialBinding> binding;
+  std::shared_ptr<MaterialState> state;
+};
+
+inline MaterialBindingAndState makeMaterialBinding(
   std::shared_ptr<const SimulationImportResult> asset,
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic,
-  std::shared_ptr<MaterialState> parameters = {},
+  std::shared_ptr<MaterialState> state = {},
   std::shared_ptr<const MaterialFrameField> frames = {})
 {
   if (!asset || !elastic || !plastic)
     throw std::invalid_argument(
-      "test material assignment requires asset and model definitions");
+      "test material binding requires asset and model definitions");
 
   const int numElements = asset->mesh()->getNumElements();
-  auto makeField = [&](const auto &definition) {
+  auto makeFixedField = [&](const auto &definition) {
     const auto schema = definition.fixedChannelSchema();
     const auto names = schema.channelNames();
     std::vector<std::string> inputNames(names.begin(), names.end());
@@ -237,40 +244,71 @@ inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
       ParameterInputSchema(std::move(inputNames)),
       std::make_shared<const ElementwiseParameterLayout>(
         numElements, schema.numChannels()),
-      std::make_shared<const IdentityMaterialChannelMapping>(schema.numChannels()));
+      std::make_shared<const IdentityMaterialChannelMapping>(
+        schema.numChannels()));
   };
-  auto elasticFixed = makeField(*elastic);
-  auto plasticFixed = makeField(*plastic);
-  if (!parameters)
-    parameters = makeDefaultMaterialState(
-      *asset, *elastic, *plastic);
-  if (!frames)
-    frames = std::make_shared<const GlobalAxesMaterialFrameField>(
-      asset->mesh()->getNumElements());
-
-  auto elasticOptimizable = parameters->elasticFieldHandle();
-  auto plasticOptimizable = parameters->plasticFieldHandle();
-  auto parameterization = std::make_shared<const MaterialParameterization>(
-    ElasticParameterization(elastic, elasticFixed, elasticOptimizable),
-    PlasticParameterization(plastic, plasticFixed, plasticOptimizable));
-  MaterialParameterData data;
-  const auto projectFixed = [&](const auto &field) {
+  auto projectFixed = [&](const auto &field) {
     EigenSupport::VXd values(field->layout().numGlobalParameters());
     const auto names = field->inputSchema().parameterNames();
     for (int element = 0; element < numElements; ++element)
       for (int channel = 0; channel < static_cast<int>(names.size()); ++channel)
         values[field->layout().globalParameter(element, channel)] =
-          importedValue(*asset, element, names[static_cast<std::size_t>(channel)]);
+          importedValue(
+            *asset, element, names[static_cast<std::size_t>(channel)]);
     return values;
   };
-  data.elastic.fixedValues = projectFixed(elasticFixed);
-  data.plastic.fixedValues = projectFixed(plasticFixed);
-  data.elastic.initialOptimizableValues = parameters->elasticValues();
-  data.plastic.initialOptimizableValues = parameters->plasticValues();
+
+  auto elasticFixed = makeFixedField(*elastic);
+  auto plasticFixed = makeFixedField(*plastic);
+  if (!state)
+    state = makeDefaultMaterialState(*asset, *elastic, *plastic);
+  if (!frames)
+    frames = std::make_shared<const GlobalAxesMaterialFrameField>(numElements);
+
+  auto binding = std::make_shared<const MaterialBinding>(
+    ElasticMaterialBinding(
+      std::move(elastic),
+      FixedMaterialParameters(
+        elasticFixed, projectFixed(elasticFixed)),
+      state->elasticFieldHandle()),
+    PlasticMaterialBinding(
+      std::move(plastic),
+      FixedMaterialParameters(
+        plasticFixed, projectFixed(plasticFixed)),
+      state->plasticFieldHandle()),
+    std::move(frames));
+  return { std::move(binding), std::move(state) };
+}
+
+inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
+  std::shared_ptr<const SimulationImportResult> asset,
+  std::shared_ptr<const ElasticModelDefinition> elastic,
+  std::shared_ptr<const PlasticModelDefinition> plastic,
+  std::shared_ptr<MaterialState> parameters = {},
+  std::shared_ptr<const MaterialFrameField> frames = {})
+{
+  auto result = makeMaterialBinding(
+    asset, std::move(elastic), std::move(plastic),
+    std::move(parameters), std::move(frames));
+  const auto &binding = *result.binding;
+  auto parameterization = std::make_shared<const MaterialParameterization>(
+    ElasticParameterization(
+      binding.elastic().definition(),
+      binding.elastic().fixed().field(),
+      binding.elastic().optimizableField()),
+    PlasticParameterization(
+      binding.plastic().definition(),
+      binding.plastic().fixed().field(),
+      binding.plastic().optimizableField()));
+  MaterialParameterData data;
+  data.elastic.fixedValues = binding.elastic().fixed().values();
+  data.plastic.fixedValues = binding.plastic().fixed().values();
+  data.elastic.initialOptimizableValues = result.state->elasticValues();
+  data.plastic.initialOptimizableValues = result.state->plasticValues();
   return std::make_shared<const MaterialAssignment>(
     asset->mesh(), std::move(parameterization),
     std::make_shared<const MaterialParameterData>(std::move(data)),
-    std::move(frames));
+    binding.materialFrames());
 }
 
 inline std::shared_ptr<DeformationPotentialEnergy> makeTestEnergy(
@@ -282,13 +320,13 @@ inline std::shared_ptr<DeformationPotentialEnergy> makeTestEnergy(
   std::shared_ptr<const MaterialFrameField> frames = {},
   const DeformationModelOptions &options = {})
 {
-  auto assignment = makeMaterialAssignment(
-    std::move(asset), std::move(elastic), std::move(plastic),
+  auto result = makeMaterialBinding(
+    asset, std::move(elastic), std::move(plastic),
     std::move(parameters), std::move(frames));
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    assignment, formulation, options);
+    asset->mesh(), result.binding, formulation, options);
   return std::make_shared<DeformationPotentialEnergy>(
-    std::move(energyOperator), assignment->initialMaterialState());
+    std::move(energyOperator), *result.state);
 }
 
 }  // namespace pgo::SolidDeformationModel::TestUtils

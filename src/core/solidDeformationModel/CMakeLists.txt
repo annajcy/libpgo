@@ -113,6 +113,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/model/plasticModelDefinition.h
   material/parameterization/materialChannelMapping.h
   material/parameterization/materialParameterField.h
+  material/runtime/materialBinding.h
   material/runtime/materialState.h
   material/runtime/optimizableParameterRef.h
   material/runtime/materialAssignment.h

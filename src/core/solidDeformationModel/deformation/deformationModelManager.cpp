@@ -33,6 +33,7 @@ public:
   std::shared_ptr<const FixedParameterField> plasticFixed;
   std::shared_ptr<const MaterialParameterization> parameterization;
   std::shared_ptr<const MaterialParameterData> parameterData;
+  std::shared_ptr<const MaterialBinding> binding;
   std::shared_ptr<const MaterialAssignment> assignment;
   std::vector<std::unique_ptr<DeformationModel>> elementFEMs;
   int numElasticParams = 0;
@@ -50,6 +51,34 @@ void validateFormulation(
 }
 
 }  // namespace
+
+DeformationModelManager::DeformationModelManager(
+  std::shared_ptr<const SimulationMesh> mesh,
+  std::shared_ptr<const MaterialBinding> materialBinding,
+  const Formulation &formulation,
+  bool projectHessianPSD)
+{
+  if (!mesh || !materialBinding)
+    throw std::invalid_argument(
+      "DeformationModelManager requires a mesh and material binding.");
+  if (materialBinding->numElements() != mesh->getNumElements())
+    throw std::invalid_argument(
+      "DeformationModelManager material binding element count does not match mesh.");
+  data = std::make_unique<DeformationModelManagerImpl>();
+  data->mesh = std::move(mesh);
+  data->binding = std::move(materialBinding);
+  data->materialFrames = data->binding->materialFrames();
+  data->elasticDefinition = data->binding->elastic().definition();
+  data->plasticDefinition = data->binding->plastic().definition();
+  data->elasticFixed = data->binding->elastic().fixed().field();
+  data->plasticFixed = data->binding->plastic().fixed().field();
+  data->nele = data->mesh->getNumElements();
+  if (data->nele <= 0)
+    throw std::invalid_argument(
+      "DeformationModelManager: mesh must contain at least one element.");
+  validateFormulation(data->mesh->getElementType(), formulation);
+  initImpl(formulation, DeformationModelConstructionOptions{ projectHessianPSD });
+}
 
 DeformationModelManager::DeformationModelManager(
   std::shared_ptr<const MaterialAssignment> assignment,
@@ -84,6 +113,13 @@ void DeformationModelManager::initImpl(
   SPDLOG_LOGGER_INFO(
     pgo::Logging::lgr(), "Initializing element models (manager path)...");
 
+  const EigenSupport::VXd &elasticFixedValues = data->binding ?
+    data->binding->elastic().fixed().values() :
+    data->parameterData->elastic.fixedValues;
+  const EigenSupport::VXd &plasticFixedValues = data->binding ?
+    data->binding->plastic().fixed().values() :
+    data->parameterData->plastic.fixedValues;
+
   data->elementFEMs.resize(data->nele);
   tbb::parallel_for(0, data->nele, [&](int ele) {
     const MaterialFrame materialToReference =
@@ -95,14 +131,14 @@ void DeformationModelManager::initImpl(
     data->elasticFixed->evaluate(
       ele, 0,
       std::span<const double>(
-        data->parameterData->elastic.fixedValues.data(),
-        static_cast<std::size_t>(data->parameterData->elastic.fixedValues.size())),
+        elasticFixedValues.data(),
+        static_cast<std::size_t>(elasticFixedValues.size())),
       elasticValues);
     data->plasticFixed->evaluate(
       ele, 0,
       std::span<const double>(
-        data->parameterData->plastic.fixedValues.data(),
-        static_cast<std::size_t>(data->parameterData->plastic.fixedValues.size())),
+        plasticFixedValues.data(),
+        static_cast<std::size_t>(plasticFixedValues.size())),
       plasticValues);
     auto em = data->elasticDefinition->createModel(
       elasticValues, materialToReference);
@@ -171,6 +207,12 @@ std::shared_ptr<const PlasticModelDefinition>
 DeformationModelManager::plasticModelDefinition() const
 {
   return data->plasticDefinition;
+}
+
+std::shared_ptr<const MaterialBinding>
+DeformationModelManager::materialBinding() const
+{
+  return data->binding;
 }
 
 std::shared_ptr<const MaterialAssignment>

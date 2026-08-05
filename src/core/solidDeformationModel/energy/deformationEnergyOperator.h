@@ -19,7 +19,9 @@ namespace SolidDeformationModel
 {
 class DeformationModelAssembler;
 class Formulation;
+class MaterialBinding;
 class MaterialAssignment;
+class SimulationMesh;
 
 struct DeformationModelOptions
 {
@@ -32,6 +34,12 @@ struct DeformationModelOptions
 class DeformationEnergyOperator
 {
 public:
+  DeformationEnergyOperator(
+    std::shared_ptr<const SimulationMesh> mesh,
+    std::shared_ptr<const MaterialBinding> materialBinding,
+    const Formulation &formulation,
+    const DeformationModelOptions &options = {});
+
   DeformationEnergyOperator(
     std::shared_ptr<const MaterialAssignment> assignment,
     const Formulation &formulation,
@@ -106,6 +114,11 @@ private:
     int dofOffset = 0;
   };
 
+  static BuildComponents build(
+    std::shared_ptr<const SimulationMesh> mesh,
+    std::shared_ptr<const MaterialBinding> materialBinding,
+    const Formulation &formulation,
+    const DeformationModelOptions &options);
   static BuildComponents build(
     std::shared_ptr<const MaterialAssignment> assignment,
     const Formulation &formulation,
