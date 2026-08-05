@@ -21,7 +21,7 @@ NUM_STEPS = 80
 DUMP_INTERVAL = 10
 
 
-def _material_state(mesh, E, nu, thickness):
+def _material(mesh, E, nu, thickness):
     elastic = pf.KoiterStVKDefinition()
     plastic = pf.ShellPlasticityDefinition(dofs=0)
     def identity_field(field_type, names, layout_type):
@@ -43,20 +43,18 @@ def _material_state(mesh, E, nu, thickness):
     plastic_opt = identity_field(
         pf.OptimizableParameterField, plastic.optimizable_channel_names,
         pf.ConstantParameterLayout)
-    parameterization = pf.MaterialParameterization(
-        pf.ElasticParameterization(elastic, elastic_fixed, elastic_opt),
-        pf.PlasticParameterization(plastic, plastic_fixed, plastic_opt))
-    parameter_data = pf.MaterialParameterData(
-        elastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.empty(0),
-            initial_optimizable_values=np.array([
-                E, nu, E, nu, thickness,
-            ])),
-        plastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.empty(0),
-            initial_optimizable_values=np.empty(0)),
+    binding = pf.MaterialBinding(
+        pf.ElasticMaterialBinding(
+            elastic, pf.FixedMaterialParameters(elastic_fixed, np.empty(0)),
+            elastic_opt),
+        pf.PlasticMaterialBinding(
+            plastic, pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
+            plastic_opt),
+        pf.GlobalAxesMaterialFrameField(mesh.num_elements),
     )
-    return parameterization, parameter_data
+    state = pf.MaterialState(
+        np.array([E, nu, E, nu, thickness]), np.empty(0))
+    return binding, state
 
 
 def main() -> None:
@@ -68,18 +66,13 @@ def main() -> None:
     E, nu, thickness = 1.0e6, 0.4, 1.0e-3
     mesh = pf.SimulationMesh(surface)
     formulation = pf.KoiterShell()
-    parameterization, parameter_data = _material_state(mesh, E, nu, thickness)
-    assignment = pf.MaterialAssignment(
-        mesh=mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=pf.GlobalAxesMaterialFrameField(mesh.num_elements))
+    material_binding, material_state = _material(mesh, E, nu, thickness)
     deformation_operator = pf.DeformationEnergyOperator(
-        assignment,
+        mesh, material_binding,
         formulation=formulation,
     )
     deformation = pf.DeformationPotentialEnergy(
-        deformation_operator, assignment.initial_material_state)
+        deformation_operator, material_state)
     areal_density = pf.ShellArealDensity.from_density_thickness(
         density=1000.0, thickness=1.0e-3
     )

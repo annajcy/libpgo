@@ -25,7 +25,7 @@ YOUNGS_MODULUS = 2.0e5
 POISSON_RATIO = 0.35
 
 
-def _material_state(asset, material):
+def _material(asset, material):
     elastic = {
         "neo_hookean": pf.NeoHookeanDefinition,
         "stable_neo": pf.StableNeoDefinition,
@@ -61,27 +61,25 @@ def _material_state(asset, material):
         plastic.optimizable_channel_names,
         pf.ConstantParameterLayout,
     )
-    parameterization = pf.MaterialParameterization(
-        pf.ElasticParameterization(
-            elastic, elastic_fixed, elastic_opt),
-        pf.PlasticParameterization(
-            plastic, plastic_fixed, plastic_opt),
-    )
-    parameter_data = pf.MaterialParameterData(
-        elastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.array(
-                [YOUNGS_MODULUS, POISSON_RATIO],
-                dtype=np.float64,
-            ),
-            initial_optimizable_values=np.empty(0, dtype=np.float64),
+    binding = pf.MaterialBinding(
+        pf.ElasticMaterialBinding(
+            elastic,
+            pf.FixedMaterialParameters(
+                elastic_fixed, [YOUNGS_MODULUS, POISSON_RATIO]),
+            elastic_opt,
         ),
-        plastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.empty(0, dtype=np.float64),
-            initial_optimizable_values=np.empty(0, dtype=np.float64),
+        pf.PlasticMaterialBinding(
+            plastic,
+            pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
+            plastic_opt,
         ),
+        pf.GlobalAxesMaterialFrameField(asset.num_elements),
     )
-    parameterization.validate(parameter_data)
-    return parameterization, parameter_data
+    state = pf.MaterialState(
+        np.empty(elastic_opt.num_global_parameters),
+        np.empty(plastic_opt.num_global_parameters),
+    )
+    return binding, state
 
 
 def main(argv=None) -> int:
@@ -110,20 +108,13 @@ def main(argv=None) -> int:
     asset = pf.SimulationImportResult(volume)
     formulation = pf.CubicLinear()
 
-    parameterization, parameter_data = _material_state(asset, args.material)
-    assignment = pf.MaterialAssignment(
-        mesh=asset.mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=pf.GlobalAxesMaterialFrameField(
-            asset.num_elements),
-    )
+    material_binding, material_state = _material(asset, args.material)
     deformation_operator = pf.DeformationEnergyOperator(
-        assignment,
+        asset.mesh, material_binding,
         formulation=formulation,
     )
     deformation = pf.DeformationPotentialEnergy(
-        deformation_operator, assignment.initial_material_state)
+        deformation_operator, material_state)
 
     density = pf.VolumeDensity(1000.0)
     mass = formulation.mass_matrix(asset.mesh, density)

@@ -68,23 +68,19 @@ def main() -> None:
     plastic_opt = identity_field(
         pf.OptimizableParameterField,
         plastic_definition.optimizable_channel_names)
-    parameterization = pf.MaterialParameterization(
-        pf.ElasticParameterization(elastic_definition, elastic_fixed, elastic_opt),
-        pf.PlasticParameterization(plastic_definition, plastic_fixed, plastic_opt))
-    parameter_data = pf.MaterialParameterData(
-        elastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.empty(0),
-            initial_optimizable_values=initial_elastic),
-        plastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.empty(0),
-            initial_optimizable_values=plastic_values))
-    assignment = pf.MaterialAssignment(
-        mesh=mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=pf.GlobalAxesMaterialFrameField(mesh.num_elements))
+    material_binding = pf.MaterialBinding(
+        pf.ElasticMaterialBinding(
+            elastic_definition,
+            pf.FixedMaterialParameters(elastic_fixed, np.empty(0)),
+            elastic_opt),
+        pf.PlasticMaterialBinding(
+            plastic_definition,
+            pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
+            plastic_opt),
+        pf.GlobalAxesMaterialFrameField(mesh.num_elements))
+    material_state = pf.MaterialState(initial_elastic, plastic_values)
     energy_operator = pf.DeformationEnergyOperator(
-        assignment,
+        mesh, material_binding,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(
             project_hessian_psd=False,
@@ -92,12 +88,13 @@ def main() -> None:
         ),
     )
     energy = pf.DeformationPotentialEnergy(
-        energy_operator, assignment.initial_material_state)
+        energy_operator, material_state)
 
     # Apply self-weight and clamp the top edge.
     areal_density = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0,
-        parameter=energy.material_state.elastic_field.parameter("thickness"),
+        parameter=energy.material_binding.elastic.optimizable_field.parameter(
+            "thickness"),
     )
     external_load = pf.SelfWeightGravity(
         formulation=pf.KoiterShell(),

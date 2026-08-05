@@ -16,7 +16,7 @@ ASSET_DIR = EXAMPLES_DIR / "assets"
 OUTPUT_DIR = CASE_DIR / "output"
 
 
-def _material_state(asset):
+def _material(asset):
     elastic = pf.StableNeoDefinition()
     plastic = pf.VolumetricPlasticityDefinition(dofs=0)
     def identity_field(field_type, names):
@@ -32,27 +32,22 @@ def _material_state(asset):
         pf.OptimizableParameterField, elastic.optimizable_channel_names)
     plastic_opt = identity_field(
         pf.OptimizableParameterField, plastic.optimizable_channel_names)
-    parameterization = pf.MaterialParameterization(
-        pf.ElasticParameterization(elastic, elastic_fixed, elastic_opt),
-        pf.PlasticParameterization(plastic, plastic_fixed, plastic_opt))
+    def fixed_parameters(field):
+        return pf.FixedMaterialParameters(
+            field, pf.project_imported_material_inputs(
+                asset.material_catalog, field))
 
-    def parameter_block(fixed_field, optimizable_field):
-        return pf.MaterialParameterDataBlock(
-            fixed_values=np.asarray(
-                pf.project_imported_material_inputs(
-                    asset.material_catalog, fixed_field),
-                dtype=np.float64,
-            ).reshape(-1),
-            initial_optimizable_values=np.zeros(
-                optimizable_field.num_global_parameters, dtype=np.float64),
-        )
-
-    parameter_data = pf.MaterialParameterData(
-        elastic=parameter_block(elastic_fixed, elastic_opt),
-        plastic=parameter_block(plastic_fixed, plastic_opt),
+    binding = pf.MaterialBinding(
+        pf.ElasticMaterialBinding(
+            elastic, fixed_parameters(elastic_fixed), elastic_opt),
+        pf.PlasticMaterialBinding(
+            plastic, fixed_parameters(plastic_fixed), plastic_opt),
+        pf.GlobalAxesMaterialFrameField(asset.num_elements),
     )
-    parameterization.validate(parameter_data)
-    return parameterization, parameter_data
+    state = pf.MaterialState(
+        np.zeros(elastic_opt.num_global_parameters),
+        np.zeros(plastic_opt.num_global_parameters))
+    return binding, state
 
 
 def main() -> None:
@@ -66,18 +61,13 @@ def main() -> None:
     # Build a 24-DOF-per-vertex tricubic Hermite model.
     asset = pf.SimulationImportResult(volume)
     formulation = pf.CubicTricubicHermite()
-    parameterization, parameter_data = _material_state(asset)
-    assignment = pf.MaterialAssignment(
-        mesh=asset.mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=pf.GlobalAxesMaterialFrameField(asset.num_elements))
+    material_binding, material_state = _material(asset)
     deformation_operator = pf.DeformationEnergyOperator(
-        assignment,
+        asset.mesh, material_binding,
         formulation=formulation,
     )
     deformation = pf.DeformationPotentialEnergy(
-        deformation_operator, assignment.initial_material_state)
+        deformation_operator, material_state)
     mass_field = pf.volume_density(volume)
     gravity_force = formulation.body_force(
         asset.mesh,

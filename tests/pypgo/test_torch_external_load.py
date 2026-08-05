@@ -4,7 +4,7 @@ import pytest
 import pypgo as pgo
 import pypgo.energy as pe
 import pypgo.fem as pf
-from tests.pypgo.material_helpers import direct_assignment
+from tests.pypgo.material_helpers import direct_material
 
 torch = pytest.importorskip("torch")
 
@@ -67,23 +67,23 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
     plastic = np.ones((triangles.shape[0], 1), dtype=np.float64)
     elastic_config = pf.KoiterStVKDefinition()
     plastic_config = pf.ShellPlasticityDefinition(dofs=1)
-    assignment = direct_assignment(
+    material = direct_material(
         sim, elastic_config, plastic_config,
         pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout, elastic, plastic)
     operator = pf.DeformationEnergyOperator(
-        assignment,
+        material.mesh, material.binding,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
     )
     energy = pf.DeformationPotentialEnergy(
-        operator, assignment.initial_material_state)
+        operator, material.state)
 
     if external_load == "point":
         load = _ThicknessPointLoad(energy, target_dof=2, parameter_dof=4, scale=1e6)
     else:
         areal_density = pf.ShellArealDensity.from_elastic_parameter(
             scale=1000.0,
-            parameter=energy.material_state.elastic_field.parameter("thickness"),
+            parameter=energy.material_binding.elastic.optimizable_field.parameter("thickness"),
         )
         load = pf.SelfWeightGravity(
             formulation=pf.KoiterShell(), mesh=sim, areal_density=areal_density,
@@ -161,22 +161,22 @@ def test_external_load_rejected_on_plastic_layer():
         )
 
 
-def test_external_load_rejects_material_state_from_other_fields():
+def test_external_load_accepts_equal_length_material_state():
     layer, _elastic, _vertices = _setup(external_load="point")
     other, _other_elastic, _other_vertices = _setup(external_load="point")
     foreign_load = _ThicknessPointLoad(
         other.energy, target_dof=2, parameter_dof=4, scale=1e6
     )
 
-    with pytest.raises(ValueError, match="same optimizable fields"):
-        pgo.fem.ElasticStaticEquilibriumLayer(
-            energy=layer.energy,
-            fixed_dofs=layer.fixed_dofs,
-            fixed_values=layer.fixed_values,
-            surface_vertices=layer.surface_vertices,
-            surface_vertex_ids=layer.surface_vertex_ids,
-            external_load=foreign_load,
-        )
+    compatible = pgo.fem.ElasticStaticEquilibriumLayer(
+        energy=layer.energy,
+        fixed_dofs=layer.fixed_dofs,
+        fixed_values=layer.fixed_values,
+        surface_vertices=layer.surface_vertices,
+        surface_vertex_ids=layer.surface_vertex_ids,
+        external_load=foreign_load,
+    )
+    assert compatible.external_load is foreign_load
 
 
 def test_equilibrium_layer_rejects_legacy_objective_energy_argument():

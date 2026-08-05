@@ -176,13 +176,6 @@ def _make_energy(imported, elastic, elastic_values):
         plastic.optimizable_channel_names,
         pf.ConstantParameterLayout,
     )
-    parameterization = pf.MaterialParameterization(
-        pf.ElasticParameterization(
-            elastic, elastic_fixed, elastic_optimizable),
-        pf.PlasticParameterization(
-            plastic, plastic_fixed, plastic_optimizable),
-    )
-
     if elastic.fixed_channel_names:
         fixed_values = np.asarray(
             pf.project_imported_material_inputs(
@@ -192,25 +185,18 @@ def _make_energy(imported, elastic, elastic_values):
     else:
         fixed_values = np.empty(0, dtype=np.float64)
 
-    parameter_data = pf.MaterialParameterData(
-        elastic=pf.MaterialParameterDataBlock(
-            fixed_values=fixed_values,
-            initial_optimizable_values=np.asarray(
-                elastic_values, dtype=np.float64).reshape(-1),
-        ),
-        plastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.empty(0, dtype=np.float64),
-            initial_optimizable_values=np.empty(0, dtype=np.float64),
-        ),
+    material_binding = pf.MaterialBinding(
+        pf.ElasticMaterialBinding(
+            elastic, pf.FixedMaterialParameters(elastic_fixed, fixed_values),
+            elastic_optimizable),
+        pf.PlasticMaterialBinding(
+            plastic, pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
+            plastic_optimizable),
+        pf.GlobalAxesMaterialFrameField(mesh.num_elements),
     )
-    assignment = pf.MaterialAssignment(
-        mesh=mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=pf.GlobalAxesMaterialFrameField(mesh.num_elements),
-    )
+    material_state = pf.MaterialState(elastic_values, np.empty(0))
     operator = pf.DeformationEnergyOperator(
-        assignment,
+        mesh, material_binding,
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
             project_hessian_psd=False,
@@ -218,7 +204,7 @@ def _make_energy(imported, elastic, elastic_values):
         ),
     )
     return pf.DeformationPotentialEnergy(
-        operator, assignment.initial_material_state)
+        operator, material_state)
 
 
 def initial_material_parameters(stretch_knots):

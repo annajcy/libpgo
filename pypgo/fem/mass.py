@@ -150,8 +150,7 @@ class SelfWeightGravity:
         return self._material_state
 
     def force(self, material_state) -> np.ndarray:
-        if not self._material_state._uses_same_parameter_fields_as(material_state):
-            raise ValueError("material_state belongs to different material fields")
+        self._validate_state_lengths(material_state)
         return self._formulation.body_force(
             self._mesh,
             self._acceleration,
@@ -160,11 +159,19 @@ class SelfWeightGravity:
         )
 
     def parameter_jacobian(self, material_state):
-        if not self._material_state._uses_same_parameter_fields_as(material_state):
-            raise ValueError("material_state belongs to different material fields")
+        self._validate_state_lengths(material_state)
         return self._formulation.body_force_parameter_jacobian(
             self._mesh,
             self._acceleration,
             self._areal_density,
             material_state=material_state,
         )
+
+    def _validate_state_lengths(self, material_state):
+        if not isinstance(material_state, MaterialState):
+            raise TypeError("material_state must be MaterialState")
+        if (material_state.elastic_values.size !=
+                self._material_state.elastic_values.size or
+                material_state.plastic_values.size !=
+                self._material_state.plastic_values.size):
+            raise ValueError("material_state vector lengths do not match the load")

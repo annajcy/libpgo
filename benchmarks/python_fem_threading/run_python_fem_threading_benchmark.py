@@ -324,10 +324,6 @@ def worker_main(args: argparse.Namespace) -> int:
         pf.OptimizableParameterField, elastic.optimizable_channel_names)
     plastic_optimizable = identity_field(
         pf.OptimizableParameterField, plastic.optimizable_channel_names)
-    parameterization = pf.MaterialParameterization(
-        pf.ElasticParameterization(elastic, elastic_fixed, elastic_optimizable),
-        pf.PlasticParameterization(plastic, plastic_fixed, plastic_optimizable),
-    )
     if args.plastic_dofs == 6:
         plastic_values = np.tile(
             np.array([1.0, 0.0, 0.0, 1.0, 0.0, 1.0]),
@@ -343,23 +339,24 @@ def worker_main(args: argparse.Namespace) -> int:
             dtype=np.float64,
         ).reshape(-1)
 
-    parameter_data = pf.MaterialParameterData(
-        elastic=pf.MaterialParameterDataBlock(
-            fixed_values=fixed_values(elastic_fixed),
-            initial_optimizable_values=np.empty(0, dtype=np.float64)),
-        plastic=pf.MaterialParameterDataBlock(
-            fixed_values=fixed_values(plastic_fixed),
-            initial_optimizable_values=np.ascontiguousarray(plastic_values.reshape(-1))),
+    material_binding = pf.MaterialBinding(
+        pf.ElasticMaterialBinding(
+            elastic,
+            pf.FixedMaterialParameters(
+                elastic_fixed, fixed_values(elastic_fixed)),
+            elastic_optimizable),
+        pf.PlasticMaterialBinding(
+            plastic,
+            pf.FixedMaterialParameters(
+                plastic_fixed, fixed_values(plastic_fixed)),
+            plastic_optimizable),
+        pf.GlobalAxesMaterialFrameField(asset.num_elements),
     )
-    parameterization.validate(parameter_data)
-    assignment = pf.MaterialAssignment(
-        mesh=asset.mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=pf.GlobalAxesMaterialFrameField(asset.num_elements),
-    )
+    material_state = pf.MaterialState(
+        np.empty(0, dtype=np.float64),
+        np.ascontiguousarray(plastic_values.reshape(-1)))
     energy_operator = pf.DeformationEnergyOperator(
-        assignment,
+        asset.mesh, material_binding,
         formulation=formulation,
         options=pf.DeformationOptions(
             project_hessian_psd=True,
@@ -367,7 +364,7 @@ def worker_main(args: argparse.Namespace) -> int:
         ),
     )
     energy = pf.DeformationPotentialEnergy(
-        energy_operator, assignment.initial_material_state
+        energy_operator, material_state
     )
 
     rng = np.random.default_rng(args.seed)

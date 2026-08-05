@@ -91,24 +91,23 @@ def main() -> None:
         pf.OptimizableParameterField, elastic.optimizable_channel_names)
     plastic_opt = identity_field(
         pf.OptimizableParameterField, plastic.optimizable_channel_names)
-    parameterization = pf.MaterialParameterization(
-        pf.ElasticParameterization(elastic, elastic_fixed, elastic_opt),
-        pf.PlasticParameterization(plastic, plastic_fixed, plastic_opt))
-    parameter_data = pf.MaterialParameterData(
-        elastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.tile(np.array([1.0e6, 0.45]), (elements.shape[0], 1)),
-            initial_optimizable_values=np.empty(0)),
-        plastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.empty(0),
-            initial_optimizable_values=np.tile(
-                np.array([1.0, 0.0, 0.0, 1.0, 0.0, 1.0]), (elements.shape[0], 1))))
-    assignment = pf.MaterialAssignment(
-        mesh=asset.mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=pf.GlobalAxesMaterialFrameField(asset.num_elements))
+    material_binding = pf.MaterialBinding(
+        pf.ElasticMaterialBinding(
+            elastic,
+            pf.FixedMaterialParameters(
+                elastic_fixed,
+                np.tile([1.0e6, 0.45], (elements.shape[0], 1))),
+            elastic_opt),
+        pf.PlasticMaterialBinding(
+            plastic, pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
+            plastic_opt),
+        pf.GlobalAxesMaterialFrameField(asset.num_elements))
+    material_state = pf.MaterialState(
+        np.empty(0),
+        np.tile([1.0, 0.0, 0.0, 1.0, 0.0, 1.0],
+                (elements.shape[0], 1)))
     energy_operator = pf.DeformationEnergyOperator(
-        assignment,
+        asset.mesh, material_binding,
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
             project_hessian_psd=False,
@@ -116,7 +115,7 @@ def main() -> None:
         ),
     )
     energy = pf.DeformationPotentialEnergy(
-        energy_operator, assignment.initial_material_state)
+        energy_operator, material_state)
 
     # Clamp the bottom face and expose equilibrium as a PyTorch layer.
     fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 0.0))

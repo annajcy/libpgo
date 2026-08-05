@@ -156,11 +156,13 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
             ):
                 raise TypeError("external_load must provide force() and parameter_jacobian()")
             load_state = getattr(external_load, "material_state", None)
-            if load_state is None or not energy.material_state._uses_same_parameter_fields_as(
-                load_state
-            ):
+            if (load_state is None or
+                    load_state.elastic_values.size !=
+                    energy.material_state.elastic_values.size or
+                    load_state.plastic_values.size !=
+                    energy.material_state.plastic_values.size):
                 raise ValueError(
-                    "external_load and deformation energy must use the same optimizable fields"
+                    "external_load and deformation energy must use equal material state lengths"
                 )
         self.external_load = external_load
 

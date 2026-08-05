@@ -18,7 +18,6 @@ public:
   virtual ~ElasticModel3DSTVKMaterial();
 
   int getNumParameters() const override { return 0; }
-  void setOptimizableParameters(double _mu, double _lambda)   {     mu = _mu;     lambda = _lambda;   }
 
   double compute_psi(std::span<const double> param,
     const SpectralState &state) const override;

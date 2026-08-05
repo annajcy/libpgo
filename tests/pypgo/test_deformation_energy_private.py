@@ -1,4 +1,4 @@
-"""Private smoke tests for assignment-based deformation _core hooks."""
+"""Private smoke tests for binding-based deformation _core hooks."""
 
 import gc
 
@@ -7,7 +7,7 @@ import pypgo as pgo
 import pypgo._core as _core
 import pypgo.fem as pf
 import pytest
-from tests.pypgo.material_helpers import direct_assignment
+from tests.pypgo.material_helpers import direct_material
 
 
 def _make_tet_sim_mesh():
@@ -58,19 +58,20 @@ def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plast
         raise ValueError(f"Unknown formulation: {formulation}")
     elastic = elastic or pf.StableNeoDefinition()
     plastic = plastic or pf.VolumetricPlasticityDefinition(dofs=6)
-    assignment = direct_assignment(
+    material = direct_material(
         sim, elastic, plastic,
         pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout,
         None, plastic_values)
     operator = _core._create_deformation_energy_operator(
-        assignment._handle,
+        material.mesh._handle,
+        material.binding._handle,
         formulation_handle._handle,
         None,
         True,
         True,
     )
     return _core._create_deformation_potential_energy(
-        operator, assignment._handle.initial_material_state)
+        operator, material.state._handle)
 
 
 class TestCoreDeformationEnergyOperator:
@@ -82,9 +83,8 @@ class TestCoreDeformationEnergyOperator:
         state = energy.material_state
         assert operator.elastic_definition.name == "stable_neo"
         assert operator.plastic_definition.name == "volumetric_dof6"
-        assert state.elastic_field.num_material_channels == 0
-        assert state.elastic_values.shape == (0, 0)
-        assert state.plastic_values.shape == (sim.num_elements, 6)
+        assert state.elastic_values.shape == (0,)
+        assert state.plastic_values.shape == (6 * sim.num_elements,)
 
     def test_material_state_has_no_mutating_setters(self):
         sim = _make_tet_sim_mesh()

@@ -3,7 +3,7 @@ import pytest
 
 import pypgo as pgo
 import pypgo.fem as pf
-from tests.pypgo.material_helpers import direct_assignment
+from tests.pypgo.material_helpers import direct_material
 from pypgo.mesh.geometry import BarycentricEmbedding
 
 
@@ -104,16 +104,16 @@ def test_hermite_dynamic_free_fall_uses_24_dofs():
     sim_mesh = pgo.fem.SimulationImportResult(volume)
     elastic = pf.StableNeoDefinition()
     plastic = pf.VolumetricPlasticityDefinition(dofs=0)
-    assignment = direct_assignment(
+    material = direct_material(
         sim_mesh, elastic, plastic,
         pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout,
         np.empty(0), np.empty(0))
     operator = pf.DeformationEnergyOperator(
-        assignment,
+        material.mesh, material.binding,
         formulation=pf.CubicTricubicHermite(),
     )
     energy = pf.DeformationPotentialEnergy(
-        operator, assignment.initial_material_state)
+        operator, material.state)
     mass_field = pf.VolumeDensity(2.0)
     M = pf.CubicTricubicHermite().mass_matrix(sim_mesh.mesh, mass_field)
     f = pf.CubicTricubicHermite().body_force(sim_mesh.mesh, [0.0, -9.8, 0.0], mass_field)

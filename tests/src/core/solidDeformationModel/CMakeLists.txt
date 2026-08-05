@@ -29,8 +29,8 @@ pgo_add_gtest(materialState_gtest
   DEFINITIONS LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/cubic/box.veg"
 )
 
-pgo_add_gtest(materialParameterizationSemantics_gtest
-  SOURCES materialParameterizationSemantics_gtest.cpp
+pgo_add_gtest(materialBindingSemantics_gtest
+  SOURCES materialBindingSemantics_gtest.cpp
   DEPS solidDeformationModel
 )
 

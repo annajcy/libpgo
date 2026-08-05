@@ -7,7 +7,7 @@ import pypgo as pgo
 import pypgo.energy as pe
 import pypgo.fem as fem
 import pypgo.solver as solver
-from tests.pypgo.material_helpers import direct_assignment
+from tests.pypgo.material_helpers import direct_material
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,17 +37,17 @@ def make_cubic_case():
     sim = pgo.fem.SimulationImportResult(volume)
     elastic = fem.StVKDefinition()
     plastic = fem.VolumetricPlasticityDefinition(dofs=6)
-    assignment = direct_assignment(
+    material = direct_material(
         sim, elastic, plastic, fem.ElementwiseParameterLayout, fem.ConstantParameterLayout)
     operator = fem.DeformationEnergyOperator(
-        assignment,
+        material.mesh, material.binding,
         formulation=fem.CubicLinear(),
         options=fem.DeformationOptions(
             project_hessian_psd=False, enable_material_max_step=False
         ),
     )
     energy = fem.DeformationPotentialEnergy(
-        operator, assignment.initial_material_state)
+        operator, material.state)
     return sim, energy
 
 
@@ -71,18 +71,18 @@ def make_shell_elastic_case():
         [[2.0e4, 0.35, 1.0e4, 0.25, 1.0e-3]], dtype=np.float64
     )
     plastic_values = np.array([[1.03], [1.02]], dtype=np.float64)
-    assignment = direct_assignment(
+    material = direct_material(
         sim, elastic, plastic, fem.ConstantParameterLayout, fem.ElementwiseParameterLayout,
         elastic_values, plastic_values)
     operator = fem.DeformationEnergyOperator(
-        assignment,
+        material.mesh, material.binding,
         formulation=fem.KoiterShell(),
         options=fem.DeformationOptions(
             project_hessian_psd=False, enable_material_max_step=False
         ),
     )
     energy = fem.DeformationPotentialEnergy(
-        operator, assignment.initial_material_state)
+        operator, material.state)
     return sim, energy
 
 

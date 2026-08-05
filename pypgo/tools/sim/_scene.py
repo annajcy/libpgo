@@ -212,8 +212,8 @@ def _catalog_channel_name(name):
     }.get(name, name)
 
 
-def _build_material_state(mesh, elastic, plastic, *, material_catalog=None,
-                          elastic_values=None, plastic_values=None, constant=False):
+def _build_material(mesh, elastic, plastic, *, material_catalog=None,
+                    elastic_values=None, plastic_values=None, constant=False):
     layout_type = _fem.ConstantParameterLayout if constant else _fem.ElementwiseParameterLayout
 
     def identity_field(field_type, names, selected_layout_type):
@@ -242,18 +242,12 @@ def _build_material_state(mesh, elastic, plastic, *, material_catalog=None,
     plastic_optimizable = identity_field(
         _fem.OptimizableParameterField,
         plastic.optimizable_channel_names, layout_type)
-    parameterization = _fem.MaterialParameterization(
-        _fem.ElasticParameterization(elastic, elastic_fixed, elastic_optimizable),
-        _fem.PlasticParameterization(plastic, plastic_fixed, plastic_optimizable),
-    )
-
     def fixed_values(definition, field):
         if not definition.fixed_channel_names:
             return np.empty(0, dtype=np.float64)
         if definition.fixed_channel_names and material_catalog is None:
             raise ConfigError(
-                "fixed material channels require explicit MaterialParameterData "
-                "or imported material data")
+                "fixed material channels require imported material data")
         return np.asarray(
             _fem.project_imported_material_inputs(
                 material_catalog, field),
@@ -269,15 +263,26 @@ def _build_material_state(mesh, elastic, plastic, *, material_catalog=None,
         array = np.asarray(values, dtype=np.float64)
         return np.ascontiguousarray(array.reshape(-1))
 
-    data = _fem.MaterialParameterData(
-        elastic=_fem.MaterialParameterDataBlock(
-            fixed_values=fixed_values(elastic, elastic_fixed),
-            initial_optimizable_values=initial_values(elastic_values, elastic_optimizable)),
-        plastic=_fem.MaterialParameterDataBlock(
-            fixed_values=fixed_values(plastic, plastic_fixed),
-            initial_optimizable_values=initial_values(plastic_values, plastic_optimizable)),
+    binding = _fem.MaterialBinding(
+        elastic=_fem.ElasticMaterialBinding(
+            elastic,
+            _fem.FixedMaterialParameters(
+                elastic_fixed, fixed_values(elastic, elastic_fixed)),
+            elastic_optimizable,
+        ),
+        plastic=_fem.PlasticMaterialBinding(
+            plastic,
+            _fem.FixedMaterialParameters(
+                plastic_fixed, fixed_values(plastic, plastic_fixed)),
+            plastic_optimizable,
+        ),
+        material_frames=_fem.GlobalAxesMaterialFrameField(mesh.num_elements),
     )
-    return parameterization, data
+    state = _fem.MaterialState(
+        elastic_values=initial_values(elastic_values, elastic_optimizable),
+        plastic_values=initial_values(plastic_values, plastic_optimizable),
+    )
+    return binding, state
 
 
 def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
@@ -289,23 +294,17 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
     mesh = imported.mesh
     elastic = _VOLUME_ELASTIC[cfg.material.model]()
     plastic = _fem.VolumetricPlasticityDefinition(dofs=0)
-    parameterization, parameter_data = _build_material_state(
+    material_binding, material_state = _build_material(
         mesh, elastic, plastic,
         material_catalog=imported.material_catalog)
-    assignment = _fem.MaterialAssignment(
-        mesh=mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=_fem.GlobalAxesMaterialFrameField(mesh.num_elements),
-    )
     deformation_operator = _fem.DeformationEnergyOperator(
-        assignment,
+        mesh, material_binding,
         formulation=fm,
         options=_fem.DeformationOptions(
             enable_material_max_step=cfg.material.enable_material_max_step),
     )
     deformation = _fem.DeformationPotentialEnergy(
-        deformation_operator, assignment.initial_material_state)
+        deformation_operator, material_state)
     num_dofs = deformation.num_dofs
     dofs_per_vertex = num_dofs // volume.num_vertices
 
@@ -384,22 +383,16 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
         cfg.material.E_membrane, cfg.material.nu_membrane,
         cfg.material.thickness,
     ], dtype=np.float64)
-    parameterization, parameter_data = _build_material_state(
+    material_binding, material_state = _build_material(
         mesh, elastic, plastic, elastic_values=shell_values, constant=True)
-    assignment = _fem.MaterialAssignment(
-        mesh=mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=_fem.GlobalAxesMaterialFrameField(mesh.num_elements),
-    )
     deformation_operator = _fem.DeformationEnergyOperator(
-        assignment,
+        mesh, material_binding,
         formulation=fm,
         options=_fem.DeformationOptions(
             enable_material_max_step=cfg.material.enable_material_max_step),
     )
     deformation = _fem.DeformationPotentialEnergy(
-        deformation_operator, assignment.initial_material_state)
+        deformation_operator, material_state)
     num_dofs = deformation.num_dofs
     rest_vertices = np.asarray(surface.vertices, dtype=np.float64)
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 import pypgo.fem as fem
@@ -13,8 +15,15 @@ def _catalog_channel_name(name: str) -> str:
             "thickness": "h"}.get(name, name)
 
 
-def direct_assignment(source, elastic, plastic, elastic_layout, plastic_layout,
-                      elastic_values=None, plastic_values=None):
+@dataclass(frozen=True)
+class DirectMaterial:
+    mesh: fem.SimulationMesh
+    binding: fem.MaterialBinding
+    state: fem.MaterialState
+
+
+def direct_material(source, elastic, plastic, elastic_layout, plastic_layout,
+                    elastic_values=None, plastic_values=None):
     if isinstance(source, fem.SimulationImportResult):
         mesh = source.mesh
         material_data = source.material_catalog
@@ -48,11 +57,6 @@ def direct_assignment(source, elastic, plastic, elastic_layout, plastic_layout,
     plastic_field = identity_field(
         fem.OptimizableParameterField,
         plastic.optimizable_channel_names, plastic_layout)
-    parameterization = fem.MaterialParameterization(
-        fem.ElasticParameterization(elastic, elastic_fixed, elastic_field),
-        fem.PlasticParameterization(plastic, plastic_fixed, plastic_field),
-    )
-
     def fixed_data(definition, field):
         channels = definition.fixed_channel_names
         if not channels:
@@ -74,17 +78,23 @@ def direct_assignment(source, elastic, plastic, elastic_layout, plastic_layout,
             for _ in range(rows)
         ], dtype=np.float64).reshape(-1)
 
-    data = fem.MaterialParameterData(
-        elastic=fem.MaterialParameterDataBlock(
-            fixed_values=fixed_data(elastic, elastic_fixed),
-            initial_optimizable_values=initial_data(elastic_values, elastic_field)),
-        plastic=fem.MaterialParameterDataBlock(
-            fixed_values=fixed_data(plastic, plastic_fixed),
-            initial_optimizable_values=initial_data(plastic_values, plastic_field)),
-    )
-    return fem.MaterialAssignment(
-        mesh=mesh,
-        parameterization=parameterization,
-        parameter_data=data,
+    binding = fem.MaterialBinding(
+        elastic=fem.ElasticMaterialBinding(
+            elastic,
+            fem.FixedMaterialParameters(
+                elastic_fixed, fixed_data(elastic, elastic_fixed)),
+            elastic_field,
+        ),
+        plastic=fem.PlasticMaterialBinding(
+            plastic,
+            fem.FixedMaterialParameters(
+                plastic_fixed, fixed_data(plastic, plastic_fixed)),
+            plastic_field,
+        ),
         material_frames=fem.GlobalAxesMaterialFrameField(mesh.num_elements),
     )
+    state = fem.MaterialState(
+        elastic_values=initial_data(elastic_values, elastic_field),
+        plastic_values=initial_data(plastic_values, plastic_field),
+    )
+    return DirectMaterial(mesh=mesh, binding=binding, state=state)

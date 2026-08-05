@@ -5,7 +5,7 @@ import pypgo as pgo
 import pypgo.fem as pf
 import pytest
 
-from tests.pypgo.material_helpers import direct_assignment
+from tests.pypgo.material_helpers import direct_material
 
 
 YOUNGS_MODULUS = 2.0e5
@@ -48,7 +48,7 @@ def _unit_cube_import():
 
 def _make_energy(elastic, elastic_values=None):
     imported = _unit_cube_import()
-    assignment = direct_assignment(
+    material = direct_material(
         imported,
         elastic,
         pf.VolumetricPlasticityDefinition(dofs=0),
@@ -58,7 +58,7 @@ def _make_energy(elastic, elastic_values=None):
         plastic_values=np.empty((1, 0), dtype=np.float64),
     )
     operator = pf.DeformationEnergyOperator(
-        assignment,
+        material.mesh, material.binding,
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
             project_hessian_psd=False,
@@ -66,7 +66,7 @@ def _make_energy(elastic, elastic_values=None):
         ),
     )
     return pf.DeformationPotentialEnergy(
-        operator, assignment.initial_material_state)
+        operator, material.state)
 
 
 def _neo_hookean_energy_density(F):

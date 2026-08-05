@@ -23,7 +23,7 @@ NUM_STEPS = 200
 DUMP_INTERVAL = 20
 
 
-def _material_state(asset, *, youngs_modulus=2.0e5, poisson_ratio=0.35):
+def _material(asset, *, youngs_modulus=2.0e5, poisson_ratio=0.35):
     # Log-uniform paper-style knots. Both arrays contain the rest knot 1.
     stretch_knots = np.exp(np.linspace(np.log(0.5), np.log(2.0), 17))
     volume_knots = np.exp(np.linspace(-1.0, 1.0, 17))
@@ -69,13 +69,6 @@ def _material_state(asset, *, youngs_modulus=2.0e5, poisson_ratio=0.35):
         plastic.optimizable_channel_names,
         pf.ConstantParameterLayout,
     )
-    parameterization = pf.MaterialParameterization(
-        pf.ElasticParameterization(
-            elastic, elastic_fixed, elastic_opt),
-        pf.PlasticParameterization(
-            plastic, plastic_fixed, plastic_opt),
-    )
-
     mu = youngs_modulus / (2.0 * (1.0 + poisson_ratio))
     lame_lambda = (
         youngs_modulus
@@ -88,18 +81,16 @@ def _material_state(asset, *, youngs_modulus=2.0e5, poisson_ratio=0.35):
     elastic_parameters = np.concatenate(
         [stretch_curvatures, [lame_lambda]])
 
-    parameter_data = pf.MaterialParameterData(
-        elastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.empty(0, dtype=np.float64),
-            initial_optimizable_values=elastic_parameters,
-        ),
-        plastic=pf.MaterialParameterDataBlock(
-            fixed_values=np.empty(0, dtype=np.float64),
-            initial_optimizable_values=np.empty(0, dtype=np.float64),
-        ),
+    binding = pf.MaterialBinding(
+        pf.ElasticMaterialBinding(
+            elastic, pf.FixedMaterialParameters(elastic_fixed, np.empty(0)),
+            elastic_opt),
+        pf.PlasticMaterialBinding(
+            plastic, pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
+            plastic_opt),
+        pf.GlobalAxesMaterialFrameField(asset.num_elements),
     )
-    parameterization.validate(parameter_data)
-    return parameterization, parameter_data
+    return binding, pf.MaterialState(elastic_parameters, np.empty(0))
 
 
 def main(argv=None) -> int:
@@ -123,20 +114,13 @@ def main(argv=None) -> int:
     asset = pf.SimulationImportResult(volume)
     formulation = pf.CubicLinear()
 
-    parameterization, parameter_data = _material_state(asset)
-    assignment = pf.MaterialAssignment(
-        mesh=asset.mesh,
-        parameterization=parameterization,
-        parameter_data=parameter_data,
-        material_frames=pf.GlobalAxesMaterialFrameField(
-            asset.num_elements),
-    )
+    material_binding, material_state = _material(asset)
     deformation_operator = pf.DeformationEnergyOperator(
-        assignment,
+        asset.mesh, material_binding,
         formulation=formulation,
     )
     deformation = pf.DeformationPotentialEnergy(
-        deformation_operator, assignment.initial_material_state)
+        deformation_operator, material_state)
 
     density = pf.VolumeDensity(1000.0)
     mass = formulation.mass_matrix(asset.mesh, density)

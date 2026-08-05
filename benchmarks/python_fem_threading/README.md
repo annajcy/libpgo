@@ -7,7 +7,7 @@ variant. The workload is deliberately pure Python:
 
 1. load a real Vega volumetric mesh with `pypgo.mesh.volume.read_veg`;
 2. build `VolumeMesh` and `pypgo.fem.SimulationImportResult`;
-3. construct a `MaterialAssignment`, `DeformationEnergyOperator`, and
+3. construct a `MaterialBinding`, `MaterialState`, `DeformationEnergyOperator`, and
    `DeformationPotentialEnergy`;
 4. call the public `value`, `gradient`, or `hessian` API inside an executor.
 
