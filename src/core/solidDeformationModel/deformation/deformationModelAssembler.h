@@ -76,11 +76,11 @@ public:
   {
     return plasticField_;
   }
-  const EigenSupport::SpMatD &d2E_dp2_template() const { return d2E_dp2Template; }
-  const EigenSupport::SpMatD &d2E_de2_template() const { return d2E_de2Template; }
-  const EigenSupport::SpMatD &d2E_dpde_template() const { return d2E_dpdeTemplate; }
-  const EigenSupport::SpMatD &d2E_dudp_template() const { return d2E_dudpTemplate; }
-  const EigenSupport::SpMatD &d2E_dude_template() const { return d2E_dudeTemplate; }
+  const EigenSupport::SpMatD &d2E_dp2_template() const { return d2E_dp2Cache_.matrixTemplate; }
+  const EigenSupport::SpMatD &d2E_de2_template() const { return d2E_de2Cache_.matrixTemplate; }
+  const EigenSupport::SpMatD &d2E_dpde_template() const { return d2E_dpdeCache_.matrixTemplate; }
+  const EigenSupport::SpMatD &d2E_dudp_template() const { return d2E_dudpCache_.matrixTemplate; }
+  const EigenSupport::SpMatD &d2E_dude_template() const { return d2E_dudeCache_.matrixTemplate; }
   void compute_dE_dp(
     std::span<const double> x, MaterialStateView state,
     EigenSupport::RefVecXd grad) const;
@@ -107,6 +107,12 @@ public:
   int getNumPlasticParams() const { return numPlasticParams_; }
 
 protected:
+  struct SparseAssemblyCache
+  {
+    EigenSupport::SpMatD matrixTemplate;
+    std::vector<DynamicIndexMatrix> elementInverseIndices;
+  };
+
   std::shared_ptr<const DeformationModelManager> deformationModelManager;
   std::shared_ptr<const DofLayout> dofLayout;
   EigenSupport::VXd restDofs_;
@@ -122,18 +128,13 @@ protected:
   int numPlasticLocalParams_ = 0;
 
   EigenSupport::SpMatD KTemplate;
-  EigenSupport::SpMatD d2E_dudpTemplate;
-  EigenSupport::SpMatD d2E_dudeTemplate;
-  EigenSupport::SpMatD d2E_dp2Template;
-  EigenSupport::SpMatD d2E_de2Template;
-  EigenSupport::SpMatD d2E_dpdeTemplate;
+  SparseAssemblyCache d2E_dudpCache_;
+  SparseAssemblyCache d2E_dudeCache_;
+  SparseAssemblyCache d2E_dp2Cache_;
+  SparseAssemblyCache d2E_de2Cache_;
+  SparseAssemblyCache d2E_dpdeCache_;
 
   std::vector<std::vector<HessianBlockOffset>> elementKBlockOffsets;
-  std::vector<DynamicIndexMatrix> element_d2E_dudp_InverseIndices;
-  std::vector<DynamicIndexMatrix> element_d2E_dude_InverseIndices;
-  std::vector<DynamicIndexMatrix> element_d2E_dp2_InverseIndices;
-  std::vector<DynamicIndexMatrix> element_d2E_de2_InverseIndices;
-  std::vector<DynamicIndexMatrix> element_d2E_dpde_InverseIndices;
 
   std::vector<double> elementWeights;
   std::vector<std::reference_wrapper<const DeformationModel>> femModels;
@@ -147,8 +148,7 @@ private:
     int numLocalParams,
     int numGlobalParams,
     const std::function<int(int, int)> &paramGlobalCol,
-    EigenSupport::SpMatD &tmpl,
-    std::vector<DynamicIndexMatrix> &inverseIndices,
+    SparseAssemblyCache &cache,
     std::vector<EigenSupport::TripletD> &entries);
 
   // Generic d²E/(du dq) assembly loop, where q is p or e.

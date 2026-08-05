@@ -185,10 +185,10 @@ DeformationModelAssembler::DeformationModelAssembler(
     buildMixedSparsityTemplate(
       numElasticLocalParams_, numElasticGlobalParams,
       [elasticParamLayout](int ele, int ep) { return elasticParamLayout->globalParameter(ele, ep); },
-      d2E_dudeTemplate, element_d2E_dude_InverseIndices, entries);
+      d2E_dudeCache_, entries);
   }
   else {
-    d2E_dudeTemplate.resize(numDOFs, 0);
+    d2E_dudeCache_.matrixTemplate.resize(numDOFs, 0);
   }
 
   // Displacement-plastic Hessian template.
@@ -197,10 +197,10 @@ DeformationModelAssembler::DeformationModelAssembler(
     buildMixedSparsityTemplate(
       numPlasticLocalParams_, numPlasticGlobalParams,
       [plasticParamLayout](int ele, int pp) { return plasticParamLayout->globalParameter(ele, pp); },
-      d2E_dudpTemplate, element_d2E_dudp_InverseIndices, entries);
+      d2E_dudpCache_, entries);
   }
   else {
-    d2E_dudpTemplate.resize(numDOFs, 0);
+    d2E_dudpCache_.matrixTemplate.resize(numDOFs, 0);
   }
 
   // d²E/dp² (plastic-only) template.
@@ -216,14 +216,14 @@ DeformationModelAssembler::DeformationModelAssembler(
       }
     }
 
-    d2E_dp2Template.resize(numPlasticGlobalParams, numPlasticGlobalParams);
-    d2E_dp2Template.setFromTriplets(entries.begin(), entries.end());
+    d2E_dp2Cache_.matrixTemplate.resize(numPlasticGlobalParams, numPlasticGlobalParams);
+    d2E_dp2Cache_.matrixTemplate.setFromTriplets(entries.begin(), entries.end());
   }
   else {
-    d2E_dp2Template.resize(0, 0);
+    d2E_dp2Cache_.matrixTemplate.resize(0, 0);
   }
 
-  element_d2E_dp2_InverseIndices.resize(nele);
+  d2E_dp2Cache_.elementInverseIndices.resize(nele);
   if (numPlasticParams_ > 0 && numPlasticLocalParams_ > 0 && plasticParamLayout) {
     for (int ele = 0; ele < nele; ele++) {
       DynamicIndexMatrix idxM(numPlasticLocalParams_, numPlasticLocalParams_);
@@ -234,11 +234,11 @@ DeformationModelAssembler::DeformationModelAssembler(
         for (int pj = 0; pj < numPlasticLocalParams_; pj++) {
           const int globalCol = plasticParamLayout->globalParameter(ele, pj);
           idxM(pi, pj) = ES::findEntryOffset(
-            d2E_dp2Template, globalRow, globalCol);
+            d2E_dp2Cache_.matrixTemplate, globalRow, globalCol);
         }
       }
 
-      element_d2E_dp2_InverseIndices[ele] = idxM;
+      d2E_dp2Cache_.elementInverseIndices[ele] = idxM;
     }
   }
 
@@ -255,14 +255,14 @@ DeformationModelAssembler::DeformationModelAssembler(
       }
     }
 
-    d2E_de2Template.resize(numElasticGlobalParams, numElasticGlobalParams);
-    d2E_de2Template.setFromTriplets(entries.begin(), entries.end());
+    d2E_de2Cache_.matrixTemplate.resize(numElasticGlobalParams, numElasticGlobalParams);
+    d2E_de2Cache_.matrixTemplate.setFromTriplets(entries.begin(), entries.end());
   }
   else {
-    d2E_de2Template.resize(0, 0);
+    d2E_de2Cache_.matrixTemplate.resize(0, 0);
   }
 
-  element_d2E_de2_InverseIndices.resize(nele);
+  d2E_de2Cache_.elementInverseIndices.resize(nele);
   if (numElasticParams_ > 0 && numElasticLocalParams_ > 0 && elasticParamLayout) {
     for (int ele = 0; ele < nele; ele++) {
       DynamicIndexMatrix idxM(numElasticLocalParams_, numElasticLocalParams_);
@@ -273,11 +273,11 @@ DeformationModelAssembler::DeformationModelAssembler(
         for (int pj = 0; pj < numElasticLocalParams_; pj++) {
           const int globalCol = elasticParamLayout->globalParameter(ele, pj);
           idxM(pi, pj) = ES::findEntryOffset(
-            d2E_de2Template, globalRow, globalCol);
+            d2E_de2Cache_.matrixTemplate, globalRow, globalCol);
         }
       }
 
-      element_d2E_de2_InverseIndices[ele] = idxM;
+      d2E_de2Cache_.elementInverseIndices[ele] = idxM;
     }
   }
 
@@ -295,14 +295,14 @@ DeformationModelAssembler::DeformationModelAssembler(
       }
     }
 
-    d2E_dpdeTemplate.resize(numPlasticGlobalParams, numElasticGlobalParams);
-    d2E_dpdeTemplate.setFromTriplets(entries.begin(), entries.end());
+    d2E_dpdeCache_.matrixTemplate.resize(numPlasticGlobalParams, numElasticGlobalParams);
+    d2E_dpdeCache_.matrixTemplate.setFromTriplets(entries.begin(), entries.end());
   }
   else {
-    d2E_dpdeTemplate.resize(0, 0);
+    d2E_dpdeCache_.matrixTemplate.resize(0, 0);
   }
 
-  element_d2E_dpde_InverseIndices.resize(nele);
+  d2E_dpdeCache_.elementInverseIndices.resize(nele);
   if (numPlasticParams_ > 0 && numPlasticLocalParams_ > 0 && plasticParamLayout &&
     numElasticParams_ > 0 && numElasticLocalParams_ > 0 && elasticParamLayout) {
     for (int ele = 0; ele < nele; ele++) {
@@ -314,11 +314,11 @@ DeformationModelAssembler::DeformationModelAssembler(
         for (int ej = 0; ej < numElasticLocalParams_; ej++) {
           const int globalCol = elasticParamLayout->globalParameter(ele, ej);
           idxM(pi, ej) = ES::findEntryOffset(
-            d2E_dpdeTemplate, globalRow, globalCol);
+            d2E_dpdeCache_.matrixTemplate, globalRow, globalCol);
         }
       }
 
-      element_d2E_dpde_InverseIndices[ele] = idxM;
+      d2E_dpdeCache_.elementInverseIndices[ele] = idxM;
     }
   }
 }
@@ -605,10 +605,10 @@ void DeformationModelAssembler::compute_d2E_dp2(
 {
   validatePositionSpan(x, "position vector");
   validateMaterialState(state);
-  if (hess.rows() != d2E_dp2Template.rows() ||
-    hess.cols() != d2E_dp2Template.cols() ||
-    hess.nonZeros() != d2E_dp2Template.nonZeros()) {
-    hess = d2E_dp2Template;
+  if (hess.rows() != d2E_dp2Cache_.matrixTemplate.rows() ||
+    hess.cols() != d2E_dp2Cache_.matrixTemplate.cols() ||
+    hess.nonZeros() != d2E_dp2Cache_.matrixTemplate.nonZeros()) {
+    hess = d2E_dp2Cache_.matrixTemplate;
   }
 
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
@@ -660,7 +660,7 @@ void DeformationModelAssembler::compute_d2E_dp2(
     }
     localH *= elementWeights[ele];
 
-    const auto &idxM = element_d2E_dp2_InverseIndices[ele];
+    const auto &idxM = d2E_dp2Cache_.elementInverseIndices[ele];
     for (int localRow = 0; localRow < numPlasticLocalParams_; localRow++) {
       for (int localCol = 0; localCol < numPlasticLocalParams_; localCol++) {
         std::ptrdiff_t offset = idxM(localRow, localCol);
@@ -738,10 +738,10 @@ void DeformationModelAssembler::compute_d2E_de2(
 {
   validatePositionSpan(x, "position vector");
   validateMaterialState(state);
-  if (hess.rows() != d2E_de2Template.rows() ||
-    hess.cols() != d2E_de2Template.cols() ||
-    hess.nonZeros() != d2E_de2Template.nonZeros()) {
-    hess = d2E_de2Template;
+  if (hess.rows() != d2E_de2Cache_.matrixTemplate.rows() ||
+    hess.cols() != d2E_de2Cache_.matrixTemplate.cols() ||
+    hess.nonZeros() != d2E_de2Cache_.matrixTemplate.nonZeros()) {
+    hess = d2E_de2Cache_.matrixTemplate;
   }
 
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
@@ -793,7 +793,7 @@ void DeformationModelAssembler::compute_d2E_de2(
     }
     localH *= elementWeights[ele];
 
-    const auto &idxM = element_d2E_de2_InverseIndices[ele];
+    const auto &idxM = d2E_de2Cache_.elementInverseIndices[ele];
     for (int localRow = 0; localRow < numElasticLocalParams_; localRow++) {
       for (int localCol = 0; localCol < numElasticLocalParams_; localCol++) {
         std::ptrdiff_t offset = idxM(localRow, localCol);
@@ -816,10 +816,10 @@ void DeformationModelAssembler::compute_d2E_dpde(
 {
   validatePositionSpan(x, "position vector");
   validateMaterialState(state);
-  if (hess.rows() != d2E_dpdeTemplate.rows() ||
-    hess.cols() != d2E_dpdeTemplate.cols() ||
-    hess.nonZeros() != d2E_dpdeTemplate.nonZeros()) {
-    hess = d2E_dpdeTemplate;
+  if (hess.rows() != d2E_dpdeCache_.matrixTemplate.rows() ||
+    hess.cols() != d2E_dpdeCache_.matrixTemplate.cols() ||
+    hess.nonZeros() != d2E_dpdeCache_.matrixTemplate.nonZeros()) {
+    hess = d2E_dpdeCache_.matrixTemplate;
   }
 
   memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
@@ -863,7 +863,7 @@ void DeformationModelAssembler::compute_d2E_dpde(
     }
     localH *= elementWeights[ele];
 
-    const auto &idxM = element_d2E_dpde_InverseIndices[ele];
+    const auto &idxM = d2E_dpdeCache_.elementInverseIndices[ele];
     for (int localRow = 0; localRow < numPlasticLocalParams_; localRow++) {
       for (int localCol = 0; localCol < numElasticLocalParams_; localCol++) {
         std::ptrdiff_t offset = idxM(localRow, localCol);
@@ -891,7 +891,7 @@ void DeformationModelAssembler::compute_d2E_dudp(
   assemble_d2E_dudq(
     absolutePositions, state, numPlasticParams_, numPlasticLocalParams_,
     *plasticField_,
-    element_d2E_dudp_InverseIndices,
+    d2E_dudpCache_.elementInverseIndices,
     &DeformationModelEvaluator::compute_d2E_dudp,
     mixedHessian, "d2E/dudp");
 }
@@ -906,7 +906,7 @@ void DeformationModelAssembler::compute_d2E_dude(
   assemble_d2E_dudq(
     absolutePositions, state, numElasticParams_, numElasticLocalParams_,
     *elasticField_,
-    element_d2E_dude_InverseIndices,
+    d2E_dudeCache_.elementInverseIndices,
     &DeformationModelEvaluator::compute_d2E_dude,
     mixedHessian, "d2E/dude");
 }
@@ -1035,8 +1035,7 @@ void DeformationModelAssembler::buildMixedSparsityTemplate(
   int numLocalParams,
   int numGlobalParams,
   const std::function<int(int, int)> &paramGlobalCol,
-  EigenSupport::SpMatD &tmpl,
-  std::vector<DynamicIndexMatrix> &inverseIndices,
+  SparseAssemblyCache &cache,
   std::vector<ES::TripletD> &entries)
 {
   entries.clear();
@@ -1051,10 +1050,10 @@ void DeformationModelAssembler::buildMixedSparsityTemplate(
       }
     }
   }
-  tmpl.resize(numDOFs, numGlobalParams);
-  tmpl.setFromTriplets(entries.begin(), entries.end());
+  cache.matrixTemplate.resize(numDOFs, numGlobalParams);
+  cache.matrixTemplate.setFromTriplets(entries.begin(), entries.end());
 
-  inverseIndices.resize(nele);
+  cache.elementInverseIndices.resize(nele);
   for (int ele = 0; ele < nele; ele++) {
     DynamicIndexMatrix idxM(localDOFs, numLocalParams);
     idxM.setConstant(-1);
@@ -1067,11 +1066,12 @@ void DeformationModelAssembler::buildMixedSparsityTemplate(
         const int globalRow = group.globalDof(localOffset);
         for (int pp = 0; pp < numLocalParams; pp++) {
           int globalCol = paramGlobalCol(ele, pp);
-          idxM(localRow, pp) = ES::findEntryOffset(tmpl, globalRow, globalCol);
+          idxM(localRow, pp) = ES::findEntryOffset(
+            cache.matrixTemplate, globalRow, globalCol);
         }
       }
     }
-    inverseIndices[ele] = idxM;
+    cache.elementInverseIndices[ele] = idxM;
   }
 }
 
