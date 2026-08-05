@@ -9,7 +9,8 @@ import numpy as np
 import pypgo._core as _core
 from pypgo._utils import float_vector
 from pypgo.energy import PotentialEnergy
-from pypgo.fem.fields import MaterialAssignment, MaterialState
+from pypgo.fem.fields import MaterialBinding, MaterialState
+from pypgo.fem.mesh import SimulationMesh
 from pypgo.sparse import SparseMatrix
 
 
@@ -31,8 +32,10 @@ class DeformationEnergyOperator:
 
     Parameters
     ----------
-    assignment : MaterialAssignment
-        Complete material binding for the simulation mesh.
+    mesh : SimulationMesh
+        Simulation mesh used by the operator.
+    material_binding : MaterialBinding
+        Immutable material models, fields, fixed values, and frames.
     formulation : Formulation
         Element formulation used to assemble the deformation energy.
     options : DeformationOptions, optional
@@ -51,12 +54,13 @@ class DeformationEnergyOperator:
     DOFs, and ``e`` for elastic-field DOFs.
     """
 
-    def __init__(self, assignment, *, formulation, options=None):
-        if not isinstance(assignment, MaterialAssignment):
-            raise TypeError(
-                "assignment must be a MaterialAssignment, "
-                f"got {type(assignment).__name__}"
-            )
+    def __init__(self, mesh, material_binding, *, formulation, options=None):
+        if not isinstance(mesh, SimulationMesh):
+            raise TypeError("mesh must be a SimulationMesh")
+        if not isinstance(material_binding, MaterialBinding):
+            raise TypeError("material_binding must be a MaterialBinding")
+        if material_binding.num_elements != mesh.num_elements:
+            raise ValueError("material binding element count must match mesh")
         formulation = _resolve_formulation(formulation)
         if options is None:
             options = DeformationOptions()
@@ -75,17 +79,18 @@ class DeformationEnergyOperator:
                     "options.element_weights must be 1-D, "
                     f"got shape {element_weights.shape}"
                 )
-            if element_weights.size != assignment.mesh.num_elements:
+            if element_weights.size != mesh.num_elements:
                 raise ValueError(
                     "options.element_weights size must be "
-                    f"{assignment.mesh.num_elements}, got {element_weights.size}"
+                    f"{mesh.num_elements}, got {element_weights.size}"
                 )
             element_weights = np.ascontiguousarray(
                 element_weights, dtype=np.float64
             )
 
         core = _core._create_deformation_energy_operator(
-            assignment._handle,
+            mesh._handle,
+            material_binding._handle,
             formulation._handle,
             element_weights,
             bool(options.project_hessian_psd),
@@ -93,10 +98,11 @@ class DeformationEnergyOperator:
         )
         object.__setattr__(self, "_handle", core)
         object.__setattr__(
-            self, "_elastic_definition", assignment.parameterization.elastic.definition)
+            self, "_elastic_definition", material_binding.elastic.definition)
         object.__setattr__(
-            self, "_plastic_definition", assignment.parameterization.plastic.definition)
-        object.__setattr__(self, "_assignment", assignment)
+            self, "_plastic_definition", material_binding.plastic.definition)
+        object.__setattr__(self, "_mesh", mesh)
+        object.__setattr__(self, "_material_binding", material_binding)
 
     @property
     def rest_state(self) -> np.ndarray:
@@ -145,9 +151,12 @@ class DeformationEnergyOperator:
         return self._handle.num_dofs
 
     @property
-    def assignment(self) -> MaterialAssignment:
-        """Complete mesh-bound material assignment used to build this energy."""
-        return self._assignment
+    def material_binding(self) -> MaterialBinding:
+        return self._material_binding
+
+    @property
+    def mesh(self) -> SimulationMesh:
+        return self._mesh
 
     def value(self, displacement: np.ndarray, material_state: MaterialState) -> float:
         u, state = self._inputs(displacement, material_state)
@@ -266,9 +275,14 @@ class DeformationEnergyOperator:
     def _inputs(self, displacement, material_state):
         if not isinstance(material_state, MaterialState):
             raise TypeError("material_state must be a MaterialState")
-        if not material_state._uses_same_parameter_fields_as(
-                self.assignment.initial_material_state):
-            raise ValueError("material_state belongs to a different material assignment")
+        elastic_size = self.material_binding.elastic.optimizable_field.num_global_parameters
+        plastic_size = self.material_binding.plastic.optimizable_field.num_global_parameters
+        if material_state.elastic_values.size != elastic_size:
+            raise ValueError(
+                f"elastic material state must contain {elastic_size} values")
+        if material_state.plastic_values.size != plastic_size:
+            raise ValueError(
+                f"plastic material state must contain {plastic_size} values")
         u = float_vector("displacement", displacement)
         if u.size != self.num_dofs:
             raise ValueError("displacement size must match operator.num_dofs")
@@ -305,8 +319,12 @@ class DeformationPotentialEnergy(PotentialEnergy):
         return self.energy_operator.num_vertices
 
     @property
-    def assignment(self):
-        return self.energy_operator.assignment
+    def material_binding(self):
+        return self.energy_operator.material_binding
+
+    @property
+    def mesh(self):
+        return self.energy_operator.mesh
 
     @property
     def elastic_definition(self):

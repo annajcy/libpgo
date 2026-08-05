@@ -103,6 +103,7 @@ void init_energy_bindings(nb::module_ &m)
       "channel_index", &PyOptimizableMaterialChannelRef::channelIndex);
 
   nb::class_<PyOptimizableParameterField>(m, "PyOptimizableParameterField")
+    .def_prop_ro("num_elements", &PyOptimizableParameterField::numElements)
     .def_prop_ro(
       "num_material_channels",
       &PyOptimizableParameterField::numMaterialChannels)
@@ -119,8 +120,6 @@ void init_energy_bindings(nb::module_ &m)
     .def("parameter", &PyOptimizableParameterField::parameter, nb::arg("name"));
 
   nb::class_<PyMaterialState>(m, "PyMaterialState")
-    .def_prop_ro("elastic_field", &PyMaterialState::elasticField)
-    .def_prop_ro("plastic_field", &PyMaterialState::plasticField)
     .def_prop_ro(
       "elastic_values", &PyMaterialState::elasticValues,
       nb::rv_policy::move)
@@ -130,8 +129,7 @@ void init_energy_bindings(nb::module_ &m)
     .def("with_elastic_values", &PyMaterialState::withElasticValues,
       nb::arg("values"))
     .def("with_plastic_values", &PyMaterialState::withPlasticValues,
-      nb::arg("values"))
-    .def("_same_parameter_fields", &PyMaterialState::sameParameterFields, nb::arg("other"));
+      nb::arg("values"));
 
   nb::class_<PyFixedParameterField>(m, "PyFixedParameterField")
     .def_prop_ro("parameter_names", &PyFixedParameterField::parameterNames)
@@ -149,49 +147,7 @@ void init_energy_bindings(nb::module_ &m)
 
   nb::class_<PyMaterialFrameField>(m, "PyMaterialFrameField")
     .def_prop_ro("num_elements", &PyMaterialFrameField::numElements);
-  nb::class_<PyMaterialAssignment>(m, "PyMaterialAssignment")
-    .def_prop_ro("initial_material_state", &PyMaterialAssignment::initialMaterialState);
-
-  nb::class_<PyElasticParameterization>(m, "PyElasticParameterization")
-    .def_prop_ro("definition", &PyElasticParameterization::definition)
-    .def_prop_ro("fixed_field", &PyElasticParameterization::fixedField)
-    .def_prop_ro(
-      "optimizable_field", &PyElasticParameterization::optimizableField)
-    .def_prop_ro("fixed_channel_names", &PyElasticParameterization::fixedChannelNames)
-    .def_prop_ro(
-      "optimizable_channel_names",
-      &PyElasticParameterization::optimizableChannelNames)
-    .def(
-      "optimizable_channel", &PyElasticParameterization::optimizableChannel,
-      nb::arg("name"))
-    .def_prop_ro("num_elements", &PyElasticParameterization::numElements);
-  nb::class_<PyPlasticParameterization>(m, "PyPlasticParameterization")
-    .def_prop_ro("definition", &PyPlasticParameterization::definition)
-    .def_prop_ro("fixed_field", &PyPlasticParameterization::fixedField)
-    .def_prop_ro(
-      "optimizable_field", &PyPlasticParameterization::optimizableField)
-    .def_prop_ro("fixed_channel_names", &PyPlasticParameterization::fixedChannelNames)
-    .def_prop_ro(
-      "optimizable_channel_names",
-      &PyPlasticParameterization::optimizableChannelNames)
-    .def(
-      "optimizable_channel", &PyPlasticParameterization::optimizableChannel,
-      nb::arg("name"))
-    .def_prop_ro("num_elements", &PyPlasticParameterization::numElements)
-    .def_prop_ro("dofs", &PyPlasticParameterization::dofs);
-  nb::class_<PyMaterialParameterization>(m, "PyMaterialParameterization")
-    .def_prop_ro("elastic", &PyMaterialParameterization::elastic)
-    .def_prop_ro("plastic", &PyMaterialParameterization::plastic)
-    .def_prop_ro("num_elements", &PyMaterialParameterization::numElements);
-  nb::class_<PyMaterialParameterData>(m, "PyMaterialParameterData")
-    .def_prop_ro("elastic_fixed_values", &PyMaterialParameterData::elasticFixedValues,
-      nb::rv_policy::move)
-    .def_prop_ro("elastic_initial_optimizable_values",
-      &PyMaterialParameterData::elasticInitialOptimizableValues, nb::rv_policy::move)
-    .def_prop_ro("plastic_fixed_values", &PyMaterialParameterData::plasticFixedValues,
-      nb::rv_policy::move)
-    .def_prop_ro("plastic_initial_optimizable_values",
-      &PyMaterialParameterData::plasticInitialOptimizableValues, nb::rv_policy::move);
+  nb::class_<PyMaterialBinding>(m, "PyMaterialBinding");
 
   m.def("_make_elementwise_parameter_layout",
     &makeElementwiseParameterLayout,
@@ -218,32 +174,20 @@ void init_energy_bindings(nb::module_ &m)
     nb::arg("parameter_names"), nb::arg("layout"), nb::arg("mapping"));
   m.def("_create_fixed_parameter_field", &createFixedParameterField,
     nb::arg("parameter_names"), nb::arg("layout"), nb::arg("mapping"));
-  m.def("_create_elastic_parameterization", &createElasticParameterization,
-    nb::arg("definition"), nb::arg("fixed_field"),
-    nb::arg("optimizable_field"));
-  m.def("_create_plastic_parameterization", &createPlasticParameterization,
-    nb::arg("definition"), nb::arg("fixed_field"),
-    nb::arg("optimizable_field"));
-  m.def("_create_material_parameterization", &createMaterialParameterization,
-    nb::arg("elastic"), nb::arg("plastic"));
-  m.def("_create_material_parameter_data", &createMaterialParameterData,
-    nb::arg("elastic_fixed_values"), nb::arg("elastic_initial_optimizable_values"),
-    nb::arg("plastic_fixed_values"), nb::arg("plastic_initial_optimizable_values"));
   m.def("_project_imported_material_inputs", &projectImportedMaterialInputs,
     nb::arg("source"), nb::arg("parameter_names"), nb::arg("layout"));
   m.def("_project_named_material_inputs", &projectNamedMaterialInputs,
     nb::arg("source"), nb::arg("parameter_names"), nb::arg("layout"));
-  m.def("_validate_material_parameter_data", &validateMaterialParameterData,
-    nb::arg("parameterization"), nb::arg("data"));
-  m.def("_create_material_assignment_from_parameterization",
-    &createMaterialAssignmentFromParameterization,
-    nb::arg("mesh"), nb::arg("parameterization"), nb::arg("data"),
+  m.def("_create_material_binding", &createMaterialBinding,
+    nb::arg("elastic_definition"), nb::arg("elastic_fixed_field"),
+    nb::arg("elastic_fixed_values"), nb::arg("elastic_optimizable_field"),
+    nb::arg("plastic_definition"), nb::arg("plastic_fixed_field"),
+    nb::arg("plastic_fixed_values"), nb::arg("plastic_optimizable_field"),
     nb::arg("material_frames"));
   m.def("_create_material_state", &createMaterialState,
-    nb::arg("assignment"), nb::arg("elastic_values"),
-    nb::arg("plastic_values"));
+    nb::arg("elastic_values"), nb::arg("plastic_values"));
   m.def("_create_deformation_energy_operator", &createDeformationEnergyOperator,
-    nb::arg("assignment"), nb::arg("formulation"),
+    nb::arg("mesh"), nb::arg("material_binding"), nb::arg("formulation"),
     nb::arg("element_weights").none() = nb::none(), nb::arg("project_hessian_psd") = true,
     nb::arg("enable_material_max_step") = true);
   m.def("_create_deformation_potential_energy", &createDeformationPotentialEnergy,

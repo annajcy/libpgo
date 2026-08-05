@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 
 import pypgo._core as _core
@@ -213,6 +211,10 @@ class OptimizableParameterField:
         return self._handle.num_material_channels
 
     @property
+    def num_elements(self) -> int:
+        return self._handle.num_elements
+
+    @property
     def num_local_parameters(self) -> int:
         return self._handle.num_local_parameters
 
@@ -242,7 +244,7 @@ class OptimizableParameterField:
             self._handle.parameter(str(name)))
 
 
-def _coerce_global_values(name: str, values, field: OptimizableParameterField) -> np.ndarray:
+def _coerce_global_values(name: str, values, field) -> np.ndarray:
     """Validate a global state vector against a field's row/column shape."""
     arr = np.asarray(values, dtype=np.float64, order="C")
     if arr.ndim == 1:
@@ -262,51 +264,20 @@ def _coerce_global_values(name: str, values, field: OptimizableParameterField) -
 
 
 class MaterialState:
-    """Immutable elastic and plastic values for one material assignment."""
+    """Immutable elastic and plastic optimizer-coordinate vectors."""
 
-    def __init__(self, assignment=None, *, elastic_values=None,
-                 plastic_values=None, _handle=None) -> None:
+    def __init__(self, elastic_values, plastic_values, *, _handle=None) -> None:
         if isinstance(_handle, _core.PyMaterialState):
             self._handle = _handle
-            self._assignment = assignment
-            self._elastic_field_wrapper = None
-            self._plastic_field_wrapper = None
             return
-        if not isinstance(assignment, MaterialAssignment):
-            raise TypeError("assignment must be a MaterialAssignment")
-        initial = assignment.initial_material_state
-        if elastic_values is None:
-            elastic_values = initial.elastic_values
-        if plastic_values is None:
-            plastic_values = initial.plastic_values
         self._handle = _core._create_material_state(
-            assignment._handle,
-            _coerce_global_values(
-                "elastic_values", elastic_values, initial.elastic_field),
-            _coerce_global_values(
-                "plastic_values", plastic_values, initial.plastic_field),
+            np.ascontiguousarray(elastic_values, dtype=np.float64).reshape(-1),
+            np.ascontiguousarray(plastic_values, dtype=np.float64).reshape(-1),
         )
-        self._assignment = assignment
-        self._elastic_field_wrapper = None
-        self._plastic_field_wrapper = None
 
     @classmethod
-    def _from_handle(cls, handle, assignment):
-        return cls(assignment, _handle=handle)
-
-    @property
-    def elastic_field(self) -> OptimizableParameterField:
-        if self._elastic_field_wrapper is None:
-            self._elastic_field_wrapper = OptimizableParameterField._from_handle(
-                self._handle.elastic_field)
-        return self._elastic_field_wrapper
-
-    @property
-    def plastic_field(self) -> OptimizableParameterField:
-        if self._plastic_field_wrapper is None:
-            self._plastic_field_wrapper = OptimizableParameterField._from_handle(
-                self._handle.plastic_field)
-        return self._plastic_field_wrapper
+    def _from_handle(cls, handle):
+        return cls((), (), _handle=handle)
 
     @property
     def elastic_values(self) -> np.ndarray:
@@ -317,19 +288,14 @@ class MaterialState:
         return np.asarray(self._handle.plastic_values, dtype=np.float64).copy()
 
     def with_elastic_values(self, values) -> "MaterialState":
-        return MaterialState(
-            self._assignment, elastic_values=values,
-            plastic_values=self.plastic_values)
+        return MaterialState._from_handle(
+            self._handle.with_elastic_values(
+                np.ascontiguousarray(values, dtype=np.float64).reshape(-1)))
 
     def with_plastic_values(self, values) -> "MaterialState":
-        return MaterialState(
-            self._assignment, elastic_values=self.elastic_values,
-            plastic_values=values)
-
-    def _uses_same_parameter_fields_as(self, other: "MaterialState") -> bool:
-        if not isinstance(other, MaterialState):
-            return False
-        return bool(self._handle._same_parameter_fields(other._handle))
+        return MaterialState._from_handle(
+            self._handle.with_plastic_values(
+                np.ascontiguousarray(values, dtype=np.float64).reshape(-1)))
 
 
 class FixedParameterField:
@@ -399,174 +365,55 @@ class FixedParameterField:
             self._mapping = MaterialChannelMapping._from_handle(self._handle.mapping)
         return self._mapping
 
-class _MaterialDomainParameterization:
-    """Common Python view of one elastic or plastic parameter domain."""
+class FixedMaterialParameters:
+    """One fixed parameter field together with its immutable global values."""
 
-    def __init__(self, handle) -> None:
-        self._handle = handle
-        self._definition = None
-        self._fixed_field = None
-        self._optimizable_field = None
+    def __init__(self, field, values) -> None:
+        if not isinstance(field, FixedParameterField):
+            raise TypeError("field must be a FixedParameterField")
+        self.field = field
+        self.values = _coerce_global_values("values", values, field)
 
-    @property
-    def definition(self):
-        return self._definition
 
-    @property
-    def fixed_field(self) -> FixedParameterField:
-        if self._fixed_field is None:
-            self._fixed_field = FixedParameterField._from_handle(
-                self._handle.fixed_field)
-        return self._fixed_field
-
-    @property
-    def optimizable_field(self) -> OptimizableParameterField:
-        if self._optimizable_field is None:
-            self._optimizable_field = OptimizableParameterField._from_handle(
-                self._handle.optimizable_field)
-        return self._optimizable_field
+class _MaterialDomainBinding:
+    def __init__(self, definition, fixed, optimizable_field) -> None:
+        if not isinstance(fixed, FixedMaterialParameters):
+            raise TypeError("fixed must be FixedMaterialParameters")
+        if not isinstance(optimizable_field, OptimizableParameterField):
+            raise TypeError("optimizable_field must be OptimizableParameterField")
+        if fixed.field.num_elements != optimizable_field.num_elements:
+            raise ValueError("fixed and optimizable fields must share an element count")
+        self.definition = definition
+        self.fixed = fixed
+        self.optimizable_field = optimizable_field
 
     @property
     def fixed_channel_names(self) -> tuple[str, ...]:
-        return tuple(self._handle.fixed_channel_names)
+        return self.definition.fixed_channel_names
 
     @property
     def optimizable_channel_names(self) -> tuple[str, ...]:
-        return tuple(self._handle.optimizable_channel_names)
-
-    def optimizable_channel(self, name: str) -> OptimizableMaterialChannelRef:
-        return OptimizableMaterialChannelRef._from_handle(
-            self._handle.optimizable_channel(str(name)))
+        return self.definition.optimizable_channel_names
 
     @property
     def num_elements(self) -> int:
-        return self._handle.num_elements
+        return self.optimizable_field.num_elements
 
 
-class ElasticParameterization(_MaterialDomainParameterization):
-    """Formal parameterization of one elastic material model."""
-
-    def __init__(self, definition, fixed_field, optimizable_field) -> None:
+class ElasticMaterialBinding(_MaterialDomainBinding):
+    def __init__(self, definition, fixed, optimizable_field) -> None:
         from pypgo.fem.elastic import ElasticModelDefinition
         if not isinstance(definition, ElasticModelDefinition):
             raise TypeError("definition must be an ElasticModelDefinition")
-        if not isinstance(fixed_field, FixedParameterField):
-            raise TypeError("fixed_field must be FixedParameterField")
-        if not isinstance(optimizable_field, OptimizableParameterField):
-            raise TypeError("optimizable_field must be OptimizableParameterField")
-        super().__init__(_core._create_elastic_parameterization(
-            definition._handle, fixed_field._handle, optimizable_field._handle))
-        self._definition = definition
-        self._fixed_field = fixed_field
-        self._optimizable_field = optimizable_field
+        super().__init__(definition, fixed, optimizable_field)
 
 
-class PlasticParameterization(_MaterialDomainParameterization):
-    """Formal parameterization of one plastic material model."""
-
-    def __init__(self, definition, fixed_field, optimizable_field) -> None:
+class PlasticMaterialBinding(_MaterialDomainBinding):
+    def __init__(self, definition, fixed, optimizable_field) -> None:
         from pypgo.fem.plastic import PlasticModelDefinition
         if not isinstance(definition, PlasticModelDefinition):
             raise TypeError("definition must be a PlasticModelDefinition")
-        if not isinstance(fixed_field, FixedParameterField):
-            raise TypeError("fixed_field must be FixedParameterField")
-        if not isinstance(optimizable_field, OptimizableParameterField):
-            raise TypeError("optimizable_field must be OptimizableParameterField")
-        super().__init__(_core._create_plastic_parameterization(
-            definition._handle, fixed_field._handle, optimizable_field._handle))
-        self._definition = definition
-        self._fixed_field = fixed_field
-        self._optimizable_field = optimizable_field
-
-    @property
-    def dofs(self) -> int:
-        return self._handle.dofs
-
-
-class MaterialParameterization:
-    """Complete structural definition for elastic and plastic parameters."""
-
-    def __init__(self, elastic, plastic) -> None:
-        if not isinstance(elastic, ElasticParameterization):
-            raise TypeError("elastic must be ElasticParameterization")
-        if not isinstance(plastic, PlasticParameterization):
-            raise TypeError("plastic must be PlasticParameterization")
-        self._handle = _core._create_material_parameterization(
-            elastic._handle, plastic._handle)
-        self.elastic = elastic
-        self.plastic = plastic
-
-    @property
-    def num_elements(self) -> int:
-        return self._handle.num_elements
-
-    def validate(self, data) -> None:
-        if not isinstance(data, MaterialParameterData):
-            raise TypeError("data must be MaterialParameterData")
-        _core._validate_material_parameter_data(self._handle, data._handle)
-
-
-@dataclass(frozen=True)
-class MaterialParameterDataBlock:
-    """Numeric values for one elastic or plastic parameter domain."""
-
-    fixed_values: np.ndarray
-    initial_optimizable_values: np.ndarray
-
-
-class MaterialParameterData:
-    """Pure projected numeric values; it owns no schemas or layouts."""
-
-    def __init__(self, *, elastic, plastic) -> None:
-        if not isinstance(elastic, MaterialParameterDataBlock):
-            raise TypeError("elastic must be a MaterialParameterDataBlock")
-        if not isinstance(plastic, MaterialParameterDataBlock):
-            raise TypeError("plastic must be a MaterialParameterDataBlock")
-        self._handle = _core._create_material_parameter_data(
-            np.asarray(elastic.fixed_values, dtype=np.float64),
-            np.asarray(elastic.initial_optimizable_values, dtype=np.float64),
-            np.asarray(plastic.fixed_values, dtype=np.float64),
-            np.asarray(plastic.initial_optimizable_values, dtype=np.float64))
-
-    @classmethod
-    def _from_handle(cls, handle):
-        if not isinstance(handle, _core.PyMaterialParameterData):
-            raise TypeError("handle must be PyMaterialParameterData")
-        result = cls.__new__(cls)
-        result._handle = handle
-        return result
-
-    @property
-    def elastic_fixed_values(self) -> np.ndarray:
-        return np.asarray(self._handle.elastic_fixed_values, dtype=np.float64).copy()
-
-    @property
-    def elastic(self) -> MaterialParameterDataBlock:
-        """Immutable view of the elastic initialization block."""
-        return MaterialParameterDataBlock(
-            fixed_values=self.elastic_fixed_values,
-            initial_optimizable_values=self.elastic_initial_optimizable_values,
-        )
-
-    @property
-    def elastic_initial_optimizable_values(self) -> np.ndarray:
-        return np.asarray(self._handle.elastic_initial_optimizable_values, dtype=np.float64).copy()
-
-    @property
-    def plastic_fixed_values(self) -> np.ndarray:
-        return np.asarray(self._handle.plastic_fixed_values, dtype=np.float64).copy()
-
-    @property
-    def plastic(self) -> MaterialParameterDataBlock:
-        """Immutable view of the plastic initialization block."""
-        return MaterialParameterDataBlock(
-            fixed_values=self.plastic_fixed_values,
-            initial_optimizable_values=self.plastic_initial_optimizable_values,
-        )
-
-    @property
-    def plastic_initial_optimizable_values(self) -> np.ndarray:
-        return np.asarray(self._handle.plastic_initial_optimizable_values, dtype=np.float64).copy()
+        super().__init__(definition, fixed, optimizable_field)
 
 
 class NamedMaterialInputField:
@@ -731,30 +578,38 @@ def material_frames_from_primary_axes(axes) -> MaterialFrameField:
             np.ascontiguousarray(values).reshape(-1).tolist()))
 
 
-class MaterialAssignment:
-    """Complete material binding for one simulation mesh."""
+class MaterialBinding:
+    """Immutable elastic/plastic models, fields, fixed values, and frames."""
 
-    def __init__(self, mesh, parameterization, parameter_data, material_frames) -> None:
-        from pypgo.fem.mesh import SimulationMesh
-        if not isinstance(mesh, SimulationMesh):
-            raise TypeError("mesh must be a SimulationMesh")
-        if not isinstance(parameterization, MaterialParameterization):
-            raise TypeError("parameterization must be a MaterialParameterization")
-        if not isinstance(parameter_data, MaterialParameterData):
-            raise TypeError("parameter_data must be MaterialParameterData")
+    def __init__(self, elastic, plastic, material_frames) -> None:
+        if not isinstance(elastic, ElasticMaterialBinding):
+            raise TypeError("elastic must be ElasticMaterialBinding")
+        if not isinstance(plastic, PlasticMaterialBinding):
+            raise TypeError("plastic must be PlasticMaterialBinding")
         if not isinstance(material_frames, MaterialFrameField):
             raise TypeError("material_frames must be a MaterialFrameField")
-        if material_frames.num_elements != mesh.num_elements:
-            raise ValueError("material_frames element count must match mesh")
-        self._handle = _core._create_material_assignment_from_parameterization(
-            mesh._handle, parameterization._handle, parameter_data._handle,
-            material_frames._handle)
-        self.mesh = mesh
-        self.parameterization = parameterization
-        self.parameter_data = parameter_data
+        if elastic.num_elements != plastic.num_elements:
+            raise ValueError("elastic and plastic bindings must share an element count")
+        if material_frames.num_elements != elastic.num_elements:
+            raise ValueError("material frame count must match material fields")
+        self._handle = _core._create_material_binding(
+            elastic.definition._handle,
+            elastic.fixed.field._handle,
+            elastic.fixed.values,
+            elastic.optimizable_field._handle,
+            plastic.definition._handle,
+            plastic.fixed.field._handle,
+            plastic.fixed.values,
+            plastic.optimizable_field._handle,
+            material_frames._handle,
+        )
+        self.elastic = elastic
+        self.plastic = plastic
         self.material_frames = material_frames
-        self.initial_material_state = MaterialState._from_handle(
-            self._handle.initial_material_state, self)
+
+    @property
+    def num_elements(self) -> int:
+        return self.elastic.num_elements
 
 
 __all__ = [
@@ -765,16 +620,14 @@ __all__ = [
     "DifferentiableMaterialChannelMapping",
     "IdentityMaterialChannelMapping",
     "FixedParameterField",
-    "ElasticParameterization",
-    "PlasticParameterization",
-    "MaterialAssignment",
+    "FixedMaterialParameters",
+    "ElasticMaterialBinding",
+    "PlasticMaterialBinding",
+    "MaterialBinding",
     "OptimizableParameterRef",
     "OptimizableMaterialChannelRef",
     "OptimizableParameterField",
     "MaterialState",
-    "MaterialParameterization",
-    "MaterialParameterDataBlock",
-    "MaterialParameterData",
     "NamedMaterialInputField",
     "NamedMaterialInputData",
     "project_imported_material_inputs",

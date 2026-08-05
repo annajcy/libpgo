@@ -13,7 +13,7 @@ namespace pgo::SolidDeformationModel
 {
 
 /// Immutable fixed parameterization structure. Numerical values are supplied
-/// separately by MaterialParameterData.
+/// separately by FixedMaterialParameters.
 class FixedParameterField final
 {
 public:
@@ -84,11 +84,6 @@ public:
   int numLocalParameters() const { return inputSchema().numParameters(); }
   int numGlobalParameters() const { return layout().numGlobalParameters(); }
   int numMaterialChannels() const { return mapping().numChannels(); }
-
-  bool sharesStateWith(const OptimizableParameterField &other) const
-  {
-    return state_ == other.state_;
-  }
 
 private:
   struct State

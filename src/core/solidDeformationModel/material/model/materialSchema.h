@@ -9,7 +9,7 @@
 namespace pgo::SolidDeformationModel
 {
 
-/// Names the parameter values stored in MaterialParameterData. The schema says
+/// Names the parameter values stored by material fields. The schema says
 /// nothing about the physical channels produced by a channel transformation.
 class ParameterInputSchema final
 {

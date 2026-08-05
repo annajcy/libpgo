@@ -5,7 +5,7 @@
 #include "formulations/formulation/formulations.h"
 #include "material/parameterization/materialChannelMapping.h"
 #include "material/projection/materialInputProjection.h"
-#include "material/parameterization/materialParameterization.h"
+#include "material/runtime/materialBinding.h"
 #include "material/runtime/optimizableParameterRef.h"
 #include "material/runtime/materialState.h"
 #include "material/elastic/elasticModel3DDeformationGradient.h"

@@ -117,9 +117,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/runtime/materialState.h
   material/runtime/optimizableParameterRef.h
   material/frame/materialFrameField.h
-  material/data/materialParameterData.h
   material/data/namedMaterialInputData.h
-  material/parameterization/materialParameterization.h
   material/projection/materialInputProjection.h
   material/projection/importedMaterialFrames.h
   material/import/importedMaterialCatalog.h
@@ -201,7 +199,6 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   material/parameterization/parameterLayout.cpp
   material/parameterization/materialChannelMapping.cpp
   material/parameterization/materialParameterField.cpp
-  material/parameterization/materialParameterization.cpp
   material/runtime/materialState.cpp
   material/runtime/optimizableParameterRef.cpp
   material/frame/materialFrameField.cpp
