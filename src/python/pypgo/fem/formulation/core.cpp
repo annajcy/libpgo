@@ -6,6 +6,16 @@
 
 namespace pgo
 {
+namespace
+{
+EigenSupport::VXd toEigenVector(const std::vector<double> &values)
+{
+  EigenSupport::VXd result(static_cast<Eigen::Index>(values.size()));
+  for (std::size_t i = 0; i < values.size(); i++)
+    result[static_cast<Eigen::Index>(i)] = values[i];
+  return result;
+}
+}  // namespace
 
 std::shared_ptr<PyVolumetricFormulation> make_tet_linear()
 {
@@ -34,12 +44,13 @@ std::shared_ptr<PyShellFormulation> make_koiter_shell()
 PySparseMatrix compute_formulation_mass_matrix(
   const PySimulationMesh &mesh,
   const PyVolumetricFormulation &formulation,
-  const PyVolumeDensity &density)
+  const std::vector<double> &elementDensities)
 {
+  const EigenSupport::VXd densities = toEigenVector(elementDensities);
   pgo::EigenSupport::SpMatD M;
   {
     nanobind::gil_scoped_release release;
-    M = formulation.volumetric().buildMassMatrix(mesh.mesh(), density.get());
+    M = formulation.volumetric().buildMassMatrix(mesh.mesh(), densities);
   }
   return PySparseMatrix(std::move(M));
 }
@@ -48,17 +59,18 @@ std::vector<double> compute_formulation_body_force(
   const PySimulationMesh &mesh,
   const PyVolumetricFormulation &formulation,
   const std::vector<double> &acceleration,
-  const PyVolumeDensity &density)
+  const std::vector<double> &elementDensities)
 {
   if (acceleration.size() != 3) {
     throw std::invalid_argument("acceleration must contain exactly 3 values");
   }
 
   pgo::EigenSupport::V3d a(acceleration[0], acceleration[1], acceleration[2]);
+  const EigenSupport::VXd densities = toEigenVector(elementDensities);
   pgo::EigenSupport::VXd f;
   {
     nanobind::gil_scoped_release release;
-    f = formulation.volumetric().buildBodyForce(mesh.mesh(), a, density.get());
+    f = formulation.volumetric().buildBodyForce(mesh.mesh(), a, densities);
   }
   return std::vector<double>(f.data(), f.data() + f.size());
 }
@@ -92,12 +104,13 @@ PySparseMatrix compute_formulation_surface_embedding_matrix(
 PySparseMatrix compute_shell_formulation_mass_matrix(
   const PySimulationMesh &mesh,
   const PyShellFormulation &formulation,
-  const PyShellArealDensity &arealDensity)
+  const std::vector<double> &elementArealDensities)
 {
+  const EigenSupport::VXd densities = toEigenVector(elementArealDensities);
   pgo::EigenSupport::SpMatD M;
   {
     nanobind::gil_scoped_release release;
-    M = formulation.shell().buildMassMatrix(mesh.mesh(), arealDensity.get());
+    M = formulation.shell().buildMassMatrix(mesh.mesh(), densities);
   }
   return PySparseMatrix(std::move(M));
 }
@@ -106,18 +119,18 @@ std::vector<double> compute_shell_formulation_body_force(
   const PySimulationMesh &mesh,
   const PyShellFormulation &formulation,
   const std::vector<double> &acceleration,
-  const PyShellArealDensity &arealDensity)
+  const std::vector<double> &elementArealDensities)
 {
   if (acceleration.size() != 3) {
     throw std::invalid_argument("acceleration must contain exactly 3 values");
   }
 
   pgo::EigenSupport::V3d a(acceleration[0], acceleration[1], acceleration[2]);
+  const EigenSupport::VXd densities = toEigenVector(elementArealDensities);
   pgo::EigenSupport::VXd f;
   {
     nanobind::gil_scoped_release release;
-    f = formulation.shell().buildBodyForce(
-      mesh.mesh(), a, arealDensity.get());
+    f = formulation.shell().buildBodyForce(mesh.mesh(), a, densities);
   }
   return std::vector<double>(f.data(), f.data() + f.size());
 }

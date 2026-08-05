@@ -64,8 +64,8 @@ ES::M9d ElasticModelVolumeMaterial::compute_dPdF(std::span<const double>, const 
 namespace pgo::SolidDeformationModel {
 namespace {
 }
-MaterialChannelSchema VolumePenaltyDefinition::optimizableChannelSchema() const { return {}; }
-MaterialChannelSchema VolumePenaltyDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"J"}; return MaterialChannelSchema(names); }
+int VolumePenaltyDefinition::numOptimizableChannels() const { return 0; }
+int VolumePenaltyDefinition::numFixedChannels() const { return 1; }
 std::unique_ptr<ElasticModel> VolumePenaltyDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (values.size() != 1) throw std::invalid_argument("volume requires fixed channel J");

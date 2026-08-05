@@ -4,7 +4,6 @@
 
 #include "../../mesh/volume/core.h"
 #include "../../sparse/core.h"
-#include "../mass/core.h"
 #include "../../simulation/core.h"
 
 #include <memory>
@@ -69,13 +68,13 @@ std::shared_ptr<PyShellFormulation> make_koiter_shell();
 PySparseMatrix compute_formulation_mass_matrix(
   const PySimulationMesh &mesh,
   const PyVolumetricFormulation &formulation,
-  const PyVolumeDensity &density);
+  const std::vector<double> &elementDensities);
 
 std::vector<double> compute_formulation_body_force(
   const PySimulationMesh &mesh,
   const PyVolumetricFormulation &formulation,
   const std::vector<double> &acceleration,
-  const PyVolumeDensity &density);
+  const std::vector<double> &elementDensities);
 
 PySparseMatrix compute_formulation_surface_embedding_matrix(
   const PyVolumeMesh &volumeMesh,
@@ -85,12 +84,12 @@ PySparseMatrix compute_formulation_surface_embedding_matrix(
 PySparseMatrix compute_shell_formulation_mass_matrix(
   const PySimulationMesh &mesh,
   const PyShellFormulation &formulation,
-  const PyShellArealDensity &arealDensity);
+  const std::vector<double> &elementArealDensities);
 
 std::vector<double> compute_shell_formulation_body_force(
   const PySimulationMesh &mesh,
   const PyShellFormulation &formulation,
   const std::vector<double> &acceleration,
-  const PyShellArealDensity &arealDensity);
+  const std::vector<double> &elementArealDensities);
 
 }  // namespace pgo

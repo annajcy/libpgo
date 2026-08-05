@@ -5,7 +5,7 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
-#include "material/model/plasticModelDefinition.h"
+#include "material/plastic/plasticModelDefinition.h"
 
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 
@@ -28,10 +28,7 @@ public:
 
   void compute_ddetA_da(
     std::span<const double> param, EigenSupport::RefVecXd ddetA_da) const override;
-  void compute_d2detA_da2(
-    std::span<const double> param, EigenSupport::RefMatXd d2detA_da2) const override;
   virtual EigenSupport::M3d compute_dAInv_da(std::span<const double> param, int pi) const override;
-  virtual EigenSupport::M3d compute_d2AInv_da2(std::span<const double> param, int pi, int pj) const override;
 
   virtual EigenSupport::M3d defaultFp() const override;
   void defaultParams(std::span<double> param) const override
@@ -73,8 +70,8 @@ class VolumetricPlasticity6Definition final : public PlasticModelDefinition
 {
 public:
   std::string_view id() const override { return "volumetric_dof6"; }
-  MaterialChannelSchema fixedChannelSchema() const override { return {}; }
-  MaterialChannelSchema optimizableChannelSchema() const override;
+  int numFixedChannels() const override { return 0; }
+  int numOptimizableChannels() const override;
   std::unique_ptr<PlasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

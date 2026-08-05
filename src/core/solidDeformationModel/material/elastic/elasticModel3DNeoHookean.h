@@ -1,7 +1,7 @@
 #pragma once
 
 #include "material/elastic/elasticModel3DDeformationGradient.h"
-#include "material/model/elasticModelDefinition.h"
+#include "material/elastic/elasticModelDefinition.h"
 
 namespace pgo::SolidDeformationModel
 {
@@ -50,8 +50,8 @@ public:
     return "neo_hookean";
   }
 
-  MaterialChannelSchema fixedChannelSchema() const override;
-  MaterialChannelSchema optimizableChannelSchema() const override;
+  int numFixedChannels() const override;
+  int numOptimizableChannels() const override;
   std::unique_ptr<ElasticModel> createModel(
     std::span<const double> fixedChannels,
     const MaterialFrame &materialFrame) const override;

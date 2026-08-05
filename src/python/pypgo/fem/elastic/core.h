@@ -1,6 +1,6 @@
 #pragma once
 
-#include "material/model/elasticModelDefinition.h"
+#include "material/elastic/elasticModelDefinition.h"
 #include "material/elastic/elasticModelStableNeoHookeanMaterial.h"
 #include "material/elastic/elasticModel3DNeoHookean.h"
 #include "material/elastic/elasticModel3DSTVKMaterial.h"
@@ -25,8 +25,11 @@ public:
     definition_(std::move(definition)) {}
 
   std::string name() const { return std::string(definition_->id()); }
-  std::vector<std::string> fixedChannelNames() const;
-  std::vector<std::string> optimizableChannelNames() const;
+  int numFixedChannels() const { return definition_->numFixedChannels(); }
+  int numOptimizableChannels() const
+  {
+    return definition_->numOptimizableChannels();
+  }
   std::shared_ptr<const SolidDeformationModel::ElasticModelDefinition> definition() const { return definition_; }
 
 protected:

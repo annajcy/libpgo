@@ -18,7 +18,7 @@ def test_simulation_mesh_create_volumetric_for_tet_and_cubic():
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
     tet_volume = pgo.mesh.volume.VolumeMesh(tet, pgo.mesh.volume.ENuMaterial())
-    tet_sim = pgo.fem.SimulationImportResult(tet_volume)
+    tet_sim = pgo.fem.SimulationMesh(tet_volume)
     assert tet_sim.mesh_type == "tet"
     assert tet_sim.num_vertices == 4
     assert tet_sim.num_elements == 1
@@ -41,7 +41,7 @@ def test_simulation_mesh_create_volumetric_for_tet_and_cubic():
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
     cubic_volume = pgo.mesh.volume.VolumeMesh(cube, pgo.mesh.volume.ENuMaterial())
-    cubic_sim = pgo.fem.SimulationImportResult(cubic_volume)
+    cubic_sim = pgo.fem.SimulationMesh(cubic_volume)
     assert cubic_sim.mesh_type == "cubic"
     assert cubic_sim.num_vertices == 8
     assert cubic_sim.num_elements == 1
@@ -65,7 +65,7 @@ def test_simulation_mesh_create_volumetric_supports_mooney_rivlin_material():
         tet,
         pgo.mesh.volume.MooneyRivlinMaterial(mu01=0.5, mu10=0.3, v1=0.1),
     )
-    sim = pgo.fem.SimulationImportResult(volume)
+    sim = pgo.fem.SimulationMesh(volume)
     assert sim.mesh_type == "tet"
     assert sim.num_elements == 1
 
@@ -119,17 +119,13 @@ def test_volume_mesh_carries_multiple_material_types():
     )
     ortho_vol = pgo.mesh.volume.VolumeMesh(tet, orthotropic)
     assert ortho_vol.material == orthotropic
-    asset = pgo.fem.SimulationImportResult(ortho_vol)
-    record = asset.material_catalog.materials[0]
-    assert record.family == "orthotropic"
-    assert np.array_equal(
-        np.asarray(record.properties["rotation"]).reshape(3, 3),
-        rotation,
-    )
+    material = ortho_vol.to_veg_file().materials[0]
+    assert isinstance(material, pgo.mesh.volume.OrthotropicMaterial)
+    assert np.array_equal(material.rotation, rotation)
 
 
 def test_cubic_mesh_type_is_topology_metadata():
-    """SimulationImportResult.mesh_type == \"cubic\" is topology metadata (8-vertex
+    """SimulationMesh.mesh_type == \"cubic\" is topology metadata (8-vertex
     hexahedral cell), not formulation metadata. The hex formulation
     (trilinear, future tricubic Hermite) is a separate concept that will
     be introduced in later refactoring tasks."""
@@ -150,13 +146,13 @@ def test_cubic_mesh_type_is_topology_metadata():
         np.array([[0, 1, 2, 3, 4, 5, 6, 7]], dtype=np.int64),
     )
     cubic_volume = pgo.mesh.volume.VolumeMesh(cube, pgo.mesh.volume.ENuMaterial())
-    cubic_sim = pgo.fem.SimulationImportResult(cubic_volume)
+    cubic_sim = pgo.fem.SimulationMesh(cubic_volume)
     assert cubic_sim.mesh_type == "cubic"
     assert cubic_sim.num_element_vertices == 8
 
 
 def test_simulation_mesh_can_be_reused():
-    """A SimulationImportResult can be queried multiple times without being consumed."""
+    """A SimulationMesh can be queried multiple times without being consumed."""
     tet = pgo.mesh.TetMeshData(
         np.array(
             [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
@@ -165,7 +161,7 @@ def test_simulation_mesh_can_be_reused():
         np.array([[0, 1, 2, 3]], dtype=np.int64),
     )
     volume = pgo.mesh.volume.VolumeMesh(tet, pgo.mesh.volume.ENuMaterial())
-    sim = pgo.fem.SimulationImportResult(volume)
+    sim = pgo.fem.SimulationMesh(volume)
 
     # Multiple queries on the same mesh must work.
     assert sim.mesh_type == "tet"
@@ -175,8 +171,8 @@ def test_simulation_mesh_can_be_reused():
     assert sim.mesh_type == "tet"
     assert sim.num_vertices == 4
 
-    # Creating a second SimulationImportResult from the same VolumeMesh must work.
-    sim2 = pgo.fem.SimulationImportResult(volume)
+    # Creating a second SimulationMesh from the same VolumeMesh must work.
+    sim2 = pgo.fem.SimulationMesh(volume)
     assert sim2.mesh_type == "tet"
     assert sim2.num_vertices == 4
     # The first mesh must still be usable.
@@ -186,23 +182,4 @@ def test_simulation_mesh_can_be_reused():
 def test_legacy_mesh_and_asset_factories_are_removed():
     assert not hasattr(pgo.mesh.volume.VolumeMesh, "create_from_single_material")
     assert not hasattr(pgo.mesh.volume.VolumeMesh, "from_veg_file")
-    assert not hasattr(pgo.fem.SimulationImportResult, "create_volumetric")
-    assert not hasattr(pgo.fem.SimulationImportResult, "create_shell")
-
-
-def test_import_result_contains_but_is_not_a_simulation_mesh():
-    tet = pgo.mesh.TetMeshData(
-        np.array(
-            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
-             [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-            dtype=np.float64,
-        ),
-        np.array([[0, 1, 2, 3]], dtype=np.int64),
-    )
-    imported = pgo.fem.SimulationImportResult(
-        pgo.mesh.volume.VolumeMesh(tet, pgo.mesh.volume.ENuMaterial())
-    )
-
-    assert isinstance(imported.mesh, pgo.fem.SimulationMesh)
-    assert not isinstance(imported, pgo.fem.SimulationMesh)
-    assert imported.material_catalog.materials[0].family == "enu"
+    assert not hasattr(pgo.fem, "SimulationImportResult")

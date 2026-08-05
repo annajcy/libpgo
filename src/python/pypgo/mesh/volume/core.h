@@ -133,7 +133,7 @@ PyTetMeshData read_msh(const std::string& path);
 void write_veg(const std::string& path, const PyVegPayload& payload);
 
 PyTriMeshData extract_surface_mesh(const PyVolumeMesh& vm, bool triangulate);
-std::shared_ptr<PySimulationImportResult> import_simulation_mesh_from_volume(
+std::shared_ptr<PySimulationMesh> create_volume_simulation_mesh(
     const PyVolumeMesh& vm);
 std::shared_ptr<PySimulationMesh> create_shell_simulation_mesh(
     const PyTriMeshData& surfaceData);

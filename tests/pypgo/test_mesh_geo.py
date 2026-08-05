@@ -223,7 +223,6 @@ def test_volume_mesh_preserves_lossless_region_tables():
 
     volume = pgo.mesh.volume.VolumeMesh(veg)
     roundtrip = volume.to_veg_file()
-    asset = pgo.fem.SimulationImportResult(volume)
 
     assert [material.name for material in roundtrip.materials] == [
         "unused", "soft", "stiff"
@@ -235,7 +234,7 @@ def test_volume_mesh_preserves_lossless_region_tables():
         (region.material_index, region.set_index)
         for region in roundtrip.regions
     ] == [(1, 1), (2, 2)]
-    assert asset.material_catalog.element_material_indices.tolist() == [1, 2]
+    assert volume.element_material_indices.tolist() == [1, 2]
 
 
 def test_material_dataclasses_are_python_payloads():

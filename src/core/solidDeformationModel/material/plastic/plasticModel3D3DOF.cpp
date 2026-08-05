@@ -53,23 +53,7 @@ void PlasticModel3D3DOF::compute_ddetA_da(
   ddetA_da[2] = param[0] * param[1];
 }
 
-void PlasticModel3D3DOF::compute_d2detA_da2(
-  std::span<const double> param, ES::RefMatXd d2detA_da2) const
-{
-  d2detA_da2(0, 0) = 0;
-  d2detA_da2(0, 1) = param[2];
-  d2detA_da2(0, 2) = param[1];
-
-  d2detA_da2(1, 0) = param[2];
-  d2detA_da2(1, 1) = 0;
-  d2detA_da2(1, 2) = param[0];
-
-  d2detA_da2(2, 0) = param[1];
-  d2detA_da2(2, 1) = param[0];
-  d2detA_da2(2, 2) = 0;
-}
-
-ES::M3d PlasticModel3D3DOF::compute_dAInv_da(std::span<const double> param, int pi) const
+ ES::M3d PlasticModel3D3DOF::compute_dAInv_da(std::span<const double> param, int pi) const
 {
   ES::M3d dSInv_dai = ES::M3d::Zero();
 
@@ -81,22 +65,7 @@ ES::M3d PlasticModel3D3DOF::compute_dAInv_da(std::span<const double> param, int 
   return RT * dSInv_dai * R;
 }
 
-ES::M3d PlasticModel3D3DOF::compute_d2AInv_da2(std::span<const double> param, int pi, int pj) const
-{
-  ES::M3d d2SInv_dai_daj = ES::M3d::Zero();
-
-  if (pi == pj) {
-    double val = param[pi];
-    if (val < zeroThreshold)
-      val = zeroThreshold;
-
-    d2SInv_dai_daj(pi, pj) = 2.0 / (val * val * val);
-  }
-
-  return RT * d2SInv_dai_daj * R;
-}
-
-void PlasticModel3D3DOF::projectParam(std::span<double> param, double zeroThreshold) const
+ void PlasticModel3D3DOF::projectParam(std::span<double> param, double zeroThreshold) const
 {
   if (param[0] < zeroThreshold)
     param[0] = zeroThreshold;
@@ -112,7 +81,7 @@ void PlasticModel3D3DOF::projectParam(std::span<double> param, double zeroThresh
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-MaterialChannelSchema VolumetricPlasticity3Definition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 3> names{"Fx", "Fy", "Fz"}; return MaterialChannelSchema(names); }
+int VolumetricPlasticity3Definition::numOptimizableChannels() const { return 3; }
 std::unique_ptr<PlasticModel> VolumetricPlasticity3Definition::createModel(std::span<const double> values, const MaterialFrame &frame) const
 {
   if (!values.empty()) throw std::invalid_argument("volumetric_dof3 has no fixed channels");

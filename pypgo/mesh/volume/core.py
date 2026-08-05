@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 import pypgo._core as _core
 from pypgo.mesh.data import CubicMeshData, TetMeshData, TriMeshData, _wrap_mesh_data_core
 from pypgo.mesh.volume.material import (
@@ -121,7 +123,8 @@ class VolumeMesh:
     def _mass_matrix(self, *, inflate3dim: bool = True):
         """(Internal) Consistent mass matrix — use formulation-level API instead.
 
-    Prefer ``pypgo.fem.VolumeDensity`` + ``formulation.mass_matrix(asset, density)``.
+    Prefer ``formulation.mass_matrix(mesh, density)`` with a scalar or one
+    density value per element.
         """
         from pypgo.sparse import SparseMatrix
         return SparseMatrix(_core.compute_mass_matrix(self._handle, bool(inflate3dim)))
@@ -133,6 +136,25 @@ class VolumeMesh:
     @property
     def num_elements(self) -> int:
         return self._handle.num_elements()
+
+    @property
+    def element_densities(self) -> list[float]:
+        """Material density projected to one explicit value per element."""
+        veg = self.to_veg_file()
+        indices = self.element_material_indices
+        return [
+            0.0 if index < 0 else float(veg.materials[index].density)
+            for index in indices
+        ]
+
+    @property
+    def element_material_indices(self) -> np.ndarray:
+        """Resolve the source material index for every element."""
+        veg = self.to_veg_file()
+        result = np.full(self.num_elements, -1, dtype=np.int64)
+        for region in veg.regions:
+            result[veg.sets[region.set_index].elements] = region.material_index
+        return result
 
     @property
     def mesh_type(self):

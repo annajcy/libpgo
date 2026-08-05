@@ -115,8 +115,8 @@ def test_build_volume_scene_neo_hookean(tet_box_cfg_payload):
     })
     bundle = build_scene(cfg)
     assert bundle.deformation.elastic_definition.name == "neo_hookean"
-    assert bundle.deformation.elastic_definition.fixed_channel_names == ("E", "nu")
-    assert bundle.deformation.elastic_definition.optimizable_channel_names == ()
+    assert bundle.deformation.elastic_definition.num_fixed_channels == 2
+    assert bundle.deformation.elastic_definition.num_optimizable_channels == 0
 
 
 def test_build_volume_scene_with_contact_and_attachment(tet_box_cfg_payload):

@@ -21,23 +21,20 @@ TEST(ElasticModelDefinition, StableNeoHasStableIdentity)
 {
   StableNeoDefinition config;
   EXPECT_EQ(config.id(), "stable_neo");
-  EXPECT_EQ(config.optimizableChannelSchema().numChannels(), 0);
+  EXPECT_EQ(config.numOptimizableChannels(), 0);
 }
 
 TEST(ElasticModelDefinition, StableNeoPrincipalStretchHasDistinctIdentity)
 {
   StableNeoPrincipalStretchDefinition config;
   EXPECT_EQ(config.id(), "stable_neo_principal_stretch");
-  EXPECT_EQ(config.optimizableChannelSchema().numChannels(), 0);
+  EXPECT_EQ(config.numOptimizableChannels(), 0);
 }
 
 TEST(ElasticModelDefinition, HillRequiresActivation)
 {
   HillStableNeoDefinition config;
-  const MaterialChannelSchema schema = config.optimizableChannelSchema();
-  const auto channels = schema.channelNames();
-  ASSERT_EQ(channels.size(), 1);
-  EXPECT_EQ(channels.front(), "activation");
+  EXPECT_EQ(config.numOptimizableChannels(), 1);
 }
 
 TEST(ElasticModelDefinition, CombinedHillBatchParameterDerivativesMatchFiniteDifferences)
@@ -174,7 +171,7 @@ TEST(PlasticModelDefinition, DofVariantsExposeExplicitConfigs)
 {
   VolumetricPlasticity3Definition config;
   EXPECT_EQ(config.id(), "volumetric_dof3");
-  EXPECT_EQ(config.optimizableChannelSchema().numChannels(), 3);
+  EXPECT_EQ(config.numOptimizableChannels(), 3);
 }
 
 TEST(ElasticModelDefinition, MooneyRivlinDerivativesMatchFiniteDifferences)

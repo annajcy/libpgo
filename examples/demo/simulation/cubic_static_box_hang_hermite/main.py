@@ -16,37 +16,24 @@ ASSET_DIR = EXAMPLES_DIR / "assets"
 OUTPUT_DIR = CASE_DIR / "output"
 
 
-def _material(asset):
+def _material(mesh, volume):
     elastic = pf.StableNeoDefinition()
     plastic = pf.VolumetricPlasticityDefinition(dofs=0)
-    def identity_field(field_type, names):
-        count = len(names)
-        return field_type(
-            names,
-            pf.ElementwiseParameterLayout(asset.num_elements, count),
-            pf.IdentityMaterialChannelMapping(count))
-
-    elastic_fixed = identity_field(pf.FixedParameterField, elastic.fixed_channel_names)
-    plastic_fixed = identity_field(pf.FixedParameterField, plastic.fixed_channel_names)
-    elastic_opt = identity_field(
-        pf.OptimizableParameterField, elastic.optimizable_channel_names)
-    plastic_opt = identity_field(
-        pf.OptimizableParameterField, plastic.optimizable_channel_names)
-    def fixed_parameters(field):
-        return pf.FixedMaterialParameters(
-            field, pf.project_imported_material_inputs(
-                asset.material_catalog, field))
+    materials = volume.to_veg_file().materials
+    assignments = volume.element_material_indices
+    elastic_fixed = np.asarray([
+        [materials[int(assignments[element])].properties[name]
+         for name in ("E", "nu")]
+        for element in range(mesh.num_elements)
+    ], dtype=np.float64)
 
     binding = pf.MaterialBinding(
-        pf.ElasticMaterialBinding(
-            elastic, fixed_parameters(elastic_fixed), elastic_opt),
+        pf.ElasticMaterialBinding(elastic, mesh.num_elements, elastic_fixed),
         pf.PlasticMaterialBinding(
-            plastic, fixed_parameters(plastic_fixed), plastic_opt),
-        pf.GlobalAxesMaterialFrameField(asset.num_elements),
+            plastic, mesh.num_elements,
+            np.empty((mesh.num_elements, 0), dtype=np.float64)),
     )
-    state = pf.MaterialState(
-        np.zeros(elastic_opt.num_global_parameters),
-        np.zeros(plastic_opt.num_global_parameters))
+    state = pf.MaterialState(np.empty(0), np.empty(0))
     return binding, state
 
 
@@ -59,20 +46,20 @@ def main() -> None:
     rest_vertices = volume.mesh_data.vertices
 
     # Build a 24-DOF-per-vertex tricubic Hermite model.
-    asset = pf.SimulationImportResult(volume)
+    mesh = pf.SimulationMesh(volume)
     formulation = pf.CubicTricubicHermite()
-    material_binding, material_state = _material(asset)
+    material_binding, material_state = _material(mesh, volume)
     deformation_operator = pf.DeformationEnergyOperator(
-        asset.mesh, material_binding,
+        mesh, material_binding,
         formulation=formulation,
     )
     deformation = pf.DeformationPotentialEnergy(
         deformation_operator, material_state)
-    mass_field = pf.volume_density(volume)
+    element_densities = volume.element_densities
     gravity_force = formulation.body_force(
-        asset.mesh,
+        mesh,
         np.array([0.0, -9.81, 0.0]),
-        mass_field,
+        element_densities,
     )
 
     # Clamp every Hermite DOF on the top face.

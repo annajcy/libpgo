@@ -6,8 +6,7 @@ copyright to USC,MIT,NUS
 #pragma once
 
 #include "constraints/constraintFunctions.h"
-#include "deformation/volume/volumetricDeformationModel.h"
-#include "deformation/volume/volumetricDeformationModelEvaluator.h"
+#include "deformation/volume/volumetricDeformationElement.h"
 #include "material/runtime/materialState.h"
 
 #include <tbb/spin_mutex.h>
@@ -21,14 +20,14 @@ namespace pgo
 {
 namespace SolidDeformationModel
 {
-class DeformationModelManager;
+class DeformationModelAssembler;
 
 class PrescribedPrincipleStressConstraintFunctions : public NonlinearOptimization::ConstraintFunctions
 {
 public:
   PrescribedPrincipleStressConstraintFunctions(
     int nAll, int dofOffset, std::span<const int> elementIDs,
-    const DeformationModelManager &tetMeshDMM,
+    const DeformationModelAssembler &assembler,
     MaterialState materialState);
   virtual ~PrescribedPrincipleStressConstraintFunctions() {}
 
@@ -49,7 +48,7 @@ public:
 
 protected:
   int dofStart;
-  const DeformationModelManager &tetMeshDMM;
+  const DeformationModelAssembler &assembler_;
   MaterialState materialState_;
   std::vector<int> elements;
   XToPosFunc xToPosFunc;
@@ -60,22 +59,20 @@ protected:
     const int numDOFs;
     const int numMaterialLocations;
     EigenSupport::V18d localp;
-    MaterialStateEvaluationScratch elasticParameters;
-    MaterialStateEvaluationScratch plasticParameters;
-    std::unique_ptr<VolumetricDeformationModelEvaluator> evaluator;
+    const VolumetricDeformationElement *deformation = nullptr;
 
-    explicit ElementData(const VolumetricDeformationModel &model):
+    explicit ElementData(const VolumetricDeformationElement &model):
       numDOFs(model.getNumDOFs()),
       numMaterialLocations(model.getNumMaterialLocations()),
-      evaluator(
-        std::make_unique<VolumetricDeformationModelEvaluator>(model)) {}
+      deformation(&model) {}
   };
 
   mutable std::vector<ElementData> elementData_;
 
-  VolumetricDeformationModelEvaluator &prepareElement(
-    int elementID, MaterialStateView state,
-    ElementData &data) const;
+  std::span<const double> elasticValues(
+    int elementID, MaterialStateView state) const;
+  std::span<const double> plasticValues(
+    int elementID, MaterialStateView state) const;
 
   EigenSupport::EntryMap jacEntries, hessEntries;
 

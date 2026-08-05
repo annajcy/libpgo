@@ -29,10 +29,7 @@ public:
   // The output dimensions match getNumParameters().
   virtual void compute_ddetA_da(
     std::span<const double> param, EigenSupport::RefVecXd ddetA_da) const;
-  virtual void compute_d2detA_da2(
-    std::span<const double> param, EigenSupport::RefMatXd d2detA_da2) const;
   virtual EigenSupport::M3d compute_dAInv_da(std::span<const double> param, int pi) const;
-  virtual EigenSupport::M3d compute_d2AInv_da2(std::span<const double> param, int pi, int pj) const;
 
   virtual EigenSupport::M3d defaultFp() const;
   virtual void projectParam(std::span<double> param, double zeroThreshold) const;
@@ -68,23 +65,10 @@ inline void PlasticModel3DDeformationGradient::compute_ddetA_da(
     "PlasticModel3DDeformationGradient::compute_ddetA_da is not implemented.");
 }
 
-inline void PlasticModel3DDeformationGradient::compute_d2detA_da2(
-  std::span<const double>, EigenSupport::RefMatXd) const
-{
-  throw std::logic_error(
-    "PlasticModel3DDeformationGradient::compute_d2detA_da2 is not implemented.");
-}
-
 inline EigenSupport::M3d PlasticModel3DDeformationGradient::compute_dAInv_da(std::span<const double>, int) const
 {
   throw std::logic_error(
     "PlasticModel3DDeformationGradient::compute_dAInv_da is not implemented.");
-}
-
-inline EigenSupport::M3d PlasticModel3DDeformationGradient::compute_d2AInv_da2(std::span<const double>, int, int) const
-{
-  throw std::logic_error(
-    "PlasticModel3DDeformationGradient::compute_d2AInv_da2 is not implemented.");
 }
 
 inline EigenSupport::M3d PlasticModel3DDeformationGradient::defaultFp() const

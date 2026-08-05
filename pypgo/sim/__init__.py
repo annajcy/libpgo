@@ -4,7 +4,7 @@
 growing axis — new time integrators are added there. ``simulation`` holds the
 ``DynamicSimulation`` engine.
 
-``SimulationImportResult`` and shell material helpers have moved to ``pypgo.fem.mesh``.
+Solver-facing mesh construction lives in ``pypgo.fem.SimulationMesh``.
 """
 
 from pypgo.sim.state import DynamicFrame, DynamicState

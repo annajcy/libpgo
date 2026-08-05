@@ -5,7 +5,7 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
-#include "material/model/plasticModelDefinition.h"
+#include "material/plastic/plasticModelDefinition.h"
 
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 
@@ -50,8 +50,8 @@ class VolumetricPlasticity0Definition final : public PlasticModelDefinition
 {
 public:
   std::string_view id() const override { return "volumetric_dof0"; }
-  MaterialChannelSchema fixedChannelSchema() const override { return {}; }
-  MaterialChannelSchema optimizableChannelSchema() const override;
+  int numFixedChannels() const override { return 0; }
+  int numOptimizableChannels() const override;
   std::unique_ptr<PlasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

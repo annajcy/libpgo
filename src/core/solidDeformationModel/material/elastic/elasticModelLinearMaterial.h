@@ -5,7 +5,7 @@ copyright to USC,MIT,NUS
 
 #pragma once
 
-#include "material/model/elasticModelDefinition.h"
+#include "material/elastic/elasticModelDefinition.h"
 
 #include "material/elastic/elasticModel3DDeformationGradient.h"
 
@@ -38,8 +38,8 @@ class LinearElasticDefinition final : public ElasticModelDefinition
 {
 public:
   std::string_view id() const override { return "linear"; }
-  MaterialChannelSchema optimizableChannelSchema() const override;
-  MaterialChannelSchema fixedChannelSchema() const override;
+  int numOptimizableChannels() const override;
+  int numFixedChannels() const override;
   std::unique_ptr<ElasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

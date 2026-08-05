@@ -35,7 +35,7 @@ class DeformationEnergyOperator:
     mesh : SimulationMesh
         Simulation mesh used by the operator.
     material_binding : MaterialBinding
-        Immutable material models, fields, fixed values, and frames.
+        Immutable material models, elementwise fixed values, and frames.
     formulation : Formulation
         Element formulation used to assemble the deformation energy.
     options : DeformationOptions, optional
@@ -129,14 +129,14 @@ class DeformationEnergyOperator:
         return self._handle.num_plastic_params
 
     @property
-    def num_elastic_dofs(self) -> int:
-        """Number of unique/global DOFs in the elastic parameter field."""
-        return self._handle.num_elastic_dofs
+    def num_elastic_values(self) -> int:
+        """Number of element-major elastic material values."""
+        return self._handle.num_elastic_values
 
     @property
-    def num_plastic_dofs(self) -> int:
-        """Number of unique/global DOFs in the plastic parameter field."""
-        return self._handle.num_plastic_dofs
+    def num_plastic_values(self) -> int:
+        """Number of element-major plastic material values."""
+        return self._handle.num_plastic_values
 
     @property
     def elastic_definition(self):
@@ -174,7 +174,7 @@ class DeformationEnergyOperator:
         return np.asarray(self._handle.zero_state(), dtype=np.float64)
 
     def dE_de(self, displacement: np.ndarray, material_state: MaterialState) -> np.ndarray:
-        """Return ``∂E/∂e`` with shape ``(num_elastic_dofs,)``."""
+        """Return ``∂E/∂e`` with shape ``(num_elastic_values,)``."""
         u, state = self._inputs(displacement, material_state)
         return np.asarray(self._handle.dE_de(u, state._handle), dtype=np.float64)
 
@@ -202,35 +202,10 @@ class DeformationEnergyOperator:
             self._handle.element_von_mises_stresses(u, state._handle),
             dtype=np.float64)
 
-    def d2E_de2(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
-        """Return ``∂²E/∂e²`` with shape ``(num_elastic_dofs, num_elastic_dofs)``."""
-        u, state = self._inputs(displacement, material_state)
-        return SparseMatrix(self._handle.d2E_de2(u, state._handle))
-
-    def d2E_dpde(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
-        """Return ``∂²E/∂p∂e`` with shape ``(num_plastic_dofs, num_elastic_dofs)``."""
-        u, state = self._inputs(displacement, material_state)
-        return SparseMatrix(self._handle.d2E_dpde(u, state._handle))
-
     def dE_dp(self, displacement: np.ndarray, material_state: MaterialState) -> np.ndarray:
-        """Return ``∂E/∂p`` with shape ``(num_plastic_dofs,)``."""
+        """Return ``∂E/∂p`` with shape ``(num_plastic_values,)``."""
         u, state = self._inputs(displacement, material_state)
         return np.asarray(self._handle.dE_dp(u, state._handle), dtype=np.float64)
-
-    def d2E_dp2(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
-        """Return ``∂²E/∂p²`` with shape ``(num_plastic_dofs, num_plastic_dofs)``."""
-        u, state = self._inputs(displacement, material_state)
-        return SparseMatrix(self._handle.d2E_dp2(u, state._handle))
-
-    def d2E_dude(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
-        """Return ``∂²E/∂u∂e`` with shape ``(num_dofs, num_elastic_dofs)``."""
-        u, state = self._inputs(displacement, material_state)
-        return SparseMatrix(self._handle.d2E_dude(u, state._handle))
-
-    def d2E_dudp(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
-        """Return ``∂²E/∂u∂p`` with shape ``(num_dofs, num_plastic_dofs)``."""
-        u, state = self._inputs(displacement, material_state)
-        return SparseMatrix(self._handle.d2E_dudp(u, state._handle))
 
     def elastic_material_vjp(
         self, displacement: np.ndarray, material_state: MaterialState,
@@ -275,8 +250,14 @@ class DeformationEnergyOperator:
     def _inputs(self, displacement, material_state):
         if not isinstance(material_state, MaterialState):
             raise TypeError("material_state must be a MaterialState")
-        elastic_size = self.material_binding.elastic.optimizable_field.num_global_parameters
-        plastic_size = self.material_binding.plastic.optimizable_field.num_global_parameters
+        elastic_size = (
+            self.material_binding.num_elements *
+            self.material_binding.elastic.num_optimizable_channels
+        )
+        plastic_size = (
+            self.material_binding.num_elements *
+            self.material_binding.plastic.num_optimizable_channels
+        )
         if material_state.elastic_values.size != elastic_size:
             raise ValueError(
                 f"elastic material state must contain {elastic_size} values")
@@ -343,33 +324,18 @@ class DeformationPotentialEnergy(PotentialEnergy):
         return self.energy_operator.num_plastic_params
 
     @property
-    def num_elastic_dofs(self):
-        return self.energy_operator.num_elastic_dofs
+    def num_elastic_values(self):
+        return self.energy_operator.num_elastic_values
 
     @property
-    def num_plastic_dofs(self):
-        return self.energy_operator.num_plastic_dofs
+    def num_plastic_values(self):
+        return self.energy_operator.num_plastic_values
 
     def dE_de(self, displacement):
         return self.energy_operator.dE_de(displacement, self.material_state)
 
     def dE_dp(self, displacement):
         return self.energy_operator.dE_dp(displacement, self.material_state)
-
-    def d2E_de2(self, displacement):
-        return self.energy_operator.d2E_de2(displacement, self.material_state)
-
-    def d2E_dp2(self, displacement):
-        return self.energy_operator.d2E_dp2(displacement, self.material_state)
-
-    def d2E_dpde(self, displacement):
-        return self.energy_operator.d2E_dpde(displacement, self.material_state)
-
-    def d2E_dude(self, displacement):
-        return self.energy_operator.d2E_dude(displacement, self.material_state)
-
-    def d2E_dudp(self, displacement):
-        return self.energy_operator.d2E_dudp(displacement, self.material_state)
 
     def material_vjp(self, displacement, adjoint):
         return self.energy_operator.material_vjp(

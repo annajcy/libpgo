@@ -18,7 +18,6 @@
 
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationEnergyOperator.h"
-#include "deformation/deformationModelManager.h"
 #include "../materialTestUtils.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "simulation/simulationMesh.h"
@@ -53,7 +52,7 @@ private:
 
 struct EnergyCase
 {
-  std::shared_ptr<const SimulationImportResult> asset;
+  std::shared_ptr<const TestUtils::TestAsset> asset;
   std::shared_ptr<const SimulationMesh> meshOwner;
   std::unique_ptr<DeformationPotentialEnergy> energy;
   int numDOFs = 0;

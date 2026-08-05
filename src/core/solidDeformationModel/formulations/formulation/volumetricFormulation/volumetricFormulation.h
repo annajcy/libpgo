@@ -17,7 +17,6 @@ namespace SolidDeformationModel
 class Quadrature;
 class ShapeFunction;
 class VolumetricElementMapping;
-class VolumeDensityField;
 
 class VolumetricFormulation : public Formulation
 {
@@ -36,19 +35,20 @@ public:
   std::unique_ptr<VolumetricElementMapping> createElementMapping(
     std::span<const double> restPositions) const;
 
-  std::unique_ptr<DeformationModel> createElement(
+  std::unique_ptr<DeformationElement> createElement(
     const SimulationMesh &mesh, int ele,
     std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-    DeformationModelConstructionOptions options = {}) const override;
+    DeformationElementConstructionOptions options = {}) const override;
 
   // Consistent mass matrix / generalized body force, assembled with the
   // formulation's shape function over massQuadrature(), scattered through
-  // the formulation's DofLayout. Density comes from the density field.
+  // the formulation's DofLayout. Density contains one explicit value per element.
   virtual EigenSupport::SpMatD buildMassMatrix(
-    const SimulationMesh &mesh, const VolumeDensityField &density) const;
+    const SimulationMesh &mesh,
+    EigenSupport::ConstRefVecXd elementDensities) const;
   virtual EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-    const VolumeDensityField &density) const;
+    EigenSupport::ConstRefVecXd elementDensities) const;
   virtual EigenSupport::SpMatD buildSurfaceEmbeddingMatrix(
     const VolumetricMeshes::VolumetricMesh &mesh,
     const EigenSupport::MXd &surfaceVertices) const;

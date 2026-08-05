@@ -40,9 +40,8 @@ def test_barycentric_embedding_exposes_all_local_corners():
 
 def test_hermite_mass_matrix_has_correct_size_symmetry_and_constant_velocity_energy():
     volume = _single_cube_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationImportResult(volume)
-    mass_field = pf.VolumeDensity(2.0)
-    M = pf.CubicTricubicHermite().mass_matrix(sim_mesh.mesh, mass_field)
+    sim_mesh = pgo.fem.SimulationMesh(volume)
+    M = pf.CubicTricubicHermite().mass_matrix(sim_mesh, 2.0)
 
     assert M.shape == (8 * 24, 8 * 24)
     Md = M.to_dense()
@@ -59,10 +58,9 @@ def test_hermite_mass_matrix_has_correct_size_symmetry_and_constant_velocity_ene
 
 def test_hermite_body_force_has_generalized_derivative_entries_and_correct_total_force():
     volume = _single_cube_volume(density=3.0)
-    sim_mesh = pgo.fem.SimulationImportResult(volume)
-    mass_field = pf.VolumeDensity(3.0)
+    sim_mesh = pgo.fem.SimulationMesh(volume)
     g = np.array([0.0, -9.8, 0.0], dtype=np.float64)
-    f = pf.CubicTricubicHermite().body_force(sim_mesh.mesh, g, mass_field)
+    f = pf.CubicTricubicHermite().body_force(sim_mesh, g, 3.0)
 
     assert f.shape == (8 * 24,)
     value_force = np.zeros(3)
@@ -101,12 +99,12 @@ def test_hermite_surface_embedding_reproduces_affine_displacement():
 
 def test_hermite_dynamic_free_fall_uses_24_dofs():
     volume = _single_cube_volume(density=2.0)
-    sim_mesh = pgo.fem.SimulationImportResult(volume)
+    sim_mesh = pgo.fem.SimulationMesh(volume)
     elastic = pf.StableNeoDefinition()
     plastic = pf.VolumetricPlasticityDefinition(dofs=0)
     material = direct_material(
-        sim_mesh, elastic, plastic,
-        pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout,
+        volume, elastic, plastic,
+        None, None,
         np.empty(0), np.empty(0))
     operator = pf.DeformationEnergyOperator(
         material.mesh, material.binding,
@@ -114,9 +112,10 @@ def test_hermite_dynamic_free_fall_uses_24_dofs():
     )
     energy = pf.DeformationPotentialEnergy(
         operator, material.state)
-    mass_field = pf.VolumeDensity(2.0)
-    M = pf.CubicTricubicHermite().mass_matrix(sim_mesh.mesh, mass_field)
-    f = pf.CubicTricubicHermite().body_force(sim_mesh.mesh, [0.0, -9.8, 0.0], mass_field)
+    M = pf.CubicTricubicHermite().mass_matrix(sim_mesh, 2.0)
+    f = pf.CubicTricubicHermite().body_force(
+        sim_mesh, [0.0, -9.8, 0.0], 2.0
+    )
     dyn_state = pgo.sim.DynamicState(
         displacement=np.zeros(energy.num_dofs),
         velocity=np.zeros(energy.num_dofs),

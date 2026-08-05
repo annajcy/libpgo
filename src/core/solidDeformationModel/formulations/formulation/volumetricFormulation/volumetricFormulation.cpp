@@ -1,12 +1,11 @@
 #include "volumetricFormulation.h"
 
 #include "barycentricCoordinates.h"
-#include "deformation/volume/volumetricDeformationModel.h"
+#include "deformation/volume/volumetricDeformationElement.h"
 #include "deformation/volume/volumetricElementMapping.h"
 #include "formulations/dof/dofLayout.h"
 #include "formulations/quadrature/quadrature.h"
 #include "formulations/shapeFunction/shapeFunction.h"
-#include "mass/volumeDensityField.h"
 #include "simulation/simulationMesh.h"
 #include "volumetricMesh.h"
 
@@ -34,6 +33,17 @@ std::unique_ptr<Derived> checkedMaterialCast(
 
 namespace ES = EigenSupport;
 
+void validateElementDensities(
+  ES::ConstRefVecXd densities, int numElements)
+{
+  if (densities.size() != numElements)
+    throw std::invalid_argument(
+      "element density count does not match mesh element count");
+  if (!densities.allFinite() || (densities.array() <= 0.0).any())
+    throw std::invalid_argument(
+      "element densities must contain finite values > 0");
+}
+
 void localGlobalDofIndices(const DofLayout &layout, int ele, std::vector<int> &indices)
 {
   indices.assign(layout.numLocalDofs(ele), -1);
@@ -58,8 +68,7 @@ std::vector<double> flattenSurfaceVertices(const ES::MXd &surfaceVertices)
 }  // namespace
 
 VolumetricFormulation::VolumetricFormulation(
-  std::unique_ptr<ShapeFunction> shapeFunction, std::unique_ptr<Quadrature> quadrature)
-  : shapeFunction_(std::move(shapeFunction)), quadrature_(std::move(quadrature))
+  std::unique_ptr<ShapeFunction> shapeFunction, std::unique_ptr<Quadrature> quadrature): shapeFunction_(std::move(shapeFunction)), quadrature_(std::move(quadrature))
 {
 }
 
@@ -73,12 +82,13 @@ std::unique_ptr<VolumetricElementMapping> VolumetricFormulation::createElementMa
 }
 
 EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
-  const SimulationMesh &mesh, const VolumeDensityField &density) const
+  const SimulationMesh &mesh,
+  EigenSupport::ConstRefVecXd elementDensities) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
-  density.validate(mesh.getNumElements());
+  validateElementDensities(elementDensities, mesh.getNumElements());
 
   const std::unique_ptr<DofLayout> dofLayout = createDofLayout(mesh);
   const ES::VXd restDofs = buildGlobalRestDofs(mesh);
@@ -101,7 +111,7 @@ EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
       groups);
     const VolumetricElementMapping mapping(localRest, sf, quad);
     localGlobalDofIndices(*dofLayout, ele, globalIdx);
-    const double rho = density.value(ele);
+    const double rho = elementDensities[ele];
 
     for (int q = 0; q < quad.numPoints(); q++) {
       const ES::V3d xi = quad.point(q);
@@ -135,12 +145,12 @@ EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
 
 EigenSupport::VXd VolumetricFormulation::buildBodyForce(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const VolumeDensityField &density) const
+  EigenSupport::ConstRefVecXd elementDensities) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
-  density.validate(mesh.getNumElements());
+  validateElementDensities(elementDensities, mesh.getNumElements());
 
   const std::unique_ptr<DofLayout> dofLayout = createDofLayout(mesh);
   const ES::VXd restDofs = buildGlobalRestDofs(mesh);
@@ -163,7 +173,7 @@ EigenSupport::VXd VolumetricFormulation::buildBodyForce(
       groups);
     const VolumetricElementMapping mapping(localRest, sf, quad);
     localGlobalDofIndices(*dofLayout, ele, globalIdx);
-    const double rho = density.value(ele);
+    const double rho = elementDensities[ele];
 
     for (int q = 0; q < quad.numPoints(); q++) {
       const ES::V3d xi = quad.point(q);
@@ -197,10 +207,10 @@ EigenSupport::SpMatD VolumetricFormulation::buildSurfaceEmbeddingMatrix(
   return bc.generateInterpolationMatrix();
 }
 
-std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
+std::unique_ptr<DeformationElement> VolumetricFormulation::createElement(
   const SimulationMesh &mesh, int ele,
   std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-  DeformationModelConstructionOptions options) const
+  DeformationElementConstructionOptions options) const
 {
   const int numNodes = shapeFunction_->numNodes();
   std::vector<double> restPosition(numNodes * 3);
@@ -212,7 +222,7 @@ std::unique_ptr<DeformationModel> VolumetricFormulation::createElement(
   }
 
   auto mapping = createElementMapping(restPosition);
-  return std::make_unique<VolumetricDeformationModel>(
+  return std::make_unique<VolumetricDeformationElement>(
     std::move(*mapping),
     checkedMaterialCast<ElasticModel3DDeformationGradient>(
       std::move(elasticModel),

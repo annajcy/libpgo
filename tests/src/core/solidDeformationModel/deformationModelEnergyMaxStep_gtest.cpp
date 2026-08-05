@@ -9,7 +9,6 @@
 #include "EigenSupport.h"
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationEnergyOperator.h"
-#include "deformation/deformationModelManager.h"
 #include "backwardEuler/backwardEulerStepper.h"
 #include "trbdf2/trbdf2Stepper.h"
 #include "dynamicStepper.h"
@@ -22,7 +21,7 @@
 #include "formulations/shapeFunction/tetLinearShapeFunction.h"
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
 #include "deformation/volume/volumetricElementMapping.h"
-#include "deformation/volume/volumetricDeformationModel.h"
+#include "deformation/volume/volumetricDeformationElement.h"
 #include "triMeshGeo.h"
 #include "materialTestUtils.h"
 
@@ -46,16 +45,18 @@ using pgo::SolidDeformationModel::DeformationModelAssembler;
 using pgo::SolidDeformationModel::ElasticModelDefinition;
 using pgo::SolidDeformationModel::DeformationEnergyOperator;
 using pgo::SolidDeformationModel::DeformationPotentialEnergy;
-using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::PlasticModelDefinition;
 using pgo::SolidDeformationModel::SimulationMesh;
 using pgo::SolidDeformationModel::SimulationMeshType;
 using pgo::SolidDeformationModel::tetLinearComputeDs;
-using CubicFEM = pgo::SolidDeformationModel::VolumetricDeformationModel;
+using CubicFEM = pgo::SolidDeformationModel::VolumetricDeformationElement;
 using pgo::NonlinearOptimization::SolveDiagnostics;
 using pgo::NonlinearOptimization::StepSource;
 using pgo::NonlinearOptimization::StepConstraint;
-constexpr int src(StepSource s) { return static_cast<int>(s); }
+constexpr int src(StepSource s)
+{
+  return static_cast<int>(s);
+}
 
 constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
 
@@ -70,14 +71,12 @@ void initializeLogging()
 
 struct EnergyFixture
 {
-  std::shared_ptr<const SimulationImportResult> asset;
+  std::shared_ptr<const TestUtils::TestAsset> asset;
   std::shared_ptr<const SimulationMesh> meshOwner;
   std::shared_ptr<DeformationPotentialEnergy> energy;
   ES::VXd restPositions;
 
-  // Borrow accessors through the unique_ptr spine (energy -> assembler -> manager -> mesh).
-  const SimulationMesh &mesh() const { return energy->assembler().getDeformationModelManager().getMesh(); }
-  const DeformationModelManager &manager() const { return energy->assembler().getDeformationModelManager(); }
+  const SimulationMesh &mesh() const { return energy->assembler().mesh(); }
   const DeformationModelAssembler &assembler() const { return energy->assembler(); }
 };
 
@@ -124,10 +123,18 @@ EnergyFixture makeTetFixture(
 EnergyFixture makeSingleTetFixture(int offset = 0)
 {
   const std::vector<double> vertices = {
-    0.0, 0.0, 0.0,
-    1.0, 0.0, 0.0,
-    0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
   };
   const std::vector<int> elementVertices = { 0, 1, 2, 3 };
   return makeTetFixture(vertices, elementVertices, offset);
@@ -164,14 +171,30 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
 EnergyFixture makeSingleCubicFixture()
 {
   const std::vector<double> vertices = {
-    0.0, 0.0, 0.0,
-    1.0, 0.0, 0.0,
-    1.0, 1.0, 0.0,
-    0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0,
-    1.0, 0.0, 1.0,
-    1.0, 1.0, 1.0,
-    0.0, 1.0, 1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
   };
   const std::vector<int> elementVertices = { 0, 1, 2, 3, 4, 5, 6, 7 };
   return makeCubicFixture(vertices, elementVertices);
@@ -186,11 +209,9 @@ EnergyFixture makeShellFixture()
     throw std::runtime_error("Failed to load shell regression mesh.");
 
   EnergyFixture fixture;
-  fixture.asset = TestUtils::shareAsset(
+  fixture.asset = TestUtils::makeENuhAsset(
     pgo::SolidDeformationModel::loadShellMesh(surfaceMesh),
-    TestUtils::uniformImportedMaterialCatalog(
-      surfaceMesh.numTriangles(), {"E", "nu", "h", "J"},
-      {1000.0, 0.45, 1e-3, 10000.0}, "shell"));
+    1000.0, 0.45, 1e-3);
   fixture.meshOwner = fixture.asset->mesh();
 
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
@@ -245,10 +266,10 @@ double tetDeterminant(const SimulationMesh &mesh, int ele, const ES::VXd &absolu
   return tetLinearComputeDs(localPositions).determinant();
 }
 
-double minCubicDeterminant(const SimulationMesh &mesh, const DeformationModelManager &manager,
+double minCubicDeterminant(const SimulationMesh &mesh, const DeformationModelAssembler &assembler,
   int ele, const ES::VXd &absolutePositions)
 {
-  const auto *model = dynamic_cast<const CubicFEM *>(&manager.getDeformationModel(ele));
+  const auto *model = dynamic_cast<const CubicFEM *>(&assembler.element(ele));
   if (model == nullptr)
     return -std::numeric_limits<double>::infinity();
 
@@ -297,7 +318,13 @@ public:
   void hessianAlloc(ES::SpMatD &hess) const override { hess = ES::SpMatD(numDOFs_, numDOFs_); }
   void getDOFs(std::vector<int> &dofs) const override { dofs = dofs_; }
   int getNumDOFs() const override { return numDOFs_; }
-  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override { StepConstraint c{StepSource::Material, maxStep_}; if (sink) sink->report(c); return c; }
+  StepConstraint computeMaxStepLimit(ES::ConstRefVecXd, ES::ConstRefVecXd, pgo::NonlinearOptimization::StepConstraintSink *sink = nullptr) const override
+  {
+    StepConstraint c{ StepSource::Material, maxStep_ };
+    if (sink)
+      sink->report(c);
+    return c;
+  }
 
 private:
   int numDOFs_;
@@ -493,18 +520,40 @@ TEST(DeformationEnergyOperatorMaxStepGTest, SolveDiagnosticsResetClearsMaterialC
 TEST(DeformationEnergyOperatorMaxStepGTest, TetMultipleElementsReturnEarliestClamp)
 {
   const std::vector<double> vertices = {
-    0.0, 0.0, 0.0,
-    1.0, 0.0, 0.0,
-    0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0,
-    3.0, 0.0, 0.0,
-    4.0, 0.0, 0.0,
-    3.0, 1.0, 0.0,
-    3.0, 0.0, 1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    3.0,
+    0.0,
+    0.0,
+    4.0,
+    0.0,
+    0.0,
+    3.0,
+    1.0,
+    0.0,
+    3.0,
+    0.0,
+    1.0,
   };
   const std::vector<int> elementVertices = {
-    0, 1, 2, 3,
-    4, 5, 6, 7,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
   };
 
   EnergyFixture multiFixture = makeTetFixture(vertices, elementVertices);
@@ -539,8 +588,8 @@ TEST(DeformationEnergyOperatorMaxStepGTest, CubicShrinksBeforeInversion)
   EXPECT_TRUE(result.clamped());
 
   const ES::VXd updatedPositions = fixture.restPositions + alpha * dx;
-  EXPECT_LT(minCubicDeterminant(fixture.mesh(), fixture.manager(), 0, fixture.restPositions + dx), 0.0);
-  EXPECT_GT(minCubicDeterminant(fixture.mesh(), fixture.manager(), 0, updatedPositions), 0.0);
+  EXPECT_LT(minCubicDeterminant(fixture.mesh(), fixture.assembler(), 0, fixture.restPositions + dx), 0.0);
+  EXPECT_GT(minCubicDeterminant(fixture.mesh(), fixture.assembler(), 0, updatedPositions), 0.0);
 }
 
 TEST(DeformationEnergyOperatorMaxStepGTest, CubicFeasibleDirectionReturnsOne)
@@ -558,26 +607,72 @@ TEST(DeformationEnergyOperatorMaxStepGTest, CubicFeasibleDirectionReturnsOne)
 TEST(DeformationEnergyOperatorMaxStepGTest, CubicMultipleElementsReturnEarliestClamp)
 {
   const std::vector<double> vertices = {
-    0.0, 0.0, 0.0,
-    1.0, 0.0, 0.0,
-    1.0, 1.0, 0.0,
-    0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0,
-    1.0, 0.0, 1.0,
-    1.0, 1.0, 1.0,
-    0.0, 1.0, 1.0,
-    3.0, 0.0, 0.0,
-    4.0, 0.0, 0.0,
-    4.0, 1.0, 0.0,
-    3.0, 1.0, 0.0,
-    3.0, 0.0, 1.0,
-    4.0, 0.0, 1.0,
-    4.0, 1.0, 1.0,
-    3.0, 1.0, 1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    3.0,
+    0.0,
+    0.0,
+    4.0,
+    0.0,
+    0.0,
+    4.0,
+    1.0,
+    0.0,
+    3.0,
+    1.0,
+    0.0,
+    3.0,
+    0.0,
+    1.0,
+    4.0,
+    0.0,
+    1.0,
+    4.0,
+    1.0,
+    1.0,
+    3.0,
+    1.0,
+    1.0,
   };
   const std::vector<int> elementVertices = {
-    0, 1, 2, 3, 4, 5, 6, 7,
-    8, 9, 10, 11, 12, 13, 14, 15,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
   };
 
   EnergyFixture multiFixture = makeCubicFixture(vertices, elementVertices);
@@ -625,8 +720,8 @@ TEST(DeformationEnergyOperatorMaxStepGTest, BackwardEulerTakesMinWithOtherEnergy
   pgo::Simulation::DynamicProblem prob;
   prob.mass = mass;
   prob.timestep = 0.01;
-  prob.persistentTerms = {{fixture.energy, 0.0, 0.0},
-    {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.95), 0.0, 0.0}};
+  prob.persistentTerms = { { fixture.energy, 0.0, 0.0 },
+    { std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.95), 0.0, 0.0 } };
   pgo::Simulation::BackwardEulerStepper stepper(std::move(prob));
 
   StepConstraint merged = stepper.getStageEnergy()->computeMaxStepLimit(x, dx);
@@ -638,8 +733,8 @@ TEST(DeformationEnergyOperatorMaxStepGTest, BackwardEulerTakesMinWithOtherEnergy
   pgo::Simulation::DynamicProblem prob2;
   prob2.mass = mass;
   prob2.timestep = 0.01;
-  prob2.persistentTerms = {{fixture.energy, 0.0, 0.0},
-    {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.25), 0.0, 0.0}};
+  prob2.persistentTerms = { { fixture.energy, 0.0, 0.0 },
+    { std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.25), 0.0, 0.0 } };
   pgo::Simulation::BackwardEulerStepper stepper2(std::move(prob2));
 
   merged = stepper2.getStageEnergy()->computeMaxStepLimit(x, dx);
@@ -662,8 +757,8 @@ TEST(DeformationEnergyOperatorMaxStepGTest, TRBDF2TakesMinWithOtherEnergy)
   pgo::Simulation::DynamicProblem prob;
   prob.mass = mass;
   prob.timestep = 0.01;
-  prob.persistentTerms = {{fixture.energy, 0.0, 0.0},
-    {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.9), 0.0, 0.0}};
+  prob.persistentTerms = { { fixture.energy, 0.0, 0.0 },
+    { std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.9), 0.0, 0.0 } };
   pgo::Simulation::TRBDF2Stepper stepper(std::move(prob), 0.5);
 
   StepConstraint merged = stepper.getStage1Energy()->computeMaxStepLimit(x, dx);
@@ -675,8 +770,8 @@ TEST(DeformationEnergyOperatorMaxStepGTest, TRBDF2TakesMinWithOtherEnergy)
   pgo::Simulation::DynamicProblem prob2;
   prob2.mass = mass;
   prob2.timestep = 0.01;
-  prob2.persistentTerms = {{fixture.energy, 0.0, 0.0},
-    {std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.2), 0.0, 0.0}};
+  prob2.persistentTerms = { { fixture.energy, 0.0, 0.0 },
+    { std::make_shared<FixedMaxStepEnergy>(fixture.restPositions.size(), 0.2), 0.0, 0.0 } };
   pgo::Simulation::TRBDF2Stepper stepper2(std::move(prob2), 0.5);
 
   merged = stepper2.getStage1Energy()->computeMaxStepLimit(x, dx);

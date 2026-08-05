@@ -43,7 +43,7 @@ def _unit_cube_import():
         pgo.mesh.volume.ENuMaterial(
             E=YOUNGS_MODULUS, nu=POISSON_RATIO),
     )
-    return pf.SimulationImportResult(volume)
+    return volume
 
 
 def _make_energy(elastic, elastic_values=None):
@@ -52,8 +52,8 @@ def _make_energy(elastic, elastic_values=None):
         imported,
         elastic,
         pf.VolumetricPlasticityDefinition(dofs=0),
-        pf.ConstantParameterLayout,
-        pf.ConstantParameterLayout,
+        None,
+        None,
         elastic_values=elastic_values,
         plastic_values=np.empty((1, 0), dtype=np.float64),
     )

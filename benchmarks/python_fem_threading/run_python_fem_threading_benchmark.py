@@ -305,58 +305,49 @@ def worker_main(args: argparse.Namespace) -> int:
     mesh_path = args.tet_mesh if metadata["mesh_kind"] == "tet" else args.cubic_mesh
     veg = read_veg(str(mesh_path))
     volume_mesh = VolumeMesh(veg)
-    asset = pf.SimulationImportResult(volume_mesh)
+    mesh = pf.SimulationMesh(volume_mesh)
     formulation = _formulation(pf, args.formulation)
     elastic = _elastic_model(pf, args.elastic_model)
     plastic = pf.VolumetricPlasticityDefinition(dofs=args.plastic_dofs)
-    def identity_field(field_type, names):
-        count = len(names)
-        return field_type(
-            names,
-            pf.ElementwiseParameterLayout(asset.num_elements, count),
-            pf.IdentityMaterialChannelMapping(count))
-
-    elastic_fixed = identity_field(
-        pf.FixedParameterField, elastic.fixed_channel_names)
-    plastic_fixed = identity_field(
-        pf.FixedParameterField, plastic.fixed_channel_names)
-    elastic_optimizable = identity_field(
-        pf.OptimizableParameterField, elastic.optimizable_channel_names)
-    plastic_optimizable = identity_field(
-        pf.OptimizableParameterField, plastic.optimizable_channel_names)
     if args.plastic_dofs == 6:
         plastic_values = np.tile(
             np.array([1.0, 0.0, 0.0, 1.0, 0.0, 1.0]),
-            (asset.num_elements, 1),
+            (mesh.num_elements, 1),
         )
     elif args.plastic_dofs == 3:
-        plastic_values = np.ones((asset.num_elements, 3), dtype=np.float64)
+        plastic_values = np.ones((mesh.num_elements, 3), dtype=np.float64)
     else:
         plastic_values = np.empty(0)
-    def fixed_values(field):
-        return np.asarray(
-            pf.project_imported_material_inputs(asset.material_catalog, field),
-            dtype=np.float64,
-        ).reshape(-1)
+    fixed_channel_order = {
+        "stable_neo": ("E", "nu"),
+        "neo_hookean": ("E", "nu"),
+        "stvk": ("E", "nu"),
+        "linear": ("E", "nu"),
+        "stvk_vol": ("E", "nu", "J"),
+        "mooney_rivlin": ("mu01", "mu10", "v1"),
+    }.get(elastic.name, ())
+    if len(fixed_channel_order) != elastic.num_fixed_channels:
+        raise ValueError(f"unsupported fixed channels for {elastic.name}")
+    materials = veg.materials
+    assignments = volume_mesh.element_material_indices
+    elastic_fixed_values = np.asarray([
+        [getattr(materials[int(assignments[element])], name)
+         for name in fixed_channel_order]
+        for element in range(mesh.num_elements)
+    ], dtype=np.float64).reshape(mesh.num_elements, -1)
 
     material_binding = pf.MaterialBinding(
         pf.ElasticMaterialBinding(
-            elastic,
-            pf.FixedMaterialParameters(
-                elastic_fixed, fixed_values(elastic_fixed)),
-            elastic_optimizable),
+            elastic, mesh.num_elements, elastic_fixed_values),
         pf.PlasticMaterialBinding(
-            plastic,
-            pf.FixedMaterialParameters(
-                plastic_fixed, fixed_values(plastic_fixed)),
-            plastic_optimizable),
-        pf.GlobalAxesMaterialFrameField(asset.num_elements),
+            plastic, mesh.num_elements,
+            np.empty((mesh.num_elements, 0), dtype=np.float64)),
     )
     material_state = pf.MaterialState(
         np.empty(0, dtype=np.float64),
         np.ascontiguousarray(plastic_values.reshape(-1)))
     energy_operator = pf.DeformationEnergyOperator(
-        asset.mesh, material_binding,
+        mesh, material_binding,
         formulation=formulation,
         options=pf.DeformationOptions(
             project_hessian_psd=True,
@@ -467,8 +458,8 @@ def worker_main(args: argparse.Namespace) -> int:
         "mesh": {
             "path": str(mesh_path.resolve()),
             "kind": metadata["mesh_kind"],
-            "num_vertices": asset.num_vertices,
-            "num_elements": asset.num_elements,
+            "num_vertices": mesh.num_vertices,
+            "num_elements": mesh.num_elements,
         },
         "material": {
             "elastic_model": args.elastic_model,

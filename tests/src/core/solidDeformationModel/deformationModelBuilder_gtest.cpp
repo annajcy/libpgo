@@ -37,7 +37,7 @@ constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
 
 template<class FormulationT>
 std::shared_ptr<DeformationPotentialEnergy> makeDefaultFieldEnergy(
-  std::shared_ptr<const SimulationImportResult> asset,
+  std::shared_ptr<const TestUtils::TestAsset> asset,
   const FormulationT &formulation,
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic)
@@ -100,8 +100,7 @@ TEST(DeformationModelBuilderGTest, TetZeroDisplacementBaseline)
     EXPECT_TRUE(std::isfinite(h0.valuePtr()[i])) << "Non-finite Hessian entry at " << i;
 }
 
-// The structured-input overload must preserve the caller-provided immutable
-// material frame field instead of silently replacing it with global axes.
+// Explicit elementwise material frames must reach the element models.
 TEST(DeformationModelBuilderGTest, StructuredInputsCarryCustomMaterialFrames)
 {
   pgo::Logging::init();
@@ -115,9 +114,8 @@ TEST(DeformationModelBuilderGTest, StructuredInputsCarryCustomMaterialFrames)
   frame << std::cos(angle), -std::sin(angle), 0.0,
     std::sin(angle), std::cos(angle), 0.0,
     0.0, 0.0, 1.0;
-  auto materialFrames =
-    std::make_shared<const ConstantMaterialFrameField>(
-      asset->mesh()->getNumElements(), frame);
+  MaterialFrames materialFrames(std::vector<MaterialFrame>(
+    static_cast<std::size_t>(asset->mesh()->getNumElements()), frame));
 
   auto parameters = TestUtils::makeDefaultMaterialState(
     *asset,
@@ -133,11 +131,8 @@ TEST(DeformationModelBuilderGTest, StructuredInputsCarryCustomMaterialFrames)
     materialFrames);
   ASSERT_NE(energy, nullptr);
 
-  const auto &manager =
-    energy->assembler().getDeformationModelManager();
-  EXPECT_EQ(manager.materialFrameFieldPtr().get(), materialFrames.get());
   EXPECT_TRUE(
-    manager.materialToReferenceFrame(0).isApprox(frame, 1e-12));
+    energy->assembler().materialFrame(0).isApprox(frame, 1e-12));
 }
 
 // Baseline: cubic deformation energy at zero displacement.
@@ -179,17 +174,20 @@ TEST(DeformationModelBuilderGTest, MooneyRivlinDefinitionBuildsTetEnergy)
     0.0, 0.0, 0.0,
     1.0, 0.0, 0.0,
     0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0};
-  const int elements[] = {0, 1, 2, 3};
+    0.0, 0.0, 1.0
+  };
+  const int elements[] = { 0, 1, 2, 3 };
   pgo::VolumetricMeshes::VolumetricMesh::MooneyRivlinMaterial material(
     "mr_test", 1000.0, 0.5, 0.3, 0.1);
-  const pgo::VolumetricMeshes::VolumetricMesh::Material *materials[] = {&material};
-  pgo::VolumetricMeshes::VolumetricMesh::Set set("all", std::set<int>{0});
+  const pgo::VolumetricMeshes::VolumetricMesh::Material *materials[] = { &material };
+  pgo::VolumetricMeshes::VolumetricMesh::Set set("all", std::set<int>{ 0 });
   pgo::VolumetricMeshes::VolumetricMesh::Region region(0, 0);
   pgo::VolumetricMeshes::TetMesh tetMesh(
     4, vertices, 1, elements, 1, materials, 1, &set, 1, &region);
 
-  auto asset = TestUtils::shareAsset(loadTetMesh(tetMesh));
+  auto asset = TestUtils::makeAsset(
+    loadTetMesh(tetMesh), { "mu01", "mu10", "v1" },
+    { 0.5, 0.3, 0.1 });
   ASSERT_NE(asset, nullptr);
   auto energy = makeDefaultFieldEnergy(
     asset, TetLinearFormulation{}, std::make_shared<MooneyRivlinDefinition>(),
@@ -234,7 +232,7 @@ TEST(DeformationModelBuilderGTest, CubicSimulationMeshBuilderValidatesTopology)
   EXPECT_GT(energy->getNumDOFs(), 0);
 }
 
-// MakeShellDeformationModel with SimulationMesh reference validates SHELL topology
+// MakeShellDeformationElement with SimulationMesh reference validates SHELL topology
 // and uses the existing Koiter shell path.
 TEST(DeformationModelBuilderGTest, ShellSimulationMeshBuilderValidatesTopology)
 {
@@ -242,11 +240,8 @@ TEST(DeformationModelBuilderGTest, ShellSimulationMeshBuilderValidatesTopology)
 
   pgo::Mesh::TriMeshGeo surfaceMesh;
   ASSERT_TRUE(surfaceMesh.load(kShellObjPath));
-  auto asset = TestUtils::shareAsset(
-    loadShellMesh(surfaceMesh),
-    TestUtils::uniformImportedMaterialCatalog(
-      surfaceMesh.numTriangles(), {"E", "nu", "h", "J"},
-      {1000.0, 0.45, 1e-3, 10000.0}, "shell"));
+  auto asset = TestUtils::makeENuhAsset(
+    loadShellMesh(surfaceMesh), 1000.0, 0.45, 1e-3);
   ASSERT_NE(asset, nullptr);
 
   auto energy = makeDefaultFieldEnergy(

@@ -30,6 +30,25 @@ def _require_mesh(mesh):
         raise TypeError(f"mesh must be a SimulationMesh, got {type(mesh).__name__}")
 
 
+def _element_values(mesh, value, *, name: str) -> np.ndarray:
+    """Normalize a scalar or 1-D array to one finite positive value per element."""
+    array = np.asarray(value, dtype=np.float64)
+    if array.ndim == 0:
+        array = np.full(mesh.num_elements, float(array), dtype=np.float64)
+    elif array.ndim != 1:
+        raise ValueError(
+            f"{name} must be a scalar or 1-D array, got shape {array.shape}"
+        )
+    if array.size != mesh.num_elements:
+        raise ValueError(
+            f"{name} must contain {mesh.num_elements} element values, "
+            f"got {array.size}"
+        )
+    if not np.all(np.isfinite(array)) or not np.all(array > 0.0):
+        raise ValueError(f"{name} must contain finite values > 0")
+    return np.ascontiguousarray(array)
+
+
 # ---------------------------------------------------------------------------
 # Formulation hierarchy
 # ---------------------------------------------------------------------------
@@ -57,31 +76,28 @@ class VolumetricFormulation(Formulation):
     """Volumetric formulation with dynamics operators."""
 
     def mass_matrix(self, mesh, density):
-        """Consistent mass matrix; density from a VolumeDensity (kg/m^3) field."""
+        """Consistent mass matrix from scalar or per-element density (kg/m^3)."""
         from pypgo.sparse import SparseMatrix
-        from pypgo.fem.mass import VolumeDensity
 
         _require_mesh(mesh)
-        if not isinstance(density, VolumeDensity):
-            raise TypeError(
-                f"volumetric mass_matrix expects a VolumeDensity (kg/m^3), got {type(density).__name__}")
+        values = _element_values(mesh, density, name="density")
         return SparseMatrix(
-            _core.compute_formulation_mass_matrix(mesh._handle, self._handle, density._handle))
+            _core.compute_formulation_mass_matrix(
+                mesh._handle, self._handle, values.tolist()
+            )
+        )
 
     def body_force(self, mesh, acceleration, density) -> np.ndarray:
         """Generalized body force for a constant 3-vector acceleration."""
-        from pypgo.fem.mass import VolumeDensity
-
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
         if accel.size != 3:
             raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
         _require_mesh(mesh)
-        if not isinstance(density, VolumeDensity):
-            raise TypeError(
-                f"volumetric body_force expects a VolumeDensity (kg/m^3), got {type(density).__name__}")
+        values = _element_values(mesh, density, name="density")
         return np.asarray(
             _core.compute_formulation_body_force(
-                mesh._handle, self._handle, accel.tolist(), density._handle),
+                mesh._handle, self._handle, accel.tolist(), values.tolist()
+            ),
             dtype=np.float64,
         )
 
@@ -103,26 +119,19 @@ class VolumetricFormulation(Formulation):
 class ShellFormulation(Formulation):
     """Shell formulation with lumped mass / body-force operators."""
 
-    def _require_shell_areal_density(self, areal_density):
-        from pypgo.fem.mass import ShellArealDensity
-
-        if not isinstance(areal_density, ShellArealDensity):
-            raise TypeError(
-                "shell formulation expects a ShellArealDensity (kg/m^2), "
-                f"got {type(areal_density).__name__}"
-            )
-
     def mass_matrix(self, mesh, areal_density):
-        """Lumped shell mass matrix."""
+        """Lumped shell mass matrix from scalar or per-element kg/m^2 values."""
         from pypgo.sparse import SparseMatrix
 
         _require_mesh(mesh)
-        self._require_shell_areal_density(areal_density)
+        values = _element_values(
+            mesh, areal_density, name="areal_density"
+        )
         return SparseMatrix(
             _core.compute_shell_formulation_mass_matrix(
                 mesh._handle,
                 self._handle,
-                areal_density._handle,
+                values.tolist(),
             )
         )
 
@@ -132,13 +141,15 @@ class ShellFormulation(Formulation):
         if accel.size != 3:
             raise ValueError(f"acceleration must be a 3-vector, got length {accel.size}")
         _require_mesh(mesh)
-        self._require_shell_areal_density(areal_density)
+        values = _element_values(
+            mesh, areal_density, name="areal_density"
+        )
         return np.asarray(
             _core.compute_shell_formulation_body_force(
                 mesh._handle,
                 self._handle,
                 accel.tolist(),
-                areal_density._handle,
+                values.tolist(),
             ),
             dtype=np.float64,
         )

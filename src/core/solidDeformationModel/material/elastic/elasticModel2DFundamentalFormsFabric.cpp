@@ -589,12 +589,9 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_db_dparam(
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-MaterialChannelSchema KoiterFabricDefinition::optimizableChannelSchema() const
+int KoiterFabricDefinition::numOptimizableChannels() const
 {
-  static constexpr std::array<std::string_view, 12> names{
-    "mu0", "k1_4", "k2_4", "k1_6", "k2_6", "ks",
-    "alpha", "kappa11", "kappa22", "kappa12", "I8_0", "h"};
-  return MaterialChannelSchema(names);
+  return 12;
 }
 std::unique_ptr<ElasticModel> KoiterFabricDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {

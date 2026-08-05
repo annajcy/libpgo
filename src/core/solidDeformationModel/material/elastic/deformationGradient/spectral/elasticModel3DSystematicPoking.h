@@ -1,7 +1,7 @@
 #pragma once
 
 #include "material/elastic/deformationGradient/spectral/elasticModel3DValanisLandel.h"
-#include "material/model/elasticModelDefinition.h"
+#include "material/elastic/elasticModelDefinition.h"
 
 #include <span>
 #include <string_view>
@@ -40,7 +40,7 @@ public:
 /// material.
 ///
 /// Knot locations and rest-knot indices determine the constitutive basis and
-/// are therefore stored once in the definition. Per-element material fields
+/// are therefore stored once in the definition. Per-element material values
 /// contain only the optimizable physical channels
 ///
 ///   [f''(stretchKnots[0]), ..., f''(stretchKnots[n - 1]), lambda].
@@ -58,8 +58,8 @@ public:
     return "systematic_poking";
   }
 
-  MaterialChannelSchema fixedChannelSchema() const override;
-  MaterialChannelSchema optimizableChannelSchema() const override;
+  int numFixedChannels() const override;
+  int numOptimizableChannels() const override;
   std::unique_ptr<ElasticModel> createModel(
     std::span<const double> fixedChannels,
     const MaterialFrame &materialFrame) const override;
@@ -86,7 +86,6 @@ private:
   int stretchRestKnotIndex_ = 0;
   std::vector<double> volumeKnots_;
   int volumeRestKnotIndex_ = 0;
-  MaterialChannelSchema optimizableChannelSchema_;
 };
 
 }  // namespace pgo::SolidDeformationModel

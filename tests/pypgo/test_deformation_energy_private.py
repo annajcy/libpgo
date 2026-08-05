@@ -21,7 +21,7 @@ def _make_tet_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh(
         tet, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.fem.SimulationImportResult(volume)
+    return volume
 
 
 def _make_cubic_sim_mesh():
@@ -44,7 +44,7 @@ def _make_cubic_sim_mesh():
     volume = pgo.mesh.volume.VolumeMesh(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    return pgo.fem.SimulationImportResult(volume)
+    return volume
 
 
 def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plastic_values=None):
@@ -60,7 +60,7 @@ def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plast
     plastic = plastic or pf.VolumetricPlasticityDefinition(dofs=6)
     material = direct_material(
         sim, elastic, plastic,
-        pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout,
+        None, None,
         None, plastic_values)
     operator = _core._create_deformation_energy_operator(
         material.mesh._handle,
@@ -75,7 +75,7 @@ def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plast
 
 
 class TestCoreDeformationEnergyOperator:
-    def test_energy_exposes_shared_parameters(self):
+    def test_energy_exposes_elementwise_parameters(self):
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_linear")
 

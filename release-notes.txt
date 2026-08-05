@@ -1,5 +1,12 @@
 -- Unreleased
-  - replace the legacy MassField hierarchy with explicit VolumeDensity and ShellArealDensity fields
+  - simplify material inputs to element-major fixed binding arrays and element-major optimizable MaterialState arrays; remove native schemas, names, layouts, mappings, parameter fields, and imported-input projection
+  - make material evaluation truly element-wise, remove quadrature-point material copies and full material Hessian APIs, and retain direct material VJP as the adjoint path
+  - make deformation assembly single-owner and explicitly non-concurrent; remove manager PIMPL, duplicate element-model views, TLS evaluation scratch, and silent subnormal rewriting
+  - flatten element evaluation into DeformationElement; the assembler now directly owns mesh, binding, elements, and private per-element assembly storage without manager, evaluator, or workspace layers
+  - remove SimulationImportResult and ImportedMaterialCatalog; SimulationMesh now converts VolumeMesh geometry directly while source material metadata stays application-owned
+  - replace the polymorphic material-frame field hierarchy with explicit elementwise MaterialFrames and identity defaults
+  - remove the manual named-input staging layer; application-owned values now enter material bindings directly
+  - replace the legacy MassField hierarchy with explicit per-element density vectors at formulation boundaries
   - remove parameter-coupled shell density, dedicated body-force material derivatives, and the legacy PyTorch equilibrium layers
   - remove the obsolete Markdown/notebook example-test harness and notebook-only development dependency
   - remove the parameter-omitting DeformationModel::prepareData overload; parameterized models now reject missing elastic or plastic parameter buffers

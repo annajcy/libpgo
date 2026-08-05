@@ -1,5 +1,4 @@
 #include "simulation/simulationMeshVolume.h"
-#include "material/import/volumeMaterialImporter.h"
 
 #include "cubicMesh.h"
 #include "tetMesh.h"
@@ -9,7 +8,7 @@
 
 using namespace pgo::SolidDeformationModel;
 
-std::unique_ptr<SimulationImportResult> pgo::SolidDeformationModel::loadTetMesh(
+std::shared_ptr<SimulationMesh> pgo::SolidDeformationModel::loadTetMesh(
   const VolumetricMeshes::TetMesh &tetMesh)
 {
   std::vector<double> vertices;
@@ -28,15 +27,13 @@ std::unique_ptr<SimulationImportResult> pgo::SolidDeformationModel::loadTetMesh(
       elementVertices.emplace_back(tetMesh.getVertexIndex(ei, j));
   }
 
-  auto mesh = std::make_shared<SimulationMesh>(
+  return std::make_shared<SimulationMesh>(
     tetMesh.getNumVertices(), vertices,
     tetMesh.getNumElements(), 4, elementVertices,
     SimulationMeshType::TET);
-  return std::make_unique<SimulationImportResult>(
-    std::move(mesh), importVolumeMaterialCatalog(tetMesh));
 }
 
-std::unique_ptr<SimulationImportResult> pgo::SolidDeformationModel::loadCubicMesh(
+std::shared_ptr<SimulationMesh> pgo::SolidDeformationModel::loadCubicMesh(
   const VolumetricMeshes::CubicMesh &cubicMesh)
 {
   std::vector<double> vertices;
@@ -55,10 +52,8 @@ std::unique_ptr<SimulationImportResult> pgo::SolidDeformationModel::loadCubicMes
       elementVertices.emplace_back(cubicMesh.getVertexIndex(ei, j));
   }
 
-  auto mesh = std::make_shared<SimulationMesh>(
+  return std::make_shared<SimulationMesh>(
     cubicMesh.getNumVertices(), vertices,
     cubicMesh.getNumElements(), 8, elementVertices,
     SimulationMeshType::CUBIC);
-  return std::make_unique<SimulationImportResult>(
-    std::move(mesh), importVolumeMaterialCatalog(cubicMesh));
 }

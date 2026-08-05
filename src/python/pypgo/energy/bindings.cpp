@@ -48,8 +48,8 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("num_vertices", &PyDeformationEnergyOperator::numVertices)
     .def_prop_ro("num_elastic_params", &PyDeformationEnergyOperator::numElasticParams)
     .def_prop_ro("num_plastic_params", &PyDeformationEnergyOperator::numPlasticParams)
-    .def_prop_ro("num_elastic_dofs", &PyDeformationEnergyOperator::numElasticDofs)
-    .def_prop_ro("num_plastic_dofs", &PyDeformationEnergyOperator::numPlasticDofs)
+    .def_prop_ro("num_elastic_values", &PyDeformationEnergyOperator::numElasticValues)
+    .def_prop_ro("num_plastic_values", &PyDeformationEnergyOperator::numPlasticValues)
     .def_prop_ro("elastic_definition", &PyDeformationEnergyOperator::elasticDefinition)
     .def_prop_ro("plastic_definition", &PyDeformationEnergyOperator::plasticDefinition)
     .def_prop_ro("num_dofs", &PyDeformationEnergyOperator::numDofs)
@@ -59,12 +59,7 @@ void init_energy_bindings(nb::module_ &m)
     .def("zero_state", &PyDeformationEnergyOperator::zeroState)
     .def("dE_de", &PyDeformationEnergyOperator::dE_de, nb::arg("displacement"), nb::arg("material_state"))
     .def("element_von_mises_stresses", &PyDeformationEnergyOperator::elementVonMisesStresses, nb::arg("displacement"), nb::arg("material_state"))
-    .def("d2E_de2", &PyDeformationEnergyOperator::d2E_de2, nb::arg("displacement"), nb::arg("material_state"))
-    .def("d2E_dpde", &PyDeformationEnergyOperator::d2E_dpde, nb::arg("displacement"), nb::arg("material_state"))
     .def("dE_dp", &PyDeformationEnergyOperator::dE_dp, nb::arg("displacement"), nb::arg("material_state"))
-    .def("d2E_dp2", &PyDeformationEnergyOperator::d2E_dp2, nb::arg("displacement"), nb::arg("material_state"))
-    .def("d2E_dude", &PyDeformationEnergyOperator::d2E_dude, nb::arg("displacement"), nb::arg("material_state"))
-    .def("d2E_dudp", &PyDeformationEnergyOperator::d2E_dudp, nb::arg("displacement"), nb::arg("material_state"))
     .def("elastic_material_vjp", &PyDeformationEnergyOperator::elasticMaterialVJP,
       nb::arg("displacement"), nb::arg("material_state"), nb::arg("adjoint"))
     .def("plastic_material_vjp", &PyDeformationEnergyOperator::plasticMaterialVJP,
@@ -74,50 +69,6 @@ void init_energy_bindings(nb::module_ &m)
     m, "PyDeformationPotentialEnergy")
     .def_prop_ro("energy_operator", &PyDeformationPotentialEnergy::energyOperator)
     .def_prop_ro("material_state", &PyDeformationPotentialEnergy::materialState);
-
-  nb::class_<PyParameterLayout>(m, "PyParameterLayout")
-    .def_prop_ro("num_elements", &PyParameterLayout::numElements)
-    .def_prop_ro(
-      "num_local_parameters", &PyParameterLayout::numLocalParameters)
-    .def_prop_ro(
-      "num_global_parameters", &PyParameterLayout::numGlobalParameters)
-    .def_prop_ro("num_value_rows", &PyParameterLayout::numValueRows)
-    .def_prop_ro("_kind", &PyParameterLayout::kind);
-  nb::class_<PyMaterialChannelMapping>(m, "PyMaterialChannelMapping")
-    .def_prop_ro("num_parameters", &PyMaterialChannelMapping::numParameters)
-    .def_prop_ro("num_channels", &PyMaterialChannelMapping::numChannels)
-    .def_prop_ro("_kind", &PyMaterialChannelMapping::kind);
-  nb::class_<
-    PyDifferentiableMaterialChannelMapping,
-    PyMaterialChannelMapping>(
-    m, "PyDifferentiableMaterialChannelMapping");
-
-  nb::class_<PyOptimizableParameterRef>(m, "PyOptimizableParameterRef")
-    .def_prop_ro("name", &PyOptimizableParameterRef::name)
-    .def_prop_ro(
-      "parameter_index", &PyOptimizableParameterRef::parameterIndex);
-  nb::class_<PyOptimizableMaterialChannelRef>(
-    m, "PyOptimizableMaterialChannelRef")
-    .def_prop_ro("name", &PyOptimizableMaterialChannelRef::name)
-    .def_prop_ro(
-      "channel_index", &PyOptimizableMaterialChannelRef::channelIndex);
-
-  nb::class_<PyOptimizableParameterField>(m, "PyOptimizableParameterField")
-    .def_prop_ro("num_elements", &PyOptimizableParameterField::numElements)
-    .def_prop_ro(
-      "num_material_channels",
-      &PyOptimizableParameterField::numMaterialChannels)
-    .def_prop_ro(
-      "num_local_parameters",
-      &PyOptimizableParameterField::numLocalParameters)
-    .def_prop_ro(
-      "num_global_parameters",
-      &PyOptimizableParameterField::numGlobalParameters)
-    .def_prop_ro("num_value_rows", &PyOptimizableParameterField::numValueRows)
-    .def_prop_ro("parameter_names", &PyOptimizableParameterField::parameterNames)
-    .def_prop_ro("layout", &PyOptimizableParameterField::layout)
-    .def_prop_ro("mapping", &PyOptimizableParameterField::mapping)
-    .def("parameter", &PyOptimizableParameterField::parameter, nb::arg("name"));
 
   nb::class_<PyMaterialState>(m, "PyMaterialState")
     .def_prop_ro(
@@ -131,59 +82,20 @@ void init_energy_bindings(nb::module_ &m)
     .def("with_plastic_values", &PyMaterialState::withPlasticValues,
       nb::arg("values"));
 
-  nb::class_<PyFixedParameterField>(m, "PyFixedParameterField")
-    .def_prop_ro("parameter_names", &PyFixedParameterField::parameterNames)
-    .def_prop_ro("num_elements", &PyFixedParameterField::numElements)
-    .def_prop_ro(
-      "num_local_parameters", &PyFixedParameterField::numLocalParameters)
-    .def_prop_ro(
-      "num_global_parameters", &PyFixedParameterField::numGlobalParameters)
-    .def_prop_ro("num_value_rows", &PyFixedParameterField::numValueRows)
-    .def_prop_ro(
-      "num_material_channels",
-      &PyFixedParameterField::numMaterialChannels)
-    .def_prop_ro("layout", &PyFixedParameterField::layout)
-    .def_prop_ro("mapping", &PyFixedParameterField::mapping);
-
-  nb::class_<PyMaterialFrameField>(m, "PyMaterialFrameField")
-    .def_prop_ro("num_elements", &PyMaterialFrameField::numElements);
+  nb::class_<PyMaterialFrames>(m, "PyMaterialFrames")
+    .def_prop_ro("num_elements", &PyMaterialFrames::numElements);
   nb::class_<PyMaterialBinding>(m, "PyMaterialBinding");
 
-  m.def("_make_elementwise_parameter_layout",
-    &makeElementwiseParameterLayout,
-    nb::arg("num_elements"), nb::arg("num_local_parameters"));
-  m.def("_make_constant_parameter_layout",
-    &makeConstantParameterLayout,
-    nb::arg("num_elements"), nb::arg("num_local_parameters"));
-  m.def("_make_identity_material_channel_mapping",
-    &makeIdentityMaterialChannelMapping, nb::arg("num_parameters"));
-  m.def("_make_global_axes_material_frame_field",
-    &makeGlobalAxesMaterialFrameField, nb::arg("num_elements"));
-  m.def("_make_constant_material_frame_field",
-    &makeConstantMaterialFrameField,
-    nb::arg("num_elements"), nb::arg("frame_values"));
-  m.def("_make_elementwise_material_frame_field",
-    &makeElementwiseMaterialFrameField, nb::arg("frame_values"));
-  m.def("_project_imported_material_frame_field",
-    &projectImportedMaterialFrameField,
-    nb::arg("source"), nb::arg("property") = "rotation");
+  m.def("_make_material_frames",
+    &makeMaterialFrames, nb::arg("frame_values"));
   m.def("_make_material_frames_from_primary_axes",
     &makeMaterialFramesFromPrimaryAxes, nb::arg("axes"));
 
-  m.def("_create_optimizable_parameter_field", &createOptimizableParameterField,
-    nb::arg("parameter_names"), nb::arg("layout"), nb::arg("mapping"));
-  m.def("_create_fixed_parameter_field", &createFixedParameterField,
-    nb::arg("parameter_names"), nb::arg("layout"), nb::arg("mapping"));
-  m.def("_project_imported_material_inputs", &projectImportedMaterialInputs,
-    nb::arg("source"), nb::arg("parameter_names"), nb::arg("layout"));
-  m.def("_project_named_material_inputs", &projectNamedMaterialInputs,
-    nb::arg("source"), nb::arg("parameter_names"), nb::arg("layout"));
   m.def("_create_material_binding", &createMaterialBinding,
-    nb::arg("elastic_definition"), nb::arg("elastic_fixed_field"),
-    nb::arg("elastic_fixed_values"), nb::arg("elastic_optimizable_field"),
-    nb::arg("plastic_definition"), nb::arg("plastic_fixed_field"),
-    nb::arg("plastic_fixed_values"), nb::arg("plastic_optimizable_field"),
-    nb::arg("material_frames"));
+    nb::arg("elastic_definition"), nb::arg("num_elements"),
+    nb::arg("elastic_fixed_values"), nb::arg("plastic_definition"),
+    nb::arg("plastic_fixed_values"),
+    nb::arg("material_frames").none() = nb::none());
   m.def("_create_material_state", &createMaterialState,
     nb::arg("elastic_values"), nb::arg("plastic_values"));
   m.def("_create_deformation_energy_operator", &createDeformationEnergyOperator,

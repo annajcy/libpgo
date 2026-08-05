@@ -131,7 +131,7 @@ def make_cubic_grid(n: int) -> tuple[np.ndarray, np.ndarray]:
     return vertices, elements
 
 
-def _make_import(grid_size: int) -> pf.SimulationImportResult:
+def _make_import(grid_size: int):
     vertices, elements = make_cubic_grid(grid_size)
     cubic = pgo.mesh.CubicMeshData(vertices, elements)
     volume = pgo.mesh.volume.VolumeMesh(
@@ -141,58 +141,41 @@ def _make_import(grid_size: int) -> pf.SimulationImportResult:
             nu=POISSON_RATIO,
         ),
     )
-    return pf.SimulationImportResult(volume)
+    return volume
 
 
-def _make_energy(imported, elastic, elastic_values):
-    mesh = imported.mesh
+def _make_energy(volume, elastic, elastic_values):
+    mesh = pf.SimulationMesh(volume)
     plastic = pf.VolumetricPlasticityDefinition(dofs=0)
 
-    def identity_field(field_type, names, layout_type):
-        count = len(names)
-        return field_type(
-            names,
-            layout_type(mesh.num_elements, count),
-            pf.IdentityMaterialChannelMapping(count),
-        )
+    fixed_channel_order = {
+        "neo_hookean": ("E", "nu"),
+    }.get(elastic.name, ())
+    if len(fixed_channel_order) != elastic.num_fixed_channels:
+        raise ValueError(f"unsupported fixed channels for {elastic.name}")
+    materials = volume.to_veg_file().materials
+    assignments = volume.element_material_indices
+    fixed_values = np.asarray([
+        [getattr(materials[int(assignments[element])], name)
+         for name in fixed_channel_order]
+        for element in range(mesh.num_elements)
+    ], dtype=np.float64).reshape(mesh.num_elements, -1)
 
-    elastic_fixed = identity_field(
-        pf.FixedParameterField,
-        elastic.fixed_channel_names,
-        pf.ElementwiseParameterLayout,
-    )
-    plastic_fixed = identity_field(
-        pf.FixedParameterField,
-        plastic.fixed_channel_names,
-        pf.ElementwiseParameterLayout,
-    )
-    elastic_optimizable = identity_field(
-        pf.OptimizableParameterField,
-        elastic.optimizable_channel_names,
-        pf.ConstantParameterLayout,
-    )
-    plastic_optimizable = identity_field(
-        pf.OptimizableParameterField,
-        plastic.optimizable_channel_names,
-        pf.ConstantParameterLayout,
-    )
-    if elastic.fixed_channel_names:
-        fixed_values = np.asarray(
-            pf.project_imported_material_inputs(
-                imported.material_catalog, elastic_fixed),
-            dtype=np.float64,
-        ).reshape(-1)
-    else:
-        fixed_values = np.empty(0, dtype=np.float64)
+    elastic_values = np.asarray(elastic_values, dtype=np.float64).reshape(-1)
+    channels = elastic.num_optimizable_channels
+    if elastic_values.size == channels:
+        elastic_values = np.broadcast_to(
+            elastic_values.reshape(1, channels),
+            (mesh.num_elements, channels),
+        ).copy()
+    elif elastic_values.size != mesh.num_elements * channels:
+        raise ValueError("elastic_values must be constant or elementwise")
 
     material_binding = pf.MaterialBinding(
-        pf.ElasticMaterialBinding(
-            elastic, pf.FixedMaterialParameters(elastic_fixed, fixed_values),
-            elastic_optimizable),
+        pf.ElasticMaterialBinding(elastic, mesh.num_elements, fixed_values),
         pf.PlasticMaterialBinding(
-            plastic, pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
-            plastic_optimizable),
-        pf.GlobalAxesMaterialFrameField(mesh.num_elements),
+            plastic, mesh.num_elements,
+            np.empty((mesh.num_elements, 0), dtype=np.float64)),
     )
     material_state = pf.MaterialState(elastic_values, np.empty(0))
     operator = pf.DeformationEnergyOperator(
@@ -469,19 +452,28 @@ def _reaction_parameter_jacobian(
     displacement: np.ndarray,
 ) -> np.ndarray:
     stiffness = energy.hessian(displacement).to_dense()
-    mixed = energy.d2E_dude(displacement).to_dense()
+    channels = energy.material_binding.elastic.num_optimizable_channels
+    direct = energy.elastic_material_vjp(
+        displacement, case.reaction_selector)
     if case.free_dofs.size:
-        free_sensitivity = -np.linalg.solve(
-            stiffness[np.ix_(case.free_dofs, case.free_dofs)],
-            mixed[case.free_dofs, :],
+        objective_u = stiffness.T @ case.reaction_selector
+        adjoint_free = np.linalg.solve(
+            stiffness[np.ix_(case.free_dofs, case.free_dofs)].T,
+            objective_u[case.free_dofs],
         )
-        total_mixed = (
-            mixed
-            + stiffness[:, case.free_dofs] @ free_sensitivity
-        )
-    else:
-        total_mixed = mixed
-    return case.reaction_selector @ total_mixed
+        adjoint = np.zeros(energy.num_dofs, dtype=np.float64)
+        adjoint[case.free_dofs] = adjoint_free
+        direct -= energy.elastic_material_vjp(displacement, adjoint)
+    return direct.reshape(-1, channels).sum(axis=0)
+
+
+def _with_homogeneous_elastic_values(energy, values):
+    values = np.asarray(values, dtype=np.float64).reshape(-1)
+    elementwise = np.broadcast_to(
+        values,
+        (energy.material_binding.num_elements, values.size),
+    ).copy()
+    return energy.material_state.with_elastic_values(elementwise)
 
 
 def _target_reactions(
@@ -582,8 +574,8 @@ def reaction_residual_and_jacobian(
     parameters = FORCE_SCALE * np.exp(theta)
     problem.systematic_energy = pf.DeformationPotentialEnergy(
         problem.systematic_energy.energy_operator,
-        problem.systematic_energy.material_state.with_elastic_values(
-            parameters[None, :]))
+        _with_homogeneous_elastic_values(
+            problem.systematic_energy, parameters))
     cases, targets = problem.data_for(split)
     residuals = []
     jacobians = []

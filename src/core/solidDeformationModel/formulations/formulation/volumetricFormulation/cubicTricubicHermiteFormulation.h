@@ -22,10 +22,10 @@ public:
     const VolumetricMeshes::VolumetricMesh &mesh,
     const EigenSupport::MXd &surfaceVertices) const override;
 
-  std::unique_ptr<DeformationModel> createElement(
+  std::unique_ptr<DeformationElement> createElement(
     const SimulationMesh &mesh, int ele,
     std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-    DeformationModelConstructionOptions options = {}) const override;
+    DeformationElementConstructionOptions options = {}) const override;
 };
 
 }  // namespace SolidDeformationModel

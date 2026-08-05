@@ -204,83 +204,64 @@ def _volume_formulation(cfg: SimConfig, volume: VolumeMesh):
     return _fem.CubicTricubicHermite()
 
 
-def _catalog_channel_name(name):
+def _fixed_channel_order(definition):
     return {
-        "E_membrane": "E", "E_bending": "E",
-        "nu_membrane": "nu", "nu_bending": "nu",
-        "thickness": "h",
-    }.get(name, name)
+        "stable_neo": ("E", "nu"),
+        "neo_hookean": ("E", "nu"),
+        "stvk": ("E", "nu"),
+        "linear": ("E", "nu"),
+        "stvk_vol": ("E", "nu", "J"),
+        "mooney_rivlin": ("mu01", "mu10", "v1"),
+    }.get(definition.name, ())
 
 
-def _build_material(mesh, elastic, plastic, *, material_catalog=None,
+def _build_material(mesh, elastic, plastic, *, volume=None,
                     elastic_values=None, plastic_values=None, constant=False):
-    layout_type = _fem.ConstantParameterLayout if constant else _fem.ElementwiseParameterLayout
-
-    def identity_field(field_type, names, selected_layout_type):
-        count = len(names)
-        return field_type(
-            names,
-            selected_layout_type(mesh.num_elements, count),
-            _fem.IdentityMaterialChannelMapping(count),
-        )
-
-    elastic_fixed = _fem.FixedParameterField(
-        tuple(_catalog_channel_name(name) for name in elastic.fixed_channel_names),
-        _fem.ElementwiseParameterLayout(
-            mesh.num_elements, len(elastic.fixed_channel_names)),
-        _fem.IdentityMaterialChannelMapping(len(elastic.fixed_channel_names)),
-    )
-    plastic_fixed = _fem.FixedParameterField(
-        tuple(_catalog_channel_name(name) for name in plastic.fixed_channel_names),
-        _fem.ElementwiseParameterLayout(
-            mesh.num_elements, len(plastic.fixed_channel_names)),
-        _fem.IdentityMaterialChannelMapping(len(plastic.fixed_channel_names)),
-    )
-    elastic_optimizable = identity_field(
-        _fem.OptimizableParameterField,
-        elastic.optimizable_channel_names, layout_type)
-    plastic_optimizable = identity_field(
-        _fem.OptimizableParameterField,
-        plastic.optimizable_channel_names, layout_type)
-    def fixed_values(definition, field):
-        if not definition.fixed_channel_names:
-            return np.empty(0, dtype=np.float64)
-        if definition.fixed_channel_names and material_catalog is None:
+    def fixed_values(definition):
+        names = _fixed_channel_order(definition)
+        if len(names) != definition.num_fixed_channels:
+            raise ConfigError(
+                f"no Python fixed-channel order registered for {definition.name}")
+        if not names:
+            return np.empty((mesh.num_elements, 0), dtype=np.float64)
+        if volume is None:
             raise ConfigError(
                 "fixed material channels require imported material data")
-        return np.asarray(
-            _fem.project_imported_material_inputs(
-                material_catalog, field),
-            dtype=np.float64,
-        ).reshape(-1)
+        materials = volume.to_veg_file().materials
+        assignments = volume.element_material_indices
+        return np.asarray([
+            [getattr(materials[int(assignments[element])], name)
+             for name in names]
+            for element in range(mesh.num_elements)
+        ], dtype=np.float64)
 
-    def initial_values(values, field):
+    def initial_values(values, definition):
+        channels = definition.num_optimizable_channels
         if values is None:
-            if field.num_global_parameters:
+            if channels:
                 raise ConfigError(
-                    f"material model requires explicit {field.num_global_parameters} optimizer values")
+                    f"material model requires explicit elementwise optimizer values")
             return np.empty(0, dtype=np.float64)
         array = np.asarray(values, dtype=np.float64)
+        if constant and array.size == channels:
+            array = np.broadcast_to(array.reshape(1, channels),
+                                    (mesh.num_elements, channels))
+        if array.size != mesh.num_elements * channels:
+            raise ConfigError(
+                f"material state requires {mesh.num_elements * channels} values")
         return np.ascontiguousarray(array.reshape(-1))
 
     binding = _fem.MaterialBinding(
         elastic=_fem.ElasticMaterialBinding(
-            elastic,
-            _fem.FixedMaterialParameters(
-                elastic_fixed, fixed_values(elastic, elastic_fixed)),
-            elastic_optimizable,
+            elastic, mesh.num_elements, fixed_values(elastic),
         ),
         plastic=_fem.PlasticMaterialBinding(
-            plastic,
-            _fem.FixedMaterialParameters(
-                plastic_fixed, fixed_values(plastic, plastic_fixed)),
-            plastic_optimizable,
+            plastic, mesh.num_elements, fixed_values(plastic),
         ),
-        material_frames=_fem.GlobalAxesMaterialFrameField(mesh.num_elements),
     )
     state = _fem.MaterialState(
-        elastic_values=initial_values(elastic_values, elastic_optimizable),
-        plastic_values=initial_values(plastic_values, plastic_optimizable),
+        elastic_values=initial_values(elastic_values, elastic),
+        plastic_values=initial_values(plastic_values, plastic),
     )
     return binding, state
 
@@ -290,13 +271,12 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
     surface = _load_mesh(read_obj, cfg.mesh.surface, "surface mesh")
     fm = _volume_formulation(cfg, volume)
 
-    imported = _fem.SimulationImportResult(volume)
-    mesh = imported.mesh
+    mesh = _fem.SimulationMesh(volume)
     elastic = _VOLUME_ELASTIC[cfg.material.model]()
     plastic = _fem.VolumetricPlasticityDefinition(dofs=0)
     material_binding, material_state = _build_material(
         mesh, elastic, plastic,
-        material_catalog=imported.material_catalog)
+        volume=volume)
     deformation_operator = _fem.DeformationEnergyOperator(
         mesh, material_binding,
         formulation=fm,
@@ -308,15 +288,15 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
     num_dofs = deformation.num_dofs
     dofs_per_vertex = num_dofs // volume.num_vertices
 
-    mass_field = (
-        _fem.VolumeDensity(cfg.material.density)
+    element_densities = (
+        cfg.material.density
         if cfg.material.density is not None
-        else _fem.volume_density(volume)
+        else volume.element_densities
     )
-    mass = fm.mass_matrix(mesh, mass_field) if cfg.mode == "dynamic" else None
+    mass = fm.mass_matrix(mesh, element_densities) if cfg.mode == "dynamic" else None
     gravity = np.asarray(cfg.loads.gravity, dtype=np.float64)
     gravity_force = (
-        fm.body_force(mesh, gravity, mass_field)
+        fm.body_force(mesh, gravity, element_densities)
         if float(np.linalg.norm(gravity)) > 0.0
         else np.zeros(num_dofs, dtype=np.float64)
     )
@@ -397,10 +377,9 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
     rest_vertices = np.asarray(surface.vertices, dtype=np.float64)
 
     if cfg.material.mass.areal_density is not None:
-        areal_density = _fem.ShellArealDensity(cfg.material.mass.areal_density)
+        areal_density = cfg.material.mass.areal_density
     else:
-        areal_density = _fem.ShellArealDensity.from_density_thickness(
-            density=cfg.material.mass.density, thickness=cfg.material.thickness)
+        areal_density = cfg.material.mass.density * cfg.material.thickness
     mass = fm.mass_matrix(mesh, areal_density) if cfg.mode == "dynamic" else None
     gravity = np.asarray(cfg.loads.gravity, dtype=np.float64)
     gravity_force = (

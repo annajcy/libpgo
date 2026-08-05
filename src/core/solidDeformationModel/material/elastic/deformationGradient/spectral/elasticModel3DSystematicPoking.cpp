@@ -71,17 +71,6 @@ makeSystematicPokingVolumeModel(
     std::move(fixedShape));
 }
 
-MaterialChannelSchema makeSystematicPokingOptimizableChannelSchema(
-  std::size_t stretchKnotCount)
-{
-  std::vector<std::string> names;
-  names.reserve(stretchKnotCount + 1);
-  for (std::size_t i = 0; i < stretchKnotCount; ++i)
-    names.emplace_back("f_dd_" + std::to_string(i));
-  names.emplace_back("lambda");
-  return MaterialChannelSchema(std::move(names));
-}
-
 }  // namespace
 
 std::vector<double> sampleLogSquaredVolumeCurvatures(
@@ -134,10 +123,7 @@ SystematicPokingDefinition::SystematicPokingDefinition(
   stretchKnots_(stretchKnots.begin(), stretchKnots.end()),
   stretchRestKnotIndex_(stretchRestKnotIndex),
   volumeKnots_(volumeKnots.begin(), volumeKnots.end()),
-  volumeRestKnotIndex_(volumeRestKnotIndex),
-  optimizableChannelSchema_(
-    makeSystematicPokingOptimizableChannelSchema(
-      stretchKnots_.size()))
+  volumeRestKnotIndex_(volumeRestKnotIndex)
 {
   // Construct once so the definition and the evaluator share exactly the
   // same knot, anchor, and positive-volume validation contract.
@@ -148,16 +134,14 @@ SystematicPokingDefinition::SystematicPokingDefinition(
     volumeRestKnotIndex_);
 }
 
-MaterialChannelSchema
-SystematicPokingDefinition::fixedChannelSchema() const
+int SystematicPokingDefinition::numFixedChannels() const
 {
-  return {};
+  return 0;
 }
 
-MaterialChannelSchema
-SystematicPokingDefinition::optimizableChannelSchema() const
+int SystematicPokingDefinition::numOptimizableChannels() const
 {
-  return optimizableChannelSchema_;
+  return static_cast<int>(stretchKnots_.size()) + 1;
 }
 
 std::unique_ptr<ElasticModel>

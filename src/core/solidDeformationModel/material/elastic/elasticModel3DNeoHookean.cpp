@@ -106,18 +106,14 @@ ES::M9d ElasticModel3DNeoHookean::compute_dPdF(
   return tangent;
 }
 
-MaterialChannelSchema
-NeoHookeanDefinition::fixedChannelSchema() const
+int NeoHookeanDefinition::numFixedChannels() const
 {
-  static constexpr std::array<std::string_view, 2>
-    names{ "E", "nu" };
-  return MaterialChannelSchema(names);
+  return 2;
 }
 
-MaterialChannelSchema
-NeoHookeanDefinition::optimizableChannelSchema() const
+int NeoHookeanDefinition::numOptimizableChannels() const
 {
-  return {};
+  return 0;
 }
 
 std::unique_ptr<ElasticModel>

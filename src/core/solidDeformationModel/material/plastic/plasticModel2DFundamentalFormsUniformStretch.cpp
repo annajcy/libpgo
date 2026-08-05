@@ -114,35 +114,11 @@ void pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::c
   dbbar_dparam.setZero();
 }
 
-pgo::EigenSupport::M2d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2abar_dparam2(
-  std::span<const double> params, int pi, int pj) const
-{
-  (void)params;
-  if (pi == 0 && pj == 0) {
-    return 2.0 * abar;
-  }
-  return EigenSupport::M2d::Zero();
-}
-
-pgo::EigenSupport::M2d pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2dbbar_dparam2(
-  std::span<const double> params, int, int) const
-{
-  (void)params;
-  return EigenSupport::M2d::Zero();
-}
-
-double pgo::SolidDeformationModel::PlasticModel2DFundamentalFormsUniformStretch::compute_d2area_dparam2(
-  std::span<const double> params, int pi, int pj) const
-{
-  (void)params;
-  return (pi == 0 && pj == 0) ? 2.0 * areaRest : 0.0;
-}
-
 
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-MaterialChannelSchema ShellPlasticity1Definition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 1> names{"stretch"}; return MaterialChannelSchema(names); }
+int ShellPlasticity1Definition::numOptimizableChannels() const { return 1; }
 std::unique_ptr<PlasticModel> ShellPlasticity1Definition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (!values.empty()) throw std::invalid_argument("shell_ff_dof1 has no fixed channels");

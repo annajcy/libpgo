@@ -26,13 +26,12 @@ def make_cubic_case():
     volume = pgo.mesh.volume.VolumeMesh(
         cube, pgo.mesh.volume.ENuMaterial(E=1e6, nu=0.45)
     )
-    sim = pgo.fem.SimulationImportResult(volume)
     material = direct_material(
-        sim,
+        volume,
         fem.StVKDefinition(),
         fem.VolumetricPlasticityDefinition(dofs=6),
-        fem.ElementwiseParameterLayout,
-        fem.ConstantParameterLayout,
+        None,
+        None,
     )
     operator = fem.DeformationEnergyOperator(
         material.mesh,
@@ -43,7 +42,7 @@ def make_cubic_case():
         ),
     )
     energy = fem.DeformationPotentialEnergy(operator, material.state)
-    return sim, energy
+    return material.mesh, energy
 
 
 def test_adjoint_dE_dp_can_be_assembled_directly():

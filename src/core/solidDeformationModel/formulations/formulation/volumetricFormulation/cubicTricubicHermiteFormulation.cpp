@@ -1,7 +1,7 @@
 #include "cubicTricubicHermiteFormulation.h"
 
 #include "barycentricCoordinates.h"
-#include "deformation/volume/volumetricDeformationModel.h"
+#include "deformation/volume/volumetricDeformationElement.h"
 #include "formulations/dof/cubicTricubicHermiteDofLayout.h"
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
 #include "formulations/shapeFunction/cubicTricubicHermiteShapeFunction.h"
@@ -118,16 +118,24 @@ ES::SpMatD buildHermiteSurfaceEmbeddingMatrix(
 }
 }  // namespace
 
-CubicTricubicHermiteFormulation::CubicTricubicHermiteFormulation()
-  : CubicFormulation(
-      std::make_unique<CubicTricubicHermiteShapeFunction>(),
-      std::make_unique<GaussLegendreHexQuadrature4>())
+CubicTricubicHermiteFormulation::CubicTricubicHermiteFormulation(): CubicFormulation(
+                                                                      std::make_unique<CubicTricubicHermiteShapeFunction>(),
+                                                                      std::make_unique<GaussLegendreHexQuadrature4>())
 {
 }
 
-std::string_view CubicTricubicHermiteFormulation::getName() const { return "cubic_tricubic_hermite"; }
-int CubicTricubicHermiteFormulation::numBasisFunctionsPerElement() const { return 64; }
-int CubicTricubicHermiteFormulation::getLocalDofs() const { return 192; }
+std::string_view CubicTricubicHermiteFormulation::getName() const
+{
+  return "cubic_tricubic_hermite";
+}
+int CubicTricubicHermiteFormulation::numBasisFunctionsPerElement() const
+{
+  return 64;
+}
+int CubicTricubicHermiteFormulation::getLocalDofs() const
+{
+  return 192;
+}
 
 EigenSupport::SpMatD CubicTricubicHermiteFormulation::buildSurfaceEmbeddingMatrix(
   const VolumetricMeshes::VolumetricMesh &mesh,
@@ -161,16 +169,16 @@ EigenSupport::VXd CubicTricubicHermiteFormulation::buildGlobalRestDofs(const Sim
   return rest;
 }
 
-std::unique_ptr<DeformationModel> CubicTricubicHermiteFormulation::createElement(
+std::unique_ptr<DeformationElement> CubicTricubicHermiteFormulation::createElement(
   const SimulationMesh &mesh, int ele,
   std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-  DeformationModelConstructionOptions options) const
+  DeformationElementConstructionOptions options) const
 {
   std::array<double, 192> restPosition;
   elementHermiteRestDofs(mesh, ele, restPosition);
 
   auto mapping = createElementMapping(restPosition);
-  return std::make_unique<VolumetricDeformationModel>(
+  return std::make_unique<VolumetricDeformationElement>(
     std::move(*mapping),
     checkedMaterialCast<ElasticModel3DDeformationGradient>(
       std::move(elasticModel),

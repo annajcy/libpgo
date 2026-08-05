@@ -24,12 +24,12 @@ class PlasticModelDefinition:
         return self._handle.dofs
 
     @property
-    def fixed_channel_names(self) -> tuple[str, ...]:
-        return tuple(self._handle.fixed_channel_names)
+    def num_fixed_channels(self) -> int:
+        return int(self._handle.num_fixed_channels)
 
     @property
-    def optimizable_channel_names(self) -> tuple[str, ...]:
-        return tuple(self._handle.optimizable_channel_names)
+    def num_optimizable_channels(self) -> int:
+        return int(self._handle.num_optimizable_channels)
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(dofs={self.dofs})"

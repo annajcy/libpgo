@@ -7,12 +7,18 @@ from dataclasses import dataclass
 import numpy as np
 
 import pypgo.fem as fem
+from pypgo.mesh.volume import VolumeMesh
 
 
-def _catalog_channel_name(name: str) -> str:
-    return {"E_membrane": "E", "E_bending": "E",
-            "nu_membrane": "nu", "nu_bending": "nu",
-            "thickness": "h"}.get(name, name)
+_FIXED_ORDERS = {
+    "stable_neo": ("E", "nu"),
+    "stable_neo_principal_stretch": ("E", "nu"),
+    "neo_hookean": ("E", "nu"),
+    "stvk": ("E", "nu"),
+    "linear": ("E", "nu"),
+    "stvk_vol": ("E", "nu", "J"),
+    "mooney_rivlin": ("mu01", "mu10", "v1"),
+}
 
 
 @dataclass(frozen=True)
@@ -22,79 +28,64 @@ class DirectMaterial:
     state: fem.MaterialState
 
 
-def direct_material(source, elastic, plastic, elastic_layout, plastic_layout,
-                    elastic_values=None, plastic_values=None):
-    if isinstance(source, fem.SimulationImportResult):
-        mesh = source.mesh
-        material_data = source.material_catalog
+def direct_material(source, elastic, plastic, elastic_layout=None,
+                    plastic_layout=None, elastic_values=None,
+                    plastic_values=None):
+    del elastic_layout, plastic_layout
+    if isinstance(source, VolumeMesh):
+        mesh = fem.SimulationMesh(source)
+        veg = source.to_veg_file()
+        materials = veg.materials
+        assignments = source.element_material_indices
     elif isinstance(source, fem.SimulationMesh):
         mesh = source
-        material_data = None
+        materials = None
+        assignments = None
     else:
-        raise TypeError("source must be SimulationMesh or SimulationImportResult")
+        raise TypeError("source must be VolumeMesh or SimulationMesh")
 
-    def identity_field(field_type, names, layout_type):
-        count = len(names)
-        return field_type(
-            names,
-            layout_type(mesh.num_elements, count),
-            fem.IdentityMaterialChannelMapping(count),
-        )
-
-    elastic_fixed = fem.FixedParameterField(
-        tuple(_catalog_channel_name(name) for name in elastic.fixed_channel_names),
-        fem.ElementwiseParameterLayout(
-            mesh.num_elements, len(elastic.fixed_channel_names)),
-        fem.IdentityMaterialChannelMapping(len(elastic.fixed_channel_names)))
-    plastic_fixed = fem.FixedParameterField(
-        tuple(_catalog_channel_name(name) for name in plastic.fixed_channel_names),
-        fem.ElementwiseParameterLayout(
-            mesh.num_elements, len(plastic.fixed_channel_names)),
-        fem.IdentityMaterialChannelMapping(len(plastic.fixed_channel_names)))
-    elastic_field = identity_field(
-        fem.OptimizableParameterField,
-        elastic.optimizable_channel_names, elastic_layout)
-    plastic_field = identity_field(
-        fem.OptimizableParameterField,
-        plastic.optimizable_channel_names, plastic_layout)
-    def fixed_data(definition, field):
-        channels = definition.fixed_channel_names
-        if not channels:
-            return np.empty(0, dtype=np.float64)
-        if material_data is None:
-            raise ValueError("fixed material channels require a material catalog")
-        return np.asarray(
-            fem.project_imported_material_inputs(material_data, field),
-            dtype=np.float64,
-        ).reshape(-1)
-
-    def initial_data(values, field):
-        if values is not None:
-            return np.asarray(values, dtype=np.float64).reshape(-1)
-        defaults = {"stretch", "Fx", "Fy", "Fz", "Fxx", "Fyy", "Fzz"}
-        rows = field.num_value_rows
+    def fixed_data(definition):
+        names = _FIXED_ORDERS.get(definition.name, ())
+        if len(names) != definition.num_fixed_channels:
+            raise ValueError(f"missing fixed-channel order for {definition.name}")
+        if not names:
+            return np.empty((mesh.num_elements, 0), dtype=np.float64)
+        if materials is None:
+            raise ValueError("fixed material channels require a VolumeMesh")
         return np.asarray([
-            [1.0 if name in defaults else 0.0 for name in field.parameter_names]
-            for _ in range(rows)
-        ], dtype=np.float64).reshape(-1)
+            [getattr(materials[int(assignments[element])], name)
+             for name in names]
+            for element in range(mesh.num_elements)
+        ], dtype=np.float64)
+
+    def initial_data(values, definition, plastic_domain=False):
+        count = definition.num_optimizable_channels
+        if values is not None:
+            array = np.asarray(values, dtype=np.float64)
+            if array.size == count and mesh.num_elements != 1:
+                array = np.broadcast_to(array.reshape(1, count),
+                                        (mesh.num_elements, count))
+            if array.size != mesh.num_elements * count:
+                raise ValueError("material state has the wrong elementwise size")
+            return np.ascontiguousarray(array.reshape(-1))
+        result = np.zeros((mesh.num_elements, count), dtype=np.float64)
+        if plastic_domain:
+            if definition.name == "shell_ff_dof1":
+                result[:, 0] = 1.0
+            elif definition.name == "volumetric_dof3":
+                result[:, :] = 1.0
+            elif definition.name == "volumetric_dof6":
+                result[:, [0, 3, 5]] = 1.0
+        return result.reshape(-1)
 
     binding = fem.MaterialBinding(
         elastic=fem.ElasticMaterialBinding(
-            elastic,
-            fem.FixedMaterialParameters(
-                elastic_fixed, fixed_data(elastic, elastic_fixed)),
-            elastic_field,
-        ),
+            elastic, mesh.num_elements, fixed_data(elastic)),
         plastic=fem.PlasticMaterialBinding(
-            plastic,
-            fem.FixedMaterialParameters(
-                plastic_fixed, fixed_data(plastic, plastic_fixed)),
-            plastic_field,
-        ),
-        material_frames=fem.GlobalAxesMaterialFrameField(mesh.num_elements),
+            plastic, mesh.num_elements, fixed_data(plastic)),
     )
     state = fem.MaterialState(
-        elastic_values=initial_data(elastic_values, elastic_field),
-        plastic_values=initial_data(plastic_values, plastic_field),
+        elastic_values=initial_data(elastic_values, elastic),
+        plastic_values=initial_data(plastic_values, plastic, True),
     )
     return DirectMaterial(mesh=mesh, binding=binding, state=state)

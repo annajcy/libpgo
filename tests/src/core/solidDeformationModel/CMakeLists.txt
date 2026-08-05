@@ -29,11 +29,6 @@ pgo_add_gtest(materialState_gtest
   DEFINITIONS LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/cubic/box.veg"
 )
 
-pgo_add_gtest(materialBindingSemantics_gtest
-  SOURCES materialBindingSemantics_gtest.cpp
-  DEPS solidDeformationModel
-)
-
 pgo_add_gtest(tetLinearShapeFunction_gtest
   SOURCES formulations/shapeFunction/tetLinearShapeFunction_gtest.cpp
   DEPS solidDeformationModel
@@ -62,12 +57,12 @@ pgo_add_gtest(volumetricElementMapping_gtest
   SOURCES deformation/volume/volumetricElementMapping_gtest.cpp
   DEPS solidDeformationModel
 )
-pgo_add_gtest(volumetricDeformationModel_gtest
-  SOURCES deformation/volume/volumetricDeformationModel_gtest.cpp
+pgo_add_gtest(volumetricDeformationElement_gtest
+  SOURCES deformation/volume/volumetricDeformationElement_gtest.cpp
   DEPS solidDeformationModel
 )
-pgo_add_gtest(shellDeformationModel_gtest
-  SOURCES deformation/shell/shellDeformationModel_gtest.cpp
+pgo_add_gtest(shellDeformationElement_gtest
+  SOURCES deformation/shell/shellDeformationElement_gtest.cpp
   DEPS solidDeformationModel
 )
 
@@ -91,16 +86,8 @@ pgo_add_gtest(vertex3DofLayout_gtest
   DEFINITIONS LIBPGO_TEST_SHELL_OBJ="${CMAKE_SOURCE_DIR}/examples/assets/obj/shell.obj"
 )
 
-pgo_add_gtest(constantParameterField_gtest
-  SOURCES material/fields/constantParameterField_gtest.cpp
-  DEPS solidDeformationModel
-)
-pgo_add_gtest(elementwiseParameterField_gtest
-  SOURCES material/fields/elementwiseParameterField_gtest.cpp
-  DEPS solidDeformationModel
-)
-pgo_add_gtest(materialFrameField_gtest
-  SOURCES material/fields/materialFrameField_gtest.cpp
+pgo_add_gtest(materialFrames_gtest
+  SOURCES material/fields/materialFrames_gtest.cpp
   DEPS solidDeformationModel
 )
 

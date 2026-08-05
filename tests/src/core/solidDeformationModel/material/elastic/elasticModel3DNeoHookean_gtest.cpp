@@ -131,14 +131,8 @@ TEST(ElasticModel3DNeoHookean, DefinitionAndDomainValidation)
 {
   SDM::NeoHookeanDefinition definition;
   EXPECT_EQ(definition.id(), "neo_hookean");
-  const SDM::MaterialChannelSchema fixedSchema =
-    definition.fixedChannelSchema();
-  const auto fixedNames = fixedSchema.channelNames();
-  ASSERT_EQ(fixedNames.size(), 2);
-  EXPECT_EQ(fixedNames[0], "E");
-  EXPECT_EQ(fixedNames[1], "nu");
-  EXPECT_EQ(
-    definition.optimizableChannelSchema().numChannels(), 0);
+  EXPECT_EQ(definition.numFixedChannels(), 2);
+  EXPECT_EQ(definition.numOptimizableChannels(), 0);
 
   std::unique_ptr<SDM::ElasticModel> created =
     definition.createModel(

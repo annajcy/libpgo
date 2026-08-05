@@ -1,6 +1,6 @@
 #pragma once
 
-#include "material/model/plasticModelDefinition.h"
+#include "material/plastic/plasticModelDefinition.h"
 #include "material/plastic/plasticModel3DConstant.h"
 #include "material/plastic/plasticModel3D3DOF.h"
 #include "material/plastic/plasticModel3D6DOF.h"
@@ -24,8 +24,11 @@ public:
 
   std::string name() const { return std::string(definition_->id()); }
   int dofs() const { return dofs_; }
-  std::vector<std::string> fixedChannelNames() const;
-  std::vector<std::string> optimizableChannelNames() const;
+  int numFixedChannels() const { return definition_->numFixedChannels(); }
+  int numOptimizableChannels() const
+  {
+    return definition_->numOptimizableChannels();
+  }
   std::shared_ptr<const SolidDeformationModel::PlasticModelDefinition> definition() const { return definition_; }
 
 protected:

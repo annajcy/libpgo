@@ -12,6 +12,7 @@
 #include "triMeshGeo.h"
 #include "simulation/generateTetMeshMatrix.h"
 #include "tetMesh.h"
+#include "volumetricMeshENuMaterial.h"
 #include "pgoLogging.h"
 #include "geometryQuery.h"
 #include "boundingVolumeTree.h"
@@ -21,13 +22,11 @@
 #include "energy/deformationEnergyOperator.h"
 #include "energy/deformationPotentialEnergy.h"
 #include "formulations/formulation/formulations.h"
-#include "deformation/deformationModelManager.h"
 #include "basicIO.h"
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationEnergyOperator.h"
 #include "material/plastic/plasticModel.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
-#include "material/projection/materialInputProjection.h"
 #include "material/runtime/materialBinding.h"
 #include "material/runtime/materialState.h"
 #include "multiVertexPullingSoftConstraints.h"
@@ -685,10 +684,8 @@ int pgo_run_sim_from_config(const char *configFileName)
   InterpolationCoordinates::BarycentricCoordinates bc(surfaceMesh.numVertices(), surfaceRestPositions.data(), &tetMesh);
   ES::SpMatD W = bc.generateInterpolationMatrix();
 
-  std::unique_ptr<SolidDeformationModel::SimulationImportResult> loadedAsset =
+  std::shared_ptr<const SolidDeformationModel::SimulationMesh> simMesh =
     SolidDeformationModel::loadTetMesh(tetMesh);
-  std::shared_ptr<const SolidDeformationModel::SimulationImportResult> asset(loadedAsset.release());
-  std::shared_ptr<const SolidDeformationModel::SimulationMesh> simMesh = asset->mesh();
 
   int n = simMesh->getNumVertices();
   int n3 = n * 3;
@@ -697,55 +694,33 @@ int pgo_run_sim_from_config(const char *configFileName)
   std::shared_ptr<SolidDeformationModel::DeformationEnergyOperator> elasticOperator;
   auto plastic = std::make_shared<SolidDeformationModel::VolumetricPlasticity6Definition>();
   const int nele = simMesh->getNumElements();
-  const auto elasticFixedChannels = elasticDefinition->fixedChannelSchema();
-  std::vector<std::string> elasticFixedNames;
-  elasticFixedNames.reserve(elasticFixedChannels.channelNames().size());
-  for (const auto name : elasticFixedChannels.channelNames())
-    elasticFixedNames.emplace_back(name);
-  auto elasticFixed = std::make_shared<const SolidDeformationModel::FixedParameterField>(
-    SolidDeformationModel::ParameterInputSchema(std::move(elasticFixedNames)),
-    std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(
-      nele, elasticFixedChannels.numChannels()),
-    std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(
-      elasticFixedChannels.numChannels()));
-  auto plasticFixed = std::make_shared<const SolidDeformationModel::FixedParameterField>(
-    SolidDeformationModel::ParameterInputSchema{},
-    std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 0),
-    std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(0));
-  auto elasticOpt = std::make_shared<const SolidDeformationModel::OptimizableParameterField>(
-    SolidDeformationModel::ParameterInputSchema{},
-    std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 0),
-    std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(0));
-  auto plasticOpt = std::make_shared<const SolidDeformationModel::OptimizableParameterField>(
-    SolidDeformationModel::ParameterInputSchema(
-      {"Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz"}),
-    std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 6),
-    std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(6));
-  ES::VXd elasticFixedValues =
-    SolidDeformationModel::projectImportedMaterialInputs(
-      asset->materialCatalog(), elasticFixed->inputSchema(),
-      elasticFixed->layout());
-  ES::VXd plasticFixedValues =
-    SolidDeformationModel::projectImportedMaterialInputs(
-      asset->materialCatalog(), plasticFixed->inputSchema(),
-      plasticFixed->layout());
+  const std::vector<std::string_view> elasticPropertyOrder =
+    material == "stable-neo" ?
+      std::vector<std::string_view>{ "E", "nu" } :
+      std::vector<std::string_view>{ "E", "nu", "J" };
+  ES::VXd elasticFixedValues(nele * elasticPropertyOrder.size());
+  for (int element = 0; element < nele; ++element) {
+    const auto *enu = VolumetricMeshes::downcastENuMaterial(
+      tetMesh.getElementMaterial(element));
+    if (!enu)
+      throw std::invalid_argument(
+        "This legacy C simulation entry point requires E/nu materials.");
+    const Eigen::Index offset =
+      static_cast<Eigen::Index>(element * elasticPropertyOrder.size());
+    elasticFixedValues[offset] = enu->getE();
+    elasticFixedValues[offset + 1] = enu->getNu();
+    if (elasticPropertyOrder.size() == 3)
+      elasticFixedValues[offset + 2] = 10000.0;
+  }
   ES::VXd plasticInitialValues = ES::VXd::Zero(nele * 6);
   for (int element = 0; element < nele; ++element)
     plasticInitialValues.segment<6>(element * 6)
       << 1, 0, 0, 1, 0, 1;
   auto binding = std::make_shared<const SolidDeformationModel::MaterialBinding>(
     SolidDeformationModel::ElasticMaterialBinding(
-      elasticDefinition,
-      SolidDeformationModel::FixedMaterialParameters(
-        std::move(elasticFixed), std::move(elasticFixedValues)),
-      std::move(elasticOpt)),
+      elasticDefinition, nele, std::move(elasticFixedValues)),
     SolidDeformationModel::PlasticMaterialBinding(
-      plastic,
-      SolidDeformationModel::FixedMaterialParameters(
-        std::move(plasticFixed), std::move(plasticFixedValues)),
-      std::move(plasticOpt)),
-    std::make_shared<const SolidDeformationModel::GlobalAxesMaterialFrameField>(
-      nele));
+      plastic, nele, ES::VXd{}));
   const SolidDeformationModel::MaterialState materialState(
     ES::VXd{}, std::move(plasticInitialValues));
   switch (simMesh->getElementType()) {

@@ -3,7 +3,7 @@
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-MaterialChannelSchema ShellPlasticity0Definition::optimizableChannelSchema() const { return {}; }
+int ShellPlasticity0Definition::numOptimizableChannels() const { return 0; }
 std::unique_ptr<PlasticModel> ShellPlasticity0Definition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (!values.empty()) throw std::invalid_argument("shell_ff_dof0 has no fixed channels");

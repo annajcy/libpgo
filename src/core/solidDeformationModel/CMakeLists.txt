@@ -41,26 +41,20 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/plastic/plasticModel2DFundamentalForms.h
   material/plastic/plasticModel2DFundamentalFormsUniformStretch.h
 
-  deformation/deformationModel.h
-  deformation/deformationModelEvaluator.h
+  deformation/deformationElement.h
   deformation/hessianProjection.h
   deformation/materialMaxStepPolynomialUtils.h
-  deformation/deformationModelManager.h
 
   deformation/deformationModelAssembler.h
-  deformation/deformationModelAssemblerElementWorkspace.h
-  deformation/hessianMatrixHandle.h
 
   energy/deformationEnergyOperator.h
   energy/deformationPotentialEnergy.h
 
   simulation/simulationMesh.h
-  simulation/simulationMeshBase.h
   simulation/simulationMeshVolume.h
   simulation/simulationMeshTriangle.h
   simulation/simulationMeshEdgeQuad.h
   simulation/simulationMeshShell.h
-  simulation/import/simulationImportResult.h
   constraints/tetVolumeConstraintFunctions.h
   simulation/tetMeshOccupation.h
 
@@ -95,37 +89,22 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   deformation/shell/shellElementMapping.h
   deformation/shell/koiterShellElementMapping.h
 
-  deformation/volume/volumetricDeformationModel.h
-  deformation/volume/volumetricDeformationModelEvaluator.h
-  deformation/volume/volumetricDeformationModelCacheData.h
-  deformation/shell/shellDeformationModel.h
-  deformation/shell/shellDeformationModelEvaluator.h
-  deformation/shell/shellDeformationModelCacheData.h
+  deformation/volume/volumetricDeformationElement.h
+  deformation/volume/volumetricDeformationElementCache.h
+  deformation/shell/shellDeformationElement.h
+  deformation/shell/shellDeformationElementCache.h
 
   formulations/dof/dofLayout.h
   formulations/dof/perVertexDofLayout.h
   formulations/dof/vertex3DofLayout.h
   formulations/dof/cubicTricubicHermiteDofLayout.h
 
-  material/parameterization/parameterLayout.h
-  material/model/materialSchema.h
-  material/model/elasticModelDefinition.h
-  material/model/plasticModelDefinition.h
-  material/parameterization/materialChannelMapping.h
-  material/parameterization/materialParameterField.h
+  material/elastic/elasticModelDefinition.h
+  material/plastic/plasticModelDefinition.h
   material/runtime/materialBinding.h
   material/runtime/materialState.h
-  material/runtime/optimizableParameterRef.h
-  material/frame/materialFrameField.h
-  material/data/namedMaterialInputData.h
-  material/projection/materialInputProjection.h
-  material/projection/importedMaterialFrames.h
-  material/import/importedMaterialCatalog.h
-  material/import/volumeMaterialImporter.h
+  material/frame/materialFrames.h
 
-  mass/elementScalarField.h
-  mass/volumeDensityField.h
-  mass/shellArealDensityField.h
 )
 
 set(SOLID_DEFORMATION_MODEL_SOURCES
@@ -162,7 +141,6 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   material/plastic/plasticModel2DFundamentalFormsUniformStretch.cpp
 
-  material/model/materialSchema.cpp
 
   deformation/materialMaxStepPolynomialUtils.cpp
 
@@ -189,42 +167,22 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/volume/volumetricElementMapping.cpp
   deformation/shell/koiterShellElementMapping.cpp
 
-  deformation/volume/volumetricDeformationModel.cpp
-  deformation/volume/volumetricDeformationModelEvaluator.cpp
-  deformation/volume/volumetricDeformationModelCacheData.cpp
-  deformation/shell/shellDeformationModel.cpp
-  deformation/shell/shellDeformationModelEvaluator.cpp
-  deformation/shell/shellDeformationModelCacheData.cpp
+  deformation/volume/volumetricDeformationElement.cpp
+  deformation/volume/volumetricDeformationElementCache.cpp
+  deformation/shell/shellDeformationElement.cpp
+  deformation/shell/shellDeformationElementCache.cpp
 
-  material/parameterization/parameterLayout.cpp
-  material/parameterization/materialChannelMapping.cpp
-  material/parameterization/materialParameterField.cpp
   material/runtime/materialState.cpp
-  material/runtime/optimizableParameterRef.cpp
-  material/frame/materialFrameField.cpp
-  material/projection/materialInputProjection.cpp
-  material/projection/importedMaterialFrames.cpp
-  material/import/importedMaterialCatalog.cpp
-  material/import/volumeMaterialImporter.cpp
-  material/data/namedMaterialInputData.cpp
-
-
-  deformation/deformationModelManager.cpp
+  material/frame/materialFrames.cpp
 
   deformation/deformationModelAssembler.cpp
-  deformation/deformationModelAssemblerElementWorkspace.cpp
 
   energy/deformationEnergyOperator.cpp
   energy/deformationPotentialEnergy.cpp
 
   material/plastic/plasticModel2DFundamentalForms.cpp
 
-  mass/elementScalarField.cpp
-  mass/volumeDensityField.cpp
-  mass/shellArealDensityField.cpp
-
   simulation/simulationMeshCore.cpp
-  simulation/import/simulationImportResult.cpp
   simulation/simulationMeshVolume.cpp
   simulation/simulationMeshTriangle.cpp
   simulation/simulationMeshShell.cpp

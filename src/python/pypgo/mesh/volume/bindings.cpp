@@ -41,53 +41,6 @@ void init_volume_mesh_bindings(nb::module_ &m)
         .def("num_vertices", &PySimulationMesh::numVertices)
         .def("num_elements", &PySimulationMesh::numElements)
         .def("num_element_vertices", &PySimulationMesh::numElementVertices);
-    nb::class_<PySimulationImportResult>(m, "PySimulationImportResult")
-        .def_prop_ro("mesh", &PySimulationImportResult::mesh)
-        .def_prop_ro(
-          "material_catalog",
-          &PySimulationImportResult::materialCatalog);
-
-    nb::class_<PyImportedMaterialRecord>(m, "PyImportedMaterialRecord")
-        .def(nb::init<std::string, std::string, nb::dict>(),
-            nb::arg("name"), nb::arg("family"), nb::arg("properties"))
-        .def_prop_ro("name", &PyImportedMaterialRecord::name)
-        .def_prop_ro("family", &PyImportedMaterialRecord::family)
-        .def_prop_ro("properties", &PyImportedMaterialRecord::properties);
-    nb::class_<PyImportedElementSet>(m, "PyImportedElementSet")
-        .def(nb::init<std::string, std::vector<int>>(),
-            nb::arg("name"), nb::arg("elements"))
-        .def_prop_ro("name", &PyImportedElementSet::name)
-        .def_prop_ro("elements", &PyImportedElementSet::elements);
-    nb::class_<PyImportedMaterialRegion>(m, "PyImportedMaterialRegion")
-        .def(nb::init<int, int>(), nb::arg("material_index"), nb::arg("set_index"))
-        .def_prop_ro("material_index", &PyImportedMaterialRegion::materialIndex)
-        .def_prop_ro("set_index", &PyImportedMaterialRegion::setIndex);
-    nb::class_<PyNamedMaterialInputField>(m, "PyNamedMaterialInputField")
-        .def(nb::init<std::string, std::vector<std::string>,
-                      std::vector<std::vector<double>>, std::vector<int>>(),
-            nb::arg("name"), nb::arg("channel_names"), nb::arg("value_rows"),
-            nb::arg("element_to_row"))
-        .def_prop_ro("name", &PyNamedMaterialInputField::name)
-        .def_prop_ro("channel_names", &PyNamedMaterialInputField::channelNames)
-        .def_prop_ro("value_rows", &PyNamedMaterialInputField::valueRows)
-        .def_prop_ro("element_to_row", &PyNamedMaterialInputField::elementToRow);
-    nb::class_<PyImportedMaterialCatalog>(m, "PyImportedMaterialCatalog")
-        .def(nb::init<int, std::vector<PyImportedMaterialRecord>,
-                      std::vector<PyImportedElementSet>,
-                      std::vector<PyImportedMaterialRegion>>(),
-            nb::arg("num_elements"), nb::arg("materials"), nb::arg("sets"),
-            nb::arg("regions"))
-        .def_prop_ro("num_elements", &PyImportedMaterialCatalog::numElements)
-        .def_prop_ro("materials", &PyImportedMaterialCatalog::materials)
-        .def_prop_ro("sets", &PyImportedMaterialCatalog::sets)
-        .def_prop_ro("regions", &PyImportedMaterialCatalog::regions)
-        .def_prop_ro("element_material_indices", &PyImportedMaterialCatalog::elementMaterialIndices);
-    nb::class_<PyNamedMaterialInputData>(m, "PyNamedMaterialInputData")
-        .def(nb::init<int, std::vector<PyNamedMaterialInputField>>(),
-            nb::arg("num_elements"), nb::arg("fields"))
-        .def_prop_ro("num_elements", &PyNamedMaterialInputData::numElements)
-        .def_prop_ro("fields", &PyNamedMaterialInputData::fields);
-
     nb::class_<PyVegENuMaterialPayload>(m, "PyVegENuMaterialPayload")
         .def_rw("name", &PyVegENuMaterialPayload::name)
         .def_rw("density", &PyVegENuMaterialPayload::density)
@@ -138,7 +91,7 @@ void init_volume_mesh_bindings(nb::module_ &m)
         nb::arg("path"), nb::arg("payload"));
     m.def("extract_surface_mesh", &extract_surface_mesh, nb::arg("volume_mesh"), nb::arg("triangulate") = true);
     m.def("extract_veg_payload_from_volume_mesh", &extract_veg_payload_from_volume_mesh, nb::arg("volume_mesh"));
-    m.def("_import_simulation_mesh_from_volume", &import_simulation_mesh_from_volume);
+    m.def("_create_volume_simulation_mesh", &create_volume_simulation_mesh);
     m.def("_create_shell_simulation_mesh", &create_shell_simulation_mesh,
         nb::arg("surface_data"));
     m.def("compute_mass_matrix", &compute_mass_matrix,

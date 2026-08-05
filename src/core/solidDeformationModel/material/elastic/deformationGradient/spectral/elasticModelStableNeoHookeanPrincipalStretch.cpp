@@ -66,17 +66,14 @@ ES::M3d ElasticModelStableNeoHookeanPrincipalStretch::compute_d2psi_ds2(
   return hessian;
 }
 
-MaterialChannelSchema
-StableNeoPrincipalStretchDefinition::optimizableChannelSchema() const
+int StableNeoPrincipalStretchDefinition::numOptimizableChannels() const
 {
-  return {};
+  return 0;
 }
 
-MaterialChannelSchema
-StableNeoPrincipalStretchDefinition::fixedChannelSchema() const
+int StableNeoPrincipalStretchDefinition::numFixedChannels() const
 {
-  static constexpr std::array<std::string_view, 2> names{"E", "nu"};
-  return MaterialChannelSchema(names);
+  return 2;
 }
 
 std::unique_ptr<ElasticModel>

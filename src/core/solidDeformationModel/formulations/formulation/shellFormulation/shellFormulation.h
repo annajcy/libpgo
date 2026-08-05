@@ -11,7 +11,6 @@ namespace SolidDeformationModel
 {
 
 class ShellElementMapping;
-class ShellArealDensityField;
 
 class ShellFormulation : public Formulation
 {
@@ -19,10 +18,10 @@ public:
   virtual std::unique_ptr<ShellElementMapping> createElementMapping(
     const EigenSupport::V18d &restX, const std::array<bool, 6> &hasVtx) const = 0;
 
-  std::unique_ptr<DeformationModel> createElement(
+  std::unique_ptr<DeformationElement> createElement(
     const SimulationMesh &mesh, int ele,
     std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-    DeformationModelConstructionOptions options = {}) const override;
+    DeformationElementConstructionOptions options = {}) const override;
 
   SimulationMeshType compatibleMeshType() const override;
 
@@ -31,10 +30,10 @@ public:
   // affects bending energy; displacement DOFs are 3 per vertex.
   EigenSupport::SpMatD buildMassMatrix(
     const SimulationMesh &mesh,
-    const ShellArealDensityField &arealDensity) const;
+    EigenSupport::ConstRefVecXd elementArealDensities) const;
   EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-    const ShellArealDensityField &arealDensity) const;
+    EigenSupport::ConstRefVecXd elementArealDensities) const;
 };
 
 }  // namespace SolidDeformationModel

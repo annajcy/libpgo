@@ -475,27 +475,25 @@ PyTriMeshData extract_surface_mesh(const PyVolumeMesh& vm, bool triangulate)
     return PyTriMeshData(Mesh::MeshData<3>::fromFlatElements(std::move(vertices), std::move(triangles)));
 }
 
-std::shared_ptr<PySimulationImportResult> import_simulation_mesh_from_volume(
+std::shared_ptr<PySimulationMesh> create_volume_simulation_mesh(
     const PyVolumeMesh& vm)
 {
     const auto* volume = vm.getVM();
-    std::unique_ptr<SolidDeformationModel::SimulationImportResult> result;
+    std::shared_ptr<SolidDeformationModel::SimulationMesh> mesh;
     {
         nb::gil_scoped_release release;
         if (auto* tetMesh = dynamic_cast<const VolumetricMeshes::TetMesh*>(volume)) {
-            result = SolidDeformationModel::loadTetMesh(*tetMesh);
+            mesh = SolidDeformationModel::loadTetMesh(*tetMesh);
         }
         else if (auto* cubicMesh = dynamic_cast<const VolumetricMeshes::CubicMesh*>(volume)) {
-            result = SolidDeformationModel::loadCubicMesh(*cubicMesh);
+            mesh = SolidDeformationModel::loadCubicMesh(*cubicMesh);
         }
         else {
             throw std::runtime_error(
-                "Unsupported volume mesh type for simulation import");
+                "Unsupported volume mesh type for simulation");
         }
     }
-    return std::make_shared<PySimulationImportResult>(
-      std::shared_ptr<const SolidDeformationModel::SimulationImportResult>(
-        result.release()));
+    return std::make_shared<PySimulationMesh>(std::move(mesh));
 }
 
 std::shared_ptr<PySimulationMesh> create_shell_simulation_mesh(

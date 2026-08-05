@@ -37,26 +37,6 @@ public:
   {
     energyOperator_->compute_dE_de(u, materialState_.view(), g);
   }
-  void compute_d2E_dp2(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &h) const
-  {
-    energyOperator_->compute_d2E_dp2(u, materialState_.view(), h);
-  }
-  void compute_d2E_de2(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &h) const
-  {
-    energyOperator_->compute_d2E_de2(u, materialState_.view(), h);
-  }
-  void compute_d2E_dpde(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &h) const
-  {
-    energyOperator_->compute_d2E_dpde(u, materialState_.view(), h);
-  }
-  void compute_d2E_dudp(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &h) const
-  {
-    energyOperator_->compute_d2E_dudp(u, materialState_.view(), h);
-  }
-  void compute_d2E_dude(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &h) const
-  {
-    energyOperator_->compute_d2E_dude(u, materialState_.view(), h);
-  }
   void computeVonMisesStresses(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd out) const
   {
     energyOperator_->computeVonMisesStresses(u, materialState_.view(), out);

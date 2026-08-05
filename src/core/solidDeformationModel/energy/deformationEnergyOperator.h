@@ -8,8 +8,6 @@ copyright to USC,MIT,NUS
 #include "energy/potentialEnergy.h"
 #include "material/runtime/materialState.h"
 
-#include <tbb/enumerable_thread_specific.h>
-
 #include <memory>
 #include <vector>
 
@@ -68,11 +66,6 @@ public:
   // explicit; the operator owns no committed material values.
   void compute_dE_dp(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::RefVecXd grad) const;
   void compute_dE_de(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::RefVecXd grad) const;
-  void compute_d2E_dp2(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_de2(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_dpde(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &hess) const;
-  void compute_d2E_dudp(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &mixedHessian) const;
-  void compute_d2E_dude(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::SpMatD &mixedHessian) const;
   void computePlasticMaterialVJP(
     EigenSupport::ConstRefVecXd displacement,
     MaterialStateView state,
@@ -98,7 +91,9 @@ protected:
   std::vector<int> allDOFs;
   std::unique_ptr<EigenSupport::VXd> restDofs;
   EigenSupport::VXd vertexRestPositions;
-  mutable tbb::enumerable_thread_specific<EigenSupport::VXd> absolutePositionScratch_;
+  // Mutable evaluation storage. One operator instance does not support
+  // overlapping/concurrent evaluations.
+  mutable EigenSupport::VXd absolutePositionScratch_;
   bool enableMaterialMaxStep_ = true;
 
 private:
@@ -116,7 +111,6 @@ private:
     const DeformationModelOptions &options);
   explicit DeformationEnergyOperator(BuildComponents components);
 
-  EigenSupport::VXd &absolutePositionScratch() const;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

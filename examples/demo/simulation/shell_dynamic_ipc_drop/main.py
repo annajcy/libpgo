@@ -24,36 +24,20 @@ DUMP_INTERVAL = 10
 def _material(mesh, E, nu, thickness):
     elastic = pf.KoiterStVKDefinition()
     plastic = pf.ShellPlasticityDefinition(dofs=0)
-    def identity_field(field_type, names, layout_type):
-        count = len(names)
-        return field_type(
-            names,
-            layout_type(mesh.num_elements, count),
-            pf.IdentityMaterialChannelMapping(count))
-
-    elastic_fixed = identity_field(
-        pf.FixedParameterField, elastic.fixed_channel_names,
-        pf.ElementwiseParameterLayout)
-    plastic_fixed = identity_field(
-        pf.FixedParameterField, plastic.fixed_channel_names,
-        pf.ElementwiseParameterLayout)
-    elastic_opt = identity_field(
-        pf.OptimizableParameterField, elastic.optimizable_channel_names,
-        pf.ConstantParameterLayout)
-    plastic_opt = identity_field(
-        pf.OptimizableParameterField, plastic.optimizable_channel_names,
-        pf.ConstantParameterLayout)
     binding = pf.MaterialBinding(
         pf.ElasticMaterialBinding(
-            elastic, pf.FixedMaterialParameters(elastic_fixed, np.empty(0)),
-            elastic_opt),
+            elastic, mesh.num_elements,
+            np.empty((mesh.num_elements, 0), dtype=np.float64)),
         pf.PlasticMaterialBinding(
-            plastic, pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
-            plastic_opt),
-        pf.GlobalAxesMaterialFrameField(mesh.num_elements),
+            plastic, mesh.num_elements,
+            np.empty((mesh.num_elements, 0), dtype=np.float64)),
     )
+    element_values = np.broadcast_to(
+        np.array([E, nu, E, nu, thickness], dtype=np.float64),
+        (mesh.num_elements, elastic.num_optimizable_channels),
+    ).copy()
     state = pf.MaterialState(
-        np.array([E, nu, E, nu, thickness]), np.empty(0))
+        element_values, np.empty(0))
     return binding, state
 
 
@@ -73,9 +57,7 @@ def main() -> None:
     )
     deformation = pf.DeformationPotentialEnergy(
         deformation_operator, material_state)
-    areal_density = pf.ShellArealDensity.from_density_thickness(
-        density=1000.0, thickness=1.0e-3
-    )
+    areal_density = 1000.0 * 1.0e-3
     mass = formulation.mass_matrix(mesh, areal_density)
     gravity_force = formulation.body_force(
         mesh,

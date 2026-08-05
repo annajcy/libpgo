@@ -42,7 +42,7 @@ ES::M3d PlasticModel3DConstant::computeR(std::span<const double>) const
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-MaterialChannelSchema VolumetricPlasticity0Definition::optimizableChannelSchema() const { return {}; }
+int VolumetricPlasticity0Definition::numOptimizableChannels() const { return 0; }
 std::unique_ptr<PlasticModel> VolumetricPlasticity0Definition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (!values.empty()) throw std::invalid_argument("volumetric_dof0 has no fixed channels");

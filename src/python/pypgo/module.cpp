@@ -10,7 +10,6 @@ namespace nb = nanobind;
 // Forward declarations of bind functions
 void init_mesh_geo_bindings(nb::module_ &m);
 void init_volume_mesh_bindings(nb::module_ &m);
-void init_mass_bindings(nb::module_ &m);
 void init_formulation_bindings(nb::module_ &m);
 void init_elastic_model_bindings(nb::module_ &m);
 void init_plastic_model_bindings(nb::module_ &m);
@@ -31,7 +30,6 @@ NB_MODULE(_core, m) {
 
     init_mesh_geo_bindings(m);
     init_volume_mesh_bindings(m);
-    init_mass_bindings(m);
     init_formulation_bindings(m);
     init_elastic_model_bindings(m);
     init_plastic_model_bindings(m);

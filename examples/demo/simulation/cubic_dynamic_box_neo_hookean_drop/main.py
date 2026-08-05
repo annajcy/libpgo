@@ -25,60 +25,24 @@ YOUNGS_MODULUS = 2.0e5
 POISSON_RATIO = 0.35
 
 
-def _material(asset, material):
+def _material(mesh, material):
     elastic = {
         "neo_hookean": pf.NeoHookeanDefinition,
         "stable_neo": pf.StableNeoDefinition,
     }[material]()
     plastic = pf.VolumetricPlasticityDefinition(dofs=0)
-
-    def identity_field(field_type, names, layout_type):
-        count = len(names)
-        return field_type(
-            names,
-            layout_type(asset.num_elements, count),
-            pf.IdentityMaterialChannelMapping(count),
-        )
-
-    # Both definitions use fixed E and nu physical channels.
-    elastic_fixed = identity_field(
-        pf.FixedParameterField,
-        elastic.fixed_channel_names,
-        pf.ConstantParameterLayout,
-    )
-    plastic_fixed = identity_field(
-        pf.FixedParameterField,
-        plastic.fixed_channel_names,
-        pf.ElementwiseParameterLayout,
-    )
-    elastic_opt = identity_field(
-        pf.OptimizableParameterField,
-        elastic.optimizable_channel_names,
-        pf.ConstantParameterLayout,
-    )
-    plastic_opt = identity_field(
-        pf.OptimizableParameterField,
-        plastic.optimizable_channel_names,
-        pf.ConstantParameterLayout,
-    )
+    elastic_fixed = np.broadcast_to(
+        np.array([YOUNGS_MODULUS, POISSON_RATIO], dtype=np.float64),
+        (mesh.num_elements, 2),
+    ).copy()
     binding = pf.MaterialBinding(
-        pf.ElasticMaterialBinding(
-            elastic,
-            pf.FixedMaterialParameters(
-                elastic_fixed, [YOUNGS_MODULUS, POISSON_RATIO]),
-            elastic_opt,
-        ),
+        pf.ElasticMaterialBinding(elastic, mesh.num_elements, elastic_fixed),
         pf.PlasticMaterialBinding(
-            plastic,
-            pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
-            plastic_opt,
+            plastic, mesh.num_elements,
+            np.empty((mesh.num_elements, 0), dtype=np.float64),
         ),
-        pf.GlobalAxesMaterialFrameField(asset.num_elements),
     )
-    state = pf.MaterialState(
-        np.empty(elastic_opt.num_global_parameters),
-        np.empty(plastic_opt.num_global_parameters),
-    )
+    state = pf.MaterialState(np.empty(0), np.empty(0))
     return binding, state
 
 
@@ -105,21 +69,21 @@ def main(argv=None) -> int:
             str(ASSET_DIR / "veg" / "cubic" / "box.veg"))
     )
     surface = volume.extract_surface_mesh()
-    asset = pf.SimulationImportResult(volume)
+    mesh = pf.SimulationMesh(volume)
     formulation = pf.CubicLinear()
 
-    material_binding, material_state = _material(asset, args.material)
+    material_binding, material_state = _material(mesh, args.material)
     deformation_operator = pf.DeformationEnergyOperator(
-        asset.mesh, material_binding,
+        mesh, material_binding,
         formulation=formulation,
     )
     deformation = pf.DeformationPotentialEnergy(
         deformation_operator, material_state)
 
-    density = pf.VolumeDensity(1000.0)
-    mass = formulation.mass_matrix(asset.mesh, density)
+    density = 1000.0
+    mass = formulation.mass_matrix(mesh, density)
     gravity_force = formulation.body_force(
-        asset.mesh,
+        mesh,
         np.array([0.0, -9.81, 0.0]),
         density,
     )

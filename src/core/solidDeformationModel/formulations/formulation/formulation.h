@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EigenDef.h"
-#include "deformation/deformationModel.h"
+#include "deformation/deformationElement.h"
 
 #include <memory>
 #include <string_view>
@@ -29,10 +29,10 @@ public:
   virtual int numBasisFunctionsPerElement() const = 0;
   virtual int getLocalDofs() const = 0;
 
-  virtual std::unique_ptr<DeformationModel> createElement(
+  virtual std::unique_ptr<DeformationElement> createElement(
     const SimulationMesh &mesh, int ele,
     std::unique_ptr<ElasticModel> elasticModel, std::unique_ptr<PlasticModel> plasticModel,
-    DeformationModelConstructionOptions options = {}) const = 0;
+    DeformationElementConstructionOptions options = {}) const = 0;
 
   virtual SimulationMeshType compatibleMeshType() const = 0;
 

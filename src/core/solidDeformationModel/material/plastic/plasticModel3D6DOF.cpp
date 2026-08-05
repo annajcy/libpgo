@@ -82,16 +82,7 @@ void PlasticModel3D6DOF::compute_ddetA_da(
   Determinant::Dim3::ddetA_dA_sym(param.data(), ddetA_da.data());
 }
 
-void PlasticModel3D6DOF::compute_d2detA_da2(
-  std::span<const double> param, ES::RefMatXd d2detA_da2) const
-{
-  ES::M6d deriv;
-  Determinant::Dim3::d2detA_dA2_sym(param.data(), deriv.data());
-
-  d2detA_da2 = deriv;
-}
-
-ES::M3d PlasticModel3D6DOF::compute_dAInv_da(std::span<const double> param, int pi) const
+ ES::M3d PlasticModel3D6DOF::compute_dAInv_da(std::span<const double> param, int pi) const
 {
   ES::M3d S = getS(param);
 
@@ -102,21 +93,7 @@ ES::M3d PlasticModel3D6DOF::compute_dAInv_da(std::span<const double> param, int 
   return RT * Z * R;
 }
 
-ES::M3d PlasticModel3D6DOF::compute_d2AInv_da2(std::span<const double> param, int pi, int pj) const
-{
-  ES::M3d S = getS(param);
-
-  const auto &ei = symmetricBasis();
-
-  ES::M3d SInv = S.fullPivLu().inverse();
-
-  ES::M3d Z = SInv * ei[pi] * SInv * ei[pj] * SInv +
-    SInv * ei[pj] * SInv * ei[pi] * SInv;
-
-  return RT * Z * R;
-}
-
-void PlasticModel3D6DOF::projectParam(std::span<double> param, double zeroThreshold) const
+ void PlasticModel3D6DOF::projectParam(std::span<double> param, double zeroThreshold) const
 {
   const ES::M3d Fp = computeA(param);
 
@@ -151,7 +128,7 @@ ES::M3d PlasticModel3D6DOF::computeR(std::span<const double> param) const
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-MaterialChannelSchema VolumetricPlasticity6Definition::optimizableChannelSchema() const { static constexpr std::array<std::string_view, 6> names{"Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz"}; return MaterialChannelSchema(names); }
+int VolumetricPlasticity6Definition::numOptimizableChannels() const { return 6; }
 std::unique_ptr<PlasticModel> VolumetricPlasticity6Definition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (!values.empty()) throw std::invalid_argument("volumetric_dof6 has no fixed channels");

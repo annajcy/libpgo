@@ -660,18 +660,8 @@ TEST(ElasticModel3DSystematicPoking, DefinitionCreatesMaterialFieldEvaluator)
     stretchKnots, 2, volumeKnots, 2);
 
   EXPECT_EQ(definition.id(), "systematic_poking");
-  EXPECT_EQ(
-    definition.fixedChannelSchema().numChannels(), 0);
-  const std::vector<std::string> expectedNames = {
-    "f_dd_0", "f_dd_1", "f_dd_2",
-    "f_dd_3", "f_dd_4", "lambda"
-  };
-  const SDM::MaterialChannelSchema schema =
-    definition.optimizableChannelSchema();
-  const auto names = schema.channelNames();
-  EXPECT_TRUE(std::equal(
-    names.begin(), names.end(),
-    expectedNames.begin(), expectedNames.end()));
+  EXPECT_EQ(definition.numFixedChannels(), 0);
+  EXPECT_EQ(definition.numOptimizableChannels(), 6);
   EXPECT_TRUE(std::equal(
     definition.stretchKnots().begin(),
     definition.stretchKnots().end(),

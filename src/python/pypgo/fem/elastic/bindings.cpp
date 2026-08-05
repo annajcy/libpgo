@@ -13,8 +13,8 @@ void init_elastic_model_bindings(nb::module_ &m)
 {
     nb::class_<PyElasticModelDefinition>(m, "PyElasticModelDefinition")
         .def_prop_ro("name", &PyElasticModelDefinition::name)
-        .def_prop_ro("fixed_channel_names", &PyElasticModelDefinition::fixedChannelNames)
-        .def_prop_ro("optimizable_channel_names", &PyElasticModelDefinition::optimizableChannelNames);
+        .def_prop_ro("num_fixed_channels", &PyElasticModelDefinition::numFixedChannels)
+        .def_prop_ro("num_optimizable_channels", &PyElasticModelDefinition::numOptimizableChannels);
 
     nb::class_<PyStableNeoDefinition, PyElasticModelDefinition>(m, "PyStableNeoDefinition").def(nb::init<>());
     nb::class_<PyNeoHookeanDefinition, PyElasticModelDefinition>(m, "PyNeoHookeanDefinition").def(nb::init<>());

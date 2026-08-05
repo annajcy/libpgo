@@ -1,93 +1,67 @@
 #pragma once
 
-#include "material/frame/materialFrameField.h"
-#include "material/model/elasticModelDefinition.h"
-#include "material/model/plasticModelDefinition.h"
-#include "material/parameterization/materialParameterField.h"
+#include "material/frame/materialFrames.h"
+#include "material/elastic/elasticModelDefinition.h"
+#include "material/plastic/plasticModelDefinition.h"
 #include "EigenSupport.h"
 
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
 namespace pgo::SolidDeformationModel
 {
 
-/// Immutable fixed material parameter field and its global values.
-class FixedMaterialParameters final
-{
-public:
-  FixedMaterialParameters(
-    std::shared_ptr<const FixedParameterField> field,
-    EigenSupport::VXd values):
-    field_(std::move(field)), values_(std::move(values))
-  {
-    if (!field_)
-      throw std::invalid_argument(
-        "FixedMaterialParameters requires a parameter field.");
-    if (values_.size() != field_->numGlobalParameters())
-      throw std::invalid_argument(
-        "Fixed material value count does not match its field layout.");
-    if (!values_.allFinite())
-      throw std::invalid_argument(
-        "Fixed material values must be finite.");
-  }
-
-  const std::shared_ptr<const FixedParameterField> &field() const
-  {
-    return field_;
-  }
-  const EigenSupport::VXd &values() const { return values_; }
-
-private:
-  std::shared_ptr<const FixedParameterField> field_;
-  EigenSupport::VXd values_;
-};
-
-/// Immutable material definition plus independent fixed and optimizable fields.
+/// One material domain with element-major fixed physical channel values.
+/// Optimizable physical channels are supplied separately through MaterialState.
 template<class ModelDefinition>
 class MaterialDomainBinding final
 {
 public:
   MaterialDomainBinding(
     std::shared_ptr<const ModelDefinition> definition,
-    FixedMaterialParameters fixed,
-    std::shared_ptr<const OptimizableParameterField> optimizableField):
+    int numElements,
+    EigenSupport::VXd fixedValues):
     definition_(std::move(definition)),
-    fixed_(std::move(fixed)),
-    optimizableField_(std::move(optimizableField))
+    numElements_(numElements),
+    fixedValues_(std::move(fixedValues))
   {
-    if (!definition_ || !optimizableField_)
+    if (!definition_)
       throw std::invalid_argument(
-        "MaterialDomainBinding requires a definition and optimizable field.");
-    if (fixed_.field()->numElements() != optimizableField_->numElements())
+        "MaterialDomainBinding requires a model definition.");
+    if (numElements_ < 0)
       throw std::invalid_argument(
-        "MaterialDomainBinding fields must share an element count.");
-    if (fixed_.field()->numMaterialChannels() !=
-      definition_->fixedChannelSchema().numChannels())
+        "MaterialDomainBinding element count must be non-negative.");
+    const int expected =
+      numElements_ * definition_->numFixedChannels();
+    if (fixedValues_.size() != expected)
       throw std::invalid_argument(
-        "MaterialDomainBinding fixed channel schema does not match definition.");
-    if (optimizableField_->numMaterialChannels() !=
-      definition_->optimizableChannelSchema().numChannels())
+        "MaterialDomainBinding fixed value count does not match the element and channel counts.");
+    if (!fixedValues_.allFinite())
       throw std::invalid_argument(
-        "MaterialDomainBinding optimizable channel schema does not match definition.");
+        "MaterialDomainBinding fixed values must be finite.");
   }
 
   const std::shared_ptr<const ModelDefinition> &definition() const
   {
     return definition_;
   }
-  const FixedMaterialParameters &fixed() const { return fixed_; }
-  const std::shared_ptr<const OptimizableParameterField> &optimizableField() const
+  int numElements() const { return numElements_; }
+  int numFixedChannels() const
   {
-    return optimizableField_;
+    return definition_->numFixedChannels();
   }
-  int numElements() const { return optimizableField_->numElements(); }
+  int numOptimizableChannels() const
+  {
+    return definition_->numOptimizableChannels();
+  }
+  const EigenSupport::VXd &fixedValues() const { return fixedValues_; }
 
 private:
   std::shared_ptr<const ModelDefinition> definition_;
-  FixedMaterialParameters fixed_;
-  std::shared_ptr<const OptimizableParameterField> optimizableField_;
+  int numElements_ = 0;
+  EigenSupport::VXd fixedValues_;
 };
 
 using ElasticMaterialBinding =
@@ -102,34 +76,29 @@ public:
   MaterialBinding(
     ElasticMaterialBinding elastic,
     PlasticMaterialBinding plastic,
-    std::shared_ptr<const MaterialFrameField> materialFrames):
+    std::optional<MaterialFrames> materialFrames = std::nullopt):
     elastic_(std::move(elastic)),
     plastic_(std::move(plastic)),
-    materialFrames_(std::move(materialFrames))
+    materialFrames_(materialFrames ? std::move(*materialFrames) :
+      MaterialFrames::identity(elastic_.numElements()))
   {
-    if (!materialFrames_)
-      throw std::invalid_argument(
-        "MaterialBinding requires material frames.");
     if (elastic_.numElements() != plastic_.numElements())
       throw std::invalid_argument(
         "MaterialBinding domains must share an element count.");
-    if (materialFrames_->numElements() != elastic_.numElements())
+    if (materialFrames_.numElements() != elastic_.numElements())
       throw std::invalid_argument(
-        "MaterialBinding frame count does not match its parameter fields.");
+        "MaterialBinding frame count does not match its material domains.");
   }
 
   const ElasticMaterialBinding &elastic() const { return elastic_; }
   const PlasticMaterialBinding &plastic() const { return plastic_; }
-  const std::shared_ptr<const MaterialFrameField> &materialFrames() const
-  {
-    return materialFrames_;
-  }
+  const MaterialFrames &materialFrames() const { return materialFrames_; }
   int numElements() const { return elastic_.numElements(); }
 
 private:
   ElasticMaterialBinding elastic_;
   PlasticMaterialBinding plastic_;
-  std::shared_ptr<const MaterialFrameField> materialFrames_;
+  MaterialFrames materialFrames_;
 };
 
 }  // namespace pgo::SolidDeformationModel

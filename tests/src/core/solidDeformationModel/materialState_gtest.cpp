@@ -52,18 +52,4 @@ TEST(MaterialState, LengthValidationBelongsToTheConsumer)
   EXPECT_NO_THROW(MaterialState(ES::VXd::Zero(0), ES::VXd::Zero(5)));
 }
 
-TEST(OptimizableParameterField, RejectsDimensionMismatch)
-{
-  pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
-  auto asset = TestUtils::shareAsset(loadCubicMesh(cubicMesh));
-  const auto &mesh = asset->mesh();
-
-  EXPECT_THROW(
-    OptimizableParameterField(
-      ParameterInputSchema{},
-      std::make_shared<ElementwiseParameterLayout>(mesh->getNumElements(), 1),
-      std::make_shared<IdentityMaterialChannelMapping>(1)),
-    std::invalid_argument);
-}
-
 }  // namespace

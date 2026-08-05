@@ -5,7 +5,7 @@ copyright to USC,MIT, NUS
 
 #pragma once
 
-#include "material/model/plasticModelDefinition.h"
+#include "material/plastic/plasticModelDefinition.h"
 
 #include "material/plastic/plasticModel2DFundamentalForms.h"
 
@@ -34,9 +34,6 @@ public:
   void compute_darea_dparam(std::span<const double> params, EigenSupport::RefVecXd darea_da) const override;
   void compute_dabar_dparam(std::span<const double> params, EigenSupport::RefMatXd dabar_dparam) const override;
   void compute_dbbar_dparam(std::span<const double> params, EigenSupport::RefMatXd dbbar_dparam) const override;
-  EigenSupport::M2d compute_d2abar_dparam2(std::span<const double> params, int pi, int pj) const override;
-  EigenSupport::M2d compute_d2dbbar_dparam2(std::span<const double> params, int pi, int pj) const override;
-  double compute_d2area_dparam2(std::span<const double> params, int pi, int pj) const override;
 
   int getNumParameters() const override { return 1; }
   void defaultParams(std::span<double> param) const override { param[0] = 1.0; }
@@ -48,8 +45,8 @@ class ShellPlasticity1Definition final : public PlasticModelDefinition
 {
 public:
   std::string_view id() const override { return "shell_ff_dof1"; }
-  MaterialChannelSchema fixedChannelSchema() const override { return {}; }
-  MaterialChannelSchema optimizableChannelSchema() const override;
+  int numFixedChannels() const override { return 0; }
+  int numOptimizableChannels() const override;
   std::unique_ptr<PlasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

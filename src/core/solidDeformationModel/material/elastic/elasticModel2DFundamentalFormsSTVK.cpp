@@ -765,10 +765,9 @@ ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dbbar2(
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-MaterialChannelSchema KoiterStVKDefinition::optimizableChannelSchema() const
+int KoiterStVKDefinition::numOptimizableChannels() const
 {
-  static constexpr std::array<std::string_view, 5> names{"E_membrane", "nu_membrane", "E_bending", "nu_bending", "thickness"};
-  return MaterialChannelSchema(names);
+  return 5;
 }
 std::unique_ptr<ElasticModel> KoiterStVKDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {

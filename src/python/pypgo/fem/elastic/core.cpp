@@ -4,20 +4,6 @@ namespace pgo
 {
 namespace SD = SolidDeformationModel;
 
-std::vector<std::string> PyElasticModelDefinition::fixedChannelNames() const
-{
-  const auto schema = definition_->fixedChannelSchema();
-  const auto names = schema.channelNames();
-  return std::vector<std::string>(names.begin(), names.end());
-}
-
-std::vector<std::string> PyElasticModelDefinition::optimizableChannelNames() const
-{
-  const auto schema = definition_->optimizableChannelSchema();
-  const auto names = schema.channelNames();
-  return std::vector<std::string>(names.begin(), names.end());
-}
-
 PyStableNeoDefinition::PyStableNeoDefinition(): PyElasticModelDefinition(std::make_shared<SD::StableNeoDefinition>()) {}
 PyNeoHookeanDefinition::PyNeoHookeanDefinition(): PyElasticModelDefinition(std::make_shared<SD::NeoHookeanDefinition>()) {}
 PyStVKDefinition::PyStVKDefinition(): PyElasticModelDefinition(std::make_shared<SD::StVKDefinition>()) {}

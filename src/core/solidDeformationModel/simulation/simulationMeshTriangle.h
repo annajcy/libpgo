@@ -1,6 +1,6 @@
 #pragma once
 
-#include "simulation/simulationMeshBase.h"
+#include "simulation/simulationMesh.h"
 
 #include <memory>
 

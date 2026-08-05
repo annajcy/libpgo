@@ -4,11 +4,11 @@ copyright to USC,MIT,NUS
 */
 
 #include "constraints/prescribedPrincipleStressConstraintFunctions.h"
-#include "deformation/deformationModelManager.h"
+#include "deformation/deformationModelAssembler.h"
 #include "material/runtime/materialState.h"
 #include "simulation/simulationMesh.h"
 
-#include "deformation/volume/volumetricDeformationModel.h"
+#include "deformation/volume/volumetricDeformationElement.h"
 
 #include "svdDerivatives.h"
 #include "pgoLogging.h"
@@ -22,33 +22,27 @@ copyright to USC,MIT,NUS
 using namespace pgo;
 using namespace pgo::SolidDeformationModel;
 
-using TetFEM = VolumetricDeformationModel;
+using TetFEM = VolumetricDeformationElement;
 
 PrescribedPrincipleStressConstraintFunctions::
   PrescribedPrincipleStressConstraintFunctions(
     int nAll, int doff, std::span<const int> elementIDs,
-    const DeformationModelManager &tmdmm,
+    const DeformationModelAssembler &assembler,
     MaterialState materialState):
   ConstraintFunctions(nAll),
   dofStart(doff),
-  tetMeshDMM(tmdmm),
+  assembler_(assembler),
   materialState_(std::move(materialState))
 {
-  const auto elasticField = tetMeshDMM.elasticOptimizableField();
-  const auto plasticField = tetMeshDMM.plasticOptimizableField();
-  const SimulationMesh &mesh = tetMeshDMM.getMesh();
-  if (elasticField->mapping().numChannels() !=
-    tetMeshDMM.getNumElasticParameters())
+  const SimulationMesh &mesh = assembler_.mesh();
+  if (materialState_.elasticValues().size() !=
+    mesh.getNumElements() * assembler_.getNumElasticParams())
     throw std::invalid_argument(
-      "Constraint elastic parameter channels do not match the deformation model.");
-  if (plasticField->mapping().numChannels() !=
-    tetMeshDMM.getNumPlasticParameters())
+      "Constraint elastic material state has an unexpected size.");
+  if (materialState_.plasticValues().size() !=
+    mesh.getNumElements() * assembler_.getNumPlasticParams())
     throw std::invalid_argument(
-      "Constraint plastic parameter channels do not match the deformation model.");
-  if (elasticField->layout().numElements() != mesh.getNumElements() ||
-    plasticField->layout().numElements() != mesh.getNumElements())
-    throw std::invalid_argument(
-      "Constraint optimizable parameter layouts do not match the mesh.");
+      "Constraint plastic material state has an unexpected size.");
 
   elements.assign(elementIDs.begin(), elementIDs.end());
   targetPrincipleStress.resize(static_cast<Eigen::Index>(elements.size()) * 3);
@@ -58,7 +52,7 @@ PrescribedPrincipleStressConstraintFunctions::
     if (elements[ei] < 0 || elements[ei] >= mesh.getNumElements())
       throw std::out_of_range(
         "Prescribed principal stress constraint element is out of range.");
-    const auto &dm = tetMeshDMM.getDeformationModel(elements[ei]);
+    const auto &dm = assembler_.element(elements[ei]);
     const auto *tetFEM = dynamic_cast<const TetFEM *>(&dm);
     if (tetFEM == nullptr)
       throw std::invalid_argument(
@@ -71,7 +65,7 @@ PrescribedPrincipleStressConstraintFunctions::
     for (int r = 0; r < 3; r++) {
       for (int j = 0; j < 4; j++) {
         for (int dof = 0; dof < 3; dof++) {
-          entries.emplace_back(static_cast<int>(i) * 3 + r, dofStart + tetMeshDMM.getMesh().getVertexIndex(elements[i], j) * 3 + dof, 1.0);
+          entries.emplace_back(static_cast<int>(i) * 3 + r, dofStart + assembler_.mesh().getVertexIndex(elements[i], j) * 3 + dof, 1.0);
         }
       }
     }
@@ -84,10 +78,10 @@ PrescribedPrincipleStressConstraintFunctions::
   for (std::size_t i = 0; i < elements.size(); i++) {
     for (int vi = 0; vi < 4; vi++) {
       for (int dofi = 0; dofi < 3; dofi++) {
-        int row = tetMeshDMM.getMesh().getVertexIndex(elements[i], vi) * 3 + dofi;
+        int row = assembler_.mesh().getVertexIndex(elements[i], vi) * 3 + dofi;
         for (int vj = 0; vj < 4; vj++) {
           for (int dofj = 0; dofj < 3; dofj++) {
-            int col = tetMeshDMM.getMesh().getVertexIndex(elements[i], vj) * 3 + dofj;
+            int col = assembler_.mesh().getVertexIndex(elements[i], vj) * 3 + dofj;
             entries.emplace_back(dofStart + row, dofStart + col, 1.0);
           }
         }
@@ -102,27 +96,22 @@ PrescribedPrincipleStressConstraintFunctions::
   hessLocks = std::vector<tbb::spin_mutex>(nAll);
 }
 
-VolumetricDeformationModelEvaluator &
-PrescribedPrincipleStressConstraintFunctions::prepareElement(
-  int elementID, MaterialStateView state,
-  ElementData &data) const
+std::span<const double>
+PrescribedPrincipleStressConstraintFunctions::elasticValues(
+  int elementID, MaterialStateView state) const
 {
-  const std::span<const double> elasticParameters =
-    state.evaluateElement(
-      *tetMeshDMM.elasticOptimizableField(), state.elasticValues(),
-      elementID, data.numMaterialLocations,
-      data.elasticParameters);
-  const std::span<const double> plasticParameters =
-    state.evaluateElement(
-      *tetMeshDMM.plasticOptimizableField(), state.plasticValues(),
-      elementID, data.numMaterialLocations,
-      data.plasticParameters);
+  const int numElastic = assembler_.getNumElasticParams();
+  return state.elasticValues().subspan(
+    static_cast<std::size_t>(elementID * numElastic), numElastic);
+}
 
-  data.evaluator->prepare(
-    std::span<const double>(data.localp.data(),
-      static_cast<std::size_t>(data.numDOFs)),
-    elasticParameters, plasticParameters);
-  return *data.evaluator;
+std::span<const double>
+PrescribedPrincipleStressConstraintFunctions::plasticValues(
+  int elementID, MaterialStateView state) const
+{
+  const int numPlastic = assembler_.getNumPlasticParams();
+  return state.plasticValues().subspan(
+    static_cast<std::size_t>(elementID * numPlastic), numPlastic);
 }
 
 void PrescribedPrincipleStressConstraintFunctions::setTargetPHat(
@@ -145,17 +134,16 @@ void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES:
     ES::V18d &localp = scratch.localp;
     ES::V3d Phat = targetPrincipleStress.segment<3>(i * 3);
     int eleID = elements[i];
-    for (int j = 0; j < tetMeshDMM.getMesh().getNumElementVertices(); j++) {
-      int vid = tetMeshDMM.getMesh().getVertexIndex(eleID, j);
+    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
+      int vid = assembler_.mesh().getVertexIndex(eleID, j);
       ES::V3d vtxp;
       xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    VolumetricDeformationModelEvaluator &evaluator =
-      prepareElement(eleID, state, scratch);
-
-    ES::M3d P = evaluator.compute_P(0);
+    ES::M3d P = scratch.deformation->computeFirstPiola(
+      std::span<const double>(localp.data(), scratch.numDOFs),
+      elasticValues(eleID, state), plasticValues(eleID, state), 0);
 
     ES::V3d S;
     NonlinearOptimization::SVDDerivatives::unorderedSquareMatrixSVD3(P, S);
@@ -174,17 +162,18 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
     ES::V18d &localp = scratch.localp;
     ES::V3d Phat = targetPrincipleStress.segment<3>(i * 3);
     int eleID = elements[i];
-    for (int j = 0; j < tetMeshDMM.getMesh().getNumElementVertices(); j++) {
-      int vid = tetMeshDMM.getMesh().getVertexIndex(eleID, j);
+    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
+      int vid = assembler_.mesh().getVertexIndex(eleID, j);
       ES::V3d vtxp;
       xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    VolumetricDeformationModelEvaluator &evaluator =
-      prepareElement(eleID, state, scratch);
-
-    ES::M3d P = evaluator.compute_P(0);
+    const std::span<const double> localPosition(
+      localp.data(), scratch.numDOFs);
+    ES::M3d P = scratch.deformation->computeFirstPiola(
+      localPosition, elasticValues(eleID, state),
+      plasticValues(eleID, state), 0);
 
     ES::V3d S;
     ES::M3d U, V;
@@ -195,9 +184,11 @@ void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES
     ES::V12d f;
     f.setZero();
 
-    evaluator.computeForceFromP(0, P1, f);
-    for (int j = 0; j < tetMeshDMM.getMesh().getNumElementVertices(); j++) {
-      int vid = tetMeshDMM.getMesh().getVertexIndex(eleID, j);
+    scratch.deformation->computeForceFromFirstPiola(
+      localPosition, elasticValues(eleID, state),
+      plasticValues(eleID, state), 0, P1, f);
+    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
+      int vid = assembler_.mesh().getVertexIndex(eleID, j);
       fext.segment<3>(vid * 3) = f.segment<3>(j * 3);
     }
   }
@@ -212,16 +203,16 @@ double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractio
   auto &scratch = elementData_[elementIndex];
   ES::V18d &localp = scratch.localp;
 
-  for (int j = 0; j < tetMeshDMM.getMesh().getNumElementVertices(); j++) {
-    int vid = tetMeshDMM.getMesh().getVertexIndex(eleID, j);
+  for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
+    int vid = assembler_.mesh().getVertexIndex(eleID, j);
     ES::V3d vtxp;
     xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
     localp.segment<3>(j * 3) = vtxp;
   }
-  VolumetricDeformationModelEvaluator &evaluator =
-    prepareElement(eleID, materialState_.view(), scratch);
-
-  ES::M3d P = evaluator.compute_P(0);
+  const MaterialStateView state = materialState_.view();
+  ES::M3d P = scratch.deformation->computeFirstPiola(
+    std::span<const double>(localp.data(), scratch.numDOFs),
+    elasticValues(eleID, state), plasticValues(eleID, state), 0);
 
   return (P * n).dot(n);
 }
@@ -235,17 +226,18 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
     ES::V18d &localp = scratch.localp;
     ES::V3d Phat = targetPrincipleStress.segment<3>(i * 3);
     int eleID = elements[i];
-    for (int j = 0; j < tetMeshDMM.getMesh().getNumElementVertices(); j++) {
-      int vid = tetMeshDMM.getMesh().getVertexIndex(eleID, j);
+    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
+      int vid = assembler_.mesh().getVertexIndex(eleID, j);
       ES::V3d vtxp;
       xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    VolumetricDeformationModelEvaluator &evaluator =
-      prepareElement(eleID, state, scratch);
-
-    ES::M3d P = evaluator.compute_P(0);
+    const std::span<const double> localPosition(
+      localp.data(), scratch.numDOFs);
+    ES::M3d P = scratch.deformation->computeFirstPiola(
+      localPosition, elasticValues(eleID, state),
+      plasticValues(eleID, state), 0);
 
     ES::V3d S;
     ES::M3d U, V;
@@ -264,8 +256,12 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
 
     ES::M9d dPdF;
     ES::M9x12d dFdx;
-    dPdF = evaluator.compute_dP_dF(0);
-    evaluator.compute_dF_dx(0, dFdx);
+    dPdF = scratch.deformation->computeFirstPiolaDerivative(
+      localPosition, elasticValues(eleID, state),
+      plasticValues(eleID, state), 0);
+    scratch.deformation->computeDeformationGradientDerivative(
+      localPosition, elasticValues(eleID, state),
+      plasticValues(eleID, state), 0, dFdx);
 
     ES::M9x12d dPdx = dPdF * dFdx;
 
@@ -281,7 +277,7 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
         int vid = ci / 3;
         int dof = ci % 3;
 
-        auto it = jacEntries.find(std::make_pair(i * 3 + ri, tetMeshDMM.getMesh().getVertexIndex(eleID, vid) * 3 + dof));
+        auto it = jacEntries.find(std::make_pair(i * 3 + ri, assembler_.mesh().getVertexIndex(eleID, vid) * 3 + dof));
         PGO_ALOG(it != jacEntries.end());
 
         jac.valuePtr()[it->second] = dSdx(ri, ci);
@@ -299,17 +295,18 @@ void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVe
     auto &scratch = elementData_[ei];
     ES::V18d &localp = scratch.localp;
     int eleID = elements[ei];
-    for (int j = 0; j < tetMeshDMM.getMesh().getNumElementVertices(); j++) {
-      int vid = tetMeshDMM.getMesh().getVertexIndex(eleID, j);
+    for (int j = 0; j < assembler_.mesh().getNumElementVertices(); j++) {
+      int vid = assembler_.mesh().getVertexIndex(eleID, j);
       ES::V3d vtxp;
       xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
       localp.segment<3>(j * 3) = vtxp;
     }
 
-    VolumetricDeformationModelEvaluator &evaluator =
-      prepareElement(eleID, state, scratch);
-
-    ES::M3d P = evaluator.compute_P(0);
+    const std::span<const double> localPosition(
+      localp.data(), scratch.numDOFs);
+    ES::M3d P = scratch.deformation->computeFirstPiola(
+      localPosition, elasticValues(eleID, state),
+      plasticValues(eleID, state), 0);
 
     ES::V3d S;
     ES::M3d U, V;
@@ -339,8 +336,12 @@ void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVe
 
     ES::M9d dPdF;
     ES::M9x12d dFdx;
-    dPdF = evaluator.compute_dP_dF(0);
-    evaluator.compute_dF_dx(0, dFdx);
+    dPdF = scratch.deformation->computeFirstPiolaDerivative(
+      localPosition, elasticValues(eleID, state),
+      plasticValues(eleID, state), 0);
+    scratch.deformation->computeDeformationGradientDerivative(
+      localPosition, elasticValues(eleID, state),
+      plasticValues(eleID, state), 0, dFdx);
     ES::M9x12d dPdx = dPdF * dFdx;
 
     ES::M12d hessLocal;
@@ -372,8 +373,8 @@ void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVe
         int vj = ri / 3;
         int dofj = ri % 3;
 
-        int globalRow = tetMeshDMM.getMesh().getVertexIndex(eleID, vj) * 3 + dofj;
-        int globalCol = tetMeshDMM.getMesh().getVertexIndex(eleID, vi) * 3 + dofi;
+        int globalRow = assembler_.mesh().getVertexIndex(eleID, vj) * 3 + dofj;
+        int globalCol = assembler_.mesh().getVertexIndex(eleID, vi) * 3 + dofi;
 
         auto it = hessEntries.find(std::make_pair(globalRow, globalCol));
         PGO_ALOG(it != hessEntries.end());

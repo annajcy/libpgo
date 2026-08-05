@@ -262,8 +262,8 @@ namespace pgo::SolidDeformationModel {
 namespace {
 // This model has no optimization channels.
 }
-MaterialChannelSchema StableNeoDefinition::optimizableChannelSchema() const { return {}; }
-MaterialChannelSchema StableNeoDefinition::fixedChannelSchema() const { static constexpr std::array<std::string_view, 2> names{"E", "nu"}; return MaterialChannelSchema(names); }
+int StableNeoDefinition::numOptimizableChannels() const { return 0; }
+int StableNeoDefinition::numFixedChannels() const { return 2; }
 std::unique_ptr<ElasticModel> StableNeoDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
   if (values.size() != 2) throw std::invalid_argument("stable_neo requires fixed channels E, nu");

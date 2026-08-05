@@ -3,7 +3,7 @@ author: Bohan Wang
 copyright to USC,MIT,NUS
 */
 
-#include "simulation/simulationMeshBase.h"
+#include "simulation/simulationMesh.h"
 
 #include <memory>
 #include <stdexcept>

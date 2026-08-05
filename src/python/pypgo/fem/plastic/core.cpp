@@ -4,20 +4,6 @@ namespace pgo
 {
 namespace SD = SolidDeformationModel;
 
-std::vector<std::string> PyPlasticModelDefinition::fixedChannelNames() const
-{
-  const auto schema = definition_->fixedChannelSchema();
-  const auto names = schema.channelNames();
-  return std::vector<std::string>(names.begin(), names.end());
-}
-
-std::vector<std::string> PyPlasticModelDefinition::optimizableChannelNames() const
-{
-  const auto schema = definition_->optimizableChannelSchema();
-  const auto names = schema.channelNames();
-  return std::vector<std::string>(names.begin(), names.end());
-}
-
 PyVolumetricPlasticity0Definition::PyVolumetricPlasticity0Definition(): PyPlasticModelDefinition(std::make_shared<SD::VolumetricPlasticity0Definition>(), 0) {}
 PyVolumetricPlasticity3Definition::PyVolumetricPlasticity3Definition(): PyPlasticModelDefinition(std::make_shared<SD::VolumetricPlasticity3Definition>(), 3) {}
 PyVolumetricPlasticity6Definition::PyVolumetricPlasticity6Definition(): PyPlasticModelDefinition(std::make_shared<SD::VolumetricPlasticity6Definition>(), 6) {}

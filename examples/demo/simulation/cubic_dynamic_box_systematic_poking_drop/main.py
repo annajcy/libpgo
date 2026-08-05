@@ -23,7 +23,7 @@ NUM_STEPS = 200
 DUMP_INTERVAL = 20
 
 
-def _material(asset, *, youngs_modulus=2.0e5, poisson_ratio=0.35):
+def _material(mesh, *, youngs_modulus=2.0e5, poisson_ratio=0.35):
     # Log-uniform paper-style knots. Both arrays contain the rest knot 1.
     stretch_knots = np.exp(np.linspace(np.log(0.5), np.log(2.0), 17))
     volume_knots = np.exp(np.linspace(-1.0, 1.0, 17))
@@ -37,38 +37,6 @@ def _material(asset, *, youngs_modulus=2.0e5, poisson_ratio=0.35):
         volume_rest_knot_index,
     )
     plastic = pf.VolumetricPlasticityDefinition(dofs=0)
-
-    def identity_field(field_type, names, layout_type):
-        count = len(names)
-        return field_type(
-            names,
-            layout_type(asset.num_elements, count),
-            pf.IdentityMaterialChannelMapping(count),
-        )
-
-    # The spline basis is structural data owned by the definition. There are
-    # no fixed material channels; one constant optimizable row makes the box
-    # homogeneous while still exposing all f'' samples and lambda to fitting.
-    elastic_fixed = identity_field(
-        pf.FixedParameterField,
-        elastic.fixed_channel_names,
-        pf.ElementwiseParameterLayout,
-    )
-    plastic_fixed = identity_field(
-        pf.FixedParameterField,
-        plastic.fixed_channel_names,
-        pf.ElementwiseParameterLayout,
-    )
-    elastic_opt = identity_field(
-        pf.OptimizableParameterField,
-        elastic.optimizable_channel_names,
-        pf.ConstantParameterLayout,
-    )
-    plastic_opt = identity_field(
-        pf.OptimizableParameterField,
-        plastic.optimizable_channel_names,
-        pf.ConstantParameterLayout,
-    )
     mu = youngs_modulus / (2.0 * (1.0 + poisson_ratio))
     lame_lambda = (
         youngs_modulus
@@ -80,17 +48,20 @@ def _material(asset, *, youngs_modulus=2.0e5, poisson_ratio=0.35):
     stretch_curvatures = mu * (1.0 + 1.0 / stretch_knots**2)
     elastic_parameters = np.concatenate(
         [stretch_curvatures, [lame_lambda]])
+    elementwise_parameters = np.broadcast_to(
+        elastic_parameters,
+        (mesh.num_elements, elastic.num_optimizable_channels),
+    ).copy()
 
     binding = pf.MaterialBinding(
         pf.ElasticMaterialBinding(
-            elastic, pf.FixedMaterialParameters(elastic_fixed, np.empty(0)),
-            elastic_opt),
+            elastic, mesh.num_elements,
+            np.empty((mesh.num_elements, 0), dtype=np.float64)),
         pf.PlasticMaterialBinding(
-            plastic, pf.FixedMaterialParameters(plastic_fixed, np.empty(0)),
-            plastic_opt),
-        pf.GlobalAxesMaterialFrameField(asset.num_elements),
+            plastic, mesh.num_elements,
+            np.empty((mesh.num_elements, 0), dtype=np.float64)),
     )
-    return binding, pf.MaterialState(elastic_parameters, np.empty(0))
+    return binding, pf.MaterialState(elementwise_parameters, np.empty(0))
 
 
 def main(argv=None) -> int:
@@ -111,21 +82,21 @@ def main(argv=None) -> int:
             str(ASSET_DIR / "veg" / "cubic" / "box.veg"))
     )
     surface = volume.extract_surface_mesh()
-    asset = pf.SimulationImportResult(volume)
+    mesh = pf.SimulationMesh(volume)
     formulation = pf.CubicLinear()
 
-    material_binding, material_state = _material(asset)
+    material_binding, material_state = _material(mesh)
     deformation_operator = pf.DeformationEnergyOperator(
-        asset.mesh, material_binding,
+        mesh, material_binding,
         formulation=formulation,
     )
     deformation = pf.DeformationPotentialEnergy(
         deformation_operator, material_state)
 
-    density = pf.VolumeDensity(1000.0)
-    mass = formulation.mass_matrix(asset.mesh, density)
+    density = 1000.0
+    mass = formulation.mass_matrix(mesh, density)
     gravity_force = formulation.body_force(
-        asset.mesh,
+        mesh,
         np.array([0.0, -9.81, 0.0]),
         density,
     )
