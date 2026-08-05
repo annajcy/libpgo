@@ -20,7 +20,6 @@ namespace SolidDeformationModel
 class DeformationModelAssembler;
 class Formulation;
 class MaterialBinding;
-class MaterialAssignment;
 class SimulationMesh;
 
 struct DeformationModelOptions
@@ -40,10 +39,6 @@ public:
     const Formulation &formulation,
     const DeformationModelOptions &options = {});
 
-  DeformationEnergyOperator(
-    std::shared_ptr<const MaterialAssignment> assignment,
-    const Formulation &formulation,
-    const DeformationModelOptions &options = {});
   ~DeformationEnergyOperator();
 
   const DeformationModelAssembler &assembler() const { return *forceModelAssembler; }
@@ -119,11 +114,6 @@ private:
     std::shared_ptr<const MaterialBinding> materialBinding,
     const Formulation &formulation,
     const DeformationModelOptions &options);
-  static BuildComponents build(
-    std::shared_ptr<const MaterialAssignment> assignment,
-    const Formulation &formulation,
-    const DeformationModelOptions &options);
-
   explicit DeformationEnergyOperator(BuildComponents components);
 
   EigenSupport::VXd &absolutePositionScratch() const;

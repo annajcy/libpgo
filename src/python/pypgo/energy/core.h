@@ -5,7 +5,10 @@
 #include "deformation/deformationModelAssembler.h"
 #include "energy/deformationEnergyOperator.h"
 #include "energy/deformationPotentialEnergy.h"
-#include "material/runtime/materialAssignment.h"
+#include "material/data/materialParameterData.h"
+#include "material/parameterization/materialParameterization.h"
+#include "material/runtime/materialBinding.h"
+#include "material/runtime/materialState.h"
 #include "material/runtime/optimizableParameterRef.h"
 #include "material/frame/materialFrameField.h"
 #include "material/projection/materialInputProjection.h"
@@ -306,20 +309,27 @@ private:
 class PyMaterialAssignment
 {
 public:
-  explicit PyMaterialAssignment(
-    std::shared_ptr<const pgo::SolidDeformationModel::MaterialAssignment> assignment):
-    assignment_(std::move(assignment)) {}
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialAssignment> assignment() const { return assignment_; }
+  PyMaterialAssignment(
+    std::shared_ptr<const pgo::SolidDeformationModel::SimulationMesh> mesh,
+    std::shared_ptr<const pgo::SolidDeformationModel::MaterialBinding> binding,
+    pgo::SolidDeformationModel::MaterialState initialState):
+    mesh_(std::move(mesh)), binding_(std::move(binding)),
+    initialState_(std::move(initialState))
+  {
+  }
+  const auto &mesh() const { return mesh_; }
+  const auto &binding() const { return binding_; }
   std::shared_ptr<PyMaterialState> initialMaterialState() const
   {
     return std::make_shared<PyMaterialState>(
-      assignment_->initialMaterialState(),
-      assignment_->parameterization()->elastic().optimizableField(),
-      assignment_->parameterization()->plastic().optimizableField());
+      initialState_, binding_->elastic().optimizableField(),
+      binding_->plastic().optimizableField());
   }
 
 private:
-  std::shared_ptr<const pgo::SolidDeformationModel::MaterialAssignment> assignment_;
+  std::shared_ptr<const pgo::SolidDeformationModel::SimulationMesh> mesh_;
+  std::shared_ptr<const pgo::SolidDeformationModel::MaterialBinding> binding_;
+  pgo::SolidDeformationModel::MaterialState initialState_;
 };
 
 class PyMaterialFrameField
@@ -381,7 +391,8 @@ public:
   {
     return std::make_shared<PyOptimizableMaterialChannelRef>(
       pgo::SolidDeformationModel::OptimizableMaterialChannelRef(
-        *parameterization_, name));
+        parameterization_->optimizableField(),
+        parameterization_->optimizableChannelSchema(), name));
   }
   int numElements() const { return parameterization_->fixedField()->numElements(); }
   std::shared_ptr<const pgo::SolidDeformationModel::ElasticParameterization>
@@ -433,7 +444,8 @@ public:
   {
     return std::make_shared<PyOptimizableMaterialChannelRef>(
       pgo::SolidDeformationModel::OptimizableMaterialChannelRef(
-        *parameterization_, name));
+        parameterization_->optimizableField(),
+        parameterization_->optimizableChannelSchema(), name));
   }
   int numElements() const { return parameterization_->fixedField()->numElements(); }
   std::shared_ptr<const pgo::SolidDeformationModel::PlasticParameterization>

@@ -11,7 +11,6 @@ copyright to USC, MIT, NUS
 #include "material/model/elasticModelDefinition.h"
 #include "material/model/plasticModelDefinition.h"
 #include "material/runtime/materialBinding.h"
-#include "material/runtime/materialAssignment.h"
 
 #include <memory>
 
@@ -32,13 +31,6 @@ public:
     const Formulation &formulation,
     bool projectHessianPSD = true);
 
-  /// Preferred construction path: all material state is supplied by an
-  /// assignment and model definitions never inspect the mesh.
-  DeformationModelManager(
-    std::shared_ptr<const MaterialAssignment> assignment,
-    const Formulation &formulation,
-    bool projectHessianPSD = true);
-
   ~DeformationModelManager();
 
   int getNumPlasticParameters() const;
@@ -52,7 +44,6 @@ public:
   std::shared_ptr<const OptimizableParameterField> elasticOptimizableField() const;
   std::shared_ptr<const OptimizableParameterField> plasticOptimizableField() const;
   std::shared_ptr<const MaterialBinding> materialBinding() const;
-  std::shared_ptr<const MaterialAssignment> materialAssignment() const;
   MaterialFrame materialToReferenceFrame(
     int elementId, int quadratureId = 0) const;
 

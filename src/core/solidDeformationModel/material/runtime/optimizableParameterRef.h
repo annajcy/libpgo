@@ -1,6 +1,6 @@
 #pragma once
 
-#include "material/parameterization/materialParameterization.h"
+#include "material/runtime/materialBinding.h"
 #include "material/runtime/materialState.h"
 
 #include <memory>
@@ -65,11 +65,11 @@ public:
   OptimizableMaterialChannelRef() = default;
   template<class ModelDefinition>
   OptimizableMaterialChannelRef(
-    const MaterialDomainParameterization<ModelDefinition> &parameterization,
+    const MaterialDomainBinding<ModelDefinition> &binding,
     std::string_view channelName):
     OptimizableMaterialChannelRef(
-      parameterization.optimizableField(),
-      parameterization.optimizableChannelSchema(),
+      binding.optimizableField(),
+      binding.definition()->optimizableChannelSchema(),
       channelName)
   {
   }
@@ -103,13 +103,12 @@ public:
     int quadrature,
     std::span<const double> globalValues,
     EigenSupport::RefMatXd output) const;
-
-private:
   OptimizableMaterialChannelRef(
     std::shared_ptr<const OptimizableParameterField> field,
     MaterialChannelSchema outputSchema,
     std::string_view channelName);
 
+private:
   std::shared_ptr<const OptimizableParameterField> field_;
   std::string channelName_;
   int channelIndex_ = -1;

@@ -225,7 +225,7 @@ std::shared_ptr<const SimulationMesh> makeOneElementMesh()
     SimulationMeshType::CUBIC));
 }
 
-std::shared_ptr<const MaterialParameterization> makeLogEParameterization()
+std::shared_ptr<const MaterialBinding> makeLogEBinding()
 {
   constexpr int numElements = 1;
   auto elasticDefinition =
@@ -242,15 +242,18 @@ std::shared_ptr<const MaterialParameterization> makeLogEParameterization()
     std::make_shared<const ElementwiseParameterLayout>(numElements, 0),
     std::make_shared<const IdentityMaterialChannelMapping>(0));
 
-  return std::make_shared<const MaterialParameterization>(
-    ElasticParameterization(
+  return std::make_shared<const MaterialBinding>(
+    ElasticMaterialBinding(
       std::move(elasticDefinition),
-      TestUtils::emptyFixedField(numElements),
+      FixedMaterialParameters(
+        TestUtils::emptyFixedField(numElements), ES::VXd{}),
       std::move(elasticOptimizable)),
-    PlasticParameterization(
+    PlasticMaterialBinding(
       std::move(plasticDefinition),
-      TestUtils::emptyFixedField(numElements),
-      std::move(plasticOptimizable)));
+      FixedMaterialParameters(
+        TestUtils::emptyFixedField(numElements), ES::VXd{}),
+      std::move(plasticOptimizable)),
+    std::make_shared<const GlobalAxesMaterialFrameField>(numElements));
 }
 
 TEST(LogYoungsModulusEvaluator, ValueJacobianAndHessianMatchFiniteDifferences)
@@ -286,15 +289,15 @@ TEST(LogYoungsModulusEvaluator, ValueJacobianAndHessianMatchFiniteDifferences)
     outputHessians[0](0, 0), finiteDifferenceHessian, 1e-7);
 }
 
-TEST(MaterialParameterizationSemanticContract, PhysicalChannelRefUsesMappingDerivatives)
+TEST(MaterialBindingSemanticContract, PhysicalChannelRefUsesMappingDerivatives)
 {
-  const auto parameterization = makeLogEParameterization();
+  const auto binding = makeLogEBinding();
   const double logE = std::log(1200.0);
   MaterialState parameters(
     ES::VXd::Constant(1, logE), ES::VXd{});
   const auto state = parameters.view();
   const OptimizableMaterialChannelRef channel(
-    parameterization->elastic(), "E");
+    binding->elastic(), "E");
 
   MaterialStateEvaluationScratch scratch;
   EXPECT_NEAR(
@@ -310,15 +313,15 @@ TEST(MaterialParameterizationSemanticContract, PhysicalChannelRefUsesMappingDeri
   EXPECT_NEAR(hessian(0, 0), 1200.0, 1e-12);
 }
 
-TEST(MaterialParameterizationSemanticContract, AllowsDistinctParametersAndChannels)
+TEST(MaterialBindingSemanticContract, AllowsDistinctParametersAndChannels)
 {
-  const auto parameterization = makeLogEParameterization();
-  ASSERT_NE(parameterization, nullptr);
+  const auto binding = makeLogEBinding();
+  ASSERT_NE(binding, nullptr);
 
   const auto inputNames =
-    parameterization->elastic().optimizableField()->inputSchema().parameterNames();
+    binding->elastic().optimizableField()->inputSchema().parameterNames();
   const auto outputSchema =
-    parameterization->elastic().optimizableChannelSchema();
+    binding->elastic().definition()->optimizableChannelSchema();
   const auto outputNames = outputSchema.channelNames();
   ASSERT_EQ(inputNames.size(), 1);
   ASSERT_EQ(outputNames.size(), 1);
@@ -326,17 +329,17 @@ TEST(MaterialParameterizationSemanticContract, AllowsDistinctParametersAndChanne
   EXPECT_EQ(outputNames[0], "E");
   std::string channelName = "E";
   const OptimizableMaterialChannelRef channel(
-    parameterization->elastic(), channelName);
+    binding->elastic(), channelName);
   channelName = "mutated";
   EXPECT_EQ(channel.name(), "E");
   EXPECT_EQ(channel.channelIndex(), 0);
 }
 
-TEST(MaterialParameterizationSemanticContract, NamedProjectionInitializesParametersNotChannels)
+TEST(MaterialBindingSemanticContract, NamedProjectionInitializesParametersNotChannels)
 {
   const auto mesh = makeOneElementMesh();
-  const auto parameterization = makeLogEParameterization();
-  const auto &field = *parameterization->elastic().optimizableField();
+  const auto binding = makeLogEBinding();
+  const auto &field = *binding->elastic().optimizableField();
 
   const auto physicalAsset = TestUtils::makeAsset(
     mesh, { "E" }, { 1200.0 });
@@ -355,7 +358,7 @@ TEST(MaterialParameterizationSemanticContract, NamedProjectionInitializesParamet
   EXPECT_NEAR(values[0], logE, 1e-12);
 }
 
-TEST(MaterialParameterizationSemanticContract, NamedFieldProjectionComposesWithSuppliedInitialValues)
+TEST(MaterialBindingSemanticContract, NamedFieldProjectionComposesWithSuppliedInitialValues)
 {
   const auto mesh = makeOneElementMesh();
   ES::MXd rows(1, 1);
@@ -364,44 +367,34 @@ TEST(MaterialParameterizationSemanticContract, NamedFieldProjectionComposesWithS
     1, {NamedMaterialInputField({"E"}, std::move(rows), {0}, "manual")});
   const ConstantParameterLayout layout(1, 1);
 
-  MaterialParameterData data;
-  data.elastic.fixedValues = projectNamedMaterialInputs(
+  const ES::VXd fixedValues = projectNamedMaterialInputs(
     inputs, ParameterInputSchema({ "E" }), layout);
-  data.elastic.initialOptimizableValues = ES::VXd::Constant(
+  const ES::VXd initialOptimizableValues = ES::VXd::Constant(
     1, std::log(1200.0));
 
-  ASSERT_EQ(data.elastic.fixedValues.size(), 1);
-  EXPECT_DOUBLE_EQ(data.elastic.fixedValues[0], 1200.0);
+  ASSERT_EQ(fixedValues.size(), 1);
+  EXPECT_DOUBLE_EQ(fixedValues[0], 1200.0);
   EXPECT_NEAR(
-    data.elastic.initialOptimizableValues[0], std::log(1200.0), 1e-12);
+    initialOptimizableValues[0], std::log(1200.0), 1e-12);
 }
 
-TEST(MaterialParameterizationSemanticContract, LogEGradientAndHessianMatchFiniteDifferences)
+TEST(MaterialBindingSemanticContract, LogEGradientAndHessianMatchFiniteDifferences)
 {
   const auto mesh = makeOneElementMesh();
-  const auto parameterization = makeLogEParameterization();
+  const auto binding = makeLogEBinding();
   const double logE = std::log(1200.0);
   const auto inputAsset = TestUtils::makeAsset(mesh, { "logE" }, { logE });
-  MaterialParameterData projected;
-  const auto &field = *parameterization->elastic().optimizableField();
-  projected.elastic.fixedValues = ES::VXd{};
-  projected.elastic.initialOptimizableValues = projectImportedMaterialInputs(
+  const auto &field = *binding->elastic().optimizableField();
+  ES::VXd projectedElastic = projectImportedMaterialInputs(
     inputAsset->materialCatalog(), field.inputSchema(), field.layout());
-  projected.plastic.fixedValues = ES::VXd{};
-  projected.plastic.initialOptimizableValues = ES::VXd{};
-  parameterization->validate(projected);
-  auto data = std::make_shared<const MaterialParameterData>(std::move(projected));
-
-  auto assignment = std::make_shared<const MaterialAssignment>(
-    mesh, parameterization, std::move(data),
-    std::make_shared<const GlobalAxesMaterialFrameField>(1));
+  const MaterialState materialState(
+    std::move(projectedElastic), ES::VXd{});
   CubicLinearFormulation formulation;
   DeformationModelOptions options;
   options.projectHessianPSD = false;
   options.enableMaterialMaxStep = false;
-  const MaterialState materialState = assignment->initialMaterialState();
   const auto deformationEnergy = std::make_shared<DeformationEnergyOperator>(
-    assignment, formulation, options);
+    mesh, binding, formulation, options);
 
   ES::VXd displacement = ES::VXd::Zero(deformationEnergy->getNumDOFs());
   for (int i = 0; i < displacement.size(); ++i)

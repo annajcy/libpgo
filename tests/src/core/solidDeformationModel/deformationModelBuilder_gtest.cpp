@@ -62,10 +62,10 @@ TEST(DeformationModelBuilderGTest, RejectsNullConfigsBeforeDefaultInitialization
   auto elastic = std::make_shared<StableNeoDefinition>();
 
   EXPECT_THROW(
-    TestUtils::makeMaterialAssignment(asset, noElastic, plastic),
+    TestUtils::makeMaterialBinding(asset, noElastic, plastic),
     std::invalid_argument);
   EXPECT_THROW(
-    TestUtils::makeMaterialAssignment(asset, elastic, noPlastic),
+    TestUtils::makeMaterialBinding(asset, elastic, noPlastic),
     std::invalid_argument);
 }
 

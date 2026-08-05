@@ -82,7 +82,7 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
   auto parameters = TestUtils::makeDefaultMaterialState(
     *c.asset, *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity6Definition>());
-  auto assignment = TestUtils::makeMaterialAssignment(
+  auto material = TestUtils::makeMaterialBinding(
     c.asset, std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity6Definition>(), parameters);
   DeformationModelOptions options;
@@ -90,9 +90,9 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
   options.enableMaterialMaxStep = false;
   options.dofOffset = offset;
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    assignment, formulation, options);
+    c.asset->mesh(), material.binding, formulation, options);
   c.energy = std::make_unique<DeformationPotentialEnergy>(
-    std::move(energyOperator), assignment->initialMaterialState());
+    std::move(energyOperator), *material.state);
   c.numDOFs = c.energy->getNumDOFs();
   return c;
 }
@@ -351,16 +351,16 @@ EnergyCase makeTwoCubeCase(const FormulationT &formulation)
   auto parameters = TestUtils::makeDefaultMaterialState(
     *c.asset, *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity6Definition>());
-  auto assignment = TestUtils::makeMaterialAssignment(
+  auto material = TestUtils::makeMaterialBinding(
     c.asset, std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity6Definition>(), parameters);
   DeformationModelOptions options;
   options.projectHessianPSD = kExactDerivativeProjectHessianPSD;
   options.enableMaterialMaxStep = false;
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    assignment, formulation, options);
+    c.asset->mesh(), material.binding, formulation, options);
   c.energy = std::make_unique<DeformationPotentialEnergy>(
-    std::move(energyOperator), assignment->initialMaterialState());
+    std::move(energyOperator), *material.state);
   c.numDOFs = c.energy->getNumDOFs();
   return c;
 }

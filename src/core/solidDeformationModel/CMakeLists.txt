@@ -116,7 +116,6 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/runtime/materialBinding.h
   material/runtime/materialState.h
   material/runtime/optimizableParameterRef.h
-  material/runtime/materialAssignment.h
   material/frame/materialFrameField.h
   material/data/materialParameterData.h
   material/data/namedMaterialInputData.h
@@ -208,7 +207,6 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   material/frame/materialFrameField.cpp
   material/projection/materialInputProjection.cpp
   material/projection/importedMaterialFrames.cpp
-  material/runtime/materialAssignment.cpp
   material/import/importedMaterialCatalog.cpp
   material/import/volumeMaterialImporter.cpp
   material/data/namedMaterialInputData.cpp

@@ -761,10 +761,26 @@ std::shared_ptr<PyMaterialAssignment> createMaterialAssignmentFromParameterizati
   const PyMaterialFrameField &materialFrames)
 {
   try {
-    auto assignment = std::make_shared<const SolidDeformationModel::MaterialAssignment>(
-      mesh.meshPtr(), parameterization.parameterization(), data.data(),
+    parameterization.parameterization()->validate(*data.data());
+    const auto &material = *parameterization.parameterization();
+    const auto &values = *data.data();
+    auto binding = std::make_shared<const SolidDeformationModel::MaterialBinding>(
+      SolidDeformationModel::ElasticMaterialBinding(
+        material.elastic().definition(),
+        SolidDeformationModel::FixedMaterialParameters(
+          material.elastic().fixedField(), values.elastic.fixedValues),
+        material.elastic().optimizableField()),
+      SolidDeformationModel::PlasticMaterialBinding(
+        material.plastic().definition(),
+        SolidDeformationModel::FixedMaterialParameters(
+          material.plastic().fixedField(), values.plastic.fixedValues),
+        material.plastic().optimizableField()),
       materialFrames.field());
-    return std::make_shared<PyMaterialAssignment>(std::move(assignment));
+    SolidDeformationModel::MaterialState initialState(
+      values.elastic.initialOptimizableValues,
+      values.plastic.initialOptimizableValues);
+    return std::make_shared<PyMaterialAssignment>(
+      mesh.meshPtr(), std::move(binding), std::move(initialState));
   }
   catch (const std::invalid_argument &error) {
     throw nb::value_error(error.what());
@@ -776,13 +792,12 @@ std::shared_ptr<PyMaterialState> createMaterialState(
   nb::ndarray<nb::numpy, const double> elasticValues,
   nb::ndarray<nb::numpy, const double> plasticValues)
 {
-  const auto &parameterization = assignment.assignment()->parameterization();
   try {
     return std::make_shared<PyMaterialState>(SolidDeformationModel::MaterialState(
       python::ndarrayToVectorXd(elasticValues),
       python::ndarrayToVectorXd(plasticValues)),
-      parameterization->elastic().optimizableField(),
-      parameterization->plastic().optimizableField());
+      assignment.binding()->elastic().optimizableField(),
+      assignment.binding()->plastic().optimizableField());
   }
   catch (const std::invalid_argument &error) {
     throw nb::value_error(error.what());
@@ -805,7 +820,7 @@ std::shared_ptr<PyDeformationEnergyOperator> createDeformationEnergyOperator(
   {
     nb::gil_scoped_release release;
     energy = std::make_shared<SolidDeformationModel::DeformationEnergyOperator>(
-      assignment.assignment(), formulation.get(), opts);
+      assignment.mesh(), assignment.binding(), formulation.get(), opts);
   }
   return std::make_shared<PyDeformationEnergyOperator>(std::move(energy));
 }

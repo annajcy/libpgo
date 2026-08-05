@@ -9,7 +9,6 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulation.h"
 #include "material/runtime/materialBinding.h"
-#include "material/runtime/materialAssignment.h"
 #include "scopedProfileSection.h"
 #include "simulation/simulationMesh.h"
 #include "pgoLogging.h"
@@ -83,50 +82,6 @@ DeformationEnergyOperator::BuildComponents DeformationEnergyOperator::build(
     std::move(manager), formulation,
     materialBinding->elastic().optimizableField(),
     materialBinding->plastic().optimizableField(),
-    std::span<const double>(
-      elementWeights.data(),
-      static_cast<std::size_t>(elementWeights.size())));
-  return BuildComponents{
-    std::move(assembler), options.enableMaterialMaxStep, options.dofOffset};
-}
-
-DeformationEnergyOperator::DeformationEnergyOperator(
-  std::shared_ptr<const MaterialAssignment> assignment,
-  const Formulation &formulation,
-  const DeformationModelOptions &options):
-  DeformationEnergyOperator(build(
-    std::move(assignment), formulation, options))
-{
-}
-
-DeformationEnergyOperator::BuildComponents DeformationEnergyOperator::build(
-  std::shared_ptr<const MaterialAssignment> assignment,
-  const Formulation &formulation,
-  const DeformationModelOptions &options)
-{
-  if (!assignment)
-    throw std::invalid_argument(
-      "DeformationEnergyOperator requires a material assignment.");
-  const auto &parameterization = assignment->parameterization();
-  const int numElements = assignment->mesh()->getNumElements();
-  if (parameterization->elastic().optimizableField()->numElements() != numElements ||
-    parameterization->plastic().optimizableField()->numElements() != numElements)
-    throw std::invalid_argument(
-      "DeformationEnergyOperator parameter field element count does not match the mesh.");
-
-  ES::VXd elementWeights = options.elementWeights;
-  if (elementWeights.size() == 0)
-    elementWeights = ES::VXd::Ones(numElements);
-  else if (elementWeights.size() != numElements)
-    throw std::invalid_argument(
-      "DeformationEnergyOperator element weight count does not match the mesh.");
-
-  auto manager = std::make_shared<DeformationModelManager>(
-    std::move(assignment), formulation, options.projectHessianPSD);
-  auto assembler = std::make_unique<DeformationModelAssembler>(
-    std::move(manager), formulation,
-    parameterization->elastic().optimizableField(),
-    parameterization->plastic().optimizableField(),
     std::span<const double>(
       elementWeights.data(),
       static_cast<std::size_t>(elementWeights.size())));

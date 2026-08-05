@@ -28,6 +28,8 @@
 #include "material/plastic/plasticModel.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "material/projection/materialInputProjection.h"
+#include "material/runtime/materialBinding.h"
+#include "material/runtime/materialState.h"
 #include "multiVertexPullingSoftConstraints.h"
 #include "backwardEuler/backwardEulerStepper.h"
 #include "dynamicStepper.h"
@@ -719,39 +721,41 @@ int pgo_run_sim_from_config(const char *configFileName)
       {"Fxx", "Fxy", "Fxz", "Fyy", "Fyz", "Fzz"}),
     std::make_shared<SolidDeformationModel::ElementwiseParameterLayout>(nele, 6),
     std::make_shared<SolidDeformationModel::IdentityMaterialChannelMapping>(6));
-  SolidDeformationModel::MaterialParameterData data;
-  data.elastic.fixedValues =
+  ES::VXd elasticFixedValues =
     SolidDeformationModel::projectImportedMaterialInputs(
       asset->materialCatalog(), elasticFixed->inputSchema(),
       elasticFixed->layout());
-  data.plastic.fixedValues =
+  ES::VXd plasticFixedValues =
     SolidDeformationModel::projectImportedMaterialInputs(
       asset->materialCatalog(), plasticFixed->inputSchema(),
       plasticFixed->layout());
-  data.elastic.initialOptimizableValues = ES::VXd{};
-  data.plastic.initialOptimizableValues = ES::VXd::Zero(nele * 6);
+  ES::VXd plasticInitialValues = ES::VXd::Zero(nele * 6);
   for (int element = 0; element < nele; ++element)
-    data.plastic.initialOptimizableValues.segment<6>(element * 6)
+    plasticInitialValues.segment<6>(element * 6)
       << 1, 0, 0, 1, 0, 1;
-  auto parameterization = std::make_shared<const SolidDeformationModel::MaterialParameterization>(
-    SolidDeformationModel::ElasticParameterization(
-      elasticDefinition, std::move(elasticFixed), std::move(elasticOpt)),
-    SolidDeformationModel::PlasticParameterization(
-      plastic, std::move(plasticFixed), std::move(plasticOpt)));
-  auto parameterData = std::make_shared<const SolidDeformationModel::MaterialParameterData>(
-    std::move(data));
-  auto assignment = std::make_shared<SolidDeformationModel::MaterialAssignment>(
-    simMesh, parameterization, parameterData,
+  auto binding = std::make_shared<const SolidDeformationModel::MaterialBinding>(
+    SolidDeformationModel::ElasticMaterialBinding(
+      elasticDefinition,
+      SolidDeformationModel::FixedMaterialParameters(
+        std::move(elasticFixed), std::move(elasticFixedValues)),
+      std::move(elasticOpt)),
+    SolidDeformationModel::PlasticMaterialBinding(
+      plastic,
+      SolidDeformationModel::FixedMaterialParameters(
+        std::move(plasticFixed), std::move(plasticFixedValues)),
+      std::move(plasticOpt)),
     std::make_shared<const SolidDeformationModel::GlobalAxesMaterialFrameField>(
       nele));
+  const SolidDeformationModel::MaterialState materialState(
+    ES::VXd{}, std::move(plasticInitialValues));
   switch (simMesh->getElementType()) {
   case SolidDeformationModel::SimulationMeshType::TET:
     elasticOperator = std::make_shared<SolidDeformationModel::DeformationEnergyOperator>(
-      assignment, SolidDeformationModel::TetLinearFormulation{});
+      simMesh, binding, SolidDeformationModel::TetLinearFormulation{});
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
     elasticOperator = std::make_shared<SolidDeformationModel::DeformationEnergyOperator>(
-      assignment, SolidDeformationModel::CubicLinearFormulation{});
+      simMesh, binding, SolidDeformationModel::CubicLinearFormulation{});
     break;
   default:
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");
@@ -759,7 +763,7 @@ int pgo_run_sim_from_config(const char *configFileName)
   }
   auto elasticEnergy =
     std::make_shared<SolidDeformationModel::DeformationPotentialEnergy>(
-      std::move(elasticOperator), assignment->initialMaterialState());
+      std::move(elasticOperator), materialState);
 
   ES::VXd restPosition = elasticEnergy->getRestDofs();
 

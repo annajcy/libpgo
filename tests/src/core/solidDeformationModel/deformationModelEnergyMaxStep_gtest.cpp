@@ -109,15 +109,15 @@ EnergyFixture makeTetFixture(
   auto parameters = TestUtils::makeDefaultMaterialState(
     *fixture.asset, *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity6Definition>());
-  auto assignment = TestUtils::makeMaterialAssignment(
+  auto material = TestUtils::makeMaterialBinding(
     fixture.asset, std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity6Definition>(), parameters);
   DeformationModelOptions options;
   options.dofOffset = offset;
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    assignment, formulation, options);
+    fixture.asset->mesh(), material.binding, formulation, options);
   fixture.energy = std::make_shared<DeformationPotentialEnergy>(
-    std::move(energyOperator), assignment->initialMaterialState());
+    std::move(energyOperator), *material.state);
   return fixture;
 }
 
@@ -151,13 +151,13 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
   auto parameters = TestUtils::makeDefaultMaterialState(
     *fixture.asset, *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity6Definition>());
-  auto assignment = TestUtils::makeMaterialAssignment(
+  auto material = TestUtils::makeMaterialBinding(
     fixture.asset, std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity6Definition>(), parameters);
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    assignment, formulation);
+    fixture.asset->mesh(), material.binding, formulation);
   fixture.energy = std::make_shared<DeformationPotentialEnergy>(
-    std::move(energyOperator), assignment->initialMaterialState());
+    std::move(energyOperator), *material.state);
   return fixture;
 }
 
@@ -199,13 +199,13 @@ EnergyFixture makeShellFixture()
   auto parameters = TestUtils::makeDefaultMaterialState(
     *fixture.asset, *std::make_shared<KoiterStVKDefinition>(),
     *std::make_shared<ShellPlasticity1Definition>());
-  auto assignment = TestUtils::makeMaterialAssignment(
+  auto material = TestUtils::makeMaterialBinding(
     fixture.asset, std::make_shared<KoiterStVKDefinition>(),
     std::make_shared<ShellPlasticity1Definition>(), parameters);
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
-    assignment, formulation);
+    fixture.asset->mesh(), material.binding, formulation);
   fixture.energy = std::make_shared<DeformationPotentialEnergy>(
-    std::move(energyOperator), assignment->initialMaterialState());
+    std::move(energyOperator), *material.state);
   return fixture;
 }
 

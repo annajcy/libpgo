@@ -2,7 +2,6 @@
 
 #include "energy/deformationEnergyOperator.h"
 #include "energy/deformationPotentialEnergy.h"
-#include "material/runtime/materialAssignment.h"
 #include "material/runtime/materialBinding.h"
 #include "material/parameterization/materialChannelMapping.h"
 #include "material/frame/materialFrameField.h"
@@ -295,40 +294,6 @@ inline MaterialBindingAndState makeMaterialBinding(
       std::move(plasticOptimizable)),
     std::move(frames));
   return { std::move(binding), std::move(state) };
-}
-
-inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
-  std::shared_ptr<const SimulationImportResult> asset,
-  std::shared_ptr<const ElasticModelDefinition> elastic,
-  std::shared_ptr<const PlasticModelDefinition> plastic,
-  std::shared_ptr<MaterialState> parameters = {},
-  std::shared_ptr<const MaterialFrameField> frames = {},
-  std::shared_ptr<const OptimizableParameterField> elasticOptimizable = {},
-  std::shared_ptr<const OptimizableParameterField> plasticOptimizable = {})
-{
-  auto result = makeMaterialBinding(
-    asset, std::move(elastic), std::move(plastic),
-    std::move(parameters), std::move(frames),
-    std::move(elasticOptimizable), std::move(plasticOptimizable));
-  const auto &binding = *result.binding;
-  auto parameterization = std::make_shared<const MaterialParameterization>(
-    ElasticParameterization(
-      binding.elastic().definition(),
-      binding.elastic().fixed().field(),
-      binding.elastic().optimizableField()),
-    PlasticParameterization(
-      binding.plastic().definition(),
-      binding.plastic().fixed().field(),
-      binding.plastic().optimizableField()));
-  MaterialParameterData data;
-  data.elastic.fixedValues = binding.elastic().fixed().values();
-  data.plastic.fixedValues = binding.plastic().fixed().values();
-  data.elastic.initialOptimizableValues = result.state->elasticValues();
-  data.plastic.initialOptimizableValues = result.state->plasticValues();
-  return std::make_shared<const MaterialAssignment>(
-    asset->mesh(), std::move(parameterization),
-    std::make_shared<const MaterialParameterData>(std::move(data)),
-    binding.materialFrames());
 }
 
 inline std::shared_ptr<DeformationPotentialEnergy> makeTestEnergy(

@@ -180,13 +180,13 @@ Fixture makeFixture(
     ES::VXd(), z);
 
   CubicLinearFormulation formulation;
-  auto assignment = TestUtils::makeMaterialAssignment(
+  auto material = TestUtils::makeMaterialBinding(
     fixture.asset,
     std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity6Definition>(),
     fixture.parameters, nullptr, elasticBlock, plasticBlock);
   auto manager = std::make_shared<DeformationModelManager>(
-    std::move(assignment), formulation, false);
+    fixture.asset->mesh(), material.binding, formulation, false);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation,
     std::move(elasticBlock), std::move(plasticBlock));
@@ -231,13 +231,13 @@ Fixture makeNonlinearShellFixture()
     elastic, plastic);
 
   KoiterShellFormulation formulation;
-  auto assignment = TestUtils::makeMaterialAssignment(
+  auto material = TestUtils::makeMaterialBinding(
     fixture.asset,
     std::make_shared<KoiterStVKDefinition>(),
     std::make_shared<ShellPlasticity1Definition>(),
     fixture.parameters, nullptr, elasticBlock, plasticBlock);
   auto manager = std::make_shared<DeformationModelManager>(
-    std::move(assignment), formulation, false);
+    fixture.asset->mesh(), material.binding, formulation, false);
   fixture.assembler = std::make_unique<DeformationModelAssembler>(
     std::move(manager), formulation,
     std::move(elasticBlock), std::move(plasticBlock));
@@ -540,13 +540,13 @@ TEST(PrescribedPrincipleStressConstraintFunctions, BindsImmutableMaterialState)
     ES::VXd(), ES::V3d::Ones());
 
   TetLinearFormulation formulation;
-  auto assignment = TestUtils::makeMaterialAssignment(
+  auto material = TestUtils::makeMaterialBinding(
     asset,
     std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity3Definition>(),
     parameters, nullptr, elasticField, plasticField);
   auto manager = std::make_shared<DeformationModelManager>(
-    std::move(assignment), formulation, false);
+    asset->mesh(), material.binding, formulation, false);
 
   const int elementID = 0;
   PrescribedPrincipleStressConstraintFunctions constraints(
