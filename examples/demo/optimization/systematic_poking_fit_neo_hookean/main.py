@@ -156,7 +156,7 @@ def _make_energy(imported, elastic, elastic_values):
         parameter_data=parameter_data,
         material_frames=pf.GlobalAxesMaterialFrameField(mesh.num_elements),
     )
-    return pf.DeformationEnergy(
+    operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
@@ -164,6 +164,8 @@ def _make_energy(imported, elastic, elastic_values):
             enable_material_max_step=False,
         ),
     )
+    return pf.DeformationPotentialEnergy(
+        operator, assignment.initial_material_state)
 
 
 def _axis_angle(axis, angle):
@@ -356,8 +358,10 @@ def stress_residual_and_jacobian(
 ):
     parameters = YOUNGS_MODULUS * np.exp(
         np.asarray(theta, dtype=np.float64))
-    problem.systematic_energy.optimizable_parameters.set_elastic_values(
-        parameters[None, :])
+    problem.systematic_energy = pf.DeformationPotentialEnergy(
+        problem.systematic_energy.energy_operator,
+        problem.systematic_energy.material_state.with_elastic_values(
+            parameters[None, :]))
     cases, targets = problem.target_for(split)
     residuals = []
     jacobians = []
@@ -381,8 +385,10 @@ def physical_linear_system(
 ):
     parameter_count = len(problem.stretch_knots) + 1
     unit_parameters = np.ones(parameter_count, dtype=np.float64)
-    problem.systematic_energy.optimizable_parameters.set_elastic_values(
-        unit_parameters[None, :])
+    problem.systematic_energy = pf.DeformationPotentialEnergy(
+        problem.systematic_energy.energy_operator,
+        problem.systematic_energy.material_state.with_elastic_values(
+            unit_parameters[None, :]))
     cases, targets = problem.target_for(split)
     design_blocks = []
     target_blocks = []
@@ -567,8 +573,10 @@ def fit_parameters(
 
 
 def _predictions(problem, parameters, split):
-    problem.systematic_energy.optimizable_parameters.set_elastic_values(
-        np.asarray(parameters)[None, :])
+    problem.systematic_energy = pf.DeformationPotentialEnergy(
+        problem.systematic_energy.energy_operator,
+        problem.systematic_energy.material_state.with_elastic_values(
+            np.asarray(parameters)[None, :]))
     cases, targets = problem.target_for(split)
     predicted = np.asarray([
         _stress_and_parameter_jacobian(

@@ -39,13 +39,15 @@ def make_cubic_case():
     plastic = fem.VolumetricPlasticityDefinition(dofs=6)
     assignment = direct_assignment(
         sim, elastic, plastic, fem.ElementwiseParameterLayout, fem.ConstantParameterLayout)
-    energy = fem.DeformationEnergy(
+    operator = fem.DeformationEnergyOperator(
         assignment,
         formulation=fem.CubicLinear(),
         options=fem.DeformationOptions(
             project_hessian_psd=False, enable_material_max_step=False
         ),
     )
+    energy = fem.DeformationPotentialEnergy(
+        operator, assignment.initial_material_state)
     return sim, energy
 
 
@@ -72,13 +74,15 @@ def make_shell_elastic_case():
     assignment = direct_assignment(
         sim, elastic, plastic, fem.ConstantParameterLayout, fem.ElementwiseParameterLayout,
         elastic_values, plastic_values)
-    energy = fem.DeformationEnergy(
+    operator = fem.DeformationEnergyOperator(
         assignment,
         formulation=fem.KoiterShell(),
         options=fem.DeformationOptions(
             project_hessian_psd=False, enable_material_max_step=False
         ),
     )
+    energy = fem.DeformationPotentialEnergy(
+        operator, assignment.initial_material_state)
     return sim, energy
 
 
@@ -92,10 +96,7 @@ def test_adjoint_dE_dp_can_be_assembled_directly():
     target = surface.vertices.copy()
     target[:, 0] *= 1.02
 
-    a0 = energy.optimizable_parameters.plastic_values.ravel()
-    energy.optimizable_parameters.set_plastic_values(
-        a0.reshape(energy.optimizable_parameters.plastic_values.shape)
-    )
+    a0 = energy.material_state.plastic_values.ravel()
     fixed_dofs = np.arange(0, 9, dtype=np.int64)
     fixed_values = np.zeros(9, dtype=np.float64)
     problem = solver.OptimizationProblem(objective=energy)
@@ -113,10 +114,9 @@ def test_adjoint_dE_dp_can_be_assembled_directly():
 
     free = np.setdiff1d(np.arange(energy.num_dofs), fixed_dofs)
     hessian = energy.hessian(inner.x).to_dense()
-    d2E_dudp = energy.d2E_dudp(inner.x).to_dense()
     adjoint = np.zeros(energy.num_dofs, dtype=np.float64)
     adjoint[free] = np.linalg.solve(hessian[np.ix_(free, free)], grad_u[free])
-    grad_a = -(d2E_dudp.T @ adjoint)
+    grad_a = -energy.plastic_material_vjp(inner.x, adjoint)
 
     assert np.isfinite(0.5 * np.dot(residual.ravel(), residual.ravel()))
     assert grad_a.shape == a0.shape
@@ -144,7 +144,7 @@ def test_static_equilibrium_torch_layer_backward_matches_direct_adjoint():
         ),
     )
 
-    a0 = energy.optimizable_parameters.plastic_values.ravel()
+    a0 = energy.material_state.plastic_values.ravel()
     plastic_param = torch.tensor(a0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 
@@ -253,7 +253,7 @@ def test_static_equilibrium_torch_layer_elastic_backward_matches_direct_adjoint(
         ),
     )
 
-    b0 = energy.optimizable_parameters.elastic_values.ravel()
+    b0 = energy.material_state.elastic_values.ravel()
     elastic_param = torch.tensor(b0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 
@@ -314,7 +314,7 @@ def test_elastic_static_equilibrium_layer_uses_additional_energy_for_adjoint_hes
         ),
     )
 
-    b0 = energy.optimizable_parameters.elastic_values.ravel()
+    b0 = energy.material_state.elastic_values.ravel()
     elastic_param = torch.tensor(b0, dtype=torch.float64, requires_grad=True)
     target_torch = torch.as_tensor(target, dtype=torch.float64)
 

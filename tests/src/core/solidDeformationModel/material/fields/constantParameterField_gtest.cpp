@@ -2,7 +2,7 @@
 
 #include "material/parameterization/parameterLayout.h"
 #include "material/parameterization/materialChannelMapping.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 
 #include <array>
 #include <memory>

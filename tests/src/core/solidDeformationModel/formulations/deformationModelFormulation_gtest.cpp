@@ -6,8 +6,8 @@
 #include "material/plastic/plasticModel3D6DOF.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "energy/deformationModelEnergy.h"
-#include "energy/deformationModelEnergy.h"
+#include "energy/deformationEnergyOperator.h"
+#include "energy/deformationEnergyOperator.h"
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
 
@@ -35,7 +35,7 @@ constexpr const char *kTorusVegPath = LIBPGO_TEST_TORUS_VEG;
 constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 
 template<class FormulationT>
-std::shared_ptr<pgo::SolidDeformationModel::DeformationModelEnergy> makeDefaultFieldEnergy(
+std::shared_ptr<pgo::SolidDeformationModel::DeformationPotentialEnergy> makeDefaultFieldEnergy(
   std::shared_ptr<const SimulationImportResult> asset,
   const FormulationT &formulation,
   std::shared_ptr<const ElasticModelDefinition> elastic,

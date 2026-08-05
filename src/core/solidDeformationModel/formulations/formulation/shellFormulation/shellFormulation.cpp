@@ -1,7 +1,7 @@
 #include "shellFormulation.h"
 
 #include "mass/shellArealDensityField.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 #include "deformation/shell/shellDeformationModel.h"
 #include "simulation/simulationMesh.h"
 
@@ -77,7 +77,7 @@ std::unique_ptr<DeformationModel> ShellFormulation::createElement(
 
 EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
   const SimulationMesh &mesh, const ShellArealDensityField &arealDensity,
-  OptimizableParameterEvaluationView state) const
+  MaterialStateView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -104,7 +104,7 @@ EigenSupport::SpMatD ShellFormulation::buildMassMatrix(
 
 EigenSupport::VXd ShellFormulation::buildBodyForce(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellArealDensityField &arealDensity, OptimizableParameterEvaluationView state) const
+  const ShellArealDensityField &arealDensity, MaterialStateView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
@@ -126,7 +126,7 @@ EigenSupport::VXd ShellFormulation::buildBodyForce(
 
 EigenSupport::SpMatD ShellFormulation::buildBodyForceParameterJacobian(
   const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
-  const ShellArealDensityField &arealDensity, OptimizableParameterEvaluationView state) const
+  const ShellArealDensityField &arealDensity, MaterialStateView state) const
 {
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");

@@ -107,7 +107,7 @@ def main() -> None:
         parameterization=parameterization,
         parameter_data=parameter_data,
         material_frames=pf.GlobalAxesMaterialFrameField(asset.num_elements))
-    energy = pf.DeformationEnergy(
+    energy_operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
@@ -115,6 +115,8 @@ def main() -> None:
             enable_material_max_step=False,
         ),
     )
+    energy = pf.DeformationPotentialEnergy(
+        energy_operator, assignment.initial_material_state)
 
     # Clamp the bottom face and expose equilibrium as a PyTorch layer.
     fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 0.0))
@@ -132,7 +134,7 @@ def main() -> None:
     )
 
     # Fit the plastic field through the differentiable equilibrium solve.
-    initial_plastic = energy.optimizable_parameters.plastic_values.copy()
+    initial_plastic = energy.material_state.plastic_values.copy()
     initial_tensor = torch.as_tensor(initial_plastic.ravel())
     target_tensor = torch.as_tensor(target_vertices)
     plastic = torch.tensor(initial_plastic.ravel(), requires_grad=True)

@@ -108,10 +108,12 @@ def test_hermite_dynamic_free_fall_uses_24_dofs():
         sim_mesh, elastic, plastic,
         pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout,
         np.empty(0), np.empty(0))
-    energy = pf.DeformationEnergy(
+    operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=pf.CubicTricubicHermite(),
     )
+    energy = pf.DeformationPotentialEnergy(
+        operator, assignment.initial_material_state)
     mass_field = pf.VolumeDensity(2.0)
     M = pf.CubicTricubicHermite().mass_matrix(sim_mesh.mesh, mass_field)
     f = pf.CubicTricubicHermite().body_force(sim_mesh.mesh, [0.0, -9.8, 0.0], mass_field)

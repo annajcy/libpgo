@@ -27,7 +27,7 @@ MaterialAssignment::MaterialAssignment(
     throw std::invalid_argument(
       "MaterialAssignment material frame element count does not match mesh.");
 
-  optimizableParameters_ = std::make_shared<OptimizableParameters>(
+  initialMaterialState_ = MaterialState(
     parameterization_->elastic().optimizableField(),
     parameterization_->plastic().optimizableField(),
     parameterData_->elastic.initialOptimizableValues,

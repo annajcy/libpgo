@@ -57,7 +57,7 @@ def _make_energy(elastic, elastic_values=None):
         elastic_values=elastic_values,
         plastic_values=np.empty((1, 0), dtype=np.float64),
     )
-    return pf.DeformationEnergy(
+    operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
@@ -65,6 +65,8 @@ def _make_energy(elastic, elastic_values=None):
             enable_material_max_step=False,
         ),
     )
+    return pf.DeformationPotentialEnergy(
+        operator, assignment.initial_material_state)
 
 
 def _neo_hookean_energy_density(F):

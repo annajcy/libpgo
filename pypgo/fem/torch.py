@@ -11,7 +11,7 @@ from pypgo import solver
 from pypgo import energy as _energy_mod
 from pypgo._utils import float_vector, int_vector, vertex_array
 from pypgo.energy import PotentialEnergy
-from pypgo.fem.energy import DeformationEnergy
+from pypgo.fem.energy import DeformationPotentialEnergy
 
 
 class _StaticEquilibriumFunction(_torch.autograd.Function):
@@ -30,8 +30,10 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
                 f"{layer._parameter_name}_values size must be {layer.num_parameter_dofs}, got {parameter_np.size}"
             )
 
-        layer._set_parameter_values(parameter_np)
-        objective = layer._build_objective()
+        material_state = layer._material_state(parameter_np)
+        deformation_energy = DeformationPotentialEnergy(
+            layer.energy.energy_operator, material_state)
+        objective = layer._build_objective(deformation_energy, material_state)
         problem = solver.OptimizationProblem(objective=objective)
         problem.fix_variables(
             layer.fixed_dofs.tolist(),
@@ -48,6 +50,8 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
 
         ctx.layer = layer
         ctx.parameter_values = parameter_np
+        ctx.material_state = material_state
+        ctx.deformation_energy = deformation_energy
         ctx.displacement = inner.x.copy()
         return _torch.as_tensor(surface_vertices, dtype=parameter_values.dtype)
 
@@ -59,7 +63,6 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
         if grad_surface.device.type != "cpu":
             raise ValueError(f"{layer._layer_name} currently supports CPU tensors only")
 
-        layer._set_parameter_values(ctx.parameter_values)
         grad_surface_np = np.asarray(grad_surface.detach().cpu().numpy(), dtype=np.float64)
         if grad_surface_np.shape != layer.surface_vertices.shape:
             raise ValueError(
@@ -77,15 +80,18 @@ class _StaticEquilibriumFunction(_torch.autograd.Function):
             # The external load is linear in displacement, so the Hessian of
             # the equilibrium objective is the Hessian of its conservative
             # part.  Its parameter mixed derivative is supplied separately by
-            # ``_d2E_dudq`` below.
-            hessian = layer._conservative_energy.hessian(ctx.displacement).to_dense()
-            d2E_dudq = layer._d2E_dudq(ctx.displacement)
+            # ``_material_vjp`` below.
+            hessian = ctx.deformation_energy.hessian(ctx.displacement).to_dense()
+            if layer.additional_energy is not None:
+                hessian += layer.additional_energy.hessian(
+                    ctx.displacement).to_dense()
             adjoint = np.zeros(layer.energy.num_dofs, dtype=np.float64)
             adjoint[layer.free_dofs] = np.linalg.solve(
                 hessian[np.ix_(layer.free_dofs, layer.free_dofs)],
                 grad_u[layer.free_dofs],
             )
-            grad_parameter = -(d2E_dudq.T @ adjoint)
+            grad_parameter = -layer._material_vjp(
+                ctx.displacement, ctx.material_state, adjoint)
 
         return _torch.as_tensor(grad_parameter, dtype=grad_surface.dtype), None
 
@@ -109,8 +115,9 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
         external_load=None,
     ) -> None:
         super().__init__()
-        if not isinstance(energy, DeformationEnergy):
-            raise TypeError("energy must be a pypgo.fem.DeformationEnergy")
+        if not isinstance(energy, DeformationPotentialEnergy):
+            raise TypeError(
+                "energy must be a pypgo.fem.DeformationPotentialEnergy")
         if additional_energy is not None:
             if not isinstance(additional_energy, PotentialEnergy):
                 raise TypeError(
@@ -123,12 +130,6 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
 
         self.energy = energy
         self.additional_energy = additional_energy
-        if additional_energy is None:
-            self._conservative_energy = energy
-        else:
-            self._conservative_energy = _energy_mod.EnergySet(
-                [(energy, 1.0), (additional_energy, 1.0)]
-            )
         self.fixed_dofs = int_vector("fixed_dofs", fixed_dofs)
         self.fixed_values = float_vector("fixed_values", fixed_values)
         if self.fixed_values.size != self.fixed_dofs.size:
@@ -154,20 +155,20 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
                 getattr(external_load, "parameter_jacobian", None)
             ):
                 raise TypeError("external_load must provide force() and parameter_jacobian()")
-            load_parameters = getattr(external_load, "optimizable_parameters", None)
-            if load_parameters is None or not energy.optimizable_parameters._uses_same_parameter_fields_as(
-                load_parameters
+            load_state = getattr(external_load, "material_state", None)
+            if load_state is None or not energy.material_state._uses_same_parameter_fields_as(
+                load_state
             ):
                 raise ValueError(
                     "external_load and deformation energy must use the same optimizable fields"
                 )
         self.external_load = external_load
 
-        self.plastic_shape = tuple(energy.optimizable_parameters.plastic_values.shape)
+        self.plastic_shape = tuple(energy.material_state.plastic_values.shape)
         self.num_plastic_dofs = int(np.prod(self.plastic_shape))
         if self.num_plastic_dofs != energy.num_plastic_dofs:
             raise ValueError("plastic field size does not match energy.num_plastic_dofs")
-        self.elastic_shape = tuple(energy.optimizable_parameters.elastic_values.shape)
+        self.elastic_shape = tuple(energy.material_state.elastic_values.shape)
         self.num_elastic_dofs = int(np.prod(self.elastic_shape))
         if self.num_elastic_dofs != energy.num_elastic_dofs:
             raise ValueError("elastic field size does not match energy.num_elastic_dofs")
@@ -195,16 +196,21 @@ class _BaseStaticEquilibriumLayer(_torch.nn.Module):
         if self._warm_start.size != self.energy.num_dofs:
             raise ValueError("displacement size must match energy.num_dofs")
 
-    def _build_objective(self):
+    def _build_objective(self, deformation_energy, material_state):
         """Build the objective, adding the current parameter-dependent load."""
+        conservative = deformation_energy
+        if self.additional_energy is not None:
+            conservative = _energy_mod.EnergySet(
+                [(deformation_energy, 1.0), (self.additional_energy, 1.0)])
         if self.external_load is None:
-            return self._conservative_energy
-        load = np.asarray(self.external_load.force(), dtype=np.float64)
+            return conservative
+        load = np.asarray(
+            self.external_load.force(material_state), dtype=np.float64)
         if load.shape != (self.energy.num_dofs,):
             raise ValueError(
                 f"external_load.force() must return shape ({self.energy.num_dofs},), got {load.shape}")
         return _energy_mod.EnergySet([
-            (self._conservative_energy, 1.0),
+            (conservative, 1.0),
             (_energy_mod.LinearEnergy(-load), 1.0),
         ])
 
@@ -236,7 +242,8 @@ class PlasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     The forward pass solves the conservative objective ``E(u, p) + C(u)`` for
     the given plastic field ``p`` and returns observed surface vertices.
     ``additional_energy=C`` must be independent of the plastic field. The
-    backward pass uses ``energy.d2E_dudp(u)`` in the adjoint contraction.
+    backward pass uses the direct plastic material VJP and does not assemble
+    ``d2E_dudp``.
     """
 
     _layer_name = "PlasticStaticEquilibriumLayer"
@@ -250,11 +257,15 @@ class PlasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     def num_parameter_dofs(self) -> int:
         return self.num_plastic_dofs
 
-    def _set_parameter_values(self, values) -> None:
-        self.energy.optimizable_parameters.set_plastic_values(values.reshape(self.plastic_shape))
+    def _material_state(self, values):
+        return self.energy.material_state.with_plastic_values(
+            values.reshape(self.plastic_shape))
 
-    def _d2E_dudq(self, displacement) -> np.ndarray:
-        return self.energy.d2E_dudp(displacement).to_dense()
+    def _material_vjp(
+        self, displacement, material_state, adjoint
+    ) -> np.ndarray:
+        return self.energy.energy_operator.plastic_material_vjp(
+            displacement, material_state, adjoint)
 
 
 class ElasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
@@ -263,8 +274,8 @@ class ElasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     The forward pass solves the conservative objective ``E(u, e) + C(u)``
     (and, when supplied, the external load) for the given elastic field
     ``e``. ``additional_energy=C`` must be independent of the elastic field.
-    The backward pass uses ``energy.d2E_dude(u)`` and the external-load
-    parameter Jacobian in the adjoint contraction.
+    The backward pass uses the direct elastic material VJP and the
+    external-load parameter Jacobian contraction.
     """
 
     _layer_name = "ElasticStaticEquilibriumLayer"
@@ -278,18 +289,23 @@ class ElasticStaticEquilibriumLayer(_BaseStaticEquilibriumLayer):
     def num_parameter_dofs(self) -> int:
         return self.num_elastic_dofs
 
-    def _set_parameter_values(self, values) -> None:
-        self.energy.optimizable_parameters.set_elastic_values(values.reshape(self.elastic_shape))
+    def _material_state(self, values):
+        return self.energy.material_state.with_elastic_values(
+            values.reshape(self.elastic_shape))
 
-    def _d2E_dudq(self, displacement) -> np.ndarray:
-        d2E_dude = self.energy.d2E_dude(displacement).to_dense()
+    def _material_vjp(
+        self, displacement, material_state, adjoint
+    ) -> np.ndarray:
+        vjp = self.energy.energy_operator.elastic_material_vjp(
+            displacement, material_state, adjoint)
         if self.external_load is not None:
             # Inner gradient is ∇E(u,e) - f_g(e), so its mixed e derivative
             # subtracts d f_g / d e.
-            d2E_dude = (
-                d2E_dude - self.external_load.parameter_jacobian().to_dense()
+            vjp = (
+                vjp - self.external_load.parameter_jacobian(
+                    material_state).to_dense().T @ adjoint
             )
-        return d2E_dude
+        return vjp
 
 
 __all__ = [

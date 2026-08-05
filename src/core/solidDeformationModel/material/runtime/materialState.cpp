@@ -1,4 +1,4 @@
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 
 #include <stdexcept>
 
@@ -20,7 +20,7 @@ std::shared_ptr<const EigenSupport::VXd> makeValueOwner(
 }
 }  // namespace
 
-void OptimizableParameterEvaluationScratch::prepare(
+void MaterialStateEvaluationScratch::prepare(
   const OptimizableParameterField &field,
   int numMaterialLocations)
 {
@@ -38,7 +38,19 @@ void OptimizableParameterEvaluationScratch::prepare(
     static_cast<Eigen::Index>(localParameters));
 }
 
-OptimizableParameterSnapshot::OptimizableParameterSnapshot(
+MaterialState::MaterialState(
+  std::shared_ptr<const OptimizableParameterField> elasticField,
+  std::shared_ptr<const OptimizableParameterField> plasticField,
+  EigenSupport::VXd elasticValues,
+  EigenSupport::VXd plasticValues):
+  MaterialState(
+    std::move(elasticField), std::move(plasticField),
+    makeValueOwner(std::move(elasticValues)),
+    makeValueOwner(std::move(plasticValues)))
+{
+}
+
+MaterialState::MaterialState(
   std::shared_ptr<const OptimizableParameterField> elasticField,
   std::shared_ptr<const OptimizableParameterField> plasticField,
   std::shared_ptr<const EigenSupport::VXd> elasticValues,
@@ -50,7 +62,10 @@ OptimizableParameterSnapshot::OptimizableParameterSnapshot(
 {
   if (!elasticField_ || !plasticField_ || !elasticValues_ || !plasticValues_)
     throw std::invalid_argument(
-      "OptimizableParameterSnapshot requires complete state handles.");
+      "MaterialState requires complete state handles.");
+  if (elasticField_->numElements() != plasticField_->numElements())
+    throw std::invalid_argument(
+      "MaterialState fields must share an element count.");
   validateStateSize(
     "elastic", elasticValues_->size(),
     elasticField_->layout().numGlobalParameters());
@@ -59,65 +74,77 @@ OptimizableParameterSnapshot::OptimizableParameterSnapshot(
     plasticField_->layout().numGlobalParameters());
 }
 
-OptimizableParameterEvaluationView OptimizableParameterSnapshot::view() const
+MaterialStateView MaterialState::view() const
 {
   if (empty())
     return {};
-  return OptimizableParameterEvaluationView(
+  return MaterialStateView(
     elasticField_, plasticField_,
     std::span<const double>(elasticValues_->data(), elasticValues_->size()),
     std::span<const double>(plasticValues_->data(), plasticValues_->size()),
     elasticValues_, plasticValues_);
 }
 
-OptimizableParameterEvaluationView
-OptimizableParameterSnapshot::withElasticValues(
+MaterialState::operator MaterialStateView() const
+{
+  return view();
+}
+
+MaterialState
+MaterialState::withElasticValues(
   std::span<const double> elasticValues) const
 {
   if (empty())
-    throw std::invalid_argument("OptimizableParameterSnapshot is empty.");
+    throw std::invalid_argument("MaterialState is empty.");
   validateStateSize(
     "elastic", elasticValues.size(),
     elasticField_->layout().numGlobalParameters());
-  return OptimizableParameterEvaluationView(
-    elasticField_, plasticField_, elasticValues,
-    std::span<const double>(plasticValues_->data(), plasticValues_->size()),
-    {}, plasticValues_);
+  return MaterialState(
+    elasticField_, plasticField_,
+    makeValueOwner(EigenSupport::VXd(
+      Eigen::Map<const EigenSupport::VXd>(
+        elasticValues.data(), elasticValues.size()))),
+    plasticValues_);
 }
 
-OptimizableParameterEvaluationView
-OptimizableParameterSnapshot::withPlasticValues(
+MaterialState
+MaterialState::withPlasticValues(
   std::span<const double> plasticValues) const
 {
   if (empty())
-    throw std::invalid_argument("OptimizableParameterSnapshot is empty.");
+    throw std::invalid_argument("MaterialState is empty.");
   validateStateSize(
     "plastic", plasticValues.size(),
     plasticField_->layout().numGlobalParameters());
-  return OptimizableParameterEvaluationView(
-    elasticField_, plasticField_,
-    std::span<const double>(elasticValues_->data(), elasticValues_->size()),
-    plasticValues, elasticValues_, {});
+  return MaterialState(
+    elasticField_, plasticField_, elasticValues_,
+    makeValueOwner(EigenSupport::VXd(
+      Eigen::Map<const EigenSupport::VXd>(
+        plasticValues.data(), plasticValues.size()))));
 }
 
-OptimizableParameterEvaluationView OptimizableParameterSnapshot::withValues(
+MaterialState MaterialState::withValues(
   std::span<const double> elasticValues,
   std::span<const double> plasticValues) const
 {
   if (empty())
-    throw std::invalid_argument("OptimizableParameterSnapshot is empty.");
+    throw std::invalid_argument("MaterialState is empty.");
   validateStateSize(
     "elastic", elasticValues.size(),
     elasticField_->layout().numGlobalParameters());
   validateStateSize(
     "plastic", plasticValues.size(),
     plasticField_->layout().numGlobalParameters());
-  return OptimizableParameterEvaluationView(
-    elasticField_, plasticField_, elasticValues, plasticValues);
+  return MaterialState(
+    elasticField_, plasticField_,
+    EigenSupport::VXd(Eigen::Map<const EigenSupport::VXd>(
+      elasticValues.data(), elasticValues.size())),
+    EigenSupport::VXd(Eigen::Map<const EigenSupport::VXd>(
+      plasticValues.data(), plasticValues.size())));
 }
 
 const OptimizableParameterField &
-OptimizableParameterEvaluationView::elasticField() const
+MaterialStateView::elasticField() const
 {
   if (empty())
     throw std::logic_error(
@@ -126,7 +153,7 @@ OptimizableParameterEvaluationView::elasticField() const
 }
 
 const OptimizableParameterField &
-OptimizableParameterEvaluationView::plasticField() const
+MaterialStateView::plasticField() const
 {
   if (empty())
     throw std::logic_error(
@@ -134,7 +161,7 @@ OptimizableParameterEvaluationView::plasticField() const
   return *plasticField_;
 }
 
-std::span<const double> OptimizableParameterEvaluationView::values(
+std::span<const double> MaterialStateView::values(
   const OptimizableParameterField &field) const
 {
   if (empty())
@@ -148,7 +175,7 @@ std::span<const double> OptimizableParameterEvaluationView::values(
     "Optimizable parameter field does not belong to the evaluation view.");
 }
 
-void OptimizableParameterEvaluationView::evaluateElement(
+void MaterialStateView::evaluateElement(
   const OptimizableParameterField &field,
   int element,
   int numMaterialLocations,
@@ -191,107 +218,17 @@ void OptimizableParameterEvaluationView::evaluateElement(
   }
 }
 
-std::span<const double> OptimizableParameterEvaluationView::evaluateElement(
+std::span<const double> MaterialStateView::evaluateElement(
   const OptimizableParameterField &field,
   int element,
   int numMaterialLocations,
-  OptimizableParameterEvaluationScratch &scratch) const
+  MaterialStateEvaluationScratch &scratch) const
 {
   scratch.prepare(field, numMaterialLocations);
   evaluateElement(
     field, element, numMaterialLocations,
     scratch.local, scratch.material);
   return scratch.material;
-}
-
-OptimizableParameters::OptimizableParameters(
-  std::shared_ptr<const OptimizableParameterField> elasticField,
-  std::shared_ptr<const OptimizableParameterField> plasticField,
-  EigenSupport::VXd elasticValues,
-  EigenSupport::VXd plasticValues):
-  elasticField_(std::move(elasticField)),
-  plasticField_(std::move(plasticField))
-{
-  if (!elasticField_ || !plasticField_)
-    throw std::invalid_argument(
-      "OptimizableParameters requires elastic and plastic fields.");
-  if (elasticField_->numElements() != plasticField_->numElements())
-    throw std::invalid_argument(
-      "OptimizableParameters fields must share an element count.");
-  validateStateSize(
-    "elastic", elasticValues.size(),
-    elasticField_->layout().numGlobalParameters());
-  validateStateSize(
-    "plastic", plasticValues.size(),
-    plasticField_->layout().numGlobalParameters());
-  auto committed = std::make_shared<CommittedValues>();
-  committed->elastic = makeValueOwner(std::move(elasticValues));
-  committed->plastic = makeValueOwner(std::move(plasticValues));
-  committed_ = std::move(committed);
-}
-
-OptimizableParameterSnapshot OptimizableParameters::snapshot() const
-{
-  std::lock_guard lock(mutex_);
-  return OptimizableParameterSnapshot(
-    elasticField_, plasticField_, committed_->elastic, committed_->plastic);
-}
-
-EigenSupport::VXd OptimizableParameters::elasticSnapshot() const
-{
-  return snapshot().elasticValues();
-}
-
-EigenSupport::VXd OptimizableParameters::plasticSnapshot() const
-{
-  return snapshot().plasticValues();
-}
-
-void OptimizableParameters::setElasticValues(
-  EigenSupport::ConstRefVecXd values)
-{
-  validateStateSize(
-    "elastic", static_cast<std::size_t>(values.size()),
-    elasticField_->layout().numGlobalParameters());
-  auto elasticOwner = makeValueOwner(EigenSupport::VXd(values));
-  std::lock_guard lock(mutex_);
-  auto next = std::make_shared<CommittedValues>();
-  next->elastic = std::move(elasticOwner);
-  next->plastic = committed_->plastic;
-  committed_ = std::move(next);
-}
-
-void OptimizableParameters::setPlasticValues(
-  EigenSupport::ConstRefVecXd values)
-{
-  validateStateSize(
-    "plastic", static_cast<std::size_t>(values.size()),
-    plasticField_->layout().numGlobalParameters());
-  auto plasticOwner = makeValueOwner(EigenSupport::VXd(values));
-  std::lock_guard lock(mutex_);
-  auto next = std::make_shared<CommittedValues>();
-  next->elastic = committed_->elastic;
-  next->plastic = std::move(plasticOwner);
-  committed_ = std::move(next);
-}
-
-void OptimizableParameters::setValues(
-  EigenSupport::ConstRefVecXd elasticValues,
-  EigenSupport::ConstRefVecXd plasticValues)
-{
-  validateStateSize(
-    "elastic", static_cast<std::size_t>(elasticValues.size()),
-    elasticField_->layout().numGlobalParameters());
-  validateStateSize(
-    "plastic", static_cast<std::size_t>(plasticValues.size()),
-    plasticField_->layout().numGlobalParameters());
-  auto elasticOwner = makeValueOwner(EigenSupport::VXd(elasticValues));
-  auto plasticOwner = makeValueOwner(EigenSupport::VXd(plasticValues));
-  std::lock_guard lock(mutex_);
-  auto next = std::make_shared<CommittedValues>();
-  next->elastic = std::move(elasticOwner);
-  next->plastic = std::move(plasticOwner);
-  committed_ = std::move(next);
 }
 
 }  // namespace pgo::SolidDeformationModel

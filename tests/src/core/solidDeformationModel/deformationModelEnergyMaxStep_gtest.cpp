@@ -8,7 +8,7 @@
 
 #include "EigenSupport.h"
 #include "deformation/deformationModelAssembler.h"
-#include "energy/deformationModelEnergy.h"
+#include "energy/deformationEnergyOperator.h"
 #include "deformation/deformationModelManager.h"
 #include "backwardEuler/backwardEulerStepper.h"
 #include "trbdf2/trbdf2Stepper.h"
@@ -44,7 +44,8 @@ using namespace pgo::SolidDeformationModel;
 using pgo::NonlinearOptimization::PotentialEnergy;
 using pgo::SolidDeformationModel::DeformationModelAssembler;
 using pgo::SolidDeformationModel::ElasticModelDefinition;
-using pgo::SolidDeformationModel::DeformationModelEnergy;
+using pgo::SolidDeformationModel::DeformationEnergyOperator;
+using pgo::SolidDeformationModel::DeformationPotentialEnergy;
 using pgo::SolidDeformationModel::DeformationModelManager;
 using pgo::SolidDeformationModel::PlasticModelDefinition;
 using pgo::SolidDeformationModel::SimulationMesh;
@@ -71,7 +72,7 @@ struct EnergyFixture
 {
   std::shared_ptr<const SimulationImportResult> asset;
   std::shared_ptr<const SimulationMesh> meshOwner;
-  std::shared_ptr<DeformationModelEnergy> energy;
+  std::shared_ptr<DeformationPotentialEnergy> energy;
   ES::VXd restPositions;
 
   // Borrow accessors through the unique_ptr spine (energy -> assembler -> manager -> mesh).
@@ -105,7 +106,7 @@ EnergyFixture makeTetFixture(
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
   pgo::SolidDeformationModel::TetLinearFormulation formulation;
-  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+  auto parameters = TestUtils::makeDefaultMaterialState(
     *fixture.asset, *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity6Definition>());
   auto assignment = TestUtils::makeMaterialAssignment(
@@ -113,8 +114,10 @@ EnergyFixture makeTetFixture(
     std::make_shared<VolumetricPlasticity6Definition>(), parameters);
   DeformationModelOptions options;
   options.dofOffset = offset;
-  fixture.energy = std::make_shared<DeformationModelEnergy>(
-    std::move(assignment), formulation, options);
+  auto energyOperator = std::make_shared<DeformationEnergyOperator>(
+    assignment, formulation, options);
+  fixture.energy = std::make_shared<DeformationPotentialEnergy>(
+    std::move(energyOperator), assignment->initialMaterialState());
   return fixture;
 }
 
@@ -145,14 +148,16 @@ EnergyFixture makeCubicFixture(const std::vector<double> &vertices, const std::v
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
   pgo::SolidDeformationModel::CubicLinearFormulation formulation;
-  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+  auto parameters = TestUtils::makeDefaultMaterialState(
     *fixture.asset, *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity6Definition>());
   auto assignment = TestUtils::makeMaterialAssignment(
     fixture.asset, std::make_shared<StableNeoDefinition>(),
     std::make_shared<VolumetricPlasticity6Definition>(), parameters);
-  fixture.energy = std::make_shared<DeformationModelEnergy>(
-    std::move(assignment), formulation);
+  auto energyOperator = std::make_shared<DeformationEnergyOperator>(
+    assignment, formulation);
+  fixture.energy = std::make_shared<DeformationPotentialEnergy>(
+    std::move(energyOperator), assignment->initialMaterialState());
   return fixture;
 }
 
@@ -191,14 +196,16 @@ EnergyFixture makeShellFixture()
   fixture.restPositions = gatherRestPositions(*fixture.meshOwner);
 
   pgo::SolidDeformationModel::KoiterShellFormulation formulation;
-  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+  auto parameters = TestUtils::makeDefaultMaterialState(
     *fixture.asset, *std::make_shared<KoiterStVKDefinition>(),
     *std::make_shared<ShellPlasticity1Definition>());
   auto assignment = TestUtils::makeMaterialAssignment(
     fixture.asset, std::make_shared<KoiterStVKDefinition>(),
     std::make_shared<ShellPlasticity1Definition>(), parameters);
-  fixture.energy = std::make_shared<DeformationModelEnergy>(
-    std::move(assignment), formulation);
+  auto energyOperator = std::make_shared<DeformationEnergyOperator>(
+    assignment, formulation);
+  fixture.energy = std::make_shared<DeformationPotentialEnergy>(
+    std::move(energyOperator), assignment->initialMaterialState());
   return fixture;
 }
 
@@ -300,7 +307,7 @@ private:
 
 }  // namespace
 
-TEST(DeformationModelEnergyMaxStepGTest, ZeroDirectionReturnsOneAndDoesNotClamp)
+TEST(DeformationEnergyOperatorMaxStepGTest, ZeroDirectionReturnsOneAndDoesNotClamp)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -312,7 +319,7 @@ TEST(DeformationModelEnergyMaxStepGTest, ZeroDirectionReturnsOneAndDoesNotClamp)
   EXPECT_FALSE(result.clamped());
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, TetPureTranslationReturnsOne)
+TEST(DeformationEnergyOperatorMaxStepGTest, TetPureTranslationReturnsOne)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -325,7 +332,7 @@ TEST(DeformationModelEnergyMaxStepGTest, TetPureTranslationReturnsOne)
   EXPECT_FALSE(result.clamped());
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, TetShrinksBeforeInversion)
+TEST(DeformationEnergyOperatorMaxStepGTest, TetShrinksBeforeInversion)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -343,7 +350,7 @@ TEST(DeformationModelEnergyMaxStepGTest, TetShrinksBeforeInversion)
   EXPECT_GT(tetDeterminant(fixture.mesh(), 0, updatedPositions), 0.0);
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, NonzeroOffsetEnergySetMapsLocalStateAndDirection)
+TEST(DeformationEnergyOperatorMaxStepGTest, NonzeroOffsetEnergySetMapsLocalStateAndDirection)
 {
   constexpr int kOffset = 6;
   EnergyFixture fixture = makeSingleTetFixture(kOffset);
@@ -404,7 +411,7 @@ TEST(DeformationModelEnergyMaxStepGTest, NonzeroOffsetEnergySetMapsLocalStateAnd
     fixture.energy->computeMaxStepLimit(globalX, globalDx), std::invalid_argument);
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, DisabledMaterialMaxStepSkipsTetClamp)
+TEST(DeformationEnergyOperatorMaxStepGTest, DisabledMaterialMaxStepSkipsTetClamp)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   fixture.energy->setEnableMaterialMaxStep(false);
@@ -418,7 +425,7 @@ TEST(DeformationModelEnergyMaxStepGTest, DisabledMaterialMaxStepSkipsTetClamp)
   EXPECT_FALSE(result.clamped());
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, TetIllegalInitialStateWarnsEachCallAndClamps)
+TEST(DeformationEnergyOperatorMaxStepGTest, TetIllegalInitialStateWarnsEachCallAndClamps)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -441,7 +448,7 @@ TEST(DeformationModelEnergyMaxStepGTest, TetIllegalInitialStateWarnsEachCallAndC
   EXPECT_EQ(countOccurrences(logOutput, "material max step encountered illegal initial state"), 2u);
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, TetSmallAlphaWarnsAndCanBeRecordedInDiagnostics)
+TEST(DeformationEnergyOperatorMaxStepGTest, TetSmallAlphaWarnsAndCanBeRecordedInDiagnostics)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -463,7 +470,7 @@ TEST(DeformationModelEnergyMaxStepGTest, TetSmallAlphaWarnsAndCanBeRecordedInDia
   EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], alpha);
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, SolveDiagnosticsResetClearsMaterialCountAndMinimumAlpha)
+TEST(DeformationEnergyOperatorMaxStepGTest, SolveDiagnosticsResetClearsMaterialCountAndMinimumAlpha)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -483,7 +490,7 @@ TEST(DeformationModelEnergyMaxStepGTest, SolveDiagnosticsResetClearsMaterialCoun
   EXPECT_DOUBLE_EQ(diagnostics.minSourceFeasibleAlpha[src(StepSource::Material)], 1.0);
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, TetMultipleElementsReturnEarliestClamp)
+TEST(DeformationEnergyOperatorMaxStepGTest, TetMultipleElementsReturnEarliestClamp)
 {
   const std::vector<double> vertices = {
     0.0, 0.0, 0.0,
@@ -518,7 +525,7 @@ TEST(DeformationModelEnergyMaxStepGTest, TetMultipleElementsReturnEarliestClamp)
   EXPECT_TRUE(result.clamped());
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, CubicShrinksBeforeInversion)
+TEST(DeformationEnergyOperatorMaxStepGTest, CubicShrinksBeforeInversion)
 {
   EnergyFixture fixture = makeSingleCubicFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -536,7 +543,7 @@ TEST(DeformationModelEnergyMaxStepGTest, CubicShrinksBeforeInversion)
   EXPECT_GT(minCubicDeterminant(fixture.mesh(), fixture.manager(), 0, updatedPositions), 0.0);
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, CubicFeasibleDirectionReturnsOne)
+TEST(DeformationEnergyOperatorMaxStepGTest, CubicFeasibleDirectionReturnsOne)
 {
   EnergyFixture fixture = makeSingleCubicFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -548,7 +555,7 @@ TEST(DeformationModelEnergyMaxStepGTest, CubicFeasibleDirectionReturnsOne)
   EXPECT_FALSE(result.clamped());
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, CubicMultipleElementsReturnEarliestClamp)
+TEST(DeformationEnergyOperatorMaxStepGTest, CubicMultipleElementsReturnEarliestClamp)
 {
   const std::vector<double> vertices = {
     0.0, 0.0, 0.0,
@@ -591,7 +598,7 @@ TEST(DeformationModelEnergyMaxStepGTest, CubicMultipleElementsReturnEarliestClam
   EXPECT_TRUE(result.clamped());
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, ShellKeepsUnitStep)
+TEST(DeformationEnergyOperatorMaxStepGTest, ShellKeepsUnitStep)
 {
   EnergyFixture fixture = makeShellFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -604,7 +611,7 @@ TEST(DeformationModelEnergyMaxStepGTest, ShellKeepsUnitStep)
   EXPECT_FALSE(result.clamped());
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, BackwardEulerTakesMinWithOtherEnergy)
+TEST(DeformationEnergyOperatorMaxStepGTest, BackwardEulerTakesMinWithOtherEnergy)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());
@@ -641,7 +648,7 @@ TEST(DeformationModelEnergyMaxStepGTest, BackwardEulerTakesMinWithOtherEnergy)
   EXPECT_TRUE(merged.clamped());
 }
 
-TEST(DeformationModelEnergyMaxStepGTest, TRBDF2TakesMinWithOtherEnergy)
+TEST(DeformationEnergyOperatorMaxStepGTest, TRBDF2TakesMinWithOtherEnergy)
 {
   EnergyFixture fixture = makeSingleTetFixture();
   const ES::VXd x = ES::VXd::Zero(fixture.restPositions.size());

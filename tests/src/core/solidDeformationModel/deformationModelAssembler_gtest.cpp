@@ -10,7 +10,7 @@
 #include "deformation/deformationModelAssembler.h"
 #include "deformation/deformationModelManager.h"
 #include "formulations/formulation/formulations.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 #include "simulation/simulationMesh.h"
 #include "triMeshGeo.h"
 #include "materialTestUtils.h"
@@ -138,7 +138,7 @@ struct Fixture
 {
   std::shared_ptr<const SimulationImportResult> asset;
   std::shared_ptr<const SimulationMesh> mesh;
-  std::shared_ptr<OptimizableParameters> parameters;
+  std::shared_ptr<MaterialState> parameters;
   std::unique_ptr<DeformationModelAssembler> assembler;
   ES::VXd absolutePositions;
 };
@@ -176,7 +176,7 @@ Fixture makeFixture(
     std::make_shared<ElementwiseParameterLayout>(1, 6),
     plasticEvaluator ? std::move(plasticEvaluator) :
                      std::make_shared<SquareEvaluator>(6));
-  fixture.parameters = std::make_shared<OptimizableParameters>(
+  fixture.parameters = std::make_shared<MaterialState>(
     elasticBlock, plasticBlock, ES::VXd(), z);
 
   CubicLinearFormulation formulation;
@@ -227,7 +227,7 @@ Fixture makeNonlinearShellFixture()
     ParameterInputSchema({ "stretch" }),
     std::make_shared<ConstantParameterLayout>(1, 1),
     std::make_shared<SquareEvaluator>(1));
-  fixture.parameters = std::make_shared<OptimizableParameters>(
+  fixture.parameters = std::make_shared<MaterialState>(
     elasticBlock, plasticBlock, elastic, plastic);
 
   KoiterShellFormulation formulation;
@@ -251,10 +251,10 @@ TEST(DeformationModelAssembler, NonlinearEvaluatorGradientAndHessianMatchFD)
 {
   Fixture fixture = makeFixture();
   auto &assembler = *fixture.assembler;
-  const ES::VXd z = fixture.parameters->plasticSnapshot();
-  const ES::VXd elastic = fixture.parameters->elasticSnapshot();
+  const ES::VXd z = fixture.parameters->plasticValues();
+  const ES::VXd elastic = fixture.parameters->elasticValues();
   auto view = [&](const ES::VXd &trial) {
-    return fixture.parameters->snapshot().withValues(
+    return fixture.parameters->withValues(
       std::span<const double>(elastic.data(), elastic.size()),
       std::span<const double>(trial.data(), trial.size()));
   };
@@ -300,10 +300,10 @@ TEST(DeformationModelAssembler, NonlinearMixedDisplacementDerivativeMatchesFD)
 {
   Fixture fixture = makeFixture();
   auto &assembler = *fixture.assembler;
-  const ES::VXd z = fixture.parameters->plasticSnapshot();
-  const ES::VXd elastic = fixture.parameters->elasticSnapshot();
+  const ES::VXd z = fixture.parameters->plasticValues();
+  const ES::VXd elastic = fixture.parameters->elasticValues();
   auto view = [&](const ES::VXd &trial) {
-    return fixture.parameters->snapshot().withValues(
+    return fixture.parameters->withValues(
       std::span<const double>(elastic.data(), elastic.size()),
       std::span<const double>(trial.data(), trial.size()));
   };
@@ -311,6 +311,14 @@ TEST(DeformationModelAssembler, NonlinearMixedDisplacementDerivativeMatchesFD)
   ES::SpMatD mixed = assembler.d2E_dudp_template();
   assembler.compute_d2E_dudp(
     constSpan(fixture.absolutePositions), view(z), mixed);
+  ES::VXd adjoint(assembler.getNumDOFs());
+  for (int i = 0; i < adjoint.size(); ++i)
+    adjoint[i] = 0.03 * std::cos(0.4 * i + 0.2);
+  ES::VXd directVJP = ES::VXd::Zero(z.size());
+  assembler.computePlasticMaterialVJP(
+    constSpan(fixture.absolutePositions), constSpan(adjoint), view(z),
+    std::span<double>(directVJP.data(), directVJP.size()));
+  EXPECT_TRUE(directVJP.isApprox(mixed.transpose() * adjoint, 1e-11));
   ES::MXd fd(mixed.rows(), mixed.cols());
   constexpr double h = 1e-6;
   for (int col = 0; col < z.size(); col++) {
@@ -336,10 +344,10 @@ TEST(DeformationModelAssembler, NonlinearElasticPlasticMixedHessianMatchesFD)
 {
   Fixture fixture = makeNonlinearShellFixture();
   auto &assembler = *fixture.assembler;
-  const ES::VXd elastic = fixture.parameters->elasticSnapshot();
-  const ES::VXd plastic = fixture.parameters->plasticSnapshot();
+  const ES::VXd elastic = fixture.parameters->elasticValues();
+  const ES::VXd plastic = fixture.parameters->plasticValues();
   auto view = [&](const ES::VXd &trialElastic) {
-    return fixture.parameters->snapshot().withValues(
+    return fixture.parameters->withValues(
       std::span<const double>(trialElastic.data(), trialElastic.size()),
       std::span<const double>(plastic.data(), plastic.size()));
   };
@@ -369,26 +377,47 @@ TEST(DeformationModelAssembler, NonlinearElasticPlasticMixedHessianMatchesFD)
     3e-5);
 }
 
+TEST(DeformationModelAssembler, DirectElasticMaterialVJPMatchesMixedHessian)
+{
+  Fixture fixture = makeNonlinearShellFixture();
+  auto &assembler = *fixture.assembler;
+  ES::SpMatD mixed = assembler.d2E_dude_template();
+  assembler.compute_d2E_dude(
+    constSpan(fixture.absolutePositions), fixture.parameters->view(), mixed);
+
+  ES::VXd adjoint(assembler.getNumDOFs());
+  for (int i = 0; i < adjoint.size(); ++i)
+    adjoint[i] = 0.02 * std::sin(0.6 * i + 0.1);
+  ES::VXd directVJP = ES::VXd::Zero(
+    fixture.parameters->elasticValues().size());
+  assembler.computeElasticMaterialVJP(
+    constSpan(fixture.absolutePositions), constSpan(adjoint),
+    fixture.parameters->view(),
+    std::span<double>(directVJP.data(), directVJP.size()));
+
+  EXPECT_TRUE(directVJP.isApprox(mixed.transpose() * adjoint, 1e-11));
+}
+
 TEST(DeformationModelAssembler, RejectsStateFromDifferentSpace)
 {
   Fixture a = makeFixture();
   Fixture b = makeFixture();
   EXPECT_THROW(
     a.assembler->compute_E(
-      constSpan(a.absolutePositions), b.parameters->snapshot().view()),
+      constSpan(a.absolutePositions), b.parameters->view()),
     std::invalid_argument);
 }
 
-TEST(DeformationModelAssembler, EvaluatorExceptionDoesNotModifyCommittedState)
+TEST(DeformationModelAssembler, EvaluatorExceptionDoesNotModifyBaseState)
 {
   Fixture fixture = makeFixture(
     std::make_unique<ThresholdThrowingSquareEvaluator>(6, 1.1));
-  const ES::VXd before = fixture.parameters->plasticSnapshot();
+  const ES::VXd before = fixture.parameters->plasticValues();
   ES::VXd trial = before;
   trial[0] = 1.2;
-  const ES::VXd elastic = fixture.parameters->elasticSnapshot();
-  const OptimizableParameterEvaluationView trialView =
-    fixture.parameters->snapshot().withValues(
+  const ES::VXd elastic = fixture.parameters->elasticValues();
+  const MaterialStateView trialView =
+    fixture.parameters->withValues(
       std::span<const double>(elastic.data(), elastic.size()),
       std::span<const double>(trial.data(), trial.size()));
 
@@ -396,11 +425,11 @@ TEST(DeformationModelAssembler, EvaluatorExceptionDoesNotModifyCommittedState)
     fixture.assembler->compute_E(
       constSpan(fixture.absolutePositions), trialView),
     std::runtime_error);
-  EXPECT_TRUE(fixture.parameters->plasticSnapshot().isApprox(before, 0.0));
+  EXPECT_TRUE(fixture.parameters->plasticValues().isApprox(before, 0.0));
   EXPECT_NO_THROW({
-    const double committedEnergy = fixture.assembler->compute_E(
-      constSpan(fixture.absolutePositions), fixture.parameters->snapshot().view());
-    EXPECT_TRUE(std::isfinite(committedEnergy));
+    const double baseEnergy = fixture.assembler->compute_E(
+      constSpan(fixture.absolutePositions), fixture.parameters->view());
+    EXPECT_TRUE(std::isfinite(baseEnergy));
   });
 }
 
@@ -412,7 +441,7 @@ TEST(DeformationModelAssembler, UnsupportedMaximumStrainThrowsWithElementContext
   try {
     fixture.assembler->computeMaxStrains(
       constSpan(fixture.absolutePositions),
-      fixture.parameters->snapshot().view(), mutableSpan(strains));
+      fixture.parameters->view(), mutableSpan(strains));
     FAIL() << "Expected unsupported maximum strain to throw.";
   }
   catch (const UnsupportedDeformationDiagnosticError &e) {
@@ -429,10 +458,10 @@ TEST(DeformationModelAssembler, VolumetricDiagnosticsProduceFiniteValues)
 
   fixture.assembler->computeVonMisesStresses(
     constSpan(fixture.absolutePositions),
-    fixture.parameters->snapshot().view(), mutableSpan(stresses));
+    fixture.parameters->view(), mutableSpan(stresses));
   fixture.assembler->computeMaxStrains(
     constSpan(fixture.absolutePositions),
-    fixture.parameters->snapshot().view(), mutableSpan(strains));
+    fixture.parameters->view(), mutableSpan(strains));
 
   EXPECT_TRUE(std::isfinite(stresses[0]));
   EXPECT_TRUE(std::isfinite(strains[0]));
@@ -442,24 +471,26 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
 {
   Fixture a = makeFixture();
   Fixture b = makeFixture();
-  const ES::VXd bBefore = b.parameters->plasticSnapshot();
+  const ES::VXd bBefore = b.parameters->plasticValues();
   const double expectedA = a.assembler->compute_E(
-    constSpan(a.absolutePositions), a.parameters->snapshot().view());
+    constSpan(a.absolutePositions), a.parameters->view());
   const double expectedB = b.assembler->compute_E(
-    constSpan(b.absolutePositions), b.parameters->snapshot().view());
+    constSpan(b.absolutePositions), b.parameters->view());
 
-  ES::VXd changedA = a.parameters->plasticSnapshot();
+  ES::VXd changedA = a.parameters->plasticValues();
   changedA[0] += 0.01;
-  a.parameters->setPlasticValues(changedA);
-  EXPECT_TRUE(b.parameters->plasticSnapshot().isApprox(bBefore, 0.0));
+  const MaterialState changedStateA =
+    a.parameters->withPlasticValues(
+      std::span<const double>(changedA.data(), changedA.size()));
+  EXPECT_TRUE(b.parameters->plasticValues().isApprox(bBefore, 0.0));
   const double changedExpectedA = a.assembler->compute_E(
-    constSpan(a.absolutePositions), a.parameters->snapshot().view());
+    constSpan(a.absolutePositions), changedStateA.view());
 
   auto evalA = std::async(std::launch::async, [&]() {
     double value = 0.0;
     for (int i = 0; i < 20; i++) {
       value = a.assembler->compute_E(
-        constSpan(a.absolutePositions), a.parameters->snapshot().view());
+        constSpan(a.absolutePositions), changedStateA.view());
     }
     return value;
   });
@@ -467,7 +498,7 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
     double value = 0.0;
     for (int i = 0; i < 20; i++) {
       value = b.assembler->compute_E(
-        constSpan(b.absolutePositions), b.parameters->snapshot().view());
+        constSpan(b.absolutePositions), b.parameters->view());
     }
     return value;
   });
@@ -475,10 +506,10 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
   EXPECT_DOUBLE_EQ(evalA.get(), changedExpectedA);
   EXPECT_NE(changedExpectedA, expectedA);
   EXPECT_DOUBLE_EQ(evalB.get(), expectedB);
-  EXPECT_TRUE(b.parameters->plasticSnapshot().isApprox(bBefore, 0.0));
+  EXPECT_TRUE(b.parameters->plasticValues().isApprox(bBefore, 0.0));
 }
 
-TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedOptimizableParameters)
+TEST(PrescribedPrincipleStressConstraintFunctions, BindsImmutableMaterialState)
 {
   const double vertices[] = {
     0.0, 0.0, 0.0,
@@ -500,7 +531,7 @@ TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedOptimizableParam
     ParameterInputSchema({ "Fx", "Fy", "Fz" }),
     std::make_shared<ElementwiseParameterLayout>(1, 3),
     std::make_shared<IdentityMaterialChannelMapping>(3));
-  auto parameters = std::make_shared<OptimizableParameters>(
+  auto parameters = std::make_shared<MaterialState>(
     std::move(elasticField), std::move(plasticField),
     ES::VXd(), ES::V3d::Ones());
 
@@ -515,7 +546,7 @@ TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedOptimizableParam
 
   const int elementID = 0;
   PrescribedPrincipleStressConstraintFunctions constraints(
-    12, 0, std::span<const int>(&elementID, 1), *manager, parameters);
+    12, 0, std::span<const int>(&elementID, 1), *manager, *parameters);
   constraints.setXToPosFunc(
     [](const ES::V3d &value, int, ES::V3d &position) {
       position = value;
@@ -532,9 +563,19 @@ TEST(PrescribedPrincipleStressConstraintFunctions, UsesCommittedOptimizableParam
   constraints.func(x, initialConstraint);
 
   ES::V3d changedPlastic(1.08, 0.94, 1.03);
-  parameters->setPlasticValues(changedPlastic);
+  const MaterialState changedState =
+    parameters->withPlasticValues(
+      std::span<const double>(changedPlastic.data(), changedPlastic.size()));
+  PrescribedPrincipleStressConstraintFunctions changedConstraints(
+    12, 0, std::span<const int>(&elementID, 1), *manager, changedState);
+  changedConstraints.setXToPosFunc(
+    [](const ES::V3d &value, int, ES::V3d &position) {
+      position = value;
+    });
+  changedConstraints.setTargetPHat(
+    std::span<const double>(targetStress.data(), 3));
   ES::V3d changedConstraint;
-  constraints.func(x, changedConstraint);
+  changedConstraints.func(x, changedConstraint);
   EXPECT_FALSE(changedConstraint.isApprox(initialConstraint, 1e-12));
   EXPECT_TRUE(changedConstraint.allFinite());
 

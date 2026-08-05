@@ -358,13 +358,16 @@ def worker_main(args: argparse.Namespace) -> int:
         parameter_data=parameter_data,
         material_frames=pf.GlobalAxesMaterialFrameField(asset.num_elements),
     )
-    energy = pf.DeformationEnergy(
+    energy_operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=formulation,
         options=pf.DeformationOptions(
             project_hessian_psd=True,
             enable_material_max_step=False,
         ),
+    )
+    energy = pf.DeformationPotentialEnergy(
+        energy_operator, assignment.initial_material_state
     )
 
     rng = np.random.default_rng(args.seed)

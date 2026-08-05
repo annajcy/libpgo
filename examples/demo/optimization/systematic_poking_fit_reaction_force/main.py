@@ -209,7 +209,7 @@ def _make_energy(imported, elastic, elastic_values):
         parameter_data=parameter_data,
         material_frames=pf.GlobalAxesMaterialFrameField(mesh.num_elements),
     )
-    return pf.DeformationEnergy(
+    operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
@@ -217,6 +217,8 @@ def _make_energy(imported, elastic, elastic_values):
             enable_material_max_step=False,
         ),
     )
+    return pf.DeformationPotentialEnergy(
+        operator, assignment.initial_material_state)
 
 
 def initial_material_parameters(stretch_knots):
@@ -592,8 +594,10 @@ def reaction_residual_and_jacobian(
         raise ValueError("smoothness_weight must be nonnegative")
     theta = np.asarray(theta, dtype=np.float64)
     parameters = FORCE_SCALE * np.exp(theta)
-    problem.systematic_energy.optimizable_parameters.set_elastic_values(
-        parameters[None, :])
+    problem.systematic_energy = pf.DeformationPotentialEnergy(
+        problem.systematic_energy.energy_operator,
+        problem.systematic_energy.material_state.with_elastic_values(
+            parameters[None, :]))
     cases, targets = problem.data_for(split)
     residuals = []
     jacobians = []

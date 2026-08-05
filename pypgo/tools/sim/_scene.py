@@ -298,12 +298,14 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
         parameter_data=parameter_data,
         material_frames=_fem.GlobalAxesMaterialFrameField(mesh.num_elements),
     )
-    deformation = _fem.DeformationEnergy(
+    deformation_operator = _fem.DeformationEnergyOperator(
         assignment,
         formulation=fm,
         options=_fem.DeformationOptions(
             enable_material_max_step=cfg.material.enable_material_max_step),
     )
+    deformation = _fem.DeformationPotentialEnergy(
+        deformation_operator, assignment.initial_material_state)
     num_dofs = deformation.num_dofs
     dofs_per_vertex = num_dofs // volume.num_vertices
 
@@ -390,12 +392,14 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
         parameter_data=parameter_data,
         material_frames=_fem.GlobalAxesMaterialFrameField(mesh.num_elements),
     )
-    deformation = _fem.DeformationEnergy(
+    deformation_operator = _fem.DeformationEnergyOperator(
         assignment,
         formulation=fm,
         options=_fem.DeformationOptions(
             enable_material_max_step=cfg.material.enable_material_max_step),
     )
+    deformation = _fem.DeformationPotentialEnergy(
+        deformation_operator, assignment.initial_material_state)
     num_dofs = deformation.num_dofs
     rest_vertices = np.asarray(surface.vertices, dtype=np.float64)
 

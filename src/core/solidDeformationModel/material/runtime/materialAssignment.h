@@ -1,6 +1,6 @@
 #pragma once
 
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 #include "material/parameterization/materialParameterization.h"
 #include "material/data/materialParameterData.h"
 #include "material/frame/materialFrameField.h"
@@ -13,13 +13,13 @@ namespace pgo::SolidDeformationModel
 class SimulationMesh;
 
 /// Material data bound to a mesh for one simulation.  The mesh itself remains
-/// geometry-only; all fixed values, optimizer values and frames live here.
+/// geometry-only; structural material fields and frames live here.
 class MaterialAssignment final
 {
 public:
   /// Bind one mesh, one structural parameterization and one projected data
-  /// snapshot.  Construction initializes the runtime optimizable snapshot
-  /// from initialOptimizableValues.
+  /// snapshot. Initial values are retained only as an immutable state factory
+  /// input; evaluations must receive a MaterialState explicitly.
   MaterialAssignment(
     std::shared_ptr<const SimulationMesh> mesh,
     std::shared_ptr<const MaterialParameterization> parameterization,
@@ -43,7 +43,7 @@ public:
   {
     return parameterization_->plastic().fixedField();
   }
-  const std::shared_ptr<OptimizableParameters> &optimizableParameters() const { return optimizableParameters_; }
+  const MaterialState &initialMaterialState() const { return initialMaterialState_; }
   const std::shared_ptr<const MaterialFrameField> &materialFrames() const { return materialFrames_; }
   const std::shared_ptr<const MaterialParameterization> &parameterization() const
   {
@@ -58,7 +58,7 @@ private:
   std::shared_ptr<const SimulationMesh> mesh_;
   std::shared_ptr<const MaterialParameterization> parameterization_;
   std::shared_ptr<const MaterialParameterData> parameterData_;
-  std::shared_ptr<OptimizableParameters> optimizableParameters_;
+  MaterialState initialMaterialState_;
   std::shared_ptr<const MaterialFrameField> materialFrames_;
 };
 

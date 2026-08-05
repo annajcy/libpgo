@@ -7,7 +7,7 @@
 #include "mass/shellArealDensityField.h"
 #include "mass/volumeDensityField.h"
 #include "material/runtime/optimizableParameterRef.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 #include "simulation/simulationMesh.h"
 #include "triMeshGeo.h"
 
@@ -91,7 +91,7 @@ class CustomConstantDensitySource final : public ElementScalarFieldSource
 public:
   void validate(int) const override {}
 
-  double value(int, int, const OptimizableParameterEvaluationView &) const override
+  double value(int, int, const MaterialStateView &) const override
   {
     return 4.0;
   }
@@ -102,7 +102,7 @@ public:
   }
 
   void localParameterDerivative(
-    int, int, const OptimizableParameterEvaluationView &, EigenSupport::RefVecXd output) const override
+    int, int, const MaterialStateView &, EigenSupport::RefVecXd output) const override
   {
     output.setZero();
   }
@@ -113,7 +113,7 @@ class NonFiniteDensitySource final : public ElementScalarFieldSource
 public:
   void validate(int) const override {}
 
-  double value(int, int, const OptimizableParameterEvaluationView &) const override
+  double value(int, int, const MaterialStateView &) const override
   {
     return std::numeric_limits<double>::quiet_NaN();
   }
@@ -124,7 +124,7 @@ public:
   }
 
   void localParameterDerivative(
-    int, int, const OptimizableParameterEvaluationView &, EigenSupport::RefVecXd output) const override
+    int, int, const MaterialStateView &, EigenSupport::RefVecXd output) const override
   {
     output.setZero();
   }
@@ -146,7 +146,7 @@ std::shared_ptr<const SimulationMesh> makeTwoTriangleShellMesh()
   return loadShellMesh(surface);
 }
 
-std::shared_ptr<OptimizableParameters> makeShellMassParameters(
+std::shared_ptr<MaterialState> makeShellMassParameters(
   int numElements, bool constant, bool nonlinear)
 {
   constexpr int numElasticChannels = 5;
@@ -180,7 +180,7 @@ std::shared_ptr<OptimizableParameters> makeShellMassParameters(
     elastic.segment<5>(row * numElasticChannels) <<
       2.0, 0.4, 1.5, 0.3, 0.025 + 0.004 * row;
   }
-  return std::make_shared<OptimizableParameters>(
+  return std::make_shared<MaterialState>(
     std::move(elasticBlock), std::move(plasticBlock),
     std::move(elastic), EigenSupport::VXd());
 }
@@ -196,11 +196,11 @@ void expectBodyForceParameterJacobianMatchesFD(
       parameters->elasticFieldHandle(), "thickness"));
   KoiterShellFormulation formulation;
   const EigenSupport::V3d acceleration(0.7, -1.3, -9.81);
-  const EigenSupport::VXd z = parameters->elasticSnapshot();
+  const EigenSupport::VXd z = parameters->elasticValues();
 
   const EigenSupport::SpMatD jacobian =
     formulation.buildBodyForceParameterJacobian(
-      *mesh, acceleration, massField, parameters->snapshot().view());
+      *mesh, acceleration, massField, parameters->view());
   EigenSupport::MXd fd(jacobian.rows(), jacobian.cols());
   constexpr double h = 1e-7;
   for (int col = 0; col < z.size(); col++) {
@@ -208,9 +208,9 @@ void expectBodyForceParameterJacobianMatchesFD(
     EigenSupport::VXd zm = z;
     zp[col] += h;
     zm[col] -= h;
-    auto vp = parameters->snapshot().withElasticValues(
+    auto vp = parameters->withElasticValues(
       std::span<const double>(zp.data(), zp.size()));
-    auto vm = parameters->snapshot().withElasticValues(
+    auto vm = parameters->withElasticValues(
       std::span<const double>(zm.data(), zm.size()));
     fd.col(col) = (
       formulation.buildBodyForce(*mesh, acceleration, massField, vp) -
@@ -273,7 +273,7 @@ TEST(FormulationDynamicsGTest, DensityDerivativeBufferSizeIsValidated)
   auto parameters = makeShellMassParameters(mesh->getNumElements(), false, false);
   const OptimizableParameterRef parameter(
     parameters->elasticFieldHandle(), "thickness");
-  auto state = parameters->snapshot().view();
+  auto state = parameters->view();
   auto density = ShellArealDensityField::fromElasticParameter(850.0, parameter);
 
   const auto expected = static_cast<std::size_t>(

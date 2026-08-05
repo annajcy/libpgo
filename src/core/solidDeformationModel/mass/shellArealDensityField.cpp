@@ -13,7 +13,7 @@ namespace
 
 void validateEvaluationState(
   const OptimizableParameterRef *dependency,
-  const OptimizableParameterEvaluationView &state)
+  const MaterialStateView &state)
 {
   if (dependency == nullptr)
     return;
@@ -85,14 +85,14 @@ void ShellArealDensityField::validate(int numElements) const
 double ShellArealDensityField::value(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state) const
+  const MaterialStateView &state) const
 {
   auto evaluation = evaluator(state);
   return evaluation.value(element, quadrature);
 }
 
 ShellArealDensityField::Evaluator
-ShellArealDensityField::evaluator(OptimizableParameterEvaluationView state) const
+ShellArealDensityField::evaluator(MaterialStateView state) const
 {
   return Evaluator(source_, std::move(state));
 }
@@ -105,7 +105,7 @@ const OptimizableParameterRef *ShellArealDensityField::parameterDependency() con
 void ShellArealDensityField::localParameterDerivative(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
+  const MaterialStateView &state,
   EigenSupport::RefVecXd output) const
 {
   auto evaluation = evaluator(state);
@@ -114,7 +114,7 @@ void ShellArealDensityField::localParameterDerivative(
 
 ShellArealDensityField::Evaluator::Evaluator(
   std::shared_ptr<const ElementScalarFieldSource> source,
-  OptimizableParameterEvaluationView state):
+  MaterialStateView state):
   source_(std::move(source)),
   state_(std::move(state))
 {

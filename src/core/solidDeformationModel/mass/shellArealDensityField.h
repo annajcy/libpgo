@@ -22,12 +22,12 @@ public:
 
     Evaluator(
       std::shared_ptr<const ElementScalarFieldSource> source,
-      OptimizableParameterEvaluationView state);
+      MaterialStateView state);
 
     std::shared_ptr<const ElementScalarFieldSource> source_;
     const OptimizableParameterRef *dependency_ = nullptr;
-    OptimizableParameterEvaluationView state_;
-    mutable OptimizableParameterEvaluationScratch scratch_;
+    MaterialStateView state_;
+    mutable MaterialStateEvaluationScratch scratch_;
   };
 
   explicit ShellArealDensityField(
@@ -46,15 +46,15 @@ public:
   double value(
     int element,
     int quadrature = 0,
-    const OptimizableParameterEvaluationView &state = {}) const;
+    const MaterialStateView &state = {}) const;
 
-  Evaluator evaluator(OptimizableParameterEvaluationView state) const;
+  Evaluator evaluator(MaterialStateView state) const;
 
   const OptimizableParameterRef *parameterDependency() const;
   void localParameterDerivative(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
+    const MaterialStateView &state,
     EigenSupport::RefVecXd output) const;
 
 private:

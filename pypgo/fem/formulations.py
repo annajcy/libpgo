@@ -113,23 +113,23 @@ class ShellFormulation(Formulation):
             )
 
     @staticmethod
-    def _optimizable_parameters_handle(optimizable_parameters, *, required=False):
-        from pypgo.fem.fields import OptimizableParameters
+    def _material_state_handle(material_state, *, required=False):
+        from pypgo.fem.fields import MaterialState
 
-        if optimizable_parameters is None:
+        if material_state is None:
             if required:
                 raise ValueError(
-                    "optimizable_parameters is required for a parameter-dependent Jacobian"
+                    "material_state is required for a parameter-dependent Jacobian"
                 )
             return None
-        if not isinstance(optimizable_parameters, OptimizableParameters):
+        if not isinstance(material_state, MaterialState):
             raise TypeError(
-                "optimizable_parameters must be OptimizableParameters, "
-                f"got {type(optimizable_parameters).__name__}"
+                "material_state must be MaterialState, "
+                f"got {type(material_state).__name__}"
             )
-        return optimizable_parameters._handle
+        return material_state._handle
 
-    def mass_matrix(self, mesh, areal_density, *, optimizable_parameters=None):
+    def mass_matrix(self, mesh, areal_density, *, material_state=None):
         """Lumped shell mass matrix."""
         from pypgo.sparse import SparseMatrix
 
@@ -140,12 +140,12 @@ class ShellFormulation(Formulation):
                 mesh._handle,
                 self._handle,
                 areal_density._handle,
-                self._optimizable_parameters_handle(optimizable_parameters),
+                self._material_state_handle(material_state),
             )
         )
 
     def body_force(
-        self, mesh, acceleration, areal_density, *, optimizable_parameters=None
+        self, mesh, acceleration, areal_density, *, material_state=None
     ) -> np.ndarray:
         """Lumped shell body force for a constant 3-vector acceleration."""
         accel = np.asarray(acceleration, dtype=np.float64).reshape(-1)
@@ -159,13 +159,13 @@ class ShellFormulation(Formulation):
                 self._handle,
                 accel.tolist(),
                 areal_density._handle,
-                self._optimizable_parameters_handle(optimizable_parameters),
+                self._material_state_handle(material_state),
             ),
             dtype=np.float64,
         )
 
     def body_force_parameter_jacobian(
-        self, mesh, acceleration, areal_density, *, optimizable_parameters
+        self, mesh, acceleration, areal_density, *, material_state
     ):
         """d(body force)/d(elastic parameters) for a parameter-dependent areal density."""
         from pypgo.sparse import SparseMatrix
@@ -181,7 +181,7 @@ class ShellFormulation(Formulation):
                 self._handle,
                 accel.tolist(),
                 areal_density._handle,
-                self._optimizable_parameters_handle(optimizable_parameters, required=True),
+                self._material_state_handle(material_state, required=True),
             )
         )
 

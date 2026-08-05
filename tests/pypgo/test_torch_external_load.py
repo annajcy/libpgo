@@ -28,18 +28,18 @@ class _ThicknessPointLoad:
         self.scale = scale
 
     @property
-    def optimizable_parameters(self):
-        return self.energy.optimizable_parameters
+    def material_state(self):
+        return self.energy.material_state
 
-    def force(self):
+    def force(self, material_state):
         force = np.zeros(self.energy.num_dofs, dtype=np.float64)
         force[self.target_dof] = (
             self.scale
-            * self.energy.optimizable_parameters.elastic_values.ravel()[self.parameter_dof]
+            * material_state.elastic_values.ravel()[self.parameter_dof]
         )
         return force
 
-    def parameter_jacobian(self):
+    def parameter_jacobian(self, material_state):
         jac = np.zeros((self.energy.num_dofs, self.energy.num_elastic_dofs), dtype=np.float64)
         jac[self.target_dof, self.parameter_dof] = self.scale
         return _DenseJacobian(jac)
@@ -70,22 +70,24 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
     assignment = direct_assignment(
         sim, elastic_config, plastic_config,
         pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout, elastic, plastic)
-    energy = pf.DeformationEnergy(
+    operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
     )
+    energy = pf.DeformationPotentialEnergy(
+        operator, assignment.initial_material_state)
 
     if external_load == "point":
         load = _ThicknessPointLoad(energy, target_dof=2, parameter_dof=4, scale=1e6)
     else:
         areal_density = pf.ShellArealDensity.from_elastic_parameter(
             scale=1000.0,
-            parameter=energy.optimizable_parameters.elastic_field.parameter("thickness"),
+            parameter=energy.material_state.elastic_field.parameter("thickness"),
         )
         load = pf.SelfWeightGravity(
             formulation=pf.KoiterShell(), mesh=sim, areal_density=areal_density,
-            optimizable_parameters=energy.optimizable_parameters,
+            material_state=energy.material_state,
             acceleration=[0.0, 0.0, -20.0])
 
     fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 1.0)).astype(np.int64)
@@ -104,29 +106,36 @@ def _setup(nx=2, ny=2, external_load="self_weight"):
 
 def test_external_load_objective_includes_parameter_current_load():
     layer, elastic, _vertices = _setup(external_load="point")
-    layer._set_parameter_values(elastic.ravel())
-    objective = layer._build_objective()
+    state = layer._material_state(elastic.ravel())
+    potential = pf.DeformationPotentialEnergy(
+        layer.energy.energy_operator, state)
+    objective = layer._build_objective(potential, state)
     u = layer.energy.zero_state()
     g0 = objective.gradient(u)
 
     modified = elastic.copy()
     modified[0, 4] *= 2.0
-    layer._set_parameter_values(modified.ravel())
-    objective = layer._build_objective()
+    state = layer._material_state(modified.ravel())
+    potential = pf.DeformationPotentialEnergy(
+        layer.energy.energy_operator, state)
+    objective = layer._build_objective(potential, state)
     g1 = objective.gradient(u)
 
     assert g1[2] - g0[2] == pytest.approx(-1e6 * elastic[0, 4])
 
 
-def test_external_load_jacobian_contributes_to_backward_mixed_derivative():
+def test_external_load_jacobian_contributes_to_backward_material_vjp():
     layer, elastic, vertices = _setup(external_load="point")
     del elastic, vertices
     u = layer.energy.zero_state()
 
-    mixed = layer._d2E_dudq(u)
-    energy_mixed = layer.energy.d2E_dude(u).to_dense()
+    adjoint = np.zeros(layer.energy.num_dofs, dtype=np.float64)
+    adjoint[2] = 1.0
+    vjp = layer._material_vjp(
+        u, layer.energy.material_state, adjoint)
+    energy_vjp = layer.energy.elastic_material_vjp(u, adjoint)
 
-    assert mixed[2, 4] == pytest.approx(energy_mixed[2, 4] - 1e6)
+    assert vjp[4] == pytest.approx(energy_vjp[4] - 1e6)
 
 
 def test_external_load_forward_smoke_records_inner_solve_without_displacement_assumption():
@@ -152,7 +161,7 @@ def test_external_load_rejected_on_plastic_layer():
         )
 
 
-def test_external_load_rejects_optimizable_parameters_from_other_fields():
+def test_external_load_rejects_material_state_from_other_fields():
     layer, _elastic, _vertices = _setup(external_load="point")
     other, _other_elastic, _other_vertices = _setup(external_load="point")
     foreign_load = _ThicknessPointLoad(
@@ -200,7 +209,7 @@ def test_equilibrium_layer_validates_additional_energy_shape():
 def test_equilibrium_layer_requires_deformation_energy():
     layer, _elastic, _vertices = _setup()
     generic_energy = pe.LinearEnergy(np.zeros(layer.energy.num_dofs))
-    with pytest.raises(TypeError, match="DeformationEnergy"):
+    with pytest.raises(TypeError, match="DeformationPotentialEnergy"):
         pgo.fem.ElasticStaticEquilibriumLayer(
             energy=generic_energy,
             fixed_dofs=layer.fixed_dofs,

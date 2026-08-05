@@ -124,8 +124,8 @@ def test_runtime_field_roundtrip_preserves_concrete_layout_and_mapping_types():
         pf.ElementwiseParameterLayout,
     )
 
-    elastic_field = assignment.optimizable_parameters.elastic_field
-    plastic_field = assignment.optimizable_parameters.plastic_field
+    elastic_field = assignment.initial_material_state.elastic_field
+    plastic_field = assignment.initial_material_state.plastic_field
     assert isinstance(elastic_field.layout, pf.ConstantParameterLayout)
     assert isinstance(plastic_field.layout, pf.ElementwiseParameterLayout)
     assert isinstance(
@@ -255,11 +255,13 @@ def _make_energy(
     assignment = direct_assignment(
         sim, elastic, plastic, elastic_dof_layout, plastic_dof_layout,
         elastic_values, plastic_values)
-    return pf.DeformationEnergy(
+    operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=formulation,
         options=options,
     )
+    return pf.DeformationPotentialEnergy(
+        operator, assignment.initial_material_state)
 
 
 def test_mooney_rivlin_config_builds_deformation_energy():
@@ -311,7 +313,7 @@ def test_systematic_poking_definition_builds_parameterized_tet_energy():
     assert energy.num_elastic_params == parameters.shape[1]
     assert energy.num_elastic_dofs == parameters.shape[1]
     np.testing.assert_allclose(
-        energy.optimizable_parameters.elastic_values,
+        energy.material_state.elastic_values,
         parameters,
     )
 
@@ -331,14 +333,12 @@ def test_systematic_poking_definition_builds_parameterized_tet_energy():
         minus = parameters.copy()
         plus[0, parameter_index] += step
         minus[0, parameter_index] -= step
-        energy.optimizable_parameters.set_elastic_values(plus)
-        plus_energy = energy.value(displacement)
-        energy.optimizable_parameters.set_elastic_values(minus)
-        minus_energy = energy.value(displacement)
+        plus_state = energy.material_state.with_elastic_values(plus)
+        minus_state = energy.material_state.with_elastic_values(minus)
+        plus_energy = energy.energy_operator.value(displacement, plus_state)
+        minus_energy = energy.energy_operator.value(displacement, minus_state)
         finite_difference[parameter_index] = (
             plus_energy - minus_energy) / (2.0 * step)
-    energy.optimizable_parameters.set_elastic_values(parameters)
-
     np.testing.assert_allclose(
         analytic, finite_difference, rtol=2e-7, atol=2e-10)
 
@@ -396,34 +396,35 @@ class TestWrappers:
 
 
 class TestDeformationEnergyParameters:
-    def test_default_energy_owns_parameters(self):
+    def test_potential_binds_explicit_material_state(self):
         sim = _make_tet_sim_mesh()
         energy = _make_energy(sim)
 
-        assert isinstance(energy, pf.DeformationEnergy)
+        assert isinstance(energy, pf.DeformationPotentialEnergy)
         assert energy.elastic_definition.name == "stable_neo"
         assert energy.plastic_definition.name == "volumetric_dof6"
-        assert not hasattr(energy.optimizable_parameters.elastic_field, "kind")
-        assert energy.optimizable_parameters.elastic_field.num_material_channels == 0
-        assert energy.optimizable_parameters.elastic_values.shape == (0, 0)
-        assert not hasattr(energy.optimizable_parameters.plastic_field, "model")
-        assert energy.optimizable_parameters.plastic_values.shape == (1, 6)
+        assert not hasattr(energy.material_state.elastic_field, "kind")
+        assert energy.material_state.elastic_field.num_material_channels == 0
+        assert energy.material_state.elastic_values.shape == (0, 0)
+        assert not hasattr(energy.material_state.plastic_field, "model")
+        assert energy.material_state.plastic_values.shape == (1, 6)
         assert np.allclose(
-            energy.optimizable_parameters.plastic_values,
+            energy.material_state.plastic_values,
             [[1.0, 0.0, 0.0, 1.0, 0.0, 1.0]],
         )
 
-    def test_given_plastic_values_are_copied_and_mutable_through_energy(self):
+    def test_given_plastic_values_are_copied_and_state_is_immutable(self):
         sim = _make_tet_sim_mesh()
         params = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
         energy = _make_energy(sim, plastic_values=params)
 
         params[0, 0] = 9.0
-        assert energy.optimizable_parameters.plastic_values[0, 0] == pytest.approx(1.05)
+        assert energy.material_state.plastic_values[0, 0] == pytest.approx(1.05)
 
         updated = np.array([[0.95, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
-        energy.optimizable_parameters.set_plastic_values(updated)
-        assert np.allclose(energy.optimizable_parameters.plastic_values, updated)
+        updated_state = energy.material_state.with_plastic_values(updated)
+        assert np.allclose(updated_state.plastic_values, updated)
+        assert energy.material_state.plastic_values[0, 0] == pytest.approx(1.05)
 
     def test_assignment_requires_explicit_material_frames(self):
         sim = _make_shell_sim_mesh()
@@ -449,16 +450,18 @@ class TestDeformationEnergyParameters:
         assignment = direct_assignment(
             sim, elastic, plastic, pf.ElementwiseParameterLayout, pf.ConstantParameterLayout,
             np.empty(0, dtype=np.float64), params)
-        energy = pf.DeformationEnergy(
+        operator = pf.DeformationEnergyOperator(
             assignment,
             formulation=pf.TetLinear(),
         )
+        energy = pf.DeformationPotentialEnergy(
+            operator, assignment.initial_material_state)
 
-        assert energy.optimizable_parameters.plastic_field.num_value_rows == 1
-        assert energy.optimizable_parameters.plastic_field.num_global_parameters == 6
+        assert energy.material_state.plastic_field.num_value_rows == 1
+        assert energy.material_state.plastic_field.num_global_parameters == 6
         assert energy.num_plastic_dofs == 6
-        assert energy.optimizable_parameters.plastic_values.shape == (1, 6)
-        assert np.allclose(energy.optimizable_parameters.plastic_values, params)
+        assert energy.material_state.plastic_values.shape == (1, 6)
+        assert np.allclose(energy.material_state.plastic_values, params)
 
     def test_rejects_wrong_field_shape(self):
         sim = _make_tet_sim_mesh()
@@ -477,7 +480,7 @@ class TestDeformationEnergyParameters:
         assert not hasattr(energy, "plastic_field")
 
 
-class TestDeformationEnergy:
+class TestDeformationPotentialEnergy:
     def test_legacy_parameter_derivative_names_are_not_exposed(self):
         energy = _make_energy(_make_tet_sim_mesh())
         legacy_names = (
@@ -525,7 +528,7 @@ class TestDeformationEnergy:
         sim = _make_tet_sim_mesh()
         energy = _make_energy(sim)
 
-        assert isinstance(energy, pf.DeformationEnergy)
+        assert isinstance(energy, pf.DeformationPotentialEnergy)
         assert isinstance(energy, pe.PotentialEnergy)
         assert energy.num_dofs == 3 * sim.num_vertices
         assert energy.state_kind == "displacement"
@@ -573,12 +576,16 @@ class TestDeformationEnergy:
         dE_dp = energy.dE_dp(u)
         d2E_dp2 = energy.d2E_dp2(u)
         d2E_dudp = energy.d2E_dudp(u)
+        adjoint = np.linspace(-0.2, 0.3, energy.num_dofs)
+        direct_vjp = energy.plastic_material_vjp(u, adjoint)
         assert dE_dp.shape == (6,)
         assert d2E_dp2.shape == (6, 6)
         assert d2E_dudp.shape == (energy.num_dofs, 6)
         assert np.linalg.norm(dE_dp) > 0.0
         assert d2E_dp2.nnz > 0
         assert d2E_dudp.nnz > 0
+        assert direct_vjp == pytest.approx(
+            d2E_dudp.to_dense().T @ adjoint, rel=1e-11, abs=1e-11)
 
     def test_shell_energy_exposes_elastic_derivatives(self):
         sim = _make_shell_sim_mesh()
@@ -601,10 +608,19 @@ class TestDeformationEnergy:
 
         dE_de = energy.dE_de(u)
         d2E_de2 = energy.d2E_de2(u)
+        adjoint = np.linspace(0.1, 0.4, energy.num_dofs)
+        direct_vjp = energy.elastic_material_vjp(u, adjoint)
         assert dE_de.shape == (5,)
         assert d2E_de2.shape == (5, 5)
         assert np.linalg.norm(dE_de) > 0.0
         assert d2E_de2.nnz > 0
+        assert direct_vjp == pytest.approx(
+            energy.d2E_dude(u).to_dense().T @ adjoint,
+            rel=1e-11, abs=1e-11,
+        )
+        combined = energy.material_vjp(u, adjoint)
+        assert combined.elastic == pytest.approx(direct_vjp)
+        assert combined.plastic.shape == (energy.num_plastic_dofs,)
 
     def test_shell_energy_evaluates(self):
         sim = _make_shell_sim_mesh()
@@ -631,17 +647,18 @@ class TestDeformationEnergy:
             energy.num_elastic_dofs,
         )
 
-    def test_energy_observes_committed_parameter_update(self):
+    def test_new_state_does_not_mutate_bound_potential(self):
         sim = _make_tet_sim_mesh()
         energy = _make_energy(sim, elastic=pf.StVKDefinition())
 
         x0 = energy.zero_state()
         before = energy.value(x0)
-        energy.optimizable_parameters.set_plastic_values(
+        changed_state = energy.material_state.with_plastic_values(
             np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
         )
-        after = energy.value(x0)
+        after = energy.energy_operator.value(x0, changed_state)
         assert after != pytest.approx(before, abs=1e-15)
+        assert energy.value(x0) == pytest.approx(before)
 
     def test_static_solve_uses_given_plastic_params(self):
         sim = _make_tet_sim_mesh()
@@ -687,16 +704,16 @@ class TestLifetimeAndErrors:
         assignment = valid.assignment
 
         with pytest.raises(TypeError, match="assignment"):
-            pf.DeformationEnergy(sim, formulation=pf.TetLinear())
+            pf.DeformationEnergyOperator(sim, formulation=pf.TetLinear())
         with pytest.raises(ValueError, match="formulation is required"):
-            pf.DeformationEnergy(assignment, formulation=None)
+            pf.DeformationEnergyOperator(assignment, formulation=None)
         with pytest.raises(TypeError, match="formulation must be"):
-            pf.DeformationEnergy(
+            pf.DeformationEnergyOperator(
                 assignment,
                 formulation="tet_linear",
             )
         with pytest.raises(TypeError, match="options must be"):
-            pf.DeformationEnergy(
+            pf.DeformationEnergyOperator(
                 assignment,
                 formulation=pf.TetLinear(),
                 options={},
@@ -713,7 +730,7 @@ class TestLifetimeAndErrors:
         sim = _make_tet_sim_mesh()
         assignment = _make_energy(sim).assignment
         with pytest.raises(TypeError):
-            pf.DeformationEnergy(
+            pf.DeformationEnergyOperator(
                 assignment,
                 formulation=pf.TetLinear(),
                 elastic=pf.StableNeoDefinition(),
@@ -731,7 +748,11 @@ class TestModuleSurface:
         # FEM energy classes live with their domain module (pypgo.fem),
         # not in the generic pypgo.energy namespace.
         assert not hasattr(pe, "DeformationEnergy")
-        assert hasattr(pf, "DeformationEnergy")
+        assert hasattr(pf, "DeformationEnergyOperator")
+        assert hasattr(pf, "DeformationPotentialEnergy")
+        assert hasattr(pf, "MaterialState")
+        assert not hasattr(pf, "DeformationEnergy")
+        assert not hasattr(pf, "OptimizableParameters")
         assert not hasattr(pf, "deformation_energy")
         assert not hasattr(pf, "DeformationModelConfig")
         assert not hasattr(pf, "deformation_model_config")
@@ -748,8 +769,10 @@ def test_deformation_energy_handle_is_concrete_peer():
     sim = _make_tet_sim_mesh()
     e = _make_energy(sim)
 
-    assert isinstance(e._handle, _core.PyDeformationEnergy)
+    assert isinstance(e._handle, _core.PyDeformationPotentialEnergy)
     assert isinstance(e._handle, _core.PyPotentialEnergy)
+    assert isinstance(
+        e.energy_operator._handle, _core.PyDeformationEnergyOperator)
 
 
 # ---------------------------------------------------------------------------
@@ -758,7 +781,7 @@ def test_deformation_energy_handle_is_concrete_peer():
 
 
 class TestElementVonMises:
-    """Tests for DeformationEnergy.element_von_mises (new C++ binding)."""
+    """Tests for DeformationPotentialEnergy.element_von_mises."""
 
     def test_zero_displacement_gives_near_zero_stress(self):
         """Zero displacement -> all von Mises stresses should be ~0."""

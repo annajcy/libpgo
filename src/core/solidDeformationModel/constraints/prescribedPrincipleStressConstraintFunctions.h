@@ -8,7 +8,7 @@ copyright to USC,MIT,NUS
 #include "constraints/constraintFunctions.h"
 #include "deformation/volume/volumetricDeformationModel.h"
 #include "deformation/volume/volumetricDeformationModelEvaluator.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 
 #include <tbb/spin_mutex.h>
 
@@ -29,7 +29,7 @@ public:
   PrescribedPrincipleStressConstraintFunctions(
     int nAll, int dofOffset, std::span<const int> elementIDs,
     const DeformationModelManager &tetMeshDMM,
-    std::shared_ptr<const OptimizableParameters> optimizableParameters);
+    MaterialState materialState);
   virtual ~PrescribedPrincipleStressConstraintFunctions() {}
 
   using XToPosFunc = std::function<void(const EigenSupport::V3d &, int offset, EigenSupport::V3d &)>;
@@ -50,7 +50,7 @@ public:
 protected:
   int dofStart;
   const DeformationModelManager &tetMeshDMM;
-  std::shared_ptr<const OptimizableParameters> optimizableParameters_;
+  MaterialState materialState_;
   std::vector<int> elements;
   XToPosFunc xToPosFunc;
   EigenSupport::VXd targetPrincipleStress;
@@ -60,8 +60,8 @@ protected:
     const int numDOFs;
     const int numMaterialLocations;
     EigenSupport::V18d localp;
-    OptimizableParameterEvaluationScratch elasticParameters;
-    OptimizableParameterEvaluationScratch plasticParameters;
+    MaterialStateEvaluationScratch elasticParameters;
+    MaterialStateEvaluationScratch plasticParameters;
     std::unique_ptr<VolumetricDeformationModelEvaluator> evaluator;
 
     explicit ElementData(const VolumetricDeformationModel &model):
@@ -74,7 +74,7 @@ protected:
   mutable std::vector<ElementData> elementData_;
 
   VolumetricDeformationModelEvaluator &prepareElement(
-    int elementID, OptimizableParameterEvaluationView state,
+    int elementID, MaterialStateView state,
     ElementData &data) const;
 
   EigenSupport::EntryMap jacEntries, hessEntries;

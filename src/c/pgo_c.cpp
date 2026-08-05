@@ -18,12 +18,13 @@
 #include "initPredicates.h"
 #include "EigenSupport.h"
 #include "simulation/simulationMesh.h"
-#include "energy/deformationModelEnergy.h"
+#include "energy/deformationEnergyOperator.h"
+#include "energy/deformationPotentialEnergy.h"
 #include "formulations/formulation/formulations.h"
 #include "deformation/deformationModelManager.h"
 #include "basicIO.h"
 #include "deformation/deformationModelAssembler.h"
-#include "energy/deformationModelEnergy.h"
+#include "energy/deformationEnergyOperator.h"
 #include "material/plastic/plasticModel.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
 #include "material/projection/materialInputProjection.h"
@@ -691,7 +692,7 @@ int pgo_run_sim_from_config(const char *configFileName)
   int n3 = n * 3;
 
   // Build deformation energy.
-  std::shared_ptr<SolidDeformationModel::DeformationModelEnergy> elasticEnergy;
+  std::shared_ptr<SolidDeformationModel::DeformationEnergyOperator> elasticOperator;
   auto plastic = std::make_shared<SolidDeformationModel::VolumetricPlasticity6Definition>();
   const int nele = simMesh->getNumElements();
   const auto elasticFixedChannels = elasticDefinition->fixedChannelSchema();
@@ -745,17 +746,20 @@ int pgo_run_sim_from_config(const char *configFileName)
       nele));
   switch (simMesh->getElementType()) {
   case SolidDeformationModel::SimulationMeshType::TET:
-    elasticEnergy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
+    elasticOperator = std::make_shared<SolidDeformationModel::DeformationEnergyOperator>(
       assignment, SolidDeformationModel::TetLinearFormulation{});
     break;
   case SolidDeformationModel::SimulationMeshType::CUBIC:
-    elasticEnergy = std::make_shared<SolidDeformationModel::DeformationModelEnergy>(
+    elasticOperator = std::make_shared<SolidDeformationModel::DeformationEnergyOperator>(
       assignment, SolidDeformationModel::CubicLinearFormulation{});
     break;
   default:
     SPDLOG_LOGGER_ERROR(Logging::lgr(), "Unsupported mesh element type for deformation energy.");
     return 1;
   }
+  auto elasticEnergy =
+    std::make_shared<SolidDeformationModel::DeformationPotentialEnergy>(
+      std::move(elasticOperator), assignment->initialMaterialState());
 
   ES::VXd restPosition = elasticEnergy->getRestDofs();
 

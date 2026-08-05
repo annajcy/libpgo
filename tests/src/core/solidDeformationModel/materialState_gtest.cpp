@@ -6,7 +6,7 @@
 #include "material/plastic/plasticModel3D6DOF.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 #include "materialTestUtils.h"
 #include "cubicMesh.h"
 
@@ -17,7 +17,7 @@ using namespace pgo::SolidDeformationModel;
 
 constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 
-TEST(OptimizableParameters, BuildsIndependentFieldsAndCommittedValues)
+TEST(MaterialState, BuildsIndependentFieldsAndImmutableValues)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   auto asset = TestUtils::shareAsset(loadCubicMesh(cubicMesh));
@@ -39,7 +39,7 @@ TEST(OptimizableParameters, BuildsIndependentFieldsAndCommittedValues)
     std::make_shared<ConstantParameterLayout>(
       mesh->getNumElements(), 6),
     std::make_shared<IdentityMaterialChannelMapping>(6));
-  auto parameters = std::make_shared<OptimizableParameters>(
+  auto parameters = std::make_shared<MaterialState>(
     std::move(elasticField), std::move(plasticField),
     ES::VXd::Zero(0), plasticValues);
 
@@ -47,28 +47,27 @@ TEST(OptimizableParameters, BuildsIndependentFieldsAndCommittedValues)
     parameters->elasticField().layout().numGlobalParameters(), 0);
   EXPECT_EQ(
     parameters->plasticField().layout().numGlobalParameters(), 6);
-  EXPECT_TRUE(parameters->plasticSnapshot().isApprox(plasticValues));
+  EXPECT_TRUE(parameters->plasticValues().isApprox(plasticValues));
 
-  OptimizableParameterSnapshot snapshot = parameters->snapshot();
   ES::VXd changed = plasticValues * 1.1;
-  parameters->setPlasticValues(changed);
-  EXPECT_TRUE(Eigen::Map<const ES::VXd>(
-    snapshot.view().plasticValues().data(),
-    snapshot.view().plasticValues().size()).isApprox(plasticValues));
+  const MaterialState changedState = parameters->withPlasticValues(
+    std::span<const double>(changed.data(), changed.size()));
+  EXPECT_TRUE(parameters->plasticValues().isApprox(plasticValues));
+  EXPECT_TRUE(changedState.plasticValues().isApprox(changed));
 }
 
-TEST(OptimizableParameters, ValidatesCommittedValueCountForAnyLayout)
+TEST(MaterialState, ValidatesValueCountForAnyLayout)
 {
   pgo::VolumetricMeshes::CubicMesh cubicMesh(kCubicBoxVegPath);
   auto asset = TestUtils::shareAsset(loadCubicMesh(cubicMesh));
   const auto &mesh = asset->mesh();
 
-  auto elementwise = TestUtils::makeDefaultOptimizableParameters(
+  auto elementwise = TestUtils::makeDefaultMaterialState(
     *asset,
     *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity6Definition>());
   EXPECT_EQ(
-    elementwise->plasticSnapshot().size(),
+    elementwise->plasticValues().size(),
     mesh->getNumElements() * 6);
 
   const StableNeoDefinition elastic;
@@ -82,7 +81,7 @@ TEST(OptimizableParameters, ValidatesCommittedValueCountForAnyLayout)
     std::make_shared<ConstantParameterLayout>(mesh->getNumElements(), 6),
     std::make_shared<IdentityMaterialChannelMapping>(6));
   EXPECT_THROW(
-    OptimizableParameters(
+    MaterialState(
       std::move(elasticField), std::move(plasticField),
       ES::VXd::Zero(0), ES::VXd::Zero(5)),
     std::invalid_argument);

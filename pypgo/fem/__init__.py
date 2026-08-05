@@ -33,7 +33,7 @@ from pypgo.fem.fields import (
     OptimizableParameterField,
     OptimizableParameterRef,
     OptimizableMaterialChannelRef,
-    OptimizableParameters,
+    MaterialState,
     MaterialParameterDataBlock,
     FixedParameterField,
     MaterialAssignment,
@@ -56,8 +56,10 @@ from pypgo.fem.fields import (
     project_imported_material_frames,
 )
 from pypgo.fem.energy import (
-    DeformationEnergy,
+    DeformationEnergyOperator,
+    DeformationPotentialEnergy,
     DeformationOptions,
+    MaterialVJP,
 )
 from pypgo.fem.mesh import (
     ImportedElementSet,
@@ -108,7 +110,7 @@ __all__ = [
     "OptimizableParameterField",
     "OptimizableParameterRef",
     "OptimizableMaterialChannelRef",
-    "OptimizableParameters",
+    "MaterialState",
     "MaterialParameterDataBlock",
     "FixedParameterField",
     "MaterialAssignment",
@@ -130,8 +132,10 @@ __all__ = [
     "material_frames_from_primary_axes",
     "project_imported_material_frames",
     # Energy
-    "DeformationEnergy",
+    "DeformationEnergyOperator",
+    "DeformationPotentialEnergy",
     "DeformationOptions",
+    "MaterialVJP",
     # Mesh
     "SimulationMesh",
     "SimulationImportResult",

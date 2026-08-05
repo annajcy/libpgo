@@ -62,32 +62,36 @@ def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plast
         sim, elastic, plastic,
         pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout,
         None, plastic_values)
-    return _core._create_deformation_energy(
+    operator = _core._create_deformation_energy_operator(
         assignment._handle,
         formulation_handle._handle,
         None,
         True,
         True,
     )
+    return _core._create_deformation_potential_energy(
+        operator, assignment._handle.initial_material_state)
 
 
-class TestCoreDeformationEnergy:
+class TestCoreDeformationEnergyOperator:
     def test_energy_exposes_shared_parameters(self):
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_linear")
 
-        assert energy.elastic_definition.name == "stable_neo"
-        assert energy.plastic_definition.name == "volumetric_dof6"
-        assert energy.optimizable_parameters.elastic_field.num_material_channels == 0
-        assert energy.optimizable_parameters.elastic_values.shape == (0, 0)
-        assert energy.optimizable_parameters.plastic_values.shape == (sim.num_elements, 6)
+        operator = energy.energy_operator
+        state = energy.material_state
+        assert operator.elastic_definition.name == "stable_neo"
+        assert operator.plastic_definition.name == "volumetric_dof6"
+        assert state.elastic_field.num_material_channels == 0
+        assert state.elastic_values.shape == (0, 0)
+        assert state.plastic_values.shape == (sim.num_elements, 6)
 
-    def test_parameter_owner_setters_update_committed_values(self):
+    def test_material_state_has_no_mutating_setters(self):
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_linear")
-        values = np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64)
-        energy.optimizable_parameters.set_plastic_values(values.ravel())
-        assert np.allclose(energy.optimizable_parameters.plastic_values, values)
+        state = energy.material_state
+        assert not hasattr(state, "set_plastic_values")
+        assert not hasattr(state, "set_elastic_values")
 
     def test_wrong_size_rejected(self):
         sim = _make_tet_sim_mesh()
@@ -124,17 +128,18 @@ class TestCoreEnergy:
         assert h.gradient(u).shape == (h.num_dofs,)
         assert h.hessian(u).nnz() > 0
 
-    def test_energy_observes_state_updates(self):
+    def test_new_potential_uses_new_explicit_state(self):
         sim = _make_tet_sim_mesh()
         energy = _make_deformation_energy(sim, "tet_linear", elastic=pf.StVKDefinition())
         h = energy
         u = h.zero_state()
 
         before = h.value(u)
-        energy.optimizable_parameters.set_plastic_values(
-            np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64).ravel()
-        )
-        after = h.value(u)
+        state = energy.material_state.with_plastic_values(
+            np.array([[1.05, 0.0, 0.0, 1.0, 0.0, 1.0]], dtype=np.float64).ravel())
+        changed = _core._create_deformation_potential_energy(
+            energy.energy_operator, state)
+        after = changed.value(u)
         assert after != pytest.approx(before, abs=1e-15)
 
     def test_energy_survives_mesh_and_state_deletion(self):

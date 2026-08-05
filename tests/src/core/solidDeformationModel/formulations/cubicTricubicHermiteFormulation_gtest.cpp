@@ -17,7 +17,7 @@
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
 #include "deformation/deformationModelAssembler.h"
-#include "energy/deformationModelEnergy.h"
+#include "energy/deformationEnergyOperator.h"
 #include "deformation/deformationModelManager.h"
 #include "../materialTestUtils.h"
 #include "material/plastic/plasticModel3DDeformationGradient.h"
@@ -55,22 +55,9 @@ struct EnergyCase
 {
   std::shared_ptr<const SimulationImportResult> asset;
   std::shared_ptr<const SimulationMesh> meshOwner;
-  std::unique_ptr<DeformationModelEnergy> energy;
+  std::unique_ptr<DeformationPotentialEnergy> energy;
   int numDOFs = 0;
 };
-
-void setVolumetricPlasticIdentity(DeformationModelEnergy &energy)
-{
-  auto &assembler = energy.assembler();
-  const auto &manager = assembler.getDeformationModelManager();
-  const int nele = assembler.getDeformationModelManager().getMesh().getNumElements();
-  const int npp = assembler.getNumPlasticParams();
-  ES::VXd plastic(static_cast<Eigen::Index>(npp) * nele);
-  for (int ei = 0; ei < nele; ei++)
-    manager.getDeformationModel(ei).defaultPlasticParams(
-      std::span<double>(plastic.data() + ei * npp, npp));
-  energy.optimizableParameters()->setPlasticValues(plastic);
-}
 
 // Single axis-aligned unit cube (CUBIC element, 8 vertices in CubicLinearShapeFunction corner order).
 std::shared_ptr<const SimulationMesh> makeUnitCubeMesh()
@@ -92,7 +79,7 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
   EnergyCase c;
   c.meshOwner = makeUnitCubeMesh();
   c.asset = TestUtils::makeENuAsset(c.meshOwner, 1200.0, 0.45);
-  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+  auto parameters = TestUtils::makeDefaultMaterialState(
     *c.asset, *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity6Definition>());
   auto assignment = TestUtils::makeMaterialAssignment(
@@ -102,10 +89,11 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
   options.projectHessianPSD = kExactDerivativeProjectHessianPSD;
   options.enableMaterialMaxStep = false;
   options.dofOffset = offset;
-  c.energy = std::make_unique<DeformationModelEnergy>(
-    std::move(assignment), formulation, options);
+  auto energyOperator = std::make_shared<DeformationEnergyOperator>(
+    assignment, formulation, options);
+  c.energy = std::make_unique<DeformationPotentialEnergy>(
+    std::move(energyOperator), assignment->initialMaterialState());
   c.numDOFs = c.energy->getNumDOFs();
-  setVolumetricPlasticIdentity(*c.energy);
   return c;
 }
 
@@ -360,7 +348,7 @@ EnergyCase makeTwoCubeCase(const FormulationT &formulation)
   EnergyCase c;
   c.meshOwner = makeTwoCubeMesh();
   c.asset = TestUtils::makeENuAsset(c.meshOwner, 1200.0, 0.45);
-  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+  auto parameters = TestUtils::makeDefaultMaterialState(
     *c.asset, *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity6Definition>());
   auto assignment = TestUtils::makeMaterialAssignment(
@@ -369,10 +357,11 @@ EnergyCase makeTwoCubeCase(const FormulationT &formulation)
   DeformationModelOptions options;
   options.projectHessianPSD = kExactDerivativeProjectHessianPSD;
   options.enableMaterialMaxStep = false;
-  c.energy = std::make_unique<DeformationModelEnergy>(
-    std::move(assignment), formulation, options);
+  auto energyOperator = std::make_shared<DeformationEnergyOperator>(
+    assignment, formulation, options);
+  c.energy = std::make_unique<DeformationPotentialEnergy>(
+    std::move(energyOperator), assignment->initialMaterialState());
   c.numDOFs = c.energy->getNumDOFs();
-  setVolumetricPlasticIdentity(*c.energy);
   return c;
 }
 

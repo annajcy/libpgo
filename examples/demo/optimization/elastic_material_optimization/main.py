@@ -83,7 +83,7 @@ def main() -> None:
         parameterization=parameterization,
         parameter_data=parameter_data,
         material_frames=pf.GlobalAxesMaterialFrameField(mesh.num_elements))
-    energy = pf.DeformationEnergy(
+    energy_operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(
@@ -91,17 +91,19 @@ def main() -> None:
             enable_material_max_step=False,
         ),
     )
+    energy = pf.DeformationPotentialEnergy(
+        energy_operator, assignment.initial_material_state)
 
     # Apply self-weight and clamp the top edge.
     areal_density = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0,
-        parameter=energy.optimizable_parameters.elastic_field.parameter("thickness"),
+        parameter=energy.material_state.elastic_field.parameter("thickness"),
     )
     external_load = pf.SelfWeightGravity(
         formulation=pf.KoiterShell(),
         mesh=mesh,
         areal_density=areal_density,
-        optimizable_parameters=energy.optimizable_parameters,
+        material_state=energy.material_state,
         acceleration=np.array([0.0, 0.0, -20.0]),
     )
     fixed_vertices = np.flatnonzero(np.isclose(vertices[:, 1], 1.0))
@@ -120,10 +122,12 @@ def main() -> None:
     softness *= np.exp(-(((centers[:, 0] - 0.5) / 0.75) ** 2))
     target_elastic = initial_elastic.copy()
     target_elastic[:, 0] *= 1.0 - 0.98 * softness
-    energy.optimizable_parameters.set_elastic_values(target_elastic)
+    target_state = energy.material_state.with_elastic_values(target_elastic)
+    target_energy = pf.DeformationPotentialEnergy(energy_operator, target_state)
 
     target_objective = pe.EnergySet(
-        [(energy, 1.0), (pe.LinearEnergy(-external_load.force()), 1.0)]
+        [(target_energy, 1.0),
+         (pe.LinearEnergy(-external_load.force(target_state)), 1.0)]
     )
     target_problem = ps.OptimizationProblem(objective=target_objective)
     target_problem.fix_variables(
@@ -136,8 +140,6 @@ def main() -> None:
     target_vertices[:, 2] += (
         0.08 * (1.0 - vertices[:, 1]) * np.sin(2.0 * np.pi * vertices[:, 0])
     )
-    energy.optimizable_parameters.set_elastic_values(initial_elastic)
-
     # Differentiate the observed surface through static equilibrium.
     layer = pgo.fem.ElasticStaticEquilibriumLayer(
         energy=energy,

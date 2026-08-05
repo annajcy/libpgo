@@ -1,13 +1,13 @@
 #include <gtest/gtest.h>
 
 #include "deformation/deformationModelAssembler.h"
-#include "energy/deformationModelEnergy.h"
+#include "energy/deformationEnergyOperator.h"
 #include "formulations/formulation/formulations.h"
 #include "material/parameterization/materialChannelMapping.h"
 #include "material/projection/materialInputProjection.h"
 #include "material/parameterization/materialParameterization.h"
 #include "material/runtime/optimizableParameterRef.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 #include "material/elastic/elasticModel3DDeformationGradient.h"
 #include "material/plastic/plasticModel3DConstant.h"
 #include "materialTestUtils.h"
@@ -290,15 +290,15 @@ TEST(MaterialParameterizationSemanticContract, PhysicalChannelRefUsesMappingDeri
 {
   const auto parameterization = makeLogEParameterization();
   const double logE = std::log(1200.0);
-  OptimizableParameters parameters(
+  MaterialState parameters(
     parameterization->elastic().optimizableField(),
     parameterization->plastic().optimizableField(),
     ES::VXd::Constant(1, logE), ES::VXd{});
-  const auto state = parameters.snapshot().view();
+  const auto state = parameters.view();
   const OptimizableMaterialChannelRef channel(
     parameterization->elastic(), "E");
 
-  OptimizableParameterEvaluationScratch scratch;
+  MaterialStateEvaluationScratch scratch;
   EXPECT_NEAR(channel.value(0, 0, state, scratch), 1200.0, 1e-12);
 
   ES::VXd derivative(1);
@@ -399,16 +399,17 @@ TEST(MaterialParameterizationSemanticContract, LogEGradientAndHessianMatchFinite
   DeformationModelOptions options;
   options.projectHessianPSD = false;
   options.enableMaterialMaxStep = false;
-  const auto deformationEnergy = std::make_shared<DeformationModelEnergy>(
-    std::move(assignment), formulation, options);
+  const MaterialState materialState = assignment->initialMaterialState();
+  const auto deformationEnergy = std::make_shared<DeformationEnergyOperator>(
+    assignment, formulation, options);
 
   ES::VXd displacement = ES::VXd::Zero(deformationEnergy->getNumDOFs());
   for (int i = 0; i < displacement.size(); ++i)
     displacement[i] = 0.01 * std::sin(0.7 * i + 0.2);
 
-  const ES::VXd input = deformationEnergy->optimizableParameters()->elasticSnapshot();
+  const ES::VXd input = materialState.elasticValues();
   auto view = [&](const ES::VXd &trial) {
-    return deformationEnergy->optimizableParameters()->snapshot().withElasticValues(
+    return materialState.withElasticValues(
       std::span<const double>(trial.data(), trial.size()));
   };
 

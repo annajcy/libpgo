@@ -2,7 +2,7 @@
 
 This is the macOS variant of the pure-Python FEM threading benchmark. It uses
 the same real `.veg` meshes, material construction, perturbed DOF vectors, and
-public `pypgo.fem.DeformationEnergy` evaluation paths as the MKL variant. The
+public `pypgo.fem.DeformationPotentialEnergy` evaluation paths as the MKL variant. The
 only measured policy difference is:
 
 | policy | arena concurrency | Accelerate mode |

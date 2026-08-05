@@ -13,7 +13,7 @@ class PotentialEnergy:
 
     This is not directly constructible from Python.  All energy types
     (LinearEnergy, QuadraticEnergy, VertexAttachment, EnergySet, plus
-    domain energies such as ``pypgo.fem.DeformationEnergy`` and the
+    domain energies such as ``pypgo.fem.DeformationPotentialEnergy`` and the
     ``pypgo.contact`` energies) expose the same evaluation interface through
     their ``_handle`` attribute, and ``isinstance(x, PotentialEnergy)``
     checks work for all of them.

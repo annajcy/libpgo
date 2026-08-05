@@ -8,11 +8,11 @@
 #include "material/plastic/plasticModel3DConstant.h"
 #include "material/plastic/plasticModel2DFundamentalFormsUniformStretch.h"
 
-#include "energy/deformationModelEnergy.h"
+#include "energy/deformationEnergyOperator.h"
 #include "deformation/deformationModelAssembler.h"
 #include "formulations/formulation/formulations.h"
 
-#include "energy/deformationModelEnergy.h"
+#include "energy/deformationEnergyOperator.h"
 #include "simulation/simulationMesh.h"
 #include "tetMesh.h"
 #include "cubicMesh.h"
@@ -36,7 +36,7 @@ constexpr const char *kCubicBoxVegPath = LIBPGO_TEST_CUBIC_BOX_VEG;
 constexpr const char *kShellObjPath = LIBPGO_TEST_SHELL_OBJ;
 
 template<class FormulationT>
-std::shared_ptr<DeformationModelEnergy> makeDefaultFieldEnergy(
+std::shared_ptr<DeformationPotentialEnergy> makeDefaultFieldEnergy(
   std::shared_ptr<const SimulationImportResult> asset,
   const FormulationT &formulation,
   std::shared_ptr<const ElasticModelDefinition> elastic,
@@ -119,7 +119,7 @@ TEST(DeformationModelBuilderGTest, StructuredInputsCarryCustomMaterialFrames)
     std::make_shared<const ConstantMaterialFrameField>(
       asset->mesh()->getNumElements(), frame);
 
-  auto parameters = TestUtils::makeDefaultOptimizableParameters(
+  auto parameters = TestUtils::makeDefaultMaterialState(
     *asset,
     *std::make_shared<StableNeoDefinition>(),
     *std::make_shared<VolumetricPlasticity3Definition>());

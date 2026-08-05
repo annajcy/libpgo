@@ -28,7 +28,7 @@ volume is one, the FEM energy gradient gives
 \]
 
 The material parameter Jacobian comes from the mixed derivative already
-provided by `DeformationEnergy`:
+provided by `DeformationEnergyOperator`:
 
 \[
 \frac{\partial\operatorname{vec}(P)}{\partial e}

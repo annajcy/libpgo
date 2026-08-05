@@ -1,13 +1,14 @@
 #pragma once
 
-#include "energy/deformationModelEnergy.h"
+#include "energy/deformationEnergyOperator.h"
+#include "energy/deformationPotentialEnergy.h"
 #include "material/runtime/materialAssignment.h"
 #include "material/parameterization/materialChannelMapping.h"
 #include "material/frame/materialFrameField.h"
 #include "material/data/materialParameterData.h"
 #include "material/data/namedMaterialInputData.h"
 #include "material/parameterization/materialParameterization.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 #include "material/parameterization/parameterLayout.h"
 #include "simulation/import/simulationImportResult.h"
 #include "simulation/simulationMesh.h"
@@ -176,7 +177,7 @@ inline ParameterInputSchema identityParameterSchema(
     std::vector<std::string>(names.begin(), names.end()));
 }
 
-inline std::shared_ptr<OptimizableParameters> makeDefaultOptimizableParameters(
+inline std::shared_ptr<MaterialState> makeDefaultMaterialState(
   const SimulationImportResult &asset,
   const ElasticModelDefinition &elastic,
   const PlasticModelDefinition &plastic)
@@ -211,7 +212,7 @@ inline std::shared_ptr<OptimizableParameters> makeDefaultOptimizableParameters(
       plasticValues[element * numPlastic + channel] =
         defaultPlasticValue(plasticNames[channel]);
 
-  return std::make_shared<OptimizableParameters>(
+  return std::make_shared<MaterialState>(
     std::move(elasticField), std::move(plasticField),
     std::move(elasticValues), std::move(plasticValues));
 }
@@ -220,7 +221,7 @@ inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
   std::shared_ptr<const SimulationImportResult> asset,
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic,
-  std::shared_ptr<OptimizableParameters> parameters = {},
+  std::shared_ptr<MaterialState> parameters = {},
   std::shared_ptr<const MaterialFrameField> frames = {})
 {
   if (!asset || !elastic || !plastic)
@@ -241,7 +242,7 @@ inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
   auto elasticFixed = makeField(*elastic);
   auto plasticFixed = makeField(*plastic);
   if (!parameters)
-    parameters = makeDefaultOptimizableParameters(
+    parameters = makeDefaultMaterialState(
       *asset, *elastic, *plastic);
   if (!frames)
     frames = std::make_shared<const GlobalAxesMaterialFrameField>(
@@ -264,28 +265,30 @@ inline std::shared_ptr<const MaterialAssignment> makeMaterialAssignment(
   };
   data.elastic.fixedValues = projectFixed(elasticFixed);
   data.plastic.fixedValues = projectFixed(plasticFixed);
-  data.elastic.initialOptimizableValues = parameters->elasticSnapshot();
-  data.plastic.initialOptimizableValues = parameters->plasticSnapshot();
+  data.elastic.initialOptimizableValues = parameters->elasticValues();
+  data.plastic.initialOptimizableValues = parameters->plasticValues();
   return std::make_shared<const MaterialAssignment>(
     asset->mesh(), std::move(parameterization),
     std::make_shared<const MaterialParameterData>(std::move(data)),
     std::move(frames));
 }
 
-inline std::shared_ptr<DeformationModelEnergy> makeTestEnergy(
+inline std::shared_ptr<DeformationPotentialEnergy> makeTestEnergy(
   std::shared_ptr<const SimulationImportResult> asset,
   const Formulation &formulation,
   std::shared_ptr<const ElasticModelDefinition> elastic,
   std::shared_ptr<const PlasticModelDefinition> plastic,
-  std::shared_ptr<OptimizableParameters> parameters = {},
+  std::shared_ptr<MaterialState> parameters = {},
   std::shared_ptr<const MaterialFrameField> frames = {},
   const DeformationModelOptions &options = {})
 {
-  return std::make_shared<DeformationModelEnergy>(
-    makeMaterialAssignment(
-      std::move(asset), std::move(elastic), std::move(plastic),
-      std::move(parameters), std::move(frames)),
-    formulation, options);
+  auto assignment = makeMaterialAssignment(
+    std::move(asset), std::move(elastic), std::move(plastic),
+    std::move(parameters), std::move(frames));
+  auto energyOperator = std::make_shared<DeformationEnergyOperator>(
+    assignment, formulation, options);
+  return std::make_shared<DeformationPotentialEnergy>(
+    std::move(energyOperator), assignment->initialMaterialState());
 }
 
 }  // namespace pgo::SolidDeformationModel::TestUtils

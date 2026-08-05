@@ -75,10 +75,12 @@ def main() -> None:
         parameterization=parameterization,
         parameter_data=parameter_data,
         material_frames=pf.GlobalAxesMaterialFrameField(asset.num_elements))
-    deformation = pf.DeformationEnergy(
+    deformation_operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=formulation,
     )
+    deformation = pf.DeformationPotentialEnergy(
+        deformation_operator, assignment.initial_material_state)
     mass_field = pf.volume_density(volume)
     gravity_force = formulation.body_force(
         asset.mesh,

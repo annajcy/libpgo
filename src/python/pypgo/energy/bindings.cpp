@@ -42,27 +42,38 @@ void init_energy_bindings(nb::module_ &m)
   nb::class_<PyVertexAttachmentEnergy, PyPotentialEnergy>(m, "PyVertexAttachmentEnergy")
     .def("set_target_positions", &PyVertexAttachmentEnergy::setTargetPositions);
 
-  // ── PyDeformationEnergy ────────────────────────────────────────
+  nb::class_<PyDeformationEnergyOperator>(m, "PyDeformationEnergyOperator")
+    .def("rest_state", &PyDeformationEnergyOperator::restState)
+    .def("vertex_rest_positions", &PyDeformationEnergyOperator::vertexRestPositions)
+    .def_prop_ro("num_vertices", &PyDeformationEnergyOperator::numVertices)
+    .def_prop_ro("num_elastic_params", &PyDeformationEnergyOperator::numElasticParams)
+    .def_prop_ro("num_plastic_params", &PyDeformationEnergyOperator::numPlasticParams)
+    .def_prop_ro("num_elastic_dofs", &PyDeformationEnergyOperator::numElasticDofs)
+    .def_prop_ro("num_plastic_dofs", &PyDeformationEnergyOperator::numPlasticDofs)
+    .def_prop_ro("elastic_definition", &PyDeformationEnergyOperator::elasticDefinition)
+    .def_prop_ro("plastic_definition", &PyDeformationEnergyOperator::plasticDefinition)
+    .def_prop_ro("num_dofs", &PyDeformationEnergyOperator::numDofs)
+    .def("value", &PyDeformationEnergyOperator::value, nb::arg("displacement"), nb::arg("material_state"))
+    .def("gradient", &PyDeformationEnergyOperator::gradient, nb::arg("displacement"), nb::arg("material_state"))
+    .def("hessian", &PyDeformationEnergyOperator::hessian, nb::arg("displacement"), nb::arg("material_state"))
+    .def("zero_state", &PyDeformationEnergyOperator::zeroState)
+    .def("dE_de", &PyDeformationEnergyOperator::dE_de, nb::arg("displacement"), nb::arg("material_state"))
+    .def("element_von_mises_stresses", &PyDeformationEnergyOperator::elementVonMisesStresses, nb::arg("displacement"), nb::arg("material_state"))
+    .def("d2E_de2", &PyDeformationEnergyOperator::d2E_de2, nb::arg("displacement"), nb::arg("material_state"))
+    .def("d2E_dpde", &PyDeformationEnergyOperator::d2E_dpde, nb::arg("displacement"), nb::arg("material_state"))
+    .def("dE_dp", &PyDeformationEnergyOperator::dE_dp, nb::arg("displacement"), nb::arg("material_state"))
+    .def("d2E_dp2", &PyDeformationEnergyOperator::d2E_dp2, nb::arg("displacement"), nb::arg("material_state"))
+    .def("d2E_dude", &PyDeformationEnergyOperator::d2E_dude, nb::arg("displacement"), nb::arg("material_state"))
+    .def("d2E_dudp", &PyDeformationEnergyOperator::d2E_dudp, nb::arg("displacement"), nb::arg("material_state"))
+    .def("elastic_material_vjp", &PyDeformationEnergyOperator::elasticMaterialVJP,
+      nb::arg("displacement"), nb::arg("material_state"), nb::arg("adjoint"))
+    .def("plastic_material_vjp", &PyDeformationEnergyOperator::plasticMaterialVJP,
+      nb::arg("displacement"), nb::arg("material_state"), nb::arg("adjoint"));
 
-  nb::class_<PyDeformationEnergy, PyPotentialEnergy>(m, "PyDeformationEnergy")
-    .def("rest_state", &PyDeformationEnergy::restState)
-    .def("vertex_rest_positions", &PyDeformationEnergy::vertexRestPositions)
-    .def_prop_ro("num_vertices", &PyDeformationEnergy::numVertices)
-    .def_prop_ro("num_elastic_params", &PyDeformationEnergy::numElasticParams)
-    .def_prop_ro("num_plastic_params", &PyDeformationEnergy::numPlasticParams)
-    .def_prop_ro("num_elastic_dofs", &PyDeformationEnergy::numElasticDofs)
-    .def_prop_ro("num_plastic_dofs", &PyDeformationEnergy::numPlasticDofs)
-    .def_prop_ro("elastic_definition", &PyDeformationEnergy::elasticDefinition)
-    .def_prop_ro("plastic_definition", &PyDeformationEnergy::plasticDefinition)
-    .def_prop_ro("optimizable_parameters", &PyDeformationEnergy::optimizableParameters)
-    .def("dE_de", &PyDeformationEnergy::dE_de, nb::arg("displacement"))
-    .def("element_von_mises_stresses", &PyDeformationEnergy::elementVonMisesStresses, nb::arg("displacement"))
-    .def("d2E_de2", &PyDeformationEnergy::d2E_de2, nb::arg("displacement"))
-    .def("d2E_dpde", &PyDeformationEnergy::d2E_dpde, nb::arg("displacement"))
-    .def("dE_dp", &PyDeformationEnergy::dE_dp, nb::arg("displacement"))
-    .def("d2E_dp2", &PyDeformationEnergy::d2E_dp2, nb::arg("displacement"))
-    .def("d2E_dude", &PyDeformationEnergy::d2E_dude, nb::arg("displacement"))
-    .def("d2E_dudp", &PyDeformationEnergy::d2E_dudp, nb::arg("displacement"));
+  nb::class_<PyDeformationPotentialEnergy, PyPotentialEnergy>(
+    m, "PyDeformationPotentialEnergy")
+    .def_prop_ro("energy_operator", &PyDeformationPotentialEnergy::energyOperator)
+    .def_prop_ro("material_state", &PyDeformationPotentialEnergy::materialState);
 
   nb::class_<PyParameterLayout>(m, "PyParameterLayout")
     .def_prop_ro("num_elements", &PyParameterLayout::numElements)
@@ -107,20 +118,20 @@ void init_energy_bindings(nb::module_ &m)
     .def_prop_ro("mapping", &PyOptimizableParameterField::mapping)
     .def("parameter", &PyOptimizableParameterField::parameter, nb::arg("name"));
 
-  nb::class_<PyOptimizableParameters>(m, "PyOptimizableParameters")
-    .def_prop_ro("elastic_field", &PyOptimizableParameters::elasticField)
-    .def_prop_ro("plastic_field", &PyOptimizableParameters::plasticField)
+  nb::class_<PyMaterialState>(m, "PyMaterialState")
+    .def_prop_ro("elastic_field", &PyMaterialState::elasticField)
+    .def_prop_ro("plastic_field", &PyMaterialState::plasticField)
     .def_prop_ro(
-      "elastic_values", &PyOptimizableParameters::elasticValues,
+      "elastic_values", &PyMaterialState::elasticValues,
       nb::rv_policy::move)
     .def_prop_ro(
-      "plastic_values", &PyOptimizableParameters::plasticValues,
+      "plastic_values", &PyMaterialState::plasticValues,
       nb::rv_policy::move)
-    .def("set_elastic_values", &PyOptimizableParameters::setElasticValues, nb::arg("values"))
-    .def("set_plastic_values", &PyOptimizableParameters::setPlasticValues, nb::arg("values"))
-    .def("set_values", &PyOptimizableParameters::setValues,
-      nb::arg("elastic_values"), nb::arg("plastic_values"))
-    .def("_same_parameter_fields", &PyOptimizableParameters::sameParameterFields, nb::arg("other"));
+    .def("with_elastic_values", &PyMaterialState::withElasticValues,
+      nb::arg("values"))
+    .def("with_plastic_values", &PyMaterialState::withPlasticValues,
+      nb::arg("values"))
+    .def("_same_parameter_fields", &PyMaterialState::sameParameterFields, nb::arg("other"));
 
   nb::class_<PyFixedParameterField>(m, "PyFixedParameterField")
     .def_prop_ro("parameter_names", &PyFixedParameterField::parameterNames)
@@ -139,7 +150,7 @@ void init_energy_bindings(nb::module_ &m)
   nb::class_<PyMaterialFrameField>(m, "PyMaterialFrameField")
     .def_prop_ro("num_elements", &PyMaterialFrameField::numElements);
   nb::class_<PyMaterialAssignment>(m, "PyMaterialAssignment")
-    .def_prop_ro("optimizable_parameters", &PyMaterialAssignment::optimizableParameters);
+    .def_prop_ro("initial_material_state", &PyMaterialAssignment::initialMaterialState);
 
   nb::class_<PyElasticParameterization>(m, "PyElasticParameterization")
     .def_prop_ro("definition", &PyElasticParameterization::definition)
@@ -228,10 +239,15 @@ void init_energy_bindings(nb::module_ &m)
     &createMaterialAssignmentFromParameterization,
     nb::arg("mesh"), nb::arg("parameterization"), nb::arg("data"),
     nb::arg("material_frames"));
-  m.def("_create_deformation_energy", &createDeformationEnergy,
+  m.def("_create_material_state", &createMaterialState,
+    nb::arg("assignment"), nb::arg("elastic_values"),
+    nb::arg("plastic_values"));
+  m.def("_create_deformation_energy_operator", &createDeformationEnergyOperator,
     nb::arg("assignment"), nb::arg("formulation"),
     nb::arg("element_weights").none() = nb::none(), nb::arg("project_hessian_psd") = true,
     nb::arg("enable_material_max_step") = true);
+  m.def("_create_deformation_potential_energy", &createDeformationPotentialEnergy,
+    nb::arg("energy_operator"), nb::arg("material_state"));
 
   // Private/experimental — minimal QuadraticPotentialEnergy factory for
   // PotentialEnergy-handle tests.

@@ -120,10 +120,10 @@ class SelfWeightGravity:
     """External load from a parameter-coupled shell areal density."""
 
     def __init__(
-        self, *, formulation, mesh, areal_density, optimizable_parameters, acceleration
+        self, *, formulation, mesh, areal_density, material_state, acceleration
     ) -> None:
         from pypgo.fem.formulations import ShellFormulation
-        from pypgo.fem.fields import OptimizableParameters
+        from pypgo.fem.fields import MaterialState
 
         if not isinstance(formulation, ShellFormulation):
             raise TypeError(
@@ -134,33 +134,37 @@ class SelfWeightGravity:
                 "areal_density must be a ShellArealDensity, "
                 f"got {type(areal_density).__name__}"
             )
-        if not isinstance(optimizable_parameters, OptimizableParameters):
+        if not isinstance(material_state, MaterialState):
             raise TypeError(
-                "optimizable_parameters must be OptimizableParameters, "
-                f"got {type(optimizable_parameters).__name__}"
+                "material_state must be MaterialState, "
+                f"got {type(material_state).__name__}"
             )
         self._formulation = formulation
         self._mesh = mesh
         self._areal_density = areal_density
-        self._optimizable_parameters = optimizable_parameters
+        self._material_state = material_state
         self._acceleration = np.asarray(acceleration, dtype=np.float64).reshape(3)
 
     @property
-    def optimizable_parameters(self):
-        return self._optimizable_parameters
+    def material_state(self):
+        return self._material_state
 
-    def force(self) -> np.ndarray:
+    def force(self, material_state) -> np.ndarray:
+        if not self._material_state._uses_same_parameter_fields_as(material_state):
+            raise ValueError("material_state belongs to different material fields")
         return self._formulation.body_force(
             self._mesh,
             self._acceleration,
             self._areal_density,
-            optimizable_parameters=self._optimizable_parameters,
+            material_state=material_state,
         )
 
-    def parameter_jacobian(self):
+    def parameter_jacobian(self, material_state):
+        if not self._material_state._uses_same_parameter_fields_as(material_state):
+            raise ValueError("material_state belongs to different material fields")
         return self._formulation.body_force_parameter_jacobian(
             self._mesh,
             self._acceleration,
             self._areal_density,
-            optimizable_parameters=self._optimizable_parameters,
+            material_state=material_state,
         )

@@ -44,17 +44,17 @@ std::string_view OptimizableParameterRef::name() const
 double OptimizableParameterRef::value(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state) const
+  const MaterialStateView &state) const
 {
-  OptimizableParameterEvaluationScratch scratch;
+  MaterialStateEvaluationScratch scratch;
   return value(element, quadrature, state, scratch);
 }
 
 double OptimizableParameterRef::value(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
-  OptimizableParameterEvaluationScratch &scratch) const
+  const MaterialStateView &state,
+  MaterialStateEvaluationScratch &scratch) const
 {
   (void)quadrature;
   const OptimizableParameterField &f = field();
@@ -67,18 +67,18 @@ double OptimizableParameterRef::value(
 void OptimizableParameterRef::localDerivative(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
+  const MaterialStateView &state,
   EigenSupport::RefVecXd output) const
 {
-  OptimizableParameterEvaluationScratch scratch;
+  MaterialStateEvaluationScratch scratch;
   localDerivative(element, quadrature, state, scratch, output);
 }
 
 void OptimizableParameterRef::localDerivative(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
-  OptimizableParameterEvaluationScratch &scratch,
+  const MaterialStateView &state,
+  MaterialStateEvaluationScratch &scratch,
   EigenSupport::RefVecXd output) const
 {
   (void)quadrature;
@@ -126,17 +126,17 @@ std::string_view OptimizableMaterialChannelRef::name() const
 double OptimizableMaterialChannelRef::value(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state) const
+  const MaterialStateView &state) const
 {
-  OptimizableParameterEvaluationScratch scratch;
+  MaterialStateEvaluationScratch scratch;
   return value(element, quadrature, state, scratch);
 }
 
 double OptimizableMaterialChannelRef::value(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
-  OptimizableParameterEvaluationScratch &scratch) const
+  const MaterialStateView &state,
+  MaterialStateEvaluationScratch &scratch) const
 {
   const OptimizableParameterField &f = field();
   scratch.prepare(f);
@@ -148,8 +148,8 @@ double OptimizableMaterialChannelRef::value(
 void OptimizableMaterialChannelRef::localDerivative(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
-  OptimizableParameterEvaluationScratch &scratch,
+  const MaterialStateView &state,
+  MaterialStateEvaluationScratch &scratch,
   EigenSupport::RefVecXd output) const
 {
   const OptimizableParameterField &f = field();
@@ -166,7 +166,7 @@ void OptimizableMaterialChannelRef::localDerivative(
 void OptimizableMaterialChannelRef::localHessian(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
+  const MaterialStateView &state,
   EigenSupport::RefMatXd output) const
 {
   const OptimizableParameterField &f = field();
@@ -175,7 +175,7 @@ void OptimizableMaterialChannelRef::localHessian(
     throw std::invalid_argument(
       "OptimizableMaterialChannelRef Hessian output has the wrong shape.");
 
-  OptimizableParameterEvaluationScratch scratch;
+  MaterialStateEvaluationScratch scratch;
   scratch.prepare(f);
   f.layout().gather(element, state.values(f), scratch.local);
   std::vector<EigenSupport::MXd> channelHessians(

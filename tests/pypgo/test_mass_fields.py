@@ -216,31 +216,33 @@ def _shell_energy(sim, triangles):
     assignment = direct_assignment(
         sim, elastic_config, plastic_config,
         pf.ElementwiseParameterLayout, pf.ElementwiseParameterLayout, elastic, plastic)
-    return pf.DeformationEnergy(
+    operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=pf.KoiterShell(),
         options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
     )
+    return pf.DeformationPotentialEnergy(
+        operator, assignment.initial_material_state)
 
 
-def test_shell_elastic_thickness_mass_field_reads_live_values():
+def test_shell_elastic_thickness_mass_field_uses_explicit_state():
     _surface, _vertices, triangles, sim = _shell_grid()
     energy = _shell_energy(sim, triangles)
     field = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0,
-        parameter=energy.optimizable_parameters.elastic_field.parameter("thickness"),
+        parameter=energy.material_state.elastic_field.parameter("thickness"),
     )
     g = np.array([0.0, 0.0, -9.81])
     ks = pf.KoiterShell()
 
     f0 = ks.body_force(
-        sim, g, field, optimizable_parameters=energy.optimizable_parameters
+        sim, g, field, material_state=energy.material_state
     )
-    values = energy.optimizable_parameters.elastic_values.copy()
+    values = energy.material_state.elastic_values.copy()
     values[:, 4] *= 2.0  # double the thickness
-    energy.optimizable_parameters.set_elastic_values(values)
+    changed_state = energy.material_state.with_elastic_values(values)
     f1 = ks.body_force(
-        sim, g, field, optimizable_parameters=energy.optimizable_parameters
+        sim, g, field, material_state=changed_state
     )
     np.testing.assert_allclose(f1, 2.0 * f0, rtol=1e-12)
 
@@ -250,36 +252,35 @@ def test_shell_body_force_parameter_jacobian_matches_differences():
     energy = _shell_energy(sim, triangles)
     field = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0,
-        parameter=energy.optimizable_parameters.elastic_field.parameter("thickness"),
+        parameter=energy.material_state.elastic_field.parameter("thickness"),
     )
     g = np.array([0.0, 0.0, -9.81])
     ks = pf.KoiterShell()
 
-    b0 = energy.optimizable_parameters.elastic_values.copy()
+    b0 = energy.material_state.elastic_values.copy()
     f0 = ks.body_force(
-        sim, g, field, optimizable_parameters=energy.optimizable_parameters
+        sim, g, field, material_state=energy.material_state
     )
     J = ks.body_force_parameter_jacobian(
-        sim, g, field, optimizable_parameters=energy.optimizable_parameters
+        sim, g, field, material_state=energy.material_state
     ).to_dense()
     assert J.shape == (sim.num_vertices * 3, b0.size)
 
     rng = np.random.default_rng(0)
     db = np.zeros_like(b0)
     db[:, 4] = rng.uniform(-0.5, 0.5, size=b0.shape[0]) * b0[:, 4]
-    energy.optimizable_parameters.set_elastic_values(b0 + db)
+    changed_state = energy.material_state.with_elastic_values(b0 + db)
     f1 = ks.body_force(
-        sim, g, field, optimizable_parameters=energy.optimizable_parameters
+        sim, g, field, material_state=changed_state
     )
     # f_g is linear in h, so the Jacobian is exact even for finite steps.
     np.testing.assert_allclose(f1 - f0, J @ db.ravel(), rtol=1e-10, atol=1e-14)
-    energy.optimizable_parameters.set_elastic_values(b0)
 
 
 def test_material_parameter_ref_keeps_its_space_alive():
     _surface, _vertices, triangles, sim = _shell_grid()
     energy = _shell_energy(sim, triangles)
-    parameter = energy.optimizable_parameters.elastic_field.parameter("thickness")
+    parameter = energy.material_state.elastic_field.parameter("thickness")
 
     del energy
     gc.collect()
@@ -298,7 +299,7 @@ def test_parameter_dependent_mass_rejects_parameters_from_another_space():
     other = _shell_energy(sim, triangles)
     field = pf.ShellArealDensity.from_elastic_parameter(
         scale=1000.0,
-        parameter=owner.optimizable_parameters.elastic_field.parameter("thickness"),
+        parameter=owner.material_state.elastic_field.parameter("thickness"),
     )
 
     with pytest.raises(ValueError):
@@ -306,7 +307,7 @@ def test_parameter_dependent_mass_rejects_parameters_from_another_space():
             sim,
             [0.0, 0.0, -9.81],
             field,
-            optimizable_parameters=other.optimizable_parameters,
+            material_state=other.material_state,
         )
 
 
@@ -317,7 +318,7 @@ def test_body_force_parameter_jacobian_rejects_fixed_mass_fields():
             sim,
             [0.0, 0.0, -9.81],
             pf.ShellArealDensity(1.0),
-            optimizable_parameters=None,
+            material_state=None,
         )
 
 

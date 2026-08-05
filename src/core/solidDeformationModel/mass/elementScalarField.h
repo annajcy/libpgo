@@ -20,15 +20,15 @@ public:
   virtual double value(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state) const = 0;
+    const MaterialStateView &state) const = 0;
 
   // Batch callers can provide reusable storage. The default implementation
   // preserves the behavior of custom sources that do not need it.
   virtual double valueWithScratch(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
-    OptimizableParameterEvaluationScratch &scratch) const;
+    const MaterialStateView &state,
+    MaterialStateEvaluationScratch &scratch) const;
 
   // At most one parameter field is supported by this refactor. A null pointer
   // denotes a source independent of material parameters. The returned pointer
@@ -42,14 +42,14 @@ public:
   virtual void localParameterDerivative(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
+    const MaterialStateView &state,
     EigenSupport::RefVecXd output) const = 0;
 
   virtual void localParameterDerivativeWithScratch(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
-    OptimizableParameterEvaluationScratch &scratch,
+    const MaterialStateView &state,
+    MaterialStateEvaluationScratch &scratch,
     EigenSupport::RefVecXd output) const;
 };
 
@@ -62,12 +62,12 @@ public:
   double value(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state) const override;
+    const MaterialStateView &state) const override;
   const OptimizableParameterRef *parameterDependency() const override;
   void localParameterDerivative(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
+    const MaterialStateView &state,
     EigenSupport::RefVecXd output) const override;
 
 private:
@@ -83,12 +83,12 @@ public:
   double value(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state) const override;
+    const MaterialStateView &state) const override;
   const OptimizableParameterRef *parameterDependency() const override;
   void localParameterDerivative(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
+    const MaterialStateView &state,
     EigenSupport::RefVecXd output) const override;
 
 private:
@@ -106,23 +106,23 @@ public:
   double value(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state) const override;
+    const MaterialStateView &state) const override;
   double valueWithScratch(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
-    OptimizableParameterEvaluationScratch &scratch) const override;
+    const MaterialStateView &state,
+    MaterialStateEvaluationScratch &scratch) const override;
   const OptimizableParameterRef *parameterDependency() const override;
   void localParameterDerivative(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
+    const MaterialStateView &state,
     EigenSupport::RefVecXd output) const override;
   void localParameterDerivativeWithScratch(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
-    OptimizableParameterEvaluationScratch &scratch,
+    const MaterialStateView &state,
+    MaterialStateEvaluationScratch &scratch,
     EigenSupport::RefVecXd output) const override;
 
 private:

@@ -51,7 +51,8 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   deformation/deformationModelAssemblerElementWorkspace.h
   deformation/hessianMatrixHandle.h
 
-  energy/deformationModelEnergy.h
+  energy/deformationEnergyOperator.h
+  energy/deformationPotentialEnergy.h
 
   simulation/simulationMesh.h
   simulation/simulationMeshBase.h
@@ -112,7 +113,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   material/model/plasticModelDefinition.h
   material/parameterization/materialChannelMapping.h
   material/parameterization/materialParameterField.h
-  material/runtime/optimizableParameters.h
+  material/runtime/materialState.h
   material/runtime/optimizableParameterRef.h
   material/runtime/materialAssignment.h
   material/frame/materialFrameField.h
@@ -201,7 +202,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   material/parameterization/materialChannelMapping.cpp
   material/parameterization/materialParameterField.cpp
   material/parameterization/materialParameterization.cpp
-  material/runtime/optimizableParameters.cpp
+  material/runtime/materialState.cpp
   material/runtime/optimizableParameterRef.cpp
   material/frame/materialFrameField.cpp
   material/projection/materialInputProjection.cpp
@@ -217,7 +218,8 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/deformationModelAssembler.cpp
   deformation/deformationModelAssemblerElementWorkspace.cpp
 
-  energy/deformationModelEnergy.cpp
+  energy/deformationEnergyOperator.cpp
+  energy/deformationPotentialEnergy.cpp
 
   material/plastic/plasticModel2DFundamentalForms.cpp
 

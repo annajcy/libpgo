@@ -74,10 +74,12 @@ def main() -> None:
         parameterization=parameterization,
         parameter_data=parameter_data,
         material_frames=pf.GlobalAxesMaterialFrameField(mesh.num_elements))
-    deformation = pf.DeformationEnergy(
+    deformation_operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=formulation,
     )
+    deformation = pf.DeformationPotentialEnergy(
+        deformation_operator, assignment.initial_material_state)
     areal_density = pf.ShellArealDensity.from_density_thickness(
         density=1000.0, thickness=1.0e-3
     )

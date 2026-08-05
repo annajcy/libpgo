@@ -4,15 +4,14 @@
 #include "EigenSupport.h"
 
 #include <memory>
-#include <mutex>
 #include <span>
 #include <vector>
 
 namespace pgo::SolidDeformationModel
 {
 
-/// Reusable storage for sampling one optimizable parameter field.
-struct OptimizableParameterEvaluationScratch
+/// Reusable storage for sampling one material parameter field.
+struct MaterialStateEvaluationScratch
 {
   std::vector<double> local;
   std::vector<double> material;
@@ -23,14 +22,18 @@ struct OptimizableParameterEvaluationScratch
     int numMaterialLocations = 1);
 };
 
-class OptimizableParameterEvaluationView;
+class MaterialStateView;
 
-/// Immutable committed value snapshot. Field handles are retained privately
-/// to preserve field identity during evaluation.
-class OptimizableParameterSnapshot
+/// Immutable material values associated with one pair of parameter fields.
+class MaterialState
 {
 public:
-  OptimizableParameterSnapshot() = default;
+  MaterialState() = default;
+  MaterialState(
+    std::shared_ptr<const OptimizableParameterField> elasticField,
+    std::shared_ptr<const OptimizableParameterField> plasticField,
+    EigenSupport::VXd elasticValues,
+    EigenSupport::VXd plasticValues);
 
   bool empty() const { return !elasticField_ || !plasticField_; }
   const OptimizableParameterField &elasticField() const
@@ -41,22 +44,29 @@ public:
   {
     return *plasticField_;
   }
+  const std::shared_ptr<const OptimizableParameterField> &elasticFieldHandle() const
+  {
+    return elasticField_;
+  }
+  const std::shared_ptr<const OptimizableParameterField> &plasticFieldHandle() const
+  {
+    return plasticField_;
+  }
   const EigenSupport::VXd &elasticValues() const { return *elasticValues_; }
   const EigenSupport::VXd &plasticValues() const { return *plasticValues_; }
 
-  OptimizableParameterEvaluationView view() const;
-  OptimizableParameterEvaluationView withElasticValues(
+  MaterialStateView view() const;
+  operator MaterialStateView() const;
+  MaterialState withElasticValues(
     std::span<const double> elasticValues) const;
-  OptimizableParameterEvaluationView withPlasticValues(
+  MaterialState withPlasticValues(
     std::span<const double> plasticValues) const;
-  OptimizableParameterEvaluationView withValues(
+  MaterialState withValues(
     std::span<const double> elasticValues,
     std::span<const double> plasticValues) const;
 
 private:
-  friend class OptimizableParameters;
-
-  OptimizableParameterSnapshot(
+  MaterialState(
     std::shared_ptr<const OptimizableParameterField> elasticField,
     std::shared_ptr<const OptimizableParameterField> plasticField,
     std::shared_ptr<const EigenSupport::VXd> elasticValues,
@@ -68,12 +78,11 @@ private:
   std::shared_ptr<const EigenSupport::VXd> plasticValues_;
 };
 
-/// Non-owning trial value view. Committed owners are retained when needed;
-/// caller-provided trial spans are borrowed for one evaluation only.
-class OptimizableParameterEvaluationView
+/// Non-owning view used during one material evaluation.
+class MaterialStateView
 {
 public:
-  OptimizableParameterEvaluationView() = default;
+  MaterialStateView() = default;
 
   bool empty() const { return !elasticField_ || !plasticField_; }
   const OptimizableParameterField &elasticField() const;
@@ -94,12 +103,12 @@ public:
     const OptimizableParameterField &field,
     int element,
     int numMaterialLocations,
-    OptimizableParameterEvaluationScratch &scratch) const;
+    MaterialStateEvaluationScratch &scratch) const;
 
 private:
-  friend class OptimizableParameterSnapshot;
+  friend class MaterialState;
 
-  OptimizableParameterEvaluationView(
+  MaterialStateView(
     std::shared_ptr<const OptimizableParameterField> elasticField,
     std::shared_ptr<const OptimizableParameterField> plasticField,
     std::span<const double> elasticValues,
@@ -121,58 +130,6 @@ private:
   std::span<const double> plasticValues_;
   std::shared_ptr<const EigenSupport::VXd> elasticOwner_;
   std::shared_ptr<const EigenSupport::VXd> plasticOwner_;
-};
-
-/// Thread-safe handle to the currently committed optimizable values.
-class OptimizableParameters final
-{
-public:
-  OptimizableParameters(
-    std::shared_ptr<const OptimizableParameterField> elasticField,
-    std::shared_ptr<const OptimizableParameterField> plasticField,
-    EigenSupport::VXd elasticValues,
-    EigenSupport::VXd plasticValues);
-
-  const OptimizableParameterField &elasticField() const
-  {
-    return *elasticField_;
-  }
-  const OptimizableParameterField &plasticField() const
-  {
-    return *plasticField_;
-  }
-  const std::shared_ptr<const OptimizableParameterField> &
-  elasticFieldHandle() const
-  {
-    return elasticField_;
-  }
-  const std::shared_ptr<const OptimizableParameterField> &
-  plasticFieldHandle() const
-  {
-    return plasticField_;
-  }
-
-  OptimizableParameterSnapshot snapshot() const;
-  EigenSupport::VXd elasticSnapshot() const;
-  EigenSupport::VXd plasticSnapshot() const;
-
-  void setElasticValues(EigenSupport::ConstRefVecXd values);
-  void setPlasticValues(EigenSupport::ConstRefVecXd values);
-  void setValues(
-    EigenSupport::ConstRefVecXd elasticValues,
-    EigenSupport::ConstRefVecXd plasticValues);
-
-private:
-  struct CommittedValues
-  {
-    std::shared_ptr<const EigenSupport::VXd> elastic;
-    std::shared_ptr<const EigenSupport::VXd> plastic;
-  };
-
-  std::shared_ptr<const OptimizableParameterField> elasticField_;
-  std::shared_ptr<const OptimizableParameterField> plasticField_;
-  mutable std::mutex mutex_;
-  std::shared_ptr<const CommittedValues> committed_;
 };
 
 }  // namespace pgo::SolidDeformationModel

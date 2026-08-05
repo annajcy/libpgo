@@ -86,20 +86,20 @@ PySparseMatrix compute_shell_formulation_mass_matrix(
   const PySimulationMesh &mesh,
   const PyShellFormulation &formulation,
   const PyShellArealDensity &arealDensity,
-  std::shared_ptr<PyOptimizableParameters> optimizableParameters);
+  std::shared_ptr<PyMaterialState> materialState);
 
 std::vector<double> compute_shell_formulation_body_force(
   const PySimulationMesh &mesh,
   const PyShellFormulation &formulation,
   const std::vector<double> &acceleration,
   const PyShellArealDensity &arealDensity,
-  std::shared_ptr<PyOptimizableParameters> optimizableParameters);
+  std::shared_ptr<PyMaterialState> materialState);
 
 PySparseMatrix compute_shell_formulation_body_force_parameter_jacobian(
   const PySimulationMesh &mesh,
   const PyShellFormulation &formulation,
   const std::vector<double> &acceleration,
   const PyShellArealDensity &arealDensity,
-  std::shared_ptr<PyOptimizableParameters> optimizableParameters);
+  std::shared_ptr<PyMaterialState> materialState);
 
 }  // namespace pgo

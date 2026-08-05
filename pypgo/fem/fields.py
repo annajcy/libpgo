@@ -1,4 +1,4 @@
-"""Fixed and optimizable material fields, schemas, and committed state."""
+"""Fixed and optimizable material fields, schemas, and immutable state."""
 
 from __future__ import annotations
 
@@ -261,20 +261,38 @@ def _coerce_global_values(name: str, values, field: OptimizableParameterField) -
     return np.ascontiguousarray(arr.reshape(-1), dtype=np.float64)
 
 
-class OptimizableParameters:
-    """Committed optimizable parameter values exposed by a runtime assignment."""
+class MaterialState:
+    """Immutable elastic and plastic values for one material assignment."""
 
-    def __init__(self, *, _handle=None) -> None:
-        if isinstance(_handle, _core.PyOptimizableParameters):
+    def __init__(self, assignment=None, *, elastic_values=None,
+                 plastic_values=None, _handle=None) -> None:
+        if isinstance(_handle, _core.PyMaterialState):
             self._handle = _handle
+            self._assignment = assignment
             self._elastic_field_wrapper = None
             self._plastic_field_wrapper = None
             return
-        raise TypeError("OptimizableParameters can only be created by a runtime assignment")
+        if not isinstance(assignment, MaterialAssignment):
+            raise TypeError("assignment must be a MaterialAssignment")
+        initial = assignment.initial_material_state
+        if elastic_values is None:
+            elastic_values = initial.elastic_values
+        if plastic_values is None:
+            plastic_values = initial.plastic_values
+        self._handle = _core._create_material_state(
+            assignment._handle,
+            _coerce_global_values(
+                "elastic_values", elastic_values, initial.elastic_field),
+            _coerce_global_values(
+                "plastic_values", plastic_values, initial.plastic_field),
+        )
+        self._assignment = assignment
+        self._elastic_field_wrapper = None
+        self._plastic_field_wrapper = None
 
     @classmethod
-    def _from_handle(cls, handle):
-        return cls(_handle=handle)
+    def _from_handle(cls, handle, assignment):
+        return cls(assignment, _handle=handle)
 
     @property
     def elastic_field(self) -> OptimizableParameterField:
@@ -298,31 +316,20 @@ class OptimizableParameters:
     def plastic_values(self) -> np.ndarray:
         return np.asarray(self._handle.plastic_values, dtype=np.float64).copy()
 
-    def set_elastic_values(self, values) -> None:
-        self._set_values("elastic", values)
+    def with_elastic_values(self, values) -> "MaterialState":
+        return MaterialState(
+            self._assignment, elastic_values=values,
+            plastic_values=self.plastic_values)
 
-    def set_plastic_values(self, values) -> None:
-        self._set_values("plastic", values)
+    def with_plastic_values(self, values) -> "MaterialState":
+        return MaterialState(
+            self._assignment, elastic_values=self.elastic_values,
+            plastic_values=values)
 
-    def set_values(self, elastic_values, plastic_values) -> None:
-        self._handle.set_values(
-            _coerce_global_values(
-                "elastic_values", elastic_values, self.elastic_field),
-            _coerce_global_values(
-                "plastic_values", plastic_values, self.plastic_field))
-
-    def _uses_same_parameter_fields_as(self, other: "OptimizableParameters") -> bool:
-        if not isinstance(other, OptimizableParameters):
+    def _uses_same_parameter_fields_as(self, other: "MaterialState") -> bool:
+        if not isinstance(other, MaterialState):
             return False
         return bool(self._handle._same_parameter_fields(other._handle))
-
-    def _set_values(self, kind: str, values) -> None:
-        field = getattr(self, f"{kind}_field")
-        flat = _coerce_global_values(f"{kind}_values", values, field)
-        if kind == "elastic":
-            self._handle.set_elastic_values(flat)
-        else:
-            self._handle.set_plastic_values(flat)
 
 
 class FixedParameterField:
@@ -746,8 +753,8 @@ class MaterialAssignment:
         self.parameterization = parameterization
         self.parameter_data = parameter_data
         self.material_frames = material_frames
-        self.optimizable_parameters = OptimizableParameters._from_handle(
-            self._handle.optimizable_parameters)
+        self.initial_material_state = MaterialState._from_handle(
+            self._handle.initial_material_state, self)
 
 
 __all__ = [
@@ -764,7 +771,7 @@ __all__ = [
     "OptimizableParameterRef",
     "OptimizableMaterialChannelRef",
     "OptimizableParameterField",
-    "OptimizableParameters",
+    "MaterialState",
     "MaterialParameterization",
     "MaterialParameterDataBlock",
     "MaterialParameterData",

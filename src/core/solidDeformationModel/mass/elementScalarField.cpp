@@ -11,8 +11,8 @@ namespace pgo::SolidDeformationModel
 double ElementScalarFieldSource::valueWithScratch(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
-  OptimizableParameterEvaluationScratch &) const
+  const MaterialStateView &state,
+  MaterialStateEvaluationScratch &) const
 {
   return value(element, quadrature, state);
 }
@@ -20,8 +20,8 @@ double ElementScalarFieldSource::valueWithScratch(
 void ElementScalarFieldSource::localParameterDerivativeWithScratch(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
-  OptimizableParameterEvaluationScratch &,
+  const MaterialStateView &state,
+  MaterialStateEvaluationScratch &,
   EigenSupport::RefVecXd output) const
 {
   localParameterDerivative(element, quadrature, state, output);
@@ -39,7 +39,7 @@ void ConstantScalarFieldSource::validate(int) const
 }
 
 double ConstantScalarFieldSource::value(
-  int, int, const OptimizableParameterEvaluationView &) const
+  int, int, const MaterialStateView &) const
 {
   return value_;
 }
@@ -50,7 +50,7 @@ const OptimizableParameterRef *ConstantScalarFieldSource::parameterDependency() 
 }
 
 void ConstantScalarFieldSource::localParameterDerivative(
-  int, int, const OptimizableParameterEvaluationView &, EigenSupport::RefVecXd output) const
+  int, int, const MaterialStateView &, EigenSupport::RefVecXd output) const
 {
   output.setZero();
 }
@@ -71,7 +71,7 @@ void ElementwiseScalarFieldSource::validate(int numElements) const
 }
 
 double ElementwiseScalarFieldSource::value(
-  int element, int, const OptimizableParameterEvaluationView &) const
+  int element, int, const MaterialStateView &) const
 {
   assert(element >= 0 && element < values_.size());
   return values_[element];
@@ -83,7 +83,7 @@ const OptimizableParameterRef *ElementwiseScalarFieldSource::parameterDependency
 }
 
 void ElementwiseScalarFieldSource::localParameterDerivative(
-  int, int, const OptimizableParameterEvaluationView &, EigenSupport::RefVecXd output) const
+  int, int, const MaterialStateView &, EigenSupport::RefVecXd output) const
 {
   output.setZero();
 }
@@ -108,7 +108,7 @@ void ScaledElasticParameterFieldSource::validate(int numElements) const
 double ScaledElasticParameterFieldSource::value(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state) const
+  const MaterialStateView &state) const
 {
   return scale_ * parameter_.value(element, quadrature, state);
 }
@@ -116,8 +116,8 @@ double ScaledElasticParameterFieldSource::value(
 double ScaledElasticParameterFieldSource::valueWithScratch(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
-  OptimizableParameterEvaluationScratch &scratch) const
+  const MaterialStateView &state,
+  MaterialStateEvaluationScratch &scratch) const
 {
   return scale_ * parameter_.value(element, quadrature, state, scratch);
 }
@@ -131,7 +131,7 @@ ScaledElasticParameterFieldSource::parameterDependency() const
 void ScaledElasticParameterFieldSource::localParameterDerivative(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
+  const MaterialStateView &state,
   EigenSupport::RefVecXd output) const
 {
   const auto expected = parameter_.field().layout().numLocalParameters();
@@ -147,8 +147,8 @@ void ScaledElasticParameterFieldSource::localParameterDerivative(
 void ScaledElasticParameterFieldSource::localParameterDerivativeWithScratch(
   int element,
   int quadrature,
-  const OptimizableParameterEvaluationView &state,
-  OptimizableParameterEvaluationScratch &scratch,
+  const MaterialStateView &state,
+  MaterialStateEvaluationScratch &scratch,
   EigenSupport::RefVecXd output) const
 {
   const auto expected = parameter_.field().layout().numLocalParameters();

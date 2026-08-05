@@ -1,7 +1,7 @@
 #pragma once
 
 #include "material/parameterization/materialParameterization.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 
 #include <memory>
 #include <string>
@@ -33,23 +33,23 @@ public:
   double value(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state) const;
+    const MaterialStateView &state) const;
   double value(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
-    OptimizableParameterEvaluationScratch &scratch) const;
+    const MaterialStateView &state,
+    MaterialStateEvaluationScratch &scratch) const;
 
   void localDerivative(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
+    const MaterialStateView &state,
     EigenSupport::RefVecXd output) const;
   void localDerivative(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
-    OptimizableParameterEvaluationScratch &scratch,
+    const MaterialStateView &state,
+    MaterialStateEvaluationScratch &scratch,
     EigenSupport::RefVecXd output) const;
 
 private:
@@ -85,23 +85,23 @@ public:
   double value(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state) const;
+    const MaterialStateView &state) const;
   double value(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
-    OptimizableParameterEvaluationScratch &scratch) const;
+    const MaterialStateView &state,
+    MaterialStateEvaluationScratch &scratch) const;
 
   void localDerivative(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
-    OptimizableParameterEvaluationScratch &scratch,
+    const MaterialStateView &state,
+    MaterialStateEvaluationScratch &scratch,
     EigenSupport::RefVecXd output) const;
   void localHessian(
     int element,
     int quadrature,
-    const OptimizableParameterEvaluationView &state,
+    const MaterialStateView &state,
     EigenSupport::RefMatXd output) const;
 
 private:

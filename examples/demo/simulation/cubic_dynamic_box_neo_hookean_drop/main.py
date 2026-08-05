@@ -118,10 +118,12 @@ def main(argv=None) -> int:
         material_frames=pf.GlobalAxesMaterialFrameField(
             asset.num_elements),
     )
-    deformation = pf.DeformationEnergy(
+    deformation_operator = pf.DeformationEnergyOperator(
         assignment,
         formulation=formulation,
     )
+    deformation = pf.DeformationPotentialEnergy(
+        deformation_operator, assignment.initial_material_state)
 
     density = pf.VolumeDensity(1000.0)
     mass = formulation.mass_matrix(asset.mesh, density)

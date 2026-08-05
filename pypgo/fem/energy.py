@@ -9,19 +9,25 @@ import numpy as np
 import pypgo._core as _core
 from pypgo._utils import float_vector
 from pypgo.energy import PotentialEnergy
-from pypgo.fem.fields import MaterialAssignment, OptimizableParameters
+from pypgo.fem.fields import MaterialAssignment, MaterialState
 from pypgo.sparse import SparseMatrix
 
 
+@dataclass(frozen=True)
+class MaterialVJP:
+    """Result of ``(d²E / du dm).T @ adjoint`` for both material domains."""
+
+    elastic: np.ndarray
+    plastic: np.ndarray
+
+
 # ---------------------------------------------------------------------------
-# DeformationEnergy — FEM deformation energy
+# DeformationEnergyOperator — FEM deformation energy
 # ---------------------------------------------------------------------------
 
 
-class DeformationEnergy(PotentialEnergy):
-    """Deformation energy for FEM simulations (tet, cubic, shell).
-
-    This is a **displacement**-kind energy: ``state_kind == "displacement"``.
+class DeformationEnergyOperator:
+    """Explicit differentiable operator ``(u, material_state) -> E``.
 
     Parameters
     ----------
@@ -78,7 +84,7 @@ class DeformationEnergy(PotentialEnergy):
                 element_weights, dtype=np.float64
             )
 
-        core = _core._create_deformation_energy(
+        core = _core._create_deformation_energy_operator(
             assignment._handle,
             formulation._handle,
             element_weights,
@@ -90,11 +96,7 @@ class DeformationEnergy(PotentialEnergy):
             self, "_elastic_definition", assignment.parameterization.elastic.definition)
         object.__setattr__(
             self, "_plastic_definition", assignment.parameterization.plastic.definition)
-        object.__setattr__(
-            self, "_optimizable_parameters", assignment.optimizable_parameters
-        )
         object.__setattr__(self, "_assignment", assignment)
-        super().__init__(core)
 
     @property
     def rest_state(self) -> np.ndarray:
@@ -139,20 +141,35 @@ class DeformationEnergy(PotentialEnergy):
         return self._plastic_definition
 
     @property
-    def optimizable_parameters(self) -> OptimizableParameters:
-        return self._optimizable_parameters
+    def num_dofs(self) -> int:
+        return self._handle.num_dofs
 
     @property
     def assignment(self) -> MaterialAssignment:
         """Complete mesh-bound material assignment used to build this energy."""
         return self._assignment
 
-    def dE_de(self, displacement: np.ndarray) -> np.ndarray:
-        """Return ``∂E/∂e`` with shape ``(num_elastic_dofs,)``."""
-        u = float_vector("displacement", displacement)
-        return np.asarray(self._handle.dE_de(u), dtype=np.float64)
+    def value(self, displacement: np.ndarray, material_state: MaterialState) -> float:
+        u, state = self._inputs(displacement, material_state)
+        return float(self._handle.value(u, state._handle))
 
-    def element_von_mises(self, displacement: np.ndarray) -> np.ndarray:
+    def gradient(self, displacement: np.ndarray, material_state: MaterialState) -> np.ndarray:
+        u, state = self._inputs(displacement, material_state)
+        return np.asarray(self._handle.gradient(u, state._handle), dtype=np.float64)
+
+    def hessian(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
+        u, state = self._inputs(displacement, material_state)
+        return SparseMatrix(self._handle.hessian(u, state._handle))
+
+    def zero_state(self) -> np.ndarray:
+        return np.asarray(self._handle.zero_state(), dtype=np.float64)
+
+    def dE_de(self, displacement: np.ndarray, material_state: MaterialState) -> np.ndarray:
+        """Return ``∂E/∂e`` with shape ``(num_elastic_dofs,)``."""
+        u, state = self._inputs(displacement, material_state)
+        return np.asarray(self._handle.dE_de(u, state._handle), dtype=np.float64)
+
+    def element_von_mises(self, displacement: np.ndarray, material_state: MaterialState) -> np.ndarray:
         """Compute per-element von Mises stress.
 
         Parameters
@@ -171,41 +188,189 @@ class DeformationEnergy(PotentialEnergy):
             If the selected deformation or elastic model does not implement
             von Mises stress recovery.
         """
-        u = float_vector("displacement", displacement)
-        return np.asarray(self._handle.element_von_mises_stresses(u), dtype=np.float64)
+        u, state = self._inputs(displacement, material_state)
+        return np.asarray(
+            self._handle.element_von_mises_stresses(u, state._handle),
+            dtype=np.float64)
 
-    def d2E_de2(self, displacement: np.ndarray) -> SparseMatrix:
+    def d2E_de2(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
         """Return ``∂²E/∂e²`` with shape ``(num_elastic_dofs, num_elastic_dofs)``."""
-        u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.d2E_de2(u))
+        u, state = self._inputs(displacement, material_state)
+        return SparseMatrix(self._handle.d2E_de2(u, state._handle))
 
-    def d2E_dpde(self, displacement: np.ndarray) -> SparseMatrix:
+    def d2E_dpde(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
         """Return ``∂²E/∂p∂e`` with shape ``(num_plastic_dofs, num_elastic_dofs)``."""
-        u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.d2E_dpde(u))
+        u, state = self._inputs(displacement, material_state)
+        return SparseMatrix(self._handle.d2E_dpde(u, state._handle))
 
-    def dE_dp(self, displacement: np.ndarray) -> np.ndarray:
+    def dE_dp(self, displacement: np.ndarray, material_state: MaterialState) -> np.ndarray:
         """Return ``∂E/∂p`` with shape ``(num_plastic_dofs,)``."""
-        u = float_vector("displacement", displacement)
-        return np.asarray(self._handle.dE_dp(u), dtype=np.float64)
+        u, state = self._inputs(displacement, material_state)
+        return np.asarray(self._handle.dE_dp(u, state._handle), dtype=np.float64)
 
-    def d2E_dp2(self, displacement: np.ndarray) -> SparseMatrix:
+    def d2E_dp2(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
         """Return ``∂²E/∂p²`` with shape ``(num_plastic_dofs, num_plastic_dofs)``."""
-        u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.d2E_dp2(u))
+        u, state = self._inputs(displacement, material_state)
+        return SparseMatrix(self._handle.d2E_dp2(u, state._handle))
 
-    def d2E_dude(self, displacement: np.ndarray) -> SparseMatrix:
+    def d2E_dude(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
         """Return ``∂²E/∂u∂e`` with shape ``(num_dofs, num_elastic_dofs)``."""
-        u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.d2E_dude(u))
+        u, state = self._inputs(displacement, material_state)
+        return SparseMatrix(self._handle.d2E_dude(u, state._handle))
 
-    def d2E_dudp(self, displacement: np.ndarray) -> SparseMatrix:
+    def d2E_dudp(self, displacement: np.ndarray, material_state: MaterialState) -> SparseMatrix:
         """Return ``∂²E/∂u∂p`` with shape ``(num_dofs, num_plastic_dofs)``."""
+        u, state = self._inputs(displacement, material_state)
+        return SparseMatrix(self._handle.d2E_dudp(u, state._handle))
+
+    def elastic_material_vjp(
+        self, displacement: np.ndarray, material_state: MaterialState,
+        adjoint: np.ndarray,
+    ) -> np.ndarray:
+        """Return ``(∂²E/∂u∂e)ᵀ adjoint`` without assembling the mixed Hessian."""
+        u, state = self._inputs(displacement, material_state)
+        adjoint = float_vector("adjoint", adjoint)
+        if adjoint.size != self.num_dofs:
+            raise ValueError("adjoint size must match operator.num_dofs")
+        return np.asarray(
+            self._handle.elastic_material_vjp(u, state._handle, adjoint),
+            dtype=np.float64,
+        )
+
+    def plastic_material_vjp(
+        self, displacement: np.ndarray, material_state: MaterialState,
+        adjoint: np.ndarray,
+    ) -> np.ndarray:
+        """Return ``(∂²E/∂u∂p)ᵀ adjoint`` without assembling the mixed Hessian."""
+        u, state = self._inputs(displacement, material_state)
+        adjoint = float_vector("adjoint", adjoint)
+        if adjoint.size != self.num_dofs:
+            raise ValueError("adjoint size must match operator.num_dofs")
+        return np.asarray(
+            self._handle.plastic_material_vjp(u, state._handle, adjoint),
+            dtype=np.float64,
+        )
+
+    def material_vjp(
+        self, displacement: np.ndarray, material_state: MaterialState,
+        adjoint: np.ndarray,
+    ) -> MaterialVJP:
+        """Direct material VJP; this is the recommended adjoint interface."""
+        return MaterialVJP(
+            elastic=self.elastic_material_vjp(
+                displacement, material_state, adjoint),
+            plastic=self.plastic_material_vjp(
+                displacement, material_state, adjoint),
+        )
+
+    def _inputs(self, displacement, material_state):
+        if not isinstance(material_state, MaterialState):
+            raise TypeError("material_state must be a MaterialState")
+        if not material_state._uses_same_parameter_fields_as(
+                self.assignment.initial_material_state):
+            raise ValueError("material_state belongs to a different material assignment")
         u = float_vector("displacement", displacement)
-        return SparseMatrix(self._handle.d2E_dudp(u))
+        if u.size != self.num_dofs:
+            raise ValueError("displacement size must match operator.num_dofs")
+        return u, material_state
 
     def __repr__(self) -> str:
-        return f"DeformationEnergy({self.num_dofs} DOFs, state_kind='{self.state_kind}')"
+        return f"DeformationEnergyOperator({self.num_dofs} DOFs)"
+
+
+class DeformationPotentialEnergy(PotentialEnergy):
+    """Displacement potential with one immutable material state fixed."""
+
+    def __init__(self, energy_operator, material_state):
+        if not isinstance(energy_operator, DeformationEnergyOperator):
+            raise TypeError("energy_operator must be a DeformationEnergyOperator")
+        if not isinstance(material_state, MaterialState):
+            raise TypeError("material_state must be a MaterialState")
+        handle = _core._create_deformation_potential_energy(
+            energy_operator._handle, material_state._handle)
+        object.__setattr__(self, "energy_operator", energy_operator)
+        object.__setattr__(self, "material_state", material_state)
+        super().__init__(handle)
+
+    @property
+    def rest_state(self):
+        return self.energy_operator.rest_state
+
+    @property
+    def vertex_rest_positions(self):
+        return self.energy_operator.vertex_rest_positions
+
+    @property
+    def num_vertices(self):
+        return self.energy_operator.num_vertices
+
+    @property
+    def assignment(self):
+        return self.energy_operator.assignment
+
+    @property
+    def elastic_definition(self):
+        return self.energy_operator.elastic_definition
+
+    @property
+    def plastic_definition(self):
+        return self.energy_operator.plastic_definition
+
+    @property
+    def num_elastic_params(self):
+        return self.energy_operator.num_elastic_params
+
+    @property
+    def num_plastic_params(self):
+        return self.energy_operator.num_plastic_params
+
+    @property
+    def num_elastic_dofs(self):
+        return self.energy_operator.num_elastic_dofs
+
+    @property
+    def num_plastic_dofs(self):
+        return self.energy_operator.num_plastic_dofs
+
+    def dE_de(self, displacement):
+        return self.energy_operator.dE_de(displacement, self.material_state)
+
+    def dE_dp(self, displacement):
+        return self.energy_operator.dE_dp(displacement, self.material_state)
+
+    def d2E_de2(self, displacement):
+        return self.energy_operator.d2E_de2(displacement, self.material_state)
+
+    def d2E_dp2(self, displacement):
+        return self.energy_operator.d2E_dp2(displacement, self.material_state)
+
+    def d2E_dpde(self, displacement):
+        return self.energy_operator.d2E_dpde(displacement, self.material_state)
+
+    def d2E_dude(self, displacement):
+        return self.energy_operator.d2E_dude(displacement, self.material_state)
+
+    def d2E_dudp(self, displacement):
+        return self.energy_operator.d2E_dudp(displacement, self.material_state)
+
+    def material_vjp(self, displacement, adjoint):
+        return self.energy_operator.material_vjp(
+            displacement, self.material_state, adjoint)
+
+    def elastic_material_vjp(self, displacement, adjoint):
+        return self.energy_operator.elastic_material_vjp(
+            displacement, self.material_state, adjoint)
+
+    def plastic_material_vjp(self, displacement, adjoint):
+        return self.energy_operator.plastic_material_vjp(
+            displacement, self.material_state, adjoint)
+
+    def element_von_mises(self, displacement):
+        return self.energy_operator.element_von_mises(
+            displacement, self.material_state)
+
+    def __repr__(self):
+        return f"DeformationPotentialEnergy({self.num_dofs} DOFs)"
 
 
 # ---------------------------------------------------------------------------

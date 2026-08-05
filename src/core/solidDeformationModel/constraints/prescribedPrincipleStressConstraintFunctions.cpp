@@ -5,7 +5,7 @@ copyright to USC,MIT,NUS
 
 #include "constraints/prescribedPrincipleStressConstraintFunctions.h"
 #include "deformation/deformationModelManager.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 #include "simulation/simulationMesh.h"
 
 #include "deformation/volume/volumetricDeformationModel.h"
@@ -28,17 +28,17 @@ PrescribedPrincipleStressConstraintFunctions::
   PrescribedPrincipleStressConstraintFunctions(
     int nAll, int doff, std::span<const int> elementIDs,
     const DeformationModelManager &tmdmm,
-    std::shared_ptr<const OptimizableParameters> optimizableParameters):
+    MaterialState materialState):
   ConstraintFunctions(nAll),
   dofStart(doff),
   tetMeshDMM(tmdmm),
-  optimizableParameters_(std::move(optimizableParameters))
+  materialState_(std::move(materialState))
 {
-  if (!optimizableParameters_)
+  if (materialState_.empty())
     throw std::invalid_argument(
-      "PrescribedPrincipleStressConstraintFunctions requires optimizable parameters.");
-  const auto &elasticField = optimizableParameters_->elasticField();
-  const auto &plasticField = optimizableParameters_->plasticField();
+      "PrescribedPrincipleStressConstraintFunctions requires material state.");
+  const auto &elasticField = materialState_.elasticField();
+  const auto &plasticField = materialState_.plasticField();
   const SimulationMesh &mesh = tetMeshDMM.getMesh();
   if (elasticField.mapping().numChannels() !=
     tetMeshDMM.getNumElasticParameters())
@@ -107,7 +107,7 @@ PrescribedPrincipleStressConstraintFunctions::
 
 VolumetricDeformationModelEvaluator &
 PrescribedPrincipleStressConstraintFunctions::prepareElement(
-  int elementID, OptimizableParameterEvaluationView state,
+  int elementID, MaterialStateView state,
   ElementData &data) const
 {
   const std::span<const double> elasticParameters =
@@ -140,8 +140,7 @@ void PrescribedPrincipleStressConstraintFunctions::setTargetPHat(
 // g = S(P) - Pbar
 void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES::RefVecXd g) const
 {
-  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
-  const OptimizableParameterEvaluationView state = snapshot.view();
+  const MaterialStateView state = materialState_.view();
   for (int i = 0; i < (int)elements.size(); i++) {
     auto &scratch = elementData_[i];
     ES::V18d &localp = scratch.localp;
@@ -169,8 +168,7 @@ void PrescribedPrincipleStressConstraintFunctions::func(ES::ConstRefVecXd x, ES:
 void PrescribedPrincipleStressConstraintFunctions::computeForceFromTargetPHat(ES::ConstRefVecXd x, ES::RefVecXd fext) const
 {
   fext.setZero();
-  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
-  const OptimizableParameterEvaluationView state = snapshot.view();
+  const MaterialStateView state = materialState_.view();
 
   for (int i = 0; i < (int)elements.size(); i++) {
     auto &scratch = elementData_[i];
@@ -221,9 +219,8 @@ double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractio
     xToPosFunc(x.segment<3>(dofStart + vid * 3), dofStart + vid * 3, vtxp);
     localp.segment<3>(j * 3) = vtxp;
   }
-  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
   VolumetricDeformationModelEvaluator &evaluator =
-    prepareElement(eleID, snapshot.view(), scratch);
+    prepareElement(eleID, materialState_.view(), scratch);
 
   ES::M3d P = evaluator.compute_P(0);
 
@@ -233,8 +230,7 @@ double PrescribedPrincipleStressConstraintFunctions::computeSurfaceNormalTractio
 // dg/dx = dS/dP dP/dF dF/dx
 void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x, ES::SpMatD &jac) const
 {
-  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
-  const OptimizableParameterEvaluationView state = snapshot.view();
+  const MaterialStateView state = materialState_.view();
   for (int i = 0; i < (int)elements.size(); i++) {
     auto &scratch = elementData_[i];
     ES::V18d &localp = scratch.localp;
@@ -299,8 +295,7 @@ void PrescribedPrincipleStressConstraintFunctions::jacobian(ES::ConstRefVecXd x,
 // d2g/dx2 = dPdx d2SdP2 dPdx + dSdP d2Pdx2
 void PrescribedPrincipleStressConstraintFunctions::hessianInPlace(ES::ConstRefVecXd x, ES::ConstRefVecXd lambda, ES::SpMatD &hess) const
 {
-  const OptimizableParameterSnapshot snapshot = optimizableParameters_->snapshot();
-  const OptimizableParameterEvaluationView state = snapshot.view();
+  const MaterialStateView state = materialState_.view();
   for (int ei = 0; ei < (int)elements.size(); ei++) {
     auto &scratch = elementData_[ei];
     ES::V18d &localp = scratch.localp;

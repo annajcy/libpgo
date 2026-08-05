@@ -3,7 +3,7 @@
 #include "formulations/formulation/formulation.h"
 
 #include "EigenDef.h"
-#include "material/runtime/optimizableParameters.h"
+#include "material/runtime/materialState.h"
 
 #include <array>
 
@@ -33,18 +33,18 @@ public:
   // affects bending energy; displacement DOFs are 3 per vertex.
   EigenSupport::SpMatD buildMassMatrix(
     const SimulationMesh &mesh, const ShellArealDensityField &arealDensity,
-    OptimizableParameterEvaluationView state = {}) const;
+    MaterialStateView state = {}) const;
   EigenSupport::VXd buildBodyForce(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
     const ShellArealDensityField &arealDensity,
-    OptimizableParameterEvaluationView state = {}) const;
+    MaterialStateView state = {}) const;
 
   // d f_g / d b for a parameter-dependent shell areal-density field. Shape:
   // (numVertices*3) x numParameterDofs.
   EigenSupport::SpMatD buildBodyForceParameterJacobian(
     const SimulationMesh &mesh, const EigenSupport::V3d &acceleration,
     const ShellArealDensityField &arealDensity,
-    OptimizableParameterEvaluationView state) const;
+    MaterialStateView state) const;
 };
 
 }  // namespace SolidDeformationModel
