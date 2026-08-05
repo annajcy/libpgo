@@ -6,6 +6,7 @@
 #include "generateMassMatrix.h"
 #include "mass/shellArealDensityField.h"
 #include "mass/volumeDensityField.h"
+#include "simulation/simulationMesh.h"
 
 #include <cmath>
 #include <limits>

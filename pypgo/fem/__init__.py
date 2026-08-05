@@ -68,11 +68,6 @@ from pypgo.fem.mesh import (
     SimulationMesh,
 )
 
-_TORCH_EXPORTS = {
-    "ElasticStaticEquilibriumLayer",
-    "PlasticStaticEquilibriumLayer",
-}
-
 __all__ = [
     # Formulations
     "Formulation",
@@ -138,17 +133,4 @@ __all__ = [
     "ImportedMaterialRecord",
     "ImportedElementSet",
     "ImportedMaterialRegion",
-    # Torch
-    "ElasticStaticEquilibriumLayer",
-    "PlasticStaticEquilibriumLayer",
 ]
-
-
-def __getattr__(name: str):
-    if name in _TORCH_EXPORTS:
-        from pypgo.fem import torch as _torch_module
-
-        value = getattr(_torch_module, name)
-        globals()[name] = value
-        return value
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

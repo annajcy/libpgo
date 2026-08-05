@@ -1,7 +1,6 @@
 -- Unreleased
-  - replace the legacy MassField hierarchy with VolumeDensity and ShellArealDensity; migrate ShellDensityThickness to ShellArealDensity.from_density_thickness and ShellDensityElasticThickness to ShellArealDensity.from_elastic_parameter
-  - replace Torch equilibrium layer objective_energy with additional_energy; the additional term must be independent of the optimized material field
-  - validate density derivative buffer spans against the referenced parameter layout; parameter-independent sources now require an empty span
+  - replace the legacy MassField hierarchy with explicit VolumeDensity and ShellArealDensity fields
+  - remove parameter-coupled shell density, dedicated body-force material derivatives, and the legacy PyTorch equilibrium layers
   - remove the obsolete Markdown/notebook example-test harness and notebook-only development dependency
   - remove the parameter-omitting DeformationModel::prepareData overload; parameterized models now reject missing elastic or plastic parameter buffers
   - replace the pgo scheduling facade with explicit GlobalTbbControl, ThreadingPolicy, and ArenaThreadingExecutor primitives
