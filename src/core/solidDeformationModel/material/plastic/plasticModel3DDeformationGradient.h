@@ -36,8 +36,6 @@ public:
   virtual void toParam(const EigenSupport::M3d &Fp, std::span<double> param) const;
 
   virtual EigenSupport::M3d computeR(std::span<const double> param) const;
-
-  void defaultParams(std::span<double> param) const override = 0;
 };
 
 inline EigenSupport::M3d PlasticModel3DDeformationGradient::computeA(std::span<const double>) const

@@ -589,13 +589,9 @@ void ElasticModel2DFundamentalFormsFabric::compute_d2psi_db_dparam(
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-int KoiterFabricDefinition::numOptimizableChannels() const
-{
-  return 12;
-}
 std::unique_ptr<ElasticModel> KoiterFabricDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
-  if (!values.empty()) throw std::invalid_argument("koiter_fabric has no fixed channels");
+  requireFixedChannels(values, 0, id());
   return std::make_unique<ElasticModel2DFundamentalFormsFabric>(EigenSupport::V2d(1, 0), EigenSupport::V2d(0, 1));
 }
 }  // namespace pgo::SolidDeformationModel

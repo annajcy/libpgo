@@ -50,8 +50,8 @@ public:
     return "neo_hookean";
   }
 
-  int numFixedChannels() const override;
-  int numOptimizableChannels() const override;
+  int numFixedChannels() const override { return 2; }
+  int numOptimizableChannels() const override { return 0; }
   std::unique_ptr<ElasticModel> createModel(
     std::span<const double> fixedChannels,
     const MaterialFrame &materialFrame) const override;

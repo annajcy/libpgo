@@ -405,11 +405,9 @@ ES::M9d ElasticModelInvariantBasedMaterial::compute_dPdF_psd(
 namespace pgo::SolidDeformationModel {
 namespace {
 }
-int InvariantStVKDefinition::numOptimizableChannels() const { return 0; }
-int InvariantStVKDefinition::numFixedChannels() const { return 3; }
 std::unique_ptr<ElasticModel> InvariantStVKDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
-  if (values.size() != 3) throw std::invalid_argument("inv_stvk requires fixed channels E, nu, J");
+  requireFixedChannels(values, 3, id(), "E, nu, J");
   return std::make_unique<ElasticModelInvariantBasedMaterial>(
     std::make_unique<InvariantBasedMaterialStVK>(values[0], values[1], values[2]));
 }

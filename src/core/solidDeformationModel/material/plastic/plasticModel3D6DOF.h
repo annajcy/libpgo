@@ -31,15 +31,6 @@ public:
   virtual EigenSupport::M3d compute_dAInv_da(std::span<const double> param, int pi) const override;
 
   virtual EigenSupport::M3d defaultFp() const override;
-  void defaultParams(std::span<double> param) const override
-  {
-    param[0] = 1.0;
-    param[1] = 0.0;
-    param[2] = 0.0;
-    param[3] = 1.0;
-    param[4] = 0.0;
-    param[5] = 1.0;
-  }
   virtual void projectParam(std::span<double> param, double zeroThreshold) const override;
   virtual void toParam(const EigenSupport::M3d &Fp, std::span<double> param) const override;
 
@@ -71,7 +62,7 @@ class VolumetricPlasticity6Definition final : public PlasticModelDefinition
 public:
   std::string_view id() const override { return "volumetric_dof6"; }
   int numFixedChannels() const override { return 0; }
-  int numOptimizableChannels() const override;
+  int numOptimizableChannels() const override { return 6; }
   std::unique_ptr<PlasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

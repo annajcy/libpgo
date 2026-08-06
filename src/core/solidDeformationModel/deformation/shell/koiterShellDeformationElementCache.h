@@ -10,7 +10,7 @@ namespace ES = pgo::EigenSupport;
 namespace SolidDeformationModel
 {
 
-struct ShellDeformationElementCache
+struct KoiterShellDeformationElementCache
 {
   int numPlasticParams = 0;
   int numElasticParams = 0;
@@ -32,8 +32,8 @@ struct ShellDeformationElementCache
   mutable ES::MXd elasticDpsiDbDparamScratch;
   mutable ES::MXd mixedDerivativeScratch;
 
-  ShellDeformationElementCache() = default;
-  ShellDeformationElementCache(int numPlasticParams, int numElasticParams);
+  KoiterShellDeformationElementCache() = default;
+  KoiterShellDeformationElementCache(int numPlasticParams, int numElasticParams);
 };
 
 }  // namespace SolidDeformationModel

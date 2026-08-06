@@ -39,7 +39,6 @@ public:
     (void)param;
   }
   EigenSupport::M3d computeR(std::span<const double> param) const override;
-  void defaultParams(std::span<double> param) const override { (void)param; }
 
 protected:
   EigenSupport::M3d Fp, FpInv;
@@ -51,7 +50,7 @@ class VolumetricPlasticity0Definition final : public PlasticModelDefinition
 public:
   std::string_view id() const override { return "volumetric_dof0"; }
   int numFixedChannels() const override { return 0; }
-  int numOptimizableChannels() const override;
+  int numOptimizableChannels() const override { return 0; }
   std::unique_ptr<PlasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

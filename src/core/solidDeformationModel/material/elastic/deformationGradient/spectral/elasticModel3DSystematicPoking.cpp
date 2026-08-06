@@ -134,11 +134,6 @@ SystematicPokingDefinition::SystematicPokingDefinition(
     volumeRestKnotIndex_);
 }
 
-int SystematicPokingDefinition::numFixedChannels() const
-{
-  return 0;
-}
-
 int SystematicPokingDefinition::numOptimizableChannels() const
 {
   return static_cast<int>(stretchKnots_.size()) + 1;
@@ -149,9 +144,7 @@ SystematicPokingDefinition::createModel(
   std::span<const double> fixedChannels,
   const MaterialFrame &) const
 {
-  if (!fixedChannels.empty())
-    throw std::invalid_argument(
-      "systematic_poking has no fixed material channels");
+  requireFixedChannels(fixedChannels, 0, id());
   return std::make_unique<ElasticModel3DSystematicPoking>(
     stretchKnots_,
     stretchRestKnotIndex_,

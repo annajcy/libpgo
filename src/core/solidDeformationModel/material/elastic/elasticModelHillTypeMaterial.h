@@ -71,8 +71,8 @@ class HillStableNeoDefinition final : public ElasticModelDefinition
 {
 public:
   std::string_view id() const override { return "hill_stable_neo"; }
-  int numOptimizableChannels() const override;
-  int numFixedChannels() const override;
+  int numOptimizableChannels() const override { return 1; }
+  int numFixedChannels() const override { return 5; }
   std::unique_ptr<ElasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };
@@ -80,8 +80,8 @@ class HillStVKDefinition final : public ElasticModelDefinition
 {
 public:
   std::string_view id() const override { return "hill_stvk"; }
-  int numOptimizableChannels() const override;
-  int numFixedChannels() const override;
+  int numOptimizableChannels() const override { return 1; }
+  int numFixedChannels() const override { return 6; }
   std::unique_ptr<ElasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };
@@ -89,8 +89,8 @@ class HillStVKVolumeDefinition final : public ElasticModelDefinition
 {
 public:
   std::string_view id() const override { return "hill_stvk_vol"; }
-  int numOptimizableChannels() const override;
-  int numFixedChannels() const override;
+  int numOptimizableChannels() const override { return 1; }
+  int numFixedChannels() const override { return 6; }
   std::unique_ptr<ElasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

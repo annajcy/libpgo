@@ -25,11 +25,6 @@ public:
 
   int getNumParameters() const override { return 0; }
 
-  // ShellPlasticity0 has no parameter coordinates, so its identity state is
-  // intentionally a no-op.  Keeping this override here makes the contract
-  // explicit while leaving PlasticModel's defaultParams pure virtual.
-  void defaultParams(std::span<double> param) const override { (void)param; }
-
   virtual EigenSupport::M2d compute_abar(std::span<const double> params) const { (void)params; return abar; }
   virtual EigenSupport::M2d compute_bbar(std::span<const double> params) const { (void)params; return bbar; }
 
@@ -94,7 +89,7 @@ class ShellPlasticity0Definition final : public PlasticModelDefinition
 public:
   std::string_view id() const override { return "shell_ff_dof0"; }
   int numFixedChannels() const override { return 0; }
-  int numOptimizableChannels() const override;
+  int numOptimizableChannels() const override { return 0; }
   std::unique_ptr<PlasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

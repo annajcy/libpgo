@@ -225,30 +225,24 @@ void ElasticModelHillTypeMaterial::compute_dP_dparams(
 namespace pgo::SolidDeformationModel {
 namespace {
 }
-int HillStableNeoDefinition::numOptimizableChannels() const { return 1; }
-int HillStableNeoDefinition::numFixedChannels() const { return 5; }
 std::unique_ptr<ElasticModel> HillStableNeoDefinition::createModel(std::span<const double> values, const MaterialFrame &frame) const
 {
-  if (values.size() != 5) throw std::invalid_argument("hill_stable_neo requires fixed channels E, nu, Eact, gamma, lo");
+  requireFixedChannels(values, 5, id(), "E, nu, Eact, gamma, lo");
   const double E = values[0], nu = values[1];
   return std::make_unique<ElasticModelCombinedMaterial<2>>(
     std::make_unique<ElasticModelStableNeoHookeanMaterial>(E / (2 * (1 + nu)), (nu * E) / ((1 + nu) * (1 - 2 * nu))),
     std::make_unique<ElasticModelHillTypeMaterial>(values[3], values[2], values[4], frame.col(0)));
 }
-int HillStVKDefinition::numOptimizableChannels() const { return 1; }
-int HillStVKDefinition::numFixedChannels() const { return 6; }
 std::unique_ptr<ElasticModel> HillStVKDefinition::createModel(std::span<const double> values, const MaterialFrame &frame) const
 {
-  if (values.size() != 6) throw std::invalid_argument("hill_stvk requires fixed channels E, nu, J, Eact, gamma, lo");
+  requireFixedChannels(values, 6, id(), "E, nu, J, Eact, gamma, lo");
   return std::make_unique<ElasticModelCombinedMaterial<2>>(
     std::make_unique<ElasticModelInvariantBasedMaterial>(std::make_unique<InvariantBasedMaterialStVK>(values[0], values[1], values[2])),
     std::make_unique<ElasticModelHillTypeMaterial>(values[4], values[3], values[5], frame.col(0)));
 }
-int HillStVKVolumeDefinition::numOptimizableChannels() const { return 1; }
-int HillStVKVolumeDefinition::numFixedChannels() const { return 6; }
 std::unique_ptr<ElasticModel> HillStVKVolumeDefinition::createModel(std::span<const double> values, const MaterialFrame &frame) const
 {
-  if (values.size() != 6) throw std::invalid_argument("hill_stvk_vol requires fixed channels E, nu, J, Eact, gamma, lo");
+  requireFixedChannels(values, 6, id(), "E, nu, J, Eact, gamma, lo");
   return std::make_unique<ElasticModelCombinedMaterial<3>>(
     std::make_unique<ElasticModelInvariantBasedMaterial>(std::make_unique<InvariantBasedMaterialStVK>(values[0], values[1], values[2])),
     std::make_unique<ElasticModelHillTypeMaterial>(values[4], values[3], values[5], frame.col(0)),

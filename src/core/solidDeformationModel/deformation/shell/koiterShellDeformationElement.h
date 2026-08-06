@@ -3,7 +3,7 @@
 #include "deformation/deformationElement.h"
 #include "material/elastic/elasticModel2DFundamentalForms.h"
 #include "material/plastic/plasticModel2DFundamentalForms.h"
-#include "shellDeformationElementCache.h"
+#include "koiterShellDeformationElementCache.h"
 #include "EigenSupport.h"
 
 #include <memory>
@@ -89,30 +89,30 @@ public:
 private:
   void prepareData(std::span<const double> x, std::span<const double> elasticParams,
     std::span<const double> plasticParams,
-    ShellDeformationElementCache &cacheDataBase) const;
+    KoiterShellDeformationElementCache &cacheDataBase) const;
 
-  double computeEnergy(const ShellDeformationElementCache &cacheDataBase) const;
+  double computeEnergy(const KoiterShellDeformationElementCache &cacheDataBase) const;
 
-  void computeDisplacementGradient(const ShellDeformationElementCache &cacheDataBase,
+  void computeDisplacementGradient(const KoiterShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefVecXd grad) const;
 
-  void computeDisplacementHessian(const ShellDeformationElementCache &cacheDataBase,
+  void computeDisplacementHessian(const KoiterShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefMatXd hess) const;
 
-  void computeDisplacementPlasticHessian(const ShellDeformationElementCache &cacheDataBase,
+  void computeDisplacementPlasticHessian(const KoiterShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefMatXd hess, int materialLocation = -1) const;
 
-  void computeDisplacementElasticHessian(const ShellDeformationElementCache &cacheDataBase,
+  void computeDisplacementElasticHessian(const KoiterShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefMatXd hess, int materialLocation = -1) const;
 
-  void computePlasticGradient(const ShellDeformationElementCache &cacheDataBase,
+  void computePlasticGradient(const KoiterShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefVecXd grad, int materialLocation = -1) const;
 
-  void computeElasticGradient(const ShellDeformationElementCache &cacheDataBase,
+  void computeElasticGradient(const KoiterShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefVecXd grad, int materialLocation = -1) const;
 
   int computeVonMisesStress(
-    const ShellDeformationElementCache &cacheData,
+    const KoiterShellDeformationElementCache &cacheData,
     std::span<double> stresses, int capacity) const;
 
 public:
@@ -174,11 +174,11 @@ private:
 
   int numPlasticParams_ = 0;
   int numElasticParams_ = 0;
-  mutable ShellDeformationElementCache cache_;
+  mutable KoiterShellDeformationElementCache cache_;
 
-  const ShellDeformationElementCache &cacheData(const ShellDeformationElementCache &cacheDataBase) const;
-  ShellDeformationElementCache &cacheData(ShellDeformationElementCache &cacheDataBase) const;
-  double computeEnergy(const ShellDeformationElementCache &cacheData,
+  const KoiterShellDeformationElementCache &cacheData(const KoiterShellDeformationElementCache &cacheDataBase) const;
+  KoiterShellDeformationElementCache &cacheData(KoiterShellDeformationElementCache &cacheDataBase) const;
+  double computeEnergy(const KoiterShellDeformationElementCache &cacheData,
     std::span<const double> plasticParams, std::span<const double> elasticParams) const;
 };
 

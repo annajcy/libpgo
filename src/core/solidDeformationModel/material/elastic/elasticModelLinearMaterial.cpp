@@ -53,11 +53,9 @@ ES::M9d ElasticModelLinearMaterial::compute_dPdF(std::span<const double>, const 
 namespace pgo::SolidDeformationModel {
 namespace {
 }
-int LinearElasticDefinition::numOptimizableChannels() const { return 0; }
-int LinearElasticDefinition::numFixedChannels() const { return 2; }
 std::unique_ptr<ElasticModel> LinearElasticDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
-  if (values.size() != 2) throw std::invalid_argument("linear requires fixed channels E, nu");
+  requireFixedChannels(values, 2, id(), "E, nu");
   const double E = values[0], nu = values[1];
   return std::make_unique<ElasticModelLinearMaterial>(E / (2 * (1 + nu)), (nu * E) / ((1 + nu) * (1 - 2 * nu)));
 }

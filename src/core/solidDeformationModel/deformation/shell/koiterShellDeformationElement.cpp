@@ -63,7 +63,7 @@ KoiterShellDeformationElement::KoiterShellDeformationElement(
 
   numPlasticParams_ = plastic2D_->getNumParameters();
   numElasticParams_ = elastic2D_->getNumParameters();
-  cache_ = ShellDeformationElementCache(numPlasticParams_, numElasticParams_);
+  cache_ = KoiterShellDeformationElementCache(numPlasticParams_, numElasticParams_);
 }
 
 double KoiterShellDeformationElement::computeEnergy(
@@ -166,7 +166,7 @@ int KoiterShellDeformationElement::computeVonMisesStress(
 
 void KoiterShellDeformationElement::prepareData(
   std::span<const double> x, std::span<const double> elasticParams, std::span<const double> plasticParams,
-  ShellDeformationElementCache &cacheDataBase) const
+  KoiterShellDeformationElementCache &cacheDataBase) const
 {
   if (x.size() != static_cast<std::size_t>(getNumDOFs()))
     throw std::invalid_argument(
@@ -178,7 +178,7 @@ void KoiterShellDeformationElement::prepareData(
     throw std::invalid_argument(
       "Plastic parameters are required by this shell deformation model.");
 
-  ShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
+  KoiterShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
   cacheData.x[0] = ES::V3d(x[0], x[1], x[2]);
   cacheData.x[1] = ES::V3d(x[3], x[4], x[5]);
   cacheData.x[2] = ES::V3d(x[6], x[7], x[8]);
@@ -205,18 +205,18 @@ void KoiterShellDeformationElement::prepareData(
   cacheData.b = computeSecondFundamentalForm(cacheData.x);
 }
 
-double KoiterShellDeformationElement::computeEnergy(const ShellDeformationElementCache &cacheDataBase) const
+double KoiterShellDeformationElement::computeEnergy(const KoiterShellDeformationElementCache &cacheDataBase) const
 {
-  const ShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
+  const KoiterShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
   return computeEnergy(cacheData, parameterView(cacheData.plasticParamsValue), parameterView(cacheData.elasticParamsValue));
 }
 
-void KoiterShellDeformationElement::computeDisplacementGradient(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::computeDisplacementGradient(const KoiterShellDeformationElementCache &cacheDataBase,
   ES::RefVecXd grad) const
 {
   if (grad.size() != getNumDOFs())
     throw std::invalid_argument("Shell deformation gradient has unexpected size.");
-  const ShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
+  const KoiterShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
@@ -237,12 +237,12 @@ void KoiterShellDeformationElement::computeDisplacementGradient(const ShellDefor
     dbdx.transpose() * Eigen::Map<const ES::V4d>(dEdb.data()) * cacheData.area;
 }
 
-void KoiterShellDeformationElement::computeDisplacementHessian(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::computeDisplacementHessian(const KoiterShellDeformationElementCache &cacheDataBase,
   ES::RefMatXd hess) const
 {
   if (hess.rows() != getNumDOFs() || hess.cols() != getNumDOFs())
     throw std::invalid_argument("Shell deformation Hessian has unexpected shape.");
-  const ShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
+  const KoiterShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
 
   ES::M4x9d dadx;
   ES::M4x18d dbdx;
@@ -285,11 +285,11 @@ void KoiterShellDeformationElement::computeDisplacementHessian(const ShellDeform
     hessMap = projectSymmetricPSD(hessMap);
 }
 
-void KoiterShellDeformationElement::computeDisplacementPlasticHessian(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::computeDisplacementPlasticHessian(const KoiterShellDeformationElementCache &cacheDataBase,
   ES::RefMatXd hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const ShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
+  const KoiterShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0)
     return;
 
@@ -342,11 +342,11 @@ void KoiterShellDeformationElement::computeDisplacementPlasticHessian(const Shel
   ES::Mp<ES::MXd>(hess.data(), 18, np) = mixed.block(0, 0, 18, np);
 }
 
-void KoiterShellDeformationElement::computeDisplacementElasticHessian(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::computeDisplacementElasticHessian(const KoiterShellDeformationElementCache &cacheDataBase,
   ES::RefMatXd hess, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const ShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
+  const KoiterShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
   if (numElasticParams_ == 0)
     return;
 
@@ -377,11 +377,11 @@ void KoiterShellDeformationElement::computeDisplacementElasticHessian(const Shel
   ES::Mp<ES::MXd>(hess.data(), 18, np) = mixed.block(0, 0, 18, np);
 }
 
-void KoiterShellDeformationElement::computePlasticGradient(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::computePlasticGradient(const KoiterShellDeformationElementCache &cacheDataBase,
   ES::RefVecXd grad, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const ShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
+  const KoiterShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
   if (numPlasticParams_ == 0)
     return;
 
@@ -412,11 +412,11 @@ void KoiterShellDeformationElement::computePlasticGradient(const ShellDeformatio
   }
 }
 
-void KoiterShellDeformationElement::computeElasticGradient(const ShellDeformationElementCache &cacheDataBase,
+void KoiterShellDeformationElement::computeElasticGradient(const KoiterShellDeformationElementCache &cacheDataBase,
   ES::RefVecXd grad, int materialLocation) const
 {
   validateMaterialLocation(materialLocation);
-  const ShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
+  const KoiterShellDeformationElementCache &cacheData = this->cacheData(cacheDataBase);
   if (numElasticParams_ == 0)
     return;
 
@@ -431,7 +431,7 @@ void KoiterShellDeformationElement::computeElasticGradient(const ShellDeformatio
 }
 
 int KoiterShellDeformationElement::computeVonMisesStress(
-  const ShellDeformationElementCache &cacheDataBase,
+  const KoiterShellDeformationElementCache &cacheDataBase,
   std::span<double> stresses, int capacity) const
 {
   if (capacity < 1)
@@ -444,7 +444,7 @@ int KoiterShellDeformationElement::computeVonMisesStress(
     throw UnsupportedDeformationDiagnosticError(
       "Von Mises stress requires shell elastic parameters.");
 
-  const ShellDeformationElementCache &cd = cacheData(cacheDataBase);
+  const KoiterShellDeformationElementCache &cd = cacheData(cacheDataBase);
   double value = 0.0;
   const auto elasticParamView = parameterView(cd.elasticParamsValue);
   bool ok = elastic2D_->computeVonMisesStress(
@@ -460,20 +460,20 @@ int KoiterShellDeformationElement::computeVonMisesStress(
   return 1;
 }
 
-const ShellDeformationElementCache &KoiterShellDeformationElement::cacheData(
-  const ShellDeformationElementCache &cacheDataBase) const
+const KoiterShellDeformationElementCache &KoiterShellDeformationElement::cacheData(
+  const KoiterShellDeformationElementCache &cacheDataBase) const
 {
   return cacheDataBase;
 }
 
-ShellDeformationElementCache &KoiterShellDeformationElement::cacheData(
-  ShellDeformationElementCache &cacheDataBase) const
+KoiterShellDeformationElementCache &KoiterShellDeformationElement::cacheData(
+  KoiterShellDeformationElementCache &cacheDataBase) const
 {
   return cacheDataBase;
 }
 
 double KoiterShellDeformationElement::computeEnergy(
-  const ShellDeformationElementCache &cacheData, std::span<const double> plasticParams, std::span<const double> elasticParams) const
+  const KoiterShellDeformationElementCache &cacheData, std::span<const double> plasticParams, std::span<const double> elasticParams) const
 {
   ES::M2d abar;
   ES::M2d bbar;

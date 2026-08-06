@@ -765,13 +765,9 @@ ES::M4d ElasticModel2DFundamentalFormsSTVK::compute_d2psi_dbbar2(
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-int KoiterStVKDefinition::numOptimizableChannels() const
-{
-  return 5;
-}
 std::unique_ptr<ElasticModel> KoiterStVKDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
-  if (!values.empty()) throw std::invalid_argument("koiter_stvk has no fixed channels");
+  requireFixedChannels(values, 0, id());
   return std::make_unique<ElasticModel2DFundamentalFormsSTVK>();
 }
 }  // namespace pgo::SolidDeformationModel

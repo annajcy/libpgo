@@ -88,7 +88,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   deformation/volume/volumetricDeformationElement.h
   deformation/volume/volumetricDeformationElementCache.h
   deformation/shell/koiterShellDeformationElement.h
-  deformation/shell/shellDeformationElementCache.h
+  deformation/shell/koiterShellDeformationElementCache.h
 
   formulations/dof/dofLayout.h
   formulations/dof/perVertexDofLayout.h
@@ -96,6 +96,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
   formulations/dof/cubicTricubicHermiteDofLayout.h
 
   material/elastic/elasticModelDefinition.h
+  material/modelDefinition.h
   material/plastic/plasticModelDefinition.h
   material/runtime/materialBinding.h
   material/runtime/materialState.h
@@ -162,7 +163,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
   deformation/volume/volumetricDeformationElement.cpp
   deformation/volume/volumetricDeformationElementCache.cpp
   deformation/shell/koiterShellDeformationElement.cpp
-  deformation/shell/shellDeformationElementCache.cpp
+  deformation/shell/koiterShellDeformationElementCache.cpp
 
   material/runtime/materialState.cpp
   material/frame/materialFrames.cpp

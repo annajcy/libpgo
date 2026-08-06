@@ -128,10 +128,9 @@ ES::M3d PlasticModel3D6DOF::computeR(std::span<const double> param) const
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-int VolumetricPlasticity6Definition::numOptimizableChannels() const { return 6; }
 std::unique_ptr<PlasticModel> VolumetricPlasticity6Definition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
-  if (!values.empty()) throw std::invalid_argument("volumetric_dof6 has no fixed channels");
+  requireFixedChannels(values, 0, id());
   return std::make_unique<PlasticModel3D6DOF>();
 }
 }  // namespace pgo::SolidDeformationModel

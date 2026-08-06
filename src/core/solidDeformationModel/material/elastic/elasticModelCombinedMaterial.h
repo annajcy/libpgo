@@ -485,8 +485,8 @@ class StVKVolumeDefinition final : public ElasticModelDefinition
 {
 public:
   std::string_view id() const override { return "stvk_vol"; }
-  int numOptimizableChannels() const override;
-  int numFixedChannels() const override;
+  int numOptimizableChannels() const override { return 0; }
+  int numFixedChannels() const override { return 3; }
   std::unique_ptr<ElasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

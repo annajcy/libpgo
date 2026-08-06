@@ -34,10 +34,6 @@ public:
   {
     return EigenSupport::M3d::Identity();
   }
-  void defaultParams(std::span<double> param) const override
-  {
-    param[0] = param[1] = param[2] = 1.0;
-  }
   virtual void projectParam(std::span<double> param, double zeroThreshold) const override;
   virtual void toParam(const EigenSupport::M3d &Fp, std::span<double> param) const override;
 
@@ -66,7 +62,7 @@ class VolumetricPlasticity3Definition final : public PlasticModelDefinition
 public:
   std::string_view id() const override { return "volumetric_dof3"; }
   int numFixedChannels() const override { return 0; }
-  int numOptimizableChannels() const override;
+  int numOptimizableChannels() const override { return 3; }
   std::unique_ptr<PlasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

@@ -79,7 +79,7 @@ class KoiterStVKDefinition final : public ElasticModelDefinition
 public:
   std::string_view id() const override { return "koiter_stvk"; }
   int numFixedChannels() const override { return 0; }
-  int numOptimizableChannels() const override;
+  int numOptimizableChannels() const override { return 5; }
   std::unique_ptr<ElasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

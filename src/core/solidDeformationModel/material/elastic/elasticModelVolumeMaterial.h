@@ -40,8 +40,8 @@ class VolumePenaltyDefinition final : public ElasticModelDefinition
 {
 public:
   std::string_view id() const override { return "volume"; }
-  int numOptimizableChannels() const override;
-  int numFixedChannels() const override;
+  int numOptimizableChannels() const override { return 0; }
+  int numFixedChannels() const override { return 1; }
   std::unique_ptr<ElasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

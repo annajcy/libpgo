@@ -36,10 +36,28 @@ protected:
   int dofs_;
 };
 
-class PyVolumetricPlasticity0Definition final : public PyPlasticModelDefinition { public: PyVolumetricPlasticity0Definition(); };
-class PyVolumetricPlasticity3Definition final : public PyPlasticModelDefinition { public: PyVolumetricPlasticity3Definition(); };
-class PyVolumetricPlasticity6Definition final : public PyPlasticModelDefinition { public: PyVolumetricPlasticity6Definition(); };
-class PyShellPlasticity0Definition final : public PyPlasticModelDefinition { public: PyShellPlasticity0Definition(); };
-class PyShellPlasticity1Definition final : public PyPlasticModelDefinition { public: PyShellPlasticity1Definition(); };
+// Default-constructible wrapper around one concrete C++ definition.  Each
+// template instantiation is a distinct C++ type, so nanobind can register it
+// as its own Python class while sharing the base wrapper implementation.
+template<int Dofs, class DefinitionT>
+class PyPlasticModelDefinitionT final : public PyPlasticModelDefinition
+{
+public:
+  PyPlasticModelDefinitionT():
+    PyPlasticModelDefinition(std::make_shared<DefinitionT>(), Dofs)
+  {
+  }
+};
+
+using PyVolumetricPlasticity0Definition =
+  PyPlasticModelDefinitionT<0, SolidDeformationModel::VolumetricPlasticity0Definition>;
+using PyVolumetricPlasticity3Definition =
+  PyPlasticModelDefinitionT<3, SolidDeformationModel::VolumetricPlasticity3Definition>;
+using PyVolumetricPlasticity6Definition =
+  PyPlasticModelDefinitionT<6, SolidDeformationModel::VolumetricPlasticity6Definition>;
+using PyShellPlasticity0Definition =
+  PyPlasticModelDefinitionT<0, SolidDeformationModel::ShellPlasticity0Definition>;
+using PyShellPlasticity1Definition =
+  PyPlasticModelDefinitionT<1, SolidDeformationModel::ShellPlasticity1Definition>;
 
 }  // namespace pgo

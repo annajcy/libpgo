@@ -106,24 +106,12 @@ ES::M9d ElasticModel3DNeoHookean::compute_dPdF(
   return tangent;
 }
 
-int NeoHookeanDefinition::numFixedChannels() const
-{
-  return 2;
-}
-
-int NeoHookeanDefinition::numOptimizableChannels() const
-{
-  return 0;
-}
-
 std::unique_ptr<ElasticModel>
 NeoHookeanDefinition::createModel(
   std::span<const double> fixedChannels,
   const MaterialFrame &) const
 {
-  if (fixedChannels.size() != 2)
-    throw std::invalid_argument(
-      "neo_hookean requires fixed channels E, nu");
+  requireFixedChannels(fixedChannels, 2, id(), "E, nu");
   const double youngsModulus = fixedChannels[0];
   const double poissonRatio = fixedChannels[1];
   if (!std::isfinite(youngsModulus) ||

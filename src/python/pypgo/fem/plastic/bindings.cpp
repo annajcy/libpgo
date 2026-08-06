@@ -8,6 +8,15 @@
 namespace nb = nanobind;
 using namespace pgo;
 
+namespace
+{
+template<class PyDefinition>
+void bindDefaultPlasticDefinition(nb::module_ &m, const char *pythonName)
+{
+    nb::class_<PyDefinition, PyPlasticModelDefinition>(m, pythonName).def(nb::init<>());
+}
+}  // namespace
+
 void init_plastic_model_bindings(nb::module_ &m)
 {
     nb::class_<PyPlasticModelDefinition>(m, "PyPlasticModelDefinition")
@@ -15,9 +24,9 @@ void init_plastic_model_bindings(nb::module_ &m)
         .def_prop_ro("dofs", &PyPlasticModelDefinition::dofs)
         .def_prop_ro("num_fixed_channels", &PyPlasticModelDefinition::numFixedChannels)
         .def_prop_ro("num_optimizable_channels", &PyPlasticModelDefinition::numOptimizableChannels);
-    nb::class_<PyVolumetricPlasticity0Definition, PyPlasticModelDefinition>(m, "PyVolumetricPlasticity0Definition").def(nb::init<>());
-    nb::class_<PyVolumetricPlasticity3Definition, PyPlasticModelDefinition>(m, "PyVolumetricPlasticity3Definition").def(nb::init<>());
-    nb::class_<PyVolumetricPlasticity6Definition, PyPlasticModelDefinition>(m, "PyVolumetricPlasticity6Definition").def(nb::init<>());
-    nb::class_<PyShellPlasticity0Definition, PyPlasticModelDefinition>(m, "PyShellPlasticity0Definition").def(nb::init<>());
-    nb::class_<PyShellPlasticity1Definition, PyPlasticModelDefinition>(m, "PyShellPlasticity1Definition").def(nb::init<>());
+    bindDefaultPlasticDefinition<PyVolumetricPlasticity0Definition>(m, "PyVolumetricPlasticity0Definition");
+    bindDefaultPlasticDefinition<PyVolumetricPlasticity3Definition>(m, "PyVolumetricPlasticity3Definition");
+    bindDefaultPlasticDefinition<PyVolumetricPlasticity6Definition>(m, "PyVolumetricPlasticity6Definition");
+    bindDefaultPlasticDefinition<PyShellPlasticity0Definition>(m, "PyShellPlasticity0Definition");
+    bindDefaultPlasticDefinition<PyShellPlasticity1Definition>(m, "PyShellPlasticity1Definition");
 }

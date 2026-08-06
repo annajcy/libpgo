@@ -66,21 +66,11 @@ ES::M3d ElasticModelStableNeoHookeanPrincipalStretch::compute_d2psi_ds2(
   return hessian;
 }
 
-int StableNeoPrincipalStretchDefinition::numOptimizableChannels() const
-{
-  return 0;
-}
-
-int StableNeoPrincipalStretchDefinition::numFixedChannels() const
-{
-  return 2;
-}
-
 std::unique_ptr<ElasticModel>
 StableNeoPrincipalStretchDefinition::createModel(
   std::span<const double> values, const MaterialFrame &) const
 {
-  if (values.size() != 2) throw std::invalid_argument("stable_neo_principal_stretch requires fixed channels E, nu");
+  requireFixedChannels(values, 2, id(), "E, nu");
   const double E = values[0], nu = values[1];
   return std::make_unique<ElasticModelStableNeoHookeanPrincipalStretch>(
     E / (2 * (1 + nu)), (nu * E) / ((1 + nu) * (1 - 2 * nu)));

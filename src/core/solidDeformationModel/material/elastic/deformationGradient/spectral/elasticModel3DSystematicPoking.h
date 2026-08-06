@@ -58,7 +58,7 @@ public:
     return "systematic_poking";
   }
 
-  int numFixedChannels() const override;
+  int numFixedChannels() const override { return 0; }
   int numOptimizableChannels() const override;
   std::unique_ptr<ElasticModel> createModel(
     std::span<const double> fixedChannels,

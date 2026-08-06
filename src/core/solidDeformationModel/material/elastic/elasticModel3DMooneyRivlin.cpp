@@ -191,11 +191,9 @@ namespace pgo::SolidDeformationModel {
 namespace {
 // This model has no optimization channels.
 }
-int MooneyRivlinDefinition::numOptimizableChannels() const { return 0; }
-int MooneyRivlinDefinition::numFixedChannels() const { return 3; }
 std::unique_ptr<ElasticModel> MooneyRivlinDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
-  if (values.size() != 3) throw std::invalid_argument("mooney_rivlin requires fixed channels mu01, mu10, v1");
+  requireFixedChannels(values, 3, id(), "mu01, mu10, v1");
   return std::make_unique<ElasticModel3DMooneyRivlin>(values[0], values[1], values[2]);
 }
 }  // namespace pgo::SolidDeformationModel

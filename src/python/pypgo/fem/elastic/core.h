@@ -36,13 +36,33 @@ protected:
   std::shared_ptr<const SolidDeformationModel::ElasticModelDefinition> definition_;
 };
 
-class PyStableNeoDefinition final : public PyElasticModelDefinition { public: PyStableNeoDefinition(); };
-class PyNeoHookeanDefinition final : public PyElasticModelDefinition { public: PyNeoHookeanDefinition(); };
-class PyStVKDefinition final : public PyElasticModelDefinition { public: PyStVKDefinition(); };
-class PyStVKVolumeDefinition final : public PyElasticModelDefinition { public: PyStVKVolumeDefinition(); };
-class PyLinearElasticDefinition final : public PyElasticModelDefinition { public: PyLinearElasticDefinition(); };
-class PyMooneyRivlinDefinition final : public PyElasticModelDefinition { public: PyMooneyRivlinDefinition(); };
-class PyKoiterStVKDefinition final : public PyElasticModelDefinition { public: PyKoiterStVKDefinition(); };
+// Default-constructible wrapper around one concrete C++ definition.  Each
+// template instantiation is a distinct C++ type, so nanobind can register it
+// as its own Python class while sharing the base wrapper implementation.
+template<class DefinitionT>
+class PyElasticModelDefinitionT final : public PyElasticModelDefinition
+{
+public:
+  PyElasticModelDefinitionT():
+    PyElasticModelDefinition(std::make_shared<DefinitionT>())
+  {
+  }
+};
+
+using PyStableNeoDefinition =
+  PyElasticModelDefinitionT<SolidDeformationModel::StableNeoDefinition>;
+using PyNeoHookeanDefinition =
+  PyElasticModelDefinitionT<SolidDeformationModel::NeoHookeanDefinition>;
+using PyStVKDefinition =
+  PyElasticModelDefinitionT<SolidDeformationModel::StVKDefinition>;
+using PyStVKVolumeDefinition =
+  PyElasticModelDefinitionT<SolidDeformationModel::StVKVolumeDefinition>;
+using PyLinearElasticDefinition =
+  PyElasticModelDefinitionT<SolidDeformationModel::LinearElasticDefinition>;
+using PyMooneyRivlinDefinition =
+  PyElasticModelDefinitionT<SolidDeformationModel::MooneyRivlinDefinition>;
+using PyKoiterStVKDefinition =
+  PyElasticModelDefinitionT<SolidDeformationModel::KoiterStVKDefinition>;
 class PySystematicPokingDefinition final : public PyElasticModelDefinition
 {
 public:

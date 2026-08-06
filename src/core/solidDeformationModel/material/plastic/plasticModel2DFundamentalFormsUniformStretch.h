@@ -36,7 +36,6 @@ public:
   void compute_dbbar_dparam(std::span<const double> params, EigenSupport::RefMatXd dbbar_dparam) const override;
 
   int getNumParameters() const override { return 1; }
-  void defaultParams(std::span<double> param) const override { param[0] = 1.0; }
 
 protected:
 };
@@ -46,7 +45,7 @@ class ShellPlasticity1Definition final : public PlasticModelDefinition
 public:
   std::string_view id() const override { return "shell_ff_dof1"; }
   int numFixedChannels() const override { return 0; }
-  int numOptimizableChannels() const override;
+  int numOptimizableChannels() const override { return 1; }
   std::unique_ptr<PlasticModel> createModel(std::span<const double>, const MaterialFrame &) const override;
 private:
 };

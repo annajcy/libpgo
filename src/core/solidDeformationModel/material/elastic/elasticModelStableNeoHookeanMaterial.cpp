@@ -262,11 +262,9 @@ namespace pgo::SolidDeformationModel {
 namespace {
 // This model has no optimization channels.
 }
-int StableNeoDefinition::numOptimizableChannels() const { return 0; }
-int StableNeoDefinition::numFixedChannels() const { return 2; }
 std::unique_ptr<ElasticModel> StableNeoDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
-  if (values.size() != 2) throw std::invalid_argument("stable_neo requires fixed channels E, nu");
+  requireFixedChannels(values, 2, id(), "E, nu");
   const double E = values[0], nu = values[1];
   return std::make_unique<ElasticModelStableNeoHookeanMaterial>(E / (2 * (1 + nu)), (nu * E) / ((1 + nu) * (1 - 2 * nu)));
 }

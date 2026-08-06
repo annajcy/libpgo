@@ -1,10 +1,6 @@
 #pragma once
 
-#include "material/frame/materialFrames.h"
-
-#include <memory>
-#include <span>
-#include <string_view>
+#include "material/modelDefinition.h"
 
 namespace pgo::SolidDeformationModel
 {
@@ -15,17 +11,6 @@ class ElasticModel;
 ///
 /// The definition owns the physical channel contract and constructs the
 /// per-element constitutive model from fixed channels and the material frame.
-class ElasticModelDefinition
-{
-public:
-  virtual ~ElasticModelDefinition() = default;
-
-  virtual std::string_view id() const = 0;
-  virtual int numFixedChannels() const = 0;
-  virtual int numOptimizableChannels() const = 0;
-  virtual std::unique_ptr<ElasticModel> createModel(
-    std::span<const double> fixedChannels,
-    const MaterialFrame &materialFrame) const = 0;
-};
+using ElasticModelDefinition = ModelDefinition<ElasticModel>;
 
 }  // namespace pgo::SolidDeformationModel

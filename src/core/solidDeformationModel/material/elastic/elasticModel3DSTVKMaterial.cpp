@@ -200,11 +200,9 @@ ES::M9d ElasticModel3DSTVKMaterial::compute_dPdF(std::span<const double>, const 
 namespace pgo::SolidDeformationModel {
 namespace {
 }
-int StVKDefinition::numOptimizableChannels() const { return 0; }
-int StVKDefinition::numFixedChannels() const { return 2; }
 std::unique_ptr<ElasticModel> StVKDefinition::createModel(std::span<const double> values, const MaterialFrame &) const
 {
-  if (values.size() != 2) throw std::invalid_argument("stvk requires fixed channels E, nu");
+  requireFixedChannels(values, 2, id(), "E, nu");
   const double E = values[0], nu = values[1];
   return std::make_unique<ElasticModel3DSTVKMaterial>(E / (2 * (1 + nu)), (nu * E) / ((1 + nu) * (1 - 2 * nu)));
 }

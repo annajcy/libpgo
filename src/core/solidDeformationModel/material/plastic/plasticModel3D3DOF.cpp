@@ -81,10 +81,9 @@ void PlasticModel3D3DOF::compute_ddetA_da(
 #include <stdexcept>
 
 namespace pgo::SolidDeformationModel {
-int VolumetricPlasticity3Definition::numOptimizableChannels() const { return 3; }
 std::unique_ptr<PlasticModel> VolumetricPlasticity3Definition::createModel(std::span<const double> values, const MaterialFrame &frame) const
 {
-  if (!values.empty()) throw std::invalid_argument("volumetric_dof3 has no fixed channels");
+  requireFixedChannels(values, 0, id());
   return std::make_unique<PlasticModel3D3DOF>(frame.transpose());
 }
 }  // namespace pgo::SolidDeformationModel

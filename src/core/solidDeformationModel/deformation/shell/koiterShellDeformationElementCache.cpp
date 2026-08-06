@@ -1,4 +1,4 @@
-#include "shellDeformationElementCache.h"
+#include "koiterShellDeformationElementCache.h"
 
 #include <algorithm>
 
@@ -7,7 +7,7 @@ namespace pgo
 namespace SolidDeformationModel
 {
 
-ShellDeformationElementCache::ShellDeformationElementCache(
+KoiterShellDeformationElementCache::KoiterShellDeformationElementCache(
   int numPlasticParams_, int numElasticParams_):
   numPlasticParams(numPlasticParams_),
   numElasticParams(numElasticParams_),
