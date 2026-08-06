@@ -157,8 +157,8 @@ OPT::NewtonOptimizer makeOptimizer()
 {
   OPT::NewtonOptimizer::Options options;
   options.maxIterations = 8;
-  options.gradientTolerance = 1e-10;
   options.verbose = 0;
+  options.termination = std::make_shared<NO::AbsoluteNewtonTerminationPolicy>(1e-10);
   options.damping = std::make_shared<NO::NoDampingPolicy>();
   options.lineSearch = std::make_shared<NO::BacktrackingLineSearchPolicy>(NO::BacktrackingLineSearchPolicy::Params{});
   return OPT::NewtonOptimizer(options);
@@ -305,7 +305,7 @@ TEST(NewtonOptimizer, RejectsInvalidProblemAndOptions)
   EXPECT_THROW(OPT::NewtonOptimizer(bad).solve(problem, x0), std::invalid_argument);
 
   bad = OPT::NewtonOptimizer::Options();
-  bad.gradientTolerance = -1.0;
+  bad.termination = nullptr;
   EXPECT_THROW(OPT::NewtonOptimizer(bad).solve(problem, x0), std::invalid_argument);
 
   bad = OPT::NewtonOptimizer::Options();
@@ -347,7 +347,7 @@ TEST(NewtonOptimizer, AllLineSearchMethodsAreAccepted)
   for (const auto &method : methods) {
     OPT::NewtonOptimizer::Options options;
     options.maxIterations = 8;
-    options.gradientTolerance = 1e-10;
+    options.termination = std::make_shared<NO::AbsoluteNewtonTerminationPolicy>(1e-10);
     options.damping = std::make_shared<NO::NoDampingPolicy>();
     options.lineSearch = method;
     const OPT::OptimizationResult result = OPT::NewtonOptimizer(options).solve(problem, x0);

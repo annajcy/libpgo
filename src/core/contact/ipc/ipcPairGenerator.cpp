@@ -2,9 +2,7 @@
 
 #include "ipc/broadPhase/surfaceIPCBroadPhase.h"
 #include "ipc/core/surfaceIPCMaxStep.h"
-#include "ipc/profiling/surfaceIPCProfiling.h"
 #include "pgoLogging.h"
-#include "scopedProfileSection.h"
 
 #include <algorithm>
 #include <utility>
@@ -83,7 +81,6 @@ void IPCPairGenerator::setMesh(const EigenSupport::MXd &surfaceRestVertices, con
 
 SurfaceIPCActiveSet IPCPairGenerator::buildActiveSet(EigenSupport::ConstRefVecXd surfacePositions) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kBuildActiveSet);
 
   SurfaceIPCActiveSet activeSet;
   activeSet.positions = surfacePositions;
@@ -109,7 +106,6 @@ SurfaceIPCActiveSet IPCPairGenerator::buildLineSearchActiveSetSuperset(
   EigenSupport::ConstRefVecXd surfacePositions,
   EigenSupport::ConstRefVecXd surfaceStep) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kBuildActiveSet);
 
   SurfaceIPCActiveSet activeSet;
   activeSet.positions = surfacePositions;

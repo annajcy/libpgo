@@ -19,7 +19,10 @@ def make_problem(energy):
 
 
 def make_optimizer(**kwargs):
-    return solver.NewtonOptimizer(damping=solver.NoDamping(), **kwargs)
+    return solver.NewtonOptimizer(
+        damping=solver.NoDamping(),
+        termination=solver.AbsoluteTermination(abs_tolerance=1e-6),
+        **kwargs)
 
 
 def test_newton_optimizer_solves_quadratic():
@@ -90,7 +93,8 @@ def test_line_search_keywords():
         solver.Simple(),
     ):
         result = solver.NewtonOptimizer(
-            line_search=line_search, damping=solver.NoDamping()
+            line_search=line_search, damping=solver.NoDamping(),
+            termination=solver.AbsoluteTermination(abs_tolerance=1e-6),
         ).solve(problem, x0)
         assert result.converged
 
@@ -101,7 +105,9 @@ def test_newton_optimizer_sparse_solver_is_forwarded():
 
     energy = make_quadratic()
     problem = make_problem(energy)
-    optimizer = solver.NewtonOptimizer(sparse_solver=solver.EigenLDLT())
+    optimizer = solver.NewtonOptimizer(
+        sparse_solver=solver.EigenLDLT(),
+        termination=solver.AbsoluteTermination(abs_tolerance=1e-6))
 
     assert isinstance(optimizer._handle, _core.PyNewtonOptimizer)
     result = optimizer.solve(problem, np.zeros(3, dtype=np.float64))
@@ -126,7 +132,9 @@ def test_optimizer_keywords_control_solve():
     energy = make_quadratic()
     problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
-    optimizer = solver.NewtonOptimizer(max_iterations=0, damping=solver.NoDamping())
+    optimizer = solver.NewtonOptimizer(
+        max_iterations=0, damping=solver.NoDamping(),
+        termination=solver.AbsoluteTermination(abs_tolerance=1e-6))
 
     result = optimizer.solve(problem, x0)
 
@@ -140,7 +148,10 @@ def test_fix_variables_via_object_api():
 
     problem = solver.OptimizationProblem(objective=energy)
     problem.fix_variables([2], [9.0], num_dofs=x0.size)
-    result = solver.NewtonOptimizer(damping=solver.NoDamping()).solve(problem, x0)
+    result = solver.NewtonOptimizer(
+        damping=solver.NoDamping(),
+        termination=solver.AbsoluteTermination(abs_tolerance=1e-6),
+    ).solve(problem, x0)
 
     assert result.converged
     assert np.allclose(result.x, [1.0, -2.0, 9.0])
@@ -167,9 +178,10 @@ def test_final_gradient_stats_are_optional():
     problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.NewtonOptimizer(max_iterations=0, damping=solver.NoDamping()).solve(
-        problem, x0
-    )
+    result = solver.NewtonOptimizer(
+        max_iterations=0, damping=solver.NoDamping(),
+        termination=solver.AbsoluteTermination(abs_tolerance=1e-6),
+    ).solve(problem, x0)
 
     assert result.status == solver.SolveStatus.MAX_ITERATIONS
     assert result.final_gradient_norm is None
@@ -190,7 +202,9 @@ def test_invalid_fixed_values_length_raises():
 def test_invalid_line_search_raises():
     # A bare string is no longer accepted — line_search must be a LineSearch object.
     with pytest.raises(TypeError):
-        solver.NewtonOptimizer(line_search="wolfe")
+        solver.NewtonOptimizer(
+            line_search="wolfe",
+            termination=solver.AbsoluteTermination(abs_tolerance=1e-6))
 
 
 def test_invalid_line_search_params_raise():
@@ -203,7 +217,9 @@ def test_invalid_line_search_params_raise():
 def test_invalid_sparse_solver_raises():
     # A bare string is no longer accepted — sparse_solver must be a SparseSolver object.
     with pytest.raises(TypeError):
-        solver.NewtonOptimizer(sparse_solver="not_a_solver")
+        solver.NewtonOptimizer(
+            sparse_solver="not_a_solver",
+            termination=solver.AbsoluteTermination(abs_tolerance=1e-6))
 
 
 def test_verbose_does_not_crash():
@@ -211,9 +227,10 @@ def test_verbose_does_not_crash():
     problem = make_problem(energy)
     x0 = np.array([10.0, -3.0, 5.0], dtype=np.float64)
 
-    result = solver.NewtonOptimizer(verbose=1, damping=solver.NoDamping()).solve(
-        problem, x0
-    )
+    result = solver.NewtonOptimizer(
+        verbose=1, damping=solver.NoDamping(),
+        termination=solver.AbsoluteTermination(abs_tolerance=1e-6),
+    ).solve(problem, x0)
 
     assert result.status in {
         solver.SolveStatus.CONVERGED,
@@ -231,7 +248,9 @@ def test_optimizer_problem_peers_and_newton_solve():
     )
     problem = solver.OptimizationProblem(objective=objective)
     optimizer = solver.NewtonOptimizer(
-        max_iterations=10, gradient_tolerance=1e-10, damping=solver.NoDamping()
+        max_iterations=10,
+        termination=solver.AbsoluteTermination(abs_tolerance=1e-10),
+        damping=solver.NoDamping(),
     )
 
     assert isinstance(problem._handle, _core.PyOptimizationProblem)

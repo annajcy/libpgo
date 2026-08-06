@@ -12,7 +12,6 @@ from pathlib import Path
 import numpy as np
 
 import pypgo.energy as _energy
-import pypgo.profiling as _profiling
 import pypgo.solver as _solver
 from pypgo.animation import AbcWriter, has_animation_io, write_u_file
 from pypgo.mesh import read_obj
@@ -58,7 +57,8 @@ def _make_optimizer(cfg):
     damping = _solver.NoDamping() if damping_scale is None else _solver.FixedDamping(damping_scale)
     return _solver.NewtonOptimizer(
         max_iterations=cfg.solver.max_iterations,
-        gradient_tolerance=cfg.solver.gradient_tolerance,
+        termination=_solver.AbsoluteTermination(
+            abs_tolerance=cfg.solver.gradient_tolerance),
         line_search=line_search,
         damping=damping,
         sparse_solver=_SPARSE_SOLVER_MAP[ss_name](),
@@ -76,44 +76,6 @@ def _env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.lower() not in ("", "0", "false", "off", "no")
-
-
-def _write_dynamic_profile_row(path: Path, row: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as stream:
-        stream.write(json.dumps(row, sort_keys=True) + "\n")
-
-
-def _dynamic_profile_frame_path(output_dir: Path, frame_index: int) -> Path:
-    return Path(output_dir) / "profiles" / f"frame_{frame_index:06d}_profile.json"
-
-
-def _write_dynamic_profile_frame(path: Path, profile: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as stream:
-        json.dump(profile, stream, indent=2, sort_keys=True)
-        stream.write("\n")
-
-
-def _dynamic_profile_index_row(profile: dict, profile_path: Path, output_dir: Path) -> dict:
-    diagnostics = profile["solver_diagnostics"]["diagnostics"]
-    row = {
-        "frame_index": profile["frame_index"],
-        "time": profile["time"],
-        "step_wall_seconds": profile["step_wall_seconds"],
-        "accepted": profile["accepted"],
-        "solver_status": profile["solver_status"],
-        "solver_iterations": profile["solver_iterations"],
-        "final_gradient_max_norm": diagnostics.get("final_gradient_max_norm"),
-        "profile_path": profile_path.relative_to(output_dir).as_posix(),
-    }
-    if "newton_convergence_reason_name" in diagnostics:
-        row["newton_convergence_reason_name"] = diagnostics[
-            "newton_convergence_reason_name"]
-    if "newton_convergence_threshold" in diagnostics:
-        row["newton_convergence_threshold"] = diagnostics[
-            "newton_convergence_threshold"]
-    return row
 
 
 def _solver_diagnostics(result) -> dict:
@@ -434,19 +396,9 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
 
     optimizer = _make_optimizer(cfg)
     frames = []
-    profile_enabled = _env_enabled("PGO_PROFILE_DYNAMIC")
     solve_log_enabled = _env_enabled("PGO_DYNAMIC_SOLVE_LOG")
     output_dir = Path(cfg.output.directory)
-    profile_path = output_dir / "profile_dynamic.jsonl"
-    if profile_enabled:
-        _profiling.set_enabled(True)
-        _profiling.reset()
     while int(sim.state.timestep_id) < cfg.dynamic.num_steps:
-        if profile_enabled:
-            _profiling.reset()
-            profile_started = time.perf_counter()
-        else:
-            profile_started = None
         t_next = sim.state.time + dt
         for ma in bundle.moving_attachments:
             ma.energy.set_targets(np.tile(ma.velocity * t_next, ma.num_vertices))
@@ -464,35 +416,6 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
                 num_dofs=bundle.num_dofs,
                 metadata=checkpoint_metadata,
             )
-        if profile_enabled:
-            try:
-                frame_profile_path = _dynamic_profile_frame_path(
-                    output_dir, frame.frame_index)
-                profile = {
-                    "frame_index": int(frame.frame_index),
-                    "time": float(sim.state.time),
-                    "step_wall_seconds": time.perf_counter() - profile_started,
-                    "accepted": bool(frame.accepted),
-                    "solver_status": frame.solver_result.status.name,
-                    "solver_iterations": int(frame.solver_result.iterations),
-                    "solver_diagnostics": _solver_diagnostics(frame.solver_result),
-                    "stage_diagnostics": [
-                        _solver_diagnostics(stage)
-                        for stage in frame.stage_results
-                    ],
-                    "sections": _profiling.snapshot(),
-                    "counters": _profiling.snapshot_counters(),
-                }
-                _write_dynamic_profile_frame(frame_profile_path, profile)
-                _write_dynamic_profile_row(
-                    profile_path,
-                    _dynamic_profile_index_row(
-                        profile, frame_profile_path, output_dir),
-                )
-            except Exception as exc:
-                print(f"warning: failed to write dynamic profile: {exc}", file=sys.stderr)
-            finally:
-                _profiling.reset()
         # Surfaces and states are written even for rejected frames — useful when
         # diagnosing divergence (the state is the last accepted one).
         if frame.frame_index % cfg.output.dump_interval == 0:
@@ -523,9 +446,6 @@ def run_dynamic(bundle: SceneBundle, cfg) -> dict:
                     json.dumps(doc))
         if not frame.accepted:
             break
-    if profile_enabled:
-        _profiling.set_enabled(False)
-
     if cfg.output.write_abc:
         _rebuild_abc_from_surfaces(bundle, cfg)
 

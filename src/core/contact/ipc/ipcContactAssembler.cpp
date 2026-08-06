@@ -2,9 +2,7 @@
 
 #include "ipc/core/surfaceIPCExternalBarrierAssembler.h"
 #include "ipc/core/surfaceIPCSelfBarrierAssembler.h"
-#include "ipc/profiling/surfaceIPCProfiling.h"
 #include "pgoLogging.h"
-#include "scopedProfileSection.h"
 
 namespace pgo
 {
@@ -33,7 +31,6 @@ double IPCContactAssembler::computeEnergy(
   const std::vector<ObstacleSurfaceView> &obstacleViews,
   const SurfaceIPCActiveSet &activeSet) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetEnergy);
   double surfaceEnergy = computeSelfEnergy(
     activeSet.positions, activeSet.selfPairs, topology.numVerts, params_.dhat, params_.kappa, params_.epsEE);
   if (!obstacleViews.empty()) {
@@ -49,7 +46,6 @@ void IPCContactAssembler::computeGradient(
   const SurfaceIPCActiveSet &activeSet,
   EigenSupport::RefVecXd surfaceGradient) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetGradient);
   computeSelfGradient(
     activeSet.positions, activeSet.selfPairs, topology.numVerts, params_.dhat, params_.kappa, params_.epsEE, surfaceGradient);
   if (!obstacleViews.empty()) {
@@ -64,7 +60,6 @@ void IPCContactAssembler::computeHessian(
   const SurfaceIPCActiveSet &activeSet,
   EigenSupport::SpMatD &surfaceHessian) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetHessian);
   computeSelfHessian(
     activeSet.positions, activeSet.selfPairs, topology.numVerts, params_.dhat, params_.kappa, params_.epsEE, surfaceHessian);
   if (!obstacleViews.empty()) {
@@ -83,7 +78,6 @@ void IPCContactAssembler::computeAll(
   EigenSupport::VXd &surfaceGradient,
   EigenSupport::SpMatD &surfaceHessian) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetCombined);
   computeSelfAll(
     activeSet.positions, activeSet.selfPairs, topology.numVerts, params_.dhat, params_.kappa, params_.epsEE, surfaceEnergy, surfaceGradient, surfaceHessian);
   if (!obstacleViews.empty()) {

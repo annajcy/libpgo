@@ -208,12 +208,33 @@ protected:
   std::shared_ptr<const pgo::NonlinearOptimization::NewtonTerminationPolicy> handle_;
 };
 
-class PyFixedTermination final : public PyTerminationPolicy
+class PyHybridTermination final : public PyTerminationPolicy
 {
 public:
-  PyFixedTermination()
+  PyHybridTermination(double absTolerance, double relativeTolerance)
   {
-    handle_ = std::make_shared<pgo::NonlinearOptimization::FixedNewtonTerminationPolicy>();
+    handle_ = std::make_shared<pgo::NonlinearOptimization::HybridNewtonTerminationPolicy>(
+      absTolerance, relativeTolerance);
+  }
+};
+
+class PyAbsoluteTermination final : public PyTerminationPolicy
+{
+public:
+  explicit PyAbsoluteTermination(double absTolerance)
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(
+      absTolerance);
+  }
+};
+
+class PyRelativeTermination final : public PyTerminationPolicy
+{
+public:
+  explicit PyRelativeTermination(double relativeTolerance)
+  {
+    handle_ = std::make_shared<pgo::NonlinearOptimization::RelativeNewtonTerminationPolicy>(
+      relativeTolerance);
   }
 };
 
@@ -222,7 +243,6 @@ public:
 struct PyNewtonOptimizerOptions
 {
   int maxIterations = 50;
-  double gradientTolerance = 1e-6;
   // References to concrete subclasses (null => defaults).
   std::shared_ptr<PyLineSearchPolicy> lineSearch;
   std::shared_ptr<PyDampingPolicy> damping;

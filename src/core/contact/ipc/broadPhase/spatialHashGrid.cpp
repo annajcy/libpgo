@@ -140,14 +140,14 @@ void SpatialHashGrid::queryAfter(const AABB &box, int minPrimitiveId,
   queryFiltered(box, -1, minPrimitiveId, visitedStamp, stamp, result);
 }
 
-std::uint64_t SpatialHashGrid::queryOverlapping(const AABB &box, const std::vector<AABB> &candidateBoxes, int selfPrimitiveId,
+void SpatialHashGrid::queryOverlapping(const AABB &box, const std::vector<AABB> &candidateBoxes, int selfPrimitiveId,
   std::vector<int> &visitedStamp, int stamp,
   std::vector<int> &result) const
 {
   return queryFilteredOverlapping(box, candidateBoxes, selfPrimitiveId, -1, visitedStamp, stamp, result);
 }
 
-std::uint64_t SpatialHashGrid::queryOverlappingAfter(
+void SpatialHashGrid::queryOverlappingAfter(
   const AABB &box, const std::vector<AABB> &candidateBoxes, int minPrimitiveId,
   std::vector<int> &visitedStamp, int stamp,
   std::vector<int> &result) const
@@ -182,7 +182,7 @@ void SpatialHashGrid::queryFiltered(const AABB &box, int selfPrimitiveId, int mi
       }
 }
 
-std::uint64_t SpatialHashGrid::queryFilteredOverlapping(
+void SpatialHashGrid::queryFilteredOverlapping(
   const AABB &box, const std::vector<AABB> &candidateBoxes, int selfPrimitiveId, int minPrimitiveId,
   std::vector<int> &visitedStamp, int stamp,
   std::vector<int> &result) const
@@ -191,7 +191,6 @@ std::uint64_t SpatialHashGrid::queryFilteredOverlapping(
   toGrid(box.lo, lo_ix, lo_iy, lo_iz);
   toGrid(box.hi, hi_ix, hi_iy, hi_iz);
 
-  std::uint64_t hashCandidates = 0;
   for (int iz = lo_iz; iz <= hi_iz; ++iz)
     for (int iy = lo_iy; iy <= hi_iy; ++iy)
       for (int ix = lo_ix; ix <= hi_ix; ++ix) {
@@ -206,13 +205,10 @@ std::uint64_t SpatialHashGrid::queryFilteredOverlapping(
           if (visitedStamp[idx] == stamp)
             continue;
           visitedStamp[idx] = stamp;
-          ++hashCandidates;
           if (box.overlaps(candidateBoxes[idx]))
             result.push_back(idx);
         }
       }
-
-  return hashCandidates;
 }
 
 }  // namespace IPC

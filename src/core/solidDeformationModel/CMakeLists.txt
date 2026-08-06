@@ -190,7 +190,7 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 )
 
 set(SOLID_DEFORMATION_MODEL_DEPS
-  pgoLogging basicAlgorithms eigenSupport profiling nonlinearOptimization configFileJSON volumetricMesh interpolationCoordinates
+  pgoLogging basicAlgorithms eigenSupport nonlinearOptimization configFileJSON volumetricMesh interpolationCoordinates
   Eigen3::Eigen TBB::tbb fmt::fmt-header-only
 )
 

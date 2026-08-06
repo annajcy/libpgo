@@ -2,6 +2,8 @@
 
 from importlib import import_module
 
+from pypgo.logging import get_log_level, quiet_cpp_logs, set_log_level
+
 __all__ = [
     "animation",
     "contact",
@@ -9,13 +11,16 @@ __all__ = [
     "fem",
     "energy",
     "implicit",
+    "logging",
     "mesh",
     "parallel",
-    "profiling",
     "sim",
     "solver",
     "sparse",
     "tools",
+    "get_log_level",
+    "quiet_cpp_logs",
+    "set_log_level",
 ]
 
 

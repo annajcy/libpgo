@@ -3,8 +3,6 @@
 #include "ipc/broadPhase/surfaceIPCBroadPhase.h"
 #include "ipc/topology/surfaceIPCTopology.h"
 #include "ipc/geometry/ipcDistancePrimitives.h"
-#include "ipc/profiling/surfaceIPCProfiling.h"
-#include "scopedProfileSection.h"
 
 #include "testCIPCHelpers.h"
 
@@ -23,7 +21,6 @@ using pgo::Contact::IPC::SurfaceIPCTopology;
 namespace distance = pgo::Contact::IPC::distance;
 using pgo::Contact::CIPCTest::flattenPositions;
 using pgo::Contact::CIPCTest::makeTwoTriangleMesh;
-using pgo::Profiling::ProfileCounterStat;
 
 std::vector<std::tuple<int, int, int, int>> canonicalPT(const std::vector<PTPair> &pairs)
 {
@@ -59,12 +56,6 @@ bool containsSelfEE(const std::vector<EEPair> &pairs, const EEPair &target)
   return std::binary_search(keys.begin(), keys.end(), targetKey);
 }
 
-const ProfileCounterStat *findCounterStat(const std::vector<ProfileCounterStat> &stats, std::string_view name)
-{
-  const auto it = std::find_if(stats.begin(), stats.end(),
-    [name](const ProfileCounterStat &stat) { return stat.name == name; });
-  return it == stats.end() ? nullptr : &(*it);
-}
 
 ES::V3d vertex(const ES::VXd &x, int vi)
 {
@@ -214,41 +205,3 @@ TEST(SurfaceIPCSelfBroadPhaseGTest, ZeroDisplacementLineSearchSupersetContainsNo
     EXPECT_TRUE(containsSelfEE(supersetPairs.eePairs, pair));
 }
 
-TEST(SurfaceIPCSelfBroadPhaseGTest, ProfilingRecordsSelfCandidateCounters)
-{
-  const auto [V, F] = makeTwoTriangleMesh();
-  const ES::VXd x = flattenPositions(V);
-
-  SurfaceIPCTopology topology;
-  topology.setMesh(V, F);
-
-  pgo::Profiling::setProfilingEnabled(true);
-  pgo::Profiling::resetProfileStatistics();
-
-  SelfPairSet broadPhasePairs;
-  buildSelfPairs(topology, x, 0.1, broadPhasePairs);
-
-  const auto stats = pgo::Profiling::snapshotProfileCounterStatistics();
-  const auto *ptHashCandidates = findCounterStat(stats, pgo::Contact::SurfaceIPCProfileSections::kPairBuildSelfPTHashCandidates);
-  const auto *ptDistanceTests = findCounterStat(stats, pgo::Contact::SurfaceIPCProfileSections::kPairBuildSelfPTDistanceTests);
-  const auto *ptAcceptedPairs = findCounterStat(stats, pgo::Contact::SurfaceIPCProfileSections::kPairBuildSelfPTAcceptedPairs);
-  const auto *eeHashCandidates = findCounterStat(stats, pgo::Contact::SurfaceIPCProfileSections::kPairBuildSelfEEHashCandidates);
-  const auto *eeDistanceTests = findCounterStat(stats, pgo::Contact::SurfaceIPCProfileSections::kPairBuildSelfEEDistanceTests);
-  const auto *eeAcceptedPairs = findCounterStat(stats, pgo::Contact::SurfaceIPCProfileSections::kPairBuildSelfEEAcceptedPairs);
-
-  ASSERT_NE(ptHashCandidates, nullptr);
-  ASSERT_NE(ptDistanceTests, nullptr);
-  ASSERT_NE(ptAcceptedPairs, nullptr);
-  ASSERT_NE(eeHashCandidates, nullptr);
-  ASSERT_NE(eeDistanceTests, nullptr);
-  ASSERT_NE(eeAcceptedPairs, nullptr);
-  EXPECT_GT(ptHashCandidates->total, 0u);
-  EXPECT_GT(ptDistanceTests->total, 0u);
-  EXPECT_EQ(ptAcceptedPairs->total, broadPhasePairs.ptPairs.size());
-  EXPECT_GT(eeHashCandidates->total, 0u);
-  EXPECT_GT(eeDistanceTests->total, 0u);
-  EXPECT_EQ(eeAcceptedPairs->total, broadPhasePairs.eePairs.size());
-
-  pgo::Profiling::setProfilingEnabled(false);
-  pgo::Profiling::resetProfileStatistics();
-}

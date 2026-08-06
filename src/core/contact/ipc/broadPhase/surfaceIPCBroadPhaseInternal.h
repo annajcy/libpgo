@@ -2,14 +2,10 @@
 
 #include "EigenDef.h"
 #include "ipc/broadPhase/spatialHashGrid.h"
-#include "scopedProfileSection.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
 #include <cstddef>
-#include <cstdint>
-#include <string_view>
-#include <utility>
 #include <vector>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
@@ -118,55 +114,8 @@ inline bool computeUnionAABB(
   return true;
 }
 
-struct PairQueryCounts
-{
-  std::uint64_t hashCandidates = 0;
-  std::uint64_t exactTests = 0;
-};
-
-struct PairQueryProfileNames
-{
-  std::string_view hashCandidates;
-  std::string_view exactTests;
-  std::string_view acceptedPairs;
-};
-
-inline void addCounts(PairQueryCounts &dst, const PairQueryCounts &src)
-{
-  dst.hashCandidates += src.hashCandidates;
-  dst.exactTests += src.exactTests;
-}
-
-inline void recordPairQueryCounters(
-  std::string_view hashCandidateName,
-  std::string_view exactTestName,
-  std::string_view acceptedPairName,
-  const PairQueryCounts &counts,
-  std::size_t acceptedPairCount)
-{
-  if (!Profiling::isProfilingEnabled())
-    return;
-
-  Profiling::recordProfileCounter(hashCandidateName, counts.hashCandidates);
-  Profiling::recordProfileCounter(exactTestName, counts.exactTests);
-  Profiling::recordProfileCounter(acceptedPairName, static_cast<std::uint64_t>(acceptedPairCount));
-}
-
-inline void recordPairQueryCounters(
-  const PairQueryProfileNames &names,
-  const PairQueryCounts &counts,
-  std::size_t acceptedPairCount)
-{
-  recordPairQueryCounters(
-    names.hashCandidates,
-    names.exactTests,
-    names.acceptedPairs,
-    counts,
-    acceptedPairCount);
-}
-
 template<typename PairType, typename Body>
-PairQueryCounts collectPairsParallel(
+void collectPairsParallel(
   int nTarget, int queryBegin, int queryEnd,
   Body &&body, std::vector<PairType> &outputPairs)
 {
@@ -174,39 +123,16 @@ PairQueryCounts collectPairsParallel(
     [nTarget]() { return std::vector<int>(nTarget, 0); });
   tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
   tbb::enumerable_thread_specific<std::vector<PairType>> tls_pairs;
-  tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
   tbb::parallel_for(tbb::blocked_range<decltype(queryBegin)>(queryBegin, queryEnd, 1), [pgoBody = [&](int rangeBegin, int rangeEnd) {
     auto &visited = tls_visited.local();
     auto &candidates = tls_candidates.local();
     auto &localPairs = tls_pairs.local();
-    auto &localCounts = tls_counts.local();
-    body(rangeBegin, rangeEnd, visited, candidates, localPairs, localCounts);
+    body(rangeBegin, rangeEnd, visited, candidates, localPairs);
   }](const auto &pgoRange) { pgoBody(pgoRange.begin(), pgoRange.end()); });
 
   for (auto &lp : tls_pairs)
     outputPairs.insert(outputPairs.end(), lp.begin(), lp.end());
-
-  PairQueryCounts counts;
-  for (const auto &localCounts : tls_counts)
-    addCounts(counts, localCounts);
-  return counts;
-}
-
-template<typename PairType, typename QueryBody>
-PairQueryCounts collectHashPairsParallel(
-  int nTarget,
-  int queryBegin,
-  int queryEnd,
-  QueryBody &&queryBody,
-  std::vector<PairType> &outputPairs)
-{
-  return collectPairsParallel<PairType>(
-    nTarget,
-    queryBegin,
-    queryEnd,
-    std::forward<QueryBody>(queryBody),
-    outputPairs);
 }
 
 inline EigenSupport::V3d obsVtx(const EigenSupport::VXd &pos, int i)

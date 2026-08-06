@@ -2,8 +2,6 @@
 
 #include "ipc/broadPhase/surfaceIPCBroadPhaseInternal.h"
 #include "ipc/geometry/ipcDistancePrimitives.h"
-#include "ipc/profiling/surfaceIPCProfiling.h"
-#include "scopedProfileSection.h"
 
 
 #include <algorithm>
@@ -31,23 +29,6 @@ void buildExternalPairs(
   if (obstacles.empty())
     return;
 
-  Profiling::ScopedProfileSection scopedExternalProfile(SurfaceIPCProfileSections::kPairBuildExternal);
-  const bool profilingEnabled = Profiling::isProfilingEnabled();
-  const PairQueryProfileNames ptProfileNames{
-    SurfaceIPCProfileSections::kPairBuildExternalPTHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildExternalPTDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildExternalPTAcceptedPairs,
-  };
-  const PairQueryProfileNames tpProfileNames{
-    SurfaceIPCProfileSections::kPairBuildExternalTPHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildExternalTPDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildExternalTPAcceptedPairs,
-  };
-  const PairQueryProfileNames eeProfileNames{
-    SurfaceIPCProfileSections::kPairBuildExternalEEHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildExternalEEDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildExternalEEAcceptedPairs,
-  };
 
   const double inflate = dhatExternal;
   const double dhat2 = dhatExternal * dhatExternal;
@@ -61,7 +42,6 @@ void buildExternalPairs(
 
   std::vector<SpatialHashGrid::AABB> dynVertBox(topology.numVerts);
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalAABB);
     buildVertexAABBs(dynVertBox, topology.numVerts, getV, inflate);
   }
 
@@ -77,21 +57,13 @@ void buildExternalPairs(
     overlappingObstacles.push_back(&obs);
   }
 
-  if (profilingEnabled)
-    Profiling::recordProfileCounter(SurfaceIPCProfileSections::kPairBuildExternalOverlappingObstacles,
-      static_cast<std::uint64_t>(overlappingObstacles.size()));
-
   if (overlappingObstacles.empty()) {
-    recordPairQueryCounters(ptProfileNames, PairQueryCounts{}, 0);
-    recordPairQueryCounters(tpProfileNames, PairQueryCounts{}, 0);
-    recordPairQueryCounters(eeProfileNames, PairQueryCounts{}, 0);
     return;
   }
 
   std::vector<SpatialHashGrid::AABB> dynTriBox(nDynTri);
   std::vector<SpatialHashGrid::AABB> dynEdgeBox(nDynEdge);
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalAABB);
     buildTriangleAABBs(dynTriBox, nDynTri, topology.triangles, getV, inflate);
     buildEdgeAABBs(dynEdgeBox, nDynEdge, topology.edges, getV, inflate);
   }
@@ -117,27 +89,19 @@ void buildExternalPairs(
 
     // ---- External PT: dyn vertex x obs triangle ----
     {
-      Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalPT);
       const SpatialHashGrid &obsTriHash = poseCache.triHash;
 
-      const std::size_t acceptedBefore = pairs.ptPairs.size();
-      const PairQueryCounts counts = collectHashPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
+      collectPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<ExternalPTPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<ExternalPTPair> &localPairs) {
           for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              obsTriHash.queryOverlapping(dynVertBox[vi], obsTriBox, -1, visited, vi + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            obsTriHash.queryOverlapping(dynVertBox[vi], obsTriBox, -1, visited, vi + 1, candidates);
 
             EigenSupport::V3d vp = getV(vi);
             for (int fi : candidates) {
-              if (profilingEnabled)
-                localCounts.exactTests += 1;
               EigenSupport::V3d vt0 = obsVtx(obsPos, obs.triangles()(fi, 0));
               EigenSupport::V3d vt1 = obsVtx(obsPos, obs.triangles()(fi, 1));
               EigenSupport::V3d vt2 = obsVtx(obsPos, obs.triangles()(fi, 2));
@@ -152,34 +116,25 @@ void buildExternalPairs(
           }
         },
         pairs.ptPairs);
-      recordPairQueryCounters(ptProfileNames, counts, pairs.ptPairs.size() - acceptedBefore);
     }
 
     // ---- External TP: obs vertex x dyn triangle ----
     {
-      Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalTP);
       SpatialHashGrid dynTriHash(nDynTri);
       dynTriHash.setCellSize(cellSize);
       dynTriHash.build(dynTriBox);
 
-      const std::size_t acceptedBefore = pairs.tpPairs.size();
-      const PairQueryCounts counts = collectHashPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
+      collectPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<ExternalTPPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<ExternalTPPair> &localPairs) {
           for (int ovi = rangeBegin; ovi < rangeEnd; ++ovi) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              dynTriHash.queryOverlapping(obsVertBox[ovi], dynTriBox, -1, visited, ovi + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            dynTriHash.queryOverlapping(obsVertBox[ovi], dynTriBox, -1, visited, ovi + 1, candidates);
 
             EigenSupport::V3d vp = obsVtx(obsPos, ovi);
             for (int fi : candidates) {
-              if (profilingEnabled)
-                localCounts.exactTests += 1;
               auto &tri = topology.triangles[fi];
               EigenSupport::V3d vt0 = getV(tri[0]);
               EigenSupport::V3d vt1 = getV(tri[1]);
@@ -194,33 +149,24 @@ void buildExternalPairs(
           }
         },
         pairs.tpPairs);
-      recordPairQueryCounters(tpProfileNames, counts, pairs.tpPairs.size() - acceptedBefore);
     }
 
     // ---- External EE: dyn edge x obs edge ----
     {
-      Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalEE);
       const SpatialHashGrid &obsEdgeHash = poseCache.edgeHash;
 
-      const std::size_t acceptedBefore = pairs.eePairs.size();
-      const PairQueryCounts counts = collectHashPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
+      collectPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<ExternalEEPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<ExternalEEPair> &localPairs) {
           for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              obsEdgeHash.queryOverlapping(dynEdgeBox[ei], obsEdgeBox, -1, visited, ei + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            obsEdgeHash.queryOverlapping(dynEdgeBox[ei], obsEdgeBox, -1, visited, ei + 1, candidates);
 
             int a0 = topology.edges[ei][0], a1 = topology.edges[ei][1];
             EigenSupport::V3d va0 = getV(a0), va1 = getV(a1);
             for (int ej : candidates) {
-              if (profilingEnabled)
-                localCounts.exactTests += 1;
               int b0 = obsContactEdges(ej, 0);
               int b1 = obsContactEdges(ej, 1);
               EigenSupport::V3d vb0 = obsVtx(obsPos, b0), vb1 = obsVtx(obsPos, b1);
@@ -234,7 +180,6 @@ void buildExternalPairs(
           }
         },
         pairs.eePairs);
-      recordPairQueryCounters(eeProfileNames, counts, pairs.eePairs.size() - acceptedBefore);
     }
   }
 }
@@ -252,23 +197,6 @@ void buildExternalPairsLineSearchSuperset(
   if (obstacles.empty())
     return;
 
-  Profiling::ScopedProfileSection scopedExternalProfile(SurfaceIPCProfileSections::kPairBuildExternal);
-  const bool profilingEnabled = Profiling::isProfilingEnabled();
-  const PairQueryProfileNames ptProfileNames{
-    SurfaceIPCProfileSections::kPairBuildExternalPTHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildExternalPTDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildExternalPTAcceptedPairs,
-  };
-  const PairQueryProfileNames tpProfileNames{
-    SurfaceIPCProfileSections::kPairBuildExternalTPHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildExternalTPDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildExternalTPAcceptedPairs,
-  };
-  const PairQueryProfileNames eeProfileNames{
-    SurfaceIPCProfileSections::kPairBuildExternalEEHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildExternalEEDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildExternalEEAcceptedPairs,
-  };
 
   auto getV = [&](int i) -> EigenSupport::V3d {
     return positions.segment<3>(3 * i);
@@ -282,7 +210,6 @@ void buildExternalPairsLineSearchSuperset(
 
   std::vector<SpatialHashGrid::AABB> dynVertBox(topology.numVerts);
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalAABB);
     buildSweptVertexAABBs(dynVertBox, topology.numVerts, getV, getDV, dhatExternal);
   }
 
@@ -298,21 +225,13 @@ void buildExternalPairsLineSearchSuperset(
     overlappingObstacles.push_back(&obs);
   }
 
-  if (profilingEnabled)
-    Profiling::recordProfileCounter(SurfaceIPCProfileSections::kPairBuildExternalOverlappingObstacles,
-      static_cast<std::uint64_t>(overlappingObstacles.size()));
-
   if (overlappingObstacles.empty()) {
-    recordPairQueryCounters(ptProfileNames, PairQueryCounts{}, 0);
-    recordPairQueryCounters(tpProfileNames, PairQueryCounts{}, 0);
-    recordPairQueryCounters(eeProfileNames, PairQueryCounts{}, 0);
     return;
   }
 
   std::vector<SpatialHashGrid::AABB> dynTriBox(nDynTri);
   std::vector<SpatialHashGrid::AABB> dynEdgeBox(nDynEdge);
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalAABB);
     buildSweptTriangleAABBs(dynTriBox, nDynTri, topology.triangles, getV, getDV, dhatExternal);
     buildSweptEdgeAABBs(dynEdgeBox, nDynEdge, topology.edges, getV, getDV, dhatExternal);
   }
@@ -336,22 +255,16 @@ void buildExternalPairsLineSearchSuperset(
     const double cellSize = poseCache.cellSize > 0.0 ? poseCache.cellSize : std::max(1e-6, dhatExternal);
 
     {
-      Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalPT);
       const SpatialHashGrid &obsTriHash = poseCache.triHash;
 
-      const std::size_t acceptedBefore = pairs.ptPairs.size();
-      const PairQueryCounts counts = collectHashPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
+      collectPairsParallel<ExternalPTPair>(nObsTri, 0, topology.numVerts,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<ExternalPTPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<ExternalPTPair> &localPairs) {
           for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              obsTriHash.queryOverlapping(dynVertBox[vi], obsTriBox, -1, visited, vi + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            obsTriHash.queryOverlapping(dynVertBox[vi], obsTriBox, -1, visited, vi + 1, candidates);
 
             for (int fi : candidates) {
               const double w = topology.vertexArea[vi] * obsTriArea[fi];
@@ -362,28 +275,21 @@ void buildExternalPairsLineSearchSuperset(
           }
         },
         pairs.ptPairs);
-      recordPairQueryCounters(ptProfileNames, counts, pairs.ptPairs.size() - acceptedBefore);
     }
 
     {
-      Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalTP);
       SpatialHashGrid dynTriHash(nDynTri);
       dynTriHash.setCellSize(cellSize);
       dynTriHash.build(dynTriBox);
 
-      const std::size_t acceptedBefore = pairs.tpPairs.size();
-      const PairQueryCounts counts = collectHashPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
+      collectPairsParallel<ExternalTPPair>(nDynTri, 0, nObsVert,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<ExternalTPPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<ExternalTPPair> &localPairs) {
           for (int ovi = rangeBegin; ovi < rangeEnd; ++ovi) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              dynTriHash.queryOverlapping(obsVertBox[ovi], dynTriBox, -1, visited, ovi + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            dynTriHash.queryOverlapping(obsVertBox[ovi], dynTriBox, -1, visited, ovi + 1, candidates);
 
             for (int fi : candidates) {
               auto &tri = topology.triangles[fi];
@@ -394,26 +300,19 @@ void buildExternalPairsLineSearchSuperset(
           }
         },
         pairs.tpPairs);
-      recordPairQueryCounters(tpProfileNames, counts, pairs.tpPairs.size() - acceptedBefore);
     }
 
     {
-      Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildExternalEE);
       const SpatialHashGrid &obsEdgeHash = poseCache.edgeHash;
 
-      const std::size_t acceptedBefore = pairs.eePairs.size();
-      const PairQueryCounts counts = collectHashPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
+      collectPairsParallel<ExternalEEPair>(nObsEdge, 0, nDynEdge,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<ExternalEEPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<ExternalEEPair> &localPairs) {
           for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              obsEdgeHash.queryOverlapping(dynEdgeBox[ei], obsEdgeBox, -1, visited, ei + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            obsEdgeHash.queryOverlapping(dynEdgeBox[ei], obsEdgeBox, -1, visited, ei + 1, candidates);
 
             const int a0 = topology.edges[ei][0];
             const int a1 = topology.edges[ei][1];
@@ -427,7 +326,6 @@ void buildExternalPairsLineSearchSuperset(
           }
         },
         pairs.eePairs);
-      recordPairQueryCounters(eeProfileNames, counts, pairs.eePairs.size() - acceptedBefore);
     }
   }
 }

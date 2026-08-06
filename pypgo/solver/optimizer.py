@@ -12,9 +12,9 @@ from __future__ import annotations
 import pypgo._core as _core
 from pypgo.solver.base import Optimizer
 from pypgo.solver.damping import Damping, NoDamping
-from pypgo.solver.line_search import Backtrack, LineSearch
+from pypgo.solver.line_search import LineSearch, Simple
 from pypgo.solver.sparse_solver import Auto, SparseSolver
-from pypgo.solver.termination import FixedTermination, Termination
+from pypgo.solver.termination import Termination
 
 
 class NewtonOptimizer(Optimizer):
@@ -27,14 +27,17 @@ class NewtonOptimizer(Optimizer):
     ``line_search`` takes a :class:`pypgo.solver.LineSearch` instance — e.g.
     ``ps.Backtrack(armijo_c=1e-4)``, ``ps.Simple(max_iterations=50)``,
     ``ps.Golden()`` or ``ps.Brents()`` — which binds the concrete C++ policy
-    and its parameters.  Defaults to ``Backtrack()``.
+    and its parameters.  Defaults to ``Simple()``.
 
     ``damping`` takes a :class:`pypgo.solver.Damping` instance — e.g.
     ``ps.FixedDamping(damping_scale=2.0)`` or ``ps.NoDamping()``.
     Defaults to ``NoDamping()``.
 
     ``termination`` takes a :class:`pypgo.solver.Termination` instance —
-    e.g. ``ps.DefaultTermination()``.  Defaults to ``DefaultTermination()``.
+    e.g. ``ps.HybridTermination()``, ``ps.AbsoluteTermination()`` or
+    ``ps.RelativeTermination()`` and is **required**: it owns all
+    convergence tolerances (the optimizer has no separate
+    ``gradient_tolerance`` option).
 
     ``sparse_solver`` takes a :class:`pypgo.solver.SparseSolver` instance —
     ``ps.Auto()``, ``ps.EigenLDLT()``, ``ps.MKLPardiso()`` or
@@ -43,11 +46,15 @@ class NewtonOptimizer(Optimizer):
 
     """
 
-    def __init__(self, *, max_iterations=50, gradient_tolerance=1e-6,
-                 line_search=None, damping=None, termination=None,
+    def __init__(self, *, max_iterations=50, termination,
+                 line_search=None, damping=None,
                  verbose=0, sparse_solver=None):
+        if termination is None:
+            raise TypeError(
+                "termination is required (e.g. "
+                "ps.AbsoluteTermination(abs_tolerance=1e-6))")
         if line_search is None:
-            line_search = Backtrack()
+            line_search = Simple()
         if not isinstance(line_search, LineSearch):
             raise TypeError(
                 "line_search must be a pypgo.solver.LineSearch policy "
@@ -60,12 +67,10 @@ class NewtonOptimizer(Optimizer):
                 "damping must be a pypgo.solver.Damping policy "
                 "(e.g. ps.FixedDamping(), ps.NoDamping()), "
                 f"got {type(damping).__name__}")
-        if termination is None:
-            termination = FixedTermination()
         if not isinstance(termination, Termination):
             raise TypeError(
                 "termination must be a pypgo.solver.Termination policy "
-                "(e.g. ps.DefaultTermination()), "
+                "(e.g. ps.AbsoluteTermination()), "
                 f"got {type(termination).__name__}")
         if sparse_solver is None:
             sparse_solver = Auto()
@@ -76,7 +81,6 @@ class NewtonOptimizer(Optimizer):
                 f"got {type(sparse_solver).__name__}")
         options = _core.PyNewtonOptimizerOptions()
         options.max_iterations = int(max_iterations)
-        options.gradient_tolerance = float(gradient_tolerance)
         options.line_search = line_search
         options.damping = damping
         options.termination = termination

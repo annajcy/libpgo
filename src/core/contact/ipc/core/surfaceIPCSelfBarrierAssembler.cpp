@@ -1,8 +1,6 @@
 #include "surfaceIPCSelfBarrierAssembler.h"
 #include "surfaceIPCBarrierKernels.h"
 
-#include "scopedProfileSection.h"
-#include "ipc/profiling/surfaceIPCProfiling.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
@@ -162,8 +160,6 @@ static void buildSelfHessianFromThreadRows(
   Eigen::Index n,
   SpMatD &hess)
 {
-  Profiling::ScopedProfileSection assemblyProfile(
-    SurfaceIPCProfileSections::kActiveSetSelfDirectRowAssembly);
 
   std::vector<SelfHessianThreadRows *> scratchRows;
   for (SelfHessianThreadRows &scratch : threadRows)
@@ -173,8 +169,6 @@ static void buildSelfHessianFromThreadRows(
   std::uint64_t contributionCount = 0;
   std::uint64_t activeRows = 0;
   {
-    Profiling::ScopedProfileSection mergeProfile(
-      SurfaceIPCProfileSections::kActiveSetSelfThreadRowMerge);
 
     const RowMergeStats mergeStats =
       tbb::parallel_reduce(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, n, 1), RowMergeStats{}, [pgoRangeFn = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd, RowMergeStats localStats) {
@@ -210,8 +204,6 @@ static void buildSelfHessianFromThreadRows(
   }
 
   {
-    Profiling::ScopedProfileSection reduceProfile(
-      SurfaceIPCProfileSections::kActiveSetSelfRowSortReduce);
     tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, n, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
       for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
         std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
@@ -248,15 +240,9 @@ static void buildSelfHessianFromThreadRows(
   }
 
   {
-    Profiling::ScopedProfileSection fillProfile(
-      SurfaceIPCProfileSections::kActiveSetSelfDirectSparseFill);
     fillSparseRowsDirect(rowBuffers, n, outputNnz, hess);
   }
 
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kActiveSetSelfDirectRowContributions, contributionCount);
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kActiveSetSelfDirectActiveRows, activeRows);
 }
 
 // =========================================================================
@@ -432,11 +418,6 @@ void computeSelfAll(
   int nEE = (int)pairs.eePairs.size();
   int totalPairs = nPT + nEE;
 
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetSelfCombined);
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kActiveSetSelfPTPairCount, static_cast<std::uint64_t>(nPT));
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kActiveSetSelfEEPairCount, static_cast<std::uint64_t>(nEE));
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kActiveSetSelfTripletSlots, static_cast<std::uint64_t>(144 * totalPairs));
 
   energy = 0.0;
   grad.setZero(n);
@@ -448,7 +429,6 @@ void computeSelfAll(
   // ---- PT pairs ----
   double ptEnergy = 0.0;
   {
-    Profiling::ScopedProfileSection ptProfile(SurfaceIPCProfileSections::kActiveSetSelfPTCombined);
     ptEnergy = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nPT, 1), 0.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localE) {
       std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
       for (int i = rangeBegin; i < rangeEnd; ++i) {
@@ -471,7 +451,6 @@ void computeSelfAll(
   // ---- EE pairs ----
   double eeEnergy = 0.0;
   {
-    Profiling::ScopedProfileSection eeProfile(SurfaceIPCProfileSections::kActiveSetSelfEECombined);
     eeEnergy = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nEE, 1), 0.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localE) {
       std::vector<std::vector<RowValue>> &rows = threadRows.local().rows;
       for (int i = rangeBegin; i < rangeEnd; ++i) {
@@ -494,8 +473,6 @@ void computeSelfAll(
   energy = ptEnergy + eeEnergy;
 
   buildSelfHessianFromThreadRows(threadRows, n, hess);
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kActiveSetSelfHessianNnz, static_cast<std::uint64_t>(hess.nonZeros()));
 }
 
 }  // namespace IPC

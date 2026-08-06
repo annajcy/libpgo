@@ -2,13 +2,10 @@
 
 #include "ipc/broadPhase/spatialHashGrid.h"
 #include "ipc/geometry/ipcCCD.h"
-#include "scopedProfileSection.h"
-#include "ipc/profiling/surfaceIPCProfiling.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
 #include <algorithm>
-#include <cstdint>
 #include <functional>
 #include <string_view>
 #include <vector>
@@ -27,39 +24,6 @@ using namespace pgo::EigenSupport;
 
 namespace
 {
-struct PairQueryCounts
-{
-  std::uint64_t hashCandidates = 0;
-  std::uint64_t exactTests = 0;
-};
-
-void addCounts(PairQueryCounts &dst, const PairQueryCounts &src)
-{
-  dst.hashCandidates += src.hashCandidates;
-  dst.exactTests += src.exactTests;
-}
-
-template<typename ThreadLocalCounts>
-PairQueryCounts sumCounts(const ThreadLocalCounts &tlsCounts)
-{
-  PairQueryCounts counts;
-  for (const auto &localCounts : tlsCounts)
-    addCounts(counts, localCounts);
-  return counts;
-}
-
-void recordQueryCounters(
-  std::string_view hashCandidateName,
-  std::string_view exactTestName,
-  const PairQueryCounts &counts)
-{
-  if (!Profiling::isProfilingEnabled())
-    return;
-
-  Profiling::recordProfileCounter(hashCandidateName, counts.hashCandidates);
-  Profiling::recordProfileCounter(exactTestName, counts.exactTests);
-}
-
 bool computeUnionAABB(
   const std::vector<SpatialHashGrid::AABB> &boxes,
   SpatialHashGrid::AABB &out)
@@ -90,7 +54,6 @@ double computeSelfMaxStep(
   double thickness)
 {
   const VXd pos = VXd(x);
-  const bool profilingEnabled = Profiling::isProfilingEnabled();
 
   auto getV = [&](int i) -> V3d {
     return pos.segment<3>(3 * i);
@@ -108,7 +71,6 @@ double computeSelfMaxStep(
   double cellSize = 0.0;
 
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildSwept);
 
     // Inflate swept AABBs by `thickness` on every side so the broad-phase
     // prune stays sound for min-separation CCD (contact at distance == thickness).
@@ -152,7 +114,6 @@ double computeSelfMaxStep(
 
   // --- PT CCD ---
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kMaxStepPT);
 
     SpatialHashGrid triHash(nTri);
     triHash.setCellSize(cellSize);
@@ -161,18 +122,14 @@ double computeSelfMaxStep(
     tbb::enumerable_thread_specific<std::vector<int>> tls_visited(
       [nTri]() { return std::vector<int>(nTri, 0); });
     tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
-    tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
     alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, topology.numVerts, 1), 1.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
       auto &visited = tls_visited.local();
       auto &candidates = tls_candidates.local();
-      auto &localCounts = tls_counts.local();
 
       for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
         candidates.clear();
         triHash.query(vertBox[vi], -1, visited, vi + 1, candidates);
-        if (profilingEnabled)
-          localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
 
         V3d p = getV(vi), dp = getdV(vi);
         for (int fi : candidates) {
@@ -182,8 +139,6 @@ double computeSelfMaxStep(
           if (!vertBox[vi].overlaps(triBox[fi]))
             continue;
 
-          if (profilingEnabled)
-            localCounts.exactTests += 1;
           V3d t0 = getV(tri[0]), dt0 = getdV(tri[0]);
           V3d t1 = getV(tri[1]), dt1 = getdV(tri[1]);
           V3d t2 = getV(tri[2]), dt2 = getdV(tri[2]);
@@ -201,15 +156,10 @@ double computeSelfMaxStep(
         return std::min(a, b);
       }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
-    recordQueryCounters(
-      SurfaceIPCProfileSections::kMaxStepSelfPTHashCandidates,
-      SurfaceIPCProfileSections::kMaxStepSelfPTCCDTests,
-      sumCounts(tls_counts));
   }
 
   // --- EE CCD ---
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kMaxStepEE);
 
     SpatialHashGrid edgeHash(nEdge);
     edgeHash.setCellSize(cellSize);
@@ -218,18 +168,14 @@ double computeSelfMaxStep(
     tbb::enumerable_thread_specific<std::vector<int>> tls_visited(
       [nEdge]() { return std::vector<int>(nEdge, 0); });
     tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
-    tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
     alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nEdge, 1), alpha, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
       auto &visited = tls_visited.local();
       auto &candidates = tls_candidates.local();
-      auto &localCounts = tls_counts.local();
 
       for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
         candidates.clear();
         edgeHash.queryAfter(edgeBox[ei], ei, visited, ei + 1, candidates);
-        if (profilingEnabled)
-          localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
 
         int a0 = topology.edges[ei][0], a1 = topology.edges[ei][1];
         V3d va0 = getV(a0), va1 = getV(a1);
@@ -241,8 +187,6 @@ double computeSelfMaxStep(
           if (!edgeBox[ei].overlaps(edgeBox[ej]))
             continue;
 
-          if (profilingEnabled)
-            localCounts.exactTests += 1;
           V3d vb0 = getV(b0), vb1 = getV(b1);
           V3d db0 = getdV(b0), db1 = getdV(b1);
 
@@ -259,10 +203,6 @@ double computeSelfMaxStep(
         return std::min(a, b);
       }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
-    recordQueryCounters(
-      SurfaceIPCProfileSections::kMaxStepSelfEEHashCandidates,
-      SurfaceIPCProfileSections::kMaxStepSelfEECCDTests,
-      sumCounts(tls_counts));
   }
 
   return alpha;
@@ -286,7 +226,6 @@ double computeExternalMaxStep(
 
   double alpha = 1.0;
   const VXd pos = VXd(x);
-  const bool profilingEnabled = Profiling::isProfilingEnabled();
 
   auto getV = [&](int i) -> V3d {
     return pos.segment<3>(3 * i);
@@ -320,23 +259,7 @@ double computeExternalMaxStep(
     overlappingObstacles.push_back(&obs);
   }
 
-  if (profilingEnabled)
-    Profiling::recordProfileCounter(SurfaceIPCProfileSections::kMaxStepExternalOverlappingObstacles,
-      static_cast<std::uint64_t>(overlappingObstacles.size()));
-
   if (overlappingObstacles.empty()) {
-    recordQueryCounters(
-      SurfaceIPCProfileSections::kMaxStepExternalPTHashCandidates,
-      SurfaceIPCProfileSections::kMaxStepExternalPTCCDTests,
-      PairQueryCounts{});
-    recordQueryCounters(
-      SurfaceIPCProfileSections::kMaxStepExternalTPHashCandidates,
-      SurfaceIPCProfileSections::kMaxStepExternalTPCCDTests,
-      PairQueryCounts{});
-    recordQueryCounters(
-      SurfaceIPCProfileSections::kMaxStepExternalEEHashCandidates,
-      SurfaceIPCProfileSections::kMaxStepExternalEECCDTests,
-      PairQueryCounts{});
     return alpha;
   }
 
@@ -400,26 +323,20 @@ double computeExternalMaxStep(
       tbb::enumerable_thread_specific<std::vector<int>> tls_visited(
         [nObsTri]() { return std::vector<int>(nObsTri, 0); });
       tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
-      tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
       alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, topology.numVerts, 1), alpha, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
         auto &visited = tls_visited.local();
         auto &candidates = tls_candidates.local();
-        auto &localCounts = tls_counts.local();
 
         for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
           candidates.clear();
           obsTriHash.query(dynVertBox[vi], -1, visited, vi + 1, candidates);
-          if (profilingEnabled)
-            localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
 
           V3d p = getV(vi), dp = getdV(vi);
           for (int fi : candidates) {
             if (!dynVertBox[vi].overlaps(obsTriBox[fi]))
               continue;
 
-            if (profilingEnabled)
-              localCounts.exactTests += 1;
             V3d t0 = obsV(obs.triangles()(fi, 0));
             V3d t1 = obsV(obs.triangles()(fi, 1));
             V3d t2 = obsV(obs.triangles()(fi, 2));
@@ -439,10 +356,6 @@ double computeExternalMaxStep(
           return std::min(a, b);
         }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
-      recordQueryCounters(
-        SurfaceIPCProfileSections::kMaxStepExternalPTHashCandidates,
-        SurfaceIPCProfileSections::kMaxStepExternalPTCCDTests,
-        sumCounts(tls_counts));
     }
 
     // --- External TP CCD ---
@@ -454,26 +367,20 @@ double computeExternalMaxStep(
       tbb::enumerable_thread_specific<std::vector<int>> tls_visited(
         [nDynTri]() { return std::vector<int>(nDynTri, 0); });
       tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
-      tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
       alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nObsVert, 1), alpha, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
         auto &visited = tls_visited.local();
         auto &candidates = tls_candidates.local();
-        auto &localCounts = tls_counts.local();
 
         for (int ovi = rangeBegin; ovi < rangeEnd; ++ovi) {
           candidates.clear();
           dynTriHash.query(obsVertBox[ovi], -1, visited, ovi + 1, candidates);
-          if (profilingEnabled)
-            localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
 
           V3d p = obsV(ovi), dp = obsDisp(ovi);
           for (int fi : candidates) {
             if (!obsVertBox[ovi].overlaps(dynTriBox[fi]))
               continue;
 
-            if (profilingEnabled)
-              localCounts.exactTests += 1;
             auto &tri = topology.triangles[fi];
             V3d t0 = getV(tri[0]);
             V3d t1 = getV(tri[1]);
@@ -494,10 +401,6 @@ double computeExternalMaxStep(
           return std::min(a, b);
         }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
-      recordQueryCounters(
-        SurfaceIPCProfileSections::kMaxStepExternalTPHashCandidates,
-        SurfaceIPCProfileSections::kMaxStepExternalTPCCDTests,
-        sumCounts(tls_counts));
     }
 
     // --- External EE CCD ---
@@ -507,18 +410,14 @@ double computeExternalMaxStep(
       tbb::enumerable_thread_specific<std::vector<int>> tls_visited(
         [nObsEdge]() { return std::vector<int>(nObsEdge, 0); });
       tbb::enumerable_thread_specific<std::vector<int>> tls_candidates;
-      tbb::enumerable_thread_specific<PairQueryCounts> tls_counts;
 
       alpha = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nDynEdge, 1), alpha, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localAlpha) {
         auto &visited = tls_visited.local();
         auto &candidates = tls_candidates.local();
-        auto &localCounts = tls_counts.local();
 
         for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
           candidates.clear();
           obsEdgeHash.query(dynEdgeBox[ei], -1, visited, ei + 1, candidates);
-          if (profilingEnabled)
-            localCounts.hashCandidates += static_cast<std::uint64_t>(candidates.size());
 
           int a0 = topology.edges[ei][0], a1 = topology.edges[ei][1];
           V3d va0 = getV(a0), va1 = getV(a1);
@@ -527,8 +426,6 @@ double computeExternalMaxStep(
             if (!dynEdgeBox[ei].overlaps(obsEdgeBox[ej]))
               continue;
 
-            if (profilingEnabled)
-              localCounts.exactTests += 1;
             int b0 = obsContactEdges(ej, 0);
             int b1 = obsContactEdges(ej, 1);
             V3d vb0 = obsV(b0), vb1 = obsV(b1);
@@ -546,10 +443,6 @@ double computeExternalMaxStep(
           return std::min(a, b);
         }](auto pgoLeft, auto pgoRight) { return pgoJoinFn(std::move(pgoLeft), std::move(pgoRight)); });
 
-      recordQueryCounters(
-        SurfaceIPCProfileSections::kMaxStepExternalEEHashCandidates,
-        SurfaceIPCProfileSections::kMaxStepExternalEECCDTests,
-        sumCounts(tls_counts));
     }
   }
 

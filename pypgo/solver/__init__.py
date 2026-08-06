@@ -36,18 +36,21 @@ from pypgo.solver.sparse_solver import (
     SparseSolver,
 )
 from pypgo.solver.termination import (
-    FixedTermination,
+    AbsoluteTermination,
+    HybridTermination,
+    RelativeTermination,
     Termination,
 )
 from pypgo.solver.optimizer import NewtonOptimizer
 
 __all__ = [
+    "AbsoluteTermination",
     "Auto",
     "Backtrack",
     "Bounds",
     "Brents",
     "Damping",
-    "FixedTermination",
+    "HybridTermination",
     "EigenLDLT",
     "FixedDamping",
     "Golden",
@@ -58,6 +61,7 @@ __all__ = [
     "OptimizationProblem",
     "Optimizer",
     "OrigPardiso",
+    "RelativeTermination",
     "Simple",
     "SolveDiagnostics",
     "SolveStatus",

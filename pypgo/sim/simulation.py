@@ -120,7 +120,11 @@ class DynamicSimulation:
         fixed_values: np.ndarray | Sequence[float] | None = None,
         optimizer: _solver.Optimizer | None = None,
     ) -> DynamicFrame:
-        optimizer = optimizer if optimizer is not None else _solver.NewtonOptimizer()
+        optimizer = (
+            optimizer if optimizer is not None
+            else _solver.NewtonOptimizer(
+                termination=_solver.AbsoluteTermination(abs_tolerance=1e-6))
+        )
         if not isinstance(optimizer, _solver.Optimizer):
             raise TypeError("optimizer must be a pypgo.solver.Optimizer")
 

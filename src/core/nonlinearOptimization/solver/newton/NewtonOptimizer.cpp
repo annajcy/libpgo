@@ -43,8 +43,9 @@ OptimizationResult NewtonOptimizer::solve(
   if (options_.maxIterations < 0) {
     throw std::invalid_argument("NewtonOptimizer maxIterations must be non-negative");
   }
-  if (options_.gradientTolerance < 0.0) {
-    throw std::invalid_argument("NewtonOptimizer gradientTolerance must be non-negative");
+  if (!options_.termination) {
+    throw std::invalid_argument(
+      "NewtonOptimizer requires a termination policy");
   }
   if (options_.verbose < 0) {
     throw std::invalid_argument("NewtonOptimizer verbose must be non-negative");
@@ -82,7 +83,6 @@ OptimizationResult NewtonOptimizer::solve(
   SolverResult solverResult = solver.solve(
     x.data(),
     options_.maxIterations,
-    options_.gradientTolerance,
     options_.verbose);
 
   OptimizationResult result;

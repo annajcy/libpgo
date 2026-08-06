@@ -1,7 +1,5 @@
 #include "surfaceDofMap.h"
 
-#include "ipc/profiling/surfaceIPCProfiling.h"
-#include "scopedProfileSection.h"
 
 #include <tbb/enumerable_thread_specific.h>
 
@@ -115,8 +113,6 @@ void fillSimulationHessianDirect(
 
   std::vector<StorageIndex> outerOffsets;
   {
-    Profiling::ScopedProfileSection profile(
-      SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillPrepare);
 
     (void)checkedStorageIndexFromEigenIndex(numOutputRows, "row count");
     const StorageIndex totalNnzStorage = checkedStorageIndexFromUint64(outputNnz, "nonzero count");
@@ -137,17 +133,9 @@ void fillSimulationHessianDirect(
     simulationHessian.resizeNonZeros(totalNnz);
     std::copy(outerOffsets.begin(), outerOffsets.end(), simulationHessian.outerIndexPtr());
 
-    Profiling::recordProfileCounter(
-      SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillEnabled, 1u);
-    Profiling::recordProfileCounter(
-      SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillNnz, outputNnz);
-    Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillRows,
-      static_cast<std::uint64_t>(numOutputRows));
   }
 
   {
-    Profiling::ScopedProfileSection profile(
-      SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillValues);
     tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, numOutputRows, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
       for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
         const std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
@@ -246,13 +234,11 @@ void SurfaceDofMap::parallelSurfaceHessianMapMultiply(
   std::vector<std::uint64_t> rowContributionCounts;
 
   {
-    Profiling::ScopedProfileSection profile("workspace_prepare");
     rowBuffers.resize(static_cast<std::size_t>(numRows));
     rowContributionCounts.assign(static_cast<std::size_t>(numRows), 0u);
   }
 
   {
-    Profiling::ScopedProfileSection profile("row_build");
     tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, numRows, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
       for (Eigen::Index row = rangeBegin; row < rangeEnd; ++row) {
         std::vector<RowValue> &rowBuffer = rowBuffers[static_cast<std::size_t>(row)];
@@ -310,12 +296,9 @@ void SurfaceDofMap::parallelSurfaceHessianMapMultiply(
   }
 
   {
-    Profiling::ScopedProfileSection profile("output_fill");
     fillSparseRowsDirect(rowBuffers, numRows, numCols, outputNnz, tmp);
   }
 
-  Profiling::recordProfileCounter("contact.adapter.pullback_hessian.tmp_contribution_count", contributionCount);
-  Profiling::recordProfileCounter("contact.adapter.pullback_hessian.tmp_active_rows", activeRows);
 }
 
 void SurfaceDofMap::parallelTransposeMapMultiply(
@@ -349,10 +332,7 @@ void SurfaceDofMap::parallelTransposeMapMultiply(
   tbb::enumerable_thread_specific<ThreadScratch> threadScratch;
 
   {
-    Profiling::ScopedProfileSection profile(SurfaceIPCProfileSections::kAdapterPullbackHessianRowBuild);
     {
-      Profiling::ScopedProfileSection prepareProfile(
-        SurfaceIPCProfileSections::kAdapterPullbackHessianWorkspacePrepare);
       rowBuffers.resize(static_cast<std::size_t>(numOutputRows));
       rowContributionCounts.assign(static_cast<std::size_t>(numOutputRows), 0);
       rowMergeStreamCounts.assign(static_cast<std::size_t>(numOutputRows), 0);
@@ -360,7 +340,6 @@ void SurfaceDofMap::parallelTransposeMapMultiply(
     }
 
     {
-      Profiling::ScopedProfileSection mergeProfile(SurfaceIPCProfileSections::kAdapterPullbackHessianRowMerge);
       tbb::parallel_for(tbb::blocked_range<decltype(Eigen::Index{ 0 })>(Eigen::Index{ 0 }, numOutputRows, 1), [pgoBody = [&](Eigen::Index rangeBegin, Eigen::Index rangeEnd) {
         for (Eigen::Index outputRow = rangeBegin; outputRow < rangeEnd; ++outputRow) {
           const std::vector<SimulationMapRowEntry> &adjacentSurfaceRows =
@@ -453,20 +432,9 @@ void SurfaceDofMap::parallelTransposeMapMultiply(
   }
 
   {
-    Profiling::ScopedProfileSection profile(SurfaceIPCProfileSections::kAdapterPullbackHessianOutputFill);
     fillSimulationHessianDirect(rowBuffers, numOutputRows, outputNnz, simulationHessian);
   }
 
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianOutputNnz, outputNnz);
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kAdapterPullbackHessianContributionCount, contributionCount);
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kAdapterPullbackHessianActiveOutputRows, activeOutputRows);
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kAdapterPullbackHessianMergeStreamCount, mergeStreamCount);
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianMergeOutputNnz, outputNnz);
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kAdapterPullbackHessianWorkspaceReusedRows, workspaceReusedRows);
 }
 
 void SurfaceDofMap::validateSimulationDisplacementSize(EigenSupport::ConstRefVecXd simulationDisplacements) const
@@ -541,43 +509,19 @@ EigenSupport::VXd SurfaceDofMap::pullbackGradient(EigenSupport::ConstRefVecXd su
 void SurfaceDofMap::pullbackHessian(const EigenSupport::SpMatD &surfaceHessian, EigenSupport::SpMatD &simulationHessian) const
 {
   {
-    Profiling::ScopedProfileSection validateProfile(SurfaceIPCProfileSections::kAdapterPullbackHessianValidate);
     if (surfaceHessian.rows() != surfaceFromSimulationDispMap_.rows() ||
       surfaceHessian.cols() != surfaceFromSimulationDispMap_.rows())
       throw std::invalid_argument("Surface Hessian shape does not match SurfaceDofMap row count.");
   }
 
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianMapRows,
-    asCounter(surfaceFromSimulationDispMap_.rows()));
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianMapCols,
-    asCounter(surfaceFromSimulationDispMap_.cols()));
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianMapNnz,
-    asCounter(surfaceFromSimulationDispMap_.nonZeros()));
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianSurfaceHessianNnz,
-    asCounter(surfaceHessian.nonZeros()));
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianMapRowNnzMin,
-    surfaceFromSimulationDispMapRowNnzStats_.min);
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianMapRowNnzMax,
-    surfaceFromSimulationDispMapRowNnzStats_.max);
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianMapRowNnzTotal,
-    surfaceFromSimulationDispMapRowNnzStats_.total);
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianMapRowNnzNonzeroRows,
-    surfaceFromSimulationDispMapRowNnzStats_.nonzeroRows);
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kAdapterPullbackHessianEnabled, 1u);
 
   EigenSupport::SpMatD tmp;
   {
-    Profiling::ScopedProfileSection multiplyProfile(
-      SurfaceIPCProfileSections::kAdapterPullbackHessianMultiplySurfaceHessianMap);
     parallelSurfaceHessianMapMultiply(surfaceHessian, tmp);
   }
   tmp.makeCompressed();
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianTmpNnz, asCounter(tmp.nonZeros()));
 
   parallelTransposeMapMultiply(tmp, simulationHessian);
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kAdapterPullbackHessianSimulationHessianNnz,
-    asCounter(simulationHessian.nonZeros()));
 }
 
 }  // namespace Contact

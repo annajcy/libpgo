@@ -43,10 +43,10 @@ public:
   void queryAfter(const AABB &box, int minPrimitiveId,
     std::vector<int> &visitedStamp, int stamp,
     std::vector<int> &result) const;
-  std::uint64_t queryOverlapping(const AABB &box, const std::vector<AABB> &candidateBoxes, int selfPrimitiveId,
+  void queryOverlapping(const AABB &box, const std::vector<AABB> &candidateBoxes, int selfPrimitiveId,
     std::vector<int> &visitedStamp, int stamp,
     std::vector<int> &result) const;
-  std::uint64_t queryOverlappingAfter(const AABB &box, const std::vector<AABB> &candidateBoxes, int minPrimitiveId,
+  void queryOverlappingAfter(const AABB &box, const std::vector<AABB> &candidateBoxes, int minPrimitiveId,
     std::vector<int> &visitedStamp, int stamp,
     std::vector<int> &result) const;
 
@@ -58,7 +58,7 @@ private:
   void queryFiltered(const AABB &box, int selfPrimitiveId, int minPrimitiveId,
     std::vector<int> &visitedStamp, int stamp,
     std::vector<int> &result) const;
-  std::uint64_t queryFilteredOverlapping(
+  void queryFilteredOverlapping(
     const AABB &box, const std::vector<AABB> &candidateBoxes, int selfPrimitiveId, int minPrimitiveId,
     std::vector<int> &visitedStamp, int stamp,
     std::vector<int> &result) const;

@@ -24,5 +24,5 @@ endforeach()
 
 pgo_add_gtest(ipcContactEnergy_gtest
   SOURCES ipcContactEnergy_gtest.cpp
-  DEPS contact profiling
+  DEPS contact
 )

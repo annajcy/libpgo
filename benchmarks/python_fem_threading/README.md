@@ -95,10 +95,6 @@ python benchmarks/python_fem_threading/run_python_fem_threading_benchmark.py \
 The Hermite Hessian template grows quickly with mesh size. Check memory usage
 before selecting the largest cubic assets.
 
-Add `--native-profile` for public `pypgo.profiling` section statistics. Profiling
-adds measurement overhead and should be collected in a separate run from the
-primary timing sweep.
-
 ## Result
 
 The runner writes `python-fem-threading.json` after every completed sample. It

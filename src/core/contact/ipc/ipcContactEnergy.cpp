@@ -4,8 +4,6 @@ copyright to Bohan Wang
 
 #include "ipc/ipcContactEnergy.h"
 
-#include "ipc/profiling/surfaceIPCProfiling.h"
-#include "scopedProfileSection.h"
 
 #include <stdexcept>
 #include <string>
@@ -55,14 +53,11 @@ const SurfaceIPCActiveSet &IPCContactEnergy::activeSetForEvaluation(EigenSupport
 
 double IPCContactEnergy::func(EigenSupport::ConstRefVecXd simulationDisplacements) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kAdapterFunc);
   EigenSupport::VXd surfacePositions;
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
   }
 
-  Profiling::ScopedProfileSection energyProfile(SurfaceIPCProfileSections::kEnergy);
   const SurfaceIPCActiveSet &activeSet = activeSetForEvaluation(surfacePositions);
   const std::vector<ObstacleSurfaceView> obstacleViews = pairGenerator_.obstacleViews();
   return assembler_.computeEnergy(pairGenerator_.topology(), obstacleViews, activeSet);
@@ -72,10 +67,8 @@ void IPCContactEnergy::gradient(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kAdapterGradient);
   EigenSupport::VXd surfacePositions;
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
   }
 
@@ -84,7 +77,6 @@ void IPCContactEnergy::gradient(
   const std::vector<ObstacleSurfaceView> obstacleViews = pairGenerator_.obstacleViews();
   assembler_.computeGradient(pairGenerator_.topology(), obstacleViews, activeSet, surfaceGradient);
 
-  Profiling::ScopedProfileSection pullbackProfile(SurfaceIPCProfileSections::kAdapterPullbackGradient);
   simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
 }
 
@@ -92,10 +84,8 @@ void IPCContactEnergy::hessian(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::SpMatD &simulationHessian) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kAdapterHessianDirect);
   EigenSupport::VXd surfacePositions;
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
   }
 
@@ -104,7 +94,6 @@ void IPCContactEnergy::hessian(
   const std::vector<ObstacleSurfaceView> obstacleViews = pairGenerator_.obstacleViews();
   assembler_.computeHessian(pairGenerator_.topology(), obstacleViews, activeSet, surfaceHessian);
 
-  Profiling::ScopedProfileSection pullbackProfile(SurfaceIPCProfileSections::kAdapterPullbackHessian);
   dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
 }
 
@@ -125,10 +114,8 @@ double IPCContactEnergy::funcGradient(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kAdapterGradient);
   EigenSupport::VXd surfacePositions;
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
   }
 
@@ -138,7 +125,6 @@ double IPCContactEnergy::funcGradient(
   const double surfaceEnergy = assembler_.computeEnergy(pairGenerator_.topology(), obstacleViews, activeSet);
   assembler_.computeGradient(pairGenerator_.topology(), obstacleViews, activeSet, surfaceGradient);
 
-  Profiling::ScopedProfileSection pullbackProfile(SurfaceIPCProfileSections::kAdapterPullbackGradient);
   simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
   return surfaceEnergy;
 }
@@ -148,10 +134,8 @@ double IPCContactEnergy::funcGradientHessian(
   EigenSupport::RefVecXd simulationGradient,
   EigenSupport::SpMatD &simulationHessian) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kAdapterHessianDirect);
   EigenSupport::VXd surfacePositions;
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
   }
 
@@ -163,11 +147,9 @@ double IPCContactEnergy::funcGradientHessian(
   assembler_.computeAll(pairGenerator_.topology(), obstacleViews, activeSet, surfaceEnergy, surfaceGradient, surfaceHessian);
 
   {
-    Profiling::ScopedProfileSection pullbackProfile(SurfaceIPCProfileSections::kAdapterPullbackGradient);
     simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
   }
   {
-    Profiling::ScopedProfileSection pullbackProfile(SurfaceIPCProfileSections::kAdapterPullbackHessian);
     dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
   }
   return surfaceEnergy;
@@ -178,10 +160,8 @@ void IPCContactEnergy::gradientHessian(
   EigenSupport::RefVecXd simulationGradient,
   EigenSupport::SpMatD &simulationHessian) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kAdapterHessianDirect);
   EigenSupport::VXd surfacePositions;
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
   }
 
@@ -193,11 +173,9 @@ void IPCContactEnergy::gradientHessian(
   assembler_.computeHessian(pairGenerator_.topology(), obstacleViews, activeSet, surfaceHessian);
 
   {
-    Profiling::ScopedProfileSection pullbackProfile(SurfaceIPCProfileSections::kAdapterPullbackGradient);
     simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
   }
   {
-    Profiling::ScopedProfileSection pullbackProfile(SurfaceIPCProfileSections::kAdapterPullbackHessian);
     dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
   }
 }
@@ -217,15 +195,12 @@ NonlinearOptimization::StepConstraint IPCContactEnergy::computeMaxStepLimit(
   EigenSupport::ConstRefVecXd trialSimulationDisplacements,
   NonlinearOptimization::StepConstraintSink *sink) const
 {
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kAdapterMaxStep);
   EigenSupport::VXd surfacePositions;
   EigenSupport::VXd trialSurfaceDisplacements;
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
   }
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     trialSurfaceDisplacements = dofMap_.surfaceDisplacements(trialSimulationDisplacements);
   }
   return pairGenerator_.computeMaxStepLimit(surfacePositions, trialSurfaceDisplacements, sink);
@@ -243,11 +218,9 @@ void IPCContactEnergy::beginLineSearch(
   EigenSupport::VXd surfacePositions;
   EigenSupport::VXd trialSurfaceDisplacements;
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     surfacePositions = dofMap_.surfacePositions(simulationDisplacements);
   }
   {
-    Profiling::ScopedProfileSection mapProfile(SurfaceIPCProfileSections::kAdapterMapToSurface);
     trialSurfaceDisplacements = dofMap_.surfaceDisplacements(trialSimulationDisplacements);
   }
   activeSetCache_.beginLineSearch(

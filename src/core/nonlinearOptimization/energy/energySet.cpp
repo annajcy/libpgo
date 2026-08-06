@@ -1,6 +1,5 @@
 #include "energy/energySet.h"
 #include "EigenSupport.h"
-#include "scopedProfileSection.h"
 
 #include <algorithm>
 #include <cmath>
@@ -192,7 +191,6 @@ void buildEnergySetHessianTemplateRowWise(
   // Fixed-term collection ──────────────────────────────────────────────────────
 
   {
-    Profiling::ScopedProfileSection fixedProfile("energy_set.fgh.cache.rebuild_template.row_collect_fixed");
 
     const auto nRows = static_cast<std::size_t>(nAll);
     const Eigen::Index fixedNnz = hessianAll.nonZeros();
@@ -240,7 +238,6 @@ void buildEnergySetHessianTemplateRowWise(
   // Dynamic-term collection ────────────────────────────────────────────────────
 
   {
-    Profiling::ScopedProfileSection dynamicProfile("energy_set.fgh.cache.rebuild_template.row_collect_dynamic");
 
     const auto nRows = static_cast<std::size_t>(nAll);
     const std::size_t nTerms = potentialEnergies.size();
@@ -300,7 +297,6 @@ void buildEnergySetHessianTemplateRowWise(
 
   std::vector<Eigen::Index> rowNonZeros(rowColumns.size(), 0);
   {
-    Profiling::ScopedProfileSection sortProfile("energy_set.fgh.cache.rebuild_template.row_sort_unique");
     tbb::parallel_for(std::size_t(0), rowColumns.size(), [&](std::size_t row) {
       auto &columns = rowColumns[row];
       std::sort(columns.begin(), columns.end());
@@ -311,7 +307,6 @@ void buildEnergySetHessianTemplateRowWise(
   const Eigen::Index totalNonZeros = std::accumulate(rowNonZeros.begin(), rowNonZeros.end(), Eigen::Index(0));
 
   {
-    Profiling::ScopedProfileSection insertProfile("energy_set.fgh.cache.rebuild_template.row_insert");
 
     // Build outer-index offsets via prefix sum over per-row nnz.
     std::vector<StorageIndex> outerOffsets(static_cast<std::size_t>(nAll) + 1u);
@@ -691,7 +686,6 @@ double EnergySet::funcGradientHessian(
   EigenSupport::RefVecXd grad,
   EigenSupport::SpMatD &hess) const
 {
-  Profiling::ScopedProfileSection profile("energy_set.funcGradientHessian");
 
   auto assembleCachedHessian = [&](ES::SpMatD &cachedHessian) {
     DynamicAssemblyCache &cache = buffer_->dynamicAssemblyCache;
@@ -700,7 +694,6 @@ double EnergySet::funcGradientHessian(
       cache.termMappings.size() != potentialEnergies.size();
 
     {
-      Profiling::ScopedProfileSection checkProfile("energy_set.fgh.cache.check_patterns");
       if (!patternsChanged) {
         for (std::size_t i = 0; i < potentialEnergies.size(); ++i) {
           const ES::SpMatD *termHessian = nullptr;
@@ -727,7 +720,6 @@ double EnergySet::funcGradientHessian(
     if (patternsChanged) {
       std::vector<PatternSnapshot> currentTermPatterns(potentialEnergies.size());
       {
-        Profiling::ScopedProfileSection snapshotProfile("energy_set.fgh.cache.snapshot_patterns");
         for (std::size_t i = 0; i < potentialEnergies.size(); ++i) {
           const ES::SpMatD *termHessian = nullptr;
           if (potentialEnergies[i]->isHessianTopologyFixed()) {
@@ -747,7 +739,6 @@ double EnergySet::funcGradientHessian(
 
       ES::SpMatD hessianTemplate;
       {
-        Profiling::ScopedProfileSection templateProfile("energy_set.fgh.cache.rebuild_template");
         buildEnergySetHessianTemplateRowWise(
           nAll,
           hessianAll,
@@ -759,10 +750,8 @@ double EnergySet::funcGradientHessian(
       }
 
       {
-        Profiling::ScopedProfileSection mappingProfile("energy_set.fgh.cache.rebuild_mappings");
         ES::SpMatI hessianAllToTemplateMapping;
         {
-          Profiling::ScopedProfileSection baseProfile("energy_set.fgh.cache.rebuild_mappings.base");
           if (hessianAll.nonZeros())
             buildSmallToBigMappingFast(hessianAll, hessianTemplate, allDOFs, hessianAllToTemplateMapping);
         }
@@ -771,7 +760,6 @@ double EnergySet::funcGradientHessian(
         cache.termMappings.resize(potentialEnergies.size());
 
         {
-          Profiling::ScopedProfileSection fixedComposeProfile("energy_set.fgh.cache.rebuild_mappings.fixed_compose");
           for (std::size_t i = 0; i < potentialEnergies.size(); ++i) {
             if (!potentialEnergies[i]->isHessianTopologyFixed())
               continue;
@@ -781,7 +769,6 @@ double EnergySet::funcGradientHessian(
         }
 
         {
-          Profiling::ScopedProfileSection dynamicProfile("energy_set.fgh.cache.rebuild_mappings.dynamic");
           for (std::size_t i = 0; i < potentialEnergies.size(); ++i) {
             if (potentialEnergies[i]->isHessianTopologyFixed())
               continue;
@@ -799,14 +786,12 @@ double EnergySet::funcGradientHessian(
     }
 
     {
-      Profiling::ScopedProfileSection prepareProfile("energy_set.fgh.cache.prepare_output");
       if (!patternMatches(cachedHessian, cache.fullPattern))
         cachedHessian = cache.hessianTemplate;
       zeroSparseValues(cachedHessian);
     }
 
     {
-      Profiling::ScopedProfileSection fixedProfile("energy_set.fgh.cache.add_fixed");
       for (std::size_t i = 0; i < potentialEnergies.size(); ++i) {
         if (energyCoeffs[i] == 0 || !potentialEnergies[i]->isHessianTopologyFixed())
           continue;
@@ -816,7 +801,6 @@ double EnergySet::funcGradientHessian(
     }
 
     {
-      Profiling::ScopedProfileSection dynamicProfile("energy_set.fgh.cache.add_dynamic");
       for (std::size_t i = 0; i < potentialEnergies.size(); ++i) {
         if (energyCoeffs[i] == 0 || potentialEnergies[i]->isHessianTopologyFixed())
           continue;
@@ -834,7 +818,6 @@ double EnergySet::funcGradientHessian(
   // call. Mirrors gradientHessian but accumulates the objective value too.
   double energyAll = 0;
   {
-    Profiling::ScopedProfileSection resetProfile("energy_set.fgh.reset_grad_hessian");
     grad.setZero();
   }
 
@@ -849,24 +832,20 @@ double EnergySet::funcGradientHessian(
     }
 
     {
-      Profiling::ScopedProfileSection mapProfile("energy_set.fgh.map_x");
       mapx(x, energyDOFs[i], buffer_->xlocals[i]);
     }
     {
-      Profiling::ScopedProfileSection clearProfile("energy_set.fgh.clear_local_gradient");
       buffer_->gradients[i].setZero();
     }
 
     if (potentialEnergies[i]->isHessianTopologyFixed()) {
       // Fixed-topology terms do not build an active set, so func+grad here is cheap.
       {
-        Profiling::ScopedProfileSection termProfile("energy_set.fgh.fixed.funcGradient");
         energyAll += potentialEnergies[i]->funcGradient(buffer_->xlocals[i], buffer_->gradients[i]) * energyCoeffs[i];
       }
 
       if (buffer_->hessianMatrices[i].nonZeros()) {
         {
-          Profiling::ScopedProfileSection hessianProfile("energy_set.fgh.fixed.hessian");
           potentialEnergies[i]->hessianInPlace(buffer_->xlocals[i], buffer_->hessianMatrices[i]);
         }
       }
@@ -876,17 +855,14 @@ double EnergySet::funcGradientHessian(
       Ki.resize(0, 0);
       // One call -> one active-set build for this term.
       {
-        Profiling::ScopedProfileSection termProfile("energy_set.fgh.dynamic.funcGradientHessian");
         energyAll += potentialEnergies[i]->funcGradientHessian(buffer_->xlocals[i], buffer_->gradients[i], Ki) * energyCoeffs[i];
       }
       {
-        Profiling::ScopedProfileSection compressProfile("energy_set.fgh.dynamic.make_compressed");
         Ki.makeCompressed();
       }
     }
 
     {
-      Profiling::ScopedProfileSection gradProfile("energy_set.fgh.add_gradient");
       for (Eigen::Index j = 0; j < buffer_->gradients[i].size(); j++)
         grad[energyDOFs[i][j]] += buffer_->gradients[i][j] * energyCoeffs[i];
     }

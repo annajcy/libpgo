@@ -1,8 +1,6 @@
 #include "ipc/core/surfaceIPCExternalBarrierAssembler.h"
 #include "ipc/core/surfaceIPCBarrierKernels.h"
 
-#include "scopedProfileSection.h"
-#include "ipc/profiling/surfaceIPCProfiling.h"
 
 #include <atomic>
 #include <cstdint>
@@ -283,8 +281,6 @@ void computeExternalHessian(
   ExtHessianScatterState state;
   state.pairCount = nPT * 9 + nTP * 81 + nEE * 36;
   {
-    Profiling::ScopedProfileSection tripletAllocProfile(
-      SurfaceIPCProfileSections::kActiveSetExternalTripletAlloc);
     state.triplets.resize(state.pairCount, TripletD(0, 0, 0.0));
   }
 
@@ -343,15 +339,12 @@ void computeExternalHessian(
 
   SpMatD hessExt(n, n);
   {
-    Profiling::ScopedProfileSection setFromTripletsProfile(
-      SurfaceIPCProfileSections::kActiveSetExternalSetFromTriplets);
     hessExt.setFromTriplets(state.triplets.begin(), state.triplets.end());
   }
   if (hess.nonZeros() == 0) {
     hess = std::move(hessExt);
   }
   else {
-    Profiling::ScopedProfileSection addProfile(SurfaceIPCProfileSections::kActiveSetExternalHessianAdd);
     hess += hessExt;
   }
 }
@@ -377,13 +370,6 @@ void computeExternalAll(
   int nTP = (int)pairs.tpPairs.size();
   int nEE = (int)pairs.eePairs.size();
 
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kActiveSetExternalCombined);
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kActiveSetExternalPTPairCount, static_cast<std::uint64_t>(nPT));
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kActiveSetExternalTPPairCount, static_cast<std::uint64_t>(nTP));
-  Profiling::recordProfileCounter(SurfaceIPCProfileSections::kActiveSetExternalEEPairCount, static_cast<std::uint64_t>(nEE));
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kActiveSetExternalTripletSlots,
-    static_cast<std::uint64_t>(nPT * 9 + nTP * 81 + nEE * 36));
 
   energy = 0.0;
   if (grad.size() != n)
@@ -400,8 +386,6 @@ void computeExternalAll(
   ExtHessianScatterState hState;
   hState.pairCount = nPT * 9 + nTP * 81 + nEE * 36;
   {
-    Profiling::ScopedProfileSection tripletAllocProfile(
-      SurfaceIPCProfileSections::kActiveSetExternalTripletAlloc);
     hState.triplets.resize(hState.pairCount, TripletD(0, 0, 0.0));
   }
 
@@ -410,7 +394,6 @@ void computeExternalAll(
   // PT pairs
   double ptEnergy = 0.0;
   {
-    Profiling::ScopedProfileSection ptProfile(SurfaceIPCProfileSections::kActiveSetExternalPTCombined);
     ptEnergy = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nPT, 1), 0.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localE) {
       for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.ptPairs[i];
@@ -435,7 +418,6 @@ void computeExternalAll(
   // TP pairs
   double tpEnergy = 0.0;
   {
-    Profiling::ScopedProfileSection tpProfile(SurfaceIPCProfileSections::kActiveSetExternalTPCombined);
     tpEnergy = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nTP, 1), 0.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localE) {
       for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.tpPairs[i];
@@ -460,7 +442,6 @@ void computeExternalAll(
   // EE pairs
   double eeEnergy = 0.0;
   {
-    Profiling::ScopedProfileSection eeProfile(SurfaceIPCProfileSections::kActiveSetExternalEECombined);
     eeEnergy = tbb::parallel_reduce(tbb::blocked_range<decltype(0)>(0, nEE, 1), 0.0, [pgoRangeFn = [&](int rangeBegin, int rangeEnd, double localE) {
       for (int i = rangeBegin; i < rangeEnd; ++i) {
         auto &pair = pairs.eePairs[i];
@@ -486,17 +467,12 @@ void computeExternalAll(
 
   SpMatD hessExt(n, n);
   {
-    Profiling::ScopedProfileSection setFromTripletsProfile(
-      SurfaceIPCProfileSections::kActiveSetExternalSetFromTriplets);
     hessExt.setFromTriplets(hState.triplets.begin(), hState.triplets.end());
   }
-  Profiling::recordProfileCounter(
-    SurfaceIPCProfileSections::kActiveSetExternalHessianNnz, static_cast<std::uint64_t>(hessExt.nonZeros()));
   if (hess.nonZeros() == 0) {
     hess = std::move(hessExt);
   }
   else {
-    Profiling::ScopedProfileSection addProfile(SurfaceIPCProfileSections::kActiveSetExternalHessianAdd);
     hess += hessExt;
   }
 }

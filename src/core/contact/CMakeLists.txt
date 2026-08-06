@@ -34,7 +34,6 @@ set(CONTACT_HEADERS
   ipc/geometry/ipcCCD.h
   ipc/geometry/ipcDistancePrimitives.h
   ipc/geometry/ipcHessianProjection.h
-  ipc/profiling/surfaceIPCProfiling.h
   ipc/topology/surfaceIPCTopology.h
 )
 
@@ -75,7 +74,7 @@ set(CONTACT_SOURCES
   ipc/topology/surfaceIPCTopology.cpp
 )
 
-set(CONTACT_PUBLIC_DEPS mesh nonlinearOptimization profiling TBB::tbb)
+set(CONTACT_PUBLIC_DEPS mesh nonlinearOptimization TBB::tbb)
 set(CONTACT_PRIVATE_DEPS CCD::SafeCCD CCD::Exact)
 
 pgo_require_targets(selfContact TARGETS ${CONTACT_PUBLIC_DEPS} ${CONTACT_PRIVATE_DEPS})

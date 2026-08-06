@@ -1,4 +1,4 @@
-"""Dump a simple-shear Neo-Hookean static solve as OBJ files."""
+"""Dump free and confined uniaxial static-solve surfaces as OBJ files."""
 
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ import pypgo as pgo
 import pypgo.fem as pf
 import pypgo.solver as ps
 
-import main as experiment
+import examples.experiments.systematic_poking_fit_reaction_force.main as experiment
 
 
-DEFAULT_SHEAR = 0.8
+DEFAULT_STRETCH = 2.0 ** -0.5
 DEFAULT_OUTPUT_DIR = (
     Path(__file__).resolve().parent
     / "output"
-    / "shear_static_solve_obj"
+    / "uniaxial_static_solve_obj"
 )
 
 
@@ -34,6 +34,52 @@ def _surface_from_deformed_cubes(
     return volume.extract_surface_mesh()
 
 
+def _solve_protocol(
+    energy,
+    optimizer,
+    rest_vertices: np.ndarray,
+    elements: np.ndarray,
+    stretch: float,
+    *,
+    confined: bool,
+) -> tuple[pgo.mesh.TriMeshData, dict[str, object]]:
+    case = experiment._uniaxial_case(
+        rest_vertices,
+        stretch,
+        confined=confined,
+        split="obj_dump",
+    )
+    state, _ = experiment._solve_case(
+        energy,
+        optimizer,
+        case,
+        warm_start=None,
+    )
+    deformed_vertices = (
+        rest_vertices + state.displacement.reshape((-1, 3))
+    )
+    surface = _surface_from_deformed_cubes(
+        deformed_vertices,
+        elements,
+    )
+    bbox_min = deformed_vertices.min(axis=0)
+    bbox_max = deformed_vertices.max(axis=0)
+    protocol = "confined_uniaxial" if confined else "free_uniaxial"
+    metadata = {
+        "protocol": protocol,
+        "stretch": stretch,
+        "reaction": state.reaction,
+        "static_iterations": state.iterations,
+        "max_free_residual": state.free_residual_max,
+        "num_fixed_dofs": int(case.fixed_dofs.size),
+        "num_free_dofs": int(case.free_dofs.size),
+        "bbox_min": bbox_min.tolist(),
+        "bbox_max": bbox_max.tolist(),
+        "bbox_extent": (bbox_max - bbox_min).tolist(),
+    }
+    return surface, metadata
+
+
 def _write_preview(
     surfaces: list[tuple[str, pgo.mesh.TriMeshData]],
     path: Path,
@@ -45,9 +91,10 @@ def _write_preview(
         return False
 
     figure = plt.figure(figsize=(10, 5))
-    plot_vertices = [
-        surface.vertices[:, [0, 2, 1]] for _, surface in surfaces
-    ]
+    plot_vertices = []
+    for _, surface in surfaces:
+        # Display the axial y direction vertically.
+        plot_vertices.append(surface.vertices[:, [0, 2, 1]])
     all_vertices = np.vstack(plot_vertices)
     center = 0.5 * (all_vertices.min(axis=0) + all_vertices.max(axis=0))
     radius = 0.55 * np.max(np.ptp(all_vertices, axis=0))
@@ -78,21 +125,21 @@ def _write_preview(
         axes.set_box_aspect((1.0, 1.0, 1.0))
         axes.view_init(elev=20.0, azim=-55.0)
 
-    figure.suptitle("Target Neo-Hookean simple-shear static solve")
+    figure.suptitle("Target Neo-Hookean static solves")
     figure.tight_layout()
     figure.savefig(path, dpi=180)
     plt.close(figure)
     return True
 
 
-def dump_shear_objs(
+def dump_uniaxial_objs(
     *,
-    shear: float,
+    stretch: float,
     grid_size: int,
     output_dir: Path,
 ) -> dict[str, object]:
-    if not np.isfinite(shear):
-        raise ValueError("shear must be finite")
+    if not np.isfinite(stretch) or stretch <= 0.0:
+        raise ValueError("stretch must be finite and positive")
     if grid_size < 2:
         raise ValueError("grid_size must be at least two")
 
@@ -106,40 +153,38 @@ def dump_shear_objs(
     )
     optimizer = ps.NewtonOptimizer(
         max_iterations=80,
-        gradient_tolerance=1.0e-10,
+        termination=ps.AbsoluteTermination(abs_tolerance=1.0e-10),
         damping=ps.FixedDamping(),
         line_search=ps.Backtrack(),
     )
 
-    rest_surface = _surface_from_deformed_cubes(rest_vertices, elements)
+    rest_surface = _surface_from_deformed_cubes(
+        rest_vertices,
+        elements,
+    )
     rest_path = output_dir / "rest.obj"
     pgo.mesh.write_obj(str(rest_path), rest_surface)
 
-    case = experiment._shear_case(
-        rest_vertices,
-        shear,
-        split="obj_dump",
-    )
-    state, _ = experiment._solve_case(
-        target_energy,
-        optimizer,
-        case,
-        warm_start=None,
-    )
-    deformed_vertices = (
-        rest_vertices + state.displacement.reshape((-1, 3))
-    )
-    surface = _surface_from_deformed_cubes(deformed_vertices, elements)
-    obj_path = output_dir / f"simple_shear_{shear:+.6f}.obj"
-    pgo.mesh.write_obj(str(obj_path), surface)
+    surfaces = []
+    cases = []
+    for confined in (False, True):
+        surface, metadata = _solve_protocol(
+            target_energy,
+            optimizer,
+            rest_vertices,
+            elements,
+            stretch,
+            confined=confined,
+        )
+        protocol = str(metadata["protocol"])
+        obj_path = output_dir / f"{protocol}.obj"
+        pgo.mesh.write_obj(str(obj_path), surface)
+        metadata["obj"] = obj_path.name
+        cases.append(metadata)
+        surfaces.append((protocol, surface))
 
-    bbox_min = deformed_vertices.min(axis=0)
-    bbox_max = deformed_vertices.max(axis=0)
     preview_path = output_dir / "preview.png"
-    preview_written = _write_preview(
-        [("rest", rest_surface), ("deformed", surface)],
-        preview_path,
-    )
+    preview_written = _write_preview(surfaces, preview_path)
     manifest = {
         "material": {
             "model": "NeoHookean",
@@ -153,32 +198,23 @@ def dump_shear_objs(
             "num_displacement_dofs": int(rest_vertices.size),
             "rest_obj": rest_path.name,
         },
-        "protocol": "simple_shear",
-        "shear": shear,
-        "reaction_x": state.reaction,
-        "static_iterations": state.iterations,
-        "max_free_residual": state.free_residual_max,
-        "num_fixed_dofs": int(case.fixed_dofs.size),
-        "num_free_dofs": int(case.free_dofs.size),
-        "bbox_min": bbox_min.tolist(),
-        "bbox_max": bbox_max.tolist(),
-        "bbox_extent": (bbox_max - bbox_min).tolist(),
-        "obj": obj_path.name,
+        "stretch": stretch,
+        "top_displacement_y": stretch - 1.0,
+        "cases": cases,
         "preview": preview_path.name if preview_written else None,
     }
-    (output_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n"
-    )
+    manifest_path = output_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--shear",
+        "--stretch",
         type=float,
-        default=DEFAULT_SHEAR,
-        help="simple-shear amount (default: 0.8, a training case)",
+        default=DEFAULT_STRETCH,
+        help="prescribed axial stretch (default: an actual 17-knot train case)",
     )
     parser.add_argument("--grid-size", type=int, default=2)
     parser.add_argument(
@@ -188,17 +224,18 @@ def main(argv=None) -> int:
     )
     args = parser.parse_args(argv)
 
-    manifest = dump_shear_objs(
-        shear=args.shear,
+    manifest = dump_uniaxial_objs(
+        stretch=args.stretch,
         grid_size=args.grid_size,
         output_dir=args.output_dir,
     )
-    print(
-        f"simple_shear: gamma={manifest['shear']:+.9f}, "
-        f"reaction_x={manifest['reaction_x']:.9e}, "
-        f"residual={manifest['max_free_residual']:.3e}, "
-        f"bbox_extent={manifest['bbox_extent']}"
-    )
+    for case in manifest["cases"]:
+        print(
+            f"{case['protocol']}: "
+            f"reaction={case['reaction']:.9e}, "
+            f"residual={case['max_free_residual']:.3e}, "
+            f"bbox_extent={case['bbox_extent']}"
+        )
     print("saved OBJ files ->", args.output_dir)
     return 0
 

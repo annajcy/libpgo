@@ -63,7 +63,8 @@ def test_adjoint_dE_dp_can_be_assembled_directly():
         fixed_dofs.tolist(), fixed_values, num_dofs=energy.num_dofs
     )
     inner = solver.NewtonOptimizer(
-        max_iterations=5, damping=solver.NoDamping()
+        max_iterations=5, damping=solver.NoDamping(),
+        termination=solver.AbsoluteTermination(abs_tolerance=1e-6),
     ).solve(problem, energy.zero_state())
 
     surface_vertex_ids = np.array([0, 1, 2, 3], dtype=np.int64)

@@ -76,7 +76,7 @@ if(TARGET Ipopt::Core)
   set(NONLINEAROPTIMIZATION_SOURCES ${NONLINEAROPTIMIZATION_SOURCES} solver/ipopt/IpoptProblem.cpp solver/ipopt/IpoptSolverWrapper.cpp)
 endif()
 
-set(NONLINEAROPTIMIZATION_DEPS eigenSupport pgoLogging autodiff::autodiff profiling)
+set(NONLINEAROPTIMIZATION_DEPS eigenSupport pgoLogging autodiff::autodiff)
 
 pgo_require_targets(nonlinearOptimization TARGETS ${NONLINEAROPTIMIZATION_DEPS} TBB::tbb)
 

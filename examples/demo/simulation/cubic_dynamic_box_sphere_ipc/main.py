@@ -98,7 +98,7 @@ def main() -> None:
     )
     optimizer = ps.NewtonOptimizer(
         max_iterations=200,
-        gradient_tolerance=1.0e-3,
+        termination=ps.AbsoluteTermination(abs_tolerance=1.0e-3),
         line_search=ps.Simple(),
     )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

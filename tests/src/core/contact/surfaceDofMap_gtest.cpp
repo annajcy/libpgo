@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include "ipc/profiling/surfaceIPCProfiling.h"
-#include "scopedProfileSection.h"
 #include "surfaceDofMap.h"
 
 #include <algorithm>
@@ -86,25 +84,6 @@ ES::SpMatD makeDuplicateColumnSurfaceHessian()
   return H;
 }
 
-const pgo::Profiling::ProfileStat *findStat(const pgo::Profiling::ProfileStat &stat, std::string_view name)
-{
-  if (stat.name == name || stat.localName == name)
-    return &stat;
-  for (const pgo::Profiling::ProfileStat &child : stat.children) {
-    if (const pgo::Profiling::ProfileStat *found = findStat(child, name))
-      return found;
-  }
-  return nullptr;
-}
-
-const pgo::Profiling::ProfileCounterStat *findCounterStat(
-  const std::vector<pgo::Profiling::ProfileCounterStat> &stats,
-  std::string_view name)
-{
-  const auto it = std::find_if(stats.begin(), stats.end(),
-    [name](const pgo::Profiling::ProfileCounterStat &stat) { return stat.name == name; });
-  return it == stats.end() ? nullptr : &(*it);
-}
 
 std::uint64_t countTmpStreams(const ES::SpMatD &W, const ES::SpMatD &tmp)
 {
@@ -138,8 +117,6 @@ void runCustomPullbackDuplicateColumnCase()
   const ES::SpMatD surfaceHessian = makeDuplicateColumnSurfaceHessian();
   Contact::SurfaceDofMap map(makeRestVertices(), W);
 
-  pgo::Profiling::setProfilingEnabled(true);
-  pgo::Profiling::resetProfileStatistics();
 
   ES::SpMatD simulationHessian;
   map.pullbackHessian(surfaceHessian, simulationHessian);
@@ -155,68 +132,6 @@ void runCustomPullbackDuplicateColumnCase()
   EXPECT_GT(countConceptualTmpContributions(W, tmp), static_cast<std::uint64_t>(simulationHessian.nonZeros()));
   EXPECT_EQ(simulationHessian.outerIndexPtr()[4 + 1] - simulationHessian.outerIndexPtr()[4], 0);
 
-  const auto stats = pgo::Profiling::snapshotProfileStatistics();
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianRowBuild), nullptr);
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianRowMerge), nullptr);
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianWorkspacePrepare), nullptr);
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianOutputFill), nullptr);
-  EXPECT_NE(
-    findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillPrepare), nullptr);
-  EXPECT_NE(
-    findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillValues), nullptr);
-
-  const auto counters = pgo::Profiling::snapshotProfileCounterStatistics();
-  const pgo::Profiling::ProfileCounterStat *enabled =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianEnabled);
-  ASSERT_NE(enabled, nullptr);
-  EXPECT_EQ(enabled->max, 1u);
-
-  const pgo::Profiling::ProfileCounterStat *outputNnz =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianOutputNnz);
-  ASSERT_NE(outputNnz, nullptr);
-  EXPECT_EQ(outputNnz->max, static_cast<std::uint64_t>(simulationHessian.nonZeros()));
-
-  const pgo::Profiling::ProfileCounterStat *mergeOutputNnz =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMergeOutputNnz);
-  ASSERT_NE(mergeOutputNnz, nullptr);
-  EXPECT_EQ(mergeOutputNnz->max, outputNnz->max);
-
-  const pgo::Profiling::ProfileCounterStat *contributionCount =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianContributionCount);
-  ASSERT_NE(contributionCount, nullptr);
-  EXPECT_EQ(contributionCount->max, countConceptualTmpContributions(W, tmp));
-  EXPECT_GT(contributionCount->max, outputNnz->max);
-
-  const pgo::Profiling::ProfileCounterStat *activeRows =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianActiveOutputRows);
-  ASSERT_NE(activeRows, nullptr);
-  EXPECT_GT(activeRows->max, 0u);
-
-  const pgo::Profiling::ProfileCounterStat *mergeStreamCount =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMergeStreamCount);
-  ASSERT_NE(mergeStreamCount, nullptr);
-  EXPECT_EQ(mergeStreamCount->max, countTmpStreams(W, tmp));
-
-  const pgo::Profiling::ProfileCounterStat *workspaceReusedRows =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianWorkspaceReusedRows);
-  ASSERT_NE(workspaceReusedRows, nullptr);
-  EXPECT_LE(workspaceReusedRows->max, static_cast<std::uint64_t>(W.cols()));
-
-  const pgo::Profiling::ProfileCounterStat *directEnabled =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillEnabled);
-  const pgo::Profiling::ProfileCounterStat *directNnz =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillNnz);
-  const pgo::Profiling::ProfileCounterStat *directRows =
-    findCounterStat(counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillRows);
-  ASSERT_NE(directEnabled, nullptr);
-  ASSERT_NE(directNnz, nullptr);
-  ASSERT_NE(directRows, nullptr);
-  EXPECT_EQ(directEnabled->max, 1u);
-  EXPECT_EQ(directNnz->max, outputNnz->max);
-  EXPECT_EQ(directRows->max, static_cast<std::uint64_t>(W.cols()));
-
-  pgo::Profiling::setProfilingEnabled(false);
-  pgo::Profiling::resetProfileStatistics();
 }
 }  // namespace
 
@@ -260,61 +175,6 @@ TEST(SurfaceDofMapGTest, PullsBackSurfaceGradient)
   EXPECT_TRUE(map.pullbackGradient(surfaceGradient).isApprox(expected, 1e-12));
 }
 
-TEST(SurfaceDofMapGTest, PullsBackSurfaceHessian)
-{
-  const ES::SpMatD W = makeSurfaceMap();
-  const ES::SpMatD surfaceHessian = makeSurfaceHessian();
-  Contact::SurfaceDofMap map(makeRestVertices(), W);
-
-  pgo::Profiling::setProfilingEnabled(true);
-  pgo::Profiling::resetProfileStatistics();
-
-  ES::SpMatD simulationHessian;
-  map.pullbackHessian(surfaceHessian, simulationHessian);
-
-  const ES::SpMatD expected = W.transpose() * surfaceHessian * W;
-  EXPECT_TRUE(ES::MXd(simulationHessian).isApprox(ES::MXd(expected), 1e-12));
-
-  const ES::SpMatD tmp = surfaceHessian * W;
-
-  const auto stats = pgo::Profiling::snapshotProfileStatistics();
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianValidate), nullptr);
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMultiplySurfaceHessianMap), nullptr);
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianRowBuild), nullptr);
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianRowMerge), nullptr);
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianOutputFill), nullptr);
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillPrepare), nullptr);
-  EXPECT_NE(findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillValues), nullptr);
-
-  const auto counters = pgo::Profiling::snapshotProfileCounterStatistics();
-  const auto expectCounter = [&counters](std::string_view name, std::uint64_t expectedValue) {
-    const pgo::Profiling::ProfileCounterStat *stat = findCounterStat(counters, name);
-    ASSERT_NE(stat, nullptr);
-    EXPECT_EQ(stat->sampleCount, 1u);
-    EXPECT_EQ(stat->total, expectedValue);
-    EXPECT_EQ(stat->max, expectedValue);
-  };
-
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMapRows, 6);
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMapCols, 7);
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMapNnz, 7);
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianSurfaceHessianNnz, 8);
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianTmpNnz,
-    static_cast<std::uint64_t>(tmp.nonZeros()));
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianSimulationHessianNnz,
-    static_cast<std::uint64_t>(simulationHessian.nonZeros()));
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMapRowNnzMin, 1);
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMapRowNnzMax, 2);
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMapRowNnzTotal, 7);
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianMapRowNnzNonzeroRows, 6);
-  expectCounter(pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianEnabled, 1);
-  EXPECT_NE(findCounterStat(
-              counters, pgo::Contact::SurfaceIPCProfileSections::kAdapterPullbackHessianDirectFillEnabled),
-    nullptr);
-
-  pgo::Profiling::setProfilingEnabled(false);
-  pgo::Profiling::resetProfileStatistics();
-}
 
 TEST(SurfaceDofMapGTest, PullbackDirectFillMatchesEigenAndReducesDuplicateColumns)
 {

@@ -89,8 +89,8 @@ OPT::NewtonOptimizer quickOptimizer()
 {
   OPT::NewtonOptimizer::Options options;
   options.maxIterations = 100;
-  options.gradientTolerance = 1e-12;
   options.verbose = 0;
+  options.termination = std::make_shared<NO::AbsoluteNewtonTerminationPolicy>(1e-12);
   return OPT::NewtonOptimizer(options);
 }
 

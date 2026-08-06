@@ -5,9 +5,6 @@
 #include "energy/evaluationStateAwareEnergy.h"
 #include "energy/lineSearchAwareEnergy.h"
 #include "pgoLogging.h"
-#include "processMemory.h"
-#include "scopedProfileSection.h"
-#include "threadRuntime.h"
 
 #include <cmath>
 #include <cstring>
@@ -24,16 +21,6 @@ using hclock = std::chrono::steady_clock;
 
 namespace
 {
-void logMemoryCheckpoint(const char *stage)
-{
-  constexpr double bytesPerMiB = 1024.0 * 1024.0;
-  const Profiling::ProcessMemoryUsage usage =
-    Profiling::recordProcessMemoryProfileCounters(stage);
-  SPDLOG_LOGGER_INFO(Logging::lgr(),
-    "Process memory checkpoint stage={} currentMiB={:.2f} peakMiB={:.2f}",
-    stage, usage.residentBytes / bytesPerMiB, usage.peakResidentBytes / bytesPerMiB);
-}
-
 void ensureDiagonalEntries(ES::SpMatD &A)
 {
   const int n = std::min<int>(A.rows(), A.cols());
@@ -42,7 +29,6 @@ void ensureDiagonalEntries(ES::SpMatD &A)
   A.makeCompressed();
 }
 
-constexpr double kRelTolFactor = 1e-5;        // absolute->relative gradient tolerance scale
 constexpr double kLooseRelFactor = 1e-4;      // FP-limit "good enough" relative reduction
 constexpr double kGradSmallThreshold = 1e-4;  // below this gradient, drop damping entirely
 constexpr double kLambdaScaleFloor = 1e-8;    // below this damping scale, snap to zero
@@ -155,7 +141,8 @@ public:
     const bool stepTooSmall = stepSize < kStepTooSmallEps;
     auto finishStepTooSmall = [&]() {
       // Same loose relative fallback as the line-search-failed branch below.
-      ctx.status = s.resolveFpLimitFallback(SolveStatus::StepTooSmall, gradMaxNorm, ctx.lambda0, ctx.epsilon);
+      ctx.status = s.resolveFpLimitFallback(
+        SolveStatus::StepTooSmall, gradMaxNorm, ctx.lambda0);
       ctx.completedIterations = ctx.iter + 1;
       if (ctx.verbose >= 1) {
         std::cout << "    Iter=" << ctx.iter << "; dx = " << stepSize
@@ -174,7 +161,8 @@ public:
       // Loose relative fallback: if line search can't find descent but Newton already
       // reduced the gradient by 4+ orders of magnitude from the initial state, treat
       // this as converged-at-FP-limit rather than failure.
-      ctx.status = s.resolveFpLimitFallback(SolveStatus::LineSearchFailed, gradMaxNorm, ctx.lambda0, ctx.epsilon);
+      ctx.status = s.resolveFpLimitFallback(
+        SolveStatus::LineSearchFailed, gradMaxNorm, ctx.lambda0);
       ctx.completedIterations = ctx.iter + 1;
       if (ctx.verbose >= 1) {
         std::cout << "    Iter=" << ctx.iter << "; line search failed; ||grad||_max=" << gradMaxNorm
@@ -216,7 +204,11 @@ public:
 
   void finalize(SolveContext &ctx) override
   {
-    if (s.historyGradNormMin < ctx.epsilon)
+    NewtonIterationContext policyCtx;
+    policyCtx.gradMaxNorm = s.historyGradNormMin;
+    policyCtx.lambda0 = ctx.lambda0;
+    if (s.terminationPolicy->evaluate(policyCtx).decision ==
+      NewtonTerminationDecision::Converged)
       ctx.status = SolveStatus::Converged;
     if (ctx.verbose >= 1)
       std::cout << "        Final ||grad||=" << s.historyGradNormMin << std::endl;
@@ -327,7 +319,8 @@ NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_con
   if (solverParam.termination)
     terminationPolicy = solverParam.termination;
   else
-    terminationPolicy = std::make_shared<FixedNewtonTerminationPolicy>();
+    terminationPolicy = std::make_shared<HybridNewtonTerminationPolicy>(
+      kDefaultAbsoluteTolerance, kDefaultRelativeToleranceFactor);
 
   // Damping policy
   if (solverParam.damping)
@@ -394,7 +387,6 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
       energy->hessianAlloc(sysFull);
       energy->hessianInPlace(x, sysFull);
       pendingSetupMetrics.initialHessianSeconds += dura(hessianStart, hclock::now());
-      logMemoryCheckpoint("newton.after_full_hessian");
 
       const hclock::time_point reducedSystemStart = hclock::now();
       if (fixedDOFs.empty()) {
@@ -408,10 +400,6 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
       ES::SpMatD &A = activeSystemMatrix();
       A.makeCompressed();
       pendingSetupMetrics.initialReducedSystemSeconds += dura(reducedSystemStart, hclock::now());
-      if (fixedDOFs.empty())
-        logMemoryCheckpoint("newton.after_no_fixed_fast_path");
-      else
-        logMemoryCheckpoint("newton.after_reduced_system_setup");
       pendingSetupMetrics.initialSymbolicAnalyzeSeconds += makeLinearSolver(A);
     }
   }
@@ -421,8 +409,6 @@ void NewtonSolver::setFixedDOFs(const std::vector<int> &fixedDOFs_, const double
 
 double NewtonSolver::makeLinearSolver(const ES::SpMatD &A)
 {
-  Profiling::ScopedProfileSection scopedProfile("newton.solver.symbolic_analyze");
-  Profiling::ScopedThreadRuntimePhase threadProfile("newton.solver.symbolic_analyze");
   const hclock::time_point symbolicAnalyzeStart = hclock::now();
   solver.reset();
   auto newSolver = sparseSolverSelector->build(A);
@@ -432,7 +418,6 @@ double NewtonSolver::makeLinearSolver(const ES::SpMatD &A)
   const double symbolicAnalyzeSeconds = dura(symbolicAnalyzeStart, hclock::now());
   invalidateLinearSolverPatternCache();
   updateLinearSolverPatternCache(A);
-  logMemoryCheckpoint("newton.after_sparse_symbolic_analysis");
   return symbolicAnalyzeSeconds;
 }
 
@@ -489,7 +474,7 @@ void NewtonSolver::updateLinearSolverPatternCache(const ES::SpMatD &A)
   cache.valid = true;
 }
 
-SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int verbose)
+SolverResult NewtonSolver::solve(double *x_, int numIter, int verbose)
 {
   hclock::time_point t1 = hclock::now();
   solveDiagnostics.reset();
@@ -503,7 +488,6 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
 
   SolveContext ctx;
   ctx.xOut = x_;
-  ctx.epsilon = epsilon;
   ctx.verbose = verbose;
   ctx.printGap = (verbose == 3) ? 1 : 10;
 
@@ -516,7 +500,8 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
       std::cout << "    Iter=" << ctx.iter << std::endl;
 
     // we solve f(x_i) + K(x_i) deltax = 0
-    ctx.state = evaluateCurrentState(ctx.iter, epsilon, ctx.lambda0, ctx.hasInitialGradNorm);
+    ctx.state = evaluateCurrentState(
+      ctx.iter, ctx.lambda0, ctx.hasInitialGradNorm);
     solveDiagnostics.newtonTotalEvaluateCurrentStateSeconds += ctx.state.evaluateCurrentStateSeconds;
     solveDiagnostics.newtonTotalFuncGradHessianSeconds += ctx.state.funcGradHessianSeconds;
     if (ctx.state.nonFiniteEnergy) {
@@ -544,9 +529,7 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
     if (verbose >= 2 && ctx.iter % ctx.printGap == 0)
       std::cout << "        E= " << eng << "; ||grad||_max=" << gradMaxNorm << "; ||x||=" << x.norm() << std::endl;
 
-    // Convergence test via pluggable termination policy. Default policy accepts
-    // either absolute (||grad||_max < eps) or relative reduction from initial
-    // gradient (||grad||_max < lambda0 * relTolFactor).
+    // Convergence test via the termination policy, which owns all tolerances.
     {
       NewtonIterationContext policyCtx;
       policyCtx.iteration = ctx.iter;
@@ -555,44 +538,21 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
       policyCtx.gradNorm = ctx.state.gradNorm;
       policyCtx.lambda0 = ctx.lambda0;
       policyCtx.lambdaScale = ctx.lambdaScale;
-      policyCtx.epsilon = ctx.epsilon;
 
-      const NewtonTerminationDecision termDecision = terminationPolicy->beforeLinearSolve(policyCtx);
-      if (termDecision == NewtonTerminationDecision::Converged) {
+      const NewtonTerminationInfo info = terminationPolicy->evaluate(policyCtx);
+      if (info.decision == NewtonTerminationDecision::Converged) {
         ctx.status = SolveStatus::Converged;
         ctx.completedIterations = ctx.iter;
         solveDiagnostics.recordFinalGradientStats(ctx.state.gradNorm, gradMaxNorm);
-        const bool fixedTerminationPolicy = dynamic_cast<const FixedNewtonTerminationPolicy *>(terminationPolicy.get()) != nullptr;
-        if (!fixedTerminationPolicy) {
-          solveDiagnostics.recordNewtonConvergence(
-            NewtonConvergenceReason::TerminationPolicy,
-            std::numeric_limits<double>::quiet_NaN());
-        }
-        else if (ctx.state.absConverged) {
-          solveDiagnostics.recordNewtonConvergence(
-            NewtonConvergenceReason::AbsoluteGradient,
-            ctx.epsilon);
-        }
-        else if (ctx.state.relConverged) {
-          solveDiagnostics.recordNewtonConvergence(
-            NewtonConvergenceReason::RelativeGradient,
-            ctx.state.relThreshold);
-        }
-        else {
-          solveDiagnostics.recordNewtonConvergence(
-            NewtonConvergenceReason::TerminationPolicy,
-            std::numeric_limits<double>::quiet_NaN());
-        }
+        solveDiagnostics.recordNewtonConvergence(info.reason, info.threshold);
         if (verbose >= 1) {
-          const double relThreshold = ctx.lambda0 * kRelTolFactor;
           std::cout << "    Iter=" << ctx.iter << "; ||grad||_max=" << gradMaxNorm
-                    << (gradMaxNorm < ctx.epsilon ? " < eps" : " < lambda0*relTol")
-                    << " (eps=" << epsilon << ", relThreshold=" << relThreshold
+                    << " (threshold=" << info.threshold
                     << "). Done.; status=" << solveStatusToString(ctx.status) << std::endl;
         }
         break;
       }
-      else if (termDecision == NewtonTerminationDecision::Failed) {
+      else if (info.decision == NewtonTerminationDecision::Failed) {
         ctx.status = SolveStatus::NonFinite;
         ctx.completedIterations = ctx.iter;
         if (verbose >= 1)
@@ -700,7 +660,6 @@ SolverResult NewtonSolver::solve(double *x_, int numIter, double epsilon, int ve
       // on the next iteration — leave as NaN for now.
       postCtx.lambda0 = ctx.lambda0;
       postCtx.lambdaScale = ctx.lambdaScale;
-      postCtx.epsilon = ctx.epsilon;
       postCtx.acceptedAlpha = trace.acceptedAlpha;
       postCtx.acceptedEnergy = trace.energyAfter;
       postCtx.acceptedStepMaxNorm = trace.acceptedStepMaxNorm;
@@ -768,28 +727,22 @@ void NewtonSolver::applyFixedValues()
   }
 }
 
-NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double epsilon, double lambda0, bool hasInitialGradNorm)
+NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(
+  int iter, double lambda0, bool hasInitialGradNorm)
 {
   const hclock::time_point evaluationStart = hclock::now();
-  Profiling::ScopedProfileSection scopedProfile("newton.evaluate_current_state");
-  Profiling::ScopedThreadRuntimePhase threadProfile("newton.evaluate_current_state");
   IterationState state;
   state.iter = iter;
 
   memset(grad.data(), 0, sizeof(double) * grad.size());
   {
-    Profiling::ScopedProfileSection prepareProfile("newton.prepare_evaluation_state");
     dispatchPrepareEvaluationState(x);
   }
   {
     const hclock::time_point start = hclock::now();
-    Profiling::ScopedProfileSection energyProfile("newton.funcGradientHessian");
-    Profiling::ScopedThreadRuntimePhase energyThreadProfile("newton.funcGradientHessian");
     state.energy = energy->funcGradientHessian(x, grad, sysFull);
     state.funcGradHessianSeconds = dura(start, hclock::now());
   }
-  if (!energy->isHessianTopologyFixed())
-    logMemoryCheckpoint("newton.after_full_hessian");
   if (!std::isfinite(state.energy)) {
     state.nonFiniteEnergy = true;
     state.evaluateCurrentStateSeconds = dura(evaluationStart, hclock::now());
@@ -797,7 +750,6 @@ NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double
   }
 
   {
-    Profiling::ScopedProfileSection compressProfile("newton.compress_hessian_and_gradient_stats");
     sysFull.makeCompressed();
     filterVector(grad);
 
@@ -811,9 +763,6 @@ NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double
   }
 
   state.lambda0 = hasInitialGradNorm ? lambda0 : state.gradMaxNorm;
-  state.relThreshold = state.lambda0 * kRelTolFactor;
-  state.absConverged = state.gradMaxNorm < epsilon;
-  state.relConverged = state.gradMaxNorm < state.relThreshold;
   state.evaluateCurrentStateSeconds = dura(evaluationStart, hclock::now());
   return state;
 }
@@ -823,13 +772,23 @@ bool NewtonSolver::looseRelativeConverged(double gradMaxNorm, double lambda0) co
   return gradMaxNorm < lambda0 * kLooseRelFactor;
 }
 
-SolveStatus NewtonSolver::resolveFpLimitFallback(SolveStatus failStatus, double gradMaxNorm, double lambda0, double epsilon)
+SolveStatus NewtonSolver::resolveFpLimitFallback(
+  SolveStatus failStatus, double gradMaxNorm, double lambda0)
 {
-  if (gradMaxNorm < epsilon) {
+  // If the termination policy already considers this gradient acceptable,
+  // treat the stalled/failed step as converged at the FP limit.
+  NewtonIterationContext policyCtx;
+  policyCtx.gradMaxNorm = gradMaxNorm;
+  policyCtx.lambda0 = lambda0;
+  const NewtonTerminationInfo info = terminationPolicy->evaluate(policyCtx);
+  if (info.decision == NewtonTerminationDecision::Converged) {
     solveDiagnostics.recordFinalGradientStats(grad.norm(), gradMaxNorm);
+    const NewtonConvergenceReason reason =
+      info.reason == NewtonConvergenceReason::AbsoluteGradient
+        ? NewtonConvergenceReason::AbsoluteGradientFpLimit
+        : NewtonConvergenceReason::LooseRelativeGradientFpLimit;
     solveDiagnostics.recordNewtonConvergence(
-      NewtonConvergenceReason::AbsoluteGradientFpLimit,
-      epsilon);
+      reason, info.threshold);
     return SolveStatus::Converged;
   }
   if (looseRelativeConverged(gradMaxNorm, lambda0)) {
@@ -844,14 +803,11 @@ SolveStatus NewtonSolver::resolveFpLimitFallback(SolveStatus failStatus, double 
 
 bool NewtonSolver::prepareReducedSystem(double lambdaScale, double lambda0)
 {
-  Profiling::ScopedProfileSection scopedProfile("newton.prepare_reduced_system");
-  Profiling::ScopedThreadRuntimePhase threadProfile("newton.prepare_reduced_system");
   const bool fixedHessianTopology = energy->isHessianTopologyFixed();
   dampingAddedToSysFull = 0.0;
   if (fixedDOFs.empty()) {
     ensureDiagonalEntries(sysFull);
     rhs.noalias() = -grad;
-    logMemoryCheckpoint("newton.after_no_fixed_fast_path");
   }
   else {
     if (fixedHessianTopology) {
@@ -859,7 +815,6 @@ bool NewtonSolver::prepareReducedSystem(double lambdaScale, double lambda0)
     }
     else {
       ES::removeRowsCols(sysFull, fixedDOFs, A11);
-      logMemoryCheckpoint("newton.after_reduced_system_setup");
     }
 
     ES::transferBigToSmall(grad, rhs, rhsb2s, 1);
@@ -890,20 +845,17 @@ bool NewtonSolver::prepareReducedSystem(double lambdaScale, double lambda0)
 
 NewtonSolver::EnsureLinearSolverResult NewtonSolver::ensureLinearSolver(bool fixedHessianTopology)
 {
-  Profiling::ScopedProfileSection scopedProfile("newton.ensure_linear_solver");
   (void)fixedHessianTopology;
   EnsureLinearSolverResult result;
 
   ES::SpMatD &A = activeSystemMatrix();
   {
-    Profiling::ScopedProfileSection compressProfile("make_compressed");
     A.makeCompressed();
   }
 
   if (solver != nullptr) {
     bool patternMatches = false;
     {
-      Profiling::ScopedProfileSection matchProfile("pattern_match");
       patternMatches = activeSystemPatternMatches(A);
     }
     if (patternMatches) {
@@ -925,21 +877,15 @@ NewtonSolver::LinearSolveResult NewtonSolver::solveReducedNewtonDirection(bool f
 {
   LinearSolveResult result;
   {
-    Profiling::ScopedProfileSection scopedProfile("solver.linear_solve");
-    Profiling::ScopedThreadRuntimePhase threadProfile("solver.linear_solve");
     ES::SpMatD &A = activeSystemMatrix();
     ES::VXd &dx = activeNewtonDirection();
     {
       const hclock::time_point start = hclock::now();
-      Profiling::ScopedProfileSection factorProfile("solver.factorize");
-      Profiling::ScopedThreadRuntimePhase factorThreadProfile("solver.factorize");
       result.success = solver->factorize(A);
       result.factorizeSeconds = dura(start, hclock::now());
     }
     if (result.success) {
       const hclock::time_point start = hclock::now();
-      Profiling::ScopedProfileSection solveProfile("solver.solve");
-      Profiling::ScopedThreadRuntimePhase solveThreadProfile("solver.solve");
       result.success = solver->solve(A, dx.data(), rhs.data());
       result.solveSeconds = dura(start, hclock::now());
     }
@@ -959,7 +905,6 @@ NewtonSolver::LinearSolveResult NewtonSolver::solveReducedNewtonDirection(bool f
 
 bool NewtonSolver::expandReducedStep()
 {
-  Profiling::ScopedProfileSection scopedProfile("newton.expand_reduced_step");
   if (fixedDOFs.empty())
     return deltax.allFinite();
 
@@ -1009,8 +954,6 @@ void NewtonSolver::dispatchPrepareEvaluationState(EigenSupport::ConstRefVecXd xE
 NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnergy, int verbose, int printGap, int iter)
 {
   const hclock::time_point start = hclock::now();
-  Profiling::ScopedProfileSection scopedProfile("newton.line_search_step");
-  Profiling::ScopedThreadRuntimePhase threadProfile("newton.line_search_step");
   StepAcceptance accepted;
   int lineSearchIterations = 0;
   const std::int64_t materialClampCountBefore = solveDiagnostics.clampCounts[static_cast<int>(StepSource::Material)];
@@ -1018,8 +961,6 @@ NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnerg
 
   StepConstraint maxStep;
   {
-    Profiling::ScopedProfileSection maxStepProfile("newton.line_search.max_step_limit");
-    Profiling::ScopedThreadRuntimePhase maxStepThreadProfile("newton.line_search.max_step_limit");
     maxStep = energy->computeMaxStepLimit(x, deltax, &solveDiagnostics);
   }
   accepted.feasibleAlpha = maxStep.alpha;
@@ -1049,11 +990,9 @@ NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnerg
 
     lineSearchx.noalias() = x + deltax;
     {
-      Profiling::ScopedProfileSection prepareProfile("newton.line_search.prepare_trial_state");
       dispatchPrepareEvaluationState(lineSearchx);
     }
     {
-      Profiling::ScopedProfileSection trialProfile("newton.line_search.trial_energy");
       accepted.acceptedEnergy = energy->func(lineSearchx);
     }
     if (!std::isfinite(accepted.acceptedEnergy)) {
@@ -1072,8 +1011,6 @@ NewtonSolver::StepAcceptance NewtonSolver::runLineSearchStep(double currentEnerg
         *lineSearchHelper, lineSearchEval };
       NewtonLineSearchResult ret;
       {
-        Profiling::ScopedProfileSection searchProfile("newton.line_search.policy_search");
-        Profiling::ScopedThreadRuntimePhase searchThreadProfile("newton.line_search.policy_search");
         ret = lineSearchPolicy->search(ctx);
       }
       accepted.lineSearchAlpha = ret.alpha;

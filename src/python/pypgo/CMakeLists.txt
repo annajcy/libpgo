@@ -49,8 +49,6 @@ set(PYPGO_BINDING_SOURCES
   # contact / implicit / parallel
   contact/core.cpp
   contact/bindings.cpp
-  profiling/core.cpp
-  profiling/bindings.cpp
   implicit/core.cpp
   implicit/bindings.cpp
   parallel/bindings.cpp
@@ -84,7 +82,6 @@ target_link_libraries(pypgo_core PRIVATE
   constraintPotentialEnergies
   simulation
   contact
-  profiling
   tetgenInterface
   volumetricMeshMeshing
   implicitSurface
@@ -120,7 +117,6 @@ target_include_directories(pypgo_core
     ${CMAKE_SOURCE_DIR}/src/core/constraintPotentialEnergies
     ${CMAKE_SOURCE_DIR}/src/core/simulation
     ${CMAKE_SOURCE_DIR}/src/core/contact
-    ${CMAKE_SOURCE_DIR}/src/core/profiling
     ${CMAKE_SOURCE_DIR}/src/core/tetgenInterface
     ${CMAKE_SOURCE_DIR}/src/core/volumetricMeshMeshing
     ${CMAKE_SOURCE_DIR}/src/core/implicitSurface

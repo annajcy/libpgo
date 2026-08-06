@@ -113,7 +113,6 @@ def parse_args(default_backend: str = "mkl") -> argparse.Namespace:
     )
     parser.add_argument("--plastic-dofs", type=int, choices=(0, 3, 6), default=6)
     parser.add_argument("--signature-relative-tolerance", type=float, default=1e-9)
-    parser.add_argument("--native-profile", action="store_true")
     parser.add_argument("--case-limit", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
     add_workload_warmup_arguments(
@@ -269,15 +268,6 @@ def _result_signature(result: Any, operation: str) -> dict[str, Any]:
     raise ValueError(f"unknown operation: {operation}")
 
 
-def _profile_snapshot(profiling, enabled: bool) -> dict[str, Any] | None:
-    if not enabled:
-        return None
-    return {
-        "sections": profiling.snapshot(),
-        "counters": profiling.snapshot_counters(),
-    }
-
-
 def worker_main(args: argparse.Namespace) -> int:
     # Keep imports below environment setup in the controller. NumPy and pypgo may
     # themselves load a BLAS implementation during import.
@@ -298,7 +288,6 @@ def worker_main(args: argparse.Namespace) -> int:
     global_control = GlobalTbbControl(args.concurrency)
 
     import pypgo.fem as pf
-    import pypgo.profiling as profiling
     from pypgo.mesh.volume import VolumeMesh, read_veg
 
     metadata = FORMULATION_METADATA[args.formulation]
@@ -421,15 +410,9 @@ def worker_main(args: argparse.Namespace) -> int:
         )
     )
     gc.collect()
-    if args.native_profile:
-        profiling.set_enabled(True)
-        profiling.reset()
     outer_started = time.perf_counter()
     elapsed, iterations, last = invoke(timed_loop)
     execute_wall_seconds = time.perf_counter() - outer_started
-    native_profile = _profile_snapshot(profiling, args.native_profile)
-    if args.native_profile:
-        profiling.set_enabled(False)
 
     if last is None:
         raise RuntimeError("timed loop produced no result")
@@ -479,7 +462,6 @@ def worker_main(args: argparse.Namespace) -> int:
         "execute_wall_seconds": execute_wall_seconds,
         "seconds_per_evaluation": elapsed / iterations,
         "signature": _result_signature(last, args.operation),
-        "native_profile": native_profile,
         "runtime": {
             "python": sys.version,
             "platform": platform.platform(),
@@ -547,8 +529,6 @@ def worker_command(
         "--plastic-dofs",
         str(args.plastic_dofs),
     ]
-    if args.native_profile:
-        command.append("--native-profile")
     return command
 
 
@@ -788,7 +768,6 @@ def controller_main(args: argparse.Namespace) -> int:
         "displacement_scale": args.displacement_scale,
         "elastic_model": args.elastic_model,
         "plastic_dofs": args.plastic_dofs,
-        "native_profile": args.native_profile,
         "host_environment": host_environment,
         "environment_overrides": environment_overrides,
         "tet_mesh": str(args.tet_mesh.resolve()),

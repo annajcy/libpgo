@@ -527,7 +527,10 @@ class TestDeformationPotentialEnergy:
         fixed_dofs = [dof for dof in range(energy.num_dofs) if dof != 3]
         problem = ps.OptimizationProblem(objective=energy)
         problem.fix_variables(fixed_dofs, x0[fixed_dofs], num_dofs=x0.size)
-        result = ps.NewtonOptimizer(max_iterations=50, gradient_tolerance=1e-8).solve(problem, x0)
+        result = ps.NewtonOptimizer(
+            max_iterations=50,
+            termination=ps.AbsoluteTermination(abs_tolerance=1e-8),
+        ).solve(problem, x0)
 
         assert result.converged
         assert result.x[3] > 1e-4

@@ -118,7 +118,7 @@ def main(argv=None) -> int:
     )
     optimizer = ps.NewtonOptimizer(
         max_iterations=100,
-        gradient_tolerance=1.0e-5,
+        termination=ps.AbsoluteTermination(abs_tolerance=1.0e-5),
         line_search=ps.Backtrack(),
     )
 

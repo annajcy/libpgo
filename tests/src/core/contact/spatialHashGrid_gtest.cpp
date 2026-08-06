@@ -188,7 +188,7 @@ TEST(SpatialHashGridGTest, QueryOverlappingFiltersSameCellNonOverlappingAABBs)
 
   std::vector<int> visitedStamp(boxes.size(), 0);
   std::vector<int> result;
-  const std::uint64_t hashCandidates = grid.queryOverlapping(
+  grid.queryOverlapping(
     makeBox(ES::V3d(0.0, 0.0, 0.0), ES::V3d(0.3, 0.3, 0.3)),
     boxes,
     -1,
@@ -198,10 +198,9 @@ TEST(SpatialHashGridGTest, QueryOverlappingFiltersSameCellNonOverlappingAABBs)
 
   ASSERT_EQ(result.size(), 1u);
   EXPECT_EQ(result[0], 0);
-  EXPECT_EQ(hashCandidates, 2u);
 }
 
-TEST(SpatialHashGridGTest, QueryOverlappingAfterCountsOnlyEligiblePrimitiveIds)
+TEST(SpatialHashGridGTest, QueryOverlappingAfterSkipsIneligiblePrimitiveIds)
 {
   std::vector<SpatialHashGrid::AABB> boxes;
   boxes.push_back(makeBox(ES::V3d(0.1, 0.1, 0.1), ES::V3d(0.2, 0.2, 0.2)));
@@ -214,7 +213,7 @@ TEST(SpatialHashGridGTest, QueryOverlappingAfterCountsOnlyEligiblePrimitiveIds)
 
   std::vector<int> visitedStamp(boxes.size(), 0);
   std::vector<int> result;
-  const std::uint64_t hashCandidates = grid.queryOverlappingAfter(
+  grid.queryOverlappingAfter(
     makeBox(ES::V3d(0.0, 0.0, 0.0), ES::V3d(0.3, 0.3, 0.3)),
     boxes,
     1,
@@ -223,5 +222,4 @@ TEST(SpatialHashGridGTest, QueryOverlappingAfterCountsOnlyEligiblePrimitiveIds)
     result);
 
   EXPECT_TRUE(result.empty());
-  EXPECT_EQ(hashCandidates, 1u);
 }

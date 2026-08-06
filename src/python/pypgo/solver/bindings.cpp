@@ -57,15 +57,22 @@ void init_solver_bindings(nb::module_ &m)
 
   nb::class_<PyTerminationPolicy>(m, "PyTerminationPolicy");
 
-  nb::class_<PyFixedTermination, PyTerminationPolicy>(m, "PyFixedTermination")
-    .def(nb::init<>());
+  nb::class_<PyHybridTermination, PyTerminationPolicy>(m, "PyHybridTermination")
+    .def(nb::init<double, double>(),
+      nb::arg("abs_tolerance"),
+      nb::arg("relative_tolerance"));
+
+  nb::class_<PyAbsoluteTermination, PyTerminationPolicy>(m, "PyAbsoluteTermination")
+    .def(nb::init<double>(), nb::arg("abs_tolerance"));
+
+  nb::class_<PyRelativeTermination, PyTerminationPolicy>(m, "PyRelativeTermination")
+    .def(nb::init<double>(), nb::arg("relative_tolerance"));
 
   // ── PyNewtonOptimizerOptions ──────────────────────────────────────────
 
   nb::class_<PyNewtonOptimizerOptions>(m, "PyNewtonOptimizerOptions")
     .def(nb::init<>())
     .def_rw("max_iterations", &PyNewtonOptimizerOptions::maxIterations)
-    .def_rw("gradient_tolerance", &PyNewtonOptimizerOptions::gradientTolerance)
     .def_rw("line_search", &PyNewtonOptimizerOptions::lineSearch)
     .def_rw("damping", &PyNewtonOptimizerOptions::damping)
     .def_rw("termination", &PyNewtonOptimizerOptions::termination)

@@ -124,7 +124,9 @@ def test_hermite_dynamic_free_fall_uses_24_dofs():
     sim = pgo.sim.DynamicSimulation(mass=M, state=dyn_state, timestep=0.01, energy=energy)
     frame = sim.step(
         external_force=f,
-        optimizer=pgo.solver.NewtonOptimizer(max_iterations=20, gradient_tolerance=1e-6),
+        optimizer=pgo.solver.NewtonOptimizer(
+            max_iterations=20,
+            termination=pgo.solver.AbsoluteTermination(abs_tolerance=1e-6)),
     )
 
     assert frame.accepted

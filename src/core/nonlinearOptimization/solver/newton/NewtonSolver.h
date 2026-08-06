@@ -52,7 +52,7 @@ public:
   };
 
   void setFixedDOFs(const std::vector<int> &fixedDOFs, const double *fixedValues);
-  SolverResult solve(double *x, int numIter, double epsilon, int verbose);
+  SolverResult solve(double *x, int numIter, int verbose);
   CleanupMetrics closeLinearSolver();
 
   using StepFunc = std::function<void(const EigenSupport::VXd &, int)>;
@@ -69,9 +69,6 @@ protected:
     double gradMaxNorm = 0.0;
     double gradNorm = 0.0;
     double lambda0 = 1.0;
-    double relThreshold = 0.0;
-    bool absConverged = false;
-    bool relConverged = false;
     bool nonFiniteEnergy = false;
     bool nonFiniteGradient = false;
     double evaluateCurrentStateSeconds = 0.0;
@@ -153,7 +150,6 @@ protected:
     double lambdaScale = 1.0;
     double gradMaxNormLast = 0.0;
     bool hasInitialGradNorm = false;
-    double epsilon = 0.0;
     int verbose = 0;
     int printGap = 10;
     int iter = 0;
@@ -186,7 +182,7 @@ protected:
 
   void filterVector(EigenSupport::VXd &v);
   void applyFixedValues();
-  IterationState evaluateCurrentState(int iter, double epsilon, double lambda0, bool hasInitialGradNorm);
+  IterationState evaluateCurrentState(int iter, double lambda0, bool hasInitialGradNorm);
   bool prepareReducedSystem(double lambdaScale, double lambda0);
   EnsureLinearSolverResult ensureLinearSolver(bool fixedHessianTopology);
   LinearSolveResult solveReducedNewtonDirection(bool fixedHessianTopology);
@@ -199,7 +195,7 @@ protected:
   StepAcceptance runLineSearchStep(double currentEnergy, int verbose, int printGap, int iter);
   void dispatchPrepareEvaluationState(EigenSupport::ConstRefVecXd xEval) const;
   bool looseRelativeConverged(double gradMaxNorm, double lambda0) const;
-  SolveStatus resolveFpLimitFallback(SolveStatus failStatus, double gradMaxNorm, double lambda0, double epsilon);
+  SolveStatus resolveFpLimitFallback(SolveStatus failStatus, double gradMaxNorm, double lambda0);
   double makeLinearSolver(const EigenSupport::SpMatD &A);
   void invalidateLinearSolverPatternCache();
   bool activeSystemPatternMatches(const EigenSupport::SpMatD &A) const;

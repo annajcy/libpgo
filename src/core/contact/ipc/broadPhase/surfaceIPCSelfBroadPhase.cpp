@@ -2,8 +2,6 @@
 
 #include "ipc/broadPhase/surfaceIPCBroadPhaseInternal.h"
 #include "ipc/geometry/ipcDistancePrimitives.h"
-#include "ipc/profiling/surfaceIPCProfiling.h"
-#include "scopedProfileSection.h"
 
 
 #include <algorithm>
@@ -27,18 +25,6 @@ void buildSelfPairs(
 {
   using namespace pgo::EigenSupport;
 
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildStatic);
-  const bool profilingEnabled = Profiling::isProfilingEnabled();
-  const PairQueryProfileNames ptProfileNames{
-    SurfaceIPCProfileSections::kPairBuildSelfPTHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildSelfPTDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildSelfPTAcceptedPairs,
-  };
-  const PairQueryProfileNames eeProfileNames{
-    SurfaceIPCProfileSections::kPairBuildSelfEEHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildSelfEEDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildSelfEEAcceptedPairs,
-  };
 
   pairs.clear();
 
@@ -56,7 +42,6 @@ void buildSelfPairs(
   std::vector<SpatialHashGrid::AABB> triBox(nTri);
   std::vector<SpatialHashGrid::AABB> edgeBox(nEdge);
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildSelfAABB);
     buildVertexAABBs(vertBox, topology.numVerts, getV, inflate);
     buildTriangleAABBs(triBox, nTri, topology.triangles, getV, inflate);
     buildEdgeAABBs(edgeBox, nEdge, topology.edges, getV, inflate);
@@ -72,27 +57,20 @@ void buildSelfPairs(
 
   // --- PT pairs ---
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildSelfPTHashQuery);
     SpatialHashGrid triHash(nTri);
     triHash.setCellSize(cellSize);
     {
-      Profiling::ScopedProfileSection hashProfile(SurfaceIPCProfileSections::kPairBuildSelfPTHashInsert);
       triHash.build(triBox);
     }
     {
-      Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfPTQuery);
-      const PairQueryCounts counts = collectHashPairsParallel<PTPair>(nTri, 0, topology.numVerts,
+      collectPairsParallel<PTPair>(nTri, 0, topology.numVerts,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<PTPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<PTPair> &localPairs) {
           for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              triHash.queryOverlapping(vertBox[vi], triBox, -1, visited, vi + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            triHash.queryOverlapping(vertBox[vi], triBox, -1, visited, vi + 1, candidates);
 
             V3d vp = getV(vi);
             for (int fi : candidates) {
@@ -100,8 +78,6 @@ void buildSelfPairs(
               if (vi == tri[0] || vi == tri[1] || vi == tri[2])
                 continue;
 
-              if (profilingEnabled)
-                localCounts.exactTests += 1;
               V3d vt0 = getV(tri[0]), vt1 = getV(tri[1]), vt2 = getV(tri[2]);
               double d2 = distance::computePTSqDist(vp, vt0, vt1, vt2);
               if (d2 < dhat2)
@@ -111,33 +87,25 @@ void buildSelfPairs(
           }
         },
         pairs.ptPairs);
-      recordPairQueryCounters(ptProfileNames, counts, pairs.ptPairs.size());
     }
   }
 
   // --- EE pairs ---
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildSelfEEHashQuery);
     SpatialHashGrid edgeHash(nEdge);
     edgeHash.setCellSize(cellSize);
     {
-      Profiling::ScopedProfileSection hashProfile(SurfaceIPCProfileSections::kPairBuildSelfEEHashInsert);
       edgeHash.build(edgeBox);
     }
     {
-      Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfEEQuery);
-      const PairQueryCounts counts = collectHashPairsParallel<EEPair>(nEdge, 0, nEdge,
+      collectPairsParallel<EEPair>(nEdge, 0, nEdge,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<EEPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<EEPair> &localPairs) {
           for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              edgeHash.queryOverlappingAfter(edgeBox[ei], edgeBox, ei, visited, ei + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            edgeHash.queryOverlappingAfter(edgeBox[ei], edgeBox, ei, visited, ei + 1, candidates);
 
             int a0 = topology.edges[ei][0], a1 = topology.edges[ei][1];
             V3d va0 = getV(a0), va1 = getV(a1);
@@ -146,8 +114,6 @@ void buildSelfPairs(
               if (a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1)
                 continue;
 
-              if (profilingEnabled)
-                localCounts.exactTests += 1;
               V3d vb0 = getV(b0), vb1 = getV(b1);
               double d2 = distance::computeEESqDist(va0, va1, vb0, vb1);
               if (d2 < dhat2)
@@ -157,7 +123,6 @@ void buildSelfPairs(
           }
         },
         pairs.eePairs);
-      recordPairQueryCounters(eeProfileNames, counts, pairs.eePairs.size());
     }
   }
 }
@@ -171,18 +136,6 @@ void buildSelfPairsLineSearchSuperset(
 {
   using namespace pgo::EigenSupport;
 
-  Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildStatic);
-  const bool profilingEnabled = Profiling::isProfilingEnabled();
-  const PairQueryProfileNames ptProfileNames{
-    SurfaceIPCProfileSections::kPairBuildSelfPTHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildSelfPTDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildSelfPTAcceptedPairs,
-  };
-  const PairQueryProfileNames eeProfileNames{
-    SurfaceIPCProfileSections::kPairBuildSelfEEHashCandidates,
-    SurfaceIPCProfileSections::kPairBuildSelfEEDistanceTests,
-    SurfaceIPCProfileSections::kPairBuildSelfEEAcceptedPairs,
-  };
 
   pairs.clear();
 
@@ -200,7 +153,6 @@ void buildSelfPairsLineSearchSuperset(
   std::vector<SpatialHashGrid::AABB> triBox(nTri);
   std::vector<SpatialHashGrid::AABB> edgeBox(nEdge);
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildSelfAABB);
     buildSweptVertexAABBs(vertBox, topology.numVerts, getV, getDV, dhat);
     buildSweptTriangleAABBs(triBox, nTri, topology.triangles, getV, getDV, dhat);
     buildSweptEdgeAABBs(edgeBox, nEdge, topology.edges, getV, getDV, dhat);
@@ -212,27 +164,20 @@ void buildSelfPairsLineSearchSuperset(
   const double cellSize = nTri > 0 ? std::max(avgBoxDiag / nTri, 1e-6) : std::max(1e-6, dhat);
 
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildSelfPTHashQuery);
     SpatialHashGrid triHash(nTri);
     triHash.setCellSize(cellSize);
     {
-      Profiling::ScopedProfileSection hashProfile(SurfaceIPCProfileSections::kPairBuildSelfPTHashInsert);
       triHash.build(triBox);
     }
     {
-      Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfPTQuery);
-      const PairQueryCounts counts = collectHashPairsParallel<PTPair>(nTri, 0, topology.numVerts,
+      collectPairsParallel<PTPair>(nTri, 0, topology.numVerts,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<PTPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<PTPair> &localPairs) {
           for (int vi = rangeBegin; vi < rangeEnd; ++vi) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              triHash.queryOverlapping(vertBox[vi], triBox, -1, visited, vi + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            triHash.queryOverlapping(vertBox[vi], triBox, -1, visited, vi + 1, candidates);
 
             for (int fi : candidates) {
               auto &tri = topology.triangles[fi];
@@ -244,32 +189,24 @@ void buildSelfPairsLineSearchSuperset(
           }
         },
         pairs.ptPairs);
-      recordPairQueryCounters(ptProfileNames, counts, pairs.ptPairs.size());
     }
   }
 
   {
-    Profiling::ScopedProfileSection scopedProfile(SurfaceIPCProfileSections::kPairBuildSelfEEHashQuery);
     SpatialHashGrid edgeHash(nEdge);
     edgeHash.setCellSize(cellSize);
     {
-      Profiling::ScopedProfileSection hashProfile(SurfaceIPCProfileSections::kPairBuildSelfEEHashInsert);
       edgeHash.build(edgeBox);
     }
     {
-      Profiling::ScopedProfileSection queryProfile(SurfaceIPCProfileSections::kPairBuildSelfEEQuery);
-      const PairQueryCounts counts = collectHashPairsParallel<EEPair>(nEdge, 0, nEdge,
+      collectPairsParallel<EEPair>(nEdge, 0, nEdge,
         [&](int rangeBegin, int rangeEnd,
           std::vector<int> &visited,
           std::vector<int> &candidates,
-          std::vector<EEPair> &localPairs,
-          PairQueryCounts &localCounts) {
+          std::vector<EEPair> &localPairs) {
           for (int ei = rangeBegin; ei < rangeEnd; ++ei) {
             candidates.clear();
-            const std::uint64_t hashCandidates =
-              edgeHash.queryOverlappingAfter(edgeBox[ei], edgeBox, ei, visited, ei + 1, candidates);
-            if (profilingEnabled)
-              localCounts.hashCandidates += hashCandidates;
+            edgeHash.queryOverlappingAfter(edgeBox[ei], edgeBox, ei, visited, ei + 1, candidates);
 
             const int a0 = topology.edges[ei][0];
             const int a1 = topology.edges[ei][1];
@@ -284,7 +221,6 @@ void buildSelfPairsLineSearchSuperset(
           }
         },
         pairs.eePairs);
-      recordPairQueryCounters(eeProfileNames, counts, pairs.eePairs.size());
     }
   }
 }

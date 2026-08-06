@@ -70,7 +70,9 @@ def test_one_step_implicit_euler_quadratic():
         energy=_spring(n),
         integrator="implicit_euler",
     )
-    optimizer = pgo.solver.NewtonOptimizer(max_iterations=50, gradient_tolerance=1e-9)
+    optimizer = pgo.solver.NewtonOptimizer(
+        max_iterations=50,
+        termination=pgo.solver.AbsoluteTermination(abs_tolerance=1e-9))
     frame = sim.step(external_force=np.array([1.0, -2.0, 0.5]), optimizer=optimizer)
     assert frame.accepted
     assert frame.displacement.shape == (n,)

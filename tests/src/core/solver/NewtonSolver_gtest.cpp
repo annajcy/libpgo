@@ -31,7 +31,9 @@ using pgo::NonlinearOptimization::SolverResult;
 using pgo::NonlinearOptimization::NewtonIterationTrace;
 using pgo::NonlinearOptimization::NewtonConvergenceReason;
 using pgo::NonlinearOptimization::newtonConvergenceReasonName;
-using pgo::NonlinearOptimization::FixedNewtonTerminationPolicy;
+using pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy;
+using pgo::NonlinearOptimization::HybridNewtonTerminationPolicy;
+using pgo::NonlinearOptimization::RelativeNewtonTerminationPolicy;
 using pgo::NonlinearOptimization::NewtonTerminationDecision;
 using pgo::NonlinearOptimization::NewtonIterationContext;
 using pgo::NonlinearOptimization::NoDampingPolicy;
@@ -497,6 +499,7 @@ TEST(NewtonSolverGTest, ExplicitLinearSolverCleanupIsIdempotent)
   auto observations = std::make_shared<LinearBackendObservations>();
 
   NewtonSolver::SolverParam params;
+  params.termination = std::make_shared<pgo::NonlinearOptimization::RelativeNewtonTerminationPolicy>(1e-5);
   params.sparseSolver = std::make_shared<LifecycleRecordingSelector>(observations);
 
   double x = 1.0;
@@ -520,12 +523,13 @@ TEST(NewtonSolverGTest, ReleasesFailedLinearBackend)
   observations->factorizeSucceeds = false;
 
   NewtonSolver::SolverParam params;
+  params.termination = std::make_shared<pgo::NonlinearOptimization::RelativeNewtonTerminationPolicy>(1e-5);
   params.sparseSolver = std::make_shared<LifecycleRecordingSelector>(observations);
 
   double x = 1.0;
   auto energy = std::make_shared<LinearBackendLifecycleEnergy>();
   NewtonSolver solver(&x, params, energy, {});
-  const SolverResult result = solver.solve(&x, 1, 0.0, 0);
+  const SolverResult result = solver.solve(&x, 1, 0);
 
   EXPECT_FALSE(result.converged());
   EXPECT_EQ(observations->factorizeCalls, 1);
@@ -711,11 +715,12 @@ TEST(NewtonSolverGTest, ConvergedSolveReturnsConvergedStatus)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
 
-  const SolverResult result = solver.solve(x.data(), 8, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 8, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_TRUE(result.converged());
@@ -733,10 +738,11 @@ TEST(NewtonSolverGTest, QuadraticSolveRecordsNewtonIterationTrace)
   x[1] = -1.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 8, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 8, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   const SolveDiagnostics &diagnostics = solver.getSolveDiagnostics();
@@ -780,12 +786,13 @@ TEST(NewtonSolverGTest, ZeroFeasibleStepWithLargeResidualReturnsStepTooSmall)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
 
   testing::internal::CaptureStdout();
-  const SolverResult result = solver.solve(x.data(), 8, 1e-10, 1);
+  const SolverResult result = solver.solve(x.data(), 8, 1);
   const std::string output = testing::internal::GetCapturedStdout();
 
   EXPECT_EQ(result.status, SolveStatus::StepTooSmall);
@@ -803,12 +810,13 @@ TEST(NewtonSolverGTest, SolveDiagnosticsRecordsMaxStepBreakdown)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
 
   testing::internal::CaptureStdout();
-  const SolverResult result = solver.solve(x.data(), 1, 1e-10, 2);
+  const SolverResult result = solver.solve(x.data(), 1, 2);
   const std::string output = testing::internal::GetCapturedStdout();
 
   const SolveDiagnostics &diagnostics = solver.getSolveDiagnostics();
@@ -833,11 +841,12 @@ TEST(NewtonSolverGTest, NonFiniteTrialEnergyEndsLineSearchScope)
   x[0] = 2.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-12);
   solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(BacktrackingLineSearchPolicy::Params{});
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 1, 1e-12, 0);
+  const SolverResult result = solver.solve(x.data(), 1, 0);
 
   EXPECT_EQ(result.status, SolveStatus::NonFinite);
   EXPECT_EQ(energy->beginLineSearchCalls, 1);
@@ -853,11 +862,12 @@ TEST(NewtonSolverGTest, FpEquivalentSimpleLineSearchEnergyIsNotRejectedByTakeSte
   x[0] = 1.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-12);
   solverParam.lineSearch = std::make_shared<SimpleLineSearchPolicy>(SimpleLineSearchPolicy::Params{});
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 1, 1e-12, 0);
+  const SolverResult result = solver.solve(x.data(), 1, 0);
 
   EXPECT_EQ(result.status, SolveStatus::MaxIterations);
   EXPECT_NEAR(x[0], 0.0, 1e-14);
@@ -876,11 +886,12 @@ TEST(NewtonSolverGTest, NonDescentFpEquivalentSimpleLineSearchEnergyIsRejectedBy
   x[0] = 1.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-12);
   solverParam.lineSearch = std::make_shared<SimpleLineSearchPolicy>(SimpleLineSearchPolicy::Params{});
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 1, 1e-12, 0);
+  const SolverResult result = solver.solve(x.data(), 1, 0);
 
   EXPECT_EQ(result.status, SolveStatus::LineSearchFailed);
   EXPECT_NEAR(x[0], 1.0, 1e-14);
@@ -899,12 +910,13 @@ TEST(NewtonSolverGTest, BacktrackingReusesInitialTrialEnergy)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(BacktrackingLineSearchPolicy::Params{});
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
 
-  const SolverResult result = solver.solve(x.data(), 1, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 1, 0);
 
   EXPECT_EQ(result.status, SolveStatus::MaxIterations);
   EXPECT_EQ(energy->funcCalls, 2);
@@ -938,11 +950,12 @@ TEST(NewtonSolverGTest, SubiterationOnePreparesEvaluationStateBeforeCurrentAndAc
   x[0] = 2.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   solverParam.sst = NewtonSolver::SST_SUBITERATION_ONE;
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 1, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 1, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_GE(energy->prepareCalls, 2);
@@ -960,12 +973,13 @@ TEST(NewtonSolverGTest, GoldenLineSearchDoesNotUseBoundedActiveSetScope)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   solverParam.lineSearch = std::make_shared<GoldenLineSearchPolicy>();
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
 
-  const SolverResult result = solver.solve(x.data(), 1, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 1, 0);
 
   EXPECT_EQ(result.status, SolveStatus::MaxIterations);
   EXPECT_EQ(energy->beginLineSearchCalls, 0);
@@ -981,11 +995,12 @@ TEST(NewtonSolverGTest, StepTooSmallConvergenceRecordsFinalGradientStats)
   x[0] = 2.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-12);
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
   testing::internal::CaptureStdout();
-  const SolverResult result = solver.solve(x.data(), 120, 1e-12, 1);
+  const SolverResult result = solver.solve(x.data(), 120, 1);
   const std::string output = testing::internal::GetCapturedStdout();
 
   const SolveDiagnostics &diagnostics = solver.getSolveDiagnostics();
@@ -1008,11 +1023,12 @@ TEST(NewtonSolverGTest, VerboseIterationLogLabelsMaxGradientNorm)
   x[1] = 4.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::RelativeNewtonTerminationPolicy>(1e-5);
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
   testing::internal::CaptureStdout();
-  solver.solve(x.data(), 1, 0.0, 2);
+  solver.solve(x.data(), 1, 2);
   const std::string output = testing::internal::GetCapturedStdout();
 
   EXPECT_NE(output.find("||grad||_max=4"), std::string::npos);
@@ -1029,12 +1045,13 @@ TEST(NewtonSolverGTest, NonFixedTopologyIterationsUseGradientHessian)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   solverParam.sst = NewtonSolver::SST_SUBITERATION_ONE;
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
 
-  const SolverResult result = solver.solve(x.data(), 1, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 1, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_EQ(energy->gradientCalls, 1);
@@ -1050,12 +1067,13 @@ TEST(NewtonSolverGTest, StaticDampingConvergesOnQuadratic)
   x[1] = 4.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-6);
   solverParam.sst = NewtonSolver::SST_SUBITERATION_STATIC_DAMPING;
   solverParam.alpha = 0.5;
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 200, 1e-6, 0);
+  const SolverResult result = solver.solve(x.data(), 200, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_LT(x.cwiseAbs().maxCoeff(), 1e-4);
@@ -1069,12 +1087,13 @@ TEST(NewtonSolverGTest, DampingPolicyConvergesOnQuadratic)
   x[1] = 4.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-6);
   solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(BacktrackingLineSearchPolicy::Params{});
   solverParam.damping = std::make_shared<FixedDampingPolicy>(FixedDampingPolicy::Params{ 1.0 });
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 200, 1e-6, 0);
+  const SolverResult result = solver.solve(x.data(), 200, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_LT(x.cwiseAbs().maxCoeff(), 1e-4);
@@ -1090,6 +1109,7 @@ TEST(NewtonSolverGTest, ZeroFixedFastPathAvoidsReducedStateAndSurvivesFixedDofMo
   const ES::VXd x0 = x;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::RelativeNewtonTerminationPolicy>(1e-5);
   solverParam.sst = NewtonSolver::SST_SUBITERATION_ONE;
   solverParam.damping = std::make_shared<FixedDampingPolicy>(FixedDampingPolicy::Params{ 1.0 });
   const std::vector<int> noFixedDOFs;
@@ -1102,7 +1122,7 @@ TEST(NewtonSolverGTest, ZeroFixedFastPathAvoidsReducedStateAndSurvivesFixedDofMo
   EXPECT_EQ(solver.rhsSize(), 3);
   EXPECT_EQ(solver.reducedStepSize(), 0);
 
-  const SolverResult result = solver.solve(x.data(), 1, 0.0, 0);
+  const SolverResult result = solver.solve(x.data(), 1, 0);
 
   EXPECT_EQ(result.status, SolveStatus::MaxIterations);
   const double lambda0 = x0.cwiseAbs().maxCoeff();
@@ -1188,10 +1208,11 @@ TEST(NewtonSolverGTest, SolveRecordsIterationsForImmediateConvergence)
   x[0] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 8, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 8, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_EQ(result.iterations, 0);
@@ -1218,13 +1239,14 @@ TEST(NewtonSolverGTest, SolveRecordsRelativeGradientConvergenceReason)
   x[0] = 1.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::HybridNewtonTerminationPolicy>(1e-10, 1e-5);
   solverParam.sst = NewtonSolver::SST_SUBITERATION_STATIC_DAMPING;
   solverParam.alpha = 1.0 - 5e-6;
   solverParam.stopAfterIncrease = 0;
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 8, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 8, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_EQ(result.diagnostics.newtonConvergenceReason, NewtonConvergenceReason::RelativeGradient);
@@ -1241,10 +1263,11 @@ TEST(NewtonSolverGTest, SolveRecordsZeroIterationsForZeroMaxIter)
   x[0] = 2.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
 
-  const SolverResult result = solver.solve(x.data(), 0, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 0, 0);
 
   EXPECT_EQ(result.status, SolveStatus::MaxIterations);
   EXPECT_EQ(result.iterations, 0);
@@ -1253,45 +1276,119 @@ TEST(NewtonSolverGTest, SolveRecordsZeroIterationsForZeroMaxIter)
 
 // ── NewtonTerminationPolicy unit tests ────────────────────────────────
 
-TEST(NewtonTerminationPolicyGTest, BeforeLinearSolve_ConvergesOnAbsTol)
+TEST(NewtonTerminationPolicyGTest, Evaluate_ConvergesOnAbsTol)
 {
   initializeLogging();
-  FixedNewtonTerminationPolicy policy;
+  HybridNewtonTerminationPolicy policy(1e-10, 1e-5);
   NewtonIterationContext ctx;
   ctx.gradMaxNorm = 1e-12;
-  ctx.epsilon = 1e-10;
   ctx.lambda0 = 1.0;
-  EXPECT_EQ(policy.beforeLinearSolve(ctx), NewtonTerminationDecision::Converged);
+  EXPECT_EQ(policy.evaluate(ctx).decision, NewtonTerminationDecision::Converged);
 }
 
-TEST(NewtonTerminationPolicyGTest, BeforeLinearSolve_ConvergesOnRelTol)
+TEST(NewtonTerminationPolicyGTest, Evaluate_ConvergesOnRelTol)
 {
   initializeLogging();
-  FixedNewtonTerminationPolicy policy;
+  HybridNewtonTerminationPolicy policy(1e-10, 1e-5);
   NewtonIterationContext ctx;
   ctx.gradMaxNorm = 5e-6;
-  ctx.epsilon = 1e-10;
   ctx.lambda0 = 1.0;  // relThreshold = 1e-5, 5e-6 < 1e-5
-  EXPECT_EQ(policy.beforeLinearSolve(ctx), NewtonTerminationDecision::Converged);
+  EXPECT_EQ(policy.evaluate(ctx).decision, NewtonTerminationDecision::Converged);
 }
 
-TEST(NewtonTerminationPolicyGTest, BeforeLinearSolve_ContinuesWhenNotConverged)
+TEST(NewtonTerminationPolicyGTest, Evaluate_ContinuesWhenNotConverged)
 {
   initializeLogging();
-  FixedNewtonTerminationPolicy policy;
+  HybridNewtonTerminationPolicy policy(1e-10, 1e-5);
   NewtonIterationContext ctx;
   ctx.gradMaxNorm = 1e-3;
-  ctx.epsilon = 1e-10;
   ctx.lambda0 = 1.0;
-  EXPECT_EQ(policy.beforeLinearSolve(ctx), NewtonTerminationDecision::Continue);
+  EXPECT_EQ(policy.evaluate(ctx).decision, NewtonTerminationDecision::Continue);
 }
 
 TEST(NewtonTerminationPolicyGTest, AfterStep_AlwaysContinues)
 {
   initializeLogging();
-  FixedNewtonTerminationPolicy policy;
+  HybridNewtonTerminationPolicy policy(1e-6, 1e-5);
   NewtonIterationContext ctx;
   EXPECT_EQ(policy.afterStep(ctx), NewtonTerminationDecision::Continue);
+}
+
+TEST(NewtonTerminationPolicyGTest, AbsolutePolicy_ConvergesOnAbsTolOnly)
+{
+  initializeLogging();
+  AbsoluteNewtonTerminationPolicy policy(1e-10);
+  NewtonIterationContext ctx;
+  ctx.gradMaxNorm = 1e-12;
+  ctx.lambda0 = 1e6;  // a large initial gradient must not trigger an early stop
+  EXPECT_EQ(policy.evaluate(ctx).decision, NewtonTerminationDecision::Converged);
+
+  ctx.gradMaxNorm = 1e-3;
+  EXPECT_EQ(policy.evaluate(ctx).decision, NewtonTerminationDecision::Continue);
+}
+
+TEST(NewtonTerminationPolicyGTest, RelativePolicy_ConvergesOnRelTolOnly)
+{
+  initializeLogging();
+  RelativeNewtonTerminationPolicy policy(1e-5);
+  NewtonIterationContext ctx;
+  ctx.lambda0 = 1.0;    // relThreshold = lambda0 * 1e-5 = 1e-5
+  ctx.gradMaxNorm = 5e-6;
+  EXPECT_EQ(policy.evaluate(ctx).decision, NewtonTerminationDecision::Converged);
+
+  ctx.gradMaxNorm = 1e-3;
+  EXPECT_EQ(policy.evaluate(ctx).decision, NewtonTerminationDecision::Continue);
+}
+
+TEST(NewtonTerminationPolicyGTest, Policies_UseConfiguredTolerances)
+{
+  initializeLogging();
+  NewtonIterationContext ctx;
+  ctx.lambda0 = 1.0;
+
+  // Absolute policy with an explicit absolute tolerance.
+  AbsoluteNewtonTerminationPolicy absolutePolicy(1e-4);
+  ctx.gradMaxNorm = 5e-5;
+  EXPECT_EQ(
+    absolutePolicy.evaluate(ctx).decision, NewtonTerminationDecision::Converged);
+  ctx.gradMaxNorm = 2e-4;
+  EXPECT_EQ(
+    absolutePolicy.evaluate(ctx).decision, NewtonTerminationDecision::Continue);
+
+  // Relative policy with a custom relative tolerance.
+  RelativeNewtonTerminationPolicy relativePolicy(1e-3);
+  ctx.gradMaxNorm = 5e-4;  // < lambda0 * 1e-3 but not < lambda0 * 1e-5
+  EXPECT_EQ(
+    relativePolicy.evaluate(ctx).decision, NewtonTerminationDecision::Converged);
+  ctx.gradMaxNorm = 2e-3;
+  EXPECT_EQ(
+    relativePolicy.evaluate(ctx).decision, NewtonTerminationDecision::Continue);
+
+  // Hybrid policy with both tolerances configured.
+  HybridNewtonTerminationPolicy hybridPolicy(1e-4, 1e-3);
+  ctx.gradMaxNorm = 5e-5;  // absolute branch
+  EXPECT_EQ(
+    hybridPolicy.evaluate(ctx).decision, NewtonTerminationDecision::Converged);
+  ctx.gradMaxNorm = 5e-4;
+  // relative branch (< lambda0 * 1e-3)
+  EXPECT_EQ(
+    hybridPolicy.evaluate(ctx).decision, NewtonTerminationDecision::Converged);
+  ctx.gradMaxNorm = 2e-3;  // neither branch
+  EXPECT_EQ(
+    hybridPolicy.evaluate(ctx).decision, NewtonTerminationDecision::Continue);
+}
+
+TEST(NewtonTerminationPolicyGTest, Policies_RejectNonPositiveTolerances)
+{
+  initializeLogging();
+  EXPECT_THROW(
+    AbsoluteNewtonTerminationPolicy(0.0), std::invalid_argument);
+  EXPECT_THROW(
+    RelativeNewtonTerminationPolicy(0.0), std::invalid_argument);
+  EXPECT_THROW(
+    HybridNewtonTerminationPolicy(0.0, 1e-5), std::invalid_argument);
+  EXPECT_THROW(
+    HybridNewtonTerminationPolicy(-1.0, 1e-5), std::invalid_argument);
 }
 
 // ── NewtonDampingPolicy unit tests ─────────────────────────────────────
@@ -1325,12 +1422,13 @@ TEST(NewtonSolverGTest, DampingPolicyConvergesOnQuadraticBackwardCompat)
   x[1] = 4.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-6);
   solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(
     BacktrackingLineSearchPolicy::Params{});
   solverParam.damping = std::make_shared<FixedDampingPolicy>(FixedDampingPolicy::Params{ 1.0 });
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
-  const SolverResult result = solver.solve(x.data(), 200, 1e-6, 0);
+  const SolverResult result = solver.solve(x.data(), 200, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_LT(x.cwiseAbs().maxCoeff(), 1e-4);
@@ -1345,12 +1443,13 @@ TEST(NewtonSolverGTest, NoDampingPolicyWithQuadratic)
   x[1] = 4.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-6);
   solverParam.lineSearch = std::make_shared<BacktrackingLineSearchPolicy>(
     BacktrackingLineSearchPolicy::Params{});
   solverParam.damping = std::make_shared<NoDampingPolicy>();
   const std::vector<int> fixedDOFs;
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs);
-  const SolverResult result = solver.solve(x.data(), 200, 1e-6, 0);
+  const SolverResult result = solver.solve(x.data(), 200, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_LT(x.cwiseAbs().maxCoeff(), 1e-4);
@@ -1365,10 +1464,11 @@ TEST(NewtonSolverGTest, DefaultTerminationReproducesOldConvergence)
   x[1] = 0.0;
 
   NewtonSolver::SolverParam solverParam;
+  solverParam.termination = std::make_shared<pgo::NonlinearOptimization::AbsoluteNewtonTerminationPolicy>(1e-10);
   const std::vector<int> fixedDOFs = { 1 };
   const double fixedValues[1] = { 0.0 };
   NewtonSolver solver(x.data(), solverParam, energy, fixedDOFs, fixedValues);
-  const SolverResult result = solver.solve(x.data(), 8, 1e-10, 0);
+  const SolverResult result = solver.solve(x.data(), 8, 0);
 
   EXPECT_EQ(result.status, SolveStatus::Converged);
   EXPECT_TRUE(result.converged());

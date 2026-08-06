@@ -12,8 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEMO = (
     ROOT
     / "examples"
-    / "demo"
-    / "optimization"
+    / "experiments"
     / "systematic_poking_fit_reaction_force"
 )
 

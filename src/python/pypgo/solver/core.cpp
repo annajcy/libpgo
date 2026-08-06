@@ -191,7 +191,6 @@ NOO::NewtonOptimizer::Options makeNewtonOptions(const PyNewtonOptimizerOptions &
 {
   NOO::NewtonOptimizer::Options opts;
   opts.maxIterations = options.maxIterations;
-  opts.gradientTolerance = options.gradientTolerance;
   opts.verbose = options.verbose;
   // Null handles let the core defaults kick in.
   if (options.lineSearch)

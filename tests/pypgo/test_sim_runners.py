@@ -398,40 +398,6 @@ def test_run_dynamic_resume_rejects_mismatched_checkpoint_metadata(tmp_path):
         run_dynamic(build_scene(resume_cfg), resume_cfg)
 
 
-def test_run_dynamic_profile_writes_index_and_frame_json(tmp_path, monkeypatch):
-    monkeypatch.setenv("PGO_PROFILE_DYNAMIC", "1")
-    cfg = _dynamic_box_cfg(tmp_path, **{"dynamic.num_steps": 1})
-    run_dynamic(build_scene(cfg), cfg)
-
-    index_path = tmp_path / "profile_dynamic.jsonl"
-    assert index_path.exists()
-    rows = [json.loads(line) for line in index_path.read_text().splitlines()]
-    assert len(rows) == 1
-
-    row = rows[0]
-    assert row["frame_index"] == 0
-    assert row["profile_path"] == "profiles/frame_000000_profile.json"
-    assert "solver_diagnostics" not in row
-    assert "sections" not in row
-    assert "counters" not in row
-
-    profile = json.loads((tmp_path / row["profile_path"]).read_text())
-    assert profile["frame_index"] == 0
-    assert profile["solver_diagnostics"]["status"] == row["solver_status"]
-    sections = profile["sections"]
-    assert sections["name"] == "root"
-    assert isinstance(sections["children"], list)
-    assert "children_seconds" in sections
-    assert "children_cpu_seconds" in sections
-    for section in sections["children"]:
-        assert section["name"] == section["path"]
-        assert "local_name" in section
-        assert "avg_cpu_cores" in section
-        assert "max_cpu_cores" in section
-        assert "children_avg_cpu_cores" in section
-        assert "self_avg_cpu_cores" in section
-
-
 def test_run_dynamic_write_checkpoints_dump_interval(tmp_path):
     """Checkpoints are written every step even when dump_interval skips visual dumps."""
     cfg = _dynamic_box_cfg(

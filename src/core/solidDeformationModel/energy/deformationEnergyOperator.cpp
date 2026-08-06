@@ -8,7 +8,6 @@ copyright to USC,MIT,NUS
 #include "deformation/deformationModelAssembler.h"
 #include "formulations/formulation/formulation.h"
 #include "material/runtime/materialBinding.h"
-#include "scopedProfileSection.h"
 #include "simulation/simulationMesh.h"
 
 #include <numeric>
@@ -112,7 +111,6 @@ DeformationEnergyOperator::~DeformationEnergyOperator()
 double DeformationEnergyOperator::func(
   EigenSupport::ConstRefVecXd x, MaterialStateView state) const
 {
-  Profiling::ScopedProfileSection scopedProfile("material.energy");
   ES::VXd &p = absolutePositionScratch_;
   fillAbsolutePositions(x, getRestDofs(), p);
   return forceModelAssembler->computeEnergy(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state);
@@ -195,7 +193,6 @@ void DeformationEnergyOperator::gradient(
   MaterialStateView state,
   EigenSupport::RefVecXd grad) const
 {
-  Profiling::ScopedProfileSection scopedProfile("material.gradient");
   ES::VXd &p = absolutePositionScratch_;
   fillAbsolutePositions(x, getRestDofs(), p);
   forceModelAssembler->computeDisplacementGradient(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state,
@@ -207,7 +204,6 @@ void DeformationEnergyOperator::hessianInPlace(
   MaterialStateView state,
   EigenSupport::SpMatD &hess) const
 {
-  Profiling::ScopedProfileSection scopedProfile("material.hessian");
   ES::VXd &p = absolutePositionScratch_;
   fillAbsolutePositions(x, getRestDofs(), p);
   forceModelAssembler->computeDisplacementHessian(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state, hess);

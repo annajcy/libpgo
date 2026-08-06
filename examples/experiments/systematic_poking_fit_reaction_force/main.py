@@ -390,42 +390,10 @@ def _solve_case(
     initial[case.fixed_dofs] = case.fixed_values
     result = optimizer.solve(problem, initial)
     displacement = result.x.copy()
-    polish_iterations = 0
-    for polish_iterations in range(9):
-        gradient = energy.gradient(displacement)
-        free_gradient = gradient[case.free_dofs]
-        if (
-            not case.free_dofs.size
-            or np.max(np.abs(free_gradient))
-            <= STATIC_RESIDUAL_TOLERANCE
-        ):
-            break
-        stiffness = energy.hessian(displacement).to_dense()
-        step = np.linalg.solve(
-            stiffness[np.ix_(case.free_dofs, case.free_dofs)],
-            -free_gradient,
-        )
-        objective = energy.value(displacement)
-        directional_derivative = float(free_gradient @ step)
-        current_residual = float(np.max(np.abs(free_gradient)))
-        alpha = 1.0
-        accepted = False
-        for _ in range(18):
-            candidate = displacement.copy()
-            candidate[case.free_dofs] += alpha * step
-            candidate_residual = float(np.max(np.abs(
-                energy.gradient(candidate)[case.free_dofs])))
-            armijo = energy.value(candidate) <= (
-                objective + 1.0e-4 * alpha * directional_derivative)
-            if armijo or candidate_residual < current_residual:
-                displacement = candidate
-                accepted = True
-                break
-            alpha *= 0.5
-        if not accepted:
-            raise RuntimeError(
-                f"equilibrium polish failed for {case.label}")
 
+    # The optimizer's absolute-only termination policy drives every case to
+    # gradient_tolerance (1e-10); verify loudly instead of silently computing
+    # reactions from an inexact equilibrium.
     gradient = energy.gradient(displacement)
     free_residual_max = (
         float(np.max(np.abs(gradient[case.free_dofs])))
@@ -440,7 +408,7 @@ def _solve_case(
     return ReactionState(
         reaction=reaction,
         displacement=displacement.copy(),
-        iterations=result.iterations + polish_iterations,
+        iterations=result.iterations,
         free_residual_max=free_residual_max,
     ), displacement.copy()
 
@@ -517,10 +485,8 @@ def build_problem(
         initial_material_parameters(stretch_knots),
     )
     optimizer = ps.NewtonOptimizer(
-        max_iterations=80,
-        gradient_tolerance=1.0e-10,
-        damping=ps.FixedDamping(),
-        line_search=ps.Backtrack(),
+        max_iterations=200,
+        termination=ps.AbsoluteTermination(abs_tolerance=1.0e-10),
     )
     train_cases = _load_cases(
         vertices, stretch_knots, split="train")
@@ -706,32 +672,25 @@ def fit_parameters(
             if max_component > 0.75:
                 step *= 0.75 / max_component
 
-            alpha = 1.0
-            for _ in range(14):
-                candidate = theta + alpha * step
-                problem.reset_warm_starts()
-                candidate_residual, _, _ = (
-                    reaction_residual_and_jacobian(
-                        problem,
-                        candidate,
-                        "train",
-                        smoothness_weight=smoothness_weight,
-                    )
+            candidate = theta + step
+            problem.reset_warm_starts()
+            candidate_residual, _, _ = (
+                reaction_residual_and_jacobian(
+                    problem,
+                    candidate,
+                    "train",
+                    smoothness_weight=smoothness_weight,
                 )
-                candidate_objective = (
-                    0.5
-                    * float(candidate_residual @ candidate_residual)
-                )
-                if candidate_objective < objective:
-                    theta = candidate
-                    entry["step_norm"] = float(
-                        np.linalg.norm(alpha * step))
-                    entry["line_search_alpha"] = alpha
-                    damping = max(damping / 3.0, 1.0e-12)
-                    accepted = True
-                    break
-                alpha *= 0.5
-            if accepted:
+            )
+            candidate_objective = (
+                0.5 * float(candidate_residual @ candidate_residual)
+            )
+            if candidate_objective < objective:
+                theta = candidate
+                entry["step_norm"] = float(np.linalg.norm(step))
+                entry["line_search_alpha"] = 1.0
+                damping = max(damping / 3.0, 1.0e-12)
+                accepted = True
                 break
             damping *= 10.0
         if not accepted:

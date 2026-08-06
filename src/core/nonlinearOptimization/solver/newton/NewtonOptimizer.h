@@ -17,13 +17,13 @@ public:
   struct Options
   {
     int maxIterations = 50;
-    double gradientTolerance = 1e-6;
     int verbose = 0;
     // Concrete (immutable) line-search policy handle; null selects a default Backtracking policy.
     std::shared_ptr<const NewtonLineSearchPolicy> lineSearch;
     // Newton diagonal damping policy; null selects NoDampingPolicy.
     std::shared_ptr<const NewtonDampingPolicy> damping;
-    // Newton termination policy; null selects FixedNewtonTerminationPolicy.
+    // Newton termination policy. Required: it owns all convergence
+    // tolerances (the solver has no separate gradient tolerance).
     std::shared_ptr<const NewtonTerminationPolicy> termination;
     // Sparse linear-solver selector; null picks Auto (best available backend).
     std::shared_ptr<const NewtonSparseSolverSelector> sparseSolver;
