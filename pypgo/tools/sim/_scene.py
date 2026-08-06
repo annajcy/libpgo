@@ -280,8 +280,7 @@ def _build_volume_scene(cfg: SimConfig) -> SceneBundle:
     deformation_operator = _fem.DeformationEnergyOperator(
         mesh, material_binding,
         formulation=fm,
-        options=_fem.DeformationOptions(
-            enable_material_max_step=cfg.material.enable_material_max_step),
+        options=_fem.DeformationOptions(),
     )
     deformation = _fem.DeformationPotentialEnergy(
         deformation_operator, material_state)
@@ -368,8 +367,7 @@ def _build_shell_scene(cfg: SimConfig) -> SceneBundle:
     deformation_operator = _fem.DeformationEnergyOperator(
         mesh, material_binding,
         formulation=fm,
-        options=_fem.DeformationOptions(
-            enable_material_max_step=cfg.material.enable_material_max_step),
+        options=_fem.DeformationOptions(),
     )
     deformation = _fem.DeformationPotentialEnergy(
         deformation_operator, material_state)

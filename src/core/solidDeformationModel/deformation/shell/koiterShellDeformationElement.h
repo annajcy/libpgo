@@ -43,6 +43,15 @@ public:
     std::span<const double> elasticParams,
     std::span<const double> plasticParams,
     EigenSupport::RefMatXd output) const override;
+  double computeEnergyGradient(std::span<const double> x,
+    std::span<const double> elasticParams,
+    std::span<const double> plasticParams,
+    EigenSupport::RefVecXd displacementGradient) const override;
+  double computeEnergyGradientHessian(std::span<const double> x,
+    std::span<const double> elasticParams,
+    std::span<const double> plasticParams,
+    EigenSupport::RefVecXd displacementGradient,
+    EigenSupport::RefMatXd displacementHessian) const override;
   void computeElasticGradient(std::span<const double> x,
     std::span<const double> elasticParams,
     std::span<const double> plasticParams,
@@ -82,24 +91,24 @@ private:
     std::span<const double> plasticParams,
     ShellDeformationElementCache &cacheDataBase) const;
 
-  double compute_E(const ShellDeformationElementCache &cacheDataBase) const;
+  double computeEnergy(const ShellDeformationElementCache &cacheDataBase) const;
 
-  void compute_dE_dx(const ShellDeformationElementCache &cacheDataBase,
+  void computeDisplacementGradient(const ShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefVecXd grad) const;
 
-  void compute_d2E_dx2(const ShellDeformationElementCache &cacheDataBase,
+  void computeDisplacementHessian(const ShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefMatXd hess) const;
 
-  void compute_d2E_dudp(const ShellDeformationElementCache &cacheDataBase,
+  void computeDisplacementPlasticHessian(const ShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefMatXd hess, int materialLocation = -1) const;
 
-  void compute_d2E_dude(const ShellDeformationElementCache &cacheDataBase,
+  void computeDisplacementElasticHessian(const ShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefMatXd hess, int materialLocation = -1) const;
 
-  void compute_dE_dp(const ShellDeformationElementCache &cacheDataBase,
+  void computePlasticGradient(const ShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefVecXd grad, int materialLocation = -1) const;
 
-  void compute_dE_de(const ShellDeformationElementCache &cacheDataBase,
+  void computeElasticGradient(const ShellDeformationElementCache &cacheDataBase,
     EigenSupport::RefVecXd grad, int materialLocation = -1) const;
 
   int computeVonMisesStress(
@@ -112,9 +121,6 @@ public:
 
   int getNumVertices() const override { return numNodes; }
   int getNumDOFs() const override { return localDofs; }
-
-  LocalMaxStepResult computeLocalMaxStepSize(
-    std::span<const double> x_local, std::span<const double> dx_local) const override;
 
 private:
   struct FirstFundamentalFormResult
@@ -172,7 +178,7 @@ private:
 
   const ShellDeformationElementCache &cacheData(const ShellDeformationElementCache &cacheDataBase) const;
   ShellDeformationElementCache &cacheData(ShellDeformationElementCache &cacheDataBase) const;
-  double compute_E(const ShellDeformationElementCache &cacheData,
+  double computeEnergy(const ShellDeformationElementCache &cacheData,
     std::span<const double> plasticParams, std::span<const double> elasticParams) const;
 };
 

@@ -68,7 +68,6 @@ def _make_deformation_energy(sim, formulation, elastic=None, plastic=None, plast
         formulation_handle._handle,
         None,
         True,
-        True,
     )
     return _core._create_deformation_potential_energy(
         operator, material.state._handle)

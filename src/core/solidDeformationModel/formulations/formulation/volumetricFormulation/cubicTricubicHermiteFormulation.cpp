@@ -3,6 +3,7 @@
 #include "barycentricCoordinates.h"
 #include "deformation/volume/volumetricDeformationElement.h"
 #include "formulations/dof/cubicTricubicHermiteDofLayout.h"
+#include "formulations/formulation/formulationHelpers.h"
 #include "formulations/quadrature/gaussLegendreHexQuadrature.h"
 #include "formulations/shapeFunction/cubicTricubicHermiteShapeFunction.h"
 #include "simulation/simulationMesh.h"
@@ -19,18 +20,6 @@ namespace SolidDeformationModel
 {
 namespace
 {
-template<class Derived, class Base>
-std::unique_ptr<Derived> checkedMaterialCast(
-  std::unique_ptr<Base> model, const char *message)
-{
-  if (Derived *typed = dynamic_cast<Derived *>(model.get())) {
-    model.release();
-    return std::unique_ptr<Derived>(typed);
-  }
-
-  throw std::invalid_argument(message);
-}
-
 namespace ES = EigenSupport;
 
 constexpr int kHermiteNodes = 64;
@@ -57,18 +46,6 @@ void elementHermiteRestDofs(const SimulationMesh &mesh, int ele, std::array<doub
   }
 }
 
-std::vector<double> flattenSurfaceVertices(const ES::MXd &surfaceVertices)
-{
-  if (surfaceVertices.cols() != 3) {
-    throw std::invalid_argument("surfaceVertices must have shape numVertices x 3");
-  }
-  std::vector<double> flat(static_cast<size_t>(surfaceVertices.rows()) * 3);
-  for (Eigen::Index i = 0; i < surfaceVertices.rows(); i++)
-    for (int d = 0; d < 3; d++)
-      flat[static_cast<size_t>(i) * 3 + d] = surfaceVertices(i, d);
-  return flat;
-}
-
 ES::SpMatD buildHermiteSurfaceEmbeddingMatrix(
   const VolumetricMeshes::VolumetricMesh &mesh,
   const ES::MXd &surfaceVertices)
@@ -78,7 +55,8 @@ ES::SpMatD buildHermiteSurfaceEmbeddingMatrix(
   }
 
   const int numTargets = static_cast<int>(surfaceVertices.rows());
-  const std::vector<double> flat = flattenSurfaceVertices(surfaceVertices);
+  const std::vector<double> flat =
+    detail::flattenSurfaceVertices(surfaceVertices);
   InterpolationCoordinates::BarycentricCoordinates bc(numTargets, flat.data(), &mesh);
 
   if (bc.getNumElementVertices() != 8) {
@@ -179,10 +157,10 @@ std::unique_ptr<DeformationElement> CubicTricubicHermiteFormulation::createEleme
 
   return std::make_unique<VolumetricDeformationElement>(
     restPosition, shapeFunction(), quadrature(),
-    checkedMaterialCast<ElasticModel3DDeformationGradient>(
+    detail::checkedMaterialCast<ElasticModel3DDeformationGradient>(
       std::move(elasticModel),
       "CubicTricubicHermiteFormulation requires ElasticModel3DDeformationGradient."),
-    checkedMaterialCast<PlasticModel3DDeformationGradient>(
+    detail::checkedMaterialCast<PlasticModel3DDeformationGradient>(
       std::move(plasticModel),
       "CubicTricubicHermiteFormulation requires PlasticModel3DDeformationGradient."),
     options);

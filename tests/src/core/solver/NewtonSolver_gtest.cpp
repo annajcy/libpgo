@@ -191,7 +191,7 @@ public:
     hess.setIdentity();
   }
 
-  void gradient_hessian(ES::ConstRefVecXd x, ES::RefVecXd grad, ES::SpMatD &hess) const override
+  void gradientHessian(ES::ConstRefVecXd x, ES::RefVecXd grad, ES::SpMatD &hess) const override
   {
     gradientHessianCalls++;
     grad = x;
@@ -199,9 +199,9 @@ public:
     hess.setIdentity();
   }
 
-  double func_grad_hessian(ES::ConstRefVecXd x, ES::RefVecXd grad, ES::SpMatD &hess) const override
+  double funcGradientHessian(ES::ConstRefVecXd x, ES::RefVecXd grad, ES::SpMatD &hess) const override
   {
-    gradient_hessian(x, grad, hess);
+    gradientHessian(x, grad, hess);
     return func(x);
   }
 
@@ -342,7 +342,7 @@ public:
     hess.setIdentity();
   }
 
-  double func_grad_hessian(ES::ConstRefVecXd x, ES::RefVecXd grad, ES::SpMatD &hess) const override
+  double funcGradientHessian(ES::ConstRefVecXd x, ES::RefVecXd grad, ES::SpMatD &hess) const override
   {
     gradient(x, grad);
     hessianInPlace(x, hess);

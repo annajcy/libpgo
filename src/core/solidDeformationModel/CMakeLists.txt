@@ -43,7 +43,6 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   deformation/deformationElement.h
   deformation/hessianProjection.h
-  deformation/materialMaxStepPolynomialUtils.h
 
   deformation/deformationModelAssembler.h
 
@@ -67,6 +66,7 @@ set(SOLID_DEFORMATION_MODEL_HEADERS
 
   formulations/formulation/formulation.h
   formulations/formulation/formulations.h
+  formulations/formulation/formulationHelpers.h
   formulations/formulation/volumetricFormulation/volumetricFormulation.h
   formulations/formulation/volumetricFormulation/tetFormulation.h
   formulations/formulation/volumetricFormulation/cubicFormulation.h
@@ -137,8 +137,6 @@ set(SOLID_DEFORMATION_MODEL_SOURCES
 
   material/plastic/plasticModel2DFundamentalFormsUniformStretch.cpp
 
-
-  deformation/materialMaxStepPolynomialUtils.cpp
 
   formulations/formulation/formulation.cpp
   formulations/formulation/volumetricFormulation/volumetricFormulation.cpp

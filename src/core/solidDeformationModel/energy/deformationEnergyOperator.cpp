@@ -10,14 +10,11 @@ copyright to USC,MIT,NUS
 #include "material/runtime/materialBinding.h"
 #include "scopedProfileSection.h"
 #include "simulation/simulationMesh.h"
-#include "pgoLogging.h"
 
-#include <algorithm>
 #include <numeric>
 #include <stdexcept>
 
 using namespace pgo;
-using namespace pgo::NonlinearOptimization;
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
 
@@ -79,7 +76,7 @@ DeformationEnergyOperator::BuildComponents DeformationEnergyOperator::build(
       static_cast<std::size_t>(elementWeights.size())));
   return BuildComponents{
     std::move(assembler), buildVertexRestPositions(mesh),
-    options.enableMaterialMaxStep, options.dofOffset
+    options.dofOffset
   };
 }
 
@@ -87,8 +84,7 @@ DeformationEnergyOperator::DeformationEnergyOperator(
   BuildComponents components):
   forceModelAssembler(std::move(components.assembler)),
   vertexRestPositions(std::move(components.vertexRestPositions)),
-  absolutePositionScratch_(forceModelAssembler->getNumDOFs()),
-  enableMaterialMaxStep_(components.enableMaterialMaxStep)
+  absolutePositionScratch_(forceModelAssembler->getNumDOFs())
 {
   allDOFs.resize(forceModelAssembler->getNumDOFs());
   std::iota(allDOFs.begin(), allDOFs.end(), components.dofOffset);
@@ -119,25 +115,25 @@ double DeformationEnergyOperator::func(
   Profiling::ScopedProfileSection scopedProfile("material.energy");
   ES::VXd &p = absolutePositionScratch_;
   fillAbsolutePositions(x, getRestDofs(), p);
-  return forceModelAssembler->compute_E(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state);
+  return forceModelAssembler->computeEnergy(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state);
 }
 
-void DeformationEnergyOperator::compute_dE_dp(
+void DeformationEnergyOperator::computePlasticGradient(
   ES::ConstRefVecXd displacement, MaterialStateView state, ES::RefVecXd grad) const
 {
   ES::VXd &p = absolutePositionScratch_;
   fillAbsolutePositions(displacement, getRestDofs(), p);
-  forceModelAssembler->compute_dE_dp(
+  forceModelAssembler->computePlasticGradient(
     std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state,
     grad);
 }
 
-void DeformationEnergyOperator::compute_dE_de(
+void DeformationEnergyOperator::computeElasticGradient(
   ES::ConstRefVecXd displacement, MaterialStateView state, ES::RefVecXd grad) const
 {
   ES::VXd &p = absolutePositionScratch_;
   fillAbsolutePositions(displacement, getRestDofs(), p);
-  forceModelAssembler->compute_dE_de(
+  forceModelAssembler->computeElasticGradient(
     std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state,
     grad);
 }
@@ -202,7 +198,7 @@ void DeformationEnergyOperator::gradient(
   Profiling::ScopedProfileSection scopedProfile("material.gradient");
   ES::VXd &p = absolutePositionScratch_;
   fillAbsolutePositions(x, getRestDofs(), p);
-  forceModelAssembler->compute_dE_dx(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state,
+  forceModelAssembler->computeDisplacementGradient(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state,
     grad);
 }
 
@@ -214,7 +210,7 @@ void DeformationEnergyOperator::hessianInPlace(
   Profiling::ScopedProfileSection scopedProfile("material.hessian");
   ES::VXd &p = absolutePositionScratch_;
   fillAbsolutePositions(x, getRestDofs(), p);
-  forceModelAssembler->compute_d2E_dx2(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state, hess);
+  forceModelAssembler->computeDisplacementHessian(std::span<const double>(p.data(), static_cast<std::size_t>(p.size())), state, hess);
 }
 
 void DeformationEnergyOperator::hessianAlloc(EigenSupport::SpMatD &hess) const
@@ -222,60 +218,40 @@ void DeformationEnergyOperator::hessianAlloc(EigenSupport::SpMatD &hess) const
   hess = forceModelAssembler->getHessianTemplate();
 }
 
-NonlinearOptimization::StepConstraint DeformationEnergyOperator::computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, StepConstraintSink *sink) const
+double DeformationEnergyOperator::funcGradient(
+  EigenSupport::ConstRefVecXd displacement,
+  MaterialStateView state,
+  EigenSupport::RefVecXd grad) const
 {
-  Profiling::ScopedProfileSection scopedProfile("material.max_step");
-  if (!enableMaterialMaxStep_) {
-    return NonlinearOptimization::StepConstraint{};
-  }
+  ES::VXd &p = absolutePositionScratch_;
+  fillAbsolutePositions(displacement, getRestDofs(), p);
+  return forceModelAssembler->computeEnergyGradient(
+    std::span<const double>(p.data(), static_cast<std::size_t>(p.size())),
+    state, grad);
+}
 
-  const int numDOFs = getNumDOFs();
-  if (x.size() != numDOFs || dx.size() != numDOFs) {
-    throw std::invalid_argument(
-      "DeformationEnergyOperator::computeMaxStepLimit: local state size does not match the energy DOF count.");
-  }
+double DeformationEnergyOperator::funcGradientHessian(
+  EigenSupport::ConstRefVecXd displacement,
+  MaterialStateView state,
+  EigenSupport::RefVecXd grad,
+  EigenSupport::SpMatD &hess) const
+{
+  ES::VXd &p = absolutePositionScratch_;
+  fillAbsolutePositions(displacement, getRestDofs(), p);
+  return forceModelAssembler->computeEnergyGradientHessian(
+    std::span<const double>(p.data(), static_cast<std::size_t>(p.size())),
+    state, grad, hess);
+}
 
-  if (dx.size() == 0 || dx.squaredNorm() == 0.0) {
-    return NonlinearOptimization::StepConstraint{};
-  }
-
-  ES::VXd &absolutePositions = absolutePositionScratch_;
-  fillAbsolutePositions(x, getRestDofs(), absolutePositions);
-  const auto observation = forceModelAssembler->computeMaxStepObservation(std::span<const double>(absolutePositions.data(), static_cast<std::size_t>(absolutePositions.size())), std::span<const double>(dx.data(), static_cast<std::size_t>(dx.size())));
-  const double maxStepSize = observation.alpha;
-
-  if (maxStepSize < 1.0) {
-    const auto meshType = forceModelAssembler->meshType();
-
-    if (!observation.hasIllegalInitialState && maxStepSize > 0.0 && maxStepSize < 0.01) {
-      if (observation.limitingLocationId >= 0) {
-        SPDLOG_LOGGER_WARN(Logging::lgr(),
-          "material max step produced small materialFeasibleAlpha={} on meshType={} element={} location={}.",
-          maxStepSize, meshTypeName(meshType), observation.limitingElementId, observation.limitingLocationId);
-      }
-      else {
-        SPDLOG_LOGGER_WARN(Logging::lgr(),
-          "material max step produced small materialFeasibleAlpha={} on meshType={} element={}.",
-          maxStepSize, meshTypeName(meshType), observation.limitingElementId);
-      }
-    }
-
-    if (auto logger = Logging::lgr(); logger && logger->should_log(spdlog::level::trace)) {
-      if (observation.limitingLocationId >= 0) {
-        SPDLOG_LOGGER_TRACE(logger,
-          "material clamp: materialFeasibleAlpha={} meshType={} element={} location={}.",
-          maxStepSize, meshTypeName(meshType), observation.limitingElementId, observation.limitingLocationId);
-      }
-      else {
-        SPDLOG_LOGGER_TRACE(logger,
-          "material clamp: materialFeasibleAlpha={} meshType={} element={}.",
-          maxStepSize, meshTypeName(meshType), observation.limitingElementId);
-      }
-    }
-  }
-
-  NonlinearOptimization::StepConstraint c{ NonlinearOptimization::StepSource::Material, maxStepSize };
-  if (sink)
-    sink->report(c);
-  return c;
+void DeformationEnergyOperator::gradientHessian(
+  EigenSupport::ConstRefVecXd displacement,
+  MaterialStateView state,
+  EigenSupport::RefVecXd grad,
+  EigenSupport::SpMatD &hess) const
+{
+  ES::VXd &p = absolutePositionScratch_;
+  fillAbsolutePositions(displacement, getRestDofs(), p);
+  forceModelAssembler->computeGradientHessian(
+    std::span<const double>(p.data(), static_cast<std::size_t>(p.size())),
+    state, grad, hess);
 }

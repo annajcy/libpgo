@@ -1,6 +1,5 @@
 #include "volumetricDeformationElement.h"
 
-#include "deformation/materialMaxStepPolynomialUtils.h"
 #include "formulations/quadrature/quadrature.h"
 #include "formulations/shapeFunction/shapeFunction.h"
 #include <cmath>
@@ -136,7 +135,7 @@ double VolumetricDeformationElement::computeEnergy(
   std::span<const double> plasticParams) const
 {
   prepareData(x, elasticParams, plasticParams, cache_);
-  return compute_E(cache_);
+  return computeEnergy(cache_);
 }
 
 void VolumetricDeformationElement::computeDisplacementGradient(
@@ -144,7 +143,7 @@ void VolumetricDeformationElement::computeDisplacementGradient(
   std::span<const double> plasticParams, ES::RefVecXd output) const
 {
   prepareData(x, elasticParams, plasticParams, cache_);
-  compute_dE_dx(cache_, output);
+  computeDisplacementGradient(cache_, output);
 }
 
 void VolumetricDeformationElement::computeDisplacementHessian(
@@ -152,7 +151,30 @@ void VolumetricDeformationElement::computeDisplacementHessian(
   std::span<const double> plasticParams, ES::RefMatXd output) const
 {
   prepareData(x, elasticParams, plasticParams, cache_);
-  compute_d2E_dx2(cache_, output);
+  computeDisplacementHessian(cache_, output);
+}
+
+double VolumetricDeformationElement::computeEnergyGradient(
+  std::span<const double> x, std::span<const double> elasticParams,
+  std::span<const double> plasticParams,
+  ES::RefVecXd displacementGradient) const
+{
+  prepareData(x, elasticParams, plasticParams, cache_);
+  const double energy = computeEnergy(cache_);
+  computeDisplacementGradient(cache_, displacementGradient);
+  return energy;
+}
+
+double VolumetricDeformationElement::computeEnergyGradientHessian(
+  std::span<const double> x, std::span<const double> elasticParams,
+  std::span<const double> plasticParams,
+  ES::RefVecXd displacementGradient, ES::RefMatXd displacementHessian) const
+{
+  prepareData(x, elasticParams, plasticParams, cache_);
+  const double energy = computeEnergy(cache_);
+  computeDisplacementGradient(cache_, displacementGradient);
+  computeDisplacementHessian(cache_, displacementHessian);
+  return energy;
 }
 
 void VolumetricDeformationElement::computeElasticGradient(
@@ -163,7 +185,7 @@ void VolumetricDeformationElement::computeElasticGradient(
   output.setZero();
   auto local = cache_.materialGradientScratch.head(numElasticParams_);
   for (int q = 0; q < numQuadPts_; ++q) {
-    compute_dE_de(cache_, local, q);
+    computeElasticGradient(cache_, local, q);
     output += local;
   }
 }
@@ -177,7 +199,7 @@ void VolumetricDeformationElement::computePlasticGradient(
   auto local = cache_.materialGradientScratch.head(numPlasticParams_);
   for (int q = 0; q < numQuadPts_; ++q) {
     local.setZero();
-    compute_dE_dp(cache_, local, q);
+    computePlasticGradient(cache_, local, q);
     output += local;
   }
 }
@@ -192,7 +214,7 @@ void VolumetricDeformationElement::computeElasticVJP(
   mixed.setZero();
   auto local = cache_.materialMixedLocationScratch.leftCols(numElasticParams_);
   for (int q = 0; q < numQuadPts_; ++q) {
-    compute_d2E_dude(cache_, local, q);
+    computeDisplacementElasticHessian(cache_, local, q);
     mixed += local;
   }
   output.noalias() = mixed.transpose() *
@@ -209,7 +231,7 @@ void VolumetricDeformationElement::computePlasticVJP(
   mixed.setZero();
   auto local = cache_.materialMixedLocationScratch.leftCols(numPlasticParams_);
   for (int q = 0; q < numQuadPts_; ++q) {
-    compute_d2E_dudp(cache_, local, q);
+    computeDisplacementPlasticHessian(cache_, local, q);
     mixed += local;
   }
   output.noalias() = mixed.transpose() *
@@ -335,7 +357,7 @@ void VolumetricDeformationElement::prepareData(
 // Energy and derivatives w.r.t. displacement
 // ============================================================
 
-double VolumetricDeformationElement::compute_E(
+double VolumetricDeformationElement::computeEnergy(
   const VolumetricDeformationElementCache &cacheDataBase) const
 {
   using CD = VolumetricDeformationElementCache;
@@ -350,7 +372,7 @@ double VolumetricDeformationElement::compute_E(
   return energy;
 }
 
-void VolumetricDeformationElement::compute_dE_dx(
+void VolumetricDeformationElement::computeDisplacementGradient(
   const VolumetricDeformationElementCache &cacheDataBase, ES::RefVecXd grad) const
 {
   if (grad.size() != localDofs_)
@@ -370,7 +392,7 @@ void VolumetricDeformationElement::compute_dE_dx(
   }
 }
 
-void VolumetricDeformationElement::compute_d2E_dx2(
+void VolumetricDeformationElement::computeDisplacementHessian(
   const VolumetricDeformationElementCache &cacheDataBase, ES::RefMatXd hess) const
 {
   if (hess.rows() != localDofs_ || hess.cols() != localDofs_)
@@ -419,41 +441,6 @@ SpectralState VolumetricDeformationElement::computeSpectralState(
     state.stretches(2) *= -1.0;
   }
   return state;
-}
-
-// ============================================================
-// computeLocalMaxStepSize
-// ============================================================
-
-DeformationElement::LocalMaxStepResult
-VolumetricDeformationElement::computeLocalMaxStepSize(
-  std::span<const double> x_local, std::span<const double> dx_local) const
-{
-  if (x_local.size() != static_cast<std::size_t>(localDofs_) ||
-    dx_local.size() != static_cast<std::size_t>(localDofs_))
-    throw std::invalid_argument(
-      "Volumetric local max-step inputs have the wrong size.");
-  LocalMaxStepResult result;
-  for (int q = 0; q < numQuadPts_; q++) {
-    const ES::M3d F0 = compute_F(x_local, q);
-    const ES::M3d deltaF = compute_F(dx_local, q);
-
-    const auto poly = buildDeterminantCubicFromAffineMatrixPath(
-      F0, deltaF, kCubicRelativeDetEps);
-    const ConservativeFeasibleAlphaResult alphaResult =
-      findConservativeFeasibleAlpha(poly, kCubicRelativeDetEps);
-    if (alphaResult.alpha < result.alpha) {
-      result.alpha = alphaResult.alpha;
-      result.illegalInitialState = alphaResult.illegalInitialState;
-      result.phi0 = alphaResult.phi0;
-      result.eps = kCubicRelativeDetEps;
-      result.locationId = q;
-    }
-    if (result.alpha <= kMaterialMaxStepMinClamp) {
-      break;
-    }
-  }
-  return result;
 }
 
 // ============================================================
@@ -583,7 +570,7 @@ int VolumetricDeformationElement::computeMaxStrain(
 // Plastic material-parameter derivatives.
 // ============================================================
 
-void VolumetricDeformationElement::compute_dE_dp(
+void VolumetricDeformationElement::computePlasticGradient(
   const VolumetricDeformationElementCache &cacheDataBase, ES::RefVecXd grad,
   int materialLocation) const
 {
@@ -613,7 +600,7 @@ void VolumetricDeformationElement::compute_dE_dp(
   }
 }
 
-void VolumetricDeformationElement::compute_d2E_dudp(
+void VolumetricDeformationElement::computeDisplacementPlasticHessian(
   const VolumetricDeformationElementCache &cacheDataBase, ES::RefMatXd hess,
   int materialLocation) const
 {
@@ -660,7 +647,7 @@ void VolumetricDeformationElement::compute_d2E_dudp(
 // Elastic material-parameter derivatives.
 // ============================================================
 
-void VolumetricDeformationElement::compute_dE_de(
+void VolumetricDeformationElement::computeElasticGradient(
   const VolumetricDeformationElementCache &cacheDataBase, ES::RefVecXd grad,
   int materialLocation) const
 {
@@ -685,7 +672,7 @@ void VolumetricDeformationElement::compute_dE_de(
   }
 }
 
-void VolumetricDeformationElement::compute_d2E_dude(
+void VolumetricDeformationElement::computeDisplacementElasticHessian(
   const VolumetricDeformationElementCache &cacheDataBase, ES::RefMatXd hess,
   int materialLocation) const
 {

@@ -55,12 +55,12 @@ public:
   void hessian(EigenSupport::ConstRefVecXd simulationDisplacements, EigenSupport::SpMatD &simulationHessian) const override;
   void hessianInPlace(EigenSupport::ConstRefVecXd simulationDisplacements, EigenSupport::SpMatD &simulationHessian) const override;
   void hessianAlloc(EigenSupport::SpMatD &simulationHessian) const override;
-  double func_grad(EigenSupport::ConstRefVecXd simulationDisplacements, EigenSupport::RefVecXd simulationGradient) const override;
-  double func_grad_hessian(
+  double funcGradient(EigenSupport::ConstRefVecXd simulationDisplacements, EigenSupport::RefVecXd simulationGradient) const override;
+  double funcGradientHessian(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::RefVecXd simulationGradient,
     EigenSupport::SpMatD &simulationHessian) const override;
-  void gradient_hessian(
+  void gradientHessian(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::RefVecXd simulationGradient,
     EigenSupport::SpMatD &simulationHessian) const override;

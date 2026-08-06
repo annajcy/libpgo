@@ -1,6 +1,7 @@
 #include "koiterShellFormulation.h"
 
 #include "deformation/shell/koiterShellDeformationElement.h"
+#include "formulations/formulation/formulationHelpers.h"
 #include "simulation/simulationMesh.h"
 
 #include "EigenSupport.h"
@@ -18,29 +19,6 @@ namespace SolidDeformationModel
 {
 namespace
 {
-void validateElementArealDensities(
-  ES::ConstRefVecXd densities, int numElements)
-{
-  if (densities.size() != numElements)
-    throw std::invalid_argument(
-      "element areal density count does not match mesh element count");
-  if (!densities.allFinite() || (densities.array() <= 0.0).any())
-    throw std::invalid_argument(
-      "element areal densities must contain finite values > 0");
-}
-
-template<class Derived, class Base>
-std::unique_ptr<Derived> checkedMaterialCast(
-  std::unique_ptr<Base> model, const char *message)
-{
-  if (Derived *typed = dynamic_cast<Derived *>(model.get())) {
-    model.release();
-    return std::unique_ptr<Derived>(typed);
-  }
-
-  throw std::invalid_argument(message);
-}
-
 double triangleRestArea(const SimulationMesh &mesh, int ele)
 {
   const ES::V3d &a = mesh.getVertex(ele, 0);
@@ -76,10 +54,10 @@ std::unique_ptr<DeformationElement> KoiterShellFormulation::createElement(
 
   return std::make_unique<KoiterShellDeformationElement>(
     restPosition, hasVertex,
-    checkedMaterialCast<ElasticModel2DFundamentalForms>(
+    detail::checkedMaterialCast<ElasticModel2DFundamentalForms>(
       std::move(elasticModel),
       "KoiterShellFormulation requires ElasticModel2DFundamentalForms."),
-    checkedMaterialCast<PlasticModel2DFundamentalForms>(
+    detail::checkedMaterialCast<PlasticModel2DFundamentalForms>(
       std::move(plasticModel),
       "KoiterShellFormulation requires PlasticModel2DFundamentalForms."),
     options);
@@ -92,8 +70,8 @@ EigenSupport::SpMatD KoiterShellFormulation::buildMassMatrix(
   if (mesh.getElementType() != compatibleMeshType())
     throw std::invalid_argument("mesh type is incompatible with this formulation");
 
-  validateElementArealDensities(
-    elementArealDensities, mesh.getNumElements());
+  detail::validateElementDensities(
+    elementArealDensities, mesh.getNumElements(), "element areal density");
 
   std::vector<ES::TripletD> entries;
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {
@@ -119,8 +97,8 @@ EigenSupport::VXd KoiterShellFormulation::buildBodyForce(
   if (mesh.getElementType() != compatibleMeshType())
     throw std::invalid_argument("mesh type is incompatible with this formulation");
 
-  validateElementArealDensities(
-    elementArealDensities, mesh.getNumElements());
+  detail::validateElementDensities(
+    elementArealDensities, mesh.getNumElements(), "element areal density");
 
   ES::VXd force = ES::VXd::Zero(mesh.getNumVertices() * 3);
   for (int ele = 0; ele < mesh.getNumElements(); ele++) {

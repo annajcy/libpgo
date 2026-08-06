@@ -25,16 +25,16 @@ public:
     const SampledPenaltyEvaluationBundle &bundle,
     EigenSupport::ConstRefVecXd surfacePositions,
     EigenSupport::SpMatD &surfaceHessian) const;
-  double func_grad(
+  double funcGradient(
     const SampledPenaltyEvaluationBundle &bundle,
     EigenSupport::ConstRefVecXd surfacePositions,
     EigenSupport::RefVecXd surfaceGradient) const;
-  double func_grad_hessian(
+  double funcGradientHessian(
     const SampledPenaltyEvaluationBundle &bundle,
     EigenSupport::ConstRefVecXd surfacePositions,
     EigenSupport::RefVecXd surfaceGradient,
     EigenSupport::SpMatD &surfaceHessian) const;
-  void gradient_hessian(
+  void gradientHessian(
     const SampledPenaltyEvaluationBundle &bundle,
     EigenSupport::ConstRefVecXd surfacePositions,
     EigenSupport::RefVecXd surfaceGradient,

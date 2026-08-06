@@ -40,8 +40,6 @@ if(PGO_UI)
   add_subdirectory(render)
 endif()
 
-add_subdirectory(c)
-
 if(PGO_ENABLE_PYTHON)
   add_subdirectory(python)
 endif()

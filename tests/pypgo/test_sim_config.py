@@ -350,7 +350,7 @@ def test_friction_fields_rejected_for_non_sampled_contact(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Task 7: movement, dump_interval, enable_material_max_step
+# Task 7: movement, dump_interval
 # ---------------------------------------------------------------------------
 
 
@@ -443,40 +443,6 @@ def test_dump_interval_zero_rejected(tmp_path):
         load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
 
 
-def test_enable_material_max_step_defaults_true_volume(tmp_path):
-    """VolumeMaterialConfig.enable_material_max_step defaults to True."""
-    cfg_path = _write(tmp_path, {
-        "mesh": {"volume": "m.veg", "surface": "m.obj"},
-        "dynamic": {"timestep": 0.001},
-        "output": {"directory": "out"},
-    })
-    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
-    assert cfg.material.enable_material_max_step is True
-
-
-def test_enable_material_max_step_false_volume(tmp_path):
-    """enable_material_max_step=false round-trips for VolumeMaterialConfig."""
-    cfg_path = _write(tmp_path, {
-        "mesh": {"volume": "m.veg", "surface": "m.obj"},
-        "material": {"model": "stable_neo", "enable_material_max_step": False},
-        "dynamic": {"timestep": 0.001},
-        "output": {"directory": "out"},
-    })
-    cfg = load_config(mesh_type="tet", mode="dynamic", json_path=cfg_path)
-    assert cfg.material.enable_material_max_step is False
-
-
-def test_enable_material_max_step_defaults_true_shell(tmp_path):
-    """ShellMaterialConfig.enable_material_max_step defaults to True."""
-    cfg_path = _write(tmp_path, {
-        "mesh": {"surface": "shell.obj"},
-        "material": {"mass": {"density": 1000.0}},
-        "output": {"directory": "out"},
-    })
-    cfg = load_config(mesh_type="shell", mode="static", json_path=cfg_path)
-    assert cfg.material.enable_material_max_step is True
-
-
 # ---------------------------------------------------------------------------
 # Task 11: write_stress config tests
 # ---------------------------------------------------------------------------
@@ -513,17 +479,6 @@ def test_write_stress_shell_accepted(tmp_path):
     })
     cfg = load_config(mesh_type="shell", mode="static", json_path=cfg_path)
     assert cfg.output.write_stress is True
-
-
-def test_enable_material_max_step_false_shell(tmp_path):
-    """enable_material_max_step=false round-trips for ShellMaterialConfig."""
-    cfg_path = _write(tmp_path, {
-        "mesh": {"surface": "shell.obj"},
-        "material": {"mass": {"density": 1000.0}, "enable_material_max_step": False},
-        "output": {"directory": "out"},
-    })
-    cfg = load_config(mesh_type="shell", mode="static", json_path=cfg_path)
-    assert cfg.material.enable_material_max_step is False
 
 
 # ---------------------------------------------------------------------------

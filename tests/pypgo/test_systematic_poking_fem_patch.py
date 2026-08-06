@@ -62,7 +62,6 @@ def _make_energy(elastic, elastic_values=None):
         formulation=pf.CubicLinear(),
         options=pf.DeformationOptions(
             project_hessian_psd=False,
-            enable_material_max_step=False,
         ),
     )
     return pf.DeformationPotentialEnergy(

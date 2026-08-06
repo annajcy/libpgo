@@ -86,7 +86,6 @@ EnergyCase makeCubeCase(const FormulationT &formulation, int offset = 0)
     std::make_shared<VolumetricPlasticity6Definition>(), parameters);
   DeformationModelOptions options;
   options.projectHessianPSD = kExactDerivativeProjectHessianPSD;
-  options.enableMaterialMaxStep = false;
   options.dofOffset = offset;
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
     *c.asset->mesh(), *material.binding, formulation, options);
@@ -355,7 +354,6 @@ EnergyCase makeTwoCubeCase(const FormulationT &formulation)
     std::make_shared<VolumetricPlasticity6Definition>(), parameters);
   DeformationModelOptions options;
   options.projectHessianPSD = kExactDerivativeProjectHessianPSD;
-  options.enableMaterialMaxStep = false;
   auto energyOperator = std::make_shared<DeformationEnergyOperator>(
     *c.asset->mesh(), *material.binding, formulation, options);
   c.energy = std::make_unique<DeformationPotentialEnergy>(

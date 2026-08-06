@@ -23,7 +23,6 @@ class SimulationMesh;
 struct DeformationModelOptions
 {
   bool projectHessianPSD = true;
-  bool enableMaterialMaxStep = true;
   int dofOffset = 0;
   EigenSupport::VXd elementWeights;
 };
@@ -61,12 +60,30 @@ public:
     EigenSupport::SpMatD &hess) const;
 
   void hessianAlloc(EigenSupport::SpMatD &hess) const;
+  // Combined evaluations: the position buffer is filled once and every
+  // element prepares its geometry/material state once before all requested
+  // quantities are assembled. These are the recommended hot-path entry
+  // points (e.g. Newton funcGradientHessian).
+  double funcGradient(
+    EigenSupport::ConstRefVecXd displacement,
+    MaterialStateView state,
+    EigenSupport::RefVecXd grad) const;
+  double funcGradientHessian(
+    EigenSupport::ConstRefVecXd displacement,
+    MaterialStateView state,
+    EigenSupport::RefVecXd grad,
+    EigenSupport::SpMatD &hess) const;
+  void gradientHessian(
+    EigenSupport::ConstRefVecXd displacement,
+    MaterialStateView state,
+    EigenSupport::RefVecXd grad,
+    EigenSupport::SpMatD &hess) const;
 
   // Material derivatives of E(u, p, e), where u is displacement, p is the
   // plastic field, and e is the elastic field. Material state is always
   // explicit; the operator owns no committed material values.
-  void compute_dE_dp(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::RefVecXd grad) const;
-  void compute_dE_de(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::RefVecXd grad) const;
+  void computePlasticGradient(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::RefVecXd grad) const;
+  void computeElasticGradient(EigenSupport::ConstRefVecXd displacement, MaterialStateView state, EigenSupport::RefVecXd grad) const;
   void computePlasticMaterialVJP(
     EigenSupport::ConstRefVecXd displacement,
     MaterialStateView state,
@@ -82,11 +99,6 @@ public:
   void getDOFs(std::vector<int> &dofs) const { dofs = this->allDOFs; }
   int getNumDOFs() const { return (int)allDOFs.size(); }
 
-  NonlinearOptimization::StepConstraint computeMaxStepLimit(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx, NonlinearOptimization::StepConstraintSink *sink = nullptr) const;
-
-  void setEnableMaterialMaxStep(bool enable) { enableMaterialMaxStep_ = enable; }
-  bool isMaterialMaxStepEnabled() const { return enableMaterialMaxStep_; }
-
 protected:
   std::unique_ptr<DeformationModelAssembler> forceModelAssembler;
   std::vector<int> allDOFs;
@@ -94,14 +106,12 @@ protected:
   // Mutable evaluation storage. One operator instance does not support
   // overlapping/concurrent evaluations.
   mutable EigenSupport::VXd absolutePositionScratch_;
-  bool enableMaterialMaxStep_ = true;
 
 private:
   struct BuildComponents
   {
     std::unique_ptr<DeformationModelAssembler> assembler;
     EigenSupport::VXd vertexRestPositions;
-    bool enableMaterialMaxStep = true;
     int dofOffset = 0;
   };
 

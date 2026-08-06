@@ -39,7 +39,7 @@ class DeformationEnergyOperator:
     formulation : Formulation
         Element formulation used to assemble the deformation energy.
     options : DeformationOptions, optional
-        Assembly and material-step options.
+        Assembly options.
 
     Properties
     ----------
@@ -94,7 +94,6 @@ class DeformationEnergyOperator:
             formulation._handle,
             element_weights,
             bool(options.project_hessian_psd),
-            bool(options.enable_material_max_step),
         )
         object.__setattr__(self, "_handle", core)
 
@@ -335,7 +334,6 @@ class DeformationOptions:
     """
 
     project_hessian_psd: bool = True
-    enable_material_max_step: bool = True
     element_weights: np.ndarray | None = None
 
 

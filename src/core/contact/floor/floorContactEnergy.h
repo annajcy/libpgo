@@ -61,14 +61,14 @@ public:
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::SpMatD &simulationHessian) const override;
   virtual void hessianAlloc(EigenSupport::SpMatD &simulationHessian) const override;
-  virtual double func_grad(
+  virtual double funcGradient(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::RefVecXd simulationGradient) const override;
-  virtual double func_grad_hessian(
+  virtual double funcGradientHessian(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::RefVecXd simulationGradient,
     EigenSupport::SpMatD &simulationHessian) const override;
-  virtual void gradient_hessian(
+  virtual void gradientHessian(
     EigenSupport::ConstRefVecXd simulationDisplacements,
     EigenSupport::RefVecXd simulationGradient,
     EigenSupport::SpMatD &simulationHessian) const override;

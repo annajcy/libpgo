@@ -40,6 +40,15 @@ public:
     std::span<const double> elasticParams,
     std::span<const double> plasticParams,
     EigenSupport::RefMatXd output) const override;
+  double computeEnergyGradient(std::span<const double> x,
+    std::span<const double> elasticParams,
+    std::span<const double> plasticParams,
+    EigenSupport::RefVecXd displacementGradient) const override;
+  double computeEnergyGradientHessian(std::span<const double> x,
+    std::span<const double> elasticParams,
+    std::span<const double> plasticParams,
+    EigenSupport::RefVecXd displacementGradient,
+    EigenSupport::RefMatXd displacementHessian) const override;
   void computeElasticGradient(std::span<const double> x,
     std::span<const double> elasticParams,
     std::span<const double> plasticParams,
@@ -75,20 +84,20 @@ private:
 
   // DeformationModels.
 
-  double compute_E(const VolumetricDeformationElementCache &cacheData) const;
-  void compute_dE_dx(const VolumetricDeformationElementCache &cacheData, EigenSupport::RefVecXd grad) const;
-  void compute_d2E_dx2(const VolumetricDeformationElementCache &cacheData, EigenSupport::RefMatXd hess) const;
-  void compute_d2E_dudp(
+  double computeEnergy(const VolumetricDeformationElementCache &cacheData) const;
+  void computeDisplacementGradient(const VolumetricDeformationElementCache &cacheData, EigenSupport::RefVecXd grad) const;
+  void computeDisplacementHessian(const VolumetricDeformationElementCache &cacheData, EigenSupport::RefMatXd hess) const;
+  void computeDisplacementPlasticHessian(
     const VolumetricDeformationElementCache &cacheData, EigenSupport::RefMatXd hess,
     int materialLocation = -1) const;
-  void compute_d2E_dude(
+  void computeDisplacementElasticHessian(
     const VolumetricDeformationElementCache &cacheData, EigenSupport::RefMatXd hess,
     int materialLocation = -1) const;
 
-  void compute_dE_dp(
+  void computePlasticGradient(
     const VolumetricDeformationElementCache &cacheData, EigenSupport::RefVecXd grad,
     int materialLocation = -1) const;
-  void compute_dE_de(
+  void computeElasticGradient(
     const VolumetricDeformationElementCache &cacheData, EigenSupport::RefVecXd grad,
     int materialLocation = -1) const;
 
@@ -98,9 +107,6 @@ public:
   int getNumVertices() const override { return numNodes_; }
   int getNumDOFs() const override { return localDofs_; }
   int getNumMaterialLocations() const override { return numQuadPts_; }
-
-  LocalMaxStepResult computeLocalMaxStepSize(std::span<const double> x_local,
-    std::span<const double> dx_local) const override;
 
   ES::M3d compute_F(std::span<const double> x, int materialLocationID) const;
 

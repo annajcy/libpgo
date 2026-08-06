@@ -59,7 +59,7 @@ def main() -> None:
     deformation_operator = pf.DeformationEnergyOperator(
         mesh, material_binding,
         formulation=formulation,
-        options=pf.DeformationOptions(enable_material_max_step=False),
+        options=pf.DeformationOptions(),
     )
     deformation = pf.DeformationPotentialEnergy(
         deformation_operator, material_state)

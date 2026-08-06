@@ -38,7 +38,7 @@ def make_cubic_case():
         material.binding,
         formulation=fem.CubicLinear(),
         options=fem.DeformationOptions(
-            project_hessian_psd=False, enable_material_max_step=False
+            project_hessian_psd=False
         ),
     )
     energy = fem.DeformationPotentialEnergy(operator, material.state)

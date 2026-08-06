@@ -1,4 +1,0 @@
-LIBPGO_C_ABI_1.0 {
-	global: pgo*;
-	local: *;
-};

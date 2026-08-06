@@ -9,7 +9,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(PGO_USE_MKL "Use MKL" OFF)
 option(PGO_ENABLE_PYTHON "Build python module" OFF)
-option(PGO_BUILD_C_API "Build C API library (pgo_c)" OFF)
 option(PGO_ENABLE_FULL "Enable all functionalities" OFF)
 option(PGO_ENABLE_CUDA "Enable CUDA" OFF)
 option(PGO_BUILD_SUBPROJECTS "Include subprojects" OFF)

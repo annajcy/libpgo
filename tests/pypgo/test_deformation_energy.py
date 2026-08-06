@@ -443,7 +443,7 @@ class TestDeformationPotentialEnergy:
         energy = _make_energy(
             sim,
             formulation=pf.CubicLinear(),
-            options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
+            options=pf.DeformationOptions(project_hessian_psd=False),
             plastic_values=plastic,
         )
         u = energy.zero_state()
@@ -468,7 +468,7 @@ class TestDeformationPotentialEnergy:
             elastic=pf.KoiterStVKDefinition(),
             elastic_values=elastic,
             plastic=pf.ShellPlasticityDefinition(dofs=1),
-            options=pf.DeformationOptions(project_hessian_psd=False, enable_material_max_step=False),
+            options=pf.DeformationOptions(project_hessian_psd=False),
         )
         u = energy.zero_state()
         for vi in range(sim.num_vertices):

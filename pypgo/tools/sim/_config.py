@@ -108,7 +108,6 @@ class MeshConfig:
 class VolumeMaterialConfig:
     model: str = "stable_neo"
     density: float | None = None  # None -> per-region densities from the veg file
-    enable_material_max_step: bool = True
 
 
 @dataclass(frozen=True)
@@ -123,7 +122,6 @@ class ShellMaterialConfig:
     E_membrane: float = 1e6
     nu_membrane: float = 0.4
     mass: ShellMassConfig = ShellMassConfig(density=1000.0)
-    enable_material_max_step: bool = True
 
 
 @dataclass(frozen=True)
@@ -438,14 +436,12 @@ def load_config(*, mesh_type: str, mode: str, json_path=None,
             E_membrane=float(mat_payload.get("E_membrane", 1e6)),
             nu_membrane=float(mat_payload.get("nu_membrane", 0.4)),
             mass=mass,
-            enable_material_max_step=bool(mat_payload.get("enable_material_max_step", True)),
         )
     else:
         material = VolumeMaterialConfig(
             model=mat_payload.get("model", "stable_neo"),
             density=float(mat_payload["density"])
             if mat_payload.get("density") is not None else None,
-            enable_material_max_step=bool(mat_payload.get("enable_material_max_step", True)),
         )
         if material.model not in VOLUME_ELASTIC_MODELS:
             raise ConfigError(

@@ -196,7 +196,7 @@ TEST(SampledPenaltyContactEnergyGTest, ContactBundleIsFrozenWithinStep)
   energy.gradient(trial, gradient);
   EXPECT_DOUBLE_EQ(gradient.norm(), 0.0);
   ES::SpMatD hessian;
-  EXPECT_DOUBLE_EQ(energy.func_grad_hessian(trial, gradient, hessian), 0.0);
+  EXPECT_DOUBLE_EQ(energy.funcGradientHessian(trial, gradient, hessian), 0.0);
   EXPECT_DOUBLE_EQ(gradient.norm(), 0.0);
 
   state.currentX = &trial;

@@ -57,15 +57,3 @@ endif()
 if(PGO_BUILD_SUBPROJECTS)
   add_subdirectory(projects)
 endif()
-
-# generate config file to be used in common build tree
-configure_package_config_file(
-  CMakeModules/pgoConfig.cmake.in
-  ${CMAKE_CURRENT_BINARY_DIR}/pgoConfig.cmake
-  INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/pgo/"
-)
-
-install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/pgoConfig.cmake
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/pgo/"
-)

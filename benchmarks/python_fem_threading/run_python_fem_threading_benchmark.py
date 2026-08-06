@@ -351,7 +351,6 @@ def worker_main(args: argparse.Namespace) -> int:
         formulation=formulation,
         options=pf.DeformationOptions(
             project_hessian_psd=True,
-            enable_material_max_step=False,
         ),
     )
     energy = pf.DeformationPotentialEnergy(

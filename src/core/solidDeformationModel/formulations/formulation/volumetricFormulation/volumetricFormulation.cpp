@@ -3,6 +3,7 @@
 #include "barycentricCoordinates.h"
 #include "deformation/volume/volumetricDeformationElement.h"
 #include "formulations/dof/dofLayout.h"
+#include "formulations/formulation/formulationHelpers.h"
 #include "formulations/quadrature/quadrature.h"
 #include "formulations/shapeFunction/shapeFunction.h"
 #include "simulation/simulationMesh.h"
@@ -19,30 +20,7 @@ namespace SolidDeformationModel
 {
 namespace
 {
-template<class Derived, class Base>
-std::unique_ptr<Derived> checkedMaterialCast(
-  std::unique_ptr<Base> model, const char *message)
-{
-  if (Derived *typed = dynamic_cast<Derived *>(model.get())) {
-    model.release();
-    return std::unique_ptr<Derived>(typed);
-  }
-
-  throw std::invalid_argument(message);
-}
-
 namespace ES = EigenSupport;
-
-void validateElementDensities(
-  ES::ConstRefVecXd densities, int numElements)
-{
-  if (densities.size() != numElements)
-    throw std::invalid_argument(
-      "element density count does not match mesh element count");
-  if (!densities.allFinite() || (densities.array() <= 0.0).any())
-    throw std::invalid_argument(
-      "element densities must contain finite values > 0");
-}
 
 void localGlobalDofIndices(const DofLayout &layout, int ele, std::vector<int> &indices)
 {
@@ -52,18 +30,6 @@ void localGlobalDofIndices(const DofLayout &layout, int ele, std::vector<int> &i
   for (const DofGroup &group : groups)
     for (int i = 0; i < group.size; i++)
       indices[group.localStart + i] = group.globalDof(i);
-}
-
-std::vector<double> flattenSurfaceVertices(const ES::MXd &surfaceVertices)
-{
-  if (surfaceVertices.cols() != 3) {
-    throw std::invalid_argument("surfaceVertices must have shape numVertices x 3");
-  }
-  std::vector<double> flat(static_cast<size_t>(surfaceVertices.rows()) * 3);
-  for (Eigen::Index i = 0; i < surfaceVertices.rows(); i++)
-    for (int d = 0; d < 3; d++)
-      flat[static_cast<size_t>(i) * 3 + d] = surfaceVertices(i, d);
-  return flat;
 }
 
 std::vector<double> elementIntegrationWeights(
@@ -109,7 +75,8 @@ EigenSupport::SpMatD VolumetricFormulation::buildMassMatrix(
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
-  validateElementDensities(elementDensities, mesh.getNumElements());
+  detail::validateElementDensities(
+    elementDensities, mesh.getNumElements(), "element density");
 
   const std::unique_ptr<DofLayout> dofLayout = createDofLayout(mesh);
   const ES::VXd restDofs = buildGlobalRestDofs(mesh);
@@ -172,7 +139,8 @@ EigenSupport::VXd VolumetricFormulation::buildBodyForce(
   if (mesh.getElementType() != compatibleMeshType()) {
     throw std::invalid_argument("mesh type is incompatible with this formulation");
   }
-  validateElementDensities(elementDensities, mesh.getNumElements());
+  detail::validateElementDensities(
+    elementDensities, mesh.getNumElements(), "element density");
 
   const std::unique_ptr<DofLayout> dofLayout = createDofLayout(mesh);
   const ES::VXd restDofs = buildGlobalRestDofs(mesh);
@@ -225,7 +193,8 @@ EigenSupport::SpMatD VolumetricFormulation::buildSurfaceEmbeddingMatrix(
   const EigenSupport::MXd &surfaceVertices) const
 {
   const int numTargets = static_cast<int>(surfaceVertices.rows());
-  const std::vector<double> flat = flattenSurfaceVertices(surfaceVertices);
+  const std::vector<double> flat =
+    detail::flattenSurfaceVertices(surfaceVertices);
   InterpolationCoordinates::BarycentricCoordinates bc(numTargets, flat.data(), &mesh);
   return bc.generateInterpolationMatrix();
 }
@@ -246,10 +215,10 @@ std::unique_ptr<DeformationElement> VolumetricFormulation::createElement(
 
   return std::make_unique<VolumetricDeformationElement>(
     restPosition, *shapeFunction_, *quadrature_,
-    checkedMaterialCast<ElasticModel3DDeformationGradient>(
+    detail::checkedMaterialCast<ElasticModel3DDeformationGradient>(
       std::move(elasticModel),
       "VolumetricFormulation requires ElasticModel3DDeformationGradient."),
-    checkedMaterialCast<PlasticModel3DDeformationGradient>(
+    detail::checkedMaterialCast<PlasticModel3DDeformationGradient>(
       std::move(plasticModel),
       "VolumetricFormulation requires PlasticModel3DDeformationGradient."),
     options);

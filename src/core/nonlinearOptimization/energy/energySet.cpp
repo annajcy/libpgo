@@ -639,7 +639,7 @@ void EnergySet::hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hes
   }
 }
 
-void EnergySet::gradient_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const
+void EnergySet::gradientHessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const
 {
   grad.setZero();
 
@@ -663,7 +663,7 @@ void EnergySet::gradient_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::Re
     }
     else {
       ES::SpMatD Ki;
-      potentialEnergies[i]->gradient_hessian(buffer_->xlocals[i], buffer_->gradients[i], Ki);
+      potentialEnergies[i]->gradientHessian(buffer_->xlocals[i], buffer_->gradients[i], Ki);
       if (Ki.nonZeros()) {
         ES::SpMatD KiGlobal(nAll, nAll);
         std::vector<ES::TripletD> entries;
@@ -686,12 +686,12 @@ void EnergySet::gradient_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::Re
   }
 }
 
-double EnergySet::func_grad_hessian(
+double EnergySet::funcGradientHessian(
   EigenSupport::ConstRefVecXd x,
   EigenSupport::RefVecXd grad,
   EigenSupport::SpMatD &hess) const
 {
-  Profiling::ScopedProfileSection profile("energy_set.func_grad_hessian");
+  Profiling::ScopedProfileSection profile("energy_set.funcGradientHessian");
 
   auto assembleCachedHessian = [&](ES::SpMatD &cachedHessian) {
     DynamicAssemblyCache &cache = buffer_->dynamicAssemblyCache;
@@ -830,8 +830,8 @@ double EnergySet::func_grad_hessian(
 
   // Single fused pass: each term is evaluated once. This matters for
   // non-fixed-topology terms (e.g. IPC contact), where the previous
-  // gradient_hessian(...)+func(...) split triggered two active-set builds per
-  // call. Mirrors gradient_hessian but accumulates the objective value too.
+  // gradientHessian(...)+func(...) split triggered two active-set builds per
+  // call. Mirrors gradientHessian but accumulates the objective value too.
   double energyAll = 0;
   {
     Profiling::ScopedProfileSection resetProfile("energy_set.fgh.reset_grad_hessian");
@@ -860,8 +860,8 @@ double EnergySet::func_grad_hessian(
     if (potentialEnergies[i]->isHessianTopologyFixed()) {
       // Fixed-topology terms do not build an active set, so func+grad here is cheap.
       {
-        Profiling::ScopedProfileSection termProfile("energy_set.fgh.fixed.func_grad");
-        energyAll += potentialEnergies[i]->func_grad(buffer_->xlocals[i], buffer_->gradients[i]) * energyCoeffs[i];
+        Profiling::ScopedProfileSection termProfile("energy_set.fgh.fixed.funcGradient");
+        energyAll += potentialEnergies[i]->funcGradient(buffer_->xlocals[i], buffer_->gradients[i]) * energyCoeffs[i];
       }
 
       if (buffer_->hessianMatrices[i].nonZeros()) {
@@ -876,8 +876,8 @@ double EnergySet::func_grad_hessian(
       Ki.resize(0, 0);
       // One call -> one active-set build for this term.
       {
-        Profiling::ScopedProfileSection termProfile("energy_set.fgh.dynamic.func_grad_hessian");
-        energyAll += potentialEnergies[i]->func_grad_hessian(buffer_->xlocals[i], buffer_->gradients[i], Ki) * energyCoeffs[i];
+        Profiling::ScopedProfileSection termProfile("energy_set.fgh.dynamic.funcGradientHessian");
+        energyAll += potentialEnergies[i]->funcGradientHessian(buffer_->xlocals[i], buffer_->gradients[i], Ki) * energyCoeffs[i];
       }
       {
         Profiling::ScopedProfileSection compressProfile("energy_set.fgh.dynamic.make_compressed");

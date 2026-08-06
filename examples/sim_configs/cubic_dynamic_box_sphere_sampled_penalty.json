@@ -5,8 +5,7 @@
     "surface": "../assets/obj/box-with-sphere.obj"
   },
   "material": {
-    "model": "stable_neo",
-    "enable_material_max_step": true
+    "model": "stable_neo"
   },
   "loads": {
     "gravity": [

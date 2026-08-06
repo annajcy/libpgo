@@ -276,7 +276,7 @@ TEST(IPCContactEnergyGTest, FuncGradFusesOneBroadPhaseForEnergyAndGradient)
   pgo::Profiling::setProfilingEnabled(true);
   pgo::Profiling::resetProfileStatistics();
 
-  const double e = energy.func_grad(simDispl, g);
+  const double e = energy.funcGradient(simDispl, g);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
   const ProfileStat *activeSetBuild = findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kBuildActiveSet);
@@ -324,7 +324,7 @@ TEST(IPCContactEnergyGTest, FuncGradHessianFusesOneBroadPhaseForAllThree)
   pgo::Profiling::setProfilingEnabled(true);
   pgo::Profiling::resetProfileStatistics();
 
-  const double e = energy.func_grad_hessian(simDispl, g, H);
+  const double e = energy.funcGradientHessian(simDispl, g, H);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
   const ProfileStat *activeSetBuild = findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kBuildActiveSet);
@@ -365,7 +365,7 @@ TEST(IPCContactEnergyGTest, EnergyOnlyEvaluationSeedsNextCombinedActiveSet)
   pgo::Profiling::resetProfileStatistics();
 
   const double e0 = energy.func(simDispl);
-  const double e1 = energy.func_grad_hessian(simDispl, g, H);
+  const double e1 = energy.funcGradientHessian(simDispl, g, H);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
   const ProfileStat *activeSetBuild = findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kBuildActiveSet);
@@ -428,7 +428,7 @@ TEST(IPCContactEnergyGTest, LineSearchSupersetReusesOneActiveSetAcrossTrialEnerg
 
   ES::VXd g = ES::VXd::Zero(rest.size());
   ES::SpMatD H;
-  const double acceptedEnergy = energy.func_grad_hessian(u0 + alphas.back() * du, g, H);
+  const double acceptedEnergy = energy.funcGradientHessian(u0 + alphas.back() * du, g, H);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
   const ProfileStat *activeSetBuild = findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kBuildActiveSet);
@@ -462,7 +462,7 @@ TEST(IPCContactEnergyGTest, GradientHessianFusesOneBroadPhaseForGradAndHess)
   pgo::Profiling::setProfilingEnabled(true);
   pgo::Profiling::resetProfileStatistics();
 
-  baseEnergy.gradient_hessian(simDispl, g, H);
+  baseEnergy.gradientHessian(simDispl, g, H);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
   const ProfileStat *activeSetBuild = findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kBuildActiveSet);
@@ -514,7 +514,7 @@ TEST(IPCContactEnergyGTest, AggregatedGradientHessianPreservesIPCFusion)
   pgo::Profiling::setProfilingEnabled(true);
   pgo::Profiling::resetProfileStatistics();
 
-  baseEnergy.gradient_hessian(simDispl, g, H);
+  baseEnergy.gradientHessian(simDispl, g, H);
 
   const auto stats = pgo::Profiling::snapshotProfileStatistics();
   const ProfileStat *activeSetBuild = findStat(stats, pgo::Contact::SurfaceIPCProfileSections::kBuildActiveSet);

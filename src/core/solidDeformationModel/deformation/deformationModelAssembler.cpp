@@ -4,7 +4,6 @@ copyright to USC,MIT,NUS
 */
 
 #include "deformation/deformationModelAssembler.h"
-#include "deformation/materialMaxStepPolynomialUtils.h"
 #include "formulations/formulation/formulation.h"
 #include "simulation/simulationMesh.h"
 #include "deformation/deformationElement.h"
@@ -17,8 +16,6 @@ copyright to USC,MIT,NUS
 
 #include "pgoLogging.h"
 #include "EigenSupport.h"
-#include "fmtEigen.h"
-#include "processMemory.h"
 
 #include <algorithm>
 #include <atomic>
@@ -39,46 +36,31 @@ std::span<const double> vectorSpan(const ES::VXd &values)
   return { values.data(), static_cast<std::size_t>(values.size()) };
 }
 
+bool groupsCoverAllDofs(
+  const std::vector<DofGroup> &groups, int localDofs)
+{
+  std::vector<unsigned char> covered(static_cast<std::size_t>(localDofs), 0);
+  int numCovered = 0;
+  for (const DofGroup &group : groups) {
+    for (int i = 0; i < group.size; ++i) {
+      const int local = group.localStart + i;
+      if (local < 0 || local >= localDofs)
+        throw std::invalid_argument(
+          "DeformationModelAssembler DofGroup is out of the local DOF range.");
+      if (!covered[static_cast<std::size_t>(local)]) {
+        covered[static_cast<std::size_t>(local)] = 1;
+        ++numCovered;
+      }
+    }
+  }
+  return numCovered == localDofs;
+}
+
 void validateFormulation(
   SimulationMeshType meshType, const Formulation &formulation)
 {
   if (formulation.compatibleMeshType() != meshType)
     throw std::invalid_argument("formulation does not match mesh type");
-}
-
-void logMemoryCheckpoint(const char *stage)
-{
-  constexpr double bytesPerMiB = 1024.0 * 1024.0;
-  const pgo::Profiling::ProcessMemoryUsage usage =
-    pgo::Profiling::recordProcessMemoryProfileCounters(stage);
-  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(),
-    "Process memory checkpoint stage={} currentMiB={:.2f} peakMiB={:.2f}",
-    stage, usage.residentBytes / bytesPerMiB, usage.peakResidentBytes / bytesPerMiB);
-}
-
-void validateFiniteValues(std::span<const double> values, Eigen::Index count, const char *label)
-{
-  for (Eigen::Index i = 0; i < count; i++) {
-    int fpclass = std::fpclassify(values[i]);
-    if (fpclass == FP_INFINITE || fpclass == FP_NAN) {
-      SPDLOG_LOGGER_ERROR(pgo::Logging::lgr(), "Encounter weird {} numbers at {}: {}", label, i, values[i]);
-      throw std::logic_error("Encounter weird numbers.");
-    }
-  }
-}
-
-void warnIllegalInitialState(pgo::SolidDeformationModel::SimulationMeshType meshType, int elementId, int locationId, double phi0, double eps)
-{
-  if (locationId >= 0) {
-    SPDLOG_LOGGER_WARN(pgo::Logging::lgr(),
-      "material max step encountered illegal initial state on meshType={} element={} location={} : phi(0)={} <= eps={}. Returning recovery clamp {}.",
-      meshTypeName(meshType), elementId, locationId, phi0, eps, pgo::SolidDeformationModel::kMaterialMaxStepMinClamp);
-  }
-  else {
-    SPDLOG_LOGGER_WARN(pgo::Logging::lgr(),
-      "material max step encountered illegal initial state on meshType={} element={} : phi(0)={} <= eps={}. Returning recovery clamp {}.",
-      meshTypeName(meshType), elementId, phi0, eps, pgo::SolidDeformationModel::kMaterialMaxStepMinClamp);
-  }
 }
 
 }  // namespace
@@ -93,7 +75,7 @@ DeformationModelAssembler::Element::Element(
   localParameterGradient(maxMaterialParams),
   localMatrixData(static_cast<std::size_t>(localDofs * localDofs)),
   materialLocationValues(static_cast<std::size_t>(
-    std::max(16, maxMaterialLocations)))
+    std::max(1, maxMaterialLocations)))
 {
   if (!deformation)
     throw std::invalid_argument(
@@ -119,48 +101,47 @@ DeformationModelAssembler::DeformationModelAssembler(
 
   dofLayout_ = formulation.createDofLayout(mesh);
   restDofs_ = formulation.buildGlobalRestDofs(mesh);
-  nele = mesh.getNumElements();
-  localDOFs = dofLayout_->numLocalDofs(0);
-  numDOFs = dofLayout_->numGlobalDofs();
+  numElements_ = mesh.getNumElements();
+  localDofs_ = dofLayout_->numLocalDofs(0);
+  numDofs_ = dofLayout_->numGlobalDofs();
   numElasticParams_ = materialBinding.elastic().numOptimizableChannels();
   numPlasticParams_ = materialBinding.plastic().numOptimizableChannels();
-  for (int ele = 1; ele < nele; ++ele) {
-    if (dofLayout_->numLocalDofs(ele) != localDOFs)
+  for (int ele = 1; ele < numElements_; ++ele) {
+    if (dofLayout_->numLocalDofs(ele) != localDofs_)
       throw std::invalid_argument(
         "A formulation must use a fixed local DOF count across all elements.");
   }
 
   if (!elementWeights_.empty()) {
-    if (elementWeights_.size() != static_cast<std::size_t>(nele))
+    if (elementWeights_.size() != static_cast<std::size_t>(numElements_))
       throw std::invalid_argument("DeformationModelAssembler element weight count does not match the mesh.");
     elementWeights.assign(elementWeights_.begin(), elementWeights_.end());
   }
   else {
-    elementWeights.assign(nele, 1);
+    elementWeights.assign(numElements_, 1);
   }
 
   initializeElements(mesh, materialBinding, formulation,
     DeformationElementConstructionOptions{ projectHessianPSD });
-  for (int ele = 0; ele < nele; ele++)
+  for (int ele = 0; ele < numElements_; ele++) {
     dofLayout_->getDofGroups(ele, elements_[ele].dofGroups);
-  logMemoryCheckpoint("assembler.after_element_cache_setup");
+    elements_[ele].allDofsCovered =
+      groupsCoverAllDofs(elements_[ele].dofGroups, localDofs_);
+  }
 
   SPDLOG_LOGGER_INFO(Logging::lgr(), "Assembler elementwise parameter channels:{},{}",
     numElasticParams_, numPlasticParams_);
 
   // Hessian template.
   std::set<SparseBlockKey> hessianBlocks;
-  dofLayout_->collectSparseBlockPairs(nele, hessianBlocks);
-  logMemoryCheckpoint("assembler.after_unique_hessian_block_collection");
+  dofLayout_->collectSparseBlockPairs(numElements_, hessianBlocks);
 
   buildSparseMatrixTemplate(
-    numDOFs, hessianBlocks, hessianAssembly_.matrixTemplate);
-  logMemoryCheckpoint("assembler.after_compressed_hessian_template");
+    numDofs_, hessianBlocks, hessianAssembly_.matrixTemplate);
 
-  dofLayout_->buildAllSparseBlockOffsets(nele,
+  dofLayout_->buildAllSparseBlockOffsets(numElements_,
     hessianAssembly_.matrixTemplate,
     hessianAssembly_.elementBlockOffsets);
-  logMemoryCheckpoint("assembler.after_element_block_offsets");
 }
 
 void DeformationModelAssembler::initializeElements(
@@ -179,8 +160,8 @@ void DeformationModelAssembler::initializeElements(
   const auto &elasticFixed = elastic.fixedValues();
   const auto &plasticFixed = plastic.fixedValues();
 
-  std::vector<std::unique_ptr<DeformationElement>> deformations(nele);
-  tbb::parallel_for(0, nele, [&](int ele) {
+  std::vector<std::unique_ptr<DeformationElement>> deformations(numElements_);
+  tbb::parallel_for(0, numElements_, [&](int ele) {
     const MaterialFrame &frame = binding.materialFrames()[ele];
     const std::span<const double> elasticValues(
       numElasticFixed ? elasticFixed.data() + ele * numElasticFixed : nullptr,
@@ -195,7 +176,7 @@ void DeformationModelAssembler::initializeElements(
   });
 
   int maxMaterialLocations = 0;
-  for (int ele = 0; ele < nele; ++ele) {
+  for (int ele = 0; ele < numElements_; ++ele) {
     if (!deformations[ele])
       throw std::runtime_error("Formulation returned a null deformation element.");
     if (deformations[ele]->getNumElasticParameters() != numElasticParams_ ||
@@ -208,9 +189,9 @@ void DeformationModelAssembler::initializeElements(
 
   const int maxMaterialParams =
     std::max(numElasticParams_, numPlasticParams_);
-  elements_.reserve(nele);
+  elements_.reserve(numElements_);
   for (auto &deformation : deformations)
-    elements_.emplace_back(std::move(deformation), localDOFs,
+    elements_.emplace_back(std::move(deformation), localDofs_,
       maxMaterialLocations, maxMaterialParams);
 }
 
@@ -219,7 +200,7 @@ DeformationModelAssembler::~DeformationModelAssembler() = default;
 const DeformationElement &DeformationModelAssembler::element(
   int elementId) const
 {
-  if (elementId < 0 || elementId >= nele)
+  if (elementId < 0 || elementId >= numElements_)
     throw std::out_of_range("Deformation element index is out of range.");
   return *elements_[elementId].deformation;
 }
@@ -236,7 +217,7 @@ void DeformationModelAssembler::validateMaterialState(
 void DeformationModelAssembler::validatePositionSpan(
   std::span<const double> x, const char *label) const
 {
-  if (x.size() != static_cast<std::size_t>(numDOFs))
+  if (x.size() != static_cast<std::size_t>(numDofs_))
     throw std::invalid_argument(
       std::string("DeformationModelAssembler ") + label + " has unexpected size.");
 }
@@ -244,7 +225,8 @@ void DeformationModelAssembler::validatePositionSpan(
 void DeformationModelAssembler::gatherPosition(
   std::span<const double> x, Element &scratch) const
 {
-  std::fill(scratch.localPosition.data(), scratch.localPosition.data() + localDOFs, 0.0);
+  if (!scratch.allDofsCovered)
+    std::fill(scratch.localPosition.data(), scratch.localPosition.data() + localDofs_, 0.0);
   for (const DofGroup &group : scratch.dofGroups) {
     for (int i = 0; i < group.size; i++)
       scratch.localPosition[group.localStart + i] = x[group.globalDof(i)];
@@ -267,7 +249,7 @@ std::span<const double> DeformationModelAssembler::plasticValues(
     numPlasticParams_);
 }
 
-double DeformationModelAssembler::compute_E(
+double DeformationModelAssembler::computeEnergy(
   std::span<const double> x, MaterialStateView state) const
 {
   validatePositionSpan(x, "position vector");
@@ -287,68 +269,64 @@ double DeformationModelAssembler::compute_E(
     scratch.energy = energy * elementWeights[ele];
   };
 
-  tbb::parallel_for(0, nele, localEnergyFunc);
+  tbb::parallel_for(0, numElements_, localEnergyFunc);
 
   double energyAll = 0;
-  for (int ele = 0; ele < nele; ele++)
+  for (int ele = 0; ele < numElements_; ele++)
     energyAll += elements_[ele].energy;
 
   return energyAll;
 }
 
-DeformationModelAssembler::MaterialMaxStepObservation DeformationModelAssembler::computeMaxStepObservation(std::span<const double> x, std::span<const double> dx) const
+double DeformationModelAssembler::computeEnergyGradient(
+  std::span<const double> x, MaterialStateView state,
+  ES::RefVecXd grad) const
 {
   validatePositionSpan(x, "position vector");
-  validatePositionSpan(dx, "direction vector");
-  MaterialMaxStepObservation observation;
-  const SimulationMeshType meshType = meshType_;
+  validateMaterialState(state);
+  if (grad.size() != numDofs_)
+    throw std::invalid_argument(
+      "DeformationModelAssembler gradient has unexpected size.");
+  grad.setZero();
 
-  for (int ele = 0; ele < nele; ele++) {
-    if (elementWeights[ele] == 0) {
-      continue;
-    }
-
+  auto localFunc = [this, x, &state, &grad](int ele) {
     auto &scratch = elements_[ele];
-    std::fill(scratch.localPosition.data(), scratch.localPosition.data() + localDOFs, 0.0);
-    std::fill(scratch.localDirection.data(), scratch.localDirection.data() + localDOFs, 0.0);
+    scratch.energy = 0.0;
+    if (elementWeights[ele] == 0)
+      return;
+
+    gatherPosition(x, scratch);
+    const double localEnergy =
+      scratch.deformation->computeEnergyGradient(
+        vectorSpan(scratch.localPosition), elasticValues(ele, state),
+        plasticValues(ele, state), scratch.localGradient);
+    const double weight = elementWeights[ele];
+
+    scratch.energy = localEnergy * weight;
+    scratch.localGradient *= weight;
+
     for (const DofGroup &group : scratch.dofGroups) {
       for (int i = 0; i < group.size; i++) {
-        scratch.localPosition[group.localStart + i] = x[group.globalDof(i)];
-        scratch.localDirection[group.localStart + i] = dx[group.globalDof(i)];
+        std::atomic_ref<double> atomicGrad(grad[group.globalDof(i)]);
+        atomicGrad.fetch_add(scratch.localGradient[group.localStart + i]);
       }
     }
+  };
 
-    const DeformationElement::LocalMaxStepResult localResult =
-      (*elements_[ele].deformation).computeLocalMaxStepSize(std::span<const double>(scratch.localPosition.data(), scratch.localPosition.size()), std::span<const double>(scratch.localDirection.data(), scratch.localDirection.size()));
-    if (localResult.alpha < observation.alpha) {
-      observation.alpha = localResult.alpha;
-      observation.limitingElementId = ele;
-      observation.limitingLocationId = localResult.locationId;
-    }
-    if (localResult.illegalInitialState) {
-      observation.hasIllegalInitialState = true;
-      warnIllegalInitialState(meshType, ele, localResult.locationId, localResult.phi0, localResult.eps);
-    }
+  tbb::parallel_for(0, numElements_, localFunc);
 
-    if (observation.alpha <= kMaterialMaxStepMinClamp) {
-      break;
-    }
-  }
-
-  return observation;
+  double energyAll = 0;
+  for (int ele = 0; ele < numElements_; ele++)
+    energyAll += elements_[ele].energy;
+  return energyAll;
 }
 
-double DeformationModelAssembler::computeMaxStepSize(std::span<const double> x, std::span<const double> dx) const
-{
-  return computeMaxStepObservation(x, dx).alpha;
-}
-
-void DeformationModelAssembler::compute_dE_dx(
+void DeformationModelAssembler::computeDisplacementGradient(
   std::span<const double> x, MaterialStateView state, ES::RefVecXd grad) const
 {
   validatePositionSpan(x, "position vector");
   validateMaterialState(state);
-  if (grad.size() != numDOFs)
+  if (grad.size() != numDofs_)
     throw std::invalid_argument("DeformationModelAssembler gradient has unexpected size.");
   grad.setZero();
   auto localGradFunc = [this, x, &state, &grad](int ele) {
@@ -362,14 +340,6 @@ void DeformationModelAssembler::compute_dE_dx(
       plasticValues(ele, state), scratch.localGradient);
     scratch.localGradient *= elementWeights[ele];
 
-    for (int i = 0; i < localDOFs; i++) {
-      if (!std::isfinite(scratch.localGradient[i])) {
-        SPDLOG_LOGGER_ERROR(Logging::lgr(), "Ele: {}", ele);
-        SPDLOG_LOGGER_ERROR(Logging::lgr(), "Encounter weird numbers.\nGrad:\n{}\n;x:{}\n",
-          scratch.localGradient, scratch.localPosition);
-      }
-    }
-
     for (const DofGroup &group : scratch.dofGroups) {
       for (int i = 0; i < group.size; i++) {
         std::atomic_ref<double> atomicGrad(grad[group.globalDof(i)]);
@@ -378,13 +348,10 @@ void DeformationModelAssembler::compute_dE_dx(
     }
   };
 
-  tbb::parallel_for(0, nele, localGradFunc);
-
-  validateFiniteValues(std::span<const double>(grad.data(), static_cast<std::size_t>(grad.size())),
-    numDOFs, "gradient");
+  tbb::parallel_for(0, numElements_, localGradFunc);
 }
 
-void DeformationModelAssembler::compute_d2E_dx2(
+void DeformationModelAssembler::computeDisplacementHessian(
   std::span<const double> x, MaterialStateView state, EigenSupport::SpMatD &hess) const
 {
   validatePositionSpan(x, "position vector");
@@ -398,7 +365,7 @@ void DeformationModelAssembler::compute_d2E_dx2(
     auto &scratch = elements_[ele];
     gatherPosition(x, scratch);
 
-    ES::Mp<ES::MXd> localK(scratch.localMatrixData.data(), localDOFs, localDOFs);
+    ES::Mp<ES::MXd> localK(scratch.localMatrixData.data(), localDofs_, localDofs_);
     scratch.deformation->computeDisplacementHessian(
       vectorSpan(scratch.localPosition), elasticValues(ele, state),
       plasticValues(ele, state), localK);
@@ -419,22 +386,88 @@ void DeformationModelAssembler::compute_d2E_dx2(
     }
   };
 
-  tbb::parallel_for(0, nele, localHessFunc);
+  tbb::parallel_for(0, numElements_, localHessFunc);
+}
 
-  validateFiniteValues(std::span<const double>(hess.valuePtr(), hess.nonZeros()), hess.nonZeros(), "Hessian");
+double DeformationModelAssembler::computeEnergyGradientHessian(
+  std::span<const double> x, MaterialStateView state,
+  ES::RefVecXd grad, ES::SpMatD &hess) const
+{
+  validatePositionSpan(x, "position vector");
+  validateMaterialState(state);
+  if (grad.size() != numDofs_)
+    throw std::invalid_argument(
+      "DeformationModelAssembler gradient has unexpected size.");
+  grad.setZero();
+  memset(hess.valuePtr(), 0, sizeof(double) * hess.nonZeros());
+
+  auto localFunc = [this, x, &state, &grad, &hess](int ele) {
+    auto &scratch = elements_[ele];
+    scratch.energy = 0.0;
+    if (elementWeights[ele] == 0)
+      return;
+
+    gatherPosition(x, scratch);
+
+    ES::Mp<ES::MXd> localK(
+      scratch.localMatrixData.data(), localDofs_, localDofs_);
+    const double localEnergy =
+      scratch.deformation->computeEnergyGradientHessian(
+        vectorSpan(scratch.localPosition), elasticValues(ele, state),
+        plasticValues(ele, state), scratch.localGradient, localK);
+    const double weight = elementWeights[ele];
+
+    scratch.energy = localEnergy * weight;
+    scratch.localGradient *= weight;
+    localK *= weight;
+
+    for (const DofGroup &group : scratch.dofGroups) {
+      for (int i = 0; i < group.size; i++) {
+        std::atomic_ref<double> atomicGrad(grad[group.globalDof(i)]);
+        atomicGrad.fetch_add(scratch.localGradient[group.localStart + i]);
+      }
+    }
+
+    const auto &blocks = hessianAssembly_.elementBlockOffsets[ele];
+    for (const auto &block : blocks) {
+      for (int localCol = 0; localCol < block.colSize; localCol++) {
+        const int srcCol = block.colLocalStart + localCol;
+        for (int localRow = 0; localRow < block.rowSize; localRow++) {
+          const int srcRow = block.rowLocalStart + localRow;
+          const std::ptrdiff_t offset = block.offset(localRow, localCol);
+          std::atomic_ref<double> hessRef(hess.valuePtr()[offset]);
+          hessRef.fetch_add(localK(srcRow, srcCol));
+        }
+      }
+    }
+  };
+
+  tbb::parallel_for(0, numElements_, localFunc);
+
+  double energyAll = 0;
+  for (int ele = 0; ele < numElements_; ele++)
+    energyAll += elements_[ele].energy;
+  return energyAll;
+}
+
+void DeformationModelAssembler::computeGradientHessian(
+  std::span<const double> x, MaterialStateView state,
+  ES::RefVecXd grad, ES::SpMatD &hess) const
+{
+  (void)computeEnergyGradientHessian(x, state, grad, hess);
 }
 
 int DeformationModelAssembler::getNumElasticGlobalParams() const
 {
-  return nele * numElasticParams_;
+  return numElements_ * numElasticParams_;
 }
 
 int DeformationModelAssembler::getNumPlasticGlobalParams() const
 {
-  return nele * numPlasticParams_;
+  return numElements_ * numPlasticParams_;
 }
 
-void DeformationModelAssembler::compute_dE_dp(
+void DeformationModelAssembler::computePlasticGradient(
   std::span<const double> x, MaterialStateView state, ES::RefVecXd grad) const
 {
   validatePositionSpan(x, "position vector");
@@ -462,13 +495,10 @@ void DeformationModelAssembler::compute_dE_dp(
     grad.segment(ele * numPlasticParams_, numPlasticParams_) = localGrad;
   };
 
-  tbb::parallel_for(0, nele, localGradFunc);
-
-  validateFiniteValues(std::span<const double>(grad.data(), static_cast<std::size_t>(grad.size())),
-    numPlasticGlobalParams, "plastic gradient");
+  tbb::parallel_for(0, numElements_, localGradFunc);
 }
 
-void DeformationModelAssembler::compute_dE_de(
+void DeformationModelAssembler::computeElasticGradient(
   std::span<const double> x, MaterialStateView state, ES::RefVecXd grad) const
 {
   validatePositionSpan(x, "position vector");
@@ -496,10 +526,7 @@ void DeformationModelAssembler::compute_dE_de(
     grad.segment(ele * numElasticParams_, numElasticParams_) = localGrad;
   };
 
-  tbb::parallel_for(0, nele, localGradFunc);
-
-  validateFiniteValues(std::span<const double>(grad.data(), static_cast<std::size_t>(grad.size())),
-    numElasticGlobalParams, "elastic gradient");
+  tbb::parallel_for(0, numElements_, localGradFunc);
 }
 
 void DeformationModelAssembler::computePlasticMaterialVJP(
@@ -526,31 +553,37 @@ void DeformationModelAssembler::computeElasticMaterialVJP(
     "elastic material VJP");
 }
 
-void DeformationModelAssembler::computeVonMisesStresses(
-  std::span<const double> x, MaterialStateView state, std::span<double> elementStresses) const
+template<class DiagnosticFn>
+void DeformationModelAssembler::computeElementDiagnostics(
+  std::span<const double> x, MaterialStateView state,
+  std::span<double> output, DiagnosticFn &&diagnostic,
+  const char *label) const
 {
   validatePositionSpan(x, "position vector");
   validateMaterialState(state);
-  if (nele == 0)
+  if (numElements_ == 0)
     return;
-  if (elementStresses.size() < static_cast<std::size_t>(nele))
+  if (output.size() < static_cast<std::size_t>(numElements_))
     throw std::invalid_argument(
-      "Von Mises stress output must not be null.");
-  std::fill(elementStresses.begin(), elementStresses.begin() + nele, 0.0);
+      std::string(label) + " output must not be null.");
+  std::fill(output.begin(), output.begin() + numElements_, 0.0);
 
-  auto localStressFunc = [this, x, &state, elementStresses](int ele) {
+  auto localFunc = [this, x, &state, output, &diagnostic, label](int ele) {
     if (elementWeights[ele] == 0)
       return;
 
     auto &scratch = elements_[ele];
     gatherPosition(x, scratch);
 
-    std::fill(scratch.materialLocationValues.begin(), scratch.materialLocationValues.end(), 0.0);
+    std::fill(scratch.materialLocationValues.begin(),
+      scratch.materialLocationValues.end(), 0.0);
     int nPt = 0;
     try {
-      nPt = scratch.deformation->computeVonMisesStress(
-        vectorSpan(scratch.localPosition), elasticValues(ele, state),
-        plasticValues(ele, state), std::span<double>(scratch.materialLocationValues.data(), scratch.materialLocationValues.size()));
+      nPt = diagnostic(
+        *scratch.deformation, vectorSpan(scratch.localPosition),
+        elasticValues(ele, state), plasticValues(ele, state),
+        std::span<double>(scratch.materialLocationValues.data(),
+          scratch.materialLocationValues.size()));
     }
     catch (const UnsupportedDeformationDiagnosticError &e) {
       throw UnsupportedDeformationDiagnosticError(
@@ -561,61 +594,47 @@ void DeformationModelAssembler::computeVonMisesStresses(
       nPt > static_cast<int>(scratch.materialLocationValues.size())) {
       throw std::runtime_error(
         "Element " + std::to_string(ele) +
-        " returned an invalid von Mises stress sample count: " +
+        " returned an invalid " + label + " sample count: " +
         std::to_string(nPt) + ".");
     }
-    elementStresses[ele] = *std::max_element(
+    output[ele] = *std::max_element(
       scratch.materialLocationValues.begin(),
       scratch.materialLocationValues.begin() + nPt);
   };
 
-  tbb::parallel_for(0, nele, localStressFunc);
+  tbb::parallel_for(0, numElements_, localFunc);
+}
+
+void DeformationModelAssembler::computeVonMisesStresses(
+  std::span<const double> x, MaterialStateView state, std::span<double> elementStresses) const
+{
+  computeElementDiagnostics(
+    x, state, elementStresses,
+    [](const DeformationElement &element,
+      std::span<const double> localPosition,
+      std::span<const double> elasticParams,
+      std::span<const double> plasticParams,
+      std::span<double> stresses) {
+      return element.computeVonMisesStress(
+        localPosition, elasticParams, plasticParams, stresses);
+    },
+    "von Mises stress");
 }
 
 void DeformationModelAssembler::computeMaxStrains(
   std::span<const double> x, MaterialStateView state, std::span<double> elementStrain) const
 {
-  validatePositionSpan(x, "position vector");
-  validateMaterialState(state);
-  if (nele == 0)
-    return;
-  if (elementStrain.size() < static_cast<std::size_t>(nele))
-    throw std::invalid_argument(
-      "Maximum strain output must not be null.");
-  std::fill(elementStrain.begin(), elementStrain.begin() + nele, 0.0);
-
-  auto localStrainFunc = [this, x, &state, elementStrain](int ele) {
-    if (elementWeights[ele] == 0)
-      return;
-
-    auto &scratch = elements_[ele];
-    gatherPosition(x, scratch);
-
-    std::fill(scratch.materialLocationValues.begin(), scratch.materialLocationValues.end(), 0.0);
-    int nPt = 0;
-    try {
-      nPt = scratch.deformation->computeMaxStrain(
-        vectorSpan(scratch.localPosition), elasticValues(ele, state),
-        plasticValues(ele, state), std::span<double>(scratch.materialLocationValues.data(), scratch.materialLocationValues.size()));
-    }
-    catch (const UnsupportedDeformationDiagnosticError &e) {
-      throw UnsupportedDeformationDiagnosticError(
-        "Element " + std::to_string(ele) + ": " + e.what());
-    }
-
-    if (nPt <= 0 ||
-      nPt > static_cast<int>(scratch.materialLocationValues.size())) {
-      throw std::runtime_error(
-        "Element " + std::to_string(ele) +
-        " returned an invalid maximum strain sample count: " +
-        std::to_string(nPt) + ".");
-    }
-    elementStrain[ele] = *std::max_element(
-      scratch.materialLocationValues.begin(),
-      scratch.materialLocationValues.begin() + nPt);
-  };
-
-  tbb::parallel_for(0, nele, localStrainFunc);
+  computeElementDiagnostics(
+    x, state, elementStrain,
+    [](const DeformationElement &element,
+      std::span<const double> localPosition,
+      std::span<const double> elasticParams,
+      std::span<const double> plasticParams,
+      std::span<double> strains) {
+      return element.computeMaxStrain(
+        localPosition, elasticParams, plasticParams, strains);
+    },
+    "maximum strain");
 }
 
 // ── Private helpers ──────────────────────────────────────────────────────────
@@ -631,7 +650,7 @@ void DeformationModelAssembler::assembleMaterialVJP(
   validatePositionSpan(absolutePositions, "position vector");
   validatePositionSpan(adjoint, "material VJP adjoint");
   const int numParams = elastic ? numElasticParams_ : numPlasticParams_;
-  const int numGlobalParams = nele * numParams;
+  const int numGlobalParams = numElements_ * numParams;
   if (output.size() != static_cast<std::size_t>(numGlobalParams))
     throw std::invalid_argument(
       "DeformationModelAssembler material VJP output has unexpected size.");
@@ -647,9 +666,10 @@ void DeformationModelAssembler::assembleMaterialVJP(
 
     auto &scratch = elements_[ele];
     gatherPosition(absolutePositions, scratch);
-    std::fill(
-      scratch.localDirection.data(),
-      scratch.localDirection.data() + localDOFs, 0.0);
+    if (!scratch.allDofsCovered)
+      std::fill(
+        scratch.localDirection.data(),
+        scratch.localDirection.data() + localDofs_, 0.0);
     for (const DofGroup &group : scratch.dofGroups)
       for (int i = 0; i < group.size; ++i)
         scratch.localDirection[group.localStart + i] =
@@ -670,7 +690,5 @@ void DeformationModelAssembler::assembleMaterialVJP(
     std::copy_n(localVJP.data(), numParams, output.data() + ele * numParams);
   };
 
-  tbb::parallel_for(0, nele, localFunc);
-
-  validateFiniteValues(output, output.size(), label);
+  tbb::parallel_for(0, numElements_, localFunc);
 }

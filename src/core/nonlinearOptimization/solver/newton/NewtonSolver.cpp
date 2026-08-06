@@ -298,12 +298,18 @@ NewtonSolver::NewtonSolver(const double *x_, SolverParam sp, PotentialEnergy_con
       const Eigen::Map<const ES::VXd> xEval(x, n3);
       dispatchPrepareEvaluationState(xEval);
 
-      if (f)
-        *f = energy->func(xEval);
-
-      if (grad) {
+      if (f && grad) {
         memset(grad, 0, sizeof(double) * n3);
-        energy->gradient(xEval, Eigen::Map<ES::VXd>(grad, n3));
+        *f = energy->funcGradient(xEval, Eigen::Map<ES::VXd>(grad, n3));
+      }
+      else {
+        if (f)
+          *f = energy->func(xEval);
+
+        if (grad) {
+          memset(grad, 0, sizeof(double) * n3);
+          energy->gradient(xEval, Eigen::Map<ES::VXd>(grad, n3));
+        }
       }
 
       return 0;
@@ -777,9 +783,9 @@ NewtonSolver::IterationState NewtonSolver::evaluateCurrentState(int iter, double
   }
   {
     const hclock::time_point start = hclock::now();
-    Profiling::ScopedProfileSection energyProfile("newton.func_grad_hessian");
-    Profiling::ScopedThreadRuntimePhase energyThreadProfile("newton.func_grad_hessian");
-    state.energy = energy->func_grad_hessian(x, grad, sysFull);
+    Profiling::ScopedProfileSection energyProfile("newton.funcGradientHessian");
+    Profiling::ScopedThreadRuntimePhase energyThreadProfile("newton.funcGradientHessian");
+    state.energy = energy->funcGradientHessian(x, grad, sysFull);
     state.funcGradHessianSeconds = dura(start, hclock::now());
   }
   if (!energy->isHessianTopologyFixed())

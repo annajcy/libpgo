@@ -121,7 +121,7 @@ void IPCContactEnergy::hessianAlloc(EigenSupport::SpMatD &simulationHessian) con
   simulationHessian.setZero();
 }
 
-double IPCContactEnergy::func_grad(
+double IPCContactEnergy::funcGradient(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient) const
 {
@@ -143,7 +143,7 @@ double IPCContactEnergy::func_grad(
   return surfaceEnergy;
 }
 
-double IPCContactEnergy::func_grad_hessian(
+double IPCContactEnergy::funcGradientHessian(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient,
   EigenSupport::SpMatD &simulationHessian) const
@@ -173,7 +173,7 @@ double IPCContactEnergy::func_grad_hessian(
   return surfaceEnergy;
 }
 
-void IPCContactEnergy::gradient_hessian(
+void IPCContactEnergy::gradientHessian(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient,
   EigenSupport::SpMatD &simulationHessian) const

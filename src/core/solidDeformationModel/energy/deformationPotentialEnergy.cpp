@@ -48,6 +48,30 @@ void DeformationPotentialEnergy::hessianAlloc(EigenSupport::SpMatD &hess) const
   energyOperator_->hessianAlloc(hess);
 }
 
+double DeformationPotentialEnergy::funcGradient(
+  EigenSupport::ConstRefVecXd x,
+  EigenSupport::RefVecXd grad) const
+{
+  return energyOperator_->funcGradient(x, materialState_.view(), grad);
+}
+
+double DeformationPotentialEnergy::funcGradientHessian(
+  EigenSupport::ConstRefVecXd x,
+  EigenSupport::RefVecXd grad,
+  EigenSupport::SpMatD &hess) const
+{
+  return energyOperator_->funcGradientHessian(
+    x, materialState_.view(), grad, hess);
+}
+
+void DeformationPotentialEnergy::gradientHessian(
+  EigenSupport::ConstRefVecXd x,
+  EigenSupport::RefVecXd grad,
+  EigenSupport::SpMatD &hess) const
+{
+  energyOperator_->gradientHessian(x, materialState_.view(), grad, hess);
+}
+
 void DeformationPotentialEnergy::getDOFs(std::vector<int> &dofs) const
 {
   energyOperator_->getDOFs(dofs);
@@ -56,15 +80,6 @@ void DeformationPotentialEnergy::getDOFs(std::vector<int> &dofs) const
 int DeformationPotentialEnergy::getNumDOFs() const
 {
   return energyOperator_->getNumDOFs();
-}
-
-NonlinearOptimization::StepConstraint
-DeformationPotentialEnergy::computeMaxStepLimit(
-  EigenSupport::ConstRefVecXd x,
-  EigenSupport::ConstRefVecXd dx,
-  NonlinearOptimization::StepConstraintSink *sink) const
-{
-  return energyOperator_->computeMaxStepLimit(x, dx, sink);
 }
 
 }  // namespace pgo::SolidDeformationModel

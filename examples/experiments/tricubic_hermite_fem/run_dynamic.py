@@ -119,7 +119,6 @@ def run_case(
         "mesh.surface": str(study["surface"]),
         "mesh.formulation": case["formulation"],
         "material.model": "stable_neo",
-        "material.enable_material_max_step": False,
         "loads.gravity": SETTINGS["gravity"],
         "initial_state.velocity": SETTINGS["initial_velocity"],
         "contact": [

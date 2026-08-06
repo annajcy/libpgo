@@ -65,7 +65,7 @@ private:
 };
 
 // Non-fixed-topology stub that counts how each evaluation entry point is hit,
-// so we can assert the fused path triggers exactly one func_grad_hessian.
+// so we can assert the fused path triggers exactly one funcGradientHessian.
 class CountingNonFixedEnergy : public NO::PotentialEnergy
 {
 public:
@@ -73,8 +73,8 @@ public:
   double func(ES::ConstRefVecXd x) const override { funcCalls++; return 0.5 * x.squaredNorm(); }
   void gradient(ES::ConstRefVecXd x, ES::RefVecXd g) const override { gradCalls++; g = x; }
   void hessianInPlace(ES::ConstRefVecXd, ES::SpMatD &h) const override { hessCalls++; h = identitySparse(n); }
-  void gradient_hessian(ES::ConstRefVecXd x, ES::RefVecXd g, ES::SpMatD &h) const override { gradHessCalls++; g = x; h = identitySparse(n); }
-  double func_grad_hessian(ES::ConstRefVecXd x, ES::RefVecXd g, ES::SpMatD &h) const override { fghCalls++; g = x; h = identitySparse(n); return 0.5 * x.squaredNorm(); }
+  void gradientHessian(ES::ConstRefVecXd x, ES::RefVecXd g, ES::SpMatD &h) const override { gradHessCalls++; g = x; h = identitySparse(n); }
+  double funcGradientHessian(ES::ConstRefVecXd x, ES::RefVecXd g, ES::SpMatD &h) const override { fghCalls++; g = x; h = identitySparse(n); return 0.5 * x.squaredNorm(); }
   void hessianAlloc(ES::SpMatD &h) const override { h = identitySparse(n); }
   void getDOFs(std::vector<int> &d) const override { d.resize(n); std::iota(d.begin(), d.end(), 0); }
   int getNumDOFs() const override { return n; }
@@ -121,9 +121,9 @@ TEST(EnergySetFused, SingleActiveSetBuildAndCorrectValues)
   nonFixed->reset();
   ES::VXd grad = ES::VXd::Zero(n);
   ES::SpMatD hess;
-  const double v = set.func_grad_hessian(x, grad, hess);
+  const double v = set.funcGradientHessian(x, grad, hess);
 
-  // Non-fixed term evaluated exactly once, through func_grad_hessian only.
+  // Non-fixed term evaluated exactly once, through funcGradientHessian only.
   EXPECT_EQ(nonFixed->fghCalls, 1);
   EXPECT_EQ(nonFixed->gradHessCalls, 0);
   EXPECT_EQ(nonFixed->funcCalls, 0);
@@ -190,7 +190,7 @@ TEST(StageResidual, TemplateStableAndValueCorrect)
   ES::VXd x(n); x << 0.5, -1.0;
   ES::VXd grad = ES::VXd::Zero(n);
   ES::SpMatD hess;
-  const double v = stage.energy->func_grad_hessian(x, grad, hess);
+  const double v = stage.energy->funcGradientHessian(x, grad, hess);
 
   // J = ½x'Ax + l'x + ½x'x ; grad = Ax + l + x.
   const double expected = 0.5 * x.dot(A * x) + l.dot(x) + 0.5 * x.squaredNorm();

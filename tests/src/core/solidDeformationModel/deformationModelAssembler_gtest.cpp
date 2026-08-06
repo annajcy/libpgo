@@ -159,7 +159,7 @@ TEST(DeformationModelAssembler, NonlinearMaterialGradientMatchesFD)
   };
 
   ES::VXd gradient(6);
-  assembler.compute_dE_dp(
+  assembler.computePlasticGradient(
     constSpan(fixture.absolutePositions), view(z), gradient);
   constexpr double h = 1e-6;
   ES::VXd fdGradient(6);
@@ -168,8 +168,8 @@ TEST(DeformationModelAssembler, NonlinearMaterialGradientMatchesFD)
     ES::VXd zm = z;
     zp[col] += h;
     zm[col] -= h;
-    fdGradient[col] = (assembler.compute_E(constSpan(fixture.absolutePositions), view(zp)) -
-                        assembler.compute_E(constSpan(fixture.absolutePositions), view(zm))) /
+    fdGradient[col] = (assembler.computeEnergy(constSpan(fixture.absolutePositions), view(zp)) -
+                        assembler.computeEnergy(constSpan(fixture.absolutePositions), view(zm))) /
       (2.0 * h);
   }
 
@@ -206,9 +206,9 @@ TEST(DeformationModelAssembler, PlasticMaterialVJPMatchesFD)
     zm[col] -= h;
     ES::VXd gp = ES::VXd::Zero(assembler.getNumDOFs());
     ES::VXd gm = ES::VXd::Zero(assembler.getNumDOFs());
-    assembler.compute_dE_dx(
+    assembler.computeDisplacementGradient(
       constSpan(fixture.absolutePositions), view(zp), gp);
-    assembler.compute_dE_dx(
+    assembler.computeDisplacementGradient(
       constSpan(fixture.absolutePositions), view(zm), gm);
     fd[col] = adjoint.dot(gp - gm) / (2.0 * h);
   }
@@ -243,10 +243,10 @@ TEST(DeformationModelAssembler, ElasticMaterialVJPMatchesFD)
     em[col] -= h;
     ES::VXd gp = ES::VXd::Zero(assembler.getNumDOFs());
     ES::VXd gm = ES::VXd::Zero(assembler.getNumDOFs());
-    assembler.compute_dE_dx(
+    assembler.computeDisplacementGradient(
       constSpan(fixture.absolutePositions),
       fixture.parameters->withValues(constSpan(ep), constSpan(plastic)), gp);
-    assembler.compute_dE_dx(
+    assembler.computeDisplacementGradient(
       constSpan(fixture.absolutePositions),
       fixture.parameters->withValues(constSpan(em), constSpan(plastic)), gm);
     fd[col] = adjoint.dot(gp - gm) / (2.0 * h);
@@ -259,13 +259,13 @@ TEST(DeformationModelAssembler, AcceptsAnyStateWithMatchingLengths)
   Fixture a = makeFixture();
   Fixture b = makeFixture();
   EXPECT_NO_THROW(
-    a.assembler->compute_E(
+    a.assembler->computeEnergy(
       constSpan(a.absolutePositions), b.parameters->view()));
 
   const MaterialState wrongLength(
     a.parameters->elasticValues(), ES::VXd::Zero(5));
   EXPECT_THROW(
-    a.assembler->compute_E(
+    a.assembler->computeEnergy(
       constSpan(a.absolutePositions), wrongLength.view()),
     std::invalid_argument);
 }
@@ -309,9 +309,9 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
   Fixture a = makeFixture();
   Fixture b = makeFixture();
   const ES::VXd bBefore = b.parameters->plasticValues();
-  const double expectedA = a.assembler->compute_E(
+  const double expectedA = a.assembler->computeEnergy(
     constSpan(a.absolutePositions), a.parameters->view());
-  const double expectedB = b.assembler->compute_E(
+  const double expectedB = b.assembler->computeEnergy(
     constSpan(b.absolutePositions), b.parameters->view());
 
   ES::VXd changedA = a.parameters->plasticValues();
@@ -320,13 +320,13 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
     a.parameters->withPlasticValues(
       std::span<const double>(changedA.data(), changedA.size()));
   EXPECT_TRUE(b.parameters->plasticValues().isApprox(bBefore, 0.0));
-  const double changedExpectedA = a.assembler->compute_E(
+  const double changedExpectedA = a.assembler->computeEnergy(
     constSpan(a.absolutePositions), changedStateA.view());
 
   auto evalA = std::async(std::launch::async, [&]() {
     double value = 0.0;
     for (int i = 0; i < 20; i++) {
-      value = a.assembler->compute_E(
+      value = a.assembler->computeEnergy(
         constSpan(a.absolutePositions), changedStateA.view());
     }
     return value;
@@ -334,7 +334,7 @@ TEST(DeformationModelAssembler, IndependentOwnersEvaluateConcurrentlyWithoutInte
   auto evalB = std::async(std::launch::async, [&]() {
     double value = 0.0;
     for (int i = 0; i < 20; i++) {
-      value = b.assembler->compute_E(
+      value = b.assembler->computeEnergy(
         constSpan(b.absolutePositions), b.parameters->view());
     }
     return value;

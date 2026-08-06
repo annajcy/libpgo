@@ -245,8 +245,7 @@ std::shared_ptr<PyDeformationEnergyOperator> createDeformationEnergyOperator(
   const PyMaterialBinding &materialBinding,
   const pgo::PyFormulation &formulation,
   nb::object elementWeights,
-  bool projectHessianPSD,
-  bool enableMaterialMaxStep);
+  bool projectHessianPSD);
 
 std::shared_ptr<PyDeformationPotentialEnergy> createDeformationPotentialEnergy(
   std::shared_ptr<PyDeformationEnergyOperator> energyOperator,

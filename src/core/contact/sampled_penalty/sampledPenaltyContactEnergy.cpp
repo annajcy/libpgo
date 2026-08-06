@@ -194,7 +194,7 @@ void SampledPenaltyContactEnergy::hessianAlloc(EigenSupport::SpMatD &simulationH
   simulationHessian.setZero();
 }
 
-double SampledPenaltyContactEnergy::func_grad(
+double SampledPenaltyContactEnergy::funcGradient(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient) const
 {
@@ -205,12 +205,12 @@ double SampledPenaltyContactEnergy::func_grad(
   std::unique_ptr<SampledPenaltyEvaluationBundle> fallbackBundle;
   const SampledPenaltyEvaluationBundle &bundle = evaluationBundle(surfacePositions, fallbackBundle);
   EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
-  const double value = evaluator_.func_grad(bundle, surfacePositions, surfaceGradient);
+  const double value = evaluator_.funcGradient(bundle, surfacePositions, surfaceGradient);
   simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
   return value;
 }
 
-double SampledPenaltyContactEnergy::func_grad_hessian(
+double SampledPenaltyContactEnergy::funcGradientHessian(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient,
   EigenSupport::SpMatD &simulationHessian) const
@@ -223,13 +223,13 @@ double SampledPenaltyContactEnergy::func_grad_hessian(
   const SampledPenaltyEvaluationBundle &bundle = evaluationBundle(surfacePositions, fallbackBundle);
   EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
   EigenSupport::SpMatD surfaceHessian;
-  const double value = evaluator_.func_grad_hessian(bundle, surfacePositions, surfaceGradient, surfaceHessian);
+  const double value = evaluator_.funcGradientHessian(bundle, surfacePositions, surfaceGradient, surfaceHessian);
   simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
   dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
   return value;
 }
 
-void SampledPenaltyContactEnergy::gradient_hessian(
+void SampledPenaltyContactEnergy::gradientHessian(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient,
   EigenSupport::SpMatD &simulationHessian) const
@@ -242,7 +242,7 @@ void SampledPenaltyContactEnergy::gradient_hessian(
   const SampledPenaltyEvaluationBundle &bundle = evaluationBundle(surfacePositions, fallbackBundle);
   EigenSupport::VXd surfaceGradient = EigenSupport::VXd::Zero(dofMap_.numSurfaceDofs());
   EigenSupport::SpMatD surfaceHessian;
-  evaluator_.gradient_hessian(bundle, surfacePositions, surfaceGradient, surfaceHessian);
+  evaluator_.gradientHessian(bundle, surfacePositions, surfaceGradient, surfaceHessian);
   simulationGradient = dofMap_.pullbackGradient(surfaceGradient);
   dofMap_.pullbackHessian(surfaceHessian, simulationHessian);
 }

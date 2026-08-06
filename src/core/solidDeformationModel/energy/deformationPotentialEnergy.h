@@ -28,13 +28,13 @@ public:
   {
     return energyOperator_->getVertexRestPositions();
   }
-  void compute_dE_dp(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd g) const
+  void computePlasticGradient(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd g) const
   {
-    energyOperator_->compute_dE_dp(u, materialState_.view(), g);
+    energyOperator_->computePlasticGradient(u, materialState_.view(), g);
   }
-  void compute_dE_de(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd g) const
+  void computeElasticGradient(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd g) const
   {
-    energyOperator_->compute_dE_de(u, materialState_.view(), g);
+    energyOperator_->computeElasticGradient(u, materialState_.view(), g);
   }
   void computeVonMisesStresses(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd out) const
   {
@@ -53,24 +53,25 @@ public:
     EigenSupport::ConstRefVecXd x,
     EigenSupport::SpMatD &hess) const override;
   void hessianAlloc(EigenSupport::SpMatD &hess) const override;
+  // Combined hot-path evaluations: the underlying operator prepares each
+  // element's state once for all requested quantities.
+  double funcGradient(
+    EigenSupport::ConstRefVecXd x,
+    EigenSupport::RefVecXd grad) const override;
+  double funcGradientHessian(
+    EigenSupport::ConstRefVecXd x,
+    EigenSupport::RefVecXd grad,
+    EigenSupport::SpMatD &hess) const override;
+  void gradientHessian(
+    EigenSupport::ConstRefVecXd x,
+    EigenSupport::RefVecXd grad,
+    EigenSupport::SpMatD &hess) const override;
   void getDOFs(std::vector<int> &dofs) const override;
   int getNumDOFs() const override;
-  void setEnableMaterialMaxStep(bool enable)
-  {
-    energyOperator_->setEnableMaterialMaxStep(enable);
-  }
-  bool isMaterialMaxStepEnabled() const
-  {
-    return energyOperator_->isMaterialMaxStepEnabled();
-  }
   NonlinearOptimization::EnergyStateKind stateKind() const override
   {
     return NonlinearOptimization::EnergyStateKind::Displacement;
   }
-  NonlinearOptimization::StepConstraint computeMaxStepLimit(
-    EigenSupport::ConstRefVecXd x,
-    EigenSupport::ConstRefVecXd dx,
-    NonlinearOptimization::StepConstraintSink *sink = nullptr) const override;
 
 private:
   std::shared_ptr<DeformationEnergyOperator> energyOperator_;

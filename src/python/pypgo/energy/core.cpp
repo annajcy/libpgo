@@ -140,7 +140,7 @@ nb::ndarray<nb::numpy, double> PyDeformationEnergyOperator::dE_dp(
   EigenSupport::VXd grad = EigenSupport::VXd::Zero(numPlasticValues());
   {
     nb::gil_scoped_release release;
-    energy_->compute_dE_dp(u, state.state().view(), grad);
+    energy_->computePlasticGradient(u, state.state().view(), grad);
   }
   return python::vectorXdToNdarray(std::move(grad));
 }
@@ -157,7 +157,7 @@ nb::ndarray<nb::numpy, double> PyDeformationEnergyOperator::dE_de(
   EigenSupport::VXd grad = EigenSupport::VXd::Zero(numElasticValues());
   {
     nb::gil_scoped_release release;
-    energy_->compute_dE_de(u, state.state().view(), grad);
+    energy_->computeElasticGradient(u, state.state().view(), grad);
   }
   return python::vectorXdToNdarray(std::move(grad));
 }
@@ -535,12 +535,10 @@ std::shared_ptr<PyDeformationEnergyOperator> createDeformationEnergyOperator(
   const PyMaterialBinding &materialBinding,
   const pgo::PyFormulation &formulation,
   nb::object elementWeights,
-  bool projectHessianPSD,
-  bool enableMaterialMaxStep)
+  bool projectHessianPSD)
 {
   SolidDeformationModel::DeformationModelOptions opts;
   opts.projectHessianPSD = projectHessianPSD;
-  opts.enableMaterialMaxStep = enableMaterialMaxStep;
   if (auto weights = optionalVectorFromObject(elementWeights))
     opts.elementWeights = std::move(*weights);
   std::shared_ptr<SolidDeformationModel::DeformationEnergyOperator> energy;

@@ -105,7 +105,7 @@ void FloorContactEnergy::hessianAlloc(EigenSupport::SpMatD &simulationHessian) c
   simulationHessian.setZero();
 }
 
-double FloorContactEnergy::func_grad(
+double FloorContactEnergy::funcGradient(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient) const
 {
@@ -119,7 +119,7 @@ double FloorContactEnergy::func_grad(
   return surfaceEnergy;
 }
 
-double FloorContactEnergy::func_grad_hessian(
+double FloorContactEnergy::funcGradientHessian(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient,
   EigenSupport::SpMatD &simulationHessian) const
@@ -136,7 +136,7 @@ double FloorContactEnergy::func_grad_hessian(
   return surfaceEnergy;
 }
 
-void FloorContactEnergy::gradient_hessian(
+void FloorContactEnergy::gradientHessian(
   EigenSupport::ConstRefVecXd simulationDisplacements,
   EigenSupport::RefVecXd simulationGradient,
   EigenSupport::SpMatD &simulationHessian) const

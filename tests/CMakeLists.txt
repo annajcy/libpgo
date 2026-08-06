@@ -16,11 +16,6 @@ FetchContent_Declare(
 pgo_fetch_make_available(googletest)
 
 function(pgo_gtest_discover_tests target)
-  if(WIN32 AND TARGET pgo_c)
-    set_property(TARGET ${target} PROPERTY TEST_LAUNCHER
-      "${CMAKE_COMMAND};-E;env;--modify;PATH=path_list_prepend:$<TARGET_FILE_DIR:pgo_c>")
-  endif()
-
   gtest_discover_tests(${target}
     DISCOVERY_MODE PRE_TEST
     DISCOVERY_TIMEOUT 30
@@ -41,25 +36,5 @@ function(pgo_add_gtest target)
   set_property(TARGET ${target} PROPERTY FOLDER "tests/gtest")
   pgo_gtest_discover_tests(${target})
 endfunction()
-
-pgo_add_gtest(pgo_c_gtest
-  SOURCES pgo_c_gtest.cpp
-  DEPS pgo_c
-  INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/c
-  DEFINITIONS LIBPGO_TEST_TORUS_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/tet/torus.veg"
-)
-if(TARGET MKL::MKL)
-  target_compile_definitions(pgo_c_gtest PRIVATE PGO_HAS_MKL)
-endif()
-
-foreach(concurrency IN ITEMS 1 4)
-  set(target pgo_c_parallel_${concurrency}_gtest)
-  pgo_add_gtest(${target}
-    SOURCES pgo_c_parallel_gtest.cpp
-    DEPS pgo_c parallel
-    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/src/c ${CMAKE_SOURCE_DIR}/src/core
-    DEFINITIONS PGO_TEST_MAX_CONCURRENCY=${concurrency}
-  )
-endforeach()
 
 add_subdirectory(src)

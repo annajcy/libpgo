@@ -27,14 +27,6 @@ enum class SimulationMeshType;
 class DeformationModelAssembler
 {
 public:
-  struct MaterialMaxStepObservation
-  {
-    double alpha = 1.0;
-    bool hasIllegalInitialState = false;
-    int limitingElementId = -1;
-    int limitingLocationId = -1;
-  };
-
   DeformationModelAssembler(
     const SimulationMesh &mesh,
     const MaterialBinding &materialBinding,
@@ -43,16 +35,20 @@ public:
     std::span<const double> elementWeights = {});
   ~DeformationModelAssembler();
 
-  MaterialMaxStepObservation computeMaxStepObservation(
-    std::span<const double> x, std::span<const double> dx) const;
-  double computeMaxStepSize(
-    std::span<const double> x, std::span<const double> dx) const;
-
-  double compute_E(std::span<const double> x, MaterialStateView state) const;
-  void compute_dE_dx(std::span<const double> x, MaterialStateView state,
+  double computeEnergy(std::span<const double> x, MaterialStateView state) const;
+  double computeEnergyGradient(
+    std::span<const double> x, MaterialStateView state,
     EigenSupport::RefVecXd grad) const;
-  void compute_d2E_dx2(std::span<const double> x, MaterialStateView state,
+  void computeDisplacementGradient(std::span<const double> x, MaterialStateView state,
+    EigenSupport::RefVecXd grad) const;
+  void computeDisplacementHessian(std::span<const double> x, MaterialStateView state,
     EigenSupport::SpMatD &hess) const;
+  double computeEnergyGradientHessian(
+    std::span<const double> x, MaterialStateView state,
+    EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const;
+  void computeGradientHessian(
+    std::span<const double> x, MaterialStateView state,
+    EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const;
 
   void computePlasticMaterialVJP(
     std::span<const double> absolutePositions,
@@ -62,9 +58,9 @@ public:
     std::span<const double> absolutePositions,
     std::span<const double> adjoint,
     MaterialStateView state, std::span<double> output) const;
-  void compute_dE_dp(std::span<const double> x, MaterialStateView state,
+  void computePlasticGradient(std::span<const double> x, MaterialStateView state,
     EigenSupport::RefVecXd grad) const;
-  void compute_dE_de(std::span<const double> x, MaterialStateView state,
+  void computeElasticGradient(std::span<const double> x, MaterialStateView state,
     EigenSupport::RefVecXd grad) const;
 
   void computeVonMisesStresses(std::span<const double> x,
@@ -72,12 +68,12 @@ public:
   void computeMaxStrains(std::span<const double> x,
     MaterialStateView state, std::span<double> elementStrain) const;
 
-  int getNumDOFs() const { return numDOFs; }
+  int getNumDOFs() const { return numDofs_; }
   int getNumElasticGlobalParams() const;
   int getNumPlasticGlobalParams() const;
   int getNumElasticParams() const { return numElasticParams_; }
   int getNumPlasticParams() const { return numPlasticParams_; }
-  int getNumElements() const { return nele; }
+  int getNumElements() const { return numElements_; }
   int getNumVertices() const { return numVertices_; }
   SimulationMeshType meshType() const { return meshType_; }
 
@@ -98,6 +94,7 @@ private:
     EigenSupport::VXd localParameterGradient;
     std::vector<double> localMatrixData;
     std::vector<double> materialLocationValues;
+    bool allDofsCovered = false;
     double energy = 0.0;
 
     Element(std::unique_ptr<DeformationElement> deformation,
@@ -120,6 +117,11 @@ private:
     std::span<const double> adjoint,
     MaterialStateView state, bool elastic,
     std::span<double> output, const char *label) const;
+  template<class DiagnosticFn>
+  void computeElementDiagnostics(
+    std::span<const double> x, MaterialStateView state,
+    std::span<double> output, DiagnosticFn &&diagnostic,
+    const char *label) const;
   void validateMaterialState(const MaterialStateView &state) const;
   void validatePositionSpan(
     std::span<const double> x, const char *label) const;
@@ -130,9 +132,9 @@ private:
 
   SimulationMeshType meshType_;
   int numVertices_ = 0;
-  int numDOFs = 0;
-  int nele = 0;
-  int localDOFs = 0;
+  int numDofs_ = 0;
+  int numElements_ = 0;
+  int localDofs_ = 0;
   int numElasticParams_ = 0;
   int numPlasticParams_ = 0;
 

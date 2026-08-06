@@ -32,9 +32,9 @@ public:
   virtual void hessianInPlace(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const = 0;
   virtual void hessianVector(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd vec, EigenSupport::RefVecXd hessVec) const;
 
-  virtual double func_grad(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const { gradient(x, grad); return func(x); }
-  virtual double func_grad_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const { gradient(x, grad), hessianInPlace(x, hess); return func(x); }
-  virtual void gradient_hessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const { gradient(x, grad); hessian(x, hess); }
+  virtual double funcGradient(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad) const { gradient(x, grad); return func(x); }
+  virtual double funcGradientHessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const { gradient(x, grad), hessianInPlace(x, hess); return func(x); }
+  virtual void gradientHessian(EigenSupport::ConstRefVecXd x, EigenSupport::RefVecXd grad, EigenSupport::SpMatD &hess) const { gradient(x, grad); hessian(x, hess); }
 
   virtual void hessian(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const;
   virtual void hessianAlloc(EigenSupport::SpMatD &hess) const = 0;

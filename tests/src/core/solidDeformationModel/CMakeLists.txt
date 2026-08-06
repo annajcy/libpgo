@@ -70,12 +70,6 @@ pgo_add_gtest(deformationModelFormulation_gtest
   LIBPGO_TEST_CUBIC_BOX_VEG="${CMAKE_SOURCE_DIR}/examples/assets/veg/cubic/box.veg"
 )
 
-pgo_add_gtest(deformationModelEnergyMaxStep_gtest
-  SOURCES deformationModelEnergyMaxStep_gtest.cpp
-  DEPS solidDeformationModel simulation mesh
-  DEFINITIONS LIBPGO_TEST_SHELL_OBJ="${CMAKE_SOURCE_DIR}/examples/assets/obj/shell.obj"
-)
-
 pgo_add_gtest(vertex3DofLayout_gtest
   SOURCES formulations/dof/vertex3DofLayout_gtest.cpp
   DEPS solidDeformationModel mesh

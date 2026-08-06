@@ -82,7 +82,7 @@ void SampledPenaltyContactEvaluator::hessian(
   }
 }
 
-double SampledPenaltyContactEvaluator::func_grad(
+double SampledPenaltyContactEvaluator::funcGradient(
   const SampledPenaltyEvaluationBundle &bundle,
   EigenSupport::ConstRefVecXd surfacePositions,
   EigenSupport::RefVecXd surfaceGradient) const
@@ -92,18 +92,18 @@ double SampledPenaltyContactEvaluator::func_grad(
   return value;
 }
 
-double SampledPenaltyContactEvaluator::func_grad_hessian(
+double SampledPenaltyContactEvaluator::funcGradientHessian(
   const SampledPenaltyEvaluationBundle &bundle,
   EigenSupport::ConstRefVecXd surfacePositions,
   EigenSupport::RefVecXd surfaceGradient,
   EigenSupport::SpMatD &surfaceHessian) const
 {
-  const double value = func_grad(bundle, surfacePositions, surfaceGradient);
+  const double value = funcGradient(bundle, surfacePositions, surfaceGradient);
   hessian(bundle, surfacePositions, surfaceHessian);
   return value;
 }
 
-void SampledPenaltyContactEvaluator::gradient_hessian(
+void SampledPenaltyContactEvaluator::gradientHessian(
   const SampledPenaltyEvaluationBundle &bundle,
   EigenSupport::ConstRefVecXd surfacePositions,
   EigenSupport::RefVecXd surfaceGradient,

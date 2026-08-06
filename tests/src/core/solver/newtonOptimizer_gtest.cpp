@@ -109,7 +109,7 @@ public:
     hess.setIdentity();
   }
 
-  double func_grad_hessian(ES::ConstRefVecXd x, ES::RefVecXd grad, ES::SpMatD &hess) const override
+  double funcGradientHessian(ES::ConstRefVecXd x, ES::RefVecXd grad, ES::SpMatD &hess) const override
   {
     requirePreparedFor(x);
     gradient(x, grad);
