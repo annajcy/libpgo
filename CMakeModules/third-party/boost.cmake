@@ -33,4 +33,12 @@ if(TARGET Boost::iostreams)
     ${_pgo_boost_module_include_dirs})
 endif()
 
+# OpenVDB links Boost::disable_autolinking on Windows to add BOOST_ALL_NO_LIB.
+# The boost-cmake superproject does not define this helper target, so provide
+# the equivalent interface target.
+if(NOT TARGET Boost::disable_autolinking)
+  add_library(Boost::disable_autolinking INTERFACE IMPORTED)
+  target_compile_definitions(Boost::disable_autolinking INTERFACE BOOST_ALL_NO_LIB)
+endif()
+
 message(STATUS "Done.")
