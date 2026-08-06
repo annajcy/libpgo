@@ -260,7 +260,8 @@ bool saveToAscii(const TriMeshRef &mesh, const std::string &filename)
     fout << "f " << t[0] + 1 << " " << t[1] + 1 << " " << t[2] + 1 << std::endl;
   }
 
-  std::cout << "Saved mesh (#v: " << mesh.numVertices() << ", #t: " << mesh.numTriangles() << ") to " << filename << "." << std::endl;
+  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Saved mesh (#v: {}, #t: {}) to {}.",
+    mesh.numVertices(), mesh.numTriangles(), filename);
   fout.close();
   return true;
 }

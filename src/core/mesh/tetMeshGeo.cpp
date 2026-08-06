@@ -146,7 +146,8 @@ bool TetMeshRef::save(const std::string &filename) const
   fprintf(fout, "\n");
   fclose(fout);
 
-  std::cout << "Saved mesh (#v: " << numVertices() << ", #t: " << numTets() << ") to " << filename << "." << std::endl;
+  SPDLOG_LOGGER_INFO(pgo::Logging::lgr(), "Saved mesh (#v: {}, #t: {}) to {}.",
+    numVertices(), numTets(), filename);
   return true;
 }
 

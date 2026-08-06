@@ -152,10 +152,8 @@ def dump_uniaxial_objs(
         np.empty(0, dtype=np.float64),
     )
     optimizer = ps.NewtonOptimizer(
-        max_iterations=80,
+        max_iterations=200,
         termination=ps.AbsoluteTermination(abs_tolerance=1.0e-10),
-        damping=ps.FixedDamping(),
-        line_search=ps.Backtrack(),
     )
 
     rest_surface = _surface_from_deformed_cubes(
