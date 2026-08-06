@@ -24,10 +24,10 @@ artifacts in this folder.
 2. Wraps each of 36 load cases (free/confined uniaxial + simple shear) in a
    `StaticEquilibriumLayer`;
 3. Generates target reactions with the Neo-Hookean material;
-4. Gets the reaction Jacobian from `torch.autograd.functional.jacobian` --
-   the layer's backward implements the implicit-function-theorem adjoint
-   `K_ff^T λ = (K^T c)_f` internally;
-5. Fits the 18 parameters in log space with Gauss-Newton/Levenberg-Marquardt;
+4. Defines a scalar loss (normalized reaction mismatch plus a smoothness
+   penalty) and calls `loss.backward()` -- the layer's backward implements
+   the implicit-function-theorem adjoint `K_ff^T λ = (K^T c)_f` internally;
+5. Fits the 18 parameters in log space with `torch.optim.Adam`;
 6. Visualizes the solved configurations with `pgo.visualize` and plots the
    reaction curves.
 
@@ -36,7 +36,7 @@ artifacts in this folder.
 1. Prescribes homogeneous deformation states (uniaxial at every non-rest
    knot, plus four shears) -- all displacement DOFs are data;
 2. Evaluates full force vectors `R = grad E(u; m)` with `StaticForceLayer`;
-3. Fits in log space with `torch.optim.LBFGS`; no equilibrium solve anywhere
+3. Fits in log space with `torch.optim.Adam`; no equilibrium solve anywhere
    in the loop;
 4. Runs a predictive check: the directly calibrated material is plugged into
    `StaticEquilibriumLayer` and its equilibrium reaction curves are compared
