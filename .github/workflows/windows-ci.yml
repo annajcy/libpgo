@@ -61,6 +61,13 @@ jobs:
             throw "base did not select the SOURCE runtime layout"
           }
           uv run cmake --build build\base --parallel 4
+          $env:PYTHONPATH = "$env:GITHUB_WORKSPACE"
+          uv run python examples\assets\generate_veg_assets.py `
+            --assets all `
+            --cubic-resolution 4 `
+            --tet-backend tetgen `
+            --tet-target-elements 100 `
+            --static-dragon-target-elements 100
           uv run ctest --test-dir build\base --output-on-failure `
             | Tee-Object "$env:EVIDENCE_DIR\ctest.txt"
           if ($LASTEXITCODE -ne 0) { throw "CTest failed" }

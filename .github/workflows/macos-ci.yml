@@ -52,6 +52,13 @@ jobs:
           uv run cmake --preset base -G Ninja
           grep -F 'PGO_RUNTIME_LAYOUT:STRING=SOURCE' build/base/CMakeCache.txt
           uv run cmake --build build/base --parallel 4
+          PYTHONPATH="${GITHUB_WORKSPACE}" \
+            uv run python examples/assets/generate_veg_assets.py \
+              --assets all \
+              --cubic-resolution 4 \
+              --tet-backend tetgen \
+              --tet-target-elements 100 \
+              --static-dragon-target-elements 100
           uv run ctest --test-dir build/base --output-on-failure \
             | tee "${EVIDENCE_DIR}/ctest.txt"
           PYTHONPATH="${GITHUB_WORKSPACE}" \
