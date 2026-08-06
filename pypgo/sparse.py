@@ -85,6 +85,45 @@ class SparseMatrix:
             return self._handle.matvec(np.ascontiguousarray(other))
         return self._handle.matmat(np.ascontiguousarray(other))
 
+    def solve(self, rhs, backend=None) -> np.ndarray:
+        """Solve ``A x = rhs`` with a sparse-solver backend.
+
+        Parameters
+        ----------
+        rhs : array-like float64, shape (rows,)
+            Right-hand side vector.
+        backend : pypgo.solver SparseSolver handle, optional
+            One of ``ps.Auto()``, ``ps.EigenLDLT()``, ``ps.MKLPardiso()``, or
+            ``ps.OrigPardiso()``.  Defaults to ``Auto``, matching the Newton
+            optimizer's default backend.
+
+        Returns
+        -------
+        ndarray float64, shape (rows,)
+            Solution of the sparse linear system.
+
+        Raises
+        ------
+        ValueError
+            If the matrix is not square, ``rhs`` is not 1-D, or its size does
+            not match the matrix rows.
+        RuntimeError
+            If the chosen backend cannot factorize or solve the system.
+        """
+        if backend is None:
+            backend = _core.PyAutoSparseSolver()
+        if not isinstance(backend, _core.PySparseSolver):
+            raise TypeError(
+                "backend must be a pypgo.solver SparseSolver handle "
+                "(e.g. pypgo.solver.EigenLDLT())")
+        rhs = np.asarray(rhs, dtype=np.float64)
+        if rhs.ndim != 1:
+            raise ValueError("rhs must be 1-D")
+        if rhs.shape[0] != self.shape[0]:
+            raise ValueError(
+                f"rhs size {rhs.shape[0]} must match matrix rows {self.shape[0]}")
+        return np.asarray(backend.solve(self._handle, rhs), dtype=np.float64)
+
 
 def as_sparse_matrix(A) -> "SparseMatrix":
     """Coerce a matrix-like argument to a :class:`SparseMatrix`.

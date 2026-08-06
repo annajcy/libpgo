@@ -4,7 +4,12 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
+#include "eigen_numpy.h"
+#include "sparse/core.h"
+
 #include "core.h"
+
+#include <stdexcept>
 
 namespace nb = nanobind;
 
@@ -29,7 +34,36 @@ void init_solver_bindings(nb::module_ &m)
 
   // ── Sparse linear solvers ─────────────────────────────────────────────
 
-  nb::class_<PySparseSolver>(m, "PySparseSolver");
+  // One-shot sparse linear solve: builds the backend for the matrix pattern,
+  // factorizes, and solves A x = rhs.  A fresh backend is created per call, so
+  // the handle stays immutable and thread-safe (no shared mutable state).
+  nb::class_<PySparseSolver>(m, "PySparseSolver")
+    .def("solve", [](const PySparseSolver &self, const PySparseMatrix &A,
+                     nb::ndarray<nb::numpy, const double> rhs) {
+        const auto &M = A.eigenMatrix();
+        if (M.rows() != M.cols()) {
+          throw nb::value_error("solve: sparse matrix must be square");
+        }
+        pgo::EigenSupport::VXd rhsVec = pgo::python::ndarrayToVectorXd(rhs);
+        if (static_cast<size_t>(rhsVec.size()) != static_cast<size_t>(M.rows())) {
+          throw nb::value_error("solve: rhs size must match matrix rows");
+        }
+
+        auto backend = self.handle()->build(M);
+        if (!backend->factorize(M)) {
+          throw std::runtime_error(
+            "sparse solve failed: backend '" + std::string(backend->name()) +
+            "' factorization did not succeed (matrix may be singular)");
+        }
+        pgo::EigenSupport::VXd x = rhsVec;
+        if (!backend->solve(M, x.data(), rhsVec.data())) {
+          throw std::runtime_error(
+            "sparse solve failed: backend '" + std::string(backend->name()) +
+            "' triangular solve did not succeed");
+        }
+        return pgo::python::vectorXdToNdarray(std::move(x));
+      },
+      nb::arg("matrix"), nb::arg("rhs"));
 
   nb::class_<PyAutoSparseSolver, PySparseSolver>(m, "PyAutoSparseSolver")
     .def(nb::init<>());

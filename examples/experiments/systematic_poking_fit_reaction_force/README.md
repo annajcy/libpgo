@@ -1,252 +1,76 @@
-# Fit Systematic Poking through static reaction forces
+# Systematic Poking Calibration
 
-This demo is the bridge between direct constitutive calibration and a full
-contact-based poking inverse problem. It fits a Systematic Poking material to
-synthetic Neo-Hookean force-displacement curves while differentiating through
-an actual static equilibrium solve.
+Fitting the Systematic Poking principal-stretch material to synthetic
+Neo-Hookean data, end to end in PyTorch.
 
-The default configuration uses:
+This folder contains two reference notebooks. Both calibrate the same
+`f''(knot)` spline values plus volumetric coefficient against a Neo-Hookean
+target, but they use different kinds of data and different torch layers:
 
-- a \(2\times2\times2\) cubic-linear FEM mesh;
-- 17 stretch-curvature parameters \(q_k=f''(s_k)\);
-- one volumetric coefficient \(\lambda\);
-- positive log parameters \(e_i=E_{\mathrm{ref}}\exp(\theta_i)\);
-- free-uniaxial, confined-uniaxial, and simple-shear reaction curves;
-- validation-selected curvature smoothness weight \(10^{-3}\).
+| Notebook | Data | Layer | Differentiability |
+| --- | --- | --- | --- |
+| [`static_solve_fitting.ipynb`](static_solve_fitting.ipynb) | equilibrium reaction forces (displacement is solved) | `StaticEquilibriumLayer` | implicit-function-theorem adjoint through the Newton solve |
+| [`direct_fitting.ipynb`](direct_fitting.ipynb) | prescribed deformation states and their internal forces (displacement is data) | `StaticForceLayer` | exact `grad E` forward and Hessian/mixed-derivative backward, no Newton |
 
-## Forward problem
+The notebooks are self-contained: all mesh, load-case, and fitting code lives
+in the notebooks themselves. There are no experiment scripts or generated
+artifacts in this folder.
 
-For each prescribed boundary displacement, the free displacement degrees of
-freedom satisfy
+## What each notebook shows
 
-\[
-R_f(u_f^\star,u_c,e)
-=
-\frac{\partial E_h}{\partial u_f}
-=0.
-\]
+**`static_solve_fitting.ipynb`**
 
-The observed scalar reaction is
+1. Builds a 2×2×2 hexahedral mesh and one shared `DeformationEnergyOperator`;
+2. Wraps each of 36 load cases (free/confined uniaxial + simple shear) in a
+   `StaticEquilibriumLayer`;
+3. Generates target reactions with the Neo-Hookean material;
+4. Gets the reaction Jacobian from `torch.autograd.functional.jacobian` --
+   the layer's backward implements the implicit-function-theorem adjoint
+   `K_ff^T λ = (K^T c)_f` internally;
+5. Fits the 18 parameters in log space with Gauss-Newton/Levenberg-Marquardt;
+6. Visualizes the solved configurations with `pgo.visualize` and plots the
+   reaction curves.
 
-\[
-y(e)=c^T R(u^\star,e),
-\]
+**`direct_fitting.ipynb`**
 
-where \(c\) sums the relevant top-face reaction component.
+1. Prescribes homogeneous deformation states (uniaxial at every non-rest
+   knot, plus four shears) -- all displacement DOFs are data;
+2. Evaluates full force vectors `R = grad E(u; m)` with `StaticForceLayer`;
+3. Fits in log space with `torch.optim.LBFGS`; no equilibrium solve anywhere
+   in the loop;
+4. Runs a predictive check: the directly calibrated material is plugged into
+   `StaticEquilibriumLayer` and its equilibrium reaction curves are compared
+   with the target.
 
-Unlike the direct \(P(F)\) fitting demo, the deformation state is not supplied
-to the constitutive model. It is found by Newton's method. The backend solver
-is followed by a small dense Newton polish so every retained state satisfies
+## The torch layers
 
-\[
-\lVert R_f\rVert_\infty\leq10^{-6}.
-\]
+All three layers live in `pypgo.fem.torch` (lazy-imported; requires the
+optional `pypgo[torch]` extra):
 
-For the material scale \(E_{\mathrm{ref}}=2\times10^5\), this is a relative
-equilibrium residual below \(5\times10^{-12}\).
+- `StaticEnergyLayer` -- `E(u; m)` with exact first derivatives;
+- `StaticForceLayer` -- `grad E(u; m)` with Hessian-matvec and material-VJP
+  backward, so forces stay connected to the material parameters;
+- `StaticEquilibriumLayer` -- the static equilibrium solve `u*(m)` with an
+  implicit-function-theorem backward.
 
-## Implicit reaction sensitivity
+They accept CPU float64 tensors only: material values are element-major
+`(num_elements, channels)` tensors (broadcast global parameters with
+`torch.exp(theta).expand(num_elements, -1)`), and the plastic argument is
+always required (`(num_elements, 0)` when the model has no plastic channels).
 
-Differentiate free equilibrium with respect to physical material parameters:
-
-\[
-K_{ff}\frac{du_f^\star}{de}
-+E_{ue,f}=0,
-\]
-
-so
-
-\[
-\frac{du_f^\star}{de}
-=-K_{ff}^{-1}E_{ue,f}.
-\]
-
-The total reaction derivative is
-
-\[
-\boxed{
-\frac{dy}{de}
-=
-c^T
-\left(
-E_{ue}
--K_{:f}K_{ff}^{-1}E_{ue,f}
-\right)
-}.
-\]
-
-With \(e_i=E_{\mathrm{ref}}\exp(\theta_i)\), the normalized residual Jacobian
-is
-
-\[
-\frac{\partial(y/E_{\mathrm{ref}})}{\partial\theta_i}
-=
-\frac{1}{E_{\mathrm{ref}}}
-\frac{\partial y}{\partial e_i}e_i.
-\]
-
-This complete derivative, including a fresh static solve for every finite
-difference perturbation, matches central finite differences with relative
-Frobenius error \(3.17\times10^{-10}\); the largest column-relative error is
-\(6.72\times10^{-10}\).
-
-## Uniaxial boundary conditions
-
-The free-uniaxial protocol prescribes \(u_y=0\) on the bottom face and
-\(u_y=a-1\) on the top face. It does **not** clamp all bottom-face
-coordinates. Three additional scalar constraints remove only rigid motion:
-one bottom vertex has \(u_x=u_z=0\), and a second bottom vertex has \(u_z=0\).
-These pins still admit a homogeneous lateral stretch about the first vertex,
-so the static solve can determine the material-dependent transverse stretch.
-
-The confined protocol uses the same axial conditions and additionally sets
-\(u_x=u_z=0\) at every vertex. It therefore enforces ideal uniaxial strain.
-
-## Data splits
-
-Training uses every non-rest stretch knot in both uniaxial protocols, plus
-four shear levels. Validation uses geometric midpoints between adjacent
-knots and distinct shear levels. It is used to select the smoothness weight.
-
-After that selection, a separate holdout is evaluated at the one-quarter and
-three-quarter log-space points of every knot interval, plus eight previously
-unused shear levels. The default 17-knot counts are:
-
-| split | cases | role |
-|---|---:|---|
-| training | 36 | fit material parameters |
-| validation | 36 | select regularization |
-| holdout | 72 | final untouched evaluation |
-
-## Objective and regularization
-
-The data residual for reaction observation \(j\) is
-
-\[
-r_j(\theta)
-=
-\frac{y_j(\theta)-y_j^\star}{E_{\mathrm{ref}}}.
-\]
-
-For uniformly spaced log stretch knots, smoothness is imposed on the log
-curvatures:
-
-\[
-L(\theta)
-=
-\frac12\sum_jr_j^2
-+
-\frac{\alpha}{2}
-\left\|D_2\theta_q\right\|_2^2.
-\]
-
-The log-space penalty discourages relative curvature oscillation without
-favoring the large-magnitude compression-side parameters.
-
-An exploratory validation sweep gave:
-
-| \(\alpha\) | train RMSE | validation RMSE |
-|---:|---:|---:|
-| \(0\) | \(2.25\times10^{-4}\) | \(4.01\times10^{-4}\) |
-| \(10^{-4}\) | \(2.36\times10^{-4}\) | \(2.62\times10^{-4}\) |
-| \(3\times10^{-4}\) | \(2.41\times10^{-4}\) | \(2.54\times10^{-4}\) |
-| \(10^{-3}\) | \(2.47\times10^{-4}\) | \(2.49\times10^{-4}\) |
-| \(3\times10^{-3}\) | \(2.54\times10^{-4}\) | \(2.50\times10^{-4}\) |
-| \(10^{-2}\) | \(2.66\times10^{-4}\) | \(2.57\times10^{-4}\) |
-
-The selected value is \(10^{-3}\). The subsequently evaluated sealed
-holdout RMSE is \(2.35\times10^{-4}\).
-The unaggregated sweep values are retained in `regularization_sweep.csv`.
-
-A separate no-regularization resolution check is retained in
-`resolution_sweep.csv`. The 5-, 9-, and 17-knot designs are all full rank;
-their conditions are approximately 45, 123, and 461, respectively. Because
-the number of knot-aligned training observations grows with model resolution,
-this is a joint capacity-and-excitation check, not a controlled
-fixed-data model-capacity comparison.
-
-## Inspect the two uniaxial static states
-
-The companion exporter solves the target Neo-Hookean material under the free
-and confined uniaxial boundary conditions, then writes the deformed surfaces
-as OBJ files:
+## Running the notebooks
 
 ```bash
-PYTHONPATH=build/base/lib:$PYTHONPATH \
-python examples/demo/optimization/systematic_poking_fit_reaction_force/dump_uniaxial_objs.py
+pip install -e ".[torch,viz,dev]"   # viz only needed for pgo.visualize
+jupyter notebook static_solve_fitting.ipynb
 ```
 
-The default stretch is \(a=2^{-1/2}\), which is an actual non-rest training
-knot in the 17-knot experiment. Outputs are written under
-`output/uniaxial_static_solve_obj/`:
+Both notebooks fall back gracefully when matplotlib or pyvista is not
+installed (plots are skipped with a message).
 
-- `rest.obj`;
-- `free_uniaxial.obj`;
-- `confined_uniaxial.obj`;
-- `manifest.json`, including reaction, equilibrium residual, and bounding box;
-- `preview.png`, when Matplotlib is installed.
+## Regression coverage
 
-Use `--stretch`, `--grid-size`, and `--output-dir` to generate another state.
-
-The simple-shear dataset has a matching exporter. The default \(\gamma=0.8\)
-is one of the training cases:
-
-```bash
-PYTHONPATH=build/base/lib:$PYTHONPATH \
-python examples/demo/optimization/systematic_poking_fit_reaction_force/dump_shear_objs.py
-```
-
-Outputs are written under `output/shear_static_solve_obj/`:
-
-- `rest.obj`;
-- `simple_shear_+0.800000.obj`;
-- `manifest.json`, including the top-face tangential reaction and equilibrium
-  residual;
-- `preview.png`, when Matplotlib is installed.
-
-Use `--shear -0.4` or `--output-dir ...` to inspect another dataset case.
-
-## Run
-
-From the repository root:
-
-```bash
-PYTHONPATH=build/base/lib:$PYTHONPATH \
-python examples/demo/optimization/systematic_poking_fit_reaction_force/main.py
-```
-
-Useful controls:
-
-```bash
-python examples/demo/optimization/systematic_poking_fit_reaction_force/main.py \
-  --knot-count 17 \
-  --grid-size 2 \
-  --smoothness-weight 1e-3 \
-  --max-iterations 40 \
-  --output-dir /tmp/systematic-poking-reaction-fit \
-  --no-plots
-```
-
-## Default result
-
-The deterministic default run converges in seven outer Gauss-Newton
-iterations. Its data Jacobian has rank \(18/18\) and condition number about
-458.
-
-| split | initial RMSE | fitted RMSE |
-|---|---:|---:|
-| training | \(3.41\times10^{-1}\) | \(2.47\times10^{-4}\) |
-| validation | \(3.05\times10^{-1}\) | \(2.49\times10^{-4}\) |
-| holdout | \(3.06\times10^{-1}\) | \(2.35\times10^{-4}\) |
-
-Outputs under `output/` include:
-
-- `summary.json`;
-- `optimization_history.csv`;
-- `fitted_parameters.csv`;
-- `reaction_predictions.npz`;
-- `fit_diagnostics.png`, when Matplotlib is installed.
-
-The next extension should replace prescribed top-face loading with a
-cylindrical contact indenter while retaining the same equilibrium sensitivity
-and identifiability checks.
+The key invariants are pinned by the self-contained test
+`tests/pypgo/test_systematic_poking_reaction_force_fit_demo.py`: load-case
+constraints, the implicit reaction Jacobian against central finite
+differences (rtol 5e-7), and Gauss-Newton convergence.
