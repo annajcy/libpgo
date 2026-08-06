@@ -46,6 +46,9 @@
 *.egg-info
 build
 _skbuild
+/.venv/
+/wheelhouse/
+/reports-*/
 
 .DS_Store
 .vscode/*
@@ -62,6 +65,8 @@ build-test
 *.png
 
 *.u
+
+cmake_options.texi
 
 build*
 

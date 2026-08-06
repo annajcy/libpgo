@@ -125,5 +125,17 @@ target_include_directories(pypgo_core
 
 set_target_properties(pypgo_core PROPERTIES
   OUTPUT_NAME "_core"
-  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/pypgo"
+  LIBRARY_OUTPUT_DIRECTORY "$<IF:$<STREQUAL:${PGO_RUNTIME_LAYOUT},WHEEL>,${CMAKE_LIBRARY_OUTPUT_DIRECTORY},${CMAKE_SOURCE_DIR}/pypgo>"
 )
+
+target_compile_definitions(pypgo_core PRIVATE VERSION_INFO="${PYPGO_VERSION_INFO}")
+
+pgo_attach_runtime_dependencies(pypgo_core COPY_RUNTIME WHEEL_EXTENSION)
+
+pgo_should_strip_release_binary(PGO_STRIP_PYTHON_EXTENSION)
+if(PGO_STRIP_PYTHON_EXTENSION)
+  add_custom_command(TARGET pypgo_core POST_BUILD
+    COMMAND ${CMAKE_STRIP} -x "$<TARGET_FILE:pypgo_core>"
+    COMMENT "Stripping release pypgo extension"
+    VERBATIM)
+endif()

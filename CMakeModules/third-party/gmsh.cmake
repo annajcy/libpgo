@@ -1,137 +1,103 @@
 if(TARGET Gmsh::Gmsh)
-    return()
+  return()
 endif()
 
-include(FindPackageHandleStandardArgs)
+message(STATUS "Downloading GMSH...")
+include(FetchContent)
 
-set(_pgo_gmsh_prefix_hints)
-set(_pgo_gmsh_use_config TRUE)
+# Build only the static GMSH API library that libpgo links for .msh loading.
+# Disable GUI, CAD, solver, and optional dependency features so the build is
+# self-contained and does not leak Homebrew/system libraries into wheels.
+set(DEFAULT OFF CACHE INTERNAL "GMSH default-value switch" FORCE)
+set(ENABLE_BUILD_LIB ON CACHE BOOL "Build static GMSH library" FORCE)
+set(ENABLE_BUILD_SHARED OFF CACHE BOOL "Build shared GMSH library" FORCE)
+set(ENABLE_BUILD_DYNAMIC OFF CACHE BOOL "Build dynamic GMSH executable" FORCE)
+set(ENABLE_GRAPHICS OFF CACHE BOOL "Disable graphics" FORCE)
+set(ENABLE_OPENGL OFF CACHE BOOL "Disable OpenGL" FORCE)
+set(ENABLE_OSMESA OFF CACHE BOOL "Disable OSMesa" FORCE)
+set(ENABLE_FLTK OFF CACHE BOOL "Disable FLTK GUI" FORCE)
+set(ENABLE_CAIRO OFF CACHE BOOL "Disable Cairo" FORCE)
+set(ENABLE_OCC OFF CACHE BOOL "Disable OpenCASCADE" FORCE)
+set(ENABLE_OCC_CAF OFF CACHE BOOL "Disable OpenCASCADE CAF" FORCE)
+set(ENABLE_ONELAB OFF CACHE BOOL "Disable ONELAB" FORCE)
+set(ENABLE_ONELAB_METAMODEL OFF CACHE BOOL "Disable ONELAB metamodels" FORCE)
+set(ENABLE_MPI OFF CACHE BOOL "Disable MPI" FORCE)
+set(ENABLE_PETSC OFF CACHE BOOL "Disable PETSc" FORCE)
+set(ENABLE_SLEPC OFF CACHE BOOL "Disable SLEPc" FORCE)
+set(ENABLE_MUMPS OFF CACHE BOOL "Disable MUMPS" FORCE)
+set(ENABLE_OPENMP OFF CACHE BOOL "Disable GMSH OpenMP" FORCE)
+set(ENABLE_OPENACC OFF CACHE BOOL "Disable OpenACC" FORCE)
+set(ENABLE_GMP OFF CACHE BOOL "Disable GMP-dependent Kbipack" FORCE)
+set(ENABLE_EIGEN OFF CACHE BOOL "Disable Eigen" FORCE)
+set(ENABLE_BLAS_LAPACK OFF CACHE BOOL "Disable BLAS/LAPACK" FORCE)
+set(ENABLE_MESH ON CACHE BOOL "Enable mesh module" FORCE)
+set(ENABLE_POST OFF CACHE BOOL "Disable post-processing module" FORCE)
+set(ENABLE_SOLVER OFF CACHE BOOL "Disable built-in solvers" FORCE)
+set(ENABLE_PARSER OFF CACHE BOOL "Disable GEO parser" FORCE)
+set(ENABLE_PLUGINS OFF CACHE BOOL "Disable plugins" FORCE)
+set(ENABLE_DINTEGRATION OFF CACHE BOOL "Disable discrete integration" FORCE)
+set(ENABLE_DOMHEX OFF CACHE BOOL "Disable DomHex" FORCE)
+set(ENABLE_UNTANGLE OFF CACHE BOOL "Disable Untangle" FORCE)
+set(ENABLE_NII2MESH OFF CACHE BOOL "Disable Nii2mesh" FORCE)
+set(ENABLE_BLOSSOM OFF CACHE BOOL "Disable Blossom" FORCE)
+set(ENABLE_ALGLIB OFF CACHE BOOL "Disable ALGLIB" FORCE)
+set(ENABLE_KBIPACK OFF CACHE BOOL "Disable Kbipack" FORCE)
+set(ENABLE_MATHEX OFF CACHE BOOL "Disable MathEx" FORCE)
+set(ENABLE_TINYXML2 OFF CACHE BOOL "Disable TinyXML2" FORCE)
+set(ENABLE_TETGENBR OFF CACHE BOOL "Disable TetGen/BR" FORCE)
+set(ENABLE_HXT OFF CACHE BOOL "Disable HXT" FORCE)
+set(ENABLE_METIS OFF CACHE BOOL "Disable Metis" FORCE)
+set(ENABLE_NETGEN OFF CACHE BOOL "Disable Netgen" FORCE)
+set(ENABLE_MMG OFF CACHE BOOL "Disable Mmg" FORCE)
+set(ENABLE_BAMG OFF CACHE BOOL "Disable Bamg" FORCE)
+set(ENABLE_ANN OFF CACHE BOOL "Disable ANN" FORCE)
+set(ENABLE_VOROPP OFF CACHE BOOL "Disable Voro++" FORCE)
+set(ENABLE_QUADTRI OFF CACHE BOOL "Disable QuadTri" FORCE)
+set(ENABLE_QUADMESHINGTOOLS OFF CACHE BOOL "Disable QuadMeshingTools" FORCE)
+set(ENABLE_WINSLOWUNTANGLER OFF CACHE BOOL "Disable WinslowUntangler" FORCE)
+set(ENABLE_OPTHOM OFF CACHE BOOL "Disable high-order optimization" FORCE)
+set(ENABLE_REVOROPT OFF CACHE BOOL "Disable Revoropt" FORCE)
+set(ENABLE_MED OFF CACHE BOOL "Disable MED" FORCE)
+set(ENABLE_CGNS OFF CACHE BOOL "Disable CGNS" FORCE)
+set(ENABLE_GETDP OFF CACHE BOOL "Disable GetDP" FORCE)
+set(ENABLE_POPPLER OFF CACHE BOOL "Disable Poppler" FORCE)
+set(ENABLE_P4EST OFF CACHE BOOL "Disable p4est" FORCE)
+set(ENABLE_MESQUITE OFF CACHE BOOL "Disable Mesquite" FORCE)
+set(ENABLE_TCMALLOC OFF CACHE BOOL "Disable TCMalloc" FORCE)
+set(ENABLE_TOUCHBAR OFF CACHE BOOL "Disable Apple Touch Bar" FORCE)
+set(ENABLE_OS_SPECIFIC_INSTALL OFF CACHE BOOL "Disable OS-specific install" FORCE)
+set(ENABLE_TESTS OFF CACHE BOOL "Disable GMSH tests" FORCE)
+set(ENABLE_WRAP_PYTHON OFF CACHE BOOL "Disable Python wrappers" FORCE)
+set(ENABLE_WRAP_JAVA OFF CACHE BOOL "Disable Java wrappers" FORCE)
+set(ENABLE_NUMPY OFF CACHE BOOL "Disable NumPy private API" FORCE)
+set(ENABLE_PETSC4PY OFF CACHE BOOL "Disable petsc4py" FORCE)
+set(ENABLE_PRIVATE_API OFF CACHE BOOL "Disable private API" FORCE)
 
-if(PGO_CHECK_CONDA AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
-    if(WIN32)
-        list(APPEND _pgo_gmsh_prefix_hints "$ENV{CONDA_PREFIX}/Library")
-    else()
-        list(APPEND _pgo_gmsh_prefix_hints "$ENV{CONDA_PREFIX}")
-    endif()
-    set(_pgo_gmsh_use_config FALSE)
-endif()
-
-list(APPEND _pgo_gmsh_prefix_hints
-    ${GMSH_ROOT}
-    $ENV{GMSH_ROOT}
-    ${GMSH_LIBRARY_HINT}
+FetchContent_Declare(
+  gmsh
+  URL https://gmsh.info/src/gmsh-4.13.1-source.tgz
+  URL_HASH SHA256=77972145f431726026d50596a6a44fb3c1c95c21255218d66955806b86edbe8d
+  DOWNLOAD_EXTRACT_TIMESTAMP ON
+  EXCLUDE_FROM_ALL
 )
-list(REMOVE_DUPLICATES _pgo_gmsh_prefix_hints)
 
-function(_pgo_create_gmsh_alias target_name)
-    if(TARGET Gmsh::Gmsh)
-        return()
-    endif()
+FetchContent_MakeAvailable(gmsh)
 
-    add_library(Gmsh::Gmsh INTERFACE IMPORTED GLOBAL)
-    target_link_libraries(Gmsh::Gmsh INTERFACE ${target_name})
-endfunction()
+set(_pgo_gmsh_target)
+foreach(_pgo_candidate IN ITEMS GMSH::GMSH lib shared gmsh)
+  if(TARGET ${_pgo_candidate})
+    set(_pgo_gmsh_target ${_pgo_candidate})
+    break()
+  endif()
+endforeach()
 
-function(_pgo_alias_existing_gmsh_target result_var)
-    foreach(_pgo_gmsh_target IN ITEMS Gmsh::Gmsh gmsh::shared gmsh::lib gmsh)
-        if(TARGET ${_pgo_gmsh_target})
-            if(NOT _pgo_gmsh_target STREQUAL "Gmsh::Gmsh")
-                _pgo_create_gmsh_alias(${_pgo_gmsh_target})
-            endif()
-            set(${result_var} TRUE PARENT_SCOPE)
-            return()
-        endif()
-    endforeach()
-
-    set(${result_var} FALSE PARENT_SCOPE)
-endfunction()
-
-if(_pgo_gmsh_use_config)
-    find_package(Gmsh CONFIG QUIET
-        PATHS ${_pgo_gmsh_prefix_hints}
-    )
-    _pgo_alias_existing_gmsh_target(_pgo_gmsh_found_config_target)
-    if(_pgo_gmsh_found_config_target)
-        return()
-    endif()
-
-    find_package(gmsh CONFIG QUIET
-        PATHS ${_pgo_gmsh_prefix_hints}
-    )
-    _pgo_alias_existing_gmsh_target(_pgo_gmsh_found_config_target)
-    if(_pgo_gmsh_found_config_target)
-        return()
-    endif()
+if(NOT _pgo_gmsh_target)
+  message(FATAL_ERROR
+    "GMSH FetchContent build completed without a usable library target.")
 endif()
 
-if(NOT GMSH_INCLUDE_DIR)
-    find_path(GMSH_INCLUDE_DIR
-        NAMES "gmsh.h"
-        PATHS ${_pgo_gmsh_prefix_hints}
-        PATH_SUFFIXES include
-    )
+add_library(Gmsh::Gmsh INTERFACE IMPORTED GLOBAL)
+target_link_libraries(Gmsh::Gmsh INTERFACE ${_pgo_gmsh_target})
+target_include_directories(Gmsh::Gmsh INTERFACE "${gmsh_SOURCE_DIR}/api")
 
-    message(STATUS "Found GMSH HEADERS: ${GMSH_INCLUDE_DIR}")
-endif()
-
-if(WIN32)
-    if(NOT GMSH_LIBRARY)
-        find_library(GMSH_LIBRARY
-            NAMES gmsh
-            PATHS ${_pgo_gmsh_prefix_hints}
-            PATH_SUFFIXES lib
-        )
-
-        message(STATUS "Found GMSH import lib: ${GMSH_LIBRARY}")
-    endif()
-
-    if(NOT GMSH_RUNTIME_LIBRARY)
-        find_file(GMSH_RUNTIME_LIBRARY
-            NAMES gmsh.dll
-            PATHS ${_pgo_gmsh_prefix_hints}
-            PATH_SUFFIXES bin
-        )
-
-        message(STATUS "Found GMSH runtime library: ${GMSH_RUNTIME_LIBRARY}")
-    endif()
-
-    if(GMSH_INCLUDE_DIR AND GMSH_LIBRARY AND GMSH_RUNTIME_LIBRARY)
-        find_package_handle_standard_args(GMSH DEFAULT_MSG
-            GMSH_INCLUDE_DIR
-            GMSH_LIBRARY
-            GMSH_RUNTIME_LIBRARY
-        )
-        mark_as_advanced(GMSH_INCLUDE_DIR)
-        mark_as_advanced(GMSH_LIBRARY)
-        mark_as_advanced(GMSH_RUNTIME_LIBRARY)
-
-        add_library(GMSH_LIB SHARED IMPORTED GLOBAL)
-        set_target_properties(GMSH_LIB PROPERTIES
-            IMPORTED_IMPLIB ${GMSH_LIBRARY}
-            IMPORTED_LOCATION ${GMSH_RUNTIME_LIBRARY}
-        )
-        target_include_directories(GMSH_LIB INTERFACE ${GMSH_INCLUDE_DIR})
-        add_library(Gmsh::Gmsh ALIAS GMSH_LIB)
-    endif()
-else()
-    if(NOT GMSH_LIBRARY)
-        find_library(GMSH_LIBRARY
-            NAMES gmsh
-            PATHS ${_pgo_gmsh_prefix_hints}
-            PATH_SUFFIXES lib
-        )
-
-        message(STATUS "Found GMSH lib: ${GMSH_LIBRARY}")
-    endif()
-
-    if(GMSH_INCLUDE_DIR AND GMSH_LIBRARY)
-        find_package_handle_standard_args(GMSH DEFAULT_MSG GMSH_INCLUDE_DIR GMSH_LIBRARY)
-        mark_as_advanced(GMSH_INCLUDE_DIR)
-        mark_as_advanced(GMSH_LIBRARY)
-
-        add_library(GMSH_LIB SHARED IMPORTED GLOBAL)
-        set_target_properties(GMSH_LIB PROPERTIES IMPORTED_LOCATION ${GMSH_LIBRARY})
-        target_include_directories(GMSH_LIB INTERFACE ${GMSH_INCLUDE_DIR})
-        add_library(Gmsh::Gmsh ALIAS GMSH_LIB)
-    endif()
-endif()
+message(STATUS "GMSH target: ${_pgo_gmsh_target}")

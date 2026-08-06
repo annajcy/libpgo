@@ -4,19 +4,8 @@ endif()
 
 message(STATUS "Loading tbb...")
 
-if(PGO_CHECK_CONDA AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
-  if(WIN32)
-    set(CANDIDATE_PATH "$ENV{CONDA_PREFIX}/Library/lib/cmake/TBB")
-  else()
-    set(CANDIDATE_PATH "$ENV{CONDA_PREFIX}/lib/cmake/TBB")
-  endif()
-
-  if(EXISTS "${CANDIDATE_PATH}/TBBConfig.cmake")
-    set(TBB_DIR "${CANDIDATE_PATH}")
-  endif()
-endif()
-
 find_package(TBB CONFIG REQUIRED)
+message(STATUS "Using external TBB package: ${TBB_DIR}")
 
 if(TARGET TBB::tbb)
   # fix the problem that some machine does not have release

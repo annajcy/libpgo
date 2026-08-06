@@ -23,10 +23,6 @@ function(_blas_lapack_library_dirs output_var addlibdir)
     list(APPEND _library_dirs ENV LD_LIBRARY_PATH)
   endif()
 
-  # Conda often keeps BLAS/LAPACK where platform env vars do not point.
-  if(DEFINED ENV{CONDA_PREFIX})
-    list(APPEND _library_dirs "$ENV{CONDA_PREFIX}/lib")
-  endif()
   list(APPEND _library_dirs "${CMAKE_C_IMPLICIT_LINK_DIRECTORIES}")
 
   set(${output_var} "${_library_dirs}" PARENT_SCOPE)

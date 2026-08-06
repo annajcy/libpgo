@@ -5,6 +5,106 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "pypgo"
+version = "0.0.4"
+description = "Python bindings for libpgo physical simulation and geometry processing"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+]
+authors = [
+    { name = "Bohan Wang", email = "wangbh11@gmail.com" },
+]
+dependencies = [
+    "numpy>=1.26",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.scripts]
+pypgo-volume-info = "pypgo.tools.mesh.volume.volume_info:main"
+pypgo-cubic-mesher = "pypgo.tools.mesh.volume.cubic_mesher:main"
+pypgo-tetgen-mesher = "pypgo.tools.mesh.volume.tetgen_mesher:main"
+pypgo-ftetwild-mesher = "pypgo.tools.mesh.volume.ftetwild_mesher:main"
+pypgo-msh-converter = "pypgo.tools.mesh.volume.msh_converter:main"
+pypgo-surface-quality = "pypgo.tools.mesh.surface.quality:main"
+pypgo-surface-remesh = "pypgo.tools.mesh.surface.remesh:main"
+pypgo-surface-cleanup = "pypgo.tools.mesh.surface.cleanup:main"
+pypgo-sim-shell-static = "pypgo.tools.sim.shell_static:main"
+pypgo-sim-shell-dynamic = "pypgo.tools.sim.shell_dynamic:main"
+pypgo-sim-cubic-static = "pypgo.tools.sim.cubic_static:main"
+pypgo-sim-cubic-dynamic = "pypgo.tools.sim.cubic_dynamic:main"
+pypgo-sim-tet-static = "pypgo.tools.sim.tet_static:main"
+pypgo-sim-tet-dynamic = "pypgo.tools.sim.tet_dynamic:main"
+pypgo-sim-batch = "pypgo.tools.sim.batch:main"
+pypgo-animation-convert = "pypgo.tools.animation.abc_convert:main"
+pypgo-stress-vdb = "pypgo.tools.animation.stress_vdb:main"
+
+[project.optional-dependencies]
+torch = [
+    "torch",
+]
+viz = [
+    "pyvista",
+    "trame",
+    "trame-vtk",
+    "trame-vuetify",
+]
+test = [
+    "pytest>=6.0",
+    "pytest-timeout",
+]
+
+[project.urls]
+Homepage = "https://github.com/annajcy/libpgo"
+Source = "https://github.com/annajcy/libpgo"
+Issues = "https://github.com/annajcy/libpgo/issues"
+
+[tool.setuptools]
+packages = { find = { include = ["pypgo*"] } }
+
+[tool.setuptools.package-data]
+pypgo = ["py.typed"]
+
+[dependency-groups]
+dev = [
+    "cmake==4.3.1",
+    "mkl-devel==2025.3.1; sys_platform == 'linux' or sys_platform == 'win32'",
+    "ninja==1.13.0",
+    "numpy==2.0.2",
+    "pytest==8.4.2",
+    "pytest-timeout==2.3.1",
+    "setuptools==82.0.1",
+    "wheel==0.47.0",
+]
+release = [
+    { include-group = "dev" },
+    "auditwheel==6.4.2; sys_platform == 'linux'",
+    "delocate==0.13.0; sys_platform == 'darwin'",
+    "delvewheel==1.13.0; sys_platform == 'win32'",
+    "packaging==26.2",
+    "patchelf==0.17.2.4; sys_platform == 'linux'",
+]
+
+[tool.uv]
+default-groups = ["release"]
+package = false
+required-version = "==0.11.6"
+
+[tool.uv.dependency-groups]
+dev = { requires-python = ">=3.12,<3.13" }
+release = { requires-python = ">=3.12,<3.13" }
+
 [tool.pytest.ini_options]
 # Guard against hangs: a non-terminating solve is killed after this many seconds
 # instead of burning the whole 120-min job timeout, and the dumped traceback

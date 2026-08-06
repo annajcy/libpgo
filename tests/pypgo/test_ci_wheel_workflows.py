@@ -9,136 +9,135 @@ def read_workflow(name: str) -> str:
     return (ROOT / ".github" / "workflows" / name).read_text()
 
 
-def test_build_tools_are_system_owned():
-    environment = (ROOT / "environment.yml").read_text()
+def test_no_conda_toolchain_anywhere():
+    assert not (ROOT / "environment.yml").exists()
+    workflows = "\n".join(
+        read_workflow(name)
+        for name in (
+            "linux-ci.yml",
+            "macos-ci.yml",
+            "windows-ci.yml",
+        )
+    )
+    assert "setup-miniconda" not in workflows
+    assert "conda install" not in workflows
+    assert "PGO_CHECK_CONDA" not in workflows
+    assert "CONDA_PREFIX" not in workflows
+
+
+def test_uv_is_the_python_toolchain():
     pyproject = (ROOT / "pyproject.toml").read_text()
-    workflows = "\n".join(
-        read_workflow(name)
-        for name in (
-            "linux-ci.yml",
-            "macos-ci.yml",
-            "windows-ci.yml",
-        )
+    assert 'required-version = "==0.11.6"' in pyproject
+    assert 'package = false' in pyproject
+    assert "cmake==4.3.1" in pyproject
+    assert "ninja==1.13.0" in pyproject
+    assert "mkl-devel==2025.3.1" in pyproject
+    assert (ROOT / "uv.lock").is_file()
+
+
+def test_presets_keep_full_features_and_portable_wheels():
+    presets = json.loads((ROOT / "CMakePresets.json").read_text())
+    base = next(p for p in presets["configurePresets"] if p["name"] == "base")
+    wheel = next(
+        p for p in presets["configurePresets"] if p["name"] == "pypgo-wheel"
     )
 
-    for package in ("cmake", "ninja", "pkg-config", "gcc", "gxx"):
-        assert f"- {package}" not in environment
-    assert '"cmake' not in pyproject
-    assert '"ninja' not in pyproject
-    assert "conda install -y -c conda-forge gcc gxx" not in workflows
-    assert "build-essential cmake ninja-build pkg-config" in read_workflow("linux-ci.yml")
-    assert "brew install cmake ninja pkg-config" in read_workflow("macos-ci.yml")
-    assert "choco install cmake ninja" not in read_workflow("windows-ci.yml")
-    assert "ilammy/msvc-dev-cmd" in read_workflow("windows-ci.yml")
+    assert base["cacheVariables"]["PGO_ENABLE_GMSH"] == "ON"
+    assert base["cacheVariables"]["PGO_ENABLE_OPENVDB"] == "ON"
+    assert base["cacheVariables"]["PGO_TET_MESHER_USE_TET_WILD"] == "ON"
+    assert base["cacheVariables"]["PGO_RUNTIME_LAYOUT"] == "SOURCE"
+
+    assert wheel["cacheVariables"]["PGO_PORTABLE_BUILD"] == "ON"
+    assert wheel["cacheVariables"]["PGO_RUNTIME_LAYOUT"] == "WHEEL"
+    assert wheel["cacheVariables"]["PGO_ENABLE_RELEASE_DEBUG_INFO"] == "OFF"
+    assert wheel["cacheVariables"]["PGO_ENABLE_GMSH"] == "ON"
+    assert wheel["cacheVariables"]["PGO_ENABLE_OPENVDB"] == "ON"
+    assert wheel["cacheVariables"]["PGO_TET_MESHER_USE_TET_WILD"] == "ON"
 
 
-def test_ci_reuses_one_portable_full_build_for_tests_and_wheel():
-    preset_file = (ROOT / "CMakePresets.json").read_text()
-    presets = json.loads(preset_file)
-    base_ci = next(
-        preset for preset in presets["configurePresets"] if preset["name"] == "base-ci"
-    )
-    workflows = "\n".join(
-        read_workflow(name)
-        for name in (
-            "linux-ci.yml",
-            "macos-ci.yml",
-            "windows-ci.yml",
-        )
-    )
-
-    assert base_ci["inherits"] == ["base"]
-    assert base_ci["binaryDir"] == "${sourceDir}/build/base-ci"
-    assert base_ci["cacheVariables"]["PGO_NATIVE_OPTIMIZATION"] == "OFF"
-    assert base_ci["cacheVariables"]["CMAKE_CXX_SCAN_FOR_MODULES"] == "OFF"
-    assert workflows.count("PYPGO_CMAKE_PRESET: base-ci") == 3
-    assert workflows.count("cmake --build --preset base-ci") == 3
-    assert workflows.count("Build wheel from the tested build tree") == 3
-
-
-def test_ci_has_bounded_jobs_and_cancels_stale_runs():
+def test_ci_has_four_stage_wheel_pipeline():
     for name in ("linux-ci.yml", "macos-ci.yml", "windows-ci.yml"):
         workflow = read_workflow(name)
-        workflow_header = workflow.split("\njobs:\n", maxsplit=1)[0]
-        assert workflow.count("\n  build-test-wheel:") == 1
-        assert "cancel-in-progress: true" in workflow
-        assert workflow.count("python -m pytest -q tests/pypgo") == 1
-        assert "CMAKE_BUILD_PARALLEL_LEVEL" not in workflow_header
-        assert "PYPGO_CMAKE_PRESET" not in workflow_header
+        for job in (
+            "build-test:",
+            "package-candidate:",
+            "verify-installed-wheel:",
+            "finalize-release:",
+        ):
+            assert f"\n  {job}" in workflow
+        assert "uv sync --locked" in workflow
+        assert "pypgo_wheel_" in workflow
+        assert "installed_wheel_smoke.py" in workflow
+        assert "release_wheel_provenance.py preflight" in workflow
 
+
+def test_platform_specific_repair_tools():
     linux = read_workflow("linux-ci.yml")
-    assert "strategy:" in linux
-    assert "fail-fast: false" in linux
-    assert linux.count("runner: ubuntu-24.04") == 1
-    assert linux.count("mode: full") == 1
-    assert linux.count("runner: ubuntu-22.04") == 1
-    assert linux.count("mode: ubuntu-22.04-build") == 1
-    assert "if: matrix.mode == 'full'" in linux
-    assert "if: matrix.mode == 'ubuntu-22.04-build'" in linux
-
-    for name in ("macos-ci.yml", "windows-ci.yml"):
-        workflow = read_workflow(name)
-        assert "matrix." not in workflow
-        assert "strategy:" not in workflow
-
+    macos = read_workflow("macos-ci.yml")
     windows = read_workflow("windows-ci.yml")
-    assert "Free up disk space" not in windows
-    assert "C:\\Android" not in windows
+
+    assert "quay.io/pypa/manylinux_2_28_x86_64" in linux
+    assert "pypgo_wheel_linux.py package" in linux
+    assert "macos-26" in macos
+    assert "ARCHFLAGS: -arch arm64" in macos
+    assert "pypgo_wheel_macos.py package" in macos
+    assert "ilammy/msvc-dev-cmd" in windows
+    assert "pypgo_wheel_windows.py package" in windows
 
 
-def test_linux_wheel_uses_mkl_and_allows_openmp_runtime():
-    workflow = read_workflow("linux-ci.yml")
-    wheel_policy = (ROOT / "tests" / "check_wheel_vendoring.py").read_text()
-
-    assert '"libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel' in workflow
-    assert "MKL_THREADING_LAYER: TBB" in workflow
-    assert "tests/check_mkl_tbb_runtime.py" in workflow
-    assert "--import-pypgo" in workflow
-    assert '"libblas=*=*openblas"' not in workflow
-    assert '"${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl' in workflow
-    assert 'python -m venv "${clean_env}"' not in workflow
-    assert "--exclude 'libmkl*.so*'" in workflow
-    assert '"openblas"' in wheel_policy
-    assert '"libgomp"' not in workflow
-    assert "-X faulthandler" in workflow
-
-
-def test_macos_numpy_and_native_extension_use_system_accelerate():
-    workflow = read_workflow("macos-ci.yml")
-    wheel_policy = (ROOT / "tests" / "check_wheel_vendoring.py").read_text()
-
-    for package in ("libblas", "libcblas", "liblapack", "liblapacke"):
-        assert f'"{package}=*=*_newaccelerate"' in workflow
-    assert '"libblas=*=*accelerate"' not in workflow
-    assert "tests/check_accelerate_runtime.py" in workflow
-    assert "--import-pypgo" in workflow
-    assert "MKL_THREADING_LAYER" not in workflow
-    assert '"libblas=*=*openblas"' not in workflow
-    assert '"${GITHUB_WORKSPACE}"/wheelhouse/${PYPGO_WHEEL_DIST}-*.whl' in workflow
-    assert 'python -m venv "${clean_env}"' not in workflow
-    assert '"openblas"' in wheel_policy
-    assert '"libomp"' not in workflow
-    assert workflow.count("tests/check_macos_accelerate_linkage.py") == 2
-    linkage_check = (ROOT / "tests" / "check_macos_accelerate_linkage.py").read_text()
-    assert "otool" in linkage_check
-    assert "does not link the system Accelerate framework" in linkage_check
+def test_native_dependency_policy():
+    workflows = "\n".join(
+        read_workflow(name)
+        for name in (
+            "linux-ci.yml",
+            "macos-ci.yml",
+            "windows-ci.yml",
+        )
+    )
+    assert "gmp-devel" in workflows
+    assert "mpfr-devel" in workflows
+    assert "brew install gmp mpfr libomp tbb" in read_workflow("macos-ci.yml")
+    assert "brew install gmsh" not in workflows
+    assert "brew install openvdb" not in workflows
 
 
-def test_windows_wheel_uses_mkl_and_allows_openmp_runtime():
-    workflow = read_workflow("windows-ci.yml")
-    wheel_policy = (ROOT / "tests" / "check_wheel_vendoring.py").read_text()
+def test_non_whitelisted_dependencies_are_fetchcontent_only():
+    # Only GMP/MPFR (system) and TBB/MKL (system or uv mkl-devel) are allowed
+    # to come from outside FetchContent. Everything else must be pinned and
+    # fetched from upstream, even when a system package exists.
+    third_party = ROOT / "CMakeModules" / "third-party"
+    recipes = {
+        "eigen": ("eigen.cmake", "find_package(Eigen3"),
+        "boost": ("boost.cmake", "find_package(Boost"),
+        "cgal": ("cgal.cmake", "find_package(CGAL CONFIG"),
+        "ceres": ("ceres.cmake", "find_package(Ceres"),
+        "gmsh": ("gmsh.cmake", "find_package(Gmsh"),
+        "openvdb": ("openvdb.cmake", "find_package(OpenVDB"),
+        "alembic": ("alembic.cmake", "find_package(Alembic"),
+        "imath": ("imath.cmake", "find_package(Imath"),
+        "fmt": ("fmt.cmake", "find_package(fmt"),
+        "spdlog": ("spdlog.cmake", "find_package(spdlog"),
+        "autodiff": ("autodiff.cmake", "find_package(autodiff"),
+        "argparse": ("argparse.cmake", "find_package(argparse"),
+        "libigl": ("libigl.cmake", "find_package(igl"),
+        "geogram": ("geogram.cmake", "find_package(geogram"),
+        "nanobind": ("nanobind.cmake", "find_package(nanobind"),
+    }
+    for name, (filename, forbidden) in recipes.items():
+        text = (third_party / filename).read_text()
+        assert "FetchContent_Declare(" in text or "pgo_add_third_party(" in text, (
+            f"{name} must be built through FetchContent"
+        )
+        if name == "cgal":
+            assert "NO_DEFAULT_PATH" in text
+            continue
+        assert forbidden not in text, (
+            f"{name} must not fall back to a system find_package"
+        )
 
-    assert 'python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel' in workflow
-    assert "MKL_THREADING_LAYER: TBB" in workflow
-    assert "tests/check_mkl_tbb_runtime.py" in workflow
-    assert "--import-pypgo" in workflow
-    assert '"libblas=*=*openblas"' not in workflow
-    assert "python -m pip install --no-deps $wheel[0].FullName" in workflow
-    assert "python -m venv $cleanEnv" not in workflow
-    assert "$excludedDlls" in workflow
-    assert "$excludeArgs += @(\"--exclude\", $dll)" in workflow
-    assert 'foreach ($stem in @("mkl_rt", "mkl_core"' in workflow
-    assert 'foreach ($suffix in @("", ".2", ".3"))' in workflow
-    assert '"openblas"' in wheel_policy
-    assert '"libomp"' not in workflow
-    assert '"vcomp"' not in workflow
+    readme = (ROOT / "README.md").read_text()
+    assert "brew install gmp mpfr" in readme
+    assert "brew install libomp" in readme
+    assert "brew install tbb" in readme or "Homebrew `tbb`" in readme
+    assert "brew install gmsh" not in readme
+    assert "brew install openvdb" not in readme

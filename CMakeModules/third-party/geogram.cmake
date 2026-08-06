@@ -13,6 +13,22 @@ pgo_dep_option(GEOGRAM_WITH_EXPLORAGRAM BOOL OFF "Disable exploragram")
 pgo_dep_option(GEOGRAM_WITH_LEGACY_NUMERICS BOOL OFF "Disable legacy numerics")
 pgo_dep_option(GEOGRAM_WITH_TRIANGLE BOOL OFF "Disable triangle")
 
+# Geogram's platform detection selects *-dynamic variants by default. Force the
+# static platform configuration so wheels do not carry libgeogram.1.dylib.
+if(APPLE)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    pgo_dep_option(VORPALINE_PLATFORM STRING "Darwin-aarch64-clang" "Geogram platform")
+  else()
+    pgo_dep_option(VORPALINE_PLATFORM STRING "Darwin-clang" "Geogram platform")
+  endif()
+elseif(WIN32)
+  pgo_dep_option(VORPALINE_PLATFORM STRING "Win-vs-generic" "Geogram platform")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+  pgo_dep_option(VORPALINE_PLATFORM STRING "Linux64-gcc" "Geogram platform")
+else()
+  pgo_dep_option(VORPALINE_PLATFORM STRING "Linux64-clang" "Geogram platform")
+endif()
+
 function(_pgo_setup_geogram)
   set(MODIFIED_FILE "${CMAKE_SOURCE_DIR}/CMakeModules/patches/geogram.cmake")
   set(TARGET_FILE "${geogram_SOURCE_DIR}/CMakeLists.txt")

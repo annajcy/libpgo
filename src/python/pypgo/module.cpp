@@ -31,6 +31,8 @@ void init_simulation_bindings(nb::module_ &m);
 void init_contact_bindings(nb::module_ &m);
 
 NB_MODULE(_core, m) {
+    m.attr("__version__") = VERSION_INFO;
+
     m.def("build_info", &pgo::buildInfo);
 
     m.def("set_log_level", [](const std::string &level) {

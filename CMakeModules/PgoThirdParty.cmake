@@ -46,6 +46,7 @@ if(PGO_ENABLE_FULL OR PGO_ENABLE_PYTHON)
   igl_include(copyleft cgal)
   
   if(PGO_ENABLE_ALEMBIC)
+    include(CMakeModules/third-party/imath.cmake)
     include(CMakeModules/third-party/alembic.cmake)
   endif()
 

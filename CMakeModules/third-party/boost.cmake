@@ -1,34 +1,36 @@
-if(TARGET Boost::boost OR TARGET Boost::headers)
+if(TARGET Boost::boost)
   return()
 endif()
 
-message(STATUS "Loading Boost from conda...")
+message(STATUS "Loading Boost...")
+include(FetchContent)
 
-if(NOT PGO_CHECK_CONDA OR "$ENV{CONDA_PREFIX}" STREQUAL "")
-  message(FATAL_ERROR "Boost is required from the active conda environment. Activate conda and install libboost-devel.")
-endif()
+FetchContent_Declare(
+  boost
+  URL https://github.com/boostorg/boost/releases/download/boost-1.85.0/boost-1.85.0-cmake.tar.xz
+  URL_HASH SHA256=0a9cc56ceae46986f5f4d43fe0311d90cf6d2fa9028258a95cab49ffdacf92ad
+  EXCLUDE_FROM_ALL
+  DOWNLOAD_EXTRACT_TIMESTAMP ON
+  OVERRIDE_FIND_PACKAGE
+)
 
-if(WIN32)
-  set(PGO_BOOST_PREFIX "$ENV{CONDA_PREFIX}/Library")
-else()
-  set(PGO_BOOST_PREFIX "$ENV{CONDA_PREFIX}")
-endif()
+FetchContent_MakeAvailable(boost)
 
-list(PREPEND CMAKE_PREFIX_PATH "${PGO_BOOST_PREFIX}")
-
-set(BOOST_ROOT "${PGO_BOOST_PREFIX}" CACHE PATH "Boost prefix" FORCE)
-set(BOOST_INCLUDEDIR "${PGO_BOOST_PREFIX}/include" CACHE PATH "Boost include directory" FORCE)
-set(BOOST_LIBRARYDIR "${PGO_BOOST_PREFIX}/lib" CACHE PATH "Boost library directory" FORCE)
-set(Boost_USE_STATIC_LIBS OFF)
-set(Boost_USE_STATIC_LIBS OFF CACHE BOOL "Use conda static Boost libraries" FORCE)
-set(Boost_NO_SYSTEM_PATHS ON CACHE BOOL "Restrict Boost lookup to conda" FORCE)
-set(Boost_NO_BOOST_CMAKE OFF CACHE BOOL "Prefer conda Boost CMake config" FORCE)
-
-find_package(Boost CONFIG REQUIRED)
-
-if(NOT TARGET Boost::boost AND TARGET Boost::headers)
-  add_library(Boost::boost INTERFACE IMPORTED)
-  target_link_libraries(Boost::boost INTERFACE Boost::headers)
+# The boost-cmake superproject places each library's headers under
+# libs/<name>/include. OpenVDB includes boost/interprocess (and its transitive
+# headers) directly while only linking Boost::iostreams, whose interface
+# include set does not cover them. Expose every Boost module include dir on
+# that target so the whole fetched Boost tree is usable by dependencies.
+if(TARGET Boost::iostreams)
+  get_target_property(_pgo_boost_iostreams_target Boost::iostreams ALIASED_TARGET)
+  if(NOT _pgo_boost_iostreams_target)
+    set(_pgo_boost_iostreams_target Boost::iostreams)
+  endif()
+  file(GLOB _pgo_boost_module_include_dirs
+    LIST_DIRECTORIES true
+    "${boost_SOURCE_DIR}/libs/*/include")
+  target_include_directories(${_pgo_boost_iostreams_target} INTERFACE
+    ${_pgo_boost_module_include_dirs})
 endif()
 
 message(STATUS "Done.")

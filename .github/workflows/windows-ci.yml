@@ -2,7 +2,7 @@ name: Windows CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, "release/**", "codex/no-conda-package"]
   pull_request:
   workflow_dispatch:
 
@@ -13,149 +13,288 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  MKL_THREADING_LAYER: TBB
-  PYPGO_WHEEL_DIST: pypgo
-
 jobs:
-  build-test-wheel:
-    name: Windows - Build, Test, and Package
+  build-test:
+    name: Full build and test on Windows x86-64
     runs-on: windows-2022
-    timeout-minutes: 120
-    defaults:
-      run:
-        shell: pwsh
+    timeout-minutes: 240
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Set up MSVC developer environment
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up MSVC x64
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
         with:
           arch: x64
 
-      - name: Set up Miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-variant: Miniforge3
-          miniforge-version: latest
-          environment-file: environment.yml
-          activate-environment: libpgo
-          auto-activate-base: false
-          channels: conda-forge
-          channel-priority: strict
-
-      - name: Select the MSVC toolchain
-        run: |
-          $env:PATH = ($env:PATH -split ';' | Where-Object {
-            $_ -notmatch 'mingw' -and $_ -notmatch 'Strawberry'
-          }) -join ';'
-          "PATH=$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Install and verify MKL-TBB
-        run: |
-          conda install -y "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
-          python tests/check_mkl_tbb_runtime.py
-
-      - name: Configure and build
-        env:
-          CMAKE_BUILD_PARALLEL_LEVEL: "3"
-        run: |
-          cmake --preset base-ci -G Ninja
-          cmake --build --preset base-ci
-
-      - name: Generate test volume assets
+      - name: Set up uv dependencies
         shell: pwsh
         run: |
-          python examples/assets/generate_veg_assets.py `
-            --assets all `
-            --cubic-resolution 4 `
-            --tet-backend tetgen `
-            --tet-target-elements 100 `
-            --static-dragon-target-elements 100
+          $uvVersion = python scripts/uv_version.py
+          python -m pip install "uv==$uvVersion"
+          uv sync --locked --python python
+          "EVIDENCE_DIR=$env:RUNNER_TEMP\native-evidence" | Out-File $env:GITHUB_ENV -Append
 
-      - name: Run native tests
-        run: ctest --test-dir build/base-ci --output-on-failure
-
-      - name: Install Python test dependencies
+      - name: Build and test the full source tree
+        shell: pwsh
         run: |
-          python -m pip install --no-cache-dir pytest pytest-timeout pyvista trame trame-vtk trame-vuetify
+          $PSNativeCommandUseErrorActionPreference = $true
+          New-Item -ItemType Directory -Force $env:EVIDENCE_DIR | Out-Null
+          uv pip freeze | Tee-Object "$env:EVIDENCE_DIR\uv-freeze.txt"
+          @(
+            uv --version
+            uv run python --version
+            uv run cmake --version
+            uv run ninja --version
+            cl
+            uv run python -c "import sys; print('python_prefix=' + sys.prefix)"
+          ) | Out-File "$env:EVIDENCE_DIR\toolchain.txt"
+          uv run cmake --preset base -G Ninja
+          if (-not (Select-String -Quiet -SimpleMatch `
+              'PGO_RUNTIME_LAYOUT:STRING=SOURCE' build\base\CMakeCache.txt)) {
+            throw "base did not select the SOURCE runtime layout"
+          }
+          uv run cmake --build build\base --parallel 4
+          uv run ctest --test-dir build\base --output-on-failure `
+            | Tee-Object "$env:EVIDENCE_DIR\ctest.txt"
+          if ($LASTEXITCODE -ne 0) { throw "CTest failed" }
+          $env:PYTHONPATH = "$env:GITHUB_WORKSPACE"
+          uv run python -m pytest -q `
+            tests\pypgo\test_pgo_smoke.py `
+            tests\pypgo\test_core_import.py `
+            tests\pypgo\test_package_scaffold.py `
+            | Tee-Object "$env:EVIDENCE_DIR\build-tree-pytest.txt"
+          if ($LASTEXITCODE -ne 0) { throw "Build-tree pytest failed" }
+          Copy-Item build\base\CMakeCache.txt "$env:EVIDENCE_DIR\CMakeCache.txt"
 
-      - name: Run Python API tests
-        env:
-          PYVISTA_OFF_SCREEN: "True"
-        run: >-
-          python -m pytest -q tests/pypgo
-          --ignore=tests/pypgo/test_example_notebooks.py
-          --ignore=tests/pypgo/test_notebook.py
+      - name: Upload native test evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pypgo-native-evidence-windows
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Build wheel from the tested build tree
-        env:
-          CMAKE_BUILD_PARALLEL_LEVEL: "3"
-          PYPGO_CMAKE_PRESET: base-ci
+  package-candidate:
+    name: Package and audit candidate wheel
+    needs: build-test
+    runs-on: windows-2022
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up MSVC x64
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: x64
+
+      - name: Set up uv dependencies
+        shell: pwsh
         run: |
-          Remove-Item -Path dist -Recurse -Force -ErrorAction SilentlyContinue
-          python -m pip wheel . --no-build-isolation --no-deps --wheel-dir dist
+          $uvVersion = python scripts/uv_version.py
+          python -m pip install "uv==$uvVersion"
+          uv sync --locked --python python
+          "WHEEL_DIR=$env:RUNNER_TEMP\wheelhouse" | Out-File $env:GITHUB_ENV -Append
+          "EVIDENCE_DIR=$env:RUNNER_TEMP\evidence" | Out-File $env:GITHUB_ENV -Append
+          "CANDIDATE_DIR=$env:RUNNER_TEMP\candidate" | Out-File $env:GITHUB_ENV -Append
 
-      - name: Repair and audit wheel
+      - name: Download native test evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pypgo-native-evidence-windows
+          path: ${{ env.EVIDENCE_DIR }}
+
+      - name: Record package dependency environment
+        shell: pwsh
         run: |
-          python -m pip install delvewheel
-          Remove-Item -Path wheelhouse -Recurse -Force -ErrorAction SilentlyContinue
+          uv pip freeze | Tee-Object "$env:EVIDENCE_DIR\package-uv-freeze.txt"
+          @(
+            uv --version
+            uv run python --version
+            uv run cmake --version
+            uv run ninja --version
+            cl
+            uv run python -c "import sys; print('python_prefix=' + sys.prefix)"
+          ) | Out-File "$env:EVIDENCE_DIR\package-toolchain.txt"
 
-          $buildRoot = Join-Path $env:GITHUB_WORKSPACE "build\base-ci"
-          $buildDllDirs = @(Get-ChildItem -Path $buildRoot -Recurse -Filter '*.dll' |
-            ForEach-Object { $_.DirectoryName } | Sort-Object -Unique)
-          if ($buildDllDirs.Count -gt 0) {
-            $env:PATH = (($buildDllDirs + @($env:PATH)) -join ';')
-          }
-
-          $rawWheel = @(Get-ChildItem -Path dist -Filter "$env:PYPGO_WHEEL_DIST-*.whl")
-          if ($rawWheel.Count -ne 1) {
-            throw "Expected one raw wheel, found $($rawWheel.Count)."
-          }
-
-          $excludedDlls = @("libblas.dll", "blas.dll", "liblapack.dll", "lapack.dll")
-          foreach ($stem in @("mkl_rt", "mkl_core", "mkl_intel_lp64", "mkl_intel_thread", "mkl_tbb_thread", "mkl_sequential")) {
-            foreach ($suffix in @("", ".2", ".3")) {
-              $excludedDlls += "$stem$suffix.dll"
-            }
-          }
-          $excludeArgs = @()
-          foreach ($dll in $excludedDlls) {
-            $excludeArgs += @("--exclude", $dll)
-          }
-          python -m delvewheel repair @excludeArgs --wheel-dir wheelhouse $rawWheel[0].FullName
-
-          $wheel = @(Get-ChildItem -Path wheelhouse -Filter "$env:PYPGO_WHEEL_DIST-*.whl")
-          if ($wheel.Count -ne 1) {
-            throw "Expected one repaired wheel, found $($wheel.Count)."
-          }
-          python -m delvewheel show $wheel[0].FullName
-          python tests/check_wheel_vendoring.py --provider mkl $wheel[0].FullName
-
-      - name: Verify wheel in a clean environment
+      - name: Lock source provenance
+        shell: pwsh
         run: |
-          $cleanEnv = Join-Path $env:RUNNER_TEMP "pypgo-wheel-mkl"
-          $wheel = @(Get-ChildItem -Path wheelhouse -Filter "$env:PYPGO_WHEEL_DIST-*.whl")
-          conda create -y -p $cleanEnv -c conda-forge --strict-channel-priority `
-            python=3.12 pip numpy "libblas=*=*mkl" "liblapack=*=*mkl" mkl-devel
-          conda run -p $cleanEnv python -m pip install --no-deps $wheel[0].FullName
-          conda run -p $cleanEnv python `
-            "$env:GITHUB_WORKSPACE\tests\check_mkl_tbb_runtime.py" --import-pypgo
+          uv run python scripts/release_wheel_provenance.py preflight `
+            --evidence-dir "$env:EVIDENCE_DIR"
 
-          $workDir = Join-Path $env:RUNNER_TEMP "pypgo-wheel-import"
-          New-Item -ItemType Directory -Path $workDir -Force | Out-Null
-          Push-Location $workDir
-          conda run -p $cleanEnv python `
-            "$env:GITHUB_WORKSPACE\tests\check_installed_wheel.py"
-          conda run -p $cleanEnv python `
-            "$env:GITHUB_WORKSPACE\tests\conda_smoke_test.py"
+      - name: Build, repair, and audit wheel
+        shell: pwsh
+        run: |
+          uv run python scripts\pypgo_wheel_windows.py package `
+            --wheel-dir "$env:WHEEL_DIR" `
+            --report-dir "$env:EVIDENCE_DIR"
+
+      - name: Assemble candidate artifact
+        shell: pwsh
+        run: |
+          $directories = @(
+            "$env:CANDIDATE_DIR\wheelhouse",
+            "$env:CANDIDATE_DIR\evidence",
+            "$env:CANDIDATE_DIR\verify\scripts",
+            "$env:CANDIDATE_DIR\verify\tests\pypgo"
+          )
+          New-Item -ItemType Directory -Force -Path $directories | Out-Null
+          Copy-Item "$env:WHEEL_DIR\*.whl" "$env:CANDIDATE_DIR\wheelhouse\"
+          Copy-Item "$env:EVIDENCE_DIR\*" "$env:CANDIDATE_DIR\evidence\"
+          Copy-Item pyproject.toml "$env:CANDIDATE_DIR\verify\"
+          Copy-Item `
+            -Path scripts\installed_wheel_smoke.py, scripts\project_version.py `
+            -Destination "$env:CANDIDATE_DIR\verify\scripts\"
+          Copy-Item tests\pypgo\test_pgo_smoke.py `
+            "$env:CANDIDATE_DIR\verify\tests\pypgo\"
+          uv run python scripts\uv_version.py `
+            | Out-File "$env:CANDIDATE_DIR\verify\uv-version.txt"
+
+      - name: Upload candidate wheel and verification bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pypgo-candidate-windows
+          path: ${{ env.CANDIDATE_DIR }}
+          if-no-files-found: error
+          retention-days: 1
+
+  verify-installed-wheel:
+    name: Verify installed wheel in a clean job
+    needs: package-candidate
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Download candidate wheel and test bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pypgo-candidate-windows
+          path: ${{ runner.temp }}\candidate
+
+      - name: Install wheel in a fresh environment
+        shell: pwsh
+        run: |
+          $verifyDir = "$env:RUNNER_TEMP\candidate\verify"
+          $uvVersion = (Get-Content "$verifyDir\uv-version.txt" -Raw).Trim()
+          python -m pip install "uv==$uvVersion"
+          $runtime = "$env:RUNNER_TEMP\pypgo-runtime"
+          uv venv --python 3.12 $runtime
+          $runtimePython = "$runtime\Scripts\python.exe"
+          uv pip install --python $runtimePython "numpy==2.0.2" "pytest==8.4.2"
+          $wheel = @(Get-ChildItem "$env:RUNNER_TEMP\candidate\wheelhouse" -Filter '*.whl')[0].FullName
+          uv pip install --python $runtimePython --no-deps $wheel
+          "VERIFY_DIR=$verifyDir" | Out-File $env:GITHUB_ENV -Append
+          "RUNTIME_PYTHON=$runtimePython" | Out-File $env:GITHUB_ENV -Append
+          "EVIDENCE_DIR=$env:RUNNER_TEMP\verification-evidence" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Test the installed package
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          New-Item -ItemType Directory -Force $env:EVIDENCE_DIR | Out-Null
+          uv pip freeze --python $env:RUNTIME_PYTHON `
+            | Tee-Object "$env:EVIDENCE_DIR\verification-uv-freeze.txt"
+          @(
+            uv --version
+            & $env:RUNTIME_PYTHON --version
+          ) | Out-File "$env:EVIDENCE_DIR\verification-toolchain.txt"
+          Push-Location $env:VERIFY_DIR
+          & $env:RUNTIME_PYTHON scripts\installed_wheel_smoke.py `
+            --platform windows --source-dir $env:VERIFY_DIR `
+            | Tee-Object "$env:EVIDENCE_DIR\installed-smoke.txt"
+          if ($LASTEXITCODE -ne 0) { throw "Installed wheel smoke failed" }
+          & $env:RUNTIME_PYTHON -m pytest -q tests\pypgo\test_pgo_smoke.py `
+            | Tee-Object "$env:EVIDENCE_DIR\installed-pytest.txt"
+          if ($LASTEXITCODE -ne 0) { throw "Installed wheel pytest failed" }
           Pop-Location
 
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload installed-wheel test evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: pypgo-wheel-windows-mkl
-          path: wheelhouse/pypgo-*.whl
+          name: pypgo-verification-evidence-windows
+          path: ${{ env.EVIDENCE_DIR }}
           if-no-files-found: error
+          retention-days: 1
+
+  finalize-release:
+    name: Finalize release artifact
+    needs: verify-installed-wheel
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Download candidate wheel
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pypgo-candidate-windows
+          path: ${{ runner.temp }}\candidate
+
+      - name: Download installed-wheel test evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pypgo-verification-evidence-windows
+          path: ${{ runner.temp }}\candidate\evidence
+
+      - name: Record provenance and checksum
+        shell: pwsh
+        run: |
+          $evidenceDir = "$env:RUNNER_TEMP\candidate\evidence"
+          $wheelDir = "$env:RUNNER_TEMP\candidate\wheelhouse"
+          python scripts\release_wheel_provenance.py record `
+            --platform windows `
+            --evidence-dir $evidenceDir `
+            --wheel-dir $wheelDir `
+            --cmake-cache "$evidenceDir\CMakeCache.txt" `
+            --dependency-evidence "$evidenceDir\uv-freeze.txt" `
+            --dependency-evidence "$evidenceDir\toolchain.txt" `
+            --dependency-evidence "$evidenceDir\package-uv-freeze.txt" `
+            --dependency-evidence "$evidenceDir\package-toolchain.txt" `
+            --dependency-evidence "$evidenceDir\verification-uv-freeze.txt" `
+            --dependency-evidence "$evidenceDir\verification-toolchain.txt" `
+            --audit-evidence "$evidenceDir\delvewheel.txt" `
+            --audit-evidence "$evidenceDir\wheel-linkage.txt" `
+            --test-evidence "$evidenceDir\ctest.txt" `
+            --test-evidence "$evidenceDir\build-tree-pytest.txt" `
+            --test-evidence "$evidenceDir\installed-smoke.txt" `
+            --test-evidence "$evidenceDir\installed-pytest.txt"
+          Get-FileHash "$wheelDir\*.whl" -Algorithm SHA256 `
+            | Format-List | Out-File "$evidenceDir\wheel.sha256"
+          "PYPGO_VERSION=$(python scripts\project_version.py)" `
+            | Out-File $env:GITHUB_ENV -Append
+
+      - name: Upload release-ready wheel and evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pypgo-${{ env.PYPGO_VERSION }}-windows-x86_64
+          path: |
+            ${{ runner.temp }}\candidate\wheelhouse\*.whl
+            ${{ runner.temp }}\candidate\evidence
+          if-no-files-found: error
+          retention-days: 30
