@@ -49,12 +49,29 @@ if(TARGET MKL::MKL)
   target_compile_definitions(compilation_flag INTERFACE
     EIGEN_USE_MKL_ALL
     EIGEN_MKL_NO_DIRECT_CALL)
+  # Eigen consumers (Ceres, benchmarks, ...) need the MKL headers on their
+  # compile line when EIGEN_USE_MKL_ALL is inherited from Eigen3::Eigen.
+  # Propagate the include directory at directory scope instead of mutating the
+  # Eigen target: adding an absolute path to Eigen's INTERFACE_INCLUDE_DIRECTORIES
+  # trips its source-prefixed include check.
+  get_target_property(_pgo_mkl_include_dirs MKL::MKL INTERFACE_INCLUDE_DIRECTORIES)
+  if(_pgo_mkl_include_dirs)
+    include_directories(SYSTEM ${_pgo_mkl_include_dirs})
+  endif()
+  target_compile_definitions(${REAL_TGT} INTERFACE
+    EIGEN_USE_MKL_ALL
+    EIGEN_MKL_NO_DIRECT_CALL)
 endif()
+
+# Eigen benchmarks assert EIGEN_DONT_PARALLELIZE is inherited from Eigen3::Eigen
+# on every backend; libpgo intentionally disables Eigen's own parallel layer.
+target_compile_definitions(${REAL_TGT} INTERFACE EIGEN_DONT_PARALLELIZE)
 
 if(APPLE)
   if(TARGET PGO::AccelerateBLAS)
     target_link_libraries(compilation_flag INTERFACE PGO::AccelerateBLAS)
   endif()
+  target_compile_definitions(${REAL_TGT} INTERFACE EIGEN_USE_BLAS)
   target_compile_definitions(compilation_flag INTERFACE EIGEN_USE_BLAS)
 endif()
 
