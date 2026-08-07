@@ -100,4 +100,11 @@ add_library(Gmsh::Gmsh INTERFACE IMPORTED GLOBAL)
 target_link_libraries(Gmsh::Gmsh INTERFACE ${_pgo_gmsh_target})
 target_include_directories(Gmsh::Gmsh INTERFACE "${gmsh_SOURCE_DIR}/api")
 
+if(WIN32)
+  # GMSH's static library uses Winsock (send/gethostname) and the multimedia
+  # joystick API even in a minimal build. Its own CMake only links these into
+  # the executable/shared targets, so add them to the imported interface.
+  target_link_libraries(Gmsh::Gmsh INTERFACE ws2_32 winmm)
+endif()
+
 message(STATUS "GMSH target: ${_pgo_gmsh_target}")
