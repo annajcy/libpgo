@@ -23,6 +23,7 @@ def test_no_conda_toolchain_anywhere():
     assert "conda install" not in workflows
     assert "PGO_CHECK_CONDA" not in workflows
     assert "CONDA_PREFIX" not in workflows
+    assert "push:" not in workflows
 
 
 def test_uv_is_the_python_toolchain():
