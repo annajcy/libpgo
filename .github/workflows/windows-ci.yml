@@ -59,6 +59,11 @@ jobs:
             throw "base did not select the SOURCE runtime layout"
           }
           uv run cmake --build build\base --parallel 4
+          $env:PATH = @(
+            "$env:GITHUB_WORKSPACE\.venv\Library\bin",
+            "$env:GITHUB_WORKSPACE\third-party\gmp-msvc\release",
+            "$env:GITHUB_WORKSPACE\third-party\mpfr-msvc\release"
+          ) + $env:PATH -join ';'
           $env:PYTHONPATH = "$env:GITHUB_WORKSPACE"
           uv run python examples\assets\generate_veg_assets.py `
             --assets all `
