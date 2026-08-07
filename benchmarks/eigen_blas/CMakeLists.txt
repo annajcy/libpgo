@@ -33,6 +33,8 @@ if(APPLE)
     eigen_accelerate_gemm_benchmark
     backend_scope_accelerate.cpp
     PGO_EIGEN_BLAS_ACCELERATE)
+  target_compile_definitions(eigen_accelerate_gemm_benchmark
+    PRIVATE EIGEN_USE_BLAS EIGEN_DONT_PARALLELIZE)
   target_link_libraries(eigen_accelerate_gemm_benchmark
     PRIVATE
       Eigen3::Eigen
@@ -46,6 +48,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     eigen_mkl_gemm_benchmark
     backend_scope_mkl.cpp
     PGO_EIGEN_BLAS_MKL)
+  target_compile_definitions(eigen_mkl_gemm_benchmark
+    PRIVATE EIGEN_USE_MKL_ALL EIGEN_MKL_NO_DIRECT_CALL EIGEN_DONT_PARALLELIZE)
   target_sources(eigen_mkl_gemm_benchmark PRIVATE
     ../eigen_mkl_common/eigen_mkl_executor_cases.h)
   target_link_libraries(eigen_mkl_gemm_benchmark
