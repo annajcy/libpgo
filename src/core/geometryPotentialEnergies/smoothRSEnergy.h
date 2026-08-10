@@ -34,6 +34,7 @@ public:
   virtual void getDOFs(std::vector<int> &dofs) const { dofs = allDOFs; }
   virtual int getNumDOFs() const { return (int)allDOFs.size(); }
 
+
   static void convertRowMajorFG(const EigenSupport::SpMatD &GRowMajor, EigenSupport::SpMatD &GColMajor);
 
 protected:

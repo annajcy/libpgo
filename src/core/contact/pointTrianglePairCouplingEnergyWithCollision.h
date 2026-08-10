@@ -59,6 +59,7 @@ public:
   virtual int hasDenseHessian() const { return 0; }
   virtual int hasHessianVector() const { return 0; }
 
+
   void computeClosestPosition(const double *const x);
 
   const EigenSupport::VXd &getFrictionForce() const { return ff; };

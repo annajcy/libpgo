@@ -5,7 +5,7 @@ endif()
 message(STATUS "Loading alembic...")
 
 set(USE_ARNOLD OFF CACHE BOOL "Include Arnold stuff" FORCE)
-set(USE_BINARIES ON CACHE BOOL "Include binaries" FORCE)
+set(USE_BINARIES OFF CACHE BOOL "Include binaries" FORCE)
 set(USE_EXAMPLES OFF CACHE BOOL "Include examples" FORCE)
 set(USE_HDF5 OFF CACHE BOOL "Include HDF5 stuff" FORCE)
 set(USE_MAYA OFF CACHE BOOL "Include Maya stuff" FORCE)
@@ -22,16 +22,14 @@ include(FetchContent)
 FetchContent_Declare(
   alembic
   URL https://github.com/alembic/alembic/archive/refs/tags/1.8.9.zip
+  URL_HASH SHA256=8835cc0cd2324510252e9e5b7412dca70305b05a43212b1416a7dfeb85219565
   EXCLUDE_FROM_ALL
   DOWNLOAD_EXTRACT_TIMESTAMP ON
-  FIND_PACKAGE_ARGS NAMES alembic
 )
 
 FetchContent_MakeAvailable(alembic)
 
 message(STATUS "Done.")
-
-
 
 
 

@@ -28,6 +28,7 @@ public:
   virtual void getDOFs(std::vector<int> &dofs) const { dofs = allDOFs; }
   virtual int getNumDOFs() const { return (int)allDOFs.size(); }
 
+
 protected:
   const EigenSupport::VXd &restPositions;
   const Mesh::TriMeshGeo &mesh;

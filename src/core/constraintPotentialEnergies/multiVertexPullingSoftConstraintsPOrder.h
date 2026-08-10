@@ -24,6 +24,7 @@ public:
   virtual void gradient(EigenSupport::ConstRefVecXd u, EigenSupport::RefVecXd grad) const override;
   virtual void hessian(EigenSupport::ConstRefVecXd u, EigenSupport::SpMatD &hess) const override;
 
+
   void setCoeff(double v) { coeffAll = v; }
   void setCoeff(const double *v);
   void setTargetPos(const double *tgt);

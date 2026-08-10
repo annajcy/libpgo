@@ -1,30 +1,103 @@
 cmake_minimum_required(VERSION 3.28.0 FATAL_ERROR)
 
-project(libpgo LANGUAGES CXX C)
+include(CMakeModules/projectVersion.cmake)
+pgo_read_project_version(
+  "${CMAKE_CURRENT_SOURCE_DIR}/pyproject.toml"
+  PGO_PROJECT_VERSION)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile_commands.json for clangd" FORCE)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(PGO_USE_MKL "Use MKL" OFF)
+option(PGO_USE_MKL "Use MKL" ON)
 option(PGO_ENABLE_PYTHON "Build python module" OFF)
 option(PGO_ENABLE_FULL "Enable all functionalities" OFF)
+option(PGO_ENABLE_CUDA "Enable CUDA" OFF)
 option(PGO_BUILD_SUBPROJECTS "Include subprojects" OFF)
-option(PGO_CHECK_CONDA "Check conda" OFF)
+option(PGO_BUILD_TESTS "Build libpgo tests" OFF)
 
 option(PGO_UI "Build pgo ui" OFF)
 option(PGO_RENDER_USE_ASSIMP "Use Assimp" OFF)
 option(PGO_RELEASE_MODE_DEBUG "Enable debug in release mode" OFF)
 option(PGO_IGNORE_DEBUG_FLAG "Ignore debug flag" OFF)
 option(PGO_CREATE_MISSING_FILE "Create file when it is missing" OFF)
+option(PGO_HAS_ORIG_PARDISO "Use original pardiso" OFF)
 option(PGO_OPT_USE_IPOPT "Use IPOPT" OFF)
 option(PGO_OPT_USE_KNITRO "Use KNITRO" OFF)
 option(PGO_MKL_LINK_DYNAMIC "MKL Link" ON)
 option(PGO_ENABLE_ALEMBIC "Enable Alembic support" OFF)
 option(PGO_ENABLE_GMSH "Enable GMSH support" OFF)
+option(PGO_PORTABLE_BUILD
+  "Generate code without build-host-specific CPU assumptions" OFF)
+option(PGO_ENABLE_RELEASE_DEBUG_INFO
+  "Emit debug information in non-Debug POSIX builds" ON)
+include(CMakeModules/releaseBuildPolicy.cmake)
+set(PGO_RUNTIME_LAYOUT "SOURCE" CACHE STRING
+  "Runtime dependency layout: SOURCE or WHEEL")
+set_property(CACHE PGO_RUNTIME_LAYOUT PROPERTY STRINGS SOURCE WHEEL)
+
+if(APPLE AND PGO_ENABLE_PYTHON AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "26.0" CACHE STRING
+    "Minimum macOS version for Python extension builds")
+endif()
+
+project(libpgo VERSION "${PGO_PROJECT_VERSION}" LANGUAGES CXX C)
+
+if(NOT DEFINED PYPGO_VERSION_INFO)
+  set(PYPGO_VERSION_INFO "${PROJECT_VERSION}")
+endif()
+
+if(APPLE)
+  set(PGO_USE_MKL OFF CACHE BOOL "Use MKL" FORCE)
+  message(STATUS "PGO_USE_MKL is forced OFF on macOS; using Accelerate")
+endif()
+
+# Keep the conventional CMake switch disabled for the entire configure so
+# FetchContent dependencies cannot interpret it as permission to build their
+# own test suites. PGO_BUILD_TESTS controls only libpgo's tests below.
+set(BUILD_TESTING OFF CACHE BOOL "Third-party tests remain disabled" FORCE)
+
+include(CMakeModules/pythonDependencies.cmake)
+pgo_configure_python_dependencies()
+
+include(CMakeModules/runtimeDependencies.cmake)
+pgo_configure_runtime_dependencies()
+
+if(APPLE)
+  set(BLA_VENDOR Apple CACHE STRING "BLAS/LAPACK provider" FORCE)
+  set(BLA_SIZEOF_INTEGER 4 CACHE STRING "LP64 BLAS/LAPACK integer size" FORCE)
+endif()
+
+set(PGO_CLANGD_BUILD_DIR "${CMAKE_SOURCE_DIR}/build")
+set(PGO_CLANGD_COMPILE_COMMANDS "${PGO_CLANGD_BUILD_DIR}/compile_commands.json")
+
+add_custom_target(copy_compile_commands_json
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${PGO_CLANGD_BUILD_DIR}"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${CMAKE_BINARY_DIR}/compile_commands.json"
+          "${PGO_CLANGD_COMPILE_COMMANDS}"
+  BYPRODUCTS "${PGO_CLANGD_COMPILE_COMMANDS}"
+  COMMENT "Copying compile_commands.json to ${PGO_CLANGD_COMPILE_COMMANDS}"
+  VERBATIM
+)
+
+if (PGO_ENABLE_CUDA)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if(EXISTS "/usr/bin/g++")
+      message(STATUS "Set CUDA host compiler: /usr/bin/g++")
+      set(CMAKE_CUDA_HOST_COMPILER /usr/bin/g++)
+    else()
+    endif()
+  endif()
+
+  set(CMAKE_CUDA_ARCHITECTURES native)
+  enable_language(CUDA)
+endif()
 
 # message(STATUS "CMake module path: ${CMAKE_MODULE_PATH}")
 set(PGO_CMAKE_MODULES ${CMAKE_SOURCE_DIR}/CMakeModules)
@@ -33,16 +106,61 @@ message(STATUS "CMake Module Path: ${CMAKE_MODULE_PATH}")
 
 include(CompilationUtils)
 
-find_package(OpenMP)
+if(APPLE)
+  find_program(
+    _pgo_homebrew_executable
+    NAMES brew
+    HINTS /opt/homebrew/bin /usr/local/bin
+    NO_CACHE
+  )
+  if(NOT _pgo_homebrew_executable)
+    message(FATAL_ERROR
+      "Homebrew is required to locate OpenMP on macOS. "
+      "Install Homebrew, then run: brew install libomp")
+  endif()
 
-if(OPENMP_FOUND)
-  set(OPENMP_FLAG "${OpenMP_CXX_FLAGS}")
-  add_compile_definitions(USE_OPENMP)
+  execute_process(
+    COMMAND "${_pgo_homebrew_executable}" --prefix libomp
+    OUTPUT_VARIABLE _pgo_homebrew_libomp_prefix
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _pgo_homebrew_libomp_result
+    ERROR_QUIET
+  )
+  if(NOT _pgo_homebrew_libomp_result EQUAL 0
+     OR NOT EXISTS "${_pgo_homebrew_libomp_prefix}/include/omp.h"
+     OR NOT EXISTS "${_pgo_homebrew_libomp_prefix}/lib/libomp.dylib")
+    message(FATAL_ERROR
+      "Homebrew libomp is required on macOS. Run: brew install libomp")
+  endif()
+
+  # libomp is keg-only, so it is not linked into Homebrew's common include
+  # and library directories. Prefer its exact paths over stale Conda or other
+  # OpenMP cache entries from an earlier configure.
+  list(PREPEND CMAKE_PREFIX_PATH "${_pgo_homebrew_libomp_prefix}")
+  set(OpenMP_CXX_INCLUDE_DIR
+    "${_pgo_homebrew_libomp_prefix}/include"
+    CACHE PATH "AppleClang OpenMP include directory" FORCE)
+  set(OpenMP_libomp_LIBRARY
+    "${_pgo_homebrew_libomp_prefix}/lib/libomp.dylib"
+    CACHE FILEPATH "AppleClang OpenMP runtime" FORCE)
+  message(STATUS "Using Homebrew libomp: ${_pgo_homebrew_libomp_prefix}")
+
+  unset(_pgo_homebrew_executable)
+  unset(_pgo_homebrew_libomp_prefix)
+  unset(_pgo_homebrew_libomp_result)
 endif()
 
-# openmp may cause mkl pardiso error
-include(Find_AVX)
-CHECK_FOR_AVX()
+find_package(OpenMP REQUIRED COMPONENTS CXX)
+message(STATUS "OpenMP CXX found: ${OpenMP_CXX_FLAGS}")
+
+# CPU feature probes execute on the build host, so they are valid only for
+# explicitly host-optimized builds and must never affect portable wheels.
+if(PGO_PORTABLE_BUILD)
+  message(STATUS "Portable build: disabling host CPU feature detection")
+else()
+  include(Find_AVX)
+  CHECK_FOR_AVX()
+endif()
 
 # basic debug flags
 add_library(compilation_flag_for_debug INTERFACE)
@@ -63,16 +181,13 @@ add_flag(compilation_flag_for_debug Clang All INTERFACE -fsanitize=leak)
 add_library(compilation_flag INTERFACE)
 add_library(cuda_compilation_flag INTERFACE)
 
+if(TARGET OpenMP::OpenMP_CXX)
+  target_link_libraries(compilation_flag INTERFACE OpenMP::OpenMP_CXX)
+  target_compile_definitions(compilation_flag INTERFACE USE_OPENMP)
+endif()
+
 message(STATUS "PGO compiler: ${CMAKE_CXX_COMPILER_ID}")
 message(STATUS "OS: ${CMAKE_SYSTEM_NAME}")
-
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  if(EXISTS "/usr/bin/g++")
-    message(STATUS "Set CUDA host compiler: /usr/bin/g++")
-    set(CMAKE_CUDA_HOST_COMPILER /usr/bin/g++)
-  else()
-  endif()
-endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "^(Apple)?Clang$")
   message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
@@ -105,12 +220,14 @@ add_flag_poxis(compilation_flag INTERFACE -Wall)
 add_flag_poxis(compilation_flag INTERFACE -Wextra)
 add_flag_poxis(compilation_flag INTERFACE -frounding-math)
 add_flag_poxis(compilation_flag INTERFACE -fvisibility=hidden)
-add_flag_poxis(compilation_flag INTERFACE -march=native)
-add_flag_poxis(compilation_flag INTERFACE -mtune=native)
 add_flag(compilation_flag GNU All INTERFACE -Wno-template-body)
 
-add_link_flag_poxis(compilation_flag -march=native)
-add_link_flag_poxis(compilation_flag -mtune=native)
+if(NOT PGO_PORTABLE_BUILD)
+  add_flag_poxis(compilation_flag INTERFACE -march=native)
+  add_flag_poxis(compilation_flag INTERFACE -mtune=native)
+  add_link_flag_poxis(compilation_flag -march=native)
+  add_link_flag_poxis(compilation_flag -mtune=native)
+endif()
 
 # static gcc
 add_flag(compilation_flag GNU All INTERFACE -static-libstdc++)
@@ -118,30 +235,23 @@ add_flag(compilation_flag GNU All INTERFACE -static-libgcc)
 add_link_flag(compilation_flag GNU All -static-libstdc++)
 add_link_flag(compilation_flag GNU All -static-libgcc)
 
-# if has openmp flags
-if(OPENMP_FOUND)
-  add_flag(compilation_flag GNU All INTERFACE ${OPENMP_FLAG})
-  add_flag(compilation_flag Clang All INTERFACE ${OPENMP_FLAG})
-  add_link_flag(compilation_flag GNU All ${OPENMP_FLAG})
-  add_link_flag(compilation_flag Clang All ${OPENMP_FLAG})
-  add_flag(compilation_flag MSVC All INTERFACE ${OPENMP_FLAG})
-endif()
-
 # msvc flags
 add_def(compilation_flag MSVC All INTERFACE __BASE_FILE__=__FILE__)
 add_flag(compilation_flag MSVC All INTERFACE /bigobj)
 add_flag(compilation_flag MSVC All INTERFACE /Zc:__cplusplus)
 add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/bigobj")
 
-if(HAVE_AVX512_EXTENSIONS)
-  add_flag(compilation_flag MSVC All INTERFACE /arch:AVX512)
-  add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX512")
-elseif(HAVE_AVX2_EXTENSIONS)
-  add_flag(compilation_flag MSVC All INTERFACE /arch:AVX2)
-  add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX2")
-elseif(HAVE_AVX_EXTENSIONS)
-  add_flag(compilation_flag MSVC All INTERFACE /arch:AVX)
-  add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX")
+if(NOT PGO_PORTABLE_BUILD)
+  if(HAVE_AVX512_EXTENSIONS)
+    add_flag(compilation_flag MSVC All INTERFACE /arch:AVX512)
+    add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX512")
+  elseif(HAVE_AVX2_EXTENSIONS)
+    add_flag(compilation_flag MSVC All INTERFACE /arch:AVX2)
+    add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX2")
+  elseif(HAVE_AVX_EXTENSIONS)
+    add_flag(compilation_flag MSVC All INTERFACE /arch:AVX)
+    add_flag_cuda(cuda_compilation_flag MSVC All INTERFACE "-Xcompiler=/arch:AVX")
+  endif()
 endif()
 
 add_flag(compilation_flag MSVC All INTERFACE /MP)
@@ -154,6 +264,10 @@ add_def(compilation_flag MSVC All INTERFACE _CRT_SECURE_NO_WARNINGS)
 add_def(compilation_flag MSVC All INTERFACE HAVE_STRUCT_TIMESPEC)
 add_def(compilation_flag MSVC All INTERFACE GLOG_NO_ABBREVIATED_SEVERITIES)
 
+if(PGO_ENABLE_CUDA)
+  find_package(CUDAToolkit REQUIRED)
+endif()
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   message(STATUS "Debug Mode..")
 
@@ -164,6 +278,10 @@ else()
   message(STATUS "Release Mode..")
 
   add_flag_poxis(compilation_flag INTERFACE -O3)
+  if(PGO_ENABLE_RELEASE_DEBUG_INFO)
+    add_flag_poxis(compilation_flag INTERFACE -ggdb3)
+    add_link_flag_poxis(compilation_flag -ggdb3)
+  endif()
 endif()
 
 # ================== third party ==========================
@@ -184,6 +302,7 @@ add_subdirectory(third-party)
 
 include(CMakeModules/third-party/tbb.cmake)
 include(CMakeModules/third-party/mkl.cmake)
+include(CMakeModules/third-party/backward.cmake)
 
 if(PGO_ENABLE_PYTHON OR PGO_ENABLE_FULL)
   include(CMakeModules/third-party/suitesparse.cmake)
@@ -204,37 +323,18 @@ endif()
 
 if(PGO_ENABLE_FULL)
   include(CMakeModules/third-party/geogram.cmake)
-  include(CMakeModules/third-party/libigl.cmake)
-
-  igl_include(copyleft core)
-  igl_include(copyleft cgal)
 endif()
 
 if(PGO_ENABLE_FULL OR PGO_ENABLE_PYTHON)
+  include(CMakeModules/third-party/libigl.cmake)
+  
   if(PGO_ENABLE_ALEMBIC)
+    include(CMakeModules/third-party/imath.cmake)
     include(CMakeModules/third-party/alembic.cmake)
   endif()
   
   if(PGO_ENABLE_GMSH)
     include(CMakeModules/third-party/gmsh.cmake)
-  endif()
-  
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU") 
-    find_program(GFORTRAN_EXECUTABLE gfortran)
-    if(GFORTRAN_EXECUTABLE)
-      message(STATUS "gfortran found: ${GFORTRAN_EXECUTABLE}")
-      include(CMakeModules/third-party/arpackng.cmake)
-
-      execute_process(COMMAND gfortran -print-file-name=libgfortran.so OUTPUT_VARIABLE GFORTRAN_PATH)
-      string(REGEX REPLACE "\n$" "" GFORTRAN_PATH "${GFORTRAN_PATH}")
-      set(GFORTRAN_LIBRARY ${GFORTRAN_PATH} CACHE PATH "gfortran library path")
-      message(STATUS "FOUND gfortran library: ${GFORTRAN_LIBRARY}")
-
-      execute_process(COMMAND gfortran -print-file-name=libquadmath.so OUTPUT_VARIABLE QUADMATH_PATH)
-      string(REGEX REPLACE "\n$" "" QUADMATH_PATH "${QUADMATH_PATH}")
-      set(QUADMATH_LIBRARY ${QUADMATH_PATH} CACHE PATH "quadmath library path")
-      message(STATUS "FOUND quadmath library: ${QUADMATH_LIBRARY}")
-    endif()
   endif()
 endif()
 
@@ -259,6 +359,14 @@ if(PGO_OPT_USE_KNITRO)
 
   if(TARGET Knitro::Knitro)
     add_compile_definitions(PGO_HAS_KNITRO)
+  endif()
+endif()
+
+if(PGO_HAS_ORIG_PARDISO)
+  include(CMakeModules/third-party/pardiso.cmake)
+
+  if(TARGET Pardiso::Pardiso)
+    add_compile_definitions(PGO_HAS_ORIG_PARDISO)
   endif()
 endif()
 
@@ -334,6 +442,7 @@ function(add_libpgo_tools tgt sources deps)
   endif()
 
   add_executable(${tgt} ${sources})
+  pgo_attach_runtime_dependencies(${tgt})
 
   foreach(d ${deps})
     target_link_libraries(${tgt} PRIVATE ${d})
@@ -383,6 +492,12 @@ endfunction()
 
 add_subdirectory(src)
 
+if(PGO_BUILD_TESTS)
+  enable_testing()
+  message(STATUS "libpgo testing enabled.")
+  add_subdirectory(tests)
+endif()
+
 if(PGO_BUILD_SUBPROJECTS)
   add_subdirectory(projects)
 endif()
@@ -398,7 +513,14 @@ configure_package_config_file(
   INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/pgo/"
 )
 
+write_basic_package_version_file(
+  ${CMAKE_CURRENT_BINARY_DIR}/pgoConfigVersion.cmake
+  VERSION ${PROJECT_VERSION}
+  COMPATIBILITY SameMajorVersion
+)
+
 install(FILES
   ${CMAKE_CURRENT_BINARY_DIR}/pgoConfig.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/pgoConfigVersion.cmake
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/pgo/"
 )

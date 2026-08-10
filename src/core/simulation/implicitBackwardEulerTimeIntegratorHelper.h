@@ -24,6 +24,11 @@ public:
   virtual void getDOFs(std::vector<int> &dofs) const override;
   virtual int getNumDOFs() const override;
 
+  virtual double computeMaxStepSize(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
+
+  virtual int isHessianTopologyFixed() const override;
+  virtual void hessianDirect(EigenSupport::ConstRefVecXd x, EigenSupport::SpMatD &hess) const override;
+
   void printImplicitEnergy(EigenSupport::ConstRefVecXd x) const;
 
 protected:

@@ -16,9 +16,11 @@ class KoiterDeformationModel : public SolidDeformationModel::DeformationModel
 public:
   KoiterDeformationModel(const double X0[3], const double X1[3], const double X2[3],
     const double X3[3], const double X4[3], const double X5[3],
-    ElasticModel *elasticModel, PlasticModel *plasticModel, int enforceSPD);
+    ElasticModel *elasticModel, PlasticModel *plasticModel);
 
   virtual ~KoiterDeformationModel();
+
+  void enableSPD(int enable) override;
 
   CacheData *allocateCacheData() const override;
   void freeCacheData(CacheData *data) const override;
@@ -28,22 +30,12 @@ public:
   void compute_dE_dx(const CacheData *cacheData, double *grad) const override;
   void compute_d2E_dx2(const CacheData *cacheData, double *hess) const override;
 
-  virtual void compute_dE_da(const CacheData *cacheData, double *grad) const {}
-  virtual void compute_d2E_da2(const CacheData *cacheData, double *hess) const {}
   virtual void compute_d2E_dxda(const CacheData *cacheData, double *hess) const override;
-
-  virtual void compute_dE_db(const CacheData *cacheData, double *grad) const {}
-  virtual void compute_d2E_db2(const CacheData *cacheData, double *hess) const {}
   virtual void compute_d2E_dxdb(const CacheData *cacheData, double *hess) const override;
-
-  virtual void compute_d2E_dadb(const CacheData *cacheData, double *hess) const {}
-
-  virtual void compute_d3E_dx3(const CacheData *cacheData, double *tensor) const {}
-  virtual void compute_d3E_dxdadx(const CacheData *cacheData, double *tensor) const {}
-  virtual void compute_d3E_dxdada(const CacheData *cacheData, double *tensor) const {}
 
   virtual int getNumVertices() const override { return 6; }
   virtual int getNumDOFs() const override { return 18; }
+  virtual LocalMaxStepResult computeLocalMaxStepSize(const double *x_local, const double *dx_local) const override;
 
 protected:
   KoiterDeformationModelInternal *ind;

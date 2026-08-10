@@ -46,14 +46,12 @@ TimeIntegrator::TimeIntegrator(const ES::SpMatD &massMatrix, std::shared_ptr<con
   allDOFs.resize(n3);
   std::iota(allDOFs.begin(), allDOFs.end(), 0);
 
-  deltauInitial.setZero(n3);
-
-  deltauRangeLow.setZero(n3);
-  deltauRangeHi.setZero(n3);
+  uRangeLow.setZero(n3);
+  uRangeHi.setZero(n3);
 
   for (int i = 0; i < n3; i++) {
-    deltauRangeLow[i] = -defaultUnknownBoundary;
-    deltauRangeHi[i] = defaultUnknownBoundary;
+    uRangeLow[i] = -defaultUnknownBoundary;
+    uRangeHi[i] = defaultUnknownBoundary;
   }
 
   hessianAll = K;
@@ -128,9 +126,12 @@ void TimeIntegrator::clearImplicitForceModel()
 void TimeIntegrator::addGeneralImplicitForceModel(std::shared_ptr<PotentialEnergy> fm, double kd, double md)
 {
   generalAdditionalForceModels.push_back(fm);
+  generalAdditionalForceModels_K.emplace_back();
 
-  generalAdditionalForceModels_K.push_back(ES::SpMatD());
-  fm->createHessian(generalAdditionalForceModels_K.back());
+  if (fm->isHessianTopologyFixed()) {
+    fm->createHessian(generalAdditionalForceModels_K.back());
+  }
+  
   generalAdditionalForceModels_K1.push_back(generalAdditionalForceModels_K.back());
   generalAdditionalForceModels_M.push_back(generalAdditionalForceModels_K.back());
 
@@ -252,13 +253,16 @@ void TimeIntegrator::assembleImplicitModels()
         }
       }
 
+      // Only include fixed-topology general models in hessianAll
       for (size_t i = 0; i < generalAdditionalForceModels.size(); i++) {
-        for (Eigen::Index outeri = 0; outeri < generalAdditionalForceModels_K[i].outerSize(); outeri++) {
-          for (ES::SpMatD::InnerIterator it(generalAdditionalForceModels_K[i], outeri); it; ++it) {
-            entries.emplace_back(
-              (ES::SpMatD::StorageIndex)it.row(),
-              (ES::SpMatD::StorageIndex)it.col(),
-              1.0);
+        if (generalAdditionalForceModels[i]->isHessianTopologyFixed()) {
+          for (Eigen::Index outeri = 0; outeri < generalAdditionalForceModels_K[i].outerSize(); outeri++) {
+            for (ES::SpMatD::InnerIterator it(generalAdditionalForceModels_K[i], outeri); it; ++it) {
+              entries.emplace_back(
+                (ES::SpMatD::StorageIndex)it.row(),
+                (ES::SpMatD::StorageIndex)it.col(),
+                1.0);
+            }
           }
         }
       }
@@ -267,7 +271,9 @@ void TimeIntegrator::assembleImplicitModels()
       hessianAll.setFromTriplets(entries.begin(), entries.end());
 
       for (size_t i = 0; i < generalAdditionalForceModels.size(); i++) {
-        ES::small2Big(generalAdditionalForceModels_K[i], hessianAll, allDOFs, generalAdditionalForceModels_Kmapping[i]);
+        if (generalAdditionalForceModels[i]->isHessianTopologyFixed()) {
+          ES::small2Big(generalAdditionalForceModels_K[i], hessianAll, allDOFs, generalAdditionalForceModels_Kmapping[i]);
+        }
       }
     }
     else {
@@ -296,36 +302,31 @@ void TimeIntegrator::assembleImplicitModels()
   }
 }
 
-void TimeIntegrator::clearDeltauInitial()
+void TimeIntegrator::setURange(ES::ConstRefVecXd low, ES::ConstRefVecXd hi)
 {
-  memset(deltauInitial.data(), 0, sizeof(double) * n3);
-}
-
-void TimeIntegrator::setDeltauRange(ES::ConstRefVecXd low, ES::ConstRefVecXd hi)
-{
-  deltauRangeLow.noalias() = low;
-  deltauRangeHi.noalias() = hi;
+  uRangeLow.noalias() = low;
+  uRangeHi.noalias() = hi;
 
   updateFixedDOFs();
 }
 
-void TimeIntegrator::setDeltauRange(double delta)
+void TimeIntegrator::setURange(double delta)
 {
   for (int i = 0; i < n3; i++) {
-    deltauRangeLow[i] = -delta;
-    deltauRangeHi[i] = delta;
+    uRangeLow[i] = -delta;
+    uRangeHi[i] = delta;
   }
 
   updateFixedDOFs();
 
-  std::cout << "delta u range:" << deltauRangeLow[0] << ',' << deltauRangeHi[1] << std::endl;
+  std::cout << "u range:" << uRangeLow[0] << ',' << uRangeHi[1] << std::endl;
 }
 
-void TimeIntegrator::clearDeltauRange()
+void TimeIntegrator::clearURange()
 {
   for (int i = 0; i < n3; i++) {
-    deltauRangeLow[i] = -defaultUnknownBoundary;
-    deltauRangeHi[i] = defaultUnknownBoundary;
+    uRangeLow[i] = -defaultUnknownBoundary;
+    uRangeHi[i] = defaultUnknownBoundary;
   }
 
   updateFixedDOFs();
@@ -410,12 +411,12 @@ void TimeIntegrator::updateFixedDOFs()
   for (size_t i = 0; i < fixedDOFs.size(); i++) {
     double targetp = fixedPosition[i];
     double restp = fixedRestPosition[i];
-    double curu = q[fixedDOFs[i]];
 
-    double deltau = targetp - curu - restp;
+    // u-space bound: target displacement = targetPosition - restPosition
+    double targetU = targetp - restp;
 
-    deltauRangeLow[fixedDOFs[i]] = deltau;
-    deltauRangeHi[fixedDOFs[i]] = deltau;
+    uRangeLow[fixedDOFs[i]] = targetU;
+    uRangeHi[fixedDOFs[i]] = targetU;
   }
 }
 

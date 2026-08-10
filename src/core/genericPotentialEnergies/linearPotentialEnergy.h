@@ -33,6 +33,7 @@ public:
   virtual int isQuadratic() const override { return 0; }
   virtual int hasHessianVector() const override { return 0; }
 
+
 protected:
   std::vector<int> allDOFs;
   const EigenSupport::VXd &b;

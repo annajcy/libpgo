@@ -1,6 +1,22 @@
 set(CONTACT_HEADERS
   CCDKernel.h
   contactEnergyUtilities.h
+  mappedSurfacePotentialEnergy.h
+  embeddedSurfaceIPCPotentialEnergy.h
+  ipc/assembly/ipcCollisionSurfaceAssembler.h
+  ipc/broadPhase/spatialHashGrid.h
+  ipc/broadPhase/surfaceIPCSelfBroadPhase.h
+  ipc/core/surfaceIPCBarrierAssembler.h
+  ipc/core/surfaceIPCMaxStep.h
+  ipc/core/surfaceIPCCore.h
+  ipc/core/surfaceIPCPairs.h
+  ipc/geometry/ipcBarrier.h
+  ipc/geometry/ipcCCD.h
+  ipc/geometry/ipcDistancePrimitives.h
+  ipc/geometry/ipcHessianProjection.h
+  ipc/geometry/generated/CIPC_autogen.h
+  ipc/geometry/generated/CIPC_autogen_ll.h
+  ipc/topology/surfaceIPCTopology.h
   pointPenetrationEnergy.h
   pointTrianglePairCouplingEnergyWithCollision.h
   triangleMeshExternalContactHandler.h
@@ -11,6 +27,19 @@ set(CONTACT_HEADERS
 set(CONTACT_SOURCES
   CCDKernel.cpp
   contactEnergyUtilities.cpp
+  mappedSurfacePotentialEnergy.cpp
+  embeddedSurfaceIPCPotentialEnergy.cpp
+  ipc/assembly/ipcCollisionSurfaceAssembler.cpp
+  ipc/broadPhase/spatialHashGrid.cpp
+  ipc/broadPhase/surfaceIPCSelfBroadPhase.cpp
+  ipc/core/surfaceIPCBarrierAssembler.cpp
+  ipc/core/surfaceIPCMaxStep.cpp
+  ipc/core/surfaceIPCCore.cpp
+  ipc/geometry/ipcBarrier.cpp
+  ipc/geometry/ipcCCD.cpp
+  ipc/geometry/ipcDistancePrimitives.cpp
+  ipc/geometry/ipcHessianProjection.cpp
+  ipc/topology/surfaceIPCTopology.cpp
   pointPenetrationEnergy.cpp
   pointTrianglePairCouplingEnergyWithCollision.cpp
   triangleMeshExternalContactHandler.cpp

@@ -1,7 +1,11 @@
 #include "EigenMKLPardisoSupport.h"
 
+#include "EigenSupport.h"
+
 #include <iostream>
 #include <chrono>
+
+#if !defined(PGO_HAS_ORIG_PARDISO)
 
 using namespace pgo;
 using namespace pgo::EigenSupport;
@@ -502,3 +506,5 @@ std::map<int, std::string> EigenMKLPardisoSupport::errorMessages = {
   { -13, "Interrupted by the(user-defined) mkl_progress function" },
   { -15, "Internal error which can appear for iparm[23] = 10 and iparm[12] = 1. Try switch matching off(set iparm[12] = 0 and rerun.)" },
 };
+
+#endif  // !defined(PGO_HAS_ORIG_PARDISO)

@@ -4,14 +4,32 @@ copyright to USC,MIT,NUS
 */
 
 #include "deformationModelEnergy.h"
-#include "deformationModelAssembler.h"
 
+#include "deformationModelAssembler.h"
+#include "simulationMesh.h"
 #include <numeric>
 
 using namespace pgo;
 using namespace pgo::NonlinearOptimization;
 using namespace pgo::SolidDeformationModel;
 namespace ES = pgo::EigenSupport;
+
+namespace
+{
+ES::VXd assembleAbsolutePositions(ES::ConstRefVecXd x, const ES::VXd &restPosition, int offset, int numDOFs)
+{
+  if (restPosition.size())
+    return restPosition + x.segment(offset, restPosition.size());
+
+  return ES::VXd(Eigen::Map<const ES::VXd>(x.data() + offset, numDOFs));
+}
+
+ES::VXd assembleDirectionSlice(ES::ConstRefVecXd dx, int offset, int numDOFs)
+{
+  return ES::VXd(Eigen::Map<const ES::VXd>(dx.data() + offset, numDOFs));
+}
+
+}  // namespace
 
 DeformationModelEnergy::DeformationModelEnergy(std::shared_ptr<DeformationModelAssembler> fma, const ES::VXd *restp, int offset):
   forceModelAssembler(fma)
@@ -63,4 +81,22 @@ void DeformationModelEnergy::hessian(EigenSupport::ConstRefVecXd x, EigenSupport
 void DeformationModelEnergy::createHessian(EigenSupport::SpMatD &hess) const
 {
   hess = forceModelAssembler->getHessianTemplate();
+}
+
+double DeformationModelEnergy::computeMaxStepSize(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const
+{
+  if (!enableMaterialMaxStep_) {
+    return 1.0;
+  }
+
+  const int offset = allDOFs.empty() ? 0 : allDOFs[0];
+  const int numDOFs = getNumDOFs();
+
+  const ES::VXd dxLocal = assembleDirectionSlice(dx, offset, numDOFs);
+  if (dxLocal.size() == 0 || dxLocal.squaredNorm() == 0.0) {
+    return 1.0;
+  }
+
+  const ES::VXd absolutePositions = assembleAbsolutePositions(x, restPosition, offset, numDOFs);
+  return forceModelAssembler->computeMaxStepObservation(absolutePositions.data(), dxLocal.data()).alpha;
 }

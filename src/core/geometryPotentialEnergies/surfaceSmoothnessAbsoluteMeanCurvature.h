@@ -28,6 +28,7 @@ public:
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = allDOFs; }
   virtual int getNumDOFs() const override { return (int)allDOFs.size(); }
 
+
 protected:
   const EigenSupport::VXd &restPositions;
   const Mesh::TriMeshGeo &mesh;

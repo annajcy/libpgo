@@ -29,6 +29,7 @@ public:
   virtual int getNumDOFs() const { return (int)allDOFs.size(); }
   virtual int hasHessian() const { return 0; }
 
+
   const EigenSupport::V3d &getTgtCoM() const { return m_tgtCoM; }
   const EigenSupport::M3d &getProjMat() const { return m_projMat; }
 

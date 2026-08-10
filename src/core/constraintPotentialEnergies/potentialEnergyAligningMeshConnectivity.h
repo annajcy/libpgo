@@ -33,6 +33,7 @@ public:
   virtual void getDOFs(std::vector<int> &adofs) const final { adofs = allDOFs; }
   virtual int getNumDOFs() const final { return (int)allDOFs.size(); }
 
+
 protected:
   const EigenSupport::SpMatD &hessianBase;
   std::vector<int> allDOFs;

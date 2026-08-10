@@ -28,6 +28,7 @@ public:
   virtual int isQuadratic() const override { return 0; }
   virtual int hasHessianVector() const override { return 0; }
 
+
 private:
   int nAll, nRestDOFs = 0;
   const Mesh::TriMeshGeo &inputMesh;

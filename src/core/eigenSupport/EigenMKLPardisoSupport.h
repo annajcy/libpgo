@@ -1,12 +1,14 @@
 #pragma once
 
-#include "EigenSupport.h"
+#include "EigenDef.h"
 
 #include <mkl_pardiso.h>
 
 #include <array>
 #include <map>
 #include <string>
+
+#if !defined(PGO_HAS_ORIG_PARDISO)
 
 namespace pgo
 {
@@ -95,3 +97,4 @@ protected:
 };
 }  // namespace EigenSupport
 }  // namespace pgo
+#endif  // !defined(PGO_HAS_ORIG_PARDISO)

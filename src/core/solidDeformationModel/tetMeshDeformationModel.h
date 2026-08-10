@@ -27,22 +27,24 @@ public:
   virtual void freeCacheData(CacheData *data) const override;
   virtual void prepareData(const double *x, const double *param, const double *materialParam, CacheData *cacheData) const override;
 
+  void enableSPD(int enable) override;
+
   void vonMisesStress(const CacheData *cacheDataBase, int &nPt, double *stresses) const override;
-  virtual void maxStrain(const CacheData *cacheDataBase, int &nPt, double *stresses) const override;
+  void maxStrain(const CacheData *cacheDataBase, int &nPt, double *stresses) const override;
 
   virtual double computeEnergy(const CacheData *cacheData) const override;
   virtual void compute_dE_dx(const CacheData *cacheData, double *grad) const override;
   virtual void compute_d2E_dx2(const CacheData *cacheData, double *hess) const override;
 
-  virtual void compute_dE_da(const CacheData *cacheData, double *grad) const override;
-  virtual void compute_d2E_da2(const CacheData *cacheData, double *hess) const override;
+  void compute_dE_da(const CacheData *cacheData, double *grad) const;
+  void compute_d2E_da2(const CacheData *cacheData, double *hess) const;
   virtual void compute_d2E_dxda(const CacheData *cacheData, double *hess) const override;
 
-  virtual void compute_dE_db(const CacheData *cacheData, double *grad) const override;
-  virtual void compute_d2E_db2(const CacheData *cacheData, double *hess) const override;
+  void compute_dE_db(const CacheData *cacheData, double *grad) const;
+  void compute_d2E_db2(const CacheData *cacheData, double *hess) const;
   virtual void compute_d2E_dxdb(const CacheData *cacheData, double *hess) const override;
 
-  virtual void compute_d2E_dadb(const CacheData *cacheData, double *hess) const override;
+  void compute_d2E_dadb(const CacheData *cacheData, double *hess) const;
 
   // virtual void compute_d3E_dx3(const CacheData *cacheData, double *tensor) const override;
   // virtual void compute_d3E_dxdadx(const CacheData *cacheData, double *tensor) const override;
@@ -50,6 +52,7 @@ public:
 
   virtual int getNumVertices() const override { return 4; }
   virtual int getNumDOFs() const override { return 12; }
+  virtual LocalMaxStepResult computeLocalMaxStepSize(const double *x_local, const double *dx_local) const override;
 
   // inline static double d3E_dx3_ijk(const double *tensor, int i, int j, int k) { return DeformationModel::d3E_dx3_ijk(tensor, i, j, k, 12); }
   // inline static double &d3E_dx3_ijk(double *tensor, int i, int j, int k) { return DeformationModel::d3E_dx3_ijk(tensor, i, j, k, 12); }

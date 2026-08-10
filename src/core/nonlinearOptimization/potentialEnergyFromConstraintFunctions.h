@@ -30,6 +30,7 @@ public:
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = allDOFs; }
   virtual int getNumDOFs() const override { return (int)allDOFs.size(); }
 
+
 protected:
   std::shared_ptr<const ConstraintFunctions> cnstt;
   std::vector<int> allDOFs;

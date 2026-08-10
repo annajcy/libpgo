@@ -28,8 +28,12 @@ public:
   virtual void getDOFs(std::vector<int> &dofs) const override { dofs = this->allDOFs; }
   virtual int getNumDOFs() const override { return (int)allDOFs.size(); }
 
+  virtual double computeMaxStepSize(EigenSupport::ConstRefVecXd x, EigenSupport::ConstRefVecXd dx) const override;
+
   void setElasticParams(const EigenSupport::ConstRefVecXd elasticParams) { this->elasticParams = elasticParams; }
   void setPlasticParams(const EigenSupport::ConstRefVecXd plasticParams) { this->plasticParams = plasticParams; }
+  void setEnableMaterialMaxStep(bool enable) { enableMaterialMaxStep_ = enable; }
+  bool isMaterialMaxStepEnabled() const { return enableMaterialMaxStep_; }
 
 protected:
   std::shared_ptr<DeformationModelAssembler> forceModelAssembler;
@@ -38,6 +42,7 @@ protected:
   EigenSupport::VXd restPosition;
   EigenSupport::VXd elasticParams;
   EigenSupport::VXd plasticParams;
+  bool enableMaterialMaxStep_ = true;
 };
 }  // namespace SolidDeformationModel
 }  // namespace pgo

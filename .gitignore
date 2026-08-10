@@ -5,7 +5,7 @@
 *.slo
 *.lo
 *.o
-*.obj
+# *.obj
 
 # Precompiled Headers
 *.gch
@@ -31,9 +31,22 @@
 *.out
 *.app
 
-*.egg-info
-build
+*.egg-info/
+/.eggs/
+/.venv/
+/build/
 _skbuild
+/dist/
+/wheelhouse/
+
+# In-source CMake artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+Testing/
+compile_commands.json
 
 .DS_Store
 .vscode/*
@@ -46,5 +59,26 @@ __pycache__/
 projects
 build-test
 
-*.obj
-*.png
+# *.obj
+
+*.u
+
+build*
+
+.cache/
+.mypy_cache/
+
+plan/*
+*.plan.md
+
+docs/*
+
+fv.obj
+ret*
+examples/generated/
+examples/assets/generated/
+
+paper/*
+*.pdf
+*.log
+*.abc
